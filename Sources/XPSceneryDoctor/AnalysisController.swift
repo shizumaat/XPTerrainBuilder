@@ -16,8 +16,13 @@ final class AnalysisController: ObservableObject {
     @Published var isRunning = false
     @Published var stageLabel = ""
     @Published var report: AnalysisReport?
-    @Published var showingResults = false
+    /// Bumped when a fresh report lands; views observe it to open the window.
+    @Published var reportGeneration = 0
     @Published var errorMessage: String?
+
+    // Pack actions (duplicates view)
+    @Published var isApplyingAction = false
+    @Published var actionErrors: [PackActionOutcome] = []
 
     var rootURL: URL? {
         guard !xplanePath.isEmpty else { return nil }
@@ -28,6 +33,8 @@ final class AnalysisController: ObservableObject {
         guard let url = rootURL else { return false }
         return Installation.looksLikeXPlaneRoot(url)
     }
+
+    // MARK: - Analysis
 
     func analyze() {
         guard let root = rootURL, !isRunning else { return }
@@ -45,7 +52,7 @@ final class AnalysisController: ObservableObject {
             }
             self?.report = report
             self?.isRunning = false
-            self?.showingResults = true
+            self?.reportGeneration += 1
         }
     }
 
@@ -64,6 +71,38 @@ final class AnalysisController: ObservableObject {
             Analyzer(root: root).run(progress: progress)
         }.value
     }
+
+    // MARK: - Pack actions
+
+    func applyPackAction(_ action: PackAction, to packNames: [String]) {
+        guard let root = rootURL, !packNames.isEmpty, !isApplyingAction else { return }
+        isApplyingAction = true
+        actionErrors = []
+
+        Task { [weak self] in
+            let (outcomes, dupFindings, groups) = await Task.detached(priority: .userInitiated) {
+                let outcomes = PackActionService(root: root).apply(action, to: packNames)
+                // Re-scan duplicate state so the table reflects reality, not
+                // our guess about what the action did.
+                let (findings, groups) = Analyzer(root: root).refreshDuplicates()
+                return (outcomes, findings, groups)
+            }.value
+
+            guard let self else { return }
+            if var report = self.report {
+                report.duplicateGroups = groups
+                report.findings = report.findings.filter { $0.category != .duplicatePackage } + dupFindings
+                report.findings.sort {
+                    ($0.severity, $0.category.rawValue, $0.title) < ($1.severity, $1.category.rawValue, $1.title)
+                }
+                self.report = report
+            }
+            self.actionErrors = outcomes.filter { !$0.success }
+            self.isApplyingAction = false
+        }
+    }
+
+    // MARK: - Export
 
     func exportReportJSON() {
         guard let report else { return }

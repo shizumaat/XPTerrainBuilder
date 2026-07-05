@@ -26,6 +26,11 @@ Point it at your X-Plane folder, press **Analyze**, and it reports:
 - Finds airports provided by two or more custom packs (double buildings,
   z-fighting, wasted disk), says which pack wins per `scenery_packs.ini`
   priority, and flags disabled packs and double-installed folders.
+- The report's Redundant Packages view is actionable: multi-select packages
+  and apply **Disable/Enable** (rewrites `scenery_packs.ini`, like X-Plane's
+  own UI), **Move to Disabled Folder** (`Custom Scenery (Disabled)/`), or
+  **Move to Trash** (Finder Trash, recoverable, with confirmation) — from the
+  Actions button, the context menu, or the Delete key.
 
 **Package health & performance** (based on Laminar's scenery performance
 guidance; check IDs follow the xpsan spec in `docs/`)
@@ -37,8 +42,9 @@ guidance; check IDs follow the xpsan spec in `docs/`)
 - `PERF-01` Estimated VRAM footprint per pack, warning when a pack is likely
   to be performance-intensive, with concrete suggestions.
 
-Findings are severity-tagged (error / warning / info), grouped by category,
-filterable, revealable in Finder, and exportable as JSON.
+Findings open in a dedicated report window: category sidebar with counts,
+toolbar search and severity filter, Reveal in Finder, library download links,
+and JSON export (⇧⌘E). Analyze is ⌘R.
 
 ## Building
 

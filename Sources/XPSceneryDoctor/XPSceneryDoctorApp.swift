@@ -12,9 +12,46 @@ struct XPSceneryDoctorApp: App {
         }
         .windowResizability(.contentSize)
         .defaultPosition(.center)
+        .commands {
+            AppCommands(controller: controller)
+        }
+
+        Window("Analysis Report", id: "report") {
+            ReportWindow()
+                .environmentObject(controller)
+        }
+        .defaultSize(width: 960, height: 640)
 
         Settings {
             SettingsView()
+        }
+    }
+}
+
+struct AppCommands: Commands {
+    @ObservedObject var controller: AnalysisController
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(after: .newItem) {
+            Button("Analyze") {
+                controller.analyze()
+            }
+            .keyboardShortcut("r", modifiers: .command)
+            .disabled(!controller.pathIsValid || controller.isRunning)
+
+            Button("Export Report…") {
+                controller.exportReportJSON()
+            }
+            .keyboardShortcut("e", modifiers: [.command, .shift])
+            .disabled(controller.report == nil)
+        }
+        CommandGroup(after: .windowList) {
+            Button("Analysis Report") {
+                openWindow(id: "report")
+            }
+            .keyboardShortcut("1", modifiers: [.command, .option])
+            .disabled(controller.report == nil)
         }
     }
 }

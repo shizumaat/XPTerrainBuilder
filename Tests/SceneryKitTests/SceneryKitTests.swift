@@ -83,7 +83,7 @@ import Foundation
 
     @Test func duplicateAirportDetection() throws {
         let installation = scannedInstallation()
-        let findings = DuplicateAnalyzer(installation: installation).analyze()
+        let (findings, _) = DuplicateAnalyzer(installation: installation).analyze()
         let dup = try #require(findings.first { $0.checkID == "DUP-01" })
         #expect(dup.title.contains("KSEA"))
         #expect(dup.detail.contains("KSEA Demo Airport"), "winner should be the higher-priority pack")

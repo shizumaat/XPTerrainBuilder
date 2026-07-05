@@ -60,9 +60,18 @@ bookmarks — noted as future work).
   folder picker on first launch, prominent **Analyze** button, progress label
   while scanning, link to reopen the last report.
 - **Settings** (⌘,): view/change the X-Plane folder; stored via `@AppStorage`.
-- **Results sheet**: severity filter (segmented), findings grouped by
-  category in disclosure rows with detail, suggestion, "Reveal in Finder",
-  library download link, and JSON export.
+- **Report window** (BBEdit-search-results style, not a modal sheet):
+  NavigationSplitView with a category sidebar (count badges), toolbar
+  search + severity filter, findings in disclosure rows with detail,
+  suggestion, "Reveal in Finder", library download link, JSON export (⇧⌘E).
+  Opens automatically when analysis completes; also ⌥⌘1.
+- **Duplicates actions**: the Redundant Packages category shows a
+  multi-select Table (airport, package, priority, status). Actions —
+  Disable/Enable (scenery_packs.ini rewrite), Move to Disabled Folder,
+  Move to Trash (confirmation, Finder Trash) — are offered via an Actions
+  menu button, row context menu, and the Delete key, all sharing one code
+  path (`PackActionService` in SceneryKit). After an action the duplicate
+  state is re-scanned so the table reflects reality.
 
 ### Testing
 

@@ -83,17 +83,58 @@ public struct AnalysisStats: Codable, Sendable {
     public var airportsIndexed = 0
 }
 
+/// One package's role in a duplicated airport, for the actionable table UI.
+public struct DuplicatePack: Codable, Sendable, Hashable, Identifiable {
+    public var id: String { name }
+    public let name: String
+    public let path: String
+    public let isEnabled: Bool
+    /// Load priority from scenery_packs.ini (lower loads first / wins).
+    public let iniIndex: Int?
+    /// True for the pack X-Plane will actually show for this airport.
+    public let isWinner: Bool
+
+    public init(name: String, path: String, isEnabled: Bool, iniIndex: Int?, isWinner: Bool) {
+        self.name = name
+        self.path = path
+        self.isEnabled = isEnabled
+        self.iniIndex = iniIndex
+        self.isWinner = isWinner
+    }
+}
+
+/// An airport provided by two or more custom packs.
+public struct DuplicateGroup: Codable, Sendable, Identifiable {
+    public var id: String { icao }
+    public let icao: String
+    public let airportName: String
+    public let packs: [DuplicatePack]
+
+    public init(icao: String, airportName: String, packs: [DuplicatePack]) {
+        self.icao = icao
+        self.airportName = airportName
+        self.packs = packs
+    }
+}
+
 public struct AnalysisReport: Codable, Sendable {
     public let generatedAt: Date
     public let xplaneRoot: String
     public var findings: [Finding]
     public var stats: AnalysisStats
+    public var duplicateGroups: [DuplicateGroup]
 
-    public init(xplaneRoot: String, findings: [Finding], stats: AnalysisStats) {
+    public init(
+        xplaneRoot: String,
+        findings: [Finding],
+        stats: AnalysisStats,
+        duplicateGroups: [DuplicateGroup] = []
+    ) {
         self.generatedAt = Date()
         self.xplaneRoot = xplaneRoot
         self.findings = findings
         self.stats = stats
+        self.duplicateGroups = duplicateGroups
     }
 
     public var errorCount: Int { findings.filter { $0.severity == .error }.count }

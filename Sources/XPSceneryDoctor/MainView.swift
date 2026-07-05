@@ -3,6 +3,7 @@ import SceneryKit
 
 struct MainView: View {
     @EnvironmentObject var controller: AnalysisController
+    @Environment(\.openWindow) private var openWindow
     @StateObject private var showingPicker = ViewState(false)
 
     var body: some View {
@@ -42,8 +43,8 @@ struct MainView: View {
             }
 
             if let report = controller.report, !controller.isRunning {
-                Button("Show Last Report (\(report.findings.count) findings)") {
-                    controller.showingResults = true
+                Button("Show Report (\(report.findings.count) findings)") {
+                    openWindow(id: "report")
                 }
                 .buttonStyle(.link)
                 .font(.caption)
@@ -52,11 +53,8 @@ struct MainView: View {
         .padding(20)
         .frame(width: 340)
         .fixedSize()
-        .sheet(isPresented: $controller.showingResults) {
-            if let report = controller.report {
-                ResultsView(report: report)
-                    .environmentObject(controller)
-            }
+        .onChange(of: controller.reportGeneration) {
+            openWindow(id: "report")
         }
         .fileImporter(
             isPresented: $showingPicker.value,

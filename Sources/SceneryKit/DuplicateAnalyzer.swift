@@ -11,8 +11,9 @@ public struct DuplicateAnalyzer {
         self.installation = installation
     }
 
-    public func analyze() -> [Finding] {
+    public func analyze() -> (findings: [Finding], groups: [DuplicateGroup]) {
         var findings: [Finding] = []
+        var groups: [DuplicateGroup] = []
 
         // ICAO -> packs providing it (custom, non-library, non-Laminar packs only;
         // overriding Global Airports is the whole point of add-on scenery).
@@ -24,14 +25,29 @@ public struct DuplicateAnalyzer {
         }
 
         for (icao, packs) in byAirport.sorted(by: { $0.key < $1.key }) where packs.count > 1 {
-            // Sort by ini priority: lower index loads first and wins.
+            // Sort by ini priority: lower index loads first and wins. Disabled
+            // packs never load, so the effective winner is the first *enabled* one.
             let ordered = packs.sorted {
                 ($0.iniIndex ?? Int.max, $0.name) < ($1.iniIndex ?? Int.max, $1.name)
             }
-            let winner = ordered[0]
-            let losers = ordered.dropFirst()
+            let winner = ordered.first { $0.isEnabled } ?? ordered[0]
+            let losers = ordered.filter { $0.name != winner.name }
             let name = winner.airports[icao] ?? icao
             let enabledLosers = losers.filter { $0.isEnabled }
+
+            groups.append(DuplicateGroup(
+                icao: icao,
+                airportName: name,
+                packs: ordered.map { pack in
+                    DuplicatePack(
+                        name: pack.name,
+                        path: pack.url.path,
+                        isEnabled: pack.isEnabled,
+                        iniIndex: pack.iniIndex,
+                        isWinner: pack.name == winner.name
+                    )
+                }
+            ))
 
             let severity: Severity = enabledLosers.isEmpty ? .info : .warning
             let loserList = losers
@@ -47,7 +63,7 @@ public struct DuplicateAnalyzer {
                 path: winner.url.path,
                 suggestion: enabledLosers.isEmpty
                     ? "The duplicates are disabled, so this is only wasted disk space. Delete the ones you don't use."
-                    : "Keep the one you prefer and remove or disable the rest in scenery_packs.ini (X-Plane's scenery loader or a tool like xOrganizer can do this).",
+                    : "Keep the one you prefer and disable, move or trash the rest (select the packages in this list and use Actions).",
                 fixability: .assisted
             ))
         }
@@ -86,6 +102,6 @@ public struct DuplicateAnalyzer {
             ))
         }
 
-        return findings
+        return (findings, groups)
     }
 }

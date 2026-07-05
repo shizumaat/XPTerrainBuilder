@@ -64,7 +64,8 @@ public struct Analyzer {
         stats.logLinesScanned = lines
 
         progress(.checkingDuplicates)
-        findings.append(contentsOf: DuplicateAnalyzer(installation: installation).analyze())
+        let (dupFindings, duplicateGroups) = DuplicateAnalyzer(installation: installation).analyze()
+        findings.append(contentsOf: dupFindings)
 
         let health = PackageHealthAnalyzer(installation: installation, config: config)
         let healthResult = health.analyze { packName in
@@ -78,6 +79,19 @@ public struct Analyzer {
         findings.sort {
             ($0.severity, $0.category.rawValue, $0.title) < ($1.severity, $1.category.rawValue, $1.title)
         }
-        return AnalysisReport(xplaneRoot: root.path, findings: findings, stats: stats)
+        return AnalysisReport(
+            xplaneRoot: root.path,
+            findings: findings,
+            stats: stats,
+            duplicateGroups: duplicateGroups
+        )
+    }
+
+    /// Cheap re-scan of just the duplicate state, for refreshing the report
+    /// after the user disables/moves/trashes packs (a full run re-parses
+    /// hundreds of thousands of files; this only re-reads pack metadata).
+    public func refreshDuplicates() -> (findings: [Finding], groups: [DuplicateGroup]) {
+        let installation = InstallationScanner(root: root).scan()
+        return DuplicateAnalyzer(installation: installation).analyze()
     }
 }

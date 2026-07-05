@@ -1,0 +1,8 @@
+A
+800
+LIBRARY
+
+EXPORT opensceneryx/objects/airport/vehicles/fuel_truck.obj objects/airport/vehicles/fuel_truck.obj
+EXPORT opensceneryx/objects/airport/vehicles/baggage_cart.obj objects/airport/vehicles/baggage_cart.obj
+EXPORT_RATIO 0.5 opensceneryx/objects/airport/vehicles/bus.obj objects/airport/vehicles/bus.obj
+EXPORT opensceneryx/objects/airport/ghost_export.obj objects/airport/ghost_export.obj

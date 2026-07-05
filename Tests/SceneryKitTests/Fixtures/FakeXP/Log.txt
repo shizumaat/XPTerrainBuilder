@@ -1,0 +1,8 @@
+log.txt for X-Plane 12.1.4 (build 121400 64-bit)
+0:00:05.000 I/SCN: Loading scenery packages
+0:00:10.000 E/SCN: Failed to find resource 'opensceneryx/objects/airport/vehicles/Fuel_Truck.obj', referenced from scenery package 'Custom Scenery/KSEA Demo Airport/'.
+0:00:10.100 E/SCN: Failed to find resource 'opensceneryx/objects/airport/vehicles/bagage_cart.obj', referenced from scenery package 'Custom Scenery/KSEA Demo Airport/'.
+0:00:10.200 E/SCN: Failed to find resource 'MisterX_Library/Airport/Vehicles/GPU.obj', referenced from scenery package 'Custom Scenery/KSEA Demo Airport/'.
+0:00:10.300 E/SCN: Failed to find resource 'totally_unknown_lib/objects/thing.obj', referenced from scenery package 'Custom Scenery/Another KSEA/'.
+0:00:10.400 E/SCN: Failed to find resource 'opensceneryx/objects/airport/ghost_export.obj', referenced from scenery package 'Custom Scenery/Another KSEA/'.
+0:00:12.000 E/DSF: Some generic DSF complaint about tile +47-123

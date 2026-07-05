@@ -3,7 +3,7 @@ import SwiftUI
 import SceneryKit
 
 /// UserDefaults key for the X-Plane root path. Lives in the app's standard
-/// preferences plist (~/Library/Preferences/com.noahlieberman.XPSceneryDoctor.plist
+/// preferences plist (~/Library/Preferences/com.novemberlima.XPSceneryDoctor.plist
 /// when run from the bundle).
 enum PrefKeys {
     static let xplanePath = "XPlanePath"
@@ -35,16 +35,25 @@ final class AnalysisController: ObservableObject {
         stageLabel = "Starting…"
         errorMessage = nil
 
+        let box = WeakBox(self)
         Task { [weak self] in
             let report = await Self.runAnalysis(root: root) { stage in
-                Task { @MainActor [weak self] in
-                    self?.stageLabel = stage.label
+                let label = stage.label
+                Task { @MainActor in
+                    box.value?.stageLabel = label
                 }
             }
             self?.report = report
             self?.isRunning = false
             self?.showingResults = true
         }
+    }
+
+    /// Lets a @Sendable progress closure reach back to the MainActor
+    /// controller without capturing a weak `self` var (a Swift 6 error).
+    private final class WeakBox<T: AnyObject>: @unchecked Sendable {
+        weak var value: T?
+        init(_ value: T) { self.value = value }
     }
 
     nonisolated static func runAnalysis(

@@ -23,7 +23,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundleExecutable</key>
     <string>XPSceneryDoctor</string>
     <key>CFBundleIdentifier</key>
-    <string>com.noahlieberman.XPSceneryDoctor</string>
+    <string>com.novemberlima.XPSceneryDoctor</string>
     <key>CFBundleName</key>
     <string>XPScenery Doctor</string>
     <key>CFBundleDisplayName</key>

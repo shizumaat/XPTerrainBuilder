@@ -10,6 +10,10 @@ let package = Package(
             name: "XPSceneryDoctor",
             dependencies: ["SceneryKit"]
         ),
+        .executableTarget(
+            name: "xpdoctor-cli",
+            dependencies: ["SceneryKit"]
+        ),
         .testTarget(
             name: "SceneryKitTests",
             dependencies: ["SceneryKit"],

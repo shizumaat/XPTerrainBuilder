@@ -13,46 +13,89 @@ public struct ObjInfo: Sendable {
 }
 
 public enum ObjParser {
-    /// Parse an OBJ8 text file. Returns nil if unreadable or not OBJ8.
+    /// Parse an OBJ8 text file. Returns nil if unreadable.
     public static func parse(url: URL, maxBytes: Int = 64 * 1024 * 1024) -> ObjInfo? {
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
               let size = attrs[.size] as? Int, size <= maxBytes,
-              let data = try? Data(contentsOf: url),
-              let text = String(data: data, encoding: .utf8)
-                    ?? String(data: data, encoding: .isoLatin1)
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe)
         else { return nil }
-        return parse(text: text)
+        return parse(data: data)
     }
 
     public static func parse(text: String) -> ObjInfo {
+        parse(data: Data(text.utf8))
+    }
+
+    /// Byte-level line scan. OBJ files can run to tens of megabytes with
+    /// hundreds of thousands of VT lines; splitting them into String lines
+    /// is what made whole-install scans take minutes per pack, so this stays
+    /// on raw bytes and only materializes the rare TEXTURE line.
+    public static func parse(data: Data) -> ObjInfo {
         var info = ObjInfo()
         var lastBlendState: Bool? = nil // true = blending on
 
-        for rawLine in text.split(separator: "\n", omittingEmptySubsequences: true) {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
-            guard !line.isEmpty, !line.hasPrefix("#") else { continue }
+        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+            guard let base = raw.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+            let count = raw.count
+            var i = 0
 
-            if line.hasPrefix("VT ") || line.hasPrefix("VT\t") {
-                info.vertexCount += 1
-            } else if line.hasPrefix("ATTR_LOD") {
-                info.hasLOD = true
-            } else if line.hasPrefix("TEXTURE") {
-                // TEXTURE, TEXTURE_LIT, TEXTURE_NORMAL, TEXTURE_DRAPED...
-                let parts = line.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
-                if parts.count == 2 {
-                    info.textures.append(String(parts[1]).trimmingCharacters(in: .whitespaces))
+            func lineStarts(_ start: Int, _ end: Int, _ keyword: StaticString) -> Bool {
+                let len = keyword.utf8CodeUnitCount
+                guard end - start >= len else { return false }
+                return memcmp(base + start, keyword.utf8Start, len) == 0
+            }
+
+            while i < count {
+                // Find end of line.
+                var j = i
+                while j < count && base[j] != 0x0A { j += 1 }
+                // Trim leading whitespace and trailing CR.
+                var start = i
+                var end = j
+                while start < end && (base[start] == 0x20 || base[start] == 0x09) { start += 1 }
+                if end > start && base[end - 1] == 0x0D { end -= 1 }
+                i = j + 1
+                guard end > start else { continue }
+
+                switch base[start] {
+                case UInt8(ascii: "V"):
+                    // "VT " or "VT\t"
+                    if end - start >= 3, base[start + 1] == UInt8(ascii: "T"),
+                       base[start + 2] == 0x20 || base[start + 2] == 0x09 {
+                        info.vertexCount += 1
+                    }
+                case UInt8(ascii: "A"):
+                    if lineStarts(start, end, "ATTR_LOD") {
+                        info.hasLOD = true
+                    } else if lineStarts(start, end, "ATTR_no_blend") {
+                        info.perMeshNoBlend += 1
+                        if lastBlendState == true { info.blendStateChanges += 1 }
+                        lastBlendState = false
+                    } else if lineStarts(start, end, "ATTR_blend") {
+                        if lastBlendState == false { info.blendStateChanges += 1 }
+                        lastBlendState = true
+                    } else if lineStarts(start, end, "ANIM_begin") {
+                        info.animated = true
+                    }
+                case UInt8(ascii: "G"):
+                    if lineStarts(start, end, "GLOBAL_no_blend") {
+                        info.hasGlobalNoBlend = true
+                    }
+                case UInt8(ascii: "T"):
+                    if lineStarts(start, end, "TEXTURE") {
+                        // TEXTURE, TEXTURE_LIT, TEXTURE_NORMAL, TEXTURE_DRAPED...
+                        var space = start
+                        while space < end && base[space] != 0x20 && base[space] != 0x09 { space += 1 }
+                        var value = space
+                        while value < end && (base[value] == 0x20 || base[value] == 0x09) { value += 1 }
+                        if value < end {
+                            let bytes = UnsafeBufferPointer(start: base + value, count: end - value)
+                            info.textures.append(String(decoding: bytes, as: UTF8.self))
+                        }
+                    }
+                default:
+                    break
                 }
-            } else if line.hasPrefix("ATTR_no_blend") {
-                info.perMeshNoBlend += 1
-                if lastBlendState == true { info.blendStateChanges += 1 }
-                lastBlendState = false
-            } else if line.hasPrefix("ATTR_blend") {
-                if lastBlendState == false { info.blendStateChanges += 1 }
-                lastBlendState = true
-            } else if line.hasPrefix("GLOBAL_no_blend") {
-                info.hasGlobalNoBlend = true
-            } else if line.hasPrefix("ANIM_begin") {
-                info.animated = true
             }
         }
         return info

@@ -17,7 +17,7 @@ Two SwiftPM targets, so the analysis engine stays UI-free and testable:
 
 The app is bundled by `scripts/make_app.sh` (SwiftPM binary + Info.plist +
 ad-hoc codesign) because the machine builds with Command Line Tools, not
-Xcode. The bundle id `com.noahlieberman.XPSceneryDoctor` gives the standard
+Xcode. The bundle id `com.novemberlima.XPSceneryDoctor` gives the standard
 preferences plist. The app is not sandboxed (a prototype that reads an
 arbitrary user-chosen folder tree; sandboxing would need security-scoped
 bookmarks — noted as future work).

@@ -12,7 +12,9 @@ CLT=/Library/Developer/CommandLineTools
 FW="$CLT/Library/Developer/Frameworks"
 LIB="$CLT/Library/Developer/usr/lib"
 
-if [[ -d "$FW/Testing.framework" && ! -d /Applications/Xcode.app ]]; then
+# What matters is the *active* toolchain (xcode-select -p), not whether
+# Xcode is installed somewhere.
+if [[ "$(xcode-select -p)" == *CommandLineTools* && -d "$FW/Testing.framework" ]]; then
   exec swift test --build-system native \
     -Xswiftc -F"$FW" -Xlinker -F"$FW" \
     -Xlinker -rpath -Xlinker "$FW" \

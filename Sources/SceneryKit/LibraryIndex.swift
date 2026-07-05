@@ -26,7 +26,7 @@ public struct LibraryIndex: Sendable {
 
     public mutating func indexLibrary(at packURL: URL, packName: String) {
         let libraryTxt = packURL.appendingPathComponent("library.txt")
-        guard let text = try? String(contentsOf: libraryTxt, encoding: .utf8) else { return }
+        guard let text = TextFile.contents(of: libraryTxt) else { return }
         for rawLine in text.split(separator: "\n", omittingEmptySubsequences: true) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             // EXPORT, EXPORT_RATIO, EXPORT_EXTEND, EXPORT_BACKUP, EXPORT_EXCLUDE

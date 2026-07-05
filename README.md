@@ -51,7 +51,7 @@ scripts/test.sh              # run unit tests
 ```
 
 The X-Plane path is stored in standard macOS preferences
-(`~/Library/Preferences/com.noahlieberman.XPSceneryDoctor.plist`) and can be
+(`~/Library/Preferences/com.novemberlima.XPSceneryDoctor.plist`) and can be
 changed anytime in **Settings** (⌘,).
 
 ## Project layout

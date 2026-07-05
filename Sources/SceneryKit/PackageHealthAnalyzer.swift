@@ -4,12 +4,12 @@ import Foundation
 /// user-configurable in the prototype.
 public struct HealthConfig: Sendable {
     public var heavyObjVertexCount = 10_000     // C-02: heavy OBJ with no LOD
-    public var tinyObjVertexFloor = 24          // C-05: below this, per-object overhead dominates
+    public var tinyObjFileBytes = 4 * 1024      // C-05: below this an OBJ is at most a couple dozen verts
     public var tinyObjWarnFraction = 0.5        // C-05: warn if >50% of a pack's OBJs are tiny
     public var maxObjTextureDim = 4096          // C-04: object textures above this are suspect
     public var largePNGBytes = 20 * 1024 * 1024 // C-04: PNG this big will stutter at load
     public var packVRAMWarnBytes = 2 * 1024 * 1024 * 1024 // performance summary threshold
-    public var maxObjFilesPerPack = 2000        // safety cap for enormous packs
+    public var maxObjParsesPerPack = 150        // parse only the N largest OBJs per pack
     public var maxFindingsPerCheckPerPack = 5   // keep the report readable
 
     public init() {}
@@ -18,6 +18,12 @@ public struct HealthConfig: Sendable {
 /// Per-pack scan implementing a pragmatic subset of the xpsan check catalog:
 /// C-02/C-08 (no LOD), C-03 (instancing-hostile ATTR), C-04 (texture format
 /// and sizing), C-05 (tiny objects), plus an overall performance estimate.
+///
+/// Real installs can hold thousands of packs and hundreds of thousands of
+/// files (a 2 TB Custom Scenery is not unusual), so packs are scanned in
+/// parallel and only the largest OBJs per pack are fully parsed — small
+/// files physically cannot exceed the heavy-object thresholds, and the
+/// tiny-object check needs only file sizes.
 public struct PackageHealthAnalyzer {
     let installation: Installation
     let config: HealthConfig
@@ -34,53 +40,77 @@ public struct PackageHealthAnalyzer {
     }
 
     public func analyze(progress: ((String) -> Void)? = nil) -> PackScanResult {
-        var result = PackScanResult()
-        for pack in installation.packs where !pack.isLaminar {
-            progress?(pack.name)
-            let packResult = scanPack(pack)
-            result.findings.append(contentsOf: packResult.findings)
-            result.objFilesParsed += packResult.objFilesParsed
-            result.texturesInspected += packResult.texturesInspected
+        let packs = installation.packs.filter { !$0.isLaminar }
+        guard !packs.isEmpty else { return PackScanResult() }
+
+        var partial = [PackScanResult?](repeating: nil, count: packs.count)
+        let lock = NSLock()
+        var completed = 0
+
+        partial.withUnsafeMutableBufferPointer { buffer in
+            let buf = UnsafeSendableBuffer(buffer)
+            DispatchQueue.concurrentPerform(iterations: packs.count) { i in
+                // autoreleasepool: enumerators and mapped file data would
+                // otherwise accumulate open file descriptors across packs.
+                let result = autoreleasepool { scanPack(packs[i]) }
+                lock.lock()
+                buf.buffer[i] = result
+                completed += 1
+                let done = completed
+                lock.unlock()
+                progress?("\(packs[i].name) (\(done)/\(packs.count))")
+            }
         }
-        return result
+
+        var merged = PackScanResult()
+        for case let result? in partial {
+            merged.findings.append(contentsOf: result.findings)
+            merged.objFilesParsed += result.objFilesParsed
+            merged.texturesInspected += result.texturesInspected
+        }
+        return merged
     }
 
     public func scanPack(_ pack: SceneryPack) -> PackScanResult {
         var result = PackScanResult()
         let fm = FileManager.default
 
-        var objURLs: [URL] = []
+        var objFiles: [(url: URL, size: Int)] = []
         var textureURLs: [URL] = []
         if let enumerator = fm.enumerator(
             at: pack.url,
-            includingPropertiesForKeys: [.isRegularFileKey],
+            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) {
             for case let url as URL in enumerator {
                 switch url.pathExtension.lowercased() {
-                case "obj": objURLs.append(url)
-                case "png", "dds": textureURLs.append(url)
+                case "obj":
+                    let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+                    objFiles.append((url, size))
+                case "png", "dds":
+                    textureURLs.append(url)
                 default: break
                 }
-                if objURLs.count >= config.maxObjFilesPerPack { break }
             }
         }
 
         // --- OBJ checks -------------------------------------------------
+        // File size bounds vertex count (a VT line is ~50-70 bytes), so only
+        // the largest files can hold heavy geometry. Parse those; judge the
+        // rest by size alone.
+        let tinyCount = objFiles.filter { $0.size > 0 && $0.size < config.tinyObjFileBytes }.count
+        let toParse = objFiles.sorted { $0.size > $1.size }.prefix(config.maxObjParsesPerPack)
+
         var noLODHeavy: [(URL, Int)] = []
         var attrPromotable: [URL] = []
         var blendPingPong: [(URL, Int)] = []
-        var tinyCount = 0
 
-        for url in objURLs {
+        for (url, _) in toParse {
             guard let info = ObjParser.parse(url: url) else { continue }
             result.objFilesParsed += 1
 
             if !info.hasLOD && info.vertexCount >= config.heavyObjVertexCount {
                 noLODHeavy.append((url, info.vertexCount))
-            }
-            if info.vertexCount > 0 && info.vertexCount < config.tinyObjVertexFloor {
-                tinyCount += 1
             }
             // ATTR_no_blend used per-mesh with no blending flips and no GLOBAL
             // equivalent: whole-object state that forfeits hardware instancing.
@@ -132,14 +162,14 @@ public struct PackageHealthAnalyzer {
             ))
         }
 
-        if result.objFilesParsed >= 20,
-           Double(tinyCount) / Double(max(result.objFilesParsed, 1)) > config.tinyObjWarnFraction {
+        if objFiles.count >= 20,
+           Double(tinyCount) / Double(objFiles.count) > config.tinyObjWarnFraction {
             result.findings.append(Finding(
                 checkID: "C-05",
                 severity: .info,
                 category: .packageHealth,
                 title: "Many tiny objects in '\(pack.name)'",
-                detail: "\(tinyCount) of \(result.objFilesParsed) OBJ files have fewer than \(config.tinyObjVertexFloor) vertices. Per-object draw overhead dominates for objects this small.",
+                detail: "\(tinyCount) of \(objFiles.count) OBJ files are under \(config.tinyObjFileBytes / 1024) KB (a couple dozen vertices at most). Per-object draw overhead dominates for objects this small.",
                 path: pack.url.path,
                 suggestion: "Candidates for merging into shared, texture-sharing objects (needs the author's 3-D tooling).",
                 fixability: .manual
@@ -243,4 +273,11 @@ public struct PackageHealthAnalyzer {
 
         return result
     }
+}
+
+/// Wrapper to move an UnsafeMutableBufferPointer across concurrentPerform's
+/// Sendable boundary. Safe here because each iteration writes a distinct index.
+struct UnsafeSendableBuffer<T>: @unchecked Sendable {
+    let buffer: UnsafeMutableBufferPointer<T>
+    init(_ buffer: UnsafeMutableBufferPointer<T>) { self.buffer = buffer }
 }

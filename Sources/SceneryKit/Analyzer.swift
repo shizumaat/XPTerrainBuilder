@@ -13,7 +13,7 @@ public struct Analyzer {
     }
 
     public enum Stage: Sendable {
-        case scanningInstallation
+        case scanningInstallation(String?)
         case readingLog
         case checkingDuplicates
         case inspectingPack(String)
@@ -21,7 +21,8 @@ public struct Analyzer {
 
         public var label: String {
             switch self {
-            case .scanningInstallation: return "Scanning Custom Scenery…"
+            case .scanningInstallation(let detail):
+                return detail.map { "Scanning Custom Scenery… (\($0))" } ?? "Scanning Custom Scenery…"
             case .readingLog: return "Reading Log.txt…"
             case .checkingDuplicates: return "Checking for redundant packages…"
             case .inspectingPack(let name): return "Inspecting \(name)…"
@@ -34,8 +35,14 @@ public struct Analyzer {
         var findings: [Finding] = []
         var stats = AnalysisStats()
 
-        progress(.scanningInstallation)
-        let installation = InstallationScanner(root: root).scan()
+        // Read the log before the scan opens thousands of directories, so log
+        // access can't be starved of file descriptors by the enumeration.
+        let logRead = TextFile.read(root.appendingPathComponent("Log.txt"))
+
+        progress(.scanningInstallation(nil))
+        let installation = InstallationScanner(root: root).scan { detail in
+            progress(.scanningInstallation(detail))
+        }
         stats.packsScanned = installation.packs.count
         stats.libraryPacks = installation.packs.filter { $0.isLibrary }.count
         stats.airportsIndexed = installation.packs.reduce(0) { $0 + $1.airports.count }
@@ -52,7 +59,7 @@ public struct Analyzer {
         }
 
         progress(.readingLog)
-        let (logFindings, lines) = LogAnalyzer(installation: installation).analyze()
+        let (logFindings, lines) = LogAnalyzer(installation: installation).analyze(logRead: logRead)
         findings.append(contentsOf: logFindings)
         stats.logLinesScanned = lines
 

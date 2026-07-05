@@ -79,13 +79,42 @@ public struct LogAnalyzer {
     // MARK: - Findings
 
     public func analyze() -> (findings: [Finding], linesScanned: Int) {
-        guard let text = try? String(contentsOf: installation.logURL, encoding: .utf8) else {
+        analyze(logRead: TextFile.read(installation.logURL))
+    }
+
+    /// The log is read *before* the installation scan opens thousands of
+    /// directories (see Analyzer.run) — under a GUI app's 256-fd soft limit,
+    /// reading it afterwards can fail with "too many open files".
+    public func analyze(logRead: TextFile.ReadResult) -> (findings: [Finding], linesScanned: Int) {
+        let text: String
+        switch logRead {
+        case .ok(let contents):
+            text = contents
+        case .notFound:
             return ([Finding(
                 checkID: "LOG-00",
                 severity: .info,
                 category: .installation,
                 title: "Log.txt not found",
                 detail: "No Log.txt at \(installation.logURL.path). Run X-Plane once so a log exists, then re-analyze.",
+                path: installation.logURL.path
+            )], 0)
+        case .unreadable(let reason):
+            return ([Finding(
+                checkID: "LOG-00",
+                severity: .warning,
+                category: .installation,
+                title: "Log.txt exists but could not be read",
+                detail: "Reading \(installation.logURL.path) failed: \(reason). This is usually a permissions problem — check System Settings › Privacy & Security if macOS is restricting the app's file access.",
+                path: installation.logURL.path
+            )], 0)
+        case .tooLarge(let size):
+            return ([Finding(
+                checkID: "LOG-00",
+                severity: .warning,
+                category: .installation,
+                title: "Log.txt is unusually large",
+                detail: "Log.txt is \(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)) — too large to scan. A plugin may be spamming the log. Delete it and run X-Plane once to get a fresh log.",
                 path: installation.logURL.path
             )], 0)
         }

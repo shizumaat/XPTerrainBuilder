@@ -11,12 +11,9 @@ public struct InstallationScanner {
         self.root = root
     }
 
-    public func scan() -> Installation {
+    public func scan(progress: ((String) -> Void)? = nil) -> Installation {
         let customScenery = root.appendingPathComponent("Custom Scenery")
         let iniOrder = parseSceneryPacksIni(customScenery.appendingPathComponent("scenery_packs.ini"))
-
-        var packs: [SceneryPack] = []
-        var libraryIndex = LibraryIndex()
 
         let contents = (try? fm.contentsOfDirectory(
             at: customScenery,
@@ -24,25 +21,63 @@ public struct InstallationScanner {
             options: [.skipsHiddenFiles]
         )) ?? []
 
-        for url in contents.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
-            guard (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
+        let packURLs = contents
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+
+        // The per-pack work (apt.dat parse, DSF probe) is I/O bound and packs
+        // are independent, so fan out; installs with thousands of packs exist.
+        struct PackProbe {
+            let isLibrary: Bool
+            let airports: [String: String]
+            let hasDSF: Bool
+        }
+        var probes = [PackProbe?](repeating: nil, count: packURLs.count)
+        let lock = NSLock()
+        var completed = 0
+        probes.withUnsafeMutableBufferPointer { buffer in
+            let buf = UnsafeSendableBuffer(buffer)
+            DispatchQueue.concurrentPerform(iterations: packURLs.count) { i in
+                let url = packURLs[i]
+                // The pool bounds file descriptors: abandoned directory
+                // enumerators (packContainsDSF returns early) are autoreleased,
+                // and a GUI app only gets 256 fds — thousands of packs without
+                // draining exhausts them.
+                let probe = autoreleasepool {
+                    PackProbe(
+                        isLibrary: fm.fileExists(atPath: url.appendingPathComponent("library.txt").path),
+                        airports: parseAirports(inPack: url),
+                        hasDSF: packContainsDSF(url)
+                    )
+                }
+                lock.lock()
+                buf.buffer[i] = probe
+                completed += 1
+                let done = completed
+                lock.unlock()
+                if done % 250 == 0 { progress?("\(done)/\(packURLs.count) packs") }
+            }
+        }
+
+        // Library indexing mutates shared state; do it serially (few packs
+        // are libraries, and library.txt files are small).
+        var packs: [SceneryPack] = []
+        var libraryIndex = LibraryIndex()
+        for (url, probe) in zip(packURLs, probes) {
+            guard let probe else { continue }
             let name = url.lastPathComponent
-            let isLibrary = fm.fileExists(atPath: url.appendingPathComponent("library.txt").path)
-            if isLibrary {
+            if probe.isLibrary {
                 libraryIndex.indexLibrary(at: url, packName: name)
             }
-            let airports = parseAirports(inPack: url)
-            let iniKey = "Custom Scenery/\(name)/"
-            let iniEntry = iniOrder[iniKey] ?? iniOrder["Custom Scenery/\(name)"]
-            let hasDSF = packContainsDSF(url)
+            let iniEntry = iniOrder["Custom Scenery/\(name)/"] ?? iniOrder["Custom Scenery/\(name)"]
             packs.append(SceneryPack(
                 name: name,
                 url: url,
                 isEnabled: iniEntry?.enabled ?? true, // not listed yet = will be added enabled on next launch
                 iniIndex: iniEntry?.index,
-                isLibrary: isLibrary,
-                airports: airports,
-                hasDSF: hasDSF,
+                isLibrary: probe.isLibrary,
+                airports: probe.airports,
+                hasDSF: probe.hasDSF,
                 isLaminar: Self.laminarPackNames.contains(name)
             ))
         }
@@ -71,7 +106,7 @@ public struct InstallationScanner {
     /// scenery_packs.ini: one `SCENERY_PACK <path>/` or `SCENERY_PACK_DISABLED <path>/`
     /// per line, in load-priority order (first wins).
     func parseSceneryPacksIni(_ url: URL) -> [String: IniEntry] {
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [:] }
+        guard let text = TextFile.contents(of: url) else { return [:] }
         var result: [String: IniEntry] = [:]
         var index = 0
         for rawLine in text.split(separator: "\n") {
@@ -105,7 +140,9 @@ public struct InstallationScanner {
         guard let aptURL = candidates.first(where: { fm.fileExists(atPath: $0.path) }) else {
             return [:]
         }
-        guard let text = try? String(contentsOf: aptURL, encoding: .utf8) else { return [:] }
+        // Custom-pack apt.dats are small; the size cap just guards against a
+        // stray Global Airports-sized file (450+ MB) stalling the scan.
+        guard let text = TextFile.contents(of: aptURL, maxBytes: 64 * 1024 * 1024) else { return [:] }
 
         var airports: [String: String] = [:]
         var currentID: String?

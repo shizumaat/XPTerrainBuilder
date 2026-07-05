@@ -39,7 +39,12 @@ public struct PackageHealthAnalyzer {
         public var texturesInspected = 0
     }
 
-    public func analyze(progress: ((String) -> Void)? = nil) -> PackScanResult {
+    /// `progress` and `onPackFindings` are called from worker threads as each
+    /// pack completes; both must be thread-safe.
+    public func analyze(
+        progress: ((String) -> Void)? = nil,
+        onPackFindings: (([Finding]) -> Void)? = nil
+    ) -> PackScanResult {
         let packs = installation.packs.filter { !$0.isLaminar }
         guard !packs.isEmpty else { return PackScanResult() }
 
@@ -59,6 +64,9 @@ public struct PackageHealthAnalyzer {
                 let done = completed
                 lock.unlock()
                 progress?("\(packs[i].name) (\(done)/\(packs.count))")
+                if !result.findings.isEmpty {
+                    onPackFindings?(result.findings)
+                }
             }
         }
 

@@ -40,9 +40,11 @@ struct DuplicatesView: View {
     var body: some View {
         if groups.isEmpty && otherFindings.isEmpty {
             ContentUnavailableView(
-                "No Redundant Packages",
-                systemImage: "checkmark.seal",
-                description: Text("No airport is provided by more than one custom package.")
+                controller.isRunning ? "Analyzing…" : "No Redundant Packages",
+                systemImage: controller.isRunning ? "magnifyingglass" : "checkmark.seal",
+                description: Text(controller.isRunning
+                    ? "Overlapping packages will appear here once the scan reaches them."
+                    : "No airport is provided by more than one custom package.")
             )
         } else {
             VStack(spacing: 0) {
@@ -139,8 +141,10 @@ struct DuplicatesView: View {
             }
             .menuStyle(.borderedButton)
             .fixedSize()
-            .disabled(selectedPackNames.isEmpty || controller.isApplyingAction)
-            .help("Apply an action to the selected packages")
+            .disabled(selectedPackNames.isEmpty || controller.isApplyingAction || controller.isRunning)
+            .help(controller.isRunning
+                  ? "Available when the analysis finishes"
+                  : "Apply an action to the selected packages")
         }
         .font(.callout)
         .padding(.horizontal, 12)

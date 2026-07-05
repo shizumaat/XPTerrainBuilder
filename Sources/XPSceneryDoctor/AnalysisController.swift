@@ -36,46 +36,77 @@ final class AnalysisController: ObservableObject {
 
     // MARK: - Analysis
 
+    private enum StreamMessage: Sendable {
+        case event(Analyzer.Event)
+        case completed(AnalysisReport)
+    }
+
+    /// Starts an analysis and streams results into the report as they land,
+    /// so the report window (opened immediately via reportGeneration) fills
+    /// in live. Finding batches are coalesced to ~0.4 s flushes — the pack
+    /// scan finishes dozens of packs per second and per-batch List updates
+    /// would hammer SwiftUI diffing.
     func analyze() {
         guard let root = rootURL, !isRunning else { return }
         isRunning = true
         stageLabel = "Starting…"
         errorMessage = nil
+        report = AnalysisReport(xplaneRoot: root.path, findings: [], stats: AnalysisStats())
+        reportGeneration += 1 // opens the report window right away
 
-        let box = WeakBox(self)
+        let stream = AsyncStream<StreamMessage> { continuation in
+            Task.detached(priority: .userInitiated) {
+                let final = Analyzer(root: root).run { event in
+                    continuation.yield(.event(event))
+                }
+                continuation.yield(.completed(final))
+                continuation.finish()
+            }
+        }
+
         Task { [weak self] in
-            let report = await Self.runAnalysis(root: root) { stage in
-                let label = stage.label
-                Task { @MainActor in
-                    box.value?.stageLabel = label
+            var pending: [Finding] = []
+            var lastFlush = ContinuousClock.now
+            for await message in stream {
+                guard let self else { return }
+                switch message {
+                case .event(.stage(let stage)):
+                    self.stageLabel = stage.label
+                    self.flushPending(&pending)
+                    lastFlush = .now
+                case .event(.findings(let new)):
+                    pending.append(contentsOf: new)
+                    if ContinuousClock.now - lastFlush > .milliseconds(400) {
+                        self.flushPending(&pending)
+                        lastFlush = .now
+                    }
+                case .event(.duplicateGroups(let groups)):
+                    self.report?.duplicateGroups = groups
+                case .completed(let final):
+                    // The final report supersedes everything streamed.
+                    pending = []
+                    self.report = final
+                    self.isRunning = false
                 }
             }
-            self?.report = report
-            self?.isRunning = false
-            self?.reportGeneration += 1
         }
     }
 
-    /// Lets a @Sendable progress closure reach back to the MainActor
-    /// controller without capturing a weak `self` var (a Swift 6 error).
-    private final class WeakBox<T: AnyObject>: @unchecked Sendable {
-        weak var value: T?
-        init(_ value: T) { self.value = value }
-    }
-
-    nonisolated static func runAnalysis(
-        root: URL,
-        progress: @escaping @Sendable (Analyzer.Stage) -> Void
-    ) async -> AnalysisReport {
-        await Task.detached(priority: .userInitiated) {
-            Analyzer(root: root).run(progress: progress)
-        }.value
+    private func flushPending(_ pending: inout [Finding]) {
+        guard !pending.isEmpty, var current = report else { return }
+        current.findings.append(contentsOf: pending)
+        current.findings.sort {
+            ($0.severity, $0.category.rawValue, $0.title) < ($1.severity, $1.category.rawValue, $1.title)
+        }
+        report = current
+        pending = []
     }
 
     // MARK: - Pack actions
 
     func applyPackAction(_ action: PackAction, to packNames: [String]) {
-        guard let root = rootURL, !packNames.isEmpty, !isApplyingAction else { return }
+        // Not while analyzing: the scan reads pack folders and the ini.
+        guard let root = rootURL, !packNames.isEmpty, !isApplyingAction, !isRunning else { return }
         isApplyingAction = true
         actionErrors = []
 

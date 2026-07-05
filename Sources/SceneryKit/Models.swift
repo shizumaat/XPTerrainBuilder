@@ -75,6 +75,8 @@ public struct Finding: Identifiable, Codable, Sendable, Hashable {
 
 /// Summary counters shown at the top of the report.
 public struct AnalysisStats: Codable, Sendable {
+    public init() {}
+
     public var packsScanned = 0
     public var libraryPacks = 0
     public var logLinesScanned = 0

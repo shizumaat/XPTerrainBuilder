@@ -10,8 +10,10 @@ guard let pathArg = args.first(where: { !$0.hasPrefix("--") }) else {
     exit(2)
 }
 let root = URL(fileURLWithPath: pathArg, isDirectory: true)
-let report = Analyzer(root: root).run { stage in
-    FileHandle.standardError.write(Data("· \(stage.label)\n".utf8))
+let report = Analyzer(root: root).run { event in
+    if case .stage(let stage) = event {
+        FileHandle.standardError.write(Data("· \(stage.label)\n".utf8))
+    }
 }
 
 if args.contains("--json") {

@@ -147,6 +147,32 @@ import Foundation
 
     // MARK: End-to-end
 
+    @Test func streamingEventsMatchFinalReport() {
+        final class EventLog: @unchecked Sendable {
+            let lock = NSLock()
+            var findings: [Finding] = []
+            var stages: [String] = []
+            var groups: [DuplicateGroup] = []
+        }
+        let log = EventLog()
+
+        let report = Analyzer(root: fixtureRoot).run { event in
+            log.lock.lock()
+            defer { log.lock.unlock() }
+            switch event {
+            case .findings(let new): log.findings.append(contentsOf: new)
+            case .stage(let stage): log.stages.append(stage.label)
+            case .duplicateGroups(let groups): log.groups = groups
+            }
+        }
+
+        // Every finding was streamed, and nothing extra.
+        #expect(Set(log.findings.map { $0.id }) == Set(report.findings.map { $0.id }))
+        #expect(log.groups.map { $0.icao } == report.duplicateGroups.map { $0.icao })
+        #expect(log.stages.first?.contains("Scanning") == true)
+        #expect(log.stages.last == "Done")
+    }
+
     @Test func fullAnalyzerRun() throws {
         let report = Analyzer(root: fixtureRoot).run()
         #expect(report.findings.count > 5)

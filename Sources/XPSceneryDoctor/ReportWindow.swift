@@ -43,6 +43,13 @@ struct ReportWindow: View {
             }
             .searchable(text: $searchText.value, placement: .toolbar, prompt: "Filter findings")
             .toolbar {
+                if controller.isRunning {
+                    ToolbarItem(placement: .automatic) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .help(controller.stageLabel)
+                    }
+                }
                 ToolbarItem(placement: .automatic) {
                     Picker("Severity", selection: $severityFilter.value) {
                         Text("All").tag(Severity?.none)
@@ -82,6 +89,12 @@ struct ReportWindow: View {
     }
 
     private func subtitle(for report: AnalysisReport) -> String {
+        if controller.isRunning {
+            let count = report.findings.count
+            return count == 0
+                ? controller.stageLabel
+                : "\(count) findings so far — \(controller.stageLabel)"
+        }
         let stats = report.stats
         return "\(report.xplaneRoot) — \(stats.packsScanned) packs, \(report.findings.count) findings"
     }
@@ -135,11 +148,12 @@ struct ReportWindow: View {
                 }
             )
         case .all:
-            FindingsList(findings: visibleFindings(in: report), grouped: true)
+            FindingsList(findings: visibleFindings(in: report), grouped: true, isLive: controller.isRunning)
         case .category(let category):
             FindingsList(
                 findings: visibleFindings(in: report).filter { $0.category == category },
-                grouped: false
+                grouped: false,
+                isLive: controller.isRunning
             )
         }
     }
@@ -166,13 +180,16 @@ struct ReportWindow: View {
 struct FindingsList: View {
     let findings: [Finding]
     let grouped: Bool
+    var isLive = false
 
     var body: some View {
         if findings.isEmpty {
             ContentUnavailableView(
-                "No Findings",
-                systemImage: "checkmark.seal",
-                description: Text("Nothing matches the current filters.")
+                isLive ? "Analyzing…" : "No Findings",
+                systemImage: isLive ? "magnifyingglass" : "checkmark.seal",
+                description: Text(isLive
+                    ? "Findings will appear here as they are discovered."
+                    : "Nothing matches the current filters.")
             )
         } else {
             List {

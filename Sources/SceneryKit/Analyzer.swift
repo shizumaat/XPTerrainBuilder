@@ -31,51 +31,75 @@ public struct Analyzer {
         }
     }
 
-    public func run(progress: @escaping @Sendable (Stage) -> Void = { _ in }) -> AnalysisReport {
+    /// Emitted while an analysis runs so UIs can show results as they land.
+    /// The final, sorted report is still the function's return value; streamed
+    /// findings are exactly the ones it will contain.
+    public enum Event: Sendable {
+        case stage(Stage)
+        case findings([Finding])
+        case duplicateGroups([DuplicateGroup])
+    }
+
+    /// Runs the full analysis. `onEvent` may be called from any thread
+    /// (pack scans run in parallel) and must be thread-safe.
+    public func run(onEvent: @escaping @Sendable (Event) -> Void = { _ in }) -> AnalysisReport {
         var findings: [Finding] = []
         var stats = AnalysisStats()
+
+        func emit(_ new: [Finding]) {
+            guard !new.isEmpty else { return }
+            findings.append(contentsOf: new)
+            onEvent(.findings(new))
+        }
 
         // Read the log before the scan opens thousands of directories, so log
         // access can't be starved of file descriptors by the enumeration.
         let logRead = TextFile.read(root.appendingPathComponent("Log.txt"))
 
-        progress(.scanningInstallation(nil))
+        onEvent(.stage(.scanningInstallation(nil)))
         let installation = InstallationScanner(root: root).scan { detail in
-            progress(.scanningInstallation(detail))
+            onEvent(.stage(.scanningInstallation(detail)))
         }
         stats.packsScanned = installation.packs.count
         stats.libraryPacks = installation.packs.filter { $0.isLibrary }.count
         stats.airportsIndexed = installation.packs.reduce(0) { $0 + $1.airports.count }
 
         if installation.packs.isEmpty {
-            findings.append(Finding(
+            emit([Finding(
                 checkID: "INST-01",
                 severity: .warning,
                 category: .installation,
                 title: "No scenery packs found",
                 detail: "No folders were found in \(installation.customSceneryURL.path). Check that the selected folder is an X-Plane installation root.",
                 path: installation.customSceneryURL.path
-            ))
+            )])
         }
 
-        progress(.readingLog)
+        onEvent(.stage(.readingLog))
         let (logFindings, lines) = LogAnalyzer(installation: installation).analyze(logRead: logRead)
-        findings.append(contentsOf: logFindings)
+        emit(logFindings)
         stats.logLinesScanned = lines
 
-        progress(.checkingDuplicates)
+        onEvent(.stage(.checkingDuplicates))
         let (dupFindings, duplicateGroups) = DuplicateAnalyzer(installation: installation).analyze()
-        findings.append(contentsOf: dupFindings)
+        emit(dupFindings)
+        onEvent(.duplicateGroups(duplicateGroups))
 
         let health = PackageHealthAnalyzer(installation: installation, config: config)
-        let healthResult = health.analyze { packName in
-            progress(.inspectingPack(packName))
-        }
+        let healthResult = health.analyze(
+            progress: { packName in
+                onEvent(.stage(.inspectingPack(packName)))
+            },
+            onPackFindings: { packFindings in
+                onEvent(.findings(packFindings))
+            }
+        )
+        // Streamed above per pack; fold into the aggregate without re-emitting.
         findings.append(contentsOf: healthResult.findings)
         stats.objFilesParsed = healthResult.objFilesParsed
         stats.texturesInspected = healthResult.texturesInspected
 
-        progress(.done)
+        onEvent(.stage(.done))
         findings.sort {
             ($0.severity, $0.category.rawValue, $0.title) < ($1.severity, $1.category.rawValue, $1.title)
         }

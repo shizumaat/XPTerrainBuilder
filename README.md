@@ -10,6 +10,11 @@ problems and proposes solutions.
 Point it at your X-Plane folder, press **Analyze**, and it reports:
 
 **Missing resources (from Log.txt)**
+- **Damaged file names**: when a "missing" file is actually on disk under an
+  encoding-mangled name ("baños" shipped as "ba§os" or "baÃ±os" by a broken
+  archive tool), the case/normalization/mojibake-tolerant matcher finds it
+  and Apply Fix renames it to the exact referenced spelling (ASCII typos are
+  never guessed at). Renames are tracked in Modifications and revertible.
 - Parses `Log.txt` for `Failed to find resource …` and other scenery errors.
 - Builds an index of every `library.txt` export in Custom Scenery, then figures
   out *why* each resource is missing:
@@ -57,8 +62,17 @@ guidance; check IDs follow the xpsan spec in `docs/`)
 - `C-04` Texture problems: large PNGs that stutter at load (should be DDS),
   DDS without mipmaps, oversized and non-power-of-two textures.
 - `C-05` Packs dominated by tiny objects (draw-call overhead).
-- `PERF-01` Estimated VRAM footprint per pack, warning when a pack is likely
-  to be performance-intensive, with concrete suggestions.
+- `C-09` Animation/`ATTR_light_level` on heavy objects (blocks instancing).
+- `C-10` Spill-light census (the "FPS tanks at night" signature).
+- `C-12` Objects spanning >1 km (Laminar's culling guidance).
+- `C-04` large PNGs get a one-click **Convert to DDS** fix: in-app BC1/BC3
+  encoder with full mip chains; dead alpha channels are stripped (DXT1).
+- `PERF-01/02/03` VRAM warnings judged against **this Mac's actual hardware**
+  (Metal working-set size, shown in the main window): per-pack footprints,
+  packs that co-load in the same tile region, and libraries treated
+  correctly (only placed assets load — a big library is not a warning).
+  Performance findings are grouped by Airports / Overlays / Ortho / Libraries.
+  Sources for the check catalog: `docs/PITFALLS.md`.
 
 Findings open in a dedicated report window: category sidebar with counts,
 toolbar search and severity filter, Reveal in Finder, library download links,

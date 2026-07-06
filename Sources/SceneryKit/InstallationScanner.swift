@@ -30,7 +30,7 @@ public struct InstallationScanner {
         struct PackProbe {
             let isLibrary: Bool
             let airports: [String: String]
-            let hasDSF: Bool
+            let tiles: Set<String>
         }
         var probes = [PackProbe?](repeating: nil, count: packURLs.count)
         let lock = NSLock()
@@ -47,7 +47,7 @@ public struct InstallationScanner {
                     PackProbe(
                         isLibrary: fm.fileExists(atPath: url.appendingPathComponent("library.txt").path),
                         airports: parseAirports(inPack: url),
-                        hasDSF: packContainsDSF(url)
+                        tiles: collectDSFTiles(url)
                     )
                 }
                 lock.lock()
@@ -77,7 +77,7 @@ public struct InstallationScanner {
                 iniIndex: iniEntry?.index,
                 isLibrary: probe.isLibrary,
                 airports: probe.airports,
-                hasDSF: probe.hasDSF,
+                tiles: probe.tiles,
                 isLaminar: Self.laminarPackNames.contains(name)
             ))
         }
@@ -183,16 +183,20 @@ public struct InstallationScanner {
         return airports
     }
 
-    func packContainsDSF(_ packURL: URL) -> Bool {
+    /// Tile names (e.g. "+41-073") of every DSF in the pack — cheap, from
+    /// filenames only. Used both as a has-DSF flag and to find packs that
+    /// load together in the same region.
+    func collectDSFTiles(_ packURL: URL) -> Set<String> {
         let earthNav = packURL.appendingPathComponent("Earth nav data")
         guard let enumerator = fm.enumerator(
             at: earthNav,
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles]
-        ) else { return false }
-        for case let file as URL in enumerator {
-            if file.pathExtension.lowercased() == "dsf" { return true }
+        ) else { return [] }
+        var tiles = Set<String>()
+        for case let file as URL in enumerator where file.pathExtension.lowercased() == "dsf" {
+            tiles.insert(file.deletingPathExtension().lastPathComponent)
         }
-        return false
+        return tiles
     }
 }

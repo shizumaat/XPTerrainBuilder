@@ -42,19 +42,41 @@ public enum ProposedFix: Codable, Sendable, Hashable {
     /// Insert `ATTR_LOD 0 <distance>` before the OBJ's first draw command so
     /// the object stops rendering beyond a distance suited to its size.
     case addFarLOD(objPath: String, distanceMeters: Int)
+    /// Rename an encoding-damaged file (or folder) to the exact spelling the
+    /// scenery references.
+    case renameFile(fromPath: String, toPath: String)
+    /// Re-encode a PNG as a mipmapped, block-compressed DDS and retire the
+    /// PNG to a backup (X-Plane loads foo.dds wherever foo.png is referenced).
+    case convertPNGToDDS(pngPath: String)
 
     public var summary: String {
         switch self {
         case .addFarLOD(_, let distance):
             return "Add far-cull LOD (\(distance) m)"
+        case .renameFile(_, let toPath):
+            return "Rename to '\(URL(fileURLWithPath: toPath).lastPathComponent)'"
+        case .convertPNGToDDS:
+            return "Convert PNG to DDS"
         }
     }
 
     public var targetPath: String {
         switch self {
         case .addFarLOD(let path, _): return path
+        case .renameFile(let fromPath, _): return fromPath
+        case .convertPNGToDDS(let path): return path
         }
     }
+}
+
+/// What a scenery pack primarily is — determines how performance findings
+/// are judged and grouped (a library's textures don't all load; an airport's do).
+public enum PackKind: String, Codable, Sendable, CaseIterable {
+    case airport = "Airports"
+    case overlay = "Overlays & Landmarks"
+    case orthoMesh = "Ortho & Mesh"
+    case library = "Libraries"
+    case other = "Other"
 }
 
 public struct Finding: Identifiable, Codable, Sendable, Hashable {
@@ -71,6 +93,9 @@ public struct Finding: Identifiable, Codable, Sendable, Hashable {
     public let url: URL?
     public let fixability: Fixability
     public let proposedFix: ProposedFix?
+    /// The pack this finding belongs to, for grouping (nil for install-wide).
+    public let packName: String?
+    public let packKind: PackKind?
 
     public init(
         checkID: String,
@@ -82,7 +107,9 @@ public struct Finding: Identifiable, Codable, Sendable, Hashable {
         suggestion: String? = nil,
         url: URL? = nil,
         fixability: Fixability = .manual,
-        proposedFix: ProposedFix? = nil
+        proposedFix: ProposedFix? = nil,
+        packName: String? = nil,
+        packKind: PackKind? = nil
     ) {
         self.id = UUID()
         self.checkID = checkID
@@ -95,6 +122,8 @@ public struct Finding: Identifiable, Codable, Sendable, Hashable {
         self.url = url
         self.fixability = fixability
         self.proposedFix = proposedFix
+        self.packName = packName
+        self.packKind = packKind
     }
 }
 
@@ -182,13 +211,16 @@ public struct AnalysisReport: Codable, Sendable {
     public var stats: AnalysisStats
     public var duplicateGroups: [DuplicateGroup]
     public var unusedResources: [UnusedResourceGroup]
+    /// The hardware the analysis was judged against.
+    public var system: SystemInfo?
 
     public init(
         xplaneRoot: String,
         findings: [Finding],
         stats: AnalysisStats,
         duplicateGroups: [DuplicateGroup] = [],
-        unusedResources: [UnusedResourceGroup] = []
+        unusedResources: [UnusedResourceGroup] = [],
+        system: SystemInfo? = nil
     ) {
         self.generatedAt = Date()
         self.xplaneRoot = xplaneRoot
@@ -196,6 +228,7 @@ public struct AnalysisReport: Codable, Sendable {
         self.stats = stats
         self.duplicateGroups = duplicateGroups
         self.unusedResources = unusedResources
+        self.system = system
     }
 
     public var errorCount: Int { findings.filter { $0.severity == .error }.count }
@@ -220,9 +253,22 @@ public struct SceneryPack: Sendable {
     public let isLibrary: Bool
     /// ICAO -> airport name, parsed from the pack's apt.dat (empty if none).
     public let airports: [String: String]
-    public let hasDSF: Bool
+    /// DSF tile names covered by this pack (e.g. "+41-073").
+    public let tiles: Set<String>
     /// True for packs shipped by Laminar (Global Airports etc.) that we skip for health checks.
     public let isLaminar: Bool
+
+    public var hasDSF: Bool { !tiles.isEmpty }
+
+    public var kind: PackKind {
+        if isLibrary { return .library }
+        if !airports.isEmpty { return .airport }
+        let lower = name.lowercased()
+        if lower.contains("ortho") || lower.contains("mesh") || lower.contains("photoreal") {
+            return .orthoMesh
+        }
+        return hasDSF ? .overlay : .other
+    }
 }
 
 public struct Installation: Sendable {

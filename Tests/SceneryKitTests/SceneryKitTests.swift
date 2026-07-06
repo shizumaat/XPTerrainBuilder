@@ -58,7 +58,7 @@ import Foundation
     @Test func logParserExtractsMissingResources() throws {
         let text = try String(contentsOf: fixtureRoot.appendingPathComponent("Log.txt"), encoding: .utf8)
         let scan = LogAnalyzer.parseLog(text: text)
-        #expect(scan.missing.count == 5)
+        #expect(scan.missing.count == 6)
         #expect(scan.missing.first?.virtualPath == "opensceneryx/objects/airport/vehicles/Fuel_Truck.obj")
         #expect(scan.missing.first?.referencedFrom == "KSEA Demo Airport")
         #expect(!scan.otherSceneryErrors.isEmpty) // the E/DSF line
@@ -74,6 +74,16 @@ import Foundation
         #expect(ids.contains("LOG-06"), "known missing library should be detected: \(ids)")
         #expect(ids.contains("LOG-07"), "unknown missing library should be detected: \(ids)")
         #expect(ids.contains("LOG-02"), "broken export (file absent) should be detected: \(ids)")
+        #expect(ids.contains("LOG-08"), "mojibake filename should be detected: \(ids)")
+
+        let mojibake = findings.first { $0.checkID == "LOG-08" }
+        #expect(mojibake?.fixability == .auto)
+        if case .renameFile(let from, let to)? = mojibake?.proposedFix {
+            #expect(URL(fileURLWithPath: to).lastPathComponent == "señal_1.obj")
+            #expect(from.contains("se"))
+        } else {
+            Issue.record("LOG-08 should carry a renameFile fix")
+        }
 
         let known = findings.first { $0.checkID == "LOG-06" }
         #expect(known?.url?.absoluteString.contains("x-plane.org") == true)

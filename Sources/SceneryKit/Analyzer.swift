@@ -5,9 +5,10 @@ import Foundation
 /// thread and observe progress via the callback.
 public struct Analyzer {
     public let root: URL
-    public let config: HealthConfig
+    /// nil = derive thresholds from the actual machine at run time.
+    public let config: HealthConfig?
 
-    public init(root: URL, config: HealthConfig = HealthConfig()) {
+    public init(root: URL, config: HealthConfig? = nil) {
         self.root = root
         self.config = config
     }
@@ -49,6 +50,8 @@ public struct Analyzer {
     public func run(onEvent: @escaping @Sendable (Event) -> Void = { _ in }) -> AnalysisReport {
         var findings: [Finding] = []
         var stats = AnalysisStats()
+        let system = SystemInfo.current()
+        let config = self.config ?? HealthConfig.forSystem(system)
 
         func emit(_ new: [Finding]) {
             guard !new.isEmpty else { return }
@@ -103,6 +106,18 @@ public struct Analyzer {
         stats.objFilesParsed = healthResult.objFilesParsed
         stats.texturesInspected = healthResult.texturesInspected
 
+        // PERF-02: packs that load together in the same tile region. A pack's
+        // textures are attributed evenly across its tiles (an ortho region
+        // isn't all resident over one tile), airports usually carry full
+        // weight on their single tile.
+        let tileFindings = Self.tileCoLoadFindings(
+            packs: installation.packs,
+            packVRAM: healthResult.packVRAM,
+            config: config
+        )
+        findings.append(contentsOf: tileFindings)
+        onEvent(.findings(tileFindings))
+
         onEvent(.stage(.findingUnused(nil)))
         let unusedAnalyzer = UnusedResourceAnalyzer(installation: installation)
         let (unusedFindings, unusedGroups) = unusedAnalyzer.analyze(
@@ -125,8 +140,57 @@ public struct Analyzer {
             findings: findings,
             stats: stats,
             duplicateGroups: duplicateGroups,
-            unusedResources: unusedGroups
+            unusedResources: unusedGroups,
+            system: system
         )
+    }
+
+    /// Regions where several packs' textures together exceed the VRAM budget.
+    static func tileCoLoadFindings(
+        packs: [SceneryPack],
+        packVRAM: [String: Int64],
+        config: HealthConfig
+    ) -> [Finding] {
+        var tileLoads: [String: [(name: String, share: Int64)]] = [:]
+        for pack in packs where !pack.isLaminar && !pack.isLibrary && pack.isEnabled {
+            guard let vram = packVRAM[pack.name], vram > 0, !pack.tiles.isEmpty else { continue }
+            let share = vram / Int64(pack.tiles.count)
+            for tile in pack.tiles {
+                tileLoads[tile, default: []].append((pack.name, share))
+            }
+        }
+
+        var candidates: [(tile: String, packs: [(name: String, share: Int64)], total: Int64)] = []
+        for (tile, loads) in tileLoads where loads.count >= 2 {
+            let total = loads.reduce(0) { $0 + $1.share }
+            if total >= config.tileVRAMWarnBytes {
+                candidates.append((tile, loads.sorted { $0.share > $1.share }, total))
+            }
+        }
+
+        var findings: [Finding] = []
+        var seenPackSets = Set<Set<String>>()
+        for candidate in candidates.sorted(by: { $0.total > $1.total }) {
+            let packSet = Set(candidate.packs.map { $0.name })
+            guard seenPackSets.insert(packSet).inserted else { continue }
+            guard findings.count < 5 else { break }
+
+            let totalStr = ByteCountFormatter.string(fromByteCount: candidate.total, countStyle: .memory)
+            let budgetStr = ByteCountFormatter.string(fromByteCount: config.vramBudgetBytes, countStyle: .memory)
+            let list = candidate.packs.prefix(6)
+                .map { "'\($0.name)' (~\(ByteCountFormatter.string(fromByteCount: $0.share, countStyle: .memory)))" }
+                .joined(separator: ", ")
+            findings.append(Finding(
+                checkID: "PERF-02",
+                severity: .warning,
+                category: .performance,
+                title: "Tile \(candidate.tile): combined textures ~\(totalStr)",
+                detail: "\(candidate.packs.count) enabled packs load together over tile \(candidate.tile), estimating ~\(totalStr) of textures against this Mac's ~\(budgetStr) usable VRAM: \(list). Flying here can push past VRAM even though each pack looks fine alone.",
+                suggestion: "Disable the packs you don't need in this region, or reduce texture quality when flying here.",
+                fixability: .assisted
+            ))
+        }
+        return findings
     }
 
     /// Cheap re-scan of just the duplicate state, for refreshing the report

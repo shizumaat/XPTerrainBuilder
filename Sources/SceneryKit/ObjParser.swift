@@ -10,6 +10,8 @@ public struct ObjInfo: Sendable {
     public var hasGlobalNoBlend = false // GLOBAL_no_blend present
     public var blendStateChanges = 0    // ATTR_blend <-> ATTR_no_blend flips
     public var animated = false         // ANIM_begin present
+    public var spillLightCount = 0      // LIGHT_PARAM / LIGHT_SPILL_CUSTOM lines
+    public var hasLightLevel = false    // ATTR_light_level (dataref-driven, blocks instancing)
 
     // Bounding box from VT coordinates (OBJ8 units are meters).
     public var minX = Double.infinity, maxX = -Double.infinity
@@ -150,8 +152,14 @@ public enum ObjParser {
                     } else if lineStarts(start, end, "ATTR_blend") {
                         if lastBlendState == false { info.blendStateChanges += 1 }
                         lastBlendState = true
+                    } else if lineStarts(start, end, "ATTR_light_level") {
+                        info.hasLightLevel = true
                     } else if lineStarts(start, end, "ANIM_begin") {
                         info.animated = true
+                    }
+                case UInt8(ascii: "L"):
+                    if lineStarts(start, end, "LIGHT_PARAM") || lineStarts(start, end, "LIGHT_SPILL_CUSTOM") {
+                        info.spillLightCount += 1
                     }
                 case UInt8(ascii: "G"):
                     if lineStarts(start, end, "GLOBAL_no_blend") {

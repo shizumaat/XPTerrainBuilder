@@ -6,6 +6,8 @@ struct MainView: View {
     @Environment(\.openWindow) private var openWindow
     @StateObject private var showingPicker = ViewState(false)
 
+    static let systemInfo = SystemInfo.current()
+
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "stethoscope")
@@ -49,6 +51,11 @@ struct MainView: View {
                 .buttonStyle(.link)
                 .font(.caption)
             }
+
+            Text(Self.systemInfo.summary)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .help("Performance warnings are judged against this hardware")
         }
         .padding(20)
         .frame(width: 340)

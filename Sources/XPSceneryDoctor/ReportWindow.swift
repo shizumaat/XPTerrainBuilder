@@ -175,11 +175,19 @@ struct ReportWindow: View {
         case .category(.unusedResources):
             UnusedResourcesView(groups: report.unusedResources)
         case .all:
-            FindingsList(findings: visibleFindings(in: report), grouped: true, isLive: controller.isRunning)
+            FindingsList(findings: visibleFindings(in: report), grouping: .category, isLive: controller.isRunning)
+        case .category(.performance):
+            // Grouped by what the pack is: an airport's textures all load,
+            // a library's only load as used.
+            FindingsList(
+                findings: visibleFindings(in: report).filter { $0.category == .performance },
+                grouping: .packKind,
+                isLive: controller.isRunning
+            )
         case .category(let category):
             FindingsList(
                 findings: visibleFindings(in: report).filter { $0.category == category },
-                grouped: false,
+                grouping: .none,
                 isLive: controller.isRunning
             )
         }
@@ -205,9 +213,15 @@ struct ReportWindow: View {
 // MARK: - Findings list
 
 struct FindingsList: View {
+    enum Grouping {
+        case none
+        case category
+        case packKind
+    }
+
     @EnvironmentObject var controller: AnalysisController
     let findings: [Finding]
-    let grouped: Bool
+    let grouping: Grouping
     var isLive = false
 
     @StateObject private var selection = ViewState(Set<Finding.ID>())
@@ -233,7 +247,8 @@ struct FindingsList: View {
         } else {
             VStack(spacing: 0) {
                 List(selection: $selection.value) {
-                    if grouped {
+                    switch grouping {
+                    case .category:
                         ForEach(FindingCategory.allCases, id: \.self) { category in
                             let items = findings.filter { $0.category == category }
                             if !items.isEmpty {
@@ -244,7 +259,18 @@ struct FindingsList: View {
                                 }
                             }
                         }
-                    } else {
+                    case .packKind:
+                        ForEach(PackKind.allCases, id: \.self) { kind in
+                            let items = findings.filter { ($0.packKind ?? .other) == kind }
+                            if !items.isEmpty {
+                                Section("\(kind.rawValue) (\(items.count))") {
+                                    ForEach(items) { finding in
+                                        FindingRow(finding: finding).tag(finding.id)
+                                    }
+                                }
+                            }
+                        }
+                    case .none:
                         ForEach(findings) { finding in
                             FindingRow(finding: finding).tag(finding.id)
                         }

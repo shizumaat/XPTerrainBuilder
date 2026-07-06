@@ -25,16 +25,24 @@ public enum LODAdvisor {
 public struct ModificationRecord: Codable, Identifiable, Sendable, Hashable {
     public let id: UUID
     public let date: Date
+    /// Where the content lived before the change (revert target).
     public let filePath: String
+    /// Where the original content lives now (sidecar backup, Trash location,
+    /// or the renamed file itself).
     public let backupPath: String
+    /// A file the fix created that revert should delete (e.g. the .dds
+    /// produced by a PNG conversion).
+    public let createdPath: String?
     public let checkID: String
     public let summary: String
 
-    public init(filePath: String, backupPath: String, checkID: String, summary: String) {
+    public init(filePath: String, backupPath: String, createdPath: String? = nil,
+                checkID: String, summary: String) {
         self.id = UUID()
         self.date = Date()
         self.filePath = filePath
         self.backupPath = backupPath
+        self.createdPath = createdPath
         self.checkID = checkID
         self.summary = summary
     }
@@ -123,6 +131,19 @@ public struct FixEngine: Sendable {
     }
 
     func applySingle(_ fix: ProposedFix, finding: Finding, records: inout [ModificationRecord]) -> FixOutcome {
+        switch fix {
+        case .addFarLOD:
+            return applyFarLOD(fix, finding: finding, records: &records)
+        case .renameFile(let fromPath, let toPath):
+            return applyRename(fromPath: fromPath, toPath: toPath, finding: finding, records: &records)
+        case .convertPNGToDDS(let pngPath):
+            return applyPNGConversion(pngPath: pngPath, finding: finding, records: &records)
+        }
+    }
+
+    // MARK: addFarLOD
+
+    func applyFarLOD(_ fix: ProposedFix, finding: Finding, records: inout [ModificationRecord]) -> FixOutcome {
         let fm = FileManager.default
         let filePath = fix.targetPath
         let fileURL = URL(fileURLWithPath: filePath)
@@ -153,6 +174,8 @@ public struct FixEngine: Sendable {
                 return fail("Edited file failed validation; no changes were made.")
             }
             edited = inserted
+        default:
+            return fail("Internal error: wrong fixer.")
         }
 
         // Back up the original (first backup wins — it is the true original).
@@ -180,6 +203,99 @@ public struct FixEngine: Sendable {
             ))
         }
         return FixOutcome(findingID: finding.id, filePath: filePath, success: true, message: nil)
+    }
+
+    // MARK: renameFile
+
+    /// Rename an encoding-damaged file or folder to the referenced spelling.
+    /// The record stores the old path as `filePath` and the new path as
+    /// `backupPath`, so the standard move-based revert renames it back.
+    func applyRename(fromPath: String, toPath: String, finding: Finding,
+                     records: inout [ModificationRecord]) -> FixOutcome {
+        let fm = FileManager.default
+
+        func fail(_ message: String) -> FixOutcome {
+            FixOutcome(findingID: finding.id, filePath: fromPath, success: false, message: message)
+        }
+
+        guard fm.fileExists(atPath: fromPath) else {
+            return fail("File not found — was it already renamed?")
+        }
+        guard !fm.fileExists(atPath: toPath) else {
+            return fail("A file with the corrected name already exists.")
+        }
+        do {
+            try fm.moveItem(atPath: fromPath, toPath: toPath)
+        } catch {
+            return fail(error.localizedDescription)
+        }
+        guard fm.fileExists(atPath: toPath) else {
+            return fail("Rename did not take effect.")
+        }
+        records.append(ModificationRecord(
+            filePath: fromPath,
+            backupPath: toPath,
+            checkID: finding.checkID,
+            summary: "Renamed '\(URL(fileURLWithPath: fromPath).lastPathComponent)' → '\(URL(fileURLWithPath: toPath).lastPathComponent)'"
+        ))
+        return FixOutcome(findingID: finding.id, filePath: fromPath, success: true, message: nil)
+    }
+
+    // MARK: convertPNGToDDS
+
+    /// Encode the PNG as a mipmapped BC1/BC3 DDS next to it, then retire the
+    /// PNG to a sidecar backup. X-Plane resolves "foo.png" references to
+    /// foo.dds automatically, so no referencing file needs editing.
+    func applyPNGConversion(pngPath: String, finding: Finding,
+                            records: inout [ModificationRecord]) -> FixOutcome {
+        let fm = FileManager.default
+        let pngURL = URL(fileURLWithPath: pngPath)
+        let ddsURL = pngURL.deletingPathExtension().appendingPathExtension("dds")
+        let backupURL = URL(fileURLWithPath: pngPath + Self.backupSuffix)
+
+        func fail(_ message: String) -> FixOutcome {
+            FixOutcome(findingID: finding.id, filePath: pngPath, success: false, message: message)
+        }
+
+        guard fm.fileExists(atPath: pngPath) else { return fail("File not found.") }
+        guard !fm.fileExists(atPath: ddsURL.path) else {
+            return fail("A .dds with this name already exists — X-Plane is already using it.")
+        }
+
+        let ddsData: Data
+        switch DDSEncoder.encodePNG(at: pngURL) {
+        case .success(let data): ddsData = data
+        case .failure(let error): return fail(error.description)
+        }
+
+        do {
+            try ddsData.write(to: ddsURL, options: .atomic)
+        } catch {
+            return fail("Could not write DDS: \(error.localizedDescription)")
+        }
+
+        // Validate the result before touching the PNG.
+        guard let info = TextureInspector.inspect(url: ddsURL),
+              info.format == .dds, info.width > 0, info.mipMapCount > 1 else {
+            try? fm.removeItem(at: ddsURL)
+            return fail("Encoded DDS failed validation; no changes were made.")
+        }
+
+        do {
+            try fm.moveItem(at: pngURL, to: backupURL)
+        } catch {
+            try? fm.removeItem(at: ddsURL)
+            return fail("Could not retire the PNG: \(error.localizedDescription)")
+        }
+
+        records.append(ModificationRecord(
+            filePath: pngPath,
+            backupPath: backupURL.path,
+            createdPath: ddsURL.path,
+            checkID: finding.checkID,
+            summary: "Converted to DDS (\(info.width)×\(info.height), \(info.mipMapCount) mips)"
+        ))
+        return FixOutcome(findingID: finding.id, filePath: pngPath, success: true, message: nil)
     }
 
     /// Insert `ATTR_LOD 0 <distance>` immediately before the first drawing
@@ -286,6 +402,9 @@ public struct FixEngine: Sendable {
                 try fm.createDirectory(at: fileURL.deletingLastPathComponent(),
                                        withIntermediateDirectories: true)
                 try fm.moveItem(at: backupURL, to: fileURL)
+                if let created = record.createdPath {
+                    try? fm.removeItem(atPath: created)
+                }
                 records.removeAll { $0.id == record.id }
                 outcomes.append(RevertOutcome(record: record, success: true, message: nil))
             } catch {

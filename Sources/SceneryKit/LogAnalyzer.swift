@@ -188,6 +188,59 @@ public struct LogAnalyzer {
             )
         }
 
+        // Pack-relative resources: X-Plane resolves paths like
+        // 'Some Folder/model.obj' against the referencing pack before the
+        // library system. If the file is there under a case/normalization/
+        // mojibake-damaged name, the precise fix is a rename.
+        if let packName = missing.referencedFrom {
+            let packURL = installation.customSceneryURL.appendingPathComponent(packName)
+            if FileManager.default.fileExists(atPath: packURL.path),
+               let resolution = PathRepair.resolve(relativePath: vpath, under: packURL) {
+                if resolution.isExact {
+                    return Finding(
+                        checkID: "LOG-03",
+                        severity: .warning,
+                        category: .missingResource,
+                        title: "Resource missing at load time: \(lastComponent(vpath))",
+                        detail: "'\(vpath)'\(fromPack) exists in the pack now, but X-Plane could not find it when the log was written. It may have been installed or fixed after that session.",
+                        path: resolution.url.path,
+                        suggestion: "Re-run X-Plane and re-analyze.",
+                        fixability: .assisted
+                    )
+                }
+                if resolution.mismatches.count == 1, let mismatch = resolution.mismatches.first {
+                    let actualName = mismatch.actual.lastPathComponent
+                    let expectedURL = mismatch.actual.deletingLastPathComponent()
+                        .appendingPathComponent(mismatch.expectedName)
+                    return Finding(
+                        checkID: "LOG-08",
+                        severity: .error,
+                        category: .missingResource,
+                        title: "Damaged file name: \(actualName)",
+                        detail: "The scenery asks for '\(vpath)'\(fromPack). The file is on disk, but its name is spelled '\(actualName)' instead of '\(mismatch.expectedName)' — non-ASCII characters mangled by an archive tool or encoding mix-up, so X-Plane can't match it.",
+                        path: mismatch.actual.path,
+                        suggestion: "Apply Fix to rename it to exactly '\(mismatch.expectedName)'. The rename is recorded in Modifications and can be reverted.",
+                        fixability: .auto,
+                        proposedFix: .renameFile(fromPath: mismatch.actual.path, toPath: expectedURL.path)
+                    )
+                }
+                // Several components damaged — explain rather than chain renames.
+                let list = resolution.mismatches
+                    .map { "'\($0.actual.lastPathComponent)' → '\($0.expectedName)'" }
+                    .joined(separator: ", ")
+                return Finding(
+                    checkID: "LOG-08",
+                    severity: .error,
+                    category: .missingResource,
+                    title: "Damaged path: \(lastComponent(vpath))",
+                    detail: "'\(vpath)'\(fromPack) exists on disk but several path components have encoding-damaged names: \(list).",
+                    path: resolution.url.path,
+                    suggestion: "Rename the listed folders/files to the exact referenced spellings (innermost last).",
+                    fixability: .assisted
+                )
+            }
+        }
+
         let owningPacks = index.packsExportingPrefix(of: vpath)
         let prefix = vpath.split(separator: "/").first.map(String.init) ?? vpath
 

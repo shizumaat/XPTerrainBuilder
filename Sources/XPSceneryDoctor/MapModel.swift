@@ -46,8 +46,15 @@ struct MapCamera: Equatable {
     }
 }
 
-/// Offline Natural Earth 110m land polygons, [[ [lon,lat], … ]].
+/// Offline Natural Earth land polygons at two detail levels: 110m for world
+/// views, 50m (with per-ring bounding boxes for viewport culling) at zoom.
 enum LandData {
+    struct Ring {
+        let minLon: Double, minLat: Double, maxLon: Double, maxLat: Double
+        let points: [CGPoint]
+    }
+
+    /// Coarse (110m): drawn whole, tiny.
     static let polygons: [[CGPoint]] = {
         guard let url = Bundle.module.url(forResource: "land", withExtension: "json"),
               let data = try? Data(contentsOf: url),
@@ -57,6 +64,31 @@ enum LandData {
             ring.compactMap { pair in
                 pair.count >= 2 ? CGPoint(x: pair[0], y: pair[1]) : nil
             }
+        }
+    }()
+
+    /// Detailed (50m): 60k points across 1,421 bbox-tagged rings; the canvas
+    /// draws only rings intersecting the viewport.
+    static let detailedRings: [Ring] = {
+        guard let url = Bundle.module.url(forResource: "land50", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let raw = try? JSONSerialization.jsonObject(with: data) as? [[Any]]
+        else { return [] }
+        return raw.compactMap { entry in
+            guard entry.count == 5,
+                  let minLon = entry[0] as? Double, let minLat = entry[1] as? Double,
+                  let maxLon = entry[2] as? Double, let maxLat = entry[3] as? Double,
+                  let flat = entry[4] as? [Double], flat.count >= 8
+            else { return nil }
+            var points: [CGPoint] = []
+            points.reserveCapacity(flat.count / 2)
+            var i = 0
+            while i + 1 < flat.count {
+                points.append(CGPoint(x: flat[i], y: flat[i + 1]))
+                i += 2
+            }
+            return Ring(minLon: minLon, minLat: minLat, maxLon: maxLon, maxLat: maxLat,
+                        points: points)
         }
     }()
 }

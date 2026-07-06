@@ -79,21 +79,34 @@ struct MapCanvasView: View {
 
     private func draw(context: GraphicsContext, size: CGSize) {
         let cam = camera.value
+        let (minLon, maxLon, minLat, maxLat) = visibleBounds(cam, size)
 
-        // Land.
+        // Land: 110m for world views; 50m rings (bbox-culled to the
+        // viewport) once zoomed in enough to see the difference.
         var landPath = Path()
-        for ring in LandData.polygons {
-            guard let first = ring.first else { continue }
-            landPath.move(to: cam.point(lon: first.x, lat: first.y, in: size))
-            for pt in ring.dropFirst() {
-                landPath.addLine(to: cam.point(lon: pt.x, lat: pt.y, in: size))
+        if cam.scale > 7 && !LandData.detailedRings.isEmpty {
+            for ring in LandData.detailedRings {
+                guard ring.maxLon > minLon, ring.minLon < maxLon,
+                      ring.maxLat > minLat, ring.minLat < maxLat,
+                      let first = ring.points.first else { continue }
+                landPath.move(to: cam.point(lon: first.x, lat: first.y, in: size))
+                for pt in ring.points.dropFirst() {
+                    landPath.addLine(to: cam.point(lon: pt.x, lat: pt.y, in: size))
+                }
+                landPath.closeSubpath()
             }
-            landPath.closeSubpath()
+        } else {
+            for ring in LandData.polygons {
+                guard let first = ring.first else { continue }
+                landPath.move(to: cam.point(lon: first.x, lat: first.y, in: size))
+                for pt in ring.dropFirst() {
+                    landPath.addLine(to: cam.point(lon: pt.x, lat: pt.y, in: size))
+                }
+                landPath.closeSubpath()
+            }
         }
         context.fill(landPath, with: .color(Self.land))
         context.stroke(landPath, with: .color(Self.coast), lineWidth: 1)
-
-        let (minLon, maxLon, minLat, maxLat) = visibleBounds(cam, size)
 
         // Tile tints — numeric compares only; batch by kind into 3 paths so
         // the frame does 3 fills, not one per tile.

@@ -44,32 +44,45 @@ public struct LibraryIndex: Sendable {
         }
     }
 
+    /// Lowercased with backslashes unified to slashes — X-Plane accepts "\"
+    /// as a path separator in library.txt (RD_Library ships that way), and
+    /// DSF references use "/".
+    static func normalizeKey(_ path: String) -> String {
+        path.replacingOccurrences(of: "\\", with: "/").lowercased()
+    }
+
     public mutating func add(_ export: LibraryExport) {
-        let key = export.virtualPath.lowercased()
-        exports[key, default: []].append(export)
-        if let prefix = export.virtualPath.split(separator: "/").first {
-            prefixes[String(prefix).lowercased(), default: []].insert(export.packName)
+        // Store separator-normalized so realPath file checks work too.
+        let normalized = LibraryExport(
+            virtualPath: export.virtualPath.replacingOccurrences(of: "\\", with: "/"),
+            realPath: export.realPath.replacingOccurrences(of: "\\", with: "/"),
+            packName: export.packName
+        )
+        let key = Self.normalizeKey(normalized.virtualPath)
+        exports[key, default: []].append(normalized)
+        if let prefix = key.split(separator: "/").first {
+            prefixes[String(prefix), default: []].insert(export.packName)
         }
     }
 
-    /// Exact match ignoring case. Returns the canonical export if the only
-    /// difference from `virtualPath` is letter case.
+    /// Exact match ignoring case and separator style. Returns the canonical
+    /// export if the only difference from `virtualPath` is case or "\" vs "/".
     public func caseInsensitiveMatch(for virtualPath: String) -> LibraryExport? {
-        exports[virtualPath.lowercased()]?.first
+        exports[Self.normalizeKey(virtualPath)]?.first
     }
 
     /// Pack names that export anything under the same top-level prefix,
     /// i.e. "is this library installed at all?"
     public func packsExportingPrefix(of virtualPath: String) -> Set<String> {
-        guard let prefix = virtualPath.split(separator: "/").first else { return [] }
-        return prefixes[String(prefix).lowercased()] ?? []
+        guard let prefix = Self.normalizeKey(virtualPath).split(separator: "/").first else { return [] }
+        return prefixes[String(prefix)] ?? []
     }
 
     /// Closest exported paths to a missing virtual path, for typo detection.
     /// Only compares paths sharing the same top-level prefix and same filename
     /// neighborhood so we stay cheap and avoid absurd suggestions.
     public func nearestExports(to virtualPath: String, limit: Int = 3) -> [LibraryExport] {
-        let lowered = virtualPath.lowercased()
+        let lowered = Self.normalizeKey(virtualPath)
         guard let prefix = lowered.split(separator: "/").first else { return [] }
         let targetFile = (lowered as NSString).lastPathComponent
 

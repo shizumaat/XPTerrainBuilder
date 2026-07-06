@@ -217,6 +217,17 @@ import Foundation
 
         // TextFile.lines handles every newline convention.
         #expect(TextFile.lines("a\r\nb\nc\rd").count == 4)
+
+        // Backslash separators (RD_Library style) resolve to slash queries.
+        let bs = "A\r\n800\r\nLIBRARY\r\n\r\nEXPORT RD_Lib\\Veg\\Pine.obj Veg\\Pine.obj\r\n"
+        let bsDir = dir.appendingPathComponent("bs")
+        try FileManager.default.createDirectory(at: bsDir, withIntermediateDirectories: true)
+        try Data(bs.utf8).write(to: bsDir.appendingPathComponent("library.txt"))
+        var bsIndex = LibraryIndex()
+        bsIndex.indexLibrary(at: bsDir, packName: "bs")
+        let export = bsIndex.caseInsensitiveMatch(for: "RD_Lib/Veg/Pine.obj")
+        #expect(export != nil)
+        #expect(export?.realPath == "Veg/Pine.obj")
     }
 
     @Test func tileMathRoundTrips() {

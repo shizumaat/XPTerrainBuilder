@@ -11,13 +11,13 @@ let SIZE: CGFloat = 1024
 
 // MARK: - Palette
 
-// Bolder, more saturated palette per the macOS 27 icon refinements.
-let chartCream = CGColor(red: 0.969, green: 0.949, blue: 0.882, alpha: 1)
-let chartCreamDeep = CGColor(red: 0.886, green: 0.831, blue: 0.694, alpha: 1)
-let chartGrid = CGColor(red: 0.42, green: 0.60, blue: 0.72, alpha: 0.65)
-let chartContour = CGColor(red: 0.76, green: 0.55, blue: 0.33, alpha: 0.30)
-/// FAA sectional blue: towered airports (KPDX is towered).
-let sectionalBlue = CGColor(red: 0.055, green: 0.32, blue: 0.71, alpha: 1)
+// Dark-mode IFR palette: near-black canvas, slate airways, cyan accent.
+let nightTop = CGColor(red: 0.11, green: 0.12, blue: 0.15, alpha: 1)
+let nightBottom = CGColor(red: 0.03, green: 0.035, blue: 0.05, alpha: 1)
+let airwaySlate = CGColor(red: 0.55, green: 0.63, blue: 0.75, alpha: 0.42)
+let airwayCyan = CGColor(red: 0.25, green: 0.78, blue: 0.90, alpha: 0.55)
+/// Airport diagram: bright chart blue, reads on black.
+let sectionalBlue = CGColor(red: 0.22, green: 0.55, blue: 1.0, alpha: 1)
 
 func color(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColor {
     CGColor(red: r, green: g, blue: b, alpha: a)
@@ -25,18 +25,72 @@ func color(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColo
 
 // MARK: - Chart + airport symbol (drawn twice: base and magnified)
 
-/// Simple, Apple-style background: one soft vertical gradient, nothing else.
+/// Night IFR-chart backdrop: near-black gradient with enroute-chart
+/// furniture — airways, hollow waypoint fixes, a partial VOR compass rose.
 func drawChart(_ ctx: CGContext) {
     let space = CGColorSpaceCreateDeviceRGB()
-    let paper = CGGradient(colorsSpace: space, colors: [
-        chartCream, chartCreamDeep,
+    let night = CGGradient(colorsSpace: space, colors: [
+        nightTop, nightBottom,
     ] as CFArray, locations: [0, 1])!
     ctx.saveGState()
     ctx.clip(to: CGRect(x: -SIZE, y: -SIZE, width: SIZE * 3, height: SIZE * 3))
-    ctx.drawLinearGradient(paper,
+    ctx.drawLinearGradient(night,
         start: CGPoint(x: 0, y: SIZE * 1.5),
         end: CGPoint(x: 0, y: -SIZE * 0.5), options: [])
     ctx.restoreGState()
+
+    func airway(_ from: CGPoint, _ to: CGPoint, color: CGColor, width: CGFloat, dashed: Bool = false) {
+        ctx.saveGState()
+        ctx.setStrokeColor(color)
+        ctx.setLineWidth(width)
+        if dashed { ctx.setLineDash(phase: 0, lengths: [26, 18]) }
+        ctx.move(to: from)
+        ctx.addLine(to: to)
+        ctx.strokePath()
+        ctx.restoreGState()
+    }
+
+    /// Hollow waypoint triangle, as on enroute charts.
+    func fix(at p: CGPoint, size: CGFloat, color: CGColor) {
+        ctx.saveGState()
+        ctx.setStrokeColor(color)
+        ctx.setLineWidth(5)
+        ctx.move(to: CGPoint(x: p.x, y: p.y + size))
+        ctx.addLine(to: CGPoint(x: p.x - size * 0.87, y: p.y - size * 0.5))
+        ctx.addLine(to: CGPoint(x: p.x + size * 0.87, y: p.y - size * 0.5))
+        ctx.closePath()
+        ctx.strokePath()
+        ctx.restoreGState()
+    }
+
+    // Airways converging on the airport (as they do at a hub).
+    airway(CGPoint(x: -100, y: 760), CGPoint(x: 1124, y: 300), color: airwaySlate, width: 4)
+    airway(CGPoint(x: 180, y: -100), CGPoint(x: 830, y: 1124), color: airwaySlate, width: 4)
+    airway(CGPoint(x: -100, y: 300), CGPoint(x: 1124, y: 620), color: airwayCyan, width: 4)
+    airway(CGPoint(x: 700, y: -100), CGPoint(x: 220, y: 1124), color: airwaySlate, width: 3, dashed: true)
+
+    // Waypoint fixes on the airways.
+    fix(at: CGPoint(x: 250, y: 628), size: 24, color: airwaySlate)
+    fix(at: CGPoint(x: 796, y: 423), size: 24, color: airwayCyan)
+    fix(at: CGPoint(x: 405, y: 279), size: 22, color: airwaySlate)
+
+    // Partial VOR compass rose, lower right.
+    let roseCenter = CGPoint(x: 880, y: 130)
+    let roseRadius: CGFloat = 210
+    ctx.setStrokeColor(airwaySlate)
+    ctx.setLineWidth(4)
+    ctx.strokeEllipse(in: CGRect(x: roseCenter.x - roseRadius, y: roseCenter.y - roseRadius,
+                                 width: roseRadius * 2, height: roseRadius * 2))
+    for i in 0..<36 {
+        let angle = CGFloat(i) * .pi / 18
+        let long = i % 3 == 0
+        let inner = roseRadius - (long ? 26 : 14)
+        ctx.move(to: CGPoint(x: roseCenter.x + cos(angle) * inner,
+                             y: roseCenter.y + sin(angle) * inner))
+        ctx.addLine(to: CGPoint(x: roseCenter.x + cos(angle) * roseRadius,
+                                y: roseCenter.y + sin(angle) * roseRadius))
+    }
+    ctx.strokePath()
 }
 
 /// KPDX as depicted on the sectional: large towered airports show the actual
@@ -72,23 +126,23 @@ func drawKPDX(_ ctx: CGContext, center: CGPoint, scale: CGFloat) {
 /// runway out on the bare chart.
 func drawScene(_ ctx: CGContext) {
     drawChart(ctx)
-    // Up and to the left, large enough to read as a runway diagram at a
-    // glance; the south parallel's east end falls under the lens.
-    drawKPDX(ctx, center: CGPoint(x: 400, y: 600), scale: 1.5)
+    // Dead center: the diagram lives entirely inside the centered lens,
+    // with comfortable margin after 1.6x magnification.
+    drawKPDX(ctx, center: CGPoint(x: 512, y: 502), scale: 0.8)
 }
 
 // MARK: - Magnifying glass
 
-let lensCenter = CGPoint(x: 650, y: 462)
-let lensRadius: CGFloat = 235
-let rimWidth: CGFloat = 26
+let lensCenter = CGPoint(x: 512, y: 512)
+let lensRadius: CGFloat = 296
+let rimWidth: CGFloat = 30
 let magnification: CGFloat = 1.6
 
 // Frosted-graphite glass material (macOS 27 Preview-loupe territory,
-// not storybook brass).
-let graphiteLight = color(0.42, 0.44, 0.48)
-let graphiteMid = color(0.24, 0.25, 0.28)
-let graphiteDark = color(0.10, 0.11, 0.13)
+// not storybook brass) — a notch lighter so it separates from the black.
+let graphiteLight = color(0.56, 0.58, 0.63)
+let graphiteMid = color(0.30, 0.32, 0.36)
+let graphiteDark = color(0.13, 0.14, 0.17)
 
 func lensPath() -> CGPath {
     CGPath(ellipseIn: CGRect(x: lensCenter.x - lensRadius, y: lensCenter.y - lensRadius,
@@ -118,6 +172,9 @@ func drawMagnifiedContent(_ ctx: CGContext) {
     // Liquid Glass edge refraction: near the rim, light bends harder — an
     // annulus re-rendered at higher magnification creates the visible
     // "shape distortion at the edge" of the macOS 27 style.
+    // Chart lines only: the airport sits well inside the glass, so only the
+    // background linework should visibly bend at the edge (re-rendering the
+    // full scene here ghosts runway-end shards into the band).
     let refractionBand: CGFloat = 26
     ctx.saveGState()
     ctx.addPath(ringPath(outer: lensRadius, inner: lensRadius - refractionBand))
@@ -125,18 +182,18 @@ func drawMagnifiedContent(_ ctx: CGContext) {
     ctx.translateBy(x: lensCenter.x, y: lensCenter.y)
     ctx.scaleBy(x: magnification * 1.10, y: magnification * 1.10)
     ctx.translateBy(x: -lensCenter.x, y: -lensCenter.y)
-    drawScene(ctx)
+    drawChart(ctx)
     ctx.restoreGState()
 
-    // Flatter glass tint: light wash, restrained edge falloff.
+    // Flatter glass tint: faint cool lift over the black, restrained edge.
     ctx.saveGState()
     ctx.addPath(lensPath())
     ctx.clip()
     let space = CGColorSpaceCreateDeviceRGB()
     let tint = CGGradient(colorsSpace: space, colors: [
-        color(0.78, 0.89, 0.94, 0.08),
-        color(0.60, 0.76, 0.84, 0.04),
-        color(0.25, 0.38, 0.48, 0.16),
+        color(0.70, 0.82, 0.95, 0.10),
+        color(0.55, 0.68, 0.85, 0.04),
+        color(0.05, 0.08, 0.14, 0.16),
     ] as CFArray, locations: [0, 0.82, 1])!
     ctx.drawRadialGradient(tint, startCenter: lensCenter, startRadius: 0,
                            endCenter: lensCenter, endRadius: lensRadius, options: [])
@@ -153,22 +210,22 @@ func drawGlint(_ ctx: CGContext) {
     let sheenCenter = CGPoint(x: lensCenter.x - lensRadius * 0.48,
                               y: lensCenter.y + lensRadius * 0.56)
     let sheen = CGGradient(colorsSpace: space, colors: [
-        color(1, 1, 1, 0.28), color(1, 1, 1, 0.0),
+        color(1, 1, 1, 0.16), color(1, 1, 1, 0.0),
     ] as CFArray, locations: [0, 1])!
     ctx.drawRadialGradient(sheen, startCenter: sheenCenter, startRadius: 0,
                            endCenter: sheenCenter, endRadius: lensRadius * 0.85, options: [])
 
-    // Sharp crescent streak.
-    ctx.setStrokeColor(color(1, 1, 1, 0.75))
-    ctx.setLineWidth(20)
+    // Sharp crescent streak — quieter on the dark glass.
+    ctx.setStrokeColor(color(1, 1, 1, 0.45))
+    ctx.setLineWidth(16)
     ctx.setLineCap(.round)
-    ctx.addArc(center: lensCenter, radius: lensRadius - rimWidth - 26,
-               startAngle: .pi * 0.60, endAngle: .pi * 0.88, clockwise: false)
+    ctx.addArc(center: lensCenter, radius: lensRadius - rimWidth - 22,
+               startAngle: .pi * 0.62, endAngle: .pi * 0.86, clockwise: false)
     ctx.strokePath()
-    ctx.setLineWidth(9)
-    ctx.setStrokeColor(color(1, 1, 1, 0.5))
-    ctx.addArc(center: lensCenter, radius: lensRadius - rimWidth - 60,
-               startAngle: .pi * 0.64, endAngle: .pi * 0.76, clockwise: false)
+    ctx.setLineWidth(7)
+    ctx.setStrokeColor(color(1, 1, 1, 0.28))
+    ctx.addArc(center: lensCenter, radius: lensRadius - rimWidth - 52,
+               startAngle: .pi * 0.66, endAngle: .pi * 0.76, clockwise: false)
     ctx.strokePath()
     ctx.restoreGState()
 }
@@ -272,7 +329,7 @@ func renderMaster() -> CGImage {
     ctx.saveGState()
     ctx.setShadow(offset: CGSize(width: 0, height: -12), blur: 30,
                   color: color(0, 0, 0, 0.30))
-    ctx.setFillColor(chartCream)
+    ctx.setFillColor(nightBottom)
     ctx.addPath(shape)
     ctx.fillPath()
     ctx.restoreGState()
@@ -281,11 +338,10 @@ func renderMaster() -> CGImage {
     ctx.addPath(shape)
     ctx.clip()
 
-    drawScene(ctx)          // base chart + symbol
+    drawScene(ctx)          // base chart (airport hidden under the lens)
     drawBrassRim(ctx)       // rim first: casts shadow onto the chart
     drawMagnifiedContent(ctx)
     drawGlint(ctx)
-    drawHandle(ctx)
 
     // Subtle inner bevel on the icon shape.
     ctx.addPath(shape)

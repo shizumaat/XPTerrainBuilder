@@ -140,7 +140,74 @@ public struct FixEngine: Sendable {
             return applyPNGConversion(pngPath: pngPath, finding: finding, records: &records)
         case .promoteGlobalNoBlend(let objPath):
             return applyGlobalPromotion(objPath: objPath, finding: finding, records: &records)
+        case .insertLoadCenter(let polPath, let lat, let lon, let size, let res):
+            return applyLoadCenter(polPath: polPath, latitude: lat, longitude: lon,
+                                   sizeMeters: size, resolutionPx: res,
+                                   finding: finding, records: &records)
         }
+    }
+
+    // MARK: insertLoadCenter
+
+    /// Insert `LOAD_CENTER lat lon size res` after the TEXTURE line of a
+    /// draped polygon, so X-Plane loads reduced-resolution mips for far-away
+    /// tiles ("saves VRAM, since textures that are far away won't be loaded
+    /// at full resolution" — Laminar).
+    func applyLoadCenter(polPath: String, latitude: Double, longitude: Double,
+                         sizeMeters: Int, resolutionPx: Int,
+                         finding: Finding, records: inout [ModificationRecord]) -> FixOutcome {
+        let fm = FileManager.default
+        let fileURL = URL(fileURLWithPath: polPath)
+        let backupURL = URL(fileURLWithPath: polPath + Self.backupSuffix)
+
+        func fail(_ message: String) -> FixOutcome {
+            FixOutcome(findingID: finding.id, filePath: polPath, success: false, message: message)
+        }
+
+        guard let original = try? Data(contentsOf: fileURL) else {
+            return fail("Could not read the file.")
+        }
+        guard let text = String(data: original, encoding: .utf8)
+                ?? String(data: original, encoding: .isoLatin1) else {
+            return fail("Could not decode the file.")
+        }
+        var lines = text.components(separatedBy: "\n")
+        guard !lines.contains(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("LOAD_CENTER") }) else {
+            return fail("The polygon already has a LOAD_CENTER.")
+        }
+        guard let textureIndex = lines.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespaces).hasPrefix("TEXTURE")
+        }) else {
+            return fail("No TEXTURE line found — not a valid draped polygon?")
+        }
+
+        let load = String(format: "LOAD_CENTER %.6f %.6f %d %d",
+                          latitude, longitude, sizeMeters, resolutionPx)
+        lines.insert(load, at: textureIndex + 1)
+        let edited = Data(lines.joined(separator: "\n").utf8)
+
+        // Back up the original (first backup wins — it is the true original).
+        if !fm.fileExists(atPath: backupURL.path) {
+            do {
+                try original.write(to: backupURL, options: .atomic)
+            } catch {
+                return fail("Could not create backup: \(error.localizedDescription)")
+            }
+        }
+        do {
+            try edited.write(to: fileURL, options: .atomic)
+        } catch {
+            return fail("Could not write the file: \(error.localizedDescription)")
+        }
+        if !records.contains(where: { $0.filePath == polPath }) {
+            records.append(ModificationRecord(
+                filePath: polPath,
+                backupPath: backupURL.path,
+                checkID: finding.checkID,
+                summary: "Add LOAD_CENTER (\(sizeMeters) m)"
+            ))
+        }
+        return FixOutcome(findingID: finding.id, filePath: polPath, success: true, message: nil)
     }
 
     // MARK: promoteGlobalNoBlend

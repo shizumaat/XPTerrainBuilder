@@ -185,6 +185,19 @@ struct MapOverlays: Sendable {
         }
     }
 
+    /// Same overlays with landmark marks moved from tile centroids to the
+    /// exact object-placement centroids the analysis computed.
+    func applyingExactMarkers(_ exact: [String: GeoPoint]) -> MapOverlays {
+        guard !exact.isEmpty else { return self }
+        var updated = self
+        updated.markers = markers.map { marker in
+            guard let point = exact[marker.packName] else { return marker }
+            return Marker(lon: point.lon, lat: point.lat,
+                          packName: marker.packName, status: marker.status)
+        }
+        return updated
+    }
+
     /// Packs whose coverage intersects the given viewport.
     func packs(inViewport bounds: (minLon: Double, maxLon: Double,
                                    minLat: Double, maxLat: Double)) -> [SceneryPack] {

@@ -93,6 +93,20 @@ Owner: Noah (noahplieberman@gmail.com, GitHub `shizumaat`). His install:
    all 37,632 tiles) — DSFReader decodes them in-process via
    /usr/lib/libarchive.2.dylib (dlopen; SevenZip.swift). Only the
    stream head is decompressed (DEFN sits at the front).
+11. **DSF geometry spec traps** (DSFGeometryReader, validated 100%
+   in-bounds on 40+ real tiles incl. a 3.5M-point simHeaven NY tile):
+   NESTED POLYGON RANGE's count byte is the WINDING count followed by
+   count+1 uint16 fence posts (the spec's wording misleads); empty
+   pools (count=0, even depth=0) exist and carry no per-plane data;
+   scaling is offset + raw × multiplier / 65535 (2^32−1 for PO32),
+   multiplier 0 = raw passthrough; POOL SELECT indexes 16- and 32-bit
+   pools in one combined file-order space.
+12. **Analysis cache**: per-pack, keyed by content signature (depth-2
+   names/sizes/mtimes + every DSF's mtime). Bump
+   AnalysisCache.schemaVersion whenever any analyzer's findings
+   change shape or meaning — stale caches otherwise serve old
+   results. Blind spot: in-place edits of non-DSF files deeper than
+   2 levels (own fixes invalidate explicitly; ⌘R bypasses).
 
 ## Environment quirks (Noah's machine)
 
@@ -135,12 +149,12 @@ Owner: Noah (noahplieberman@gmail.com, GitHub `shizumaat`). His install:
 - **Phase 2 leftovers**: libraries aren't listed in the inspector for a
   tile selection (no tiles); DuplicatesView/UnusedResourcesView tables
   embedded in the results pane are fixed-height (300pt).
-- **Researched but unbuilt** (docs/PITFALLS.md, ranked): LOAD_CENTER
-  auto-insertion for ortho textures (needs DSF winding parsing — also
-  prerequisite for C-01 overdraw and placement counts); spill-light
+- **Researched but unbuilt** (docs/PITFALLS.md, ranked): spill-light
   radius reduction fix ("tame night lighting"); legacy-light → XP12
   photometric modernization (named/param light swaps); facade stretch;
-  apt.dat overlap lint; exclusion-zone detection; dead-alpha stripping.
+  apt.dat overlap lint; exclusion-zone detection; dead-alpha stripping;
+  per-def placement COUNTS (geometry reader already collects them —
+  could upgrade C-09 severity when an animated object is placed 100×).
 - **Low-poly LOD generation** (QEM decimation for static single-texture
   OBJs): assessed as feasible; Noah interested but not yet green-lit —
   needs preview-then-apply UX, not one-click.

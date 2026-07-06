@@ -26,6 +26,37 @@ if let queryIndex = CommandLine.arguments.firstIndex(of: "--query-lib"),
     exit(0)
 }
 
+// Debug: --dsf-geometry <file.dsf> parses pools + commands and validates
+// every decoded coordinate against the tile's HEAD bounds.
+if let geoIndex = CommandLine.arguments.firstIndex(of: "--dsf-geometry"),
+   geoIndex + 1 < CommandLine.arguments.count {
+    let url = URL(fileURLWithPath: CommandLine.arguments[geoIndex + 1])
+    guard let geo = DSFGeometryReader.read(url: url) else {
+        print("PARSE FAILED: \(url.lastPathComponent)")
+        exit(1)
+    }
+    let props = geo.definitions.properties
+    let west = Double(props["sim/west"] ?? "") ?? -180
+    let east = Double(props["sim/east"] ?? "") ?? 180
+    let south = Double(props["sim/south"] ?? "") ?? -90
+    let north = Double(props["sim/north"] ?? "") ?? 90
+    var total = 0, inBounds = 0
+    func check(_ p: GeoPoint) {
+        total += 1
+        if p.lon >= west - 0.001, p.lon <= east + 0.001,
+           p.lat >= south - 0.001, p.lat <= north + 0.001 { inBounds += 1 }
+    }
+    for (_, points) in geo.objectPlacements { points.forEach(check) }
+    for (_, windings) in geo.polygonWindings { windings.forEach { $0.forEach(check) } }
+    let objects = geo.objectPlacements.values.reduce(0) { $0 + $1.count }
+    let windings = geo.polygonWindings.values.reduce(0) { $0 + $1.count }
+    print("\(url.lastPathComponent): bounds \(west)..\(east) x \(south)..\(north); " +
+          "\(objects) object placements (\(geo.objectPlacements.count) defs), " +
+          "\(windings) windings (\(geo.polygonWindings.count) defs); " +
+          "in-bounds \(inBounds)/\(total)")
+    exit(total == inBounds && total > 0 ? 0 : total == 0 ? 0 : 1)
+}
+
 // Debug: --parse-lib <pack-dir> <vpath> parses one library.txt in isolation.
 if let parseIndex = CommandLine.arguments.firstIndex(of: "--parse-lib"),
    parseIndex + 2 < CommandLine.arguments.count {

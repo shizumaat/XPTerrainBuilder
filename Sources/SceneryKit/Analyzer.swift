@@ -154,6 +154,7 @@ public struct Analyzer {
         var cache = options.cacheURL.map { AnalysisCache.load(from: $0) } ?? AnalysisCache()
         let health = PackageHealthAnalyzer(installation: installation, config: config)
         let audit = ResourceAuditAnalyzer(installation: installation)
+        let placement = PlacementAnalyzer(installation: installation)
         let targets = installation.packs.filter { !$0.isLaminar && $0.isInstalled }
 
         struct PipelineState {
@@ -175,17 +176,21 @@ public struct Analyzer {
             } else {
                 let healthResult = autoreleasepool { health.scanPack(pack) }
                 let auditResult = autoreleasepool { audit.scanPack(pack) }
+                let placementResult = autoreleasepool { placement.scanPack(pack) }
                 let escapes = ResourceAuditAnalyzer.collectEscapeRefs(in: pack)
                 entry = PackCacheEntry(
                     signature: pack.signature,
                     hasFullAnalysis: true,
                     healthFindings: healthResult.findings,
                     auditFindings: auditResult?.0 ?? [],
+                    placementFindings: placementResult.findings,
                     unusedCandidates: auditResult?.1,
                     escapeRefs: escapes,
                     vramBytes: healthResult.vramEstimateBytes,
                     objFilesParsed: healthResult.objFilesParsed,
-                    texturesInspected: healthResult.texturesInspected
+                    texturesInspected: healthResult.texturesInspected,
+                    markerLon: placementResult.marker?.lon,
+                    markerLat: placementResult.marker?.lat
                 )
             }
             let done = state.withLock { s -> Int in
@@ -195,20 +200,25 @@ public struct Analyzer {
                 return s.completed
             }
             onEvent(.stage(.inspectingPack("\(pack.name) (\(done)/\(targets.count))")))
-            let packFindings = entry.healthFindings + entry.auditFindings
+            let packFindings = entry.healthFindings + entry.auditFindings + entry.placementFindings
             if !packFindings.isEmpty { onEvent(.findings(packFindings)) }
         }
 
         var newEntries = state.withLock { $0.entries }
         var packVRAM: [String: Int64] = [:]
         var candidateGroups: [UnusedResourceGroup] = []
+        var packMarkers: [String: GeoPoint] = [:]
         for pack in targets {
             guard let entry = newEntries[pack.name] else { continue }
-            findings.append(contentsOf: entry.healthFindings + entry.auditFindings)
+            findings.append(contentsOf: entry.healthFindings + entry.auditFindings
+                            + entry.placementFindings)
             stats.objFilesParsed += entry.objFilesParsed
             stats.texturesInspected += entry.texturesInspected
             if !pack.isLibrary { packVRAM[pack.name] = entry.vramBytes }
             if let candidates = entry.unusedCandidates { candidateGroups.append(candidates) }
+            if let lon = entry.markerLon, let lat = entry.markerLat {
+                packMarkers[pack.name] = GeoPoint(lon: lon, lat: lat)
+            }
         }
         stats.packsFromCache = state.withLock { $0.fromCache }
 
@@ -290,7 +300,7 @@ public struct Analyzer {
         findings.sort {
             ($0.severity, $0.category.rawValue, $0.title) < ($1.severity, $1.category.rawValue, $1.title)
         }
-        return AnalysisReport(
+        var report = AnalysisReport(
             xplaneRoot: root.path,
             findings: findings,
             stats: stats,
@@ -299,6 +309,8 @@ public struct Analyzer {
             system: system,
             scopeDescription: scope.map { "\($0.count) selected package\($0.count == 1 ? "" : "s")" }
         )
+        report.packMarkers = packMarkers.isEmpty ? nil : packMarkers
+        return report
     }
 
     /// Regions where several packs' textures together exceed the VRAM budget.

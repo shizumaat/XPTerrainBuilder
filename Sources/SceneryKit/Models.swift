@@ -55,6 +55,11 @@ public enum ProposedFix: Codable, Sendable, Hashable {
     /// Replace uniform per-mesh ATTR_no_blend with GLOBAL_no_blend so the
     /// object stays on the instanced drawing path.
     case promoteGlobalNoBlend(objPath: String)
+    /// Insert `LOAD_CENTER <lat> <lon> <size m> <res px>` into a draped
+    /// polygon so distant tiles load a lower-resolution texture (Laminar-
+    /// endorsed; center/size computed from the DSF windings that use it).
+    case insertLoadCenter(polPath: String, latitude: Double, longitude: Double,
+                          sizeMeters: Int, resolutionPx: Int)
 
     public var summary: String {
         switch self {
@@ -66,6 +71,8 @@ public enum ProposedFix: Codable, Sendable, Hashable {
             return "Convert PNG to DDS"
         case .promoteGlobalNoBlend:
             return "Promote ATTR_no_blend to GLOBAL_no_blend"
+        case .insertLoadCenter(_, _, _, let size, _):
+            return "Add LOAD_CENTER (\(size) m)"
         }
     }
 
@@ -75,6 +82,7 @@ public enum ProposedFix: Codable, Sendable, Hashable {
         case .renameFile(let fromPath, _): return fromPath
         case .convertPNGToDDS(let path): return path
         case .promoteGlobalNoBlend(let path): return path
+        case .insertLoadCenter(let path, _, _, _, _): return path
         }
     }
 }
@@ -280,6 +288,9 @@ public struct AnalysisReport: Codable, Sendable {
     public var system: SystemInfo?
     /// Human-readable scope ("12 selected packages"); nil = whole install.
     public var scopeDescription: String?
+    /// Exact map positions (object-placement centroids) for small-footprint
+    /// packs, from DSF geometry. Optional: pre-placement reports decode fine.
+    public var packMarkers: [String: GeoPoint]?
 
     public init(
         xplaneRoot: String,

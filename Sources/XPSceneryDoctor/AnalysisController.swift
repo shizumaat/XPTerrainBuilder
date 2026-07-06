@@ -110,7 +110,9 @@ final class AnalysisController: ObservableObject {
             }.value
             guard let self else { return }
             self.installationPacks = packs
-            self.mapOverlays = overlays
+            // Exact marks from the last report survive the rescan until the
+            // auto-run refreshes them.
+            self.mapOverlays = overlays.applyingExactMarkers(self.report?.packMarkers ?? [:])
             self.isScanningInstallation = false
             self.scanProgress = nil
             self.hasScannedInstallation = true
@@ -217,6 +219,9 @@ final class AnalysisController: ObservableObject {
                     self.report = final
                     self.isRunning = false
                     self.unusedVerifyProgress = nil
+                    if let markers = final.packMarkers {
+                        self.mapOverlays = self.mapOverlays.applyingExactMarkers(markers)
+                    }
                     self.rebuildSearchCorpus()
                     self.persistReport()
                 }

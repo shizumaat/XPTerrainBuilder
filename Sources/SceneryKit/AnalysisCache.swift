@@ -13,6 +13,7 @@ public struct PackCacheEntry: Codable, Sendable {
     public var hasFullAnalysis: Bool
     public var healthFindings: [Finding]
     public var auditFindings: [Finding]
+    public var placementFindings: [Finding]
     /// Pre-verification unused-file candidates (nil = none).
     public var unusedCandidates: UnusedResourceGroup?
     /// Canonical absolute paths this pack references OUTSIDE itself.
@@ -27,6 +28,7 @@ public struct PackCacheEntry: Codable, Sendable {
 
     public init(signature: String, hasFullAnalysis: Bool = false,
                 healthFindings: [Finding] = [], auditFindings: [Finding] = [],
+                placementFindings: [Finding] = [],
                 unusedCandidates: UnusedResourceGroup? = nil, escapeRefs: [String] = [],
                 vramBytes: Int64 = 0, objFilesParsed: Int = 0, texturesInspected: Int = 0,
                 markerLon: Double? = nil, markerLat: Double? = nil) {
@@ -34,6 +36,7 @@ public struct PackCacheEntry: Codable, Sendable {
         self.hasFullAnalysis = hasFullAnalysis
         self.healthFindings = healthFindings
         self.auditFindings = auditFindings
+        self.placementFindings = placementFindings
         self.unusedCandidates = unusedCandidates
         self.escapeRefs = escapeRefs
         self.vramBytes = vramBytes
@@ -48,7 +51,7 @@ public struct AnalysisCache: Codable, Sendable {
     /// Bump whenever an analyzer's findings change shape or meaning — a
     /// version mismatch discards the whole cache rather than serving stale
     /// results from an older engine.
-    public static let schemaVersion = 1
+    public static let schemaVersion = 2
 
     public var version: Int = schemaVersion
     public var entries: [String: PackCacheEntry] = [:]

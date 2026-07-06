@@ -114,10 +114,18 @@ struct ResultsPane: View {
                         HStack {
                             Text(category.rawValue)
                                 .font(.callout.weight(.medium))
-                            Text("\(items.count)")
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                            severitySummary(items)
+                            if category == .unusedResources, !filteredUnusedGroups.isEmpty {
+                                // The expanded view is a per-FILE table, so the
+                                // headline count must be files, not findings.
+                                Text(unusedSummary)
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text("\(items.count)")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                                severitySummary(items)
+                            }
                         }
                     }
                 }
@@ -158,6 +166,11 @@ struct ResultsPane: View {
             )
             .frame(height: 300)
         case .unusedResources where !filteredUnusedGroups.isEmpty:
+            // "Could not audit" info findings would otherwise be swallowed
+            // by the table replacing the finding rows.
+            ForEach(items.filter { $0.checkID == "UNUSED-00" }) { finding in
+                FindingRow(finding: finding).tag(finding.id)
+            }
             UnusedResourcesView(groups: filteredUnusedGroups)
                 .frame(height: 300)
         default:
@@ -165,6 +178,15 @@ struct ResultsPane: View {
                 FindingRow(finding: finding).tag(finding.id)
             }
         }
+    }
+
+    /// e.g. "3,214 files in 6 packages — 68.4 GB"
+    private var unusedSummary: String {
+        let files = filteredUnusedGroups.reduce(0) { $0 + $1.files.count }
+        let bytes = filteredUnusedGroups.reduce(Int64(0)) { $0 + $1.totalBytes }
+        let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+        let packs = filteredUnusedGroups.count
+        return "\(files.formatted()) file\(files == 1 ? "" : "s") in \(packs) package\(packs == 1 ? "" : "s") — \(size)"
     }
 
     private func severitySummary(_ items: [Finding]) -> some View {

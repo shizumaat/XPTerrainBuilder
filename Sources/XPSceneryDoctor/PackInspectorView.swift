@@ -3,7 +3,8 @@ import SceneryKit
 
 /// Right pane: the packages in the current tile selection — or, with no
 /// selection, whatever the map window is looking at (live as it moves) —
-/// grouped by kind, with status badges and the context-aware pack actions.
+/// in scenery_packs.ini load order (first wins), with kind icons, status
+/// badges, drag-to-reorder, and the context-aware pack actions.
 struct PackInspectorView: View {
     @EnvironmentObject var controller: AnalysisController
     let packs: [SceneryPack]
@@ -12,15 +13,32 @@ struct PackInspectorView: View {
 
     private var affected: [SceneryPack] { packs }
 
-    private var sections: [(kind: PackKind, packs: [SceneryPack])] {
-        let grouped = Dictionary(grouping: affected, by: { $0.kind })
-        return PackKind.allCases.compactMap { kind in
-            grouped[kind].map { (kind, $0.sorted { $0.name.lowercased() < $1.name.lowercased() }) }
+    /// X-Plane load order: ini rank ascending (reorder override first, then
+    /// the scanned iniIndex), unlisted packs last, names break ties.
+    private var ordered: [SceneryPack] {
+        let override = controller.iniOrderOverride
+        func rank(_ pack: SceneryPack) -> Int {
+            override?[pack.name] ?? pack.iniIndex ?? Int.max
+        }
+        return affected.sorted {
+            (rank($0), $0.name.lowercased()) < (rank($1), $1.name.lowercased())
         }
     }
 
     var body: some View {
         VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Available Packages")
+                    .font(.headline)
+                Text("Drag to change X-Plane load order")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .help("Packs higher in the list load first and win conflicts. Reordering rewrites scenery_packs.ini, moving each pack only as far as needed.")
+            Divider()
             if affected.isEmpty {
                 ContentUnavailableView(
                     "No Custom Scenery Here",
@@ -31,12 +49,15 @@ struct PackInspectorView: View {
                 )
             } else {
                 List(selection: $selection.value) {
-                    ForEach(sections, id: \.kind) { section in
-                        Section("\(section.kind.rawValue) (\(section.packs.count))") {
-                            ForEach(section.packs, id: \.name) { pack in
-                                packRow(pack).tag(pack.name)
-                            }
-                        }
+                    ForEach(ordered, id: \.name) { pack in
+                        packRow(pack).tag(pack.name)
+                    }
+                    .onMove { source, destination in
+                        var names = ordered.map { $0.name }
+                        names.move(fromOffsets: source, toOffset: destination)
+                        // Uninstalled packs have no ini line to reorder.
+                        let installed = Set(affected.filter { $0.isInstalled }.map { $0.name })
+                        controller.reorderPacks(names.filter { installed.contains($0) })
                     }
                 }
                 .listStyle(.inset)
@@ -69,6 +90,7 @@ struct PackInspectorView: View {
     private func packRow(_ pack: SceneryPack) -> some View {
         HStack(spacing: 6) {
             statusDot(pack.status)
+            kindIcon(pack.kind)
             VStack(alignment: .leading, spacing: 1) {
                 Text(pack.name)
                     .lineLimit(1)
@@ -80,8 +102,30 @@ struct PackInspectorView: View {
                         .lineLimit(1)
                 }
             }
+            Spacer(minLength: 4)
+            Image(systemName: "line.3.horizontal")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .help("Drag to change load order")
         }
         .help(pack.url.path)
+    }
+
+    /// Category icon, tinted to match the map legend.
+    private func kindIcon(_ kind: PackKind) -> some View {
+        let (symbol, color): (String, Color) = switch kind {
+        case .airport: ("airplane.circle", .red)
+        case .landmark: ("building.2", .blue)
+        case .ortho: ("photo", .brown)
+        case .mesh: ("mountain.2", .green)
+        case .library: ("books.vertical", .purple)
+        case .other: ("shippingbox", .secondary)
+        }
+        return Image(systemName: symbol)
+            .font(.callout)
+            .foregroundStyle(color)
+            .frame(width: 18)
+            .help(kind.rawValue)
     }
 
     @ViewBuilder

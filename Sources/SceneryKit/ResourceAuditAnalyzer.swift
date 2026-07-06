@@ -157,6 +157,7 @@ public struct ResourceAuditAnalyzer {
         var findings: [Finding] = []
         var roots: [String] = []
         var renameCount = 0, missingCount = 0, nearMissCount = 0
+        var deprecatedRefs: [(entry: String, export: LibraryExport)] = []
 
         for (entry, tileCount) in defnEntries.sorted(by: { $0.key < $1.key }) {
             // Built-in resources (terrain_Water etc.) have no path separator.
@@ -168,8 +169,18 @@ public struct ResourceAuditAnalyzer {
                 roots.append(normalized)
                 continue
             }
-            if installation.libraryIndex.caseInsensitiveMatch(for: entry) != nil { continue }
-            if installation.defaultLibraryIndex.caseInsensitiveMatch(for: entry) != nil { continue }
+            if installation.libraryIndex.caseInsensitiveMatch(for: entry) != nil {
+                if let dep = installation.libraryIndex.fullyDeprecatedMatch(for: entry) {
+                    deprecatedRefs.append((entry, dep))
+                }
+                continue
+            }
+            if installation.defaultLibraryIndex.caseInsensitiveMatch(for: entry) != nil {
+                if let dep = installation.defaultLibraryIndex.fullyDeprecatedMatch(for: entry) {
+                    deprecatedRefs.append((entry, dep))
+                }
+                continue
+            }
 
             // Pack-local near-miss: case/normalization/mojibake damage.
             if let resolution = PathRepair.resolve(relativePath: entry, under: pack.url) {
@@ -249,6 +260,27 @@ public struct ResourceAuditAnalyzer {
                 ))
             }
             _ = tileCount
+        }
+
+        // Deprecated library references still draw today, so they're an
+        // author heads-up, not a user problem: one summary finding per pack.
+        if !deprecatedRefs.isEmpty {
+            let paths = deprecatedRefs.map { $0.entry }.sorted()
+            let shown = paths.prefix(10).joined(separator: "\n")
+            let more = paths.count > 10 ? "\n…and \(paths.count - 10) more" : ""
+            let libs = Set(deprecatedRefs.map { $0.export.packName }).sorted().joined(separator: ", ")
+            findings.append(Finding(
+                checkID: "RES-05",
+                severity: .info,
+                category: .developerDebug,
+                title: "References \(paths.count) deprecated library asset\(paths.count == 1 ? "" : "s")",
+                detail: "'\(pack.name)' references virtual paths that \(libs) marks DEPRECATED or SEMI_DEPRECATED. X-Plane still resolves them (some to blank placeholder art), but Laminar may remove them in a future version:\n\(shown)\(more)",
+                path: pack.url.path,
+                suggestion: "Scenery authors should migrate to the current library paths. Nothing for users to do.",
+                fixability: .manual,
+                packName: pack.name,
+                packKind: pack.kind
+            ))
         }
 
         // library.txt exports are externally reachable roots.

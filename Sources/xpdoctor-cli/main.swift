@@ -2,11 +2,11 @@ import Foundation
 import SceneryKit
 
 // Debug/CI harness: run the same analysis the app runs, from the terminal.
-//   swift run xpdoctor-cli "/path/to/X-Plane 12" [--json]
+//   swift run xpdoctor-cli "/path/to/X-Plane 12" [--json] [--scope "Pack Name"]...
 
 let args = CommandLine.arguments.dropFirst()
 guard let pathArg = args.first(where: { !$0.hasPrefix("--") }) else {
-    FileHandle.standardError.write(Data("usage: xpdoctor-cli <x-plane-root> [--json]\n".utf8))
+    FileHandle.standardError.write(Data("usage: xpdoctor-cli <x-plane-root> [--json] [--scope <pack-name>]...\n".utf8))
     exit(2)
 }
 let root = URL(fileURLWithPath: pathArg, isDirectory: true)
@@ -36,7 +36,15 @@ if let parseIndex = CommandLine.arguments.firstIndex(of: "--parse-lib"),
     exit(0)
 }
 
-let report = Analyzer(root: root).run { event in
+// --scope <pack-name> (repeatable) limits the analysis like the app's ⌘R.
+var scope: Set<String> = []
+var argList = CommandLine.arguments
+while let i = argList.firstIndex(of: "--scope"), i + 1 < argList.count {
+    scope.insert(argList[i + 1])
+    argList.removeSubrange(i...(i + 1))
+}
+
+let report = Analyzer(root: root).run(scope: scope.isEmpty ? nil : scope) { event in
     if case .stage(let stage) = event {
         FileHandle.standardError.write(Data("· \(stage.label)\n".utf8))
     }

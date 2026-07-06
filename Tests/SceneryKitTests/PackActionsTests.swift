@@ -85,6 +85,56 @@ import Foundation
         #expect(iniText(root).contains("SCENERY_PACK Custom Scenery/Another KSEA/"))
     }
 
+    @Test func reorderPermutesOnlyOccupiedSlots() throws {
+        // A drag in the (filtered) inspector must not haul a pack across the
+        // ini's airports/libraries/ortho regions — the reordered packs swap
+        // among their own line slots and everything else stays byte-identical.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("XPSDReorder-\(UUID().uuidString)")
+        let customScenery = root.appendingPathComponent("Custom Scenery")
+        try FileManager.default.createDirectory(at: customScenery, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let ini = """
+        I
+        1000 Version
+        SCENERY
+
+        SCENERY_PACK Custom Scenery/Airport A/
+        SCENERY_PACK *GLOBAL_AIRPORTS*
+        SCENERY_PACK Custom Scenery/Library L/
+        SCENERY_PACK_DISABLED Custom Scenery/Ortho One/
+        SCENERY_PACK Custom Scenery/Ortho Two/
+        SCENERY_PACK Custom Scenery/Mesh M/
+        """
+        try Data(ini.utf8).write(to: customScenery.appendingPathComponent("scenery_packs.ini"))
+        let service = PackActionService(root: root)
+
+        // User drags Ortho Two above Ortho One; Airport A stays first in the
+        // visible order. Even though Ortho Two sits right below Airport A in
+        // the on-screen list, it must only rise to Ortho One's old slot.
+        let error = service.reorder(packNames: ["Airport A", "Ortho Two", "Ortho One"])
+        #expect(error == nil)
+
+        let lines = iniText(root).components(separatedBy: "\n")
+        #expect(lines[4] == "SCENERY_PACK Custom Scenery/Airport A/")
+        #expect(lines[5] == "SCENERY_PACK *GLOBAL_AIRPORTS*")           // untouched
+        #expect(lines[6] == "SCENERY_PACK Custom Scenery/Library L/")   // untouched
+        #expect(lines[7] == "SCENERY_PACK Custom Scenery/Ortho Two/")   // swapped in
+        // The disabled keyword travels with the pack, not the slot.
+        #expect(lines[8] == "SCENERY_PACK_DISABLED Custom Scenery/Ortho One/")
+        #expect(lines[9] == "SCENERY_PACK Custom Scenery/Mesh M/")      // untouched
+
+        // Unlisted packs are appended enabled, in the requested order.
+        let error2 = service.reorder(packNames: ["Mesh M", "Fresh Pack"])
+        #expect(error2 == nil)
+        let after = iniText(root)
+        #expect(after.contains("SCENERY_PACK Custom Scenery/Fresh Pack/"))
+        #expect(service.iniOrder()["Airport A"] == 0)
+        #expect(service.iniOrder()["Ortho Two"] == 2)
+        #expect(service.iniOrder()["Fresh Pack"] == 5)
+    }
+
     @Test func iniLineParsing() {
         #expect(PackActionService.packName(fromIniLine: "SCENERY_PACK Custom Scenery/Foo Bar/") == "Foo Bar")
         #expect(PackActionService.packName(fromIniLine: "SCENERY_PACK_DISABLED Custom Scenery/Baz/") == "Baz")

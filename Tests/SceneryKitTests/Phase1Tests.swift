@@ -263,6 +263,46 @@ import Foundation
         #expect(index.caseInsensitiveMatch(for: "spr,sum") == nil)
     }
 
+    @Test func deprecationMarkersScopeExports() throws {
+        // Bare PUBLIC / PRIVATE / DEPRECATED / SEMI_DEPRECATED lines scope
+        // every EXPORT after them (WED semantics). Laminar's default
+        // libraries mark legacy art this way — RES-05 flags references to
+        // paths whose every export is deprecated, and nothing else.
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("XPSDDeprecated-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let text = """
+        A
+        800
+        LIBRARY
+
+        DEPRECATED
+        EXPORT lib/ships/Carrier.obj dynamic/blank.obj
+        SEMI_DEPRECATED
+        EXPORT lib/dynamic/balloon1.obj dynamic/balloon1.obj
+        PUBLIC 20240630
+        EXPORT lib/airport/windsock.obj landscape/windsock.obj
+        DEPRECATED
+        EXPORT lib/mixed/asset.obj old/asset.obj
+        PUBLIC
+        EXPORT lib/mixed/asset.obj new/asset.obj
+        """
+        try Data(text.utf8).write(to: dir.appendingPathComponent("library.txt"))
+
+        var index = LibraryIndex()
+        index.indexLibrary(at: dir, packName: "sim objects")
+        #expect(index.caseInsensitiveMatch(for: "lib/ships/Carrier.obj")?.status == .deprecated)
+        #expect(index.caseInsensitiveMatch(for: "lib/dynamic/balloon1.obj")?.status == .semiDeprecated)
+        #expect(index.caseInsensitiveMatch(for: "lib/airport/windsock.obj")?.status == .public)
+        #expect(index.fullyDeprecatedMatch(for: "lib/ships/Carrier.obj") != nil)
+        #expect(index.fullyDeprecatedMatch(for: "lib/dynamic/balloon1.obj") != nil)
+        #expect(index.fullyDeprecatedMatch(for: "lib/airport/windsock.obj") == nil)
+        // One public export keeps a mixed-status path off the deprecated list.
+        #expect(index.fullyDeprecatedMatch(for: "lib/mixed/asset.obj") == nil)
+    }
+
     @Test func tileMathRoundTrips() {
         #expect(TileMath.key(lat: 41, lon: -73) == "+41-073")
         #expect(TileMath.key(lat: -9, lon: 8) == "-09+008")

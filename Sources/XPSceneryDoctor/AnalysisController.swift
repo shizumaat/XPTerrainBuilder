@@ -27,6 +27,9 @@ final class AnalysisController: ObservableObject {
     /// changes, never per frame.
     @Published var mapOverlays = MapOverlays.empty
     @Published var isScanningInstallation = false
+    /// False until the first scan of the current install completes — the map
+    /// window shows a loading screen instead of a half-laid-out split view.
+    @Published var hasScannedInstallation = false
     @Published var selectedTiles: Set<String> = []
 
     // Search: debounced, filtered off the main thread against a precomputed
@@ -43,6 +46,10 @@ final class AnalysisController: ObservableObject {
     // Pack actions (duplicates view)
     @Published var isApplyingAction = false
     @Published var actionErrors: [PackActionOutcome] = []
+    /// Fresh ini ranks published right after a drag-reorder so the inspector
+    /// shows the new order instantly; the follow-up rescan (seconds on a big
+    /// install) clears it once packs carry the new iniIndex themselves.
+    @Published var iniOrderOverride: [String: Int]? = nil
 
     // Fixes + modification log
     @Published var isFixing = false
@@ -64,17 +71,36 @@ final class AnalysisController: ObservableObject {
 
     // MARK: - Installation scan (map data)
 
+    /// A refresh requested while a scan is in flight; runs when it finishes.
+    /// (An in-flight scan read the ini before whatever prompted the request,
+    /// so its results can be stale — the follow-up scan settles things.)
+    private var pendingRefresh = false
+
     func refreshInstallation() {
-        guard let root = rootURL, !isScanningInstallation else { return }
+        guard let root = rootURL else { return }
+        guard !isScanningInstallation else {
+            pendingRefresh = true
+            return
+        }
         isScanningInstallation = true
         Task { [weak self] in
             let (packs, overlays) = await Task.detached(priority: .userInitiated) {
                 let packs = InstallationScanner(root: root).scan().packs
                 return (packs, MapOverlays(packs: packs))
             }.value
-            self?.installationPacks = packs
-            self?.mapOverlays = overlays
-            self?.isScanningInstallation = false
+            guard let self else { return }
+            self.installationPacks = packs
+            self.mapOverlays = overlays
+            self.isScanningInstallation = false
+            self.hasScannedInstallation = true
+            if self.pendingRefresh {
+                self.pendingRefresh = false
+                self.refreshInstallation()
+            } else {
+                // Only a scan that saw the final ini may drop the reorder
+                // override — packs now carry the new iniIndex themselves.
+                self.iniOrderOverride = nil
+            }
         }
     }
 
@@ -264,6 +290,28 @@ final class AnalysisController: ObservableObject {
             self.isApplyingAction = false
             self.rebuildSearchCorpus()
             self.persistReport()
+        }
+    }
+
+    /// Rewrite scenery_packs.ini so `orderedNames` load in this relative
+    /// order (minimal-movement permutation — see PackActionService.reorder).
+    func reorderPacks(_ orderedNames: [String]) {
+        guard let root = rootURL, orderedNames.count > 1, !isApplyingAction, !isRunning else { return }
+        isApplyingAction = true
+        Task { [weak self] in
+            let (error, order) = await Task.detached(priority: .userInitiated) {
+                let service = PackActionService(root: root)
+                let error = service.reorder(packNames: orderedNames)
+                return (error, service.iniOrder())
+            }.value
+            guard let self else { return }
+            self.isApplyingAction = false
+            if let error {
+                self.errorMessage = "Could not update scenery_packs.ini: \(error.localizedDescription)"
+            } else {
+                self.iniOrderOverride = order
+            }
+            self.refreshInstallation()
         }
     }
 

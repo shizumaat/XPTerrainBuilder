@@ -147,6 +147,63 @@ public struct PackActionService {
         }
     }
 
+    /// Rewrites scenery_packs.ini so the given packs appear in this relative
+    /// order, disturbing the file as little as possible: the packs permute
+    /// among the line slots they already occupy and every other line stays
+    /// put. The ini is roughly airports → libraries → ortho/mesh, so a drag
+    /// within one region must not haul a pack across the others just because
+    /// the on-screen list (filtered to one map area) shows them adjacent.
+    ///
+    /// Each pack keeps its own line text (enabled/disabled keyword travels
+    /// with the pack, not the slot). Packs with no ini line yet are appended
+    /// enabled, matching how the other actions treat unlisted packs.
+    public func reorder(packNames orderedNames: [String]) -> Error? {
+        let text = TextFile.contents(of: iniURL) ?? Self.iniHeader
+        var lines = text.components(separatedBy: "\n")
+
+        // First line per pack — X-Plane ignores duplicate later lines.
+        var lineIndexByName: [String: Int] = [:]
+        for (i, line) in lines.enumerated() {
+            if let name = Self.packName(fromIniLine: line), lineIndexByName[name] == nil {
+                lineIndexByName[name] = i
+            }
+        }
+
+        let listed = orderedNames.filter { lineIndexByName[$0] != nil }
+        let slots = listed.map { lineIndexByName[$0]! }.sorted()
+        let originalLines = listed.reduce(into: [String: String]()) {
+            $0[$1] = lines[lineIndexByName[$1]!]
+        }
+        for (slot, name) in zip(slots, listed) {
+            lines[slot] = originalLines[name]!
+        }
+        for name in orderedNames where lineIndexByName[name] == nil {
+            lines.append("SCENERY_PACK Custom Scenery/\(name)/")
+        }
+
+        do {
+            try lines.joined(separator: "\n")
+                .write(to: iniURL, atomically: true, encoding: .utf8)
+            return nil
+        } catch {
+            return error
+        }
+    }
+
+    /// Current ini rank of every listed pack (line order, 0-based) — a cheap
+    /// way to refresh display order after a reorder without a full rescan.
+    public func iniOrder() -> [String: Int] {
+        guard let text = TextFile.contents(of: iniURL) else { return [:] }
+        var order: [String: Int] = [:]
+        var rank = 0
+        for line in TextFile.lines(text) {
+            guard let name = Self.packName(fromIniLine: String(line)) else { continue }
+            if order[name] == nil { order[name] = rank }
+            rank += 1
+        }
+        return order
+    }
+
     // MARK: - Actions
 
     func setEnabled(_ enabled: Bool, _ packNames: [String]) -> [PackActionOutcome] {

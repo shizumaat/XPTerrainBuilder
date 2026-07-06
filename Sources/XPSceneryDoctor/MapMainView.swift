@@ -21,6 +21,8 @@ struct MapMainView: View {
         Group {
             if controller.xplanePath.isEmpty {
                 onboarding
+            } else if !controller.hasScannedInstallation {
+                loading
             } else {
                 VSplitView {
                     HSplitView {
@@ -61,6 +63,7 @@ struct MapMainView: View {
         .onChange(of: controller.xplanePath) {
             controller.selectedTiles = []
             controller.installationPacks = []
+            controller.hasScannedInstallation = false
             controller.refreshInstallation()
         }
         .fileImporter(isPresented: $showingPicker.value, allowedContentTypes: [.folder]) { result in
@@ -219,6 +222,29 @@ struct MapMainView: View {
                 camera.value = cam
             }
         }
+    }
+
+    // MARK: - Loading
+
+    /// Full-window stand-in until the first installation scan lands, so the
+    /// user never sees the split view mid-layout with empty panes.
+    private var loading: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "map")
+                .font(.system(size: 44))
+                .foregroundStyle(.tint)
+            Text("Reading Your Scenery")
+                .font(.title2.weight(.semibold))
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Scanning Custom Scenery — the map opens when the index is ready.")
+                    .foregroundStyle(.secondary)
+            }
+            Text(controller.xplanePath)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Onboarding

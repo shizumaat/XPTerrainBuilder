@@ -1,10 +1,31 @@
 import Foundation
 
+/// Author-facing lifecycle of an export, set by bare status directives
+/// (PUBLIC / PRIVATE / DEPRECATED / SEMI_DEPRECATED) that apply to every
+/// EXPORT line after them until the next directive — the same semantics
+/// WED uses. Laminar's default libraries mark legacy XP8–11 art this way;
+/// deprecated paths still resolve (sometimes to blank placeholder art) but
+/// may be dropped in future X-Plane versions.
+public enum LibraryExportStatus: Sendable {
+    case `public`, `private`, deprecated, semiDeprecated
+
+    public var isDeprecated: Bool { self == .deprecated || self == .semiDeprecated }
+}
+
 /// An EXPORT line from a library.txt: a virtual path backed by a real file in some pack.
 public struct LibraryExport: Sendable {
     public let virtualPath: String
     public let realPath: String
     public let packName: String
+    public let status: LibraryExportStatus
+
+    public init(virtualPath: String, realPath: String, packName: String,
+                status: LibraryExportStatus = .public) {
+        self.virtualPath = virtualPath
+        self.realPath = realPath
+        self.packName = packName
+        self.status = status
+    }
 }
 
 /// Index of every virtual path exported by every installed library pack.
@@ -27,8 +48,15 @@ public struct LibraryIndex: Sendable {
     public mutating func indexLibrary(at packURL: URL, packName: String) {
         let libraryTxt = packURL.appendingPathComponent("library.txt")
         guard let text = TextFile.contents(of: libraryTxt) else { return }
+        var status = LibraryExportStatus.public
         for rawLine in TextFile.lines(text) {
             let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Status directives scope every following EXPORT (PUBLIC may
+            // carry a date: "PUBLIC 20240630").
+            if line.hasPrefix("PUBLIC") { status = .public; continue }
+            if line == "PRIVATE" { status = .private; continue }
+            if line == "DEPRECATED" { status = .deprecated; continue }
+            if line == "SEMI_DEPRECATED" { status = .semiDeprecated; continue }
             // EXPORT, EXPORT_RATIO, EXPORT_EXTEND, EXPORT_BACKUP, EXPORT_EXCLUDE,
             // EXPORT_SEASON, EXPORT_EXCLUDE_SEASON
             guard line.hasPrefix("EXPORT") else { continue }
@@ -46,7 +74,8 @@ public struct LibraryIndex: Sendable {
             guard parts.count >= 2 else { continue }
             let virtualPath = parts[0]
             let realPath = parts[1...].joined(separator: " ")
-            add(LibraryExport(virtualPath: virtualPath, realPath: realPath, packName: packName))
+            add(LibraryExport(virtualPath: virtualPath, realPath: realPath,
+                              packName: packName, status: status))
         }
     }
 
@@ -62,7 +91,8 @@ public struct LibraryIndex: Sendable {
         let normalized = LibraryExport(
             virtualPath: export.virtualPath.replacingOccurrences(of: "\\", with: "/"),
             realPath: export.realPath.replacingOccurrences(of: "\\", with: "/"),
-            packName: export.packName
+            packName: export.packName,
+            status: export.status
         )
         let key = Self.normalizeKey(normalized.virtualPath)
         exports[key, default: []].append(normalized)
@@ -75,6 +105,15 @@ public struct LibraryIndex: Sendable {
     /// export if the only difference from `virtualPath` is case or "\" vs "/".
     public func caseInsensitiveMatch(for virtualPath: String) -> LibraryExport? {
         exports[Self.normalizeKey(virtualPath)]?.first
+    }
+
+    /// The match, but only when EVERY export of the path is deprecated or
+    /// semi-deprecated — one public seasonal/regional variant means the path
+    /// is still supported and must not be flagged.
+    public func fullyDeprecatedMatch(for virtualPath: String) -> LibraryExport? {
+        guard let all = exports[Self.normalizeKey(virtualPath)], !all.isEmpty,
+              all.allSatisfy({ $0.status.isDeprecated }) else { return nil }
+        return all.first
     }
 
     /// Pack names that export anything under the same top-level prefix,

@@ -50,7 +50,11 @@ Owner: Noah (noahplieberman@gmail.com, GitHub `shizumaat`). His install:
    `TextFile.lines()`. This bug zeroed every Windows-authored library
    index (regression test exists).
 2. **Separators**: library.txt EXPORT lines may be tab-separated AND use
-   backslash paths (RD_Library). LibraryIndex normalizes both.
+   backslash paths (RD_Library). LibraryIndex normalizes both. EXPORT
+   keywords with extra leading args: EXPORT_RATIO (ratio) and
+   EXPORT_SEASON / EXPORT_EXCLUDE_SEASON (season list) — XP12's default
+   libraries remap legacy XP8–11 paths (lib/g8/*) through the season
+   forms; mis-parsing them false-alarmed RES-01 (regression test).
 3. **Symlinks**: `isDirectoryKey` is false for symlinked packs — 60% of
    Noah's install. `packDirectories` resolves via `fileExists`.
 4. **FD limits**: GUI apps get 256 fds; abandoned directory enumerators

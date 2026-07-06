@@ -3,6 +3,7 @@ import SceneryKit
 
 struct SettingsView: View {
     @AppStorage(PrefKeys.xplanePath) private var xplanePath: String = ""
+    @AppStorage(AppearanceSetting.prefKey) private var appearanceRaw: String = AppearanceSetting.system.rawValue
     @StateObject private var showingPicker = ViewState(false)
 
     private var isValid: Bool {
@@ -36,6 +37,18 @@ struct SettingsView: View {
                 Text("The folder that contains X-Plane.app, Custom Scenery and Log.txt.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Picker("Appearance", selection: $appearanceRaw) {
+                    ForEach(AppearanceSetting.allCases, id: \.rawValue) { setting in
+                        Text(setting.label).tag(setting.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: appearanceRaw) {
+                    (AppearanceSetting(rawValue: appearanceRaw) ?? .system).apply()
+                }
             }
         }
         .formStyle(.grouped)

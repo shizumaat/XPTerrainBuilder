@@ -22,6 +22,12 @@ struct XPSceneryDoctorApp: App {
         }
         .defaultSize(width: 960, height: 640)
 
+        Window("Modifications", id: "modifications") {
+            ModificationsWindow()
+                .environmentObject(controller)
+        }
+        .defaultSize(width: 640, height: 400)
+
         Settings {
             SettingsView()
         }
@@ -52,7 +58,41 @@ struct AppCommands: Commands {
             }
             .keyboardShortcut("1", modifiers: [.command, .option])
             .disabled(controller.report == nil)
+
+            Button("Modifications") {
+                openWindow(id: "modifications")
+            }
+            .keyboardShortcut("2", modifiers: [.command, .option])
         }
+    }
+}
+
+/// User-facing appearance override (Settings ▸ Appearance). "system" follows
+/// the OS light/dark mode; explicit values pin the app, Proxyman-style.
+enum AppearanceSetting: String, CaseIterable {
+    case system, light, dark
+
+    static let prefKey = "Appearance"
+
+    var label: String {
+        switch self {
+        case .system: return "System"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
+    }
+
+    func apply() {
+        switch self {
+        case .system: NSApp.appearance = nil
+        case .light: NSApp.appearance = NSAppearance(named: .aqua)
+        case .dark: NSApp.appearance = NSAppearance(named: .darkAqua)
+        }
+    }
+
+    static func applyCurrent() {
+        let raw = UserDefaults.standard.string(forKey: prefKey) ?? ""
+        (AppearanceSetting(rawValue: raw) ?? .system).apply()
     }
 }
 
@@ -62,6 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        AppearanceSetting.applyCurrent()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

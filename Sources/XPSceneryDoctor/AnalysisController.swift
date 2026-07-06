@@ -24,6 +24,14 @@ final class AnalysisController: ObservableObject {
     @Published var isApplyingAction = false
     @Published var actionErrors: [PackActionOutcome] = []
 
+    // Fixes + modification log
+    @Published var isFixing = false
+    @Published var fixErrors: [String] = []
+    @Published var lastFixSummary: String?
+    @Published var modifications: [ModificationRecord] = []
+
+    private let fixEngine = FixEngine()
+
     var rootURL: URL? {
         guard !xplanePath.isEmpty else { return nil }
         return URL(fileURLWithPath: xplanePath, isDirectory: true)
@@ -130,6 +138,69 @@ final class AnalysisController: ObservableObject {
             }
             self.actionErrors = outcomes.filter { !$0.success }
             self.isApplyingAction = false
+        }
+    }
+
+    // MARK: - Fixes
+
+    func applyFixes(to findings: [Finding]) {
+        let fixable = findings.filter { $0.proposedFix != nil }
+        guard !fixable.isEmpty, !isFixing, !isRunning else { return }
+        isFixing = true
+        fixErrors = []
+
+        let engine = fixEngine
+        Task { [weak self] in
+            let outcomes = await Task.detached(priority: .userInitiated) {
+                engine.apply(fixable)
+            }.value
+
+            guard let self else { return }
+            let succeeded = Set(outcomes.filter { $0.success }.map { $0.findingID })
+            if var report = self.report {
+                report.findings.removeAll { succeeded.contains($0.id) }
+                self.report = report
+            }
+            self.fixErrors = outcomes.filter { !$0.success }.map {
+                "\(URL(fileURLWithPath: $0.filePath).lastPathComponent): \($0.message ?? "unknown error")"
+            }
+            if !succeeded.isEmpty {
+                self.lastFixSummary = "Fixed \(succeeded.count) file\(succeeded.count == 1 ? "" : "s"). Originals were backed up — see Window ▸ Modifications to revert."
+            }
+            self.loadModifications()
+            self.isFixing = false
+        }
+    }
+
+    func loadModifications() {
+        let engine = fixEngine
+        Task { [weak self] in
+            let records = await Task.detached { engine.log.load() }.value
+            self?.modifications = records.sorted { $0.date > $1.date }
+        }
+    }
+
+    func revertModifications(_ records: [ModificationRecord]) {
+        guard !records.isEmpty, !isFixing, !isRunning else { return }
+        isFixing = true
+        fixErrors = []
+
+        let engine = fixEngine
+        Task { [weak self] in
+            let outcomes = await Task.detached(priority: .userInitiated) {
+                engine.revert(records)
+            }.value
+
+            guard let self else { return }
+            self.fixErrors = outcomes.filter { !$0.success }.map {
+                "\(URL(fileURLWithPath: $0.record.filePath).lastPathComponent): \($0.message ?? "unknown error")"
+            }
+            let reverted = outcomes.filter { $0.success }.count
+            if reverted > 0 {
+                self.lastFixSummary = "Reverted \(reverted) file\(reverted == 1 ? "" : "s") to the original. Re-run Analyze (⌘R) to refresh findings."
+            }
+            self.loadModifications()
+            self.isFixing = false
         }
     }
 

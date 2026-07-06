@@ -78,6 +78,16 @@ struct ReportWindow: View {
                     .map { "\($0.packName): \($0.message ?? "unknown error")" }
                     .joined(separator: "\n"))
             }
+            .alert("Some fixes failed", isPresented: fixErrorsBinding) {
+                Button("OK") { controller.fixErrors = [] }
+            } message: {
+                Text(controller.fixErrors.joined(separator: "\n"))
+            }
+            .alert("Done", isPresented: fixSummaryBinding) {
+                Button("OK") { controller.lastFixSummary = nil }
+            } message: {
+                Text(controller.lastFixSummary ?? "")
+            }
         } else {
             ContentUnavailableView(
                 "No Analysis Yet",
@@ -103,6 +113,20 @@ struct ReportWindow: View {
         Binding(
             get: { !controller.actionErrors.isEmpty },
             set: { if !$0 { controller.actionErrors = [] } }
+        )
+    }
+
+    private var fixErrorsBinding: Binding<Bool> {
+        Binding(
+            get: { !controller.fixErrors.isEmpty },
+            set: { if !$0 { controller.fixErrors = [] } }
+        )
+    }
+
+    private var fixSummaryBinding: Binding<Bool> {
+        Binding(
+            get: { controller.lastFixSummary != nil && controller.fixErrors.isEmpty },
+            set: { if !$0 { controller.lastFixSummary = nil } }
         )
     }
 
@@ -178,9 +202,21 @@ struct ReportWindow: View {
 // MARK: - Findings list
 
 struct FindingsList: View {
+    @EnvironmentObject var controller: AnalysisController
     let findings: [Finding]
     let grouped: Bool
     var isLive = false
+
+    @StateObject private var selection = ViewState(Set<Finding.ID>())
+    @StateObject private var confirmingFix = ViewState<[Finding]?>(nil)
+
+    private var fixable: [Finding] {
+        findings.filter { $0.proposedFix != nil }
+    }
+
+    private var selectedFixable: [Finding] {
+        fixable.filter { selection.value.contains($0.id) }
+    }
 
     var body: some View {
         if findings.isEmpty {
@@ -192,22 +228,85 @@ struct FindingsList: View {
                     : "Nothing matches the current filters.")
             )
         } else {
-            List {
-                if grouped {
-                    ForEach(FindingCategory.allCases, id: \.self) { category in
-                        let items = findings.filter { $0.category == category }
-                        if !items.isEmpty {
-                            Section("\(category.rawValue) (\(items.count))") {
-                                ForEach(items) { FindingRow(finding: $0) }
+            VStack(spacing: 0) {
+                List(selection: $selection.value) {
+                    if grouped {
+                        ForEach(FindingCategory.allCases, id: \.self) { category in
+                            let items = findings.filter { $0.category == category }
+                            if !items.isEmpty {
+                                Section("\(category.rawValue) (\(items.count))") {
+                                    ForEach(items) { finding in
+                                        FindingRow(finding: finding).tag(finding.id)
+                                    }
+                                }
                             }
                         }
+                    } else {
+                        ForEach(findings) { finding in
+                            FindingRow(finding: finding).tag(finding.id)
+                        }
                     }
-                } else {
-                    ForEach(findings) { FindingRow(finding: $0) }
+                }
+                .listStyle(.inset)
+
+                if !fixable.isEmpty {
+                    Divider()
+                    fixBar
                 }
             }
-            .listStyle(.inset)
+            .confirmationDialog(
+                fixConfirmationTitle,
+                isPresented: Binding(
+                    get: { confirmingFix.value != nil },
+                    set: { if !$0 { confirmingFix.value = nil } }
+                )
+            ) {
+                Button("Apply Fixes") {
+                    if let findings = confirmingFix.value {
+                        controller.applyFixes(to: findings)
+                        selection.value = []
+                    }
+                    confirmingFix.value = nil
+                }
+            } message: {
+                Text("Each file is backed up beside the original (.xpsd-backup) before editing, and every change can be undone from Window ▸ Modifications.")
+            }
         }
+    }
+
+    private var fixConfirmationTitle: String {
+        let count = confirmingFix.value?.count ?? 0
+        return count == 1
+            ? "Apply the fix to 1 file?"
+            : "Apply fixes to \(count) files?"
+    }
+
+    private var fixBar: some View {
+        HStack {
+            if controller.isFixing {
+                ProgressView().controlSize(.small)
+                Text("Applying fixes…").foregroundStyle(.secondary)
+            } else {
+                Text(selectedFixable.isEmpty
+                     ? "\(fixable.count) finding\(fixable.count == 1 ? "" : "s") can be fixed automatically"
+                     : "\(selectedFixable.count) fixable selected")
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Fix Selected") {
+                confirmingFix.value = selectedFixable
+            }
+            .disabled(selectedFixable.isEmpty || controller.isFixing || controller.isRunning)
+            Button("Fix All (\(fixable.count))") {
+                confirmingFix.value = fixable
+            }
+            .disabled(fixable.isEmpty || controller.isFixing || controller.isRunning)
+            .help(controller.isRunning ? "Available when the analysis finishes" : "Apply every automatic fix shown in this list")
+        }
+        .font(.callout)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.bar)
     }
 }
 

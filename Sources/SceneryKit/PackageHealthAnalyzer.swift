@@ -109,7 +109,7 @@ public struct PackageHealthAnalyzer {
         let tinyCount = objFiles.filter { $0.size > 0 && $0.size < config.tinyObjFileBytes }.count
         let toParse = objFiles.sorted { $0.size > $1.size }.prefix(config.maxObjParsesPerPack)
 
-        var noLODHeavy: [(URL, Int)] = []
+        var noLODHeavy: [(URL, ObjInfo)] = []
         var attrPromotable: [URL] = []
         var blendPingPong: [(URL, Int)] = []
 
@@ -118,7 +118,7 @@ public struct PackageHealthAnalyzer {
             result.objFilesParsed += 1
 
             if !info.hasLOD && info.vertexCount >= config.heavyObjVertexCount {
-                noLODHeavy.append((url, info.vertexCount))
+                noLODHeavy.append((url, info))
             }
             // ATTR_no_blend used per-mesh with no blending flips and no GLOBAL
             // equivalent: whole-object state that forfeits hardware instancing.
@@ -131,16 +131,22 @@ public struct PackageHealthAnalyzer {
             }
         }
 
-        for (url, verts) in noLODHeavy.sorted(by: { $0.1 > $1.1 }).prefix(config.maxFindingsPerCheckPerPack) {
+        for (url, info) in noLODHeavy.sorted(by: { $0.1.vertexCount > $1.1.vertexCount }).prefix(config.maxFindingsPerCheckPerPack) {
+            let verts = info.vertexCount
+            let distance = LODAdvisor.farCullDistance(forLargestDimension: info.largestDimension)
+            let sizeClause = info.dimensionsDescription
+                .map { "It measures ~\($0), so beyond ~\(distance) m it occupies only a few pixels yet still draws at full detail." }
+                ?? "Beyond ~\(distance) m it occupies only a few pixels yet still draws at full detail."
             result.findings.append(Finding(
                 checkID: "C-02",
                 severity: verts >= config.heavyObjVertexCount * 4 ? .error : .warning,
                 category: .packageHealth,
                 title: "Heavy object with no LOD: \(url.lastPathComponent)",
-                detail: "\(url.lastPathComponent) in '\(pack.name)' has \(verts) vertices and no ATTR_LOD. Every placement draws at full detail regardless of distance.",
+                detail: "\(url.lastPathComponent) in '\(pack.name)' has \(verts) vertices and no ATTR_LOD. \(sizeClause)",
                 path: url.path,
-                suggestion: "Ask the author for LODs, or add a far-cull LOD (a one-line text edit: 'ATTR_LOD 0 <distance>') so it stops drawing at distance.",
-                fixability: .assisted
+                suggestion: "Apply Fix to insert 'ATTR_LOD 0 \(distance)' (sized to the object's dimensions) so it stops drawing at distance. The original file is backed up first. A real lower-poly LOD from the author is still better.",
+                fixability: .auto,
+                proposedFix: .addFarLOD(objPath: url.path, distanceMeters: distance)
             ))
         }
 

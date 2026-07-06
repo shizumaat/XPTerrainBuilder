@@ -35,6 +35,10 @@ Point it at your X-Plane folder, press **Analyze**, and it reports:
 **Package health & performance** (based on Laminar's scenery performance
 guidance; check IDs follow the xpsan spec in `docs/`)
 - `C-02` Heavy objects with no LOD — drawn at full detail at any distance.
+  The object's physical size is measured from its geometry, and a one-click
+  **Apply Fix** inserts a far-cull `ATTR_LOD` scaled to it (a 150 m terminal
+  culls at 15 km, a 2 m person at 300 m). Fixes can be applied to a
+  selection or a whole category.
 - `C-03` Instancing-hostile ATTR state and blend ping-pong in OBJ8 files.
 - `C-04` Texture problems: large PNGs that stutter at load (should be DDS),
   DDS without mipmaps, oversized and non-power-of-two textures.
@@ -45,6 +49,12 @@ guidance; check IDs follow the xpsan spec in `docs/`)
 Findings open in a dedicated report window: category sidebar with counts,
 toolbar search and severity filter, Reveal in Finder, library download links,
 and JSON export (⇧⌘E). Analyze is ⌘R.
+
+**Safe by construction:** before any file is edited, the original is saved
+beside it as `<file>.xpsd-backup` and recorded in a manifest. Window ▸
+Modifications (⌥⌘2) lists every file the app has changed, with Revert
+Selected / Revert All restoring the originals byte-for-byte. Edited OBJs are
+re-parsed after the edit and rolled back automatically if validation fails.
 
 ## Building
 

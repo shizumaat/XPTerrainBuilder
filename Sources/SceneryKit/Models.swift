@@ -35,6 +35,27 @@ public enum Fixability: String, Codable, Sendable {
     case manual     // needs source assets / 3-D tooling / a download
 }
 
+/// A machine-applicable remediation attached to a finding. Applying one
+/// always goes through FixEngine, which backs up the original first.
+public enum ProposedFix: Codable, Sendable, Hashable {
+    /// Insert `ATTR_LOD 0 <distance>` before the OBJ's first draw command so
+    /// the object stops rendering beyond a distance suited to its size.
+    case addFarLOD(objPath: String, distanceMeters: Int)
+
+    public var summary: String {
+        switch self {
+        case .addFarLOD(_, let distance):
+            return "Add far-cull LOD (\(distance) m)"
+        }
+    }
+
+    public var targetPath: String {
+        switch self {
+        case .addFarLOD(let path, _): return path
+        }
+    }
+}
+
 public struct Finding: Identifiable, Codable, Sendable, Hashable {
     public let id: UUID
     public let checkID: String
@@ -48,6 +69,7 @@ public struct Finding: Identifiable, Codable, Sendable, Hashable {
     /// A helpful link (e.g. an x-plane.org download page for a missing library).
     public let url: URL?
     public let fixability: Fixability
+    public let proposedFix: ProposedFix?
 
     public init(
         checkID: String,
@@ -58,7 +80,8 @@ public struct Finding: Identifiable, Codable, Sendable, Hashable {
         path: String? = nil,
         suggestion: String? = nil,
         url: URL? = nil,
-        fixability: Fixability = .manual
+        fixability: Fixability = .manual,
+        proposedFix: ProposedFix? = nil
     ) {
         self.id = UUID()
         self.checkID = checkID
@@ -70,6 +93,7 @@ public struct Finding: Identifiable, Codable, Sendable, Hashable {
         self.suggestion = suggestion
         self.url = url
         self.fixability = fixability
+        self.proposedFix = proposedFix
     }
 }
 

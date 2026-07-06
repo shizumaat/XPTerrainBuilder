@@ -27,10 +27,24 @@ Point it at your X-Plane folder, press **Analyze**, and it reports:
   z-fighting, wasted disk), says which pack wins per `scenery_packs.ini`
   priority, and flags disabled packs and double-installed folders.
 - The report's Redundant Packages view is actionable: multi-select packages
-  and apply **Disable/Enable** (rewrites `scenery_packs.ini`, like X-Plane's
-  own UI), **Move to Disabled Folder** (`Custom Scenery (Disabled)/`), or
-  **Move to Trash** (Finder Trash, recoverable, with confirmation) — from the
-  Actions button, the context menu, or the Delete key.
+  (with size on disk shown per pack) and apply **Disable/Enable** (rewrites
+  `scenery_packs.ini`, like X-Plane's own UI), **Move to Disabled Folder**
+  (`Custom Scenery (Disabled)/`), or **Move to Trash** (Finder Trash,
+  recoverable, with confirmation) — from the Actions button, the context
+  menu, or the Delete key.
+
+**Unused resources**
+- Parses every DSF tile's definition tables (header-seeking reader — no
+  whole-file loads even across 150k+ tiles) plus all `.ter/.obj/.pol/.fac/…`
+  texture references and `library.txt` exports to build a reachability set.
+- Flags `.ter` files no DSF references (the signature of a leftover
+  Ortho4XP imagery source) and images nothing references at all — matched
+  extension-blind (`foo.png` ↔ `foo.dds`), with `_LIT`/`_NML` companions and
+  docs/preview art excluded, and packs with unreadable DSFs skipped rather
+  than guessed at.
+- The Unused Resources view lists them per pack with sizes; Trash Selected /
+  Trash All moves them to the Finder Trash, tracked in Modifications for
+  one-click restore.
 
 **Package health & performance** (based on Laminar's scenery performance
 guidance; check IDs follow the xpsan spec in `docs/`)

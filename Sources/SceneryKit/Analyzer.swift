@@ -17,6 +17,7 @@ public struct Analyzer {
         case readingLog
         case checkingDuplicates
         case inspectingPack(String)
+        case findingUnused(String?)
         case done
 
         public var label: String {
@@ -26,6 +27,8 @@ public struct Analyzer {
             case .readingLog: return "Reading Log.txt…"
             case .checkingDuplicates: return "Checking for redundant packages…"
             case .inspectingPack(let name): return "Inspecting \(name)…"
+            case .findingUnused(let detail):
+                return detail.map { "Checking for unused files… (\($0))" } ?? "Checking for unused files…"
             case .done: return "Done"
             }
         }
@@ -38,6 +41,7 @@ public struct Analyzer {
         case stage(Stage)
         case findings([Finding])
         case duplicateGroups([DuplicateGroup])
+        case unusedResources([UnusedResourceGroup])
     }
 
     /// Runs the full analysis. `onEvent` may be called from any thread
@@ -99,6 +103,19 @@ public struct Analyzer {
         stats.objFilesParsed = healthResult.objFilesParsed
         stats.texturesInspected = healthResult.texturesInspected
 
+        onEvent(.stage(.findingUnused(nil)))
+        let unusedAnalyzer = UnusedResourceAnalyzer(installation: installation)
+        let (unusedFindings, unusedGroups) = unusedAnalyzer.analyze(
+            progress: { detail in
+                onEvent(.stage(.findingUnused(detail)))
+            },
+            onPack: { finding, group in
+                onEvent(.findings([finding]))
+                if let group { onEvent(.unusedResources([group])) }
+            }
+        )
+        findings.append(contentsOf: unusedFindings)
+
         onEvent(.stage(.done))
         findings.sort {
             ($0.severity, $0.category.rawValue, $0.title) < ($1.severity, $1.category.rawValue, $1.title)
@@ -107,7 +124,8 @@ public struct Analyzer {
             xplaneRoot: root.path,
             findings: findings,
             stats: stats,
-            duplicateGroups: duplicateGroups
+            duplicateGroups: duplicateGroups,
+            unusedResources: unusedGroups
         )
     }
 

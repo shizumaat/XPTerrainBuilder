@@ -26,6 +26,7 @@ public enum FindingCategory: String, Codable, CaseIterable, Sendable {
     case duplicatePackage = "Redundant Packages"
     case packageHealth = "Package Health"
     case performance = "Performance"
+    case unusedResources = "Unused Resources"
 }
 
 /// How actionable a finding is, mirroring the xpsan spec's fixability axis.
@@ -119,13 +120,44 @@ public struct DuplicatePack: Codable, Sendable, Hashable, Identifiable {
     public let iniIndex: Int?
     /// True for the pack X-Plane will actually show for this airport.
     public let isWinner: Bool
+    /// Total size on disk in bytes (0 if not computed).
+    public let sizeBytes: Int64
 
-    public init(name: String, path: String, isEnabled: Bool, iniIndex: Int?, isWinner: Bool) {
+    public init(name: String, path: String, isEnabled: Bool, iniIndex: Int?, isWinner: Bool, sizeBytes: Int64 = 0) {
         self.name = name
         self.path = path
         self.isEnabled = isEnabled
         self.iniIndex = iniIndex
         self.isWinner = isWinner
+        self.sizeBytes = sizeBytes
+    }
+}
+
+/// A file in a pack that nothing references (dead ortho source images,
+/// leftover .ter sets, …).
+public struct UnusedFile: Codable, Sendable, Hashable, Identifiable {
+    public var id: String { path }
+    public let path: String
+    public let sizeBytes: Int64
+
+    public init(path: String, sizeBytes: Int64) {
+        self.path = path
+        self.sizeBytes = sizeBytes
+    }
+}
+
+public struct UnusedResourceGroup: Codable, Sendable, Identifiable {
+    public var id: String { packName }
+    public let packName: String
+    public let packPath: String
+    public var files: [UnusedFile]
+
+    public var totalBytes: Int64 { files.reduce(0) { $0 + $1.sizeBytes } }
+
+    public init(packName: String, packPath: String, files: [UnusedFile]) {
+        self.packName = packName
+        self.packPath = packPath
+        self.files = files
     }
 }
 
@@ -149,18 +181,21 @@ public struct AnalysisReport: Codable, Sendable {
     public var findings: [Finding]
     public var stats: AnalysisStats
     public var duplicateGroups: [DuplicateGroup]
+    public var unusedResources: [UnusedResourceGroup]
 
     public init(
         xplaneRoot: String,
         findings: [Finding],
         stats: AnalysisStats,
-        duplicateGroups: [DuplicateGroup] = []
+        duplicateGroups: [DuplicateGroup] = [],
+        unusedResources: [UnusedResourceGroup] = []
     ) {
         self.generatedAt = Date()
         self.xplaneRoot = xplaneRoot
         self.findings = findings
         self.stats = stats
         self.duplicateGroups = duplicateGroups
+        self.unusedResources = unusedResources
     }
 
     public var errorCount: Int { findings.filter { $0.severity == .error }.count }

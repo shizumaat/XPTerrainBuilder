@@ -100,6 +100,16 @@ struct DuplicatesView: View {
             }
             .width(60)
 
+            TableColumn("Size") { row in
+                Text(row.pack.sizeBytes > 0
+                     ? ByteCountFormatter.string(fromByteCount: row.pack.sizeBytes, countStyle: .file)
+                     : "—")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            .width(80)
+
             TableColumn("Status") { row in
                 StatusBadge(pack: row.pack)
             }

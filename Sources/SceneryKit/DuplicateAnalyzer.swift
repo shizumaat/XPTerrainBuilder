@@ -24,6 +24,16 @@ public struct DuplicateAnalyzer {
             }
         }
 
+        // Size on disk helps decide which duplicate to keep; compute once per
+        // pack (the same pack can appear under several airports).
+        var sizeCache: [String: Int64] = [:]
+        func packSize(_ pack: SceneryPack) -> Int64 {
+            if let cached = sizeCache[pack.name] { return cached }
+            let size = DiskUsage.sizeOfDirectory(at: pack.url)
+            sizeCache[pack.name] = size
+            return size
+        }
+
         for (icao, packs) in byAirport.sorted(by: { $0.key < $1.key }) where packs.count > 1 {
             // Sort by ini priority: lower index loads first and wins. Disabled
             // packs never load, so the effective winner is the first *enabled* one.
@@ -44,7 +54,8 @@ public struct DuplicateAnalyzer {
                         path: pack.url.path,
                         isEnabled: pack.isEnabled,
                         iniIndex: pack.iniIndex,
-                        isWinner: pack.name == winner.name
+                        isWinner: pack.name == winner.name,
+                        sizeBytes: packSize(pack)
                     )
                 }
             ))

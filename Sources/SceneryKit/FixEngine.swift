@@ -223,8 +223,48 @@ public struct FixEngine: Sendable {
         return result
     }
 
+    // MARK: Trash (unused resources)
+
+    /// Move files to the Finder Trash, recording each in the manifest so the
+    /// Modifications window can restore it (backupPath = its Trash location).
+    public func trashFiles(_ paths: [String], checkID: String, summary: String) -> [FixOutcome] {
+        let fm = FileManager.default
+        var records = log.load()
+        var outcomes: [FixOutcome] = []
+
+        for path in paths {
+            let url = URL(fileURLWithPath: path)
+            guard fm.fileExists(atPath: path) else {
+                outcomes.append(FixOutcome(findingID: UUID(), filePath: path, success: false,
+                                           message: "File not found."))
+                continue
+            }
+            var trashedURL: NSURL?
+            do {
+                try fm.trashItem(at: url, resultingItemURL: &trashedURL)
+                if let trashedPath = trashedURL?.path {
+                    records.append(ModificationRecord(
+                        filePath: path,
+                        backupPath: trashedPath,
+                        checkID: checkID,
+                        summary: summary
+                    ))
+                }
+                outcomes.append(FixOutcome(findingID: UUID(), filePath: path, success: true, message: nil))
+            } catch {
+                outcomes.append(FixOutcome(findingID: UUID(), filePath: path, success: false,
+                                           message: error.localizedDescription))
+            }
+        }
+
+        try? log.save(records)
+        return outcomes
+    }
+
     // MARK: Revert
 
+    /// Moves the backup over the current file. Move (not byte copy): trashed
+    /// ortho textures run to gigabytes.
     public func revert(_ toRevert: [ModificationRecord]) -> [RevertOutcome] {
         let fm = FileManager.default
         var records = log.load()
@@ -234,14 +274,18 @@ public struct FixEngine: Sendable {
             let backupURL = URL(fileURLWithPath: record.backupPath)
             let fileURL = URL(fileURLWithPath: record.filePath)
 
-            guard let backup = try? Data(contentsOf: backupURL) else {
+            guard fm.fileExists(atPath: backupURL.path) else {
                 outcomes.append(RevertOutcome(record: record, success: false,
                                               message: "Backup file is missing."))
                 continue
             }
             do {
-                try backup.write(to: fileURL, options: .atomic)
-                try? fm.removeItem(at: backupURL)
+                if fm.fileExists(atPath: fileURL.path) {
+                    try fm.removeItem(at: fileURL)
+                }
+                try fm.createDirectory(at: fileURL.deletingLastPathComponent(),
+                                       withIntermediateDirectories: true)
+                try fm.moveItem(at: backupURL, to: fileURL)
                 records.removeAll { $0.id == record.id }
                 outcomes.append(RevertOutcome(record: record, success: true, message: nil))
             } catch {

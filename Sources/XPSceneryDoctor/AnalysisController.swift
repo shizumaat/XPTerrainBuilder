@@ -90,6 +90,8 @@ final class AnalysisController: ObservableObject {
                     }
                 case .event(.duplicateGroups(let groups)):
                     self.report?.duplicateGroups = groups
+                case .event(.unusedResources(let groups)):
+                    self.report?.unusedResources.append(contentsOf: groups)
                 case .completed(let final):
                     // The final report supersedes everything streamed.
                     pending = []
@@ -166,6 +168,39 @@ final class AnalysisController: ObservableObject {
             }
             if !succeeded.isEmpty {
                 self.lastFixSummary = "Fixed \(succeeded.count) file\(succeeded.count == 1 ? "" : "s"). Originals were backed up — see Window ▸ Modifications to revert."
+            }
+            self.loadModifications()
+            self.isFixing = false
+        }
+    }
+
+    /// Trash unused files, recording each in the manifest for revert.
+    func trashUnusedFiles(_ paths: [String]) {
+        guard !paths.isEmpty, !isFixing, !isRunning else { return }
+        isFixing = true
+        fixErrors = []
+
+        let engine = fixEngine
+        Task { [weak self] in
+            let outcomes = await Task.detached(priority: .userInitiated) {
+                engine.trashFiles(paths, checkID: "UNUSED-01", summary: "Moved to Trash (unused resource)")
+            }.value
+
+            guard let self else { return }
+            let trashed = Set(outcomes.filter { $0.success }.map { $0.filePath })
+            if var report = self.report {
+                report.unusedResources = report.unusedResources.compactMap { group in
+                    var group = group
+                    group.files.removeAll { trashed.contains($0.path) }
+                    return group.files.isEmpty ? nil : group
+                }
+                self.report = report
+            }
+            self.fixErrors = outcomes.filter { !$0.success }.map {
+                "\(URL(fileURLWithPath: $0.filePath).lastPathComponent): \($0.message ?? "unknown error")"
+            }
+            if !trashed.isEmpty {
+                self.lastFixSummary = "Moved \(trashed.count) file\(trashed.count == 1 ? "" : "s") to the Trash. Restore anytime from Window ▸ Modifications or the Trash itself."
             }
             self.loadModifications()
             self.isFixing = false

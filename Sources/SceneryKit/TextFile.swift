@@ -36,4 +36,15 @@ public enum TextFile {
         if case .ok(let text) = read(url, maxBytes: maxBytes) { return text }
         return nil
     }
+
+    /// Just the first `maxBytes` of the file, decoded lossily. For directives
+    /// that live in a file's header (e.g. TEXTURE lines in OBJ8) — reading a
+    /// 60 MB object in full to find them is what turns an install-wide scan
+    /// into minutes.
+    public static func head(of url: URL, maxBytes: Int) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: maxBytes) else { return nil }
+        return String(decoding: data, as: UTF8.self)
+    }
 }

@@ -20,6 +20,7 @@ enum SidebarItem: Hashable {
         case .category(.duplicatePackage): return "square.on.square"
         case .category(.packageHealth): return "stethoscope"
         case .category(.performance): return "gauge.with.needle"
+        case .category(.unusedResources): return "archivebox"
         }
     }
 }
@@ -171,6 +172,8 @@ struct ReportWindow: View {
                     $0.category == .duplicatePackage && $0.checkID != "DUP-01"
                 }
             )
+        case .category(.unusedResources):
+            UnusedResourcesView(groups: report.unusedResources)
         case .all:
             FindingsList(findings: visibleFindings(in: report), grouped: true, isLive: controller.isRunning)
         case .category(let category):

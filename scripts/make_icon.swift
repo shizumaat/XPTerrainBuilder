@@ -16,8 +16,11 @@ let nightTop = CGColor(red: 0.11, green: 0.12, blue: 0.15, alpha: 1)
 let nightBottom = CGColor(red: 0.03, green: 0.035, blue: 0.05, alpha: 1)
 let airwaySlate = CGColor(red: 0.55, green: 0.63, blue: 0.75, alpha: 0.42)
 let airwayCyan = CGColor(red: 0.25, green: 0.78, blue: 0.90, alpha: 0.55)
-/// Airport diagram: bright chart blue, reads on black.
-let sectionalBlue = CGColor(red: 0.22, green: 0.55, blue: 1.0, alpha: 1)
+/// VFR sectional airport magenta (lighted, services) — lifted a touch to
+/// read on the night chart.
+let sectionalMagenta = color(0.62, 0.16, 0.34)
+let runwayStripGray = color(0.83, 0.85, 0.87)
+let runwayStripEdge = color(0.10, 0.11, 0.13, 0.9)
 
 func color(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColor {
     CGColor(red: r, green: g, blue: b, alpha: a)
@@ -93,46 +96,70 @@ func drawChart(_ ctx: CGContext) {
     ctx.strokePath()
 }
 
-/// The classic sectional airport symbol: ring, four service ticks, runway
-/// bar. Unmistakably "airport" even at Dock sizes.
-func drawAirportSymbol(_ ctx: CGContext, center: CGPoint, radius: CGFloat) {
-    ctx.setStrokeColor(sectionalBlue)
-    ctx.setFillColor(sectionalBlue)
-    let ring = radius
-    let lineW = radius * 0.20
-
-    // Ring.
-    ctx.setLineWidth(lineW)
-    ctx.strokeEllipse(in: CGRect(x: center.x - ring, y: center.y - ring,
-                                 width: ring * 2, height: ring * 2))
-
-    // Four service ticks at the compass points.
-    let tickLen = radius * 0.30
-    for angle in stride(from: CGFloat(0), to: 2 * .pi, by: .pi / 2) {
-        let inner = CGPoint(x: center.x + cos(angle) * (ring + lineW / 2),
-                            y: center.y + sin(angle) * (ring + lineW / 2))
-        let outer = CGPoint(x: center.x + cos(angle) * (ring + lineW / 2 + tickLen),
-                            y: center.y + sin(angle) * (ring + lineW / 2 + tickLen))
-        ctx.move(to: inner)
-        ctx.addLine(to: outer)
-        ctx.strokePath()
-    }
-
-    // Runway bar through the middle, a shade off horizontal.
+/// VFR sectional airport symbol, KTDO-style: solid magenta disc, four stubby
+/// service ticks, a rotating-beacon star on top (with its punched center),
+/// and the gray runway strip cutting through the disc.
+func drawAirportSymbol(_ ctx: CGContext, center: CGPoint, discRadius R: CGFloat) {
     ctx.saveGState()
     ctx.translateBy(x: center.x, y: center.y)
-    ctx.rotate(by: -.pi / 18)
-    let barLength = ring * 1.5
-    let barWidth = radius * 0.28
-    ctx.fill(CGRect(x: -barLength / 2, y: -barWidth / 2, width: barLength, height: barWidth))
+    ctx.setFillColor(sectionalMagenta)
+
+    // Disc.
+    ctx.fillEllipse(in: CGRect(x: -R, y: -R, width: R * 2, height: R * 2))
+
+    // Four stubby rectangular service ticks.
+    let tickWidth = R * 0.42
+    let tickReach = R * 1.30
+    for i in 0..<4 {
+        ctx.saveGState()
+        ctx.rotate(by: CGFloat(i) * .pi / 2)
+        ctx.fill(CGRect(x: -tickWidth / 2, y: R - 6, width: tickWidth, height: tickReach - R + 6))
+        ctx.restoreGState()
+    }
+
+    // Beacon star on top, with a punched (even-odd) center hole. Its lower
+    // points rest on the top tick rather than sinking into it.
+    let starCenter = CGPoint(x: 0, y: R * 1.75)
+    let outerR = R * 0.55
+    let innerR = outerR * 0.42
+    let star = CGMutablePath()
+    for k in 0..<10 {
+        let angle = CGFloat.pi / 2 + CGFloat(k) * .pi / 5
+        let radius = k % 2 == 0 ? outerR : innerR
+        let point = CGPoint(x: starCenter.x + cos(angle) * radius,
+                            y: starCenter.y + sin(angle) * radius)
+        if k == 0 { star.move(to: point) } else { star.addLine(to: point) }
+    }
+    star.closeSubpath()
+    star.addEllipse(in: CGRect(x: starCenter.x - R * 0.11, y: starCenter.y - R * 0.11,
+                               width: R * 0.22, height: R * 0.22))
+    ctx.addPath(star)
+    ctx.fillPath(using: .evenOdd)
+
+    // Runway strip cutting through the disc, slightly off horizontal.
+    ctx.rotate(by: -.pi / 15)
+    let stripLength = R * 2.6
+    let stripWidth = R * 0.24
+    let strip = CGPath(roundedRect: CGRect(x: -stripLength / 2, y: -stripWidth / 2,
+                                           width: stripLength, height: stripWidth),
+                       cornerWidth: 8, cornerHeight: 8, transform: nil)
+    ctx.addPath(strip)
+    ctx.setFillColor(runwayStripGray)
+    ctx.fillPath()
+    ctx.addPath(strip)
+    ctx.setStrokeColor(runwayStripEdge)
+    ctx.setLineWidth(3.5)
+    ctx.strokePath()
+
     ctx.restoreGState()
 }
 
-/// The full "scene": night IFR chart plus the airport symbol, dead center so
-/// the symbol lives entirely inside the centered lens after magnification.
+/// The full "scene": night IFR chart plus the airport symbol, dead center.
+/// Sized so that after 1.6x magnification the beacon star's top clips under
+/// the lens rim (disc 90 -> star top ~2.12R = 191 base -> ~305 vs 296 lens).
 func drawScene(_ ctx: CGContext) {
     drawChart(ctx)
-    drawAirportSymbol(ctx, center: CGPoint(x: 512, y: 512), radius: 96)
+    drawAirportSymbol(ctx, center: CGPoint(x: 512, y: 512), discRadius: 94)
 }
 
 // MARK: - Magnifying glass
@@ -163,22 +190,19 @@ func ringPath(outer: CGFloat, inner: CGFloat) -> CGPath {
 }
 
 func drawMagnifiedContent(_ ctx: CGContext) {
+    // Layer 1: magnified chart.
     ctx.saveGState()
     ctx.addPath(lensPath())
     ctx.clip()
-    // Magnify about the lens center.
     ctx.translateBy(x: lensCenter.x, y: lensCenter.y)
     ctx.scaleBy(x: magnification, y: magnification)
     ctx.translateBy(x: -lensCenter.x, y: -lensCenter.y)
-    drawScene(ctx)
+    drawChart(ctx)
     ctx.restoreGState()
 
-    // Liquid Glass edge refraction: near the rim, light bends harder — an
-    // annulus re-rendered at higher magnification creates the visible
-    // "shape distortion at the edge" of the macOS 27 style.
-    // Chart lines only: the airport sits well inside the glass, so only the
-    // background linework should visibly bend at the edge (re-rendering the
-    // full scene here ghosts runway-end shards into the band).
+    // Layer 2: edge refraction on the chart linework — airways visibly kink
+    // approaching the rim. Chart only: re-rendering wide shapes in the band
+    // duplicates them (a star becomes stripes).
     let refractionBand: CGFloat = 26
     ctx.saveGState()
     ctx.addPath(ringPath(outer: lensRadius, inner: lensRadius - refractionBand))
@@ -187,6 +211,18 @@ func drawMagnifiedContent(_ ctx: CGContext) {
     ctx.scaleBy(x: magnification * 1.10, y: magnification * 1.10)
     ctx.translateBy(x: -lensCenter.x, y: -lensCenter.y)
     drawChart(ctx)
+    ctx.restoreGState()
+
+    // Layer 3: the airport symbol on top, magnified, clipped by the glass —
+    // the beacon star's top point vanishes cleanly under the rim (drawn
+    // after the band so the band can't erase it).
+    ctx.saveGState()
+    ctx.addPath(lensPath())
+    ctx.clip()
+    ctx.translateBy(x: lensCenter.x, y: lensCenter.y)
+    ctx.scaleBy(x: magnification, y: magnification)
+    ctx.translateBy(x: -lensCenter.x, y: -lensCenter.y)
+    drawAirportSymbol(ctx, center: CGPoint(x: 512, y: 512), discRadius: 94)
     ctx.restoreGState()
 
     // Flatter glass tint: faint cool lift over the black, restrained edge.

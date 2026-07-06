@@ -107,14 +107,24 @@ struct ResultsPane: View {
         List(selection: $selection.value) {
             ForEach(FindingCategory.allCases, id: \.self) { category in
                 let items = findings.filter { $0.category == category }
-                if !items.isEmpty {
+                let verifying = category == .unusedResources && controller.unusedVerifyProgress != nil
+                if !items.isEmpty || verifying {
                     DisclosureGroup(isExpanded: categoryBinding(category)) {
                         categoryContent(category, items: items, report: report)
                     } label: {
                         HStack {
                             Text(category.rawValue)
                                 .font(.callout.weight(.medium))
-                            if category == .unusedResources, !filteredUnusedGroups.isEmpty {
+                            if verifying, let p = controller.unusedVerifyProgress {
+                                // Candidates only become deletable findings
+                                // after the every-package cross-check.
+                                ProgressView(value: Double(p.done), total: Double(max(p.total, 1)))
+                                    .frame(width: 130)
+                                    .controlSize(.small)
+                                Text("cross-checking \(p.done)/\(p.total) packages")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            } else if category == .unusedResources, !filteredUnusedGroups.isEmpty {
                                 // The expanded view is a per-FILE table, so the
                                 // headline count must be files, not findings.
                                 Text(unusedSummary)

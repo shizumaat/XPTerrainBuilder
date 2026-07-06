@@ -19,6 +19,7 @@ public struct Analyzer {
         case checkingDuplicates
         case inspectingPack(String)
         case findingUnused(String?)
+        case verifyingUnused(Int, Int)
         case done
 
         public var label: String {
@@ -30,6 +31,8 @@ public struct Analyzer {
             case .inspectingPack(let name): return "Inspecting \(name)…"
             case .findingUnused(let detail):
                 return detail.map { "Auditing resources… (\($0))" } ?? "Auditing resources…"
+            case .verifyingUnused(let done, let total):
+                return "Verifying unused files against every package… (\(done)/\(total))"
             case .done: return "Done"
             }
         }
@@ -70,8 +73,8 @@ public struct Analyzer {
         let logRead = TextFile.read(root.appendingPathComponent("Log.txt"))
 
         onEvent(.stage(.scanningInstallation(nil)))
-        let fullInstallation = InstallationScanner(root: root).scan { detail in
-            onEvent(.stage(.scanningInstallation(detail)))
+        let fullInstallation = InstallationScanner(root: root).scan { done, total in
+            onEvent(.stage(.scanningInstallation("\(done)/\(total) packs")))
         }
         // Scoped runs analyze only the selected packs, but against the full
         // library indexes (missing-resource resolution needs everything).
@@ -143,16 +146,39 @@ public struct Analyzer {
 
         onEvent(.stage(.findingUnused(nil)))
         let auditAnalyzer = ResourceAuditAnalyzer(installation: installation)
-        let (auditFindings, unusedGroups) = auditAnalyzer.analyze(
+        let (auditFindings, candidateGroups) = auditAnalyzer.analyze(
             progress: { detail in
                 onEvent(.stage(.findingUnused(detail)))
             },
-            onPack: { packFindings, group in
+            onPack: { packFindings, _ in
+                // Groups are candidates until verified below — stream only
+                // the findings; unused groups land in one verified batch.
                 onEvent(.findings(packFindings))
-                if let group { onEvent(.unusedResources([group])) }
             }
         )
         findings.append(contentsOf: auditFindings)
+
+        // Deletion-grade cross-check: candidates survive only if no pack in
+        // the whole install (scope notwithstanding) references them from
+        // outside. Runs only when there's something to verify.
+        var unusedGroups: [UnusedResourceGroup] = []
+        if !candidateGroups.isEmpty {
+            onEvent(.stage(.verifyingUnused(0, fullInstallation.packs.count)))
+            unusedGroups = ResourceAuditAnalyzer.verifyUnused(
+                candidates: candidateGroups,
+                allPacks: fullInstallation.packs,
+                progress: { done, total in
+                    onEvent(.stage(.verifyingUnused(done, total)))
+                }
+            )
+            unusedGroups.sort { $0.totalBytes > $1.totalBytes }
+            let kinds = Dictionary(uniqueKeysWithValues: installation.packs.map { ($0.name, $0.kind) })
+            let unusedFindings = unusedGroups.map {
+                ResourceAuditAnalyzer.unusedFinding(for: $0, packKind: kinds[$0.packName])
+            }
+            emit(unusedFindings)
+            onEvent(.unusedResources(unusedGroups))
+        }
 
         onEvent(.stage(.done))
         findings.sort {

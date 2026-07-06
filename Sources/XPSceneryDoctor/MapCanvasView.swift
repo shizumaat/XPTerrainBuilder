@@ -180,6 +180,36 @@ struct MapCanvasView: View {
             }
         }
 
+        // Landmark pack marks: kind-colored diamonds at the pack's tile
+        // centroid (tile-resolution until DSF placements are parsed). Only
+        // once zoomed past world view — they'd be noise at 1:world.
+        if cam.scale > 8 {
+            for marker in overlays.markers {
+                guard marker.lon > minLon - 1, marker.lon < maxLon + 1,
+                      marker.lat > minLat - 1, marker.lat < maxLat + 1 else { continue }
+                let p = cam.point(lon: marker.lon, lat: marker.lat, in: size)
+                let r: CGFloat = cam.scale > 26 ? 5 : 3.5
+                var diamond = Path()
+                diamond.move(to: CGPoint(x: p.x, y: p.y - r))
+                diamond.addLine(to: CGPoint(x: p.x + r, y: p.y))
+                diamond.addLine(to: CGPoint(x: p.x, y: p.y + r))
+                diamond.addLine(to: CGPoint(x: p.x - r, y: p.y))
+                diamond.closeSubpath()
+                let color = Self.tintLandmark.opacity(marker.status == .uninstalled ? 0.35 : 0.95)
+                context.stroke(diamond, with: .color(color), lineWidth: max(1.4, r * 0.4))
+                if showLabels {
+                    context.draw(
+                        Text(marker.packName.count > 22
+                             ? marker.packName.prefix(21) + "…"
+                             : marker.packName)
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(color),
+                        at: CGPoint(x: p.x, y: p.y - r - 8)
+                    )
+                }
+            }
+        }
+
         // Rubber-band rectangle.
         if let band = rubberBand.value {
             context.fill(Path(band), with: .color(Self.selection.opacity(0.08)))

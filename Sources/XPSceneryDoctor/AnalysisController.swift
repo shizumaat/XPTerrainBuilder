@@ -28,8 +28,14 @@ final class AnalysisController: ObservableObject {
     @Published var mapOverlays = MapOverlays.empty
     @Published var isScanningInstallation = false
     /// False until the first scan of the current install completes — the map
-    /// window shows a loading screen instead of a half-laid-out split view.
+    /// window shows a loading cover instead of a half-laid-out split view.
     @Published var hasScannedInstallation = false
+    /// (probed, total) while the installation scan runs — drives the
+    /// determinate loading bar. nil outside a scan.
+    @Published var scanProgress: (done: Int, total: Int)?
+    /// (checked, total) while the unused-resource cross-check sweeps every
+    /// pack. nil outside that stage.
+    @Published var unusedVerifyProgress: (done: Int, total: Int)?
     @Published var selectedTiles: Set<String> = []
 
     // Search: debounced, filtered off the main thread against a precomputed
@@ -85,13 +91,18 @@ final class AnalysisController: ObservableObject {
         isScanningInstallation = true
         Task { [weak self] in
             let (packs, overlays) = await Task.detached(priority: .userInitiated) {
-                let packs = InstallationScanner(root: root).scan().packs
+                let packs = InstallationScanner(root: root).scan { done, total in
+                    Task { @MainActor [weak self] in
+                        self?.scanProgress = (done, total)
+                    }
+                }.packs
                 return (packs, MapOverlays(packs: packs))
             }.value
             guard let self else { return }
             self.installationPacks = packs
             self.mapOverlays = overlays
             self.isScanningInstallation = false
+            self.scanProgress = nil
             self.hasScannedInstallation = true
             if self.pendingRefresh {
                 self.pendingRefresh = false
@@ -155,6 +166,11 @@ final class AnalysisController: ObservableObject {
                 switch message {
                 case .event(.stage(let stage)):
                     self.stageLabel = stage.label
+                    if case .verifyingUnused(let done, let total) = stage {
+                        self.unusedVerifyProgress = (done, total)
+                    } else {
+                        self.unusedVerifyProgress = nil
+                    }
                     self.flushPending(&pending)
                     lastFlush = .now
                 case .event(.findings(let new)):
@@ -172,6 +188,7 @@ final class AnalysisController: ObservableObject {
                     pending = []
                     self.report = final
                     self.isRunning = false
+                    self.unusedVerifyProgress = nil
                     self.rebuildSearchCorpus()
                     self.persistReport()
                 }

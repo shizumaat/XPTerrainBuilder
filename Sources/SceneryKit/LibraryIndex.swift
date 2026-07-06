@@ -46,7 +46,14 @@ public struct LibraryIndex: Sendable {
     public var exportCount: Int { exports.count }
 
     public mutating func indexLibrary(at packURL: URL, packName: String) {
-        let libraryTxt = packURL.appendingPathComponent("library.txt")
+        indexLibraryFile(at: packURL.appendingPathComponent("library.txt"), packName: packName)
+    }
+
+    /// Index one library-format text file. X-Plane only reads "library.txt",
+    /// but packs ship alternate configs ("library - orthos.txt") the user
+    /// swaps in by renaming — the unused-resource audit indexes those too so
+    /// a deletion can't break a configuration away from being active.
+    public mutating func indexLibraryFile(at libraryTxt: URL, packName: String) {
         guard let text = TextFile.contents(of: libraryTxt) else { return }
         var status = LibraryExportStatus.public
         for rawLine in TextFile.lines(text) {

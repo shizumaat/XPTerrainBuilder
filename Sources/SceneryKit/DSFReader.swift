@@ -25,7 +25,9 @@ public struct DSFDefinitions: Sendable {
 
 public enum DSFReadResult: Sendable {
     case ok(DSFDefinitions)
-    case compressed      // 7z-compressed DSF; we don't decompress in v1
+    /// 7z-compressed DSF and libarchive was unavailable — normally 7z tiles
+    /// decode in-process via SevenZip.
+    case compressed
     case invalid
 }
 
@@ -49,7 +51,9 @@ public enum DSFReader {
         else { return .invalid }
 
         guard let header = try? handle.read(upToCount: 12), header.count == 12 else { return .invalid }
-        if header.starts(with: sevenZipMagic) { return .compressed }
+        if header.starts(with: sevenZipMagic) {
+            return readCompressedDefinitions(url: url)
+        }
         guard header.starts(with: rawMagic) else { return .invalid }
 
         let atomsEnd = fileSize - 16 // MD5 footer
@@ -89,6 +93,60 @@ public enum DSFReader {
             }
         }
         return .ok(defs)
+    }
+
+    /// 7z-wrapped DSF (X-Plane accepts these; Global Forests ships 37k of
+    /// them). HEAD and DEFN sit at the front, so decompressing a bounded head
+    /// of the stream is enough — LZMA decodes sequentially and never touches
+    /// the (huge) geometry tail. Two passes: 1 MB catches virtually every
+    /// tile; a 16 MB retry covers meshes with oversized leading atoms.
+    static func readCompressedDefinitions(url: URL) -> DSFReadResult {
+        guard SevenZip.available else { return .compressed }
+        for cap in [1 << 20, 16 << 20] {
+            guard let data = SevenZip.readHead(of: url, maxBytes: cap) else { return .invalid }
+            if let defs = parseAtoms(in: data) { return .ok(defs) }
+            if data.count < cap { return .invalid } // whole entry read, no DEFN
+        }
+        return .invalid
+    }
+
+    /// Atom walk over in-memory data (same layout as the seeking reader).
+    /// Returns nil if the data ends before both HEAD and DEFN were seen —
+    /// callers retry with a larger head.
+    static func parseAtoms(in data: Data) -> DSFDefinitions? {
+        guard data.count > 12, data.starts(with: rawMagic) else { return nil }
+        var offset = 12
+        var defs = DSFDefinitions()
+        var sawDEFN = false, sawHEAD = false
+
+        while offset + 8 <= data.count {
+            let id = String(decoding: data[data.startIndex + offset..<data.startIndex + offset + 4],
+                            as: UTF8.self)
+            let length = data.littleEndianInt32(at: offset + 4)
+            // Garbage length: corrupt stream or we've walked into the MD5
+            // footer of a fully-read entry — keep whatever we already have.
+            guard length >= 8 else { break }
+            let bodyEnd = offset + length
+            // Atom runs past what we decompressed: only a problem if it's one
+            // we still need.
+            if bodyEnd > data.count {
+                if !sawDEFN, ["DEFN", "NFED", "HEAD", "DAEH"].contains(id) { return nil }
+                break
+            }
+            let body = data.subdata(in: data.startIndex + offset + 8..<data.startIndex + bodyEnd)
+            if id == "DEFN" || id == "NFED" {
+                let props = defs.properties
+                defs = parseDefinitionAtom(body)
+                defs.properties = props
+                sawDEFN = true
+            } else if id == "HEAD" || id == "DAEH" {
+                defs.properties = parseHeadAtom(body)
+                sawHEAD = true
+            }
+            if sawDEFN && sawHEAD { return defs }
+            offset = bodyEnd
+        }
+        return sawDEFN ? defs : nil
     }
 
     /// HEAD atom: contains a PROP subatom of NUL-separated key/value pairs.

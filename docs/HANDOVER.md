@@ -78,6 +78,21 @@ Owner: Noah (noahplieberman@gmail.com, GitHub `shizumaat`). His install:
 8. **Unused-resource guards**: DSF-driven packs only; plugin markers
    (.xpl/.wt/.lua/.acf, xsb_aircraft.txt, plugins/) skip the pack;
    seasonal/options folders protected; unreadable DSFs skip loudly.
+   Deletion-grade: per-pack orphans are only CANDIDATES until
+   verifyUnused sweeps every pack for ../-escaping refs (chains kept:
+   an externally-referenced .ter protects its own textures). Library
+   roots parse via LibraryIndex over ALL root library*.txt files —
+   the old space-split parser dropped simHeaven's tab+CRLF exports
+   and flagged its whole export set (3,464 files) unused.
+9. **Foundation path canonicalization is inconsistent**:
+   standardizedFileURL adds /private when collapsing ".." while
+   resolvingSymlinksInPath strips it only for EXISTING paths — never
+   compare file paths without one canonical form (see canonical() in
+   verifyUnused; it also unifies symlinked-pack spellings).
+10. **7z DSFs exist on the reference install** (Global_Forests_v2:
+   all 37,632 tiles) — DSFReader decodes them in-process via
+   /usr/lib/libarchive.2.dylib (dlopen; SevenZip.swift). Only the
+   stream head is decompressed (DEFN sits at the front).
 
 ## Environment quirks (Noah's machine)
 

@@ -11,7 +11,9 @@ public struct InstallationScanner {
         self.root = root
     }
 
-    public func scan(progress: ((String) -> Void)? = nil) -> Installation {
+    /// `progress` reports (packs probed, total packs) — often enough for a
+    /// smooth determinate bar.
+    public func scan(progress: ((Int, Int) -> Void)? = nil) -> Installation {
         let customScenery = root.appendingPathComponent("Custom Scenery")
         let disabledFolder = root.appendingPathComponent("Custom Scenery (Disabled)")
         let iniOrder = parseSceneryPacksIni(customScenery.appendingPathComponent("scenery_packs.ini"))
@@ -76,7 +78,7 @@ public struct InstallationScanner {
                 completed += 1
                 let done = completed
                 lock.unlock()
-                if done % 250 == 0 { progress?("\(done)/\(entries.count) packs") }
+                if done % 50 == 0 || done == entries.count { progress?(done, entries.count) }
             }
         }
 

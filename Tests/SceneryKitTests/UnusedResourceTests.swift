@@ -59,21 +59,53 @@ import Foundation
         #expect(defs.objects == ["objects/tower.obj", "lib/airport/thing.obj"])
     }
 
-    @Test func dsfReaderDetects7z() throws {
+    @Test func dsfReaderHandles7z() throws {
+        // Real 7z DSFs decode in-process (libarchive lives in the dyld cache
+        // on every supported macOS; Global Forests ships 37k such tiles).
+        #expect(SevenZip.available)
+
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("XPSDDSF-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let url = dir.appendingPathComponent("compressed.dsf")
+        // 7z magic followed by garbage is a corrupt archive, not "compressed".
+        let url = dir.appendingPathComponent("corrupt.dsf")
         var data = Data([0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C])
         data.append(Data(repeating: 0x42, count: 100))
         try data.write(to: url)
-
-        guard case .compressed = DSFReader.readDefinitions(url: url) else {
-            Issue.record("expected .compressed")
+        guard case .invalid = DSFReader.readDefinitions(url: url) else {
+            Issue.record("expected .invalid for a corrupt 7z archive")
             return
         }
+
+        // A genuine 7z-wrapped DSF (bsdtar writes 7z via the same libarchive).
+        let rawURL = dir.appendingPathComponent("+41-073.raw")
+        try Self.makeDSF(terrains: ["terrain/live.ter"], objects: ["objects/a.obj"]).write(to: rawURL)
+        let sevenURL = dir.appendingPathComponent("+41-073.dsf")
+        let tar = Process()
+        tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+        tar.arguments = ["-cf", sevenURL.path, "--format", "7zip", "-C", dir.path, "+41-073.raw"]
+        try tar.run()
+        tar.waitUntilExit()
+        try #require(tar.terminationStatus == 0)
+
+        guard case .ok(let defs) = DSFReader.readDefinitions(url: sevenURL) else {
+            Issue.record("expected .ok for a 7z-wrapped DSF")
+            return
+        }
+        #expect(defs.terrains == ["terrain/live.ter"])
+        #expect(defs.objects == ["objects/a.obj"])
+    }
+
+    @Test func parseAtomsHandlesTruncation() {
+        let full = Self.makeDSF(terrains: ["terrain/a.ter"], objects: ["objects/b.obj"])
+        let defs = DSFReader.parseAtoms(in: full)
+        #expect(defs?.terrains == ["terrain/a.ter"])
+        // Cut inside the DEFN atom: parse must fail (retry with more data),
+        // never return a partial definition table as if complete.
+        let truncated = full.prefix(20)
+        #expect(DSFReader.parseAtoms(in: Data(truncated)) == nil)
     }
 
     // MARK: - Orphan detection
@@ -124,13 +156,83 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: root) }
 
         let installation = InstallationScanner(root: root).scan()
-        let (findings, groups) = ResourceAuditAnalyzer(installation: installation).analyze()
+        let (_, candidates) = ResourceAuditAnalyzer(installation: installation).analyze()
+        // Candidates only become reportable after the every-pack cross-check.
+        let groups = ResourceAuditAnalyzer.verifyUnused(candidates: candidates,
+                                                        allPacks: installation.packs)
 
         #expect(groups.count == 1)
         let files = Set(groups[0].files.map { URL(fileURLWithPath: $0.path).lastPathComponent })
         #expect(files == ["12345_BI16.ter", "12345_BI16.dds", "leftover_scratch.png"], "\(files)")
         #expect(groups[0].totalBytes >= 2048 + 4096) // dds + png + the small .ter text
-        #expect(findings.contains { $0.checkID == "UNUSED-01" })
+        let finding = ResourceAuditAnalyzer.unusedFinding(for: groups[0], packKind: .ortho)
+        #expect(finding.checkID == "UNUSED-01")
+        #expect(finding.category == .unusedResources)
+    }
+
+    @Test func crossPackReferenceProtectsCandidatesAndTheirChains() throws {
+        let root = try makeOrthoPack()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // A neighbor pack escapes into the ortho pack with a ../ reference to
+        // the "leftover" .ter. Deleting that .ter — or its texture, which
+        // only the .ter itself references — would break the neighbor.
+        let neighbor = root.appendingPathComponent("Custom Scenery/Neighbor Overlay")
+        try FileManager.default.createDirectory(at: neighbor.appendingPathComponent("objects"),
+                                                withIntermediateDirectories: true)
+        try "A\n800\nOBJ\n\nATTR_custom ../zOrtho Test/terrain/12345_BI16.ter\n"
+            .write(to: neighbor.appendingPathComponent("objects/ref.obj"),
+                   atomically: true, encoding: .utf8)
+
+        let installation = InstallationScanner(root: root).scan()
+        let orthoPack = installation.packs.first { $0.name == "zOrtho Test" }!
+        let result = ResourceAuditAnalyzer(installation: installation).scanPack(orthoPack)
+        let candidates = [result?.1].compactMap { $0 }
+        let groups = ResourceAuditAnalyzer.verifyUnused(candidates: candidates,
+                                                        allPacks: installation.packs)
+
+        // The externally referenced .ter AND its texture chain survive; the
+        // genuinely orphaned scratch file is still reported.
+        let files = Set(groups.flatMap { $0.files.map { URL(fileURLWithPath: $0.path).lastPathComponent } })
+        #expect(files == ["leftover_scratch.png"], "\(files)")
+    }
+
+    @Test func libraryExportsAreRootsEvenWithTabsAndAlternates() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("XPSDLibRoots-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pack = root.appendingPathComponent("Custom Scenery/Tab Library")
+        let fm = FileManager.default
+        for sub in ["Earth nav data/+40-080", "objects", "textures"] {
+            try fm.createDirectory(at: pack.appendingPathComponent(sub), withIntermediateDirectories: true)
+        }
+        try Self.makeDSF(terrains: ["terrain_Water"])
+            .write(to: pack.appendingPathComponent("Earth nav data/+40-080/+41-073.dsf"))
+
+        // Tab-separated + CRLF, exactly how simHeaven ships. The old space-
+        // split parser dropped every line and flagged all exports unused.
+        let library = "A\r\n800\r\nLIBRARY\r\n\r\nEXPORT_EXCLUDE\tsim/x.obj\tobjects/exported.obj\r\n"
+        try Data(library.utf8).write(to: pack.appendingPathComponent("library.txt"))
+        // Alternate config, activated by renaming — its exports count too.
+        try "A\n800\nLIBRARY\n\nEXPORT sim/y.obj\tobjects/alt.obj\n"
+            .write(to: pack.appendingPathComponent("library - orthos.txt"),
+                   atomically: true, encoding: .utf8)
+
+        try "A\n800\nOBJ\n\nTEXTURE ../textures/exp.png\nTRIS 0 1\n"
+            .write(to: pack.appendingPathComponent("objects/exported.obj"),
+                   atomically: true, encoding: .utf8)
+        try Data(repeating: 1, count: 64).write(to: pack.appendingPathComponent("textures/exp.dds"))
+        try "A\n800\nOBJ\n\nTRIS 0 1\n"
+            .write(to: pack.appendingPathComponent("objects/alt.obj"),
+                   atomically: true, encoding: .utf8)
+        try Data(repeating: 2, count: 64).write(to: pack.appendingPathComponent("textures/orphan.png"))
+
+        let installation = InstallationScanner(root: root).scan()
+        let (_, candidates) = ResourceAuditAnalyzer(installation: installation).analyze()
+        let groups = ResourceAuditAnalyzer.verifyUnused(candidates: candidates,
+                                                        allPacks: installation.packs)
+        let files = Set(groups.flatMap { $0.files.map { URL(fileURLWithPath: $0.path).lastPathComponent } })
+        #expect(files == ["orphan.png"], "\(files)")
     }
 
     @Test func compressedDSFDisablesPackVerification() throws {

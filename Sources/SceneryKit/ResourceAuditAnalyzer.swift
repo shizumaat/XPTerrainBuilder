@@ -21,8 +21,11 @@ public struct ResourceAuditAnalyzer {
     let installation: Installation
 
     /// Extensions of files that can be reported unused and traversed.
+    /// ags/agb (autogen strings/blocks) matter: simHeaven-style packs chain
+    /// DSF → autogen → objects → textures, and dropping the link marks the
+    /// whole object tree unused.
     static let imageExtensions: Set<String> = ["dds", "png", "jpg", "jpeg", "bmp"]
-    static let resourceTextExtensions: Set<String> = ["ter", "pol", "obj", "fac", "for", "agp", "str", "lin", "net"]
+    static let resourceTextExtensions: Set<String> = ["ter", "pol", "obj", "fac", "for", "agp", "str", "lin", "net", "ags", "agb"]
     static var traversableExtensions: Set<String> { imageExtensions.union(resourceTextExtensions) }
 
     /// Path fragments that mark non-scenery imagery (docs, previews).
@@ -283,14 +286,28 @@ public struct ResourceAuditAnalyzer {
             ))
         }
 
-        // library.txt exports are externally reachable roots.
-        if pack.isLibrary,
-           let text = TextFile.contents(of: pack.url.appendingPathComponent("library.txt")) {
-            for line in TextFile.lines(text) {
-                let parts = line.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-                guard parts.first?.hasPrefix("EXPORT") == true, parts.count >= 3 else { continue }
-                let rel = Self.normalize(parts.last!)
-                if files[rel] != nil { roots.append(rel) }
+        // Library exports are externally reachable roots. Parse through
+        // LibraryIndex — the hand-rolled space-split that used to live here
+        // silently dropped tab-separated files (simHeaven ships tab+CRLF)
+        // and flagged entire export sets as unused. Alternate configs
+        // ("library - orthos.txt") count as roots too: users activate them
+        // by renaming, and deletion must survive that.
+        let rootItems = (try? fm.contentsOfDirectory(at: pack.url, includingPropertiesForKeys: nil)) ?? []
+        for item in rootItems
+        where item.lastPathComponent.lowercased().hasPrefix("library")
+            && item.pathExtension.lowercased() == "txt" {
+            var exportIndex = LibraryIndex()
+            exportIndex.indexLibraryFile(at: item, packName: pack.name)
+            for exports in exportIndex.exports.values {
+                for export in exports {
+                    let rel = Self.normalize(export.realPath)
+                    if files[rel] != nil {
+                        roots.append(rel)
+                    } else if Self.imageExtensions.contains((rel as NSString).pathExtension),
+                              let actual = strippedToRel[Self.strippedKey(rel)] {
+                        roots.append(actual) // exports resolve extension-blind too
+                    }
+                }
             }
         }
 
@@ -383,6 +400,9 @@ public struct ResourceAuditAnalyzer {
 
         guard !orphans.isEmpty || !findings.isEmpty else { return nil }
 
+        // Orphans here are CANDIDATES: nothing inside this pack reaches them.
+        // They only become findings after verifyUnused clears them against
+        // every other pack's escaping references.
         var group: UnusedResourceGroup? = nil
         if !orphans.isEmpty {
             let sorted = orphans.sorted { $0.entry.size > $1.entry.size }
@@ -390,22 +410,168 @@ public struct ResourceAuditAnalyzer {
                 UnusedFile(path: $0.entry.url.path, sizeBytes: $0.entry.size, modifiedDate: $0.entry.modified)
             }
             group = UnusedResourceGroup(packName: pack.name, packPath: pack.url.path, files: unusedFiles)
-            let sizeText = ByteCountFormatter.string(fromByteCount: group!.totalBytes, countStyle: .file)
-            findings.append(Finding(
-                checkID: "UNUSED-01",
-                severity: group!.totalBytes > 100 * 1024 * 1024 ? .warning : .info,
-                category: .unusedResources,
-                title: "'\(pack.name)': \(unusedFiles.count) unreachable file\(unusedFiles.count == 1 ? "" : "s") (\(sizeText))",
-                detail: "No DSF tile or library export can reach these files, directly or through any chain of references — leftover imagery sets, dead objects and their textures.",
-                path: pack.url.path,
-                suggestion: "Review in the Unused Resources view, then Trash Selected — recoverable from the Trash, tracked in Modifications.",
-                fixability: .assisted,
-                packName: pack.name,
-                packKind: pack.kind
-            ))
         }
 
         return (findings, group)
+    }
+
+    /// The per-group finding, built only for groups that survived verification.
+    public static func unusedFinding(for group: UnusedResourceGroup, packKind: PackKind?) -> Finding {
+        let sizeText = ByteCountFormatter.string(fromByteCount: group.totalBytes, countStyle: .file)
+        let count = group.files.count
+        return Finding(
+            checkID: "UNUSED-01",
+            severity: group.totalBytes > 100 * 1024 * 1024 ? .warning : .info,
+            category: .unusedResources,
+            title: "'\(group.packName)': \(count) unreachable file\(count == 1 ? "" : "s") (\(sizeText))",
+            detail: "No DSF tile, library export or cross-package reference in the entire installation can reach these files, directly or through any chain of references — leftover imagery sets, dead objects and their textures.",
+            path: group.packPath,
+            suggestion: "Review in the Unused Resources view, then Trash Selected — recoverable from the Trash, tracked in Modifications.",
+            fixability: .assisted,
+            packName: group.packName,
+            packKind: packKind
+        )
+    }
+
+    /// Deletion-grade verification: sweep EVERY pack in the install (all of
+    /// Custom Scenery plus the disabled folder, regardless of analysis scope)
+    /// for `../`-style references that escape their own pack, and drop any
+    /// candidate such a reference lands on. Cross-pack references are rare —
+    /// in-pack reachability plus library exports cover the normal cases — but
+    /// "unused" is a promise the Trash button relies on.
+    ///
+    /// Known limits, both conservative in the keep direction: escapes are
+    /// resolved lexically (a `..` crossing a symlinked pack boundary resolves
+    /// differently on disk), and refs from uninstalled packs are resolved at
+    /// their current (disabled-folder) location.
+    public static func verifyUnused(
+        candidates: [UnusedResourceGroup],
+        allPacks: [SceneryPack],
+        progress: ((Int, Int) -> Void)? = nil
+    ) -> [UnusedResourceGroup] {
+        guard !candidates.isEmpty else { return [] }
+
+        // ONE canonical spelling for every path that takes part in matching.
+        // Foundation is treacherous here: standardizedFileURL adds /private
+        // when collapsing "..", while resolvingSymlinksInPath strips it only
+        // when the full path EXISTS — so two spellings of the same file need
+        // not compare equal. Resolve symlinks (60% of the reference install's
+        // packs are symlinked), then normalize the /private prefix by hand.
+        func canonical(_ url: URL) -> String {
+            var path = url.standardizedFileURL.resolvingSymlinksInPath().path
+            for prefix in ["/private/var/", "/private/tmp/", "/private/etc/"]
+            where path.hasPrefix(prefix) {
+                path = String(path.dropFirst("/private".count))
+            }
+            return path.lowercased()
+        }
+
+        var refExact = Set<String>()     // canonical paths referenced from outside their pack
+        var refStripped = Set<String>()  // ditto, images without extension
+        let lock = NSLock()
+        var done = 0
+
+        DispatchQueue.concurrentPerform(iterations: allPacks.count) { i in
+            let pack = allPacks[i]
+            var localExact = Set<String>(), localStripped = Set<String>()
+            autoreleasepool {
+                let packPrefix = canonical(pack.url) + "/"
+                guard let enumerator = FileManager.default.enumerator(
+                    at: pack.url,
+                    includingPropertiesForKeys: [.isRegularFileKey],
+                    options: [.skipsHiddenFiles, .skipsPackageDescendants]
+                ) else { return }
+                for case let url as URL in enumerator {
+                    let ext = url.pathExtension.lowercased()
+                    let isLibraryConfig = ext == "txt"
+                        && url.lastPathComponent.lowercased().hasPrefix("library")
+                    guard resourceTextExtensions.contains(ext) || isLibraryConfig else { continue }
+                    for ref in fileReferences(in: url) where ref.contains("../") {
+                        // X-Plane resolves relative to the referencing file,
+                        // with a pack-root fallback.
+                        for base in [url.deletingLastPathComponent(), pack.url] {
+                            let abs = canonical(base.appendingPathComponent(ref))
+                            guard !abs.hasPrefix(packPrefix) else { continue }
+                            localExact.insert(abs)
+                            if imageExtensions.contains((abs as NSString).pathExtension) {
+                                localStripped.insert((abs as NSString).deletingPathExtension)
+                            }
+                        }
+                    }
+                }
+            }
+            lock.lock()
+            refExact.formUnion(localExact)
+            refStripped.formUnion(localStripped)
+            done += 1
+            let d = done
+            lock.unlock()
+            if d % 25 == 0 || d == allPacks.count { progress?(d, allPacks.count) }
+        }
+
+        // A referenced base image keeps its _LIT/_NML and seasonal companions.
+        func matches(_ lower: String, exact: Set<String>, stripped strippedSet: Set<String>) -> Bool {
+            if exact.contains(lower) { return true }
+            let ns = lower as NSString
+            guard imageExtensions.contains(ns.pathExtension) else { return false }
+            let stripped = ns.deletingPathExtension
+            if strippedSet.contains(stripped) { return true }
+            if let base = companionBase(of: stripped), strippedSet.contains(base) { return true }
+            if let base = seasonalBase(of: stripped), strippedSet.contains(base) { return true }
+            return false
+        }
+
+        // An externally-referenced candidate keeps its own reference CHAIN:
+        // if some pack reaches an orphaned .ter, that .ter's texture must
+        // survive too, or trashing it breaks the external reference.
+        var candPackRoot: [String: String] = [:]     // canonical -> pack path
+        var candOriginal: [String: String] = [:]     // canonical -> path as recorded
+        var candStripped: [String: [String]] = [:]   // image stripped key -> members
+        for group in candidates {
+            for file in group.files {
+                let key = canonical(URL(fileURLWithPath: file.path))
+                candPackRoot[key] = group.packPath
+                candOriginal[key] = file.path
+                if imageExtensions.contains((key as NSString).pathExtension) {
+                    candStripped[(key as NSString).deletingPathExtension, default: []].append(key)
+                }
+            }
+        }
+
+        var keptExact = Set<String>()
+        var keptStrippedImages = Set<String>()
+        var queue = candOriginal.keys.filter { matches($0, exact: refExact, stripped: refStripped) }
+        while let lower = queue.popLast() {
+            guard !keptExact.contains(lower) else { continue }
+            keptExact.insert(lower)
+            let ns = lower as NSString
+            if imageExtensions.contains(ns.pathExtension) {
+                keptStrippedImages.insert(ns.deletingPathExtension)
+            }
+            guard resourceTextExtensions.contains(ns.pathExtension),
+                  let original = candOriginal[lower], let packRoot = candPackRoot[lower]
+            else { continue }
+            let fileURL = URL(fileURLWithPath: original)
+            for ref in fileReferences(in: fileURL) {
+                for base in [fileURL.deletingLastPathComponent(), URL(fileURLWithPath: packRoot)] {
+                    let abs = canonical(base.appendingPathComponent(ref))
+                    if candOriginal[abs] != nil {
+                        queue.append(abs)
+                    } else if let members = candStripped[(abs as NSString).deletingPathExtension] {
+                        queue.append(contentsOf: members) // extension-blind image
+                    }
+                }
+            }
+        }
+
+        return candidates.compactMap { group in
+            var group = group
+            group.files.removeAll {
+                matches(canonical(URL(fileURLWithPath: $0.path)),
+                        exact: keptExact, stripped: keptStrippedImages)
+            }
+            return group.files.isEmpty ? nil : group
+        }
     }
 
     // MARK: - Reference extraction
@@ -425,6 +591,18 @@ public struct ResourceAuditAnalyzer {
                 let cleaned = token.replacingOccurrences(of: "\\", with: "/")
                 let ext = (cleaned as NSString).pathExtension.lowercased()
                 if traversableExtensions.contains(ext) {
+                    refs.append(cleaned)
+                }
+            }
+            // Directive values can contain spaces ("TEXTURE my tex.png") —
+            // token splitting alone shreds those. Also try everything after
+            // the directive as one path; a bogus extra ref only errs toward
+            // keeping files.
+            let value = trimmed.drop(while: { $0 != " " && $0 != "\t" })
+                .trimmingCharacters(in: .whitespaces)
+            if value.contains(" ") {
+                let cleaned = value.replacingOccurrences(of: "\\", with: "/")
+                if traversableExtensions.contains((cleaned as NSString).pathExtension.lowercased()) {
                     refs.append(cleaned)
                 }
             }

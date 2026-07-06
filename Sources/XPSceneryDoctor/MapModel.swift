@@ -122,9 +122,21 @@ struct MapOverlays: Sendable {
         }
     }
 
+    /// Where a small-footprint pack lives, for a kind-colored map mark.
+    /// Position is the centroid of its covered tiles — tile-resolution until
+    /// DSF placement parsing lands (the LOAD_CENTER prerequisite) and can
+    /// give exact object coordinates.
+    struct Marker: Sendable {
+        let lon: Double
+        let lat: Double
+        let packName: String
+        let status: PackStatus
+    }
+
     var tintTiles: [TintTile] = []
     var airports: [Airport] = []
     var packBounds: [PackBounds] = []
+    var markers: [Marker] = []
 
     static let empty = MapOverlays(packs: [])
 
@@ -158,6 +170,13 @@ struct MapOverlays: Sendable {
             if minLat.isFinite {
                 packBounds.append(PackBounds(pack: pack, minLat: minLat, maxLat: maxLat,
                                              minLon: minLon, maxLon: maxLon))
+                // Landmark-style packs with a footprint of a tile or two get
+                // a point mark; airports already have their own marks, and
+                // wide overlays are communicated by the tile tint.
+                if pack.kind == .landmark, pack.airports.isEmpty, (1...2).contains(pack.tiles.count) {
+                    markers.append(Marker(lon: (minLon + maxLon) / 2, lat: (minLat + maxLat) / 2,
+                                          packName: pack.name, status: pack.status))
+                }
             }
         }
 

@@ -189,6 +189,9 @@ public struct AnalysisStats: Codable, Sendable {
     public var objFilesParsed = 0
     public var texturesInspected = 0
     public var airportsIndexed = 0
+    /// Packs whose analysis was served from the signature cache (optional
+    /// so pre-cache report JSONs still decode).
+    public var packsFromCache: Int? = nil
 }
 
 /// One package's role in a duplicated airport, for the actionable table UI.
@@ -339,6 +342,9 @@ public struct SceneryPack: Codable, Sendable {
     public let isOverlay: Bool?
     /// True for packs shipped by Laminar (Global Airports etc.) that we skip for health checks.
     public let isLaminar: Bool
+    /// Content-change hash (names/sizes/mtimes to depth 2 + every DSF) — the
+    /// analysis cache key. Empty when unknown.
+    public var signature: String = ""
 
     public var isEnabled: Bool { status == .enabled }
     public var isInstalled: Bool { status != .uninstalled }

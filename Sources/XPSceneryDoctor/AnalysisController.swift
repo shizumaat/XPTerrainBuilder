@@ -27,6 +27,12 @@ final class AnalysisController: ObservableObject {
     /// changes, never per frame.
     @Published var mapOverlays = MapOverlays.empty
     @Published var isScanningInstallation = false
+    /// Read by analysis workers pulling packs — tile selection changes move
+    /// the selected packs to the front of the pending queue mid-run.
+    let priorityBox = PriorityBox()
+    /// Packs our own fixes/actions touched since their cache entries were
+    /// written — forced fresh on the next run.
+    private var pendingInvalidation: Set<String> = []
     /// False until the first scan of the current install completes — the map
     /// window shows a loading cover instead of a half-laid-out split view.
     @Published var hasScannedInstallation = false
@@ -36,7 +42,11 @@ final class AnalysisController: ObservableObject {
     /// (checked, total) while the unused-resource cross-check sweeps every
     /// pack. nil outside that stage.
     @Published var unusedVerifyProgress: (done: Int, total: Int)?
-    @Published var selectedTiles: Set<String> = []
+    @Published var selectedTiles: Set<String> = [] {
+        didSet {
+            priorityBox.update(Set(packsAffectingSelection().map { $0.name }))
+        }
+    }
 
     // Search: debounced, filtered off the main thread against a precomputed
     // lowercased corpus. nil = no active search. (Live filtering of 7k+
@@ -111,6 +121,12 @@ final class AnalysisController: ObservableObject {
                 // Only a scan that saw the final ini may drop the reorder
                 // override — packs now carry the new iniIndex themselves.
                 self.iniOrderOverride = nil
+                // Analysis runs by itself: the signature cache makes an
+                // unchanged install a fast pass, and anything that changed
+                // gets picked up without the user asking.
+                if !self.isRunning {
+                    self.analyze()
+                }
             }
         }
     }
@@ -148,9 +164,21 @@ final class AnalysisController: ObservableObject {
         report = AnalysisReport(xplaneRoot: root.path, findings: [], stats: AnalysisStats())
         reportGeneration += 1
 
+        // Manual scoped runs bypass the cache for the selection (the user is
+        // asking "check this again"); packs our own fixes touched are always
+        // recomputed. Everything else rides the signature cache.
+        var options = Analyzer.Options(scope: scope, cacheURL: Self.cacheFileURL)
+        options.forceFresh = pendingInvalidation
+        if let scope { options.forceFresh.formUnion(scope) }
+        pendingInvalidation = []
+        let priorityBox = self.priorityBox
+
         let stream = AsyncStream<StreamMessage> { continuation in
             Task.detached(priority: .userInitiated) {
-                let final = Analyzer(root: root).run(scope: scope) { event in
+                let final = Analyzer(root: root).run(
+                    options: options,
+                    priority: { priorityBox.current }
+                ) { event in
                     continuation.yield(.event(event))
                 }
                 continuation.yield(.completed(final))
@@ -241,6 +269,23 @@ final class AnalysisController: ObservableObject {
         return base.appendingPathComponent("last-report.json")
     }
 
+    static var cacheFileURL: URL {
+        reportFileURL.deletingLastPathComponent().appendingPathComponent("analysis-cache.json")
+    }
+
+    /// Packs (by prefix of their folder path) that the given absolute file
+    /// paths live in — used to invalidate cache entries after our own edits.
+    private func packNames(containing paths: [String]) -> Set<String> {
+        var names = Set<String>()
+        for path in paths {
+            for pack in installationPacks where path.hasPrefix(pack.url.path + "/") {
+                names.insert(pack.name)
+                break
+            }
+        }
+        return names
+    }
+
     /// Save the report so quitting and relaunching resumes the review session.
     func persistReport() {
         guard let report else { return }
@@ -304,6 +349,8 @@ final class AnalysisController: ObservableObject {
                 self.report = report
             }
             self.actionErrors = outcomes.filter { !$0.success }
+            self.pendingInvalidation.formUnion(
+                outcomes.filter { $0.success }.map { $0.packName })
             self.isApplyingAction = false
             self.rebuildSearchCorpus()
             self.persistReport()
@@ -348,6 +395,8 @@ final class AnalysisController: ObservableObject {
 
             guard let self else { return }
             let succeeded = Set(outcomes.filter { $0.success }.map { $0.findingID })
+            self.pendingInvalidation.formUnion(self.packNames(
+                containing: outcomes.filter { $0.success }.map { $0.filePath }))
             if var report = self.report {
                 report.findings.removeAll { succeeded.contains($0.id) }
                 self.report = report
@@ -379,6 +428,7 @@ final class AnalysisController: ObservableObject {
 
             guard let self else { return }
             let trashed = Set(outcomes.filter { $0.success }.map { $0.filePath })
+            self.pendingInvalidation.formUnion(self.packNames(containing: Array(trashed)))
             if var report = self.report {
                 report.unusedResources = report.unusedResources.compactMap { group in
                     var group = group
@@ -423,6 +473,8 @@ final class AnalysisController: ObservableObject {
             self.fixErrors = outcomes.filter { !$0.success }.map {
                 "\(URL(fileURLWithPath: $0.record.filePath).lastPathComponent): \($0.message ?? "unknown error")"
             }
+            self.pendingInvalidation.formUnion(self.packNames(
+                containing: outcomes.filter { $0.success }.map { $0.record.filePath }))
             let reverted = outcomes.filter { $0.success }.count
             if reverted > 0 {
                 self.lastFixSummary = "Reverted \(reverted) file\(reverted == 1 ? "" : "s") to the original. Re-run Analyze (⌘R) to refresh findings."

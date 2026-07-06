@@ -450,63 +450,85 @@ public struct ResourceAuditAnalyzer {
         progress: ((Int, Int) -> Void)? = nil
     ) -> [UnusedResourceGroup] {
         guard !candidates.isEmpty else { return [] }
-
-        // ONE canonical spelling for every path that takes part in matching.
-        // Foundation is treacherous here: standardizedFileURL adds /private
-        // when collapsing "..", while resolvingSymlinksInPath strips it only
-        // when the full path EXISTS — so two spellings of the same file need
-        // not compare equal. Resolve symlinks (60% of the reference install's
-        // packs are symlinked), then normalize the /private prefix by hand.
-        func canonical(_ url: URL) -> String {
-            var path = url.standardizedFileURL.resolvingSymlinksInPath().path
-            for prefix in ["/private/var/", "/private/tmp/", "/private/etc/"]
-            where path.hasPrefix(prefix) {
-                path = String(path.dropFirst("/private".count))
-            }
-            return path.lowercased()
-        }
-
-        var refExact = Set<String>()     // canonical paths referenced from outside their pack
-        var refStripped = Set<String>()  // ditto, images without extension
+        var refs: [String] = []
         let lock = NSLock()
         var done = 0
-
         DispatchQueue.concurrentPerform(iterations: allPacks.count) { i in
-            let pack = allPacks[i]
-            var localExact = Set<String>(), localStripped = Set<String>()
-            autoreleasepool {
-                let packPrefix = canonical(pack.url) + "/"
-                guard let enumerator = FileManager.default.enumerator(
-                    at: pack.url,
-                    includingPropertiesForKeys: [.isRegularFileKey],
-                    options: [.skipsHiddenFiles, .skipsPackageDescendants]
-                ) else { return }
-                for case let url as URL in enumerator {
-                    let ext = url.pathExtension.lowercased()
-                    let isLibraryConfig = ext == "txt"
-                        && url.lastPathComponent.lowercased().hasPrefix("library")
-                    guard resourceTextExtensions.contains(ext) || isLibraryConfig else { continue }
-                    for ref in fileReferences(in: url) where ref.contains("../") {
-                        // X-Plane resolves relative to the referencing file,
-                        // with a pack-root fallback.
-                        for base in [url.deletingLastPathComponent(), pack.url] {
-                            let abs = canonical(base.appendingPathComponent(ref))
-                            guard !abs.hasPrefix(packPrefix) else { continue }
-                            localExact.insert(abs)
-                            if imageExtensions.contains((abs as NSString).pathExtension) {
-                                localStripped.insert((abs as NSString).deletingPathExtension)
-                            }
-                        }
-                    }
-                }
-            }
+            let found = collectEscapeRefs(in: allPacks[i])
             lock.lock()
-            refExact.formUnion(localExact)
-            refStripped.formUnion(localStripped)
+            refs.append(contentsOf: found)
             done += 1
             let d = done
             lock.unlock()
             if d % 25 == 0 || d == allPacks.count { progress?(d, allPacks.count) }
+        }
+        return verifyUnused(candidates: candidates, externalRefs: refs)
+    }
+
+    /// ONE canonical spelling for every path that takes part in cross-pack
+    /// matching. Foundation is treacherous here: standardizedFileURL adds
+    /// /private when collapsing "..", while resolvingSymlinksInPath strips it
+    /// only when the full path EXISTS — so two spellings of the same file
+    /// need not compare equal. Resolve symlinks (60% of the reference
+    /// install's packs are symlinked), then normalize the /private prefix by
+    /// hand.
+    static func canonicalPath(_ url: URL) -> String {
+        var path = url.standardizedFileURL.resolvingSymlinksInPath().path
+        for prefix in ["/private/var/", "/private/tmp/", "/private/etc/"]
+        where path.hasPrefix(prefix) {
+            path = String(path.dropFirst("/private".count))
+        }
+        return path.lowercased()
+    }
+
+    /// Canonical absolute paths this pack references OUTSIDE its own folder
+    /// (../-style escapes in text resources and library configs). Cacheable
+    /// per pack: the expensive half of unused-file verification.
+    public static func collectEscapeRefs(in pack: SceneryPack) -> [String] {
+        var found = Set<String>()
+        autoreleasepool {
+            let packPrefix = canonicalPath(pack.url) + "/"
+            guard let enumerator = FileManager.default.enumerator(
+                at: pack.url,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            ) else { return }
+            for case let url as URL in enumerator {
+                let ext = url.pathExtension.lowercased()
+                let isLibraryConfig = ext == "txt"
+                    && url.lastPathComponent.lowercased().hasPrefix("library")
+                guard resourceTextExtensions.contains(ext) || isLibraryConfig else { continue }
+                for ref in fileReferences(in: url) where ref.contains("../") {
+                    // X-Plane resolves relative to the referencing file,
+                    // with a pack-root fallback.
+                    for base in [url.deletingLastPathComponent(), pack.url] {
+                        let abs = canonicalPath(base.appendingPathComponent(ref))
+                        guard !abs.hasPrefix(packPrefix) else { continue }
+                        found.insert(abs)
+                    }
+                }
+            }
+        }
+        return Array(found)
+    }
+
+    /// Matching half of the verification: candidates survive only if no
+    /// collected external reference (or reference chain from one) lands on
+    /// them.
+    public static func verifyUnused(
+        candidates: [UnusedResourceGroup],
+        externalRefs: [String]
+    ) -> [UnusedResourceGroup] {
+        guard !candidates.isEmpty else { return [] }
+        let canonical = { (url: URL) in canonicalPath(url) }
+
+        var refExact = Set<String>()     // canonical paths referenced from outside their pack
+        var refStripped = Set<String>()  // ditto, images without extension
+        for ref in externalRefs {
+            refExact.insert(ref)
+            if imageExtensions.contains((ref as NSString).pathExtension) {
+                refStripped.insert((ref as NSString).deletingPathExtension)
+            }
         }
 
         // A referenced base image keeps its _LIT/_NML and seasonal companions.

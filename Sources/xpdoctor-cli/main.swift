@@ -44,7 +44,14 @@ while let i = argList.firstIndex(of: "--scope"), i + 1 < argList.count {
     argList.removeSubrange(i...(i + 1))
 }
 
-let report = Analyzer(root: root).run(scope: scope.isEmpty ? nil : scope) { event in
+// --cache <path> exercises the persisted per-pack cache (the app always
+// caches; the CLI defaults to a fresh run for honest validation).
+var options = Analyzer.Options(scope: scope.isEmpty ? nil : scope)
+if let i = argList.firstIndex(of: "--cache"), i + 1 < argList.count {
+    options.cacheURL = URL(fileURLWithPath: argList[i + 1])
+}
+
+let report = Analyzer(root: root).run(options: options) { event in
     if case .stage(let stage) = event {
         FileHandle.standardError.write(Data("· \(stage.label)\n".utf8))
     }

@@ -49,6 +49,7 @@ public struct InstallationScanner {
             let airports: [String: AirportInfo]
             let tiles: Set<String>
             let isOverlay: Bool?
+            let signature: String
         }
         var probes = [PackProbe?](repeating: nil, count: entries.count)
         let lock = NSLock()
@@ -61,7 +62,8 @@ public struct InstallationScanner {
                 // enumerators are autoreleased, and a GUI app only gets 256
                 // fds — thousands of packs without draining exhausts them.
                 let probe = autoreleasepool { () -> PackProbe in
-                    let (tiles, sampleDSF) = collectDSFTiles(url)
+                    var hash = FNV1a()
+                    let (tiles, sampleDSF) = collectDSFTiles(url, into: &hash)
                     var isOverlay: Bool? = nil
                     if let sampleDSF, case .ok(let defs) = DSFReader.readDefinitions(url: sampleDSF) {
                         isOverlay = defs.isOverlay
@@ -70,7 +72,8 @@ public struct InstallationScanner {
                         isLibrary: fm.fileExists(atPath: url.appendingPathComponent("library.txt").path),
                         airports: parseAirports(inPack: url),
                         tiles: tiles,
-                        isOverlay: isOverlay
+                        isOverlay: isOverlay,
+                        signature: packSignature(url, hash: &hash)
                     )
                 }
                 lock.lock()
@@ -110,7 +113,8 @@ public struct InstallationScanner {
                 airports: probe.airports,
                 tiles: probe.tiles,
                 isOverlay: probe.isOverlay,
-                isLaminar: Self.laminarPackNames.contains(name)
+                isLaminar: Self.laminarPackNames.contains(name),
+                signature: probe.signature
             ))
         }
 
@@ -249,12 +253,15 @@ public struct InstallationScanner {
 
     /// Tile names (e.g. "+41-073") of every DSF in the pack — cheap, from
     /// filenames only — plus one sample DSF URL for property probing
-    /// (sim/overlay determines mesh vs overlay scenery).
-    func collectDSFTiles(_ packURL: URL) -> (tiles: Set<String>, sample: URL?) {
+    /// (sim/overlay determines mesh vs overlay scenery), plus every DSF's
+    /// mtime folded into the change-detection hash (a replaced tile must
+    /// invalidate the analysis cache even though its folder mtime doesn't
+    /// move).
+    func collectDSFTiles(_ packURL: URL, into hash: inout FNV1a) -> (tiles: Set<String>, sample: URL?) {
         let earthNav = packURL.appendingPathComponent("Earth nav data")
         guard let enumerator = fm.enumerator(
             at: earthNav,
-            includingPropertiesForKeys: nil,
+            includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
             options: [.skipsHiddenFiles]
         ) else { return ([], nil) }
         var tiles = Set<String>()
@@ -262,7 +269,63 @@ public struct InstallationScanner {
         for case let file as URL in enumerator where file.pathExtension.lowercased() == "dsf" {
             tiles.insert(file.deletingPathExtension().lastPathComponent)
             if sample == nil { sample = file }
+            let values = try? file.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+            hash.combine(file.lastPathComponent)
+            hash.combine(values?.contentModificationDate?.timeIntervalSinceReferenceDate ?? 0)
+            hash.combine(Double(values?.fileSize ?? 0))
         }
         return (tiles, sample)
+    }
+
+    /// Content signature for cache invalidation: names, sizes and mtimes of
+    /// everything down to depth 2, plus every DSF (any depth, above). Catches
+    /// adds, removals and replaced files; the one blind spot is an IN-PLACE
+    /// edit of a file deeper than two levels — our own FixEngine edits
+    /// invalidate explicitly, and manual Analyze Selection always bypasses
+    /// the cache.
+    func packSignature(_ packURL: URL, hash: inout FNV1a) -> String {
+        signatureWalk(packURL, depth: 0, hash: &hash)
+        return String(hash.value, radix: 16)
+    }
+
+    private func signatureWalk(_ dir: URL, depth: Int, hash: inout FNV1a) {
+        let entries = (try? fm.contentsOfDirectory(
+            at: dir,
+            includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey, .isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+            let name = entry.lastPathComponent
+            if depth == 0, name == "Earth nav data" { continue } // hashed per-DSF already
+            let values = try? entry.resourceValues(
+                forKeys: [.contentModificationDateKey, .fileSizeKey, .isDirectoryKey])
+            hash.combine(name)
+            hash.combine(values?.contentModificationDate?.timeIntervalSinceReferenceDate ?? 0)
+            hash.combine(Double(values?.fileSize ?? 0))
+            if values?.isDirectory == true, depth < 2 {
+                signatureWalk(entry, depth: depth + 1, hash: &hash)
+            }
+        }
+    }
+}
+
+/// Deterministic 64-bit FNV-1a accumulator (Swift's Hasher is seeded per
+/// process, useless for persisted signatures).
+struct FNV1a {
+    private(set) var value: UInt64 = 0xcbf29ce484222325
+
+    mutating func combine(_ string: String) {
+        for byte in string.utf8 {
+            value = (value ^ UInt64(byte)) &* 0x100000001b3
+        }
+        value = (value ^ 0x7c) &* 0x100000001b3 // separator
+    }
+
+    mutating func combine(_ number: Double) {
+        var bits = number.bitPattern
+        for _ in 0..<8 {
+            value = (value ^ (bits & 0xff)) &* 0x100000001b3
+            bits >>= 8
+        }
     }
 }

@@ -13,6 +13,8 @@ struct MapCanvasView: View {
 
     @StateObject private var dragAnchor = ViewState<MapCamera?>(nil)
     @StateObject private var rubberBand = ViewState<CGRect?>(nil)
+    /// Last plainly-clicked tile — the anchor a shift-click extends from.
+    @StateObject private var rangeAnchor = ViewState<(lat: Int, lon: Int)?>(nil)
 
     // Night-chart palette (the icon's world).
     static let ocean = Color(red: 0.043, green: 0.051, blue: 0.071)
@@ -286,12 +288,33 @@ struct MapCanvasView: View {
             }
     }
 
+    /// Click selects a tile; ⌘-click toggles tiles in and out (non-
+    /// contiguous); ⇧-click extends a contiguous rectangle from the last
+    /// plainly-clicked tile (⌘⇧ adds that rectangle to the selection).
     private func clickSelect(size: CGSize) -> some Gesture {
         SpatialTapGesture(count: 1)
             .onEnded { value in
-                let additive = NSApp.currentEvent?.modifierFlags.contains(.command) ?? false
+                let flags = NSApp.currentEvent?.modifierFlags ?? []
+                let additive = flags.contains(.command)
+                let extending = flags.contains(.shift)
                 let coord = camera.value.coordinate(of: value.location, in: size)
-                let key = TileMath.key(latitude: coord.lat, longitude: coord.lon)
+                let tile = (lat: Int(floor(coord.lat)), lon: Int(floor(coord.lon)))
+                let key = TileMath.key(lat: tile.lat, lon: tile.lon)
+
+                if extending, let anchor = rangeAnchor.value {
+                    var keys = Set<String>()
+                    for lat in min(anchor.lat, tile.lat)...max(anchor.lat, tile.lat) {
+                        for lon in min(anchor.lon, tile.lon)...max(anchor.lon, tile.lon) {
+                            keys.insert(TileMath.key(lat: lat, lon: lon))
+                        }
+                    }
+                    guard keys.count <= 4000 else { return } // sanity, as rubber band
+                    controller.selectedTiles = additive
+                        ? controller.selectedTiles.union(keys) : keys
+                    return // anchor stays put for further extension
+                }
+
+                rangeAnchor.value = tile
                 if additive {
                     if controller.selectedTiles.contains(key) {
                         controller.selectedTiles.remove(key)

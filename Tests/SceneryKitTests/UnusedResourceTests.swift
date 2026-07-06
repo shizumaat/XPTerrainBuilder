@@ -251,6 +251,39 @@ import Foundation
         #expect(findings.contains { $0.checkID == "UNUSED-00" })
     }
 
+    @Test func cachedRunReusesUnchangedPacksAndCatchesChanges() throws {
+        let root = try makeOrthoPack()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cacheURL = root.appendingPathComponent("cache.json")
+
+        let first = Analyzer(root: root).run(options: .init(cacheURL: cacheURL))
+        #expect(first.stats.packsFromCache == 0)
+        #expect(!first.unusedResources.isEmpty)
+
+        // Nothing changed: everything is served from the cache, results equal.
+        let second = Analyzer(root: root).run(options: .init(cacheURL: cacheURL))
+        #expect(second.stats.packsFromCache == 1)
+        #expect(second.unusedResources.map { $0.files.count } == first.unusedResources.map { $0.files.count })
+        #expect(Set(second.findings.map { $0.title }) == Set(first.findings.map { $0.title }))
+
+        // A replaced DSF (in-place write, deep in Earth nav data) must
+        // invalidate: the new tile references the leftover set, so the
+        // "unused" files disappear.
+        let pack = root.appendingPathComponent("Custom Scenery/zOrtho Test")
+        try Self.makeDSF(terrains: ["terrain/12345_GO16.ter", "terrain/12345_BI16.ter"],
+                         objects: ["objects/pier.obj"])
+            .write(to: pack.appendingPathComponent("Earth nav data/+40-080/+41-073.dsf"))
+
+        let third = Analyzer(root: root).run(options: .init(cacheURL: cacheURL))
+        #expect(third.stats.packsFromCache == 0)
+        let files = Set(third.unusedResources.flatMap { $0.files.map { ($0.path as NSString).lastPathComponent } })
+        #expect(files == ["leftover_scratch.png"], "\(files)")
+
+        // forceFresh bypasses a valid cache entry.
+        let fourth = Analyzer(root: root).run(options: .init(forceFresh: ["zOrtho Test"], cacheURL: cacheURL))
+        #expect(fourth.stats.packsFromCache == 0)
+    }
+
     // MARK: - Trash + restore cycle
 
     @Test func trashAndRevertRoundTrip() throws {

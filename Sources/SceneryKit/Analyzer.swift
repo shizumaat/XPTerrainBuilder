@@ -48,15 +48,44 @@ public struct Analyzer {
         case unusedResources([UnusedResourceGroup])
     }
 
-    /// Runs the analysis. `scope` restricts the deep per-pack stages to the
-    /// named packs (the map's tile selection); nil = whole install. The
-    /// installation scan always covers everything — library indexes must be
-    /// complete regardless of scope. `onEvent` may be called from any thread
-    /// (pack scans run in parallel) and must be thread-safe.
+    public struct Options: Sendable {
+        /// Restrict REPORTED per-pack findings to these packs (the map's
+        /// tile selection); nil = whole install.
+        public var scope: Set<String>? = nil
+        /// Recompute these packs even when their cache entry is valid —
+        /// manual Analyze Selection and post-fix invalidation.
+        public var forceFresh: Set<String> = []
+        /// Persisted per-pack cache location; nil disables caching.
+        public var cacheURL: URL? = nil
+
+        public init(scope: Set<String>? = nil, forceFresh: Set<String> = [], cacheURL: URL? = nil) {
+            self.scope = scope
+            self.forceFresh = forceFresh
+            self.cacheURL = cacheURL
+        }
+    }
+
+    /// Compatibility wrapper: uncached run (CLI default, tests).
     public func run(
         scope: Set<String>? = nil,
         onEvent: @escaping @Sendable (Event) -> Void = { _ in }
     ) -> AnalysisReport {
+        run(options: Options(scope: scope), onEvent: onEvent)
+    }
+
+    /// Runs the analysis. The installation scan always covers everything —
+    /// library indexes must be complete regardless of scope. With a cacheURL,
+    /// per-pack work is reused when the pack's content signature is unchanged
+    /// since the cached run, so post-initial runs only pay for what changed.
+    /// `priority` is re-read as workers pull packs, so selecting tiles mid-
+    /// run moves those packs to the front. `onEvent` may be called from any
+    /// thread and must be thread-safe.
+    public func run(
+        options: Options,
+        priority: (@Sendable () -> Set<String>)? = nil,
+        onEvent: @escaping @Sendable (Event) -> Void = { _ in }
+    ) -> AnalysisReport {
+        let scope = options.scope
         var findings: [Finding] = []
         var stats = AnalysisStats()
         let system = SystemInfo.current()
@@ -118,19 +147,70 @@ public struct Analyzer {
         emit(dupFindings)
         onEvent(.duplicateGroups(duplicateGroups))
 
+        // --- Unified per-pack pipeline (cache- and priority-aware) --------
+        // Health checks, the resource audit and escape-reference collection
+        // run together per pack, so one signature-valid cache entry replaces
+        // every expensive read of that pack.
+        var cache = options.cacheURL.map { AnalysisCache.load(from: $0) } ?? AnalysisCache()
         let health = PackageHealthAnalyzer(installation: installation, config: config)
-        let healthResult = health.analyze(
-            progress: { packName in
-                onEvent(.stage(.inspectingPack(packName)))
-            },
-            onPackFindings: { packFindings in
-                onEvent(.findings(packFindings))
+        let audit = ResourceAuditAnalyzer(installation: installation)
+        let targets = installation.packs.filter { !$0.isLaminar && $0.isInstalled }
+
+        struct PipelineState {
+            var entries: [String: PackCacheEntry] = [:]
+            var fromCache = 0
+            var completed = 0
+        }
+        let state = LockedBox(PipelineState())
+        let cacheSnapshot = cache
+        let force = options.forceFresh
+
+        forEachPackPrioritized(targets, priority: priority) { i in
+            let pack = targets[i]
+            let entry: PackCacheEntry
+            var reused = false
+            if !force.contains(pack.name), let cached = cacheSnapshot.fullEntry(for: pack) {
+                entry = cached
+                reused = true
+            } else {
+                let healthResult = autoreleasepool { health.scanPack(pack) }
+                let auditResult = autoreleasepool { audit.scanPack(pack) }
+                let escapes = ResourceAuditAnalyzer.collectEscapeRefs(in: pack)
+                entry = PackCacheEntry(
+                    signature: pack.signature,
+                    hasFullAnalysis: true,
+                    healthFindings: healthResult.findings,
+                    auditFindings: auditResult?.0 ?? [],
+                    unusedCandidates: auditResult?.1,
+                    escapeRefs: escapes,
+                    vramBytes: healthResult.vramEstimateBytes,
+                    objFilesParsed: healthResult.objFilesParsed,
+                    texturesInspected: healthResult.texturesInspected
+                )
             }
-        )
-        // Streamed above per pack; fold into the aggregate without re-emitting.
-        findings.append(contentsOf: healthResult.findings)
-        stats.objFilesParsed = healthResult.objFilesParsed
-        stats.texturesInspected = healthResult.texturesInspected
+            let done = state.withLock { s -> Int in
+                s.entries[pack.name] = entry
+                if reused { s.fromCache += 1 }
+                s.completed += 1
+                return s.completed
+            }
+            onEvent(.stage(.inspectingPack("\(pack.name) (\(done)/\(targets.count))")))
+            let packFindings = entry.healthFindings + entry.auditFindings
+            if !packFindings.isEmpty { onEvent(.findings(packFindings)) }
+        }
+
+        var newEntries = state.withLock { $0.entries }
+        var packVRAM: [String: Int64] = [:]
+        var candidateGroups: [UnusedResourceGroup] = []
+        for pack in targets {
+            guard let entry = newEntries[pack.name] else { continue }
+            findings.append(contentsOf: entry.healthFindings + entry.auditFindings)
+            stats.objFilesParsed += entry.objFilesParsed
+            stats.texturesInspected += entry.texturesInspected
+            if !pack.isLibrary { packVRAM[pack.name] = entry.vramBytes }
+            if let candidates = entry.unusedCandidates { candidateGroups.append(candidates) }
+        }
+        stats.packsFromCache = state.withLock { $0.fromCache }
 
         // PERF-02: packs that load together in the same tile region. A pack's
         // textures are attributed evenly across its tiles (an ortho region
@@ -138,39 +218,56 @@ public struct Analyzer {
         // weight on their single tile.
         let tileFindings = Self.tileCoLoadFindings(
             packs: installation.packs,
-            packVRAM: healthResult.packVRAM,
+            packVRAM: packVRAM,
             config: config
         )
         findings.append(contentsOf: tileFindings)
         onEvent(.findings(tileFindings))
 
-        onEvent(.stage(.findingUnused(nil)))
-        let auditAnalyzer = ResourceAuditAnalyzer(installation: installation)
-        let (auditFindings, candidateGroups) = auditAnalyzer.analyze(
-            progress: { detail in
-                onEvent(.stage(.findingUnused(detail)))
-            },
-            onPack: { packFindings, _ in
-                // Groups are candidates until verified below — stream only
-                // the findings; unused groups land in one verified batch.
-                onEvent(.findings(packFindings))
-            }
-        )
-        findings.append(contentsOf: auditFindings)
-
         // Deletion-grade cross-check: candidates survive only if no pack in
         // the whole install (scope notwithstanding) references them from
-        // outside. Runs only when there's something to verify.
+        // outside. Escape refs from the analyzed packs came out of the
+        // pipeline above; the remaining packs (out of scope, Laminar,
+        // uninstalled) are swept here, cache-aware, so repeat runs skip the
+        // multi-minute read.
         var unusedGroups: [UnusedResourceGroup] = []
         if !candidateGroups.isEmpty {
-            onEvent(.stage(.verifyingUnused(0, fullInstallation.packs.count)))
-            unusedGroups = ResourceAuditAnalyzer.verifyUnused(
-                candidates: candidateGroups,
-                allPacks: fullInstallation.packs,
-                progress: { done, total in
-                    onEvent(.stage(.verifyingUnused(done, total)))
+            var externalRefs: [String] = []
+            for entry in newEntries.values { externalRefs.append(contentsOf: entry.escapeRefs) }
+
+            let others = fullInstallation.packs.filter { newEntries[$0.name] == nil }
+            onEvent(.stage(.verifyingUnused(0, others.count)))
+            struct SweepState {
+                var refs: [String] = []
+                var entries: [String: PackCacheEntry] = [:]
+                var done = 0
+            }
+            let sweep = LockedBox(SweepState())
+            forEachPackPrioritized(others, priority: nil) { i in
+                let pack = others[i]
+                let entry: PackCacheEntry
+                if let cached = cacheSnapshot.anyEntry(for: pack) {
+                    entry = cached
+                } else {
+                    entry = PackCacheEntry(signature: pack.signature,
+                                           escapeRefs: ResourceAuditAnalyzer.collectEscapeRefs(in: pack))
                 }
-            )
+                let done = sweep.withLock { s -> Int in
+                    s.refs.append(contentsOf: entry.escapeRefs)
+                    s.entries[pack.name] = entry
+                    s.done += 1
+                    return s.done
+                }
+                if done % 25 == 0 || done == others.count {
+                    onEvent(.stage(.verifyingUnused(done, others.count)))
+                }
+            }
+            let sweepResult = sweep.withLock { $0 }
+            externalRefs.append(contentsOf: sweepResult.refs)
+            for (name, entry) in sweepResult.entries { newEntries[name] = entry }
+
+            unusedGroups = ResourceAuditAnalyzer.verifyUnused(
+                candidates: candidateGroups, externalRefs: externalRefs)
             unusedGroups.sort { $0.totalBytes > $1.totalBytes }
             let kinds = Dictionary(uniqueKeysWithValues: installation.packs.map { ($0.name, $0.kind) })
             let unusedFindings = unusedGroups.map {
@@ -178,6 +275,15 @@ public struct Analyzer {
             }
             emit(unusedFindings)
             onEvent(.unusedResources(unusedGroups))
+        }
+
+        // Persist the cache: fresh entries win; entries for packs that no
+        // longer exist are pruned.
+        if let cacheURL = options.cacheURL {
+            let currentNames = Set(fullInstallation.packs.map { $0.name })
+            cache.entries = cache.entries.filter { currentNames.contains($0.key) }
+            for (name, entry) in newEntries { cache.entries[name] = entry }
+            cache.save(to: cacheURL)
         }
 
         onEvent(.stage(.done))

@@ -154,7 +154,10 @@ func drawAirportSymbol(_ ctx: CGContext, center: CGPoint, discRadius R: CGFloat)
 /// the lens rim (disc 90 -> star top ~2.12R = 191 base -> ~305 vs 296 lens).
 func drawScene(_ ctx: CGContext) {
     drawChart(ctx)
-    drawAirportSymbol(ctx, center: CGPoint(x: 512, y: 512), discRadius: 98)
+    // Disc sized so the star's top (1.942R) exceeds what the distorted lens
+    // shows at its edge (lensRadius / M(rim) ≈ 206) — the tip passes under
+    // the rim with magenta reaching the glass edge.
+    drawAirportSymbol(ctx, center: CGPoint(x: 512, y: 512), discRadius: 108)
 }
 
 // MARK: - Magnifying glass
@@ -184,37 +187,83 @@ func ringPath(outer: CGFloat, inner: CGFloat) -> CGPath {
     return path
 }
 
+// True lens distortion: continuous radial magnification, 1.6x at the lens
+// center easing to ~1.5x at the rim. A real lens never skips or repeats
+// content — the image just compresses toward the frame — so the star's tip
+// squashes smoothly and stays magenta all the way to where the rim covers it.
+let rimFalloff: CGFloat = 0.10
+let falloffExponent: CGFloat = 6
+
+func radialMagnification(_ r: CGFloat) -> CGFloat {
+    magnification - rimFalloff * magnification * pow(r / lensRadius, falloffExponent)
+}
+
+/// Render the flat scene to pixels, then resample it through the radial
+/// magnification profile for everything inside the lens.
+func makeDistortedLensImage() -> CGImage {
+    let w = Int(SIZE)
+    let space = CGColorSpaceCreateDeviceRGB()
+
+    var src = [UInt8](repeating: 0, count: w * w * 4)
+    src.withUnsafeMutableBytes { raw in
+        let ctx = CGContext(data: raw.baseAddress, width: w, height: w,
+                            bitsPerComponent: 8, bytesPerRow: w * 4, space: space,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        drawScene(ctx)
+    }
+
+    var dst = [UInt8](repeating: 0, count: w * w * 4)
+    let cx = lensCenter.x
+    let cyMem = SIZE - lensCenter.y // bitmap rows run top-down
+
+    let minX = max(0, Int(cx - lensRadius) - 1), maxX = min(w - 1, Int(cx + lensRadius) + 1)
+    let minY = max(0, Int(cyMem - lensRadius) - 1), maxY = min(w - 1, Int(cyMem + lensRadius) + 1)
+
+    src.withUnsafeBufferPointer { srcBuf in
+        dst.withUnsafeMutableBufferPointer { dstBuf in
+            let s = srcBuf.baseAddress!, d = dstBuf.baseAddress!
+            for py in minY...maxY {
+                for px in minX...maxX {
+                    let dx = CGFloat(px) + 0.5 - cx
+                    let dy = CGFloat(py) + 0.5 - cyMem
+                    let r = (dx * dx + dy * dy).squareRoot()
+                    guard r < lensRadius else { continue }
+                    let m = radialMagnification(r)
+                    let sx = cx + dx / m
+                    let sy = cyMem + dy / m
+                    // Bilinear sample.
+                    let x0 = Int(sx), y0 = Int(sy)
+                    guard x0 >= 0, y0 >= 0, x0 < w - 1, y0 < w - 1 else { continue }
+                    let fx = sx - CGFloat(x0), fy = sy - CGFloat(y0)
+                    let di = (py * w + px) * 4
+                    for c in 0..<4 {
+                        let p00 = CGFloat(s[(y0 * w + x0) * 4 + c])
+                        let p10 = CGFloat(s[(y0 * w + x0 + 1) * 4 + c])
+                        let p01 = CGFloat(s[((y0 + 1) * w + x0) * 4 + c])
+                        let p11 = CGFloat(s[((y0 + 1) * w + x0 + 1) * 4 + c])
+                        let top = p00 + (p10 - p00) * fx
+                        let bottom = p01 + (p11 - p01) * fx
+                        d[di + c] = UInt8(max(0, min(255, top + (bottom - top) * fy)))
+                    }
+                }
+            }
+        }
+    }
+
+    let data = CFDataCreate(nil, dst, dst.count)!
+    let provider = CGDataProvider(data: data)!
+    return CGImage(width: w, height: w, bitsPerComponent: 8, bitsPerPixel: 32,
+                   bytesPerRow: w * 4, space: space,
+                   bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                   provider: provider, decode: nil, shouldInterpolate: true,
+                   intent: .defaultIntent)!
+}
+
 func drawMagnifiedContent(_ ctx: CGContext) {
-    // Two exclusive zones so every radius is rendered exactly once — the
-    // seam between them is the refraction offset, and it applies uniformly
-    // to chart lines AND the airport symbol (the star shifts under the rim
-    // just like the airways do). Overlapping layers here double shapes;
-    // exclusive clipping is what keeps the distortion clean.
-    let refractionBand: CGFloat = 26
-    let innerRadius = lensRadius - refractionBand
-
-    // Zone 1: lens interior up to the band.
     ctx.saveGState()
-    ctx.addEllipse(in: CGRect(x: lensCenter.x - innerRadius, y: lensCenter.y - innerRadius,
-                              width: innerRadius * 2, height: innerRadius * 2))
+    ctx.addPath(lensPath())
     ctx.clip()
-    ctx.translateBy(x: lensCenter.x, y: lensCenter.y)
-    ctx.scaleBy(x: magnification, y: magnification)
-    ctx.translateBy(x: -lensCenter.x, y: -lensCenter.y)
-    drawScene(ctx)
-    ctx.restoreGState()
-
-    // Zone 2: the band, at LOWER magnification — near a loupe's frame the
-    // image compresses back toward true scale, so content shifts inward at
-    // the seam. (Higher magnification here re-shows content the interior
-    // already drew, which doubles shapes into ghosts.)
-    ctx.saveGState()
-    ctx.addPath(ringPath(outer: lensRadius, inner: innerRadius))
-    ctx.clip(using: .evenOdd)
-    ctx.translateBy(x: lensCenter.x, y: lensCenter.y)
-    ctx.scaleBy(x: magnification * 0.90, y: magnification * 0.90)
-    ctx.translateBy(x: -lensCenter.x, y: -lensCenter.y)
-    drawScene(ctx)
+    ctx.draw(makeDistortedLensImage(), in: CGRect(x: 0, y: 0, width: SIZE, height: SIZE))
     ctx.restoreGState()
 
     // Flatter glass tint: faint cool lift over the black, restrained edge.

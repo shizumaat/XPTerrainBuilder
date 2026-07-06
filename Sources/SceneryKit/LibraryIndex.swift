@@ -29,14 +29,20 @@ public struct LibraryIndex: Sendable {
         guard let text = TextFile.contents(of: libraryTxt) else { return }
         for rawLine in TextFile.lines(text) {
             let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            // EXPORT, EXPORT_RATIO, EXPORT_EXTEND, EXPORT_BACKUP, EXPORT_EXCLUDE
+            // EXPORT, EXPORT_RATIO, EXPORT_EXTEND, EXPORT_BACKUP, EXPORT_EXCLUDE,
+            // EXPORT_SEASON, EXPORT_EXCLUDE_SEASON
             guard line.hasPrefix("EXPORT") else { continue }
             // Split on spaces AND tabs — authors use both.
             var parts = line.split(omittingEmptySubsequences: true,
                                    whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
             guard parts.count >= 3 else { continue }
             let keyword = parts.removeFirst()
-            if keyword == "EXPORT_RATIO" { parts.removeFirst() } // skip the ratio number
+            // EXPORT_RATIO carries a ratio, the _SEASON forms a season list
+            // ("sum" / "spr,sum") before the virtual path. XP12's default
+            // libraries remap thousands of legacy lib/g8… paths through
+            // EXPORT_SEASON — dropping the extra token indexed them under
+            // the season name and made them look uninstalled.
+            if keyword == "EXPORT_RATIO" || keyword.hasSuffix("_SEASON") { parts.removeFirst() }
             guard parts.count >= 2 else { continue }
             let virtualPath = parts[0]
             let realPath = parts[1...].joined(separator: " ")

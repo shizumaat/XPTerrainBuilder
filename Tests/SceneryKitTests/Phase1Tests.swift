@@ -230,6 +230,39 @@ import Foundation
         #expect(export?.realPath == "Veg/Pine.obj")
     }
 
+    @Test func seasonExportKeywordsParse() throws {
+        // XP12's default libraries remap legacy XP8–XP11 paths (lib/g8/…)
+        // through EXPORT_SEASON / EXPORT_EXCLUDE_SEASON, whose extra season
+        // token ("sum" / "spr,sum") precedes the virtual path. Mis-parsing
+        // it as the virtual path made those resources look uninstalled and
+        // false-alarmed RES-01 on paths the sim substitutes automatically.
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("XPSDSeason-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let text = """
+        A
+        800
+        LIBRARY
+
+        EXPORT_SEASON sum\tlib/g8/coni_vcld_sdry.for\t\tsum/coni_vcld.for
+        EXPORT_SEASON win\tlib/g8/coni_vcld_sdry.for\t\twin/coni_vcld.for
+        EXPORT_EXCLUDE_SEASON spr,sum\tlib/g10/autogen/natural.ags\tEU/sub_Resid02.ags
+        EXPORT_RATIO 0.5 lib/trees/oak.obj trees/oak.obj
+        """
+        try Data(text.utf8).write(to: dir.appendingPathComponent("library.txt"))
+
+        var index = LibraryIndex()
+        index.indexLibrary(at: dir, packName: "1000 world terrain")
+        #expect(index.caseInsensitiveMatch(for: "lib/g8/coni_vcld_sdry.for") != nil)
+        #expect(index.caseInsensitiveMatch(for: "lib/g10/autogen/natural.ags") != nil)
+        #expect(index.caseInsensitiveMatch(for: "lib/trees/oak.obj") != nil)
+        // The season token must not be indexed as a virtual path.
+        #expect(index.caseInsensitiveMatch(for: "sum") == nil)
+        #expect(index.caseInsensitiveMatch(for: "spr,sum") == nil)
+    }
+
     @Test func tileMathRoundTrips() {
         #expect(TileMath.key(lat: 41, lon: -73) == "+41-073")
         #expect(TileMath.key(lat: -9, lon: 8) == "-09+008")

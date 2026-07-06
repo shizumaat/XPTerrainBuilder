@@ -36,8 +36,13 @@ struct MapMainView: View {
                         .frame(minWidth: 240, idealWidth: 300, maxWidth: 420)
                     }
                     .layoutPriority(2)
-                    ResultsPane()
-                        .frame(minHeight: 180, idealHeight: 300)
+                    ResultsPane(packFilter: Set(
+                        (controller.selectedTiles.isEmpty
+                            ? viewportPacks.value
+                            : controller.packsAffectingSelection())
+                        .map { $0.name }
+                    ))
+                    .frame(minHeight: 180, idealHeight: 300)
                 }
                 .onChange(of: camera.value) { scheduleViewportUpdate() }
                 .onChange(of: canvasSize.value) { scheduleViewportUpdate() }
@@ -179,7 +184,7 @@ struct MapMainView: View {
             cam.centerLon = match.info.longitude
             cam.centerLat = match.info.latitude
             cam.scale = max(cam.scale, 60)
-            cam.clamp()
+            cam.clamp(in: canvasSize.value)
             camera.value = cam
             controller.selectedTiles = [TileMath.key(latitude: match.info.latitude,
                                                      longitude: match.info.longitude)]
@@ -203,14 +208,14 @@ struct MapMainView: View {
                 let spanLon = max(lons.max()! - lons.min()! + 1, 2)
                 let spanLat = max(lats.max()! - lats.min()! + 1, 2)
                 cam.scale = min(700 / spanLon, 400 / spanLat, 120)
-                cam.clamp()
+                cam.clamp(in: canvasSize.value)
                 camera.value = cam
             } else if let airport = pack.airports.values.first {
                 var cam = camera.value
                 cam.centerLon = airport.longitude
                 cam.centerLat = airport.latitude
                 cam.scale = max(cam.scale, 60)
-                cam.clamp()
+                cam.clamp(in: canvasSize.value)
                 camera.value = cam
             }
         }

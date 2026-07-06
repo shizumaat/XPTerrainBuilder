@@ -22,6 +22,7 @@ if let queryIndex = CommandLine.arguments.firstIndex(of: "--query-lib"),
     print("default match: \(String(describing: installation.defaultLibraryIndex.caseInsensitiveMatch(for: vpath)))")
     let libs = installation.packs.filter { $0.isLibrary }
     print("library packs: \(libs.count); MisterX present: \(libs.contains { $0.name == "MisterX_Library" })")
+    print("total packs: \(installation.packs.count) (installed: \(installation.packs.filter { $0.isInstalled }.count))")
     exit(0)
 }
 

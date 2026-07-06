@@ -6,12 +6,29 @@ import SceneryKit
 /// multi-select + Fix, and the live progress in the bottom bar.
 struct ResultsPane: View {
     @EnvironmentObject var controller: AnalysisController
+    /// Pack names in the current map view/selection; results are filtered to
+    /// them (install-wide findings with no pack stay visible). nil = show all.
+    var packFilter: Set<String>? = nil
     @StateObject private var selection = ViewState(Set<Finding.ID>())
     @StateObject private var expanded = ViewState(Set<FindingCategory>([.missingResource]))
     @StateObject private var confirmingFix = ViewState<[Finding]?>(nil)
 
     private var findings: [Finding] {
-        controller.report?.findings ?? []
+        let all = controller.report?.findings ?? []
+        guard let filter = packFilter else { return all }
+        return all.filter { $0.packName.map(filter.contains) ?? true }
+    }
+
+    private var filteredDuplicateGroups: [DuplicateGroup] {
+        let groups = controller.report?.duplicateGroups ?? []
+        guard let filter = packFilter else { return groups }
+        return groups.filter { group in group.packs.contains { filter.contains($0.name) } }
+    }
+
+    private var filteredUnusedGroups: [UnusedResourceGroup] {
+        let groups = controller.report?.unusedResources ?? []
+        guard let filter = packFilter else { return groups }
+        return groups.filter { filter.contains($0.packName) }
     }
 
     private var fixable: [Finding] {
@@ -74,10 +91,14 @@ struct ResultsPane: View {
         var parts: [String] = []
         if let scope = report.scopeDescription { parts.append(scope) }
         if controller.isRunning {
-            parts.append("\(report.findings.count) findings so far")
+            parts.append("\(findings.count) findings so far")
         } else {
             parts.append("Generated \(report.generatedAt.formatted(date: .abbreviated, time: .shortened))")
-            parts.append("\(report.findings.count) findings")
+            if packFilter != nil, findings.count != report.findings.count {
+                parts.append("\(findings.count) of \(report.findings.count) findings in view")
+            } else {
+                parts.append("\(findings.count) findings")
+            }
         }
         return parts.joined(separator: " — ")
     }
@@ -130,14 +151,14 @@ struct ResultsPane: View {
     private func categoryContent(_ category: FindingCategory, items: [Finding],
                                  report: AnalysisReport) -> some View {
         switch category {
-        case .duplicatePackage where !report.duplicateGroups.isEmpty:
+        case .duplicatePackage where !filteredDuplicateGroups.isEmpty:
             DuplicatesView(
-                groups: report.duplicateGroups,
+                groups: filteredDuplicateGroups,
                 otherFindings: items.filter { $0.checkID != "DUP-01" }
             )
             .frame(height: 300)
-        case .unusedResources where !report.unusedResources.isEmpty:
-            UnusedResourcesView(groups: report.unusedResources)
+        case .unusedResources where !filteredUnusedGroups.isEmpty:
+            UnusedResourcesView(groups: filteredUnusedGroups)
                 .frame(height: 300)
         default:
             ForEach(items) { finding in

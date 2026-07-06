@@ -19,11 +19,30 @@ struct MapCamera: Equatable {
          centerLat - (Double(point.y) - Double(size.height) / 2) / scale)
     }
 
-    mutating func clamp() {
-        scale = min(max(scale, 1.2), 400)
-        centerLat = min(max(centerLat, -85), 85)
-        if centerLon < -180 { centerLon += 360 }
-        if centerLon > 180 { centerLon -= 360 }
+    /// Keep the viewport inside the world: minimum zoom is "the map fills
+    /// the window", and the center can't pan past the edges.
+    mutating func clamp(in size: CGSize) {
+        if size.width > 0, size.height > 0 {
+            let minScale = max(Double(size.width) / 360, Double(size.height) / 180)
+            scale = max(scale, minScale)
+        }
+        scale = min(scale, 400)
+        if size.width > 0 {
+            let halfW = Double(size.width) / 2 / scale
+            centerLon = min(max(centerLon, -180 + halfW), 180 - halfW)
+        }
+        if size.height > 0 {
+            let halfH = Double(size.height) / 2 / scale
+            centerLat = min(max(centerLat, -90 + halfH), 90 - halfH)
+        }
+    }
+
+    /// World-filling fit for a fresh window.
+    static func fitted(to size: CGSize) -> MapCamera {
+        var cam = MapCamera(centerLon: -40, centerLat: 30,
+                            scale: max(Double(size.width) / 360, Double(size.height) / 180))
+        cam.clamp(in: size)
+        return cam
     }
 }
 

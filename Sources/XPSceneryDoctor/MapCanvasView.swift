@@ -45,8 +45,20 @@ struct MapCanvasView: View {
             ))
             .overlay(alignment: .bottomLeading) { legend }
             .overlay(alignment: .topTrailing) { zoomControls }
-            .onAppear { canvasSize.value = proxy.size }
-            .onChange(of: proxy.size) { canvasSize.value = proxy.size }
+            .onAppear {
+                // First layout: fit the world so the map fills the viewport
+                // from the very first frame — no small-then-resize flash.
+                if canvasSize.value == .zero {
+                    camera.value = MapCamera.fitted(to: proxy.size)
+                }
+                canvasSize.value = proxy.size
+            }
+            .onChange(of: proxy.size) {
+                canvasSize.value = proxy.size
+                var cam = camera.value
+                cam.clamp(in: proxy.size)
+                camera.value = cam
+            }
         }
         .clipped()
     }
@@ -56,10 +68,10 @@ struct MapCanvasView: View {
         var cam = camera.value
         let coord = cam.coordinate(of: anchor, in: size)
         cam.scale *= factor
-        cam.clamp()
+        cam.clamp(in: size)
         cam.centerLon = coord.lon - (Double(anchor.x) - Double(size.width) / 2) / cam.scale
         cam.centerLat = coord.lat + (Double(anchor.y) - Double(size.height) / 2) / cam.scale
-        cam.clamp()
+        cam.clamp(in: size)
         camera.value = cam
     }
 
@@ -104,6 +116,24 @@ struct MapCanvasView: View {
         drawGrid(context: context, size: size, cam: cam, step: 10, color: Self.gridMajor)
         if cam.scale > 14 {
             drawGrid(context: context, size: size, cam: cam, step: 1, color: Self.grid)
+        }
+
+        // Tile coordinates in the top-right corner of each tile, once tiles
+        // are big enough for the label to fit.
+        if cam.scale > 52 {
+            for lat in Int(floor(minLat))...Int(ceil(maxLat)) {
+                for lon in Int(floor(minLon))...Int(ceil(maxLon)) {
+                    guard lat >= -90, lat < 90, lon >= -180, lon < 180 else { continue }
+                    let corner = cam.point(lon: Double(lon + 1), lat: Double(lat + 1), in: size)
+                    context.draw(
+                        Text(TileMath.key(lat: lat, lon: lon))
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(Self.gridMajor),
+                        at: CGPoint(x: corner.x - 4, y: corner.y + 4),
+                        anchor: .topTrailing
+                    )
+                }
+            }
         }
 
         // Selected tiles.
@@ -199,7 +229,7 @@ struct MapCanvasView: View {
                     var cam = anchor
                     cam.centerLon = anchor.centerLon - Double(value.translation.width) / anchor.scale
                     cam.centerLat = anchor.centerLat + Double(value.translation.height) / anchor.scale
-                    cam.clamp()
+                    cam.clamp(in: size)
                     camera.value = cam
                 }
             }
@@ -239,7 +269,7 @@ struct MapCanvasView: View {
                 cam.centerLon = coord.lon
                 cam.centerLat = coord.lat
                 cam.scale *= 2
-                cam.clamp()
+                cam.clamp(in: size)
                 camera.value = cam
             }
     }
@@ -306,7 +336,7 @@ struct MapCanvasView: View {
     private func zoom(by factor: Double) {
         var cam = camera.value
         cam.scale *= factor
-        cam.clamp()
+        cam.clamp(in: canvasSize.value)
         camera.value = cam
     }
 }

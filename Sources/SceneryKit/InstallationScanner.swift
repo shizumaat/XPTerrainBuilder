@@ -23,7 +23,16 @@ public struct InstallationScanner {
                 options: [.skipsHiddenFiles]
             )) ?? []
             return contents
-                .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true }
+                .filter { url in
+                    // Follow symlinks: packs are commonly linked in from
+                    // other volumes (isDirectoryKey is false for the link
+                    // itself; fileExists resolves it).
+                    if (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+                        return true
+                    }
+                    var isDir: ObjCBool = false
+                    return fm.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
+                }
                 .sorted { $0.lastPathComponent < $1.lastPathComponent }
         }
 

@@ -45,9 +45,15 @@ public struct Analyzer {
         case unusedResources([UnusedResourceGroup])
     }
 
-    /// Runs the full analysis. `onEvent` may be called from any thread
+    /// Runs the analysis. `scope` restricts the deep per-pack stages to the
+    /// named packs (the map's tile selection); nil = whole install. The
+    /// installation scan always covers everything — library indexes must be
+    /// complete regardless of scope. `onEvent` may be called from any thread
     /// (pack scans run in parallel) and must be thread-safe.
-    public func run(onEvent: @escaping @Sendable (Event) -> Void = { _ in }) -> AnalysisReport {
+    public func run(
+        scope: Set<String>? = nil,
+        onEvent: @escaping @Sendable (Event) -> Void = { _ in }
+    ) -> AnalysisReport {
         var findings: [Finding] = []
         var stats = AnalysisStats()
         let system = SystemInfo.current()
@@ -64,8 +70,21 @@ public struct Analyzer {
         let logRead = TextFile.read(root.appendingPathComponent("Log.txt"))
 
         onEvent(.stage(.scanningInstallation(nil)))
-        let installation = InstallationScanner(root: root).scan { detail in
+        let fullInstallation = InstallationScanner(root: root).scan { detail in
             onEvent(.stage(.scanningInstallation(detail)))
+        }
+        // Scoped runs analyze only the selected packs, but against the full
+        // library indexes (missing-resource resolution needs everything).
+        let installation: Installation
+        if let scope {
+            installation = Installation(
+                root: fullInstallation.root,
+                packs: fullInstallation.packs.filter { scope.contains($0.name) },
+                libraryIndex: fullInstallation.libraryIndex,
+                defaultLibraryIndex: fullInstallation.defaultLibraryIndex
+            )
+        } else {
+            installation = fullInstallation
         }
         stats.packsScanned = installation.packs.count
         stats.libraryPacks = installation.packs.filter { $0.isLibrary }.count
@@ -83,7 +102,11 @@ public struct Analyzer {
         }
 
         onEvent(.stage(.readingLog))
-        let (logFindings, lines) = LogAnalyzer(installation: installation).analyze(logRead: logRead)
+        let (allLogFindings, lines) = LogAnalyzer(installation: fullInstallation).analyze(logRead: logRead)
+        // Scoped runs only surface log findings attributed to selected packs.
+        let logFindings = scope.map { s in
+            allLogFindings.filter { $0.packName.map(s.contains) ?? false }
+        } ?? allLogFindings
         emit(logFindings)
         stats.logLinesScanned = lines
 
@@ -141,7 +164,8 @@ public struct Analyzer {
             stats: stats,
             duplicateGroups: duplicateGroups,
             unusedResources: unusedGroups,
-            system: system
+            system: system,
+            scopeDescription: scope.map { "\($0.count) selected package\($0.count == 1 ? "" : "s")" }
         )
     }
 

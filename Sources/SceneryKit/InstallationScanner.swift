@@ -35,7 +35,7 @@ public struct InstallationScanner {
         // are independent, so fan out; installs with thousands of packs exist.
         struct PackProbe {
             let isLibrary: Bool
-            let airports: [String: String]
+            let airports: [String: AirportInfo]
             let tiles: Set<String>
             let isOverlay: Bool?
         }
@@ -161,7 +161,7 @@ public struct InstallationScanner {
     /// Airport headers are row codes 1 (land), 16 (seaplane), 17 (heliport):
     ///   `1 433 0 0 KSEA Seattle Tacoma Intl`
     /// XP11+ adds `1302 icao_code KSEA` metadata which takes precedence.
-    func parseAirports(inPack packURL: URL) -> [String: String] {
+    func parseAirports(inPack packURL: URL) -> [String: AirportInfo] {
         let candidates = [
             packURL.appendingPathComponent("Earth nav data/apt.dat"),
             packURL.appendingPathComponent("Earth Nav Data/apt.dat"),
@@ -173,23 +173,39 @@ public struct InstallationScanner {
         // stray Global Airports-sized file (450+ MB) stalling the scan.
         guard let text = TextFile.contents(of: aptURL, maxBytes: 64 * 1024 * 1024) else { return [:] }
 
-        var airports: [String: String] = [:]
+        var airports: [String: AirportInfo] = [:]
         var currentID: String?
         var currentName: String?
         var currentICAOOverride: String?
+        var currentLat: Double?
+        var currentLon: Double?
 
         func flush() {
             if let id = currentICAOOverride ?? currentID {
-                airports[id] = currentName ?? id
+                airports[id] = AirportInfo(
+                    name: currentName ?? id,
+                    latitude: currentLat ?? 0,
+                    longitude: currentLon ?? 0
+                )
             }
             currentID = nil
             currentName = nil
             currentICAOOverride = nil
+            currentLat = nil
+            currentLon = nil
+        }
+
+        func capture(lat: Substring, lon: Substring) {
+            guard currentLat == nil, let la = Double(lat), let lo = Double(lon),
+                  abs(la) <= 90, abs(lo) <= 180, la != 0 || lo != 0 else { return }
+            currentLat = la
+            currentLon = lo
         }
 
         for rawLine in TextFile.lines(text) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
-            let parts = line.split(separator: " ", omittingEmptySubsequences: true)
+            let parts = line.split(omittingEmptySubsequences: true,
+                                   whereSeparator: { $0 == " " || $0 == "\t" })
             guard let code = parts.first else { continue }
             switch code {
             case "1", "16", "17":
@@ -199,9 +215,17 @@ public struct InstallationScanner {
                     currentName = parts[5...].joined(separator: " ")
                 }
             case "1302":
-                if parts.count >= 3, parts[1] == "icao_code" {
-                    currentICAOOverride = String(parts[2])
+                if parts.count >= 3 {
+                    if parts[1] == "icao_code" { currentICAOOverride = String(parts[2]) }
+                    if parts[1] == "datum_lat", let la = Double(parts[2]) { currentLat = currentLat ?? la }
+                    if parts[1] == "datum_lon", let lo = Double(parts[2]) { currentLon = currentLon ?? lo }
                 }
+            case "100": // land runway: lat/lon of end 1 at fields 9,10
+                if parts.count >= 11 { capture(lat: parts[9], lon: parts[10]) }
+            case "101": // water runway: lat/lon at fields 4,5
+                if parts.count >= 6 { capture(lat: parts[4], lon: parts[5]) }
+            case "102": // helipad: lat/lon at fields 2,3
+                if parts.count >= 4 { capture(lat: parts[2], lon: parts[3]) }
             case "99":
                 flush()
             default:

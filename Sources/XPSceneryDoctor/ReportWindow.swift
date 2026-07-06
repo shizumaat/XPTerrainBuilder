@@ -54,13 +54,6 @@ struct ReportWindow: View {
                     }
                     .help("Show only findings with a one-click fix")
                 }
-                if controller.isRunning {
-                    ToolbarItem(placement: .automatic) {
-                        ProgressView()
-                            .controlSize(.small)
-                            .help(controller.stageLabel)
-                    }
-                }
                 ToolbarItem(placement: .automatic) {
                     Picker("Severity", selection: $severityFilter.value) {
                         Text("All").tag(Severity?.none)
@@ -111,10 +104,7 @@ struct ReportWindow: View {
 
     private func subtitle(for report: AnalysisReport) -> String {
         if controller.isRunning {
-            let count = report.findings.count
-            return count == 0
-                ? controller.stageLabel
-                : "\(count) findings so far — \(controller.stageLabel)"
+            return "\(report.findings.count) findings so far"
         }
         let when = report.generatedAt.formatted(date: .abbreviated, time: .shortened)
         return "Generated \(when) — \(report.stats.packsScanned) packs, \(report.findings.count) findings"
@@ -302,7 +292,7 @@ struct FindingsList: View {
                     selection.value = selection.value.intersection(valid)
                 }
 
-                if !fixable.isEmpty {
+                if !fixable.isEmpty || controller.isRunning {
                     Divider()
                     fixBar
                 }
@@ -354,8 +344,18 @@ struct FindingsList: View {
     }
 
     private var fixBar: some View {
-        HStack {
-            if controller.isFixing {
+        HStack(spacing: 8) {
+            if controller.isRunning {
+                // Live analysis: spinner + stage, combined with the running
+                // fixable tally.
+                ProgressView().controlSize(.small)
+                Text(fixable.isEmpty
+                     ? controller.stageLabel
+                     : "\(controller.stageLabel) — \(fixable.count) fixable so far")
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            } else if controller.isFixing {
                 ProgressView().controlSize(.small)
                 Text("Applying fixes…").foregroundStyle(.secondary)
             } else {

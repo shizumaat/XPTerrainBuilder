@@ -20,6 +20,12 @@ final class AnalysisController: ObservableObject {
     @Published var reportGeneration = 0
     @Published var errorMessage: String?
 
+    // Map: the scanned installation (packs with tiles/airports/status) and
+    // the user's tile selection.
+    @Published var installationPacks: [SceneryPack] = []
+    @Published var isScanningInstallation = false
+    @Published var selectedTiles: Set<String> = []
+
     // Search: debounced, filtered off the main thread against a precomputed
     // lowercased corpus. nil = no active search. (Live filtering of 7k+
     // findings on every keystroke beachballs the report window.)
@@ -53,6 +59,33 @@ final class AnalysisController: ObservableObject {
         return Installation.looksLikeXPlaneRoot(url)
     }
 
+    // MARK: - Installation scan (map data)
+
+    func refreshInstallation() {
+        guard let root = rootURL, !isScanningInstallation else { return }
+        isScanningInstallation = true
+        Task { [weak self] in
+            let packs = await Task.detached(priority: .userInitiated) {
+                InstallationScanner(root: root).scan().packs
+            }.value
+            self?.installationPacks = packs
+            self?.isScanningInstallation = false
+        }
+    }
+
+    /// Packs the current tile selection touches (by DSF tile or airport position).
+    func packsAffectingSelection() -> [SceneryPack] {
+        let tiles = selectedTiles
+        guard !tiles.isEmpty else { return [] }
+        return installationPacks.filter { pack in
+            guard !pack.isLaminar else { return false }
+            if !pack.tiles.isDisjoint(with: tiles) { return true }
+            return pack.airports.values.contains { info in
+                tiles.contains(TileMath.key(latitude: info.latitude, longitude: info.longitude))
+            }
+        }
+    }
+
     // MARK: - Analysis
 
     private enum StreamMessage: Sendable {
@@ -65,17 +98,17 @@ final class AnalysisController: ObservableObject {
     /// in live. Finding batches are coalesced to ~0.4 s flushes — the pack
     /// scan finishes dozens of packs per second and per-batch List updates
     /// would hammer SwiftUI diffing.
-    func analyze() {
+    func analyze(scope: Set<String>? = nil) {
         guard let root = rootURL, !isRunning else { return }
         isRunning = true
         stageLabel = "Starting…"
         errorMessage = nil
         report = AnalysisReport(xplaneRoot: root.path, findings: [], stats: AnalysisStats())
-        reportGeneration += 1 // opens the report window right away
+        reportGeneration += 1
 
         let stream = AsyncStream<StreamMessage> { continuation in
             Task.detached(priority: .userInitiated) {
-                let final = Analyzer(root: root).run { event in
+                let final = Analyzer(root: root).run(scope: scope) { event in
                     continuation.yield(.event(event))
                 }
                 continuation.yield(.completed(final))

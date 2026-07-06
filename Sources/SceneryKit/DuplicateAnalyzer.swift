@@ -42,7 +42,7 @@ public struct DuplicateAnalyzer {
             }
             let winner = ordered.first { $0.isEnabled } ?? ordered[0]
             let losers = ordered.filter { $0.name != winner.name }
-            let name = winner.airports[icao] ?? icao
+            let name = winner.airports[icao]?.name ?? icao
             let enabledLosers = losers.filter { $0.isEnabled }
 
             groups.append(DuplicateGroup(

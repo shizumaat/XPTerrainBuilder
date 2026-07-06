@@ -7,10 +7,10 @@ struct XPSceneryDoctorApp: App {
 
     var body: some Scene {
         Window("XPScenery Doctor", id: "main") {
-            MainView()
+            MapMainView()
                 .environmentObject(controller)
         }
-        .windowResizability(.contentSize)
+        .defaultSize(width: 1280, height: 860)
         .defaultPosition(.center)
         .commands {
             AppCommands(controller: controller)
@@ -40,10 +40,18 @@ struct AppCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
-            Button("Analyze") {
-                controller.analyze()
+            Button("Analyze Selection") {
+                let names = Set(controller.packsAffectingSelection().map { $0.name })
+                controller.analyze(scope: names)
             }
             .keyboardShortcut("r", modifiers: .command)
+            .disabled(!controller.pathIsValid || controller.isRunning
+                      || controller.selectedTiles.isEmpty)
+
+            Button("Analyze Entire Installation") {
+                controller.analyze()
+            }
+            .keyboardShortcut("r", modifiers: [.command, .shift])
             .disabled(!controller.pathIsValid || controller.isRunning)
 
             Button("Export Report…") {

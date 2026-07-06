@@ -28,7 +28,10 @@ import Foundation
     @Test func aptDatParsing() {
         let installation = scannedInstallation()
         let demo = installation.packs.first { $0.name == "KSEA Demo Airport" }
-        #expect(demo?.airports["KSEA"] == "Seattle Tacoma Intl")
+        #expect(demo?.airports["KSEA"]?.name == "Seattle Tacoma Intl")
+        // Position from the runway row (no datum rows in the fixture).
+        #expect(abs((demo?.airports["KSEA"]?.latitude ?? 0) - 47.46) < 0.01)
+        #expect(abs((demo?.airports["KSEA"]?.longitude ?? 0) - (-122.30)) < 0.01)
         #expect(demo?.iniIndex == 0)
         #expect(demo?.isEnabled == true)
     }

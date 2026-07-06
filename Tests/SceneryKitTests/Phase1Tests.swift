@@ -219,6 +219,21 @@ import Foundation
         #expect(TextFile.lines("a\r\nb\nc\rd").count == 4)
     }
 
+    @Test func tileMathRoundTrips() {
+        #expect(TileMath.key(lat: 41, lon: -73) == "+41-073")
+        #expect(TileMath.key(lat: -9, lon: 8) == "-09+008")
+        #expect(TileMath.key(latitude: 47.46, longitude: -122.31) == "+47-123")
+        #expect(TileMath.parse("+41-073")! == (41, -73))
+        #expect(TileMath.parse("-09+008")! == (-9, 8))
+        #expect(TileMath.parse("garbage") == nil)
+        // Round trip every plausible tile format.
+        for (lat, lon) in [(0, 0), (89, 179), (-90, -180), (-1, -1)] {
+            let key = TileMath.key(lat: lat, lon: lon)
+            let parsed = TileMath.parse(key)
+            #expect(parsed?.lat == lat && parsed?.lon == lon, "\(key)")
+        }
+    }
+
     @Test func nonPOTResampledToPowerOfTwo() throws {
         #expect(DDSEncoder.nearestPowerOfTwo(100) == 128)
         #expect(DDSEncoder.nearestPowerOfTwo(60) == 64)

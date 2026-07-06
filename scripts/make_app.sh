@@ -15,6 +15,13 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/XPSceneryDoctor"
 
+# SwiftPM resource bundle (map data etc.) — Bundle.module looks for it next
+# to the executable's resources.
+BUNDLE="$(dirname "$BIN")/XPSceneryDoctor_XPSceneryDoctor.bundle"
+if [[ -d "$BUNDLE" ]]; then
+  cp -R "$BUNDLE" "$APP/Contents/Resources/"
+fi
+
 # App icon: use the committed .icns, regenerating it if missing.
 if [[ ! -f "$ROOT/Resources/AppIcon.icns" ]]; then
   TMP_ICON="$(mktemp -d)"

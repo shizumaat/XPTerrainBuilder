@@ -272,6 +272,8 @@ public struct AnalysisReport: Codable, Sendable {
     public var unusedResources: [UnusedResourceGroup]
     /// The hardware the analysis was judged against.
     public var system: SystemInfo?
+    /// Human-readable scope ("12 selected packages"); nil = whole install.
+    public var scopeDescription: String?
 
     public init(
         xplaneRoot: String,
@@ -279,7 +281,8 @@ public struct AnalysisReport: Codable, Sendable {
         stats: AnalysisStats,
         duplicateGroups: [DuplicateGroup] = [],
         unusedResources: [UnusedResourceGroup] = [],
-        system: SystemInfo? = nil
+        system: SystemInfo? = nil,
+        scopeDescription: String? = nil
     ) {
         self.generatedAt = Date()
         self.xplaneRoot = xplaneRoot
@@ -288,6 +291,7 @@ public struct AnalysisReport: Codable, Sendable {
         self.duplicateGroups = duplicateGroups
         self.unusedResources = unusedResources
         self.system = system
+        self.scopeDescription = scopeDescription
     }
 
     public var errorCount: Int { findings.filter { $0.severity == .error }.count }
@@ -302,16 +306,29 @@ public struct AnalysisReport: Codable, Sendable {
     }
 }
 
+/// An airport parsed from a pack's apt.dat, with chart position.
+public struct AirportInfo: Codable, Sendable, Hashable {
+    public let name: String
+    public let latitude: Double
+    public let longitude: Double
+
+    public init(name: String, latitude: Double, longitude: Double) {
+        self.name = name
+        self.latitude = latitude
+        self.longitude = longitude
+    }
+}
+
 /// One scenery pack, installed (Custom Scenery) or not (Custom Scenery (Disabled)).
-public struct SceneryPack: Sendable {
+public struct SceneryPack: Codable, Sendable {
     public let name: String
     public let url: URL
     public let status: PackStatus
     /// Priority from scenery_packs.ini; lower loads first (wins conflicts). nil = not listed.
     public let iniIndex: Int?
     public let isLibrary: Bool
-    /// ICAO -> airport name, parsed from the pack's apt.dat (empty if none).
-    public let airports: [String: String]
+    /// ICAO -> airport info, parsed from the pack's apt.dat (empty if none).
+    public let airports: [String: AirportInfo]
     /// DSF tile names covered by this pack (e.g. "+41-073").
     public let tiles: Set<String>
     /// sim/overlay property from a sampled DSF: true = overlay scenery,

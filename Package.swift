@@ -8,7 +8,8 @@ let package = Package(
         .target(name: "SceneryKit"),
         .executableTarget(
             name: "XPSceneryDoctor",
-            dependencies: ["SceneryKit"]
+            dependencies: ["SceneryKit"],
+            resources: [.copy("Resources/land.json")]
         ),
         .executableTarget(
             name: "xpdoctor-cli",

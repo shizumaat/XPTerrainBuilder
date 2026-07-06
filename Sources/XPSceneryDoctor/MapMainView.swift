@@ -7,14 +7,15 @@ import SceneryKit
 struct MapMainView: View {
     @EnvironmentObject var controller: AnalysisController
     @StateObject private var camera = ViewState(MapCamera())
+    @StateObject private var canvasSize = ViewState(CGSize.zero)
     @StateObject private var searchText = ViewState("")
     @StateObject private var showingPicker = ViewState(false)
+    /// Packs in the visible map region, debounced from camera movement so
+    /// the inspector tracks the map without re-diffing every frame.
+    @StateObject private var viewportPacks = ViewState<[SceneryPack]>([])
+    @StateObject private var viewportTask = ViewState<Task<Void, Never>?>(nil)
 
     static let systemInfo = SystemInfo.current()
-
-    private var overlays: MapOverlays {
-        MapOverlays(packs: controller.installationPacks)
-    }
 
     var body: some View {
         Group {
@@ -23,16 +24,24 @@ struct MapMainView: View {
             } else {
                 VSplitView {
                     HSplitView {
-                        MapCanvasView(camera: camera, overlays: overlays)
+                        MapCanvasView(camera: camera, canvasSize: canvasSize)
                             .frame(minWidth: 480, minHeight: 300)
                             .layoutPriority(1)
-                        PackInspectorView()
-                            .frame(minWidth: 240, idealWidth: 300, maxWidth: 420)
+                        PackInspectorView(
+                            packs: controller.selectedTiles.isEmpty
+                                ? viewportPacks.value
+                                : controller.packsAffectingSelection(),
+                            isViewportMode: controller.selectedTiles.isEmpty
+                        )
+                        .frame(minWidth: 240, idealWidth: 300, maxWidth: 420)
                     }
                     .layoutPriority(2)
                     ResultsPane()
                         .frame(minHeight: 180, idealHeight: 300)
                 }
+                .onChange(of: camera.value) { scheduleViewportUpdate() }
+                .onChange(of: canvasSize.value) { scheduleViewportUpdate() }
+                .onChange(of: controller.mapOverlays.packBounds.count) { scheduleViewportUpdate() }
             }
         }
         .frame(minWidth: 900, minHeight: 620)
@@ -61,6 +70,25 @@ struct MapMainView: View {
         }
     }
 
+    /// Debounced (120 ms) recompute of the packs visible in the map window.
+    private func scheduleViewportUpdate() {
+        viewportTask.value?.cancel()
+        let cam = camera.value
+        let size = canvasSize.value
+        let overlays = controller.mapOverlays
+        viewportTask.value = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled, size.width > 0 else { return }
+            let halfW = Double(size.width) / 2 / cam.scale
+            let halfH = Double(size.height) / 2 / cam.scale
+            let packs = overlays.packs(inViewport: (
+                minLon: cam.centerLon - halfW, maxLon: cam.centerLon + halfW,
+                minLat: cam.centerLat - halfH, maxLat: cam.centerLat + halfH
+            ))
+            viewportPacks.value = packs.sorted { $0.name.lowercased() < $1.name.lowercased() }
+        }
+    }
+
     private var subtitle: String {
         if controller.isScanningInstallation { return "Scanning Custom Scenery…" }
         guard !controller.installationPacks.isEmpty else { return "" }
@@ -85,6 +113,19 @@ struct MapMainView: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 240)
                 .onSubmit { performSearch() }
+                .overlay(alignment: .trailing) {
+                    if !searchText.value.isEmpty {
+                        Button {
+                            searchText.value = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, 5)
+                        .help("Clear search")
+                    }
+                }
         }
         ToolbarItem(placement: .automatic) {
             Button {
@@ -129,7 +170,7 @@ struct MapMainView: View {
         guard !query.isEmpty else { return }
 
         // Airports first: exact ICAO, then prefix, then name contains.
-        let airports = overlays.airports
+        let airports = controller.mapOverlays.airports
         let match = airports.first { $0.icao.lowercased() == query }
             ?? airports.first { $0.icao.lowercased().hasPrefix(query) }
             ?? airports.first { $0.info.name.lowercased().contains(query) }

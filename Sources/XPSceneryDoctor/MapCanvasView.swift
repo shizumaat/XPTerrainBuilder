@@ -7,7 +7,9 @@ import SceneryKit
 struct MapCanvasView: View {
     @EnvironmentObject var controller: AnalysisController
     @ObservedObject var camera: ViewState<MapCamera>
-    let overlays: MapOverlays
+    @ObservedObject var canvasSize: ViewState<CGSize>
+
+    private var overlays: MapOverlays { controller.mapOverlays }
 
     @StateObject private var dragAnchor = ViewState<MapCamera?>(nil)
     @StateObject private var rubberBand = ViewState<CGRect?>(nil)
@@ -33,10 +35,32 @@ struct MapCanvasView: View {
             .gesture(panOrRubberBand(size: proxy.size))
             .gesture(doubleClickZoom(size: proxy.size))
             .gesture(clickSelect(size: proxy.size))
+            .overlay(ScrollZoomCatcher(
+                onScroll: { location, delta in
+                    zoom(by: pow(1.0035, delta), anchoredAt: location, size: proxy.size)
+                },
+                onMagnify: { location, magnification in
+                    zoom(by: 1 + magnification, anchoredAt: location, size: proxy.size)
+                }
+            ))
             .overlay(alignment: .bottomLeading) { legend }
             .overlay(alignment: .topTrailing) { zoomControls }
+            .onAppear { canvasSize.value = proxy.size }
+            .onChange(of: proxy.size) { canvasSize.value = proxy.size }
         }
         .clipped()
+    }
+
+    /// Zoom keeping the geographic point under `anchor` fixed on screen.
+    private func zoom(by factor: Double, anchoredAt anchor: CGPoint, size: CGSize) {
+        var cam = camera.value
+        let coord = cam.coordinate(of: anchor, in: size)
+        cam.scale *= factor
+        cam.clamp()
+        cam.centerLon = coord.lon - (Double(anchor.x) - Double(size.width) / 2) / cam.scale
+        cam.centerLat = coord.lat + (Double(anchor.y) - Double(size.height) / 2) / cam.scale
+        cam.clamp()
+        camera.value = cam
     }
 
     // MARK: - Drawing
@@ -59,17 +83,22 @@ struct MapCanvasView: View {
 
         let (minLon, maxLon, minLat, maxLat) = visibleBounds(cam, size)
 
-        // Tile tints.
-        for (key, kinds) in overlays.tileKinds {
-            guard let tile = TileMath.parse(key) else { continue }
+        // Tile tints — numeric compares only; batch by kind into 3 paths so
+        // the frame does 3 fills, not one per tile.
+        var orthoPath = Path(), meshPath = Path(), landmarkPath = Path()
+        for tile in overlays.tintTiles {
             guard Double(tile.lon + 1) > minLon, Double(tile.lon) < maxLon,
                   Double(tile.lat + 1) > minLat, Double(tile.lat) < maxLat else { continue }
             let rect = tileRect(lat: tile.lat, lon: tile.lon, cam: cam, size: size)
-            var tint = Self.tintLandmark
-            if kinds.contains(.ortho) { tint = Self.tintOrtho }
-            else if kinds.contains(.mesh) { tint = Self.tintMesh }
-            context.fill(Path(rect), with: .color(tint.opacity(0.22)))
+            switch tile.kind {
+            case .ortho: orthoPath.addRect(rect)
+            case .mesh: meshPath.addRect(rect)
+            default: landmarkPath.addRect(rect)
+            }
         }
+        context.fill(orthoPath, with: .color(Self.tintOrtho.opacity(0.22)))
+        context.fill(meshPath, with: .color(Self.tintMesh.opacity(0.22)))
+        context.fill(landmarkPath, with: .color(Self.tintLandmark.opacity(0.22)))
 
         // Graticule: 10° always, 1° when zoomed in.
         drawGrid(context: context, size: size, cam: cam, step: 10, color: Self.gridMajor)

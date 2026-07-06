@@ -1,15 +1,16 @@
 import SwiftUI
 import SceneryKit
 
-/// Right pane: the packages affecting the current tile selection, grouped
-/// by kind, with status badges and the context-aware pack actions.
+/// Right pane: the packages in the current tile selection — or, with no
+/// selection, whatever the map window is looking at (live as it moves) —
+/// grouped by kind, with status badges and the context-aware pack actions.
 struct PackInspectorView: View {
     @EnvironmentObject var controller: AnalysisController
+    let packs: [SceneryPack]
+    let isViewportMode: Bool
     @StateObject private var selection = ViewState(Set<String>()) // pack names
 
-    private var affected: [SceneryPack] {
-        controller.packsAffectingSelection()
-    }
+    private var affected: [SceneryPack] { packs }
 
     private var sections: [(kind: PackKind, packs: [SceneryPack])] {
         let grouped = Dictionary(grouping: affected, by: { $0.kind })
@@ -20,17 +21,13 @@ struct PackInspectorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if controller.selectedTiles.isEmpty {
-                ContentUnavailableView(
-                    "No Tiles Selected",
-                    systemImage: "square.dashed",
-                    description: Text("Click a tile on the map (⇧-drag for a region). The packages covering it appear here.")
-                )
-            } else if affected.isEmpty {
+            if affected.isEmpty {
                 ContentUnavailableView(
                     "No Custom Scenery Here",
                     systemImage: "square.dashed",
-                    description: Text("No custom package covers the selected tile\(controller.selectedTiles.count == 1 ? "" : "s").")
+                    description: Text(isViewportMode
+                        ? "No custom package covers the visible map area. Pan or zoom out — or click a tile to inspect it."
+                        : "No custom package covers the selected tile\(controller.selectedTiles.count == 1 ? "" : "s").")
                 )
             } else {
                 List(selection: $selection.value) {
@@ -49,7 +46,7 @@ struct PackInspectorView: View {
 
                 Divider()
                 HStack {
-                    Text("\(affected.count) package\(affected.count == 1 ? "" : "s") in selection")
+                    Text("\(affected.count) package\(affected.count == 1 ? "" : "s") \(isViewportMode ? "in view" : "in selection")")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()

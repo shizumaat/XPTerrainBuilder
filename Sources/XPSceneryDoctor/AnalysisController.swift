@@ -23,6 +23,9 @@ final class AnalysisController: ObservableObject {
     // Map: the scanned installation (packs with tiles/airports/status) and
     // the user's tile selection.
     @Published var installationPacks: [SceneryPack] = []
+    /// Precomputed draw/query structures — rebuilt only when the scan
+    /// changes, never per frame.
+    @Published var mapOverlays = MapOverlays.empty
     @Published var isScanningInstallation = false
     @Published var selectedTiles: Set<String> = []
 
@@ -65,10 +68,12 @@ final class AnalysisController: ObservableObject {
         guard let root = rootURL, !isScanningInstallation else { return }
         isScanningInstallation = true
         Task { [weak self] in
-            let packs = await Task.detached(priority: .userInitiated) {
-                InstallationScanner(root: root).scan().packs
+            let (packs, overlays) = await Task.detached(priority: .userInitiated) {
+                let packs = InstallationScanner(root: root).scan().packs
+                return (packs, MapOverlays(packs: packs))
             }.value
             self?.installationPacks = packs
+            self?.mapOverlays = overlays
             self?.isScanningInstallation = false
         }
     }

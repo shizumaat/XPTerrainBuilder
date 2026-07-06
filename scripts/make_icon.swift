@@ -93,42 +93,46 @@ func drawChart(_ ctx: CGContext) {
     ctx.strokePath()
 }
 
-/// KPDX as depicted on the sectional: large towered airports show the actual
-/// runway layout in blue — two long parallels (10L/28R, 10R/28L) and the
-/// 3/21 crosswind angling across the west end.
-func drawKPDX(_ ctx: CGContext, center: CGPoint, scale: CGFloat) {
-    ctx.saveGState()
-    ctx.translateBy(x: center.x, y: center.y)
-    ctx.scaleBy(x: scale, y: scale)
+/// The classic sectional airport symbol: ring, four service ticks, runway
+/// bar. Unmistakably "airport" even at Dock sizes.
+func drawAirportSymbol(_ ctx: CGContext, center: CGPoint, radius: CGFloat) {
+    ctx.setStrokeColor(sectionalBlue)
     ctx.setFillColor(sectionalBlue)
+    let ring = radius
+    let lineW = radius * 0.20
 
-    func runway(cx: CGFloat, cy: CGFloat, length: CGFloat, width: CGFloat, angle: CGFloat) {
-        ctx.saveGState()
-        ctx.translateBy(x: cx, y: cy)
-        ctx.rotate(by: angle)
-        ctx.fill(CGRect(x: -length / 2, y: -width / 2, width: length, height: width))
-        ctx.restoreGState()
+    // Ring.
+    ctx.setLineWidth(lineW)
+    ctx.strokeEllipse(in: CGRect(x: center.x - ring, y: center.y - ring,
+                                 width: ring * 2, height: ring * 2))
+
+    // Four service ticks at the compass points.
+    let tickLen = radius * 0.30
+    for angle in stride(from: CGFloat(0), to: 2 * .pi, by: .pi / 2) {
+        let inner = CGPoint(x: center.x + cos(angle) * (ring + lineW / 2),
+                            y: center.y + sin(angle) * (ring + lineW / 2))
+        let outer = CGPoint(x: center.x + cos(angle) * (ring + lineW / 2 + tickLen),
+                            y: center.y + sin(angle) * (ring + lineW / 2 + tickLen))
+        ctx.move(to: inner)
+        ctx.addLine(to: outer)
+        ctx.strokePath()
     }
 
-    let heading: CGFloat = -.pi / 20            // runways 10/28: just south of east-west
-    runway(cx: -10, cy: 52, length: 310, width: 36, angle: heading)   // 10L/28R (north)
-    runway(cx: 10, cy: -52, length: 360, width: 36, angle: heading)   // 10R/28L (south, longer)
-    // 3/21 crosswind: short, pinned to the west ends.
-    runway(cx: -130, cy: 6, length: 220, width: 32, angle: .pi / 3.2)
-
+    // Runway bar through the middle, a shade off horizontal.
+    ctx.saveGState()
+    ctx.translateBy(x: center.x, y: center.y)
+    ctx.rotate(by: -.pi / 18)
+    let barLength = ring * 1.5
+    let barWidth = radius * 0.28
+    ctx.fill(CGRect(x: -barLength / 2, y: -barWidth / 2, width: barLength, height: barWidth))
     ctx.restoreGState()
 }
 
-/// The full "scene": chart plus the airport diagram.
-/// Placement: at 1.6x magnification about the lens center, only content
-/// within lensRadius/1.6 of the lens center stays visible inside the glass —
-/// KPDX sits so its eastern runway ends land there, with the crosswind
-/// runway out on the bare chart.
+/// The full "scene": night IFR chart plus the airport symbol, dead center so
+/// the symbol lives entirely inside the centered lens after magnification.
 func drawScene(_ ctx: CGContext) {
     drawChart(ctx)
-    // Dead center: the diagram lives entirely inside the centered lens,
-    // with comfortable margin after 1.6x magnification.
-    drawKPDX(ctx, center: CGPoint(x: 512, y: 502), scale: 0.8)
+    drawAirportSymbol(ctx, center: CGPoint(x: 512, y: 512), radius: 96)
 }
 
 // MARK: - Magnifying glass

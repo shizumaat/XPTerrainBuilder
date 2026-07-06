@@ -19,8 +19,8 @@ let airwayCyan = CGColor(red: 0.25, green: 0.78, blue: 0.90, alpha: 0.55)
 /// VFR sectional airport magenta (lighted, services) — lifted a touch to
 /// read on the night chart.
 let sectionalMagenta = color(0.62, 0.16, 0.34)
-let runwayStripGray = color(0.83, 0.85, 0.87)
-let runwayStripEdge = color(0.10, 0.11, 0.13, 0.9)
+/// Runways are cut out of the disc — chart background shows through.
+let nightMid = color(0.065, 0.072, 0.095)
 
 func color(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColor {
     CGColor(red: r, green: g, blue: b, alpha: a)
@@ -136,20 +136,17 @@ func drawAirportSymbol(_ ctx: CGContext, center: CGPoint, discRadius R: CGFloat)
     ctx.addPath(star)
     ctx.fillPath(using: .evenOdd)
 
-    // Runway strip cutting through the disc, slightly off horizontal.
+    // Runway strip: cut out of the disc (chart background shows through),
+    // fully inside the circle with a healthy margin to the edge.
     ctx.rotate(by: -.pi / 15)
-    let stripLength = R * 2.6
-    let stripWidth = R * 0.24
+    let stripLength = R * 1.58
+    let stripWidth = R * 0.22
     let strip = CGPath(roundedRect: CGRect(x: -stripLength / 2, y: -stripWidth / 2,
                                            width: stripLength, height: stripWidth),
-                       cornerWidth: 8, cornerHeight: 8, transform: nil)
+                       cornerWidth: 5, cornerHeight: 5, transform: nil)
     ctx.addPath(strip)
-    ctx.setFillColor(runwayStripGray)
+    ctx.setFillColor(nightMid)
     ctx.fillPath()
-    ctx.addPath(strip)
-    ctx.setStrokeColor(runwayStripEdge)
-    ctx.setLineWidth(3.5)
-    ctx.strokePath()
 
     ctx.restoreGState()
 }

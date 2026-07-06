@@ -11,10 +11,13 @@ let SIZE: CGFloat = 1024
 
 // MARK: - Palette
 
-let chartCream = CGColor(red: 0.953, green: 0.937, blue: 0.878, alpha: 1)
-let chartGrid = CGColor(red: 0.612, green: 0.702, blue: 0.749, alpha: 0.55)
-let chartContour = CGColor(red: 0.72, green: 0.55, blue: 0.38, alpha: 0.35)
-let sectionalMagenta = CGColor(red: 0.784, green: 0.06, blue: 0.49, alpha: 1)
+// Bolder, more saturated palette per the macOS 27 icon refinements.
+let chartCream = CGColor(red: 0.969, green: 0.949, blue: 0.882, alpha: 1)
+let chartCreamDeep = CGColor(red: 0.886, green: 0.831, blue: 0.694, alpha: 1)
+let chartGrid = CGColor(red: 0.42, green: 0.60, blue: 0.72, alpha: 0.65)
+let chartContour = CGColor(red: 0.76, green: 0.55, blue: 0.33, alpha: 0.30)
+/// FAA sectional blue: towered airports (KPDX is towered).
+let sectionalBlue = CGColor(red: 0.055, green: 0.32, blue: 0.71, alpha: 1)
 
 func color(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColor {
     CGColor(red: r, green: g, blue: b, alpha: a)
@@ -22,14 +25,23 @@ func color(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColo
 
 // MARK: - Chart + airport symbol (drawn twice: base and magnified)
 
-/// Sectional-chart background covering the whole canvas.
+/// Sectional-chart background covering the whole canvas: soft vertical
+/// gradient, crisp graticule, a single restrained contour band.
 func drawChart(_ ctx: CGContext) {
-    ctx.setFillColor(chartCream)
-    ctx.fill(CGRect(x: -SIZE, y: -SIZE, width: SIZE * 3, height: SIZE * 3))
+    let space = CGColorSpaceCreateDeviceRGB()
+    let paper = CGGradient(colorsSpace: space, colors: [
+        chartCream, chartCreamDeep,
+    ] as CFArray, locations: [0, 1])!
+    ctx.saveGState()
+    ctx.clip(to: CGRect(x: -SIZE, y: -SIZE, width: SIZE * 3, height: SIZE * 3))
+    ctx.drawLinearGradient(paper,
+        start: CGPoint(x: 0, y: SIZE * 1.5),
+        end: CGPoint(x: 0, y: -SIZE * 0.5), options: [])
+    ctx.restoreGState()
 
-    // Graticule.
+    // Graticule: thinner and crisper than a paper chart, bolder blue.
     ctx.setStrokeColor(chartGrid)
-    ctx.setLineWidth(3)
+    ctx.setLineWidth(2.5)
     var x: CGFloat = -SIZE
     while x < SIZE * 2 {
         ctx.move(to: CGPoint(x: x, y: -SIZE))
@@ -44,68 +56,48 @@ func drawChart(_ ctx: CGContext) {
     }
     ctx.strokePath()
 
-    // Terrain contours: loose concentric arcs, lower right.
+    // One quiet terrain contour, lower right.
     ctx.setStrokeColor(chartContour)
     ctx.setLineWidth(5)
-    for (i, radius) in [420, 520, 640].enumerated() {
-        ctx.addArc(center: CGPoint(x: 980, y: 60), radius: CGFloat(radius),
-                   startAngle: .pi * 0.42, endAngle: .pi * 0.98, clockwise: false)
-        ctx.strokePath()
-        _ = i
-    }
-
-    // A hint of a victor airway: thin blue line across the upper left.
-    ctx.setStrokeColor(color(0.28, 0.45, 0.66, 0.4))
-    ctx.setLineWidth(7)
-    ctx.move(to: CGPoint(x: -80, y: 830))
-    ctx.addLine(to: CGPoint(x: 520, y: 990))
+    ctx.addArc(center: CGPoint(x: 1000, y: 40), radius: 500,
+               startAngle: .pi * 0.45, endAngle: .pi * 0.95, clockwise: false)
     ctx.strokePath()
 }
 
-/// FAA-style airport symbol: magenta ring, four service ticks, runway bar.
-func drawAirportSymbol(_ ctx: CGContext, center: CGPoint, radius: CGFloat) {
-    ctx.setStrokeColor(sectionalMagenta)
-    ctx.setFillColor(sectionalMagenta)
-    let ring = radius
-    let lineW = radius * 0.18
-
-    // Ring.
-    ctx.setLineWidth(lineW)
-    ctx.strokeEllipse(in: CGRect(x: center.x - ring, y: center.y - ring,
-                                 width: ring * 2, height: ring * 2))
-
-    // Four fuel/service ticks at the compass points.
-    let tickLen = radius * 0.34
-    for angle in stride(from: CGFloat(0), to: 2 * .pi, by: .pi / 2) {
-        let inner = CGPoint(x: center.x + cos(angle) * (ring + lineW / 2),
-                            y: center.y + sin(angle) * (ring + lineW / 2))
-        let outer = CGPoint(x: center.x + cos(angle) * (ring + lineW / 2 + tickLen),
-                            y: center.y + sin(angle) * (ring + lineW / 2 + tickLen))
-        ctx.setLineWidth(lineW)
-        ctx.move(to: inner)
-        ctx.addLine(to: outer)
-        ctx.strokePath()
-    }
-
-    // Runway bar through the middle — near-horizontal so its right end sits
-    // where the lens magnifies and its left end shows on the bare chart.
+/// KPDX as depicted on the sectional: large towered airports show the actual
+/// runway layout in blue — two long parallels (10L/28R, 10R/28L) and the
+/// 3/21 crosswind angling across the west end.
+func drawKPDX(_ ctx: CGContext, center: CGPoint, scale: CGFloat) {
     ctx.saveGState()
     ctx.translateBy(x: center.x, y: center.y)
-    ctx.rotate(by: -.pi / 18)
-    let barLength = ring * 1.55
-    let barWidth = radius * 0.26
-    ctx.fill(CGRect(x: -barLength / 2, y: -barWidth / 2, width: barLength, height: barWidth))
+    ctx.scaleBy(x: scale, y: scale)
+    ctx.setFillColor(sectionalBlue)
+
+    func runway(cx: CGFloat, cy: CGFloat, length: CGFloat, width: CGFloat, angle: CGFloat) {
+        ctx.saveGState()
+        ctx.translateBy(x: cx, y: cy)
+        ctx.rotate(by: angle)
+        ctx.fill(CGRect(x: -length / 2, y: -width / 2, width: length, height: width))
+        ctx.restoreGState()
+    }
+
+    let heading: CGFloat = -.pi / 20            // runways 10/28: just south of east-west
+    runway(cx: 0, cy: 52, length: 330, width: 36, angle: heading)     // 10L/28R (north)
+    runway(cx: 14, cy: -52, length: 380, width: 36, angle: heading)   // 10R/28L (south, longer)
+    // 3/21 crosswind: crossing the parallels' west ends, angling northeast.
+    runway(cx: -108, cy: 10, length: 260, width: 32, angle: .pi / 3.4)
+
     ctx.restoreGState()
 }
 
-/// The full "scene": chart plus the airport symbol.
-/// Symbol placement: at 1.6x magnification about the lens center, only
-/// content within lensRadius/1.6 of the lens center stays visible inside
-/// the glass — the symbol sits so its right ring arc and the upper end of
-/// the runway bar land there.
+/// The full "scene": chart plus the airport diagram.
+/// Placement: at 1.6x magnification about the lens center, only content
+/// within lensRadius/1.6 of the lens center stays visible inside the glass —
+/// KPDX sits so its eastern runway ends land there, with the crosswind
+/// runway out on the bare chart.
 func drawScene(_ ctx: CGContext) {
     drawChart(ctx)
-    drawAirportSymbol(ctx, center: CGPoint(x: 455, y: 495), radius: 160)
+    drawKPDX(ctx, center: CGPoint(x: 445, y: 490), scale: 1.05)
 }
 
 // MARK: - Magnifying glass
@@ -140,16 +132,29 @@ func drawMagnifiedContent(_ ctx: CGContext) {
     drawScene(ctx)
     ctx.restoreGState()
 
-    // Glass tint + edge falloff.
+    // Liquid Glass edge refraction: near the rim, light bends harder — an
+    // annulus re-rendered at higher magnification creates the visible
+    // "shape distortion at the edge" of the macOS 27 style.
+    let refractionBand: CGFloat = 26
+    ctx.saveGState()
+    ctx.addPath(ringPath(outer: lensRadius, inner: lensRadius - refractionBand))
+    ctx.clip(using: .evenOdd)
+    ctx.translateBy(x: lensCenter.x, y: lensCenter.y)
+    ctx.scaleBy(x: magnification * 1.10, y: magnification * 1.10)
+    ctx.translateBy(x: -lensCenter.x, y: -lensCenter.y)
+    drawScene(ctx)
+    ctx.restoreGState()
+
+    // Flatter glass tint: light wash, restrained edge falloff.
     ctx.saveGState()
     ctx.addPath(lensPath())
     ctx.clip()
     let space = CGColorSpaceCreateDeviceRGB()
     let tint = CGGradient(colorsSpace: space, colors: [
-        color(0.75, 0.87, 0.92, 0.10),
-        color(0.55, 0.72, 0.80, 0.05),
-        color(0.20, 0.32, 0.40, 0.28),
-    ] as CFArray, locations: [0, 0.75, 1])!
+        color(0.78, 0.89, 0.94, 0.08),
+        color(0.60, 0.76, 0.84, 0.04),
+        color(0.25, 0.38, 0.48, 0.16),
+    ] as CFArray, locations: [0, 0.82, 1])!
     ctx.drawRadialGradient(tint, startCenter: lensCenter, startRadius: 0,
                            endCenter: lensCenter, endRadius: lensRadius, options: [])
     ctx.restoreGState()
@@ -162,10 +167,10 @@ func drawGlint(_ ctx: CGContext) {
 
     // Broad soft sheen, upper left.
     let space = CGColorSpaceCreateDeviceRGB()
-    let sheenCenter = CGPoint(x: lensCenter.x - lensRadius * 0.42,
-                              y: lensCenter.y + lensRadius * 0.46)
+    let sheenCenter = CGPoint(x: lensCenter.x - lensRadius * 0.48,
+                              y: lensCenter.y + lensRadius * 0.56)
     let sheen = CGGradient(colorsSpace: space, colors: [
-        color(1, 1, 1, 0.42), color(1, 1, 1, 0.0),
+        color(1, 1, 1, 0.28), color(1, 1, 1, 0.0),
     ] as CFArray, locations: [0, 1])!
     ctx.drawRadialGradient(sheen, startCenter: sheenCenter, startRadius: 0,
                            endCenter: sheenCenter, endRadius: lensRadius * 0.85, options: [])
@@ -188,10 +193,11 @@ func drawGlint(_ ctx: CGContext) {
 func drawBrassRim(_ ctx: CGContext) {
     let space = CGColorSpaceCreateDeviceRGB()
 
-    // Drop shadow of the whole glass onto the chart.
+    // Drop shadow of the whole glass onto the chart — tighter and lighter
+    // for the flatter macOS 27 look.
     ctx.saveGState()
-    ctx.setShadow(offset: CGSize(width: 14, height: -18), blur: 36,
-                  color: color(0.1, 0.08, 0.04, 0.45))
+    ctx.setShadow(offset: CGSize(width: 8, height: -12), blur: 24,
+                  color: color(0.1, 0.08, 0.04, 0.35))
     ctx.setFillColor(color(0.42, 0.28, 0.10, 1))
     ctx.addPath(ringPath(outer: lensRadius + rimWidth, inner: lensRadius))
     ctx.fillPath(using: .evenOdd)

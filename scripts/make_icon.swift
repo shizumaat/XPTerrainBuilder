@@ -25,8 +25,7 @@ func color(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColo
 
 // MARK: - Chart + airport symbol (drawn twice: base and magnified)
 
-/// Sectional-chart background covering the whole canvas: soft vertical
-/// gradient, crisp graticule, a single restrained contour band.
+/// Simple, Apple-style background: one soft vertical gradient, nothing else.
 func drawChart(_ ctx: CGContext) {
     let space = CGColorSpaceCreateDeviceRGB()
     let paper = CGGradient(colorsSpace: space, colors: [
@@ -38,30 +37,6 @@ func drawChart(_ ctx: CGContext) {
         start: CGPoint(x: 0, y: SIZE * 1.5),
         end: CGPoint(x: 0, y: -SIZE * 0.5), options: [])
     ctx.restoreGState()
-
-    // Graticule: thinner and crisper than a paper chart, bolder blue.
-    ctx.setStrokeColor(chartGrid)
-    ctx.setLineWidth(2.5)
-    var x: CGFloat = -SIZE
-    while x < SIZE * 2 {
-        ctx.move(to: CGPoint(x: x, y: -SIZE))
-        ctx.addLine(to: CGPoint(x: x, y: SIZE * 2))
-        x += 128
-    }
-    var y: CGFloat = -SIZE
-    while y < SIZE * 2 {
-        ctx.move(to: CGPoint(x: -SIZE, y: y))
-        ctx.addLine(to: CGPoint(x: SIZE * 2, y: y))
-        y += 128
-    }
-    ctx.strokePath()
-
-    // One quiet terrain contour, lower right.
-    ctx.setStrokeColor(chartContour)
-    ctx.setLineWidth(5)
-    ctx.addArc(center: CGPoint(x: 1000, y: 40), radius: 500,
-               startAngle: .pi * 0.45, endAngle: .pi * 0.95, clockwise: false)
-    ctx.strokePath()
 }
 
 /// KPDX as depicted on the sectional: large towered airports show the actual
@@ -82,10 +57,10 @@ func drawKPDX(_ ctx: CGContext, center: CGPoint, scale: CGFloat) {
     }
 
     let heading: CGFloat = -.pi / 20            // runways 10/28: just south of east-west
-    runway(cx: 0, cy: 52, length: 330, width: 36, angle: heading)     // 10L/28R (north)
-    runway(cx: 14, cy: -52, length: 380, width: 36, angle: heading)   // 10R/28L (south, longer)
-    // 3/21 crosswind: crossing the parallels' west ends, angling northeast.
-    runway(cx: -108, cy: 10, length: 260, width: 32, angle: .pi / 3.4)
+    runway(cx: -10, cy: 52, length: 310, width: 36, angle: heading)   // 10L/28R (north)
+    runway(cx: 10, cy: -52, length: 360, width: 36, angle: heading)   // 10R/28L (south, longer)
+    // 3/21 crosswind: short, pinned to the west ends.
+    runway(cx: -130, cy: 6, length: 220, width: 32, angle: .pi / 3.2)
 
     ctx.restoreGState()
 }
@@ -97,15 +72,23 @@ func drawKPDX(_ ctx: CGContext, center: CGPoint, scale: CGFloat) {
 /// runway out on the bare chart.
 func drawScene(_ ctx: CGContext) {
     drawChart(ctx)
-    drawKPDX(ctx, center: CGPoint(x: 445, y: 490), scale: 1.05)
+    // Up and to the left, large enough to read as a runway diagram at a
+    // glance; the south parallel's east end falls under the lens.
+    drawKPDX(ctx, center: CGPoint(x: 400, y: 600), scale: 1.5)
 }
 
 // MARK: - Magnifying glass
 
-let lensCenter = CGPoint(x: 620, y: 470)
-let lensRadius: CGFloat = 240
-let rimWidth: CGFloat = 34
+let lensCenter = CGPoint(x: 650, y: 462)
+let lensRadius: CGFloat = 235
+let rimWidth: CGFloat = 26
 let magnification: CGFloat = 1.6
+
+// Frosted-graphite glass material (macOS 27 Preview-loupe territory,
+// not storybook brass).
+let graphiteLight = color(0.42, 0.44, 0.48)
+let graphiteMid = color(0.24, 0.25, 0.28)
+let graphiteDark = color(0.10, 0.11, 0.13)
 
 func lensPath() -> CGPath {
     CGPath(ellipseIn: CGRect(x: lensCenter.x - lensRadius, y: lensCenter.y - lensRadius,
@@ -193,112 +176,83 @@ func drawGlint(_ ctx: CGContext) {
 func drawBrassRim(_ ctx: CGContext) {
     let space = CGColorSpaceCreateDeviceRGB()
 
-    // Drop shadow of the whole glass onto the chart — tighter and lighter
-    // for the flatter macOS 27 look.
+    // Soft ambient shadow under the glass.
     ctx.saveGState()
-    ctx.setShadow(offset: CGSize(width: 8, height: -12), blur: 24,
-                  color: color(0.1, 0.08, 0.04, 0.35))
-    ctx.setFillColor(color(0.42, 0.28, 0.10, 1))
+    ctx.setShadow(offset: CGSize(width: 0, height: -10), blur: 30,
+                  color: color(0.05, 0.06, 0.08, 0.28))
+    ctx.setFillColor(graphiteMid)
     ctx.addPath(ringPath(outer: lensRadius + rimWidth, inner: lensRadius))
     ctx.fillPath(using: .evenOdd)
     ctx.restoreGState()
 
-    // Brass body: diagonal gradient clipped to the ring.
+    // Graphite body: one quiet top-lit gradient.
     ctx.saveGState()
     ctx.addPath(ringPath(outer: lensRadius + rimWidth, inner: lensRadius))
     ctx.clip(using: .evenOdd)
-    let brass = CGGradient(colorsSpace: space, colors: [
-        color(0.98, 0.87, 0.55), color(0.83, 0.62, 0.25),
-        color(0.55, 0.36, 0.10), color(0.90, 0.74, 0.40),
-        color(0.62, 0.42, 0.14),
-    ] as CFArray, locations: [0, 0.3, 0.55, 0.8, 1])!
-    ctx.drawLinearGradient(brass,
-        start: CGPoint(x: lensCenter.x - lensRadius, y: lensCenter.y + lensRadius),
-        end: CGPoint(x: lensCenter.x + lensRadius, y: lensCenter.y - lensRadius),
+    let graphite = CGGradient(colorsSpace: space, colors: [
+        graphiteLight, graphiteMid, graphiteDark,
+    ] as CFArray, locations: [0, 0.55, 1])!
+    ctx.drawLinearGradient(graphite,
+        start: CGPoint(x: lensCenter.x, y: lensCenter.y + lensRadius + rimWidth),
+        end: CGPoint(x: lensCenter.x, y: lensCenter.y - lensRadius - rimWidth),
         options: [])
     ctx.restoreGState()
 
-    // Rim edges: thin dark outer + inner lines, bright specular arc.
-    ctx.setStrokeColor(color(0.30, 0.19, 0.05, 0.9))
-    ctx.setLineWidth(5)
+    // Hairlines: darker outer edge, light inner edge where glass meets rim.
+    ctx.setStrokeColor(color(0.04, 0.05, 0.06, 0.55))
+    ctx.setLineWidth(3)
     ctx.strokeEllipse(in: CGRect(x: lensCenter.x - lensRadius - rimWidth, y: lensCenter.y - lensRadius - rimWidth,
                                  width: (lensRadius + rimWidth) * 2, height: (lensRadius + rimWidth) * 2))
+    ctx.setStrokeColor(color(1, 1, 1, 0.30))
+    ctx.setLineWidth(2.5)
     ctx.strokeEllipse(in: CGRect(x: lensCenter.x - lensRadius, y: lensCenter.y - lensRadius,
                                  width: lensRadius * 2, height: lensRadius * 2))
-    ctx.setStrokeColor(color(1, 0.96, 0.82, 0.9))
-    ctx.setLineWidth(7)
+
+    // Restrained specular on the rim's upper left.
+    ctx.setStrokeColor(color(1, 1, 1, 0.35))
+    ctx.setLineWidth(5)
     ctx.setLineCap(.round)
     ctx.addArc(center: lensCenter, radius: lensRadius + rimWidth / 2,
-               startAngle: .pi * 0.55, endAngle: .pi * 0.95, clockwise: false)
+               startAngle: .pi * 0.58, endAngle: .pi * 0.92, clockwise: false)
     ctx.strokePath()
 }
 
 func drawHandle(_ ctx: CGContext) {
     let space = CGColorSpaceCreateDeviceRGB()
-    // Handle runs down-right from the rim at -45°.
+    // Short rounded capsule, same graphite material, down-right at -45°.
     let angle: CGFloat = -.pi / 4
-    let start = CGPoint(x: lensCenter.x + cos(angle) * (lensRadius + rimWidth - 6),
-                        y: lensCenter.y + sin(angle) * (lensRadius + rimWidth - 6))
+    let start = CGPoint(x: lensCenter.x + cos(angle) * (lensRadius + rimWidth - 10),
+                        y: lensCenter.y + sin(angle) * (lensRadius + rimWidth - 10))
 
     ctx.saveGState()
     ctx.translateBy(x: start.x, y: start.y)
     ctx.rotate(by: angle)
-    ctx.setShadow(offset: CGSize(width: 10, height: -14), blur: 28,
-                  color: color(0.1, 0.08, 0.04, 0.4))
+    ctx.setShadow(offset: CGSize(width: 0, height: -8), blur: 22,
+                  color: color(0.05, 0.06, 0.08, 0.25))
 
-    // Brass ferrule connecting rim and handle.
-    let ferrule = CGRect(x: -8, y: -34, width: 78, height: 68)
+    let handleLength: CGFloat = 260
+    let handleWidth: CGFloat = 72
+    let capsule = CGPath(roundedRect: CGRect(x: 0, y: -handleWidth / 2,
+                                             width: handleLength, height: handleWidth),
+                         cornerWidth: handleWidth / 2, cornerHeight: handleWidth / 2,
+                         transform: nil)
     ctx.saveGState()
-    ctx.clip(to: ferrule)
-    let ferruleGrad = CGGradient(colorsSpace: space, colors: [
-        color(0.95, 0.83, 0.50), color(0.60, 0.40, 0.12), color(0.88, 0.72, 0.38),
-    ] as CFArray, locations: [0, 0.55, 1])!
-    ctx.drawLinearGradient(ferruleGrad,
-        start: CGPoint(x: 0, y: 34), end: CGPoint(x: 0, y: -34), options: [])
-    ctx.restoreGState()
-
-    // Wooden grip: tapered, rounded end.
-    let gripLength: CGFloat = 300
-    let grip = CGMutablePath()
-    grip.move(to: CGPoint(x: 66, y: -30))
-    grip.addLine(to: CGPoint(x: 66 + gripLength, y: -21))
-    grip.addArc(center: CGPoint(x: 66 + gripLength, y: 0), radius: 21,
-                startAngle: -.pi / 2, endAngle: .pi / 2, clockwise: false)
-    grip.addLine(to: CGPoint(x: 66, y: 30))
-    grip.closeSubpath()
-
-    ctx.saveGState()
-    ctx.addPath(grip)
+    ctx.addPath(capsule)
     ctx.clip()
-    let wood = CGGradient(colorsSpace: space, colors: [
-        color(0.52, 0.32, 0.16), color(0.35, 0.20, 0.09),
-        color(0.46, 0.28, 0.13), color(0.24, 0.13, 0.05),
-    ] as CFArray, locations: [0, 0.45, 0.7, 1])!
-    ctx.drawLinearGradient(wood,
-        start: CGPoint(x: 66, y: 30), end: CGPoint(x: 66, y: -30), options: [])
-    // Grain.
-    ctx.setStrokeColor(color(0.18, 0.10, 0.04, 0.35))
-    ctx.setLineWidth(3)
-    for offset: CGFloat in [-14, -4, 8, 16] {
-        ctx.move(to: CGPoint(x: 70, y: offset))
-        ctx.addCurve(to: CGPoint(x: 66 + gripLength, y: offset * 0.6),
-                     control1: CGPoint(x: 150, y: offset + 6),
-                     control2: CGPoint(x: 240, y: offset - 5))
-        ctx.strokePath()
-    }
-    // Top highlight along the grip.
-    ctx.setStrokeColor(color(1, 0.85, 0.6, 0.25))
-    ctx.setLineWidth(6)
-    ctx.move(to: CGPoint(x: 74, y: 18))
-    ctx.addLine(to: CGPoint(x: 50 + gripLength, y: 13))
+    let grad = CGGradient(colorsSpace: space, colors: [
+        graphiteLight, graphiteMid, graphiteDark,
+    ] as CFArray, locations: [0, 0.5, 1])!
+    ctx.drawLinearGradient(grad,
+        start: CGPoint(x: 0, y: handleWidth / 2),
+        end: CGPoint(x: 0, y: -handleWidth / 2), options: [])
+    // Soft top highlight.
+    ctx.setStrokeColor(color(1, 1, 1, 0.22))
+    ctx.setLineWidth(4)
+    ctx.move(to: CGPoint(x: 22, y: handleWidth / 2 - 12))
+    ctx.addLine(to: CGPoint(x: handleLength - 26, y: handleWidth / 2 - 12))
     ctx.strokePath()
     ctx.restoreGState()
 
-    // Grip outline.
-    ctx.setStrokeColor(color(0.15, 0.08, 0.03, 0.8))
-    ctx.setLineWidth(4)
-    ctx.addPath(grip)
-    ctx.strokePath()
     ctx.restoreGState()
 }
 

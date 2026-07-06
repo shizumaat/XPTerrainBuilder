@@ -27,11 +27,13 @@ public struct LibraryIndex: Sendable {
     public mutating func indexLibrary(at packURL: URL, packName: String) {
         let libraryTxt = packURL.appendingPathComponent("library.txt")
         guard let text = TextFile.contents(of: libraryTxt) else { return }
-        for rawLine in text.split(separator: "\n", omittingEmptySubsequences: true) {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
+        for rawLine in TextFile.lines(text) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
             // EXPORT, EXPORT_RATIO, EXPORT_EXTEND, EXPORT_BACKUP, EXPORT_EXCLUDE
             guard line.hasPrefix("EXPORT") else { continue }
-            var parts = line.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+            // Split on spaces AND tabs — authors use both.
+            var parts = line.split(omittingEmptySubsequences: true,
+                                   whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
             guard parts.count >= 3 else { continue }
             let keyword = parts.removeFirst()
             if keyword == "EXPORT_RATIO" { parts.removeFirst() } // skip the ratio number

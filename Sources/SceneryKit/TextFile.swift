@@ -37,6 +37,15 @@ public enum TextFile {
         return nil
     }
 
+    /// Split into lines across ALL newline conventions. In Swift, "\r\n" is
+    /// a single grapheme cluster, so `split(separator: "\n")` does NOT split
+    /// CRLF text — a Windows-authored library.txt parses as one giant line
+    /// and silently yields nothing. Every line-parse in the engine must go
+    /// through here.
+    public static func lines(_ text: String) -> [Substring] {
+        text.split(omittingEmptySubsequences: true) { $0 == "\n" || $0 == "\r\n" || $0 == "\r" }
+    }
+
     /// Just the first `maxBytes` of the file, decoded lossily. For directives
     /// that live in a file's header (e.g. TEXTURE lines in OBJ8) — reading a
     /// 60 MB object in full to find them is what turns an install-wide scan

@@ -45,7 +45,7 @@ public struct LogAnalyzer {
         var result = LogScanResult()
         var seen = Set<MissingResource>()
 
-        for rawLine in text.split(separator: "\n", omittingEmptySubsequences: true) {
+        for rawLine in TextFile.lines(text) {
             result.linesScanned += 1
             let line = String(rawLine)
             let range = NSRange(line.startIndex..., in: line)

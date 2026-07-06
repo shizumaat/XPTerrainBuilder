@@ -4,14 +4,18 @@ import Foundation
 public enum PackAction: String, CaseIterable, Sendable {
     case enable
     case disable
-    case moveToDisabledFolder
+    /// Move from "Custom Scenery (Disabled)" back into Custom Scenery, enabled.
+    case install
+    /// Move into "Custom Scenery (Disabled)" — X-Plane no longer sees it.
+    case uninstall
     case trash
 
     public var label: String {
         switch self {
         case .enable: return "Enable"
         case .disable: return "Disable"
-        case .moveToDisabledFolder: return "Move to Disabled Folder"
+        case .install: return "Install"
+        case .uninstall: return "Uninstall"
         case .trash: return "Move to Trash"
         }
     }
@@ -51,9 +55,44 @@ public struct PackActionService {
         switch action {
         case .enable: return setEnabled(true, packNames)
         case .disable: return setEnabled(false, packNames)
-        case .moveToDisabledFolder: return relocate(packNames)
+        case .install: return install(packNames)
+        case .uninstall: return relocate(packNames)
         case .trash: return trash(packNames)
         }
+    }
+
+    /// Move packs from the Disabled folder back into Custom Scenery and list
+    /// them enabled in the ini.
+    func install(_ packNames: [String]) -> [PackActionOutcome] {
+        let fm = FileManager.default
+        var outcomes: [PackActionOutcome] = []
+        var installed: [String] = []
+
+        for name in packNames {
+            let source = disabledFolderURL.appendingPathComponent(name)
+            let destination = customSceneryURL.appendingPathComponent(name)
+            guard fm.fileExists(atPath: source.path) else {
+                outcomes.append(PackActionOutcome(packName: name, success: false,
+                                                  message: "Not found in \(disabledFolderURL.lastPathComponent)."))
+                continue
+            }
+            guard !fm.fileExists(atPath: destination.path) else {
+                outcomes.append(PackActionOutcome(packName: name, success: false,
+                                                  message: "A pack with this name is already installed."))
+                continue
+            }
+            do {
+                try fm.moveItem(at: source, to: destination)
+                installed.append(name)
+                outcomes.append(PackActionOutcome(packName: name, success: true, message: nil))
+            } catch {
+                outcomes.append(PackActionOutcome(packName: name, success: false,
+                                                  message: error.localizedDescription))
+            }
+        }
+
+        _ = rewriteIni(packNames: installed, keyword: "SCENERY_PACK")
+        return outcomes
     }
 
     // MARK: - scenery_packs.ini editing
@@ -66,7 +105,7 @@ public struct PackActionService {
     }
 
     static func packName(fromIniLine line: String) -> String? {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         for keyword in ["SCENERY_PACK_DISABLED ", "SCENERY_PACK "] where trimmed.hasPrefix(keyword) {
             var path = String(trimmed.dropFirst(keyword.count)).trimmingCharacters(in: .whitespaces)
             if path.hasSuffix("/") { path.removeLast() }

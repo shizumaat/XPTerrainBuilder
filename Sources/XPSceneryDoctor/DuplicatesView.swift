@@ -47,6 +47,15 @@ struct DuplicatesView: View {
         return Array(Set(selection.value.compactMap { byID[$0] })).sorted()
     }
 
+    /// Unique selected packs by status, for context-aware actions.
+    private func packNames(withStatus status: PackStatus, in ids: Set<Row.ID>) -> [String] {
+        var names = Set<String>()
+        for row in rows where ids.contains(row.id) && (row.pack.status ?? .enabled) == status {
+            names.insert(row.pack.name)
+        }
+        return names.sorted()
+    }
+
     var body: some View {
         if groups.isEmpty && otherFindings.isEmpty {
             ContentUnavailableView(
@@ -139,8 +148,7 @@ struct DuplicatesView: View {
         }
         .contextMenu(forSelectionType: Row.ID.self) { ids in
             // Right-clicking outside the selection acts on the clicked rows.
-            let names = packNames(for: ids.isEmpty ? selection.value : ids)
-            actionButtons(for: names)
+            actionButtons(for: ids.isEmpty ? selection.value : ids)
         }
         .onDeleteCommand {
             if !selectedPackNames.isEmpty { confirmingTrash.value = true }
@@ -150,6 +158,49 @@ struct DuplicatesView: View {
     private func packNames(for ids: Set<Row.ID>) -> [String] {
         let byID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.pack.name) })
         return Array(Set(ids.compactMap { byID[$0] })).sorted()
+    }
+
+    /// Context-aware actions: each button appears only when the selection
+    /// contains packs it applies to, and acts on exactly that subset.
+    @ViewBuilder
+    private func actionButtons(for ids: Set<Row.ID>) -> some View {
+        let enabled = packNames(withStatus: .enabled, in: ids)
+        let disabled = packNames(withStatus: .disabled, in: ids)
+        let uninstalled = packNames(withStatus: .uninstalled, in: ids)
+        let installed = (enabled + disabled).sorted()
+        let all = packNames(for: ids)
+
+        if !disabled.isEmpty {
+            Button(countLabel("Enable", disabled, of: all)) {
+                controller.applyPackAction(.enable, to: disabled)
+            }
+        }
+        if !enabled.isEmpty {
+            Button(countLabel("Disable", enabled, of: all)) {
+                controller.applyPackAction(.disable, to: enabled)
+            }
+        }
+        if !uninstalled.isEmpty {
+            Button(countLabel("Install", uninstalled, of: all)) {
+                controller.applyPackAction(.install, to: uninstalled)
+            }
+        }
+        if !installed.isEmpty {
+            Button(countLabel("Uninstall", installed, of: all)) {
+                controller.applyPackAction(.uninstall, to: installed)
+                selection.value = []
+            }
+        }
+        if !all.isEmpty {
+            Divider()
+            Button("Move to Trash…", role: .destructive) {
+                confirmingTrash.value = true
+            }
+        }
+    }
+
+    private func countLabel(_ verb: String, _ subset: [String], of all: [String]) -> String {
+        subset.count == all.count ? verb : "\(verb) (\(subset.count))"
     }
 
     // MARK: - Actions
@@ -167,7 +218,7 @@ struct DuplicatesView: View {
             }
             Spacer()
             Menu {
-                actionButtons(for: selectedPackNames)
+                actionButtons(for: selection.value)
             } label: {
                 Label("Actions", systemImage: "wrench.and.screwdriver")
             }
@@ -193,23 +244,6 @@ struct DuplicatesView: View {
         }
     }
 
-    @ViewBuilder
-    private func actionButtons(for names: [String]) -> some View {
-        Button("Disable") {
-            controller.applyPackAction(.disable, to: names)
-        }
-        Button("Enable") {
-            controller.applyPackAction(.enable, to: names)
-        }
-        Button("Move to Disabled Folder") {
-            controller.applyPackAction(.moveToDisabledFolder, to: names)
-            selection.value = []
-        }
-        Divider()
-        Button("Move to Trash…", role: .destructive) {
-            confirmingTrash.value = true
-        }
-    }
 }
 
 struct StatusBadge: View {
@@ -224,16 +258,24 @@ struct StatusBadge: View {
                 .background(.green.opacity(0.18), in: Capsule())
                 .foregroundStyle(.green)
                 .help("Highest-priority enabled package — this is the one X-Plane shows")
-        } else if pack.isEnabled {
-            Text("Enabled")
-                .font(.caption)
-                .foregroundStyle(.orange)
-                .help("Loads but is shadowed or conflicts with the active package")
         } else {
-            Text("Disabled")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .help("Listed as SCENERY_PACK_DISABLED in scenery_packs.ini")
+            switch pack.status ?? .enabled {
+            case .enabled:
+                Text("Enabled")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .help("Loads but is shadowed or conflicts with the active package")
+            case .disabled:
+                Text("Disabled")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help("Listed as SCENERY_PACK_DISABLED in scenery_packs.ini")
+            case .uninstalled:
+                Text("Uninstalled")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .help("In 'Custom Scenery (Disabled)' — X-Plane never sees it")
+            }
         }
     }
 }

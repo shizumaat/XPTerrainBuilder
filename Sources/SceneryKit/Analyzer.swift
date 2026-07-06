@@ -29,7 +29,7 @@ public struct Analyzer {
             case .checkingDuplicates: return "Checking for redundant packages…"
             case .inspectingPack(let name): return "Inspecting \(name)…"
             case .findingUnused(let detail):
-                return detail.map { "Checking for unused files… (\($0))" } ?? "Checking for unused files…"
+                return detail.map { "Auditing resources… (\($0))" } ?? "Auditing resources…"
             case .done: return "Done"
             }
         }
@@ -119,17 +119,17 @@ public struct Analyzer {
         onEvent(.findings(tileFindings))
 
         onEvent(.stage(.findingUnused(nil)))
-        let unusedAnalyzer = UnusedResourceAnalyzer(installation: installation)
-        let (unusedFindings, unusedGroups) = unusedAnalyzer.analyze(
+        let auditAnalyzer = ResourceAuditAnalyzer(installation: installation)
+        let (auditFindings, unusedGroups) = auditAnalyzer.analyze(
             progress: { detail in
                 onEvent(.stage(.findingUnused(detail)))
             },
-            onPack: { finding, group in
-                onEvent(.findings([finding]))
+            onPack: { packFindings, group in
+                onEvent(.findings(packFindings))
                 if let group { onEvent(.unusedResources([group])) }
             }
         )
-        findings.append(contentsOf: unusedFindings)
+        findings.append(contentsOf: auditFindings)
 
         onEvent(.stage(.done))
         findings.sort {

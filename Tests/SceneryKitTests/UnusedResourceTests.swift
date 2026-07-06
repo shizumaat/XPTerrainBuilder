@@ -124,7 +124,7 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: root) }
 
         let installation = InstallationScanner(root: root).scan()
-        let (findings, groups) = UnusedResourceAnalyzer(installation: installation).analyze()
+        let (findings, groups) = ResourceAuditAnalyzer(installation: installation).analyze()
 
         #expect(groups.count == 1)
         let files = Set(groups[0].files.map { URL(fileURLWithPath: $0.path).lastPathComponent })
@@ -144,7 +144,7 @@ import Foundation
         try sevenZip.write(to: pack.appendingPathComponent("Earth nav data/+40-080/+42-073.dsf"))
 
         let installation = InstallationScanner(root: root).scan()
-        let (findings, groups) = UnusedResourceAnalyzer(installation: installation).analyze()
+        let (findings, groups) = ResourceAuditAnalyzer(installation: installation).analyze()
         #expect(groups.isEmpty)
         #expect(findings.contains { $0.checkID == "UNUSED-00" })
     }
@@ -179,9 +179,9 @@ import Foundation
     // MARK: - Helpers
 
     @Test func pathNormalization() {
-        #expect(UnusedResourceAnalyzer.normalize("terrain/../textures/Foo.DDS") == "textures/foo.dds")
-        #expect(UnusedResourceAnalyzer.strippedKey("/a/b/Tex.PNG") == "a/b/tex")
-        #expect(UnusedResourceAnalyzer.companionBase(of: "a/b/tex_lit") == "a/b/tex")
-        #expect(UnusedResourceAnalyzer.companionBase(of: "a/b/tex") == nil)
+        #expect(ResourceAuditAnalyzer.normalize("terrain/../textures/Foo.DDS") == "textures/foo.dds")
+        #expect(ResourceAuditAnalyzer.strippedKey("/a/b/Tex.PNG") == "a/b/tex")
+        #expect(ResourceAuditAnalyzer.companionBase(of: "a/b/tex_lit") == "a/b/tex")
+        #expect(ResourceAuditAnalyzer.companionBase(of: "a/b/tex") == nil)
     }
 }

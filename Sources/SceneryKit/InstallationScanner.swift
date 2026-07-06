@@ -13,17 +13,23 @@ public struct InstallationScanner {
 
     public func scan(progress: ((String) -> Void)? = nil) -> Installation {
         let customScenery = root.appendingPathComponent("Custom Scenery")
+        let disabledFolder = root.appendingPathComponent("Custom Scenery (Disabled)")
         let iniOrder = parseSceneryPacksIni(customScenery.appendingPathComponent("scenery_packs.ini"))
 
-        let contents = (try? fm.contentsOfDirectory(
-            at: customScenery,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        )) ?? []
+        func packDirectories(in dir: URL) -> [URL] {
+            let contents = (try? fm.contentsOfDirectory(
+                at: dir,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )) ?? []
+            return contents
+                .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        }
 
-        let packURLs = contents
-            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let entries: [(url: URL, installed: Bool)] =
+            packDirectories(in: customScenery).map { ($0, true) }
+            + packDirectories(in: disabledFolder).map { ($0, false) }
 
         // The per-pack work (apt.dat parse, DSF probe) is I/O bound and packs
         // are independent, so fan out; installs with thousands of packs exist.
@@ -31,23 +37,29 @@ public struct InstallationScanner {
             let isLibrary: Bool
             let airports: [String: String]
             let tiles: Set<String>
+            let isOverlay: Bool?
         }
-        var probes = [PackProbe?](repeating: nil, count: packURLs.count)
+        var probes = [PackProbe?](repeating: nil, count: entries.count)
         let lock = NSLock()
         var completed = 0
         probes.withUnsafeMutableBufferPointer { buffer in
             let buf = UnsafeSendableBuffer(buffer)
-            DispatchQueue.concurrentPerform(iterations: packURLs.count) { i in
-                let url = packURLs[i]
+            DispatchQueue.concurrentPerform(iterations: entries.count) { i in
+                let url = entries[i].url
                 // The pool bounds file descriptors: abandoned directory
-                // enumerators (packContainsDSF returns early) are autoreleased,
-                // and a GUI app only gets 256 fds — thousands of packs without
-                // draining exhausts them.
-                let probe = autoreleasepool {
-                    PackProbe(
+                // enumerators are autoreleased, and a GUI app only gets 256
+                // fds — thousands of packs without draining exhausts them.
+                let probe = autoreleasepool { () -> PackProbe in
+                    let (tiles, sampleDSF) = collectDSFTiles(url)
+                    var isOverlay: Bool? = nil
+                    if let sampleDSF, case .ok(let defs) = DSFReader.readDefinitions(url: sampleDSF) {
+                        isOverlay = defs.isOverlay
+                    }
+                    return PackProbe(
                         isLibrary: fm.fileExists(atPath: url.appendingPathComponent("library.txt").path),
                         airports: parseAirports(inPack: url),
-                        tiles: collectDSFTiles(url)
+                        tiles: tiles,
+                        isOverlay: isOverlay
                     )
                 }
                 lock.lock()
@@ -55,7 +67,7 @@ public struct InstallationScanner {
                 completed += 1
                 let done = completed
                 lock.unlock()
-                if done % 250 == 0 { progress?("\(done)/\(packURLs.count) packs") }
+                if done % 250 == 0 { progress?("\(done)/\(entries.count) packs") }
             }
         }
 
@@ -63,26 +75,43 @@ public struct InstallationScanner {
         // are libraries, and library.txt files are small).
         var packs: [SceneryPack] = []
         var libraryIndex = LibraryIndex()
-        for (url, probe) in zip(packURLs, probes) {
+        for (entry, probe) in zip(entries, probes) {
             guard let probe else { continue }
-            let name = url.lastPathComponent
-            if probe.isLibrary {
-                libraryIndex.indexLibrary(at: url, packName: name)
+            let name = entry.url.lastPathComponent
+            let status: PackStatus
+            if !entry.installed {
+                status = .uninstalled
+            } else {
+                if probe.isLibrary {
+                    libraryIndex.indexLibrary(at: entry.url, packName: name)
+                }
+                let iniEntry = iniOrder["Custom Scenery/\(name)/"] ?? iniOrder["Custom Scenery/\(name)"]
+                // Not listed yet = X-Plane will add it enabled on next launch.
+                status = (iniEntry?.enabled ?? true) ? .enabled : .disabled
             }
             let iniEntry = iniOrder["Custom Scenery/\(name)/"] ?? iniOrder["Custom Scenery/\(name)"]
             packs.append(SceneryPack(
                 name: name,
-                url: url,
-                isEnabled: iniEntry?.enabled ?? true, // not listed yet = will be added enabled on next launch
-                iniIndex: iniEntry?.index,
+                url: entry.url,
+                status: status,
+                iniIndex: entry.installed ? iniEntry?.index : nil,
                 isLibrary: probe.isLibrary,
                 airports: probe.airports,
                 tiles: probe.tiles,
+                isOverlay: probe.isOverlay,
                 isLaminar: Self.laminarPackNames.contains(name)
             ))
         }
 
-        return Installation(root: root, packs: packs, libraryIndex: libraryIndex)
+        // X-Plane's own libraries: needed to audit lib/… references.
+        var defaultIndex = LibraryIndex()
+        let defaultScenery = root.appendingPathComponent("Resources/default scenery")
+        for url in packDirectories(in: defaultScenery) {
+            defaultIndex.indexLibrary(at: url, packName: url.lastPathComponent)
+        }
+
+        return Installation(root: root, packs: packs,
+                            libraryIndex: libraryIndex, defaultLibraryIndex: defaultIndex)
     }
 
     static let laminarPackNames: Set<String> = [
@@ -109,7 +138,7 @@ public struct InstallationScanner {
         guard let text = TextFile.contents(of: url) else { return [:] }
         var result: [String: IniEntry] = [:]
         var index = 0
-        for rawLine in text.split(separator: "\n") {
+        for rawLine in TextFile.lines(text) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             let enabled: Bool
             let path: String
@@ -158,7 +187,7 @@ public struct InstallationScanner {
             currentICAOOverride = nil
         }
 
-        for rawLine in text.split(separator: "\n", omittingEmptySubsequences: true) {
+        for rawLine in TextFile.lines(text) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             let parts = line.split(separator: " ", omittingEmptySubsequences: true)
             guard let code = parts.first else { continue }
@@ -184,19 +213,21 @@ public struct InstallationScanner {
     }
 
     /// Tile names (e.g. "+41-073") of every DSF in the pack — cheap, from
-    /// filenames only. Used both as a has-DSF flag and to find packs that
-    /// load together in the same region.
-    func collectDSFTiles(_ packURL: URL) -> Set<String> {
+    /// filenames only — plus one sample DSF URL for property probing
+    /// (sim/overlay determines mesh vs overlay scenery).
+    func collectDSFTiles(_ packURL: URL) -> (tiles: Set<String>, sample: URL?) {
         let earthNav = packURL.appendingPathComponent("Earth nav data")
         guard let enumerator = fm.enumerator(
             at: earthNav,
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles]
-        ) else { return [] }
+        ) else { return ([], nil) }
         var tiles = Set<String>()
+        var sample: URL? = nil
         for case let file as URL in enumerator where file.pathExtension.lowercased() == "dsf" {
             tiles.insert(file.deletingPathExtension().lastPathComponent)
+            if sample == nil { sample = file }
         }
-        return tiles
+        return (tiles, sample)
     }
 }

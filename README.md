@@ -9,6 +9,14 @@ problems and proposes solutions.
 
 Point it at your X-Plane folder, press **Analyze**, and it reports:
 
+**Missing resources — proactive, whole-install**
+- Every DSF tile's resource table is resolved against pack files, installed
+  library exports, **and X-Plane's default libraries** — before X-Plane ever
+  runs, no Log.txt required. Unresolved references are flagged with library
+  download links; near-misses (case/normalization/mojibake damage) get
+  one-click rename fixes; textures referenced by live files but absent from
+  the pack are reported too.
+
 **Missing resources (from Log.txt)**
 - **Damaged file names**: when a "missing" file is actually on disk under an
   encoding-mangled name ("baños" shipped as "ba§os" or "baÃ±os" by a broken
@@ -31,22 +39,23 @@ Point it at your X-Plane folder, press **Analyze**, and it reports:
 - Finds airports provided by two or more custom packs (double buildings,
   z-fighting, wasted disk), says which pack wins per `scenery_packs.ini`
   priority, and flags disabled packs and double-installed folders.
-- The report's Redundant Packages view is actionable: multi-select packages
-  (with size on disk shown per pack) and apply **Disable/Enable** (rewrites
-  `scenery_packs.ini`, like X-Plane's own UI), **Move to Disabled Folder**
-  (`Custom Scenery (Disabled)/`), or **Move to Trash** (Finder Trash,
-  recoverable, with confirmation) — from the Actions button, the context
-  menu, or the Delete key.
+- Packs in `Custom Scenery (Disabled)` are scanned too and shown as
+  **Uninstalled**. The Redundant Packages table (type, size, modified date,
+  status per pack) has **context-aware actions** — Enable/Disable (ini
+  rewrite), Install/Uninstall (move between Custom Scenery and the Disabled
+  folder), Move to Trash — each appearing only when the selection contains
+  packs it applies to, from the Actions button, context menu, or Delete key.
 
-**Unused resources**
-- Parses every DSF tile's definition tables (header-seeking reader — no
-  whole-file loads even across 150k+ tiles) plus all `.ter/.obj/.pol/.fac/…`
-  texture references and `library.txt` exports to build a reachability set.
-- Flags `.ter` files no DSF references (the signature of a leftover
-  Ortho4XP imagery source) and images nothing references at all — matched
-  extension-blind (`foo.png` ↔ `foo.dds`), with `_LIT`/`_NML` companions and
-  docs/preview art excluded, and packs with unreadable DSFs skipped rather
-  than guessed at.
+**Unused resources — true reachability**
+- Roots are the DSF definition tables (header-seeking reader — no whole-file
+  loads even across 150k+ tiles) and `library.txt` exports; a breadth-first
+  walk follows every file reference (DSF → obj/ter/pol/fac/agp → textures).
+  Anything unreachable is flagged — leftover ortho imagery sets, dead
+  objects *and* their textures.
+- Matching is extension-blind (`foo.png` ↔ `foo.dds`), `_LIT`/`_NML` and
+  seasonal companions follow their base texture, docs/preview art and
+  seasonal/options folders are protected, plugin-managed packs are skipped,
+  and packs with unreadable DSFs are excluded rather than guessed at.
 - The Unused Resources view lists them per pack with sizes; Trash Selected /
   Trash All moves them to the Finder Trash, tracked in Modifications for
   one-click restore.

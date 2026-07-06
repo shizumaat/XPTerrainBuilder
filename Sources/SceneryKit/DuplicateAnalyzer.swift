@@ -52,7 +52,7 @@ public struct DuplicateAnalyzer {
                     DuplicatePack(
                         name: pack.name,
                         path: pack.url.path,
-                        isEnabled: pack.isEnabled,
+                        status: pack.status,
                         iniIndex: pack.iniIndex,
                         isWinner: pack.name == winner.name,
                         sizeBytes: packSize(pack),
@@ -64,7 +64,13 @@ public struct DuplicateAnalyzer {
 
             let severity: Severity = enabledLosers.isEmpty ? .info : .warning
             let loserList = losers
-                .map { "'\($0.name)'\($0.isEnabled ? "" : " (disabled)")" }
+                .map { pack -> String in
+                    switch pack.status {
+                    case .enabled: return "'\(pack.name)'"
+                    case .disabled: return "'\(pack.name)' (disabled)"
+                    case .uninstalled: return "'\(pack.name)' (uninstalled)"
+                    }
+                }
                 .joined(separator: ", ")
 
             findings.append(Finding(

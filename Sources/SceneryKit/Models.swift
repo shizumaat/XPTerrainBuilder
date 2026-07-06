@@ -47,7 +47,11 @@ public enum ProposedFix: Codable, Sendable, Hashable {
     case renameFile(fromPath: String, toPath: String)
     /// Re-encode a PNG as a mipmapped, block-compressed DDS and retire the
     /// PNG to a backup (X-Plane loads foo.dds wherever foo.png is referenced).
+    /// Non-power-of-two images are resampled to the nearest power of two.
     case convertPNGToDDS(pngPath: String)
+    /// Replace uniform per-mesh ATTR_no_blend with GLOBAL_no_blend so the
+    /// object stays on the instanced drawing path.
+    case promoteGlobalNoBlend(objPath: String)
 
     public var summary: String {
         switch self {
@@ -57,6 +61,8 @@ public enum ProposedFix: Codable, Sendable, Hashable {
             return "Rename to '\(URL(fileURLWithPath: toPath).lastPathComponent)'"
         case .convertPNGToDDS:
             return "Convert PNG to DDS"
+        case .promoteGlobalNoBlend:
+            return "Promote ATTR_no_blend to GLOBAL_no_blend"
         }
     }
 
@@ -65,6 +71,7 @@ public enum ProposedFix: Codable, Sendable, Hashable {
         case .addFarLOD(let path, _): return path
         case .renameFile(let fromPath, _): return fromPath
         case .convertPNGToDDS(let path): return path
+        case .promoteGlobalNoBlend(let path): return path
         }
     }
 }
@@ -73,10 +80,21 @@ public enum ProposedFix: Codable, Sendable, Hashable {
 /// are judged and grouped (a library's textures don't all load; an airport's do).
 public enum PackKind: String, Codable, Sendable, CaseIterable {
     case airport = "Airports"
-    case overlay = "Overlays & Landmarks"
-    case orthoMesh = "Ortho & Mesh"
+    case landmark = "Landmarks & Overlays"
+    case ortho = "Ortho Imagery"
+    case mesh = "Mesh"
     case library = "Libraries"
     case other = "Other"
+}
+
+/// Where a pack stands with X-Plane.
+public enum PackStatus: String, Codable, Sendable {
+    /// In Custom Scenery, enabled in scenery_packs.ini.
+    case enabled
+    /// In Custom Scenery, SCENERY_PACK_DISABLED in the ini.
+    case disabled
+    /// Sitting in "Custom Scenery (Disabled)" — X-Plane never sees it.
+    case uninstalled
 }
 
 public struct Finding: Identifiable, Codable, Sendable, Hashable {
@@ -175,7 +193,6 @@ public struct DuplicatePack: Codable, Sendable, Hashable, Identifiable {
     public var id: String { name }
     public let name: String
     public let path: String
-    public let isEnabled: Bool
     /// Load priority from scenery_packs.ini (lower loads first / wins).
     public let iniIndex: Int?
     /// True for the pack X-Plane will actually show for this airport.
@@ -185,12 +202,15 @@ public struct DuplicatePack: Codable, Sendable, Hashable, Identifiable {
     public let kind: PackKind?
     /// Folder modification date.
     public let modifiedDate: Date?
+    public let status: PackStatus?
 
-    public init(name: String, path: String, isEnabled: Bool, iniIndex: Int?, isWinner: Bool,
+    public var isEnabled: Bool { (status ?? .enabled) == .enabled }
+
+    public init(name: String, path: String, status: PackStatus, iniIndex: Int?, isWinner: Bool,
                 sizeBytes: Int64 = 0, kind: PackKind? = nil, modifiedDate: Date? = nil) {
         self.name = name
         self.path = path
-        self.isEnabled = isEnabled
+        self.status = status
         self.iniIndex = iniIndex
         self.isWinner = isWinner
         self.sizeBytes = sizeBytes
@@ -282,11 +302,11 @@ public struct AnalysisReport: Codable, Sendable {
     }
 }
 
-/// One installed scenery pack under Custom Scenery.
+/// One scenery pack, installed (Custom Scenery) or not (Custom Scenery (Disabled)).
 public struct SceneryPack: Sendable {
     public let name: String
     public let url: URL
-    public let isEnabled: Bool
+    public let status: PackStatus
     /// Priority from scenery_packs.ini; lower loads first (wins conflicts). nil = not listed.
     public let iniIndex: Int?
     public let isLibrary: Bool
@@ -294,19 +314,26 @@ public struct SceneryPack: Sendable {
     public let airports: [String: String]
     /// DSF tile names covered by this pack (e.g. "+41-073").
     public let tiles: Set<String>
+    /// sim/overlay property from a sampled DSF: true = overlay scenery,
+    /// false = base mesh, nil = no DSF sampled.
+    public let isOverlay: Bool?
     /// True for packs shipped by Laminar (Global Airports etc.) that we skip for health checks.
     public let isLaminar: Bool
 
+    public var isEnabled: Bool { status == .enabled }
+    public var isInstalled: Bool { status != .uninstalled }
     public var hasDSF: Bool { !tiles.isEmpty }
 
     public var kind: PackKind {
         if isLibrary { return .library }
         if !airports.isEmpty { return .airport }
+        guard hasDSF else { return .other }
+        if isOverlay == true { return .landmark }
+        // Base-mesh DSF (or unknown): ortho imagery vs plain mesh by content hint.
         let lower = name.lowercased()
-        if lower.contains("ortho") || lower.contains("mesh") || lower.contains("photoreal") {
-            return .orthoMesh
-        }
-        return hasDSF ? .overlay : .other
+        if lower.contains("ortho") || lower.contains("photo") { return .ortho }
+        if isOverlay == false { return .mesh }
+        return lower.contains("mesh") ? .mesh : .landmark
     }
 }
 
@@ -314,6 +341,9 @@ public struct Installation: Sendable {
     public let root: URL
     public let packs: [SceneryPack]
     public let libraryIndex: LibraryIndex
+    /// Exports of X-Plane's own libraries (Resources/default scenery) —
+    /// required to audit references without crying wolf on lib/… paths.
+    public let defaultLibraryIndex: LibraryIndex
 
     public var logURL: URL { root.appendingPathComponent("Log.txt") }
     public var customSceneryURL: URL { root.appendingPathComponent("Custom Scenery") }

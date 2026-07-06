@@ -72,7 +72,7 @@ public struct PackageHealthAnalyzer {
         progress: ((String) -> Void)? = nil,
         onPackFindings: (([Finding]) -> Void)? = nil
     ) -> AggregateResult {
-        let packs = installation.packs.filter { !$0.isLaminar }
+        let packs = installation.packs.filter { !$0.isLaminar && $0.isInstalled }
         guard !packs.isEmpty else { return AggregateResult() }
 
         var partial = [PackScanResult?](repeating: nil, count: packs.count)
@@ -260,8 +260,9 @@ public struct PackageHealthAnalyzer {
                 title: "Instancing-hostile ATTR state: \(url.lastPathComponent)",
                 detail: "Uses per-mesh ATTR_no_blend uniformly. Promoting it to GLOBAL_no_blend keeps the object on X-Plane's fast instanced drawing path.",
                 path: url.path,
-                suggestion: "Replace ATTR_no_blend with GLOBAL_no_blend in the OBJ header (text edit).",
+                suggestion: "Apply Fix to replace ATTR_no_blend with GLOBAL_no_blend (validated text edit, backed up, revertible).",
                 fixability: .auto,
+                proposedFix: .promoteGlobalNoBlend(objPath: url.path),
                 packName: pack.name,
                 packKind: pack.kind
             ))
@@ -360,6 +361,7 @@ public struct PackageHealthAnalyzer {
         }
 
         for (url, info) in nonPOT.prefix(config.maxFindingsPerCheckPerPack) {
+            let isPNG = info.format == .png
             result.findings.append(Finding(
                 checkID: "C-04",
                 severity: .info,
@@ -367,7 +369,11 @@ public struct PackageHealthAnalyzer {
                 title: "Non-power-of-two texture: \(url.lastPathComponent)",
                 detail: "\(info.width)x\(info.height) — X-Plane handles it, but it wastes memory and prevents some optimizations.",
                 path: url.path,
-                fixability: .manual,
+                suggestion: isPNG
+                    ? "Apply Fix to resample it to the nearest power of two and convert to mipmapped DDS (UVs are normalized, so nothing shifts). Backed up, revertible."
+                    : "Re-export at a power-of-two size in the author's pipeline.",
+                fixability: isPNG ? .auto : .manual,
+                proposedFix: isPNG ? .convertPNGToDDS(pngPath: url.path) : nil,
                 packName: pack.name,
                 packKind: pack.kind
             ))

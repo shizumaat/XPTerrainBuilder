@@ -138,7 +138,79 @@ public struct FixEngine: Sendable {
             return applyRename(fromPath: fromPath, toPath: toPath, finding: finding, records: &records)
         case .convertPNGToDDS(let pngPath):
             return applyPNGConversion(pngPath: pngPath, finding: finding, records: &records)
+        case .promoteGlobalNoBlend(let objPath):
+            return applyGlobalPromotion(objPath: objPath, finding: finding, records: &records)
         }
+    }
+
+    // MARK: promoteGlobalNoBlend
+
+    /// Remove uniform per-mesh ATTR_no_blend lines and declare
+    /// GLOBAL_no_blend in the header, restoring the instanced drawing path.
+    func applyGlobalPromotion(objPath: String, finding: Finding,
+                              records: inout [ModificationRecord]) -> FixOutcome {
+        let fm = FileManager.default
+        let fileURL = URL(fileURLWithPath: objPath)
+        let backupURL = URL(fileURLWithPath: objPath + Self.backupSuffix)
+
+        func fail(_ message: String) -> FixOutcome {
+            FixOutcome(findingID: finding.id, filePath: objPath, success: false, message: message)
+        }
+
+        guard let original = try? Data(contentsOf: fileURL) else {
+            return fail("Could not read the file.")
+        }
+        let before = ObjParser.parse(data: original)
+        guard before.perMeshNoBlend > 0, before.blendStateChanges == 0,
+              !before.hasGlobalNoBlend, !before.animated else {
+            return fail("The object's blend state is not uniformly promotable.")
+        }
+
+        // Byte-level edit: drop ATTR_no_blend lines; insert GLOBAL_no_blend
+        // before the first draw command (the header ends there).
+        guard let text = String(data: original, encoding: .utf8)
+                ?? String(data: original, encoding: .isoLatin1) else {
+            return fail("Could not decode the file.")
+        }
+        let kept = text.components(separatedBy: "\n").filter {
+            !$0.trimmingCharacters(in: .whitespaces).hasPrefix("ATTR_no_blend")
+        }
+        let rejoined = Data(kept.joined(separator: "\n").utf8)
+        guard let edited = Self.insertHeaderDirective("GLOBAL_no_blend", into: rejoined) else {
+            return fail("No draw commands found — not a valid OBJ8 file?")
+        }
+
+        let after = ObjParser.parse(data: edited)
+        guard after.perMeshNoBlend == 0, after.hasGlobalNoBlend,
+              after.vertexCount == before.vertexCount else {
+            return fail("Edited file failed validation; no changes were made.")
+        }
+
+        if !fm.fileExists(atPath: backupURL.path) {
+            do { try original.write(to: backupURL, options: .atomic) }
+            catch { return fail("Could not create backup: \(error.localizedDescription)") }
+        }
+        do { try edited.write(to: fileURL, options: .atomic) }
+        catch { return fail("Could not write the file: \(error.localizedDescription)") }
+
+        if !records.contains(where: { $0.filePath == objPath }) {
+            records.append(ModificationRecord(
+                filePath: objPath, backupPath: backupURL.path,
+                checkID: finding.checkID, summary: "Promoted ATTR_no_blend to GLOBAL_no_blend"
+            ))
+        }
+        return FixOutcome(findingID: finding.id, filePath: objPath, success: true, message: nil)
+    }
+
+    /// Insert a header directive before the first draw command — same anchor
+    /// rule as the LOD fixer.
+    static func insertHeaderDirective(_ directive: String, into data: Data) -> Data? {
+        guard let insertAt = firstCommandOffset(in: data) else { return nil }
+        var result = Data()
+        result.append(data.prefix(insertAt))
+        result.append(Data("\(directive)\n".utf8))
+        result.append(data.suffix(from: insertAt))
+        return result
     }
 
     // MARK: addFarLOD
@@ -306,6 +378,12 @@ public struct FixEngine: Sendable {
     /// ATTRs ahead of the inserted line are legal initial state. Byte-level:
     /// untouched lines are preserved exactly.
     static func insertFarLOD(into data: Data, distanceMeters: Int) -> Data? {
+        insertHeaderDirective("ATTR_LOD 0 \(distanceMeters)", into: data)
+    }
+
+    /// Byte offset of the first drawing command line (TRIS/LINES/lights/
+    /// animation) — header attributes are deliberately not anchors.
+    static func firstCommandOffset(in data: Data) -> Int? {
         let commandPrefixes: [[UInt8]] = [
             Array("TRIS".utf8), Array("LINES".utf8), Array("LIGHT".utf8),
             Array("ANIM".utf8), Array("EMITTER".utf8), Array("SMOKE_".utf8),
@@ -330,13 +408,7 @@ public struct FixEngine: Sendable {
                 i = j + 1
             }
         }
-
-        guard let offset = insertOffset else { return nil }
-        var result = Data()
-        result.append(data.prefix(offset))
-        result.append(Data("ATTR_LOD 0 \(distanceMeters)\n".utf8))
-        result.append(data.suffix(from: offset))
-        return result
+        return insertOffset
     }
 
     // MARK: Trash (unused resources)

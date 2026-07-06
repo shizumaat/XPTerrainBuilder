@@ -25,10 +25,13 @@ public enum DDSEncoder {
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
         else { return .failure(.unreadableImage) }
 
-        let width = image.width
-        let height = image.height
+        // Resample non-power-of-two images to the nearest power of two (UVs
+        // are normalized, so nothing shifts) — required for clean mip chains
+        // and part of the C-04 non-POT fix.
+        let width = nearestPowerOfTwo(image.width)
+        let height = nearestPowerOfTwo(image.height)
         guard width >= 4, height >= 4, width <= 32_768, height <= 32_768 else {
-            return .failure(.unsupportedSize(width, height))
+            return .failure(.unsupportedSize(image.width, image.height))
         }
 
         guard var level = rgbaPixels(of: image, width: width, height: height) else {
@@ -57,6 +60,13 @@ public enum DDSEncoder {
         var dds = header(width: width, height: height, mipCount: levels.count, dxt5: hasAlpha)
         dds.append(payload)
         return .success(dds)
+    }
+
+    static func nearestPowerOfTwo(_ n: Int) -> Int {
+        guard n > 4 else { return 4 }
+        let lower = 1 << Int(log2(Double(n)))
+        let upper = lower << 1
+        return (n - lower) < (upper - n) ? lower : upper
     }
 
     // MARK: - Pixel access

@@ -10,6 +10,17 @@ public struct DSFDefinitions: Sendable {
     public var polygons: [String] = []
     public var networks: [String] = []
     public var rasters: [String] = []
+    /// HEAD/PROP key-value pairs (sim/overlay, sim/west, …).
+    public var properties: [String: String] = [:]
+
+    public var isOverlay: Bool? {
+        properties["sim/overlay"].map { $0 == "1" }
+    }
+
+    /// Every resource-file reference in the definition tables.
+    public var allResources: [String] {
+        terrains + objects + polygons + networks
+    }
 }
 
 public enum DSFReadResult: Sendable {
@@ -43,6 +54,8 @@ public enum DSFReader {
 
         let atomsEnd = fileSize - 16 // MD5 footer
         var offset = 12
+        var defs = DSFDefinitions()
+        var sawDEFN = false
 
         while offset + 8 <= atomsEnd {
             guard let atomHeader = try? handle.read(upToCount: 8), atomHeader.count == 8 else { return .invalid }
@@ -54,7 +67,18 @@ public enum DSFReader {
                 guard let body = try? handle.read(upToCount: length - 8), body.count == length - 8 else {
                     return .invalid
                 }
-                return .ok(parseDefinitionAtom(body))
+                let props = defs.properties
+                defs = parseDefinitionAtom(body)
+                defs.properties = props
+                sawDEFN = true
+                // HEAD precedes DEFN in practice; if we have both, stop early.
+                if !defs.properties.isEmpty { return .ok(defs) }
+            } else if id == "HEAD" || id == "DAEH" {
+                guard let body = try? handle.read(upToCount: length - 8), body.count == length - 8 else {
+                    return .invalid
+                }
+                defs.properties = parseHeadAtom(body)
+                if sawDEFN { return .ok(defs) }
             }
 
             offset += length
@@ -64,8 +88,32 @@ public enum DSFReader {
                 return .invalid
             }
         }
-        // No DEFN atom — structurally odd but not worth failing the pack over.
-        return .ok(DSFDefinitions())
+        return .ok(defs)
+    }
+
+    /// HEAD atom: contains a PROP subatom of NUL-separated key/value pairs.
+    static func parseHeadAtom(_ body: Data) -> [String: String] {
+        var properties: [String: String] = [:]
+        var offset = 0
+        let bytes = [UInt8](body)
+        while offset + 8 <= bytes.count {
+            let id = String(decoding: bytes[offset..<offset + 4], as: UTF8.self)
+            let length = Int(bytes[offset + 4])
+                | (Int(bytes[offset + 5]) << 8)
+                | (Int(bytes[offset + 6]) << 16)
+                | (Int(bytes[offset + 7]) << 24)
+            guard length >= 8, offset + length <= bytes.count else { break }
+            if id == "PROP" || id == "PORP" {
+                let strings = parseStringTable(bytes[(offset + 8)..<(offset + length)])
+                var i = 0
+                while i + 1 < strings.count {
+                    properties[strings[i]] = strings[i + 1]
+                    i += 2
+                }
+            }
+            offset += length
+        }
+        return properties
     }
 
     static func parseDefinitionAtom(_ body: Data) -> DSFDefinitions {

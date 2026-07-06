@@ -61,7 +61,7 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: root) }
         let fm = FileManager.default
 
-        let outcomes = PackActionService(root: root).apply(.moveToDisabledFolder, to: ["Another KSEA"])
+        let outcomes = PackActionService(root: root).apply(.uninstall, to: ["Another KSEA"])
         #expect(outcomes.allSatisfy { $0.success })
 
         #expect(!fm.fileExists(atPath: root.appendingPathComponent("Custom Scenery/Another KSEA").path))
@@ -77,7 +77,7 @@ import Foundation
         let occupied = root.appendingPathComponent("Custom Scenery (Disabled)/Another KSEA")
         try fm.createDirectory(at: occupied, withIntermediateDirectories: true)
 
-        let outcomes = PackActionService(root: root).apply(.moveToDisabledFolder, to: ["Another KSEA"])
+        let outcomes = PackActionService(root: root).apply(.uninstall, to: ["Another KSEA"])
         #expect(outcomes.count == 1)
         #expect(outcomes[0].success == false)
         // Source untouched on failure.

@@ -2,7 +2,7 @@
 
 Driven by user feedback, July 2026. Four phases, each shippable on its own.
 
-## Phase 0 — Bugs, trust and paper cuts (before any redesign)
+## Phase 0 — Bugs, trust and paper cuts ✅ (shipped)
 
 1. **Search crash / beachball.** Reproduce and fix. Suspected: every keystroke
    re-filters 7,600+ findings with `localizedCaseInsensitiveContains` on the
@@ -34,7 +34,7 @@ Driven by user feedback, July 2026. Four phases, each shippable on its own.
    findings (C-10) drop to info severity per feedback — real cost, but no
    one-click action yet, and warning-severity should mean "actionable".
 
-## Phase 1 — Engine correctness and new fixes
+## Phase 1 — Engine correctness and new fixes ✅ (shipped)
 
 1. **Proactive missing-resource analysis** (no Log.txt required). For every
    pack: resolve each DSF DEFN entry, apt.dat library reference and

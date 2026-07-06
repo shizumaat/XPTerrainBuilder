@@ -186,12 +186,16 @@ public struct PackageHealthAnalyzer {
         for (url, info) in noLODHeavy.sorted(by: { $0.1.vertexCount > $1.1.vertexCount }).prefix(config.maxFindingsPerCheckPerPack) {
             let verts = info.vertexCount
             let distance = LODAdvisor.farCullDistance(forLargestDimension: info.largestDimension)
-            let sizeClause = info.dimensionsDescription
+            let severe = verts >= config.heavyObjVertexCount * 4
+            let severityNote = severe
+                ? " Flagged as an error: \(verts) vertices is ≥4× the heavy threshold (\(config.heavyObjVertexCount * 4)+), so this object alone costs measurable frame time."
+                : " Flagged as a warning (heavy threshold: \(config.heavyObjVertexCount) vertices)."
+            let sizeClause = (info.dimensionsDescription
                 .map { "It measures ~\($0), so beyond ~\(distance) m it occupies only a few pixels yet still draws at full detail." }
-                ?? "Beyond ~\(distance) m it occupies only a few pixels yet still draws at full detail."
+                ?? "Beyond ~\(distance) m it occupies only a few pixels yet still draws at full detail.") + severityNote
             result.findings.append(Finding(
                 checkID: "C-02",
-                severity: verts >= config.heavyObjVertexCount * 4 ? .error : .warning,
+                severity: severe ? .error : .warning,
                 category: .packageHealth,
                 title: "Heavy object with no LOD: \(url.lastPathComponent)",
                 detail: "\(url.lastPathComponent) in '\(pack.name)' has \(verts) vertices and no ATTR_LOD. \(sizeClause)",
@@ -209,7 +213,7 @@ public struct PackageHealthAnalyzer {
             result.findings.append(Finding(
                 checkID: "C-09",
                 severity: .info,
-                category: .packageHealth,
+                category: .developerDebug,
                 title: "Animation blocks instancing: \(url.lastPathComponent)",
                 detail: "\(url.lastPathComponent) (\(info.vertexCount) vertices) uses \(reason), which takes it off X-Plane's fast instanced drawing path. Cheap for a one-off (windsock, radar); expensive if this object is placed many times.",
                 path: url.path,
@@ -226,7 +230,7 @@ public struct PackageHealthAnalyzer {
             result.findings.append(Finding(
                 checkID: "C-10",
                 severity: .info,
-                category: .packageHealth,
+                category: .developerDebug,
                 title: "\(count) spill lights in one object: \(url.lastPathComponent)",
                 detail: "Spill lights cost GPU fill in X-Plane's deferred renderer, scaling with the screen area they cover — a dense apron of them is a classic night-FPS killer (Laminar: 'Customizing Spill Lights').",
                 path: url.path,
@@ -241,7 +245,7 @@ public struct PackageHealthAnalyzer {
             result.findings.append(Finding(
                 checkID: "C-12",
                 severity: span > config.maxObjSpanMeters * 2.5 ? .warning : .info,
-                category: .packageHealth,
+                category: .developerDebug,
                 title: "Object spans \(Int(span)) m: \(url.lastPathComponent)",
                 detail: "Laminar's guidance is ≤1,000 m per side (500 m is ideal). When any sliver of a huge object is on screen, the whole thing draws — culling and LOD can't help.",
                 path: url.path,
@@ -272,7 +276,7 @@ public struct PackageHealthAnalyzer {
             result.findings.append(Finding(
                 checkID: "C-03",
                 severity: .warning,
-                category: .packageHealth,
+                category: .developerDebug,
                 title: "Blend state ping-pong: \(url.lastPathComponent)",
                 detail: "Alternates between ATTR_blend and ATTR_no_blend \(flips) times. Each flip forces extra draw calls and disables instancing.",
                 path: url.path,
@@ -288,7 +292,7 @@ public struct PackageHealthAnalyzer {
             result.findings.append(Finding(
                 checkID: "C-05",
                 severity: .info,
-                category: .packageHealth,
+                category: .developerDebug,
                 title: "Many tiny objects in '\(pack.name)'",
                 detail: "\(tinyCount) of \(objFiles.count) OBJ files are under \(config.tinyObjFileBytes / 1024) KB (a couple dozen vertices at most). Per-object draw overhead dominates for objects this small.",
                 path: pack.url.path,
@@ -365,7 +369,7 @@ public struct PackageHealthAnalyzer {
             result.findings.append(Finding(
                 checkID: "C-04",
                 severity: .info,
-                category: .packageHealth,
+                category: isPNG ? .packageHealth : .developerDebug,
                 title: "Non-power-of-two texture: \(url.lastPathComponent)",
                 detail: "\(info.width)x\(info.height) — X-Plane handles it, but it wastes memory and prevents some optimizations.",
                 path: url.path,
@@ -383,7 +387,7 @@ public struct PackageHealthAnalyzer {
             result.findings.append(Finding(
                 checkID: "C-04",
                 severity: .info,
-                category: .packageHealth,
+                category: .developerDebug,
                 title: "Very large texture: \(url.lastPathComponent)",
                 detail: "\(info.width)x\(info.height) (\(info.format.rawValue.uppercased())) — above \(config.maxObjTextureDim)px. Fine for orthos, wasteful for object textures.",
                 path: url.path,
@@ -432,7 +436,7 @@ public struct PackageHealthAnalyzer {
             result.findings.append(Finding(
                 checkID: "C-10",
                 severity: .info,
-                category: .performance,
+                category: .developerDebug,
                 title: "'\(pack.name)' has ~\(packSpillTotal) spill lights",
                 detail: "Sampled across the pack's largest objects. Spill lights cost deferred-shading fill scaled by covered screen area — the classic 'FPS tanks at night at this airport' signature.",
                 path: pack.url.path,

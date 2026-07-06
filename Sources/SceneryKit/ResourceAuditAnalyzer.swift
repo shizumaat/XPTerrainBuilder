@@ -179,7 +179,7 @@ public struct ResourceAuditAnalyzer {
                 }
                 if resolution.mismatches.count == 1, let mismatch = resolution.mismatches.first {
                     renameCount += 1
-                    if renameCount <= Self.maxFindingsPerCheckPerPack {
+                    if true { // every missing resource is listed — no cap
                         let expectedURL = mismatch.actual.deletingLastPathComponent()
                             .appendingPathComponent(mismatch.expectedName)
                         findings.append(Finding(
@@ -212,7 +212,7 @@ public struct ResourceAuditAnalyzer {
                 ? [] : installation.libraryIndex.nearestExports(to: entry, limit: 1)
             if let best = near.first {
                 nearMissCount += 1
-                if nearMissCount <= Self.maxFindingsPerCheckPerPack {
+                if true {
                     findings.append(Finding(
                         checkID: "RES-03",
                         severity: .warning,
@@ -230,7 +230,7 @@ public struct ResourceAuditAnalyzer {
 
             // Genuinely unresolvable.
             missingCount += 1
-            if missingCount <= Self.maxFindingsPerCheckPerPack {
+            if true {
                 let prefix = entry.split(separator: "/").first.map(String.init) ?? entry
                 let known = KnownLibraries.lookup(prefix: prefix)
                 findings.append(Finding(
@@ -249,22 +249,6 @@ public struct ResourceAuditAnalyzer {
                 ))
             }
             _ = tileCount
-        }
-
-        for (overflow, id, label) in [(renameCount, "RES-02", "damaged names"),
-                                      (missingCount, "RES-01", "missing resources"),
-                                      (nearMissCount, "RES-03", "near-miss references")]
-        where overflow > Self.maxFindingsPerCheckPerPack {
-            findings.append(Finding(
-                checkID: id,
-                severity: .info,
-                category: .missingResource,
-                title: "'\(pack.name)': \(overflow - Self.maxFindingsPerCheckPerPack) more \(label)",
-                detail: "Only the first \(Self.maxFindingsPerCheckPerPack) are listed individually.",
-                path: pack.url.path,
-                packName: pack.name,
-                packKind: pack.kind
-            ))
         }
 
         // library.txt exports are externally reachable roots.
@@ -323,9 +307,7 @@ public struct ResourceAuditAnalyzer {
                 if !resolved, !ref.hasPrefix("../.."),
                    Self.imageExtensions.contains((ref as NSString).pathExtension.lowercased()) {
                     missingTextureCount += 1
-                    if missingTextures.count < Self.maxFindingsPerCheckPerPack {
-                        missingTextures.append((from: rel, ref: ref))
-                    }
+                    missingTextures.append((from: rel, ref: ref))
                 }
             }
         }
@@ -348,19 +330,6 @@ public struct ResourceAuditAnalyzer {
                 packKind: pack.kind
             ))
         }
-        if missingTextureCount > Self.maxFindingsPerCheckPerPack {
-            findings.append(Finding(
-                checkID: "RES-04",
-                severity: .info,
-                category: .missingResource,
-                title: "'\(pack.name)': \(missingTextureCount - Self.maxFindingsPerCheckPerPack) more missing textures",
-                detail: "Only the first \(Self.maxFindingsPerCheckPerPack) are listed individually.",
-                path: pack.url.path,
-                packName: pack.name,
-                packKind: pack.kind
-            ))
-        }
-
         // --- Unused: everything unreachable ------------------------------
         var orphans: [(rel: String, entry: FileEntry)] = []
         for (rel, entry) in files {

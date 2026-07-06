@@ -20,6 +20,7 @@ enum SidebarItem: Hashable {
         case .category(.duplicatePackage): return "square.on.square"
         case .category(.packageHealth): return "stethoscope"
         case .category(.performance): return "gauge.with.needle"
+        case .category(.developerDebug): return "hammer"
         case .category(.unusedResources): return "archivebox"
         }
     }

@@ -26,6 +26,9 @@ public enum FindingCategory: String, Codable, CaseIterable, Sendable {
     case duplicatePackage = "Redundant Packages"
     case packageHealth = "Package Health"
     case performance = "Performance"
+    /// Issues only the scenery's author can fix — useful when reporting
+    /// upstream or developing your own packs, noise otherwise.
+    case developerDebug = "Developer Debug"
     case unusedResources = "Unused Resources"
 }
 

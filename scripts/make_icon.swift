@@ -107,21 +107,21 @@ func drawAirportSymbol(_ ctx: CGContext, center: CGPoint, discRadius R: CGFloat)
     // Disc.
     ctx.fillEllipse(in: CGRect(x: -R, y: -R, width: R * 2, height: R * 2))
 
-    // Four stubby rectangular service ticks.
+    // Three stubby rectangular service ticks — the star replaces the top one.
     let tickWidth = R * 0.42
     let tickReach = R * 1.30
-    for i in 0..<4 {
+    for i in 1..<4 {
         ctx.saveGState()
         ctx.rotate(by: CGFloat(i) * .pi / 2)
         ctx.fill(CGRect(x: -tickWidth / 2, y: R - 6, width: tickWidth, height: tickReach - R + 6))
         ctx.restoreGState()
     }
 
-    // Beacon star on top, with a punched (even-odd) center hole. Its lower
-    // points rest on the top tick rather than sinking into it.
-    let starCenter = CGPoint(x: 0, y: R * 1.75)
+    // Beacon star in place of the top spur: center height solved so its two
+    // lower points land exactly on the disc's edge.
     let outerR = R * 0.55
     let innerR = outerR * 0.42
+    let starCenter = CGPoint(x: 0, y: R * 1.392)
     let star = CGMutablePath()
     for k in 0..<10 {
         let angle = CGFloat.pi / 2 + CGFloat(k) * .pi / 5
@@ -137,16 +137,14 @@ func drawAirportSymbol(_ ctx: CGContext, center: CGPoint, discRadius R: CGFloat)
     ctx.fillPath(using: .evenOdd)
 
     // Runway strip: cut out of the disc (chart background shows through),
-    // fully inside the circle with a healthy margin to the edge.
+    // square corners, inset from the edge by the same margin as a spur's
+    // width.
     ctx.rotate(by: -.pi / 15)
-    let stripLength = R * 1.58
-    let stripWidth = R * 0.22
-    let strip = CGPath(roundedRect: CGRect(x: -stripLength / 2, y: -stripWidth / 2,
-                                           width: stripLength, height: stripWidth),
-                       cornerWidth: 5, cornerHeight: 5, transform: nil)
-    ctx.addPath(strip)
+    let stripLength = (R - tickWidth) * 2
+    let stripWidth = R * 0.29
     ctx.setFillColor(nightMid)
-    ctx.fillPath()
+    ctx.fill(CGRect(x: -stripLength / 2, y: -stripWidth / 2,
+                    width: stripLength, height: stripWidth))
 
     ctx.restoreGState()
 }
@@ -156,7 +154,7 @@ func drawAirportSymbol(_ ctx: CGContext, center: CGPoint, discRadius R: CGFloat)
 /// the lens rim (disc 90 -> star top ~2.12R = 191 base -> ~305 vs 296 lens).
 func drawScene(_ ctx: CGContext) {
     drawChart(ctx)
-    drawAirportSymbol(ctx, center: CGPoint(x: 512, y: 512), discRadius: 94)
+    drawAirportSymbol(ctx, center: CGPoint(x: 512, y: 512), discRadius: 98)
 }
 
 // MARK: - Magnifying glass
@@ -187,39 +185,36 @@ func ringPath(outer: CGFloat, inner: CGFloat) -> CGPath {
 }
 
 func drawMagnifiedContent(_ ctx: CGContext) {
-    // Layer 1: magnified chart.
+    // Two exclusive zones so every radius is rendered exactly once — the
+    // seam between them is the refraction offset, and it applies uniformly
+    // to chart lines AND the airport symbol (the star shifts under the rim
+    // just like the airways do). Overlapping layers here double shapes;
+    // exclusive clipping is what keeps the distortion clean.
+    let refractionBand: CGFloat = 26
+    let innerRadius = lensRadius - refractionBand
+
+    // Zone 1: lens interior up to the band.
     ctx.saveGState()
-    ctx.addPath(lensPath())
+    ctx.addEllipse(in: CGRect(x: lensCenter.x - innerRadius, y: lensCenter.y - innerRadius,
+                              width: innerRadius * 2, height: innerRadius * 2))
     ctx.clip()
     ctx.translateBy(x: lensCenter.x, y: lensCenter.y)
     ctx.scaleBy(x: magnification, y: magnification)
     ctx.translateBy(x: -lensCenter.x, y: -lensCenter.y)
-    drawChart(ctx)
+    drawScene(ctx)
     ctx.restoreGState()
 
-    // Layer 2: edge refraction on the chart linework — airways visibly kink
-    // approaching the rim. Chart only: re-rendering wide shapes in the band
-    // duplicates them (a star becomes stripes).
-    let refractionBand: CGFloat = 26
+    // Zone 2: the band, at LOWER magnification — near a loupe's frame the
+    // image compresses back toward true scale, so content shifts inward at
+    // the seam. (Higher magnification here re-shows content the interior
+    // already drew, which doubles shapes into ghosts.)
     ctx.saveGState()
-    ctx.addPath(ringPath(outer: lensRadius, inner: lensRadius - refractionBand))
+    ctx.addPath(ringPath(outer: lensRadius, inner: innerRadius))
     ctx.clip(using: .evenOdd)
     ctx.translateBy(x: lensCenter.x, y: lensCenter.y)
-    ctx.scaleBy(x: magnification * 1.10, y: magnification * 1.10)
+    ctx.scaleBy(x: magnification * 0.90, y: magnification * 0.90)
     ctx.translateBy(x: -lensCenter.x, y: -lensCenter.y)
-    drawChart(ctx)
-    ctx.restoreGState()
-
-    // Layer 3: the airport symbol on top, magnified, clipped by the glass —
-    // the beacon star's top point vanishes cleanly under the rim (drawn
-    // after the band so the band can't erase it).
-    ctx.saveGState()
-    ctx.addPath(lensPath())
-    ctx.clip()
-    ctx.translateBy(x: lensCenter.x, y: lensCenter.y)
-    ctx.scaleBy(x: magnification, y: magnification)
-    ctx.translateBy(x: -lensCenter.x, y: -lensCenter.y)
-    drawAirportSymbol(ctx, center: CGPoint(x: 512, y: 512), discRadius: 94)
+    drawScene(ctx)
     ctx.restoreGState()
 
     // Flatter glass tint: faint cool lift over the black, restrained edge.

@@ -37,8 +37,14 @@ Owner: Noah (noahplieberman@gmail.com, GitHub `shizumaat`). His install:
   record without copies (dialogs describe each honestly).
 - **Categories**: Installation, Missing Resources, Redundant Packages,
   Package Health, Performance, Developer Debug (author-only issues,
-  fixability .manual), Unused Resources. Reports persist to Application
-  Support and reload at launch.
+  fixability .manual; incl. RES-05 deprecated-library-asset refs),
+  Unused Resources. Reports persist to Application Support and reload
+  at launch.
+- **Inspector drag-reorder**: packages listed in scenery_packs.ini load
+  order with kind icons; drag rewrites the ini by permuting packs among
+  the line slots they already occupy (never hauls a pack across the
+  ini's airport/library/ortho regions — Noah's explicit requirement);
+  iniOrderOverride shows the new order while the rescan catches up.
 - **Icon**: v9 — VFR sectional airport symbol under a handleless graphite
   loupe on a night IFR chart, true continuous radial lens distortion.
   Fully parametric in scripts/make_icon.swift (render → iconutil).
@@ -86,9 +92,10 @@ Owner: Noah (noahplieberman@gmail.com, GitHub `shizumaat`). His install:
   (copies SwiftPM resource bundle + AppIcon.icns; bundle id
   com.novemberlima.XPSceneryDoctor).
 - **CLI harness**: `swift run xpdoctor-cli "/Users/noah/X-Plane 12"
-  [--json]` (plus debug flags `--query-lib <vpath>`, `--parse-lib <dir>
-  <vpath>`). Use it to validate engine changes against the real install
-  before shipping; full run ≈ 5 min post-symlink-fix.
+  [--json] [--scope <pack-name>]...` (plus debug flags `--query-lib
+  <vpath>`, `--parse-lib <dir> <vpath>`). Use it to validate engine
+  changes against the real install before shipping; full run ≈ 5 min,
+  --scope makes spot checks seconds.
 - Host cannot screenshot (no Screen Recording permission) — UI changes
   need Noah's eyes; expect polish iterations.
 - Memory dir has `toolchain-clt-only.md` with the same toolchain facts.

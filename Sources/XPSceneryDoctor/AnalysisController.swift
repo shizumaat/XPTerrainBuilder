@@ -175,8 +175,13 @@ final class AnalysisController: ObservableObject {
         pendingInvalidation = []
         let priorityBox = self.priorityBox
 
+        // Full/auto runs stay off the performance cores (.utility) so the
+        // machine remains usable while they grind; only a manual scoped run
+        // — where the user is actively waiting — gets .userInitiated.
+        // concurrentPerform workers inherit the spawning thread's QoS.
+        let taskPriority: TaskPriority = scope == nil ? .utility : .userInitiated
         let stream = AsyncStream<StreamMessage> { continuation in
-            Task.detached(priority: .userInitiated) {
+            Task.detached(priority: taskPriority) {
                 let final = Analyzer(root: root).run(
                     options: options,
                     priority: { priorityBox.current }

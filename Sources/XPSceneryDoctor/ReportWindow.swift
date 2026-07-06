@@ -33,6 +33,7 @@ struct ReportWindow: View {
     @StateObject private var sidebarSelection = ViewState<SidebarItem?>(.all)
     @StateObject private var searchText = ViewState("")
     @StateObject private var severityFilter = ViewState<Severity?>(nil)
+    @StateObject private var fixableOnly = ViewState(false)
 
     var body: some View {
         if let report = controller.report {
@@ -43,7 +44,16 @@ struct ReportWindow: View {
                 detail(for: report)
             }
             .searchable(text: $searchText.value, placement: .toolbar, prompt: "Filter findings")
+            .onChange(of: searchText.value) {
+                controller.updateSearch(searchText.value)
+            }
             .toolbar {
+                ToolbarItem(placement: .automatic) {
+                    Toggle(isOn: $fixableOnly.value) {
+                        Label("Fixable", systemImage: "wrench.and.screwdriver")
+                    }
+                    .help("Show only findings with a one-click fix")
+                }
                 if controller.isRunning {
                     ToolbarItem(placement: .automatic) {
                         ProgressView()
@@ -106,8 +116,8 @@ struct ReportWindow: View {
                 ? controller.stageLabel
                 : "\(count) findings so far — \(controller.stageLabel)"
         }
-        let stats = report.stats
-        return "\(report.xplaneRoot) — \(stats.packsScanned) packs, \(report.findings.count) findings"
+        let when = report.generatedAt.formatted(date: .abbreviated, time: .shortened)
+        return "Generated \(when) — \(report.stats.packsScanned) packs, \(report.findings.count) findings"
     }
 
     private var actionErrorsBinding: Binding<Bool> {
@@ -176,18 +186,10 @@ struct ReportWindow: View {
             UnusedResourcesView(groups: report.unusedResources)
         case .all:
             FindingsList(findings: visibleFindings(in: report), grouping: .category, isLive: controller.isRunning)
-        case .category(.performance):
-            // Grouped by what the pack is: an airport's textures all load,
-            // a library's only load as used.
-            FindingsList(
-                findings: visibleFindings(in: report).filter { $0.category == .performance },
-                grouping: .packKind,
-                isLive: controller.isRunning
-            )
         case .category(let category):
             FindingsList(
                 findings: visibleFindings(in: report).filter { $0.category == category },
-                grouping: .none,
+                grouping: .pack,
                 isLive: controller.isRunning
             )
         }
@@ -198,13 +200,13 @@ struct ReportWindow: View {
         if let severity = severityFilter.value {
             findings = findings.filter { $0.severity == severity }
         }
-        let query = searchText.value.trimmingCharacters(in: .whitespaces)
-        if !query.isEmpty {
-            findings = findings.filter {
-                $0.title.localizedCaseInsensitiveContains(query)
-                    || $0.detail.localizedCaseInsensitiveContains(query)
-                    || ($0.path?.localizedCaseInsensitiveContains(query) ?? false)
-            }
+        if fixableOnly.value {
+            findings = findings.filter { $0.proposedFix != nil }
+        }
+        // Search matching runs debounced off the main thread; here it's just
+        // a set-membership test.
+        if let ids = controller.searchFilterIDs {
+            findings = findings.filter { ids.contains($0.id) }
         }
         return findings
     }
@@ -216,7 +218,26 @@ struct FindingsList: View {
     enum Grouping {
         case none
         case category
-        case packKind
+        case pack
+    }
+
+    /// Pack sections ordered by kind (Airports first), then name.
+    /// Install-wide findings (no pack) sort last.
+    private var packSections: [(title: String, items: [Finding])] {
+        var byPack: [String: [Finding]] = [:]
+        for finding in findings {
+            byPack[finding.packName ?? "", default: []].append(finding)
+        }
+        return byPack
+            .map { name, items -> (key: (Int, String), title: String, items: [Finding]) in
+                guard !name.isEmpty else { return ((99, ""), "Install-wide", items) }
+                let kind = items.first?.packKind
+                let kindRank = kind.map { PackKind.allCases.firstIndex(of: $0) ?? 98 } ?? 98
+                let title = kind.map { "\(name) — \($0.rawValue)" } ?? name
+                return ((kindRank, name.lowercased()), title, items)
+            }
+            .sorted { $0.key < $1.key }
+            .map { ($0.title, $0.items) }
     }
 
     @EnvironmentObject var controller: AnalysisController
@@ -259,14 +280,11 @@ struct FindingsList: View {
                                 }
                             }
                         }
-                    case .packKind:
-                        ForEach(PackKind.allCases, id: \.self) { kind in
-                            let items = findings.filter { ($0.packKind ?? .other) == kind }
-                            if !items.isEmpty {
-                                Section("\(kind.rawValue) (\(items.count))") {
-                                    ForEach(items) { finding in
-                                        FindingRow(finding: finding).tag(finding.id)
-                                    }
+                    case .pack:
+                        ForEach(packSections, id: \.title) { section in
+                            Section("\(section.title) (\(section.items.count))") {
+                                ForEach(section.items) { finding in
+                                    FindingRow(finding: finding).tag(finding.id)
                                 }
                             }
                         }
@@ -277,6 +295,12 @@ struct FindingsList: View {
                     }
                 }
                 .listStyle(.inset)
+                .onChange(of: findings.count) {
+                    // Filters changed under us: drop selection entries that no
+                    // longer resolve to a visible row.
+                    let valid = Set(findings.map { $0.id })
+                    selection.value = selection.value.intersection(valid)
+                }
 
                 if !fixable.isEmpty {
                     Divider()
@@ -298,7 +322,7 @@ struct FindingsList: View {
                     confirmingFix.value = nil
                 }
             } message: {
-                Text("Each file is backed up beside the original (.xpsd-backup) before editing, and every change can be undone from Window ▸ Modifications.")
+                Text(fixConfirmationMessage)
             }
         }
     }
@@ -308,6 +332,25 @@ struct FindingsList: View {
         return count == 1
             ? "Apply the fix to 1 file?"
             : "Apply fixes to \(count) files?"
+    }
+
+    /// Say what each kind of fix actually does — renames don't create backup
+    /// files, so don't claim one.
+    private var fixConfirmationMessage: String {
+        let fixes = (confirmingFix.value ?? []).compactMap { $0.proposedFix }
+        let allRenames = fixes.allSatisfy {
+            if case .renameFile = $0 { return true } else { return false }
+        }
+        if allRenames && !fixes.isEmpty {
+            return "Files are renamed to the exact spelling the scenery references — no content changes. Every rename is listed under Window ▸ Modifications and can be renamed back."
+        }
+        let hasRenames = fixes.contains {
+            if case .renameFile = $0 { return true } else { return false }
+        }
+        if hasRenames {
+            return "Content edits keep a backup beside the original (.xpsd-backup); renames just record the old name. Everything is listed under Window ▸ Modifications and can be reverted."
+        }
+        return "Each file is backed up beside the original (.xpsd-backup) before editing, and every change can be undone from Window ▸ Modifications."
     }
 
     private var fixBar: some View {
@@ -391,6 +434,13 @@ struct FindingRow: View {
                 Text(finding.title)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                if finding.proposedFix != nil {
+                    Spacer()
+                    Image(systemName: "wrench.and.screwdriver.fill")
+                        .font(.caption)
+                        .foregroundStyle(.tint)
+                        .help("Has a one-click fix")
+                }
             }
         }
     }

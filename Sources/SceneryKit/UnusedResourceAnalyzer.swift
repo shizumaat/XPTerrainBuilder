@@ -145,7 +145,9 @@ public struct UnusedResourceAnalyzer {
                 category: .unusedResources,
                 title: "'\(pack.name)': could not verify unused files",
                 detail: "\(unparsableDSFs) of \(dsfURLs.count) DSF tiles are compressed or unreadable, so resource reachability can't be established for this pack.",
-                path: pack.url.path
+                path: pack.url.path,
+                packName: pack.name,
+                packKind: pack.kind
             ), nil)
         }
 
@@ -208,7 +210,13 @@ public struct UnusedResourceAnalyzer {
         let orphans = (deadTer + orphanImages).sorted { $0.size > $1.size }
         guard !orphans.isEmpty else { return nil }
 
-        let files = orphans.map { UnusedFile(path: $0.url.path, sizeBytes: $0.size) }
+        let files = orphans.map { orphan in
+            UnusedFile(
+                path: orphan.url.path,
+                sizeBytes: orphan.size,
+                modifiedDate: (try? orphan.url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            )
+        }
         let group = UnusedResourceGroup(packName: pack.name, packPath: pack.url.path, files: files)
         let sizeText = ByteCountFormatter.string(fromByteCount: group.totalBytes, countStyle: .file)
         let terNote = deadTer.isEmpty ? "" : " \(deadTer.count) of them are .ter terrain definitions no DSF tile references — the signature of a leftover ortho imagery set."
@@ -221,7 +229,9 @@ public struct UnusedResourceAnalyzer {
             detail: "No DSF tile, object, polygon, terrain or library export in this pack references these files.\(terNote) They can be moved to the Trash from the Unused Resources view (recoverable, and tracked in Modifications).",
             path: pack.url.path,
             suggestion: "Review the list in the Unused Resources category, then Trash Selected — every file is recoverable from the Trash and listed under Window ▸ Modifications.",
-            fixability: .assisted
+            fixability: .assisted,
+            packName: pack.name,
+            packKind: pack.kind
         )
         return (finding, group)
     }

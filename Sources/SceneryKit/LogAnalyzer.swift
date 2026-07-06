@@ -123,7 +123,7 @@ public struct LogAnalyzer {
         var findings: [Finding] = []
 
         for missing in scan.missing {
-            findings.append(diagnose(missing))
+            findings.append(diagnose(missing).attributed(packName: missing.referencedFrom))
         }
 
         // Cap the generic error list so a noisy log doesn't drown the report.

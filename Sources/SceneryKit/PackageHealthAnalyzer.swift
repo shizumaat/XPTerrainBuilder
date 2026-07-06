@@ -221,9 +221,11 @@ public struct PackageHealthAnalyzer {
         }
 
         for (url, count) in spillHeavy.sorted(by: { $0.1 > $1.1 }).prefix(config.maxFindingsPerCheckPerPack) {
+            // Info, not warning: a real cost, but there is no one-click fix
+            // yet, and warning-severity should mean "actionable".
             result.findings.append(Finding(
                 checkID: "C-10",
-                severity: .warning,
+                severity: .info,
                 category: .packageHealth,
                 title: "\(count) spill lights in one object: \(url.lastPathComponent)",
                 detail: "Spill lights cost GPU fill in X-Plane's deferred renderer, scaling with the screen area they cover — a dense apron of them is a classic night-FPS killer (Laminar: 'Customizing Spill Lights').",
@@ -259,7 +261,9 @@ public struct PackageHealthAnalyzer {
                 detail: "Uses per-mesh ATTR_no_blend uniformly. Promoting it to GLOBAL_no_blend keeps the object on X-Plane's fast instanced drawing path.",
                 path: url.path,
                 suggestion: "Replace ATTR_no_blend with GLOBAL_no_blend in the OBJ header (text edit).",
-                fixability: .auto
+                fixability: .auto,
+                packName: pack.name,
+                packKind: pack.kind
             ))
         }
 
@@ -272,7 +276,9 @@ public struct PackageHealthAnalyzer {
                 detail: "Alternates between ATTR_blend and ATTR_no_blend \(flips) times. Each flip forces extra draw calls and disables instancing.",
                 path: url.path,
                 suggestion: "The author should reorder geometry so each blend state appears once. Not safe to auto-fix.",
-                fixability: .manual
+                fixability: .manual,
+                packName: pack.name,
+                packKind: pack.kind
             ))
         }
 
@@ -286,7 +292,9 @@ public struct PackageHealthAnalyzer {
                 detail: "\(tinyCount) of \(objFiles.count) OBJ files are under \(config.tinyObjFileBytes / 1024) KB (a couple dozen vertices at most). Per-object draw overhead dominates for objects this small.",
                 path: pack.url.path,
                 suggestion: "Candidates for merging into shared, texture-sharing objects (needs the author's 3-D tooling).",
-                fixability: .manual
+                fixability: .manual,
+                packName: pack.name,
+                packKind: pack.kind
             ))
         }
 
@@ -345,7 +353,9 @@ public struct PackageHealthAnalyzer {
                 detail: "\(url.lastPathComponent) (\(info.width)x\(info.height)) has no mipmap chain, causing shimmering and worse texture-cache behavior.",
                 path: url.path,
                 suggestion: "Regenerate the DDS with mipmaps enabled.",
-                fixability: .assisted
+                fixability: .assisted,
+                packName: pack.name,
+                packKind: pack.kind
             ))
         }
 
@@ -357,7 +367,9 @@ public struct PackageHealthAnalyzer {
                 title: "Non-power-of-two texture: \(url.lastPathComponent)",
                 detail: "\(info.width)x\(info.height) — X-Plane handles it, but it wastes memory and prevents some optimizations.",
                 path: url.path,
-                fixability: .manual
+                fixability: .manual,
+                packName: pack.name,
+                packKind: pack.kind
             ))
         }
 
@@ -369,7 +381,9 @@ public struct PackageHealthAnalyzer {
                 title: "Very large texture: \(url.lastPathComponent)",
                 detail: "\(info.width)x\(info.height) (\(info.format.rawValue.uppercased())) — above \(config.maxObjTextureDim)px. Fine for orthos, wasteful for object textures.",
                 path: url.path,
-                fixability: .manual
+                fixability: .manual,
+                packName: pack.name,
+                packKind: pack.kind
             ))
         }
 
@@ -411,7 +425,7 @@ public struct PackageHealthAnalyzer {
         if packSpillTotal >= 500 {
             result.findings.append(Finding(
                 checkID: "C-10",
-                severity: .warning,
+                severity: .info,
                 category: .performance,
                 title: "'\(pack.name)' has ~\(packSpillTotal) spill lights",
                 detail: "Sampled across the pack's largest objects. Spill lights cost deferred-shading fill scaled by covered screen area — the classic 'FPS tanks at night at this airport' signature.",

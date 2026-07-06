@@ -10,6 +10,9 @@ struct UnusedResourcesView: View {
 
     @StateObject private var selection = ViewState(Set<Row.ID>())
     @StateObject private var confirmingTrash = ViewState<[String]?>(nil)
+    @StateObject private var sortOrder = ViewState([
+        KeyPathComparator(\Row.sizeBytes, order: .reverse)
+    ])
 
     struct Row: Identifiable {
         let id: String   // absolute path
@@ -17,6 +20,7 @@ struct UnusedResourcesView: View {
         let fileName: String
         let relativePath: String
         let sizeBytes: Int64
+        let modified: Date
     }
 
     private var rows: [Row] {
@@ -27,10 +31,12 @@ struct UnusedResourcesView: View {
                     packName: group.packName,
                     fileName: URL(fileURLWithPath: file.path).lastPathComponent,
                     relativePath: String(file.path.dropFirst(group.packPath.count + 1)),
-                    sizeBytes: file.sizeBytes
+                    sizeBytes: file.sizeBytes,
+                    modified: file.modifiedDate ?? .distantPast
                 )
             }
         }
+        .sorted(using: sortOrder.value)
     }
 
     private var totalBytes: Int64 { groups.reduce(0) { $0 + $1.totalBytes } }
@@ -81,25 +87,33 @@ struct UnusedResourcesView: View {
     }
 
     private var table: some View {
-        Table(rows, selection: $selection.value) {
-            TableColumn("Package") { row in
+        Table(rows, selection: $selection.value, sortOrder: $sortOrder.value) {
+            TableColumn("Package", value: \.packName) { row in
                 Text(row.packName)
             }
             .width(min: 120, ideal: 200)
 
-            TableColumn("File") { row in
+            TableColumn("File", value: \.relativePath) { row in
                 Text(row.relativePath)
                     .truncationMode(.head)
                     .help(row.id)
             }
 
-            TableColumn("Size") { row in
+            TableColumn("Size", value: \.sizeBytes) { row in
                 Text(ByteCountFormatter.string(fromByteCount: row.sizeBytes, countStyle: .file))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .width(80)
+
+            TableColumn("Modified", value: \.modified) { row in
+                Text(row.modified == .distantPast
+                     ? "—"
+                     : row.modified.formatted(date: .abbreviated, time: .omitted))
+                    .foregroundStyle(.secondary)
+            }
+            .width(90)
         }
         .contextMenu(forSelectionType: Row.ID.self) { ids in
             let paths = ids.isEmpty ? selectedPaths : Array(ids)

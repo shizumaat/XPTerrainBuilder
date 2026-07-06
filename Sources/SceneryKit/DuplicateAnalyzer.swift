@@ -55,7 +55,9 @@ public struct DuplicateAnalyzer {
                         isEnabled: pack.isEnabled,
                         iniIndex: pack.iniIndex,
                         isWinner: pack.name == winner.name,
-                        sizeBytes: packSize(pack)
+                        sizeBytes: packSize(pack),
+                        kind: pack.kind,
+                        modifiedDate: (try? FileManager.default.attributesOfItem(atPath: pack.url.path))?[.modificationDate] as? Date
                     )
                 }
             ))
@@ -75,7 +77,9 @@ public struct DuplicateAnalyzer {
                 suggestion: enabledLosers.isEmpty
                     ? "The duplicates are disabled, so this is only wasted disk space. Delete the ones you don't use."
                     : "Keep the one you prefer and disable, move or trash the rest (select the packages in this list and use Actions).",
-                fixability: .assisted
+                fixability: .assisted,
+                packName: winner.name,
+                packKind: winner.kind
             ))
         }
 

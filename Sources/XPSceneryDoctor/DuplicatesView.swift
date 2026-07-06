@@ -11,12 +11,21 @@ struct DuplicatesView: View {
 
     @StateObject private var selection = ViewState(Set<Row.ID>())
     @StateObject private var confirmingTrash = ViewState(false)
+    @StateObject private var sortOrder = ViewState([KeyPathComparator(\Row.icao)])
 
     struct Row: Identifiable {
         let id: String
         let icao: String
         let airportName: String
         let pack: DuplicatePack
+
+        // Non-optional keys for sortable columns.
+        var packName: String { pack.name }
+        var priority: Int { pack.iniIndex ?? Int.max }
+        var sizeBytes: Int64 { pack.sizeBytes }
+        var kindName: String { pack.kind?.rawValue ?? "" }
+        var modified: Date { pack.modifiedDate ?? .distantPast }
+        var statusRank: Int { pack.isWinner ? 0 : (pack.isEnabled ? 1 : 2) }
     }
 
     private var rows: [Row] {
@@ -28,6 +37,7 @@ struct DuplicatesView: View {
                     pack: pack)
             }
         }
+        .sorted(using: sortOrder.value)
     }
 
     /// Selected rows resolved to unique pack names (one pack can appear
@@ -82,25 +92,31 @@ struct DuplicatesView: View {
     // MARK: - Table
 
     private var table: some View {
-        Table(rows, selection: $selection.value) {
-            TableColumn("Airport") { row in
+        Table(rows, selection: $selection.value, sortOrder: $sortOrder.value) {
+            TableColumn("Airport", value: \.icao) { row in
                 Text("\(row.icao) — \(row.airportName)")
             }
             .width(min: 140, ideal: 190)
 
-            TableColumn("Package") { row in
+            TableColumn("Package", value: \.packName) { row in
                 Text(row.pack.name)
                     .help(row.pack.path)
             }
 
-            TableColumn("Priority") { row in
+            TableColumn("Type", value: \.kindName) { row in
+                Text(row.pack.kind?.rawValue ?? "—")
+                    .foregroundStyle(.secondary)
+            }
+            .width(90)
+
+            TableColumn("Priority", value: \.priority) { row in
                 Text(row.pack.iniIndex.map { String($0 + 1) } ?? "—")
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
             .width(60)
 
-            TableColumn("Size") { row in
+            TableColumn("Size", value: \.sizeBytes) { row in
                 Text(row.pack.sizeBytes > 0
                      ? ByteCountFormatter.string(fromByteCount: row.pack.sizeBytes, countStyle: .file)
                      : "—")
@@ -110,7 +126,13 @@ struct DuplicatesView: View {
             }
             .width(80)
 
-            TableColumn("Status") { row in
+            TableColumn("Modified", value: \.modified) { row in
+                Text(row.pack.modifiedDate.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? "—")
+                    .foregroundStyle(.secondary)
+            }
+            .width(90)
+
+            TableColumn("Status", value: \.statusRank) { row in
                 StatusBadge(pack: row.pack)
             }
             .width(90)

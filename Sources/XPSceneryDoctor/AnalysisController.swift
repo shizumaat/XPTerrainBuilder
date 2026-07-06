@@ -20,6 +20,17 @@ final class AnalysisController: ObservableObject {
     @Published var reportGeneration = 0
     @Published var errorMessage: String?
 
+    // Search: debounced, filtered off the main thread against a precomputed
+    // lowercased corpus. nil = no active search. (Live filtering of 7k+
+    // findings on every keystroke beachballs the report window.)
+    @Published var searchFilterIDs: Set<UUID>? = nil
+    private var searchCorpus: [(id: UUID, blob: String)] = []
+    private var searchTask: Task<Void, Never>?
+
+    init() {
+        loadPersistedReport()
+    }
+
     // Pack actions (duplicates view)
     @Published var isApplyingAction = false
     @Published var actionErrors: [PackActionOutcome] = []
@@ -97,8 +108,81 @@ final class AnalysisController: ObservableObject {
                     pending = []
                     self.report = final
                     self.isRunning = false
+                    self.rebuildSearchCorpus()
+                    self.persistReport()
                 }
             }
+        }
+    }
+
+    // MARK: - Search
+
+    func updateSearch(_ query: String) {
+        searchTask?.cancel()
+        let trimmed = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !trimmed.isEmpty else {
+            searchFilterIDs = nil
+            return
+        }
+        if searchCorpus.isEmpty { rebuildSearchCorpus() }
+        let corpus = searchCorpus
+        searchTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250)) // debounce
+            guard !Task.isCancelled else { return }
+            let ids = await Task.detached(priority: .userInitiated) {
+                Set(corpus.filter { $0.blob.contains(trimmed) }.map { $0.id })
+            }.value
+            guard !Task.isCancelled else { return }
+            self?.searchFilterIDs = ids
+        }
+    }
+
+    private func rebuildSearchCorpus() {
+        guard let report else {
+            searchCorpus = []
+            return
+        }
+        searchCorpus = report.findings.map { finding in
+            var blob = finding.title.lowercased()
+            blob += "\n" + finding.detail.lowercased()
+            if let path = finding.path { blob += "\n" + path.lowercased() }
+            if let pack = finding.packName { blob += "\n" + pack.lowercased() }
+            return (finding.id, blob)
+        }
+    }
+
+    // MARK: - Persistence
+
+    static var reportFileURL: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("XPSceneryDoctor", isDirectory: true)
+        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        return base.appendingPathComponent("last-report.json")
+    }
+
+    /// Save the report so quitting and relaunching resumes the review session.
+    func persistReport() {
+        guard let report else { return }
+        let url = Self.reportFileURL
+        Task.detached(priority: .utility) {
+            if let data = try? report.jsonData() {
+                try? data.write(to: url, options: .atomic)
+            }
+        }
+    }
+
+    private func loadPersistedReport() {
+        let url = Self.reportFileURL
+        Task { [weak self] in
+            let loaded = await Task.detached(priority: .utility) { () -> AnalysisReport? in
+                guard let data = try? Data(contentsOf: url) else { return nil }
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                return try? decoder.decode(AnalysisReport.self, from: data)
+            }.value
+            guard let self, let loaded, self.report == nil, !self.isRunning else { return }
+            self.report = loaded
+            self.rebuildSearchCorpus()
         }
     }
 
@@ -140,6 +224,8 @@ final class AnalysisController: ObservableObject {
             }
             self.actionErrors = outcomes.filter { !$0.success }
             self.isApplyingAction = false
+            self.rebuildSearchCorpus()
+            self.persistReport()
         }
     }
 
@@ -167,10 +253,12 @@ final class AnalysisController: ObservableObject {
                 "\(URL(fileURLWithPath: $0.filePath).lastPathComponent): \($0.message ?? "unknown error")"
             }
             if !succeeded.isEmpty {
-                self.lastFixSummary = "Fixed \(succeeded.count) file\(succeeded.count == 1 ? "" : "s"). Originals were backed up — see Window ▸ Modifications to revert."
+                self.lastFixSummary = "Fixed \(succeeded.count) file\(succeeded.count == 1 ? "" : "s"). Every change is listed under Window ▸ Modifications and can be reverted."
             }
             self.loadModifications()
             self.isFixing = false
+            self.rebuildSearchCorpus()
+            self.persistReport()
         }
     }
 
@@ -204,6 +292,8 @@ final class AnalysisController: ObservableObject {
             }
             self.loadModifications()
             self.isFixing = false
+            self.rebuildSearchCorpus()
+            self.persistReport()
         }
     }
 

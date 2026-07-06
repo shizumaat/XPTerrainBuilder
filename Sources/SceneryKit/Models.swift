@@ -125,6 +125,37 @@ public struct Finding: Identifiable, Codable, Sendable, Hashable {
         self.packName = packName
         self.packKind = packKind
     }
+
+    /// Copy with pack attribution added, preserving identity. Existing
+    /// attribution wins.
+    public func attributed(packName: String?, packKind: PackKind? = nil) -> Finding {
+        guard self.packName == nil, packName != nil else { return self }
+        return Finding(
+            id: id, checkID: checkID, severity: severity, category: category,
+            title: title, detail: detail, path: path, suggestion: suggestion,
+            url: url, fixability: fixability, proposedFix: proposedFix,
+            packName: packName, packKind: packKind ?? self.packKind
+        )
+    }
+
+    init(id: UUID, checkID: String, severity: Severity, category: FindingCategory,
+         title: String, detail: String, path: String?, suggestion: String?,
+         url: URL?, fixability: Fixability, proposedFix: ProposedFix?,
+         packName: String?, packKind: PackKind?) {
+        self.id = id
+        self.checkID = checkID
+        self.severity = severity
+        self.category = category
+        self.title = title
+        self.detail = detail
+        self.path = path
+        self.suggestion = suggestion
+        self.url = url
+        self.fixability = fixability
+        self.proposedFix = proposedFix
+        self.packName = packName
+        self.packKind = packKind
+    }
 }
 
 /// Summary counters shown at the top of the report.
@@ -151,14 +182,20 @@ public struct DuplicatePack: Codable, Sendable, Hashable, Identifiable {
     public let isWinner: Bool
     /// Total size on disk in bytes (0 if not computed).
     public let sizeBytes: Int64
+    public let kind: PackKind?
+    /// Folder modification date.
+    public let modifiedDate: Date?
 
-    public init(name: String, path: String, isEnabled: Bool, iniIndex: Int?, isWinner: Bool, sizeBytes: Int64 = 0) {
+    public init(name: String, path: String, isEnabled: Bool, iniIndex: Int?, isWinner: Bool,
+                sizeBytes: Int64 = 0, kind: PackKind? = nil, modifiedDate: Date? = nil) {
         self.name = name
         self.path = path
         self.isEnabled = isEnabled
         self.iniIndex = iniIndex
         self.isWinner = isWinner
         self.sizeBytes = sizeBytes
+        self.kind = kind
+        self.modifiedDate = modifiedDate
     }
 }
 
@@ -168,10 +205,12 @@ public struct UnusedFile: Codable, Sendable, Hashable, Identifiable {
     public var id: String { path }
     public let path: String
     public let sizeBytes: Int64
+    public let modifiedDate: Date?
 
-    public init(path: String, sizeBytes: Int64) {
+    public init(path: String, sizeBytes: Int64, modifiedDate: Date? = nil) {
         self.path = path
         self.sizeBytes = sizeBytes
+        self.modifiedDate = modifiedDate
     }
 }
 

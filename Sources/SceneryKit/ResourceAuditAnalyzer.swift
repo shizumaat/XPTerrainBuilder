@@ -95,14 +95,14 @@ public struct ResourceAuditAnalyzer {
 
     func scanPack(_ pack: SceneryPack) -> ([Finding], UnusedResourceGroup?)? {
         let fm = FileManager.default
-        let packPrefix = pack.url.path + "/"
+        let packPrefix = pack.contentRoot.path + "/"
 
         var dsfURLs: [URL] = []
         var files: [String: FileEntry] = [:]        // normalized rel path -> entry
         var strippedToRel: [String: String] = [:]   // extension-blind key -> rel path
 
         guard let enumerator = fm.enumerator(
-            at: pack.url,
+            at: pack.contentRoot,
             includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) else { return nil }
@@ -186,7 +186,7 @@ public struct ResourceAuditAnalyzer {
             }
 
             // Pack-local near-miss: case/normalization/mojibake damage.
-            if let resolution = PathRepair.resolve(relativePath: entry, under: pack.url) {
+            if let resolution = PathRepair.resolve(relativePath: entry, under: pack.contentRoot) {
                 if resolution.isExact {
                     roots.append(normalized) // normalization edge; file is there
                     continue
@@ -292,7 +292,7 @@ public struct ResourceAuditAnalyzer {
         // and flagged entire export sets as unused. Alternate configs
         // ("library - orthos.txt") count as roots too: users activate them
         // by renaming, and deletion must survive that.
-        let rootItems = (try? fm.contentsOfDirectory(at: pack.url, includingPropertiesForKeys: nil)) ?? []
+        let rootItems = (try? fm.contentsOfDirectory(at: pack.contentRoot, includingPropertiesForKeys: nil)) ?? []
         for item in rootItems
         where item.lastPathComponent.lowercased().hasPrefix("library")
             && item.pathExtension.lowercased() == "txt" {
@@ -409,7 +409,7 @@ public struct ResourceAuditAnalyzer {
             let unusedFiles = sorted.map {
                 UnusedFile(path: $0.entry.url.path, sizeBytes: $0.entry.size, modifiedDate: $0.entry.modified)
             }
-            group = UnusedResourceGroup(packName: pack.name, packPath: pack.url.path, files: unusedFiles)
+            group = UnusedResourceGroup(packName: pack.name, packPath: pack.contentRoot.path, files: unusedFiles)
         }
 
         return (findings, group)
@@ -487,9 +487,9 @@ public struct ResourceAuditAnalyzer {
     public static func collectEscapeRefs(in pack: SceneryPack) -> [String] {
         var found = Set<String>()
         autoreleasepool {
-            let packPrefix = canonicalPath(pack.url) + "/"
+            let packPrefix = canonicalPath(pack.contentRoot) + "/"
             guard let enumerator = FileManager.default.enumerator(
-                at: pack.url,
+                at: pack.contentRoot,
                 includingPropertiesForKeys: [.isRegularFileKey],
                 options: [.skipsHiddenFiles, .skipsPackageDescendants]
             ) else { return }
@@ -501,7 +501,7 @@ public struct ResourceAuditAnalyzer {
                 for ref in fileReferences(in: url) where ref.contains("../") {
                     // X-Plane resolves relative to the referencing file,
                     // with a pack-root fallback.
-                    for base in [url.deletingLastPathComponent(), pack.url] {
+                    for base in [url.deletingLastPathComponent(), pack.contentRoot] {
                         let abs = canonicalPath(base.appendingPathComponent(ref))
                         guard !abs.hasPrefix(packPrefix) else { continue }
                         found.insert(abs)

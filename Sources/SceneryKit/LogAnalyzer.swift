@@ -280,7 +280,7 @@ public struct LogAnalyzer {
 
         // 1b. Exact export exists but the sim still complained — real file may be absent on disk.
         if let export = index.caseInsensitiveMatch(for: vpath) {
-            let packURL = installation.customSceneryURL.appendingPathComponent(export.packName)
+            let packURL = installation.customSceneryURL.appendingPathComponent(export.packName).resolvingSymlinksInPath()
             let fileURL = packURL.appendingPathComponent(export.realPath)
             if resolveCaseInsensitive(fileURL) == nil {
                 return Finding(
@@ -311,7 +311,7 @@ public struct LogAnalyzer {
         // library system. If the file is there under a case/normalization/
         // mojibake-damaged name, the precise fix is a rename.
         if let packName = missing.referencedFrom {
-            let packURL = installation.customSceneryURL.appendingPathComponent(packName)
+            let packURL = installation.customSceneryURL.appendingPathComponent(packName).resolvingSymlinksInPath()
             if FileManager.default.fileExists(atPath: packURL.path),
                let resolution = PathRepair.resolve(relativePath: vpath, under: packURL) {
                 if resolution.isExact {

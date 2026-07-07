@@ -67,6 +67,7 @@ public struct InstallationScanner {
             // main thread. Make them native once, here.
             var name = url.lastPathComponent
             name.makeContiguousUTF8()
+            let resolved = Self.resolvedPackRoot(url)
             let iniEntry = iniOrder["Custom Scenery/\(name)/"] ?? iniOrder["Custom Scenery/\(name)"]
             let status: PackStatus = !installed
                 ? .uninstalled
@@ -86,7 +87,8 @@ public struct InstallationScanner {
                 hasTerrain: probe.hasTerrain,
                 isPhotoTextured: probe.isPhotoTextured,
                 sizeBytes: probe.sizeBytes,
-                modifiedDate: probe.modifiedDate
+                modifiedDate: probe.modifiedDate,
+                resolvedURL: resolved
             )
         }
 
@@ -99,22 +101,30 @@ public struct InstallationScanner {
             let buf = UnsafeSendableBuffer(buffer)
             DispatchQueue.concurrentPerform(iterations: entries.count) { i in
                 let url = entries[i].url
+                // PROBE through the resolved root: enumerator and
+                // contentsOfDirectory do not resolve a symlinked ROOT, so
+                // probing the symlink itself sees an empty folder — 2,508
+                // packs (11.5 TB) on the reference install scanned blind.
+                // Only the pack folder's OWN link is resolved (not
+                // resolvingSymlinksInPath, whose /var→/private/var rewrites
+                // would fork path spellings for every non-linked pack).
+                let contentURL = Self.resolvedPackRoot(url) ?? url
                 // The pool bounds file descriptors: abandoned directory
                 // enumerators are autoreleased, and a GUI app only gets 256
                 // fds — thousands of packs without draining exhausts them.
                 let probe = autoreleasepool { () -> PackProbe in
                     var hash = FNV1a()
                     var stats = ProbeStats()
-                    let (tiles, sampleDSF) = collectDSFTiles(url, into: &hash, stats: &stats)
+                    let (tiles, sampleDSF) = collectDSFTiles(contentURL, into: &hash, stats: &stats)
                     var isOverlay: Bool? = nil
                     if let sampleDSF, case .ok(let defs) = DSFReader.readDefinitions(url: sampleDSF) {
                         isOverlay = defs.isOverlay
                     }
-                    let content = terrainAndTextureProbe(url)
-                    let signature = packSignature(url, hash: &hash, stats: &stats)
+                    let content = terrainAndTextureProbe(contentURL)
+                    let signature = packSignature(contentURL, hash: &hash, stats: &stats)
                     return PackProbe(
                         isLibrary: fm.fileExists(atPath: url.appendingPathComponent("library.txt").path),
-                        airports: parseAirports(inPack: url),
+                        airports: parseAirports(inPack: contentURL),
                         tiles: tiles,
                         isOverlay: isOverlay,
                         hasTerrain: content.hasTerrain,
@@ -363,6 +373,19 @@ public struct InstallationScanner {
         // elevation mesh has hundreds of .ter sharing a handful of textures.
         let photoTextured = imageCount >= 20 || (imageCount >= 5 && imageCount >= terCount)
         return (terCount > 0, photoTextured)
+    }
+
+    /// The pack folder's symlink target as an absolute, standardized URL —
+    /// nil when the folder is a real directory. Deliberately NOT
+    /// resolvingSymlinksInPath: that rewrites unrelated components
+    /// (/var → /private/var), forking path spellings for every pack.
+    static func resolvedPackRoot(_ url: URL) -> URL? {
+        guard let dest = try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)
+        else { return nil }
+        let target = dest.hasPrefix("/")
+            ? URL(fileURLWithPath: dest, isDirectory: true)
+            : url.deletingLastPathComponent().appendingPathComponent(dest, isDirectory: true)
+        return target.standardizedFileURL
     }
 
     /// Content signature for cache invalidation: names, sizes and mtimes of

@@ -416,9 +416,11 @@ public struct AirportInfo: Codable, Sendable, Hashable {
 public struct SceneryPack: Codable, Sendable {
     public let name: String
     public let url: URL
-    public let status: PackStatus
+    /// var: ini-only pack actions (enable/disable, reorder) patch these in
+    /// memory instead of rescanning 4,200 folders for an edit we made.
+    public var status: PackStatus
     /// Priority from scenery_packs.ini; lower loads first (wins conflicts). nil = not listed.
-    public let iniIndex: Int?
+    public var iniIndex: Int?
     public let isLibrary: Bool
     /// ICAO -> airport info, parsed from the pack's apt.dat (empty if none).
     public let airports: [String: AirportInfo]
@@ -440,6 +442,17 @@ public struct SceneryPack: Codable, Sendable {
     public var sizeBytes: Int64 = 0
     /// Newest content mtime seen during the scan.
     public var modifiedDate: Date? = nil
+
+    /// Resolved filesystem root for READING content — the symlink target
+    /// when the pack folder is a symlink, else nil. FileManager's
+    /// enumerator and contentsOfDirectory do NOT resolve a root that is
+    /// itself a symlink, so every walk of a symlinked pack saw an empty
+    /// folder (60% of the reference install analyzed blind until this).
+    /// Identity, display and pack ACTIONS stay on `url`.
+    public var resolvedURL: URL? = nil
+
+    /// Where analyzers must walk from.
+    public var contentRoot: URL { resolvedURL ?? url }
 
     public var isEnabled: Bool { status == .enabled }
     public var isInstalled: Bool { status != .uninstalled }
@@ -476,6 +489,13 @@ public struct Installation: Sendable {
 
     public var logURL: URL { root.appendingPathComponent("Log.txt") }
     public var customSceneryURL: URL { root.appendingPathComponent("Custom Scenery") }
+
+    /// Same installation with the pack array swapped — for in-memory
+    /// patches after ini-only actions the app itself performed.
+    public func replacingPacks(_ newPacks: [SceneryPack]) -> Installation {
+        Installation(root: root, packs: newPacks,
+                     libraryIndex: libraryIndex, defaultLibraryIndex: defaultLibraryIndex)
+    }
 
     /// A folder looks like an X-Plane install if it has a Custom Scenery folder,
     /// a Log.txt, or the X-Plane executable/Resources layout.

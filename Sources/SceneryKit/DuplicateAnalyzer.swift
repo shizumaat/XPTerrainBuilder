@@ -29,7 +29,7 @@ public struct DuplicateAnalyzer {
         var sizeCache: [String: Int64] = [:]
         func packSize(_ pack: SceneryPack) -> Int64 {
             if let cached = sizeCache[pack.name] { return cached }
-            let size = DiskUsage.sizeOfDirectory(at: pack.url)
+            let size = DiskUsage.sizeOfDirectory(at: pack.contentRoot)
             sizeCache[pack.name] = size
             return size
         }
@@ -57,7 +57,7 @@ public struct DuplicateAnalyzer {
                         isWinner: pack.name == winner.name,
                         sizeBytes: packSize(pack),
                         kind: pack.kind,
-                        modifiedDate: (try? FileManager.default.attributesOfItem(atPath: pack.url.path))?[.modificationDate] as? Date
+                        modifiedDate: (try? FileManager.default.attributesOfItem(atPath: pack.contentRoot.path))?[.modificationDate] as? Date
                     )
                 }
             ))

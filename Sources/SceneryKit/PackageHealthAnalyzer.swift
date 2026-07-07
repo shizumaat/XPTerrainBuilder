@@ -120,7 +120,7 @@ public struct PackageHealthAnalyzer {
         var objFiles: [(url: URL, size: Int)] = []
         var textureURLs: [URL] = []
         if let enumerator = fm.enumerator(
-            at: pack.url,
+            at: pack.contentRoot,
             includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) {

@@ -446,10 +446,14 @@ final class AnalysisController: ObservableObject {
 
     /// Packs (by prefix of their folder path) that the given absolute file
     /// paths live in — used to invalidate cache entries after our own edits.
+    /// Checks the resolved content root too: analyzer paths point at symlink
+    /// TARGETS for the install's 2,508 symlinked packs.
     private func packNames(containing paths: [String]) -> Set<String> {
         var names = Set<String>()
         for path in paths {
-            for pack in installationPacks where path.hasPrefix(pack.url.path + "/") {
+            for pack in installationPacks
+            where path.hasPrefix(pack.url.path + "/")
+                || path.hasPrefix(pack.contentRoot.path + "/") {
                 names.insert(pack.name)
                 break
             }
@@ -536,30 +540,69 @@ final class AnalysisController: ObservableObject {
         actionErrors = []
 
         Task { [weak self] in
-            let (outcomes, dupFindings, groups) = await Task.detached(priority: .userInitiated) {
-                let outcomes = PackActionService(root: root).apply(action, to: packNames)
-                // Re-scan duplicate state so the table reflects reality, not
-                // our guess about what the action did.
-                let (findings, groups) = Analyzer(root: root).refreshDuplicates()
-                return (outcomes, findings, groups)
+            let outcomes = await Task.detached(priority: .userInitiated) {
+                PackActionService(root: root).apply(action, to: packNames)
             }.value
-
             guard let self else { return }
-            if var report = self.report {
-                report.duplicateGroups = groups
-                report.findings = report.findings.filter { $0.category != .duplicatePackage } + dupFindings
-                report.findings.sort {
-                    ($0.severity, $0.category.rawValue, $0.title) < ($1.severity, $1.category.rawValue, $1.title)
+
+            if action.isIniOnly, var packs = self.lastScan?.packs {
+                // WE made this edit — patch statuses in memory instead of
+                // rescanning 4,200 folders (which also re-triggered a whole
+                // analysis). Status changes don't alter pack CONTENT, so no
+                // cache invalidation either.
+                let succeeded = Set(outcomes.filter { $0.success }.map { $0.packName })
+                for i in packs.indices
+                where succeeded.contains(packs[i].name) && packs[i].isInstalled {
+                    packs[i].status = action == .enable ? .enabled : .disabled
                 }
-                self.report = report
+                await self.applyInMemoryPackPatch(packs)
+            } else {
+                // Folder-moving actions changed the disk; rescan duplicate
+                // state so the table reflects reality, not our guess.
+                let (dupFindings, groups) = await Task.detached(priority: .userInitiated) {
+                    Analyzer(root: root).refreshDuplicates()
+                }.value
+                self.replaceDuplicateSections(findings: dupFindings, groups: groups)
+                self.pendingInvalidation.formUnion(
+                    outcomes.filter { $0.success }.map { $0.packName })
             }
             self.actionErrors = outcomes.filter { !$0.success }
-            self.pendingInvalidation.formUnion(
-                outcomes.filter { $0.success }.map { $0.packName })
             self.isApplyingAction = false
             self.rebuildSearchCorpus()
             self.persistReport()
         }
+    }
+
+    /// After an ini-only edit the app itself performed: swap in the patched
+    /// pack array, rebuild map overlays, and recompute the duplicate table
+    /// (winners follow status and load order) — no folder rescan, no
+    /// re-analysis, no cache churn.
+    private func applyInMemoryPackPatch(_ packs: [SceneryPack]) async {
+        guard let scan = lastScan else {
+            refreshInstallation()
+            return
+        }
+        let patched = scan.replacingPacks(packs)
+        lastScan = patched
+        installationPacks = packs
+        let (dupFindings, groups, overlays) = await Task.detached(priority: .userInitiated) {
+            let (findings, groups) = DuplicateAnalyzer(installation: patched).analyze()
+            return (findings, groups, MapOverlays(packs: packs))
+        }.value
+        mapOverlays = overlays.applyingExactMarkers(report?.packMarkers ?? [:])
+        scheduleViewportUpdate()
+        replaceDuplicateSections(findings: dupFindings, groups: groups)
+        iniOrderOverride = nil
+    }
+
+    private func replaceDuplicateSections(findings dupFindings: [Finding], groups: [DuplicateGroup]) {
+        guard var report = self.report else { return }
+        report.duplicateGroups = groups
+        report.findings = report.findings.filter { $0.category != .duplicatePackage } + dupFindings
+        report.findings.sort {
+            ($0.severity, $0.category.rawValue, $0.title) < ($1.severity, $1.category.rawValue, $1.title)
+        }
+        self.report = report
     }
 
     /// Rewrite scenery_packs.ini so `orderedNames` load in this relative
@@ -568,6 +611,9 @@ final class AnalysisController: ObservableObject {
     /// — the running pipeline reads pack FILES, and it consumed the ini at
     /// scan start. (This guard once included !isRunning, which made drags
     /// silently snap back for the entire 30-minute cold run.)
+    ///
+    /// WE wrote the edit, so the new ranks patch the in-memory model — the
+    /// old full-folder rescan made every drag cost a scan + re-analysis.
     func reorderPacks(_ orderedNames: [String]) {
         guard let root = rootURL, orderedNames.count > 1, !isApplyingAction else { return }
         isApplyingAction = true
@@ -578,13 +624,18 @@ final class AnalysisController: ObservableObject {
                 return (error, service.iniOrder())
             }.value
             guard let self else { return }
-            self.isApplyingAction = false
             if let error {
+                self.isApplyingAction = false
                 self.errorMessage = "Could not update scenery_packs.ini: \(error.localizedDescription)"
-            } else {
-                self.iniOrderOverride = order
+                self.refreshInstallation()
+                return
             }
-            self.refreshInstallation()
+            var packs = self.lastScan?.packs ?? []
+            for i in packs.indices where packs[i].isInstalled {
+                if let rank = order[packs[i].name] { packs[i].iniIndex = rank }
+            }
+            await self.applyInMemoryPackPatch(packs)
+            self.isApplyingAction = false
         }
     }
 

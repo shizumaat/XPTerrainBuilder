@@ -326,6 +326,31 @@ import Foundation
         #expect(fourth.stats.packsFromCache == 0)
     }
 
+    @Test func symlinkedPackContentIsAnalyzed() throws {
+        // 60% of the reference install is SYMLINKED pack folders, and
+        // FileManager's walks do not resolve a symlinked ROOT — every
+        // analyzer saw an empty folder (0 textures, 0 OBJs across 2,495
+        // packs) until the scanner started resolving content roots.
+        let root = try makeOrthoPack()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let real = root.appendingPathComponent("Custom Scenery/zOrtho Test")
+        let store = root.appendingPathComponent("PackStore/zOrtho Test")
+        try FileManager.default.createDirectory(
+            at: store.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: real, to: store)
+        try FileManager.default.createSymbolicLink(at: real, withDestinationURL: store)
+
+        let installation = InstallationScanner(root: root).scan()
+        let pack = try #require(installation.packs.first { $0.name == "zOrtho Test" })
+        #expect(!pack.tiles.isEmpty, "DSF tiles must be found through the symlink")
+        #expect(pack.sizeBytes > 0, "content size must be counted through the symlink")
+        #expect(pack.resolvedURL != nil)
+
+        let report = Analyzer(root: root).run()
+        #expect(!report.unusedResources.isEmpty,
+                "the unused-resource audit must see the symlinked pack's files")
+    }
+
     @Test func sameNamedPackInBothFoldersDoesNotCrash() throws {
         // The LFMN crash: a pack can exist in Custom Scenery AND the
         // disabled folder at the same time (uninstall + fresh re-download).

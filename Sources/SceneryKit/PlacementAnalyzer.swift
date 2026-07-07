@@ -71,8 +71,8 @@ public struct PlacementAnalyzer {
         var dsfURLs: [URL] = []
         var polFiles: [String: URL] = [:] // normalized rel path -> url
         var objFiles: [String: URL] = [:]
-        let packPrefix = pack.url.path + "/"
-        if let enumerator = fm.enumerator(at: pack.url, includingPropertiesForKeys: nil,
+        let packPrefix = pack.contentRoot.path + "/"
+        if let enumerator = fm.enumerator(at: pack.contentRoot, includingPropertiesForKeys: nil,
                                           options: [.skipsHiddenFiles, .skipsPackageDescendants]) {
             for case let url as URL in enumerator {
                 switch url.pathExtension.lowercased() {
@@ -219,7 +219,7 @@ public struct PlacementAnalyzer {
 
         for (rel, u) in usage.sorted(by: { $0.key < $1.key }) {
             guard let polURL = polFiles[rel], u.minLon.isFinite else { continue }
-            let pol = Self.parsePol(at: polURL, packURL: pack.url)
+            let pol = Self.parsePol(at: polURL, packURL: pack.contentRoot)
 
             // C-13: big texture, no LOAD_CENTER — mechanical fix.
             if let textureInfo = pol.texture,

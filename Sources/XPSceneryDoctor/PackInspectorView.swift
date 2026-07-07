@@ -230,7 +230,9 @@ struct PackInspectorView: View {
 
     private func apply(_ action: PackAction, to names: [String]) {
         controller.applyPackAction(action, to: names)
-        // Reflect status changes on the map/inspector.
+        // Ini-only actions patch the model in memory; folder moves still
+        // need a rescan to reflect the new disk layout.
+        guard !action.isIniOnly else { return }
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(1))
             controller.refreshInstallation()

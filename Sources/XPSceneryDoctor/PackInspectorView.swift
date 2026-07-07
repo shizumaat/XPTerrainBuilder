@@ -17,11 +17,16 @@ struct PackInspectorView: View {
     /// X-Plane load order: ini rank ascending (reorder override first, then
     /// the scanned iniIndex), unlisted packs last, names break ties.
     private var ordered: [SceneryPack] {
-        let override = controller.iniOrderOverride
+        Self.ordered(packs: affected, override: controller.iniOrderOverride)
+    }
+
+    /// Static so the double-click hook can recompute the CURRENT row order
+    /// at click time (its stored closure may belong to a recycled row).
+    static func ordered(packs: [SceneryPack], override: [String: Int]?) -> [SceneryPack] {
         func rank(_ pack: SceneryPack) -> Int {
             override?[pack.name] ?? pack.iniIndex ?? Int.max
         }
-        return affected.sorted {
+        return packs.sorted {
             (rank($0), $0.name.lowercased()) < (rank($1), $1.name.lowercased())
         }
     }
@@ -53,16 +58,21 @@ struct PackInspectorView: View {
                     ForEach(ordered, id: \.url.path) { pack in
                         packRow(pack)
                             .tag(pack.url.path)
-                            // Double-click via the AppKit event's clickCount:
-                            // a TapGesture(count: 2) must WAIT to rule out a
-                            // second click, and that delay withholds the
-                            // first click from row selection and drag. A
-                            // single-tap simultaneous gesture fires instantly
-                            // and lets everything through.
-                            .simultaneousGesture(TapGesture().onEnded {
-                                if NSApp.currentEvent?.clickCount == 2 {
-                                    controller.zoomToPack(pack)
-                                }
+                            // Native double-click: a zero-impact probe in the
+                            // row hooks the List's backing NSTableView and
+                            // sets its doubleAction — the standard AppKit
+                            // mechanism, so selection and drag are untouched
+                            // (SwiftUI gestures all interfered one way or
+                            // another). The pack is resolved at CLICK time
+                            // from the controller so recycled rows can't
+                            // capture a stale ordering.
+                            .background(TableDoubleClickHook { [weak controller] row in
+                                guard let controller else { return }
+                                let current = Self.ordered(
+                                    packs: controller.viewportPacks,
+                                    override: controller.iniOrderOverride)
+                                guard current.indices.contains(row) else { return }
+                                controller.zoomToPack(current[row])
                             })
                     }
                     .onMove { source, destination in
@@ -224,6 +234,57 @@ struct PackInspectorView: View {
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(1))
             controller.refreshInstallation()
+        }
+    }
+}
+
+/// Zero-sized, click-transparent probe that finds the SwiftUI List's backing
+/// NSTableView and installs the standard AppKit `doubleAction` on it — the
+/// native double-click mechanism, so it can't interfere with selection or
+/// drag the way SwiftUI gestures do. The clicked row index comes from the
+/// table itself at event time.
+struct TableDoubleClickHook: NSViewRepresentable {
+    let action: (Int) -> Void
+
+    func makeNSView(context: Context) -> ProbeView {
+        let view = ProbeView()
+        view.action = action
+        return view
+    }
+
+    func updateNSView(_ view: ProbeView, context: Context) {
+        view.action = action
+        view.hookIfNeeded()
+    }
+
+    final class ProbeView: NSView {
+        var action: ((Int) -> Void)?
+        private weak var table: NSTableView?
+
+        /// Never participate in hit testing — the probe must be invisible
+        /// to clicks or it would recreate the problem it solves.
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            hookIfNeeded()
+        }
+
+        func hookIfNeeded() {
+            guard window != nil else { return }
+            var view: NSView? = self
+            while let current = view, !(current is NSTableView) { view = current.superview }
+            guard let found = view as? NSTableView else { return }
+            // Rows recycle, so whichever probe hooked last owns the (weak)
+            // target; if it deallocates, the next row render re-hooks here.
+            table = found
+            found.target = self
+            found.doubleAction = #selector(rowDoubleClicked(_:))
+        }
+
+        @objc private func rowDoubleClicked(_ sender: Any?) {
+            guard let row = table?.clickedRow, row >= 0 else { return }
+            action?(row)
         }
     }
 }

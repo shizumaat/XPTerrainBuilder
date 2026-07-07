@@ -100,26 +100,43 @@ public struct DuplicateAnalyzer {
                 title: "\(disabled.count) scenery pack\(disabled.count == 1 ? "" : "s") disabled in scenery_packs.ini",
                 detail: "Disabled but still on disk: \(list).",
                 suggestion: "If you no longer need them, deleting them frees disk space.",
-                fixability: .assisted
+                fixability: .assisted,
+                relatedPacks: disabled
+                    .sorted { $0.name < $1.name }
+                    .map { Finding.RelatedPack(name: $0.name, path: $0.url.path) }
             ))
         }
 
         // Identical pack names differing only by case or trailing spaces — a
-        // classic sign of a double-install from repeated unzipping.
-        var namesLowered: [String: [String]] = [:]
+        // classic sign of a double-install from repeated unzipping. The SAME
+        // spelling in two places (Custom Scenery + the disabled folder) lands
+        // here too, so each folder's FULL PATH is the only way to tell the
+        // copies apart — list and attach every one.
+        var namesLowered: [String: [SceneryPack]] = [:]
         for pack in installation.packs {
             namesLowered[pack.name.lowercased().trimmingCharacters(in: .whitespaces), default: []]
-                .append(pack.name)
+                .append(pack)
         }
         for (_, variants) in namesLowered where variants.count > 1 {
+            let ordered = variants.sorted { $0.url.path < $1.url.path }
+            let pathList = ordered
+                .map { pack -> String in
+                    switch pack.status {
+                    case .enabled: return "\(pack.url.path) (enabled)"
+                    case .disabled: return "\(pack.url.path) (disabled in scenery_packs.ini)"
+                    case .uninstalled: return "\(pack.url.path) (uninstalled)"
+                    }
+                }
+                .joined(separator: "\n")
             findings.append(Finding(
                 checkID: "DUP-03",
                 severity: .warning,
                 category: .duplicatePackage,
-                title: "Near-identical pack folders: \(variants.sorted().joined(separator: " / "))",
-                detail: "These folder names differ only in case or whitespace — usually the same package installed twice.",
-                suggestion: "Keep one copy and delete the other.",
-                fixability: .assisted
+                title: "Near-identical pack folders: \(ordered.map { $0.name }.joined(separator: " / "))",
+                detail: "These folder names are identical or differ only in case or whitespace — usually the same package installed twice (a re-download often lands beside the uninstalled copy):\n\(pathList)",
+                suggestion: "Keep one copy and delete the other. Use the Reveal in Finder links below to inspect each folder before deciding.",
+                fixability: .assisted,
+                relatedPacks: ordered.map { Finding.RelatedPack(name: $0.name, path: $0.url.path) }
             ))
         }
 

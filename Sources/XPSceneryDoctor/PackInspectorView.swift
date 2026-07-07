@@ -109,7 +109,7 @@ struct PackInspectorView: View {
     private func packRow(_ pack: SceneryPack) -> some View {
         HStack(spacing: 6) {
             statusDot(pack.status)
-            kindIcon(pack.kind)
+            PackKindIcon(kind: pack.kind)
             VStack(alignment: .leading, spacing: 1) {
                 Text(pack.name)
                     .lineLimit(1)
@@ -148,23 +148,6 @@ struct PackInspectorView: View {
             parts.append("Last modified: \(modified.formatted(date: .abbreviated, time: .omitted))")
         }
         return parts.isEmpty ? nil : parts.joined(separator: " — ")
-    }
-
-    /// Category icon, tinted to match the map legend.
-    private func kindIcon(_ kind: PackKind) -> some View {
-        let (symbol, color): (String, Color) = switch kind {
-        case .airport: ("airplane.circle", .red)
-        case .landmark: ("building.2", .blue)
-        case .ortho: ("photo", .brown)
-        case .mesh: ("mountain.2", .green)
-        case .library: ("books.vertical", .purple)
-        case .other: ("shippingbox", .secondary)
-        }
-        return Image(systemName: symbol)
-            .font(.callout)
-            .foregroundStyle(color)
-            .frame(width: 18)
-            .help(kind.rawValue)
     }
 
     @ViewBuilder

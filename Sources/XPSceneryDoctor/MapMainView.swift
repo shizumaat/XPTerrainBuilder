@@ -8,6 +8,11 @@ struct MapMainView: View {
     @EnvironmentObject var controller: AnalysisController
     @StateObject private var searchText = ViewState("")
     @StateObject private var showingPicker = ViewState(false)
+    /// Native inspector visibility, persisted manually (ViewState instead of
+    /// @AppStorage — the @State-family macros are unavailable on this
+    /// toolchain, see ViewState.swift).
+    @StateObject private var inspectorShown = ViewState(
+        UserDefaults.standard.object(forKey: "InspectorShown") as? Bool ?? true)
 
     static let systemInfo = SystemInfo.current()
 
@@ -89,6 +94,14 @@ struct MapMainView: View {
                                onSubmit: performSearch)
                 .frame(width: 220)
         }
+        ToolbarItem(placement: .automatic) {
+            Button {
+                inspectorBinding.wrappedValue.toggle()
+            } label: {
+                Image(systemName: "sidebar.trailing")
+            }
+            .help(inspectorShown.value ? "Hide the package list" : "Show the package list")
+        }
     }
 
     // MARK: - Search
@@ -140,27 +153,39 @@ struct MapMainView: View {
     }
 
     private var mainLayout: some View {
-        // NSSplitView-backed: divider positions persist via autosaveName and
-        // restore before first display. Hosted subtrees don't inherit this
-        // view's environment, so the objects are re-injected per pane.
+        // Map over results in an NSSplitView-backed split (divider persists
+        // via autosaveName, restoring before first display; hosted subtrees
+        // don't inherit this view's environment, so the objects are
+        // re-injected per pane). The package list is a NATIVE trailing
+        // inspector spanning the full window height, with the standard
+        // toolbar toggle.
         RestorableSplit(orientation: .vertical, autosaveName: "MainSplit.Vertical",
                         firstMin: 300, secondMin: 180) {
-            RestorableSplit(orientation: .horizontal, autosaveName: "MainSplit.Horizontal",
-                            firstMin: 480, secondMin: 240, secondMax: 420) {
-                MapCanvasView(camera: controller.mapCamera,
-                              canvasSize: controller.mapCanvasSize)
-                    .environmentObject(controller)
-                    .environmentObject(controller.progress)
-            } second: {
-                PackInspectorView(packs: controller.viewportPacks)
-                    .environmentObject(controller)
-                    .environmentObject(controller.progress)
-            }
+            MapCanvasView(camera: controller.mapCamera,
+                          canvasSize: controller.mapCanvasSize)
+                .environmentObject(controller)
+                .environmentObject(controller.progress)
         } second: {
             ResultsPane(packFilter: Set(controller.viewportPacks.map { $0.name }))
             .environmentObject(controller)
             .environmentObject(controller.progress)
         }
+        .inspector(isPresented: inspectorBinding) {
+            PackInspectorView(packs: controller.viewportPacks)
+                .environmentObject(controller)
+                .environmentObject(controller.progress)
+                .inspectorColumnWidth(min: 240, ideal: 300, max: 420)
+        }
+    }
+
+    private var inspectorBinding: Binding<Bool> {
+        Binding(
+            get: { inspectorShown.value },
+            set: { shown in
+                inspectorShown.value = shown
+                UserDefaults.standard.set(shown, forKey: "InspectorShown")
+            }
+        )
     }
 
     // MARK: - Onboarding

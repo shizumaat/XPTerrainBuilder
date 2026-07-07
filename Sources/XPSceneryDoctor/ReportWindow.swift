@@ -382,6 +382,14 @@ struct FindingsList: View {
 struct FindingRow: View {
     let finding: Finding
 
+    /// "Custom Scenery (Disabled)/Aerosoft LFMN" — the last two components
+    /// carry exactly what distinguishes same-named pack folders.
+    static func shortPath(_ path: String) -> String {
+        let url = URL(fileURLWithPath: path)
+        let parent = url.deletingLastPathComponent().lastPathComponent
+        return parent.isEmpty ? url.lastPathComponent : "\(parent)/\(url.lastPathComponent)"
+    }
+
     var body: some View {
         DisclosureGroup {
             VStack(alignment: .leading, spacing: 6) {
@@ -399,6 +407,28 @@ struct FindingRow: View {
                     } icon: {
                         Image(systemName: "lightbulb")
                             .foregroundStyle(.yellow)
+                    }
+                }
+
+                // Multi-pack findings (near-identical folders, disabled
+                // packs): one reveal action per folder, labeled by its
+                // parent directory — the only way to tell same-named
+                // copies apart.
+                if let related = finding.relatedPacks, !related.isEmpty {
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(related, id: \.path) { pack in
+                            Button {
+                                NSWorkspace.shared.activateFileViewerSelecting(
+                                    [URL(fileURLWithPath: pack.path)])
+                            } label: {
+                                Label(Self.shortPath(pack.path), systemImage: "folder")
+                                    .lineLimit(1)
+                                    .truncationMode(.head)
+                            }
+                            .buttonStyle(.link)
+                            .font(.caption)
+                            .help("Reveal in Finder: \(pack.path)")
+                        }
                     }
                 }
 

@@ -1,16 +1,24 @@
 import SwiftUI
 import SceneryKit
 
-/// Bottom third of the map window: the analysis results as collapsible
-/// category groups with counts, the same finding rows as the report window,
-/// multi-select + Fix, and the live progress in the bottom bar.
+/// Bottom third of the map window: analysis results grouped BY PACKAGE —
+/// every package the map is looking at expands into its finding categories
+/// (Missing Resources, Package Health, …). Redundant Packages stays a
+/// top-level section (its findings span packages by nature) and install-wide
+/// findings get their own section at the end. Multi-select + Fix and the
+/// live progress live in the bottom bar.
 struct ResultsPane: View {
     @EnvironmentObject var controller: AnalysisController
     /// Pack names in the current map view/selection; results are filtered to
     /// them (install-wide findings with no pack stay visible). nil = show all.
     var packFilter: Set<String>? = nil
     @StateObject private var selection = ViewState(Set<Finding.ID>())
-    @StateObject private var expanded = ViewState(Set<FindingCategory>([.missingResource]))
+    /// Top-level groups the user has opened (packages collapsed by default).
+    @StateObject private var expanded = ViewState(Set<String>())
+    /// Nested category groups the user has CLOSED — categories inside an
+    /// opened package default to open, so expanding a package shows findings,
+    /// not a second layer of closed disclosure triangles.
+    @StateObject private var collapsed = ViewState(Set<String>())
     @StateObject private var confirmingFix = ViewState<[Finding]?>(nil)
 
     /// EXPENSIVE — string-set filtering over every finding. Computed exactly
@@ -39,8 +47,26 @@ struct ResultsPane: View {
             case "LOG-92":
                 // Default-data ATC losses never belong to a selection.
                 return nil
+            case "DUP-02":
+                // Disabled-packs aggregate: narrow to the ones in view.
+                guard let related = finding.relatedPacks else { return finding }
+                let visible = related.filter { filter.contains($0.name) }
+                guard !visible.isEmpty else { return nil }
+                guard visible.count < related.count else { return finding }
+                return finding.withContent(
+                    title: "\(visible.count) of \(related.count) disabled scenery pack\(related.count == 1 ? "" : "s") in view",
+                    detail: "Disabled but still on disk: \(visible.map { $0.name }.joined(separator: ", ")).",
+                    relatedPacks: visible)
             default:
-                return finding.packName.map(filter.contains) ?? true ? finding : nil
+                if let packName = finding.packName {
+                    return filter.contains(packName) ? finding : nil
+                }
+                // Multi-pack findings (near-identical folders …) follow the
+                // packs they involve; truly install-wide ones stay visible.
+                if let related = finding.relatedPacks {
+                    return related.contains(where: { filter.contains($0.name) }) ? finding : nil
+                }
+                return finding
             }
         }
     }
@@ -64,14 +90,15 @@ struct ResultsPane: View {
             if let report = controller.report {
                 header(for: report, findings: visible)
                 Divider()
-                if visible.isEmpty && !controller.isRunning {
+                if visible.isEmpty && filteredDuplicateGroups.isEmpty
+                    && filteredUnusedGroups.isEmpty && !controller.isRunning {
                     ContentUnavailableView(
                         "No Findings",
                         systemImage: "checkmark.seal",
                         description: Text("The analyzed packages look healthy.")
                     )
                 } else {
-                    resultsList(report: report, findings: visible)
+                    resultsList(findings: visible)
                 }
             } else {
                 ContentUnavailableView(
@@ -123,42 +150,131 @@ struct ResultsPane: View {
         return parts.joined(separator: " — ")
     }
 
-    private func resultsList(report: AnalysisReport, findings: [Finding]) -> some View {
-        List(selection: $selection.value) {
-            ForEach(FindingCategory.allCases, id: \.self) { category in
-                let items = findings.filter { $0.category == category }
-                // isRunning (rare-changing) gates row visibility; the badge
-                // subview absorbs the high-frequency progress ticks.
-                let showWhileVerifying = category == .unusedResources && controller.isRunning
-                if !items.isEmpty || showWhileVerifying {
-                    DisclosureGroup(isExpanded: categoryBinding(category)) {
-                        categoryContent(category, items: items, report: report)
-                    } label: {
-                        HStack {
-                            Text(category.rawValue)
-                                .font(.callout.weight(.medium))
-                            if category == .unusedResources, controller.isRunning {
-                                UnusedVerifyBadge()
-                            } else if category == .unusedResources, !filteredUnusedGroups.isEmpty {
-                                // The expanded view is a per-FILE table, so the
-                                // headline count must be files, not findings.
-                                Text(unusedSummary)
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                Text("\(items.count)")
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                                severitySummary(items)
-                            }
+    // MARK: - Grouping
+
+    /// One package's slice of the report, precomputed once per body.
+    private struct PackGroup: Identifiable {
+        let id: String  // pack name
+        var kind: PackKind?
+        /// Categories in FindingCategory declaration order; Redundant
+        /// Packages never appears here (it stays top-level).
+        var categories: [(category: FindingCategory, items: [Finding])] = []
+        var unused: [UnusedResourceGroup] = []
+        var findingCount = 0
+        var worst = Severity.info
+    }
+
+    private func buildGroups(
+        findings: [Finding], unusedGroups: [UnusedResourceGroup]
+    ) -> (packs: [PackGroup], installWide: [(category: FindingCategory, items: [Finding])]) {
+        var byPack: [String: [Finding]] = [:]
+        var installWide: [Finding] = []
+        for finding in findings where finding.category != .duplicatePackage {
+            if let pack = finding.packName {
+                byPack[pack, default: []].append(finding)
+            } else {
+                installWide.append(finding)
+            }
+        }
+        var unusedByPack: [String: [UnusedResourceGroup]] = [:]
+        for group in unusedGroups {
+            unusedByPack[group.packName, default: []].append(group)
+        }
+        // A pack whose only issue is unused files still gets a group.
+        for name in unusedByPack.keys where byPack[name] == nil { byPack[name] = [] }
+
+        func categorize(_ items: [Finding], hasUnused: Bool) -> [(category: FindingCategory, items: [Finding])] {
+            FindingCategory.allCases.compactMap { category in
+                guard category != .duplicatePackage else { return nil }
+                let inCategory = items.filter { $0.category == category }
+                if inCategory.isEmpty && !(category == .unusedResources && hasUnused) { return nil }
+                return (category, inCategory)
+            }
+        }
+
+        var packs: [PackGroup] = byPack.map { name, items in
+            var group = PackGroup(id: name, kind: items.first(where: { $0.packKind != nil })?.packKind)
+            group.unused = unusedByPack[name] ?? []
+            group.categories = categorize(items, hasUnused: !group.unused.isEmpty)
+            group.findingCount = items.count
+            group.worst = items.map { $0.severity }.min() ?? .info
+            if group.kind == nil {
+                group.kind = group.unused.isEmpty ? nil : .other
+            }
+            return group
+        }
+        // Most severe first (Severity orders error < warning < info), then name.
+        packs.sort { ($0.worst, $0.id.lowercased()) < ($1.worst, $1.id.lowercased()) }
+        return (packs, categorize(installWide, hasUnused: false))
+    }
+
+    // MARK: - List
+
+    private func resultsList(findings visible: [Finding]) -> some View {
+        let dupItems = visible.filter { $0.category == .duplicatePackage }
+        let dupGroups = filteredDuplicateGroups
+        let (packs, installWide) = buildGroups(findings: visible,
+                                               unusedGroups: filteredUnusedGroups)
+        return List(selection: $selection.value) {
+            // Redundant Packages: the one section that stays top-level —
+            // its whole point is relationships BETWEEN packages.
+            if !dupGroups.isEmpty || !dupItems.isEmpty {
+                DisclosureGroup(isExpanded: topBinding("duplicates")) {
+                    duplicatesContent(groups: dupGroups, items: dupItems)
+                } label: {
+                    HStack {
+                        Text(FindingCategory.duplicatePackage.rawValue)
+                            .font(.callout.weight(.medium))
+                        if !dupGroups.isEmpty {
+                            Text("\(dupGroups.count) airport\(dupGroups.count == 1 ? "" : "s") overlapped")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
                         }
+                        severitySummary(dupItems)
                     }
+                }
+            }
+
+            ForEach(packs) { group in
+                DisclosureGroup(isExpanded: topBinding("pack:\(group.id)")) {
+                    packContent(group)
+                } label: {
+                    packLabel(group)
+                }
+            }
+
+            if !installWide.isEmpty {
+                DisclosureGroup(isExpanded: topBinding("install")) {
+                    ForEach(installWide, id: \.category) { entry in
+                        categoryGroup(owner: "install", category: entry.category,
+                                      items: entry.items, unused: [])
+                    }
+                } label: {
+                    HStack {
+                        Text("Entire Installation")
+                            .font(.callout.weight(.medium))
+                        let count = installWide.reduce(0) { $0 + $1.items.count }
+                        Text("\(count)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                        severitySummary(installWide.flatMap { $0.items })
+                    }
+                }
+            }
+
+            // Unused-resource verification is install-wide and only done at
+            // the very end of a run — show its progress as its own row.
+            if controller.isRunning {
+                HStack {
+                    Text(FindingCategory.unusedResources.rawValue)
+                        .font(.callout.weight(.medium))
+                    UnusedVerifyBadge()
                 }
             }
         }
         .listStyle(.inset)
-        .onChange(of: findings.count) {
-            let valid = Set(findings.map { $0.id })
+        .onChange(of: visible.count) {
+            let valid = Set(visible.map { $0.id })
             selection.value = selection.value.intersection(valid)
         }
         .confirmationDialog(
@@ -181,37 +297,96 @@ struct ResultsPane: View {
     }
 
     @ViewBuilder
-    private func categoryContent(_ category: FindingCategory, items: [Finding],
-                                 report: AnalysisReport) -> some View {
-        switch category {
-        case .duplicatePackage where !filteredDuplicateGroups.isEmpty:
-            DuplicatesView(
-                groups: filteredDuplicateGroups,
-                otherFindings: items.filter { $0.checkID != "DUP-01" }
-            )
-            .frame(height: 300)
-        case .unusedResources where !filteredUnusedGroups.isEmpty:
-            // "Could not audit" info findings would otherwise be swallowed
-            // by the table replacing the finding rows.
-            ForEach(items.filter { $0.checkID == "UNUSED-00" }) { finding in
-                FindingRow(finding: finding).tag(finding.id)
+    private func duplicatesContent(groups: [DuplicateGroup], items: [Finding]) -> some View {
+        if !groups.isEmpty {
+            DuplicatesView(groups: groups, otherFindings: [])
+                .frame(height: Self.tableHeight(
+                    rows: groups.reduce(0) { $0 + $1.packs.count }))
+        }
+        // DUP-01 rows duplicate the table's airports; the rest (disabled
+        // packs, near-identical folders) render as regular findings.
+        ForEach(items.filter { groups.isEmpty || $0.checkID != "DUP-01" }) { finding in
+            FindingRow(finding: finding).tag(finding.id)
+        }
+    }
+
+    private func packLabel(_ group: PackGroup) -> some View {
+        HStack(spacing: 8) {
+            PackKindIcon(kind: group.kind)
+            Text(group.id)
+                .font(.callout.weight(.medium))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            if group.findingCount > 0 {
+                Text("\(group.findingCount)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
             }
-            UnusedResourcesView(groups: filteredUnusedGroups)
-                .frame(height: 300)
-        default:
-            ForEach(items) { finding in
-                FindingRow(finding: finding).tag(finding.id)
+            severitySummary(group.categories.flatMap { $0.items })
+            if !group.unused.isEmpty {
+                Text(Self.unusedSummary(group.unused))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
             }
         }
     }
 
-    /// e.g. "3,214 files in 6 packages — 68.4 GB"
-    private var unusedSummary: String {
-        let files = filteredUnusedGroups.reduce(0) { $0 + $1.files.count }
-        let bytes = filteredUnusedGroups.reduce(Int64(0)) { $0 + $1.totalBytes }
+    @ViewBuilder
+    private func packContent(_ group: PackGroup) -> some View {
+        ForEach(group.categories, id: \.category) { entry in
+            categoryGroup(owner: group.id, category: entry.category,
+                          items: entry.items, unused: group.unused)
+        }
+    }
+
+    private func categoryGroup(owner: String, category: FindingCategory,
+                               items: [Finding], unused: [UnusedResourceGroup]) -> some View {
+        DisclosureGroup(isExpanded: categoryBinding("\(owner)|\(category.rawValue)")) {
+            if category == .unusedResources && !unused.isEmpty {
+                // "Could not audit" info findings would otherwise be
+                // swallowed by the table replacing the finding rows.
+                ForEach(items.filter { $0.checkID == "UNUSED-00" }) { finding in
+                    FindingRow(finding: finding).tag(finding.id)
+                }
+                UnusedResourcesView(groups: unused)
+                    .frame(height: Self.tableHeight(
+                        rows: unused.reduce(0) { $0 + $1.files.count }))
+            } else {
+                ForEach(items) { finding in
+                    FindingRow(finding: finding).tag(finding.id)
+                }
+            }
+        } label: {
+            HStack {
+                Text(category.rawValue)
+                    .font(.callout)
+                if category == .unusedResources, !unused.isEmpty {
+                    // The expanded view is a per-FILE table, so the headline
+                    // count must be files, not findings.
+                    Text(Self.unusedSummary(unused))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("\(items.count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    severitySummary(items)
+                }
+            }
+        }
+    }
+
+    /// Embedded tables size to their rows instead of a fixed 300 pt block.
+    static func tableHeight(rows: Int) -> CGFloat {
+        min(320, CGFloat(max(rows, 1)) * 26 + 92)
+    }
+
+    /// e.g. "3,214 files — 68.4 GB"
+    static func unusedSummary(_ groups: [UnusedResourceGroup]) -> String {
+        let files = groups.reduce(0) { $0 + $1.files.count }
+        let bytes = groups.reduce(Int64(0)) { $0 + $1.totalBytes }
         let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-        let packs = filteredUnusedGroups.count
-        return "\(files.formatted()) file\(files == 1 ? "" : "s") in \(packs) package\(packs == 1 ? "" : "s") — \(size)"
+        return "\(files.formatted()) file\(files == 1 ? "" : "s") — \(size)"
     }
 
     private func severitySummary(_ items: [Finding]) -> some View {
@@ -266,11 +441,20 @@ struct ResultsPane: View {
         }
     }
 
-    private func categoryBinding(_ category: FindingCategory) -> Binding<Bool> {
+    private func topBinding(_ key: String) -> Binding<Bool> {
         Binding(
-            get: { expanded.value.contains(category) },
+            get: { expanded.value.contains(key) },
             set: { open in
-                if open { expanded.value.insert(category) } else { expanded.value.remove(category) }
+                if open { expanded.value.insert(key) } else { expanded.value.remove(key) }
+            }
+        )
+    }
+
+    private func categoryBinding(_ key: String) -> Binding<Bool> {
+        Binding(
+            get: { !collapsed.value.contains(key) },
+            set: { open in
+                if open { collapsed.value.remove(key) } else { collapsed.value.insert(key) }
             }
         )
     }
@@ -310,5 +494,27 @@ struct ResultsPane: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.bar)
+    }
+}
+
+/// Category icon tinted to match the map legend — shared by the inspector's
+/// package rows and the results pane's package groups.
+struct PackKindIcon: View {
+    let kind: PackKind?
+
+    var body: some View {
+        let (symbol, color): (String, Color) = switch kind {
+        case .airport: ("airplane.circle", .red)
+        case .landmark: ("building.2", .blue)
+        case .ortho: ("photo", .brown)
+        case .mesh: ("mountain.2", .green)
+        case .library: ("books.vertical", .purple)
+        case .other, nil: ("shippingbox", .secondary)
+        }
+        return Image(systemName: symbol)
+            .font(.callout)
+            .foregroundStyle(color)
+            .frame(width: 18)
+            .help(kind?.rawValue ?? "")
     }
 }

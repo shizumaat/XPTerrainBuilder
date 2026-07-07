@@ -118,6 +118,21 @@ public enum PackStatus: String, Codable, Sendable {
 }
 
 public struct Finding: Identifiable, Codable, Sendable, Hashable {
+    /// One pack involved in a multi-pack finding (DUP-02's disabled list,
+    /// DUP-03's near-identical folders). Name for viewport filtering, full
+    /// path so the UI can identify and reveal each folder individually —
+    /// names alone cannot distinguish same-named packs in Custom Scenery
+    /// and Custom Scenery (Disabled).
+    public struct RelatedPack: Codable, Sendable, Hashable {
+        public let name: String
+        public let path: String
+
+        public init(name: String, path: String) {
+            self.name = name
+            self.path = path
+        }
+    }
+
     public let id: UUID
     public let checkID: String
     public let severity: Severity
@@ -134,6 +149,10 @@ public struct Finding: Identifiable, Codable, Sendable, Hashable {
     /// The pack this finding belongs to, for grouping (nil for install-wide).
     public let packName: String?
     public let packKind: PackKind?
+    /// Every pack a multi-pack finding involves (nil for single-pack or truly
+    /// install-wide findings). Lets the viewport filter apply to aggregates
+    /// that have no single packName. Optional: older report JSONs decode fine.
+    public let relatedPacks: [RelatedPack]?
 
     public init(
         checkID: String,
@@ -147,7 +166,8 @@ public struct Finding: Identifiable, Codable, Sendable, Hashable {
         fixability: Fixability = .manual,
         proposedFix: ProposedFix? = nil,
         packName: String? = nil,
-        packKind: PackKind? = nil
+        packKind: PackKind? = nil,
+        relatedPacks: [RelatedPack]? = nil
     ) {
         self.id = UUID()
         self.checkID = checkID
@@ -162,17 +182,21 @@ public struct Finding: Identifiable, Codable, Sendable, Hashable {
         self.proposedFix = proposedFix
         self.packName = packName
         self.packKind = packKind
+        self.relatedPacks = relatedPacks
     }
 
-    /// Copy with different title/detail, preserving identity — for display-
-    /// side filtering of aggregate findings (fresh UUIDs would churn List
-    /// diffing and drop selections on every render).
-    public func withContent(title newTitle: String? = nil, detail newDetail: String) -> Finding {
+    /// Copy with different title/detail (and optionally a narrowed related-
+    /// pack list), preserving identity — for display-side filtering of
+    /// aggregate findings (fresh UUIDs would churn List diffing and drop
+    /// selections on every render).
+    public func withContent(title newTitle: String? = nil, detail newDetail: String,
+                            relatedPacks newRelated: [RelatedPack]? = nil) -> Finding {
         Finding(
             id: id, checkID: checkID, severity: severity, category: category,
             title: newTitle ?? title, detail: newDetail, path: path, suggestion: suggestion,
             url: url, fixability: fixability, proposedFix: proposedFix,
-            packName: packName, packKind: packKind
+            packName: packName, packKind: packKind,
+            relatedPacks: newRelated ?? relatedPacks
         )
     }
 
@@ -184,14 +208,15 @@ public struct Finding: Identifiable, Codable, Sendable, Hashable {
             id: id, checkID: checkID, severity: severity, category: category,
             title: title, detail: detail, path: path, suggestion: suggestion,
             url: url, fixability: fixability, proposedFix: proposedFix,
-            packName: packName, packKind: packKind ?? self.packKind
+            packName: packName, packKind: packKind ?? self.packKind,
+            relatedPacks: relatedPacks
         )
     }
 
     init(id: UUID, checkID: String, severity: Severity, category: FindingCategory,
          title: String, detail: String, path: String?, suggestion: String?,
          url: URL?, fixability: Fixability, proposedFix: ProposedFix?,
-         packName: String?, packKind: PackKind?) {
+         packName: String?, packKind: PackKind?, relatedPacks: [RelatedPack]?) {
         self.id = id
         self.checkID = checkID
         self.severity = severity
@@ -205,6 +230,7 @@ public struct Finding: Identifiable, Codable, Sendable, Hashable {
         self.proposedFix = proposedFix
         self.packName = packName
         self.packKind = packKind
+        self.relatedPacks = relatedPacks
     }
 }
 

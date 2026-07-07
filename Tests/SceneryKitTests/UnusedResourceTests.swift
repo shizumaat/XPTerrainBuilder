@@ -303,6 +303,19 @@ import Foundation
         // Full run exercises the kinds map and duplicate grouping.
         let report = Analyzer(root: root).run()
         #expect(!report.unusedResources.isEmpty)
+
+        // DUP-03 must identify each copy by FULL PATH — the names are
+        // identical, so paths are the only way to tell the folders apart
+        // (and the UI's per-folder Reveal in Finder needs them).
+        let near = report.findings.first { $0.checkID == "DUP-03" }
+        #expect(near != nil, "same-named twin folders should raise DUP-03")
+        let paths = Set(near?.relatedPacks?.map { $0.path } ?? [])
+        #expect(paths.count == 2)
+        #expect(paths.contains { $0.contains("Custom Scenery (Disabled)/") })
+        for path in paths {
+            #expect(near?.detail.contains(path) == true,
+                    "detail should list every folder's full path")
+        }
     }
 
     // MARK: - Trash + restore cycle

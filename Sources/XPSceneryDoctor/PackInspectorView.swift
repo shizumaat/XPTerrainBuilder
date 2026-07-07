@@ -31,7 +31,7 @@ struct PackInspectorView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Available Packages")
                     .font(.headline)
-                Text("Drag to change X-Plane load order")
+                Text("Drag to change X-Plane load order — double-click to show on the map")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -51,7 +51,13 @@ struct PackInspectorView: View {
                     // Row identity AND selection by PATH: unique even when
                     // the same-named pack exists installed and uninstalled.
                     ForEach(ordered, id: \.url.path) { pack in
-                        packRow(pack).tag(pack.url.path)
+                        packRow(pack)
+                            .tag(pack.url.path)
+                            // simultaneousGesture: a plain onTapGesture
+                            // would steal single clicks from selection.
+                            .simultaneousGesture(TapGesture(count: 2).onEnded {
+                                controller.zoomToPack(pack)
+                            })
                     }
                     .onMove { source, destination in
                         var names = ordered.map { $0.name }
@@ -147,7 +153,7 @@ struct PackInspectorView: View {
             parts.append(pack.airports.keys.sorted().prefix(6).joined(separator: " "))
         }
         if let modified = pack.modifiedDate {
-            parts.append("Last modified: \(modified.formatted(date: .abbreviated, time: .omitted))")
+            parts.append(modified.formatted(date: .abbreviated, time: .shortened))
         }
         return parts.isEmpty ? nil : parts.joined(separator: " — ")
     }

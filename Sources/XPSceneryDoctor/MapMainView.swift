@@ -126,29 +126,11 @@ struct MapMainView: View {
             return
         }
 
-        // Packages: zoom to fit their tiles.
+        // Packages: same zoom the inspector's double-click uses.
         if let pack = controller.installationPacks.first(where: {
             $0.name.lowercased().contains(query)
         }) {
-            let tiles = pack.tiles.compactMap { TileMath.parse($0) }
-            if !tiles.isEmpty {
-                let lats = tiles.map { Double($0.lat) }, lons = tiles.map { Double($0.lon) }
-                var cam = controller.mapCamera.value
-                cam.centerLat = (lats.min()! + lats.max()! + 1) / 2
-                cam.centerLon = (lons.min()! + lons.max()! + 1) / 2
-                let spanLon = max(lons.max()! - lons.min()! + 1, 2)
-                let spanLat = max(lats.max()! - lats.min()! + 1, 2)
-                cam.scale = min(700 / spanLon, 400 / spanLat, 120)
-                cam.clamp(in: controller.mapCanvasSize.value)
-                controller.mapCamera.value = cam
-            } else if let airport = pack.airports.values.first {
-                var cam = controller.mapCamera.value
-                cam.centerLon = airport.longitude
-                cam.centerLat = airport.latitude
-                cam.scale = max(cam.scale, 60)
-                cam.clamp(in: controller.mapCanvasSize.value)
-                controller.mapCamera.value = cam
-            }
+            controller.zoomToPack(pack)
         }
     }
 

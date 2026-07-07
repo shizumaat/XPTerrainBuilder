@@ -187,6 +187,31 @@ final class AnalysisController: ObservableObject {
         }
     }
 
+    /// Zoom the map to a pack's coverage — shared by the toolbar search and
+    /// the inspector's double-click. Airports first: an airport point is
+    /// always right, while a tile-bbox fit spans the ocean for packs that
+    /// ship stray tiles (the CYHZ +44+044 case).
+    func zoomToPack(_ pack: SceneryPack) {
+        var cam = mapCamera.value
+        if let airport = pack.airports.values.first {
+            cam.centerLon = airport.longitude
+            cam.centerLat = airport.latitude
+            cam.scale = max(cam.scale, 60)
+        } else {
+            let tiles = pack.tiles.compactMap { TileMath.parse($0) }
+            guard !tiles.isEmpty else { return }
+            let lats = tiles.map { Double($0.lat) }, lons = tiles.map { Double($0.lon) }
+            cam.centerLat = (lats.min()! + lats.max()! + 1) / 2
+            cam.centerLon = (lons.min()! + lons.max()! + 1) / 2
+            let spanLon = max(lons.max()! - lons.min()! + 1, 2)
+            let spanLat = max(lats.max()! - lats.min()! + 1, 2)
+            cam.scale = min(700 / spanLon, 400 / spanLat, 120)
+        }
+        cam.clamp(in: mapCanvasSize.value)
+        mapCamera.value = cam
+        scheduleViewportUpdate()
+    }
+
     // MARK: - Analysis
 
     private enum StreamMessage: Sendable {

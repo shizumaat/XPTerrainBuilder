@@ -56,6 +56,11 @@ final class AnalysisController: ObservableObject {
     private var viewportTask: Task<Void, Never>?
 
     @Published var installationPacks: [SceneryPack] = []
+    /// EXACT per-pack disk sizes from the analysis walk, streamed as packs
+    /// complete and seeded from the persisted report. The scanner's
+    /// sizeBytes stays as the "~" approximation until this fills in.
+    @Published var exactSizes: [String: Int64] = [:]
+    private var pendingSizes: [String: Int64] = [:]
     /// The last completed full scan (packs + library indexes) — handed to
     /// the analyzer so it doesn't rescan the same 4,200 packs minutes after
     /// the map scan already did.
@@ -352,6 +357,13 @@ final class AnalysisController: ObservableObject {
                         self.flushPending(&pending)
                         lastFlush = .now
                     }
+                case .event(.packSizes(let sizes)):
+                    // Coalesced like findings: one @Published tick per flush.
+                    self.pendingSizes.merge(sizes) { _, new in new }
+                    if self.pendingSizes.count >= 50 {
+                        self.exactSizes.merge(self.pendingSizes) { _, new in new }
+                        self.pendingSizes = [:]
+                    }
                 case .event(.duplicateGroups(let groups)):
                     self.report?.duplicateGroups = groups
                 case .event(.unusedResources(let groups)):
@@ -385,6 +397,13 @@ final class AnalysisController: ObservableObject {
                     self.isRunning = false
                     self.progress.unusedVerifyProgress = nil
                     self.progress.packProgress = nil
+                    if !self.pendingSizes.isEmpty {
+                        self.exactSizes.merge(self.pendingSizes) { _, new in new }
+                        self.pendingSizes = [:]
+                    }
+                    if let sizes = final.packSizes {
+                        self.exactSizes.merge(sizes) { _, new in new }
+                    }
                     if let markers = final.packMarkers {
                         self.mapOverlays = self.mapOverlays.applyingExactMarkers(markers)
                     }
@@ -462,8 +481,10 @@ final class AnalysisController: ObservableObject {
     }
 
     /// Save the report so quitting and relaunching resumes the review session.
+    /// Exact sizes ride along so relaunch seeds them immediately.
     func persistReport() {
-        guard let report else { return }
+        guard var report else { return }
+        if !exactSizes.isEmpty { report.packSizes = exactSizes }
         let url = Self.reportFileURL
         Task.detached(priority: .utility) {
             if let data = try? report.jsonData() {
@@ -481,7 +502,8 @@ final class AnalysisController: ObservableObject {
     private var reportPersistInFlight = false
     private func persistReportOnProgress(done: Int) {
         guard done - lastPersistedPackCount >= 100, !reportPersistInFlight,
-              let report else { return }
+              var report else { return }
+        if !exactSizes.isEmpty { report.packSizes = exactSizes }
         lastPersistedPackCount = done
         reportPersistInFlight = true
         let url = Self.reportFileURL
@@ -502,13 +524,23 @@ final class AnalysisController: ObservableObject {
                 decoder.dateDecodingStrategy = .iso8601
                 return try? decoder.decode(AnalysisReport.self, from: data)
             }.value
-            guard let self, let loaded, self.report == nil, !self.isRunning else { return }
+            guard let self, let loaded else { return }
+            // Exact sizes are valid to seed even if a run already started.
+            if let sizes = loaded.packSizes {
+                self.exactSizes.merge(sizes) { current, _ in current }
+            }
+            guard self.report == nil, !self.isRunning else { return }
             self.report = loaded
             self.rebuildSearchCorpus()
         }
     }
 
     private func flushPending(_ pending: inout [Finding]) {
+        // Trickled exact sizes ride the same cadence.
+        if !pendingSizes.isEmpty {
+            exactSizes.merge(pendingSizes) { _, new in new }
+            pendingSizes = [:]
+        }
         guard !pending.isEmpty, var current = report else { return }
         // The report is seeded with last session's findings; cache-served
         // packs re-emit the SAME findings (UUIDs persist through the cache),

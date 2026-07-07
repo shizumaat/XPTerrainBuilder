@@ -25,13 +25,18 @@ public struct PackCacheEntry: Codable, Sendable {
     /// centroid), once DSF geometry has been parsed.
     public var markerLon: Double?
     public var markerLat: Double?
+    /// EXACT size on disk (every file), from the full analysis walk.
+    /// Optional so pre-existing entries still decode; the pipeline
+    /// backfills them with a cheap metadata-only walk on reuse.
+    public var diskSizeBytes: Int64?
 
     public init(signature: String, hasFullAnalysis: Bool = false,
                 healthFindings: [Finding] = [], auditFindings: [Finding] = [],
                 placementFindings: [Finding] = [],
                 unusedCandidates: UnusedResourceGroup? = nil, escapeRefs: [String] = [],
                 vramBytes: Int64 = 0, objFilesParsed: Int = 0, texturesInspected: Int = 0,
-                markerLon: Double? = nil, markerLat: Double? = nil) {
+                markerLon: Double? = nil, markerLat: Double? = nil,
+                diskSizeBytes: Int64? = nil) {
         self.signature = signature
         self.hasFullAnalysis = hasFullAnalysis
         self.healthFindings = healthFindings
@@ -44,6 +49,7 @@ public struct PackCacheEntry: Codable, Sendable {
         self.texturesInspected = texturesInspected
         self.markerLon = markerLon
         self.markerLat = markerLat
+        self.diskSizeBytes = diskSizeBytes
     }
 }
 

@@ -116,18 +116,45 @@ struct PackInspectorView: View {
         }
     }
 
+    /// Exact size once the pack has been analyzed, "~estimate" until then
+    /// (the scanner's number is depth-limited), "calculating…" when even
+    /// the estimate is empty.
+    private func sizeLabel(_ pack: SceneryPack) -> String {
+        if let exact = controller.exactSizes[pack.name] {
+            return ByteCountFormatter.string(fromByteCount: exact, countStyle: .file)
+        }
+        if pack.sizeBytes > 0 {
+            return "~" + ByteCountFormatter.string(fromByteCount: pack.sizeBytes, countStyle: .file)
+        }
+        return "…"
+    }
+
+    private func totalBytes(_ packs: [SceneryPack]) -> (bytes: Int64, allExact: Bool) {
+        var bytes: Int64 = 0
+        var allExact = true
+        for pack in packs {
+            if let exact = controller.exactSizes[pack.name] {
+                bytes += exact
+            } else {
+                bytes += pack.sizeBytes
+                allExact = false
+            }
+        }
+        return (bytes, allExact)
+    }
+
     /// "254 packages in view, 128.3 GB" — or, with rows selected,
-    /// "3 of 254 selected, 8.3 GB".
+    /// "3 of 254 selected, 8.3 GB". "≈" while any size is still estimated.
     private var footerSummary: String {
         let selected = affected.filter { selection.value.contains($0.url.path) }
         if selected.isEmpty {
-            let bytes = affected.reduce(Int64(0)) { $0 + $1.sizeBytes }
+            let (bytes, allExact) = totalBytes(affected)
             let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-            return "\(affected.count.formatted()) package\(affected.count == 1 ? "" : "s") in view, \(size)"
+            return "\(affected.count.formatted()) package\(affected.count == 1 ? "" : "s") in view, \(allExact ? "" : "≈")\(size)"
         }
-        let bytes = selected.reduce(Int64(0)) { $0 + $1.sizeBytes }
+        let (bytes, allExact) = totalBytes(selected)
         let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-        return "\(selected.count.formatted()) of \(affected.count.formatted()) selected, \(size)"
+        return "\(selected.count.formatted()) of \(affected.count.formatted()) selected, \(allExact ? "" : "≈")\(size)"
     }
 
     private func packRow(_ pack: SceneryPack) -> some View {
@@ -138,13 +165,20 @@ struct PackInspectorView: View {
                 Text(pack.name)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                if let detail = packDetail(pack) {
-                    Text(detail)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                HStack(spacing: 6) {
+                    if let detail = packDetail(pack) {
+                        Text(detail)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    Spacer(minLength: 4)
+                    // Exact size once analyzed; "~" marks the scanner's
+                    // depth-limited estimate until then.
+                    Text(sizeLabel(pack))
+                        .monospacedDigit()
                 }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             }
             Spacer(minLength: 4)
             Image(systemName: "line.3.horizontal")

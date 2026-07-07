@@ -50,6 +50,8 @@ public struct Analyzer {
         case findings([Finding])
         case duplicateGroups([DuplicateGroup])
         case unusedResources([UnusedResourceGroup])
+        /// EXACT on-disk size per pack, as each completes (cached or fresh).
+        case packSizes([String: Int64])
     }
 
     public struct Options: Sendable {
@@ -215,11 +217,16 @@ public struct Analyzer {
         analyzerLog.notice("pipeline start: \(targets.count) targets, \(cache.entries.count) cache entries, preScanned=\(options.preScanned != nil)")
         forEachPackPrioritized(targets, priority: priority) { i in
             let pack = targets[i]
-            let entry: PackCacheEntry
+            var entry: PackCacheEntry
             var reused = false
             if !force.contains(pack.name), let cached = cacheSnapshot.fullEntry(for: pack) {
                 entry = cached
                 reused = true
+                if entry.diskSizeBytes == nil {
+                    // Backfill for entries from before exact sizes existed —
+                    // a metadata-only walk, no schema bump needed.
+                    entry.diskSizeBytes = DiskUsage.sizeOfDirectory(at: pack.contentRoot)
+                }
             } else {
                 if let stale = cacheSnapshot.entries[pack.name], stale.hasFullAnalysis {
                     analyzerLog.notice("cache MISS (signature) for \(pack.name, privacy: .public): entry \(stale.signature, privacy: .public) vs pack \(pack.signature, privacy: .public)")
@@ -259,7 +266,8 @@ public struct Analyzer {
                     objFilesParsed: healthResult.objFilesParsed,
                     texturesInspected: healthResult.texturesInspected,
                     markerLon: placementResult.marker?.lon,
-                    markerLat: placementResult.marker?.lat
+                    markerLat: placementResult.marker?.lat,
+                    diskSizeBytes: healthResult.diskSizeBytes
                 )
             }
             let done = state.withLock { s -> Int in
@@ -275,6 +283,9 @@ public struct Analyzer {
             onEvent(.stage(.inspectingPack(name: pack.name, done: done, total: targets.count)))
             let packFindings = entry.healthFindings + entry.auditFindings + entry.placementFindings
             if !packFindings.isEmpty { onEvent(.findings(packFindings)) }
+            if let diskSize = entry.diskSizeBytes {
+                onEvent(.packSizes([pack.name: diskSize]))
+            }
             flushCacheIfDue { state.withLock { $0.entries } }
         }
 
@@ -282,6 +293,7 @@ public struct Analyzer {
         var packVRAM: [String: Int64] = [:]
         var candidateGroups: [UnusedResourceGroup] = []
         var packMarkers: [String: GeoPoint] = [:]
+        var packSizes: [String: Int64] = [:]
         for pack in targets {
             guard let entry = newEntries[pack.name] else { continue }
             findings.append(contentsOf: entry.healthFindings + entry.auditFindings
@@ -293,6 +305,7 @@ public struct Analyzer {
             if let lon = entry.markerLon, let lat = entry.markerLat {
                 packMarkers[pack.name] = GeoPoint(lon: lon, lat: lat)
             }
+            if let diskSize = entry.diskSizeBytes { packSizes[pack.name] = diskSize }
         }
         stats.packsFromCache = state.withLock { $0.fromCache }
 
@@ -394,6 +407,7 @@ public struct Analyzer {
             scopeDescription: scope.map { "\($0.count) selected package\($0.count == 1 ? "" : "s")" }
         )
         report.packMarkers = packMarkers.isEmpty ? nil : packMarkers
+        report.packSizes = packSizes.isEmpty ? nil : packSizes
         return report
     }
 

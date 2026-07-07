@@ -282,6 +282,10 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: root) }
 
         let baseline = Analyzer(root: root).run()
+        // Exact disk sizes ride the analysis walk into the report.
+        let exact = try #require(baseline.packSizes?["zOrtho Test"])
+        #expect(exact > 0)
+
         var options = Analyzer.Options()
         options.preScanned = InstallationScanner(root: root).scan()
         let preScanned = Analyzer(root: root).run(options: options)

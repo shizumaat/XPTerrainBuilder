@@ -59,6 +59,10 @@ public struct PackageHealthAnalyzer {
         public var texturesInspected = 0
         /// Estimated texture VRAM of the scanned pack (bytes).
         public var vramEstimateBytes: Int64 = 0
+        /// EXACT bytes of every file in the pack — the walk visits them all
+        /// anyway, so the real number rides along (the scanner's sizeBytes
+        /// is a depth-limited approximation).
+        public var diskSizeBytes: Int64 = 0
     }
 
     public struct AggregateResult: Sendable {
@@ -125,9 +129,10 @@ public struct PackageHealthAnalyzer {
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) {
             for case let url as URL in enumerator {
+                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+                result.diskSizeBytes += Int64(size)
                 switch url.pathExtension.lowercased() {
                 case "obj":
-                    let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
                     objFiles.append((url, size))
                 case "png", "dds":
                     textureURLs.append(url)

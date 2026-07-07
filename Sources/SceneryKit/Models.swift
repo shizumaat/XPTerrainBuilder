@@ -361,6 +361,10 @@ public struct AnalysisReport: Codable, Sendable {
     /// Exact map positions (object-placement centroids) for small-footprint
     /// packs, from DSF geometry. Optional: pre-placement reports decode fine.
     public var packMarkers: [String: GeoPoint]?
+    /// EXACT per-pack size on disk from the analysis walk (the scanner's
+    /// sizeBytes is a depth-limited approximation). Optional: older report
+    /// JSONs decode fine.
+    public var packSizes: [String: Int64]?
 
     public init(
         xplaneRoot: String,

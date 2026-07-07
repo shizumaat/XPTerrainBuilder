@@ -19,6 +19,13 @@ public enum PackAction: String, CaseIterable, Sendable {
         case .trash: return "Move to Trash"
         }
     }
+
+    /// Enable/disable only rewrite scenery_packs.ini — safe while an
+    /// analysis is running. The rest move pack folders on disk, which
+    /// can't happen while analyzers are reading them.
+    public var isIniOnly: Bool {
+        self == .enable || self == .disable
+    }
 }
 
 public struct PackActionOutcome: Sendable, Identifiable {

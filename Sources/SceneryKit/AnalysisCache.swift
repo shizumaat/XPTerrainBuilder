@@ -53,7 +53,8 @@ public struct AnalysisCache: Codable, Sendable {
     /// results from an older engine.
     /// v3: relatedPacks on Finding; C-15/16/17/18, APT-01..03, C-09/C-10
     /// escalations (spill radii, placement counts, dead alpha).
-    public static let schemaVersion = 3
+    /// v4: C-19 stray tiles.
+    public static let schemaVersion = 4
 
     public var version: Int = schemaVersion
     public var entries: [String: PackCacheEntry] = [:]

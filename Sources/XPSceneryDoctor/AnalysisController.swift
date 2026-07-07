@@ -397,8 +397,15 @@ final class AnalysisController: ObservableObject {
     // MARK: - Pack actions
 
     func applyPackAction(_ action: PackAction, to packNames: [String]) {
-        // Not while analyzing: the scan reads pack folders and the ini.
-        guard let root = rootURL, !packNames.isEmpty, !isApplyingAction, !isRunning else { return }
+        guard let root = rootURL, !packNames.isEmpty, !isApplyingAction else { return }
+        // Enable/disable only rewrite the ini and are fine mid-analysis
+        // (the pipeline reads pack FILES; the ini was consumed at scan
+        // start). Folder-moving actions would pull files out from under
+        // the analyzers — refuse those with an explanation, not silence.
+        if isRunning && !action.isIniOnly {
+            errorMessage = "\(action.label) moves package folders, which can't happen while the analysis is reading them. Try again when it finishes (Enable/Disable work anytime)."
+            return
+        }
         isApplyingAction = true
         actionErrors = []
 

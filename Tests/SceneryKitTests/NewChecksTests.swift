@@ -255,6 +255,28 @@ import Foundation
         #expect(overlap?.title.contains("1 stacked polygon") == true)
     }
 
+    // MARK: - Stray tiles (C-19)
+
+    @Test func strayTileDetection() {
+        // The real CYHZ pattern: the Halifax tile plus a sign-flipped twin
+        // in the Caucasus.
+        let pack = SceneryPack(
+            name: "CYHZ Test", url: URL(fileURLWithPath: "/nonexistent/CYHZ Test"),
+            status: .enabled, iniIndex: 0, isLibrary: false,
+            airports: ["CYHZ": AirportInfo(name: "Halifax", latitude: 44.88, longitude: -63.51)],
+            tiles: ["+44-064", "+44+044"], isOverlay: true, isLaminar: false)
+        let installation = Installation(
+            root: URL(fileURLWithPath: "/nonexistent"), packs: [pack],
+            libraryIndex: LibraryIndex(), defaultLibraryIndex: LibraryIndex())
+
+        let findings = PackageHealthAnalyzer(installation: installation).scanPack(pack).findings
+        let stray = findings.filter { $0.checkID == "C-19" }
+        #expect(stray.count == 1, "\(findings.map { $0.title })")
+        #expect(stray.first?.title.contains("+44+044") == true)
+        #expect(stray.first?.title.contains("+44-064") == false,
+                "the tile the airport actually sits in is not stray")
+    }
+
     // MARK: - Placement counts, exclusions, facade rings (synthetic DSF)
 
     /// Overlay tile placing one animated object 30× and one 120-node facade

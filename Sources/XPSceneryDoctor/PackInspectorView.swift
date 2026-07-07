@@ -82,8 +82,8 @@ struct PackInspectorView: View {
                     }
                     .menuStyle(.borderlessButton)
                     .fixedSize()
-                    .disabled(selection.value.isEmpty || controller.isApplyingAction || controller.isRunning)
-                    .help("Actions for the selected packages")
+                    .disabled(selection.value.isEmpty || controller.isApplyingAction)
+                    .help("Actions for the selected packages (folder moves wait for the analysis; Enable/Disable work anytime)")
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
@@ -181,16 +181,20 @@ struct PackInspectorView: View {
                 apply(.disable, to: enabled)
             }
         }
+        // Folder-moving actions can't run mid-analysis (files are being
+        // read); ini-only enable/disable above stay available.
         if !uninstalled.isEmpty {
             Button("Install\(uninstalled.count < selected.count ? " (\(uninstalled.count))" : "")") {
                 apply(.install, to: uninstalled)
             }
+            .disabled(controller.isRunning)
         }
         let installed = enabled + disabled
         if !installed.isEmpty {
             Button("Uninstall\(installed.count < selected.count ? " (\(installed.count))" : "")") {
                 apply(.uninstall, to: installed)
             }
+            .disabled(controller.isRunning)
         }
         if !selected.isEmpty {
             Divider()

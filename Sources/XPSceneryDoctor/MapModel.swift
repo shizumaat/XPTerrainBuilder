@@ -111,14 +111,50 @@ struct MapOverlays: Sendable {
         let kind: PackKind
     }
 
-    /// Pack with its geographic bounding box (degrees), for viewport tests.
+    /// Pack with its geographic coverage, for viewport tests.
+    ///
+    /// The bounding box is only a cheap PRE-filter — coverage is decided by
+    /// the actual 1° tiles and airport positions. The hull alone lies for
+    /// packs with scattered tiles: c_CAN CYHZ ships Halifax's +44-064 AND a
+    /// stray sign-flipped +44+044, so its hull spans the Atlantic and half
+    /// of Europe, putting a Canadian airport "in view" over Marseille.
     struct PackBounds: Sendable {
         let pack: SceneryPack
         let minLat: Double, maxLat: Double, minLon: Double, maxLon: Double
+        /// 1° tile keys: (lat + 90) * 360 + (lon + 180).
+        let tileKeys: Set<Int32>
+        let airportPoints: [GeoPoint]
+
+        /// Above this many viewport tiles the walk stops paying for itself
+        /// and the hull is accurate enough (a near-world view shows nearly
+        /// everything anyway).
+        static let maxTileWalk = 1024
 
         func intersects(minLon vMinLon: Double, maxLon vMaxLon: Double,
                         minLat vMinLat: Double, maxLat vMaxLat: Double) -> Bool {
-            maxLon > vMinLon && minLon < vMaxLon && maxLat > vMinLat && minLat < vMaxLat
+            guard maxLon > vMinLon && minLon < vMaxLon
+                    && maxLat > vMinLat && minLat < vMaxLat else { return false }
+
+            let lonLo = Int(floor(max(vMinLon, -180))), lonHi = Int(floor(min(vMaxLon, 179.999)))
+            let latLo = Int(floor(max(vMinLat, -90))), latHi = Int(floor(min(vMaxLat, 89.999)))
+            guard lonHi >= lonLo, latHi >= latLo else { return false }
+            if (lonHi - lonLo + 1) * (latHi - latLo + 1) > Self.maxTileWalk {
+                return true
+            }
+            for point in airportPoints
+            where point.lon >= vMinLon && point.lon <= vMaxLon
+                && point.lat >= vMinLat && point.lat <= vMaxLat {
+                return true
+            }
+            if !tileKeys.isEmpty {
+                for lat in latLo...latHi {
+                    for lon in lonLo...lonHi
+                    where tileKeys.contains(Int32((lat + 90) * 360 + lon + 180)) {
+                        return true
+                    }
+                }
+            }
+            return false
         }
     }
 
@@ -149,11 +185,14 @@ struct MapOverlays: Sendable {
         for pack in packs where !pack.isLaminar {
             var minLat = Double.infinity, maxLat = -Double.infinity
             var minLon = Double.infinity, maxLon = -Double.infinity
+            var tileKeys = Set<Int32>()
+            var airportPoints: [GeoPoint] = []
 
             for tileKey in pack.tiles {
                 guard let tile = TileMath.parse(tileKey) else { continue }
                 minLat = min(minLat, Double(tile.lat)); maxLat = max(maxLat, Double(tile.lat + 1))
                 minLon = min(minLon, Double(tile.lon)); maxLon = max(maxLon, Double(tile.lon + 1))
+                tileKeys.insert(Int32((tile.lat + 90) * 360 + tile.lon + 180))
                 if pack.kind == .ortho || pack.kind == .mesh || pack.kind == .landmark {
                     let hash = (tile.lat + 90) * 1000 + tile.lon + 180
                     if rank(pack.kind) > rank(kinds[hash] ?? .other) {
@@ -166,10 +205,12 @@ struct MapOverlays: Sendable {
                                         packName: pack.name, status: pack.status))
                 minLat = min(minLat, info.latitude); maxLat = max(maxLat, info.latitude)
                 minLon = min(minLon, info.longitude); maxLon = max(maxLon, info.longitude)
+                airportPoints.append(GeoPoint(lon: info.longitude, lat: info.latitude))
             }
             if minLat.isFinite {
                 packBounds.append(PackBounds(pack: pack, minLat: minLat, maxLat: maxLat,
-                                             minLon: minLon, maxLon: maxLon))
+                                             minLon: minLon, maxLon: maxLon,
+                                             tileKeys: tileKeys, airportPoints: airportPoints))
                 // Landmark-style packs with a footprint of a tile or two get
                 // a point mark; airports already have their own marks, and
                 // wide overlays are communicated by the tile tint.

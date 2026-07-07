@@ -186,22 +186,27 @@ struct DuplicatesView: View {
                 controller.applyPackAction(.disable, to: enabled)
             }
         }
+        // Folder-moving actions can't run mid-analysis; ini-only
+        // enable/disable above stay available.
         if !uninstalled.isEmpty {
             Button(countLabel("Install", uninstalled, of: all)) {
                 controller.applyPackAction(.install, to: uninstalled)
             }
+            .disabled(controller.isRunning)
         }
         if !installed.isEmpty {
             Button(countLabel("Uninstall", installed, of: all)) {
                 controller.applyPackAction(.uninstall, to: installed)
                 selection.value = []
             }
+            .disabled(controller.isRunning)
         }
         if !all.isEmpty {
             Divider()
             Button("Move to Trash…", role: .destructive) {
                 confirmingTrash.value = true
             }
+            .disabled(controller.isRunning)
         }
     }
 
@@ -230,10 +235,8 @@ struct DuplicatesView: View {
             }
             .menuStyle(.borderedButton)
             .fixedSize()
-            .disabled(selectedPackNames.isEmpty || controller.isApplyingAction || controller.isRunning)
-            .help(controller.isRunning
-                  ? "Available when the analysis finishes"
-                  : "Apply an action to the selected packages")
+            .disabled(selectedPackNames.isEmpty || controller.isApplyingAction)
+            .help("Apply an action to the selected packages (folder moves wait for the analysis; Enable/Disable work anytime)")
         }
         .font(.callout)
         .padding(.horizontal, 12)

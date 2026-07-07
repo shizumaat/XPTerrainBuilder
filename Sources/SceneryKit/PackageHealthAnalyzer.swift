@@ -492,6 +492,45 @@ public struct PackageHealthAnalyzer {
             ))
         }
 
+        // --- C-19: stray tiles --------------------------------------------
+        // An airport pack shipping a DSF hundreds of km from every airport
+        // it declares is almost always an authoring slip — a sign-flipped
+        // tile name is the classic form (c_CAN CYHZ ships Halifax's
+        // +44-064 AND a bogus +44+044 in the Caucasus). The stray tile
+        // loads (and can exclude or overlay scenery) somewhere the author
+        // never intended.
+        if !pack.airports.isEmpty, pack.airports.count <= 10,
+           !pack.tiles.isEmpty, pack.tiles.count <= 40 {
+            var stray: [(tile: String, km: Double)] = []
+            for tileKey in pack.tiles {
+                guard let tile = TileMath.parse(tileKey) else { continue }
+                let centerLat = Double(tile.lat) + 0.5
+                let centerLon = Double(tile.lon) + 0.5
+                let nearestKm = pack.airports.values.map { airport -> Double in
+                    let dLat = (airport.latitude - centerLat) * 110.574
+                    let dLon = (airport.longitude - centerLon) * 111.320
+                        * cos(centerLat * .pi / 180)
+                    return (dLat * dLat + dLon * dLon).squareRoot()
+                }.min() ?? .infinity
+                if nearestKm > 500 { stray.append((tileKey, nearestKm)) }
+            }
+            for (tileKey, km) in stray.sorted(by: { $0.km > $1.km })
+                .prefix(config.maxFindingsPerCheckPerPack) {
+                result.findings.append(Finding(
+                    checkID: "C-19",
+                    severity: .info,
+                    category: .packageHealth,
+                    title: "Stray tile \(tileKey) — \(Int(km.rounded())) km from \(pack.airports.count == 1 ? "the pack's airport" : "every airport in the pack")",
+                    detail: "'\(pack.name)' declares airport\(pack.airports.count == 1 ? "" : "s") \(pack.airports.keys.sorted().joined(separator: ", ")) but ships a DSF for tile \(tileKey), ~\(Int(km.rounded())) km away. A sign-flipped tile name (+44-064 → +44+044) is the classic authoring slip; the stray tile loads — and can exclude or overlay scenery — somewhere the author never intended.",
+                    path: pack.url.path,
+                    suggestion: "Check the pack's Earth nav data folder for the \(tileKey).dsf. If it duplicates a real tile with flipped signs, it doesn't belong — report it to the author, or remove that one .dsf after backing it up.",
+                    fixability: .assisted,
+                    packName: pack.name,
+                    packKind: pack.kind
+                ))
+            }
+        }
+
         // --- Performance summary -----------------------------------------
         result.vramEstimateBytes = Int64(packVRAM)
         let vramStr = ByteCountFormatter.string(fromByteCount: Int64(packVRAM), countStyle: .memory)

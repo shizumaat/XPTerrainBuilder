@@ -107,7 +107,14 @@ Owner: Noah (noahplieberman@gmail.com, GitHub `shizumaat`). His install:
    change shape or meaning — stale caches otherwise serve old
    results. Blind spot: in-place edits of non-DSF files deeper than
    2 levels (own fixes invalidate explicitly; ⌘R bypasses).
-13. **ATC "lost some controllers" (LOG-91/92)**: X-Plane drops named
+13. **Pack names are NOT unique**: the same-named pack can sit in
+   Custom Scenery and Custom Scenery (Disabled) simultaneously
+   (uninstall + fresh re-download — real state on Noah's install:
+   Aerosoft LFMN). Both are scanned. Never Dictionary(
+   uniqueKeysWithValues:) on pack names, never use bare names as
+   SwiftUI ids — key by path (regression test exists; this crashed
+   the app on search).
+14. **ATC "lost some controllers" (LOG-91/92)**: X-Plane drops named
    controllers whose every apt.dat frequency is outside 118.000–
    136.990 MHz (military UHF fields). Its exact grouping rule resists
    reverse-engineering — name-grouping reproduced only 12 of 18

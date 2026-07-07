@@ -357,9 +357,27 @@ struct ResultsPane: View {
         }
     }
 
+    /// Category header as a plain BUTTON with conditional rows beneath —
+    /// not a nested DisclosureGroup. Two disclosure levels deep inside a
+    /// selectable List, the outline row intermittently swallows the chevron
+    /// click (and the 0.4 s streaming re-diffs cancel in-flight toggles),
+    /// so expansion felt random. A button always receives its click, and
+    /// the open state lives in our own set, which every rebuild respects.
+    @ViewBuilder
     private func categoryGroup(owner: String, category: FindingCategory,
                                items: [Finding], unused: [UnusedResourceGroup]) -> some View {
-        DisclosureGroup(isExpanded: categoryBinding("\(owner)|\(category.rawValue)")) {
+        let key = "\(owner)|\(category.rawValue)"
+        let isOpen = !collapsed.value.contains(key)
+        Button {
+            withAnimation {
+                if isOpen { collapsed.value.insert(key) } else { collapsed.value.remove(key) }
+            }
+        } label: {
+            categoryHeader(category, items: items, unused: unused, isOpen: isOpen)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        if isOpen {
             if category == .unusedResources && !unused.isEmpty {
                 // "Could not audit" info findings would otherwise be
                 // swallowed by the table replacing the finding rows.
@@ -374,23 +392,31 @@ struct ResultsPane: View {
                     FindingRow(finding: finding).tag(finding.id)
                 }
             }
-        } label: {
-            HStack {
-                Text(category.rawValue)
-                    .font(.callout)
-                if category == .unusedResources, !unused.isEmpty {
-                    // The expanded view is a per-FILE table, so the headline
-                    // count must be files, not findings.
-                    Text(Self.unusedSummary(unused))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("\(items.count)")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                    severitySummary(items)
-                }
+        }
+    }
+
+    private func categoryHeader(_ category: FindingCategory, items: [Finding],
+                                unused: [UnusedResourceGroup], isOpen: Bool) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .rotationEffect(.degrees(isOpen ? 90 : 0))
+            Text(category.rawValue)
+                .font(.callout)
+            if category == .unusedResources, !unused.isEmpty {
+                // The expanded view is a per-FILE table, so the headline
+                // count must be files, not findings.
+                Text(Self.unusedSummary(unused))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("\(items.count)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                severitySummary(items)
             }
+            Spacer(minLength: 0)
         }
     }
 
@@ -463,15 +489,6 @@ struct ResultsPane: View {
         Binding(
             get: { topChoices.value[key] ?? defaultOpen },
             set: { topChoices.value[key] = $0 }
-        )
-    }
-
-    private func categoryBinding(_ key: String) -> Binding<Bool> {
-        Binding(
-            get: { !collapsed.value.contains(key) },
-            set: { open in
-                if open { collapsed.value.remove(key) } else { collapsed.value.insert(key) }
-            }
         )
     }
 

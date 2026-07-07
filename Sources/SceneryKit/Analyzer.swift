@@ -212,7 +212,7 @@ public struct Analyzer {
             snapshot.save(to: cacheURL) // atomic write
         }
 
-        analyzerLog.info("pipeline start: \(targets.count) targets, \(cache.entries.count) cache entries, preScanned=\(options.preScanned != nil)")
+        analyzerLog.notice("pipeline start: \(targets.count) targets, \(cache.entries.count) cache entries, preScanned=\(options.preScanned != nil)")
         forEachPackPrioritized(targets, priority: priority) { i in
             let pack = targets[i]
             let entry: PackCacheEntry
@@ -222,9 +222,9 @@ public struct Analyzer {
                 reused = true
             } else {
                 if let stale = cacheSnapshot.entries[pack.name], stale.hasFullAnalysis {
-                    analyzerLog.info("cache MISS (signature) for \(pack.name, privacy: .public): entry \(stale.signature, privacy: .public) vs pack \(pack.signature, privacy: .public)")
+                    analyzerLog.notice("cache MISS (signature) for \(pack.name, privacy: .public): entry \(stale.signature, privacy: .public) vs pack \(pack.signature, privacy: .public)")
                 } else if cacheSnapshot.entries[pack.name] == nil {
-                    analyzerLog.debug("cache MISS (absent) for \(pack.name, privacy: .public)")
+                    analyzerLog.info("cache MISS (absent) for \(pack.name, privacy: .public)")
                 }
                 let freshStart = ContinuousClock.now
                 let healthResult = autoreleasepool { health.scanPack(pack) }
@@ -235,7 +235,7 @@ public struct Analyzer {
                 let escapes = ResourceAuditAnalyzer.collectEscapeRefs(in: pack)
                 let elapsed = ContinuousClock.now - freshStart
                 if elapsed > .seconds(15) {
-                    analyzerLog.info("slow pack \(pack.name, privacy: .public): \(elapsed.components.seconds)s")
+                    analyzerLog.notice("slow pack \(pack.name, privacy: .public): \(elapsed.components.seconds)s")
                 }
                 // The placement-count C-09 (placed N× and can't instance)
                 // supersedes the health scan's size-based C-09 for the same
@@ -270,7 +270,7 @@ public struct Analyzer {
             }
             if done % 500 == 0 || done == targets.count {
                 let hits = state.withLock { $0.fromCache }
-                analyzerLog.info("pipeline \(done)/\(targets.count), \(hits) from cache, latest \(pack.name, privacy: .public)")
+                analyzerLog.notice("pipeline \(done)/\(targets.count), \(hits) from cache, latest \(pack.name, privacy: .public)")
             }
             onEvent(.stage(.inspectingPack(name: pack.name, done: done, total: targets.count)))
             let packFindings = entry.healthFindings + entry.auditFindings + entry.placementFindings

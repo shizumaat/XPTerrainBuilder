@@ -265,15 +265,20 @@ public enum DSFGeometryReader {
             guard index < pool.count, index < pool.lat.count else { return nil }
             return GeoPoint(lon: pool.lon[index], lat: pool.lat[index])
         }
+        // removeValue (not subscript-read) hands the array over UNIQUELY
+        // referenced, so append stays amortized O(1). Reading it while the
+        // dictionary also held it made every append clone the definition's
+        // whole accumulated array — quadratic, and a dense forest/city tile
+        // with 100k+ windings ground a single pack for hours.
         func addObjects<S: Sequence<Int>>(_ indices: S) {
-            var points = geometry.objectPlacements[currentDefinition] ?? []
+            var points = geometry.objectPlacements.removeValue(forKey: currentDefinition) ?? []
             for index in indices {
                 if let p = point(index) { points.append(p) }
             }
             geometry.objectPlacements[currentDefinition] = points
         }
         func addWindings(_ windings: [[Int]]) {
-            var existing = geometry.polygonWindings[currentDefinition] ?? []
+            var existing = geometry.polygonWindings.removeValue(forKey: currentDefinition) ?? []
             for winding in windings {
                 existing.append(winding.compactMap(point))
             }

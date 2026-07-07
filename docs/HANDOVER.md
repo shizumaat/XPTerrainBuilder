@@ -41,7 +41,14 @@ Owner: Noah (noahplieberman@gmail.com, GitHub `shizumaat`). His install:
   DDSAlpha.swift), C-09 escalation by DSF placement counts, C-17
   dataref-spill-in-repeated-object, C-15 missing exclusion zones,
   C-16 facade ring node counts, APT-01/02/03 apt.dat pavement lint
-  (AptDatAnalyzer.swift). AnalysisCache schemaVersion bumped to 3.
+  (AptDatAnalyzer.swift). Post-batch fixes from Noah's live testing:
+  viewport coverage now tests ACTUAL tile keys + airport points, not
+  the bbox hull (packs with stray tiles — c_CAN CYHZ ships a
+  sign-flipped +44+044 — hull-spanned oceans and showed up
+  everywhere); C-19 flags such stray tiles (>500 km from every
+  declared airport); Enable/Disable work mid-analysis (ini-only),
+  folder-moving actions explain the wait instead of silently no-oping.
+  AnalysisCache schemaVersion now 4.
 - **Engine** (SceneryKit, UI-free, 65 tests): proactive missing-resource
   audit (RES-01..05) resolving every DSF DEFN entry against pack files
   + installed + default libraries (deprecation-aware); deletion-grade

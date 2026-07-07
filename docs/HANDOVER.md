@@ -254,9 +254,17 @@ Owner: Noah (noahplieberman@gmail.com, GitHub `shizumaat`). His install:
   PackActions, PathRepair, TextFile, TileMath, SystemInfo, Models.
 - `Sources/XPSceneryDoctor/` — app: MapMainView (+ToolbarSearchField),
   MapCanvasView (+ScanProgressChip), MapModel, RestorableSplit,
-  ScrollZoomCatcher, PackInspectorView (path-keyed selection!),
-  ResultsPane (findings computed ONCE per body; StageLabelText /
-  UnusedVerifyBadge leaf views), ReportWindow (⌥⌘1), DuplicatesView,
+  ScrollZoomCatcher, PackInspectorView (path-keyed selection!
+  double-click zoom via native NSTableView doubleAction hook),
+  ResultsPane (findings computed ONCE per body; builds OutlineNodeSpec
+  trees; StageLabelText / UnusedVerifyBadge leaf views),
+  ResultsOutlineView (results hierarchy = REAL NSOutlineView, no
+  subclass: SwiftUI cells in NSHostingViews, usesAutomaticRowHeights,
+  node objects cached by id so expansion/selection survive the 0.4 s
+  streaming reloads, finding detail is a native CHILD row — after
+  SwiftUI nested DisclosureGroups proved unreliable at depth 2, Noah
+  chose native-first), ReportWindow (⌥⌘1; FindingLabel +
+  FindingDetailView shared with the outline), DuplicatesView,
   UnusedResourcesView, ModificationsWindow, AnalysisController
   (+ProgressModel — high-frequency state lives there), SettingsView,
   ViewState.

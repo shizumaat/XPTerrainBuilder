@@ -97,7 +97,25 @@ Owner: Noah (noahplieberman@gmail.com, GitHub `shizumaat`). His install:
    libraries remap legacy XP8–11 paths (lib/g8/*) through the season
    forms; mis-parsing them false-alarmed RES-01 (regression test).
 3. **Symlinks**: `isDirectoryKey` is false for symlinked packs — 60% of
-   Noah's install. `packDirectories` resolves via `fileExists`.
+   Noah's install. `packDirectories` resolves via `fileExists`. WORSE:
+   FileManager's enumerator/contentsOfDirectory do NOT resolve a root
+   that is ITSELF a symlink — every analyzer walked symlinked packs as
+   EMPTY (11.5 of 13.5 TB invisible, zero findings) until 2026-07-07.
+   The scanner resolves each pack folder's own link
+   (destinationOfSymbolicLink → SceneryPack.resolvedURL; NOT
+   resolvingSymlinksInPath — its /var→/private/var rewrite forks path
+   spellings) and all walks use pack.contentRoot. Identity/actions
+   stay on the symlink URL.
+3b. **CoW quadratic traps (both froze the app for real)**: never
+   snapshot a growing dictionary per work item (the cache flusher took
+   `state.withLock { $0.entries }` as an ARGUMENT — evaluated every
+   pack, quadratic clone inside the lock, all workers serialized); and
+   never read-modify-write a dict-held array (DSFGeometry addWindings
+   cloned the whole windings array per DSF command — use
+   removeValue(forKey:) to get it uniquely referenced). Diagnose with
+   `sample XPSceneryDoctor` — BridgeObjectBox copy/destroy hot + others
+   in ulock_wait is the signature. Also: os_log .info/.debug are
+   memory-only (log show misses them); use .notice for pipeline marks.
 4. **FD limits**: GUI apps get 256 fds; abandoned directory enumerators
    are autoreleased. Read Log.txt BEFORE scanning; wrap per-pack work in
    `autoreleasepool`.

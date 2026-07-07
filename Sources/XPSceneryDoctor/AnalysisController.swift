@@ -497,8 +497,12 @@ final class AnalysisController: ObservableObject {
 
     /// Rewrite scenery_packs.ini so `orderedNames` load in this relative
     /// order (minimal-movement permutation — see PackActionService.reorder).
+    /// Allowed during analysis: reordering is ini-only, like enable/disable
+    /// — the running pipeline reads pack FILES, and it consumed the ini at
+    /// scan start. (This guard once included !isRunning, which made drags
+    /// silently snap back for the entire 30-minute cold run.)
     func reorderPacks(_ orderedNames: [String]) {
-        guard let root = rootURL, orderedNames.count > 1, !isApplyingAction, !isRunning else { return }
+        guard let root = rootURL, orderedNames.count > 1, !isApplyingAction else { return }
         isApplyingAction = true
         Task { [weak self] in
             let (error, order) = await Task.detached(priority: .userInitiated) {

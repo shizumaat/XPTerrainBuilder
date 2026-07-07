@@ -83,7 +83,7 @@ struct UnusedResourcesView: View {
     private var trashConfirmationTitle: String {
         let paths = confirmingTrash.value ?? []
         let size = rows.filter { paths.contains($0.id) }.reduce(Int64(0)) { $0 + $1.sizeBytes }
-        return "Move \(paths.count) file\(paths.count == 1 ? "" : "s") (\(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))) to the Trash?"
+        return "Move \(paths.count.formatted()) file\(paths.count == 1 ? "" : "s") (\(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))) to the Trash?"
     }
 
     private var table: some View {
@@ -142,7 +142,7 @@ struct UnusedResourcesView: View {
                 confirmingTrash.value = selectedPaths
             }
             .disabled(selectedPaths.isEmpty || controller.isFixing)
-            Button("Trash All (\(rows.count))") {
+            Button("Trash All (\(rows.count.formatted()))") {
                 confirmingTrash.value = rows.map { $0.id }
             }
             .disabled(rows.isEmpty || controller.isFixing)
@@ -157,9 +157,9 @@ struct UnusedResourcesView: View {
     private var summaryText: String {
         let total = ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file)
         if selectedPaths.isEmpty {
-            return "\(rows.count) unreferenced files across \(groups.count) package\(groups.count == 1 ? "" : "s") — \(total) reclaimable"
+            return "\(rows.count.formatted()) unreferenced files across \(groups.count.formatted()) package\(groups.count == 1 ? "" : "s") — \(total) reclaimable"
         }
         let selectedSize = rows.filter { selection.value.contains($0.id) }.reduce(Int64(0)) { $0 + $1.sizeBytes }
-        return "\(selectedPaths.count) selected (\(ByteCountFormatter.string(fromByteCount: selectedSize, countStyle: .file)))"
+        return "\(selectedPaths.count.formatted()) selected (\(ByteCountFormatter.string(fromByteCount: selectedSize, countStyle: .file)))"
     }
 }

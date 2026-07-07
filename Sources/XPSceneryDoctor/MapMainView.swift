@@ -57,16 +57,11 @@ struct MapMainView: View {
 
     private var subtitle: String {
         if controller.isScanningInstallation { return "Scanning Custom Scenery…" }
-        let packs = controller.installationPacks
-        guard !packs.isEmpty else { return "" }
-        // The analysis total is smaller than the catalog: Laminar-shipped
-        // packs aren't health-checked (their content is not the user's to
-        // fix) and uninstalled packs don't load in X-Plane. Show both so
-        // the bottom bar's done/total doesn't look like a mismatch.
-        let analyzed = packs.filter { !$0.isLaminar && $0.isInstalled }.count
-        return analyzed == packs.count
-            ? "\(packs.count) packages"
-            : "\(packs.count) packages — \(analyzed) analyzed"
+        guard !controller.installationPacks.isEmpty else { return "" }
+        // Catalog count, deliberately larger than the analysis total (which
+        // excludes Laminar + uninstalled packs): the list supports
+        // rearranging everything the scanner found.
+        return "\(controller.installationPacks.count.formatted()) packages"
     }
 
     // MARK: - Toolbar

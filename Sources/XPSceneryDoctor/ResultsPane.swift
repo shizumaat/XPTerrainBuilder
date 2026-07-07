@@ -132,13 +132,13 @@ struct ResultsPane: View {
         var parts: [String] = []
         if let scope = report.scopeDescription { parts.append(scope) }
         if controller.isRunning {
-            parts.append("\(findings.count) findings so far")
+            parts.append("\(findings.count.formatted()) findings so far")
         } else {
             parts.append("Generated \(report.generatedAt.formatted(date: .abbreviated, time: .shortened))")
             if packFilter != nil, findings.count != report.findings.count {
-                parts.append("\(findings.count) of \(report.findings.count) findings in view")
+                parts.append("\(findings.count.formatted()) of \(report.findings.count.formatted()) findings in view")
             } else {
-                parts.append("\(findings.count) findings")
+                parts.append("\(findings.count.formatted()) findings")
             }
         }
         return parts.joined(separator: " — ")
@@ -465,7 +465,7 @@ struct ResultsPane: View {
                 ProgressView(value: Double(p.done), total: Double(max(p.total, 1)))
                     .progressViewStyle(.circular)
                     .controlSize(.small)
-                Text("\(p.done)/\(p.total) — \(p.name)")
+                Text("\(p.done.formatted())/\(p.total.formatted()) — \(p.name)")
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -474,7 +474,7 @@ struct ResultsPane: View {
                 ProgressView(value: Double(v.done), total: Double(max(v.total, 1)))
                     .progressViewStyle(.circular)
                     .controlSize(.small)
-                Text("\(v.done)/\(v.total) — cross-checking unused files against every package")
+                Text("\(v.done.formatted())/\(v.total.formatted()) — cross-checking unused files against every package")
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -508,7 +508,7 @@ struct ResultsPane: View {
                 ProgressView(value: Double(p.done), total: Double(max(p.total, 1)))
                     .frame(width: 130)
                     .controlSize(.small)
-                Text("cross-checking \(p.done)/\(p.total) packages")
+                Text("cross-checking \(p.done.formatted())/\(p.total.formatted()) packages")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             } else {
@@ -534,8 +534,8 @@ struct ResultsPane: View {
                 Text("Applying fixes…").foregroundStyle(.secondary)
             } else if controller.report != nil {
                 Text(selectedFixable.isEmpty
-                     ? "\(fixable.count) finding\(fixable.count == 1 ? "" : "s") can be fixed automatically"
-                     : "\(selectedFixable.count) fixable selected")
+                     ? "\(fixable.count.formatted()) finding\(fixable.count == 1 ? "" : "s") can be fixed automatically"
+                     : "\(selectedFixable.count.formatted()) fixable selected")
                     .foregroundStyle(.secondary)
             } else {
                 Text(MapMainView.systemInfo.summary)
@@ -546,7 +546,7 @@ struct ResultsPane: View {
                 confirmingFix.value = selectedFixable
             }
             .disabled(selectedFixable.isEmpty || controller.isFixing)
-            Button("Fix All (\(bulkFixable.count))") {
+            Button("Fix All (\(bulkFixable.count.formatted()))") {
                 confirmingFix.value = bulkFixable
             }
             .disabled(bulkFixable.isEmpty || controller.isFixing)

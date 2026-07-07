@@ -85,23 +85,48 @@ public enum DDSAlpha {
         }
     }
 
-    public static func analyze(url: URL, maxBytes: Int = 256 << 20) -> Verdict {
+    /// Blocks per sampling window: 1,024 BC3 blocks = 16 KB = one page on
+    /// Apple Silicon. Sampling whole windows (not scattered blocks) is what
+    /// keeps the I/O bounded — the file is memory-mapped, and only pages we
+    /// actually touch get read from disk.
+    static let sampleWindowBlocks = 1024
+
+    /// `sampleWindows` bounds DETECTION I/O: probe at most that many evenly
+    /// spaced 16 KB windows (nil = every block — the mode stripToBC1 uses to
+    /// re-verify before writing). A sampled `.opaqueBC3` means "no
+    /// translucent pixel FOUND"; the fix's full pass is the guarantee.
+    public static func analyze(url: URL, maxBytes: Int = 256 << 20,
+                               sampleWindows: Int? = nil) -> Verdict {
         guard let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int,
               size <= maxBytes,
               let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return .notApplicable }
-        return analyze(data: data)
+        return analyze(data: data, sampleWindows: sampleWindows)
     }
 
-    public static func analyze(data: Data) -> Verdict {
+    public static func analyze(data: Data, sampleWindows: Int? = nil) -> Verdict {
         guard let layout = bc3Layout(data) else { return .notApplicable }
+        let totalBlocks = layout.mips.reduce(0) { $0 + $1.blocks }
+        let windowCount = (totalBlocks + sampleWindowBlocks - 1) / sampleWindowBlocks
+        let windowStride: Int
+        if let sampleWindows, sampleWindows > 0, windowCount > sampleWindows {
+            windowStride = (windowCount + sampleWindows - 1) / sampleWindows
+        } else {
+            windowStride = 1
+        }
         var verdict = Verdict.opaqueBC3
         data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
             guard let base = raw.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
                 verdict = .notApplicable
                 return
             }
+            var blockBase = 0
             for mip in layout.mips {
+                defer { blockBase += mip.blocks }
                 for block in 0..<mip.blocks {
+                    if windowStride > 1,
+                       ((blockBase + block) / sampleWindowBlocks) % windowStride != 0 {
+                        continue // untouched pages stay on disk
+                    }
                     let p = mip.offset + block * 16
                     let a0 = Int(base[p]), a1 = Int(base[p + 1])
                     // Fast path: both endpoints opaque in a0>a1 mode means

@@ -105,10 +105,10 @@ struct ReportWindow: View {
 
     private func subtitle(for report: AnalysisReport) -> String {
         if controller.isRunning {
-            return "\(report.findings.count) findings so far"
+            return "\(report.findings.count.formatted()) findings so far"
         }
         let when = report.generatedAt.formatted(date: .abbreviated, time: .shortened)
-        return "Generated \(when) — \(report.stats.packsScanned) packs, \(report.findings.count) findings"
+        return "Generated \(when) — \(report.stats.packsScanned.formatted()) packs, \(report.findings.count.formatted()) findings"
     }
 
     private var actionErrorsBinding: Binding<Bool> {
@@ -270,7 +270,7 @@ struct FindingsList: View {
                         ForEach(FindingCategory.allCases, id: \.self) { category in
                             let items = findings.filter { $0.category == category }
                             if !items.isEmpty {
-                                Section("\(category.rawValue) (\(items.count))") {
+                                Section("\(category.rawValue) (\(items.count.formatted()))") {
                                     ForEach(items) { finding in
                                         FindingRow(finding: finding).tag(finding.id)
                                     }
@@ -279,7 +279,7 @@ struct FindingsList: View {
                         }
                     case .pack:
                         ForEach(packSections, id: \.title) { section in
-                            Section("\(section.title) (\(section.items.count))") {
+                            Section("\(section.title) (\(section.items.count.formatted()))") {
                                 ForEach(section.items) { finding in
                                     FindingRow(finding: finding).tag(finding.id)
                                 }
@@ -363,8 +363,8 @@ struct FindingsList: View {
                 Text("Applying fixes…").foregroundStyle(.secondary)
             } else {
                 Text(selectedFixable.isEmpty
-                     ? "\(fixable.count) finding\(fixable.count == 1 ? "" : "s") can be fixed automatically"
-                     : "\(selectedFixable.count) fixable selected")
+                     ? "\(fixable.count.formatted()) finding\(fixable.count == 1 ? "" : "s") can be fixed automatically"
+                     : "\(selectedFixable.count.formatted()) fixable selected")
                     .foregroundStyle(.secondary)
             }
             Spacer()
@@ -372,7 +372,7 @@ struct FindingsList: View {
                 confirmingFix.value = selectedFixable
             }
             .disabled(selectedFixable.isEmpty || controller.isFixing)
-            Button("Fix All (\(bulkFixable.count))") {
+            Button("Fix All (\(bulkFixable.count.formatted()))") {
                 confirmingFix.value = bulkFixable
             }
             .disabled(bulkFixable.isEmpty || controller.isFixing)

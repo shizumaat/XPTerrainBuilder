@@ -123,11 +123,11 @@ struct PackInspectorView: View {
         if selected.isEmpty {
             let bytes = affected.reduce(Int64(0)) { $0 + $1.sizeBytes }
             let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-            return "\(affected.count) package\(affected.count == 1 ? "" : "s") in view, \(size)"
+            return "\(affected.count.formatted()) package\(affected.count == 1 ? "" : "s") in view, \(size)"
         }
         let bytes = selected.reduce(Int64(0)) { $0 + $1.sizeBytes }
         let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-        return "\(selected.count) of \(affected.count) selected, \(size)"
+        return "\(selected.count.formatted()) of \(affected.count.formatted()) selected, \(size)"
     }
 
     private func packRow(_ pack: SceneryPack) -> some View {

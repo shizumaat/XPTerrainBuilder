@@ -427,18 +427,19 @@ public struct PackageHealthAnalyzer {
         }
 
         // C-18: DXT5 whose alpha decodes fully opaque — the alpha blocks are
-        // dead weight (half the file, half the VRAM). Full-file reads, so
-        // only the biggest few files per pack are checked; the analysis
-        // early-exits at the first genuinely translucent pixel, and fixing
-        // (which invalidates the cache) surfaces the next batch on re-run.
+        // dead weight (half the file, half the VRAM). Detection SAMPLES ≤64
+        // 16 KB windows per file (~1 MB of I/O) — full decodes of 48 MB
+        // textures made texture-heavy airports take minutes per pack. A
+        // sampled hit is a candidate; the fix re-verifies every block before
+        // writing and refuses if any real transparency exists.
         var deadAlpha: [(URL, TextureInfo)] = []
         let toCheck = dxt5Candidates.sorted { $0.1.fileSizeBytes > $1.1.fileSizeBytes }
         let deadAlphaTruncated = toCheck.count > config.deadAlphaChecksPerPack
         for candidate in toCheck.prefix(config.deadAlphaChecksPerPack) {
-            // Per-file pool: analyze memory-maps whole files; without this
-            // the mapped data outlives the loop until the pack-level pool.
+            // Per-file pool: analyze memory-maps files; without this the
+            // mapped data outlives the loop until the pack-level pool.
             autoreleasepool {
-                if case .opaqueBC3 = DDSAlpha.analyze(url: candidate.0) {
+                if case .opaqueBC3 = DDSAlpha.analyze(url: candidate.0, sampleWindows: 64) {
                     deadAlpha.append(candidate)
                 }
             }
@@ -451,9 +452,9 @@ public struct PackageHealthAnalyzer {
                 severity: max(info.width, info.height) >= 1024 ? .warning : .info,
                 category: .packageHealth,
                 title: "Unused alpha channel: \(url.lastPathComponent)",
-                detail: "\(url.lastPathComponent) (\(info.width)x\(info.height)) is DXT5-compressed but every pixel is opaque — the alpha data doubles the file and VRAM for nothing (Laminar: \"If your texture does not have any transparent parts, make sure to save it without an alpha channel\").",
+                detail: "\(url.lastPathComponent) (\(info.width)x\(info.height)) is DXT5-compressed but every sampled pixel is opaque — the alpha data doubles the file and VRAM for nothing (Laminar: \"If your texture does not have any transparent parts, make sure to save it without an alpha channel\").",
                 path: url.path,
-                suggestion: "Apply Fix to rewrite it as DXT1 (~\(saved) saved). Colors are copied bit-exactly — no re-encoding, no quality change. Backed up and revertible.",
+                suggestion: "Apply Fix to rewrite it as DXT1 (~\(saved) saved). The fix re-checks every pixel first and refuses if any real transparency exists; colors are copied bit-exactly — no re-encoding, no quality change. Backed up and revertible.",
                 url: URL(string: "https://developer.x-plane.com/article/performance-tuning-and-scenery/"),
                 fixability: .auto,
                 proposedFix: .stripDeadAlpha(ddsPath: url.path),

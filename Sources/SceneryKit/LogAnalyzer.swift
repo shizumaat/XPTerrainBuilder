@@ -175,9 +175,10 @@ public struct LogAnalyzer {
                 title: "ATC controllers dropped: \(loss.icao)",
                 detail: "X-Plane dropped ATC controllers at \(loss.icao) (\(loss.name)) because they have no frequency in the 118.000–136.990 MHz band — typically military UHF-only entries. \(evidence)",
                 path: aptURL.path,
-                suggestion: "Look up the airport's real VHF frequency and add it to the affected controller's rows in apt.dat (or report to the pack author). Military-only facilities without any VHF service can't be modeled by X-Plane's ATC.",
+                suggestion: "Apply Fix to add an in-band VHF row to each dropped controller: the published frequency (looked up on AirNav/OurAirports when you apply) when one exists, otherwise an unused in-band channel. UHF rows stay; backed up and revertible.",
                 url: lookupURL,
-                fixability: .assisted,
+                fixability: .auto,
+                proposedFix: .repairControllerFrequencies(aptPath: aptURL.path, icao: loss.icao),
                 packName: pack.name,
                 packKind: pack.kind
             ))

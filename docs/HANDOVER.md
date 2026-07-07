@@ -125,9 +125,15 @@ Owner: Noah (noahplieberman@gmail.com, GitHub `shizumaat`). His install:
     Tower" double-space is a real GA bug pattern). Frequency lookup:
    airnav.com/airport/<id> (US, rich VHF+UHF per controller with
    sectors); ourairports.com/airports/<icao>/frequencies.html
-   (worldwide, sparse for military). Auto-writing looked-up
-   frequencies into apt.dat was deliberately NOT built — scraped
-   data + "never guess".
+   (worldwide, sparse for military). LOG-91 is now auto-fixable
+   (Noah sanctioned it): FixEngine.repairControllerFrequencies
+   fetches at FIX time (analysis stays offline; frequencyProvider is
+   injectable for tests), adds a VHF row per dropped controller —
+   published freq preferred, collision-avoidance per CODE only
+   (approach + departure legitimately share TRACON freqs; KBNA WEST
+   = 119.35 for both), unused in-band channel as fallback (legacy
+   2-digit rows need 10 kHz-representable values). UHF rows stay.
+   CLI: --lookup-freq <icao>, --repair-freq <apt.dat> <icao>.
 
 ## Environment quirks (Noah's machine)
 

@@ -57,6 +57,38 @@ if let geoIndex = CommandLine.arguments.firstIndex(of: "--dsf-geometry"),
     exit(total == inBounds && total > 0 ? 0 : total == 0 ? 0 : 1)
 }
 
+// Debug: --lookup-freq <icao> fetches published ATC frequencies live.
+if let lookupIndex = CommandLine.arguments.firstIndex(of: "--lookup-freq"),
+   lookupIndex + 1 < CommandLine.arguments.count {
+    let icao = CommandLine.arguments[lookupIndex + 1]
+    let results = FrequencyLookup.fetch(icao: icao)
+    print("\(icao): \(results.count) VHF controller frequencies")
+    for f in results {
+        print(String(format: "  code x%@  %.3f MHz  %@ [%@]",
+                     String(f.codeSuffix), Double(f.khz) / 1000, f.label, f.source))
+    }
+    exit(0)
+}
+
+// Debug: --repair-freq <apt.dat> <icao> applies the controller-frequency
+// repair (live lookup + fallback) to the given file. Backs up + records
+// like the app; revert via the app's Modifications window or the backup.
+if let repairIndex = CommandLine.arguments.firstIndex(of: "--repair-freq"),
+   repairIndex + 2 < CommandLine.arguments.count {
+    let aptPath = CommandLine.arguments[repairIndex + 1]
+    let icao = CommandLine.arguments[repairIndex + 2]
+    let engine = FixEngine(log: ModificationLog(fileURL:
+        URL(fileURLWithPath: aptPath + ".xpsd-mods.json")))
+    let finding = Finding(checkID: "LOG-91", severity: .warning, category: .packageHealth,
+                          title: "repair", detail: "repair",
+                          proposedFix: .repairControllerFrequencies(aptPath: aptPath, icao: icao))
+    for outcome in engine.apply([finding]) {
+        print(outcome.success ? "REPAIRED: \(outcome.message ?? "")"
+                              : "FAILED: \(outcome.message ?? "")")
+    }
+    exit(0)
+}
+
 // Debug: --parse-lib <pack-dir> <vpath> parses one library.txt in isolation.
 if let parseIndex = CommandLine.arguments.firstIndex(of: "--parse-lib"),
    parseIndex + 2 < CommandLine.arguments.count {

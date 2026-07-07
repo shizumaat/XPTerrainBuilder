@@ -60,6 +60,12 @@ public enum ProposedFix: Codable, Sendable, Hashable {
     /// endorsed; center/size computed from the DSF windings that use it).
     case insertLoadCenter(polPath: String, latitude: Double, longitude: Double,
                           sizeMeters: Int, resolutionPx: Int)
+    /// Give every dropped ATC controller at `icao` an in-band VHF frequency:
+    /// the published one (AirNav / OurAirports, fetched when the fix is
+    /// applied) when available, otherwise an unused in-band channel — either
+    /// way the "lost some controllers" error clears. Rows are added; the
+    /// original UHF rows stay.
+    case repairControllerFrequencies(aptPath: String, icao: String)
 
     public var summary: String {
         switch self {
@@ -73,6 +79,8 @@ public enum ProposedFix: Codable, Sendable, Hashable {
             return "Promote ATTR_no_blend to GLOBAL_no_blend"
         case .insertLoadCenter(_, _, _, let size, _):
             return "Add LOAD_CENTER (\(size) m)"
+        case .repairControllerFrequencies(_, let icao):
+            return "Add VHF frequency for \(icao)'s dropped controllers"
         }
     }
 
@@ -83,6 +91,7 @@ public enum ProposedFix: Codable, Sendable, Hashable {
         case .convertPNGToDDS(let path): return path
         case .promoteGlobalNoBlend(let path): return path
         case .insertLoadCenter(let path, _, _, _, _): return path
+        case .repairControllerFrequencies(let path, _): return path
         }
     }
 }

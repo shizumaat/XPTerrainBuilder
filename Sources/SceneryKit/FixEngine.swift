@@ -109,6 +109,10 @@ public struct FixEngine: Sendable {
     public static let backupSuffix = ".xpsd-backup"
 
     public let log: ModificationLog
+    /// Published-frequency source for controller repairs. Injectable so
+    /// tests stay offline and deterministic; defaults to the real lookup
+    /// (AirNav / OurAirports).
+    public var frequencyProvider: @Sendable (String) -> [LookedUpFrequency] = FrequencyLookup.fetch
 
     public init(log: ModificationLog = ModificationLog(fileURL: ModificationLog.defaultURL())) {
         self.log = log
@@ -144,7 +148,166 @@ public struct FixEngine: Sendable {
             return applyLoadCenter(polPath: polPath, latitude: lat, longitude: lon,
                                    sizeMeters: size, resolutionPx: res,
                                    finding: finding, records: &records)
+        case .repairControllerFrequencies(let aptPath, let icao):
+            return applyControllerFrequencyRepair(aptPath: aptPath, icao: icao,
+                                                  finding: finding, records: &records)
         }
+    }
+
+    // MARK: repairControllerFrequencies
+
+    /// Give every dropped controller at `icao` (a named controller group
+    /// whose every frequency is outside 118.000–136.990 MHz) an in-band VHF
+    /// row: the published frequency for that facility type when AirNav /
+    /// OurAirports has one, otherwise an unused in-band channel. Rows are
+    /// ADDED next to the group — the UHF rows stay, matching how real dual-
+    /// band facilities are coded.
+    func applyControllerFrequencyRepair(aptPath: String, icao: String, finding: Finding,
+                                        records: inout [ModificationRecord]) -> FixOutcome {
+        let fm = FileManager.default
+        let fileURL = URL(fileURLWithPath: aptPath)
+        let backupURL = URL(fileURLWithPath: aptPath + Self.backupSuffix)
+
+        func fail(_ message: String) -> FixOutcome {
+            FixOutcome(findingID: finding.id, filePath: aptPath, success: false, message: message)
+        }
+
+        guard let original = try? Data(contentsOf: fileURL) else {
+            return fail("Could not read apt.dat.")
+        }
+        guard let text = String(data: original, encoding: .utf8)
+                ?? String(data: original, encoding: .isoLatin1) else {
+            return fail("Could not decode apt.dat.")
+        }
+
+        var lines = text.components(separatedBy: "\n")
+        let groups = Self.controllerGroups(lines: lines, icao: icao)
+        let bad = groups.filter { group in
+            !group.frequenciesKhz.contains { FrequencyLookup.vhfBandKhz.contains($0) }
+        }
+        guard !bad.isEmpty else {
+            return fail("No dropped controllers found at \(icao) — already repaired?")
+        }
+
+        let published = frequencyProvider(icao)
+        var usedKhz = Set(groups.flatMap { $0.frequenciesKhz })
+        // Collision avoidance is per CODE: two approach sectors must not
+        // merge onto one frequency, but approach and departure legitimately
+        // share the same TRACON frequency (KBNA: 119.35 serves both WEST
+        // positions) — counting it "used" would push us off the real answer.
+        var usedByCode: [Character: Set<Int>] = [:]
+        for group in groups {
+            if let suffix = group.code.last {
+                usedByCode[suffix, default: []].formUnion(group.frequenciesKhz)
+            }
+        }
+        var additions: [String] = []
+
+        // Insert bottom-up so earlier line indices stay valid.
+        for group in bad.sorted(by: { $0.lastLineIndex > $1.lastLineIndex }) {
+            let legacy = group.code.count == 2
+            let suffix = group.code.last ?? " "
+            let sameCode = usedByCode[suffix] ?? []
+            let candidates = published.filter { $0.codeSuffix == suffix }
+            let chosen = candidates.first { !sameCode.contains($0.khz) && (!legacy || $0.khz % 10 == 0) }
+                ?? candidates.first { !legacy || $0.khz % 10 == 0 }
+            let khz: Int
+            let source: String
+            if let chosen {
+                khz = chosen.khz
+                source = chosen.source
+            } else {
+                // No published VHF (or none representable): assign an unused
+                // in-band channel, stepping down from the top of the band.
+                let step = legacy ? 50 : 25
+                var candidate = legacy ? 136_950 : 136_975
+                while usedKhz.contains(candidate), candidate > 118_000 { candidate -= step }
+                khz = candidate
+                source = "assigned"
+            }
+            usedKhz.insert(khz)
+            usedByCode[suffix, default: []].insert(khz)
+            let value = group.code.count == 2 ? khz / 10 : khz
+            lines.insert("\(group.code) \(value) \(group.name)", at: group.lastLineIndex + 1)
+            additions.append(String(format: "%.3f MHz (%@) → %@",
+                                    Double(khz) / 1000, source, group.name))
+        }
+
+        // Validate: no dropped controllers remain at this airport.
+        let after = Self.controllerGroups(lines: lines, icao: icao)
+        guard after.allSatisfy({ group in
+            group.frequenciesKhz.contains { FrequencyLookup.vhfBandKhz.contains($0) }
+        }) else {
+            return fail("Edited apt.dat failed validation; no changes were made.")
+        }
+
+        if !fm.fileExists(atPath: backupURL.path) {
+            do {
+                try original.write(to: backupURL, options: .atomic)
+            } catch {
+                return fail("Could not create backup: \(error.localizedDescription)")
+            }
+        }
+        do {
+            try Data(lines.joined(separator: "\n").utf8).write(to: fileURL, options: .atomic)
+        } catch {
+            return fail("Could not write apt.dat: \(error.localizedDescription)")
+        }
+        if !records.contains(where: { $0.filePath == aptPath }) {
+            records.append(ModificationRecord(
+                filePath: aptPath,
+                backupPath: backupURL.path,
+                checkID: finding.checkID,
+                summary: "\(icao): added \(additions.joined(separator: "; "))"
+            ))
+        }
+        return FixOutcome(findingID: finding.id, filePath: aptPath, success: true,
+                          message: additions.joined(separator: "; "))
+    }
+
+    struct ControllerGroup {
+        let code: String        // "1054" or legacy "54"
+        let name: String        // raw name, internal spacing intact
+        var frequenciesKhz: [Int]
+        var lastLineIndex: Int
+    }
+
+    /// Named ATC controller groups at `icao`, exactly as X-Plane sees them
+    /// (whitespace-sensitive names, legacy 2-digit rows in 10 kHz units).
+    static func controllerGroups(lines: [String], icao: String) -> [ControllerGroup] {
+        var groups: [String: ControllerGroup] = [:]
+        var order: [String] = []
+        var inAirport = false
+        let controllerCodes: Set<String> = ["1052", "1053", "1054", "1055", "1056",
+                                            "52", "53", "54", "55", "56"]
+        for (index, line) in lines.enumerated() {
+            let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+            guard parts.count >= 2 else { continue }
+            if ["1", "16", "17"].contains(parts[0]) {
+                inAirport = parts.count > 4 && parts[4] == icao
+                continue
+            }
+            guard inAirport, controllerCodes.contains(parts[0]), let raw = Int(parts[1]) else { continue }
+            let khz = parts[0].count == 2 ? raw * 10 : raw
+            let isSpace: (Character) -> Bool = { $0 == " " || $0 == "\t" }
+            var rest = Substring(line)
+            rest = rest.drop(while: isSpace)
+            rest = rest.drop(while: { !isSpace($0) })
+            rest = rest.drop(while: isSpace)
+            rest = rest.drop(while: { !isSpace($0) })
+            let name = String(rest.drop(while: isSpace))
+            let key = "\(parts[0])|\(name)"
+            if var group = groups[key] {
+                group.frequenciesKhz.append(khz)
+                group.lastLineIndex = index
+                groups[key] = group
+            } else {
+                order.append(key)
+                groups[key] = ControllerGroup(code: parts[0], name: name,
+                                              frequenciesKhz: [khz], lastLineIndex: index)
+            }
+        }
+        return order.compactMap { groups[$0] }
     }
 
     // MARK: insertLoadCenter

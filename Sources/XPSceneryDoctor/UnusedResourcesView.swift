@@ -141,12 +141,12 @@ struct UnusedResourcesView: View {
             Button("Trash Selected") {
                 confirmingTrash.value = selectedPaths
             }
-            .disabled(selectedPaths.isEmpty || controller.isFixing || controller.isRunning)
+            .disabled(selectedPaths.isEmpty || controller.isFixing)
             Button("Trash All (\(rows.count))") {
                 confirmingTrash.value = rows.map { $0.id }
             }
-            .disabled(rows.isEmpty || controller.isFixing || controller.isRunning)
-            .help(controller.isRunning ? "Available when the analysis finishes" : "Move every listed file to the Trash")
+            .disabled(rows.isEmpty || controller.isFixing)
+            .help("Move every listed file to the Trash (files here have already passed the whole-install cross-check)")
         }
         .font(.callout)
         .padding(.horizontal, 12)

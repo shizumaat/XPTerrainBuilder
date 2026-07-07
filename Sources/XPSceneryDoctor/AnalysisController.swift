@@ -62,6 +62,13 @@ final class AnalysisController: ObservableObject {
     /// Packs our own fixes/actions touched since their cache entries were
     /// written — forced fresh on the next run.
     private var pendingInvalidation: Set<String> = []
+    /// Fixes applied WHILE a run is in flight: the run's final report was
+    /// computed from pre-fix reads, so these are subtracted when it lands
+    /// (otherwise fixed findings would resurrect at run end). Correctness
+    /// across runs is already covered by content signatures +
+    /// pendingInvalidation; this is only about the in-flight report.
+    private var fixedDuringRun: Set<UUID> = []
+    private var trashedDuringRun: Set<String> = []
 
     // Search: debounced, filtered off the main thread against a precomputed
     // lowercased corpus. nil = no active search. (Live filtering of 7k+
@@ -229,6 +236,8 @@ final class AnalysisController: ObservableObject {
         isRunning = true
         progress.stageLabel = "Starting…"
         errorMessage = nil
+        fixedDuringRun = []
+        trashedDuringRun = []
         report = AnalysisReport(xplaneRoot: root.path, findings: [], stats: AnalysisStats())
         reportGeneration += 1
 
@@ -306,8 +315,23 @@ final class AnalysisController: ObservableObject {
                 case .event(.unusedResources(let groups)):
                     self.report?.unusedResources.append(contentsOf: groups)
                 case .completed(let final):
-                    // The final report supersedes everything streamed.
+                    // The final report supersedes everything streamed —
+                    // minus whatever the user fixed while it was running
+                    // (it was computed from pre-fix reads).
                     pending = []
+                    var final = final
+                    if !self.fixedDuringRun.isEmpty {
+                        let fixed = self.fixedDuringRun
+                        final.findings.removeAll { fixed.contains($0.id) }
+                    }
+                    if !self.trashedDuringRun.isEmpty {
+                        let trashed = self.trashedDuringRun
+                        final.unusedResources = final.unusedResources.compactMap { group in
+                            var group = group
+                            group.files.removeAll { trashed.contains($0.path) }
+                            return group.files.isEmpty ? nil : group
+                        }
+                    }
                     self.report = final
                     self.isRunning = false
                     self.progress.unusedVerifyProgress = nil
@@ -485,9 +509,14 @@ final class AnalysisController: ObservableObject {
 
     // MARK: - Fixes
 
+    /// Safe DURING a run too: a finding is only visible once its pack's
+    /// scan completed, fix writes are atomic (concurrent readers see
+    /// old-or-new, never torn), and staleness self-heals via content
+    /// signatures + pendingInvalidation. fixedDuringRun keeps the run's
+    /// final report from resurrecting what was just fixed.
     func applyFixes(to findings: [Finding]) {
         let fixable = findings.filter { $0.proposedFix != nil }
-        guard !fixable.isEmpty, !isFixing, !isRunning else { return }
+        guard !fixable.isEmpty, !isFixing else { return }
         isFixing = true
         fixErrors = []
 
@@ -501,6 +530,7 @@ final class AnalysisController: ObservableObject {
             let succeeded = Set(outcomes.filter { $0.success }.map { $0.findingID })
             self.pendingInvalidation.formUnion(self.packNames(
                 containing: outcomes.filter { $0.success }.map { $0.filePath }))
+            if self.isRunning { self.fixedDuringRun.formUnion(succeeded) }
             if var report = self.report {
                 report.findings.removeAll { succeeded.contains($0.id) }
                 self.report = report
@@ -519,8 +549,10 @@ final class AnalysisController: ObservableObject {
     }
 
     /// Trash unused files, recording each in the manifest for revert.
+    /// Allowed during a run: unused groups only exist AFTER the deletion-
+    /// grade cross-check, and trashing is atomic per file.
     func trashUnusedFiles(_ paths: [String]) {
-        guard !paths.isEmpty, !isFixing, !isRunning else { return }
+        guard !paths.isEmpty, !isFixing else { return }
         isFixing = true
         fixErrors = []
 
@@ -533,6 +565,7 @@ final class AnalysisController: ObservableObject {
             guard let self else { return }
             let trashed = Set(outcomes.filter { $0.success }.map { $0.filePath })
             self.pendingInvalidation.formUnion(self.packNames(containing: Array(trashed)))
+            if self.isRunning { self.trashedDuringRun.formUnion(trashed) }
             if var report = self.report {
                 report.unusedResources = report.unusedResources.compactMap { group in
                     var group = group

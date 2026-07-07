@@ -513,11 +513,14 @@ struct ResultsPane: View {
             Button("Fix Selected") {
                 confirmingFix.value = selectedFixable
             }
-            .disabled(selectedFixable.isEmpty || controller.isFixing || controller.isRunning)
+            .disabled(selectedFixable.isEmpty || controller.isFixing)
             Button("Fix All (\(bulkFixable.count))") {
                 confirmingFix.value = bulkFixable
             }
-            .disabled(bulkFixable.isEmpty || controller.isFixing || controller.isRunning)
+            .disabled(bulkFixable.isEmpty || controller.isFixing)
+            .help(controller.isRunning
+                  ? "Applies the fixes found so far — more may appear as the analysis continues"
+                  : "Apply every automatic fix shown in this list (appearance-changing fixes must be selected individually)")
         }
         .font(.callout)
         .padding(.horizontal, 12)

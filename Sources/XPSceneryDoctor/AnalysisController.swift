@@ -251,6 +251,7 @@ final class AnalysisController: ObservableObject {
         fixedDuringRun = []
         trashedDuringRun = []
         receivedUnusedThisRun = false
+        lastPersistedPackCount = 0
         // Keep the last results ON SCREEN while the run streams: cached
         // packs re-emit the very same findings (same UUIDs — deduped in
         // flushPending), changed packs re-analyze, and the final report
@@ -323,6 +324,7 @@ final class AnalysisController: ObservableObject {
                     }
                     if case .inspectingPack(let name, let done, let total) = stage {
                         self.progress.packProgress = (done, total, name)
+                        self.persistReportOnProgress(done: done)
                     } else {
                         self.progress.packProgress = nil
                     }
@@ -338,7 +340,6 @@ final class AnalysisController: ObservableObject {
                     if ContinuousClock.now - lastFlush > .milliseconds(400) {
                         self.flushPending(&pending)
                         lastFlush = .now
-                        self.persistReportThrottled()
                     }
                 case .event(.duplicateGroups(let groups)):
                     self.report?.duplicateGroups = groups
@@ -456,14 +457,25 @@ final class AnalysisController: ObservableObject {
         }
     }
 
-    /// Persist the STREAMING report at most once a minute during a run, so a
-    /// relaunch seeds with roughly what was on screen — not the last
-    /// completed run's snapshot from hours ago.
-    private var lastReportPersist = ContinuousClock.now - .seconds(120)
-    private func persistReportThrottled() {
-        guard ContinuousClock.now - lastReportPersist >= .seconds(60) else { return }
-        lastReportPersist = .now
-        persistReport()
+    /// Persist the STREAMING report every 100 analyzed packs, so a relaunch
+    /// seeds with roughly what was on screen — not the last completed run's
+    /// snapshot from hours ago. Progress-keyed (not time-keyed): idle
+    /// stretches write nothing, and the burst of cache-served packs is
+    /// bounded by the in-flight guard (encodes never stack up).
+    private var lastPersistedPackCount = 0
+    private var reportPersistInFlight = false
+    private func persistReportOnProgress(done: Int) {
+        guard done - lastPersistedPackCount >= 100, !reportPersistInFlight,
+              let report else { return }
+        lastPersistedPackCount = done
+        reportPersistInFlight = true
+        let url = Self.reportFileURL
+        Task.detached(priority: .utility) { [weak self] in
+            if let data = try? report.jsonData() {
+                try? data.write(to: url, options: .atomic)
+            }
+            await MainActor.run { [weak self] in self?.reportPersistInFlight = false }
+        }
     }
 
     private func loadPersistedReport() {

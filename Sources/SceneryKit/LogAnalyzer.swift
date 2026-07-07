@@ -38,8 +38,14 @@ public struct LogAnalyzer {
     public struct LogScanResult: Sendable {
         public var missing: [MissingResource] = []
         public var otherSceneryErrors: [String] = []
+        /// Airports X-Plane dropped ATC controllers for ("...has lost some
+        /// controllers due to bad frequencies"): (icao, display name).
+        public var controllerLosses: [(icao: String, name: String)] = []
         public var linesScanned = 0
     }
+
+    static let controllerLossRegex = try! NSRegularExpression(
+        pattern: #"The airport (\S+) \((.*?)\) has lost some controllers due to bad frequencies"#)
 
     public static func parseLog(text: String) -> LogScanResult {
         var result = LogScanResult()
@@ -67,6 +73,15 @@ public struct LogAnalyzer {
                 break
             }
             if matched { continue }
+
+            // ATC controllers X-Plane dropped over bad frequencies — handled
+            // as their own finding (attributed to the owning pack), not as
+            // generic noise.
+            if let m = controllerLossRegex.firstMatch(in: line, options: [], range: range),
+               let icao = line.substring(match: m, group: 1) {
+                result.controllerLosses.append((icao, line.substring(match: m, group: 2) ?? icao))
+                continue
+            }
 
             // Generic scenery subsystem errors worth surfacing (capped later).
             if line.contains("E/SCN") || line.contains("E/DSF") || line.contains("E/APT") {
@@ -126,6 +141,61 @@ public struct LogAnalyzer {
             findings.append(diagnose(missing).attributed(packName: missing.referencedFrom))
         }
 
+        // ATC controller losses: X-Plane's own verdict is the ground truth
+        // (its grouping rules resist clean reverse-engineering — see
+        // HANDOVER). For airports a custom pack owns, diagnose the pack's
+        // apt.dat and point at a real-world frequency source; losses in
+        // Laminar's default data aren't the user's to fix.
+        var defaultDataLosses: [(icao: String, name: String)] = []
+        var seenLossICAOs = Set<String>()
+        for loss in scan.controllerLosses {
+            guard seenLossICAOs.insert(loss.icao).inserted else { continue }
+            guard let pack = installation.packs.first(where: {
+                !$0.isLaminar && $0.isInstalled && $0.airports[loss.icao] != nil
+            }) else {
+                defaultDataLosses.append(loss)
+                continue
+            }
+            let aptURL = pack.url.appendingPathComponent("Earth nav data/apt.dat")
+            let suspects = Self.outOfBandControllers(icao: loss.icao, aptURL: aptURL)
+            let evidence = suspects.isEmpty
+                ? "Check the airport's ATC frequency rows (1050–1056) in apt.dat."
+                : "Controllers with no frequency inside X-Plane's 118.000–136.990 MHz band:\n"
+                    + suspects.map { "  \($0.controller): \($0.frequencies)" }.joined(separator: "\n")
+            // Military fields tower on UHF (225–400 MHz), which X-Plane's
+            // ATC cannot model — the real-world VHF partner frequency is the
+            // fix, not deleting the controller.
+            let lookupURL = loss.icao.first == "K" || loss.icao.count <= 4 && loss.icao.first == "P"
+                ? URL(string: "https://www.airnav.com/airport/\(loss.icao)")
+                : URL(string: "https://ourairports.com/airports/\(loss.icao)/frequencies.html")
+            findings.append(Finding(
+                checkID: "LOG-91",
+                severity: .warning,
+                category: .packageHealth,
+                title: "ATC controllers dropped: \(loss.icao)",
+                detail: "X-Plane dropped ATC controllers at \(loss.icao) (\(loss.name)) because they have no frequency in the 118.000–136.990 MHz band — typically military UHF-only entries. \(evidence)",
+                path: aptURL.path,
+                suggestion: "Look up the airport's real VHF frequency and add it to the affected controller's rows in apt.dat (or report to the pack author). Military-only facilities without any VHF service can't be modeled by X-Plane's ATC.",
+                url: lookupURL,
+                fixability: .assisted,
+                packName: pack.name,
+                packKind: pack.kind
+            ))
+        }
+        if !defaultDataLosses.isEmpty {
+            let list = defaultDataLosses.map { "\($0.icao) (\($0.name))" }.joined(separator: ", ")
+            findings.append(Finding(
+                checkID: "LOG-92",
+                severity: .info,
+                category: .developerDebug,
+                title: "\(defaultDataLosses.count) default-data airports dropped ATC controllers",
+                detail: "X-Plane's own Global Airports data has controllers without an in-band (118.000–136.990 MHz) frequency at: \(list). Mostly military fields whose towers are UHF-only. This is Laminar's data — nothing in this install to fix.",
+                path: installation.logURL.path,
+                suggestion: "Fixable only upstream via the X-Plane Scenery Gateway.",
+                fixability: .manual
+            ))
+        }
+
         // Cap the generic error list so a noisy log doesn't drown the report.
         let generics = scan.otherSceneryErrors.prefix(25)
         if !generics.isEmpty {
@@ -139,6 +209,53 @@ public struct LogAnalyzer {
             ))
         }
         return (findings, scan.linesScanned)
+    }
+
+    /// Named ATC controller groups at `icao` whose every frequency is
+    /// outside X-Plane's VHF band — the concrete rows behind an "airport has
+    /// lost some controllers" log line. Groups by (row code, raw name):
+    /// whitespace differences split groups exactly as X-Plane sees them
+    /// (a real Global Airports bug pattern: "Ämari  Tower" vs "Ämari Tower").
+    static func outOfBandControllers(
+        icao: String, aptURL: URL
+    ) -> [(controller: String, frequencies: String)] {
+        guard let text = TextFile.contents(of: aptURL) else { return [] }
+        var groups: [String: [Int]] = [:]  // "code|raw name" -> kHz
+        var order: [String] = []
+        var inAirport = false
+        for rawLine in TextFile.lines(text) {
+            let line = String(rawLine)
+            let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+            guard parts.count >= 2 else { continue }
+            switch parts[0] {
+            case "1", "16", "17":
+                inAirport = parts.count > 4 && parts[4] == icao
+            case "1052", "1053", "1054", "1055", "1056", "52", "53", "54", "55", "56":
+                guard inAirport, let raw = Int(parts[1]) else { continue }
+                let khz = parts[0].count == 2 ? raw * 10 : raw
+                // Raw name: everything after the second field, spacing intact.
+                let isSpace: (Character) -> Bool = { $0 == " " || $0 == "\t" }
+                var rest = Substring(line)
+                rest = rest.drop(while: isSpace)
+                rest = rest.drop(while: { !isSpace($0) })  // field 1 (row code)
+                rest = rest.drop(while: isSpace)
+                rest = rest.drop(while: { !isSpace($0) })  // field 2 (frequency)
+                let name = rest.drop(while: isSpace)
+                let key = "\(parts[0])|\(name)"
+                if groups[key] == nil { order.append(key) }
+                groups[key, default: []].append(khz)
+            default:
+                break
+            }
+        }
+        return order.compactMap { key in
+            guard let freqs = groups[key],
+                  !freqs.contains(where: { (118_000...136_990).contains($0) }) else { return nil }
+            let name = key.split(separator: "|", maxSplits: 1).last.map(String.init) ?? key
+            let list = freqs.map { String(format: "%.3f MHz", Double($0) / 1000) }
+                .joined(separator: ", ")
+            return (name.isEmpty ? key : name, list)
+        }
     }
 
     func diagnose(_ missing: MissingResource) -> Finding {

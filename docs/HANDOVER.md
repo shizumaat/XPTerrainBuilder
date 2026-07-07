@@ -107,6 +107,20 @@ Owner: Noah (noahplieberman@gmail.com, GitHub `shizumaat`). His install:
    change shape or meaning — stale caches otherwise serve old
    results. Blind spot: in-place edits of non-DSF files deeper than
    2 levels (own fixes invalidate explicitly; ⌘R bypasses).
+13. **ATC "lost some controllers" (LOG-91/92)**: X-Plane drops named
+   controllers whose every apt.dat frequency is outside 118.000–
+   136.990 MHz (military UHF fields). Its exact grouping rule resists
+   reverse-engineering — name-grouping reproduced only 12 of 18
+   Global Airports complaints (KAGC/KAFW/KTRI have valid VHF in every
+   model tried; 3A2 has a UHF-only Departure yet no complaint) — so
+   we anchor on the log lines as ground truth and only DIAGNOSE the
+   owning pack's apt.dat (whitespace-sensitive name grouping: "Ämari
+    Tower" double-space is a real GA bug pattern). Frequency lookup:
+   airnav.com/airport/<id> (US, rich VHF+UHF per controller with
+   sectors); ourairports.com/airports/<icao>/frequencies.html
+   (worldwide, sparse for military). Auto-writing looked-up
+   frequencies into apt.dat was deliberately NOT built — scraped
+   data + "never guess".
 
 ## Environment quirks (Noah's machine)
 

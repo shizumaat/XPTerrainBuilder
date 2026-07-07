@@ -16,7 +16,30 @@ struct ResultsPane: View {
     private var findings: [Finding] {
         let all = controller.report?.findings ?? []
         guard let filter = packFilter else { return all }
-        return all.filter { $0.packName.map(filter.contains) ?? true }
+        // Airports of the packs in view — log lines mention ICAOs, not packs.
+        let icaos = Set(controller.installationPacks
+            .filter { filter.contains($0.name) }
+            .flatMap { $0.airports.keys })
+        return all.compactMap { finding in
+            switch finding.checkID {
+            case "LOG-90":
+                // Aggregate log noise: keep only the lines that mention a
+                // selected pack or one of its airports.
+                let lines = finding.detail.components(separatedBy: "\n").filter { line in
+                    filter.contains(where: { line.contains($0) })
+                        || icaos.contains(where: { line.contains(" \($0) ") || line.contains("'\($0)'") })
+                }
+                guard !lines.isEmpty else { return nil }
+                return finding.withContent(
+                    title: "\(lines.count) scenery-related log message\(lines.count == 1 ? "" : "s") for this selection",
+                    detail: lines.joined(separator: "\n"))
+            case "LOG-92":
+                // Default-data ATC losses never belong to a selection.
+                return nil
+            default:
+                return finding.packName.map(filter.contains) ?? true ? finding : nil
+            }
+        }
     }
 
     private var filteredDuplicateGroups: [DuplicateGroup] {

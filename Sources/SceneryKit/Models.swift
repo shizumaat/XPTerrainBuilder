@@ -155,6 +155,18 @@ public struct Finding: Identifiable, Codable, Sendable, Hashable {
         self.packKind = packKind
     }
 
+    /// Copy with different title/detail, preserving identity — for display-
+    /// side filtering of aggregate findings (fresh UUIDs would churn List
+    /// diffing and drop selections on every render).
+    public func withContent(title newTitle: String? = nil, detail newDetail: String) -> Finding {
+        Finding(
+            id: id, checkID: checkID, severity: severity, category: category,
+            title: newTitle ?? title, detail: newDetail, path: path, suggestion: suggestion,
+            url: url, fixability: fixability, proposedFix: proposedFix,
+            packName: packName, packKind: packKind
+        )
+    }
+
     /// Copy with pack attribution added, preserving identity. Existing
     /// attribution wins.
     public func attributed(packName: String?, packKind: PackKind? = nil) -> Finding {

@@ -377,20 +377,32 @@ public struct SceneryPack: Codable, Sendable {
     /// Content-change hash (names/sizes/mtimes to depth 2 + every DSF) — the
     /// analysis cache key. Empty when unknown.
     public var signature: String = ""
+    /// terrain/ contains .ter files — .ter-based scenery (ortho or mesh).
+    public var hasTerrain: Bool = false
+    /// textures/ holds photo-tile quantities of images (Ortho4XP-style).
+    public var isPhotoTextured: Bool = false
 
     public var isEnabled: Bool { status == .enabled }
     public var isInstalled: Bool { status != .uninstalled }
     public var hasDSF: Bool { !tiles.isEmpty }
 
+    /// Classification is CONTENT-first — name hints only break ties. Name
+    /// guessing misfiled orthos like z_SpainUHDv2 (no "ortho" in the name)
+    /// as landmarks whenever the sampled DSF's overlay flag was unreadable.
     public var kind: PackKind {
         if isLibrary { return .library }
         if !airports.isEmpty { return .airport }
         guard hasDSF else { return .other }
-        if isOverlay == true { return .landmark }
-        // Base-mesh DSF (or unknown): ortho imagery vs plain mesh by content hint.
         let lower = name.lowercased()
-        if lower.contains("ortho") || lower.contains("photo") { return .ortho }
+        if hasTerrain {
+            // .ter-based scenery: photo-tile texture volume = ortho, a
+            // handful of textures = elevation mesh. Names break ties.
+            if isPhotoTextured { return .ortho }
+            return lower.contains("ortho") || lower.contains("photo") ? .ortho : .mesh
+        }
+        if isOverlay == true { return .landmark }
         if isOverlay == false { return .mesh }
+        // Overlay flag unknown (unreadable sample DSF), no terrain content.
         return lower.contains("mesh") ? .mesh : .landmark
     }
 }

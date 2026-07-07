@@ -49,6 +49,8 @@ public struct InstallationScanner {
             let airports: [String: AirportInfo]
             let tiles: Set<String>
             let isOverlay: Bool?
+            let hasTerrain: Bool
+            let isPhotoTextured: Bool
             let signature: String
         }
         var probes = [PackProbe?](repeating: nil, count: entries.count)
@@ -68,11 +70,14 @@ public struct InstallationScanner {
                     if let sampleDSF, case .ok(let defs) = DSFReader.readDefinitions(url: sampleDSF) {
                         isOverlay = defs.isOverlay
                     }
+                    let content = terrainAndTextureProbe(url)
                     return PackProbe(
                         isLibrary: fm.fileExists(atPath: url.appendingPathComponent("library.txt").path),
                         airports: parseAirports(inPack: url),
                         tiles: tiles,
                         isOverlay: isOverlay,
+                        hasTerrain: content.hasTerrain,
+                        isPhotoTextured: content.isPhotoTextured,
                         signature: packSignature(url, hash: &hash)
                     )
                 }
@@ -114,7 +119,9 @@ public struct InstallationScanner {
                 tiles: probe.tiles,
                 isOverlay: probe.isOverlay,
                 isLaminar: Self.laminarPackNames.contains(name),
-                signature: probe.signature
+                signature: probe.signature,
+                hasTerrain: probe.hasTerrain,
+                isPhotoTextured: probe.isPhotoTextured
             ))
         }
 
@@ -275,6 +282,32 @@ public struct InstallationScanner {
             hash.combine(Double(values?.fileSize ?? 0))
         }
         return (tiles, sample)
+    }
+
+    /// Cheap content probe for pack-kind classification: does the pack carry
+    /// .ter-based scenery, and does it hold photo-tile quantities of images?
+    /// Orthos ship hundreds of image tiles — Ortho4XP puts them in textures/,
+    /// SpainUHD keeps the .dds right beside each .ter in terrain/ — while a
+    /// plain elevation mesh ships a handful. Name guessing misclassified
+    /// packs like z_SpainUHDv2: ortho tiles with no "ortho" in the name.
+    func terrainAndTextureProbe(_ packURL: URL) -> (hasTerrain: Bool, isPhotoTextured: Bool) {
+        var terCount = 0
+        var imageCount = 0
+        let imageSuffixes = [".dds", ".png", ".jpg", ".jpeg"]
+        for folder in ["terrain", "textures"] {
+            guard let entries = try? fm.contentsOfDirectory(
+                atPath: packURL.appendingPathComponent(folder).path) else { continue }
+            for name in entries.prefix(500) {
+                let lower = name.lowercased()
+                if lower.hasSuffix(".ter") { terCount += 1 }
+                if imageSuffixes.contains(where: { lower.hasSuffix($0) }) { imageCount += 1 }
+            }
+        }
+        // Photo scenery carries roughly one image per .ter tile (SpainUHD:
+        // dds beside every ter; Ortho4XP: the same volume in textures/). An
+        // elevation mesh has hundreds of .ter sharing a handful of textures.
+        let photoTextured = imageCount >= 20 || (imageCount >= 5 && imageCount >= terCount)
+        return (terCount > 0, photoTextured)
     }
 
     /// Content signature for cache invalidation: names, sizes and mtimes of

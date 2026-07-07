@@ -56,6 +56,31 @@ import Foundation
         #expect(LibraryIndex.editDistance("short", "muchlongerstring", max: 3) > 3)
     }
 
+    @Test func packKindIsContentFirst() {
+        func pack(_ name: String, overlay: Bool?, terrain: Bool = false,
+                  photo: Bool = false) -> SceneryPack {
+            SceneryPack(name: name, url: URL(fileURLWithPath: "/tmp/\(name)"),
+                        status: .enabled, iniIndex: 0, isLibrary: false, airports: [:],
+                        tiles: ["+36-002"], isOverlay: overlay, isLaminar: false,
+                        signature: "", hasTerrain: terrain, isPhotoTextured: photo)
+        }
+        // z_SpainUHDv2: ortho tiles with no "ortho" in the name, photo .dds
+        // beside each .ter in terrain/, and (until 7z support) an unreadable
+        // sample DSF — content must classify it, not the name.
+        #expect(pack("z_SpainUHDv2_+36-002", overlay: nil, terrain: true, photo: true).kind == .ortho)
+        #expect(pack("z_SpainUHDv2_+36-002", overlay: false, terrain: true, photo: true).kind == .ortho)
+        // Elevation mesh: .ter but only a handful of textures.
+        #expect(pack("UHD Mesh Scenery v4", overlay: false, terrain: true).kind == .mesh)
+        // Name breaks the tie for small ortho tile packs.
+        #expect(pack("zOrtho4XP_+41-073", overlay: false, terrain: true).kind == .ortho)
+        // Overlays without terrain are landmarks; base mesh without .ter is mesh.
+        #expect(pack("SFD Golden Gate", overlay: true).kind == .landmark)
+        #expect(pack("Some Base", overlay: false).kind == .mesh)
+        // Unknown overlay flag, no content signals: name hint or landmark.
+        #expect(pack("Some Mesh Pack", overlay: nil).kind == .mesh)
+        #expect(pack("Mystery Overlay", overlay: nil).kind == .landmark)
+    }
+
     // MARK: Log parsing + diagnosis
 
     @Test func logParserExtractsMissingResources() throws {

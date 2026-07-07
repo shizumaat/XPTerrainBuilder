@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+let analyzerLog = Logger(subsystem: "com.novemberlima.XPSceneryDoctor", category: "analyzer")
 
 /// Top-level entry point: scan the installation, run every analyzer, and
 /// assemble the report. Pure and synchronous — callers run it off the main
@@ -209,6 +212,7 @@ public struct Analyzer {
             snapshot.save(to: cacheURL) // atomic write
         }
 
+        analyzerLog.info("pipeline start: \(targets.count) targets, \(cache.entries.count) cache entries, preScanned=\(options.preScanned != nil)")
         forEachPackPrioritized(targets, priority: priority) { i in
             let pack = targets[i]
             let entry: PackCacheEntry
@@ -217,12 +221,22 @@ public struct Analyzer {
                 entry = cached
                 reused = true
             } else {
+                if let stale = cacheSnapshot.entries[pack.name], stale.hasFullAnalysis {
+                    analyzerLog.info("cache MISS (signature) for \(pack.name, privacy: .public): entry \(stale.signature, privacy: .public) vs pack \(pack.signature, privacy: .public)")
+                } else if cacheSnapshot.entries[pack.name] == nil {
+                    analyzerLog.debug("cache MISS (absent) for \(pack.name, privacy: .public)")
+                }
+                let freshStart = ContinuousClock.now
                 let healthResult = autoreleasepool { health.scanPack(pack) }
                 let auditResult = autoreleasepool { audit.scanPack(pack) }
                 var placementResult = autoreleasepool { placement.scanPack(pack) }
                 placementResult.findings.append(
                     contentsOf: autoreleasepool { AptDatAnalyzer.scanPack(pack) })
                 let escapes = ResourceAuditAnalyzer.collectEscapeRefs(in: pack)
+                let elapsed = ContinuousClock.now - freshStart
+                if elapsed > .seconds(15) {
+                    analyzerLog.info("slow pack \(pack.name, privacy: .public): \(elapsed.components.seconds)s")
+                }
                 // The placement-count C-09 (placed N× and can't instance)
                 // supersedes the health scan's size-based C-09 for the same
                 // OBJ — one problem, one row.
@@ -253,6 +267,10 @@ public struct Analyzer {
                 if reused { s.fromCache += 1 }
                 s.completed += 1
                 return s.completed
+            }
+            if done % 500 == 0 || done == targets.count {
+                let hits = state.withLock { $0.fromCache }
+                analyzerLog.info("pipeline \(done)/\(targets.count), \(hits) from cache, latest \(pack.name, privacy: .public)")
             }
             onEvent(.stage(.inspectingPack(name: pack.name, done: done, total: targets.count)))
             let packFindings = entry.healthFindings + entry.auditFindings + entry.placementFindings

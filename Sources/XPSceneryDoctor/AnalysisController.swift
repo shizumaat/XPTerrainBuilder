@@ -284,9 +284,11 @@ final class AnalysisController: ObservableObject {
             Task.detached(priority: taskPriority) {
                 // Stage events fire per pack — hundreds per second when the
                 // cache makes packs near-instant. Throttle at the PRODUCER so
-                // the main actor never even sees the flood (terminal events
-                // always pass; the final report supersedes everything).
-                let lastStageYield = LockedBox(ContinuousClock.now - .seconds(1))
+                // the main actor never even sees the flood — but milestones
+                // must ALWAYS pass: a pure-cache replay can finish inside one
+                // 100 ms window, and dropping its tail froze the counter at
+                // whatever slipped through first (the infamous "1/4,161").
+                let lastStageYield = LockedBox((time: ContinuousClock.now - .seconds(1), done: 0))
                 let final = Analyzer(root: root).run(
                     options: options,
                     priority: { priorityBox.current }
@@ -294,9 +296,18 @@ final class AnalysisController: ObservableObject {
                     if case .stage(let stage) = event {
                         if case .done = stage {} else {
                             let now = ContinuousClock.now
+                            var progressed: (done: Int, total: Int)? = nil
+                            if case .inspectingPack(_, let done, let total) = stage {
+                                progressed = (done, total)
+                            }
                             let skip = lastStageYield.withLock { last -> Bool in
-                                if now - last < .milliseconds(100) { return true }
-                                last = now
+                                // Big jumps and the final pack always pass.
+                                let milestone = progressed.map {
+                                    $0.done - last.done >= 250 || $0.done == $0.total
+                                } ?? false
+                                if !milestone, now - last.time < .milliseconds(100) { return true }
+                                last.time = now
+                                if let progressed { last.done = progressed.done }
                                 return false
                             }
                             if skip { return }

@@ -53,10 +53,16 @@ struct PackInspectorView: View {
                     ForEach(ordered, id: \.url.path) { pack in
                         packRow(pack)
                             .tag(pack.url.path)
-                            // simultaneousGesture: a plain onTapGesture
-                            // would steal single clicks from selection.
-                            .simultaneousGesture(TapGesture(count: 2).onEnded {
-                                controller.zoomToPack(pack)
+                            // Double-click via the AppKit event's clickCount:
+                            // a TapGesture(count: 2) must WAIT to rule out a
+                            // second click, and that delay withholds the
+                            // first click from row selection and drag. A
+                            // single-tap simultaneous gesture fires instantly
+                            // and lets everything through.
+                            .simultaneousGesture(TapGesture().onEnded {
+                                if NSApp.currentEvent?.clickCount == 2 {
+                                    controller.zoomToPack(pack)
+                                }
                             })
                     }
                     .onMove { source, destination in

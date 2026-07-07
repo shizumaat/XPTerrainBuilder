@@ -275,6 +275,24 @@ import Foundation
                 "per-pack entries should be on disk before the run finishes")
     }
 
+    @Test func preScannedInstallationSkipsRescan() throws {
+        // The app scans for the map and hands that scan to the analyzer;
+        // results must match a run that scans for itself.
+        let root = try makeOrthoPack()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let baseline = Analyzer(root: root).run()
+        var options = Analyzer.Options()
+        options.preScanned = InstallationScanner(root: root).scan()
+        let preScanned = Analyzer(root: root).run(options: options)
+
+        #expect(preScanned.stats.packsScanned == baseline.stats.packsScanned)
+        #expect(preScanned.findings.map { $0.checkID }.sorted()
+                == baseline.findings.map { $0.checkID }.sorted())
+        #expect(preScanned.unusedResources.map { $0.files.count }
+                == baseline.unusedResources.map { $0.files.count })
+    }
+
     @Test func cachedRunReusesUnchangedPacksAndCatchesChanges() throws {
         let root = try makeOrthoPack()
         defer { try? FileManager.default.removeItem(at: root) }

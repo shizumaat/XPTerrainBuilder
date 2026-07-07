@@ -63,6 +63,11 @@ public struct Analyzer {
         /// work instead of the whole cold pass (~25-30 min on the reference
         /// install). Zero = flush after every pack (tests).
         public var cacheFlushInterval: Duration = .seconds(60)
+        /// A scan the caller already performed (the app scans for the map
+        /// right before analyzing) — skips the analyzer's own multi-minute
+        /// rescan of the same 4,200 packs. Signatures are as fresh as that
+        /// scan; the app always analyzes right after scanning.
+        public var preScanned: Installation? = nil
 
         public init(scope: Set<String>? = nil, forceFresh: Set<String> = [], cacheURL: URL? = nil) {
             self.scope = scope
@@ -107,9 +112,14 @@ public struct Analyzer {
         // access can't be starved of file descriptors by the enumeration.
         let logRead = TextFile.read(root.appendingPathComponent("Log.txt"))
 
-        onEvent(.stage(.scanningInstallation(nil)))
-        let fullInstallation = InstallationScanner(root: root).scan { done, total in
-            onEvent(.stage(.scanningInstallation("\(done)/\(total) packs")))
+        let fullInstallation: Installation
+        if let preScanned = options.preScanned {
+            fullInstallation = preScanned
+        } else {
+            onEvent(.stage(.scanningInstallation(nil)))
+            fullInstallation = InstallationScanner(root: root).scan { done, total in
+                onEvent(.stage(.scanningInstallation("\(done)/\(total) packs")))
+            }
         }
         // Scoped runs analyze only the selected packs, but against the full
         // library indexes (missing-resource resolution needs everything).

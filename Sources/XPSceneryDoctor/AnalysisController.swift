@@ -56,6 +56,10 @@ final class AnalysisController: ObservableObject {
     private var viewportTask: Task<Void, Never>?
 
     @Published var installationPacks: [SceneryPack] = []
+    /// The last completed full scan (packs + library indexes) — handed to
+    /// the analyzer so it doesn't rescan the same 4,200 packs minutes after
+    /// the map scan already did.
+    private var lastScan: Installation?
     /// Precomputed draw/query structures — rebuilt only when the scan
     /// changes, never per frame.
     @Published var mapOverlays = MapOverlays.empty
@@ -73,6 +77,9 @@ final class AnalysisController: ObservableObject {
     /// pendingInvalidation; this is only about the in-flight report.
     private var fixedDuringRun: Set<UUID> = []
     private var trashedDuringRun: Set<String> = []
+    /// The seeded (last-session) unused groups are REPLACED by the run's
+    /// first fresh batch, then subsequent batches append.
+    private var receivedUnusedThisRun = false
 
     // Search: debounced, filtered off the main thread against a precomputed
     // lowercased corpus. nil = no active search. (Live filtering of 7k+
@@ -126,8 +133,8 @@ final class AnalysisController: ObservableObject {
         }
         isScanningInstallation = true
         Task { [weak self] in
-            let (packs, overlays) = await Task.detached(priority: .userInitiated) {
-                let packs = InstallationScanner(root: root).scan(
+            let (installation, overlays) = await Task.detached(priority: .userInitiated) {
+                let installation = InstallationScanner(root: root).scan(
                     progress: { done, total in
                         Task { @MainActor [weak self] in
                             self?.progress.scanProgress = (done, total)
@@ -146,11 +153,12 @@ final class AnalysisController: ObservableObject {
                             self.scheduleViewportUpdate()
                         }
                     }
-                ).packs
-                return (packs, MapOverlays(packs: packs))
+                )
+                return (installation, MapOverlays(packs: installation.packs))
             }.value
             guard let self else { return }
-            self.installationPacks = packs
+            self.lastScan = installation
+            self.installationPacks = installation.packs
             // Exact marks from the last report survive the rescan until the
             // auto-run refreshes them.
             self.mapOverlays = overlays.applyingExactMarkers(self.report?.packMarkers ?? [:])
@@ -242,7 +250,16 @@ final class AnalysisController: ObservableObject {
         errorMessage = nil
         fixedDuringRun = []
         trashedDuringRun = []
-        report = AnalysisReport(xplaneRoot: root.path, findings: [], stats: AnalysisStats())
+        receivedUnusedThisRun = false
+        // Keep the last results ON SCREEN while the run streams: cached
+        // packs re-emit the very same findings (same UUIDs — deduped in
+        // flushPending), changed packs re-analyze, and the final report
+        // supersedes everything. Blanking the report here made every
+        // relaunch look like starting from zero even though the answers
+        // were already sitting in last-report.json.
+        if report == nil {
+            report = AnalysisReport(xplaneRoot: root.path, findings: [], stats: AnalysisStats())
+        }
         reportGeneration += 1
 
         // Manual scoped runs bypass the cache for the selection (the user is
@@ -252,6 +269,9 @@ final class AnalysisController: ObservableObject {
         options.forceFresh = pendingInvalidation
         if let scope { options.forceFresh.formUnion(scope) }
         pendingInvalidation = []
+        // Skip the analyzer's own rescan when the map scan just did the
+        // same work (it triggers analysis right after finishing).
+        if let lastScan, lastScan.root == root { options.preScanned = lastScan }
         let priorityBox = self.priorityBox
 
         // Full/auto runs stay off the performance cores (.utility) so the
@@ -322,7 +342,14 @@ final class AnalysisController: ObservableObject {
                 case .event(.duplicateGroups(let groups)):
                     self.report?.duplicateGroups = groups
                 case .event(.unusedResources(let groups)):
-                    self.report?.unusedResources.append(contentsOf: groups)
+                    if self.receivedUnusedThisRun {
+                        self.report?.unusedResources.append(contentsOf: groups)
+                    } else {
+                        // First fresh batch replaces the seeded last-session
+                        // groups (appending would double them).
+                        self.receivedUnusedThisRun = true
+                        self.report?.unusedResources = groups
+                    }
                 case .completed(let final):
                     // The final report supersedes everything streamed —
                     // minus whatever the user fixed while it was running
@@ -445,12 +472,18 @@ final class AnalysisController: ObservableObject {
 
     private func flushPending(_ pending: inout [Finding]) {
         guard !pending.isEmpty, var current = report else { return }
-        current.findings.append(contentsOf: pending)
+        // The report is seeded with last session's findings; cache-served
+        // packs re-emit the SAME findings (UUIDs persist through the cache),
+        // so only genuinely new ones append.
+        let existing = Set(current.findings.map { $0.id })
+        let fresh = pending.filter { !existing.contains($0.id) }
+        pending = []
+        guard !fresh.isEmpty else { return }
+        current.findings.append(contentsOf: fresh)
         current.findings.sort {
             ($0.severity, $0.category.rawValue, $0.title) < ($1.severity, $1.category.rawValue, $1.title)
         }
         report = current
-        pending = []
     }
 
     // MARK: - Pack actions

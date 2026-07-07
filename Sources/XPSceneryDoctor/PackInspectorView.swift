@@ -88,7 +88,7 @@ struct PackInspectorView: View {
                 }
                 .font(.callout)
                 .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .frame(height: ResultsPane.bottomBarHeight)
                 .background(.bar)
             }
         }

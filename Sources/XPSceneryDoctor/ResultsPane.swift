@@ -406,6 +406,12 @@ struct ResultsPane: View {
     /// nested DisclosureGroup would have added.
     static let categoryChildIndent: CGFloat = 22
 
+    /// One height for every bottom status bar (results, package inspector)
+    /// so their top dividers align exactly across the window. Fixed, not
+    /// padding-driven: the results bar contains regular-size buttons, the
+    /// inspector bar only text — equal padding gives unequal heights.
+    static let bottomBarHeight: CGFloat = 38
+
     private func categoryHeader(_ category: FindingCategory, items: [Finding],
                                 unused: [UnusedResourceGroup], isOpen: Bool) -> some View {
         HStack(spacing: 6) {
@@ -539,7 +545,7 @@ struct ResultsPane: View {
         }
         .font(.callout)
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .frame(height: Self.bottomBarHeight)
         .background(.bar)
     }
 }

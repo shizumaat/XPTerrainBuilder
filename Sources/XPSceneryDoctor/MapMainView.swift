@@ -6,14 +6,8 @@ import SceneryKit
 /// results in the bottom third.
 struct MapMainView: View {
     @EnvironmentObject var controller: AnalysisController
-    @StateObject private var camera = ViewState(MapCamera())
-    @StateObject private var canvasSize = ViewState(CGSize.zero)
     @StateObject private var searchText = ViewState("")
     @StateObject private var showingPicker = ViewState(false)
-    /// Packs in the visible map region, debounced from camera movement so
-    /// the inspector tracks the map without re-diffing every frame.
-    @StateObject private var viewportPacks = ViewState<[SceneryPack]>([])
-    @StateObject private var viewportTask = ViewState<Task<Void, Never>?>(nil)
 
     static let systemInfo = SystemInfo.current()
 
@@ -56,29 +50,13 @@ struct MapMainView: View {
                 controller.xplanePath = url.path
             }
         }
-        .alert("Error", isPresented: .constant(controller.errorMessage != nil)) {
+        .alert("Error", isPresented: Binding(
+            get: { controller.errorMessage != nil },
+            set: { if !$0 { controller.errorMessage = nil } }
+        )) {
             Button("OK") { controller.errorMessage = nil }
         } message: {
             Text(controller.errorMessage ?? "")
-        }
-    }
-
-    /// Debounced (120 ms) recompute of the packs visible in the map window.
-    private func scheduleViewportUpdate() {
-        viewportTask.value?.cancel()
-        let cam = camera.value
-        let size = canvasSize.value
-        let overlays = controller.mapOverlays
-        viewportTask.value = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(120))
-            guard !Task.isCancelled, size.width > 0 else { return }
-            let halfW = Double(size.width) / 2 / cam.scale
-            let halfH = Double(size.height) / 2 / cam.scale
-            let packs = overlays.packs(inViewport: (
-                minLon: cam.centerLon - halfW, maxLon: cam.centerLon + halfW,
-                minLat: cam.centerLat - halfH, maxLat: cam.centerLat + halfH
-            ))
-            viewportPacks.value = packs.sorted { $0.name.lowercased() < $1.name.lowercased() }
         }
     }
 
@@ -100,15 +78,6 @@ struct MapMainView: View {
             if controller.isScanningInstallation {
                 ProgressView().controlSize(.small)
             }
-        }
-        ToolbarItem(placement: .principal) {
-            // A real NSSearchField: standard placeholder metrics, built-in
-            // magnifier and clear button — the hand-rolled TextField overlay
-            // never quite matched the system look.
-            ToolbarSearchField(text: searchText,
-                               placeholder: "Search airport or package…",
-                               onSubmit: performSearch)
-                .frame(width: 240)
         }
         ToolbarItem(placement: .automatic) {
             Button {
@@ -143,6 +112,13 @@ struct MapMainView: View {
                 Image(systemName: "ellipsis.circle")
             }
         }
+        // Trailing edge, per the HIG (Finder/Mail put search last).
+        ToolbarItem(placement: .automatic) {
+            ToolbarSearchField(text: searchText,
+                               placeholder: "Search airport or package…",
+                               onSubmit: performSearch)
+                .frame(width: 220)
+        }
     }
 
     // MARK: - Search
@@ -158,12 +134,12 @@ struct MapMainView: View {
             ?? airports.first { $0.icao.lowercased().hasPrefix(query) }
             ?? airports.first { $0.info.name.lowercased().contains(query) }
         if let match {
-            var cam = camera.value
+            var cam = controller.mapCamera.value
             cam.centerLon = match.info.longitude
             cam.centerLat = match.info.latitude
             cam.scale = max(cam.scale, 60)
-            cam.clamp(in: canvasSize.value)
-            camera.value = cam
+            cam.clamp(in: controller.mapCanvasSize.value)
+            controller.mapCamera.value = cam
             controller.selectedTiles = [TileMath.key(latitude: match.info.latitude,
                                                      longitude: match.info.longitude)]
             return
@@ -180,21 +156,21 @@ struct MapMainView: View {
             controller.selectedTiles = Set(pack.tiles).union(airportTiles)
             if !tiles.isEmpty {
                 let lats = tiles.map { Double($0.lat) }, lons = tiles.map { Double($0.lon) }
-                var cam = camera.value
+                var cam = controller.mapCamera.value
                 cam.centerLat = (lats.min()! + lats.max()! + 1) / 2
                 cam.centerLon = (lons.min()! + lons.max()! + 1) / 2
                 let spanLon = max(lons.max()! - lons.min()! + 1, 2)
                 let spanLat = max(lats.max()! - lats.min()! + 1, 2)
                 cam.scale = min(700 / spanLon, 400 / spanLat, 120)
-                cam.clamp(in: canvasSize.value)
-                camera.value = cam
+                cam.clamp(in: controller.mapCanvasSize.value)
+                controller.mapCamera.value = cam
             } else if let airport = pack.airports.values.first {
-                var cam = camera.value
+                var cam = controller.mapCamera.value
                 cam.centerLon = airport.longitude
                 cam.centerLat = airport.latitude
                 cam.scale = max(cam.scale, 60)
-                cam.clamp(in: canvasSize.value)
-                camera.value = cam
+                cam.clamp(in: controller.mapCanvasSize.value)
+                controller.mapCamera.value = cam
             }
         }
     }
@@ -202,12 +178,13 @@ struct MapMainView: View {
     private var mainLayout: some View {
         VSplitView {
             HSplitView {
-                MapCanvasView(camera: camera, canvasSize: canvasSize)
+                MapCanvasView(camera: controller.mapCamera,
+                              canvasSize: controller.mapCanvasSize)
                     .frame(minWidth: 480, minHeight: 300)
                     .layoutPriority(1)
                 PackInspectorView(
                     packs: controller.selectedTiles.isEmpty
-                        ? viewportPacks.value
+                        ? controller.viewportPacks
                         : controller.packsAffectingSelection(),
                     isViewportMode: controller.selectedTiles.isEmpty
                 )
@@ -216,15 +193,12 @@ struct MapMainView: View {
             .layoutPriority(2)
             ResultsPane(packFilter: Set(
                 (controller.selectedTiles.isEmpty
-                    ? viewportPacks.value
+                    ? controller.viewportPacks
                     : controller.packsAffectingSelection())
                 .map { $0.name }
             ))
             .frame(minHeight: 180, idealHeight: 300)
         }
-        .onChange(of: camera.value) { scheduleViewportUpdate() }
-        .onChange(of: canvasSize.value) { scheduleViewportUpdate() }
-        .onChange(of: controller.mapOverlays.packBounds.count) { scheduleViewportUpdate() }
     }
 
     // MARK: - Loading cover
@@ -272,6 +246,9 @@ struct MapMainView: View {
 /// The genuine AppKit search control, wrapped: correct placeholder
 /// metrics, magnifier, clear button, ESC handling — for free.
 struct ToolbarSearchField: NSViewRepresentable {
+    /// Posted by the Edit ▸ Find menu (⌘F) to focus the field.
+    static let focusNotification = Notification.Name("XPSDFocusSearch")
+
     @ObservedObject var text: ViewState<String>
     let placeholder: String
     let onSubmit: () -> Void
@@ -285,6 +262,7 @@ struct ToolbarSearchField: NSViewRepresentable {
         field.target = context.coordinator
         field.action = #selector(Coordinator.submitted(_:))
         field.delegate = context.coordinator
+        context.coordinator.observeFocusRequests(for: field)
         return field
     }
 
@@ -300,9 +278,25 @@ struct ToolbarSearchField: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSSearchFieldDelegate {
         let parent: ToolbarSearchField
+        private var focusObserver: NSObjectProtocol?
 
         init(_ parent: ToolbarSearchField) {
             self.parent = parent
+        }
+
+        deinit {
+            if let focusObserver {
+                NotificationCenter.default.removeObserver(focusObserver)
+            }
+        }
+
+        func observeFocusRequests(for field: NSSearchField) {
+            focusObserver = NotificationCenter.default.addObserver(
+                forName: ToolbarSearchField.focusNotification, object: nil, queue: .main
+            ) { [weak field] _ in
+                guard let field, field.window?.isKeyWindow == true else { return }
+                field.window?.makeFirstResponder(field)
+            }
         }
 
         func controlTextDidChange(_ notification: Notification) {

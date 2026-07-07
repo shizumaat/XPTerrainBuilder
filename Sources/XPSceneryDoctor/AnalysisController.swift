@@ -38,7 +38,27 @@ final class AnalysisController: ObservableObject {
 
     // Map: the scanned installation (packs with tiles/airports/status) and
     // the user's tile selection.
-    @Published var installationPacks: [SceneryPack] = []
+    //
+    // The camera and canvas size are ViewState objects OWNED here but NOT
+    // observed: only MapCanvasView subscribes, so a drag frame redraws the
+    // canvas alone. If the main window held them as @StateObject, every
+    // camera tick would re-evaluate the whole window body (the beachball).
+    let mapCamera = ViewState(MapCamera())
+    let mapCanvasSize = ViewState(CGSize.zero)
+    /// Packs visible in the map viewport, debounced from camera movement.
+    @Published var viewportPacks: [SceneryPack] = []
+    private var viewportTask: Task<Void, Never>?
+    /// Packs the current tile selection touches — recomputed once per
+    /// selection/scan change, never in a view body (set intersections over
+    /// 4,000+ packs are too heavy for the render loop).
+    private(set) var selectionPacks: [SceneryPack] = []
+
+    @Published var installationPacks: [SceneryPack] = [] {
+        didSet {
+            selectionPacks = Self.packsAffecting(tiles: selectedTiles, in: installationPacks)
+            priorityBox.update(Set(selectionPacks.map { $0.name }))
+        }
+    }
     /// Precomputed draw/query structures — rebuilt only when the scan
     /// changes, never per frame.
     @Published var mapOverlays = MapOverlays.empty
@@ -54,7 +74,8 @@ final class AnalysisController: ObservableObject {
     @Published var hasScannedInstallation = false
     @Published var selectedTiles: Set<String> = [] {
         didSet {
-            priorityBox.update(Set(packsAffectingSelection().map { $0.name }))
+            selectionPacks = Self.packsAffecting(tiles: selectedTiles, in: installationPacks)
+            priorityBox.update(Set(selectionPacks.map { $0.name }))
         }
     }
 
@@ -126,6 +147,7 @@ final class AnalysisController: ObservableObject {
             self.isScanningInstallation = false
             self.progress.scanProgress = nil
             self.hasScannedInstallation = true
+            self.scheduleViewportUpdate()
             if self.pendingRefresh {
                 self.pendingRefresh = false
                 self.refreshInstallation()
@@ -143,16 +165,40 @@ final class AnalysisController: ObservableObject {
         }
     }
 
-    /// Packs the current tile selection touches (by DSF tile or airport position).
+    /// Packs the current tile selection touches (by DSF tile or airport
+    /// position) — cached; see selectionPacks.
     func packsAffectingSelection() -> [SceneryPack] {
-        let tiles = selectedTiles
+        selectionPacks
+    }
+
+    static func packsAffecting(tiles: Set<String>, in packs: [SceneryPack]) -> [SceneryPack] {
         guard !tiles.isEmpty else { return [] }
-        return installationPacks.filter { pack in
+        return packs.filter { pack in
             guard !pack.isLaminar else { return false }
             if !pack.tiles.isDisjoint(with: tiles) { return true }
             return pack.airports.values.contains { info in
                 tiles.contains(TileMath.key(latitude: info.latitude, longitude: info.longitude))
             }
+        }
+    }
+
+    /// Debounced (120 ms) recompute of the packs visible in the map window.
+    /// Called from the canvas as the camera moves; never runs in a render.
+    func scheduleViewportUpdate() {
+        viewportTask?.cancel()
+        let cam = mapCamera.value
+        let size = mapCanvasSize.value
+        let overlays = mapOverlays
+        viewportTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled, size.width > 0 else { return }
+            let halfW = Double(size.width) / 2 / cam.scale
+            let halfH = Double(size.height) / 2 / cam.scale
+            let packs = overlays.packs(inViewport: (
+                minLon: cam.centerLon - halfW, maxLon: cam.centerLon + halfW,
+                minLat: cam.centerLat - halfH, maxLat: cam.centerLat + halfH
+            ))
+            self?.viewportPacks = packs.sorted { $0.name.lowercased() < $1.name.lowercased() }
         }
     }
 

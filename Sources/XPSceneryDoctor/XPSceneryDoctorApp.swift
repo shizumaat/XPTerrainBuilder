@@ -62,6 +62,13 @@ struct AppCommands: Commands {
             .keyboardShortcut("e", modifiers: [.command, .shift])
             .disabled(controller.report == nil)
         }
+        CommandGroup(after: .textEditing) {
+            Button("Find") {
+                NotificationCenter.default.post(name: ToolbarSearchField.focusNotification,
+                                                object: nil)
+            }
+            .keyboardShortcut("f", modifiers: .command)
+        }
         CommandGroup(after: .windowList) {
             Button("Analysis Report") {
                 openWindow(id: "report")

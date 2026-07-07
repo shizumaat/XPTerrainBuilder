@@ -54,12 +54,20 @@ struct MapCanvasView: View {
                     camera.value = MapCamera.fitted(to: proxy.size)
                 }
                 canvasSize.value = proxy.size
+                controller.scheduleViewportUpdate()
             }
             .onChange(of: proxy.size) {
                 canvasSize.value = proxy.size
                 var cam = camera.value
                 cam.clamp(in: proxy.size)
                 camera.value = cam
+                controller.scheduleViewportUpdate()
+            }
+            // The canvas is the ONLY view observing the camera — the
+            // debounced viewport recompute fans out to inspector/results
+            // from the controller, so a drag frame redraws just the map.
+            .onChange(of: camera.value) {
+                controller.scheduleViewportUpdate()
             }
         }
         .clipped()

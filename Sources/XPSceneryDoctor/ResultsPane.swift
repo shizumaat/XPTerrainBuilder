@@ -378,22 +378,33 @@ struct ResultsPane: View {
         }
         .buttonStyle(.plain)
         if isOpen {
+            // The manual header lost DisclosureGroup's automatic child
+            // indent — restore it so rows read as INSIDE the category.
             if category == .unusedResources && !unused.isEmpty {
                 // "Could not audit" info findings would otherwise be
                 // swallowed by the table replacing the finding rows.
                 ForEach(items.filter { $0.checkID == "UNUSED-00" }) { finding in
-                    FindingRow(finding: finding).tag(finding.id)
+                    FindingRow(finding: finding)
+                        .padding(.leading, Self.categoryChildIndent)
+                        .tag(finding.id)
                 }
                 UnusedResourcesView(groups: unused)
                     .frame(height: Self.tableHeight(
                         rows: unused.reduce(0) { $0 + $1.files.count }))
+                    .padding(.leading, Self.categoryChildIndent)
             } else {
                 ForEach(items) { finding in
-                    FindingRow(finding: finding).tag(finding.id)
+                    FindingRow(finding: finding)
+                        .padding(.leading, Self.categoryChildIndent)
+                        .tag(finding.id)
                 }
             }
         }
     }
+
+    /// Leading indent for rows under a category header, matching what a
+    /// nested DisclosureGroup would have added.
+    static let categoryChildIndent: CGFloat = 22
 
     private func categoryHeader(_ category: FindingCategory, items: [Finding],
                                 unused: [UnusedResourceGroup], isOpen: Bool) -> some View {

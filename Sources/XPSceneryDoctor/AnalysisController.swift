@@ -1,6 +1,9 @@
 import Foundation
 import SwiftUI
 import SceneryKit
+import os
+
+private let appLog = Logger(subsystem: "com.novemberlima.XPSceneryDoctor", category: "app")
 
 /// UserDefaults key for the X-Plane root path. Lives in the app's standard
 /// preferences plist (~/Library/Preferences/com.novemberlima.XPSceneryDoctor.plist
@@ -76,6 +79,13 @@ final class AnalysisController: ObservableObject {
     /// the analyzer so it doesn't rescan the same 4,200 packs minutes after
     /// the map scan already did.
     private var lastScan: Installation?
+    /// Live watcher on Custom Scenery, the Disabled folder and
+    /// scenery_packs.ini: external adds/removes/renames trigger a rescan
+    /// (which reconciles the ini), external ini edits refresh statuses.
+    private var watcher: FileSystemWatcher?
+    /// Our own ini/folder writes fire the watcher too — events inside this
+    /// window (or while we're scanning/acting) are ours and get ignored.
+    private var watcherCooldownUntil = ContinuousClock.now
     /// Precomputed draw/query structures — rebuilt only when the scan
     /// changes, never per frame.
     @Published var mapOverlays = MapOverlays.empty
@@ -148,9 +158,10 @@ final class AnalysisController: ObservableObject {
             return
         }
         isScanningInstallation = true
+        let previousPacks = lastScan?.packs ?? []
         Task { [weak self] in
-            let (installation, overlays) = await Task.detached(priority: .userInitiated) {
-                let installation = InstallationScanner(root: root).scan(
+            let (installation, overlays, reconciliation) = await Task.detached(priority: .userInitiated) {
+                var installation = InstallationScanner(root: root).scan(
                     progress: { done, total in
                         Task { @MainActor [weak self] in
                             self?.progress.scanProgress = (done, total)
@@ -170,9 +181,34 @@ final class AnalysisController: ObservableObject {
                         }
                     }
                 )
-                return (installation, MapOverlays(packs: installation.packs))
+                // Bring scenery_packs.ini in line with what is ACTUALLY on
+                // disk (X-Plane only does this at its own next launch). If
+                // the ini changed, statuses/ranks the scan derived from the
+                // OLD ini are stale — re-derive them cheaply.
+                let reconciliation = PackActionService(root: root).reconcile(
+                    installedPacks: installation.packs, previousPacks: previousPacks)
+                if reconciliation.changed {
+                    let service = PackActionService(root: root)
+                    let order = service.iniOrder()
+                    let statuses = service.iniStatuses()
+                    var packs = installation.packs
+                    for i in packs.indices where packs[i].isInstalled {
+                        packs[i].iniIndex = order[packs[i].name]
+                        packs[i].status = (statuses[packs[i].name] ?? true) ? .enabled : .disabled
+                    }
+                    installation = installation.replacingPacks(packs)
+                }
+                return (installation, MapOverlays(packs: installation.packs), reconciliation)
             }.value
             guard let self else { return }
+            if reconciliation.changed {
+                // Our own write — the watcher must not bounce it back.
+                self.watcherCooldownUntil = ContinuousClock.now + .seconds(4)
+                appLog.notice("ini reconciled: +\(reconciliation.added.count) added, -\(reconciliation.removed.count) removed, \(reconciliation.renamed.count) renamed")
+            }
+            if let writeError = reconciliation.writeError {
+                self.errorMessage = "Could not update scenery_packs.ini: \(writeError)"
+            }
             self.lastScan = installation
             self.installationPacks = installation.packs
             // Exact marks from the last report survive the rescan until the
@@ -181,6 +217,7 @@ final class AnalysisController: ObservableObject {
             self.isScanningInstallation = false
             self.progress.scanProgress = nil
             self.scheduleViewportUpdate()
+            self.startWatchingIfNeeded()
             if self.pendingRefresh {
                 self.pendingRefresh = false
                 self.refreshInstallation()
@@ -196,6 +233,29 @@ final class AnalysisController: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Watch Custom Scenery, the Disabled folder and scenery_packs.ini for
+    /// EXTERNAL changes (Finder deletes/adds/renames, X-Plane rewriting the
+    /// ini). Events debounce into the normal rescan, whose reconcile step
+    /// then repairs the ini. Our own writes are filtered by the cooldown
+    /// and the scanning/acting flags.
+    private func startWatchingIfNeeded() {
+        guard watcher == nil, let root = rootURL else { return }
+        let service = PackActionService(root: root)
+        let watched = FileSystemWatcher(paths: [
+            root.appendingPathComponent("Custom Scenery").path,
+            service.disabledFolderURL.path,
+            root.appendingPathComponent("Custom Scenery/scenery_packs.ini").path,
+        ]) { [weak self] in
+            guard let self else { return }
+            guard !self.isScanningInstallation, !self.isApplyingAction,
+                  ContinuousClock.now >= self.watcherCooldownUntil else { return }
+            appLog.notice("filesystem change detected — rescanning Custom Scenery")
+            self.refreshInstallation()
+        }
+        watched.start()
+        watcher = watched
     }
 
     /// Debounced (120 ms) recompute of the packs visible in the map window.
@@ -610,6 +670,9 @@ final class AnalysisController: ObservableObject {
                     outcomes.filter { $0.success }.map { $0.packName })
             }
             self.actionErrors = outcomes.filter { !$0.success }
+            // Watcher events from our own ini/folder writes trail the
+            // isApplyingAction window by up to the debounce — swallow them.
+            self.watcherCooldownUntil = ContinuousClock.now + .seconds(4)
             self.isApplyingAction = false
             self.rebuildSearchCorpus()
             self.persistReport()
@@ -678,6 +741,7 @@ final class AnalysisController: ObservableObject {
                 if let rank = order[packs[i].name] { packs[i].iniIndex = rank }
             }
             await self.applyInMemoryPackPatch(packs)
+            self.watcherCooldownUntil = ContinuousClock.now + .seconds(4)
             self.isApplyingAction = false
         }
     }

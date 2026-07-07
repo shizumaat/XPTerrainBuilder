@@ -1,6 +1,6 @@
 # XPSceneryDoctor — Session Handover
 
-Last updated: 2026-07-06 (commit `a4e0c09`). Repo: https://github.com/shizumaat/XPSceneryDoctor (private).
+Last updated: 2026-07-07 (commit `b778b03`). Repo: https://github.com/shizumaat/XPSceneryDoctor (private).
 
 ## What this is
 
@@ -12,21 +12,33 @@ Owner: Noah (noahplieberman@gmail.com, GitHub `shizumaat`). His install:
 
 ## Current state (all shipped and pushed)
 
-- **v2 plan Phases 0–2 complete** (docs/PLAN-V2.md). Main window is the
-  map: zoomable night-chart world view (offline Natural Earth 110m + 50m
-  coastlines), X-Plane 1° tile grid with coordinates labels at zoom,
-  coverage tints (ortho/mesh/landmark), sectional-style airport marks,
-  tile selection (click / ⌘-click / ⇧-drag), package inspector right
-  (viewport-tracking, context-aware actions), results bottom pane
-  (viewport-filtered). Scroll/pinch zoom anchored at cursor. Scoped
-  analysis (⌘R = selection, ⇧⌘R = everything).
-- **Engine** (SceneryKit, UI-free, 50 tests): proactive missing-resource
-  audit (RES-01..04, uncapped) resolving every DSF DEFN entry against
-  pack files + installed libraries + default libraries; unused-resource
-  detection via reachability BFS; Log.txt corroboration (LOG-*);
-  duplicates with sizes/status; package health checks (C-02..C-12, see
-  docs/PITFALLS.md for sourced rationale); system-aware VRAM thresholds
-  (Metal working-set); pack kinds from DSF sim/overlay property.
+- **v2 plan Phases 0–2 complete + a large post-plan arc** (see git log
+  2026-07-06/07). Main window is the map: zoomable night-chart world
+  (offline Natural Earth 110m + 50m), 1° tile grid, coverage tints,
+  sectional airport marks, landmark diamonds at object-placement
+  centroids. There is NO tile selection (removed per Noah): the
+  viewport IS the working set — inspector, results filter and analysis
+  priority follow whatever the map shows. Analysis runs AUTOMATICALLY
+  after every scan through a per-pack signature cache
+  (Application Support/analysis-cache.json), at .utility QoS; ⌘R =
+  re-analyze packages in view (cache bypass), ⇧⌘R = everything.
+  Launch opens straight onto the map, which populates LIVE as the
+  scanner streams pack batches (~2 Hz); split dividers persist via
+  NSSplitView autosave (RestorableSplit); window frames via the scene
+  system. Toolbar search is a real NSSearchField (⌘F focuses it).
+- **Engine** (SceneryKit, UI-free, 65 tests): proactive missing-resource
+  audit (RES-01..05) resolving every DSF DEFN entry against pack files
+  + installed + default libraries (deprecation-aware); deletion-grade
+  unused-resource detection (per-pack BFS candidates + whole-install
+  ../-escape verification, chains kept); Log.txt corroboration (LOG-*,
+  incl. LOG-91/92 ATC controller losses with live AirNav/OurAirports
+  frequency repair); duplicates; health checks C-01..C-13 with
+  developer.x-plane.com source links on findings (C-13 LOAD_CENTER is
+  an auto-fix computed from DSF windings; C-01 overdraw flag-only);
+  DSFGeometryReader (pools+commands, 7z-aware via system libarchive);
+  content-first pack kinds (terrain/.ter + photo-tile ratio — name
+  guessing misfiled SpainUHD); per-pack signature cache with priority-
+  aware work queue (viewport packs jump the queue mid-run).
 - **Fixes** (FixEngine, all backed up + revertible via Window ▸
   Modifications, grouped by package): far-cull ATTR_LOD sized from OBJ
   bounding box; mojibake/case rename (PathRepair — ASCII never guessed);
@@ -185,12 +197,14 @@ Owner: Noah (noahplieberman@gmail.com, GitHub `shizumaat`). His install:
 
 ## Known gaps / next candidates
 
-- **Runtime**: full-install analysis ~5 min *before* the symlink fix
-  more than doubled the visible pack count — first full run since will
-  be slower. Scoped (map-selection) analysis is the everyday path.
-- **Phase 2 leftovers**: libraries aren't listed in the inspector for a
-  tile selection (no tiles); DuplicatesView/UnusedResourcesView tables
-  embedded in the results pane are fixed-height (300pt).
+- **Runtime**: FIRST full run (cold cache) ≈ 25–30 min at .utility QoS
+  (reads terabytes; saturates the scenery volume — external I/O feels
+  it). Warm runs reuse the signature cache and only pay for changed
+  packs. A pack-mtime cache for the unused-verify sweep could shave
+  repeat scoped runs further.
+- **Phase 2 leftovers**: DuplicatesView/UnusedResourcesView tables
+  embedded in the results pane are fixed-height (300pt); `.inspector()`
+  container adoption offered to Noah (layout change) — undecided.
 - **Researched but unbuilt** (docs/PITFALLS.md, ranked): spill-light
   radius reduction fix ("tame night lighting"); legacy-light → XP12
   photometric modernization (named/param light swaps); facade stretch;
@@ -200,22 +214,32 @@ Owner: Noah (noahplieberman@gmail.com, GitHub `shizumaat`). His install:
 - **Low-poly LOD generation** (QEM decimation for static single-texture
   OBJs): assessed as feasible; Noah interested but not yet green-lit —
   needs preview-then-apply UX, not one-click.
-- 7z-compressed DSFs are skipped (none exist on the reference install).
-- Old report JSONs predating enum changes fail decode silently → user
-  just re-analyzes; harmless.
+- Old report JSONs / cache files predating enum or schema changes fail
+  decode silently → rebuilt on next run; harmless. Bump
+  AnalysisCache.schemaVersion when findings change meaning.
+- Frequency-lookup HTML parsers (AirNav/OurAirports) will drift if the
+  sites redesign — degrade gracefully to assigned-channel fallback.
 
 ## File map (orientation)
 
-- `Sources/SceneryKit/` — engine: Analyzer (orchestration/streaming),
-  InstallationScanner, LibraryIndex, LogAnalyzer, ResourceAuditAnalyzer
-  (missing+unused), PackageHealthAnalyzer, DuplicateAnalyzer, DSFReader,
+- `Sources/SceneryKit/` — engine: Analyzer (cache/priority pipeline),
+  InstallationScanner (probes, signatures, streaming partials),
+  LibraryIndex, LogAnalyzer, ResourceAuditAnalyzer (missing+unused+
+  escape verify), PackageHealthAnalyzer, PlacementAnalyzer (geometry
+  checks), DuplicateAnalyzer, DSFReader, DSFGeometry, SevenZip,
+  FrequencyLookup, AnalysisCache, Parallel (PriorityBox/LockedBox),
   ObjParser, TextureInspector, DDSEncoder, FixEngine, PackActions,
   PathRepair, TextFile, TileMath, SystemInfo, Models.
-- `Sources/XPSceneryDoctor/` — app: MapMainView, MapCanvasView,
-  MapModel, ScrollZoomCatcher, PackInspectorView, ResultsPane,
-  ReportWindow (secondary, ⌥⌘1), DuplicatesView, UnusedResourcesView,
-  ModificationsWindow, AnalysisController, SettingsView, ViewState.
-- `Tests/SceneryKitTests/` — 50 tests incl. fixture fake install +
-  synthetic DSFs. `scripts/` — test.sh, make_app.sh, make_icon.swift.
+- `Sources/XPSceneryDoctor/` — app: MapMainView (+ToolbarSearchField),
+  MapCanvasView (+ScanProgressChip), MapModel, RestorableSplit,
+  ScrollZoomCatcher, PackInspectorView (path-keyed selection!),
+  ResultsPane (findings computed ONCE per body; StageLabelText /
+  UnusedVerifyBadge leaf views), ReportWindow (⌥⌘1), DuplicatesView,
+  UnusedResourcesView, ModificationsWindow, AnalysisController
+  (+ProgressModel — high-frequency state lives there), SettingsView,
+  ViewState.
+- `Tests/SceneryKitTests/` — 65 tests incl. fixture fake install +
+  synthetic DSFs + geometry/cache/frequency-repair coverage.
+  `scripts/` — test.sh, make_app.sh, make_icon.swift.
 - `docs/` — PLAN-V2.md (roadmap), PITFALLS.md (sourced check catalog),
   HANDOVER.md (this), xpsan_spec.docx (original brief).

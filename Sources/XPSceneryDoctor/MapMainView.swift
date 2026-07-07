@@ -57,8 +57,16 @@ struct MapMainView: View {
 
     private var subtitle: String {
         if controller.isScanningInstallation { return "Scanning Custom Scenery…" }
-        guard !controller.installationPacks.isEmpty else { return "" }
-        return "\(controller.installationPacks.count) packages"
+        let packs = controller.installationPacks
+        guard !packs.isEmpty else { return "" }
+        // The analysis total is smaller than the catalog: Laminar-shipped
+        // packs aren't health-checked (their content is not the user's to
+        // fix) and uninstalled packs don't load in X-Plane. Show both so
+        // the bottom bar's done/total doesn't look like a mismatch.
+        let analyzed = packs.filter { !$0.isLaminar && $0.isInstalled }.count
+        return analyzed == packs.count
+            ? "\(packs.count) packages"
+            : "\(packs.count) packages — \(analyzed) analyzed"
     }
 
     // MARK: - Toolbar
@@ -147,13 +155,6 @@ struct MapMainView: View {
             .environmentObject(controller)
             .environmentObject(controller.progress)
         }
-        // Scenery-directory scan progress: a thin bar directly under the
-        // title bar (Safari-style), replacing the old toolbar spinner.
-        .overlay(alignment: .top) {
-            ScanProgressBar()
-                .environmentObject(controller)
-                .environmentObject(controller.progress)
-        }
         .inspector(isPresented: inspectorBinding) {
             // Hairline between the map/results and the package list — the
             // inspector container doesn't draw its own separator here.
@@ -195,29 +196,6 @@ struct MapMainView: View {
                 .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-/// Thin determinate bar across the top of the content while the scenery
-/// directory scan runs (probed/total packs); leaf view so scan ticks only
-/// re-render this.
-struct ScanProgressBar: View {
-    @EnvironmentObject var controller: AnalysisController
-    @EnvironmentObject var progress: ProgressModel
-
-    var body: some View {
-        if controller.isScanningInstallation {
-            Group {
-                if let p = progress.scanProgress, p.total > 0 {
-                    ProgressView(value: Double(p.done), total: Double(p.total))
-                } else {
-                    ProgressView(value: 0, total: 1) // first probe pending
-                }
-            }
-            .progressViewStyle(.linear)
-            .controlSize(.small)
-            .help("Scanning Custom Scenery…")
-        }
     }
 }
 

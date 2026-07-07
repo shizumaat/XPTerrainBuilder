@@ -201,7 +201,7 @@ import Foundation
             case .findings(let new): log.findings.append(contentsOf: new)
             case .stage(let stage): log.stages.append(stage.label)
             case .duplicateGroups(let groups): log.groups = groups
-            case .unusedResources: break
+            case .unusedResources, .packSizes: break
             }
         }
 

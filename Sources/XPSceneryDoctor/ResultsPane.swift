@@ -130,23 +130,18 @@ struct ResultsPane: View {
         List(selection: $selection.value) {
             ForEach(FindingCategory.allCases, id: \.self) { category in
                 let items = findings.filter { $0.category == category }
-                let verifying = category == .unusedResources && controller.unusedVerifyProgress != nil
-                if !items.isEmpty || verifying {
+                // isRunning (rare-changing) gates row visibility; the badge
+                // subview absorbs the high-frequency progress ticks.
+                let showWhileVerifying = category == .unusedResources && controller.isRunning
+                if !items.isEmpty || showWhileVerifying {
                     DisclosureGroup(isExpanded: categoryBinding(category)) {
                         categoryContent(category, items: items, report: report)
                     } label: {
                         HStack {
                             Text(category.rawValue)
                                 .font(.callout.weight(.medium))
-                            if verifying, let p = controller.unusedVerifyProgress {
-                                // Candidates only become deletable findings
-                                // after the every-package cross-check.
-                                ProgressView(value: Double(p.done), total: Double(max(p.total, 1)))
-                                    .frame(width: 130)
-                                    .controlSize(.small)
-                                Text("cross-checking \(p.done)/\(p.total) packages")
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.secondary)
+                            if category == .unusedResources, controller.isRunning {
+                                UnusedVerifyBadge()
                             } else if category == .unusedResources, !filteredUnusedGroups.isEmpty {
                                 // The expanded view is a per-FILE table, so the
                                 // headline count must be files, not findings.
@@ -239,6 +234,41 @@ struct ResultsPane: View {
         .labelStyle(.titleAndIcon)
     }
 
+    /// Small leaf views that observe ProgressModel, so high-frequency stage
+    /// ticks re-render only these and never the surrounding lists.
+    struct StageLabelText: View {
+        @EnvironmentObject var progress: ProgressModel
+        var suffix: String?
+
+        var body: some View {
+            Text(suffix.map { "\(progress.stageLabel) — \($0)" } ?? progress.stageLabel)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
+
+    struct UnusedVerifyBadge: View {
+        @EnvironmentObject var progress: ProgressModel
+
+        var body: some View {
+            if let p = progress.unusedVerifyProgress {
+                // Candidates only become deletable findings after the
+                // every-package cross-check.
+                ProgressView(value: Double(p.done), total: Double(max(p.total, 1)))
+                    .frame(width: 130)
+                    .controlSize(.small)
+                Text("cross-checking \(p.done)/\(p.total) packages")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("auditing…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     private func categoryBinding(_ category: FindingCategory) -> Binding<Bool> {
         Binding(
             get: { expanded.value.contains(category) },
@@ -254,12 +284,8 @@ struct ResultsPane: View {
         HStack(spacing: 8) {
             if controller.isRunning {
                 ProgressView().controlSize(.small)
-                Text(fixable.isEmpty
-                     ? controller.stageLabel
-                     : "\(controller.stageLabel) — \(fixable.count) fixable so far")
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                StageLabelText(suffix: fixable.isEmpty
+                    ? nil : "\(fixable.count) fixable so far")
             } else if controller.isFixing {
                 ProgressView().controlSize(.small)
                 Text("Applying fixes…").foregroundStyle(.secondary)

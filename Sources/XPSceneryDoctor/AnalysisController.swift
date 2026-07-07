@@ -9,12 +9,28 @@ enum PrefKeys {
     static let xplanePath = "XPlanePath"
 }
 
+/// High-frequency progress state, isolated from AnalysisController so a
+/// stage tick can't invalidate the map canvas, inspector and results list —
+/// only the small views that actually render progress observe this.
+@MainActor
+final class ProgressModel: ObservableObject {
+    @Published var stageLabel = ""
+    /// (probed, total) while the installation scan runs — drives the
+    /// determinate loading bar. nil outside a scan.
+    @Published var scanProgress: (done: Int, total: Int)?
+    /// (checked, total) while the unused-resource cross-check sweeps every
+    /// pack. nil outside that stage.
+    @Published var unusedVerifyProgress: (done: Int, total: Int)?
+}
+
 @MainActor
 final class AnalysisController: ObservableObject {
     @AppStorage(PrefKeys.xplanePath) var xplanePath: String = ""
 
+    /// See ProgressModel — deliberately NOT @Published here.
+    let progress = ProgressModel()
+
     @Published var isRunning = false
-    @Published var stageLabel = ""
     @Published var report: AnalysisReport?
     /// Bumped when a fresh report lands; views observe it to open the window.
     @Published var reportGeneration = 0
@@ -36,12 +52,6 @@ final class AnalysisController: ObservableObject {
     /// False until the first scan of the current install completes — the map
     /// window shows a loading cover instead of a half-laid-out split view.
     @Published var hasScannedInstallation = false
-    /// (probed, total) while the installation scan runs — drives the
-    /// determinate loading bar. nil outside a scan.
-    @Published var scanProgress: (done: Int, total: Int)?
-    /// (checked, total) while the unused-resource cross-check sweeps every
-    /// pack. nil outside that stage.
-    @Published var unusedVerifyProgress: (done: Int, total: Int)?
     @Published var selectedTiles: Set<String> = [] {
         didSet {
             priorityBox.update(Set(packsAffectingSelection().map { $0.name }))
@@ -103,7 +113,7 @@ final class AnalysisController: ObservableObject {
             let (packs, overlays) = await Task.detached(priority: .userInitiated) {
                 let packs = InstallationScanner(root: root).scan { done, total in
                     Task { @MainActor [weak self] in
-                        self?.scanProgress = (done, total)
+                        self?.progress.scanProgress = (done, total)
                     }
                 }.packs
                 return (packs, MapOverlays(packs: packs))
@@ -114,7 +124,7 @@ final class AnalysisController: ObservableObject {
             // auto-run refreshes them.
             self.mapOverlays = overlays.applyingExactMarkers(self.report?.packMarkers ?? [:])
             self.isScanningInstallation = false
-            self.scanProgress = nil
+            self.progress.scanProgress = nil
             self.hasScannedInstallation = true
             if self.pendingRefresh {
                 self.pendingRefresh = false
@@ -161,7 +171,7 @@ final class AnalysisController: ObservableObject {
     func analyze(scope: Set<String>? = nil) {
         guard let root = rootURL, !isRunning else { return }
         isRunning = true
-        stageLabel = "Starting…"
+        progress.stageLabel = "Starting…"
         errorMessage = nil
         report = AnalysisReport(xplaneRoot: root.path, findings: [], stats: AnalysisStats())
         reportGeneration += 1
@@ -182,10 +192,26 @@ final class AnalysisController: ObservableObject {
         let taskPriority: TaskPriority = scope == nil ? .utility : .userInitiated
         let stream = AsyncStream<StreamMessage> { continuation in
             Task.detached(priority: taskPriority) {
+                // Stage events fire per pack — hundreds per second when the
+                // cache makes packs near-instant. Throttle at the PRODUCER so
+                // the main actor never even sees the flood (terminal events
+                // always pass; the final report supersedes everything).
+                let lastStageYield = LockedBox(ContinuousClock.now - .seconds(1))
                 let final = Analyzer(root: root).run(
                     options: options,
                     priority: { priorityBox.current }
                 ) { event in
+                    if case .stage(let stage) = event {
+                        if case .done = stage {} else {
+                            let now = ContinuousClock.now
+                            let skip = lastStageYield.withLock { last -> Bool in
+                                if now - last < .milliseconds(100) { return true }
+                                last = now
+                                return false
+                            }
+                            if skip { return }
+                        }
+                    }
                     continuation.yield(.event(event))
                 }
                 continuation.yield(.completed(final))
@@ -200,14 +226,19 @@ final class AnalysisController: ObservableObject {
                 guard let self else { return }
                 switch message {
                 case .event(.stage(let stage)):
-                    self.stageLabel = stage.label
+                    self.progress.stageLabel = stage.label
                     if case .verifyingUnused(let done, let total) = stage {
-                        self.unusedVerifyProgress = (done, total)
+                        self.progress.unusedVerifyProgress = (done, total)
                     } else {
-                        self.unusedVerifyProgress = nil
+                        self.progress.unusedVerifyProgress = nil
                     }
-                    self.flushPending(&pending)
-                    lastFlush = .now
+                    // Reassigning the report re-diffs every list — keep that
+                    // at the same ~0.4 s cadence as finding batches, not per
+                    // stage tick.
+                    if ContinuousClock.now - lastFlush > .milliseconds(400) {
+                        self.flushPending(&pending)
+                        lastFlush = .now
+                    }
                 case .event(.findings(let new)):
                     pending.append(contentsOf: new)
                     if ContinuousClock.now - lastFlush > .milliseconds(400) {
@@ -223,7 +254,7 @@ final class AnalysisController: ObservableObject {
                     pending = []
                     self.report = final
                     self.isRunning = false
-                    self.unusedVerifyProgress = nil
+                    self.progress.unusedVerifyProgress = nil
                     if let markers = final.packMarkers {
                         self.mapOverlays = self.mapOverlays.applyingExactMarkers(markers)
                     }

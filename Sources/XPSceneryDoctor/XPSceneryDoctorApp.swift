@@ -9,6 +9,7 @@ struct XPSceneryDoctorApp: App {
         Window("XPScenery Doctor", id: "main") {
             MapMainView()
                 .environmentObject(controller)
+                .environmentObject(controller.progress)
         }
         .defaultSize(width: 1280, height: 860)
         .defaultPosition(.center)
@@ -19,6 +20,7 @@ struct XPSceneryDoctorApp: App {
         Window("Analysis Report", id: "report") {
             ReportWindow()
                 .environmentObject(controller)
+                .environmentObject(controller.progress)
         }
         .defaultSize(width: 960, height: 640)
 

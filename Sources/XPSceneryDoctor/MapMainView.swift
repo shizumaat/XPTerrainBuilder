@@ -102,23 +102,13 @@ struct MapMainView: View {
             }
         }
         ToolbarItem(placement: .principal) {
-            TextField("Search airport or package…", text: $searchText.value)
-                .textFieldStyle(.roundedBorder)
+            // A real NSSearchField: standard placeholder metrics, built-in
+            // magnifier and clear button — the hand-rolled TextField overlay
+            // never quite matched the system look.
+            ToolbarSearchField(text: searchText,
+                               placeholder: "Search airport or package…",
+                               onSubmit: performSearch)
                 .frame(width: 240)
-                .onSubmit { performSearch() }
-                .overlay(alignment: .trailing) {
-                    if !searchText.value.isEmpty {
-                        Button {
-                            searchText.value = ""
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.trailing, 5)
-                        .help("Clear search")
-                    }
-                }
         }
         ToolbarItem(placement: .automatic) {
             Button {
@@ -246,7 +236,7 @@ struct MapMainView: View {
     private var loadingCover: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                LoadingMapPlaceholder(progress: controller.scanProgress)
+                LoadingMapPlaceholder()
                 Divider()
                 SkeletonPane(rows: 14)
                     .frame(width: 300)
@@ -279,10 +269,63 @@ struct MapMainView: View {
     }
 }
 
+/// The genuine AppKit search control, wrapped: correct placeholder
+/// metrics, magnifier, clear button, ESC handling — for free.
+struct ToolbarSearchField: NSViewRepresentable {
+    @ObservedObject var text: ViewState<String>
+    let placeholder: String
+    let onSubmit: () -> Void
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.placeholderString = placeholder
+        field.controlSize = .regular
+        // Action fires on Return (and on clear), not per keystroke.
+        field.sendsWholeSearchString = true
+        field.target = context.coordinator
+        field.action = #selector(Coordinator.submitted(_:))
+        field.delegate = context.coordinator
+        return field
+    }
+
+    func updateNSView(_ field: NSSearchField, context: Context) {
+        if field.stringValue != text.value {
+            field.stringValue = text.value
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        let parent: ToolbarSearchField
+
+        init(_ parent: ToolbarSearchField) {
+            self.parent = parent
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSSearchField else { return }
+            parent.text.value = field.stringValue
+        }
+
+        @objc func submitted(_ sender: NSSearchField) {
+            parent.text.value = sender.stringValue
+            if !sender.stringValue.isEmpty {
+                parent.onSubmit()
+            }
+        }
+    }
+}
+
 /// The empty night-chart world (coarse coastlines, no overlays) with the
-/// installation-scan progress centered on it.
+/// installation-scan progress centered on it. Observes ProgressModel — the
+/// high-frequency ticks stay contained here.
 struct LoadingMapPlaceholder: View {
-    let progress: (done: Int, total: Int)?
+    @EnvironmentObject var progressModel: ProgressModel
+
+    private var progress: (done: Int, total: Int)? { progressModel.scanProgress }
 
     var body: some View {
         ZStack {

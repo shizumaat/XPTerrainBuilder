@@ -350,12 +350,8 @@ struct FindingsList: View {
                 // Live analysis: spinner + stage, combined with the running
                 // fixable tally.
                 ProgressView().controlSize(.small)
-                Text(fixable.isEmpty
-                     ? controller.stageLabel
-                     : "\(controller.stageLabel) — \(fixable.count) fixable so far")
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                ResultsPane.StageLabelText(suffix: fixable.isEmpty
+                    ? nil : "\(fixable.count) fixable so far")
             } else if controller.isFixing {
                 ProgressView().controlSize(.small)
                 Text("Applying fixes…").foregroundStyle(.secondary)

@@ -41,14 +41,14 @@ func forEachPackPrioritized(
 
 /// Mutex-guarded mutable state for aggregating results from parallel workers
 /// without Sendable-capture warnings.
-final class LockedBox<T>: @unchecked Sendable {
+public final class LockedBox<T>: @unchecked Sendable {
     private let lock = NSLock()
     private var value: T
 
-    init(_ value: T) { self.value = value }
+    public init(_ value: T) { self.value = value }
 
     @discardableResult
-    func withLock<R>(_ body: (inout T) -> R) -> R {
+    public func withLock<R>(_ body: (inout T) -> R) -> R {
         lock.lock(); defer { lock.unlock() }
         return body(&value)
     }

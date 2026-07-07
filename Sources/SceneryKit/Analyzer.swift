@@ -279,7 +279,10 @@ public struct Analyzer {
             unusedGroups = ResourceAuditAnalyzer.verifyUnused(
                 candidates: candidateGroups, externalRefs: externalRefs)
             unusedGroups.sort { $0.totalBytes > $1.totalBytes }
-            let kinds = Dictionary(uniqueKeysWithValues: installation.packs.map { ($0.name, $0.kind) })
+            // NOT uniqueKeysWithValues: a same-named pack can exist in both
+            // Custom Scenery and the disabled folder simultaneously.
+            let kinds = Dictionary(installation.packs.map { ($0.name, $0.kind) },
+                                   uniquingKeysWith: { first, _ in first })
             let unusedFindings = unusedGroups.map {
                 ResourceAuditAnalyzer.unusedFinding(for: $0, packKind: kinds[$0.packName])
             }

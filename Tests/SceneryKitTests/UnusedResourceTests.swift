@@ -284,6 +284,27 @@ import Foundation
         #expect(fourth.stats.packsFromCache == 0)
     }
 
+    @Test func sameNamedPackInBothFoldersDoesNotCrash() throws {
+        // The LFMN crash: a pack can exist in Custom Scenery AND the
+        // disabled folder at the same time (uninstall + fresh re-download).
+        // Both get scanned, both declare the same airport, and every
+        // name-keyed "unique" dictionary in the pipeline trapped.
+        let root = try makeOrthoPack()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let installed = root.appendingPathComponent("Custom Scenery/zOrtho Test")
+        let disabledTwin = root.appendingPathComponent("Custom Scenery (Disabled)/zOrtho Test")
+        try FileManager.default.createDirectory(
+            at: disabledTwin.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: installed, to: disabledTwin)
+
+        let installation = InstallationScanner(root: root).scan()
+        #expect(installation.packs.filter { $0.name == "zOrtho Test" }.count == 2)
+
+        // Full run exercises the kinds map and duplicate grouping.
+        let report = Analyzer(root: root).run()
+        #expect(!report.unusedResources.isEmpty)
+    }
+
     // MARK: - Trash + restore cycle
 
     @Test func trashAndRevertRoundTrip() throws {

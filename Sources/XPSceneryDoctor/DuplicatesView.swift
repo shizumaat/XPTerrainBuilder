@@ -31,7 +31,11 @@ struct DuplicatesView: View {
     private var rows: [Row] {
         groups.flatMap { group in
             group.packs.map { pack in
-                Row(id: "\(group.icao)\u{1F}\(pack.name)",
+                // Keyed by PATH, not name: the same-named pack can exist in
+                // both Custom Scenery and the disabled folder at once (the
+                // LFMN crash), and duplicate row ids trap Dictionary inits
+                // and break Table selection.
+                Row(id: "\(group.icao)\u{1F}\(pack.path)",
                     icao: group.icao,
                     airportName: group.airportName,
                     pack: pack)
@@ -43,7 +47,8 @@ struct DuplicatesView: View {
     /// Selected rows resolved to unique pack names (one pack can appear
     /// under several airports).
     private var selectedPackNames: [String] {
-        let byID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.pack.name) })
+        let byID = Dictionary(rows.map { ($0.id, $0.pack.name) },
+                              uniquingKeysWith: { first, _ in first })
         return Array(Set(selection.value.compactMap { byID[$0] })).sorted()
     }
 
@@ -156,7 +161,8 @@ struct DuplicatesView: View {
     }
 
     private func packNames(for ids: Set<Row.ID>) -> [String] {
-        let byID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.pack.name) })
+        let byID = Dictionary(rows.map { ($0.id, $0.pack.name) },
+                              uniquingKeysWith: { first, _ in first })
         return Array(Set(ids.compactMap { byID[$0] })).sorted()
     }
 

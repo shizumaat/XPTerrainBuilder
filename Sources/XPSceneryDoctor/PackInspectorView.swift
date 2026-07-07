@@ -49,7 +49,10 @@ struct PackInspectorView: View {
                 )
             } else {
                 List(selection: $selection.value) {
-                    ForEach(ordered, id: \.name) { pack in
+                    // Row identity by PATH: the same-named pack can appear
+                    // installed and uninstalled at once. Selection stays by
+                    // name (acting on both copies together is meaningful).
+                    ForEach(ordered, id: \.url.path) { pack in
                         packRow(pack).tag(pack.name)
                     }
                     .onMove { source, destination in

@@ -6,6 +6,9 @@ import SceneryKit
 /// badges, drag-to-reorder, and the context-aware pack actions.
 struct PackInspectorView: View {
     @EnvironmentObject var controller: AnalysisController
+    /// Leaf model (lore #13): size batches stream during runs, and only
+    /// this view should re-render for them — never the map canvas.
+    @EnvironmentObject var packSizes: PackSizesModel
     let packs: [SceneryPack]
     // Selection is keyed by pack PATH — the List rows' identity. Keying by
     // name broke selection entirely (the gear menu never enabled) because
@@ -120,7 +123,7 @@ struct PackInspectorView: View {
     /// (the scanner's number is depth-limited), "calculating…" when even
     /// the estimate is empty.
     private func sizeLabel(_ pack: SceneryPack) -> String {
-        if let exact = controller.exactSizes[pack.name] {
+        if let exact = packSizes.exact[pack.name] {
             return ByteCountFormatter.string(fromByteCount: exact, countStyle: .file)
         }
         if pack.sizeBytes > 0 {
@@ -133,7 +136,7 @@ struct PackInspectorView: View {
         var bytes: Int64 = 0
         var allExact = true
         for pack in packs {
-            if let exact = controller.exactSizes[pack.name] {
+            if let exact = packSizes.exact[pack.name] {
                 bytes += exact
             } else {
                 bytes += pack.sizeBytes

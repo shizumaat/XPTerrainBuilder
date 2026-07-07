@@ -27,6 +27,16 @@ final class ProgressModel: ObservableObject {
     @Published var packProgress: (done: Int, total: Int, name: String)?
 }
 
+/// Exact per-pack disk sizes, isolated from AnalysisController exactly like
+/// ProgressModel (lore #13): size batches land every ~0.4 s during a run,
+/// and a @Published on the controller would re-render the MAP CANVAS on
+/// every merge — zoom gestures turned to syrup. Only the package list
+/// observes this.
+@MainActor
+final class PackSizesModel: ObservableObject {
+    @Published var exact: [String: Int64] = [:]
+}
+
 @MainActor
 final class AnalysisController: ObservableObject {
     @AppStorage(PrefKeys.xplanePath) var xplanePath: String = ""
@@ -59,7 +69,8 @@ final class AnalysisController: ObservableObject {
     /// EXACT per-pack disk sizes from the analysis walk, streamed as packs
     /// complete and seeded from the persisted report. The scanner's
     /// sizeBytes stays as the "~" approximation until this fills in.
-    @Published var exactSizes: [String: Int64] = [:]
+    /// Deliberately NOT @Published here — see PackSizesModel.
+    let packSizes = PackSizesModel()
     private var pendingSizes: [String: Int64] = [:]
     /// The last completed full scan (packs + library indexes) — handed to
     /// the analyzer so it doesn't rescan the same 4,200 packs minutes after
@@ -361,7 +372,7 @@ final class AnalysisController: ObservableObject {
                     // Coalesced like findings: one @Published tick per flush.
                     self.pendingSizes.merge(sizes) { _, new in new }
                     if self.pendingSizes.count >= 50 {
-                        self.exactSizes.merge(self.pendingSizes) { _, new in new }
+                        self.packSizes.exact.merge(self.pendingSizes) { _, new in new }
                         self.pendingSizes = [:]
                     }
                 case .event(.duplicateGroups(let groups)):
@@ -398,11 +409,11 @@ final class AnalysisController: ObservableObject {
                     self.progress.unusedVerifyProgress = nil
                     self.progress.packProgress = nil
                     if !self.pendingSizes.isEmpty {
-                        self.exactSizes.merge(self.pendingSizes) { _, new in new }
+                        self.packSizes.exact.merge(self.pendingSizes) { _, new in new }
                         self.pendingSizes = [:]
                     }
                     if let sizes = final.packSizes {
-                        self.exactSizes.merge(sizes) { _, new in new }
+                        self.packSizes.exact.merge(sizes) { _, new in new }
                     }
                     if let markers = final.packMarkers {
                         self.mapOverlays = self.mapOverlays.applyingExactMarkers(markers)
@@ -484,7 +495,7 @@ final class AnalysisController: ObservableObject {
     /// Exact sizes ride along so relaunch seeds them immediately.
     func persistReport() {
         guard var report else { return }
-        if !exactSizes.isEmpty { report.packSizes = exactSizes }
+        if !packSizes.exact.isEmpty { report.packSizes = packSizes.exact }
         let url = Self.reportFileURL
         Task.detached(priority: .utility) {
             if let data = try? report.jsonData() {
@@ -503,7 +514,7 @@ final class AnalysisController: ObservableObject {
     private func persistReportOnProgress(done: Int) {
         guard done - lastPersistedPackCount >= 100, !reportPersistInFlight,
               var report else { return }
-        if !exactSizes.isEmpty { report.packSizes = exactSizes }
+        if !packSizes.exact.isEmpty { report.packSizes = packSizes.exact }
         lastPersistedPackCount = done
         reportPersistInFlight = true
         let url = Self.reportFileURL
@@ -527,7 +538,7 @@ final class AnalysisController: ObservableObject {
             guard let self, let loaded else { return }
             // Exact sizes are valid to seed even if a run already started.
             if let sizes = loaded.packSizes {
-                self.exactSizes.merge(sizes) { current, _ in current }
+                self.packSizes.exact.merge(sizes) { current, _ in current }
             }
             guard self.report == nil, !self.isRunning else { return }
             self.report = loaded
@@ -538,7 +549,7 @@ final class AnalysisController: ObservableObject {
     private func flushPending(_ pending: inout [Finding]) {
         // Trickled exact sizes ride the same cadence.
         if !pendingSizes.isEmpty {
-            exactSizes.merge(pendingSizes) { _, new in new }
+            packSizes.exact.merge(pendingSizes) { _, new in new }
             pendingSizes = [:]
         }
         guard !pending.isEmpty, var current = report else { return }

@@ -158,6 +158,7 @@ struct MapMainView: View {
                 PackInspectorView(packs: controller.viewportPacks)
                     .environmentObject(controller)
                     .environmentObject(controller.progress)
+                    .environmentObject(controller.packSizes)
             }
             .inspectorColumnWidth(min: 240, ideal: 300, max: 420)
         }

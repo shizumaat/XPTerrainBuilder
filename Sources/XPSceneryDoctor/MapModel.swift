@@ -173,6 +173,11 @@ struct MapOverlays: Sendable {
     var airports: [Airport] = []
     var packBounds: [PackBounds] = []
     var markers: [Marker] = []
+    /// Packs with no geographic footprint (libraries, plugin-only packs)
+    /// plus Laminar packs (excluded from map DRAWING, but still part of the
+    /// load order): they belong to every viewport — hiding them made the
+    /// inspector count disagree with the catalog and buried their findings.
+    var everywherePacks: [SceneryPack] = []
 
     static let empty = MapOverlays(packs: [])
 
@@ -182,7 +187,13 @@ struct MapOverlays: Sendable {
             switch kind { case .ortho: return 3; case .mesh: return 2; default: return 1 }
         }
 
-        for pack in packs where !pack.isLaminar {
+        for pack in packs {
+            // Laminar packs don't draw on the map (Global Airports would
+            // paint 35k marks) but they do belong in every pack list.
+            if pack.isLaminar {
+                everywherePacks.append(pack)
+                continue
+            }
             var minLat = Double.infinity, maxLat = -Double.infinity
             var minLon = Double.infinity, maxLon = -Double.infinity
             var tileKeys = Set<Int32>()
@@ -218,6 +229,10 @@ struct MapOverlays: Sendable {
                     markers.append(Marker(lon: (minLon + maxLon) / 2, lat: (minLat + maxLat) / 2,
                                           packName: pack.name, status: pack.status))
                 }
+            } else {
+                // No tiles, no located airports: libraries and plugin-only
+                // packs load wherever OTHER scenery references them.
+                everywherePacks.append(pack)
             }
         }
 
@@ -246,5 +261,6 @@ struct MapOverlays: Sendable {
             .filter { $0.intersects(minLon: bounds.minLon, maxLon: bounds.maxLon,
                                     minLat: bounds.minLat, maxLat: bounds.maxLat) }
             .map { $0.pack }
+            + everywherePacks
     }
 }

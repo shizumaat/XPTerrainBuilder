@@ -118,6 +118,31 @@ public struct FixEngine: Sendable {
         self.log = log
     }
 
+    // MARK: Encoding-preserving text edits
+
+    /// Text decoded with the UTF-8-then-Latin-1 fallback, remembering which
+    /// encoding matched so the write-back round-trips byte-identically for
+    /// the lines an edit doesn't touch (Latin-1 stays Latin-1).
+    struct DecodedText {
+        let text: String
+        let encoding: String.Encoding
+
+        init?(data: Data) {
+            if let utf8 = String(data: data, encoding: .utf8) {
+                text = utf8; encoding = .utf8
+            } else if let latin1 = String(data: data, encoding: .isoLatin1) {
+                text = latin1; encoding = .isoLatin1
+            } else {
+                return nil
+            }
+        }
+
+        /// Lines rejoined and re-encoded in the source encoding.
+        func data(joining lines: [String]) -> Data? {
+            lines.joined(separator: "\n").data(using: encoding)
+        }
+    }
+
     // MARK: Apply
 
     public func apply(_ findings: [Finding]) -> [FixOutcome] {
@@ -180,12 +205,11 @@ public struct FixEngine: Sendable {
         guard let original = try? Data(contentsOf: fileURL) else {
             return fail("Could not read apt.dat.")
         }
-        guard let text = String(data: original, encoding: .utf8)
-                ?? String(data: original, encoding: .isoLatin1) else {
+        guard let decoded = DecodedText(data: original) else {
             return fail("Could not decode apt.dat.")
         }
 
-        var lines = text.components(separatedBy: "\n")
+        var lines = decoded.text.components(separatedBy: "\n")
         let groups = Self.controllerGroups(lines: lines, icao: icao)
         let bad = groups.filter { group in
             !group.frequenciesKhz.contains { FrequencyLookup.vhfBandKhz.contains($0) }
@@ -246,6 +270,9 @@ public struct FixEngine: Sendable {
             return fail("Edited apt.dat failed validation; no changes were made.")
         }
 
+        guard let edited = decoded.data(joining: lines) else {
+            return fail("Could not re-encode apt.dat.")
+        }
         if !fm.fileExists(atPath: backupURL.path) {
             do {
                 try original.write(to: backupURL, options: .atomic)
@@ -254,7 +281,7 @@ public struct FixEngine: Sendable {
             }
         }
         do {
-            try Data(lines.joined(separator: "\n").utf8).write(to: fileURL, options: .atomic)
+            try edited.write(to: fileURL, options: .atomic)
         } catch {
             return fail("Could not write apt.dat: \(error.localizedDescription)")
         }
@@ -335,11 +362,10 @@ public struct FixEngine: Sendable {
         guard let original = try? Data(contentsOf: fileURL) else {
             return fail("Could not read the file.")
         }
-        guard let text = String(data: original, encoding: .utf8)
-                ?? String(data: original, encoding: .isoLatin1) else {
+        guard let decoded = DecodedText(data: original) else {
             return fail("Could not decode the file.")
         }
-        var lines = text.components(separatedBy: "\n")
+        var lines = decoded.text.components(separatedBy: "\n")
         guard !lines.contains(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("LOAD_CENTER") }) else {
             return fail("The polygon already has a LOAD_CENTER.")
         }
@@ -352,7 +378,9 @@ public struct FixEngine: Sendable {
         let load = String(format: "LOAD_CENTER %.6f %.6f %d %d",
                           latitude, longitude, sizeMeters, resolutionPx)
         lines.insert(load, at: textureIndex + 1)
-        let edited = Data(lines.joined(separator: "\n").utf8)
+        guard let edited = decoded.data(joining: lines) else {
+            return fail("Could not re-encode the file.")
+        }
 
         // Back up the original (first backup wins — it is the true original).
         if !fm.fileExists(atPath: backupURL.path) {
@@ -401,20 +429,12 @@ public struct FixEngine: Sendable {
         guard let worst = before.maxSpillRadius, worst > Double(maxRadiusMeters) else {
             return fail("No spill light exceeds \(maxRadiusMeters) m — already clamped?")
         }
-        // Track the decode so the write-back round-trips byte-identically
-        // for the lines the clamp doesn't touch (Latin-1 stays Latin-1).
-        let encoding: String.Encoding
-        let text: String
-        if let utf8 = String(data: original, encoding: .utf8) {
-            text = utf8; encoding = .utf8
-        } else if let latin1 = String(data: original, encoding: .isoLatin1) {
-            text = latin1; encoding = .isoLatin1
-        } else {
+        guard let decoded = DecodedText(data: original) else {
             return fail("Could not decode the file.")
         }
 
         var clamped = 0
-        let lines = text.components(separatedBy: "\n").map { line -> String in
+        let lines = decoded.text.components(separatedBy: "\n").map { line -> String in
             // CRLF files reach here with a trailing "\r" on every line —
             // strip for parsing, restore if the line gets rewritten.
             let hadCR = line.hasSuffix("\r")
@@ -432,7 +452,7 @@ public struct FixEngine: Sendable {
         guard clamped > 0 else {
             return fail("No clampable spill light found.")
         }
-        guard let edited = lines.joined(separator: "\n").data(using: encoding) else {
+        guard let edited = decoded.data(joining: lines) else {
             return fail("Could not re-encode the file.")
         }
 
@@ -542,15 +562,17 @@ public struct FixEngine: Sendable {
         }
 
         // Byte-level edit: drop ATTR_no_blend lines; insert GLOBAL_no_blend
-        // before the first draw command (the header ends there).
-        guard let text = String(data: original, encoding: .utf8)
-                ?? String(data: original, encoding: .isoLatin1) else {
+        // before the first draw command (the header ends there). The
+        // directive is ASCII, so splicing it into Latin-1 bytes is safe.
+        guard let decoded = DecodedText(data: original) else {
             return fail("Could not decode the file.")
         }
-        let kept = text.components(separatedBy: "\n").filter {
+        let kept = decoded.text.components(separatedBy: "\n").filter {
             !$0.trimmingCharacters(in: .whitespaces).hasPrefix("ATTR_no_blend")
         }
-        let rejoined = Data(kept.joined(separator: "\n").utf8)
+        guard let rejoined = decoded.data(joining: kept) else {
+            return fail("Could not re-encode the file.")
+        }
         guard let edited = Self.insertHeaderDirective("GLOBAL_no_blend", into: rejoined) else {
             return fail("No draw commands found — not a valid OBJ8 file?")
         }

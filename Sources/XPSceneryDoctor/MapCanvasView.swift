@@ -47,6 +47,7 @@ struct MapCanvasView: View {
             ))
             .overlay(alignment: .bottomLeading) { legend }
             .overlay(alignment: .topTrailing) { zoomControls }
+            .overlay(alignment: .bottomTrailing) { ScanProgressChip() }
             .onAppear {
                 // First layout: fit the world so the map fills the viewport
                 // from the very first frame — no small-then-resize flash.
@@ -391,6 +392,29 @@ struct MapCanvasView: View {
             RoundedRectangle(cornerRadius: 1.5).fill(color.opacity(0.5))
                 .frame(width: 9, height: 9)
             Text(label).foregroundStyle(.white.opacity(0.8))
+        }
+    }
+
+    /// Unobtrusive scan progress while the map populates live. Leaf view
+    /// observing ProgressModel so its ticks never redraw the canvas.
+    struct ScanProgressChip: View {
+        @EnvironmentObject var progress: ProgressModel
+
+        var body: some View {
+            if let p = progress.scanProgress {
+                HStack(spacing: 6) {
+                    ProgressView(value: Double(p.done), total: Double(max(p.total, 1)))
+                        .frame(width: 90)
+                        .controlSize(.mini)
+                    Text("\(p.done.formatted())/\(p.total.formatted())")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.8))
+                }
+                .padding(6)
+                .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))
+                .padding(8)
+                .help("Scanning Custom Scenery — the map fills in as packages are found")
+            }
         }
     }
 

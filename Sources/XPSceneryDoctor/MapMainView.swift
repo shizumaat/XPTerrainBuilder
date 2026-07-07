@@ -16,18 +16,10 @@ struct MapMainView: View {
             if controller.xplanePath.isEmpty {
                 onboarding
             } else {
-                // The real split layout mounts (and settles its pane sizes)
-                // underneath an opaque loading cover from the very first
-                // frame; the cover fades once the scan lands, so the user
-                // never sees the splits mid-layout or panes without data.
-                ZStack {
-                    mainLayout
-                    if !controller.hasScannedInstallation {
-                        loadingCover
-                            .transition(.opacity)
-                    }
-                }
-                .animation(.easeOut(duration: 0.3), value: controller.hasScannedInstallation)
+                // The window opens straight onto the (initially empty) map;
+                // packs stream in live as the scan discovers them, and split
+                // positions restore from their autosave before first display.
+                mainLayout
             }
         }
         .frame(minWidth: 900, minHeight: 620)
@@ -42,7 +34,6 @@ struct MapMainView: View {
         .onChange(of: controller.xplanePath) {
             controller.selectedTiles = []
             controller.installationPacks = []
-            controller.hasScannedInstallation = false
             controller.refreshInstallation()
         }
         .fileImporter(isPresented: $showingPicker.value, allowedContentTypes: [.folder]) { result in
@@ -176,50 +167,37 @@ struct MapMainView: View {
     }
 
     private var mainLayout: some View {
-        VSplitView {
-            HSplitView {
+        // NSSplitView-backed: divider positions persist via autosaveName and
+        // restore before first display. Hosted subtrees don't inherit this
+        // view's environment, so the objects are re-injected per pane.
+        RestorableSplit(orientation: .vertical, autosaveName: "MainSplit.Vertical",
+                        firstMin: 300, secondMin: 180) {
+            RestorableSplit(orientation: .horizontal, autosaveName: "MainSplit.Horizontal",
+                            firstMin: 480, secondMin: 240, secondMax: 420) {
                 MapCanvasView(camera: controller.mapCamera,
                               canvasSize: controller.mapCanvasSize)
-                    .frame(minWidth: 480, minHeight: 300)
-                    .layoutPriority(1)
+                    .environmentObject(controller)
+                    .environmentObject(controller.progress)
+            } second: {
                 PackInspectorView(
                     packs: controller.selectedTiles.isEmpty
                         ? controller.viewportPacks
                         : controller.packsAffectingSelection(),
                     isViewportMode: controller.selectedTiles.isEmpty
                 )
-                .frame(minWidth: 240, idealWidth: 300, maxWidth: 420)
+                .environmentObject(controller)
+                .environmentObject(controller.progress)
             }
-            .layoutPriority(2)
+        } second: {
             ResultsPane(packFilter: Set(
                 (controller.selectedTiles.isEmpty
                     ? controller.viewportPacks
                     : controller.packsAffectingSelection())
                 .map { $0.name }
             ))
-            .frame(minHeight: 180, idealHeight: 300)
+            .environmentObject(controller)
+            .environmentObject(controller.progress)
         }
-    }
-
-    // MARK: - Loading cover
-
-    /// Facsimile of the final layout with fixed pane sizes (no split views —
-    /// nothing to settle): the empty night-chart world with a determinate
-    /// scan progress bar, and pulsing placeholder bars where the inspector
-    /// and results will appear.
-    private var loadingCover: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                LoadingMapPlaceholder()
-                Divider()
-                SkeletonPane(rows: 14)
-                    .frame(width: 300)
-            }
-            Divider()
-            SkeletonPane(rows: 5)
-                .frame(height: 260)
-        }
-        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     // MARK: - Onboarding
@@ -310,82 +288,5 @@ struct ToolbarSearchField: NSViewRepresentable {
                 parent.onSubmit()
             }
         }
-    }
-}
-
-/// The empty night-chart world (coarse coastlines, no overlays) with the
-/// installation-scan progress centered on it. Observes ProgressModel — the
-/// high-frequency ticks stay contained here.
-struct LoadingMapPlaceholder: View {
-    @EnvironmentObject var progressModel: ProgressModel
-
-    private var progress: (done: Int, total: Int)? { progressModel.scanProgress }
-
-    var body: some View {
-        ZStack {
-            Canvas(rendersAsynchronously: false) { context, size in
-                let cam = MapCamera.fitted(to: size)
-                var landPath = Path()
-                for ring in LandData.polygons {
-                    guard let first = ring.first else { continue }
-                    landPath.move(to: cam.point(lon: first.x, lat: first.y, in: size))
-                    for pt in ring.dropFirst() {
-                        landPath.addLine(to: cam.point(lon: pt.x, lat: pt.y, in: size))
-                    }
-                    landPath.closeSubpath()
-                }
-                context.fill(landPath, with: .color(MapCanvasView.land))
-                context.stroke(landPath, with: .color(MapCanvasView.coast), lineWidth: 1)
-            }
-            .background(MapCanvasView.ocean)
-
-            VStack(spacing: 10) {
-                Text("Reading Your Scenery")
-                    .font(.headline)
-                    .foregroundStyle(.white.opacity(0.92))
-                if let progress, progress.total > 0 {
-                    ProgressView(value: Double(progress.done), total: Double(progress.total))
-                        .frame(width: 280)
-                    Text("\(progress.done.formatted()) of \(progress.total.formatted()) packages")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.white.opacity(0.65))
-                } else {
-                    ProgressView()
-                        .progressViewStyle(.linear)
-                        .frame(width: 280)
-                    Text("Listing Custom Scenery…")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.65))
-                }
-            }
-            .padding(22)
-            .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
-        }
-    }
-}
-
-/// Pulsing gray placeholder bars standing in for a pane that has no data yet.
-struct SkeletonPane: View {
-    let rows: Int
-    @StateObject private var pulsing = ViewState(false)
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ForEach(0..<rows, id: \.self) { i in
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.primary.opacity(0.09))
-                    .frame(height: 13)
-                    // Deterministic ragged widths so it reads as text lines.
-                    .containerRelativeFrame(.horizontal) { width, _ in
-                        width * (0.45 + Double((i * 37) % 45) / 100)
-                    }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .opacity(pulsing.value ? 0.45 : 1)
-        .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: pulsing.value)
-        .onAppear { pulsing.value = true }
     }
 }

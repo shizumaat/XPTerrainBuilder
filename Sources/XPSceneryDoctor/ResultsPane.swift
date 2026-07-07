@@ -13,6 +13,9 @@ struct ResultsPane: View {
     @StateObject private var expanded = ViewState(Set<FindingCategory>([.missingResource]))
     @StateObject private var confirmingFix = ViewState<[Finding]?>(nil)
 
+    /// EXPENSIVE — string-set filtering over every finding. Computed exactly
+    /// once per body evaluation and passed down; as a computed property read
+    /// from each category row it profiled at ~45% of the main thread.
     private var findings: [Finding] {
         let all = controller.report?.findings ?? []
         guard let filter = packFilter else { return all }
@@ -54,27 +57,21 @@ struct ResultsPane: View {
         return groups.filter { filter.contains($0.packName) }
     }
 
-    private var fixable: [Finding] {
-        findings.filter { $0.proposedFix != nil }
-    }
-
-    private var selectedFixable: [Finding] {
-        fixable.filter { selection.value.contains($0.id) }
-    }
-
     var body: some View {
+        let visible = findings
+        let fixable = visible.filter { $0.proposedFix != nil }
         VStack(spacing: 0) {
             if let report = controller.report {
-                header(for: report)
+                header(for: report, findings: visible)
                 Divider()
-                if findings.isEmpty && !controller.isRunning {
+                if visible.isEmpty && !controller.isRunning {
                     ContentUnavailableView(
                         "No Findings",
                         systemImage: "checkmark.seal",
                         description: Text("The analyzed packages look healthy.")
                     )
                 } else {
-                    resultsList(report: report)
+                    resultsList(report: report, findings: visible)
                 }
             } else {
                 ContentUnavailableView(
@@ -84,15 +81,15 @@ struct ResultsPane: View {
                 )
             }
             Divider()
-            bottomBar
+            bottomBar(fixable: fixable)
         }
     }
 
-    private func header(for report: AnalysisReport) -> some View {
+    private func header(for report: AnalysisReport, findings: [Finding]) -> some View {
         HStack(spacing: 8) {
             Text("Results")
                 .font(.headline)
-            Text(subtitle(for: report))
+            Text(subtitle(for: report, findings: findings))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -110,7 +107,7 @@ struct ResultsPane: View {
         .padding(.vertical, 6)
     }
 
-    private func subtitle(for report: AnalysisReport) -> String {
+    private func subtitle(for report: AnalysisReport, findings: [Finding]) -> String {
         var parts: [String] = []
         if let scope = report.scopeDescription { parts.append(scope) }
         if controller.isRunning {
@@ -126,7 +123,7 @@ struct ResultsPane: View {
         return parts.joined(separator: " — ")
     }
 
-    private func resultsList(report: AnalysisReport) -> some View {
+    private func resultsList(report: AnalysisReport, findings: [Finding]) -> some View {
         List(selection: $selection.value) {
             ForEach(FindingCategory.allCases, id: \.self) { category in
                 let items = findings.filter { $0.category == category }
@@ -280,8 +277,9 @@ struct ResultsPane: View {
 
     // MARK: - Bottom bar (progress + fixes, per feedback)
 
-    private var bottomBar: some View {
-        HStack(spacing: 8) {
+    private func bottomBar(fixable: [Finding]) -> some View {
+        let selectedFixable = fixable.filter { selection.value.contains($0.id) }
+        return HStack(spacing: 8) {
             if controller.isRunning {
                 ProgressView().controlSize(.small)
                 StageLabelText(suffix: fixable.isEmpty

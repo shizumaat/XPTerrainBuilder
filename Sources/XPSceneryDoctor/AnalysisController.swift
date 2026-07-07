@@ -69,9 +69,6 @@ final class AnalysisController: ObservableObject {
     /// Packs our own fixes/actions touched since their cache entries were
     /// written — forced fresh on the next run.
     private var pendingInvalidation: Set<String> = []
-    /// False until the first scan of the current install completes — the map
-    /// window shows a loading cover instead of a half-laid-out split view.
-    @Published var hasScannedInstallation = false
     @Published var selectedTiles: Set<String> = [] {
         didSet {
             selectionPacks = Self.packsAffecting(tiles: selectedTiles, in: installationPacks)
@@ -132,11 +129,26 @@ final class AnalysisController: ObservableObject {
         isScanningInstallation = true
         Task { [weak self] in
             let (packs, overlays) = await Task.detached(priority: .userInitiated) {
-                let packs = InstallationScanner(root: root).scan { done, total in
-                    Task { @MainActor [weak self] in
-                        self?.progress.scanProgress = (done, total)
+                let packs = InstallationScanner(root: root).scan(
+                    progress: { done, total in
+                        Task { @MainActor [weak self] in
+                            self?.progress.scanProgress = (done, total)
+                        }
+                    },
+                    onPartial: { partial in
+                        // Populate the map live as packs are discovered.
+                        // Overlays are built here on the worker thread; the
+                        // completed scan below supersedes any queued partial.
+                        let overlays = MapOverlays(packs: partial)
+                        Task { @MainActor [weak self] in
+                            guard let self, self.isScanningInstallation else { return }
+                            self.installationPacks = partial
+                            self.mapOverlays = overlays
+                                .applyingExactMarkers(self.report?.packMarkers ?? [:])
+                            self.scheduleViewportUpdate()
+                        }
                     }
-                }.packs
+                ).packs
                 return (packs, MapOverlays(packs: packs))
             }.value
             guard let self else { return }
@@ -146,7 +158,6 @@ final class AnalysisController: ObservableObject {
             self.mapOverlays = overlays.applyingExactMarkers(self.report?.packMarkers ?? [:])
             self.isScanningInstallation = false
             self.progress.scanProgress = nil
-            self.hasScannedInstallation = true
             self.scheduleViewportUpdate()
             if self.pendingRefresh {
                 self.pendingRefresh = false

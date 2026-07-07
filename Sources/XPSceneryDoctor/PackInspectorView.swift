@@ -70,24 +70,42 @@ struct PackInspectorView: View {
 
                 Divider()
                 HStack {
-                    Text("\(affected.count) package\(affected.count == 1 ? "" : "s") \(isViewportMode ? "in view" : "in selection")")
+                    Text(footerSummary)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                     Spacer()
+                    // Pack actions (Enable/Disable/Install/Uninstall/Reveal)
+                    // for the selected rows; enabled once rows are selected.
                     Menu {
                         packActionButtons(for: selection.value)
                     } label: {
-                        Image(systemName: "wrench.and.screwdriver")
+                        Image(systemName: "gearshape")
                     }
                     .menuStyle(.borderlessButton)
                     .fixedSize()
                     .disabled(selection.value.isEmpty || controller.isApplyingAction || controller.isRunning)
+                    .help("Actions for the selected packages")
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(.bar)
             }
         }
+    }
+
+    /// "254 packages in view, 128.3 GB" — or, with rows selected,
+    /// "3 of 254 selected, 8.3 GB".
+    private var footerSummary: String {
+        let selected = affected.filter { selection.value.contains($0.name) }
+        if selected.isEmpty {
+            let bytes = affected.reduce(Int64(0)) { $0 + $1.sizeBytes }
+            let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+            return "\(affected.count) package\(affected.count == 1 ? "" : "s") \(isViewportMode ? "in view" : "in selection"), \(size)"
+        }
+        let bytes = selected.reduce(Int64(0)) { $0 + $1.sizeBytes }
+        let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+        return "\(selected.count) of \(affected.count) selected, \(size)"
     }
 
     private func packRow(_ pack: SceneryPack) -> some View {
@@ -98,11 +116,12 @@ struct PackInspectorView: View {
                 Text(pack.name)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                if !pack.airports.isEmpty {
-                    Text(pack.airports.keys.sorted().prefix(6).joined(separator: " "))
-                        .font(.caption2.monospaced())
+                if let detail = packDetail(pack) {
+                    Text(detail)
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                 }
             }
             Spacer(minLength: 4)
@@ -112,6 +131,25 @@ struct PackInspectorView: View {
                 .help("Drag to change load order")
         }
         .help(pack.url.path)
+    }
+
+    /// "KBNA, Nashville, USA — Last modified: Jul 7, 2026". Missing data
+    /// points are simply left out; multi-airport packs list ICAOs instead
+    /// of one city.
+    private func packDetail(_ pack: SceneryPack) -> String? {
+        var parts: [String] = []
+        if pack.airports.count == 1, let (icao, info) = pack.airports.first {
+            var place = [icao]
+            if let city = info.city { place.append(city) }
+            if let country = info.country { place.append(country) }
+            parts.append(place.joined(separator: ", "))
+        } else if !pack.airports.isEmpty {
+            parts.append(pack.airports.keys.sorted().prefix(6).joined(separator: " "))
+        }
+        if let modified = pack.modifiedDate {
+            parts.append("Last modified: \(modified.formatted(date: .abbreviated, time: .omitted))")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " — ")
     }
 
     /// Category icon, tinted to match the map legend.

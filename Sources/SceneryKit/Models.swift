@@ -349,11 +349,17 @@ public struct AirportInfo: Codable, Sendable, Hashable {
     public let name: String
     public let latitude: Double
     public let longitude: Double
+    /// From apt.dat 1302 metadata rows, when the author filled them in.
+    public var city: String? = nil
+    public var country: String? = nil
 
-    public init(name: String, latitude: Double, longitude: Double) {
+    public init(name: String, latitude: Double, longitude: Double,
+                city: String? = nil, country: String? = nil) {
         self.name = name
         self.latitude = latitude
         self.longitude = longitude
+        self.city = city
+        self.country = country
     }
 }
 
@@ -381,6 +387,10 @@ public struct SceneryPack: Codable, Sendable {
     public var hasTerrain: Bool = false
     /// textures/ holds photo-tile quantities of images (Ortho4XP-style).
     public var isPhotoTextured: Bool = false
+    /// Approximate size on disk (files to depth 3 + every DSF).
+    public var sizeBytes: Int64 = 0
+    /// Newest content mtime seen during the scan.
+    public var modifiedDate: Date? = nil
 
     public var isEnabled: Bool { status == .enabled }
     public var isInstalled: Bool { status != .uninstalled }

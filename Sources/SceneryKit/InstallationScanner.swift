@@ -12,8 +12,12 @@ public struct InstallationScanner {
     }
 
     /// `progress` reports (packs probed, total packs) — often enough for a
-    /// smooth determinate bar.
-    public func scan(progress: ((Int, Int) -> Void)? = nil) -> Installation {
+    /// smooth determinate bar. `onPartial` (called from worker threads,
+    /// throttled to ~2 Hz) streams growing snapshots of the pack list so a
+    /// map can populate live while the scan runs; the returned Installation
+    /// remains the complete, authoritative result.
+    public func scan(progress: ((Int, Int) -> Void)? = nil,
+                     onPartial: (([SceneryPack]) -> Void)? = nil) -> Installation {
         let customScenery = root.appendingPathComponent("Custom Scenery")
         let disabledFolder = root.appendingPathComponent("Custom Scenery (Disabled)")
         let iniOrder = parseSceneryPacksIni(customScenery.appendingPathComponent("scenery_packs.ini"))
@@ -52,10 +56,45 @@ public struct InstallationScanner {
             let hasTerrain: Bool
             let isPhotoTextured: Bool
             let signature: String
+            let sizeBytes: Int64
+            let modifiedDate: Date?
         }
+        func makePack(url: URL, installed: Bool, probe: PackProbe) -> SceneryPack {
+            // lastPathComponent yields FOREIGN (NSPathStore2-backed) Swift
+            // strings; every hash/compare of one takes the slow Unicode
+            // normalization path through objc_msgSend. Pack names are hashed
+            // constantly (filters, sets, sorting) — profiled at ~45% of the
+            // main thread. Make them native once, here.
+            var name = url.lastPathComponent
+            name.makeContiguousUTF8()
+            let iniEntry = iniOrder["Custom Scenery/\(name)/"] ?? iniOrder["Custom Scenery/\(name)"]
+            let status: PackStatus = !installed
+                ? .uninstalled
+                // Not listed yet = X-Plane will add it enabled on next launch.
+                : (iniEntry?.enabled ?? true) ? .enabled : .disabled
+            return SceneryPack(
+                name: name,
+                url: url,
+                status: status,
+                iniIndex: installed ? iniEntry?.index : nil,
+                isLibrary: probe.isLibrary,
+                airports: probe.airports,
+                tiles: probe.tiles,
+                isOverlay: probe.isOverlay,
+                isLaminar: Self.laminarPackNames.contains(name),
+                signature: probe.signature,
+                hasTerrain: probe.hasTerrain,
+                isPhotoTextured: probe.isPhotoTextured,
+                sizeBytes: probe.sizeBytes,
+                modifiedDate: probe.modifiedDate
+            )
+        }
+
         var probes = [PackProbe?](repeating: nil, count: entries.count)
         let lock = NSLock()
         var completed = 0
+        var streamed: [SceneryPack] = []
+        var lastPartial = Date.distantPast
         probes.withUnsafeMutableBufferPointer { buffer in
             let buf = UnsafeSendableBuffer(buffer)
             DispatchQueue.concurrentPerform(iterations: entries.count) { i in
@@ -65,12 +104,14 @@ public struct InstallationScanner {
                 // fds — thousands of packs without draining exhausts them.
                 let probe = autoreleasepool { () -> PackProbe in
                     var hash = FNV1a()
-                    let (tiles, sampleDSF) = collectDSFTiles(url, into: &hash)
+                    var stats = ProbeStats()
+                    let (tiles, sampleDSF) = collectDSFTiles(url, into: &hash, stats: &stats)
                     var isOverlay: Bool? = nil
                     if let sampleDSF, case .ok(let defs) = DSFReader.readDefinitions(url: sampleDSF) {
                         isOverlay = defs.isOverlay
                     }
                     let content = terrainAndTextureProbe(url)
+                    let signature = packSignature(url, hash: &hash, stats: &stats)
                     return PackProbe(
                         isLibrary: fm.fileExists(atPath: url.appendingPathComponent("library.txt").path),
                         airports: parseAirports(inPack: url),
@@ -78,15 +119,26 @@ public struct InstallationScanner {
                         isOverlay: isOverlay,
                         hasTerrain: content.hasTerrain,
                         isPhotoTextured: content.isPhotoTextured,
-                        signature: packSignature(url, hash: &hash)
+                        signature: signature,
+                        sizeBytes: stats.sizeBytes,
+                        modifiedDate: stats.latestModified
                     )
                 }
                 lock.lock()
                 buf.buffer[i] = probe
                 completed += 1
                 let done = completed
+                var partial: [SceneryPack]? = nil
+                if onPartial != nil {
+                    streamed.append(makePack(url: url, installed: entries[i].installed, probe: probe))
+                    if Date().timeIntervalSince(lastPartial) > 0.5 {
+                        lastPartial = Date()
+                        partial = streamed
+                    }
+                }
                 lock.unlock()
                 if done % 50 == 0 || done == entries.count { progress?(done, entries.count) }
+                if let partial { onPartial?(partial) }
             }
         }
 
@@ -96,33 +148,11 @@ public struct InstallationScanner {
         var libraryIndex = LibraryIndex()
         for (entry, probe) in zip(entries, probes) {
             guard let probe else { continue }
-            let name = entry.url.lastPathComponent
-            let status: PackStatus
-            if !entry.installed {
-                status = .uninstalled
-            } else {
-                if probe.isLibrary {
-                    libraryIndex.indexLibrary(at: entry.url, packName: name)
-                }
-                let iniEntry = iniOrder["Custom Scenery/\(name)/"] ?? iniOrder["Custom Scenery/\(name)"]
-                // Not listed yet = X-Plane will add it enabled on next launch.
-                status = (iniEntry?.enabled ?? true) ? .enabled : .disabled
+            let pack = makePack(url: entry.url, installed: entry.installed, probe: probe)
+            if entry.installed, probe.isLibrary {
+                libraryIndex.indexLibrary(at: entry.url, packName: pack.name)
             }
-            let iniEntry = iniOrder["Custom Scenery/\(name)/"] ?? iniOrder["Custom Scenery/\(name)"]
-            packs.append(SceneryPack(
-                name: name,
-                url: entry.url,
-                status: status,
-                iniIndex: entry.installed ? iniEntry?.index : nil,
-                isLibrary: probe.isLibrary,
-                airports: probe.airports,
-                tiles: probe.tiles,
-                isOverlay: probe.isOverlay,
-                isLaminar: Self.laminarPackNames.contains(name),
-                signature: probe.signature,
-                hasTerrain: probe.hasTerrain,
-                isPhotoTextured: probe.isPhotoTextured
-            ))
+            packs.append(pack)
         }
 
         // X-Plane's own libraries: needed to audit lib/… references.
@@ -201,13 +231,17 @@ public struct InstallationScanner {
         var currentICAOOverride: String?
         var currentLat: Double?
         var currentLon: Double?
+        var currentCity: String?
+        var currentCountry: String?
 
         func flush() {
             if let id = currentICAOOverride ?? currentID {
                 airports[id] = AirportInfo(
                     name: currentName ?? id,
                     latitude: currentLat ?? 0,
-                    longitude: currentLon ?? 0
+                    longitude: currentLon ?? 0,
+                    city: currentCity,
+                    country: currentCountry
                 )
             }
             currentID = nil
@@ -215,6 +249,8 @@ public struct InstallationScanner {
             currentICAOOverride = nil
             currentLat = nil
             currentLon = nil
+            currentCity = nil
+            currentCountry = nil
         }
 
         func capture(lat: Substring, lon: Substring) {
@@ -241,6 +277,8 @@ public struct InstallationScanner {
                     if parts[1] == "icao_code" { currentICAOOverride = String(parts[2]) }
                     if parts[1] == "datum_lat", let la = Double(parts[2]) { currentLat = currentLat ?? la }
                     if parts[1] == "datum_lon", let lo = Double(parts[2]) { currentLon = currentLon ?? lo }
+                    if parts[1] == "city" { currentCity = parts[2...].joined(separator: " ") }
+                    if parts[1] == "country" { currentCountry = parts[2...].joined(separator: " ") }
                 }
             case "100": // land runway: lat/lon of end 1 at fields 9,10
                 if parts.count >= 11 { capture(lat: parts[9], lon: parts[10]) }
@@ -264,7 +302,23 @@ public struct InstallationScanner {
     /// mtime folded into the change-detection hash (a replaced tile must
     /// invalidate the analysis cache even though its folder mtime doesn't
     /// move).
-    func collectDSFTiles(_ packURL: URL, into hash: inout FNV1a) -> (tiles: Set<String>, sample: URL?) {
+    /// Size / freshness accumulated from the stats the signature walk was
+    /// already reading — no extra I/O. Sizes cover files to depth 3 plus
+    /// every DSF; deeper trees under-count slightly.
+    struct ProbeStats {
+        var sizeBytes: Int64 = 0
+        var latestModified: Date?
+
+        mutating func record(size: Int?, modified: Date?) {
+            sizeBytes += Int64(size ?? 0)
+            if let modified, modified > (latestModified ?? .distantPast) {
+                latestModified = modified
+            }
+        }
+    }
+
+    func collectDSFTiles(_ packURL: URL, into hash: inout FNV1a,
+                         stats: inout ProbeStats) -> (tiles: Set<String>, sample: URL?) {
         let earthNav = packURL.appendingPathComponent("Earth nav data")
         guard let enumerator = fm.enumerator(
             at: earthNav,
@@ -280,6 +334,7 @@ public struct InstallationScanner {
             hash.combine(file.lastPathComponent)
             hash.combine(values?.contentModificationDate?.timeIntervalSinceReferenceDate ?? 0)
             hash.combine(Double(values?.fileSize ?? 0))
+            stats.record(size: values?.fileSize, modified: values?.contentModificationDate)
         }
         return (tiles, sample)
     }
@@ -316,12 +371,13 @@ public struct InstallationScanner {
     /// edit of a file deeper than two levels — our own FixEngine edits
     /// invalidate explicitly, and manual Analyze Selection always bypasses
     /// the cache.
-    func packSignature(_ packURL: URL, hash: inout FNV1a) -> String {
-        signatureWalk(packURL, depth: 0, hash: &hash)
+    func packSignature(_ packURL: URL, hash: inout FNV1a, stats: inout ProbeStats) -> String {
+        signatureWalk(packURL, depth: 0, hash: &hash, stats: &stats)
         return String(hash.value, radix: 16)
     }
 
-    private func signatureWalk(_ dir: URL, depth: Int, hash: inout FNV1a) {
+    private func signatureWalk(_ dir: URL, depth: Int, hash: inout FNV1a,
+                               stats: inout ProbeStats) {
         let entries = (try? fm.contentsOfDirectory(
             at: dir,
             includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey, .isDirectoryKey],
@@ -335,8 +391,12 @@ public struct InstallationScanner {
             hash.combine(name)
             hash.combine(values?.contentModificationDate?.timeIntervalSinceReferenceDate ?? 0)
             hash.combine(Double(values?.fileSize ?? 0))
-            if values?.isDirectory == true, depth < 2 {
-                signatureWalk(entry, depth: depth + 1, hash: &hash)
+            if values?.isDirectory == true {
+                if depth < 2 {
+                    signatureWalk(entry, depth: depth + 1, hash: &hash, stats: &stats)
+                }
+            } else {
+                stats.record(size: values?.fileSize, modified: values?.contentModificationDate)
             }
         }
     }

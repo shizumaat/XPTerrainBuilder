@@ -171,10 +171,15 @@ struct MapMainView: View {
             .environmentObject(controller.progress)
         }
         .inspector(isPresented: inspectorBinding) {
-            PackInspectorView(packs: controller.viewportPacks)
-                .environmentObject(controller)
-                .environmentObject(controller.progress)
-                .inspectorColumnWidth(min: 240, ideal: 300, max: 420)
+            // Hairline between the map/results and the package list — the
+            // inspector container doesn't draw its own separator here.
+            HStack(spacing: 0) {
+                Divider()
+                PackInspectorView(packs: controller.viewportPacks)
+                    .environmentObject(controller)
+                    .environmentObject(controller.progress)
+            }
+            .inspectorColumnWidth(min: 240, ideal: 300, max: 420)
         }
     }
 

@@ -67,11 +67,12 @@ struct PackInspectorView: View {
                 }
 
                 Divider()
+                // Same height and type size as the results pane's bottom bar.
                 HStack {
                     Text(footerSummary)
-                        .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                        .truncationMode(.middle)
                     Spacer()
                     // Pack actions (Enable/Disable/Install/Uninstall/Reveal)
                     // for the selected rows; enabled once rows are selected.
@@ -85,8 +86,9 @@ struct PackInspectorView: View {
                     .disabled(selection.value.isEmpty || controller.isApplyingAction)
                     .help("Actions for the selected packages (folder moves wait for the analysis; Enable/Disable work anytime)")
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .font(.callout)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
                 .background(.bar)
             }
         }

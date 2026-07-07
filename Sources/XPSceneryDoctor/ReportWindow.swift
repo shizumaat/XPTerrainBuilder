@@ -391,7 +391,32 @@ struct FindingsList: View {
     }
 }
 
-struct FindingRow: View {
+/// One finding's title line — shared by the report window's disclosure rows
+/// and the map window's outline rows.
+struct FindingLabel: View {
+    let finding: Finding
+
+    var body: some View {
+        HStack(spacing: 8) {
+            SeverityIcon(severity: finding.severity)
+            Text(finding.title)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            if finding.proposedFix != nil {
+                Spacer()
+                Image(systemName: "wrench.and.screwdriver.fill")
+                    .font(.caption)
+                    .foregroundStyle(.tint)
+                    .help("Has a one-click fix")
+            }
+        }
+    }
+}
+
+/// A finding's expanded body — detail, suggestion, per-folder reveals and
+/// links. In the report window it lives inside FindingRow's disclosure; in
+/// the map window's outline it is its own child row.
+struct FindingDetailView: View {
     let finding: Finding
 
     /// "Custom Scenery (Disabled)/Aerosoft LFMN" — the last two components
@@ -403,84 +428,80 @@ struct FindingRow: View {
     }
 
     var body: some View {
-        DisclosureGroup {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(finding.detail)
-                    .font(.callout)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 6) {
+            Text(finding.detail)
+                .font(.callout)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
 
-                if let suggestion = finding.suggestion {
-                    Label {
-                        Text(suggestion)
-                            .font(.callout)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } icon: {
-                        Image(systemName: "lightbulb")
-                            .foregroundStyle(.yellow)
-                    }
+            if let suggestion = finding.suggestion {
+                Label {
+                    Text(suggestion)
+                        .font(.callout)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "lightbulb")
+                        .foregroundStyle(.yellow)
                 }
+            }
 
-                // Multi-pack findings (near-identical folders, disabled
-                // packs): one reveal action per folder, labeled by its
-                // parent directory — the only way to tell same-named
-                // copies apart.
-                if let related = finding.relatedPacks, !related.isEmpty {
-                    VStack(alignment: .leading, spacing: 3) {
-                        ForEach(related, id: \.path) { pack in
-                            Button {
-                                NSWorkspace.shared.activateFileViewerSelecting(
-                                    [URL(fileURLWithPath: pack.path)])
-                            } label: {
-                                Label(Self.shortPath(pack.path), systemImage: "folder")
-                                    .lineLimit(1)
-                                    .truncationMode(.head)
-                            }
-                            .buttonStyle(.link)
-                            .font(.caption)
-                            .help("Reveal in Finder: \(pack.path)")
-                        }
-                    }
-                }
-
-                HStack(spacing: 12) {
-                    if let url = finding.url {
-                        Link(destination: url) {
-                            Label(url.host()?.contains("x-plane.org") == true ? "Find on x-plane.org" : "More info", systemImage: "safari")
-                        }
-                        .font(.caption)
-                    }
-                    if let path = finding.path {
+            // Multi-pack findings (near-identical folders, disabled
+            // packs): one reveal action per folder, labeled by its
+            // parent directory — the only way to tell same-named
+            // copies apart.
+            if let related = finding.relatedPacks, !related.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(related, id: \.path) { pack in
                         Button {
-                            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+                            NSWorkspace.shared.activateFileViewerSelecting(
+                                [URL(fileURLWithPath: pack.path)])
                         } label: {
-                            Label("Reveal in Finder", systemImage: "folder")
+                            Label(Self.shortPath(pack.path), systemImage: "folder")
+                                .lineLimit(1)
+                                .truncationMode(.head)
                         }
                         .buttonStyle(.link)
                         .font(.caption)
+                        .help("Reveal in Finder: \(pack.path)")
                     }
-                    Spacer()
-                    Text(finding.checkID)
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.tertiary)
                 }
             }
-            .padding(.vertical, 4)
+
+            HStack(spacing: 12) {
+                if let url = finding.url {
+                    Link(destination: url) {
+                        Label(url.host()?.contains("x-plane.org") == true ? "Find on x-plane.org" : "More info", systemImage: "safari")
+                    }
+                    .font(.caption)
+                }
+                if let path = finding.path {
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+                    } label: {
+                        Label("Reveal in Finder", systemImage: "folder")
+                    }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                }
+                Spacer()
+                Text(finding.checkID)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+}
+
+struct FindingRow: View {
+    let finding: Finding
+
+    var body: some View {
+        DisclosureGroup {
+            FindingDetailView(finding: finding)
+                .padding(.vertical, 4)
         } label: {
-            HStack(spacing: 8) {
-                SeverityIcon(severity: finding.severity)
-                Text(finding.title)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                if finding.proposedFix != nil {
-                    Spacer()
-                    Image(systemName: "wrench.and.screwdriver.fill")
-                        .font(.caption)
-                        .foregroundStyle(.tint)
-                        .help("Has a one-click fix")
-                }
-            }
+            FindingLabel(finding: finding)
         }
     }
 }

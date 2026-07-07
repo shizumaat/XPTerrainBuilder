@@ -13,16 +13,6 @@ struct ResultsPane: View {
     /// them (install-wide findings with no pack stay visible). nil = show all.
     var packFilter: Set<String>? = nil
     @StateObject private var selection = ViewState(Set<Finding.ID>())
-    /// Explicit open/close choices for top-level groups. Groups holding
-    /// error-severity findings default OPEN so a fresh run puts errors on
-    /// screen without interaction (the old category list auto-expanded
-    /// Missing Resources for the same reason); everything else defaults
-    /// closed.
-    @StateObject private var topChoices = ViewState([String: Bool]())
-    /// Nested category groups the user has CLOSED — categories inside an
-    /// opened package default to open, so expanding a package shows findings,
-    /// not a second layer of closed disclosure triangles.
-    @StateObject private var collapsed = ViewState(Set<String>())
     @StateObject private var confirmingFix = ViewState<[Finding]?>(nil)
 
     /// EXPENSIVE — string-set filtering over every finding. Computed exactly
@@ -219,78 +209,14 @@ struct ResultsPane: View {
         return (packs, categorize(installWide, hasUnused: false))
     }
 
-    // MARK: - List
+    // MARK: - Outline
 
     private func resultsList(findings visible: [Finding]) -> some View {
-        let dupItems = visible.filter { $0.category == .duplicatePackage }
-        let dupGroups = filteredDuplicateGroups
-        let (packs, installWide) = buildGroups(findings: visible,
-                                               unusedGroups: filteredUnusedGroups)
-        return List(selection: $selection.value) {
-            // Redundant Packages: the one section that stays top-level —
-            // its whole point is relationships BETWEEN packages.
-            if !dupGroups.isEmpty || !dupItems.isEmpty {
-                DisclosureGroup(isExpanded: topBinding(
-                    "duplicates",
-                    defaultOpen: dupItems.contains { $0.severity == .error })) {
-                    duplicatesContent(groups: dupGroups, items: dupItems)
-                } label: {
-                    HStack {
-                        Text(FindingCategory.duplicatePackage.rawValue)
-                            .font(.callout.weight(.medium))
-                        if !dupGroups.isEmpty {
-                            Text("\(dupGroups.count) airport\(dupGroups.count == 1 ? "" : "s") overlapped")
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                        }
-                        severitySummary(dupItems)
-                    }
-                }
-            }
-
-            ForEach(packs) { group in
-                DisclosureGroup(isExpanded: topBinding(
-                    "pack:\(group.id)", defaultOpen: group.worst == .error)) {
-                    packContent(group)
-                } label: {
-                    packLabel(group)
-                }
-            }
-
-            if !installWide.isEmpty {
-                DisclosureGroup(isExpanded: topBinding(
-                    "install",
-                    defaultOpen: installWide.contains { entry in
-                        entry.items.contains { $0.severity == .error }
-                    })) {
-                    ForEach(installWide, id: \.category) { entry in
-                        categoryGroup(owner: "install", category: entry.category,
-                                      items: entry.items, unused: [])
-                    }
-                } label: {
-                    HStack {
-                        Text("Entire Installation")
-                            .font(.callout.weight(.medium))
-                        let count = installWide.reduce(0) { $0 + $1.items.count }
-                        Text("\(count)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                        severitySummary(installWide.flatMap { $0.items })
-                    }
-                }
-            }
-
-            // Unused-resource verification is install-wide and only done at
-            // the very end of a run — show its progress as its own row.
-            if controller.isRunning {
-                HStack {
-                    Text(FindingCategory.unusedResources.rawValue)
-                        .font(.callout.weight(.medium))
-                    UnusedVerifyBadge()
-                }
-            }
-        }
-        .listStyle(.inset)
+        ResultsOutlineView(
+            roots: outlineSpecs(findings: visible),
+            selection: selection.value,
+            onSelectionChange: { selection.value = $0 }
+        )
         .onChange(of: visible.count) {
             let valid = Set(visible.map { $0.id })
             selection.value = selection.value.intersection(valid)
@@ -314,18 +240,157 @@ struct ResultsPane: View {
         }
     }
 
-    @ViewBuilder
-    private func duplicatesContent(groups: [DuplicateGroup], items: [Finding]) -> some View {
-        if !groups.isEmpty {
-            DuplicatesView(groups: groups, otherFindings: [])
-                .frame(height: Self.tableHeight(
-                    rows: groups.reduce(0) { $0 + $1.packs.count }))
+    /// Hosted outline rows live in their own NSHostingView hierarchies,
+    /// which do NOT inherit this view's environment — inject explicitly.
+    private func wrap<V: View>(_ view: V) -> AnyView {
+        AnyView(
+            view
+                .environmentObject(controller)
+                .environmentObject(controller.progress)
+                .padding(.vertical, 2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        )
+    }
+
+    private func outlineSpecs(findings visible: [Finding]) -> [OutlineNodeSpec] {
+        let dupItems = visible.filter { $0.category == .duplicatePackage }
+        let dupGroups = filteredDuplicateGroups
+        let (packs, installWide) = buildGroups(findings: visible,
+                                               unusedGroups: filteredUnusedGroups)
+        var roots: [OutlineNodeSpec] = []
+
+        // Redundant Packages: the one section that stays top-level — its
+        // whole point is relationships BETWEEN packages.
+        if !dupGroups.isEmpty || !dupItems.isEmpty {
+            var children: [OutlineNodeSpec] = []
+            if !dupGroups.isEmpty {
+                children.append(OutlineNodeSpec(
+                    id: "dup-table",
+                    view: wrap(DuplicatesView(groups: dupGroups, otherFindings: [])
+                        .frame(height: Self.tableHeight(
+                            rows: dupGroups.reduce(0) { $0 + $1.packs.count })))))
+            }
+            // DUP-01 rows duplicate the table's airports; the rest (disabled
+            // packs, near-identical folders) render as regular findings.
+            children += dupItems
+                .filter { dupGroups.isEmpty || $0.checkID != "DUP-01" }
+                .map(findingSpec)
+            roots.append(OutlineNodeSpec(
+                id: "duplicates",
+                view: wrap(HStack {
+                    Text(FindingCategory.duplicatePackage.rawValue)
+                        .font(.callout.weight(.medium))
+                    if !dupGroups.isEmpty {
+                        Text("\(dupGroups.count) airport\(dupGroups.count == 1 ? "" : "s") overlapped")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    severitySummary(dupItems)
+                }),
+                defaultExpanded: dupItems.contains { $0.severity == .error },
+                typeSelect: FindingCategory.duplicatePackage.rawValue,
+                children: children))
         }
-        // DUP-01 rows duplicate the table's airports; the rest (disabled
-        // packs, near-identical folders) render as regular findings.
-        ForEach(items.filter { groups.isEmpty || $0.checkID != "DUP-01" }) { finding in
-            FindingRow(finding: finding).tag(finding.id)
+
+        for group in packs {
+            roots.append(OutlineNodeSpec(
+                id: "pack:\(group.id)",
+                view: wrap(packLabel(group)),
+                defaultExpanded: group.worst == .error,
+                typeSelect: group.id,
+                children: group.categories.map { entry in
+                    categorySpec(owner: group.id, category: entry.category,
+                                 items: entry.items, unused: group.unused)
+                }))
         }
+
+        if !installWide.isEmpty {
+            let count = installWide.reduce(0) { $0 + $1.items.count }
+            roots.append(OutlineNodeSpec(
+                id: "install",
+                view: wrap(HStack {
+                    Text("Entire Installation")
+                        .font(.callout.weight(.medium))
+                    Text("\(count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    severitySummary(installWide.flatMap { $0.items })
+                }),
+                defaultExpanded: installWide.contains { entry in
+                    entry.items.contains { $0.severity == .error }
+                },
+                typeSelect: "Entire Installation",
+                children: installWide.map { entry in
+                    categorySpec(owner: "install", category: entry.category,
+                                 items: entry.items, unused: [])
+                }))
+        }
+
+        // Unused-resource verification is install-wide and only done at the
+        // very end of a run — show its progress as its own row.
+        if controller.isRunning {
+            roots.append(OutlineNodeSpec(
+                id: "verify",
+                view: wrap(HStack {
+                    Text(FindingCategory.unusedResources.rawValue)
+                        .font(.callout.weight(.medium))
+                    UnusedVerifyBadge()
+                })))
+        }
+        return roots
+    }
+
+    private func categorySpec(owner: String, category: FindingCategory,
+                              items: [Finding], unused: [UnusedResourceGroup]) -> OutlineNodeSpec {
+        var children: [OutlineNodeSpec] = []
+        if category == .unusedResources && !unused.isEmpty {
+            // "Could not audit" info findings would otherwise be swallowed
+            // by the table replacing the finding rows.
+            children = items.filter { $0.checkID == "UNUSED-00" }.map(findingSpec)
+            children.append(OutlineNodeSpec(
+                id: "unused-table:\(owner)",
+                view: wrap(UnusedResourcesView(groups: unused)
+                    .frame(height: Self.tableHeight(
+                        rows: unused.reduce(0) { $0 + $1.files.count })))))
+        } else {
+            children = items.map(findingSpec)
+        }
+        return OutlineNodeSpec(
+            id: "\(owner)|\(category.rawValue)",
+            view: wrap(HStack {
+                Text(category.rawValue)
+                    .font(.callout)
+                if category == .unusedResources, !unused.isEmpty {
+                    // The expanded view is a per-FILE table, so the headline
+                    // count must be files, not findings.
+                    Text(Self.unusedSummary(unused))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("\(items.count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    severitySummary(items)
+                }
+            }),
+            defaultExpanded: true, // opening a package shows findings, not
+                                   // a second layer of closed chevrons
+            typeSelect: category.rawValue,
+            children: children)
+    }
+
+    /// A finding is a selectable row whose detail is a native CHILD row —
+    /// expanding it is ordinary outline expansion, so row heights stay
+    /// static and the outline machinery does all the work.
+    private func findingSpec(_ finding: Finding) -> OutlineNodeSpec {
+        OutlineNodeSpec(
+            id: "find:\(finding.id)",
+            view: wrap(FindingLabel(finding: finding)),
+            findingID: finding.id,
+            typeSelect: finding.title,
+            children: [OutlineNodeSpec(
+                id: "detail:\(finding.id)",
+                view: wrap(FindingDetailView(finding: finding).padding(.vertical, 4)))])
     }
 
     private func packLabel(_ group: PackGroup) -> some View {
@@ -349,93 +414,11 @@ struct ResultsPane: View {
         }
     }
 
-    @ViewBuilder
-    private func packContent(_ group: PackGroup) -> some View {
-        ForEach(group.categories, id: \.category) { entry in
-            categoryGroup(owner: group.id, category: entry.category,
-                          items: entry.items, unused: group.unused)
-        }
-    }
-
-    /// Category header as a plain BUTTON with conditional rows beneath —
-    /// not a nested DisclosureGroup. Two disclosure levels deep inside a
-    /// selectable List, the outline row intermittently swallows the chevron
-    /// click (and the 0.4 s streaming re-diffs cancel in-flight toggles),
-    /// so expansion felt random. A button always receives its click, and
-    /// the open state lives in our own set, which every rebuild respects.
-    @ViewBuilder
-    private func categoryGroup(owner: String, category: FindingCategory,
-                               items: [Finding], unused: [UnusedResourceGroup]) -> some View {
-        let key = "\(owner)|\(category.rawValue)"
-        let isOpen = !collapsed.value.contains(key)
-        Button {
-            withAnimation {
-                if isOpen { collapsed.value.insert(key) } else { collapsed.value.remove(key) }
-            }
-        } label: {
-            categoryHeader(category, items: items, unused: unused, isOpen: isOpen)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        if isOpen {
-            // The manual header lost DisclosureGroup's automatic child
-            // indent — restore it so rows read as INSIDE the category.
-            if category == .unusedResources && !unused.isEmpty {
-                // "Could not audit" info findings would otherwise be
-                // swallowed by the table replacing the finding rows.
-                ForEach(items.filter { $0.checkID == "UNUSED-00" }) { finding in
-                    FindingRow(finding: finding)
-                        .padding(.leading, Self.categoryChildIndent)
-                        .tag(finding.id)
-                }
-                UnusedResourcesView(groups: unused)
-                    .frame(height: Self.tableHeight(
-                        rows: unused.reduce(0) { $0 + $1.files.count }))
-                    .padding(.leading, Self.categoryChildIndent)
-            } else {
-                ForEach(items) { finding in
-                    FindingRow(finding: finding)
-                        .padding(.leading, Self.categoryChildIndent)
-                        .tag(finding.id)
-                }
-            }
-        }
-    }
-
-    /// Leading indent for rows under a category header, matching what a
-    /// nested DisclosureGroup would have added.
-    static let categoryChildIndent: CGFloat = 22
-
     /// One height for every bottom status bar (results, package inspector)
     /// so their top dividers align exactly across the window. Fixed, not
     /// padding-driven: the results bar contains regular-size buttons, the
     /// inspector bar only text — equal padding gives unequal heights.
     static let bottomBarHeight: CGFloat = 38
-
-    private func categoryHeader(_ category: FindingCategory, items: [Finding],
-                                unused: [UnusedResourceGroup], isOpen: Bool) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .rotationEffect(.degrees(isOpen ? 90 : 0))
-            Text(category.rawValue)
-                .font(.callout)
-            if category == .unusedResources, !unused.isEmpty {
-                // The expanded view is a per-FILE table, so the headline
-                // count must be files, not findings.
-                Text(Self.unusedSummary(unused))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("\(items.count)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                severitySummary(items)
-            }
-            Spacer(minLength: 0)
-        }
-    }
 
     /// Embedded tables size to their rows instead of a fixed 300 pt block.
     static func tableHeight(rows: Int) -> CGFloat {
@@ -500,13 +483,6 @@ struct ResultsPane: View {
                     .foregroundStyle(.secondary)
             }
         }
-    }
-
-    private func topBinding(_ key: String, defaultOpen: Bool) -> Binding<Bool> {
-        Binding(
-            get: { topChoices.value[key] ?? defaultOpen },
-            set: { topChoices.value[key] = $0 }
-        )
     }
 
     // MARK: - Bottom bar (progress + fixes, per feedback)

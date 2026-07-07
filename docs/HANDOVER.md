@@ -107,14 +107,21 @@ Owner: Noah (noahplieberman@gmail.com, GitHub `shizumaat`). His install:
    change shape or meaning — stale caches otherwise serve old
    results. Blind spot: in-place edits of non-DSF files deeper than
    2 levels (own fixes invalidate explicitly; ⌘R bypasses).
-13. **Pack names are NOT unique**: the same-named pack can sit in
+13. **Observation blast radius**: every @Published on
+   AnalysisController re-renders EVERYTHING that observes it —
+   including the map canvas. High-frequency state (stage labels,
+   progress tuples) lives in ProgressModel, observed only by leaf
+   views; streamed events are ALSO throttled at the producer (cached
+   packs complete in microseconds — untamed, stage events hit the
+   main actor hundreds of times per second and froze the UI).
+14. **Pack names are NOT unique**: the same-named pack can sit in
    Custom Scenery and Custom Scenery (Disabled) simultaneously
    (uninstall + fresh re-download — real state on Noah's install:
    Aerosoft LFMN). Both are scanned. Never Dictionary(
    uniqueKeysWithValues:) on pack names, never use bare names as
    SwiftUI ids — key by path (regression test exists; this crashed
    the app on search).
-14. **ATC "lost some controllers" (LOG-91/92)**: X-Plane drops named
+15. **ATC "lost some controllers" (LOG-91/92)**: X-Plane drops named
    controllers whose every apt.dat frequency is outside 118.000–
    136.990 MHz (military UHF fields). Its exact grouping rule resists
    reverse-engineering — name-grouping reproduced only 12 of 18

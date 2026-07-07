@@ -251,6 +251,30 @@ import Foundation
         #expect(findings.contains { $0.checkID == "UNUSED-00" })
     }
 
+    @Test func cacheFlushesMidRunForCrashResilience() throws {
+        // A kill mid-run must not cost the whole cold pass: with the flush
+        // interval at zero, completed entries hit the disk after each pack,
+        // BEFORE the run's final save — verified by loading the cache file
+        // the moment the unused-verify stage begins.
+        let root = try makeOrthoPack()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cacheURL = root.appendingPathComponent("cache.json")
+
+        var options = Analyzer.Options(cacheURL: cacheURL)
+        options.cacheFlushInterval = .zero
+        let entriesDuringRun = LockedBox(-1)
+        _ = Analyzer(root: root).run(options: options) { event in
+            if case .stage(.verifyingUnused) = event {
+                let flushed = AnalysisCache.load(from: cacheURL)
+                entriesDuringRun.withLock { seen in
+                    seen = max(seen, flushed.entries.count)
+                }
+            }
+        }
+        #expect(entriesDuringRun.withLock { $0 } >= 1,
+                "per-pack entries should be on disk before the run finishes")
+    }
+
     @Test func cachedRunReusesUnchangedPacksAndCatchesChanges() throws {
         let root = try makeOrthoPack()
         defer { try? FileManager.default.removeItem(at: root) }

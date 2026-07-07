@@ -57,6 +57,11 @@ public struct Analyzer {
         public var forceFresh: Set<String> = []
         /// Persisted per-pack cache location; nil disables caching.
         public var cacheURL: URL? = nil
+        /// How often completed per-pack entries are flushed to cacheURL
+        /// DURING a run, so a quit or crash mid-run costs at most this much
+        /// work instead of the whole cold pass (~25-30 min on the reference
+        /// install). Zero = flush after every pack (tests).
+        public var cacheFlushInterval: Duration = .seconds(60)
 
         public init(scope: Set<String>? = nil, forceFresh: Set<String> = [], cacheURL: URL? = nil) {
             self.scope = scope
@@ -166,6 +171,27 @@ public struct Analyzer {
         let cacheSnapshot = cache
         let force = options.forceFresh
 
+        // Crash-resilient caching: flush completed entries periodically so a
+        // quit or kill mid-run loses at most one interval of work — without
+        // this, the whole 25-30 min cold pass evaporates at pack 4000/4200.
+        // Mid-run flushes skip the stale-entry pruning (the final save does
+        // it); an interrupted run leaving a few dead entries is harmless.
+        let lastCacheFlush = LockedBox(ContinuousClock.now)
+        let flushInterval = options.cacheFlushInterval
+        let flushCacheIfDue: @Sendable ([String: PackCacheEntry]) -> Void = { entries in
+            guard let cacheURL = options.cacheURL else { return }
+            let due = lastCacheFlush.withLock { last -> Bool in
+                let now = ContinuousClock.now
+                guard now - last >= flushInterval else { return false }
+                last = now
+                return true
+            }
+            guard due else { return }
+            var snapshot = cacheSnapshot
+            for (name, entry) in entries { snapshot.entries[name] = entry }
+            snapshot.save(to: cacheURL) // atomic write
+        }
+
         forEachPackPrioritized(targets, priority: priority) { i in
             let pack = targets[i]
             let entry: PackCacheEntry
@@ -214,6 +240,7 @@ public struct Analyzer {
             onEvent(.stage(.inspectingPack("\(pack.name) (\(done)/\(targets.count))")))
             let packFindings = entry.healthFindings + entry.auditFindings + entry.placementFindings
             if !packFindings.isEmpty { onEvent(.findings(packFindings)) }
+            flushCacheIfDue(state.withLock { $0.entries })
         }
 
         var newEntries = state.withLock { $0.entries }
@@ -258,6 +285,7 @@ public struct Analyzer {
             for entry in newEntries.values { externalRefs.append(contentsOf: entry.escapeRefs) }
 
             let others = fullInstallation.packs.filter { newEntries[$0.name] == nil }
+            let pipelineEntries = newEntries // immutable snapshot for the flusher
             onEvent(.stage(.verifyingUnused(0, others.count)))
             struct SweepState {
                 var refs: [String] = []
@@ -283,6 +311,10 @@ public struct Analyzer {
                 if done % 25 == 0 || done == others.count {
                     onEvent(.stage(.verifyingUnused(done, others.count)))
                 }
+                // The sweep reads every remaining pack — minutes on a cold
+                // install — so its entries ride the same periodic flush.
+                flushCacheIfDue(pipelineEntries.merging(
+                    sweep.withLock { $0.entries }, uniquingKeysWith: { _, new in new }))
             }
             let sweepResult = sweep.withLock { $0 }
             externalRefs.append(contentsOf: sweepResult.refs)

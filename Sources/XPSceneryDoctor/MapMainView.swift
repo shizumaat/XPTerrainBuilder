@@ -32,7 +32,6 @@ struct MapMainView: View {
             }
         }
         .onChange(of: controller.xplanePath) {
-            controller.selectedTiles = []
             controller.installationPacks = []
             controller.refreshInstallation()
         }
@@ -54,11 +53,7 @@ struct MapMainView: View {
     private var subtitle: String {
         if controller.isScanningInstallation { return "Scanning Custom Scenery…" }
         guard !controller.installationPacks.isEmpty else { return "" }
-        let count = controller.installationPacks.count
-        let selected = controller.selectedTiles.count
-        return selected == 0
-            ? "\(count) packages"
-            : "\(count) packages — \(selected) tile\(selected == 1 ? "" : "s") selected"
+        return "\(controller.installationPacks.count) packages"
     }
 
     // MARK: - Toolbar
@@ -71,30 +66,14 @@ struct MapMainView: View {
             }
         }
         ToolbarItem(placement: .automatic) {
-            Button {
-                controller.selectedTiles = []
-            } label: {
-                Label("Clear Selection", systemImage: "square.dashed")
-            }
-            .disabled(controller.selectedTiles.isEmpty)
-            .help("Clear the tile selection")
-        }
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                let names = Set(controller.packsAffectingSelection().map { $0.name })
-                controller.analyze(scope: names)
-            } label: {
-                Label("Analyze", systemImage: "waveform.path.ecg")
-            }
-            .disabled(controller.selectedTiles.isEmpty
-                      || controller.packsAffectingSelection().isEmpty
-                      || controller.isRunning)
-            .help("Analyze the packages covering the selected tiles (⌘R)")
-        }
-        ToolbarItem(placement: .automatic) {
             Menu {
+                // Analysis runs by itself; these force a fresh pass past the
+                // cache when something looks stale.
+                Button("Re-analyze Packages in View") {
+                    controller.analyze(scope: Set(controller.viewportPacks.map { $0.name }))
+                }
+                .disabled(controller.isRunning || controller.viewportPacks.isEmpty)
                 Button("Analyze Entire Installation") { controller.analyze() }
-                    .keyboardShortcut("r", modifiers: [.command, .shift])
                     .disabled(controller.isRunning)
                 Divider()
                 Button("Refresh Map") { controller.refreshInstallation() }
@@ -106,7 +85,7 @@ struct MapMainView: View {
         // Trailing edge, per the HIG (Finder/Mail put search last).
         ToolbarItem(placement: .automatic) {
             ToolbarSearchField(text: searchText,
-                               placeholder: "Search airport or package…",
+                               placeholder: "Search",
                                onSubmit: performSearch)
                 .frame(width: 220)
         }
@@ -131,20 +110,14 @@ struct MapMainView: View {
             cam.scale = max(cam.scale, 60)
             cam.clamp(in: controller.mapCanvasSize.value)
             controller.mapCamera.value = cam
-            controller.selectedTiles = [TileMath.key(latitude: match.info.latitude,
-                                                     longitude: match.info.longitude)]
             return
         }
 
-        // Packages: select all their tiles and zoom to fit.
+        // Packages: zoom to fit their tiles.
         if let pack = controller.installationPacks.first(where: {
             $0.name.lowercased().contains(query)
         }) {
             let tiles = pack.tiles.compactMap { TileMath.parse($0) }
-            let airportTiles = pack.airports.values.map {
-                TileMath.key(latitude: $0.latitude, longitude: $0.longitude)
-            }
-            controller.selectedTiles = Set(pack.tiles).union(airportTiles)
             if !tiles.isEmpty {
                 let lats = tiles.map { Double($0.lat) }, lons = tiles.map { Double($0.lon) }
                 var cam = controller.mapCamera.value
@@ -179,22 +152,12 @@ struct MapMainView: View {
                     .environmentObject(controller)
                     .environmentObject(controller.progress)
             } second: {
-                PackInspectorView(
-                    packs: controller.selectedTiles.isEmpty
-                        ? controller.viewportPacks
-                        : controller.packsAffectingSelection(),
-                    isViewportMode: controller.selectedTiles.isEmpty
-                )
-                .environmentObject(controller)
-                .environmentObject(controller.progress)
+                PackInspectorView(packs: controller.viewportPacks)
+                    .environmentObject(controller)
+                    .environmentObject(controller.progress)
             }
         } second: {
-            ResultsPane(packFilter: Set(
-                (controller.selectedTiles.isEmpty
-                    ? controller.viewportPacks
-                    : controller.packsAffectingSelection())
-                .map { $0.name }
-            ))
+            ResultsPane(packFilter: Set(controller.viewportPacks.map { $0.name }))
             .environmentObject(controller)
             .environmentObject(controller.progress)
         }

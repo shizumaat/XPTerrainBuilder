@@ -12,9 +12,6 @@ struct MapCanvasView: View {
     private var overlays: MapOverlays { controller.mapOverlays }
 
     @StateObject private var dragAnchor = ViewState<MapCamera?>(nil)
-    @StateObject private var rubberBand = ViewState<CGRect?>(nil)
-    /// Last plainly-clicked tile — the anchor a shift-click extends from.
-    @StateObject private var rangeAnchor = ViewState<(lat: Int, lon: Int)?>(nil)
 
     // Night-chart palette (the icon's world).
     static let ocean = Color(red: 0.043, green: 0.051, blue: 0.071)
@@ -34,9 +31,8 @@ struct MapCanvasView: View {
                 draw(context: context, size: size)
             }
             .background(Self.ocean)
-            .gesture(panOrRubberBand(size: proxy.size))
+            .gesture(pan(size: proxy.size))
             .gesture(doubleClickZoom(size: proxy.size))
-            .gesture(clickSelect(size: proxy.size))
             .overlay(ScrollZoomCatcher(
                 onScroll: { location, delta in
                     zoom(by: pow(1.0035, delta), anchoredAt: location, size: proxy.size)
@@ -160,15 +156,6 @@ struct MapCanvasView: View {
             }
         }
 
-        // Selected tiles.
-        for key in controller.selectedTiles {
-            guard let tile = TileMath.parse(key) else { continue }
-            let rect = tileRect(lat: tile.lat, lon: tile.lon, cam: cam, size: size)
-            context.fill(Path(rect), with: .color(Self.selection.opacity(0.14)))
-            context.stroke(Path(rect), with: .color(Self.selection.opacity(0.85)),
-                           lineWidth: 1.5)
-        }
-
         // Airports: sectional dots, ICAO labels when zoomed.
         let showLabels = cam.scale > 26
         let radius: CGFloat = cam.scale > 26 ? 5 : (cam.scale > 8 ? 3.5 : 2.2)
@@ -221,12 +208,6 @@ struct MapCanvasView: View {
             }
         }
 
-        // Rubber-band rectangle.
-        if let band = rubberBand.value {
-            context.fill(Path(band), with: .color(Self.selection.opacity(0.08)))
-            context.stroke(Path(band), with: .color(Self.selection.opacity(0.6)),
-                           style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-        }
     }
 
     private func visibleBounds(_ cam: MapCamera, _ size: CGSize) -> (Double, Double, Double, Double) {
@@ -266,73 +247,19 @@ struct MapCanvasView: View {
 
     // MARK: - Gestures
 
-    /// Drag pans; shift-drag rubber-band selects tiles.
-    private func panOrRubberBand(size: CGSize) -> some Gesture {
+    private func pan(size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 3)
             .onChanged { value in
-                let shift = NSApp.currentEvent?.modifierFlags.contains(.shift) ?? false
-                if shift || rubberBand.value != nil {
-                    rubberBand.value = CGRect(
-                        x: min(value.startLocation.x, value.location.x),
-                        y: min(value.startLocation.y, value.location.y),
-                        width: abs(value.translation.width),
-                        height: abs(value.translation.height))
-                } else {
-                    if dragAnchor.value == nil { dragAnchor.value = camera.value }
-                    guard let anchor = dragAnchor.value else { return }
-                    var cam = anchor
-                    cam.centerLon = anchor.centerLon - Double(value.translation.width) / anchor.scale
-                    cam.centerLat = anchor.centerLat + Double(value.translation.height) / anchor.scale
-                    cam.clamp(in: size)
-                    camera.value = cam
-                }
+                if dragAnchor.value == nil { dragAnchor.value = camera.value }
+                guard let anchor = dragAnchor.value else { return }
+                var cam = anchor
+                cam.centerLon = anchor.centerLon - Double(value.translation.width) / anchor.scale
+                cam.centerLat = anchor.centerLat + Double(value.translation.height) / anchor.scale
+                cam.clamp(in: size)
+                camera.value = cam
             }
-            .onEnded { value in
-                if let band = rubberBand.value {
-                    selectTiles(in: band, size: size,
-                                additive: NSApp.currentEvent?.modifierFlags.contains(.command) ?? false)
-                    rubberBand.value = nil
-                }
+            .onEnded { _ in
                 dragAnchor.value = nil
-            }
-    }
-
-    /// Click selects a tile; ⌘-click toggles tiles in and out (non-
-    /// contiguous); ⇧-click extends a contiguous rectangle from the last
-    /// plainly-clicked tile (⌘⇧ adds that rectangle to the selection).
-    private func clickSelect(size: CGSize) -> some Gesture {
-        SpatialTapGesture(count: 1)
-            .onEnded { value in
-                let flags = NSApp.currentEvent?.modifierFlags ?? []
-                let additive = flags.contains(.command)
-                let extending = flags.contains(.shift)
-                let coord = camera.value.coordinate(of: value.location, in: size)
-                let tile = (lat: Int(floor(coord.lat)), lon: Int(floor(coord.lon)))
-                let key = TileMath.key(lat: tile.lat, lon: tile.lon)
-
-                if extending, let anchor = rangeAnchor.value {
-                    var keys = Set<String>()
-                    for lat in min(anchor.lat, tile.lat)...max(anchor.lat, tile.lat) {
-                        for lon in min(anchor.lon, tile.lon)...max(anchor.lon, tile.lon) {
-                            keys.insert(TileMath.key(lat: lat, lon: lon))
-                        }
-                    }
-                    guard keys.count <= 4000 else { return } // sanity, as rubber band
-                    controller.selectedTiles = additive
-                        ? controller.selectedTiles.union(keys) : keys
-                    return // anchor stays put for further extension
-                }
-
-                rangeAnchor.value = tile
-                if additive {
-                    if controller.selectedTiles.contains(key) {
-                        controller.selectedTiles.remove(key)
-                    } else {
-                        controller.selectedTiles.insert(key)
-                    }
-                } else {
-                    controller.selectedTiles = controller.selectedTiles == [key] ? [] : [key]
-                }
             }
     }
 
@@ -347,22 +274,6 @@ struct MapCanvasView: View {
                 cam.clamp(in: size)
                 camera.value = cam
             }
-    }
-
-    private func selectTiles(in band: CGRect, size: CGSize, additive: Bool) {
-        let cam = camera.value
-        let a = cam.coordinate(of: CGPoint(x: band.minX, y: band.maxY), in: size)
-        let b = cam.coordinate(of: CGPoint(x: band.maxX, y: band.minY), in: size)
-        var keys = Set<String>()
-        let latRange = Int(floor(a.lat))...Int(floor(b.lat))
-        let lonRange = Int(floor(a.lon))...Int(floor(b.lon))
-        guard latRange.count * lonRange.count <= 4000 else { return } // sanity
-        for lat in latRange {
-            for lon in lonRange {
-                keys.insert(TileMath.key(lat: lat, lon: lon))
-            }
-        }
-        controller.selectedTiles = additive ? controller.selectedTiles.union(keys) : keys
     }
 
     // MARK: - Chrome
@@ -428,7 +339,7 @@ struct MapCanvasView: View {
         .padding(6)
         .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))
         .padding(8)
-        .help("Zoom (double-click the map to zoom in; drag to pan; shift-drag to select tiles)")
+        .help("Zoom (double-click the map to zoom in; drag to pan)")
     }
 
     private func zoom(by factor: Double) {

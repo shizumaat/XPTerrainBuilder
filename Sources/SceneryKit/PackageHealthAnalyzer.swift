@@ -201,6 +201,7 @@ public struct PackageHealthAnalyzer {
                 detail: "\(url.lastPathComponent) in '\(pack.name)' has \(verts) vertices and no ATTR_LOD. \(sizeClause)",
                 path: url.path,
                 suggestion: "Apply Fix to insert 'ATTR_LOD 0 \(distance)' (sized to the object's dimensions) so it stops drawing at distance. The original file is backed up first. A real lower-poly LOD from the author is still better.",
+                url: URL(string: "https://developer.x-plane.com/article/optimizing-object-peformance/"),
                 fixability: .auto,
                 proposedFix: .addFarLOD(objPath: url.path, distanceMeters: distance),
                 packName: pack.name,
@@ -218,6 +219,7 @@ public struct PackageHealthAnalyzer {
                 detail: "\(url.lastPathComponent) (\(info.vertexCount) vertices) uses \(reason), which takes it off X-Plane's fast instanced drawing path. Cheap for a one-off (windsock, radar); expensive if this object is placed many times.",
                 path: url.path,
                 suggestion: "If the animation isn't essential, the author can split the animated part into a small separate object so the heavy geometry stays instanced.",
+                url: URL(string: "https://developer.x-plane.com/article/optimizing-object-peformance/"),
                 fixability: .manual,
                 packName: pack.name,
                 packKind: pack.kind
@@ -235,6 +237,7 @@ public struct PackageHealthAnalyzer {
                 detail: "Spill lights cost GPU fill in X-Plane's deferred renderer, scaling with the screen area they cover — a dense apron of them is a classic night-FPS killer (Laminar: 'Customizing Spill Lights').",
                 path: url.path,
                 suggestion: "Reduce the count or radius of spill lights, or use the cheaper parameterized lights for repeated fixtures.",
+                url: URL(string: "https://developer.x-plane.com/2013/04/customizing-spill-lights-two-ways/"),
                 fixability: .manual,
                 packName: pack.name,
                 packKind: pack.kind
@@ -250,6 +253,7 @@ public struct PackageHealthAnalyzer {
                 detail: "Laminar's guidance is ≤1,000 m per side (500 m is ideal). When any sliver of a huge object is on screen, the whole thing draws — culling and LOD can't help.",
                 path: url.path,
                 suggestion: "The author should split it into region-sized objects. Not mechanically fixable.",
+                url: URL(string: "https://developer.x-plane.com/article/optimizing-object-peformance/"),
                 fixability: .manual,
                 packName: pack.name,
                 packKind: pack.kind
@@ -265,6 +269,7 @@ public struct PackageHealthAnalyzer {
                 detail: "Uses per-mesh ATTR_no_blend uniformly. Promoting it to GLOBAL_no_blend keeps the object on X-Plane's fast instanced drawing path.",
                 path: url.path,
                 suggestion: "Apply Fix to replace ATTR_no_blend with GLOBAL_no_blend (validated text edit, backed up, revertible).",
+                url: URL(string: "https://developer.x-plane.com/article/optimizing-object-peformance/"),
                 fixability: .auto,
                 proposedFix: .promoteGlobalNoBlend(objPath: url.path),
                 packName: pack.name,
@@ -281,6 +286,7 @@ public struct PackageHealthAnalyzer {
                 detail: "Alternates between ATTR_blend and ATTR_no_blend \(flips) times. Each flip forces extra draw calls and disables instancing.",
                 path: url.path,
                 suggestion: "The author should reorder geometry so each blend state appears once. Not safe to auto-fix.",
+                url: URL(string: "https://developer.x-plane.com/article/optimizing-object-peformance/"),
                 fixability: .manual,
                 packName: pack.name,
                 packKind: pack.kind
@@ -297,6 +303,7 @@ public struct PackageHealthAnalyzer {
                 detail: "\(tinyCount) of \(objFiles.count) OBJ files are under \(config.tinyObjFileBytes / 1024) KB (a couple dozen vertices at most). Per-object draw overhead dominates for objects this small.",
                 path: pack.url.path,
                 suggestion: "Candidates for merging into shared, texture-sharing objects (needs the author's 3-D tooling).",
+                url: URL(string: "https://developer.x-plane.com/article/performance-tuning-and-scenery/"),
                 fixability: .manual,
                 packName: pack.name,
                 packKind: pack.kind
@@ -342,6 +349,7 @@ public struct PackageHealthAnalyzer {
                 detail: "\(url.lastPathComponent) (\(info.width)x\(info.height), \(ByteCountFormatter.string(fromByteCount: Int64(info.fileSizeBytes), countStyle: .file))) in '\(pack.name)'. PNGs are decompressed and mipmapped on the CPU at load time — a common cause of loading stutter.",
                 path: url.path,
                 suggestion: "Apply Fix to convert it to a mipmapped, block-compressed DDS (the PNG is kept as a backup and the change is revertible). X-Plane loads the .dds automatically wherever the .png is referenced.",
+                url: URL(string: "https://developer.x-plane.com/2012/01/dds-revisited-in-x-plane-10/"),
                 fixability: .auto,
                 proposedFix: .convertPNGToDDS(pngPath: url.path),
                 packName: pack.name,
@@ -358,6 +366,7 @@ public struct PackageHealthAnalyzer {
                 detail: "\(url.lastPathComponent) (\(info.width)x\(info.height)) has no mipmap chain, causing shimmering and worse texture-cache behavior.",
                 path: url.path,
                 suggestion: "Regenerate the DDS with mipmaps enabled.",
+                url: URL(string: "https://developer.x-plane.com/2012/01/dds-revisited-in-x-plane-10/"),
                 fixability: .assisted,
                 packName: pack.name,
                 packKind: pack.kind
@@ -376,6 +385,7 @@ public struct PackageHealthAnalyzer {
                 suggestion: isPNG
                     ? "Apply Fix to resample it to the nearest power of two and convert to mipmapped DDS (UVs are normalized, so nothing shifts). Backed up, revertible."
                     : "Re-export at a power-of-two size in the author's pipeline.",
+                url: URL(string: "https://developer.x-plane.com/2012/01/dds-revisited-in-x-plane-10/"),
                 fixability: isPNG ? .auto : .manual,
                 proposedFix: isPNG ? .convertPNGToDDS(pngPath: url.path) : nil,
                 packName: pack.name,
@@ -391,6 +401,7 @@ public struct PackageHealthAnalyzer {
                 title: "Very large texture: \(url.lastPathComponent)",
                 detail: "\(info.width)x\(info.height) (\(info.format.rawValue.uppercased())) — above \(config.maxObjTextureDim)px. Fine for orthos, wasteful for object textures.",
                 path: url.path,
+                url: URL(string: "https://developer.x-plane.com/2012/01/dds-revisited-in-x-plane-10/"),
                 fixability: .manual,
                 packName: pack.name,
                 packKind: pack.kind
@@ -441,6 +452,7 @@ public struct PackageHealthAnalyzer {
                 detail: "Sampled across the pack's largest objects. Spill lights cost deferred-shading fill scaled by covered screen area — the classic 'FPS tanks at night at this airport' signature.",
                 path: pack.url.path,
                 suggestion: "If night FPS suffers here, look for a 'lite lights' option from the author, or lower X-Plane's rendering settings at night.",
+                url: URL(string: "https://developer.x-plane.com/2013/04/customizing-spill-lights-two-ways/"),
                 fixability: .manual,
                 packName: pack.name,
                 packKind: pack.kind

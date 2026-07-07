@@ -127,6 +127,7 @@ public struct PlacementAnalyzer {
                     detail: "'\(rel)' in '\(pack.name)' drapes a \(textureInfo.width)×\(textureInfo.height) texture over ~\(Self.formatArea(u.areaSquareMeters)) with no LOAD_CENTER, so the full-resolution texture stays loaded no matter how far away it is. Laminar: LOAD_CENTER \"saves VRAM, since textures that are far away won't be loaded at full resolution\".",
                     path: polURL.path,
                     suggestion: "Apply Fix to insert 'LOAD_CENTER \(String(format: "%.4f %.4f", centerLat, centerLon)) \(size) \(resolution)' (computed from the DSF polygons that use this file). Backed up and revertible.",
+                    url: URL(string: "https://developer.x-plane.com/2011/03/three-things-you-need-for-fast-orthophotos/"),
                     fixability: .auto,
                     proposedFix: .insertLoadCenter(polPath: polURL.path,
                                                    latitude: centerLat, longitude: centerLon,
@@ -146,6 +147,7 @@ public struct PlacementAnalyzer {
                     detail: "'\(rel)' in '\(pack.name)' covers ~\(Self.formatArea(u.areaSquareMeters)) across \(u.windings) winding\(u.windings == 1 ? "" : "s") as a draped polygon. X-Plane pays for the base mesh twice under draped polygons — double the VRAM and fill rate. Laminar: \"If you want high performance orthophotos over an area any larger than an airport or down-town, please use .ter files!\"",
                     path: polURL.path,
                     suggestion: "Author-level change: rebuild the area as .ter-based ortho (Ortho4XP-style). Converting requires mesh rebuilding, so there is no automatic fix.",
+                    url: URL(string: "https://developer.x-plane.com/2011/03/three-things-you-need-for-fast-orthophotos/"),
                     fixability: .manual,
                     packName: pack.name,
                     packKind: pack.kind

@@ -46,19 +46,12 @@ final class AnalysisController: ObservableObject {
     let mapCamera = ViewState(MapCamera())
     let mapCanvasSize = ViewState(CGSize.zero)
     /// Packs visible in the map viewport, debounced from camera movement.
+    /// This IS the working set: the inspector, results filter and analysis
+    /// priority all follow whatever the map is looking at.
     @Published var viewportPacks: [SceneryPack] = []
     private var viewportTask: Task<Void, Never>?
-    /// Packs the current tile selection touches — recomputed once per
-    /// selection/scan change, never in a view body (set intersections over
-    /// 4,000+ packs are too heavy for the render loop).
-    private(set) var selectionPacks: [SceneryPack] = []
 
-    @Published var installationPacks: [SceneryPack] = [] {
-        didSet {
-            selectionPacks = Self.packsAffecting(tiles: selectedTiles, in: installationPacks)
-            priorityBox.update(Set(selectionPacks.map { $0.name }))
-        }
-    }
+    @Published var installationPacks: [SceneryPack] = []
     /// Precomputed draw/query structures — rebuilt only when the scan
     /// changes, never per frame.
     @Published var mapOverlays = MapOverlays.empty
@@ -69,12 +62,6 @@ final class AnalysisController: ObservableObject {
     /// Packs our own fixes/actions touched since their cache entries were
     /// written — forced fresh on the next run.
     private var pendingInvalidation: Set<String> = []
-    @Published var selectedTiles: Set<String> = [] {
-        didSet {
-            selectionPacks = Self.packsAffecting(tiles: selectedTiles, in: installationPacks)
-            priorityBox.update(Set(selectionPacks.map { $0.name }))
-        }
-    }
 
     // Search: debounced, filtered off the main thread against a precomputed
     // lowercased corpus. nil = no active search. (Live filtering of 7k+
@@ -176,23 +163,6 @@ final class AnalysisController: ObservableObject {
         }
     }
 
-    /// Packs the current tile selection touches (by DSF tile or airport
-    /// position) — cached; see selectionPacks.
-    func packsAffectingSelection() -> [SceneryPack] {
-        selectionPacks
-    }
-
-    static func packsAffecting(tiles: Set<String>, in packs: [SceneryPack]) -> [SceneryPack] {
-        guard !tiles.isEmpty else { return [] }
-        return packs.filter { pack in
-            guard !pack.isLaminar else { return false }
-            if !pack.tiles.isDisjoint(with: tiles) { return true }
-            return pack.airports.values.contains { info in
-                tiles.contains(TileMath.key(latitude: info.latitude, longitude: info.longitude))
-            }
-        }
-    }
-
     /// Debounced (120 ms) recompute of the packs visible in the map window.
     /// Called from the canvas as the camera moves; never runs in a render.
     func scheduleViewportUpdate() {
@@ -209,7 +179,11 @@ final class AnalysisController: ObservableObject {
                 minLon: cam.centerLon - halfW, maxLon: cam.centerLon + halfW,
                 minLat: cam.centerLat - halfH, maxLat: cam.centerLat + halfH
             ))
-            self?.viewportPacks = packs.sorted { $0.name.lowercased() < $1.name.lowercased() }
+            let sorted = packs.sorted { $0.name.lowercased() < $1.name.lowercased() }
+            self?.viewportPacks = sorted
+            // Panning to an area mid-analysis moves its packs to the front
+            // of the work queue.
+            self?.priorityBox.update(Set(sorted.map { $0.name }))
         }
     }
 

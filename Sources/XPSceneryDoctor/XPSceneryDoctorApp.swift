@@ -42,13 +42,12 @@ struct AppCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
-            Button("Analyze Selection") {
-                let names = Set(controller.packsAffectingSelection().map { $0.name })
-                controller.analyze(scope: names)
+            Button("Re-analyze Packages in View") {
+                controller.analyze(scope: Set(controller.viewportPacks.map { $0.name }))
             }
             .keyboardShortcut("r", modifiers: .command)
             .disabled(!controller.pathIsValid || controller.isRunning
-                      || controller.selectedTiles.isEmpty)
+                      || controller.viewportPacks.isEmpty)
 
             Button("Analyze Entire Installation") {
                 controller.analyze()

@@ -1,15 +1,16 @@
 import SwiftUI
 import SceneryKit
 
-/// Right pane: the packages in the current tile selection — or, with no
-/// selection, whatever the map window is looking at (live as it moves) —
+/// Right pane: whatever the map window is looking at (live as it moves),
 /// in scenery_packs.ini load order (first wins), with kind icons, status
 /// badges, drag-to-reorder, and the context-aware pack actions.
 struct PackInspectorView: View {
     @EnvironmentObject var controller: AnalysisController
     let packs: [SceneryPack]
-    let isViewportMode: Bool
-    @StateObject private var selection = ViewState(Set<String>()) // pack names
+    // Selection is keyed by pack PATH — the List rows' identity. Keying by
+    // name broke selection entirely (the gear menu never enabled) because
+    // the ForEach identity and the tag disagreed.
+    @StateObject private var selection = ViewState(Set<String>())
 
     private var affected: [SceneryPack] { packs }
 
@@ -43,17 +44,14 @@ struct PackInspectorView: View {
                 ContentUnavailableView(
                     "No Custom Scenery Here",
                     systemImage: "square.dashed",
-                    description: Text(isViewportMode
-                        ? "No custom package covers the visible map area. Pan or zoom out — or click a tile to inspect it."
-                        : "No custom package covers the selected tile\(controller.selectedTiles.count == 1 ? "" : "s").")
+                    description: Text("No custom package covers the visible map area. Pan or zoom out to find some.")
                 )
             } else {
                 List(selection: $selection.value) {
-                    // Row identity by PATH: the same-named pack can appear
-                    // installed and uninstalled at once. Selection stays by
-                    // name (acting on both copies together is meaningful).
+                    // Row identity AND selection by PATH: unique even when
+                    // the same-named pack exists installed and uninstalled.
                     ForEach(ordered, id: \.url.path) { pack in
-                        packRow(pack).tag(pack.name)
+                        packRow(pack).tag(pack.url.path)
                     }
                     .onMove { source, destination in
                         var names = ordered.map { $0.name }
@@ -64,8 +62,8 @@ struct PackInspectorView: View {
                     }
                 }
                 .listStyle(.inset)
-                .contextMenu(forSelectionType: String.self) { names in
-                    packActionButtons(for: names.isEmpty ? selection.value : names)
+                .contextMenu(forSelectionType: String.self) { paths in
+                    packActionButtons(for: paths.isEmpty ? selection.value : paths)
                 }
 
                 Divider()
@@ -97,11 +95,11 @@ struct PackInspectorView: View {
     /// "254 packages in view, 128.3 GB" — or, with rows selected,
     /// "3 of 254 selected, 8.3 GB".
     private var footerSummary: String {
-        let selected = affected.filter { selection.value.contains($0.name) }
+        let selected = affected.filter { selection.value.contains($0.url.path) }
         if selected.isEmpty {
             let bytes = affected.reduce(Int64(0)) { $0 + $1.sizeBytes }
             let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-            return "\(affected.count) package\(affected.count == 1 ? "" : "s") \(isViewportMode ? "in view" : "in selection"), \(size)"
+            return "\(affected.count) package\(affected.count == 1 ? "" : "s") in view, \(size)"
         }
         let bytes = selected.reduce(Int64(0)) { $0 + $1.sizeBytes }
         let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
@@ -181,32 +179,33 @@ struct PackInspectorView: View {
         }
     }
 
-    /// Same context-aware pattern as the duplicates table.
+    /// Same context-aware pattern as the duplicates table. `paths` are the
+    /// selected rows' pack paths.
     @ViewBuilder
-    private func packActionButtons(for names: Set<String>) -> some View {
-        let selected = affected.filter { names.contains($0.name) }
+    private func packActionButtons(for paths: Set<String>) -> some View {
+        let selected = affected.filter { paths.contains($0.url.path) }
         let enabled = selected.filter { $0.status == .enabled }.map { $0.name }
         let disabled = selected.filter { $0.status == .disabled }.map { $0.name }
         let uninstalled = selected.filter { $0.status == .uninstalled }.map { $0.name }
 
         if !disabled.isEmpty {
-            Button("Enable\(disabled.count < names.count ? " (\(disabled.count))" : "")") {
+            Button("Enable\(disabled.count < selected.count ? " (\(disabled.count))" : "")") {
                 apply(.enable, to: disabled)
             }
         }
         if !enabled.isEmpty {
-            Button("Disable\(enabled.count < names.count ? " (\(enabled.count))" : "")") {
+            Button("Disable\(enabled.count < selected.count ? " (\(enabled.count))" : "")") {
                 apply(.disable, to: enabled)
             }
         }
         if !uninstalled.isEmpty {
-            Button("Install\(uninstalled.count < names.count ? " (\(uninstalled.count))" : "")") {
+            Button("Install\(uninstalled.count < selected.count ? " (\(uninstalled.count))" : "")") {
                 apply(.install, to: uninstalled)
             }
         }
         let installed = enabled + disabled
         if !installed.isEmpty {
-            Button("Uninstall\(installed.count < names.count ? " (\(installed.count))" : "")") {
+            Button("Uninstall\(installed.count < selected.count ? " (\(installed.count))" : "")") {
                 apply(.uninstall, to: installed)
             }
         }

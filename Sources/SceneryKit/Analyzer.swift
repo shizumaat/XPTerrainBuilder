@@ -189,7 +189,13 @@ public struct Analyzer {
         // it); an interrupted run leaving a few dead entries is harmless.
         let lastCacheFlush = LockedBox(ContinuousClock.now)
         let flushInterval = options.cacheFlushInterval
-        let flushCacheIfDue: @Sendable ([String: PackCacheEntry]) -> Void = { entries in
+        // The entries snapshot is LAZY — taken only when a flush is actually
+        // due. Snapshotting per completion cloned the ever-growing entries
+        // dictionary (every finding + escape-ref list) inside the shared
+        // lock: quadratic copy-on-write churn that serialized all workers
+        // and froze the pipeline at a pack a minute (profiled: one core in
+        // BridgeObjectBox copy/destroy, everyone else in ulock_wait).
+        let flushCacheIfDue: @Sendable (() -> [String: PackCacheEntry]) -> Void = { snapshotEntries in
             guard let cacheURL = options.cacheURL else { return }
             let due = lastCacheFlush.withLock { last -> Bool in
                 let now = ContinuousClock.now
@@ -199,7 +205,7 @@ public struct Analyzer {
             }
             guard due else { return }
             var snapshot = cacheSnapshot
-            for (name, entry) in entries { snapshot.entries[name] = entry }
+            for (name, entry) in snapshotEntries() { snapshot.entries[name] = entry }
             snapshot.save(to: cacheURL) // atomic write
         }
 
@@ -251,7 +257,7 @@ public struct Analyzer {
             onEvent(.stage(.inspectingPack(name: pack.name, done: done, total: targets.count)))
             let packFindings = entry.healthFindings + entry.auditFindings + entry.placementFindings
             if !packFindings.isEmpty { onEvent(.findings(packFindings)) }
-            flushCacheIfDue(state.withLock { $0.entries })
+            flushCacheIfDue { state.withLock { $0.entries } }
         }
 
         var newEntries = state.withLock { $0.entries }
@@ -324,8 +330,10 @@ public struct Analyzer {
                 }
                 // The sweep reads every remaining pack — minutes on a cold
                 // install — so its entries ride the same periodic flush.
-                flushCacheIfDue(pipelineEntries.merging(
-                    sweep.withLock { $0.entries }, uniquingKeysWith: { _, new in new }))
+                flushCacheIfDue {
+                    pipelineEntries.merging(
+                        sweep.withLock { $0.entries }, uniquingKeysWith: { _, new in new })
+                }
             }
             let sweepResult = sweep.withLock { $0 }
             externalRefs.append(contentsOf: sweepResult.refs)

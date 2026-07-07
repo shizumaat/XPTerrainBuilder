@@ -609,8 +609,11 @@ final class AnalysisController: ObservableObject {
         }
     }
 
+    /// Allowed during a run for the same reasons fixes are: restores are
+    /// atomic file moves, and the touched packs re-analyze via
+    /// pendingInvalidation + content signatures.
     func revertModifications(_ records: [ModificationRecord]) {
-        guard !records.isEmpty, !isFixing, !isRunning else { return }
+        guard !records.isEmpty, !isFixing else { return }
         isFixing = true
         fixErrors = []
 

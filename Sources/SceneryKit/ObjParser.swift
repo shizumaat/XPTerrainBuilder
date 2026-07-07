@@ -12,6 +12,17 @@ public struct ObjInfo: Sendable {
     public var animated = false         // ANIM_begin present
     public var spillLightCount = 0      // LIGHT_PARAM / LIGHT_SPILL_CUSTOM lines
     public var hasLightLevel = false    // ATTR_light_level (dataref-driven, blocks instancing)
+    /// Spill radii in meters, one per light whose size slot we know for
+    /// certain: LIGHT_SPILL_CUSTOM (8th argument) and LIGHT_PARAM
+    /// full_custom_halo[_night] (8th argument after the light name).
+    /// Other LIGHT_PARAM names have per-name layouts — never guessed.
+    public var spillRadii: [Double] = []
+    /// LIGHT_SPILL_CUSTOM lights driven by a real dataref (not NULL/none) —
+    /// each evaluates per frame; Laminar recommends param lights for
+    /// repeated fixtures.
+    public var datarefSpillCount = 0
+
+    public var maxSpillRadius: Double? { spillRadii.max() }
 
     // Bounding box from VT coordinates (OBJ8 units are meters).
     public var minX = Double.infinity, maxX = -Double.infinity
@@ -37,6 +48,23 @@ public struct ObjInfo: Sendable {
 }
 
 public enum ObjParser {
+    /// THE table of light forms whose spill-size slot is known for certain —
+    /// the detector (below) and FixEngine's clamp both consult this, so they
+    /// can never disagree about which token is the radius. tokens[0] is the
+    /// keyword. Returns nil for every layout we don't know (never guessed).
+    public static func spillSizeTokenIndex(_ tokens: [String]) -> Int? {
+        guard let keyword = tokens.first else { return nil }
+        if keyword == "LIGHT_SPILL_CUSTOM" {
+            // LIGHT_SPILL_CUSTOM x y z r g b a SIZE dx dy dz semi dref
+            return tokens.count >= 9 ? 8 : nil
+        }
+        if keyword == "LIGHT_PARAM", tokens.count >= 10,
+           tokens[1].hasPrefix("full_custom_halo") {
+            // LIGHT_PARAM full_custom_halo[_night] x y z R G B A SIZE …
+            return 9
+        }
+        return nil
+    }
     /// Parse an OBJ8 text file. Returns nil if unreadable.
     public static func parse(url: URL, maxBytes: Int = 64 * 1024 * 1024) -> ObjInfo? {
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
@@ -158,8 +186,36 @@ public enum ObjParser {
                         info.animated = true
                     }
                 case UInt8(ascii: "L"):
-                    if lineStarts(start, end, "LIGHT_PARAM") || lineStarts(start, end, "LIGHT_SPILL_CUSTOM") {
+                    // LIGHT_PARAM lines number in the thousands in airport
+                    // lighting objects, so a byte-level name check gates the
+                    // String materialization: only LIGHT_SPILL_CUSTOM (rare)
+                    // and full_custom_halo params (the sized forms) pay it.
+                    let isSpillCustom = lineStarts(start, end, "LIGHT_SPILL_CUSTOM")
+                    var isSizedParam = false
+                    if !isSpillCustom, lineStarts(start, end, "LIGHT_PARAM") {
                         info.spillLightCount += 1
+                        var p = start + 11 // past "LIGHT_PARAM"
+                        while p < end, base[p] == 0x20 || base[p] == 0x09 { p += 1 }
+                        isSizedParam = lineStarts(p, end, "full_custom_halo")
+                    }
+                    if isSpillCustom || isSizedParam {
+                        if isSpillCustom { info.spillLightCount += 1 }
+                        let bytes = UnsafeBufferPointer(start: base + start, count: end - start)
+                        let tokens = String(decoding: bytes, as: UTF8.self)
+                            .split(whereSeparator: { $0 == " " || $0 == "\t" })
+                            .map(String.init)
+                        if let sizeIndex = Self.spillSizeTokenIndex(tokens),
+                           let size = Double(tokens[sizeIndex]), size > 0 {
+                            info.spillRadii.append(size)
+                        }
+                        // LIGHT_SPILL_CUSTOM's 13th argument is the dataref;
+                        // NULL means "always on" (param-light equivalent).
+                        if isSpillCustom, tokens.count >= 14 {
+                            let dref = tokens[13].lowercased()
+                            if dref != "null", dref != "none", dref != "no_ref" {
+                                info.datarefSpillCount += 1
+                            }
+                        }
                     }
                 case UInt8(ascii: "G"):
                     if lineStarts(start, end, "GLOBAL_no_blend") {

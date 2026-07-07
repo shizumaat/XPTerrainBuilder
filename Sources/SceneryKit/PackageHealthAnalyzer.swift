@@ -12,6 +12,9 @@ public struct HealthConfig: Sendable {
     public var maxFindingsPerCheckPerPack = 5   // keep the report readable
     public var maxObjSpanMeters = 1000.0        // C-12: Laminar: ideal objects are <= 1 km per side
     public var spillLightsPerObjWarn = 50       // C-10: spill lights are deferred-shading fill cost
+    public var maxSpillRadiusMeters = 60.0      // C-10: spill cost scales with covered screen area
+    public var deadAlphaChecksPerPack = 50      // C-18: full-file reads, biggest DXT5s first
+    public var deadAlphaMaxFileBytes = 48 * 1024 * 1024 // C-18: skip pathological files
 
     /// The machine's practical VRAM budget; performance warnings are judged
     /// against this, not a hard-coded number.
@@ -145,6 +148,7 @@ public struct PackageHealthAnalyzer {
         var blendPingPong: [(URL, Int)] = []
         var heavyAnimated: [(URL, ObjInfo)] = []
         var spillHeavy: [(URL, Int)] = []
+        var spillOversized: [(url: URL, worst: Double, count: Int)] = []
         var overspanned: [(URL, Double)] = []
         var packSpillTotal = 0
 
@@ -174,6 +178,12 @@ public struct PackageHealthAnalyzer {
             packSpillTotal += info.spillLightCount
             if info.spillLightCount >= config.spillLightsPerObjWarn {
                 spillHeavy.append((url, info.spillLightCount))
+            }
+            // C-10 (fixable): spill cost scales with covered screen area, so
+            // a single oversized radius outweighs dozens of normal fixtures.
+            if let worst = info.maxSpillRadius, worst > config.maxSpillRadiusMeters {
+                let count = info.spillRadii.filter { $0 > config.maxSpillRadiusMeters }.count
+                spillOversized.append((url, worst, count))
             }
             // C-12: Laminar's ideal object is <= 1 km per side; giant objects
             // defeat frustum culling ("whole object draws for a sliver").
@@ -221,6 +231,24 @@ public struct PackageHealthAnalyzer {
                 suggestion: "If the animation isn't essential, the author can split the animated part into a small separate object so the heavy geometry stays instanced.",
                 url: URL(string: "https://developer.x-plane.com/article/optimizing-object-peformance/"),
                 fixability: .manual,
+                packName: pack.name,
+                packKind: pack.kind
+            ))
+        }
+
+        for entry in spillOversized.sorted(by: { $0.worst > $1.worst }).prefix(config.maxFindingsPerCheckPerPack) {
+            let radius = Int(config.maxSpillRadiusMeters)
+            result.findings.append(Finding(
+                checkID: "C-10",
+                severity: .warning,
+                category: .packageHealth,
+                title: "Spill light \(Int(entry.worst.rounded())) m wide: \(entry.url.lastPathComponent)",
+                detail: "\(entry.count) spill light\(entry.count == 1 ? "" : "s") in \(entry.url.lastPathComponent) exceed\(entry.count == 1 ? "s" : "") \(radius) m in radius (largest: \(Int(entry.worst.rounded())) m). Spill cost in X-Plane's deferred renderer scales with the screen area the light volume covers — a big dim spill costs more than a small bright one, and oversized apron spills are the classic 'FPS tanks at night' signature.",
+                path: entry.url.path,
+                suggestion: "Apply Fix to clamp the oversized radii to \(radius) m (backed up, revertible). The lit pool at night shrinks slightly; brightness inside it is unchanged. Skip this if the huge radius is a deliberate artistic effect.",
+                url: URL(string: "https://developer.x-plane.com/2013/04/customizing-spill-lights-two-ways/"),
+                fixability: .auto,
+                proposedFix: .reduceSpillRadius(objPath: entry.url.path, maxRadiusMeters: radius),
                 packName: pack.name,
                 packKind: pack.kind
             ))
@@ -316,6 +344,7 @@ public struct PackageHealthAnalyzer {
         var nonPOT: [(URL, TextureInfo)] = []
         var noMips: [(URL, TextureInfo)] = []
         var oversized: [(URL, TextureInfo)] = []
+        var dxt5Candidates: [(URL, TextureInfo)] = []
         var pngCount = 0
 
         for url in textureURLs {
@@ -331,6 +360,10 @@ public struct PackageHealthAnalyzer {
             }
             if info.format == .dds && info.mipMapCount <= 1 {
                 noMips.append((url, info))
+            }
+            if info.format == .dds && info.ddsFourCC == "DXT5"
+                && info.fileSizeBytes <= config.deadAlphaMaxFileBytes {
+                dxt5Candidates.append((url, info))
             }
             if !info.isPowerOfTwo && info.width > 0 {
                 nonPOT.append((url, info))
@@ -388,6 +421,57 @@ public struct PackageHealthAnalyzer {
                 url: URL(string: "https://developer.x-plane.com/2012/01/dds-revisited-in-x-plane-10/"),
                 fixability: isPNG ? .auto : .manual,
                 proposedFix: isPNG ? .convertPNGToDDS(pngPath: url.path) : nil,
+                packName: pack.name,
+                packKind: pack.kind
+            ))
+        }
+
+        // C-18: DXT5 whose alpha decodes fully opaque — the alpha blocks are
+        // dead weight (half the file, half the VRAM). Full-file reads, so
+        // only the biggest few files per pack are checked; the analysis
+        // early-exits at the first genuinely translucent pixel, and fixing
+        // (which invalidates the cache) surfaces the next batch on re-run.
+        var deadAlpha: [(URL, TextureInfo)] = []
+        let toCheck = dxt5Candidates.sorted { $0.1.fileSizeBytes > $1.1.fileSizeBytes }
+        let deadAlphaTruncated = toCheck.count > config.deadAlphaChecksPerPack
+        for candidate in toCheck.prefix(config.deadAlphaChecksPerPack) {
+            // Per-file pool: analyze memory-maps whole files; without this
+            // the mapped data outlives the loop until the pack-level pool.
+            autoreleasepool {
+                if case .opaqueBC3 = DDSAlpha.analyze(url: candidate.0) {
+                    deadAlpha.append(candidate)
+                }
+            }
+        }
+        for (url, info) in deadAlpha.prefix(config.maxFindingsPerCheckPerPack) {
+            let saved = ByteCountFormatter.string(
+                fromByteCount: Int64(info.fileSizeBytes / 2), countStyle: .file)
+            result.findings.append(Finding(
+                checkID: "C-18",
+                severity: max(info.width, info.height) >= 1024 ? .warning : .info,
+                category: .packageHealth,
+                title: "Unused alpha channel: \(url.lastPathComponent)",
+                detail: "\(url.lastPathComponent) (\(info.width)x\(info.height)) is DXT5-compressed but every pixel is opaque — the alpha data doubles the file and VRAM for nothing (Laminar: \"If your texture does not have any transparent parts, make sure to save it without an alpha channel\").",
+                path: url.path,
+                suggestion: "Apply Fix to rewrite it as DXT1 (~\(saved) saved). Colors are copied bit-exactly — no re-encoding, no quality change. Backed up and revertible.",
+                url: URL(string: "https://developer.x-plane.com/article/performance-tuning-and-scenery/"),
+                fixability: .auto,
+                proposedFix: .stripDeadAlpha(ddsPath: url.path),
+                packName: pack.name,
+                packKind: pack.kind
+            ))
+        }
+        // The notice must NOT be gated on findings: a pack whose 50 largest
+        // DXT5s all have real alpha would otherwise become a permanent
+        // silent blind spot for the smaller ones.
+        if deadAlphaTruncated {
+            result.findings.append(Finding(
+                checkID: "C-18",
+                severity: .info,
+                category: .packageHealth,
+                title: "'\(pack.name)': only the \(config.deadAlphaChecksPerPack) largest DXT5 textures were checked for dead alpha",
+                detail: "The pack has \(dxt5Candidates.count) DXT5 textures; checking alpha content requires reading whole files, so the scan is capped at the largest \(config.deadAlphaChecksPerPack) (\(deadAlpha.count) of them fully opaque)." + (deadAlpha.isEmpty ? "" : " Fixing the found ones and re-analyzing (⌘R) checks the next batch."),
+                path: pack.url.path,
                 packName: pack.name,
                 packKind: pack.kind
             ))

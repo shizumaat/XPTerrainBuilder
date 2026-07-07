@@ -15,6 +15,8 @@ public struct TextureInfo: Sendable {
     /// DDS only: number of mipmap levels recorded in the header (0/1 = none).
     public let mipMapCount: Int
     public let fileSizeBytes: Int
+    /// DDS only: compression fourCC ("DXT1", "DXT5", "DX10", …), nil otherwise.
+    public var ddsFourCC: String? = nil
 
     public var isPowerOfTwo: Bool {
         func pot(_ n: Int) -> Bool { n > 0 && (n & (n - 1)) == 0 }
@@ -51,13 +53,22 @@ public enum TextureInspector {
                                mipMapCount: 0, fileSizeBytes: size)
         }
 
-        // DDS: "DDS " magic; little-endian height at 12, width at 16, mipMapCount at 28.
+        // DDS: "DDS " magic; little-endian height at 12, width at 16,
+        // mipMapCount at 28, pixel-format fourCC at 84.
         if header.starts(with: [0x44, 0x44, 0x53, 0x20]) {
             let height = header.littleEndianUInt32(at: 12)
             let width = header.littleEndianUInt32(at: 16)
             let mips = header.littleEndianUInt32(at: 28)
+            var fourCC: String? = nil
+            if header.count >= 88 {
+                let cc = header.subdata(in: header.startIndex + 84..<header.startIndex + 88)
+                let text = String(decoding: cc, as: UTF8.self)
+                if text.allSatisfy({ $0.isLetter || $0.isNumber || $0 == " " }) {
+                    fourCC = text
+                }
+            }
             return TextureInfo(url: url, format: .dds, width: width, height: height,
-                               mipMapCount: mips, fileSizeBytes: size)
+                               mipMapCount: mips, fileSizeBytes: size, ddsFourCC: fourCC)
         }
 
         return TextureInfo(url: url, format: .other, width: 0, height: 0,

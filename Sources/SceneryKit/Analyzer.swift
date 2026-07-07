@@ -176,12 +176,24 @@ public struct Analyzer {
             } else {
                 let healthResult = autoreleasepool { health.scanPack(pack) }
                 let auditResult = autoreleasepool { audit.scanPack(pack) }
-                let placementResult = autoreleasepool { placement.scanPack(pack) }
+                var placementResult = autoreleasepool { placement.scanPack(pack) }
+                placementResult.findings.append(
+                    contentsOf: autoreleasepool { AptDatAnalyzer.scanPack(pack) })
                 let escapes = ResourceAuditAnalyzer.collectEscapeRefs(in: pack)
+                // The placement-count C-09 (placed N× and can't instance)
+                // supersedes the health scan's size-based C-09 for the same
+                // OBJ — one problem, one row.
+                let placementC09Paths = Set(placementResult.findings
+                    .filter { $0.checkID == "C-09" }.compactMap { $0.path })
+                let healthFindings = placementC09Paths.isEmpty
+                    ? healthResult.findings
+                    : healthResult.findings.filter {
+                        !($0.checkID == "C-09" && placementC09Paths.contains($0.path ?? ""))
+                    }
                 entry = PackCacheEntry(
                     signature: pack.signature,
                     hasFullAnalysis: true,
-                    healthFindings: healthResult.findings,
+                    healthFindings: healthFindings,
                     auditFindings: auditResult?.0 ?? [],
                     placementFindings: placementResult.findings,
                     unusedCandidates: auditResult?.1,

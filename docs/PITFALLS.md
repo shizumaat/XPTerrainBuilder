@@ -3,12 +3,23 @@
 Compiled July 2026 from developer.x-plane.com (Laminar, authoritative) and
 x-plane.org community sources, as groundwork for XPScenery Doctor's check
 catalog. Implementation status is tracked inline:
-- Implemented: C-09 (animation blocks instancing), C-10 (spill lights),
-  C-12 (>1 km object span), system-aware VRAM budgets (PERF-01/02/03),
-  PNG→DDS conversion with dead-alpha stripping (C-04 Apply Fix).
-- Candidates for next rounds: LOAD_CENTER insertion, degenerate-ANIM baking,
-  apt.dat overlap/node lint, facade stretch ratio, missing exclusion zones,
-  forest density/LOD (.for).
+- Implemented: C-09 (animation blocks instancing, ESCALATED by DSF placement
+  counts), C-10 (spill lights: census + oversized-radius clamp fix),
+  C-12 (>1 km object span), C-13 (LOAD_CENTER insertion), system-aware VRAM
+  budgets (PERF-01/02/03), PNG→DDS conversion with dead-alpha stripping
+  (C-04 Apply Fix), C-15 (missing exclusion zones, §8), C-16 (facade ring
+  node counts, §6 — the published 2× panel-stretch ratio needs exact .fac
+  panel metrics; ring complexity is the defensible half, panel parsing is
+  still open), C-17 (dataref spill in repeated objects, §3 detection —
+  custom→param conversion itself is author work), C-18 (dead-alpha DXT5 →
+  DXT1 strip fix, §9), APT-01/02/03 (apt.dat node counts + layered-pavement
+  overlap, §4 — overlap detection is the conservative mostly-inside test,
+  not exact boolean area).
+- Candidates for next rounds: degenerate-ANIM baking (§1 auto-fix),
+  ANIM_hide heavy-geometry detection (§2), forest density/LOD (.for, §5),
+  .fac panel-width parsing for true stretch ratios (§6), legacy-light →
+  photometric swap table (needs lights.txt data from an XP12 install —
+  no authoritative mapping published, so nothing is guessed).
 
 # X-Plane Scenery Performance Pitfalls — Research Report for XPScenery Doctor
 

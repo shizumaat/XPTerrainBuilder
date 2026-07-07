@@ -13,8 +13,12 @@ struct ResultsPane: View {
     /// them (install-wide findings with no pack stay visible). nil = show all.
     var packFilter: Set<String>? = nil
     @StateObject private var selection = ViewState(Set<Finding.ID>())
-    /// Top-level groups the user has opened (packages collapsed by default).
-    @StateObject private var expanded = ViewState(Set<String>())
+    /// Explicit open/close choices for top-level groups. Groups holding
+    /// error-severity findings default OPEN so a fresh run puts errors on
+    /// screen without interaction (the old category list auto-expanded
+    /// Missing Resources for the same reason); everything else defaults
+    /// closed.
+    @StateObject private var topChoices = ViewState([String: Bool]())
     /// Nested category groups the user has CLOSED — categories inside an
     /// opened package default to open, so expanding a package shows findings,
     /// not a second layer of closed disclosure triangles.
@@ -153,6 +157,13 @@ struct ResultsPane: View {
     // MARK: - Grouping
 
     /// One package's slice of the report, precomputed once per body.
+    ///
+    /// Keyed by pack NAME, knowingly: findings carry only packName (no pack
+    /// path), so the rare same-named twin in Custom Scenery and the disabled
+    /// folder (lore #15) merges into one display group here. That's benign —
+    /// ids stay unique (dictionary grouping), each finding's own path points
+    /// into the right folder — but don't extend this into a lookup table for
+    /// pack OPERATIONS; those must key by path.
     private struct PackGroup: Identifiable {
         let id: String  // pack name
         var kind: PackKind?
@@ -219,7 +230,9 @@ struct ResultsPane: View {
             // Redundant Packages: the one section that stays top-level —
             // its whole point is relationships BETWEEN packages.
             if !dupGroups.isEmpty || !dupItems.isEmpty {
-                DisclosureGroup(isExpanded: topBinding("duplicates")) {
+                DisclosureGroup(isExpanded: topBinding(
+                    "duplicates",
+                    defaultOpen: dupItems.contains { $0.severity == .error })) {
                     duplicatesContent(groups: dupGroups, items: dupItems)
                 } label: {
                     HStack {
@@ -236,7 +249,8 @@ struct ResultsPane: View {
             }
 
             ForEach(packs) { group in
-                DisclosureGroup(isExpanded: topBinding("pack:\(group.id)")) {
+                DisclosureGroup(isExpanded: topBinding(
+                    "pack:\(group.id)", defaultOpen: group.worst == .error)) {
                     packContent(group)
                 } label: {
                     packLabel(group)
@@ -244,7 +258,11 @@ struct ResultsPane: View {
             }
 
             if !installWide.isEmpty {
-                DisclosureGroup(isExpanded: topBinding("install")) {
+                DisclosureGroup(isExpanded: topBinding(
+                    "install",
+                    defaultOpen: installWide.contains { entry in
+                        entry.items.contains { $0.severity == .error }
+                    })) {
                     ForEach(installWide, id: \.category) { entry in
                         categoryGroup(owner: "install", category: entry.category,
                                       items: entry.items, unused: [])
@@ -441,12 +459,10 @@ struct ResultsPane: View {
         }
     }
 
-    private func topBinding(_ key: String) -> Binding<Bool> {
+    private func topBinding(_ key: String, defaultOpen: Bool) -> Binding<Bool> {
         Binding(
-            get: { expanded.value.contains(key) },
-            set: { open in
-                if open { expanded.value.insert(key) } else { expanded.value.remove(key) }
-            }
+            get: { topChoices.value[key] ?? defaultOpen },
+            set: { topChoices.value[key] = $0 }
         )
     }
 
@@ -463,6 +479,9 @@ struct ResultsPane: View {
 
     private func bottomBar(fixable: [Finding]) -> some View {
         let selectedFixable = fixable.filter { selection.value.contains($0.id) }
+        // Appearance-changing fixes (spill clamps) never ride the bulk
+        // button — the user selects those deliberately.
+        let bulkFixable = fixable.filter { !($0.proposedFix?.changesAppearance ?? false) }
         return HStack(spacing: 8) {
             if controller.isRunning {
                 ProgressView().controlSize(.small)
@@ -485,10 +504,10 @@ struct ResultsPane: View {
                 confirmingFix.value = selectedFixable
             }
             .disabled(selectedFixable.isEmpty || controller.isFixing || controller.isRunning)
-            Button("Fix All (\(fixable.count))") {
-                confirmingFix.value = fixable
+            Button("Fix All (\(bulkFixable.count))") {
+                confirmingFix.value = bulkFixable
             }
-            .disabled(fixable.isEmpty || controller.isFixing || controller.isRunning)
+            .disabled(bulkFixable.isEmpty || controller.isFixing || controller.isRunning)
         }
         .font(.callout)
         .padding(.horizontal, 12)

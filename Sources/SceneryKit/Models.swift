@@ -60,6 +60,15 @@ public enum ProposedFix: Codable, Sendable, Hashable {
     /// endorsed; center/size computed from the DSF windings that use it).
     case insertLoadCenter(polPath: String, latitude: Double, longitude: Double,
                           sizeMeters: Int, resolutionPx: Int)
+    /// Clamp every spill light larger than `maxRadiusMeters` down to it
+    /// (LIGHT_SPILL_CUSTOM and full_custom_halo LIGHT_PARAMs — the forms
+    /// whose size slot is unambiguous). Spill cost scales with covered
+    /// screen area, so oversized radii are the classic night-FPS killer.
+    /// Changes appearance slightly — offered, never auto-selected.
+    case reduceSpillRadius(objPath: String, maxRadiusMeters: Int)
+    /// Rewrite an all-opaque DXT5 DDS as DXT1 by dropping the (dead) alpha
+    /// blocks — byte-exact colors, half the file size and VRAM.
+    case stripDeadAlpha(ddsPath: String)
     /// Give every dropped ATC controller at `icao` an in-band VHF frequency:
     /// the published one (AirNav / OurAirports, fetched when the fix is
     /// applied) when available, otherwise an unused in-band channel — either
@@ -79,9 +88,21 @@ public enum ProposedFix: Codable, Sendable, Hashable {
             return "Promote ATTR_no_blend to GLOBAL_no_blend"
         case .insertLoadCenter(_, _, _, let size, _):
             return "Add LOAD_CENTER (\(size) m)"
+        case .reduceSpillRadius(_, let radius):
+            return "Clamp spill lights to \(radius) m"
+        case .stripDeadAlpha:
+            return "Strip unused alpha channel (DXT5 → DXT1)"
         case .repairControllerFrequencies(_, let icao):
             return "Add VHF frequency for \(icao)'s dropped controllers"
         }
+    }
+
+    /// True for fixes that visibly change how the scenery looks (however
+    /// slightly). "Fix All" skips these — the user must select them
+    /// deliberately.
+    public var changesAppearance: Bool {
+        if case .reduceSpillRadius = self { return true }
+        return false
     }
 
     public var targetPath: String {
@@ -91,6 +112,8 @@ public enum ProposedFix: Codable, Sendable, Hashable {
         case .convertPNGToDDS(let path): return path
         case .promoteGlobalNoBlend(let path): return path
         case .insertLoadCenter(let path, _, _, _, _): return path
+        case .reduceSpillRadius(let path, _): return path
+        case .stripDeadAlpha(let path): return path
         case .repairControllerFrequencies(let path, _): return path
         }
     }

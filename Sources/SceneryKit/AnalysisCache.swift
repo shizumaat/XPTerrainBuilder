@@ -51,7 +51,9 @@ public struct AnalysisCache: Codable, Sendable {
     /// Bump whenever an analyzer's findings change shape or meaning — a
     /// version mismatch discards the whole cache rather than serving stale
     /// results from an older engine.
-    public static let schemaVersion = 2
+    /// v3: relatedPacks on Finding; C-15/16/17/18, APT-01..03, C-09/C-10
+    /// escalations (spill radii, placement counts, dead alpha).
+    public static let schemaVersion = 3
 
     public var version: Int = schemaVersion
     public var entries: [String: PackCacheEntry] = [:]

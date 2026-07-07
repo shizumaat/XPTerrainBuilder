@@ -14,6 +14,16 @@ import Foundation
 ///   for the base mesh twice (Laminar: "use .ter files" for anything larger
 ///   than an airport or downtown). Conversion needs mesh rebuilding, so
 ///   there is no auto-fix.
+/// - **C-09 escalation**: an instancing-hostile OBJ (animation, dataref
+///   light level) is cheap as a one-off but expensive placed dozens of
+///   times — the DSF placement counts say which it is.
+/// - **C-17**: dataref-driven LIGHT_SPILL_CUSTOM in a heavily-placed object
+///   (Laminar: "you really want that param version" for repeated fixtures).
+/// - **C-15**: overlay DSFs that place real content but declare no
+///   sim/exclude_* properties — default autogen renders underneath
+///   simultaneously ("double scenery").
+/// - **C-16**: facade rings with excessive node counts (facades are
+///   per-instance meshes; huge rings are a memory multiplier).
 public struct PlacementAnalyzer {
     let installation: Installation
 
@@ -23,6 +33,16 @@ public struct PlacementAnalyzer {
     static let maxDSFsPerPack = 100
     static let loadCenterMinTexturePx = 2048
     static let overdrawWarnSquareMeters = 5_000_000.0 // ~5 km²
+    /// PITFALLS heuristic: an animated OBJ placed ≥ ~25× in one tile is off
+    /// the instancing path that many times; ≥ 100× is a real frame cost.
+    static let heavyPlacementCount = 25
+    static let severePlacementCount = 100
+    /// Laminar: overlays with substantial placements should exclude the
+    /// scenery beneath them.
+    static let exclusionObjectThreshold = 100
+    /// Heuristic (PITFALLS §6): facade rings beyond ~100 nodes.
+    static let maxFacadeRingNodes = 100
+    static let maxFindingsPerCheck = 5
 
     public init(installation: Installation) {
         self.installation = installation
@@ -40,10 +60,17 @@ public struct PlacementAnalyzer {
 
         let wantsMarker = pack.kind == .landmark && pack.airports.isEmpty
             && (1...2).contains(pack.tiles.count)
+        // Placement-count / exclusion / facade checks apply to object-placing
+        // packs (airports, landmarks). Ortho and mesh tiles place terrain,
+        // not clutter — reading their geometry would cost minutes for
+        // nothing, and region-scale packs are capped out by maxDSFsPerPack
+        // anyway.
+        let wantsPlacementChecks = pack.kind == .airport || pack.kind == .landmark
 
-        // Pack-local .pol files (library polygons belong to their author).
+        // Pack-local .pol/.obj files (library resources belong to their author).
         var dsfURLs: [URL] = []
         var polFiles: [String: URL] = [:] // normalized rel path -> url
+        var objFiles: [String: URL] = [:]
         let packPrefix = pack.url.path + "/"
         if let enumerator = fm.enumerator(at: pack.url, includingPropertiesForKeys: nil,
                                           options: [.skipsHiddenFiles, .skipsPackageDescendants]) {
@@ -53,12 +80,17 @@ public struct PlacementAnalyzer {
                 case "pol":
                     let rel = ResourceAuditAnalyzer.normalize(String(url.path.dropFirst(packPrefix.count)))
                     polFiles[rel] = url
+                case "obj" where wantsPlacementChecks:
+                    // Not collected otherwise: library packs hold tens of
+                    // thousands of OBJs and path-derived keys hash slowly.
+                    let rel = ResourceAuditAnalyzer.normalize(String(url.path.dropFirst(packPrefix.count)))
+                    objFiles[rel] = url
                 default: break
                 }
             }
         }
 
-        guard wantsMarker || !polFiles.isEmpty else { return result }
+        guard wantsMarker || wantsPlacementChecks || !polFiles.isEmpty else { return result }
         guard !dsfURLs.isEmpty, dsfURLs.count <= Self.maxDSFsPerPack else { return result }
 
         // One pass over the pack's DSF geometry: object centroid + winding
@@ -72,20 +104,70 @@ public struct PlacementAnalyzer {
             var windings = 0
         }
         var usage: [String: PolyUsage] = [:]
+        // Placement counts per object def, the MAX seen in any single DSF
+        // (the per-tile count is what the instancing thresholds refer to).
+        var objPlacementMax: [String: Int] = [:]
+        // Facade rings beyond the node heuristic, worst first.
+        var facadeRings: [(def: String, nodes: Int)] = []
+        // Exclusion audit across the pack's overlay tiles. Exclusion CREDIT
+        // counts any overlay tile declaring sim/exclude_* (authors often put
+        // the exclusions in one tile and the bulk of the clutter in its
+        // neighbor); only zero exclusions anywhere in the pack raises C-15.
+        var overlayTilesWithContent = 0
+        var overlayTilesWithExclusions = 0
+        var exclusionContentSummary = (objects: 0, polygons: 0)
+        var contentMinLon = Double.infinity, contentMaxLon = -Double.infinity
+        var contentMinLat = Double.infinity, contentMaxLat = -Double.infinity
 
         for dsfURL in dsfURLs {
+            // A pack we're only reading for placement checks doesn't justify
+            // decompressing region-sized tiles (the marker/.pol interests
+            // predate this gate and keep their behavior).
+            if !wantsMarker, polFiles.isEmpty,
+               let size = (try? fm.attributesOfItem(atPath: dsfURL.path))?[.size] as? Int,
+               size > 32 * 1024 * 1024 {
+                continue
+            }
             guard let geometry = autoreleasepool(invoking: { DSFGeometryReader.read(url: dsfURL) })
             else { continue }
-            for (_, points) in geometry.objectPlacements {
+            var dsfObjectCount = 0
+            var dsfObjectPerDef: [String: Int] = [:]
+            for (defIndex, points) in geometry.objectPlacements {
                 for point in points {
                     lonSum += point.lon
                     latSum += point.lat
                     placementCount += 1
+                    if wantsPlacementChecks {
+                        contentMinLon = min(contentMinLon, point.lon)
+                        contentMaxLon = max(contentMaxLon, point.lon)
+                        contentMinLat = min(contentMinLat, point.lat)
+                        contentMaxLat = max(contentMaxLat, point.lat)
+                    }
+                }
+                dsfObjectCount += points.count
+                if wantsPlacementChecks, defIndex < geometry.definitions.objects.count {
+                    let name = ResourceAuditAnalyzer.normalize(geometry.definitions.objects[defIndex])
+                    dsfObjectPerDef[name, default: 0] += points.count
                 }
             }
+            for (name, count) in dsfObjectPerDef {
+                objPlacementMax[name] = max(objPlacementMax[name] ?? 0, count)
+            }
+
+            var dsfClutterPolygons = 0
             for (defIndex, windings) in geometry.polygonWindings {
                 guard defIndex < geometry.definitions.polygons.count else { continue }
                 let name = ResourceAuditAnalyzer.normalize(geometry.definitions.polygons[defIndex])
+                // Facades and forests double-draw over autogen; draped .pol
+                // imagery does not.
+                if name.hasSuffix(".fac") || name.hasSuffix(".for") {
+                    dsfClutterPolygons += windings.count
+                }
+                if name.hasSuffix(".fac") {
+                    for winding in windings where winding.count > Self.maxFacadeRingNodes {
+                        facadeRings.append((name, winding.count))
+                    }
+                }
                 guard name.hasSuffix(".pol"), polFiles[name] != nil else { continue }
                 var u = usage[name] ?? PolyUsage()
                 for winding in windings where winding.count >= 3 {
@@ -98,11 +180,41 @@ public struct PlacementAnalyzer {
                 }
                 usage[name] = u
             }
+
+            // C-15 accounting: content and exclusion-credit are tracked
+            // independently — an exclusion declared on ANY overlay tile
+            // clears the pack.
+            let props = geometry.definitions.properties
+            if props["sim/overlay"] == "1" {
+                if props.keys.contains(where: { $0.hasPrefix("sim/exclude_") }) {
+                    overlayTilesWithExclusions += 1
+                }
+                if dsfObjectCount > Self.exclusionObjectThreshold || dsfClutterPolygons > 0 {
+                    overlayTilesWithContent += 1
+                    exclusionContentSummary.objects += dsfObjectCount
+                    exclusionContentSummary.polygons += dsfClutterPolygons
+                }
+            }
         }
 
         if wantsMarker, placementCount > 0 {
             result.marker = GeoPoint(lon: lonSum / Double(placementCount),
                                      lat: latSum / Double(placementCount))
+        }
+
+        if wantsPlacementChecks {
+            result.findings.append(contentsOf: placementCountFindings(
+                pack: pack, objFiles: objFiles, objPlacementMax: objPlacementMax))
+            result.findings.append(contentsOf: facadeFindings(
+                pack: pack, facadeRings: facadeRings))
+            if overlayTilesWithContent > 0, overlayTilesWithExclusions == 0 {
+                result.findings.append(exclusionFinding(
+                    pack: pack,
+                    tiles: overlayTilesWithContent,
+                    content: exclusionContentSummary,
+                    bounds: contentMinLon.isFinite
+                        ? (contentMinLon, contentMaxLon, contentMinLat, contentMaxLat) : nil))
+            }
         }
 
         for (rel, u) in usage.sorted(by: { $0.key < $1.key }) {
@@ -156,6 +268,133 @@ public struct PlacementAnalyzer {
         }
 
         return result
+    }
+
+    // MARK: - Placement-count checks
+
+    /// C-09 escalation + C-17: parse the pack-local OBJs that are placed
+    /// heavily enough for instancing to matter, and flag the ones that
+    /// can't instance. A handful of parses per pack — only defs past the
+    /// placement threshold are read.
+    private func placementCountFindings(
+        pack: SceneryPack, objFiles: [String: URL], objPlacementMax: [String: Int]
+    ) -> [Finding] {
+        var findings: [Finding] = []
+        var animated: [(url: URL, info: ObjInfo, count: Int)] = []
+        var datarefSpill: [(url: URL, info: ObjInfo, count: Int)] = []
+
+        // Worst-placed defs first, capped: a dense city overlay can have
+        // hundreds of 25+-placement defs and each candidate is a full OBJ
+        // parse (PackageHealthAnalyzer parses its own, separate top-150).
+        let candidates = objPlacementMax
+            .filter { $0.value >= Self.heavyPlacementCount && objFiles[$0.key] != nil }
+            .sorted { $0.value > $1.value }
+            .prefix(40)
+        for (def, count) in candidates {
+            guard let url = objFiles[def] else { continue } // library object: its author's problem
+            guard let info = autoreleasepool(invoking: { ObjParser.parse(url: url) }) else { continue }
+            if info.animated || info.hasLightLevel {
+                animated.append((url, info, count))
+            }
+            if info.datarefSpillCount > 0 {
+                datarefSpill.append((url, info, count))
+            }
+        }
+
+        for entry in animated.sorted(by: { $0.count > $1.count }).prefix(Self.maxFindingsPerCheck) {
+            let severe = entry.count >= Self.severePlacementCount
+            let isAnim = entry.info.animated
+            let reason = isAnim ? "animation (ANIM_*)" : "dataref-driven ATTR_light_level"
+            findings.append(Finding(
+                checkID: "C-09",
+                severity: severe ? .warning : .info,
+                category: .developerDebug,
+                title: "\(isAnim ? "Animated" : "Instancing-hostile") object placed \(entry.count)× in one tile: \(entry.url.lastPathComponent)",
+                detail: "\(entry.url.lastPathComponent) (\(entry.info.vertexCount) vertices) uses \(reason), which takes it off X-Plane's instanced drawing path — and this pack places it \(entry.count) times in a single DSF. Every placement is CPU-side draw work that instanced objects avoid entirely.\(severe ? " At \(entry.count) placements this is a measurable per-frame cost, not a rounding error." : "")",
+                path: entry.url.path,
+                suggestion: isAnim
+                    ? "The author can split the animated part into a small separate object so the repeated geometry stays instanced, or bake the animation away if it never actually moves."
+                    : "The author can move the ATTR_light_level surface into a small separate object (or drop it) so the repeated geometry stays instanced.",
+                url: URL(string: "https://developer.x-plane.com/article/optimizing-object-peformance/"),
+                fixability: .manual,
+                packName: pack.name,
+                packKind: pack.kind
+            ))
+        }
+
+        for entry in datarefSpill.sorted(by: { $0.count > $1.count }).prefix(Self.maxFindingsPerCheck) {
+            findings.append(Finding(
+                checkID: "C-17",
+                severity: .info,
+                category: .developerDebug,
+                title: "Dataref spill light in object placed \(entry.count)×: \(entry.url.lastPathComponent)",
+                detail: "\(entry.url.lastPathComponent) uses LIGHT_SPILL_CUSTOM driven by a dataref and is placed \(entry.count) times in one tile — each copy evaluates its dataref per frame. Laminar: \"if you're building a light used a lot (a streetlight, a taxiway light, an airport lighting fixture) you really want that param version\".",
+                path: entry.url.path,
+                suggestion: "The author can convert the light to the equivalent parameterized light (LIGHT_PARAM) — same look, evaluated on the fast path.",
+                url: URL(string: "https://developer.x-plane.com/2013/04/customizing-spill-lights-two-ways/"),
+                fixability: .manual,
+                packName: pack.name,
+                packKind: pack.kind
+            ))
+        }
+        return findings
+    }
+
+    /// C-16: facades are per-instance meshes ("each facade instance consumes
+    /// additional memory since facades are individually unique" — Laminar);
+    /// rings with huge node counts multiply that geometry.
+    private func facadeFindings(pack: SceneryPack, facadeRings: [(def: String, nodes: Int)]) -> [Finding] {
+        guard !facadeRings.isEmpty else { return [] }
+        var worstPerDef: [String: Int] = [:]
+        var countPerDef: [String: Int] = [:]
+        for ring in facadeRings {
+            worstPerDef[ring.def] = max(worstPerDef[ring.def] ?? 0, ring.nodes)
+            countPerDef[ring.def, default: 0] += 1
+        }
+        return worstPerDef.sorted { $0.value > $1.value }.prefix(Self.maxFindingsPerCheck)
+            .map { def, worst in
+                let count = countPerDef[def] ?? 1
+                let name = URL(fileURLWithPath: def).lastPathComponent
+                return Finding(
+                    checkID: "C-16",
+                    severity: .info,
+                    category: .developerDebug,
+                    title: "Facade ring with \(worst) nodes: \(name)",
+                    detail: "\(count) facade placement\(count == 1 ? "" : "s") of '\(def)' in '\(pack.name)' exceed\(count == 1 ? "s" : "") \(Self.maxFacadeRingNodes) nodes per ring (largest: \(worst)). Facades generate unique per-instance geometry — every wall segment adds polygons that no other instance shares, so giant rings are a memory multiplier (Laminar: facade cost usually shows up as memory exhaustion before framerate).",
+                    suggestion: "The author should simplify the ring or split it into several smaller facades in WED. Not mechanically fixable.",
+                    url: URL(string: "https://developer.x-plane.com/article/performance-tuning-and-scenery/"),
+                    fixability: .manual,
+                    packName: pack.name,
+                    packKind: pack.kind
+                )
+            }
+    }
+
+    /// C-15: overlay tiles that place clutter but exclude nothing beneath it.
+    private func exclusionFinding(
+        pack: SceneryPack, tiles: Int, content: (objects: Int, polygons: Int),
+        bounds: (minLon: Double, maxLon: Double, minLat: Double, maxLat: Double)?
+    ) -> Finding {
+        var contentParts: [String] = []
+        if content.objects > 0 { contentParts.append("\(content.objects) object placements") }
+        if content.polygons > 0 { contentParts.append("\(content.polygons) facade/forest polygons") }
+        let boundsClause = bounds.map {
+            String(format: " A bounding exclusion would span %.4f…%.4f lat, %.4f…%.4f lon — but over-exclusion visibly blanks autogen, so the author should draw it deliberately in WED.",
+                   $0.minLat, $0.maxLat, $0.minLon, $0.maxLon)
+        } ?? ""
+        return Finding(
+            checkID: "C-15",
+            severity: .info,
+            category: .developerDebug,
+            title: "No exclusion zones: '\(pack.name)' overlays \(contentParts.joined(separator: ", "))",
+            detail: "\(tiles == 1 ? "The pack's overlay tile places" : "\(tiles) overlay tiles place") \(contentParts.joined(separator: " and ")) without any sim/exclude_* property, so whatever default scenery sits underneath (autogen, airports, trees) still renders at the same time — X-Plane draws both.\(boundsClause)",
+            path: pack.url.path,
+            suggestion: "Laminar: \"Custom overlay scenery packs should have exclusion zones to mask out the scenery below them.\" The author adds exclusion rectangles in WED. If the area genuinely has no autogen beneath (open water, bare terrain), this costs nothing and the finding can be ignored.",
+            url: URL(string: "https://developer.x-plane.com/2014/09/prioritizing-scenery-and-exclusion-zones/"),
+            fixability: .manual,
+            packName: pack.name,
+            packKind: pack.kind
+        )
     }
 
     // MARK: - Helpers

@@ -243,6 +243,12 @@ struct FindingsList: View {
         findings.filter { $0.proposedFix != nil }
     }
 
+    /// Appearance-changing fixes (spill-radius clamps) are excluded from the
+    /// bulk button — the user must select those deliberately.
+    private var bulkFixable: [Finding] {
+        fixable.filter { !($0.proposedFix?.changesAppearance ?? false) }
+    }
+
     private var selectedFixable: [Finding] {
         fixable.filter { selection.value.contains($0.id) }
     }
@@ -341,7 +347,11 @@ struct FindingsList: View {
         if hasRenames {
             return "Content edits keep a backup beside the original (.xpsd-backup); renames just record the old name. Everything is listed under Window ▸ Modifications and can be reverted."
         }
-        return "Each file is backed up beside the original (.xpsd-backup) before editing, and every change can be undone from Window ▸ Modifications."
+        var message = "Each file is backed up beside the original (.xpsd-backup) before editing, and every change can be undone from Window ▸ Modifications."
+        if fixes.contains(where: { $0.changesAppearance }) {
+            message = "This selection includes spill-light clamps, which slightly shrink the lit pools at night. " + message
+        }
+        return message
     }
 
     private var fixBar: some View {
@@ -366,11 +376,13 @@ struct FindingsList: View {
                 confirmingFix.value = selectedFixable
             }
             .disabled(selectedFixable.isEmpty || controller.isFixing || controller.isRunning)
-            Button("Fix All (\(fixable.count))") {
-                confirmingFix.value = fixable
+            Button("Fix All (\(bulkFixable.count))") {
+                confirmingFix.value = bulkFixable
             }
-            .disabled(fixable.isEmpty || controller.isFixing || controller.isRunning)
-            .help(controller.isRunning ? "Available when the analysis finishes" : "Apply every automatic fix shown in this list")
+            .disabled(bulkFixable.isEmpty || controller.isFixing || controller.isRunning)
+            .help(controller.isRunning
+                  ? "Available when the analysis finishes"
+                  : "Apply every automatic fix shown in this list (appearance-changing fixes must be selected individually)")
         }
         .font(.callout)
         .padding(.horizontal, 12)

@@ -94,8 +94,12 @@ public enum DDSEncoder {
         return pixels
     }
 
+    /// Same cutoff DDSAlpha uses to call BC3 alpha "dead" — the encoder's
+    /// "needs alpha" and the stripper's "alpha is dead weight" definitions
+    /// must stay complementary or the two fixes would fight each other.
     static func levelHasAlpha(_ pixels: [UInt8]) -> Bool {
-        for i in stride(from: 3, to: pixels.count, by: 4) where pixels[i] < 250 {
+        for i in stride(from: 3, to: pixels.count, by: 4)
+        where Int(pixels[i]) < DDSAlpha.opaqueThreshold {
             return true
         }
         return false

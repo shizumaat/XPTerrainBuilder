@@ -1,6 +1,6 @@
 # XPSceneryDoctor — Session Handover
 
-Last updated: 2026-07-07 (commit `b778b03`). Repo: https://github.com/shizumaat/XPSceneryDoctor (private).
+Last updated: 2026-07-07 (post-`a83bc0a` session). Repo: https://github.com/shizumaat/XPSceneryDoctor (private).
 
 ## What this is
 
@@ -23,9 +23,25 @@ Owner: Noah (noahplieberman@gmail.com, GitHub `shizumaat`). His install:
   (Application Support/analysis-cache.json), at .utility QoS; ⌘R =
   re-analyze packages in view (cache bypass), ⇧⌘R = everything.
   Launch opens straight onto the map, which populates LIVE as the
-  scanner streams pack batches (~2 Hz); split dividers persist via
+  scanner streams pack batches (~2 Hz); the vertical split persists via
   NSSplitView autosave (RestorableSplit); window frames via the scene
   system. Toolbar search is a real NSSearchField (⌘F focuses it).
+- **2026-07-07 second arc (this session)**: results pane groups BY
+  PACKAGE (viewport-filtered; packages sort worst-severity-first, each
+  expands into its categories; Redundant Packages stays top-level,
+  install-wide findings under "Entire Installation"; embedded tables
+  size to rows). Package list is a native `.inspector()` (full-height
+  trailing pane, toolbar toggle, visibility persisted via
+  UserDefaults key InspectorShown). Finding gained `relatedPacks`
+  (name+path per involved pack): DUP-02/03 now honor the viewport
+  filter, DUP-03 lists each near-identical folder's FULL PATH with
+  per-folder Reveal in Finder (the LFMN same-name-two-folders case is
+  finally identifiable). New checks: C-10 oversized-spill clamp fix,
+  C-18 dead-alpha DXT5→DXT1 strip fix (lossless block rewrite,
+  DDSAlpha.swift), C-09 escalation by DSF placement counts, C-17
+  dataref-spill-in-repeated-object, C-15 missing exclusion zones,
+  C-16 facade ring node counts, APT-01/02/03 apt.dat pavement lint
+  (AptDatAnalyzer.swift). AnalysisCache schemaVersion bumped to 3.
 - **Engine** (SceneryKit, UI-free, 65 tests): proactive missing-resource
   audit (RES-01..05) resolving every DSF DEFN entry against pack files
   + installed + default libraries (deprecation-aware); deletion-grade
@@ -202,15 +218,12 @@ Owner: Noah (noahplieberman@gmail.com, GitHub `shizumaat`). His install:
   it). Warm runs reuse the signature cache and only pay for changed
   packs. A pack-mtime cache for the unused-verify sweep could shave
   repeat scoped runs further.
-- **Phase 2 leftovers**: DuplicatesView/UnusedResourcesView tables
-  embedded in the results pane are fixed-height (300pt); `.inspector()`
-  container adoption offered to Noah (layout change) — undecided.
-- **Researched but unbuilt** (docs/PITFALLS.md, ranked): spill-light
-  radius reduction fix ("tame night lighting"); legacy-light → XP12
-  photometric modernization (named/param light swaps); facade stretch;
-  apt.dat overlap lint; exclusion-zone detection; dead-alpha stripping;
-  per-def placement COUNTS (geometry reader already collects them —
-  could upgrade C-09 severity when an animated object is placed 100×).
+- **Researched but unbuilt** (docs/PITFALLS.md): degenerate-ANIM baking;
+  ANIM_hide heavy-geometry detection; forest density/LOD (.for);
+  .fac panel-width parsing for true stretch ratios (C-16 covers ring
+  complexity only); legacy-light → XP12 photometric swap table —
+  BLOCKED on authoritative name mapping (consider parsing the install's
+  own Resources/bitmaps/world/lites/lights.txt before guessing).
 - **Low-poly LOD generation** (QEM decimation for static single-texture
   OBJs): assessed as feasible; Noah interested but not yet green-lit —
   needs preview-then-apply UX, not one-click.
@@ -226,10 +239,12 @@ Owner: Noah (noahplieberman@gmail.com, GitHub `shizumaat`). His install:
   InstallationScanner (probes, signatures, streaming partials),
   LibraryIndex, LogAnalyzer, ResourceAuditAnalyzer (missing+unused+
   escape verify), PackageHealthAnalyzer, PlacementAnalyzer (geometry
-  checks), DuplicateAnalyzer, DSFReader, DSFGeometry, SevenZip,
+  checks incl. placement counts/exclusions/facades), AptDatAnalyzer
+  (pavement lint), DuplicateAnalyzer, DSFReader, DSFGeometry, SevenZip,
   FrequencyLookup, AnalysisCache, Parallel (PriorityBox/LockedBox),
-  ObjParser, TextureInspector, DDSEncoder, FixEngine, PackActions,
-  PathRepair, TextFile, TileMath, SystemInfo, Models.
+  ObjParser (incl. spill radii), TextureInspector, DDSEncoder,
+  DDSAlpha (BC3 dead-alpha analysis + lossless BC1 rewrite), FixEngine,
+  PackActions, PathRepair, TextFile, TileMath, SystemInfo, Models.
 - `Sources/XPSceneryDoctor/` — app: MapMainView (+ToolbarSearchField),
   MapCanvasView (+ScanProgressChip), MapModel, RestorableSplit,
   ScrollZoomCatcher, PackInspectorView (path-keyed selection!),

@@ -148,6 +148,11 @@ public struct FixEngine: Sendable {
             return applyLoadCenter(polPath: polPath, latitude: lat, longitude: lon,
                                    sizeMeters: size, resolutionPx: res,
                                    finding: finding, records: &records)
+        case .reduceSpillRadius(let objPath, let maxRadius):
+            return applySpillRadiusClamp(objPath: objPath, maxRadiusMeters: maxRadius,
+                                         finding: finding, records: &records)
+        case .stripDeadAlpha(let ddsPath):
+            return applyDeadAlphaStrip(ddsPath: ddsPath, finding: finding, records: &records)
         case .repairControllerFrequencies(let aptPath, let icao):
             return applyControllerFrequencyRepair(aptPath: aptPath, icao: icao,
                                                   finding: finding, records: &records)
@@ -371,6 +376,146 @@ public struct FixEngine: Sendable {
             ))
         }
         return FixOutcome(findingID: finding.id, filePath: polPath, success: true, message: nil)
+    }
+
+    // MARK: reduceSpillRadius
+
+    /// Clamp oversized spill radii in place. Only the two light forms whose
+    /// size slot is unambiguous are touched (LIGHT_SPILL_CUSTOM's 8th
+    /// argument, full_custom_halo LIGHT_PARAM's 8th argument after the
+    /// name); every other line is preserved byte-for-byte.
+    func applySpillRadiusClamp(objPath: String, maxRadiusMeters: Int, finding: Finding,
+                               records: inout [ModificationRecord]) -> FixOutcome {
+        let fm = FileManager.default
+        let fileURL = URL(fileURLWithPath: objPath)
+        let backupURL = URL(fileURLWithPath: objPath + Self.backupSuffix)
+
+        func fail(_ message: String) -> FixOutcome {
+            FixOutcome(findingID: finding.id, filePath: objPath, success: false, message: message)
+        }
+
+        guard let original = try? Data(contentsOf: fileURL) else {
+            return fail("Could not read the file.")
+        }
+        let before = ObjParser.parse(data: original)
+        guard let worst = before.maxSpillRadius, worst > Double(maxRadiusMeters) else {
+            return fail("No spill light exceeds \(maxRadiusMeters) m — already clamped?")
+        }
+        // Track the decode so the write-back round-trips byte-identically
+        // for the lines the clamp doesn't touch (Latin-1 stays Latin-1).
+        let encoding: String.Encoding
+        let text: String
+        if let utf8 = String(data: original, encoding: .utf8) {
+            text = utf8; encoding = .utf8
+        } else if let latin1 = String(data: original, encoding: .isoLatin1) {
+            text = latin1; encoding = .isoLatin1
+        } else {
+            return fail("Could not decode the file.")
+        }
+
+        var clamped = 0
+        let lines = text.components(separatedBy: "\n").map { line -> String in
+            // CRLF files reach here with a trailing "\r" on every line —
+            // strip for parsing, restore if the line gets rewritten.
+            let hadCR = line.hasSuffix("\r")
+            let body = hadCR ? String(line.dropLast()) : line
+            var tokens = body.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+            // Same table the detector used — the two can't disagree.
+            guard let sizeIndex = ObjParser.spillSizeTokenIndex(tokens),
+                  let size = Double(tokens[sizeIndex]), size > Double(maxRadiusMeters) else {
+                return line
+            }
+            tokens[sizeIndex] = String(maxRadiusMeters)
+            clamped += 1
+            return tokens.joined(separator: " ") + (hadCR ? "\r" : "")
+        }
+        guard clamped > 0 else {
+            return fail("No clampable spill light found.")
+        }
+        guard let edited = lines.joined(separator: "\n").data(using: encoding) else {
+            return fail("Could not re-encode the file.")
+        }
+
+        // Validate: geometry untouched, light count unchanged, radii in bounds.
+        let after = ObjParser.parse(data: edited)
+        guard after.vertexCount == before.vertexCount,
+              after.spillLightCount == before.spillLightCount,
+              after.spillRadii.count == before.spillRadii.count,
+              (after.maxSpillRadius ?? 0) <= Double(maxRadiusMeters) else {
+            return fail("Edited file failed validation; no changes were made.")
+        }
+
+        if !fm.fileExists(atPath: backupURL.path) {
+            do { try original.write(to: backupURL, options: .atomic) }
+            catch { return fail("Could not create backup: \(error.localizedDescription)") }
+        }
+        do { try edited.write(to: fileURL, options: .atomic) }
+        catch { return fail("Could not write the file: \(error.localizedDescription)") }
+
+        if !records.contains(where: { $0.filePath == objPath }) {
+            records.append(ModificationRecord(
+                filePath: objPath, backupPath: backupURL.path,
+                checkID: finding.checkID,
+                summary: "Clamped \(clamped) spill light\(clamped == 1 ? "" : "s") to \(maxRadiusMeters) m"
+            ))
+        }
+        return FixOutcome(findingID: finding.id, filePath: objPath, success: true,
+                          message: "\(clamped) light\(clamped == 1 ? "" : "s") clamped")
+    }
+
+    // MARK: stripDeadAlpha
+
+    /// Rewrite an all-opaque DXT5 DDS as DXT1 (see DDSAlpha) — colors are
+    /// copied byte-for-byte, so there is no quality change, and the file
+    /// halves in size and VRAM.
+    func applyDeadAlphaStrip(ddsPath: String, finding: Finding,
+                             records: inout [ModificationRecord]) -> FixOutcome {
+        let fm = FileManager.default
+        let fileURL = URL(fileURLWithPath: ddsPath)
+        let backupURL = URL(fileURLWithPath: ddsPath + Self.backupSuffix)
+
+        func fail(_ message: String) -> FixOutcome {
+            FixOutcome(findingID: finding.id, filePath: ddsPath, success: false, message: message)
+        }
+
+        guard let original = try? Data(contentsOf: fileURL) else {
+            return fail("Could not read the file.")
+        }
+        guard let before = TextureInspector.inspect(url: fileURL), before.format == .dds else {
+            return fail("Not a DDS file.")
+        }
+        guard let stripped = DDSAlpha.stripToBC1(original) else {
+            return fail("The texture is not a fully opaque DXT5 — its alpha channel is real.")
+        }
+
+        if !fm.fileExists(atPath: backupURL.path) {
+            do { try original.write(to: backupURL, options: .atomic) }
+            catch { return fail("Could not create backup: \(error.localizedDescription)") }
+        }
+        do { try stripped.write(to: fileURL, options: .atomic) }
+        catch { return fail("Could not write the file: \(error.localizedDescription)") }
+
+        // Validate the result; on any doubt restore from the bytes we hold
+        // in memory — NOT from the sidecar backup, which may predate this
+        // session (first backup wins, so it can be a stale earlier version).
+        guard let after = TextureInspector.inspect(url: fileURL),
+              after.format == .dds, after.ddsFourCC == "DXT1",
+              after.width == before.width, after.height == before.height,
+              after.mipMapCount == before.mipMapCount else {
+            try? original.write(to: fileURL, options: .atomic)
+            return fail("Converted DDS failed validation; the original was restored.")
+        }
+
+        if !records.contains(where: { $0.filePath == ddsPath }) {
+            let saved = ByteCountFormatter.string(
+                fromByteCount: Int64(original.count - stripped.count), countStyle: .file)
+            records.append(ModificationRecord(
+                filePath: ddsPath, backupPath: backupURL.path,
+                checkID: finding.checkID,
+                summary: "Stripped dead alpha (DXT5 → DXT1, saved \(saved))"
+            ))
+        }
+        return FixOutcome(findingID: finding.id, filePath: ddsPath, success: true, message: nil)
     }
 
     // MARK: promoteGlobalNoBlend

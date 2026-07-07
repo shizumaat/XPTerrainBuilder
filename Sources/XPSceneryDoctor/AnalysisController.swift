@@ -338,6 +338,7 @@ final class AnalysisController: ObservableObject {
                     if ContinuousClock.now - lastFlush > .milliseconds(400) {
                         self.flushPending(&pending)
                         lastFlush = .now
+                        self.persistReportThrottled()
                     }
                 case .event(.duplicateGroups(let groups)):
                     self.report?.duplicateGroups = groups
@@ -453,6 +454,16 @@ final class AnalysisController: ObservableObject {
                 try? data.write(to: url, options: .atomic)
             }
         }
+    }
+
+    /// Persist the STREAMING report at most once a minute during a run, so a
+    /// relaunch seeds with roughly what was on screen — not the last
+    /// completed run's snapshot from hours ago.
+    private var lastReportPersist = ContinuousClock.now - .seconds(120)
+    private func persistReportThrottled() {
+        guard ContinuousClock.now - lastReportPersist >= .seconds(60) else { return }
+        lastReportPersist = .now
+        persistReport()
     }
 
     private func loadPersistedReport() {

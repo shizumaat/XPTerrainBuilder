@@ -21,6 +21,10 @@ final class ProgressModel: ObservableObject {
     /// (checked, total) while the unused-resource cross-check sweeps every
     /// pack. nil outside that stage.
     @Published var unusedVerifyProgress: (done: Int, total: Int)?
+    /// (completed, total, current pack) while the per-pack analysis pipeline
+    /// runs — drives the determinate ring in the results bottom bar. nil
+    /// outside that stage.
+    @Published var packProgress: (done: Int, total: Int, name: String)?
 }
 
 @MainActor
@@ -297,6 +301,11 @@ final class AnalysisController: ObservableObject {
                     } else {
                         self.progress.unusedVerifyProgress = nil
                     }
+                    if case .inspectingPack(let name, let done, let total) = stage {
+                        self.progress.packProgress = (done, total, name)
+                    } else {
+                        self.progress.packProgress = nil
+                    }
                     // Reassigning the report re-diffs every list — keep that
                     // at the same ~0.4 s cadence as finding batches, not per
                     // stage tick.
@@ -335,6 +344,7 @@ final class AnalysisController: ObservableObject {
                     self.report = final
                     self.isRunning = false
                     self.progress.unusedVerifyProgress = nil
+                    self.progress.packProgress = nil
                     if let markers = final.packMarkers {
                         self.mapOverlays = self.mapOverlays.applyingExactMarkers(markers)
                     }

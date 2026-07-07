@@ -452,6 +452,40 @@ struct ResultsPane: View {
 
     /// Small leaf views that observe ProgressModel, so high-frequency stage
     /// ticks re-render only these and never the surrounding lists.
+    ///
+    /// While the per-pack pipeline runs, progress is DETERMINATE — we know
+    /// exactly how many packages need evaluating — so the bar shows a round
+    /// determinate indicator and "done/total — current package" instead of
+    /// a spinner. Other stages (scan, log, duplicates) stay indeterminate.
+    struct RunProgressView: View {
+        @EnvironmentObject var progress: ProgressModel
+
+        var body: some View {
+            if let p = progress.packProgress {
+                ProgressView(value: Double(p.done), total: Double(max(p.total, 1)))
+                    .progressViewStyle(.circular)
+                    .controlSize(.small)
+                Text("\(p.done)/\(p.total) — \(p.name)")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            } else if let v = progress.unusedVerifyProgress {
+                ProgressView(value: Double(v.done), total: Double(max(v.total, 1)))
+                    .progressViewStyle(.circular)
+                    .controlSize(.small)
+                Text("\(v.done)/\(v.total) — cross-checking unused files against every package")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            } else {
+                ProgressView().controlSize(.small)
+                StageLabelText()
+            }
+        }
+    }
+
     struct StageLabelText: View {
         @EnvironmentObject var progress: ProgressModel
         var suffix: String?
@@ -494,9 +528,7 @@ struct ResultsPane: View {
         let bulkFixable = fixable.filter { !($0.proposedFix?.changesAppearance ?? false) }
         return HStack(spacing: 8) {
             if controller.isRunning {
-                ProgressView().controlSize(.small)
-                StageLabelText(suffix: fixable.isEmpty
-                    ? nil : "\(fixable.count) fixable so far")
+                RunProgressView()
             } else if controller.isFixing {
                 ProgressView().controlSize(.small)
                 Text("Applying fixes…").foregroundStyle(.secondary)

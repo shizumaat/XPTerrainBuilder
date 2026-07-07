@@ -357,11 +357,7 @@ struct FindingsList: View {
     private var fixBar: some View {
         HStack(spacing: 8) {
             if controller.isRunning {
-                // Live analysis: spinner + stage, combined with the running
-                // fixable tally.
-                ProgressView().controlSize(.small)
-                ResultsPane.StageLabelText(suffix: fixable.isEmpty
-                    ? nil : "\(fixable.count) fixable so far")
+                ResultsPane.RunProgressView()
             } else if controller.isFixing {
                 ProgressView().controlSize(.small)
                 Text("Applying fixes…").foregroundStyle(.secondary)

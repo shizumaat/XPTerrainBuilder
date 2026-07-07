@@ -17,7 +17,7 @@ public struct Analyzer {
         case scanningInstallation(String?)
         case readingLog
         case checkingDuplicates
-        case inspectingPack(String)
+        case inspectingPack(name: String, done: Int, total: Int)
         case findingUnused(String?)
         case verifyingUnused(Int, Int)
         case done
@@ -28,7 +28,8 @@ public struct Analyzer {
                 return detail.map { "Scanning Custom Scenery… (\($0))" } ?? "Scanning Custom Scenery…"
             case .readingLog: return "Reading Log.txt…"
             case .checkingDuplicates: return "Checking for redundant packages…"
-            case .inspectingPack(let name): return "Inspecting \(name)…"
+            case .inspectingPack(let name, let done, let total):
+                return "Inspecting \(name)… (\(done)/\(total))"
             case .findingUnused(let detail):
                 return detail.map { "Auditing resources… (\($0))" } ?? "Auditing resources…"
             case .verifyingUnused(let done, let total):
@@ -237,7 +238,7 @@ public struct Analyzer {
                 s.completed += 1
                 return s.completed
             }
-            onEvent(.stage(.inspectingPack("\(pack.name) (\(done)/\(targets.count))")))
+            onEvent(.stage(.inspectingPack(name: pack.name, done: done, total: targets.count)))
             let packFindings = entry.healthFindings + entry.auditFindings + entry.placementFindings
             if !packFindings.isEmpty { onEvent(.findings(packFindings)) }
             flushCacheIfDue(state.withLock { $0.entries })

@@ -229,11 +229,14 @@ struct MapOverlays: Sendable {
                     markers.append(Marker(lon: (minLon + maxLon) / 2, lat: (minLat + maxLat) / 2,
                                           packName: pack.name, status: pack.status))
                 }
-            } else {
-                // No tiles, no located airports: libraries and plugin-only
-                // packs load wherever OTHER scenery references them.
+            } else if pack.isLibrary || pack.hasPlugins {
+                // Libraries and plugin carriers load wherever other scenery
+                // (or the sim) references them — every viewport.
                 everywherePacks.append(pack)
             }
+            // Anything else with no footprint (WED project folders, empty
+            // dirs, broken symlinks) is NOT scenery: it belongs in the
+            // INST-02 finding, not in every viewport's package list.
         }
 
         tintTiles = kinds.map { hash, kind in

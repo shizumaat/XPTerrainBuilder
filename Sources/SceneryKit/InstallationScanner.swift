@@ -55,6 +55,7 @@ public struct InstallationScanner {
             let isOverlay: Bool?
             let hasTerrain: Bool
             let isPhotoTextured: Bool
+            let hasPlugins: Bool
             let signature: String
             let sizeBytes: Int64
             let modifiedDate: Date?
@@ -86,6 +87,7 @@ public struct InstallationScanner {
                 signature: probe.signature,
                 hasTerrain: probe.hasTerrain,
                 isPhotoTextured: probe.isPhotoTextured,
+                hasPlugins: probe.hasPlugins,
                 sizeBytes: probe.sizeBytes,
                 modifiedDate: probe.modifiedDate,
                 resolvedURL: resolved
@@ -129,6 +131,8 @@ public struct InstallationScanner {
                         isOverlay: isOverlay,
                         hasTerrain: content.hasTerrain,
                         isPhotoTextured: content.isPhotoTextured,
+                        hasPlugins: fm.fileExists(
+                            atPath: contentURL.appendingPathComponent("plugins").path),
                         signature: signature,
                         sizeBytes: stats.sizeBytes,
                         modifiedDate: stats.latestModified

@@ -330,6 +330,36 @@ import Foundation
         #expect(fourth.stats.packsFromCache == 0)
     }
 
+    @Test func nonSceneryFoldersRaiseINST02() throws {
+        // WED project folders, empty dirs and broken symlinks aren't scenery
+        // — they get one INST-02 finding instead of cluttering the map.
+        let root = try makeOrthoPack()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let customScenery = root.appendingPathComponent("Custom Scenery")
+        let wedProject = customScenery.appendingPathComponent("KXYZ WED Project")
+        try FileManager.default.createDirectory(at: wedProject, withIntermediateDirectories: true)
+        try "<xml/>".write(to: wedProject.appendingPathComponent("earth.wed.xml"),
+                           atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(
+            at: customScenery.appendingPathComponent("Empty Folder"),
+            withIntermediateDirectories: true)
+        // A plugin carrier must NOT be flagged.
+        let pluginPack = customScenery.appendingPathComponent("Some Plugin Pack")
+        try FileManager.default.createDirectory(
+            at: pluginPack.appendingPathComponent("plugins"), withIntermediateDirectories: true)
+        try Data().write(to: pluginPack.appendingPathComponent("plugins/thing.xpl"))
+
+        let report = Analyzer(root: root).run()
+        let inst = report.findings.filter { $0.checkID == "INST-02" }
+        #expect(inst.count == 1, "\(inst.map { $0.title })")
+        let detail = inst.first?.detail ?? ""
+        #expect(detail.contains("KXYZ WED Project — WED project folder"))
+        #expect(detail.contains("Empty Folder — empty folder"))
+        #expect(!detail.contains("Some Plugin Pack"))
+        #expect(!detail.contains("zOrtho Test"))
+        #expect(inst.first?.relatedPacks?.count == 2)
+    }
+
     @Test func symlinkedPackContentIsAnalyzed() throws {
         // 60% of the reference install is SYMLINKED pack folders, and
         // FileManager's walks do not resolve a symlinked ROOT — every

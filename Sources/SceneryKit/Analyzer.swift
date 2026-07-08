@@ -154,6 +154,42 @@ public struct Analyzer {
             )])
         }
 
+        // INST-02: folders in Custom Scenery that aren't scenery at all —
+        // WED project folders, empty dirs, symlinks to unmounted volumes.
+        // X-Plane lists them in the ini and scans them at every launch; we
+        // keep them OFF the map (no location) and report them here instead.
+        let junkFolders = installation.packs.filter {
+            $0.isInstalled && !$0.isLibrary && !$0.isLaminar && !$0.hasPlugins
+                && $0.tiles.isEmpty && $0.airports.isEmpty
+        }
+        if !junkFolders.isEmpty {
+            let fm = FileManager.default
+            func reason(for pack: SceneryPack) -> String {
+                if pack.resolvedURL != nil, !fm.fileExists(atPath: pack.contentRoot.path) {
+                    return "symlink to a missing target (unmounted volume?)"
+                }
+                if fm.fileExists(atPath: pack.contentRoot.appendingPathComponent("earth.wed.xml").path) {
+                    return "WED project folder (no compiled scenery)"
+                }
+                if pack.sizeBytes == 0 { return "empty folder" }
+                return "no DSF tiles, airports, library or plugins"
+            }
+            let lines = junkFolders.sorted { $0.name < $1.name }
+                .map { "\($0.name) — \(reason(for: $0))" }
+                .joined(separator: "\n")
+            emit([Finding(
+                checkID: "INST-02",
+                severity: .info,
+                category: .installation,
+                title: "\(junkFolders.count) folder\(junkFolders.count == 1 ? "" : "s") in Custom Scenery \(junkFolders.count == 1 ? "isn't" : "aren't") scenery",
+                detail: "X-Plane loads nothing from these, but still lists and scans them at every launch:\n\(lines)",
+                suggestion: "Move WED projects and stray folders out of Custom Scenery (or trash empty ones); re-mount the volume for broken symlinks. They are deliberately not shown on the map — no scenery, no location.",
+                fixability: .assisted,
+                relatedPacks: junkFolders.sorted { $0.name < $1.name }
+                    .map { Finding.RelatedPack(name: $0.name, path: $0.url.path) }
+            )])
+        }
+
         onEvent(.stage(.readingLog))
         let (allLogFindings, lines) = LogAnalyzer(installation: fullInstallation).analyze(logRead: logRead)
         // Scoped runs only surface log findings attributed to selected packs.

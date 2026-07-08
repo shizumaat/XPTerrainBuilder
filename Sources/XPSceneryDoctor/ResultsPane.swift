@@ -41,6 +41,11 @@ struct ResultsPane: View {
             case "LOG-92":
                 // Default-data ATC losses never belong to a selection.
                 return nil
+            case "INST-02":
+                // Non-scenery folders have no location by definition —
+                // always visible (their relatedPacks are never in any
+                // viewport, so the default branch would hide them forever).
+                return finding
             case "DUP-02":
                 // Disabled-packs aggregate: narrow to the ones in view.
                 guard let related = finding.relatedPacks else { return finding }

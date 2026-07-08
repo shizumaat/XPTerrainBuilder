@@ -442,6 +442,9 @@ public struct SceneryPack: Codable, Sendable {
     public var hasTerrain: Bool = false
     /// textures/ holds photo-tile quantities of images (Ortho4XP-style).
     public var isPhotoTextured: Bool = false
+    /// A plugins/ folder exists — the pack is a legitimate plugin carrier
+    /// even with no DSF tiles or airports.
+    public var hasPlugins: Bool = false
     /// Approximate size on disk (files to depth 3 + every DSF).
     public var sizeBytes: Int64 = 0
     /// Newest content mtime seen during the scan.

@@ -57,11 +57,11 @@ struct MapMainView: View {
 
     private var subtitle: String {
         if controller.isScanningInstallation { return "Scanning Custom Scenery…" }
-        guard !controller.installationPacks.isEmpty else { return "" }
-        // Catalog count, deliberately larger than the analysis total (which
-        // excludes Laminar + uninstalled packs): the list supports
-        // rearranging everything the scanner found.
-        return "\(controller.installationPacks.count.formatted()) packages"
+        let packs = controller.installationPacks
+        guard !packs.isEmpty else { return "" }
+        let builtIn = packs.filter { $0.isLaminar }.count
+        let user = packs.count - builtIn
+        return "\(packs.count.formatted()) packages (\(user.formatted()) user installed, \(builtIn.formatted()) X-Plane built-in)"
     }
 
     // MARK: - Toolbar

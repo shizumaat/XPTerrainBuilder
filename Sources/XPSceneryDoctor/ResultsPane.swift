@@ -542,8 +542,12 @@ struct ResultsPane: View {
                 ProgressView().controlSize(.small)
                 Text("Applying fixes…").foregroundStyle(.secondary)
             } else if controller.report != nil {
+                // Same arithmetic as the Fix All button — the count of
+                // appearance-changing fixes it excludes is spelled out.
+                let appearanceOnly = fixable.count - bulkFixable.count
                 Text(selectedFixable.isEmpty
-                     ? "\(fixable.count.formatted()) finding\(fixable.count == 1 ? "" : "s") can be fixed automatically"
+                     ? "\(bulkFixable.count.formatted()) finding\(bulkFixable.count == 1 ? "" : "s") can be fixed automatically"
+                       + (appearanceOnly > 0 ? " (+\(appearanceOnly.formatted()) appearance-changing — select those individually)" : "")
                      : "\(selectedFixable.count.formatted()) fixable selected")
                     .foregroundStyle(.secondary)
             } else {

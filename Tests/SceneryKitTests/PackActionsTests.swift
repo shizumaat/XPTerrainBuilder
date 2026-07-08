@@ -109,6 +109,37 @@ import Foundation
         #expect(!text.contains("Gone Forever"))
     }
 
+    @Test func tileCoLoadCountsWinnerPlusOverlaysOnly() {
+        // X-Plane loads ONE base mesh per tile (highest priority) and merges
+        // overlays on top — shadowed bases must not count toward VRAM.
+        func base(_ name: String, rank: Int) -> SceneryPack {
+            var pack = makePack(name, kind: .ortho)
+            pack.iniIndex = rank
+            return pack
+        }
+        var overlay = makePack("Overlay City", kind: .landmark)
+        overlay.iniIndex = 0
+        let packs = [base("Winning Ortho", rank: 1),
+                     base("Shadowed State Ortho", rank: 2),
+                     overlay]
+        var config = HealthConfig()
+        config.vramBudgetBytes = 4_000
+        // Each pack ~3,000 bytes VRAM on one tile: winner + overlay = 6,000
+        // (over the 3/4 budget threshold of 3,000); all three would be 9,000.
+        let findings = Analyzer.tileCoLoadFindings(
+            packs: packs,
+            packVRAM: ["Winning Ortho": 3_000, "Shadowed State Ortho": 3_000,
+                       "Overlay City": 3_000],
+            config: config)
+        #expect(findings.count == 1)
+        let detail = findings.first?.detail ?? ""
+        #expect(detail.contains("Winning Ortho"))
+        #expect(detail.contains("Overlay City"))
+        #expect(!detail.contains("'Shadowed State Ortho'"),
+                "the shadowed base never loads and must not be counted")
+        #expect(detail.contains("1 lower-priority base pack"))
+    }
+
     @Test func noChangesMeansNoWrite() throws {
         let ini = "I\n1000 Version\nSCENERY\n\nSCENERY_PACK Custom Scenery/Keeper/\n"
         let (service, root) = try makeService(ini: ini)

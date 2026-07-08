@@ -447,48 +447,70 @@ public struct Analyzer {
         return report
     }
 
-    /// Regions where several packs' textures together exceed the VRAM budget.
+    /// Regions where what X-Plane ACTUALLY loads together exceeds the VRAM
+    /// budget. Scenery is winner-plus-overlays per tile: exactly ONE base
+    /// mesh/ortho loads (the highest-priority in scenery_packs.ini — lower
+    /// ones are shadowed and cost nothing), then airports, landmarks and
+    /// overlay DSFs merge on top. Summing every pack covering a tile
+    /// double-counted shadowed orthos (a whole-state photo base under
+    /// detailed local tiles false-alarmed constantly).
     static func tileCoLoadFindings(
         packs: [SceneryPack],
         packVRAM: [String: Int64],
         config: HealthConfig
     ) -> [Finding] {
-        var tileLoads: [String: [(name: String, share: Int64)]] = [:]
+        struct Load { let name: String; let share: Int64; let isBase: Bool; let rank: Int }
+        var tileLoads: [String: [Load]] = [:]
         for pack in packs where !pack.isLaminar && !pack.isLibrary && pack.isEnabled {
             guard let vram = packVRAM[pack.name], vram > 0, !pack.tiles.isEmpty else { continue }
             let share = vram / Int64(pack.tiles.count)
+            // Base mesh = sim/overlay 0 (sampled), with kind as the fallback
+            // when no DSF could be read.
+            let isBase = pack.isOverlay == false
+                || (pack.isOverlay == nil && (pack.kind == .ortho || pack.kind == .mesh))
             for tile in pack.tiles {
-                tileLoads[tile, default: []].append((pack.name, share))
+                tileLoads[tile, default: []].append(
+                    Load(name: pack.name, share: share, isBase: isBase,
+                         rank: pack.iniIndex ?? Int.max))
             }
         }
 
-        var candidates: [(tile: String, packs: [(name: String, share: Int64)], total: Int64)] = []
-        for (tile, loads) in tileLoads where loads.count >= 2 {
-            let total = loads.reduce(0) { $0 + $1.share }
+        var candidates: [(tile: String, loads: [Load], total: Int64, shadowed: Int)] = []
+        for (tile, loads) in tileLoads {
+            let bases = loads.filter { $0.isBase }
+            let winner = bases.min { $0.rank < $1.rank }
+            let overlays = loads.filter { !$0.isBase }
+            let resident = (winner.map { [$0] } ?? []) + overlays
+            guard resident.count >= 2 else { continue }
+            let total = resident.reduce(0) { $0 + $1.share }
             if total >= config.tileVRAMWarnBytes {
-                candidates.append((tile, loads.sorted { $0.share > $1.share }, total))
+                candidates.append((tile, resident.sorted { $0.share > $1.share },
+                                   total, bases.count - (winner == nil ? 0 : 1)))
             }
         }
 
         var findings: [Finding] = []
         var seenPackSets = Set<Set<String>>()
         for candidate in candidates.sorted(by: { $0.total > $1.total }) {
-            let packSet = Set(candidate.packs.map { $0.name })
+            let packSet = Set(candidate.loads.map { $0.name })
             guard seenPackSets.insert(packSet).inserted else { continue }
             guard findings.count < 5 else { break }
 
             let totalStr = ByteCountFormatter.string(fromByteCount: candidate.total, countStyle: .memory)
             let budgetStr = ByteCountFormatter.string(fromByteCount: config.vramBudgetBytes, countStyle: .memory)
-            let list = candidate.packs.prefix(6)
+            let list = candidate.loads.prefix(6)
                 .map { "'\($0.name)' (~\(ByteCountFormatter.string(fromByteCount: $0.share, countStyle: .memory)))" }
                 .joined(separator: ", ")
+            let shadowedClause = candidate.shadowed > 0
+                ? " (\(candidate.shadowed) lower-priority base pack\(candidate.shadowed == 1 ? "" : "s") covering this tile never load\(candidate.shadowed == 1 ? "s" : "") and \(candidate.shadowed == 1 ? "is" : "are") not counted)"
+                : ""
             findings.append(Finding(
                 checkID: "PERF-02",
                 severity: .warning,
                 category: .performance,
-                title: "Tile \(candidate.tile): combined textures ~\(totalStr)",
-                detail: "\(candidate.packs.count) enabled packs load together over tile \(candidate.tile), estimating ~\(totalStr) of textures against this Mac's ~\(budgetStr) usable VRAM: \(list). Flying here can push past VRAM even though each pack looks fine alone.",
-                suggestion: "Disable the packs you don't need in this region, or reduce texture quality when flying here.",
+                title: "Tile \(candidate.tile): resident textures ~\(totalStr)",
+                detail: "What X-Plane actually loads over tile \(candidate.tile) — the winning base scenery plus every overlay that merges on top — estimates ~\(totalStr) of textures against this Mac's ~\(budgetStr) usable VRAM: \(list)\(shadowedClause). Flying here can push past VRAM even though each pack looks fine alone.",
+                suggestion: "Disable the overlays you don't need in this region, or reduce texture quality when flying here.",
                 fixability: .assisted
             ))
         }

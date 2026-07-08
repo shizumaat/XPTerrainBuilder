@@ -301,7 +301,11 @@ struct ResultsPane: View {
             roots.append(OutlineNodeSpec(
                 id: "pack:\(group.id)",
                 view: wrap(packLabel(group)),
-                defaultExpanded: group.worst == .error,
+                // Always collapsed by default — thousands of packages can be
+                // in view; the row's severity badges say where to dig, and
+                // one click opens straight to findings (categories inside
+                // stay default-open).
+                defaultExpanded: false,
                 typeSelect: group.id,
                 children: group.categories.map { entry in
                     categorySpec(owner: group.id, category: entry.category,

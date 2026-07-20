@@ -1,7 +1,7 @@
 // Renders the XPScenery Smith app icon:
-// an FAA-sectional-style airport symbol on a chart background, half of it
-// under a brass-and-wood magnifying glass that genuinely magnifies what's
-// inside the lens. Usage: swift scripts/make_icon.swift <output-dir>
+// an FAA-sectional-style airport symbol on a night IFR-chart background,
+// with an Xcode-style crossed hammer and screwdriver in front — building
+// and adjusting scenery. Usage: swift scripts/make_icon.swift <output-dir>
 import Foundation
 import CoreGraphics
 import ImageIO
@@ -22,11 +22,22 @@ let sectionalMagenta = color(0.62, 0.16, 0.34)
 /// Runways are cut out of the disc — chart background shows through.
 let nightMid = color(0.065, 0.072, 0.095)
 
+// Tool materials: brushed steel and graphite, with the chart's cyan carried
+// into the screwdriver grip so the tools belong to the same palette.
+let steelLight = color(0.82, 0.85, 0.90)
+let steelMid = color(0.62, 0.65, 0.71)
+let steelDark = color(0.38, 0.41, 0.47)
+let graphiteHandle = color(0.17, 0.18, 0.22)
+let graphiteHandleHi = color(0.30, 0.32, 0.37)
+let gripCyan = color(0.10, 0.30, 0.38)
+let gripCyanHi = color(0.16, 0.45, 0.55)
+let gripCyanDark = color(0.05, 0.16, 0.22)
+
 func color(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColor {
     CGColor(red: r, green: g, blue: b, alpha: a)
 }
 
-// MARK: - Chart + airport symbol (drawn twice: base and magnified)
+// MARK: - Chart
 
 /// Night IFR-chart backdrop: near-black gradient with enroute-chart
 /// furniture — airways, hollow waypoint fixes, a partial VOR compass rose.
@@ -149,252 +160,125 @@ func drawAirportSymbol(_ ctx: CGContext, center: CGPoint, discRadius R: CGFloat)
     ctx.restoreGState()
 }
 
-/// The full "scene": night IFR chart plus the airport symbol, dead center.
-/// Sized so that after 1.6x magnification the beacon star's top clips under
-/// the lens rim (disc 90 -> star top ~2.12R = 191 base -> ~305 vs 296 lens).
-func drawScene(_ ctx: CGContext) {
-    drawChart(ctx)
-    // Disc sized so the star's top (1.942R) exceeds what the distorted lens
-    // shows at its edge (lensRadius / M(rim) ≈ 206) — the tip passes under
-    // the rim with magenta reaching the glass edge.
-    drawAirportSymbol(ctx, center: CGPoint(x: 512, y: 512), discRadius: 108)
-}
+// MARK: - Tools (Xcode-style crossed hammer + screwdriver)
 
-// MARK: - Magnifying glass
+/// Both tools cross here; the airport symbol sits above, in the V between
+/// the hammer head and the screwdriver blade.
+let crossPoint = CGPoint(x: 512, y: 455)
 
-let lensCenter = CGPoint(x: 512, y: 512)
-let lensRadius: CGFloat = 296
-let rimWidth: CGFloat = 30
-let magnification: CGFloat = 1.6
-
-// Frosted-graphite glass material (macOS 27 Preview-loupe territory,
-// not storybook brass) — a notch lighter so it separates from the black.
-let graphiteLight = color(0.56, 0.58, 0.63)
-let graphiteMid = color(0.30, 0.32, 0.36)
-let graphiteDark = color(0.13, 0.14, 0.17)
-
-func lensPath() -> CGPath {
-    CGPath(ellipseIn: CGRect(x: lensCenter.x - lensRadius, y: lensCenter.y - lensRadius,
-                             width: lensRadius * 2, height: lensRadius * 2), transform: nil)
-}
-
-func ringPath(outer: CGFloat, inner: CGFloat) -> CGPath {
-    let path = CGMutablePath()
-    path.addEllipse(in: CGRect(x: lensCenter.x - outer, y: lensCenter.y - outer,
-                               width: outer * 2, height: outer * 2))
-    path.addEllipse(in: CGRect(x: lensCenter.x - inner, y: lensCenter.y - inner,
-                               width: inner * 2, height: inner * 2))
-    return path
-}
-
-// True lens distortion: continuous radial magnification, 1.6x at the lens
-// center easing to ~1.5x at the rim. A real lens never skips or repeats
-// content — the image just compresses toward the frame — so the star's tip
-// squashes smoothly and stays magenta all the way to where the rim covers it.
-let rimFalloff: CGFloat = 0.10
-let falloffExponent: CGFloat = 6
-
-func radialMagnification(_ r: CGFloat) -> CGFloat {
-    magnification - rimFalloff * magnification * pow(r / lensRadius, falloffExponent)
-}
-
-/// Render the flat scene to pixels, then resample it through the radial
-/// magnification profile for everything inside the lens.
-func makeDistortedLensImage() -> CGImage {
-    let w = Int(SIZE)
-    let space = CGColorSpaceCreateDeviceRGB()
-
-    var src = [UInt8](repeating: 0, count: w * w * 4)
-    src.withUnsafeMutableBytes { raw in
-        let ctx = CGContext(data: raw.baseAddress, width: w, height: w,
-                            bitsPerComponent: 8, bytesPerRow: w * 4, space: space,
-                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        drawScene(ctx)
-    }
-
-    var dst = [UInt8](repeating: 0, count: w * w * 4)
-    let cx = lensCenter.x
-    let cyMem = SIZE - lensCenter.y // bitmap rows run top-down
-
-    let minX = max(0, Int(cx - lensRadius) - 1), maxX = min(w - 1, Int(cx + lensRadius) + 1)
-    let minY = max(0, Int(cyMem - lensRadius) - 1), maxY = min(w - 1, Int(cyMem + lensRadius) + 1)
-
-    src.withUnsafeBufferPointer { srcBuf in
-        dst.withUnsafeMutableBufferPointer { dstBuf in
-            let s = srcBuf.baseAddress!, d = dstBuf.baseAddress!
-            for py in minY...maxY {
-                for px in minX...maxX {
-                    let dx = CGFloat(px) + 0.5 - cx
-                    let dy = CGFloat(py) + 0.5 - cyMem
-                    let r = (dx * dx + dy * dy).squareRoot()
-                    guard r < lensRadius else { continue }
-                    let m = radialMagnification(r)
-                    let sx = cx + dx / m
-                    let sy = cyMem + dy / m
-                    // Bilinear sample.
-                    let x0 = Int(sx), y0 = Int(sy)
-                    guard x0 >= 0, y0 >= 0, x0 < w - 1, y0 < w - 1 else { continue }
-                    let fx = sx - CGFloat(x0), fy = sy - CGFloat(y0)
-                    let di = (py * w + px) * 4
-                    for c in 0..<4 {
-                        let p00 = CGFloat(s[(y0 * w + x0) * 4 + c])
-                        let p10 = CGFloat(s[(y0 * w + x0 + 1) * 4 + c])
-                        let p01 = CGFloat(s[((y0 + 1) * w + x0) * 4 + c])
-                        let p11 = CGFloat(s[((y0 + 1) * w + x0 + 1) * 4 + c])
-                        let top = p00 + (p10 - p00) * fx
-                        let bottom = p01 + (p11 - p01) * fx
-                        d[di + c] = UInt8(max(0, min(255, top + (bottom - top) * fy)))
-                    }
-                }
-            }
-        }
-    }
-
-    let data = CFDataCreate(nil, dst, dst.count)!
-    let provider = CGDataProvider(data: data)!
-    return CGImage(width: w, height: w, bitsPerComponent: 8, bitsPerPixel: 32,
-                   bytesPerRow: w * 4, space: space,
-                   bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-                   provider: provider, decode: nil, shouldInterpolate: true,
-                   intent: .defaultIntent)!
-}
-
-func drawMagnifiedContent(_ ctx: CGContext) {
+/// Linear gradient across the local y (width) of a tool part, light side up.
+func fillAcross(_ ctx: CGContext, path: CGPath, from yLight: CGFloat, to yDark: CGFloat,
+                colors: [CGColor], locations: [CGFloat] = [0, 1]) {
     ctx.saveGState()
-    ctx.addPath(lensPath())
-    ctx.clip()
-    ctx.draw(makeDistortedLensImage(), in: CGRect(x: 0, y: 0, width: SIZE, height: SIZE))
-    ctx.restoreGState()
-
-    // Flatter glass tint: faint cool lift over the black, restrained edge.
-    ctx.saveGState()
-    ctx.addPath(lensPath())
+    ctx.addPath(path)
     ctx.clip()
     let space = CGColorSpaceCreateDeviceRGB()
-    let tint = CGGradient(colorsSpace: space, colors: [
-        color(0.70, 0.82, 0.95, 0.10),
-        color(0.55, 0.68, 0.85, 0.04),
-        color(0.05, 0.08, 0.14, 0.16),
-    ] as CFArray, locations: [0, 0.82, 1])!
-    ctx.drawRadialGradient(tint, startCenter: lensCenter, startRadius: 0,
-                           endCenter: lensCenter, endRadius: lensRadius, options: [])
-    ctx.restoreGState()
-}
-
-func drawGlint(_ ctx: CGContext) {
-    ctx.saveGState()
-    ctx.addPath(lensPath())
-    ctx.clip()
-
-    // Broad soft sheen, upper left.
-    let space = CGColorSpaceCreateDeviceRGB()
-    let sheenCenter = CGPoint(x: lensCenter.x - lensRadius * 0.48,
-                              y: lensCenter.y + lensRadius * 0.56)
-    let sheen = CGGradient(colorsSpace: space, colors: [
-        color(1, 1, 1, 0.16), color(1, 1, 1, 0.0),
-    ] as CFArray, locations: [0, 1])!
-    ctx.drawRadialGradient(sheen, startCenter: sheenCenter, startRadius: 0,
-                           endCenter: sheenCenter, endRadius: lensRadius * 0.85, options: [])
-
-    // Sharp crescent streak — quieter on the dark glass.
-    ctx.setStrokeColor(color(1, 1, 1, 0.45))
-    ctx.setLineWidth(16)
-    ctx.setLineCap(.round)
-    ctx.addArc(center: lensCenter, radius: lensRadius - rimWidth - 22,
-               startAngle: .pi * 0.62, endAngle: .pi * 0.86, clockwise: false)
-    ctx.strokePath()
-    ctx.setLineWidth(7)
-    ctx.setStrokeColor(color(1, 1, 1, 0.28))
-    ctx.addArc(center: lensCenter, radius: lensRadius - rimWidth - 52,
-               startAngle: .pi * 0.66, endAngle: .pi * 0.76, clockwise: false)
-    ctx.strokePath()
-    ctx.restoreGState()
-}
-
-func drawBrassRim(_ ctx: CGContext) {
-    let space = CGColorSpaceCreateDeviceRGB()
-
-    // Soft ambient shadow under the glass.
-    ctx.saveGState()
-    ctx.setShadow(offset: CGSize(width: 0, height: -10), blur: 30,
-                  color: color(0.05, 0.06, 0.08, 0.28))
-    ctx.setFillColor(graphiteMid)
-    ctx.addPath(ringPath(outer: lensRadius + rimWidth, inner: lensRadius))
-    ctx.fillPath(using: .evenOdd)
-    ctx.restoreGState()
-
-    // Graphite body: one quiet top-lit gradient.
-    ctx.saveGState()
-    ctx.addPath(ringPath(outer: lensRadius + rimWidth, inner: lensRadius))
-    ctx.clip(using: .evenOdd)
-    let graphite = CGGradient(colorsSpace: space, colors: [
-        graphiteLight, graphiteMid, graphiteDark,
-    ] as CFArray, locations: [0, 0.55, 1])!
-    ctx.drawLinearGradient(graphite,
-        start: CGPoint(x: lensCenter.x, y: lensCenter.y + lensRadius + rimWidth),
-        end: CGPoint(x: lensCenter.x, y: lensCenter.y - lensRadius - rimWidth),
-        options: [])
-    ctx.restoreGState()
-
-    // Hairlines: darker outer edge, light inner edge where glass meets rim.
-    ctx.setStrokeColor(color(0.04, 0.05, 0.06, 0.55))
-    ctx.setLineWidth(3)
-    ctx.strokeEllipse(in: CGRect(x: lensCenter.x - lensRadius - rimWidth, y: lensCenter.y - lensRadius - rimWidth,
-                                 width: (lensRadius + rimWidth) * 2, height: (lensRadius + rimWidth) * 2))
-    ctx.setStrokeColor(color(1, 1, 1, 0.30))
-    ctx.setLineWidth(2.5)
-    ctx.strokeEllipse(in: CGRect(x: lensCenter.x - lensRadius, y: lensCenter.y - lensRadius,
-                                 width: lensRadius * 2, height: lensRadius * 2))
-
-    // Restrained specular on the rim's upper left.
-    ctx.setStrokeColor(color(1, 1, 1, 0.35))
-    ctx.setLineWidth(5)
-    ctx.setLineCap(.round)
-    ctx.addArc(center: lensCenter, radius: lensRadius + rimWidth / 2,
-               startAngle: .pi * 0.58, endAngle: .pi * 0.92, clockwise: false)
-    ctx.strokePath()
-}
-
-func drawHandle(_ ctx: CGContext) {
-    let space = CGColorSpaceCreateDeviceRGB()
-    // Short rounded capsule, same graphite material, down-right at -45°.
-    let angle: CGFloat = -.pi / 4
-    let start = CGPoint(x: lensCenter.x + cos(angle) * (lensRadius + rimWidth - 10),
-                        y: lensCenter.y + sin(angle) * (lensRadius + rimWidth - 10))
-
-    ctx.saveGState()
-    ctx.translateBy(x: start.x, y: start.y)
-    ctx.rotate(by: angle)
-    ctx.setShadow(offset: CGSize(width: 0, height: -8), blur: 22,
-                  color: color(0.05, 0.06, 0.08, 0.25))
-
-    let handleLength: CGFloat = 260
-    let handleWidth: CGFloat = 72
-    let capsule = CGPath(roundedRect: CGRect(x: 0, y: -handleWidth / 2,
-                                             width: handleLength, height: handleWidth),
-                         cornerWidth: handleWidth / 2, cornerHeight: handleWidth / 2,
-                         transform: nil)
-    ctx.saveGState()
-    ctx.addPath(capsule)
-    ctx.clip()
-    let grad = CGGradient(colorsSpace: space, colors: [
-        graphiteLight, graphiteMid, graphiteDark,
-    ] as CFArray, locations: [0, 0.5, 1])!
+    let grad = CGGradient(colorsSpace: space, colors: colors as CFArray, locations: locations)!
     ctx.drawLinearGradient(grad,
-        start: CGPoint(x: 0, y: handleWidth / 2),
-        end: CGPoint(x: 0, y: -handleWidth / 2), options: [])
-    // Soft top highlight.
-    ctx.setStrokeColor(color(1, 1, 1, 0.22))
-    ctx.setLineWidth(4)
-    ctx.move(to: CGPoint(x: 22, y: handleWidth / 2 - 12))
-    ctx.addLine(to: CGPoint(x: handleLength - 26, y: handleWidth / 2 - 12))
-    ctx.strokePath()
+        start: CGPoint(x: 0, y: yLight), end: CGPoint(x: 0, y: yDark), options: [])
     ctx.restoreGState()
+}
 
+/// Runs `body` rotated about the cross point, wrapped in a transparency
+/// layer so the whole tool casts one soft, globally-downward shadow (the
+/// shadow is set before the rotation, so it doesn't rotate with the tool).
+func toolLayer(_ ctx: CGContext, angle: CGFloat, body: (CGContext) -> Void) {
+    ctx.saveGState()
+    ctx.translateBy(x: crossPoint.x, y: crossPoint.y)
+    ctx.setShadow(offset: CGSize(width: 0, height: -14), blur: 26,
+                  color: color(0, 0, 0, 0.50))
+    ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+    ctx.saveGState()
+    ctx.rotate(by: angle)
+    body(ctx)
     ctx.restoreGState()
+    ctx.endTransparencyLayer()
+    ctx.restoreGState()
+}
+
+/// Screwdriver pointing up-right (blade at +x), drawn under the hammer.
+/// Local frame: +x along the shaft toward the tip, +y is the up-left side
+/// (which faces the icon's top, so it gets the light).
+func drawScrewdriver(_ ctx: CGContext) {
+    toolLayer(ctx, angle: .pi / 4) { ctx in
+        // Grip: chart-cyan capsule with darker moulded ribs.
+        let grip = CGPath(roundedRect: CGRect(x: -375, y: -42, width: 260, height: 84),
+                          cornerWidth: 42, cornerHeight: 42, transform: nil)
+        fillAcross(ctx, path: grip, from: 42, to: -42,
+                   colors: [gripCyanHi, gripCyan, gripCyanDark], locations: [0, 0.45, 1])
+        ctx.saveGState()
+        ctx.addPath(grip)
+        ctx.clip()
+        ctx.setFillColor(gripCyanDark)
+        for s: CGFloat in [-330, -283, -236, -189] {
+            ctx.fill(CGRect(x: s - 6, y: -42, width: 12, height: 84))
+        }
+        ctx.restoreGState()
+
+        // Ferrule between grip and shaft.
+        let ferrule = CGPath(roundedRect: CGRect(x: -122, y: -28, width: 36, height: 56),
+                             cornerWidth: 8, cornerHeight: 8, transform: nil)
+        fillAcross(ctx, path: ferrule, from: 28, to: -28,
+                   colors: [steelMid, steelDark])
+
+        // Shaft, then the flat blade flaring at the tip.
+        let shaft = CGMutablePath()
+        shaft.addRect(CGRect(x: -92, y: -14, width: 324, height: 28))
+        shaft.move(to: CGPoint(x: 232, y: 14))
+        shaft.addLine(to: CGPoint(x: 282, y: 24))
+        shaft.addLine(to: CGPoint(x: 300, y: 24))
+        shaft.addLine(to: CGPoint(x: 300, y: -24))
+        shaft.addLine(to: CGPoint(x: 282, y: -24))
+        shaft.addLine(to: CGPoint(x: 232, y: -14))
+        shaft.closeSubpath()
+        fillAcross(ctx, path: shaft, from: 24, to: -24,
+                   colors: [steelLight, steelMid, steelDark], locations: [0, 0.55, 1])
+    }
+}
+
+/// Hammer with the head up-left (at +x) and the handle running down-right,
+/// drawn over the screwdriver — the Xcode hero tool. Local frame: +x along
+/// the handle toward the head; the icon's top is toward local -y here, so
+/// the light lives on the -y side.
+func drawHammer(_ ctx: CGContext) {
+    toolLayer(ctx, angle: .pi * 3 / 4) { ctx in
+        // Graphite handle.
+        let handle = CGPath(roundedRect: CGRect(x: -355, y: -33, width: 545, height: 66),
+                            cornerWidth: 33, cornerHeight: 33, transform: nil)
+        fillAcross(ctx, path: handle, from: -33, to: 33,
+                   colors: [graphiteHandleHi, graphiteHandle, color(0.09, 0.10, 0.12)],
+                   locations: [0, 0.4, 1])
+
+        // Steel head: sledge block perpendicular to the handle, with a
+        // darker cheek band on the handle side and a bright striking edge.
+        let head = CGPath(roundedRect: CGRect(x: 180, y: -138, width: 110, height: 276),
+                          cornerWidth: 26, cornerHeight: 26, transform: nil)
+        fillAcross(ctx, path: head, from: -138, to: 138,
+                   colors: [steelLight, steelMid, steelDark], locations: [0, 0.5, 1])
+        ctx.saveGState()
+        ctx.addPath(head)
+        ctx.clip()
+        ctx.setFillColor(steelDark)
+        ctx.fill(CGRect(x: 180, y: -138, width: 26, height: 276))
+        ctx.setStrokeColor(color(1, 1, 1, 0.35))
+        ctx.setLineWidth(6)
+        ctx.move(to: CGPoint(x: 287, y: -132))
+        ctx.addLine(to: CGPoint(x: 287, y: 132))
+        ctx.strokePath()
+        ctx.restoreGState()
+    }
 }
 
 // MARK: - Compose
+
+/// The full scene: night IFR chart, the airport symbol up top, and the
+/// crossed tools in front.
+func drawScene(_ ctx: CGContext) {
+    drawChart(ctx)
+    drawAirportSymbol(ctx, center: CGPoint(x: 512, y: 685), discRadius: 112)
+    drawScrewdriver(ctx)
+    drawHammer(ctx)
+}
 
 func renderMaster() -> CGImage {
     let space = CGColorSpaceCreateDeviceRGB()
@@ -419,10 +303,7 @@ func renderMaster() -> CGImage {
     ctx.addPath(shape)
     ctx.clip()
 
-    drawScene(ctx)          // base chart (airport hidden under the lens)
-    drawBrassRim(ctx)       // rim first: casts shadow onto the chart
-    drawMagnifiedContent(ctx)
-    drawGlint(ctx)
+    drawScene(ctx)
 
     // Subtle inner bevel on the icon shape.
     ctx.addPath(shape)

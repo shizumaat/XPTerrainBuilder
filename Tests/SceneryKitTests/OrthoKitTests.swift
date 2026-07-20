@@ -181,4 +181,56 @@ import Foundation
         #expect(OrthoEngine.tileFolderName(lat: 47, lon: 11) == "zOrtho4XP_+47+011")
         #expect(OrthoEngine.tileFolderName(lat: -12, lon: -69) == "zOrtho4XP_-12-069")
     }
+
+    // MARK: JSON-lines engine protocol (dev engines)
+
+    private func event(_ json: String) -> O4Event? {
+        guard let object = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any]
+        else { return nil }
+        return O4Event.parse(object: object)
+    }
+
+    /// Lines from the engine repo's golden transcript test
+    /// (tests/test_engine_jsonl.py) — the authoritative wire format.
+    @Test func protocolEventParsing() throws {
+        let hello = event(#"{"event":"EngineHello","ortho4xp_version":"1.50.0","protocol":"1.1","capabilities":["scan","build"],"seq":0,"ts":1.0}"#)
+        #expect(hello == .hello(engineVersion: "1.50.0", protocolVersion: "1.1",
+                                capabilities: ["scan", "build"]))
+        let step = event(#"{"event":"StepProgress","lat":10,"lon":20,"step_key":"mesh","label":"triangulating","percent":12.5,"indeterminate":true,"seq":3,"ts":2.0}"#)
+        #expect(step == .stepProgress(lat: 10, lon: 20, stepKey: "mesh",
+                                      label: "triangulating", percent: 12.5,
+                                      indeterminate: true))
+        let state = event(#"{"event":"TileState","lat":10,"lon":20,"state":"done","label":"","percent":100.0,"seq":4,"ts":3.0}"#)
+        #expect(state == .tileState(lat: 10, lon: 20, state: "done", label: "", percent: 100))
+        let eta = event(#"{"event":"RunEta","elapsed_seconds":12.0,"remaining_seconds":null,"done_tiles":0,"total_tiles":2,"seq":5,"ts":4.0}"#)
+        #expect(eta == .runEta(elapsedSeconds: 12, remainingSeconds: nil,
+                               doneTiles: 0, totalTiles: 2))
+        let done = event(#"{"event":"RunDone","done_count":1,"error_count":0,"cancelled":false,"seq":9,"ts":5.0}"#)
+        #expect(done == .runDone(doneCount: 1, errorCount: 0, cancelled: false))
+        // Unknown event types must degrade gracefully (additive protocol).
+        #expect(event(#"{"event":"BrandNewThing","x":1}"#) == .unknown(event: "BrandNewThing"))
+    }
+
+    @Test func protocolScanBatchParsing() throws {
+        let batch = event(#"{"event":"ScanBatch","built":[[47,11,{"lat":47,"lon":11,"build_dir":"/t/zOrtho4XP_+47+011","dir_name":"zOrtho4XP_+47+011","dsf_present":true,"provider":"BI","zl":17,"has_zones":true,"custom_dem":"","mesh_date":1000.5,"imagery_date":null,"size_bytes":null}]],"installed":[[47,11],[48,11]],"seq":1,"ts":1.0}"#)
+        guard case .scanBatch(let built, let installed) = batch else {
+            Issue.record("not a ScanBatch")
+            return
+        }
+        #expect(built.count == 1)
+        #expect(installed.count == 2)
+        let info = O4TileInfo(json: built[0].info)
+        #expect(info?.provider == "BI")
+        #expect(info?.zl == 17)
+        #expect(info?.hasZones == true)
+        #expect(info?.dsfPresent == true)
+        #expect(info?.meshDate == 1000.5)
+        #expect(info?.imageryDate == nil)
+    }
+
+    @Test func protocolEngineDetection() {
+        // The fixture engine has no src/o4_engine — legacy driver path.
+        let engine = OrthoEngine.locate(at: engineRoot)
+        #expect(engine.map { OrthoEngineClient.engineSupportsProtocol($0) } == false)
+    }
 }

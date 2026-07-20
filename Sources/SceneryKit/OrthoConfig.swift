@@ -164,11 +164,36 @@ public struct OrthoConfigSchema: Sendable, Codable, Equatable {
         public let `default`: O4Value
         public let hint: String
         public let values: [String]?
+        /// Human titles for `values` entries (dev engines ship these).
+        public let valueLabels: [String: String]?
         public let module: String?
         public let shortName: String?
 
         /// GUI label ("high_zl_airports" over "cover_airports_with_highres").
         public var label: String { shortName ?? name }
+
+        public func label(forValue value: String) -> String {
+            valueLabels?[value] ?? value
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            name = try c.decode(String.self, forKey: .name)
+            type = try c.decode(String.self, forKey: .type)
+            hint = try c.decodeIfPresent(String.self, forKey: .hint) ?? ""
+            values = try c.decodeIfPresent([String].self, forKey: .values)
+            valueLabels = try c.decodeIfPresent([String: String].self, forKey: .valueLabels)
+            module = try c.decodeIfPresent(String.self, forKey: .module)
+            shortName = try c.decodeIfPresent(String.self, forKey: .shortName)
+            let raw = try c.decodeIfPresent(O4Value.self, forKey: .default) ?? .string("")
+            // JSON "2.0" decodes as Int; a float-typed variable's default
+            // must stay a float or it renders as "2" and equality breaks.
+            if type == "float", case .int(let i) = raw {
+                `default` = .double(Double(i))
+            } else {
+                `default` = raw
+            }
+        }
     }
 
     public let engineVersion: String

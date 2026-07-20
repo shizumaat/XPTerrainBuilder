@@ -253,7 +253,7 @@ private struct ConfigRow: View {
                 }
             )) {
                 ForEach(values, id: \.self) { value in
-                    Text(value).tag(value)
+                    Text(variable.label(forValue: value)).tag(value)
                 }
             }
         } else if variable.type == "bool" {

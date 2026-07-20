@@ -7,6 +7,7 @@ import SceneryKit
 struct MapCanvasView: View {
     @EnvironmentObject var controller: AnalysisController
     @EnvironmentObject var buildModel: BuildModel
+    @EnvironmentObject var buildActivity: BuildActivityModel
     @ObservedObject var camera: ViewState<MapCamera>
     @ObservedObject var canvasSize: ViewState<CGSize>
 
@@ -25,7 +26,23 @@ struct MapCanvasView: View {
     static let tintMesh = Color(red: 0.30, green: 0.65, blue: 0.45)
     static let tintLandmark = Color(red: 0.30, green: 0.55, blue: 0.90)
     static let selection = Color.white
-    static let buildQueued = Color(red: 0.35, green: 0.75, blue: 0.85)
+
+    // Build mode: the Qt map's vocabulary. Built tiles are colored by their
+    // zoom level; selection is yellow; done/error badges green/red.
+    static let buildSelection = Color(red: 1.0, green: 0.84, blue: 0.04) // #FFD60A
+    static let badgeDone = Color(red: 0.18, green: 0.62, blue: 0.36)     // #2E9E5B
+    static let badgeError = Color(red: 0.90, green: 0.22, blue: 0.17)    // #E5372B
+    static func zlColor(_ zl: Int?) -> Color {
+        switch zl ?? 0 {
+        case ..<15 where zl != nil: return Color(red: 0.36, green: 0.55, blue: 0.85) // ≤14 blue
+        case 15: return Color(red: 0.40, green: 0.84, blue: 0.89)  // cyan
+        case 16: return Color(red: 0.30, green: 0.69, blue: 0.43)  // green
+        case 17: return Color(red: 0.91, green: 0.76, blue: 0.24)  // yellow
+        case 18: return Color(red: 0.95, green: 0.66, blue: 0.36)  // orange
+        case 19: return Color(red: 0.94, green: 0.48, blue: 0.43)  // red
+        default: return Color(red: 0.60, green: 0.65, blue: 0.69)  // unknown grey
+        }
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -218,9 +235,10 @@ struct MapCanvasView: View {
 
     }
 
-    /// Build mode's tile layers: already-built tiles (green), tile folders
-    /// without a finished DSF yet (yellow), the queue (cyan), the tile being
-    /// built right now (orange), and the user's selection (white).
+    /// Build mode's tile layers, mirroring the Qt map: built tiles filled
+    /// with their ZL color (double inset border when installed in X-Plane,
+    /// "PROV ZL*" center label), yellow selection (solid border = active
+    /// tile, dashed = other selected), and per-tile progress ring badges.
     private func drawBuildOverlays(context: GraphicsContext, size: CGSize, cam: MapCamera,
                                    minLon: Double, maxLon: Double,
                                    minLat: Double, maxLat: Double) {
@@ -232,34 +250,92 @@ struct MapCanvasView: View {
             tileRect(lat: coord.lat, lon: coord.lon, cam: cam, size: size)
         }
 
-        var builtPath = Path(), partialPath = Path()
-        for (coord, state) in buildModel.tileStates where visible(coord) {
-            if state.hasDSF { builtPath.addRect(rect(coord)) }
-            else { partialPath.addRect(rect(coord)) }
+        // Built tiles: ZL color fill + darker border; installed adds the
+        // double (inset) border; center label once tiles are big enough.
+        let showTileLabels = cam.scale > 44
+        for (coord, info) in buildModel.built where visible(coord) {
+            let r = rect(coord)
+            let color = Self.zlColor(info.zl)
+            context.fill(Path(r), with: .color(color.opacity(0.27)))
+            context.stroke(Path(r), with: .color(color.opacity(0.85)), lineWidth: 2)
+            if buildModel.installed.contains(coord) {
+                context.stroke(Path(r.insetBy(dx: r.width * 0.03, dy: r.height * 0.03)),
+                               with: .color(color.opacity(0.9)), lineWidth: 1.5)
+            }
+            if showTileLabels, let zl = info.zl {
+                let provider = info.provider.isEmpty ? "?" : String(info.provider.prefix(4))
+                context.draw(
+                    Text("\(provider) \(zl)\(info.hasZones ? "*" : "")")
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.85)),
+                    at: CGPoint(x: r.midX, y: r.maxY - 10))
+            }
         }
-        context.fill(builtPath, with: .color(Self.tintMesh.opacity(0.3)))
-        context.fill(partialPath, with: .color(Color.yellow.opacity(0.15)))
 
-        var queuedPath = Path()
-        for coord in buildModel.queue where visible(coord) {
-            queuedPath.addRect(rect(coord).insetBy(dx: 1, dy: 1))
-        }
-        context.stroke(queuedPath, with: .color(Self.buildQueued), lineWidth: 1.2)
-
-        if let active = buildModel.activeTile, visible(active) {
-            let r = rect(active)
-            context.fill(Path(r), with: .color(Self.tintOrtho.opacity(0.35)))
-            context.stroke(Path(r), with: .color(Self.tintOrtho), lineWidth: 2)
-        }
-
-        var selectedStroke = Path(), selectedFill = Path()
+        // Selection: yellow; active tile solid 3px, others dashed 2px.
         for coord in buildModel.selected where visible(coord) {
             let r = rect(coord)
-            selectedFill.addRect(r)
-            selectedStroke.addRect(r.insetBy(dx: 0.5, dy: 0.5))
+            context.fill(Path(r), with: .color(Self.buildSelection.opacity(0.14)))
+            if coord == buildModel.activeTile {
+                context.stroke(Path(r.insetBy(dx: 1.5, dy: 1.5)),
+                               with: .color(Self.buildSelection), lineWidth: 3)
+            } else {
+                context.stroke(Path(r.insetBy(dx: 1, dy: 1)),
+                               with: .color(Self.buildSelection),
+                               style: StrokeStyle(lineWidth: 2, dash: [5, 4]))
+            }
         }
-        context.fill(selectedFill, with: .color(Self.selection.opacity(0.08)))
-        context.stroke(selectedStroke, with: .color(Self.selection.opacity(0.9)), lineWidth: 1.5)
+
+        // Progress badges: rings at tile centers during a run.
+        for (coord, progress) in buildActivity.tiles where visible(coord) {
+            drawBadge(context: context, rect: rect(coord), progress: progress)
+        }
+    }
+
+    private func drawBadge(context: GraphicsContext, rect: CGRect, progress: TileProgress) {
+        let radius = min(max(min(rect.width, rect.height) * 0.18, 9), 22)
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        func circle(_ r: CGFloat) -> Path {
+            Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2))
+        }
+        switch progress.state {
+        case .queued:
+            context.stroke(circle(radius),
+                           with: .color(.white.opacity(0.9)),
+                           style: StrokeStyle(lineWidth: 2, dash: [3, 3]))
+        case .active, .indeterminate:
+            context.stroke(circle(radius), with: .color(.white.opacity(0.25)), lineWidth: 3)
+            var arc = Path()
+            let sweep = progress.state == .indeterminate ? 0.25 : max(progress.percent / 100, 0.02)
+            arc.addArc(center: center, radius: radius,
+                       startAngle: .degrees(-90), endAngle: .degrees(-90 + 360 * sweep),
+                       clockwise: false)
+            context.stroke(arc, with: .color(Self.buildSelection), lineWidth: 3)
+            if progress.state == .active {
+                context.draw(
+                    Text("\(Int(progress.percent))")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.white),
+                    at: center)
+            }
+        case .done:
+            context.fill(circle(radius), with: .color(Self.badgeDone))
+            context.draw(Text("✓").font(.system(size: radius, weight: .bold))
+                            .foregroundStyle(.white), at: center)
+        case .error:
+            context.fill(circle(radius), with: .color(Self.badgeError))
+            context.draw(Text("!").font(.system(size: radius, weight: .bold))
+                            .foregroundStyle(.white), at: center)
+        }
+        if rect.width > 90, !progress.label.isEmpty, progress.state != .done {
+            let label = progress.state == .active
+                ? "\(progress.label) · \(Int(progress.percent))%" : progress.label
+            context.draw(
+                Text(label)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.85)),
+                at: CGPoint(x: center.x, y: center.y + radius + 10))
+        }
     }
 
     private func visibleBounds(_ cam: MapCamera, _ size: CGSize) -> (Double, Double, Double, Double) {
@@ -315,15 +391,19 @@ struct MapCanvasView: View {
             }
     }
 
-    /// Build mode: a click toggles the 1° tile under the cursor. A double
-    /// click fires this twice (net no-op on the selection) before the zoom —
-    /// deliberate, so the two gestures never need exclusivity.
+    /// Build mode, Qt semantics: click = select that tile (and make it
+    /// active), ⌘-click = toggle in a multi-selection, ⇧-click = contiguous
+    /// rectangle from the active tile. Modifiers come from AppKit at event
+    /// time — SwiftUI tap gestures don't carry them.
     private func tileSelect(size: CGSize) -> some Gesture {
         SpatialTapGesture(count: 1)
             .onEnded { value in
                 guard buildModel.mode == .build else { return }
+                let flags = NSEvent.modifierFlags
                 let coord = camera.value.coordinate(of: value.location, in: size)
-                buildModel.toggleTile(lat: Int(floor(coord.lat)), lon: Int(floor(coord.lon)))
+                buildModel.click(lat: Int(floor(coord.lat)), lon: Int(floor(coord.lon)),
+                                 command: flags.contains(.command),
+                                 shift: flags.contains(.shift))
             }
     }
 
@@ -345,11 +425,15 @@ struct MapCanvasView: View {
     private var legend: some View {
         HStack(spacing: 10) {
             if buildModel.mode == .build {
-                legendSwatch(Self.selection, "Selected")
-                legendSwatch(Self.tintMesh, "Built")
-                legendSwatch(Color.yellow, "Partial")
-                legendSwatch(Self.tintOrtho, "Building")
-                legendDot(Self.magenta, "Airport")
+                legendSwatch(Self.buildSelection, "Selected")
+                Text("built · color = ZL")
+                    .foregroundStyle(.white.opacity(0.8))
+                legendSwatch(Self.zlColor(15), "15")
+                legendSwatch(Self.zlColor(16), "16")
+                legendSwatch(Self.zlColor(17), "17")
+                legendSwatch(Self.zlColor(18), "18")
+                Text("▣ installed · * zones")
+                    .foregroundStyle(.white.opacity(0.8))
             } else {
                 legendDot(Self.magenta, "Airport")
                 legendSwatch(Self.tintOrtho, "Ortho")

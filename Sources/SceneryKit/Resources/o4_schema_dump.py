@@ -63,6 +63,11 @@ def encode(name, spec):
     }
     if "values" in spec:
         out["values"] = [v if isinstance(v, str) else repr(v) for v in spec["values"]]
+    if "value_labels" in spec:
+        out["valueLabels"] = {
+            (k if isinstance(k, str) else repr(k)): str(v)
+            for k, v in spec["value_labels"].items()
+        }
     if "module" in spec:
         out["module"] = spec["module"]
     if "short_name" in spec:

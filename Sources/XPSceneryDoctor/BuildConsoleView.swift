@@ -56,14 +56,10 @@ struct BuildConsoleView: View {
             }
             Spacer()
             if buildModel.isBuilding {
-                Button(buildModel.isStopping ? "Force Stop" : "Stop") {
+                Button(buildModel.isStopping ? "Stopping…" : "■ Stop") {
                     buildModel.stopBuild()
                 }
-            } else {
-                Button("Build \(buildModel.selected.count.formatted()) Tile\(buildModel.selected.count == 1 ? "" : "s")") {
-                    buildModel.startBuild()
-                }
-                .disabled(!buildModel.canBuild)
+                .disabled(buildModel.isStopping)
             }
         }
         .font(.callout)
@@ -72,14 +68,15 @@ struct BuildConsoleView: View {
         .background(.bar)
     }
 
-    /// Leaf view observing the high-frequency activity model, so per-texture
-    /// progress ticks re-render only this text.
+    /// Leaf view observing the high-frequency activity model, so progress
+    /// ticks re-render only this text.
     struct ConsoleStatusText: View {
         @EnvironmentObject var activity: BuildActivityModel
 
         var body: some View {
-            Text([activity.currentTileKey, activity.currentStepLabel]
-                    .compactMap { $0 }.joined(separator: " — "))
+            let remaining = activity.remainingSeconds.map { ActivityBox.clock($0) } ?? "—"
+            Text("\(activity.doneTiles)/\(activity.totalTiles) tiles — elapsed \(ActivityBox.clock(activity.elapsedSeconds)) — remaining ≈ \(remaining)")
+                .monospacedDigit()
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)

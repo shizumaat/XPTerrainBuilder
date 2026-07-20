@@ -62,8 +62,11 @@ struct MapMainView: View {
                 return "Ortho4XP engine not configured — see Settings"
             }
             var parts = ["Ortho4XP \(engine.version)"]
-            let built = buildModel.tileStates.values.filter { $0.hasDSF }.count
+            let built = buildModel.built.values.filter { $0.dsfPresent }.count
             if built > 0 { parts.append("\(built.formatted()) tile\(built == 1 ? "" : "s") built") }
+            if !buildModel.installed.isEmpty {
+                parts.append("\(buildModel.installed.count.formatted()) installed")
+            }
             if !buildModel.selected.isEmpty {
                 parts.append("\(buildModel.selected.count.formatted()) selected")
             }
@@ -112,7 +115,8 @@ struct MapMainView: View {
         // Trailing edge, per the HIG (Finder/Mail put search last).
         ToolbarItem(placement: .automatic) {
             ToolbarSearchField(text: searchText,
-                               placeholder: "Search",
+                               placeholder: buildModel.mode == .build
+                                   ? "Airport or tile like +48-006" : "Search",
                                onSubmit: performSearch)
                 .frame(width: 220)
         }
@@ -128,10 +132,23 @@ struct MapMainView: View {
 
     // MARK: - Search
 
-    /// Zoom the map to a matching airport (ICAO or name) or package.
+    /// Zoom the map to a matching airport (ICAO or name), a tile key like
+    /// "+48-006" (build mode), or a package.
     private func performSearch() {
         let query = searchText.value.trimmingCharacters(in: .whitespaces).lowercased()
         guard !query.isEmpty else { return }
+
+        // Tile-key search, like the Qt search field.
+        if buildModel.mode == .build, let tile = TileMath.parse(searchText.value.trimmingCharacters(in: .whitespaces)) {
+            buildModel.click(lat: tile.lat, lon: tile.lon, command: false, shift: false)
+            var cam = controller.mapCamera.value
+            cam.centerLon = Double(tile.lon) + 0.5
+            cam.centerLat = Double(tile.lat) + 0.5
+            cam.scale = max(cam.scale, 60)
+            cam.clamp(in: controller.mapCanvasSize.value)
+            controller.mapCamera.value = cam
+            return
+        }
 
         // Airports first: exact ICAO, then prefix, then name contains.
         let airports = controller.mapOverlays.airports
@@ -176,6 +193,7 @@ struct MapMainView: View {
                 .environmentObject(controller)
                 .environmentObject(controller.progress)
                 .environmentObject(buildModel)
+                .environmentObject(buildModel.activity)
         } second: {
             // Same slot both modes: results while managing, the engine
             // console while building.
@@ -270,6 +288,9 @@ struct ToolbarSearchField: NSViewRepresentable {
     func updateNSView(_ field: NSSearchField, context: Context) {
         if field.stringValue != text.value {
             field.stringValue = text.value
+        }
+        if field.placeholderString != placeholder {
+            field.placeholderString = placeholder
         }
     }
 

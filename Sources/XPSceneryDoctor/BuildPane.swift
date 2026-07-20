@@ -1,10 +1,11 @@
 import SwiftUI
 import SceneryKit
 
-/// Right inspector pane in Build mode: the Ortho4XP main-window controls
-/// translated to native boxes — Tile Details (what's selected, imagery,
-/// zoom level), Build Options (which pipeline steps run) and Activity (the
-/// engine's three progress bars + queue).
+/// Right inspector pane in Build mode, mirroring the Qt front end's context
+/// panel: a Selection box (active tile's details + "Installed in X-Plane"),
+/// a Build box (step groups, always visible so more tiles can be queued
+/// mid-run), and an Activity box (per-tile rows + run clock, only during a
+/// run).
 struct BuildPane: View {
     @EnvironmentObject var buildModel: BuildModel
     @StateObject private var showingBaseFolderPicker = ViewState(false)
@@ -28,12 +29,14 @@ struct BuildPane: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        box("Tile Details") { tileDetails }
-                        box("Build Options") { buildOptions }
-                        box("Activity") {
-                            ActivityBox(queue: buildModel.queue,
-                                        isBuilding: buildModel.isBuilding)
-                                .environmentObject(buildModel.activity)
+                        box("Selection") { selectionBox }
+                        box("Build") { buildBox }
+                        if buildModel.isBuilding || !buildModel.activity.runOrder.isEmpty {
+                            box("Activity") {
+                                ActivityBox()
+                                    .environmentObject(buildModel)
+                                    .environmentObject(buildModel.activity)
+                            }
                         }
                     }
                     .padding(10)
@@ -46,20 +49,19 @@ struct BuildPane: View {
                       allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result {
                 buildModel.customBuildDir = url.path
-                buildModel.refreshTileStates()
+                buildModel.rescan()
             }
         }
     }
 
     private var engineSubtitle: String {
-        if let engine = buildModel.engine {
-            var text = "Engine \(engine.version)"
-            if let missing = buildModel.missingPackages, !missing.isEmpty {
-                text += " — python packages missing"
-            }
-            return text
+        guard let engine = buildModel.engine else { return "No engine configured" }
+        var text = "Engine \(engine.version)"
+        if !buildModel.usesProtocol { text += " (legacy driver)" }
+        if let missing = buildModel.missingPackages, !missing.isEmpty {
+            text += " — python packages missing"
         }
-        return "No engine configured"
+        return text
     }
 
     private var noEngine: some View {
@@ -91,29 +93,91 @@ struct BuildPane: View {
         }
     }
 
-    // MARK: - Tile details
+    // MARK: - Selection box (active tile details)
 
-    private var tileDetails: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if buildModel.selected.isEmpty {
-                Text("Click tiles on the map to select them — or search for an airport.")
+    @ViewBuilder
+    private var selectionBox: some View {
+        if let active = buildModel.activeTile {
+            let info = buildModel.built[active]
+            Text("Tile \(active.key)\(titleSuffix(active, info))")
+                .font(.callout.weight(.semibold))
+            detailRow("Imagery", info?.provider.isEmpty == false ? info!.provider : "—")
+            detailRow("Zoom level", zlText(info))
+            detailRow("Mesh built", dateText(info?.meshDate))
+            detailRow("Imagery updated", dateText(info?.imageryDate))
+            if let dem = info?.customDEM, !dem.isEmpty {
+                detailRow("Elevation", (dem as NSString).lastPathComponent)
+            }
+            Toggle("Installed in X-Plane", isOn: Binding(
+                get: { buildModel.isInstalled(active) },
+                set: { buildModel.setInstalled(active, $0) }
+            ))
+            .toggleStyle(.checkbox)
+            .disabled(info?.dsfPresent != true || buildModel.isBuilding)
+            .help(info?.dsfPresent == true
+                  ? "Links the tile into Custom Scenery so X-Plane loads it"
+                  : "Build the tile first")
+            if buildModel.selected.count > 1 {
+                Divider()
+                let installedCount = buildModel.selected.filter { buildModel.isInstalled($0) }.count
+                Text("\(buildModel.selected.count) tiles selected · \(installedCount) installed")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            } else {
-                HStack {
-                    Text(selectionSummary)
-                        .font(.callout)
-                    Spacer()
-                    Button("Clear") { buildModel.clearSelection() }
-                        .controlSize(.small)
-                }
-                Text(selectedKeysPreview)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .truncationMode(.tail)
+                Button("Clear Selection") { buildModel.clearSelection() }
+                    .controlSize(.small)
             }
-            Divider()
+        } else {
+            Text("Click a tile on the map — ⌘-click adds, ⇧-click selects a range. Or search an airport / tile key.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        if buildModel.isScanning {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text(buildModel.scanPhase.isEmpty ? "Scanning…" : buildModel.scanPhase)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func titleSuffix(_ tile: BuildModel.TileCoord, _ info: O4TileInfo?) -> String {
+        if buildModel.isScanning, info == nil { return "  (scanning…)" }
+        return info == nil ? "  (not built)" : ""
+    }
+
+    private func zlText(_ info: O4TileInfo?) -> String {
+        guard let zl = info?.zl else { return "—" }
+        return "ZL\(zl)" + (info?.hasZones == true ? " + zones" : "")
+    }
+
+    private func dateText(_ epoch: Double?) -> String {
+        guard let epoch, epoch > 0 else { return "—" }
+        return Date(timeIntervalSince1970: epoch)
+            .formatted(date: .abbreviated, time: .shortened)
+    }
+
+    private func detailRow(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label + ":")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 104, alignment: .trailing)
+            Text(value)
+                .font(.caption)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
+
+    // MARK: - Build box
+
+    private var buildBox: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(buildSummary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
             Picker("Imagery", selection: providerBinding) {
                 Text("Tile / global default").tag("")
                 Divider()
@@ -122,17 +186,27 @@ struct BuildPane: View {
                         .tag(provider.code)
                 }
             }
-            .help("The imagery source for this build. Combined providers stack regional layers.")
-            Picker("Zoom Level", selection: zlBinding) {
-                ForEach(12...19, id: \.self) { zl in
+            Picker("Build ZL", selection: zlBinding) {
+                ForEach(12...18, id: \.self) { zl in
                     Text("ZL\(zl)").tag(zl)
                 }
             }
             .help("Higher zoom levels mean sharper imagery and much larger downloads: one ZL step ≈ 4× the data.")
-            LabeledContent("Tile Folder") {
+            Divider()
+            Toggle("Vector, mesh & masks", isOn: boolBinding(\.doVector))
+                .help("OSM data, elevation, triangulation and water masks — the tile's terrain.")
+            Toggle("Imagery & DSF", isOn: boolBinding(\.doImagery))
+                .help("Downloads imagery, converts textures and writes the final DSF.")
+            Toggle("Extract overlays", isOn: boolBinding(\.doOverlays))
+                .help("Extracts roads/buildings overlays from the overlay source configured in the engine config.")
+            Toggle("Skip already-built tiles", isOn: boolBinding(\.skipBuilt))
+            Toggle("Install finished tiles automatically", isOn: boolBinding(\.linkTiles))
+            Divider()
+            LabeledContent("Tile folder") {
                 HStack(spacing: 4) {
                     Text(buildModel.customBuildDir.isEmpty
                          ? "Ortho4XP/Tiles" : buildModel.customBuildDir)
+                        .font(.caption)
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .foregroundStyle(.secondary)
@@ -142,77 +216,38 @@ struct BuildPane: View {
                         Image(systemName: "folder")
                     }
                     .buttonStyle(.borderless)
-                    .help("Choose a custom base folder for built tiles")
                     if !buildModel.customBuildDir.isEmpty {
                         Button {
                             buildModel.customBuildDir = ""
-                            buildModel.refreshTileStates()
+                            buildModel.rescan()
                         } label: {
                             Image(systemName: "xmark.circle.fill")
                         }
                         .buttonStyle(.borderless)
-                        .help("Back to the engine's Tiles folder")
                     }
                 }
             }
             .font(.callout)
         }
-    }
-
-    private var selectionSummary: String {
-        let count = buildModel.selected.count
-        let built = buildModel.selected.filter {
-            buildModel.tileStates[$0]?.hasDSF == true
-        }.count
-        var text = "\(count.formatted()) tile\(count == 1 ? "" : "s") selected"
-        if built > 0 { text += " (\(built) already built)" }
-        return text
-    }
-
-    private var selectedKeysPreview: String {
-        let keys = buildModel.selected.sorted().map { $0.key }
-        let shown = keys.prefix(8).joined(separator: "  ")
-        return keys.count > 8 ? shown + "  +\(keys.count - 8) more" : shown
-    }
-
-    // MARK: - Build options
-
-    private var buildOptions: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            stepToggle("vector", "Runs first: OSM roads/water + elevation become the tile's vector data.")
-            stepToggle("mesh", "Triangulates the 3D terrain mesh (needs the vector step's output).")
-            stepToggle("masks", "Draws the water transparency masks along coastlines.")
-            stepToggle("dsf", "Downloads imagery, converts textures and writes the final DSF.")
-            stepToggle("overlay", "Extracts roads/buildings overlays from existing scenery (needs the overlay source configured in the engine config).")
-            Divider()
-            Toggle(isOn: linkTilesBinding) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Link finished tiles into Custom Scenery")
-                    Text("Symlinks the tile folder; the Manage side then adds it to scenery_packs.ini.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
         .toggleStyle(.checkbox)
     }
 
-    private func stepToggle(_ step: String, _ help: String) -> some View {
-        Toggle(OrthoBuildJob.stepLabel(step), isOn: Binding(
-            get: { buildModel.steps.contains(step) },
-            set: { on in
-                if on { buildModel.steps.insert(step) } else { buildModel.steps.remove(step) }
-            }
-        ))
-        .help(help)
+    private var buildSummary: String {
+        let count = buildModel.selected.count
+        guard count > 0 else { return "No tiles selected" }
+        let todo = buildModel.buildableSelection.count
+        var text = "\(count) tile\(count == 1 ? "" : "s") selected"
+        if todo < count { text += " · \(count - todo) already built (skipped)" }
+        return text
     }
 
-    // MARK: - Bottom bar
+    // MARK: - Bottom bar (the ▶ Build button lives here)
 
     private var bottomBar: some View {
         HStack(spacing: 8) {
             if let missing = buildModel.missingPackages, !missing.isEmpty {
-                Label("Missing: \(missing.joined(separator: ", "))", systemImage: "exclamationmark.triangle.fill")
+                Label("Missing: \(missing.joined(separator: ", "))",
+                      systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -222,25 +257,35 @@ struct BuildPane: View {
             }
             Spacer()
             if buildModel.isBuilding {
-                Button(buildModel.isStopping ? "Force Stop" : "Stop") {
+                Button(buildModel.isStopping ? "Stopping…" : "■ Stop") {
                     buildModel.stopBuild()
                 }
-            } else {
-                Button("Build \(buildModel.selected.count.formatted())") {
-                    buildModel.startBuild()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!buildModel.canBuild)
-                .help(buildModel.selected.isEmpty
-                      ? "Select tiles on the map first"
-                      : "Build the selected tiles with the steps above")
+                .disabled(buildModel.isStopping)
             }
+            Button(buildButtonLabel) {
+                buildModel.startBuild()
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!buildModel.canBuild || buildModel.buildableSelection.isEmpty)
+            .help(buildModel.selected.isEmpty
+                  ? "Select tiles on the map first"
+                  : "Build the selected tiles with the steps above")
         }
         .font(.callout)
         .padding(.horizontal, 12)
         .frame(height: ResultsPane.bottomBarHeight)
         .background(.bar)
     }
+
+    private var buildButtonLabel: String {
+        let n = buildModel.buildableSelection.count
+        if buildModel.isBuilding, buildModel.usesProtocol {
+            return "＋ Queue \(n) tile\(n == 1 ? "" : "s")"
+        }
+        return n > 0 ? "▶ Build \(n) tile\(n == 1 ? "" : "s")" : "▶ Build"
+    }
+
+    // MARK: - Bindings (AppStorage on the model doesn't self-publish)
 
     private var providerBinding: Binding<String> {
         Binding(get: { buildModel.buildProvider },
@@ -252,62 +297,93 @@ struct BuildPane: View {
                 set: { buildModel.objectWillChange.send(); buildModel.buildZL = $0 })
     }
 
-    private var linkTilesBinding: Binding<Bool> {
-        Binding(get: { buildModel.linkTiles },
-                set: { buildModel.objectWillChange.send(); buildModel.linkTiles = $0 })
+    private func boolBinding(_ keyPath: ReferenceWritableKeyPath<BuildModel, Bool>) -> Binding<Bool> {
+        Binding(get: { buildModel[keyPath: keyPath] },
+                set: { buildModel.objectWillChange.send(); buildModel[keyPath: keyPath] = $0 })
     }
 }
 
-/// The engine's three progress bars (mesh / download / convert) plus the
-/// queue — the "activity" cluster of the Ortho4XP main window. Observes only
-/// the high-frequency activity model.
+/// Per-tile rows + the run clock, like the Qt Activity group: each row is
+/// tile key · status · progress bar · per-tile cancel; below them Elapsed /
+/// Remaining. Observes only the high-frequency activity model.
 struct ActivityBox: View {
+    @EnvironmentObject var buildModel: BuildModel
     @EnvironmentObject var activity: BuildActivityModel
-    let queue: [BuildModel.TileCoord]
-    let isBuilding: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if isBuilding {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
-                    Text([activity.currentTileKey, activity.currentStepLabel]
-                            .compactMap { $0 }.joined(separator: " — "))
-                        .font(.callout)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-            } else {
-                Text("Idle")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+            if activity.totalTiles > 0 {
+                Text("Building \(activity.totalTiles) tile\(activity.totalTiles == 1 ? "" : "s") — \(activity.doneTiles) done")
+                    .font(.callout.weight(.medium))
             }
-            bar(1, "Mesh")
-            bar(2, "Download")
-            bar(3, "Convert")
-            if !queue.isEmpty {
-                Divider()
-                Text("Queued: " + queue.prefix(6).map { $0.key }.joined(separator: "  ")
-                     + (queue.count > 6 ? "  +\(queue.count - 6) more" : ""))
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
+            ForEach(activity.runOrder, id: \.self) { coord in
+                row(coord, activity.tiles[coord])
             }
+            Divider()
+            HStack {
+                Text("Elapsed \(Self.clock(activity.elapsedSeconds))")
+                Spacer()
+                Text("Remaining ≈ \(activity.remainingSeconds.map(Self.clock) ?? "—")")
+            }
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
         }
     }
 
-    private func bar(_ id: Int, _ label: String) -> some View {
-        HStack(spacing: 8) {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(width: 64, alignment: .leading)
-            ProgressView(value: Double(activity.bars[id] ?? 0), total: 100)
+    @ViewBuilder
+    private func row(_ coord: BuildModel.TileCoord, _ progress: TileProgress?) -> some View {
+        let progress = progress ?? TileProgress(state: .queued, label: "queued", percent: 0)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text(coord.key)
+                    .font(.caption.monospaced())
+                Text(progress.state == .active
+                     ? "\(progress.label) · \(Int(progress.percent))%" : progress.label)
+                    .font(.caption)
+                    .foregroundStyle(statusColor(progress.state))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                if buildModel.usesProtocol, buildModel.isBuilding,
+                   progress.state == .queued || progress.state == .active
+                    || progress.state == .indeterminate {
+                    Button {
+                        buildModel.cancelTile(coord)
+                    } label: {
+                        Image(systemName: "xmark.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                    .help("Cancel this tile")
+                }
+            }
+            ProgressView(value: progress.state == .done ? 100 : progress.percent, total: 100)
                 .controlSize(.small)
-            Text("\(activity.bars[id] ?? 0)%")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(width: 36, alignment: .trailing)
+                .tint(progressTint(progress.state))
         }
+    }
+
+    private func statusColor(_ state: TileProgress.State) -> Color {
+        switch state {
+        case .done: return .green
+        case .error: return .red
+        default: return .secondary
+        }
+    }
+
+    private func progressTint(_ state: TileProgress.State) -> Color {
+        switch state {
+        case .done: return .green
+        case .error: return .red
+        default: return .accentColor
+        }
+    }
+
+    static func clock(_ seconds: Double) -> String {
+        let total = Int(seconds.rounded())
+        if total >= 3600 {
+            return String(format: "%d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60)
+        }
+        return String(format: "%d:%02d", total / 60, total % 60)
     }
 }

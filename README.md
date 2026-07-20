@@ -1,7 +1,18 @@
-# XPScenery Doctor
+# XPScenery Smith
 
-A small native macOS app that inspects an X-Plane installation for scenery
-problems and proposes solutions.
+A native macOS app that inspects an X-Plane installation for scenery
+problems and proposes solutions — and builds photoscenery tiles by driving
+the Ortho4XP engine bundled in this repository.
+
+This repo merges what used to be two projects:
+
+- **XPSceneryDoctor** — the SwiftUI app and its `SceneryKit` analysis
+  engine (repo root), renamed XPScenery Smith.
+- **Ortho4XP** (the `dev` branch of
+  [shizumaat/Ortho4XP-novemberlima](https://github.com/shizumaat/Ortho4XP-novemberlima)) —
+  vendored as a squashed snapshot under `Ortho4XP/`. The full engine
+  history remains in that fork; the snapshot's source commit is recorded
+  in the vendoring commit message.
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-blue) ![Swift 5.10](https://img.shields.io/badge/Swift-5.10-orange)
 
@@ -93,26 +104,43 @@ Modifications (⌥⌘2) lists every file the app has changed, with Revert
 Selected / Revert All restoring the originals byte-for-byte. Edited OBJs are
 re-parsed after the edit and rolled back automatically if validation fails.
 
-## Building
+## Building photoscenery (Build mode)
+
+The app's **Build** mode drives the bundled Ortho4XP engine over its
+JSON-lines session protocol (`Ortho4XP.py --engine-jsonl`) with a native
+GUI: pick tiles on the map, configure options (the engine's own config
+schema is introspected, so new engine options appear without an app
+update), and watch progress in the build console.
+
+Point **Settings ▸ Ortho4XP engine** at this repository's `Ortho4XP/`
+folder (or any other engine checkout/release). Run
+`Ortho4XP/install_mac.sh` once to create the engine's Python venv; the app
+prefers `Ortho4XP/venv/bin/python3` when it exists and falls back to the
+system `python3`.
+
+## Building the app
 
 Requires macOS 14+ and the Swift toolchain (full Xcode not required).
 
 ```sh
 swift build                  # debug build
-scripts/make_app.sh          # release build -> dist/XPSceneryDoctor.app
+scripts/make_app.sh          # release build -> dist/XPScenerySmith.app
 scripts/test.sh              # run unit tests
 ```
 
 The X-Plane path is stored in standard macOS preferences
-(`~/Library/Preferences/com.novemberlima.XPSceneryDoctor.plist`) and can be
+(`~/Library/Preferences/com.novemberlima.XPScenerySmith.plist`) and can be
 changed anytime in **Settings** (⌘,).
 
 ## Project layout
 
 ```
-Sources/SceneryKit/         Analysis engine (no UI, unit-tested)
-Sources/XPSceneryDoctor/    SwiftUI app
-Tests/SceneryKitTests/      Tests + a fixture fake X-Plane install
+Sources/SceneryKit/         Analysis + build engine glue (no UI, unit-tested)
+Sources/XPScenerySmith/     SwiftUI app
+Sources/xpsmith-cli/        Headless analysis CLI
+Ortho4XP/                   Vendored Ortho4XP engine (Python; own README,
+                            tests, and install scripts)
+Tests/SceneryKitTests/      Tests + fixture fake X-Plane install + fake engine
 docs/                       Original xpsan spec + build plan
 scripts/                    Build/test helpers
 ```

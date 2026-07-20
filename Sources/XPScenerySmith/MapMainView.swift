@@ -29,7 +29,7 @@ struct MapMainView: View {
             }
         }
         .frame(minWidth: 900, minHeight: 620)
-        .navigationTitle("XPScenery Doctor")
+        .navigationTitle("XPScenery Smith")
         .navigationSubtitle(subtitle)
         .toolbar { toolbarContent }
         .task {
@@ -248,7 +248,7 @@ struct MapMainView: View {
             Image(systemName: "stethoscope")
                 .font(.system(size: 44))
                 .foregroundStyle(.tint)
-            Text("XPScenery Doctor")
+            Text("XPScenery Smith")
                 .font(.title2.weight(.semibold))
             Text("Select your X-Plane folder to get started.")
                 .foregroundStyle(.secondary)

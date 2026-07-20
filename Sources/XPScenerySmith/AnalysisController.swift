@@ -3,10 +3,10 @@ import SwiftUI
 import SceneryKit
 import os
 
-private let appLog = Logger(subsystem: "com.novemberlima.XPSceneryDoctor", category: "app")
+private let appLog = Logger(subsystem: "com.novemberlima.XPScenerySmith", category: "app")
 
 /// UserDefaults key for the X-Plane root path. Lives in the app's standard
-/// preferences plist (~/Library/Preferences/com.novemberlima.XPSceneryDoctor.plist
+/// preferences plist (~/Library/Preferences/com.novemberlima.XPScenerySmith.plist
 /// when run from the bundle).
 enum PrefKeys {
     static let xplanePath = "XPlanePath"
@@ -525,7 +525,7 @@ final class AnalysisController: ObservableObject {
 
     static var reportFileURL: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("XPSceneryDoctor", isDirectory: true)
+            .appendingPathComponent("XPScenerySmith", isDirectory: true)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         return base.appendingPathComponent("last-report.json")
     }
@@ -868,7 +868,7 @@ final class AnalysisController: ObservableObject {
     func exportReportJSON() {
         guard let report else { return }
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = "XPSceneryDoctor-report.json"
+        panel.nameFieldStringValue = "XPScenerySmith-report.json"
         panel.allowedContentTypes = [.json]
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {

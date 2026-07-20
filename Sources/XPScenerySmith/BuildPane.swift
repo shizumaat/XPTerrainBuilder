@@ -69,7 +69,7 @@ struct BuildPane: View {
             Image(systemName: "globe.europe.africa")
                 .font(.system(size: 36))
                 .foregroundStyle(.tertiary)
-            Text("Point XPScenery Doctor at an Ortho4XP folder to build photoscenery tiles from here.")
+            Text("Point XPScenery Smith at an Ortho4XP folder to build photoscenery tiles from here.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

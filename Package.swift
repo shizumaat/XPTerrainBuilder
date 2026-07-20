@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "XPSceneryDoctor",
+    name: "XPScenerySmith",
     platforms: [.macOS(.v14)],
     targets: [
         .target(
@@ -14,12 +14,12 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "XPSceneryDoctor",
+            name: "XPScenerySmith",
             dependencies: ["SceneryKit"],
             resources: [.copy("Resources/land.json"), .copy("Resources/land50.json")]
         ),
         .executableTarget(
-            name: "xpdoctor-cli",
+            name: "xpsmith-cli",
             dependencies: ["SceneryKit"]
         ),
         .testTarget(

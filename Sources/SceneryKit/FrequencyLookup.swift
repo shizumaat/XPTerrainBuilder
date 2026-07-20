@@ -48,7 +48,7 @@ public enum FrequencyLookup {
 
     static func download(_ url: URL) -> String? {
         var request = URLRequest(url: url, timeoutInterval: 10)
-        request.setValue("Mozilla/5.0 (Macintosh) XPSceneryDoctor", forHTTPHeaderField: "User-Agent")
+        request.setValue("Mozilla/5.0 (Macintosh) XPScenerySmith", forHTTPHeaderField: "User-Agent")
         let semaphore = DispatchSemaphore(value: 0)
         var result: String?
         URLSession.shared.dataTask(with: request) { data, response, _ in

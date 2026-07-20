@@ -1,7 +1,7 @@
 import SwiftUI
 import SceneryKit
 
-/// Every file XPScenery Doctor has modified, grouped by scenery package,
+/// Every file XPScenery Smith has modified, grouped by scenery package,
 /// with per-package and per-file revert.
 struct ModificationsWindow: View {
     @EnvironmentObject var controller: AnalysisController

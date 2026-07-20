@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-let analyzerLog = Logger(subsystem: "com.novemberlima.XPSceneryDoctor", category: "analyzer")
+let analyzerLog = Logger(subsystem: "com.novemberlima.XPScenerySmith", category: "analyzer")
 
 /// Top-level entry point: scan the installation, run every analyzer, and
 /// assemble the report. Pure and synchronous — callers run it off the main

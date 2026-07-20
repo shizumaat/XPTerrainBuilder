@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""XPSceneryDoctor build driver for the Ortho4XP engine.
+"""XPScenerySmith build driver for the Ortho4XP engine.
 
 Runs with cwd == the engine root, under whatever python the engine's own
 environment provides (its venv when present). Invoked as:

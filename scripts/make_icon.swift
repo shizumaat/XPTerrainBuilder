@@ -1,4 +1,4 @@
-// Renders the XPScenery Doctor app icon:
+// Renders the XPScenery Smith app icon:
 // an FAA-sectional-style airport symbol on a chart background, half of it
 // under a brass-and-wood magnifying glass that genuinely magnifies what's
 // inside the lens. Usage: swift scripts/make_icon.swift <output-dir>

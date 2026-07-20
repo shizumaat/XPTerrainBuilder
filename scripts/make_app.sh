@@ -1,23 +1,23 @@
 #!/bin/zsh
-# Build XPSceneryDoctor.app from the SwiftPM executable.
+# Build XPScenerySmith.app from the SwiftPM executable.
 # Usage: scripts/make_app.sh [debug|release]   (default: release)
 set -euo pipefail
 
 CONFIG="${1:-release}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP="$ROOT/dist/XPSceneryDoctor.app"
+APP="$ROOT/dist/XPScenerySmith.app"
 
 cd "$ROOT"
 swift build --build-system native -c "$CONFIG"
-BIN="$(swift build --build-system native -c "$CONFIG" --show-bin-path)/XPSceneryDoctor"
+BIN="$(swift build --build-system native -c "$CONFIG" --show-bin-path)/XPScenerySmith"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN" "$APP/Contents/MacOS/XPSceneryDoctor"
+cp "$BIN" "$APP/Contents/MacOS/XPScenerySmith"
 
 # SwiftPM resource bundle (map data etc.) — Bundle.module looks for it next
 # to the executable's resources.
-BUNDLE="$(dirname "$BIN")/XPSceneryDoctor_XPSceneryDoctor.bundle"
+BUNDLE="$(dirname "$BIN")/XPScenerySmith_XPScenerySmith.bundle"
 if [[ -d "$BUNDLE" ]]; then
   cp -R "$BUNDLE" "$APP/Contents/Resources/"
 fi
@@ -38,15 +38,15 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>XPSceneryDoctor</string>
+    <string>XPScenerySmith</string>
     <key>CFBundleIdentifier</key>
-    <string>com.novemberlima.XPSceneryDoctor</string>
+    <string>com.novemberlima.XPScenerySmith</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleName</key>
-    <string>XPScenery Doctor</string>
+    <string>XPScenery Smith</string>
     <key>CFBundleDisplayName</key>
-    <string>XPScenery Doctor</string>
+    <string>XPScenery Smith</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

@@ -3,7 +3,7 @@ import SwiftUI
 import SceneryKit
 import os
 
-private let buildLog = Logger(subsystem: "com.novemberlima.XPSceneryDoctor", category: "build")
+private let buildLog = Logger(subsystem: "com.novemberlima.XPScenerySmith", category: "build")
 
 /// Main-window mode: the doctor (Manage) or the Ortho4XP front-end (Build).
 enum AppMode: String, CaseIterable {

@@ -1,13 +1,13 @@
 import SwiftUI
 
 @main
-struct XPSceneryDoctorApp: App {
+struct XPScenerySmithApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var controller = AnalysisController()
     @StateObject private var buildModel = BuildModel()
 
     var body: some Scene {
-        Window("XPScenery Doctor", id: "main") {
+        Window("XPScenery Smith", id: "main") {
             MapMainView()
                 .environmentObject(controller)
                 .environmentObject(controller.progress)

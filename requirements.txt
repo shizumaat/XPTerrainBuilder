@@ -1,0 +1,22 @@
+numpy==2.4.4
+PySide6==6.11.1  # new Qt UI (Ortho4XP_Qt.py); legacy Tk UI does not need it
+pillow==12.2.0
+pyproj==3.7.2
+requests==2.33.1
+Rtree==1.4.1
+shapely==2.1.2
+scikit-fmm==2025.6.23
+scipy==1.17.1        # Voronoi medial axis + smoothing splines (pav_skeleton)
+networkx==3.6.1      # skeleton graph pruning/chain collapse (pav_skeleton)
+tifffile==2026.3.3   # LERC-compressed elevation tiles (New Zealand lidar)
+imagecodecs==2026.3.6  # LERC codec backing tifffile (GDAL builds lack it)
+keyring==25.7.0      # platform secret store for provider sign-ins (O4_Authenticated_Sessions)
+osmium==4.3.1        # local filtering of Geofabrik regional extracts (O4_OSM_Extract_Filter)
+gdal==3.12.3; platform_system == 'Darwin'
+gdal==3.12.2; platform_system == 'Windows'
+gdal==3.9.0; platform_system == 'Linux'
+
+# Dev / test
+pytest>=8.0
+pytest-xdist>=3.0   # parallel test execution (-n auto); suite is build-bound
+hypothesis>=6.0

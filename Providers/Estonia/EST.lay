@@ -1,0 +1,13 @@
+# Estonian Land Board (Maa-amet) national orthophoto WMS (open).
+# Replaces the dead pump.reach-u.com Delfi tile cache. The service only
+# speaks EPSG:3301 (Estonian national grid); Ortho4XP warps from it.
+# Endpoint verified 2026-07-17.
+request_type=wms
+wms_size=512
+epsg_code=3301
+wms_version=1.1.1
+url_prefix=https://kaart.maaamet.ee/wms/fotokaart?
+layers=EESTIFOTO
+max_threads=16
+imagery_dir=code
+in_GUI=False

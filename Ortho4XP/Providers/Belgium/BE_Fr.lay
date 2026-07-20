@@ -1,0 +1,10 @@
+# Wallonia ORTHO_LAST via the SPW WMS (the old EPSG:31370 tile-cache path
+# on the same host stopped serving imagery). Endpoint verified 2026-07-17.
+request_type=wms
+wms_size=512
+epsg_code=3857
+wms_version=1.1.1
+url_prefix=https://geoservices.wallonie.be/arcgis/services/IMAGERIE/ORTHO_LAST/MapServer/WMSServer?
+layers=0
+imagery_dir=grouped
+in_GUI=False

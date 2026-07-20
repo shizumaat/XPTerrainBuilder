@@ -1,0 +1,12 @@
+# GURS national orthophoto (DOF 25 cm) from the eProstor public WMS,
+# served natively in web mercator. Replaces the dead gis.arso.gov.si
+# ArcGIS caches (which also used the unsupported ESRI CRS 102060).
+# Endpoint verified 2026-07-17.
+request_type=wms
+wms_size=512
+epsg_code=3857
+wms_version=1.1.1
+url_prefix=https://ipi.eprostor.gov.si/wms-si-gurs-dts/wms?
+layers=SI.GURS.ZPDZ:DOF025_3857
+imagery_dir=code
+in_GUI=False

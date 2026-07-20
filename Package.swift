@@ -5,7 +5,14 @@ let package = Package(
     name: "XPSceneryDoctor",
     platforms: [.macOS(.v14)],
     targets: [
-        .target(name: "SceneryKit"),
+        .target(
+            name: "SceneryKit",
+            resources: [
+                .copy("Resources/o4_driver.py"),
+                .copy("Resources/o4_schema_dump.py"),
+                .copy("Resources/o4_schema_snapshot.json"),
+            ]
+        ),
         .executableTarget(
             name: "XPSceneryDoctor",
             dependencies: ["SceneryKit"],

@@ -1,0 +1,3 @@
+grid_type=webmercator
+in_GUI=False
+url_template=http://example.invalid/{quadkey}.jpeg

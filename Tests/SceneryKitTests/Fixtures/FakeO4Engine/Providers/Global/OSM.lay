@@ -1,0 +1,2 @@
+grid_type=webmercator
+url_template=http://example.invalid/osm/{quadkey}.png

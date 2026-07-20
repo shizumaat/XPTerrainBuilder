@@ -4,12 +4,14 @@ import SwiftUI
 struct XPSceneryDoctorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var controller = AnalysisController()
+    @StateObject private var buildModel = BuildModel()
 
     var body: some Scene {
         Window("XPScenery Doctor", id: "main") {
             MapMainView()
                 .environmentObject(controller)
                 .environmentObject(controller.progress)
+                .environmentObject(buildModel)
         }
         .defaultSize(width: 1280, height: 860)
         .defaultPosition(.center)
@@ -32,6 +34,7 @@ struct XPSceneryDoctorApp: App {
 
         Settings {
             SettingsView()
+                .environmentObject(buildModel)
         }
     }
 }

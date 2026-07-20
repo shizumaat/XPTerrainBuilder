@@ -6,6 +6,7 @@ import SceneryKit
 /// results in the bottom third.
 struct MapMainView: View {
     @EnvironmentObject var controller: AnalysisController
+    @EnvironmentObject var buildModel: BuildModel
     @StateObject private var searchText = ViewState("")
     @StateObject private var showingPicker = ViewState(false)
     /// Native inspector visibility, persisted manually (ViewState instead of
@@ -56,6 +57,18 @@ struct MapMainView: View {
     }
 
     private var subtitle: String {
+        if buildModel.mode == .build {
+            guard let engine = buildModel.engine else {
+                return "Ortho4XP engine not configured — see Settings"
+            }
+            var parts = ["Ortho4XP \(engine.version)"]
+            let built = buildModel.tileStates.values.filter { $0.hasDSF }.count
+            if built > 0 { parts.append("\(built.formatted()) tile\(built == 1 ? "" : "s") built") }
+            if !buildModel.selected.isEmpty {
+                parts.append("\(buildModel.selected.count.formatted()) selected")
+            }
+            return parts.joined(separator: " — ")
+        }
         if controller.isScanningInstallation { return "Scanning Custom Scenery…" }
         let packs = controller.installationPacks
         guard !packs.isEmpty else { return "" }
@@ -68,6 +81,17 @@ struct MapMainView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        // The Manage/Build switch — both modes share the map, search and
+        // right-inspector chrome; the panes swap underneath.
+        ToolbarItem(placement: .principal) {
+            Picker("Mode", selection: modeBinding) {
+                ForEach(AppMode.allCases, id: \.self) { mode in
+                    Text(mode.label).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .help("Manage inspects your installed scenery; Build drives the Ortho4XP engine")
+        }
         ToolbarItem(placement: .automatic) {
             Menu {
                 // Analysis runs by itself; these force a fresh pass past the
@@ -98,7 +122,7 @@ struct MapMainView: View {
             } label: {
                 Image(systemName: "sidebar.trailing")
             }
-            .help(inspectorShown.value ? "Hide the package list" : "Show the package list")
+            .help(inspectorShown.value ? "Hide the side panel" : "Show the side panel")
         }
     }
 
@@ -121,6 +145,12 @@ struct MapMainView: View {
             cam.scale = max(cam.scale, 60)
             cam.clamp(in: controller.mapCanvasSize.value)
             controller.mapCamera.value = cam
+            // Build mode: finding an airport also selects its tile — the
+            // airport index doubles as the tile picker.
+            if buildModel.mode == .build {
+                buildModel.selectTile(containingLat: match.info.latitude,
+                                      lon: match.info.longitude)
+            }
             return
         }
 
@@ -145,23 +175,42 @@ struct MapMainView: View {
                           canvasSize: controller.mapCanvasSize)
                 .environmentObject(controller)
                 .environmentObject(controller.progress)
+                .environmentObject(buildModel)
         } second: {
-            ResultsPane(packFilter: Set(controller.viewportPacks.map { $0.name }))
+            // Same slot both modes: results while managing, the engine
+            // console while building.
+            Group {
+                if buildModel.mode == .manage {
+                    ResultsPane(packFilter: Set(controller.viewportPacks.map { $0.name }))
+                } else {
+                    BuildConsoleView()
+                }
+            }
             .environmentObject(controller)
             .environmentObject(controller.progress)
+            .environmentObject(buildModel)
         }
         .inspector(isPresented: inspectorBinding) {
-            // Hairline between the map/results and the package list — the
+            // Hairline between the map/results and the inspector — the
             // inspector container doesn't draw its own separator here.
             HStack(spacing: 0) {
                 Divider()
-                PackInspectorView(packs: controller.viewportPacks)
-                    .environmentObject(controller)
-                    .environmentObject(controller.progress)
-                    .environmentObject(controller.packSizes)
+                if buildModel.mode == .manage {
+                    PackInspectorView(packs: controller.viewportPacks)
+                        .environmentObject(controller)
+                        .environmentObject(controller.progress)
+                        .environmentObject(controller.packSizes)
+                } else {
+                    BuildPane()
+                        .environmentObject(buildModel)
+                }
             }
             .inspectorColumnWidth(min: 240, ideal: 300, max: 420)
         }
+    }
+
+    private var modeBinding: Binding<AppMode> {
+        Binding(get: { buildModel.mode }, set: { buildModel.mode = $0 })
     }
 
     private var inspectorBinding: Binding<Bool> {

@@ -6,6 +6,7 @@ import SceneryKit
 /// sectional-style airport marks, and tile selection.
 struct MapCanvasView: View {
     @EnvironmentObject var controller: AnalysisController
+    @EnvironmentObject var buildModel: BuildModel
     @ObservedObject var camera: ViewState<MapCamera>
     @ObservedObject var canvasSize: ViewState<CGSize>
 
@@ -24,6 +25,7 @@ struct MapCanvasView: View {
     static let tintMesh = Color(red: 0.30, green: 0.65, blue: 0.45)
     static let tintLandmark = Color(red: 0.30, green: 0.55, blue: 0.90)
     static let selection = Color.white
+    static let buildQueued = Color(red: 0.35, green: 0.75, blue: 0.85)
 
     var body: some View {
         GeometryReader { proxy in
@@ -33,6 +35,7 @@ struct MapCanvasView: View {
             .background(Self.ocean)
             .gesture(pan(size: proxy.size))
             .gesture(doubleClickZoom(size: proxy.size))
+            .gesture(tileSelect(size: proxy.size))
             .overlay(ScrollZoomCatcher(
                 onScroll: { location, delta in
                     zoom(by: pow(1.0035, delta), anchoredAt: location, size: proxy.size)
@@ -132,6 +135,11 @@ struct MapCanvasView: View {
         context.fill(meshPath, with: .color(Self.tintMesh.opacity(0.22)))
         context.fill(landmarkPath, with: .color(Self.tintLandmark.opacity(0.22)))
 
+        if buildModel.mode == .build {
+            drawBuildOverlays(context: context, size: size, cam: cam,
+                              minLon: minLon, maxLon: maxLon, minLat: minLat, maxLat: maxLat)
+        }
+
         // Graticule: 10° always, 1° when zoomed in.
         drawGrid(context: context, size: size, cam: cam, step: 10, color: Self.gridMajor)
         if cam.scale > 14 {
@@ -210,6 +218,50 @@ struct MapCanvasView: View {
 
     }
 
+    /// Build mode's tile layers: already-built tiles (green), tile folders
+    /// without a finished DSF yet (yellow), the queue (cyan), the tile being
+    /// built right now (orange), and the user's selection (white).
+    private func drawBuildOverlays(context: GraphicsContext, size: CGSize, cam: MapCamera,
+                                   minLon: Double, maxLon: Double,
+                                   minLat: Double, maxLat: Double) {
+        func visible(_ coord: BuildModel.TileCoord) -> Bool {
+            Double(coord.lon + 1) > minLon && Double(coord.lon) < maxLon
+                && Double(coord.lat + 1) > minLat && Double(coord.lat) < maxLat
+        }
+        func rect(_ coord: BuildModel.TileCoord) -> CGRect {
+            tileRect(lat: coord.lat, lon: coord.lon, cam: cam, size: size)
+        }
+
+        var builtPath = Path(), partialPath = Path()
+        for (coord, state) in buildModel.tileStates where visible(coord) {
+            if state.hasDSF { builtPath.addRect(rect(coord)) }
+            else { partialPath.addRect(rect(coord)) }
+        }
+        context.fill(builtPath, with: .color(Self.tintMesh.opacity(0.3)))
+        context.fill(partialPath, with: .color(Color.yellow.opacity(0.15)))
+
+        var queuedPath = Path()
+        for coord in buildModel.queue where visible(coord) {
+            queuedPath.addRect(rect(coord).insetBy(dx: 1, dy: 1))
+        }
+        context.stroke(queuedPath, with: .color(Self.buildQueued), lineWidth: 1.2)
+
+        if let active = buildModel.activeTile, visible(active) {
+            let r = rect(active)
+            context.fill(Path(r), with: .color(Self.tintOrtho.opacity(0.35)))
+            context.stroke(Path(r), with: .color(Self.tintOrtho), lineWidth: 2)
+        }
+
+        var selectedStroke = Path(), selectedFill = Path()
+        for coord in buildModel.selected where visible(coord) {
+            let r = rect(coord)
+            selectedFill.addRect(r)
+            selectedStroke.addRect(r.insetBy(dx: 0.5, dy: 0.5))
+        }
+        context.fill(selectedFill, with: .color(Self.selection.opacity(0.08)))
+        context.stroke(selectedStroke, with: .color(Self.selection.opacity(0.9)), lineWidth: 1.5)
+    }
+
     private func visibleBounds(_ cam: MapCamera, _ size: CGSize) -> (Double, Double, Double, Double) {
         let halfW = Double(size.width) / 2 / cam.scale
         let halfH = Double(size.height) / 2 / cam.scale
@@ -263,6 +315,18 @@ struct MapCanvasView: View {
             }
     }
 
+    /// Build mode: a click toggles the 1° tile under the cursor. A double
+    /// click fires this twice (net no-op on the selection) before the zoom —
+    /// deliberate, so the two gestures never need exclusivity.
+    private func tileSelect(size: CGSize) -> some Gesture {
+        SpatialTapGesture(count: 1)
+            .onEnded { value in
+                guard buildModel.mode == .build else { return }
+                let coord = camera.value.coordinate(of: value.location, in: size)
+                buildModel.toggleTile(lat: Int(floor(coord.lat)), lon: Int(floor(coord.lon)))
+            }
+    }
+
     private func doubleClickZoom(size: CGSize) -> some Gesture {
         SpatialTapGesture(count: 2)
             .onEnded { value in
@@ -280,10 +344,18 @@ struct MapCanvasView: View {
 
     private var legend: some View {
         HStack(spacing: 10) {
-            legendDot(Self.magenta, "Airport")
-            legendSwatch(Self.tintOrtho, "Ortho")
-            legendSwatch(Self.tintMesh, "Mesh")
-            legendSwatch(Self.tintLandmark, "Landmark")
+            if buildModel.mode == .build {
+                legendSwatch(Self.selection, "Selected")
+                legendSwatch(Self.tintMesh, "Built")
+                legendSwatch(Color.yellow, "Partial")
+                legendSwatch(Self.tintOrtho, "Building")
+                legendDot(Self.magenta, "Airport")
+            } else {
+                legendDot(Self.magenta, "Airport")
+                legendSwatch(Self.tintOrtho, "Ortho")
+                legendSwatch(Self.tintMesh, "Mesh")
+                legendSwatch(Self.tintLandmark, "Landmark")
+            }
         }
         .font(.caption2)
         .padding(6)

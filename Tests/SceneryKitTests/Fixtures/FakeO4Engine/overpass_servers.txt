@@ -1,0 +1,2 @@
+DE=https://overpass-api.de/api/interpreter
+FR=https://overpass.openstreetmap.fr/api/interpreter

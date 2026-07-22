@@ -943,7 +943,7 @@
    "type": "int"
   },
   "global_water_tech": {
-   "default": "XP11 + bathy",
+   "default": "XP12",
    "hint": "Water tech type. XP12 uses a new (partly in construction) rendering tech, XP11 + bathy uses a more traditionnal blend. Both allows for 3D water.",
    "name": "global_water_tech",
    "type": "str",
@@ -1401,7 +1401,7 @@
    "type": "int"
   },
   "water_tech": {
-   "default": "XP11 + bathy",
+   "default": "XP12",
    "hint": "Water tech type. XP12 uses a new (partly in construction) rendering tech, XP11 + bathy uses a more traditionnal blend. Both allows for 3D water.",
    "name": "water_tech",
    "type": "str",

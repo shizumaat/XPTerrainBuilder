@@ -228,12 +228,8 @@ final class AnalysisController: ObservableObject {
                 // Only a scan that saw the final ini may drop the reorder
                 // override — packs now carry the new iniIndex themselves.
                 self.iniOrderOverride = nil
-                // Analysis runs by itself: the signature cache makes an
-                // unchanged install a fast pass, and anything that changed
-                // gets picked up without the user asking.
-                if !self.isRunning {
-                    self.analyze()
-                }
+                // No automatic analysis: the scenery doctor is planned as
+                // a separate app. The scan alone feeds the map overlays.
             }
         }
     }

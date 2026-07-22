@@ -19,19 +19,8 @@ struct XPTerrainBuilderApp: App {
             AppCommands(controller: controller)
         }
 
-        Window("Analysis Report", id: "report") {
-            ReportWindow()
-                .environmentObject(controller)
-                .environmentObject(controller.progress)
-        }
-        .defaultSize(width: 960, height: 640)
-
-        Window("Modifications", id: "modifications") {
-            ModificationsWindow()
-                .environmentObject(controller)
-        }
-        .defaultSize(width: 640, height: 400)
-
+        // Analysis Report and Modifications windows removed — the scenery
+        // doctor is planned as a separate app.
         Settings {
             SettingsView()
                 .environmentObject(buildModel)
@@ -41,7 +30,6 @@ struct XPTerrainBuilderApp: App {
 
 struct AppCommands: Commands {
     @ObservedObject var controller: AnalysisController
-    @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         // Manage (analysis/report/modifications) commands are disabled for

@@ -164,7 +164,12 @@ final class AnalysisController: ObservableObject {
         let previousPacks = lastScan?.packs ?? []
         Task { [weak self] in
             let (installation, overlays, reconciliation) = await Task.detached(priority: .userInitiated) {
-                var installation = InstallationScanner(root: root).scan(
+                // Persisted scenery index: after the first launch, unchanged
+                // packs (by content signature) skip apt.dat parsing and DSF
+                // reads — the rescan touches file metadata only.
+                let probeCache = SceneryIndexCache.load(for: root)
+                var (installation, updatedCache) = InstallationScanner(root: root).scan(
+                    cache: probeCache,
                     progress: { done, total in
                         Task { @MainActor [weak self] in
                             self?.progress.scanProgress = (done, total)
@@ -184,6 +189,7 @@ final class AnalysisController: ObservableObject {
                         }
                     }
                 )
+                SceneryIndexCache.save(updatedCache, for: root)
                 // Bring scenery_packs.ini in line with what is ACTUALLY on
                 // disk (X-Plane only does this at its own next launch). If
                 // the ini changed, statuses/ranks the scan derived from the

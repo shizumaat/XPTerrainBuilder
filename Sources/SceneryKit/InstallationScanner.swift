@@ -18,6 +18,17 @@ public struct InstallationScanner {
     /// remains the complete, authoritative result.
     public func scan(progress: ((Int, Int) -> Void)? = nil,
                      onPartial: (([SceneryPack]) -> Void)? = nil) -> Installation {
+        scan(cache: [:], progress: progress, onPartial: onPartial).installation
+    }
+
+    /// Cache-aware scan: packs whose content signature matches the cached
+    /// probe skip every file-content read (apt.dat parse, DSF header,
+    /// terrain listing) — the walk that computes the signature touches
+    /// metadata only. Returns the refreshed cache for persisting.
+    public func scan(cache: [String: SceneryIndexCache.CachedProbe],
+                     progress: ((Int, Int) -> Void)? = nil,
+                     onPartial: (([SceneryPack]) -> Void)? = nil)
+        -> (installation: Installation, cache: [String: SceneryIndexCache.CachedProbe]) {
         let customScenery = root.appendingPathComponent("Custom Scenery")
         let disabledFolder = root.appendingPathComponent("Custom Scenery (Disabled)")
         let iniOrder = parseSceneryPacksIni(customScenery.appendingPathComponent("scenery_packs.ini"))
@@ -95,6 +106,7 @@ public struct InstallationScanner {
         }
 
         var probes = [PackProbe?](repeating: nil, count: entries.count)
+        var newCache: [String: SceneryIndexCache.CachedProbe] = [:]
         let lock = NSLock()
         var completed = 0
         var streamed: [SceneryPack] = []
@@ -117,20 +129,40 @@ public struct InstallationScanner {
                 let probe = autoreleasepool { () -> PackProbe in
                     var hash = FNV1a()
                     var stats = ProbeStats()
+                    // Metadata-only walks; together they yield the pack's
+                    // content signature — the cache validity key.
                     let (tiles, sampleDSF) = collectDSFTiles(contentURL, into: &hash, stats: &stats)
-                    var isOverlay: Bool? = nil
-                    if let sampleDSF, case .ok(let defs) = DSFReader.readDefinitions(url: sampleDSF) {
-                        isOverlay = defs.isOverlay
-                    }
-                    let content = terrainAndTextureProbe(contentURL)
                     let signature = packSignature(contentURL, hash: &hash, stats: &stats)
+                    let airports: [String: AirportInfo]
+                    let isOverlay: Bool?
+                    let hasTerrain: Bool
+                    let isPhotoTextured: Bool
+                    if let cached = cache[url.path], cached.signature == signature {
+                        // Unchanged since last scan: reuse everything that
+                        // required reading file contents.
+                        airports = cached.airports
+                        isOverlay = cached.isOverlay
+                        hasTerrain = cached.hasTerrain
+                        isPhotoTextured = cached.isPhotoTextured
+                    } else {
+                        airports = parseAirports(inPack: contentURL)
+                        if let sampleDSF,
+                           case .ok(let defs) = DSFReader.readDefinitions(url: sampleDSF) {
+                            isOverlay = defs.isOverlay
+                        } else {
+                            isOverlay = nil
+                        }
+                        let content = terrainAndTextureProbe(contentURL)
+                        hasTerrain = content.hasTerrain
+                        isPhotoTextured = content.isPhotoTextured
+                    }
                     return PackProbe(
                         isLibrary: fm.fileExists(atPath: url.appendingPathComponent("library.txt").path),
-                        airports: parseAirports(inPack: contentURL),
+                        airports: airports,
                         tiles: tiles,
                         isOverlay: isOverlay,
-                        hasTerrain: content.hasTerrain,
-                        isPhotoTextured: content.isPhotoTextured,
+                        hasTerrain: hasTerrain,
+                        isPhotoTextured: isPhotoTextured,
                         hasPlugins: fm.fileExists(
                             atPath: contentURL.appendingPathComponent("plugins").path),
                         signature: signature,
@@ -140,6 +172,12 @@ public struct InstallationScanner {
                 }
                 lock.lock()
                 buf.buffer[i] = probe
+                newCache[url.path] = SceneryIndexCache.CachedProbe(
+                    signature: probe.signature,
+                    airports: probe.airports,
+                    isOverlay: probe.isOverlay,
+                    hasTerrain: probe.hasTerrain,
+                    isPhotoTextured: probe.isPhotoTextured)
                 completed += 1
                 let done = completed
                 var partial: [SceneryPack]? = nil
@@ -176,8 +214,9 @@ public struct InstallationScanner {
             defaultIndex.indexLibrary(at: url, packName: url.lastPathComponent)
         }
 
-        return Installation(root: root, packs: packs,
-                            libraryIndex: libraryIndex, defaultLibraryIndex: defaultIndex)
+        return (Installation(root: root, packs: packs,
+                             libraryIndex: libraryIndex, defaultLibraryIndex: defaultIndex),
+                newCache)
     }
 
     static let laminarPackNames: Set<String> = [
@@ -341,14 +380,23 @@ public struct InstallationScanner {
         ) else { return ([], nil) }
         var tiles = Set<String>()
         var sample: URL? = nil
-        for case let file as URL in enumerator where file.pathExtension.lowercased() == "dsf" {
-            tiles.insert(file.deletingPathExtension().lastPathComponent)
-            if sample == nil { sample = file }
+        for case let file as URL in enumerator {
+            let ext = file.pathExtension.lowercased()
+            let isDSF = ext == "dsf"
+            // apt.dat must feed the signature too: the walk skips this
+            // subtree, and a replaced apt.dat has to invalidate the cached
+            // airport probe.
+            let isApt = file.lastPathComponent.lowercased() == "apt.dat"
+            guard isDSF || isApt else { continue }
             let values = try? file.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
             hash.combine(file.lastPathComponent)
             hash.combine(values?.contentModificationDate?.timeIntervalSinceReferenceDate ?? 0)
             hash.combine(Double(values?.fileSize ?? 0))
             stats.record(size: values?.fileSize, modified: values?.contentModificationDate)
+            if isDSF {
+                tiles.insert(file.deletingPathExtension().lastPathComponent)
+                if sample == nil { sample = file }
+            }
         }
         return (tiles, sample)
     }

@@ -5,7 +5,10 @@ set -euo pipefail
 
 CONFIG="${1:-release}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP="$ROOT/dist/XPTerrainBuilder.app"
+# .nosync: iCloud Drive skips such folders. The repo may live under the
+# synced Documents folder, and letting the file provider chew on a half-
+# gigabyte app bundle mid-assembly causes conflict duplicates and stalls.
+APP="$ROOT/dist.nosync/XPTerrainBuilder.app"
 
 # Assemble and sign in a private temp dir: the repo may live in a synced
 # folder (iCloud Documents), where the file provider re-stamps FinderInfo
@@ -127,6 +130,6 @@ xattr -cr "$STAGE" 2>/dev/null || true
 codesign --force --sign - "$STAGE"
 
 rm -rf "$APP"
-mkdir -p "$ROOT/dist"
+mkdir -p "$ROOT/dist.nosync"
 ditto "$STAGE" "$APP"
 echo "Built $APP"

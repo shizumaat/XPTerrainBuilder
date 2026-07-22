@@ -187,11 +187,11 @@ struct BuildPane: View {
                 }
             }
             Picker("Build ZL", selection: zlBinding) {
-                ForEach(12...18, id: \.self) { zl in
+                ForEach(12...21, id: \.self) { zl in
                     Text("ZL\(zl)").tag(zl)
                 }
             }
-            .help("Higher zoom levels mean sharper imagery and much larger downloads: one ZL step ≈ 4× the data.")
+            .help("Higher zoom levels mean sharper imagery and much larger downloads: one ZL step ≈ 4× the data. Most sources top out below ZL21 — the map's zoom badge shows each source's ceiling.")
             Divider()
             Toggle("Vector, mesh & masks", isOn: boolBinding(\.doVector))
                 .help("OSM data, elevation, triangulation and water masks — the tile's terrain.")

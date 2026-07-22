@@ -125,7 +125,7 @@ Requires macOS 14+ and the Swift toolchain (full Xcode not required).
 ```sh
 swift build                  # debug build
 scripts/make_engine.sh       # freeze the engine (self-contained python runtime)
-scripts/make_app.sh          # release build -> dist/XPTerrainBuilder.app
+scripts/make_app.sh          # release build -> dist.nosync/XPTerrainBuilder.app
                              # embeds the frozen engine when present, else the source tree
 scripts/test.sh              # run unit tests
 ```

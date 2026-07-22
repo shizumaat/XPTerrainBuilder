@@ -349,3 +349,18 @@ def test_apply_runtime_uses_fake_cfg(monkeypatch):
     assert all(var != "xplane_dir" for var, _ in calls)
     # app vars never get a global_ mirror.
     assert all(var != "global_verbosity" for var, _ in calls)
+
+
+# ---------------------------------------------------------------------------
+# elevation_source_options
+# ---------------------------------------------------------------------------
+def test_elevation_source_options_order_and_content():
+    options = SM.elevation_source_options()
+    # auto + the legacy keywords lead, in stable order.
+    assert options[:6] == ["auto", "View", "SRTM", "NED1", "NED1/3", "ALOS"]
+    # Shipped .elv definitions follow (a couple of stable examples), and
+    # ALOS is not duplicated even though ALOS.elv exists.
+    assert "COPERNICUSGLO30" in options
+    assert options.count("ALOS") == 1
+    # No .elv extensions leak through.
+    assert not any(option.endswith(".elv") for option in options)

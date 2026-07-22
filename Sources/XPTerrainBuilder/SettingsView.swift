@@ -430,6 +430,9 @@ private struct ConfigItemRow: View {
                 label: item.label,
                 current: current?.cfgLiteral ?? "",
                 picksDirectories: Self.folderSettings.contains(item.name),
+                // custom_dem supports multiple rasters, ";"-separated —
+                // picking appends, matching the Qt UI's DEM browser.
+                appendsWithSemicolon: item.name == "custom_dem",
                 commit: { path in buildModel.setValue(for: item, to: .string(path)) })
         } else if let values = variable.values, !values.isEmpty {
             Picker(item.label, selection: Binding(
@@ -469,6 +472,7 @@ private struct PathSettingRow: View {
     let label: String
     let current: String
     let picksDirectories: Bool
+    var appendsWithSemicolon = false
     let commit: (String) -> Void
 
     @StateObject private var showingPicker = ViewState(false)
@@ -489,7 +493,13 @@ private struct PathSettingRow: View {
                     isPresented: $showingPicker.value,
                     allowedContentTypes: picksDirectories ? [.folder] : [.item]
                 ) { result in
-                    if case .success(let url) = result { commit(url.path) }
+                    if case .success(let url) = result {
+                        if appendsWithSemicolon, !current.isEmpty {
+                            commit(current + ";" + url.path)
+                        } else {
+                            commit(url.path)
+                        }
+                    }
                 }
         }
     }

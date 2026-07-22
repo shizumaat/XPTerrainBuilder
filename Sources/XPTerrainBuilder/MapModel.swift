@@ -31,7 +31,9 @@ struct MapCamera: Equatable {
                                Double(size.height) / (2 * Self.latLimit))
             scale = max(scale, minScale)
         }
-        scale = min(scale, 400)
+        // Deep-inspection zoom: far past imagery resolution (ZL22-native),
+        // so the user can always zoom in to judge what a source offers.
+        scale = min(scale, 3_000_000)
         if size.width > 0 {
             let halfW = Double(size.width) / 2 / scale
             centerLon = min(max(centerLon, -180 + halfW), 180 - halfW)

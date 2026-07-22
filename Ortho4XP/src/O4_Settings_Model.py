@@ -520,6 +520,27 @@ def tile_override_names(
     )
 
 
+def elevation_source_options() -> list[str]:
+    """Choices for ``base_elevation_source``: ``auto``, the legacy keywords,
+    then every shipped elevation provider definition
+    (``Providers/Elevation/<CODE>.elv``), sorted.
+
+    The registry cannot list these (they are files), so both UIs build the
+    dropdown from this enumeration.
+    """
+    options = ["auto", "View", "SRTM", "NED1", "NED1/3", "ALOS"]
+    elv_dir = os.path.join(FNAMES.Provider_dir, "Elevation")
+    try:
+        for entry in sorted(os.listdir(elv_dir)):
+            if entry.endswith(".elv"):
+                code = entry[:-4]
+                if code not in options:
+                    options.append(code)
+    except OSError:
+        pass
+    return options
+
+
 # ---------------------------------------------------------------------------
 # Value validation / normalisation
 # ---------------------------------------------------------------------------

@@ -65,7 +65,12 @@ struct MapCanvasView: View {
             ))
             .overlay(alignment: .bottomLeading) { legend }
             .overlay(alignment: .topTrailing) { zoomControls }
-            .overlay(alignment: .bottomTrailing) { ScanProgressChip() }
+            .overlay(alignment: .bottomTrailing) {
+                VStack(alignment: .trailing, spacing: 6) {
+                    ScanProgressChip()
+                    zoomChip
+                }
+            }
             .onAppear {
                 // First layout: fit the world so the map fills the viewport
                 // from the very first frame — no small-then-resize flash.
@@ -258,7 +263,7 @@ struct MapCanvasView: View {
         // Tile zoom so one 256px tile is roughly screen resolution
         // (256·2^z/360 px per degree against the camera's scale).
         let idealZ = Int(ceil(log2(cam.scale * 360 / 256)))
-        let z = min(max(idealZ, 2), min(imagery.activeMaxZL, 19))
+        let z = min(max(idealZ, 2), min(imagery.activeMaxZL, 21))
         let n = 1 << z
 
         let xMin = Int(floor(WebMercator.tileX(lon: minLon, z: z)))
@@ -614,6 +619,33 @@ struct MapCanvasView: View {
                 .help("Scanning Custom Scenery — the map fills in as packages are found")
             }
         }
+    }
+
+    /// Bottom-right badge: the tile zoom level the current view equates to,
+    /// so what's on screen correlates with the Build ZL setting. Flags when
+    /// the view has out-zoomed the imagery source's ceiling (image upscales
+    /// and blurs past that point).
+    private var zoomChip: some View {
+        let viewZL = max(2, Int(ceil(log2(camera.value.scale * 360 / 256))))
+        let sourceMax = imagery.hasActiveSource ? imagery.activeMaxZL : nil
+        let atLimit = sourceMax.map { viewZL > $0 } ?? false
+        return HStack(spacing: 5) {
+            Text("ZL \(viewZL)")
+                .fontWeight(.semibold)
+            if let sourceMax, atLimit {
+                Image(systemName: "eye.trianglebadge.exclamationmark")
+                Text("\(imagery.activeLabel ?? "source") max ZL \(sourceMax)")
+            }
+        }
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(atLimit ? Color.orange : Color.secondary)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4)
+        .background(.ultraThinMaterial, in: Capsule())
+        .padding(8)
+        .help(atLimit
+              ? "The view is zoomed past the imagery source's finest zoom level — tiles are upscaled and blurry. Builds at higher ZLs would upscale the same data."
+              : "The imagery zoom level matching the current view — compare with the Build ZL setting.")
     }
 
     private var zoomControls: some View {

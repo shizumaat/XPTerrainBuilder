@@ -53,6 +53,7 @@ def _is_path_setting(setting):
         "xplane_dir",
         "output_dir",
         "custom_overlay_src",
+        "custom_dem",
     )
 
 
@@ -109,15 +110,27 @@ class _SettingRow(QWidget):
         top.addWidget(self.scope_tag)
         top.addStretch(1)
 
+        # base_elevation_source's choices are files (Providers/Elevation/
+        # *.elv), not registry values — enumerate them into a combo.
+        dynamic_values = (
+            SM.elevation_source_options()
+            if setting.name == "base_elevation_source"
+            else None
+        )
         if setting.vtype is bool:
             self.control = QCheckBox()
             self.control.toggled.connect(self._commit)
-        elif setting.values:
+        elif setting.values or dynamic_values:
             # Menu shows the human-readable title; the raw config value
             # rides along as item data so storage never sees the label.
             self.control = QComboBox()
-            for raw in setting.values:
-                self.control.addItem(setting.label_for(raw), raw)
+            for raw in setting.values or dynamic_values:
+                label = (
+                    "Auto — best available source"
+                    if dynamic_values and raw == "auto"
+                    else setting.label_for(raw)
+                )
+                self.control.addItem(label, raw)
             self.control.currentIndexChanged.connect(self._commit)
         else:
             self.control = QLineEdit()

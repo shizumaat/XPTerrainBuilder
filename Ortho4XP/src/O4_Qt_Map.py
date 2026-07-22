@@ -49,6 +49,11 @@ import O4_Imagery_Utils as IMG
 SCENE_ZL = 19  # scene units = webmercator pixels at this zoom level
 WORLD = 2 ** SCENE_ZL * 256
 MIN_ZOOM = 2.0
+# Deep-inspection ceiling: far past any imagery source, so users can
+# always zoom in to judge what a source offers (tiles upscale/blur
+# beyond the provider max; the corner badge flags it).
+MAX_ZOOM = 22.0
+FETCH_MAX_ZL = 21  # never request tiles beyond this from any source
 MAX_ITEMS = 900        # loaded tile pixmaps kept in the scene
 BASE_ZL = 3            # world base layer, always resident (max 64 tiles)
 FETCH_DEBOUNCE_MS = 250  # settle time before network fetches start
@@ -329,7 +334,7 @@ class MapView(QGraphicsView):
     def center_on_tile(self, lat, lon, zoom=None):
         cx, cy = GEO.wgs84_to_pix(lat + 0.5, lon + 0.5, SCENE_ZL)
         if zoom is not None:
-            self._zoom = max(MIN_ZOOM, min(float(zoom), 19.0))
+            self._zoom = max(MIN_ZOOM, min(float(zoom), MAX_ZOOM))
             self._apply_zoom()
         self.centerOn(QPointF(cx, cy))
         self._schedule_refresh()
@@ -347,7 +352,7 @@ class MapView(QGraphicsView):
         )
         self.fitInView(QRectF(x0, y0, x1 - x0, y1 - y0), Qt.KeepAspectRatio)
         self._zoom = SCENE_ZL + math.log2(max(self.transform().m11(), 1e-9))
-        self._zoom = max(MIN_ZOOM, min(self._zoom, 19.0))
+        self._zoom = max(MIN_ZOOM, min(self._zoom, MAX_ZOOM))
         self._apply_zoom()
         self._schedule_refresh()
 
@@ -361,7 +366,7 @@ class MapView(QGraphicsView):
         self.view_changed.emit()
 
     def _zoom_by(self, delta, anchor_pos=None):
-        new_zoom = max(MIN_ZOOM, min(self._zoom + delta, 19.0))
+        new_zoom = max(MIN_ZOOM, min(self._zoom + delta, MAX_ZOOM))
         if abs(new_zoom - self._zoom) < 1e-6:
             return
         if anchor_pos is not None:
@@ -495,7 +500,7 @@ class MapView(QGraphicsView):
 
     def _fetch_zoom(self):
         z = int(round(self._zoom))
-        return max(2, min(z, self._provider_max_zl, 19))
+        return max(2, min(z, self._provider_max_zl, FETCH_MAX_ZL))
 
     def _visible_range(self, z):
         """Visible tile index range at zoom z, with a one-tile margin."""
@@ -732,6 +737,35 @@ class MapView(QGraphicsView):
         x0, y0 = GEO.wgs84_to_pix(lat + 1, lon, SCENE_ZL)
         x1, y1 = GEO.wgs84_to_pix(lat, lon + 1, SCENE_ZL)
         return QRectF(x0, y0, x1 - x0, y1 - y0)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self.viewport())
+        painter.setRenderHint(QPainter.Antialiasing)
+        self._draw_zoom_badge(painter)
+        painter.end()
+
+    def _draw_zoom_badge(self, painter):
+        """Bottom-right badge: the tile zoom the view equates to, flagging
+        when it exceeds the imagery source's ceiling (mac-app parity)."""
+        view_zl = max(2, math.ceil(self._zoom - 1e-6))
+        at_limit = view_zl > self._provider_max_zl
+        text = "ZL %d" % view_zl
+        if at_limit:
+            text += "  \u00b7  %s max ZL %d" % (
+                self._display_code, self._provider_max_zl)
+        metrics = painter.fontMetrics()
+        width = metrics.horizontalAdvance(text) + 18
+        height = metrics.height() + 8
+        vp = self.viewport().rect()
+        badge = QRectF(vp.right() - width - 10, vp.bottom() - height - 10,
+                       width, height)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(20, 22, 28, 175))
+        painter.drawRoundedRect(badge, height / 2, height / 2)
+        painter.setPen(QColor(255, 165, 60) if at_limit
+                       else QColor(235, 238, 245, 220))
+        painter.drawText(badge, Qt.AlignCenter, text)
 
     def drawForeground(self, painter, rect):
         super().drawForeground(painter, rect)

@@ -45,7 +45,7 @@ jobs:
 
       - name: Zip
         run: |
-          ditto -c -k --keepParent dist/XPTerrainBuilder.app \
+          ditto -c -k --keepParent dist.nosync/XPTerrainBuilder.app \
             "XPTerrainBuilder-${{ steps.ver.outputs.version }}-mac.zip"
 
       - uses: actions/upload-artifact@v4

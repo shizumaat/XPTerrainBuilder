@@ -398,7 +398,7 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(self.imagery_combo)
         toolbar.addWidget(QLabel(" Build ZL "))
         self.zl_combo = QComboBox()
-        self.zl_combo.addItems([str(z) for z in range(12, 19)])
+        self.zl_combo.addItems([str(z) for z in range(12, 22)])
         self.zl_combo.setPlaceholderText("--")
         self.zl_combo.currentTextChanged.connect(
             lambda _text: self._update_build_summary()

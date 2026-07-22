@@ -1,0 +1,25 @@
+{
+  "fill" : {
+    "linear-gradient" : [
+      "extended-srgb:0.44,0.47,0.54,1.00000",
+      "extended-srgb:0.17,0.18,0.23,1.00000"
+    ]
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "image-name" : "glyph-1024.png",
+          "name" : "hammer"
+        }
+      ],
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : "shared"
+  }
+}

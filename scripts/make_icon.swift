@@ -1,283 +1,404 @@
-// Renders the XPScenery Smith app icon:
-// an FAA-sectional-style airport symbol on a night IFR-chart background,
-// with an Xcode-style crossed hammer and screwdriver in front — building
-// and adjusting scenery. Usage: swift scripts/make_icon.swift <output-dir>
+// Renders the XPTerrainBuilder app icon in the spirit of the classic Xcode
+// icon: a tilted blueprint sheet with a claw hammer laid across it. The
+// blueprint carries a wireframe mountain-topography illustration and a
+// title block reading "PROJECT: EARTH" / "ARCHITECT: NOVEMBER LIMA".
+// Usage: swift scripts/make_icon.swift <output-dir>
 import Foundation
 import CoreGraphics
+import CoreText
 import ImageIO
 import UniformTypeIdentifiers
 
 let SIZE: CGFloat = 1024
 
-// MARK: - Palette
-
-// Dark-mode IFR palette: near-black canvas, slate airways, cyan accent.
-let nightTop = CGColor(red: 0.11, green: 0.12, blue: 0.15, alpha: 1)
-let nightBottom = CGColor(red: 0.03, green: 0.035, blue: 0.05, alpha: 1)
-let airwaySlate = CGColor(red: 0.55, green: 0.63, blue: 0.75, alpha: 0.42)
-let airwayCyan = CGColor(red: 0.25, green: 0.78, blue: 0.90, alpha: 0.55)
-/// VFR sectional airport magenta (lighted, services) — lifted a touch to
-/// read on the night chart.
-let sectionalMagenta = color(0.62, 0.16, 0.34)
-/// Runways are cut out of the disc — chart background shows through.
-let nightMid = color(0.065, 0.072, 0.095)
-
-// Tool materials: brushed steel and graphite, with the chart's cyan carried
-// into the screwdriver grip so the tools belong to the same palette.
-let steelLight = color(0.82, 0.85, 0.90)
-let steelMid = color(0.62, 0.65, 0.71)
-let steelDark = color(0.38, 0.41, 0.47)
-let graphiteHandle = color(0.17, 0.18, 0.22)
-let graphiteHandleHi = color(0.30, 0.32, 0.37)
-let gripCyan = color(0.10, 0.30, 0.38)
-let gripCyanHi = color(0.16, 0.45, 0.55)
-let gripCyanDark = color(0.05, 0.16, 0.22)
-
 func color(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColor {
     CGColor(red: r, green: g, blue: b, alpha: a)
 }
 
-// MARK: - Chart
+// MARK: - Palette
 
-/// Night IFR-chart backdrop: near-black gradient with enroute-chart
-/// furniture — airways, hollow waypoint fixes, a partial VOR compass rose.
-func drawChart(_ ctx: CGContext) {
+// Blueprint blues, lifted from the classic diazo print look.
+let paperLight = color(0.36, 0.62, 0.92)
+let paperMid = color(0.27, 0.53, 0.86)
+let paperDark = color(0.18, 0.42, 0.76)
+/// Sketch lines: near-white with a touch of translucency, like pencil on blueprint.
+let inkWhite = color(1, 1, 1, 0.92)
+let inkFaint = color(1, 1, 1, 0.55)
+
+// Hammer materials: polished steel head, varnished hickory handle.
+let steelLight = color(0.90, 0.92, 0.95)
+let steelMid = color(0.64, 0.67, 0.72)
+let steelDark = color(0.34, 0.37, 0.42)
+let woodHi = color(0.86, 0.65, 0.40)
+let woodMid = color(0.72, 0.49, 0.26)
+let woodDark = color(0.51, 0.32, 0.15)
+let grainBrown = color(0.36, 0.21, 0.09)
+
+// MARK: - Text
+
+/// Draws a single line of text with CoreText. `anchor` 0 = left edge at `p`,
+/// 0.5 = centered, 1 = right edge at `p`.
+func text(_ ctx: CGContext, _ s: String, size: CGFloat, at p: CGPoint,
+          color: CGColor = inkWhite, fontName: String = "MarkerFelt-Wide",
+          anchor: CGFloat = 0, angle: CGFloat = 0) {
+    let font = CTFontCreateWithName(fontName as CFString, size, nil)
+    let attrs = [
+        kCTFontAttributeName: font,
+        kCTForegroundColorAttributeName: color,
+    ] as CFDictionary
+    guard let astr = CFAttributedStringCreate(kCFAllocatorDefault, s as CFString, attrs) else { return }
+    let line = CTLineCreateWithAttributedString(astr)
+    let width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+    ctx.saveGState()
+    ctx.translateBy(x: p.x, y: p.y)
+    ctx.rotate(by: angle)
+    ctx.textPosition = CGPoint(x: -width * anchor, y: 0)
+    CTLineDraw(line, ctx)
+    ctx.restoreGState()
+}
+
+// MARK: - Blueprint sheet
+
+let sheetW: CGFloat = 810
+let sheetH: CGFloat = 660
+
+/// Two-peak gaussian heightfield over the unit square, used for the terrain mesh.
+func terrainHeight(_ x: CGFloat, _ y: CGFloat) -> CGFloat {
+    func peak(_ cx: CGFloat, _ cy: CGFloat, _ amp: CGFloat, _ sx: CGFloat, _ sy: CGFloat) -> CGFloat {
+        let dx = (x - cx) / sx, dy = (y - cy) / sy
+        return amp * exp(-(dx * dx + dy * dy))
+    }
+    return peak(0.38, 0.60, 0.88, 0.26, 0.30)
+         + peak(0.74, 0.42, 0.48, 0.20, 0.24)
+         + peak(0.14, 0.28, 0.22, 0.18, 0.20)
+}
+
+/// Wireframe terrain mesh in sheet-local coordinates: rows recede upward with
+/// a slight shear and shrink for depth, verticals connect them into a mesh.
+func drawTerrainMesh(_ ctx: CGContext, in rect: CGRect) {
+    let cols = 16, rows = 11
+    let heightScale: CGFloat = rect.height * 0.48
+    let depth = rect.height * 0.42
+
+    func point(_ i: Int, _ j: Int) -> CGPoint {
+        let u = CGFloat(i) / CGFloat(cols)
+        let v = CGFloat(j) / CGFloat(rows)
+        let scale = 1.0 - 0.22 * v                       // perspective shrink
+        let x = rect.midX + (u - 0.5) * rect.width * scale + v * rect.width * 0.06
+        let y = rect.minY + v * depth + terrainHeight(u, v) * heightScale * (1.0 - 0.25 * v)
+        return CGPoint(x: x, y: y)
+    }
+
+    ctx.saveGState()
+    ctx.setLineJoin(.round)
+    ctx.setLineCap(.round)
+
+    // Depth lines first (fainter), then the row polylines over them.
+    ctx.setStrokeColor(inkFaint)
+    ctx.setLineWidth(2.4)
+    for i in 0...cols {
+        ctx.move(to: point(i, 0))
+        for j in 1...rows { ctx.addLine(to: point(i, j)) }
+        ctx.strokePath()
+    }
+    ctx.setStrokeColor(inkWhite)
+    ctx.setLineWidth(3.4)
+    for j in 0...rows {
+        ctx.move(to: point(0, j))
+        for i in 1...cols { ctx.addLine(to: point(i, j)) }
+        ctx.strokePath()
+    }
+
+    // Summit marker: small triangle on the main peak, as on topo charts.
+    let summit = point(6, 4)
+    ctx.setLineWidth(3.5)
+    ctx.move(to: CGPoint(x: summit.x, y: summit.y + 26))
+    ctx.addLine(to: CGPoint(x: summit.x - 15, y: summit.y + 2))
+    ctx.addLine(to: CGPoint(x: summit.x + 15, y: summit.y + 2))
+    ctx.closePath()
+    ctx.strokePath()
+    ctx.restoreGState()
+}
+
+/// Leader line with a little elbow, from a label toward a feature.
+func leader(_ ctx: CGContext, from: CGPoint, elbow: CGPoint, to: CGPoint) {
+    ctx.saveGState()
+    ctx.setStrokeColor(inkWhite)
+    ctx.setLineWidth(2.6)
+    ctx.setLineCap(.round)
+    ctx.move(to: from)
+    ctx.addLine(to: elbow)
+    ctx.addLine(to: to)
+    ctx.strokePath()
+    ctx.fillEllipse(in: CGRect(x: to.x - 4, y: to.y - 4, width: 8, height: 8))
+    ctx.restoreGState()
+}
+
+/// The blueprint, drawn in local coordinates with origin at its bottom-left.
+func drawSheet(_ ctx: CGContext) {
+    // Paper: diagonal blueprint-blue gradient.
     let space = CGColorSpaceCreateDeviceRGB()
-    let night = CGGradient(colorsSpace: space, colors: [
-        nightTop, nightBottom,
+    let paper = CGGradient(colorsSpace: space,
+                           colors: [paperLight, paperMid, paperDark] as CFArray,
+                           locations: [0, 0.55, 1])!
+    ctx.saveGState()
+    ctx.clip(to: CGRect(x: 0, y: 0, width: sheetW, height: sheetH))
+    ctx.drawLinearGradient(paper,
+        start: CGPoint(x: 0, y: sheetH),
+        end: CGPoint(x: sheetW, y: 0), options: [])
+    ctx.restoreGState()
+
+    // Drafting frame: heavy outer border, fine inner border.
+    let outer = CGRect(x: 26, y: 26, width: sheetW - 52, height: sheetH - 52)
+    ctx.setStrokeColor(inkWhite)
+    ctx.setLineWidth(5)
+    ctx.stroke(outer)
+    ctx.setLineWidth(2)
+    ctx.stroke(outer.insetBy(dx: 10, dy: 10))
+
+    // Title block: band across the bottom of the frame, one divider,
+    // "PROJECT: EARTH" left and "ARCHITECT: NOVEMBER LIMA" right.
+    let bandH: CGFloat = 62
+    let band = CGRect(x: outer.minX, y: outer.minY, width: outer.width, height: bandH)
+    ctx.setLineWidth(4)
+    ctx.stroke(band)
+    let divider = outer.minX + outer.width * 0.42
+    ctx.move(to: CGPoint(x: divider, y: band.minY))
+    ctx.addLine(to: CGPoint(x: divider, y: band.maxY))
+    ctx.strokePath()
+    let baseline = band.minY + 21
+    text(ctx, "PROJECT: EARTH", size: 24,
+         at: CGPoint(x: outer.minX + 20, y: baseline))
+    text(ctx, "ARCHITECT: NOVEMBER LIMA", size: 26,
+         at: CGPoint(x: divider + 24, y: baseline))
+
+    // The illustration: wireframe mountain topography above the title block.
+    let drawing = CGRect(x: outer.minX + 60, y: band.maxY + 70,
+                         width: outer.width - 120, height: outer.maxY - band.maxY - 180)
+    drawTerrainMesh(ctx, in: drawing)
+
+    // Hand annotations with leaders, like the original's callouts. Both stay
+    // on the left half — the hammer lies over the sheet's right side.
+    text(ctx, "SUMMIT 4,392 M", size: 30,
+         at: CGPoint(x: outer.minX + 148, y: outer.maxY - 74))
+    leader(ctx,
+           from: CGPoint(x: outer.minX + 262, y: outer.maxY - 84),
+           elbow: CGPoint(x: outer.minX + 250, y: outer.maxY - 130),
+           to: CGPoint(x: drawing.minX + drawing.width * 0.41,
+                       y: drawing.minY + drawing.height * 0.62))
+
+    text(ctx, "TERRAIN MESH", size: 28,
+         at: CGPoint(x: outer.minX + 24, y: band.maxY + 26))
+    leader(ctx,
+           from: CGPoint(x: outer.minX + 130, y: band.maxY + 56),
+           elbow: CGPoint(x: outer.minX + 160, y: band.maxY + 90),
+           to: CGPoint(x: drawing.minX + drawing.width * 0.20,
+                       y: drawing.minY + drawing.height * 0.30))
+
+    // North arrow, upper left corner of the drawing area.
+    let north = CGPoint(x: outer.minX + 84, y: outer.maxY - 84)
+    ctx.setStrokeColor(inkWhite)
+    ctx.setLineWidth(3)
+    ctx.strokeEllipse(in: CGRect(x: north.x - 30, y: north.y - 30, width: 60, height: 60))
+    ctx.move(to: CGPoint(x: north.x, y: north.y - 22))
+    ctx.addLine(to: CGPoint(x: north.x, y: north.y + 22))
+    ctx.addLine(to: CGPoint(x: north.x - 9, y: north.y + 8))
+    ctx.strokePath()
+    text(ctx, "N", size: 24, at: CGPoint(x: north.x + 12, y: north.y + 10))
+}
+
+// MARK: - Hammer
+
+/// Claw hammer in local coordinates: origin at the head's center, head axis
+/// along x (claw tapering off to -x, striking face at +x), wooden handle
+/// running down -y. Drawn side-on like the classic Xcode hammer: the claw
+/// reads as a wedge with a gentle downward sweep, the face as a bright bell.
+func drawHammerBody(_ ctx: CGContext) {
+    let space = CGColorSpaceCreateDeviceRGB()
+
+    // ---- Wooden handle (drawn first; the head overlaps its top) ----------
+    // Slightly tapered: narrower at the head, flaring toward a rounded butt.
+    let handle = CGMutablePath()
+    handle.move(to: CGPoint(x: -30, y: -20))
+    handle.addCurve(to: CGPoint(x: -40, y: -690),
+                    control1: CGPoint(x: -34, y: -280), control2: CGPoint(x: -32, y: -520))
+    handle.addCurve(to: CGPoint(x: 0, y: -738),
+                    control1: CGPoint(x: -41, y: -720), control2: CGPoint(x: -24, y: -738))
+    handle.addCurve(to: CGPoint(x: 40, y: -690),
+                    control1: CGPoint(x: 24, y: -738), control2: CGPoint(x: 41, y: -720))
+    handle.addCurve(to: CGPoint(x: 30, y: -20),
+                    control1: CGPoint(x: 32, y: -520), control2: CGPoint(x: 34, y: -280))
+    handle.closeSubpath()
+
+    ctx.saveGState()
+    ctx.addPath(handle)
+    ctx.clip()
+    let wood = CGGradient(colorsSpace: space,
+                          colors: [woodHi, woodMid, woodDark] as CFArray,
+                          locations: [0, 0.55, 1])!
+    ctx.drawLinearGradient(wood,
+        start: CGPoint(x: -40, y: 0), end: CGPoint(x: 40, y: 0), options: [])
+
+    // Grain: long wavering streaks down the handle, darker and lighter.
+    let grains: [(x: CGFloat, wobble: CGFloat, width: CGFloat, alpha: CGFloat)] = [
+        (-20, 7, 3.0, 0.30), (-11, -5, 2.2, 0.22), (-3, 9, 3.6, 0.28),
+        (5, -7, 2.4, 0.20), (13, 5, 3.0, 0.26), (21, -4, 2.0, 0.18),
+        (-16, -9, 1.6, 0.14), (9, 11, 1.8, 0.15),
+    ]
+    ctx.setLineCap(.round)
+    for grain in grains {
+        ctx.setStrokeColor(color(0.36, 0.21, 0.09, grain.alpha))
+        ctx.setLineWidth(grain.width)
+        ctx.move(to: CGPoint(x: grain.x, y: -24))
+        ctx.addCurve(to: CGPoint(x: grain.x * 1.2, y: -720),
+                     control1: CGPoint(x: grain.x + grain.wobble, y: -260),
+                     control2: CGPoint(x: grain.x - grain.wobble, y: -500))
+        ctx.strokePath()
+    }
+    // Varnish sheen along the lit side.
+    let sheen = CGGradient(colorsSpace: space, colors: [
+        color(1, 1, 1, 0.30), color(1, 1, 1, 0.05), color(1, 1, 1, 0),
+    ] as CFArray, locations: [0, 0.5, 1])!
+    ctx.drawLinearGradient(sheen,
+        start: CGPoint(x: -30, y: 0), end: CGPoint(x: -2, y: 0), options: [])
+    // End-grain shading at the butt.
+    ctx.setFillColor(color(0.30, 0.17, 0.07, 0.35))
+    ctx.fill(CGRect(x: -42, y: -738, width: 84, height: 26))
+    ctx.restoreGState()
+
+    // Soft occlusion where the handle disappears into the head.
+    ctx.saveGState()
+    ctx.addPath(handle)
+    ctx.clip()
+    ctx.setFillColor(color(0, 0, 0, 0.30))
+    ctx.fillEllipse(in: CGRect(x: -36, y: -66, width: 72, height: 40))
+    ctx.restoreGState()
+
+    // ---- Steel head (classic-Xcode arrangement) --------------------------
+    // Claw at -x (screen left, pointing up-left after the scene rotation),
+    // block, tapered neck, flared bell and rounded striking face at +x
+    // (screen right — it pokes past the blueprint's corner). Local frame:
+    // handle down -y.
+    let head = CGMutablePath()
+    head.move(to: CGPoint(x: -232, y: 2))             // claw tip, upper corner
+    head.addCurve(to: CGPoint(x: -78, y: 50),         // claw top sweeping in
+                  control1: CGPoint(x: -186, y: 24), control2: CGPoint(x: -128, y: 42))
+    head.addCurve(to: CGPoint(x: 78, y: 50),          // block crown
+                  control1: CGPoint(x: -30, y: 56), control2: CGPoint(x: 30, y: 56))
+    head.addCurve(to: CGPoint(x: 128, y: 38),         // neck taper (top)
+                  control1: CGPoint(x: 100, y: 47), control2: CGPoint(x: 116, y: 42))
+    head.addCurve(to: CGPoint(x: 188, y: 44),         // bell flare (top)
+                  control1: CGPoint(x: 152, y: 36), control2: CGPoint(x: 174, y: 40))
+    head.addCurve(to: CGPoint(x: 212, y: 0),          // rounded face cap
+                  control1: CGPoint(x: 204, y: 40), control2: CGPoint(x: 212, y: 22))
+    head.addCurve(to: CGPoint(x: 188, y: -44),
+                  control1: CGPoint(x: 212, y: -22), control2: CGPoint(x: 204, y: -40))
+    head.addCurve(to: CGPoint(x: 128, y: -38),        // bell back to neck
+                  control1: CGPoint(x: 174, y: -40), control2: CGPoint(x: 152, y: -36))
+    head.addCurve(to: CGPoint(x: 78, y: -50),         // neck to block
+                  control1: CGPoint(x: 116, y: -42), control2: CGPoint(x: 100, y: -47))
+    head.addLine(to: CGPoint(x: -80, y: -50))         // block underside
+    head.addCurve(to: CGPoint(x: -196, y: -30),       // claw underside, gentle S
+                  control1: CGPoint(x: -130, y: -50), control2: CGPoint(x: -168, y: -42))
+    head.addCurve(to: CGPoint(x: -232, y: -12),       // out to the tip
+                  control1: CGPoint(x: -214, y: -24), control2: CGPoint(x: -228, y: -18))
+    head.closeSubpath()
+    // Punched V-notch between the claw's two prongs (even-odd fill).
+    head.move(to: CGPoint(x: -228, y: -4))
+    head.addLine(to: CGPoint(x: -148, y: 8))
+    head.addLine(to: CGPoint(x: -150, y: -2))
+    head.closeSubpath()
+
+    ctx.saveGState()
+    ctx.addPath(head)
+    ctx.clip(using: .evenOdd)
+    let headGrad = CGGradient(colorsSpace: space, colors: [
+        steelLight, steelMid, steelDark,
+    ] as CFArray, locations: [0, 0.55, 1])!
+    ctx.drawLinearGradient(headGrad,
+        start: CGPoint(x: 0, y: 56), end: CGPoint(x: 0, y: -52), options: [])
+
+    // Long soft specular along the crown of block and claw.
+    let spec = CGGradient(colorsSpace: space, colors: [
+        color(1, 1, 1, 0.8), color(1, 1, 1, 0),
     ] as CFArray, locations: [0, 1])!
     ctx.saveGState()
-    ctx.clip(to: CGRect(x: -SIZE, y: -SIZE, width: SIZE * 3, height: SIZE * 3))
-    ctx.drawLinearGradient(night,
-        start: CGPoint(x: 0, y: SIZE * 1.5),
-        end: CGPoint(x: 0, y: -SIZE * 0.5), options: [])
-    ctx.restoreGState()
-
-    func airway(_ from: CGPoint, _ to: CGPoint, color: CGColor, width: CGFloat, dashed: Bool = false) {
-        ctx.saveGState()
-        ctx.setStrokeColor(color)
-        ctx.setLineWidth(width)
-        if dashed { ctx.setLineDash(phase: 0, lengths: [26, 18]) }
-        ctx.move(to: from)
-        ctx.addLine(to: to)
-        ctx.strokePath()
-        ctx.restoreGState()
-    }
-
-    /// Hollow waypoint triangle, as on enroute charts.
-    func fix(at p: CGPoint, size: CGFloat, color: CGColor) {
-        ctx.saveGState()
-        ctx.setStrokeColor(color)
-        ctx.setLineWidth(5)
-        ctx.move(to: CGPoint(x: p.x, y: p.y + size))
-        ctx.addLine(to: CGPoint(x: p.x - size * 0.87, y: p.y - size * 0.5))
-        ctx.addLine(to: CGPoint(x: p.x + size * 0.87, y: p.y - size * 0.5))
-        ctx.closePath()
-        ctx.strokePath()
-        ctx.restoreGState()
-    }
-
-    // Airways converging on the airport (as they do at a hub).
-    airway(CGPoint(x: -100, y: 760), CGPoint(x: 1124, y: 300), color: airwaySlate, width: 4)
-    airway(CGPoint(x: 180, y: -100), CGPoint(x: 830, y: 1124), color: airwaySlate, width: 4)
-    airway(CGPoint(x: -100, y: 300), CGPoint(x: 1124, y: 620), color: airwayCyan, width: 4)
-    airway(CGPoint(x: 700, y: -100), CGPoint(x: 220, y: 1124), color: airwaySlate, width: 3, dashed: true)
-
-    // Waypoint fixes on the airways.
-    fix(at: CGPoint(x: 250, y: 628), size: 24, color: airwaySlate)
-    fix(at: CGPoint(x: 796, y: 423), size: 24, color: airwayCyan)
-    fix(at: CGPoint(x: 405, y: 279), size: 22, color: airwaySlate)
-
-    // Partial VOR compass rose, lower right.
-    let roseCenter = CGPoint(x: 880, y: 130)
-    let roseRadius: CGFloat = 210
-    ctx.setStrokeColor(airwaySlate)
-    ctx.setLineWidth(4)
-    ctx.strokeEllipse(in: CGRect(x: roseCenter.x - roseRadius, y: roseCenter.y - roseRadius,
-                                 width: roseRadius * 2, height: roseRadius * 2))
-    for i in 0..<36 {
-        let angle = CGFloat(i) * .pi / 18
-        let long = i % 3 == 0
-        let inner = roseRadius - (long ? 26 : 14)
-        ctx.move(to: CGPoint(x: roseCenter.x + cos(angle) * inner,
-                             y: roseCenter.y + sin(angle) * inner))
-        ctx.addLine(to: CGPoint(x: roseCenter.x + cos(angle) * roseRadius,
-                                y: roseCenter.y + sin(angle) * roseRadius))
-    }
-    ctx.strokePath()
-}
-
-/// VFR sectional airport symbol, KTDO-style: solid magenta disc, four stubby
-/// service ticks, a rotating-beacon star on top (with its punched center),
-/// and the gray runway strip cutting through the disc.
-func drawAirportSymbol(_ ctx: CGContext, center: CGPoint, discRadius R: CGFloat) {
-    ctx.saveGState()
-    ctx.translateBy(x: center.x, y: center.y)
-    ctx.setFillColor(sectionalMagenta)
-
-    // Disc.
-    ctx.fillEllipse(in: CGRect(x: -R, y: -R, width: R * 2, height: R * 2))
-
-    // Three stubby rectangular service ticks — the star replaces the top one.
-    let tickWidth = R * 0.42
-    let tickReach = R * 1.30
-    for i in 1..<4 {
-        ctx.saveGState()
-        ctx.rotate(by: CGFloat(i) * .pi / 2)
-        ctx.fill(CGRect(x: -tickWidth / 2, y: R - 6, width: tickWidth, height: tickReach - R + 6))
-        ctx.restoreGState()
-    }
-
-    // Beacon star in place of the top spur: center height solved so its two
-    // lower points land exactly on the disc's edge.
-    let outerR = R * 0.55
-    let innerR = outerR * 0.42
-    let starCenter = CGPoint(x: 0, y: R * 1.392)
-    let star = CGMutablePath()
-    for k in 0..<10 {
-        let angle = CGFloat.pi / 2 + CGFloat(k) * .pi / 5
-        let radius = k % 2 == 0 ? outerR : innerR
-        let point = CGPoint(x: starCenter.x + cos(angle) * radius,
-                            y: starCenter.y + sin(angle) * radius)
-        if k == 0 { star.move(to: point) } else { star.addLine(to: point) }
-    }
-    star.closeSubpath()
-    star.addEllipse(in: CGRect(x: starCenter.x - R * 0.11, y: starCenter.y - R * 0.11,
-                               width: R * 0.22, height: R * 0.22))
-    ctx.addPath(star)
-    ctx.fillPath(using: .evenOdd)
-
-    // Runway strip: cut out of the disc (chart background shows through),
-    // square corners, inset from the edge by the same margin as a spur's
-    // width.
-    ctx.rotate(by: -.pi / 15)
-    let stripLength = (R - tickWidth) * 2
-    let stripWidth = R * 0.29
-    ctx.setFillColor(nightMid)
-    ctx.fill(CGRect(x: -stripLength / 2, y: -stripWidth / 2,
-                    width: stripLength, height: stripWidth))
-
-    ctx.restoreGState()
-}
-
-// MARK: - Tools (Xcode-style crossed hammer + screwdriver)
-
-/// Both tools cross here; the airport symbol sits above, in the V between
-/// the hammer head and the screwdriver blade.
-let crossPoint = CGPoint(x: 512, y: 455)
-
-/// Linear gradient across the local y (width) of a tool part, light side up.
-func fillAcross(_ ctx: CGContext, path: CGPath, from yLight: CGFloat, to yDark: CGFloat,
-                colors: [CGColor], locations: [CGFloat] = [0, 1]) {
-    ctx.saveGState()
-    ctx.addPath(path)
+    let specPath = CGMutablePath()
+    specPath.addEllipse(in: CGRect(x: -170, y: 8, width: 300, height: 42),
+                        transform: CGAffineTransform(rotationAngle: -0.06))
+    ctx.addPath(specPath)
     ctx.clip()
-    let space = CGColorSpaceCreateDeviceRGB()
-    let grad = CGGradient(colorsSpace: space, colors: colors as CFArray, locations: locations)!
-    ctx.drawLinearGradient(grad,
-        start: CGPoint(x: 0, y: yLight), end: CGPoint(x: 0, y: yDark), options: [])
+    ctx.drawLinearGradient(spec,
+        start: CGPoint(x: 0, y: 52), end: CGPoint(x: 0, y: 6), options: [])
     ctx.restoreGState()
-}
 
-/// Runs `body` rotated about the cross point, wrapped in a transparency
-/// layer so the whole tool casts one soft, globally-downward shadow (the
-/// shadow is set before the rotation, so it doesn't rotate with the tool).
-func toolLayer(_ ctx: CGContext, angle: CGFloat, body: (CGContext) -> Void) {
+    // Neck ring: a bright band where the bell meets the neck.
+    let ring = CGGradient(colorsSpace: space, colors: [
+        color(1, 1, 1, 0), color(1, 1, 1, 0.45), color(1, 1, 1, 0),
+    ] as CFArray, locations: [0, 0.5, 1])!
+    ctx.drawLinearGradient(ring,
+        start: CGPoint(x: 116, y: 0), end: CGPoint(x: 140, y: 0), options: [])
+
+    // Bright striking face: light builds toward the rounded cap.
+    let faceGrad = CGGradient(colorsSpace: space, colors: [
+        color(1, 1, 1, 0), color(1, 1, 1, 0.55),
+    ] as CFArray, locations: [0, 1])!
+    ctx.drawLinearGradient(faceGrad,
+        start: CGPoint(x: 178, y: 0), end: CGPoint(x: 212, y: 0), options: [])
+
+    // Eye ridge: faint darker band where the handle passes through.
+    let eye = CGGradient(colorsSpace: space, colors: [
+        color(0, 0, 0, 0), color(0, 0, 0, 0.16), color(0, 0, 0, 0),
+    ] as CFArray, locations: [0, 0.5, 1])!
+    ctx.drawLinearGradient(eye,
+        start: CGPoint(x: -32, y: 0), end: CGPoint(x: 36, y: 0), options: [])
+    ctx.restoreGState()
+
+    // Rim light along the top silhouette, claw tip to bell.
     ctx.saveGState()
-    ctx.translateBy(x: crossPoint.x, y: crossPoint.y)
-    ctx.setShadow(offset: CGSize(width: 0, height: -14), blur: 26,
-                  color: color(0, 0, 0, 0.50))
-    ctx.beginTransparencyLayer(auxiliaryInfo: nil)
-    ctx.saveGState()
-    ctx.rotate(by: angle)
-    body(ctx)
+    ctx.setStrokeColor(color(1, 1, 1, 0.45))
+    ctx.setLineWidth(3)
+    ctx.setLineCap(.round)
+    ctx.move(to: CGPoint(x: -228, y: 4))
+    ctx.addCurve(to: CGPoint(x: -78, y: 52),
+                 control1: CGPoint(x: -184, y: 26), control2: CGPoint(x: -126, y: 44))
+    ctx.addCurve(to: CGPoint(x: 76, y: 52),
+                 control1: CGPoint(x: -30, y: 58), control2: CGPoint(x: 30, y: 58))
+    ctx.strokePath()
     ctx.restoreGState()
-    ctx.endTransparencyLayer()
-    ctx.restoreGState()
-}
-
-/// Screwdriver pointing up-right (blade at +x), drawn under the hammer.
-/// Local frame: +x along the shaft toward the tip, +y is the up-left side
-/// (which faces the icon's top, so it gets the light).
-func drawScrewdriver(_ ctx: CGContext) {
-    toolLayer(ctx, angle: .pi / 4) { ctx in
-        // Grip: chart-cyan capsule with darker moulded ribs.
-        let grip = CGPath(roundedRect: CGRect(x: -375, y: -42, width: 260, height: 84),
-                          cornerWidth: 42, cornerHeight: 42, transform: nil)
-        fillAcross(ctx, path: grip, from: 42, to: -42,
-                   colors: [gripCyanHi, gripCyan, gripCyanDark], locations: [0, 0.45, 1])
-        ctx.saveGState()
-        ctx.addPath(grip)
-        ctx.clip()
-        ctx.setFillColor(gripCyanDark)
-        for s: CGFloat in [-330, -283, -236, -189] {
-            ctx.fill(CGRect(x: s - 6, y: -42, width: 12, height: 84))
-        }
-        ctx.restoreGState()
-
-        // Ferrule between grip and shaft.
-        let ferrule = CGPath(roundedRect: CGRect(x: -122, y: -28, width: 36, height: 56),
-                             cornerWidth: 8, cornerHeight: 8, transform: nil)
-        fillAcross(ctx, path: ferrule, from: 28, to: -28,
-                   colors: [steelMid, steelDark])
-
-        // Shaft, then the flat blade flaring at the tip.
-        let shaft = CGMutablePath()
-        shaft.addRect(CGRect(x: -92, y: -14, width: 324, height: 28))
-        shaft.move(to: CGPoint(x: 232, y: 14))
-        shaft.addLine(to: CGPoint(x: 282, y: 24))
-        shaft.addLine(to: CGPoint(x: 300, y: 24))
-        shaft.addLine(to: CGPoint(x: 300, y: -24))
-        shaft.addLine(to: CGPoint(x: 282, y: -24))
-        shaft.addLine(to: CGPoint(x: 232, y: -14))
-        shaft.closeSubpath()
-        fillAcross(ctx, path: shaft, from: 24, to: -24,
-                   colors: [steelLight, steelMid, steelDark], locations: [0, 0.55, 1])
-    }
-}
-
-/// Hammer with the head up-left (at +x) and the handle running down-right,
-/// drawn over the screwdriver — the Xcode hero tool. Local frame: +x along
-/// the handle toward the head; the icon's top is toward local -y here, so
-/// the light lives on the -y side.
-func drawHammer(_ ctx: CGContext) {
-    toolLayer(ctx, angle: .pi * 3 / 4) { ctx in
-        // Graphite handle.
-        let handle = CGPath(roundedRect: CGRect(x: -355, y: -33, width: 545, height: 66),
-                            cornerWidth: 33, cornerHeight: 33, transform: nil)
-        fillAcross(ctx, path: handle, from: -33, to: 33,
-                   colors: [graphiteHandleHi, graphiteHandle, color(0.09, 0.10, 0.12)],
-                   locations: [0, 0.4, 1])
-
-        // Steel head: sledge block perpendicular to the handle, with a
-        // darker cheek band on the handle side and a bright striking edge.
-        let head = CGPath(roundedRect: CGRect(x: 180, y: -138, width: 110, height: 276),
-                          cornerWidth: 26, cornerHeight: 26, transform: nil)
-        fillAcross(ctx, path: head, from: -138, to: 138,
-                   colors: [steelLight, steelMid, steelDark], locations: [0, 0.5, 1])
-        ctx.saveGState()
-        ctx.addPath(head)
-        ctx.clip()
-        ctx.setFillColor(steelDark)
-        ctx.fill(CGRect(x: 180, y: -138, width: 26, height: 276))
-        ctx.setStrokeColor(color(1, 1, 1, 0.35))
-        ctx.setLineWidth(6)
-        ctx.move(to: CGPoint(x: 287, y: -132))
-        ctx.addLine(to: CGPoint(x: 287, y: 132))
-        ctx.strokePath()
-        ctx.restoreGState()
-    }
 }
 
 // MARK: - Compose
 
-/// The full scene: night IFR chart, the airport symbol up top, and the
-/// crossed tools in front.
 func drawScene(_ ctx: CGContext) {
-    drawChart(ctx)
-    drawAirportSymbol(ctx, center: CGPoint(x: 512, y: 685), discRadius: 112)
-    drawScrewdriver(ctx)
-    drawHammer(ctx)
+    // Blueprint sheet, tilted slightly counter-clockwise, with a soft shadow.
+    ctx.saveGState()
+    ctx.setShadow(offset: CGSize(width: 0, height: -16), blur: 34,
+                  color: color(0, 0, 0, 0.42))
+    ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+    ctx.saveGState()
+    ctx.translateBy(x: 470, y: 545)
+    ctx.rotate(by: 0.10)
+    ctx.translateBy(x: -sheetW / 2, y: -sheetH / 2)
+    drawSheet(ctx)
+    ctx.restoreGState()
+    ctx.endTransparencyLayer()
+    ctx.restoreGState()
+
+    // Hammer across the sheet: head upper middle, handle to the lower right.
+    ctx.saveGState()
+    ctx.setShadow(offset: CGSize(width: 0, height: -18), blur: 30,
+                  color: color(0, 0, 0, 0.48))
+    ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+    ctx.saveGState()
+    // Sample geometry: head at the sheet's top-right corner (face poking
+    // past the edge), handle crossing down-left to end left of center.
+    ctx.translateBy(x: 706, y: 825)
+    ctx.rotate(by: -0.52)
+    drawHammerBody(ctx)
+    ctx.restoreGState()
+    ctx.endTransparencyLayer()
+    ctx.restoreGState()
 }
 
 func renderMaster() -> CGImage {
@@ -285,33 +406,7 @@ func renderMaster() -> CGImage {
     let ctx = CGContext(data: nil, width: Int(SIZE), height: Int(SIZE),
                         bitsPerComponent: 8, bytesPerRow: 0, space: space,
                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-
-    // macOS icon shape: 824pt squircle-ish rounded rect centered in 1024.
-    let content = CGRect(x: 100, y: 100, width: 824, height: 824)
-    let shape = CGPath(roundedRect: content, cornerWidth: 185, cornerHeight: 185, transform: nil)
-
-    // Soft canvas shadow behind the shape.
-    ctx.saveGState()
-    ctx.setShadow(offset: CGSize(width: 0, height: -12), blur: 30,
-                  color: color(0, 0, 0, 0.30))
-    ctx.setFillColor(nightBottom)
-    ctx.addPath(shape)
-    ctx.fillPath()
-    ctx.restoreGState()
-
-    ctx.saveGState()
-    ctx.addPath(shape)
-    ctx.clip()
-
     drawScene(ctx)
-
-    // Subtle inner bevel on the icon shape.
-    ctx.addPath(shape)
-    ctx.setStrokeColor(color(1, 1, 1, 0.25))
-    ctx.setLineWidth(3)
-    ctx.strokePath()
-    ctx.restoreGState()
-
     return ctx.makeImage()!
 }
 

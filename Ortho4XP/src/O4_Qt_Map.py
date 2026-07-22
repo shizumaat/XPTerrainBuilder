@@ -120,7 +120,7 @@ class MapView(QGraphicsView):
         # Imagery state
         self._provider_code = "OSM"
         self._display_code = "OSM"   # actual source drawn (fallback aware)
-        self._provider_max_zl = 18
+        self._provider_max_zl = 19
         self._zoom = 5.0
         self._tiles = {}             # (code, z, x, y) -> QGraphicsPixmapItem
         self._tile_age = {}          # same key -> monotonic counter
@@ -260,11 +260,13 @@ class MapView(QGraphicsView):
         if provider_is_mappable(code):
             self._display_code = code
             provider = IMG.providers_dict[code]
-            self._provider_max_zl = int(provider.get("max_zl", 18))
+            # Absent max_zl means the source declares no ceiling (the
+            # engine builds it at any ZL) - preview up to the fetch cap.
+            self._provider_max_zl = int(provider.get("max_zl", FETCH_MAX_ZL))
             note = ""
         elif provider_is_mappable("OSM"):
             self._display_code = "OSM"
-            self._provider_max_zl = 18
+            self._provider_max_zl = 19
             note = " (no live preview for %s - showing OSM)" % code
         else:
             note = " (no live map source available)"

@@ -65,7 +65,10 @@ struct ImageryProviderSpec: Equatable {
         return ImageryProviderSpec(
             code: layFile.deletingPathExtension().lastPathComponent,
             urlTemplate: template,
-            maxZL: Int(fields["max_zl"] ?? "") ?? 18,
+            // Absent max_zl means the source declares NO ceiling (the
+            // engine will build it at any ZL) — preview up to the fetch
+            // cap. Only 4 of the shipped providers declare a cap.
+            maxZL: Int(fields["max_zl"] ?? "") ?? 21,
             referer: referer,
             inGUI: fields["in_GUI"]?.lowercased() != "false")
     }
@@ -195,9 +198,9 @@ final class ImageryModel: ObservableObject {
     /// Zoom ceiling for the active source (max member ceiling for combined).
     var activeMaxZL: Int {
         if let activeCombined {
-            return activeCombined.members.compactMap { specs[$0.code]?.maxZL }.max() ?? 18
+            return activeCombined.members.compactMap { specs[$0.code]?.maxZL }.max() ?? 21
         }
-        return active?.maxZL ?? 18
+        return active?.maxZL ?? 21
     }
 
     /// Scans every .lay and .comb under the engine's Providers folder,

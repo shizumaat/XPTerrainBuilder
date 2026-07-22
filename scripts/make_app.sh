@@ -42,12 +42,12 @@ fi
 FROZEN="$ROOT/Ortho4XP/dist/Ortho4XP"
 if [[ -x "$FROZEN/Ortho4XP" ]]; then
   echo "Embedding frozen engine (self-contained)"
-  rsync -a "$FROZEN/" "$STAGE/Contents/Resources/Engine/"
+  rsync -a --exclude '* [2-9].*' "$FROZEN/" "$STAGE/Contents/Resources/Engine/"
 else
   echo "NOTE: frozen engine not found ($FROZEN)."
   echo "      Embedding the engine source tree instead — users would need"
   echo "      python3 + packages. Run scripts/make_engine.sh for releases."
-  rsync -a \
+  rsync -a --exclude '* [2-9].*' \
     --exclude 'venv/' --exclude '.venv*/' --exclude '__pycache__/' \
     --exclude '.git*' --exclude 'build/' --exclude 'dist/' \
     --exclude 'tests/' --exclude 'docs/' --exclude 'prototypes/' \

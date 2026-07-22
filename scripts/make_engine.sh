@@ -21,6 +21,16 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENGINE="$ROOT/Ortho4XP"
 cd "$ENGINE"
 
+# iCloud Drive conflict copies ("Foo 2.lay") poison the freeze — they get
+# baked into the runtime and show up as duplicate providers in the UIs.
+# Refuse to freeze from a dirty checkout.
+CONFLICTS="$(find . -path ./dist -prune -o -path ./build -prune -o -name '* [2-9].*' -print | head -5)"
+if [[ -n "$CONFLICTS" ]]; then
+  echo "ERROR: iCloud conflict copies in the engine checkout — clean first:" >&2
+  echo "$CONFLICTS" >&2
+  exit 1
+fi
+
 # Dedicated freeze venv, separate from any dev venv. ${TMPDIR} keeps the
 # heavyweight site-packages out of synced folders (iCloud Documents).
 VENV="${ENGINE_FREEZE_VENV:-${TMPDIR:-/tmp}/xptb-freeze-venv}"
@@ -59,6 +69,10 @@ rm -rf build dist
 
 # Version stamp: frozen engines have no src/O4_Version.py on disk; the app
 # reads VERSION.txt instead.
+# Belt to the pre-freeze check's suspenders: purge any conflict copies the
+# file provider slipped in DURING the freeze.
+find dist -name '* [2-9].*' -delete 2>/dev/null || true
+
 VERSION="$(grep -m1 '^version' src/O4_Version.py | cut -d= -f2 | tr -d " '\"" )"
 OUT="dist/Ortho4XP"
 if [[ -d "dist/Ortho4XP.app" && ! -d "$OUT" ]]; then

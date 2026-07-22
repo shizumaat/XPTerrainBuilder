@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import CoreGraphics
 import ImageIO
+import QuartzCore
 import SceneryKit
 import os
 
@@ -140,6 +141,11 @@ final class ImageryModel: ObservableObject {
 
     private(set) var active: ImageryProviderSpec?
     private(set) var activeCombined: CombinedSpec?
+    /// The source shown before the last switch, kept briefly so the map can
+    /// cross-fade instead of dropping to blank land.
+    private(set) var previousActive: ImageryProviderSpec?
+    private(set) var previousCombined: CombinedSpec?
+    private(set) var switchedAt: CFTimeInterval = 0
     private var specs: [String: ImageryProviderSpec] = [:]
     private var combined: [String: CombinedSpec] = [:]
     private var cacheDir: URL?
@@ -148,10 +154,15 @@ final class ImageryModel: ObservableObject {
     private var memory: [TileKey: CGImage] = [:]
     private var lru: [TileKey] = []
     private var inflight: Set<TileKey> = []
+    /// When each tile landed, for the fade-in.
+    private var loadedAt: [TileKey: CFTimeInterval] = [:]
+    private var fadeTickerRunning = false
     /// Keys that failed to download this session — don't hammer the server.
     private var failed: Set<TileKey> = []
     private static let memoryLimit = 400
     private static let inflightLimit = 10
+    static let fadeDuration: CFTimeInterval = 0.35
+    static let crossfadeDuration: CFTimeInterval = 1.2
 
     private let session: URLSession = {
         let config = URLSessionConfiguration.default
@@ -259,23 +270,38 @@ final class ImageryModel: ObservableObject {
         let nextCombined = combined[code]
         let next = nextCombined == nil ? (specs[code] ?? specs["OSM"]) : nil
         guard next != active || nextCombined != activeCombined else { return }
+        // Keep the outgoing source as a cross-fade underlay.
+        if active != nil || activeCombined != nil {
+            previousActive = active
+            previousCombined = activeCombined
+            switchedAt = CACurrentMediaTime()
+        }
         active = next
         activeCombined = nextCombined
         failed = []
+        loadedAt = [:]
         generation += 1
+        startFadeTicker()
         imageryLog.notice("live map imagery: \(self.activeLabel ?? "none", privacy: .public)")
     }
 
-    /// The single provider that should paint one tile: the active single
-    /// source, or — for a combined source — the first member whose extent
-    /// contains the tile's center (members are ordered top-first; a
-    /// global-extent line is the base).
-    private func resolvedSpec(z: Int, x: Int, y: Int) -> ImageryProviderSpec? {
-        if let active { return active }
-        guard let activeCombined else { return nil }
+    /// True while a source cross-fade is still in progress.
+    var crossfading: Bool {
+        (previousActive != nil || previousCombined != nil)
+            && CACurrentMediaTime() - switchedAt < Self.crossfadeDuration
+    }
+
+    /// The single provider that should paint one tile for a given source:
+    /// the single spec itself, or — for a combined source — the first
+    /// member whose extent contains the tile's center (members are ordered
+    /// top-first; a global-extent line is the base).
+    private func resolvedSpec(single: ImageryProviderSpec?, combined: CombinedSpec?,
+                              z: Int, x: Int, y: Int) -> ImageryProviderSpec? {
+        if let single { return single }
+        guard let combined else { return nil }
         let lat = WebMercator.lat(tileY: Double(y) + 0.5, z: z)
         let lon = WebMercator.lon(tileX: Double(x) + 0.5, z: z)
-        for member in activeCombined.members {
+        for member in combined.members {
             guard let spec = specs[member.code] else { continue }
             if let bbox = member.bbox {
                 guard lon >= bbox.minLon, lon <= bbox.maxLon,
@@ -286,16 +312,60 @@ final class ImageryModel: ObservableObject {
         return nil
     }
 
-    /// Memory-cached tile, or nil — in which case a disk-load/download is
-    /// scheduled and `generation` bumps when the tile becomes drawable.
-    /// Cache keys use the RESOLVED member code, so combined and direct
-    /// selections share downloads.
-    func image(z: Int, x: Int, y: Int) -> CGImage? {
-        guard let spec = resolvedSpec(z: z, x: x, y: y), z <= spec.maxZL else { return nil }
+    /// Memory-cached tile with its fade-in alpha, or nil — in which case a
+    /// disk-load/download is scheduled and `generation` bumps when the tile
+    /// becomes drawable. Cache keys use the RESOLVED member code, so
+    /// combined and direct selections share downloads.
+    func image(z: Int, x: Int, y: Int) -> (image: CGImage, alpha: CGFloat)? {
+        guard let spec = resolvedSpec(single: active, combined: activeCombined,
+                                      z: z, x: x, y: y),
+              z <= spec.maxZL else { return nil }
         let key = TileKey(code: spec.code, z: z, x: x, y: y)
-        if let hit = memory[key] { return hit }
+        if let hit = memory[key] {
+            let alpha: CGFloat
+            if let start = loadedAt[key] {
+                alpha = CGFloat(min(1, (CACurrentMediaTime() - start) / Self.fadeDuration))
+            } else {
+                alpha = 1
+            }
+            return (hit, alpha)
+        }
         schedule(key, spec: spec)
         return nil
+    }
+
+    /// Cache-only peek (never schedules): used for lower-zoom stand-ins
+    /// while a tile loads, and for the outgoing source during cross-fades.
+    func cachedImage(previous: Bool, z: Int, x: Int, y: Int) -> CGImage? {
+        let spec = previous
+            ? resolvedSpec(single: previousActive, combined: previousCombined, z: z, x: x, y: y)
+            : resolvedSpec(single: active, combined: activeCombined, z: z, x: x, y: y)
+        guard let spec, z <= spec.maxZL else { return nil }
+        return memory[TileKey(code: spec.code, z: z, x: x, y: y)]
+    }
+
+    /// Keeps the canvas redrawing while fades/cross-fades are animating.
+    private func startFadeTicker() {
+        guard !fadeTickerRunning else { return }
+        fadeTickerRunning = true
+        Task { [weak self] in
+            while true {
+                try? await Task.sleep(for: .milliseconds(70))
+                guard let self else { return }
+                let now = CACurrentMediaTime()
+                let fading = self.loadedAt.values.contains { now - $0 < Self.fadeDuration }
+                let crossing = self.crossfading
+                self.generation += 1
+                if !fading && !crossing {
+                    self.fadeTickerRunning = false
+                    if !crossing {
+                        self.previousActive = nil
+                        self.previousCombined = nil
+                    }
+                    return
+                }
+            }
+        }
     }
 
     private func schedule(_ key: TileKey, spec: ImageryProviderSpec) {
@@ -346,13 +416,16 @@ final class ImageryModel: ObservableObject {
         }
         memory[key] = image
         lru.append(key)
+        loadedAt[key] = CACurrentMediaTime()
         if lru.count > Self.memoryLimit {
             for evict in lru.prefix(lru.count - Self.memoryLimit) {
                 memory.removeValue(forKey: evict)
+                loadedAt.removeValue(forKey: evict)
             }
             lru.removeFirst(lru.count - Self.memoryLimit)
         }
         generation += 1
+        startFadeTicker()
     }
 
     private nonisolated static func decode(contentsOf url: URL) -> CGImage? {

@@ -612,6 +612,23 @@ final class BuildModel: ObservableObject {
         globalConfigValues[name] ?? schema.vars[name]?.default
     }
 
+    /// Options for base_elevation_source: auto + the legacy keywords +
+    /// every role=base elevation provider the engine ships
+    /// (Providers/Elevation/<CODE>.elv). The engine registry can't list
+    /// these (they're files), so the picker enumerates them here.
+    var elevationSourceOptions: [String] {
+        var options = ["auto", "View", "SRTM", "NED1", "NED1/3", "ALOS"]
+        if let engine {
+            let dir = engine.resourcesRoot.appendingPathComponent("Providers/Elevation")
+            let entries = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+            options += entries.filter { $0.hasSuffix(".elv") }
+                .map { String($0.dropLast(4)) }
+                .filter { !options.contains($0) }
+                .sorted()
+        }
+        return options
+    }
+
     // MARK: - Tile-scope config (Qt blended-view semantics)
     //
     // With tiles selected on the map, tile-scope settings edit those tiles'

@@ -60,8 +60,8 @@ cfg_app_vars = {
     },
     "osm_extract_refresh_days": {
         "type": float,
-        "default": 14.0,
-        "hint": "How old, in days, a stored regional extract may grow before background maintenance re-downloads it at application start. OpenStreetMap edits reach scenery slowly, so the default trades a fortnight of staleness for far fewer multi-hundred-megabyte downloads.",
+        "default": 180.0,
+        "hint": "How old, in days, a stored regional extract may grow before background maintenance re-downloads it at application start. OpenStreetMap edits reach scenery slowly, so the default trades roughly half a year of staleness for far fewer multi-hundred-megabyte downloads.",
     },
     "base_elevation_source": {
         "module": "DEM",
@@ -85,13 +85,22 @@ cfg_app_vars = {
         "module": "TILE",
         "type": int,
         "default": 0,
-        "hint": "How many orthophotos are constructed in parallel; each uses 16 request threads by default (unless the provider file says otherwise). 0 (the default) means Auto, currently two — downloads are network-bound, so processor cores are irrelevant here. If running Ortho4XP from an external drive, errors may occur at settings higher than 4; set an explicit 1 to restore the historic behaviour.",
+        "values": (0, 1, 2, 3, 4, 6, 8),
+        "value_labels": {
+            0: "Auto — scale to this machine",
+            1: "1 (historic behaviour)",
+        },
+        "hint": "How many orthophotos are constructed in parallel; each uses 16 request threads by default (unless the provider file says otherwise). Auto is currently two — downloads are network-bound, so processor cores are irrelevant here. If running Ortho4XP from an external drive, errors may occur at settings higher than 4; set an explicit 1 to restore the historic behaviour.",
     },
     "max_convert_slots": {
         "module": "TILE",
         "type": int,
         "default": 0,
-        "hint": "Number of parallel workers for dds conversion. 0 (the default) means Auto: every processor core but two, at least two, at most sixteen. Conversion is CPU-bound, so Auto tracks your machine.",
+        "values": (0, 1, 2, 4, 6, 8, 12, 16),
+        "value_labels": {
+            0: "Auto — scale to this machine",
+        },
+        "hint": "Number of parallel workers for dds conversion. Auto: every processor core but two, at least two, at most sixteen. Conversion is CPU-bound, so Auto tracks your machine.",
     },
     "max_build_slots": {
         "type": int,

@@ -402,9 +402,36 @@ private struct ConfigItemRow: View {
 
     private var current: O4Value? { buildModel.effectiveValue(for: item) }
 
+    /// Settings that are filesystem paths get a Choose… button (Qt parity:
+    /// its browse buttons). custom_dem picks a FILE; the rest are folders.
+    private static let folderSettings: Set<String> = [
+        "custom_scenery_dir", "custom_overlay_src",
+        "custom_overlay_src_alternate", "cifp_data_path",
+    ]
+    private static let fileSettings: Set<String> = ["custom_dem"]
+
     @ViewBuilder
     private func control(_ variable: OrthoConfigSchema.Variable) -> some View {
-        if let values = variable.values, !values.isEmpty {
+        if item.name == "base_elevation_source" {
+            // Options are files (Providers/Elevation/*.elv), not registry
+            // values — enumerate them into a picker.
+            Picker(item.label, selection: Binding(
+                get: { current?.cfgLiteral ?? "auto" },
+                set: { buildModel.setValue(for: item, to: .string($0)) }
+            )) {
+                ForEach(buildModel.elevationSourceOptions, id: \.self) { option in
+                    Text(option == "auto" ? "Auto — best available source" : option)
+                        .tag(option)
+                }
+            }
+        } else if Self.folderSettings.contains(item.name)
+                    || Self.fileSettings.contains(item.name) {
+            PathSettingRow(
+                label: item.label,
+                current: current?.cfgLiteral ?? "",
+                picksDirectories: Self.folderSettings.contains(item.name),
+                commit: { path in buildModel.setValue(for: item, to: .string(path)) })
+        } else if let values = variable.values, !values.isEmpty {
             Picker(item.label, selection: Binding(
                 get: { current?.cfgLiteral ?? variable.default.cfgLiteral },
                 set: { raw in
@@ -432,6 +459,38 @@ private struct ConfigItemRow: View {
                     buildModel.setValue(for: item, to: value)
                     return true
                 })
+        }
+    }
+}
+
+/// Path setting: editable text plus a Choose… button opening the standard
+/// file/folder picker (matching the Qt UI's browse buttons).
+private struct PathSettingRow: View {
+    let label: String
+    let current: String
+    let picksDirectories: Bool
+    let commit: (String) -> Void
+
+    @StateObject private var showingPicker = ViewState(false)
+    @StateObject private var text = ViewState<String?>(nil)
+
+    var body: some View {
+        HStack {
+            TextField(label, text: Binding(
+                get: { text.value ?? current },
+                set: { text.value = $0 }
+            ))
+            .onSubmit {
+                if let edited = text.value, edited != current { commit(edited) }
+                text.value = nil
+            }
+            Button("Choose…") { showingPicker.value = true }
+                .fileImporter(
+                    isPresented: $showingPicker.value,
+                    allowedContentTypes: picksDirectories ? [.folder] : [.item]
+                ) { result in
+                    if case .success(let url) = result { commit(url.path) }
+                }
         }
     }
 }

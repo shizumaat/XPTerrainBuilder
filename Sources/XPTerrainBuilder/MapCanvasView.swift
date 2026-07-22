@@ -268,43 +268,103 @@ struct MapCanvasView: View {
         guard xMax >= xMin, yMax >= yMin,
               (xMax - xMin + 1) * (yMax - yMin + 1) <= 400 else { return }
 
-        for y in yMin...yMax {
+        /// Screen rect of a mercator tile (single rect, no warp) — used for
+        /// low-res stand-ins.
+        func tileRect(_ tz: Int, _ tx: Int, _ ty: Int) -> CGRect {
+            let left = cam.point(lon: WebMercator.lon(tileX: Double(tx), z: tz),
+                                 lat: 0, in: size).x
+            let right = cam.point(lon: WebMercator.lon(tileX: Double(tx + 1), z: tz),
+                                  lat: 0, in: size).x
+            let top = cam.point(lon: 0, lat: WebMercator.lat(tileY: Double(ty), z: tz),
+                                in: size).y
+            let bottom = cam.point(lon: 0, lat: WebMercator.lat(tileY: Double(ty + 1), z: tz),
+                                   in: size).y
+            return CGRect(x: left, y: top, width: right - left, height: bottom - top)
+        }
+
+        /// One tile, strip-warped from mercator onto the equirect canvas.
+        func drawTile(_ cg: CGImage, x: Int, y: Int, alpha: CGFloat) {
+            let img = Image(decorative: cg, scale: 1)
             let latTop = WebMercator.lat(tileY: Double(y), z: z)
             let latBottom = WebMercator.lat(tileY: Double(y + 1), z: z)
             let strips = max(1, min(10, Int((latTop - latBottom) / 3)))
+            let left = cam.point(lon: WebMercator.lon(tileX: Double(x), z: z),
+                                 lat: 0, in: size).x
+            let right = cam.point(lon: WebMercator.lon(tileX: Double(x + 1), z: z),
+                                  lat: 0, in: size).x
+            for strip in 0..<strips {
+                let fTop = Double(strip) / Double(strips)
+                let fBottom = Double(strip + 1) / Double(strips)
+                let top = cam.point(
+                    lon: 0, lat: WebMercator.lat(tileY: Double(y) + fTop, z: z),
+                    in: size).y
+                let bottom = cam.point(
+                    lon: 0, lat: WebMercator.lat(tileY: Double(y) + fBottom, z: z),
+                    in: size).y
+                let dest = CGRect(x: left, y: top,
+                                  width: right - left, height: bottom - top)
+                guard dest.width > 0.1, dest.height > 0.1 else { continue }
+                // Scale the whole tile so its rows [fTop, fBottom] land
+                // exactly in the strip's destination rect.
+                let fullHeight = dest.height / (fBottom - fTop)
+                let fullRect = CGRect(x: dest.minX,
+                                      y: dest.minY - fullHeight * fTop,
+                                      width: dest.width, height: fullHeight)
+                var layer = context
+                layer.opacity = alpha
+                if strips > 1 {
+                    layer.clip(to: Path(dest))
+                }
+                layer.draw(img, in: fullRect)
+            }
+        }
+
+        // Outgoing source, drawn from cache beneath the incoming one while
+        // a switch cross-fades (no fetches for the old source).
+        if imagery.crossfading {
+            for y in yMin...yMax {
+                for x in xMin...xMax {
+                    let wrapped = ((x % n) + n) % n
+                    if let cg = imagery.cachedImage(previous: true, z: z, x: wrapped, y: y) {
+                        drawTile(cg, x: x, y: y, alpha: 1)
+                    }
+                }
+            }
+        }
+
+        for y in yMin...yMax {
             for x in xMin...xMax {
                 let wrapped = ((x % n) + n) % n
-                guard let cg = imagery.image(z: z, x: wrapped, y: y) else { continue }
-                let img = Image(decorative: cg, scale: 1)
-                let left = cam.point(lon: WebMercator.lon(tileX: Double(x), z: z),
-                                     lat: 0, in: size).x
-                let right = cam.point(lon: WebMercator.lon(tileX: Double(x + 1), z: z),
-                                      lat: 0, in: size).x
-                for strip in 0..<strips {
-                    let fTop = Double(strip) / Double(strips)
-                    let fBottom = Double(strip + 1) / Double(strips)
-                    let top = cam.point(
-                        lon: 0, lat: WebMercator.lat(tileY: Double(y) + fTop, z: z),
-                        in: size).y
-                    let bottom = cam.point(
-                        lon: 0, lat: WebMercator.lat(tileY: Double(y) + fBottom, z: z),
-                        in: size).y
-                    let dest = CGRect(x: left, y: top,
-                                      width: right - left, height: bottom - top)
-                    guard dest.width > 0.1, dest.height > 0.1 else { continue }
-                    // Scale the whole tile so its rows [fTop, fBottom]
-                    // land exactly in the strip's destination rect.
-                    let fullHeight = dest.height / (fBottom - fTop)
-                    let fullRect = CGRect(x: dest.minX,
-                                          y: dest.minY - fullHeight * fTop,
-                                          width: dest.width, height: fullHeight)
-                    if strips == 1 {
-                        context.draw(img, in: fullRect)
-                    } else {
-                        var clipped = context
-                        clipped.clip(to: Path(dest))
-                        clipped.draw(img, in: fullRect)
+                if let (cg, alpha) = imagery.image(z: z, x: wrapped, y: y) {
+                    // Blur-up stand-in beneath a tile still fading in.
+                    if alpha < 1 {
+                        drawAncestor(x: x, wrapped: wrapped, y: y, z: z,
+                                     n: n, tileRect: tileRect)
                     }
+                    drawTile(cg, x: x, y: y, alpha: alpha)
+                } else {
+                    // Not loaded yet: show the nearest cached lower zoom,
+                    // upscaled — soft blur instead of a hard empty square.
+                    drawAncestor(x: x, wrapped: wrapped, y: y, z: z,
+                                 n: n, tileRect: tileRect)
+                }
+            }
+        }
+
+        func drawAncestor(x: Int, wrapped: Int, y: Int, z: Int, n: Int,
+                          tileRect: (Int, Int, Int) -> CGRect) {
+            var az = z, ax = wrapped, ay = y
+            for _ in 0..<5 {
+                guard az > 2 else { return }
+                az -= 1; ax /= 2; ay /= 2
+                if let cg = imagery.cachedImage(previous: false, z: az, x: ax, y: ay) {
+                    let shift = (x - wrapped) / max(1 << (z - az), 1)
+                    let parentRect = tileRect(az, ax + shift, ay)
+                    let childRect = tileRect(z, x, y)
+                    var layer = context
+                    layer.clip(to: Path(childRect))
+                    layer.draw(Image(decorative: cg, scale: 1), in: parentRect)
+                    return
                 }
             }
         }

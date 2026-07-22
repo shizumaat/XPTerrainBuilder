@@ -19,11 +19,16 @@ struct MapCamera: Equatable {
          centerLat - (Double(point.y) - Double(size.height) / 2) / scale)
     }
 
-    /// Keep the viewport inside the world: minimum zoom is "the map fills
-    /// the window", and the center can't pan past the edges.
+    /// The map's latitude reach matches web-mercator imagery coverage, so
+    /// tiles always fill the viewport — no imagery-less polar bands.
+    static let latLimit = 85.05
+
+    /// Keep the viewport inside the (mercator-bounded) world: minimum zoom
+    /// is "the map fills the window", and the center can't pan past edges.
     mutating func clamp(in size: CGSize) {
         if size.width > 0, size.height > 0 {
-            let minScale = max(Double(size.width) / 360, Double(size.height) / 180)
+            let minScale = max(Double(size.width) / 360,
+                               Double(size.height) / (2 * Self.latLimit))
             scale = max(scale, minScale)
         }
         scale = min(scale, 400)
@@ -33,14 +38,15 @@ struct MapCamera: Equatable {
         }
         if size.height > 0 {
             let halfH = Double(size.height) / 2 / scale
-            centerLat = min(max(centerLat, -90 + halfH), 90 - halfH)
+            centerLat = min(max(centerLat, -Self.latLimit + halfH), Self.latLimit - halfH)
         }
     }
 
     /// World-filling fit for a fresh window.
     static func fitted(to size: CGSize) -> MapCamera {
         var cam = MapCamera(centerLon: -40, centerLat: 30,
-                            scale: max(Double(size.width) / 360, Double(size.height) / 180))
+                            scale: max(Double(size.width) / 360,
+                                       Double(size.height) / (2 * latLimit)))
         cam.clamp(in: size)
         return cam
     }

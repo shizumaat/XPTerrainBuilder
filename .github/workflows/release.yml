@@ -1,0 +1,178 @@
+name: Release
+
+# Builds the three release artifacts from docs/RELEASES-PLAN.md — every one
+# fully self-contained (frozen Python runtime + packages, no user setup):
+#   macOS   XPTerrainBuilder-<v>-mac.zip       SwiftUI app, frozen engine embedded
+#   Windows XPTerrainBuilder-<v>-win.zip       frozen Qt app (portable)
+#   Linux   XPTerrainBuilder-<v>-linux.tar.gz  frozen Qt app (portable)
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.13"   # matches the vendored cp313 wheels in Utils/
+
+jobs:
+  mac:
+    name: macOS app (frozen engine)
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: PROJ for the spec's proj.db lookup
+        run: brew install proj
+
+      - name: Freeze engine
+        run: PYTHON=python3 scripts/make_engine.sh
+
+      - name: Build app
+        run: scripts/make_app.sh release
+
+      - name: Version
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Zip
+        run: |
+          ditto -c -k --keepParent dist/XPTerrainBuilder.app \
+            "XPTerrainBuilder-${{ steps.ver.outputs.version }}-mac.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: XPTerrainBuilder-*-mac.zip
+
+  windows:
+    name: Windows portable (frozen Qt app)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install engine packages
+        working-directory: Ortho4XP
+        run: |
+          # Vendored wheels first (gdal, scikit-fmm), then the rest of the
+          # pins; the dev/test section stays out of the frozen app.
+          python -m pip install --upgrade pip
+          python -m pip install Utils/win/*.whl
+          sed '/^# Dev \/ test/,$d' requirements.txt | grep -v '^gdal==' \
+            | grep -v '^scikit-fmm==' > reqs-frozen.txt
+          python -m pip install -r reqs-frozen.txt pyinstaller
+
+      - name: Freeze Qt app
+        working-directory: Ortho4XP
+        run: python -m PyInstaller Ortho4XP_Qt.spec --noconfirm
+
+      - name: Version
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Brand and zip
+        run: |
+          mv Ortho4XP/dist/Ortho4XP_Qt XPTerrainBuilder
+          mv XPTerrainBuilder/Ortho4XP_Qt.exe XPTerrainBuilder/XPTerrainBuilder.exe
+          grep -m1 '^version' Ortho4XP/src/O4_Version.py | cut -d= -f2 | tr -d " '\"" \
+            > XPTerrainBuilder/VERSION.txt
+          7z a "XPTerrainBuilder-${{ steps.ver.outputs.version }}-win.zip" XPTerrainBuilder
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: XPTerrainBuilder-*-win.zip
+
+  linux:
+    name: Linux portable (frozen Qt app)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: System libraries for Qt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libegl1 libxkbcommon-x11-0 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0
+
+      - name: Install engine packages
+        working-directory: Ortho4XP
+        run: |
+          python -m pip install --upgrade pip
+          # GDAL bindings are optional at runtime; skip rather than fight
+          # the source build on the runner.
+          sed '/^# Dev \/ test/,$d' requirements.txt | grep -v '^gdal==' \
+            > reqs-frozen.txt
+          python -m pip install -r reqs-frozen.txt pyinstaller
+
+      - name: Freeze Qt app
+        working-directory: Ortho4XP
+        run: python -m PyInstaller Ortho4XP_Qt.spec --noconfirm
+
+      - name: Version
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Brand and tar
+        run: |
+          mv Ortho4XP/dist/Ortho4XP_Qt XPTerrainBuilder
+          mv XPTerrainBuilder/Ortho4XP_Qt XPTerrainBuilder/XPTerrainBuilder
+          grep -m1 '^version' Ortho4XP/src/O4_Version.py | cut -d= -f2 | tr -d " '\"" \
+            > XPTerrainBuilder/VERSION.txt
+          tar czf "XPTerrainBuilder-${{ steps.ver.outputs.version }}-linux.tar.gz" XPTerrainBuilder
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: XPTerrainBuilder-*-linux.tar.gz
+
+  release:
+    name: Attach to GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [mac, windows, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            XPTerrainBuilder-*-mac.zip
+            XPTerrainBuilder-*-win.zip
+            XPTerrainBuilder-*-linux.tar.gz

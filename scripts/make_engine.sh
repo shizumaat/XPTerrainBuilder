@@ -1,0 +1,70 @@
+#!/bin/zsh
+# Freeze the vendored Ortho4XP engine into a fully self-contained folder:
+# its own Python runtime plus every required package, so users never install
+# or configure Python. Uses the engine's own PyInstaller specs.
+#
+# Usage: scripts/make_engine.sh [--qt]
+#   default : Ortho4XP.spec     (engine + jsonl protocol; what the mac app embeds)
+#   --qt    : Ortho4XP_Qt.spec  (standalone Qt GUI; the Windows/Linux release app)
+#
+# Output: Ortho4XP/dist/Ortho4XP/ (onedir: executable + _internal/)
+set -euo pipefail
+
+SPEC="Ortho4XP.spec"
+NEED_QT=0
+if [[ "${1:-}" == "--qt" ]]; then
+  SPEC="Ortho4XP_Qt.spec"
+  NEED_QT=1
+fi
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ENGINE="$ROOT/Ortho4XP"
+cd "$ENGINE"
+
+# Dedicated freeze venv, separate from any dev venv. ${TMPDIR} keeps the
+# heavyweight site-packages out of synced folders (iCloud Documents).
+VENV="${ENGINE_FREEZE_VENV:-${TMPDIR:-/tmp}/xptb-freeze-venv}"
+PYTHON_BOOT="${PYTHON:-python3}"
+if [[ ! -x "$VENV/bin/python" ]]; then
+  "$PYTHON_BOOT" -m venv "$VENV"
+fi
+PY="$VENV/bin/python"
+"$PY" -m pip install --upgrade pip >/dev/null
+
+# Requirements, filtered: the dev/test section stays out; PySide6 only for
+# the Qt build; gdal is optional at runtime (the engine degrades gracefully),
+# so its install failure must not sink the freeze.
+CORE_REQS="$(mktemp)"
+GDAL_REQ="$(awk '/^gdal==/' requirements.txt || true)"
+awk '
+  /^# Dev \/ test/ { exit }
+  /^gdal==/ { next }
+  NEED_QT == 0 && /^PySide6==/ { next }
+  NF { print }
+' NEED_QT="$NEED_QT" requirements.txt > "$CORE_REQS"
+
+echo "Installing engine packages into $VENV …"
+"$PY" -m pip install -r "$CORE_REQS"
+rm -f "$CORE_REQS"
+if [[ -n "$GDAL_REQ" ]]; then
+  echo "Installing optional GDAL bindings…"
+  "$PY" -m pip install $(echo "$GDAL_REQ" | head -1 | cut -d';' -f1) \
+    || echo "WARNING: GDAL install failed — airport elevation insets will be disabled (engine handles this gracefully)."
+fi
+"$PY" -m pip install pyinstaller
+
+echo "Freezing with $SPEC …"
+rm -rf build dist
+"$PY" -m PyInstaller "$SPEC" --noconfirm
+
+# Version stamp: frozen engines have no src/O4_Version.py on disk; the app
+# reads VERSION.txt instead.
+VERSION="$(grep -m1 '^version' src/O4_Version.py | cut -d= -f2 | tr -d " '\"" )"
+OUT="dist/Ortho4XP"
+if [[ -d "dist/Ortho4XP.app" && ! -d "$OUT" ]]; then
+  # The Qt spec on macOS may emit an .app; the raw onedir also exists for it.
+  OUT="$(ls -d dist/*/ | head -1)"
+fi
+echo "${VERSION:-unknown}" > "$OUT/VERSION.txt"
+
+echo "Frozen engine: $ENGINE/$OUT (version ${VERSION:-unknown})"

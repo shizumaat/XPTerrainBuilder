@@ -520,6 +520,24 @@ def tile_override_names(
     )
 
 
+def autodetect_cifp(xplane_dir: str) -> str:
+    """The CIFP/AIRAC data folder inside an X-Plane installation, or ``""``.
+
+    ``Custom Data/CIFP`` (Navigraph or other AIRAC updates) wins over the
+    stock ``Resources/default data/CIFP``. Both UIs seed ``cifp_data_path``
+    from this when the X-Plane folder is chosen.
+    """
+    if not xplane_dir:
+        return ""
+    for candidate in (
+        os.path.join(xplane_dir, "Custom Data", "CIFP"),
+        os.path.join(xplane_dir, "Resources", "default data", "CIFP"),
+    ):
+        if os.path.isdir(candidate):
+            return candidate
+    return ""
+
+
 def elevation_source_options() -> list[str]:
     """Choices for ``base_elevation_source``: ``auto``, the legacy keywords,
     then every shipped elevation provider definition

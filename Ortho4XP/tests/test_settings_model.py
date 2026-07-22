@@ -364,3 +364,22 @@ def test_elevation_source_options_order_and_content():
     assert options.count("ALOS") == 1
     # No .elv extensions leak through.
     assert not any(option.endswith(".elv") for option in options)
+
+
+# ---------------------------------------------------------------------------
+# autodetect_cifp
+# ---------------------------------------------------------------------------
+def test_autodetect_cifp_prefers_custom_data(tmp_path):
+    custom = tmp_path / "Custom Data" / "CIFP"
+    default = tmp_path / "Resources" / "default data" / "CIFP"
+    default.mkdir(parents=True)
+    # Only the stock location exists.
+    assert SM.autodetect_cifp(str(tmp_path)) == str(default)
+    # Custom Data wins once present (Navigraph AIRAC updates).
+    custom.mkdir(parents=True)
+    assert SM.autodetect_cifp(str(tmp_path)) == str(custom)
+
+
+def test_autodetect_cifp_empty_cases(tmp_path):
+    assert SM.autodetect_cifp("") == ""
+    assert SM.autodetect_cifp(str(tmp_path / "nonexistent")) == ""

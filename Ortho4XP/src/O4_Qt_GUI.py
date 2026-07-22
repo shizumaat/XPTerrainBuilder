@@ -739,6 +739,9 @@ class MainWindow(QMainWindow):
         overlays = os.path.join(xplane, "Global Scenery")
         if not current.get("custom_overlay_src") and os.path.isdir(overlays):
             seed["custom_overlay_src"] = overlays
+        cifp = SM.autodetect_cifp(xplane)
+        if not current.get("cifp_data_path") and cifp:
+            seed["cifp_data_path"] = cifp
         if seed:
             try:
                 SM.write_global(seed)

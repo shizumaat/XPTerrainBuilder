@@ -248,6 +248,7 @@ final class BuildModel: ObservableObject {
         providers = located.providers()
         usesProtocol = OrthoEngineClient.engineSupportsProtocol(located)
         reloadGlobalConfig()
+        seedPathsFromXPlane()
         if !usesProtocol { refreshTileStatesLegacy() }
         if mode == .build { connectIfNeeded() }
 
@@ -620,6 +621,38 @@ final class BuildModel: ObservableObject {
 
     func configValue(for name: String) -> O4Value? {
         globalConfigValues[name] ?? schema.vars[name]?.default
+    }
+
+    /// Fill empty engine paths from the X-Plane folder (Qt parity:
+    /// _seed_paths_from_xplane): Custom Scenery, the overlay source, and
+    /// the CIFP/AIRAC data folder (Custom Data/CIFP — Navigraph updates —
+    /// preferred over Resources/default data/CIFP). Never overwrites a
+    /// user-set value.
+    func seedPathsFromXPlane() {
+        guard engine != nil else { return }
+        let xplane = UserDefaults.standard.string(forKey: PrefKeys.xplanePath) ?? ""
+        guard !xplane.isEmpty else { return }
+        let root = URL(fileURLWithPath: xplane, isDirectory: true)
+        var seeds: [(name: String, url: URL)] = []
+        func consider(_ name: String, _ candidates: [URL]) {
+            let currentValue = globalConfigValues[name]?.cfgLiteral ?? ""
+            guard currentValue.isEmpty else { return }
+            for candidate in candidates
+            where FileManager.default.fileExists(atPath: candidate.path) {
+                seeds.append((name, candidate))
+                return
+            }
+        }
+        consider("custom_scenery_dir", [root.appendingPathComponent("Custom Scenery")])
+        consider("custom_overlay_src", [root.appendingPathComponent("Global Scenery")])
+        consider("cifp_data_path", [
+            root.appendingPathComponent("Custom Data/CIFP"),
+            root.appendingPathComponent("Resources/default data/CIFP"),
+        ])
+        for seed in seeds {
+            setConfigValue(seed.name, to: .string(seed.url.path))
+            console.append("Derived \(seed.name) from the X-Plane folder: \(seed.url.path)")
+        }
     }
 
     /// Options for base_elevation_source: auto + the legacy keywords +

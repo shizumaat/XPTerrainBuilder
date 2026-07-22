@@ -40,6 +40,9 @@ struct MapMainView: View {
         .onChange(of: controller.xplanePath) {
             controller.installationPacks = []
             controller.refreshInstallation()
+            // Fill empty engine paths (Custom Scenery, overlays, CIFP)
+            // from the newly chosen X-Plane folder.
+            buildModel.seedPathsFromXPlane()
         }
         .fileImporter(isPresented: $showingPicker.value, allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result {

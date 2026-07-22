@@ -68,10 +68,11 @@ struct MapMainView: View {
 
     private var subtitle: String {
         if buildModel.mode == .build {
-            guard let engine = buildModel.engine else {
+            guard buildModel.engine != nil else {
                 return "Ortho4XP engine not configured — see Settings"
             }
-            var parts = ["Ortho4XP \(engine.version)"]
+            // Engine version lives in Settings, not the main window chrome.
+            var parts: [String] = []
             let built = buildModel.built.values.filter { $0.dsfPresent }.count
             if built > 0 { parts.append("\(built.formatted()) tile\(built == 1 ? "" : "s") built") }
             if !buildModel.installed.isEmpty {

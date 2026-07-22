@@ -2488,6 +2488,7 @@ def convert_texture(
         png_file_name = out_file_name.replace("tif", "png")
         tmp_tif_file_name = os.path.join(
             FNAMES.Tmp_dir, out_file_name.replace("4326", "3857"))
+        os.makedirs(FNAMES.Tmp_dir, exist_ok=True)
     UI.vprint(
         1, "   Converting orthophoto(s) to build texture " + out_file_name + "."
     )
@@ -2581,6 +2582,9 @@ def convert_texture(
             dxt5 = True
         file_to_convert = os.path.join(FNAMES.Tmp_dir, png_file_name)
         erase_tmp_png = True
+        # Tmp_dir lives under the (possibly brand-new) data root — nothing
+        # guarantees it exists before the first texture conversion.
+        os.makedirs(FNAMES.Tmp_dir, exist_ok=True)
         big_image.save(file_to_convert)
         # If one wanted to distribute jpegs instead of dds, uncomment the
         # next line.
@@ -2627,6 +2631,9 @@ def convert_texture(
             dxt5 = True
         file_to_convert = os.path.join(FNAMES.Tmp_dir, png_file_name)
         erase_tmp_png = True
+        # Tmp_dir lives under the (possibly brand-new) data root — nothing
+        # guarantees it exists before the first texture conversion.
+        os.makedirs(FNAMES.Tmp_dir, exist_ok=True)
         big_image.save(file_to_convert)
     # finally if nothing needs to be done prior to the conversion
     else:

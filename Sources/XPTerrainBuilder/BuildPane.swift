@@ -54,14 +54,15 @@ struct BuildPane: View {
         }
     }
 
+    /// Status only — the engine version lives in Settings.
     private var engineSubtitle: String {
-        guard let engine = buildModel.engine else { return "No engine configured" }
-        var text = "Engine \(engine.version)"
-        if !buildModel.usesProtocol { text += " (legacy driver)" }
+        guard buildModel.engine != nil else { return "No engine configured" }
+        var parts: [String] = []
+        if !buildModel.usesProtocol { parts.append("legacy driver") }
         if let missing = buildModel.missingPackages, !missing.isEmpty {
-            text += " — python packages missing"
+            parts.append("python packages missing")
         }
-        return text
+        return parts.isEmpty ? "Engine ready" : parts.joined(separator: " — ")
     }
 
     private var noEngine: some View {

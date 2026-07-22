@@ -466,8 +466,9 @@ private struct ConfigItemRow: View {
     }
 }
 
-/// Path setting: editable text plus a Choose… button opening the standard
-/// file/folder picker (matching the Qt UI's browse buttons).
+/// Path setting: shows the chosen path (middle-truncated) once set, with a
+/// compact folder button to pick a new one and an ✕ to clear; an unset row
+/// shows a "Choose…" button.
 private struct PathSettingRow: View {
     let label: String
     let current: String
@@ -476,31 +477,49 @@ private struct PathSettingRow: View {
     let commit: (String) -> Void
 
     @StateObject private var showingPicker = ViewState(false)
-    @StateObject private var text = ViewState<String?>(nil)
 
     var body: some View {
-        HStack {
-            TextField(label, text: Binding(
-                get: { text.value ?? current },
-                set: { text.value = $0 }
-            ))
-            .onSubmit {
-                if let edited = text.value, edited != current { commit(edited) }
-                text.value = nil
+        LabeledContent(label) {
+            HStack(spacing: 6) {
+                if current.isEmpty {
+                    Text("Not set")
+                        .foregroundStyle(.secondary)
+                    Button("Choose…") { showingPicker.value = true }
+                } else {
+                    Text(current)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: 320, alignment: .trailing)
+                        .help(current)
+                    Button {
+                        showingPicker.value = true
+                    } label: {
+                        Image(systemName: picksDirectories ? "folder" : "doc.badge.plus")
+                    }
+                    .help(appendsWithSemicolon
+                          ? "Add another file (\";\"-separated)" : "Choose a different one")
+                    Button {
+                        commit("")
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear")
+                }
             }
-            Button("Choose…") { showingPicker.value = true }
-                .fileImporter(
-                    isPresented: $showingPicker.value,
-                    allowedContentTypes: picksDirectories ? [.folder] : [.item]
-                ) { result in
-                    if case .success(let url) = result {
-                        if appendsWithSemicolon, !current.isEmpty {
-                            commit(current + ";" + url.path)
-                        } else {
-                            commit(url.path)
-                        }
+            .fileImporter(
+                isPresented: $showingPicker.value,
+                allowedContentTypes: picksDirectories ? [.folder] : [.item]
+            ) { result in
+                if case .success(let url) = result {
+                    if appendsWithSemicolon, !current.isEmpty {
+                        commit(current + ";" + url.path)
+                    } else {
+                        commit(url.path)
                     }
                 }
+            }
         }
     }
 }

@@ -265,6 +265,16 @@ final class BuildModel: ObservableObject {
         }
     }
 
+    /// The custom build dir in the form the engine expects: a TRAILING
+    /// SEPARATOR means "create zOrtho4XP_* subfolders here"; without it the
+    /// engine uses the path verbatim as one tile's build dir and dumps the
+    /// tile's contents straight into it (legacy convention — the Qt GUI
+    /// appends the separator the same way).
+    private var engineCustomBuildDir: String {
+        guard !customBuildDir.isEmpty else { return "" }
+        return customBuildDir.hasSuffix("/") ? customBuildDir : customBuildDir + "/"
+    }
+
     var tileBaseFolder: URL? {
         guard let engine else { return nil }
         if !customBuildDir.isEmpty {
@@ -522,7 +532,7 @@ final class BuildModel: ObservableObject {
             "tiles": todo.map { [$0.lat, $0.lon] },
             "provider": buildProvider,
             "zoomlevel": buildZL,
-            "custom_build_dir": customBuildDir,
+            "custom_build_dir": engineCustomBuildDir,
             "do_vector": doVector,
             "do_imagery": doImagery,
             "do_overlays": doOverlays,
@@ -829,7 +839,7 @@ final class BuildModel: ObservableObject {
         let job = OrthoBuildJob(
             lat: tile.lat, lon: tile.lon, steps: legacySteps(),
             provider: buildProvider.isEmpty ? nil : buildProvider,
-            zl: buildZL, buildDir: customBuildDir)
+            zl: buildZL, buildDir: engineCustomBuildDir)
         console.append("=== Tile \(tile.key) ===")
         let runner = OrthoBuildRunner()
         legacyRunner = runner

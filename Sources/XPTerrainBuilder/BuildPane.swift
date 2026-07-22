@@ -69,7 +69,7 @@ struct BuildPane: View {
             Image(systemName: "globe.europe.africa")
                 .font(.system(size: 36))
                 .foregroundStyle(.tertiary)
-            Text("Point XPScenery Smith at an Ortho4XP folder to build photoscenery tiles from here.")
+            Text("No Ortho4XP engine available. The app normally uses its bundled engine — check Settings ▸ Ortho4XP if it can't be found, or choose a custom engine folder there.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

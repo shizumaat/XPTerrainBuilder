@@ -163,7 +163,7 @@ import Foundation
     func makeScratchInstall() throws -> URL {
         let source = Bundle.module.url(forResource: "Fixtures/FakeXP", withExtension: nil)!
         let scratch = FileManager.default.temporaryDirectory
-            .appendingPathComponent("XPScenerySmithTests-\(UUID().uuidString)")
+            .appendingPathComponent("XPTerrainBuilderTests-\(UUID().uuidString)")
         try FileManager.default.copyItem(at: source, to: scratch)
         return scratch
     }

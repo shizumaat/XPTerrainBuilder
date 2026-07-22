@@ -1,13 +1,13 @@
 import SwiftUI
 
 @main
-struct XPScenerySmithApp: App {
+struct XPTerrainBuilderApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var controller = AnalysisController()
     @StateObject private var buildModel = BuildModel()
 
     var body: some Scene {
-        Window("XPScenery Smith", id: "main") {
+        Window("XPTerrainBuilder", id: "main") {
             MapMainView()
                 .environmentObject(controller)
                 .environmentObject(controller.progress)
@@ -44,44 +44,14 @@ struct AppCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
-        CommandGroup(after: .newItem) {
-            Button("Re-analyze Packages in View") {
-                controller.analyze(scope: Set(controller.viewportPacks.map { $0.name }))
-            }
-            .keyboardShortcut("r", modifiers: .command)
-            .disabled(!controller.pathIsValid || controller.isRunning
-                      || controller.viewportPacks.isEmpty)
-
-            Button("Analyze Entire Installation") {
-                controller.analyze()
-            }
-            .keyboardShortcut("r", modifiers: [.command, .shift])
-            .disabled(!controller.pathIsValid || controller.isRunning)
-
-            Button("Export Report…") {
-                controller.exportReportJSON()
-            }
-            .keyboardShortcut("e", modifiers: [.command, .shift])
-            .disabled(controller.report == nil)
-        }
+        // Manage (analysis/report/modifications) commands are disabled for
+        // now along with the Manage mode itself.
         CommandGroup(after: .textEditing) {
             Button("Find") {
                 NotificationCenter.default.post(name: ToolbarSearchField.focusNotification,
                                                 object: nil)
             }
             .keyboardShortcut("f", modifiers: .command)
-        }
-        CommandGroup(after: .windowList) {
-            Button("Analysis Report") {
-                openWindow(id: "report")
-            }
-            .keyboardShortcut("1", modifiers: [.command, .option])
-            .disabled(controller.report == nil)
-
-            Button("Modifications") {
-                openWindow(id: "modifications")
-            }
-            .keyboardShortcut("2", modifiers: [.command, .option])
         }
     }
 }
@@ -122,6 +92,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         AppearanceSetting.applyCurrent()
+        // Icon comes entirely from the system pipeline now (Assets.car
+        // Liquid Glass icon + icns fallback) — no runtime overrides. Clear
+        // any custom bundle icon a previous freeform-era build assigned.
+        let path = Bundle.main.bundlePath
+        if UserDefaults.standard.string(forKey: "AppliedFreeformIcon") != nil,
+           FileManager.default.isWritableFile(atPath: path) {
+            NSWorkspace.shared.setIcon(nil, forFile: path, options: [])
+            UserDefaults.standard.removeObject(forKey: "AppliedFreeformIcon")
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

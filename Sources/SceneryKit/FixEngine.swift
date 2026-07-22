@@ -59,7 +59,7 @@ public struct ModificationLog: Sendable {
 
     public static func defaultURL() -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("XPScenerySmith", isDirectory: true)
+            .appendingPathComponent("XPTerrainBuilder", isDirectory: true)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         return base.appendingPathComponent("modifications.json")
     }

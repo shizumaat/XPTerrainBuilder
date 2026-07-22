@@ -221,9 +221,10 @@ public final class OrthoEngineClient: @unchecked Sendable {
     private let onEvent: @Sendable (O4Event) -> Void
     private let onExit: @Sendable (Int32) -> Void
 
-    /// Does this engine ship the JSON-lines transport?
+    /// Does this engine ship the JSON-lines transport? Frozen engines are
+    /// built from the dev branch and always do.
     public static func engineSupportsProtocol(_ engine: OrthoEngine) -> Bool {
-        FileManager.default.fileExists(
+        engine.isFrozen || FileManager.default.fileExists(
             atPath: engine.root.appendingPathComponent("src/o4_engine/jsonl.py").path)
     }
 
@@ -236,9 +237,15 @@ public final class OrthoEngineClient: @unchecked Sendable {
     public var isRunning: Bool { process.isRunning }
 
     public func launch(engine: OrthoEngine) throws {
-        process.executableURL = engine.pythonURL
-        process.arguments = ["-u", engine.root.appendingPathComponent("Ortho4XP.py").path,
-                             "--engine-jsonl"]
+        if let frozen = engine.frozenExecutableURL {
+            // Self-contained engine: its own Python runtime is inside.
+            process.executableURL = frozen
+            process.arguments = ["--engine-jsonl"]
+        } else {
+            process.executableURL = engine.pythonURL
+            process.arguments = ["-u", engine.root.appendingPathComponent("Ortho4XP.py").path,
+                                 "--engine-jsonl"]
+        }
         process.currentDirectoryURL = engine.root
         var env = OrthoProcessRunner.environment()
         // Arms the engine's parent-death watchdog: if this app dies, the

@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "XPScenerySmith",
+    name: "XPTerrainBuilder",
     platforms: [.macOS(.v14)],
     targets: [
         .target(
@@ -14,12 +14,12 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "XPScenerySmith",
+            name: "XPTerrainBuilder",
             dependencies: ["SceneryKit"],
             resources: [.copy("Resources/land.json"), .copy("Resources/land50.json")]
         ),
         .executableTarget(
-            name: "xpsmith-cli",
+            name: "xptb-cli",
             dependencies: ["SceneryKit"]
         ),
         .testTarget(

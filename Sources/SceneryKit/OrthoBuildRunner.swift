@@ -116,6 +116,13 @@ public final class OrthoProcessRunner: @unchecked Sendable {
     public var isRunning: Bool { process.isRunning }
     public private(set) var launched = false
 
+    /// Writable data root handed to every engine process as
+    /// ORTHO4XP_DATA_ROOT: downloads, caches, built tiles and the global
+    /// config land there instead of inside the (possibly read-only) engine
+    /// folder. The app sets this from the user's data-folder choice; nil
+    /// keeps the engine's own default (its install folder).
+    nonisolated(unsafe) public static var dataRoot: String?
+
     /// PATH extended with the Homebrew locations the engine's optional
     /// tools (gdal, 7z) usually live in — the app's own environment won't
     /// have a login shell's PATH.
@@ -129,6 +136,9 @@ public final class OrthoProcessRunner: @unchecked Sendable {
         env["PATH"] = path
         // Line-buffered engine output even through a pipe.
         env["PYTHONUNBUFFERED"] = "1"
+        if let dataRoot, !dataRoot.isEmpty {
+            env["ORTHO4XP_DATA_ROOT"] = dataRoot
+        }
         return env
     }
 
@@ -228,6 +238,12 @@ public final class OrthoBuildRunner: @unchecked Sendable {
     public func start(job: OrthoBuildJob, engine: OrthoEngine,
                       onEvent: @escaping @Sendable (OrthoBuildEvent) -> Void,
                       onExit: @escaping @Sendable (Int32) -> Void) throws {
+        // Frozen engines always speak the session protocol; the loose-script
+        // driver can't run inside them.
+        guard !engine.isFrozen else {
+            throw CocoaError(.featureUnsupported, userInfo: [
+                NSLocalizedDescriptionKey: "The bundled engine uses the session protocol, not the legacy driver."])
+        }
         guard let driver = Self.driverScriptURL() else {
             throw CocoaError(.fileNoSuchFile, userInfo: [
                 NSLocalizedDescriptionKey: "The bundled Ortho4XP driver script is missing."])
@@ -269,6 +285,9 @@ public final class OrthoBuildRunner: @unchecked Sendable {
     /// schema. Synchronous — call from a background task. Falls back to nil
     /// on any failure (caller uses the bundled snapshot).
     public static func extractSchema(engine: OrthoEngine) -> OrthoConfigSchema? {
+        // Frozen engines can't run loose scripts; the bundled snapshot —
+        // generated from the same engine sources — stands in.
+        guard !engine.isFrozen else { return nil }
         guard let script = schemaDumpScriptURL() else { return nil }
         let process = Process()
         process.executableURL = engine.pythonURL
@@ -293,6 +312,8 @@ public final class OrthoBuildRunner: @unchecked Sendable {
     /// packages the pipeline needs? Returns nil when everything is present,
     /// otherwise the missing module list.
     public static func missingPythonPackages(engine: OrthoEngine) -> [String]? {
+        // Frozen engines carry their whole runtime — nothing can be missing.
+        guard !engine.isFrozen else { return nil }
         let probe = """
         import importlib, json, sys
         missing = []

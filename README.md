@@ -1,4 +1,4 @@
-# XPScenery Smith
+# XPTerrainBuilder
 
 A native macOS app that inspects an X-Plane installation for scenery
 problems and proposes solutions — and builds photoscenery tiles by driving
@@ -7,7 +7,7 @@ the Ortho4XP engine bundled in this repository.
 This repo merges what used to be two projects:
 
 - **XPSceneryDoctor** — the SwiftUI app and its `SceneryKit` analysis
-  engine (repo root), renamed XPScenery Smith.
+  engine (repo root), renamed XPTerrainBuilder.
 - **Ortho4XP** (the `dev` branch of
   [shizumaat/Ortho4XP-novemberlima](https://github.com/shizumaat/Ortho4XP-novemberlima)) —
   vendored as a squashed snapshot under `Ortho4XP/`. The full engine
@@ -124,20 +124,22 @@ Requires macOS 14+ and the Swift toolchain (full Xcode not required).
 
 ```sh
 swift build                  # debug build
-scripts/make_app.sh          # release build -> dist/XPScenerySmith.app
+scripts/make_engine.sh       # freeze the engine (self-contained python runtime)
+scripts/make_app.sh          # release build -> dist/XPTerrainBuilder.app
+                             # embeds the frozen engine when present, else the source tree
 scripts/test.sh              # run unit tests
 ```
 
 The X-Plane path is stored in standard macOS preferences
-(`~/Library/Preferences/com.novemberlima.XPScenerySmith.plist`) and can be
+(`~/Library/Preferences/com.novemberlima.XPTerrainBuilder.plist`) and can be
 changed anytime in **Settings** (⌘,).
 
 ## Project layout
 
 ```
 Sources/SceneryKit/         Analysis + build engine glue (no UI, unit-tested)
-Sources/XPScenerySmith/     SwiftUI app
-Sources/xpsmith-cli/        Headless analysis CLI
+Sources/XPTerrainBuilder/     SwiftUI app
+Sources/xptb-cli/        Headless analysis CLI
 Ortho4XP/                   Vendored Ortho4XP engine (Python; own README,
                             tests, and install scripts)
 Tests/SceneryKitTests/      Tests + fixture fake X-Plane install + fake engine

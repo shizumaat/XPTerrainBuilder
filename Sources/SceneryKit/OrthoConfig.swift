@@ -295,6 +295,16 @@ public struct OrthoConfigFile: Sendable {
         lines.append(rendered)
     }
 
+    /// Removes a key entirely (used to revert a per-tile override back to
+    /// the inherited global value). Comments and other keys survive.
+    public mutating func remove(_ key: String) {
+        lines.removeAll { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.hasPrefix("#"), let eq = trimmed.firstIndex(of: "=") else { return false }
+            return String(trimmed[..<eq]).trimmingCharacters(in: .whitespaces) == key
+        }
+    }
+
     public func write(to url: URL) throws {
         let backup = url.appendingPathExtension("bak")
         let fm = FileManager.default

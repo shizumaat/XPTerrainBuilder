@@ -3,7 +3,7 @@ import SwiftUI
 import SceneryKit
 import os
 
-private let buildLog = Logger(subsystem: "com.novemberlima.XPScenerySmith", category: "build")
+private let buildLog = Logger(subsystem: "com.novemberlima.XPTerrainBuilder", category: "build")
 
 /// Main-window mode: the doctor (Manage) or the Ortho4XP front-end (Build).
 enum AppMode: String, CaseIterable {
@@ -113,11 +113,28 @@ final class BuildModel: ObservableObject {
 
     // MARK: Persisted settings
 
-    @AppStorage("AppMode") private var modeRaw: String = AppMode.manage.rawValue
+    /// Custom engine override. Empty = the engine bundled with the app.
     @AppStorage("OrthoEnginePath") var enginePath: String = "" {
         didSet { reloadEngine() }
     }
+    /// The user's data folder: downloads, caches, built tiles and the
+    /// engine's global config. Chosen on first run, changeable in Settings;
+    /// handed to every engine process as ORTHO4XP_DATA_ROOT.
+    @AppStorage(PrefKeys.dataRoot) var dataRootPath: String = "" {
+        didSet {
+            OrthoProcessRunner.dataRoot = dataRootPath.isEmpty ? nil : dataRootPath
+            reloadEngine()
+        }
+    }
     @AppStorage("OrthoProvider") var buildProvider: String = ""
+    /// The map's live-imagery preview source — independent of the build
+    /// provider, switchable from the toolbar (OSM base map by default).
+    @AppStorage("MapImageryPreview") var mapPreviewProvider: String = "OSM" {
+        didSet {
+            objectWillChange.send()
+            imagery.setProvider(mapPreviewProvider)
+        }
+    }
     @AppStorage("OrthoZoomLevel") var buildZL: Int = 16
     @AppStorage("OrthoCustomBuildDir") var customBuildDir: String = ""
     /// Step groups, matching the Qt build box's three checkboxes.
@@ -128,18 +145,16 @@ final class BuildModel: ObservableObject {
     /// Install finished tiles into Custom Scenery automatically.
     @AppStorage("OrthoLinkTiles") var linkTiles: Bool = true
 
-    var mode: AppMode {
-        get { AppMode(rawValue: modeRaw) ?? .manage }
-        set {
-            objectWillChange.send()
-            modeRaw = newValue.rawValue
-            if newValue == .build { connectIfNeeded() }
-        }
-    }
+    /// Manage (the scenery doctor) is disabled for now — the app always
+    /// runs the Build front-end. The Manage panes and their models stay in
+    /// the codebase for when it returns.
+    var mode: AppMode { .build }
 
     // MARK: Engine state
 
     @Published private(set) var engine: OrthoEngine?
+    /// The active engine is the copy shipped with the app (no custom path).
+    @Published private(set) var usingBundledEngine = false
     @Published private(set) var schema: OrthoConfigSchema
     @Published private(set) var providers: [OrthoEngine.Provider] = []
     @Published private(set) var missingPackages: [String]?
@@ -171,6 +186,8 @@ final class BuildModel: ObservableObject {
 
     let activity = BuildActivityModel()
     let console = BuildConsoleModel()
+    /// Live map imagery for the selected provider (Qt-map parity).
+    let imagery = ImageryModel()
 
     private var client: OrthoEngineClient?
     private var clearProgressTask: Task<Void, Never>?
@@ -185,30 +202,48 @@ final class BuildModel: ObservableObject {
     init() {
         schema = OrthoConfigSchema.bundledSnapshot()
             ?? OrthoConfigSchema(engineVersion: "", groups: [:], vars: [:])
+        OrthoProcessRunner.dataRoot = dataRootPath.isEmpty ? nil : dataRootPath
         reloadEngine()
     }
 
     // MARK: - Engine loading
 
+    /// The user's data folder as a URL; nil until first run has answered.
+    var dataRootURL: URL? {
+        dataRootPath.isEmpty ? nil : URL(fileURLWithPath: dataRootPath, isDirectory: true)
+    }
+
     func reloadEngine() {
         engineError = nil
         disconnect()
-        guard !enginePath.isEmpty else {
+        let resolved: OrthoEngine?
+        if enginePath.isEmpty {
+            // Default: the engine copy shipped with the app.
+            resolved = OrthoEngine.bundled()
+            usingBundledEngine = resolved != nil
+            if resolved == nil {
+                engineError = "The bundled Ortho4XP engine is missing from this copy of the app."
+            }
+        } else {
+            usingBundledEngine = false
+            resolved = OrthoEngine.locate(at: URL(fileURLWithPath: enginePath, isDirectory: true))
+            if resolved == nil {
+                engineError = "Not recognized as an Ortho4XP folder (needs Ortho4XP.py and src/)."
+            }
+        }
+        guard let located = resolved else {
             engine = nil
             providers = []
             missingPackages = nil
             usesProtocol = false
+            imagery.configure(providersDir: nil, extentsDir: nil, dataRoot: dataRootURL)
             return
         }
-        let root = URL(fileURLWithPath: enginePath, isDirectory: true)
-        guard let located = OrthoEngine.locate(at: root) else {
-            engine = nil
-            providers = []
-            missingPackages = nil
-            usesProtocol = false
-            engineError = "Not recognized as an Ortho4XP folder (needs Ortho4XP.py and src/)."
-            return
-        }
+        imagery.configure(
+            providersDir: located.resourcesRoot.appendingPathComponent("Providers", isDirectory: true),
+            extentsDir: located.resourcesRoot.appendingPathComponent("Extents", isDirectory: true),
+            dataRoot: dataRootURL)
+        imagery.setProvider(mapPreviewProvider)
         engine = located
         providers = located.providers()
         usesProtocol = OrthoEngineClient.engineSupportsProtocol(located)
@@ -234,6 +269,12 @@ final class BuildModel: ObservableObject {
         guard let engine else { return nil }
         if !customBuildDir.isEmpty {
             return URL(fileURLWithPath: customBuildDir, isDirectory: true)
+        }
+        // Tiles live under the data folder; the engine puts them there too
+        // (ORTHO4XP_DATA_ROOT). No data root chosen yet → the engine's own
+        // Tiles/, the pre-data-root behavior.
+        if let dataRoot = dataRootURL {
+            return dataRoot.appendingPathComponent("Tiles", isDirectory: true)
         }
         return engine.tilesDirectory
     }
@@ -560,7 +601,7 @@ final class BuildModel: ObservableObject {
 
     func reloadGlobalConfig() {
         guard let engine,
-              let file = try? OrthoConfigFile(contentsOf: engine.globalConfigURL) else {
+              let file = try? OrthoConfigFile(contentsOf: engine.globalConfigURL(dataRoot: dataRootURL)) else {
             globalConfigValues = [:]
             return
         }
@@ -571,12 +612,135 @@ final class BuildModel: ObservableObject {
         globalConfigValues[name] ?? schema.vars[name]?.default
     }
 
+    // MARK: - Tile-scope config (Qt blended-view semantics)
+    //
+    // With tiles selected on the map, tile-scope settings edit those tiles'
+    // Ortho4XP_±xx±yyy.cfg files as sparse overrides: a value equal to the
+    // global effective value REMOVES the override. With no selection they
+    // edit the global defaults. App-scope settings always edit the global
+    // config.
+
+    /// Bumped after any tile-config write so rows re-read their state.
+    @Published private(set) var tileConfigGeneration = 0
+
+    private func tileConfigURL(_ coord: TileCoord) -> URL? {
+        guard let base = tileBaseFolder else { return nil }
+        let key = TileMath.key(lat: coord.lat, lon: coord.lon)
+        return base.appendingPathComponent(OrthoEngine.tileFolderName(lat: coord.lat, lon: coord.lon))
+            .appendingPathComponent("Ortho4XP_\(key).cfg")
+    }
+
+    private func tileOverride(_ coord: TileCoord, _ name: String) -> O4Value? {
+        guard let url = tileConfigURL(coord),
+              let file = try? OrthoConfigFile(contentsOf: url) else { return nil }
+        return file.values(schema: schema)[name]
+    }
+
+    /// The selected tiles' override for one setting.
+    enum OverrideState: Equatable {
+        case none
+        /// Every selected tile carries the same override.
+        case uniform(O4Value)
+        /// Selected tiles disagree (some overridden, or different values).
+        case mixed
+    }
+
+    func overrideState(for name: String) -> OverrideState {
+        guard !selected.isEmpty else { return .none }
+        // Engine-built tiles carry COMPLETE configs — a key merely being
+        // present is not a customization. Only values that differ from the
+        // global effective value count.
+        let global = configValue(for: name)
+        var seen: [O4Value?] = []
+        for coord in selected {
+            var value = tileOverride(coord, name)
+            if let v = value, let global, v == global { value = nil }
+            seen.append(value)
+            if seen.count > 1, seen.last != seen.first { return .mixed }
+        }
+        if let first = seen.first, let value = first {
+            return .uniform(value)
+        }
+        return .none
+    }
+
+    /// The value a settings row should display for its scope: uniform tile
+    /// override when present, else the global value, else the schema default.
+    func effectiveValue(for item: SettingItem) -> O4Value? {
+        if item.scope == .tile, case .uniform(let value) = overrideState(for: item.name) {
+            return value
+        }
+        return configValue(for: item.name)
+    }
+
+    /// Writes a settings row's new value to the right place for its scope.
+    func setValue(for item: SettingItem, to value: O4Value) {
+        guard item.scope == .tile, !selected.isEmpty else {
+            setConfigValue(item.name, to: value)
+            return
+        }
+        let inherited = configValue(for: item.name)
+        for coord in selected {
+            guard let url = tileConfigURL(coord) else { continue }
+            var file = (try? OrthoConfigFile(contentsOf: url)) ?? OrthoConfigFile()
+            if let inherited, value == inherited {
+                file.remove(item.name)
+            } else {
+                file.set(item.name, to: value)
+            }
+            do {
+                try FileManager.default.createDirectory(
+                    at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try file.write(to: url)
+            } catch {
+                engineError = "Could not write \(url.lastPathComponent): \(error.localizedDescription)"
+            }
+        }
+        tileConfigGeneration += 1
+    }
+
+    /// Every config variable the current selection actually customizes —
+    /// values in tile configs that DIFFER from the global effective value.
+    /// (Engine-built tiles write complete configs; matching values aren't
+    /// customizations.) Drives the "Selected Overrides" settings sections.
+    func overriddenNames() -> Set<String> {
+        guard !selected.isEmpty else { return [] }
+        var names: Set<String> = []
+        for coord in selected {
+            guard let url = tileConfigURL(coord),
+                  let file = try? OrthoConfigFile(contentsOf: url) else { continue }
+            for (name, value) in file.values(schema: schema)
+            where configValue(for: name) != value {
+                names.insert(name)
+            }
+        }
+        return names
+    }
+
+    /// Removes the selected tiles' overrides for the given settings.
+    func revertTileOverrides(for names: [String]) {
+        for coord in selected {
+            guard let url = tileConfigURL(coord),
+                  var file = try? OrthoConfigFile(contentsOf: url) else { continue }
+            for name in names { file.remove(name) }
+            try? file.write(to: url)
+        }
+        tileConfigGeneration += 1
+    }
+
+    func revertTileOverrides(for name: String) {
+        revertTileOverrides(for: [name])
+    }
+
     func setConfigValue(_ name: String, to value: O4Value) {
         guard let engine else { return }
-        var file = (try? OrthoConfigFile(contentsOf: engine.globalConfigURL)) ?? OrthoConfigFile()
+        let configURL = engine.globalConfigURL(dataRoot: dataRootURL)
+        var file = (try? OrthoConfigFile(contentsOf: configURL)) ?? OrthoConfigFile()
         file.set(name, to: value)
         do {
-            try file.write(to: engine.globalConfigURL)
+            try FileManager.default.createDirectory(
+                at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try file.write(to: configURL)
             globalConfigValues[name] = value
         } catch {
             engineError = "Could not write Ortho4XP.cfg: \(error.localizedDescription)"

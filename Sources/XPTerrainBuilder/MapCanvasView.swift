@@ -8,6 +8,8 @@ struct MapCanvasView: View {
     @EnvironmentObject var controller: AnalysisController
     @EnvironmentObject var buildModel: BuildModel
     @EnvironmentObject var buildActivity: BuildActivityModel
+    /// Live provider imagery — observed so newly fetched tiles redraw the map.
+    @EnvironmentObject var imagery: ImageryModel
     @ObservedObject var camera: ViewState<MapCamera>
     @ObservedObject var canvasSize: ViewState<CGSize>
 
@@ -135,6 +137,11 @@ struct MapCanvasView: View {
         context.fill(landPath, with: .color(Self.land))
         context.stroke(landPath, with: .color(Self.coast), lineWidth: 1)
 
+        // Live imagery from the selected provider, over the vector land
+        // (which stays visible while tiles stream in).
+        drawImagery(context: context, size: size, cam: cam,
+                    minLon: minLon, maxLon: maxLon, minLat: minLat, maxLat: maxLat)
+
         // Tile tints — numeric compares only; batch by kind into 3 paths so
         // the frame does 3 fills, not one per tile.
         var orthoPath = Path(), meshPath = Path(), landmarkPath = Path()
@@ -239,6 +246,70 @@ struct MapCanvasView: View {
     /// with their ZL color (double inset border when installed in X-Plane,
     /// "PROV ZL*" center label), yellow selection (solid border = active
     /// tile, dashed = other selected), and per-tile progress ring badges.
+    /// Web-mercator provider tiles reprojected onto the equirectangular
+    /// canvas. Each 256px tile draws in horizontal strips (a piecewise-
+    /// linear latitude warp): one strip when the tile spans little
+    /// latitude, more near world views where mercator stretch shows.
+    private func drawImagery(context: GraphicsContext, size: CGSize, cam: MapCamera,
+                             minLon: Double, maxLon: Double,
+                             minLat: Double, maxLat: Double) {
+        guard imagery.hasActiveSource else { return }
+
+        // Tile zoom so one 256px tile is roughly screen resolution
+        // (256·2^z/360 px per degree against the camera's scale).
+        let idealZ = Int(ceil(log2(cam.scale * 360 / 256)))
+        let z = min(max(idealZ, 2), min(imagery.activeMaxZL, 19))
+        let n = 1 << z
+
+        let xMin = Int(floor(WebMercator.tileX(lon: minLon, z: z)))
+        let xMax = Int(floor(WebMercator.tileX(lon: maxLon, z: z)))
+        let yMin = max(Int(floor(WebMercator.tileY(lat: maxLat, z: z))), 0)
+        let yMax = min(Int(floor(WebMercator.tileY(lat: minLat, z: z))), n - 1)
+        guard xMax >= xMin, yMax >= yMin,
+              (xMax - xMin + 1) * (yMax - yMin + 1) <= 400 else { return }
+
+        for y in yMin...yMax {
+            let latTop = WebMercator.lat(tileY: Double(y), z: z)
+            let latBottom = WebMercator.lat(tileY: Double(y + 1), z: z)
+            let strips = max(1, min(10, Int((latTop - latBottom) / 3)))
+            for x in xMin...xMax {
+                let wrapped = ((x % n) + n) % n
+                guard let cg = imagery.image(z: z, x: wrapped, y: y) else { continue }
+                let img = Image(decorative: cg, scale: 1)
+                let left = cam.point(lon: WebMercator.lon(tileX: Double(x), z: z),
+                                     lat: 0, in: size).x
+                let right = cam.point(lon: WebMercator.lon(tileX: Double(x + 1), z: z),
+                                      lat: 0, in: size).x
+                for strip in 0..<strips {
+                    let fTop = Double(strip) / Double(strips)
+                    let fBottom = Double(strip + 1) / Double(strips)
+                    let top = cam.point(
+                        lon: 0, lat: WebMercator.lat(tileY: Double(y) + fTop, z: z),
+                        in: size).y
+                    let bottom = cam.point(
+                        lon: 0, lat: WebMercator.lat(tileY: Double(y) + fBottom, z: z),
+                        in: size).y
+                    let dest = CGRect(x: left, y: top,
+                                      width: right - left, height: bottom - top)
+                    guard dest.width > 0.1, dest.height > 0.1 else { continue }
+                    // Scale the whole tile so its rows [fTop, fBottom]
+                    // land exactly in the strip's destination rect.
+                    let fullHeight = dest.height / (fBottom - fTop)
+                    let fullRect = CGRect(x: dest.minX,
+                                          y: dest.minY - fullHeight * fTop,
+                                          width: dest.width, height: fullHeight)
+                    if strips == 1 {
+                        context.draw(img, in: fullRect)
+                    } else {
+                        var clipped = context
+                        clipped.clip(to: Path(dest))
+                        clipped.draw(img, in: fullRect)
+                    }
+                }
+            }
+        }
+    }
+
     private func drawBuildOverlays(context: GraphicsContext, size: CGSize, cam: MapCamera,
                                    minLon: Double, maxLon: Double,
                                    minLat: Double, maxLat: Double) {

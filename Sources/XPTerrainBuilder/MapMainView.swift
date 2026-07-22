@@ -29,7 +29,7 @@ struct MapMainView: View {
             }
         }
         .frame(minWidth: 900, minHeight: 620)
-        .navigationTitle("XPScenery Smith")
+        .navigationTitle("XPTerrainBuilder")
         .navigationSubtitle(subtitle)
         .toolbar { toolbarContent }
         .task {
@@ -45,6 +45,16 @@ struct MapMainView: View {
             if case .success(let url) = result {
                 controller.xplanePath = url.path
             }
+        }
+        // First run: where downloads and built tiles go. Presented until the
+        // preference is set; committing the sheet sets it.
+        .sheet(isPresented: Binding(
+            get: { buildModel.dataRootPath.isEmpty },
+            set: { _ in }
+        )) {
+            DataFolderSheet()
+                .environmentObject(buildModel)
+                .interactiveDismissDisabled()
         }
         .alert("Error", isPresented: Binding(
             get: { controller.errorMessage != nil },
@@ -84,33 +94,36 @@ struct MapMainView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        // The Manage/Build switch — both modes share the map, search and
-        // right-inspector chrome; the panes swap underneath.
-        ToolbarItem(placement: .principal) {
-            Picker("Mode", selection: modeBinding) {
-                ForEach(AppMode.allCases, id: \.self) { mode in
-                    Text(mode.label).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .help("Manage inspects your installed scenery; Build drives the Ortho4XP engine")
-        }
-        ToolbarItem(placement: .automatic) {
-            Menu {
-                // Analysis runs by itself; these force a fresh pass past the
-                // cache when something looks stale.
-                Button("Re-analyze Packages in View") {
-                    controller.analyze(scope: Set(controller.viewportPacks.map { $0.name }))
-                }
-                .disabled(controller.isRunning || controller.viewportPacks.isEmpty)
-                Button("Analyze Entire Installation") { controller.analyze() }
-                    .disabled(controller.isRunning)
-                Divider()
-                Button("Refresh Map") { controller.refreshInstallation() }
-                    .disabled(controller.isScanningInstallation)
+        // Manage (and its mode switcher) is disabled for now — the toolbar
+        // is Build-only: refresh + imagery picker up front (own buttons,
+        // away from the search cluster), search and inspector trailing.
+        ToolbarItem(placement: .navigation) {
+            Button {
+                controller.refreshInstallation()
             } label: {
-                Image(systemName: "ellipsis.circle")
+                Image(systemName: "arrow.clockwise")
             }
+            .help("Refresh the map's scenery overlays")
+            .disabled(controller.isScanningInstallation)
+        }
+        ToolbarItem(placement: .navigation) {
+            // Live map imagery source — independent of the build provider.
+            Menu {
+                Picker("Imagery Preview", selection: Binding(
+                    get: { buildModel.mapPreviewProvider },
+                    set: { buildModel.mapPreviewProvider = $0 }
+                )) {
+                    ForEach(buildModel.imagery.availableProviders, id: \.self) { code in
+                        Text(code).tag(code)
+                    }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Label(buildModel.imagery.activeLabel ?? "Imagery",
+                      systemImage: "globe.americas.fill")
+                    .labelStyle(.titleAndIcon)
+            }
+            .help("Choose which imagery source the map previews — independent of the provider used for building")
         }
         // Trailing edge, per the HIG (Finder/Mail put search last).
         ToolbarItem(placement: .automatic) {
@@ -119,6 +132,11 @@ struct MapMainView: View {
                                    ? "Airport or tile like +48-006" : "Search",
                                onSubmit: performSearch)
                 .frame(width: 220)
+        }
+        // Keep the panel toggle its own control, not glued to the search
+        // cluster (modern macOS groups adjacent trailing items).
+        if #available(macOS 26.0, *) {
+            ToolbarSpacer(.fixed, placement: .automatic)
         }
         ToolbarItem(placement: .automatic) {
             Button {
@@ -194,6 +212,7 @@ struct MapMainView: View {
                 .environmentObject(controller.progress)
                 .environmentObject(buildModel)
                 .environmentObject(buildModel.activity)
+                .environmentObject(buildModel.imagery)
         } second: {
             // Same slot both modes: results while managing, the engine
             // console while building.
@@ -227,10 +246,6 @@ struct MapMainView: View {
         }
     }
 
-    private var modeBinding: Binding<AppMode> {
-        Binding(get: { buildModel.mode }, set: { buildModel.mode = $0 })
-    }
-
     private var inspectorBinding: Binding<Bool> {
         Binding(
             get: { inspectorShown.value },
@@ -248,7 +263,7 @@ struct MapMainView: View {
             Image(systemName: "stethoscope")
                 .font(.system(size: 44))
                 .foregroundStyle(.tint)
-            Text("XPScenery Smith")
+            Text("XPTerrainBuilder")
                 .font(.title2.weight(.semibold))
             Text("Select your X-Plane folder to get started.")
                 .foregroundStyle(.secondary)

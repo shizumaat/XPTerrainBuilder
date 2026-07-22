@@ -3,13 +3,16 @@ import SwiftUI
 import SceneryKit
 import os
 
-private let appLog = Logger(subsystem: "com.novemberlima.XPScenerySmith", category: "app")
+private let appLog = Logger(subsystem: "com.novemberlima.XPTerrainBuilder", category: "app")
 
 /// UserDefaults key for the X-Plane root path. Lives in the app's standard
-/// preferences plist (~/Library/Preferences/com.novemberlima.XPScenerySmith.plist
+/// preferences plist (~/Library/Preferences/com.novemberlima.XPTerrainBuilder.plist
 /// when run from the bundle).
 enum PrefKeys {
     static let xplanePath = "XPlanePath"
+    /// Where downloads, caches and built tiles live (ORTHO4XP_DATA_ROOT).
+    /// Empty until the first-run prompt has been answered.
+    static let dataRoot = "DataRootPath"
 }
 
 /// High-frequency progress state, isolated from AnalysisController so a
@@ -525,7 +528,7 @@ final class AnalysisController: ObservableObject {
 
     static var reportFileURL: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("XPScenerySmith", isDirectory: true)
+            .appendingPathComponent("XPTerrainBuilder", isDirectory: true)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         return base.appendingPathComponent("last-report.json")
     }
@@ -868,7 +871,7 @@ final class AnalysisController: ObservableObject {
     func exportReportJSON() {
         guard let report else { return }
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = "XPScenerySmith-report.json"
+        panel.nameFieldStringValue = "XPTerrainBuilder-report.json"
         panel.allowedContentTypes = [.json]
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {

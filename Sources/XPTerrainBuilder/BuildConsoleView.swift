@@ -21,11 +21,6 @@ struct BuildConsoleView: View {
         HStack(spacing: 8) {
             Text("Build Console")
                 .font(.headline)
-            if let engine = buildModel.engine {
-                Text("Ortho4XP \(engine.version)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
             Spacer()
             Button {
                 buildModel.console.clear()

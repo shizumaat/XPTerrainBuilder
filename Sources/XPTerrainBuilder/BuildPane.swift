@@ -24,6 +24,9 @@ struct BuildPane: View {
     @State private var combinedAudit: TileTextureAudit.Combined?
     @State private var combinedConflictCoords: [BuildModel.TileCoord] = []
     @State private var showingCombinedConflict = false
+    /// Other installed ortho/mesh packages covering the active tile
+    /// (gray-outlined on the map) with that tile's DSF modification date.
+    @State private var otherScenery: [(name: String, dsfDate: Date?)] = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -65,6 +68,9 @@ struct BuildPane: View {
         }
         .task(id: imageryAuditKey) {
             await refreshTextureAudit()
+        }
+        .task(id: "\(buildModel.activeTile?.key ?? "")|\(controller.mapOverlays.regions.count)") {
+            await refreshOtherScenery()
         }
         .task(id: "\(buildModel.selected.sorted().map(\.key).joined(separator: ","))|\(buildModel.built.count)") {
             await refreshCombinedAudit()
@@ -149,6 +155,14 @@ struct BuildPane: View {
             detailRow("Imagery updated", dateText(info?.imageryDate))
             if let dem = info?.customDEM, !dem.isEmpty {
                 detailRow("Elevation", (dem as NSString).lastPathComponent)
+            }
+            // Other installed ortho/mesh packages covering this tile.
+            ForEach(otherScenery, id: \.name) { item in
+                detailRow("Other scenery", item.name)
+                    .help(item.name)
+                detailRow("DSF modified", item.dsfDate.map {
+                    $0.formatted(date: .abbreviated, time: .shortened)
+                } ?? "—")
             }
             Toggle("Installed in X-Plane", isOn: Binding(
                 get: { buildModel.isInstalled(active) },
@@ -400,6 +414,41 @@ struct BuildPane: View {
             // rescan needed.
             if let tile { buildModel.reauditConflict(for: tile) }
         }
+    }
+
+    /// Other installed ortho/mesh packages covering the active tile, with
+    /// the modification date of their DSF for that tile. Our own installed
+    /// tile links (into the working dir) are excluded, matching the map.
+    private func refreshOtherScenery() async {
+        guard let active = buildModel.activeTile else {
+            otherScenery = []
+            return
+        }
+        let tileKey32 = Int32((active.lat + 90) * 360 + (active.lon + 180))
+        let basePath = buildModel.tileBaseFolder?.path
+        let builtDirs = Set(buildModel.built.values.map(\.buildDir))
+        let covering = controller.mapOverlays.regions
+            .filter { region in
+                guard region.tileKeys.contains(tileKey32) else { return false }
+                if builtDirs.contains(region.contentRootPath) { return false }
+                if let basePath, let resolved = region.resolvedPath,
+                   resolved.hasPrefix(basePath) { return false }
+                return true
+            }
+            .map { (name: $0.packName, root: $0.contentRootPath) }
+        let key = active.key
+        let folder = String(format: "%+03d%+04d",
+                            Int(floor(Double(active.lat) / 10.0)) * 10,
+                            Int(floor(Double(active.lon) / 10.0)) * 10)
+        otherScenery = await Task.detached(priority: .utility) {
+            covering.map { entry in
+                let dsf = URL(fileURLWithPath: entry.root)
+                    .appendingPathComponent("Earth nav data/\(folder)/\(key).dsf")
+                let date = (try? FileManager.default.attributesOfItem(
+                    atPath: dsf.path)[.modificationDate]) as? Date
+                return (name: entry.name, dsfDate: date)
+            }
+        }.value
     }
 
     /// Full audit (with sizes) of every selected built tile, aggregated —

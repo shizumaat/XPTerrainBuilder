@@ -104,6 +104,22 @@ enum LandData {
 /// Everything the map needs, precomputed ONCE per installation scan.
 /// Rebuilding this per frame (or string-parsing tile keys in the draw loop)
 /// is what makes dragging jerky — the draw path only does numeric compares.
+/// Toolbar filter for the map's ortho layers: the app's own built tiles,
+/// other installed ortho/mesh packages (gray outlines), or both.
+enum MapSceneryFilter: String, CaseIterable {
+    case all
+    case builtOnly = "built"
+    case othersOnly = "others"
+
+    var label: String {
+        switch self {
+        case .all: return "All"
+        case .builtOnly: return "Ortho4XP tiles"
+        case .othersOnly: return "Other ortho"
+        }
+    }
+}
+
 struct MapOverlays: Sendable {
     struct Airport: Identifiable, Sendable {
         var id: String { icao + packName }
@@ -166,6 +182,52 @@ struct MapOverlays: Sendable {
         }
     }
 
+    /// An installed ortho/mesh package (SpainUHD, UHD Mesh, foreign zOrtho
+    /// tiles…) drawn as a gray boundary outline so its coverage — a whole
+    /// country or a single tile — and overlap with our own built tiles is
+    /// visible. The app's own installed tile links are filtered out at draw
+    /// time via resolvedPath (they are already the colored build squares).
+    struct SceneryRegion: Sendable {
+        let packName: String
+        let contentRootPath: String
+        /// Symlink target when the pack folder is a link (nil = real dir).
+        let resolvedPath: String?
+        /// (lat + 90) * 360 + (lon + 180), like PackBounds.tileKeys.
+        let tileKeys: Set<Int32>
+        /// Outer boundary: tile edges with no same-pack neighbour.
+        let edges: [(a: GeoPoint, b: GeoPoint)]
+    }
+
+    static func makeRegion(pack: SceneryPack, tileKeys: Set<Int32>) -> SceneryRegion {
+        func key(_ lat: Int, _ lon: Int) -> Int32 {
+            let wrapped = lon >= 180 ? lon - 360 : (lon < -180 ? lon + 360 : lon)
+            return Int32((lat + 90) * 360 + wrapped + 180)
+        }
+        var edges: [(a: GeoPoint, b: GeoPoint)] = []
+        for k in tileKeys {
+            let lat = Int(k) / 360 - 90
+            let lon = Int(k) % 360 - 180
+            let x = Double(lon), y = Double(lat)
+            if !tileKeys.contains(key(lat + 1, lon)) { // north
+                edges.append((GeoPoint(lon: x, lat: y + 1), GeoPoint(lon: x + 1, lat: y + 1)))
+            }
+            if !tileKeys.contains(key(lat - 1, lon)) { // south
+                edges.append((GeoPoint(lon: x, lat: y), GeoPoint(lon: x + 1, lat: y)))
+            }
+            if !tileKeys.contains(key(lat, lon + 1)) { // east
+                edges.append((GeoPoint(lon: x + 1, lat: y), GeoPoint(lon: x + 1, lat: y + 1)))
+            }
+            if !tileKeys.contains(key(lat, lon - 1)) { // west
+                edges.append((GeoPoint(lon: x, lat: y), GeoPoint(lon: x, lat: y + 1)))
+            }
+        }
+        return SceneryRegion(packName: pack.name,
+                             contentRootPath: pack.contentRoot.path,
+                             resolvedPath: pack.resolvedURL?.path,
+                             tileKeys: tileKeys,
+                             edges: edges)
+    }
+
     /// Where a small-footprint pack lives, for a kind-colored map mark.
     /// Position is the centroid of its covered tiles — tile-resolution until
     /// DSF placement parsing lands (the LOAD_CENTER prerequisite) and can
@@ -181,6 +243,7 @@ struct MapOverlays: Sendable {
     var airports: [Airport] = []
     var packBounds: [PackBounds] = []
     var markers: [Marker] = []
+    var regions: [SceneryRegion] = []
     /// Packs with no geographic footprint (libraries, plugin-only packs)
     /// plus Laminar packs (excluded from map DRAWING, but still part of the
     /// load order): they belong to every viewport — hiding them made the
@@ -230,6 +293,10 @@ struct MapOverlays: Sendable {
                 packBounds.append(PackBounds(pack: pack, minLat: minLat, maxLat: maxLat,
                                              minLon: minLon, maxLon: maxLon,
                                              tileKeys: tileKeys, airportPoints: airportPoints))
+                if pack.isInstalled, pack.kind == .ortho || pack.kind == .mesh,
+                   !tileKeys.isEmpty {
+                    regions.append(Self.makeRegion(pack: pack, tileKeys: tileKeys))
+                }
                 // Landmark-style packs with a footprint of a tile or two get
                 // a point mark; airports already have their own marks, and
                 // wide overlays are communicated by the tile tint.

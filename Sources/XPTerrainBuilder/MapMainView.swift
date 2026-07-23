@@ -6,6 +6,7 @@ import SceneryKit
 /// results in the bottom third.
 struct MapMainView: View {
     @EnvironmentObject var controller: AnalysisController
+    @AppStorage("MapSceneryFilter") private var sceneryFilterRaw = MapSceneryFilter.all.rawValue
     @EnvironmentObject var buildModel: BuildModel
     @StateObject private var searchText = ViewState("")
     @StateObject private var showingPicker = ViewState(false)
@@ -109,6 +110,17 @@ struct MapMainView: View {
             }
             .help("Refresh the map's scenery overlays")
             .disabled(controller.isScanningInstallation)
+        }
+        ToolbarItem(placement: .navigation) {
+            // Which ortho layers the map shows: our built tiles, other
+            // installed ortho/mesh packages (gray outlines), or both.
+            Picker("Scenery", selection: $sceneryFilterRaw) {
+                ForEach(MapSceneryFilter.allCases, id: \.rawValue) { filter in
+                    Text(filter.label).tag(filter.rawValue)
+                }
+            }
+            .pickerStyle(.menu)
+            .help("Show your Ortho4XP-built tiles, other installed ortho/mesh packages, or both")
         }
         ToolbarItem(placement: .navigation) {
             // Live map imagery source — independent of the build provider.

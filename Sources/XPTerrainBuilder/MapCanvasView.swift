@@ -14,6 +14,10 @@ struct MapCanvasView: View {
     @ObservedObject var canvasSize: ViewState<CGSize>
 
     private var overlays: MapOverlays { controller.mapOverlays }
+    @AppStorage("MapSceneryFilter") private var sceneryFilterRaw = MapSceneryFilter.all.rawValue
+    private var sceneryFilter: MapSceneryFilter {
+        MapSceneryFilter(rawValue: sceneryFilterRaw) ?? .all
+    }
 
     @StateObject private var dragAnchor = ViewState<MapCamera?>(nil)
 
@@ -25,6 +29,7 @@ struct MapCanvasView: View {
     static let gridMajor = Color(red: 0.55, green: 0.63, blue: 0.75).opacity(0.34)
     static let magenta = Color(red: 0.78, green: 0.25, blue: 0.47)
     static let tintOrtho = Color(red: 0.85, green: 0.55, blue: 0.20)
+    static let regionOutline = Color(white: 0.62).opacity(0.85)
     static let tintMesh = Color(red: 0.30, green: 0.65, blue: 0.45)
     static let tintLandmark = Color(red: 0.30, green: 0.55, blue: 0.90)
     static let selection = Color.white
@@ -164,9 +169,35 @@ struct MapCanvasView: View {
         context.fill(meshPath, with: .color(Self.tintMesh.opacity(0.22)))
         context.fill(landmarkPath, with: .color(Self.tintLandmark.opacity(0.22)))
 
-        if buildModel.mode == .build {
+        if buildModel.mode == .build, sceneryFilter != .othersOnly {
             drawBuildOverlays(context: context, size: size, cam: cam,
                               minLon: minLon, maxLon: maxLon, minLat: minLat, maxLat: maxLat)
+        }
+
+        // Other installed ortho/mesh packages (SpainUHD, meshes, foreign
+        // zOrtho tiles): gray boundary outlines showing their coverage and
+        // overlap. Our own tiles are skipped — they are already the colored
+        // squares: a pack is "ours" when its folder is one of the engine
+        // scan's build dirs (covers building straight into Custom Scenery)
+        // or a symlink into the working dir.
+        if sceneryFilter != .builtOnly {
+            let basePath = buildModel.tileBaseFolder?.path
+            let builtDirs = Set(buildModel.built.values.map(\.buildDir))
+            var regionPath = Path()
+            for region in overlays.regions {
+                if builtDirs.contains(region.contentRootPath) { continue }
+                if let basePath, let resolved = region.resolvedPath,
+                   resolved.hasPrefix(basePath) { continue }
+                for edge in region.edges {
+                    guard max(edge.a.lon, edge.b.lon) > minLon,
+                          min(edge.a.lon, edge.b.lon) < maxLon,
+                          max(edge.a.lat, edge.b.lat) > minLat,
+                          min(edge.a.lat, edge.b.lat) < maxLat else { continue }
+                    regionPath.move(to: cam.point(lon: edge.a.lon, lat: edge.a.lat, in: size))
+                    regionPath.addLine(to: cam.point(lon: edge.b.lon, lat: edge.b.lat, in: size))
+                }
+            }
+            context.stroke(regionPath, with: .color(Self.regionOutline), lineWidth: 1.5)
         }
 
         // Graticule: 10° always, 1° when zoomed in.

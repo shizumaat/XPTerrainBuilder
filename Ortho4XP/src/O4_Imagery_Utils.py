@@ -1024,12 +1024,22 @@ def http_request_to_image(width, height, url, request_headers, http_session):
     r = False
     while True:
         try:
+            fetch_t0 = time.time()
             if request_headers:
                 r = http_session.get(
                     url, timeout=http_timeout, headers=request_headers
                 )
             else:
                 r = http_session.get(url, timeout=http_timeout)
+            # Feed the download meter: current network throughput for the
+            # build-time estimate (content is already fully read here —
+            # non-streaming get).
+            try:
+                from o4_engine import download_meter
+                download_meter.record(
+                    len(r.content or b""), time.time() - fetch_t0)
+            except Exception:
+                pass
             status_code = str(r)
             # Bing white image with small camera or Arcgis no data yet =>
             # try to downsample to lower ZL

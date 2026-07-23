@@ -138,8 +138,11 @@ def _normalize_bounding_boxes(bounding_box) -> List[_BoundingBox]:
 
 def _tags_match(tags: "osmium.osm.TagList", matchers: List[_Matcher]) -> bool:
     """True when any matcher's key is present (and its value equals, when
-    the matcher carries one)."""
+    the matcher carries one).  The ``("*", None)`` matcher matches every
+    element — the clip builder's tag-agnostic selection."""
     for key, value in matchers:
+        if key == "*":
+            return True
         actual = tags.get(key)
         if actual is None:
             continue
@@ -399,19 +402,95 @@ def filter_extracts_to_osm_xml(
     """
     matchers = _parse_statements(statements)
     bounding_boxes = _normalize_bounding_boxes(bounding_box)
+    merged_nodes, merged_ways, merged_rels = _merge_extracts(
+        extract_paths, matchers, bounding_boxes)
+    return _serialize(merged_nodes, merged_ways, merged_rels)
 
+
+def _merge_extracts(extract_paths, matchers, bounding_boxes):
+    """Three-pass filter every extract and merge, first file wins."""
     merged_nodes: Dict[int, _NodeData] = {}
     merged_ways: Dict[int, _WayData] = {}
     merged_rels: Dict[int, _RelData] = {}
-
     for path in extract_paths:
         nodes, ways, rels = _process_extract(path, matchers, bounding_boxes)
-        # First file wins: setdefault only fills ids not already present.
         for node_id, data in nodes.items():
             merged_nodes.setdefault(node_id, data)
         for way_id, data in ways.items():
             merged_ways.setdefault(way_id, data)
         for rel_id, data in rels.items():
             merged_rels.setdefault(rel_id, data)
+    return merged_nodes, merged_ways, merged_rels
 
-    return _serialize(merged_nodes, merged_ways, merged_rels)
+
+# Tag-agnostic matchers: select EVERYTHING touching the bbox, with full
+# closure — the superset any statement query over a sub-box can need.
+_MATCH_ALL: _Matchers = {
+    "node": [("*", None)],
+    "way": [("*", None)],
+    "relation": [("*", None)],
+}
+
+
+def clip_extracts_to_pbf(
+    extract_paths: Iterable[str],
+    bounding_box,
+    output_path: str,
+) -> None:
+    """Write a merged, bbox-clipped extract covering every element any
+    statement query over a sub-box of ``bounding_box`` could select.
+
+    The clip applies the same selection semantics as a query — bbox touch
+    plus full downward closure — but tag-agnostically, so filtering the
+    clip with any statements and any bbox INSIDE the clip box is
+    byte-identical to filtering the original extracts (selection there
+    only ever needs elements the clip retained).  Serving the repeated
+    per-tile query rounds (water, roads, airports, ...) from a clip a few
+    MB in size replaces re-decoding hundreds of MB of country pbf per
+    round.
+
+    Memory note: the clip transiently holds the whole area's elements in
+    Python dicts — a dense metropolitan 1° tile can reach a couple of GB;
+    comparable to the mesh step's own peak and released immediately.
+
+    Raises ExtractFilterError on any read/write failure; the temp file is
+    removed and ``output_path`` is only ever replaced atomically.
+    """
+    bounding_boxes = _normalize_bounding_boxes(bounding_box)
+    nodes, ways, rels = _merge_extracts(
+        extract_paths, _MATCH_ALL, bounding_boxes)
+    # The suffix must stay format-recognizable: SimpleWriter infers the
+    # output format from the file name.
+    temporary_path = "%s.tmp-%d.osm.pbf" % (output_path, os.getpid())
+    try:
+        if os.path.exists(temporary_path):
+            os.remove(temporary_path)   # SimpleWriter refuses to overwrite
+        writer = osmium.SimpleWriter(temporary_path)
+        try:
+            # Stream order nodes -> ways -> relations: the selection
+            # handler relies on it exactly as with Geofabrik files.
+            for node_id in sorted(nodes):
+                lat, lon, tags = nodes[node_id]
+                writer.add_node(osmium.osm.mutable.Node(
+                    id=node_id, location=(lon, lat), tags=tags))
+            for way_id in sorted(ways):
+                refs, tags = ways[way_id]
+                writer.add_way(osmium.osm.mutable.Way(
+                    id=way_id, nodes=refs, tags=tags))
+            for rel_id in sorted(rels):
+                members, tags = rels[rel_id]
+                writer.add_relation(osmium.osm.mutable.Relation(
+                    id=rel_id, members=members, tags=tags))
+        finally:
+            writer.close()
+        os.replace(temporary_path, output_path)
+    except ExtractFilterError:
+        raise
+    except Exception as e:
+        try:
+            os.remove(temporary_path)
+        except OSError:
+            pass
+        raise ExtractFilterError(
+            "could not write clip " + str(output_path) + ": " + str(e)
+        ) from e

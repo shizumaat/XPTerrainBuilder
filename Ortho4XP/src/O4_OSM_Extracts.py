@@ -537,14 +537,20 @@ def osm_xml_from_local_extracts(statements, bounding_box,
             return None
         import O4_OSM_Extract_Filter as FILTER
 
+        source_files = [_region_file(region_id) for (region_id, _url) in regions]
+        clip_file = _clip_for_query(regions, boxes)
+        if clip_file is not None:
+            source_files = [clip_file]
         label = f" ({request_description})" if request_description else ""
         UI.vprint(
             1,
-            f"      Filtering OSM data{label} from regional extract(s):",
-            ", ".join(region_id for (region_id, _url) in regions),
+            f"      Filtering OSM data{label} from",
+            "the clipped area cache" if clip_file is not None
+            else "regional extract(s): "
+            + ", ".join(region_id for (region_id, _url) in regions),
         )
         return FILTER.filter_extracts_to_osm_xml(
-            [_region_file(region_id) for (region_id, _url) in regions],
+            source_files,
             statements,
             boxes,
         )
@@ -594,6 +600,16 @@ def _download_extract(region_id: str, pbf_url: str,
                     "Content-Length", 0))
             except (AttributeError, TypeError, ValueError):
                 total_bytes = 0
+            try:
+                from o4_engine import download_meter as METER
+            except Exception:
+                METER = None
+            if METER is not None and foreground:
+                # Foreground downloads block the build: register with
+                # the meter so the ETA prices the unmoved bytes at the
+                # measured throughput.
+                METER.begin("extract:" + region_id, total_bytes)
+            chunk_t0 = time.time()
             with open(temporary_path, "wb") as extract_file:
                 for chunk in response.iter_content(DOWNLOAD_CHUNK_BYTES):
                     if UI.red_flag:
@@ -605,6 +621,12 @@ def _download_extract(region_id: str, pbf_url: str,
                         break
                     extract_file.write(chunk)
                     received += len(chunk)
+                    if METER is not None:
+                        now = time.time()
+                        METER.record(len(chunk), now - chunk_t0)
+                        chunk_t0 = now
+                        if foreground:
+                            METER.update("extract:" + region_id, received)
                     if foreground and total_bytes > 0:
                         # In-band download blocks the vector step: drive
                         # its bar so the front ends' progress ring moves
@@ -667,6 +689,13 @@ def _download_extract(region_id: str, pbf_url: str,
         except OSError:
             pass
         return False
+    finally:
+        if foreground:
+            try:
+                from o4_engine import download_meter as METER
+                METER.end("extract:" + region_id)
+            except Exception:
+                pass
 
 
 def _regions_to_refresh() -> list:
@@ -735,6 +764,108 @@ def _maintenance_loop() -> None:
                 if url:
                     _download_extract(region_id, url)
         time.sleep(WANTED_RESCAN_SECONDS)
+
+
+# ---------------------------------------------------------------------------
+# Per-area clip cache
+# ---------------------------------------------------------------------------
+# Padding past the enclosing integer-degree box, so every query a tile
+# build issues (tile bbox + epsilon, airport-inset footprints reaching a
+# little over the border) stays INSIDE the clip box.
+_CLIP_PAD_DEGREES = 0.05
+
+
+def _clip_directory() -> str:
+    return _store_path("clips")
+
+
+def _clip_bounding_box(boxes) -> tuple:
+    """Integer-degree box enclosing every query box, padded."""
+    import math
+
+    lat_min = min(box[0] for box in boxes)
+    lon_min = min(box[1] for box in boxes)
+    lat_max = max(box[2] for box in boxes)
+    lon_max = max(box[3] for box in boxes)
+    return (math.floor(lat_min) - _CLIP_PAD_DEGREES,
+            math.floor(lon_min) - _CLIP_PAD_DEGREES,
+            math.ceil(lat_max) + _CLIP_PAD_DEGREES,
+            math.ceil(lon_max) + _CLIP_PAD_DEGREES)
+
+
+def _clip_path(regions, clip_box) -> str:
+    """Clip file path, keyed by area + the exact extract files it was cut
+    from (id, size, mtime): a re-downloaded extract changes the key, so
+    stale clips can never serve."""
+    import hashlib
+
+    digest = hashlib.sha1()
+    for region_id, _url in regions:
+        stat = os.stat(_region_file(region_id))
+        digest.update(("%s|%d|%d;" % (
+            region_id, stat.st_size, int(stat.st_mtime))).encode())
+    digest.update(repr(clip_box).encode())
+    prefix = "clip_%+04d%+05d" % (
+        int(round(clip_box[0] + _CLIP_PAD_DEGREES)),
+        int(round(clip_box[1] + _CLIP_PAD_DEGREES)))
+    return os.path.join(
+        _clip_directory(),
+        "%s_%s.osm.pbf" % (prefix, digest.hexdigest()[:12]))
+
+
+def _prune_stale_clips(keep_path: str) -> None:
+    """Drop other clips for the same area (superseded by a re-download)."""
+    prefix = os.path.basename(keep_path).rsplit("_", 1)[0]
+    try:
+        for name in os.listdir(_clip_directory()):
+            if (name.startswith(prefix + "_")
+                    and name.endswith(".osm.pbf")
+                    and os.path.join(_clip_directory(), name) != keep_path):
+                os.remove(os.path.join(_clip_directory(), name))
+    except OSError:
+        pass
+
+
+def _clip_for_query(regions, boxes) -> Optional[str]:
+    """Path of the area clip covering the query boxes, building it on
+    first use (one full read of the covering extracts — the same cost as
+    a single query round — repaid by every later round reading a few MB
+    instead).  ``None`` on any failure: the caller filters the full
+    extracts exactly as before.
+    """
+    try:
+        clip_box = _clip_bounding_box(boxes)
+        path = _clip_path(regions, clip_box)
+        if os.path.isfile(path):
+            return path
+        import O4_OSM_Extract_Filter as FILTER
+
+        started = time.time()
+        UI.vprint(
+            1,
+            "      Cutting a clipped OSM cache for this area "
+            "(one-time per area and extract refresh)...",
+        )
+        os.makedirs(_clip_directory(), exist_ok=True)
+        FILTER.clip_extracts_to_pbf(
+            [_region_file(region_id) for (region_id, _url) in regions],
+            clip_box,
+            path,
+        )
+        UI.vprint(
+            1,
+            "      ...clipped OSM cache ready (%.0f s, %d MB)."
+            % (time.time() - started, os.path.getsize(path) >> 20),
+        )
+        _prune_stale_clips(path)
+        return path
+    except Exception as error:
+        UI.vprint(
+            1,
+            "      Clipped OSM cache unavailable (%s); filtering the "
+            "full extracts." % error,
+        )
+        return None
 
 
 def _foreground_index_refresh_once() -> bool:

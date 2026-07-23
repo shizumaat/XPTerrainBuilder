@@ -330,6 +330,21 @@ class _EtaTracker:
 
     # -- read ------------------------------------------------------------
     def _current_step_remaining(self):
+        """Model/bar estimate, floored by any active measured download:
+        while a foreground extract streams, its unmoved bytes priced at
+        the meter's throughput are a HARD lower bound no compute model
+        can undercut."""
+        base = self._current_step_remaining_base()
+        try:
+            from . import download_meter
+            active = download_meter.active_remaining_seconds()
+        except Exception:
+            active = None
+        if active is not None:
+            return max(base, active)
+        return base
+
+    def _current_step_remaining_base(self):
         from .tile_time_model import remaining_step_seconds
 
         if self.step_key is None or self.step_started_at is None:

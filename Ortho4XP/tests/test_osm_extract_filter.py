@@ -328,3 +328,54 @@ def test_single_box_tuple_and_one_element_list_are_equivalent(tmp_path):
         [path], ['way["building"]'], [BBOX]
     )
     assert as_tuple == as_list
+
+
+# ---------------------------------------------------------------------------
+# Clip cache: filtering a clip must be byte-identical to filtering the
+# original extracts, for any statements and any bbox inside the clip box.
+# ---------------------------------------------------------------------------
+
+
+def _mixed_fixture(tmp_path):
+    body = (
+        _node(1, "0.5", "0.5", {"aeroway": "aerodrome"})
+        + _node(2, "0.6", "0.6")
+        + _node(3, "9.0", "9.0")          # far outside any query bbox
+        + _node(4, "9.1", "9.1")
+        + _way(50, [3, 4])                # entirely outside
+        + _node(5, "0.4", "0.4")
+        + _way(51, [2, 5], {"natural": "water"})
+        + _way(52, [1, 2], {"highway": "primary"})
+        + _relation(
+            100,
+            [("way", 50, "outer"), ("way", 51, "outer")],
+            {"waterway": "riverbank"},
+        )
+    )
+    return _write(tmp_path, "mixed.osm", body)
+
+
+def test_clip_serves_identical_results(tmp_path):
+    source = _mixed_fixture(tmp_path)
+    clip = str(tmp_path / "clip.osm.pbf")
+    # Clip box encloses the query bbox with margin, like production.
+    FILTER.clip_extracts_to_pbf([source], (-0.05, -0.05, 1.05, 1.05), clip)
+
+    for statements in (
+        ['way["natural"="water"]'],
+        ['rel["waterway"="riverbank"]'],
+        ['node["aeroway"]', 'way["highway"]'],
+    ):
+        direct = FILTER.filter_extracts_to_osm_xml([source], statements, BBOX)
+        via_clip = FILTER.filter_extracts_to_osm_xml([clip], statements, BBOX)
+        assert via_clip == direct, statements
+
+
+def test_clip_write_failure_raises_and_cleans_up(tmp_path):
+    source = _mixed_fixture(tmp_path)
+    target_dir = tmp_path / "missing-dir"
+    with pytest.raises(FILTER.ExtractFilterError):
+        FILTER.clip_extracts_to_pbf(
+            [source], (-0.05, -0.05, 1.05, 1.05),
+            str(target_dir / "clip.osm.pbf"))
+    assert not target_dir.exists()

@@ -204,6 +204,24 @@ final class BuildModel: ObservableObject {
             ?? OrthoConfigSchema(engineVersion: "", groups: [:], vars: [:])
         OrthoProcessRunner.dataRoot = dataRootPath.isEmpty ? nil : dataRootPath
         reloadEngine()
+        loadCachedTileStates()
+    }
+
+    /// Optimistic launch for the build map: last session's built/installed
+    /// tile squares appear immediately (the engine takes seconds just to
+    /// boot); the first rescan revalidates and ScanDone swaps in the truth.
+    private func loadCachedTileStates() {
+        guard built.isEmpty, installed.isEmpty,
+              let base = tileBaseFolder,
+              let cached = TileScanCache.load(
+                  workingDir: base.path, customSceneryDir: customSceneryPath)
+        else { return }
+        for info in cached.built {
+            built[TileCoord(lat: info.lat, lon: info.lon)] = info
+        }
+        for pair in cached.installed where pair.count == 2 {
+            installed.insert(TileCoord(lat: pair[0], lon: pair[1]))
+        }
     }
 
     // MARK: - Engine loading
@@ -383,6 +401,12 @@ final class BuildModel: ObservableObject {
             installed = scanAccumInstalled
             isScanning = false
             scanPhase = ""
+            if let base = tileBaseFolder {
+                TileScanCache.save(
+                    built: Array(built.values),
+                    installed: installed.map { [$0.lat, $0.lon] },
+                    workingDir: base.path, customSceneryDir: customSceneryPath)
+            }
         case .tileState(let lat, let lon, let state, let label, let percent):
             let coord = TileCoord(lat: lat, lon: lon)
             let state = TileProgress.State(rawValue: state) ?? .queued

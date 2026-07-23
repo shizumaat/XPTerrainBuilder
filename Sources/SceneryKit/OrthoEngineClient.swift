@@ -163,7 +163,7 @@ public struct O4Reply: Sendable {
 
 /// A built tile as the engine's scanner reports it (O4_Tile_Info.TileInfo,
 /// delivered in ScanBatch.built triples and tile_info replies).
-public struct O4TileInfo: Sendable, Equatable {
+public struct O4TileInfo: Sendable, Equatable, Codable {
     public let lat: Int
     public let lon: Int
     public let buildDir: String

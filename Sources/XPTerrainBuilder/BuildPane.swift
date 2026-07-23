@@ -27,6 +27,7 @@ struct BuildPane: View {
     /// Other installed ortho/mesh packages covering the active tile
     /// (gray-outlined on the map) with that tile's DSF modification date.
     @State private var otherScenery: [(name: String, dsfDate: Date?)] = []
+    @State private var showingProviderMismatch = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -586,6 +587,15 @@ struct BuildPane: View {
         customAirportPacks = names
     }
 
+    private var providerMismatchMessage: String {
+        let mismatches = buildModel.providerMismatches
+        let sources = Set(mismatches.map(\.provider)).sorted().joined(separator: ", ")
+        if mismatches.count == 1, let m = mismatches.first {
+            return "Tile \(m.coord.key) was built with \(m.provider); you're about to build it with \(buildModel.buildProvider). Its config will record the new source once built."
+        }
+        return "\(mismatches.count) of the selected tiles were built with a different imagery source (\(sources)). Rebuilding with \(buildModel.buildProvider) records the new source in each tile's config."
+    }
+
     private var buildSummary: String {
         let count = buildModel.selected.count
         guard count > 0 else { return "No tiles selected" }
@@ -617,10 +627,36 @@ struct BuildPane: View {
                 .disabled(buildModel.isStopping)
             }
             Button(buildButtonLabel) {
-                buildModel.startBuild()
+                if buildModel.providerMismatches.isEmpty {
+                    buildModel.startBuild()
+                } else {
+                    showingProviderMismatch = true
+                }
             }
             .buttonStyle(.borderedProminent)
             .disabled(!buildModel.canBuild || buildModel.buildableSelection.isEmpty)
+            .confirmationDialog(
+                "Build with a different imagery source?",
+                isPresented: $showingProviderMismatch,
+                titleVisibility: .visible
+            ) {
+                Button("Build with \(buildModel.buildProvider), keep old imagery") {
+                    buildModel.startBuild()
+                }
+                Button("Build with \(buildModel.buildProvider), delete old imagery",
+                       role: .destructive) {
+                    buildModel.startBuildDeletingOldImagery()
+                }
+                if buildModel.providerMismatches.count > 1 || buildModel.selected.count > 1,
+                   buildModel.usesProtocol {
+                    Button("Build each tile with its original source") {
+                        buildModel.startBuildKeepingOriginalSources()
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(providerMismatchMessage)
+            }
             .help(buildModel.selected.isEmpty
                   ? "Select tiles on the map first"
                   : "Build the selected tiles with the steps above")

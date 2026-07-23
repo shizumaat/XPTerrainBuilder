@@ -179,7 +179,19 @@ final class BuildModel: ObservableObject {
     // MARK: Selection (Qt semantics: a set + one active tile)
 
     @Published var selected: Set<TileCoord> = []
-    @Published var activeTile: TileCoord?
+    @Published var activeTile: TileCoord? {
+        didSet { adoptActiveTileConfig() }
+    }
+
+    /// Selecting a built tile adopts its recorded imagery source and zoom
+    /// level, so a rebuild doesn't silently use a different source. The
+    /// user can still change either afterwards — startBuild then warns on
+    /// the mismatch.
+    private func adoptActiveTileConfig() {
+        guard let coord = activeTile, let info = built[coord] else { return }
+        if !info.provider.isEmpty { buildProvider = info.provider }
+        if let zl = info.zl { buildZL = zl }
+    }
 
     // MARK: Run state
 
@@ -591,18 +603,97 @@ final class BuildModel: ObservableObject {
             && !(isBuilding && !usesProtocol) // legacy path can't queue into a run
     }
 
-    func startBuild() {
-        guard canBuild else { return }
-        let todo = buildableSelection
-        lastRunSummary = nil
-        if usesProtocol {
-            startProtocolBuild(todo)
-        } else {
-            startLegacyBuild(todo)
+    // MARK: Imagery-source mismatch guard
+
+    struct ProviderMismatch: Identifiable {
+        let coord: TileCoord
+        /// The tile's recorded imagery source (from its cfg).
+        let provider: String
+        let zl: Int?
+        var id: String { coord.key }
+    }
+
+    /// Buildable tiles whose recorded imagery source differs from the
+    /// build provider — the accidental-rebuild guard. Selection adopts the
+    /// active tile's source, so this is non-empty only after the user
+    /// changed the source with tiles selected.
+    var providerMismatches: [ProviderMismatch] {
+        guard !buildProvider.isEmpty else { return [] }
+        return buildableSelection.compactMap { coord in
+            guard let info = built[coord], !info.provider.isEmpty,
+                  info.provider.lowercased() != buildProvider.lowercased()
+            else { return nil }
+            return ProviderMismatch(coord: coord, provider: info.provider, zl: info.zl)
         }
     }
 
-    private func startProtocolBuild(_ todo: [TileCoord]) {
+    func startBuild() {
+        startBuild(batches: [(buildableSelection, buildProvider, buildZL)])
+    }
+
+    /// Batched build: each batch carries its own imagery source and ZL
+    /// (enqueue_build keeps per-batch settings). The legacy fallback can't
+    /// do per-batch sources and always uses the current build settings.
+    func startBuild(batches: [(tiles: [TileCoord], provider: String, zl: Int)]) {
+        guard canBuild else { return }
+        lastRunSummary = nil
+        if usesProtocol {
+            for batch in batches where !batch.tiles.isEmpty {
+                startProtocolBuild(batch.tiles, provider: batch.provider, zl: batch.zl)
+            }
+        } else {
+            startLegacyBuild(batches.flatMap(\.tiles))
+        }
+    }
+
+    /// Mismatch resolution "rebuild with the new source, clean": trash the
+    /// mismatched tiles' textures from other sources first, then build
+    /// everything with the current settings. The engine rewrites each
+    /// tile's cfg with the new source during the build.
+    func startBuildDeletingOldImagery() {
+        let dirs: [URL] = providerMismatches.compactMap { mismatch in
+            guard let info = built[mismatch.coord], !info.buildDir.isEmpty else { return nil }
+            return URL(fileURLWithPath: info.buildDir, isDirectory: true)
+                .appendingPathComponent("textures", isDirectory: true)
+        }
+        let provider = buildProvider
+        Task { [weak self] in
+            await Task.detached(priority: .utility) {
+                for dir in dirs {
+                    guard let audit = TileTextureAudit.scan(
+                        texturesDir: dir, currentProvider: provider) else { continue }
+                    for url in audit.foreignFiles {
+                        try? FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                    }
+                }
+            }.value
+            guard let self else { return }
+            self.console.append("Old-source imagery moved to the Trash for \(dirs.count) tile\(dirs.count == 1 ? "" : "s").")
+            self.startBuild()
+        }
+    }
+
+    /// Mismatch resolution "keep each tile as it was": mismatched tiles
+    /// build with their ORIGINAL source and ZL (grouped into batches);
+    /// everything else uses the current build settings.
+    func startBuildKeepingOriginalSources() {
+        let mismatches = providerMismatches
+        let mismatched = Set(mismatches.map(\.coord))
+        var batches: [(tiles: [TileCoord], provider: String, zl: Int)] = []
+        let current = buildableSelection.filter { !mismatched.contains($0) }
+        if !current.isEmpty {
+            batches.append((current, buildProvider, buildZL))
+        }
+        let groups = Dictionary(grouping: mismatches) { "\($0.provider)|\($0.zl ?? buildZL)" }
+        for group in groups.values.sorted(by: { $0[0].coord < $1[0].coord }) {
+            batches.append((group.map(\.coord).sorted(),
+                            group[0].provider,
+                            group[0].zl ?? buildZL))
+        }
+        startBuild(batches: batches)
+    }
+
+    private func startProtocolBuild(_ todo: [TileCoord], provider: String, zl: Int) {
         connectIfNeeded()
         guard let client else { return }
         if !isBuilding {
@@ -618,8 +709,8 @@ final class BuildModel: ObservableObject {
         console.append("=== Building \(todo.count) tile\(todo.count == 1 ? "" : "s"): \(todo.prefix(8).map { $0.key }.joined(separator: " "))\(todo.count > 8 ? " …" : "") ===")
         client.send(command: "enqueue_build", arguments: [
             "tiles": todo.map { [$0.lat, $0.lon] },
-            "provider": buildProvider,
-            "zoomlevel": buildZL,
+            "provider": provider,
+            "zoomlevel": zl,
             "custom_build_dir": engineCustomBuildDir,
             "do_vector": doVector,
             "do_imagery": doImagery,

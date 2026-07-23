@@ -80,6 +80,7 @@ import os
 import json
 import glob
 import datetime
+import threading
 
 import numpy
 
@@ -100,6 +101,49 @@ import O4_DEM_Utils as DEM
 # The .elv provider CODE is lower-cased in cache file names so the cache key
 # survives access-strategy refactors (spec section 3.2).
 NO_COVERAGE = "no-coverage"
+
+# Per-provider politeness cap for the concurrent airport fetches: at most
+# this many in-flight requests against any single elevation server.
+_PROVIDER_CONCURRENT_FETCHES = 2
+_provider_fetch_slots: dict = {}
+_provider_fetch_slots_lock = threading.Lock()
+
+
+def _provider_fetch_slot(code):
+    with _provider_fetch_slots_lock:
+        slot = _provider_fetch_slots.get(code)
+        if slot is None:
+            slot = threading.BoundedSemaphore(_PROVIDER_CONCURRENT_FETCHES)
+            _provider_fetch_slots[code] = slot
+        return slot
+
+
+# GDAL's /vsicurl and WCS drivers ship with NO transfer timeouts: a server
+# that accepts the connection and then stalls (observed: FRANCE50CM) wedges
+# the warp forever.  These guards make stalls raise instead — the fetch is
+# then treated as transient and retried on the next run.  The low-speed
+# pair is the health check proper: a transfer under 1 KB/s for 60 s is
+# dead, while a slow-but-moving large window is left alone.  Environment /
+# user-set values always win; applied once per process.
+_GDAL_HTTP_GUARD_DEFAULTS = {
+    "GDAL_HTTP_CONNECTTIMEOUT": "30",
+    "GDAL_HTTP_TIMEOUT": "600",
+    "GDAL_HTTP_LOW_SPEED_LIMIT": "1024",
+    "GDAL_HTTP_LOW_SPEED_TIME": "60",
+    "GDAL_HTTP_MAX_RETRY": "2",
+    "GDAL_HTTP_RETRY_DELAY": "5",
+}
+_gdal_http_guards_applied = False
+
+
+def _configure_gdal_http_guards():
+    global _gdal_http_guards_applied
+    if _gdal_http_guards_applied or not has_gdal:
+        return
+    _gdal_http_guards_applied = True
+    for key, value in _GDAL_HTTP_GUARD_DEFAULTS.items():
+        if os.environ.get(key) is None and gdal.GetConfigOption(key) is None:
+            gdal.SetConfigOption(key, value)
 
 
 class TransientFetchError(Exception):
@@ -495,6 +539,7 @@ def fetch_inset(
     Returns the provenance metadata dictionary produced by the strategy, or
     ``None`` when the strategy reports no usable coverage.
     """
+    _configure_gdal_http_guards()
     strategy_name = definition.get("access_strategy")
     strategy_factory = ACCESS_STRATEGIES.get(strategy_name)
     if strategy_factory is None:
@@ -5004,6 +5049,9 @@ class TileBuildingFootprintPrefetch:
         self._load_attempted = False
         # None until a successful load; a list afterwards.
         self._footprints = None
+        # Airports now fetch concurrently: the lazy one-time load must
+        # happen exactly once, with other workers waiting on it.
+        self._load_lock = threading.Lock()
 
     def _box_is_covered(self, bounding_box_wgs84):
         """True when the request sits inside one of the construction
@@ -5023,21 +5071,23 @@ class TileBuildingFootprintPrefetch:
         return False
 
     def _load_once(self):
-        if self._load_attempted:
-            return
-        self._load_attempted = True
-        import O4_OSM_Utils as OSM
+        with self._load_lock:
+            if self._load_attempted:
+                return
+            self._load_attempted = True
+            import O4_OSM_Utils as OSM
 
-        osm_layer = OSM.OSM_layer()
-        boxes_south_west_north_east = [
-            (south, west, north, east)
-            for (west, south, east, north) in self._boxes
-        ]
-        if not _load_building_layer_from_extracts(
-            osm_layer, boxes_south_west_north_east
-        ):
-            return
-        self._footprints = _building_footprint_polygons_from_layer(osm_layer)
+            osm_layer = OSM.OSM_layer()
+            boxes_south_west_north_east = [
+                (south, west, north, east)
+                for (west, south, east, north) in self._boxes
+            ]
+            if not _load_building_layer_from_extracts(
+                osm_layer, boxes_south_west_north_east
+            ):
+                return
+            self._footprints = _building_footprint_polygons_from_layer(
+                osm_layer)
 
     def footprints_intersecting_box(self, bounding_box_wgs84):
         """Prefetched footprints intersecting the box, or ``None`` when
@@ -5666,10 +5716,12 @@ def ensure_airport_insets(
     footprint_prefetch = TileBuildingFootprintPrefetch(
         airport_bounding_boxes.values()
     )
-    # key=str: callers pass string airport codes, but a mixed-type dict must
-    # never abort the whole tile's fetches with an unorderable-keys
-    # TypeError (defense in depth behind _airport_bounding_boxes' filter).
-    for icao in sorted(airport_bounding_boxes, key=str):
+    # One airport's whole provider chain, ready to run on a worker
+    # thread: the chain stays strictly ordered inside its airport
+    # (ranking + negative caching semantics untouched); workers share
+    # only the index dict (each touches its own airport's key) and the
+    # footprint prefetch (internally locked).
+    def _fetch_airport_insets(icao):
         bounding_box = airport_bounding_boxes[icao]
         airport_record = index.get(icao, {})
         recorded_box = airport_record.get("bounding_box")
@@ -5748,14 +5800,25 @@ def ensure_airport_insets(
                 # enlargement, so fetch beside it and replace on success.
                 fetch_destination = destination + ".refetch"
             fetch_raised = False
+            # One-shot heartbeat so a long transfer is visibly alive:
+            # stalls are aborted by the GDAL low-speed guard and retried
+            # next run, so "still fetching" genuinely means still moving.
+            slow_note = threading.Timer(
+                120.0, UI.vprint,
+                (1, "    ...still fetching", icao, "from", code,
+                 "(2+ minutes; a stalled transfer aborts automatically"
+                 " and is retried on the next run)"))
+            slow_note.daemon = True
+            slow_note.start()
             try:
-                provenance = fetch_inset(
-                    definition,
-                    bounding_box,
-                    target_resolution_m,
-                    fetch_destination,
-                    footprint_prefetch=footprint_prefetch,
-                )
+                with _provider_fetch_slot(code):
+                    provenance = fetch_inset(
+                        definition,
+                        bounding_box,
+                        target_resolution_m,
+                        fetch_destination,
+                        footprint_prefetch=footprint_prefetch,
+                    )
             except Exception as error:
                 # A raised failure (a network timeout, a server outage, a
                 # strategy crash) says nothing about coverage: skip the
@@ -5773,6 +5836,8 @@ def ensure_airport_insets(
                     str(error),
                     "- it will be retried on the next run.",
                 )
+            finally:
+                slow_note.cancel()
             if provenance is None:
                 if cached_inset_is_stale:
                     if os.path.isfile(fetch_destination):
@@ -5821,6 +5886,28 @@ def ensure_airport_insets(
             float(value) for value in bounding_box
         ]
         index[icao] = airport_record
+
+    # key=str: callers pass string airport codes, but a mixed-type dict must
+    # never abort the whole tile's fetches with an unorderable-keys
+    # TypeError (defense in depth behind _airport_bounding_boxes' filter).
+    icaos = sorted(airport_bounding_boxes, key=str)
+    # Airports fetch CONCURRENTLY: the work is network-bound (windowed
+    # WCS/COG reads per airport — separate windows on purpose: one merged
+    # request would cover the airports' bounding rectangle, i.e. most of
+    # the tile at meter resolution).  A small pool bounds total load and
+    # the per-provider slots below keep any single server at two
+    # in-flight requests.
+    if len(icaos) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(
+            max_workers=min(4, len(icaos)),
+            thread_name_prefix="inset-fetch",
+        ) as pool:
+            list(pool.map(_fetch_airport_insets, icaos))
+    else:
+        for icao in icaos:
+            _fetch_airport_insets(icao)
     _write_index(lat, lon, index)
     return index
 

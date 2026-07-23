@@ -212,6 +212,10 @@ struct MapOverlays: Sendable {
     /// time via resolvedPath (they are already the colored build squares).
     struct SceneryRegion: Sendable {
         let packName: String
+        /// The pack folder as it sits in Custom Scenery — for packs
+        /// symlinked from another volume this is the LINK path, which is
+        /// how the engine scan spells its build dirs.
+        let packPath: String
         let contentRootPath: String
         /// Symlink target when the pack folder is a link (nil = real dir).
         let resolvedPath: String?
@@ -245,6 +249,7 @@ struct MapOverlays: Sendable {
             }
         }
         return SceneryRegion(packName: pack.name,
+                             packPath: pack.url.path,
                              contentRootPath: pack.contentRoot.path,
                              resolvedPath: pack.resolvedURL?.path,
                              tileKeys: tileKeys,

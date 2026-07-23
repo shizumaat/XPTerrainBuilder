@@ -431,7 +431,8 @@ struct BuildPane: View {
         let covering = controller.mapOverlays.regions
             .filter { region in
                 guard region.tileKeys.contains(tileKey32) else { return false }
-                if builtDirs.contains(region.contentRootPath) { return false }
+                if builtDirs.contains(region.packPath)
+                    || builtDirs.contains(region.contentRootPath) { return false }
                 if let basePath, let resolved = region.resolvedPath,
                    resolved.hasPrefix(basePath) { return false }
                 return true

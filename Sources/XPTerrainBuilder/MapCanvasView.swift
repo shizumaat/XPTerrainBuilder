@@ -189,7 +189,10 @@ struct MapCanvasView: View {
             let builtDirs = Set(buildModel.built.values.map(\.buildDir))
             var regionPath = Path()
             for region in overlays.regions {
-                if builtDirs.contains(region.contentRootPath) { continue }
+                // Ours under either spelling: the engine scan reports the
+                // LINK path for packs symlinked from other volumes.
+                if builtDirs.contains(region.packPath)
+                    || builtDirs.contains(region.contentRootPath) { continue }
                 if let basePath, let resolved = region.resolvedPath,
                    resolved.hasPrefix(basePath) { continue }
                 for edge in region.edges {

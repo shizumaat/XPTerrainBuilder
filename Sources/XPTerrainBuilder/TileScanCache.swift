@@ -17,9 +17,9 @@ enum TileScanCache {
         let installed: [[Int]]
     }
 
-    // v2: O4TileInfo gained highZLAirports/coverZL (non-optional Codable
-    // fields — v1 payloads no longer decode, so discard them).
-    private static let version = 2
+    // v3: providers cached with legacy cfg quotes ('Arc') poisoned the
+    // imagery-source audit; v2: O4TileInfo gained highZLAirports/coverZL.
+    private static let version = 3
 
     private static var fileURL: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!

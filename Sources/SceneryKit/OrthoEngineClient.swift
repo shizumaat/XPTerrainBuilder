@@ -185,16 +185,25 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
         guard let object = json.objectValue,
               let lat = object["lat"]?.intValue,
               let lon = object["lon"]?.intValue else { return nil }
+        // Legacy tile configs quote string values (default_website='Arc');
+        // older engines pass the quotes through — strip them here so
+        // display and imagery-source comparisons see the bare value.
+        func unquoted(_ value: String) -> String {
+            guard value.count >= 2, let first = value.first,
+                  first == value.last, first == "'" || first == "\""
+            else { return value }
+            return String(value.dropFirst().dropLast())
+        }
         self.lat = lat
         self.lon = lon
         buildDir = object["build_dir"]?.stringValue ?? ""
         dsfPresent = object["dsf_present"]?.boolValue ?? false
-        provider = object["provider"]?.stringValue ?? ""
+        provider = unquoted(object["provider"]?.stringValue ?? "")
         zl = object["zl"]?.intValue
         hasZones = object["has_zones"]?.boolValue ?? false
-        highZLAirports = object["high_zl_airports"]?.stringValue ?? ""
+        highZLAirports = unquoted(object["high_zl_airports"]?.stringValue ?? "")
         coverZL = object["cover_zl"]?.intValue
-        customDEM = object["custom_dem"]?.stringValue ?? ""
+        customDEM = unquoted(object["custom_dem"]?.stringValue ?? "")
         meshDate = object["mesh_date"]?.doubleValue
         imageryDate = object["imagery_date"]?.doubleValue
         sizeBytes = object["size_bytes"]?.intValue

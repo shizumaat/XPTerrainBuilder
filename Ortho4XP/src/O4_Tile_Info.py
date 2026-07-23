@@ -82,8 +82,16 @@ def _parse_cfg(
     (``cover_airports_with_highres`` / ``cover_zl``) for the info pane's
     zoom-level row.
 
-    Only these keys are inspected; the file is never executed.
+    Only these keys are inspected; the file is never executed.  Legacy
+    configs (old generic ``Ortho4XP.cfg``) quote string values
+    (``default_website='Arc'``) — quotes are stripped, matching
+    ``O4_Settings_Model._strip_legacy_quotes``.
     """
+    def _unquote(value: str) -> str:
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            return value[1:-1]
+        return value
+
     provider = ""
     zl: Optional[int] = None
     has_zones = False
@@ -94,18 +102,19 @@ def _parse_cfg(
         with open(cfg_path, "r") as f:
             for line in f.readlines():
                 if line[:15] == "default_website":
-                    provider = line.strip().split("=", 1)[1].strip()
+                    provider = _unquote(line.strip().split("=", 1)[1].strip())
                 elif line[:10] == "default_zl":
                     try:
                         zl = int(line.strip().split("=", 1)[1])
                     except (ValueError, IndexError):
                         zl = None
                 elif line[:10] == "custom_dem":
-                    custom_dem = line.strip().split("=", 1)[1].strip()
+                    custom_dem = _unquote(line.strip().split("=", 1)[1].strip())
                 elif line[:9] == "zone_list" and len(line[10:]) > 3:
                     has_zones = True
                 elif line[:27] == "cover_airports_with_highres":
-                    high_zl_airports = line.strip().split("=", 1)[1].strip()
+                    high_zl_airports = _unquote(
+                        line.strip().split("=", 1)[1].strip())
                 elif line[:9] == "cover_zl=":
                     try:
                         cover_zl = int(line.strip().split("=", 1)[1])

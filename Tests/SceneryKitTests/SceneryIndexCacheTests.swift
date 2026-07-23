@@ -148,6 +148,20 @@ import Foundation
         #expect(!TileTextureAudit.hasForeignSources(texturesDir: single, currentProvider: "Arc"))
     }
 
+    /// Legacy tile configs quote strings (default_website='Arc'); the
+    /// quotes must never reach display or imagery-source comparisons.
+    @Test func tileInfoStripsLegacyQuotes() throws {
+        let info = try #require(O4TileInfo(json: .object([
+            "lat": .int(65), "lon": .int(-21),
+            "provider": .string("'Arc'"),
+            "high_zl_airports": .string("\"ICAO\""),
+            "custom_dem": .string("'dem.tif'"),
+        ])))
+        #expect(info.provider == "Arc")
+        #expect(info.highZLAirports == "ICAO")
+        #expect(info.customDEM == "dem.tif")
+    }
+
     @Test func persistRoundTripAndRootMismatch() throws {
         let root = try makeInstall()
         defer {

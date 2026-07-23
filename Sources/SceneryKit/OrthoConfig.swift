@@ -229,7 +229,7 @@ public struct OrthoConfigSchema: Sendable, Codable, Equatable {
     /// The schema snapshot bundled with the app (generated from the engine
     /// version the app was developed against).
     public static func bundledSnapshot() -> OrthoConfigSchema? {
-        guard let url = Bundle.module.url(forResource: "o4_schema_snapshot", withExtension: "json"),
+        guard let url = Bundle.sceneryKit.url(forResource: "o4_schema_snapshot", withExtension: "json"),
               let data = try? Data(contentsOf: url)
         else { return nil }
         return try? decode(from: data)

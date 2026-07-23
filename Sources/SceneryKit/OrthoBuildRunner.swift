@@ -225,11 +225,11 @@ public final class OrthoBuildRunner: @unchecked Sendable {
 
     /// The driver script shipped in this package's resources.
     public static func driverScriptURL() -> URL? {
-        Bundle.module.url(forResource: "o4_driver", withExtension: "py")
+        Bundle.sceneryKit.url(forResource: "o4_driver", withExtension: "py")
     }
 
     public static func schemaDumpScriptURL() -> URL? {
-        Bundle.module.url(forResource: "o4_schema_dump", withExtension: "py")
+        Bundle.sceneryKit.url(forResource: "o4_schema_dump", withExtension: "py")
     }
 
     /// Launches the job. Events stream on an arbitrary background thread;

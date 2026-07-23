@@ -87,7 +87,7 @@ enum LandData {
 
     /// Coarse (110m): drawn whole, tiny.
     static let polygons: [[CGPoint]] = {
-        guard let url = Bundle.module.url(forResource: "land", withExtension: "json"),
+        guard let url = Bundle.appResources.url(forResource: "land", withExtension: "json"),
               let data = try? Data(contentsOf: url),
               let raw = try? JSONSerialization.jsonObject(with: data) as? [[[Double]]]
         else { return [] }
@@ -101,7 +101,7 @@ enum LandData {
     /// Detailed (50m): 60k points across 1,421 bbox-tagged rings; the canvas
     /// draws only rings intersecting the viewport.
     static let detailedRings: [Ring] = {
-        guard let url = Bundle.module.url(forResource: "land50", withExtension: "json"),
+        guard let url = Bundle.appResources.url(forResource: "land50", withExtension: "json"),
               let data = try? Data(contentsOf: url),
               let raw = try? JSONSerialization.jsonObject(with: data) as? [[Any]]
         else { return [] }

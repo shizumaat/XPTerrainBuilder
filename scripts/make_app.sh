@@ -24,12 +24,14 @@ BIN="$(swift build --build-system native -c "$CONFIG" --show-bin-path)/XPTerrain
 mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources"
 cp "$BIN" "$STAGE/Contents/MacOS/XPTerrainBuilder"
 
-# SwiftPM resource bundle (map data etc.) — Bundle.module looks for it next
-# to the executable's resources.
-BUNDLE="$(dirname "$BIN")/XPTerrainBuilder_XPTerrainBuilder.bundle"
-if [[ -d "$BUNDLE" ]]; then
-  cp -R "$BUNDLE" "$STAGE/Contents/Resources/"
-fi
+# SwiftPM resource bundles (one per target with resources: map data, engine
+# schema snapshot, …) — Bundle.module traps at launch if its target's bundle
+# is missing, so copy them all, not just the app target's.
+for BUNDLE in "$(dirname "$BIN")"/XPTerrainBuilder_*.bundle; do
+  if [[ -d "$BUNDLE" && "$BUNDLE" != *Tests.bundle ]]; then
+    cp -R "$BUNDLE" "$STAGE/Contents/Resources/"
+  fi
+done
 
 # Bundled Ortho4XP engine — the app's default build engine. Read-only inside
 # the bundle: all writable data (downloads, tiles, config) goes to the user's
@@ -42,12 +44,18 @@ fi
 FROZEN="$ROOT/Ortho4XP/dist/Ortho4XP"
 if [[ -x "$FROZEN/Ortho4XP" ]]; then
   echo "Embedding frozen engine (self-contained)"
-  rsync -a --exclude '* [2-9].*' "$FROZEN/" "$STAGE/Contents/Resources/Engine/"
+  # Utils/win + Utils/lin are the engine's Windows/Linux helper binaries
+  # (~165 MB) — dead weight in a mac app; the engine picks per platform.
+  rsync -a --exclude '* [2-9].*' \
+    --exclude '_internal/Ortho4XP_Data/Utils/win/' \
+    --exclude '_internal/Ortho4XP_Data/Utils/lin/' \
+    "$FROZEN/" "$STAGE/Contents/Resources/Engine/"
 else
   echo "NOTE: frozen engine not found ($FROZEN)."
   echo "      Embedding the engine source tree instead — users would need"
   echo "      python3 + packages. Run scripts/make_engine.sh for releases."
   rsync -a --exclude '* [2-9].*' \
+    --exclude 'Utils/win/' --exclude 'Utils/lin/' \
     --exclude 'venv/' --exclude '.venv*/' --exclude '__pycache__/' \
     --exclude '.git*' --exclude 'build/' --exclude 'dist/' \
     --exclude 'tests/' --exclude 'docs/' --exclude 'prototypes/' \
@@ -59,29 +67,11 @@ else
     "$ROOT/Ortho4XP/" "$STAGE/Contents/Resources/Engine/"
 fi
 
-# App icon: Liquid Glass pipeline. The white Mjolnir glyph (icon_glass.swift)
-# feeds the Icon Composer document at Resources/AppIcon.icon; actool
-# compiles it into Assets.car (macOS 26+ applies the real glass material,
-# including dark/tinted variants) plus a baked fallback AppIcon.icns for
-# older systems.
-ICON_DOC="$ROOT/Resources/AppIcon.icon"
-if [[ ! -f "$ROOT/Resources/AppIcon.icns" \
-      || ! -f "$ROOT/Resources/Assets.car" \
-      || "$ROOT/scripts/icon_glass.swift" -nt "$ROOT/Resources/AppIcon.icns" \
-      || "$ICON_DOC/icon.json" -nt "$ROOT/Resources/AppIcon.icns" ]]; then
-  TMP_ICON="$(mktemp -d)"
-  swift "$ROOT/scripts/icon_glass.swift" "$TMP_ICON"
-  cp "$TMP_ICON/glyph-1024.png" "$ICON_DOC/Assets/glyph-1024.png"
-  mkdir -p "$TMP_ICON/out"
-  xcrun actool "$ICON_DOC" --compile "$TMP_ICON/out" --platform macosx \
-    --minimum-deployment-target 26.0 --app-icon AppIcon \
-    --output-partial-info-plist "$TMP_ICON/out/partial.plist" >/dev/null
-  cp "$TMP_ICON/out/Assets.car" "$ROOT/Resources/Assets.car"
-  cp "$TMP_ICON/out/AppIcon.icns" "$ROOT/Resources/AppIcon.icns"
-  rm -rf "$TMP_ICON"
-fi
-cp "$ROOT/Resources/AppIcon.icns" "$STAGE/Contents/Resources/AppIcon.icns"
-cp "$ROOT/Resources/Assets.car" "$STAGE/Contents/Resources/Assets.car"
+# App icon: the classic Ortho4XP tile-map artwork — the same icon the
+# Windows/Linux Qt app ships (full 16→1024 icns). The Liquid Glass pipeline
+# (scripts/icon_glass.swift + Resources/AppIcon.icon) is retired but kept in
+# the tree in case the glass look returns.
+cp "$ROOT/Ortho4XP/Utils/icons/Ortho4XP.icns" "$STAGE/Contents/Resources/AppIcon.icns"
 
 cat > "$STAGE/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -93,8 +83,6 @@ cat > "$STAGE/Contents/Info.plist" <<'PLIST'
     <key>CFBundleIdentifier</key>
     <string>com.novemberlima.XPTerrainBuilder</string>
     <key>CFBundleIconFile</key>
-    <string>AppIcon</string>
-    <key>CFBundleIconName</key>
     <string>AppIcon</string>
     <key>CFBundleName</key>
     <string>XPTerrainBuilder</string>

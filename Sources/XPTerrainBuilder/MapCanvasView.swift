@@ -109,7 +109,9 @@ struct MapCanvasView: View {
         cam.scale *= factor
         cam.clamp(in: size)
         cam.centerLon = coord.lon - (Double(anchor.x) - Double(size.width) / 2) / cam.scale
-        cam.centerLat = coord.lat + (Double(anchor.y) - Double(size.height) / 2) / cam.scale
+        cam.centerLat = MapCamera.latitude(
+            mercatorY: MapCamera.mercatorY(lat: coord.lat)
+                + (Double(anchor.y) - Double(size.height) / 2) / cam.scale)
         cam.clamp(in: size)
         camera.value = cam
     }
@@ -284,10 +286,8 @@ struct MapCanvasView: View {
     /// with their ZL color (double inset border when installed in X-Plane,
     /// "PROV ZL*" center label), yellow selection (solid border = active
     /// tile, dashed = other selected), and per-tile progress ring badges.
-    /// Web-mercator provider tiles reprojected onto the equirectangular
-    /// canvas. Each 256px tile draws in horizontal strips (a piecewise-
-    /// linear latitude warp): one strip when the tile spans little
-    /// latitude, more near world views where mercator stretch shows.
+    /// Web-mercator provider tiles on the (also web-mercator) canvas:
+    /// every 256px tile projects to exactly one screen rect.
     private func drawImagery(context: GraphicsContext, size: CGSize, cam: MapCamera,
                              minLon: Double, maxLon: Double,
                              minLat: Double, maxLat: Double) {
@@ -320,41 +320,14 @@ struct MapCanvasView: View {
             return CGRect(x: left, y: top, width: right - left, height: bottom - top)
         }
 
-        /// One tile, strip-warped from mercator onto the equirect canvas.
+        /// One tile. The canvas is mercator like the imagery, so a tile
+        /// maps to exactly one screen rect — no strip warping.
         func drawTile(_ cg: CGImage, x: Int, y: Int, alpha: CGFloat) {
-            let img = Image(decorative: cg, scale: 1)
-            let latTop = WebMercator.lat(tileY: Double(y), z: z)
-            let latBottom = WebMercator.lat(tileY: Double(y + 1), z: z)
-            let strips = max(1, min(10, Int((latTop - latBottom) / 3)))
-            let left = cam.point(lon: WebMercator.lon(tileX: Double(x), z: z),
-                                 lat: 0, in: size).x
-            let right = cam.point(lon: WebMercator.lon(tileX: Double(x + 1), z: z),
-                                  lat: 0, in: size).x
-            for strip in 0..<strips {
-                let fTop = Double(strip) / Double(strips)
-                let fBottom = Double(strip + 1) / Double(strips)
-                let top = cam.point(
-                    lon: 0, lat: WebMercator.lat(tileY: Double(y) + fTop, z: z),
-                    in: size).y
-                let bottom = cam.point(
-                    lon: 0, lat: WebMercator.lat(tileY: Double(y) + fBottom, z: z),
-                    in: size).y
-                let dest = CGRect(x: left, y: top,
-                                  width: right - left, height: bottom - top)
-                guard dest.width > 0.1, dest.height > 0.1 else { continue }
-                // Scale the whole tile so its rows [fTop, fBottom] land
-                // exactly in the strip's destination rect.
-                let fullHeight = dest.height / (fBottom - fTop)
-                let fullRect = CGRect(x: dest.minX,
-                                      y: dest.minY - fullHeight * fTop,
-                                      width: dest.width, height: fullHeight)
-                var layer = context
-                layer.opacity = alpha
-                if strips > 1 {
-                    layer.clip(to: Path(dest))
-                }
-                layer.draw(img, in: fullRect)
-            }
+            let dest = tileRect(z, x, y)
+            guard dest.width > 0.1, dest.height > 0.1 else { return }
+            var layer = context
+            layer.opacity = alpha
+            layer.draw(Image(decorative: cg, scale: 1), in: dest)
         }
 
         // Outgoing source, drawn from cache beneath the incoming one while
@@ -521,8 +494,10 @@ struct MapCanvasView: View {
     private func visibleBounds(_ cam: MapCamera, _ size: CGSize) -> (Double, Double, Double, Double) {
         let halfW = Double(size.width) / 2 / cam.scale
         let halfH = Double(size.height) / 2 / cam.scale
+        let yCenter = MapCamera.mercatorY(lat: cam.centerLat)
         return (cam.centerLon - halfW, cam.centerLon + halfW,
-                cam.centerLat - halfH, cam.centerLat + halfH)
+                MapCamera.latitude(mercatorY: yCenter - halfH),
+                MapCamera.latitude(mercatorY: yCenter + halfH))
     }
 
     private func tileRect(lat: Int, lon: Int, cam: MapCamera, size: CGSize) -> CGRect {
@@ -562,7 +537,9 @@ struct MapCanvasView: View {
                 guard let anchor = dragAnchor.value else { return }
                 var cam = anchor
                 cam.centerLon = anchor.centerLon - Double(value.translation.width) / anchor.scale
-                cam.centerLat = anchor.centerLat + Double(value.translation.height) / anchor.scale
+                cam.centerLat = MapCamera.latitude(
+                    mercatorY: MapCamera.mercatorY(lat: anchor.centerLat)
+                        + Double(value.translation.height) / anchor.scale)
                 cam.clamp(in: size)
                 camera.value = cam
             }

@@ -300,9 +300,11 @@ final class AnalysisController: ObservableObject {
             guard !Task.isCancelled, size.width > 0 else { return }
             let halfW = Double(size.width) / 2 / cam.scale
             let halfH = Double(size.height) / 2 / cam.scale
+            let yCenter = MapCamera.mercatorY(lat: cam.centerLat)
             let packs = overlays.packs(inViewport: (
                 minLon: cam.centerLon - halfW, maxLon: cam.centerLon + halfW,
-                minLat: cam.centerLat - halfH, maxLat: cam.centerLat + halfH
+                minLat: MapCamera.latitude(mercatorY: yCenter - halfH),
+                maxLat: MapCamera.latitude(mercatorY: yCenter + halfH)
             ))
             let sorted = packs.sorted { $0.name.lowercased() < $1.name.lowercased() }
             self?.viewportPacks = sorted

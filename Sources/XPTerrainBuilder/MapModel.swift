@@ -3,32 +3,53 @@ import SwiftUI
 import SceneryKit
 
 /// Equirectangular camera: world position of the view center plus zoom.
+/// Web-Mercator camera. Conformal: shapes keep their true local
+/// proportions everywhere — a 1°×1° scenery tile is square at the equator
+/// and progressively TALLER than wide toward the poles (~2.4:1 at 65°N),
+/// matching reality and the mercator imagery sources (whose tiles project
+/// to exact screen rects, no warping).
 struct MapCamera: Equatable {
     var centerLon: Double = -40
     var centerLat: Double = 30
-    /// Pixels per degree.
+    /// Pixels per degree of LONGITUDE. Mercator Y is measured in the same
+    /// unit (degrees at the equator), so zoom thresholds keep their
+    /// meaning and the world spans 360 × 2·yLimit "degrees".
     var scale: Double = 3.4
+
+    /// Mercator Y in equator-degree units.
+    static func mercatorY(lat: Double) -> Double {
+        let phi = min(max(lat, -latLimit), latLimit) * .pi / 180
+        return log(tan(.pi / 4 + phi / 2)) * 180 / .pi
+    }
+
+    static func latitude(mercatorY y: Double) -> Double {
+        (2 * atan(exp(y * .pi / 180)) - .pi / 2) * 180 / .pi
+    }
 
     func point(lon: Double, lat: Double, in size: CGSize) -> CGPoint {
         CGPoint(x: size.width / 2 + (lon - centerLon) * scale,
-                y: size.height / 2 - (lat - centerLat) * scale)
+                y: size.height / 2
+                    - (Self.mercatorY(lat: lat) - Self.mercatorY(lat: centerLat)) * scale)
     }
 
     func coordinate(of point: CGPoint, in size: CGSize) -> (lon: Double, lat: Double) {
         (centerLon + (Double(point.x) - Double(size.width) / 2) / scale,
-         centerLat - (Double(point.y) - Double(size.height) / 2) / scale)
+         Self.latitude(mercatorY: Self.mercatorY(lat: centerLat)
+                       - (Double(point.y) - Double(size.height) / 2) / scale))
     }
 
     /// The map's latitude reach matches web-mercator imagery coverage, so
     /// tiles always fill the viewport — no imagery-less polar bands.
     static let latLimit = 85.05
+    /// ±latLimit in mercator-Y units (the web-mercator square: ≈ ±180).
+    static let yLimit = MapCamera.mercatorY(lat: latLimit)
 
     /// Keep the viewport inside the (mercator-bounded) world: minimum zoom
     /// is "the map fills the window", and the center can't pan past edges.
     mutating func clamp(in size: CGSize) {
         if size.width > 0, size.height > 0 {
             let minScale = max(Double(size.width) / 360,
-                               Double(size.height) / (2 * Self.latLimit))
+                               Double(size.height) / (2 * Self.yLimit))
             scale = max(scale, minScale)
         }
         // Deep-inspection zoom: far past imagery resolution (ZL22-native),
@@ -40,7 +61,9 @@ struct MapCamera: Equatable {
         }
         if size.height > 0 {
             let halfH = Double(size.height) / 2 / scale
-            centerLat = min(max(centerLat, -Self.latLimit + halfH), Self.latLimit - halfH)
+            let y = min(max(Self.mercatorY(lat: centerLat), -Self.yLimit + halfH),
+                        Self.yLimit - halfH)
+            centerLat = Self.latitude(mercatorY: y)
         }
     }
 
@@ -48,7 +71,7 @@ struct MapCamera: Equatable {
     static func fitted(to size: CGSize) -> MapCamera {
         var cam = MapCamera(centerLon: -40, centerLat: 30,
                             scale: max(Double(size.width) / 360,
-                                       Double(size.height) / (2 * latLimit)))
+                                       Double(size.height) / (2 * yLimit)))
         cam.clamp(in: size)
         return cam
     }

@@ -40,6 +40,9 @@ final class BuildActivityModel: ObservableObject {
     @Published var elapsedSeconds: Double = 0
     /// nil = no defensible estimate — render a dash, never a wild number.
     @Published var remainingSeconds: Double?
+    /// The estimate has been GROWING (model outlived by a download or an
+    /// unsignalled step) — display "still estimating", not the number.
+    @Published var remainingUnreliable = false
     @Published var doneTiles = 0
     @Published var totalTiles = 0
 
@@ -175,6 +178,9 @@ final class BuildModel: ObservableObject {
     @Published private(set) var scanPhase = ""
     private var scanAccumBuilt: [TileCoord: O4TileInfo] = [:]
     private var scanAccumInstalled: Set<TileCoord> = []
+    /// (elapsed, remaining) pairs from recent runEta events — the
+    /// climbing-estimate detector's window.
+    private var etaSamples: [(at: Double, value: Double)] = []
 
     // MARK: Selection (Qt semantics: a set + one active tile)
 
@@ -524,6 +530,20 @@ final class BuildModel: ObservableObject {
             activity.remainingSeconds = remaining
             activity.doneTiles = done
             activity.totalTiles = total
+            // Estimate credibility: a remaining that has grown over the
+            // last ~30 s means the model is being outlived (a download
+            // or a step with no live signal) — the UI shows "still
+            // estimating" instead of a precise-looking number.
+            if let remaining {
+                etaSamples.append((elapsed, remaining))
+                etaSamples.removeAll { elapsed - $0.at > 45 }
+                let baseline = etaSamples.first(where: { elapsed - $0.at >= 30 })
+                activity.remainingUnreliable =
+                    baseline.map { remaining > $0.value + 5 } ?? false
+            } else {
+                etaSamples.removeAll()
+                activity.remainingUnreliable = false
+            }
         case .runDone(let done, let errors, let cancelled):
             isBuilding = false
             isStopping = false

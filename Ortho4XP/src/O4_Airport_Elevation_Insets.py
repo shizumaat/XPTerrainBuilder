@@ -1023,6 +1023,14 @@ class StacCloudOptimizedGeoTiffStrategy:
             )
             if collections:
                 get_url = get_url + "&collections=" + ",".join(collections)
+            # A failed SEARCH says nothing about coverage. Recording it
+            # as a durable negative poisoned airports permanently when a
+            # rate-limited burst hit the API (observed live: swisstopo
+            # answered LSGG then throttled LSGL, which cached
+            # "no-coverage" beside a neighbour's "ok" from the same
+            # collection). Only an EMPTY RESULT is durable; every
+            # transport/HTTP failure raises transient so the next run
+            # retries.
             try:
                 response = requests.get(get_url, timeout=30)
                 if response.status_code != 200:
@@ -1031,13 +1039,18 @@ class StacCloudOptimizedGeoTiffStrategy:
                         "   WARNING: STAC GET search returned status",
                         response.status_code,
                     )
-                    return None
+                    raise TransientFetchError(
+                        "STAC search returned status %d"
+                        % response.status_code)
                 payload = response.json()
+            except TransientFetchError:
+                raise
             except Exception as error:
                 UI.vprint(
                     1, "   WARNING: STAC GET search failed:", str(error)
                 )
-                return None
+                raise TransientFetchError(
+                    "STAC search failed: %s" % error)
         return self._parse_search_payload(payload)
 
     @staticmethod

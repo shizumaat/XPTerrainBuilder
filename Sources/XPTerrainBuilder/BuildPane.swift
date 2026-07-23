@@ -755,7 +755,9 @@ struct ActivityBox: View {
             HStack {
                 Text("Elapsed \(Self.clock(activity.elapsedSeconds))")
                 Spacer()
-                Text("Remaining ≈ \(activity.remainingSeconds.map(Self.clock) ?? "—")")
+                Text(activity.remainingUnreliable
+                     ? "Remaining: longer than expected — estimating…"
+                     : "Remaining ≈ \(activity.remainingSeconds.map(Self.clock) ?? "—")")
             }
             .font(.caption.monospacedDigit())
             .foregroundStyle(.secondary)

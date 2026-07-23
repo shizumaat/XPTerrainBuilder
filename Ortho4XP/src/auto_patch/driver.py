@@ -856,9 +856,16 @@ def generate_auto_patches(tile, cifp_path: str,
             UI.lvprint(
                 0, "   Auto-patch: prefetching airports OSM data for",
                 len(missing_tiles), "tile(s) before building.")
-            for tile_latitude, tile_longitude in missing_tiles:
+            for (number, (tile_latitude, tile_longitude)) in enumerate(
+                    missing_tiles):
                 ensure_airports_osm_tile_cached(tile_latitude,
                                                 tile_longitude)
+                # Completion rate drives the step bar: without it this
+                # download-bound phase reads as a silently growing
+                # overrun in the front ends' ETA.
+                UI.progress_bar(
+                    1,
+                    int(min((number + 1) * 100 // len(missing_tiles), 99)))
 
     # ── Execute the collected build tasks ────────────────────────────────
     # Each airport is independent, so with O4_PARALLEL_AIRPORTS they run across a

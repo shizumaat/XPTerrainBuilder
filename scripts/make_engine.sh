@@ -24,7 +24,12 @@ cd "$ENGINE"
 # iCloud Drive conflict copies ("Foo 2.lay") poison the freeze — they get
 # baked into the runtime and show up as duplicate providers in the UIs.
 # Refuse to freeze from a dirty checkout.
-CONFLICTS="$(find . -path ./dist -prune -o -path ./build -prune -o -name '* [2-9].*' -print | head -5)"
+# Airport_mod_cache holds downloaded airport packs whose legitimate names
+# can match the conflict pattern ("… 3.0 Nueva Terminal …"); it is runtime
+# data the spec never embeds, so it is exempt from the check.
+CONFLICTS="$(find . -path ./dist -prune -o -path ./build -prune \
+  -o -path ./Airport_mod_cache -prune \
+  -o -name '* [2-9].*' -print | head -5)"
 if [[ -n "$CONFLICTS" ]]; then
   echo "ERROR: iCloud conflict copies in the engine checkout — clean first:" >&2
   echo "$CONFLICTS" >&2

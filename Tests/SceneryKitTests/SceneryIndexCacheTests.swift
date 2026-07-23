@@ -42,9 +42,14 @@ import Foundation
         poisoned[pack.url.path] = SceneryIndexCache.CachedProbe(
             signature: entry.signature,
             airports: ["ZZZZ": AirportInfo(name: "Marker", latitude: 0, longitude: 1)],
+            tiles: entry.tiles,
+            isLibrary: entry.isLibrary,
             isOverlay: entry.isOverlay,
             hasTerrain: entry.hasTerrain,
-            isPhotoTextured: entry.isPhotoTextured)
+            isPhotoTextured: entry.isPhotoTextured,
+            hasPlugins: entry.hasPlugins,
+            sizeBytes: entry.sizeBytes,
+            modifiedDate: entry.modifiedDate)
         let warm = scanner.scan(cache: poisoned)
         #expect(warm.installation.packs.first?.airports.keys.contains("ZZZZ") == true)
 
@@ -55,6 +60,28 @@ import Foundation
         let rescan = scanner.scan(cache: poisoned)
         #expect(rescan.installation.packs.first?.airports.keys.contains("XTST") == true)
         #expect(rescan.installation.packs.first?.airports.keys.contains("ZZZZ") == false)
+    }
+
+    /// Optimistic launch: the pack list rebuilt from cache alone must match
+    /// what the scan produced — airports, tiles, and status included.
+    @Test func packsFromCacheMatchesScan() throws {
+        let root = try makeInstall()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let scanner = InstallationScanner(root: root)
+        let cold = scanner.scan(cache: [:])
+        let scanned = try #require(cold.installation.packs.first)
+
+        let rebuilt = scanner.packsFromCache(cold.cache)
+        let pack = try #require(rebuilt.first)
+        #expect(rebuilt.count == cold.installation.packs.count)
+        #expect(pack.name == scanned.name)
+        #expect(pack.status == scanned.status)
+        #expect(pack.airports.keys.contains("XTST"))
+        #expect(pack.tiles == scanned.tiles)
+        #expect(pack.sizeBytes == scanned.sizeBytes)
+
+        // An empty cache yields nothing (cold start falls back to streaming).
+        #expect(scanner.packsFromCache([:]).isEmpty)
     }
 
     @Test func persistRoundTripAndRootMismatch() throws {

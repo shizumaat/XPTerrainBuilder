@@ -23,86 +23,21 @@ public struct InstallationScanner {
 
     /// Cache-aware scan: packs whose content signature matches the cached
     /// probe skip every file-content read (apt.dat parse, DSF header,
-    /// terrain listing) — the walk that computes the signature touches
-    /// metadata only. Returns the refreshed cache for persisting.
+    /// terrain listing) AND every subtree walk beyond Earth nav data — the
+    /// signature touches only apt.dat/DSF metadata plus the pack's top-level
+    /// listing. Returns the refreshed cache for persisting.
     public func scan(cache: [String: SceneryIndexCache.CachedProbe],
                      progress: ((Int, Int) -> Void)? = nil,
                      onPartial: (([SceneryPack]) -> Void)? = nil)
         -> (installation: Installation, cache: [String: SceneryIndexCache.CachedProbe]) {
         let customScenery = root.appendingPathComponent("Custom Scenery")
-        let disabledFolder = root.appendingPathComponent("Custom Scenery (Disabled)")
         let iniOrder = parseSceneryPacksIni(customScenery.appendingPathComponent("scenery_packs.ini"))
-
-        func packDirectories(in dir: URL) -> [URL] {
-            let contents = (try? fm.contentsOfDirectory(
-                at: dir,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
-            )) ?? []
-            return contents
-                .filter { url in
-                    // Follow symlinks: packs are commonly linked in from
-                    // other volumes (isDirectoryKey is false for the link
-                    // itself; fileExists resolves it).
-                    if (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
-                        return true
-                    }
-                    var isDir: ObjCBool = false
-                    return fm.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
-                }
-                .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        }
-
-        let entries: [(url: URL, installed: Bool)] =
-            packDirectories(in: customScenery).map { ($0, true) }
-            + packDirectories(in: disabledFolder).map { ($0, false) }
+        let entries = packEntries()
 
         // The per-pack work (apt.dat parse, DSF probe) is I/O bound and packs
         // are independent, so fan out; installs with thousands of packs exist.
-        struct PackProbe {
-            let isLibrary: Bool
-            let airports: [String: AirportInfo]
-            let tiles: Set<String>
-            let isOverlay: Bool?
-            let hasTerrain: Bool
-            let isPhotoTextured: Bool
-            let hasPlugins: Bool
-            let signature: String
-            let sizeBytes: Int64
-            let modifiedDate: Date?
-        }
         func makePack(url: URL, installed: Bool, probe: PackProbe) -> SceneryPack {
-            // lastPathComponent yields FOREIGN (NSPathStore2-backed) Swift
-            // strings; every hash/compare of one takes the slow Unicode
-            // normalization path through objc_msgSend. Pack names are hashed
-            // constantly (filters, sets, sorting) — profiled at ~45% of the
-            // main thread. Make them native once, here.
-            var name = url.lastPathComponent
-            name.makeContiguousUTF8()
-            let resolved = Self.resolvedPackRoot(url)
-            let iniEntry = iniOrder["Custom Scenery/\(name)/"] ?? iniOrder["Custom Scenery/\(name)"]
-            let status: PackStatus = !installed
-                ? .uninstalled
-                // Not listed yet = X-Plane will add it enabled on next launch.
-                : (iniEntry?.enabled ?? true) ? .enabled : .disabled
-            return SceneryPack(
-                name: name,
-                url: url,
-                status: status,
-                iniIndex: installed ? iniEntry?.index : nil,
-                isLibrary: probe.isLibrary,
-                airports: probe.airports,
-                tiles: probe.tiles,
-                isOverlay: probe.isOverlay,
-                isLaminar: Self.laminarPackNames.contains(name),
-                signature: probe.signature,
-                hasTerrain: probe.hasTerrain,
-                isPhotoTextured: probe.isPhotoTextured,
-                hasPlugins: probe.hasPlugins,
-                sizeBytes: probe.sizeBytes,
-                modifiedDate: probe.modifiedDate,
-                resolvedURL: resolved
-            )
+            self.makePack(url: url, installed: installed, probe: probe, iniOrder: iniOrder)
         }
 
         var probes = [PackProbe?](repeating: nil, count: entries.count)
@@ -132,19 +67,24 @@ public struct InstallationScanner {
                     // Metadata-only walks; together they yield the pack's
                     // content signature — the cache validity key.
                     let (tiles, sampleDSF) = collectDSFTiles(contentURL, into: &hash, stats: &stats)
-                    let signature = packSignature(contentURL, hash: &hash, stats: &stats)
+                    let signature = packSignature(contentURL, hash: &hash)
                     let airports: [String: AirportInfo]
                     let isOverlay: Bool?
                     let hasTerrain: Bool
                     let isPhotoTextured: Bool
+                    let sizeBytes: Int64
+                    let modifiedDate: Date?
                     if let cached = cache[url.path], cached.signature == signature {
                         // Unchanged since last scan: reuse everything that
-                        // required reading file contents.
+                        // required reading file contents or walking subtrees.
                         airports = cached.airports
                         isOverlay = cached.isOverlay
                         hasTerrain = cached.hasTerrain
                         isPhotoTextured = cached.isPhotoTextured
+                        sizeBytes = cached.sizeBytes
+                        modifiedDate = cached.modifiedDate
                     } else {
+                        statsWalk(contentURL, depth: 0, stats: &stats)
                         airports = parseAirports(inPack: contentURL)
                         if let sampleDSF,
                            case .ok(let defs) = DSFReader.readDefinitions(url: sampleDSF) {
@@ -155,6 +95,8 @@ public struct InstallationScanner {
                         let content = terrainAndTextureProbe(contentURL)
                         hasTerrain = content.hasTerrain
                         isPhotoTextured = content.isPhotoTextured
+                        sizeBytes = stats.sizeBytes
+                        modifiedDate = stats.latestModified
                     }
                     return PackProbe(
                         isLibrary: fm.fileExists(atPath: url.appendingPathComponent("library.txt").path),
@@ -166,8 +108,8 @@ public struct InstallationScanner {
                         hasPlugins: fm.fileExists(
                             atPath: contentURL.appendingPathComponent("plugins").path),
                         signature: signature,
-                        sizeBytes: stats.sizeBytes,
-                        modifiedDate: stats.latestModified
+                        sizeBytes: sizeBytes,
+                        modifiedDate: modifiedDate
                     )
                 }
                 lock.lock()
@@ -175,9 +117,14 @@ public struct InstallationScanner {
                 newCache[url.path] = SceneryIndexCache.CachedProbe(
                     signature: probe.signature,
                     airports: probe.airports,
+                    tiles: probe.tiles,
+                    isLibrary: probe.isLibrary,
                     isOverlay: probe.isOverlay,
                     hasTerrain: probe.hasTerrain,
-                    isPhotoTextured: probe.isPhotoTextured)
+                    isPhotoTextured: probe.isPhotoTextured,
+                    hasPlugins: probe.hasPlugins,
+                    sizeBytes: probe.sizeBytes,
+                    modifiedDate: probe.modifiedDate)
                 completed += 1
                 let done = completed
                 var partial: [SceneryPack]? = nil
@@ -217,6 +164,112 @@ public struct InstallationScanner {
         return (Installation(root: root, packs: packs,
                              libraryIndex: libraryIndex, defaultLibraryIndex: defaultIndex),
                 newCache)
+    }
+
+    struct PackProbe {
+        let isLibrary: Bool
+        let airports: [String: AirportInfo]
+        let tiles: Set<String>
+        let isOverlay: Bool?
+        let hasTerrain: Bool
+        let isPhotoTextured: Bool
+        let hasPlugins: Bool
+        let signature: String
+        let sizeBytes: Int64
+        let modifiedDate: Date?
+    }
+
+    func makePack(url: URL, installed: Bool, probe: PackProbe,
+                  iniOrder: [String: IniEntry]) -> SceneryPack {
+        // lastPathComponent yields FOREIGN (NSPathStore2-backed) Swift
+        // strings; every hash/compare of one takes the slow Unicode
+        // normalization path through objc_msgSend. Pack names are hashed
+        // constantly (filters, sets, sorting) — profiled at ~45% of the
+        // main thread. Make them native once, here.
+        var name = url.lastPathComponent
+        name.makeContiguousUTF8()
+        let resolved = Self.resolvedPackRoot(url)
+        let iniEntry = iniOrder["Custom Scenery/\(name)/"] ?? iniOrder["Custom Scenery/\(name)"]
+        let status: PackStatus = !installed
+            ? .uninstalled
+            // Not listed yet = X-Plane will add it enabled on next launch.
+            : (iniEntry?.enabled ?? true) ? .enabled : .disabled
+        return SceneryPack(
+            name: name,
+            url: url,
+            status: status,
+            iniIndex: installed ? iniEntry?.index : nil,
+            isLibrary: probe.isLibrary,
+            airports: probe.airports,
+            tiles: probe.tiles,
+            isOverlay: probe.isOverlay,
+            isLaminar: Self.laminarPackNames.contains(name),
+            signature: probe.signature,
+            hasTerrain: probe.hasTerrain,
+            isPhotoTextured: probe.isPhotoTextured,
+            hasPlugins: probe.hasPlugins,
+            sizeBytes: probe.sizeBytes,
+            modifiedDate: probe.modifiedDate,
+            resolvedURL: resolved
+        )
+    }
+
+    func packDirectories(in dir: URL) -> [URL] {
+        let contents = (try? fm.contentsOfDirectory(
+            at: dir,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        return contents
+            .filter { url in
+                // Follow symlinks: packs are commonly linked in from
+                // other volumes (isDirectoryKey is false for the link
+                // itself; fileExists resolves it).
+                if (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+                    return true
+                }
+                var isDir: ObjCBool = false
+                return fm.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
+            }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    /// Every pack folder in Custom Scenery (installed) and
+    /// Custom Scenery (Disabled) (uninstalled).
+    func packEntries() -> [(url: URL, installed: Bool)] {
+        packDirectories(in: root.appendingPathComponent("Custom Scenery")).map { ($0, true) }
+            + packDirectories(in: root.appendingPathComponent("Custom Scenery (Disabled)"))
+                .map { ($0, false) }
+    }
+
+    /// The pack list rebuilt straight from a persisted probe cache — two
+    /// folder listings, the ini, and one readlink per pack; no per-pack
+    /// walks or content reads. Powers optimistic launch: the map shows last
+    /// session's state instantly while the real scan revalidates in the
+    /// background. Packs with no cache entry (new since last session) are
+    /// omitted — the follow-up scan streams them in. Display-grade only:
+    /// the library index needs file contents, so the full scan's
+    /// Installation remains authoritative.
+    public func packsFromCache(
+        _ probes: [String: SceneryIndexCache.CachedProbe]) -> [SceneryPack] {
+        guard !probes.isEmpty else { return [] }
+        let iniOrder = parseSceneryPacksIni(root
+            .appendingPathComponent("Custom Scenery/scenery_packs.ini"))
+        return packEntries().compactMap { url, installed in
+            guard let cached = probes[url.path] else { return nil }
+            let probe = PackProbe(
+                isLibrary: cached.isLibrary,
+                airports: cached.airports,
+                tiles: cached.tiles,
+                isOverlay: cached.isOverlay,
+                hasTerrain: cached.hasTerrain,
+                isPhotoTextured: cached.isPhotoTextured,
+                hasPlugins: cached.hasPlugins,
+                signature: cached.signature,
+                sizeBytes: cached.sizeBytes,
+                modifiedDate: cached.modifiedDate)
+            return makePack(url: url, installed: installed, probe: probe, iniOrder: iniOrder)
+        }
     }
 
     static let laminarPackNames: Set<String> = [
@@ -355,9 +408,10 @@ public struct InstallationScanner {
     /// mtime folded into the change-detection hash (a replaced tile must
     /// invalidate the analysis cache even though its folder mtime doesn't
     /// move).
-    /// Size / freshness accumulated from the stats the signature walk was
-    /// already reading — no extra I/O. Sizes cover files to depth 3 plus
-    /// every DSF; deeper trees under-count slightly.
+    /// Size / freshness accumulated from the stats the walks were already
+    /// reading — no extra I/O. Fed by the Earth nav data walk every scan
+    /// and by statsWalk on cache miss; cache hits carry the totals in the
+    /// cached probe instead.
     struct ProbeStats {
         var sizeBytes: Int64 = 0
         var latestModified: Date?
@@ -440,35 +494,52 @@ public struct InstallationScanner {
         return target.standardizedFileURL
     }
 
-    /// Content signature for cache invalidation: names, sizes and mtimes of
-    /// everything down to depth 2, plus every DSF (any depth, above). Catches
-    /// adds, removals and replaced files; the one blind spot is an IN-PLACE
-    /// edit of a file deeper than two levels — our own FixEngine edits
-    /// invalidate explicitly, and manual Analyze Selection always bypasses
-    /// the cache.
-    func packSignature(_ packURL: URL, hash: inout FNV1a, stats: inout ProbeStats) -> String {
-        signatureWalk(packURL, depth: 0, hash: &hash, stats: &stats)
+    /// Content signature for cache invalidation. X-Plane's loadable scenery
+    /// is rooted entirely in apt.dat and DSF files, so those are what decide
+    /// validity: every one of them, any depth, is hashed by the Earth nav
+    /// data walk that runs first (names, sizes, mtimes). This adds only the
+    /// pack's TOP-LEVEL listing — no recursion — which keeps signatures
+    /// distinct for packs with no Earth nav data at all (libraries; rename
+    /// reconciliation matches by signature) and, via directory mtimes,
+    /// catches adds/removals one level deeper (a swapped-in textures file).
+    /// The blind spot is an in-place edit of a non-DSF file below the top
+    /// level — our own FixEngine edits invalidate explicitly, and manual
+    /// Analyze Selection always bypasses the cache.
+    func packSignature(_ packURL: URL, hash: inout FNV1a) -> String {
+        let entries = (try? fm.contentsOfDirectory(
+            at: packURL,
+            includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+            let name = entry.lastPathComponent
+            if name == "Earth nav data" { continue } // hashed per-DSF already
+            let values = try? entry.resourceValues(
+                forKeys: [.contentModificationDateKey, .fileSizeKey])
+            hash.combine(name)
+            hash.combine(values?.contentModificationDate?.timeIntervalSinceReferenceDate ?? 0)
+            hash.combine(Double(values?.fileSize ?? 0))
+        }
         return String(hash.value, radix: 16)
     }
 
-    private func signatureWalk(_ dir: URL, depth: Int, hash: inout FNV1a,
-                               stats: inout ProbeStats) {
+    /// Size / freshness for a freshly probed pack: files to depth 3 plus
+    /// every DSF (recorded by the Earth nav data walk); deeper trees
+    /// under-count slightly. Cache misses only — warm rescans reuse the
+    /// cached totals instead of re-walking thousands of texture files.
+    private func statsWalk(_ dir: URL, depth: Int, stats: inout ProbeStats) {
         let entries = (try? fm.contentsOfDirectory(
             at: dir,
             includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey, .isDirectoryKey],
             options: [.skipsHiddenFiles]
         )) ?? []
-        for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
-            let name = entry.lastPathComponent
-            if depth == 0, name == "Earth nav data" { continue } // hashed per-DSF already
+        for entry in entries {
+            if depth == 0, entry.lastPathComponent == "Earth nav data" { continue }
             let values = try? entry.resourceValues(
                 forKeys: [.contentModificationDateKey, .fileSizeKey, .isDirectoryKey])
-            hash.combine(name)
-            hash.combine(values?.contentModificationDate?.timeIntervalSinceReferenceDate ?? 0)
-            hash.combine(Double(values?.fileSize ?? 0))
             if values?.isDirectory == true {
                 if depth < 2 {
-                    signatureWalk(entry, depth: depth + 1, hash: &hash, stats: &stats)
+                    statsWalk(entry, depth: depth + 1, stats: &stats)
                 }
             } else {
                 stats.record(size: values?.fileSize, modified: values?.contentModificationDate)

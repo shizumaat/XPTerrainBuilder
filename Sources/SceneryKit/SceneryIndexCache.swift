@@ -3,26 +3,44 @@ import Foundation
 /// Persisted scenery index: the expensive per-pack probe results
 /// (apt.dat airports, DSF overlay classification, terrain typing) keyed by
 /// pack path and guarded by the scanner's content signature. Subsequent
-/// launches re-walk only file metadata — names, sizes, mtimes — and reuse
-/// the cached probe whenever a pack's signature is unchanged, skipping the
-/// file-content reads that dominate a cold scan.
+/// launches re-walk metadata for only the files X-Plane's loadable scenery
+/// is rooted in — every apt.dat and DSF, plus the pack's top-level listing —
+/// and reuse the cached probe whenever the signature is unchanged, skipping
+/// both the file-content reads and the deep subtree walks (textures,
+/// terrain, objects) that dominate a cold scan.
 public enum SceneryIndexCache {
-    /// Everything a probe learns by READING FILE CONTENT. Metadata-derived
-    /// fields (tiles, sizes, dates) are cheap to rebuild and stay fresh.
+    /// Everything a probe learns by READING FILE CONTENT, plus the size /
+    /// freshness totals whose deep walk the warm rescan no longer performs,
+    /// plus the cheap flags (tiles, isLibrary, hasPlugins) the scanner
+    /// refreshes every scan anyway — carried so packsFromCache can rebuild
+    /// a complete pack list for optimistic launch without touching pack
+    /// contents at all.
     public struct CachedProbe: Codable, Sendable {
         public let signature: String
         public let airports: [String: AirportInfo]
+        public let tiles: Set<String>
+        public let isLibrary: Bool
         public let isOverlay: Bool?
         public let hasTerrain: Bool
         public let isPhotoTextured: Bool
+        public let hasPlugins: Bool
+        public let sizeBytes: Int64
+        public let modifiedDate: Date?
 
         public init(signature: String, airports: [String: AirportInfo],
-                    isOverlay: Bool?, hasTerrain: Bool, isPhotoTextured: Bool) {
+                    tiles: Set<String>, isLibrary: Bool,
+                    isOverlay: Bool?, hasTerrain: Bool, isPhotoTextured: Bool,
+                    hasPlugins: Bool, sizeBytes: Int64, modifiedDate: Date?) {
             self.signature = signature
             self.airports = airports
+            self.tiles = tiles
+            self.isLibrary = isLibrary
             self.isOverlay = isOverlay
             self.hasTerrain = hasTerrain
             self.isPhotoTextured = isPhotoTextured
+            self.hasPlugins = hasPlugins
+            self.sizeBytes = sizeBytes
+            self.modifiedDate = modifiedDate
         }
     }
 
@@ -32,7 +50,7 @@ public enum SceneryIndexCache {
         let probes: [String: CachedProbe]
     }
 
-    static let version = 1
+    static let version = 3
 
     /// One cache file per X-Plane root, under the user's Caches directory.
     public static func cacheURL(for root: URL) -> URL {

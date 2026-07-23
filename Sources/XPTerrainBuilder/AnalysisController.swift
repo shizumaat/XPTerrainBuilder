@@ -162,12 +162,37 @@ final class AnalysisController: ObservableObject {
         }
         isScanningInstallation = true
         let previousPacks = lastScan?.packs ?? []
+        // With nothing on screen yet, the scan streams partial results so
+        // the map populates live; once anything is showing (an optimistic
+        // load or a prior scan), partials would shrink the list mid-rescan.
+        let nothingShowing = installationPacks.isEmpty
         Task { [weak self] in
             let (installation, overlays, reconciliation) = await Task.detached(priority: .userInitiated) {
                 // Persisted scenery index: after the first launch, unchanged
                 // packs (by content signature) skip apt.dat parsing and DSF
                 // reads — the rescan touches file metadata only.
                 let probeCache = SceneryIndexCache.load(for: root)
+                // Optimistic launch: rebuild last session's full pack list
+                // straight from the cache (no per-pack disk walks) and show
+                // it immediately; the scan below revalidates and replaces
+                // it, catching anything added, removed or changed.
+                var showedCachedPacks = false
+                if nothingShowing, !probeCache.isEmpty {
+                    let cachedPacks = InstallationScanner(root: root).packsFromCache(probeCache)
+                    if !cachedPacks.isEmpty {
+                        showedCachedPacks = true
+                        let overlays = MapOverlays(packs: cachedPacks)
+                        Task { @MainActor [weak self] in
+                            guard let self, self.isScanningInstallation,
+                                  self.installationPacks.isEmpty else { return }
+                            self.installationPacks = cachedPacks
+                            self.mapOverlays = overlays
+                                .applyingExactMarkers(self.report?.packMarkers ?? [:])
+                            self.scheduleViewportUpdate()
+                        }
+                    }
+                }
+                let streamPartials = nothingShowing && !showedCachedPacks
                 var (installation, updatedCache) = InstallationScanner(root: root).scan(
                     cache: probeCache,
                     progress: { done, total in
@@ -175,7 +200,7 @@ final class AnalysisController: ObservableObject {
                             self?.progress.scanProgress = (done, total)
                         }
                     },
-                    onPartial: { partial in
+                    onPartial: !streamPartials ? nil : { partial in
                         // Populate the map live as packs are discovered.
                         // Overlays are built here on the worker thread; the
                         // completed scan below supersedes any queued partial.

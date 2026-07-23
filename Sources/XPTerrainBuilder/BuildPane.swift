@@ -353,6 +353,7 @@ struct BuildPane: View {
         isTrashingImages = true
         trashMessage = nil
         let files = audit.foreignFiles
+        let tile = buildModel.activeTile
         Task {
             let failures = await Task.detached(priority: .utility) { () -> Int in
                 var failed = 0
@@ -370,6 +371,9 @@ struct BuildPane: View {
                 ? "Moved \(files.count) image\(files.count == 1 ? "" : "s") to the Trash."
                 : "Moved \(files.count - failures); \(failures) could not be moved."
             await refreshTextureAudit()
+            // Clear (or confirm) the tile's map badge right away — no
+            // rescan needed.
+            if let tile { buildModel.reauditConflict(for: tile) }
         }
     }
 

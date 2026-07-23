@@ -228,6 +228,32 @@ final class BuildModel: ObservableObject {
         refreshConflictTiles()
     }
 
+    /// Re-audit ONE tile's textures folder and update its map badge —
+    /// called after the selection pane's trash-cleanup so the warning
+    /// clears immediately instead of waiting for the next scan.
+    func reauditConflict(for coord: TileCoord) {
+        guard let info = built[coord],
+              !info.provider.isEmpty, !info.buildDir.isEmpty else {
+            conflictTiles.remove(coord)
+            return
+        }
+        let textures = URL(fileURLWithPath: info.buildDir, isDirectory: true)
+            .appendingPathComponent("textures", isDirectory: true)
+        let provider = info.provider
+        Task { [weak self] in
+            let conflict = await Task.detached(priority: .utility) {
+                TileTextureAudit.hasForeignSources(
+                    texturesDir: textures, currentProvider: provider)
+            }.value
+            guard let self else { return }
+            if conflict {
+                self.conflictTiles.insert(coord)
+            } else {
+                self.conflictTiles.remove(coord)
+            }
+        }
+    }
+
     /// Background sweep over every built tile's textures folder for
     /// mixed-imagery-source conflicts (map warning badges). Names-only
     /// listings — one readdir per tile, no stat calls — so a full ortho

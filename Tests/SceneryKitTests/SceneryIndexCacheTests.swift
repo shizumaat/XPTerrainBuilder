@@ -100,6 +100,31 @@ import Foundation
         #expect(PackObjectProbe.hasCustomObjects(at: pack))
     }
 
+    @Test func tileTextureAuditFlagsForeignSources() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("texaudit-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        for name in ["130768_135904_Arc18.dds", "130768_135920_Arc18.dds",
+                     "130768_135904_BI16.dds",
+                     "130768_135904_USA_216.dds",   // provider ending in a digit
+                     "130768_135904_ZL18.png",      // water mask — not a source
+                     "unrelated.txt"] {
+            try Data("x".utf8).write(to: dir.appendingPathComponent(name))
+        }
+        let audit = try #require(TileTextureAudit.scan(texturesDir: dir, currentProvider: "Arc"))
+        #expect(audit.hasConflict)
+        #expect(audit.sources.map(\.provider).sorted() == ["Arc", "BI", "USA_2"])
+        #expect(audit.foreignFiles.count == 2)
+        #expect(audit.foreignSources.map(\.provider).sorted() == ["BI", "USA_2"])
+        // Same provider only → no conflict.
+        let clean = try #require(TileTextureAudit.scan(
+            texturesDir: dir, currentProvider: "arc"))
+        #expect(clean.sources.contains { $0.provider == "Arc" })
+        // Unknown current provider → no audit.
+        #expect(TileTextureAudit.scan(texturesDir: dir, currentProvider: "") == nil)
+    }
+
     @Test func persistRoundTripAndRootMismatch() throws {
         let root = try makeInstall()
         defer {

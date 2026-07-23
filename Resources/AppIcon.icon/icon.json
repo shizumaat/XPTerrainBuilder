@@ -1,18 +1,29 @@
 {
   "fill" : {
     "linear-gradient" : [
-      "extended-srgb:0.44,0.47,0.54,1.00000",
-      "extended-srgb:0.17,0.18,0.23,1.00000"
+      "extended-srgb:0.44000,0.47000,0.54000,1.00000",
+      "extended-srgb:0.17000,0.18000,0.23000,1.00000"
     ]
   },
   "groups" : [
     {
       "layers" : [
         {
-          "image-name" : "glyph-1024.png",
-          "name" : "hammer"
+          "image-name" : "AppIcon.png",
+          "name" : "AppIcon",
+          "position" : {
+            "scale" : 0.75,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
         }
       ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.6
+      },
       "translucency" : {
         "enabled" : true,
         "value" : 0.5

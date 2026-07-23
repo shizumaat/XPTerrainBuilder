@@ -28,6 +28,10 @@ struct BuildPane: View {
     /// (gray-outlined on the map) with that tile's DSF modification date.
     @State private var otherScenery: [(name: String, dsfDate: Date?)] = []
     @State private var showingProviderMismatch = false
+    /// Legacy tile-settings alert: offered once per tile per app run.
+    @State private var legacyTile: BuildModel.LegacyTileSettings?
+    @State private var showingLegacyAlert = false
+    @State private var legacyPromptShown: Set<String> = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -72,6 +76,25 @@ struct BuildPane: View {
         }
         .task(id: "\(buildModel.activeTile?.key ?? "")|\(controller.mapOverlays.regions.count)") {
             await refreshOtherScenery()
+        }
+        .task(id: "legacy|\(buildModel.activeTile?.key ?? "")|\(buildModel.built.count)") {
+            guard let coord = buildModel.activeTile,
+                  !legacyPromptShown.contains(coord.key),
+                  let legacy = buildModel.legacyTileSettings(for: coord)
+            else { return }
+            legacyPromptShown.insert(coord.key)
+            legacyTile = legacy
+            showingLegacyAlert = true
+        }
+        .alert("Tile built with an older Ortho4XP",
+               isPresented: $showingLegacyAlert,
+               presenting: legacyTile) { legacy in
+            Button("Update to Current Defaults") {
+                buildModel.updateLegacyTileSettings(legacy)
+            }
+            Button("Keep As-Is", role: .cancel) {}
+        } message: { legacy in
+            Text(legacyAlertMessage(legacy))
         }
         .task(id: "\(buildModel.selected.sorted().map(\.key).joined(separator: ","))|\(buildModel.built.count)") {
             await refreshCombinedAudit()
@@ -586,6 +609,24 @@ struct BuildPane: View {
                 .sorted()
         }.value
         customAirportPacks = names
+    }
+
+    private func legacyAlertMessage(_ legacy: BuildModel.LegacyTileSettings) -> String {
+        var parts = ["Tile \(legacy.coord.key)'s settings were written by an older or different Ortho4XP:"]
+        for item in legacy.foreignEnums {
+            parts.append("• \(item.key) = \(item.value) — not a setting of this version; currently interpreted conservatively. Updating sets: \(item.replacement.isEmpty ? "default" : item.replacement)")
+        }
+        for pin in legacy.missingPins {
+            parts.append("• pinned elevation file no longer exists: \((pin as NSString).lastPathComponent)")
+        }
+        if !legacy.quotedKeys.isEmpty {
+            parts.append("• legacy quoted value format (\(legacy.quotedKeys.count) setting\(legacy.quotedKeys.count == 1 ? "" : "s"))")
+        }
+        if legacy.usesLegacyFileName {
+            parts.append("• legacy config file name (Ortho4XP.cfg)")
+        }
+        parts.append("Updating keeps the tile's imagery source, zoom level and zones, and resets everything else to your current global defaults (the original file is kept as a backup).")
+        return parts.joined(separator: "\n")
     }
 
     private var providerMismatchMessage: String {

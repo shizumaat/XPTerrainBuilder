@@ -613,6 +613,122 @@ final class BuildModel: ObservableObject {
             && !(isBuilding && !usesProtocol) // legacy path can't queue into a run
     }
 
+    // MARK: - Legacy tile settings (built by an older/other Ortho4XP)
+
+    /// Everything about a tile cfg that an older or different Ortho4XP
+    /// wrote and this engine interprets rather than takes literally —
+    /// surfaced to the user with an offer to modernize the file.
+    struct LegacyTileSettings {
+        let coord: TileCoord
+        let cfgURL: URL
+        /// Still the pre-per-tile generic name (Ortho4XP.cfg).
+        let usesLegacyFileName: Bool
+        /// Enum values this engine doesn't define, with the replacement
+        /// an update would write (current global value, else the
+        /// registry default).
+        let foreignEnums: [(key: String, value: String, replacement: String)]
+        /// Keys carrying legacy quoted values ('Arc').
+        let quotedKeys: [String]
+        /// custom_dem pins whose file no longer exists.
+        let missingPins: [String]
+
+        var isEmpty: Bool {
+            !usesLegacyFileName && foreignEnums.isEmpty
+                && quotedKeys.isEmpty && missingPins.isEmpty
+        }
+    }
+
+    static func unquoteCfgValue(_ value: String) -> String {
+        guard value.count >= 2, let first = value.first,
+              first == value.last, first == "'" || first == "\""
+        else { return value }
+        return String(value.dropFirst().dropLast())
+    }
+
+    /// Inspect a built tile's cfg for legacy markers. nil = nothing to say.
+    func legacyTileSettings(for coord: TileCoord) -> LegacyTileSettings? {
+        guard let info = built[coord], !info.buildDir.isEmpty else { return nil }
+        let dir = URL(fileURLWithPath: info.buildDir, isDirectory: true)
+        let canonical = dir.appendingPathComponent("Ortho4XP_\(coord.key).cfg")
+        let generic = dir.appendingPathComponent("Ortho4XP.cfg")
+        let fm = FileManager.default
+        let usesLegacyName: Bool
+        let cfgURL: URL
+        if fm.fileExists(atPath: canonical.path) {
+            cfgURL = canonical
+            usesLegacyName = false
+        } else if fm.fileExists(atPath: generic.path) {
+            cfgURL = generic
+            usesLegacyName = true
+        } else {
+            return nil
+        }
+        guard let file = try? OrthoConfigFile(contentsOf: cfgURL) else { return nil }
+        var quoted: [String] = []
+        var foreign: [(key: String, value: String, replacement: String)] = []
+        var missingPins: [String] = []
+        for (key, raw) in file.rawValues {
+            let value = raw.trimmingCharacters(in: .whitespaces)
+            let bare = Self.unquoteCfgValue(value)
+            if bare != value { quoted.append(key) }
+            if key == "custom_dem" {
+                for token in bare.split(separator: ";").map(String.init)
+                where token.hasPrefix("/") && !fm.fileExists(atPath: token) {
+                    missingPins.append(token)
+                }
+                continue
+            }
+            if let variable = schema.vars[key],
+               variable.type == "str",
+               let allowed = variable.values, !allowed.isEmpty,
+               !allowed.contains(bare) {
+                let replacement = globalConfigValues[key]?.cfgLiteral
+                    ?? variable.default.cfgLiteral
+                foreign.append((key, bare, Self.unquoteCfgValue(replacement)))
+            }
+        }
+        let result = LegacyTileSettings(
+            coord: coord, cfgURL: cfgURL, usesLegacyFileName: usesLegacyName,
+            foreignEnums: foreign.sorted { $0.key < $1.key },
+            quotedKeys: quoted.sorted(), missingPins: missingPins.sorted())
+        return result.isEmpty ? nil : result
+    }
+
+    /// "Update to current defaults": reduce the per-tile cfg to the
+    /// tile's IDENTITY — imagery source, zoom level, hand-drawn zones —
+    /// so every other setting falls back to the current global config,
+    /// exactly as if the tile were newly created today. Effectively
+    /// "delete the tile config", except the keys other features rely on
+    /// (source adoption, the mismatch guard, the imagery audit) and the
+    /// user's zone work survive. Originals stay as .bak / .legacy.
+    func updateLegacyTileSettings(_ legacy: LegacyTileSettings) {
+        guard let source = try? OrthoConfigFile(contentsOf: legacy.cfgURL) else { return }
+        let raw = source.rawValues
+        var lines: [String] = []
+        for key in ["default_website", "default_zl", "zone_list"] {
+            guard let value = raw[key] else { continue }
+            let bare = Self.unquoteCfgValue(value.trimmingCharacters(in: .whitespaces))
+            lines.append("\(key)=\(bare)")
+        }
+        let file = OrthoConfigFile(lines: lines)
+        let destination = legacy.usesLegacyFileName
+            ? legacy.cfgURL.deletingLastPathComponent()
+                .appendingPathComponent("Ortho4XP_\(legacy.coord.key).cfg")
+            : legacy.cfgURL
+        do {
+            try file.write(to: destination)
+            if legacy.usesLegacyFileName {
+                let backup = legacy.cfgURL.appendingPathExtension("legacy")
+                try? FileManager.default.removeItem(at: backup)
+                try? FileManager.default.moveItem(at: legacy.cfgURL, to: backup)
+            }
+            console.append("Tile \(legacy.coord.key): settings reset to current defaults (imagery source, ZL and zones kept).")
+            rescan()
+        } catch {
+            engineError = "Could not update the tile config: \(error.localizedDescription)"
+        }
+    }
+
     // MARK: Imagery-source mismatch guard
 
     struct ProviderMismatch: Identifiable {

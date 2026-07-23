@@ -501,6 +501,14 @@ def osm_xml_from_local_extracts(statements, bounding_box,
         region_ids_seen = set()
         for box in boxes:
             box_regions = covering_regions(box)
+            if (box_regions is None and _leaf_regions() is None
+                    and foreground_download_enabled() and not UI.red_flag
+                    and _foreground_index_refresh_once()):
+                # No region index stored yet (fresh install, or a front
+                # end whose maintenance thread hasn't landed it): fetch
+                # it in-band once — a few MB, negligible next to any
+                # extract — so the very first build is extract-served.
+                box_regions = covering_regions(box)
             if box_regions is None:
                 return None
             for region in box_regions:
@@ -581,6 +589,11 @@ def _download_extract(region_id: str, pbf_url: str,
             except (AttributeError, TypeError, ValueError):
                 total_mb = 0
             os.makedirs(STORE_DIRECTORY, exist_ok=True)
+            try:
+                total_bytes = int(getattr(response, "headers", {}).get(
+                    "Content-Length", 0))
+            except (AttributeError, TypeError, ValueError):
+                total_bytes = 0
             with open(temporary_path, "wb") as extract_file:
                 for chunk in response.iter_content(DOWNLOAD_CHUNK_BYTES):
                     if UI.red_flag:
@@ -592,6 +605,13 @@ def _download_extract(region_id: str, pbf_url: str,
                         break
                     extract_file.write(chunk)
                     received += len(chunk)
+                    if foreground and total_bytes > 0:
+                        # In-band download blocks the vector step: drive
+                        # its bar so the front ends' progress ring moves
+                        # (and the live-rate ETA gets a signal) instead
+                        # of sitting at zero for the whole download.
+                        UI.progress_bar(
+                            1, int(min(received * 100 // total_bytes, 99)))
                     if received >= next_report:
                         UI.vprint(
                             1,
@@ -715,6 +735,20 @@ def _maintenance_loop() -> None:
                 if url:
                     _download_extract(region_id, url)
         time.sleep(WANTED_RESCAN_SECONDS)
+
+
+def _foreground_index_refresh_once() -> bool:
+    """One in-band Geofabrik index download per process.
+
+    Keeps the first-ever build extract-servable before background
+    maintenance has stored the index; the single-attempt gate means an
+    offline machine pays one failed request per process, not one per
+    query round.
+    """
+    if getattr(_foreground_index_refresh_once, "attempted", False):
+        return False
+    _foreground_index_refresh_once.attempted = True
+    return _refresh_index()
 
 
 def start_background_maintenance() -> None:

@@ -29,6 +29,19 @@ sys.path.append(os.path.join(Ortho4XP_dir, 'src'))
 # 2026-07-17).
 if __name__ == '__main__' and '--engine-jsonl' in sys.argv:
     from o4_engine import jsonl
+    if '--engine-worker' not in sys.argv:
+        # Application-process engine session (a front end such as the
+        # mac app drives it over the protocol): start the OSM extract
+        # maintenance thread here, exactly as the Qt window does at
+        # startup. Parallel-build worker children are spawned with
+        # --engine-worker and must never run it (they only append
+        # wants) — without this call the region index never downloads
+        # and every build silently falls back to Overpass.
+        try:
+            import O4_OSM_Extracts as EXTRACTS
+            EXTRACTS.start_background_maintenance()
+        except Exception:
+            pass
     # owns_process: the transport bounds this process's life — front-end
     # death (stdin EOF, SIGTERM, ppid change) stops any in-flight build
     # and exits, so no orphan engine can keep building headless.

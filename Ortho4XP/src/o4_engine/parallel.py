@@ -212,8 +212,10 @@ def tile_worker_command():
     the same early argv branch in ``Ortho4XP_Qt.py``.  Module-level so
     tests can substitute a stub worker script.
     """
+    # --engine-worker marks a parallel-build CHILD: the entry branches
+    # skip application-process work (extract maintenance) for it.
     if getattr(sys, "frozen", False):
-        return [sys.executable, "--engine-jsonl"]
+        return [sys.executable, "--engine-jsonl", "--engine-worker"]
     repository_root = os.path.dirname(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     )
@@ -221,6 +223,7 @@ def tile_worker_command():
         sys.executable,
         os.path.join(repository_root, "Ortho4XP.py"),
         "--engine-jsonl",
+        "--engine-worker",
     ]
 
 

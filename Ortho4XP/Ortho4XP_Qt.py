@@ -38,6 +38,16 @@ sys.path.append(os.path.join(Ortho4XP_dir, "src"))
 if "--engine-jsonl" in sys.argv:
     from o4_engine import jsonl
 
+    if "--engine-worker" not in sys.argv:
+        # Application-process session (a front end drives this process
+        # over the protocol): start extract maintenance like the Qt
+        # window does. Parallel-build worker children carry
+        # --engine-worker and must never run it.
+        try:
+            import O4_OSM_Extracts as EXTRACTS
+            EXTRACTS.start_background_maintenance()
+        except Exception:
+            pass
     # owns_process: the transport bounds this process's life — front-end
     # death (stdin EOF, SIGTERM, ppid change) stops any in-flight build
     # and exits, so no orphan engine can keep building headless.

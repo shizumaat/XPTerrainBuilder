@@ -14,7 +14,9 @@ public enum PackObjectProbe {
         var visited = 0
         for case let entry as URL in enumerator {
             visited += 1
-            if visited > 5000 { return false }
+            // Payware airports run to ~10k files (Aerosoft LEMD: 8,076);
+            // the cap only guards against pathological packs.
+            if visited > 40000 { return false }
             if entry.lastPathComponent == "Earth nav data" {
                 enumerator.skipDescendants() // DSFs/apt.dat only — no objects
                 continue

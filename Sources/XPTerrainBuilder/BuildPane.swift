@@ -388,11 +388,14 @@ struct BuildPane: View {
             return
         }
         let tileKeys = Set(tiles.map(\.key))
-        // Custom airport = a non-Laminar, non-library pack in Custom
-        // Scenery whose airports (or overlay DSFs) fall in a selected tile.
+        // Custom airport = a non-Laminar pack in Custom Scenery whose
+        // airports (or overlay DSFs) fall in a selected tile. isLibrary is
+        // deliberately NOT excluded: payware airports (Aerosoft LEMD) ship
+        // a library.txt exporting their own assets while still being
+        // airports — pure libraries drop out via the empty-airports guard.
         let candidates = controller.installationPacks
             .filter { pack in
-                guard pack.isInstalled, !pack.isLaminar, !pack.isLibrary,
+                guard pack.isInstalled, !pack.isLaminar,
                       !pack.airports.isEmpty else { return false }
                 return !pack.tiles.isDisjoint(with: tileKeys)
                     || pack.airports.values.contains { airport in

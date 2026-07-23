@@ -112,17 +112,6 @@ struct MapMainView: View {
             .disabled(controller.isScanningInstallation)
         }
         ToolbarItem(placement: .navigation) {
-            // Which ortho layers the map shows: our built tiles, other
-            // installed ortho/mesh packages (gray outlines), or both.
-            Picker("Scenery", selection: $sceneryFilterRaw) {
-                ForEach(MapSceneryFilter.allCases, id: \.rawValue) { filter in
-                    Text(filter.label).tag(filter.rawValue)
-                }
-            }
-            .pickerStyle(.menu)
-            .help("Show your Ortho4XP-built tiles, other installed ortho/mesh packages, or both")
-        }
-        ToolbarItem(placement: .navigation) {
             // Live map imagery source — independent of the build provider.
             Menu {
                 Picker("Imagery Preview", selection: Binding(
@@ -141,7 +130,24 @@ struct MapMainView: View {
             }
             .help("Choose which imagery source the map previews — independent of the provider used for building")
         }
-        // Trailing edge, per the HIG (Finder/Mail put search last).
+        // Trailing edge, per the HIG (Finder/Mail put search last). The
+        // scenery-layer filter sits just left of search, standard filter
+        // icon (filled while a filter is active).
+        ToolbarItem(placement: .automatic) {
+            Menu {
+                Picker("Scenery", selection: $sceneryFilterRaw) {
+                    ForEach(MapSceneryFilter.allCases, id: \.rawValue) { filter in
+                        Text(filter.label).tag(filter.rawValue)
+                    }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Image(systemName: sceneryFilterRaw == MapSceneryFilter.all.rawValue
+                      ? "line.3.horizontal.decrease.circle"
+                      : "line.3.horizontal.decrease.circle.fill")
+            }
+            .help("Show your Ortho4XP-built tiles, other installed ortho/mesh packages, or both")
+        }
         ToolbarItem(placement: .automatic) {
             ToolbarSearchField(text: searchText,
                                placeholder: buildModel.mode == .build

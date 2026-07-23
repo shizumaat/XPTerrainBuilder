@@ -19,6 +19,11 @@ struct BuildPane: View {
     @State private var showingImageryConflict = false
     @State private var isTrashingImages = false
     @State private var trashMessage: String?
+    /// Aggregated audit over a multi-tile selection, plus the conflicted
+    /// coords so map badges can be refreshed after a bulk cleanup.
+    @State private var combinedAudit: TileTextureAudit.Combined?
+    @State private var combinedConflictCoords: [BuildModel.TileCoord] = []
+    @State private var showingCombinedConflict = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -60,6 +65,9 @@ struct BuildPane: View {
         }
         .task(id: imageryAuditKey) {
             await refreshTextureAudit()
+        }
+        .task(id: "\(buildModel.selected.sorted().map(\.key).joined(separator: ","))|\(buildModel.built.count)") {
+            await refreshCombinedAudit()
         }
         .fileImporter(isPresented: $showingBaseFolderPicker.value,
                       allowedContentTypes: [.folder]) { result in
@@ -154,9 +162,26 @@ struct BuildPane: View {
             if buildModel.selected.count > 1 {
                 Divider()
                 let installedCount = buildModel.selected.filter { buildModel.isInstalled($0) }.count
-                Text("\(buildModel.selected.count) tiles selected · \(installedCount) installed")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Text("\(buildModel.selected.count) tiles selected · \(installedCount) installed")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if let combined = combinedAudit, combined.hasConflict {
+                        Button {
+                            trashMessage = nil
+                            showingCombinedConflict = true
+                        } label: {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.yellow)
+                                .font(.caption)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("\(combined.tilesWithConflict) selected tile\(combined.tilesWithConflict == 1 ? " has" : "s have") multiple imagery sources")
+                        .popover(isPresented: $showingCombinedConflict, arrowEdge: .trailing) {
+                            combinedConflictPopover(combined)
+                        }
+                    }
+                }
                 Button("Clear Selection") { buildModel.clearSelection() }
                     .controlSize(.small)
             }
@@ -374,6 +399,104 @@ struct BuildPane: View {
             // Clear (or confirm) the tile's map badge right away — no
             // rescan needed.
             if let tile { buildModel.reauditConflict(for: tile) }
+        }
+    }
+
+    /// Full audit (with sizes) of every selected built tile, aggregated —
+    /// drives the warning in the combined selection info.
+    private func refreshCombinedAudit() async {
+        guard buildModel.selected.count > 1 else {
+            combinedAudit = nil
+            combinedConflictCoords = []
+            return
+        }
+        let entries: [(BuildModel.TileCoord, URL, String)] = buildModel.selected.compactMap { coord in
+            guard let info = buildModel.built[coord],
+                  !info.provider.isEmpty, !info.buildDir.isEmpty else { return nil }
+            let textures = URL(fileURLWithPath: info.buildDir, isDirectory: true)
+                .appendingPathComponent("textures", isDirectory: true)
+            return (coord, textures, info.provider)
+        }
+        let (combined, coords) = await Task.detached(priority: .utility) {
+            () -> (TileTextureAudit.Combined, [BuildModel.TileCoord]) in
+            var audits: [TileTextureAudit] = []
+            var conflicted: [BuildModel.TileCoord] = []
+            for (coord, dir, provider) in entries {
+                guard let audit = TileTextureAudit.scan(
+                    texturesDir: dir, currentProvider: provider) else { continue }
+                audits.append(audit)
+                if audit.hasConflict { conflicted.append(coord) }
+            }
+            return (TileTextureAudit.Combined(audits), conflicted)
+        }.value
+        combinedAudit = combined
+        combinedConflictCoords = coords
+    }
+
+    /// "Arc" when one provider, "Multiple" when mixed — per the combined
+    /// dialog's source rows.
+    private func providerLabel(_ providers: Set<String>) -> String {
+        providers.count == 1 ? providers.first! : "Multiple"
+    }
+
+    private func combinedConflictPopover(_ combined: TileTextureAudit.Combined) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Multiple imagery sources installed",
+                  systemImage: "exclamationmark.triangle.fill")
+                .font(.callout.weight(.semibold))
+            Text("\(combined.tilesWithConflict) of \(buildModel.selected.count) selected tiles carry textures from more than one source; only each tile's current source is ever shown.")
+                .font(.caption)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("In use: \(providerLabel(combined.currentProviders)) — \(ByteCountFormatter.string(fromByteCount: combined.currentBytes, countStyle: .file))")
+                    .font(.caption)
+                Text("Unused: \(providerLabel(combined.foreignProviders)) — \(ByteCountFormatter.string(fromByteCount: combined.foreignBytes, countStyle: .file)) in \(combined.foreignFiles.count) files")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text("If a tile deliberately mixes sources through imagery zones, keep them.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            if let trashMessage {
+                Text(trashMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Button(isTrashingImages
+                   ? "Moving…"
+                   : "Move All Unused Images to Trash") {
+                trashAllForeignImages(combined)
+            }
+            .disabled(isTrashingImages || combined.foreignFiles.isEmpty)
+        }
+        .padding(12)
+        .frame(width: 340)
+    }
+
+    private func trashAllForeignImages(_ combined: TileTextureAudit.Combined) {
+        isTrashingImages = true
+        trashMessage = nil
+        let files = combined.foreignFiles
+        let coords = combinedConflictCoords
+        Task {
+            let failures = await Task.detached(priority: .utility) { () -> Int in
+                var failed = 0
+                for url in files {
+                    do {
+                        try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                    } catch {
+                        failed += 1
+                    }
+                }
+                return failed
+            }.value
+            isTrashingImages = false
+            trashMessage = failures == 0
+                ? "Moved \(files.count) image\(files.count == 1 ? "" : "s") to the Trash."
+                : "Moved \(files.count - failures); \(failures) could not be moved."
+            await refreshCombinedAudit()
+            await refreshTextureAudit()
+            // Clear (or confirm) every affected tile's map badge right away.
+            for coord in coords { buildModel.reauditConflict(for: coord) }
         }
     }
 

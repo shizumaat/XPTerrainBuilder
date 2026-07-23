@@ -124,6 +124,21 @@ import Foundation
         // Unknown current provider → no audit.
         #expect(TileTextureAudit.scan(texturesDir: dir, currentProvider: "") == nil)
 
+        // Combined aggregation over several tiles: conflicted tiles only,
+        // in-use vs unused split, providers collapse to sets.
+        let cleanDir = dir.appendingPathComponent("clean")
+        try FileManager.default.createDirectory(at: cleanDir, withIntermediateDirectories: true)
+        try Data("xx".utf8).write(to: cleanDir.appendingPathComponent("1_2_BI16.dds"))
+        let a = try #require(TileTextureAudit.scan(texturesDir: dir, currentProvider: "Arc"))
+        let b = try #require(TileTextureAudit.scan(texturesDir: cleanDir, currentProvider: "BI"))
+        let combined = TileTextureAudit.Combined([a, b])
+        #expect(combined.tilesAudited == 2)
+        #expect(combined.tilesWithConflict == 1)
+        #expect(combined.currentProviders == ["Arc"])
+        #expect(combined.foreignProviders == ["BI", "USA_2"])
+        #expect(combined.foreignFiles.count == a.foreignFiles.count)
+        #expect(combined.currentBytes == 2 && combined.foreignBytes == 2)
+
         // Names-only fast path (map badge sweep) agrees with the full scan.
         #expect(TileTextureAudit.hasForeignSources(texturesDir: dir, currentProvider: "Arc"))
         #expect(!TileTextureAudit.hasForeignSources(texturesDir: dir, currentProvider: ""))

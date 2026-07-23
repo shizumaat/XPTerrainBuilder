@@ -38,6 +38,42 @@ public struct TileTextureAudit: Sendable, Equatable {
     private static let ddsPattern =
         #/^\d+_\d+_(.+?)(\d{2})(?:_[A-Za-z_]+)?$/#
 
+    /// Aggregation of several tiles' audits (multi-tile selection): who
+    /// conflicts, which sources are in play, and the on-disk split between
+    /// in-use and unused textures across the conflicted tiles.
+    public struct Combined: Sendable, Equatable {
+        public let tilesAudited: Int
+        public let tilesWithConflict: Int
+        /// Current (in-use) providers of the conflicted tiles.
+        public let currentProviders: Set<String>
+        /// Foreign (unused) providers found on the conflicted tiles.
+        public let foreignProviders: Set<String>
+        /// Bytes of in-use-source textures on the conflicted tiles.
+        public let currentBytes: Int64
+        /// Bytes of unused-source textures on the conflicted tiles.
+        public let foreignBytes: Int64
+        public let foreignFiles: [URL]
+
+        public var hasConflict: Bool { tilesWithConflict > 0 }
+
+        public init(_ audits: [TileTextureAudit]) {
+            tilesAudited = audits.count
+            let conflicted = audits.filter(\.hasConflict)
+            tilesWithConflict = conflicted.count
+            currentProviders = Set(conflicted.map(\.currentProvider))
+            foreignProviders = Set(conflicted.flatMap {
+                $0.foreignSources.map(\.provider)
+            })
+            currentBytes = conflicted.reduce(0) { total, audit in
+                total + audit.sources
+                    .filter { $0.provider.lowercased() == audit.currentProvider.lowercased() }
+                    .reduce(0) { $0 + $1.bytes }
+            }
+            foreignBytes = conflicted.reduce(0) { $0 + $1.foreignBytes }
+            foreignFiles = conflicted.flatMap(\.foreignFiles)
+        }
+    }
+
     /// Names-only fast path for sweeping many tiles (map badges): true as
     /// soon as one .dds from a provider other than `currentProvider` is
     /// seen. One directory listing, no per-file stat calls.

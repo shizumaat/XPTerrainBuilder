@@ -120,4 +120,9 @@ codesign --force --sign - "$STAGE"
 rm -rf "$APP"
 mkdir -p "$ROOT/dist.nosync"
 ditto "$STAGE" "$APP"
+# Re-register with LaunchServices: on current macOS betas the FIRST
+# open/Finder launch of a freshly replaced bundle can hang in the kernel
+# until the binary has run once; a forced re-registration avoids it.
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+  -f "$APP" 2>/dev/null || true
 echo "Built $APP"

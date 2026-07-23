@@ -2886,7 +2886,8 @@ class WcsKvpStrategy:
 
     PAD_M = 60.0
 
-    def _request_url(self, definition, bounding_box_wgs84):
+    def _request_url(self, definition, bounding_box_wgs84,
+                     target_resolution_m=None):
         source_epsg = int(float(definition.get("source_epsg", 25832)))
         (x_min, y_min, x_max, y_max) = transform_bounding_box_to_epsg(
             bounding_box_wgs84, source_epsg
@@ -2894,11 +2895,19 @@ class WcsKvpStrategy:
         native = _parse_float(
             definition.get("native_resolution_m"), 1.0
         )
+        # Never ask for finer pixels than the inset target: the fetch
+        # core warps down to the target anyway, so requesting native
+        # only inflates the server render and the transfer (the same
+        # over-fetch the FRANCE50CM tiles had — measured ~6x slower).
+        pixel_m = native
+        target = _parse_float(target_resolution_m, 0.0)
+        if target and target > native:
+            pixel_m = target
         width = max(
-            1, int(round((x_max - x_min + 2 * self.PAD_M) / native))
+            1, int(round((x_max - x_min + 2 * self.PAD_M) / pixel_m))
         )
         height = max(
-            1, int(round((y_max - y_min + 2 * self.PAD_M) / native))
+            1, int(round((y_max - y_min + 2 * self.PAD_M) / pixel_m))
         )
         return (
             definition["wcs_getcoverage_template"]
@@ -2929,7 +2938,8 @@ class WcsKvpStrategy:
             return None
         if not _coverage_bbox_intersects(definition, bounding_box_wgs84):
             return None
-        url = self._request_url(definition, bounding_box_wgs84)
+        url = self._request_url(definition, bounding_box_wgs84,
+                                target_resolution_m=target_resolution_m)
         os.makedirs(os.path.dirname(destination_path), exist_ok=True)
         scratch_path = destination_path + ".getcoverage.tif"
         try:

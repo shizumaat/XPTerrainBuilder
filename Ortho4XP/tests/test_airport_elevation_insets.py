@@ -3806,3 +3806,29 @@ def test_rescale_wms_tile_url_requests_target_resolution():
     # Non-WMS URL shape: untouched.
     plain = "https://example.com/tiles/t.tif"
     assert _rescale_wms_tile_url(plain, definition, 3.0) == plain
+
+
+def test_wcs_kvp_requests_target_resolution_pixels():
+    from O4_Airport_Elevation_Insets import WcsKvpStrategy
+
+    definition = {
+        "source_epsg": "4326",
+        "native_resolution_m": "1.0",
+        "wcs_getcoverage_template": (
+            "https://example/wcs?bbox={xmin},{ymin},{xmax},{ymax}"
+            "&w={width}&h={height}"),
+    }
+    strategy = WcsKvpStrategy()
+    box = (0.0, 0.0, 0.01, 0.01)
+    native_url = strategy._request_url(definition, box)
+    coarse_url = strategy._request_url(definition, box,
+                                       target_resolution_m=3.0)
+    def pixels(url):
+        import re
+        return int(re.search(r"w=(\d+)", url).group(1))
+    assert pixels(coarse_url) < pixels(native_url)
+    assert pixels(native_url) // pixels(coarse_url) == 3
+    # A target finer than native never upsizes the request.
+    fine_url = strategy._request_url(definition, box,
+                                     target_resolution_m=0.5)
+    assert fine_url == native_url

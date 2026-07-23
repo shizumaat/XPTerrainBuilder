@@ -3784,3 +3784,25 @@ def test_ensure_airport_insets_threads_one_prefetch_to_masking(
         (0.0, 10.0, 1.0, 11.0),
         (2.0, 12.0, 3.0, 13.0),
     ]
+
+
+def test_rescale_wms_tile_url_requests_target_resolution():
+    from O4_Airport_Elevation_Insets import _rescale_wms_tile_url
+
+    definition = {"native_resolution_m": 0.5}
+    url = ("https://data.geopf.fr/wms-r?SERVICE=WMS&REQUEST=GetMap"
+           "&CRS=EPSG:2154&BBOX=567999.75,6282000.25,568999.75,6283000.25"
+           "&WIDTH=2000&HEIGHT=2000&FORMAT=image/geotiff&FILENAME=t.tif")
+    rescaled = _rescale_wms_tile_url(url, definition, 3.0)
+    assert "WIDTH=333" in rescaled and "HEIGHT=333" in rescaled
+    assert "FILENAME=t.tif" in rescaled
+    # Target at/below native: untouched.
+    assert _rescale_wms_tile_url(url, definition, 0.5) == url
+    # Geographic-degree bbox: extents are not metres — untouched.
+    geographic = url.replace(
+        "BBOX=567999.75,6282000.25,568999.75,6283000.25",
+        "BBOX=1.35,43.62,1.36,43.63")
+    assert _rescale_wms_tile_url(geographic, definition, 3.0) == geographic
+    # Non-WMS URL shape: untouched.
+    plain = "https://example.com/tiles/t.tif"
+    assert _rescale_wms_tile_url(plain, definition, 3.0) == plain

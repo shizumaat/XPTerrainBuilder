@@ -3963,6 +3963,52 @@ class OsGridBucketStrategy(GeojsonTileIndexStrategy):
 
 
 # =====================================================================
+def _rescale_wms_tile_url(url, definition, target_resolution_m):
+    """Ask a WMS GetMap tile for the resolution the inset actually needs.
+
+    Tile catalogs (IGN LiDAR HD) hand out ready-made GetMap URLs at native
+    resolution — measured on data.geopf.fr: a 50 cm 1 km tile is 16 MB and
+    ~8 s, dominated by server render latency, and the fetch pipeline then
+    warps it DOWN to the inset target (3 m default) anyway.  The same
+    render asked at 3 m is 0.45 MB and ~1.3 s.  Rewrite WIDTH/HEIGHT from
+    the BBOX extent whenever the target is coarser than native; anything
+    unexpected (missing params, geographic-degree bbox, upscale) keeps the
+    original URL.
+    """
+    try:
+        native = float(definition.get("native_resolution_m") or 0)
+        target = float(target_resolution_m or 0)
+        if target <= 0 or native <= 0 or target <= native:
+            return url
+        from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
+
+        parts = urlsplit(url)
+        params = parse_qs(parts.query, keep_blank_values=True)
+        by_upper = {key.upper(): key for key in params}
+        if not {"WIDTH", "HEIGHT", "BBOX"} <= set(by_upper):
+            return url
+        bbox = [float(v) for v in params[by_upper["BBOX"]][0].split(",")]
+        if len(bbox) != 4:
+            return url
+        extent_x = abs(bbox[2] - bbox[0])
+        extent_y = abs(bbox[3] - bbox[1])
+        # Extents in metres, or nothing: a geographic-degree bbox would
+        # compute a nonsense pixel count.
+        if extent_x < 10 or extent_y < 10:
+            return url
+        width = max(1, int(round(extent_x / target)))
+        height = max(1, int(round(extent_y / target)))
+        if (width >= int(float(params[by_upper["WIDTH"]][0]))
+                or height >= int(float(params[by_upper["HEIGHT"]][0]))):
+            return url
+        params[by_upper["WIDTH"]] = [str(width)]
+        params[by_upper["HEIGHT"]] = [str(height)]
+        return urlunsplit(parts._replace(
+            query=urlencode(params, doseq=True)))
+    except Exception:
+        return url
+
+
 # Strategy 8: wfs_tile_index (WFS tile catalog carrying download URLs)
 # =====================================================================
 @register_access_strategy("wfs_tile_index")
@@ -4048,7 +4094,10 @@ class WfsTileIndexStrategy:
         for (number, entry) in enumerate(sources):
             temporary_path = destination_path + ".tile%d.tif" % number
             try:
-                response = requests.get(entry["url"], timeout=300)
+                response = requests.get(
+                    _rescale_wms_tile_url(
+                        entry["url"], definition, target_resolution_m),
+                    timeout=300)
                 if response.status_code != 200:
                     continue
                 with open(temporary_path, "wb") as handle:

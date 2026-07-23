@@ -423,6 +423,16 @@ final class BuildModel: ObservableObject {
     private func sessionExited(_ status: Int32) {
         guard client != nil else { return }
         client = nil
+        if expectedEngineStop {
+            expectedEngineStop = false
+            console.append("=== Build stopped. ===")
+            isBuilding = false
+            isStopping = false
+            activity.reset()
+            // A fresh session reconnects lazily; refresh what's on disk.
+            rescan()
+            return
+        }
         if isBuilding {
             console.append("*** Engine session ended unexpectedly (status \(status)).")
             isBuilding = false
@@ -727,16 +737,40 @@ final class BuildModel: ObservableObject {
         }
     }
 
-    /// Whole-run stop (the ■ Stop button).
+    /// Whole-run stop (the ■ Stop button): cooperative cancel first (the
+    /// engine aborts at its next check), escalating to process termination
+    /// after a short grace window — a slow tile download or a wedged
+    /// server must never hold the user hostage. The engine restarts
+    /// lazily on the next action; builds are re-runnable (atomic writes,
+    /// per-airport caches), so a hard stop loses at most in-flight work.
+    private var hardStopTask: Task<Void, Never>?
+    private var expectedEngineStop = false
+
     func stopBuild() {
         guard isBuilding else { return }
         isStopping = true
         if usesProtocol {
             client?.send(command: "cancel")
-            console.append("Stopping after the current step…")
+            console.append("Stopping — cancelling the engine (forced in 5 s if it doesn't wind down)…")
+            hardStopTask?.cancel()
+            hardStopTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled, let self, self.isBuilding else { return }
+                self.hardStopEngine()
+            }
         } else {
             legacyQueue = []
             legacyRunner?.requestStop()
+        }
+    }
+
+    private func hardStopEngine() {
+        console.append("Engine still busy — terminating it now.")
+        expectedEngineStop = true
+        client?.terminate()
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            self?.client?.kill()   // no-op once the process has exited
         }
     }
 

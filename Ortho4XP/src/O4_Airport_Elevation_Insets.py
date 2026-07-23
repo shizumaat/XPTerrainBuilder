@@ -5891,6 +5891,24 @@ def ensure_airport_insets(
     # never abort the whole tile's fetches with an unorderable-keys
     # TypeError (defense in depth behind _airport_bounding_boxes' filter).
     icaos = sorted(airport_bounding_boxes, key=str)
+
+    # Live progress for the fetch phase: per-airport completion drives the
+    # vector step's bar, so the session's rate-based ETA gets a real
+    # signal (without it, a long inset phase reads as an ever-growing
+    # overrun) and the front ends' ring moves. Airports are not equal
+    # cost, but the completion RATE is an honest live estimator.
+    progress_lock = threading.Lock()
+    progress_done = [0]
+
+    def _fetch_airport_insets_with_progress(icao):
+        try:
+            _fetch_airport_insets(icao)
+        finally:
+            with progress_lock:
+                progress_done[0] += 1
+                done = progress_done[0]
+            UI.progress_bar(
+                1, int(min(done * 100 // max(len(icaos), 1), 99)))
     # Airports fetch CONCURRENTLY: the work is network-bound (windowed
     # WCS/COG reads per airport — separate windows on purpose: one merged
     # request would cover the airports' bounding rectangle, i.e. most of
@@ -5904,10 +5922,10 @@ def ensure_airport_insets(
             max_workers=min(4, len(icaos)),
             thread_name_prefix="inset-fetch",
         ) as pool:
-            list(pool.map(_fetch_airport_insets, icaos))
+            list(pool.map(_fetch_airport_insets_with_progress, icaos))
     else:
         for icao in icaos:
-            _fetch_airport_insets(icao)
+            _fetch_airport_insets_with_progress(icao)
     _write_index(lat, lon, index)
     return index
 

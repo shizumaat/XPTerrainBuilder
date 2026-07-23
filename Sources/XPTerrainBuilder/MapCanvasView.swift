@@ -425,13 +425,17 @@ struct MapCanvasView: View {
             }
         }
 
-        // Selection: yellow; active tile solid 3px, others dashed 2px.
+        // Selection: focus ring, not a fill — a fill tints the very
+        // imagery the user is judging. Active tile: solid ring with a soft
+        // outer glow (macOS focus-ring look); other selected tiles: dashed.
         for coord in buildModel.selected where visible(coord) {
             let r = rect(coord)
-            context.fill(Path(r), with: .color(Self.buildSelection.opacity(0.14)))
             if coord == buildModel.activeTile {
-                context.stroke(Path(r.insetBy(dx: 1.5, dy: 1.5)),
-                               with: .color(Self.buildSelection), lineWidth: 3)
+                context.stroke(Path(r.insetBy(dx: -1.5, dy: -1.5)),
+                               with: .color(Self.buildSelection.opacity(0.35)),
+                               lineWidth: 5)
+                context.stroke(Path(r.insetBy(dx: 1, dy: 1)),
+                               with: .color(Self.buildSelection), lineWidth: 2.5)
             } else {
                 context.stroke(Path(r.insetBy(dx: 1, dy: 1)),
                                with: .color(Self.buildSelection),

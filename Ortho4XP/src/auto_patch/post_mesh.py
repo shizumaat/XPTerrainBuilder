@@ -638,7 +638,9 @@ def rebake_dsf_objects(tile) -> dict:
     ``objects_skipped``, ``airports_failed``) for the caller's summary
     line.  Returns immediately — before reading anything — unless
     ``DSF_OBJECT_REANCHOR`` is on (function-local config import so tests
-    can drive the flag).  A missing worklist means nothing to do.
+    can drive the flag) AND the tile's ``modify_custom_airports`` cfg var
+    allows touching installed packages.  A missing worklist means nothing
+    to do.
 
     One airport's exception is caught, counted and logged; the loop
     continues.  The function itself also never raises (the hook wraps it
@@ -647,6 +649,18 @@ def rebake_dsf_objects(tile) -> dict:
     from .config import DSF_OBJECT_REANCHOR
 
     if not DSF_OBJECT_REANCHOR:
+        return {}
+
+    # Owner-facing switch ("Modify custom airports" in the front ends):
+    # off means installed packages stay byte-identical.  Default True
+    # (getattr: tiles built by tools predating the var keep the historic
+    # always-rebake behaviour, per ruling R2).
+    if not getattr(tile, "modify_custom_airports", True):
+        UI.vprint(
+            1,
+            "  [object-anchor] modify_custom_airports is off — "
+            "installed packages left untouched.",
+        )
         return {}
 
     counts = {key: 0 for key in _COUNT_KEYS}

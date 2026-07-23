@@ -81,6 +81,7 @@
   ],
   "vector": [
    "auto_patch",
+   "modify_custom_airports",
    "elevation_level",
    "elevation_coastline_band_km",
    "apt_smoothing_pix",
@@ -803,6 +804,12 @@
    "name": "global_min_area",
    "type": "float"
   },
+  "global_modify_custom_airports": {
+   "default": true,
+   "hint": "Allow the auto-patch pass to modify installed custom airport packages. After the mesh is rebuilt, 3-D objects of custom airports in Custom Scenery are reseated in place (originals kept as .anchor_bak backups) so they sit at the new ground elevation. Off leaves every installed package byte-identical; objects at reprofiled airports may then float above or sink into the terrain until the tile is rebuilt with this back on.",
+   "name": "global_modify_custom_airports",
+   "type": "bool"
+  },
   "global_normal_map_strength": {
    "default": 1.0,
    "hint": "Orthophotos by essence already contain the part of the shading burned in (here by shading we mean the amount of reflected light in the camera direction as a function of the terrain slope, not the shadows). This option allows to tweak the normal coordinates of the mesh in the DSF to avoid \"overshading\", but it has side effects on the way X-Plane computes scenery shadows. Used to be 0.3 by default in earlier versions, the default is now 1 which means exact normals.",
@@ -1180,6 +1187,12 @@
    "hint": "Minimum area (in km^2) a water patch needs to be in order to be included in the mesh as such. Contiguous water patches are merged before area computation.",
    "name": "min_area",
    "type": "float"
+  },
+  "modify_custom_airports": {
+   "default": true,
+   "hint": "Allow the auto-patch pass to modify installed custom airport packages. After the mesh is rebuilt, 3-D objects of custom airports in Custom Scenery are reseated in place (originals kept as .anchor_bak backups) so they sit at the new ground elevation. Off leaves every installed package byte-identical; objects at reprofiled airports may then float above or sink into the terrain until the tile is rebuilt with this back on.",
+   "name": "modify_custom_airports",
+   "type": "bool"
   },
   "normal_map_strength": {
    "default": 1.0,

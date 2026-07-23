@@ -94,6 +94,7 @@ enum SettingsLayout {
             SettingItem("custom_dem", "Custom elevation data (DEM)", .tile),
             SettingItem("fill_nodata", "Fill missing elevation data", .tile),
             SettingItem("auto_patch", "Auto-patch airports (runway slopes)", .tile),
+            SettingItem("modify_custom_airports", "Modify custom airports (reseat objects)", .tile),
             SettingItem("airport_elevation_insets", "Fetch airport lidar insets", .tile),
             SettingItem("airport_elevation_inset_margin_m", "Lidar extent beyond airport (m)", .tile),
             SettingItem("airport_elevation_inset_feather_m", "Lidar edge blend width (m)", .tile),

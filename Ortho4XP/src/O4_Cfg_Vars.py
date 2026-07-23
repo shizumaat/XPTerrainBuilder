@@ -192,6 +192,19 @@ cfg_tile_vars = {
         },
         "hint": 'Controls Ortho4XP auto-generation of runway slope patches from CIFP/AIRAC data. Auto-patches provide accurate threshold-anchored elevation profiles and are overridden by any manual patches. "ICAO" (default) only patches airports with a 4-letter ICAO code, "All" patches every airport found in CIFP, "None" disables auto-patching entirely.',
     },
+    "modify_custom_airports": {
+        "type": bool,
+        "default": True,
+        "hint": (
+            "Allow the auto-patch pass to modify installed custom airport "
+            "packages. After the mesh is rebuilt, 3-D objects of custom "
+            "airports in Custom Scenery are reseated in place (originals "
+            "kept as .anchor_bak backups) so they sit at the new ground "
+            "elevation. Off leaves every installed package byte-identical; "
+            "objects at reprofiled airports may then float above or sink "
+            "into the terrain until the tile is rebuilt with this back on."
+        ),
+    },
     # Elevation
     "elevation_level": {
         "type": str,
@@ -656,6 +669,7 @@ gui_app_vars_long = list_app_vars[-4:]
 
 list_vector_vars = [
     "auto_patch",
+    "modify_custom_airports",
     "elevation_level",
     "elevation_coastline_band_km",
     "apt_smoothing_pix",

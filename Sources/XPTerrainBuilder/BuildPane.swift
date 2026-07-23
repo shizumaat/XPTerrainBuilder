@@ -13,6 +13,12 @@ struct BuildPane: View {
     /// Custom airport packs (own 3-D objects) in the selected tiles —
     /// the packages "Modify custom airports" would reseat.
     @State private var customAirportPacks: [String] = []
+    /// Imagery-source audit of the active tile's textures folder; non-nil
+    /// with hasConflict when sources besides the tile's current one exist.
+    @State private var textureAudit: TileTextureAudit?
+    @State private var showingImageryConflict = false
+    @State private var isTrashingImages = false
+    @State private var trashMessage: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -51,6 +57,9 @@ struct BuildPane: View {
         }
         .task(id: "\(buildModel.selected.sorted().map(\.key).joined(separator: ","))|\(controller.installationPacks.count)") {
             await refreshCustomAirportPacks()
+        }
+        .task(id: imageryAuditKey) {
+            await refreshTextureAudit()
         }
         .fileImporter(isPresented: $showingBaseFolderPicker.value,
                       allowedContentTypes: [.folder]) { result in
@@ -109,7 +118,24 @@ struct BuildPane: View {
             let info = buildModel.built[active]
             Text("Tile \(active.key)\(titleSuffix(active, info))")
                 .font(.callout.weight(.semibold))
-            detailRow("Imagery", info?.provider.isEmpty == false ? info!.provider : "—")
+            HStack(spacing: 5) {
+                detailRow("Imagery", info?.provider.isEmpty == false ? info!.provider : "—")
+                if let audit = textureAudit, audit.hasConflict {
+                    Button {
+                        trashMessage = nil
+                        showingImageryConflict = true
+                    } label: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.yellow)
+                            .font(.caption)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Multiple imagery sources are installed in this tile")
+                    .popover(isPresented: $showingImageryConflict, arrowEdge: .trailing) {
+                        imageryConflictPopover(audit)
+                    }
+                }
+            }
             detailRow("Zoom level", zlText(info))
             detailRow("Mesh built", dateText(info?.meshDate))
             detailRow("Imagery updated", dateText(info?.imageryDate))
@@ -207,7 +233,9 @@ struct BuildPane: View {
                 .help("Downloads imagery, converts textures and writes the final DSF.")
             Toggle("Extract overlays", isOn: boolBinding(\.doOverlays))
                 .help("Extracts roads/buildings overlays from the overlay source configured in the engine config.")
-            Toggle("Modify custom airports", isOn: boolBinding(\.modifyCustomAirports))
+            Toggle("Modify custom airports", isOn: Binding(
+                get: { buildModel.modifyCustomAirports },
+                set: { buildModel.setModifyCustomAirports($0) }))
                 .disabled(customAirportPacks.isEmpty)
                 .help(customAirportPacks.isEmpty
                       ? "No custom airport with its own 3-D objects is in the selected tiles."
@@ -250,6 +278,90 @@ struct BuildPane: View {
             .font(.callout)
         }
         .toggleStyle(.checkbox)
+    }
+
+    // MARK: - Imagery-source conflict (active tile)
+
+    /// Task key: re-audit when the active tile, its build dir, or its
+    /// configured provider changes (the scan fills these in async).
+    private var imageryAuditKey: String {
+        guard let active = buildModel.activeTile,
+              let info = buildModel.built[active] else { return "" }
+        return "\(active.key)|\(info.buildDir)|\(info.provider)"
+    }
+
+    private func refreshTextureAudit() async {
+        guard let active = buildModel.activeTile,
+              let info = buildModel.built[active],
+              !info.buildDir.isEmpty, !info.provider.isEmpty else {
+            textureAudit = nil
+            return
+        }
+        let dir = URL(fileURLWithPath: info.buildDir, isDirectory: true)
+            .appendingPathComponent("textures", isDirectory: true)
+        let provider = info.provider
+        textureAudit = await Task.detached(priority: .utility) {
+            TileTextureAudit.scan(texturesDir: dir, currentProvider: provider)
+        }.value
+    }
+
+    private func imageryConflictPopover(_ audit: TileTextureAudit) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Multiple imagery sources installed",
+                  systemImage: "exclamationmark.triangle.fill")
+                .font(.callout.weight(.semibold))
+            Text("Only one imagery source can be used at a time; this tile's DSF references \(audit.currentProvider) textures. Images from other sources are left over from earlier builds and never shown.")
+                .font(.caption)
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(audit.sources) { source in
+                    let isCurrent = source.provider.lowercased()
+                        == audit.currentProvider.lowercased()
+                    Text("\(source.provider) — \(source.fileCount) file\(source.fileCount == 1 ? "" : "s"), \(ByteCountFormatter.string(fromByteCount: source.bytes, countStyle: .file))\(isCurrent ? "  (current)" : "")")
+                        .font(.caption)
+                        .foregroundStyle(isCurrent ? .primary : .secondary)
+                }
+            }
+            Text("If this tile deliberately mixes sources through imagery zones, keep them.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            if let trashMessage {
+                Text(trashMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Button(isTrashingImages
+                   ? "Moving…"
+                   : "Move Unused Images to Trash") {
+                trashForeignImages(audit)
+            }
+            .disabled(isTrashingImages || audit.foreignFiles.isEmpty)
+        }
+        .padding(12)
+        .frame(width: 320)
+    }
+
+    private func trashForeignImages(_ audit: TileTextureAudit) {
+        isTrashingImages = true
+        trashMessage = nil
+        let files = audit.foreignFiles
+        Task {
+            let failures = await Task.detached(priority: .utility) { () -> Int in
+                var failed = 0
+                for url in files {
+                    do {
+                        try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                    } catch {
+                        failed += 1
+                    }
+                }
+                return failed
+            }.value
+            isTrashingImages = false
+            trashMessage = failures == 0
+                ? "Moved \(files.count) image\(files.count == 1 ? "" : "s") to the Trash."
+                : "Moved \(files.count - failures); \(failures) could not be moved."
+            await refreshTextureAudit()
+        }
     }
 
     /// Recomputes which custom airport packages (with their own 3-D

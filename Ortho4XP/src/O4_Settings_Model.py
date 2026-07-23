@@ -131,6 +131,7 @@ _LAYOUT: list = [
         ("custom_dem", "Custom elevation data (DEM)", "tile", False),
         ("fill_nodata", "Fill missing elevation data", "tile", False),
         ("auto_patch", "Auto-patch airports (runway slopes)", "tile", False),
+        ("modify_custom_airports", "Modify custom airports (reseat objects)", "tile", False),
         ("airport_elevation_insets", "Fetch airport lidar insets", "tile", False),
         ("airport_elevation_inset_margin_m", "Lidar extent beyond airport (m)", "tile", False),
         ("airport_elevation_inset_feather_m", "Lidar edge blend width (m)", "tile", False),

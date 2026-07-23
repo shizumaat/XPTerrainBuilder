@@ -492,11 +492,31 @@ class MainWindow(QMainWindow):
         self.chk_overlays = QCheckBox("Extract overlays")
         self.chk_skip_built = QCheckBox("Skip already-built tiles")
         self.chk_skip_built.setChecked(True)
+        # Global engine gate (cfg var modify_custom_airports): whether the
+        # auto-patch pass may reseat 3-D objects of installed custom
+        # airport packs onto the rebuilt ground.
+        import O4_Config_Utils as CFG
+
+        self.chk_modify_airports = QCheckBox("Modify custom airports")
+        self.chk_modify_airports.setChecked(
+            bool(getattr(CFG, "modify_custom_airports", True))
+        )
+        self.chk_modify_airports.setToolTip(
+            "Reseats the 3-D objects of custom airport packages in Custom "
+            "Scenery at the new ground elevation this build produces "
+            "(edited in place, originals kept as .anchor_bak backups).\n"
+            "Unchecked, installed packages are left byte-identical — "
+            "objects at reprofiled airports may float or sink."
+        )
+        self.chk_modify_airports.toggled.connect(
+            self._modify_custom_airports_changed
+        )
         for c in (
             self.chk_vector,
             self.chk_imagery,
             self.chk_overlays,
             self.chk_skip_built,
+            self.chk_modify_airports,
         ):
             bg.addWidget(c)
 
@@ -1209,6 +1229,23 @@ class MainWindow(QMainWindow):
             )
         except OSError as exc:
             print("Could not save elevation level:", exc)
+
+    def _modify_custom_airports_changed(self, checked):
+        """Persist the global modify-custom-airports switch.
+
+        Gates auto_patch Phase 2 (object reseating inside installed
+        packages): the in-session CFG value covers tiles built by this
+        process; the cfg write covers parallel worker children, which
+        re-read Ortho4XP.cfg from disk.
+        """
+        import O4_Config_Utils as CFG
+        import O4_Settings_Model as SM
+
+        CFG.modify_custom_airports = bool(checked)
+        try:
+            SM.write_global({"modify_custom_airports": str(bool(checked))})
+        except OSError as exc:
+            print("Could not save modify_custom_airports:", exc)
 
     def _texture_mode_changed(self, index):
         """Persist the chosen texture mode to the active tile's config.

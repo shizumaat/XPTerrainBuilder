@@ -17,7 +17,9 @@ enum TileScanCache {
         let installed: [[Int]]
     }
 
-    private static let version = 1
+    // v2: O4TileInfo gained highZLAirports/coverZL (non-optional Codable
+    // fields — v1 payloads no longer decode, so discard them).
+    private static let version = 2
 
     private static var fileURL: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!

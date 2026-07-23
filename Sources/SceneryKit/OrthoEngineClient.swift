@@ -171,6 +171,10 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
     public let provider: String
     public let zl: Int?
     public let hasZones: Bool
+    /// cover_airports_with_highres from the tile cfg ("" or "False" = off;
+    /// "True", "ICAO" or "Existing" = airports upgraded to coverZL).
+    public let highZLAirports: String
+    public let coverZL: Int?
     public let customDEM: String
     /// Epoch seconds; nil when unknown.
     public let meshDate: Double?
@@ -188,6 +192,8 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
         provider = object["provider"]?.stringValue ?? ""
         zl = object["zl"]?.intValue
         hasZones = object["has_zones"]?.boolValue ?? false
+        highZLAirports = object["high_zl_airports"]?.stringValue ?? ""
+        coverZL = object["cover_zl"]?.intValue
         customDEM = object["custom_dem"]?.stringValue ?? ""
         meshDate = object["mesh_date"]?.doubleValue
         imageryDate = object["imagery_date"]?.doubleValue

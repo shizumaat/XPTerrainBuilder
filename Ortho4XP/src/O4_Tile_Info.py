@@ -40,6 +40,10 @@ class TileInfo:
     provider: str = ""        # default_website from cfg, "" if unknown
     zl: Optional[int] = None  # default_zl from cfg
     has_zones: bool = False   # non-trivial zone_list in cfg
+    # cover_airports_with_highres from cfg ("" or "False" = off; "True",
+    # "ICAO" or "Existing" = airports upgraded to cover_zl).
+    high_zl_airports: str = ""
+    cover_zl: Optional[int] = None  # airport-cover zoomlevel from cfg
     custom_dem: str = ""      # pinned elevation source from cfg, "" if unset
     mesh_date: Optional[float] = None     # unix mtime of newest dsf/mesh
     imagery_date: Optional[float] = None  # unix mtime of newest texture
@@ -65,15 +69,18 @@ def _cfg_candidates(build_dir: str, lat: int, lon: int) -> list[str]:
 
 def _parse_cfg(
     cfg_path: str,
-) -> tuple[str, Optional[int], bool, str]:
-    """Parse the four keys of interest from a tile config file.
+) -> tuple[str, Optional[int], bool, str, str, Optional[int]]:
+    """Parse the keys of interest from a tile config file.
 
-    Returns ``(provider, zl, has_zones, custom_dem)``.  ``provider`` is
-    ``""`` when the ``default_website`` line is absent, ``zl`` is ``None``
-    when ``default_zl`` is missing or non-integer, ``has_zones`` mirrors
-    the legacy ``len(line[10:]) > 3`` test on the ``zone_list`` line, and
-    ``custom_dem`` is the tile's pinned elevation source (``""`` when
-    unset) for the info pane's elevation row.
+    Returns ``(provider, zl, has_zones, custom_dem, high_zl_airports,
+    cover_zl)``.  ``provider`` is ``""`` when the ``default_website`` line
+    is absent, ``zl`` is ``None`` when ``default_zl`` is missing or
+    non-integer, ``has_zones`` mirrors the legacy ``len(line[10:]) > 3``
+    test on the ``zone_list`` line, ``custom_dem`` is the tile's pinned
+    elevation source (``""`` when unset) for the info pane's elevation
+    row, and the last two carry the airport high-ZL cover setting
+    (``cover_airports_with_highres`` / ``cover_zl``) for the info pane's
+    zoom-level row.
 
     Only these keys are inspected; the file is never executed.
     """
@@ -81,6 +88,8 @@ def _parse_cfg(
     zl: Optional[int] = None
     has_zones = False
     custom_dem = ""
+    high_zl_airports = ""
+    cover_zl: Optional[int] = None
     try:
         with open(cfg_path, "r") as f:
             for line in f.readlines():
@@ -95,9 +104,16 @@ def _parse_cfg(
                     custom_dem = line.strip().split("=", 1)[1].strip()
                 elif line[:9] == "zone_list" and len(line[10:]) > 3:
                     has_zones = True
+                elif line[:27] == "cover_airports_with_highres":
+                    high_zl_airports = line.strip().split("=", 1)[1].strip()
+                elif line[:9] == "cover_zl=":
+                    try:
+                        cover_zl = int(line.strip().split("=", 1)[1])
+                    except (ValueError, IndexError):
+                        cover_zl = None
     except OSError:
         pass
-    return provider, zl, has_zones, custom_dem
+    return provider, zl, has_zones, custom_dem, high_zl_airports, cover_zl
 
 
 def _mesh_date(build_dir: str) -> Optional[float]:
@@ -154,9 +170,11 @@ def _build_tile_info(
     if not dsf_present and cfg_path is None:
         return None
 
-    provider, zl, has_zones, custom_dem = ("", None, False, "")
+    provider, zl, has_zones, custom_dem, high_zl_airports, cover_zl = (
+        "", None, False, "", "", None)
     if cfg_path is not None:
-        provider, zl, has_zones, custom_dem = _parse_cfg(cfg_path)
+        (provider, zl, has_zones, custom_dem,
+         high_zl_airports, cover_zl) = _parse_cfg(cfg_path)
 
     return TileInfo(
         lat=lat,
@@ -167,6 +185,8 @@ def _build_tile_info(
         provider=provider,
         zl=zl,
         has_zones=has_zones,
+        high_zl_airports=high_zl_airports,
+        cover_zl=cover_zl,
         custom_dem=custom_dem,
         mesh_date=_mesh_date(build_dir),
         imagery_date=_imagery_date(build_dir),

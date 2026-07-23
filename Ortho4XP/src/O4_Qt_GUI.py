@@ -1117,6 +1117,14 @@ class MainWindow(QMainWindow):
             return
         self.info_provider.setText(info.provider or "?")
         zl_text = str(info.zl) if info.zl else "?"
+        # Airport high-ZL cover: show the upgraded zoomlevel and its scope
+        # (e.g. "16 + ZL18 ICAO") so the setting is visible at a glance.
+        mode = (getattr(info, "high_zl_airports", "") or "").strip()
+        if mode not in ("", "False") and info.cover_zl and (
+            info.zl is None or info.cover_zl > info.zl
+        ):
+            scope = {"True": "All", "ICAO": "ICAO", "Existing": "Existing"}
+            zl_text += " + ZL%d %s" % (info.cover_zl, scope.get(mode, mode))
         if info.has_zones:
             zl_text += " + zones"
         self.info_zl.setText(zl_text)

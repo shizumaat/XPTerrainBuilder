@@ -181,8 +181,17 @@ struct BuildPane: View {
     }
 
     private func zlText(_ info: O4TileInfo?) -> String {
-        guard let zl = info?.zl else { return "—" }
-        return "ZL\(zl)" + (info?.hasZones == true ? " + zones" : "")
+        guard let info, let zl = info.zl else { return "—" }
+        var text = "ZL\(zl)"
+        // Airport high-ZL cover: e.g. "ZL16 + ZL18 ICAO" makes the
+        // upgraded-airports setting visible at a glance.
+        let mode = info.highZLAirports
+        if mode != "", mode != "False", let cover = info.coverZL, cover > zl {
+            let scope = ["True": "All", "ICAO": "ICAO", "Existing": "Existing"]
+            text += " + ZL\(cover) \(scope[mode] ?? mode)"
+        }
+        if info.hasZones { text += " + zones" }
+        return text
     }
 
     private func dateText(_ epoch: Double?) -> String {

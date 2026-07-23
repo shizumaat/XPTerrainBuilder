@@ -38,6 +38,22 @@ public struct TileTextureAudit: Sendable, Equatable {
     private static let ddsPattern =
         #/^\d+_\d+_(.+?)(\d{2})(?:_[A-Za-z_]+)?$/#
 
+    /// Names-only fast path for sweeping many tiles (map badges): true as
+    /// soon as one .dds from a provider other than `currentProvider` is
+    /// seen. One directory listing, no per-file stat calls.
+    public static func hasForeignSources(texturesDir: URL, currentProvider: String) -> Bool {
+        guard !currentProvider.isEmpty,
+              let names = try? FileManager.default.contentsOfDirectory(atPath: texturesDir.path)
+        else { return false }
+        let currentLower = currentProvider.lowercased()
+        for name in names where name.lowercased().hasSuffix(".dds") {
+            let stem = String(name.dropLast(4))
+            guard let match = stem.wholeMatch(of: ddsPattern) else { continue }
+            if String(match.1).lowercased() != currentLower { return true }
+        }
+        return false
+    }
+
     /// Scans `texturesDir` (a built tile's textures folder). Returns nil
     /// when the folder can't be listed or the current provider is unknown
     /// — no conflict call can be made without knowing the current source.

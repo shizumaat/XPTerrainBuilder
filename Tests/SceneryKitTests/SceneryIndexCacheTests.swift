@@ -123,6 +123,14 @@ import Foundation
         #expect(clean.sources.contains { $0.provider == "Arc" })
         // Unknown current provider → no audit.
         #expect(TileTextureAudit.scan(texturesDir: dir, currentProvider: "") == nil)
+
+        // Names-only fast path (map badge sweep) agrees with the full scan.
+        #expect(TileTextureAudit.hasForeignSources(texturesDir: dir, currentProvider: "Arc"))
+        #expect(!TileTextureAudit.hasForeignSources(texturesDir: dir, currentProvider: ""))
+        let single = dir.appendingPathComponent("single")
+        try FileManager.default.createDirectory(at: single, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: single.appendingPathComponent("1_2_Arc18.dds"))
+        #expect(!TileTextureAudit.hasForeignSources(texturesDir: single, currentProvider: "Arc"))
     }
 
     @Test func persistRoundTripAndRootMismatch() throws {

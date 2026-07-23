@@ -168,6 +168,9 @@ final class BuildModel: ObservableObject {
 
     @Published private(set) var built: [TileCoord: O4TileInfo] = [:]
     @Published private(set) var installed: Set<TileCoord> = []
+    /// Built tiles whose textures folder mixes imagery sources (only one
+    /// can be used) — warning badges on the map + selection pane.
+    @Published private(set) var conflictTiles: Set<TileCoord> = []
     @Published private(set) var isScanning = false
     @Published private(set) var scanPhase = ""
     private var scanAccumBuilt: [TileCoord: O4TileInfo] = [:]
@@ -221,6 +224,39 @@ final class BuildModel: ObservableObject {
         }
         for pair in cached.installed where pair.count == 2 {
             installed.insert(TileCoord(lat: pair[0], lon: pair[1]))
+        }
+        refreshConflictTiles()
+    }
+
+    /// Background sweep over every built tile's textures folder for
+    /// mixed-imagery-source conflicts (map warning badges). Names-only
+    /// listings — one readdir per tile, no stat calls — so a full ortho
+    /// install sweeps in a couple of seconds off the main thread.
+    private var conflictAuditTask: Task<Void, Never>?
+
+    private func refreshConflictTiles() {
+        conflictAuditTask?.cancel()
+        let snapshot: [(TileCoord, String, String)] = built.compactMap {
+            coord, info in
+            guard !info.provider.isEmpty, !info.buildDir.isEmpty else { return nil }
+            return (coord, info.buildDir, info.provider)
+        }
+        conflictAuditTask = Task { [weak self] in
+            let conflicts = await Task.detached(priority: .utility) { () -> Set<TileCoord> in
+                var out: Set<TileCoord> = []
+                for (coord, dir, provider) in snapshot {
+                    if Task.isCancelled { break }
+                    let textures = URL(fileURLWithPath: dir, isDirectory: true)
+                        .appendingPathComponent("textures", isDirectory: true)
+                    if TileTextureAudit.hasForeignSources(
+                        texturesDir: textures, currentProvider: provider) {
+                        out.insert(coord)
+                    }
+                }
+                return out
+            }.value
+            guard !Task.isCancelled, let self else { return }
+            self.conflictTiles = conflicts
         }
     }
 
@@ -407,6 +443,7 @@ final class BuildModel: ObservableObject {
                     installed: installed.map { [$0.lat, $0.lon] },
                     workingDir: base.path, customSceneryDir: customSceneryPath)
             }
+            refreshConflictTiles()
         case .tileState(let lat, let lon, let state, let label, let percent):
             let coord = TileCoord(lat: lat, lon: lon)
             let state = TileProgress.State(rawValue: state) ?? .queued

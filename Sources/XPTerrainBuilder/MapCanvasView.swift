@@ -406,6 +406,17 @@ struct MapCanvasView: View {
                         .foregroundStyle(.white.opacity(0.85)),
                     at: CGPoint(x: r.midX, y: r.maxY - 10))
             }
+            // Mixed imagery sources: warning triangle in the top-right
+            // corner so affected tiles stand out at a glance (details +
+            // cleanup in the selection pane's Imagery row).
+            if buildModel.conflictTiles.contains(coord), r.width > 14 {
+                let s = min(max(r.width * 0.16, 11), 20)
+                context.draw(
+                    Text(Image(systemName: "exclamationmark.triangle.fill"))
+                        .font(.system(size: s))
+                        .foregroundStyle(.yellow),
+                    at: CGPoint(x: r.maxX - s * 0.7, y: r.minY + s * 0.7))
+            }
         }
 
         // Selection: yellow; active tile solid 3px, others dashed 2px.

@@ -229,6 +229,17 @@ class Tile:
                     (var, value) = line.split("=", 1)
                     # compatibility with config files from version <= 1.20
                     value = config_compatibility(value)
+                    # Values from other forks map to their closest
+                    # equivalent here (registry-driven), loudly — never
+                    # silently treated as "off".
+                    legacy_map = cfg_vars.get(var, {}).get("legacy_values")
+                    if legacy_map and value in legacy_map:
+                        UI.vprint(
+                            1,
+                            "   Legacy config value", value, "for", var,
+                            "read as", legacy_map[value] + ".",
+                        )
+                        value = legacy_map[value]
                     if cfg_vars[var]["type"] in (bool, list):
                         cmd = "self." + var + "=" + value
                     else:

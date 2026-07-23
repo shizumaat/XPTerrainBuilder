@@ -529,6 +529,11 @@ cfg_tile_vars = {
             "ICAO": "Airports with ICAO codes",
             "Existing": "Reuse already-downloaded textures",
         },
+        # Values written by other Ortho4XP forks, read as their closest
+        # equivalent here (loudly) so rebuilding a foreign-built tile
+        # never silently loses its airport coverage: "Progressive"
+        # (progressive ZL rings) upgrades all airports at cover_zl.
+        "legacy_values": {"Progressive": "True"},
         "hint": 'When set, textures above airports will be upgraded to a higher zoomlevel, the imagery being the same as the one they would otherwise receive. Can be limited to airports with an ICAO code for tiles with so many airports. Exceptional: use "Existing" to (try to) derive custom zl zones from the textures directory of an existing tile.',
         "short_name": "high_zl_airports",
     },

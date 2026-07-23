@@ -692,17 +692,29 @@ struct MapCanvasView: View {
               : "The imagery zoom level matching the current view — compare with the Build ZL setting.")
     }
 
+    /// Horizontal segmented-style zoom control: − and + in separate
+    /// sections (Photos/Preview convention: minus left, plus right), each
+    /// with a full-size HIG hit target instead of a bare glyph.
     private var zoomControls: some View {
-        VStack(spacing: 0) {
-            Button { zoom(by: 1.5) } label: { Image(systemName: "plus") }
-            Divider().frame(width: 20)
-            Button { zoom(by: 1 / 1.5) } label: { Image(systemName: "minus") }
+        HStack(spacing: 0) {
+            Button { zoom(by: 1 / 1.5) } label: {
+                Image(systemName: "minus")
+                    .frame(width: 30, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .help("Zoom out")
+            Divider()
+                .frame(height: 16)
+            Button { zoom(by: 1.5) } label: {
+                Image(systemName: "plus")
+                    .frame(width: 30, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .help("Zoom in (double-click the map also zooms; drag to pan)")
         }
         .buttonStyle(.borderless)
-        .padding(6)
         .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))
         .padding(8)
-        .help("Zoom (double-click the map to zoom in; drag to pan)")
     }
 
     private func zoom(by factor: Double) {

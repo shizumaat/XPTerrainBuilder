@@ -165,9 +165,11 @@ struct MapCanvasView: View {
             default: landmarkPath.addRect(rect)
             }
         }
-        context.fill(orthoPath, with: .color(Self.tintOrtho.opacity(0.22)))
-        context.fill(meshPath, with: .color(Self.tintMesh.opacity(0.22)))
-        context.fill(landmarkPath, with: .color(Self.tintLandmark.opacity(0.22)))
+        // Border-only: a filled tint obscures the imagery preview under
+        // the tile, and judging imagery quality is what the preview is for.
+        context.stroke(orthoPath, with: .color(Self.tintOrtho.opacity(0.6)), lineWidth: 1.5)
+        context.stroke(meshPath, with: .color(Self.tintMesh.opacity(0.6)), lineWidth: 1.5)
+        context.stroke(landmarkPath, with: .color(Self.tintLandmark.opacity(0.6)), lineWidth: 1.5)
 
         if buildModel.mode == .build, sceneryFilter != .othersOnly {
             drawBuildOverlays(context: context, size: size, cam: cam,
@@ -417,13 +419,13 @@ struct MapCanvasView: View {
             tileRect(lat: coord.lat, lon: coord.lon, cam: cam, size: size)
         }
 
-        // Built tiles: ZL color fill + darker border; installed adds the
-        // double (inset) border; center label once tiles are big enough.
+        // Built tiles: ZL-colored border (no fill — it obscures the
+        // imagery preview); installed adds the double (inset) border;
+        // center label once tiles are big enough.
         let showTileLabels = cam.scale > 44
         for (coord, info) in buildModel.built where visible(coord) {
             let r = rect(coord)
             let color = Self.zlColor(info.zl)
-            context.fill(Path(r), with: .color(color.opacity(0.27)))
             context.stroke(Path(r), with: .color(color.opacity(0.85)), lineWidth: 2)
             if buildModel.installed.contains(coord) {
                 context.stroke(Path(r.insetBy(dx: r.width * 0.03, dy: r.height * 0.03)),

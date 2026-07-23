@@ -142,6 +142,11 @@ final class BuildModel: ObservableObject {
     @AppStorage("OrthoDoImagery") var doImagery: Bool = true
     @AppStorage("OrthoDoOverlays") var doOverlays: Bool = false
     @AppStorage("OrthoSkipBuilt") var skipBuilt: Bool = true
+    /// Reseat 3-D objects of custom airport packs onto the rebuilt ground.
+    /// UI-side only until the engine grows the matching enqueue_build
+    /// parameter — the session handler rejects unknown arguments, so the
+    /// flag must not be sent before then.
+    @AppStorage("OrthoModifyCustomAirports") var modifyCustomAirports: Bool = false
     /// Install finished tiles into Custom Scenery automatically.
     @AppStorage("OrthoLinkTiles") var linkTiles: Bool = true
 

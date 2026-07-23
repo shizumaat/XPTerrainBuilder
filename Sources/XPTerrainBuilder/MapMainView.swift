@@ -244,6 +244,7 @@ struct MapMainView: View {
                 } else {
                     BuildPane()
                         .environmentObject(buildModel)
+                        .environmentObject(controller)
                 }
             }
             .inspectorColumnWidth(min: 240, ideal: 300, max: 420)

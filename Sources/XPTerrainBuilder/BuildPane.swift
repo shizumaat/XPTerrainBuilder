@@ -8,7 +8,11 @@ import SceneryKit
 /// run).
 struct BuildPane: View {
     @EnvironmentObject var buildModel: BuildModel
+    @EnvironmentObject var controller: AnalysisController
     @StateObject private var showingBaseFolderPicker = ViewState(false)
+    /// Custom airport packs (own 3-D objects) in the selected tiles —
+    /// the packages "Modify custom airports" would reseat.
+    @State private var customAirportPacks: [String] = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,6 +48,9 @@ struct BuildPane: View {
                 Divider()
                 bottomBar
             }
+        }
+        .task(id: "\(buildModel.selected.sorted().map(\.key).joined(separator: ","))|\(controller.installationPacks.count)") {
+            await refreshCustomAirportPacks()
         }
         .fileImporter(isPresented: $showingBaseFolderPicker.value,
                       allowedContentTypes: [.folder]) { result in
@@ -200,6 +207,18 @@ struct BuildPane: View {
                 .help("Downloads imagery, converts textures and writes the final DSF.")
             Toggle("Extract overlays", isOn: boolBinding(\.doOverlays))
                 .help("Extracts roads/buildings overlays from the overlay source configured in the engine config.")
+            Toggle("Modify custom airports", isOn: boolBinding(\.modifyCustomAirports))
+                .disabled(customAirportPacks.isEmpty)
+                .help(customAirportPacks.isEmpty
+                      ? "No custom airport with its own 3-D objects is in the selected tiles."
+                      : "Reseats the 3-D objects in the listed packages at the new ground elevation this build produces, so they neither float above nor sink into the reprofiled terrain.")
+            if !customAirportPacks.isEmpty {
+                Text(customAirportPacks.joined(separator: ", "))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .padding(.leading, 18)
+            }
             Toggle("Skip already-built tiles", isOn: boolBinding(\.skipBuilt))
             Toggle("Install finished tiles automatically", isOn: boolBinding(\.linkTiles))
             Divider()
@@ -231,6 +250,40 @@ struct BuildPane: View {
             .font(.callout)
         }
         .toggleStyle(.checkbox)
+    }
+
+    /// Recomputes which custom airport packages (with their own 3-D
+    /// objects) sit inside the selected tiles. The pack-list filtering is
+    /// cheap and runs inline; the per-pack object probe (a disk walk) runs
+    /// off the main thread for the few candidates only.
+    private func refreshCustomAirportPacks() async {
+        let tiles = buildModel.selected
+        guard !tiles.isEmpty else {
+            customAirportPacks = []
+            return
+        }
+        let tileKeys = Set(tiles.map(\.key))
+        // Custom airport = a non-Laminar, non-library pack in Custom
+        // Scenery whose airports (or overlay DSFs) fall in a selected tile.
+        let candidates = controller.installationPacks
+            .filter { pack in
+                guard pack.isInstalled, !pack.isLaminar, !pack.isLibrary,
+                      !pack.airports.isEmpty else { return false }
+                return !pack.tiles.isDisjoint(with: tileKeys)
+                    || pack.airports.values.contains { airport in
+                        tileKeys.contains(TileMath.key(
+                            lat: Int(floor(airport.latitude)),
+                            lon: Int(floor(airport.longitude))))
+                    }
+            }
+            .map { (name: $0.name, root: $0.contentRoot) }
+        let names = await Task.detached(priority: .utility) {
+            candidates
+                .filter { PackObjectProbe.hasCustomObjects(at: $0.root) }
+                .map(\.name)
+                .sorted()
+        }.value
+        customAirportPacks = names
     }
 
     private var buildSummary: String {

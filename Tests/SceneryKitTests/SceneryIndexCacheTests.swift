@@ -84,6 +84,22 @@ import Foundation
         #expect(scanner.packsFromCache([:]).isEmpty)
     }
 
+    @Test func packObjectProbeFindsObjectsOutsideEarthNavData() throws {
+        let pack = FileManager.default.temporaryDirectory
+            .appendingPathComponent("objprobe-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: pack) }
+        let objects = pack.appendingPathComponent("objects")
+        try FileManager.default.createDirectory(at: objects, withIntermediateDirectories: true)
+        #expect(!PackObjectProbe.hasCustomObjects(at: pack))
+        // A DSF-named .obj inside Earth nav data must not count.
+        let nav = pack.appendingPathComponent("Earth nav data")
+        try FileManager.default.createDirectory(at: nav, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: nav.appendingPathComponent("stray.obj"))
+        #expect(!PackObjectProbe.hasCustomObjects(at: pack))
+        try Data("OBJ".utf8).write(to: objects.appendingPathComponent("tower.obj"))
+        #expect(PackObjectProbe.hasCustomObjects(at: pack))
+    }
+
     @Test func persistRoundTripAndRootMismatch() throws {
         let root = try makeInstall()
         defer {

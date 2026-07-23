@@ -618,7 +618,7 @@ def build_mesh(tile):
             # so the raster dimension check below is unchanged; the baked
             # insets already live in the .alt file written in step 1.
             composite_dem = INSETS.assemble_inset_composite_source(
-                tile, tile.custom_dem
+                tile, DEM.drop_missing_pinned_files(tile.custom_dem)
             )
             source = (
                 (";" in composite_dem) and composite_dem.split(";")[0]
@@ -649,10 +649,11 @@ def build_mesh(tile):
             return 0
     else:
         try:
+            usable_dem = DEM.drop_missing_pinned_files(tile.custom_dem)
             source = (
-                (";" in tile.custom_dem)
-                and tile.custom_dem.split(";")[tile.iterate]
-            ) or tile.custom_dem
+                (";" in usable_dem)
+                and usable_dem.split(";")[tile.iterate]
+            ) or usable_dem
             tile.dem = DEM.DEM(
                 tile.lat, tile.lon, source, fill_nodata=False, info_only=True
             )

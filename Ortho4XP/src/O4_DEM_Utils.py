@@ -42,6 +42,38 @@ global_sources = ("View", "SRTM", "ALOS")
 base_elevation_source = "auto"
 
 
+def drop_missing_pinned_files(source):
+    """Drop pinned absolute file paths that do not exist from a
+    ``custom_dem`` source string.
+
+    A tile cfg written by whatever install originally built the tile may
+    pin that install's own ``Elevation_data`` files by absolute path.  A
+    missing pin must never reach the loader: the load errors and the
+    fill logic then builds against a zero/garbage base — the "airport
+    inset differs from the base DEM by hundreds of metres" symptom.
+    Dropped LOUDLY and for this run only: the cfg value is never
+    rewritten, because the pinned file may live on a temporarily
+    unmounted volume.  Source-name tokens (provider codes) pass through
+    untouched.
+    """
+    if not source:
+        return source
+    kept = []
+    for token in str(source).split(";"):
+        candidate = token.strip()
+        if (candidate and os.path.isabs(candidate)
+                and not os.path.exists(candidate)):
+            UI.vprint(
+                0,
+                "   WARNING: pinned elevation file missing:", candidate,
+                "— ignoring it for this run; default elevation sources"
+                " will be used instead.",
+            )
+            continue
+        kept.append(token)
+    return ";".join(kept)
+
+
 def resolve_default_base_source(lat, lon):
     """Map the ``base_elevation_source`` configuration to a legacy long name.
 

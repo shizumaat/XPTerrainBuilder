@@ -501,7 +501,8 @@ def compose_tile_dem_from_disk(tile, dico_airports, write_alt_file=True):
     replication.  ``write_alt_file=False`` keeps the result in memory
     (tests/probes must not write tile build state).  Sets ``tile.dem``
     and returns it."""
-    dem_source = INSETS.assemble_inset_composite_source(tile, tile.custom_dem)
+    dem_source = INSETS.assemble_inset_composite_source(
+        tile, DEM.drop_missing_pinned_files(tile.custom_dem))
     tile.dem = DEM.DEM(
         tile.lat,
         tile.lon,

@@ -34,6 +34,54 @@ from typing import List, Optional
 # the warmer itself delete this variable and stub the download modules.
 os.environ.setdefault("O4_DISABLE_OSM_WARMER", "1")
 
+# No test may reach the platform secret store either: provider-session
+# code paths (O4_Authenticated_Sessions.load_credentials/load_api_key)
+# lazily import ``keyring``, and on a machine with real stored sign-ins
+# that walks into the macOS Keychain — 2026-07-23 the suite blocked four
+# xdist workers on "Python wants to access your keychain" dialogs.  A
+# backend-less fake is installed BEFORE anything imports keyring: every
+# lookup reports "no usable store", which is exactly what headless tests
+# must see.  Tests exercising the store itself install their own fakes
+# on top (and monkeypatch restores this one afterwards).
+import types as _types
+
+
+class _NoKeychainInTests:
+    """Stand-in backend advertising itself as keyring's fail backend."""
+
+
+_NoKeychainInTests.__module__ = "keyring.backends.fail"
+
+
+def _make_fake_keyring():
+    fake_errors = _types.ModuleType("keyring.errors")
+
+    class KeyringError(Exception):
+        pass
+
+    class PasswordDeleteError(KeyringError):
+        pass
+
+    fake_errors.KeyringError = KeyringError
+    fake_errors.PasswordDeleteError = PasswordDeleteError
+
+    fake = _types.ModuleType("keyring")
+    fake.errors = fake_errors
+    fake.get_keyring = lambda: _NoKeychainInTests()
+
+    def _no_store(*_args, **_kwargs):
+        raise KeyringError("test suite: platform secret store is off-limits")
+
+    fake.get_password = _no_store
+    fake.set_password = _no_store
+    fake.delete_password = _no_store
+    return fake, fake_errors
+
+
+_fake_keyring, _fake_keyring_errors = _make_fake_keyring()
+sys.modules["keyring"] = _fake_keyring
+sys.modules["keyring.errors"] = _fake_keyring_errors
+
 import pytest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))

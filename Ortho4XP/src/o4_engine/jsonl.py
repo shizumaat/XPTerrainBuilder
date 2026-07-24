@@ -164,6 +164,8 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "links_status": session.links_status,
         "links_install": session.links_install,
         "links_uninstall": session.links_uninstall,
+        "reanchor_status": session.reanchor_status,
+        "reanchor_restore": session.reanchor_restore,
     }
 
 

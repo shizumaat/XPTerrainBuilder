@@ -923,3 +923,55 @@ def restore(pack_root: str) -> int:
     if os.path.isfile(sidecar_path):
         os.remove(sidecar_path)
     return restored
+
+
+def pack_status(pack_root: str) -> dict | None:
+    """``{tile_name: [resource_path, ...]}`` for a pack carrying reanchor
+    provenance; ``None`` when the pack has no sidecar.  Prototype-era
+    entries with no recorded tile land under the empty-string key."""
+    if not os.path.isfile(_provenance_path(pack_root)):
+        return None
+    by_tile: dict[str, list[str]] = {}
+    for resource_path, entry in _load_provenance(pack_root)["objects"].items():
+        tile = str((entry or {}).get("tile") or "")
+        by_tile.setdefault(tile, []).append(resource_path)
+    for resources in by_tile.values():
+        resources.sort()
+    return by_tile
+
+
+def modified_packs(scenery_dir: str, tile: str | None = None) -> list[dict]:
+    """Every pack under ``scenery_dir`` carrying reanchor provenance.
+
+    One sidecar stat per pack — no deep walks.  ``tile`` (``"+46+008"``)
+    restricts to packs with objects rebaked for that tile, and each
+    entry's ``objects`` then counts that tile's objects only; without it,
+    the pack's total.  Front ends (the mac app's selection pane, a future
+    Qt panel) list these and offer :func:`restore` per pack.
+    """
+    results: list[dict] = []
+    try:
+        entries = sorted(os.listdir(scenery_dir))
+    except OSError:
+        return results
+    for name in entries:
+        pack_root = os.path.join(scenery_dir, name)
+        if not os.path.isdir(pack_root):
+            continue
+        by_tile = pack_status(pack_root)
+        if by_tile is None:
+            continue
+        if tile is not None:
+            resources = by_tile.get(tile, [])
+            if not resources:
+                continue
+        else:
+            resources = [r for tile_resources in by_tile.values()
+                         for r in tile_resources]
+        results.append({
+            "pack_name": name,
+            "pack_path": pack_root,
+            "tiles": sorted(key for key in by_tile if key),
+            "objects": len(resources),
+        })
+    return results

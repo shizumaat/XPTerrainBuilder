@@ -44,6 +44,8 @@ from auto_patch.object_rebake import (
     PROVENANCE_FILENAME,
     apply,
     check,
+    modified_packs,
+    pack_status,
     restore,
 )
 
@@ -1067,3 +1069,59 @@ def test_full_bake_then_partial_rebake_unbakes_the_skipped_structure(
             assert live_line == backup_line
         vertex_row += 1
     assert vertex_row == 8
+
+
+# ---------------------------------------------------------------------------
+# pack_status / modified_packs — the front-end status surface
+# ---------------------------------------------------------------------------
+
+def _write_sidecar(pack_root, objects):
+    os.makedirs(pack_root, exist_ok=True)
+    with open(os.path.join(pack_root, PROVENANCE_FILENAME), "w") as handle:
+        json.dump({"version": 1, "meshes": {}, "objects": objects}, handle)
+
+
+def test_pack_status_groups_resources_by_tile(tmp_path):
+    pack_root = str(tmp_path / "LSZC Airport")
+    _write_sidecar(pack_root, {
+        "objects/tower.obj": {"tile": "+46+008"},
+        "objects/hangar.obj": {"tile": "+46+008"},
+        "objects/remote.obj": {"tile": "+46+007"},
+    })
+    status = pack_status(pack_root)
+    assert status == {
+        "+46+008": ["objects/hangar.obj", "objects/tower.obj"],
+        "+46+007": ["objects/remote.obj"],
+    }
+
+
+def test_pack_status_none_without_sidecar(tmp_path):
+    pack_root = str(tmp_path / "Plain Pack")
+    os.makedirs(pack_root)
+    assert pack_status(pack_root) is None
+
+
+def test_modified_packs_filters_by_tile(tmp_path):
+    scenery = tmp_path / "Custom Scenery"
+    _write_sidecar(str(scenery / "A Modified"), {
+        "objects/a.obj": {"tile": "+46+008"},
+        "objects/b.obj": {"tile": "+46+008"},
+    })
+    _write_sidecar(str(scenery / "B Elsewhere"), {
+        "objects/c.obj": {"tile": "+10+010"},
+    })
+    os.makedirs(scenery / "C Untouched")
+
+    everything = modified_packs(str(scenery))
+    assert [entry["pack_name"] for entry in everything] == [
+        "A Modified", "B Elsewhere"]
+    assert everything[0]["objects"] == 2
+
+    on_tile = modified_packs(str(scenery), tile="+46+008")
+    assert [entry["pack_name"] for entry in on_tile] == ["A Modified"]
+    assert on_tile[0]["objects"] == 2
+    assert on_tile[0]["tiles"] == ["+46+008"]
+
+
+def test_modified_packs_missing_directory_is_empty(tmp_path):
+    assert modified_packs(str(tmp_path / "nope")) == []

@@ -1153,3 +1153,21 @@ class EngineSession:
     def links_uninstall(self, lat, lon, build_dir, scenery_dir):
         import O4_Scenery_Links as LINKS
         return LINKS.uninstall(lat, lon, build_dir, scenery_dir)
+
+    def reanchor_status(self, scenery_dir, lat=None, lon=None):
+        """Packs whose objects the auto-patch reseater modified, from
+        their provenance sidecars — one stat per pack, no deep walks.
+        With lat/lon, only packs modified for that tile."""
+        from auto_patch import object_rebake
+        tile = None
+        if lat is not None and lon is not None:
+            tile = "%+03d%+04d" % (int(lat), int(lon))
+        return {"packs": object_rebake.modified_packs(scenery_dir, tile=tile)}
+
+    def reanchor_restore(self, pack_path):
+        """Put a pack's .anchor_bak originals back and drop its sidecar
+        (object_rebake.restore semantics: backups stay in place)."""
+        from auto_patch import object_rebake
+        if not os.path.isdir(pack_path):
+            raise ValueError("not a scenery pack folder: " + str(pack_path))
+        return {"restored": object_rebake.restore(pack_path)}

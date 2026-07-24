@@ -28,6 +28,10 @@ struct BuildPane: View {
     /// (gray-outlined on the map) with that tile's DSF modification date.
     @State private var otherScenery: [(name: String, dsfDate: Date?)] = []
     @State private var showingProviderMismatch = false
+    /// Airport packs whose 3-D objects the auto-patch pass reseated in
+    /// the active tile ("Modified airports" row), with per-pack revert.
+    @State private var modifiedAirports: [ModifiedAirportPack] = []
+    @State private var reseatRefresh = 0
     /// Legacy tile-settings alert: offered once per tile per app run.
     @State private var legacyTile: BuildModel.LegacyTileSettings?
     @State private var showingLegacyAlert = false
@@ -76,6 +80,9 @@ struct BuildPane: View {
         }
         .task(id: "\(buildModel.activeTile?.key ?? "")|\(controller.mapOverlays.regions.count)") {
             await refreshOtherScenery()
+        }
+        .task(id: "reseat|\(buildModel.activeTile?.key ?? "")|\(controller.installationPacks.count)|\(buildModel.isBuilding)|\(reseatRefresh)") {
+            await refreshModifiedAirports()
         }
         .task(id: "legacy|\(buildModel.activeTile?.key ?? "")|\(buildModel.built.count)") {
             guard let coord = buildModel.activeTile,
@@ -187,6 +194,31 @@ struct BuildPane: View {
                 detailRow("DSF modified", item.dsfDate.map {
                     $0.formatted(date: .abbreviated, time: .shortened)
                 } ?? "—")
+            }
+            // Custom airports whose objects the auto-patch pass reseated
+            // for this tile's mesh, with a per-pack revert to the
+            // author's original files (.anchor_bak backups).
+            ForEach(modifiedAirports) { entry in
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Modified airports:")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 104, alignment: .trailing)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(entry.airports)
+                            .font(.caption)
+                            .lineLimit(2)
+                            .help("\(entry.packName) — \(entry.objectCount) object file\(entry.objectCount == 1 ? "" : "s") reseated to this tile's rebuilt ground")
+                        Button("Revert to Default") {
+                            revertModifiedAirports(entry)
+                        }
+                        .controlSize(.small)
+                        .disabled(buildModel.isBuilding)
+                        .help(buildModel.isBuilding
+                              ? "Wait for the current run — the engine may be rewriting these files"
+                              : "Restores the pack's original object files from the backups the reseater kept (\(entry.packName))")
+                    }
+                }
             }
             Toggle("Installed in X-Plane", isOn: Binding(
                 get: { buildModel.isInstalled(active) },
@@ -609,6 +641,70 @@ struct BuildPane: View {
                 .sorted()
         }.value
         customAirportPacks = names
+    }
+
+    /// One "Modified airports" row: an installed pack whose sidecar says
+    /// the reseater rewrote objects for the active tile.
+    struct ModifiedAirportPack: Identifiable {
+        let id: String            // pack root path
+        let packName: String
+        let packRoot: URL
+        /// "ICAO Name, …" for the pack's airports inside the tile; falls
+        /// back to the pack name when the apt.dat has none there.
+        let airports: String
+        let objectCount: Int
+    }
+
+    /// Finds packs the auto-patch reseater modified for the active tile
+    /// (sidecar check per candidate pack, off the main thread).
+    private func refreshModifiedAirports() async {
+        guard let active = buildModel.activeTile else {
+            modifiedAirports = []
+            return
+        }
+        let tileKey = active.key
+        let candidates = controller.installationPacks
+            .filter { $0.isInstalled && !$0.isLaminar }
+            .map { (name: $0.name, root: $0.contentRoot, airports: $0.airports) }
+        modifiedAirports = await Task.detached(priority: .utility) {
+            candidates.compactMap { pack -> ModifiedAirportPack? in
+                guard let mods = ReanchorProvenance.read(packRoot: pack.root),
+                      let objects = mods.objectsByTile[tileKey],
+                      !objects.isEmpty
+                else { return nil }
+                let names = pack.airports
+                    .filter { TileMath.key(latitude: $0.value.latitude,
+                                           longitude: $0.value.longitude) == tileKey }
+                    .map { "\($0.key) \($0.value.name)" }
+                    .sorted()
+                return ModifiedAirportPack(
+                    id: pack.root.path,
+                    packName: pack.name,
+                    packRoot: pack.root,
+                    airports: names.isEmpty ? pack.name : names.joined(separator: ", "),
+                    objectCount: objects.count)
+            }
+            .sorted { $0.packName < $1.packName }
+        }.value
+    }
+
+    /// Puts the pack's .anchor_bak originals back (engine restore
+    /// semantics — backups stay for the next bake, sidecar removed).
+    private func revertModifiedAirports(_ entry: ModifiedAirportPack) {
+        Task {
+            let result = await Task.detached(priority: .utility) {
+                Result { try ReanchorProvenance.restore(packRoot: entry.packRoot) }
+            }.value
+            switch result {
+            case .success(let count):
+                buildModel.console.append(
+                    "Restored \(count) original object file\(count == 1 ? "" : "s") in \(entry.packName).")
+            case .failure(let error):
+                buildModel.console.append(
+                    "*** Revert failed for \(entry.packName): \(error.localizedDescription)")
+            }
+            reseatRefresh += 1
+        }
     }
 
     private func legacyAlertMessage(_ legacy: BuildModel.LegacyTileSettings) -> String {

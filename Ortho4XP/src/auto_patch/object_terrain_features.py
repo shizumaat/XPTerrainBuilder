@@ -794,13 +794,14 @@ class ClassificationResult:
     """The classifier's whole output for one pack (spec section 3.1).
 
     ``exclusions`` is the ruling-R4 feed for the Phase 2 y-bake: every
-    consumed tunnel/bridge object, plus every object of a NON-FLAT ground
+    consumed tunnel/bridge object, plus — only when the section 3.4
+    split-level adapter is on — every object of a NON-FLAT ground
     interface (split-level structures whose terrain is adapted to them
-    join the list exactly like tunnels — spec section 3.4), as
-    ``(pack_root, object_resource)``.  FLAT_CONFIRMED interfaces adapt no
-    terrain and are not excluded.  ``refusals`` are bridge-like structures
-    denied a terrain feature (amendment A4 — piered viaducts); they stay
-    OUT of ``exclusions``."""
+    join the list exactly like tunnels), as ``(pack_root,
+    object_resource)``.  FLAT_CONFIRMED interfaces adapt no terrain and
+    are never excluded.  ``refusals`` are bridge-like structures denied
+    a terrain feature (amendment A4 — piered viaducts); they stay OUT
+    of ``exclusions``."""
 
     tunnels: list[TunnelStructure]
     bridges: list[BridgeStructure]
@@ -810,6 +811,26 @@ class ClassificationResult:
         default_factory=list
     )
     portal_faces: list[PortalFaceStructure] = field(default_factory=list)
+
+    def terrain_material_resources(self) -> set[str]:
+        """Every resource the classifier RECOGNIZED as tunnel / bridge /
+        deck / split-level terrain material — the Phase-1 building-pool
+        drop set (defect 2026-07-17, EGLL Building36: such structures
+        must never chain into a building pad).  Deliberately independent
+        of ``exclusions``: the R4 y-bake feed is gated on which terrain
+        adapters are ON, while a recognized structure stays out of the
+        building pool whichever adapter owns it."""
+        resources = {resource for _root, resource in self.exclusions}
+        for tunnel in self.tunnels:
+            resources.update(tunnel.object_resources)
+        for bridge in self.bridges:
+            resources.update(bridge.object_resources)
+        for interface in self.ground_interfaces:
+            if interface.interface_class != INTERFACE_FLAT_CONFIRMED:
+                resources.update(interface.object_resources)
+        for face in self.portal_faces:
+            resources.update(face.object_resources)
+        return resources
 
 
 # ---------------------------------------------------------------------------
@@ -3578,6 +3599,7 @@ def classify_object_terrain_features(
     mean_sea_level_placements: Sequence[ObjectPlacement] | None = None,
     pack_root: str = "",
     epsilon_metres: float = STRUCTURE_GROUPING_EPSILON_M,
+    split_level_terrain_enabled: bool = False,
 ) -> ClassificationResult:
     """Classify tunnels and bridges from placements and per-object geometry.
 
@@ -3594,6 +3616,16 @@ def classify_object_terrain_features(
 
     Grouping reuses ``object_anchor.discover_object_pools``; each pool is
     tried as a tunnel first (below-grade signature) then as a bridge.
+
+    ``split_level_terrain_enabled`` mirrors the spec section 3.4 gate
+    (``config.OBJECT_SPLIT_LEVEL_TERRAIN``, default off): feature-C
+    ground interfaces are always MEASURED and recorded, but their
+    resources join the ruling-R4 exclusion list only when the
+    split-level terrain adapter is actually on — R4 excludes structures
+    whose terrain IS adapted to them, and with the adapter off none is
+    (LSGG 2026-07-23: unconditional interface exclusions plus the
+    anchor-family widening starved the Phase 2 y-bake of 265/266
+    objects, terminal buildings included).
 
     Stock library assets (``lib/...`` virtual paths — see
     :func:`is_stock_library_resource`) are dropped up front: a catalogue
@@ -3680,8 +3712,12 @@ def classify_object_terrain_features(
                 if ground_interface is not None:
                     ground_interfaces.append(ground_interface)
                     consumed_resources |= component
-                    for resource in ground_interface.object_resources:
-                        exclusions.append((pack_root, resource))
+                    if split_level_terrain_enabled:
+                        # Interior cutouts are feature C's domain
+                        # (section 3.4 1b): excluded only when the
+                        # split-level adapter will carve their terrain.
+                        for resource in ground_interface.object_resources:
+                            exclusions.append((pack_root, resource))
                 continue
             if _is_tunnel_signature(
                 component_placements, component_frame
@@ -3856,10 +3892,16 @@ def classify_object_terrain_features(
         )
         if ground_interface is not None:
             ground_interfaces.append(ground_interface)
-            if ground_interface.interface_class != INTERFACE_FLAT_CONFIRMED:
+            if (
+                split_level_terrain_enabled
+                and ground_interface.interface_class
+                != INTERFACE_FLAT_CONFIRMED
+            ):
                 # Split-level structures whose terrain is adapted to them
                 # join the R4 exclusion list exactly like tunnels (§3.4);
-                # FLAT_CONFIRMED adapts nothing and stays bakeable.
+                # FLAT_CONFIRMED adapts nothing and stays bakeable.  With
+                # the split-level adapter off NO interface terrain is
+                # adapted, so every interface stays bakeable.
                 for resource in ground_interface.object_resources:
                     exclusions.append((pack_root, resource))
 

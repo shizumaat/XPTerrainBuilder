@@ -30,7 +30,7 @@ struct BuildPane: View {
     @State private var showingProviderMismatch = false
     /// Airport packs whose 3-D objects the auto-patch pass reseated in
     /// the active tile ("Modified airports" row), with per-pack revert.
-    @State private var modifiedAirports: [ModifiedAirportPack] = []
+    @State private var modifiedAirports: [ModifiedAirportRow] = []
     @State private var reseatRefresh = 0
     /// Legacy tile-settings alert: offered once per tile per app run.
     @State private var legacyTile: BuildModel.LegacyTileSettings?
@@ -196,27 +196,37 @@ struct BuildPane: View {
                 } ?? "—")
             }
             // Custom airports whose objects the auto-patch pass reseated
-            // for this tile's mesh, with a per-pack revert to the
+            // for this tile's mesh: one label, one row per airport, an
+            // undo button per row reverting that airport's pack to the
             // author's original files (.anchor_bak backups).
-            ForEach(modifiedAirports) { entry in
+            if !modifiedAirports.isEmpty {
                 HStack(alignment: .firstTextBaseline) {
                     Text("Modified airports:")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .frame(width: 104, alignment: .trailing)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(entry.airports)
-                            .font(.caption)
-                            .lineLimit(2)
-                            .help("\(entry.packName) — \(entry.objectCount) object file\(entry.objectCount == 1 ? "" : "s") reseated to this tile's rebuilt ground")
-                        Button("Revert to Default") {
-                            revertModifiedAirports(entry)
+                        ForEach(modifiedAirports) { row in
+                            HStack(spacing: 4) {
+                                Text(row.label)
+                                    .font(.caption)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .help("\(row.packName) — \(row.objectCount) object file\(row.objectCount == 1 ? "" : "s") reseated to this tile's rebuilt ground")
+                                Spacer(minLength: 8)
+                                Button {
+                                    revertModifiedAirports(row)
+                                } label: {
+                                    Image(systemName: "arrow.uturn.backward.circle")
+                                }
+                                .buttonStyle(.borderless)
+                                .controlSize(.small)
+                                .disabled(buildModel.isBuilding)
+                                .help(buildModel.isBuilding
+                                      ? "Wait for the current run — the engine may be rewriting these files"
+                                      : "Revert to default: restores \(row.packName)'s original object files from the backups the reseater kept")
+                            }
                         }
-                        .controlSize(.small)
-                        .disabled(buildModel.isBuilding)
-                        .help(buildModel.isBuilding
-                              ? "Wait for the current run — the engine may be rewriting these files"
-                              : "Restores the pack's original object files from the backups the reseater kept (\(entry.packName))")
                     }
                 }
             }
@@ -643,65 +653,72 @@ struct BuildPane: View {
         customAirportPacks = names
     }
 
-    /// One "Modified airports" row: an installed pack whose sidecar says
-    /// the reseater rewrote objects for the active tile.
-    struct ModifiedAirportPack: Identifiable {
-        let id: String            // pack root path
+    /// One "Modified airports" row: an airport (or, when the apt.dat
+    /// names none in the tile, a whole pack) whose objects the engine's
+    /// reanchor_status command reports as modified for the active tile.
+    /// Undo granularity is the PACK — a multi-airport pack reverts as
+    /// one unit, so its rows share a packPath.
+    struct ModifiedAirportRow: Identifiable {
+        let id: String            // packPath|airport label
+        let label: String         // "LSZC Buochs" or the pack name
         let packName: String
-        let packRoot: URL
-        /// "ICAO Name, …" for the pack's airports inside the tile; falls
-        /// back to the pack name when the apt.dat has none there.
-        let airports: String
+        let packPath: String
         let objectCount: Int
     }
 
-    /// Finds packs the auto-patch reseater modified for the active tile
-    /// (sidecar check per candidate pack, off the main thread).
+    /// Asks the ENGINE which packs the reseater modified for the active
+    /// tile (it owns the sidecar format — identical behavior to the Qt
+    /// front end), then flattens to one row per airport using the app's
+    /// own airport index.
     private func refreshModifiedAirports() async {
         guard let active = buildModel.activeTile else {
             modifiedAirports = []
             return
         }
         let tileKey = active.key
-        let candidates = controller.installationPacks
-            .filter { $0.isInstalled && !$0.isLaminar }
-            .map { (name: $0.name, root: $0.contentRoot, airports: $0.airports) }
-        modifiedAirports = await Task.detached(priority: .utility) {
-            candidates.compactMap { pack -> ModifiedAirportPack? in
-                guard let mods = ReanchorProvenance.read(packRoot: pack.root),
-                      let objects = mods.objectsByTile[tileKey],
-                      !objects.isEmpty
-                else { return nil }
-                let names = pack.airports
-                    .filter { TileMath.key(latitude: $0.value.latitude,
-                                           longitude: $0.value.longitude) == tileKey }
-                    .map { "\($0.key) \($0.value.name)" }
-                    .sorted()
-                return ModifiedAirportPack(
-                    id: pack.root.path,
-                    packName: pack.name,
-                    packRoot: pack.root,
-                    airports: names.isEmpty ? pack.name : names.joined(separator: ", "),
-                    objectCount: objects.count)
+        let enginePacks = await buildModel.reanchorStatus(for: active)
+        guard !enginePacks.isEmpty else {
+            modifiedAirports = []
+            return
+        }
+        let installed = controller.installationPacks
+        modifiedAirports = enginePacks.flatMap { pack -> [ModifiedAirportRow] in
+            let match = installed.first {
+                $0.url.path == pack.packPath
+                    || $0.contentRoot.path == pack.packPath
             }
-            .sorted { $0.packName < $1.packName }
-        }.value
+            let names = (match?.airports ?? [:])
+                .filter { TileMath.key(latitude: $0.value.latitude,
+                                       longitude: $0.value.longitude) == tileKey }
+                .map { "\($0.key) \($0.value.name)" }
+                .sorted()
+            guard !names.isEmpty else {
+                return [ModifiedAirportRow(
+                    id: pack.packPath, label: pack.packName,
+                    packName: pack.packName, packPath: pack.packPath,
+                    objectCount: pack.objectCount)]
+            }
+            return names.map { name in
+                ModifiedAirportRow(
+                    id: "\(pack.packPath)|\(name)", label: name,
+                    packName: pack.packName, packPath: pack.packPath,
+                    objectCount: pack.objectCount)
+            }
+        }
+        .sorted { $0.label < $1.label }
     }
 
-    /// Puts the pack's .anchor_bak originals back (engine restore
-    /// semantics — backups stay for the next bake, sidecar removed).
-    private func revertModifiedAirports(_ entry: ModifiedAirportPack) {
+    /// Engine-side restore of the row's pack (.anchor_bak originals put
+    /// back; backups stay for the next bake, sidecar removed).
+    private func revertModifiedAirports(_ row: ModifiedAirportRow) {
         Task {
-            let result = await Task.detached(priority: .utility) {
-                Result { try ReanchorProvenance.restore(packRoot: entry.packRoot) }
-            }.value
-            switch result {
-            case .success(let count):
+            let outcome = await buildModel.reanchorRestore(packPath: row.packPath)
+            if let restored = outcome.restored {
                 buildModel.console.append(
-                    "Restored \(count) original object file\(count == 1 ? "" : "s") in \(entry.packName).")
-            case .failure(let error):
+                    "Restored \(restored) original object file\(restored == 1 ? "" : "s") in \(row.packName).")
+            } else {
                 buildModel.console.append(
-                    "*** Revert failed for \(entry.packName): \(error.localizedDescription)")
+                    "*** Revert failed for \(row.packName): \(outcome.error ?? "unknown error")")
             }
             reseatRefresh += 1
         }

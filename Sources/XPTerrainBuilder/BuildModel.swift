@@ -608,6 +608,65 @@ final class BuildModel: ObservableObject {
         }
     }
 
+    // MARK: - Reanchor status (auto-patch object reseating)
+
+    /// One pack the reseater modified, as the engine reports it.
+    struct ReanchorPack: Sendable {
+        let packName: String
+        let packPath: String
+        let objectCount: Int
+    }
+
+    /// Packs whose objects the auto-patch reseater modified for `coord`,
+    /// via the engine's reanchor_status command — the engine owns the
+    /// sidecar format, so this app and the Qt front end behave
+    /// identically. Empty when the engine predates the command (unknown
+    /// commands reply ok=false) or no X-Plane folder is configured.
+    func reanchorStatus(for coord: TileCoord) async -> [ReanchorPack] {
+        connectIfNeeded()
+        let scenery = customSceneryPath
+        guard let client, !scenery.isEmpty else { return [] }
+        return await withCheckedContinuation { continuation in
+            client.send(command: "reanchor_status", arguments: [
+                "scenery_dir": scenery, "lat": coord.lat, "lon": coord.lon,
+            ]) { reply in
+                guard reply.ok,
+                      let packs = reply.result?["packs"]?.arrayValue else {
+                    continuation.resume(returning: [])
+                    return
+                }
+                continuation.resume(returning: packs.compactMap { entry in
+                    guard let name = entry["pack_name"]?.stringValue,
+                          let path = entry["pack_path"]?.stringValue
+                    else { return nil }
+                    return ReanchorPack(
+                        packName: name, packPath: path,
+                        objectCount: entry["objects"]?.intValue ?? 0)
+                })
+            }
+        }
+    }
+
+    /// Engine-side restore of a pack's .anchor_bak originals (backups
+    /// stay in place, sidecar removed). Returns the count restored, or
+    /// the engine's error text.
+    func reanchorRestore(packPath: String) async -> (restored: Int?, error: String?) {
+        connectIfNeeded()
+        guard let client else { return (nil, "engine not running") }
+        return await withCheckedContinuation { continuation in
+            client.send(command: "reanchor_restore",
+                        arguments: ["pack_path": packPath]) { reply in
+                if reply.ok {
+                    continuation.resume(returning:
+                        (reply.result?["restored"]?.intValue ?? 0, nil))
+                } else {
+                    continuation.resume(returning:
+                        (nil, reply.error ?? "unknown engine error"))
+                }
+            }
+        }
+    }
+
     private func refreshTileInfo(_ coord: TileCoord) {
         guard let client, let base = tileBaseFolder else { return }
         client.send(command: "tile_info", arguments: [

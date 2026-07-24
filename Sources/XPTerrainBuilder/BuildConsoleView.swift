@@ -27,7 +27,7 @@ struct BuildConsoleView: View {
             Button {
                 buildModel.console.clear()
             } label: {
-                Image(systemName: "trash")
+                Image(systemName: "xmark.circle")
             }
             .buttonStyle(.borderless)
             .help("Clear the console")

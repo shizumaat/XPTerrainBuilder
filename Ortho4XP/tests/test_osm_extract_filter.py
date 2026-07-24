@@ -379,3 +379,37 @@ def test_clip_write_failure_raises_and_cleans_up(tmp_path):
             [source], (-0.05, -0.05, 1.05, 1.05),
             str(target_dir / "clip.osm.pbf"))
     assert not target_dir.exists()
+
+
+def test_concurrent_clips_of_same_target_both_succeed(tmp_path):
+    """Two threads cutting the SAME clip path must not share a temp file.
+
+    The 2026-07-23 field failure: concurrent query rounds cut the same
+    clip, both writers used the pid-keyed temp name, and the loser's
+    atomic rename died with ENOENT after minutes of work.  The temp name
+    is now thread-unique, so even unserialized cutters both complete.
+    """
+    import threading
+
+    source = _mixed_fixture(tmp_path)
+    clip = str(tmp_path / "clip.osm.pbf")
+    box = (-0.05, -0.05, 1.05, 1.05)
+    errors = []
+
+    def cut():
+        try:
+            FILTER.clip_extracts_to_pbf([source], box, clip)
+        except Exception as error:   # noqa: BLE001 - the assertion target
+            errors.append(error)
+
+    threads = [threading.Thread(target=cut) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert not errors
+    assert os.path.isfile(clip)
+    # No orphaned temp files either way.
+    leftovers = [
+        name for name in os.listdir(tmp_path) if ".tmp-" in name]
+    assert leftovers == []

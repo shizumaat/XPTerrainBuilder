@@ -839,24 +839,33 @@ def _clip_for_query(regions, boxes) -> Optional[str]:
         if os.path.isfile(path):
             return path
         import O4_OSM_Extract_Filter as FILTER
+        from O4_File_Lock import hold_file_lock
 
-        started = time.time()
-        UI.vprint(
-            1,
-            "      Cutting a clipped OSM cache for this area "
-            "(one-time per area and extract refresh)...",
-        )
         os.makedirs(_clip_directory(), exist_ok=True)
-        FILTER.clip_extracts_to_pbf(
-            [_region_file(region_id) for (region_id, _url) in regions],
-            clip_box,
-            path,
-        )
-        UI.vprint(
-            1,
-            "      ...clipped OSM cache ready (%.0f s, %d MB)."
-            % (time.time() - started, os.path.getsize(path) >> 20),
-        )
+        # Concurrent query rounds (the vector step, the bathymetry
+        # prefetch, auto-patch) race to cut the SAME clip: without the
+        # lock each spent minutes decoding the full extracts and the
+        # losers' atomic rename then failed under the winner's.  One
+        # cutter works; everyone else waits and reads the result.
+        with hold_file_lock(path):
+            if os.path.isfile(path):
+                return path
+            started = time.time()
+            UI.vprint(
+                1,
+                "      Cutting a clipped OSM cache for this area "
+                "(one-time per area and extract refresh)...",
+            )
+            FILTER.clip_extracts_to_pbf(
+                [_region_file(region_id) for (region_id, _url) in regions],
+                clip_box,
+                path,
+            )
+            UI.vprint(
+                1,
+                "      ...clipped OSM cache ready (%.0f s, %d MB)."
+                % (time.time() - started, os.path.getsize(path) >> 20),
+            )
         _prune_stale_clips(path)
         return path
     except Exception as error:

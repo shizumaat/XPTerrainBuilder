@@ -60,6 +60,7 @@ file wins.
 from __future__ import annotations
 
 import os
+import threading
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import osmium
@@ -158,6 +159,12 @@ class _SelectionHandler(osmium.SimpleHandler):
         super().__init__()
         self._matchers = matchers
         self._boxes = list(bounding_boxes)
+        # The node callback below runs once per node in the extract —
+        # tens of millions of calls for a country pbf, the cut's wall-
+        # time floor.  The common single-box case keeps its bounds in
+        # locals-friendly scalars so the test is inline compares, not a
+        # method call per node.
+        self._single_box = self._boxes[0] if len(self._boxes) == 1 else None
         # Shared state consumed by later passes.
         self.nodes_in_bbox: set = set()
         self.ways_touching: set = set()
@@ -173,7 +180,12 @@ class _SelectionHandler(osmium.SimpleHandler):
 
     def node(self, n: "osmium.osm.Node") -> None:
         loc = n.location
-        if not self._in_bbox(loc.lat, loc.lon):
+        single = self._single_box
+        if single is not None:
+            if not (single[0] <= loc.lat <= single[2]
+                    and single[1] <= loc.lon <= single[3]):
+                return
+        elif not self._in_bbox(loc.lat, loc.lon):
             return
         self.nodes_in_bbox.add(n.id)
         if _tags_match(n.tags, self._matchers["node"]):
@@ -246,6 +258,48 @@ class _NodeGatherHandler(osmium.SimpleHandler):
         self.nodes[n.id] = (loc.lat, loc.lon, tags)
 
 
+def _gather_ways_prefiltered(path, needed_way_ids, needed_node_ids):
+    """Pass 2 with the id membership test in C++ (osmium.filter.IdFilter):
+    only the needed ways ever reach Python.  Against the plain handler —
+    one Python callback per way in the file — this removes millions of
+    calls whose only work was a set lookup."""
+    ways: Dict[int, _WayData] = {}
+    if not needed_way_ids:
+        return ways
+    processor = osmium.FileProcessor(path, osmium.osm.WAY).with_filter(
+        osmium.filter.IdFilter(needed_way_ids)
+    )
+    for w in processor:
+        refs = [nd.ref for nd in w.nodes]
+        ways[w.id] = (refs, [(t.k, t.v) for t in w.tags])
+        needed_node_ids.update(refs)
+    return ways
+
+
+def _gather_nodes_prefiltered(path, needed_node_ids):
+    """Pass 3 with the id membership test in C++ (see pass 2 above) —
+    the extract's full node table (tens of millions for a country
+    extract) stays on the C++ side; Python sees only the closure."""
+    nodes: Dict[int, _NodeData] = {}
+    if not needed_node_ids:
+        return nodes
+    processor = osmium.FileProcessor(path, osmium.osm.NODE).with_filter(
+        osmium.filter.IdFilter(needed_node_ids)
+    )
+    for n in processor:
+        location = n.location
+        nodes[n.id] = (location.lat, location.lon, [(t.k, t.v) for t in n.tags])
+    return nodes
+
+
+# The C++-side prefilters need pyosmium >= 4 (FileProcessor + IdFilter);
+# the handler classes above remain the fallback so an older runtime is
+# slower, never broken.
+_HAS_PREFILTERS = hasattr(osmium, "FileProcessor") and hasattr(
+    getattr(osmium, "filter", None), "IdFilter"
+)
+
+
 def _process_extract(
     path: str,
     matchers: _Matchers,
@@ -260,13 +314,23 @@ def _process_extract(
         selection = _SelectionHandler(matchers, bounding_boxes)
         selection.apply_file(path)
 
-        way_gather = _WayGatherHandler(
-            selection.needed_way_ids, selection.needed_node_ids
-        )
-        way_gather.apply_file(path)
+        if _HAS_PREFILTERS:
+            gathered_ways = _gather_ways_prefiltered(
+                path, selection.needed_way_ids, selection.needed_node_ids
+            )
+            nodes = _gather_nodes_prefiltered(
+                path, selection.needed_node_ids
+            )
+        else:
+            way_gather = _WayGatherHandler(
+                selection.needed_way_ids, selection.needed_node_ids
+            )
+            way_gather.apply_file(path)
+            gathered_ways = way_gather.ways
 
-        node_gather = _NodeGatherHandler(selection.needed_node_ids)
-        node_gather.apply_file(path)
+            node_gather = _NodeGatherHandler(selection.needed_node_ids)
+            node_gather.apply_file(path)
+            nodes = node_gather.nodes
     except ExtractFilterError:
         raise
     except Exception as e:  # osmium raises RuntimeError on unreadable/corrupt input
@@ -274,10 +338,9 @@ def _process_extract(
             "could not read extract " + str(path) + ": " + str(e)
         ) from e
 
-    nodes = node_gather.nodes
     ways = {
         wid: data
-        for wid, data in way_gather.ways.items()
+        for wid, data in gathered_ways.items()
         if all(ref in nodes for ref in data[0])
     }
     return nodes, ways, selection.selected_rels
@@ -460,8 +523,12 @@ def clip_extracts_to_pbf(
     nodes, ways, rels = _merge_extracts(
         extract_paths, _MATCH_ALL, bounding_boxes)
     # The suffix must stay format-recognizable: SimpleWriter infers the
-    # output format from the file name.
-    temporary_path = "%s.tmp-%d.osm.pbf" % (output_path, os.getpid())
+    # output format from the file name.  Unique per pid AND thread:
+    # concurrent same-process cutters sharing one temp path chased each
+    # other's writes and renames (the clip callers now serialize, but a
+    # shared temp name must never be load-bearing).
+    temporary_path = "%s.tmp-%d-%d.osm.pbf" % (
+        output_path, os.getpid(), threading.get_ident())
     try:
         if os.path.exists(temporary_path):
             os.remove(temporary_path)   # SimpleWriter refuses to overwrite

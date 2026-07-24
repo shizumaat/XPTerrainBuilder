@@ -7,7 +7,11 @@ import os
 # parent dies in the proj.db sqlite atfork handler (2026-07-16 crash
 # class).  A from-source engine child therefore anchors itself here,
 # post-exec, where chdir is safe — same effective directory as before.
-if '--engine-jsonl' in sys.argv and not getattr(sys, 'frozen', False):
+# The __name__ guard mirrors the engine dispatch below: multiprocessing
+# helpers re-import this module as "__mp_main__" with the parent's argv
+# restored, and they inherit the already-corrected cwd from their parent.
+if (__name__ == '__main__' and '--engine-jsonl' in sys.argv
+        and not getattr(sys, 'frozen', False)):
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 Ortho4XP_dir = '..' if getattr(sys, 'frozen', False) else '.'

@@ -92,7 +92,8 @@ W5 writes that warning into the provenance sidecar.
 * `OBJECT_MSL` conversion (plan §4.4). Unverified against the sim.
 * The 41 KCLT terminal-layer objects (`paredes`/`techos`/`vidrios`/`suelos`/`modulos`). They contain
   12 `ANIM_begin` blocks and are the first real test of I-11/I-12. W2 must make them *representable*;
-  landing them is a follow-up, gated by `O4_DSF_OBJECT_ALLOW_ANIM` (default off, refuse-and-report).
+  landing them is a follow-up, gated by `O4_DSF_OBJECT_ALLOW_ANIM` (default ON since 2026-07-24,
+  owner ruling; `=0` restores refuse-and-report).
 
 **Non-goal that will tempt you:** moving the anchor. Plan §4.1 measured it — for `Charlotte_Airport_007_ALB.obj`
 the centroid anchor is *worse* than the status quo (10.18 m vs 9.95 m worst error), because it lands
@@ -470,7 +471,7 @@ DSF_OBJECT_REANCHOR = _os.environ.get("O4_DSF_OBJECT_REANCHOR", "0") == "1"
 # applied inside an animation block can break its rotation pivot.  ON gives
 # each animation block the single delta of the structure containing its
 # geometry.  The 41 KCLT terminal-layer objects are the first real test.
-DSF_OBJECT_ALLOW_ANIM = _os.environ.get("O4_DSF_OBJECT_ALLOW_ANIM", "0") == "1"
+DSF_OBJECT_ALLOW_ANIM = _os.environ.get("O4_DSF_OBJECT_ALLOW_ANIM", "1") == "1"
 
 # Detector floor.  A compact, correctly anchored object has a solid reach of
 # a few metres; 57 of KCLT's 334 definitions exceed 25 m.
@@ -853,7 +854,7 @@ whose acceptance tests pass but whose invariants are untested has not finished.
 | I-8 | A structure with **no** ground-touching part inherits its supporter's delta (attached clutter is already subsumed by the contact graph) | partition §3.4 | W4 | `test_object_anchor` |
 | I-9 | `ATTR_draped` triangles excluded from partition and never offset; mixed draped/solid vertices ⇒ refuse-and-report | §8.5 | W2, W4 | `test_obj8_reader` |
 | I-10 | `LIGHT_*`/`VLIGHT`/`SMOKE_*`/`EMITTER`/`MAGNET` y coordinates move with their structure | §8.6 | W2, W5 | `test_obj8_reader`, `test_object_rebake` |
-| I-11 | One delta per `ANIM_begin` block, else refuse (default: refuse) | §8.7 | W5 | `test_object_rebake` |
+| I-11 | One delta per `ANIM_begin` block, else refuse (flag default ON since 2026-07-24) | §8.7 | W5 | `test_object_rebake` |
 | I-12 | `ATTR_LOD` copies share a structure; do not let them distort the area-weighted centroid | §8.7 | W2, W4 | `test_object_anchor` |
 | I-13 | A structure whose centroid lies outside the mesh is **skipped**, never nearest-vertex sampled | spec §3.2 | W3, W4 | `test_mesh_sampler` |
 | I-14 | A pack update orphans the backup; detect by hash and re-backup loudly | spec §3.5 | W5 | `test_object_rebake` |

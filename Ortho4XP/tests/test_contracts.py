@@ -46,7 +46,9 @@ FLAG_EXPECTATIONS = [
     ("DSF_OBJECT_BUILDINGS", bool, True),
     ("DSF_OBJECT_FOOTPRINT_UNION", bool, False),
     ("DSF_OBJECT_REANCHOR", bool, True),
-    ("DSF_OBJECT_ALLOW_ANIM", bool, False),
+    # Default flipped on 2026-07-24 (owner): rigid one-offset-per-block
+    # baking is trusted; I-11 still refuses blocks spanning offsets.
+    ("DSF_OBJECT_ALLOW_ANIM", bool, True),
     ("DSF_OBJECT_MIN_REACH_M", float, 25.0),
     ("DSF_OBJECT_CONTACT_EPSILON_M", float, 0.25),
     ("DSF_OBJECT_FOOTPRINT_HEIGHT_M", float, 1.5),

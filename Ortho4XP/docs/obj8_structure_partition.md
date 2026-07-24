@@ -168,8 +168,8 @@ shatters. This is `connected_components` in `tools/obj8_geometry.py:150` and it 
 Two pre-merges before contact, both in the "when in doubt, merge" direction:
 
 * **`ANIM_begin`…`ANIM_end`**: fuse each animation block's geometry into a single part. A per-part
-  delta inside an animation block breaks its rotation pivot. (Default remains refuse-and-report until
-  `O4_DSF_OBJECT_ALLOW_ANIM`.)
+  delta inside an animation block breaks its rotation pivot. (`O4_DSF_OBJECT_ALLOW_ANIM` defaults ON
+  since 2026-07-24; `=0` restores refuse-and-report.)
 * **`ATTR_LOD`**: LOD copies are spatially coincident and will merge on contact anyway. Compute the
   structure's area-weighted centroid from the **first LOD bucket only**, or the duplicated area drags
   it. Apply the delta to every bucket.

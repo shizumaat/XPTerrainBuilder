@@ -1779,13 +1779,14 @@ DSF_OBJECT_REANCHOR = _os.environ.get("O4_DSF_OBJECT_REANCHOR", "1") == "1"
 DSF_OBJECT_WORKLIST_BBOX_MARGIN_M = float(
     _os.environ.get("O4_DSF_OBJECT_WORKLIST_BBOX_MARGIN_M", "3000"))
 
-# Refuse (and report) objects containing ``ANIM_begin``: a per-structure
-# offset applied inside an animation block can break its rotation pivot.
-# ON gives each animation block the single offset of the structure
-# containing its geometry.  The 41 KCLT terminal-layer objects are the
-# first real test.
+# Objects containing ``ANIM_begin``: a per-structure offset applied
+# inside an animation block can break its rotation pivot.  ON (default,
+# owner 2026-07-24) gives each animation block the single offset of the
+# structure containing its geometry; a block whose vertices span
+# structures with differing offsets still refuses the object (I-11).
+# OFF refuses (and reports) every object containing ``ANIM_begin``.
 DSF_OBJECT_ALLOW_ANIM = (
-    _os.environ.get("O4_DSF_OBJECT_ALLOW_ANIM", "0") == "1")
+    _os.environ.get("O4_DSF_OBJECT_ALLOW_ANIM", "1") == "1")
 
 # Detector floor.  A compact, correctly anchored object has a solid reach
 # of a few metres; 57 of KCLT's 334 definitions exceed 25 m.

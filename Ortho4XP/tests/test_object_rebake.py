@@ -360,12 +360,14 @@ def _animated_object_text(block_triangle_lines: list[str],
     )
 
 
-def test_animated_object_refused_and_untouched_when_flag_off(tmp_path):
+def test_animated_object_refused_and_untouched_when_flag_off(
+    tmp_path, monkeypatch
+):
     object_text = _animated_object_text(["TRIS 0 6"], ["TRIS 6 6"])
     pack_root, mesh_path = _make_pack(tmp_path, {BOX_RESOURCE: object_text})
     original_bytes = _read_bytes(_live_path(pack_root))
 
-    assert config.DSF_OBJECT_ALLOW_ANIM is False
+    monkeypatch.setattr(config, "DSF_OBJECT_ALLOW_ANIM", False)
     report = apply(_two_box_decision(), pack_root, mesh_path)
 
     assert report.objects_written == []

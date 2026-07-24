@@ -57,17 +57,20 @@ from .session import (
 
 def estimate_remaining_wall_seconds(estimates, programs, queued_tiles,
                                     next_step_index, in_flight_steps,
-                                    now, slots):
+                                    now, slots, live_step_remaining=None):
     """Advisory wall-clock remaining estimate for a parallel run.
 
     Work model: every queued tile contributes its full predicted plan;
-    every active tile contributes its remaining steps, the in-flight
-    step credited for its elapsed time (degrading into
-    overrun-proportional remaining once it outlives its prediction —
-    see :func:`tile_time_model.remaining_step_seconds`).  The total
-    work is divided by the effective parallelism (``slots`` capped by
-    the tiles still holding work) — coarse (class limits and the
-    memory gate are not modelled) but a defensible estimate where
+    every active tile contributes its remaining steps.  An in-flight
+    step with a LIVE child report (``live_step_remaining``, harvested
+    from the worker's own RunEta — bar rates, the auto-patch model and
+    meter floors the parent cannot see) is priced at that report, aged
+    by its own staleness; otherwise it is credited for its elapsed time
+    (degrading into overrun-proportional remaining once it outlives its
+    prediction — see :func:`tile_time_model.remaining_step_seconds`).
+    The total work is divided by the effective parallelism (``slots``
+    capped by the tiles still holding work) — coarse (class limits and
+    the memory gate are not modelled) but a defensible estimate where
     there was previously an honest dash.  Returns ``None`` when no
     work remains.
 
@@ -75,10 +78,15 @@ def estimate_remaining_wall_seconds(estimates, programs, queued_tiles,
     ``{tile: ordered step keys}`` (batches enqueued into a live run may
     select different steps); ``next_step_index``:
     ``{tile: index of the running-or-next step}``; ``in_flight_steps``:
-    ``{(tile, step): started_at}``.
+    ``{(tile, step): started_at}``; ``live_step_remaining``:
+    ``{(tile, step): (seconds, received_at)}``.
     """
     total_work = 0.0
     tiles_with_work = 0
+    live_step_remaining = live_step_remaining or {}
+    # A child reports at ~1 Hz; a report much older than that belongs
+    # to a wedged or dying child and the model estimate is honester.
+    live_report_max_age = 10.0
 
     def step_estimate(tile, key):
         value = (estimates.get(tile) or {}).get(key)
@@ -100,8 +108,12 @@ def estimate_remaining_wall_seconds(estimates, programs, queued_tiles,
             estimate = step_estimate(tile, key)
             started_at = in_flight_steps.get((tile, key))
             if started_at is not None:
-                estimate = tile_time_model.remaining_step_seconds(
-                    estimate, now - started_at)
+                live = live_step_remaining.get((tile, key))
+                if live is not None and now - live[1] <= live_report_max_age:
+                    estimate = max(live[0] - (now - live[1]), 0.0)
+                else:
+                    estimate = tile_time_model.remaining_step_seconds(
+                        estimate, now - started_at)
             elif estimate is None:
                 continue
             total_work += estimate
@@ -269,6 +281,13 @@ class _WorkerChild:
         self.process: Optional[subprocess.Popen] = None
         self.tile = None               # tile this child is carrying
         self.running_step = None       # step key in flight, None = waiting
+        # The child's own live in-step estimate: (step_key, seconds,
+        # received_at).  A worker child runs a full EngineSession whose
+        # tracker sees the live signals the parent cannot (bar rates,
+        # the auto-patch model, download/task meter floors); its RunEta
+        # is harvested here instead of being discarded with the other
+        # run-level events.
+        self.live_remaining = None
         self.step_failed = False       # current tile had a failing step
         self.cancelling = False        # a mid-step cancel is in flight
         self.retired = False
@@ -335,6 +354,7 @@ class _WorkerChild:
         whatever its own configuration would resolve to.
         """
         self.running_step = step_key
+        self.live_remaining = None
         return self.send(dict(
             build_arguments,
             cmd="build",
@@ -818,6 +838,16 @@ class ParallelBuildRun:
         if event_name == "RunDone":
             self._child_step_done(child)
             return
+        if event_name == "RunEta":
+            # Harvest the child's live in-step estimate for the parent
+            # run clock (tagged with the step so a report racing a step
+            # transition is discarded rather than misattributed).
+            remaining = payload.get("remaining_seconds")
+            if (child.running_step is not None
+                    and isinstance(remaining, (int, float))):
+                child.live_remaining = (
+                    child.running_step, float(remaining), time.time())
+            return
         if event_name == "Error" and payload.get("fatal"):
             # A fatal child error ends that CHILD, never the parent
             # session; the crash path in _on_child_exit accounts for it.
@@ -1129,12 +1159,20 @@ class ParallelBuildRun:
                 in_flight_steps = dict(self._step_started_at)
                 programs = dict(self._programs)
                 total = self._total
+                live_step_remaining = {
+                    (child.tile, child.live_remaining[0]):
+                        (child.live_remaining[1], child.live_remaining[2])
+                    for child in self._children
+                    if child.tile is not None
+                    and child.live_remaining is not None
+                    and child.live_remaining[0] == child.running_step
+                }
             remaining = None
             try:
                 remaining = estimate_remaining_wall_seconds(
                     self._estimates, programs, queued_tiles,
                     next_step_index, in_flight_steps, time.time(),
-                    self._slots)
+                    self._slots, live_step_remaining)
             except Exception:
                 remaining = None
             self._session._emit(RunEta(

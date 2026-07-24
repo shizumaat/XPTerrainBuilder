@@ -330,18 +330,20 @@ class _EtaTracker:
 
     # -- read ------------------------------------------------------------
     def _current_step_remaining(self):
-        """Model/bar estimate, floored by any active measured download:
-        while a foreground extract streams, its unmoved bytes priced at
-        the meter's throughput are a HARD lower bound no compute model
-        can undercut."""
+        """Model/bar estimate, floored by live phase telemetry: while a
+        foreground extract streams, its unmoved bytes priced at the
+        meter's throughput are a HARD lower bound no compute model can
+        undercut, and a counted phase (airport insets, Overpass rounds)
+        floors it at its own measured pace the same way."""
         base = self._current_step_remaining_base()
         try:
-            from . import download_meter
-            active = download_meter.active_remaining_seconds()
+            from . import download_meter, task_meter
+            for meter in (download_meter, task_meter):
+                active = meter.active_remaining_seconds()
+                if active is not None:
+                    base = max(base, active)
         except Exception:
-            active = None
-        if active is not None:
-            return max(base, active)
+            pass
         return base
 
     def _current_step_remaining_base(self):
@@ -721,6 +723,35 @@ class EngineSession:
         }
         self._eta = _EtaTracker(tiles, plan, estimates)
         self._eta_last_emit = 0.0
+        self._start_eta_heartbeat()
+
+    def _start_eta_heartbeat(self):
+        """Emit RunEta at ~1 Hz for as long as a run is live.
+
+        The other _emit_eta call sites are all event-driven (bar
+        percent, auto-patch rows) — which goes silent exactly when a
+        step is network-bound with nothing to report, the case where
+        the download/task meter floors are doing the estimating.  The
+        heartbeat keeps the clock honest through those silences (and
+        keeps a parallel parent's harvested child estimate fresh).
+        """
+        if getattr(self, "_eta_heartbeat_alive", False):
+            return
+        self._eta_heartbeat_alive = True
+
+        def beat():
+            while True:
+                time.sleep(ETA_EMIT_SECONDS)
+                if self._eta is None:
+                    break
+                try:
+                    self._emit_eta()
+                except Exception:
+                    pass
+            self._eta_heartbeat_alive = False
+
+        threading.Thread(
+            target=beat, name="o4-eta-heartbeat", daemon=True).start()
 
     def cancel(self):
         self._cancel_all = True

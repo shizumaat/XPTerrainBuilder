@@ -168,9 +168,15 @@ def _run_one_build(message):
     else:
         _happy_tile(lat, lon, step_key)
 
+    # Markers BEFORE RunDone: the tests read them the instant the parent
+    # reports the run finished, so they must be durable before the
+    # terminal event leaves this process (emitting RunDone first raced
+    # the reader against the marker write — observed as an
+    # intermittently EMPTY end_<lat>_<lon> file).
     if steps:
         _write_marker("stepend", lat, lon, step=step_key)
     _write_marker("end", lat, lon)
+    _run_done()
 
 
 def _happy_tile(lat, lon, step_key="vector"):
@@ -182,7 +188,6 @@ def _happy_tile(lat, lon, step_key="vector"):
     time.sleep(_TERMINAL_PAUSE)
     _build_done(lat, lon, True)
     time.sleep(_TERMINAL_PAUSE)
-    _run_done()
 
 
 def _sleeper_tile(lat, lon, step_key="vector"):
@@ -194,7 +199,6 @@ def _sleeper_tile(lat, lon, step_key="vector"):
         if _cancel_flag.is_set():
             _tile_state(lat, lon, "queued", label="stopped")
             time.sleep(_TERMINAL_PAUSE)
-            _run_done()
             return
         time.sleep(_SLEEPER_POLL)
     # Never cancelled: finish the happy way.
@@ -202,7 +206,6 @@ def _sleeper_tile(lat, lon, step_key="vector"):
     time.sleep(_TERMINAL_PAUSE)
     _build_done(lat, lon, True)
     time.sleep(_TERMINAL_PAUSE)
-    _run_done()
 
 
 def _failing_tile(lat, lon, step_key="vector"):
@@ -214,7 +217,6 @@ def _failing_tile(lat, lon, step_key="vector"):
     time.sleep(_TERMINAL_PAUSE)
     _tile_state(lat, lon, "error", label="failed")
     time.sleep(_TERMINAL_PAUSE)
-    _run_done()
 
 
 def _crashing_tile(lat, lon, step_key="vector"):

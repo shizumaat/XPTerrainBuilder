@@ -766,6 +766,28 @@ def _resolve_band_cell(tile, cell_column, cell_row, code):
     }
 
 
+def _record_cell_download(temporary_path: str, fetch_seconds: float) -> None:
+    """Feed one successful bathymetry cell transfer into the process-wide
+    download meter (bytes on disk over the measured provider fetch time),
+    so the build-time estimator prices these WCS/COG fetches.
+
+    Telemetry only: fully guarded, so a meter problem — or a missing
+    ``o4_engine`` — can never fail a cell.  Called once per completed
+    cell response (both the foreground fan-out and the background
+    prefetch reach it through the shared ``_fetch_cell``).
+    """
+    try:
+        from o4_engine import download_meter as METER
+    except Exception:
+        METER = None
+    if METER is None:
+        return
+    try:
+        METER.record(os.path.getsize(temporary_path), fetch_seconds)
+    except Exception:
+        pass
+
+
 def _ensure_bathymetry_band_now(
     tile, fine_nearshore_only: bool = False, intertidal_ok: bool = False
 ) -> Optional[str]:
@@ -1061,6 +1083,7 @@ def _ensure_bathymetry_band_now(
                 os.getpid(),
             )
             try:
+                fetch_t0 = time.monotonic()
                 provenance = INSETS.fetch_inset(
                     definition,
                     (
@@ -1075,6 +1098,7 @@ def _ensure_bathymetry_band_now(
                     BATHYMETRY_CELL_RESOLUTION_M,
                     temporary_path,
                 )
+                fetch_seconds = time.monotonic() - fetch_t0
             except Exception as error:
                 # Transient (network/GDAL) failure: skipped, not recorded
                 # as a durable negative.
@@ -1093,6 +1117,9 @@ def _ensure_bathymetry_band_now(
                 else:
                     file_state = _cell_file_state(temporary_path)
                     if file_state == "valid":
+                        # One meter sample per successful cell response,
+                        # measured before the file moves off temporary_path.
+                        _record_cell_download(temporary_path, fetch_seconds)
                         os.replace(temporary_path, cell["path"])
                         return (cell["stem"], "ok")
                     if file_state == "empty":

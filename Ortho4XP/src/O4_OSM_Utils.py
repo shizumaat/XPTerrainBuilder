@@ -990,7 +990,8 @@ def _post_overpass_query_reporting_progress(server_key, overpass_query,
             # POST keeps the query out of the URL: no length limit and
             # no characters for intermediaries to mangle, as recommended
             # by the Overpass API documentation for generated queries.
-            request_outcome["response"] = _get_http_session().post(
+            transfer_t0 = time.monotonic()
+            response = _get_http_session().post(
                 overpass_servers[server_key],
                 data={"data": overpass_query},
                 timeout=(
@@ -998,6 +999,16 @@ def _post_overpass_query_reporting_progress(server_key, overpass_query,
                     http_read_timeout_seconds,
                 ),
             )
+            # requests only materialises the body on first .content
+            # access; touch it inside the timed region so the measured
+            # duration covers the actual byte transfer.  With the default
+            # (non-streaming) request the body is already read here, so
+            # this is a cheap cached read and behaviour is unchanged.
+            _ = response.content
+            request_outcome["transfer_seconds"] = (
+                time.monotonic() - transfer_t0
+            )
+            request_outcome["response"] = response
         except Exception as request_error:
             request_outcome["error"] = request_error
 
@@ -1024,7 +1035,17 @@ def _post_overpass_query_reporting_progress(server_key, overpass_query,
         )
     if "error" in request_outcome:
         raise request_outcome["error"]
-    return request_outcome["response"]
+    response = request_outcome["response"]
+    # Carry the transfer duration measured in the helper thread out to
+    # the caller, which feeds the download meter once it confirms the
+    # query actually succeeded.  Attribute assignment on a Response is
+    # harmless and guarded so telemetry can never break the fetch.
+    try:
+        response._o4_transfer_seconds = request_outcome.get(
+            "transfer_seconds")
+    except Exception:
+        pass
+    return response
 
 
 def get_overpass_data(query, bbox, request_description="",
@@ -1134,6 +1155,23 @@ def get_overpass_data(query, bbox, request_description="",
             problem_description = _describe_overpass_response_problem(response)
             if problem_description is None:
                 get_overpass_data.last_successful_server_key = current_server_key
+                # Feed the download meter: one sample per successful
+                # Overpass query (response bytes over the transfer time
+                # measured in the helper thread).  Telemetry is fully
+                # guarded and never breaks the fetch.
+                try:
+                    from o4_engine import download_meter as METER
+                except Exception:
+                    METER = None
+                if METER is not None:
+                    transfer_seconds = getattr(
+                        response, "_o4_transfer_seconds", None)
+                    if transfer_seconds is not None:
+                        try:
+                            METER.record(
+                                len(response.content), transfer_seconds)
+                        except Exception:
+                            pass
                 return response.content
             if response.status_code == 429:
                 # 429 is the overpass software rate limiting us; it tells

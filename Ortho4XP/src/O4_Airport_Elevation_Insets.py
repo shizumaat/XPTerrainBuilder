@@ -76,6 +76,7 @@ proves the bake: a flat inset over a flat base appears at inset cells, ramps
 across the feather, and leaves the base untouched outside.
 """
 
+import contextlib as _contextlib
 import os
 import json
 import glob
@@ -116,6 +117,30 @@ def _provider_fetch_slot(code):
             slot = threading.BoundedSemaphore(_PROVIDER_CONCURRENT_FETCHES)
             _provider_fetch_slots[code] = slot
         return slot
+
+
+@_contextlib.contextmanager
+def _held_provider_fetch_slot(code):
+    """Hold one of the provider's fetch slots, honoring Stop while queued.
+
+    A bare ``with semaphore:`` blocks uninterruptibly — with several
+    tiles fetching, airports queue behind the concurrency cap for
+    MINUTES, and a Stop click could not reach them (field report
+    2026-07-23: the app's graceful-stop window expired waiting on
+    exactly this, and the engine was hard-killed).  The wait polls the
+    red flag and raises TRANSIENT on Stop, so a cancelled airport is
+    retried next run, never recorded as a durable answer.
+    """
+    slot = _provider_fetch_slot(code)
+    while not slot.acquire(timeout=0.5):
+        if UI.red_flag:
+            raise TransientFetchError(
+                "stopped with the build while waiting for a %s fetch slot"
+                % code)
+    try:
+        yield
+    finally:
+        slot.release()
 
 
 # GDAL's /vsicurl and WCS drivers ship with NO transfer timeouts: a server
@@ -6108,7 +6133,7 @@ def ensure_airport_insets(
                  " and is retried on the next run)"))
             slow_note.daemon = True
             try:
-                with _provider_fetch_slot(code):
+                with _held_provider_fetch_slot(code):
                     slow_note.start()
                     provenance = fetch_inset(
                         definition,

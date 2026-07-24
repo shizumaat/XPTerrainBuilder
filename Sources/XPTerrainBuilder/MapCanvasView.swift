@@ -2,8 +2,9 @@ import SwiftUI
 import SceneryKit
 
 /// The zoomable world map: night-chart styling (matching the app icon),
-/// X-Plane's 1° tile grid, coverage tints for mesh/ortho/landmark packs,
-/// sectional-style airport marks, and tile selection.
+/// X-Plane's 1° tile grid, green built-tile squares, gray outlines of
+/// other installed ortho packages, sectional-style airport marks, and
+/// tile selection.
 struct MapCanvasView: View {
     @EnvironmentObject var controller: AnalysisController
     @EnvironmentObject var buildModel: BuildModel
@@ -28,10 +29,8 @@ struct MapCanvasView: View {
     static let grid = Color(red: 0.55, green: 0.63, blue: 0.75).opacity(0.18)
     static let gridMajor = Color(red: 0.55, green: 0.63, blue: 0.75).opacity(0.34)
     static let magenta = Color(red: 0.78, green: 0.25, blue: 0.47)
-    static let tintOrtho = Color(red: 0.85, green: 0.55, blue: 0.20)
     static let regionOutline = Color(white: 0.62).opacity(0.85)
-    static let tintMesh = Color(red: 0.30, green: 0.65, blue: 0.45)
-    static let tintLandmark = Color(red: 0.30, green: 0.55, blue: 0.90)
+    static let tintLandmark = Color(red: 0.30, green: 0.55, blue: 0.90) // landmark diamonds
     static let selection = Color.white
 
     // Build mode: our built tiles are green (the ZL still shows in the
@@ -143,24 +142,11 @@ struct MapCanvasView: View {
         drawImagery(context: context, size: size, cam: cam,
                     minLon: minLon, maxLon: maxLon, minLat: minLat, maxLat: maxLat)
 
-        // Tile tints — numeric compares only; batch by kind into 3 paths so
-        // the frame does 3 fills, not one per tile.
-        var orthoPath = Path(), meshPath = Path(), landmarkPath = Path()
-        for tile in overlays.tintTiles {
-            guard Double(tile.lon + 1) > minLon, Double(tile.lon) < maxLon,
-                  Double(tile.lat + 1) > minLat, Double(tile.lat) < maxLat else { continue }
-            let rect = tileRect(lat: tile.lat, lon: tile.lon, cam: cam, size: size)
-            switch tile.kind {
-            case .ortho: orthoPath.addRect(rect)
-            case .mesh: meshPath.addRect(rect)
-            default: landmarkPath.addRect(rect)
-            }
-        }
-        // Border-only: a filled tint obscures the imagery preview under
-        // the tile, and judging imagery quality is what the preview is for.
-        context.stroke(orthoPath, with: .color(Self.tintOrtho.opacity(0.6)), lineWidth: 1.5)
-        context.stroke(meshPath, with: .color(Self.tintMesh.opacity(0.6)), lineWidth: 1.5)
-        context.stroke(landmarkPath, with: .color(Self.tintLandmark.opacity(0.6)), lineWidth: 1.5)
+        // No per-tile coverage tints: the map's whole vocabulary is
+        // green = tiles we built, gray outlines = other installed ortho
+        // packages (below). The old per-kind tint layer painted every
+        // DSF tile of installed ortho/mesh packs in its own color —
+        // orange over half a continent for a big ortho install.
 
         if buildModel.mode == .build, sceneryFilter != .othersOnly {
             drawBuildOverlays(context: context, size: size, cam: cam,

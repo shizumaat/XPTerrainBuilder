@@ -358,14 +358,25 @@ def build_poly_file(tile):
         [geometry.LineString([(x, 0.0 - eps), (x, 1.0 + eps)]) for x in xgrid]
         + [geometry.LineString([(0.0 - eps, y), (1.0 + eps, y)]) for y in ygrid]
     )
-    # The grid lines deliberately overshoot the tile by eps so every line
-    # crosses the boundary cleanly — but their endpoint ALTITUDES must be
-    # the tile-edge values.  tile.dem.alt_vec clamps to the RASTER extent,
-    # which equalled the tile for the classic unpadded .hgt bases; the
-    # combined global rasters ("View"-class bases) carry a 0.01 deg margin,
-    # so an unclamped endpoint sampled terrain ~1.1 km beyond the seam and
-    # planted conflicting duplicate vertices on the tile edge (SPLP
-    # 2026-07-24: 97 m seam steps on the coastal cliffs of -13-078).
+    # The grid lines overshoot the tile by eps so every line crosses the
+    # boundary cleanly — but the overshoot must be CUT OFF before the
+    # lines reach the triangulation.  Triangle4XP re-samples every output
+    # vertex's altitude itself, clamping the SAMPLE position to the
+    # raster extent while clamping the WRITTEN position to the tile: a
+    # beyond-tile endpoint therefore lands exactly on the tile edge
+    # carrying terrain from up to the raster margin beyond it (0.01 deg
+    # for the combined "View"-class bases — SPLP 2026-07-24: 97-264 m
+    # spikes and duplicate conflicting vertices along the -13-078 seam,
+    # which survived an altitude-attribution fix because the attribution
+    # is re-sampled away).  Clipping to the unit square keeps the
+    # boundary crossings (endpoints sit exactly on the edge) and leaves
+    # no beyond-tile vertex for Triangle4XP to snap.
+    ortho_network = VECT.ensure_MultiLineString(
+        ortho_network.intersection(geometry.box(0.0, 0.0, 1.0, 1.0))
+    )
+    # Belt to the clip's suspenders: sample altitudes with tile-clamped
+    # coordinates too, so any residual out-of-tile point can never carry
+    # a beyond-seam value (no-op for on-boundary points).
     def alt_vec_tile_clamped(way):
         return tile.dem.alt_vec(numpy.clip(way, 0.0, 1.0))
 

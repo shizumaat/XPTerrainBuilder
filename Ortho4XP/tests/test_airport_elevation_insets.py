@@ -514,12 +514,15 @@ def test_composite_assembly_is_deterministic_across_steps(
     INSETS.initialize_elevation_providers_dict()
 
     # Two cached inset files on disk (as if a prior fetch had run).
+    # Nonempty: a zero-byte cache is the poison class the listing now
+    # excludes (a hard-killed fetch's relic), never a valid cache.
     inset_directory = FNAMES.airport_inset_directory(36, -87)
     os.makedirs(inset_directory, exist_ok=True)
     for icao in ("KBNA", "KJWN"):
-        open(
+        with open(
             FNAMES.airport_inset_dem(36, -87, icao, "USGS3DEP"), "wb"
-        ).close()
+        ) as handle:
+            handle.write(b"synthetic-raster")
 
     tile = _FakeTile(36, -87, custom_dem="")
 
@@ -4145,3 +4148,36 @@ def test_wcs_kvp_requests_target_resolution_pixels():
     fine_url = strategy._request_url(definition, box,
                                      target_resolution_m=0.5)
     assert fine_url == native_url
+
+
+def test_zero_byte_cached_inset_is_swept_and_refetched(tmp_path, monkeypatch):
+    """A hard-killed fetch's 0-byte relic (2026-07-23: LSZC_italy10m.tif)
+    is deleted at pass start — index record scrubbed — and the provider
+    refetches instead of blessing the poison as a valid cache."""
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    fetch_calls = []
+    _register_box_recording_strategy("box_sweep_strategy", fetch_calls)
+    try:
+        definition = _box_definition("BOXSWEEP", "box_sweep_strategy")
+        destination = FNAMES.airport_inset_dem(60, -136, "CYXY", "BOXSWEEP")
+
+        INSETS.ensure_airport_insets(
+            60, -136, {"CYXY": _SMALL_BOX}, [definition], 3.0
+        )
+        assert fetch_calls == [_SMALL_BOX]
+
+        # Kill the cache the way a dead process does: file truncated to
+        # nothing, provenance sidecar and index record still in place.
+        with open(destination, "wb"):
+            pass
+        assert INSETS.list_cached_inset_dems(60, -136) == []
+
+        INSETS.ensure_airport_insets(
+            60, -136, {"CYXY": _SMALL_BOX}, [definition], 3.0
+        )
+        assert fetch_calls == [_SMALL_BOX, _SMALL_BOX]
+        with open(destination, "rb") as handle:
+            assert handle.read() == repr(_SMALL_BOX).encode()
+        assert INSETS.list_cached_inset_dems(60, -136) == [destination]
+    finally:
+        INSETS.ACCESS_STRATEGIES.pop("box_sweep_strategy", None)

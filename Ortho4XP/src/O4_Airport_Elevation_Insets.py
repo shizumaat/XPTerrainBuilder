@@ -5993,6 +5993,49 @@ def _fetched_bounding_box(lat, lon, icao, provider_code):
     return None
 
 
+def _clear_poisoned_insets(lat, lon, index):
+    """Delete EMPTY cached inset rasters — with their provenance sidecars
+    and index records — so the fetch pass rebuilds what is still wanted.
+
+    A run killed hard mid-fetch skips the failure path's partial-file
+    cleanup (2026-07-23: two 0-byte ``*_italy10m.tif`` relics), and a
+    relic whose provider never wins the ranking again is otherwise
+    revisited by nobody — while every consumer globbing ``*.tif`` still
+    trips over it.  Only zero-byte files are swept: a nonempty file is
+    treated as a valid cache (the hermetic-test contract), and a
+    nonempty-but-corrupt raster degrades gracefully at load time
+    (:func:`_load_inset_raster`) instead.
+    """
+    directory = FNAMES.airport_inset_directory(lat, lon)
+    if not os.path.isdir(directory):
+        return
+    for path in sorted(glob.glob(os.path.join(directory, "*.tif"))):
+        if _file_size_or_zero(path) > 0:
+            continue
+        UI.vprint(
+            1,
+            "   WARNING: removing unreadable cached elevation inset "
+            + os.path.basename(path)
+            + " - it will be refetched if still needed.",
+        )
+        base = os.path.basename(path)[:-len(".tif")]
+        icao, _, code = base.rpartition("_")
+        try:
+            os.remove(path)
+        except OSError:
+            continue
+        sidecar = os.path.join(directory, base + ".json")
+        if os.path.isfile(sidecar):
+            try:
+                os.remove(sidecar)
+            except OSError:
+                pass
+        record = index.get(icao)
+        if isinstance(record, dict):
+            for key in [k for k in record if k.lower() == code]:
+                record.pop(key, None)
+
+
 def ensure_airport_insets(
     lat,
     lon,
@@ -6025,6 +6068,11 @@ def ensure_airport_insets(
     :func:`discover_inset` / :func:`fetch_inset`.
     """
     index = _read_index(lat, lon)
+    # Poison sweep before any worker consults the cache: unreadable
+    # rasters are deleted (index records scrubbed) so the ranking below
+    # refetches them where still wanted; _write_index at the end of this
+    # pass persists the scrub.
+    _clear_poisoned_insets(lat, lon, index)
     checked_stamp = datetime.date.today().isoformat()
     # One shared, LAZY footprint prefetch for the whole tile: the first
     # surface-model masking pass triggers a single extract read covering
@@ -6304,11 +6352,25 @@ def list_cached_inset_dems(lat, lon, provider_codes=None):
     directory = FNAMES.airport_inset_directory(lat, lon)
     if not os.path.isdir(directory):
         return []
-    paths = sorted(glob.glob(os.path.join(directory, "*.tif")))
+    # Empty files are poison a hard-killed fetch left behind — the sweep
+    # in ensure_airport_insets removes them, but this listing must never
+    # hand one to a consumer even before that pass has run.
+    paths = sorted(
+        path
+        for path in glob.glob(os.path.join(directory, "*.tif"))
+        if _file_size_or_zero(path) > 0
+    )
     if provider_codes is None:
         return paths
     suffixes = tuple("_" + code.lower() + ".tif" for code in provider_codes)
     return [path for path in paths if path.endswith(suffixes)]
+
+
+def _file_size_or_zero(path):
+    try:
+        return os.path.getsize(path)
+    except OSError:
+        return 0
 
 
 # =====================================================================
@@ -6432,13 +6494,28 @@ def _load_inset_raster(inset_tif_path):
             "skipped.",
         )
         return None
-    dataset = gdal.Open(inset_tif_path)
-    if dataset is None:
+    # gdal.UseExceptions() is on module-wide, so a poisoned cache file (a
+    # hard-killed fetch's empty/truncated GeoTIFF) RAISES here rather than
+    # returning None — and one bad file must degrade to "no inset", never
+    # crash the tile build (2026-07-24: a 0-byte LSZC_italy10m.tif killed
+    # +46+008 from ensure_inset_water_supplement).
+    try:
+        dataset = gdal.Open(inset_tif_path)
+        if dataset is None:
+            return None
+        geotransform = dataset.GetGeoTransform()
+        band = dataset.GetRasterBand(1)
+        raw = band.ReadAsArray().astype(numpy.float64)
+        nodata = band.GetNoDataValue()
+    except Exception as error:
+        UI.vprint(
+            1,
+            "   WARNING: unreadable elevation inset "
+            + os.path.basename(inset_tif_path)
+            + " - skipped: "
+            + str(error),
+        )
         return None
-    geotransform = dataset.GetGeoTransform()
-    band = dataset.GetRasterBand(1)
-    raw = band.ReadAsArray().astype(numpy.float64)
-    nodata = band.GetNoDataValue()
     valid = numpy.isfinite(raw)
     if nodata is not None:
         valid &= raw != nodata

@@ -60,11 +60,9 @@ FETCH_DEBOUNCE_MS = 250  # settle time before network fetches start
 FETCH_WORKERS = 6      # concurrent tile downloads
 LEVEL_TILE_CAP = 420   # skip a pyramid level if it needs more tiles than this
 
-# Zoom-level colors, matching the legacy UI's zone color language.
-ZL_COLORS = {
-    11: "#5B8DD9", 12: "#5B8DD9", 13: "#5B8DD9", 14: "#5B8DD9",
-    15: "#67D6E2", 16: "#4CAF6E", 17: "#E8C33C", 18: "#F2A85C", 19: "#EF7B6D",
-}
+# Built tiles are plain green — the ZL stays readable in the center
+# label ("PROV 16*"); no per-ZL color coding, no legend.
+BUILT_COLOR = "#4CAF6E"
 
 
 BUILD_GRADE_ZL = 17  # tiles at or above this ZL are saved at high quality
@@ -158,46 +156,15 @@ class MapView(QGraphicsView):
         self._update_timer.setInterval(FETCH_DEBOUNCE_MS)
         self._update_timer.timeout.connect(self._refresh_tiles)
 
-        self._make_legend()
         self._make_scan_status()
         self._apply_zoom()
-
-    def _make_legend(self):
-        from PySide6.QtWidgets import QLabel
-
-        chips = "".join(
-            "<span style='background:%s;color:%s'>&nbsp;%d&nbsp;</span>"
-            % (ZL_COLORS[z], "#1F2937", z)
-            for z in (15, 16, 17, 18, 19)
-        )
-        self.legend = QLabel(self.viewport())
-        self.legend.setTextFormat(Qt.RichText)
-        self.legend.setText(
-            "<div style='font-size:10px'>"
-            "built · color = ZL &nbsp;"
-            "<span style='background:%s;color:#1F2937'>&nbsp;≤14&nbsp;</span>"
-            "%s<br>"
-            "<span style='color:#FFD60A'>▣</span> selected · "
-            "double border = installed · * = custom zones"
-            "</div>" % (ZL_COLORS[14], chips)
-        )
-        self.legend.setStyleSheet(
-            "background: rgba(17,24,32,190); color: #E8EAED;"
-            "padding: 5px 8px; border-radius: 6px;"
-        )
-        self.legend.adjustSize()
-        self.legend.move(10, 10)
-        self.legend.show()
-
-    def set_legend_visible(self, visible):
-        self.legend.setVisible(bool(visible))
 
     def _make_scan_status(self):
         """Bottom-right overlay shown while installed scenery is being read
         (a label + slim progress bar; hidden when no scan is running).  A
-        viewport child like the legend, so it must be re-pinned on resize
-        and after every scroll (QAbstractScrollArea drags viewport children
-        when panning)."""
+        viewport child, so it must be re-pinned on resize and after every
+        scroll (QAbstractScrollArea drags viewport children when
+        panning)."""
         from PySide6.QtWidgets import (QHBoxLayout, QLabel, QProgressBar,
                                        QWidget)
 
@@ -245,12 +212,6 @@ class MapView(QGraphicsView):
         self.scan_status.move(
             self.viewport().width() - self.scan_status.width() - 10,
             self.viewport().height() - self.scan_status.height() - 10,
-        )
-
-    def _place_legend(self):
-        self.legend.adjustSize()
-        self.legend.move(
-            10, self.viewport().height() - self.legend.height() - 10
         )
 
     # ------------------------------------------------------------------
@@ -481,14 +442,12 @@ class MapView(QGraphicsView):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self._place_legend()
         self._place_scan_status()
 
     def scrollContentsBy(self, dx, dy):
         # QAbstractScrollArea pans by scrolling the whole viewport,
-        # dragging child widgets (the legend) along — re-pin it after.
+        # dragging child widgets (the scan status) along — re-pin after.
         super().scrollContentsBy(dx, dy)
-        self._place_legend()
         self._place_scan_status()
         self._schedule_refresh()
 
@@ -825,7 +784,7 @@ class MapView(QGraphicsView):
         px = r.width() * scale  # tile size on screen
 
         if built is not None:
-            base = QColor(ZL_COLORS.get(built.zl or 0, "#9AA5B1"))
+            base = QColor(BUILT_COLOR)
             fill = QColor(base)
             fill.setAlpha(70)
             painter.fillRect(r, fill)

@@ -222,6 +222,9 @@ class _EngineBridge(QObject):
 
     event = Signal(object)
     size_computed = Signal()
+    # (tile, [modified_packs entry, ...]) from a worker probe of the
+    # reanchor provenance sidecars in Custom Scenery.
+    reanchor_ready = Signal(object)
 
 
 def gui_provider_codes():
@@ -293,6 +296,7 @@ class MainWindow(QMainWindow):
         self._session = EngineSession()
         self._bridge = _EngineBridge()
         self._bridge.event.connect(self._on_engine_event)
+        self._bridge.reanchor_ready.connect(self._on_reanchor_ready)
         self._session.subscribe(self._bridge.event.emit)
         self._event_handlers = {
             EV.ScanProgress: self._on_scan_progress,
@@ -469,6 +473,19 @@ class MainWindow(QMainWindow):
         self._manual_elevation_entries = []
         self.info_size = QLabel("—")
         ig.addRow("Size on disk:", self.info_size)
+        # Custom airport packages whose 3-D objects the auto-patch
+        # reseater modified for this tile (reanchor provenance sidecars):
+        # one label, one row per pack, each with a small undo button
+        # reverting that pack to the authors' original files (the
+        # .anchor_bak backups the reseater keeps).
+        self.modified_airports_row = QWidget()
+        self._modified_airport_rows = QVBoxLayout(self.modified_airports_row)
+        self._modified_airport_rows.setContentsMargins(0, 0, 0, 0)
+        self._modified_airport_rows.setSpacing(2)
+        ig.addRow("Modified airports:", self.modified_airports_row)
+        self._info_layout = ig
+        self._info_layout.setRowVisible(self.modified_airports_row, False)
+        self._modified_airport_packs = []
         self.install_check = QCheckBox("Installed in X-Plane")
         self.install_check.clicked.connect(self._toggle_install)
         ig.addRow(self.install_check)
@@ -674,17 +691,6 @@ class MainWindow(QMainWindow):
         console_action = QAction("Toggle console", self)
         console_action.triggered.connect(self.toggle_console)
         view_menu.addAction(console_action)
-        legend_action = QAction("Show map legend", self)
-        legend_action.setCheckable(True)
-        legend_action.setChecked(bool(self.prefs.get("legend", True)))
-        self.map.set_legend_visible(legend_action.isChecked())
-
-        def toggle_legend(checked):
-            self.map.set_legend_visible(checked)
-            self.prefs["legend"] = bool(checked)
-
-        legend_action.toggled.connect(toggle_legend)
-        view_menu.addAction(legend_action)
 
         tools_menu = self.menuBar().addMenu("&Tools")
         overlay_action = QAction("Link overlays folder in X-Plane", self)
@@ -1039,16 +1045,31 @@ class MainWindow(QMainWindow):
                     summary_text += " · airport lidar on %d" % len(covered)
             except Exception:
                 pass
+            in_run = sum(1 for t in sel if self._tile_in_active_run(t))
+            if in_run:
+                summary_text += " · %d in current run" % in_run
             self.build_summary.setText(summary_text)
         self.selection_label.setText("%d selected" % n if n else "")
         if self._building and n:
-            # A run is in progress: the button appends to it instead.
+            # A run is in progress: the button appends to it — counting
+            # only tiles NOT already queued or building, so it can never
+            # hand the engine a second copy of the same tile.
+            fresh = sum(
+                1 for t in sel if not self._tile_in_active_run(t))
             self.build_btn.setText(
-                "＋ Queue %d tile%s" % (n, "s" if n > 1 else ""))
+                "＋ Queue %d tile%s" % (fresh, "s" if fresh > 1 else "")
+                if fresh else "＋ Queue")
+            self.build_btn.setEnabled(fresh > 0)
+            self.build_btn.setToolTip(
+                "" if fresh else
+                "The selected tiles are already queued or building in "
+                "the current run.")
         else:
             self.build_btn.setText(
                 "▶ Build %d tile%s" % (n, "s" if n > 1 else "")
                 if n else "▶ Build")
+            self.build_btn.setEnabled(True)
+            self.build_btn.setToolTip("")
 
     def _active_changed(self, tile):
         self._selection_changed()
@@ -1064,6 +1085,18 @@ class MainWindow(QMainWindow):
         )
         info = self._built.get(tile)
         import O4_Config_Utils as CFG
+
+        # Reanchor probe (worker thread: one sidecar stat per pack in
+        # Custom Scenery); the row stays hidden until a result for THIS
+        # tile arrives through the bridge.
+        self._info_layout.setRowVisible(self.modified_airports_row, False)
+        self._modified_airport_packs = []
+        if CFG.custom_scenery_dir:
+            threading.Thread(
+                target=self._probe_modified_airports,
+                args=(tile, CFG.custom_scenery_dir),
+                daemon=True,
+            ).start()
 
         # The elevation rows populate for built AND unbuilt tiles: what
         # data a build WOULD use matters most before building.
@@ -1282,6 +1315,101 @@ class MainWindow(QMainWindow):
         except Exception:
             return
         self._bridge.size_computed.emit()
+
+    def _probe_modified_airports(self, tile, scenery_dir):
+        """Worker thread: which packs did the reseater modify for this
+        tile?  Result marshalled to the GUI thread via the bridge."""
+        try:
+            from auto_patch import object_rebake
+
+            packs = object_rebake.modified_packs(
+                scenery_dir, tile=FNAMES.short_latlon(*tile)
+            )
+        except Exception:
+            packs = []
+        self._bridge.reanchor_ready.emit((tile, packs))
+
+    def _on_reanchor_ready(self, payload):
+        tile, packs = payload
+        if tile != self.map.active_tile():
+            return  # stale probe: the user moved on
+        self._modified_airport_packs = list(packs)
+        while self._modified_airport_rows.count():
+            item = self._modified_airport_rows.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        if not packs:
+            self._info_layout.setRowVisible(
+                self.modified_airports_row, False)
+            return
+        for pack in packs:
+            row = QWidget()
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(0, 0, 0, 0)
+            rl.setSpacing(4)
+            objects = pack.get("objects", 0)
+            label = QLabel(pack["pack_name"])
+            label.setToolTip(
+                "%d object file%s reseated to this tile's rebuilt "
+                "ground (originals kept as .anchor_bak backups)."
+                % (objects, "s" if objects != 1 else "")
+            )
+            rl.addWidget(label, 1)
+            undo = QToolButton()
+            undo.setAutoRaise(True)
+            undo.setIcon(self.style().standardIcon(
+                QStyle.SP_ArrowBack))
+            undo.setFixedSize(18, 18)
+            undo.setEnabled(not self._building)
+            undo.setToolTip(
+                "Wait for the current run — the engine may be "
+                "rewriting these files."
+                if self._building else
+                "Revert to default: restores this package's original "
+                "object files from the reseater's backups."
+            )
+            undo.clicked.connect(
+                lambda _checked=False, p=pack:
+                self._revert_modified_pack(p)
+            )
+            rl.addWidget(undo, 0, Qt.AlignRight)
+            self._modified_airport_rows.addWidget(row)
+        self._info_layout.setRowVisible(self.modified_airports_row, True)
+
+    def _revert_modified_pack(self, pack):
+        """Put ONE pack's .anchor_bak originals back (engine restore
+        semantics: backups stay for the next bake, provenance sidecar
+        removed), then re-probe so the row updates."""
+        tile = self.map.active_tile()
+        if self._building or tile is None:
+            return
+        import O4_Config_Utils as CFG
+
+        scenery_dir = CFG.custom_scenery_dir
+
+        def work():
+            from auto_patch import object_rebake
+
+            try:
+                restored = object_rebake.restore(pack["pack_path"])
+                print(
+                    "Restored %d original object file%s in %s."
+                    % (
+                        restored,
+                        "s" if restored != 1 else "",
+                        pack["pack_name"],
+                    )
+                )
+            except Exception as error:
+                print(
+                    "Revert failed for %s: %s"
+                    % (pack["pack_name"], error)
+                )
+            if scenery_dir:
+                self._probe_modified_airports(tile, scenery_dir)
+
+        threading.Thread(target=work, daemon=True).start()
 
     def _show_manual_elevation_dialog(self):
         """Render the model's manual-setup entries (VIEW only).
@@ -1675,6 +1803,10 @@ class MainWindow(QMainWindow):
                 status.setText("stopped")
             if state in ("done", "error") or label == "stopped":
                 cancel.setEnabled(False)
+        if state in ("done", "error") or label == "stopped":
+            # The tile left the active run: selected finished/failed
+            # tiles become queueable again (button label + gating).
+            self._update_build_summary()
         if state == "done":
             self.refresh_tiles()
 
@@ -1743,6 +1875,9 @@ class MainWindow(QMainWindow):
         self.progress_title.setText("<b>%s</b>" % summary)
         UI.is_working = False
         self._update_build_summary()
+        # Re-gate the info panel for the active tile now that the run is
+        # over (install toggle, Modified-airports revert re-enabled).
+        self._active_changed(self.map.active_tile())
 
         def revert():
             # A new run may have started inside the linger window; its

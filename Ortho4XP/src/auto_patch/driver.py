@@ -160,40 +160,171 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
 
 # ──────────────────────────────────────────────────────────────────────────────
 # DSF object re-anchor worklist (Phase 2 identification — see
-# docs/dsf_object_integration_spec.md, section 4-W7 as amended by A5)
+# docs/dsf_object_integration_spec.md, section 4-W7 as amended by A5/A22)
 # ──────────────────────────────────────────────────────────────────────────────
-def _object_anchor_worklist_entry(icao: str, xp_root: str,
-                                  runways: dict) -> dict | None:
-    """Identification for one airport's Phase 2 pass: the DSF the
-    selected apt.dat belongs to and its scenery-pack root.  Returns None
-    when the airport has no associated DSF or pack (it then simply does
-    not appear in the worklist)."""
+def _enabled_airport_pack_tile_dsfs(
+        xp_root: str, tile_lat: int, tile_lon: int) -> list[tuple[str, str]]:
+    """``(dsf_path, pack_root)`` for every ENABLED Custom Scenery airport
+    pack that carries this tile's DSF.
+
+    An airport pack is a directory with an ``Earth nav data/apt.dat``
+    (the owner-ruled scenery signature — the marker that keeps ortho
+    tiles, mesh packs and object libraries out of the scan) plus the
+    tile's DSF.  Packs marked ``SCENERY_PACK_DISABLED`` do not render
+    and are skipped; ``Global Airports`` is excluded by name (the XP11
+    layout puts it under Custom Scenery; Phase 2 never rebakes it —
+    amendment A15 — so dumping its huge tile DSF would be pure waste).
+    Order follows ``scenery_packs.ini``; packs absent from the ini are
+    appended sorted, for determinism."""
+    from .dsf_reader import tile_dsf_path
+
+    custom_scenery = os.path.join(xp_root, "Custom Scenery")
+    if not os.path.isdir(custom_scenery):
+        return []
+    on_disk = {
+        name for name in os.listdir(custom_scenery)
+        if os.path.isdir(os.path.join(custom_scenery, name))
+    }
+    ordered: list[str] = []
+    disabled: set[str] = set()
+    ini_path = os.path.join(custom_scenery, "scenery_packs.ini")
+    try:
+        with open(ini_path, "r", encoding="utf-8",
+                  errors="replace") as handle:
+            for line in handle:
+                tokens = line.strip().split(None, 1)
+                if len(tokens) != 2:
+                    continue
+                name = os.path.basename(tokens[1].strip().rstrip("/"))
+                if tokens[0] == "SCENERY_PACK_DISABLED":
+                    disabled.add(name)
+                elif (tokens[0] == "SCENERY_PACK"
+                      and name in on_disk and name not in ordered):
+                    ordered.append(name)
+    except OSError:
+        pass
+    ordered.extend(sorted(on_disk - set(ordered)))
+
+    results: list[tuple[str, str]] = []
+    for pack_name in ordered:
+        if pack_name == "Global Airports" or pack_name in disabled:
+            continue
+        pack_root = os.path.join(custom_scenery, pack_name)
+        earth_nav_data = os.path.join(pack_root, "Earth nav data")
+        if not os.path.isfile(os.path.join(earth_nav_data, "apt.dat")):
+            continue
+        dsf_path = tile_dsf_path(earth_nav_data, tile_lat, tile_lon)
+        if os.path.isfile(dsf_path):
+            results.append((dsf_path, pack_root))
+    return results
+
+
+def _object_anchor_worklist_entries(icao: str, xp_root: str,
+                                    runways: dict,
+                                    tile_lat: int, tile_lon: int,
+                                    seen_dsf_paths: set[str],
+                                    scan_cache: dict | None = None,
+                                    ) -> list[dict]:
+    """Phase 2 identification for one airport: one worklist entry per
+    (airport, pack).
+
+    The apt.dat quality contest picks GEOMETRY; object discovery must be
+    independent of it (amendment A22 — field case LSGL 2026-07-23: the
+    custom pack lost the contest to Global Airports, so its DSF full of
+    object placements never reached Phase 2 and its objects floated on
+    the new mesh).  Two sources, deduplicated TILE-wide through
+    ``seen_dsf_paths`` (realpaths — Phase 2 processes a DSF pack-wide,
+    so a DSF queued by any airport must never be queued twice):
+
+    1. the DSF associated with the SELECTED apt.dat (the pre-A22 single
+       entry, ``"source": "apt_dat"``);
+    2. every enabled Custom Scenery airport pack whose tile DSF places
+       ``.obj`` objects within the airport's threshold bbox expanded by
+       ``DSF_OBJECT_WORKLIST_BBOX_MARGIN_M`` (``"source": "pack_scan"``).
+
+    Airports with no associated DSF or pack simply contribute nothing.
+
+    ``scan_cache`` is the TILE-wide memo for the pack scan's
+    airport-invariant work (optimization review 2026-07-24: a heavy
+    install has thousands of Custom Scenery directories, so per-airport
+    re-enumeration is a recurring ~25 ms stat-storm): the enumerated
+    ``(dsf_path, pack_root)`` list and each pack's placement positions
+    are computed once per tile and every airport tests its own bbox
+    against the in-memory copies.  Pass the same dict for every airport
+    of a tile; ``None`` falls back to a private single-use memo.
+    """
+    import math
+
+    from . import obj8_reader
+    from .config import DSF_OBJECT_WORKLIST_BBOX_MARGIN_M
+    from .dsf_reader import (
+        _pack_root_for_dsf,
+        find_associated_dsf,
+        read_dsf_object_placement_positions,
+    )
     from .osm_load import _pick_best_apt_dat_against_osm
-    from .dsf_reader import find_associated_dsf, _pack_root_for_dsf
-    apt_dat_path = _pick_best_apt_dat_against_osm(xp_root, icao)
-    if not apt_dat_path:
-        return None
+
     threshold_latitudes = [data["lat"] for data in runways.values()]
     threshold_longitudes = [data["lon"] for data in runways.values()]
     if not threshold_latitudes:
-        return None
-    dsf_path = find_associated_dsf(
-        apt_dat_path,
-        sum(threshold_latitudes) / len(threshold_latitudes),
-        sum(threshold_longitudes) / len(threshold_longitudes),
-    )
-    if not dsf_path:
-        return None
-    pack_root = _pack_root_for_dsf(dsf_path)
-    if not pack_root:
-        return None
-    return {
-        "icao": icao,
-        "dsf_path": dsf_path,
-        "dsf_mtime": os.path.getmtime(dsf_path),
-        "pack_root": pack_root,
-        "xplane_root": xp_root,
-    }
+        return []
+
+    entries: list[dict] = []
+
+    def _append(dsf_path: str, pack_root: str, source: str) -> None:
+        key = os.path.realpath(dsf_path)
+        if key in seen_dsf_paths:
+            return
+        seen_dsf_paths.add(key)
+        entries.append({
+            "icao": icao,
+            "dsf_path": dsf_path,
+            "dsf_mtime": os.path.getmtime(dsf_path),
+            "pack_root": pack_root,
+            "xplane_root": xp_root,
+            "source": source,
+        })
+
+    # 1. The selected apt.dat's own DSF (geometry authority, unchanged).
+    apt_dat_path = _pick_best_apt_dat_against_osm(xp_root, icao)
+    if apt_dat_path:
+        dsf_path = find_associated_dsf(
+            apt_dat_path,
+            sum(threshold_latitudes) / len(threshold_latitudes),
+            sum(threshold_longitudes) / len(threshold_longitudes),
+        )
+        if dsf_path:
+            pack_root = _pack_root_for_dsf(dsf_path)
+            if pack_root:
+                _append(dsf_path, pack_root, "apt_dat")
+
+    # 2. Every enabled airport pack placing objects near the airport.
+    margin_lat = (DSF_OBJECT_WORKLIST_BBOX_MARGIN_M
+                  / obj8_reader.METRES_PER_DEGREE_LATITUDE)
+    mean_latitude = sum(threshold_latitudes) / len(threshold_latitudes)
+    margin_lon = margin_lat / max(0.1, math.cos(math.radians(mean_latitude)))
+    south = min(threshold_latitudes) - margin_lat
+    north = max(threshold_latitudes) + margin_lat
+    west = min(threshold_longitudes) - margin_lon
+    east = max(threshold_longitudes) + margin_lon
+    if scan_cache is None:
+        scan_cache = {}
+    if "packs" not in scan_cache:
+        scan_cache["packs"] = _enabled_airport_pack_tile_dsfs(
+            xp_root, tile_lat, tile_lon)
+    positions_by_dsf = scan_cache.setdefault("positions", {})
+    for dsf_path, pack_root in scan_cache["packs"]:
+        if os.path.realpath(dsf_path) in seen_dsf_paths:
+            continue  # already queued — skip before the positions read
+        if dsf_path not in positions_by_dsf:
+            positions_by_dsf[dsf_path] = (
+                read_dsf_object_placement_positions(dsf_path, pack_root))
+        positions = positions_by_dsf[dsf_path]
+        if positions and any(
+                west <= longitude <= east and south <= latitude <= north
+                for longitude, latitude in positions):
+            _append(dsf_path, pack_root, "pack_scan")
+    return entries
 
 
 def _write_object_anchor_worklist(patch_dir: str, tile_lat: int,
@@ -631,6 +762,12 @@ def generate_auto_patches(tile, cifp_path: str,
     # a mesh rebuild (spec section 2.2 / amendment A5).
     object_anchor_worklist_entries: list[dict] = []
     object_anchor_worklist_xplane_root: str | None = None
+    # Tile-wide DSF dedupe (realpaths): Phase 2 processes a DSF
+    # pack-wide, so a DSF queued by any airport is never queued twice.
+    object_anchor_worklist_seen_dsfs: set[str] = set()
+    # Tile-wide memo for the pack scan's airport-invariant work (pack
+    # enumeration, per-DSF placement positions).
+    object_anchor_worklist_scan_cache: dict = {}
 
     # Lazy tile-level inputs: callables resolve on the FIRST airport
     # that needs a rebuild, at the tile's own verbosity so their log
@@ -702,14 +839,16 @@ def generate_auto_patches(tile, cifp_path: str,
             continue
 
         # Collect the airport's Phase 2 (DSF object re-anchor) worklist
-        # entry now, BEFORE the rebuild-skip gate below can `continue`
-        # past it.  Airports with no associated DSF or scenery pack
-        # simply do not appear.
+        # entries now, BEFORE the rebuild-skip gate below can `continue`
+        # past them — one per (airport, pack), amendment A22.  Airports
+        # with no associated DSF or scenery pack simply do not appear.
         try:
-            worklist_entry = _object_anchor_worklist_entry(
-                icao, xp_root, runways)
-            if worklist_entry is not None:
-                object_anchor_worklist_entries.append(worklist_entry)
+            worklist_entries = _object_anchor_worklist_entries(
+                icao, xp_root, runways, tile_lat, tile_lon,
+                object_anchor_worklist_seen_dsfs,
+                object_anchor_worklist_scan_cache)
+            if worklist_entries:
+                object_anchor_worklist_entries.extend(worklist_entries)
                 object_anchor_worklist_xplane_root = xp_root
         except _DRIVER_EXC as exc:
             UI.vprint(2, "   Auto-patch:", icao,

@@ -22,6 +22,7 @@ __all__ = [
     "DSF_OBJECT_ALLOW_ANIM",
     "DSF_OBJECT_MIN_REACH_M",
     "DSF_OBJECT_CONTACT_EPSILON_M",
+    "DSF_OBJECT_WORKLIST_BBOX_MARGIN_M",
     "DSF_OBJECT_FOOTPRINT_HEIGHT_M",
     "DSF_OBJECT_ELEVATED_BASE_M",
     "DSF_OBJECT_MAX_FOOTPRINT_AREA_M2",
@@ -1763,6 +1764,19 @@ DSF_OBJECT_FOOTPRINT_UNION = (
 # DEFAULT ON after the three-pack verification (2026-07-08);
 # O4_DSF_OBJECT_REANCHOR=0 leaves every pack byte-identical.
 DSF_OBJECT_REANCHOR = _os.environ.get("O4_DSF_OBJECT_REANCHOR", "1") == "1"
+
+# Phase 2 worklist pack scan (driver): a scenery pack qualifies for an
+# airport when its tile DSF places at least one ``.obj`` OBJECT within
+# the airport's CIFP-threshold bounding box expanded by this margin.
+# Object discovery is independent of the apt.dat geometry contest (field
+# case LSGL 2026-07-23: the custom pack lost the apt.dat contest to
+# Global Airports and its objects were never re-seated).  Thresholds
+# bound only the runway ends, so the margin must reach the terminal /
+# apron clusters where custom objects actually stand; a too-large value
+# merely queues a neighbouring airport's pack, which costs one redundant
+# (tile-wide-deduped, pack-wide anyway) rebake pass, never correctness.
+DSF_OBJECT_WORKLIST_BBOX_MARGIN_M = float(
+    _os.environ.get("O4_DSF_OBJECT_WORKLIST_BBOX_MARGIN_M", "3000"))
 
 # Refuse (and report) objects containing ``ANIM_begin``: a per-structure
 # offset applied inside an animation block can break its rotation pivot.

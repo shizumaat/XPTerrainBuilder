@@ -1387,3 +1387,43 @@ object records each skipped structure (centroid, surface area, reason) under
 ``structures_skipped`` — per-resource entries carry per-structure detail. ``structures_baked``
 no longer counts a skipped structure whose resource was written for its siblings. Multi-placement
 refusal (I-4) is untouched: it is resource-level and upstream of pooling.
+
+### A22 — Object discovery is independent of the apt.dat contest; worklist v2 *(field case LSGL, 2026-07-23)*
+
+Tile +46+006: the custom pack "c_CHE - 100_airport - LSGL Lausanne" ships its own
+`Earth nav data/apt.dat` AND a `+46+006.dsf` full of object placements. Its apt.dat **lost the
+quality contest** (`_pick_best_apt_dat_against_osm`) to Global Airports, so the single worklist
+entry the driver emitted for LSGL pointed at the Global Airports DSF — which A15 correctly skips —
+and the custom pack's objects were never re-seated: they float on the new mesh. The defect is
+structural: the apt.dat selector picks GEOMETRY; using it to decide which DSF's objects Phase 2
+sees conflates two unrelated questions.
+
+Fix (driver, worklist **version 2**): object identification enumerates packs on its own. Per
+airport the driver emits one entry per (airport, pack):
+
+1. the DSF associated with the selected apt.dat, as before (`"source": "apt_dat"`);
+2. every ENABLED Custom Scenery airport pack — `Earth nav data/apt.dat` marker (the owner-ruled
+   scenery signature) plus this tile's DSF; `SCENERY_PACK_DISABLED` and `Global Airports` excluded —
+   whose tile DSF places `.obj` objects within the airport's CIFP-threshold bbox expanded by
+   `DSF_OBJECT_WORKLIST_BBOX_MARGIN_M` (`"source": "pack_scan"`).
+
+Entries are deduplicated TILE-wide on the DSF's realpath: Phase 2 processes a DSF pack-wide (the
+`icao` is a log label), so a DSF queued by any airport must never be queued twice — this also
+collapses the pre-A22 duplicate Global-Airports entries that multiple small airports produced.
+The consumer loop is unchanged: it already iterates entries, and A15 filters base/global packs
+naturally. Readers stay version-agnostic — a v1 file is simply the apt.dat-only subset (entries
+without `source`) and processes identically.
+
+Cost control (build-time law): the scan's only expensive step is the DSF text dump, so the
+extracted `(lon, lat)` positions are cached per DSF in a pack sidecar
+(`Airport_mod_cache/<pack>/o4_dsf_object_positions_<stem>.cache`, keyed on the DSF's size+mtime;
+`O4_DSF_OBJECT_POSITIONS_CACHE=0` disables). On a miss the dump comes from
+`ensure_dsf_text_path`'s shared data-root cache, which never writes into the scenery pack and
+migrates (fresh) or removes (stale) legacy in-pack `<dsf>.text` litter on sight
+(ruling 2026-07-15).
+The Fable 5 optimization review (2026-07-24) measured the cold cost as bounded cache priming —
+the busiest real tile's 16 airport-pack DSFs dump in ~0.14 s total, far under both budgets —
+and required the airport-invariant work (pack enumeration, per-DSF positions) to be memoised
+ONCE PER TILE (`scan_cache`), since a heavy install has thousands of Custom Scenery directories
+and per-airport re-enumeration was a recurring ~25 ms stat-storm. Steady state is one
+enumeration + one stat + pickle load per pack per tile build.

@@ -834,6 +834,319 @@ def test_driver_worklist_refreshes_to_empty_but_never_creates_empty(
         assert json.load(handle)["airports"] == []
 
 
+# ── the driver's per-(airport, pack) entry builder (amendment A22) ───
+#
+# Field case LSGL 2026-07-23: the custom pack's apt.dat lost the quality
+# contest to Global Airports, so the single apt.dat-derived worklist
+# entry pointed at the Global Airports DSF (A15-skipped) and the custom
+# pack's objects were never re-seated.  Object discovery must enumerate
+# packs independently of the apt.dat contest.
+
+APT_DAT_STUB = "I\n1100 Version\n99\n"
+
+# A DSF that defines an object resource but places none — the apt.dat
+# winner's DSF in the two-pack scenario.
+NO_PLACEMENT_DSF_BODY = "OBJECT_DEF objects/unused.obj\n"
+
+# A placement ~45 km east of the airport — inside the tile, far outside
+# the DSF_OBJECT_WORKLIST_BBOX_MARGIN_M bbox.
+FAR_PLACEMENT_DSF_BODY = "\n".join([
+    "OBJECT_DEF objects/far.obj",
+    f"OBJECT 0 {ANCHOR_LONGITUDE + 0.5:.9f} {ANCHOR_LATITUDE:.9f} 0.0",
+]) + "\n"
+
+
+def _make_airport_pack(custom_scenery, pack_name, dsf_body,
+                       objects_by_resource):
+    """``_make_pack`` plus the ``Earth nav data/apt.dat`` marker that
+    makes the directory an airport pack for the worklist scan."""
+    dsf_path, pack_root = _make_pack(
+        custom_scenery, pack_name, dsf_body, objects_by_resource)
+    with open(os.path.join(pack_root, "Earth nav data", "apt.dat"),
+              "w") as handle:
+        handle.write(APT_DAT_STUB)
+    return dsf_path, pack_root
+
+
+def _write_scenery_packs_ini(custom_scenery, enabled=(), disabled=()):
+    lines = [f"SCENERY_PACK Custom Scenery/{name}/" for name in enabled]
+    lines += [f"SCENERY_PACK_DISABLED Custom Scenery/{name}/"
+              for name in disabled]
+    (custom_scenery / "scenery_packs.ini").write_text(
+        "I\n1000 Version\nSCENERY\n\n" + "\n".join(lines) + "\n")
+
+
+def _worklist_entries(icao, xp_root, seen=None, scan_cache=None):
+    runways = {"RW16": {"lat": ANCHOR_LATITUDE, "lon": ANCHOR_LONGITUDE}}
+    return driver._object_anchor_worklist_entries(
+        icao, str(xp_root), runways, TILE_LATITUDE, TILE_LONGITUDE,
+        set() if seen is None else seen, scan_cache)
+
+
+@pytest.fixture()
+def scan_xplane_root(tmp_path, monkeypatch):
+    monkeypatch.setattr(D, "_dsftool_path", lambda: "/bin/true")
+    xp_root = tmp_path / "XPlane"
+    custom_scenery = xp_root / "Custom Scenery"
+    custom_scenery.mkdir(parents=True)
+    return xp_root, custom_scenery
+
+
+def test_worklist_entries_cover_object_packs_beyond_apt_dat_winner(
+        scan_xplane_root, monkeypatch):
+    """apt.dat winner in pack A, placements in pack B → both entries
+    present, B tagged as a pack-scan discovery."""
+    from auto_patch import osm_load
+
+    xp_root, custom_scenery = scan_xplane_root
+    dsf_a, pack_a = _make_airport_pack(
+        custom_scenery, "Pack A", NO_PLACEMENT_DSF_BODY, {})
+    dsf_b, pack_b = _make_airport_pack(
+        custom_scenery, "Pack B", SINGLE_PLACEMENT_DSF_BODY,
+        {"objects/offset_bake.obj": OFFSET_SLAB_OBJECT})
+    _write_scenery_packs_ini(
+        custom_scenery, enabled=["Pack A", "Pack B"])
+    monkeypatch.setattr(
+        osm_load, "_pick_best_apt_dat_against_osm",
+        lambda root, icao: os.path.join(
+            pack_a, "Earth nav data", "apt.dat"))
+
+    entries = _worklist_entries("LSTS", xp_root)
+
+    assert [(e["dsf_path"], e["source"]) for e in entries] == [
+        (dsf_a, "apt_dat"), (dsf_b, "pack_scan")]
+    assert entries[1]["pack_root"] == pack_b
+    assert all(e["icao"] == "LSTS" for e in entries)
+    assert entries[1]["dsf_mtime"] == os.path.getmtime(dsf_b)
+
+
+def test_worklist_scan_skips_disabled_far_and_global_airports(
+        scan_xplane_root, monkeypatch):
+    from auto_patch import osm_load
+
+    xp_root, custom_scenery = scan_xplane_root
+    _make_airport_pack(
+        custom_scenery, "Disabled Pack", SINGLE_PLACEMENT_DSF_BODY, {})
+    _make_airport_pack(
+        custom_scenery, "Far Pack", FAR_PLACEMENT_DSF_BODY, {})
+    _make_airport_pack(
+        custom_scenery, "Global Airports", SINGLE_PLACEMENT_DSF_BODY, {})
+    _write_scenery_packs_ini(
+        custom_scenery, enabled=["Far Pack", "Global Airports"],
+        disabled=["Disabled Pack"])
+    monkeypatch.setattr(
+        osm_load, "_pick_best_apt_dat_against_osm",
+        lambda root, icao: None)
+
+    assert _worklist_entries("LSTS", xp_root) == []
+
+
+def test_worklist_entries_dedupe_winner_pack_and_repeat_airports(
+        scan_xplane_root, monkeypatch):
+    """The apt.dat winner's DSF is never queued twice by the scan, and
+    the tile-wide seen-set keeps a second airport from re-queueing the
+    same pack (Phase 2 processes a DSF pack-wide)."""
+    from auto_patch import osm_load
+
+    xp_root, custom_scenery = scan_xplane_root
+    _dsf_b, pack_b = _make_airport_pack(
+        custom_scenery, "Pack B", SINGLE_PLACEMENT_DSF_BODY,
+        {"objects/offset_bake.obj": OFFSET_SLAB_OBJECT})
+    _write_scenery_packs_ini(custom_scenery, enabled=["Pack B"])
+    monkeypatch.setattr(
+        osm_load, "_pick_best_apt_dat_against_osm",
+        lambda root, icao: os.path.join(
+            pack_b, "Earth nav data", "apt.dat"))
+
+    seen = set()
+    first = _worklist_entries("LSTS", xp_root, seen)
+    assert [e["source"] for e in first] == ["apt_dat"]
+
+    second = _worklist_entries("LSTT", xp_root, seen)
+    assert second == []
+
+
+def test_worklist_scan_enumerates_packs_once_per_tile(
+        scan_xplane_root, monkeypatch):
+    """The pack enumeration and positions reads are airport-invariant;
+    with the tile-wide scan cache a second airport must not re-list
+    Custom Scenery (optimization review 2026-07-24)."""
+    from auto_patch import osm_load
+
+    xp_root, custom_scenery = scan_xplane_root
+    _make_airport_pack(
+        custom_scenery, "Pack B", SINGLE_PLACEMENT_DSF_BODY,
+        {"objects/offset_bake.obj": OFFSET_SLAB_OBJECT})
+    _write_scenery_packs_ini(custom_scenery, enabled=["Pack B"])
+    monkeypatch.setattr(
+        osm_load, "_pick_best_apt_dat_against_osm",
+        lambda root, icao: None)
+    enumerations = []
+    real_enumerate = driver._enabled_airport_pack_tile_dsfs
+    monkeypatch.setattr(
+        driver, "_enabled_airport_pack_tile_dsfs",
+        lambda *args: (enumerations.append(args)
+                       or real_enumerate(*args)))
+
+    seen: set = set()
+    scan_cache: dict = {}
+    first = _worklist_entries("LSTS", xp_root, seen, scan_cache)
+    second = _worklist_entries("LSTT", xp_root, seen, scan_cache)
+
+    assert [entry["source"] for entry in first] == ["pack_scan"]
+    assert second == []
+    assert len(enumerations) == 1
+
+
+def test_two_pack_fixture_bakes_the_pack_scan_entry(
+        phase_two_harness, monkeypatch):
+    """End to end: driver entries → worklist sidecar → rebake.  The
+    pack that lost the apt.dat contest still gets its objects baked."""
+    from auto_patch import osm_load
+
+    harness = phase_two_harness
+    xp_root = harness.tmp_path / "XPlane"
+    custom_scenery = xp_root / "Custom Scenery"
+    custom_scenery.mkdir(parents=True)
+    _dsf_a, pack_a = _make_airport_pack(
+        custom_scenery, "Pack A", NO_PLACEMENT_DSF_BODY, {})
+    _dsf_b, pack_b = _make_airport_pack(
+        custom_scenery, "Pack B", SINGLE_PLACEMENT_DSF_BODY,
+        {"objects/offset_bake.obj": OFFSET_SLAB_OBJECT})
+    _write_scenery_packs_ini(
+        custom_scenery, enabled=["Pack A", "Pack B"])
+    monkeypatch.setattr(
+        osm_load, "_pick_best_apt_dat_against_osm",
+        lambda root, icao: os.path.join(
+            pack_a, "Earth nav data", "apt.dat"))
+
+    entries = _worklist_entries("LSTS", xp_root)
+    assert len(entries) == 2
+    driver._write_object_anchor_worklist(
+        str(harness.patches_directory), TILE_LATITUDE, TILE_LONGITUDE,
+        entries, str(xp_root))
+
+    counts = post_mesh.rebake_dsf_objects(harness.tile)
+
+    assert counts["airports_processed"] == 2
+    live_path = os.path.join(pack_b, "objects", "offset_bake.obj")
+    assert _vertex_y_values(live_path)[0] == pytest.approx(
+        _expected_slab_offset(), abs=1e-4)
+
+
+def test_worklist_v1_payload_still_processed(phase_two_harness):
+    """Tolerant reading: a version-1 sidecar (pre-A22, no ``source``
+    field) processes identically."""
+    harness = phase_two_harness
+    dsf_path, pack_root = _make_pack(
+        harness.tmp_path, "Fake Pack", SINGLE_PLACEMENT_DSF_BODY,
+        {"objects/offset_bake.obj": OFFSET_SLAB_OBJECT})
+    harness.worklist_path.write_text(json.dumps({
+        "version": 1,
+        "tile": TILE_NAME,
+        "xplane_root": None,
+        "airports": [{
+            "icao": "KTST",
+            "dsf_path": dsf_path,
+            "dsf_mtime": os.path.getmtime(dsf_path),
+            "pack_root": pack_root,
+            "xplane_root": None,
+        }],
+    }, indent=2) + "\n")
+
+    counts = post_mesh.rebake_dsf_objects(harness.tile)
+
+    assert counts["airports_processed"] == 1
+    live_path = os.path.join(pack_root, "objects", "offset_bake.obj")
+    assert _vertex_y_values(live_path)[0] == pytest.approx(
+        _expected_slab_offset(), abs=1e-4)
+
+
+def test_object_positions_sidecar_serves_repeat_reads(
+        tmp_path, monkeypatch):
+    """The positions sidecar answers a repeat scan without the text
+    dump: after the first read, the (migrated) ``.dsf.text`` can vanish
+    and the in-process line cache be cleared, and the positions still
+    come back."""
+    monkeypatch.setattr(D, "_dsftool_path", lambda: "/bin/true")
+    dsf_path, pack_root = _make_pack(
+        tmp_path, "Pack S", SINGLE_PLACEMENT_DSF_BODY, {})
+
+    first = D.read_dsf_object_placement_positions(dsf_path, pack_root)
+    assert first is not None and len(first) == 1
+    assert first[0][0] == pytest.approx(ANCHOR_LONGITUDE)
+    assert first[0][1] == pytest.approx(ANCHOR_LATITUDE)
+
+    # The pre-seeded in-pack dump was migrated to the data-root cache
+    # on first read (ruling 2026-07-15); remove the migrated copy too,
+    # so only the sidecar can answer.
+    assert not os.path.isfile(dsf_path + ".text")
+    migrated = D._default_pack_text_cache_path(
+        D.airport_mod_cache_dir(pack_root), dsf_path)
+    os.remove(migrated)
+    monkeypatch.setattr(D, "_DSF_LINES_CACHE", {})
+    assert D.read_dsf_object_placement_positions(
+        dsf_path, pack_root) == first
+
+
+# ── text dumps never litter scenery packs (ruling 2026-07-15) ────────
+
+def test_fresh_in_pack_text_dump_is_migrated_on_sight(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(D, "_dsftool_path", lambda: "/bin/true")
+    dsf_path, pack_root = _make_pack(
+        tmp_path, "Pack M", SINGLE_PLACEMENT_DSF_BODY, {})
+
+    lines = D._load_dsf_text(dsf_path)
+
+    assert lines and "OBJECT_DEF" in lines[0]
+    assert not os.path.isfile(dsf_path + ".text")
+    migrated = D._default_pack_text_cache_path(
+        D.airport_mod_cache_dir(pack_root), dsf_path)
+    assert os.path.isfile(migrated)
+
+
+def test_stale_in_pack_text_dump_is_removed_and_redumped_to_data_root(
+        tmp_path, monkeypatch):
+    """A stale legacy in-pack dump is deleted; the fresh dump lands in
+    the data-root cache — the scenery pack stays clean."""
+    dsf_path, pack_root = _make_pack(
+        tmp_path, "Pack N", SINGLE_PLACEMENT_DSF_BODY, {})
+    # Invert the harness mtimes: DSF newer than its pre-seeded text.
+    now = os.path.getmtime(dsf_path)
+    os.utime(dsf_path + ".text", (now - 20, now - 20))
+    # A DSFTool stand-in that actually writes the requested dump.
+    stub = tmp_path / "dsftool_stub.sh"
+    stub.write_text("#!/bin/sh\nprintf 'OBJECT_DEF objects/x.obj\\n' "
+                    "> \"$3\"\n")
+    stub.chmod(0o755)
+    monkeypatch.setattr(D, "_dsftool_path", lambda: str(stub))
+
+    text_path = D.ensure_dsf_text_path(dsf_path)
+
+    assert not os.path.isfile(dsf_path + ".text")
+    assert text_path == D._default_pack_text_cache_path(
+        D.airport_mod_cache_dir(pack_root), dsf_path)
+    with open(text_path) as handle:
+        assert handle.read() == "OBJECT_DEF objects/x.obj\n"
+
+
+def test_bare_dsf_outside_a_pack_keeps_legacy_alongside_cache(
+        tmp_path, monkeypatch):
+    """No ``Earth nav data`` component → no pack to keep clean: the
+    dump still lands next to the DSF (probe/fixture behaviour)."""
+    dsf_path = tmp_path / "fake.dsf"
+    dsf_path.write_text("binary-placeholder")
+    text = tmp_path / "fake.dsf.text"
+    text.write_text(SINGLE_PLACEMENT_DSF_BODY)
+    now = os.path.getmtime(text)
+    os.utime(dsf_path, (now - 10, now - 10))
+    monkeypatch.setattr(D, "_dsftool_path", lambda: "/bin/true")
+
+    assert D.ensure_dsf_text_path(str(dsf_path)) == str(text)
+    assert text.is_file()
+
+
 # ── the O4_Mesh_Utils hook (amendment A4) ────────────────────────────
 
 def test_mesh_hook_swallows_exceptions(monkeypatch):

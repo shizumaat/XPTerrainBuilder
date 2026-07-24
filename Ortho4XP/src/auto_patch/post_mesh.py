@@ -18,9 +18,16 @@ Inputs arrive via the worklist sidecar
 tile by the driver's MAIN process (workers race, amendment A5) before the
 rebuild-skip gate, carrying identification only::
 
-    {"version": 1, "tile": "+35-081", "xplane_root": ...,
+    {"version": 2, "tile": "+35-081", "xplane_root": ...,
      "airports": [{"icao": ..., "dsf_path": ..., "dsf_mtime": ...,
-                   "pack_root": ..., "xplane_root": ...}]}
+                   "pack_root": ..., "xplane_root": ...,
+                   "source": "apt_dat" | "pack_scan"}]}
+
+Since version 2 (amendment A22) an airport may contribute SEVERAL
+entries — one per scenery pack placing objects near it — because object
+discovery is independent of the apt.dat geometry contest.  Readers stay
+version-agnostic: a v1 file is simply the apt.dat-only subset (entries
+without ``source``) and processes identically.
 
 Discovery (placements, pools, partition) happens here, post-mesh — the
 geometry caches key on (path, mtime), so repeat builds are cheap and
@@ -60,7 +67,11 @@ from .mesh_sampler import MeshElevationSampler
 # it (main process only); this module and tools/reanchor_dsf_objects.py
 # read it.
 OBJECT_ANCHOR_WORKLIST_FILENAME = "o4_object_anchor_worklist.json"
-OBJECT_ANCHOR_WORKLIST_VERSION = 1
+# 2: one entry per (airport, pack) — object discovery independent of
+#    the apt.dat geometry contest (amendment A22, field case LSGL
+#    2026-07-23); entries carry a "source" tag.  Readers are
+#    version-agnostic (a v1 file is the apt.dat-only subset).
+OBJECT_ANCHOR_WORKLIST_VERSION = 2
 
 # Per-tile record of the foot-pad REQUESTS the foot re-anchor raised
 # (multi-ground-cluster objects whose best rigid offset still leaves a

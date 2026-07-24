@@ -351,6 +351,19 @@ def _interpolate_dsf_ring(
 _DSF_LINES_CACHE: dict[tuple[str, float], list[str]] = {}
 
 
+def _default_pack_text_cache_path(cache_dir: str, dsf_path: str) -> str:
+    """Filename for the default (pack) text cache, keyed by the DSF's
+    ABSOLUTE path: ``airport_mod_cache_dir`` folders are named by pack
+    basename alone, so same-named packs/tiles (a second X-Plane install,
+    test fixtures) must never be able to serve one another's dump on
+    mtime luck."""
+    import hashlib
+    path_tag = hashlib.sha1(
+        os.path.abspath(dsf_path).encode("utf-8")).hexdigest()[:8]
+    return os.path.join(
+        cache_dir, f"{os.path.basename(dsf_path)}.{path_tag}.text")
+
+
 def ensure_dsf_text_path(dsf_path: str,
                          cache_dir: str | None = None) -> str | None:
     """Return the path to the DSFTool ``--dsf2text`` output for a DSF,
@@ -365,6 +378,15 @@ def ensure_dsf_text_path(dsf_path: str,
     a rebuilt DSF re-converts.  Returns None on any failure (missing
     file/tool, conversion error) and prints the same warnings
     ``_load_dsf_text`` historically printed.
+
+    With ``cache_dir=None`` (the default) the dump is cached under the
+    pack's ``airport_mod_cache_dir`` — USER RULING 2026-07-15:
+    Ortho4XP-only caches never litter scenery pack folders.  A legacy
+    in-pack ``<dsf>.text`` from an earlier run is cleaned up on sight:
+    migrated into the cache when still fresh (the dump is expensive —
+    never thrown away while valid), removed when stale.  Only when no
+    pack root resolves (a bare DSF outside any ``Earth nav data`` tree —
+    probes, fixtures) does the dump still land next to the DSF.
     """
     if not dsf_path or not os.path.isfile(dsf_path):
         return None
@@ -381,18 +403,58 @@ def ensure_dsf_text_path(dsf_path: str,
             "DSF data will not be loaded.")
         return None
 
-    # Cache the converted text alongside the DSF (or in cache_dir).
+    text_path = None
     if cache_dir is None:
-        cache_dir = os.path.dirname(dsf_path)
-    text_path = os.path.join(
-        cache_dir,
-        os.path.basename(dsf_path) + ".text",
-    )
+        # Resolve the owning pack only for a genuinely pack-shaped path
+        # (an ``Earth nav data`` component, grouped or flat layout) — a
+        # blind ``_pack_root_for_dsf`` hop on a bare fixture/probe DSF
+        # would claim an arbitrary grandparent directory as a "pack".
+        parent = os.path.dirname(os.path.abspath(dsf_path))
+        grandparent = os.path.dirname(parent)
+        if os.path.basename(parent) == "Earth nav data":
+            pack_root = grandparent
+        elif os.path.basename(grandparent) == "Earth nav data":
+            pack_root = os.path.dirname(grandparent)
+        else:
+            pack_root = None
+        pack_cache_dir = airport_mod_cache_dir(pack_root)
+        if pack_cache_dir is None:
+            # No pack to keep clean — legacy behaviour, alongside.
+            cache_dir = os.path.dirname(dsf_path)
+        else:
+            cache_dir = pack_cache_dir
+            text_path = _default_pack_text_cache_path(cache_dir, dsf_path)
+            # Litter cleanup (ruling 2026-07-15): migrate a fresh legacy
+            # in-pack dump into the cache, remove a stale one.  Best
+            # effort — a read-only pack keeps its litter untouched.
+            in_pack_text = dsf_path + ".text"
+            try:
+                if os.path.isfile(in_pack_text):
+                    migrated_is_fresh = (
+                        os.path.isfile(text_path)
+                        and os.path.getmtime(text_path) >= mtime)
+                    if (os.path.getmtime(in_pack_text) >= mtime
+                            and not migrated_is_fresh):
+                        import shutil
+                        os.makedirs(cache_dir, exist_ok=True)
+                        if os.path.isfile(text_path):
+                            os.remove(text_path)
+                        shutil.move(in_pack_text, text_path)
+                    else:
+                        os.remove(in_pack_text)
+            except OSError:
+                pass
+    if text_path is None:
+        text_path = os.path.join(
+            cache_dir,
+            os.path.basename(dsf_path) + ".text",
+        )
     # Re-convert if text is missing or older than the DSF.
     needs_convert = (not os.path.isfile(text_path)
                      or (os.path.getmtime(text_path) < mtime))
     if needs_convert:
         try:
+            os.makedirs(cache_dir, exist_ok=True)
             # Some platforms don't allow writing into Custom Scenery;
             # fall back to a temp file in /tmp if the cache write fails.
             try:
@@ -1745,6 +1807,23 @@ def read_dsf_object_pavements(
     return out
 
 
+def tile_dsf_path(earth_nav_data_dir: str,
+                  tile_lat: int, tile_lon: int) -> str:
+    """The ``<Earth nav data>/<±GG±GGG>/<±TT±TTT>.dsf`` path for a
+    1°×1° tile (grouped by 10° block).  Pure path construction — no
+    existence check."""
+    grp_lat = (tile_lat // 10) * 10
+    grp_lon = (tile_lon // 10) * 10
+
+    def _fmt(v: int, pad: int) -> str:
+        sign = "+" if v >= 0 else "-"
+        return f"{sign}{abs(v):0{pad}d}"
+
+    grp = f"{_fmt(grp_lat, 2)}{_fmt(grp_lon, 3)}"
+    tile = f"{_fmt(tile_lat, 2)}{_fmt(tile_lon, 3)}"
+    return os.path.join(earth_nav_data_dir, grp, tile + ".dsf")
+
+
 def find_associated_dsf(apt_dat_path: str,
                         apt_lat: float,
                         apt_lon: float) -> str | None:
@@ -1763,20 +1842,101 @@ def find_associated_dsf(apt_dat_path: str,
     end_dir = os.path.dirname(apt_dat_path)
     if os.path.basename(end_dir) != "Earth nav data":
         return None
-    # Tile + group dir naming.
     import math
-    tile_lat = int(math.floor(apt_lat))
-    tile_lon = int(math.floor(apt_lon))
-    grp_lat = (tile_lat // 10) * 10
-    grp_lon = (tile_lon // 10) * 10
-
-    def _fmt(v: int, pad: int) -> str:
-        sign = "+" if v >= 0 else "-"
-        return f"{sign}{abs(v):0{pad}d}"
-
-    grp = f"{_fmt(grp_lat, 2)}{_fmt(grp_lon, 3)}"
-    tile = f"{_fmt(tile_lat, 2)}{_fmt(tile_lon, 3)}"
-    cand = os.path.join(end_dir, grp, tile + ".dsf")
+    cand = tile_dsf_path(
+        end_dir, int(math.floor(apt_lat)), int(math.floor(apt_lon)))
     if os.path.isfile(cand):
         return cand
     return None
+
+
+# ── Per-DSF object-placement positions (Phase 2 worklist pack scan) ──
+#
+# Bump when the position extraction changes meaning — invalidates every
+# positions sidecar.
+_OBJECT_POSITIONS_CACHE_VERSION = 1
+
+# Sidecar file name prefix; the full name carries the DSF stem.  Lives
+# under ``airport_mod_cache_dir`` — NOT in the pack (user ruling
+# 2026-07-15, no Ortho4XP clutter in scenery packs).
+_OBJECT_POSITIONS_SIDECAR_PREFIX = "o4_dsf_object_positions"
+
+
+def read_dsf_object_placement_positions(
+        dsf_path: str,
+        pack_root: str | None = None) -> list[tuple[float, float]] | None:
+    """``(longitude, latitude)`` of every ``.obj`` OBJECT placement in a
+    DSF, behind a pack sidecar cache.
+
+    Built for the driver's Phase 2 worklist pack scan, which needs one
+    cheap question answered per (airport, pack): does this pack place
+    objects near the airport?  The text dump is the expensive step, so
+    the extracted positions are cached under
+    ``airport_mod_cache_dir(pack_root)`` keyed on the DSF's size+mtime —
+    a layout edit to the pack necessarily rewrites the DSF.  On a miss
+    the dump comes from :func:`_load_dsf_text`'s default cache (under
+    the data root, never in the scenery pack — user ruling 2026-07-15).
+    ``O4_DSF_OBJECT_POSITIONS_CACHE=0`` disables read and write.
+
+    Returns ``None`` when the DSF is missing or cannot be dumped (the
+    caller cannot distinguish "no objects" from "unreadable" any other
+    way); an empty list means a readable DSF with no ``.obj`` placements.
+    """
+    if not dsf_path or not os.path.isfile(dsf_path):
+        return None
+    if pack_root is None:
+        pack_root = _pack_root_for_dsf(dsf_path)
+    cache_directory = airport_mod_cache_dir(pack_root)
+
+    cache_enabled = (
+        os.environ.get("O4_DSF_OBJECT_POSITIONS_CACHE", "1") == "1"
+    )
+    sidecar_path = None
+    fingerprint = None
+    if cache_enabled and cache_directory is not None:
+        try:
+            dsf_stat = os.stat(dsf_path)
+        except OSError:
+            return None
+        fingerprint = (
+            f"{_OBJECT_POSITIONS_CACHE_VERSION}"
+            f":{os.path.basename(dsf_path)}"
+            f":{dsf_stat.st_size}:{dsf_stat.st_mtime}"
+        )
+        dsf_stem = os.path.splitext(os.path.basename(dsf_path))[0]
+        sidecar_path = os.path.join(
+            cache_directory,
+            f"{_OBJECT_POSITIONS_SIDECAR_PREFIX}_{dsf_stem}.cache",
+        )
+        if os.path.isfile(sidecar_path):
+            import pickle
+            try:
+                with open(sidecar_path, "rb") as sidecar_file:
+                    payload = pickle.load(sidecar_file)
+                if payload.get("fingerprint") == fingerprint:
+                    return payload["positions"]
+            except Exception:
+                pass
+
+    lines = _load_dsf_text(dsf_path)
+    if lines is None:
+        return None
+    positions = [
+        (longitude, latitude)
+        for _path, longitude, latitude, _heading
+        in _read_dsf_object_placements(
+            lines, lambda path: path.lower().endswith(".obj"))
+    ]
+
+    if sidecar_path is not None and fingerprint is not None:
+        import pickle
+        try:
+            os.makedirs(os.path.dirname(sidecar_path), exist_ok=True)
+            with open(sidecar_path, "wb") as sidecar_file:
+                pickle.dump(
+                    {"fingerprint": fingerprint, "positions": positions},
+                    sidecar_file,
+                )
+        except Exception:
+            pass
+    return positions

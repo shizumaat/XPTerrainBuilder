@@ -109,10 +109,16 @@ def test_start_build_shows_activity_and_keeps_build_options(window,
     assert enqueue_calls[0][1]["provider"] == "TEST_PROVIDER"
     assert enqueue_calls[0][1]["zoomlevel"] == 16
     assert not window.activity_group.isHidden()
-    # The Build box did not morph away: its options stay actionable.
-    assert window.build_btn.isEnabled()
+    # The Build box did not morph away: its options stay actionable —
+    # but the button itself disables while the WHOLE selection is
+    # already queued/building (it must never enqueue the same tile
+    # twice), with a tooltip saying why.  A fresh selection revives it.
+    assert not window.build_btn.isEnabled()
+    assert "already queued" in window.build_btn.toolTip()
     assert window.chk_vector.isEnabled()
     assert set(window._tile_rows) == {(48, -6), (49, -6)}
+    window.map.set_selection({(50, 10)})
+    assert window.build_btn.isEnabled()
 
 
 def test_second_build_click_queues_into_the_running_run(window,

@@ -358,8 +358,20 @@ def build_poly_file(tile):
         [geometry.LineString([(x, 0.0 - eps), (x, 1.0 + eps)]) for x in xgrid]
         + [geometry.LineString([(0.0 - eps, y), (1.0 + eps, y)]) for y in ygrid]
     )
+    # The grid lines deliberately overshoot the tile by eps so every line
+    # crosses the boundary cleanly — but their endpoint ALTITUDES must be
+    # the tile-edge values.  tile.dem.alt_vec clamps to the RASTER extent,
+    # which equalled the tile for the classic unpadded .hgt bases; the
+    # combined global rasters ("View"-class bases) carry a 0.01 deg margin,
+    # so an unclamped endpoint sampled terrain ~1.1 km beyond the seam and
+    # planted conflicting duplicate vertices on the tile edge (SPLP
+    # 2026-07-24: 97 m seam steps on the coastal cliffs of -13-078).
+    def alt_vec_tile_clamped(way):
+        return tile.dem.alt_vec(numpy.clip(way, 0.0, 1.0))
+
     vector_map.encode_MultiLineString(
-        ortho_network, tile.dem.alt_vec, "DUMMY", check=True, skip_cut=True
+        ortho_network, alt_vec_tile_clamped, "DUMMY", check=True,
+        skip_cut=True
     )
 
     if UI.red_flag:

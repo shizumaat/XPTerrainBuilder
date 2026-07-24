@@ -561,9 +561,11 @@ def remove_dsftool_dump_leftovers(tile):
 
     ``DSFTool --dsf2text`` writes a ``<dsf>.text`` dump (hundreds of
     megabytes) plus ``.raw`` raster sidecars next to its input; none of
-    them is ever read by X-Plane.  Current code caches dumps under
-    ``FNAMES.Default_dsf_cache_dir`` instead, so anything matching these
-    patterns inside the pack is a leftover from an earlier run.
+    them is ever read by X-Plane.  Current code caches dumps under the
+    Ortho4XP data root (``FNAMES.Default_dsf_cache_dir`` for default
+    scenery, ``Airport_mod_cache/<pack>/`` for scenery packs), so
+    anything matching these patterns inside the pack is a leftover from
+    an earlier run.
     """
     nav_data_dir = os.path.join(tile.build_dir, "Earth nav data")
     for dirpath, _, filenames in os.walk(nav_data_dir):

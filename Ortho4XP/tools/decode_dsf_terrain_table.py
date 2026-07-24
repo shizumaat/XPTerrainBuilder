@@ -166,12 +166,21 @@ def decode_dsf(dsf_path: str) -> DsfTerrainDump:
 
     Raises ``FileNotFoundError`` if DSFTool is unavailable or the DSF cannot
     be converted to text.  The text dump (and DSFTool's ``.raw`` raster
-    sidecars) go to ``FNAMES.Default_dsf_cache_dir`` — never next to the
-    DSF, which may live inside a scenery pack that ships to X-Plane.
+    sidecars) go to a per-DSF subdirectory of
+    ``FNAMES.Default_dsf_cache_dir`` — never next to the DSF, which may
+    live inside a scenery pack that ships to X-Plane, and never shared
+    between two DSFs that merely have the same tile basename (distinct
+    DSFs decoded concurrently would race on one cache file and serve
+    each other's dump on mtime luck).
     """
-    os.makedirs(FNAMES.Default_dsf_cache_dir, exist_ok=True)
-    text_path = ensure_dsf_text_path(
-        dsf_path, cache_dir=FNAMES.Default_dsf_cache_dir)
+    import hashlib
+
+    dump_dir = os.path.join(
+        FNAMES.Default_dsf_cache_dir,
+        hashlib.sha1(
+            os.path.abspath(dsf_path).encode("utf-8")).hexdigest()[:8])
+    os.makedirs(dump_dir, exist_ok=True)
+    text_path = ensure_dsf_text_path(dsf_path, cache_dir=dump_dir)
     if text_path is None:
         raise FileNotFoundError(
             f"Could not produce a DSFTool text dump for {dsf_path!r} "

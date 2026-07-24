@@ -3782,8 +3782,9 @@ def _scenery_has_bridge_objects(
     Detection logic (per user 2026-04-29):
       1. Find the DSF for the scenery pack via
          ``O4_DSF_Reader.find_associated_dsf``.
-      2. Convert it to text (cached alongside the .dsf as
-         ``.dsf.text``) using DSFTool when not already cached.
+      2. Convert it to text with DSFTool when not already cached
+         (``dsf_reader.ensure_dsf_text_path`` — dump lives under the
+         data root, never inside the scenery pack).
       3. Walk OBJECT_DEF lines.  Mark a def as a "bridge def" when
          its path matches ``bridge|elevated|viaduct|overpass``
          AND does NOT match ``sign|signage|trafficsign|wall|
@@ -3833,21 +3834,11 @@ def _scenery_has_bridge_objects(
         layout.anchor[0], layout.anchor[1])
     if dsf_path is None or not os.path.isfile(dsf_path):
         return False
-    text_path = dsf_path + ".text"
-    needs_convert = (
-        not os.path.isfile(text_path)
-        or os.path.getmtime(text_path) < os.path.getmtime(dsf_path))
-    if needs_convert:
-        tool = _DSFR._dsftool_path()
-        if tool is None:
-            return False
-        try:
-            import subprocess as _sp
-            _sp.run(
-                [tool, "--dsf2text", dsf_path, text_path],
-                check=True, capture_output=True, timeout=120)
-        except _GEOM_EXC:
-            return False
+    # Shared dump cache (user ruling 2026-07-15: dumps live under the
+    # data root, never next to the DSF inside the scenery pack).
+    text_path = _DSFR.ensure_dsf_text_path(dsf_path)
+    if text_path is None:
+        return False
     BRIDGE_RE = re.compile(
         r"(?i)bridge|elevated|viaduct|overpass")
     EXCLUDE_RE = re.compile(

@@ -671,6 +671,35 @@ _SYNTHETIC_DSF_LINES = [
 
 _R4_REASON_FRAGMENT = "excluded from the Phase 2 y-bake (ruling R4)"
 
+# A real, minimal OBJ8: 40 x 40 flat slab at y = 0 with a 3 m roof — a
+# plain building with no hard deck, nothing any terrain feature could
+# consume.
+_FLAT_BOX_OBJ_TEXT = "\n".join([
+    "A",
+    "800",
+    "OBJ",
+    "",
+    "POINT_COUNTS 8 0 0 12",
+    "VT -20.0 0.0 -20.0 0 1 0 0 0",
+    "VT 20.0 0.0 -20.0 0 1 0 0 0",
+    "VT 20.0 0.0 20.0 0 1 0 0 0",
+    "VT -20.0 0.0 20.0 0 1 0 0 0",
+    "VT -20.0 3.0 -20.0 0 1 0 0 0",
+    "VT 20.0 3.0 -20.0 0 1 0 0 0",
+    "VT 20.0 3.0 20.0 0 1 0 0 0",
+    "VT -20.0 3.0 20.0 0 1 0 0 0",
+    "IDX10 0 1 2 0 2 3 4 5 6 4",
+    "IDX 6",
+    "IDX 7",
+    "TRIS 0 12",
+]) + "\n"
+
+# The same box after a bake-like shift: every vertex 6 m lower.  Used as
+# the LIVE file beside an authored ``.anchor_bak``.
+_BAKED_BOX_OBJ_TEXT = _FLAT_BOX_OBJ_TEXT.replace(
+    " 0.0 ", " -6.0 "
+).replace(" 3.0 ", " -3.0 ")
+
 
 class TestExclusionWiringR4:
     def _run_discover(self, tmp_path, monkeypatch, excluded_resources):
@@ -887,6 +916,95 @@ class TestExclusionWiringR4:
                 str(dsf_path), None, pack_root=str(pack_root)
             )
         assert len(classify_calls) == 2
+
+    def test_msl_heavy_pack_consuming_nothing_yields_empty_set(
+        self, tmp_path, monkeypatch
+    ):
+        """LSGG 2026-07-23 regression, end to end through the REAL
+        classifier: an MSL-placement-heavy pack whose terrain objects
+        are plain flat buildings on ONE shared pack-datum anchor — the
+        classifier consumes nothing, so with both object-terrain gates
+        ON the R4 exclusion set is EMPTY and every object stays
+        bakeable (the defect run excluded 265 of 266)."""
+        from auto_patch import dsf_reader
+
+        monkeypatch.setattr(config, "OBJECT_BRIDGE_TERRAIN", True)
+        monkeypatch.setattr(config, "OBJECT_TUNNEL_TERRAIN", True)
+        monkeypatch.setenv("O4_OBJECT_EXCLUSION_CACHE", "0")
+        pack_root = tmp_path / "Shared Datum Pack"
+        (pack_root / "objects").mkdir(parents=True)
+        definition_lines = []
+        placement_lines = []
+        for index in range(6):
+            resource = f"objects/building{index}.obj"
+            (pack_root / resource).write_text(_FLAT_BOX_OBJ_TEXT)
+            definition_lines.append(f"OBJECT_DEF {resource}")
+            # Every terrain placement on ONE shared datum coordinate.
+            placement_lines.append(f"OBJECT {index} 6.109073 46.238144 0.0")
+        for index in range(4):
+            # MSL fixture rows (absolute elevations) alongside.
+            placement_lines.append(
+                f"OBJECT_MSL {index} 6.109073 46.238144 430.0 90.0"
+            )
+        dsf_path = pack_root / "fake.dsf"
+        dsf_path.write_bytes(b"")
+        monkeypatch.setattr(
+            dsf_reader, "_load_dsf_text",
+            lambda _path: definition_lines + placement_lines,
+        )
+        assert assembly.exclusion_set_for_dsf(
+            str(dsf_path), None, pack_root=str(pack_root)
+        ) == set()
+
+
+# ---------------------------------------------------------------------------
+# classification reads AUTHORED geometry (ruling R1 parity)
+# ---------------------------------------------------------------------------
+
+
+class TestClassificationReadsAuthoredGeometry:
+    def test_backup_preferred_over_live_baked_object(self, tmp_path):
+        """A Phase 2 y-bake leaves the LIVE ``.obj`` metres below its
+        authored base; classification must read the ``.anchor_bak``
+        original (LSGG 2026-07-23: a −9.4 m live shift manufactured
+        below-grade signatures whose exclusions then reverted the
+        bake)."""
+        from auto_patch.obj8_reader import ObjectPlacement
+
+        pack_root = tmp_path / "Pack"
+        (pack_root / "objects").mkdir(parents=True)
+        live_path = pack_root / "objects" / "box.obj"
+        live_path.write_text(_BAKED_BOX_OBJ_TEXT)
+        (pack_root / "objects" / "box.obj.anchor_bak").write_text(
+            _FLAT_BOX_OBJ_TEXT
+        )
+        placement = ObjectPlacement(
+            definition_index=0, resource_path="objects/box.obj",
+            longitude=6.109073, latitude=46.238144, heading_degrees=0.0,
+        )
+        geometry_by_resource = assembly._load_object_geometry_by_resource(
+            [placement], str(pack_root), None
+        )
+        geometry = geometry_by_resource["objects/box.obj"]
+        assert min(vertex[1] for vertex in geometry.vertices) == 0.0
+
+    def test_live_object_read_when_no_backup_exists(self, tmp_path):
+        from auto_patch.obj8_reader import ObjectPlacement
+
+        pack_root = tmp_path / "Pack"
+        (pack_root / "objects").mkdir(parents=True)
+        (pack_root / "objects" / "box.obj").write_text(
+            _BAKED_BOX_OBJ_TEXT
+        )
+        placement = ObjectPlacement(
+            definition_index=0, resource_path="objects/box.obj",
+            longitude=6.109073, latitude=46.238144, heading_degrees=0.0,
+        )
+        geometry_by_resource = assembly._load_object_geometry_by_resource(
+            [placement], str(pack_root), None
+        )
+        geometry = geometry_by_resource["objects/box.obj"]
+        assert min(vertex[1] for vertex in geometry.vertices) == -6.0
 
 
 # ---------------------------------------------------------------------------
@@ -1924,6 +2042,48 @@ class TestAnchorFamilyExclusions:
                                       ANCHOR_LONGITUDE, ANCHOR_LATITUDE)]
         assert assembly._expand_exclusions_to_anchor_families(
             _Result(), placements, "PACK") == []
+
+    def test_pack_datum_anchor_is_never_expanded(self):
+        # LSGG 2026-07-23: 265 of 292 terrain placements share ONE
+        # anchor (the Aerosoft shared-pack-datum authoring style).  One
+        # consumed structure there must NOT pull the whole airport onto
+        # the R4 exclusion list — a datum carries no family information.
+        class _Result:
+            exclusions = [("PACK", "Objects/tunnel_deck.obj")]
+        placements = [
+            self._placement("Objects/tunnel_deck.obj",
+                            ANCHOR_LONGITUDE, ANCHOR_LATITUDE)
+        ] + [
+            self._placement(f"Objects/building{index:03d}.obj",
+                            ANCHOR_LONGITUDE, ANCHOR_LATITUDE)
+            for index in range(200)
+        ]
+        result = _Result()
+        assert assembly._expand_exclusions_to_anchor_families(
+            result, placements, "PACK") == []
+        assert result.exclusions == [("PACK", "Objects/tunnel_deck.obj")]
+
+    def test_family_size_cap_boundary(self):
+        # Exactly ANCHOR_FAMILY_MAX_RESOURCES resources on one anchor is
+        # still a part family (expanded); one more is a pack datum.
+        cap = assembly.ANCHOR_FAMILY_MAX_RESOURCES
+
+        def _run(extra_resources):
+            class _Result:
+                exclusions = [("PACK", "Objects/B/p1.obj")]
+            placements = [
+                self._placement("Objects/B/p1.obj",
+                                ANCHOR_LONGITUDE, ANCHOR_LATITUDE)
+            ] + [
+                self._placement(f"Objects/B/sibling{index:02d}.obj",
+                                ANCHOR_LONGITUDE, ANCHOR_LATITUDE)
+                for index in range(extra_resources)
+            ]
+            return assembly._expand_exclusions_to_anchor_families(
+                _Result(), placements, "PACK")
+
+        assert len(_run(cap - 1)) == cap - 1  # cap resources in total
+        assert _run(cap) == []                # cap + 1: datum, skipped
 
 
 # ---------------------------------------------------------------------------

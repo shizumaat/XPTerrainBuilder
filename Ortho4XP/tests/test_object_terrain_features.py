@@ -1009,8 +1009,22 @@ class TestStructureGroundInterfaces:
         assert interface.elevated_deck_above is True
         assert interface.ground_contact_fraction <= 0.10
         assert interface.below_grade_footprint is not None
-        # Non-flat interfaces join the R4 exclusion list.
-        assert len(result.exclusions) == 2
+        # Feature-C exclusions follow the section 3.4 gate: with the
+        # split-level adapter OFF (the default) the bowl is recorded but
+        # adapts no terrain, so it stays bakeable (LSGG 2026-07-23:
+        # ungated interface exclusions starved the Phase 2 y-bake).
+        assert result.exclusions == []
+        # With the adapter ON the non-flat interface joins R4.
+        gated_on = otf.classify_object_terrain_features(
+            placements,
+            {
+                "objects/t1_drum.obj": drum.build(),
+                "objects/t1_helix_road.obj": helix.build(),
+            },
+            pack_root="PACK",
+            split_level_terrain_enabled=True,
+        )
+        assert len(gated_on.exclusions) == 2
 
     def test_trench_spine_across_multiple_objects(self):
         """LFPG T2 pattern: several objects sharing one continuous
@@ -1575,6 +1589,129 @@ class TestKmcoSmoke:
             "via_tren" not in resource
             for bridge in result.bridges
             for resource in bridge.object_resources
+        )
+
+
+# ---------------------------------------------------------------------------
+# ruling R4 breadth — the LSGG 2026-07-23 y-bake starvation regression
+# ---------------------------------------------------------------------------
+
+
+class TestExclusionsOnlyForConsumedStructures:
+    """LSGG 2026-07-23: 265 of 266 pack objects landed on the R4
+    exclusion list at a terminal-heavy airport with no consumable
+    bridge, starving the Phase 2 y-bake.  The R4 contract: only
+    structures a terrain feature CONSUMES (carves or seats terrain to)
+    are excluded — a pack the classifier consumes nothing from yields an
+    EMPTY exclusion set, whatever its interface records measure."""
+
+    def _flat_building(self, x_offset: float):
+        builder = _GeometryBuilder()
+        builder.add_horizontal_rectangle(
+            x_offset - 15, x_offset + 15, -10, 10, 8.0, segments=2
+        )
+        for x in (x_offset - 15.0, x_offset + 15.0):
+            builder.add_vertical_wall(x, -10, 10, 0.0, 8.0)
+        return builder.build()
+
+    def _datum_artifact_building(self, x_offset: float, base_y: float):
+        """A building authored against a distant shared pack datum: its
+        whole base sits below the datum's y = 0 (the Aerosoft LSGG
+        authoring style — geometry 150 m–3.3 km from one anchor).
+        Triangle-rich, like a real terminal — well clear of the 8-solid-
+        triangle EGGW portal-face envelope."""
+        builder = _GeometryBuilder()
+        builder.add_horizontal_rectangle(
+            x_offset - 15, x_offset + 15, -10, 10, base_y + 12.0,
+            segments=6,
+        )
+        for x in (x_offset - 15.0, x_offset + 15.0):
+            builder.add_vertical_wall(x, -10, 10, base_y, base_y + 12.0)
+        return builder.build()
+
+    def _lsgg_shaped_inputs(self):
+        """Two dozen buildings, every placement on ONE shared anchor,
+        plus MSL fixture placements — no drivable hard deck anywhere,
+        so the classifier can consume nothing."""
+        geometry = {}
+        placements = []
+        for index in range(24):
+            resource = f"objects/building{index:03d}.obj"
+            x_offset = 150.0 + index * 120.0
+            if index % 4 == 0:
+                geometry[resource] = self._datum_artifact_building(
+                    x_offset, -6.0 - index * 0.25
+                )
+            else:
+                geometry[resource] = self._flat_building(x_offset)
+            placements.append(_placement(resource))
+        mean_sea_level_placements = [
+            _placement(
+                f"objects/fixture{index}.obj",
+                placement_kind="OBJECT_MSL",
+                mean_sea_level_elevation_m=430.0 + index,
+            )
+            for index in range(6)
+        ]
+        return placements, geometry, mean_sea_level_placements
+
+    def test_consuming_nothing_yields_an_empty_exclusion_set(self):
+        placements, geometry, mean_sea_level = self._lsgg_shaped_inputs()
+        result = otf.classify_object_terrain_features(
+            placements,
+            geometry,
+            mean_sea_level_placements=mean_sea_level,
+            pack_root="PACK",
+        )
+        assert result.tunnels == []
+        assert result.bridges == []
+        assert result.exclusions == []
+
+    def test_gated_on_split_level_exclusions_stay_a_handful(self):
+        """Even with the section 3.4 adapter ON, exclusions cover only
+        the non-flat interfaces' own resources — never the whole
+        shared-anchor pack."""
+        placements, geometry, mean_sea_level = self._lsgg_shaped_inputs()
+        result = otf.classify_object_terrain_features(
+            placements,
+            geometry,
+            mean_sea_level_placements=mean_sea_level,
+            pack_root="PACK",
+            split_level_terrain_enabled=True,
+        )
+        excluded = {resource for _pack, resource in result.exclusions}
+        non_flat_resources = {
+            resource
+            for interface in result.ground_interfaces
+            if interface.interface_class != otf.INTERFACE_FLAT_CONFIRMED
+            for resource in interface.object_resources
+        }
+        assert excluded <= non_flat_resources
+        assert len(excluded) < len(placements) // 2
+
+    def test_terrain_material_membership_is_gate_independent(self):
+        """The Phase-1 building-pool drop set
+        (``ClassificationResult.terrain_material_resources``) keys on
+        RECOGNITION — a non-flat interface stays out of the building
+        pool even while the split-level gate keeps it off the R4
+        y-bake exclusion feed."""
+        placements, geometry, mean_sea_level = self._lsgg_shaped_inputs()
+        result = otf.classify_object_terrain_features(
+            placements,
+            geometry,
+            mean_sea_level_placements=mean_sea_level,
+            pack_root="PACK",
+        )
+        assert result.exclusions == []
+        non_flat_resources = {
+            resource
+            for interface in result.ground_interfaces
+            if interface.interface_class != otf.INTERFACE_FLAT_CONFIRMED
+            for resource in interface.object_resources
+        }
+        assert non_flat_resources  # the datum-artifact buildings measure
+        assert (
+            result.terrain_material_resources() >= non_flat_resources
         )
 
 

@@ -201,6 +201,7 @@ __all__ = [
     "RUNWAY_END_SKIRT_ENABLED",
     "OBJECT_BRIDGE_TERRAIN",
     "OBJECT_TUNNEL_TERRAIN",
+    "OBJECT_SPLIT_LEVEL_TERRAIN",
     "TUNNEL_FLOOR_BELOW_OBJECT_DECK_M",
     "BRIDGE_ROAD_CLEARANCE_M",
     "BRIDGE_ROAD_CLEARANCE_MINIMUM_M",
@@ -2523,6 +2524,17 @@ OBJECT_BRIDGE_TERRAIN = (
 # family can be exercised alone.
 OBJECT_TUNNEL_TERRAIN = (
     _os.environ.get("O4_OBJECT_TUNNEL_TERRAIN", "1") == "1")
+
+# Feature C — split-level structure terrain (docs/object_terrain_features_
+# spec.md section 3.4).  DEFAULT OFF, the spec's own gate: the v1
+# split-level terrain adapter is UNBUILT (nothing consumes the
+# classifier's ground-interface records), so no structure's terrain is
+# ever "adapted to it" and none may join the ruling-R4 exclusion feed —
+# excluding without adapting starved the Phase 2 y-bake of plainly
+# bakeable terminal buildings (LSGG 2026-07-23, 265/266 objects
+# excluded).  Flip on only together with a real feature-C emitter.
+OBJECT_SPLIT_LEVEL_TERRAIN = (
+    _os.environ.get("O4_OBJECT_SPLIT_LEVEL_TERRAIN", "0") == "1")
 
 # Amendment A1: the tunnel-trench mesh floor sits this far (m) BELOW the
 # OBJ8 road deck the object renders.  The deck carries the visible road;

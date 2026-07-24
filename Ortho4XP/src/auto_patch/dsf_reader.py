@@ -1464,8 +1464,15 @@ def read_dsf_object_buildings(
             # fall back to the un-excluded pool (the pre-fix behaviour).
             classification = None
         if classification is not None:
+            # Membership comes from the RECOGNITION records, not the
+            # ``exclusions`` list: that list is the ruling-R4 y-bake
+            # feed and is gated on which terrain adapters are on
+            # (LSGG 2026-07-23), while a recognized tunnel/bridge/
+            # split-level structure must stay out of the building pool
+            # regardless of gating.
             terrain_resources = {
-                resource for _root, resource in classification.exclusions
+                resource
+                for resource in classification.terrain_material_resources()
                 if resource in resolved_paths}
             if terrain_resources:
                 UI.vprint(

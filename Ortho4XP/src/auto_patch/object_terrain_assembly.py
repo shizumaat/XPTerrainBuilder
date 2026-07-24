@@ -86,20 +86,57 @@ MAXIMUM_PLACEMENTS_PER_RESOURCE = 50
 # structure-grouping epsilon would wrongly swallow the GPU).
 ANCHOR_FAMILY_RADIUS_M = 0.5
 
+# Pack-datum guard for the family expansion.  Some payware authors bake
+# EVERY object against one shared anchor (spec section 3.4 anchor
+# caution: geometry 150 m–3.3 km from a single sampled point; MEASURED
+# at Aerosoft LSGG 2026-07-23: 265 of 292 terrain placements on ONE
+# coordinate).  Such an anchor carries no part-family information — one
+# consumed structure there would pull the whole airport onto the R4
+# exclusion list and starve the Phase 2 y-bake.  A real part family is
+# small (KBNA's largest: six Taxiway-L parts); an anchor shared by more
+# distinct resources than this is a pack datum and never expanded from.
+ANCHOR_FAMILY_MAX_RESOURCES = 12
+
 
 def _expand_exclusions_to_anchor_families(result, placements, pack_root):
     """Append to ``result.exclusions`` every resource with a placement
     anchored within :data:`ANCHOR_FAMILY_RADIUS_M` of a consumed
     structure's placements (the whole part family: p1..p6, shell+deck
-    pairs).  Returns the sorted list of newly excluded resource paths."""
+    pairs).  Anchors shared by more than
+    :data:`ANCHOR_FAMILY_MAX_RESOURCES` distinct resources are pack
+    datums, not families, and are skipped.  Returns the sorted list of
+    newly excluded resource paths."""
     consumed = {resource for _root, resource in result.exclusions}
     if not consumed:
         return []
-    family_anchors = [
+    candidate_anchors = sorted({
         (placement.longitude, placement.latitude)
         for placement in placements
         if placement.resource_path in consumed
-    ]
+    })
+    family_anchors = []
+    for anchor_longitude, anchor_latitude in candidate_anchors:
+        cosine = math.cos(math.radians(anchor_latitude))
+        resources_at_anchor = {
+            placement.resource_path
+            for placement in placements
+            if math.hypot(
+                (placement.latitude - anchor_latitude) * 111320.0,
+                (placement.longitude - anchor_longitude)
+                * 111320.0 * cosine,
+            ) <= ANCHOR_FAMILY_RADIUS_M
+        }
+        if len(resources_at_anchor) > ANCHOR_FAMILY_MAX_RESOURCES:
+            UI.vprint(
+                2,
+                "   [object-bridge] R4 family expansion: anchor "
+                f"({anchor_latitude:.6f}, {anchor_longitude:.6f}) is "
+                f"shared by {len(resources_at_anchor)} distinct "
+                "resources — a pack datum, not a part family; sibling "
+                "expansion skipped there",
+            )
+            continue
+        family_anchors.append((anchor_longitude, anchor_latitude))
     if not family_anchors:
         return []
     added = set()
@@ -197,7 +234,22 @@ def _load_object_geometry_by_resource(
         )
         if physical_path is None:
             continue
-        geometry = dsf_reader._load_object_geometry(physical_path)
+        # Ruling R1 parity (same choice as the building-ring read in
+        # ``dsf_reader`` and Phase 2 discovery): classify the AUTHORED
+        # geometry from the ``.anchor_bak`` original when one exists.
+        # The Phase 2 y-bake writes per-vertex offsets into the LIVE
+        # file, so on a baked pack the live geometry sits metres below
+        # its authored base and plain terminal buildings measure as
+        # below-grade bowls/tunnels (LSGG 2026-07-23: a −9.4 m live
+        # shift manufactured the very signatures whose exclusions then
+        # reverted the bake).
+        from .object_rebake import BACKUP_SUFFIX
+
+        backup_path = physical_path + BACKUP_SUFFIX
+        geometry_source_path = (
+            backup_path if os.path.isfile(backup_path) else physical_path
+        )
+        geometry = dsf_reader._load_object_geometry(geometry_source_path)
         if geometry is None or not geometry.has_solid_geometry:
             continue
         geometry_by_resource[resource_path] = geometry
@@ -350,7 +402,10 @@ def _discover_sibling_road_networks(
 # 7: tunnels carry solid_outline_footprint (flush-bottom trench floors).
 # 8: stock-library (lib/...) resources excluded from classification, plus
 # the AGL-limb above-grade height cap (EGKR Redhill control tower).
-_CLASSIFICATION_CACHE_VERSION = 8
+# 9: classification reads AUTHORED geometry (.anchor_bak when present),
+# and feature-C ground-interface exclusions are gated behind
+# config.OBJECT_SPLIT_LEVEL_TERRAIN (LSGG 2026-07-23 y-bake starvation).
+_CLASSIFICATION_CACHE_VERSION = 9
 
 # Sidecar file name prefix; the full name carries the DSF stem
 # (``o4_object_terrain_classification_<dsf-stem>.cache``).  Lives under
@@ -419,6 +474,11 @@ def _classification_sidecar(dsf_path, pack_root, pavement_polygons,
     digest = hashlib.sha1()
     try:
         digest.update(str(_CLASSIFICATION_CACHE_VERSION).encode())
+        # The section 3.4 gate changes which resources the classifier
+        # feeds to the R4 exclusion list — a flip must miss the cache.
+        digest.update(
+            f"split-level:{config.OBJECT_SPLIT_LEVEL_TERRAIN}".encode()
+        )
         dsf_stat = os.stat(dsf_path)
         digest.update(
             f"{os.path.basename(dsf_path)}:{dsf_stat.st_size}"
@@ -600,6 +660,7 @@ def attach_bridge_classification(layout, xplane_root: str):
         pavement_polygons_longitude_latitude=pavement_polygons,
         mean_sea_level_placements=mean_sea_level_placements,
         pack_root=pack_root or "",
+        split_level_terrain_enabled=config.OBJECT_SPLIT_LEVEL_TERRAIN,
     )
 
     # Ruling R4 breadth: pull the whole anchor family of every consumed
@@ -707,7 +768,7 @@ def _raw_route_lines_layout_meters(layout) -> list:
 # Bump together with classifier-behavior changes that
 # ``_CLASSIFICATION_CACHE_VERSION`` alone would not capture for the
 # post-mesh exclusion path (both versions salt the exclusion cache key).
-_EXCLUSION_CACHE_VERSION = 1
+_EXCLUSION_CACHE_VERSION = 2
 
 
 def _cached_exclusion_pairs(
@@ -743,6 +804,9 @@ def _cached_exclusion_pairs(
                 _EXCLUSION_CACHE_VERSION,
                 _CLASSIFICATION_CACHE_VERSION,
                 pack_root,
+                # Section 3.4 gate: decides whether feature-C ground
+                # interfaces join the exclusion set — key it.
+                config.OBJECT_SPLIT_LEVEL_TERRAIN,
             )
         ).encode()
     )
@@ -864,6 +928,7 @@ def exclusion_set_for_dsf(
             pavement_polygons_longitude_latitude=None,
             mean_sea_level_placements=mean_sea_level_placements,
             pack_root=pack_root or "",
+            split_level_terrain_enabled=config.OBJECT_SPLIT_LEVEL_TERRAIN,
         )
         _expand_exclusions_to_anchor_families(
             result, terrain_placements, pack_root or ""

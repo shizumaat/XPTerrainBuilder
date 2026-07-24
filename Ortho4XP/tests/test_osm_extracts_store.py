@@ -648,12 +648,55 @@ class TestClipCutterDispatch:
         return FILTER.filter_extracts_to_osm_xml(
             paths, ['way["natural"="water"]'], self.QBOX)
 
+    def test_multi_extract_area_gets_parts_not_a_merge(self, store, tmp_path):
+        """The 2026-07-23 slow path: an area spanning several extracts
+        spent minutes in the pyosmium merge.  Now: one part per extract,
+        no merge, and the filter's ordered-list first-file-wins carries
+        the contract — including a cross-extract id conflict, where the
+        FIRST extract's version must serve."""
+        import O4_OSM_Extract_Filter as FILTER
+
+        first = self._make_region_pbf(tmp_path, region_id="portugal")
+        # A second region carrying a CONFLICTING way 10 (different second
+        # node) plus its own way 30 — first-file-wins must keep
+        # portugal's way 10 and still serve spain's way 30.
+        body = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<osm version="0.6" generator="test-fixture">\n'
+            '  <node id="1" lat="38.5" lon="-9.2" version="1"/>\n'
+            '  <node id="5" lat="38.7" lon="-9.0" version="1"/>\n'
+            '  <node id="6" lat="38.4" lon="-9.3" version="1"/>\n'
+            '  <way id="10" version="1">\n'
+            '    <nd ref="1"/>\n    <nd ref="5"/>\n'
+            '    <tag k="natural" v="water"/>\n'
+            '  </way>\n'
+            '  <way id="30" version="1">\n'
+            '    <nd ref="5"/>\n    <nd ref="6"/>\n'
+            '    <tag k="natural" v="water"/>\n'
+            '  </way>\n'
+            '</osm>\n'
+        )
+        xml_path = tmp_path / "spain_source.osm"
+        xml_path.write_text(body)
+        second = EXTRACTS._region_file("spain")
+        os.makedirs(os.path.dirname(second), exist_ok=True)
+        FILTER.clip_extracts_to_pbf(
+            [str(xml_path)], (-90.0, -180.0, 90.0, 180.0), second)
+
+        regions = [("portugal", None), ("spain", None)]
+        clips = EXTRACTS._clip_for_query(regions, [self.QBOX])
+        assert clips is not None and len(clips) == 2
+        assert all(os.path.isfile(part) for part in clips)
+        assert self._serve(clips) == self._serve([first, second])
+        # Cache hit on the second call: same parts, no re-cut.
+        assert EXTRACTS._clip_for_query(regions, [self.QBOX]) == clips
+
     def test_python_cutter_used_without_binary(self, store, tmp_path):
         region_file = self._make_region_pbf(tmp_path)
-        clip = EXTRACTS._clip_for_query(
+        clips = EXTRACTS._clip_for_query(
             [("portugal", None)], [self.QBOX])
-        assert clip is not None and os.path.isfile(clip)
-        assert self._serve([clip]) == self._serve([region_file])
+        assert clips and all(os.path.isfile(part) for part in clips)
+        assert self._serve(clips) == self._serve([region_file])
 
     @pytest.mark.skipif(
         __import__("shutil").which("osmium") is None,
@@ -673,9 +716,9 @@ class TestClipCutterDispatch:
         monkeypatch.setattr(
             FILTER, "clip_extracts_to_pbf", _python_cutter_must_not_run)
 
-        clip = EXTRACTS._clip_for_query([("portugal", None)], [self.QBOX])
-        assert clip is not None and os.path.isfile(clip)
-        assert self._serve([clip]) == self._serve([region_file])
+        clips = EXTRACTS._clip_for_query([("portugal", None)], [self.QBOX])
+        assert clips and all(os.path.isfile(part) for part in clips)
+        assert self._serve(clips) == self._serve([region_file])
 
     def test_osmium_failure_falls_back_to_python_cutter(
             self, store, tmp_path, monkeypatch):
@@ -693,10 +736,10 @@ class TestClipCutterDispatch:
             return real_cutter(*args, **kwargs)
         monkeypatch.setattr(FILTER, "clip_extracts_to_pbf", _spying_cutter)
 
-        clip = EXTRACTS._clip_for_query([("portugal", None)], [self.QBOX])
-        assert clip is not None and os.path.isfile(clip)
+        clips = EXTRACTS._clip_for_query([("portugal", None)], [self.QBOX])
+        assert clips and all(os.path.isfile(part) for part in clips)
         assert len(calls) == 1
-        assert self._serve([clip]) == self._serve([region_file])
+        assert self._serve(clips) == self._serve([region_file])
 
     def test_stop_request_skips_python_fallback(
             self, store, tmp_path, monkeypatch):

@@ -730,3 +730,63 @@ def cut_clip_with_osmium(
                 os.remove(leftover)
             except OSError:
                 pass
+
+
+def cut_clip_parts_with_osmium(
+    extract_paths: Iterable[str],
+    bounding_box,
+    part_output_paths: Iterable[str],
+    osmium_binary: str,
+    should_stop: Optional[Callable[[], bool]] = None,
+    spawn_kwargs: Optional[dict] = None,
+) -> None:
+    """Cut one clip PART per extract, no merge — C++ end to end.
+
+    The merged single-file clip (:func:`cut_clip_with_osmium`) pays a
+    pyosmium first-file-wins merge whenever an area spans several
+    extracts — 161 MB of Alpine clips took minutes of Python callbacks
+    (observed 2026-07-23, tile +46+006 across three extracts).  The
+    merge buys nothing: the query-time filter already consumes an
+    ORDERED FILE LIST with first-file-wins semantics, so the parts can
+    be cached and served as-is, in ``extract_paths`` order.
+
+    Each part is written atomically; the CALLER owns completeness (it
+    writes its parts manifest only after this returns).  Same failure
+    contract as :func:`cut_clip_with_osmium`.
+    """
+    boxes = _normalize_bounding_boxes(bounding_box)
+    if len(boxes) != 1:
+        raise ExtractFilterError(
+            "osmium clip cutting expects a single clip box"
+        )
+    (lat_min, lon_min, lat_max, lon_max) = boxes[0]
+    bbox_argument = "%.7f,%.7f,%.7f,%.7f" % (
+        lon_min, lat_min, lon_max, lat_max)
+    paths = [str(path) for path in extract_paths]
+    outputs = [str(path) for path in part_output_paths]
+    if len(paths) != len(outputs):
+        raise ExtractFilterError(
+            "one part output per extract required (%d extracts, %d outputs)"
+            % (len(paths), len(outputs)))
+    for path in paths:
+        if not os.path.isfile(path):
+            raise ExtractFilterError("extract file not found: " + path)
+    unique = "%d-%d" % (os.getpid(), threading.get_ident())
+    temporary_paths = [
+        "%s.tmp-%s.osm.pbf" % (output, unique) for output in outputs
+    ]
+    stderr_path = "%s.tmp-%s.stderr" % (outputs[0], unique)
+    try:
+        for source_path, temporary_path in zip(paths, temporary_paths):
+            _run_osmium_extract(
+                osmium_binary, source_path, bbox_argument, temporary_path,
+                stderr_path, should_stop, spawn_kwargs,
+            )
+        for temporary_path, output in zip(temporary_paths, outputs):
+            os.replace(temporary_path, output)
+    finally:
+        for leftover in temporary_paths + [stderr_path]:
+            try:
+                os.remove(leftover)
+            except OSError:
+                pass

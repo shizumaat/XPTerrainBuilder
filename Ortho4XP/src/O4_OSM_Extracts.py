@@ -538,14 +538,16 @@ def osm_xml_from_local_extracts(statements, bounding_box,
         import O4_OSM_Extract_Filter as FILTER
 
         source_files = [_region_file(region_id) for (region_id, _url) in regions]
-        clip_file = _clip_for_query(regions, boxes)
-        if clip_file is not None:
-            source_files = [clip_file]
+        clip_files = _clip_for_query(regions, boxes)
+        if clip_files is not None:
+            # Same first-file-wins order as the full extracts they were
+            # cut from — the filter's multi-file semantics carry over.
+            source_files = clip_files
         label = f" ({request_description})" if request_description else ""
         UI.vprint(
             1,
             f"      Filtering OSM data{label} from",
-            "the clipped area cache" if clip_file is not None
+            "the clipped area cache" if clip_files is not None
             else "regional extract(s): "
             + ", ".join(region_id for (region_id, _url) in regions),
         )
@@ -794,9 +796,11 @@ def _clip_bounding_box(boxes) -> tuple:
 
 
 def _clip_path(regions, clip_box) -> str:
-    """Clip file path, keyed by area + the exact extract files it was cut
-    from (id, size, mtime): a re-downloaded extract changes the key, so
-    stale clips can never serve."""
+    """Clip cache BASE path (no extension), keyed by area + the exact
+    extract files it was cut from (id, size, mtime): a re-downloaded
+    extract changes the key, so stale clips can never serve.  The cache
+    itself is ``<base>-part<N>.osm.pbf`` per extract plus the
+    ``<base>.parts.json`` completeness manifest."""
     import hashlib
 
     digest = hashlib.sha1()
@@ -810,17 +814,18 @@ def _clip_path(regions, clip_box) -> str:
         int(round(clip_box[1] + _CLIP_PAD_DEGREES)))
     return os.path.join(
         _clip_directory(),
-        "%s_%s.osm.pbf" % (prefix, digest.hexdigest()[:12]))
+        "%s_%s" % (prefix, digest.hexdigest()[:12]))
 
 
-def _prune_stale_clips(keep_path: str) -> None:
-    """Drop other clips for the same area (superseded by a re-download)."""
-    prefix = os.path.basename(keep_path).rsplit("_", 1)[0]
+def _prune_stale_clips(keep_base: str) -> None:
+    """Drop other clips for the same area (superseded by a re-download,
+    or the pre-parts single-file layout)."""
+    prefix = os.path.basename(keep_base).rsplit("_", 1)[0]
+    keep_name = os.path.basename(keep_base)
     try:
         for name in os.listdir(_clip_directory()):
-            if (name.startswith(prefix + "_")
-                    and name.endswith(".osm.pbf")
-                    and os.path.join(_clip_directory(), name) != keep_path):
+            if name.startswith(prefix + "_") and not name.startswith(
+                    keep_name):
                 os.remove(os.path.join(_clip_directory(), name))
     except OSError:
         pass
@@ -864,30 +869,57 @@ def _osmium_binary() -> Optional[str]:
     return found
 
 
-def _cut_clip(regions, clip_box, path) -> None:
-    """Cut the area clip, with osmium-tool when a binary is available
-    (C++ single pass — seconds), the pyosmium cutter otherwise (one full
-    Python-side read of the covering extracts — minutes).
+def _clip_manifest_path(base: str) -> str:
+    return base + ".parts.json"
 
-    The osmium cut carries the same contract — filtering its clip is
-    byte-identical to filtering the full extracts
-    (test_osm_extract_filter.py proves it) — so any osmium failure just
-    falls back to the pyosmium cutter.  EXCEPT under a stop request:
-    there the fallback's minutes of decoding would outlive the build it
-    serves, so the failure propagates instead.
+
+def _clip_part_path(base: str, index: int) -> str:
+    return "%s-part%d.osm.pbf" % (base, index)
+
+
+def _read_clip_parts(base: str) -> Optional[list]:
+    """The cached clip's part paths (extract order), or None.
+
+    The manifest is the completeness marker: written atomically AFTER
+    every part landed, so a crashed cutter can never leave a plausible
+    partial cache."""
+    names = _read_json(_clip_manifest_path(base))
+    if not isinstance(names, list) or not names:
+        return None
+    parts = [os.path.join(_clip_directory(), str(name)) for name in names]
+    if all(os.path.isfile(part) for part in parts):
+        return parts
+    return None
+
+
+def _cut_clip(regions, clip_box, base) -> list:
+    """Cut the area clip as ONE PART PER EXTRACT and return the paths.
+
+    No merge, ever: the query-time filter consumes an ordered file list
+    with first-file-wins semantics, which is exactly what the parts are
+    — merging them into one file bought nothing and cost minutes of
+    pyosmium callbacks whenever an area spans several extracts
+    (observed 2026-07-23: tile +46+006, three extracts, 161 MB of
+    clips).  osmium-tool cuts when a binary is available (C++, seconds);
+    the pyosmium cutter otherwise, also per extract.
+
+    Any osmium failure falls back to the pyosmium cutter — EXCEPT under
+    a stop request, where the fallback's minutes of decoding would
+    outlive the build it serves, so the failure propagates instead.
     """
     import O4_OSM_Extract_Filter as FILTER
 
     source_files = [_region_file(region_id) for (region_id, _url) in regions]
+    parts = [_clip_part_path(base, i) for i in range(len(source_files))]
     binary = _osmium_binary()
     if binary is not None:
         try:
-            FILTER.cut_clip_with_osmium(
-                source_files, clip_box, path, binary,
+            FILTER.cut_clip_parts_with_osmium(
+                source_files, clip_box, parts, binary,
                 should_stop=lambda: UI.red_flag,
                 spawn_kwargs=UI.external_tool_keyword_arguments(),
             )
-            return
+            return parts
         except Exception as error:
             if UI.red_flag:
                 raise
@@ -896,22 +928,26 @@ def _cut_clip(regions, clip_box, path) -> None:
                 "      osmium-tool cut failed (%s); using the built-in"
                 " cutter." % error,
             )
-    FILTER.clip_extracts_to_pbf(source_files, clip_box, path)
+    for source_file, part in zip(source_files, parts):
+        FILTER.clip_extracts_to_pbf([source_file], clip_box, part)
+    return parts
 
 
-def _clip_for_query(regions, boxes) -> Optional[str]:
-    """Path of the area clip covering the query boxes, building it on
-    first use (seconds through the bundled osmium-tool; one full read of
-    the covering extracts — the same cost as a single query round — with
+def _clip_for_query(regions, boxes) -> Optional[list]:
+    """Part paths of the area clip covering the query boxes (extract
+    order — the filter's first-file-wins order), building them on first
+    use (seconds through the bundled osmium-tool; one full read of the
+    covering extracts — the same cost as a single query round — with
     the pyosmium cutter), repaid by every later round reading a few MB
     instead.  ``None`` on any failure: the caller filters the full
     extracts exactly as before.
     """
     try:
         clip_box = _clip_bounding_box(boxes)
-        path = _clip_path(regions, clip_box)
-        if os.path.isfile(path):
-            return path
+        base = _clip_path(regions, clip_box)
+        parts = _read_clip_parts(base)
+        if parts is not None:
+            return parts
         from O4_File_Lock import hold_file_lock
 
         os.makedirs(_clip_directory(), exist_ok=True)
@@ -920,23 +956,28 @@ def _clip_for_query(regions, boxes) -> Optional[str]:
         # lock each spent minutes decoding the full extracts and the
         # losers' atomic rename then failed under the winner's.  One
         # cutter works; everyone else waits and reads the result.
-        with hold_file_lock(path):
-            if os.path.isfile(path):
-                return path
+        with hold_file_lock(_clip_manifest_path(base)):
+            parts = _read_clip_parts(base)
+            if parts is not None:
+                return parts
             started = time.time()
             UI.vprint(
                 1,
                 "      Cutting a clipped OSM cache for this area "
                 "(one-time per area and extract refresh)...",
             )
-            _cut_clip(regions, clip_box, path)
+            parts = _cut_clip(regions, clip_box, base)
+            _write_json_atomic(
+                _clip_manifest_path(base),
+                [os.path.basename(part) for part in parts])
             UI.vprint(
                 1,
                 "      ...clipped OSM cache ready (%.0f s, %d MB)."
-                % (time.time() - started, os.path.getsize(path) >> 20),
+                % (time.time() - started,
+                   sum(os.path.getsize(part) for part in parts) >> 20),
             )
-        _prune_stale_clips(path)
-        return path
+        _prune_stale_clips(base)
+        return parts
     except Exception as error:
         UI.vprint(
             1,

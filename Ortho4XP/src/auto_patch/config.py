@@ -2501,14 +2501,20 @@ ADJACENT_GROUND_LAW_ENABLED = (
 # 175.0) was removed 2026-07-11 — one definition only.
 
 # Object-derived BRIDGE terrain feature (feature B of
-# docs/object_terrain_features_spec.md).  DEFAULT OFF — the classifier
-# assembler, the classifier-driven replacement of the
-# ``_scenery_has_bridge_objects`` name-grep, and the object-sourced
-# depressed-road corridor all stay dormant until the three-pack audits
-# (KBNA / EDDF / KMCO, workstream W-V) are green and the user flips the
-# flag (project lockstep discipline, spec section 4).  With the gate OFF
-# no classifier runs and every legacy bridge/underpass path is
-# byte-identical to today.
+# docs/object_terrain_features_spec.md).  DEFAULT ON (owner confirmation
+# 2026-07-23; the historic DEFAULT-OFF-until-W-V-audits note below is
+# retained for provenance).  With the gate OFF no classifier runs and
+# every legacy bridge/underpass path is byte-identical to the
+# pre-feature build.
+#   Historic gating note: the classifier assembler, the
+#   classifier-driven replacement of the ``_scenery_has_bridge_objects``
+#   name-grep, and the object-sourced depressed-road corridor stayed
+#   dormant until the three-pack audits (KBNA / EDDF / KMCO, workstream
+#   W-V) were green (project lockstep discipline, spec section 4).
+# KNOWN ISSUE 2026-07-23: with either object-terrain gate on, the
+# ruling-R4 exclusion set over-consumes (265/266 LSGG structures) and
+# starves the Phase 2 y-bake — tracked for a classifier-breadth fix;
+# the gate default is NOT the bug.
 OBJECT_BRIDGE_TERRAIN = (
     _os.environ.get("O4_OBJECT_BRIDGE_TERRAIN", "1") == "1")
 

@@ -826,11 +826,75 @@ def _prune_stale_clips(keep_path: str) -> None:
         pass
 
 
+def _osmium_binary() -> Optional[str]:
+    """Path of an osmium-tool executable, or ``None``.
+
+    Bundled binary first (``Utils/<platform>/osmium``, the same
+    per-platform layout Triangle4XP and DSFTool use), then the PATH.
+    Cached per process; missing everywhere just means the pyosmium
+    cutter does the work.
+    """
+    cached = getattr(_osmium_binary, "cache", "unset")
+    if cached != "unset":
+        return cached
+    import shutil
+
+    if "dar" in sys.platform:
+        subdirectory, name = "mac", "osmium"
+    elif "win" in sys.platform:
+        subdirectory, name = "win", "osmium.exe"
+    else:
+        subdirectory, name = "lin", "osmium"
+    bundled = os.path.join(FNAMES.Utils_dir, subdirectory, name)
+    if os.path.isfile(bundled) and os.access(bundled, os.X_OK):
+        found = bundled
+    else:
+        found = shutil.which("osmium")
+    _osmium_binary.cache = found
+    return found
+
+
+def _cut_clip(regions, clip_box, path) -> None:
+    """Cut the area clip, with osmium-tool when a binary is available
+    (C++ single pass — seconds), the pyosmium cutter otherwise (one full
+    Python-side read of the covering extracts — minutes).
+
+    The osmium cut carries the same contract — filtering its clip is
+    byte-identical to filtering the full extracts
+    (test_osm_extract_filter.py proves it) — so any osmium failure just
+    falls back to the pyosmium cutter.  EXCEPT under a stop request:
+    there the fallback's minutes of decoding would outlive the build it
+    serves, so the failure propagates instead.
+    """
+    import O4_OSM_Extract_Filter as FILTER
+
+    source_files = [_region_file(region_id) for (region_id, _url) in regions]
+    binary = _osmium_binary()
+    if binary is not None:
+        try:
+            FILTER.cut_clip_with_osmium(
+                source_files, clip_box, path, binary,
+                should_stop=lambda: UI.red_flag,
+                spawn_kwargs=UI.external_tool_keyword_arguments(),
+            )
+            return
+        except Exception as error:
+            if UI.red_flag:
+                raise
+            UI.vprint(
+                1,
+                "      osmium-tool cut failed (%s); using the built-in"
+                " cutter." % error,
+            )
+    FILTER.clip_extracts_to_pbf(source_files, clip_box, path)
+
+
 def _clip_for_query(regions, boxes) -> Optional[str]:
     """Path of the area clip covering the query boxes, building it on
-    first use (one full read of the covering extracts — the same cost as
-    a single query round — repaid by every later round reading a few MB
-    instead).  ``None`` on any failure: the caller filters the full
+    first use (seconds through the bundled osmium-tool; one full read of
+    the covering extracts — the same cost as a single query round — with
+    the pyosmium cutter), repaid by every later round reading a few MB
+    instead.  ``None`` on any failure: the caller filters the full
     extracts exactly as before.
     """
     try:
@@ -838,7 +902,6 @@ def _clip_for_query(regions, boxes) -> Optional[str]:
         path = _clip_path(regions, clip_box)
         if os.path.isfile(path):
             return path
-        import O4_OSM_Extract_Filter as FILTER
         from O4_File_Lock import hold_file_lock
 
         os.makedirs(_clip_directory(), exist_ok=True)
@@ -856,11 +919,7 @@ def _clip_for_query(regions, boxes) -> Optional[str]:
                 "      Cutting a clipped OSM cache for this area "
                 "(one-time per area and extract refresh)...",
             )
-            FILTER.clip_extracts_to_pbf(
-                [_region_file(region_id) for (region_id, _url) in regions],
-                clip_box,
-                path,
-            )
+            _cut_clip(regions, clip_box, path)
             UI.vprint(
                 1,
                 "      ...clipped OSM cache ready (%.0f s, %d MB)."

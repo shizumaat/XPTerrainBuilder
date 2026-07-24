@@ -47,6 +47,9 @@ def store(tmp_path, monkeypatch):
     directory = str(tmp_path / "extracts")
     monkeypatch.setattr(EXTRACTS, "STORE_DIRECTORY", directory)
     monkeypatch.setattr(EXTRACTS, "extracts_enabled", lambda: True)
+    # Keep the store tests hermetic: never spawn a host osmium-tool
+    # binary from here (the clip cutter tests below opt back in).
+    monkeypatch.setattr(EXTRACTS, "_osmium_binary", lambda: None)
     EXTRACTS._leaf_regions.cache = None
     # Synthetic Geofabrik index: europe is a parent (excluded), portugal
     # and spain are adjacent leaves meeting at lon -7.4.  iberia is an
@@ -599,3 +602,141 @@ class TestForegroundDownload:
         assert result == self.SENTINEL
         assert calls == [("portugal", True)]
         assert not os.path.exists(stale_tmp)
+
+
+class TestClipCutterDispatch:
+    """_cut_clip: osmium-tool when available, pyosmium otherwise, and the
+    fallback discipline between them."""
+
+    # Query box inside the synthetic portugal region; the clip box the
+    # cutter derives from it is (37.95, -10.05, 39.05, -7.95).
+    QBOX = (38.0, -9.5, 39.0, -8.5)
+
+    def _make_region_pbf(self, tmp_path, region_id="portugal"):
+        """A real (tiny) .osm.pbf region file: a tagged way inside QBOX
+        plus a far-away way the clip must drop."""
+        import O4_OSM_Extract_Filter as FILTER
+
+        body = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<osm version="0.6" generator="test-fixture">\n'
+            '  <node id="1" lat="38.5" lon="-9.2" version="1"/>\n'
+            '  <node id="2" lat="38.6" lon="-9.1" version="1"/>\n'
+            '  <node id="3" lat="20.0" lon="20.0" version="1"/>\n'
+            '  <node id="4" lat="20.1" lon="20.1" version="1"/>\n'
+            '  <way id="10" version="1">\n'
+            '    <nd ref="1"/>\n    <nd ref="2"/>\n'
+            '    <tag k="natural" v="water"/>\n'
+            '  </way>\n'
+            '  <way id="20" version="1">\n'
+            '    <nd ref="3"/>\n    <nd ref="4"/>\n'
+            '    <tag k="natural" v="water"/>\n'
+            '  </way>\n'
+            '</osm>\n'
+        )
+        xml_path = tmp_path / ("%s_source.osm" % region_id)
+        xml_path.write_text(body)
+        target = EXTRACTS._region_file(region_id)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        FILTER.clip_extracts_to_pbf(
+            [str(xml_path)], (-90.0, -180.0, 90.0, 180.0), target)
+        return target
+
+    def _serve(self, paths):
+        import O4_OSM_Extract_Filter as FILTER
+
+        return FILTER.filter_extracts_to_osm_xml(
+            paths, ['way["natural"="water"]'], self.QBOX)
+
+    def test_python_cutter_used_without_binary(self, store, tmp_path):
+        region_file = self._make_region_pbf(tmp_path)
+        clip = EXTRACTS._clip_for_query(
+            [("portugal", None)], [self.QBOX])
+        assert clip is not None and os.path.isfile(clip)
+        assert self._serve([clip]) == self._serve([region_file])
+
+    @pytest.mark.skipif(
+        __import__("shutil").which("osmium") is None,
+        reason="osmium-tool binary not on PATH")
+    def test_osmium_cut_when_binary_available(
+            self, store, tmp_path, monkeypatch):
+        import shutil
+        import O4_OSM_Extract_Filter as FILTER
+
+        region_file = self._make_region_pbf(tmp_path)
+        monkeypatch.setattr(
+            EXTRACTS, "_osmium_binary", lambda: shutil.which("osmium"))
+
+        def _python_cutter_must_not_run(*args, **kwargs):
+            raise AssertionError(
+                "the pyosmium cutter must not run when osmium succeeds")
+        monkeypatch.setattr(
+            FILTER, "clip_extracts_to_pbf", _python_cutter_must_not_run)
+
+        clip = EXTRACTS._clip_for_query([("portugal", None)], [self.QBOX])
+        assert clip is not None and os.path.isfile(clip)
+        assert self._serve([clip]) == self._serve([region_file])
+
+    def test_osmium_failure_falls_back_to_python_cutter(
+            self, store, tmp_path, monkeypatch):
+        import O4_OSM_Extract_Filter as FILTER
+
+        region_file = self._make_region_pbf(tmp_path)
+        # sys.executable rejects the osmium arguments -> non-zero exit.
+        monkeypatch.setattr(
+            EXTRACTS, "_osmium_binary", lambda: sys.executable)
+        calls = []
+        real_cutter = FILTER.clip_extracts_to_pbf
+
+        def _spying_cutter(*args, **kwargs):
+            calls.append(args)
+            return real_cutter(*args, **kwargs)
+        monkeypatch.setattr(FILTER, "clip_extracts_to_pbf", _spying_cutter)
+
+        clip = EXTRACTS._clip_for_query([("portugal", None)], [self.QBOX])
+        assert clip is not None and os.path.isfile(clip)
+        assert len(calls) == 1
+        assert self._serve([clip]) == self._serve([region_file])
+
+    def test_stop_request_skips_python_fallback(
+            self, store, tmp_path, monkeypatch):
+        import O4_OSM_Extract_Filter as FILTER
+        import O4_UI_Utils as UI
+
+        self._make_region_pbf(tmp_path)
+        monkeypatch.setattr(
+            EXTRACTS, "_osmium_binary", lambda: sys.executable)
+        monkeypatch.setattr(UI, "red_flag", True)
+
+        def _python_cutter_must_not_run(*args, **kwargs):
+            raise AssertionError(
+                "a stop request must not start a minutes-long"
+                " pyosmium cut")
+        monkeypatch.setattr(
+            FILTER, "clip_extracts_to_pbf", _python_cutter_must_not_run)
+
+        assert EXTRACTS._clip_for_query(
+            [("portugal", None)], [self.QBOX]) is None
+
+
+class TestOsmiumBinaryDiscovery:
+    def test_bundled_binary_preferred_over_path(self, tmp_path, monkeypatch):
+        import O4_File_Names as FNAMES
+
+        if "dar" in sys.platform:
+            subdirectory, name = "mac", "osmium"
+        elif "win" in sys.platform:
+            subdirectory, name = "win", "osmium.exe"
+        else:
+            subdirectory, name = "lin", "osmium"
+        bundled_dir = tmp_path / "Utils" / subdirectory
+        bundled_dir.mkdir(parents=True)
+        stub = bundled_dir / name
+        stub.write_text("#!/bin/sh\n")
+        stub.chmod(0o755)
+        monkeypatch.setattr(FNAMES, "Utils_dir", str(tmp_path / "Utils"))
+        monkeypatch.setattr(
+            EXTRACTS._osmium_binary, "cache", "unset", raising=False)
+        assert EXTRACTS._osmium_binary() == str(stub)
+        # Leave no poisoned cache behind for other tests.
+        EXTRACTS._osmium_binary.cache = "unset"

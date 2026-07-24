@@ -413,3 +413,210 @@ def test_concurrent_clips_of_same_target_both_succeed(tmp_path):
     leftovers = [
         name for name in os.listdir(tmp_path) if ".tmp-" in name]
     assert leftovers == []
+
+
+# ---------------------------------------------------------------------------
+# osmium-tool clip cutting: cut_clip_with_osmium must uphold the exact
+# clip contract — filtering the osmium-cut clip is BYTE-IDENTICAL to
+# filtering the original extracts, for any statements and any bbox
+# inside the clip box.  The relation-heavy fixtures below exercise the
+# closure cases where the wrong strategy (plain complete_ways, which
+# does not complete relation members) would diverge.
+# ---------------------------------------------------------------------------
+
+import shutil  # noqa: E402
+
+_OSMIUM = shutil.which("osmium")
+requires_osmium = pytest.mark.skipif(
+    _OSMIUM is None, reason="osmium-tool binary not on PATH"
+)
+
+# The padded area box the clips are cut for, and the query bbox inside it.
+CLIP_BOX = (-0.05, -0.05, 1.05, 1.05)
+
+
+def _relation_heavy_fixture(tmp_path, name="rich.osm"):
+    """An ORDERED extract (nodes, ways, relations, ids ascending — the
+    layout osmium extract assumes) covering every relation-closure case:
+
+    * rel 100: touches via member way 51; member way 50 lies entirely
+      outside the clip box and member way 999 does not exist (dangling).
+    * rel 101: type=route (NOT multipolygon — the case ``-S types=any``
+      exists for); touches via way 52, drags in outside way 53.
+    * rel 102: touches ONLY via member node 2; drags outside way 54.
+    * rel 103: nested — carries rel 100 as a member (consumers ignore
+      relation-in-relation, but the member line must survive verbatim).
+    * rel 104: entirely outside the query bbox and the clip box; never
+      selected, with or without it in the clip.
+    """
+    body = (
+        _node(1, "0.5", "0.5", {"aeroway": "aerodrome"})
+        + _node(2, "0.6", "0.6")
+        + _node(3, "9.0", "9.0")
+        + _node(4, "9.1", "9.1")
+        + _node(5, "0.4", "0.4")
+        + _node(6, "8.0", "8.0")
+        + _node(7, "8.1", "8.1")
+        + _node(8, "7.0", "7.0")
+        + _node(9, "7.1", "7.1")
+        + _way(50, [3, 4])
+        + _way(51, [2, 5], {"natural": "water"})
+        + _way(52, [1, 2], {"highway": "primary"})
+        + _way(53, [6, 7], {"highway": "primary"})
+        + _way(54, [8, 9])
+        + _way(55, [1, 5], {"leisure": "park"})
+        + '  <relation id="100" version="1">\n'
+        + '    <member type="way" ref="50" role="outer"/>\n'
+        + '    <member type="way" ref="51" role="outer"/>\n'
+        + '    <member type="way" ref="999" role="outer"/>\n'
+        + '    <tag k="type" v="multipolygon"/>\n'
+        + '    <tag k="waterway" v="riverbank"/>\n'
+        + "  </relation>\n"
+        + _relation(
+            101,
+            [("way", 52, ""), ("way", 53, "")],
+            {"type": "route", "route": "road"},
+        )
+        + _relation(
+            102,
+            [("node", 2, "admin_centre"), ("way", 54, "outer")],
+            {"type": "boundary", "boundary": "administrative"},
+        )
+        + '  <relation id="103" version="1">\n'
+        + '    <member type="relation" ref="100" role="inner"/>\n'
+        + '    <member type="way" ref="55" role="outer"/>\n'
+        + '    <tag k="waterway" v="riverbank"/>\n'
+        + "  </relation>\n"
+        + _relation(104, [("way", 50, "outer")], {"waterway": "riverbank"})
+    )
+    return _write(tmp_path, name, body)
+
+
+_QUERY_SETS = (
+    ['rel["waterway"="riverbank"]'],
+    ['rel["route"]'],
+    ['rel["boundary"="administrative"]'],
+    ['node["aeroway"]', 'way["highway"]'],
+    ['way["natural"="water"]', 'rel["waterway"="riverbank"]'],
+)
+
+
+@requires_osmium
+def test_osmium_clip_filtering_is_byte_identical(tmp_path):
+    source = _relation_heavy_fixture(tmp_path)
+    osmium_clip = str(tmp_path / "osmium_clip.osm.pbf")
+    FILTER.cut_clip_with_osmium([source], CLIP_BOX, osmium_clip, _OSMIUM)
+    python_clip = str(tmp_path / "python_clip.osm.pbf")
+    FILTER.clip_extracts_to_pbf([source], CLIP_BOX, python_clip)
+
+    for statements in _QUERY_SETS:
+        direct = FILTER.filter_extracts_to_osm_xml(
+            [source], statements, BBOX)
+        via_osmium = FILTER.filter_extracts_to_osm_xml(
+            [osmium_clip], statements, BBOX)
+        via_python = FILTER.filter_extracts_to_osm_xml(
+            [python_clip], statements, BBOX)
+        assert via_osmium == direct, statements
+        assert via_python == direct, statements
+
+
+@requires_osmium
+def test_osmium_clip_relation_closure_content(tmp_path):
+    """Spot-check the closure the strategy choice is load-bearing for:
+    a selected relation's member way OUTSIDE the box arrives with its
+    nodes (plain complete_ways would leave way 50 / nodes 3, 4 out)."""
+    source = _relation_heavy_fixture(tmp_path)
+    clip = str(tmp_path / "clip.osm.pbf")
+    FILTER.cut_clip_with_osmium([source], CLIP_BOX, clip, _OSMIUM)
+
+    xml = FILTER.filter_extracts_to_osm_xml(
+        [clip], ['rel["waterway"="riverbank"]'], BBOX)
+    nodes, ways, rels = _parse_ids(xml)
+    assert 100 in rels and 103 in rels
+    assert 104 not in rels
+    assert 50 in ways and 51 in ways and 55 in ways
+    assert {2, 3, 4, 5} <= set(nodes)
+
+
+@requires_osmium
+def test_osmium_clip_multiple_extracts_first_file_wins(tmp_path):
+    """Two 'regions' carrying the same way id with DIFFERENT node
+    coordinates (adjacent Geofabrik snapshots from different days): the
+    per-region-cut-then-pyosmium-merge path must keep the first file's
+    data, byte-identical to filtering the originals.  (A single
+    ``osmium merge`` here would keep both versions — the reason the
+    multi-extract path avoids it.)"""
+    body_a = (
+        _node(1, "0.5", "0.5")
+        + _node(2, "0.6", "0.6")
+        + _way(10, [1, 2], {"natural": "water"})
+        + _way(11, [1, 2], {"highway": "primary"})
+    )
+    body_b = (
+        _node(1, "0.9", "0.9")
+        + _node(2, "0.8", "0.8")
+        + _node(3, "0.7", "0.7")
+        + _way(10, [1, 2], {"natural": "water"})
+        + _way(12, [2, 3], {"natural": "water"})
+    )
+    path_a = _write(tmp_path, "region_a.osm", body_a)
+    path_b = _write(tmp_path, "region_b.osm", body_b)
+    clip = str(tmp_path / "clip.osm.pbf")
+    FILTER.cut_clip_with_osmium([path_a, path_b], CLIP_BOX, clip, _OSMIUM)
+
+    for statements in (
+        ['way["natural"="water"]'],
+        ['way["highway"]'],
+    ):
+        direct = FILTER.filter_extracts_to_osm_xml(
+            [path_a, path_b], statements, BBOX)
+        via_clip = FILTER.filter_extracts_to_osm_xml(
+            [clip], statements, BBOX)
+        assert via_clip == direct, statements
+    # And the tie really went to the first file.
+    xml = FILTER.filter_extracts_to_osm_xml(
+        [clip], ['way["natural"="water"]'], BBOX).decode("utf-8")
+    assert 'lat="0.5000000"' in xml
+    assert 'lat="0.9000000"' not in xml
+
+
+@requires_osmium
+def test_osmium_clip_no_leftover_temporaries(tmp_path):
+    source = _relation_heavy_fixture(tmp_path)
+    clip = str(tmp_path / "clip.osm.pbf")
+    FILTER.cut_clip_with_osmium([source], CLIP_BOX, clip, _OSMIUM)
+    assert os.path.isfile(clip)
+    leftovers = [n for n in os.listdir(tmp_path) if ".tmp-" in n]
+    assert leftovers == []
+
+
+def test_osmium_cut_stop_request_raises_before_spawn(tmp_path):
+    source = _mixed_fixture(tmp_path)
+    clip = str(tmp_path / "clip.osm.pbf")
+    with pytest.raises(FILTER.ExtractFilterError):
+        FILTER.cut_clip_with_osmium(
+            [source], CLIP_BOX, clip, _OSMIUM or "osmium",
+            should_stop=lambda: True)
+    assert not os.path.exists(clip)
+    leftovers = [n for n in os.listdir(tmp_path) if ".tmp-" in n]
+    assert leftovers == []
+
+
+def test_osmium_cut_failing_binary_raises_and_cleans_up(tmp_path):
+    source = _mixed_fixture(tmp_path)
+    clip = str(tmp_path / "clip.osm.pbf")
+    # sys.executable balks at the osmium arguments and exits non-zero on
+    # every platform — a stand-in for a broken or wrong-arch binary.
+    with pytest.raises(FILTER.ExtractFilterError):
+        FILTER.cut_clip_with_osmium([source], CLIP_BOX, clip, sys.executable)
+    assert not os.path.exists(clip)
+    leftovers = [n for n in os.listdir(tmp_path) if ".tmp-" in n]
+    assert leftovers == []
+
+
+def test_osmium_cut_rejects_multiple_boxes(tmp_path):
+    source = _mixed_fixture(tmp_path)
+    with pytest.raises(FILTER.ExtractFilterError):
+        FILTER.cut_clip_with_osmium(
+            [source], [CLIP_BOX, (2.0, 2.0, 3.0, 3.0)],
+            str(tmp_path / "clip.osm.pbf"), _OSMIUM or "osmium")

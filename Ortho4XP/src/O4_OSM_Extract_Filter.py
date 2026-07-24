@@ -60,8 +60,9 @@ file wins.
 from __future__ import annotations
 
 import os
+import subprocess
 import threading
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 import osmium
 
@@ -561,3 +562,171 @@ def clip_extracts_to_pbf(
         raise ExtractFilterError(
             "could not write clip " + str(output_path) + ": " + str(e)
         ) from e
+
+
+# ---------------------------------------------------------------------------
+# Clip cutting via osmium-tool (optional C++ fast path)
+# ---------------------------------------------------------------------------
+# ``osmium extract --strategy smart --option types=any`` retains, for a
+# region box: every node in the box; every way with a node in the box,
+# made reference-complete; and every relation directly referencing any
+# of those nodes or ways, with ALL member nodes and ways (and those
+# ways' nodes).  That is a superset of what :func:`clip_extracts_to_pbf`
+# keeps — the extras are parent relations pulled in recursively, which
+# re-filtering can never select (a relation is only selected through
+# its own member geometry).  Filtering an osmium-cut clip is therefore
+# byte-identical to filtering the original extract; the tests assert
+# exactly that.  The default ``complete_ways`` strategy would NOT be
+# equivalent: it leaves a selected relation's outside member ways
+# behind, breaking the downward-closure half of the clip contract.
+# Measured on gcc-states.osm.pbf (250 MB, a 1.1x1.1 degree box,
+# 2026-07-23): osmium extract 0.9 s wall against 90.1 s for the
+# pyosmium cutter above — and filtering either clip gave bytes
+# identical to filtering the full extract (sha-verified, an 11-
+# statement production-shaped query).
+#
+# Multiple extracts are deliberately NOT combined with ``osmium
+# merge``: two Geofabrik snapshots taken on different days can carry
+# different versions of a shared border object, and merge keeps both
+# versions, while this module's contract is first-file-wins.  Instead
+# each extract is osmium-cut on its own — that is the expensive
+# whole-file read — and the small per-region clips are merged by
+# :func:`clip_extracts_to_pbf`, whose merge rule IS the contract.
+
+_OSMIUM_POLL_SECONDS = 0.5
+
+
+def _run_osmium_extract(
+    osmium_binary: str,
+    source_path: str,
+    bbox_argument: str,
+    output_path: str,
+    stderr_path: str,
+    should_stop: Optional[Callable[[], bool]],
+    spawn_kwargs: Optional[dict],
+) -> None:
+    """One ``osmium extract`` run, waited on with ``should_stop`` polls.
+
+    stderr goes to a file rather than a pipe so the wait loop can never
+    deadlock on a full pipe buffer; its tail is read back for the error
+    message on a non-zero exit."""
+    if should_stop is not None and should_stop():
+        raise ExtractFilterError("clip cutting stopped")
+    command = [
+        osmium_binary, "extract",
+        "--strategy", "smart", "--option", "types=any",
+        "--bbox", bbox_argument,
+        "--no-progress", "--overwrite",
+        "--output", output_path,
+        source_path,
+    ]
+    try:
+        with open(stderr_path, "wb") as stderr_file:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=stderr_file,
+                **(spawn_kwargs or {}),
+            )
+    except Exception as e:
+        raise ExtractFilterError(
+            "could not run osmium-tool (" + str(osmium_binary) + "): "
+            + str(e)
+        ) from e
+    while True:
+        try:
+            returncode = process.wait(timeout=_OSMIUM_POLL_SECONDS)
+            break
+        except subprocess.TimeoutExpired:
+            if should_stop is None or not should_stop():
+                continue
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            raise ExtractFilterError("clip cutting stopped")
+    if returncode != 0:
+        tail = ""
+        try:
+            with open(stderr_path, "rb") as stderr_file:
+                tail = stderr_file.read()[-500:] \
+                    .decode("utf-8", "replace").strip()
+        except OSError:
+            pass
+        raise ExtractFilterError(
+            "osmium extract failed (exit %d)%s"
+            % (returncode, ": " + tail if tail else "")
+        )
+
+
+def cut_clip_with_osmium(
+    extract_paths: Iterable[str],
+    bounding_box,
+    output_path: str,
+    osmium_binary: str,
+    should_stop: Optional[Callable[[], bool]] = None,
+    spawn_kwargs: Optional[dict] = None,
+) -> None:
+    """:func:`clip_extracts_to_pbf` semantics, cut by osmium-tool.
+
+    Same contract as the pyosmium cutter — filtering the result with any
+    statements and any bbox inside ``bounding_box`` is byte-identical to
+    filtering the original extracts — at C++ single-pass speed (see the
+    section comment above for why ``smart``/``types=any`` guarantees
+    this and why multiple extracts are cut separately then merged by the
+    pyosmium cutter).
+
+    extract_paths: local extract files, first-file-wins order.
+    bounding_box: ONE ``(lat_min, lon_min, lat_max, lon_max)`` box (the
+        clip cache is always cut for a single padded area box).
+    osmium_binary: path of the osmium-tool executable to run.
+    should_stop: optional zero-argument callable polled while osmium
+        runs; returning True terminates the child and raises.
+    spawn_kwargs: optional extra ``subprocess.Popen`` keyword arguments
+        (the engine passes its posix-spawn-preserving set, see
+        ``O4_UI_Utils.external_tool_keyword_arguments``).
+
+    Raises ExtractFilterError on any failure, stop request included;
+    ``output_path`` is only ever replaced atomically and temporaries are
+    removed on every path.
+    """
+    boxes = _normalize_bounding_boxes(bounding_box)
+    if len(boxes) != 1:
+        raise ExtractFilterError(
+            "osmium clip cutting expects a single clip box"
+        )
+    (lat_min, lon_min, lat_max, lon_max) = boxes[0]
+    bbox_argument = "%.7f,%.7f,%.7f,%.7f" % (
+        lon_min, lat_min, lon_max, lat_max)
+    paths = [str(path) for path in extract_paths]
+    for path in paths:
+        if not os.path.isfile(path):
+            raise ExtractFilterError("extract file not found: " + path)
+    # Unique per pid AND thread, exactly as the pyosmium cutter's temp
+    # files: concurrent cutters of the same clip must never collide.
+    unique = "%d-%d" % (os.getpid(), threading.get_ident())
+    part_paths = [
+        "%s.tmp-%s-%d.osm.pbf" % (output_path, unique, index)
+        for index in range(len(paths))
+    ]
+    stderr_path = "%s.tmp-%s.stderr" % (output_path, unique)
+    try:
+        for source_path, part_path in zip(paths, part_paths):
+            _run_osmium_extract(
+                osmium_binary, source_path, bbox_argument, part_path,
+                stderr_path, should_stop, spawn_kwargs,
+            )
+        if len(part_paths) == 1:
+            os.replace(part_paths[0], output_path)
+        else:
+            # Small inputs now: the pyosmium cutter's read cost is a few
+            # seconds here, and its first-file-wins merge is the oracle.
+            clip_extracts_to_pbf(part_paths, boxes[0], output_path)
+    finally:
+        for leftover in part_paths + [stderr_path]:
+            try:
+                os.remove(leftover)
+            except OSError:
+                pass

@@ -16,6 +16,11 @@ gui = None
 # attribute registration keeps the import graph acyclic and core
 # pipeline modules toolkit-free.
 engine_session = None
+# The active o4_engine.secret_broker.SecretBroker, set by the JSON-lines
+# transport for its lifetime.  When set, O4_Authenticated_Sessions routes
+# platform-secret-store operations to the front end instead of importing
+# keyring (same acyclic-registration pattern as engine_session).
+secret_broker = None
 log = True
 total_elapsed = 0.0
 

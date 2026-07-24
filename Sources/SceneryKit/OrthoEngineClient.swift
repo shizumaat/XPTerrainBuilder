@@ -71,6 +71,11 @@ public enum O4Event: Sendable, Equatable {
     case buildDone(lat: Int, lon: Int, ok: Bool, error: String)
     case runEta(elapsedSeconds: Double, remainingSeconds: Double?, doneTiles: Int, totalTiles: Int)
     case runDone(doneCount: Int, errorCount: Int, cancelled: Bool)
+    /// The engine asks the app to service one secret-store operation from
+    /// the app's own Keychain (credential broker; answer with a
+    /// `secret_response` command carrying the same requestID).
+    case secretRequest(requestID: Int, operation: String, sessionName: String,
+                       account: String, secret: String)
     case engineError(fatal: Bool, text: String)
     /// The engine's stderr: pipeline prints, initialization chatter — the
     /// raw console text that used to be stdout.
@@ -146,6 +151,10 @@ public enum O4Event: Sendable, Equatable {
         case "RunDone":
             return .runDone(doneCount: int("done_count"), errorCount: int("error_count"),
                             cancelled: bool("cancelled"))
+        case "SecretRequest":
+            return .secretRequest(requestID: int("request_id"), operation: string("operation"),
+                                  sessionName: string("session_name"),
+                                  account: string("account"), secret: string("secret"))
         case "Error":
             return .engineError(fatal: bool("fatal"), text: string("text"))
         default:

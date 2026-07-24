@@ -65,6 +65,7 @@ from typing import Any, Callable, Dict, TextIO
 import O4_UI_Utils as UI
 
 from .events import EngineHello, Error, ScanBatch
+from .secret_broker import SecretBroker
 from .session import EngineSession
 
 
@@ -365,6 +366,15 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
 
     saved_sys_stdout = sys.stdout
     sys.stdout = sys.stderr
+    # The front end on the other side of this pipe services the engine's
+    # platform-secret-store operations (o4_engine.secret_broker): requests
+    # go out as SecretRequest events; secret_response commands come back
+    # through the read loop below.  The read loop is therefore named as
+    # the thread requests may never block on.
+    broker = SecretBroker(
+        send_request=lambda event: write_obj(serialize_event(event)),
+        service_thread=threading.current_thread())
+    UI.secret_broker = broker
     try:
         _initialize_pipeline_registries()
         session = EngineSession(version=_ortho4xp_version())
@@ -377,9 +387,11 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
         write_obj(serialize_event(EngineHello(
             ortho4xp_version=_ortho4xp_version(),
             capabilities=("scan", "build", "enqueue_build", "cancel",
-                          "tile_info", "config", "links", "siblings"))))
+                          "tile_info", "config", "links", "siblings",
+                          "secrets"))))
 
         handlers = _build_handlers(session)
+        handlers["secret_response"] = broker.deliver
         for raw_line in stdin:
             line = raw_line.strip()
             if not line:
@@ -439,6 +451,10 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
     finally:
         sys.stdout = saved_sys_stdout
         # The transport owned this session's lifecycle; leave the module
-        # routing attribute clean for whatever runs next in-process.
+        # routing attributes clean for whatever runs next in-process.
+        # Pending secret requests are failed rather than left to time
+        # out on their worker threads.
+        broker.shutdown()
+        UI.secret_broker = None
         UI.engine_session = None
         UI.red_flag = False

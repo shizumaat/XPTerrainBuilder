@@ -874,6 +874,15 @@ class ParallelBuildRun:
     # -- child callbacks (reader threads) --------------------------------
     def _on_child_event(self, child, payload):
         event_name = payload.get("event")
+        if event_name == "SecretRequest":
+            # A worker child's brokered secret-store operation
+            # (o4_engine.secret_broker): the parent services it — off
+            # this reader thread, because the parent's own routing may
+            # itself block on the front end brokering THIS process.
+            threading.Thread(
+                target=self._service_child_secret_request,
+                args=(child, payload), daemon=True).start()
+            return
         if event_name == "RunDone":
             self._child_step_done(child)
             return
@@ -936,6 +945,42 @@ class ParallelBuildRun:
             if tile is not None and (event.lat, event.lon) == (0, 0):
                 event = dataclasses.replace(event, lat=tile[0], lon=tile[1])
         self._session._emit(event)
+
+    def _service_child_secret_request(self, child, payload):
+        """Answer one child's secret-store request with the parent's
+        own routing (O4_Authenticated_Sessions.secret_get/set/delete):
+        forwarded to the front end when this process is itself brokered
+        (the packaged application), keyring directly otherwise — so the
+        one process that touches the platform store is always the
+        outermost driver, never an ad-hoc worker child."""
+        import O4_Authenticated_Sessions as SESSIONS
+
+        operation = str(payload.get("operation", ""))
+        session_name = str(payload.get("session_name", ""))
+        account = str(payload.get("account", ""))
+        response = {"cmd": "secret_response",
+                    "request_id": payload.get("request_id", 0)}
+        try:
+            if operation == "get":
+                response["secret"] = SESSIONS.secret_get(
+                    session_name, account)
+                response["ok"] = True
+            elif operation == "set":
+                SESSIONS.secret_set(
+                    session_name, account,
+                    str(payload.get("secret", "")))
+                response["ok"] = True
+            elif operation == "delete":
+                SESSIONS.secret_delete(session_name, account)
+                response["ok"] = True
+            else:
+                response["ok"] = False
+                response["error"] = (
+                    "unknown secret operation %r" % operation)
+        except Exception as error:
+            response["ok"] = False
+            response["error"] = str(error)
+        child.send(response)
 
     def _child_step_done(self, child):
         """The child finished (or aborted) one single-step build."""

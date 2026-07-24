@@ -227,10 +227,29 @@ def save_session_cookies(session, session_name):
 
 
 # =====================================================================
-# Credential storage (platform secret store via keyring)
+# Credential storage (platform secret store via keyring, or brokered
+# through the front end when one serves this engine process)
 # =====================================================================
+def _active_secret_broker():
+    """The front end's secret broker, or None to use keyring directly.
+
+    Set by the JSON-lines transport for its lifetime
+    (o4_engine.secret_broker): under the packaged application the
+    engine is a separate ad-hoc-signed binary, and its own Keychain use
+    would prompt as "Ortho4XP" and lose its grants on every rebuild —
+    so the application services secret operations from ITS store
+    instead.  Standalone runs (command line, Tkinter, in-process Qt
+    session) have no broker and keep the keyring path.
+    """
+    return getattr(UI, "secret_broker", None)
+
+
 def credential_store_available():
     """Whether a platform secret store is usable on this machine."""
+    if _active_secret_broker() is not None:
+        # The front end owns the store; brokered operations report
+        # their own failures per call.
+        return True
     try:
         import keyring
         import keyring.errors
@@ -244,6 +263,62 @@ def credential_store_available():
 
 def _credential_service(session_name):
     return _CREDENTIAL_SERVICE_PREFIX + session_name
+
+
+def secret_get(session_name, account):
+    """The stored secret for (session, account), or None when absent.
+
+    Routing primitive shared by this module and the parallel-build
+    parent driver (o4_engine.parallel services worker children's
+    brokered requests through these three functions).  Raises on a
+    store failure — callers decide whether that is fatal.
+    """
+    broker = _active_secret_broker()
+    if broker is not None:
+        (ok, secret, error) = broker.request("get", session_name, account)
+        if not ok:
+            raise RuntimeError(error)
+        return secret
+    import keyring
+
+    return keyring.get_password(_credential_service(session_name), account)
+
+
+def secret_set(session_name, account, secret):
+    """Store one secret for (session, account).
+
+    Raises CredentialStoreUnavailable when the brokering front end
+    reports the store refused the write (keyring failures propagate
+    as themselves, matching the historic behavior).
+    """
+    broker = _active_secret_broker()
+    if broker is not None:
+        (ok, _secret, error) = broker.request(
+            "set", session_name, account, secret=secret)
+        if not ok:
+            raise CredentialStoreUnavailable(
+                "The secret store refused to save this credential (%s); "
+                "it was NOT saved.  Sign-in can still proceed for this "
+                "run." % error
+            )
+        return
+    import keyring
+
+    keyring.set_password(_credential_service(session_name), account, secret)
+
+
+def secret_delete(session_name, account):
+    """Remove one stored secret (raises on failure; callers swallow)."""
+    broker = _active_secret_broker()
+    if broker is not None:
+        (ok, _secret, error) = broker.request(
+            "delete", session_name, account)
+        if not ok:
+            raise RuntimeError(error)
+        return
+    import keyring
+
+    keyring.delete_password(_credential_service(session_name), account)
 
 
 def store_credentials(session_name, username, password):
@@ -260,12 +335,10 @@ def store_credentials(session_name, username, password):
             "is missing or has no usable backend); credentials were NOT "
             "saved.  Sign-in can still proceed for this run."
         )
-    import keyring
-
     directory = sessions_directory()
     os.makedirs(directory, exist_ok=True)
     _restrict_to_owner(directory, directory=True)
-    keyring.set_password(_credential_service(session_name), username, password)
+    secret_set(session_name, username, password)
     account_path = _account_file_path(session_name)
     with open(account_path, "w", encoding="utf-8") as handle:
         json.dump({"username": username}, handle)
@@ -284,11 +357,7 @@ def load_credentials(session_name):
     if not username:
         return None
     try:
-        import keyring
-
-        password = keyring.get_password(
-            _credential_service(session_name), username
-        )
+        password = secret_get(session_name, username)
     except Exception as error:
         UI.vprint(
             1,
@@ -309,11 +378,7 @@ def delete_credentials(session_name):
     credentials = load_credentials(session_name)
     if credentials is not None:
         try:
-            import keyring
-
-            keyring.delete_password(
-                _credential_service(session_name), credentials[0]
-            )
+            secret_delete(session_name, credentials[0])
         except Exception:
             pass
     try:
@@ -330,21 +395,13 @@ def store_api_key(session_name, api_key):
             "is missing or has no usable backend); the API key was NOT "
             "saved."
         )
-    import keyring
-
-    keyring.set_password(
-        _credential_service(session_name), _API_KEY_ACCOUNT, api_key
-    )
+    secret_set(session_name, _API_KEY_ACCOUNT, api_key)
 
 
 def load_api_key(session_name):
     """Return the stored API key for a session, or None."""
     try:
-        import keyring
-
-        return keyring.get_password(
-            _credential_service(session_name), _API_KEY_ACCOUNT
-        )
+        return secret_get(session_name, _API_KEY_ACCOUNT)
     except Exception as error:
         UI.vprint(
             1,
@@ -360,11 +417,7 @@ def load_api_key(session_name):
 def delete_api_key(session_name):
     """Remove a stored API key (no-op when none is stored)."""
     try:
-        import keyring
-
-        keyring.delete_password(
-            _credential_service(session_name), _API_KEY_ACCOUNT
-        )
+        secret_delete(session_name, _API_KEY_ACCOUNT)
     except Exception:
         pass
 

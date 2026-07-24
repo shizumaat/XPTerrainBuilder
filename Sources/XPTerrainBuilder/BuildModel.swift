@@ -560,11 +560,51 @@ final class BuildModel: ObservableObject {
                 guard !Task.isCancelled, let self, !self.isBuilding else { return }
                 self.activity.reset()
             }
+        case .secretRequest(let requestID, let operation, let sessionName,
+                            let account, let secret):
+            serviceSecretRequest(requestID: requestID, operation: operation,
+                                 sessionName: sessionName, account: account,
+                                 secret: secret)
         case .engineError(let fatal, let text):
             console.append((fatal ? "FATAL: " : "Engine: ") + text)
             if fatal { engineError = text }
         case .unknown:
             break // additive protocol: ignore unknown event types
+        }
+    }
+
+    /// Service the engine's brokered secret-store operation from the app's
+    /// own Keychain (ProviderSecretStore): the engine binary is ad-hoc
+    /// signed, so its own Keychain use would prompt as "Ortho4XP" and lose
+    /// its grants on every rebuild — the items live with the app instead.
+    private func serviceSecretRequest(requestID: Int, operation: String,
+                                      sessionName: String, account: String,
+                                      secret: String) {
+        guard let client else { return }
+        Task.detached(priority: .userInitiated) {
+            let store = ProviderSecretStore()
+            var arguments: [String: Any] = ["request_id": requestID]
+            do {
+                switch operation {
+                case "get":
+                    let value = try store.secret(sessionName: sessionName, account: account)
+                    arguments["ok"] = true
+                    arguments["secret"] = value ?? NSNull()
+                case "set":
+                    try store.store(sessionName: sessionName, account: account, secret: secret)
+                    arguments["ok"] = true
+                case "delete":
+                    try store.delete(sessionName: sessionName, account: account)
+                    arguments["ok"] = true
+                default:
+                    arguments["ok"] = false
+                    arguments["error"] = "unknown secret operation '\(operation)'"
+                }
+            } catch {
+                arguments["ok"] = false
+                arguments["error"] = String(describing: error)
+            }
+            client.send(command: "secret_response", arguments: arguments)
         }
     }
 

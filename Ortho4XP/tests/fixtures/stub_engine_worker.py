@@ -84,8 +84,12 @@ def _write_marker(kind, lat, lon, step=None, only_if_absent=False):
     if only_if_absent and os.path.exists(path):
         return
     try:
-        with open(path, "w") as handle:
+        # Atomic write (temp + rename): a reader must never observe a
+        # created-but-empty file, whatever the read/write interleaving.
+        temporary = path + ".tmp"
+        with open(temporary, "w") as handle:
             handle.write(repr(time.time()))
+        os.replace(temporary, path)
     except OSError as error:
         _chatter("stub worker could not write marker", path, error)
 

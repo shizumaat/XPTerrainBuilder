@@ -20,7 +20,10 @@ from typing import Optional
 # 1.1 (2026-07-16, additive): AutoPatchBegin/AutoPatchProgress carry
 # lat/lon so parallel builds (docs/specs/parallel-tile-builds.md) stay
 # attributable when several tiles stream at once.
-PROTOCOL_VERSION = "1.1"
+# 1.2 (2026-07-23, additive): SecretRequest — the engine asks its front
+# end to service one platform-secret-store operation (credential broker;
+# answered with the ``secret_response`` command, o4_engine.secret_broker).
+PROTOCOL_VERSION = "1.2"
 
 
 @dataclass(frozen=True)
@@ -176,6 +179,31 @@ class RunDone(EngineEvent):
     done_count: int = 0
     error_count: int = 0
     cancelled: bool = False
+
+
+@dataclass(frozen=True)
+class SecretRequest(EngineEvent):
+    """The engine asks the front end to service one secret-store operation.
+
+    Emitted only while a front end brokers the platform secret store for
+    the engine (o4_engine.secret_broker; under the packaged app the reply
+    comes from the app's own Keychain, so the user-visible prompt and the
+    access-control list belong to the signed application, not to an
+    ad-hoc-signed engine binary).  The front end answers with a
+    ``{"cmd": "secret_response", "request_id": ..., "ok": ...,
+    "secret": ...}`` command; the engine blocks (bounded) until it
+    arrives.
+
+    ``operation``: "get" | "set" | "delete".  ``secret`` is only
+    populated for "set" — the one direction a secret travels engine to
+    front end, over the private stdio pipe the transport already owns.
+    """
+
+    request_id: int = 0
+    operation: str = ""
+    session_name: str = ""
+    account: str = ""
+    secret: str = ""
 
 
 @dataclass(frozen=True)

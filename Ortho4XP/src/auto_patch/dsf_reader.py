@@ -968,6 +968,19 @@ def read_dsf_pavement_border_lines(
 # ``.pol`` or object ``.obj`` that merely happens to contain "hangar"
 # in its name can never be mistaken for a building footprint.
 #
+# The stock library also exports generic building facades outside those
+# two families (SPJC field case 2026-07-24: 25 Cargo_Terminal + 21
+# warehouse/office placements dropped, so the cargo apron got pavement
+# pads but no building pads):
+#   lib/airport/Common_Elements/Misc_Buildings/*.fac
+#     (Cargo_Terminal / Blue_Warehouse / White_Warehouse / White_Office)
+#   lib/airport/buildings/{offices,utility,warehouses}/**.fac
+# These are recognized BY LIBRARY FOLDER, never by generic words like
+# "cargo" or "warehouse" — a third-party facade merely named
+# "cargo_ramp.fac" must not become a building.  Every ``.fac`` the
+# stock library exports under these folders is a standalone building
+# (no roof/decor pieces), role ``"building"``.
+#
 # The Terminal_kit also ships term_roof_* decorative pieces that stack
 # ON the footprint (no new outline → dropped) and term_bridge_* CONNECTOR
 # facades — enclosed skybridges / link spans that physically join two
@@ -976,9 +989,10 @@ def read_dsf_pavement_border_lines(
 # building + bridge + building run unions into ONE flat pad) without
 # treating a stray bridge as a standalone building.
 def _building_role_for_def(path: str) -> str | None:
-    """Return ``"terminal"`` / ``"hangar"`` / ``"bridge"`` if the
-    POLYGON_DEF path is a terminal, hangar, or terminal-bridge facade,
-    else ``None``."""
+    """Return ``"terminal"`` / ``"hangar"`` / ``"bridge"`` /
+    ``"building"`` if the POLYGON_DEF path is a terminal, hangar,
+    terminal-bridge, or stock-library generic building facade, else
+    ``None``."""
     p = path.lower()
     if not p.endswith(".fac"):
         return None
@@ -988,6 +1002,8 @@ def _building_role_for_def(path: str) -> str | None:
         return "terminal"
     if "hangar" in p:
         return "hangar"
+    if "/misc_buildings/" in p or p.startswith("lib/airport/buildings/"):
+        return "building"
     return None
 
 
@@ -1052,8 +1068,10 @@ def read_dsf_buildings(
     """Extract terminal/hangar building footprints from a DSF file.
 
     Returns a list of ``(outer_ring, holes, role)`` where ``role`` is
-    ``"terminal"``, ``"hangar"``, or ``"bridge"`` (a term_bridge_*
-    connector facade; mapped from the facade's POLYGON_DEF path via
+    ``"terminal"``, ``"hangar"``, ``"bridge"`` (a term_bridge_*
+    connector facade), or ``"building"`` (a stock-library generic
+    building — Misc_Buildings / lib/airport/buildings; mapped from the
+    facade's POLYGON_DEF path via
     ``_building_role_for_def``), ``outer_ring`` is
     a list of ``(lon, lat)`` tuples and ``holes`` its inner rings.
     Rings are NOT closed.  Returns ``[]`` on any failure.

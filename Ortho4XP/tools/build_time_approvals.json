@@ -1,4 +1,11 @@
 {
  "_doc": "Owner-committed approvals for build-time hard-law exceptions (canonical law: CLAUDE.md working-style item 6; checker: tools/check_build_time.py). Each entry: subject ('airport:<ICAO>' | 'tile:<short_latlon>' | '*'), metric ('total' | 'phase:<label>' | '*'), allowed_seconds (approved ceiling the measured value must stay under), reason (required, non-empty), approved_by (required), date. Hollow entries are ignored by the checker.",
- "approvals": []
+ "approvals": [
+  {"subject": "airport:SPJC",
+   "metric": "total",
+   "allowed_seconds": 90.0,
+   "reason": "Recognizing the stock library's generic building facades (Misc_Buildings / lib/airport/buildings) in dsf_reader._building_role_for_def admits 49 previously-dropped building footprints at SPJC (25 Cargo_Terminal, 21 warehouse/office, 3 others) -> 94 building pads vs 60. SPJC's cargo apron previously got pavement pads but no building pads, so those structures rode the ungraded DEM. Cost: 84.41 -> 86.45 s median (+2.04 s, 3.4% of the 60 s budget; SPJC was already over budget). Fable 5 optimization agent 2026-07-24 found the increase is NOT in reading or clustering the facades (geometry phases flat) but the legitimate downstream price of 34 more real pads in the elevation phase: pad seating/coupling, pavement-pad stitching, strip construction, and 26 more rigid pad groups in the final projections (+0.4 s); the solver core is unchanged (+0.18 s) and the grade graph shrinks slightly as pads displace apron area. Offset identified and queued separately: junction_rules.stitch_pavement_to_terminals re-extracts every building ring per pavement vertex with no spatial prefilter, expected to recover more than 2 s.",
+   "approved_by": "owner",
+   "date": "2026-07-24"}
+ ]
 }

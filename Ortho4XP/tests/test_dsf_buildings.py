@@ -33,6 +33,31 @@ def test_building_role_for_def():
     assert _building_role_for_def("foo/term_bridge_thing.obj") is None
 
 
+def test_building_role_for_stock_generic_buildings():
+    """The stock generic-building families classify as "building" —
+    the SPJC field case (2026-07-24): 47 Misc_Buildings placements
+    (cargo terminals, warehouses, an office) were dropped and the
+    cargo apron got no building pads."""
+    misc = "lib/airport/Common_Elements/Misc_Buildings/"
+    for name in ("Cargo_Terminal.fac", "Blue_Warehouse.fac",
+                 "White_Warehouse.fac", "White_Office.fac"):
+        assert _building_role_for_def(misc + name) == "building"
+    assert _building_role_for_def(
+        "lib/airport/buildings/offices/office_building_01.fac") \
+        == "building"
+    assert _building_role_for_def(
+        "lib/airport/buildings/warehouses/cargo/blue.fac") == "building"
+    assert _building_role_for_def(
+        "lib/airport/buildings/utility/garage/6m/gray_1.fac") == "building"
+    # Recognition is BY LIBRARY FOLDER: generic words alone never
+    # classify, so third-party facades cannot false-positive.
+    assert _building_role_for_def("MyPack/cargo_ramp.fac") is None
+    assert _building_role_for_def("MyPack/warehouse_tarp.fac") is None
+    assert _building_role_for_def("MyPack/office_fence.fac") is None
+    # Non-facade resources under the recognized folders still refuse.
+    assert _building_role_for_def(misc + "Cargo_Terminal.pol") is None
+
+
 def _write_fake_dsf(tmp_path, body):
     """Create a fake .dsf + a fresh .dsf.text cache so ``_read_dsf_polys``
     parses our synthetic text without invoking DSFTool."""

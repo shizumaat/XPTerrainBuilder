@@ -30,6 +30,7 @@ import platform
 import subprocess
 import sys
 import tempfile
+import threading
 
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
@@ -1285,6 +1286,105 @@ def _object_footprint_sidecar(
     )
 
 
+# ── In-process memo + per-DSF lock around the object readers ─────────
+#
+# The airport-insets phase resolves candidate packs per TILE, so every
+# airport in a tile (OTHH, OTBD, OTBH…) asks for the SAME pack DSF, and
+# those fetches run in a ThreadPoolExecutor: on a cold sidecar cache
+# several threads miss the on-disk sidecar simultaneously and each
+# re-runs the full OBJ8 parse + terrain classification + O(n²)
+# contact-graph partition (minutes each on a large payware pack), with
+# the pipeline's own read racing behind them — the sidecar dedupes runs
+# of the PROCESS, never callers inside one.  The memo serves the
+# finished ring set once per process (the ``_DSF_LINES_CACHE`` idiom);
+# the per-DSF lock makes concurrent cold-cache callers WAIT for the
+# first computation instead of duplicating it.  Keyed on the sidecar
+# fingerprint, so everything that invalidates the sidecar (DSF mtime,
+# pack ``.obj`` edits, the config gate constants) invalidates the memo
+# too — and it inherits the sidecar's documented accepted risk that
+# out-of-pack ``library.txt`` resources (and hence ``xplane_root``) are
+# not part of the key.  With the sidecar cache disabled
+# (``O4_OBJECT_FOOTPRINT_CACHE=0``) or no resolvable pack root there is
+# no fingerprint and no memo/lock — "no read, no write" keeps meaning
+# exactly that, and tests that monkeypatch reader internals with the
+# gate off see every call recompute.
+_OBJECT_READER_MEMO: dict[tuple[str, str, str], list] = {}
+_OBJECT_READER_LOCKS: dict[str, threading.Lock] = {}
+_OBJECT_READER_LOCKS_GUARD = threading.Lock()
+
+
+def _object_reader_lock(dsf_path: str) -> threading.Lock:
+    """One lock per DSF absolute path, shared by the building and
+    pavement readers — both walk the same (unsynchronized)
+    ``_DSF_LINES_CACHE`` / ``_OBJECT_GEOMETRY_CACHE``, so serializing
+    per DSF also keeps concurrent readers from duplicating those
+    parses."""
+    key = os.path.abspath(dsf_path)
+    with _OBJECT_READER_LOCKS_GUARD:
+        lock = _OBJECT_READER_LOCKS.get(key)
+        if lock is None:
+            lock = _OBJECT_READER_LOCKS[key] = threading.Lock()
+    return lock
+
+
+def _read_footprint_sidecar(
+    sidecar_path: str | None,
+    fingerprint: str | None,
+    hit_message: str,
+    stale_message: str,
+):
+    """Load one object-reader sidecar; returns the cached result on a
+    fingerprint match, else ``None`` (missing, stale or unreadable —
+    the caller recomputes)."""
+    import pickle
+    if not (sidecar_path and fingerprint and os.path.isfile(sidecar_path)):
+        return None
+    try:
+        with open(sidecar_path, "rb") as sidecar_file:
+            payload = pickle.load(sidecar_file)
+        if payload.get("fingerprint") == fingerprint:
+            UI.vprint(1, hit_message)
+            return payload["result"]
+        UI.vprint(1, stale_message)
+    except Exception:
+        pass
+    return None
+
+
+def _serve_object_reader(
+    reader_kind: str,
+    dsf_path: str,
+    sidecar_path: str | None,
+    fingerprint: str | None,
+    hit_message: str,
+    stale_message: str,
+    compute,
+):
+    """memo → per-DSF lock → memo again → disk sidecar → compute once.
+
+    With no fingerprint (cache gate off, no pack root) this is a plain
+    passthrough to ``compute`` — the pre-memo behaviour.  Otherwise a
+    concurrent caller for the same DSF blocks on the lock and reuses the
+    winner's result instead of re-running the O(n²) partition.  The
+    memoized list is shared between callers (same contract as
+    ``_DSF_LINES_CACHE``); callers iterate, never mutate."""
+    if fingerprint is None:
+        return compute()
+    memo_key = (reader_kind, os.path.abspath(dsf_path), fingerprint)
+    result = _OBJECT_READER_MEMO.get(memo_key)
+    if result is not None:
+        return result
+    with _object_reader_lock(dsf_path):
+        result = _OBJECT_READER_MEMO.get(memo_key)
+        if result is None:
+            result = _read_footprint_sidecar(
+                sidecar_path, fingerprint, hit_message, stale_message)
+        if result is None:
+            result = compute()
+        _OBJECT_READER_MEMO[memo_key] = result
+        return result
+
+
 def read_dsf_object_buildings(
     dsf_path: str,
     cache_dir: str | None = None,
@@ -1332,10 +1432,36 @@ def read_dsf_object_buildings(
     ``O4_OBJECT_FOOTPRINT_CACHE=0`` disables the cache entirely (no read,
     no write); with no resolvable pack root the reader behaves as it did
     before the cache existed.
+
+    On top of the sidecar, the finished result is memoized IN-PROCESS on
+    the same fingerprint and computed under a per-DSF lock
+    (:func:`_serve_object_reader`): the airport-insets phase resolves
+    candidate packs per tile, so every airport of a tile fetches the
+    same pack DSF from a ThreadPoolExecutor — on a cold sidecar those
+    threads (and the pipeline's own read after them) would otherwise
+    each re-run the whole parse + partition.
     """
-    # Function-local config imports so tests can monkeypatch the values
-    # (the module-level idiom at the top of this file freezes them —
-    # spec section 4-W1, "one trap").
+    sidecar_path, fingerprint = _object_buildings_sidecar(dsf_path)
+    return _serve_object_reader(
+        "buildings", dsf_path, sidecar_path, fingerprint,
+        "   [dsf-object] footprints read from the pack "
+        "sidecar cache (fingerprint match)",
+        "   [dsf-object] footprint pack sidecar cache STALE "
+        "(pack edited since it was written) - recomputing",
+        lambda: _compute_dsf_object_buildings(
+            dsf_path, cache_dir, xplane_root, sidecar_path, fingerprint),
+    )
+
+
+def _object_buildings_sidecar(
+        dsf_path: str) -> tuple[str | None, str | None]:
+    """Sidecar path + fingerprint for the building reader — ``(None,
+    None)`` with the cache gate off (``O4_OBJECT_FOOTPRINT_CACHE=0``) or
+    no resolvable pack root.  Config imports are function-local so tests
+    can monkeypatch the values (the module-level idiom at the top of
+    this file freezes them — spec section 4-W1, "one trap")."""
+    if os.environ.get("O4_OBJECT_FOOTPRINT_CACHE", "1") != "1":
+        return None, None
     from .config import (
         DSF_OBJECT_CONNECTOR_MAX_FILL,
         DSF_OBJECT_CONNECTOR_PREFILTER,
@@ -1346,53 +1472,49 @@ def read_dsf_object_buildings(
         DSF_OBJECT_MIN_REACH_M,
         OBJECT_BRIDGE_TERRAIN,
     )
+    return _object_footprint_sidecar(
+        dsf_path, _pack_root_for_dsf(dsf_path),
+        DSF_OBJECT_CONTACT_EPSILON_M, DSF_OBJECT_MIN_REACH_M,
+        gate_constants=(
+            # Building-pad footprint gates the cached ring set depends
+            # on (defect 2026-07-17) — a change invalidates the cache.
+            DSF_OBJECT_MAX_FOOTPRINT_AREA_M2,
+            DSF_OBJECT_MAX_STRUCTURE_SPAN_M,
+            float(DSF_OBJECT_CONNECTOR_PREFILTER),
+            DSF_OBJECT_CONNECTOR_SPAN_M,
+            DSF_OBJECT_CONNECTOR_MAX_FILL,
+            # Terrain-feature exclusion (defect 2026-07-17, EGLL
+            # Building36): tunnel/bridge/deck resources drop from the
+            # building pool when this feature is on, so the cached
+            # ring set depends on it — a toggle invalidates the cache.
+            float(OBJECT_BRIDGE_TERRAIN),
+        ),
+    )
+
+
+def _compute_dsf_object_buildings(
+    dsf_path: str,
+    cache_dir: str | None,
+    xplane_root: str | None,
+    sidecar_path: str | None,
+    fingerprint: str | None,
+) -> list[tuple[list[tuple[float, float]],
+                list[list[tuple[float, float]]],
+                str]]:
+    """The full (uncached) building-footprint computation behind
+    :func:`read_dsf_object_buildings`, ending with the sidecar write
+    when ``sidecar_path``/``fingerprint`` are known.  Config imports are
+    function-local so tests can monkeypatch the values."""
+    from .config import (
+        DSF_OBJECT_CONNECTOR_MAX_FILL,
+        DSF_OBJECT_CONNECTOR_PREFILTER,
+        DSF_OBJECT_CONNECTOR_SPAN_M,
+        DSF_OBJECT_CONTACT_EPSILON_M,
+        DSF_OBJECT_MIN_REACH_M,
+    )
     from . import obj8_reader as _OBJ8
     from . import object_anchor as _ANCHOR
     from . import object_footprints as _FOOTPRINTS
-
-    # ── Pack-sidecar footprint cache (default ON) ──  A hit skips ALL
-    # ``.obj`` parsing and the contact-graph partition and returns the
-    # cached ring set.  ``O4_OBJECT_FOOTPRINT_CACHE=0`` disables it.
-    sidecar_path: str | None = None
-    fingerprint: str | None = None
-    if os.environ.get("O4_OBJECT_FOOTPRINT_CACHE", "1") == "1":
-        import pickle
-        sidecar_path, fingerprint = _object_footprint_sidecar(
-            dsf_path, _pack_root_for_dsf(dsf_path),
-            DSF_OBJECT_CONTACT_EPSILON_M, DSF_OBJECT_MIN_REACH_M,
-            gate_constants=(
-                # Building-pad footprint gates the cached ring set depends
-                # on (defect 2026-07-17) — a change invalidates the cache.
-                DSF_OBJECT_MAX_FOOTPRINT_AREA_M2,
-                DSF_OBJECT_MAX_STRUCTURE_SPAN_M,
-                float(DSF_OBJECT_CONNECTOR_PREFILTER),
-                DSF_OBJECT_CONNECTOR_SPAN_M,
-                DSF_OBJECT_CONNECTOR_MAX_FILL,
-                # Terrain-feature exclusion (defect 2026-07-17, EGLL
-                # Building36): tunnel/bridge/deck resources drop from the
-                # building pool when this feature is on, so the cached
-                # ring set depends on it — a toggle invalidates the cache.
-                float(OBJECT_BRIDGE_TERRAIN),
-            ),
-        )
-        if sidecar_path and fingerprint and os.path.isfile(sidecar_path):
-            try:
-                with open(sidecar_path, "rb") as sidecar_file:
-                    payload = pickle.load(sidecar_file)
-                if payload.get("fingerprint") == fingerprint:
-                    UI.vprint(
-                        1,
-                        "   [dsf-object] footprints read from the pack "
-                        "sidecar cache (fingerprint match)",
-                    )
-                    return payload["result"]
-                UI.vprint(
-                    1,
-                    "   [dsf-object] footprint pack sidecar cache STALE "
-                    "(pack edited since it was written) - recomputing",
-                )
-            except Exception:
-                pass
 
     lines = _load_dsf_text(dsf_path, cache_dir)
     if not lines:
@@ -1701,47 +1823,62 @@ def read_dsf_object_pavements(
     :func:`airport_mod_cache_dir`) on the same fingerprint machinery as
     the object-building footprints, with the pavement gate constants in
     the digest; ``O4_OBJECT_FOOTPRINT_CACHE=0`` disables this cache too
-    (one switch for both object sidecars).
+    (one switch for both object sidecars).  Like the building reader,
+    the result is also memoized in-process and computed under the shared
+    per-DSF lock (:func:`_serve_object_reader`), so concurrent callers
+    on one DSF compute at most once per process.
     """
+    sidecar_path, fingerprint = _object_pavements_sidecar(dsf_path)
+    return _serve_object_reader(
+        "pavements", dsf_path, sidecar_path, fingerprint,
+        "   [dsf-object] pavement patches read from the "
+        "pack sidecar cache (fingerprint match)",
+        "   [dsf-object] pavement pack sidecar cache STALE "
+        "(pack edited since it was written) - recomputing",
+        lambda: _compute_dsf_object_pavements(
+            dsf_path, cache_dir, xplane_root, sidecar_path, fingerprint),
+    )
+
+
+def _object_pavements_sidecar(
+        dsf_path: str) -> tuple[str | None, str | None]:
+    """Sidecar path + fingerprint for the pavement reader — ``(None,
+    None)`` with the cache gate off or no resolvable pack root.  Config
+    imports are function-local so tests can monkeypatch the values."""
+    if os.environ.get("O4_OBJECT_FOOTPRINT_CACHE", "1") != "1":
+        return None, None
     from .config import (
         DSF_OBJECT_PAVEMENT_MAX_LAYER_OFFSET,
         DSF_OBJECT_PAVEMENT_MIN_PATCH_M2,
     )
+    return _object_footprint_sidecar(
+        dsf_path, _pack_root_for_dsf(dsf_path),
+        0.0, 0.0,  # no contact partition in the pavement path
+        gate_constants=(
+            float(DSF_OBJECT_PAVEMENT_MAX_LAYER_OFFSET),
+            DSF_OBJECT_PAVEMENT_MIN_PATCH_M2,
+        ),
+        sidecar_prefix=_OBJECT_PAVEMENT_SIDECAR_PREFIX,
+        cache_version=_OBJECT_PAVEMENT_CACHE_VERSION,
+    )
+
+
+def _compute_dsf_object_pavements(
+    dsf_path: str,
+    cache_dir: str | None,
+    xplane_root: str | None,
+    sidecar_path: str | None,
+    fingerprint: str | None,
+) -> list[tuple[list[tuple[float, float]],
+                list[list[tuple[float, float]]],
+                str]]:
+    """The full (uncached) pavement-patch computation behind
+    :func:`read_dsf_object_pavements`, ending with the sidecar write
+    when ``sidecar_path``/``fingerprint`` are known.  Config imports are
+    function-local so tests can monkeypatch the values."""
+    from .config import DSF_OBJECT_PAVEMENT_MIN_PATCH_M2
     from . import obj8_reader as _OBJ8
     from . import object_footprints as _FOOTPRINTS
-
-    sidecar_path: str | None = None
-    fingerprint: str | None = None
-    if os.environ.get("O4_OBJECT_FOOTPRINT_CACHE", "1") == "1":
-        import pickle
-        sidecar_path, fingerprint = _object_footprint_sidecar(
-            dsf_path, _pack_root_for_dsf(dsf_path),
-            0.0, 0.0,  # no contact partition in the pavement path
-            gate_constants=(
-                float(DSF_OBJECT_PAVEMENT_MAX_LAYER_OFFSET),
-                DSF_OBJECT_PAVEMENT_MIN_PATCH_M2,
-            ),
-            sidecar_prefix=_OBJECT_PAVEMENT_SIDECAR_PREFIX,
-            cache_version=_OBJECT_PAVEMENT_CACHE_VERSION,
-        )
-        if sidecar_path and fingerprint and os.path.isfile(sidecar_path):
-            try:
-                with open(sidecar_path, "rb") as sidecar_file:
-                    payload = pickle.load(sidecar_file)
-                if payload.get("fingerprint") == fingerprint:
-                    UI.vprint(
-                        1,
-                        "   [dsf-object] pavement patches read from the "
-                        "pack sidecar cache (fingerprint match)",
-                    )
-                    return payload["result"]
-                UI.vprint(
-                    1,
-                    "   [dsf-object] pavement pack sidecar cache STALE "
-                    "(pack edited since it was written) - recomputing",
-                )
-            except Exception:
-                pass
 
     lines = _load_dsf_text(dsf_path, cache_dir)
     if not lines:

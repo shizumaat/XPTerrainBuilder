@@ -824,6 +824,10 @@ class TestObjectFootprintCache:
         assert partitions_after_first > 0
         assert os.path.isfile(self._sidecar_path(harness))
 
+        # Drop the in-process memo so the second call exercises the DISK
+        # sidecar (the memo alone is proven by
+        # ``TestObjectReaderInProcessMemo``).
+        D._OBJECT_READER_MEMO.clear()
         second = D.read_dsf_object_buildings(harness.dsf_path,
                                              xplane_root=None)
         # Identical ring set …
@@ -865,6 +869,10 @@ class TestObjectFootprintCache:
             handle.write(b"not a valid pickle \x00\x01\x02")
         partitions_before = len(harness.partition_calls)
 
+        # Drop the in-process memo — it would (correctly) serve the
+        # result without touching the corrupt file; this test is about
+        # the DISK fallback path.
+        D._OBJECT_READER_MEMO.clear()
         second = D.read_dsf_object_buildings(harness.dsf_path,
                                              xplane_root=None)
         # A garbled sidecar never raises — it recomputes and rewrites …
@@ -909,6 +917,110 @@ class TestObjectFootprintCache:
         D.read_dsf_object_buildings(harness.dsf_path, xplane_root=None)
         # The old in-pack file was cleaned up on sidecar resolution.
         assert not os.path.exists(legacy)
+
+
+# ── in-process memo + per-DSF lock (``_serve_object_reader``) ────────
+
+class TestObjectReaderInProcessMemo:
+    """The in-process layer above the disk sidecar: the airport-insets
+    phase fetches every airport of a tile from the SAME pack DSF on a
+    ThreadPoolExecutor, so a cold cache must compute once — concurrent
+    callers block on the per-DSF lock and reuse the winner's result —
+    and later same-process calls must not even need the sidecar file.
+    (Memo keys embed the tmp_path-unique DSF path + fingerprint, so no
+    cross-test clearing is needed.)"""
+
+    def _sidecar_path(self, tmp_path, harness):
+        pack_name = os.path.basename(os.path.abspath(harness.pack_root))
+        dsf_stem = os.path.splitext(
+            os.path.basename(harness.dsf_path))[0]
+        return os.path.join(
+            str(tmp_path / "o4_data_root"), "Airport_mod_cache",
+            pack_name, f"o4_object_footprints_{dsf_stem}.cache")
+
+    def test_memo_serves_after_sidecar_deleted(
+            self, object_building_harness, tmp_path):
+        harness = object_building_harness
+        first = D.read_dsf_object_buildings(harness.dsf_path,
+                                            xplane_root=None)
+        partitions_after_first = len(harness.partition_calls)
+        sidecar = self._sidecar_path(tmp_path, harness)
+        assert os.path.isfile(sidecar)
+        os.remove(sidecar)
+
+        second = D.read_dsf_object_buildings(harness.dsf_path,
+                                             xplane_root=None)
+        assert second == first
+        # No recompute — and the missing sidecar was never consulted or
+        # rewritten: the result came from the in-process memo.
+        assert len(harness.partition_calls) == partitions_after_first
+        assert not os.path.isfile(sidecar)
+
+    def test_concurrent_cold_calls_compute_once(
+            self, object_building_harness, monkeypatch):
+        """Two threads race a cold cache on one DSF.  The first is held
+        at the top of the computation (already inside the per-DSF lock)
+        while the second is submitted, so without the lock both would
+        miss sidecar + memo and each run the full computation; with it,
+        ``_compute_dsf_object_buildings`` runs exactly once and both
+        callers get the same ring set."""
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        harness = object_building_harness
+        first_entered = threading.Event()
+        release_first = threading.Event()
+        compute_calls = []
+        real_compute = D._compute_dsf_object_buildings
+
+        def gated_compute(*arguments, **keyword_arguments):
+            compute_calls.append(threading.get_ident())
+            first_entered.set()
+            assert release_first.wait(timeout=10), \
+                "test choreography stuck"
+            return real_compute(*arguments, **keyword_arguments)
+
+        monkeypatch.setattr(D, "_compute_dsf_object_buildings",
+                            gated_compute)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_a = executor.submit(
+                D.read_dsf_object_buildings, harness.dsf_path)
+            assert first_entered.wait(timeout=10), \
+                "first reader never reached the computation"
+            # The first reader now holds the per-DSF lock mid-compute;
+            # the racer must block on it, then reuse the memo.
+            future_b = executor.submit(
+                D.read_dsf_object_buildings, harness.dsf_path)
+            release_first.set()
+            result_a = future_a.result(timeout=30)
+            result_b = future_b.result(timeout=30)
+
+        assert result_a == result_b
+        assert len(result_a) == 3
+        # ONE computation for two callers.
+        assert len(compute_calls) == 1
+
+    def test_gate_off_means_no_memo_and_no_lock_path(
+            self, object_building_harness, monkeypatch):
+        """``O4_OBJECT_FOOTPRINT_CACHE=0`` keeps meaning "no read, no
+        write": with no fingerprint there is no memo either, so every
+        call recomputes (tests that monkeypatch reader internals rely
+        on this)."""
+        harness = object_building_harness
+        monkeypatch.setenv("O4_OBJECT_FOOTPRINT_CACHE", "0")
+        compute_calls = []
+        real_compute = D._compute_dsf_object_buildings
+
+        def counting_compute(*arguments, **keyword_arguments):
+            compute_calls.append(True)
+            return real_compute(*arguments, **keyword_arguments)
+
+        monkeypatch.setattr(D, "_compute_dsf_object_buildings",
+                            counting_compute)
+        D.read_dsf_object_buildings(harness.dsf_path, xplane_root=None)
+        D.read_dsf_object_buildings(harness.dsf_path, xplane_root=None)
+        assert len(compute_calls) == 2
 
 
 # ── tier (b), real workstream-W2 reader ──────────────────────────────

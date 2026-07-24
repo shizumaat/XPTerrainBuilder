@@ -179,6 +179,12 @@ private struct GeneralPane: View {
     var body: some View {
         Form {
             Section("Application") {
+                LabeledContent("Version") {
+                    Text("XPTerrainBuilder \(AppVersion.current)")
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .help("Include this when reporting a problem.")
+                }
                 LabeledContent("X-Plane Folder") {
                     HStack {
                         pathText(xplanePath)

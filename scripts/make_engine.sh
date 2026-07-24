@@ -19,6 +19,7 @@ fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENGINE="$ROOT/Ortho4XP"
+source "$ROOT/scripts/version.sh"
 cd "$ENGINE"
 
 # iCloud Drive conflict copies ("Foo 2.lay") poison the freeze — they get
@@ -72,6 +73,12 @@ if [[ -n "$GDAL_REQ" ]]; then
     || echo "WARNING: GDAL install failed — airport elevation insets will be disabled (engine handles this gracefully)."
 fi
 "$PY" -m pip install pyinstaller
+
+# Every freeze is a new engine build: bump 1.50.<build> before PyInstaller
+# runs, so the version baked into the frozen tree is the one this build
+# ships. Late enough that a failed pip install doesn't burn a number.
+NEW_VERSION="$(xptb_version_bump "$ENGINE/src/O4_Version.py")"
+echo "Engine build $NEW_VERSION"
 
 echo "Freezing with $SPEC …"
 rm -rf build dist

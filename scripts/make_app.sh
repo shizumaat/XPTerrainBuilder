@@ -5,6 +5,7 @@ set -euo pipefail
 
 CONFIG="${1:-release}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/scripts/version.sh"
 # .nosync: iCloud Drive skips such folders. The repo may live under the
 # synced Documents folder, and letting the file provider chew on a half-
 # gigabyte app bundle mid-assembly causes conflict duplicates and stalls.
@@ -26,6 +27,14 @@ if pgrep -f "$APP/Contents/MacOS/XPTerrainBuilder" >/dev/null 2>&1; then
   echo "ERROR: XPTerrainBuilder is running from $APP — quit it first." >&2
   exit 1
 fi
+
+# Every package is a new app build: bump 1.0.<build> before swift build, so
+# the VERSION resource SwiftPM copies into the bundle and the Info.plist
+# stamped below both carry this build's number. Deliberately after the
+# is-it-running check — a refused package must not burn a number.
+APP_VERSION="$(xptb_version_bump "$ROOT/Sources/XPTerrainBuilder/Resources/VERSION")"
+APP_BUILD="${APP_VERSION##*.}"
+echo "App build $APP_VERSION"
 
 cd "$ROOT"
 swift build --build-system native -c "$CONFIG"
@@ -83,7 +92,9 @@ fi
 # the tree in case the glass look returns.
 cp "$ROOT/Ortho4XP/Utils/icons/Ortho4XP.icns" "$STAGE/Contents/Resources/AppIcon.icns"
 
-cat > "$STAGE/Contents/Info.plist" <<'PLIST'
+# Unquoted heredoc: the version placeholders below expand. The plist body
+# has no other shell metacharacters — keep it that way.
+cat > "$STAGE/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -101,9 +112,9 @@ cat > "$STAGE/Contents/Info.plist" <<'PLIST'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>${APP_VERSION}</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>${APP_BUILD}</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>NSHighResolutionCapable</key>
@@ -135,4 +146,4 @@ ditto "$STAGE" "$APP"
 # until the binary has run once; a forced re-registration avoids it.
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
   -f "$APP" 2>/dev/null || true
-echo "Built $APP"
+echo "Built $APP (version $APP_VERSION)"

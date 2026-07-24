@@ -16,7 +16,12 @@ let package = Package(
         .executableTarget(
             name: "XPTerrainBuilder",
             dependencies: ["SceneryKit"],
-            resources: [.copy("Resources/land.json"), .copy("Resources/land50.json")]
+            // Resources/VERSION is the app's tracked version (scripts/make_app.sh
+            // bumps it and stamps the same string into Info.plist); shipping it
+            // as a resource means `swift run` reports the same version as the
+            // packaged app.
+            resources: [.copy("Resources/land.json"), .copy("Resources/land50.json"),
+                        .copy("Resources/VERSION")]
         ),
         .executableTarget(
             name: "xptb-cli",

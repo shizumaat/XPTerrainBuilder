@@ -132,6 +132,27 @@ _GDAL_HTTP_GUARD_DEFAULTS = {
     "GDAL_HTTP_LOW_SPEED_TIME": "60",
     "GDAL_HTTP_MAX_RETRY": "2",
     "GDAL_HTTP_RETRY_DELAY": "5",
+    # Remote-read efficiency (curl-backed filesystems only; local files,
+    # /vsizip members of local archives and the WCS driver never consult
+    # these).  Without a readdir policy, every /vsicurl open probes for
+    # sidecar metadata next to the COG (Landsat .met and friends, via
+    # GDALMDReaderManager) at one HTTPS round trip per probe — measured
+    # at ~30% of a SWISSALTI3D inset warp's wall time.  EMPTY_DIR skips
+    # the directory listing AND hands the open an empty sibling list, so
+    # the probes die without touching the network.  Consequence accepted:
+    # remote sidecars (external .ovr overviews, .aux.xml) are invisible;
+    # the COG strategies never rely on them.
+    "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+    # Block cache over curl range reads: mosaic overlap and the warp's
+    # overview-then-detail access pattern re-read the same ranges.
+    "VSI_CACHE": "TRUE",
+    "VSI_CACHE_SIZE": "33554432",
+    # Swallow a COG's whole header in the first ranged request (default
+    # 16 KB is one IFD too small for some providers) and read 256 KB per
+    # range thereafter (default 16 KB) — fewer HTTPS round trips per
+    # window.
+    "GDAL_INGESTED_BYTES_AT_OPEN": "32768",
+    "CPL_VSIL_CURL_CHUNK_SIZE": "262144",
 }
 _gdal_http_guards_applied = False
 
@@ -151,7 +172,8 @@ class TransientFetchError(Exception):
 
     Raised (instead of a no-coverage answer) when a remote read dies in a
     way that says nothing about whether the provider has data: curl
-    timeouts, connection failures, 5xx server responses.  The module-wide
+    timeouts, connection failures, 5xx server responses, 429 rate
+    limits.  The module-wide
     convention every :func:`fetch_inset` caller honours: a RAISED failure
     is never recorded as a durable no-coverage negative, while a returned
     ``None`` is.
@@ -180,6 +202,12 @@ _TRANSIENT_NETWORK_ERROR_FRAGMENTS = (
     "http error code : 5",
     "http error code: 5",
     "service unavailable",
+    # Rate limiting says "come back later", never "no data here"; the
+    # same swisstopo throttling that poisoned the search path surfaces
+    # from the warp path as a 429.
+    "http error code : 429",
+    "http error code: 429",
+    "too many requests",
 )
 
 
@@ -592,6 +620,45 @@ def discover_inset(definition, bounding_box_wgs84):
 # =====================================================================
 # Shared fetch helpers (strategy-agnostic; reused by tnm_cog and stac)
 # =====================================================================
+def _vsicurl_allowed_extensions(warp_inputs):
+    """Extension allowlist for the warp's remote reads, or ``None``.
+
+    ``CPL_VSIL_CURL_ALLOWED_EXTENSIONS`` makes any curl-backed open whose
+    URL does not end in a listed extension fail instantly WITHOUT a
+    network request — a second fence (behind ``GDAL_DISABLE_READDIR_ON_
+    OPEN``) against per-open sidecar-metadata probing.  It is scoped to
+    the warp call rather than set globally because the template strategy
+    legitimately opens remote zips (``/vsizip//vsicurl/…zip``) outside
+    the warp, which a global ``.tif`` list would break.
+
+    The list is DERIVED from the inputs (plus ``.vrt``'s referenced
+    ``.tif``/``.tiff``) instead of hard-coded, so a provider with an
+    unusual raster extension can never be locked out by its own guard.
+    GDAL strips the query string before matching, so presigned URLs
+    (``….tif?X-Amz-…``) pass.  Returns ``None`` — option omitted — when
+    no input is curl-backed, when a curl input has no usable extension,
+    or when a chained virtual path (``/vsizip//vsicurl/…``) makes the
+    underlying URL's extension differ from the path's.
+    """
+    extensions = {".tif", ".tiff", ".vrt"}
+    saw_curl_input = False
+    for source in warp_inputs:
+        if not isinstance(source, str) or not source.startswith("/vsi"):
+            # Local scratch files and already-open datasets (the wcs
+            # strategy hands the warp a Dataset) never go through curl.
+            continue
+        if not source.startswith(("/vsicurl/", "/vsis3/")):
+            return None
+        saw_curl_input = True
+        basename = source.split("?", 1)[0].rsplit("/", 1)[-1]
+        if "." not in basename:
+            return None
+        extensions.add("." + basename.rsplit(".", 1)[-1].lower())
+    if not saw_curl_input:
+        return None
+    return ",".join(sorted(extensions))
+
+
 def warp_vsicurl_sources_to_geotiff(
     vsicurl_inputs,
     bounding_box_wgs84,
@@ -635,7 +702,16 @@ def warp_vsicurl_sources_to_geotiff(
     x_resolution_deg = target_resolution_m / metres_per_degree_longitude
     y_resolution_deg = target_resolution_m / metres_per_degree_latitude
     os.makedirs(os.path.dirname(destination_path), exist_ok=True)
+
+    def _abort_when_red_flagged(_fraction, _message, _data):
+        # gdal.Warp polls this between work chunks; returning 0 aborts.
+        # A Stop must not wait out a many-minute remote warp (and the
+        # abort is raised as TRANSIENT below, so no durable no-coverage
+        # negative is recorded for a user-cancelled fetch).
+        return 0 if UI.red_flag else 1
+
     warp_options = gdal.WarpOptions(
+        callback=_abort_when_red_flagged,
         format="GTiff",
         outputType=gdal.GDT_Float32,
         # Some sources (plain XYZ grids) carry no CRS of their own.
@@ -657,9 +733,20 @@ def warp_vsicurl_sources_to_geotiff(
         dstNodata=-32768.0,
         creationOptions=["COMPRESS=DEFLATE", "PREDICTOR=3"],
     )
+    configuration_options = dict(gdal_configuration_options or {})
+    allowed_extensions = _vsicurl_allowed_extensions(vsicurl_inputs)
+    if (
+        allowed_extensions
+        and "CPL_VSIL_CURL_ALLOWED_EXTENSIONS" not in configuration_options
+        and os.environ.get("CPL_VSIL_CURL_ALLOWED_EXTENSIONS") is None
+        and gdal.GetConfigOption("CPL_VSIL_CURL_ALLOWED_EXTENSIONS") is None
+    ):
+        configuration_options["CPL_VSIL_CURL_ALLOWED_EXTENSIONS"] = (
+            allowed_extensions
+        )
     try:
-        if gdal_configuration_options:
-            with gdal.config_options(gdal_configuration_options):
+        if configuration_options:
+            with gdal.config_options(configuration_options):
                 dataset = gdal.Warp(
                     destination_path,
                     list(vsicurl_inputs),
@@ -670,6 +757,10 @@ def warp_vsicurl_sources_to_geotiff(
                 destination_path, list(vsicurl_inputs), options=warp_options
             )
     except Exception as error:
+        if UI.red_flag:
+            raise TransientFetchError(
+                "elevation warp stopped with the build"
+            ) from error
         if error_message_indicates_transient_network_failure(error):
             raise TransientFetchError(
                 "elevation warp died on a network timeout or outage: "
@@ -678,6 +769,8 @@ def warp_vsicurl_sources_to_geotiff(
         UI.vprint(1, "   WARNING: elevation warp failed:", str(error))
         return False
     if dataset is None:
+        if UI.red_flag:
+            raise TransientFetchError("elevation warp stopped with the build")
         return False
     dataset = None  # flush to disk before reopening
     # Sentinel sanitization: sources with UNDECLARED nodata leak their
@@ -996,6 +1089,13 @@ class StacCloudOptimizedGeoTiffStrategy:
             body["collections"] = collections
         return (url, body, collections, (west, south, east, north))
 
+    # Hard ceiling on rel=next pages followed per search.  At the default
+    # page limit of 50 items this allows 1000 items -- an order of
+    # magnitude above the largest airport box (LSGG's ~2 km margin box
+    # spans ~40-50 of SWISSALTI3D's 1 km-square items) while still
+    # bounding a server whose next links never terminate.
+    _SEARCH_MAX_PAGES = 20
+
     def discover(self, definition, bounding_box_wgs84):
         import requests
 
@@ -1051,7 +1151,107 @@ class StacCloudOptimizedGeoTiffStrategy:
                 )
                 raise TransientFetchError(
                     "STAC search failed: %s" % error)
-        return self._parse_search_payload(payload)
+        items = self._parse_search_payload(payload)
+        if items is None:
+            return None
+        return self._follow_pagination(
+            requests, definition, url, body, payload, items
+        )
+
+    def _follow_pagination(
+        self, requests, definition, url, body, payload, items
+    ):
+        """Accumulate every page of a STAC search via its rel=next links.
+
+        One page of SWISSALTI3D covers 50 km-square items; a large airport
+        box holds more, and stopping at page one silently truncated the
+        COG set (an inset with holes recorded as "ok" -- worse than no
+        inset at all).  A next-page request that FAILS raises
+        :class:`TransientFetchError` for the same reason the first-page
+        failure does: a partial answer must never become a durable record,
+        neither "ok" nor no-coverage.
+        """
+        pages_fetched = 1
+        seen_ids = {
+            item.get("id") for item in items if item.get("id")
+        }
+        next_link = self._next_search_link(payload)
+        while next_link is not None and pages_fetched < self._SEARCH_MAX_PAGES:
+            payload = self._request_next_page(requests, next_link, url, body)
+            pages_fetched += 1
+            page_items = self._parse_search_payload(payload)
+            if not page_items:
+                break
+            for item in page_items:
+                item_id = item.get("id")
+                if item_id and item_id in seen_ids:
+                    continue
+                if item_id:
+                    seen_ids.add(item_id)
+                items.append(item)
+            next_link = self._next_search_link(payload)
+        if next_link is not None:
+            # No silent caps: say what was left behind.
+            UI.vprint(
+                1,
+                "   WARNING: STAC search for provider",
+                definition.get("code"),
+                "still had a next page after",
+                pages_fetched,
+                "pages - coverage of this window may be incomplete.",
+            )
+        return items or None
+
+    @staticmethod
+    def _next_search_link(payload):
+        """The rel=next link object of a search response, if any."""
+        if not isinstance(payload, dict):
+            return None
+        for link in payload.get("links") or []:
+            if isinstance(link, dict) and link.get("rel") == "next":
+                return link
+        return None
+
+    @staticmethod
+    def _request_next_page(requests, next_link, search_url, body):
+        """Fetch one continuation page described by a rel=next link.
+
+        Two conventions in the wild: a plain GET href carrying the token
+        in its query string, and the STAC API POST convention (used by
+        data.geo.admin.ch) where the link names ``method: POST`` and a
+        ``body`` holding the continuation token, merged over the original
+        search body (``merge: true``; a link body without ``merge`` still
+        starts from the original body so bbox and collections survive
+        servers that send only the token).  Any failure raises
+        :class:`TransientFetchError` -- a lost page is a transient
+        outage, never a smaller coverage answer.
+        """
+        href = next_link.get("href") or search_url
+        method = str(next_link.get("method", "GET")).upper()
+        try:
+            if method == "POST" or next_link.get("body") is not None:
+                next_body = dict(body)
+                link_body = next_link.get("body")
+                if isinstance(link_body, dict):
+                    next_body.update(link_body)
+                response = requests.post(href, json=next_body, timeout=30)
+            else:
+                response = requests.get(href, timeout=30)
+            if response.status_code != 200:
+                raise TransientFetchError(
+                    "STAC search pagination returned status %d"
+                    % response.status_code
+                )
+            return response.json()
+        except TransientFetchError:
+            raise
+        except Exception as error:
+            UI.vprint(
+                1, "   WARNING: STAC search pagination failed:", str(error)
+            )
+            raise TransientFetchError(
+                "STAC search pagination failed: %s" % error
+            )
 
     @staticmethod
     def _parse_search_payload(payload):
@@ -5968,36 +6168,54 @@ def ensure_airport_insets(
     # vector step's bar, so the session's rate-based ETA gets a real
     # signal (without it, a long inset phase reads as an ever-growing
     # overrun) and the front ends' ring moves. Airports are not equal
-    # cost, but the completion RATE is an honest live estimator.
+    # cost, but the completion RATE is an honest live estimator.  The
+    # task meter carries the same counts to the session's ETA floor,
+    # which extrapolates them even while every bar sits still.
+    try:
+        from o4_engine import task_meter as TASK_METER
+    except Exception:
+        TASK_METER = None
     progress_lock = threading.Lock()
     progress_done = [0]
 
     def _fetch_airport_insets_with_progress(icao):
         try:
-            _fetch_airport_insets(icao)
+            # A Stop mid-phase drains the queued airports without
+            # fetching (in-flight ones abort inside the warp); their
+            # index entries stay unwritten, so the next run resumes.
+            if not UI.red_flag:
+                _fetch_airport_insets(icao)
         finally:
             with progress_lock:
                 progress_done[0] += 1
                 done = progress_done[0]
             UI.progress_bar(
                 1, int(min(done * 100 // max(len(icaos), 1), 99)))
+            if TASK_METER is not None:
+                TASK_METER.advance("airport-insets", done)
     # Airports fetch CONCURRENTLY: the work is network-bound (windowed
     # WCS/COG reads per airport — separate windows on purpose: one merged
     # request would cover the airports' bounding rectangle, i.e. most of
     # the tile at meter resolution).  A small pool bounds total load and
     # the per-provider slots below keep any single server at two
     # in-flight requests.
-    if len(icaos) > 1:
-        from concurrent.futures import ThreadPoolExecutor
+    if TASK_METER is not None:
+        TASK_METER.begin("airport-insets", len(icaos))
+    try:
+        if len(icaos) > 1:
+            from concurrent.futures import ThreadPoolExecutor
 
-        with ThreadPoolExecutor(
-            max_workers=min(4, len(icaos)),
-            thread_name_prefix="inset-fetch",
-        ) as pool:
-            list(pool.map(_fetch_airport_insets_with_progress, icaos))
-    else:
-        for icao in icaos:
-            _fetch_airport_insets_with_progress(icao)
+            with ThreadPoolExecutor(
+                max_workers=min(4, len(icaos)),
+                thread_name_prefix="inset-fetch",
+            ) as pool:
+                list(pool.map(_fetch_airport_insets_with_progress, icaos))
+        else:
+            for icao in icaos:
+                _fetch_airport_insets_with_progress(icao)
+    finally:
+        if TASK_METER is not None:
+            TASK_METER.end("airport-insets")
     _write_index(lat, lon, index)
     return index
 

@@ -1208,6 +1208,178 @@ def test_stac_strategy_registered_and_dispatches(tmp_path, monkeypatch):
     assert "/vsis3/hrdem-bucket/tile_b.tif" in warp_calls["inputs"]
 
 
+def _stac_page(item_ids, next_link=None):
+    """A minimal STAC ItemCollection page, optionally with a next link."""
+    payload = {
+        "type": "FeatureCollection",
+        "features": [
+            {"id": item_id, "assets": {}} for item_id in item_ids
+        ],
+    }
+    if next_link is not None:
+        payload["links"] = [next_link]
+    return payload
+
+
+def test_stac_discover_follows_post_token_pagination(monkeypatch):
+    """A multi-page search (SWISSALTI3D's km-square items over a large
+    airport box) accumulates EVERY page via the POST token convention
+    data.geo.admin.ch uses -- one page used to be silently truncated to
+    an inset with holes recorded as "ok"."""
+    import types
+    import requests
+
+    pages = [
+        _stac_page(
+            ["swissalti-a", "swissalti-b"],
+            {
+                "rel": "next",
+                "href": "https://stac.test/search",
+                "method": "POST",
+                "merge": True,
+                "body": {"token": "page-2"},
+            },
+        ),
+        # The boundary item "swissalti-b" repeats across the page break.
+        _stac_page(["swissalti-b", "swissalti-c"]),
+    ]
+    posted_bodies = []
+
+    def _fake_post(url, json=None, timeout=None):
+        posted_bodies.append(json)
+        payload = pages[len(posted_bodies) - 1]
+        return types.SimpleNamespace(status_code=200, json=lambda: payload)
+
+    monkeypatch.setattr(requests, "post", _fake_post)
+    strategy = INSETS.ACCESS_STRATEGIES["stac"]()
+    definition = {
+        "code": "SWISSALTI3D",
+        "access_strategy": "stac",
+        "discovery_url_template": "https://stac.test/search",
+        "collections": "ch.swisstopo.swissalti3d",
+    }
+    items = strategy.discover(definition, (6.05, 46.20, 6.15, 46.26))
+    # Both pages accumulated, the page-boundary duplicate dropped.
+    assert [item["id"] for item in items] == [
+        "swissalti-a",
+        "swissalti-b",
+        "swissalti-c",
+    ]
+    # The continuation merged the token over the ORIGINAL search body,
+    # so bbox and collections survive servers that send only the token.
+    assert posted_bodies[1]["token"] == "page-2"
+    assert posted_bodies[1]["bbox"] == posted_bodies[0]["bbox"]
+    assert posted_bodies[1]["collections"] == ["ch.swisstopo.swissalti3d"]
+
+
+def test_stac_discover_follows_get_next_href(monkeypatch):
+    """The other pagination convention: a plain rel=next GET href."""
+    import types
+    import requests
+
+    first_page = _stac_page(
+        ["item-1"],
+        {"rel": "next", "href": "https://stac.test/search?cursor=xyz"},
+    )
+    second_page = _stac_page(["item-2"])
+    get_urls = []
+
+    monkeypatch.setattr(
+        requests,
+        "post",
+        lambda url, json=None, timeout=None: types.SimpleNamespace(
+            status_code=200, json=lambda: first_page
+        ),
+    )
+
+    def _fake_get(url, timeout=None):
+        get_urls.append(url)
+        return types.SimpleNamespace(
+            status_code=200, json=lambda: second_page
+        )
+
+    monkeypatch.setattr(requests, "get", _fake_get)
+    strategy = INSETS.ACCESS_STRATEGIES["stac"]()
+    definition = {
+        "code": "TESTSTAC",
+        "access_strategy": "stac",
+        "discovery_url_template": "https://stac.test/search",
+    }
+    items = strategy.discover(definition, (6.05, 46.20, 6.15, 46.26))
+    assert [item["id"] for item in items] == ["item-1", "item-2"]
+    assert get_urls == ["https://stac.test/search?cursor=xyz"]
+
+
+def test_stac_discover_pagination_failure_raises_transient(monkeypatch):
+    """A continuation page lost to throttling is a TRANSIENT failure:
+    returning the partial first page would record an inset with holes as
+    a durable "ok"."""
+    import types
+    import requests
+
+    first_page = _stac_page(
+        ["item-1"],
+        {
+            "rel": "next",
+            "href": "https://stac.test/search",
+            "method": "POST",
+            "body": {"token": "page-2"},
+        },
+    )
+    responses = [
+        types.SimpleNamespace(status_code=200, json=lambda: first_page),
+        types.SimpleNamespace(status_code=429, json=lambda: {}),
+    ]
+
+    monkeypatch.setattr(
+        requests,
+        "post",
+        lambda url, json=None, timeout=None: responses.pop(0),
+    )
+    strategy = INSETS.ACCESS_STRATEGIES["stac"]()
+    definition = {
+        "code": "TESTSTAC",
+        "access_strategy": "stac",
+        "discovery_url_template": "https://stac.test/search",
+    }
+    with pytest.raises(INSETS.TransientFetchError):
+        strategy.discover(definition, (6.05, 46.20, 6.15, 46.26))
+
+
+def test_stac_discover_pagination_is_capped(monkeypatch):
+    """A server whose next links never terminate is bounded by the page
+    cap (and the truncation is warned about, never silent)."""
+    import types
+    import requests
+
+    post_count = {"count": 0}
+
+    def _endless_post(url, json=None, timeout=None):
+        post_count["count"] += 1
+        payload = _stac_page(
+            ["item-%d" % post_count["count"]],
+            {
+                "rel": "next",
+                "href": "https://stac.test/search",
+                "method": "POST",
+                "body": {"token": "page-%d" % (post_count["count"] + 1)},
+            },
+        )
+        return types.SimpleNamespace(status_code=200, json=lambda: payload)
+
+    monkeypatch.setattr(requests, "post", _endless_post)
+    strategy = INSETS.ACCESS_STRATEGIES["stac"]()
+    definition = {
+        "code": "TESTSTAC",
+        "access_strategy": "stac",
+        "discovery_url_template": "https://stac.test/search",
+    }
+    items = strategy.discover(definition, (6.05, 46.20, 6.15, 46.26))
+    cap = INSETS.StacCloudOptimizedGeoTiffStrategy._SEARCH_MAX_PAGES
+    assert post_count["count"] == cap
+    assert len(items) == cap
+
+
 def test_hrdem_definition_ships_and_is_selectable():
     """The shipped HRDEM.elv parses with role=airport_inset + stac strategy
     and is picked up by auto inset selection alongside USGS3DEP."""
@@ -1656,6 +1828,41 @@ def test_warp_curl_timeout_raises_transient_fetch_error(tmp_path, monkeypatch):
         INSETS.warp_vsicurl_sources_to_geotiff(
             ["/vsicurl/https://example.test/tile.tif"],
             (-0.49, 51.44, -0.41, 51.49),
+            1.0,
+            str(tmp_path / "out.tif"),
+        )
+
+
+def test_transient_classifier_treats_429_rate_limit_as_transient():
+    # A 429 says "come back later", never "no data here" -- without this
+    # a throttled warp recorded a durable NO_COVERAGE for the airport,
+    # the exact poisoning the search path was already cured of.
+    classify = INSETS.error_message_indicates_transient_network_failure
+    # GDAL's formatting of an HTTP status surfaced from /vsicurl.
+    assert classify("HTTP error code : 429")
+    assert classify("HTTP error code: 429")
+    assert classify("429 Too Many Requests")
+    # 5xx and timeouts stay transient as before ...
+    assert classify("HTTP error code : 503")
+    assert classify("Operation timed out after 30000 milliseconds")
+    # ... while genuinely durable answers stay durable.
+    assert not classify("HTTP error code : 404")
+    assert not classify("Unsupported band data type")
+
+
+@requires_gdal
+def test_warp_http_429_raises_transient_fetch_error(tmp_path, monkeypatch):
+    def _throttled_warp(*arguments, **keyword_arguments):
+        raise RuntimeError(
+            "HTTP error code : 429 - "
+            "/vsicurl/https://data.geo.admin.ch/tile.tif"
+        )
+
+    monkeypatch.setattr(INSETS.gdal, "Warp", _throttled_warp)
+    with pytest.raises(INSETS.TransientFetchError):
+        INSETS.warp_vsicurl_sources_to_geotiff(
+            ["/vsicurl/https://data.geo.admin.ch/tile.tif"],
+            (6.05, 46.20, 6.15, 46.26),
             1.0,
             str(tmp_path / "out.tif"),
         )
@@ -2389,6 +2596,65 @@ def test_warp_keeps_compound_crs_heights_unshifted(tmp_path):
     valid = result[result > -32768]
     # ~33.2 here would mean the RH2000 -> ellipsoid shift was applied.
     assert valid.size and abs(float(valid.mean()) - 10.0) < 0.01
+
+
+# =====================================================================
+# Remote-read efficiency: sidecar-probe suppression around the warp
+# =====================================================================
+def test_gdal_guard_defaults_suppress_remote_sidecar_probes():
+    # The measured cost these defaults remove: one HTTPS round trip per
+    # sidecar probe per opened /vsicurl COG (~30% of a SWISSALTI3D warp).
+    defaults = INSETS._GDAL_HTTP_GUARD_DEFAULTS
+    assert defaults["GDAL_DISABLE_READDIR_ON_OPEN"] == "EMPTY_DIR"
+    assert defaults["VSI_CACHE"] == "TRUE"
+
+
+def test_vsicurl_allowed_extensions_derived_from_inputs():
+    allowed = INSETS._vsicurl_allowed_extensions(
+        [
+            "/vsicurl/https://data.test/tiles/swissalti3d_2024.tif",
+            "/vsis3/bucket/dem/n47_e008.TIFF",
+        ]
+    )
+    # Derived from the inputs, lower-cased, plus a .vrt's referenced
+    # .tif/.tiff members; sidecars (.met, .aux.xml, .ovr) are absent.
+    assert allowed == ".tif,.tiff,.vrt"
+    # A presigned URL's query string is not mistaken for the extension.
+    assert (
+        INSETS._vsicurl_allowed_extensions(
+            ["/vsicurl/https://s3.test/dem.tif?X-Amz-Signature=abc.def"]
+        )
+        == ".tif,.tiff,.vrt"
+    )
+    # An unusual raster extension joins the list rather than locking the
+    # provider out of its own fetch.
+    assert ".asc" in INSETS._vsicurl_allowed_extensions(
+        ["/vsicurl/https://data.test/sheet.asc"]
+    ).split(",")
+
+
+def test_vsicurl_allowed_extensions_omitted_when_unsafe():
+    # Local scratch files and open Dataset handles (the wcs strategy)
+    # never go through curl: no curl input, no allowlist.
+    assert (
+        INSETS._vsicurl_allowed_extensions(["/tmp/mosaic.tif", object()])
+        is None
+    )
+    # A chained virtual path reads an underlying URL whose extension
+    # differs from the path's -- the option must be omitted, not guessed.
+    assert (
+        INSETS._vsicurl_allowed_extensions(
+            ["/vsizip//vsicurl/https://data.test/pack.zip/dem.tif"]
+        )
+        is None
+    )
+    # No usable extension on a curl input: omitted.
+    assert (
+        INSETS._vsicurl_allowed_extensions(
+            ["/vsicurl/https://data.test/coverage/42"]
+        )
+        is None
+    )
 
 
 # =====================================================================

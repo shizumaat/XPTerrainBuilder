@@ -2,6 +2,14 @@
 import sys
 import os
 
+# Engine subprocesses are spawned WITHOUT a Popen cwd: passing one forces
+# the parent off posix_spawn onto fork+exec, and a fork in a pyproj-loaded
+# parent dies in the proj.db sqlite atfork handler (2026-07-16 crash
+# class).  A from-source engine child therefore anchors itself here,
+# post-exec, where chdir is safe — same effective directory as before.
+if '--engine-jsonl' in sys.argv and not getattr(sys, 'frozen', False):
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
 Ortho4XP_dir = '..' if getattr(sys, 'frozen', False) else '.'
 
 if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):

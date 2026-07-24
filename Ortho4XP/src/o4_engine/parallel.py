@@ -318,6 +318,15 @@ class _WorkerChild:
             # (jsonl owns_process mode), so a front end that dies without
             # collapsing the stdin pipe still takes its workers with it.
             child_environment["O4_PARENT_PROCESS_ID"] = str(os.getpid())
+            # No ``cwd=`` and ``close_fds=False``: both force CPython off
+            # posix_spawn onto fork+exec, and a fork in a pyproj-loaded
+            # parent segfaults in the proj.db sqlite atfork handler
+            # before exec ever runs (the 2026-07-16 crash class; observed
+            # again 2026-07-23 as a crash-report loop when a test process
+            # with the full pipeline imported spawned workers).  The
+            # from-source child re-anchors its own cwd at entry instead
+            # (Ortho4XP.py --engine-jsonl); leaving close_fds off is safe
+            # since PEP 446 makes descriptors non-inheritable by default.
             self.process = subprocess.Popen(
                 tile_worker_command(),
                 stdin=subprocess.PIPE,
@@ -326,9 +335,7 @@ class _WorkerChild:
                 text=True,
                 bufsize=1,
                 env=child_environment,
-                cwd=os.path.dirname(
-                    os.path.dirname(
-                        os.path.dirname(os.path.abspath(__file__)))),
+                close_fds=False,
             )
         except Exception as error:
             print("Could not start a build worker process:", error)

@@ -6095,15 +6095,21 @@ def ensure_airport_insets(
             # One-shot heartbeat so a long transfer is visibly alive:
             # stalls are aborted by the GDAL low-speed guard and retried
             # next run, so "still fetching" genuinely means still moving.
+            # Armed only once the provider slot is HELD: with several
+            # tiles fetching, airports queue behind the per-provider
+            # concurrency cap, and a heartbeat that counts queue time
+            # reads as a fleet of stalled transfers (field report
+            # 2026-07-23: eight "still fetching 2+ minutes" lines that
+            # were six airports politely waiting their turn).
             slow_note = threading.Timer(
                 120.0, UI.vprint,
                 (1, "    ...still fetching", icao, "from", code,
                  "(2+ minutes; a stalled transfer aborts automatically"
                  " and is retried on the next run)"))
             slow_note.daemon = True
-            slow_note.start()
             try:
                 with _provider_fetch_slot(code):
+                    slow_note.start()
                     provenance = fetch_inset(
                         definition,
                         bounding_box,

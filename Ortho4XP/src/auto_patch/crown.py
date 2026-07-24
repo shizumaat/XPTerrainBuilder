@@ -700,6 +700,7 @@ def build_crown_drop_field(layout, nodes, bucket_to_idx,
     # runway-owned keys keep their (uniform) runway drop.
     from .elevation_per_surface.solver_primitives import (
         SLOPING_RECT_ROLES as _RECT_ROLES)
+    rect_keys: set = set()
     for s in layout.shapes:
         if (s.role not in _RECT_ROLES or s.polygon is None
                 or s.polygon.is_empty or s.polygon.geom_type != "Polygon"):
@@ -709,6 +710,7 @@ def build_crown_drop_field(layout, nodes, bucket_to_idx,
         except _GEOM_EXC:
             continue
         keys = [cps.get_or_add(float(x), float(y)) for (x, y) in ring]
+        rect_keys.update(keys)
         # join-anchored keys are value contracts at the crowned edge —
         # the equalize must neither pop nor level them (like runway keys).
         own_keys = [k for k in keys
@@ -731,6 +733,58 @@ def build_crown_drop_field(layout, nodes, bucket_to_idx,
             idx = bucket_to_idx.get(k)
             if idx is not None:
                 drop_by_idx[idx] = mn
+
+    # ── LIPSCHITZ SHED (2026-07-24: SPJC junction potholes) ──────────
+    # The passes above assign designed drops per NODE CLASS (runway
+    # rings, the 2.5 m shadow band, join anchors, corridor families) —
+    # each individually correct, but their UNION is discontinuous: a
+    # shadow/join node carries the full runway drop while a neighbour
+    # 0.6 m outside its class carries 0, and the writeback then emits a
+    # knife-edge pothole.  In dense junction complexes the whole step
+    # lands between adjacent vertices (SPJC: single nodes exactly
+    # 0.30 m below a smooth 1.5 % ramp; the crown_drops sidecar showed
+    # c = 0.300 on every dip and 0 on every neighbour).  Fix: extend
+    # the field by its Lipschitz envelope — every eligible node takes
+    # ``max(c_source − RUNWAY_MAX_GRADE × distance)`` over all assigned
+    # sources, so designed drops SHED into their surroundings at no
+    # more than the runway longitudinal cap and no adjacent pair can
+    # step by more than cap × spacing.  Exempt (their contracts win):
+    # hard c = 0 owners (aprons/terminals/boundary/groundside), runway
+    # keys (uniform-drop profile reconstruction), join anchors (value
+    # contracts), equalized rect rings (tilted-plane contract), seam
+    # buckets (cross-tile), and solver freeze contracts.  Single pass:
+    # the envelope of the original sources is already Lipschitz-tight.
+    if drop_by_idx:
+        try:
+            from scipy.spatial import cKDTree as _KDTree
+        except Exception:                               # pragma: no cover
+            _KDTree = None
+        if _KDTree is not None:
+            source_indices = list(drop_by_idx)
+            source_xy = [tuple(nodes[i]) for i in source_indices]
+            source_c = [drop_by_idx[i] for i in source_indices]
+            reach_m = max(source_c) / RUNWAY_MAX_GRADE
+            shed_tree = _KDTree(source_xy)
+            for key, idx in bucket_to_idx.items():
+                if (key in frozen_keys or key in rwy_by_key
+                        or key in join_keys or key in rect_keys
+                        or idx in freeze_idx or idx in drop_by_idx):
+                    continue
+                if idx < 0 or idx >= len(nodes):
+                    continue
+                x, y = nodes[idx]
+                if vertex_bucket(float(x), float(y)) in seam_keys:
+                    continue
+                near = shed_tree.query_ball_point((float(x), float(y)),
+                                                  r=reach_m)
+                if not near:
+                    continue
+                c_env = max(
+                    source_c[j] - RUNWAY_MAX_GRADE
+                    * math.hypot(x - source_xy[j][0], y - source_xy[j][1])
+                    for j in near)
+                if c_env > 0.005:
+                    _register(key, idx, c_env)
 
     layout._crown_drop_key = dict(drop_by_key)
     layout._crown_drop_ll = []

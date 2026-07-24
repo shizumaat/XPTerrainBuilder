@@ -17,6 +17,16 @@ STAGE_DIR="$(mktemp -d)"
 trap 'rm -rf "$STAGE_DIR"' EXIT
 STAGE="$STAGE_DIR/XPTerrainBuilder.app"
 
+# Never replace the bundle under a RUNNING app: the engine opens its
+# files lazily (PROJ's proj.db, GDAL data, python modules), and a swap
+# mid-run leaves it reading half-copied files — observed 2026-07-23 as
+# every SWISSALTI3D warp failing with "SQLite disk I/O error" after a
+# repackage landed four minutes into a live session.
+if pgrep -f "$APP/Contents/MacOS/XPTerrainBuilder" >/dev/null 2>&1; then
+  echo "ERROR: XPTerrainBuilder is running from $APP — quit it first." >&2
+  exit 1
+fi
+
 cd "$ROOT"
 swift build --build-system native -c "$CONFIG"
 BIN="$(swift build --build-system native -c "$CONFIG" --show-bin-path)/XPTerrainBuilder"

@@ -1,6 +1,11 @@
 # Tile-wide elevation detail level — specification
 
 Status: approved for implementation 2026-07-15.
+Revised 2026-07-24 (owner): renamed in the UIs to "Tile elevation
+detail level"; new `90` value; `auto` now prefers the 90 m
+(3 arc-second) base class (supersedes §3.3 v1); companion per-tile
+"Airport elevation detail level" (`airport_elevation_level`) replaces
+`airport_elevation_inset_resolution_m` — see §3.5.
 Companion to `docs/airport_elevation_insets_spec.md` (whose section 3.6
 deliberately capped tile-wide sources at 1 arc-second "in auto mode" and
 anticipated explicit finer selection).
@@ -22,8 +27,9 @@ New tile configuration variable `elevation_level` (string):
 
 | value | meaning | working grid | `.alt` size |
 |---|---|---|---|
-| `auto` (default) | exactly today's behaviour: 1″-capped base + airport insets + probe-driven densification | 1″, densified to 1/2″ or 1/3″ over inset tiles | 52–467 MB |
-| `30` | 30 m class | 1 arc-second (3601²) | 52 MB |
+| `auto` (default) | 90 m class base (3″ tier preferred, since 2026-07-24) + airport insets + probe-driven densification | 1″ (dem3 upsampled), densified to 1/2″ or 1/3″ over inset tiles | 52–467 MB |
+| `90` | the auto base class, pinned explicitly: 3″ tier preferred, no wide-area overlay, no extra grid factor | as `auto` | as `auto` |
+| `30` | 30 m class (restores the 1″ base-class preference) | 1 arc-second (3601²) | 52 MB |
 | `10` | 10 m class | 1/3 arc-second (10801²) | 467 MB |
 | `5`  | 5 m class | 1/6 arc-second (21601²) | 1.87 GB |
 | `1`  | meter-class sources | 1/9 arc-second (32401², ≈3.4 m posting) | 4.2 GB |
@@ -103,14 +109,29 @@ with the whole tile as the bounding box:
 
 Level → factor table: `{30: 1, 10: 3, 5: 6, 1: 9}`.
 
-### 3.3 No level-aware base-source change (v1)
+### 3.3 Level-aware base-source preference (revised 2026-07-24)
 
-The only sub-1″ `role=base` definition (NED 1/3″) is coverage-identical
-to the 3DEP overlay path, so lifting the base auto-cap buys nothing and
-would require new source-dispatch plumbing in `DEM.load_data`. Where no
-wide-area provider covers the tile, the level degrades gracefully: the
-data cap drops the factor and one warning names the finest available
-source.
+v1 made no base-source change. Revised: the level now steers the BASE
+class through `O4_Elevation_Level.base_prefers_coarse(value)` — True
+(the 90 m / 3 arc-second tier ranks first in the auto base ranking,
+and the legacy "View" per-tile choice stays on the dem3 archive) for
+`auto`, `90`, `coastline` and anything unrecognised; False (the
+historic 1″-first ranking) for the numeric levels `30`/`10`/`5`/`1`.
+The preference threads from the tile: `DEM(..., elevation_level=...)` →
+`resolve_default_base_source` / `build_combined_raster` /
+`ensure_elevation` → `ensure_base_tile` →
+`resolve_base_definition(..., prefer_coarse=...)` →
+`select_base_definitions_auto(..., prefer_coarse=...)`. An explicit
+non-auto `base_elevation_source` (registry CODE or non-View legacy
+keyword) always wins over the preference. dem3 `.hgt` files upsample
+to the same 3601 grid in `read_elevation_from_file`, so the working
+grid, densification factors and `.alt` sizes are unchanged — only the
+downloaded data (and its relief content) differs. A cached base file
+at the shared legacy path is recycled whichever archive produced it;
+the preference governs what would be downloaded, never deletes better
+data already on disk. Where no wide-area provider covers the tile, a
+numeric level still degrades gracefully: the data cap drops the factor
+and one warning names the finest available source.
 
 ## 3.4 "Auto + coastline" mode (added 2026-07-16)
 
@@ -151,6 +172,28 @@ coastlines, graded by approach visibility.
   neighbouring tiles (an approach crossing the tile border currently
   grades by this tile's airports only); true approach-corridor cones
   from CIFP procedures instead of radial distance.
+
+## 3.5 Airport elevation detail level (added 2026-07-24)
+
+Companion per-tile variable `airport_elevation_level` (string):
+`auto` (default) | `0.5` | `1` | `5` | `10` | `30`. It replaces the
+float `airport_elevation_inset_resolution_m` (default 3.0), whose cfg
+key is retired (read silently and dropped on the next config write —
+`O4_Config_Utils.RETIRED_CFG_KEYS`).
+
+- `auto` = best available: each inset provider warps at its own
+  declared native resolution, floored at
+  `AIRPORT_INSET_MIN_TARGET_RESOLUTION_M = 0.5` m (a definition
+  declaring no resolution is assumed meter-class and warps at 1 m).
+- A numeric value pins the warp target in metres for every provider,
+  exactly as the old float did.
+- Parsing: `parse_airport_elevation_level(value) -> float | None`
+  (None = auto; unrecognised warns once and degrades to auto).
+  `ensure_airport_insets` accepts `target_resolution_m=None` and
+  resolves per definition via `_auto_inset_target_resolution_m`.
+- Cache interplay: inset cache filenames carry no resolution, so
+  insets fetched under the old 3 m default are recycled as-is until a
+  refresh; only new fetches use the new target.
 
 ## 4. Code layout (frozen interfaces)
 

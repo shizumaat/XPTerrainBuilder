@@ -172,6 +172,9 @@ def class_limits(slots):
 MESH_MEMORY_ESTIMATES_GB = {
     "auto": 2.0,
     "coastline": 3.0,
+    # "90" pins the auto base class (dem3 upsampled onto the same
+    # 1 arc-second working grid), so its mesh footprint is auto's.
+    "90": 2.0,
     "30": 1.5,
     "10": 3.0,
     "5": 8.0,

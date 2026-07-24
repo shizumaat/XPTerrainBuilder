@@ -70,6 +70,30 @@ def test_map_managed_vars_absent():
         assert excluded not in names
 
 
+def test_elevation_category_has_airport_level_and_no_retired_row():
+    elevation = SM.settings_for("elevation")
+    names = {s.name for s in elevation}
+    labels = {s.name: s.label for s in elevation}
+    assert "airport_elevation_level" in names
+    assert labels["airport_elevation_level"] == "Airport elevation detail level"
+    # The retired inset-resolution row is gone.
+    assert "airport_elevation_inset_resolution_m" not in names
+
+
+def test_curated_tile_settings_include_airport_elevation_level():
+    assert "airport_elevation_level" in SM.CURATED_TILE_SETTINGS
+    assert "airport_elevation_inset_resolution_m" not in SM.CURATED_TILE_SETTINGS
+
+
+def test_retired_cfg_key_is_registered():
+    # The retired key is skipped silently by the global-config reader (its
+    # import-time read cannot be re-triggered headlessly without side
+    # effects, so this pins the registration the reader consults).
+    import O4_Config_Utils as CFG
+
+    assert "airport_elevation_inset_resolution_m" in CFG.RETIRED_CFG_KEYS
+
+
 def test_get_setting_unknown_raises():
     with pytest.raises(KeyError):
         SM.get_setting("no_such_setting")

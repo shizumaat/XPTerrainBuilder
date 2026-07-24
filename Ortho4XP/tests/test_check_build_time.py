@@ -204,6 +204,12 @@ def test_newest_tile_measurement_skips_download_records(tmp_path):
         {"finished_at": 100.0,
          "features": {"textures_missing": 0},
          "step_seconds": {"vector": 10.0, "mesh": 20.0}},
+        {"finished_at": 150.0,
+         # Fetched airport elevation insets: the download wall time is
+         # booked inside the vector step's seconds, so the record is
+         # not a valid cold-excluding-download measurement.
+         "features": {"textures_missing": 0, "insets_fetched": 3},
+         "step_seconds": {"vector": 400.0, "mesh": 20.0}},
         {"finished_at": 200.0,
          "features": {"textures_missing": 12},
          "step_seconds": {"imagery": 500.0}},
@@ -211,6 +217,22 @@ def test_newest_tile_measurement_skips_download_records(tmp_path):
     measurement = check_build_time.newest_tile_measurement("+30+031", store)
     assert measurement["total_seconds"] == 30.0
     assert measurement["phase_seconds"] == {"vector": 10.0, "mesh": 20.0}
+
+
+def test_newest_tile_measurement_accepts_warm_inset_cache_records(tmp_path):
+    # insets_fetched == 0 (warm inset cache) and a pre-insets_fetched
+    # record (no key at all) both qualify.
+    store = str(tmp_path / "tiles")
+    write_store(store, "+30+031", [
+        {"finished_at": 100.0,
+         "features": {"textures_missing": 0},
+         "step_seconds": {"vector": 10.0}},
+        {"finished_at": 200.0,
+         "features": {"textures_missing": 0, "insets_fetched": 0},
+         "step_seconds": {"vector": 12.0}},
+    ])
+    measurement = check_build_time.newest_tile_measurement("+30+031", store)
+    assert measurement["total_seconds"] == 12.0
 
 
 def test_median_measurement_is_per_metric():

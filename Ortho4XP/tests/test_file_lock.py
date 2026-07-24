@@ -223,7 +223,7 @@ def test_ensure_base_tile_serializes_concurrent_threads(tmp_path, monkeypatch):
     monkeypatch.setattr(
         INSETS,
         "resolve_base_definition",
-        lambda lat, lon, selector="auto": fake_definition,
+        lambda lat, lon, selector="auto", prefer_coarse=False: fake_definition,
     )
     monkeypatch.setattr(
         INSETS, "ACCESS_STRATEGIES", {"probe": _ConcurrencyProbeStrategy}

@@ -499,7 +499,7 @@ class _FakeTile:
         self.custom_dem = custom_dem
         self.airport_elevation_insets = True
         self.airport_elevation_providers = "auto"
-        self.airport_elevation_inset_resolution_m = 3.0
+        self.airport_elevation_level = "auto"
         self.airport_elevation_inset_margin_m = 1000.0
         self.airport_elevation_inset_feather_m = 60.0
         self.working_grid_arc_seconds = "auto"
@@ -867,7 +867,9 @@ def test_composite_with_empty_base_token_resolves_default_base(
         base_path, 0.0, 0.0, 1.0, 1.0, 42.0, columns=60, rows=60
     )
     monkeypatch.setattr(
-        DEM, "resolve_default_base_source", lambda lat, lon: base_path
+        DEM,
+        "resolve_default_base_source",
+        lambda lat, lon, elevation_level="auto": base_path,
     )
     # One cached inset at 100 m.
     inset_path = str(tmp_path / "inset.tif")
@@ -883,6 +885,151 @@ def test_composite_with_empty_base_token_resolves_default_base(
     # And the composite query path overlays the inset.
     assert dem.alt((0.5, 0.5)) == pytest.approx(100.0, abs=0.5)
     assert dem.alt((0.1, 0.1)) == pytest.approx(42.0, abs=0.5)
+
+
+# =====================================================================
+# Airport elevation detail level ("auto" best-available + numeric pins)
+# =====================================================================
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("auto", None),
+        ("AUTO", None),
+        ("", None),
+        (None, None),
+        ("0.5", 0.5),
+        ("1", 1.0),
+        ("30", 30.0),
+        (5, 5.0),
+    ],
+)
+def test_parse_airport_elevation_level(value, expected):
+    assert INSETS.parse_airport_elevation_level(value) == expected
+
+
+@pytest.mark.parametrize("value", ["garbage", "-1", "0"])
+def test_parse_airport_elevation_level_warns_on_bad_value(value, capsys):
+    # An unrecognised or non-positive value degrades to auto WITH a warning.
+    assert INSETS.parse_airport_elevation_level(value) is None
+    assert "WARNING" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "definition,expected",
+    [
+        ({"native_resolution_m": 0.4}, 0.5),     # floored at 0.5 m
+        ({"native_resolution_m": 1}, 1.0),
+        ({"code": "X"}, 1.0),                    # undeclared -> meter class
+        ({"resolution_arc_seconds": 1}, 30.0),   # ~30 m per arc-second
+    ],
+)
+def test_auto_inset_target_resolution_m(definition, expected):
+    assert INSETS._auto_inset_target_resolution_m(definition) == expected
+
+
+def test_ensure_airport_insets_auto_target_uses_native_resolution(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    recorded = []
+
+    def _record_fetch(
+        definition,
+        bounding_box,
+        target_resolution_m,
+        destination,
+        footprint_prefetch=None,
+    ):
+        recorded.append((definition["code"], target_resolution_m))
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        with open(destination, "wb") as handle:
+            handle.write(b"synthetic-raster")
+        return {"provider": definition["code"]}
+
+    monkeypatch.setattr(INSETS, "fetch_inset", _record_fetch)
+    definition = {
+        "code": "AUTOTGT",
+        "access_strategy": "tnm_cog",
+        "role": INSETS.ROLE_AIRPORT_INSET,
+        "enabled": True,
+        "priority": 1.0,
+        "native_resolution_m": 0.4,
+    }
+    # target_resolution_m=None ("auto"): each provider warps at its own
+    # best-available native target, floored at 0.5 m.
+    INSETS.ensure_airport_insets(
+        36, -87, {"KJFK": (-73.82, 40.62, -73.75, 40.68)}, [definition], None
+    )
+    assert recorded == [("AUTOTGT", 0.5)]
+    # An explicit numeric target pins the warp resolution instead.
+    recorded.clear()
+    INSETS.ensure_airport_insets(
+        36, -87, {"KLGA": (-73.89, 40.75, -73.85, 40.79)}, [definition], 5.0
+    )
+    assert recorded == [("AUTOTGT", 5.0)]
+
+
+def test_ensure_insets_for_tile_reads_airport_elevation_level(monkeypatch):
+    monkeypatch.setattr(INSETS, "has_gdal", True)
+    monkeypatch.setattr(
+        INSETS,
+        "select_provider_definitions",
+        lambda config, role=INSETS.ROLE_AIRPORT_INSET: [
+            {"code": "DUMMY", "role": INSETS.ROLE_AIRPORT_INSET}
+        ],
+    )
+    monkeypatch.setattr(
+        INSETS,
+        "_airport_bounding_boxes",
+        lambda tile, dico_airports: {
+            "KJFK": (-73.82, 40.62, -73.75, 40.68)
+        },
+    )
+    recorded = []
+
+    def _fake_ensure_airport_insets(lat, lon, boxes, defs, resolution_m,
+                                    refresh=False, fetch_counter=None):
+        recorded.append(resolution_m)
+        if fetch_counter is not None:
+            fetch_counter[0] += 2
+
+    monkeypatch.setattr(
+        INSETS, "ensure_airport_insets", _fake_ensure_airport_insets
+    )
+
+    class _Tile:
+        lat = 36
+        lon = -87
+        airport_elevation_insets = True
+        airport_elevation_providers = "auto"
+        airport_elevation_level = "auto"
+
+    tile = _Tile()
+    # "auto" -> None passes through (each provider warps at its own target).
+    INSETS.ensure_insets_for_tile(tile, {"KJFK": {}})
+    assert recorded == [None]
+    # The fetch count lands on the tile for the build record
+    # (features.insets_fetched -> tools/check_build_time.py qualifier).
+    assert tile.insets_fetched_last_build == 2
+    # A numeric level pins the warp target for every provider.
+    recorded.clear()
+    tile.airport_elevation_level = "5"
+    INSETS.ensure_insets_for_tile(tile, {"KJFK": {}})
+    assert recorded == [5.0]
+
+
+def test_ensure_insets_for_tile_zeroes_fetch_count_when_gated_off():
+    # A stale count from a previous build of the same tile object must
+    # not leak into the next build record when the feature is disabled.
+    class _Tile:
+        lat = 36
+        lon = -87
+        airport_elevation_insets = False
+
+    tile = _Tile()
+    tile.insets_fetched_last_build = 7
+    INSETS.ensure_insets_for_tile(tile, {})
+    assert tile.insets_fetched_last_build == 0
 
 
 # =====================================================================

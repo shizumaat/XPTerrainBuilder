@@ -114,6 +114,12 @@ for var in cfg_vars:
     exec(target + "=cfg_vars['" + var + "']['default']")
 
 ################################################################################
+# Config keys of retired settings, recognised so configs written by older
+# versions load without noise.  airport_elevation_inset_resolution_m was
+# superseded by airport_elevation_level (2026-07-24).
+RETIRED_CFG_KEYS = ("airport_elevation_inset_resolution_m",)
+
+################################################################################
 # Update from Global Ortho4XP.cfg
 try:
     f = open(global_cfg_file, "r")
@@ -125,6 +131,11 @@ try:
             continue
         try:
             (var, value) = line.split("=", 1)
+            if var in RETIRED_CFG_KEYS:
+                # A key from an older version, superseded by a newer
+                # setting: skipped silently (the next config write drops
+                # it), never reported as an invalid line.
+                continue
             value = config_compatibility(value)
             # Set all tile and app config variables
             set_global_variables(var, value)

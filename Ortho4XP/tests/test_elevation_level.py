@@ -45,6 +45,8 @@ except Exception:
         ("AUTO", None),
         ("", None),
         (None, None),
+        ("90", None),  # base-class pin, not a numeric level -> auto (no warn)
+        ("coastline", None),  # a mode of its own -> auto (no warning)
         ("30", 30),
         ("10", 10),
         ("5", 5),
@@ -59,6 +61,38 @@ except Exception:
 )
 def test_parse_elevation_level(value, expected):
     assert ELEVATION_LEVEL.parse_elevation_level(value) == expected
+
+
+@pytest.mark.parametrize("value", ["90", "coastline", "auto", ""])
+def test_parse_elevation_level_inert_values_emit_no_warning(value, capsys):
+    # "90" (the 90 m base-class pin) parses to auto WITHOUT a warning, just
+    # like auto/coastline/empty -- a warning is reserved for genuine typos.
+    assert ELEVATION_LEVEL.parse_elevation_level(value) is None
+    assert "WARNING" not in capsys.readouterr().out
+
+
+def test_parse_elevation_level_unrecognised_warns(capsys):
+    assert ELEVATION_LEVEL.parse_elevation_level("7") is None
+    assert "WARNING" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("auto", True),
+        ("", True),
+        (None, True),
+        ("90", True),
+        ("coastline", True),
+        ("garbage", True),  # unrecognised degrades to auto -> coarse
+        ("30", False),
+        ("10", False),
+        ("5", False),
+        ("1", False),
+    ],
+)
+def test_base_prefers_coarse(value, expected):
+    assert ELEVATION_LEVEL.base_prefers_coarse(value) is expected
 
 
 # ---------------------------------------------------------------------
@@ -115,6 +149,13 @@ def _tile_stub(lat=36, lon=-87, **overrides):
 
 def test_plan_is_none_on_auto():
     assert ELEVATION_LEVEL.resolve_tile_overlay_plan(_tile_stub()) is None
+
+
+def test_plan_is_none_on_base_class_pin():
+    # "90" pins the 90 m base class explicitly: it fetches no wide-area
+    # overlay, so the plan is byte-inert exactly like auto.
+    tile = _tile_stub(elevation_level="90")
+    assert ELEVATION_LEVEL.resolve_tile_overlay_plan(tile) is None
 
 
 def test_plan_is_none_with_custom_dem(monkeypatch):

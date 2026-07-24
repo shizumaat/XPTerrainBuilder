@@ -698,7 +698,12 @@ def build_mesh(tile):
                 (";" in composite_dem) and composite_dem.split(";")[0]
             ) or composite_dem
             tile.dem = DEM.DEM(
-                tile.lat, tile.lon, source, fill_nodata, info_only=True
+                tile.lat,
+                tile.lon,
+                source,
+                fill_nodata,
+                info_only=True,
+                elevation_level=getattr(tile, "elevation_level", "auto"),
             )
             # Re-derive the same Phase C1 densification as step 1 (disk
             # state-driven), so nxdem/nydem match the .alt written densely
@@ -729,7 +734,12 @@ def build_mesh(tile):
                 and usable_dem.split(";")[tile.iterate]
             ) or usable_dem
             tile.dem = DEM.DEM(
-                tile.lat, tile.lon, source, fill_nodata=False, info_only=True
+                tile.lat,
+                tile.lon,
+                source,
+                fill_nodata=False,
+                info_only=True,
+                elevation_level=getattr(tile, "elevation_level", "auto"),
             )
             # Match step 1's densified posting for the raster-size check.
             INSETS.densify_tile_dem_for_insets(tile)
@@ -744,6 +754,9 @@ def build_mesh(tile):
                     source,
                     fill_nodata=False,
                     info_only=False,
+                    elevation_level=getattr(
+                        tile, "elevation_level", "auto"
+                    ),
                 )
                 # Iterative refinement rewrites the raster from the
                 # tile.iterate-th user sub-DEM; densify to the Phase C1

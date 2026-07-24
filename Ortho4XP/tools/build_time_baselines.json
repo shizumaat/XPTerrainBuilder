@@ -1,5 +1,5 @@
 {
- "_doc": "Committed build-time baselines for the hard-law checker tools/check_build_time.py (canonical law: CLAUDE.md working-style item 6). Cold-equivalent measurements excluding downloads; update via 'venv/bin/python tools/check_build_time.py --run --update-baselines <ICAO ...>' and commit alongside the change that paid for any new numbers.",
+ "_doc": "Committed build-time baselines for the hard-law checker tools/check_build_time.py (canonical law: CLAUDE.md working-style item 6). Cold-equivalent measurements excluding downloads; tile records qualify only when features.textures_missing == 0 AND features.insets_fetched == 0 (a run that fetched airport elevation insets books that download time into step-1 seconds). Update via 'venv/bin/python tools/check_build_time.py --run --update-baselines <ICAO ...>' and commit alongside the change that paid for any new numbers.",
  "airports": {
   "CYXY": {
    "recorded_at": "2026-07-18",

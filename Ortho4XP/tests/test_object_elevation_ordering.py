@@ -79,7 +79,7 @@ class _SmoothTile:
         self.apt_smoothing_auto = False
         self.airport_elevation_insets = True
         self.airport_elevation_providers = "auto"
-        self.airport_elevation_inset_resolution_m = 3.0
+        self.airport_elevation_level = "auto"
         self.airport_elevation_inset_margin_m = 1000.0
         self.airport_elevation_inset_feather_m = 60.0
 

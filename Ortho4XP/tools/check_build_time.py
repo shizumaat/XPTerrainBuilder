@@ -34,11 +34,15 @@ Measurement sources
 * Whole-tile builds: the engine store
   ``~/.ortho4xp/tile_build_times/<short_latlon>.json`` written by
   ``o4_engine.session``.  Only records with
-  ``features.textures_missing == 0`` qualify (a record with missing
-  textures spent wall time downloading, which the budget excludes); the
-  tile compute total is the sum of its recorded step seconds.  There is
-  no ``--run`` mode for tiles — build the tile in the app/engine, then
-  run this tool.
+  ``features.textures_missing == 0`` AND ``features.insets_fetched == 0``
+  qualify: a record with missing textures spent wall time downloading
+  imagery, and a record that fetched airport elevation insets spent
+  download wall time (native-resolution gdal.Warp + full-raster
+  sanitizer) inside step 1's "compute" seconds — both are downloads the
+  budget excludes.  The tile compute total is the sum of the record's
+  step seconds.  There is no ``--run`` mode for tiles — build the tile
+  in the app/engine with textures AND insets already cached (i.e. a
+  second build), then run this tool.
 
 Usage
 -----
@@ -311,14 +315,21 @@ def newest_airport_measurement(icao: str, store_directory: str,
 
 
 def newest_tile_measurement(tile_name: str, store_directory: str):
-    """Newest download-free tile record (textures_missing == 0), or None.
+    """Newest download-free tile record, or None.
 
-    Tile compute total = sum of recorded step seconds; a record that had
-    to download textures spent unbudgeted wall time and is skipped.
+    Download-free means ``features.textures_missing == 0`` AND
+    ``features.insets_fetched == 0``.  Tile compute total = sum of
+    recorded step seconds; a record that downloaded textures — or
+    fetched airport elevation insets, whose download wall time is booked
+    inside step 1's seconds — spent unbudgeted wall time and is skipped.
+    (Records written before ``insets_fetched`` existed carry no such key
+    and qualify as before.)
     """
     for record in reversed(load_store_records(store_directory, tile_name)):
         features = record.get("features") or {}
         if float(features.get("textures_missing") or 0.0) != 0.0:
+            continue
+        if float(features.get("insets_fetched") or 0.0) != 0.0:
             continue
         step_seconds = {
             str(step): float(seconds)
@@ -521,7 +532,8 @@ def main(argv=None) -> int:
             if measurement is None:
                 print(f"ERROR: no download-free store record for "
                       f"{subject} in {arguments.tile_store} — build the "
-                      "tile with textures already cached first")
+                      "tile with textures and airport elevation insets "
+                      "already cached first (a rebuild qualifies)")
                 return 2
             measurements[subject] = measurement
         else:

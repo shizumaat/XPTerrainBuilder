@@ -421,6 +421,91 @@ def test_disabled_sources_never_auto_picked():
 
 
 # =====================================================================
+# The elevation_level 90 m base-class preference (prefer_coarse)
+# =====================================================================
+def test_prefer_coarse_ranks_three_arc_second_tier_first():
+    # CONUS: the 1 arc-second NED1 (priority 70) leads by default, but
+    # prefer_coarse promotes the 3 arc-second Viewfinder ahead of it while
+    # keeping the fine tier as the fallback.
+    fine = INSETS.select_base_definitions_auto(36, -87, prefer_coarse=False)
+    assert fine[0]["code"] == "NED1"
+    coarse = INSETS.select_base_definitions_auto(36, -87, prefer_coarse=True)
+    assert coarse[0]["code"] == "VIEWFINDER3"
+    assert coarse[0]["resolution_arc_seconds"] == 3.0
+    assert "NED1" in [definition["code"] for definition in coarse]
+
+
+def test_prefer_coarse_falls_back_to_fine_tier_without_coarse_source():
+    # Disable every >=3 arc-second base covering the CONUS tile so only the
+    # 1 arc-second NED1 remains: prefer_coarse then falls back to it.
+    disabled = []
+    for definition in INSETS.elevation_providers_dict.values():
+        if (
+            definition.get("role") == INSETS.ROLE_BASE
+            and definition.get("resolution_arc_seconds", 0.0) >= 3.0
+        ):
+            definition["enabled"] = False
+            disabled.append(definition["code"])
+    try:
+        assert "VIEWFINDER3" in disabled
+        coarse = INSETS.select_base_definitions_auto(
+            36, -87, prefer_coarse=True
+        )
+        assert coarse, "the fine tier must still cover the tile"
+        assert coarse[0]["code"] == "NED1"
+        assert coarse[0]["resolution_arc_seconds"] < 3.0
+    finally:
+        INSETS.initialize_elevation_providers_dict(
+            SHIPPED_PROVIDERS_DIRECTORY
+        )
+
+
+def test_resolve_base_view_honours_prefer_coarse_in_dem1_zone():
+    # (46, 8) is on the 1 arc-second Viewfinder whitelist (an Alps tile).
+    assert INSETS.resolve_base_definition(
+        46, 8, "View", prefer_coarse=False
+    )["code"] == "VIEWFINDER1"
+    assert INSETS.resolve_base_definition(
+        46, 8, "View", prefer_coarse=True
+    )["code"] == "VIEWFINDER3"
+    # "auto" reranks the same way inside the whitelist zone.
+    assert INSETS.resolve_base_definition(
+        46, 8, "auto", prefer_coarse=False
+    )["code"] == "VIEWFINDER1"
+    assert INSETS.resolve_base_definition(
+        46, 8, "auto", prefer_coarse=True
+    )["code"] == "VIEWFINDER3"
+
+
+def test_explicit_code_ignores_prefer_coarse():
+    # An explicit registry CODE pins its exact source regardless of the
+    # base-class preference.
+    for prefer_coarse in (False, True):
+        assert INSETS.resolve_base_definition(
+            46, 8, "VIEWFINDER1", prefer_coarse=prefer_coarse
+        )["code"] == "VIEWFINDER1"
+        assert INSETS.resolve_base_definition(
+            36, -87, "NED1", prefer_coarse=prefer_coarse
+        )["code"] == "NED1"
+
+
+def test_summary_base_class_follows_elevation_level(
+    tmp_path, monkeypatch, shipped_registry
+):
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    # (46, 8) is on the 1 arc-second whitelist: auto (90 m base class)
+    # reports the 3 arc-second Viewfinder, a numeric level the 1 arc-second.
+    auto = INSETS.summarize_tile_elevation_sources(46, 8, elevation_level="auto")
+    assert auto["base_code"] == "VIEWFINDER3"
+    assert auto["base_resolution_arc_seconds"] == 3.0
+    pinned = INSETS.summarize_tile_elevation_sources(
+        46, 8, elevation_level="30"
+    )
+    assert pinned["base_code"] == "VIEWFINDER1"
+    assert pinned["base_resolution_arc_seconds"] == 1.0
+
+
+# =====================================================================
 # Cache-path invariance (byte-equal to the legacy FNAMES results)
 # =====================================================================
 def test_cache_paths_equal_legacy_paths(shipped_registry):
@@ -596,11 +681,20 @@ def test_sonny_default_source_long_name(tmp_path, monkeypatch):
 # =====================================================================
 def test_default_source_resolution_long_names(monkeypatch):
     monkeypatch.setattr(DEM, "base_elevation_source", "auto")
+    # The default tile elevation_level is "auto", which prefers the 90 m
+    # (3 arc-second) base class: even over the CONUS NED1 zone the automatic
+    # base is now Viewfinderpanoramas, with the visible detail carried by
+    # the airport lidar insets.
     assert DEM.resolve_default_base_source(36, -87) == (
-        'NED 1" (from USGS) - USA, Canada, Mexico'
+        "Viewfinderpanoramas (J. de Ferranti) - mostly worldwide"
     )
     assert DEM.resolve_default_base_source(10, 10) == (
         "Viewfinderpanoramas (J. de Ferranti) - mostly worldwide"
+    )
+    # A numeric level ("30" and finer) restores the historic 1 arc-second
+    # base-class preference: the CONUS tile resolves to NED1 again.
+    assert DEM.resolve_default_base_source(36, -87, "30") == (
+        'NED 1" (from USGS) - USA, Canada, Mexico'
     )
     # Legacy keyword pin reproduces the historic default exactly.
     monkeypatch.setattr(DEM, "base_elevation_source", "View")
@@ -635,10 +729,19 @@ def test_summary_reports_base_and_inset_availability(
     # Zurich tile: the swisstopo 0.5 m lidar.
     summary = INSETS.summarize_tile_elevation_sources(47, 8)
     assert ("SWISSALTI3D", 0.5) in summary["inset_providers"]
-    # United States tile: NED1 base picked automatically, 3DEP insets.
+    # United States tile: the default "auto" elevation_level prefers the
+    # 90 m base class, so the automatic base is Viewfinder 3 arc-second
+    # (NED1 returns only under a numeric level); 3DEP insets still reach it.
     summary = INSETS.summarize_tile_elevation_sources(36, -87)
-    assert summary["base_code"] == "NED1"
+    assert summary["base_code"] == "VIEWFINDER3"
+    assert summary["base_resolution_arc_seconds"] == 3.0
     assert ("USGS3DEP", 1.0) in summary["inset_providers"]
+    # Pinning a numeric level restores the 1 arc-second base class -> NED1.
+    summary = INSETS.summarize_tile_elevation_sources(
+        36, -87, elevation_level="30"
+    )
+    assert summary["base_code"] == "NED1"
+    assert summary["base_resolution_arc_seconds"] == 1.0
 
 
 def test_summary_unresolvable_selector_reports_fallback(

@@ -209,16 +209,17 @@ cfg_tile_vars = {
     "elevation_level": {
         "type": str,
         "default": "auto",
-        "values": ("auto", "coastline", "30", "10", "5", "1"),
+        "values": ("auto", "coastline", "90", "30", "10", "5", "1"),
         "value_labels": {
-            "auto": "Auto — 30 m base + lidar at airports",
+            "auto": "Auto — 90 m base + lidar at airports",
             "coastline": "Auto + coastline lidar band",
+            "90": "90 m (3 arc-second)",
             "30": "30 m (1 arc-second)",
             "10": "10 m (1/3 arc-second)",
             "5": "5 m (1/6 arc-second)",
             "1": "1 m sources (1/9 arc-second grid)",
         },
-        "hint": 'Tile-wide elevation detail level — the elevation analogue of the imagery zoom level. "auto" (default) keeps the standard behaviour: a 30 m class base source plus meter-class lidar insets at airports only. "coastline" keeps the automatic behaviour and additionally drapes a lidar band along the tile\'s coastlines (width set by elevation_coastline_band_km), graded by approach visibility: about 10 m detail within 20 km of an airport, 20 m out to 50 km, and 30 m beyond — lidar\'s vertical accuracy everywhere on the shore without paying for detail invisible from cruise altitudes. A numeric level instead fetches the finest wide-area elevation source covering the tile (for example national lidar services) warped to that ground resolution over the whole tile, and densifies the working elevation grid to match: 30 m = 1 arc-second, 10 m = 1/3, 5 m = 1/6, 1 m = 1/9 arc-second (about 3.4 m posting, the practical whole-tile grid ceiling; airports keep their finer insets on top). Levels never coarsen what the automatic behaviour would have chosen, and are capped to the finest source actually covering the tile, so an over-ambitious level gracefully has no effect. Higher levels mean substantially larger downloads, working files and memory: the working raster alone is roughly 0.5 GB at 10 m, 2 GB at 5 m and 4 GB at 1 m, with peak memory several times that, and more mesh triangles unless curvature_tol is raised. Useful for islands and mountainous tiles where 30 m relief is visibly too coarse.',
+        "hint": 'Tile-wide elevation detail level — the elevation analogue of the imagery zoom level. "auto" (default) uses a 90 m class base source (3 arc-second, small downloads) plus meter-class lidar insets at airports, where detail is actually visible on approach. "90" pins that 90 m base class explicitly. "coastline" keeps the automatic behaviour and additionally drapes a lidar band along the tile\'s coastlines (width set by elevation_coastline_band_km), graded by approach visibility: about 10 m detail within 20 km of an airport, 20 m out to 50 km, and 30 m beyond — lidar\'s vertical accuracy everywhere on the shore without paying for detail invisible from cruise altitudes. "30" and finer restore the 1 arc-second base class and additionally fetch the finest wide-area elevation source covering the tile (for example national lidar services) warped to that ground resolution over the whole tile, densifying the working elevation grid to match: 30 m = 1 arc-second, 10 m = 1/3, 5 m = 1/6, 1 m = 1/9 arc-second (about 3.4 m posting, the practical whole-tile grid ceiling; airports keep their finer insets on top). Levels never coarsen what the automatic behaviour would have chosen, and are capped to the finest source actually covering the tile, so an over-ambitious level gracefully has no effect. Higher levels mean substantially larger downloads, working files and memory: the working raster alone is roughly 0.5 GB at 10 m, 2 GB at 5 m and 4 GB at 1 m, with peak memory several times that, and more mesh triangles unless curvature_tol is raised. Useful for islands and mountainous tiles where 30 m relief is visibly too coarse. An explicit (non-auto) base_elevation_source always wins over the level\'s base-class preference.',
     },
     "elevation_coastline_band_km": {
         "type": float,
@@ -251,10 +252,19 @@ cfg_tile_vars = {
         "default": "auto",
         "hint": 'Which elevation inset providers to consider, referring to the definition files in Providers/Elevation/<CODE>.elv. "auto" (default) uses every enabled provider ranked by its priority field. An explicit comma-separated list of provider codes (for example "USGS3DEP") pins or filters providers, which is useful for testing.',
     },
-    "airport_elevation_inset_resolution_m": {
-        "type": float,
-        "default": 3.0,
-        "hint": "Target ground resolution in metres to which fetched elevation insets are warped. The working mesh grid is roughly 31 metres, so the default 3 metres keeps refinement headroom while storing about one tenth of the bytes of native 1 metre lidar.",
+    "airport_elevation_level": {
+        "type": str,
+        "default": "auto",
+        "values": ("auto", "0.5", "1", "5", "10", "30"),
+        "value_labels": {
+            "auto": "Auto — best available (down to 0.5 m)",
+            "0.5": "0.5 m",
+            "1": "1 m",
+            "5": "5 m",
+            "10": "10 m",
+            "30": "30 m",
+        },
+        "hint": 'Airport elevation detail level — the ground resolution in metres to which fetched airport elevation insets are warped and stored. "auto" (default) uses each provider\'s best available native resolution, never finer than 0.5 m. A numeric level pins the warp target instead: coarser levels store fewer bytes and warp faster (a 1 m inset stores roughly nine times the bytes of a 3 m one) at the cost of fine relief; finer levels only help where a provider actually publishes data that fine. Cached insets fetched at an earlier level are recycled as-is until refreshed.',
     },
     "airport_elevation_inset_margin_m": {
         "type": float,
@@ -681,7 +691,7 @@ list_vector_vars = [
     "apt_smoothing_auto",
     "airport_elevation_insets",
     "airport_elevation_providers",
-    "airport_elevation_inset_resolution_m",
+    "airport_elevation_level",
     "airport_elevation_inset_margin_m",
     "airport_elevation_inset_feather_m",
     "airport_inset_water",

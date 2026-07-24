@@ -234,7 +234,12 @@ def build_masks(tile, for_imagery=False):
                 (";" in tile.custom_dem) and tile.custom_dem.split(";")[0]
             ) or tile.custom_dem
             tile.dem = DEM.DEM(
-                tile.lat, tile.lon, source, fill_nodata, info_only=False
+                tile.lat,
+                tile.lon,
+                source,
+                fill_nodata,
+                info_only=False,
+                elevation_level=getattr(tile, "elevation_level", "auto"),
             )
         except:
             UI.exit_message_and_bottom_line(

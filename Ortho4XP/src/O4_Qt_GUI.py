@@ -80,6 +80,7 @@ TEXTURE_MODE_CHOICES = (
 ELEVATION_LEVEL_CHOICES = (
     ("Auto", "auto"),
     ("Auto + coastline", "coastline"),
+    ("90 m", "90"),
     ("30 m", "30"),
     ("10 m", "10"),
     ("5 m", "5"),
@@ -88,15 +89,41 @@ ELEVATION_LEVEL_CHOICES = (
 
 ELEVATION_LEVEL_TOOLTIP = (
     "Tile-wide elevation detail level.\n"
-    "Auto: 30 m base data plus meter-class lidar at airports (standard).\n"
+    "Auto: 90 m base data (small downloads) plus meter-class lidar at\n"
+    "airports, where the detail is actually visible (standard).\n"
     "Auto + coastline: additionally drapes a lidar band along shorelines,\n"
     "graded by approach visibility — about 10 m detail within 20 km of an\n"
     "airport, 20 m out to 50 km, 30 m beyond.\n"
-    "Numeric levels fetch the finest wide-area elevation source covering\n"
-    "the whole tile and densify the mesh grid to match. Levels never\n"
-    "coarsen the automatic choice and cap themselves to the finest source\n"
-    "actually available. Higher levels mean substantially larger\n"
-    "downloads, working files, memory use and triangle counts."
+    "90 m pins the automatic base class explicitly. 30 m and finer\n"
+    "restore the 1 arc-second base class and fetch the finest wide-area\n"
+    "elevation source covering the whole tile, densifying the mesh grid\n"
+    "to match. Levels never coarsen the automatic choice and cap\n"
+    "themselves to the finest source actually available. Higher levels\n"
+    "mean substantially larger downloads, working files, memory use and\n"
+    "triangle counts."
+)
+
+# Popup choices for the per-tile ``airport_elevation_level`` config value
+# (the warp/storage resolution of the airport lidar insets).  Order is
+# the popup-menu order.
+AIRPORT_ELEVATION_LEVEL_CHOICES = (
+    ("Auto", "auto"),
+    ("0.5 m", "0.5"),
+    ("1 m", "1"),
+    ("5 m", "5"),
+    ("10 m", "10"),
+    ("30 m", "30"),
+)
+
+AIRPORT_ELEVATION_LEVEL_TOOLTIP = (
+    "Airport elevation detail level — the resolution the airport lidar\n"
+    "insets are warped to and stored at.\n"
+    "Auto: each provider's best available native resolution, never finer\n"
+    "than 0.5 m (standard).\n"
+    "A numeric level pins the warp target instead: coarser stores fewer\n"
+    "bytes and warps faster; finer only helps where a provider actually\n"
+    "publishes data that fine. Cached insets fetched at an earlier level\n"
+    "are recycled as-is until refreshed."
 )
 
 
@@ -552,12 +579,12 @@ class MainWindow(QMainWindow):
         trl.addWidget(self.texture_combo, 1)
         bg.addWidget(self.texture_row)
 
-        # Elevation detail level: how fine the tile-wide terrain data is
-        # (per-tile config), mirroring the texture-mode row above.
+        # Tile elevation detail level: how fine the tile-wide terrain
+        # data is (per-tile config), mirroring the texture-mode row above.
         self.elevation_row = QWidget()
         erl = QHBoxLayout(self.elevation_row)
         erl.setContentsMargins(0, 0, 0, 0)
-        self.elevation_label = QLabel("Elevation:")
+        self.elevation_label = QLabel("Tile elevation:")
         erl.addWidget(self.elevation_label)
         self.elevation_combo = QComboBox()
         for label, value in ELEVATION_LEVEL_CHOICES:
@@ -568,6 +595,26 @@ class MainWindow(QMainWindow):
         )
         erl.addWidget(self.elevation_combo, 1)
         bg.addWidget(self.elevation_row)
+
+        # Airport elevation detail level: the warp/storage resolution of
+        # the airport lidar insets (per-tile config), the airport sibling
+        # of the tile-wide row above.
+        self.airport_elevation_row = QWidget()
+        arl = QHBoxLayout(self.airport_elevation_row)
+        arl.setContentsMargins(0, 0, 0, 0)
+        self.airport_elevation_label = QLabel("Airport elevation:")
+        arl.addWidget(self.airport_elevation_label)
+        self.airport_elevation_combo = QComboBox()
+        for label, value in AIRPORT_ELEVATION_LEVEL_CHOICES:
+            self.airport_elevation_combo.addItem(label, value)
+        self.airport_elevation_combo.setToolTip(
+            AIRPORT_ELEVATION_LEVEL_TOOLTIP
+        )
+        self.airport_elevation_combo.currentIndexChanged.connect(
+            self._airport_elevation_level_changed
+        )
+        arl.addWidget(self.airport_elevation_combo, 1)
+        bg.addWidget(self.airport_elevation_row)
 
         self.build_btn = QPushButton("▶ Build")
         self.build_btn.clicked.connect(self.start_build)
@@ -1075,6 +1122,7 @@ class MainWindow(QMainWindow):
         self._selection_changed()
         self._refresh_texture_mode(tile)
         self._refresh_elevation_level(tile)
+        self._refresh_airport_elevation_level(tile)
         if tile is None:
             self.info_group.setVisible(False)
             return
@@ -1101,8 +1149,14 @@ class MainWindow(QMainWindow):
         # The elevation rows populate for built AND unbuilt tiles: what
         # data a build WOULD use matters most before building.
         try:
+            import O4_Settings_Model as SM
+
+            raw = SM.read_tile_raw(lat, lon, self.output_dir()) or {}
             (base_text, lidar_text) = _elevation_row_texts(
-                lat, lon, info.custom_dem if info else ""
+                lat,
+                lon,
+                info.custom_dem if info else "",
+                raw.get("elevation_level") or "auto",
             )
         except Exception:
             (base_text, lidar_text) = ("?", "?")
@@ -1270,6 +1324,50 @@ class MainWindow(QMainWindow):
             )
         except OSError as exc:
             print("Could not save elevation level:", exc)
+
+    def _refresh_airport_elevation_level(self, tile):
+        """Load the active tile's ``airport_elevation_level`` into its combo.
+
+        Mirrors :meth:`_refresh_elevation_level` for the airport-inset
+        detail level.
+        """
+        import O4_Settings_Model as SM
+
+        value = "auto"
+        if tile is not None:
+            raw = SM.read_tile_raw(tile[0], tile[1], self.output_dir())
+            if raw and raw.get("airport_elevation_level"):
+                value = raw["airport_elevation_level"]
+        index = self.airport_elevation_combo.findData(value)
+        if index < 0:
+            index = 0
+        self.airport_elevation_combo.blockSignals(True)
+        self.airport_elevation_combo.setCurrentIndex(index)
+        self.airport_elevation_combo.blockSignals(False)
+
+    def _airport_elevation_level_changed(self, index):
+        """Persist the chosen airport elevation detail level to the tile.
+
+        No-ops when no tile is active; mirrors
+        :meth:`_elevation_level_changed`.
+        """
+        tile = self.map.active_tile()
+        if tile is None:
+            return
+        value = self.airport_elevation_combo.itemData(index)
+        if value is None:
+            return
+        import O4_Settings_Model as SM
+
+        try:
+            SM.write_tile(
+                tile[0],
+                tile[1],
+                self.output_dir(),
+                {"airport_elevation_level": value},
+            )
+        except OSError as exc:
+            print("Could not save airport elevation level:", exc)
 
     def _modify_custom_airports_changed(self, checked):
         """Persist the global modify-custom-airports switch.
@@ -2033,18 +2131,25 @@ def _fmt_arc_seconds(resolution_arc_seconds):
     return "%s (~%d m)" % (text, round(value * 30))
 
 
-def _elevation_row_texts(lat, lon, tile_custom_dem=""):
+def _elevation_row_texts(
+    lat, lon, tile_custom_dem="", tile_elevation_level="auto"
+):
     """The (base, airport lidar) strings for the tile-info elevation rows.
 
     Everything behind this is offline (registry, local files, the
     cached inset index) — see summarize_tile_elevation_sources — so it
     runs on every selection change without stalling the UI.
+    ``tile_elevation_level`` steers the base-class preference so the row
+    reports the same base source a build would pick.
     """
     import O4_DEM_Utils as DEM
     import O4_Airport_Elevation_Insets as ELEVATION_PROVIDERS
 
     summary = ELEVATION_PROVIDERS.summarize_tile_elevation_sources(
-        lat, lon, DEM.base_elevation_source
+        lat,
+        lon,
+        DEM.base_elevation_source,
+        elevation_level=tile_elevation_level,
     )
     if tile_custom_dem:
         # The tile config pins its own source; the first ";"-token is

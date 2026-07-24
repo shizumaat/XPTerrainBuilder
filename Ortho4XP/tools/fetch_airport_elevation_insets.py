@@ -36,7 +36,9 @@ Options:
     --bbox W,S,E,N            Bounding box in EPSG:4326 degrees (required).
     --tile LAT,LON            Integer tile corner; default = bbox-centre floor.
     --provider CODES          "auto" (default) or a comma-separated code list.
-    --resolution-m FLOAT      Warp target resolution in metres (default 3.0).
+    --resolution-m FLOAT      Warp target resolution in metres (default:
+                              auto — each provider's best available,
+                              floored at 0.5 m, matching production).
     --refresh                 Ignore cached results and re-query/re-fetch.
     --probe LAT,LON           Sample the fetched raster at this point and print it.
     --elevation-data-dir DIR  Write the cache under DIR instead of ./Elevation_data.
@@ -111,7 +113,7 @@ def main() -> int:
         help="integer tile corner LAT,LON (default: bbox-centre floor)",
     )
     parser.add_argument("--provider", default="auto")
-    parser.add_argument("--resolution-m", type=float, default=3.0)
+    parser.add_argument("--resolution-m", type=float, default=None)
     parser.add_argument("--refresh", action="store_true")
     parser.add_argument(
         "--probe",

@@ -74,22 +74,29 @@ def drop_missing_pinned_files(source):
     return ";".join(kept)
 
 
-def resolve_default_base_source(lat, lon):
+def resolve_default_base_source(lat, lon, elevation_level="auto"):
     """Map the ``base_elevation_source`` configuration to a legacy long name.
 
     Returns one of the ``available_sources`` long display names so
     ``DEM.load_data``'s existing dispatch (combined raster for global
     sources, single-file read otherwise) is reused untouched.  Falls back
     to the historic default (Viewfinderpanoramas) when the registry
-    resolves nothing for this tile.
+    resolves nothing for this tile.  ``elevation_level`` is the tile's
+    detail level: auto/"90"/"coastline" prefer the 90 m (3 arc-second)
+    base class, numeric levels the 1 arc-second class (see
+    ``O4_Elevation_Level.base_prefers_coarse``).
     """
     # Imported lazily: O4_Airport_Elevation_Insets imports this module at
     # top level (for the raster helpers), so a top-level import here would
     # be circular.
     import O4_Airport_Elevation_Insets as ELEVATION_PROVIDERS
+    import O4_Elevation_Level as ELEVATION_LEVEL
 
     definition = ELEVATION_PROVIDERS.resolve_base_definition(
-        lat, lon, base_elevation_source
+        lat,
+        lon,
+        base_elevation_source,
+        prefer_coarse=ELEVATION_LEVEL.base_prefers_coarse(elevation_level),
     )
     if definition is None:
         return available_sources[1]
@@ -102,10 +109,28 @@ def resolve_default_base_source(lat, lon):
 
 ################################################################################
 class DEM:
-    def __init__(self, lat, lon, source="", fill_nodata=True, info_only=False):
+    def __init__(
+        self,
+        lat,
+        lon,
+        source="",
+        fill_nodata=True,
+        info_only=False,
+        elevation_level="auto",
+    ):
         self.lat = lat
         self.lon = lon
+        # The tile's elevation detail level, driving the base-class
+        # preference (90 m for auto/"90"/"coastline", 1 arc-second for
+        # numeric levels) whenever this load resolves a default or a
+        # "View" source; explicit files/CODES in ``source`` ignore it.
+        self.elevation_level = elevation_level
         source = source.replace("{latlon}", FNAMES.hem_latlon(lat, lon))
+        # The (post-substitution) source token this object was built from:
+        # lets consumers recognise a sub-DEM by its file path (the airport
+        # inset bake reuses the already-decoded subdem instead of decoding
+        # the same GeoTIFF a second time).
+        self.source_path = source
         if ";" in source:
             self.alt = self.alt_composite
             self.alt_vec = self.alt_vec_composite
@@ -152,7 +177,18 @@ class DEM:
             if os.path.exists(FNAMES.generic_tif(self.lat, self.lon)):
                 source = FNAMES.generic_tif(self.lat, self.lon)
             else:
-                source = resolve_default_base_source(self.lat, self.lon)
+                source = resolve_default_base_source(
+                    self.lat, self.lon, self.elevation_level
+                )
+        # The 90 m base-class preference rides along into the legacy
+        # keyword dispatch: "View" is how the automatic ranking
+        # round-trips through the long-name path, so its per-tile
+        # dem1-vs-dem3 choice must honour the tile's elevation level.
+        import O4_Elevation_Level as ELEVATION_LEVEL
+
+        prefer_coarse = ELEVATION_LEVEL.base_prefers_coarse(
+            self.elevation_level
+        )
         if source in available_sources[1::2]:
             short_source = available_sources[
                 available_sources.index(source) - 1
@@ -169,10 +205,19 @@ class DEM:
                     self.nydem,
                     self.alt_dem,
                 ) = build_combined_raster(
-                    short_source, self.lat, self.lon, info_only
+                    short_source,
+                    self.lat,
+                    self.lon,
+                    info_only,
+                    prefer_coarse=prefer_coarse,
                 )
             else:
-                if ensure_elevation(short_source, self.lat, self.lon):
+                if ensure_elevation(
+                    short_source,
+                    self.lat,
+                    self.lon,
+                    prefer_coarse=prefer_coarse,
+                ):
                     (
                         self.epsg,
                         self.x0,
@@ -427,7 +472,7 @@ class DEM:
         return tmp
 
 ################################################################################
-def build_combined_raster(source, lat, lon, info_only):
+def build_combined_raster(source, lat, lon, info_only, prefer_coarse=False):
     world_tiles = numpy.array(
         Image.open(os.path.join(FNAMES.Utils_dir, "world_tiles.png"))
     )
@@ -470,7 +515,13 @@ def build_combined_raster(source, lat, lon, info_only):
         y = 89 - lat0
         if not world_tiles[y, x]:
             tmparray = numpy.zeros((base, base), dtype=numpy.float32)
-        elif ensure_elevation(source, lat0, (lon0 + 180) % 360 - 180, verbose):
+        elif ensure_elevation(
+            source,
+            lat0,
+            (lon0 + 180) % 360 - 180,
+            verbose,
+            prefer_coarse=prefer_coarse,
+        ):
             tmparray = read_elevation_from_file(
                 FNAMES.elevation_data(source, lat0, (lon0 + 180) % 360 - 180),
                 lat0,
@@ -679,7 +730,7 @@ def read_elevation_from_file(
 ##############################################################################
 
 ##############################################################################
-def ensure_elevation(source, lat, lon, verbose=True):
+def ensure_elevation(source, lat, lon, verbose=True, prefer_coarse=False):
     """Ensure the whole-tile file for a base elevation source is cached.
 
     Thin compatibility shim over the declarative provider registry in
@@ -703,7 +754,9 @@ def ensure_elevation(source, lat, lon, verbose=True):
     # be circular.
     import O4_Airport_Elevation_Insets as ELEVATION_PROVIDERS
 
-    return ELEVATION_PROVIDERS.ensure_base_tile(source, lat, lon, verbose)
+    return ELEVATION_PROVIDERS.ensure_base_tile(
+        source, lat, lon, verbose, prefer_coarse=prefer_coarse
+    )
 
 ################################################################################
 def http_request(url, source, verbose=False):

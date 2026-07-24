@@ -49,6 +49,12 @@ _POSTING_SLACK = 1.15
 # small synthetic rasters.
 STRIP_CELL_BUDGET = 4_000_000
 
+# The "90" level selects the 90 m (3 arc-second) BASE class rather than
+# a wide-area overlay: it is what "auto" does by default, pinned
+# explicitly.  It carries no grid factor and fetches nothing extra, so
+# the numeric-level machinery treats it like auto.
+BASE_90M_VALUE = "90"
+
 # --- "Auto + coastline" mode (spec section 3.4) -----------------------
 COASTLINE_MODE_VALUE = "coastline"
 
@@ -89,9 +95,10 @@ def parse_elevation_level(value):
         return None
     if isinstance(value, str):
         value = value.strip().lower()
-        # "coastline" is a mode of its own (is_coastline_mode), not a
-        # numeric level -- the numeric machinery treats it like auto.
-        if value in ("", "auto", COASTLINE_MODE_VALUE):
+        # "coastline" is a mode of its own (is_coastline_mode), and "90"
+        # is a base-class pin (base_resolution_preference), not numeric
+        # levels -- the numeric machinery treats both like auto.
+        if value in ("", "auto", COASTLINE_MODE_VALUE, BASE_90M_VALUE):
             return None
     try:
         level = int(float(value))
@@ -106,6 +113,22 @@ def parse_elevation_level(value):
         )
         return None
     return level
+
+
+def base_prefers_coarse(value):
+    """True when an ``elevation_level`` value wants the 90 m base class.
+
+    "auto" (and its explicit pin "90", and "Auto + coastline") take the
+    3 arc-second base tier: small downloads, with the visible detail
+    carried by the airport lidar insets (and, for coastline mode, the
+    shoreline band).  Numeric levels "30" and finer instead restore the
+    historic 1 arc-second base-class preference underneath their
+    wide-area overlay.  Unrecognised values degrade to auto (with
+    :func:`parse_elevation_level`'s one warning) and therefore prefer
+    coarse too.  An explicit non-auto ``base_elevation_source`` always
+    overrides this preference at the selection site.
+    """
+    return parse_elevation_level(value) is None
 
 
 def grid_posting_metres(factor):

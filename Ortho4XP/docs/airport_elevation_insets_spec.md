@@ -236,7 +236,7 @@ change the physical footprint.
 | `airport_elevation_insets` | True | master gate (G4 fallback paths) |
 | `base_elevation_source` | "auto" | base-tier pick (§3.6): auto = best covering `role=base` ≤ 1″; legacy keywords still valid |
 | `airport_elevation_providers` | "auto" | "auto" = enabled `.elv` files by priority; or explicit comma list |
-| `airport_elevation_inset_resolution_m` | 3.0 | warp target resolution |
+| `airport_elevation_level` | "auto" | warp target resolution: auto = each provider's native, floored at 0.5 m; numeric (0.5/1/5/10/30) pins it. Replaced `airport_elevation_inset_resolution_m` (float, 3.0) 2026-07-24 — see `docs/specs/elevation-level-spec.md` §3.5 |
 | `airport_elevation_inset_margin_m` | 2000.0 | bbox margin beyond airport mask |
 | `airport_elevation_inset_feather_m` | 60.0 | inset→base blend band |
 | `apt_smoothing_auto` | True | per-airport radius rule (§3.4) |

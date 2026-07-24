@@ -521,6 +521,7 @@ def compose_tile_dem_from_disk(tile, dico_airports, write_alt_file=True):
         dem_source,
         tile.fill_nodata or "to zero",
         info_only=False,
+        elevation_level=getattr(tile, "elevation_level", "auto"),
     )
     # Densify the working grid over inset tiles (spec Phase C1) BEFORE
     # smoothing and baking, so the finer posting carries the meter-class

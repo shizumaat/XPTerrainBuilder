@@ -986,7 +986,14 @@ class EngineSession:
                          "textures_total": int(getattr(
                              tile, "textures_total_last_build", 0) or 0),
                          "textures_missing": int(getattr(
-                             tile, "textures_missing_last_build", 0) or 0)},
+                             tile, "textures_missing_last_build", 0) or 0),
+                         # Airport elevation inset fetches performed by
+                         # step 1 (zero on a warm inset cache): their
+                         # download wall time lands inside the vector
+                         # step, so a non-zero count disqualifies the
+                         # record as a build-time measurement.
+                         "insets_fetched": int(getattr(
+                             tile, "insets_fetched_last_build", 0) or 0)},
                         step_seconds)
             except Exception:
                 import traceback

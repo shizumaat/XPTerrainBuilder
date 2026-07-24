@@ -125,7 +125,7 @@ _LAYOUT: list = [
         ("mesh_zl", "Max imagery zoom the mesh allows", "tile", True),
     ]),
     ("elevation", "Elevation", [
-        ("elevation_level", "Elevation detail level", "tile", False),
+        ("elevation_level", "Tile elevation detail level", "tile", False),
         ("elevation_coastline_band_km", "Coastline lidar band width (km)", "tile", True),
         ("base_elevation_source", "Base elevation source", "app", False),
         ("custom_dem", "Custom elevation data (DEM)", "tile", False),
@@ -133,9 +133,9 @@ _LAYOUT: list = [
         ("auto_patch", "Auto-patch airports (runway slopes)", "tile", False),
         ("modify_custom_airports", "Modify custom airports (reseat objects)", "tile", False),
         ("airport_elevation_insets", "Fetch airport lidar insets", "tile", False),
+        ("airport_elevation_level", "Airport elevation detail level", "tile", False),
         ("airport_elevation_inset_margin_m", "Lidar extent beyond airport (m)", "tile", False),
         ("airport_elevation_inset_feather_m", "Lidar edge blend width (m)", "tile", False),
-        ("airport_elevation_inset_resolution_m", "Inset storage resolution (m)", "tile", True),
         ("airport_elevation_providers", "Inset providers", "tile", True),
         ("airport_inset_water", "Detect ponds in lidar", "tile", True),
         ("apt_smoothing_pix", "Airport elevation smoothing (px)", "tile", True),
@@ -470,6 +470,7 @@ def write_tile(lat: int, lon: int, custom_build_dir: str, values: dict) -> None:
 CURATED_TILE_SETTINGS = (
     "texture_mode",
     "elevation_level",
+    "airport_elevation_level",
     "elevation_coastline_band_km",
     "road_level",
     "masks_width",

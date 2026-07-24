@@ -554,7 +554,12 @@ def _tile_elevation_post_grid(tile):
                 (";" in tile.custom_dem) and tile.custom_dem.split(";")[0]
             ) or tile.custom_dem
             dem = DEM.DEM(
-                tile.lat, tile.lon, source, fill_nodata, info_only=False
+                tile.lat,
+                tile.lon,
+                source,
+                fill_nodata,
+                info_only=False,
+                elevation_level=getattr(tile, "elevation_level", "auto"),
             )
         except Exception as error:
             UI.vprint(

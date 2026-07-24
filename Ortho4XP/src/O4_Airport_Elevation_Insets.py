@@ -756,7 +756,10 @@ def warp_vsicurl_sources_to_geotiff(
         yRes=y_resolution_deg,
         resampleAlg="bilinear",
         dstNodata=-32768.0,
-        creationOptions=["COMPRESS=DEFLATE", "PREDICTOR=3"],
+        # TILED so the grid decision's windowed probe reads decode a few
+        # 256x256 blocks instead of whole DEFLATE strips of a
+        # native-resolution inset.
+        creationOptions=["COMPRESS=DEFLATE", "PREDICTOR=3", "TILED=YES"],
     )
     configuration_options = dict(gdal_configuration_options or {})
     allowed_extensions = _vsicurl_allowed_extensions(vsicurl_inputs)
@@ -6043,13 +6046,18 @@ def ensure_airport_insets(
     provider_definitions,
     target_resolution_m,
     refresh=False,
+    fetch_counter=None,
 ):
     """Ensure a cached inset exists for each airport, per provider ranking.
 
     ``airport_bounding_boxes`` maps airport identifier -> ``(west, south,
     east, north)`` in EPSG:4326 degrees.  For each airport the providers are
     tried in order; the first with coverage wins and its GeoTIFF +
-    provenance sidecar are written.  ``index.json`` records positives and
+    provenance sidecar are written.  ``target_resolution_m`` is the warp
+    resolution in metres, or ``None`` for the "auto" airport elevation
+    level: each provider then warps at its own best available native
+    resolution, floored at ``AIRPORT_INSET_MIN_TARGET_RESOLUTION_M``
+    (see :func:`_auto_inset_target_resolution_m`).  ``index.json`` records positives and
     NEGATIVE (``no-coverage``) results so a rebuild never re-queries the
     discovery API; ``refresh`` forces a re-query and re-fetch.  A fetch
     that RAISES (:class:`TransientFetchError` or any strategy crash) is
@@ -6063,6 +6071,12 @@ def ensure_airport_insets(
     against (stored per airport under ``"bounding_box"``).  A request equal
     to or inside what is cached never refetches.  Records written before
     this key existed keep their negative results until a ``refresh``.
+
+    ``fetch_counter`` (optional one-element list) is incremented once per
+    network fetch ATTEMPTED — successful, no-coverage or raised alike, since
+    each spends download wall time the build-time budgets exclude
+    (``tools/check_build_time.py``).  A fully warm-cache pass leaves it at
+    zero.
 
     Returns the updated index dictionary.  Strategy-agnostic: it only calls
     :func:`discover_inset` / :func:`fetch_inset`.
@@ -6084,8 +6098,16 @@ def ensure_airport_insets(
     # One airport's whole provider chain, ready to run on a worker
     # thread: the chain stays strictly ordered inside its airport
     # (ranking + negative caching semantics untouched); workers share
-    # only the index dict (each touches its own airport's key) and the
-    # footprint prefetch (internally locked).
+    # only the index dict (each touches its own airport's key), the
+    # footprint prefetch (internally locked) and the fetch counter
+    # (guarded here).
+    fetch_counter_lock = threading.Lock()
+
+    def _count_fetch_attempt():
+        if fetch_counter is not None:
+            with fetch_counter_lock:
+                fetch_counter[0] += 1
+
     def _fetch_airport_insets(icao):
         bounding_box = airport_bounding_boxes[icao]
         airport_record = index.get(icao, {})
@@ -6158,6 +6180,7 @@ def ensure_airport_insets(
                 "from",
                 code,
             )
+            _count_fetch_attempt()
             fetch_destination = destination
             if cached_inset_is_stale:
                 # A failed warp can leave a partial file behind; the
@@ -6186,7 +6209,11 @@ def ensure_airport_insets(
                     provenance = fetch_inset(
                         definition,
                         bounding_box,
-                        target_resolution_m,
+                        (
+                            target_resolution_m
+                            if target_resolution_m is not None
+                            else _auto_inset_target_resolution_m(definition)
+                        ),
                         fetch_destination,
                         footprint_prefetch=footprint_prefetch,
                     )
@@ -6324,11 +6351,22 @@ def _store_acceptance_probes_in_record(airport_record, inset_path, refresh=False
 
     Stores ``[[latitude, longitude], ...]`` under ``"probes"`` so the
     working-grid decision is transparent and inspectable per airport (spec
-    section 4, C1: "store the probe list with the tile's inset index").
-    Computed once and cached in the index; ``refresh`` recomputes.  A no-op
-    without GDAL or when the probes cannot be derived.
+    section 4, C1: "store the probe list with the tile's inset index"),
+    and ties the list to the probed file's identity under ``"probes_for"``
+    so the working-grid decision can consume it back without re-deriving
+    the probes from a full raster decode (see
+    ``_acceptance_probes_with_source_from_index``).  Computed once and
+    cached in the index; recomputed when ``refresh`` is set or when the
+    cached list belongs to a DIFFERENT file (a legacy record without
+    ``"probes_for"`` upgrades here once).  A no-op without GDAL or when
+    the probes cannot be derived.
     """
-    if "probes" in airport_record and not refresh:
+    identity = _inset_file_identity(inset_path)
+    if (
+        not refresh
+        and "probes" in airport_record
+        and airport_record.get("probes_for") == identity
+    ):
         return
     try:
         probes = acceptance_probes_for_inset(inset_path)
@@ -6339,6 +6377,8 @@ def _store_acceptance_probes_in_record(airport_record, inset_path, refresh=False
             [float(latitude), float(longitude)]
             for (latitude, longitude) in probes
         ]
+        if identity is not None:
+            airport_record["probes_for"] = identity
 
 
 def list_cached_inset_dems(lat, lon, provider_codes=None):
@@ -6975,8 +7015,64 @@ def _airport_bounding_boxes(tile, dico_airports):
     return boxes
 
 
+# "Auto" airport elevation detail never warps finer than this: sub-half-
+# metre lidar buys nothing the mesh can carry while multiplying the
+# stored bytes, so best-available bottoms out at 0.5 m.
+AIRPORT_INSET_MIN_TARGET_RESOLUTION_M = 0.5
+
+
+def parse_airport_elevation_level(value):
+    """Parse an ``airport_elevation_level`` configuration value.
+
+    Returns the target inset resolution in metres (a positive float) for
+    a numeric level, or ``None`` for "auto" (the default), empty, or
+    anything unrecognised (with one warning, so a typo degrades to the
+    automatic best-available behaviour instead of failing the build).
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.strip().lower()
+        if value in ("", "auto"):
+            return None
+    try:
+        resolution_m = float(value)
+    except (TypeError, ValueError):
+        resolution_m = None
+    if resolution_m is None or resolution_m <= 0:
+        UI.vprint(
+            1,
+            "   WARNING: unrecognised airport_elevation_level",
+            repr(value),
+            "- using auto.",
+        )
+        return None
+    return resolution_m
+
+
+def _auto_inset_target_resolution_m(definition):
+    """Best-available inset target for one provider ("auto" level).
+
+    The provider's declared native resolution, floored at
+    ``AIRPORT_INSET_MIN_TARGET_RESOLUTION_M``.  A definition that
+    declares no resolution is assumed meter-class (the quality tier this
+    feature exists for) and warps at 1 m.
+    """
+    native_resolution_m = _definition_resolution_m(definition)
+    if native_resolution_m is None:
+        return 1.0
+    return max(
+        AIRPORT_INSET_MIN_TARGET_RESOLUTION_M, float(native_resolution_m)
+    )
+
+
 def ensure_insets_for_tile(tile, dico_airports, refresh=False):
     """Fetch/refresh every airport inset on the tile (step-1 download hook)."""
+    # How many inset fetches this build performed, mirrored into the tile
+    # build record as ``features.insets_fetched``: a non-zero count marks
+    # the run's step-1 wall time as download-polluted, which disqualifies
+    # it as a build-time measurement (tools/check_build_time.py).
+    tile.insets_fetched_last_build = 0
     if not insets_enabled_for_tile(tile):
         return
     provider_definitions = select_provider_definitions(
@@ -6987,9 +7083,12 @@ def ensure_insets_for_tile(tile, dico_airports, refresh=False):
     boxes = _airport_bounding_boxes(tile, dico_airports)
     if not boxes:
         return
-    resolution_m = getattr(
-        tile, "airport_elevation_inset_resolution_m", 3.0
+    # None = "auto": each provider warps at its own best available
+    # resolution (ensure_airport_insets resolves it per definition).
+    resolution_m = parse_airport_elevation_level(
+        getattr(tile, "airport_elevation_level", "auto")
     )
+    fetch_counter = [0]
     try:
         ensure_airport_insets(
             tile.lat,
@@ -6998,6 +7097,7 @@ def ensure_insets_for_tile(tile, dico_airports, refresh=False):
             provider_definitions,
             resolution_m,
             refresh=refresh,
+            fetch_counter=fetch_counter,
         )
     except Exception as error:
         # Never let inset fetching abort a build (G4 safety).
@@ -7007,6 +7107,8 @@ def ensure_insets_for_tile(tile, dico_airports, refresh=False):
             str(error),
             "- continuing without insets.",
         )
+    finally:
+        tile.insets_fetched_last_build = fetch_counter[0]
 
 
 def assemble_inset_composite_source(tile, base_source):
@@ -7182,9 +7284,23 @@ def _bake_one_inset(tile, inset_path, feather_m):
     aggregates these per provider for the systematic-offset warning.
     """
     base_dem = tile.dem
-    inset = DEM.DEM(
-        tile.lat, tile.lon, inset_path, fill_nodata=False, info_only=False
-    )
+    # The composite load already decoded every cached inset into
+    # ``base_dem.subdems`` (same file, same ``fill_nodata=False``
+    # constructor) for the query-time composite: reuse that array instead
+    # of decoding the GeoTIFF a second time.  Fresh read only when the
+    # bake runs on a DEM without a matching subdem (tests, partial loads).
+    inset = None
+    for subdem in getattr(base_dem, "subdems", ()) or ():
+        if (
+            getattr(subdem, "source_path", None) == inset_path
+            and getattr(subdem, "alt_dem", None) is not None
+        ):
+            inset = subdem
+            break
+    if inset is None:
+        inset = DEM.DEM(
+            tile.lat, tile.lon, inset_path, fill_nodata=False, info_only=False
+        )
     if inset.alt_dem is None:
         return
 
@@ -7564,24 +7680,69 @@ def _inset_icao_from_path(inset_path):
     return stem.rsplit("_", 1)[0] if "_" in stem else stem
 
 
+def _inset_file_identity(inset_path):
+    """JSON-stable identity of a cached inset: ``[basename, size, mtime_ns]``.
+
+    Ties an index record's cached acceptance probes to the exact raster
+    they were derived from -- a refetched or hand-replaced file must never
+    be trusted with another file's probes.  ``None`` when the file cannot
+    be stat'ed.
+    """
+    try:
+        stat = os.stat(inset_path)
+    except OSError:
+        return None
+    return [os.path.basename(inset_path), stat.st_size, stat.st_mtime_ns]
+
+
+# Single-slot memo for the most recently decoded inset: one
+# ``(key, value)`` tuple with key ``(path, mtime_ns, size)``, or None.
+# The grid decision reads the SAME file several times in a row (probe
+# derivation, then the ideal-bake error at each candidate factor); with
+# native-resolution insets (airport elevation level "auto", 2026-07-24)
+# each decode is up to ~40x the 3 m-era bytes, so re-decoding dominated
+# the whole decision.  One slot bounds the extra memory to a single
+# decoded inset; callers that switch files (multi-airport tiles) simply
+# refill the slot.  The entry is read and replaced as one atomic dict
+# item assignment because the fetch phase's worker threads also derive
+# probes concurrently -- a stale entry costs a wasted decode, never a
+# wrong result.  Cleared by ``_release_inset_array_memo`` when the grid
+# decision finishes so the array does not linger through the mesh phase.
+_INSET_ARRAY_MEMO = {"entry": None}
+
+
+def _release_inset_array_memo():
+    """Drop the decoded-inset memo (frees up to one inset of memory)."""
+    _INSET_ARRAY_MEMO["entry"] = None
+
+
 def _open_inset_array(inset_path):
     """Read a cached inset GeoTIFF into ``(array, geotransform, nodata)``.
 
     Returns ``(None, None, None)`` when GDAL is unavailable or the file
     cannot be read -- callers treat that inset as contributing no probes /
     no error (the grid decision then rests on the other insets, or falls
-    back to the finest candidate).
+    back to the finest candidate).  Float32 (the storage dtype: ~0.5 mm
+    resolution at terrain elevations, far inside the 1 m grid-decision
+    tolerance), memoised for consecutive reads of the same unchanged
+    file.
     """
     if not has_gdal:
         return (None, None, None)
     try:
+        stat = os.stat(inset_path)
+        memo_key = (inset_path, stat.st_mtime_ns, stat.st_size)
+        memo_entry = _INSET_ARRAY_MEMO["entry"]
+        if memo_entry is not None and memo_entry[0] == memo_key:
+            return memo_entry[1]
         dataset = gdal.Open(inset_path)
         band = dataset.GetRasterBand(1)
-        array = band.ReadAsArray().astype(numpy.float64)
+        array = band.ReadAsArray().astype(numpy.float32, copy=False)
         geotransform = dataset.GetGeoTransform()
         nodata = band.GetNoDataValue()
     except Exception:
         return (None, None, None)
+    _INSET_ARRAY_MEMO["entry"] = (memo_key, (array, geotransform, nodata))
     return (array, geotransform, nodata)
 
 
@@ -7608,6 +7769,51 @@ def _bilinear_sample_raster(array, geotransform, longitudes, latitudes):
     top_right = array[row0, column0 + 1]
     bottom_left = array[row0 + 1, column0]
     bottom_right = array[row0 + 1, column0 + 1]
+    return (
+        top_left * (1 - tx) * (1 - ty)
+        + top_right * tx * (1 - ty)
+        + bottom_left * (1 - tx) * ty
+        + bottom_right * tx * ty
+    )
+
+
+def _windowed_bilinear_samples(
+    band, geotransform, rows, columns, longitudes, latitudes
+):
+    """Bilinear samples of a few NEARBY points via one windowed read.
+
+    Same index math and interior clamp as :func:`_bilinear_sample_raster`
+    against the FULL raster dimensions, but only the pixel window jointly
+    covering the points' 2x2 bilinear cells is decoded (``ReadAsArray``
+    with offsets) -- for the grid decision's probe clusters that is a few
+    dozen pixels instead of a whole native-resolution inset.  Bit-identical
+    to sampling a full decode.  The points must be near one another (the
+    window spans their joint bounding box).
+    """
+    west = geotransform[0]
+    north = geotransform[3]
+    pixel_width = geotransform[1]
+    pixel_height = geotransform[5]  # negative for north-up
+    fractional_x = (numpy.asarray(longitudes) - (west + 0.5 * pixel_width)) / pixel_width
+    fractional_y = (numpy.asarray(latitudes) - (north + 0.5 * pixel_height)) / pixel_height
+    column0 = numpy.clip(numpy.floor(fractional_x).astype(int), 0, columns - 2)
+    row0 = numpy.clip(numpy.floor(fractional_y).astype(int), 0, rows - 2)
+    tx = numpy.clip(fractional_x - column0, 0.0, 1.0)
+    ty = numpy.clip(fractional_y - row0, 0.0, 1.0)
+    column_start = int(column0.min())
+    row_start = int(row0.min())
+    window = band.ReadAsArray(
+        column_start,
+        row_start,
+        int(column0.max()) - column_start + 2,
+        int(row0.max()) - row_start + 2,
+    ).astype(numpy.float32, copy=False)
+    window_row = row0 - row_start
+    window_column = column0 - column_start
+    top_left = window[window_row, window_column]
+    top_right = window[window_row, window_column + 1]
+    bottom_left = window[window_row + 1, window_column]
+    bottom_right = window[window_row + 1, window_column + 1]
     return (
         top_left * (1 - tx) * (1 - ty)
         + top_right * tx * (1 - ty)
@@ -7740,6 +7946,71 @@ def acceptance_probes_for_inset(inset_path):
     return acceptance_probes_with_source(inset_path)[0]
 
 
+def _inset_header_geometry(inset_path):
+    """``(geotransform, rows, columns)`` from a GeoTIFF header, or ``None``.
+
+    A header-only ``gdal.Open`` (no ``ReadAsArray``): enough for footprint
+    checks without paying a full raster decode.
+    """
+    if not has_gdal:
+        return None
+    try:
+        dataset = gdal.Open(inset_path)
+        if dataset is None:
+            return None
+        return (
+            dataset.GetGeoTransform(),
+            dataset.RasterYSize,
+            dataset.RasterXSize,
+        )
+    except Exception:
+        return None
+
+
+def _acceptance_probes_with_source_from_index(inset_path, airport_record):
+    """``acceptance_probes_with_source``, preferring the index-cached list.
+
+    The working-grid decision runs in BOTH build steps over every cached
+    inset, and deriving probes there re-decoded each raster in full.  The
+    fetch phase already stores each inset's derived probes in
+    ``index.json`` (``_store_acceptance_probes_in_record``), so the
+    decision reads them back -- trusting them only when ``"probes_for"``
+    matches the file's current identity -- and falls back to a full
+    derivation otherwise (legacy records upgrade on the next fetch pass).
+    Seeded probes (the curated KBNA set) are re-checked against the inset
+    footprint from the GeoTIFF HEADER alone: same decision, no decode.
+    """
+    icao = _inset_icao_from_path(inset_path)
+    seeded = SEED_ACCEPTANCE_PROBES.get(icao)
+    if seeded:
+        header = _inset_header_geometry(inset_path)
+        if header is not None:
+            (geotransform, rows, columns) = header
+            west = geotransform[0]
+            north = geotransform[3]
+            east = west + columns * geotransform[1]
+            south = north + rows * geotransform[5]
+            inside = [
+                (latitude, longitude)
+                for (latitude, longitude) in seeded
+                if west <= longitude <= east and south <= latitude <= north
+            ]
+            if inside:
+                return (inside, True)
+    stored = (airport_record or {}).get("probes")
+    if stored and (
+        airport_record.get("probes_for") == _inset_file_identity(inset_path)
+    ):
+        return (
+            [
+                (float(latitude), float(longitude))
+                for (latitude, longitude) in stored
+            ],
+            False,
+        )
+    return (derive_acceptance_probes(inset_path), False)
+
+
 def ideal_bake_errors_per_probe(inset_path, probes, factor, base_geometry):
     """Modelled .alt error of an inset baked at a densified grid, per probe.
 
@@ -7758,9 +8029,23 @@ def ideal_bake_errors_per_probe(inset_path, probes, factor, base_geometry):
     that grid refined by ``factor``.  Probes carry both tile-relative and
     absolute coordinates (the geometry math and the inset sampling each get
     the frame they need -- see resolve_working_grid_factor).
+
+    Each probe needs only its own bilinear value plus the four surrounding
+    working-grid nodes' -- five sample points within one working-grid cell
+    -- so the raster is read through per-probe pixel WINDOWS
+    (``_windowed_bilinear_samples``), never decoded in full.
     """
-    (array, geotransform, nodata) = _open_inset_array(inset_path)
-    if array is None or not probes:
+    if not has_gdal or not probes:
+        return []
+    try:
+        dataset = gdal.Open(inset_path)
+        if dataset is None:
+            return []
+        band = dataset.GetRasterBand(1)
+        geotransform = dataset.GetGeoTransform()
+        rows = dataset.RasterYSize
+        columns = dataset.RasterXSize
+    except Exception:
         return []
     (x0, x1, y0, y1, nxdem, nydem) = base_geometry
     dense_columns = (nxdem - 1) * factor + 1
@@ -7769,51 +8054,61 @@ def ideal_bake_errors_per_probe(inset_path, probes, factor, base_geometry):
     y_step = (y1 - y0) / (dense_rows - 1)
 
     errors = []
-    for (relative_x, relative_y, longitude, latitude) in probes:
-        truth = float(
-            _bilinear_sample_raster(
-                array, geotransform, [longitude], [latitude]
-            )[0]
-        )
-        # Working-grid cell containing the probe (row grows southward).
-        column_index = (relative_x - x0) / x_step
-        row_index = (y1 - relative_y) / y_step
-        column0 = int(numpy.floor(column_index))
-        row0 = int(numpy.floor(row_index))
-        rx = column_index - column0
-        ry = row_index - row0
+    try:
+        for (relative_x, relative_y, longitude, latitude) in probes:
+            # Working-grid cell containing the probe (row grows southward).
+            column_index = (relative_x - x0) / x_step
+            row_index = (y1 - relative_y) / y_step
+            column0 = int(numpy.floor(column_index))
+            row0 = int(numpy.floor(row_index))
+            rx = column_index - column0
+            ry = row_index - row0
 
-        def node_value(column, row):
-            node_longitude = longitude + (
-                (x0 + column * x_step) - relative_x
+            # The probe itself plus its four surrounding working-grid
+            # nodes: one windowed read covers all five sample points.
+            sample_longitudes = [longitude]
+            sample_latitudes = [latitude]
+            for (column, row) in (
+                (column0, row0),
+                (column0 + 1, row0),
+                (column0, row0 + 1),
+                (column0 + 1, row0 + 1),
+            ):
+                sample_longitudes.append(
+                    longitude + ((x0 + column * x_step) - relative_x)
+                )
+                sample_latitudes.append(
+                    latitude + ((y1 - row * y_step) - relative_y)
+                )
+            values = _windowed_bilinear_samples(
+                band,
+                geotransform,
+                rows,
+                columns,
+                sample_longitudes,
+                sample_latitudes,
             )
-            node_latitude = latitude + (
-                (y1 - row * y_step) - relative_y
-            )
-            return float(
-                _bilinear_sample_raster(
-                    array, geotransform, [node_longitude], [node_latitude]
-                )[0]
-            )
-
-        top_left = node_value(column0, row0)
-        top_right = node_value(column0 + 1, row0)
-        bottom_left = node_value(column0, row0 + 1)
-        bottom_right = node_value(column0 + 1, row0 + 1)
-        # Two-triangle split identical to DEM.alt_nostrict (rx vs ry).
-        if rx >= ry:
-            built = (
-                (1 - rx) * top_left
-                + ry * bottom_right
-                + (rx - ry) * top_right
-            )
-        else:
-            built = (
-                (1 - ry) * top_left
-                + rx * bottom_right
-                + (ry - rx) * bottom_left
-            )
-        errors.append(abs(built - truth))
+            truth = float(values[0])
+            top_left = float(values[1])
+            top_right = float(values[2])
+            bottom_left = float(values[3])
+            bottom_right = float(values[4])
+            # Two-triangle split identical to DEM.alt_nostrict (rx vs ry).
+            if rx >= ry:
+                built = (
+                    (1 - rx) * top_left
+                    + ry * bottom_right
+                    + (rx - ry) * top_right
+                )
+            else:
+                built = (
+                    (1 - ry) * top_left
+                    + rx * bottom_right
+                    + (ry - rx) * bottom_left
+                )
+            errors.append(abs(built - truth))
+    except Exception:
+        return []
     return errors
 
 
@@ -7915,10 +8210,16 @@ def _historic_working_grid_factor(tile, base_dem):
 
     # Assemble every probe once, carrying its tile-relative and absolute
     # coordinates (the geometry math and the inset sampling each need one
-    # frame) plus whether it is a hand-seeded acceptance probe.
+    # frame) plus whether it is a hand-seeded acceptance probe.  Probes
+    # come back from the inset index where the fetch phase cached them
+    # (derivation is only the fallback for legacy/foreign records), so in
+    # the common case no inset raster is decoded in full here.
+    index = _read_index(tile.lat, tile.lon)
     all_probes = []  # (inset_path, adjusted_probe, is_seeded)
     for inset_path in inset_paths:
-        (probes, is_seeded) = acceptance_probes_with_source(inset_path)
+        (probes, is_seeded) = _acceptance_probes_with_source_from_index(
+            inset_path, index.get(_inset_icao_from_path(inset_path))
+        )
         for (latitude, longitude) in probes:
             all_probes.append(
                 (
@@ -7935,6 +8236,7 @@ def _historic_working_grid_factor(tile, base_dem):
     if not all_probes:
         # Insets present but no probes derivable -> take the finest grid
         # (the data is there; be safe rather than leave it on the floor).
+        _release_inset_array_memo()
         return finest_factor
 
     # A tile with a CURATED seed set (KBNA, spec section 5) is decided by
@@ -7953,16 +8255,22 @@ def _historic_working_grid_factor(tile, base_dem):
     # must NOT drive the grid finer, since no candidate would satisfy it,
     # and letting it would force every steep tile to the max grid.  Seeded
     # acceptance probes are the airport's requirement and always count.
+    # Iterated inset-major (all factors for one inset, then the next);
+    # per-factor lists stay inset-major and therefore aligned with
+    # all_probes exactly as a factor-major loop would produce them.  The
+    # error model reads only small pixel windows around each probe, so no
+    # full inset decode happens in this loop.
     errors_by_factor = {
-        factor: [
-            errs
-            for (inset_path, probes) in _group_probes_by_inset(all_probes)
-            for errs in ideal_bake_errors_per_probe(
-                inset_path, probes, factor, base_geometry
-            )
-        ]
-        for factor in WORKING_GRID_CANDIDATE_FACTORS
+        factor: [] for factor in WORKING_GRID_CANDIDATE_FACTORS
     }
+    for (inset_path, probes) in _group_probes_by_inset(all_probes):
+        for factor in WORKING_GRID_CANDIDATE_FACTORS:
+            errors_by_factor[factor].extend(
+                ideal_bake_errors_per_probe(
+                    inset_path, probes, factor, base_geometry
+                )
+            )
+    _release_inset_array_memo()
     finest_errors = errors_by_factor[finest_factor]
     seeded_flags = [is_seeded for (_, _, is_seeded) in all_probes]
     actionable = [
@@ -8499,7 +8807,7 @@ class HgtArchiveDropStrategy:
         return 1
 
 
-def select_base_definitions_auto(lat, lon):
+def select_base_definitions_auto(lat, lon, prefer_coarse=False):
     """Rank the automatic base-source candidates for one tile.
 
     Enabled ``role=base`` definitions COVERING the tile, ranked by
@@ -8509,6 +8817,12 @@ def select_base_definitions_auto(lat, lon):
     memory and is never auto-picked -- it stays selectable explicitly.
     A definition without a declared ``resolution_arc_seconds`` is
     excluded from auto (conservative), still selectable explicitly.
+
+    ``prefer_coarse`` (the ``elevation_level`` auto/"90" base-class
+    preference, see :func:`O4_Elevation_Level.base_prefers_coarse`)
+    ranks the 3 arc-second tier FIRST -- much smaller downloads, with
+    the visible detail carried by the airport insets -- keeping the
+    finer tier as the fallback where no 3 arc-second source covers.
     """
     if not elevation_providers_dict:
         initialize_elevation_providers_dict()
@@ -8531,6 +8845,12 @@ def select_base_definitions_auto(lat, lon):
         candidates.append(definition)
     candidates.sort(
         key=lambda definition: (
+            (
+                0
+                if not prefer_coarse
+                or definition.get("resolution_arc_seconds", 0.0) >= 3.0
+                else 1
+            ),
             -definition.get("priority", 0.0),
             definition["code"],
         )
@@ -8538,7 +8858,7 @@ def select_base_definitions_auto(lat, lon):
     return candidates
 
 
-def resolve_base_definition(lat, lon, selector="auto"):
+def resolve_base_definition(lat, lon, selector="auto", prefer_coarse=False):
     """Resolve the base-source selector to one role=base definition.
 
     ``selector`` is the ``base_elevation_source`` config value, a registry
@@ -8558,19 +8878,30 @@ def resolve_base_definition(lat, lon, selector="auto"):
       coverage test, matching the legacy behaviour where an explicit
       keyword always attempted its download / cache read).
 
+    ``prefer_coarse`` is the ``elevation_level`` 90 m base-class
+    preference: it reranks the ``"auto"`` candidates coarse-tier-first,
+    and keeps the ``"View"`` per-tile choice on the 3 arc-second archive
+    inside the 1 arc-second zone whitelist ("View" is how the automatic
+    ranking round-trips through the legacy long-name dispatch, so it
+    must honour the preference too).  Explicit registry CODES and the
+    other legacy aliases pin their exact source regardless.
+
     Returns ``None`` for an unknown selector.
     """
     if not elevation_providers_dict:
         initialize_elevation_providers_dict()
     selector = (selector or "auto").strip()
     if selector.lower() == "auto":
-        candidates = select_base_definitions_auto(lat, lon)
+        candidates = select_base_definitions_auto(
+            lat, lon, prefer_coarse=prefer_coarse
+        )
         return candidates[0] if candidates else None
     if selector == "View":
         one_arc_second = elevation_providers_dict.get("VIEWFINDER1")
         three_arc_second = elevation_providers_dict.get("VIEWFINDER3")
         if (
-            one_arc_second is not None
+            not prefer_coarse
+            and one_arc_second is not None
             and one_arc_second.get("enabled", True)
             and base_definition_covers_tile(one_arc_second, lat, lon)
         ):
@@ -8585,14 +8916,19 @@ def resolve_base_definition(lat, lon, selector="auto"):
     return None
 
 
-def ensure_base_tile(source, lat, lon, verbose=True):
+def ensure_base_tile(source, lat, lon, verbose=True, prefer_coarse=False):
     """Ensure the whole-tile base file for a legacy keyword or CODE.
 
     The target of the ``O4_DEM_Utils.ensure_elevation`` shim: resolves
     the selector, dispatches the strategy's ``ensure_tile``, and preserves
     the legacy unknown-source error line and 0/1 return convention.
+    ``prefer_coarse`` carries the ``elevation_level`` 90 m base-class
+    preference into the selector resolution (see
+    :func:`resolve_base_definition`).
     """
-    definition = resolve_base_definition(lat, lon, source)
+    definition = resolve_base_definition(
+        lat, lon, source, prefer_coarse=prefer_coarse
+    )
     if definition is None:
         UI.vprint(1, "   ERROR: Unknown elevation source.")
         return 0
@@ -8625,7 +8961,11 @@ def ensure_base_tile(source, lat, lon, verbose=True):
 # Offline per-tile source summary (for the GUI tile-info surface)
 # =====================================================================
 def summarize_tile_elevation_sources(
-    lat, lon, base_selector="auto", inset_providers_config="auto"
+    lat,
+    lon,
+    base_selector="auto",
+    inset_providers_config="auto",
+    elevation_level="auto",
 ):
     """One offline snapshot of the elevation sources a build would use.
 
@@ -8637,9 +8977,11 @@ def summarize_tile_elevation_sources(
 
     * ``base_code`` / ``base_resolution_arc_seconds`` -- what the
       ``base_selector`` (the ``base_elevation_source`` configuration)
-      resolves to for this tile right now.  When it resolves nothing
-      the historic fallback (Viewfinderpanoramas 3 arc-second) is
-      reported and ``base_is_fallback`` is True.
+      resolves to for this tile right now, under the tile's
+      ``elevation_level`` base-class preference (auto/"90"/"coastline"
+      prefer the 90 m tier).  When it resolves nothing the historic
+      fallback (Viewfinderpanoramas 3 arc-second) is reported and
+      ``base_is_fallback`` is True.
     * ``inset_providers`` -- ordered ``(code, native_resolution_m)``
       for every enabled airport-inset definition whose coverage box
       reaches this tile.
@@ -8651,7 +8993,16 @@ def summarize_tile_elevation_sources(
     """
     if not elevation_providers_dict:
         initialize_elevation_providers_dict()
-    base_definition = resolve_base_definition(lat, lon, base_selector)
+    # Lazy import: O4_Elevation_Level lazily imports this module, so both
+    # directions stay lazy (the resolve_working_grid_factor convention).
+    import O4_Elevation_Level as ELEVATION_LEVEL
+
+    base_definition = resolve_base_definition(
+        lat,
+        lon,
+        base_selector,
+        prefer_coarse=ELEVATION_LEVEL.base_prefers_coarse(elevation_level),
+    )
     base_is_fallback = base_definition is None
     if base_definition is None:
         base_definition = elevation_providers_dict.get("VIEWFINDER3")

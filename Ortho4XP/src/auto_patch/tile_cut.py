@@ -1234,8 +1234,14 @@ def _terrain_pin_slice_nodes(fs, cut_union, clip_pts, layout,
     # clamp floor comes from CIFP-profiled runways, identical on both
     # tiles, so cross-tile continuity is preserved.  Runway pieces keep
     # their own gated pin path (profile authority; see RUNWAY_SEAM_DEM_PIN).
+    #
+    # ★ 2026-07-24 owner ruling: the clamp is OFF by default
+    # (``config.SEAM_PIN_RUNWAY_CLAMP``) — a cut-back slice-edge node IS the
+    # DEM at its own position, because the 10 m gap this cut opens renders
+    # at raw DEM and any lift shows as a gutter under the pavement.
     from .seam_anchors import runway_clamp_floor
-    _clamp = (fs.role in _PIN_SLICE_ROLES)
+    from .config import SEAM_PIN_RUNWAY_CLAMP
+    _clamp = (SEAM_PIN_RUNWAY_CLAMP and fs.role in _PIN_SLICE_ROLES)
     for i, (x, y) in enumerate(coords):
         # Skip the corners shared with the clean rect (the flat join).
         if any(math.hypot(x - cp[0], y - cp[1]) < 0.5 for cp in clip_pts):

@@ -2112,6 +2112,7 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
         from ..elevation import _sample_dem
         from ..seam_anchors import (SEAM_CLAMP_GRADE, SEAM_CLAMP_ROLES,
                                     runway_clamp_floor)
+        from ..config import SEAM_PIN_RUNWAY_CLAMP
         bk_s = 1.0 / SHARED_VERTEX_TOL_M
         cps = layout.canonical_points
         # Gather every seam vertex FIRST (idx → position, stored-altitude
@@ -2191,7 +2192,14 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
             # the pin↔runway chain infeasible and the final GS midpoints
             # the conflict into a V-notch.  Both tiles share the same
             # runways + profile → same floor → cross-tile continuity.
-            if airside:
+            #
+            # ★ OFF by default since the 2026-07-24 owner ruling
+            # (``config.SEAM_PIN_RUNWAY_CLAMP``): the cut-back gap renders
+            # at raw DEM, so a clamped pin floats above the terrain the
+            # neighbouring 10 m strip shows — the SPLP gutter.  The pin is
+            # now the DEM value, full stop, and the pin↔runway feasibility
+            # the clamp guaranteed is measured and REPORTED below instead.
+            if airside and SEAM_PIN_RUNWAY_CLAMP:
                 try:
                     f = runway_clamp_floor(layout, x, y)
                 except Exception:                          # pragma: no cover
@@ -2200,7 +2208,16 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
                     v = f
             pin_vals[idx] = v
 
-        # ── Phase 2: grade-project seam pins along the ring (pin↔pin law) ──
+        # ── Phase 2: pin↔pin law — PROJECT (legacy) or REPORT (ruling) ──
+        # ★ 2026-07-24 owner ruling: with ``SEAM_PIN_RUNWAY_CLAMP`` off the
+        # pins DO NOT MOVE — the DEM anchor is the answer and the solver
+        # grades the pavement to reach it.  The pairwise budgets below are
+        # still built and evaluated, but only to REPORT the residual the
+        # taxi grade law cannot absorb (the ruling's "report/blend honestly
+        # rather than silently midpoint into a V-notch").  Under
+        # ``O4_SEAM_PIN_CLAMP=1`` the historical POCS projection runs
+        # unchanged.  Legacy rationale, still valid for that path:
+        #
         # Raw per-pin DEM pins trace every terrain bump into the pavement
         # at the seam.  Pin↔pin pairs are exactly the class the
         # within-shape law exempts (both endpoints hard), so a local
@@ -2307,6 +2324,10 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
                 prev = pin_edges.get(key)
                 if prev is None or dist < prev:
                     pin_edges[key] = dist
+        # Always published (empty = every pin pair is cap-legal), so a
+        # consumer never has to distinguish "no residual" from "block
+        # never ran".
+        layout._seam_pin_residuals = []  # type: ignore[attr-defined]
         if pin_edges:
             def _movable(idx: int) -> bool:
                 return not (seam_pins[idx][4] and is_hard[idx])
@@ -2315,43 +2336,81 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
             # convergence.
             edge_list = [(key, dist) for key, dist in sorted(pin_edges.items())
                          if _movable(key[0]) or _movable(key[1])]
-            for _sweep in range(200):
-                worst = 0.0
-                for (idx_a, idx_b), dist in edge_list:
-                    va = pin_vals[idx_a]
-                    vb = pin_vals[idx_b]
-                    slack = abs(va - vb) - cap * dist
-                    if slack <= 1e-4:
-                        continue
-                    worst = max(worst, slack)
-                    move_a = _movable(idx_a)
-                    move_b = _movable(idx_b)
-                    hi_idx, lo_idx = ((idx_a, idx_b) if va > vb
-                                      else (idx_b, idx_a))
-                    hi_mov = _movable(hi_idx)
-                    lo_mov = _movable(lo_idx)
-                    if hi_mov and lo_mov:
-                        pin_vals[hi_idx] -= slack / 2.0
-                        pin_vals[lo_idx] += slack / 2.0
-                    elif hi_mov:
-                        pin_vals[hi_idx] -= slack
-                    else:
-                        pin_vals[lo_idx] += slack
-                if worst <= 1e-4:
-                    break
+            worst = 0.0
+            if SEAM_PIN_RUNWAY_CLAMP:
+                for _sweep in range(200):
+                    worst = 0.0
+                    for (idx_a, idx_b), dist in edge_list:
+                        va = pin_vals[idx_a]
+                        vb = pin_vals[idx_b]
+                        slack = abs(va - vb) - cap * dist
+                        if slack <= 1e-4:
+                            continue
+                        worst = max(worst, slack)
+                        hi_idx, lo_idx = ((idx_a, idx_b) if va > vb
+                                          else (idx_b, idx_a))
+                        hi_mov = _movable(hi_idx)
+                        lo_mov = _movable(lo_idx)
+                        if hi_mov and lo_mov:
+                            pin_vals[hi_idx] -= slack / 2.0
+                            pin_vals[lo_idx] += slack / 2.0
+                        elif hi_mov:
+                            pin_vals[hi_idx] -= slack
+                        else:
+                            pin_vals[lo_idx] += slack
+                    if worst <= 1e-4:
+                        break
+            # ── HONEST RESIDUAL REPORT (ruling 2026-07-24) ────────────
+            # Every pin↔pin budget the emitted pins do NOT meet, measured
+            # AFTER the (possibly skipped) projection.  Under the ruling
+            # these are the places where holding the DEM anchor costs a
+            # grade-law step; they are named out loud (and published on
+            # the layout for tools/tests) instead of being absorbed by
+            # moving a pin off terrain.  Reported over ALL pin edges —
+            # including runway↔runway, which no projection could fix.
+            residuals: list = []
+            for (idx_a, idx_b), dist in sorted(pin_edges.items()):
+                slack = (abs(pin_vals[idx_a] - pin_vals[idx_b])
+                         - cap * dist)
+                if slack <= 1e-3:
+                    continue
+                xa, ya = seam_pins[idx_a][:2]
+                xb, yb = seam_pins[idx_b][:2]
+                residuals.append({
+                    "excess_m": slack,
+                    "dist_m": dist,
+                    "grade": (abs(pin_vals[idx_a] - pin_vals[idx_b]) / dist
+                              if dist > 0 else float("inf")),
+                    "a": (xa, ya, pin_vals[idx_a]),
+                    "b": (xb, yb, pin_vals[idx_b]),
+                })
+            residuals.sort(key=lambda r: -r["excess_m"])
+            layout._seam_pin_residuals = residuals  # type: ignore[attr-defined]
+            if residuals:
+                try:
+                    import O4_UI_Utils as _UI_sp
+                    _w = residuals[0]
+                    _UI_sp.vprint(1,
+                        f"    [seam-pins] {len(pin_vals)} seam pin(s)"
+                        f"{'' if SEAM_PIN_RUNWAY_CLAMP else ' at DEM'}; "
+                        f"{len(residuals)} pin-pair(s) over the "
+                        f"{cap * 100:.1f}% cap the solver must step "
+                        f"through — worst {_w['excess_m']:.2f} m excess "
+                        f"({_w['grade'] * 100:.2f}% over {_w['dist_m']:.1f} m)"
+                        f".")
+                except Exception:                          # pragma: no cover
+                    pass
             if _os.environ.get("O4_SEAM_DEBUG") == "1":
-                n_bad = 0
-                for (idx_a, idx_b), dist in edge_list:
-                    slack = (abs(pin_vals[idx_a] - pin_vals[idx_b])
-                             - cap * dist)
-                    if slack > 1e-3:
-                        n_bad += 1
-                        xa, ya = seam_pins[idx_a][:2]
-                        print(f"    [seam-pins] RESIDUAL {slack:.2f} m over "
-                              f"{dist:.1f} m at local ({xa:.1f},{ya:.1f})")
+                for r in residuals:
+                    print(f"    [seam-pins] RESIDUAL {r['excess_m']:.2f} m "
+                          f"over {r['dist_m']:.1f} m at local "
+                          f"({r['a'][0]:.1f},{r['a'][1]:.1f})")
                 print(f"    [seam-pins] {len(pin_vals)} pin(s), "
-                      f"{len(edge_list)} edge(s), final worst residual "
-                      f"{worst:.3f} m, {n_bad} edge(s) still over cap")
+                      f"{len(edge_list)} projectable edge(s) of "
+                      f"{len(pin_edges)}, projection "
+                      f"{'ON' if SEAM_PIN_RUNWAY_CLAMP else 'OFF (DEM anchor)'}"
+                      f", worst projection residual {worst:.3f} m, "
+                      f"{len(residuals)} pair(s) over cap")
 
         # ── Phase 3: write ────────────────────────────────────────────
         for idx, v in pin_vals.items():

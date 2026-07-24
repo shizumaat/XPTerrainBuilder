@@ -567,14 +567,27 @@ def _insert_seam_vertices(
 # pin↔runway chain infeasible by inches and the final GS midpointed the
 # conflict into a V-notch: the SPLP seam dips).  The boundary RIBBON keeps
 # its own separate 3 % rule.
+#
+# ★ SUPERSEDED AS A DEFAULT by the owner ruling 2026-07-24 (see
+# ``config.SEAM_PIN_RUNWAY_CLAMP``): the clamp floor is what held SPLP's
+# cut-back pins ~1 m above terrain, so the 10 m seam strip (rendered at raw
+# DEM) read as a gutter under the taxiway.  The DEM anchor now wins and the
+# solver grades to it.  This constant and ``runway_clamp_floor`` are kept
+# live for the ``O4_SEAM_PIN_CLAMP=1`` restore path and for the
+# pin↔pin residual REPORT (which still measures against the taxi cap).
 SEAM_CLAMP_GRADE = 0.015
 
-# Roles whose seam pins take the runway clamp floor.  Boundary /
-# groundside / feature shapes keep the raw-DEM pin (they follow terrain
-# by design); RUNWAY keeps profile authority via
-# ``redistribute_runway_profile``.  Shared by every seam-pin writer
-# (``apply_seam_dem_anchors``, ``tile_cut._pin_slice_edge_to_dem``, and
-# the solver's seam hard-anchor block in ``solver_primitives``).
+# AIRSIDE seam-pin roles.  Boundary / groundside / feature shapes always
+# kept the raw-DEM pin (they follow terrain by design); RUNWAY keeps
+# profile authority via ``redistribute_runway_profile``.  Read by every
+# seam-pin writer (``apply_seam_dem_anchors``,
+# ``tile_cut._terrain_pin_slice_nodes``, and the solver's seam
+# hard-anchor block in ``solver_primitives``).
+#
+# Since the 2026-07-24 ruling these roles take the raw-DEM pin too; the
+# set now only selects (a) who the clamp floor applies to under
+# ``O4_SEAM_PIN_CLAMP=1`` and (b) which shapes contribute rings to the
+# solver's pin↔pin residual REPORT.
 SEAM_CLAMP_ROLES = frozenset({
     "apron", "junction", "service_junction",
     "primary_parallel", "secondary_parallel", "stub",
@@ -683,9 +696,14 @@ def apply_seam_dem_anchors(
     Must be called AFTER ``split_pavement_at_seams`` (which populates
     ``layout._seam_anchor_keys``) and BEFORE the elevation solver.
 
+    OWNER RULING 2026-07-24: the sampled DEM value is the ANCHOR — the
+    AIRSIDE runway-clamp lift below is off by default
+    (``config.SEAM_PIN_RUNWAY_CLAMP``).
+
     Returns the number of vertices updated.
     """
     from .elevation import _sample_dem
+    from .config import SEAM_PIN_RUNWAY_CLAMP
     anchor_keys = getattr(layout, "_seam_anchor_keys", None)
     if not anchor_keys:
         return 0
@@ -704,6 +722,11 @@ def apply_seam_dem_anchors(
     # continuity is preserved without either tile seeing the other.
     # Boundary / groundside / feature shapes keep the raw-DEM pin (they
     # follow terrain by design).
+    #
+    # ★ 2026-07-24 owner ruling: the clamp is OFF by default — every seam
+    # pin, airside included, IS the DEM value at its own position.  The
+    # feasibility the clamp bought is now the SOLVER's job (grade the
+    # pavement to the anchor) and any residual is reported, not hidden.
     def _runway_floor(x: float, y: float):
         return runway_clamp_floor(layout, x, y)
 
@@ -718,7 +741,8 @@ def apply_seam_dem_anchors(
             ring = ring[:-1]
         alts = list(shape.node_altitudes[:len(ring)])
         changed = False
-        clamp = shape.role in SEAM_CLAMP_ROLES
+        clamp = (SEAM_PIN_RUNWAY_CLAMP
+                 and shape.role in SEAM_CLAMP_ROLES)
         for i, (x, y) in enumerate(ring):
             if _bucket_key(x, y) not in anchor_keys:
                 continue

@@ -1655,6 +1655,29 @@ SEAM_FIELD_ANCHORS = _os.environ.get("O4_SEAM_FIELD_ANCHORS", "1") == "1"
 # restores the old profile-through-seam behaviour.
 RUNWAY_SEAM_DEM_PIN = _os.environ.get("O4_RUNWAY_SEAM_PIN", "1") == "1"
 
+# SEAM CUT-BACK PIN = HARD DEM ANCHOR (owner ruling 2026-07-24: "the nodes
+# along a tile seam at the cutback must be anchored [to the DEM] and the
+# solver then grades to it — pavement crosses the seam, you can't leave any
+# kind of dip there").  ``tile_cut`` leaves a 10 m gap at each integer
+# lat/lon line; that strip renders at raw DEM, so a cut-back pin sitting
+# ABOVE terrain makes the pavement edge float and the taxiway drop into a
+# gutter where it crosses the seam (SPLP -13/-77 + -13/-78, five junction
+# pins each, +0.82..+1.16 m measured).
+#
+# The lift came from ``seam_anchors.runway_clamp_floor``: AIRSIDE seam pins
+# were raised to at least ``runway_elev − SEAM_CLAMP_GRADE·d`` so the
+# pin<->runway chain was cap-feasible BY CONSTRUCTION, and from the pin<->pin
+# POCS projection in ``solver_primitives`` that then re-spread them.  Both
+# traded the terrain match for guaranteed feasibility; the ruling reverses
+# that trade — the DEM anchor wins and the solver grades the pavement to
+# reach it, reporting (never silently midpointing) whatever residual the
+# taxi grade law cannot absorb.
+#
+# ``O4_SEAM_PIN_CLAMP=1`` restores the pre-ruling clamp + projection for
+# A/B comparison; the SEAM_CLAMP_* constants and ``runway_clamp_floor``
+# stay in ``seam_anchors`` so that path is byte-identical to the old build.
+SEAM_PIN_RUNWAY_CLAMP = _os.environ.get("O4_SEAM_PIN_CLAMP", "0") == "1"
+
 # RUNWAY DE-SEGMENTATION (user mandate 2026-07-07, docs/
 # runway_single_polygon_plan.md).  Segments are a hi/lo-era vestige: each
 # sub-rect was a 4-corner PLANE, so the curved FAA profile required cutting

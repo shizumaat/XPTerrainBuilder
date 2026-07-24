@@ -528,6 +528,11 @@ class TestObjectPavementSidecarCache:
 
         monkeypatch.setattr(object_footprints, "draped_pavement_patches",
                             exploding_patches)
+        # Drop the in-process memo so the second call exercises the
+        # DISK sidecar (the memo layer is proven in
+        # ``test_dsf_object_buildings.TestObjectReaderInProcessMemo``,
+        # which drives the same ``_serve_object_reader``).
+        D._OBJECT_READER_MEMO.clear()
         second = D.read_dsf_object_pavements(dsf_path, xplane_root=None)
         assert second == first
 

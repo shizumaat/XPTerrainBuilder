@@ -161,6 +161,16 @@ def prediction_features(lat, lon, provider, zoomlevel, custom_build_dir):
     return features
 
 
+# How far a step's DISPLAY window may drift from its canonical
+# STEP_WEIGHTS share.  Learned seconds adapt the bar (a cached imagery
+# step shrinks toward its floor), but an outlier history must never
+# swallow it: one hours-long vector record (the 2026-07-23 slow-inset
+# era) reweighted vector to ~99 % and the bar read "done" three steps
+# before imagery — normally the LARGEST part of a build (owner ruling
+# 2026-07-23: every planned step keeps an honest share).
+DISPLAY_WEIGHT_DRIFT_LIMIT = 3.0
+
+
 def reweight_plan_by_seconds(plan, estimated_seconds):
     """The plan's step windows re-scaled by predicted per-step seconds.
 
@@ -169,7 +179,10 @@ def reweight_plan_by_seconds(plan, estimated_seconds):
     a per-step second estimate in hand, the whole-tile percent scale is
     proportional to predicted time instead, so the bar moves at a
     steady pace through the build.  Steps missing an estimate keep a
-    tiny floor so their window never vanishes.
+    tiny floor so their window never vanishes, and every step's share
+    stays within :data:`DISPLAY_WEIGHT_DRIFT_LIMIT` of its canonical
+    STEP_WEIGHTS proportion so no outlier estimate can flatten the
+    others' windows.
     """
     keys = [key for (key, _base, _width) in plan]
     seconds = {}
@@ -181,11 +194,41 @@ def reweight_plan_by_seconds(plan, estimated_seconds):
     total = sum(seconds.values())
     if total <= 0:
         return list(plan)
+    # Ceiling-only: a measured-cheap step SHOULD collapse (the cached
+    # imagery case), but no step may bloat past the drift limit — the
+    # mass it cannot claim goes to the remaining steps in proportion,
+    # so a poisoned vector history caps near a third of the bar and
+    # imagery inherits the honest bulk.  Ceilings sum to over 1 by
+    # construction, so the fixing loop always terminates with room.
+    canonical_total = sum(STEP_WEIGHTS[key] for key in keys)
+    ceiling = {
+        key: min(1.0, (STEP_WEIGHTS[key] / canonical_total)
+                 * DISPLAY_WEIGHT_DRIFT_LIMIT)
+        for key in keys
+    }
+    fixed = {}
+    while True:
+        remaining = [key for key in keys if key not in fixed]
+        if not remaining:
+            break
+        remaining_mass = 1.0 - sum(fixed.values())
+        sub_total = sum(seconds[key] for key in remaining)
+        widths = {
+            key: seconds[key] / sub_total * remaining_mass
+            for key in remaining
+        }
+        over = [
+            key for key in remaining if widths[key] > ceiling[key] + 1e-9
+        ]
+        if not over:
+            fixed.update(widths)
+            break
+        for key in over:
+            fixed[key] = ceiling[key]
     reweighted, base = [], 0.0
     for key in keys:
-        width = seconds[key] / total
-        reweighted.append((key, base, width))
-        base += width
+        reweighted.append((key, base, fixed[key]))
+        base += fixed[key]
     return reweighted
 
 

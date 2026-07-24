@@ -925,6 +925,16 @@ class ParallelBuildRun:
         elif event_name == "TileState":
             if event.state == "done" and not last_step:
                 return
+            if tile is not None and event.state in ("active", "indeterminate"):
+                # In-run TileState percents are step-local like
+                # StepProgress (a child's run IS one step) and include
+                # the dataclass default 0.0 — forwarded raw they yank a
+                # ratcheted bar back to zero mid-tile.  Same high-water
+                # rule as the StepProgress remap below; terminal and
+                # queued states keep their semantic percents.
+                event = dataclasses.replace(event, percent=max(
+                    event.percent,
+                    self._percent_high_water.get(tile, 0.0)))
         elif event_name == "StepProgress" and tile is not None:
             # Remap the child's single-step percent window into the
             # tile's full-plan window so views see whole-tile percent,

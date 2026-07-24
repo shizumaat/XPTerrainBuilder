@@ -59,6 +59,33 @@ class TestReweightPlanBySeconds:
         assert all(width > 0 for width in widths)
         assert sum(widths) == pytest.approx(1.0)
 
+    def test_outlier_step_cannot_swallow_the_bar(self):
+        """A poisoned history (2026-07-23: one hours-long vector record
+        from the slow-inset era) must not flatten the other steps'
+        windows — the bar read ~100 % three steps before imagery,
+        normally the LARGEST part of a build.  Each step caps at
+        DISPLAY_WEIGHT_DRIFT_LIMIT x its canonical share; the mass it
+        cannot claim flows to the remaining steps in proportion."""
+        from o4_engine.session import (
+            DISPLAY_WEIGHT_DRIFT_LIMIT, STEP_WEIGHTS)
+
+        plan = plan_steps(True, True, False)
+        estimates = {"vector": 14000.0, "mesh": 120.0, "masks": 60.0,
+                     "imagery": 300.0}
+        reweighted = dict(
+            (key, (base, width))
+            for (key, base, width) in reweight_plan_by_seconds(
+                plan, estimates))
+        keys = list(reweighted)
+        canonical_total = sum(STEP_WEIGHTS[key] for key in keys)
+        vector_ceiling = (STEP_WEIGHTS["vector"] / canonical_total
+                         * DISPLAY_WEIGHT_DRIFT_LIMIT)
+        assert reweighted["vector"][1] == pytest.approx(vector_ceiling)
+        # Imagery inherits the honest bulk of what vector cannot claim.
+        assert reweighted["imagery"][1] > 0.35
+        assert sum(width for (_b, width) in reweighted.values()) \
+            == pytest.approx(1.0)
+
 
 class TestRemainingStepSeconds:
     def test_under_the_estimate_is_the_difference(self):

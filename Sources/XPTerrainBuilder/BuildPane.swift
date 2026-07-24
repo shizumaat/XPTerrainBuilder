@@ -756,7 +756,7 @@ struct ActivityBox: View {
                 Text("Elapsed \(Self.clock(activity.elapsedSeconds))")
                 Spacer()
                 Text(activity.remainingUnreliable
-                     ? "Remaining: longer than expected — estimating…"
+                     ? "Remaining: estimating…"
                      : "Remaining ≈ \(activity.remainingSeconds.map(Self.clock) ?? "—")")
             }
             .font(.caption.monospacedDigit())

@@ -8,12 +8,14 @@ struct BuildConsoleView: View {
     @EnvironmentObject var buildModel: BuildModel
 
     var body: some View {
+        // No bottom status bar: the run clock and remaining estimate live
+        // in the Activity box (owner 2026-07-23 — duplicating them here
+        // invited drift between the two displays, and the console rows
+        // are worth more).
         VStack(spacing: 0) {
             header
             Divider()
             ConsoleTextView(console: buildModel.console)
-            Divider()
-            bottomBar
         }
     }
 
@@ -34,49 +36,6 @@ struct BuildConsoleView: View {
         .padding(.vertical, 6)
     }
 
-    private var bottomBar: some View {
-        HStack(spacing: 8) {
-            if buildModel.isBuilding {
-                ProgressView().controlSize(.small)
-                ConsoleStatusText()
-                    .environmentObject(buildModel.activity)
-            } else if let summary = buildModel.lastRunSummary {
-                Text(summary).foregroundStyle(.secondary)
-            } else if buildModel.engine == nil {
-                Text("Configure the Ortho4XP engine in Settings to start building.")
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("Select tiles on the map, then press Build.")
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
-        .font(.callout)
-        .padding(.horizontal, 12)
-        .frame(height: ResultsPane.bottomBarHeight)
-        .background(.bar)
-    }
-
-    /// Leaf view observing the high-frequency activity model, so progress
-    /// ticks re-render only this text.
-    struct ConsoleStatusText: View {
-        @EnvironmentObject var activity: BuildActivityModel
-
-        var body: some View {
-            // A GROWING estimate means the model has no live basis yet
-            // (e.g. the first airport inset of a run still fetching);
-            // say so instead of printing a precise-looking number that
-            // counts up — same contract as the activity box.
-            let suffix = activity.remainingUnreliable
-                ? "still estimating remaining"
-                : "remaining ≈ \(activity.remainingSeconds.map { ActivityBox.clock($0) } ?? "—")"
-            Text("\(activity.doneTiles)/\(activity.totalTiles) tiles — elapsed \(ActivityBox.clock(activity.elapsedSeconds)) — \(suffix)")
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-    }
 }
 
 /// Append-only NSTextView console. SwiftUI Text chokes on thousands of

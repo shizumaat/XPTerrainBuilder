@@ -1966,6 +1966,53 @@ def test_stac_asset_selection_picks_finest_geotiff():
     assert chosen == [("https://example.test/tile_05.tif", 0.5)]
 
 
+def _multi_resolution_item():
+    return {
+        "id": "swissalti3d_2020_2683-1257",
+        "properties": {},
+        "assets": {
+            "tile_2_2056.tif": {
+                "href": "https://example.test/tile_2.tif",
+                "type": "image/tiff; application=geotiff; "
+                        "profile=cloud-optimized",
+                "eo:gsd": 2.0,
+            },
+            "tile_0.5_2056.tif": {
+                "href": "https://example.test/tile_05.tif",
+                "type": "image/tiff; application=geotiff; "
+                        "profile=cloud-optimized",
+                "eo:gsd": 0.5,
+            },
+        },
+    }
+
+
+def test_stac_asset_selection_takes_coarsest_sufficient_for_target():
+    # A 3 m inset target: the 2 m asset oversamples it at ~1/16th the
+    # bytes of the 0.5 m one (the 2026-07-23 field finding — ~100 MB of
+    # half-metre data per airport resampled straight down to 3 m).
+    chosen = INSETS._select_stac_dtm_assets(
+        [_multi_resolution_item()], prefer_asset_keys=[],
+        target_resolution_m=3.0)
+    assert chosen == [("https://example.test/tile_2.tif", 2.0)]
+
+
+def test_stac_asset_selection_keeps_finest_when_target_needs_it():
+    # A 1 m target: only the 0.5 m asset oversamples it.
+    chosen = INSETS._select_stac_dtm_assets(
+        [_multi_resolution_item()], prefer_asset_keys=[],
+        target_resolution_m=1.0)
+    assert chosen == [("https://example.test/tile_05.tif", 0.5)]
+
+
+def test_stac_asset_selection_best_effort_when_nothing_sufficient():
+    # A 0.25 m target no asset satisfies: the finest is the best effort.
+    chosen = INSETS._select_stac_dtm_assets(
+        [_multi_resolution_item()], prefer_asset_keys=[],
+        target_resolution_m=0.25)
+    assert chosen == [("https://example.test/tile_05.tif", 0.5)]
+
+
 def test_stac_asset_selection_prefers_named_dtm_key():
     # The HRDEM shape is untouched: an explicit "dtm" key wins even when
     # a finer GeoTIFF asset exists under another key.

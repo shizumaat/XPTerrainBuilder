@@ -945,14 +945,18 @@ class TnmCloudOptimizedGeoTiffStrategy:
 # with only this one class + one Providers/Elevation/*.elv definition,
 # reusing warp_vsicurl_sources_to_geotiff for the fetch core.  Shipped
 # with HRDEM.elv (Natural Resources Canada high-resolution lidar).
-def _select_stac_dtm_assets(items, prefer_asset_keys):
+def _select_stac_dtm_assets(items, prefer_asset_keys, target_resolution_m=None):
     """Pick one Cloud-Optimized GeoTIFF DTM asset href from each STAC item.
 
     STAC items expose named assets; elevation collections publish a Digital
     Terrain Model (bare earth) and often a Digital Surface Model (canopy /
     buildings) too.  We prefer the DTM: an asset whose key matches one of
     ``prefer_asset_keys`` (in order) wins; otherwise the first asset whose
-    key or roles suggest a DTM; otherwise the first GeoTIFF-typed asset.
+    key or roles suggest a DTM; otherwise a GeoTIFF-typed asset picked by
+    resolution: the COARSEST still at-or-finer-than ``target_resolution_m``
+    when given (a 3 m inset needs swisstopo's 2 m tiles, not ~36x the
+    bytes of its 0.5 m ones — observed 2026-07-23: ~100 MB per airport of
+    half-metre data resampled straight down to 3 m), the finest otherwise.
     Returns a list of ``(href, native_resolution_m_or_None)`` for the
     chosen assets, skipping items with no usable asset.
     """
@@ -992,10 +996,14 @@ def _select_stac_dtm_assets(items, prefer_asset_keys):
                     href = asset["href"]
                     asset_resolution = _stac_asset_resolution(asset)
                     break
-        # 3. Fall back to the FINEST GeoTIFF-typed asset: some catalogs
-        #    (swisstopo's, for one) publish several resolutions of the
-        #    same tile as filename-keyed assets carrying their own
-        #    eo:gsd, so "first GeoTIFF" would be dictionary-order luck.
+        # 3. Fall back to a GeoTIFF-typed asset picked by resolution:
+        #    some catalogs (swisstopo's, for one) publish several
+        #    resolutions of the same tile as filename-keyed assets
+        #    carrying their own eo:gsd, so "first GeoTIFF" would be
+        #    dictionary-order luck.  Among the assets that OVERSAMPLE
+        #    the target the coarsest is the cheapest sufficient one;
+        #    only when none is fine enough (or no target/gsd is known)
+        #    does finest-wins apply.
         if href is None:
             geotiff_assets = []
             for asset in assets.values():
@@ -1004,7 +1012,18 @@ def _select_stac_dtm_assets(items, prefer_asset_keys):
                     "href"
                 ):
                     geotiff_assets.append(asset)
-            if geotiff_assets:
+            sufficient = []
+            if target_resolution_m:
+                sufficient = [
+                    asset for asset in geotiff_assets
+                    if _stac_asset_resolution(asset) is not None
+                    and _stac_asset_resolution(asset) <= target_resolution_m
+                ]
+            if sufficient:
+                cheapest = max(sufficient, key=_stac_asset_resolution)
+                href = cheapest["href"]
+                asset_resolution = _stac_asset_resolution(cheapest)
+            elif geotiff_assets:
                 finest = min(
                     geotiff_assets,
                     key=lambda asset: (
@@ -1304,7 +1323,8 @@ class StacCloudOptimizedGeoTiffStrategy:
             ).split(",")
             if token.strip()
         ]
-        selected = _select_stac_dtm_assets(items, prefer_asset_keys)
+        selected = _select_stac_dtm_assets(
+            items, prefer_asset_keys, target_resolution_m)
         if not selected:
             return None
         # Highest resolution first so the finest asset WINS on overlap

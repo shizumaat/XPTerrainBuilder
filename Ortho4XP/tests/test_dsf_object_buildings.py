@@ -33,6 +33,14 @@ from auto_patch import dsf_reader as D
 from auto_patch import obj8_reader
 from auto_patch import object_anchor
 from auto_patch import object_footprints
+# Imported at module scope ON PURPOSE: ``object_terrain_features`` binds
+# ``discover_object_pools`` by from-import at its first import.  The
+# reader imports it lazily, so without this line the first harness test
+# to run in a worker would import it while the fixture's fake is
+# installed, freezing that test's fake (a dead closure after teardown)
+# into the classifier for the rest of the process.  Importing here
+# captures the REAL binding before any monkeypatch can run.
+from auto_patch import object_terrain_features
 from auto_patch import pipeline
 
 METRES_PER_DEGREE_LATITUDE = obj8_reader.METRES_PER_DEGREE_LATITUDE
@@ -581,6 +589,18 @@ def object_building_harness(tmp_path, monkeypatch, fake_projection):
     monkeypatch.setattr(object_anchor, "partition_structures",
                         fake_partition_structures)
 
+    # The Feature-B classifier runs inside ``read_dsf_object_buildings``
+    # BEFORE pooling (gate ``OBJECT_BRIDGE_TERRAIN``, default on) and
+    # would call ``discover_object_pools`` itself with every kept
+    # placement.  Stub it to "no exclusions" so ``pool_calls`` records
+    # ONLY the reader's own pooling and the harness stays hermetic; the
+    # classifier has its own test files, and the two gate/exclusion
+    # tests below override this stub with their own fakes.
+    monkeypatch.setattr(
+        object_terrain_features, "classify_object_terrain_features",
+        lambda *args, **kwargs: object_terrain_features
+        .ClassificationResult(tunnels=[], bridges=[]))
+
     class Harness:
         pass
 
@@ -629,11 +649,13 @@ class TestReadDsfObjectBuildings:
                            centroid_latitude - anchor_latitude)
                 for anchor_longitude, anchor_latitude in anchors) < 2e-5
         # And the multi-placement resource never entered the shared
-        # pooling (an ObjectPool carries one placement per resource).
-        (pooled_placements, _resolved, _epsilon) = \
-            harness.pool_calls[0]
-        assert [p.resource_path for p in pooled_placements] == [
-            "Terminals/Hangar/big_bake.obj"]
+        # pooling (an ObjectPool carries one placement per resource):
+        # EVERY pooling call the reader made carried the single-placement
+        # resource alone.
+        assert harness.pool_calls, "shared pooling was never consulted"
+        for pooled_placements, _resolved, _epsilon in harness.pool_calls:
+            assert [p.resource_path for p in pooled_placements] == [
+                "Terminals/Hangar/big_bake.obj"]
 
     def test_resolution_receives_pack_root_and_xplane_root(
             self, object_building_harness):
@@ -707,8 +729,6 @@ class TestReadDsfObjectBuildings:
         placements would be two buildings) is returned in the
         classifier's exclusions; only ``big_bake.obj``'s single building
         must survive."""
-        from auto_patch import object_terrain_features
-
         harness = object_building_harness
         pack_root = harness.pack_root
 
@@ -741,8 +761,6 @@ class TestReadDsfObjectBuildings:
         """With ``OBJECT_BRIDGE_TERRAIN`` off the classifier never runs,
         so no resource is excluded and the full building set is
         emitted (the pre-feature behaviour)."""
-        from auto_patch import object_terrain_features
-
         monkeypatch.setattr(config, "OBJECT_BRIDGE_TERRAIN", False)
 
         def exploding_classify(*args, **kwargs):

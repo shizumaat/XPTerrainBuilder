@@ -887,16 +887,27 @@ final class BuildModel: ObservableObject {
         isStopping = true
         if usesProtocol {
             client?.send(command: "cancel")
-            console.append("Stopping — cancelling the engine (forced in 5 s if it doesn't wind down)…")
+            // The engine's cancellation checkpoints normally answer within
+            // a few seconds; 15 s covers a blocking network request that
+            // has to time out first, plus the parallel scheduler's own
+            // per-worker escalation. Only then force it.
+            console.append("Stopping — cancelling the engine (forced in 15 s if it doesn't wind down)…")
             hardStopTask?.cancel()
             hardStopTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(5))
+                try? await Task.sleep(for: .seconds(15))
                 guard !Task.isCancelled, let self, self.isBuilding else { return }
                 self.hardStopEngine()
             }
         } else {
             legacyQueue = []
             legacyRunner?.requestStop()
+            hardStopTask?.cancel()
+            hardStopTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(15))
+                guard !Task.isCancelled, let self, self.isBuilding else { return }
+                self.console.append("Engine still busy — terminating it now.")
+                self.legacyRunner?.kill()
+            }
         }
     }
 
@@ -905,7 +916,10 @@ final class BuildModel: ObservableObject {
         expectedEngineStop = true
         client?.terminate()
         Task { [weak self] in
-            try? await Task.sleep(for: .seconds(3))
+            // SIGTERM starts the engine's own bounded wind-down
+            // (SHUTDOWN_GRACE_SECONDS = 10 s); the SIGKILL backstop must
+            // outlast it or the graceful exit is cut off mid-flight.
+            try? await Task.sleep(for: .seconds(12))
             self?.client?.kill()   // no-op once the process has exited
         }
     }

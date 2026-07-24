@@ -231,6 +231,13 @@ class DEM:
             return
         self.subdems = tuple()
         for local_source in local_sources:
+            # Cancellation at the sub-source boundary: constructing each
+            # sub-DEM may download.  On Stop, keep whatever's assembled
+            # and return -- load_data sets attributes rather than
+            # returning a status, and the cancelled build discards the
+            # object anyway.
+            if UI.red_flag:
+                break
             self.subdems += (
                 DEM(self.lat, self.lon, local_source, False, info_only),
             )
@@ -449,6 +456,15 @@ def build_combined_raster(source, lat, lon, info_only):
     for (lat0, lon0) in itertools.product(
         (lat, lat - 1, lat + 1), (lon, lon - 1, lon + 1)
     ):
+        # Cancellation at the tile boundary: each of the 9 iterations may
+        # trigger a whole-tile elevation download via ensure_elevation.
+        # On Stop, leave the remaining neighbours as the zeros alt_dem
+        # was initialised to and return the partial raster -- this keeps
+        # build_combined_raster's always-returns-the-9-tuple contract
+        # intact (no new failure path), and the cancelled build discards
+        # the result anyway.
+        if UI.red_flag:
+            break
         verbose = True if (lat0 == lat and lon0 == lon) else False
         x = (180 + lon0) % 360
         y = 89 - lat0
@@ -691,13 +707,37 @@ def ensure_elevation(source, lat, lon, verbose=True):
 
 ################################################################################
 def http_request(url, source, verbose=False):
+    # Guarded import of the process-wide throughput meter (sanctioned
+    # pattern copied from O4_OSM_Extracts): telemetry must never break a
+    # download, so a missing engine leaves METER as None and every feed
+    # is skipped.
+    try:
+        from o4_engine import download_meter as METER
+    except Exception:
+        METER = None
     s = requests.Session()
     tentative = 0
     while True:
+        # Cancellation: the user pressed Stop.  Abort before spending
+        # another request on this source and match http_request's
+        # existing failure convention -- a falsy 0 return, which every
+        # caller already treats as "download failed".
+        if UI.red_flag:
+            return 0
         try:
+            t0 = time.time()
             r = s.get(url, timeout=10)
+            elapsed = time.time() - t0
             status_code = str(r)
             if "[20" in status_code:
+                # Feed the throughput meter with this completed fetch so
+                # the build-time ETA prices elevation downloads from
+                # measurement.  Never raise from telemetry.
+                if METER is not None:
+                    try:
+                        METER.record(len(r.content), elapsed)
+                    except Exception:
+                        pass
                 return r
             elif "[40" in status_code or "[30" in status_code:
                 if verbose:
@@ -716,6 +756,11 @@ def http_request(url, source, verbose=False):
                 UI.vprint(2, e)
         tentative += 1
         if tentative == 6:
+            return 0
+        # Cancellation before the exponential back-off sleep: Stop must
+        # not be blocked for up to 2**tentative seconds waiting to retry
+        # a source the user no longer wants.  Same 0 failure convention.
+        if UI.red_flag:
             return 0
         UI.vprint(
             1,

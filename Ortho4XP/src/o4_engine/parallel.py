@@ -127,6 +127,13 @@ def estimate_remaining_wall_seconds(estimates, programs, queued_tiles,
 # the heavy pipeline imports happen later, inside the build command).
 HANDSHAKE_TIMEOUT_SECONDS = 30.0
 
+# Cancel escalation: how long a mid-step child gets to honor its red
+# flag before SIGTERM (the pipeline's cancellation checkpoints answer
+# within a few seconds; a blocking network request can hold this long),
+# and how long SIGTERM's bounded wind-down gets before SIGKILL.
+CANCEL_ESCALATE_SECONDS = 12.0
+CANCEL_KILL_SECONDS = 15.0
+
 # Resource classes (spec §3.8): which shared resource each step leans
 # on, and how many tiles may occupy a class at once.  The two network
 # classes are SEPARATE because they exhaust separate servers — a tile
@@ -799,6 +806,7 @@ class ParallelBuildRun:
             drained = list(self._queue)
             self._queue.clear()
             waiting = []
+            cancelling = []
             for child in self._children:
                 if child.retired or child.tile is None:
                     continue
@@ -808,10 +816,34 @@ class ParallelBuildRun:
                 else:
                     child.cancelling = True
                     child.send({"cmd": "cancel"})
+                    cancelling.append(child)
         for tile in drained + waiting:
             self._session._emit(TileState(lat=tile[0], lon=tile[1],
                                           state="queued", label="stopped"))
+        # The cancel command only raises the child's red_flag — a step
+        # wedged in an operation that never polls it would keep `busy`
+        # true forever and the run would never finish.  Escalate per
+        # child on a bounded clock: SIGTERM (the child's transport turns
+        # it into a bounded wind-down and exit), then SIGKILL as the
+        # backstop; _on_child_exit does the accounting either way.
+        for child in cancelling:
+            escalate_timer = threading.Timer(
+                CANCEL_ESCALATE_SECONDS, self._escalate_cancel, (child,))
+            escalate_timer.daemon = True
+            escalate_timer.start()
         self._maybe_finish()
+
+    def _escalate_cancel(self, child):
+        process = child.process
+        if child.tile is None or child.retired or process is None:
+            return
+        if process.poll() is None:
+            child.terminate()
+            kill_timer = threading.Timer(
+                CANCEL_KILL_SECONDS,
+                lambda: process.poll() is None and process.kill())
+            kill_timer.daemon = True
+            kill_timer.start()
 
     def shutdown_workers(self):
         """Hard-stop every worker child because the front end is exiting.

@@ -210,8 +210,10 @@ def _initialize_pipeline_registries() -> None:
 # How long a dedicated engine process lets an in-flight build acknowledge
 # the red flag before the process hard-exits anyway.  The polled
 # cancellation contract stops most steps within a second or two; the cap
-# exists for steps that never look at the flag.
-SHUTDOWN_GRACE_SECONDS = 15.0
+# exists for steps that never look at the flag.  Must stay SHORTER than
+# the front end's SIGTERM→SIGKILL window (BuildModel.hardStopEngine) or
+# the wind-down is cut off mid-flight by the harder kill.
+SHUTDOWN_GRACE_SECONDS = 10.0
 # Cadence of the parent-death watchdog's ``os.getppid()`` poll.
 PARENT_WATCH_POLL_SECONDS = 1.0
 

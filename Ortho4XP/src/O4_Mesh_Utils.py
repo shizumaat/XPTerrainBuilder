@@ -576,6 +576,80 @@ def _auto_patch_post_mesh_rebake(tile):
 
 
 ################################################################################
+def _terminate_mesh_process(process):
+    """Stop a still-running external mesh child after a Stop request.
+
+    Ask it to exit politely (``terminate()``), give it up to ~2 s, then
+    force-kill.  Idempotent: a no-op for a process that has already
+    exited, and never raises.
+    """
+    if process.poll() is not None:
+        return
+    try:
+        process.terminate()
+    except Exception:
+        pass
+    try:
+        process.wait(timeout=2)
+    except Exception:
+        try:
+            process.kill()
+        except Exception:
+            pass
+        try:
+            process.wait(timeout=2)
+        except Exception:
+            pass
+
+
+################################################################################
+def _run_triangulation_process(mesh_cmd):
+    """Launch ``mesh_cmd`` and stream its stdout, echoing each line.
+
+    The ``O4_UI_Utils.red_flag`` cancellation flag is polled once per
+    output line; when a Stop is requested mid-run the child is stopped
+    (see :func:`_terminate_mesh_process`) and the now-dead process is
+    returned immediately, without waiting for triangulation to finish.
+    Callers detect the cancellation through ``UI.red_flag`` and report it
+    via the standard interrupted path (``exit_message_and_bottom_line``).
+
+    Returns the finished ``subprocess.Popen`` so callers can read
+    ``returncode`` for the existing retry logic.  With no Stop request the
+    behaviour is identical to the previous inline ``Popen`` + readline
+    loop.
+    """
+    import select
+
+    process = subprocess.Popen(
+        mesh_cmd,
+        stdout=subprocess.PIPE,
+        bufsize=0,
+        **UI.external_tool_keyword_arguments(),
+    )
+    while True:
+        if UI.red_flag:
+            _terminate_mesh_process(process)
+            break
+        # Triangle4XP goes quiet for minutes between phase lines; a bare
+        # readline would sit blocked through a Stop click, so wait on
+        # the pipe with a short timeout and re-poll the flag on silence.
+        try:
+            readable = select.select([process.stdout], [], [], 0.5)[0]
+        except Exception:
+            readable = [process.stdout]
+        if not readable:
+            continue
+        line = process.stdout.readline()
+        if not line:
+            break
+        try:
+            print(line.decode("utf-8")[:-1])
+        except Exception:
+            pass
+    return process
+
+
+################################################################################
 def build_mesh(tile):
     if UI.is_working:
         return 0
@@ -757,18 +831,13 @@ def build_mesh(tile):
     tile.dem = None
     UI.vprint(1, "-> Start of the mesh algorithm Triangle4XP.")
     UI.vprint(2, "   Mesh command:", " ".join(mesh_cmd))
-    fingers_crossed = subprocess.Popen(
-        mesh_cmd, stdout=subprocess.PIPE, bufsize=0, **UI.external_tool_keyword_arguments()
-    )
-    while True:
-        line = fingers_crossed.stdout.readline()
-        if not line:
-            break
-        else:
-            try:
-                print(line.decode("utf-8")[:-1])
-            except:
-                pass
+    fingers_crossed = _run_triangulation_process(mesh_cmd)
+    # A Stop click during triangulation terminates the child with a
+    # non-zero returncode; report cancellation here so it does not look
+    # like a quality failure and (re)start the lower-angle retry loop.
+    if UI.red_flag:
+        UI.exit_message_and_bottom_line()
+        return 0
     time.sleep(0.3)
     fingers_crossed.poll()
     if fingers_crossed.returncode:
@@ -792,18 +861,11 @@ def build_mesh(tile):
                 + limit_tris
             )
             mesh_cmd[1] = Tri_option
-            fingers_crossed = subprocess.Popen(
-                mesh_cmd, stdout=subprocess.PIPE, bufsize=0, **UI.external_tool_keyword_arguments()
-            )
-            while True:
-                line = fingers_crossed.stdout.readline()
-                if not line:
-                    break
-                else:
-                    try:
-                        print(line.decode("utf-8")[:-1])
-                    except:
-                        pass
+            fingers_crossed = _run_triangulation_process(mesh_cmd)
+            # Do not launch a further retry attempt once cancelled.
+            if UI.red_flag:
+                UI.exit_message_and_bottom_line()
+                return 0
             time.sleep(0.3)
             fingers_crossed.poll()
             if fingers_crossed.returncode == 0:
@@ -885,15 +947,10 @@ def sort_mesh(tile):
     ]
     UI.vprint(1, "-> Reorganizing mesh triangles.")
     timer = time.time()
-    moulinette = subprocess.Popen(
-        sort_mesh_cmd_list, stdout=subprocess.PIPE, bufsize=0, **UI.external_tool_keyword_arguments()
-    )
-    while True:
-        line = moulinette.stdout.readline()
-        if not line:
-            break
-        else:
-            print(line.decode("utf-8")[:-1])
+    moulinette = _run_triangulation_process(sort_mesh_cmd_list)
+    if UI.red_flag:
+        UI.exit_message_and_bottom_line()
+        return 0
     _auto_patch_post_mesh_rebake(tile)
     UI.timings_and_bottom_line(timer)
     UI.logprint(

@@ -660,10 +660,25 @@ final class BuildModel: ObservableObject {
 
     // MARK: - Building
 
+    /// Selected tiles already queued or running in the active run — kept
+    /// out of buildableSelection so pressing Queue again can't hand the
+    /// engine a second copy of the same tile.
+    var selectedInRun: Set<TileCoord> {
+        guard isBuilding else { return [] }
+        return Set(selected.filter { coord in
+            switch activity.tiles[coord]?.state {
+            case .queued, .active, .indeterminate: return true
+            case .done, .error, nil: return false
+            }
+        })
+    }
+
     /// Tiles the next Build press would actually build.
     var buildableSelection: [TileCoord] {
-        selected.sorted().filter { coord in
-            !skipBuilt || built[coord]?.dsfPresent != true
+        let inRun = selectedInRun
+        return selected.sorted().filter { coord in
+            guard !inRun.contains(coord) else { return false }
+            return !skipBuilt || built[coord]?.dsfPresent != true
         }
     }
 

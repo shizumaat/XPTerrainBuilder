@@ -642,8 +642,11 @@ struct BuildPane: View {
         let count = buildModel.selected.count
         guard count > 0 else { return "No tiles selected" }
         let todo = buildModel.buildableSelection.count
+        let inRun = buildModel.selectedInRun.count
         var text = "\(count) tile\(count == 1 ? "" : "s") selected"
-        if todo < count { text += " · \(count - todo) already built (skipped)" }
+        if inRun > 0 { text += " · \(inRun) in current run" }
+        let skipped = count - todo - inRun
+        if skipped > 0 { text += " · \(skipped) already built (skipped)" }
         return text
     }
 
@@ -699,9 +702,7 @@ struct BuildPane: View {
             } message: {
                 Text(providerMismatchMessage)
             }
-            .help(buildModel.selected.isEmpty
-                  ? "Select tiles on the map first"
-                  : "Build the selected tiles with the steps above")
+            .help(buildButtonHelp)
         }
         .font(.callout)
         .padding(.horizontal, 12)
@@ -712,9 +713,17 @@ struct BuildPane: View {
     private var buildButtonLabel: String {
         let n = buildModel.buildableSelection.count
         if buildModel.isBuilding, buildModel.usesProtocol {
-            return "＋ Queue \(n) tile\(n == 1 ? "" : "s")"
+            return n > 0 ? "＋ Queue \(n) tile\(n == 1 ? "" : "s")" : "＋ Queue"
         }
         return n > 0 ? "▶ Build \(n) tile\(n == 1 ? "" : "s")" : "▶ Build"
+    }
+
+    private var buildButtonHelp: String {
+        if buildModel.selected.isEmpty { return "Select tiles on the map first" }
+        if buildModel.buildableSelection.isEmpty, !buildModel.selectedInRun.isEmpty {
+            return "The selected tiles are already queued or building in the current run"
+        }
+        return "Build the selected tiles with the steps above"
     }
 
     // MARK: - Bindings (AppStorage on the model doesn't self-publish)

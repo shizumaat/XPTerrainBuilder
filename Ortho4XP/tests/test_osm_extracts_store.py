@@ -740,3 +740,27 @@ class TestOsmiumBinaryDiscovery:
         assert EXTRACTS._osmium_binary() == str(stub)
         # Leave no poisoned cache behind for other tests.
         EXTRACTS._osmium_binary.cache = "unset"
+
+    def test_linux_arch_suffix_wins_over_plain_name(
+            self, tmp_path, monkeypatch):
+        """Utils/lin serves several CPU architectures: on an aarch64
+        machine the arch-suffixed binary must be picked over the plain
+        (x86_64) one sitting beside it."""
+        import platform
+
+        import O4_File_Names as FNAMES
+
+        bundled_dir = tmp_path / "Utils" / "lin"
+        bundled_dir.mkdir(parents=True)
+        for name in ("osmium", "osmium-aarch64"):
+            stub = bundled_dir / name
+            stub.write_text("#!/bin/sh\n")
+            stub.chmod(0o755)
+        monkeypatch.setattr(EXTRACTS.sys, "platform", "linux")
+        monkeypatch.setattr(platform, "machine", lambda: "aarch64")
+        monkeypatch.setattr(FNAMES, "Utils_dir", str(tmp_path / "Utils"))
+        monkeypatch.setattr(
+            EXTRACTS._osmium_binary, "cache", "unset", raising=False)
+        assert EXTRACTS._osmium_binary() == str(
+            bundled_dir / "osmium-aarch64")
+        EXTRACTS._osmium_binary.cache = "unset"

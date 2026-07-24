@@ -1,0 +1,248 @@
+# Build the bundled osmium-tool binaries (Ortho4XP/Utils/<platform>/osmium)
+# for every supported platform on GitHub-hosted runners — no local
+# cross-build machine needed.
+#
+# Version pins live in ONE place: Ortho4XP/Utils/toolchains/
+# build_osmium_tool.sh (osmium-tool, libosmium, protozero,
+# nlohmann/json).  The unix jobs run that script directly; the windows
+# job sources the pins from it.  Every binary is verified with
+# `osmium --version` (exact pin match) plus an extract smoke test using
+# the engine's exact flags (Utils/toolchains/smoke_test_osmium.sh).
+#
+# Outputs (workflow artifacts):
+#   osmium-macos-arm64 / osmium-macos-x86_64 — per-arch build products
+#   osmium-macos-universal                   — lipo of the two; this is
+#                                              what ships as mac/osmium
+#   osmium-windows-x64                       — ships as win/osmium.exe
+#   osmium-linux-x86_64                      — ships as lin/osmium
+#   osmium-linux-aarch64                     — ships as lin/osmium-aarch64
+#   osmium-binaries                          — all of the above in the
+#       Utils/ layout, as a tarball (artifacts as plain files lose the
+#       executable bit; the tar preserves it)
+#
+# To land binaries: download osmium-binaries, untar over Ortho4XP/Utils/,
+# and update the table in Ortho4XP/Utils/osmium-tool-NOTICE.md.
+# The engine feature-detects per platform (O4_OSM_Extracts.
+# _osmium_binary()), so binaries can land incrementally — a platform
+# without one just uses the slower pure-Python cutter.
+
+name: Build osmium-tool
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/build-osmium.yml"
+      - "Ortho4XP/Utils/toolchains/build_osmium_tool.sh"
+      - "Ortho4XP/Utils/toolchains/smoke_test_osmium.sh"
+
+concurrency:
+  group: build-osmium-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15        # Apple Silicon
+            arch: arm64
+          - runner: macos-15-intel  # Intel; GitHub supports this label into 2027
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Homebrew deps (static boost + lz4)
+        run: brew install boost lz4
+
+      - name: Build (pinned sources)
+        run: sh Ortho4XP/Utils/toolchains/build_osmium_tool.sh "$RUNNER_TEMP/osmium-build"
+
+      - name: Verify — version pin + extract smoke test
+        run: sh Ortho4XP/Utils/toolchains/smoke_test_osmium.sh "$RUNNER_TEMP/osmium-build/osmium-tool/build/src/osmium"
+
+      - name: Verify — links only OS-provided dylibs
+        run: |
+          otool -L "$RUNNER_TEMP/osmium-build/osmium-tool/build/src/osmium"
+          ! otool -L "$RUNNER_TEMP/osmium-build/osmium-tool/build/src/osmium" \
+            | tail -n +2 | grep -v -e '/usr/lib/' -e '/System/'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: osmium-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/osmium-build/osmium-tool/build/src/osmium
+          if-no-files-found: error
+
+  macos-universal:
+    # One mac/osmium file serves both Mac architectures: lipo the two
+    # per-arch builds into a universal binary and verify each slice.
+    needs: macos
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: osmium-macos-arm64
+          path: arm64
+      - uses: actions/download-artifact@v4
+        with:
+          name: osmium-macos-x86_64
+          path: x86_64
+
+      - name: Lipo
+        run: |
+          lipo -create -output osmium arm64/osmium x86_64/osmium
+          chmod +x osmium
+          lipo -archs osmium
+          lipo -archs osmium | grep -q x86_64
+          lipo -archs osmium | grep -q arm64
+
+      - name: Verify — native (arm64) slice
+        run: sh Ortho4XP/Utils/toolchains/smoke_test_osmium.sh ./osmium
+
+      - name: Verify — x86_64 slice under Rosetta
+        run: |
+          sudo softwareupdate --install-rosetta --agree-to-license || true
+          arch -x86_64 ./osmium --version | grep -F "osmium version"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: osmium-macos-universal
+          path: osmium
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: vcpkg deps (static, x64)
+        shell: bash
+        run: vcpkg install --triplet x64-windows-static boost-program-options bzip2 expat lz4 zlib
+
+      - name: Fetch pinned sources
+        shell: bash
+        run: |
+          # Single source of truth for the pins: the build script.
+          eval "$(grep -E '^(OSMIUM_TOOL|LIBOSMIUM|PROTOZERO|NLOHMANN_JSON)_TAG=' \
+            Ortho4XP/Utils/toolchains/build_osmium_tool.sh)"
+          git clone --depth 1 --branch "$OSMIUM_TOOL_TAG" https://github.com/osmcode/osmium-tool.git deps/osmium-tool
+          git clone --depth 1 --branch "$LIBOSMIUM_TAG" https://github.com/osmcode/libosmium.git deps/libosmium
+          git clone --depth 1 --branch "$PROTOZERO_TAG" https://github.com/mapbox/protozero.git deps/protozero
+          mkdir -p deps/nlohmann-include/nlohmann
+          curl -fsSL -o deps/nlohmann-include/nlohmann/json.hpp \
+            "https://github.com/nlohmann/json/releases/download/$NLOHMANN_JSON_TAG/json.hpp"
+
+      - name: Configure & build (static CRT + static deps)
+        shell: bash
+        run: |
+          cmake -S deps/osmium-tool -B build \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static \
+            -DCMAKE_POLICY_DEFAULT_CMP0091=NEW \
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded \
+            -DOSMIUM_INCLUDE_DIR="$PWD/deps/libosmium/include" \
+            -DPROTOZERO_INCLUDE_DIR="$PWD/deps/protozero/include" \
+            -DNLOHMANN_INCLUDE_DIR="$PWD/deps/nlohmann-include" \
+            -DBoost_USE_STATIC_LIBS=ON \
+            -DBUILD_TESTING=OFF
+          cmake --build build --config Release
+
+      - name: Verify — version pin + extract smoke test
+        shell: bash
+        run: sh Ortho4XP/Utils/toolchains/smoke_test_osmium.sh build/src/Release/osmium.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: osmium-windows-x64
+          path: build/src/Release/osmium.exe
+          if-no-files-found: error
+
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build in Alpine (fully static musl binary)
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo alpine:3.21 sh -ec '
+            apk add --no-cache build-base cmake git curl \
+                boost-dev boost-static zlib-dev zlib-static \
+                bzip2-dev bzip2-static expat-dev expat-static \
+                lz4-dev lz4-static
+            sh Ortho4XP/Utils/toolchains/build_osmium_tool.sh /tmp/osmium-build
+            sh Ortho4XP/Utils/toolchains/smoke_test_osmium.sh \
+                /tmp/osmium-build/osmium-tool/build/src/osmium
+            cp /tmp/osmium-build/osmium-tool/build/src/osmium /repo/osmium
+          '
+          sudo chown "$(id -u):$(id -g)" osmium
+
+      - name: Verify — static, runs on glibc host, smoke test
+        run: |
+          file ./osmium
+          ldd ./osmium 2>&1 | grep -qi -e "not a dynamic executable" -e "statically linked" \
+            || { ldd ./osmium; echo "FAIL: not fully static" >&2; exit 1; }
+          sh Ortho4XP/Utils/toolchains/smoke_test_osmium.sh ./osmium
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: osmium-linux-${{ matrix.arch }}
+          path: osmium
+          if-no-files-found: error
+
+  bundle:
+    # Everything shippable, arranged in the Utils/ layout.  Tarred
+    # because artifact zips drop the executable bit.
+    needs: [macos-universal, windows, linux]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: osmium-macos-universal
+          path: dl/mac
+      - uses: actions/download-artifact@v4
+        with:
+          name: osmium-windows-x64
+          path: dl/win
+      - uses: actions/download-artifact@v4
+        with:
+          name: osmium-linux-x86_64
+          path: dl/lin-x86_64
+      - uses: actions/download-artifact@v4
+        with:
+          name: osmium-linux-aarch64
+          path: dl/lin-aarch64
+
+      - name: Arrange Utils layout and tar
+        run: |
+          mkdir -p Utils/mac Utils/win Utils/lin
+          cp dl/mac/osmium            Utils/mac/osmium
+          cp dl/win/osmium.exe        Utils/win/osmium.exe
+          cp dl/lin-x86_64/osmium     Utils/lin/osmium
+          cp dl/lin-aarch64/osmium    Utils/lin/osmium-aarch64
+          chmod +x Utils/mac/osmium Utils/lin/osmium Utils/lin/osmium-aarch64
+          tar -czvf osmium-binaries.tar.gz Utils
+          echo "Land with: tar -xzvf osmium-binaries.tar.gz -C Ortho4XP/"
+          echo "...then update the table in Ortho4XP/Utils/osmium-tool-NOTICE.md"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: osmium-binaries
+          path: osmium-binaries.tar.gz
+          if-no-files-found: error

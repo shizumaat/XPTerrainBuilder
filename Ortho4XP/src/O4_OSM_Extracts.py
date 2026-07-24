@@ -831,6 +831,10 @@ def _osmium_binary() -> Optional[str]:
 
     Bundled binary first (``Utils/<platform>/osmium``, the same
     per-platform layout Triangle4XP and DSFTool use), then the PATH.
+    On Linux, where one ``lin`` directory serves several CPU
+    architectures, an arch-suffixed name (``osmium-aarch64``) wins over
+    the plain one (x86_64, like every other ``lin`` binary); macOS
+    needs no suffix because ``mac/osmium`` is a universal binary.
     Cached per process; missing everywhere just means the pyosmium
     cutter does the work.
     """
@@ -840,15 +844,21 @@ def _osmium_binary() -> Optional[str]:
     import shutil
 
     if "dar" in sys.platform:
-        subdirectory, name = "mac", "osmium"
+        subdirectory, names = "mac", ("osmium",)
     elif "win" in sys.platform:
-        subdirectory, name = "win", "osmium.exe"
+        subdirectory, names = "win", ("osmium.exe",)
     else:
-        subdirectory, name = "lin", "osmium"
-    bundled = os.path.join(FNAMES.Utils_dir, subdirectory, name)
-    if os.path.isfile(bundled) and os.access(bundled, os.X_OK):
-        found = bundled
-    else:
+        import platform
+
+        subdirectory, names = (
+            "lin", ("osmium-" + platform.machine(), "osmium"))
+    found = None
+    for name in names:
+        bundled = os.path.join(FNAMES.Utils_dir, subdirectory, name)
+        if os.path.isfile(bundled) and os.access(bundled, os.X_OK):
+            found = bundled
+            break
+    if found is None:
         found = shutil.which("osmium")
     _osmium_binary.cache = found
     return found

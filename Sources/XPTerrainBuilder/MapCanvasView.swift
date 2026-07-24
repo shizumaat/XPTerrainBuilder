@@ -34,22 +34,13 @@ struct MapCanvasView: View {
     static let tintLandmark = Color(red: 0.30, green: 0.55, blue: 0.90)
     static let selection = Color.white
 
-    // Build mode: the Qt map's vocabulary. Built tiles are colored by their
-    // zoom level; selection is yellow; done/error badges green/red.
+    // Build mode: our built tiles are green (the ZL still shows in the
+    // center label); selection is yellow; done/error badges green/red;
+    // other installed ortho packages keep their gray outline.
     static let buildSelection = Color(red: 1.0, green: 0.84, blue: 0.04) // #FFD60A
+    static let builtTile = Color(red: 0.30, green: 0.69, blue: 0.43)
     static let badgeDone = Color(red: 0.18, green: 0.62, blue: 0.36)     // #2E9E5B
     static let badgeError = Color(red: 0.90, green: 0.22, blue: 0.17)    // #E5372B
-    static func zlColor(_ zl: Int?) -> Color {
-        switch zl ?? 0 {
-        case ..<15 where zl != nil: return Color(red: 0.36, green: 0.55, blue: 0.85) // ≤14 blue
-        case 15: return Color(red: 0.40, green: 0.84, blue: 0.89)  // cyan
-        case 16: return Color(red: 0.30, green: 0.69, blue: 0.43)  // green
-        case 17: return Color(red: 0.91, green: 0.76, blue: 0.24)  // yellow
-        case 18: return Color(red: 0.95, green: 0.66, blue: 0.36)  // orange
-        case 19: return Color(red: 0.94, green: 0.48, blue: 0.43)  // red
-        default: return Color(red: 0.60, green: 0.65, blue: 0.69)  // unknown grey
-        }
-    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -67,7 +58,6 @@ struct MapCanvasView: View {
                     zoom(by: 1 + magnification, anchoredAt: location, size: proxy.size)
                 }
             ))
-            .overlay(alignment: .bottomLeading) { legend }
             .overlay(alignment: .topTrailing) { zoomControls }
             .overlay(alignment: .bottomTrailing) {
                 VStack(alignment: .trailing, spacing: 6) {
@@ -284,10 +274,10 @@ struct MapCanvasView: View {
 
     }
 
-    /// Build mode's tile layers, mirroring the Qt map: built tiles filled
-    /// with their ZL color (double inset border when installed in X-Plane,
-    /// "PROV ZL*" center label), yellow selection (solid border = active
-    /// tile, dashed = other selected), and per-tile progress ring badges.
+    /// Build mode's tile layers, mirroring the Qt map: built tiles in
+    /// green (double inset border when installed in X-Plane, "PROV ZL*"
+    /// center label), yellow selection (solid border = active tile,
+    /// dashed = other selected), and per-tile progress ring badges.
     /// Web-mercator provider tiles on the (also web-mercator) canvas:
     /// every 256px tile projects to exactly one screen rect.
     private func drawImagery(context: GraphicsContext, size: CGSize, cam: MapCamera,
@@ -394,13 +384,13 @@ struct MapCanvasView: View {
             tileRect(lat: coord.lat, lon: coord.lon, cam: cam, size: size)
         }
 
-        // Built tiles: ZL-colored border (no fill — it obscures the
-        // imagery preview); installed adds the double (inset) border;
-        // center label once tiles are big enough.
+        // Built tiles: green border (no fill — it obscures the imagery
+        // preview); installed adds the double (inset) border; center
+        // label once tiles are big enough.
         let showTileLabels = cam.scale > 44
         for (coord, info) in buildModel.built where visible(coord) {
             let r = rect(coord)
-            let color = Self.zlColor(info.zl)
+            let color = Self.builtTile
             context.stroke(Path(r), with: .color(color.opacity(0.85)), lineWidth: 2)
             if buildModel.installed.contains(coord) {
                 context.stroke(Path(r.insetBy(dx: r.width * 0.03, dy: r.height * 0.03)),
@@ -571,46 +561,6 @@ struct MapCanvasView: View {
     }
 
     // MARK: - Chrome
-
-    private var legend: some View {
-        HStack(spacing: 10) {
-            if buildModel.mode == .build {
-                legendSwatch(Self.buildSelection, "Selected")
-                Text("built · color = ZL")
-                    .foregroundStyle(.white.opacity(0.8))
-                legendSwatch(Self.zlColor(15), "15")
-                legendSwatch(Self.zlColor(16), "16")
-                legendSwatch(Self.zlColor(17), "17")
-                legendSwatch(Self.zlColor(18), "18")
-                Text("▣ installed · * zones")
-                    .foregroundStyle(.white.opacity(0.8))
-            } else {
-                legendDot(Self.magenta, "Airport")
-                legendSwatch(Self.tintOrtho, "Ortho")
-                legendSwatch(Self.tintMesh, "Mesh")
-                legendSwatch(Self.tintLandmark, "Landmark")
-            }
-        }
-        .font(.caption2)
-        .padding(6)
-        .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))
-        .padding(8)
-    }
-
-    private func legendDot(_ color: Color, _ label: String) -> some View {
-        HStack(spacing: 3) {
-            Circle().stroke(color, lineWidth: 1.5).frame(width: 7, height: 7)
-            Text(label).foregroundStyle(.white.opacity(0.8))
-        }
-    }
-
-    private func legendSwatch(_ color: Color, _ label: String) -> some View {
-        HStack(spacing: 3) {
-            RoundedRectangle(cornerRadius: 1.5).fill(color.opacity(0.5))
-                .frame(width: 9, height: 9)
-            Text(label).foregroundStyle(.white.opacity(0.8))
-        }
-    }
 
     /// Unobtrusive scan progress while the map populates live. Leaf view
     /// observing ProgressModel so its ticks never redraw the canvas.

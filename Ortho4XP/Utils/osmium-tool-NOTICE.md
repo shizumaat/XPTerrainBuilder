@@ -23,10 +23,10 @@ Binaries currently bundled:
 
 | Path | Platform | Built | Notes |
 | --- | --- | --- | --- |
-| `mac/osmium` | macOS arm64 | 2026-07-23 | static boost/lz4; links only OS-provided dylibs (libz, libexpat, libbz2, libc++); deployment target macOS 14 |
-| `win/osmium.exe` | Windows x64 | — not yet bundled | vcpkg `x64-windows-static` build (static CRT + deps); produced by CI, awaiting landing |
-| `lin/osmium` | Linux x86_64 | — not yet bundled | fully static musl (Alpine) build, runs on any distro; produced by CI, awaiting landing |
-| `lin/osmium-aarch64` | Linux aarch64 | — not yet bundled | same static musl build; the arch-suffixed name wins the lookup on aarch64 |
+| `mac/osmium` | macOS universal (arm64 + x86_64) | 2026-07-23 | static boost/lz4; links only OS-provided dylibs (libz, libexpat, libbz2, libc++); deployment target macOS 14; CI run 30065839997 |
+| `win/osmium.exe` | Windows x64 | 2026-07-23 | vcpkg `x64-windows-static` build (static CRT + deps); CI run 30065839997 |
+| `lin/osmium` | Linux x86_64 | 2026-07-23 | fully static musl (Alpine 3.21) build, runs on any distro; CI run 30065839997 |
+| `lin/osmium-aarch64` | Linux aarch64 | 2026-07-23 | same static musl build; the arch-suffixed name wins the lookup on aarch64; CI run 30065839997 |
 
 Platforms without a bundled binary automatically use a system `osmium`
 from the PATH when present, and the pure-Python cutter otherwise — the

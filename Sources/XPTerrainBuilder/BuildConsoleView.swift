@@ -50,12 +50,6 @@ struct BuildConsoleView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            if buildModel.isBuilding {
-                Button(buildModel.isStopping ? "Stopping…" : "■ Stop") {
-                    buildModel.stopBuild()
-                }
-                .disabled(buildModel.isStopping)
-            }
         }
         .font(.callout)
         .padding(.horizontal, 12)
@@ -69,8 +63,14 @@ struct BuildConsoleView: View {
         @EnvironmentObject var activity: BuildActivityModel
 
         var body: some View {
-            let remaining = activity.remainingSeconds.map { ActivityBox.clock($0) } ?? "—"
-            Text("\(activity.doneTiles)/\(activity.totalTiles) tiles — elapsed \(ActivityBox.clock(activity.elapsedSeconds)) — remaining ≈ \(remaining)")
+            // A GROWING estimate means the model has no live basis yet
+            // (e.g. the first airport inset of a run still fetching);
+            // say so instead of printing a precise-looking number that
+            // counts up — same contract as the activity box.
+            let suffix = activity.remainingUnreliable
+                ? "still estimating remaining"
+                : "remaining ≈ \(activity.remainingSeconds.map { ActivityBox.clock($0) } ?? "—")"
+            Text("\(activity.doneTiles)/\(activity.totalTiles) tiles — elapsed \(ActivityBox.clock(activity.elapsedSeconds)) — \(suffix)")
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
                 .lineLimit(1)

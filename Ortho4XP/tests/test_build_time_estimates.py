@@ -79,11 +79,17 @@ class TestRemainingStepSeconds:
 class TestEstimateRemainingWallSeconds:
     PROGRAM = ("vector", "mesh")
 
+    # The estimator takes per-tile step plans ({tile: ordered keys} —
+    # batches enqueued into a live run may select different steps); these
+    # tests predate that shape and passed one shared tuple.
+    def _programs(self, *tiles):
+        return {tile: self.PROGRAM for tile in tiles}
+
     def test_queued_tiles_count_their_full_plan(self):
         estimates = {(1, 1): {"vector": 10.0, "mesh": 30.0},
                      (2, 2): {"vector": 10.0, "mesh": 30.0}}
         remaining = estimate_remaining_wall_seconds(
-            estimates, self.PROGRAM,
+            estimates, self._programs((1, 1), (2, 2)),
             queued_tiles=[(1, 1), (2, 2)], next_step_index={},
             in_flight_steps={}, now=1000.0, slots=1)
         assert remaining == pytest.approx(80.0)
@@ -92,13 +98,13 @@ class TestEstimateRemainingWallSeconds:
         estimates = {(1, 1): {"vector": 10.0, "mesh": 30.0},
                      (2, 2): {"vector": 10.0, "mesh": 30.0}}
         remaining = estimate_remaining_wall_seconds(
-            estimates, self.PROGRAM,
+            estimates, self._programs((1, 1), (2, 2)),
             queued_tiles=[(1, 1), (2, 2)], next_step_index={},
             in_flight_steps={}, now=1000.0, slots=2)
         assert remaining == pytest.approx(40.0)
         # Parallelism never exceeds the tiles actually holding work.
         remaining = estimate_remaining_wall_seconds(
-            estimates, self.PROGRAM,
+            estimates, self._programs((1, 1), (2, 2)),
             queued_tiles=[(1, 1), (2, 2)], next_step_index={},
             in_flight_steps={}, now=1000.0, slots=8)
         assert remaining == pytest.approx(40.0)
@@ -106,7 +112,7 @@ class TestEstimateRemainingWallSeconds:
     def test_in_flight_step_credits_elapsed_time(self):
         estimates = {(1, 1): {"vector": 10.0, "mesh": 30.0}}
         remaining = estimate_remaining_wall_seconds(
-            estimates, self.PROGRAM,
+            estimates, self._programs((1, 1)),
             queued_tiles=[], next_step_index={(1, 1): 0},
             in_flight_steps={((1, 1), "vector"): 994.0},
             now=1000.0, slots=1)
@@ -120,7 +126,7 @@ class TestEstimateRemainingWallSeconds:
         fraction of the overrun instead."""
         estimates = {(1, 1): {"vector": 10.0, "mesh": 30.0}}
         remaining = estimate_remaining_wall_seconds(
-            estimates, self.PROGRAM,
+            estimates, self._programs((1, 1)),
             queued_tiles=[], next_step_index={(1, 1): 0},
             in_flight_steps={((1, 1), "vector"): 900.0},
             now=1000.0, slots=1)
@@ -134,7 +140,7 @@ class TestEstimateRemainingWallSeconds:
         unpredicted step was the expensive one."""
         estimates = {(1, 1): {"mesh": 30.0}}
         remaining = estimate_remaining_wall_seconds(
-            estimates, self.PROGRAM,
+            estimates, self._programs((1, 1)),
             queued_tiles=[], next_step_index={(1, 1): 0},
             in_flight_steps={((1, 1), "vector"): 900.0},
             now=1000.0, slots=1)
@@ -144,7 +150,7 @@ class TestEstimateRemainingWallSeconds:
     def test_finished_steps_no_longer_count(self):
         estimates = {(1, 1): {"vector": 10.0, "mesh": 30.0}}
         remaining = estimate_remaining_wall_seconds(
-            estimates, self.PROGRAM,
+            estimates, self._programs((1, 1)),
             queued_tiles=[], next_step_index={(1, 1): 1},
             in_flight_steps={}, now=1000.0, slots=1)
         assert remaining == pytest.approx(30.0)

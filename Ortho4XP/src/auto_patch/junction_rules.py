@@ -2314,6 +2314,42 @@ def stitch_pavement_to_terminals(
     # walk so we don't disturb the terminal geometry mid-iteration.
     pending_inserts: dict = {id(t): {} for t in terminals}
 
+    # Terminal rings stay READ-ONLY for the whole pavement walk (they
+    # are only rewritten afterwards, from ``pending_inserts``), so
+    # extract each one ONCE here rather than re-crossing the shapely C
+    # boundary for every (pavement vertex × terminal) pair.
+    #
+    # Cached alongside the ring is its bounding box grown by ``pad``.
+    # Every branch below — the already-a-corner match, the corner
+    # snap, and the edge-interior insert — first requires the vertex to
+    # lie within ``on_edge_tol_m`` of the ring, and the snap radius is
+    # only consulted after that test passes.  So a vertex outside the
+    # padded box cannot reach this terminal by any path: the reject is
+    # decision-free, not an approximation.  It also preserves the
+    # order-sensitive ``already_corner`` early-out, which can only fire
+    # for terminals the box keeps.
+    pad = max(snap_corner_m, on_edge_tol_m)
+    term_rings: list = []
+    for term in terminals:
+        tpoly = term.polygon
+        if (tpoly is None or tpoly.is_empty
+                or tpoly.geom_type != "Polygon"):
+            continue
+        try:
+            tcoords = list(tpoly.exterior.coords)
+        except _GEOM_EXC:
+            continue
+        if tcoords and tcoords[0] == tcoords[-1]:
+            tcoords = tcoords[:-1]
+        if len(tcoords) < 3:
+            continue
+        tminx, tminy, tmaxx, tmaxy = tpoly.bounds
+        term_rings.append((term, tcoords, len(tcoords),
+                           tminx - pad, tminy - pad,
+                           tmaxx + pad, tmaxy + pad))
+    if not term_rings:
+        return
+
     for pav in pavements:
         poly = pav.polygon
         if poly is None or poly.is_empty or poly.geom_type != "Polygon":
@@ -2326,6 +2362,17 @@ def stitch_pavement_to_terminals(
             len(coords) > 1 and coords[0] == coords[-1])
         coords_open = coords[:-1] if ring_closed else list(coords)
         if len(coords_open) < 3:
+            continue
+
+        # Whole-shape reject: a terminal whose padded box misses this
+        # pavement's box cannot reach any vertex of it, so the
+        # per-vertex scan below only walks the survivors — in source
+        # order, so the ``already_corner`` early-out is unchanged.
+        pminx, pminy, pmaxx, pmaxy = poly.bounds
+        near_terms = [e for e in term_rings
+                      if e[3] <= pmaxx and e[5] >= pminx
+                      and e[4] <= pmaxy and e[6] >= pminy]
+        if not near_terms:
             continue
 
         node_alts = pav.node_altitudes
@@ -2344,12 +2391,10 @@ def stitch_pavement_to_terminals(
         mutated = False
         for vi, (vx, vy) in enumerate(coords_open):
             snapped = False
-            for term in terminals:
-                tcoords = list(term.polygon.exterior.coords)
-                if tcoords and tcoords[0] == tcoords[-1]:
-                    tcoords = tcoords[:-1]
-                m = len(tcoords)
-                if m < 3:
+            for (term, tcoords, m,
+                 tbx0, tby0, tbx1, tby1) in near_terms:
+                if (vx < tbx0 or vx > tbx1
+                        or vy < tby0 or vy > tby1):
                     continue
                 # Skip if vertex matches an existing terminal corner —
                 # already shared, no work needed.

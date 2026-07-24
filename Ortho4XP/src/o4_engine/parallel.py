@@ -46,6 +46,8 @@ import time
 from collections import deque
 from typing import Optional
 
+import O4_UI_Utils as UI
+
 from . import events as EVENTS
 from . import tile_time_model
 from .events import BuildDone, RunDone, RunEta, StepProgress, TileState
@@ -452,6 +454,10 @@ class ParallelBuildRun:
         self._estimates: dict = {}
         self._tile_step_windows: dict = {}
         self._step_started_at: dict = {}      # (tile, step) -> monotonic t
+        # tile -> summed dispatched-step seconds, for the per-tile
+        # "completed in" console line (a worker child sees one step at a
+        # time, so only the parent can total the tile).
+        self._tile_step_seconds: dict = {}
         self._class_limits = class_limits(slots)
         self._class_active = {name: 0 for name in self._class_limits}
         self._next_step_index: dict = {}
@@ -730,7 +736,11 @@ class ParallelBuildRun:
         step_key = child.running_step
         if step_key is None:
             return
-        self._step_started_at.pop((child.tile, step_key), None)
+        started = self._step_started_at.pop((child.tile, step_key), None)
+        if started is not None and child.tile is not None:
+            self._tile_step_seconds[child.tile] = (
+                self._tile_step_seconds.get(child.tile, 0.0)
+                + (time.time() - started))
         step_class = STEP_CLASSES.get(step_key, "compute")
         self._class_active[step_class] = max(
             0, self._class_active[step_class] - 1)
@@ -1004,6 +1014,7 @@ class ParallelBuildRun:
                 # Spec §3.4: never reuse a red-flagged interpreter.
                 self._next_step_index.pop(child.tile, None)
                 self._percent_high_water.pop(child.tile, None)
+                self._tile_step_seconds.pop(child.tile, None)
                 child.tile = None
                 child.retire()
                 respawn = bool(self._queue) and not self._cancel_all
@@ -1012,6 +1023,7 @@ class ParallelBuildRun:
                 # tile's remaining steps.
                 self._next_step_index.pop(child.tile, None)
                 self._percent_high_water.pop(child.tile, None)
+                self._tile_step_seconds.pop(child.tile, None)
                 child.tile = None
                 child.step_failed = False
             elif child.tile is not None:
@@ -1020,6 +1032,14 @@ class ParallelBuildRun:
                 if (self._next_step_index[child.tile]
                         >= len(self._programs.get(child.tile, ()))):
                     # Tile complete (its final BuildDone was forwarded).
+                    # The per-tile total the children cannot print (each
+                    # sees one step): dispatched-step seconds summed by
+                    # _release_step_resources_locked.
+                    print("\nTile %s completed in %s."
+                          % (_short_latlon(child.tile),
+                             UI.nicer_timer(
+                                 self._tile_step_seconds.pop(
+                                     child.tile, 0.0))))
                     self._next_step_index.pop(child.tile, None)
                     self._percent_high_water.pop(child.tile, None)
                     child.tile = None
@@ -1070,6 +1090,7 @@ class ParallelBuildRun:
                 crashed_tile = child.tile
                 self._next_step_index.pop(child.tile, None)
                 self._percent_high_water.pop(child.tile, None)
+                self._tile_step_seconds.pop(child.tile, None)
                 child.tile = None
                 self._errors += 1
                 respawn = bool(self._queue) and not self._cancel_all

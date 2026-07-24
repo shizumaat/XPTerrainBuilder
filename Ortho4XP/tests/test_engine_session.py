@@ -246,6 +246,40 @@ def test_failed_step_marks_error_and_run_continues(monkeypatch, tmp_path):
             run_done.cancelled) == (1, 1, False)
 
 
+def test_tile_total_line_printed_per_tile(monkeypatch, tmp_path, capsys):
+    """The in-process loop prints the legacy per-tile total
+    ("Tile +XX+YYY completed in ...") at the end of each tile — the line
+    went missing when the engine replaced build_all (fixed 2026-07-24)."""
+    install_stub_pipeline(monkeypatch)
+    session = EngineSession()
+    run_build(session, [(10, 20), (11, 21)], tmp_path)
+    out = capsys.readouterr().out
+    assert "Tile +10+020 completed in" in out
+    assert "Tile +11+021 completed in" in out
+
+
+def test_stepwise_run_leaves_total_line_to_parent(monkeypatch, tmp_path,
+                                                  capsys):
+    """A per-step worker-child command (build(steps=...)) covers one step,
+    so the child must NOT print the per-tile total — the parallel parent
+    prints it when the tile's last step completes."""
+    install_stub_pipeline(monkeypatch)
+    session = EngineSession()
+    events = []
+    finished = threading.Event()
+
+    def collect(event):
+        events.append(event)
+        if isinstance(event, EV.RunDone):
+            finished.set()
+
+    session.subscribe(collect)
+    assert session.build([(10, 20)], "BI", 16, str(tmp_path),
+                         steps=("vector",)) is True
+    assert finished.wait(30), "build did not finish within 30 s"
+    assert "completed in" not in capsys.readouterr().out
+
+
 def test_cancel_mid_run_skips_remaining_tiles(monkeypatch, tmp_path):
     """cancel() from inside a step ends with RunDone(cancelled=True) and emits
     nothing for the tiles that never ran."""

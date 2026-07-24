@@ -476,6 +476,10 @@ class EngineSession:
         self._cancelled_tiles: set = set()
         self._active_tile = None
         self._cancel_all = False
+        # True while the current run was a per-step worker-child command
+        # (``build(steps=...)``): such a run covers ONE step, so the
+        # per-tile total line is the parent orchestrator's to print.
+        self._stepwise_run = False
         # The live parallel run (subprocess scheduler), when one exists.
         self._parallel = None
         # In-process work queue: per-tile items the worker consumes and
@@ -605,6 +609,7 @@ class EngineSession:
         if self._building:
             return False
         self._building = True
+        self._stepwise_run = steps is not None
         self._cancel_all = False
         self._cancelled_tiles = set()
         self._active_tile = None
@@ -963,6 +968,12 @@ class EngineSession:
                         UI.red_flag = False
                         continue
                     break
+                # The per-tile total ("Tile +XX+YYY completed in …",
+                # accumulated by each step's timings_and_bottom_line).
+                # A per-step worker-child run leaves it to the parent
+                # orchestrator, which sees the whole tile.
+                if not self._stepwise_run:
+                    UI.total_bottom_line(lat, lon)
                 if failed_step_keys:
                     errors += 1
                     self._emit(TileState(lat=lat, lon=lon, state="error",

@@ -58,7 +58,6 @@ struct MapCanvasView: View {
             }
             .background(Self.ocean)
             .gesture(pan(size: proxy.size))
-            .gesture(doubleClickZoom(size: proxy.size))
             .gesture(tileSelect(size: proxy.size))
             .overlay(ScrollZoomCatcher(
                 onScroll: { location, delta in
@@ -571,19 +570,6 @@ struct MapCanvasView: View {
             }
     }
 
-    private func doubleClickZoom(size: CGSize) -> some Gesture {
-        SpatialTapGesture(count: 2)
-            .onEnded { value in
-                var cam = camera.value
-                let coord = cam.coordinate(of: value.location, in: size)
-                cam.centerLon = coord.lon
-                cam.centerLat = coord.lat
-                cam.scale *= 2
-                cam.clamp(in: size)
-                camera.value = cam
-            }
-    }
-
     // MARK: - Chrome
 
     private var legend: some View {
@@ -694,7 +680,7 @@ struct MapCanvasView: View {
                     .frame(width: 30, height: 24)
                     .contentShape(Rectangle())
             }
-            .help("Zoom in (double-click the map also zooms; drag to pan)")
+            .help("Zoom in (drag the map to pan)")
         }
         .buttonStyle(.borderless)
         .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))

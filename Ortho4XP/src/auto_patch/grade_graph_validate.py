@@ -461,6 +461,151 @@ def route_reach_violations(layout, noise=ELEV_ROUNDING_NOISE_M):
     return out
 
 
+# ── Tile-seam terrain-matching corridor ─────────────────────────────────────
+# Mirrors ``tools/check_grade.py``'s ``_SEAM_LL_TOL_DEG`` / ``_SEAM_ZONE_M``
+# (owner ruling 2026-06-20) — the SAME scope ``tools/grade_feasibility_audit``
+# already uses to exclude seam nids from its route-band intervals.  Duplicated
+# rather than imported because ``tools/`` is a script directory, not an
+# importable package, and ``src/`` must not depend on it (same precedent as
+# ``crown.py``'s ``_XEDGE_SEAM_TOL_M == tile_cut._SEAM_LINE_TOL_M``).  Keep the
+# two copies in sync.
+_SEAM_LL_TOL_DEG = 1e-4        # == check_grade._SEAM_LL_TOL_DEG (~11 m)
+_SEAM_ZONE_M = 400.0           # == check_grade._SEAM_ZONE_M
+
+
+def _crossed_seam_lines(layout, lat, lon):
+    """The integer tile-boundary line(s) a seam pin at ``(lat, lon)`` sits on,
+    as ``[(axis, coord_m), ...]`` in this layout's LOCAL METRE frame (``axis``
+    is ``"x"`` for an integer-LON line, ``"y"`` for an integer-LAT one).
+
+    ``layout.ll_to_m`` is affine and axis-separable (x depends only on lon, y
+    only on lat), so an integer lat/lon line is a constant y / x and the
+    corridor test downstream is a plain metre distance in the frame the rest of
+    this check already works in.  Line MEMBERSHIP is decided in lat/lon with
+    ``_SEAM_LL_TOL_DEG``, exactly as ``check_grade._seam_lines`` does."""
+    out = []
+    if abs(lat - round(lat)) <= _SEAM_LL_TOL_DEG:
+        out.append(("y", layout.ll_to_m(float(round(lat)), lon)[1]))
+    if abs(lon - round(lon)) <= _SEAM_LL_TOL_DEG:
+        out.append(("x", layout.ll_to_m(lat, float(round(lon)))[0]))
+    return out
+
+
+def _seam_pin_band_slack(layout, band, noise, crown_at):
+    """MEASURE how far this layout's AIRSIDE tile-seam pins sit OUTSIDE the
+    runway-reach ``band``, per crossed seam LINE.
+
+    Returns ``[(axis, coord_m, d_floor, d_ceil), ...]``: for each integer
+    tile-boundary line the airport actually crosses, the largest floor DEFICIT
+    (``band_floor(pin) − pin_value``) and the largest ceiling EXCESS
+    (``pin_value − band_ceiling(pin)``) over that line's airside pins, each
+    clamped at 0.  Empty list when the layout carries no seam pins at all — a
+    single-tile airport gets NO allowance and is byte-identical.
+
+    The pins are the solver's own hard anchors (``layout._seam_pin_ll``,
+    published by ``solver_primitives``' seam block).  "Airside" is
+    ``seam_anchors.SEAM_CLAMP_ROLES`` (the repo's airside seam-pin roles)
+    intersected with the roles the route band governs (:func:`_band_roles`): a
+    runway / graded-strip / service-network pin is not band-governed, so it can
+    never excuse a band-governed vertex.  ``band`` is the SAME
+    ``reach_band_unified`` closure this check enforces, so the bound is the
+    geodesic cap-Dijkstra band — never a straight-line ``runway_clamp_floor``
+    style proxy (a prior review measured that form over-reporting 3-4×).
+
+    A pin whose band is EMPTY (``floor > ceiling``) contributes NOTHING: that
+    is the ``pinned`` class — a mutually-unreachable-anchor infeasibility this
+    yield does not address — and letting it feed both sides at once would break
+    the side-specificity the rule depends on."""
+    pins_ll = getattr(layout, "_seam_pin_ll", None) or []
+    if not pins_ll:
+        return []
+    from auto_patch.layout import SHARED_VERTEX_TOL_M
+    from auto_patch.seam_anchors import SEAM_CLAMP_ROLES
+    airside = frozenset(SEAM_CLAMP_ROLES) & _band_roles()
+    # AS-BUILT value of every airside vertex, hashed into SHARED_VERTEX_TOL_M
+    # cells so each pin resolves to the elevation actually emitted at it (the
+    # pin is a ring vertex of the shapes that own it).  De-crowned into the
+    # band's uncrowned space, like the vertices in the main loop.
+    cell = float(SHARED_VERTEX_TOL_M)
+    vhash: dict = {}
+    for s in layout.shapes:
+        if (s.role not in airside or s.polygon is None or s.polygon.is_empty):
+            continue
+        ring = _open_ring(list(s.polygon.exterior.coords))
+        elevs = _shape_elevs(s, len(ring))
+        if elevs is None:
+            continue
+        for (x, y), e in zip(ring, elevs):
+            vhash.setdefault((int(x // cell), int(y // cell)), []).append(
+                (x, y, float(e) + crown_at(layout, x, y)))
+    if not vhash:
+        return []
+    lines: dict = {}                     # (axis, coord_m) -> [d_floor, d_ceil]
+    for (pla, plo) in pins_ll:
+        px, py = layout.ll_to_m(pla, plo)
+        gx, gy = int(px // cell), int(py // cell)
+        best = None
+        for ox in (-1, 0, 1):
+            for oy in (-1, 0, 1):
+                for (vx, vy, ve) in vhash.get((gx + ox, gy + oy), ()):
+                    d = math.hypot(vx - px, vy - py)
+                    if d <= cell and (best is None or d < best[0]):
+                        best = (d, ve)
+        if best is None:
+            continue                     # not an AIRSIDE pin (or not emitted)
+        b = band(px, py)
+        if b is None:
+            continue                     # off the spine network — unbounded
+        lo, hi = b
+        if lo > hi + noise:
+            continue                     # EMPTY band: the ``pinned`` class
+        e = best[1]
+        d_floor = max(0.0, lo - e)
+        d_ceil = max(0.0, e - hi)
+        if d_floor <= 0.0 and d_ceil <= 0.0:
+            continue                     # a FEASIBLE pin explains nothing
+        for line in _crossed_seam_lines(layout, pla, plo):
+            slot = lines.setdefault(line, [0.0, 0.0])
+            slot[0] = max(slot[0], d_floor)
+            slot[1] = max(slot[1], d_ceil)
+    return [(axis, coord, df, dc)
+            for ((axis, coord), (df, dc)) in lines.items()]
+
+
+def _seam_contract_yield(layout, viol, band, noise, crown_at):
+    """Drop the ``floor`` / ``ceil`` route-band violations the TILE-SEAM TERRAIN
+    CONTRACT explains — see the ruling note at the call site in
+    :func:`route_band_violations`.  ``pinned`` violations are never yielded.
+
+    Cheap by construction: no violations ⇒ returned unchanged without touching
+    the pins; no seam pins ⇒ ``_seam_pin_band_slack`` returns an empty bound and
+    the verdicts are bit-for-bit what they were."""
+    if not viol:
+        return viol
+    slack = _seam_pin_band_slack(layout, band, noise, crown_at)
+    if not slack:
+        return viol
+    kept = []
+    for t in viol:
+        excess, side, x, y = t[0], t[1], t[3], t[4]
+        keep = True
+        if side in ("floor", "ceil"):
+            for (axis, coord, d_floor, d_ceil) in slack:
+                # (a) inside THIS line's terrain-matching corridor …
+                if abs((x if axis == "x" else y) - coord) > _SEAM_ZONE_M:
+                    continue
+                # … and (b) no deeper out of band than that line's own pins.
+                # SIDE-SPECIFIC: a floor deficit at the pins never excuses a
+                # ceiling violation, nor the other way round.
+                bound = d_floor if side == "floor" else d_ceil
+                if excess <= bound + noise:
+                    keep = False
+                    break
+        if keep:
+            kept.append(t)
+    return kept
+
+
 def _band_roles():
     """Airside roles whose vertices must sit inside the runway-reach ROUTE BAND:
     the taxi network + the apron / junction / building surfaces it grades to.
@@ -508,6 +653,12 @@ def route_band_violations(layout, noise=ELEV_ROUNDING_NOISE_M, G=None):
         FIX is upstream (a transition/relaxation rule, a yielded anchor, or a
         geometry bug), tracked alongside ``route_reach_violations`` /
         ``grade_feasibility_audit``.
+
+    TILE-SEAM YIELD (owner rulings 2026-06-20 / 2026-07-24): inside the seam
+    terrain-matching corridor the band yields to the DEM-anchored seam pins by
+    exactly the MEASURED amount those pins themselves sit out of band, per
+    crossed seam line and per side — see the long note at the yield site below.
+    No seam pins ⇒ no allowance ⇒ byte-identical verdicts.
 
     Vertices off the spine network (``band`` returns ``None`` — a coverage hole
     / weak band) are NOT constrained here; their local within-shape law
@@ -696,6 +847,52 @@ def route_band_violations(layout, noise=ELEV_ROUNDING_NOISE_M, G=None):
                 out.append((e - hi, "ceil", s.role, x, y, e, lo, hi))
             else:  # e < lo - noise
                 out.append((lo - e, "floor", s.role, x, y, e, lo, hi))
+    # ── TILE-SEAM TERRAIN CONTRACT — the route band YIELDS here (owner
+    #    rulings 2026-06-20 and 2026-07-24) ────────────────────────────────
+    # 2026-06-20 (the seam terrain-matching zone, ``tools/check_grade.py``
+    # ``_SEAM_ZONE_M``): where pavement crosses a tile boundary it must MATCH
+    # the neighbour tile's terrain mesh — so it follows the DEM inward from the
+    # seam instead of the designed surface — and the ruling names BOTH the
+    # within-shape cap and the runway-anchored route-band law as yielding inside
+    # that zone.  2026-07-24 (``config.SEAM_PIN_RUNWAY_CLAMP`` now OFF, commit
+    # 1d5e6dd): an AIRSIDE cut-back seam pin takes the RAW DEM, full stop — no
+    # clamp back toward the runway — because a clamped pin floats above the
+    # terrain the neighbouring strip renders (the SPLP gutter).
+    #
+    # Consequence this yield exists for: where a CIFP-profiled runway
+    # legitimately sits above the local smoothed DEM at a seam-crossing end, the
+    # DEM-anchored pin sits BELOW the runway-anchored reach band, and the solver
+    # correctly grades the pin's neighbours down toward that hard anchor.  Those
+    # neighbours then read as "below the floor" of a band that never knew about
+    # the terrain contract.
+    #
+    # WHY THE BAND YIELDS AND THE PER-EDGE GRADE CAP DOES NOT.  The 1.5 % taxi
+    # cap is a CITABLE aerodrome standard (docs/STANDARDS.md → ``config.py``
+    # ``ROLE_GRADE_LIMITS``; enforced by ``within_violations`` and
+    # ``tools/check_grade.py``) — it describes a real aircraft on a real slope —
+    # and it still binds every pair here: the ramp from the seam pin up to the
+    # network must be GRADED, not stepped (that is exactly why
+    # ``grade_law.classify_pair`` keeps a one-seam-endpoint pair in the law).
+    # The route band is NOT in docs/STANDARDS.md; it is a DERIVED transitive
+    # self-consistency device (docs/route_field_model.md) asking "is this value
+    # reachable at cap from a runway", built from ONE anchor class — the
+    # runways.  A seam pin is a SECOND, owner-recognised anchor class the band's
+    # construction simply omits, so at a seam it is the BAND that is incomplete,
+    # not the surface.  Every other reader already yields to that class:
+    # ``check_grade`` (the 2026-06-20 zone), ``grade_law.classify_pair`` (both-
+    # pinned pairs SKIP), and ``tools/grade_feasibility_audit`` (seam nids
+    # excluded from its route-band intervals and treated as HARD anchors).  This
+    # in-memory frame is the one that had no such yield; this is it catching up.
+    #
+    # The allowance is a MEASURED PHYSICAL QUANTITY, never a constant: per
+    # crossed seam LINE it is exactly how far that line's own airside pins sit
+    # outside the SAME geodesic band (``_seam_pin_band_slack``).  It is
+    # identically zero with no seam pins and zero once the pins are feasible, it
+    # is SIDE-SPECIFIC, and it spends none of
+    # ``RASTER_REACH_BAND_GRID_RESIDUAL_M`` — that 0.25 m stays reserved for the
+    # grid-vs-continuous discretization error it was calibrated for.  A vertex
+    # further out of band than the seam contract can explain STILL flags.
+    out = _seam_contract_yield(layout, out, band, noise, _crown_at)
     out.sort(reverse=True, key=lambda t: t[0])
     return out
 

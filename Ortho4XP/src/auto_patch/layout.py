@@ -522,6 +522,13 @@ class PavementLayout:
     # until ``to_osm`` runs with provenance enabled.
     _provenance_record: dict | None = None
 
+    # Memo for ``clearance._surface_road_corridors`` (the surface
+    # road / railway corridor union in this layout's meter frame),
+    # rebuilt identically by three passes per build otherwise.  Stored
+    # as a 1-tuple so a computed ``None`` (no roads near) is also
+    # cached; ``None`` here means "not computed yet".
+    _surface_road_corridors_cache: tuple | None = None
+
     # ---- rebuild-freshness stamps (driver.generate_auto_patches) -----
     # ``{stamp key: value}`` for the build inputs the DRIVER knows (config
     # digest, DEM inputs, CIFP, scenery-pack enablement, engine version) —

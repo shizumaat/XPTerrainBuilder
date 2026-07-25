@@ -2478,7 +2478,22 @@ def _surface_road_corridors(layout, ll_to_m):
     trenches, and those shapes are already in ``layout.shapes``, which
     the skirt's static clip respects).  Returns ``None`` when the tile
     has no road caches or nothing is near.
+
+    Memoized on the layout (``_surface_road_corridors_cache``): the
+    road caches and the anchor projection every caller passes as
+    ``ll_to_m`` are fixed for the layout's lifetime, so the first
+    caller's union serves the lateral-cut, skirt, and verification
+    passes alike.
     """
+    cached = getattr(layout, "_surface_road_corridors_cache", None)
+    if cached is not None:
+        return cached[0]
+    result = _surface_road_corridors_uncached(layout, ll_to_m)
+    layout._surface_road_corridors_cache = (result,)
+    return result
+
+
+def _surface_road_corridors_uncached(layout, ll_to_m):
     try:
         from .bridges import (
             _carriageway_width_from_tags, _load_tunnel_road_network)

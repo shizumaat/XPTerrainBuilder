@@ -54,13 +54,16 @@ from shapely.geometry import LineString, Point
 
 from .config import (
     CROWN_RUNWAYS,
+    CROWN_SEAM_RAMP,
     CROWN_SERVICE,
     CROWN_TAXI,
     ENABLE_SPINE_CROWN,
+    RUNWAY_CROWN_SEAM_TAPER,
     RUNWAY_CROWN_TRANSVERSE,
     RUNWAY_MAX_GRADE,
     SERVICE_ROAD_CROWN_TRANSVERSE,
     TAXI_CROWN_TRANSVERSE,
+    TILE_CUT_HALF_WIDTH_M,
 )
 from .layout import (
     ROLE_CROSS_CONNECTOR,
@@ -127,6 +130,46 @@ _SPINE_SAMPLE_STEP_M = 12.0  # breakline node spacing along the spine
 _SPINE_EDGE_CLEAR_M = 1.0    # keep spine samples ≥ this inside the pavement
 _SPINE_RING_CLEAR_M = 0.9    # and ≥ this from any pavement ring line
 _MIN_AXIS_LEN_M = 8.0        # shorter spines: no meaningful crown ridge
+
+
+# ── tile-seam geometry (owner ruling 2026-07-24) ────────────────────────────
+# The seam is a GRATICULE fact: an integer lat/lon line, with ``tile_cut``
+# ending the pavement ``TILE_CUT_HALF_WIDTH_M`` either side of it.  Every
+# seam measure in this module is taken against that line from the node's OWN
+# lat/lon — never against a vertex this tile's cut happened to produce — so
+# two tile builds derive identical values at any shared seam position without
+# seeing each other.
+
+def _seam_line_dist_m(layout, x: float, y: float) -> float:
+    """Distance (m) from ``(x, y)`` to the nearest integer lat/lon TILE
+    LINE.  The same measure ``tile_cut`` uses to recognise a seam-cut
+    piece, and the one both tile builds share."""
+    R_EARTH = 6378137.0
+    lat, lon = layout.m_to_ll(x, y)
+    cos0 = math.cos(math.radians(lat))
+    m_lat = abs(lat - round(lat)) * R_EARTH * math.pi / 180.0
+    m_lon = abs(lon - round(lon)) * R_EARTH * cos0 * math.pi / 180.0
+    return min(m_lat, m_lon)
+
+
+def _seam_cut_dist_m(layout, x: float, y: float) -> float:
+    """Distance (m) from ``(x, y)`` INBOARD of the nearest tile-CUT edge —
+    i.e. the seam-line distance less ``TILE_CUT_HALF_WIDTH_M``, floored at
+    0.  Exactly 0 on a cut-back line (where the pavement ends and the
+    profile is DEM-anchored), growing linearly into the tile."""
+    return max(0.0, _seam_line_dist_m(layout, x, y) - TILE_CUT_HALF_WIDTH_M)
+
+
+def _seam_ramp_cap(layout, x: float, y: float) -> float:
+    """The crown CEILING the tile-seam ramp imposes at ``(x, y)``:
+    ``RUNWAY_CROWN_SEAM_TAPER × _seam_cut_dist_m`` (config.py, owner ruling
+    2026-07-24).  0 exactly ON a cut-back edge, monotone increasing
+    inboard; applied as the OUTERMOST ``min`` so it dominates every other
+    crown term near a seam.  Gradient magnitude is exactly the taper rate
+    in every direction, so the realised shed grade along ANY line — the
+    runway axis, a rail, the oblique cut edge — is ≤ the rate, and equals
+    it only for a seam crossed at 90°."""
+    return RUNWAY_CROWN_SEAM_TAPER * _seam_cut_dist_m(layout, x, y)
 
 
 def runway_crown_drop_m(half_width_m: float) -> float:
@@ -414,9 +457,19 @@ def build_crown_drop_field(layout, nodes, bucket_to_idx,
     taxi_tree, taxi_geoms = _family_lines(layout, service=False)
     svc_tree, svc_geoms = _family_lines(layout, service=True)
 
-    # Seam-bucket vertex positions (for the runway axial taper).
+    # TILE-SEAM RAMP (owner ruling 2026-07-24).  Active only for an airport
+    # the tile cut actually touched (``seam_keys`` non-empty is the same
+    # trigger the pre-ruling vertex taper used, so an airport with no seam
+    # pins at all — CYXY — stays a strict no-op).
+    seam_ramp_on = bool(CROWN_SEAM_RAMP and seam_keys)
+
+    # Seam-bucket vertex positions (the PRE-RULING runway axial taper: gate
+    # off only.  Superseded by the ramp above, which strictly dominates it —
+    # a seam-bucket vertex lies ON a cut-back line, so its distance to any
+    # node is ≥ that node's perpendicular cut-edge distance, and the ramp
+    # rate is half the old TAXI_CROWN_TRANSVERSE one).
     seam_pts: List[Tuple[float, float]] = []
-    if seam_keys:
+    if seam_keys and not seam_ramp_on:
         for key in set(rwy_by_key) | set(fam_by_key):
             idx = bucket_to_idx.get(key)
             if idx is None:
@@ -508,6 +561,15 @@ def build_crown_drop_field(layout, nodes, bucket_to_idx,
             d_front = min(math.hypot(x - fx, y - fy)
                           for (fx, fy) in rwy_uncrowned_pts)
             d = min(d, RUNWAY_MAX_GRADE * d_front)
+        if seam_ramp_on:
+            # TILE-SEAM RAMP, applied LAST so it is the outermost ceiling:
+            # whatever the passes above decided, the crown is ≤ the ramp and
+            # therefore exactly 0 on the cut-back edge, where the profile is
+            # DEM-anchored and the emitted pavement must meet the terrain the
+            # 10 m tile-cut gap renders.  Being a min() of a monotone ramp
+            # with a constant, it introduces no bump where it releases into
+            # the uniform drop.
+            d = min(d, _seam_ramp_cap(layout, x, y))
         _register(key, idx, d)
 
     # Crowned-runway pavement (for the shadow-adoption rule below).
@@ -557,6 +619,11 @@ def build_crown_drop_field(layout, nodes, bucket_to_idx,
         if seam_pts:
             d_seam = min(math.hypot(x - sx, y - sy) for (sx, sy) in seam_pts)
             best = min(best, TAXI_CROWN_TRANSVERSE * d_seam)
+        if seam_ramp_on:
+            # A shadow node is VALUE-TIED to the runway edge, so it must ride
+            # the same seam ramp — otherwise it keeps the full drop where the
+            # runway edge it hugs has already gone to 0 and the weld steps.
+            best = min(best, _seam_ramp_cap(layout, x, y))
         return best
 
     # RUNWAY SHADOW pass (part 30c): value-tie every taxi/service ring node
@@ -965,12 +1032,7 @@ def _point_in_seam_band(layout, x: float, y: float) -> bool:
     tolerance of an integer lat/lon line) — the same test tile_cut uses to
     recognise a seam-cut piece.  Such a point is a cross-tile terrain
     contract; never insert on/near it."""
-    R_EARTH = 6378137.0
-    lat, lon = layout.m_to_ll(x, y)
-    cos0 = math.cos(math.radians(lat))
-    m_lat = abs(lat - round(lat)) * R_EARTH * math.pi / 180.0
-    m_lon = abs(lon - round(lon)) * R_EARTH * cos0 * math.pi / 180.0
-    return min(m_lat, m_lon) <= _XEDGE_SEAM_TOL_M
+    return _seam_line_dist_m(layout, x, y) <= _XEDGE_SEAM_TOL_M
 
 
 def insert_runway_crossedge_crown_nodes(layout) -> int:
@@ -1137,11 +1199,110 @@ def insert_runway_crossedge_crown_nodes(layout) -> int:
 
 # ── spine breakline emission ─────────────────────────────────────────────────
 
+# How close a clipped-axis endpoint must sit to a cut-back line before it is
+# recognised as a TILE-CUT end (rather than a physical runway end / crossing
+# boundary).  The eroded clip lands ``_SPINE_EDGE_CLEAR_M`` off the cut edge
+# measured PERPENDICULAR to it, so the un-eroded body endpoint it snaps out
+# to is on the line to within the equirectangular projection's own error.
+_SEAM_CUT_SNAP_TOL_M = 0.5
+
+
+def _axis_intervals(ax, geom) -> List[Tuple[float, float]]:
+    """``ax``-station intervals of ``ax ∩ geom`` (LineString parts only)."""
+    try:
+        cut = ax.intersection(geom)
+    except _GEOM_EXC:                                   # pragma: no cover
+        return []
+    parts = ([cut] if cut.geom_type == "LineString"
+             else [g for g in getattr(cut, "geoms", ())
+                   if g.geom_type == "LineString"])
+    out: List[Tuple[float, float]] = []
+    for g in parts:
+        try:
+            s0 = ax.project(Point(g.coords[0]))
+            s1 = ax.project(Point(g.coords[-1]))
+        except _GEOM_EXC:                               # pragma: no cover
+            continue
+        out.append((min(s0, s1), max(s0, s1)))
+    return out
+
+
+def _extend_spine_to_cut_edges(segs, ax, body, layout):
+    """R1 (owner ruling 2026-07-24): re-extend a clipped spine segment out
+    to the tile-CUT edge it was eroded back from.
+
+    ``segs`` are the ``_SPINE_EDGE_CLEAR_M``-eroded axis pieces.  The
+    clearance keeps a spine sample off a pavement ring VERTEX it would
+    disagree with — a live concern at every ordinary edge, and VOID at a
+    seam cut: the seam ramp puts the crown drop at 0 on the cut-back line,
+    so a spine node there carries the same value as the ring it meets.  So
+    for each eroded piece, snap an endpoint back out to the UN-eroded body
+    contact whenever that contact sits on a cut-back line; every other end
+    (physical threshold, crossing boundary, an interior gap) keeps its
+    clearance untouched.  Returns the (possibly extended) segments."""
+    from shapely.ops import substring
+    full_iv = _axis_intervals(ax, body)
+    if not full_iv:
+        return segs
+
+    def _on_cut(st):
+        try:
+            p = ax.interpolate(st)
+        except _GEOM_EXC:                               # pragma: no cover
+            return False
+        return (_seam_cut_dist_m(layout, p.x, p.y)
+                <= _SEAM_CUT_SNAP_TOL_M)
+
+    out = []
+    for seg in segs:
+        try:
+            c = ax.project(Point(seg.coords[0]))
+            d = ax.project(Point(seg.coords[-1]))
+        except _GEOM_EXC:                               # pragma: no cover
+            out.append(seg)
+            continue
+        c, d = min(c, d), max(c, d)
+        host = None
+        for (a, b) in full_iv:
+            if a - 1e-6 <= c and d <= b + 1e-6:
+                host = (a, b)
+                break
+        if host is None:
+            out.append(seg)
+            continue
+        a, b = host
+        nc = a if (a < c and _on_cut(a)) else c
+        nd = b if (b > d and _on_cut(b)) else d
+        if nc == c and nd == d:
+            out.append(seg)
+            continue
+        try:
+            ext = substring(ax, nc, nd)
+        except _GEOM_EXC:                               # pragma: no cover
+            out.append(seg)
+            continue
+        out.append(ext if (ext is not None
+                           and ext.geom_type == "LineString"
+                           and not ext.is_empty) else seg)
+    return out
+
+
 def _emit_ways_for_profile(seg, ax, alt_at, inner, ring_tree, ring_geoms,
-                           layout) -> List[Tuple[list, list]]:
+                           layout, seam_cut_exempt: bool = False
+                           ) -> List[Tuple[list, list]]:
     """Sample one clipped spine segment every ~12 m; drop samples outside
     the eligible inner buffer or within the ring clearance; split into ways
-    at gaps.  Returns ``[(latlon_pts, alts), …]``."""
+    at gaps.  Returns ``[(latlon_pts, alts), …]``.
+
+    ``seam_cut_exempt`` waives the RING clearance for a sample sitting on a
+    tile-CUT edge (owner ruling 2026-07-24, R1).  The clearance exists so a
+    spine sample does not collide with a pavement ring VERTEX carrying a
+    different value — but on a cut-back edge the crown drop is 0 (the seam
+    ramp), so the ridge and the ring meet at the same profile value and
+    there is nothing to avoid.  The waiver is scoped to the band that can
+    only contain a cut edge: within ``_SPINE_RING_CLEAR_M`` of a
+    ``TILE_CUT_HALF_WIDTH_M`` cut-back line.  Every ordinary pavement edge —
+    including the runway's own thresholds — keeps the full clearance."""
     out: List[Tuple[list, list]] = []
     n_pts = max(2, int(seg.length / _SPINE_SAMPLE_STEP_M) + 1)
     way_ll: list = []
@@ -1161,7 +1322,10 @@ def _emit_ways_for_profile(seg, ax, alt_at, inner, ring_tree, ring_geoms,
                 ok = False
         except _GEOM_EXC:
             ok = False
-        if ok and ring_tree is not None:
+        on_cut_edge = (seam_cut_exempt and ok
+                       and _seam_cut_dist_m(layout, p.x, p.y)
+                       <= _SPINE_RING_CLEAR_M)
+        if ok and ring_tree is not None and not on_cut_edge:
             try:
                 k = ring_tree.nearest(p)
                 if (k is not None
@@ -1198,6 +1362,13 @@ def emit_crown_spines(layout, nodes, bucket_to_idx, elev,
     if not ENABLE_SPINE_CROWN:
         return 0
     from shapely.strtree import STRtree
+
+    # TILE-SEAM RAMP (owner ruling 2026-07-24): same trigger the drop field
+    # uses — an airport the tile cut never touched has no seam pins and is a
+    # strict no-op here too.
+    _seam_ramp_on = bool(CROWN_SEAM_RAMP
+                         and (getattr(layout, "_seam_anchor_keys", None)
+                              or set()))
 
     # eligible pavement + its rings (clip + clearance geometry).
     polys = []
@@ -1378,12 +1549,18 @@ def emit_crown_spines(layout, nodes, bucket_to_idx, elev,
         segs = ([clipped] if clipped.geom_type == "LineString"
                 else [g for g in getattr(clipped, "geoms", ())
                       if g.geom_type == "LineString"])
+        # R1: re-extend to the tile-CUT edge (see _extend_spine_to_cut_edges).
+        if _seam_ramp_on:
+            try:
+                segs = _extend_spine_to_cut_edges(segs, ax, body, layout)
+            except _GEOM_EXC:                           # pragma: no cover
+                pass
         for seg in segs:
             if seg.length < 3.0:
                 continue
             spine_ways.extend(_emit_ways_for_profile(
                 seg, ax, _alt_at_rwy, None, ring_tree, ring_geoms,
-                layout))
+                layout, seam_cut_exempt=_seam_ramp_on))
 
     if spine_ways:
         existing = getattr(layout, "crown_spines", None) or []

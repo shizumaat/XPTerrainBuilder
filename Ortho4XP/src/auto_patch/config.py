@@ -105,6 +105,8 @@ __all__ = [
     "CROWN_RUNWAYS",
     "CROWN_TAXI",
     "CROWN_SERVICE",
+    "RUNWAY_CROWN_SEAM_TAPER",
+    "CROWN_SEAM_RAMP",
     "SERVICE_ROAD_WIDTH_M",
     "MIN_SERVICE_STRIP_LEN_M",
     "OSM_SMALL_ROAD_HIGHWAY_TYPES",
@@ -590,6 +592,61 @@ CROWN_SERVICE = _os_early.environ.get("O4_CROWN_SERVICE", "0") == "1"
 RUNWAY_CROWN_TRANSVERSE = 0.010
 TAXI_CROWN_TRANSVERSE = 0.010
 SERVICE_ROAD_CROWN_TRANSVERSE = 0.015
+
+# ── TILE-SEAM CROWN RAMP (owner ruling 2026-07-24) ───────────────────
+#   "We need to deal with the crown spine when a seam crosses a runway.
+#    Because we have to be at DEM we need to be sure the crown spine
+#    connects all the way to the shape edge after the seam cut, and that
+#    the spine ramps smoothly down to 0 crown at the seam at less than 1%
+#    grade."
+#
+# Since commit 99f39a6 a tile seam is an ANCHOR in the runway profile
+# solve: the tile line and BOTH cut-back lines are sampled and anchored at
+# the DEM.  The runway therefore MEETS the terrain at its cut-back edge —
+# which is exactly why the CROWN must be zero there.  A crowned edge at
+# the cut-back sits ``crown_drop`` BELOW the DEM the 10 m tile-cut gap
+# renders at, i.e. the pavement edge drops into a gutter across the seam
+# (measured at SPLP before this ruling: 0.20-0.23 m at the two mid-width
+# cut-edge nodes on BOTH tiles, with no axial taper at all).
+#
+# THE RAMP.  A runway node's crown is capped at
+# ``RUNWAY_CROWN_SEAM_TAPER x (distance to the nearest tile-CUT edge)``,
+# where the distance is measured perpendicular to the integer lat/lon line
+# and offset by ``TILE_CUT_HALF_WIDTH_M``.  So the cap is exactly 0 ON a
+# cut-back line, rises linearly inboard, and releases (min()) at the
+# runway's uniform per-ref drop.  Because it is a function of the node's
+# own lat/lon against the graticule — never of "my tile's side of the
+# cut" — both tile builds compute the identical value at any shared seam
+# position without seeing each other.
+#
+# THE RATE.  The owner's bound is "less than 1%", i.e. strictly under the
+# 0.010 the pre-ruling taper reused from ``TAXI_CROWN_TRANSVERSE`` (which
+# is a TRANSVERSE crown rate and has no business setting a longitudinal
+# shed rate).  0.5% is half of that — real headroom, not a hairline pass:
+#   * the largest crown this code can emit is ``RUNWAY_CROWN_TRANSVERSE x
+#     _RUNWAY_HALFW_CAP_M`` = 0.010 x 30 m = 0.30 m, which at 0.5% sheds
+#     over 60 m — twice the >30 m the ruling requires;
+#   * 0.5% is below BOTH runway grades the standards already permit at a
+#     seam: the FAA AC 150/5300-13B Table 3-6 minimum transverse crown
+#     (1.0%) and the ``RUNWAY_END_GRADE`` end-zone longitudinal limit
+#     (0.8%) — so the ramp can never be the steepest thing in either the
+#     cross-section or the profile wherever the seam happens to fall;
+#   * it leaves a factor of 3 under ``RUNWAY_MAX_GRADE`` (1.5%), so the
+#     ramp alone can never carry a rail pair to the runway longitudinal
+#     cap, and the crown-offset validator (``grade_law.crown_pair_offset``
+#     re-centres each pair by ``c_b - c_a``) keeps a comfortable band
+#     around the FLAT surface instead of the exactly-at-budget band a
+#     1.5% shed would leave.
+# The ramp is a hard CEILING applied last, so it dominates every other
+# crown term (uniform drop, crossing dome, Lipschitz frontier shed) near a
+# seam and reaches 0 at the cut-back edge regardless of them.
+RUNWAY_CROWN_SEAM_TAPER = 0.005
+# Gate: O4_CROWN_SEAM_RAMP=0 restores the pre-ruling behaviour (the crown
+# tapered at TAXI_CROWN_TRANSVERSE toward the nearest seam-bucket VERTEX,
+# and the spine breakline stopping ``_SPINE_EDGE_CLEAR_M`` short of the
+# cut-back edge).  Airports with no tile-cut seam vertices at all are a
+# strict no-op either way.
+CROWN_SEAM_RAMP = _os_early.environ.get("O4_CROWN_SEAM_RAMP", "1") == "1"
 # Transverse LAW cap for service roads (AASHTO normal crown high end,
 # 2 %; up to 2.5 % only in intense-rainfall areas).  Used as the cT in
 # the anisotropic allowance so a service road's cross-section cannot

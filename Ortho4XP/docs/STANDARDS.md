@@ -81,6 +81,34 @@ same fixed 5 m offset; the DEM at a tile line is the `preserve_boundary`-blended
 tiles share. Both builds therefore derive an identical anchor set — and an identical
 profile — without seeing each other.
 
+### The CROWN must be zero at the seam (owner ruling 2026-07-24)
+
+> "We need to deal with the crown spine when a seam crosses a runway. Because we have to
+> be at DEM we need to be sure the crown spine connects all the way to the shape edge
+> after the seam cut, and that the spine ramps smoothly down to 0 crown at the seam at
+> less than 1% grade."
+
+The anchor rule above puts the runway PROFILE on the DEM at the cut-back line. A crowned
+runway emits its edges at `profile − crown_drop`, so without this ramp the pavement edge
+sits the whole crown BELOW the terrain the 10 m tile-cut gap renders (measured at SPLP,
+both tiles: 0.20–0.23 m on the two mid-width cut-edge nodes, with no axial taper at all —
+the pre-ruling taper measured distance to the nearest seam *vertex*, which at an 18°
+oblique crossing is 49 m away and never binds).
+
+| Rule | Value | Standard | Implemented in |
+|------|-------|----------|----------------|
+| Crown shed rate approaching a tile seam | 0.5% | owner ruling 2026-07-24 ("less than 1%"); half the pre-ruling 1.0%, below both the FAA Table 3-6 minimum runway crown (1.0%) and `RUNWAY_END_GRADE` (0.8%), and 3× under `RUNWAY_MAX_GRADE` | `config.py` `RUNWAY_CROWN_SEAM_TAPER`, gate `CROWN_SEAM_RAMP`; applied in `crown._seam_ramp_cap` |
+| Where the crown reaches 0 | exactly on the cut-back line (`TILE_CUT_HALF_WIDTH_M` off the tile line) | the ruling: the pavement's real edge is where the profile meets DEM | `crown._seam_cut_dist_m` (floored at 0 inside the gap) |
+| Largest crown this can shed | `RUNWAY_CROWN_TRANSVERSE × 30 m` = 0.30 m over 60 m | the ruling's "must shed over more than 30 m" | `crown._RUNWAY_HALFW_CAP_M` |
+| Crown spine (ridge breakline) at a seam | terminates ON the cut-back edge; `_SPINE_EDGE_CLEAR_M` / `_SPINE_RING_CLEAR_M` waived there only | the clearance avoids a value conflict with a ring vertex; at a cut edge the drop is 0, so ridge and ring carry the same value | `crown._extend_spine_to_cut_edges`, `crown._emit_ways_for_profile(seam_cut_exempt=…)` |
+
+Cross-tile determinism: the ramp is `rate × (distance from the node's own lat/lon to the
+nearest integer lat/lon line − TILE_CUT_HALF_WIDTH_M)`. Only the graticule and two fixed
+constants enter — never "my tile's side of the cut" — so both tile builds compute the
+identical drop at any shared seam position. Because the cap is a function of the
+perpendicular distance alone its gradient is exactly the rate, so the realised shed along
+any line (runway axis, rail, oblique cut edge) is ≤ the rate.
+
 ## Aerodrome reference code
 
 | Rule | Value | Standard | Implemented in |

@@ -25,6 +25,557 @@
 #   sweep AT THIS APP BUILD (29f) not run — owner ordered build now.
 # NEXT: owner sim pass on 1.0.268 (runway pit, ramps at per-span law,
 #   apron back edge, tunnels); Opus spend limit resets Aug 31 9am PT.
+# 20260725 — DSF ENCODER: PREMISE CORRECTED + WRITE LOOPS VECTORIZED
+# ══════════════════════════════════════════════════════════════════
+# (branch claude/hopeful-liskov-9b8713)
+
+## Premise correction (evidence: XPTerrainBuilderData/Ortho4XP.log,
+## ~/.ortho4xp/tile_build_times/+30+031.json)
+The "build_dsf takes ~16 min on +30+031" claim was a MISATTRIBUTION.
+ * Step 3 (all of build_dsf) took 24 s / 27 s in both full Cairo app
+   builds on 2026-07-25 (09:51, 15:34). From source with warm caches,
+   build_dsf on the real (Step-1-stage, 356 k-node) mesh is ~4.6 s.
+ * The 906–922 s (~15.4 min) single-thread step is the MESH step; that
+   is what "16 min at 99 % CPU" was. Auto-patch vector was 515–700 s.
+ * The 35 MB DSF = GEOD 19.4 MB + CMDS 15.8 MB (~1.3 M nodes), no DEMS
+   raster. The "20× per byte vs synthetic" figure died with the 16-min
+   number.
+ * Cold-cache caveat: first build_dsf after an OSM-cache flush spends
+   ~30 s in ensure_bathymetry_band (network + pyosmium) even for a
+   no-shoreline tile.
+ * CONSEQUENCE for the <5 min/tile budget: the targets are Step 2
+   (mesh) and auto-patch, NOT the DSF encoder. Plan item (C)
+   (triangle-loop constant factors, worth ~1–2 s) dropped.
+
+## Landed: (B) vectorized GEOD pool + CMDS PATCH-TRIANGLE writes
+ * src/O4_DSF_Utils.py: per-word struct.pack loops replaced by numpy
+   views (`_patch_triangle_commands`, pool column writes, cross-pool
+   remap LUT). Encode-write section 0.68 s → 0.06 s at 356 k nodes
+   (~11×; ~2.5 s saved at full 1.3 M-node scale).
+ * BYTE-IDENTICAL verified three ways: real +30+031 A/B (cmp, stock
+   c2c46a2 vs edited, 8,886,288 B), synthetic-tile A/B vs pinned
+   c2c46a2, and a chunk-boundary property test vs a struct reference
+   (tests/test_dsf_encoding_vectorized.py, 25 tests). Full DSF suite:
+   131 passed, 3 pre-existing skips.
+ * NOTE: tests/test_dsf_texture_modes.py::test_full_ortho_byte_identical_
+   to_base has been silently SKIPPING everywhere — its pinned commit
+   26ea8ee does not exist in this repo and its `git show` path lacks
+   the Ortho4XP/ prefix. Not touched here (it pins a different
+   feature's baseline); worth a follow-up.
+
+# ══════════════════════════════════════════════════════════════════
+# 20260725 — RUNWAY-END + POCKET + OLS ROUND: HANDOFF
+# ══════════════════════════════════════════════════════════════════
+# Everything is UNCOMMITTED in the working tree. Six gates are default ON
+# by owner ruling ("Turn them all on now, I will test in X-Plane").
+# BOTH BLOCKERS RESOLVED 2026-07-25 PM (supervised session, Fable lead +
+# Opus implementers) — owner is UNBLOCKED for in-sim testing.
+
+## THE TWO BLOCKERS — BOTH FIXED (details below, originals kept for record)
+
+### B1 FIXED — collared pockets now stand the adjacent-ground bands down
+Ruling taken: candidate (a), via the CROSSING-INFLUENCE-ZONE pattern (a
+published non-shape zone), NOT by unioning the pocket into `static_union`
+(which would have fed `_split_zone_rows_off_static` and evicted zone rows).
+ * `gap_fill.collared_pocket_zone_union/_prepared` — union of
+   `pocket_collars` pockets whose rings ACTUALLY emitted (`chains > 0`;
+   an economy-skipped collar keeps its bands — verified `chains` is the
+   faithful emission key).
+ * `adjacent_ground`: station-level stand-down in `_station_reference_ex`
+   (reason "collared_pocket", ALL families, not taxiway-only like the
+   crossing zone) + ZERO-buffer polygon clip block (weld ruling: exact
+   geometry, no standoff groove). Per-part bbox pre-filter keeps the cost
+   at ~35 ms/airport (raw predicate measured 450 ms — 75 % of the 1 %
+   HARD-LAW threshold; the guard is semantically exact and test-pinned).
+ * `verification`: MIRROR 4 in `_adjacent_ground_stations` (lockstep) +
+   NEW invariant `check_collar_ring_band_overlap` (STRtree, band eroded
+   1 cm; counts key `collar_ring_in_band`) — the check that would have
+   caught B1; there was previously NO collar×band assertion anywhere, and
+   MIRROR 3 actively hid the symptom.
+ * Emit ordering was already sufficient: collar (pipeline ~6666) runs
+   before bands (~6717); with shipped gates the emitter RE-MARCHES inline,
+   so the zone is visible. The presolve construct march CANNOT see the
+   collar (needs solved pavement altitudes) — the clip block is what
+   protects the frozen-footprint gate state.
+ * SPJC end-to-end: 2 pockets → 364,240 m² zone, 1,026 stations stood
+   down, overlap invariant = 0 findings. +13 tests.
+ * No new gate: collar off ⇒ no zone ⇒ bands byte-identical.
+
+### B2 FIXED — weld-inserted T-vertices now bounded by the cut law
+HYPOTHESIS REFUTED (there is no `_build_cut_bands`; the emitter is
+LAWFUL — all 24 SPJC RESA vertices at min(ceiling, DEM) at emission).
+Real mechanism, proven by per-pass attribution: the final epsilon-wedge
+weld `enforce_conformance` (pipeline ~6811) inserted T-vertices (n=24→32)
+valued by PLAIN LERP (conformance.py "3. plain lerp"); on the RESA
+outer/daylight row both hosts are ceiling-limited so the lerp IS the
+analytic ceiling, floating +2.12/+2.22 m over a DEM depression between
+stations. Donor-adopt and overlay-donor paths both structurally
+unreachable for this ref.
+ * FIX: `enforce_conformance(dem=, tile_lat=, tile_lon=)` (same trio the
+   clearance/OLS emitters consume; DEM parity verified — `_projection_*`
+   at the call site are the exact objects handed to the emitters). Inserts
+   into CUT-ONLY receivers (`ref runway_end_resa`, roles
+   `runway_clearance`/`ols_cut`; fill-only ref `runway_end_skirt` VETOES)
+   are bounded min(value, DEM) as a FINAL bound after any valuation path —
+   the receiver's OWN law re-applied, so the coincident-adopt
+   value-authority guard stands. Gate `O4_CONFORMANCE_CUT_CLAMP` default
+   ON, off ⇒ byte-identical. ~0.5 µs/insert. +8 tests
+   (tests/test_conformance_cut_clamp.py).
+ * ★ KNOWN LIMITATION LEFT ON RECORD: the RESA outer-row SURFACE between
+   stations still floats above terrain where daylight distances jump
+   (SPJC 16R: chords +2.65 m / +2.28 m worst over ~60 m spans at
+   140→120→60→6 m daylight steps) — the vertex clamp cannot fix polygon
+   interiors. If the owner sees a floating wedge near 16R in-sim, the fix
+   is densifying the outer daylight row in `_build_graded_strips` (the
+   flank discontinuity-split pattern at clearance.py ~3205) — touches
+   every graded strip, needs build-time evaluation. Do NOT lift the outer
+   row to max(ceiling, DEM) — part 30f tried and reverted it.
+ * Separate defect spawned as chip: the weld can insert DUPLICATE
+   T-vertices at identical coords (SPJC #26/#27, zero-length edge).
+
+## LANDED THIS ROUND (all uncommitted, all in the working tree)
+
+Origin: two owner in-sim defects at SPJC.
+ * 16R end had NO RESA anywhere — Pass C has not run since the B4 flip
+   (2026-07-15) gated the legacy clearance chain off; the skirt is
+   FILL-only by ruling; `adjacent_ground_envelope` declines runway ends.
+   Measured: 138/1829 corridor samples breach the 5 % ramp, worst +6.76 m.
+ * Five owner coordinates were ring vertices of ONE 158,651 m² flat
+   `gap_pit_floor` plateau standing ~3 m proud of the taxiways on an 8 m
+   axis-aligned sample staircase.
+
+ARC A (runway ends)
+ A1 `grade_law.runway_end_envelope` — ONE law, BOTH bounds (skirt floor +
+    RESA ceiling). `runway_end_corridor_half_width_m`. Two pure lockstep
+    helpers: `adjacent_ground_end_pin_flags`, `runway_strip_band_width_m`.
+    `verification.check_runway_end_skirt` now two-sided (`end_rise`).
+ A2 RESA cut inside `clearance.emit_runway_end_skirts` (NOT by reviving
+    the legacy chain), ref `runway_end_resa`, cut-only `min(ceiling,DEM)`.
+    SPJC 16R: 1 shape, 5652 m². CYXY 3/12226 m². HECA 1/37329 m².
+    SPLP correctly silent.
+ A3 end-skip bench pin — the 16R west wing no longer collapses
+    diagonally; depth over the last 60 m went 57.5/52.5/120.5/60.4 ->
+    206.9/226.8/246.0/229.6.
+ A4 runway strip width from the CENTERLINE. NOTE: A4 clamps the **FILL
+    ONLY**. Clamping the cut erased zone 3 (ICAO §3.4.16 governs the
+    ungraded strip out to the FULL strip edge) — that was a functional
+    regression, since corrected.
+ + `Runway.published_width_m` / `.declared_width_m` (UNGATED): `pipeline`
+    overwrites `width_m` with runway+shoulders (SPJC 45->81 m) and that
+    was feeding Annex 14 §3.5.3's "twice the runway width". Corridor now
+    sizes 75 m not 81 m. **The only ungated behaviour change this round.**
+
+ARC B (enclosed pockets)
+ B1 collar rings for width-skipped pockets (`O4_POCKET_COLLAR_RINGS`).
+ B2 pit floor v2 — local ring-2 reference, sloped, daylight rim, welds.
+ + OWNER RULING 2026-07-24: `GAP_FILL_INTERIOR_FLOOR_ENABLED` **default
+   OFF** — "once we're past the grade law zones on a large infield, we
+   want to blend back into DEM". This RESTORES the round-8 design ("Terrain
+   INSIDE ring 2 stays open-floor"). It DELETED the planned pit-clip-truth
+   slice (no pit ⇒ no pit rim ⇒ no pit-rim/collar-chain slivers) and more
+   than doubled drainage-rim coverage (weighted mean 8.6 % -> 18.3 %,
+   bands 244 -> 300). HECA's artifact pits now ride raw DEM; if that
+   matters the answer is an ENCLOSURE test, not flipping the gate back.
+
+OLS ARC (docs/specs/obstacle-limitation-surfaces-spec.md, new)
+ Law + constants + STANDARDS rows; new `src/auto_patch/ols.py` (vectorized
+ raster pre-scan, island labelling, mountain refusal, banded cut emission);
+ `verification.check_ols_surfaces`; pipeline wiring; snap + decimation;
+ cross-tile seam determinism (boundary-touching islands refused whole).
+ Scope ruling: ONLY transitional + approach-first-section, cut-only.
+ Inner-horizontal/conical REFUSED as cuts (they decapitate every hill
+ within 4 km above +45 m — at SPLP a mountain range).
+ ★ ROAD/RAIL/WATER MASK ADDED 2026-07-25 (owner report): `ols.py` had NO
+   infrastructure handling — the only terrain law in the subsystem that
+   ignored it. Now masks `clearance._surface_road_corridors`, the skirt's
+   own source. WHY IT CANNOT BE DEM-DETECTED: the airport-smoothed DEM
+   does not CONTAIN the road cut — a transect across a cutting 210 m off
+   the 16R end reads 12.91-13.26 m FLAT over ±80 m. The law lawfully cut
+   13.19 -> 9.60 m, which sits above the real deck and reads as a fill.
+   Sampling harder cannot fix it; only the vector corridor knows.
+
+ARC R (owner ruling: the end envelope is law the SOLVER enforces)
+ RESA cut admitted to the terrain graph as a one-sided interval edge.
+ Measurement that settled it: the anchor is NOT the CIFP threshold, it is
+ the pavement-EXIT elevation, and it MOVES — 212 reads, 106 numeric ones
+ drifted median 0.110 / p90 0.150 / max 0.164 m, 88/106 over 0.05 m; the
+ other 106 returned None pre-solve. Crown is the 0.15 m mode.
+ Also fixed a REAL pre-existing bug: `_fair_ring_edges` faired cut rings
+ and dragged a shared pavement node 2.1 m.
+ ★ STOP CONDITION HIT AND RESOLVED: CYXY end 1 moved +1.68..+7.47 m —
+   NOT coupling; a degenerate end whose outward march never exits pavement
+   (`pavement_beyond_end` 297 m, governed 0). Lead added a no-pavement-exit
+   guard: no exit ⇒ no end zone ⇒ no cut, matching the fill which already
+   vanishes there by law.
+
+OPT-1 (from the mandatory Fable-5 build-time review)
+ `gap_fill._point_interval`/`_spine_interval`/`_freeze_spine_parent_specs`
+ brute-force airside scans -> STRtree prefilter + hoisted exteriors +
+ radius doubling. Byte-identical (6/6 empty diffs). HECA gap passes
+ 15.9 -> 2.4 s gate-off, 21.7 -> 3.0 s gate-on. The collar's marginal cost
+ went +5.8 s -> +0.6 s, and the SHIPPED path gained 13.4 s at HECA.
+
+## TEST STATE
+Pre-flip baseline: 8 failed / 3170 passed / 36 skipped / 7 xfailed.
+The 8 are long-standing: test_msfs_xplane_pack dsftool round-trip,
+test_compare_target SPLP+SPJC, test_pavement_grade ×4, no_self_overlap[CYXY].
+GATES-ON run: 16 failed. Lead has since fixed:
+ * `ols_cut` added to `verification._NON_SOURCE_PAVEMENT_ROLES` (a new
+   role must be enumerated at EVERY role-keyed site — it was wired into
+   SOFT_RECEIVER_ROLES/AEROWAY_FOR_ROLE/ROLE_GRADE_LIMITS and not there).
+ * `tests/test_terrain_role_admission.py` now drives from a complete
+   `_SUBGATES` list + `test_subgate_list_is_complete` guard.
+REMAINING gates-ON failure to fix: B2 above. **RE-RUN THE FULL SUITE** —
+it has not been run since those fixes.
+★ RESOLVED 2026-07-25 PM: full suite run TWICE through the ledger.
+Pre-fix gates-ON baseline: 9 failed / 3172 passed (the 8 long-standing +
+B2). Post-fix: **8 failed / 3196 passed / 34 skipped / 7 xfailed** — the
+8 long-standing only; +21 new tests green, B2's envelope test green.
+
+## QUEUED, NOT APPLIED
+Fable ruling on `_fair_ring_edges._SKIP_ROLES` (full text in the session
+transcript): ENDORSE the role-level skip — add ROLE_RUNWAY_CLEARANCE,
+ROLE_GRADED_STRIP, ROLE_OLS_CUT to `_SKIP_ROLES`, KEEP the node-level
+`skip_nodes` (they cover different classes), no gate. Measured 9 fairing
+executions × 3 airports, 35,000+ candidate triples, ZERO accepted,
+counterfactual delta 0.0 m on every node — a model correction, not a
+behaviour fix. Landing protocol wants a byte-level A/B across CYXY, SPJC,
+HECA, SPLP, KCLT, MMOX + one `O4_LEGACY_SURFACE_CLEARANCE=1` CYXY run;
+**a diff anywhere is a live pavement-drag defect in HEAD, not a
+regression of the change.** Not applied because the owner is mid-test.
+
+## OTHER OPEN ITEMS
+ * ★ RESOLVED 2026-07-25 PM: SPJC (76.97 s) + HECA (341.42 s) baselines
+   recorded in tools/build_time_baselines.json (clean 2-run pairs, spreads
+   0.7/0.6 s; checker PASS — SPJC under the existing 90 s approval
+   ceiling). HECA's morning 409-487 s store records were contended junk.
+ * ★ RESOLVED 2026-07-25 PM — OLS forced re-bake TRIANGLE CHECK run at
+   tile -13-078 (SPJC+SPLP), O4_OLS_CUT A/B + byte-identical control:
+   +146 tris tile-wide (+0.068 %), +168 in the SPJC bbox, all on the OLS
+   fans, densest cells identical, no sliver/epsilon class. PASS — not a
+   gate. Side effect: Tiles/zOrtho4XP_-13-078 + Patches are now a FRESH
+   gates-on forced re-bake (the 08:17 artefacts predated the flip).
+   Pre-flip mesh/patch preserved in the session scratchpad.
+ * ★ OLS BUILD-TIME (HARD-LAW Fable-5 review, 2026-07-25 PM): an initial
+   contended A/B suggested +7-8 s at SPJC — CONTAMINATED (the ON runs paid
+   an ~8 s stale pavement-pack sidecar-cache rebuild the OFF run didn't,
+   inside a 2-worker tile build). Clean interleaved fresh-interpreter A/B:
+   OLS-on delta +0.2-0.5 s at SPJC (median 77.13 -> 77.56), ~0.0 at HECA
+   (zero admitted penetrations — pre-scan exits in ms). UNDER the 0.6 s
+   trigger; gate stays ON as shipped. Profile: 0.20 s in-pipeline, ~0.12 s
+   of it rebuilding `clearance._surface_road_corridors` (built 3×/build —
+   skirt ×2 + OLS ×1). QUEUED NEXT OPTIMIZATION ROUND: memoize the road
+   corridor union per layout (~0.24 s back, OPT-1-class duplicate-work
+   win). MEASUREMENT LESSON for the file: sidecar-cache staleness books
+   ~8 s into "Assembling pavement" and reads as a feature regression —
+   check the cache STALE/read log lines before attributing any phase-2
+   delta.
+ * SPJC builds are NOT run-to-run deterministic — two gates-off builds in
+   one session, same DEM state, gave 906 vs 911 shapes and moved a finding
+   0.115 m. Any cross-build A/B needs a control build. This undermines
+   several of this round's A/B deltas.
+ * `driver.py` calls `verify_and_log(source_runways=None)`; the lead added
+   `layout.apt_runways` + a fallback so the caps mirror measures the real
+   centreline. Threading `source_runways` properly is still cleaner.
+ * Emitter snapshots gates into module locals at import
+   (`AG._END_PIN` etc.) while the validator reads config at call time —
+   equivalent in production, but a test must flip BOTH. Worth unifying.
+ * `emit_decimate` collinear-span split: two independent sessions produced
+   fixes. The MAIN-tree one (split at the arc-length MIDPOINT) was kept
+   and the greedy worktree one REMOVED, because greedy-from-one-end is not
+   orientation-independent: on a span whose length does not divide evenly
+   it keeps 7 nodes but two abutting rings tracing it in opposite
+   directions disagree, and the unanimity vote keeps the UNION — 24 nodes
+   vs the midpoint version's 18, plus broken chain identity.
+
+## GATE STATE (all six flipped ON 2026-07-25 by owner ruling)
+ O4_RUNWAY_END_RESA, O4_ADJACENT_GROUND_END_PIN,
+ O4_STRIP_WIDTH_FROM_CENTERLINE, O4_POCKET_COLLAR_RINGS, O4_OLS_CUT,
+ O4_ONE_SOLVE_TERRAIN_RUNWAY_END_RESA.
+ Every arc was proven byte-identical gate-off at landing, so setting any
+ ONE env var to 0 isolates that arc cleanly.
+ + SEVENTH GATE added 2026-07-25 PM: O4_CONFORMANCE_CUT_CLAMP (B2 fix,
+ default ON, off ⇒ byte-identical pre-fix weld). The B1 fix carries NO
+ gate of its own — O4_POCKET_COLLAR_RINGS=0 removes the collar AND the
+ zone together (byte-identical bands).
+ DELIBERATELY OFF: O4_GAP_FILL_INTERIOR_FLOOR (owner ruling, above).
+
+## BUILD ARTEFACTS
+ ★★ CURRENT: App 1.0.200 / engine 1.50.1640 at
+ dist.nosync/XPTerrainBuilder.app — the ROUND IS COMMITTED (3cdc8a3 on
+ main, 45 files) plus the three chip fixes: conformance insert dedupe
+ (_radius_index, was already swept into 3cdc8a3 — the chip edited the
+ main checkout), the _resolve_yielding_tjunctions/_resolve_edge_crossings
+ dedupe guards (same), and the _surface_road_corridors per-layout memo
+ (merge 1b117a0 — all 4 call sites incl. OLS hit the cache, ~0.24 s/
+ airport back). Post-merge suite: 8 failed / 3202 passed (the 8
+ long-standing only). Freshness VERIFIED (auto_patch.ols in the frozen
+ module table, engine version bumped) + direct-exec launch OK. All gates
+ at defaults (the O4_POCKET_COLLAR_RINGS=0 workaround is OBSOLETE).
+ (Prior stamp: 1.0.199 / 1.50.1639, uncommitted-tree build, superseded.)
+ (Superseded stamp for the record: 1.0.198 / 1.50.1638 predated the
+ fixes. Rebuild procedure, unchanged:)
+   scripts/make_engine.sh   (redirect, NEVER pipe — pipefail + an early
+                             closing pipe kills it silently at exit 141)
+   scripts/make_app.sh release
+ Verify freshness: `auto_patch.ols` must appear in the frozen module table
+ (`strings`/`grep -a` the Engine binary). A plain grep of the bundle for
+ source symbols proves NOTHING — the modules are in a compressed archive;
+ a control with pre-existing symbols comes back absent too.
+ macOS: direct-exec Contents/MacOS/XPTerrainBuilder first — the first
+ `open` of a fresh bundle can hang in LaunchServices.
+
+# ══════════════════════════════════════════════════════════════════
+# 20260718 PM — ≤60 s PROGRAM RETROSPECTIVE + TRACK BOARD OPENED
+# docs/build_time_program_board.md = cross-session continuation point
+# (measured state, 4-audit retrospective condensed, track table T0-T7,
+# verification discipline).  Headlines: ★store UNDERCOUNTS ~40 s
+# (record_build before late FGP — fix in flight, chip session; OTHH
+# true ≈382 s); ★late FGP defers ~nothing because snapshot never
+# recaptured post-mid (T1a in flight); ★wave-2c coloring recomputed
+# 9-12×/build + quadratic at hubs, ~32 s overhead (T2a in flight,
+# byte-identical); ★wave 3 = 1 lever of 4 at 1 site, Θ(n²) intact
+# (T3a in flight); ★Tier 2 structurally NEVER fires at OTHH → owner
+# ruling needed (T7); ★remaining planned work alone lands 150-180 s,
+# NOT 60 — T4 pair-generation collapse + T5 never-planned emitters
+# required.  Profiler phase-boundary drift fixed (b1315e0).
+# ══════════════════════════════════════════════════════════════════
+# 20260718 — BUILD-TIME BASELINES REFRESHED POST WAVES 2c+3
+# tools/build_time_baselines.json re-measured at dev 0834fef (includes
+# projection-wave2c + geometry-wave3 merges): CYXY 40.6 s (was 43.4),
+# OTHH 343.4 s (was 365.8).  Cold-equivalent per the checker docstring:
+# one warm-up full build per airport, then fresh-interpreter measured
+# run via check_build_time.py --run --update-baselines.  Preconditions
+# verified (no concurrent builds; OSM regional extracts + Elevation_data
+# present).  tests/test_check_build_time.py 27 green; standalone
+# check_build_time.py PASS.  OTHH remains over the 60 s airport budget
+# (approvals file still empty — pre-existing state, improved this round).
+# ══════════════════════════════════════════════════════════════════
+# 20260718 EARLY AM — TWO SUPERVISED AGENT LANDINGS INTEGRATED
+# (same session as the EGGW tunnel fixes below; all uncommitted):
+# 1. RIGID-SEAT SPAN LIMIT (EGGW floating buildings FIXED):
+#    DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M=3.0 — a Phase-2 structure whose
+#    ground span exceeds it (and has no anchored feet) is LEFT AT
+#    AUTHORED ELEVATIONS (skip_reason "…rigid-seat limit…"); its
+#    buildings ride their Phase-1 pads.  ★Stale-bake restore already
+#    existed (object_rebake reversion pass un-bakes undecided
+#    resources vs .anchor_bak) — skips route through it.  EGGW: both
+#    mega components skip; EGLL: only 4 new skips, all >3 m.  LEAD
+#    RULINGS: A3 bake-and-flag SUPERSEDED (test renamed/flipped);
+#    KCLT end-to-end allows span-reason skips (3/220, spans
+#    3.46-4.22 m — USER: spot-check KCLT terminal in-sim).
+#    tests/test_object_bake_span_limit.py (7) + object suite 183 green.
+# 2. FEATURE A TUNNEL CARVES (W-T) BUILT — GATE DEFAULTED **ON**
+#    (user ruling 2026-07-18; also ruled: trench depth authority =
+#    the OBJECT'S OWN GEOMETRY, author mesh was oracle-only).  230
+#    object tests + compare-target green at ON; ★rebuild +43-080
+#    with O4_AUTO_PATCH_REBUILD=1 to get the CYYZ cut (freshness
+#    gate ignores code changes).  Chips running in cloud sessions:
+#    node_altitudes loss root-cause; flat-fast-path refusal role.
+#    (O4_OBJECT_TUNNEL_TERRAIN): whole-body trench pans (A1) + rim
+#    collars born at layout from classification.tunnels; pavement wins
+#    (R2/R8, yielded area logged); ROLE_TUNNEL_TRENCH = LAW weld tier
+#    + decimation exemption + force_per_node.  ★MEASURED DEVIATION
+#    FROM R12 (lead-accepted): trench pins must NOT join solver
+#    PAVEMENT_ROLES — coupling dragged 30% of EGLL airside pavement
+#    down (max 8.3 m); shipped decoupled (pavement neutrality 0.004 m
+#    mean).  EGLL oracle: substantial tunnels within ~±1 m of the
+#    author mesh (−0.5 m by design); tunnel 5 under pavement → not cut;
+#    9/12 shallow (OBJECT under-specifies author — open Q1).  EGGW
+#    byte-neutral.  CYYZ: taxiway tunnels = Feature-B BRIDGES; one
+#    Feature-A cut (Terminal-1, 2.46 m = expected).  BEFORE DEFAULT-ON:
+#    rule open Q1 (object-vs-author depth); verification.py lockstep
+#    validator; rule enclosed-terminal parts (A vs C/R10);
+#    ROLE_TUNNEL_TRENCH into flat_airport_fast_path refusal roles.
+#    tests/test_object_tunnel_terrain.py (15).
+# ALSO: EGWN int64 solver fix cherry-picked (d89b155c, user's cloud
+# session).  ★Pre-existing red: test_contracts::
+# test_object_geometry_fields (another session's draped_layer_group
+# field in obj8_reader — not ours).
+# ══════════════════════════════════════════════════════════════════
+# 20260717 EVENING — EGGW TUNNEL FIXES (separate session; BUILT +
+# mesh-verified at EGGW, uncommitted):
+# 1. `unclassified` added to HW_TUNNEL_TYPES (bridges.py) — EGGW's
+#    airside tunnel (ways -232502/-22713, highway=unclassified
+#    tunnel=yes) was invisible while service/residential qualified.
+#    ★_load_tunnel_road_network ALREADY merges small_roads (KPHL);
+#    the class filter was the real gate, and mapped unclassified
+#    tunnels keep their MAPPED ends (re-split set = major classes).
+# 2. DEM-CUT PORTAL MODE (user ruling: what a tunnel ramp needs
+#    DEPENDS ON THE MESH): with a lidar inset the bare-earth DTM
+#    already carves the approach ramps AND strips the structure over
+#    the bore (open trench under the taxiway).  Detection = median
+#    CROSS-ROAD relief (deck beside the walk minus walk) ≥ 3 m over
+#    the first 60 m — ★never absolute-vs-apt_elev (its mid-field
+#    fallback samples the trench floor itself: measured apt_elev ==
+#    cut_min at EGGW) and ★never DEM-vs-surroundings (false-fires on
+#    hillside bores, KPHL class).  Cut mode emits ONLY: flat cap at
+#    the measured cross-road deck grade, 6 m mouth plate at the DEM's
+#    own road grade (crisp face wall), and a GRADED roof-quad chain
+#    (4-corner sloped rects, ramp-chain corner convention) from
+#    face-top grade up to the pavement-seam deck — NO synthetic
+#    ramps/walls/throat ("no tunnel ramp around the parking garage").
+#    Flat-DEM airports keep the legacy path byte-identically; env
+#    gate O4_TUNNEL_DEM_CUT.  ★★Post-solve plates: way-level altitude
+#    and 4-corner altitude_high/low reach the mesh; per-vertex
+#    node_altitudes measurably LOSE most values en route to the
+#    written patch (mechanism un-root-caused — chip spawned; owner
+#    prefers per-corner once fixed).  ★Roof chains truncate at the
+#    bore MIDPOINT (a full-bore plate put the partner cluster inside
+#    "an emitted portal's exclusion zone" — silent drop), emit ONLY
+#    from the clear-line piece CONTAINING the member's own face
+#    (nearest-piece fallback wandered onto the taxiway mid-body),
+#    and the mouth plate = cluster rect MINUS the roof union (roof
+#    wins in the twin-carriageway stagger zone).
+# 3. PORTAL-FACE records (object_terrain_features.py): single-
+#    placement all-SOFT ≤8-tri quads hanging below grade (min y ≤ −2,
+#    top ≤ +1, height ≥ 2, rect long side 4-60 m) = the EGGW portal
+#    authoring class; finds EXACTLY the 2 real portals in 614 pack
+#    objects.  ★A face is NOT ⊥ to the tunnel axis (parallels the
+#    crossed taxiway edge) — face pairs test mutual parallelism +
+#    segment-crosses-face.  Faces join R4 exclusions always (the
+#    y-bake would shove a hanging face up by its height).  Pairs
+#    corroborated by a mapped OSM tunnel are SUPPRESSED (OSM owns —
+#    fires at EGGW); object-only pairs ride the KBNA portal branch
+#    with the ANCHOR-SEAT INVERSION (anchor disk joins the deck-grade
+#    crown, never the road-grade mouth).  Cache bumps:
+#    _CLASSIFICATION_CACHE_VERSION 3→4, _OBJECT_FOOTPRINT_CACHE 1→2.
+# 4. Tests: tests/test_tunnel_dem_cut_portals.py +
+#    tests/test_portal_faces.py (25 new, Opus-authored); compare-
+#    target fixtures byte-stable; 166 tunnel/bridge tests green.
+# 5. MESH-VERIFIED (tile +51-001 vector+mesh rebuilds into repo
+#    Tiles/ dir — ★run_tile_mesh_only builds into Tiles/, the user's
+#    flyable scenery lives on ThunderBlade): tunnel body graded
+#    155→157.7 with face walls at both mouths; approaches track the
+#    lidar within 1.5 m (untouched).  Sampler:
+#    scratchpad verify_tunnel_mesh.py (session 20260717 evening).
+# 6. ALSO: EGGW floating buildings root-caused (NOT fixed): two
+#    chained mega components (fences/cars/barriers chain 55+44
+#    resources, 3.1/2.6 km) → area backstop kills their pads but
+#    Phase 2 still bakes ONE rigid offset → +33 m floats.  Fix
+#    direction = fill-aware span gate / connector partition.
+#    EGLL: Feature A tunnel EMISSION never built (agent-verified;
+#    classification.tunnels feeds one log line; W-T inventory in
+#    session report).  EGWN solver int64 crash = pre-existing,
+#    spawned as separate task.
+# ══════════════════════════════════════════════════════════════════
+# 20260717-18 OBJ8 GROUND-PAINT PAVEMENT (separate session — feature
+# BUILT; OWNER RULED 2026-07-18: DEFAULT ON for in-sim testing.
+# HECA builds now gain +4.05 km2 pavement — expect
+# test_pavement_grade[HECA] failure content to shift (pre-existing
+# red either way) and HECA compare-target drift until fixtures are
+# re-cut after the in-sim verdict):
+# Packs like HECA Tai Models draw base pavement as DRAPED-ONLY .obj
+# texture pages (asphalt.obj = 31k draped vertices, zero solid tris)
+# invisible to both the building path and the .pol pavement reader.
+# NEW: obj8_reader parses ATTR_layer_group_draped;
+# dsf_reader.read_dsf_object_pavements admits draped-only objects
+# declaring layer group runways/taxiways at offset ≤1 (base pavement
+# stacks UNDER markings — the pack's own rendering contract is the
+# base-vs-decal discriminator), unions their draped triangles into
+# patches (all patches, holes honoured), chains them through the ONE
+# existing DSF pavement sweep (same gates, third-party marked),
+# sidecar-cached (o4_object_pavements_*).  24 tests
+# (test_dsf_object_pavement.py) green.  Gate O4_DSF_OBJECT_PAVEMENT
+# **DEFAULT OFF pending owner ruling** — suite untouched at OFF.
+# HECA law-true A/B (axes-sidecar check_grade): +4.05 km² pavement,
+# within-shape 30→3 (fixes 27/30 tracked frontage flags!) BUT
+# test_runway_longitudinal_grade[HECA] GREEN→RED (the one genuine
+# new regression, un-root-caused; 3 runway-end-skirt violations at
+# the low end are the lead), TEAR 0→6, CROSS 0→3, mid-edge 0→55,
+# retaining walls 21→332 (perimeter sheets over desert relief).
+# OWNER RULED: NO airside/groundside split — object pavement rides
+# the same union/slicing as .pol pavement, existing perimeter
+# treatment stands.  LONGITUDINAL REGRESSION ROOT-CAUSED + FIXED:
+# MID final_grade_projection writeback aliasing — the runway's
+# beyond-threshold blast-pad corner (hard 57.56 through the whole
+# solve, probed clean) aliases via get_or_add on post-densify
+# geometry to the new terrain-pressed junction's soft node and gets
+# stamped 55.31 (1.8% end kink); later passes re-seed the corruption
+# as hard truth and the LATE run's RUNWAY PROFILE PRESERVE restores
+# it verbatim.  FIX = the preserve snapshot/restore made
+# UNCONDITIONAL in final_grade_projection (was late-run-only) —
+# runway nodes are hard through the projection by design, so the
+# only writeback-changeable runway values are aliasing corruptions.
+# VERIFIED: gate-ON longitudinal[HECA] RED→GREEN; gate-OFF
+# longitudinal[HECA/SPJC/CYXY] all stay GREEN (baseline undisturbed).  ★PROCESS: check_grade CLI
+# without <patch>.osm.axes.json (written only at O4_LOG_VERBOSITY>0)
+# over-flags 17,092-vs-3 on the same patch — never read grade
+# numbers off a sidecar-less run.  ★DEBUG: coordinate-keyed
+# class-level BuiltShape.__setattr__ watchpoint with stack capture =
+# the tool that found the writer (index-keyed and single-object
+# watches both false-negatived).
+# ══════════════════════════════════════════════════════════════════
+# 20260717 NIGHT ADDENDUM (after the wave-2 section below; three
+# further landings, all verified):
+# 1. 05L/23R KINK FIX (late-projection WRITEBACK ALIASING): two runway
+#    ring vertices under the 0.5 m canonical tolerance alias to ONE
+#    grade-graph node; the late projection holds it hard but its
+#    _writeback re-stamps BOTH ring vertices with the one value
+#    (60.46→60.70, a 3.7% profile kink at HECA).  Fix = RUNWAY PROFILE
+#    PRESERVE (solve.py): late run snapshots runway/runway_crossing
+#    altitude fields pre-projection, restores post-writeback.  HECA
+#    longitudinal test GREEN; SPJC all-zero.  ★WATCH: the same
+#    writeback aliasing exposure exists for ANY sub-tolerance vertex
+#    pair on any shape in the late run — fixture airports empirically
+#    clean, runway was the datum-critical case.
+# 2. OBJ8 MEGA-PAD FIX (user in-sim reports EGGW/EGLL/HECA — giant
+#    building pads + buried EGLL tunnels):  co-baked packs' connector
+#    meshes (2.7 km fence, road/rail, NEN ground slabs) chain real
+#    buildings into airport-scale components at the contact-epsilon
+#    partition; convex hull fills the field.  OSM extracts REFUTED as
+#    cause (sane data, DSF-preferred wins).  SHIPPED:
+#    DSF_OBJECT_MAX_FOOTPRINT_AREA_M2 default 0→100000 (area backstop)
+#    + sidecar-cache fingerprint now includes the gate constants (was
+#    silently serving stale geometry).  EGGW 10→39 buildings, EGLL
+#    tunnels un-buried, HECA 1.94M m² pad gone (338→487 buildings),
+#    SPJC's own 371k LIMANUEVA mega dropped (55→65 seeds, grades 0).
+#    IMPLEMENTED BUT DEFAULT-OFF pending owner ruling: connector
+#    pre-filter (span 300/fill 0.20 — texture-page .obj packs defeat
+#    the fill heuristic: EGGW 39→6) and structure span gate (500 m —
+#    kills SPJC's real 560 m banner-inflated terminal).  Residual
+#    sub-backstop spanners: EGLL 88k/1076 m + 87k/654 m, HECA
+#    46k/601 m.  OWNER RULED 2026-07-17: option (b) ACCEPTED — ship
+#    the backstop alone; fill-aware span gate = designed follow-up.  321 object-pipeline tests green.
+# 3. HECA within-shape rose 14→30 WITH the object fix — NOT a
+#    regression: 149 newly-revealed real building pads carry the known
+#    frontage-flag class (terminal-8); TEAR/CROSS/steps stay 0.
+# 4. Compare-target fixtures RE-CUT a second time same day (after the
+#    object fix; SPJC building 57→60, total 775; SPLP tiles
+#    unchanged); floors updated in test_compare_target.py.
+# 5. FINAL SWEEP RESULT (six suites × four airports, -n0,
+#    PYTHONHASHSEED=0): ONE red left — test_pavement_grade[HECA]
+#    (terminal-8 apron-bridged-terminal class, ~30 building frontage
+#    flags after the object fix revealed 149 real pads; TEAR/CROSS/
+#    steps 0).  Everything else GREEN or tracked: compare-target green
+#    on the fresh fixtures, SPLP route-band XPASS→now gates hard,
+#    CYXY building19 floor re-pinned 697.7 (user in-sim acceptance),
+#    CYXY route-reach converted to tracked xfail (user acceptance —
+#    2.42%/2.12%/1.69% feeder-convergence residuals, sub-visible).
+#    USER RULINGS 2026-07-17 recorded: span-gate option (b) accepted;
+#    CYXY accepted as-is; user reviewing HECA/SPJC/SPLP in-sim next.
+# 6. EGLL TUNNEL-PAD EXCLUSION (user in-sim: "building36" bulging
+#    south over two tunnel objects): the pad WAS a pure tunnel
+#    (shell+deck pair welded correctly, mis-emitted as a building).
+#    Fix: the Feature-B classifier (object_terrain_features, pure
+#    placements+geometry) now runs at building-extraction time in
+#    dsf_reader.read_dsf_object_buildings; classified tunnel/bridge/
+#    deck resources are dropped pre-pooling (gate OBJECT_BRIDGE_
+#    TERRAIN, failure-safe fallback, cache-fingerprinted).  EGLL
+#    tunnel pads 10→0 — INCLUDING both ruling-(b) residual spanners
+#    (they were tunnels); EGGW 39 / HECA 487 exact; SPJC all-zero;
+#    391 object tests green (+2 new).  Only residual spanner left
+#    anywhere: HECA 46k/601 m.
+# 7. WHOLE-SUITE REGRESSION: 2058 passed / 10 failed — 1 = the known
+#    HECA terminal-8 red; 9 are the CONCURRENT session's in-flight
+#    areas (6 build-time estimates, 2 texture modes, 1 provider
+#    registry custom_url; plus their obj8_reader draped_layer_group
+#    breaks test_contracts::test_object_geometry_fields).  Zero
+#    regressions from this session's work.
+#    NEXT SESSION CANDIDATES: terminal-8 solver project (THE red),
+#    fill-aware span gate (only HECA's 46k/601 m spanner left),
+#    solved_store_missing_shape root-cause, writeback-aliasing watch
+#    item.
 # ══════════════════════════════════════════════════════════════════
 # ══════════════════════════════════════════════════════════════════
 # 20260829a (ROAD-RAMP FAMILY SHIPPED ON OWNER ORDER; app 1.0.267,

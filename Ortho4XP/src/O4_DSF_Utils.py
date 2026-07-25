@@ -29,6 +29,41 @@ quad_capacity_low = 35000
 use_test_texture = False
 
 ################################################################################
+def _patch_triangle_commands(indices, opcode, words_per_cmd):
+    """CMDS PATCH TRIANGLE runs: (opcode, count, count coords) per command.
+
+    ``indices`` is a 1-D numpy.uint16 array; ``words_per_cmd`` is 255
+    (in-pool, count = words) or 510 (cross-pool, count = pairs).
+    Byte-identical to the historical per-word struct.pack loop."""
+    n = int(indices.size)
+    full = n // words_per_cmd
+    parts = []
+    if full:
+        body = (
+            indices[: full * words_per_cmd]
+            .astype("<u2", copy=False)
+            .view(numpy.uint8)
+            .reshape(full, 2 * words_per_cmd)
+        )
+        rows = numpy.empty((full, 2 + 2 * words_per_cmd), numpy.uint8)
+        rows[:, 0] = opcode
+        rows[:, 1] = 255
+        rows[:, 2:] = body
+        parts.append(rows.tobytes())
+    rem = n - full * words_per_cmd
+    count = rem if words_per_cmd == 255 else rem // 2
+    if count:
+        payload_words = count if words_per_cmd == 255 else 2 * count
+        start = full * words_per_cmd
+        parts.append(bytes((opcode, count)))
+        parts.append(
+            indices[start : start + payload_words]
+            .astype("<u2", copy=False)
+            .tobytes()
+        )
+    return b"".join(parts)
+
+
 def float2qquad(x):
     if x >= 1:
         return "111111111111111111111111"
@@ -1848,12 +1883,15 @@ def build_dsf(tile, download_queue):
         )
         f.write(struct.pack("<I", dsf_pool_length[k]))
         f.write(struct.pack("<B", dsf_pool_plane[k]))
+        # The pool is an array.array("H") in node-major order; a numpy
+        # column view per plane replaces the historical per-word
+        # struct.pack loop byte for byte.
+        pool = numpy.frombuffer(dsf_pools[k], dtype=numpy.uint16).reshape(
+            int(dsf_pool_length[k]), int(dsf_pool_plane[k])
+        )
         for l in range(dsf_pool_plane[k]):
-            f.write(struct.pack("<B", 0))
-            for m in range(dsf_pool_length[k]):
-                f.write(
-                    struct.pack("<H", dsf_pools[k][dsf_pool_plane[k] * m + l])
-                )
+            f.write(b"\x00")
+            f.write(pool[:, l].astype("<u2", copy=False).tobytes())
     for k in range(dsf_pool_nbr):
         if dsf_pool_length[k] == 0:
             continue
@@ -1878,6 +1916,11 @@ def build_dsf(tile, download_queue):
         if dsf_pool_length[k] != 0:
             dico_new_dsf_pool[k] = new_idx_dsfpool
             new_idx_dsfpool += 1
+    # Same mapping as a numpy LUT for the vectorized cross-pool command
+    # encoding (only pools with nodes are ever referenced there).
+    pool_remap = numpy.zeros(dsf_pool_nbr, dtype=numpy.uint16)
+    for k, v in dico_new_dsf_pool.items():
+        pool_remap[k] = v
 
     # Commands atom
     # we first compute its size :
@@ -1947,39 +1990,16 @@ def build_dsf(tile, download_queue):
                 f.write(struct.pack("<f", 0))  # NEAR LOD
                 f.write(struct.pack("<f", lod))  # FAR LOD
 
-                blocks = floor(
-                    len(textured_tris[terrain_idx][idx_dsfpool]) / 255
+                f.write(
+                    _patch_triangle_commands(
+                        numpy.frombuffer(
+                            textured_tris[terrain_idx][idx_dsfpool],
+                            dtype=numpy.uint16,
+                        ),
+                        23,  # PATCH TRIANGLE
+                        255,
+                    )
                 )
-                for j in range(blocks):
-                    f.write(struct.pack("<B", 23))  # PATCH TRIANGLE
-                    f.write(struct.pack("<B", 255))  # COORDINATE COUNT
-
-                    for k in range(255):
-                        f.write(
-                            struct.pack(
-                                "<H",
-                                textured_tris[terrain_idx][idx_dsfpool][
-                                    255 * j + k
-                                ],
-                            )
-                        )  # COORDINATE IDX
-                remaining_tri_p = (
-                    len(textured_tris[terrain_idx][idx_dsfpool]) % 255
-                )
-                if remaining_tri_p != 0:
-                    f.write(struct.pack("<B", 23))  # PATCH TRIANGLE
-                    f.write(
-                        struct.pack("<B", remaining_tri_p)
-                    )  # COORDINATE COUNT
-                    for k in range(remaining_tri_p):
-                        f.write(
-                            struct.pack(
-                                "<H",
-                                textured_tris[terrain_idx][idx_dsfpool][
-                                    255 * blocks + k
-                                ],
-                            )
-                        )  # COORDINATE IDX
             else:  # idx_dsfpool == 'cross-pool'
                 pool_idx_init = textured_tris[terrain_idx][idx_dsfpool][0]
                 f.write(struct.pack("<B", 1))  # POOL SELECT
@@ -1991,58 +2011,20 @@ def build_dsf(tile, download_queue):
                 f.write(struct.pack("<f", 0))  # NEAR LOD
                 f.write(struct.pack("<f", lod))  # FAR LOD
 
-                blocks = floor(
-                    len(textured_tris[terrain_idx][idx_dsfpool]) / 510
+                data = numpy.frombuffer(
+                    textured_tris[terrain_idx][idx_dsfpool],
+                    dtype=numpy.uint16,
+                ).reshape(-1, 2)
+                pairs = numpy.empty_like(data)
+                pairs[:, 0] = pool_remap[data[:, 0]]  # POOL IDX
+                pairs[:, 1] = data[:, 1]  # POS_IN_POOL IDX
+                f.write(
+                    _patch_triangle_commands(
+                        pairs.reshape(-1),
+                        24,  # PATCH TRIANGLE CROSS-POOL
+                        510,
+                    )
                 )
-                for j in range(blocks):
-                    f.write(struct.pack("<B", 24))  # PATCH TRIANGLE CROSS-POOL
-                    f.write(struct.pack("<B", 255))  # COORDINATE COUNT
-                    for k in range(255):
-                        f.write(
-                            struct.pack(
-                                "<H",
-                                dico_new_dsf_pool[
-                                    textured_tris[terrain_idx][idx_dsfpool][
-                                        510 * j + 2 * k
-                                    ]
-                                ],
-                            )
-                        )  # POOL IDX
-                        f.write(
-                            struct.pack(
-                                "<H",
-                                textured_tris[terrain_idx][idx_dsfpool][
-                                    510 * j + 2 * k + 1
-                                ],
-                            )
-                        )  # POS_IN_POOL IDX
-                remaining_tri_p = int(
-                    (len(textured_tris[terrain_idx][idx_dsfpool]) % 510) / 2
-                )
-                if remaining_tri_p != 0:
-                    f.write(struct.pack("<B", 24))  # PATCH TRIANGLE CROSS-POOL
-                    f.write(
-                        struct.pack("<B", remaining_tri_p)
-                    )  # COORDINATE COUNT
-                    for k in range(remaining_tri_p):
-                        f.write(
-                            struct.pack(
-                                "<H",
-                                dico_new_dsf_pool[
-                                    textured_tris[terrain_idx][idx_dsfpool][
-                                        510 * blocks + 2 * k
-                                    ]
-                                ],
-                            )
-                        )  # POOL IDX
-                        f.write(
-                            struct.pack(
-                                "<H",
-                                textured_tris[terrain_idx][idx_dsfpool][
-                                    510 * blocks + 2 * k + 1
-                                ],
-                            )
-                        )  # POS_IN_PO0L IDX
 
     # DEMS atom
     if bDEMS != b"":

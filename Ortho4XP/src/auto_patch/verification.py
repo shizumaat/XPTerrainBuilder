@@ -53,6 +53,19 @@ _NON_SOURCE_PAVEMENT_ROLES = frozenset({
     # off-source by construction.
     "bridge_trench",
     "bridge_causeway",
+    # OLS terrain-penetration cuts (ols.py): the FARTHEST off-source
+    # feature in the subsystem by design — an approach fan reaches up to
+    # OLS_APPROACH_EMIT_REACH_M (1 km) beyond a runway END, and a
+    # transitional cut starts past the OLS strip edge.  There is no
+    # apt.dat/DSF pavement out there and there must not be: these are
+    # obstacle-limitation surfaces cut into terrain, not pavement.
+    # (Missed when ROLE_OLS_CUT was registered 2026-07-24 — it was wired
+    # into SOFT_RECEIVER_ROLES / AEROWAY_FOR_ROLE / ROLE_GRADE_LIMITS but
+    # not here, so flipping O4_OLS_CUT on made this invariant fire at
+    # SPLP/CYXY/SPJC on 4/12/11 lawful cuts.  Every role-keyed site has
+    # to be enumerated for a new role — the same sweep the
+    # runway_end_resa ref needed.)
+    "ols_cut",
 })
 
 def _ll(layout, x, y) -> str:
@@ -819,34 +832,55 @@ def check_runway_end_skirt(layout, dem, tile_lat, tile_lon,
                            source_runways=None,
                            tolerance_m: float = 1.5,
                            step_m: float = 5.0):
-    """Invariant: within the governed length beyond each runway end, the
-    RENDERED surface (clearance patches where emitted, pavement or
-    natural DEM elsewhere) must not drop below the runway-end-skirt law
-    floor (``grade_law.runway_end_skirt_floor_profile`` — FAA 0…−3 % in
-    the first 61 m, −5 % beyond, grade-change rate-limited).  Beyond the
-    governed length a drop is LAWFUL, so nothing out there is checked.
+    """Invariant: beyond each runway end the RENDERED surface (clearance
+    patches where emitted, pavement or natural DEM elsewhere) must stay
+    inside the lawful corridor ``grade_law.runway_end_envelope`` — BOTH
+    bounds, the longitudinal twin of ``check_adjacent_ground``:
 
-    Marches the extended centerline of each runway end (the same anchor
-    geometry, entry-grade window and governed length the Pass D emitter
-    uses — clearance/grade_law are the single source) and reports the
-    WORST station per end.  ``tolerance_m`` absorbs the emitter's fill
-    trigger (1 m — terrain within 1 m of the floor is deliberately left
-    unfilled), emit rounding (0.1 m) and DEM interpolation.
+    * FLOOR — within the governed length the surface must not drop below
+      the runway-end-skirt law floor (FAA 0…−3 % in the first 61 m, −5 %
+      beyond, grade-change rate-limited).  Past the governed length a drop
+      is LAWFUL, so nothing out there is checked.  Reported as ``end_drop``
+      (extended centreline) and ``end_drop_flank`` (blast-pad side edges).
+    * CEILING — out to the RESA reach the surface must not rise above the
+      5 % RESA ramp from the pavement-exit elevation (ICAO Annex 14
+      §3.5.10).  Reported as ``end_rise``.
+
+    The ceiling half was added 2026-07-24 (arc A1).  The skirt emitter is
+    FILL-only by ruling (STATUS part 30e: "the RESA cut (Pass C)
+    separately handles terrain that RISES"), and Pass C has not run since
+    ``B4_FLIP_DEFAULTS`` gated ``emit_surface_clearance_cuts`` off on
+    2026-07-15 — so between then and now nothing cut rising terrain beyond
+    a runway end AND this reader could not see it.  A one-directional
+    reader is how that regression stayed invisible; both directions now
+    come from the one law function.
+
+    The floor march follows the extended centreline; the ceiling march
+    sweeps the whole ``runway_end_corridor_half_width_m`` corridor, since a
+    RESA breach is typically an off-axis mound.  Both use the same anchor
+    geometry, entry-grade window and governed length as the emitter —
+    clearance/grade_law are the single source.  ``tolerance_m`` absorbs the
+    emitter's obstruction trigger (1 m), emit rounding (0.1 m) and DEM
+    interpolation.
 
     Pure reporter (verification-architecture ruling): returns
-    ``[("end_drop", "<ref>:<desig>", metres_below_floor, tolerance_m,
-    "lat,lon"), …]`` worst-first; empty when every end is lawful or when
-    ``dem`` is None.  With the ``O4_RUNWAY_END_SKIRT`` gate off this
-    reports the cliffs the skirt WOULD govern — the motivating defect —
-    so fixture baselines can be captured before flipping the gate.
+    ``[("end_drop"|"end_drop_flank"|"end_rise", "<desig>", metres_outside,
+    tolerance_m, "lat,lon"), …]`` worst-first; empty when every end is
+    lawful or when ``dem`` is None.  With the ``O4_RUNWAY_END_SKIRT`` /
+    ``O4_RUNWAY_END_RESA`` gates off this reports what those emitters WOULD
+    govern — the motivating defect — so fixture baselines can be captured
+    before flipping either gate.
     """
     import math
     from shapely.ops import unary_union
     from shapely.prepared import prep
     from . import clearance as CL
     from .config import runway_end_approach_class
+    from .config import CLEARANCE_MAX_REACH_M
     from .grade_law import (
         runway_end_constrained_length_m,
+        runway_end_corridor_half_width_m,
+        runway_end_envelope,
         runway_end_governed_length_beyond_pavement_m,
         runway_end_governed_length_m,
         runway_end_skirt_floor_profile,
@@ -1020,7 +1054,11 @@ def check_runway_end_skirt(layout, dem, tile_lat, tile_lon,
             if full_len < 1.0:
                 continue
             ux, uy = dx / full_len, dy / full_len
-            width = float(getattr(r, "width_m", 0.0) or 0.0)
+            # DECLARED width — lockstep with the emitter (see the matching
+            # comment in ``clearance.emit_runway_end_skirts``): the corridor
+            # is Annex 14 §3.5.3's factor on the RUNWAY, not runway+shoulders.
+            width = float(getattr(r, "declared_width_m", None)
+                          or getattr(r, "width_m", 0.0) or 0.0)
             ends.append((
                 (ax, ay), (-ux, -uy), full_len, width, r.desig_a,
                 runway_end_approach_class(
@@ -1165,6 +1203,62 @@ def check_runway_end_skirt(layout, dem, tile_lat, tile_lon,
                             tolerance_m,
                             _ll(layout, worst[1], worst[2])))
 
+        # The end corridor's lateral extent — ONE law helper, shared with
+        # the emitter and reused by the flank march below.
+        half = runway_end_corridor_half_width_m(runway_width, full_len)
+        perp = (-ny, nx)
+
+        # ── RISING terrain: the RESA ceiling (arc A1, 2026-07-24) ──
+        # The other half of ``runway_end_envelope``.  The skirt is FILL-only
+        # by ruling (STATUS part 30e), and the cut that used to answer for
+        # rising terrain (legacy Pass C) has not run since the B4 flip gated
+        # ``emit_surface_clearance_cuts`` off — so this reader had NO way to
+        # see the defect it was built for.  Marches the whole corridor, not
+        # just the centreline: a RESA breach is typically an off-axis mound
+        # (the centreline is usually the flattest line out there).
+        #
+        # DEM PRE-FILTER: ``_surface_alt`` is a shapely sweep over every
+        # covering shape, so resolving the rendered surface at every corridor
+        # station would be ~30x the drop march's cost.  A station can only
+        # breach if the raw DEM does, and the DEM read is a raster
+        # interpolation — so filter on it first and resolve the rendered
+        # surface only for candidates.  Identical verdicts, a fraction of the
+        # work (a lawful corridor short-circuits at the raster read).
+        resa_reach = CLEARANCE_MAX_REACH_M["runway"]
+        rise_worst = None
+        d = step_m
+        while d < resa_reach:
+            _floor_off, ceiling_off = runway_end_envelope(
+                d, governed_length_beyond_pavement_m=governed,
+                entry_grade=entry_grade,
+                pavement_beyond_end_m=pavement_beyond_end,
+                resa_reach_m=resa_reach)
+            if ceiling_off is None:
+                break
+            limit = float(ref) + ceiling_off
+            c = -half
+            while c <= half + 1e-9:
+                qx = p0[0] + nx * d + perp[0] * c
+                qy = p0[1] + ny * d + perp[1] * c
+                c += step_m
+                dem_alt = _sample(qx, qy)
+                if dem_alt is None or dem_alt <= limit + tolerance_m:
+                    continue
+                if _station_exempt(qx, qy):
+                    continue
+                surface, source = _surface_alt(qx, qy, (nx, ny))
+                if surface is None or source == "pavement":
+                    continue
+                above = float(surface) - limit
+                if above > tolerance_m and (
+                        rise_worst is None or above > rise_worst[0]):
+                    rise_worst = (above, qx, qy)
+            d += step_m
+        if rise_worst is not None:
+            out.append(("end_rise", f"{desig}", rise_worst[0],
+                        tolerance_m,
+                        _ll(layout, rise_worst[1], rise_worst[2])))
+
         # ── Blast-pad / stopway FLANKS (same governed end zone) ──
         # Between the runway end point and the pavement exit, the
         # overrun pavement's SIDE edges carry the same law: march each
@@ -1173,8 +1267,6 @@ def check_runway_end_skirt(layout, dem, tile_lat, tile_lon,
         # entry (mirrors the emitter's flank wrap).
         if start < 2.0 * step_m:
             continue
-        half = max(runway_width, CL.runway_strip_half_width_m(full_len))
-        perp = (-ny, nx)
         flank_worst = None
         for side in (perp, (-perp[0], -perp[1])):
             sxn, syn = side
@@ -1218,6 +1310,319 @@ def check_runway_end_skirt(layout, dem, tile_lat, tile_lon,
                         _ll(layout, flank_worst[1], flank_worst[2])))
     out.sort(key=lambda r: -r[2])
     return out
+
+
+# ══════════════════════════════════════════════════════════════════════
+# ADJACENT-GROUND VALIDATOR — the emitter LOCKSTEP MIRRORS
+#
+# ``check_adjacent_ground`` keeps its OWN station march (it reads the DEM
+# where the emitter reads-and-writes band geometry), so every per-station
+# behaviour ``adjacent_ground._derive_shape_stations_and_bands`` applies
+# must be mirrored HERE too.  The mandate is stated in
+# ``grade_law.adjacent_ground_supported_depths``: the validator flags any
+# un-covered corridor breach, so an emitter-only clamp would leave the
+# clamped-away deep columns still breaching and mint findings.  Both
+# readers therefore call the SAME law functions over the SAME station
+# sequence.
+#
+# Four mirrors live in the helpers below, each reading the SAME config
+# gate the emitter reads (so a flip moves both readers at once) and each
+# structurally INERT with its gate off:
+#
+#   1. ``_adjacent_ground_station_caps`` — per-station FILL cap (arc A4,
+#      ``STRIP_WIDTH_FROM_CENTERLINE_ENABLED``) and CUT cap (the OLS
+#      handover, ``OLS_CUT_ENABLED``);
+#   2. ``_adjacent_ground_stations`` — the A3 END-SKIP bench pin
+#      (``ADJACENT_GROUND_END_PIN_ENABLED``) OR-ed into the seam pins;
+#   3. ``_pocket_collar_ring_lines`` — the B1 pocket-collar exemption
+#      (``POCKET_COLLAR_RINGS_ENABLED``);
+#   4. ``_collared_pocket_zone_prep`` — the B1 collared-pocket STATION
+#      STAND-DOWN (``POCKET_COLLAR_RINGS_ENABLED``), fed into
+#      ``_adjacent_ground_stations``: frontage facing a pocket whose
+#      collar rings emitted is the collar's ground, so the emitter builds
+#      no band there and the validator must not flag the un-graded
+#      columns beyond it.
+# ══════════════════════════════════════════════════════════════════════
+
+
+def _adjacent_ground_stations(coords, ccw, ring_alts, axis, step_m,
+                              seam_keys, probe_covered,
+                              collar_zone_prep=None):
+    """The validator's per-shape STATION MARCH — the mirror of the emitter's
+    ``adjacent_ground._derive_shape_stations_and_bands`` station loop.
+
+    Returns ``(st_x, st_y, st_outn, st_ref, st_flag, st_seam,
+    st_end_skip)``, all aligned per station:
+
+      * ``st_ref`` — the station's pavement-edge altitude reference, or
+        ``None`` when the emitter's ``_station_reference`` would SKIP it
+        (END edge / covered outward probe / unknown edge altitudes);
+      * ``st_flag`` — ``st_ref is not None``, i.e. the emitter's ``usable``;
+      * ``st_seam`` — the continuation-seam pins the daylight law must not
+        bench (``at_continuation_seam``), with the ARC A3 END PIN OR-ed in
+        under ``ADJACENT_GROUND_END_PIN_ENABLED``;
+      * ``st_end_skip`` — MIRROR 2: the emitter's ``end_skipped[i] =
+        (reason == "end")``.  ``"end"`` is returned by
+        ``_station_reference_ex`` iff the station's edge altitude is known
+        AND the shape has a runway axis AND the outward normal is
+        end-aligned (``abs(dot) > _RING_END_NORMAL_DOT``) — and, load-
+        bearing, that test runs BEFORE the crossing-zone and static-probe
+        tests, so a station whose outward probe is static-covered STILL
+        reads ``"end"`` when its normal is end-aligned.  The dot test is
+        the per-edge ``end_edge`` computed here once and reused (there is
+        no second copy of it).
+
+    ``collar_zone_prep`` — MIRROR 4: the PREPARED collared-pocket zone
+    (``_collared_pocket_zone_prep``).  A station whose seed point OR
+    outward probe falls inside it is skipped exactly as the emitter's
+    ``"collared_pocket"`` reason skips it, so the frontage the collar
+    stood the bands down over is not flagged should_fill/should_cut.
+    ``None`` (default; nothing collared / gate off): no zone test —
+    byte-identical.
+
+    Corner FANS are omitted exactly as before: fan stations share the
+    corner coordinate (distance 0), so they never change a non-fan
+    station's supported depth, and the emitter suppresses fans across a
+    SKIPPED flank — which is every runway END corner — so station
+    adjacency agrees with the emitter wherever an end pin can fire.
+    """
+    import math
+    from shapely.geometry import Point
+    from . import clearance as CL
+    from .config import ADJACENT_GROUND_END_PIN_ENABLED
+    from .grade_law import adjacent_ground_end_pin_flags
+    from .emit_decimate import _key as _vertex_key
+
+    st_x, st_y, st_outn, st_ref, st_flag = [], [], [], [], []
+    st_seam, st_end_skip = [], []
+    # Bounding-box guard on the MIRROR 4 test — the emitter's, verbatim
+    # (see its rationale): the zone test runs over every airside station
+    # of the airport, so the seed is rejected against each zone PART's box
+    # (inflated by the probe distance) before any geometry is built.
+    collar_boxes = None
+    if collar_zone_prep is not None:
+        try:
+            zone = collar_zone_prep.context
+            parts = list(getattr(zone, "geoms", [])) or [zone]
+            collar_boxes = [(b[0] - CL._RING_PROBE_M,
+                             b[1] - CL._RING_PROBE_M,
+                             b[2] + CL._RING_PROBE_M,
+                             b[3] + CL._RING_PROBE_M)
+                            for b in (g.bounds for g in parts)]
+        except (AttributeError, IndexError, ValueError):
+            collar_boxes = None
+    for i in range(len(coords) - 1):
+        eax, eay = coords[i]
+        ebx, eby = coords[i + 1]
+        u = CL._unit(ebx - eax, eby - eay)
+        if u is None:
+            continue
+        outn = (u[1], -u[0]) if ccw else (-u[1], u[0])
+        a0 = ring_alts[i]
+        a1 = ring_alts[i + 1]
+        alts_known = a0 is not None and a1 is not None
+        # Runway END edges: the runway-end skirt law owns terrain beyond
+        # an end (its own governed length + lawful beyond-drop).  THE one
+        # dot test — the flag below and the A3 end-skip vector both read
+        # it, so they cannot drift.
+        end_edge = (axis is not None
+                    and abs(outn[0] * axis[0] + outn[1] * axis[1])
+                    > CL._RING_END_NORMAL_DOT)
+        seglen = math.hypot(ebx - eax, eby - eay)
+        nseg = max(1, int(math.ceil(seglen / step_m)))
+        # Continuation-seam flags for this edge's stations — the SAME rule
+        # the emitter uses (k == 0 on ``coords[i]`` / k == nseg-1 before
+        # ``coords[i+1]``); mirrored so the daylight pins land identically.
+        edge_a_seam = _vertex_key(eax, eay) in seam_keys
+        edge_b_seam = _vertex_key(ebx, eby) in seam_keys
+        for k in range(nseg):
+            t = k / nseg
+            sx = eax + (ebx - eax) * t
+            sy = eay + (eby - eay) * t
+            ref = None
+            flag = False
+            px = sx + outn[0] * CL._RING_PROBE_M
+            py = sy + outn[1] * CL._RING_PROBE_M
+            # MIRROR 4 — COLLARED POCKET: the emitter drops a station whose
+            # SEED or outward PROBE lands in a pocket whose collar rings
+            # emitted (reason ``"collared_pocket"``), and that test runs
+            # BEFORE the terrain-facing probe, so it is mirrored in the same
+            # order here.  The collar carries the drainage law over that
+            # ground; the band never reaches it, so a breach there is not
+            # the band's to flag.
+            in_collar = (collar_zone_prep is not None
+                         and (collar_boxes is None
+                              or any(bx0 <= sx <= bx1 and by0 <= sy <= by1
+                                     for bx0, by0, bx1, by1
+                                     in collar_boxes))
+                         and (collar_zone_prep.contains(Point(sx, sy))
+                              or collar_zone_prep.contains(Point(px, py))))
+            # Terrain-facing, non-END, alts known → a scanned/flagged
+            # station; otherwise a depth-0 coupling node (the emitter's
+            # own probe: an outward point covered by a shape owns its band).
+            if (not end_edge and alts_known and not in_collar
+                    and not probe_covered(px, py)):
+                ref = a0 + t * (a1 - a0)
+                flag = True
+            st_x.append(sx)
+            st_y.append(sy)
+            st_outn.append(outn)
+            st_ref.append(ref)
+            st_flag.append(flag)
+            st_seam.append((k == 0 and edge_a_seam)
+                           or (k == nseg - 1 and edge_b_seam))
+            # MIRROR 2 — the emitter's ORDER: "end" wins over the static
+            # probe, so this is deliberately NOT conditioned on ``flag``.
+            st_end_skip.append(alts_known and end_edge)
+
+    # ── ARC A3: END-AWARE BENCH PIN (gate ADJACENT_GROUND_END_PIN_ENABLED)
+    # The emitter ORs ``grade_law.adjacent_ground_end_pin_flags`` into the
+    # same ``at_continuation_seam`` list; mirrored verbatim here, over the
+    # SAME ``usable`` definition (``st_alts[i] is not None``), so both
+    # readers pin the identical stations and the daylight clamp agrees.
+    if ADJACENT_GROUND_END_PIN_ENABLED:
+        _pin = adjacent_ground_end_pin_flags(st_end_skip, st_flag)
+        st_seam = [bool(_s) or bool(_p) for _s, _p in zip(st_seam, _pin)]
+    return (st_x, st_y, st_outn, st_ref, st_flag, st_seam, st_end_skip)
+
+
+def _adjacent_ground_station_caps(stations, width, reach,
+                                  axis_line=None, axis_classes=None):
+    """MIRROR 1 — per-station ``(fill_caps, cut_caps)``, the verbatim twin
+    of the emitter's two caps blocks in
+    ``adjacent_ground._derive_shape_stations_and_bands``.
+
+    Defaults are the emitter's: the FILL cap is the family graded
+    half-width ``width``, the CUT cap the family ``reach``.  Then:
+
+      * arc A4 (``STRIP_WIDTH_FROM_CENTERLINE_ENABLED``) clamps the FILL
+        ONLY, to ``grade_law.runway_strip_band_width_m(width, d_axis,
+        width)`` — the Annex-14 half-width is measured from the runway
+        CENTERLINE while the march spends it from the pavement EDGE, and
+        an apt.dat-shouldered runway is wider than the runway;
+      * the OLS handover (``OLS_CUT_ENABLED``) OWNS the CUT cap outright
+        (assignment, not ``max``): ``min(reach, S)`` with ``S`` the
+        MINIMUM of ``grade_law.ols_lateral_handover_distance_m`` over the
+        runway's two apt.dat end approach classes, exactly as
+        ``ols._flank_law`` min-composes the surfaces.
+
+    ``axis_line`` (runway family only — its presence IS the family test,
+    as in the emitter) ``None`` leaves both caps at their defaults, so
+    taxiway / apron shapes and any runway shape without an axis are
+    untouched.  With both gates off this is the identity the validator's
+    pre-mirror behaviour already implied: the fill flagging is bounded by
+    ``adjacent_ground_envelope``'s floor going ``None`` at exactly
+    ``width``, and the march never reaches ``reach``.
+    """
+    from shapely.geometry import Point
+    from . import clearance as CL
+    from .config import (
+        OLS_CUT_ENABLED, STRIP_WIDTH_FROM_CENTERLINE_ENABLED,
+        runway_code_number)
+    from .grade_law import (
+        ols_lateral_handover_distance_m, runway_strip_band_width_m)
+
+    m = len(stations)
+    fill_caps = [width] * m
+    cut_caps = [reach] * m
+    if axis_line is None:
+        return fill_caps, cut_caps
+    if STRIP_WIDTH_FROM_CENTERLINE_ENABLED:
+        for i, (sx, sy) in enumerate(stations):
+            try:
+                d_axis = axis_line.distance(Point(sx, sy))
+            except CL._GEOM_EXC:
+                continue
+            fill_caps[i] = runway_strip_band_width_m(width, d_axis, width)
+    if OLS_CUT_ENABLED:
+        try:
+            code = runway_code_number(axis_line.length)
+        except (ValueError, KeyError, AttributeError):
+            code = None
+        if code is not None:
+            classes = tuple(axis_classes or ()) or ("non_precision",)
+            for i, (sx, sy) in enumerate(stations):
+                try:
+                    d_axis = axis_line.distance(Point(sx, sy))
+                except CL._GEOM_EXC:
+                    continue
+                s = min(ols_lateral_handover_distance_m(code, cls, d_axis)
+                        for cls in classes)
+                cut_caps[i] = min(reach, s)
+    return fill_caps, cut_caps
+
+
+def _pocket_collar_ring_lines(layout):
+    """MIRROR 3 — the emitted POCKET COLLAR rings as LOCAL-METRE
+    ``LineString``s (arc B1, gate ``POCKET_COLLAR_RINGS_ENABLED``); ``[]``
+    with the gate off or when the emitter published nothing.
+
+    A width-skipped pocket the drainage-spine emitter cannot treat gets
+    two closed collar rings instead (``gap_fill._emit_pocket_collar_rings``),
+    published as ``layout.gap_interior_rings`` entries — ring geometry in
+    LAT/LON, hence the conversion here — plus one record per pocket on
+    ``layout.pocket_collars`` carrying that pocket's polygon in local
+    metres.  Interior rings of TREATED gaps live in the same list, so the
+    collar subset is selected by intersection with a published pocket.
+
+    A flagged column whose station→sample transect CROSSES one of these
+    rings is exempt: the collar is carrying the drainage law across that
+    ground, so a breach beyond it is not the lateral band's to grade.
+    """
+    from .config import POCKET_COLLAR_RINGS_ENABLED
+    if not POCKET_COLLAR_RINGS_ENABLED:
+        return []
+    collars = getattr(layout, "pocket_collars", None) or []
+    rings = getattr(layout, "gap_interior_rings", None) or []
+    if not collars or not rings:
+        return []
+    from shapely.geometry import LineString
+    from . import clearance as CL
+    pockets = [rec.get("pocket") for rec in collars
+               if rec.get("pocket") is not None]
+    if not pockets:
+        return []
+    lines = []
+    for entry in rings:
+        try:
+            pts_latlon = entry[0]
+        except (TypeError, IndexError):
+            continue
+        try:
+            xy = [layout.ll_to_m(float(lat), float(lon))
+                  for lat, lon in pts_latlon]
+        except (TypeError, ValueError):
+            continue
+        if len(xy) < 2:
+            continue
+        try:
+            line = LineString(xy)
+            if line.is_empty:
+                continue
+            if any(p.intersects(line) for p in pockets):
+                lines.append(line)
+        except CL._GEOM_EXC:
+            continue
+    return lines
+
+
+def _collared_pocket_zone_prep(layout):
+    """MIRROR 4 — the PREPARED collared-pocket zone (arc B1, gate
+    ``POCKET_COLLAR_RINGS_ENABLED``); ``None`` with the gate off or when
+    no collar actually emitted.
+
+    The emitter stands its band stations down over a pocket whose collar
+    rings emitted (``adjacent_ground._derive_shape_stations_and_bands``'
+    ``collar_zone_prep``), so this reader must skip the same stations or
+    it would flag the un-graded pocket frontage as should_fill/should_cut.
+    Both sides consume the ONE published geometry
+    (``gap_fill.collared_pocket_zone_prepared``) — there is no second
+    reconstruction of it here."""
+    from .config import POCKET_COLLAR_RINGS_ENABLED
+    if not POCKET_COLLAR_RINGS_ENABLED:
+        return None
+    from .gap_fill import collared_pocket_zone_prepared
+    return collared_pocket_zone_prepared(layout)
 
 
 def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
@@ -1277,6 +1682,15 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
     With the ``O4_ADJACENT_GROUND_LAW`` gate OFF (no bands emitted) this
     reports the columns the law WOULD govern — the pre-flip baseline, like
     the skirt reader's off-gate behaviour.
+
+    EMITTER LOCKSTEP MIRRORS (see the block comment above
+    ``_adjacent_ground_stations``): the per-station FILL/CUT band caps
+    (arc A4 + the OLS handover), the arc-A3 END-SKIP bench pin, and the
+    arc-B1 pocket-collar exemption are all mirrored here from
+    ``adjacent_ground._derive_shape_stations_and_bands``, reading the SAME
+    gates and the SAME ``grade_law`` functions.  Every one of them is
+    structurally inert with its gate off, so a gates-off run is
+    byte-identical to the pre-mirror reader.
     """
     import math
     from shapely.geometry import box, LineString, Point
@@ -1284,13 +1698,15 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
     from shapely.strtree import STRtree
     from . import clearance as CL
     from .config import (
-        CLEARANCE_MAX_REACH_M, CLEARANCE_OBSTRUCTION_THRESHOLD_M,
-        runway_code_number)
+        APRON_SHOULDER_WIDTH_M, CLEARANCE_MAX_REACH_M,
+        CLEARANCE_OBSTRUCTION_THRESHOLD_M,
+        RUNWAY_STRIP_HALF_WIDTH_BY_CODE, runway_code_number,
+        runway_end_approach_class,
+        taxiway_strip_graded_half_width_for_letter)
     from .grade_law import (
         adjacent_ground_envelope, adjacent_ground_supported_depths,
         _ADJACENT_RUNWAY_ROLES, _ADJACENT_TAXIWAY_ROLES)
     from .adjacent_ground import airside_seam_vertex_keys
-    from .emit_decimate import _key as _vertex_key
     from .layout import R_EARTH, taxi_shape_code_letter
     from .pavement.runways import _sample_runway_segment_elev
     from .elevation import _sample_dem
@@ -1393,7 +1809,11 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
 
     # Runway axes for code-number keying + END-edge skipping, IDENTICAL to
     # the emitter: from ``source_runways`` when available, else the runway
-    # shapes' own long extent as the standalone fallback.
+    # shapes' own long extent as the standalone fallback.  Slot 4 carries
+    # the runway's two apt.dat END APPROACH CLASSES, threaded exactly as
+    # ``adjacent_ground.construct_adjacent_ground_presolve`` threads them,
+    # so the OLS handover S is min-composed over the SAME classes in both
+    # readers (MIRROR 1).
     rw_axes = []
     if source_runways:
         for r in source_runways:
@@ -1406,62 +1826,159 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
             if rlen < 1.0:
                 continue
             rw_axes.append((LineString([(rax, ray), (rbx, rby)]),
-                            ((rbx - rax) / rlen, (rby - ray) / rlen), rlen))
+                            ((rbx - rax) / rlen, (rby - ray) / rlen), rlen,
+                            (runway_end_approach_class(
+                                getattr(r, "markings_a", 0),
+                                getattr(r, "approach_lights_a", 0)),
+                             runway_end_approach_class(
+                                getattr(r, "markings_b", 0),
+                                getattr(r, "approach_lights_b", 0)))))
 
     def _long_edge_length_and_unit(poly):
-        """``(long_side_length_m, (ux, uy))`` of the polygon's minimum
-        rotated rectangle — the runway shape's own length + axis, the
-        ``source_runways=None`` fallback for code-number keying and
-        END-edge skipping.  ``(0.0, None)`` when degenerate (never raises;
-        ``runway_code_number(0.0)`` keys the smallest code)."""
+        """``(long_side_length_m, (ux, uy), centerline_or_None)`` of the
+        polygon's minimum rotated rectangle — the runway shape's own
+        length + axis, the ``source_runways=None`` fallback for
+        code-number keying and END-edge skipping.
+        ``(0.0, None, None)`` when degenerate (never raises;
+        ``runway_code_number(0.0)`` keys the smallest code).
+
+        The third element is the rect's MIDLINE (a ``LineString`` between
+        the two short-edge midpoints), i.e. the runway shape's own
+        centreline, which the caps mirror needs: an apt.dat axis is not
+        available on the production ``verify_and_log`` path
+        (``source_runways=None``), and without SOME centreline both the
+        arc-A4 fill clamp and the OLS cut handover would silently do
+        nothing there while the emitter applied them — the exact
+        over-report the mirror exists to remove.  A long rect EDGE would
+        be wrong (it sits half the pavement width off the axis), hence
+        the midline.
+
+        KNOWN RESIDUAL (report to the lead, not fixable here): the
+        midline spans the SHAPE, the emitter's apt.dat axis spans the
+        RUNWAY, and the emitted runway is the longer of the two (SPJC
+        16R/34L: 3617 m of pavement over a 3497 m axis).  Stations past
+        the axis endpoints therefore measure a larger ``d_axis`` in the
+        emitter (distance to the endpoint, not to the line) than they do
+        here — measured SPJC 2026-07-25, the A4 fill cap runs 2.5-34.5 m
+        off the apt axis vs 34.5-75.0 m off the midline.  The clean fix
+        is for the verify driver to thread ``source_runways`` (it passes
+        ``None`` today); until it does, this fallback is strictly closer
+        to the emitter than no clamp at all."""
         try:
             xs = list(min_rotated_rect(poly).exterior.coords)
         except CL._GEOM_EXC:
-            return (0.0, None)
+            return (0.0, None, None)
         best = None
         for i in range(len(xs) - 1):
             dx = xs[i + 1][0] - xs[i][0]
             dy = xs[i + 1][1] - xs[i][1]
             length = math.hypot(dx, dy)
             if length > 0.0 and (best is None or length > best[0]):
-                best = (length, dx / length, dy / length)
-        return (0.0, None) if best is None else (best[0], (best[1], best[2]))
+                best = (length, dx / length, dy / length, i)
+        if best is None:
+            return (0.0, None, None)
+        mid = None
+        # A minimum rotated rectangle is ALWAYS a 5-coord ring (4 corners
+        # + the repeat); anything else is a degenerate product and gets no
+        # midline rather than a guessed one.
+        if len(xs) == 5:
+            try:
+                # The long edge at index i is paired with the opposite
+                # long edge at i+2, so the midline joins the two
+                # short-edge midpoints.
+                i = best[3]
+                ax_, ay_ = xs[i]
+                bx_, by_ = xs[i + 1]
+                cx_, cy_ = xs[(i + 2) % 4]
+                dx_, dy_ = xs[(i + 3) % 4]
+                mid = LineString([((ax_ + dx_) / 2.0, (ay_ + dy_) / 2.0),
+                                  ((bx_ + cx_) / 2.0, (by_ + cy_) / 2.0)])
+                if mid.length < 1.0:
+                    mid = None
+            except (CL._GEOM_EXC + (IndexError,)):
+                mid = None
+        return (best[0], (best[1], best[2]), mid)
 
     def _params(s):
-        """(env_role, code_number, code_letter, reach, axis) for one shape;
-        mirrors ``adjacent_ground._family_params``.  Where the emitter
-        SKIPS runway shapes without ``rw_axes`` (the pipeline always
-        threads apt.runways), the validator must still read them —
-        production ``verify_and_log`` has no runway rows — so it falls
-        back to the runway shape's OWN geometry (minimum-rotated-rectangle
-        long side = length for the code number, its direction for the
-        END-edge skip)."""
+        """``(env_role, code_number, code_letter, reach, axis, width,
+        axis_line, axis_classes)`` for one shape; mirrors
+        ``adjacent_ground._family_params``.  Where the emitter SKIPS
+        runway shapes without ``rw_axes`` (the pipeline always threads
+        apt.runways), the validator must still read them — production
+        ``verify_and_log`` has no runway rows — so it falls back to the
+        runway shape's OWN geometry (minimum-rotated-rectangle long side =
+        length for the code number, its direction for the END-edge skip,
+        its midline for the band caps; the approach classes are then
+        unknown and the caps mirror takes ``runway_end_approach_class``'s
+        own blank-row default, exactly as the emitter does)."""
         role = s.role
         if role in _ADJACENT_RUNWAY_ROLES:
             code_number = None
             axis = None
+            axis_line = None
+            axis_classes = None
             if rw_axes:
                 try:
                     cen = s.polygon.centroid
                     ax = min(rw_axes, key=lambda a: a[0].distance(cen))
                     code_number = runway_code_number(ax[2])
                     axis = ax[1]
+                    axis_line = ax[0]
+                    axis_classes = ax[3] if len(ax) > 3 else None
                 except (CL._GEOM_EXC + (ValueError,)):
                     code_number = None
+                    axis_line = None
+                    axis_classes = None
             if code_number is None:
-                length_m, axis = _long_edge_length_and_unit(s.polygon)
+                length_m, axis, axis_line = _long_edge_length_and_unit(
+                    s.polygon)
                 code_number = runway_code_number(length_m)
+                axis_classes = None
             return (role, code_number, None,
-                    CLEARANCE_MAX_REACH_M["runway"], axis)
+                    CLEARANCE_MAX_REACH_M["runway"], axis,
+                    RUNWAY_STRIP_HALF_WIDTH_BY_CODE[code_number],
+                    axis_line, axis_classes)
         if role in _ADJACENT_TAXIWAY_ROLES:
-            return (role, None, taxi_shape_code_letter(layout, s),
-                    CLEARANCE_MAX_REACH_M["taxiway"], None)
+            letter = taxi_shape_code_letter(layout, s)
+            return (role, None, letter,
+                    CLEARANCE_MAX_REACH_M["taxiway"], None,
+                    taxiway_strip_graded_half_width_for_letter(letter),
+                    None, None)
         # apron family
-        return (role, None, None, CLEARANCE_MAX_REACH_M["taxiway"], None)
+        return (role, None, None, CLEARANCE_MAX_REACH_M["taxiway"], None,
+                APRON_SHOULDER_WIDTH_M, None, None)
 
     out = []
+    # MIRROR 3 — the emitted pocket collar rings (arc B1), local metres.
+    # Empty with the gate off / nothing published, so the exemption test
+    # below is not even reached.
+    collar_lines = _pocket_collar_ring_lines(layout)
+    collar_tree = None
+    if collar_lines:
+        try:
+            collar_tree = STRtree(collar_lines)
+        except CL._GEOM_EXC:
+            collar_lines = []
+    # MIRROR 4 — the collared-pocket station stand-down.  ``None`` with the
+    # gate off / nothing collared, so the march is byte-identical then.
+    collar_zone_prep = _collared_pocket_zone_prep(layout)
+
+    def _crosses_collar(sx, sy, qx, qy):
+        """True when the station→sample transect crosses an emitted collar
+        ring — the collar is carrying the drainage law across that ground,
+        so a breach beyond it is not the lateral band's to grade."""
+        try:
+            seg = LineString([(sx, sy), (qx, qy)])
+            for gi in collar_tree.query(seg):
+                if collar_lines[gi].intersects(seg):
+                    return True
+        except CL._GEOM_EXC:
+            return False
+        return False
+
     for s in scoped:
-        env_role, code_number, code_letter, reach, axis = _params(s)
+        (env_role, code_number, code_letter, reach, axis, width,
+         axis_line, axis_classes) = _params(s)
         try:
             coords = list(s.polygon.exterior.coords)
             ccw = bool(s.polygon.exterior.is_ccw)
@@ -1481,7 +1998,6 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
             ring_alts = [_sample_runway_segment_elev(s, x, y)
                          for x, y in coords]
 
-        n_out = max(1, int(math.ceil(reach / step_m)))
         # Emitter obstruction TRIGGER for this family (the raw-scan gate, NOT
         # the flagging tolerance): runway strips use the runway threshold, the
         # taxiway + apron families the taxiway one — exactly
@@ -1492,68 +2008,36 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
 
         # STATION SEQUENCE — built exactly as the emitter's non-fan station
         # generation so the daylight slope-limit law couples the SAME stations
-        # in both readers.  Every (edge, k) sample is a station; ``flag`` marks
-        # the ones the emitter would actually scan/grade (terrain-facing,
-        # non-END, both edge alts known).  END-edge and inside-facing stations
-        # stay in the sequence as depth-0 COUPLING nodes (the emitter carries
-        # them too, with a None edge reference) but are never flagged —
-        # dropping them would loosen the slope clamp at run boundaries near a
-        # runway end and flag columns the emitter's own clamp already benched
-        # away (lockstep).  Corner FANS are omitted: they share the corner
-        # coordinate (dist 0), so they never change a non-fan station's
-        # supported depth (see grade_law).
-        st_x, st_y, st_outn, st_ref, st_flag = [], [], [], [], []
-        st_seam = []
-        for i in range(len(coords) - 1):
-            eax, eay = coords[i]
-            ebx, eby = coords[i + 1]
-            u = CL._unit(ebx - eax, eby - eay)
-            if u is None:
-                continue
-            outn = (u[1], -u[0]) if ccw else (-u[1], u[0])
-            a0 = ring_alts[i]
-            a1 = ring_alts[i + 1]
-            # Runway END edges: the runway-end skirt law owns terrain beyond
-            # an end (its own governed length + lawful beyond-drop).
-            end_edge = (axis is not None
-                        and abs(outn[0] * axis[0] + outn[1] * axis[1])
-                        > CL._RING_END_NORMAL_DOT)
-            seglen = math.hypot(ebx - eax, eby - eay)
-            nseg = max(1, int(math.ceil(seglen / step_m)))
-            # Continuation-seam flags for this edge's stations — the SAME rule
-            # the emitter uses (k == 0 on ``coords[i]`` / k == nseg-1 before
-            # ``coords[i+1]``); mirrored so the daylight pins land identically.
-            edge_a_seam = _vertex_key(eax, eay) in seam_keys
-            edge_b_seam = _vertex_key(ebx, eby) in seam_keys
-            for k in range(nseg):
-                t = k / nseg
-                sx = eax + (ebx - eax) * t
-                sy = eay + (eby - eay) * t
-                ref = None
-                flag = False
-                # Terrain-facing, non-END, alts known → a scanned/flagged
-                # station; otherwise a depth-0 coupling node (the emitter's
-                # own probe: an outward point covered by a shape owns its band).
-                if (not end_edge and a0 is not None and a1 is not None
-                        and not _inside_shape(
-                            sx + outn[0] * CL._RING_PROBE_M,
-                            sy + outn[1] * CL._RING_PROBE_M)):
-                    ref = a0 + t * (a1 - a0)
-                    flag = True
-                st_x.append(sx)
-                st_y.append(sy)
-                st_outn.append(outn)
-                st_ref.append(ref)
-                st_flag.append(flag)
-                st_seam.append((k == 0 and edge_a_seam)
-                               or (k == nseg - 1 and edge_b_seam))
+        # in both readers (``_adjacent_ground_stations``, which also carries
+        # MIRROR 2, the arc-A3 end-skip bench pin).  Every (edge, k) sample is
+        # a station; ``st_flag`` marks the ones the emitter would actually
+        # scan/grade (terrain-facing, non-END, both edge alts known).
+        # END-edge and inside-facing stations stay in the sequence as depth-0
+        # COUPLING nodes (the emitter carries them too, with a None edge
+        # reference) but are never flagged — dropping them would loosen the
+        # slope clamp at run boundaries near a runway end and flag columns the
+        # emitter's own clamp already benched away (lockstep).  Corner FANS are
+        # omitted: they share the corner coordinate (dist 0), so they never
+        # change a non-fan station's supported depth (see grade_law).
+        (st_x, st_y, st_outn, st_ref, st_flag, st_seam,
+         _st_end_skip) = _adjacent_ground_stations(
+            coords, ccw, ring_alts, axis, step_m, seam_keys, _inside_shape,
+            collar_zone_prep=collar_zone_prep)
+        n_st = len(st_x)
+
+        # MIRROR 1 — per-station band caps, the emitter's ``fill_caps`` /
+        # ``cut_caps``.  Defaults (graded ``width`` for fill, family
+        # ``reach`` for cut) restate what this reader's corridor already
+        # implied, so they bind nothing until a gate flips.
+        fill_caps, cut_caps = _adjacent_ground_station_caps(
+            list(zip(st_x, st_y)), width, reach, axis_line, axis_classes)
 
         # RAW OUTWARD SCAN — the emitter's ``outer[i]``: the furthest distance
         # the DEM breaches the corridor by more than the emitter TRIGGER, one
-        # step out, capped at the reach (fill breaches exist only inside the
-        # graded width, where the floor is finite).  One DEM march per station,
-        # cached so the tolerance flagging below re-samples nothing.
-        n_st = len(st_x)
+        # step out, capped at the station's band cap (fill breaches exist only
+        # inside the graded width, where the floor is finite).  One DEM march
+        # per station, cached so the tolerance flagging below re-samples
+        # nothing.
         fill_raw = [0.0] * n_st
         cut_raw = [0.0] * n_st
         marched = [None] * n_st        # station → [(d, offset, fo, co, qx, qy)]
@@ -1562,10 +2046,27 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
                 continue
             sx, sy, outn, ref = (st_x[idx], st_y[idx],
                                  st_outn[idx], st_ref[idx])
+            fill_cap = fill_caps[idx]
+            cut_cap = cut_caps[idx]
+            # March only as far as EITHER direction is still capped to
+            # govern.  Gates off this is the family ``reach`` (the cut cap),
+            # i.e. the pre-mirror march verbatim; with the OLS cut cap on
+            # it is S, which is also why the mirror makes this reader
+            # CHEAPER on runway frontage, never dearer.
+            #
+            # SUB-STEP CAPS: this reader keeps its 5 m station grid, so a
+            # cap below one step (A4 can clamp a station's fill cap to
+            # 0 m) yields no sample inside the cap and therefore no
+            # finding, where the emitter's own ``min(cap - 1e-3, k*step)``
+            # would still probe once.  The divergence is one-directional —
+            # the validator flags LESS — so it can never mint a finding
+            # against emitted work, which is the invariant that matters.
+            scan_cap = fill_cap if fill_cap > cut_cap else cut_cap
+            n_out = max(1, int(math.ceil(scan_cap / step_m)))
             samples = []
             last_fill = last_cut = 0.0
             for j in range(1, n_out + 1):
-                d = min(reach - 1e-3, j * step_m)
+                d = min(scan_cap - 1e-3, j * step_m)
                 floor_off, ceil_off = adjacent_ground_envelope(
                     env_role, code_number, code_letter, d)
                 if floor_off is None and ceil_off is None:
@@ -1577,15 +2078,19 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
                     continue
                 offset = float(dd) - ref
                 samples.append((d, offset, floor_off, ceil_off, qx, qy))
-                if floor_off is not None and offset < floor_off - trigger:
+                if (floor_off is not None and d <= fill_cap
+                        and offset < floor_off - trigger):
                     last_fill = d
-                if ceil_off is not None and offset > ceil_off + trigger:
+                if (ceil_off is not None and d <= cut_cap
+                        and offset > ceil_off + trigger):
                     last_cut = d
             marched[idx] = samples
             if last_fill > 0.0:
-                fill_raw[idx] = min(reach - 1e-3, last_fill + step_m)
+                fill_raw[idx] = min(scan_cap - 1e-3, fill_cap,
+                                    last_fill + step_m)
             if last_cut > 0.0:
-                cut_raw[idx] = min(reach - 1e-3, last_cut + step_m)
+                cut_raw[idx] = min(scan_cap - 1e-3, cut_cap,
+                                   last_cut + step_m)
 
         # DAYLIGHT slope-limit (the ONE law, in lockstep with the emitter's
         # ``_build_*_bands`` clamp): a column BEYOND the supported depth is not
@@ -1601,8 +2106,14 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
         for idx in range(n_st):
             if not st_flag[idx] or marched[idx] is None:
                 continue
-            sf = supported_fill[idx]
-            sc = supported_cut[idx]
+            # MIRROR 1 at the FLAG: a column beyond the station's band cap
+            # is outside what the emitter would ever lay, so it is exempt
+            # exactly like a column beyond the daylight-supported depth.
+            # Gates off both caps restate bounds this loop already had
+            # (the fill floor goes ``None`` at ``width``; the march never
+            # reaches ``reach``), so the ``min`` binds nothing.
+            sf = min(supported_fill[idx], fill_caps[idx])
+            sc = min(supported_cut[idx], cut_caps[idx])
             worst_below = None
             worst_above = None
             for d, offset, floor_off, ceil_off, qx, qy in marched[idx]:
@@ -1629,6 +2140,11 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
                 if (prep_boundary is not None
                         and not prep_boundary.covers(Point(qx, qy))):
                     continue
+                # MIRROR 3 — a transect that crosses an emitted POCKET
+                # COLLAR ring is the collar's ground, not the band's.
+                if collar_lines and _crosses_collar(
+                        st_x[idx], st_y[idx], qx, qy):
+                    continue
                 cur = worst.get(kind)
                 if cur is None or mag > cur[0]:
                     worst[kind] = (mag, qx, qy)
@@ -1636,6 +2152,192 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
         for kind, (mag, qx, qy) in worst.items():
             out.append((kind, ident, mag, tolerance_m,
                         _ll(layout, qx, qy)))
+    out.sort(key=lambda r: -r[2])
+    return out
+
+
+# Linear noise floor for the collar↔band overlap invariant (m).  The band
+# is clipped by the EXACT pocket, so a genuine stand-down leaves ZERO
+# overlap; anything above this floor is a real double-cover, not clip
+# residue.
+_COLLAR_BAND_NOISE_M = 0.1
+
+
+def check_collar_ring_band_overlap(layout):
+    """Invariant (arc B1): no emitted POCKET COLLAR ring may run inside an
+    adjacent-ground BAND polygon.
+
+    A collar ring and a lateral band reaching into the same width-skipped
+    pocket are TWO surfaces governing ONE patch of terrain (SPJC: collar
+    ring 1 at 3 m out, bands covering the first ~10 m — X-Plane crashes on
+    the overlap).  The band march's own covered-frontage probe cannot see
+    the conflict, because a width-skipped pocket has no gap FACE to stand
+    the bands down; the stand-down is therefore EXPLICIT
+    (``gap_fill.collared_pocket_zone_union`` consumed by
+    ``adjacent_ground``, both in the station march and as a polygon clip)
+    and this reader is its regression tripwire.
+
+    Returns ``[(length_m, ident, "lat,lon"), …]`` longest-overlap first;
+    ``[]`` with the collar gate off or nothing emitted (so the check costs
+    one attribute read then).
+
+    The collar geometry comes from MIRROR 3's ``_pocket_collar_ring_lines``
+    — the same local-metre lines the transect exemption uses, no second
+    reconstruction.  Overlap is measured against each band polygon eroded
+    by 1 cm so a ring merely COINCIDING with a clipped band boundary (the
+    lawful weld) is not a finding.
+    """
+    collar_lines = _pocket_collar_ring_lines(layout)
+    if not collar_lines:
+        return []
+    from shapely.strtree import STRtree
+    from . import clearance as CL
+    from .adjacent_ground import _ADJACENT_REF
+    bands = [s for s in layout.shapes
+             if (getattr(s, "ref", "") or "") == _ADJACENT_REF
+             and s.polygon is not None and not s.polygon.is_empty]
+    if not bands:
+        return []
+    band_polys = [s.polygon for s in bands]
+    try:
+        tree = STRtree(band_polys)
+    except CL._GEOM_EXC:
+        return []
+    out = []
+    for line in collar_lines:
+        try:
+            cand = tree.query(line)
+        except CL._GEOM_EXC:
+            continue
+        for gi in cand:
+            try:
+                core = band_polys[gi].buffer(-0.01)
+                if core.is_empty:
+                    continue
+                inter = line.intersection(core)
+                if inter.is_empty or inter.length <= _COLLAR_BAND_NOISE_M:
+                    continue
+                point = inter.representative_point()
+            except CL._GEOM_EXC:
+                continue
+            s = bands[gi]
+            ident = (s.ref or "").strip() or s.role
+            out.append((inter.length, ident,
+                        _ll(layout, point.x, point.y)))
+    out.sort(key=lambda r: -r[0])
+    return out
+
+
+def check_ols_surfaces(layout, dem, tile_lat, tile_lon,
+                       source_runways=None,
+                       tolerance_m: float = 1.5):
+    """Invariant (obstacle limitation surfaces): terrain must not stand
+    above the OLS transitional / approach-first-section ceilings —
+    ``grade_law.ols_transitional_ceiling`` / ``ols_approach_ceiling`` —
+    except where the law itself declines to govern.
+
+    The twin of ``check_adjacent_ground`` for the OLS arc
+    (docs/specs/obstacle-limitation-surfaces-spec.md).  Pure reporter:
+    returns ``[("should_cut_ols_transitional" |
+    "should_cut_ols_approach" | "ols_refused_island", "<desig>",
+    metres_above_ceiling, tolerance_m, "lat,lon"), …]`` worst-first.
+
+    LOCKSTEP.  The reader does NOT re-derive the surfaces: it calls the
+    emitter's own pre-scan, ``ols.ols_penetration_islands`` — the same
+    raster, the same min-composed ceiling, the same island labelling and
+    the same ``grade_law.ols_island_refused`` verdict.  A finding is
+    therefore an island the emitter SHOULD have cut and did not, never a
+    disagreement about where the surface is.  Re-deriving the geometry
+    here is exactly how a validator drifts from its emitter (the
+    one-directional ``check_runway_end_skirt`` is this repo's cautionary
+    case — it could not see the missing RESA for nine days).
+
+    Three exemptions, each recomputed from the shared source rather than
+    guessed:
+
+    * REFUSED islands — reported informationally as
+      ``ols_refused_island`` with the island's own depth, never as a
+      violation.  ``grade_law.ols_island_refused`` refuses whole islands
+      deeper than ``OLS_MAX_CUT_DEPTH_M`` by design (shaving a real
+      mountain's fringe sculpts a moat), so flagging them would demand
+      the impossible.
+    * COVERED islands — an island whose deepest cell already lies under
+      an emitted ``ROLE_OLS_CUT`` shape (or any other elevation-carrying
+      shape) is governed; nothing to report.
+    * The gate — with ``OLS_CUT_ENABLED`` off this reports what the
+      emitter WOULD govern, so fixture baselines can be captured before
+      the flip.  That is the same convention ``check_runway_end_skirt``
+      uses and is why the reader is deliberately NOT gated.
+
+    ``tolerance_m`` absorbs the emitter's obstruction trigger, emit
+    rounding and DEM interpolation, exactly as the sibling readers do.
+    """
+    if dem is None:
+        return []
+    try:
+        from .ols import ols_penetration_islands
+    except ImportError:                                  # pragma: no cover
+        return []
+    try:
+        islands = ols_penetration_islands(
+            layout, dem, tile_lat, tile_lon, source_runways)
+    except (ValueError, ArithmeticError, AttributeError, TypeError):
+        return []
+    if not islands:
+        return []
+
+    from shapely.geometry import Point
+    from .layout import ROLE_OLS_CUT
+
+    covering = [s for s in layout.shapes
+                if s.polygon is not None and not s.polygon.is_empty
+                and (s.node_altitudes or s.altitude is not None
+                     or (s.altitude_high is not None
+                         and s.altitude_low is not None))]
+    ols_shapes = [s for s in covering if s.role == ROLE_OLS_CUT]
+
+    def _governed(x, y) -> bool:
+        """Is the island's deepest point already covered?  An emitted OLS
+        cut is the direct answer; any other elevation-carrying shape means
+        some other feature owns that ground (a skirt, a RESA cut, a band,
+        pavement) and the OLS emitter clipped against it by construction.
+        """
+        pt = Point(x, y)
+        for s in ols_shapes:
+            try:
+                if s.polygon.covers(pt):
+                    return True
+            except (ValueError, ArithmeticError):
+                continue
+        for s in covering:
+            try:
+                if s.polygon.covers(pt):
+                    return True
+            except (ValueError, ArithmeticError):
+                continue
+        return False
+
+    out = []
+    for island in islands:
+        deepest = island.get("deepest_xy")
+        depth = float(island.get("max_depth_m", 0.0) or 0.0)
+        desig = str(island.get("desig", "") or "")
+        if deepest is None:
+            continue
+        qx, qy = float(deepest[0]), float(deepest[1])
+        if island.get("refused"):
+            out.append(("ols_refused_island", desig, depth, tolerance_m,
+                        _ll(layout, qx, qy)))
+            continue
+        if depth <= tolerance_m:
+            continue
+        if _governed(qx, qy):
+            continue
+        kind = ("should_cut_ols_transitional"
+                if island.get("surface") == "transitional"
+                else "should_cut_ols_approach")
+        out.append((kind, desig, depth, tolerance_m,
+                    _ll(layout, qx, qy)))
     out.sort(key=lambda r: -r[2])
     return out
 
@@ -2871,6 +3573,19 @@ def verify_and_log(layout, icao: str, debug_log_path: str | None = None,
     printed as [verify] chatter.  The full per-category detail is appended to
     ``debug_log_path``; the console gets only a one-line vprint(1) summary
     (suppressed at the build's LOG_VERBOSITY)."""
+    # LOCKSTEP: the readers must measure against the SAME authoritative
+    # apt.dat row-100 geometry the emitters used.  ``driver`` has no
+    # ``apt`` in scope at the verify call and so passes
+    # ``source_runways=None``; the pipeline stashes the list on the layout
+    # for exactly this reason.  Without it the adjacent-ground caps mirror
+    # falls back to a min-rotated-rect midline, and because the emitted
+    # pavement is longer than the apt.dat axis (SPJC 16R/34L: 3,617 m vs
+    # 3,497 m) the two sides measure different station-to-axis distances
+    # past the axis endpoints — the A4/OLS caps then drift apart in
+    # exactly the production configuration.  An explicit argument still
+    # wins, so callers that already have the rows are unaffected.
+    if source_runways is None:
+        source_runways = getattr(layout, "apt_runways", None) or None
     overlaps = source = within = cross = steps = []
     try:
         overlaps = check_self_overlap(layout)
@@ -2974,6 +3689,61 @@ def verify_and_log(layout, icao: str, debug_log_path: str | None = None,
         except _shapely_domain_exceptions:         # pragma: no cover
             adjacent = []
 
+    # COLLAR ↔ BAND double-cover (arc B1) — geometry only, no DEM, and
+    # inert unless collar rings actually emitted, so it is gate-guarded by
+    # construction (``_pocket_collar_ring_lines`` reads the gate).
+    collar_band = []
+    from .clearance import _GEOM_EXC as _collar_geom_exc
+    try:
+        collar_band = check_collar_ring_band_overlap(layout)
+    except _collar_geom_exc:                       # pragma: no cover
+        collar_band = []
+    if collar_band:
+        UI.vprint(1,
+            f"  [verify] collar rings: {len(collar_band)} ring segment(s) "
+            f"inside an adjacent-ground band; worst {collar_band[0][0]:.2f} "
+            f"m at {collar_band[0][2]} — the collared pocket stand-down "
+            f"failed (X-Plane double-cover).")
+
+    # OLS law reader (arc slice 4) — gate-guarded like the adjacent-ground
+    # block above: with O4_OLS_CUT off the verify output is byte-identical.
+    # The reader itself is ungated by design (it reports what the emitter
+    # WOULD govern, so baselines can be captured pre-flip); the GATE here
+    # is only about whether the verify pass pays for it.
+    ols_findings = []
+    from .config import OLS_CUT_ENABLED as _ols_gate
+    if _ols_gate:
+        import math as _math
+        from .clearance import _GEOM_EXC as _shapely_domain_exceptions
+        _dem = dem
+        _tlat, _tlon = tile_lat, tile_lon
+        if _dem is None:
+            from .elevation import _load_airport_dem
+            _dem = _load_airport_dem(layout.anchor[0], layout.anchor[1])
+        if _tlat is None or _tlon is None:
+            _tlat = int(_math.floor(layout.anchor[0]))
+            _tlon = int(_math.floor(layout.anchor[1]))
+        try:
+            ols_findings = check_ols_surfaces(
+                layout, _dem, _tlat, _tlon, source_runways=source_runways)
+        except _shapely_domain_exceptions:         # pragma: no cover
+            ols_findings = []
+    if ols_findings:
+        _refused = [f for f in ols_findings
+                    if f[0] == "ols_refused_island"]
+        _breaches = [f for f in ols_findings
+                     if f[0] != "ols_refused_island"]
+        if _breaches:
+            UI.vprint(1,
+                f"  [verify] OLS: {len(_breaches)} ungoverned surface "
+                f"penetration(s); worst {_breaches[0][2]:.2f} m above the "
+                f"ceiling at {_breaches[0][4]} ({_breaches[0][1]}).")
+        if _refused:
+            UI.vprint(1,
+                f"  [verify] OLS: {len(_refused)} island(s) REFUSED as "
+                f"too deep to cut (worst {_refused[0][2]:.2f} m) — by "
+                f"design, not a violation.")
+
     # Object-bridge law readers (feature B stage 2) — gate-guarded like
     # the adjacent-ground law: a gate-off build has ZERO overhead and
     # byte-identical verify output.  Shapely-domain failures only may
@@ -3040,6 +3810,8 @@ def verify_and_log(layout, icao: str, debug_log_path: str | None = None,
         getattr(layout, "airside_weld_drops", []) or [])
     if ADJACENT_GROUND_LAW_ENABLED:
         counts["adjacent_ground"] = len(adjacent)
+    if collar_band:
+        counts["collar_ring_in_band"] = len(collar_band)
     if OBJECT_BRIDGE_TERRAIN:
         counts["bridge_deck_pins"] = len(bridge_pins)
         counts["bridge_crossing_floor"] = len(bridge_floor)

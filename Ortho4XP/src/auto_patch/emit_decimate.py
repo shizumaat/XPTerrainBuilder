@@ -229,23 +229,16 @@ def _ring_and_alts(shape):
     return ring, None, False        # unknown alignment: XY-only test
 
 
-def _span_ok(ring, alts, i, j, n, z_tol):
+def _span_deviation_ok(ring, alts, i, j, n, z_tol):
     """True iff every vertex strictly between ring[i] and ring[j] (circular)
     lies within XY_TOL_M of the chord AND (when alts exist) within ``z_tol``
-    of the linearly interpolated altitude along it."""
+    of the linearly interpolated altitude along it.  Chord LENGTH is not
+    considered — see :func:`_span_ok`."""
     ax, ay = ring[i % n]
     bx, by = ring[j % n]
     cx, cy = bx - ax, by - ay
     cl = math.hypot(cx, cy)
     if cl < 1e-9:
-        return False
-    # MAX CHORD (user in-sim finding 2026-07-09): an uncapped span
-    # collapse left a 1,279 m junction edge, and the mesh interpolated
-    # the pavement between far-apart nodes — visible sag against the
-    # neighbouring graded strips.  Long straights keep a node every
-    # ~30 m to hold the edge at its solved grade; the recursion below
-    # splits an over-long span at its farthest vertex.
-    if cl > MAX_CHORD_M:
         return False
     k = (i + 1) % n
     while k != j % n:
@@ -264,6 +257,57 @@ def _span_ok(ring, alts, i, j, n, z_tol):
                 return False
         k = (k + 1) % n
     return True
+
+
+def _span_ok(ring, alts, i, j, n, z_tol):
+    """True iff the span ring[i]→ring[j] may collapse to a single edge:
+    within the XY/Z bands (:func:`_span_deviation_ok`) AND no longer than
+    ``MAX_CHORD_M``."""
+    ax, ay = ring[i % n]
+    bx, by = ring[j % n]
+    cl = math.hypot(bx - ax, by - ay)
+    if cl < 1e-9:
+        return False
+    # MAX CHORD (user in-sim finding 2026-07-09): an uncapped span
+    # collapse left a 1,279 m junction edge, and the mesh interpolated
+    # the pavement between far-apart nodes — visible sag against the
+    # neighbouring graded strips.  Long straights keep a node every
+    # ~30 m to hold the edge at its solved grade; the recursion below
+    # splits an over-long span (at its farthest vertex, or — when the
+    # cap is the ONLY thing it fails — at its midpoint).
+    if cl > MAX_CHORD_M:
+        return False
+    return _span_deviation_ok(ring, alts, i, j, n, z_tol)
+
+
+def _mid_index(ring, u, v, n):
+    """Index of the intermediate vertex nearest the ARC-LENGTH midpoint of
+    the span ring[u]→ring[v] (circular), or None if it has none.
+
+    Orientation-independent by construction: a vertex's distance to the
+    midpoint is the same measured from either end, and an exact tie (the
+    even-count uniform run) is broken on the coordinate key — so a chain
+    two abutting rings trace in OPPOSITE directions splits at the same
+    vertex on both, and the unanimity vote keeps it rather than the union
+    of two different picks."""
+    idx, cum, total = [], [], 0.0
+    px, py = ring[u % n]
+    k = (u + 1) % n
+    while True:
+        qx, qy = ring[k]
+        total += math.hypot(qx - px, qy - py)
+        px, py = qx, qy
+        if k == v % n:
+            break
+        idx.append(k)
+        cum.append(total)
+        k = (k + 1) % n
+    if not idx:
+        return None
+    half = total * 0.5
+    off = min(abs(c - half) for c in cum)
+    tied = [k for k, c in zip(idx, cum) if abs(c - half) <= off + 1e-9]
+    return min(tied, key=lambda k: _key(*ring[k]))
 
 
 def _ring_keep_set(ring, alts, z_tol, forced=None):
@@ -293,12 +337,31 @@ def _ring_keep_set(ring, alts, z_tol, forced=None):
                 continue
             if _span_ok(ring, alts, u, v, n, z_tol):
                 continue        # whole span drops
-            # split at the intermediate farthest (XY) from the chord
             ax, ay = ring[u % n]
             bx, by = ring[v % n]
             cx, cy = bx - ax, by - ay
             cl2 = max(cx * cx + cy * cy, 1e-12)
-            best_k, best_d = None, -1.0
+            # BISECT WHEN ONLY THE CAP BITES (2026-07-25): on a perfectly
+            # straight constant-altitude run — adjacent-ground band rows,
+            # the boundary ribbon, the OLS cut rows — EVERY intermediate
+            # deviates 0.0, so the farthest-vertex search below returns
+            # the FIRST one and the recursion peels a single vertex per
+            # level instead of bisecting.  A 330 m row of 61 nodes kept
+            # 22 where ceil(330/60)+1 = 7 suffice.  When the span is in
+            # band and fails ONLY the MAX_CHORD_M cap there is no
+            # deviation to split at, so split at the midpoint: halves
+            # converge in log steps and land evenly spaced.
+            best_k = None
+            if math.hypot(cx, cy) > MAX_CHORD_M and \
+                    _span_deviation_ok(ring, alts, u, v, n, z_tol):
+                best_k = _mid_index(ring, u, v, n)
+            if best_k is not None:
+                keep.add(best_k)
+                stack.append((u, best_k))
+                stack.append((best_k, v))
+                continue
+            # split at the intermediate farthest (XY) from the chord
+            best_d = -1.0
             k = (u + 1) % n
             while k != v % n:
                 px, py = ring[k]

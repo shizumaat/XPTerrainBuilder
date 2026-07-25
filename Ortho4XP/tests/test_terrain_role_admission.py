@@ -38,15 +38,59 @@ def _square(x0, y0, side=10.0):
                     (x0, y0 + side)])
 
 
+# EVERY terrain-absorption sub-gate, enumerated once.  A test that pins
+# "all sub-gates off" or isolates ONE family must control the whole set —
+# a family it does not know about defaults ON and either leaks into the
+# admitted set or trips a hard-dependency chain.  That is exactly what the
+# arc-R RESA family did on 2026-07-25 when its gate flipped to default ON:
+# four tests here failed, two on a leaked ``runway_end_resa`` pair and two
+# on the fail-loudly dependency guard firing because the RESA gate was on
+# while the skirt gate was pinned off.  ``test_subgate_list_is_complete``
+# below makes the next family a LOUD failure here rather than a silent
+# skew in the tests that use this list.
+_SUBGATES = (
+    "ONE_SOLVE_TERRAIN_RUNWAY_END_SKIRT",
+    "ONE_SOLVE_TERRAIN_RUNWAY_END_RESA",
+    "ONE_SOLVE_TERRAIN_GAP_FILL_SPINE",
+    "ONE_SOLVE_TERRAIN_GRADED_STRIP",
+    "ONE_SOLVE_TERRAIN_GRADED_STRIP_CONSTRUCT",
+)
+
+
+def _pin_subgates(monkeypatch, **on):
+    """Pin EVERY sub-gate off, then turn on the ones named ``on``.
+
+    Keyword names are the gate suffixes, lower-cased — e.g.
+    ``_pin_subgates(mp, runway_end_skirt=True)``.
+    """
+    for name in _SUBGATES:
+        monkeypatch.setattr(cfg, name, False)
+    for suffix, value in on.items():
+        name = "ONE_SOLVE_TERRAIN_" + suffix.upper()
+        assert name in _SUBGATES, f"unknown sub-gate {name}"
+        monkeypatch.setattr(cfg, name, value)
+
+
+def test_subgate_list_is_complete():
+    """``_SUBGATES`` must name every ``ONE_SOLVE_TERRAIN_*`` sub-gate in
+    config.  A new terrain family that lands without being added here
+    would silently escape every isolation test in this module."""
+    found = {n for n in dir(cfg)
+             if n.startswith("ONE_SOLVE_TERRAIN")
+             and n != "ONE_SOLVE_TERRAIN"
+             and isinstance(getattr(cfg, n), bool)}
+    assert found == set(_SUBGATES), (
+        "sub-gate set drift — add the new gate to _SUBGATES: "
+        f"missing {sorted(found - set(_SUBGATES))}, "
+        f"stale {sorted(set(_SUBGATES) - found)}")
+
+
 def _pin_all_gates_off(monkeypatch):
     # Explicit gate-OFF pinning (defaults flipped ON, dev fad621d): the
     # master gate off alone keeps every admission path closed, but we pin
     # the whole stack so the state is unambiguous and env-independent.
     monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN", False)
-    monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN_RUNWAY_END_SKIRT", False)
-    monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN_GAP_FILL_SPINE", False)
-    monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN_GRADED_STRIP", False)
-    monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN_GRADED_STRIP_CONSTRUCT", False)
+    _pin_subgates(monkeypatch)
 
 
 # ── admitted_terrain_roles gate logic ────────────────────────────────────
@@ -58,9 +102,7 @@ def test_admitted_empty_with_master_gate_off(monkeypatch):
 
 def test_admitted_empty_with_master_on_but_subgates_off(monkeypatch):
     monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN", True)
-    monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN_RUNWAY_END_SKIRT", False)
-    monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN_GAP_FILL_SPINE", False)
-    monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN_GRADED_STRIP", False)
+    _pin_subgates(monkeypatch)
     # Master ON, nothing admitted → the Stage B0 no-op condition.
     assert SP.admitted_terrain_roles() == frozenset()
 
@@ -74,13 +116,10 @@ def test_subgates_require_the_master_gate(monkeypatch):
 
 def test_each_subgate_admits_its_role(monkeypatch):
     monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN", True)
-    monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN_RUNWAY_END_SKIRT", True)
-    monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN_GAP_FILL_SPINE", False)
-    monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN_GRADED_STRIP", False)
+    _pin_subgates(monkeypatch, runway_end_skirt=True)
     assert SP.admitted_terrain_roles() == frozenset({ROLE_RUNWAY_CLEARANCE})
 
-    monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN_RUNWAY_END_SKIRT", False)
-    monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN_GAP_FILL_SPINE", True)
+    _pin_subgates(monkeypatch, gap_fill_spine=True)
     assert SP.admitted_terrain_roles() == frozenset({ROLE_GRADED_STRIP})
 
     # The band-admission sub-gate is HARD-CHAINED (B3 order 2) onto the
@@ -110,14 +149,21 @@ def test_admitted_refs_empty_with_master_gate_off(monkeypatch):
 
 def test_each_subgate_admits_its_role_ref_pair(monkeypatch):
     monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN", True)
-    monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN_RUNWAY_END_SKIRT", True)
-    monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN_GAP_FILL_SPINE", False)
-    monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN_GRADED_STRIP", False)
+    _pin_subgates(monkeypatch, runway_end_skirt=True)
     assert SP.admitted_terrain_refs() == frozenset(
         {(ROLE_RUNWAY_CLEARANCE, "runway_end_skirt")})
 
-    monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN_RUNWAY_END_SKIRT", False)
-    monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN_GAP_FILL_SPINE", True)
+    # The RESA cut rides the SAME role but its own ref, and it is
+    # hard-chained onto the skirt gate — so it admits a SECOND pair
+    # rather than replacing the skirt's.  That pairing is the whole
+    # reason admission keys on (role, ref) and not on role.
+    _pin_subgates(monkeypatch, runway_end_skirt=True,
+                  runway_end_resa=True)
+    assert SP.admitted_terrain_refs() == frozenset({
+        (ROLE_RUNWAY_CLEARANCE, "runway_end_skirt"),
+        (ROLE_RUNWAY_CLEARANCE, "runway_end_resa")})
+
+    _pin_subgates(monkeypatch, gap_fill_spine=True)
     assert SP.admitted_terrain_refs() == frozenset(
         {(ROLE_GRADED_STRIP, "gap_fill_spine")})
 
@@ -243,10 +289,7 @@ def test_node_list_identical_object_when_admitted_empty(monkeypatch):
     # what the gates-off build produces (byte-identical membership).  Pin
     # every sub-gate OFF explicitly (defaults flipped ON, dev fad621d).
     monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN", True)
-    monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN_RUNWAY_END_SKIRT", False)
-    monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN_GAP_FILL_SPINE", False)
-    monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN_GRADED_STRIP", False)
-    monkeypatch.setattr(cfg, "ONE_SOLVE_TERRAIN_GRADED_STRIP_CONSTRUCT", False)
+    _pin_subgates(monkeypatch)
     layout_a = _layout_with_terrain()
     nodes_a, _ = SP._build_node_list(layout_a)
     assert len(nodes_a) == 4                            # graded_strip excluded

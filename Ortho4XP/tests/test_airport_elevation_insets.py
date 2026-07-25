@@ -17,6 +17,7 @@ Covered:
 """
 
 import json
+import math
 import os
 
 import numpy
@@ -849,6 +850,277 @@ def test_coverage_threshold_behaviour(tmp_path, monkeypatch):
 
 
 # =====================================================================
+# Coarse data is never dressed up as fine (2026-07-24 OTHH report)
+# =====================================================================
+# Copernicus GLO-30 is the only elevation source in Qatar, yet OTHH was
+# smoothed at radius 2 -- 31 m of blur over 30 m data, leaving the pixel
+# staircase bare -- because (a) neighbouring OTBD's inset had been warped
+# onto a 3 m grid by an airport_elevation_level pin, and (b) the radius
+# rule took the finest pixel of any raster whose EXTENT clipped OTHH's
+# mask.  Both halves are fixed, and each is pinned separately below.
+def _degrees_for_metres(metres):
+    return metres / 111120.0
+
+
+def _write_inset_posted_at(path, west, south, east, north, resolution_m):
+    """A constant GeoTIFF posted at ``resolution_m`` in BOTH directions.
+
+    The radius rule reads the NORTH-SOUTH pixel size, so rows must follow
+    the latitude span and columns the longitude span; a square pixel count
+    over a non-square box posts the two axes at different resolutions.
+    The boxes here are deliberately small (~200 m) so a 1 m posting stays
+    a few hundred pixels rather than a multi-gigabyte array.
+    """
+    degrees = _degrees_for_metres(resolution_m)
+    return _write_constant_geotiff(
+        path, west, south, east, north, 10.0,
+        columns=max(1, int(round((east - west) / degrees))),
+        rows=max(1, int(round((north - south) / degrees))),
+    )
+
+
+def test_inset_target_resolution_never_finer_than_native():
+    resolve = INSETS._inset_target_resolution_m
+    coarse = {"code": "GLO30", "native_resolution_m": 30}
+    # A pin FINER than native is raised to native: no interpolation.
+    assert resolve(coarse, 3.0) == 30.0
+    assert resolve(coarse, 0.5) == 30.0
+    # A pin COARSER than native is a real trade and is honoured.
+    assert resolve(coarse, 50.0) == 50.0
+    # Auto still means best-available for the provider.
+    assert resolve(coarse, None) == 30.0
+    assert resolve({"code": "LIDAR", "native_resolution_m": 1}, None) == 1.0
+    # A provider that declares nothing cannot be clamped; the pin stands.
+    assert resolve({"code": "UNKNOWN"}, 2.0) == 2.0
+
+
+def test_ensure_airport_insets_clamps_a_finer_pin_to_native(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    recorded = []
+
+    def _record_fetch(
+        definition, bounding_box, target_resolution_m, destination,
+        footprint_prefetch=None,
+    ):
+        recorded.append(target_resolution_m)
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        with open(destination, "wb") as handle:
+            handle.write(b"synthetic-raster")
+        return {"provider": definition["code"]}
+
+    monkeypatch.setattr(INSETS, "fetch_inset", _record_fetch)
+    definition = {
+        "code": "COARSEONLY",
+        "access_strategy": "tnm_cog",
+        "role": INSETS.ROLE_AIRPORT_INSET,
+        "enabled": True,
+        "priority": 1.0,
+        "native_resolution_m": 30,
+    }
+    # airport_elevation_level=3 over a 30 m source must fetch at 30 m.
+    INSETS.ensure_airport_insets(
+        25, 51, {"OTHH": (51.58, 25.25, 51.63, 25.30)}, [definition], 3.0
+    )
+    assert recorded == [30.0]
+
+
+@requires_gdal
+def test_honest_inset_resolution_prefers_native_over_posting(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    INSETS.initialize_elevation_providers_dict()
+    inset_directory = FNAMES.airport_inset_directory(25, 51)
+    os.makedirs(inset_directory, exist_ok=True)
+
+    # A 30 m source stored on a 3 m grid reads as 30 m, from the sidecar...
+    upsampled = FNAMES.airport_inset_dem(25, 51, "OTBD", "COPERNICUSGLO30")
+    span = 0.02
+    columns = int(round(span / _degrees_for_metres(3.0)))
+    _write_constant_geotiff(
+        upsampled, 51.55, 25.22, 51.55 + span, 25.22 + span, 10.0,
+        columns=columns, rows=columns,
+    )
+    with open(os.path.splitext(upsampled)[0] + ".json", "w") as handle:
+        json.dump({"native_resolution_m": 30.0, "resolution_m": 3.0}, handle)
+    assert INSETS._honest_inset_resolution_m(upsampled) == 30.0
+
+    # ...and, for a sidecar-less relic, from the provider the name records.
+    os.remove(os.path.splitext(upsampled)[0] + ".json")
+    assert INSETS._honest_inset_resolution_m(upsampled) == 30.0
+
+    # A warp to a COARSER posting is real coarsening: the posting wins.
+    coarsened = FNAMES.airport_inset_dem(25, 51, "KBNA", "USGS3DEP")
+    columns = int(round(span / _degrees_for_metres(5.0)))
+    _write_constant_geotiff(
+        coarsened, 51.55, 25.22, 51.55 + span, 25.22 + span, 10.0,
+        columns=columns, rows=columns,
+    )
+    assert INSETS._honest_inset_resolution_m(coarsened) == pytest.approx(
+        5.0, abs=0.1
+    )
+
+
+@requires_gdal
+def test_upsampled_inset_does_not_shrink_the_radius(tmp_path, monkeypatch):
+    """A 30 m source on a 3 m grid must still smooth like 30 m data."""
+    from shapely import geometry as shapely_geometry
+
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    monkeypatch.setattr(INSETS, "has_gdal", True)
+    INSETS.initialize_elevation_providers_dict()
+    tile = _RadiusTile(0, 0)
+    os.makedirs(FNAMES.airport_inset_directory(0, 0), exist_ok=True)
+    # Covers the mask completely, but is interpolated 30 m radar.
+    _write_inset_posted_at(
+        FNAMES.airport_inset_dem(0, 0, "OTHH", "COPERNICUSGLO30"),
+        0.0040, 0.0040, 0.0060, 0.0060, 3.0,
+    )
+    mask = shapely_geometry.box(0.0045, 0.0045, 0.0055, 0.0055)
+    (radius, source_pixel, coverage) = INSETS.resolve_airport_smoothing_radius(
+        tile, {}, 30.9, mask
+    )
+    assert coverage == pytest.approx(1.0, abs=0.01)
+    # 30 m honest resolution -> the full legacy radius, not the 1 pixel a
+    # naive read of the 3 m posting produced.
+    assert source_pixel == pytest.approx(30.0, abs=0.5)
+    assert radius == 8
+
+
+@requires_gdal
+def test_neighbouring_fine_inset_does_not_set_this_airports_radius(
+    tmp_path, monkeypatch
+):
+    """Each airport gets the finest resolution that BLANKETS its own mask."""
+    from shapely import geometry as shapely_geometry
+
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    monkeypatch.setattr(INSETS, "has_gdal", True)
+    INSETS.initialize_elevation_providers_dict()
+    tile = _RadiusTile(0, 0)
+    os.makedirs(FNAMES.airport_inset_directory(0, 0), exist_ok=True)
+
+    # This airport's own source is 30 m and covers all of its mask.  The
+    # latitude span is an exact multiple of 30 m so the stored posting
+    # lands on 30 m rather than a rounded-up 31.8 m.
+    _write_inset_posted_at(
+        FNAMES.airport_inset_dem(0, 0, "OTHH", "COPERNICUSGLO30"),
+        0.0040, 0.0035, 0.0060, 0.0062, 30.0,
+    )
+    # A neighbour has genuine 1 m lidar whose extent clips 30 % of the
+    # mask (the 2 km inset margin makes such overlaps routine).
+    _write_inset_posted_at(
+        FNAMES.airport_inset_dem(0, 0, "OTBD", "USGS3DEP"),
+        0.0038, 0.0040, 0.0048, 0.0060, 1.0,
+    )
+    mask = shapely_geometry.box(0.0045, 0.0045, 0.0055, 0.0055)
+
+    (radius, source_pixel, coverage) = INSETS.resolve_airport_smoothing_radius(
+        tile, {}, 30.9, mask
+    )
+    assert coverage == pytest.approx(1.0, abs=0.01)
+    # 1 m covers only 30 % of this mask, so 30 m -- what actually
+    # blankets it -- governs the radius.
+    assert source_pixel == pytest.approx(30.0, abs=0.5)
+    assert radius == 8
+
+    # The neighbour, whose mask the 1 m lidar DOES blanket, still gets it.
+    neighbour_mask = shapely_geometry.box(0.0040, 0.0045, 0.0047, 0.0055)
+    (radius, source_pixel, coverage) = INSETS.resolve_airport_smoothing_radius(
+        tile, {}, 30.9, neighbour_mask
+    )
+    assert source_pixel == pytest.approx(1.0, abs=0.1)
+    assert radius == 0
+
+
+@requires_gdal
+def test_mixed_coverage_resolves_to_the_finest_blanket(tmp_path, monkeypatch):
+    """Candidates are cumulative: finest that blankets, not finest present."""
+    from shapely import geometry as shapely_geometry
+
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    monkeypatch.setattr(INSETS, "has_gdal", True)
+    INSETS.initialize_elevation_providers_dict()
+    tile = _RadiusTile(0, 0)
+    os.makedirs(FNAMES.airport_inset_directory(0, 0), exist_ok=True)
+    # 1 m over the mask's west 56 %, 3 m over its east 56 %: neither
+    # reaches the 80 % threshold alone, but "3 m or finer" blankets it.
+    _write_inset_posted_at(
+        FNAMES.airport_inset_dem(0, 0, "APTA", "USGS3DEP"),
+        0.0040, 0.0040, 0.0051, 0.0060, 1.0,
+    )
+    _write_inset_posted_at(
+        FNAMES.airport_inset_dem(0, 0, "APTB", "ENGLAND1M"),
+        0.0049, 0.0040, 0.0060, 0.0060, 3.0,
+    )
+    mask = shapely_geometry.box(0.0042, 0.0045, 0.0058, 0.0055)
+    (radius, source_pixel, coverage) = INSETS.resolve_airport_smoothing_radius(
+        tile, {}, 30.9, mask
+    )
+    assert coverage == pytest.approx(1.0, abs=0.01)
+    # Not 1 m (56 % of the mask) and not 30 m: 3 m is the finest blanket.
+    assert source_pixel == pytest.approx(3.0, abs=0.1)
+    assert radius == 1
+
+
+@requires_gdal
+def test_oversampled_cache_is_regenerated_at_native_posting(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    monkeypatch.setattr(INSETS, "has_gdal", True)
+    definition = {
+        "code": "COARSEONLY",
+        "access_strategy": "tnm_cog",
+        "role": INSETS.ROLE_AIRPORT_INSET,
+        "enabled": True,
+        "priority": 1.0,
+        "native_resolution_m": 30,
+    }
+    inset_directory = FNAMES.airport_inset_directory(25, 51)
+    os.makedirs(inset_directory, exist_ok=True)
+    destination = FNAMES.airport_inset_dem(25, 51, "OTBD", "COARSEONLY")
+    span = 0.05
+    columns = int(round(span / _degrees_for_metres(3.0)))
+    _write_constant_geotiff(
+        destination, 51.55, 25.22, 51.55 + span, 25.22 + span, 10.0,
+        columns=columns, rows=columns,
+    )
+    # A 3 m posting from a 30 m source is over-sampled...
+    assert INSETS._cached_inset_oversamples(destination, definition) is True
+    # ...while native posting (and an undeclared provider) is left alone.
+    native_posted = FNAMES.airport_inset_dem(25, 51, "OTHH", "COARSEONLY")
+    columns = int(round(span / _degrees_for_metres(29.95)))
+    _write_constant_geotiff(
+        native_posted, 51.55, 25.22, 51.55 + span, 25.22 + span, 10.0,
+        columns=columns, rows=columns,
+    )
+    assert INSETS._cached_inset_oversamples(native_posted, definition) is False
+    undeclared = {"code": "X"}
+    assert INSETS._cached_inset_oversamples(destination, undeclared) is False
+
+    # ...and the fetch pass refetches the over-sampled one at native.
+    recorded = []
+
+    def _record_fetch(
+        definition, bounding_box, target_resolution_m, destination,
+        footprint_prefetch=None,
+    ):
+        recorded.append(target_resolution_m)
+        with open(destination, "wb") as handle:
+            handle.write(b"synthetic-raster")
+        return {"provider": definition["code"]}
+
+    monkeypatch.setattr(INSETS, "fetch_inset", _record_fetch)
+    INSETS.ensure_airport_insets(
+        25, 51, {"OTBD": (51.55, 25.22, 51.60, 25.27)}, [definition], None
+    )
+    assert recorded == [30.0]
+
+
+# =====================================================================
 # Regression: empty base token in a composite resolves the default base
 # (caught by the KBNA acceptance run: custom_dem="" plus inset
 # augmentation produced ";inset1;..." whose empty first token fell
@@ -1148,7 +1420,9 @@ def test_working_grid_factor_auto_picks_coarsest_passing(tmp_path, monkeypatch):
     dataset = None
 
     factor = INSETS.resolve_working_grid_factor(tile, _GeometryDem())
-    assert factor in (2, 3)  # insets present -> always densified
+    # A 1 m lidar inset is finer than the base grid, so factor 1 is never
+    # even a candidate (see the base-class gate below) -> always densified.
+    assert factor in (2, 3)
     # Explicit pins bypass the ideal check entirely.
     tile.working_grid_arc_seconds = "1"
     assert INSETS.resolve_working_grid_factor(tile, _GeometryDem()) == 1
@@ -1178,6 +1452,144 @@ def test_ideal_bake_error_decreases_with_finer_grid(tmp_path, monkeypatch):
     error2 = INSETS.ideal_bake_error_at_probes(inset_path, probes, 2, geometry)
     error3 = INSETS.ideal_bake_error_at_probes(inset_path, probes, 3, geometry)
     assert error1 >= error2 >= error3
+
+
+# =====================================================================
+# Nodata must never masquerade as elevation error (2026-07-24 KCLT)
+# =====================================================================
+# Insets routinely cover only part of their airport box -- a 3DEP fetch
+# over one Charlotte-area strip came back 96.4% nodata, and four insets on
+# that tile are 100% nodata.  The probe sampler blended the -32768
+# sentinel with real metres, so the working-grid decision saw "elevation
+# errors" of 21848 m at one factor and 0.010 m at the next.  Because the
+# actionable filter only tests the FINEST factor, such a probe passed as
+# actionable and then vetoed every coarser grid -- biasing tiles toward
+# the maximum grid on the strength of a hole in the data.
+def _write_geotiff_with_nodata_band(path, west, south, east, north,
+                                    value, nodata_north_of):
+    """A constant raster whose rows north of a latitude are nodata."""
+    resolution_deg = 3.0 / 111120.0
+    columns = max(2, int(round((east - west) / resolution_deg)))
+    rows = max(2, int(round((north - south) / resolution_deg)))
+    driver = gdal.GetDriverByName("GTiff")
+    dataset = driver.Create(path, columns, rows, 1, gdal.GDT_Float32)
+    dataset.SetGeoTransform(
+        (west, (east - west) / columns, 0, north, 0, (south - north) / rows)
+    )
+    spatial_reference = osr.SpatialReference()
+    spatial_reference.ImportFromEPSG(4326)
+    dataset.SetProjection(spatial_reference.ExportToWkt())
+    band = dataset.GetRasterBand(1)
+    band.SetNoDataValue(-32768.0)
+    array = numpy.full((rows, columns), value, dtype=numpy.float32)
+    latitudes = north + (numpy.arange(rows) + 0.5) * (south - north) / rows
+    array[latitudes > nodata_north_of, :] = -32768.0
+    band.WriteArray(array)
+    band.FlushCache()
+    dataset = None
+    return path
+
+
+@requires_gdal
+def test_windowed_samples_return_nan_over_nodata(tmp_path):
+    path = _write_geotiff_with_nodata_band(
+        str(tmp_path / "holed.tif"), 0.500, 0.500, 0.502, 0.502,
+        250.0, nodata_north_of=0.501,
+    )
+    dataset = gdal.Open(path)
+    band = dataset.GetRasterBand(1)
+    geotransform = dataset.GetGeoTransform()
+    args = (band, geotransform, dataset.RasterYSize, dataset.RasterXSize,
+            [0.5010, 0.5010], [0.5005, 0.5015])  # south=valid, north=nodata
+    # Nodata-aware: the sentinel never blends into a returned elevation.
+    aware = INSETS._windowed_bilinear_samples(*args, nodata=-32768.0)
+    assert aware[0] == pytest.approx(250.0)
+    assert numpy.isnan(aware[1])
+    # Omitted, the historic raw blend is unchanged (the bug, pinned so a
+    # caller that has no nodata value still behaves as before).
+    raw = INSETS._windowed_bilinear_samples(*args)
+    assert raw[0] == pytest.approx(250.0)
+    assert raw[1] < -1000.0
+
+
+@requires_gdal
+def test_ideal_bake_error_ignores_nodata_contaminated_probes(tmp_path):
+    path = _write_geotiff_with_nodata_band(
+        str(tmp_path / "holed.tif"), 0.4990, 0.4990, 0.5030, 0.5030,
+        250.0, nodata_north_of=0.501,
+    )
+    geometry = (0.0, 1.0, 0.0, 1.0, 3601, 3601)
+    # A probe 5 m south of the hole: at 1 arc-second (30.9 m nodes) the
+    # node above it lands IN the hole; at 1/2 arc-second it does not.
+    probe = (0.50095, 0.50095, 0.50095, 0.50095)
+    per_probe_1 = INSETS.ideal_bake_errors_per_probe(
+        path, [probe], 1, geometry)
+    per_probe_2 = INSETS.ideal_bake_errors_per_probe(
+        path, [probe], 2, geometry)
+    assert math.isnan(per_probe_1[0])       # not measurable, not 21848 m
+    assert not math.isnan(per_probe_2[0])
+    # The list stays aligned with `probes` so callers can zip them.
+    assert len(INSETS.ideal_bake_errors_per_probe(
+        path, [probe, probe], 1, geometry)) == 2
+    # The worst-error helper skips what it cannot measure.
+    assert INSETS.ideal_bake_error_at_probes(path, [probe], 1, geometry) == 0.0
+
+
+# =====================================================================
+# Densification is offered only where an inset is finer than the base
+# =====================================================================
+@requires_gdal
+def test_working_grid_candidates_gate_factor_one_on_inset_resolution(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    INSETS.initialize_elevation_providers_dict()
+    geometry = (0.0, 1.0, 0.0, 1.0, 3601, 3601)  # ~30.87 m base posting
+    os.makedirs(FNAMES.airport_inset_directory(0, 0), exist_ok=True)
+    shipped = tuple(INSETS.WORKING_GRID_CANDIDATE_FACTORS)
+
+    # No insets -> the shipped set (the caller returns 1 before this).
+    assert INSETS._working_grid_candidate_factors([], geometry) == shipped
+
+    # A 30 m radar inset carries nothing the base grid could not hold, so
+    # "keep 1 arc-second" joins the ballot.
+    radar = FNAMES.airport_inset_dem(0, 0, "OTHH", "COPERNICUSGLO30")
+    _write_inset_posted_at(radar, 0.40, 0.40, 0.60, 0.60, 30.0)
+    assert INSETS._working_grid_candidate_factors([radar], geometry) == \
+        (1,) + shipped
+
+    # Adding a 1 m lidar inset withdraws it again -- one finer inset on the
+    # tile is enough, since the working grid is tile-wide.
+    lidar = FNAMES.airport_inset_dem(0, 0, "KCLT", "USGS3DEP")
+    _write_inset_posted_at(lidar, 0.40, 0.40, 0.45, 0.45, 1.0)
+    assert INSETS._working_grid_candidate_factors([lidar], geometry) == shipped
+    assert INSETS._working_grid_candidate_factors(
+        [radar, lidar], geometry) == shipped
+
+    # An unreadable inset cannot be vouched for as base-class.
+    missing = FNAMES.airport_inset_dem(0, 0, "GONE", "COPERNICUSGLO30")
+    assert INSETS._working_grid_candidate_factors(
+        [radar, missing], geometry) == shipped
+
+
+@requires_gdal
+def test_working_grid_factor_declines_densification_for_flat_radar_inset(
+    tmp_path, monkeypatch
+):
+    """A base-class inset with no relief to lose keeps 1 arc-second."""
+    tile = _fake_inset_tile(0, 0, tmp_path, monkeypatch)
+    INSETS.initialize_elevation_providers_dict()
+    os.makedirs(FNAMES.airport_inset_directory(0, 0), exist_ok=True)
+    # Flat 30 m radar: every candidate models zero error, so the coarsest
+    # (now including 1) wins and the tile skips a 4x .alt for nothing.
+    _write_inset_posted_at(
+        FNAMES.airport_inset_dem(0, 0, "OTHH", "COPERNICUSGLO30"),
+        0.40, 0.40, 0.60, 0.60, 30.0,
+    )
+    assert INSETS.resolve_working_grid_factor(tile, _GeometryDem()) == 1
+    # An explicit pin still governs outright.
+    tile.working_grid_arc_seconds = "1/3"
+    assert INSETS.resolve_working_grid_factor(tile, _GeometryDem()) == 3
 
 
 @requires_gdal

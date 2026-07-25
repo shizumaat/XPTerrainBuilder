@@ -62,6 +62,7 @@ from .config import (
     CLEARANCE_OBSTRUCTION_THRESHOLD_M,
     CLEARANCE_STATION_STEP_M,
     CLEARANCE_LATERAL_MAX_SLOPE,
+    RUNWAY_END_RESA_ENABLED,
     RUNWAY_END_RESA_MAX_SLOPE,
     RUNWAY_END_SKIRT_ENABLED,
     runway_end_approach_class,
@@ -72,6 +73,7 @@ from .config import (
 from .grade_law import (
     RUNWAY_END_SKIRT_MAX_DOWN_GRADE,
     runway_end_constrained_length_m,
+    runway_end_corridor_half_width_m,
     runway_end_governed_length_beyond_pavement_m,
     runway_end_governed_length_m,
     runway_end_skirt_floor_profile,
@@ -83,6 +85,8 @@ from .layout import (
     BuiltShape,
     PavementLayout,
     R_EARTH,
+    REF_RUNWAY_END_RESA,
+    REF_RUNWAY_END_SKIRT,
     ROLE_APRON,
     ROLE_CROSS_CONNECTOR,
     ROLE_JUNCTION,
@@ -964,6 +968,27 @@ def _skirt_lift_alt(analytic_floor: float, dem_alt) -> float:
     if dem_alt is None:
         return analytic_floor
     return max(analytic_floor, float(dem_alt))
+
+
+def _resa_cut_alt(analytic_ceiling: float, dem_alt) -> float:
+    """The lawful runway-END RESA-cut altitude at a vertex:
+    ``min(ceiling, DEM)`` — the exact mirror of the skirt's lift-only
+    ``_skirt_lift_alt``.
+
+    The cut is CUT-ONLY (cuts never fill, fills never cut; see
+    docs/STANDARDS.md "Lateral (wingtip) clearance").  A strip triggers
+    only where the terrain rises MORE than the trigger above the RESA
+    ceiling, but the emitted piece can still SPAN vertices whose DEM sits
+    AT or BELOW the ceiling (the daylight overshoot at a run's end, a
+    hollow inside a ridge, a clip-introduced vertex).  Grading those UP
+    to the analytic ceiling would FILL — the skirt's job, on the skirt's
+    own law — so every cut vertex drops to the lower of the analytic
+    ceiling and the DEM.  Shared verbatim by the emitter's analytic
+    ``alt_at`` closure so clip-introduced vertices obey the same rule as
+    the raw ring."""
+    if dem_alt is None:
+        return analytic_ceiling
+    return min(analytic_ceiling, float(dem_alt))
 
 
 def _build_filled_skirts(edge_stations, edge_alts, outwards,
@@ -2788,6 +2813,21 @@ def emit_runway_end_skirts(layout: PavementLayout, dem,
         if d2[j] <= step * step:
             return (float(_pav_vx[j, 0]), float(_pav_vx[j, 1]))
         return None
+
+    def _nearest_pav_vertex(vx: float, vy: float):
+        """The nearest airside pavement RING VERTEX, unbounded (arc R
+        slice R1).  ``_pav_vertex_at`` above is the WELD snap and is
+        deliberately capped at one station spacing; the RESA cut's
+        solver ANCHOR is a different object — the graph node whose
+        solved value tracks the pavement-exit elevation the envelope is
+        referenced to — and at a plain runway end the nearest ring
+        vertex is an end corner half a runway width away.  Frozen at
+        construction time (the B2/B3 frozen-nearest coupling pattern)."""
+        if _pav_vx.size == 0:
+            return None
+        d2 = ((_pav_vx[:, 0] - vx) ** 2 + (_pav_vx[:, 1] - vy) ** 2)
+        j = int(np.argmin(d2))
+        return (float(_pav_vx[j, 0]), float(_pav_vx[j, 1]))
     # Every existing shape (pavement, cuts, ribbon, buildings, tunnels, …),
     # clipped EXACTLY (weld ruling 2026-07-09): the skirt WELDS to the
     # pavement it fills off — the former 1 m standoff left a groove of
@@ -2859,6 +2899,41 @@ def emit_runway_end_skirts(layout: PavementLayout, dem,
     constraint_block = _end_constraint_block(layout, _ll_to_m)
 
     skirt_strips: list[tuple] = []
+    # RESA CUT twin (arc A2, gate ``RUNWAY_END_RESA_ENABLED``).  The cut
+    # rides in the SAME per-end collection as the fill — same apt.dat
+    # row-100 anchor, same ``_pavement_exit_along`` march, same corridor
+    # half-width, same weld discipline — and is emitted in its own pass
+    # below (after the fill, so it can be clipped against the fill's
+    # settled footprint).  Empty with the gate OFF.
+    resa_strips: list[tuple] = []
+    resa_reach = CLEARANCE_MAX_REACH_M["runway"]
+    # ── RESA CUT SOLVER ADMISSION (arc R slice R1, gate
+    # ``ONE_SOLVE_TERRAIN_RUNWAY_END_RESA``) ─────────────────────────
+    # The owner ruling: the runway-end envelope is LAW THE SOLVER
+    # ENFORCES, not geometry stamped after the fact.  The cut's anchor is
+    # the pavement-EXIT elevation, and that read MOVES after this
+    # pre-solve emission slot (measured at CYXY: median 0.110 m, p90
+    # 0.150 m, max 0.164 m over 106 numeric anchor reads, 88 of them over
+    # 0.05 m; the mode is the CROWN, which writeback applies as
+    # z = z' − c).  So the analytic stamp below bakes a STALE reference.
+    #
+    # Under the gate this emitter additionally publishes a per-END SPEC
+    # (anchor point, outward axis, corridor half-width, reach, and the
+    # floor-law arguments) on ``layout.runway_end_resa_presolve``.  The
+    # solver reads it to (a) give every admitted cut vertex ONE ONE-SIDED
+    # envelope interval edge to the end's frozen-nearest pavement anchor
+    # NODE and (b) re-evaluate the one-slab projection at writeback
+    # against the SOLVED, CROWNED exit reference.  Gate OFF: no store, no
+    # admission, and ``_resa_alt_at`` below remains the sole valuation —
+    # byte-identical.
+    _resa_solver_admitted = False
+    if RUNWAY_END_RESA_ENABLED:
+        from .elevation_per_surface.solver_primitives import (
+            admitted_terrain_refs as _admitted_refs_fn)
+        _resa_solver_admitted = (
+            (ROLE_RUNWAY_CLEARANCE, REF_RUNWAY_END_RESA)
+            in _admitted_refs_fn())
+    resa_end_specs: list[dict] = []
 
     def _floor_depth_for(entry_grade: float,
                          pavement_beyond_end_m: float = 0.0):
@@ -2925,7 +3000,13 @@ def emit_runway_end_skirts(layout: PavementLayout, dem,
                 p0, outward, governed, constraint_block))
         _floor_depth = _floor_depth_for(entry_grade, pavement_beyond_end)
 
-        half = max(runway_width, runway_strip_half_width_m(full_len))
+        # The governed END corridor half-width — ICAO Annex 14 §3.5.3's
+        # "twice the runway width" expressed as a half-width, single-sourced
+        # in ``grade_law`` so the fill, the RESA cut and the verification
+        # reader cannot drift.  Numerically identical to the inline
+        # ``max(runway_width, runway_strip_half_width_m(full_len))`` it
+        # replaces.
+        half = runway_end_corridor_half_width_m(runway_width, full_len)
         perp = (-ny, nx)
         ea = (p0[0] - perp[0] * half, p0[1] - perp[1] * half)
         eb = (p0[0] + perp[0] * half, p0[1] + perp[1] * half)
@@ -2965,6 +3046,117 @@ def emit_runway_end_skirts(layout: PavementLayout, dem,
                 weld_predicate=_pav_weld_at,
                 pav_vertex_at=_pav_vertex_at):
             skirt_strips.append((ring, _end_alt_at))
+
+        # ── RESA CUT (arc A2, gate ``RUNWAY_END_RESA_ENABLED``) ──
+        # The fill's twin in the OTHER direction: where the skirt fills
+        # terrain that drops below the floor, the RESA cut takes down
+        # terrain that rises above the ceiling of
+        # ``grade_law.runway_end_envelope`` — a gentle
+        # ``RUNWAY_END_RESA_MAX_SLOPE`` ramp off the pavement-exit
+        # elevation (ICAO Annex 14 §3.5.10), so an overrun meets a ramp
+        # instead of a wall.  It is emitted HERE, inside the skirt
+        # emitter, because this is where the authoritative end anchor,
+        # the pavement-exit march, the corridor half-width and the weld
+        # discipline already live (the legacy Pass C ``_emit_resa`` is
+        # NOT resurrected — its whole chain is gated off).
+        #
+        # SCALAR SLOPE, not a per-station law call: inside the reach the
+        # envelope's ceiling IS exactly ``RUNWAY_END_RESA_MAX_SLOPE * d``
+        # (see ``test_runway_end_resa_cut``'s lockstep assertion), which
+        # is precisely ``_build_graded_strips``' ``ceiling(d) = ref +
+        # slope*d``.  The builder's ``band_caps`` supplies the reach
+        # bound the envelope's ``None`` past ``resa_reach_m`` expresses.
+        # NO PAVEMENT EXIT ⇒ NO END ZONE ⇒ NO CUT (2026-07-24).  When the
+        # outward march runs the whole ``_RESA_PAVEMENT_PROBE_MAX_M``
+        # without leaving the pavement union there IS no pavement exit,
+        # so the anchor this whole regime references does not exist: p0
+        # lands 300 m out in the middle of pavement and the reference
+        # read there is meaningless (at CYXY end 1 it returned None
+        # pre-solve and resolved 6.3 m higher post-solve — measured
+        # +1.68…+7.47 m across 44 vertices, which is what tripped the
+        # arc-R stop condition).
+        #
+        # The FILL already vanishes here by law: ``pavement_beyond_end``
+        # consumes the entire governed length, so
+        # ``runway_end_governed_length_beyond_pavement_m`` returns 0.
+        # The cut is the fill's twin and must agree with it about whether
+        # an end zone exists at all — the two may differ in EXTENT (the
+        # cut's reach is deliberately the earthwork cap, not the governed
+        # length) but not about existence.  Physically: pavement
+        # continuing 300 m past the runway end is pavement, governed by
+        # its own law and the adjacent-ground law, not an overrun area
+        # owed a RESA ramp.
+        _no_pavement_exit = start >= _RESA_PAVEMENT_PROBE_MAX_M - step
+        if RUNWAY_END_RESA_ENABLED and _no_pavement_exit:
+            if os.environ.get("O4_SKIRT_DEBUG") == "1":
+                print(f"  [resa-debug] end at ({seed[0]:.1f},{seed[1]:.1f})"
+                      f" — outward march never exited pavement in "
+                      f"{_RESA_PAVEMENT_PROBE_MAX_M:.0f} m; no end zone, "
+                      f"no cut.")
+        elif RUNWAY_END_RESA_ENABLED:
+            def _resa_alt_at(vx, vy, p0=p0, nx=nx, ny=ny,
+                             ref=float(ref), cap=resa_reach,
+                             sample_dem=sample_dem):
+                d = (vx - p0[0]) * nx + (vy - p0[1]) * ny
+                if d <= 0.02 and pav_union.distance(Point(vx, vy)) <= 0.05:
+                    # WELD ROW, verbatim from ``_end_alt_at``: a vertex ON
+                    # the pavement exit edge carries the LOCAL pavement
+                    # edge value (containment-free read 1 m inside), so the
+                    # cut abuts the pavement with zero step exactly as the
+                    # fill does.
+                    pav = _nearest_pav_alt(
+                        airside, vx - nx * 1.0, vy - ny * 1.0)
+                    if pav is not None:
+                        return float(pav)
+                ceiling = ref + RUNWAY_END_RESA_MAX_SLOPE * max(
+                    0.0, min(cap, d))
+                # Cut-only (see ``_resa_cut_alt``): a vertex whose DEM is
+                # already under the ramp rides the DEM — the cut never
+                # fills and never floats above the terrain.
+                return round(_resa_cut_alt(ceiling, sample_dem(vx, vy)), 1)
+
+            _n_resa_before = len(resa_strips)
+            for ring, _ralts in _build_graded_strips(
+                    stations, [ref] * m, [outward] * m, [resa_reach] * m,
+                    RUNWAY_END_RESA_MAX_SLOPE, trigger, step, sample_dem,
+                    # No ``is_ring_vertex``: ``stations`` is the SYNTHETIC
+                    # line ea→eb across the pavement exit, not a ring-edge
+                    # subdivision, so its stations have no exact-ring-vertex
+                    # correspondence and the weld-row thinning cannot apply
+                    # (the legacy ``_emit_resa`` carried the same note).
+                    is_ring_vertex=None):
+                resa_strips.append((ring, _resa_alt_at))
+
+            # PER-END SPEC for the solver (arc R slice R1).  Everything the
+            # law needs, sourced from THIS end's own march so the solver and
+            # this emitter cannot drift: the exit anchor ``p0``, the outward
+            # axis, the reach cap, the corridor half-width, and the FLOOR
+            # law's own arguments (carried verbatim even though the ceiling
+            # ignores them — ``runway_end_envelope`` takes both bounds and a
+            # future law revision must see the same inputs here as in the
+            # fill).  ``anchor_xy`` is the frozen-nearest pavement ring
+            # vertex the interval edge couples to; ``read_xy`` is the exact
+            # point the analytic ``ref`` was read at, which the writeback
+            # re-reads on the SOLVED, CROWNED pavement.
+            # Published ONLY when this end actually produced cut geometry,
+            # so a truthy ``layout.runway_end_resa_presolve`` always means
+            # "this airport HAS a RESA cut" — the same store semantics the
+            # gap-fill / adjacent-ground stores carry (the flat-airport
+            # fast path keys its refusals on exactly that property).
+            if _resa_solver_admitted and len(resa_strips) > _n_resa_before:
+                resa_end_specs.append({
+                    "p0": (float(p0[0]), float(p0[1])),
+                    "outward": (float(nx), float(ny)),
+                    "cap": float(resa_reach),
+                    "half": float(half),
+                    "governed": float(governed),
+                    "entry_grade": float(entry_grade),
+                    "pavement_beyond_end": float(pavement_beyond_end),
+                    "read_xy": (float(p0[0] - nx * 1.0),
+                                float(p0[1] - ny * 1.0)),
+                    "anchor_xy": _nearest_pav_vertex(p0[0], p0[1]),
+                    "ref_presolve": float(ref),
+                })
 
         if os.environ.get("O4_SKIRT_DEBUG") == "1":
             print(f"  [skirt-debug] end at ({seed[0]:.1f},{seed[1]:.1f}) "
@@ -3116,7 +3308,14 @@ def emit_runway_end_skirts(layout: PavementLayout, dem,
                 continue
             dx, dy = bx - ax, by - ay
             full_len = math.hypot(dx, dy)
-            width = float(getattr(r, "width_m", 0.0) or 0.0)
+            # DECLARED width, not the shoulder-widened one: the end corridor
+            # is ICAO Annex 14 §3.5.3's "twice that of the runway", and
+            # shoulders are a separate feature (§3.2).  ``pipeline``
+            # overwrites ``width_m`` in place with runway+shoulders (SPJC
+            # 16R/34L 45 -> 81 m), which sized this corridor at 81 m instead
+            # of the lawful max(45, strip 75) = 75 m.
+            width = float(getattr(r, "declared_width_m", None)
+                          or getattr(r, "width_m", 0.0) or 0.0)
             if full_len < 1.0 or width <= 0.0:
                 continue
             ux, uy = dx / full_len, dy / full_len
@@ -3164,7 +3363,12 @@ def emit_runway_end_skirts(layout: PavementLayout, dem,
                 _sample_runway_segment_elev(s, mid[0], mid[1]),
                 runway_end_approach_class(0, 0))
 
-    if not skirt_strips:
+    # Publish the per-end RESA specs BEFORE the early return so a build
+    # whose ends produced no strip at all still leaves a well-defined
+    # (empty) store rather than a stale one from an earlier call.
+    if _resa_solver_admitted:
+        layout.runway_end_resa_presolve = resa_end_specs
+    if not skirt_strips and not resa_strips:
         return 0
     boundary = layout.airport_boundary
     # SURFACE roads / railways crossing the governed zones stay at
@@ -3290,7 +3494,7 @@ def emit_runway_end_skirts(layout: PavementLayout, dem,
                 alts = [float(alt_at(vx, vy)) for vx, vy in piece_ring]
                 layout.shapes.append(BuiltShape(
                     polygon=simple, role=ROLE_RUNWAY_CLEARANCE,
-                    ref="runway_end_skirt",
+                    ref=REF_RUNWAY_END_SKIRT,
                     node_altitudes=alts + [alts[0]]))
                 if skirt_dump is not None:
                     skirt_dump["pieces"].append(
@@ -3305,6 +3509,71 @@ def emit_runway_end_skirts(layout: PavementLayout, dem,
                 except _GEOM_EXC:
                     pass
                 n += 1
+
+    # ── RESA CUT EMISSION (arc A2) ──────────────────────────────────
+    # Emitted AFTER the fill so ``emitted_fill`` is settled: at a given
+    # station the terrain either rises above the RESA ceiling or drops
+    # below the skirt floor — never both — so the two footprints cannot
+    # genuinely overlap, but they CAN meet at their daylight lines.
+    # Differencing the cut against the fill makes them ABUT there (the
+    # fill's coordinates land in the cut ring verbatim, shapely's
+    # shared-edge guarantee) instead of double-covering a sliver.
+    #
+    # CLIP BLOCK: ``attach_block`` — every pre-existing shape INCLUDING
+    # groundside pavement.  The skirt-airside-precedence ruling
+    # (2026-07-10) is about the FILL (which trims groundside around
+    # itself below); the cut has no such precedence and yields to
+    # groundside exactly as the legacy Pass C ``_finalize`` did.
+    emitted_cut = None
+    n_resa = 0
+    for ring, alt_at in resa_strips:
+        try:
+            poly = Polygon(ring)
+            if not poly.is_valid:
+                poly = poly.buffer(0)
+            for block in (attach_block, road_block, zone_block,
+                          emitted_fill, emitted_cut):
+                if block is not None and not block.is_empty:
+                    poly = poly.difference(block)
+            if boundary is not None and not boundary.is_empty:
+                poly = poly.intersection(boundary)
+            if poly.is_empty:
+                continue
+        except _GEOM_EXC:
+            continue
+        if poly.geom_type == "Polygon":
+            components = [poly]
+        elif poly.geom_type in ("MultiPolygon", "GeometryCollection"):
+            components = [g for g in poly.geoms
+                          if g.geom_type == "Polygon"]
+        else:
+            continue
+        for comp in components:
+            for simple in _decompose_polygon_with_holes(
+                    comp, min_area_m2=1.0):
+                if simple.is_empty or simple.area < _MIN_CUT_AREA_M2:
+                    continue
+                piece_ring = _open_coords(simple)
+                if len(piece_ring) < 3:
+                    continue
+                alts = [float(alt_at(vx, vy)) for vx, vy in piece_ring]
+                layout.shapes.append(BuiltShape(
+                    polygon=simple, role=ROLE_RUNWAY_CLEARANCE,
+                    ref=REF_RUNWAY_END_RESA,
+                    node_altitudes=alts + [alts[0]]))
+                try:
+                    emitted_cut = (
+                        simple if emitted_cut is None
+                        else unary_union([emitted_cut, simple]))
+                except _GEOM_EXC:
+                    pass
+                n += 1
+                n_resa += 1
+    if n_resa:
+        UI.vprint(1,
+            f"  [pav-builder] runway-end RESA cut: emitted {n_resa} "
+            f"polygon(s), {emitted_cut.area:.0f} m2.")
+
     # ── GROUNDSIDE TRIM (skirt airside precedence, Noah ruling
     # 2026-07-10) ── The skirt no longer yields to groundside (it was
     # excluded from the clip block above).  Now enforce the OTHER half of

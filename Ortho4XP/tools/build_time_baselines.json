@@ -28,6 +28,34 @@
     "Solving elevations (FAA grade compliance)": 213.66,
     "Emitting terrain features & finalizing": 86.33
    }
+  },
+  "SPJC": {
+   "recorded_at": "2026-07-25",
+   "git_commit": "c829b9a",
+   "git_dirty_file_count": 43,
+   "total_seconds": 76.97,
+   "phase_seconds": {
+    "Loading apt.dat & runway geometry": 0.05,
+    "Assembling pavement & runway shoulders": 0.34,
+    "Building taxiways & terminals": 4.54,
+    "Building taxi rects, junctions & service roads": 2.65,
+    "Solving elevations (FAA grade compliance)": 51.86,
+    "Emitting terrain features & finalizing": 17.57
+   }
+  },
+  "HECA": {
+   "recorded_at": "2026-07-25",
+   "git_commit": "c829b9a",
+   "git_dirty_file_count": 43,
+   "total_seconds": 341.42,
+   "phase_seconds": {
+    "Loading apt.dat & runway geometry": 0.07,
+    "Assembling pavement & runway shoulders": 1.31,
+    "Building taxiways & terminals": 16.01,
+    "Building taxi rects, junctions & service roads": 54.86,
+    "Solving elevations (FAA grade compliance)": 177.66,
+    "Emitting terrain features & finalizing": 91.59
+   }
   }
  },
  "tiles": {}

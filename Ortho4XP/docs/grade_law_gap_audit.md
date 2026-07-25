@@ -24,10 +24,21 @@ every current pass.  Largest terrain gap; highest visual value.
 GAP 1 — OLS terrain-penetration cut.  ICAO Annex 14 Table 4-1
 (primary): transitional 1:7 (code 3/4) / 1:5 (1/2); inner-horizontal
 45 m plane, radius 2000-4000 m by code; conical 1:20 rising 35-100 m;
-approach first section 2% (precision) / 3.33% (NPA 3/4) / 5%
-(non-instr 1), inner edge 60-280 m.  (Part 77 §77.19 is the
+approach first section 2% (precision 3/4 AND NPA 3/4) / 3.33% (NPA
+1/2) / 5% (non-instr 1), inner edge 60-300 m.  (Part 77 §77.19 is the
 notification surface — larger; use Table 4-1 for a CUT law.)
-REPO HAS: nothing.  CANDIDATE: generalize clearance.py's cut-only
+[CORRECTED 2026-07-24 during the OLS spec's primary re-verification:
+this line previously read "3.33% (NPA 3/4)" and "inner edge 60-280 m".
+NPA code 3/4 first section is 2%, same as precision 3/4 — 3.33% is NPA
+code 1/2.  The 280 m inner edge is EASA CS-ADR-DSN.H's NPA 3/4 value;
+ICAO Annex 14 gives 300 m, which the spec adopts as the stricter (wider)
+figure for a cut law.  Full tables + citations:
+docs/specs/obstacle-limitation-surfaces-spec.md.]
+REPO HAS: nothing.  SPEC: docs/specs/obstacle-limitation-surfaces-spec.md
+(Fable, 2026-07-24) — scopes the cut law to the TRANSITIONAL surface and
+the APPROACH first section only, and rejects inner-horizontal/conical as
+cut surfaces (they would decapitate every hill within 4 km; SPLP).
+EARLIER CANDIDATE NOTE (superseded by that spec): generalize clearance.py's cut-only
 walker to a per-runway OLS solid keyed by runway_code_number() +
 CIFP approach type; the transitional surface REPLACES the flat
 lateral shadow as the lawful rising ceiling; cuts start at the strip

@@ -946,8 +946,9 @@ def smooth_raster_over_airports(
        inset feature exists to fix.
 
     3. The AUTOMATIC per-airport radius (``resolve_airport_smoothing_radius``)
-       is decided from the cached insets' raster EXTENTS and pixel sizes on
-       disk (``inset_coverage_of_airport_mask`` -> ``gdal.Open`` geotransform),
+       is decided from the cached insets' raster EXTENTS and their honest
+       source resolutions (``inset_coverage_of_airport_mask`` -> header
+       geotransform reconciled against the provider's native resolution),
        NEVER from the pre-bake raster values.  So step 1 does not depend on
        the bake in step 2, and there is no read-before-write ordering hazard
        between the radius decision and the values it would blur.

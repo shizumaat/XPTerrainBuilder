@@ -33,10 +33,11 @@ from .layout import (
     ROLE_PRIMARY_PARALLEL, ROLE_SECONDARY_PARALLEL,
     ROLE_STUB, ROLE_CROSS_CONNECTOR, ROLE_RUNWAY, ROLE_JUNCTION,
     ROLE_APRON, ROLE_BUILDING, ROLE_SERVICE_ROAD, ROLE_TUNNEL_RAMP,
-    ROLE_RETAINING_WALL, vertex_bucket,
+    ROLE_RETAINING_WALL, ROLE_GRADED_STRIP, vertex_bucket,
 )
 from .config import (
     TUNNEL_RAMP_MAX_GRADE, RUNWAY_SEAM_DEM_PIN, TILE_CUT_HALF_WIDTH_M,
+    TILE_SEAM_TERRAIN_DEM_PIN_ENABLED,
 )
 
 
@@ -91,6 +92,44 @@ _SEAM_PIECE_ROLES = frozenset({
     ROLE_PRIMARY_PARALLEL, ROLE_SECONDARY_PARALLEL,
     ROLE_STUB, ROLE_CROSS_CONNECTOR, ROLE_APRON, ROLE_BUILDING,
 })
+
+# AIRSIDE pavement roles whose NEIGHBOUR-TILE offcut — the piece this cut
+# drops because its representative point falls in the adjacent tile — is
+# recorded on ``layout.tile_seam_offcuts`` (owner ruling 2026-07-24, the
+# adjacent-ground seam-prolongation; see config
+# ``ADJACENT_GROUND_SEAM_PROLONG_ENABLED``).  The offcut is the ONLY
+# in-build evidence of where the pavement really continues past the seam,
+# so the adjacent-ground corridor march can prolong a cut-back frontage
+# without ever inventing pavement that is not there.  Recorded (not
+# emitted): nothing downstream renders these polygons.
+_SEAM_OFFCUT_ROLES = frozenset({
+    ROLE_RUNWAY, ROLE_PRIMARY_PARALLEL, ROLE_SECONDARY_PARALLEL,
+    ROLE_STUB, ROLE_CROSS_CONNECTOR, ROLE_JUNCTION, ROLE_APRON,
+})
+
+# TERRAIN-GRADING roles whose CUT-BACK edge is a DEM-anchored seam contract
+# (owner rulings 2026-06-20 / 2026-07-24: "the tile seam at ALL points must
+# be anchored at DEM"; STANDARDS.md — "every non-runway role takes the seam
+# DEM directly at its own vertex").  A ``graded_strip`` is a CUT/FILL of
+# terrain, so its cut-back edge is where that modification has to hand back
+# to the untouched terrain the 10 m seam gap renders.  Before this pin the
+# strip's cut-back nodes carried whatever the polygon difference
+# interpolated along the ORIGINAL band chord — measured SPLP: a single
+# straight 223 m edge, 3.3 m below its own DEM at one end, and the two tile
+# halves disagreeing by up to 2.58 m (mean 0.96 m) along the seam.
+_SEAM_DEM_TERRAIN_ROLES = frozenset({ROLE_GRADED_STRIP})
+# Node spacing (m) along a pinned cut-back edge.  The polygon difference
+# mints exactly TWO vertices per cut-back edge (the crossings), so without
+# densification the pin would only anchor the ends and the surface between
+# them would still be a chord.  Matches the runway seam-contact anchor
+# spacing (``config.RUNWAY_SEAM_CONTACT_STEP_M``): finer than the DEM
+# posting, so the emitted line IS the terrain line.  Nodes land on absolute
+# multiples of the step in the layout frame — the anchor frame is the
+# airport's, identical in both tile builds — so both halves of a seam place
+# their nodes at the same stations.
+_SEAM_TERRAIN_PIN_STEP_M = 10.0
+# A ring vertex is ON a cut-back line within this distance.
+_SEAM_CUTBACK_TOL_M = 0.20
 
 
 def cut_layout_at_tile_boundaries(
@@ -219,6 +258,11 @@ def cut_layout_at_tile_boundaries(
 
     n_before = len(layout.shapes)
     new_shapes: list[BuiltShape] = []
+    # Neighbour-tile OFFCUTS (see ``_SEAM_OFFCUT_ROLES``): the airside
+    # pavement pieces this cut drops as out-of-tile.  Collected here and
+    # published on the layout so the adjacent-ground march can bound its
+    # seam prolongation by real pavement.
+    seam_offcuts: list[Polygon] = []
     for s in layout.shapes:
         if s.polygon is None or s.polygon.is_empty:
             new_shapes.append(s)
@@ -253,6 +297,9 @@ def cut_layout_at_tile_boundaries(
                 new_shapes.append(s)
             continue
         pieces = [p for p in pieces if p.area >= min_piece_area_m2]
+        if s.role in _SEAM_OFFCUT_ROLES:
+            seam_offcuts.extend(p for p in pieces
+                                if not _in_current_tile(p))
         pieces = [p for p in pieces if _in_current_tile(p)]
 
         slope_sampler = _make_slope_sampler(s)
@@ -322,8 +369,15 @@ def cut_layout_at_tile_boundaries(
                     _grade_feature_piece_to_seam_dem(
                         new_s, cut_union, layout, dem,
                         cur_tile_lat, cur_tile_lon)
+                elif s.role in _SEAM_DEM_TERRAIN_ROLES:
+                    _pin_terrain_piece_seam_edge(
+                        new_s, cut_lines, half_width_m, layout, dem,
+                        cur_tile_lat, cur_tile_lon)
                 new_shapes.append(new_s)
     layout.shapes = new_shapes
+    if seam_offcuts:
+        prior = list(getattr(layout, "tile_seam_offcuts", None) or ())
+        layout.tile_seam_offcuts = prior + seam_offcuts
 
     # Absorb the tiny wedges the slice leaves on either side back into
     # their adjacent shape, so the cut doesn't leave an extra sliver
@@ -1176,6 +1230,138 @@ def _pin_runway_piece_to_profile(fs, cut_union, layout) -> bool:
     fs.altitude_high = None
     fs.altitude_low = None
     return True
+
+
+def _cutback_line_specs(cut_lines, half_width_m):
+    """The CUT-BACK lines of a cut, as ``(axis, coordinate)`` pairs in local
+    metres — ``axis`` 0 for a vertical (constant-x) line, 1 for a horizontal
+    one.  ``cut_lines`` are the integer lat/lon lines the cut buffered;
+    each contributes the two lines ``+/- half_width_m`` off it, which is
+    exactly where the surviving pavement (and now the graded strip) ends."""
+    specs: list[tuple[int, float]] = []
+    for line in cut_lines:
+        try:
+            (ax, ay), (bx, by) = list(line.coords)[0], list(line.coords)[-1]
+        except (_GEOM_EXC + (IndexError, ValueError)):
+            continue
+        if abs(bx - ax) < 1e-6:            # constant x -> vertical line
+            axis, c = 0, ax
+        elif abs(by - ay) < 1e-6:          # constant y -> horizontal line
+            axis, c = 1, ay
+        else:
+            continue
+        specs.append((axis, c - half_width_m))
+        specs.append((axis, c + half_width_m))
+    return specs
+
+
+def _pin_terrain_piece_seam_edge(fs, cut_lines, half_width_m, layout,
+                                 dem, tile_lat, tile_lon) -> int:
+    """DENSIFY and DEM-PIN the cut-back edges of a terrain-grading piece
+    (``_SEAM_DEM_TERRAIN_ROLES``).  Returns the number of nodes pinned.
+
+    The cut's polygon difference leaves a graded strip ending on a cut-back
+    line with just the two crossing vertices, valued by interpolation along
+    whatever band chord happened to cross — a value with no relation to the
+    terrain the neighbouring 10 m seam gap renders, and one the OTHER tile's
+    independent build has no way to reproduce.  This pass replaces that edge
+    with a terrain LINE: nodes every ``_SEAM_TERRAIN_PIN_STEP_M`` at
+    absolute stations, each at its own DEM altitude.
+
+    CROSS-TILE DETERMINISM: the pin is a pure function of (cut-back line
+    position, station spacing, DEM) — no build state — and adjacent tiles
+    read the SAME terrain there (the airport elevation inset is composited
+    into both tiles' working DEM, and Ortho4XP's per-tile raster carries a
+    0.01 deg halo, so the two rasters agree bit-for-bit across the seam
+    despite differing resolutions).  Both halves therefore land on the
+    terrain line and meet it from their own side."""
+    if (not TILE_SEAM_TERRAIN_DEM_PIN_ENABLED
+            or dem is None or layout is None or fs.polygon is None
+            or fs.polygon.is_empty or not fs.node_altitudes):
+        return 0
+    specs = _cutback_line_specs(cut_lines, half_width_m)
+    if not specs:
+        return 0
+    try:
+        coords = list(fs.polygon.exterior.coords)
+    except _GEOM_EXC:
+        return 0
+    alts = list(fs.node_altitudes)
+    if len(coords) < 4 or len(alts) < len(coords):
+        return 0
+    nodata = getattr(dem, "nodata", -32768)
+
+    def _dem_at(x: float, y: float):
+        try:
+            lat, lon = layout.m_to_ll(x, y)
+            v = float(dem.alt((lon - tile_lon, lat - tile_lat)))
+        except _GEOM_EXC:
+            return None
+        if v != v or v == nodata:
+            return None
+        return v
+
+    step = _SEAM_TERRAIN_PIN_STEP_M
+    open_n = len(coords) - 1
+
+    def _spec_of(i):
+        for axis, c in specs:
+            if abs(coords[i][axis] - c) <= _SEAM_CUTBACK_TOL_M:
+                return (axis, c)
+        return None
+
+    on_spec = [_spec_of(i) for i in range(open_n)]
+    if not any(on_spec):
+        return 0
+    out_xy: list[tuple[float, float]] = []
+    out_z: list[float] = []
+    n_pinned = 0
+    for i in range(open_n):
+        x0, y0 = coords[i][0], coords[i][1]
+        out_xy.append((x0, y0))
+        v0 = _dem_at(x0, y0) if on_spec[i] is not None else None
+        if v0 is None:
+            out_z.append(alts[i])
+        else:
+            out_z.append(round(v0, 2))
+            n_pinned += 1
+        # A CUT-BACK EDGE is one whose BOTH ends sit on the SAME cut-back
+        # line: densify it onto absolute stations so the emitted line
+        # follows terrain instead of chording across it.
+        j = (i + 1) % open_n
+        if on_spec[i] is None or on_spec[i] != on_spec[j]:
+            continue
+        var = 1 - on_spec[i][0]          # the coordinate that varies
+        t0, t1 = coords[i][var], coords[j][var]
+        if abs(t1 - t0) <= step:
+            continue
+        lo, hi = (t0, t1) if t1 > t0 else (t1, t0)
+        ts = [k * step for k in range(int(math.floor(lo / step)) + 1,
+                                      int(math.ceil(hi / step)) + 1)]
+        ts = [t for t in ts if lo + 1e-6 < t < hi - 1e-6]
+        if t1 < t0:
+            ts.reverse()
+        for t in ts:
+            px = ((coords[i][0], t) if var == 1 else (t, coords[i][1]))
+            v = _dem_at(px[0], px[1])
+            if v is None:
+                continue
+            out_xy.append(px)
+            out_z.append(round(v, 2))
+            n_pinned += 1
+    if not n_pinned:
+        return 0
+    out_xy.append(out_xy[0])
+    out_z.append(out_z[0])
+    try:
+        poly = Polygon(out_xy)
+        if poly.is_empty or not poly.is_valid:
+            return 0
+    except _GEOM_EXC:
+        return 0
+    fs.polygon = poly
+    fs.node_altitudes = out_z
+    return n_pinned
 
 
 def _terrain_pin_slice_nodes(fs, cut_union, clip_pts, layout,

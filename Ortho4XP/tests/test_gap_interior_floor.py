@@ -69,6 +69,38 @@ def _pit_patches(layout):
             if getattr(s, "ref", None) == _GAP_PIT_FLOOR_REF]
 
 
+def test_interior_floor_is_disabled_by_default(monkeypatch):
+    """SHIPPED CONFIG (owner ruling 2026-07-24): past the grade-law zones
+    a large infield blends back into the DEM, so this pass — the only
+    thing in the subsystem that overrides terrain beyond ring 2 — emits
+    nothing.  It restores the round-8 interior-rings design ("Terrain
+    INSIDE ring 2 stays open-floor; large infields lawfully follow
+    terrain"), which this pass had contradicted.
+
+    Pinned because it is a RULING, not a tuning default: re-enabling
+    wants an ENCLOSURE test so only a genuinely bounded depression
+    fills, not a flip of the switch.  The tests below force the gate on
+    so the pass's own behaviour stays covered for that future re-enable.
+    """
+    from auto_patch.config import GAP_FILL_INTERIOR_FLOOR_ENABLED
+    assert GAP_FILL_INTERIOR_FLOOR_ENABLED is False
+    monkeypatch.setattr(ELEV, "_sample_dem", _fake_sample_dem_with_pit)
+    layout = _frame_layout()
+    assert emit_gap_interior_floor(layout, dem=object(),
+                                   tile_lat=0, tile_lon=0) == 0
+    assert not _pit_patches(layout)
+
+
+@pytest.fixture(autouse=True)
+def _enable_interior_floor(monkeypatch, request):
+    """Force the pass ON for the behaviour tests below — it ships
+    DISABLED (see ``test_interior_floor_is_disabled_by_default``), and
+    the ruling is about the DEFAULT, not about the pass being wrong."""
+    if request.node.name == "test_interior_floor_is_disabled_by_default":
+        return
+    monkeypatch.setattr(GF, "GAP_FILL_INTERIOR_FLOOR_ENABLED", True)
+
+
 def test_pit_is_clamped_to_floor(monkeypatch):
     monkeypatch.setattr(ELEV, "_sample_dem", _fake_sample_dem_with_pit)
     layout = _frame_layout()

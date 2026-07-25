@@ -48,7 +48,15 @@ from .config import (
     BUILDING_FULL_FRONTAGE_AREA_M2,
     BUILDING_REACH_CORRIDOR_M, CLEARANCE_LATERAL_MAX_SLOPE,
     CLEARANCE_MAX_REACH_M, JUNCTION_MESH_CONSTRAINTS,
-    RUNWAY_END_CLEARANCE_LENGTH_BY_CODE, RUNWAY_STRIP_BAND_MIN_DOWN_SLOPE,
+    OLS_APPROACH_DIVERGENCE, OLS_APPROACH_EMIT_REACH_M,
+    OLS_APPROACH_FIRST_SECTION_SLOPE,
+    OLS_APPROACH_INNER_EDGE_HALF_WIDTH_M, OLS_APPROACH_SETBACK_M,
+    OLS_APPROACH_SETBACK_VISUAL_CODE1_M, OLS_MAX_CUT_DEPTH_M,
+    OLS_STRIP_HALF_WIDTH_INSTRUMENT_BY_CODE,
+    OLS_TRANSITIONAL_EMIT_REACH_M, OLS_TRANSITIONAL_SLOPE,
+    OLS_TRANSITIONAL_SLOPE_STEEP,
+    RUNWAY_END_CLEARANCE_LENGTH_BY_CODE, RUNWAY_END_RESA_MAX_SLOPE,
+    RUNWAY_STRIP_BAND_MIN_DOWN_SLOPE,
     RUNWAY_STRIP_BAND_MAX_DOWN_SLOPE_BY_CODE, RUNWAY_STRIP_HALF_WIDTH_BY_CODE,
     SERVICE_ROAD_MAX_GRADE, TAXI_MAX_GRADE, TAXIWAY_STRIP_BAND_MAX_DOWN_SLOPE,
     TAXIWAY_STRIP_BAND_MIN_DOWN_SLOPE, runway_code_number,
@@ -342,6 +350,94 @@ def runway_end_skirt_floor_profile_beyond_pavement(
     return [d - depths[0] for d in depths[1:]]
 
 
+def runway_end_corridor_half_width_m(runway_width_m: float,
+                                     runway_length_m: float) -> float:
+    """Half-width (m) each side of the extended centreline of the governed
+    runway-END corridor — the lateral extent of both the skirt fill and the
+    RESA cut.
+
+    ICAO Annex 14 §3.5.3: the RESA "shall extend to a width of at least twice
+    that of the runway", and §3.5.2 recommends it extend to the width of the
+    graded portion of the strip.  As a HALF-width those read
+    ``max(runway_width, strip_half)`` — the full corridor is then at least
+    2 x the runway width AND at least the graded strip width, satisfying both
+    clauses.  (The full apt.dat width standing in for a half-width is
+    deliberate, not a units slip: it is the §3.5.3 factor-of-two.)
+
+    Single source for ``clearance.emit_runway_end_skirts`` (both directions)
+    and the ``verification`` reader.
+    """
+    code = runway_code_number(runway_length_m)
+    return max(float(runway_width_m),
+               float(RUNWAY_STRIP_HALF_WIDTH_BY_CODE[code]))
+
+
+def runway_end_envelope(
+        distance_beyond_pavement_m: float,
+        *,
+        governed_length_beyond_pavement_m: float,
+        entry_grade: float = 0.0,
+        pavement_beyond_end_m: float = 0.0,
+        resa_reach_m: Optional[float] = None,
+) -> tuple[Optional[float], Optional[float]]:
+    """THE lawful corridor for terrain BEYOND a runway end, as a signed
+    ``(floor_offset_m, ceiling_offset_m)`` relative to the pavement-EXIT
+    elevation (positive = above the exit), at ``d`` metres beyond that exit
+    along the extended centreline.
+
+    A terrain point is lawful iff ``floor_offset <= (point - exit) <=
+    ceiling_offset``.  ``None`` means UNBOUNDED in that direction: a ``None``
+    floor permits any drop (never filled), a ``None`` ceiling permits any rise
+    (never cut).  This is the LONGITUDINAL twin of
+    ``adjacent_ground_envelope`` and follows the same conventions, so the two
+    can be read by one emitter and one validator.
+
+    The two directions and why they differ in extent:
+
+    * FLOOR (fill) — the runway-end skirt law, unchanged:
+      ``runway_end_skirt_floor_profile_beyond_pavement`` inside the governed
+      length, ``None`` past it (a drop beyond the safety area is lawful).
+      ``entry_grade`` and ``pavement_beyond_end_m`` are that law's own
+      arguments and keep their meaning verbatim.
+    * CEILING (cut) — the RESA ramp: terrain may rise from the pavement-exit
+      elevation at up to ``RUNWAY_END_RESA_MAX_SLOPE`` (ICAO Annex 14 §3.5.10
+      caps RESA longitudinal slopes at 5 %), so an overrun meets a gentle
+      ramp instead of a wall.  Bounded by ``resa_reach_m``
+      (``CLEARANCE_MAX_REACH_M["runway"]`` by default — the earthwork safety
+      cap the legacy Pass C used).
+
+    NOTE on the ceiling's extent: the RESA proper ends at
+    ``governed_length_beyond_pavement_m``; carrying the 5 % ramp on to the
+    reach cap is a CONSERVATIVE REPO DESIGN CHOICE (legacy Pass C parity),
+    not a regulatory mandate — the codified surface out there is the OLS
+    transitional/approach surface, which the OLS arc (gap-audit GAP 1) will
+    supersede this tail with.  Documented, like the service-road band, as a
+    design value rather than a citation.
+
+    Pure, deterministic, no geometry dependencies.  Both the emitter
+    (``clearance.emit_runway_end_skirts``) and the reader
+    (``verification.check_runway_end_skirt``) evaluate THIS function, so the
+    surface we build and the surface we check cannot drift.
+    """
+    if resa_reach_m is None:
+        resa_reach_m = CLEARANCE_MAX_REACH_M["runway"]
+    d = float(distance_beyond_pavement_m)
+    if d <= 0.0:
+        return (0.0, 0.0)                       # flush at the pavement exit
+
+    floor: Optional[float] = None
+    if d <= float(governed_length_beyond_pavement_m):
+        depth = runway_end_skirt_floor_profile_beyond_pavement(
+            [d], entry_grade, pavement_beyond_end_m)[0]
+        floor = -depth
+
+    ceiling: Optional[float] = None
+    if d < float(resa_reach_m):
+        ceiling = RUNWAY_END_RESA_MAX_SLOPE * d
+
+    return (floor, ceiling)
+
+
 # ── Adjacent-ground LATERAL grade law (Fable 2026-07-08) ─────────────────────
 # The lateral generalization of the runway-END skirt: ground beside a paved
 # surface is a two-zone-plus-ungraded CORRIDOR off the pavement EDGE.  The
@@ -592,6 +688,236 @@ def adjacent_ground_supported_depths(depths, positions,
         span = ((bx - ax) ** 2 + (by - ay) ** 2) ** 0.5
         supported[i] = min(supported[i], supported[i + 1] + limit * span)
     return supported
+
+
+def adjacent_ground_end_pin_flags(end_skipped, usable) -> list[bool]:
+    """Stations the daylight bench must NOT lower because their zero-depth
+    neighbour is a runway END-edge station (arc A3, gate
+    ``ADJACENT_GROUND_END_PIN_ENABLED``).
+
+    ``adjacent_ground_supported_depths`` benches a station's depth down toward
+    any neighbour at depth 0.  That is right when the neighbour is genuinely
+    unobstructed — you cannot cut a full-depth slot beside lawful ground — but
+    WRONG at a runway end: those stations are at depth 0 only because the
+    march SKIPS them (their outward normal points along the runway axis; the
+    end is skirt/RESA territory, ``adjacent_ground._station_reference``).  The
+    band then collapses diagonally into the end corner instead of ending
+    square against the end regime (measured SPJC 16R 2026-07-24: band #702's
+    outer edge tracks ``2.0 x distance-back-from-corner`` exactly, from 75 m
+    depth to 3 m over the last 48 m).
+
+    A station is pinned when it is usable AND immediately adjacent to an
+    end-skipped station.  Pinned stations hold their raw scanned depth in
+    BOTH bench sweeps (the ``at_continuation_seam`` mechanism, whose semantics
+    this reuses verbatim), so the wing terminates at full lawful depth and
+    hands off to the skirt / RESA surfaces, which clip and weld it.
+
+    ``end_skipped`` and ``usable`` are per-station bools aligned with the
+    march's station list.  Returns a per-station bool list.  Pure — the
+    emitter (``adjacent_ground._derive_shape_stations_and_bands``) and the
+    validator (``verification.check_adjacent_ground``) both call THIS, so the
+    pin set cannot drift between them.
+    """
+    n = len(end_skipped)
+    flags = [False] * n
+    for i in range(n):
+        if i < len(usable) and not usable[i]:
+            continue
+        if ((i > 0 and end_skipped[i - 1])
+                or (i + 1 < n and end_skipped[i + 1])):
+            flags[i] = True
+    return flags
+
+
+def runway_strip_band_width_m(strip_half_width_m: float,
+                              distance_to_axis_m: Optional[float],
+                              band_cap_m: float) -> float:
+    """Lateral band width (m) available to a runway-family station at
+    ``distance_to_axis_m`` from the runway CENTERLINE (arc A4, gate
+    ``STRIP_WIDTH_FROM_CENTERLINE_ENABLED``).
+
+    ``RUNWAY_STRIP_HALF_WIDTH_BY_CODE`` is an Annex-14 half-width measured
+    from the centreline, but the adjacent-ground march spends it as a reach
+    from the pavement EDGE — and the emitted runway carries apt.dat shoulders
+    (SPJC 16R/34L 45 m -> 81 m), so the band lands 115.5 m from the centreline
+    where the strip is 75 m.  Both legacy passes clamped this correctly:
+    Pass A3 by ``rw_axis[2] - rw_axis[0].distance(station)``
+    (``clearance.py`` Pass A3 station loop) and Pass B by
+    ``clear_half - 0.5 * short_len``.  The lateral law inherited neither.
+
+    Returns the remaining strip width outward of the station, never above
+    ``band_cap_m``.  ``distance_to_axis_m`` ``None`` (no axis available)
+    returns ``band_cap_m`` unchanged, so the clamp is inert without geometry.
+    """
+    if distance_to_axis_m is None:
+        return float(band_cap_m)
+    return max(0.0, min(float(band_cap_m),
+                        float(strip_half_width_m) - float(distance_to_axis_m)))
+
+
+# ── Obstacle limitation surfaces — the CUT law (Fable 2026-07-24) ────────────
+# docs/specs/obstacle-limitation-surfaces-spec.md; gap-audit GAP 1.  The ruled
+# follow-on of the lateral law above: zone 3's ceiling hands over to the OLS
+# TRANSITIONAL surface, and terrain beyond a runway end is governed by the
+# APPROACH surface's first section.  Rule VALUES live in config.py (single
+# source); only the surface MATH lives here.  Cut-only — there is NO floor
+# anywhere in this law: an OLS bounds how high terrain may stand, never how
+# low it may fall.
+#
+# Both surfaces are ceilings expressed as signed offsets, exactly like
+# ``adjacent_ground_envelope``'s: positive is above the anchor, ``None`` means
+# "not this law's domain here" (inside the adjacent-ground corridor, outside
+# the approach splay, or beyond the emission reach).
+def _ols_is_instrument(approach_class: str) -> bool:
+    """Annex 14 treats non-instrument (visual) runways separately from
+    instrument ones for BOTH the strip width and the transitional slope."""
+    return approach_class in ("non_precision", "precision")
+
+
+def ols_strip_half_width_m(code_number: int, approach_class: str) -> float:
+    """OLS strip half-width (m) from the runway CENTERLINE — the line the
+    transitional surface rises from (Annex 14 §3.4.3-3.4.4).
+
+    This is the FULL strip, NOT the graded portion the adjacent-ground law
+    models: instrument runways 140 m (code 3/4) / 70 m (code 1/2); a
+    non-instrument runway's OLS strip and its graded strip are the same width
+    (§3.4.4 == §3.4.9), so that case REUSES
+    ``RUNWAY_STRIP_HALF_WIDTH_BY_CODE`` rather than keeping a second copy.
+    """
+    if _ols_is_instrument(approach_class):
+        return float(OLS_STRIP_HALF_WIDTH_INSTRUMENT_BY_CODE[code_number])
+    return float(RUNWAY_STRIP_HALF_WIDTH_BY_CODE[code_number])
+
+
+def ols_transitional_slope(code_number: int, approach_class: str) -> float:
+    """Transitional-surface slope: 1:7 (14.3 %) everywhere except
+    non-instrument / non-precision code 1-2, which is 1:5 (20 %).
+    Annex 14 Table 4-1."""
+    if (code_number in (1, 2)
+            and approach_class in ("visual", "non_precision")):
+        return OLS_TRANSITIONAL_SLOPE_STEEP
+    return OLS_TRANSITIONAL_SLOPE
+
+
+def ols_lateral_handover_distance_m(code_number: int, approach_class: str,
+                                    edge_to_centerline_m: float) -> float:
+    """``S`` — the from-EDGE lateral distance at which the adjacent-ground
+    law hands over to the OLS transitional surface.
+
+    The transitional rises from the OLS strip EDGE, which is measured from the
+    centreline; a station on a pavement edge ``edge_to_centerline_m`` off the
+    axis therefore reaches it ``ols_half - edge_to_centerline`` further out.
+
+    FLOORED at the graded band width so the transitional can never begin
+    inside a still-graded zone 1-2.  That floor matters until arc A4
+    (``STRIP_WIDTH_FROM_CENTERLINE_ENABLED``) lands: today the lateral march
+    spends the graded half-width as a reach from the pavement EDGE, so on a
+    shoulder-widened runway the graded band already extends past the OLS strip
+    edge.  Without the floor the two laws would overlap and the composed
+    ceiling would step.  With A4 on, the floor stops binding on its own.
+    """
+    ols_half = ols_strip_half_width_m(code_number, approach_class)
+    graded = float(RUNWAY_STRIP_HALF_WIDTH_BY_CODE[code_number])
+    return max(ols_half - float(edge_to_centerline_m), graded)
+
+
+def ols_transitional_ceiling(
+        code_number: int, approach_class: str,
+        distance_from_pavement_edge_m: float,
+        edge_to_centerline_m: float) -> Optional[float]:
+    """Ceiling offset (m) relative to the pavement-EDGE elevation, at lateral
+    distance ``d`` out from that edge, for the OLS transitional surface.
+
+    ``None`` inside the handover ``S`` (the adjacent-ground corridor owns that
+    ground) and at/beyond ``S + OLS_TRANSITIONAL_EMIT_REACH_M``.
+
+    CONTINUITY (the design's central ruling): the transitional is anchored on
+    the value the adjacent-ground zone-3 ceiling ALREADY has at ``S``, read
+    from the same ``_adjacent_strip_envelope`` helper the lateral law uses —
+    so the composed ceiling
+    ``zones 1-2 -> zone-3 +5 % on [W, S] -> transitional from C(S)``
+    is continuous in ``d`` by construction, with only an upward slope kink at
+    ``S``.  A discontinuity here would mint a wall between two active cut
+    bands, which is exactly the class the 2026-07-09 weld ruling exists to
+    prevent.
+
+    This anchor sits up to ~2 m BELOW the Annex datum (which references the
+    nearest centreline elevation, not the pavement edge, so it does not carry
+    the accumulated zone-1/2 down-offsets).  Lower = stricter = a
+    lawful-conservative cut.  The two rejected alternatives — anchoring at the
+    300 m reach cap, or at the true Annex datum — are argued in the spec.
+    """
+    d = float(distance_from_pavement_edge_m)
+    s = ols_lateral_handover_distance_m(
+        code_number, approach_class, edge_to_centerline_m)
+    if d < s or d >= s + OLS_TRANSITIONAL_EMIT_REACH_M:
+        return None
+    # Zone-3 ceiling value AT the handover, from the lateral law itself.
+    # ``reach`` is passed as s + 1 so the helper never short-circuits to
+    # (None, None) at its own reach cap — we want the zone-3 expression
+    # evaluated at s, not the "ungoverned" answer.
+    _floor_at_s, ceiling_at_s = _adjacent_strip_envelope(
+        RUNWAY_STRIP_HALF_WIDTH_BY_CODE[code_number],
+        RUNWAY_STRIP_BAND_MIN_DOWN_SLOPE,
+        RUNWAY_STRIP_BAND_MAX_DOWN_SLOPE_BY_CODE[code_number],
+        s + 1.0, s)
+    if ceiling_at_s is None:            # s <= 0 (degenerate geometry)
+        return None
+    slope = ols_transitional_slope(code_number, approach_class)
+    return float(ceiling_at_s) + slope * (d - s)
+
+
+def ols_approach_ceiling(
+        code_number: int, approach_class: str,
+        distance_beyond_runway_end_m: float,
+        offset_from_extended_centerline_m: float) -> Optional[float]:
+    """Ceiling offset (m) relative to the RUNWAY-END elevation, for the
+    approach surface's FIRST SECTION off one runway end.
+
+    ``None`` when the point is inside the setback (the inner edge sits
+    30 m past a non-instrument code-1 end, 60 m otherwise), outside the
+    splayed fan, or beyond ``OLS_APPROACH_EMIT_REACH_M`` past the inner edge.
+
+    The fan half-width grows from the inner-edge half-width at the divergence
+    rate; the surface is FLAT transversely (Annex 14 measures approach slopes
+    in the vertical plane containing the centreline), so the ceiling depends
+    on the along-track distance alone once the point is inside the fan.
+
+    ANCHOR: the SOLVED runway-end elevation — the surface the patch actually
+    renders, matching the skirt/RESA anchor discipline rather than the
+    published threshold elevation.  Annex 14 puts the inner edge at the
+    THRESHOLD; where a threshold is displaced inward our inner edge sits
+    farther out along the same rising surface, so our ceiling is lower than
+    the Annex's — strictly conservative, never permissive.
+    """
+    setback = (OLS_APPROACH_SETBACK_VISUAL_CODE1_M
+               if (approach_class == "visual" and code_number == 1)
+               else OLS_APPROACH_SETBACK_M)
+    s = float(distance_beyond_runway_end_m) - setback
+    if s <= 0.0 or s > OLS_APPROACH_EMIT_REACH_M:
+        return None
+    inner_half = float(
+        OLS_APPROACH_INNER_EDGE_HALF_WIDTH_M[approach_class][code_number])
+    half_at_s = inner_half + OLS_APPROACH_DIVERGENCE[approach_class] * s
+    if abs(float(offset_from_extended_centerline_m)) > half_at_s:
+        return None
+    return OLS_APPROACH_FIRST_SECTION_SLOPE[approach_class][code_number] * s
+
+
+def ols_island_refused(max_cut_depth_m: float) -> bool:
+    """Whether a contiguous penetration ISLAND is refused whole.
+
+    Cutting the fringe of a real mountain while leaving its core sculpts a
+    moat, and the charter here is DEM-artefact repair (5-15 m lumps), not
+    obstacle removal — real aerodromes in terrain operate with assessed OLS
+    penetrations and the scenery must keep the mountains.  So an island whose
+    deepest required cut exceeds ``OLS_MAX_CUT_DEPTH_M`` emits NOTHING.
+
+    Emitter and validator both call this, so a refused island is exempt in the
+    reader for exactly the reason it was skipped in the emitter (the
+    ``adjacent_ground_supported_depths`` lockstep pattern).
+    """
+    return float(max_cut_depth_m) > OLS_MAX_CUT_DEPTH_M
 
 
 # ── Spine crown offset (user 2026-07-07, part 30) ────────────────────────────

@@ -222,7 +222,39 @@ conformance; one blended global ruleset).
 | Edge drop-off tolerance, pavement↔unpaved | 1.5 in ± 0.5 in | FAA (all pavement types); ICAO "flush" (§3.4.10) | (documented; enforced via the flush edge = lip start) |
 | Adjacent-ground daylight slope-limit (along-frontage benching) | governed depth grows ≤2.0 × the along-frontage station spacing | engineering judgment — NO external citation (grading benches into a hillside; the daylight line cannot jump discontinuously along the frontage); user ruling 2026-07-09 (CYXY shapeID 417 knife-slot report) | `config.py` `ADJACENT_GROUND_DAYLIGHT_SLOPE_LIMIT`; law `grade_law.adjacent_ground_supported_depths` (emitter + validator lockstep) |
 
-Runway ENDS are OUT OF SCOPE of this lateral law — the longitudinal runway-end skirt law
-(above / `grade_law.runway_end_skirt_*`) owns terrain beyond a runway end. Service roads
+Runway ENDS are OUT OF SCOPE of this lateral law — the longitudinal runway-end law
+(`grade_law.runway_end_envelope`, both bounds: the skirt floor for falling terrain and
+the RESA ceiling for rising terrain) owns terrain beyond a runway end. Service roads
 keep the unchanged 15 m cut-only flat shadow (see the corrected note in "Lateral (wingtip)
 clearance" — a design choice, not an AASHTO mandate).
+
+## Obstacle limitation surfaces — terrain cut — RESEARCHED 2026-07-24
+
+Design + slice plan: `docs/specs/obstacle-limitation-surfaces-spec.md` (gap-audit GAP 1).
+This is the CONTINUATION of the adjacent-ground zone-3 ceiling and of the runway-end
+corridor: where those laws stop, the OLS transitional and approach surfaces bound how
+high terrain may stand.
+
+An OLS is an **obstacle** limitation surface. The codes forbid new obstacles above it and
+require assessment of existing ones; they do **not** mandate grading terrain down to it
+(terrain penetrations are handled procedurally, via PANS-OPS and the AIP). Cutting terrain
+to it is therefore a deliberate scenery-repair reinterpretation — the same framing as the
+runway-end skirt — and that is why only two surfaces are modelled and why the
+inner-horizontal and conical surfaces are refused as cut surfaces.
+
+| Rule | Value | Standard | Implemented in |
+|------|-------|----------|----------------|
+| Ruleset adoption | classic Annex 14 Table 4-1. NOT FAA Part 77 §77.19 (a *notification* surface set — weaker near-field: approach 34:1 = 2.94% vs ICAO 2%). NOT Amendment 18's ADG-keyed OFS/OES (applicable 2028-11-26; the repo has no ADG plumbing) — **WATCH item** | ICAO Annex 14 Vol I 8th ed Ch 4; 14 CFR §77.19; ICAO SL AN 4/1.2.31-25/23 | gate `config.OLS_CUT_ENABLED` |
+| Transitional surface slope | 14.3% (1:7); 20% (1:5) for non-instrument / non-precision code 1–2 | ICAO Annex 14 Table 4-1 | `config.py` `OLS_TRANSITIONAL_SLOPE`, `OLS_TRANSITIONAL_SLOPE_STEEP`; `grade_law.ols_transitional_slope` |
+| OLS strip half-width (the line the transitional rises from) | instrument 140 m (code 3/4) / 70 m (1/2); non-instrument **reuses** 30/40/75/75 | ICAO Annex 14 §3.4.3–3.4.4 — the FULL strip, not the graded portion; §3.4.4 == §3.4.9 widths for non-instrument, so no duplicate constant | `config.py` `OLS_STRIP_HALF_WIDTH_INSTRUMENT_BY_CODE` + existing `RUNWAY_STRIP_HALF_WIDTH_BY_CODE`; `grade_law.ols_strip_half_width_m` |
+| Transitional anchor (the continuity ruling) | the adjacent-ground zone-3 ceiling VALUE at the handover distance S | design ruling (spec): guarantees an exactly continuous composed ceiling — a step between two active cut bands mints a wall. Sits ≤~2 m below the Annex nearest-centreline datum ⇒ stricter ⇒ lawful-conservative | `grade_law.ols_transitional_ceiling` (shares `_adjacent_strip_envelope` with the lateral law) |
+| Approach surface — first section only | inner edge half-widths: non-instr 30/40/75/75; NPA & precision 75/75/150/150 m. Setback 60 m (30 m non-instr code 1). Divergence 10% non-instr / 15% instrument. Slope: non-instr 5/4/3.33/2.5%; NPA 3.33/3.33/**2**/**2**%; precision 2.5/2.5/2/2% | ICAO Annex 14 Table 4-1. ICAO's 300 m NPA 3/4 inner edge adopted over EASA CS-ADR-DSN.H's 280 m (wider = stricter for a cut law); EASA equivalence otherwise assumed, still not primary-verified | `config.py` `OLS_APPROACH_*`; `grade_law.ols_approach_ceiling` |
+| Approach anchor elevation | the SOLVED runway-end elevation | Annex 14 puts the inner edge at the threshold; a displaced threshold makes our anchor farther out along the same rising surface ⇒ our ceiling is lower ⇒ conservative. Matches the skirt/RESA anchor discipline | `ols.py` emitter + `verification.check_ols_surfaces` (shared) |
+| Surfaces deliberately NOT cut | inner horizontal, conical, take-off climb, the OFZ set, approach 2nd/horizontal sections | Annex 14 Table 4-1 — these are obstacle surfaces; terrain penetrations are lawfully *assessed*, not graded away. As cuts, inner-horizontal + conical decapitate every hill within 4 km above +45 m (at SPLP, a mountain range) | spec §"scope ruling" |
+| Mountain refusal | a contiguous penetration island needing >15 m of cut anywhere emits NOTHING | design — NO citation. Shaving a real mountain's fringe while leaving its core sculpts a moat; the charter is DEM-artefact repair (5–15 m lumps), not obstacle removal | `config.py` `OLS_MAX_CUT_DEPTH_M`; `grade_law.ols_island_refused` (emitter + validator lockstep) |
+| Emission reaches / cut trigger | transitional 300 m past the handover; approach 1000 m past the inner edge; trigger 1.0 m | design (earthwork + visual-blast-radius bounds, the `CLEARANCE_MAX_REACH_M` philosophy) — NOT regulatory lengths. Table 4-1's 3000 m first section is a *law* length, not a cut reach | `config.py` `OLS_TRANSITIONAL_EMIT_REACH_M`, `OLS_APPROACH_EMIT_REACH_M`, `OLS_OBSTRUCTION_THRESHOLD_M` |
+
+**Correction logged 2026-07-24:** `docs/grade_law_gap_audit.md` GAP 1 previously recorded
+the approach first-section slope as "3.33% (NPA 3/4)" with a 60–280 m inner edge. NPA code
+3/4 is **2%** (the same as precision 3/4); 3.33% is NPA code **1/2**, and 280 m is EASA's
+figure where ICAO gives 300 m. Corrected in that file and tabled correctly above.

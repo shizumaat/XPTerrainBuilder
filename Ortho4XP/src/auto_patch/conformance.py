@@ -31,6 +31,10 @@ from shapely.strtree import STRtree
 from .layout import (
     BuiltShape,
     PavementLayout,
+    REF_RUNWAY_END_RESA,
+    REF_RUNWAY_END_SKIRT,
+    ROLE_OLS_CUT,
+    ROLE_RUNWAY_CLEARANCE,
     SHARED_VERTEX_TOL_M,
     VERTEX_ALT_MERGE_TOL_M,
     corner_alts_from_high_low,
@@ -66,6 +70,75 @@ CONFORMANCE_TOL_M = SHARED_VERTEX_TOL_M
 # (they share no edge with pavement), so — like the DEM bridge — they
 # are not part of the airside conforming partition.
 _OVERLAY_REFS = {"boundary_dem_bridge", "surface_clearance"}
+
+# CUT-ONLY receivers: the shape families whose OWN law is "cut, never
+# fill" (docs/STANDARDS.md "Lateral (wingtip) clearance"; the emitters'
+# rule is ``clearance._resa_cut_alt`` = ``min(ceiling, DEM)`` and the OLS
+# ceiling equivalent).  Role/ref sources: ``layout.ROLE_RUNWAY_CLEARANCE``
+# (lateral wingtip cuts + the runway-END regime), ``layout.ROLE_OLS_CUT``,
+# ``layout.REF_RUNWAY_END_RESA``.
+#
+# Why the weld needs them (SPJC 2026-07-25): the final epsilon-wedge weld
+# values an inserted T-vertex by the host edge's plain lerp, and on a row
+# where BOTH hosts are ceiling-limited that lerp IS the analytic ceiling
+# ``ref + slope·d`` — which floats above a terrain depression BETWEEN the
+# hosts (two inserted vertices measured +2.12 / +2.22 m over the DEM
+# envelope on the ``runway_end_resa`` daylight row, from a lawful n = 24
+# emit).  ``enforce_conformance(dem=…)`` re-applies the receiver's own cut
+# law as a final bound on the inserted value.
+_CUT_ONLY_REFS = frozenset((REF_RUNWAY_END_RESA,))
+_CUT_ONLY_ROLES = frozenset((ROLE_RUNWAY_CLEARANCE, ROLE_OLS_CUT))
+# ...and the FILL-only refs that OVERRIDE the role test: the runway-end
+# SKIRT carries ROLE_RUNWAY_CLEARANCE but is fill-only by owner ruling
+# (``clearance._skirt_lift_alt`` = ``max(floor, DEM)``), so an insert into
+# it must never be pulled DOWN to the terrain.
+_FILL_ONLY_REFS = frozenset((REF_RUNWAY_END_SKIRT,))
+
+
+def _is_cut_only(shape) -> bool:
+    """True when ``shape``'s own elevation law is CUT-ONLY, so none of its
+    vertices may sit above the DEM it cuts (see ``_CUT_ONLY_ROLES``)."""
+    ref = getattr(shape, "ref", None)
+    if ref in _FILL_ONLY_REFS:
+        return False
+    return (ref in _CUT_ONLY_REFS
+            or (getattr(shape, "role", None) or "") in _CUT_ONLY_ROLES)
+
+
+def _make_cut_law_clamp(layout: "PavementLayout", dem,
+                        tile_lat: int, tile_lon: int):
+    """Build ``bound(shape, alt, px, py) -> alt`` — the final bound an
+    inserted vertex's value passes through — or None when the clamp is
+    inapplicable (gate off, no DEM, no anchor), in which case the caller
+    leaves every inserted value exactly as computed today.
+
+    Sampling is IDENTICAL to the clearance emitters' own ``sample_dem``
+    closure (``elevation._sample_dem`` on the same DEM object and tile
+    frame, local metres → lat/lon through the layout anchor), so the
+    clamp reads the same surface the emitter tested its ceiling against.
+    """
+    from .config import CONFORMANCE_CUT_CLAMP_ENABLED
+    if (dem is None or not CONFORMANCE_CUT_CLAMP_ENABLED
+            or getattr(layout, "anchor", None) is None):
+        return None
+    from .elevation import _sample_dem
+
+    def bound(shape, alt, px: float, py: float):
+        if alt is None or not _is_cut_only(shape):
+            return alt
+        try:
+            lat, lon = layout.m_to_ll(px, py)
+            dem_alt = _sample_dem(dem, tile_lat, tile_lon, lat, lon)
+        except Exception:
+            return alt
+        if dem_alt is None or not math.isfinite(dem_alt):
+            return alt          # no reading ⇒ plain value, unchanged
+        # The RECEIVER'S OWN cut law re-applied (``min(ceiling, DEM)``),
+        # not a neighbour's claim — so this is not a value-authority
+        # transfer and the coincident-adopt authority guard above stands.
+        return min(float(alt), float(dem_alt))
+
+    return bound
 
 
 def _open_ring(poly):
@@ -253,6 +326,38 @@ def _build_vertex_index(shapes):
     return cell, grid
 
 
+def _radius_index(points, tol):
+    """Membership-with-RADIUS over a growing point set: returns
+    ``(near, add)`` where ``near(x, y)`` is True when a registered point
+    lies within ``tol`` of (x, y), and ``add(x, y)`` registers one.
+
+    Exact set membership is NOT point identity at weld scale: two donor
+    rings can carry bitwise-distinct vertices at the same location
+    (float noise apart — each ring re-derived the point through its own
+    geometry ops), and each passes an exact-tuple test independently.
+    """
+    cell = max(float(tol), 1e-9)
+    tol2 = float(tol) * float(tol)
+    grid = defaultdict(list)
+
+    def add(x, y):
+        grid[(int(x // cell), int(y // cell))].append((x, y))
+
+    def near(x, y):
+        i0, j0 = int(x // cell), int(y // cell)
+        for i in (i0 - 1, i0, i0 + 1):
+            for j in (j0 - 1, j0, j0 + 1):
+                for qx, qy in grid.get((i, j), ()):
+                    dx, dy = qx - x, qy - y
+                    if dx * dx + dy * dy < tol2:
+                        return True
+        return False
+
+    for x, y in points:
+        add(x, y)
+    return near, add
+
+
 def _points_near_edge(grid, cell, ax, ay, bx, by, tol):
     """Yield distinct (x, y) grid vertices within ``tol`` of segment a-b's
     bounding band (a cheap superset; precise test done by the caller)."""
@@ -364,6 +469,9 @@ def enforce_conformance(layout: "PavementLayout",
                         tol=CONFORMANCE_TOL_M,
                         owner_roles: "set[str] | None" = None,
                         include_overlay_refs: bool = False,
+                        dem=None,
+                        tile_lat: int = 0,
+                        tile_lon: int = 0,
                         ) -> tuple[int, int]:
     """Make the emitted shapes a conforming partition by inserting, into
     each shape's edges, every NEIGHBOUR vertex that lies on that edge
@@ -378,6 +486,13 @@ def enforce_conformance(layout: "PavementLayout",
     solver grades them to match — WITHOUT inserting vertices into taxi-rect
     sloping edges (which would break their 4-corner planar form before the
     solver assigns altitudes).
+
+    ``dem`` / ``tile_lat`` / ``tile_lon``: when given (the same DEM object
+    and tile frame the clearance emitters were driven with), an insert into
+    a CUT-ONLY receiver (``_is_cut_only``) is additionally bounded by the
+    DEM at the insert point — the receiver's own "cuts never fill" law,
+    which the host-edge lerp is blind to.  Default None ⇒ today's values
+    everywhere; the gate ``CONFORMANCE_CUT_CLAMP_ENABLED`` off likewise.
 
     Returns ``(shapes_modified, vertices_inserted)``.  Idempotent: a second
     call inserts nothing.  Overlay refs (DEM bridge / clearance) are skipped
@@ -412,6 +527,8 @@ def enforce_conformance(layout: "PavementLayout",
     shapes_modified = 0
     vertices_inserted = 0
     insert_altitude = _make_insert_altitude(layout, elig)
+    # Final bound for CUT-ONLY receivers (None ⇒ no clamp at all).
+    cut_bound = _make_cut_law_clamp(layout, dem, tile_lat, tile_lon)
     from shapely.geometry import Polygon
 
     for s in elig:
@@ -422,6 +539,7 @@ def enforce_conformance(layout: "PavementLayout",
             continue
         n = len(ring)
         ownset = set(ring)
+        near_own, own_add = _radius_index(ring, tol)
         alts = _vertex_alts(s, n)
         # A shape emitted with a SINGLE ``altitude`` (no high/low, no
         # node_altitudes) is flat: every corner sits at that level, so a
@@ -458,18 +576,35 @@ def enforce_conformance(layout: "PavementLayout",
                 # never conformed).  First edge wins.
                 if (px, py) in ownset:
                     continue
+                # ...and "twice" needs no exact tuple match: two DONOR
+                # rings can each carry a vertex at the same location,
+                # bitwise-distinct by float noise, and each passes the
+                # tolerance checks independently — the second insert
+                # minted a zero-length edge (SPJC ``runway_end_resa``
+                # 2026-07-25: inserts #26/#27 both at (-824.764,
+                # 1609.243), from two adjacent_ground donors).
+                # Coordinate-identical within ``tol`` ⇒ ONE insert.
+                if near_own(px, py):
+                    continue
                 ownset.add((px, py))
+                own_add(px, py)
                 new_ring.append((px, py))
                 if new_alts is not None:
                     _da = (donor_alt.get((px, py))
                            if _recv_overlay else None)
                     if _da is not None:
-                        new_alts.append(_da)
+                        _ins_alt = _da
                     else:
-                        new_alts.append(insert_altitude(
+                        _ins_alt = insert_altitude(
                             s.role, ax, ay, alts[i],
                             bx, by, alts[(i + 1) % n],
-                            t, px, py))
+                            t, px, py)
+                    # CUT-ONLY receivers: bound however the value was
+                    # derived (lerp, adopt or donor) by the shape's own
+                    # cut law — a no-op when no DEM/gate is in play.
+                    if cut_bound is not None:
+                        _ins_alt = cut_bound(s, _ins_alt, px, py)
+                    new_alts.append(_ins_alt)
                 inserted_here += 1
         if not inserted_here:
             continue
@@ -513,6 +648,15 @@ def _param_on_edge(ax, ay, bx, by, px, py) -> float:
     if L2 < 1e-12:
         return -1.0
     return ((px - ax) * dx + (py - ay) * dy) / L2
+
+
+# Crossing inserts dedupe at MICROMETRE scale, NOT at ``CONFORMANCE_TOL_M``:
+# unlike the T-junction rule, the crossing detector is EXACT (it wants the
+# intersection point itself to be a vertex of both rings), so skipping a real
+# second crossing centimetres away would leave it flagged forever.  This radius
+# only has to be wide enough to catch a duplicate that degenerates the ring and
+# narrow enough that no distinct crossing ever falls inside it.
+_CROSSING_DEDUPE_TOL_M = 1e-6
 
 
 def _resolve_edge_crossings(layout: "PavementLayout") -> int:
@@ -601,11 +745,27 @@ def _resolve_edge_crossings(layout: "PavementLayout") -> int:
                 a_j = alts[(i + 1) % n] if alts is not None else None
                 (ax, ay) = ring[i]
                 (bx, by) = ring[(i + 1) % n]
+                # Zero-length-edge guard, seeded with the edge's OWN
+                # endpoints: ``0 < t < 1`` admits a crossing a nanometre
+                # from a corner, and two partners crossing float-noise
+                # apart take DIFFERENT rounded-t keys whenever the pair
+                # straddles a rounding boundary — so neither existing
+                # test stops a degenerate edge from reaching the rebuild.
+                # Deliberately per-EDGE, not ring-wide: the two crossings
+                # a partner makes entering and leaving a thin sliver sit
+                # on OPPOSITE edges microns apart and are both real, and
+                # a ring-wide radius would drop one and leave that
+                # crossing unresolvable.
+                near_ins, ins_add = _radius_index(
+                    [(ax, ay), (bx, by)], _CROSSING_DEDUPE_TOL_M)
                 for t, X in sorted(by_edge[i]):
                     key = round(t, 4)
                     if key in seen:
                         continue
                     seen.add(key)
+                    if near_ins(X[0], X[1]):
+                        continue
+                    ins_add(X[0], X[1])
                     new_ring.append(X)
                     if new_alts is not None:
                         new_alts.append(insert_altitude(
@@ -687,6 +847,7 @@ def _resolve_yielding_tjunctions(layout: "PavementLayout", tol: float) -> int:
         tb = _tier(shape.role)
         n = len(ring)
         ownset = set(ring)
+        near_own, own_add = _radius_index(ring, tol)
         alts = _vertex_alts(shape, n)
         flat_single_alt = (shape.node_altitudes is None
                            and shape.altitude_high is None
@@ -704,6 +865,20 @@ def _resolve_yielding_tjunctions(layout: "PavementLayout", tol: float) -> int:
             cands = [pt for pt in _points_near_edge(grid, cell, ax, ay, bx, by, tol)
                      if pt not in ownset and vtx_tier.get(pt, 99) < tb]
             for t, (px, py) in _tjunctions_on_edge(ax, ay, bx, by, cands, tol):
+                # Same duplicate-insert guard as ``enforce_conformance``
+                # (see that loop for the full story).  Twice over: a
+                # candidate near a shallow corner qualifies on TWO edges
+                # of this ring, and two donor rings can carry the same
+                # location bitwise-distinct (float noise apart).  The
+                # first self-touches the rebuilt ring, the second mints a
+                # zero-length edge; either way the bail below discards
+                # EVERY insert for the shape and its T-vertices are
+                # immortal.  First edge wins; coordinate-identical within
+                # ``tol`` ⇒ ONE insert.
+                if (px, py) in ownset or near_own(px, py):
+                    continue
+                ownset.add((px, py))
+                own_add(px, py)
                 new_ring.append((px, py))
                 if new_alts is not None:
                     new_alts.append(insert_altitude(

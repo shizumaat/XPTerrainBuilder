@@ -464,6 +464,30 @@ def solve_route_profile(layout, icao: str,
             print(f"    [gap-spine] {len(_gap_scs)} chain(s), "
                   f"{len(_gap_spine_idx)} free spine node(s), "
                   f"{_n_int_edges} envelope interval edge(s)")
+    # ── RUNWAY-END RESA CUT constraints (arc R slice R1, gated) ───────
+    # The owner ruling: the runway-end envelope is LAW THE SOLVER
+    # ENFORCES.  The cut rings were emitted PRE-SOLVE (inside the B1
+    # skirt emitter) and their vertices admitted by ``_build_node_list``
+    # ABOVE every pavement index; each free one now gets exactly ONE
+    # ONE-SIDED envelope interval edge — ``z_cut − z_anchor <=
+    # RESA ceiling(d)``, floor open, because the cut never fills — to its
+    # end's frozen-nearest pavement anchor node.  Gate OFF: no store, no
+    # admitted vertex, empty sets — byte-inert.
+    _resa_idx: set = set()
+    if getattr(layout, "runway_end_resa_presolve", None):
+        from auto_patch.elevation_per_surface.solver_primitives import (
+            _build_resa_cut_constraints)
+        _resa_scs, _resa_idx, _resa_collisions = (
+            _build_resa_cut_constraints(layout, bucket_to_idx))
+        shape_constraints.extend(_resa_scs)
+        if _os.environ.get("O4_STEP_DEBUG") == "1":
+            _n_resa_edges = sum(len(_sc["edges"]) for _sc in _resa_scs)
+            print(f"    [runway-end-resa] {len(_resa_scs)} cut piece(s), "
+                  f"{len(_resa_idx)} cut node(s), {_n_resa_edges} "
+                  f"one-sided envelope interval edge(s), collisions "
+                  f"adopted={_resa_collisions[0]} "
+                  f"cross={_resa_collisions[1]} "
+                  f"no_anchor={_resa_collisions[2]}")
     # ── ADJACENT-GROUND ZONE-ROW constraints (Slice B stage B3 order 2,
     # gated) ──────────────────────────────────────────────────────────
     # The band zone-row vertices admitted by ``_build_node_list`` (from
@@ -508,9 +532,21 @@ def solve_route_profile(layout, icao: str,
     # (b) makes each zone slab move ONLY the zone endpoint in the sweep
     # (the host never ping-pongs).  KBNA gates-ON: a zone-carrying
     # projection drops from 8+ min to ~24 s.  Gate OFF → None → byte-inert.
-    _iyf = (getattr(layout, "_adjacent_ground_first_zone_index", None)
+    # TERRAIN-LEAF THRESHOLD (arc R slice R1): the RESA-cut rows are the
+    # same kind of object as the zone rows — a free terrain variable with
+    # ONE envelope edge to an authoritative pavement host — so they ride
+    # the same lever.  ``_build_node_list`` sorts BOTH families above
+    # every pavement index and publishes the boundary as
+    # ``_terrain_host_yield_first_index`` (equal to the zone index when no
+    # cut is admitted, so this is byte-inert with the RESA gate off).
+    _terrain_first = getattr(layout, "_terrain_host_yield_first_index",
+                             None)
+    if _terrain_first is None:
+        _terrain_first = getattr(
+            layout, "_adjacent_ground_first_zone_index", None)
+    _iyf = (_terrain_first
             if (_os.environ.get("O4_ZONE_HOST_AUTHORITATIVE", "1") == "1"
-                and _zone_idx)
+                and (_zone_idx or _resa_idx))
             else None)
     coupling = _build_level_coupling(shape_constraints)
 
@@ -584,8 +620,12 @@ def solve_route_profile(layout, icao: str,
     # consume a reach band, yet scanning one costs ~74 ms (the off-net
     # skeleton fallback) × 45k at KBNA (~55 min).  Skip them; they take the
     # honest off-net band (None).  Gate OFF restores the all-nodes scan.
+    # Arc R slice R1: the RESA-cut rows join the skip for the same reason
+    # (a cut vertex's value is the DEM clamped under its host's envelope;
+    # it never consumes a reach band).  ``_terrain_first`` equals the zone
+    # index with the RESA gate off — byte-inert there.
     _zone_skip = (
-        getattr(layout, "_adjacent_ground_first_zone_index", None)
+        _terrain_first
         if _os.environ.get("O4_ZONE_NODE_SKIP_REACH_BAND", "1") == "1"
         else None)
     # REACH-BAND CLUSTER AMORTIZATION (Tier 3 wave 1, O4_REACH_BAND_CLUSTERS):
@@ -1118,9 +1158,20 @@ def solve_route_profile(layout, icao: str,
             _pre_fairing_elev = list(elev) if _scoped_gate else None
             if _os.environ.get("O4_EDGE_FAIRING", "1") == "1":
                 from auto_patch.config import TAXIWAY_MAX_GRADE_CHANGE_PER_M
+                # RESA-CUT FAIRING EXEMPTION (arc R slice R1): the cut is
+                # a free terrain leaf under ONE envelope edge — no
+                # within-shape rule, no fairing (the law trace).  Its ring
+                # vertices only resolve to FREE nodes once admitted, so
+                # with the gate off the set is empty and this is
+                # byte-inert.  ADOPTED cut vertices are excluded: those
+                # ARE pavement variables and keep the pavement's fairing.
+                _resa_no_fair = ({i for i in _resa_idx
+                                  if i >= (_terrain_first or 0)}
+                                 if _resa_idx else None)
                 _n_ekink = _fair_ring_edges(
                     layout, elev, bucket_to_idx, yield_hard, node_band,
-                    TAXIWAY_MAX_GRADE_CHANGE_PER_M)
+                    TAXIWAY_MAX_GRADE_CHANGE_PER_M,
+                    skip_nodes=_resa_no_fair)
                 if _os.environ.get("O4_STEP_DEBUG") == "1":
                     print(f"    [edge-fairing] residual kinks={_n_ekink}")
             _fairing_moved_keys = None
@@ -1192,6 +1243,22 @@ def solve_route_profile(layout, icao: str,
                     # Adjacent-ground zone-row nodes (Slice B stage B3
                     # order 2) are TERRAIN, not pavement — no crown.
                     | {i for i in _zone_idx if i < n}
+                    # Runway-end RESA CUT rows (arc R slice R1) are
+                    # TERRAIN too — no crown.  This is REDUNDANT and
+                    # deliberately so: ``crown.build_crown_drop_field``
+                    # already freezes them by ROLE (every ring vertex of a
+                    # non-runway, non-taxi/service shape lands in
+                    # ``frozen_keys``), exactly as it does the skirt.
+                    # Stating it here makes the contract explicit at the
+                    # call site instead of implicit in a role table;
+                    # ``test_runway_end_resa_cut.TestResaCrownFrontier``
+                    # pins the role-keyed path independently (the R2
+                    # "assert it, don't assume it" mandate).  Only the
+                    # FREE cut nodes are
+                    # listed: an adopted vertex IS a pavement variable and
+                    # must keep the pavement's crown.
+                    | {i for i in _resa_idx
+                       if i < n and i >= (_terrain_first or 0)}
                     | {i for i, _cat in _hard_cat.items()
                        if _cat in ("seam_spine_anchor", "seat_on_spine",
                                    "gs_pin")})
@@ -1377,6 +1444,216 @@ def solve_route_profile(layout, icao: str,
                                 _zv = min(_zv, _ce)
                     _zone_vals[_mm_key(float(_zx), float(_zy))] = _zv
                 _zone_entry["zone_values"] = _zone_vals
+        # ── RUNWAY-END RESA CUT writeback (arc R slice R2) ────────────
+        # THE FOOT RE-REFERENCE DISCIPLINE, the B3 zone twin: identical
+        # law, exact reference frame, SOLVED values only.
+        #
+        # A cut node carries exactly ONE constraint (the one-sided
+        # envelope slab) and a DEM seed, so its converged value IS
+        # ``min(dem_seed, reference + ceiling_offset(d))``.  The solve's
+        # interval edge used the end's frozen-nearest pavement ANCHOR
+        # VERTEX (the approximation that keeps the slab pairwise); the
+        # law's actual reference is the pavement-EXIT elevation read 1 m
+        # inside the exit — and THAT is the read the whole arc exists
+        # for, because pre-solve it is stale by a measured median 0.110 m
+        # (p90 0.150 m, max 0.164 m at CYXY; the mode is the crown, plus
+        # ~0.4 m at overrun-pavement ends and up to
+        # ``RUNWAY_FLEX_MAX_DISPLACEMENT_M`` under runway flex).  Here it
+        # is re-read on the pavement shapes ``_writeback`` has just
+        # written — solved AND crowned — and the one-slab projection is
+        # re-evaluated against it.  ``clearance._resa_alt_at`` therefore
+        # RETIRES as the source of emitted values under this gate; the
+        # analytic values the emitter stamped pre-solve survive only on a
+        # vertex the solve could not resolve (counted below).
+        #
+        # IDENTITY RULE (the zone rule): a cut vertex that ADOPTED a
+        # pre-existing variable — a pavement ring vertex, a runway-end
+        # SKIRT pin, a gap spine — or that interned with an earlier cut
+        # vertex, takes that variable's solved value VERBATIM.  One node,
+        # one value; re-evaluating the cut law there would mint a second
+        # value for the same variable and re-open the twin-vertex class
+        # this arc closes.
+        #
+        # NO SNAP-TO-BOUND (deliberate deviation from the zone twin,
+        # documented for the lead): the zone corridor is two-sided and its
+        # snap moves a value UP onto a floor or DOWN onto a ceiling.  The
+        # cut corridor is ONE-SIDED — only a ceiling — and ``min(dem,
+        # ceiling)`` already lands EXACTLY on that bound wherever it
+        # binds, so the snap has nothing to gain; applying it in the
+        # non-binding direction would lift the surface off the terrain by
+        # up to ``_CORRIDOR_SNAP_TOL_M`` (0.15 m), i.e. FILL, which the
+        # cut-only law and ``test_runway_end_resa_cut`` both forbid.  The
+        # emitter's own 0.1 m quantum is kept verbatim so gate-ON and
+        # gate-OFF values are directly comparable.
+        if _resa_idx:
+            from shapely.geometry import Point as _ResaPoint
+            from shapely.ops import unary_union as _resa_union
+            from auto_patch.clearance import (
+                _AIRSIDE_PAVEMENT_ROLES as _RESA_AIRSIDE_ROLES,
+                _nearest_pav_alt as _resa_nearest_pav_alt,
+                _resa_cut_alt as _resa_cut_value)
+            from auto_patch.elevation_per_surface.solver_primitives import (
+                _open_ring as _resa_open_ring,
+                runway_end_resa_ceiling_offset as _resa_ceiling_off,
+                runway_end_resa_end_index as _resa_end_index)
+            from auto_patch.layout import (
+                REF_RUNWAY_END_RESA as _REF_RESA,
+                ROLE_RUNWAY_CLEARANCE as _ROLE_RESA)
+            _resa_specs = getattr(
+                layout, "runway_end_resa_presolve", None) or []
+            _resa_airside = [
+                s for s in layout.shapes
+                if s.role in _RESA_AIRSIDE_ROLES
+                and s.polygon is not None and not s.polygon.is_empty]
+            _resa_pav = None
+            if _resa_airside:
+                try:
+                    _resa_pav = _resa_union(
+                        [s.polygon for s in _resa_airside])
+                except _GEOM_EXC:
+                    _resa_pav = None
+            # SOLVED exit reference per end (the law frame).  Fallback
+            # chain: the containment-free 1 m-inside read on the solved
+            # pavement → the anchor NODE's solved value → the pre-solve
+            # analytic ref (never used at a healthy airport; counted).
+            _resa_first_free = _terrain_first or 0
+            _resa_refs: list = []
+            for _rspec in _resa_specs:
+                _rx, _ry = _rspec["read_xy"]
+                _rr = (_resa_nearest_pav_alt(_resa_airside, _rx, _ry)
+                       if _resa_airside else None)
+                if _rr is None:
+                    _ra = _rspec.get("anchor_xy")
+                    if _ra is not None:
+                        _rai = bucket_to_idx.get(
+                            layout.canonical_points.get_or_add(
+                                float(_ra[0]), float(_ra[1])))
+                        if _rai is not None and _rai < n:
+                            _rr = float(_elev_emit[_rai])
+                if _rr is None:
+                    _rr = _rspec.get("ref_presolve")
+                _resa_refs.append(None if _rr is None else float(_rr))
+            _resa_claimed: set = set()
+            _n_resa_solved = _n_resa_analytic = 0
+            # Per-vertex forensics (O4_RESA_WB_TRACE=<path>, read-only):
+            # end index, distance, ceiling offset, reference, DEM, the
+            # branch taken and the value.  The arc's whole argument is
+            # about WHICH reference a vertex is measured against, so the
+            # classification has to be inspectable per vertex.
+            _resa_trace_path = _os.environ.get("O4_RESA_WB_TRACE")
+            _resa_trace: list = []
+            for _rs in layout.shapes:
+                if (_rs.role != _ROLE_RESA
+                        or getattr(_rs, "ref", None) != _REF_RESA):
+                    continue
+                if _rs.polygon is None or _rs.polygon.is_empty:
+                    continue
+                _rk = _resa_end_index(_resa_specs, _rs.polygon)
+                if _rk is None or _resa_refs[_rk] is None:
+                    continue
+                _rspec = _resa_specs[_rk]
+                _rref = _resa_refs[_rk]
+                _rnx, _rny = _rspec["outward"]
+                _rp0 = _rspec["p0"]
+                try:
+                    _rring = _resa_open_ring(
+                        list(_rs.polygon.exterior.coords))
+                except _GEOM_EXC:
+                    continue
+                _old = _rs.node_altitudes
+                if (not _old or any(_a is None for _a in _old)
+                        or len(_old) not in (len(_rring),
+                                             len(_rring) + 1)):
+                    continue
+                _new: list = []
+                for _vi, (_vx, _vy) in enumerate(_rring):
+                    _ri = bucket_to_idx.get(
+                        layout.canonical_points.get_or_add(float(_vx),
+                                                           float(_vy)))
+                    _rd = ((_vx - _rp0[0]) * _rnx
+                           + (_vy - _rp0[1]) * _rny)
+                    if _ri is None or _ri >= n:
+                        _new.append(float(_old[_vi]))
+                        _n_resa_analytic += 1
+                        if _resa_trace_path:
+                            _resa_trace.append(
+                                (_rk, _vx, _vy, _rd, None, _rref, None,
+                                 "unresolved", float(_old[_vi]),
+                                 float(_old[_vi])))
+                        continue
+                    if (_ri < _resa_first_free
+                            or _ri in _resa_claimed):
+                        # IDENTITY: adopted / already-claimed variable.
+                        _new.append(float(_elev_emit[_ri]))
+                        _n_resa_solved += 1
+                        if _resa_trace_path:
+                            _resa_trace.append(
+                                (_rk, _vx, _vy, _rd, None, _rref,
+                                 (dem_elev[_ri]
+                                  if _ri < len(dem_elev) else None),
+                                 ("adopted" if _ri < _resa_first_free
+                                  else "claimed"),
+                                 float(_elev_emit[_ri]),
+                                 float(_old[_vi])))
+                        continue
+                    _resa_claimed.add(_ri)
+                    _rv = None
+                    _rbranch = "law"
+                    if _rd <= 0.02 and _resa_pav is not None:
+                        # WELD ROW, verbatim from ``_resa_alt_at``: a
+                        # vertex ON the pavement exit edge carries the
+                        # LOCAL pavement edge value (containment-free
+                        # read 1 m inside) so the cut abuts the pavement
+                        # with zero step — now read on SOLVED pavement.
+                        try:
+                            _on_pav = _resa_pav.distance(
+                                _ResaPoint(float(_vx),
+                                           float(_vy))) <= 0.05
+                        except _GEOM_EXC:
+                            _on_pav = False
+                        if _on_pav:
+                            _wp = _resa_nearest_pav_alt(
+                                _resa_airside, _vx - _rnx * 1.0,
+                                _vy - _rny * 1.0)
+                            if _wp is not None:
+                                _rv = float(_wp)
+                                _rbranch = "weld"
+                    _rco = None
+                    _rdem = (dem_elev[_ri]
+                             if _ri < len(dem_elev) else None)
+                    if _rv is None:
+                        _rco = _resa_ceiling_off(_rspec, _vx, _vy)
+                        if _rco is None:
+                            _new.append(float(_old[_vi]))
+                            _n_resa_analytic += 1
+                            continue
+                        _rv = round(_resa_cut_value(_rref + _rco, _rdem), 1)
+                    _new.append(float(_rv))
+                    _n_resa_solved += 1
+                    if _resa_trace_path:
+                        _resa_trace.append(
+                            (_rk, _vx, _vy, _rd, _rco, _rref, _rdem,
+                             _rbranch, float(_rv), float(_old[_vi])))
+                if len(_old) == len(_rring) + 1:
+                    _new.append(_new[0])
+                _rs.node_altitudes = _new
+            if _os.environ.get("O4_STEP_DEBUG") == "1":
+                print(f"    [runway-end-resa] writeback: "
+                      f"{_n_resa_solved} vertex(es) valued from the "
+                      f"SOLVED crowned exit reference, "
+                      f"{_n_resa_analytic} left on the pre-solve "
+                      f"analytic value")
+            layout._runway_end_resa_writeback_counts = (  # type: ignore
+                _n_resa_solved, _n_resa_analytic)
+            if _resa_trace_path:
+                import json as _resa_json
+                try:
+                    with open(_resa_trace_path, "w") as _rfh:
+                        _resa_json.dump(
+                            {"specs": _resa_specs, "refs": _resa_refs,
+                             "rows": _resa_trace}, _rfh, default=str)
+                except OSError:
+                    pass
         # Spine breaklines from the SOLVED route profiles (z′ ON the spine
         # equals z — spine nodes never crown) + the crowned runway pieces.
         if _CROWN_ON:
@@ -1965,6 +2242,33 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     nodes, b2i = _build_node_list(layout)
     if not nodes:
         return
+    # Arc R slice R1: this pass shares ``_build_node_list``, so an
+    # admitted RESA-cut ring resolves to nodes HERE too — with no
+    # constraint in this graph and no writeback (``_writeback`` skips
+    # non-pavement roles).  Collect its FREE nodes once, for the fairing
+    # exemption below (the cut carries no fairing law, and a cut-ring
+    # triple would drag the pavement vertices its weld row shares).
+    # Empty off-gate ⇒ byte-inert.
+    from auto_patch.elevation_per_surface.solver_primitives import (
+        admitted_terrain_refs as _admitted_refs_fp)
+    from auto_patch.layout import (
+        REF_RUNWAY_END_RESA as _REF_RESA_FP,
+        ROLE_RUNWAY_CLEARANCE as _ROLE_RESA_FP)
+    _fp_resa_free_idx: set = set()
+    if (_ROLE_RESA_FP, _REF_RESA_FP) in _admitted_refs_fp():
+        _fp_first_free = getattr(
+            layout, "_terrain_host_yield_first_index", 0) or 0
+        _fp_cps = layout.canonical_points
+        for _fs in layout.shapes:
+            if (_fs.role != _ROLE_RESA_FP
+                    or getattr(_fs, "ref", None) != _REF_RESA_FP
+                    or _fs.polygon is None or _fs.polygon.is_empty
+                    or _fs.polygon.geom_type != "Polygon"):
+                continue
+            for (_fx, _fy) in _fs.polygon.exterior.coords:
+                _fi = b2i.get(_fp_cps.get_or_add(float(_fx), float(_fy)))
+                if _fi is not None and _fi >= _fp_first_free:
+                    _fp_resa_free_idx.add(_fi)
     elev, base_hard, _have = _seed_elevations(layout, nodes, b2i)
     n = len(elev)
     _stage("seed")
@@ -2599,10 +2903,18 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                               or _sc.get("nodes") or ()):
                     if isinstance(_node, int):
                         _lazy_guard_nodes.add(_node)
+        # RESA-CUT FAIRING EXEMPTION (arc R slice R1) — the same law as
+        # at the solve-side call.  This pass rebuilds the node list on
+        # the FINAL shapes, so the admitted cut rings resolve here too;
+        # they carry no constraint in this graph at all, and fairing them
+        # would drag the pavement vertices their weld rows share.  Gate
+        # off ⇒ the cut resolves to no node and the set is empty anyway,
+        # but the exemption is stated explicitly at BOTH call sites.
         _fair_ring_edges(layout, elev, b2i,
                          hard | _lazy_guard_nodes | _tri_anchor_idx, None,
                          TAXIWAY_MAX_GRADE_CHANGE_PER_M,
-                         law_adjacency=_law_adjacency)
+                         law_adjacency=_law_adjacency,
+                         skip_nodes=_fp_resa_free_idx)
     # Fairing-moved canonical keys for the snapshot recapture below —
     # computed BEFORE the crown transform back (both sides of the diff in
     # the same z′ space, so only genuine fairing moves register).
@@ -3054,7 +3366,8 @@ def _fair_gap_spine_chains(elev, chains, k_rate, *, max_sweeps=200,
 
 def _fair_ring_edges(layout, elev, bucket_to_idx, anchors, node_band,
                      k_rate, *, max_bend_deg=25.0, min_seg_m=3.0,
-                     max_sweeps=200, tol=1e-4, law_adjacency=None):
+                     max_sweeps=200, tol=1e-4, law_adjacency=None,
+                     skip_nodes=None):
     """Second-difference fairing on STRAIGHT airside boundary runs (user
     2026-07-04, CYXY taxiway E edge): the ``_fair_spine_chains`` law
     covers spine chains only, so a corridor's ring EDGE still tracks DEM
@@ -3074,7 +3387,24 @@ def _fair_ring_edges(layout, elev, bucket_to_idx, anchors, node_band,
     junction MESH chords (pairs crossing between two ring runs, which no
     triple sees) a median 1.8 cm over budget (SPJC 2026-07-05, the
     43-pair cm-noise class).  ``None`` ⇒ unguarded (solve-time call: the
-    final projection re-enforces every pair the fairing perturbs)."""
+    final projection re-enforces every pair the fairing perturbs).
+
+    ``skip_nodes`` (node indices, arc R slice R1) — FREE TERRAIN-LEAF
+    nodes: a triple with ANY of its three members in this set is dropped.
+    ``_SKIP_ROLES`` below is ROLE-keyed, but the runway-end regime
+    carries TWO families on ONE role: the skirt FILL (hard pins — every
+    triple centre is already an anchor, so the pass is inert on it) and
+    the RESA CUT (free variables under one envelope edge).  The cut
+    carries no within-shape grade rule
+    (``ROLE_GRADE_LIMITS['runway_clearance']`` is ``None``) and no
+    fairing BY DESIGN — and, MEASURED at CYXY, a cut-ring triple whose
+    CENTRE is the pavement vertex its weld row shares with a junction
+    dragged that pavement node 2.1 m, breaking the one-way
+    host-authority property the whole absorption rests on.  Dropping on
+    ANY member (not just the centre) is what kills that class while
+    leaving every triple that exists WITHOUT the admission untouched:
+    off-gate no cut vertex resolves to a free node, the set is empty and
+    the pass is byte-identical."""
     import math as _math
     from auto_patch.layout import (ROLE_RUNWAY, ROLE_BUILDING,
                                    ROLE_BOUNDARY, ROLE_GROUNDSIDE_PAVEMENT)
@@ -3135,6 +3465,9 @@ def _fair_ring_edges(layout, elev, bucket_to_idx, anchors, node_band,
                 continue
             if b >= n or a >= n or d >= n or b in anchors:
                 continue
+            if skip_nodes and (b in skip_nodes or a in skip_nodes
+                               or d in skip_nodes):
+                continue          # free terrain leaf — no fairing law
             (xa, ya), (xb, yb) = coords[(t - 1) % m], coords[t]
             (xd, yd) = coords[(t + 1) % m]
             l1 = _math.hypot(xb - xa, yb - ya)

@@ -650,6 +650,17 @@ def build_airport_pavement(icao: str, xplane_root: str,
 
     layout = PavementLayout(icao=icao, anchor=anchor,
                              apt_dat_path=apt_path)
+    # The apt.dat row-100 runway list, carried on the layout so the
+    # VERIFICATION readers can reach the same authoritative geometry the
+    # emitters used.  ``driver`` calls ``verify_and_log`` with
+    # ``source_runways=None`` (it has no ``apt`` in scope at that point),
+    # which left the adjacent-ground caps mirror measuring station-to-axis
+    # distance off a min-rotated-rect midline instead of the real
+    # centreline — and the emitted pavement is LONGER than the apt.dat
+    # axis (SPJC 16R/34L: 3,617 m vs 3,497 m), so stations past the axis
+    # endpoints got a different ``d_axis`` on each side and the A4/OLS
+    # caps drifted out of lockstep.  One list, one axis, both readers.
+    layout.apt_runways = list(getattr(apt, "runways", None) or ())
 
     # Project the apt.dat row-130 airport boundary (in lat/lon) into
     # meter space so downstream emission has it ready when the
@@ -814,6 +825,13 @@ def build_airport_pavement(icao: str, xplane_root: str,
             r.width_m = old_w
             continue
         runway_polys[ridx] = new_rect
+        # Preserve the PUBLISHED width before this widened value travels on:
+        # rules keyed on "the runway width" (ICAO Annex 14 §3.5.3's RESA
+        # factor of two) must not be handed runway+shoulders.  Readers use
+        # ``Runway.declared_width_m``; only set on the success path, so a
+        # rolled-back widening leaves the runway untouched.
+        if r.published_width_m is None:
+            r.published_width_m = old_w
         ref = f"{r.desig_a}/{r.desig_b}"
         _shoulder_widened_refs.add(ref)
         for s in layout.shapes:
@@ -6718,6 +6736,42 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 UI.vprint(1, f"  [pav-builder] {icao}: adjacent-ground "
                              f"band emission FAILED: {exc!r}")
 
+        # ── Obstacle limitation surfaces (gate OLS_CUT_ENABLED) ─────────
+        # docs/specs/obstacle-limitation-surfaces-spec.md.  LAST of the
+        # terrain-grading emitters by design: OLS is the continuation of
+        # the adjacent-ground zone-3 ceiling and of the runway-end
+        # corridor, so it must clip against the skirt, the RESA cut and
+        # the bands — all of which are already emitted here.  The module
+        # is imported INSIDE the gate so it is byte-inert when off.
+        from .config import OLS_CUT_ENABLED as _ols_enabled
+        if _ols_enabled:
+            try:
+                from .ols import emit_ols_cuts
+                n_ols = emit_ols_cuts(
+                    layout, _projection_dem,
+                    _projection_tile_lat, _projection_tile_lon,
+                    source_runways=apt.runways)
+                if n_ols:
+                    UI.vprint(1,
+                        f"  [pav-builder] {icao}: emitted {n_ols} "
+                        f"obstacle-limitation-surface cut polygon(s).")
+                    # An OLS fan reaches up to a kilometre off a runway
+                    # end, so it crosses integer tile lines far more often
+                    # than any other feature — cut it like the rest.
+                    from .geom_guard import _AIRSIDE_ROLES as _ols_skip
+                    from .tile_cut import cut_layout_at_tile_boundaries \
+                        as _ols_tile_cut
+                    _ols_tile_cut(
+                        layout,
+                        current_tile_lat=current_tile_lat,
+                        current_tile_lon=current_tile_lon,
+                        dem=_projection_dem,
+                        skip_roles=_ols_skip,
+                    )
+            except _GEOM_EXC as exc:
+                UI.vprint(1, f"  [pav-builder] {icao}: OLS cut emission "
+                             f"FAILED: {exc!r}")
+
         # Round 9 (user ruling): re-run the non-overlap rule AFTER the
         # adjacent-ground bands — the last feature emitters that can
         # lap onto the object-bridge plates.  Gate off ⇒ no plates ⇒
@@ -6754,8 +6808,17 @@ def build_airport_pavement(icao: str, xplane_root: str,
     if compute_elevations:
         from .conformance import (enforce_conformance as _enf_final,
                                   find_conformance_violations as _fcv)
+        # DEM + tile frame (the SAME pair the clearance / OLS emitters were
+        # driven with above): an inserted T-vertex on a CUT-ONLY shape is
+        # bounded by min(lerp, DEM) — the shape's own "cuts never fill" law,
+        # which the host-edge lerp cannot see (SPJC runway_end_resa: the
+        # weld floated two inserts +2.12 / +2.22 m above the DEM envelope
+        # over a depression between two ceiling-limited hosts).
         _n_ews, _n_ewv = _enf_final(layout, tol=0.01,
-                                    include_overlay_refs=True)
+                                    include_overlay_refs=True,
+                                    dem=_projection_dem,
+                                    tile_lat=_projection_tile_lat,
+                                    tile_lon=_projection_tile_lon)
         if _n_ewv:
             UI.vprint(1,
                 f"  [pav-builder] {icao}: final epsilon-wedge weld — "

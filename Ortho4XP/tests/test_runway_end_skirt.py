@@ -934,7 +934,7 @@ class TestSkirtValidatorAtFixtures:
                 int(math.floor(lat0)), int(math.floor(lon0)))
             assert isinstance(findings, list)
             for kind, desig, below, tolerance, latlon in findings:
-                assert kind in ("end_drop", "end_drop_flank")
+                assert kind in ("end_drop", "end_drop_flank", "end_rise")
                 assert below > tolerance
             print(f"[skirt-baseline] {icao}: {len(findings)} end(s) "
                   + "; ".join(f"{f[1]} −{f[2]:.1f} m @{f[4]}"

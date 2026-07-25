@@ -24,10 +24,17 @@ Covered (``conformance._make_insert_altitude`` resolution order):
 """
 from __future__ import annotations
 
+import math
+
 from shapely.geometry import Polygon
 
 from auto_patch.canonical_points import CanonicalPointRegistry
-from auto_patch.conformance import enforce_conformance
+from auto_patch.conformance import (
+    CONFORMANCE_TOL_M,
+    _resolve_edge_crossings,
+    _resolve_yielding_tjunctions,
+    enforce_conformance,
+)
 from auto_patch.layout import (
     BuiltShape,
     PavementLayout,
@@ -168,3 +175,167 @@ def test_insert_plain_lerp_when_drops_equal_and_no_donor():
     layout = _make_layout(receiver, donor)
     enforce_conformance(layout)                  # no crown field at all
     assert _alt_at(receiver, 10.0, 0.0) == 10.0 + 0.5 * (10.4 - 10.0)
+
+
+# ---------------------------------------------------------------------------
+# Duplicate-insert dedupe (SPJC ``runway_end_resa`` 2026-07-25): the insert
+# loop deduped by EXACT tuple equality only, so two donor rings carrying
+# bitwise-distinct vertices at the same location (float noise apart — each
+# ring re-derived the point through its own geometry ops) both passed the
+# tolerance checks and were both inserted, minting a zero-length edge in the
+# receiver ring (inserts #26/#27 both printed (-824.764, 1609.243), from two
+# adjacent_ground donors).  Coordinate-identical within ``tol`` ⇒ ONE insert.
+# ---------------------------------------------------------------------------
+
+def _min_edge_len(shape: BuiltShape) -> float:
+    ring = list(shape.polygon.exterior.coords)[:-1]
+    n = len(ring)
+    return min(math.hypot(ring[(i + 1) % n][0] - ring[i][0],
+                          ring[(i + 1) % n][1] - ring[i][1])
+               for i in range(n))
+
+
+def test_insert_dedupes_float_noise_twin_donors():
+    """Two donors whose apexes differ only by float noise yield ONE
+    inserted vertex — never the coordinate-identical pair whose
+    zero-length edge degenerates the receiver ring."""
+    receiver = _receiver_square(10.0, 10.4)
+    d1 = BuiltShape(polygon=Polygon([(5.0, -10.0), (9.9, -10.0),
+                                     (10.0, 0.0)]), role=ROLE_JUNCTION)
+    d2 = BuiltShape(polygon=Polygon([(10.1, -10.0), (15.0, -10.0),
+                                     (10.0 + 1e-7, 0.0)]),
+                    role=ROLE_JUNCTION)
+    layout = _make_layout(receiver, d1, d2)
+    n_shapes, n_inserted = enforce_conformance(layout)
+    assert (n_shapes, n_inserted) == (1, 1)
+    ring = list(receiver.polygon.exterior.coords)[:-1]
+    hits = [p for p in ring
+            if math.hypot(p[0] - 10.0, p[1]) <= SHARED_VERTEX_TOL_M]
+    assert len(hits) == 1
+    assert _min_edge_len(receiver) > SHARED_VERTEX_TOL_M
+    # node_altitudes stays index-aligned with the 5-vertex ring.
+    assert len(receiver.node_altitudes) == len(ring) + 1
+
+
+def test_insert_keeps_distinct_tjunctions_beyond_tolerance():
+    """The dedupe must not swallow REAL neighbours: two donor apexes
+    farther apart than the tolerance are two T-junctions and both
+    insert."""
+    receiver = _receiver_square(10.0, 10.4)
+    d1 = BuiltShape(polygon=Polygon([(3.0, -10.0), (6.9, -10.0),
+                                     (7.0, 0.0)]), role=ROLE_JUNCTION)
+    d2 = BuiltShape(polygon=Polygon([(13.1, -10.0), (17.0, -10.0),
+                                     (13.0, 0.0)]), role=ROLE_JUNCTION)
+    layout = _make_layout(receiver, d1, d2)
+    n_shapes, n_inserted = enforce_conformance(layout)
+    assert (n_shapes, n_inserted) == (1, 2)
+    ring = list(receiver.polygon.exterior.coords)[:-1]
+    assert any(math.hypot(p[0] - 7.0, p[1]) < 1e-9 for p in ring)
+    assert any(math.hypot(p[0] - 13.0, p[1]) < 1e-9 for p in ring)
+
+
+# ---------------------------------------------------------------------------
+# The same duplicate-insert guard on the OTHER two insert loops of the
+# planarize pass, which ran unguarded until 2026-07-25.
+#
+# ``_resolve_yielding_tjunctions`` (a lower-priority shape conforming to a
+# strictly higher-priority shape's vertex) appended every qualifying candidate
+# with no dedupe at all, so it carried BOTH failure modes: the same candidate
+# accepted on two edges of one ring, and two donors a float-noise apart.
+#
+# ``_resolve_edge_crossings`` deduped per edge by rounded ``t`` only, which
+# misses a crossing landing a nanometre from the edge's own corner (``0 < t <
+# 1`` admits it) and misses noise-apart twins whose ``t`` values straddle a
+# rounding boundary.
+# ---------------------------------------------------------------------------
+
+def _yield_receiver(ring, alts=None) -> BuiltShape:
+    """Receiver at junction tier (3), which yields to runway tier (0)."""
+    return BuiltShape(polygon=Polygon(ring), role=ROLE_JUNCTION,
+                      node_altitudes=alts)
+
+
+def _runway_donor(apex) -> BuiltShape:
+    """Donor at runway tier: its apex is the vertex the receiver conforms
+    to; the base sits 10 m clear of any receiver edge."""
+    return BuiltShape(polygon=Polygon([(apex[0] - 5.0, -10.0),
+                                       (apex[0] + 5.0, -10.0), apex]),
+                      role=ROLE_RUNWAY)
+
+
+def test_yielding_dedupes_candidate_qualifying_on_two_edges():
+    """A donor vertex inside the neck of a sliver receiver qualifies as a
+    T-junction on BOTH of the sliver's long edges.  Inserting it twice
+    makes the rebuilt ring self-touch, so the invalid-polygon bail throws
+    away every insert for that shape and its T-vertices become immortal —
+    the receiver here came back completely unwelded (0 inserts).
+
+    The donor sits 0.1 m off both edges: outside ``planarize_airside``'s
+    tight collinear-insert tolerance (0.05 m) on each, so this pass is the
+    only one that can weld it and the guard has to hold here."""
+    receiver = _yield_receiver([(0.0, 0.0), (20.0, 0.0), (0.0, 0.4)],
+                               alts=[10.0, 10.4, 10.2])
+    donor = _runway_donor((10.0, 0.1))
+    layout = _make_layout(receiver, donor)
+    assert _resolve_yielding_tjunctions(layout, tol=CONFORMANCE_TOL_M) == 1
+    ring = list(receiver.polygon.exterior.coords)[:-1]
+    assert receiver.polygon.is_valid
+    assert sum(1 for p in ring
+               if math.hypot(p[0] - 10.0, p[1] - 0.1) < 1e-9) == 1
+    assert len(receiver.node_altitudes) == len(ring) + 1
+
+
+def test_yielding_dedupes_float_noise_twin_donors():
+    """Two runway donors whose apexes differ only by float noise yield ONE
+    inserted vertex — never the coordinate-identical pair whose
+    zero-length edge degenerates the receiver ring."""
+    receiver = _yield_receiver([(0.0, 0.0), (20.0, 0.0),
+                                (20.0, 20.0), (0.0, 20.0)],
+                               alts=[10.0, 10.4, 10.4, 10.0])
+    layout = _make_layout(receiver, _runway_donor((10.0, 0.0)),
+                          _runway_donor((10.0 + 1e-7, 0.0)))
+    assert _resolve_yielding_tjunctions(layout, tol=CONFORMANCE_TOL_M) == 1
+    ring = list(receiver.polygon.exterior.coords)[:-1]
+    hits = [p for p in ring
+            if math.hypot(p[0] - 10.0, p[1]) <= SHARED_VERTEX_TOL_M]
+    assert len(hits) == 1
+    assert _min_edge_len(receiver) > SHARED_VERTEX_TOL_M
+    assert len(receiver.node_altitudes) == len(ring) + 1
+
+
+def test_yielding_keeps_distinct_tjunctions_beyond_tolerance():
+    """The dedupe must not swallow REAL neighbours here either: two donor
+    apexes farther apart than the tolerance both insert."""
+    receiver = _yield_receiver([(0.0, 0.0), (20.0, 0.0),
+                                (20.0, 20.0), (0.0, 20.0)],
+                               alts=[10.0, 10.4, 10.4, 10.0])
+    layout = _make_layout(receiver, _runway_donor((7.0, 0.0)),
+                          _runway_donor((13.0, 0.0)))
+    assert _resolve_yielding_tjunctions(layout, tol=CONFORMANCE_TOL_M) == 2
+    ring = list(receiver.polygon.exterior.coords)[:-1]
+    assert any(math.hypot(p[0] - 7.0, p[1]) < 1e-9 for p in ring)
+    assert any(math.hypot(p[0] - 13.0, p[1]) < 1e-9 for p in ring)
+
+
+def test_crossing_insert_skipped_on_top_of_its_own_corner():
+    """A partner clipping the receiver's corner crosses its bottom edge a
+    nanometre from that corner: ``0 < t < 1`` admits the point, and
+    inserting it mints a 2e-8 m edge right beside the corner.  The
+    crossing the partner makes on its way back out is a real one and must
+    still insert."""
+    receiver = _yield_receiver([(0.0, 0.0), (20.0, 0.0),
+                                (20.0, 10.0), (0.0, 10.0)],
+                               alts=[10.0, 10.4, 10.4, 10.0])
+    # Vertical edge 2e-8 m inside the corner; the hypotenuse leaves the
+    # receiver 0.2 m along the bottom edge (a genuine second crossing).
+    partner = BuiltShape(polygon=Polygon([(2e-8, -5.0), (0.4 + 2e-8, -5.0),
+                                          (2e-8, 5.0)]), role=ROLE_JUNCTION)
+    layout = _make_layout(receiver, partner)
+    _resolve_edge_crossings(layout)
+    ring = list(receiver.polygon.exterior.coords)[:-1]
+    assert receiver.polygon.is_valid
+    assert _min_edge_len(receiver) > 1e-6
+    assert not [p for p in ring
+                if 0.0 < math.hypot(p[0], p[1]) < 1e-6]
+    assert any(abs(p[1]) < 1e-9 and 0.1 < p[0] < 0.3 for p in ring)
+    assert len(receiver.node_altitudes) == len(ring) + 1

@@ -124,6 +124,18 @@ def _subsystem_refusal_reason(layout) -> Optional[str]:
         return "gap-fill spine present"
     if getattr(layout, "adjacent_ground_presolve", None):
         return "adjacent-ground band present"
+    # Runway-end RESA cut (arc R, gate ONE_SOLVE_TERRAIN_RUNWAY_END_RESA):
+    # the fourth terrain-graph family, admitted as free variables carrying
+    # a ONE-SIDED envelope edge to the end anchor plus its own writeback —
+    # the same class the two stores above refuse for, so it refuses here
+    # too.  Same truthiness contract: ``clearance`` publishes the store
+    # only when an end actually produced cut geometry, so a runway whose
+    # terrain never breaches the ramp leaves it empty and does NOT refuse.
+    # Until this row existed the refusal came from the generic
+    # interval-edge check downstream, which covers every realistic case
+    # but names no reason — a refused certificate must record WHY.
+    if getattr(layout, "runway_end_resa_presolve", None):
+        return "runway-end RESA cut present"
     return None
 
 

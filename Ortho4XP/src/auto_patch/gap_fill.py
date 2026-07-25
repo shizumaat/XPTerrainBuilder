@@ -48,8 +48,9 @@ import math
 import os
 
 from shapely.errors import GEOSException, TopologicalError
-from shapely.geometry import LineString, Point, Polygon
+from shapely.geometry import LineString, Point, Polygon, box
 from shapely.ops import split, unary_union
+from shapely.strtree import STRtree
 
 import O4_UI_Utils as UI
 
@@ -60,13 +61,16 @@ _GEOM_EXC = (ValueError, GEOSException, TopologicalError)
 from .config import (
     ADJACENT_GROUND_LIP_WIDTH_M,
     APRON_SHOULDER_WIDTH_M,
+    CLEARANCE_OBSTRUCTION_THRESHOLD_M,
     GAP_FILL_INTERIOR_FLOOR_DEPTH_M,
+    GAP_FILL_INTERIOR_FLOOR_ENABLED,
     GAP_FILL_INTERIOR_RINGS_ENABLED,
     GAP_FILL_MAX_WIDTH_M,
     GAP_FILL_MIN_AREA_M2,
     GAP_FILL_SPINE_ENABLED,
     GAP_FILL_SPINE_STEP_M,
     OPEN_FRONTAGE_CLOSE_M,
+    POCKET_COLLAR_RINGS_ENABLED,
     RUNWAY_STRIP_HALF_WIDTH_BY_CODE,
     runway_code_number,
     taxiway_strip_graded_half_width_for_letter,
@@ -84,6 +88,7 @@ from .layout import (
     ROLE_RUNWAY_CROSSING,
     ROLE_SECONDARY_PARALLEL,
     ROLE_STUB,
+    RUNWAY_END_REGIME_REFS,
     taxi_shape_code_letter,
 )
 from .clearance import (
@@ -167,6 +172,28 @@ _RING_ALONG_BENCH_SLOPE = 0.05
 # within this of the lip offset — two near-coincident parallel
 # breaklines are exactly the lens class the zero-lens law forbids.
 _RING_MIN_SEPARATION_M = 2.0
+# Coincidence tolerance (NOT a rule number) for deciding that a pit-floor
+# rim vertex sits ON the ring-2 core boundary.  The pit region is clipped
+# EXACTLY against that boundary, so a shared vertex is exact up to
+# shapely's own arithmetic; this is the float slack, nothing more.
+_PIT_RIM_WELD_TOL_M = 0.01
+
+# ── TWO-NEAREST-PARENT INDEX search window (OPT-1) ────────────────────
+# NOT rule numbers — search-window sizes only.  ``_AirsideNearestIndex``
+# DOUBLES its query radius until the candidate set provably contains the
+# two nearest parents, so the SELECTION is exact for any value here; the
+# constants only trade tree queries against candidate-set size.  The seed
+# adapts to the previous station's answer (gap stations are spatially
+# coherent), floored/capped so it can neither collapse to a useless
+# window nor blow up into a full scan.
+_NEAREST_SEED_RADIUS_M = 48.0
+_NEAREST_MIN_SEED_RADIUS_M = 8.0
+_NEAREST_MAX_SEED_RADIUS_M = 4096.0
+# Hard bound on the doubling escalation.  Unreachable for any finite
+# station (8 m x 2^64 covers the solar system, and the whole-list exit
+# fires long before) — it exists so a non-finite coordinate degrades to
+# the full scan instead of spinning.
+_NEAREST_MAX_DOUBLINGS = 64
 
 _RUNWAY_ROLES = (ROLE_RUNWAY, ROLE_RUNWAY_CROSSING)
 _APRON_ROLES = (ROLE_APRON,)
@@ -358,6 +385,13 @@ def _grade_face(layout, airside, face_poly, step, registry,
         UI.vprint(1, f"  [gap-fill] skipped gap (width "
                      f"{short_side:.0f} > {GAP_FILL_MAX_WIDTH_M:.0f})"
                      f" area={face_poly.area:.0f} m2")
+        # ARC B1 (owner ruling 2026-07-24): a WIDTH-skipped pocket still
+        # owes its two closed drainage collar rings — this is the ONLY
+        # skip class the collar covers, and it is selected structurally
+        # (foreign-shape / partial-straddle pockets never reach here).
+        if POCKET_COLLAR_RINGS_ENABLED and dem is not None:
+            _emit_pocket_collar_rings(layout, airside, face_poly, dem,
+                                      tile_lat, tile_lon, rw_axes, step)
         return 0
     return _emit_one_gap(layout, airside, face_poly, long_dir, long_len,
                          step, registry, dem=dem, tile_lat=tile_lat,
@@ -484,6 +518,141 @@ def _build_spine(gap_poly, long_dir, long_len, step):
     return dedup if len(dedup) >= 2 else None
 
 
+class _AirsideNearestIndex:
+    """EXACT two-nearest-parent selector over one ``airside`` list.
+
+    OPT-1 (2026-07-24, pure performance — emitted values must not move).
+    Three call sites pick a station's two bounding pavement parents
+    (``_spine_interval``, ``_build_collar_rings._point_interval``,
+    ``_freeze_spine_parent_specs``) and all three used to walk EVERY
+    airside shape per station::
+
+        for s in airside:
+            d = s.polygon.exterior.distance(p)
+
+    ``.exterior`` REBUILDS the ring object on every access, so that walk
+    cost one ring construction per shape per station on top of the
+    distance itself (HECA profile: 8.7 M ``get_exterior_ring`` calls,
+    6.3 s tottime — ~91 % of the collar-ring pass).
+
+    This index hoists the exteriors ONCE per pass and answers each
+    station from an STRtree bbox prefilter with a DOUBLING radius.  It is
+    not an approximation:
+
+      * the query square of half-width ``r`` about the station CONTAINS
+        the disc of radius ``r``, so every shape within ``r`` is in the
+        candidate set and every shape outside the candidate set is
+        strictly farther than ``r``;
+      * the radius doubles until the SECOND-nearest candidate sits at
+        ``<= r`` (or the candidate set is the whole list) — at which
+        point no excluded shape can rank in the top two, and the answer
+        is provably the full-scan answer.
+
+    Ties resolve on ``(distance, original airside index)``, which is
+    exactly what the old stable ``sort(key=distance)`` over ``airside``
+    produced.  Tie order is load-bearing: the two parents feed
+    ``adjacent_ground_envelope`` asymmetrically (the NEARER one owns the
+    empty-intersection fallback), so ordering a tie differently would
+    silently move emitted altitudes.
+
+    A shape whose distance raises is DROPPED, mirroring the per-shape
+    ``try/except`` the scan carried.
+    """
+
+    __slots__ = ("_airside", "_exteriors", "_shape_idx", "_n", "_tree",
+                 "_seed_r")
+
+    def __init__(self, airside):
+        self._airside = airside
+        exteriors: list = []
+        shape_idx: list[int] = []
+        for i, s in enumerate(airside):
+            try:
+                ring = s.polygon.exterior
+            except _GEOM_EXC:
+                continue
+            exteriors.append(ring)
+            shape_idx.append(i)
+        self._exteriors = exteriors
+        self._shape_idx = shape_idx
+        self._n = len(exteriors)
+        self._tree = STRtree(exteriors) if exteriors else None
+        self._seed_r = _NEAREST_SEED_RADIUS_M
+
+    def _ranked(self, hits, p):
+        """``[(distance, airside_index), ...]`` for tree items ``hits``,
+        sorted on the frozen ``(distance, original index)`` key."""
+        exteriors = self._exteriors
+        shape_idx = self._shape_idx
+        ranked = []
+        for j in hits:
+            try:
+                d = exteriors[j].distance(p)
+            except _GEOM_EXC:
+                continue
+            ranked.append((d, shape_idx[j]))
+        ranked.sort()
+        return ranked
+
+    def two_nearest(self, p):
+        """The two nearest airside shapes to ``p`` as
+        ``[(distance, shape), ...]`` (0-2 entries) — identical to the
+        retired ``sorted(((s.polygon.exterior.distance(p), s) for s in
+        airside), key=distance)[:2]`` under a stable sort."""
+        tree = self._tree
+        if tree is None:
+            return []
+        n = self._n
+        px, py = p.x, p.y
+        r = self._seed_r
+        airside = self._airside
+        for _ in range(_NEAREST_MAX_DOUBLINGS):
+            hits = tree.query(box(px - r, py - r, px + r, py + r))
+            n_hits = len(hits)
+            if n_hits >= 2 or n_hits >= n:
+                ranked = self._ranked(hits, p)
+                # SOUNDNESS: the candidate set is sufficient once the
+                # second-nearest candidate is inside the query radius
+                # (everything excluded is strictly beyond it), or once it
+                # IS the whole list (nothing left to exclude).
+                if n_hits >= n or (len(ranked) >= 2 and ranked[1][0] <= r):
+                    if len(ranked) >= 2:
+                        self._seed_r = min(
+                            _NEAREST_MAX_SEED_RADIUS_M,
+                            max(_NEAREST_MIN_SEED_RADIUS_M,
+                                2.0 * ranked[1][0]))
+                    return [(d, airside[i]) for d, i in ranked[:2]]
+            r *= 2.0
+        # Escalation exhausted (non-finite station): the exact full scan.
+        ranked = self._ranked(range(n), p)
+        return [(d, airside[i]) for d, i in ranked[:2]]
+
+
+# Per-PASS index cache.  ``airside`` lists come from ``_airside_shapes``
+# once per emitter pass and are never mutated, so the index is keyed by
+# list IDENTITY; the entry holds the list itself, which both validates
+# the key (``is``) and keeps CPython from recycling that ``id`` under a
+# different list.  Bounded so a whole-tile run never pins more than a few
+# passes' shapes alive.
+_NEAREST_INDEX_CACHE: dict[int, tuple] = {}
+_NEAREST_INDEX_CACHE_MAX = 4
+
+
+def _airside_index(airside) -> _AirsideNearestIndex:
+    """The pass-cached :class:`_AirsideNearestIndex` for ``airside``."""
+    key = id(airside)
+    hit = _NEAREST_INDEX_CACHE.get(key)
+    if hit is not None and hit[0] is airside and hit[1] == len(airside):
+        return hit[2]
+    index = _AirsideNearestIndex(airside)
+    if (key not in _NEAREST_INDEX_CACHE
+            and len(_NEAREST_INDEX_CACHE) >= _NEAREST_INDEX_CACHE_MAX):
+        # dicts are insertion-ordered — drop the oldest pass.
+        _NEAREST_INDEX_CACHE.pop(next(iter(_NEAREST_INDEX_CACHE)))
+    _NEAREST_INDEX_CACHE[key] = (airside, len(airside), index)
+    return index
+
+
 def _spine_interval(layout, airside, px, py):
     """The drainage interval ``(lo, hi)`` and reference edge altitudes at
     spine point ``(px, py)``: the two nearest DISTINCT bounding pavement
@@ -492,15 +661,9 @@ def _spine_interval(layout, airside, px, py):
     ``[max(floors), min(ceils)]``.  On an empty intersection it falls back
     to the nearer parent's own interval (user design ruling 2026-07-09)."""
     p = Point(px, py)
-    cands = []
-    for s in airside:
-        try:
-            d = s.polygon.exterior.distance(p)
-        except _GEOM_EXC:
-            continue
-        cands.append((d, s))
-    cands.sort(key=lambda t: t[0])
-    parents = cands[:2]
+    # OPT-1: the STRtree index reproduces the retired full airside scan
+    # exactly, tie order included (see _AirsideNearestIndex).
+    parents = _airside_index(airside).two_nearest(p)
     per_parent = []                      # (edge_alt, floor_abs|None, ceil_abs|None)
     edge_alts = []
     for d, s in parents:
@@ -673,9 +836,61 @@ def _ring_parent_band(layout, shape, rw_axes):
     return None
 
 
-def _build_gap_interior_rings(layout, airside, gap_poly, spine, values,
-                              dem, tile_lat, tile_lon, rw_axes, step):
-    """Construct the interior ring breaklines for ONE emitted gap face
+# ── Loop-resample support (2026-07-25 collar loop-resample ruling) ────
+# The resample ladder's acceptance test and the fallback's densifier.
+# Both are pure geometry helpers on an OPEN point ring (no repeated
+# closing vertex); the caller closes the ring for the cover test.
+def _ring_covered_by(cover, pts) -> bool:
+    """True iff the CLOSED polyline through ``pts`` stays inside
+    ``cover``.  ``cover=None`` (a degenerate inward buffer) is treated as
+    "no test" — the historical behaviour of the inner-cover rung."""
+    if cover is None:
+        return True
+    try:
+        if cover.is_empty:
+            return False
+        return bool(cover.covers(LineString(list(pts) + [pts[0]])))
+    except _GEOM_EXC:
+        return False
+
+
+def _densify_closed_ring(pts, max_chord_m: float):
+    """Subdivide every chord of a CLOSED point ring longer than
+    ``max_chord_m`` with COLLINEAR intermediate points.
+
+    The point set is geometrically UNCHANGED — every inserted vertex sits
+    exactly on the chord it splits — so no cover / clearance / simplicity
+    property of the ring can change.  What DOES change is the law: each
+    added node gets its own ``_level`` sample and enters the along-ring
+    bench, so law values interpolate over ``max_chord_m`` spans instead of
+    over whatever the simplify fallback happened to leave (measured HECA
+    2026-07-25: chords to 445 m, SPJC to 320 m).
+    """
+    n = len(pts)
+    if max_chord_m <= 0.0 or n < 3:
+        return list(pts)
+    out = []
+    for i in range(n):
+        ax, ay = pts[i]
+        bx, by = pts[(i + 1) % n]
+        out.append((ax, ay))
+        seg = math.hypot(bx - ax, by - ay)
+        if seg <= max_chord_m:
+            continue
+        k = int(math.ceil(seg / max_chord_m))
+        for j in range(1, k):
+            t = j / k
+            out.append((ax + (bx - ax) * t, ay + (by - ay) * t))
+    return out
+
+
+def _build_collar_rings(layout, airside, gap_poly, dem, tile_lat, tile_lon,
+                        rw_axes, step):
+    """Construct the two concentric COLLAR ring breaklines for ONE
+    enclosed region — the spine-free core of the interior-ring machinery
+    (arc B1, 2026-07-24: extracted VERBATIM from
+    ``_build_gap_interior_rings`` so a pocket the spine emitter skips can
+    receive the identical rings without a drainage-spine face)
     (round-9 rebuild: TRUE POLYGON INWARD OFFSETS — the per-station
     offset walk of round 8 self-crossed at boundary concavities and
     parent-width transitions, 9 self-intersecting loops at CYXY).
@@ -706,17 +921,38 @@ def _build_gap_interior_rings(layout, airside, gap_poly, spine, values,
     offset is handled by true-distance evaluation); the two-sided
     along-ring value bench; the per-gap economy skip; ring 1
     all-or-nothing per gap (dropped when any ring-1 loop crowds a
-    ring-2 loop); the spine trimmed to the core; the ring-2 ceiling
-    re-coupling.  Returns ``(chains, clamped_values, stats,
-    spine_chains)`` exactly as before."""
+    ring-2 loop).
+
+    Returns a result dict::
+
+        {"chains": [(pts_xy, alts), ...],   # [] = nothing to emit
+         "stats": {...},
+         "core_parts": [Polygon, ...],      # the ring-2 CORE region
+         "lip_parts":  [Polygon, ...],
+         "ring2_loops": [LinearRing, ...],
+         "ring2_recs": [rec, ...],          # EMITTED ring-2 stations
+         "ring2_stations": [rec, ...],      # ALL sampled ring-2 stations
+         "loop_lines": [LineString, ...]}   # accepted loops, closed
+
+    A ``rec`` carries ``pt`` / ``v`` (clamp value) / ``lo`` / ``hi`` /
+    ``terrain`` / ``noop`` / ``floor_engaged`` and — once emitted —
+    ``benched`` (the along-ring benched value).  ``ring2_stations`` is
+    populated even when the per-gap economy gate suppresses the chains,
+    so the pit-floor pass (arc B2) always has a LOCAL ring-2 law
+    reference to work from."""
     lip = ADJACENT_GROUND_LIP_WIDTH_M
-    boundary_ls = gap_poly.boundary
-    spine_ls = LineString(spine) if len(spine) >= 2 else None
+    # OPT-1: hoisted out of ``_dem_at`` — the import ran once per DEM
+    # sample (once per ring station) purely to re-look-up a module that
+    # is always already loaded here.
+    from .elevation import _sample_dem
+    _m_to_ll = layout.m_to_ll
+    # OPT-1: pass-level two-nearest-parent index (built once per airside
+    # list, shared across every gap/pocket of the pass).
+    nearest = _airside_index(airside)
 
     def _dem_at(x, y):
         try:
-            from .elevation import _sample_dem
-            lat, lon = layout.m_to_ll(x, y)
+            lat, lon = _m_to_ll(x, y)
             return _sample_dem(dem, tile_lat, tile_lon, lat, lon)
         except _GEOM_EXC:
             return None
@@ -742,16 +978,9 @@ def _build_gap_interior_rings(layout, airside, gap_poly, spine, values,
         the smoothed loop swings past the band edge).  ``(None,
         None)`` = no law governs the point."""
         p = Point(pt)
-        cands = []
-        for s in airside:
-            try:
-                d = s.polygon.exterior.distance(p)
-            except _GEOM_EXC:
-                continue
-            cands.append((d, s))
-        cands.sort(key=lambda t: t[0])
         per_parent = []
-        for d, s in cands[:2]:
+        # OPT-1: identical two-nearest selection, STRtree-backed.
+        for d, s in nearest.two_nearest(p):
             pband = _band_of(s)
             if pband is None:
                 continue
@@ -813,7 +1042,23 @@ def _build_gap_interior_rings(layout, airside, gap_poly, spine, values,
 
     stats = {"stations": 0, "eligible": 0, "noop_stations": 0,
              "engaged_stations": 0, "chains": 0, "nodes": 0,
-             "skipped": False}
+             "skipped": False,
+             # Loop-resample ladder forensics (2026-07-25): how many loops
+             # were accepted at each rung, and the worst chord the
+             # simplify fallback left BEFORE the post-densify.
+             "resample_inner": 0, "resample_gap": 0,
+             "resample_simplify": 0, "resample_max_chord_m": 0.0}
+    ring2_stations: list[dict] = []
+
+    def _result(chains, core_parts=(), lip_parts=(), ring2_loops=(),
+                ring2_recs=(), loop_lines=()):
+        return {"chains": list(chains), "stats": stats,
+                "core_parts": list(core_parts),
+                "lip_parts": list(lip_parts),
+                "ring2_loops": list(ring2_loops),
+                "ring2_recs": list(ring2_recs),
+                "ring2_stations": ring2_stations,
+                "loop_lines": list(loop_lines)}
 
     # ── REGIONS (round-9): polygon inward offsets ─────────────────────
     zones = []
@@ -833,7 +1078,7 @@ def _build_gap_interior_rings(layout, airside, gap_poly, spine, values,
                 else None)
         lip_region = gap_poly.buffer(-lip, quad_segs=4)
     except _GEOM_EXC:
-        return [], list(values), stats, None
+        return _result([])
 
     def _smooth_region(region):
         """Morphological opening (drop fingers/spikes thinner than the
@@ -871,15 +1116,20 @@ def _build_gap_interior_rings(layout, airside, gap_poly, spine, values,
     ring1_loops = _region_loops(lip_parts)
     # Ring 1 all-or-nothing per gap (round-8 rung 3): drop it whole
     # when any ring-1 loop crowds a ring-2 loop.
+    stats["ring1_loops"] = len(ring1_loops)
+    stats["ring2_loops"] = len(ring2_loops)
+    stats["ring1_dropped_crowding"] = False
     if ring1_loops and ring2_loops:
         try:
             if any(l1.distance(l2) < _RING_MIN_SEPARATION_M
                    for l1 in ring1_loops for l2 in ring2_loops):
                 ring1_loops = []
+                stats["ring1_dropped_crowding"] = True
         except _GEOM_EXC:
             ring1_loops = []
+            stats["ring1_dropped_crowding"] = True
     if not ring2_loops and not ring1_loops:
-        return [], list(values), stats, None
+        return _result([], core_parts, lip_parts, ring2_loops)
 
     # ── Resample each loop at the station step + point-law values ────
     sampled = []                # (level_tag, pts, recs)
@@ -902,11 +1152,13 @@ def _build_gap_interior_rings(layout, airside, gap_poly, spine, values,
             # Densify until the closed polyline stays covered by the
             # gap; final fallback = the smoothed loop's own vertices,
             # topology-preserving-simplified (simple by construction).
+            ladder = []
             for n_try in (n, 2 * n, 4 * n):
                 cand = []
                 for i in range(n_try):
                     q = loop.interpolate((i / n_try) * perim)
                     cand.append((float(q.x), float(q.y)))
+                ladder.append(cand)
                 try:
                     ok = (inner_cover is None or inner_cover.covers(
                         LineString(cand + [cand[0]])))
@@ -914,7 +1166,28 @@ def _build_gap_interior_rings(layout, airside, gap_poly, spine, values,
                     ok = False
                 if ok:
                     pts = cand
+                    stats["resample_inner"] += 1
                     break
+            if pts is None:
+                # SECOND RUNG (2026-07-25 ruling).  The 0.8 m inner-cover
+                # margin above is a PROXY for the real criterion the
+                # comment states — "chords must not cut inside pavement".
+                # Measured SPJC pocket (731,-160): at n the cover test
+                # fails LEGITIMATELY (13.1 m of chord genuinely outside
+                # the pocket, cutting pavement at concave details), but at
+                # 2n and 4n the ONLY failure is the margin itself, with
+                # 0 m outside the pocket.  Rejecting those in favour of a
+                # 61-node simplify over 2,419 m (chords to 320 m; 14 of 49
+                # HECA collar loops took the same fallback, to 445 m) —
+                # and admitting the fallback with NO cover test at all —
+                # is incoherent.  So re-test the SAME ladder against the
+                # real criterion, ``gap_poly`` itself, and take the
+                # SPARSEST candidate that passes it.
+                for cand in ladder:
+                    if _ring_covered_by(gap_poly, cand):
+                        pts = cand
+                        stats["resample_gap"] += 1
+                        break
             if pts is None:
                 try:
                     simp = loop.simplify(0.75, preserve_topology=True)
@@ -924,6 +1197,18 @@ def _build_gap_interior_rings(layout, airside, gap_poly, spine, values,
                     continue
                 if len(pts) < 3:
                     continue
+                stats["resample_simplify"] += 1
+                stats["resample_max_chord_m"] = max(
+                    stats["resample_max_chord_m"],
+                    max(math.hypot(pts[(i + 1) % len(pts)][0] - pts[i][0],
+                                   pts[(i + 1) % len(pts)][1] - pts[i][1])
+                        for i in range(len(pts))))
+                # POST-DENSIFY the fallback: geometrically identical
+                # (collinear inserts), but every added node carries a law
+                # sample into the bench, bounding law interpolation at the
+                # station step instead of at the simplify tolerance's
+                # arbitrary chord length.
+                pts = _densify_closed_ring(pts, step)
             # SIMPLICITY — the round-9 hard invariant.  The source is
             # a shapely polygon boundary (simple by construction); the
             # resampled chord polygon must stay simple too (the
@@ -942,9 +1227,23 @@ def _build_gap_interior_rings(layout, airside, gap_poly, spine, values,
             if any(r is None for r in recs):
                 continue                    # no law + no terrain: drop
             sampled.append((tag, pts, recs))
+            if tag == "ring2":
+                ring2_stations.extend(recs)
+
+    # Forensics for the ladder ruling: only the non-default rungs print.
+    if stats["resample_gap"] or stats["resample_simplify"]:
+        _rc = gap_poly.centroid
+        UI.vprint(1, f"  [gap-ring] loop resample at "
+                     f"({_rc.x:.0f},{_rc.y:.0f}): "
+                     f"{stats['resample_inner']} inner-cover, "
+                     f"{stats['resample_gap']} gap-cover (2nd rung), "
+                     f"{stats['resample_simplify']} simplify fallback"
+                     + (f" (worst chord {stats['resample_max_chord_m']:.0f} m"
+                        f" -> densified at {step:.0f} m)"
+                        if stats["resample_simplify"] else "") + ".")
 
     if not sampled:
-        return [], list(values), stats, None
+        return _result([], core_parts, lip_parts, ring2_loops)
 
     # ── Per-gap economy gate (round-8, all-or-nothing) ────────────────
     engaged = noop = 0
@@ -959,7 +1258,7 @@ def _build_gap_interior_rings(layout, airside, gap_poly, spine, values,
     stats["engaged_stations"] = engaged
     if engaged == 0:
         stats["skipped"] = True
-        return [], list(values), stats, None
+        return _result([], core_parts, lip_parts, ring2_loops)
 
     def _bench_along(pts, alts, los, his):
         """Two-sided along-ring value bench (round-8 continuity law,
@@ -1028,8 +1327,29 @@ def _build_gap_interior_rings(layout, airside, gap_poly, spine, values,
                 r["benched"] = a
                 ring2_recs.append(r)
 
+    return _result(chains, core_parts, lip_parts, ring2_loops,
+                   ring2_recs, emitted_loop_lines)
+
+
+def _build_gap_interior_rings(layout, airside, gap_poly, spine, values,
+                              dem, tile_lat, tile_lon, rw_axes, step):
+    """The interior-ring construction for ONE EMITTED gap face: the
+    spine-free collar rings (``_build_collar_rings``) plus the two
+    spine-coupled steps that only exist on the spine/face path — the
+    ring-2 ceiling re-coupling (spine values may only move DOWN) and the
+    spine trim to the ring core.  Returns ``(chains, clamped_values,
+    stats, spine_chains)`` exactly as before."""
+    res = _build_collar_rings(layout, airside, gap_poly, dem, tile_lat,
+                              tile_lon, rw_axes, step)
+    chains = res["chains"]
+    stats = res["stats"]
     if not chains:
         return [], list(values), stats, None
+    core_parts = res["core_parts"]
+    lip_parts = res["lip_parts"]
+    ring2_loops = res["ring2_loops"]
+    ring2_recs = res["ring2_recs"]
+    emitted_loop_lines = res["loop_lines"]
 
     # ── Spine re-coupling (unchanged law): ring 2 is the spine's
     # CEILING where the nearest ring-2 node is FLOOR-ENGAGED and the
@@ -1114,6 +1434,156 @@ def _build_gap_interior_rings(layout, airside, gap_poly, spine, values,
     stats["spine_nodes_kept"] = sum(1 for x in keep if x)
     stats["spine_nodes_total"] = len(spine)
     return chains, clamped, stats, spine_chains
+
+
+# ══════════════════════════════════════════════════════════════════════
+# POCKET COLLAR RINGS (arc B1, owner ruling 2026-07-24, gate
+# O4_POCKET_COLLAR_RINGS)
+#
+#   "we should be able to identify when there's a significant drop in the
+#    center of an enclosed area, but first there should be two fully
+#    enclosed rings of adjacent ground covering the necessary drainage
+#    slope rules per zone, THEN the gap pit in the middle."
+#
+# The interior rings above are built INSIDE ``_emit_one_gap``, so they only
+# ever reach a gap the drainage-spine emitter treats.  A pocket wider than
+# GAP_FILL_MAX_WIDTH_M is skipped before that — and the ONLY thing that ever
+# reached such a pocket was the flat pit clamp of
+# ``emit_gap_interior_floor``.  Measured SPJC 2026-07-24: a 235,167 m2
+# pocket (461 m short dimension) took ONE flat 158,651 m2 patch at 16.1 m,
+# 2.7-3.4 m ABOVE the taxiway junctions ringing it.
+#
+# With the gate ON a WIDTH-SKIPPED pocket gets the SAME two collar rings
+# first — identical construction, identical round-8 semantics (complete
+# closed loops, gating in the VALUES not the geometry, all-or-nothing node
+# economy) — and the pit pass then works only INSIDE ring 2.
+#
+# SCOPE: WIDTH-skipped pockets ONLY.  Pockets skipped for "foreign shape
+# inside" or for a partial-straddle legacy strip are deliberately EXCLUDED
+# for now — they already carry partial coverage by design (the corridor
+# bands / the straddling strip own that ground), so a collar there would
+# double-govern it.  Those two classes never reach ``_grade_face``, which is
+# exactly where this hook lives, so the exclusion is structural.
+# ══════════════════════════════════════════════════════════════════════
+
+# Layout attribute the collar pass publishes for the pit-floor pass
+# (arc B2): one record per collared pocket.
+_POCKET_COLLAR_STORE = "pocket_collars"
+
+
+def _emit_pocket_collar_rings(layout, airside, pocket_poly, dem, tile_lat,
+                              tile_lon, rw_axes, step) -> int:
+    """Emit the two collar rings for ONE width-skipped pocket and publish
+    the pocket's collar record.  Returns the emitted chain count.
+
+    The rings go to ``layout.gap_interior_rings`` — the SAME open
+    constrained-way mechanism the treated-gap rings use (``to_osm`` →
+    ``o4_feature=gap_interior_ring``), so a collar ring is
+    indistinguishable from an interior ring downstream.
+
+    The record is published even when NO chain emits (the round-8
+    economy gate: every station of both rings is a value no-op), because
+    the ring-2 CORE region and its station values are the pit-floor
+    pass's scope and its LOCAL law reference — both exist independently
+    of whether the rings themselves were worth their nodes."""
+    try:
+        res = _build_collar_rings(layout, airside, pocket_poly, dem,
+                                  tile_lat, tile_lon, rw_axes, step)
+    except _GEOM_EXC as exc:
+        UI.vprint(1, f"  [gap-collar] collar-ring construction FAILED "
+                     f"(pocket left bare): {exc!r}")
+        return 0
+    chains = res["chains"]
+    stats = res["stats"]
+    _c = pocket_poly.centroid
+    if chains:
+        if getattr(layout, "gap_interior_rings", None) is None:
+            layout.gap_interior_rings = []
+        for _pts, _alts in chains:
+            layout.gap_interior_rings.append(
+                ([layout.m_to_ll(_x, _y) for _x, _y in _pts],
+                 list(_alts)))
+        UI.vprint(1, f"  [gap-collar] width-skipped pocket at "
+                     f"({_c.x:.0f},{_c.y:.0f}) area="
+                     f"{pocket_poly.area:.0f} m2: {stats['chains']} "
+                     f"collar loop(s), {stats['nodes']} node(s), "
+                     f"{stats['engaged_stations']} engaged / "
+                     f"{stats['noop_stations']} terrain-riding of "
+                     f"{stats['stations']} station(s); regions "
+                     f"ring1={stats.get('ring1_loops')} "
+                     f"ring2={stats.get('ring2_loops')}"
+                     f"{' (ring 1 dropped: crowds ring 2)' if stats.get('ring1_dropped_crowding') else ''}.")
+    elif stats.get("skipped"):
+        UI.vprint(1, f"  [gap-collar] width-skipped pocket at "
+                     f"({_c.x:.0f},{_c.y:.0f}): collar rings SKIPPED "
+                     f"(economy gate — every station of both rings is a "
+                     f"value no-op; {stats['stations']} station(s)).")
+    else:
+        UI.vprint(1, f"  [gap-collar] width-skipped pocket at "
+                     f"({_c.x:.0f},{_c.y:.0f}): no collar ring region "
+                     f"(bands cover the pocket, or no law governs it).")
+    try:
+        core_union = (unary_union(res["core_parts"])
+                      if res["core_parts"] else None)
+    except _GEOM_EXC:
+        core_union = None
+    store = getattr(layout, _POCKET_COLLAR_STORE, None)
+    if store is None:
+        store = []
+        setattr(layout, _POCKET_COLLAR_STORE, store)
+    store.append({"pocket": pocket_poly, "core": core_union,
+                  "ring2": list(res["ring2_stations"]),
+                  "chains": len(chains), "nodes": stats["nodes"]})
+    return len(chains)
+
+
+def collared_pocket_zone_union(layout):
+    """The published COLLARED-POCKET zone union, or ``None``.
+
+    THE consumer entry point (the crossing-influence-zone pattern,
+    ``crossing_terrain.crossing_influence_zone_union``): adjacent-ground
+    bands take this single geometry as a hard keep-out and build NO band
+    geometry inside a collared pocket.  A collar ring and a band marching
+    into the same pocket are two surfaces governing ONE patch of terrain
+    — the overlap crashes X-Plane — and the band's own "covered frontage"
+    probe cannot see the conflict, because a width-skipped pocket has no
+    gap FACE to stand the bands down.  ``None`` (nothing collared) means
+    no keep-out.
+
+    Keyed on ACTUAL RING EMISSION, not on the record's existence: a
+    record is published even when ZERO chains emit (the round-8 economy
+    gate / no collar region — see ``_emit_pocket_collar_rings``), and
+    such a pocket is still the bands' ground to grade, so it stays OUT of
+    the zone.  ``rec["chains"]`` is exactly the number of ways appended to
+    ``layout.gap_interior_rings`` for that pocket, so the count is the
+    faithful emission key."""
+    store = getattr(layout, _POCKET_COLLAR_STORE, None) or []
+    polys = [rec["pocket"] for rec in store
+             if rec.get("chains") and rec.get("pocket") is not None
+             and not rec["pocket"].is_empty]
+    if not polys:
+        return None
+    try:
+        union = unary_union(polys)
+    except _GEOM_EXC:
+        return None
+    if union is None or union.is_empty:
+        return None
+    return union
+
+
+def collared_pocket_zone_prepared(layout):
+    """Prepared-geometry form of the collared-pocket zone union for
+    point-containment loops (the band march's station test), or
+    ``None``."""
+    union = collared_pocket_zone_union(layout)
+    if union is None:
+        return None
+    from shapely.prepared import prep
+    try:
+        return prep(union)
+    except _GEOM_EXC:
+        return None
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -1500,8 +1970,12 @@ def _gap_parents(layout):
             and not s.polygon.is_empty
             and s.polygon.geom_type in ("Polygon", "MultiPolygon")] \
         if _pad_parents else []
+    # The runway-end REGIME is carried by more than one ref on the same
+    # role (the fill skirt and the RESA cut, arc A2 2026-07-24): select
+    # on the frozen ``RUNWAY_END_REGIME_REFS`` set from ``layout`` — never
+    # a literal ref string here.
     skirts = [s for s in layout.shapes
-              if getattr(s, "ref", None) == "runway_end_skirt"
+              if getattr(s, "ref", None) in RUNWAY_END_REGIME_REFS
               and s.polygon is not None and not s.polygon.is_empty
               and s.polygon.geom_type == "Polygon"] \
         if _skirt_parents else []
@@ -1526,16 +2000,9 @@ def _freeze_spine_parent_specs(layout, airside, px, py):
     Returns ``[(station_xy, floor_offset, ceiling_offset), ...]``
     (0-2 entries)."""
     p = Point(px, py)
-    cands = []
-    for s in airside:
-        try:
-            d = s.polygon.exterior.distance(p)
-        except _GEOM_EXC:
-            continue
-        cands.append((d, s))
-    cands.sort(key=lambda t: t[0])
     specs = []
-    for d, s in cands[:2]:
+    # OPT-1: identical two-nearest selection, STRtree-backed.
+    for d, s in _airside_index(airside).two_nearest(p):
         role, cn, cl = _parent_family_code(layout, s)
         try:
             floor_off, ceil_off = adjacent_ground_envelope(
@@ -1866,10 +2333,12 @@ def emit_gap_fill_spines(layout, dem, tile_lat, tile_lon,
         other_polys.append((0, _crossing_zone))
 
     step = GAP_FILL_SPINE_STEP_M
-    # Runway axes for the interior-ring width keying (gate-ON only —
-    # gate-OFF nothing reads them, keeping the plain path untouched).
+    # Runway axes for the interior-ring / pocket-collar width keying
+    # (gate-ON only — with both gates OFF nothing reads them, keeping the
+    # plain path untouched).
     _ring_axes = (_ring_runway_axes(layout, source_runways)
-                  if GAP_FILL_INTERIOR_RINGS_ENABLED else None)
+                  if (GAP_FILL_INTERIOR_RINGS_ENABLED
+                      or POCKET_COLLAR_RINGS_ENABLED) else None)
     emitted = 0
     for comp in comps:
         for interior in comp.interiors:
@@ -1980,29 +2449,312 @@ def emit_gap_fill_spines(layout, dem, tile_lat, tile_lon,
     return emitted
 
 
+def _pocket_is_collared(gap_poly, collars) -> bool:
+    """True when ``gap_poly`` is (or contains) a pocket the collar pass
+    already took — the legacy pit clamp must not also govern it.  The
+    collar records a FACE of the pocket (the pocket itself when no gap
+    parent sits inside), so the test is "most of the collared face lies
+    in this pocket"."""
+    for rec in collars:
+        face = rec.get("pocket")
+        if face is None or face.is_empty:
+            continue
+        try:
+            if gap_poly.intersection(face).area > 0.5 * face.area:
+                return True
+        except _GEOM_EXC:
+            continue
+    return False
+
+
+def _pocket_pit_floor_v2(layout, rec, dem, tile_lat, tile_lon,
+                         other_polys, other_shapes=()) -> int:
+    """PIT FLOOR v2 (arc B2, 2026-07-24) for ONE collared pocket.
+
+    Replaces the 2026-07-19 whole-pocket flat clamp.  The four defects
+    it retires, and what stands in their place:
+
+    * SCOPE — the old pass owned the WHOLE pocket.  v2 runs INSIDE the
+      ring-2 CORE only (``rec["core"]``).  Outside it the collar rings
+      own the ground; a pit patch never reaches the pavement.
+    * REFERENCE — the old pass used the MEDIAN solved pavement value
+      over the entire pocket ring (locally meaningless: at SPJC the
+      461 m pocket's median lip was 18.6 m while the junctions right
+      there sit at 12.4-13.5 m).  v2 reads the ring-2 station clamp
+      values as a nearest-dominated CONTINUOUS field — the LOCAL law
+      surface.  There is no median.
+    * FLOOR — ``local_ring2_value − GAP_FILL_INTERIOR_FLOOR_DEPTH_M``.
+      The constant keeps its VALUE; its MEANING is re-specified from
+      "below the pocket-median pavement lip" to "below the LOCAL
+      ring-2 law surface".  The floor is therefore a field over the
+      pocket, not one number.
+    * VALUES — per-vertex ``node_altitudes``: each rim vertex takes
+      ``max(DEM, local_floor)``.  On the daylight contour that IS the
+      DEM, so the patch meets natural ground continuously instead of
+      ending in a wall; the flat ``[round(floor,2)] * len(ring)``
+      plateau is gone.
+
+    Geometry: the grid detection is kept, but the raw axis-aligned cell
+    union is morphologically OPENED then CLOSED at the rings'
+    ``_RING_MIN_FEATURE_RADIUS_M`` (the same ``_smooth_region`` law the
+    collar loops use), so the footprint is no longer an orthogonal
+    staircase of sample cells.  Clips are EXACT — no ``buffer(-0.5)``
+    inset, no ``buffer(0.25)`` foreign standoff (the 2026-07-09 WELD
+    RULING: a standoff leaves a groove of raw DEM that the mesh renders
+    as a knife-edge blade); shared boundaries share coordinates.
+
+    TRIGGER (no new magic numbers): a candidate region must contain at
+    least one station where the DEM sits more than
+    ``CLEARANCE_OBSTRUCTION_THRESHOLD_M["taxiway"]`` BELOW the local
+    floor — the codebase's obstruction-trigger convention — and must
+    reach ``GAP_FILL_MIN_AREA_M2`` of connected area.
+
+    Returns the number of pit patches emitted."""
+    import numpy as np
+
+    depth = GAP_FILL_INTERIOR_FLOOR_DEPTH_M
+    core = rec.get("core")
+    stations = rec.get("ring2") or []
+    if depth <= 0.0 or core is None or core.is_empty or not stations:
+        return 0
+    trigger = CLEARANCE_OBSTRUCTION_THRESHOLD_M["taxiway"]
+
+    # LOCAL law surface: the ring-2 station clamp values (benched where
+    # the ring emitted, raw clamp where the economy gate suppressed the
+    # chains — the law is the same either way), read as a CONTINUOUS
+    # field by inverse-distance-SQUARED (Shepard) blending.
+    #
+    # Nearest-station lookup was the first cut and it is wrong: a
+    # Voronoi field is piecewise CONSTANT, so every cell boundary is a
+    # step, and where the detected region's edge lands on one the rim
+    # renders as a wall (measured SPJC 2026-07-24: a 5.02 m rim step at
+    # local (487,-246), floor 17.15 over DEM 12.13).  With a continuous
+    # floor field the daylight contour ``{DEM == floor}`` is a true
+    # level set, so the rim meets natural ground BY CONSTRUCTION.  1/d^2
+    # is nearest-dominated — the blend stays LOCAL, which is the whole
+    # point of the reference change; it is emphatically not a
+    # whole-pocket median.
+    _sx = np.array([float(r["pt"][0]) for r in stations])
+    _sy = np.array([float(r["pt"][1]) for r in stations])
+    _sv = np.array([float(r.get("benched", r["v"])) for r in stations])
+
+    def _floor_at(px, py):
+        w = 1.0 / np.maximum((_sx - px) ** 2 + (_sy - py) ** 2, 1e-6)
+        return float((w * _sv).sum() / w.sum()) - depth
+
+    from .elevation import _sample_dem
+
+    def _dem_at(px, py):
+        lat, lon = layout.m_to_ll(px, py)
+        return _sample_dem(dem, tile_lat, tile_lon, lat, lon)
+
+    from shapely.prepared import prep
+    minx, miny, maxx, maxy = core.bounds
+    span = max(maxx - minx, maxy - miny)
+    cell = max(8.0, span / 150.0)
+    prepared = prep(core)
+    below_cells = []
+    deep_pts = []
+    y = miny
+    while y < maxy:
+        x = minx
+        while x < maxx:
+            cx, cy = x + 0.5 * cell, y + 0.5 * cell
+            if prepared.contains(Point(cx, cy)):
+                alt = _dem_at(cx, cy)
+                if alt is not None:
+                    fl = _floor_at(cx, cy)
+                    if alt < fl:
+                        below_cells.append(Polygon([
+                            (x, y), (x + cell, y),
+                            (x + cell, y + cell), (x, y + cell)]))
+                        if alt < fl - trigger:
+                            deep_pts.append((Point(cx, cy), fl - alt))
+            x += cell
+        y += cell
+    if not below_cells or not deep_pts:
+        return 0
+
+    # MORPHOLOGICAL smoothing at the rings' minimum-feature radius —
+    # the staircase killer (``_smooth_region``'s opening + closing).
+    r = _RING_MIN_FEATURE_RADIUS_M
+    try:
+        region = unary_union(below_cells)
+        region = region.buffer(-r, quad_segs=4).buffer(r, quad_segs=4)
+        region = region.buffer(r, quad_segs=4).buffer(-r, quad_segs=4)
+        # DAYLIGHT RESTORE.  Detection marks a whole cell from its
+        # CENTRE, so the true ``DEM == floor`` contour lies up to half a
+        # cell OUTSIDE the marked union; the opening above then pulls the
+        # boundary a further ~half-serration INWARD.  Left there the rim
+        # sits below the contour — i.e. it ends in a wall of
+        # (floor - DEM), measured 1.72 m median at SPJC 2026-07-24.
+        # Grow the SMOOTHED region back out by one detection cell: a
+        # dilation of a smooth region stays smooth (no staircase
+        # returns), and the rim lands at or beyond the contour, where
+        # DEM >= floor and the vertex value IS the DEM — daylight.  The
+        # overshoot skirt is a no-op surface: patch value == terrain.
+        region = region.buffer(cell, quad_segs=4)
+        # EXACT clips (weld ruling): scope to the ring-2 core, then out
+        # of every other shape.  No buffer on either side.
+        region = region.intersection(core)
+        for op in other_polys:
+            if region.is_empty:
+                break
+            if op.intersects(region):
+                region = region.difference(op)
+    except _GEOM_EXC:
+        return 0
+    try:
+        core_edge = core.boundary
+    except _GEOM_EXC:
+        core_edge = None
+    # WELD NEIGHBOURS: the shapes the region was clipped against that
+    # actually touch this core.  A rim vertex on one of their boundaries
+    # shares a coordinate with it (the clip is exact), so it must share
+    # the VALUE too — otherwise the shared node splits and the mesh
+    # renders the difference as a wall.
+    neighbours = []
+    for s in other_shapes:
+        try:
+            if s.polygon.intersects(core):
+                neighbours.append((s, s.polygon.bounds, s.polygon.boundary))
+        except _GEOM_EXC:
+            continue
+    emitted = 0
+    pit_area = 0.0
+    worst = 0.0
+    for part in _poly_parts(region):
+        if part.is_empty or part.area < GAP_FILL_MIN_AREA_M2:
+            continue
+        _pp = prep(part)
+        hits = [d for p, d in deep_pts if _pp.covers(p)]
+        if not hits:
+            continue                    # shallow residue — not a pit
+        ring = _open_coords(part)
+        if len(ring) < 3:
+            continue
+        alts = []
+        for vx, vy in ring:
+            fl = _floor_at(vx, vy)
+            # (1) WELD to a neighbouring SHAPE whose boundary this rim
+            # vertex shares — its value is the authority there.
+            adopted = None
+            _t = _PIT_RIM_WELD_TOL_M
+            for s, (bx0, by0, bx1, by1), bnd in neighbours:
+                if not (bx0 - _t <= vx <= bx1 + _t
+                        and by0 - _t <= vy <= by1 + _t):
+                    continue
+                try:
+                    if bnd.distance(Point(vx, vy)) > _t:
+                        continue
+                except _GEOM_EXC:
+                    continue
+                e = _edge_interp_alt(s, vx, vy)
+                if e is not None:
+                    adopted = float(e)
+                    break
+            if adopted is not None:
+                alts.append(round(adopted, 2))
+                continue
+            on_ring2 = False
+            if core_edge is not None:
+                try:
+                    on_ring2 = (core_edge.distance(Point(vx, vy))
+                                <= _PIT_RIM_WELD_TOL_M)
+                except _GEOM_EXC:
+                    on_ring2 = False
+            if on_ring2:
+                # WELD TO THE COLLAR (2026-07-09 weld ruling).  Where the
+                # pit reaches the ring-2 core boundary the neighbouring
+                # surface is NOT raw DEM — it is the collar ring, a
+                # constrained breakline carrying the law value at this
+                # exact coordinate.  A rim pinned to the FLOOR here would
+                # put two values (law and law - depth) on one node: the
+                # deliberate node-split wall, over the whole shared
+                # frontage.  The patch adopts the ring value verbatim
+                # instead, and the surface falls from it to the floor
+                # inside — "sloped from the rim down to the floor".
+                v = fl + depth
+            else:
+                terrain = _dem_at(vx, vy)
+                # RIM ON THE DAYLIGHT CONTOUR: where the boundary sits on
+                # ground at or above the floor the patch takes the DEM
+                # verbatim, so it meets natural ground with no step; where
+                # the boundary cuts below the floor (a grid-quantised rim,
+                # or a clip against a neighbouring shape) it takes the
+                # local floor — the lawful fill level.
+                v = fl if terrain is None else max(float(terrain), fl)
+            alts.append(round(v, 2))
+        layout.shapes.append(BuiltShape(
+            polygon=part, role=ROLE_GRADED_STRIP,
+            ref=_GAP_PIT_FLOOR_REF,
+            node_altitudes=alts + [alts[0]]))
+        emitted += 1
+        pit_area += part.area
+        worst = max(worst, max(hits))
+    if emitted:
+        _c = rec["pocket"].centroid
+        UI.vprint(1,
+            f"  [gap-floor] v2 collared pocket at ({_c.x:.0f},"
+            f"{_c.y:.0f}): {emitted} pit patch(es) totalling "
+            f"{pit_area:.0f} m2 inside the ring-2 core "
+            f"({core.area:.0f} m2), worst DEM drop {worst:.1f} m below "
+            f"the LOCAL ring-2 floor (ring-2 value - {depth:.1f}); rim "
+            f"on the daylight contour.")
+    return emitted
+
+
 def emit_gap_interior_floor(layout, dem, tile_lat, tile_lon) -> int:
     """Clamp enclosed-pocket interiors to a drainage-depth floor (owner
-    ruling 2026-07-19; gate ``GAP_FILL_INTERIOR_FLOOR_DEPTH_M`` > 0).
+    ruling 2026-07-19; gates ``GAP_FILL_INTERIOR_FLOOR_ENABLED`` and
+    ``GAP_FILL_INTERIOR_FLOOR_DEPTH_M`` > 0).
+
+    DISABLED BY DEFAULT — owner ruling 2026-07-24: past the grade-law
+    zones a large infield blends back into the DEM, so nothing here may
+    override terrain beyond ring 2.  That restores the round-8
+    interior-rings design ("Terrain INSIDE ring 2 stays open-floor —
+    large infields lawfully follow terrain"), which this pass had
+    contradicted.  The collar rings still carry the per-zone drainage law
+    off the pocket's own pavement ring, so the graded slope down from
+    pavement is unaffected; only the core reverts to terrain.  See the
+    gate's ``config.py`` comment for what re-enabling should look like
+    (an enclosure test, not a plain flip).
 
     Runs AFTER ``emit_gap_fill_spines``: a treated gap is covered by its
     emitted ``graded_strip`` face and skips this pass by coverage; the
     pass targets the pockets the emitter lawfully SKIPPED (wider than
     ``GAP_FILL_MAX_WIDTH_M``, foreign shape inside, parent straddle),
-    whose interiors ride raw DEM.  For each such pocket:
+    whose interiors ride raw DEM.
 
-    * lip = median solved pavement value at the pocket's own ring
-      vertices (the enclosing pavement edge);
-    * floor = lip − ``GAP_FILL_INTERIOR_FLOOR_DEPTH_M``;
-    * grid-sample the DEM inside the pocket; union the violating cells
-      (DEM < floor) into pit regions, clear of every existing shape;
-    * emit each pit region as a FLAT ``graded_strip`` patch at the floor
-      value (ref ``gap_pit_floor``).
+    TWO REGIMES:
+
+    * COLLARED pockets (arc B2, gate ``POCKET_COLLAR_RINGS_ENABLED``) —
+      the width-skipped pockets ``_emit_pocket_collar_rings`` has just
+      given two closed collar rings.  These go to
+      ``_pocket_pit_floor_v2``: scope = inside ring 2, reference = the
+      LOCAL ring-2 station value, rim on the daylight contour, sloped
+      per-vertex values, exact welds.  This is the owner's 2026-07-24
+      sequence — rings first, THEN the pit in the middle.
+    * every OTHER pocket — the 2026-07-19 pass, unchanged:
+
+      * lip = median solved pavement value at the pocket's own ring
+        vertices (the enclosing pavement edge);
+      * floor = lip − ``GAP_FILL_INTERIOR_FLOOR_DEPTH_M``;
+      * grid-sample the DEM inside the pocket; union the violating cells
+        (DEM < floor) into pit regions, clear of every existing shape;
+      * emit each pit region as a FLAT ``graded_strip`` patch at the floor
+        value (ref ``gap_pit_floor``).
+
+      With ``POCKET_COLLAR_RINGS_ENABLED`` OFF nothing is collared and
+      this is the only regime — byte-identical to 2026-07-19.
 
     No-op economy: a pocket whose terrain never drops below the floor
     emits nothing — large infields keep following terrain, down to
     drainage depth.  Mutates ``layout.shapes``; returns the number of
     pit patches emitted.
     """
+    if not GAP_FILL_INTERIOR_FLOOR_ENABLED:
+        return 0            # owner ruling 2026-07-24 — see the docstring
     depth = GAP_FILL_INTERIOR_FLOOR_DEPTH_M
     if depth <= 0.0 or dem is None:
         return 0
@@ -2048,6 +2800,26 @@ def emit_gap_interior_floor(layout, dem, tile_lat, tile_lon) -> int:
         return _sample_dem(dem, tile_lat, tile_lon, lat, lon)
 
     emitted = 0
+    # ── ARC B2: COLLARED pockets take pit floor v2 ────────────────────
+    # ``_emit_pocket_collar_rings`` published one record per width-skipped
+    # pocket it collared.  Those pockets are handled by the v2 pass and
+    # are then EXCLUDED from the legacy loop below (their ground is owned
+    # by the collar outside ring 2 and by the v2 patch inside it).  The
+    # store is absent gate-OFF, so both statements are no-ops there and
+    # the legacy loop runs exactly as it did.
+    collars = (list(getattr(layout, _POCKET_COLLAR_STORE, None) or [])
+               if POCKET_COLLAR_RINGS_ENABLED else [])
+    if collars:
+        _other_shapes = [s for s in layout.shapes
+                         if id(s) not in airside_ids
+                         and s.polygon is not None
+                         and not s.polygon.is_empty
+                         and s.polygon.geom_type == "Polygon"]
+    for _rec in collars:
+        emitted += _pocket_pit_floor_v2(layout, _rec, dem, tile_lat,
+                                        tile_lon, other_polys,
+                                        _other_shapes)
+
     for comp in comps:
         for interior in comp.interiors:
             try:
@@ -2056,6 +2828,8 @@ def emit_gap_interior_floor(layout, dem, tile_lat, tile_lon) -> int:
                 continue
             if (gap_poly.is_empty or not gap_poly.is_valid
                     or gap_poly.area < GAP_FILL_MIN_AREA_M2):
+                continue
+            if _pocket_is_collared(gap_poly, collars):
                 continue
             # Treated gaps are covered by their emitted faces — skip any
             # pocket mostly covered by existing non-airside shapes.

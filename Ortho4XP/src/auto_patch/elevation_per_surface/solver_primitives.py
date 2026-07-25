@@ -38,6 +38,7 @@ from auto_patch.config import (
     FLATNESS_CERTIFICATE_RATE_FACTOR, FLAT_CERTIFICATE_COVERAGE,
     RECT_CROSS_FLATNESS_TOLERANCE_M)
 from auto_patch.layout import (
+    REF_RUNWAY_END_RESA, REF_RUNWAY_END_SKIRT,
     ROLE_APRON, ROLE_BOUNDARY, ROLE_BRIDGE_CAUSEWAY, ROLE_BRIDGE_TRENCH,
     ROLE_CROSS_CONNECTOR, ROLE_GRADED_STRIP, ROLE_JUNCTION,
     ROLE_PRIMARY_PARALLEL, ROLE_RUNWAY, ROLE_RUNWAY_CLEARANCE,
@@ -95,20 +96,25 @@ PAVEMENT_ROLES = {
 # ADMISSION scaffolding ONLY — the per-role constraint builders are stages
 # B1-B3 and do NOT exist yet.
 #
-# The three absorption families, each a (layout role, provenance ref) pair:
-#   * runway-end skirt  → (ROLE_RUNWAY_CLEARANCE, "runway_end_skirt")     [B1]
+# The four absorption families, each a (layout role, provenance ref) pair:
+#   * runway-end skirt  → (ROLE_RUNWAY_CLEARANCE, REF_RUNWAY_END_SKIRT)   [B1]
 #   * gap-fill spine     → (ROLE_GRADED_STRIP,     "gap_fill_spine")      [B2]
 #   * graded strip band  → (ROLE_GRADED_STRIP,     "adjacent_ground")     [B3]
+#   * runway-end RESA cut→ (ROLE_RUNWAY_CLEARANCE, REF_RUNWAY_END_RESA)   [R1]
 # ROLE-ONLY ADMISSION IS AMBIGUOUS (Slice B stage B3 order 1 correction):
 # gap-fill faces/spines and adjacent-ground bands BOTH carry ROLE_GRADED_STRIP,
 # yet they are different families with different admission paths (gap-fill via
 # the dedicated pre-solve spine store; adjacent-ground via ring vertices) and
 # different sub-gates.  Flipping ROLE_GRADED_STRIP admission wholesale would
 # grab both.  Admission therefore keys on the (role, ref) PAIR, not the role.
+# The same holds on ROLE_RUNWAY_CLEARANCE since arc R: the runway-end SKIRT
+# (fill) is a HARD PIN family, the runway-end RESA CUT is a FREE-variable
+# family under a one-sided envelope edge — same role, opposite encodings.
 TERRAIN_GRAPH_REFS = frozenset({
-    (ROLE_RUNWAY_CLEARANCE, "runway_end_skirt"),
+    (ROLE_RUNWAY_CLEARANCE, REF_RUNWAY_END_SKIRT),
     (ROLE_GRADED_STRIP, "gap_fill_spine"),
     (ROLE_GRADED_STRIP, "adjacent_ground"),
+    (ROLE_RUNWAY_CLEARANCE, REF_RUNWAY_END_RESA),
 })
 # Back-compat ROLE projection (call sites that legitimately want role
 # granularity — the _writeback skip, the skirt-pin gate).  Disjoint from
@@ -123,8 +129,9 @@ def admitted_terrain_refs():
     build (Slice B stage B0 scaffolding, refined to (role, ref) granularity at
     stage B3 order 1).
 
-    Gated by ``config.ONE_SOLVE_TERRAIN`` (master, default OFF) and the three
-    per-family sub-gates.  Returns a possibly-empty ``frozenset`` of
+    Gated by ``config.ONE_SOLVE_TERRAIN`` (master, default OFF) and the
+    per-family sub-gates (four families since arc R added the runway-end
+    RESA cut).  Returns a possibly-empty ``frozenset`` of
     ``(role, ref)`` pairs.  EMPTY whenever the master gate is off (the default)
     OR every sub-gate is off — and admission of an empty family set is a
     structural no-op, so the node list, the constraint graph and the solve are
@@ -142,7 +149,29 @@ def admitted_terrain_refs():
         return frozenset()
     admitted: set = set()
     if getattr(_cfg, "ONE_SOLVE_TERRAIN_RUNWAY_END_SKIRT", False):
-        admitted.add((ROLE_RUNWAY_CLEARANCE, "runway_end_skirt"))
+        admitted.add((ROLE_RUNWAY_CLEARANCE, REF_RUNWAY_END_SKIRT))
+    if getattr(_cfg, "ONE_SOLVE_TERRAIN_RUNWAY_END_RESA", False):
+        # HARD DEPENDENCY CHAIN (arc R slice R1, owner ruling 2026-07-24;
+        # the GRADED_STRIP precedent below).  RESA-cut variable admission
+        # requires (a) the B1 skirt sub-gate, because the cut is emitted
+        # inside the skirt emitter's PRE-SOLVE call and without that gate
+        # no cut shape exists at solve time, and (b) the cut law itself
+        # (``RUNWAY_END_RESA_ENABLED``) — with no cut there is nothing to
+        # admit.  A partial gate set is a misconfiguration that would
+        # silently measure the wrong thing: fail LOUDLY.
+        _missing_resa = [name for name, on in (
+            ("O4_ONE_SOLVE_TERRAIN_RUNWAY_END_SKIRT",
+             getattr(_cfg, "ONE_SOLVE_TERRAIN_RUNWAY_END_SKIRT", False)),
+            ("O4_RUNWAY_END_RESA",
+             getattr(_cfg, "RUNWAY_END_RESA_ENABLED", False)),
+        ) if not on]
+        if _missing_resa:
+            raise RuntimeError(
+                "O4_ONE_SOLVE_TERRAIN_RUNWAY_END_RESA=1 (runway-end RESA "
+                "cut variable admission, arc R slice R1) requires ALL of "
+                "its dependency gates ON; missing: "
+                + ", ".join(_missing_resa))
+        admitted.add((ROLE_RUNWAY_CLEARANCE, REF_RUNWAY_END_RESA))
     if getattr(_cfg, "ONE_SOLVE_TERRAIN_GAP_FILL_SPINE", False):
         admitted.add((ROLE_GRADED_STRIP, "gap_fill_spine"))
     if getattr(_cfg, "ONE_SOLVE_TERRAIN_GRADED_STRIP", False):
@@ -1625,9 +1654,22 @@ def _build_node_list(layout):
     # today.  Terrain roles are disjoint from PAVEMENT_ROLES, so the two
     # clauses never overlap.
     _admitted_refs = admitted_terrain_refs()
+    # RESA CUT vertices are admitted by a DEDICATED loop below, not by this
+    # ring iteration (arc R slice R1).  Reason: the two solve-side terrain
+    # levers — the host-authoritative interval kind
+    # (``one_solve.interval_yield_from``) and the reach-band skip
+    # (``anchors.node_bands(skip_from=…)``) — are single INDEX THRESHOLDS,
+    # so every free terrain-leaf variable must sort ABOVE every pavement
+    # variable.  Admitting the cut here would interleave its indices with
+    # pavement and silently drop it out of both levers (a cut node could
+    # then drag its pavement anchor — the exact safety property arc R
+    # rests on).  The SKIRT family stays in this loop: its vertices are
+    # HARD PINS, never interval endpoints, so the thresholds do not apply.
+    _resa_ref = (ROLE_RUNWAY_CLEARANCE, REF_RUNWAY_END_RESA)
+    _ring_refs = _admitted_refs - {_resa_ref}
     for s in layout.shapes:
         if s.role not in PAVEMENT_ROLES and (
-                s.role, getattr(s, "ref", None)) not in _admitted_refs:
+                s.role, getattr(s, "ref", None)) not in _ring_refs:
             continue
         if s.polygon is None or s.polygon.is_empty:
             continue
@@ -1657,6 +1699,36 @@ def _build_node_list(layout):
         for _gap_entry in (getattr(layout, "gap_fill_presolve", None)
                            or ()):
             for x, y in _gap_entry.get("spine", ()):
+                k = layout.canonical_points.get_or_add(float(x), float(y))
+                if k not in bucket_to_idx:
+                    bucket_to_idx[k] = len(nodes)
+                    nodes.append((float(x), float(y)))
+    # ── RUNWAY-END RESA CUT ADMISSION (arc R slice R1) ───────────────
+    # The cut rings already exist pre-solve (they are emitted inside the
+    # B1 skirt emitter's pre-solve call), so unlike the gap spines this
+    # is a plain ring iteration — but it runs HERE, after every pavement
+    # and gap-spine node, so that ``_terrain_host_yield_first_index``
+    # below separates FREE TERRAIN LEAVES (RESA cut rows, adjacent-ground
+    # zone rows) from everything that may authoritatively move.  A cut
+    # vertex whose canonical bucket was already claimed above — by a
+    # pavement ring vertex, a runway-end SKIRT pin, or a gap spine —
+    # takes no new index: it ADOPTS that variable by identity, which is
+    # what makes the cut/fill twin-vertex disagreement structurally
+    # unrepresentable (one variable cannot disagree with itself).  Gate
+    # OFF: the loop body never runs — byte-inert.
+    layout._terrain_host_yield_first_index = len(nodes)
+    if _resa_ref in _admitted_refs:
+        for s in layout.shapes:
+            if (s.role != ROLE_RUNWAY_CLEARANCE
+                    or getattr(s, "ref", None) != REF_RUNWAY_END_RESA):
+                continue
+            if s.polygon is None or s.polygon.is_empty:
+                continue
+            try:
+                coords = _open_ring(list(s.polygon.exterior.coords))
+            except _GEOM_EXC:
+                continue
+            for x, y in coords:
                 k = layout.canonical_points.get_or_add(float(x), float(y))
                 if k not in bucket_to_idx:
                     bucket_to_idx[k] = len(nodes)
@@ -1790,6 +1862,193 @@ def _build_gap_spine_constraints(layout, bucket_to_idx, seed_elev=None):
               f"{n_pruned} node(s) kept the nearer parent's interval "
               f"only (the analytic law's own fallback rule)")
     return sc_out, spine_idx, chains
+
+
+def runway_end_resa_ceiling_offset(end_spec, x, y):
+    """THE LAW at one RESA-cut vertex: the signed CEILING offset (metres
+    above the pavement-EXIT elevation) ``grade_law.runway_end_envelope``
+    allows at that vertex's distance beyond the end's pavement exit.
+
+    ``end_spec`` is one entry of ``layout.runway_end_resa_presolve`` (see
+    ``clearance.emit_runway_end_skirts``).  The distance is the OUTWARD
+    axial projection the emitter itself uses (``_resa_alt_at``:
+    ``d = (v − p0)·outward``), clamped to ``[0, reach]`` — the emitter's
+    band cap is what expresses the law's ``None`` (unbounded) ceiling past
+    the reach, and inside a cut footprint that cap is never exceeded.
+    Returns ``None`` when the law imposes no ceiling.
+
+    No rule number lives here: the slope, the reach default and the
+    regime split all come from ``grade_law``/``config``."""
+    from auto_patch.grade_law import runway_end_envelope
+    p0 = end_spec["p0"]
+    nx, ny = end_spec["outward"]
+    cap = float(end_spec["cap"])
+    d = (float(x) - p0[0]) * nx + (float(y) - p0[1]) * ny
+    d_eff = max(0.0, min(cap, d))
+    _floor, ceiling = runway_end_envelope(
+        d_eff,
+        governed_length_beyond_pavement_m=end_spec["governed"],
+        entry_grade=end_spec["entry_grade"],
+        pavement_beyond_end_m=end_spec["pavement_beyond_end"],
+        resa_reach_m=cap)
+    if ceiling is None:
+        # ``d_eff == cap`` exactly (the law is open AT and past the
+        # reach).  The emitter's band cap holds the ramp at its terminal
+        # value there, which is the law's own limit from below — read it
+        # from the law rather than re-deriving the ramp.
+        _floor, ceiling = runway_end_envelope(
+            math.nextafter(cap, 0.0),
+            governed_length_beyond_pavement_m=end_spec["governed"],
+            entry_grade=end_spec["entry_grade"],
+            pavement_beyond_end_m=end_spec["pavement_beyond_end"],
+            resa_reach_m=cap)
+    return None if ceiling is None else float(ceiling)
+
+
+def runway_end_resa_end_index(end_specs, polygon):
+    """Which END (index into ``layout.runway_end_resa_presolve``) an
+    emitted RESA-cut piece belongs to.
+
+    The emitted pieces are clipped, decomposed and (at a tile seam)
+    re-created as fresh dataclasses after emission, so no object identity
+    survives to the solve — the association is re-derived GEOMETRICALLY
+    from the piece's centroid against each end's own corridor (outward
+    axial distance in ``[0, reach]``, lateral offset within the Annex-14
+    corridor half-width).  Ends whose corridor contains the centroid win;
+    otherwise the least out-of-corridor end does.  Deterministic (ties
+    break on the smallest axial distance, then the lowest index)."""
+    try:
+        c = polygon.representative_point()
+        cx, cy = float(c.x), float(c.y)
+    except _GEOM_EXC:
+        return None
+    best = None
+    for k, spec in enumerate(end_specs):
+        p0 = spec["p0"]
+        nx, ny = spec["outward"]
+        d = (cx - p0[0]) * nx + (cy - p0[1]) * ny
+        lat = abs(-(cx - p0[0]) * ny + (cy - p0[1]) * nx)
+        penalty = (max(0.0, -d) + max(0.0, d - float(spec["cap"]))
+                   + max(0.0, lat - float(spec["half"])))
+        cand = (penalty, max(0.0, d), k)
+        if best is None or cand < best:
+            best = cand
+    return None if best is None else best[2]
+
+
+def _build_resa_cut_constraints(layout, bucket_to_idx):
+    """Arc R slice R1 constraint entries for the runway-end RESA CUT.
+
+    THE LAW (owner ruling 2026-07-24): terrain beyond a runway end must
+    stay inside ``grade_law.runway_end_envelope``, and that envelope is
+    LAW THE SOLVER ENFORCES, not geometry stamped after the fact.  For
+    the CUT direction the envelope is one-sided by construction — a
+    ceiling (the RESA ramp off the pavement-exit elevation) and a ``None``
+    floor, because a drop beyond the end is the FILL regime's business
+    and the cut never fills.
+
+    ENCODING — the B3 band template with the lower side open: exactly ONE
+    interval 4-tuple ``(cut_index, anchor_index, None, ceiling_offset(d))``
+    per cut vertex, i.e. the B0 signed slab ``z_cut − z_anchor <=
+    ceiling_offset``, plus the DEM seed ``_seed_elevations`` already
+    provides.  No transverse edges, no longitudinal edges, no fairing:
+    ``config.ROLE_GRADE_LIMITS["runway_clearance"] is None`` — the cut
+    carries no within-shape grade rule — so projection of the DEM seed
+    onto the one-sided slab IS the analytic ``min(ceiling, DEM)`` clamp
+    (parity by construction, the B3 argument verbatim).  The one-sided
+    form is already supported by the projection (``one_solve``) and the
+    runway-flex hook already skips one-sided intervals.
+
+    ANCHOR: the end's FROZEN-NEAREST pavement ring vertex, chosen at
+    construction time by the emitter (``clearance``'s ``anchor_xy``) —
+    the B2/B3 frozen-nearest coupling pattern.  Its solved value tracks
+    the pavement-exit elevation the envelope is referenced to; the exact
+    reference frame is restored at writeback (the foot re-reference
+    discipline), so the anchor approximation never reaches the emitted
+    value.
+
+    IDENTITY-COLLISION RULE (the B3 rule, and the reason this arc closes
+    the twin-vertex class): a cut vertex whose canonical bucket resolves
+    to a PRE-EXISTING variable — index below
+    ``layout._terrain_host_yield_first_index``: a pavement ring vertex, a
+    runway-end SKIRT pin, a gap spine — gets NO edge.  It ADOPTS that
+    variable by identity (pavement value always wins at a pavement node;
+    a cut law edge must never constrain a pavement variable, and a cut
+    vertex shared with the FILL cannot disagree with it because there is
+    only one variable).  A vertex interning with an EARLIER cut vertex
+    likewise gets no second edge — the first claimant's corridor governs,
+    since two slabs on one variable is the measured B2 ping-pong class.
+
+    Returns ``(sc_entries, cut_idx_set, collision_counts)`` where
+    ``collision_counts`` is ``(n_adopted, n_cross_claimed, n_no_anchor)``.
+    """
+    end_specs = getattr(layout, "runway_end_resa_presolve", None) or []
+    if not end_specs:
+        return [], set(), (0, 0, 0)
+    first_free = getattr(layout, "_terrain_host_yield_first_index", 0)
+    cps = layout.canonical_points
+    anchor_idx: list = []
+    for spec in end_specs:
+        a = spec.get("anchor_xy")
+        j = None
+        if a is not None:
+            j = bucket_to_idx.get(cps.get_or_add(float(a[0]), float(a[1])))
+        anchor_idx.append(j)
+    sc_out: list[dict] = []
+    cut_idx: set[int] = set()
+    claimed: set[int] = set()
+    n_adopted = n_cross = n_no_anchor = 0
+    for s in layout.shapes:
+        if (s.role != ROLE_RUNWAY_CLEARANCE
+                or getattr(s, "ref", None) != REF_RUNWAY_END_RESA):
+            continue
+        if s.polygon is None or s.polygon.is_empty:
+            continue
+        k = runway_end_resa_end_index(end_specs, s.polygon)
+        if k is None:
+            continue
+        spec = end_specs[k]
+        j = anchor_idx[k]
+        try:
+            coords = _open_ring(list(s.polygon.exterior.coords))
+        except _GEOM_EXC:
+            continue
+        edges: list[tuple] = []
+        node_list: list[int] = []
+        for (x, y) in coords:
+            i = bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
+            if i is None:
+                continue
+            node_list.append(i)
+            cut_idx.add(i)
+            if i < first_free:
+                n_adopted += 1
+                continue
+            if i in claimed:
+                n_cross += 1
+                continue
+            claimed.add(i)
+            if j is None or j == i:
+                n_no_anchor += 1
+                continue
+            ceil_off = runway_end_resa_ceiling_offset(spec, x, y)
+            if ceil_off is None:
+                continue
+            edges.append((i, j, None, float(ceil_off)))
+        if not node_list:
+            continue
+        sc_out.append({"nodes": node_list, "edges": edges, "flat": False,
+                       "flat_pairs": (), "area": 0.0,
+                       "role": ROLE_RUNWAY_CLEARANCE,
+                       "ref": REF_RUNWAY_END_RESA})
+    if _os.environ.get("O4_STEP_DEBUG") == "1" and (
+            n_adopted or n_cross or n_no_anchor):
+        print(f"    [runway-end-resa] identity collisions: "
+              f"{n_adopted} cut vertex(es) adopted a pre-existing "
+              f"pavement/skirt/spine variable (no cut edge), "
+              f"{n_cross} interned with an earlier cut vertex, "
+              f"{n_no_anchor} had no resolvable end anchor")
+    return sc_out, cut_idx, (n_adopted, n_cross, n_no_anchor)
 
 
 def _build_adjacent_ground_zone_constraints(layout, bucket_to_idx):
@@ -2507,13 +2766,18 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
     # ``idx`` is never found for a skirt vertex and the block is a no-op —
     # and until B1 moves construction pre-solve no skirt shape is even
     # present at solve time, so the block is doubly inert off-gate.
+    # REF FILTER (arc R slice R1): ROLE_RUNWAY_CLEARANCE now carries TWO
+    # admitted families with OPPOSITE encodings — the skirt FILL is a hard
+    # pin (here), the RESA CUT is a free variable under a one-sided
+    # envelope edge (``_build_resa_cut_constraints``).  The ref filter
+    # below is what keeps them apart, so a cut vertex is never pinned.
     _admitted_terrain = admitted_terrain_roles()
     if ROLE_RUNWAY_CLEARANCE in _admitted_terrain:
         _skirt_cps = layout.canonical_points
         skirt_pinned_idx: set = set()
         for s in layout.shapes:
             if (s.role != ROLE_RUNWAY_CLEARANCE
-                    or getattr(s, "ref", None) != "runway_end_skirt"):
+                    or getattr(s, "ref", None) != REF_RUNWAY_END_SKIRT):
                 continue
             if s.polygon is None or s.polygon.is_empty:
                 continue

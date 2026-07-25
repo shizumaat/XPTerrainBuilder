@@ -55,7 +55,10 @@ import O4_UI_Utils as UI
 _GEOM_EXC = (ValueError, GEOSException, TopologicalError)
 
 from .config import (
+    ADJACENT_GROUND_END_PIN_ENABLED,
     ADJACENT_GROUND_LIP_WIDTH_M,
+    ADJACENT_GROUND_SEAM_PROLONG_ENABLED,
+    ADJACENT_GROUND_SEAM_PROLONG_MAX_M,
     APRON_BEYOND_SHOULDER_MAX_DOWN_SLOPE,
     APRON_EDGE_WALL_MIN_DROP_M,
     APRON_SHOULDER_WIDTH_M,
@@ -63,12 +66,18 @@ from .config import (
     CLEARANCE_OBSTRUCTION_THRESHOLD_M,
     CLEARANCE_STATION_STEP_M,
     RUNWAY_STRIP_HALF_WIDTH_BY_CODE,
+    STRIP_WIDTH_FROM_CENTERLINE_ENABLED,
+    TILE_CUT_HALF_WIDTH_M,
     runway_code_number,
+    runway_end_approach_class,
     taxiway_strip_graded_half_width_for_letter,
 )
 from .grade_law import (
+    adjacent_ground_end_pin_flags,
     adjacent_ground_envelope,
     adjacent_ground_supported_depths,
+    ols_lateral_handover_distance_m,
+    runway_strip_band_width_m,
 )
 from .layout import (
     BuiltShape,
@@ -86,6 +95,7 @@ from .layout import (
     ROLE_SECONDARY_PARALLEL,
     ROLE_STUB,
     ROLE_TUNNEL_RAMP,
+    RUNWAY_END_REGIME_REFS,
     VERTEX_ALT_MERGE_TOL_M,
     taxi_shape_code_letter,
 )
@@ -172,6 +182,54 @@ _END_WRAP = os.environ.get("O4_ADJACENT_GROUND_END_WRAP", "1") == "1"
 # fires only where tunnel ramps emit, e.g. the CYUL mapped-portal class.)
 _TUNNEL_STANDOFF = os.environ.get(
     "O4_ADJACENT_GROUND_TUNNEL_STANDOFF", "1") == "1"
+# Arc A3 — END-AWARE BENCH PIN (O4_ADJACENT_GROUND_END_PIN, default OFF;
+# the VALUE lives in config.py, this is only the module-local binding the
+# march reads, so a test can flip it without re-importing config).  A
+# runway END-edge station is at depth 0 only because ``_station_reference``
+# SKIPS it (the end is skirt / RESA territory) — the daylight bench then
+# collapses the lateral wing diagonally into the end corner.  With the pin
+# ON the station NEXT to an end-skip run holds its raw scanned depth,
+# exactly as a pavement-partition continuation seam does.  See
+# ``grade_law.adjacent_ground_end_pin_flags``.
+_END_PIN = ADJACENT_GROUND_END_PIN_ENABLED
+# Arc A4 — RUNWAY STRIP WIDTH MEASURED FROM THE CENTERLINE
+# (O4_STRIP_WIDTH_FROM_CENTERLINE, default OFF; value in config.py).  The
+# Annex-14 strip half-width is measured from the runway CENTERLINE, but the
+# march spends it as a reach off the pavement EDGE and the emitted runway
+# carries apt.dat shoulders — so the band overshoots the strip by the
+# shoulder width.  With this ON a runway-family station's caps are clamped
+# by ``grade_law.runway_strip_band_width_m``.
+_STRIP_WIDTH_FROM_CENTERLINE = STRIP_WIDTH_FROM_CENTERLINE_ENABLED
+# OLS handover (docs/specs/obstacle-limitation-surfaces-spec.md): with the
+# OLS cut law ON the runway-family lateral CUT stops at the transitional
+# surface's handover S instead of marching the zone-3 ceiling to the
+# earthwork reach cap.  Read once, like every sibling gate.
+from .config import OLS_CUT_ENABLED as _OLS_CUT              # noqa: E402
+# TILE-SEAM PROLONGATION (owner ruling 2026-07-24 — see the config block
+# ``ADJACENT_GROUND_SEAM_PROLONG_ENABLED`` for the full rationale and the
+# SPLP measurements).  The module-local bindings the march reads.
+_SEAM_PROLONG = ADJACENT_GROUND_SEAM_PROLONG_ENABLED
+_SEAM_PROLONG_MAX_M = ADJACENT_GROUND_SEAM_PROLONG_MAX_M
+# A ring vertex is ON a tile cut-back line within this distance.  ``tile_cut``
+# places them EXACTLY on the line; the tolerance only absorbs the local-metre
+# <-> lat/lon round trip (micrometres) and emit rounding.
+_SEAM_CUTBACK_TOL_M = 0.20
+# Floor on |edge direction . tile-line normal|: below it the flanking
+# frontage runs (near-)PARALLEL to the tile line and the geometric
+# prolongation length diverges — clamped here, then bounded by the recorded
+# offcut and the config cap like every other case.
+_SEAM_PROLONG_MIN_COS = 0.05
+# Halo (m) around the recorded neighbour-tile offcut used when measuring how
+# far the pavement really continues: the probe ray runs down the middle of
+# the continuing pavement, and this absorbs the 10 m cut gap plus the
+# offcut's own cut-back setback so a genuine continuation is never measured
+# as zero.  (2 x TILE_CUT_HALF_WIDTH_M + 1 m of slack.)
+_SEAM_OFFCUT_HALO_M = 2.0 * TILE_CUT_HALF_WIDTH_M + 1.0
+# Cap on the altitude gradient extrapolated onto a prolonged vertex.  The
+# steepest lawful airside longitudinal grade is 1.5 %; 2 % leaves headroom
+# for a rounding-quantised short flanking edge without letting a degenerate
+# edge fling the reference altitude.
+_SEAM_PROLONG_MAX_GRADE = 0.02
 # CROSSING INFLUENCE ZONE (Phase 1, docs/specs/crossing-terrain-
 # ownership.md): every crossing-specific exclusion this module used to
 # build itself — the crossing-union branch of the standoff block, the
@@ -213,6 +271,13 @@ _APPARATUS_KEYS = (
     "solved_beyond_coverage", "solved_analytic_fallback",
     "solved_store_missing_shape", "zone_static_keepout_dropped",
     "static_edge_weld_vertices", "wrap_crossing_zone_excluded_stations",
+    # Arc A3: stations the runway-END bench pin flagged (0 with the gate
+    # OFF, by construction).  Reported beside the seam-taper row so the
+    # two pin populations can be read apart.
+    "end_pin_flagged_stations",
+    # Arc B1: stations stood down because they face a COLLARED POCKET
+    # (0 with nothing collared, by construction).
+    "collar_zone_excluded_stations",
 )
 _APPARATUS_HITS: dict[str, int] = {}
 
@@ -2138,13 +2203,17 @@ def _make_solved_band_resampler(entry, coords, ring_alts,
 
 
 def _runway_end_skirt_prep(layout):
-    """Prepared union of the runway-END skirt polygons, or ``None`` — the
-    WRAP join target (scope A).  Skirts carry ref ``runway_end_skirt`` on
-    the ``runway_clearance`` role.  Prepared once per emission/construction
-    and passed to the taxiway march so the terrain-facing probe can tell a
-    skirt (join) from real pavement (skip)."""
+    """Prepared union of the runway-END REGIME polygons, or ``None`` — the
+    WRAP join target (scope A).  The regime is BOTH refs on the
+    ``runway_clearance`` role (``layout.RUNWAY_END_REGIME_REFS``): the fill
+    skirt and, with arc A2's gate on, the RESA cut.  Both are end-regime
+    surfaces the taxiway corridor must JOIN, not treat as an obstruction —
+    a taxiway end abutting the cut is the same geometry problem as one
+    abutting the skirt.  Prepared once per emission/construction and passed
+    to the taxiway march so the terrain-facing probe can tell an end-regime
+    surface (join) from real pavement (skip)."""
     polys = [s.polygon for s in layout.shapes
-             if getattr(s, "ref", None) == "runway_end_skirt"
+             if getattr(s, "ref", None) in RUNWAY_END_REGIME_REFS
              and s.polygon is not None and not s.polygon.is_empty]
     if not polys:
         return None
@@ -2170,6 +2239,26 @@ def _crossing_zone_prep(layout):
     station test, or ``None``."""
     from .crossing_terrain import crossing_influence_zone_prepared
     return crossing_influence_zone_prepared(layout)
+
+
+def _collar_zone_union(layout):
+    """The published COLLARED-POCKET zone union, or ``None`` (arc B1,
+    ``gap_fill.collared_pocket_zone_union``).  A width-skipped pocket
+    whose collar rings EMITTED is the collar's ground: the rings already
+    carry the drainage law across it, so no band may march in beside them
+    (two governing surfaces over one patch of terrain — the X-Plane crash
+    class).  Unlike a treated gap, such a pocket has no gap FACE, so the
+    band march's 1.5 m covered-frontage probe cannot see it — hence this
+    explicit zone, consumed exactly like the crossing zone."""
+    from .gap_fill import collared_pocket_zone_union
+    return collared_pocket_zone_union(layout)
+
+
+def _collar_zone_prep(layout):
+    """Prepared form of the published collared-pocket zone for the
+    march's station test, or ``None``."""
+    from .gap_fill import collared_pocket_zone_prepared
+    return collared_pocket_zone_prepared(layout)
 
 
 def _tunnel_ramp_standoff_block(layout):
@@ -2199,13 +2288,257 @@ def _tunnel_ramp_standoff_block(layout):
         return None
 
 
+def seam_offcut_union(layout):
+    """Union of the neighbour-tile pavement OFFCUTS ``tile_cut`` recorded on
+    ``layout.tile_seam_offcuts`` (see ``tile_cut._SEAM_OFFCUT_ROLES``), or
+    ``None`` when this build cut nothing away — every single-tile airport,
+    where the seam prolongation is therefore a strict no-op.
+
+    This is the ONLY evidence a tile build has of where its pavement really
+    continues past the seam, and it is exact (the dropped pieces ARE the
+    neighbour's halves), so a prolongation can never invent pavement."""
+    if not _SEAM_PROLONG:
+        return None
+    offcuts = getattr(layout, "tile_seam_offcuts", None)
+    if not offcuts:
+        return None
+    try:
+        u = unary_union([p for p in offcuts
+                         if p is not None and not p.is_empty])
+    except _GEOM_EXC:
+        return None
+    return None if (u is None or u.is_empty) else u
+
+
+def _tile_cutback_lines(layout, coords, half_width_m):
+    """The tile CUT-BACK lines this ring sits on, as
+    ``(axis, line_coord, inward_sign)`` triples in LOCAL METRES —
+    ``axis`` 0 for the x (integer LONGITUDE) family, 1 for y (integer
+    LATITUDE); ``inward_sign`` points from the line INTO the current tile.
+
+    ``tile_cut`` subtracts a ``2 * half_width_m`` band centred on each
+    integer line, so a shape that crossed one ends on the line
+    ``x_int +/- half_width_m`` — that is the cut-back edge the owner's
+    "clean line along the cut" names."""
+    if layout.anchor is None:
+        return []
+    lat0, lon0 = layout.anchor
+    cos0 = math.cos(math.radians(lat0))
+    out: list[tuple[int, float, int]] = []
+    for axis in (0, 1):
+        vals = [c[axis] for c in coords]
+        lo, hi = min(vals), max(vals)
+        # Local metres -> degrees on this axis, and the inverse scale.
+        per_deg = (math.radians(1.0) * R_EARTH * cos0 if axis == 0
+                   else math.radians(1.0) * R_EARTH)
+        if per_deg <= 0.0:
+            continue
+        origin = lon0 if axis == 0 else lat0
+        d_lo = origin + lo / per_deg
+        d_hi = origin + hi / per_deg
+        for n in range(int(math.floor(d_lo)) - 1, int(math.ceil(d_hi)) + 2):
+            c_int = (n - origin) * per_deg
+            for sgn in (1, -1):
+                c = c_int + sgn * half_width_m
+                if not any(abs(v - c) <= _SEAM_CUTBACK_TOL_M for v in vals):
+                    continue
+                # The ring must live on the INWARD side of its own
+                # cut-back line (a piece bounded by ``x_int + half`` is the
+                # +x piece); otherwise this is a coincidence, not a cut.
+                mean = sum(vals) / float(len(vals))
+                if sgn * (mean - c) < 0.0:
+                    continue
+                out.append((axis, c, sgn))
+    return out
+
+
+def _seam_prolong_length(u, n, axis, sgn, depth_cap):
+    """Geometric prolongation length (m) for one flanking frontage edge:
+    how far past the cut-back corner the pavement must be continued before
+    a corridor of depth ``depth_cap`` off that edge can no longer reach
+    BACK across the cut line into this tile.
+
+    ``u`` is the prolongation direction (away from the ring interior along
+    the flanking edge), ``n`` that edge's OUTWARD normal.  Points on the
+    prolonged corridor are ``A + s*u + d*n``; the in-tile test
+    ``sgn * ((A + s*u + d*n)[axis] - c) >= 0`` with ``A`` on the line
+    reduces to ``s * (sgn*u[axis]) + d * (sgn*n[axis]) >= 0``, so the
+    largest useful ``s`` is ``depth_cap * (sgn*n[axis]) / -(sgn*u[axis])``.
+    Zero when the corridor faces AWAY from the line (nothing to recover) or
+    the edge does not actually cross it."""
+    cu = sgn * u[axis]
+    cn = sgn * n[axis]
+    if cu >= 0.0 or cn <= 0.0:
+        return 0.0
+    return float(depth_cap) * cn / max(-cu, _SEAM_PROLONG_MIN_COS)
+
+
+def _seam_prolong_run(ring, alt_arrays, i0, i1, axis, sgn, ccw,
+                      depth_cap, offcut_union):
+    """Prolong ONE cut-back run ``ring[i0..i1]`` (its vertices all sit on
+    the cut line).  Returns ``(a_pt, b_pt, a_alts, b_alts)`` — the two new
+    ring vertices continuing the flanking frontage edges and their
+    extrapolated altitudes, one per array in ``alt_arrays`` — or ``None``
+    when nothing should be prolonged."""
+    m = len(ring)
+    p_pt = ring[(i0 - 1) % m]
+    a_pt = ring[i0]
+    b_pt = ring[i1]
+    q_pt = ring[(i1 + 1) % m]
+    ua = _unit(a_pt[0] - p_pt[0], a_pt[1] - p_pt[1])
+    ub = _unit(b_pt[0] - q_pt[0], b_pt[1] - q_pt[1])
+    if ua is None or ub is None:
+        return None
+    # Outward normals of the two flanking RING edges (P->A and B->Q).
+    na = (ua[1], -ua[0]) if ccw else (-ua[1], ua[0])
+    ubq = (-ub[0], -ub[1])
+    nb = (ubq[1], -ubq[0]) if ccw else (-ubq[1], ubq[0])
+    length = max(_seam_prolong_length(ua, na, axis, sgn, depth_cap),
+                 _seam_prolong_length(ub, nb, axis, sgn, depth_cap))
+    if length <= 0.0:
+        return None
+    length = min(length, _SEAM_PROLONG_MAX_M)
+    # OFFCUT BOUND: probe down the MIDDLE of the continuing pavement (the
+    # cut-back run's midpoint, along the mean prolongation direction) and
+    # keep only as much length as real dropped pavement supports.
+    umid = _unit(ua[0] + ub[0], ua[1] + ub[1])
+    if umid is None:
+        return None
+    mid = (0.5 * (a_pt[0] + b_pt[0]), 0.5 * (a_pt[1] + b_pt[1]))
+    try:
+        probe = LineString([mid, (mid[0] + umid[0] * length,
+                                  mid[1] + umid[1] * length)])
+        hit = probe.intersection(offcut_union.buffer(_SEAM_OFFCUT_HALO_M))
+    except _GEOM_EXC:
+        return None
+    if hit.is_empty:
+        return None
+    reach = 0.0
+    for geom in (getattr(hit, "geoms", None) or [hit]):
+        try:
+            xs, ys = geom.coords.xy
+        except (AttributeError, NotImplementedError, _GEOM_EXC):
+            continue
+        for hx, hy in zip(xs, ys):
+            reach = max(reach, (hx - mid[0]) * umid[0]
+                        + (hy - mid[1]) * umid[1])
+    length = min(length, reach)
+    if length <= _SEAM_CUTBACK_TOL_M:
+        return None
+    a_new = (a_pt[0] + ua[0] * length, a_pt[1] + ua[1] * length)
+    b_new = (b_pt[0] + ub[0] * length, b_pt[1] + ub[1] * length)
+
+    def _extrapolate(values, i_end, i_prev, anchor):
+        """Reference altitude at the prolonged vertex: the flanking edge's
+        own gradient continued (grade-capped), so the corridor keeps
+        referencing the pavement profile rather than jumping to terrain."""
+        v_end = values[i_end] if i_end < len(values) else None
+        v_prev = values[i_prev] if i_prev < len(values) else None
+        if v_end is None:
+            return None
+        if v_prev is None:
+            return v_end
+        span = math.hypot(ring[i_end][0] - ring[i_prev][0],
+                          ring[i_end][1] - ring[i_prev][1])
+        if span < 1e-6:
+            return v_end
+        grade = (v_end - v_prev) / span
+        grade = max(-_SEAM_PROLONG_MAX_GRADE,
+                    min(_SEAM_PROLONG_MAX_GRADE, grade))
+        return v_end + grade * anchor
+
+    a_alts = [_extrapolate(v, i0, (i0 - 1) % m, length) for v in alt_arrays]
+    b_alts = [_extrapolate(v, i1, (i1 + 1) % m, length) for v in alt_arrays]
+    return a_new, b_new, a_alts, b_alts
+
+
+def _seam_prolonged_ring(layout, coords, ccw, alt_arrays, depth_cap,
+                         offcut_union, half_width_m=TILE_CUT_HALF_WIDTH_M):
+    """Splice every tile-cut CUT-BACK run of a pavement ring back out to the
+    pavement's real continuation, so the adjacent-ground corridor marches
+    off an UN-CUT frontage and the tile cut — not the march — decides where
+    the band ends (owner ruling 2026-07-24).
+
+    Returns ``(coords, alt_arrays, n_prolonged)``; the inputs are returned
+    UNCHANGED (same objects) whenever nothing is prolonged, so every
+    non-seam-crossing airport is byte-identical.
+
+    The splice is deliberately LOCAL: the ring keeps every real pavement
+    vertex (the band's inner weld row is untouched) and only the run of
+    cut-back vertices is replaced by ``A -> A' -> B' -> B``, where ``A'``
+    and ``B'`` continue the two flanking frontage edges.  The corridor the
+    march then builds beyond the cut line is removed by the post-emit
+    ``cut_layout_at_tile_boundaries``, leaving the band bounded BY the cut
+    line — collinear with the pavement's own cut-back edge."""
+    if (not _SEAM_PROLONG or offcut_union is None
+            or layout.anchor is None or len(coords) < 5):
+        return coords, alt_arrays, 0
+    lines = _tile_cutback_lines(layout, coords, half_width_m)
+    if not lines:
+        return coords, alt_arrays, 0
+    ring = list(coords[:-1])
+    arrays = [list(v[:len(ring)]) for v in alt_arrays]
+    n_done = 0
+    for axis, c, sgn in lines:
+        on = [abs(v[axis] - c) <= _SEAM_CUTBACK_TOL_M for v in ring]
+        if not any(on) or all(on):
+            continue
+        # Rotate so index 0 is OFF the line — runs then never wrap.
+        k = on.index(False)
+        ring = ring[k:] + ring[:k]
+        arrays = [v[k:] + v[:k] for v in arrays]
+        on = on[k:] + on[:k]
+        runs: list[tuple[int, int]] = []
+        i = 0
+        while i < len(ring):
+            if on[i]:
+                j = i
+                while j + 1 < len(ring) and on[j + 1]:
+                    j += 1
+                if j > i:            # a lone on-line vertex is a corner
+                    runs.append((i, j))
+                i = j + 1
+            else:
+                i += 1
+        for i0, i1 in reversed(runs):
+            spliced = _seam_prolong_run(ring, arrays, i0, i1, axis, sgn,
+                                        ccw, depth_cap, offcut_union)
+            if spliced is None:
+                continue
+            a_new, b_new, a_alts, b_alts = spliced
+            head, tail = ring[i0], ring[i1]
+            head_a = [v[i0] for v in arrays]
+            tail_a = [v[i1] for v in arrays]
+            ring[i0:i1 + 1] = [head, a_new, b_new, tail]
+            for ai, v in enumerate(arrays):
+                v[i0:i1 + 1] = [head_a[ai], a_alts[ai],
+                                b_alts[ai], tail_a[ai]]
+            n_done += 1
+    if not n_done:
+        return coords, alt_arrays, 0
+    try:
+        poly = Polygon(ring)
+        if poly.is_empty or not poly.is_valid:
+            return coords, alt_arrays, 0
+    except _GEOM_EXC:
+        return coords, alt_arrays, 0
+    return (ring + [ring[0]],
+            [v + [v[0]] for v in arrays],
+            n_done)
+
+
 def _family_params(layout, shape, rw_axes):
-    """Resolve ``(family, code_number, code_letter, reach, width, axis)``
-    for one airside ``shape``; ``None`` if the shape is out of scope.
+    """Resolve ``(family, code_number, code_letter, reach, width, axis,
+    axis_line)`` for one airside ``shape``; ``None`` if the shape is out of
+    scope.
 
     ``axis`` is the nearest runway-axis unit vector (runway shapes only)
     used to skip END ring edges; ``width`` is the graded-band half-width
-    (fill cap)."""
+    (fill cap).  ``axis_line`` is that same nearest runway axis as a
+    ``LineString`` (runway shapes only, else ``None``) — arc A4 measures
+    each station's distance to the CENTERLINE off it, because the
+    Annex-14 half-width ``width`` is defined from the centreline while the
+    march spends it from the pavement edge."""
     role = shape.role
     if role in _RUNWAY_ROLES:
         if not rw_axes:
@@ -2217,17 +2550,23 @@ def _family_params(layout, shape, rw_axes):
             return None
         code_number = runway_code_number(axis[2])
         width = RUNWAY_STRIP_HALF_WIDTH_BY_CODE[code_number]
+        # Slot 4 (optional, "one S"): the runway's two END approach
+        # classes.  Absent on legacy 3-tuple axes records — the march
+        # falls back to the conservative instrument geometry then.
+        classes = axis[3] if len(axis) > 3 else None
         return ("runway", code_number, None,
-                CLEARANCE_MAX_REACH_M["runway"], width, axis[1])
+                CLEARANCE_MAX_REACH_M["runway"], width, axis[1], axis[0],
+                classes)
     if role in _TAXIWAY_ROLES:
         letter = taxi_shape_code_letter(layout, shape)
         width = taxiway_strip_graded_half_width_for_letter(letter)
         return ("taxiway", None, letter,
-                CLEARANCE_MAX_REACH_M["taxiway"], width, None)
+                CLEARANCE_MAX_REACH_M["taxiway"], width, None, None,
+                None)
     if role in _APRON_ROLES:
         return ("apron", None, None,
                 CLEARANCE_MAX_REACH_M["taxiway"], APRON_SHOULDER_WIDTH_M,
-                None)
+                None, None, None)
     return None
 
 
@@ -2409,7 +2748,10 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
                                      sample_dem, zone_rows_out=None,
                                      wrap_skirt_prep=None, ring_alts_fill=None,
                                      coverage_grid=False,
-                                     crossing_zone_prep=None):
+                                     crossing_zone_prep=None,
+                                     collar_zone_prep=None,
+                                     axis_line=None,
+                                     axis_classes=None):
     """Frontage detection + corridor MARCH for one airside shape — the band
     FOOTPRINT geometry (everything that decides WHERE the bands are, given the
     edge-altitude references ``ring_alts``).  Returns
@@ -2454,19 +2796,61 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
     taxiway-end wrap fan never sweeps into a crossing or its depressed
     road corridor (bands never wrap a ramp/approach end — user ruling
     2026-07-15).  ``None`` (default; nothing published — no crossings, no
-    depressed road): no zone test — byte-identical."""
+    depressed road): no zone test — byte-identical.
+
+    ``collar_zone_prep`` (arc B1, ``_collar_zone_prep``): the PREPARED
+    published COLLARED-POCKET zone — the pockets whose drainage collar
+    rings actually emitted.  Tested exactly like the crossing zone, for
+    EVERY family (a pocket is ringed by mixed roles — runway, taxiway and
+    apron edges all face the same hole), so the collar and the bands
+    never govern the same ground.  ``None`` (default; nothing collared):
+    no zone test — byte-identical."""
     if ring_alts_fill is None:
         ring_alts_fill = ring_alts
-    def _station_reference(sx, sy, out, alt_value):
-        # The station's edge altitude, or None when it is skipped — the
-        # END-edge rule (skirt territory) + the terrain-facing probe,
-        # applied per station exactly as the validator does.
+
+    # Reasons ``_station_reference`` may skip a station.  Only the END
+    # reason is exported (arc A3): such a station sits at depth 0 because
+    # the END REGIME owns it, not because the terrain there is lawful —
+    # so its neighbours must not be benched down toward it.
+    _SKIP_END = "end"
+
+    # BUILD-TIME GUARD for the collared-pocket test below (mirrored in
+    # ``verification._adjacent_ground_stations``).  A prepared containment
+    # is ~1 µs and the seed ``Point`` another ~2 µs, and this march runs
+    # over EVERY airside station of the airport (SPJC: ~35,000) while a
+    # collared pocket spans a few hundred metres — measured 199 ms of pure
+    # zone test per march, cut to 18 ms by rejecting the seed against each
+    # zone PART's bounding box first (per PART, not the union bbox: two
+    # pockets at opposite ends of the field give a union box covering the
+    # whole airport, which prunes nothing).
+    #
+    # Exactly equivalent to the raw test: the probe lies ``_RING_PROBE_M``
+    # from the seed, so a seed outside every part box inflated by that
+    # distance cannot have either point inside the zone.
+    _collar_boxes = None
+    if collar_zone_prep is not None:
+        try:
+            _zone = collar_zone_prep.context
+            _parts = list(getattr(_zone, "geoms", [])) or [_zone]
+            _collar_boxes = [(b[0] - _RING_PROBE_M, b[1] - _RING_PROBE_M,
+                              b[2] + _RING_PROBE_M, b[3] + _RING_PROBE_M)
+                             for b in (g.bounds for g in _parts)]
+        except (AttributeError, IndexError, ValueError):
+            _collar_boxes = None
+
+    def _station_reference_ex(sx, sy, out, alt_value):
+        # The station's edge altitude and, when it is SKIPPED, the reason
+        # — the END-edge rule (skirt / RESA territory) + the
+        # terrain-facing probe, applied per station exactly as the
+        # validator does.  Returns ``(alt_or_None, reason_or_None)``;
+        # ``_station_reference`` below is the value-only view of this one
+        # body, so the value and the reason can never diverge.
         if alt_value is None:
-            return None
+            return (None, "no_alt")
         if (axis is not None
                 and abs(out[0] * axis[0] + out[1] * axis[1])
                 > _RING_END_NORMAL_DOT):
-            return None
+            return (None, _SKIP_END)
         probe = Point(sx + out[0] * _RING_PROBE_M,
                       sy + out[1] * _RING_PROBE_M)
         # CROSSING-ZONE EXCLUSION (Phase 1): a station whose seed or
@@ -2478,7 +2862,22 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
                 crossing_zone_prep.contains(Point(sx, sy))
                 or crossing_zone_prep.contains(probe)):
             _APPARATUS_HITS["wrap_crossing_zone_excluded_stations"] += 1
-            return None
+            return (None, "crossing_zone")
+        # COLLARED-POCKET EXCLUSION (arc B1): a station whose seed or
+        # outward probe falls inside a pocket whose drainage COLLAR RINGS
+        # emitted is dropped — the collar governs that ground and a band
+        # marching in beside it would double-govern it.  The
+        # covered-frontage probe below cannot catch this: a width-skipped
+        # pocket has no gap face to stand the bands down.  Inert without a
+        # published zone (``collar_zone_prep is None``).
+        if (collar_zone_prep is not None
+                and (_collar_boxes is None
+                     or any(bx0 <= sx <= bx1 and by0 <= sy <= by1
+                            for bx0, by0, bx1, by1 in _collar_boxes))
+                and (collar_zone_prep.contains(Point(sx, sy))
+                     or collar_zone_prep.contains(probe))):
+            _APPARATUS_HITS["collar_zone_excluded_stations"] += 1
+            return (None, "collared_pocket")
         if prep_static.contains(probe):
             # WRAP (scope A): a taxiway station whose outward probe lands
             # ONLY on a runway-END skirt is the JOIN target, not an
@@ -2488,8 +2887,12 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
             # hit (pavement, another junction) still skips.
             if not (wrap_skirt_prep is not None
                     and wrap_skirt_prep.contains(probe)):
-                return None
-        return alt_value
+                return (None, "static")
+        return (alt_value, None)
+
+    def _station_reference(sx, sy, out, alt_value):
+        """The station's edge altitude, or ``None`` when it is skipped."""
+        return _station_reference_ex(sx, sy, out, alt_value)[0]
 
     stations, st_alts, outs = [], [], []
     # FILL-direction reference per station (order 3 worst-case coverage).
@@ -2499,6 +2902,12 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
     _split_refs = st_alts_fill is not st_alts
     is_ring_vertex: list[bool] = []
     at_seam: list[bool] = []
+    # Arc A3: per-station "skipped by the END-NORMAL test SPECIFICALLY"
+    # (not by the terrain-facing probe, the crossing-zone test, or a
+    # missing altitude).  Built unconditionally — it is one string compare
+    # per station off a call the march already makes — and consumed only
+    # under ``_END_PIN``, so the gate-OFF march is byte-identical.
+    end_skipped: list[bool] = []
     # Frozen-nearest host pavement ring vertex per station (zone-row
     # admission; built unconditionally — cheap — consumed only through
     # ``zone_rows_out``).  A fan station sits AT its corner (a ring
@@ -2526,6 +2935,19 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
             # NO fan across a SKIPPED flank (runway END edge / covered
             # probe): interpolated fan rays would sweep into skipped
             # territory as blade spikes.
+            #
+            # ARC A3 RE-DERIVATION (deliberate, keep as is): the end pin
+            # gives the LAST EDGE station full lawful depth at a runway
+            # end corner, so one might argue the fan could now sweep that
+            # corner too.  It must NOT.  A fan's stations all SHARE the
+            # corner coordinate, so ``adjacent_ground_supported_depths``'
+            # distance weighting grants them NO depth allowance over the
+            # corner's own depth — the exact geometry that made the
+            # CYXY-417 fan blade, and a fan sweeping INTO the end zone
+            # would re-mint that class inside the wedge the skirt / RESA
+            # regime already owns.  The end regime owns that wedge; the
+            # lateral band ends square against it (which is precisely what
+            # the pin buys) and the two surfaces meet at the clip.
             if convex and (
                     _station_reference(eax, eay, previous_out,
                                        a0) is None
@@ -2548,14 +2970,16 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
                     fan_out = (math.cos(fan_angle),
                                math.sin(fan_angle))
                     stations.append((eax, eay))
-                    st_alts.append(_station_reference(
-                        eax, eay, fan_out, a0))
+                    _fan_ref, _fan_reason = _station_reference_ex(
+                        eax, eay, fan_out, a0)
+                    st_alts.append(_fan_ref)
                     if _split_refs:
                         st_alts_fill.append(_station_reference(
                             eax, eay, fan_out, a0f))
                     outs.append(fan_out)
                     is_ring_vertex.append(True)
                     at_seam.append(False)
+                    end_skipped.append(_fan_reason == _SKIP_END)
                     hosts.append((eax, eay))
         previous_out = out
         nseg = max(1, int(math.ceil(
@@ -2567,8 +2991,9 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
             sx = eax + (ebx - eax) * t
             sy = eay + (eby - eay) * t
             ref = None
+            reason = "no_alt"
             if a0 is not None and a1 is not None:
-                ref = _station_reference(
+                ref, reason = _station_reference_ex(
                     sx, sy, out, a0 + t * (a1 - a0))
             stations.append((sx, sy))
             st_alts.append(ref)
@@ -2582,6 +3007,7 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
             is_ring_vertex.append(k == 0)
             at_seam.append((k == 0 and edge_a_seam)
                            or (k == nseg - 1 and edge_b_seam))
+            end_skipped.append(reason == _SKIP_END)
             hosts.append((eax, eay) if t < 0.5 else (ebx, eby))
     if len(stations) < 2:
         return [], [], stations, st_alts, outs
@@ -2593,6 +3019,97 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
     # UNCHANGED between admission OFF and ON.
     _APPARATUS_HITS["seam_taper_flagged_stations"] += sum(
         1 for _f in at_seam if _f)
+
+    # ── ARC A3: END-AWARE BENCH PIN ─────────────────────────────────
+    # A runway END-edge station carries depth 0 only because the march
+    # SKIPS it (``_SKIP_END``) — the end is skirt / RESA territory — but
+    # ``adjacent_ground_supported_depths`` cannot tell that from genuinely
+    # unobstructed ground, so it benches the lateral wing diagonally down
+    # into the end corner (measured SPJC 16R 2026-07-24: 75 m of depth
+    # collapsing to 3 m over the last 48 m, every vertex exactly on
+    # ``2.0 x distance-back-from-corner``).  The fix reuses the EXISTING
+    # pin mechanism verbatim — the ``at_continuation_seam`` semantics
+    # ("never lowered by either sweep, holds its raw scanned depth") — by
+    # OR-ing the end-pin flags into the same per-station list.  No second
+    # mechanism; the law decides WHICH stations, ``grade_law`` owns both.
+    # Counted AFTER the seam-taper row above so that row keeps meaning
+    # exactly "stations at a pavement-partition seam".
+    if _END_PIN:
+        _end_pin = adjacent_ground_end_pin_flags(
+            end_skipped, [a is not None for a in st_alts])
+        _APPARATUS_HITS["end_pin_flagged_stations"] += sum(
+            1 for _f in _end_pin if _f)
+        at_seam = [bool(_s) or bool(_p)
+                   for _s, _p in zip(at_seam, _end_pin)]
+
+    # ── ARC A4: RUNWAY STRIP WIDTH MEASURED FROM THE CENTERLINE ─────
+    # ``width`` is the Annex-14 graded-strip HALF-WIDTH from the runway
+    # CENTERLINE, but the march spends it (and the family reach) outward
+    # from the pavement EDGE — and the emitted runway carries apt.dat
+    # shoulders (SPJC 16R/34L: 45 m -> 81 m), so the band lands 115.5 m
+    # from the centreline where the strip is 75 m.  With the gate ON each
+    # station's caps become the strip width REMAINING outward of it, via
+    # ``grade_law.runway_strip_band_width_m`` — the same clamp legacy
+    # Pass A3 applied (``rw_axis[2] - rw_axis[0].distance(station)``).
+    # Applied to BOTH directions as each is currently derived: the fill
+    # cap stays bounded by ``width``, the cut cap by the family ``reach``.
+    fill_caps = [width] * m
+    cut_caps = [reach] * m
+    # A4 clamps the FILL ONLY.  Filling is a GRADED-strip mandate, so the
+    # graded half-width is the right bound for it — and applying that same
+    # bound to the CUT (as A4 first did) erases zone 3 entirely: ICAO
+    # Annex 14 §3.4.16 governs the UNGRADED strip too (ceiling ≤5 % up, out
+    # to the FULL strip edge), so a cut stopping at the graded edge is a
+    # functional regression, not a tightening.  At a station 40.5 m off the
+    # axis that cap was 34.5 m where the law reaches 99.5 m.  The cut cap
+    # belongs to the OLS handover block below, which measures S on the full
+    # strip; with OLS off the cut keeps today's zone-3-to-reach stand-in.
+    # Each gate is then independently sound, so they need no coupling.
+    if _STRIP_WIDTH_FROM_CENTERLINE and axis_line is not None:
+        for _i, (_sx, _sy) in enumerate(stations):
+            try:
+                _d_axis = axis_line.distance(Point(_sx, _sy))
+            except _GEOM_EXC:
+                continue
+            fill_caps[_i] = runway_strip_band_width_m(
+                width, _d_axis, width)
+
+    # ── OLS HANDOVER (docs/specs/obstacle-limitation-surfaces-spec.md) ──
+    # The lateral CUT is bounded by the OLS transitional surface, which
+    # takes over at the handover S.  The spec's continuity ruling SHRINKS
+    # the runway-family cut reach to S, so the two laws abut exactly
+    # instead of the zone-3 +5 % ceiling marching on to the earthwork cap
+    # with nothing beyond it.  This block OWNS the cut cap outright —
+    # assignment, not ``max()``.  (An earlier ``max()`` over caps
+    # initialised to ``reach`` never shrank anything: it implemented the
+    # ruling only as a parasitic composition with A4's since-removed cut
+    # clamp, so OLS-alone did not do what its own spec says.)
+    #
+    # ``axis_line`` is threaded ONLY for runway-family shapes, so its
+    # presence is the family test; the code number comes off its length
+    # exactly as ``_family_params`` derives it.  ``axis_classes`` carries
+    # the runway's two apt.dat END classes: S is taken as the MINIMUM over
+    # them, matching how ``ols._flank_law`` min-composes the surfaces, so
+    # the two emitters cannot disagree about where the handover is (a
+    # split would overlap the OLS flank band with this cut band on
+    # differently-anchored surfaces — a wall).  Missing metadata falls
+    # back to the conservative instrument geometry, the same direction
+    # ``config.runway_end_approach_class`` takes for blank rows.
+    if _OLS_CUT and axis_line is not None:
+        try:
+            _code = runway_code_number(axis_line.length)
+        except (ValueError, KeyError, AttributeError):
+            _code = None
+        if _code is not None:
+            _classes = tuple(axis_classes or ()) or ("non_precision",)
+            for _i, (_sx, _sy) in enumerate(stations):
+                try:
+                    _d_axis = axis_line.distance(Point(_sx, _sy))
+                except _GEOM_EXC:
+                    continue
+                _s = min(ols_lateral_handover_distance_m(
+                    _code, _cls, _d_axis) for _cls in _classes)
+                cut_caps[_i] = min(reach, _s)
 
     # Zone-row collectors (order 2): translate the builders' per-run
     # provenance into row dicts with frozen-nearest hosts.  The d0 == 0
@@ -2634,12 +3151,12 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
         fill_edges = _coverage_grid_edges(fill_edges, width)
         cut_edges = _coverage_grid_edges(cut_edges, reach)
     fill_bands = _build_fill_bands(
-        stations, st_alts_fill, outs, [width] * m, floor_depth,
+        stations, st_alts_fill, outs, fill_caps, floor_depth,
         fill_edges, trigger, step, sample_dem,
         is_ring_vertex, at_seam, zone_collect=_collect_fill,
         force_full_reach=coverage_grid)
     cut_bands = _build_cut_bands(
-        stations, st_alts, outs, [reach] * m, ceil_off,
+        stations, st_alts, outs, cut_caps, ceil_off,
         cut_edges, trigger, step, sample_dem,
         is_ring_vertex, at_seam, zone_collect=_collect_cut,
         force_full_reach=coverage_grid)
@@ -2801,9 +3318,19 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
             rlen = math.hypot(rbx - rax, rby - ray)
             if rlen < 1.0:
                 continue
+            # 4th slot: the runway's two apt.dat END approach classes.
+            # ``_family_params`` hands them to the march so the OLS
+            # handover S is computed from the SAME classes ``ols.py``
+            # uses (slice 4, "one S") instead of a hardcoded default.
             rw_axes.append((LineString([(rax, ray), (rbx, rby)]),
                             ((rbx - rax) / rlen, (rby - ray) / rlen),
-                            rlen))
+                            rlen,
+                            (runway_end_approach_class(
+                                getattr(r, "markings_a", 0),
+                                getattr(r, "approach_lights_a", 0)),
+                             runway_end_approach_class(
+                                getattr(r, "markings_b", 0),
+                                getattr(r, "approach_lights_b", 0)))))
 
     trigger_by_family = {
         "runway": CLEARANCE_OBSTRUCTION_THRESHOLD_M["runway"],
@@ -2842,12 +3369,19 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
     # a no-op otherwise, so the flag stays False without admission.
     _coverage_grid = bool(_FULL_EXTENT_COVERAGE and _ADMIT_COVERAGE)
 
+    # TILE-SEAM PROLONGATION (owner ruling 2026-07-24): the neighbour-tile
+    # pavement ``tile_cut`` dropped, which bounds every prolongation.
+    # ``None`` on a single-tile airport -> the splice is a strict no-op.
+    _offcut_union = seam_offcut_union(layout)
+    _n_prolonged = 0
+
     entries: list[dict] = []
     for s in scoped:
         params = _family_params(layout, s, rw_axes)
         if params is None:
             continue
-        family, code_number, code_letter, reach, width, axis = params
+        family, code_number, code_letter, reach, width, axis, \
+            axis_line, axis_classes = params
         trigger = trigger_by_family[family]
         ceil_off, envelope_at, floor_depth = _band_family_closures(
             family, code_number, code_letter, width)
@@ -2866,6 +3400,27 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
         else:
             ring_alts = _shape_ring_alts(s, coords, sample_dem, seed=True)
             ring_alts_fill = None
+        # SEAM PROLONGATION: march off the UN-CUT frontage (the corridor's
+        # end is then decided by the tile cut, not by where tile_cut already
+        # stopped the pavement).  ``depth_cap`` is the deepest the corridor
+        # can be at this shape — the same clamp ``_derive_shape_stations_
+        # and_bands`` applies through ``runway_strip_band_width_m``.
+        _pre_coords = coords
+        # ``reach`` in every gate state.  The ``width`` tightening was
+        # only valid while A4 clamped the CUT as well; now that A4 owns
+        # the fill cap alone, a ``width``-capped prolongation would
+        # under-prolong the CUT frontage at a tile seam.  ``reach`` is a
+        # safe upper bound in all four gate combinations.
+        _depth_cap = reach
+        _pro_arrays = ([ring_alts] if ring_alts_fill is None
+                       else [ring_alts, ring_alts_fill])
+        coords, _pro_arrays, _npro = _seam_prolonged_ring(
+            layout, coords, ccw, _pro_arrays, _depth_cap, _offcut_union)
+        if _npro:
+            ring_alts = _pro_arrays[0]
+            if ring_alts_fill is not None:
+                ring_alts_fill = _pro_arrays[1]
+            _n_prolonged += _npro
         zone_rows: list[dict] = []
         fill_bands, cut_bands, _st, _sa, _ou = \
             _derive_shape_stations_and_bands(
@@ -2877,9 +3432,42 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
                 ring_alts_fill=ring_alts_fill,
                 coverage_grid=_coverage_grid,
                 crossing_zone_prep=(crossing_zone_prep
-                                    if family == "taxiway" else None))
+                                    if family == "taxiway" else None),
+                axis_line=axis_line,
+                axis_classes=axis_classes)
         if not fill_bands and not cut_bands:
             continue
+        # FROZEN-NEAREST HOST REPAIR: a zone row stationed on a PROLONGED
+        # (synthetic) ring vertex would name a host that is not a pavement
+        # ring vertex and therefore not a solver variable.  Re-home those
+        # rows onto the nearest REAL ring vertex — the cut-back corner —
+        # so the B3 frozen-nearest contract still holds.
+        if _npro and zone_rows:
+            _real_keys = {_vertex_key(px, py) for px, py in _pre_coords}
+            # The synthetic hosts are the (at most 2-per-run) prolonged
+            # vertices, repeated across every row they host — memoise the
+            # nearest-real scan per exact coordinate pair instead of
+            # re-scanning the ring per row (same ``min`` over the same
+            # list: identical result, returned as the same tuple).
+            _near_memo: dict[tuple, tuple] = {}
+
+            def _nearest_real(hx, hy):
+                hit = _near_memo.get((hx, hy))
+                if hit is None:
+                    hit = min(_pre_coords,
+                              key=lambda p: (p[0] - hx) ** 2
+                              + (p[1] - hy) ** 2)
+                    _near_memo[(hx, hy)] = hit
+                return hit
+
+            for _row in zone_rows:
+                if all(_vertex_key(hx, hy) in _real_keys
+                       for hx, hy in _row["hosts"]):
+                    continue
+                _row["hosts"] = [
+                    (hx, hy) if _vertex_key(hx, hy) in _real_keys
+                    else _nearest_real(hx, hy)
+                    for hx, hy in _row["hosts"]]
         # Zone-node static keep-out (B4 flip defect 1): no zone point on,
         # inside, or hugging static pavement ever becomes a solver variable.
         if zone_rows and _zone_static_boundary is not None:
@@ -2921,6 +3509,10 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
                         "zone_nodes": zone_nodes,
                         "zone_values": None})
     layout.adjacent_ground_presolve = entries
+    if _n_prolonged:
+        UI.vprint(1, f"  [adjacent-ground] tile-seam prolongation: "
+                     f"{_n_prolonged} cut-back run(s) marched off the "
+                     f"un-cut frontage (owner ruling 2026-07-24).")
     if entries:
         n_bands = sum(len(e["fill"]) + len(e["cut"]) for e in entries)
         UI.vprint(1, f"  [adjacent-ground] PRE-SOLVE constructed raw bands "
@@ -3081,6 +3673,21 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                 _PAVEMENT_GAP_M)
         except _GEOM_EXC:
             crossing_zone_clip_block = crossing_zone_union
+
+    # COLLARED-POCKET ZONE (arc B1).  Two halves, both needed: the march
+    # test below stands the pocket-facing STATIONS down, and this clip
+    # block removes any band POLYGON that still reaches into the pocket —
+    # which is the only protection under the frozen-footprint gate state
+    # (``_presolve_bands``), where the station march is not re-run.
+    #
+    # EXACT geometry, ZERO buffer (weld ruling 2026-07-09): a band and a
+    # collar ring must meet on shared coordinates or not at all; buffering
+    # them apart would mint a standoff groove of raw DEM between two
+    # graded surfaces.
+    collar_zone_union = _collar_zone_union(layout)
+    collar_zone_prep = (_collar_zone_prep(layout)
+                        if collar_zone_union is not None else None)
+    collar_zone_clip_block = collar_zone_union
 
     # CONFORM-TO-STATIC (chain identity, 2026-07-09): a band row that
     # runs just OUTSIDE a foreign shape's edge (10-15 cm — daylight
@@ -3259,9 +3866,19 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
             rlen = math.hypot(rbx - rax, rby - ray)
             if rlen < 1.0:
                 continue
+            # 4th slot: the runway's two apt.dat END approach classes.
+            # ``_family_params`` hands them to the march so the OLS
+            # handover S is computed from the SAME classes ``ols.py``
+            # uses (slice 4, "one S") instead of a hardcoded default.
             rw_axes.append((LineString([(rax, ray), (rbx, rby)]),
                             ((rbx - rax) / rlen, (rby - ray) / rlen),
-                            rlen))
+                            rlen,
+                            (runway_end_approach_class(
+                                getattr(r, "markings_a", 0),
+                                getattr(r, "approach_lights_a", 0)),
+                             runway_end_approach_class(
+                                getattr(r, "markings_b", 0),
+                                getattr(r, "approach_lights_b", 0)))))
 
     trigger_by_family = {
         "runway": CLEARANCE_OBSTRUCTION_THRESHOLD_M["runway"],
@@ -3555,12 +4172,20 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
         if _store:
             _presolve_bands = {id(e["shape"]): e for e in _store}
 
+    # TILE-SEAM PROLONGATION (owner ruling 2026-07-24) — see
+    # ``_seam_prolonged_ring``.  Applied here too (not only in the pre-solve
+    # construct) so the gate-OFF inline march AND the resampler's edge
+    # projection both reference the same un-cut frontage as the footprint.
+    _offcut_union = seam_offcut_union(layout)
+    _n_prolonged = 0
+
     for s in scoped:
         current_shape_union = None
         params = _family_params(layout, s, rw_axes)
         if params is None:
             continue
-        family, code_number, code_letter, reach, width, axis = params
+        family, code_number, code_letter, reach, width, axis, \
+            axis_line, axis_classes = params
         trigger = trigger_by_family[family]
 
         ceil_off, envelope_at, floor_depth = _band_family_closures(
@@ -3578,6 +4203,17 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
         if len(coords) < 4:
             continue
         ring_alts = _shape_ring_alts(s, coords)
+        # ``reach`` in every gate state.  The ``width`` tightening was
+        # only valid while A4 clamped the CUT as well; now that A4 owns
+        # the fill cap alone, a ``width``-capped prolongation would
+        # under-prolong the CUT frontage at a tile seam.  ``reach`` is a
+        # safe upper bound in all four gate combinations.
+        _depth_cap = reach
+        coords, _pro_arrays, _npro = _seam_prolonged_ring(
+            layout, coords, ccw, [ring_alts], _depth_cap, _offcut_union)
+        if _npro:
+            ring_alts = _pro_arrays[0]
+            _n_prolonged += _npro
 
         # FOOTPRINT SOURCE.  Gate-ON (B3 order 1) the raw band rings were
         # marched PRE-SOLVE from the DEM-seeded estimate
@@ -3602,7 +4238,13 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                 wrap_skirt_prep=(wrap_skirt_prep
                                  if family == "taxiway" else None),
                 crossing_zone_prep=(crossing_zone_prep
-                                    if family == "taxiway" else None))
+                                    if family == "taxiway" else None),
+                # ALL families (unlike the taxiway-only crossing zone): a
+                # width-skipped pocket is ringed by MIXED roles, so runway
+                # and apron frontage face it just as taxiway frontage does.
+                collar_zone_prep=collar_zone_prep,
+                axis_line=axis_line,
+                axis_classes=axis_classes)
         if not fill_bands and not cut_bands:
             continue
 
@@ -3745,6 +4387,19 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                         # a ramp/approach end (user ruling 2026-07-15).
                         # Same buffered-standoff render argument as above.
                         poly = poly.difference(crossing_zone_clip_block)
+                    if (collar_zone_clip_block is not None
+                            and not collar_zone_clip_block.is_empty):
+                        # COLLARED POCKET (arc B1): no band piece may enter
+                        # a pocket whose drainage collar rings emitted —
+                        # the collar governs that ground and an overlapping
+                        # band crashes X-Plane.  EXACT clip, ZERO buffer
+                        # (weld ruling 2026-07-09: no standoff grooves) —
+                        # unlike the buffered blocks above, this surface
+                        # ABUTS the collar's outer ring rather than
+                        # standing off it.  This is also the ONLY collar
+                        # protection under the frozen-footprint gate state,
+                        # where the station march above is not re-run.
+                        poly = poly.difference(collar_zone_clip_block)
                     if (previous_shapes_union is not None
                             and not previous_shapes_union.is_empty):
                         poly = poly.difference(previous_shapes_union)
@@ -4183,6 +4838,10 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                          f"{removed} 3D-collinear band vertex(es) "
                          f"(±{Z_TOL_BOUNDARY_M} m).")
 
+    if _n_prolonged:
+        UI.vprint(1, f"  [adjacent-ground] tile-seam prolongation: "
+                     f"{_n_prolonged} cut-back run(s) marched off the "
+                     f"un-cut frontage (owner ruling 2026-07-24).")
     # Order-2 apparatus hit report (always printed — the OFF-vs-ON
     # retirement table reads these from both configurations).
     UI.vprint(1, "  [adjacent-ground] apparatus hits: "

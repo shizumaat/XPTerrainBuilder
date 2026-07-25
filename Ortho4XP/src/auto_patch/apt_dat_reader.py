@@ -143,6 +143,13 @@ class Runway:
     surface_code: int
     displaced_a_m: float
     displaced_b_m: float
+    # The apt.dat row-100 PUBLISHED width, preserved when the shoulder
+    # widening (``pipeline._widen_runway_rect``) overwrites ``width_m`` in
+    # place with runway+shoulders (SPJC 16R/34L: 45 -> 81 m).  Rules keyed
+    # on "the runway" mean the DECLARED runway — shoulders are a separate
+    # feature (ICAO Annex 14 §3.2) — so anything citing runway width must
+    # read ``declared_width_m``, not ``width_m``.  ``None`` until widened.
+    published_width_m: float | None = None
     blast_a_m: float = 0.0   # blast pad / overrun length beyond end a
     blast_b_m: float = 0.0   # blast pad / overrun length beyond end b
     # row-100 shoulder field, encoded ``100 * width_m + surface_code``
@@ -159,6 +166,20 @@ class Runway:
     # 8 MALSR, 9 MALSF, 10 MALS, 11 ODALS, 12 RAIL).
     approach_lights_a: int = 0
     approach_lights_b: int = 0
+
+
+    @property
+    def declared_width_m(self) -> float:
+        """The published runway width (m) — ``width_m`` unless the shoulder
+        widening replaced it, in which case the preserved original.
+
+        Use this for every rule that says "the runway width".  ICAO Annex 14
+        §3.5.3 ("a RESA shall extend to a width of at least twice that of the
+        runway") is the live case: fed the shoulder-widened value it sizes
+        SPJC 16R's end corridor at 81 m instead of the correct 45 m factor.
+        """
+        published = self.published_width_m
+        return float(published) if published else float(self.width_m)
 
 
 @dataclass

@@ -2,6 +2,23 @@
 import sys
 import os
 
+# FIRST, before any other work: claim the multiprocessing spawn bootstrap.
+# A frozen child is not a re-import — it is this executable re-exec'd as
+# `Ortho4XP --multiprocessing-fork tracker_fd=.. pipe_handle=..`
+# (multiprocessing.spawn.get_command_line takes its `sys.frozen` branch), so
+# the "__mp_main__" guards below cannot see it.  PyInstaller's rthook only
+# DEFINES multiprocessing.freeze_support as the diverter; the frozen app must
+# call it, or the child falls through to the CLI dispatch at the foot of this
+# file, prints USAGE and exits 0.  Its parent then blocks in
+# BaseManager.start() reading an address off a pipe nobody will write, and
+# the auto-patch pool dies with a bare EOFError — logged as the empty
+# "parallel build unavailable (  )" before falling back to serial (2026-07-24).
+# From source this is a no-op: that path spawns `python -c spawn_main(...)`
+# and needs no diversion.
+if __name__ == '__main__':
+    import multiprocessing
+    multiprocessing.freeze_support()
+
 # Engine subprocesses are spawned WITHOUT a Popen cwd: passing one forces
 # the parent off posix_spawn onto fork+exec, and a fork in a pyproj-loaded
 # parent dies in the proj.db sqlite atfork handler (2026-07-16 crash

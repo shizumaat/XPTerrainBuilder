@@ -180,11 +180,13 @@ __all__ = [
     "GAP_FILL_SPINE_STEP_M",
     "GAP_FILL_MAX_WIDTH_M",
     "GAP_FILL_MIN_AREA_M2",
+    "GAP_FILL_INTERIOR_FLOOR_ENABLED",
     "GAP_FILL_INTERIOR_RINGS_ENABLED",
     "OPEN_FRONTAGE_SPINE_ENABLED",
     "OPEN_FRONTAGE_CLOSE_M",
     "ONE_SOLVE_TERRAIN",
     "ONE_SOLVE_TERRAIN_RUNWAY_END_SKIRT",
+    "ONE_SOLVE_TERRAIN_RUNWAY_END_RESA",
     "ONE_SOLVE_TERRAIN_GAP_FILL_SPINE",
     "ONE_SOLVE_TERRAIN_GRADED_STRIP",
     "ONE_SOLVE_TERRAIN_GRADED_STRIP_CONSTRUCT",
@@ -202,6 +204,24 @@ __all__ = [
     "runway_end_clearance_length_m",
     "runway_end_approach_class",
     "RUNWAY_END_SKIRT_ENABLED",
+    "RUNWAY_END_RESA_ENABLED",
+    "ADJACENT_GROUND_END_PIN_ENABLED",
+    "STRIP_WIDTH_FROM_CENTERLINE_ENABLED",
+    "POCKET_COLLAR_RINGS_ENABLED",
+    "CONFORMANCE_CUT_CLAMP_ENABLED",
+    "OLS_CUT_ENABLED",
+    "OLS_TRANSITIONAL_SLOPE",
+    "OLS_TRANSITIONAL_SLOPE_STEEP",
+    "OLS_STRIP_HALF_WIDTH_INSTRUMENT_BY_CODE",
+    "OLS_APPROACH_SETBACK_M",
+    "OLS_APPROACH_SETBACK_VISUAL_CODE1_M",
+    "OLS_APPROACH_INNER_EDGE_HALF_WIDTH_M",
+    "OLS_APPROACH_DIVERGENCE",
+    "OLS_APPROACH_FIRST_SECTION_SLOPE",
+    "OLS_TRANSITIONAL_EMIT_REACH_M",
+    "OLS_APPROACH_EMIT_REACH_M",
+    "OLS_MAX_CUT_DEPTH_M",
+    "OLS_OBSTRUCTION_THRESHOLD_M",
     "OBJECT_BRIDGE_TERRAIN",
     "OBJECT_TUNNEL_TERRAIN",
     "OBJECT_SPLIT_LEVEL_TERRAIN",
@@ -1126,6 +1146,10 @@ ROLE_GRADE_LIMITS = {
     # clearance cuts they carry no within-shape PAVEMENT grade rule — the
     # adjacent-ground validator (slice 4) checks them against the corridor.
     "graded_strip":       None,
+    # OLS cuts trace the obstacle-limitation ceiling (transitional /
+    # approach first section) the same way — a lawful bound, not
+    # pavement; ``verification.check_ols_surfaces`` is their reader.
+    "ols_cut":            None,
     # Object-derived bridge terrain (feature B, user ruling R12): the
     # trench is the flat under-deck corridor floor, the causeway the flat
     # abutment approach plate — both born at layout time with per-vertex
@@ -1743,6 +1767,73 @@ SEAM_PIN_RUNWAY_CLAMP = _os.environ.get("O4_SEAM_PIN_CLAMP", "0") == "1"
 # ``runway_redistribute`` must sample the DEM on exactly those lines; a
 # second copy would silently un-anchor the cut-back the day either moved.
 TILE_CUT_HALF_WIDTH_M = 5.0
+
+# ── ADJACENT-GROUND SEAM PROLONGATION (owner ruling 2026-07-24) ──────────
+#   "It seems like maybe the adjacent ground is being applied after the cut,
+#    because it angles away from it rather than forming a clean line along
+#    the cut, and we need it to be clean and consistent so it transitions
+#    smoothly across the tile boundary."
+#
+# The owner's ordering hypothesis is CORRECT.  The adjacent-ground corridor
+# is marched off pavement rings that ``tile_cut`` has ALREADY clipped back
+# ``TILE_CUT_HALF_WIDTH_M`` from the integer line, so a band's frontage
+# STOPS at the pavement's cut-back corner and its outer (daylight) row
+# converges diagonally into that corner instead of continuing across the
+# seam and being trimmed BY the cut.  Two measured consequences at SPLP
+# (RW02/20 meets lon -77 at 18 deg):
+#   * the strip's boundary near the seam angles away from the cut — a
+#     45.5 m outer edge closing at 18 deg onto the corner plus a 3.00 m
+#     closing edge at 57.29 deg, in BOTH tile halves;
+#   * a COVERAGE HOLE: band material that belongs to this tile but whose
+#     parent pavement lies in the NEIGHBOUR tile is emitted by nobody (the
+#     neighbour marches it and then drops it as out-of-tile).  Measured:
+#     ~260 m of the -13/-77 seam south of the runway corner and ~162 m of
+#     the -13/-78 seam north of it carry a full graded strip on one side of
+#     the line and raw terrain on the other.
+#
+# FIX (adjacent_ground ``_seam_prolonged_ring``): before the corridor
+# march, splice each pavement ring's tile-cut SEAM run (the run of ring
+# vertices sitting on a cut-back line) back out to the pavement's real
+# continuation — a straight PROLONGATION of the two flanking frontage
+# edges, with linearly extrapolated edge altitudes.  The march then runs
+# off an un-cut frontage and the EXISTING post-emit ``cut_layout_at_tile_
+# boundaries`` decides where the band ends, so the strip's seam edge is the
+# cut line itself, collinear with the pavement's cut-back edge.
+#
+# The prolongation length is bounded by (a) the geometry — no further than
+# the corridor reach can still reach back across the line — (b) the actual
+# dropped pavement recorded by ``tile_cut`` on ``layout.tile_seam_offcuts``
+# (so a prolongation NEVER invents pavement that is not there), and (c)
+# this cap.  No recorded offcut (every single-tile airport) => no
+# prolongation => byte-identical output.
+ADJACENT_GROUND_SEAM_PROLONG_ENABLED = (
+    _os.environ.get("O4_ADJACENT_GROUND_SEAM_PROLONG", "1") == "1")
+# Hard cap (m) on one prolongation, measured along the frontage from the
+# cut-back corner.  300 m covers a code-4 runway's graded strip crossing a
+# seam at the shallowest obliquity we have measured; the offcut bound (b)
+# is what actually binds at every airport tested.
+ADJACENT_GROUND_SEAM_PROLONG_MAX_M = float(
+    _os.environ.get("O4_ADJACENT_GROUND_SEAM_PROLONG_MAX_M", "300.0"))
+
+# TERRAIN CUT-BACK EDGE = DEM CONTRACT (same owner ruling; the ELEVATION
+# half of the same defect).  ``tile_cut``'s polygon difference mints exactly
+# TWO vertices per graded-strip cut-back edge and values them by
+# interpolating along whatever band chord crossed the line — measured SPLP
+# -13/-78: a single straight 223 m seam edge sitting 3.3 m below its own DEM
+# at one end, with the two tile halves disagreeing by up to 2.58 m (mean
+# 0.96 m) along the seam.  The 10 m gap the cut opens renders at raw DEM, so
+# that is a cliff at the tile line.
+#
+# With the gate ON, ``tile_cut._pin_terrain_piece_seam_edge`` DENSIFIES each
+# cut-back edge onto absolute ``_SEAM_TERRAIN_PIN_STEP_M`` stations and pins
+# every node to the DEM at its own position — the same contract every other
+# role already honours at a seam.  The pin is a pure function of (cut-back
+# line, station spacing, DEM), so adjacent tile builds land on the identical
+# terrain line: measured cross-seam agreement 2.58 m -> 0.05 m worst.
+# Only fires where a tile cut actually severs a graded strip, so every
+# single-tile airport is byte-identical.
+TILE_SEAM_TERRAIN_DEM_PIN_ENABLED = (
+    _os.environ.get("O4_TILE_SEAM_TERRAIN_DEM_PIN", "1") == "1")
 
 # ── RUNWAY SEAM CONTACT ANCHORS (owner ruling 2026-07-24) ────────────────
 #   "This has never worked, trying to do anything other than DEM at the tile
@@ -2628,6 +2719,35 @@ CLEARANCE_OBSTRUCTION_THRESHOLD_M = {
 RUNWAY_END_SKIRT_ENABLED = (
     _os.environ.get("O4_RUNWAY_END_SKIRT", "1") == "1")
 
+# Runway end RESA CUT (the skirt's rising-terrain twin, arc A2 2026-07-24).
+# The skirt above is FILL-only by ruling (STATUS part 30e: "the RESA cut
+# (Pass C) separately handles terrain that RISES").  Pass C lived in the
+# legacy ``emit_surface_clearance_cuts`` chain, which ``B4_FLIP_DEFAULTS``
+# gates OFF — so between the flip (2026-07-15) and this gate NOTHING cut
+# rising terrain beyond a runway end (measured SPJC 16R 2026-07-24: 4
+# runway_clearance shapes airport-wide, all skirts, zero RESA; no coverage
+# of any kind from 70 m to 320 m past the end).  The cut is emitted by
+# ``clearance.emit_runway_end_skirts`` — the same anchor, exit march,
+# constraint block and weld discipline as the fill — against the ceiling of
+# ``grade_law.runway_end_envelope``.  Default OFF until the SPJC/HECA/KCLT
+# in-sim battery signs off; flip together with ADJACENT_GROUND_END_PIN.
+# ★ FLIPPED DEFAULT ON — OWNER RULING 2026-07-25 ("Turn them all on now, I
+# will test in X-Plane").  This is the explicit owner approval the HARD LAW
+# requires for gated-but-default-on code; the in-sim battery IS the review.
+# The six gates flipped together: O4_RUNWAY_END_RESA,
+# O4_ADJACENT_GROUND_END_PIN, O4_STRIP_WIDTH_FROM_CENTERLINE,
+# O4_POCKET_COLLAR_RINGS, O4_OLS_CUT, O4_ONE_SOLVE_TERRAIN_RUNWAY_END_RESA.
+# Set any env var to 0 to fall back — every arc was proven byte-identical
+# gate-off at its landing, so a single 0 isolates one arc cleanly.
+#
+# SEQUENCING NOTE, now moot but recorded: the recommended order was
+# A2 -> A3 -> A4 -> OLS precisely because A3 (the end pin) makes the
+# lateral wing terminate SQUARE at full depth, and without A2's cut
+# present that square face abuts un-cut rising terrain — a wall the old
+# diagonal collapse happened to avoid.  Flipping together satisfies it.
+RUNWAY_END_RESA_ENABLED = (
+    _os.environ.get("O4_RUNWAY_END_RESA", "1") == "1")
+
 # Adjacent-ground LATERAL grade law feature gate (slice 3, Fable
 # 2026-07-08; docs/adjacent_ground_grade_law_plan.md).  DEFAULT ON
 # (Noah directive 2026-07-08, flipped after the emitter round-2
@@ -3030,6 +3150,120 @@ ADJACENT_GROUND_UNGRADED_STRIP_MAX_UP_SLOPE = 0.05
 # in lockstep).
 ADJACENT_GROUND_DAYLIGHT_SLOPE_LIMIT = 2.0
 
+# END-SKIP BENCH PIN (arc A3, 2026-07-24).  The daylight limit above
+# benches a band's depth down toward any neighbour at depth 0 — and a
+# runway END-edge station is at depth 0 not because the terrain is lawful
+# there but because the march SKIPS it (``_RING_END_NORMAL_DOT``: the end
+# is skirt/RESA territory).  So the lateral wing collapses diagonally into
+# the end corner: measured SPJC 16R 2026-07-24, band #702's outer edge runs
+# from 75 m depth at 20 m before the corner to 3 m at the corner, and every
+# vertex sits exactly on ``2.0 x distance-back-from-corner`` — the clamp,
+# not the terrain (the DEM there is obstructed to the full cap).  With this
+# ON, the terminal station adjacent to an end-skip run is PINNED exactly as
+# a continuation seam is (``adjacent_ground_supported_depths``'s
+# ``at_continuation_seam``): it holds its raw scanned depth, the wing ends
+# square, and it clips/welds onto the end-regime surfaces.  Emitter and
+# validator march must set this identically (lockstep).
+ADJACENT_GROUND_END_PIN_ENABLED = (
+    _os.environ.get("O4_ADJACENT_GROUND_END_PIN", "1") == "1")
+
+# RUNWAY STRIP WIDTH MEASURED FROM THE CENTERLINE (arc A4, 2026-07-24).
+# ``RUNWAY_STRIP_HALF_WIDTH_BY_CODE`` is an Annex-14 half-width from the
+# runway CENTERLINE, but the adjacent-ground march applies it as a reach
+# from the pavement EDGE — and the emitted runway carries apt.dat shoulders
+# (SPJC 16R/34L: 45 m -> 81 m), so the band reaches 115.5 m from the
+# centerline where the strip is 75 m.  Both legacy passes clamped this
+# correctly (Pass A3 by distance-from-centerline, Pass B by subtracting the
+# half-width); the lateral law inherited neither.  With this ON, a
+# runway-family station's band width is clamped to
+# ``strip_half - dist(station, runway axis)``.  Default OFF pending the
+# SPJC/CYXY/SPLP A/B — it is a POLICY change (less earthwork), not a bug
+# fix, and it also REDUCES build time (fewer deep stations).
+STRIP_WIDTH_FROM_CENTERLINE_ENABLED = (
+    _os.environ.get("O4_STRIP_WIDTH_FROM_CENTERLINE", "1") == "1")
+
+# ── Obstacle limitation surfaces — terrain-penetration CUT law ──────
+# docs/specs/obstacle-limitation-surfaces-spec.md (Fable, 2026-07-24);
+# gap-audit GAP 1.  The ruled FOLLOW-ON of the adjacent-ground lateral
+# law: zone 3's ceiling comment above promises that "beyond it the OLS
+# transitional surface takes over" — these constants are that surface.
+#
+# An OLS is an OBSTACLE limitation surface: the codes forbid new
+# obstacles above it and require assessment of existing ones; they do
+# NOT mandate grading terrain down to it.  Cutting terrain to it is a
+# deliberate scenery-repair reinterpretation (exactly like the skirt) —
+# where a surface-model DEM pokes through the volume a real aerodrome
+# keeps clear, we cut it back.  That framing is why only TWO surfaces
+# are modelled (transitional + approach first section) and why
+# inner-horizontal / conical are REFUSED as cut surfaces: as cuts they
+# decapitate every hill within 4 km above +45 m, which at SPLP is a
+# mountain range.  See the spec's scope ruling.
+OLS_CUT_ENABLED = _os.environ.get("O4_OLS_CUT", "1") == "1"
+
+# Classic ICAO Annex 14 Vol I (8th ed) Table 4-1, adopted over FAA Part
+# 77 §77.19 (a NOTIFICATION surface set — weaker near-field: approach
+# 34:1 = 2.94 % vs ICAO 2 %) and over Amendment-18's ADG-keyed OFS/OES
+# (applicable 2028-11-26; the repo has no ADG plumbing — WATCH item in
+# docs/STANDARDS.md).  Keyed by the repo's own approach classes
+# (``runway_end_approach_class``): "visual" = non-instrument,
+# "non_precision" = NPA, "precision" = CAT I (apt.dat cannot tell
+# II/III apart, and their geometry is identical at code 3/4 for the
+# surfaces built here).
+OLS_TRANSITIONAL_SLOPE = 0.143          # 1:7 — every class except:
+OLS_TRANSITIONAL_SLOPE_STEEP = 0.20     # 1:5 — visual / NPA code 1-2
+# OLS strip half-width from the CENTERLINE (Annex 14 §3.4.3-3.4.4) —
+# the FULL strip the transitional surface rises from, NOT the graded
+# portion.  Non-instrument reuses RUNWAY_STRIP_HALF_WIDTH_BY_CODE
+# (30/40/75/75) — §3.4.4 and §3.4.9 give the same widths, so there is
+# no second copy to drift.
+OLS_STRIP_HALF_WIDTH_INSTRUMENT_BY_CODE = {
+    1: 70.0, 2: 70.0, 3: 140.0, 4: 140.0}
+
+# Approach surface, FIRST SECTION only (the rest is out of cut scope).
+OLS_APPROACH_SETBACK_M = 60.0                 # inner edge beyond the end
+OLS_APPROACH_SETBACK_VISUAL_CODE1_M = 30.0
+# Inner-edge HALF widths (m).  Full widths per Table 4-1: non-instrument
+# 60/80/150/150; NPA code 1/2 150; NPA code 3/4 and precision code 3/4
+# 300; precision code 1/2 150.  ICAO's 300 m is adopted over EASA
+# CS-ADR-DSN.H's 280 m for NPA 3/4 — wider is stricter for a cut law.
+OLS_APPROACH_INNER_EDGE_HALF_WIDTH_M = {
+    "visual":        {1: 30.0, 2: 40.0, 3: 75.0, 4: 75.0},
+    "non_precision": {1: 75.0, 2: 75.0, 3: 150.0, 4: 150.0},
+    "precision":     {1: 75.0, 2: 75.0, 3: 150.0, 4: 150.0},
+}
+OLS_APPROACH_DIVERGENCE = {
+    "visual": 0.10, "non_precision": 0.15, "precision": 0.15}
+# First-section slopes.  NOTE (primary re-verification 2026-07-24): NPA
+# code 3/4 is 2 %, the SAME as precision 3/4 — 3.33 % is NPA code 1/2.
+# docs/grade_law_gap_audit.md carried the compressed/incorrect form
+# until this arc corrected it.
+OLS_APPROACH_FIRST_SECTION_SLOPE = {
+    "visual":        {1: 0.05, 2: 0.04, 3: 0.0333, 4: 0.025},
+    "non_precision": {1: 0.0333, 2: 0.0333, 3: 0.02, 4: 0.02},
+    "precision":     {1: 0.025, 2: 0.025, 3: 0.02, 4: 0.02},
+}
+
+# EMISSION BOUNDS — design values bounding earthwork and the visual
+# blast radius, NOT regulatory lengths (the CLEARANCE_MAX_REACH_M
+# philosophy; documented as design choices in docs/STANDARDS.md).
+# Table 4-1's first section runs 3 000 m; that is a LAW length, not a
+# cut reach — beyond ~1 km the ceiling is already +20 m and any
+# DEM-artefact terrain has daylighted long since.
+OLS_TRANSITIONAL_EMIT_REACH_M = 300.0   # beyond the handover distance S.
+    # The 45 m inner-horizontal cap sits at ~315 m of 14.3 % rise, so
+    # within this reach the cap is unreachable — deliberately unmodelled.
+OLS_APPROACH_EMIT_REACH_M = 1000.0      # beyond the inner edge.
+# MOUNTAIN REFUSAL: a contiguous penetration island needing more than
+# this cut depth anywhere is refused WHOLE.  Shaving the fringe of a
+# real mountain while leaving its core sculpts a moat; the charter is
+# DEM-artefact repair (5-15 m lumps), not obstacle removal.
+OLS_MAX_CUT_DEPTH_M = 15.0
+# Cut trigger — terrain must exceed the ceiling by this much before any
+# cut is emitted.  Same value and meaning as
+# CLEARANCE_OBSTRUCTION_THRESHOLD_M, named separately so the OLS reach
+# can be retuned without touching the clearance passes.
+OLS_OBSTRUCTION_THRESHOLD_M = 1.0
+
 # GAP-FILL + DRAINAGE SPINE (user design ruling 2026-07-09,
 # docs/chain_identity_one_solve_plan.md): ground ENCLOSED between
 # pavements grades as ONE unit — boundary = the pavement chains
@@ -3059,6 +3293,39 @@ GAP_FILL_MIN_AREA_M2 = 100.0
 # drainage depth).  0 disables the pass entirely.
 GAP_FILL_INTERIOR_FLOOR_DEPTH_M = float(
     _os.environ.get("O4_GAP_FILL_INTERIOR_FLOOR_DEPTH_M", "2.5"))
+
+# INTERIOR FLOOR PASS — DISABLED BY OWNER RULING 2026-07-24.
+#
+#   "The adjacent ground law should enforce a gentle slope down from
+#    pavement; once we're past the grade law zones on a large infield, we
+#    want to blend back into DEM.  Let's disable trying to override the
+#    DEM once we're past the grade law zones for now."
+#
+# This RESTORES the round-8 interior-rings design, which already said
+# "Terrain INSIDE ring 2 stays open-floor (large infields lawfully follow
+# terrain)" (see GAP_FILL_INTERIOR_RINGS_ENABLED below).  The 2026-07-19
+# floor pass contradicted that: it is the ONLY thing in the subsystem that
+# overrides the DEM beyond the graded zones, and at SPJC it raised 172,810
+# of a 235,167 m2 pocket — 73 % of a 15-hectare infield — toward the
+# pavement law surface, standing ~3 m proud of the taxiways ringing it.
+#
+# What SURVIVES the ruling: the collar rings (ring 1 at the drainage lip,
+# ring 2 at the parent's graded band edge) still carry the per-zone
+# drainage law off the pocket's own pavement ring, so the "gentle slope
+# down from pavement" is unchanged.  Only the CORE INSIDE ring 2 reverts
+# to terrain.
+#
+# What it COSTS: the pass was added for HECA's surface-model pits (131
+# pockets, worst -13.88 m below the lip).  Those ride raw DEM again.  If
+# in-sim shows genuine artifact craters that matter, the answer is a
+# narrower re-enable — an ENCLOSURE test so only a real bounded depression
+# fills, rather than every square metre sitting below the law surface —
+# not simply flipping this back on.
+#
+# "for now" per the ruling: this is the reversible switch.  The depth
+# constant above is retained for the re-enable.
+GAP_FILL_INTERIOR_FLOOR_ENABLED = (
+    _os.environ.get("O4_GAP_FILL_INTERIOR_FLOOR", "0") == "1")
 
 # GAP INTERIOR RINGS (ratified design 2026-07-11, STATUS commit
 # dde6d3c; REVISED per Noah's in-sim round-8 ruling): a single mid-gap
@@ -3091,6 +3358,38 @@ GAP_FILL_INTERIOR_FLOOR_DEPTH_M = float(
 # gap_fill.emit_gap_fill_spines, the fail-loudly doctrine).
 GAP_FILL_INTERIOR_RINGS_ENABLED = (
     _os.environ.get("O4_GAP_FILL_INTERIOR_RINGS", "1") == "1")
+
+# POCKET COLLAR RINGS (arc B1, 2026-07-24).  The interior rings above are
+# built only inside ``_emit_one_gap``, so a pocket the spine emitter SKIPS
+# — wider than GAP_FILL_MAX_WIDTH_M — gets no drainage collar at all, and
+# the only thing that ever reached it was ``emit_gap_interior_floor``'s
+# flat pit clamp.  Measured SPJC 2026-07-24: a 235,167 m2 pocket (461 m
+# short dimension vs the 175 m gate) received a single FLAT 158,651 m2
+# patch at 16.1 m — 2.7-3.4 m ABOVE the taxiway junctions ringing it, on
+# an 8 m axis-aligned sample staircase, standing 0.50 m off the pavement
+# instead of welded to it.  Owner ruling 2026-07-24: a skipped pocket must
+# first get the SAME two closed collar rings (zone drainage law off its own
+# pavement ring), and only THEN a pit treatment for a genuine central drop.
+# With this ON, ring construction runs for width-skipped pockets too.
+# Foreign-shape / parent-straddle pockets stay excluded (they already carry
+# partial coverage by design).  Default OFF pending in-sim.
+POCKET_COLLAR_RINGS_ENABLED = (
+    _os.environ.get("O4_POCKET_COLLAR_RINGS", "1") == "1")
+
+# CONFORMANCE CUT-LAW CLAMP (2026-07-25).  The final epsilon-wedge weld
+# (``conformance.enforce_conformance(tol=0.01)``) values every T-vertex it
+# inserts by a plain lerp of the host edge's emitted altitudes.  On a
+# CUT-ONLY shape whose two host vertices are both ceiling-limited, that
+# lerp reproduces the analytic ceiling — which floats ABOVE the terrain
+# wherever the DEM dips between the hosts, breaking the shape's own
+# "cuts never fill" law (measured SPJC 2026-07-25: two inserted vertices
+# +2.12 / +2.22 m over the DEM envelope on the ``runway_end_resa``
+# daylight row; the emitter itself was lawful at n = 24, the weld took it
+# to n = 32).  With this ON, an insert into a cut-only receiver is bounded
+# by ``min(lerp, DEM)`` — the receiver's OWN law re-applied, not a foreign
+# claim.  Gate OFF ⇒ byte-identical to the pre-fix emit.
+CONFORMANCE_CUT_CLAMP_ENABLED = (
+    _os.environ.get("O4_CONFORMANCE_CUT_CLAMP", "1") == "1")
 
 # OPEN-FRONTAGE DRAINAGE SPINE (slice B pilot, user design ruling 3
 # 2026-07-09; docs/chain_identity_one_solve_plan.md §Slice B).  The
@@ -3140,6 +3439,44 @@ ONE_SOLVE_TERRAIN = (
     _os.environ.get("O4_ONE_SOLVE_TERRAIN", "1") == "1")
 ONE_SOLVE_TERRAIN_RUNWAY_END_SKIRT = (
     _os.environ.get("O4_ONE_SOLVE_TERRAIN_RUNWAY_END_SKIRT", "1") == "1")
+# RESA CUT admission (owner ruling 2026-07-24, arc R).  The owner's
+# framing: the runway-end envelope is LAW the solver should enforce —
+# "ensuring terrain within a given area relative to a runway is within an
+# envelope, doesn't rise too steeply, or sink too quickly" — rather than
+# geometry stamped after the fact.  The cut is the skirt's twin (one
+# ``grade_law.runway_end_envelope``, one anchor, one corridor; they differ
+# only in which bound they read).
+#
+# The measurement that settled it (instrumented CYXY build, gates at
+# defaults): the cut's anchor is NOT the immutable CIFP threshold, it is
+# the pavement-EXIT elevation — and that read MOVES after the pre-solve
+# emission slot.  212 anchor-class reads; the 106 numeric ones drifted
+# median 0.110 m / p90 0.150 m / max 0.164 m, with 88 of 106 over 0.05 m;
+# the other 106 returned None pre-solve and resolve to real solved values
+# post-solve.  The 0.15 m mode is the CROWN (the solve runs uncrowned and
+# writeback emits z = z' - c).  Overrun-pavement ends add ~0.4 m (KCLT
+# 18L); runway flex can add up to RUNWAY_FLEX_MAX_DISPLACEMENT_M.
+#
+# So a pre-solve stamp bakes a stale reference at essentially every
+# airport.  Admitting the cut B3-style (free variable + a ONE-SIDED
+# interval edge to its frozen-nearest anchor, writeback re-evaluated
+# against the solved crowned reference) tracks it by construction — and
+# makes the cut/fill twin-vertex disagreement at d = 0 UNREPRESENTABLE,
+# since a shared vertex resolves to one variable and one variable cannot
+# disagree with itself.
+#
+# Nothing floats: the encoding gives these nodes no force (no within-shape
+# grade rule, no fairing) and coupling is one-way host-authoritative, so a
+# terrain node can never pull pavement.  Same grade the adjacent-ground
+# bands already ride, default ON today.
+#
+# HARD DEPENDENCY: requires the skirt sub-gate above (the cut is emitted
+# inside the skirt emitter's pre-solve call) AND RUNWAY_END_RESA_ENABLED
+# (no cut, nothing to admit).  A partial gate set is a misconfiguration —
+# fail LOUDLY, per the GRADED_STRIP precedent below.  Default OFF; flips
+# together with O4_RUNWAY_END_RESA on one owner sign-off.
+ONE_SOLVE_TERRAIN_RUNWAY_END_RESA = (
+    _os.environ.get("O4_ONE_SOLVE_TERRAIN_RUNWAY_END_RESA", "1") == "1")
 ONE_SOLVE_TERRAIN_GAP_FILL_SPINE = (
     _os.environ.get("O4_ONE_SOLVE_TERRAIN_GAP_FILL_SPINE", "1") == "1")
 ONE_SOLVE_TERRAIN_GRADED_STRIP = (

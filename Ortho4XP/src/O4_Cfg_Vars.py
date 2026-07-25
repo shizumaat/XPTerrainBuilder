@@ -264,7 +264,7 @@ cfg_tile_vars = {
             "10": "10 m",
             "30": "30 m",
         },
-        "hint": 'Airport elevation detail level — the ground resolution in metres to which fetched airport elevation insets are warped and stored. "auto" (default) uses each provider\'s best available native resolution, never finer than 0.5 m. A numeric level pins the warp target instead: coarser levels store fewer bytes and warp faster (a 1 m inset stores roughly nine times the bytes of a 3 m one) at the cost of fine relief; finer levels only help where a provider actually publishes data that fine. Cached insets fetched at an earlier level are recycled as-is until refreshed.',
+        "hint": 'Airport elevation detail level — the ground resolution in metres to which fetched airport elevation insets are warped and stored. "auto" (default) uses each provider\'s best available native resolution, never finer than 0.5 m. A numeric level pins the warp target instead: coarser levels store fewer bytes and warp faster (a 1 m inset stores roughly nine times the bytes of a 3 m one) at the cost of fine relief. A level FINER than what a provider publishes is raised to that provider\'s native resolution — interpolating 30 m data onto a 3 m grid adds no detail while costing ~100x the disk — so a fine level only takes effect where a source genuinely offers it. Cached insets are recycled as-is until refreshed, except one stored finer than its source publishes, which is regenerated at native posting.',
     },
     "airport_elevation_inset_margin_m": {
         "type": float,

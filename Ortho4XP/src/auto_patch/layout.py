@@ -228,6 +228,17 @@ ROLE_SERVICE_JUNCTION = "service_junction"
 # carry no within-shape grade rule.
 ROLE_TAXIWAY_CLEARANCE = "taxiway_clearance"
 ROLE_RUNWAY_CLEARANCE = "runway_clearance"
+# The runway-END REGIME refs, both carried on ROLE_RUNWAY_CLEARANCE: the
+# down-slope skirt (FILL, terrain that drops away) and the RESA ramp (CUT,
+# terrain that rises).  ``grade_law.runway_end_envelope`` is the one law
+# with both bounds; ``clearance.emit_runway_end_skirts`` emits both off the
+# same anchor.  Every site that asks "is this shape runway-end territory?"
+# tests the SET — a literal "runway_end_skirt" comparison silently excludes
+# the cut half (arc A2, 2026-07-24).
+REF_RUNWAY_END_SKIRT = "runway_end_skirt"
+REF_RUNWAY_END_RESA = "runway_end_resa"
+RUNWAY_END_REGIME_REFS = frozenset((REF_RUNWAY_END_SKIRT,
+                                    REF_RUNWAY_END_RESA))
 # Adjacent-ground graded strip (adjacent_ground.py, gate
 # ADJACENT_GROUND_LAW_ENABLED): terrain-following node_altitudes polygons
 # emitted alongside pavement — the LATERAL generalization of the
@@ -235,6 +246,13 @@ ROLE_RUNWAY_CLEARANCE = "runway_clearance"
 # to the lawful corridor bound, so it carries NO within-shape pavement
 # grade rule (ROLE_GRADE_LIMITS None) and is NOT airside pavement.
 ROLE_GRADED_STRIP = "graded_strip"
+# Obstacle-limitation-surface CUT (ols.py, gate OLS_CUT_ENABLED;
+# docs/specs/obstacle-limitation-surfaces-spec.md).  Terrain cut down to
+# the OLS transitional / approach ceiling where the DEM penetrates it —
+# the same clearance-shadow class as the roles above: it traces a lawful
+# bound rather than carrying pavement, so ROLE_GRADE_LIMITS is None and
+# it is NOT airside pavement.  Cut-only; an OLS has no floor.
+ROLE_OLS_CUT = "ols_cut"
 
 # Weld-DONOR roles (user rulings 2026-07-09/2026-07-17): the pavement
 # families a SOFT terrain strip may ADOPT a coincident authority value
@@ -290,6 +308,7 @@ ROLE_TUNNEL_TRENCH = "tunnel_trench"
 SOFT_RECEIVER_ROLES = frozenset({
     ROLE_GRADED_STRIP, ROLE_RUNWAY_CLEARANCE,
     ROLE_TAXIWAY_CLEARANCE, ROLE_RETAINING_WALL, ROLE_BOUNDARY,
+    ROLE_OLS_CUT,
 })
 
 AEROWAY_FOR_ROLE = {
@@ -311,6 +330,7 @@ AEROWAY_FOR_ROLE = {
     ROLE_TAXIWAY_CLEARANCE: "aerodrome",
     ROLE_RUNWAY_CLEARANCE: "aerodrome",
     ROLE_GRADED_STRIP: "aerodrome",
+    ROLE_OLS_CUT: "aerodrome",
     # Bridge terrain plates (feature B, R12) override terrain like the
     # clearance / graded-strip features — no taxiable aeroway semantics.
     ROLE_BRIDGE_TRENCH: "aerodrome",
@@ -846,7 +866,7 @@ class PavementLayout:
             # node_id_to_skirt_alts above).
             current_shape_is_skirt[0] = (
                 s.role == ROLE_RUNWAY_CLEARANCE
-                and s.ref == "runway_end_skirt")
+                and s.ref in RUNWAY_END_REGIME_REFS)
             # Validate the polygon's geometry before emission.
             # Upstream pipeline stages (decomposition, seam-point
             # injection, shared-vertex enforcement) can occasionally

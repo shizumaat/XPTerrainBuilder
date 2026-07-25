@@ -80,6 +80,7 @@ import contextlib as _contextlib
 import os
 import json
 import glob
+import math
 import datetime
 import threading
 
@@ -5996,6 +5997,32 @@ def _fetched_bounding_box(lat, lon, icao, provider_code):
     return None
 
 
+# A cached inset counts as over-sampled only when its posting is
+# materially finer than native, so ordinary warp/rounding slack (a 30 m
+# source landing on a 29.95 m posting) never triggers a refetch.
+OVERSAMPLED_INSET_RATIO = 0.9
+
+
+def _cached_inset_oversamples(inset_path, definition):
+    """True when a cached inset is stored FINER than its source publishes.
+
+    Such a raster is interpolation, not detail (see
+    :func:`_inset_target_resolution_m`): it wastes disk and reports a
+    resolution the data does not have.  False whenever the question
+    cannot be answered — no GDAL, an unreadable header, or a provider
+    that declares no native resolution — so an undecidable cache keeps
+    the established leave-alone policy rather than refetching forever.
+    """
+    native_resolution_m = _definition_resolution_m(definition)
+    if not has_gdal or native_resolution_m is None or native_resolution_m <= 0:
+        return False
+    header = _inset_header_geometry(inset_path)
+    if header is None:
+        return False
+    stored_pixel_m = abs(header[0][5]) * GEO.lat_to_m
+    return stored_pixel_m < native_resolution_m * OVERSAMPLED_INSET_RATIO
+
+
 def _clear_poisoned_insets(lat, lon, index):
     """Delete EMPTY cached inset rasters — with their provenance sidecars
     and index records — so the fetch pass rebuilds what is still wanted.
@@ -6056,8 +6083,11 @@ def ensure_airport_insets(
     provenance sidecar are written.  ``target_resolution_m`` is the warp
     resolution in metres, or ``None`` for the "auto" airport elevation
     level: each provider then warps at its own best available native
-    resolution, floored at ``AIRPORT_INSET_MIN_TARGET_RESOLUTION_M``
-    (see :func:`_auto_inset_target_resolution_m`).  ``index.json`` records positives and
+    resolution, floored at ``AIRPORT_INSET_MIN_TARGET_RESOLUTION_M``.
+    Either way the per-provider target is never finer than what that
+    provider publishes (see :func:`_inset_target_resolution_m`), and a
+    cached inset that predates that clamp is regenerated
+    (:func:`_cached_inset_oversamples`).  ``index.json`` records positives and
     NEGATIVE (``no-coverage``) results so a rebuild never re-queries the
     discovery API; ``refresh`` forces a re-query and re-fetch.  A fetch
     that RAISES (:class:`TransientFetchError` or any strategy crash) is
@@ -6128,6 +6158,11 @@ def ensure_airport_insets(
                         bounding_box, fetched_box
                     )
                 )
+                stale_reason = (
+                    "covers a smaller area than the requested margin"
+                    if cached_inset_is_stale
+                    else None
+                )
                 if (not cached_inset_is_stale
                         and definition.get(SURFACE_MODEL_BUILDING_MASKING)
                         and _sidecar_residual_masking_mismatch(
@@ -6139,14 +6174,22 @@ def ensure_airport_insets(
                     # or it carries residual-masked pixels while the gate
                     # is off (the live-regression caches) — refetch once.
                     cached_inset_is_stale = True
-                    UI.vprint(
-                        1,
-                        "    Cached elevation inset for",
-                        icao,
-                        "from",
-                        code,
-                        "was built with a different residual-masking"
-                        " setting - refetching.",
+                    stale_reason = (
+                        "was built with a different residual-masking setting"
+                    )
+                if not cached_inset_is_stale and _cached_inset_oversamples(
+                    destination, definition
+                ):
+                    # One-time reconcile: the cached inset was warped FINER
+                    # than the provider publishes (an airport_elevation_level
+                    # pinned below native, before _inset_target_resolution_m
+                    # clamped it).  The interpolation carries no detail and
+                    # over-reports the source's resolution to the smoothing
+                    # radius, so regenerate it at native posting.
+                    cached_inset_is_stale = True
+                    stale_reason = (
+                        "was stored finer than this source publishes"
+                        " (interpolated detail)"
                     )
                 if not cached_inset_is_stale:
                     airport_record[code] = airport_record.get(code) or "ok"
@@ -6160,8 +6203,8 @@ def ensure_airport_insets(
                     icao,
                     "from",
                     code,
-                    "covers a smaller area than the requested margin"
-                    " - refetching.",
+                    stale_reason,
+                    "- refetching.",
                 )
             if (
                 not refresh
@@ -6209,10 +6252,8 @@ def ensure_airport_insets(
                     provenance = fetch_inset(
                         definition,
                         bounding_box,
-                        (
-                            target_resolution_m
-                            if target_resolution_m is not None
-                            else _auto_inset_target_resolution_m(definition)
+                        _inset_target_resolution_m(
+                            definition, target_resolution_m
                         ),
                         fetch_destination,
                         footprint_prefetch=footprint_prefetch,
@@ -7066,6 +7107,30 @@ def _auto_inset_target_resolution_m(definition):
     )
 
 
+def _inset_target_resolution_m(definition, target_resolution_m):
+    """The warp target for one provider, NEVER finer than its native grid.
+
+    ``target_resolution_m`` is the ``airport_elevation_level`` decision:
+    ``None`` for "auto" (each provider warps at its own best available
+    resolution) or a pinned figure in metres.  A pin FINER than what the
+    provider publishes is raised to native: resampling 30 m radar onto a
+    3 m grid manufactures no detail, it just spends the transfer, the
+    warp and ~100x the disk on interpolation -- and it lies to every
+    consumer that reads a cached inset's posting as its resolution (the
+    per-airport smoothing radius among them).  A pin COARSER than native
+    is honoured: that is a real, deliberate trade of detail for bytes.
+
+    A provider that declares no native resolution cannot be clamped, so
+    its pin is honoured as given.
+    """
+    if target_resolution_m is None:
+        return _auto_inset_target_resolution_m(definition)
+    native_resolution_m = _definition_resolution_m(definition)
+    if native_resolution_m is None or native_resolution_m <= 0:
+        return target_resolution_m
+    return max(float(target_resolution_m), float(native_resolution_m))
+
+
 def ensure_insets_for_tile(tile, dico_airports, refresh=False):
     """Fetch/refresh every airport inset on the tile (step-1 download hook)."""
     # How many inset fetches this build performed, mirrored into the tile
@@ -7416,15 +7481,25 @@ def _bake_one_inset(tile, inset_path, feather_m):
 #                          round(apt_smoothing_pix
 #                                * source_pixel_m / working_pixel_m))
 #
-# where source_pixel_m is the finest cached inset pixel when insets cover
-# at least INSET_COVERAGE_THRESHOLD of the airport's smoothing mask, else
-# the base source's TRUE pixel size capped at the working pixel.  The
-# base loader either reads a source at its native grid or UPSAMPLES
-# coarser data onto the working grid, so no base source is ever finer
-# than the working grid: the cap makes the base path's ratio exactly 1
-# and the radius exactly apt_smoothing_pix -- identical to today (goal
-# G3).  Consequences: 30 m-class base -> apt_smoothing_pix unchanged;
-# a 10 m source -> 3 pixels (of 8); 3 m inset -> 1; 1 m inset -> 0.
+# where source_pixel_m is the finest inset resolution that actually
+# COVERS at least INSET_COVERAGE_THRESHOLD of the airport's smoothing
+# mask (inset_coverage_of_airport_mask), else the base source's TRUE
+# pixel size capped at the working pixel.  The base loader either reads a
+# source at its native grid or UPSAMPLES coarser data onto the working
+# grid, so no base source is ever finer than the working grid: the cap
+# makes the base path's ratio exactly 1 and the radius exactly
+# apt_smoothing_pix -- identical to today (goal G3).  Consequences:
+# 30 m-class base -> apt_smoothing_pix unchanged; a 10 m source -> 3
+# pixels (of 8); 3 m inset -> 1; 1 m inset -> 0.
+#
+# "Resolution" here is the honest resolution of the DATA, never the
+# posting of the file (_honest_inset_resolution_m), and it must blanket
+# THIS mask rather than merely clip it.  Both corrections come from the
+# 2026-07-24 OTHH report: Copernicus GLO-30 is the only source in Qatar,
+# yet OTHH smoothed at radius 2 (31 m of blur over 30 m data, the
+# staircase left bare) because neighbouring OTBD's inset had been warped
+# onto a 3 m grid and its extent clipped a third of OTHH's mask.  Honest
+# resolution 30 m + a coverage gate per resolution restores radius 16.
 
 INSET_COVERAGE_THRESHOLD = 0.8
 
@@ -7464,11 +7539,28 @@ def smoothing_radius_pixels_for_source(
 def inset_coverage_of_airport_mask(tile, mask_geometry):
     """Coverage of an airport's smoothing mask by the cached insets.
 
-    Returns ``(coverage_fraction, finest_intersecting_inset_pixel_m)``.
+    Returns ``(coverage_fraction, finest_covering_inset_pixel_m)``.
     Coverage is judged by the insets' raster EXTENTS (rectangles in
     tile-relative degrees) -- interior nodata is not subtracted, which
     matches how the bake applies them (nodata cells fall back to base).
     ``(0.0, None)`` when no cached inset touches the mask.
+
+    The second element is the resolution the smoothing radius may assume
+    over THIS mask, and it is deliberately not the finest pixel of every
+    raster that merely clips the mask.  Two corrections apply:
+
+    * Each inset is judged at its HONEST resolution
+      (:func:`_honest_inset_resolution_m`) -- a 30 m source stored on a
+      3 m grid carries 30 m of information and is treated as 30 m.
+    * A resolution only counts when insets at least that fine actually
+      COVER ``INSET_COVERAGE_THRESHOLD`` of the mask.  Airport bounding
+      boxes overlap generously (``airport_elevation_inset_margin_m`` is
+      2 km), so a neighbour's finer inset routinely clips a corner of
+      this airport's mask; letting that set the radius smooths this
+      airport as if it had detail it does not have.  Candidates are
+      tested finest-first and CUMULATIVELY (every inset at least that
+      fine), so genuinely mixed coverage still resolves to the finest
+      resolution that blankets the mask.
     """
     if (
         not has_gdal
@@ -7488,7 +7580,7 @@ def inset_coverage_of_airport_mask(tile, mask_geometry):
         tile.lat, tile.lon, provider_codes=codes or None
     )
     boxes = []
-    finest_pixel_m = None
+    resolved_boxes = []
     for inset_path in inset_paths:
         try:
             dataset = gdal.Open(inset_path)
@@ -7507,18 +7599,88 @@ def inset_coverage_of_airport_mask(tile, mask_geometry):
         if not extent_box.intersects(mask_geometry):
             continue
         boxes.append(extent_box)
-        pixel_m = abs(geotransform[5]) * GEO.lat_to_m
-        finest_pixel_m = (
-            pixel_m
-            if finest_pixel_m is None
-            else min(finest_pixel_m, pixel_m)
+        stored_pixel_m = abs(geotransform[5]) * GEO.lat_to_m
+        resolved_boxes.append(
+            (
+                _honest_inset_resolution_m(inset_path, stored_pixel_m),
+                extent_box,
+            )
         )
     if not boxes:
         return (0.0, None)
+    mask_area = mask_geometry.area
     covered_area = (
         shapely_ops.unary_union(boxes).intersection(mask_geometry).area
     )
-    return (covered_area / mask_geometry.area, finest_pixel_m)
+    # Finest-first, cumulative: the coarsest candidate is the union of
+    # everything, so this terminates on the same total coverage the
+    # caller's gate sees (None only when even that falls short).
+    finest_pixel_m = None
+    for candidate_pixel_m in sorted({res for (res, _) in resolved_boxes}):
+        at_least_this_fine = [
+            box for (res, box) in resolved_boxes if res <= candidate_pixel_m
+        ]
+        candidate_coverage = (
+            shapely_ops.unary_union(at_least_this_fine)
+            .intersection(mask_geometry)
+            .area
+            / mask_area
+        )
+        if candidate_coverage >= INSET_COVERAGE_THRESHOLD:
+            finest_pixel_m = candidate_pixel_m
+            break
+    return (covered_area / mask_area, finest_pixel_m)
+
+
+def _inset_provider_code_from_path(inset_path):
+    """The provider code encoded in a cached inset file name, lower-cased.
+
+    The mirror of :func:`_inset_icao_from_path` over ``<airport>_<code>``
+    stems; ``""`` when the name carries no code.
+    """
+    stem = os.path.splitext(os.path.basename(inset_path))[0]
+    return stem.rsplit("_", 1)[1].lower() if "_" in stem else ""
+
+
+def _honest_inset_resolution_m(inset_path, stored_pixel_m=None):
+    """The resolution a cached inset's data ACTUALLY carries, in metres.
+
+    A warp can only ever store data on a grid; it cannot add information.
+    An inset written at a posting FINER than its provider's native
+    resolution -- an ``airport_elevation_level`` pinned below native
+    before :func:`_inset_target_resolution_m` clamped it, or a cache from
+    that era -- therefore still carries native-resolution detail, and the
+    honest figure is the COARSER of the two.  A warp to a coarser posting
+    is real coarsening, so the stored pixel wins there.
+
+    The native resolution comes from the provenance sidecar, else from
+    the provider definition named in the file name.  When neither knows
+    (a hand-dropped raster), the stored pixel is taken at face value.
+    """
+    if stored_pixel_m is None:
+        header = _inset_header_geometry(inset_path)
+        if header is None:
+            return None
+        stored_pixel_m = abs(header[0][5]) * GEO.lat_to_m
+    native_resolution_m = None
+    try:
+        with open(os.path.splitext(inset_path)[0] + ".json", "r") as handle:
+            native_resolution_m = _parse_float(
+                json.load(handle).get("native_resolution_m")
+            )
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    if native_resolution_m is None:
+        # Sidecar-less relics still resolve: the file name names the
+        # provider, and the definition declares what it publishes.
+        definition = elevation_providers_dict.get(
+            _inset_provider_code_from_path(inset_path).upper()
+        )
+        if definition:
+            native_resolution_m = _definition_resolution_m(definition)
+    if native_resolution_m is None or native_resolution_m <= 0:
+        return stored_pixel_m
+    return max(stored_pixel_m, native_resolution_m)
 
 
 def resolve_airport_smoothing_radius(
@@ -7529,7 +7691,10 @@ def resolve_airport_smoothing_radius(
 
     Returns ``(radius_pixels, source_pixel_m, coverage_fraction)``; the
     last two are ``None`` whenever the LEGACY fixed radius applies (so a
-    caller can log only the automatic decisions).  Precedence:
+    caller can log only the automatic decisions).  ``source_pixel_m`` is
+    the honest resolution of inset data that blankets THIS airport's mask
+    -- a neighbour's finer inset clipping the mask does not qualify (see
+    :func:`inset_coverage_of_airport_mask`).  Precedence:
 
     1. The per-airport ``smoothing_pix`` apt.dat/config override always
        wins (unchanged from the historic behaviour).  An unparseable
@@ -7605,6 +7770,14 @@ def resolve_airport_smoothing_radius(
 # (factor f => spacing 1/f arc-second => (n-1)*f + 1 samples).  The
 # candidate set is the coarsest-first {1/2, 1/3} arc-second of the spec.
 WORKING_GRID_CANDIDATE_FACTORS = (2, 3)
+
+# An inset counts as BASE-CLASS -- carrying nothing the 1 arc-second base
+# grid could not already hold -- when its honest resolution is no more
+# than marginally finer than the base posting.  Copernicus GLO-30 (30 m)
+# against a ~30.87 m base posting is base-class; a 10 m or 1 m lidar inset
+# is not.  The margin absorbs the grid/source mismatch (30 vs 30.87) that
+# would otherwise read as "finer".
+BASE_CLASS_INSET_RATIO = 0.9
 
 # Worst-probe ideal-bake tolerance for the automatic grid decision.
 # Deliberately tighter than the +/-1.5 m mesh acceptance so the modelled
@@ -7778,7 +7951,7 @@ def _bilinear_sample_raster(array, geotransform, longitudes, latitudes):
 
 
 def _windowed_bilinear_samples(
-    band, geotransform, rows, columns, longitudes, latitudes
+    band, geotransform, rows, columns, longitudes, latitudes, nodata=None
 ):
     """Bilinear samples of a few NEARBY points via one windowed read.
 
@@ -7789,6 +7962,14 @@ def _windowed_bilinear_samples(
     dozen pixels instead of a whole native-resolution inset.  Bit-identical
     to sampling a full decode.  The points must be near one another (the
     window spans their joint bounding box).
+
+    ``nodata`` makes the sample NODATA-AWARE: a point any of whose four
+    bilinear corners is a nodata sentinel returns NaN rather than a blend
+    of real metres with the sentinel.  Insets routinely cover only part of
+    their airport box (a 3DEP fetch over a rural strip came back 96.4%
+    nodata), and blending -32768 with ~256 m produced "elevation errors"
+    of 21848 m in the working-grid decision -- see the 2026-07-24 KCLT
+    report.  Omitted, the behaviour is the raw historic blend.
     """
     west = geotransform[0]
     north = geotransform[3]
@@ -7814,12 +7995,21 @@ def _windowed_bilinear_samples(
     top_right = window[window_row, window_column + 1]
     bottom_left = window[window_row + 1, window_column]
     bottom_right = window[window_row + 1, window_column + 1]
-    return (
+    samples = (
         top_left * (1 - tx) * (1 - ty)
         + top_right * tx * (1 - ty)
         + bottom_left * (1 - tx) * ty
         + bottom_right * tx * ty
     )
+    if nodata is not None:
+        contaminated = (
+            (top_left == nodata)
+            | (top_right == nodata)
+            | (bottom_left == nodata)
+            | (bottom_right == nodata)
+        )
+        samples = numpy.where(contaminated, numpy.nan, samples)
+    return samples
 
 
 # The generic probe derivation targets TERRAIN-SCALE relief -- engineered
@@ -8045,6 +8235,7 @@ def ideal_bake_errors_per_probe(inset_path, probes, factor, base_geometry):
         geotransform = dataset.GetGeoTransform()
         rows = dataset.RasterYSize
         columns = dataset.RasterXSize
+        nodata = band.GetNoDataValue()
     except Exception:
         return []
     (x0, x1, y0, y1, nxdem, nydem) = base_geometry
@@ -8087,7 +8278,17 @@ def ideal_bake_errors_per_probe(inset_path, probes, factor, base_geometry):
                 columns,
                 sample_longitudes,
                 sample_latitudes,
+                nodata=nodata,
             )
+            if not numpy.all(numpy.isfinite(values)):
+                # The probe or one of its surrounding working-grid nodes
+                # lands on a nodata hole: the inset carries no surface
+                # there for a bake to quantise, so this factor is simply
+                # NOT MEASURABLE at this probe.  NaN keeps the returned
+                # list aligned with ``probes`` (callers index into it) and
+                # is filtered where the errors are compared.
+                errors.append(float("nan"))
+                continue
             truth = float(values[0])
             top_left = float(values[1])
             top_right = float(values[2])
@@ -8113,10 +8314,19 @@ def ideal_bake_errors_per_probe(inset_path, probes, factor, base_geometry):
 
 
 def ideal_bake_error_at_probes(inset_path, probes, factor, base_geometry):
-    """Worst modelled .alt error over the probes (see per-probe variant)."""
-    errors = ideal_bake_errors_per_probe(
-        inset_path, probes, factor, base_geometry
-    )
+    """Worst MEASURABLE modelled .alt error over the probes.
+
+    Probes the model cannot evaluate (a nodata hole under the probe or its
+    working-grid neighbours -- NaN from the per-probe variant) are skipped:
+    ``0.0`` when nothing is measurable, matching the no-probe case.
+    """
+    errors = [
+        error
+        for error in ideal_bake_errors_per_probe(
+            inset_path, probes, factor, base_geometry
+        )
+        if not math.isnan(error)
+    ]
     return max(errors) if errors else 0.0
 
 
@@ -8174,6 +8384,46 @@ def resolve_working_grid_factor(tile, base_dem):
     return max(historic, level_factor)
 
 
+def _working_grid_candidate_factors(inset_paths, base_geometry):
+    """The densification factors to evaluate for a tile, coarsest first.
+
+    ``WORKING_GRID_CANDIDATE_FACTORS`` ({1/2, 1/3} arc-second) with ``1``
+    -- no densification -- PREPENDED when no cached inset on the tile
+    carries data finer than the base grid already holds
+    (:data:`BASE_CLASS_INSET_RATIO`).
+
+    The spec's candidate set floors at 1/2 arc-second because the feature
+    was designed around meter-class lidar insets: if you fetched one, the
+    airport has detail worth a denser grid.  The global 30 m radar
+    fallback rides the same path, and for a tile whose only insets are
+    that coarse there is nothing for densification to carry -- so "keep 1
+    arc-second" belongs on the ballot.  It still has to WIN on the same
+    ideal-bake measurement as every other candidate, so a base-class tile
+    whose relief genuinely needs a denser grid (Nyquist against a 30.87 m
+    posting costs 1-2 m on real 30 m terrain) still densifies.  A tile
+    with any finer inset never even offers the coarse option, so lidar
+    airports are untouched.
+    """
+    if not inset_paths:
+        return WORKING_GRID_CANDIDATE_FACTORS
+    (_x0, _x1, y0, y1, _nxdem, nydem) = base_geometry
+    if nydem < 2:
+        return WORKING_GRID_CANDIDATE_FACTORS
+    base_pixel_m = abs(y1 - y0) / (nydem - 1) * GEO.lat_to_m
+    finest_m = None
+    for inset_path in inset_paths:
+        resolution_m = _honest_inset_resolution_m(inset_path)
+        if resolution_m is None:
+            # An unreadable inset cannot be vouched for as base-class.
+            return WORKING_GRID_CANDIDATE_FACTORS
+        finest_m = (
+            resolution_m if finest_m is None else min(finest_m, resolution_m)
+        )
+    if finest_m is None or finest_m < base_pixel_m * BASE_CLASS_INSET_RATIO:
+        return WORKING_GRID_CANDIDATE_FACTORS
+    return (1,) + tuple(WORKING_GRID_CANDIDATE_FACTORS)
+
+
 def _historic_working_grid_factor(tile, base_dem):
     """The pre-elevation-level working-grid decision (1, 2 or 3).
 
@@ -8186,7 +8436,10 @@ def _historic_working_grid_factor(tile, base_dem):
     mode with insets present it evaluates the ideal-bake error over every
     cached inset's acceptance probes and returns the COARSEST candidate
     factor whose worst error is within WORKING_GRID_IDEAL_TOLERANCE_M,
-    falling back to the finest candidate if none qualifies.
+    falling back to the finest candidate if none qualifies.  The candidate
+    set includes ``1`` when no inset is finer than the base grid (see
+    :func:`_working_grid_candidate_factors`), so a tile carrying only the
+    30 m global fallback can decline densification on measurement.
     """
     if not insets_enabled_for_tile(tile):
         return 1
@@ -8260,11 +8513,12 @@ def _historic_working_grid_factor(tile, base_dem):
     # all_probes exactly as a factor-major loop would produce them.  The
     # error model reads only small pixel windows around each probe, so no
     # full inset decode happens in this loop.
-    errors_by_factor = {
-        factor: [] for factor in WORKING_GRID_CANDIDATE_FACTORS
-    }
+    candidate_factors = _working_grid_candidate_factors(
+        inset_paths, base_geometry
+    )
+    errors_by_factor = {factor: [] for factor in candidate_factors}
     for (inset_path, probes) in _group_probes_by_inset(all_probes):
-        for factor in WORKING_GRID_CANDIDATE_FACTORS:
+        for factor in candidate_factors:
             errors_by_factor[factor].extend(
                 ideal_bake_errors_per_probe(
                     inset_path, probes, factor, base_geometry
@@ -8273,19 +8527,37 @@ def _historic_working_grid_factor(tile, base_dem):
     _release_inset_array_memo()
     finest_errors = errors_by_factor[finest_factor]
     seeded_flags = [is_seeded for (_, _, is_seeded) in all_probes]
+    # A NaN finest-factor error is a probe the model cannot evaluate at all
+    # (nodata under it or its working-grid neighbours); it carries no
+    # requirement, so it is not actionable.
     actionable = [
-        seeded or (finest_error <= tolerance)
+        seeded or (not math.isnan(finest_error)
+                   and finest_error <= tolerance)
         for (seeded, finest_error) in zip(seeded_flags, finest_errors)
     ]
     if not any(actionable):
         return finest_factor
-    for factor in WORKING_GRID_CANDIDATE_FACTORS:  # coarsest first
-        worst = max(
+    for factor in candidate_factors:  # coarsest first
+        # NaN again means "no evidence about this factor from this probe"
+        # rather than a failure: a nodata hole has no inset surface for the
+        # grid to lose, and the bake falls back to base there.
+        measurable = [
             error
             for (error, keep) in zip(errors_by_factor[factor], actionable)
-            if keep
-        )
+            if keep and not math.isnan(error)
+        ]
+        worst = max(measurable) if measurable else 0.0
         if worst <= tolerance:
+            if factor == 1:
+                UI.vprint(
+                    1,
+                    "   Airport elevation insets: working grid kept at 1"
+                    " arc-second (no cached inset is finer than the base"
+                    " grid; worst actionable ideal-bake error "
+                    + str(round(worst, 3))
+                    + " m).",
+                )
+                return factor
             UI.vprint(
                 1,
                 "   Airport elevation insets: working grid densified to 1/"

@@ -10,10 +10,11 @@ X-Plane ``library.txt`` virtual→physical map) and parse ourselves.
 This module owns that work, kept independent of the DSF reader so it is
 unit-testable in isolation:
 
-  1. ``get_library_index(xplane_root)`` — build (once, memoized) the
-     ``library.txt`` ``EXPORT`` table mapping a virtual library path
-     (e.g. ``lib/airport/Common_Elements/Hangars/Lg_Maint_Gray.agp``)
-     to the absolute path of the physical resource on disk.
+  1. ``get_library_index(xplane_root)`` — build (once, memoized
+     in-process AND on disk) the ``library.txt`` ``EXPORT`` table
+     mapping a virtual library path (e.g.
+     ``lib/airport/Common_Elements/Hangars/Lg_Maint_Gray.agp``) to the
+     absolute path of the physical resource on disk.
   2. ``parse_agp(path)`` — read (once, memoized) an ``.agp`` file and
      return its footprint as a polygon in LOCAL METERS relative to the
      placement anchor, before any placement heading is applied.
@@ -32,6 +33,7 @@ from __future__ import annotations
 
 import math
 import os
+import threading
 from collections import namedtuple
 
 
@@ -46,8 +48,17 @@ AgpFootprint = namedtuple("AgpFootprint", ["local_poly", "rotation"])
 # Memoized library index, keyed by absolute xplane_root.  Built once per
 # process and shared by every airport / caller — scanning the thousands
 # of library.txt EXPORT entries is the one genuinely expensive disk step
-# and must not repeat per-airport.
+# and must not repeat per-airport.  Across processes the merged index is
+# served from a disk sidecar instead (see ``_library_index_sidecar``);
+# this in-process memo stays keyed on the root ALONE so the millions of
+# ``resolve_library_path`` lookups a build makes never pay a stat.
 _LIB_INDEX_CACHE: dict[str, dict[str, str]] = {}
+
+# One lock per absolute xplane_root: concurrent threads that miss the
+# memo would otherwise each re-parse every library.txt (the object
+# readers' per-DSF lock precedent, commit a4133d8).
+_LIB_INDEX_LOCKS: dict[str, threading.Lock] = {}
+_LIB_INDEX_LOCKS_GUARD = threading.Lock()
 
 # Memoized .agp parse results, keyed by absolute physical path.  An .agp
 # referenced by many placements / many airports is read and parsed from
@@ -139,35 +150,252 @@ def _parse_library_txt(lib_path: str, index: dict[str, str]) -> None:
         index.setdefault(virtual.lower(), phys_abs)
 
 
+def _library_source_files(xplane_root: str) -> list[str]:
+    """Every ``library.txt`` this install contributes, in the order
+    :func:`get_library_index` merges them — LOWEST library priority
+    first, so a later parse overwrites an earlier one.
+
+    Default scenery leads (custom packs override it), then the custom
+    packs in reverse ``scenery_packs.ini`` order.  Discovery is cheap
+    (a listdir per root plus one ``isfile`` per candidate); PARSING the
+    files is what costs, so this list doubles as the exact input set the
+    disk cache fingerprints."""
+    sources: list[str] = []
+    default_root = os.path.join(xplane_root, "Resources", "default scenery")
+    if os.path.isdir(default_root):
+        for entry in sorted(os.listdir(default_root)):
+            cand = os.path.join(default_root, entry, "library.txt")
+            if os.path.isfile(cand):
+                sources.append(cand)
+    custom_root = os.path.join(xplane_root, "Custom Scenery")
+    for pack in _scenery_pack_order(xplane_root):
+        cand = os.path.join(custom_root, pack, "library.txt")
+        if os.path.isfile(cand):
+            sources.append(cand)
+    return sources
+
+
+# ── persistent (cross-process) merged-index cache ────────────────────
+#
+# Building the merged index means parsing EVERY library.txt of the
+# install: 337 files / ~135 k EXPORT entries / ~0.57 s on the reference
+# X-Plane 12 install (measured 2026-07-24).  The in-process memo above
+# pays that once per PROCESS — but a per-airport auto_patch build is a
+# fresh process, so every cold build paid it again, against a 60 s
+# per-airport budget whose 1 % tripwire is 0.6 s (CLAUDE.md item 6).
+# The merged dict is a pure function of the library.txt files consulted,
+# so it is cached to a sidecar keyed on an EXACT fingerprint of those
+# inputs and re-served in ~15 ms.
+#
+# Bump when the parse changes shape in a way that would make an old
+# cached index wrong (e.g. a new EXPORT directive, a different key
+# scheme) — invalidates every sidecar.
+_LIB_INDEX_CACHE_VERSION = 1
+
+# Sidecar name prefix; the full name carries a digest of the absolute
+# xplane_root so two installs never collide.  Lives beside the object
+# readers' per-pack sidecars under the data root's ``Airport_mod_cache/``
+# (user ruling 2026-07-15: Ortho4XP caches never clutter scenery packs);
+# this one is install-wide, not pack-scoped, so it sits at that root.
+_LIB_INDEX_SIDECAR_PREFIX = "o4_library_index"
+
+
+def _vprint(message: str) -> None:
+    """Verbosity-1 progress line, best effort — this module stays
+    importable (and unit-testable) without the Ortho4XP UI module on
+    ``sys.path``."""
+    try:
+        import O4_UI_Utils as UI
+    except ImportError:
+        return
+    UI.vprint(1, message)
+
+
+def _library_index_lock(key: str) -> threading.Lock:
+    """One lock per absolute ``xplane_root``."""
+    with _LIB_INDEX_LOCKS_GUARD:
+        lock = _LIB_INDEX_LOCKS.get(key)
+        if lock is None:
+            lock = _LIB_INDEX_LOCKS[key] = threading.Lock()
+    return lock
+
+
+def _library_index_sidecar(
+    xplane_root: str,
+    sources: list[str],
+) -> tuple[str | None, str | None]:
+    """Sidecar path + input fingerprint for the merged library index.
+
+    The fingerprint (sha1, same style as the object readers' pack
+    sidecars) covers, and therefore invalidates on ANY change to:
+
+    * :data:`_LIB_INDEX_CACHE_VERSION` and the absolute ``xplane_root``;
+    * ``Custom Scenery/scenery_packs.ini`` — its (size, mtime), or an
+      explicit "absent" marker.  The ini decides pack PRIORITY, and a
+      reorder that changes nothing else still changes who wins a virtual
+      path;
+    * the ordered list of every ``library.txt`` consulted, each as
+      ``(path, size, mtime)``.  Mtimes are taken in NANOSECONDS: a file
+      rewritten within the same microsecond as its predecessor and to
+      the same length must still miss.  The ORDER is digested too (it
+      is the merge order), so a reprioritised ini invalidates even in
+      the impossible case where its own stat is unchanged.  A pack
+      added or removed, or a library.txt created, deleted or edited,
+      changes this list — there is no path by which the merged dict can
+      differ while the fingerprint matches.
+
+    Returns ``(None, None)`` — no read, no write, exactly the
+    pre-cache behaviour — when ``O4_LIBRARY_INDEX_CACHE=0``, when no
+    Ortho4XP data root is resolvable (this module is importable without
+    the rest of the app), or when a stat fails mid-fingerprint."""
+    if os.environ.get("O4_LIBRARY_INDEX_CACHE", "1") != "1":
+        return None, None
+    try:
+        import O4_File_Names as _FNAMES
+    except ImportError:
+        return None, None
+
+    import hashlib
+    root_abs = os.path.abspath(xplane_root)
+    digest = hashlib.sha1()
+    try:
+        digest.update(f"{_LIB_INDEX_CACHE_VERSION}:{root_abs}".encode())
+        ini = os.path.join(xplane_root, "Custom Scenery",
+                           "scenery_packs.ini")
+        try:
+            ini_stat = os.stat(ini)
+            digest.update(
+                f"|ini:{ini_stat.st_size}:{ini_stat.st_mtime_ns}".encode())
+        except OSError:
+            digest.update(b"|ini:absent")
+        for source in sources:
+            source_stat = os.stat(source)
+            digest.update(
+                f"|lib:{source}:{source_stat.st_size}"
+                f":{source_stat.st_mtime_ns}".encode())
+    except OSError:
+        return None, None
+
+    # ``data_path`` follows the current working directory in a source
+    # checkout — resolve it at call time, never at import time.
+    cache_directory = _FNAMES.data_path("Airport_mod_cache")
+    root_key = hashlib.sha1(root_abs.encode()).hexdigest()[:16]
+    return (
+        os.path.join(cache_directory,
+                     f"{_LIB_INDEX_SIDECAR_PREFIX}_{root_key}.cache"),
+        digest.hexdigest(),
+    )
+
+
+def _read_library_index_sidecar(
+    sidecar_path: str | None,
+    fingerprint: str | None,
+) -> dict[str, str] | None:
+    """Load the merged index from its sidecar on a fingerprint match,
+    else ``None`` (missing, stale, corrupt or unreadable — the caller
+    rebuilds and rewrites)."""
+    import pickle
+    if not (sidecar_path and fingerprint and os.path.isfile(sidecar_path)):
+        return None
+    try:
+        with open(sidecar_path, "rb") as sidecar_file:
+            payload = pickle.load(sidecar_file)
+        if payload.get("fingerprint") != fingerprint:
+            _vprint("   [library] index sidecar cache STALE (X-Plane "
+                    "libraries changed since it was written) - rebuilding")
+            return None
+        index = payload["index"]
+        if not isinstance(index, dict):
+            return None
+        _vprint("   [library] index read from the sidecar cache "
+                f"(fingerprint match, {len(index)} entries)")
+        return index
+    except Exception:
+        return None
+
+
+def _write_library_index_sidecar(
+    sidecar_path: str | None,
+    fingerprint: str | None,
+    index: dict[str, str],
+) -> None:
+    """Persist the merged index for the next cold build of this
+    unchanged install.
+
+    Written to a unique temp file in the cache directory and moved into
+    place with ``os.replace`` (the ``apt_dat_reader`` persistence
+    pattern): concurrent auto_patch PROCESSES may build the same index
+    at the same time, and an atomic rename is what makes every reader
+    see either the old file or a complete new one, never a torn write.
+    A write failure must never break a build (read-only volume, out of
+    space) — swallow it and let the next run rebuild.  An EMPTY index is
+    not persisted: it means no ``library.txt`` was found at all (a bogus
+    or not-yet-installed root), and rebuilding nothing is free."""
+    if not (sidecar_path and fingerprint and index):
+        return
+    import pickle
+    import tempfile
+    cache_directory = os.path.dirname(sidecar_path)
+    temporary_path = None
+    try:
+        os.makedirs(cache_directory, exist_ok=True)
+        handle_fd, temporary_path = tempfile.mkstemp(
+            dir=cache_directory, prefix=".o4_library_index_", suffix=".tmp")
+        with os.fdopen(handle_fd, "wb") as sidecar_file:
+            pickle.dump({"fingerprint": fingerprint, "index": index},
+                        sidecar_file, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(temporary_path, sidecar_path)
+        temporary_path = None
+        _vprint("   [library] index written to the sidecar cache "
+                f"({os.path.basename(sidecar_path)})")
+    except Exception:
+        pass
+    finally:
+        if temporary_path is not None:
+            try:
+                os.unlink(temporary_path)
+            except OSError:
+                pass
+
+
 def get_library_index(xplane_root: str) -> dict[str, str]:
     """Return the memoized virtual→physical ``library.txt`` map for an
     X-Plane install.  Built once per ``xplane_root`` and shared across
-    all callers in the process."""
+    all callers in the process.
+
+    On a memo miss the merged index comes from the disk sidecar when its
+    fingerprint still matches the install's ``library.txt`` set (see
+    :func:`_library_index_sidecar`), so a cold build re-serves it in
+    milliseconds instead of re-parsing every ``library.txt``; on any
+    mismatch it is rebuilt from the files and rewritten.
+    ``O4_LIBRARY_INDEX_CACHE=0`` disables the sidecar entirely (no read,
+    no write)."""
     key = os.path.abspath(xplane_root)
     cached = _LIB_INDEX_CACHE.get(key)
     if cached is not None:
         return cached
 
-    index: dict[str, str] = {}
-    # Default scenery first (lowest priority — custom packs override it).
-    default_root = os.path.join(xplane_root, "Resources", "default scenery")
-    default_libs: list[str] = []
-    if os.path.isdir(default_root):
-        for entry in sorted(os.listdir(default_root)):
-            cand = os.path.join(default_root, entry, "library.txt")
-            if os.path.isfile(cand):
-                default_libs.append(cand)
-    for lib in default_libs:
-        _parse_library_txt(lib, index)
-    # Custom packs, lowest priority first so highest wins on overwrite.
-    custom_root = os.path.join(xplane_root, "Custom Scenery")
-    for pack in _scenery_pack_order(xplane_root):
-        cand = os.path.join(custom_root, pack, "library.txt")
-        if os.path.isfile(cand):
-            _parse_library_txt(cand, index)
+    # Concurrent threads that miss the memo wait for the first build
+    # rather than each parsing all 337 library.txt files.
+    with _library_index_lock(key):
+        cached = _LIB_INDEX_CACHE.get(key)
+        if cached is not None:
+            return cached
 
-    _LIB_INDEX_CACHE[key] = index
-    return index
+        sources = _library_source_files(xplane_root)
+        sidecar_path, fingerprint = _library_index_sidecar(
+            xplane_root, sources)
+        index = _read_library_index_sidecar(sidecar_path, fingerprint)
+        if index is None:
+            index = {}
+            # Lowest priority first, so a higher-priority EXPORT of the
+            # same virtual path overwrites it.
+            for source in sources:
+                _parse_library_txt(source, index)
+            _write_library_index_sidecar(sidecar_path, fingerprint, index)
+
+        _LIB_INDEX_CACHE[key] = index
+        return index
 
 
 def resolve_library_path(virtual_path: str,

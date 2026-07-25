@@ -55,6 +55,32 @@ The runway profile is built and re-checked by:
 - `runway_redistribute.py` — re-runs the FAA gates after seams / tile cuts so the combined
   multi-segment profile stays compliant.
 
+### Tile seam = another runway-grading anchor (owner ruling 2026-07-24)
+
+> "We are not giving up the CIFP thresholds, it's just that a tile seam acts like a
+> crossing runway, it's ANOTHER anchor that is part of the runway grading. The tile
+> seam at ALL points must be anchored at DEM."
+
+Every non-runway role takes the seam DEM directly at its own vertex. A runway cannot: it
+also carries CIFP threshold elevations and the grade / vertical-curve law above, and it is
+laterally FLAT — so its seam contact (a whole LINE across the runway's width; 148 m of it
+where SPLP's RW02/20 meets lon −77 at 18°) reaches the surface through the runway's one
+degree of freedom, its longitudinal profile. The seam therefore enters the profile solve
+as additional HARD anchored samples, exactly like a crossing-runway anchor.
+
+| Rule | Value | Standard | Implemented in |
+|------|-------|----------|----------------|
+| Seam-contact anchor spacing (walk of the runway's contact with the tile line and with both cut-back lines) | 10 m | design (owner ruling 2026-07-24 "ALL points"; finer than the DEM posting costs nothing but reports resampling steps as conflicts) | `config.py` `RUNWAY_SEAM_CONTACT_STEP_M`, gate `RUNWAY_SEAM_CONTACT_ANCHORS` |
+| Cut-back offset — where `tile_cut` actually ends the pavement, and therefore where the seam DEM must be met | 5 m either side of the integer line | design (the ruling names "the nodes along a tile seam at the cutback") | `config.py` `TILE_CUT_HALF_WIDTH_M` (also the `tile_cut.cut_layout_at_tile_boundaries` `half_width_m` default — one source) |
+| Anchor admission | the two EXTREME contacts always; an interior contact only when both its neighbouring segments stay within `MAX_RUNWAY_GRADE` | the grade cap above is LAW and wins over a terrain match | `runway_redistribute._select_feasible_seam_anchors` |
+| Unreachable contacts | REPORTED, never midpointed — station, DEM value, grade demanded, and post-solve residual | owner ruling 2026-07-24 ("report … by how much they conflict") | `layout._runway_seam_law_conflicts` + `layout._runway_seam_audit`; one summary log line per runway |
+
+Cross-tile determinism: `redistribute_runway_profile` runs BEFORE `tile_cut`, so each tile
+build measures the contact on the WHOLE runway and generates the same three lines from the
+same fixed 5 m offset; the DEM at a tile line is the `preserve_boundary`-blended value both
+tiles share. Both builds therefore derive an identical anchor set — and an identical
+profile — without seeing each other.
+
 ## Aerodrome reference code
 
 | Rule | Value | Standard | Implemented in |

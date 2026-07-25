@@ -35,7 +35,9 @@ from .layout import (
     ROLE_APRON, ROLE_BUILDING, ROLE_SERVICE_ROAD, ROLE_TUNNEL_RAMP,
     ROLE_RETAINING_WALL, vertex_bucket,
 )
-from .config import TUNNEL_RAMP_MAX_GRADE, RUNWAY_SEAM_DEM_PIN
+from .config import (
+    TUNNEL_RAMP_MAX_GRADE, RUNWAY_SEAM_DEM_PIN, TILE_CUT_HALF_WIDTH_M,
+)
 
 
 # Taxi rects whose elevation slopes ALONG ``source_axis`` only — their
@@ -93,7 +95,7 @@ _SEAM_PIECE_ROLES = frozenset({
 
 def cut_layout_at_tile_boundaries(
         layout: PavementLayout,
-        half_width_m: float = 5.0,
+        half_width_m: float = TILE_CUT_HALF_WIDTH_M,
         min_piece_area_m2: float = 1.0,
         current_tile_lat: int | None = None,
         current_tile_lon: int | None = None,

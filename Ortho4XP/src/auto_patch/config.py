@@ -1678,6 +1678,55 @@ RUNWAY_SEAM_DEM_PIN = _os.environ.get("O4_RUNWAY_SEAM_PIN", "1") == "1"
 # stay in ``seam_anchors`` so that path is byte-identical to the old build.
 SEAM_PIN_RUNWAY_CLAMP = _os.environ.get("O4_SEAM_PIN_CLAMP", "0") == "1"
 
+# TILE-CUT HALF WIDTH.  ``tile_cut.cut_layout_at_tile_boundaries`` removes a
+# ``2 x TILE_CUT_HALF_WIDTH_M`` strip of pavement centred on each integer
+# lat/lon line, so the pavement's real END — the CUT-BACK edge the owner's
+# 2026-07-24 ruling names — sits this far either side of the seam.  Defined
+# here (not at the call site) because the runway seam-contact anchors in
+# ``runway_redistribute`` must sample the DEM on exactly those lines; a
+# second copy would silently un-anchor the cut-back the day either moved.
+TILE_CUT_HALF_WIDTH_M = 5.0
+
+# ── RUNWAY SEAM CONTACT ANCHORS (owner ruling 2026-07-24) ────────────────
+#   "This has never worked, trying to do anything other than DEM at the tile
+#    seam causes visual disaster in X-Plane.  We are not giving up the CIFP
+#    thresholds, it's just that a tile seam acts like a crossing runway, it's
+#    ANOTHER anchor that is part of the runway grading.  The tile seam at ALL
+#    points must be anchored at DEM."
+#
+# The runway arm of the seam-DEM rule.  Every OTHER role takes the DEM
+# directly at its seam vertex (``seam_anchors.apply_seam_dem_anchors`` /
+# ``tile_cut._terrain_pin_slice_nodes``).  A runway cannot: it also carries
+# CIFP threshold elevations and the FAA grade / vertical-curve law, and it is
+# laterally FLAT, so its seam contact — a whole LINE across the runway's width,
+# 148 m of it at SPLP's 18-degree oblique crossing — reaches the surface
+# through the one degree of freedom a runway has, its longitudinal profile.
+# The seam therefore enters ``runway_redistribute`` exactly the way a crossing
+# runway does: as additional HARD anchored samples in the profile solve, which
+# then reconciles CIFP thresholds + seam DEM + the FAA gates in ONE pass
+# (``solve_profile_with_minimal_end_zone_cap``) before the single solve.
+#
+# ``RUNWAY_SEAM_CONTACT_STEP_M`` is the spacing at which the runway's contact
+# with the seam LINE is sampled.  Cross-tile determinism: the contact is
+# measured on the WHOLE runway (redistribute runs BEFORE ``tile_cut``), the
+# step walk starts at the contact's first endpoint, and the DEM is the
+# ``preserve_boundary``-blended value at the tile line — so both tile builds
+# derive the identical station/elevation list without seeing each other.
+RUNWAY_SEAM_CONTACT_STEP_M = 10.0
+
+# Not every sampled contact point can be honoured: where the terrain across
+# the seam contact is itself steeper than a runway may be, anchoring all of
+# it would emit a law-violating (and visibly jagged) surface.  The accepted
+# set is chosen by a deterministic left-to-right sweep that ALWAYS keeps the
+# two extreme contacts (the runway's visible terrain contacts at the seam)
+# and admits an interior sample only when both of its neighbouring segments
+# stay within ``RUNWAY_MAX_GRADE``.  Rejected samples are REPORTED with their
+# residual — never silently midpointed.  ``O4_RUNWAY_SEAM_CONTACT=0`` reverts
+# to the pre-ruling behaviour (edge contacts filtered to the "hump" class,
+# i.e. only where the DEM pokes ABOVE the profile).
+RUNWAY_SEAM_CONTACT_ANCHORS = _os.environ.get(
+    "O4_RUNWAY_SEAM_CONTACT", "1") == "1"
+
 # RUNWAY DE-SEGMENTATION (user mandate 2026-07-07, docs/
 # runway_single_polygon_plan.md).  Segments are a hi/lo-era vestige: each
 # sub-rect was a 4-corner PLANE, so the curved FAA profile required cutting

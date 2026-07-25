@@ -63,7 +63,11 @@ import os
 from collections import defaultdict
 from typing import Dict, List, Tuple
 
-from .config import RUNWAY_END_FRACTION, RUNWAY_THRESHOLD_STRICT_M
+from .config import (
+    RUNWAY_END_FRACTION, RUNWAY_SEAM_CONTACT_ANCHORS,
+    RUNWAY_SEAM_CONTACT_STEP_M, RUNWAY_THRESHOLD_STRICT_M,
+    TILE_CUT_HALF_WIDTH_M,
+)
 from .layout import ROLE_RUNWAY, SHARED_VERTEX_TOL_M
 from .pavement.runway_segments import (
     MAX_RUNWAY_GRADE, MAX_RUNWAY_GRADE_CHANGE_PER_M, RUNWAY_END_GRADE,
@@ -339,25 +343,34 @@ def _find_edge_boundary_crossings(
         phys_end_b_ll: Tuple[float, float],
         dem,
         tile_lat: int,
-        tile_lon: int) -> List[Tuple[float, float]]:
-    """Sample DEM where the runway EDGES cross each integer lat/lon
-    line — two anchors per boundary crossing instead of the single
-    centerline sample (user 2026-07-04, SPLP west edge).
+        tile_lon: int,
+        step_m: float = 0.0,
+        cutback_m: float = 0.0) -> List[Tuple[float, float]]:
+    """Sample DEM along the runway's CONTACT with each integer lat/lon
+    line (user 2026-07-04, SPLP west edge; densified by the owner ruling
+    2026-07-24).
 
     The tile cut leaves a ~10 m unpaved strip at the boundary whose
     mesh spans the two patch edges — so the runway's VISIBLE terrain
-    contacts at a seam are the points where its edges meet the line,
+    contacts at a seam are the points where its SURFACE meets the line,
     not the centerline midpoint.  At SPLP's 18° oblique crossing the
     edges meet the line ~141 m of station apart, and the single
     centerline anchor left the west edge 2 m under the local terrain
     (profile 58.5 vs DEM 60.6 — the reported dip).  Anchoring the
-    profile at each edge crossing's own DEM (the stations differ, so
-    the profile can hold both within grade) puts the pavement exactly
-    on the terrain at both visible contacts.
+    profile at each contact point's own DEM (the stations differ, so
+    the profile can hold several of them within grade) puts the
+    pavement on the terrain along the whole crossing.
 
-    Returns ``[(t, altitude), ...]`` like the centerline variant;
-    empty when geometry/DEM makes no crossing usable (caller falls
-    back to the centerline samples).
+    ``step_m`` > 0 walks each contact at that spacing (the ruling's "the
+    tile seam at ALL points must be anchored at DEM"); 0 keeps the
+    historical two-extremes-only behaviour.  Each contact's two extremes
+    are always included.  ``cutback_m`` > 0 additionally walks the two
+    lines where ``tile_cut`` ends the pavement (the CUT-BACK edges named
+    by the 2026-07-24 ruling), not just the tile line itself.
+
+    Returns ``[(t, altitude), ...]`` like the centerline variant, sorted
+    by ``t``; empty when geometry/DEM makes no crossing usable (caller
+    falls back to the centerline samples).
     """
     if dem is None or not runway_shapes:
         return []
@@ -391,20 +404,34 @@ def _find_edge_boundary_crossings(
             return None
         return float(v)
 
-    # Integer lat/lon lines in LOCAL METERS across the runway bbox.
+    # Integer lat/lon lines in LOCAL METERS across the runway bbox — plus,
+    # when ``cutback_m`` is set, the two parallel lines where ``tile_cut``
+    # actually ENDS the pavement (owner ruling 2026-07-24: "the nodes along
+    # a tile seam at the cutback must be anchored [to the DEM]").  The
+    # cut-back offset is ``tile_cut.cut_layout_at_tile_boundaries``'
+    # ``half_width_m``, a fixed 5 m, so BOTH tile builds generate the same
+    # three lines from the same whole-runway geometry — the anchor set (and
+    # therefore the profile) is identical on either side of the seam even
+    # though each tile only keeps one cut-back edge.  Anchoring the two
+    # cut-back contacts as well as the tile line also LENGTHENS the station
+    # span the crossing occupies (SPLP: 141 m -> 173 m), which is what buys
+    # the profile the grade headroom to sit on the terrain at both ends.
     lines = []
     lat_lo, lon_lo = layout.m_to_ll(min_x, min_y)
     lat_hi, lon_hi = layout.m_to_ll(max_x, max_y)
+    offsets = (0.0,) if not cutback_m else (-cutback_m, 0.0, cutback_m)
     for n in range(int(math.ceil(min(lat_lo, lat_hi))),
                    int(math.floor(max(lat_lo, lat_hi))) + 1):
         p0 = layout.ll_to_m(float(n), min(lon_lo, lon_hi) - 1e-3)
         p1 = layout.ll_to_m(float(n), max(lon_lo, lon_hi) + 1e-3)
-        lines.append(_LS([p0, p1]))
+        for off in offsets:
+            lines.append(_LS([(p0[0], p0[1] + off), (p1[0], p1[1] + off)]))
     for n in range(int(math.ceil(min(lon_lo, lon_hi))),
                    int(math.floor(max(lon_lo, lon_hi))) + 1):
         p0 = layout.ll_to_m(min(lat_lo, lat_hi) - 1e-3, float(n))
         p1 = layout.ll_to_m(max(lat_lo, lat_hi) + 1e-3, float(n))
-        lines.append(_LS([p0, p1]))
+        for off in offsets:
+            lines.append(_LS([(p0[0] + off, p0[1]), (p1[0] + off, p1[1])]))
 
     crossings: List[Tuple[float, float]] = []
     for line in lines:
@@ -425,7 +452,24 @@ def _find_edge_boundary_crossings(
             continue
         # The OUTER edge contacts = the two extreme points along the line.
         pts.sort(key=lambda c: (c[0], c[1]))
-        for (ex, ey) in (pts[0], pts[-1]):
+        contact = [pts[0], pts[-1]]
+        if step_m and step_m > 0.0:
+            # OWNER RULING 2026-07-24 — "the tile seam at ALL points must be
+            # anchored at DEM": walk the WHOLE contact, not just its two
+            # ends.  The walk starts at ``pts[0]``, the extreme point under
+            # the same ``(x, y)`` sort both tile builds apply to the same
+            # whole-runway union, so the sample positions are bit-identical
+            # on either side of the seam.
+            (cx0, cy0), (cx1, cy1) = pts[0], pts[-1]
+            span = math.hypot(cx1 - cx0, cy1 - cy0)
+            if span > step_m:
+                for k in range(1, int(span / step_m) + 1):
+                    f = (k * step_m) / span
+                    if f >= 1.0:
+                        break
+                    contact.append((cx0 + f * (cx1 - cx0),
+                                    cy0 + f * (cy1 - cy0)))
+        for (ex, ey) in contact:
             t = ((ex - ax_a_x) * ax_dx + (ey - ax_a_y) * ax_dy) / ax_len2
             if not (0.001 < t < 0.999):
                 continue
@@ -435,6 +479,69 @@ def _find_edge_boundary_crossings(
                 crossings.append((t, v))
     crossings.sort(key=lambda c: c[0])
     return crossings
+
+
+def _select_feasible_seam_anchors(
+        candidates: List[Tuple[float, float]],
+        phys_dist: float,
+        grade_cap: float = MAX_RUNWAY_GRADE,
+) -> Tuple[List[Tuple[float, float]],
+           List[Tuple[float, float, float]]]:
+    """Split seam-contact candidates into the set the runway profile CAN
+    hold at DEM and the set it cannot.
+
+    Every sampled contact point is a place the owner ruling wants the
+    pavement sitting exactly on the DEM.  Terrain does not always allow it:
+    where the DEM along the contact is itself steeper than ``grade_cap``,
+    anchoring all of it emits a surface that violates the runway grade law
+    and reads as a jagged runway — the historical seam V-notch.
+
+    Selection is a deterministic left-to-right sweep (identical on both
+    tile builds because the candidate list is):
+
+      * the two EXTREME contacts — the runway's visible terrain contacts at
+        the seam — are kept whenever they are mutually feasible;
+      * an interior candidate joins only when the segment from the last
+        ACCEPTED anchor to it AND the segment from it to the final anchor
+        both stay within ``grade_cap``.
+
+    Returns ``(accepted, rejected)``; each ``rejected`` entry is
+    ``(t, dem_alt, grade_needed)`` so the caller can REPORT which seam
+    points the law could not reach and by how much — the ruling's "report
+    the specific anchors, the numbers, and by how much they conflict",
+    never a silent midpoint.  When even the two extremes conflict, only the
+    first is held and every other candidate is reported.
+    """
+    pts = sorted(candidates)
+    if len(pts) < 2:
+        return list(pts), []
+
+    def _grade(a: Tuple[float, float], b: Tuple[float, float]) -> float:
+        d = abs(b[0] - a[0]) * phys_dist
+        if d < 1e-6:
+            return 0.0
+        return abs(b[1] - a[1]) / d
+
+    first, last = pts[0], pts[-1]
+    rejected: List[Tuple[float, float, float]] = []
+    if _grade(first, last) > grade_cap + 1e-9:
+        # The two visible contacts alone are steeper than a runway may be —
+        # no interior choice can rescue that.  Hold the first, report the
+        # rest.
+        for p in pts[1:]:
+            rejected.append((p[0], p[1], _grade(first, p)))
+        return [first], rejected
+
+    accepted: List[Tuple[float, float]] = [first]
+    for p in pts[1:-1]:
+        g_in = _grade(accepted[-1], p)
+        g_out = _grade(p, last)
+        if g_in <= grade_cap + 1e-9 and g_out <= grade_cap + 1e-9:
+            accepted.append(p)
+        else:
+            rejected.append((p[0], p[1], max(g_in, g_out)))
+    accepted.append(last)
+    return accepted, rejected
 
 
 _GEOM_EXC = (ValueError, TypeError, IndexError)
@@ -749,27 +856,43 @@ def redistribute_runway_profile(
         anchored = list(state['anchored'])
         phys_dist = state['phys_dist_m']
 
-        # Anchor at the runway EDGE crossings of each boundary line
-        # (two DEM samples per crossing — the runway's VISIBLE terrain
-        # contacts at the seam strip; user 2026-07-04, SPLP west edge:
-        # the tile line renders from the smoothed DEM (preserve_boundary),
-        # and the profile sat 2.5 m UNDER it — a terrain hump across the
-        # runway).  Only crossings where the terrain line pokes ABOVE the
-        # current profile anchor (the hump class): anchoring the ravine
-        # side too dragged the neighbouring interior samples down ~2 m
-        # (measured: the taxiway stub's reach ceiling fell 0.8 m).  Fall
-        # back to the single centerline crossing when the edge walk
-        # yields nothing (or the gate is off).
-        seam_samples = []
+        # ── SEAM = ANOTHER RUNWAY-GRADING ANCHOR (owner ruling 2026-07-24)
+        # "We are not giving up the CIFP thresholds, it's just that a tile
+        #  seam acts like a crossing runway, it's ANOTHER anchor that is
+        #  part of the runway grading.  The tile seam at ALL points must be
+        #  anchored at DEM."
+        #
+        # Sample the runway's whole CONTACT with each boundary line at
+        # ``RUNWAY_SEAM_CONTACT_STEP_M`` (the tile line renders from the
+        # smoothed, ``preserve_boundary``-blended DEM, so this is the
+        # surface the 10 m cut-back strip actually shows), then keep every
+        # sample the FAA grade law can hold and REPORT the rest.
+        #
+        # What this replaces: the pre-ruling code kept only samples where
+        # the terrain poked ABOVE the profile (the "hump class") and threw
+        # the below-profile ones away.  At SPLP that discarded the runway's
+        # NORTH seam contact entirely, so the profile met terrain at one end
+        # of the crossing and floated over it at the other.  One-sided
+        # anchoring is exactly what the ruling forbids.
+        seam_rejects: List[Tuple[float, float, float]] = []
+        seam_samples: List[Tuple[float, float]] = []
         if os.environ.get("O4_RUNWAY_SEAM_EDGE_ANCHORS", "1") == "1":
             edge_samples = _find_edge_boundary_crossings(
                 layout, shapes,
                 state['phys_end_a_ll'], state['phys_end_b_ll'],
-                dem, tile_lat, tile_lon)
-            seam_samples = [
-                (t, v) for (t, v) in edge_samples
-                if v > _interp_profile(state['fractions'],
-                                       state['elevs'], t) + 0.05]
+                dem, tile_lat, tile_lon,
+                step_m=(RUNWAY_SEAM_CONTACT_STEP_M
+                        if RUNWAY_SEAM_CONTACT_ANCHORS else 0.0),
+                cutback_m=(TILE_CUT_HALF_WIDTH_M
+                           if RUNWAY_SEAM_CONTACT_ANCHORS else 0.0))
+            if RUNWAY_SEAM_CONTACT_ANCHORS:
+                seam_samples, seam_rejects = _select_feasible_seam_anchors(
+                    edge_samples, phys_dist)
+            else:
+                seam_samples = [
+                    (t, v) for (t, v) in edge_samples
+                    if v > _interp_profile(state['fractions'],
+                                           state['elevs'], t) + 0.05]
         if not seam_samples:
             seam_samples = _find_centerline_boundary_crossings(
                 state['phys_end_a_ll'], state['phys_end_b_ll'],
@@ -778,13 +901,34 @@ def redistribute_runway_profile(
             _es = _find_edge_boundary_crossings(
                 layout, shapes,
                 state['phys_end_a_ll'], state['phys_end_b_ll'],
-                dem, tile_lat, tile_lon)
+                dem, tile_lat, tile_lon,
+                step_m=(RUNWAY_SEAM_CONTACT_STEP_M
+                        if RUNWAY_SEAM_CONTACT_ANCHORS else 0.0),
+                cutback_m=(TILE_CUT_HALF_WIDTH_M
+                           if RUNWAY_SEAM_CONTACT_ANCHORS else 0.0))
             print(f"    [seam-debug] tile=({tile_lat},{tile_lon}) "
                   f"edge_samples={[(round(t,4), round(v,2)) for t, v in _es]}")
             print(f"    [seam-debug] pre-shift profile at those t: "
                   f"{[(round(t,4), round(_interp_profile(state['fractions'], state['elevs'], t), 2)) for t, _v in _es]}")
             print(f"    [seam-debug] kept seam_samples="
                   f"{[(round(t,4), round(v,2)) for t, v in seam_samples]}")
+            print(f"    [seam-debug] rejected (law-infeasible)="
+                  f"{[(round(t,4), round(v,2), f'{g*100:.2f}%') for t, v, g in seam_rejects]}")
+        # The ruling's reporting duty is discharged AFTER the solve, where
+        # the residual (profile minus DEM) is known — see the seam audit
+        # below.  Recorded here so probes / tests can read the raw conflict
+        # list off the layout.
+        if seam_rejects:
+            _reports = getattr(layout, "_runway_seam_law_conflicts", None)
+            if _reports is None:
+                _reports = []
+                layout._runway_seam_law_conflicts = _reports
+            for _t, _v, _g in seam_rejects:
+                _reports.append({
+                    'ref': ref, 'fraction': _t, 'dem_m': _v,
+                    'grade_needed': _g, 'grade_cap': MAX_RUNWAY_GRADE,
+                    'station_m': _t * phys_dist,
+                })
 
         # Step 1: if any new HARD interior anchor entered the profile
         # (centerline-boundary DEMs), the existing CIFP thresholds
@@ -800,6 +944,7 @@ def redistribute_runway_profile(
         # crossings already in the emit-time anchor list) are passed
         # in as immutable constraints — ``regrade_runway`` only moves
         # the two thresholds and keeps every other anchor fixed.
+        _cifp_thresholds = (elevs[0], elevs[-1])
         if seam_samples:
             _shift_thresholds_for_seams(
                 fractions, elevs, anchored,
@@ -833,6 +978,62 @@ def redistribute_runway_profile(
         threshold_strict_fraction = end_zone_report.get(
             'threshold_strict_fraction', 0.0)
         binding_lines = end_zone_report.get('binding') or []
+
+        # ── Post-solve seam accounting (owner ruling 2026-07-24) ──────────
+        # Record, on the layout, exactly where the SOLVED profile ends up
+        # relative to every seam contact sample and how far the CIFP
+        # thresholds had to move to hold them.  The ruling forbids silently
+        # picking a winner between CIFP, DEM and the FAA law; this is the
+        # ledger that makes the trade visible to the owner and to tests.
+        _seam_audit = getattr(layout, "_runway_seam_audit", None)
+        if _seam_audit is None:
+            _seam_audit = {}
+            layout._runway_seam_audit = _seam_audit  # type: ignore[attr-defined]
+        _seam_audit[ref] = {
+            'anchored': [
+                {'fraction': t, 'dem_m': v,
+                 'profile_m': float(_interp_profile(fractions, elevs, t)),
+                 'residual_m': float(_interp_profile(fractions, elevs, t)) - v}
+                for (t, v) in seam_samples],
+            'law_conflicts': [
+                {'fraction': t, 'dem_m': v, 'grade_needed': g,
+                 'profile_m': float(_interp_profile(fractions, elevs, t)),
+                 'residual_m': (float(_interp_profile(fractions, elevs, t))
+                                - v)}
+                for (t, v, g) in seam_rejects],
+            'cifp_threshold_shift_m': (elevs[0] - _cifp_thresholds[0],
+                                       elevs[-1] - _cifp_thresholds[1]),
+            'phys_dist_m': phys_dist,
+        }
+        if seam_samples and os.environ.get("O4_SEAM_DEBUG") == "1":
+            _sh = _seam_audit[ref]['cifp_threshold_shift_m']
+            print(f"    [seam-debug] {ref}: CIFP threshold shift "
+                  f"A{_sh[0]:+.2f} m / B{_sh[1]:+.2f} m; "
+                  f"anchored residuals="
+                  f"{[round(a['residual_m'], 2) for a in _seam_audit[ref]['anchored']]}; "
+                  f"conflict residuals="
+                  f"{[round(a['residual_m'], 2) for a in _seam_audit[ref]['law_conflicts']]}")
+        # ONE summary line per runway, plus the single worst conflict — the
+        # ruling wants the conflict reported, not a 40-line wall (a 10 m walk
+        # over a 30 m-posting DEM rejects most samples on resampling steps
+        # alone, and those land within centimetres of the solved profile).
+        _conf = _seam_audit[ref]['law_conflicts']
+        if _conf:
+            _worst = max(_conf, key=lambda c: abs(c['residual_m']))
+            try:
+                from O4_UI_Utils import vprint
+                vprint(1,
+                       f"  [pav-builder] runway {ref}: tile-seam contact "
+                       f"anchored at the DEM at {len(seam_samples)} point(s); "
+                       f"{len(_conf)} further sample(s) could not be reached "
+                       f"within the {MAX_RUNWAY_GRADE * 100:.1f}% runway "
+                       f"grade law — worst residual "
+                       f"{_worst['residual_m']:+.2f} m at station "
+                       f"{_worst['fraction'] * phys_dist:.0f} m (DEM "
+                       f"{_worst['dem_m']:.2f} m would need "
+                       f"{_worst['grade_needed'] * 100:.2f}%).")
+            except ImportError:
+                pass
         escalated = end_zone_cap > RUNWAY_END_GRADE + 1e-9
         threshold_relaxed = threshold_cap > RUNWAY_END_GRADE + 1e-9
         if escalated or threshold_relaxed:

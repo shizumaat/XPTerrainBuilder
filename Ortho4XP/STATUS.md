@@ -236,13 +236,18 @@ regression of the change.** Not applied because the owner is mid-test.
  DELIBERATELY OFF: O4_GAP_FILL_INTERIOR_FLOOR (owner ruling, above).
 
 ## BUILD ARTEFACTS
- ★ REBUILT 2026-07-25 PM: App 1.0.199 / engine 1.50.1639 at
- dist.nosync/XPTerrainBuilder.app — contains BOTH blocker fixes, the
- ols_cut role fix, the admission-test fix and the OLS road mask.
- Freshness VERIFIED (`auto_patch.ols` + `auto_patch.conformance` in the
- frozen module table of the embedded Engine binary) and direct-exec
- launch tested OK. Ready for the in-sim round; all gates at defaults
- (the O4_POCKET_COLLAR_RINGS=0 workaround is OBSOLETE).
+ ★★ CURRENT: App 1.0.200 / engine 1.50.1640 at
+ dist.nosync/XPTerrainBuilder.app — the ROUND IS COMMITTED (3cdc8a3 on
+ main, 45 files) plus the three chip fixes: conformance insert dedupe
+ (_radius_index, was already swept into 3cdc8a3 — the chip edited the
+ main checkout), the _resolve_yielding_tjunctions/_resolve_edge_crossings
+ dedupe guards (same), and the _surface_road_corridors per-layout memo
+ (merge 1b117a0 — all 4 call sites incl. OLS hit the cache, ~0.24 s/
+ airport back). Post-merge suite: 8 failed / 3202 passed (the 8
+ long-standing only). Freshness VERIFIED (auto_patch.ols in the frozen
+ module table, engine version bumped) + direct-exec launch OK. All gates
+ at defaults (the O4_POCKET_COLLAR_RINGS=0 workaround is OBSOLETE).
+ (Prior stamp: 1.0.199 / 1.50.1639, uncommitted-tree build, superseded.)
  (Superseded stamp for the record: 1.0.198 / 1.50.1638 predated the
  fixes. Rebuild procedure, unchanged:)
    scripts/make_engine.sh   (redirect, NEVER pipe — pipefail + an early

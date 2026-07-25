@@ -7,4 +7,4 @@
 # the schema dumper and the mac app all read the version textually rather
 # than importing it, and their parsers are pinned by
 # tests/test_version_scheme.py.
-version='1.50.1639'
+version='1.50.1640'

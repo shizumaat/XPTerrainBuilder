@@ -31,7 +31,6 @@ import O4_File_Names as FNAMES
 from .cifp_reader import (
     airport_in_tile,
     discover_cifp_airports,
-    find_aptdat,
     parse_cifp_file,
     xplane_root_from_cifp_path,
 )
@@ -39,7 +38,6 @@ from .pavement.runway_geometry import (
     DEFAULT_RUNWAY_WIDTH,
     extend_point,
     pair_runways,
-    parse_aptdat_runway_widths,
     runway_corners,
 )
 
@@ -107,24 +105,137 @@ from .pavement.runway_segments import (
 # ──────────────────────────────────────────────────────────────────────────────
 # Patch freshness — skip rebuilding when the existing auto-patch is current
 # ──────────────────────────────────────────────────────────────────────────────
+def _dsf_identities_now(apt_dat_path: str,
+                        tile_keys: str) -> str:
+    """Today's identities for the pack DSFs a build scanned for.
+
+    ``tile_keys`` is the ``o4_dsf_tiles`` stamp — the ``lat,lon;lat,lon`` set
+    of 1°×1° tiles the recorded build looked for pack DSFs in.  Resolving each
+    against the CURRENT apt.dat's pack (the gate has already established it is
+    the same apt.dat) and re-stat'ing what exists reproduces exactly what the
+    emit side recorded, so this catches a DSF that changed, one that was
+    removed, AND one that has since APPEARED for a scanned tile — the last of
+    which a plain re-stat of the recorded list would miss.
+    """
+    if tile_keys == "":
+        return ""            # scanned no tile — a real, comparable answer
+    if tile_keys == "?":
+        # The build never recorded its DSF reads, so there is nothing to
+        # verify against; "unknown" never equals the "?" that was stamped,
+        # which is what makes an unverifiable patch rebuild.
+        return "unknown"
+    from .dsf_reader import tile_dsf_path
+    earth_nav_data = os.path.dirname(apt_dat_path)
+    paths = []
+    for key in tile_keys.split(";"):
+        try:
+            tile_lat, tile_lon = (int(part) for part in key.split(","))
+        except ValueError:
+            return "unknown"          # unparseable stamp ⇒ never matches
+        candidate = tile_dsf_path(earth_nav_data, tile_lat, tile_lon)
+        if os.path.isfile(candidate):
+            paths.append(candidate)
+    from . import provenance as _prov
+    return _prov.identity_list(paths)
+
+
+def _cifp_path_under_root(xp_root: str | None, icao: str) -> str | None:
+    """``<xp_root>/Custom Data/CIFP/<ICAO>.dat`` when it exists."""
+    if not xp_root:
+        return None
+    from .elevation import _find_cifp_path
+    return _find_cifp_path(xp_root, icao)
+
+
+def _cifp_files_for(cifp_file: str | None, xp_root: str | None,
+                    icao: str) -> list[str]:
+    """Every CIFP ``.dat`` this airport's build reads.
+
+    Two readers, normally the same file: the driver's own tile scan (which
+    passes its discovered path in as ``cifp_file``) and the elevation solve's
+    ``elevation._find_cifp_path``, which resolves ``<root>/Custom
+    Data/CIFP/<ICAO>.dat`` independently.  Both are recorded so a CIFP/AIRAC
+    update through either route is seen.
+    """
+    files: list[str] = []
+    seen: set[str] = set()
+    for candidate in (cifp_file, _cifp_path_under_root(xp_root, icao)):
+        if not candidate:
+            continue
+        real = os.path.realpath(candidate)
+        if real not in seen:
+            seen.add(real)
+            files.append(candidate)
+    return files
+
+
+def _freshness_stamps_now(tile, xp_root: str | None, icao: str,
+                          apt_dat_path: str | None,
+                          cifp_file: str | None) -> dict:
+    """Today's value for every freshness stamp the DRIVER can compute.
+
+    The DSF stamps are NOT here: on the emit side they come from what the
+    build actually read (``layout.dsf_sources_read``), and on the gate side
+    they are re-derived from the recorded tile set by
+    :func:`_dsf_identities_now`.  Everything else is symmetric — the same
+    function produces the value that gets stamped and the value it is later
+    compared against, so the two can never drift apart.
+    """
+    from . import provenance as _prov
+    return {
+        "o4_fresh_v": _prov.FRESHNESS_SCHEMA_VERSION,
+        "o4_cfg": _prov.config_digest(),
+        "o4_dem": _prov.dem_fingerprint(tile, icao=icao),
+        "o4_cifp": _prov.identity_list(
+            _cifp_files_for(cifp_file, xp_root, icao)),
+        "o4_pack": _scenery_pack_state(apt_dat_path),
+        "o4_engine": _prov.engine_version(),
+    }
+
+
 def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
-                           icao: str) -> bool:
+                           icao: str, *, tile=None,
+                           cifp_file: str | None = None) -> bool:
     """True when an existing auto-patch can be reused as-is.
 
-    A patch is current when the apt.dat that would be selected for
-    this airport TODAY is the same file the patch was built from
-    (path match — catches a newly installed Custom Scenery pack
-    taking selection priority) AND that apt.dat is unmodified since
-    the build (mtime match — catches an in-place airport update).
+    Reuse requires that EVERY input which can change the emitted patch is
+    unchanged since the build, checked against the ``o4_*`` stamps
+    ``PavementLayout.to_osm`` writes on the ``<osm>`` root:
 
-    Provenance comes from the ``o4_apt_dat`` / ``o4_apt_dat_mtime``
-    attributes ``PavementLayout.to_osm`` stamps on the ``<osm>``
-    root.  Patches that pre-date the stamp report not-current and
-    rebuild once (getting stamped in the process).
+    1. **apt.dat** — the file that would be selected for this airport TODAY is
+       the one the patch was built from (path match: catches a newly installed
+       Custom Scenery pack taking selection priority) and it is unmodified
+       (exact mtime match: catches an in-place airport update, and — because
+       it is exact rather than newer-than — a pack downgrade or restore too).
+    2. **pack DSF(s)** — every DSF the build read from that pack, re-resolved
+       and re-stat'ed (``o4_dsf`` / ``o4_dsf_tiles``).
+    3. **configuration** — one digest over every ``auto_patch`` gate and
+       standards/tuning constant that can change the emitted patch
+       (``o4_cfg``).
+    4. **DEM inputs** — the DEM source specification for this tile plus the
+       airport-elevation insets that actually baked in (``o4_dem``).
+    5. **CIFP** — the AIRAC ``.dat`` files this airport's build reads
+       (``o4_cifp``).
+    6. **scenery-pack enablement** — the pack that supplied the apt.dat being
+       switched off (or back on) in ``scenery_packs.ini`` (``o4_pack``).
+    7. **engine version** — the running ``O4_Version.version`` (``o4_engine``).
 
-    Set ``O4_AUTO_PATCH_REBUILD=1`` to force rebuilds regardless
-    (e.g. after editing auto_patch source — code changes do NOT
-    invalidate an existing patch on their own).
+    FAIL-SAFE: a missing, unparseable or unrecognised stamp counts as changed.
+    Every patch built before these stamps existed therefore rebuilds exactly
+    once — acquiring the full stamp set in the process — and is stable after.
+
+    CHEAP by construction: stat()s, a first-two-lines read of the patch, and
+    in-memory hashing.  No DSF content read, no DEM raster read, no apt.dat
+    re-parse — it runs per airport on every tile build.
+
+    ``tile`` supplies the DEM inputs and ``cifp_file`` the airport's CIFP
+    source; omitting either leaves that input unverifiable, which (fail-safe)
+    reports not-current.
+
+    Set ``O4_AUTO_PATCH_REBUILD=1`` to force rebuilds regardless (e.g. when
+    iterating on auto_patch source inside one engine version — a source edit
+    that changes no config value and no engine version does NOT invalidate an
+    existing patch on its own).
     """
     if os.environ.get("O4_AUTO_PATCH_REBUILD", "0") == "1":
         return False
@@ -150,12 +261,111 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
         # at emit time): fall back to file-date ordering against the
         # patch itself.
         try:
-            return mtime_now <= os.path.getmtime(auto_patch_file)
+            if mtime_now > os.path.getmtime(auto_patch_file):
+                return False
         except OSError:
             return False
     # Exact-match, not newer-than: replacing an airport with an OLDER
     # apt.dat (pack downgrade / restore) must also trigger a rebuild.
-    return abs(mtime_now - stored) < 1e-6
+    elif abs(mtime_now - stored) >= 1e-6:
+        return False
+
+    # ── Inputs 2-7 ────────────────────────────────────────────────────────
+    stamped = meta.get("freshness") or {}
+    live = _freshness_stamps_now(tile, xp_root, icao, apt_now, cifp_file)
+    live["o4_dsf"] = _dsf_identities_now(
+        apt_now, stamped.get("o4_dsf_tiles", "?"))
+    from . import provenance as _prov
+    changed = _prov.freshness_mismatch(stamped, live)
+    if changed is not None:
+        UI.vprint(2, "   Auto-patch:", icao, "rebuild —", changed,
+                  "changed (was", repr(stamped.get(changed)),
+                  ", now", repr(live.get(changed)) + ").")
+        return False
+    return True
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# scenery_packs.ini — X-Plane's pack order + enablement
+# ──────────────────────────────────────────────────────────────────────────────
+# Parsed ``(ordered names, disabled names)`` per ini, memoised on the file's
+# (mtime, size).  The freshness gate asks the same question once per airport
+# per tile build; the worklist scan asks it once per tile.
+_SCENERY_PACKS_INI_CACHE: dict = {}
+
+
+def _parse_scenery_packs_ini(ini_path: str) -> tuple[list[str], set[str]]:
+    """``(pack names in ini order, names marked disabled)``.
+
+    The ini lists one pack per line as ``SCENERY_PACK <path>`` or
+    ``SCENERY_PACK_DISABLED <path>`` — the second form is a pack X-Plane keeps
+    installed but does NOT load, so its airport geometry and its objects do not
+    render.  Names are the trailing directory component of the listed path.
+    Both lists are empty when the ini is missing or unreadable.
+    """
+    try:
+        stat = os.stat(ini_path)
+        key = (ini_path, stat.st_mtime, stat.st_size)
+    except OSError:
+        return ([], set())
+    cached = _SCENERY_PACKS_INI_CACHE.get(key)
+    if cached is not None:
+        return (list(cached[0]), set(cached[1]))
+    ordered: list[str] = []
+    disabled: set[str] = set()
+    try:
+        with open(ini_path, "r", encoding="utf-8",
+                  errors="replace") as handle:
+            for line in handle:
+                tokens = line.strip().split(None, 1)
+                if len(tokens) != 2:
+                    continue
+                name = os.path.basename(tokens[1].strip().rstrip("/"))
+                if tokens[0] == "SCENERY_PACK_DISABLED":
+                    disabled.add(name)
+                elif tokens[0] == "SCENERY_PACK" and name not in ordered:
+                    ordered.append(name)
+    except OSError:
+        return ([], set())
+    _SCENERY_PACKS_INI_CACHE.clear()      # one ini per install in practice
+    _SCENERY_PACKS_INI_CACHE[key] = (ordered, disabled)
+    return (list(ordered), set(disabled))
+
+
+def _scenery_pack_state(apt_dat_path: str | None) -> str:
+    """``<pack>|enabled`` / ``<pack>|disabled`` for an apt.dat's pack.
+
+    A pack the user has switched OFF in ``scenery_packs.ini`` does not render
+    in X-Plane, so a patch built from its airport definition is no longer the
+    right patch — and one built while it was off must be rebuilt when it comes
+    back.  Comparing the STATE (rather than only rejecting "disabled") covers
+    both directions and settles after exactly one rebuild.
+
+    The ini is located from the apt.dat's own path — the pack lives at
+    ``<Custom Scenery>/<pack>/Earth nav data/apt.dat`` — so a Custom Scenery
+    directory relocated away from the X-Plane root is still found.  An apt.dat
+    outside Custom Scenery (Global Airports on XP12, default scenery) is
+    ``external``: X-Plane's ini does not govern it.  A pack REMOVED from disk
+    needs no state here — the gate's existing apt.dat path/mtime check already
+    catches it.
+    """
+    if not apt_dat_path:
+        return "unknown"
+    parts = os.path.normpath(os.path.abspath(apt_dat_path)).split(os.sep)
+    try:
+        index = len(parts) - 1 - parts[::-1].index("Custom Scenery")
+    except ValueError:
+        return "external"
+    if index + 1 >= len(parts):
+        return "external"
+    pack = parts[index + 1]
+    ini_path = os.sep.join(parts[:index + 1] + ["scenery_packs.ini"])
+    _ordered, disabled = _parse_scenery_packs_ini(ini_path)
+    state = "disabled" if pack in disabled else "enabled"
+    from . import provenance as _prov
+    # Same percent-encoding every other stamp uses: a pack name can carry
+    # spaces and quotes, and the value rides in a single-quoted XML attribute.
+    return f"{_prov._quote(pack)}|{state}"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -185,24 +395,9 @@ def _enabled_airport_pack_tile_dsfs(
         name for name in os.listdir(custom_scenery)
         if os.path.isdir(os.path.join(custom_scenery, name))
     }
-    ordered: list[str] = []
-    disabled: set[str] = set()
-    ini_path = os.path.join(custom_scenery, "scenery_packs.ini")
-    try:
-        with open(ini_path, "r", encoding="utf-8",
-                  errors="replace") as handle:
-            for line in handle:
-                tokens = line.strip().split(None, 1)
-                if len(tokens) != 2:
-                    continue
-                name = os.path.basename(tokens[1].strip().rstrip("/"))
-                if tokens[0] == "SCENERY_PACK_DISABLED":
-                    disabled.add(name)
-                elif (tokens[0] == "SCENERY_PACK"
-                      and name in on_disk and name not in ordered):
-                    ordered.append(name)
-    except OSError:
-        pass
+    ini_order, disabled = _parse_scenery_packs_ini(
+        os.path.join(custom_scenery, "scenery_packs.ini"))
+    ordered: list[str] = [name for name in ini_order if name in on_disk]
     ordered.extend(sorted(on_disk - set(ordered)))
 
     results: list[tuple[str, str]] = []
@@ -397,7 +592,7 @@ def _build_write_verify_one(task: dict) -> dict:
     global ``_WORKER_DEM``.  Returns a status dict — the MAIN process does all
     console logging so parallel workers never interleave output.  ``task`` keys:
     icao, xp_root, taxiway_data, boundary, tile_lat, tile_lon, auto_patch_file,
-    verify_log_path.
+    verify_log_path, freshness.
     """
     import time as _time
     import traceback as _tb
@@ -429,6 +624,11 @@ def _build_write_verify_one(task: dict) -> dict:
         _pd = os.path.dirname(task["auto_patch_file"])
         if _pd and not os.path.exists(_pd):
             os.makedirs(_pd)
+        # Rebuild-freshness stamps for the inputs the main process fingerprinted
+        # (config, DEM, CIFP, pack enablement, engine version).  The build's own
+        # DSF reads were recorded on the layout by the pipeline; ``to_osm``
+        # merges the two halves into one all-or-nothing stamp block.
+        layout.freshness = task.get("freshness")
         layout.to_osm(task["auto_patch_file"])
     except Exception as _e:
         return {"icao": icao, "ok": False, "stage": "write", "error": str(_e),
@@ -862,10 +1062,11 @@ def generate_auto_patches(tile, cifp_path: str,
         auto_patch_file = os.path.join(
             patch_dir, "{}_auto.patch.osm".format(icao)
         )
-        if _auto_patch_is_current(auto_patch_file, xp_root, icao):
+        if _auto_patch_is_current(auto_patch_file, xp_root, icao,
+                                  tile=tile, cifp_file=filepath):
             UI.lvprint(
                 0, "   Auto-patch:", icao,
-                "up to date (apt.dat unchanged), reusing existing patch.")
+                "up to date (build inputs unchanged), reusing existing patch.")
             reused.append(icao)
             continue
 
@@ -873,17 +1074,17 @@ def generate_auto_patches(tile, cifp_path: str,
         # tile-level OSM extraction if it was deferred.
         _resolve_lazy_inputs()
 
-        # Look up actual runway widths from apt.dat
-        runway_widths = {}
-        aptdat_path = find_aptdat(cifp_path)
-        if aptdat_path:
-            runway_widths = parse_aptdat_runway_widths(aptdat_path, icao)
-            if runway_widths:
-                UI.vprint(
-                    2,
-                    "   Auto-patch: Got runway widths from apt.dat for",
-                    icao,
-                )
+        # Fingerprint the build inputs for the patch about to be written, so
+        # the NEXT run can tell whether any of them moved.  Computed here in
+        # the main process — the tile DEM's inset provenance and the tile's
+        # elevation settings live on ``tile``, which the parallel workers do
+        # not receive.  The DSF half is filled in by the build itself (what it
+        # actually read) and merged at emit time.  Only rebuilt airports pay
+        # for it, including the one extra apt.dat selection.
+        from .osm_load import _pick_best_apt_dat_against_osm
+        freshness_stamps = _freshness_stamps_now(
+            tile, xp_root, icao,
+            _pick_best_apt_dat_against_osm(xp_root, icao), filepath)
 
         # Build runway pair data for elevation interpolation (shared by
         # taxiway and building patch generation)
@@ -967,6 +1168,7 @@ def generate_auto_patches(tile, cifp_path: str,
             "tile_lon": tile_lon,
             "auto_patch_file": auto_patch_file,
             "verify_log_path": _verify_debug_path + "." + icao + ".part",
+            "freshness": freshness_stamps,
         })
 
     # ── Write the Phase 2 worklist sidecar (main process ONLY) ──────────

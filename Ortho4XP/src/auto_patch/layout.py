@@ -25,6 +25,7 @@ from __future__ import annotations
 import math
 import os
 import re
+import tempfile
 import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -520,6 +521,21 @@ class PavementLayout:
     # driver logs its one-line summary from the same truth it stamped.  None
     # until ``to_osm`` runs with provenance enabled.
     _provenance_record: dict | None = None
+
+    # ---- rebuild-freshness stamps (driver.generate_auto_patches) -----
+    # ``{stamp key: value}`` for the build inputs the DRIVER knows (config
+    # digest, DEM inputs, CIFP, scenery-pack enablement, engine version) —
+    # see ``provenance.FRESHNESS_COMPARED_KEYS``.  Set on the layout just
+    # before ``to_osm``; None for a standalone build (tools, tests, probes),
+    # which then emits NO freshness block at all, so the driver's gate rebuilds
+    # such a patch once rather than reusing one whose inputs it cannot verify.
+    freshness: dict | None = None
+    # Which pack DSF files the build ACTUALLY read, and which 1°×1° tiles it
+    # looked for them in.  Recorded by ``pipeline.build_airport_pavement``
+    # (empty lists = "looked, read nothing"); None = never recorded, which
+    # ``to_osm`` stamps as the unmatched ``"?"`` so the gate rebuilds.
+    dsf_sources_read: list | None = None
+    dsf_tiles_scanned: list | None = None
 
     # ---- coordinate helpers ------------------------------------------
     # COORDINATE-ORDER CONVENTION (read before editing geometry code):
@@ -2006,6 +2022,25 @@ class PavementLayout:
             self._provenance_record = record
             for _k, _v in _prov.provenance_tags(record).items():
                 osm_open += f" {_k}='{_v}'"
+        # Rebuild-freshness stamps: the fingerprint of every build input the
+        # driver's ``_auto_patch_is_current`` gate re-checks before reusing
+        # this patch (config digest, DEM inputs, CIFP, pack enablement, engine
+        # version, and the pack DSFs this build read).  Written ALL-OR-NOTHING
+        # and only for a driver-driven build: a partial set would read as a
+        # changed input and rebuild forever, and a standalone emit has no
+        # verified inputs to stand behind.
+        if self.freshness is not None:
+            stamps = dict(self.freshness)
+            stamps["o4_fresh_v"] = _prov.FRESHNESS_SCHEMA_VERSION
+            stamps["o4_dsf"] = (
+                _prov.identity_list(self.dsf_sources_read)
+                if self.dsf_sources_read is not None else "?")
+            stamps["o4_dsf_tiles"] = (
+                ";".join(f"{la},{lo}"
+                         for la, lo in sorted(set(self.dsf_tiles_scanned)))
+                if self.dsf_tiles_scanned is not None else "?")
+            for _k in _prov.FRESHNESS_KEYS:
+                osm_open += f" {_k}='{stamps.get(_k, 'unknown')}'"
         osm_open += ">"
         lines = [
             "<?xml version='1.0' encoding='UTF-8'?>",
@@ -2051,7 +2086,7 @@ class PavementLayout:
                 lines.append(f"    <tag k='{k}' v='{v}' />")
             lines.append("  </relation>")
         lines.append("</osm>")
-        Path(path).write_text("\n".join(lines) + "\n")
+        _atomic_write_text(path, "\n".join(lines) + "\n")
         self._write_axes_sidecar(path)
 
     def _write_axes_sidecar(self, path: str) -> None:
@@ -2158,18 +2193,86 @@ class PavementLayout:
             pass
 
 
+_UMASK: int | None = None
+
+
+def _process_umask() -> int:
+    """The process umask, read once (querying it is not thread-safe).
+
+    ``os.umask`` has no read-only form: the value can only be obtained by
+    setting it and putting it back.  Doing that on every patch write would
+    open a window in which a concurrently created file gets the wrong mode,
+    so it is done once, on first use.
+    """
+    global _UMASK
+    if _UMASK is None:
+        _UMASK = os.umask(0o022)
+        os.umask(_UMASK)
+    return _UMASK
+
+
+def _atomic_write_text(path: str, text: str) -> None:
+    """Write ``text`` to ``path`` atomically: temp file, then ``os.replace``.
+
+    A patch is a CACHE KEYED ON ITS OWN HEADER — the driver's freshness gate
+    reads the first two lines and reuses the file when the stamps still match.
+    A plain ``write_text`` interrupted by a crash, a kill, or a full disk leaves
+    a TRUNCATED patch whose header is intact and whose stamps still match, so
+    the mesher would consume the fragment and the gate would keep reusing it
+    forever.  Writing to a temp file in the SAME directory (same filesystem, so
+    ``os.replace`` is a true atomic rename) and replacing only on success means
+    a reader ever sees the whole old patch or the whole new one.  A failure
+    leaves the previous patch untouched and removes the partial temp file.
+    """
+    directory = os.path.dirname(os.path.abspath(path)) or "."
+    handle, tmp_path = tempfile.mkstemp(
+        prefix=os.path.basename(path) + ".", suffix=".tmp", dir=directory)
+    try:
+        # ``mkstemp`` creates the temp file 0600 by design, and ``os.replace``
+        # carries that mode onto the destination — so without this the patch
+        # would silently become owner-only where the previous plain write left
+        # it world-readable.  Keep a rewritten patch's existing mode, and give
+        # a new one the umask-derived default the old write produced.
+        try:
+            os.chmod(tmp_path, os.stat(path).st_mode & 0o7777)
+        except OSError:
+            os.chmod(tmp_path, 0o666 & ~_process_umask())
+        # Explicit UTF-8: the file declares ``encoding='UTF-8'`` in its XML
+        # header and ``read_patch_source`` reads it back as UTF-8, so the
+        # writer must not follow a non-UTF-8 locale default.
+        with os.fdopen(handle, "w", encoding="utf-8") as tmp_file:
+            tmp_file.write(text)
+        os.replace(tmp_path, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 _PATCH_SOURCE_APT_RE = re.compile(r"o4_apt_dat='([^']*)'")
 _PATCH_SOURCE_MTIME_RE = re.compile(r"o4_apt_dat_mtime='([^']*)'")
+_PATCH_FRESHNESS_RE = re.compile(r"(o4_(?:fresh_v|cfg|dem|cifp|pack|engine"
+                                 r"|dsf_tiles|dsf))='([^']*)'")
 
 
 def read_patch_source(path: str) -> dict | None:
-    """Read the apt.dat provenance stamped into an auto-patch file.
+    """Read the build-input provenance stamped into an auto-patch file.
 
     ``to_osm`` records the apt.dat the build consumed as
     ``o4_apt_dat`` / ``o4_apt_dat_mtime`` attributes on the ``<osm>``
-    root element.  Returns ``{"apt_dat": str,
-    "apt_dat_mtime": float | None}``, or ``None`` when the file is
-    missing, unreadable, or pre-dates the provenance stamp.
+    root element, plus — for a driver-driven build — the freshness
+    stamps for the build's other inputs (``o4_fresh_v``, ``o4_cfg``,
+    ``o4_dem``, ``o4_cifp``, ``o4_pack``, ``o4_engine``, ``o4_dsf``,
+    ``o4_dsf_tiles``; see ``provenance.FRESHNESS_KEYS``).
+
+    Returns ``{"apt_dat": str, "apt_dat_mtime": float | None,
+    "freshness": {key: raw value}}``, or ``None`` when the file is
+    missing, unreadable, or pre-dates the apt.dat stamp.  ``freshness``
+    is EMPTY for a patch written before those stamps existed or by a
+    standalone tool — which the driver's gate reads as "inputs
+    unverifiable" and rebuilds.
     """
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -2193,7 +2296,16 @@ def read_patch_source(path: str) -> dict | None:
             mtime = float(m.group(1))
         except ValueError:
             mtime = None
-    return {"apt_dat": apt_dat, "apt_dat_mtime": mtime}
+    # Freshness stamps ride RAW (already percent-encoded where they carry a
+    # path): the gate compares them byte-for-byte against freshly computed
+    # values in the same encoding, so decoding here would only invite a
+    # round-trip mismatch.
+    freshness = {
+        match.group(1): match.group(2)
+        for match in _PATCH_FRESHNESS_RE.finditer(line)
+    }
+    return {"apt_dat": apt_dat, "apt_dat_mtime": mtime,
+            "freshness": freshness}
 
 
 # ──────────────────────────────────────────────────────────────────

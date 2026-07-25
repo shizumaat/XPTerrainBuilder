@@ -952,6 +952,15 @@ def build_airport_pavement(icao: str, xplane_root: str,
     dsf_building_polys: List[Polygon] = []
     n_dsf_buildings = 0
     n_dsf_object_buildings = 0
+    # Rebuild-freshness record: which pack DSFs this build ACTUALLY reads and
+    # which 1°×1° tiles it looks for them in (``layout.dsf_sources_read`` /
+    # ``dsf_tiles_scanned``, stamped by ``to_osm`` and re-stat'ed by the
+    # driver's freshness gate).  Initialised to EMPTY here, before the gate
+    # that can skip the whole block: "looked, read nothing" must be a recorded
+    # answer, not the ``None`` that means "never recorded" (which the gate
+    # treats as unverifiable and rebuilds).
+    layout.dsf_sources_read = []
+    layout.dsf_tiles_scanned = []
     try:
         if not LOAD_DSF_PAVEMENT:
             raise StopIteration  # skip the DSF block entirely
@@ -1018,10 +1027,17 @@ def build_airport_pavement(icao: str, xplane_root: str,
                           for lo in range(_lons[0], _lons[-1] + 1)}
         for ad in all_apt_dats:
           for _tlat, _tlon in sorted(_dsf_tiles):
+            # Record the tile as VISITED (and, below, whatever DSF it
+            # yielded) as the sweep goes, not up front: should the sweep
+            # abort part-way the record still describes exactly what was
+            # read, so the freshness gate re-derives the same answer instead
+            # of finding an unvisited tile's DSF and rebuilding forever.
+            layout.dsf_tiles_scanned.append((_tlat, _tlon))
             dsf = _DSFR.find_associated_dsf(ad, _tlat + 0.5, _tlon + 0.5)
             if dsf is None or dsf in seen_dsf:
                 continue
             seen_dsf.add(dsf)
+            layout.dsf_sources_read.append(dsf)
             # ``.pol`` draped pavement, then — behind its gate — the
             # draped-only OBJ8 ground-paint pages (HECA Tai Models:
             # base asphalt/concrete drawn as one whole-airport object

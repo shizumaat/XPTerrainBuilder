@@ -44,6 +44,7 @@ reports RAW even when an inset is sitting in the cache.
 from __future__ import annotations
 
 import datetime
+import hashlib
 import os
 import re
 import subprocess
@@ -126,6 +127,39 @@ def _config_source_path() -> str | None:
         return None
 
 
+# Parsed ``{gate_name: default}`` per config source, memoised on the source
+# file's (mtime, size).  Only the SOURCE parse is cached — the live env value
+# is re-read on every call, so a gate flipped mid-process is still seen.  The
+# freshness gate calls this once per airport per tile build; without the memo
+# that is one full re-read + regex sweep of config.py (~130 KB) per airport.
+_GATE_DEFAULTS_CACHE: dict = {}
+
+
+def _gate_defaults(source_path: str) -> dict:
+    """``{gate_name: in-source default}`` for a config source, memoised."""
+    try:
+        stat = os.stat(source_path)
+        key = (source_path, stat.st_mtime, stat.st_size)
+    except OSError:
+        return {}
+    cached = _GATE_DEFAULTS_CACHE.get(key)
+    if cached is not None:
+        return cached
+    try:
+        with open(source_path, "r", encoding="utf-8") as handle:
+            text = handle.read()
+    except OSError:
+        return {}
+    defaults: dict = {}
+    for match in _ENV_GATE_RE.finditer(text):
+        # A gate can be referenced more than once; keep the first default seen
+        # (they agree in practice) but never overwrite with a later duplicate.
+        defaults.setdefault(match.group(1), match.group(2))
+    _GATE_DEFAULTS_CACHE.clear()          # one source per process in practice
+    _GATE_DEFAULTS_CACHE[key] = defaults
+    return defaults
+
+
 def introspect_config_gates(source_path: str | None = None) -> dict:
     """Enumerate every ``O4_`` env gate declared in ``config.py``.
 
@@ -140,23 +174,11 @@ def introspect_config_gates(source_path: str | None = None) -> dict:
         source_path = _config_source_path()
     if not source_path or not os.path.isfile(source_path):
         return {}
-    try:
-        with open(source_path, "r", encoding="utf-8") as handle:
-            text = handle.read()
-    except OSError:
-        return {}
     gates: dict = {}
-    for match in _ENV_GATE_RE.finditer(text):
-        name = match.group(1)
-        default = match.group(2)
-        # A gate can be referenced more than once; keep the first default seen
-        # (they agree in practice) but never overwrite with a later duplicate.
-        if name in gates:
-            continue
-        value = os.environ.get(name, default)
+    for name, default in _gate_defaults(source_path).items():
         gates[name] = {
             "default": default,
-            "value": value,
+            "value": os.environ.get(name, default),
             "is_boolean": default in ("0", "1"),
         }
     return gates
@@ -374,3 +396,329 @@ def parse_patch_provenance(path: str) -> dict | None:
     decoded["built"] = urllib.parse.unquote(raw.get("built", ""))
     decoded["icao"] = urllib.parse.unquote(raw.get("icao", ""))
     return decoded
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Freshness fingerprints — the inputs the rebuild-skip gate compares
+# ──────────────────────────────────────────────────────────────────────────────
+# ``driver._auto_patch_is_current`` reuses an existing ``*_auto.patch.osm``
+# only when EVERY input that can change the emitted patch is unchanged.  The
+# fingerprints below are what "unchanged" is measured against; they are stamped
+# on the ``<osm>`` root by ``PavementLayout.to_osm`` alongside the two legacy
+# ``o4_apt_dat*`` stamps, and recomputed by the gate for comparison.
+#
+# Three hard rules:
+#
+# 1. FAIL-SAFE.  A missing, unparseable or unrecognised stamp means REBUILD.
+#    Every value therefore has an explicit "could not determine" spelling
+#    (``absent`` / ``unknown`` / ``?``) rather than an empty string that could
+#    collide with a legitimately empty result.
+# 2. CHEAP.  The gate runs per airport per tile build, so this is stat()-level
+#    work and in-memory hashing only — never a DSF content read, a DEM raster
+#    read, or an apt.dat re-parse.
+# 3. INPUTS, NOT DERIVED ARTIFACTS.  Nothing here may key on a file the tile
+#    build itself rewrites (``Data<tile>.alt`` above all): that would
+#    self-invalidate every patch on every tile build and destroy caching.
+#
+# Bump when the stamp SET or any value's meaning changes: a patch whose
+# ``o4_fresh_v`` differs from this is treated as unrecognised and rebuilds once.
+FRESHNESS_SCHEMA_VERSION = "1"
+
+# Stamp keys the gate compares one-for-one.  ``o4_dsf_tiles`` is deliberately
+# NOT here: it is an INPUT to the recomputation of ``o4_dsf`` (which 1°×1°
+# tiles' DSFs the build consulted), not a value with a "today" counterpart —
+# the tile set today is only knowable by re-parsing apt.dat and re-reading the
+# DSF pavement (it follows the airport's pavement bbox), which rule 2 forbids.
+# It needs no direct check: the tile set can only move if the apt.dat or a pack
+# DSF moved, and both of those ARE compared.
+FRESHNESS_COMPARED_KEYS = (
+    "o4_fresh_v",
+    "o4_cfg",
+    "o4_dem",
+    "o4_cifp",
+    "o4_pack",
+    "o4_engine",
+    "o4_dsf",
+)
+
+# Every stamp key written, in the order they appear on the root element.
+FRESHNESS_KEYS = FRESHNESS_COMPARED_KEYS + ("o4_dsf_tiles",)
+
+
+def _identity(path: str | None) -> str:
+    """``<quoted path>|<size>|<mtime>`` for one input file.
+
+    The path is percent-encoded so the value carries no quote or space and can
+    ride in a single-quoted XML attribute; ``|`` and ``;`` are left literal as
+    field / list separators.  A path that cannot be stat'ed is rendered
+    ``<quoted path>|missing`` — a distinct value, so a file that disappears
+    (or reappears) flips the fingerprint instead of silently comparing equal.
+    """
+    if not path:
+        return "none"
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return _quote(path) + "|missing"
+    return f"{_quote(path)}|{stat.st_size}|{stat.st_mtime:.6f}"
+
+
+def identity_list(paths) -> str:
+    """``;``-joined :func:`_identity` for a set of input files.
+
+    SORTED, so a reader-order difference between the emit side and the gate
+    side can never read as a changed input.  ``""`` means "read nothing" — a
+    real, comparable answer, distinct from the ``"?"`` the callers use for
+    "never recorded".
+    """
+    return ";".join(sorted(_identity(p) for p in (paths or ())))
+
+
+def _stable_repr(value) -> str:
+    """Order-independent, float-exact repr for a config constant."""
+    if isinstance(value, (set, frozenset)):
+        return "{" + ",".join(sorted(_stable_repr(v) for v in value)) + "}"
+    if isinstance(value, dict):
+        return "{" + ",".join(
+            f"{_stable_repr(k)}:{_stable_repr(v)}"
+            for k, v in sorted(value.items(), key=lambda kv: repr(kv[0]))
+        ) + "}"
+    if isinstance(value, (list, tuple)):
+        return "[" + ",".join(_stable_repr(v) for v in value) + "]"
+    return repr(value)
+
+
+# What the config digest deliberately LEAVES OUT.
+#
+# The digest must invalidate a patch when a setting that can change the emitted
+# geometry or elevations changes — and must NOT invalidate it otherwise, or a
+# user turning up log verbosity would rebuild every airport in the world.  The
+# four excluded constants are the ones whose own source comments declare them
+# output-only, and each is excluded for a reason that is verifiable at its
+# definition site in config.py:
+#
+#   LOG_VERBOSITY      — chatter volume only (it also gates the debug
+#                        ``.axes.json`` sidecar, which is not the patch).
+#   BUILD_PROGRESS     — progress banners; "the emitted patch is byte-identical
+#                        regardless".
+#   REPORT_GRADE_AUDIT — a build-time WARN audit that nothing acts on;
+#                        "output-only — the emitted patch is identical".
+#   PARALLEL_AIRPORTS  — scheduling only; the parallel path is validated
+#                        BYTE-IDENTICAL to serial.
+#
+# Everything else in config.py is IN, including every numeric standards /
+# tuning constant and every ``O4_`` env gate — the whole point of the digest is
+# that it cannot rot as constants are added.  The env gate whose default
+# produced each excluded constant is excluded alongside it, otherwise the gate
+# value would re-introduce exactly what the constant exclusion removed.
+CONFIG_DIGEST_EXCLUDED_CONSTANTS = frozenset({
+    "LOG_VERBOSITY",
+    "BUILD_PROGRESS",
+    "REPORT_GRADE_AUDIT",
+    "PARALLEL_AIRPORTS",
+})
+CONFIG_DIGEST_EXCLUDED_GATES = frozenset({
+    "O4_LOG_VERBOSITY",
+    "O4_BUILD_PROGRESS",
+    "O4_REPORT_GRADE_AUDIT",
+    "O4_PARALLEL_AIRPORTS",
+    # Not settings at all: the freshness gate's own force-rebuild flag (which
+    # the gate consults directly and which must not itself be an input), and
+    # the provenance stamp's master switch (it governs the header block, not
+    # any emitted geometry).
+    "O4_AUTO_PATCH_REBUILD",
+    "O4_PATCH_PROVENANCE",
+})
+
+
+def config_digest() -> str:
+    """One 16-hex digest over every config value that can change a patch.
+
+    Three contributions:
+
+    * every ``O4_`` env gate :mod:`auto_patch.config` DECLARES, at its live
+      value — enumerated by :func:`introspect_config_gates`, the same
+      introspection the provenance stamp uses, so the inventory tracks the
+      source automatically and cannot rot as gates come and go;
+    * every ``O4_`` variable actually SET in the environment.  Two reasons:
+      gates read at a call site outside config.py (``O4_FORCE_APT_DAT``, the
+      pavement-model toggles in ``driver``) are covered, and — the important
+      one — a FROZEN engine ships no ``.py`` for the introspection to read, so
+      without this a gate flip would be invisible in the packaged app; and
+    * every module-level constant config.py defines (standards numbers, role
+      tables, tuning knobs) — the source-edit half, which no env gate covers,
+      and which reads correctly from the compiled module when frozen.
+
+    See ``CONFIG_DIGEST_EXCLUDED_*`` for what is left out and why.  Returns
+    ``"unknown"`` only when the config module itself cannot be imported.
+    """
+    try:
+        from . import config as _config
+    except Exception:
+        return "unknown"
+    parts: list[str] = []
+    gates = introspect_config_gates()
+    # Recorded so a build whose config SOURCE was readable never silently
+    # compares equal to one where it was not: the two enumerate different
+    # gate sets, and a patch must not cross that boundary unrebuilt.
+    parts.append("introspect:" + ("ok" if gates else "unavailable"))
+    for name in sorted(gates):
+        if name in CONFIG_DIGEST_EXCLUDED_GATES:
+            continue
+        parts.append(f"gate:{name}={gates[name]['value']}")
+    for name in sorted(os.environ):
+        if not name.startswith("O4_") or name in CONFIG_DIGEST_EXCLUDED_GATES:
+            continue
+        if name in gates:
+            continue                     # already digested at its live value
+        parts.append(f"env:{name}={os.environ[name]}")
+    for name in sorted(dir(_config)):
+        if name.startswith("_") or name in CONFIG_DIGEST_EXCLUDED_CONSTANTS:
+            continue
+        try:
+            value = getattr(_config, name)
+        except Exception:
+            continue
+        if not isinstance(value, (bool, int, float, str, bytes,
+                                  tuple, list, set, frozenset, dict,
+                                  type(None))):
+            continue                     # functions, modules, classes
+        parts.append(f"const:{name}={_stable_repr(value)}")
+    digest = hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
+    return digest[:16]
+
+
+# Sentinel telling "the attribute was never set" from "it was set to empty".
+_UNSET = object()
+
+
+def dem_fingerprint(tile, icao: str | None = None) -> str:
+    """Fingerprint of the DEM INPUTS this airport's elevations were solved on.
+
+    Deliberately NOT a fingerprint of the DEM the solve saw: that surface is a
+    derived artifact (``Data<tile>.alt`` is rewritten by the vector/mesh steps
+    of the very build that would consume this patch), so keying on it would
+    self-invalidate every patch on every tile build.  Two input facets instead:
+
+    * ``spec`` — a digest over the DEM SOURCE SPECIFICATION for this tile: the
+      composite source string the tile DEM was constructed from
+      (``base;inset;inset``, which already names a ``custom_dem`` and every
+      cached inset), the identity of each source token that is a file on disk,
+      the generic per-tile ``.tif`` when the base token is empty
+      (``DEM.load_data`` prefers it over the configured provider, so its
+      arrival changes the DEM),
+      and the tile's elevation settings — level, smoothing, inset and grid
+      knobs — plus the app-level base elevation source.  This facet is
+      TILE-WIDE on purpose even though the patch is one airport's: the inset
+      set drives ``densify_tile_dem_for_insets``, which resets the working
+      grid posting for the whole tile, so an inset arriving anywhere on it
+      really can move this airport's sampled elevations.
+    * ``insets`` — the identities (path+size+mtime) of the airport-elevation
+      inset rasters that ACTUALLY baked into this tile's DEM, from the
+      provenance ``bake_airport_insets_into_alt_dem`` stamps on the DEM object,
+      filtered to this airport.  ``unbaked`` (the bake step never ran — the
+      standalone raw-load path) is a DIFFERENT value from ``none`` (it ran and
+      baked nothing for this airport), so the silent-raw-DEM case cannot be
+      confused with a never-baked one.
+
+    Returns ``"absent"`` with no tile — a value no live tile produces, so a
+    patch stamped from a real build never compares equal to a gate that has
+    lost its tile.
+    """
+    if tile is None:
+        return "absent"
+    dem = getattr(tile, "dem", None)
+    spec_parts: list[str] = []
+    source_spec = getattr(dem, "source_path", None) if dem is not None else None
+    if dem is None:
+        spec_parts.append("dem:nodem")
+    else:
+        spec_parts.append(f"dem:{source_spec!r}")
+        tokens = str(source_spec or "").split(";")
+        for token in tokens:
+            if token and os.path.exists(token):
+                spec_parts.append("src:" + _identity(token))
+        if not tokens or not tokens[0]:
+            # Empty base token: DEM.load_data falls back to the generic
+            # per-tile .tif when one exists, before consulting the provider
+            # registry.  Stat it so dropping one in is seen as a DEM change.
+            try:
+                import O4_File_Names as _FNAMES
+
+                generic = _FNAMES.generic_tif(tile.lat, tile.lon)
+                if os.path.exists(generic):
+                    spec_parts.append("generic:" + _identity(generic))
+            except Exception:
+                pass
+    for name in ("custom_dem", "fill_nodata", "elevation_level",
+                 "elevation_coastline_band_km", "apt_smoothing_pix",
+                 "apt_smoothing_auto", "airport_elevation_insets",
+                 "airport_elevation_providers", "airport_elevation_level",
+                 "airport_elevation_inset_margin_m",
+                 "airport_elevation_inset_feather_m", "airport_inset_water",
+                 "working_grid_arc_seconds"):
+        spec_parts.append(f"cfg:{name}={getattr(tile, name, _UNSET)!r}")
+    try:
+        # The app-level base source is a per-tile setting only in effect when
+        # ``custom_dem`` is empty; the config registry assigns it onto
+        # O4_DEM_Utils (``"module": "DEM"``), which any real tile build has
+        # already imported to construct ``tile.dem``.
+        import O4_DEM_Utils as _DEM
+
+        spec_parts.append(
+            f"app:base_elevation_source="
+            f"{getattr(_DEM, 'base_elevation_source', _UNSET)!r}")
+    except Exception:
+        spec_parts.append("app:base_elevation_source=unknown")
+    spec = hashlib.sha256("\n".join(spec_parts).encode("utf-8")).hexdigest()
+
+    if dem is None:
+        insets = "nodem"
+    else:
+        recorded = getattr(dem, DEM_INSET_PROVENANCE_ATTR, _UNSET)
+        if recorded is _UNSET:
+            insets = "unbaked"
+        else:
+            paths = []
+            for entry in (recorded or ()):
+                if not isinstance(entry, dict):
+                    continue
+                if icao is not None and entry.get("icao"):
+                    if str(entry["icao"]).upper() != str(icao).upper():
+                        continue
+                if entry.get("path"):
+                    paths.append(entry["path"])
+            insets = identity_list(paths) if paths else "none"
+    return f"spec:{spec[:16]};insets:{insets}"
+
+
+def engine_version() -> str:
+    """The running engine's version string, or ``absent``.
+
+    Imported the way the rest of the engine does it (``import O4_Version``).
+    The version carries a build number that increments on every engine build,
+    so this stamp invalidates every patch whenever a new engine is built —
+    intended (owner 2026-07-24): a rebuilt engine may emit different geometry.
+    """
+    try:
+        import O4_Version
+
+        return str(getattr(O4_Version, "version", "") or "") or "absent"
+    except Exception:
+        return "absent"
+
+
+def freshness_mismatch(stamped: dict, live: dict) -> str | None:
+    """First stamp key whose stamped value is missing or differs, else None.
+
+    Fail-safe by construction: a key missing from EITHER side reports as a
+    mismatch, so an old-format patch, a patch written by a standalone tool, and
+    a gate that could not compute a live value all rebuild rather than being
+    compared as "both absent, therefore equal".
+    """
+    for key in FRESHNESS_COMPARED_KEYS:
+        if key not in stamped or key not in live:
+            return key
+        if stamped[key] != live[key]:
+            return key
+    return None

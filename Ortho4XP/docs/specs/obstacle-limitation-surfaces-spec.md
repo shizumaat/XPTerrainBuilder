@@ -205,6 +205,29 @@ while leaving its core would sculpt a moat; the charter is DEM-artefact repair
 from the same law + DEM and exempts refused islands (lockstep, same pattern as
 the supported-depths exemption).
 
+**SEAM REFUSAL — MEASURED AT THE TILE LINE (amended 2026-07-25)**: the
+cross-tile determinism rule ("an island touching the covering DEM's
+tile-boundary edge is refused whole") was implemented against the raster
+window's CLAMP — the sides where the footprint ran off the end of the data.
+An airport DEM routinely covers well past the tile it is keyed to (measured
+SPLP -13/-078: the pre-scan raster runs 1088 m EAST of lon -77), so no island
+near the seam was ever flagged: two islands — one sitting exactly ON the
+meridian, one 5 m inside the cut-back line — were admitted, their bands were
+emitted, and the post-emit `cut_layout_at_tile_boundaries` sliced them at the
+cut-back line, leaving four `ols_cut` nodes 0.35 / 1.06 / 1.47 / 2.18 m BELOW
+the DEM the 10 m seam gap renders (one-sided as well: the -13/-077 build cuts
+nothing there).  Those nodes cannot be repaired by the universal
+seam-DEM pin — an OLS cut is `min(ceiling, DEM)`, so lifting a node to the
+DEM would UN-CUT a real obstruction — so the two laws are reconciled one step
+earlier: the OLS must not reach the seam at all.  The refusal is therefore
+measured against the CURRENT TILE's own boundary as well (a cell within
+`TILE_CUT_HALF_WIDTH_M` + one raster cell of it is a seam cell;
+`refused_reason` `"tile_line"`), which is the same geometric test in both tile
+builds and so cannot disagree.  Gate `OLS_SEAM_TILE_LINE_REFUSAL`
+(`O4_OLS_SEAM_TILE_LINE_REFUSAL`, default ON); off restores the
+data-extent-only test byte-identically.  Cost at SPLP -13/-078: 2 of 46
+emitted pieces given up, no other change.
+
 ## Constants (`config.py` — the rule VALUES; law math stays in `grade_law`)
 
 ```python

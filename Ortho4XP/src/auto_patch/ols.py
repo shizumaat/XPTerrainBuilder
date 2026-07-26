@@ -45,7 +45,13 @@ them — lockstep).
 edge is likewise refused whole: at a tile line each build sees only half
 the island, and an island-GLOBAL depth verdict on two different halves
 can disagree — cut one side, refuse the other, wall along the seam.  See
-:func:`_prescan`.
+:func:`_prescan`.  Since 2026-07-25 the same refusal is measured against
+the CURRENT TILE's own boundary as well (:func:`_tile_line_seam_mask`,
+gate ``OLS_SEAM_TILE_LINE_REFUSAL``): an airport DEM usually covers past
+the tile it is keyed to, so the data-extent test alone let islands reach
+the line and left ``ols_cut`` cut-back nodes metres below the DEM the
+seam gap renders — and a cut node cannot be DEM-pinned without un-cutting
+the obstruction.  The OLS therefore stops short of the seam instead.
 
 **Clip discipline** (2026-07-09 WELD RULING,
 ``docs/adjacent_ground_grade_law_plan.md``): exact ``difference()``
@@ -80,6 +86,7 @@ from .config import (
     OLS_APPROACH_SETBACK_VISUAL_CODE1_M,
     OLS_OBSTRUCTION_THRESHOLD_M,
     OLS_TRANSITIONAL_EMIT_REACH_M,
+    TILE_CUT_HALF_WIDTH_M,
     runway_code_number,
     runway_end_approach_class,
 )
@@ -631,7 +638,8 @@ class _Grid:
     emitter re-reads it (rather than the DEM) so its band scan is in
     LOCKSTEP with the pre-scan that admitted the islands."""
 
-    def __init__(self, X, Y, Z, ceil, dx_m, dy_m, tile_edge=None):
+    def __init__(self, X, Y, Z, ceil, dx_m, dy_m, tile_edge=None,
+                 seam_edge=None):
         self.X, self.Y, self.Z, self.ceil = X, Y, Z, ceil
         self.dx_m, self.dy_m = dx_m, dy_m
         self.x0 = float(X[0, 0])
@@ -646,6 +654,11 @@ class _Grid:
         # :func:`_prescan`).
         self.tile_edge = (np.zeros(Z.shape, dtype=bool)
                           if tile_edge is None else tile_edge)
+        # Cells at (or past) the CURRENT TILE's own integer lat/lon line —
+        # the ground ``tile_cut`` slices.  See
+        # :func:`_tile_line_seam_mask`; all-False with its gate off.
+        self.seam_edge = (np.zeros(Z.shape, dtype=bool)
+                          if seam_edge is None else seam_edge)
 
     def index(self, x: float, y: float):
         j = int(round((x - self.x0) / self.dx_m))
@@ -732,7 +745,59 @@ def _dem_raster(scene: _Scene, bbox):
     if j1 >= nx - 1:
         tile_edge[:, -1] = True
     return _Grid(X, Y, Z, None, post_x * stride, post_y * stride,
-                 tile_edge=tile_edge)
+                 tile_edge=tile_edge,
+                 seam_edge=_tile_line_seam_mask(
+                     scene, X, Y, post_x * stride, post_y * stride))
+
+
+def _tile_line_seam_mask(scene: _Scene, X, Y, dx_m: float, dy_m: float):
+    """Cells within the cut band of the CURRENT TILE's own integer lat/lon
+    boundary — the ground ``tile_cut`` slices through — as a boolean mask,
+    or ``None`` when the gate ``OLS_SEAM_TILE_LINE_REFUSAL`` is off.
+
+    WHY THIS EXISTS (defect measured at SPLP -13/-078, 2026-07-25).  The
+    spec's seam rule refuses an island "touching the covering DEM's
+    tile-boundary edge", and :func:`_dem_raster` marks exactly that: the
+    rows/columns where the WINDOW WAS CLAMPED by the DEM's own extent.
+    But an airport DEM routinely covers well past the tile line it is
+    keyed to — measured here, the -13/-078 raster runs 1088 m EAST of
+    lon -77 — so no island near the seam was ever flagged, and two
+    penetration islands sitting ON the tile line (x = -137.3, exactly the
+    integer meridian) and 5 m inside the cut-back (x = -147.4) were
+    admitted.  Their bands emitted ``ols_cut`` pieces that the post-emit
+    ``cut_layout_at_tile_boundaries`` then SLICED at the cut-back line,
+    minting 4 cut-back nodes 0.35-2.18 m BELOW the DEM the neighbouring
+    10 m seam gap renders — the exact wall along the seam the rule was
+    written to prevent.  (And it is one-sided: the -13/-077 build's
+    pre-scan finds no transitional island there at all.)
+    A DEM-pin cannot repair those nodes: an OLS cut is
+    ``min(ceiling, DEM)``, so raising a node to the DEM would UN-CUT a
+    real obstruction at the seam.
+
+    Rule: measure against the TILE LINE (what the cut actually slices),
+    not the data extent.  A cell within ``TILE_CUT_HALF_WIDTH_M`` + one
+    raster cell of the current tile's boundary — the cut's own gap plus
+    the raster's resolution — is a seam cell, and :func:`_prescan` refuses
+    any island touching one WHOLE, exactly as it already does for a
+    truncated side.  Both tile builds apply the identical geometric test
+    to the shared line, so they cannot disagree.  The trade is the spec's
+    own: some lawful cuts within a band of the seam are given up to buy a
+    seam that cannot wall.
+
+    Deliberately a BAND about the line, not a half-plane: an island lying
+    wholly in the NEIGHBOUR tile is that build's business (this build's
+    copy is removed by the same tile cut either way), and refusing those
+    too would blind ``scan_alt`` over most of a cross-tile airport's
+    raster for no gain."""
+    if not _config.OLS_SEAM_TILE_LINE_REFUSAL:
+        return None
+    band_x = TILE_CUT_HALF_WIDTH_M + max(dx_m, 0.0)
+    band_y = TILE_CUT_HALF_WIDTH_M + max(dy_m, 0.0)
+    x_lo, y_lo = scene.to_m(float(scene.tile_lat), float(scene.tile_lon))
+    x_hi, y_hi = scene.to_m(float(scene.tile_lat + 1),
+                            float(scene.tile_lon + 1))
+    return ((np.abs(X - x_lo) <= band_x) | (np.abs(X - x_hi) <= band_x)
+            | (np.abs(Y - y_lo) <= band_y) | (np.abs(Y - y_hi) <= band_y))
 
 
 def _footprint_bbox(scene: _Scene):
@@ -850,9 +915,11 @@ def _prescan(scene: _Scene):
         max_depth = float(d[deep])
         # HALF-AN-ISLAND GUARD, evaluated before the depth guard so the
         # reason reported is the one that actually decided it.
-        on_seam = bool((sel & grid.tile_edge).any())
+        on_data_edge = bool((sel & grid.tile_edge).any())
+        on_tile_line = bool((sel & grid.seam_edge).any())
+        on_seam = on_data_edge or on_tile_line
         if on_seam:
-            reason = "tile_edge"
+            reason = "tile_edge" if on_data_edge else "tile_line"
             refused = True
             n_seam_refused += 1
         else:

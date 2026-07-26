@@ -330,8 +330,28 @@ def weld_parts(
 
     Subsumes the prototype's ``connected_components`` (amendment A10);
     ``group_components_into_structures`` is deliberately not ported.
+
+    The union-find runs in a LOCAL index space built from the vertices
+    the given triangles actually touch, never over ``vertices`` as a
+    whole (2026-07-26 profile: ``structure_deltas`` calls this once per
+    structure with the POOL-WIDE array — 8.09 M vertices for ~3 k
+    triangles — and the ``list(range(len(vertices)))`` opening cost plus
+    its frame-exit dealloc measured 783.6 s, 57.8 % of a +30+031 build).
+    Relabelling is pure bookkeeping: the equivalence classes, and hence
+    the parts, their order and their triangle order, are unchanged —
+    only the arbitrary union-find representative differs, and that is
+    never observable in the result.
     """
-    parent = list(range(len(vertices)))
+    parent: list[int] = []
+    local_index_by_vertex: dict[int, int] = {}
+
+    def local_of(index: int) -> int:
+        local = local_index_by_vertex.get(index)
+        if local is None:
+            local = len(parent)
+            local_index_by_vertex[index] = local
+            parent.append(local)
+        return local
 
     def find(node: int) -> int:
         while parent[node] != node:
@@ -353,18 +373,19 @@ def weld_parts(
                 round(vertex[1], VERTEX_WELD_DECIMALS),
                 round(vertex[2], VERTEX_WELD_DECIMALS),
             )
+            local = local_of(index)
             if key in position_to_vertex:
-                union(index, position_to_vertex[key])
+                union(local, position_to_vertex[key])
             else:
-                position_to_vertex[key] = index
+                position_to_vertex[key] = local
 
     for first, second, third in triangles:
-        union(first, second)
-        union(second, third)
+        union(local_index_by_vertex[first], local_index_by_vertex[second])
+        union(local_index_by_vertex[second], local_index_by_vertex[third])
 
     grouped: dict[int, list[Triangle]] = defaultdict(list)
     for triangle in triangles:
-        grouped[find(triangle[0])].append(triangle)
+        grouped[find(local_index_by_vertex[triangle[0]])].append(triangle)
     return list(grouped.values())
 
 

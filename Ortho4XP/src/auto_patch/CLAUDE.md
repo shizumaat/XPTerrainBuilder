@@ -70,7 +70,7 @@ so there is no second copy to keep in sync. Change the number in `config.py` onl
 - `layout.py` — `PavementLayout`, `to_osm`.
 
 ## Build & test workflow
-- Repo: `/Users/noah/Ortho4XP-novemberlima`. Use the venv: `venv/bin/python` (there is no
+- Repo: `/Users/noah/XPTerrainBuilder/Ortho4XP`. Use the venv: `venv/bin/python` (there is no
   system `python`). `venv/bin/pip` is broken — use `venv/bin/python -m pip`.
 - Single-airport build in a script (needs `src/`, repo root, and `tests/` on `sys.path`):
   ```python

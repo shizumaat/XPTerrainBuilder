@@ -56,6 +56,7 @@ from .config import (
     CROWN_RUNWAYS,
     CROWN_SEAM_RAMP,
     CROWN_SERVICE,
+    CROWN_SPINE_SEAM_WELD,
     CROWN_TAXI,
     ENABLE_SPINE_CROWN,
     RUNWAY_CROWN_SEAM_TAPER,
@@ -1227,7 +1228,7 @@ def _axis_intervals(ax, geom) -> List[Tuple[float, float]]:
     return out
 
 
-def _extend_spine_to_cut_edges(segs, ax, body, layout):
+def _extend_spine_to_cut_edges(segs, ax, body, layout, welds=None):
     """R1 (owner ruling 2026-07-24): re-extend a clipped spine segment out
     to the tile-CUT edge it was eroded back from.
 
@@ -1239,7 +1240,12 @@ def _extend_spine_to_cut_edges(segs, ax, body, layout):
     for each eroded piece, snap an endpoint back out to the UN-eroded body
     contact whenever that contact sits on a cut-back line; every other end
     (physical threshold, crossing boundary, an interior gap) keeps its
-    clearance untouched.  Returns the (possibly extended) segments."""
+    clearance untouched.  Returns the (possibly extended) segments.
+
+    ``welds`` (optional, gate ``CROWN_SPINE_SEAM_WELD``): a list the
+    snapped-out TERMINUS ``(x, y)`` of every extended end is appended to,
+    so the caller can weld it into the ring edge it now lands on.  Purely
+    a report — the geometry produced is identical with or without it."""
     from shapely.ops import substring
     full_iv = _axis_intervals(ax, body)
     if not full_iv:
@@ -1281,14 +1287,133 @@ def _extend_spine_to_cut_edges(segs, ax, body, layout):
         except _GEOM_EXC:                               # pragma: no cover
             out.append(seg)
             continue
-        out.append(ext if (ext is not None
-                           and ext.geom_type == "LineString"
-                           and not ext.is_empty) else seg)
+        _ok = (ext is not None and ext.geom_type == "LineString"
+               and not ext.is_empty)
+        out.append(ext if _ok else seg)
+        if _ok and welds is not None:
+            if nc != c:
+                welds.append((ext.coords[0][0], ext.coords[0][1]))
+            if nd != d:
+                welds.append((ext.coords[-1][0], ext.coords[-1][1]))
     return out
 
 
+# Pavement families whose exterior ring may HOST a spine-terminus T-vertex.
+# A re-extended runway spine lands on a cut-back edge of its own runway
+# piece (or of the runway_crossing it runs through); the taxi/service
+# families are included because the same cut edge can be shared with an
+# abutting corridor face, and a T-vertex inserted into only ONE of two
+# shapes tracing the same edge just moves the unwelded node next door.
+_SPINE_WELD_HOST_ROLES = (_TAXI_FAMILY | _SERVICE_FAMILY
+                          | {ROLE_RUNWAY, ROLE_RUNWAY_CROSSING})
+
+
+def _weld_terminus_into_rings(layout, tx, ty):
+    """Land the re-extended spine TERMINUS ``(tx, ty)`` on the pavement it
+    reaches (owner ruling 2026-07-25, gate ``CROWN_SPINE_SEAM_WELD``).
+
+    The terminus is ``axis ∩ cut-back edge`` — the geometric MIDPOINT of
+    that ring edge — while ``densify_long_edges`` splits the edge into
+    ``ceil(L/60)`` EQUAL parts, so it coincides with a ring vertex only at
+    an EVEN part count.  At an odd count it is an unwelded T-vertex sitting
+    exactly ON the edge with a value of its own.  Insert it into every
+    eligible ring whose edge hosts it — the same index-aligned
+    ring + ``node_altitudes`` rebuild the conformance weld uses — and
+    return the RING's value there.
+
+    The ring is the VALUE AUTHORITY: the seam ramp has driven the crown to
+    zero at the cut-back line by design, so ridge and edge meet at one
+    surface level and it is the spine's own (pre-projection) profile value
+    that is stale.  Returns the ring value, or None when the terminus does
+    not land on any eligible edge (nothing inserted — the caller keeps the
+    spine's own value, exactly as gate-OFF).
+    """
+    from .conformance import (CONFORMANCE_TOL_M, _open_ring,
+                              _vertex_alts)
+    from shapely.geometry import Polygon as _P
+
+    tol = CONFORMANCE_TOL_M
+    ring_alt = None
+    for s in getattr(layout, "shapes", ()):
+        if (getattr(s, "role", "") or "") not in _SPINE_WELD_HOST_ROLES:
+            continue
+        try:
+            ring = _open_ring(s.polygon)
+        except _GEOM_EXC:                               # pragma: no cover
+            continue
+        if not ring:
+            continue
+        n = len(ring)
+        alts = _vertex_alts(s, n)
+        # (a) ALREADY a ring vertex (the even-count parity): nothing to
+        # insert — the coordinate exists, so ``to_osm`` welds by lookup.
+        _hit_v = None
+        for i, (px, py) in enumerate(ring):
+            if math.hypot(px - tx, py - ty) <= tol:
+                _hit_v = i
+                break
+        if _hit_v is not None:
+            if ring_alt is None and alts is not None:
+                ring_alt = float(alts[_hit_v])
+            continue
+        # (b) strictly ON an edge: insert as a T-vertex at the edge lerp.
+        best = None                     # (perp, i, t)
+        for i in range(n):
+            ax_, ay_ = ring[i]
+            bx_, by_ = ring[(i + 1) % n]
+            dx, dy = bx_ - ax_, by_ - ay_
+            L2 = dx * dx + dy * dy
+            if L2 < 1e-12:
+                continue
+            L = math.sqrt(L2)
+            t = ((tx - ax_) * dx + (ty - ay_) * dy) / L2
+            if t <= 0.0 or t >= 1.0:
+                continue
+            perp = abs((tx - ax_) * dy - (ty - ay_) * dx) / L
+            if perp >= tol:
+                continue
+            if t * L < tol or (1.0 - t) * L < tol:
+                continue                # coincident with an endpoint
+            if best is None or perp < best[0]:
+                best = (perp, i, t)
+        if best is None:
+            continue
+        _, i, t = best
+        _lerp = None
+        if alts is not None:
+            _lerp = float(alts[i]) + t * (float(alts[(i + 1) % n])
+                                          - float(alts[i]))
+        # Rebuild ring + node_altitudes together (index-aligned), keeping
+        # the interior rings — an exterior-only rebuild would fill the
+        # shape's holes (the conformance weld's own rule).
+        new_ring = list(ring[:i + 1]) + [(tx, ty)] + list(ring[i + 1:])
+        try:
+            new_poly = _P(new_ring, [list(r.coords)
+                                     for r in s.polygon.interiors])
+            if new_poly.is_empty or not new_poly.is_valid:
+                continue
+        except _GEOM_EXC:                               # pragma: no cover
+            continue
+        s.polygon = new_poly
+        # A shape emitted with a single ``altitude`` is FLAT: the inserted
+        # vertex inherits it and the shape stays flat (no node_altitudes).
+        _flat_single = (s.node_altitudes is None
+                        and getattr(s, "altitude_high", None) is None
+                        and getattr(s, "altitude_low", None) is None
+                        and getattr(s, "altitude", None) is not None)
+        if alts is not None and not _flat_single:
+            new_alts = list(alts[:i + 1]) + [_lerp] + list(alts[i + 1:])
+            s.node_altitudes = new_alts + [new_alts[0]]
+            s.altitude_high = None
+            s.altitude_low = None
+        if ring_alt is None and _lerp is not None:
+            ring_alt = _lerp
+    return ring_alt
+
+
 def _emit_ways_for_profile(seg, ax, alt_at, inner, ring_tree, ring_geoms,
-                           layout, seam_cut_exempt: bool = False
+                           layout, seam_cut_exempt: bool = False,
+                           term_alts=None
                            ) -> List[Tuple[list, list]]:
     """Sample one clipped spine segment every ~12 m; drop samples outside
     the eligible inner buffer or within the ring clearance; split into ways
@@ -1302,7 +1427,13 @@ def _emit_ways_for_profile(seg, ax, alt_at, inner, ring_tree, ring_geoms,
     there is nothing to avoid.  The waiver is scoped to the band that can
     only contain a cut edge: within ``_SPINE_RING_CLEAR_M`` of a
     ``TILE_CUT_HALF_WIDTH_M`` cut-back line.  Every ordinary pavement edge —
-    including the runway's own thresholds — keeps the full clearance."""
+    including the runway's own thresholds — keeps the full clearance.
+
+    ``term_alts`` (gate ``CROWN_SPINE_SEAM_WELD``) is ``[(x, y, alt), …]``
+    for the seam-cut TERMINI welded into a pavement ring by
+    ``_weld_terminus_into_rings``: the sample AT such a point takes the
+    RING's value, not the spine profile's (the ring is the authority
+    there — see that function)."""
     out: List[Tuple[list, list]] = []
     n_pts = max(2, int(seg.length / _SPINE_SAMPLE_STEP_M) + 1)
     way_ll: list = []
@@ -1343,6 +1474,11 @@ def _emit_ways_for_profile(seg, ax, alt_at, inner, ring_tree, ring_geoms,
             _flush()
             continue
         a = alt_at(st)
+        if term_alts:
+            for (_tx, _ty, _ta) in term_alts:
+                if abs(p.x - _tx) <= 1e-6 and abs(p.y - _ty) <= 1e-6:
+                    a = _ta
+                    break
         if a is None:
             _flush()
             continue
@@ -1369,6 +1505,17 @@ def emit_crown_spines(layout, nodes, bucket_to_idx, elev,
     _seam_ramp_on = bool(CROWN_SEAM_RAMP
                          and (getattr(layout, "_seam_anchor_keys", None)
                               or set()))
+    # SPINE SEAM WELD (owner ruling 2026-07-25, gate CROWN_SPINE_SEAM_WELD):
+    # strictly narrower than the ramp gate above — it only decides whether
+    # the re-extended TERMINUS welds into the ring edge it lands on.  No
+    # extension (ramp gate off / no seam) ⇒ nothing to weld.
+    _weld_on = bool(_seam_ramp_on and CROWN_SPINE_SEAM_WELD)
+    # Coordinates of every welded terminus, published on the layout so the
+    # later emit decimation can FORCE-KEEP them: the vote that decides a
+    # ring vertex is removable is taken over layout.shapes only, and a
+    # crown spine is not a shape — dropping the T-vertex would silently
+    # re-open the unwelded terminus this weld exists to close.
+    _weld_xy: List[Tuple[float, float]] = []
 
     # eligible pavement + its rings (clip + clearance geometry).
     polys = []
@@ -1550,18 +1697,36 @@ def emit_crown_spines(layout, nodes, bucket_to_idx, elev,
                 else [g for g in getattr(clipped, "geoms", ())
                       if g.geom_type == "LineString"])
         # R1: re-extend to the tile-CUT edge (see _extend_spine_to_cut_edges).
+        _term_alts: List[Tuple[float, float, float]] = []
         if _seam_ramp_on:
+            _welds: list = [] if _weld_on else None
             try:
-                segs = _extend_spine_to_cut_edges(segs, ax, body, layout)
+                segs = _extend_spine_to_cut_edges(segs, ax, body, layout,
+                                                  welds=_welds)
             except _GEOM_EXC:                           # pragma: no cover
-                pass
+                _welds = None
+            # SEAM WELD (owner ruling 2026-07-25): land each re-extended
+            # terminus ON the ring edge it reaches — insert it as a
+            # T-vertex and adopt the ring's value there.
+            for (_tx, _ty) in (_welds or ()):
+                try:
+                    _ra = _weld_terminus_into_rings(layout, _tx, _ty)
+                except _GEOM_EXC:                       # pragma: no cover
+                    _ra = None
+                if _ra is not None:
+                    _term_alts.append((_tx, _ty, round(float(_ra), 2)))
+                    _weld_xy.append((_tx, _ty))
         for seg in segs:
             if seg.length < 3.0:
                 continue
             spine_ways.extend(_emit_ways_for_profile(
                 seg, ax, _alt_at_rwy, None, ring_tree, ring_geoms,
-                layout, seam_cut_exempt=_seam_ramp_on))
+                layout, seam_cut_exempt=_seam_ramp_on,
+                term_alts=_term_alts or None))
 
+    if _weld_xy:
+        _prev = list(getattr(layout, "_crown_spine_weld_xy", None) or [])
+        layout._crown_spine_weld_xy = _prev + _weld_xy
     if spine_ways:
         existing = getattr(layout, "crown_spines", None) or []
         layout.crown_spines = existing + spine_ways

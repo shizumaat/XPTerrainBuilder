@@ -264,6 +264,14 @@ def test_solved_resampler_value_rules():
 # ── gate-ON emission end-to-end ──────────────────────────────────────────
 def test_emit_admission_reads_solved_store(monkeypatch):
     _enable_full_chain(monkeypatch)
+    # This test proves the solved store is the VALUATION SOURCE, using a
+    # deliberately extreme constant (23 m off the pavement edge) so a
+    # solved value can never be confused with an analytic one.  The
+    # emit-side corridor clamp (owner-visible notch fix 2026-07-25) would
+    # legitimately pull that constant back into the law corridor, so it is
+    # held OFF here; the clamp has its own tests
+    # (test_adjacent_ground_apron_wall.py) including this exact fixture.
+    monkeypatch.setattr(AG, "_BAND_CORRIDOR_CLAMP", False)
     layout = _mk_layout()
     AG.construct_adjacent_ground_presolve(
         layout, dem=object(), tile_lat=0, tile_lon=0,

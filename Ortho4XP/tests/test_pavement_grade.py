@@ -335,7 +335,15 @@ def test_runway_longitudinal_grade(icao):
     longitudinal limit the runway solver + runway-flex enforce today.  Guards
     against a runway-flex MOVE (or any solver change) pulling a runway steeper
     than 1.5% along its axis.  Reconstructs the profile from the whole-airport
-    layout (a runway is continuous; not per-tile)."""
+    layout (a runway is continuous; not per-tile).
+
+    ★ Owner ruling 2026-07-26 (``config.RUNWAY_SEAM_CUTBACK_DEM_ANCHORS``):
+    "ALL nodes along the seam MUST be at exact DEM and anchored BEFORE the
+    solve, then the solver can grade between them and its other anchors to
+    maintain grade."  A segment between two tile-seam cut-back nodes is a
+    terrain reading, not a solver choice — ``check_runway_profile`` reports
+    those separately (see ``test_runway_seam_dem_steps_are_reported``) and
+    this assertion covers the profile the solver actually owns."""
     from conftest import cached_airport_layout
     from auto_patch.verification import check_runway_profile
 
@@ -347,6 +355,36 @@ def test_runway_longitudinal_grade(icao):
     assert not vios, (
         f"{icao}: {len(vios)} runway longitudinal-grade violation(s) "
         f"> {1.5:.1f}%.  Worst:\n  {_fmt_rwy(vios)}")
+
+
+def test_runway_seam_dem_steps_are_reported():
+    """★ Owner ruling 2026-07-26: the DEM anchor wins at every seam node and
+    the grade the solver must step through between two of them is REPORTED.
+
+    SPLP's RW02/20 crosses the -77 tile line at 18 degrees over terrain that
+    rises ~2 m across the contact, so at least one adjacent cut-back pair is
+    steeper than the 1.5% runway law.  It must appear in the seam-step report
+    (with its grade) and NOT in the profile violations."""
+    from conftest import cached_airport_layout
+    from auto_patch import config as CFG
+    from auto_patch.verification import check_runway_profile
+
+    if not CFG.RUNWAY_SEAM_CUTBACK_DEM_ANCHORS:
+        pytest.skip("O4_RUNWAY_SEAM_CUTBACK_DEM=0: pre-ruling behaviour")
+    layout = cached_airport_layout("SPLP", tile_lat=-13, tile_lon=-77)
+    vios = check_runway_profile(
+        layout, end_grade_cap=None, check_curvature=False)
+    steps = getattr(layout, "_runway_seam_grade_steps", None)
+    assert steps is not None, "the seam-step report must always be published"
+    assert steps, (
+        "SPLP's oblique seam contact must produce at least one over-cap "
+        "seam-DEM step to report")
+    for kind, _ref, grade, cap, _ll in steps:
+        assert kind == "seam_dem_step"
+        assert grade > cap, "only over-cap steps are worth reporting"
+    # ...and none of them is counted as a profile violation.
+    assert not [v for v in vios if v[0] == "grade"], (
+        f"seam-DEM steps leaked into the profile violations: {vios[:3]}")
 
 
 @pytest.mark.xfail(

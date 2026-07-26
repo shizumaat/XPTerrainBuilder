@@ -618,6 +618,14 @@ def check_runway_profile(layout, end_grade_cap="default",
         constraints, so it can reintroduce a curvature violation — this catches
         that).
 
+    ★ Owner ruling 2026-07-26 (``config.RUNWAY_SEAM_CUTBACK_DEM_ANCHORS``):
+    "ALL nodes along the seam MUST be at exact DEM and anchored BEFORE the
+    solve, then the solver can grade between them and its other anchors to
+    maintain grade."  A segment whose BOTH ends sit on a tile-cut CUT-BACK
+    line is therefore a TERRAIN reading, not a solver choice: it is excluded
+    from the returned violations and published on
+    ``layout._runway_seam_grade_steps`` (kind ``seam_dem_step``) instead.
+
     ``end_grade_cap`` defaults to ``RUNWAY_END_GRADE`` (0.8%); pass ``None`` for
     a uniform ``RUNWAY_MAX_GRADE`` cap (the only longitudinal limit the default
     profile currently enforces — the 0.8% end cap is opt-in and the
@@ -655,6 +663,41 @@ def check_runway_profile(layout, end_grade_cap="default",
             continue
         by_ref.setdefault(s.ref or "", []).append((s, cs))
 
+    # ── TILE-SEAM CUT-BACK STEPS ARE TERRAIN, NOT SOLVER (owner ruling
+    #    2026-07-26, ``config.RUNWAY_SEAM_CUTBACK_DEM_ANCHORS``) ──────────
+    #   "ALL nodes along the seam MUST be at exact DEM and anchored BEFORE
+    #    the solve, then the solver can grade between them and its other
+    #    anchors to maintain grade."
+    # Every vertex on a tile-cut CUT-BACK line is now a hard DEM anchor, so a
+    # segment BETWEEN TWO of them measures the terrain the 10 m seam gap
+    # renders — not a profile the solver chose.  Where the terrain across the
+    # contact is steeper than 1.5 % the ruling says the DEM wins and the step
+    # is REPORTED, so such segments are collected in
+    # ``layout._runway_seam_grade_steps`` (and named in the build log by
+    # ``runway_redistribute``'s seam report) instead of counted as profile
+    # violations.  ONLY pairs with BOTH ends on a cut-back line qualify: a
+    # seam node against an inland profile node is still fully governed.
+    # Gate off ⇒ ``seam_specs`` is empty ⇒ byte-identical to the old reader,
+    # as it is for every single-tile airport.
+    seam_specs: list = []
+    try:
+        from .config import RUNWAY_SEAM_CUTBACK_DEM_ANCHORS as _RSC_V
+        if _RSC_V:
+            from .tile_cut import cutback_specs_for_layout as _cb_specs
+            seam_specs = list(_cb_specs(layout) or [])
+    except Exception:                                  # pragma: no cover
+        seam_specs = []
+    _SEAM_SEG_TOL_M = 0.5
+
+    def _on_cutback(x, y):
+        pt = (x, y)
+        return any(abs(pt[axis] - c) <= _SEAM_SEG_TOL_M
+                   for axis, c in seam_specs)
+
+    def _seam_segment(x0, y0, x1, y1):
+        return bool(seam_specs) and _on_cutback(x0, y0) and _on_cutback(x1, y1)
+
+    seam_steps: list = []
     out = []
     for ref, items in by_ref.items():
         ax = _runway_principal_axis([p for _s, cs in items for p in cs])
@@ -741,6 +784,16 @@ def check_runway_profile(layout, end_grade_cap="default",
                     cap = (end_grade_cap
                            if (in_end and end_grade_cap is not None)
                            else RUNWAY_MAX_GRADE)
+                    if _seam_segment(x0, y0, x1, y1):
+                        # Two DEM anchors on the cut-back line: report the
+                        # step, never flag it (ruling above).
+                        if abs(e1 - e0) - RUNWAY_MAX_GRADE * seg > noise_m:
+                            seam_steps.append(
+                                ("seam_dem_step", ref, abs(e1 - e0) / seg,
+                                 RUNWAY_MAX_GRADE,
+                                 _ll(layout, 0.5 * (x0 + x1),
+                                     0.5 * (y0 + y1))))
+                        at_crossing = True     # also skips the curvature pair
                     if (not at_crossing) and abs(e1 - e0) - cap * seg > noise_m:
                         out.append(("grade", ref, abs(e1 - e0) / seg, cap,
                                     _ll(layout, 0.5 * (x0 + x1),
@@ -802,6 +855,13 @@ def check_runway_profile(layout, end_grade_cap="default",
                       or max(fi, fj) > 1.0 - RUNWAY_END_FRACTION)
             cap = (end_grade_cap if (in_end and end_grade_cap is not None)
                    else RUNWAY_MAX_GRADE)
+            if _seam_segment(x0, y0, x1, y1):     # ruling 2026-07-26
+                if abs(e1 - e0) - RUNWAY_MAX_GRADE * seg > noise_m:
+                    seam_steps.append(
+                        ("seam_dem_step", ref, abs(e1 - e0) / seg,
+                         RUNWAY_MAX_GRADE,
+                         _ll(layout, 0.5 * (x0 + x1), 0.5 * (y0 + y1))))
+                at_crossing = True
             if (not at_crossing) and abs(e1 - e0) - cap * seg > noise_m:
                 out.append(("grade", ref, abs(e1 - e0) / seg, cap,
                             _ll(layout, 0.5 * (x0 + x1), 0.5 * (y0 + y1))))
@@ -825,6 +885,15 @@ def check_runway_profile(layout, end_grade_cap="default",
                 out.append(("curvature", ref, abs(gr - gl), max_dg,
                             _ll(layout, mx, my)))
     out.sort(key=lambda r: -(r[2] - r[3]))
+    # The ruling's reporting duty: the seam-DEM steps are PUBLISHED (same
+    # tuple shape, kind ``seam_dem_step``) so a caller/test can read exactly
+    # which seam pairs step through more than the runway grade law and by how
+    # much — they are lawful under the 2026-07-26 ruling, never hidden.
+    seam_steps.sort(key=lambda r: -(r[2] - r[3]))
+    try:
+        layout._runway_seam_grade_steps = seam_steps  # type: ignore[attr-defined]
+    except Exception:                                  # pragma: no cover
+        pass
     return out
 
 
@@ -1325,7 +1394,7 @@ def check_runway_end_skirt(layout, dem, tile_lat, tile_lon,
 # readers therefore call the SAME law functions over the SAME station
 # sequence.
 #
-# Four mirrors live in the helpers below, each reading the SAME config
+# Five mirrors live in the helpers below, each reading the SAME config
 # gate the emitter reads (so a flip moves both readers at once) and each
 # structurally INERT with its gate off:
 #
@@ -1342,6 +1411,40 @@ def check_runway_end_skirt(layout, dem, tile_lat, tile_lon,
 #      collar rings emitted is the collar's ground, so the emitter builds
 #      no band there and the validator must not flag the un-graded
 #      columns beyond it.
+#   5. RAY OCCLUSION (``BAND_RAY_OCCLUSION_ENABLED``, owner ruling
+#      2026-07-25 "it should stop at pavement"): a lateral band's outward
+#      reach is measured through FREE GROUND ONLY, so the emitter's march
+#      terminates at the first pavement hit.  The transect scan below
+#      terminates at the SAME distance — it calls the emitter's OWN
+#      ``adjacent_ground._station_occlusion_limits`` over the SAME station
+#      sequence against the geometry the emitter PUBLISHED at emit time
+#      (``layout.adjacent_ground_occlusion``), so there is no second copy
+#      of the law and no second copy of the pavement.  Without the mirror
+#      the reader would keep marching past an occluding pavement and mint
+#      should_cut / should_fill against ground the emitter lawfully
+#      stopped short of.  Inert when nothing is published (this emitter
+#      never ran, or the gate is off).
+#   6. APRON WALL SCOPE (``APRON_WALL_SCOPE_ENABLED``, owner ruling
+#      2026-07-25 "if it's open terrain just let the raw Ortho4XP dem
+#      grade up to the apron edge"): APRON frontage with no built
+#      pavement within ``APRON_WALL_PAVEMENT_ADJACENCY_M`` is UNGOVERNED
+#      ON THE FILL SIDE — the emitter lays neither a shoulder band nor a
+#      retaining wall there.  Mirrored by zeroing those stations' FILL
+#      cap (the emitter nulls their fill reference — same effect,
+#      expressed in this reader's own vocabulary), off the emitter's OWN
+#      ``adjacent_ground.apron_wall_frontage_qualifier`` over an index of
+#      PAVEMENT roles only — which the bands and walls do not belong to,
+#      so this reader rebuilds the emitter's index exactly rather than
+#      needing it published.  The CUT side is untouched: a wingtip
+#      obstruction is still flagged wherever it stands.  Inert with the
+#      gate off — and, as it happens, inert TODAY in either gate state:
+#      the apron family's fill cap IS the 3 m shoulder, which is inside
+#      this reader's 5 m station step, so no apron should_fill can be
+#      minted at all (the SUB-STEP CAPS divergence documented in the raw
+#      scan below, which only ever makes the reader flag LESS).  The
+#      mirror is carried anyway so that a future change to either number
+#      cannot silently start flagging the ground this ruling leaves
+#      ungoverned (pinned in test_adjacent_ground_apron_wall.py).
 # ══════════════════════════════════════════════════════════════════════
 
 
@@ -1963,6 +2066,36 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
     # gate off / nothing collared, so the march is byte-identical then.
     collar_zone_prep = _collared_pocket_zone_prep(layout)
 
+    # MIRROR 5 — RAY OCCLUSION.  The PREPARED static union the emitter
+    # marched through, published by ``adjacent_ground`` at emit entry (it
+    # cannot be rebuilt here: by verify time ``layout.shapes`` also holds
+    # this pass's own bands, which weld to the pavement edge and would
+    # occlude every ray at its first sample).  ``None`` — gate off, or the
+    # band emitter never ran — leaves the scan below byte-identical.
+    from .config import BAND_RAY_OCCLUSION_ENABLED as _RAY_OCCLUSION
+    from .adjacent_ground import (
+        _OCCLUSION_CLEAR, _station_occlusion_limits)
+    # MIRROR 6 — APRON WALL SCOPE.  Built ONCE here over PAVEMENT roles
+    # (the emitted bands / walls are not pavement roles, so this index is
+    # identical to the one the emitter built pre-emit) and consumed per
+    # apron shape below.  ``None`` with the gate off ⇒ no fill-cap
+    # zeroing, i.e. the pre-ruling reader verbatim.
+    from .config import APRON_WALL_SCOPE_ENABLED as _APRON_WALL_SCOPE
+    from .adjacent_ground import (
+        _APRON_ROLES as _APRON_FAMILY_ROLES,
+        apron_wall_frontage_qualifier as _apron_wall_qualifier,
+        apron_wall_pavement_adjacency_index as _apron_wall_index_fn)
+    _apron_wall_index = (_apron_wall_index_fn(layout)
+                         if _APRON_WALL_SCOPE else None)
+    occl_prep = None
+    _occl_union = getattr(layout, "adjacent_ground_occlusion", None)
+    if (_RAY_OCCLUSION and _occl_union is not None
+            and not _occl_union.is_empty):
+        try:
+            occl_prep = prep(_occl_union)
+        except CL._GEOM_EXC:
+            occl_prep = None
+
     def _crosses_collar(sx, sy, qx, qy):
         """True when the station→sample transect crosses an emitted collar
         ring — the collar is carrying the drainage law across that ground,
@@ -2032,6 +2165,43 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
         fill_caps, cut_caps = _adjacent_ground_station_caps(
             list(zip(st_x, st_y)), width, reach, axis_line, axis_classes)
 
+        # MIRROR 6 — APRON WALL SCOPE (owner ruling 2026-07-25).  An apron
+        # station with no built pavement within
+        # ``APRON_WALL_PAVEMENT_ADJACENCY_M`` faces OPEN TERRAIN, which the
+        # ruling leaves ungoverned on the FILL side: the emitter nulls the
+        # station's fill reference, and the exactly-equivalent statement in
+        # this reader's vocabulary is a zero fill cap (the raw scan's
+        # ``d <= fill_cap`` and the flag loop's ``d <= sf`` then never
+        # admit a sample, so no ``should_fill`` is minted; the CUT scan and
+        # every other station are untouched).  ``None`` qualifier — gate
+        # off, non-apron shape, or no pavement at all — leaves the caps as
+        # built, byte-identical.
+        _wall_scope_q = (
+            _apron_wall_qualifier(s, _apron_wall_index)
+            if s.role in _APRON_FAMILY_ROLES else None)
+        if _wall_scope_q is not None:
+            for _i in range(n_st):
+                if not _wall_scope_q(st_x[_i], st_y[_i]):
+                    fill_caps[_i] = 0.0
+
+        # MIRROR 5 — RAY OCCLUSION.  The emitter's OWN helper, over this
+        # shape's station sequence, on the same 5 m grid
+        # (``CLEARANCE_STATION_STEP_M`` == this reader's ``step_m``) and
+        # the same per-station MAX of the two caps: one float per station,
+        # the last free-ground depth before its outward ray enters
+        # pavement.  ``None`` = nothing occluded (and always with the gate
+        # off / nothing published) — the scan below is then untouched.
+        # ``wrap_skirt_prep`` is deliberately NOT passed: this reader has
+        # no taxiway-end WRAP mirror (its station probe treats every static
+        # hit as covering), so treating a skirt as an occluder here only
+        # stops the reader EARLIER — it flags less, never more.
+        occlusion = (
+            _station_occlusion_limits(
+                list(zip(st_x, st_y)), st_outn,
+                [f if f > c else c for f, c in zip(fill_caps, cut_caps)],
+                step_m, occl_prep)
+            if occl_prep is not None else None)
+
         # RAW OUTWARD SCAN — the emitter's ``outer[i]``: the furthest distance
         # the DEM breaches the corridor by more than the emitter TRIGGER, one
         # step out, capped at the station's band cap (fill breaches exist only
@@ -2063,10 +2233,18 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
             # against emitted work, which is the invariant that matters.
             scan_cap = fill_cap if fill_cap > cut_cap else cut_cap
             n_out = max(1, int(math.ceil(scan_cap / step_m)))
+            # MIRROR 5 — the station's free-ground reach (+inf = clear).
+            occ = _OCCLUSION_CLEAR if occlusion is None else occlusion[idx]
             samples = []
             last_fill = last_cut = 0.0
             for j in range(1, n_out + 1):
                 d = min(scan_cap - 1e-3, j * step_m)
+                if d > occ:
+                    # MIRROR 5 — pavement stands in the transect: the
+                    # emitter's march stopped here, so every deeper column
+                    # is the OCCLUDER's frontage to grade, not this band's.
+                    # Never appended to ``samples`` ⇒ never flagged.
+                    break
                 floor_off, ceil_off = adjacent_ground_envelope(
                     env_role, code_number, code_letter, d)
                 if floor_off is None and ceil_off is None:
@@ -2085,12 +2263,14 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
                         and offset > ceil_off + trigger):
                     last_cut = d
             marched[idx] = samples
+            # MIRROR 5 — the emitter clamps its ``outer[i]`` (the raw depth
+            # plus the one-step widening) to the same free-ground reach.
             if last_fill > 0.0:
                 fill_raw[idx] = min(scan_cap - 1e-3, fill_cap,
-                                    last_fill + step_m)
+                                    last_fill + step_m, occ)
             if last_cut > 0.0:
                 cut_raw[idx] = min(scan_cap - 1e-3, cut_cap,
-                                   last_cut + step_m)
+                                   last_cut + step_m, occ)
 
         # DAYLIGHT slope-limit (the ONE law, in lockstep with the emitter's
         # ``_build_*_bands`` clamp): a column BEYOND the supported depth is not

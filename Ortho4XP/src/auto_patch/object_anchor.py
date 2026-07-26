@@ -87,6 +87,14 @@ A3_GUARD_MAXIMUM_DIAMETER_METRES = 100.0
 # reason text and this phrase must stay in lockstep.
 GROUND_SPAN_SKIP_REASON_PHRASE = "exceeds the rigid-seat limit"
 
+# Stable phrase opening the ``skip_reason`` of a structure left at its
+# authored elevations because the SUPPORTER whose ground it inherits was
+# itself skipped (``DSF_OBJECT_SUPPORTER_FATE``, config.py — the HECA
+# 2026-07-26 tear diagnosis).  ``post_mesh`` matches on it for the
+# per-airport summary count, so the phrase and the reason text built in
+# :func:`structure_deltas` must stay in lockstep.
+SUPPORTER_FATE_SKIP_REASON_PHRASE = "supporter skipped"
+
 
 @dataclass(frozen=True)
 class ObjectPool:
@@ -410,6 +418,164 @@ def detect_foot_clusters(
         )
     feet.sort(key=lambda foot: (foot.centroid_x, foot.centroid_z))
     return feet
+
+
+# ---------------------------------------------------------------------------
+# Supporter selection (invariant I-8) — the smallest containing parent.
+# ---------------------------------------------------------------------------
+# Defect B (HECA, 2026-07-26): "first containing supporter in index
+# order" hands every nested inheritor to whichever containing structure
+# the partition happened to emit first, which for a co-baked payware pack
+# is the kilometre-scale terminal web (HECA structure 0, 1237 x 2480 m,
+# 8,102 inheritors — 1,761 of them with a SMALLER containing supporter
+# available).  ``DSF_OBJECT_SUPPORTER_SMALLEST`` picks the smallest
+# containing box instead.
+#
+# Done naively that costs a full scan of every supporter for every
+# inheritor whose only container is the mega-structure (8,102 x 2,500 =
+# 20 M box tests at HECA, seconds of build time), because the winning
+# candidate no longer sits at the front of the list.  The grid below
+# keeps it linear: supporters are bucketed by the cells their plan box
+# covers, each bucket ordered smallest-area-first, so the first
+# containing member of a bucket IS that bucket's answer.  A box covering
+# more than ``_SUPPORTER_GRID_OVERSIZED_CELLS`` cells is held aside in
+# one small ``oversized`` list rather than written into every cell — one
+# airport-sized structure must never cost the whole grid.
+_SUPPORTER_GRID_TARGET_CELLS = 4096
+_SUPPORTER_GRID_OVERSIZED_CELLS = 64
+
+
+def _plan_box_area_square_metres(
+    box: tuple[float, float, float, float] | None,
+) -> float:
+    """Plan (horizontal) area of a ``(min_x, max_x, min_z, max_z)`` box.
+    ``None`` — a structure with no triangles in this pool's frame — is
+    infinitely large so it can never win the smallest-containing test."""
+    if box is None:
+        return math.inf
+    return (box[1] - box[0]) * (box[3] - box[2])
+
+
+@dataclass(frozen=True)
+class _SupporterIndex:
+    """Grid index over candidate supporters' plan boxes.
+
+    ``cells`` maps a ``(cell_x, cell_z)`` key to the supporter indices
+    whose box reaches that cell, ordered by ``(plan box area, structure
+    index)``; ``oversized`` holds the same ordering for boxes too large
+    to bucket.  Both orderings put the smallest box first, so the FIRST
+    containing member of either list is that list's smallest containing
+    supporter and the overall answer is the smaller of the two."""
+
+    cell_size_metres: float
+    origin_x: float
+    origin_z: float
+    cells: dict[tuple[int, int], list[int]]
+    oversized: list[int]
+
+
+def _build_supporter_index(
+    supporter_indices: list[int],
+    bounding_box_by_structure: list[tuple[float, float, float, float] | None],
+) -> _SupporterIndex:
+    """Bucket the candidate supporters for smallest-containing lookup."""
+    boxed_indices = [
+        candidate_index
+        for candidate_index in supporter_indices
+        if bounding_box_by_structure[candidate_index] is not None
+    ]
+    if not boxed_indices:
+        return _SupporterIndex(1.0, 0.0, 0.0, {}, [])
+
+    minimum_x = min(
+        bounding_box_by_structure[index][0] for index in boxed_indices
+    )
+    maximum_x = max(
+        bounding_box_by_structure[index][1] for index in boxed_indices
+    )
+    minimum_z = min(
+        bounding_box_by_structure[index][2] for index in boxed_indices
+    )
+    maximum_z = max(
+        bounding_box_by_structure[index][3] for index in boxed_indices
+    )
+    width = max(maximum_x - minimum_x, 1.0)
+    depth = max(maximum_z - minimum_z, 1.0)
+    cell_size_metres = max(
+        math.sqrt(width * depth / _SUPPORTER_GRID_TARGET_CELLS), 1.0
+    )
+
+    # Smallest box first, ties by lowest structure index — the ordering
+    # every bucket inherits, and the tie-break the design specifies.
+    ordered_indices = sorted(
+        boxed_indices,
+        key=lambda candidate_index: (
+            _plan_box_area_square_metres(
+                bounding_box_by_structure[candidate_index]
+            ),
+            candidate_index,
+        ),
+    )
+
+    cells: dict[tuple[int, int], list[int]] = defaultdict(list)
+    oversized: list[int] = []
+    for candidate_index in ordered_indices:
+        box = bounding_box_by_structure[candidate_index]
+        first_cell_x = int(math.floor((box[0] - minimum_x) / cell_size_metres))
+        last_cell_x = int(math.floor((box[1] - minimum_x) / cell_size_metres))
+        first_cell_z = int(math.floor((box[2] - minimum_z) / cell_size_metres))
+        last_cell_z = int(math.floor((box[3] - minimum_z) / cell_size_metres))
+        covered_cells = (last_cell_x - first_cell_x + 1) * (
+            last_cell_z - first_cell_z + 1
+        )
+        if covered_cells > _SUPPORTER_GRID_OVERSIZED_CELLS:
+            oversized.append(candidate_index)
+            continue
+        for cell_x in range(first_cell_x, last_cell_x + 1):
+            for cell_z in range(first_cell_z, last_cell_z + 1):
+                cells[(cell_x, cell_z)].append(candidate_index)
+    return _SupporterIndex(
+        cell_size_metres=cell_size_metres,
+        origin_x=minimum_x,
+        origin_z=minimum_z,
+        cells=dict(cells),
+        oversized=oversized,
+    )
+
+
+def _smallest_containing_supporter_index(
+    index: _SupporterIndex,
+    bounding_box_by_structure: list[tuple[float, float, float, float] | None],
+    centroid_x: float,
+    centroid_z: float,
+) -> int | None:
+    """The containing supporter with the smallest plan box (ties: lowest
+    structure index), or ``None`` when no candidate box contains the
+    point."""
+    cell_size = index.cell_size_metres
+    cell_key = (
+        int(math.floor((centroid_x - index.origin_x) / cell_size)),
+        int(math.floor((centroid_z - index.origin_z) / cell_size)),
+    )
+    best_index: int | None = None
+    best_key: tuple[float, int] | None = None
+    for candidates in (index.cells.get(cell_key, ()), index.oversized):
+        for candidate_index in candidates:
+            box = bounding_box_by_structure[candidate_index]
+            if (
+                box[0] <= centroid_x <= box[1]
+                and box[2] <= centroid_z <= box[3]
+            ):
+                candidate_key = (
+                    _plan_box_area_square_metres(box),
+                    candidate_index,
+                )
+                if best_key is None or candidate_key < best_key:
+                    best_index, best_key = candidate_index, candidate_key
+                # Each list is ordered smallest-first, so the first hit
+                # is that list's best; nothing after it can improve on it.
+                break
+    return best_index
 
 
 @dataclass(frozen=True)
@@ -923,10 +1089,14 @@ def structure_deltas(
     the mesh skips every structure touching that object.  A structure
     with no ground-touching part inherits its supporter's ground
     (invariant I-8): the ground-touching structure whose horizontal
-    bounding box (pool frame) contains its centroid, else the nearest by
-    centroid distance; ``inherited_from_structure_index`` records it
-    (an index into the returned ``structures`` list, which preserves the
-    caller's order).
+    bounding box (pool frame) contains its centroid — the SMALLEST such
+    box, ties by lowest structure index
+    (``DSF_OBJECT_SUPPORTER_SMALLEST``, defect B: the pre-fix
+    first-in-index-order choice handed 8,102 HECA inheritors to a
+    1237 x 2480 m mega-structure, 1,761 of them over a smaller
+    containing supporter) — else the nearest by centroid distance;
+    ``inherited_from_structure_index`` records it (an index into the
+    returned ``structures`` list, which preserves the caller's order).
 
     ``ground_span_metres`` is the max−min of ``ground_under`` over the
     structure's ground-touching parts' centroids; a part centroid
@@ -959,12 +1129,27 @@ def structure_deltas(
     audit trail); feet the rigid offset cannot seat raise
     ``RebakeDecision.foot_pad_requests``.
 
+    Supporter FATE (``DSF_OBJECT_SUPPORTER_FATE``, HECA 2026-07-26): an
+    inheritor is only correct while its supporter actually moves to the
+    inherited ground.  A supporter left at its authored elevations (the
+    rigid-seat span limit, the A3 guard, anything) that still hands its
+    ground to its inheritors tears them off it — 8,102 HECA structures
+    baked −2.00…−2.45 m relative to a mega-structure that never budged.
+    So an inheritor SHARES ITS SUPPORTER'S FATE: skipped supporter ⇒
+    skipped inheritor, ``skip_reason`` opening with
+    :data:`SUPPORTER_FATE_SKIP_REASON_PHRASE` and quoting the parent's
+    reason.  This is why pass 3 below evaluates supporters BEFORE their
+    inheritors; with the gate off it runs in plain index order and every
+    byte is as it was.
+
     Positional commands and ``ANIM`` handling are workstream W5's
     concern, not this function's.
     """
     from .config import (
         DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M,
         DSF_OBJECT_ELEVATED_BASE_M,
+        DSF_OBJECT_SUPPORTER_FATE,
+        DSF_OBJECT_SUPPORTER_SMALLEST,
         DSF_OBJECT_FOOT_ANCHOR,
         DSF_OBJECT_FOOT_BAND_M,
         DSF_OBJECT_FOOT_CLUSTER_GAP_M,
@@ -1155,14 +1340,22 @@ def structure_deltas(
 
     # Pass 2 — inheritance for structures with no ground-touching part
     # (invariant I-8).  Supporters are ground-touching structures with a
-    # valid ground sample; containment wins over distance, first
-    # containing supporter in list order for determinism.
+    # valid ground sample; containment wins over distance.  Among the
+    # CONTAINING candidates the supporter is the smallest plan box, ties
+    # by lowest structure index (``DSF_OBJECT_SUPPORTER_SMALLEST``,
+    # defect B); with the gate off it is the first containing candidate
+    # in structure-index order, exactly as before.
     supporter_indices = [
         structure_index
         for structure_index, structure in enumerate(structures)
         if structure.is_ground_touching
         and structure_index in ground_by_index
     ]
+    supporter_index_grid = (
+        _build_supporter_index(supporter_indices, bounding_box_by_structure)
+        if DSF_OBJECT_SUPPORTER_SMALLEST and supporter_indices
+        else None
+    )
     inherited_from_by_index: dict[int, int] = {}
     foot_anchored_by_index: dict[int, list[FootCluster]] = {}
     for structure_index, structure in enumerate(structures):
@@ -1197,17 +1390,25 @@ def structure_deltas(
                 continue
         centroid_x, centroid_z = frame_centroid_by_structure[structure_index]
         supporter_index = None
-        for candidate_index in supporter_indices:
-            candidate_box = bounding_box_by_structure[candidate_index]
-            if candidate_box is None:
-                continue
-            minimum_x, maximum_x, minimum_z, maximum_z = candidate_box
-            if (
-                minimum_x <= centroid_x <= maximum_x
-                and minimum_z <= centroid_z <= maximum_z
-            ):
-                supporter_index = candidate_index
-                break
+        if supporter_index_grid is not None:
+            supporter_index = _smallest_containing_supporter_index(
+                supporter_index_grid,
+                bounding_box_by_structure,
+                centroid_x,
+                centroid_z,
+            )
+        else:
+            for candidate_index in supporter_indices:
+                candidate_box = bounding_box_by_structure[candidate_index]
+                if candidate_box is None:
+                    continue
+                minimum_x, maximum_x, minimum_z, maximum_z = candidate_box
+                if (
+                    minimum_x <= centroid_x <= maximum_x
+                    and minimum_z <= centroid_z <= maximum_z
+                ):
+                    supporter_index = candidate_index
+                    break
         if supporter_index is None and supporter_indices:
             supporter_index = min(
                 supporter_indices,
@@ -1230,20 +1431,82 @@ def structure_deltas(
 
     # Pass 3 — ground span, the amendment-A3 residual arithmetic, and the
     # per-(structure, object) deltas (spec section 2.4, invariant I-3).
-    updated_structures: list[Structure] = []
+    #
+    # SUPPORTERS FIRST (``DSF_OBJECT_SUPPORTER_FATE``): an inheritor may
+    # only bake if the supporter it took its ground from is itself going
+    # to move, and that is decided right here — so every non-inheritor
+    # (which is every possible supporter: pass 2 only ever inherits from
+    # a ground-touching structure, and a ground-touching structure never
+    # inherits) is evaluated before the first inheritor.  Results land in
+    # ``updated_by_index`` and are re-serialised in index order at the
+    # end, so the returned list still matches ``structures`` positionally
+    # whichever order the work happened in.  With the gate off the order
+    # is plain ``enumerate`` and nothing below changes at all.
+    updated_by_index: dict[int, Structure] = {}
     delta_by_resource_and_vertex: dict[str, dict[int, float]] = {}
     foot_clusters_by_structure_index: dict[int, tuple[FootCluster, ...]] = {}
     foot_pad_requests: list[FootPadRequest] = []
-    for structure_index, structure in enumerate(structures):
+    if DSF_OBJECT_SUPPORTER_FATE:
+        processing_order = sorted(
+            range(len(structures)),
+            key=lambda index: (index in inherited_from_by_index, index),
+        )
+    else:
+        processing_order = list(range(len(structures)))
+    for structure_index in processing_order:
+        structure = structures[structure_index]
         if structure_index in skip_reason_by_index:
-            updated_structures.append(
-                replace(
-                    structure,
-                    skip_reason=skip_reason_by_index[structure_index],
-                )
+            updated_by_index[structure_index] = replace(
+                structure,
+                skip_reason=skip_reason_by_index[structure_index],
             )
             continue
         structure_ground = ground_by_index[structure_index]
+
+        # Supporter fate.  The supporter has already been evaluated (see
+        # the processing order above); if it was skipped it stayed at its
+        # authored elevations, and the ground this structure inherited
+        # from it describes a seat that no longer exists.
+        supporter_index = inherited_from_by_index.get(structure_index)
+        if DSF_OBJECT_SUPPORTER_FATE and supporter_index is not None:
+            supporter_skip_reason = (
+                updated_by_index[supporter_index].skip_reason
+                if supporter_index in updated_by_index
+                else None
+            )
+            if supporter_skip_reason:
+                # NOTE (measured 2026-07-26, and deliberately NOT done):
+                # pass 2's foot-candidate ``supported`` test also counts
+                # skipped supporters, which is why HECA detects zero
+                # foot-anchored structures.  Making it ignore them is
+                # WRONG: a skipped supporter is still physically there,
+                # at its authored elevations, and the clutter still
+                # rests on it.  Re-routing those candidates to the
+                # per-foot path seats them on TERRAIN — measured at
+                # HECA it dropped 80 structures by 4.3 m to 25.7 m
+                # (``T23/yellow_metal.obj``, authored base y = +19.7 m,
+                # would have fallen from the terminal roof to the
+                # apron), and 33 more at EGGW.  Leaving them at their
+                # authored elevations with their supporter is the
+                # correct outcome; re-homing them needs the
+                # supporter-bbox size gate, which is separate future
+                # work.
+                updated_by_index[structure_index] = replace(
+                    structure,
+                    # No ground-touching part of its own, hence no
+                    # ground span (the value a baked inheritor gets).
+                    ground_span_metres=0.0,
+                    needs_pad=False,
+                    inherited_from_structure_index=supporter_index,
+                    skip_reason=(
+                        f"{SUPPORTER_FATE_SKIP_REASON_PHRASE} "
+                        f"({supporter_skip_reason}) — this structure "
+                        "inherits that supporter's ground (invariant "
+                        "I-8) and must share its fate; left at "
+                        "authored elevations"
+                    ),
+                )
+                continue
 
         anchored_feet = foot_anchored_by_index.get(structure_index)
         if anchored_feet is not None:
@@ -1429,21 +1692,36 @@ def structure_deltas(
         # path is for, never a reason to refuse.  A skip is per
         # STRUCTURE: the resource carries no delta, so the byte-idempotent
         # rewrite (and the reversion pass) leave it at its authored y.
+        #
+        # DEFECT A, MEASURED AND NOT LANDED (2026-07-26).  This test is
+        # max−min, and it runs BEFORE the amendment-A3 arithmetic below,
+        # so a structure whose median seat would be a large A3
+        # improvement is refused unheard — at HECA structure 0 the
+        # authored ground-part residuals run at a median of 3.089 m
+        # against 0.450 m at the A19 median seat, over 1,821 parts.
+        # Replacing the outright skip with "bake when the median seat
+        # strictly improves the A3 MEAN" was built and dry-run, and it
+        # fails the EGGW stop condition: all three UK2000 over-span
+        # components bake, including the 662,669 m² / 9.39 m-span one the
+        # owner verified in-sim must skip, which the mean test accepts on
+        # a 0.025 m margin while its residual median gets WORSE.  The
+        # replacement test has to be one those components fail; see
+        # ``DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M`` in config.py for the
+        # numbers and docs/specs/per-cluster-object-seating-spec.md for
+        # the structural fix.
         if (
             anchored_feet is None
             and ground_span_metres > DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M
         ):
-            updated_structures.append(
-                replace(
-                    structure,
-                    ground_span_metres=ground_span_metres,
-                    needs_pad=needs_pad,
-                    skip_reason=(
-                        f"ground span {ground_span_metres:.1f} m "
-                        f"{GROUND_SPAN_SKIP_REASON_PHRASE} — left at "
-                        "authored elevations"
-                    ),
-                )
+            updated_by_index[structure_index] = replace(
+                structure,
+                ground_span_metres=ground_span_metres,
+                needs_pad=needs_pad,
+                skip_reason=(
+                    f"ground span {ground_span_metres:.1f} m "
+                    f"{GROUND_SPAN_SKIP_REASON_PHRASE} — left at "
+                    "authored elevations"
+                ),
             )
             continue
 
@@ -1499,13 +1777,11 @@ def structure_deltas(
                     "part(s) — left unbaked (amendment A3)"
                 )
         if a3_skip_reason is not None:
-            updated_structures.append(
-                replace(
-                    structure,
-                    ground_span_metres=ground_span_metres,
-                    needs_pad=needs_pad,
-                    skip_reason=a3_skip_reason,
-                )
+            updated_by_index[structure_index] = replace(
+                structure,
+                ground_span_metres=ground_span_metres,
+                needs_pad=needs_pad,
+                skip_reason=a3_skip_reason,
             )
             continue
 
@@ -1561,16 +1837,21 @@ def structure_deltas(
                 for vertex_index in triangle:
                     resource_deltas[vertex_index] = delta
 
-        updated_structures.append(
-            replace(
-                structure,
-                ground_span_metres=ground_span_metres,
-                needs_pad=needs_pad,
-                inherited_from_structure_index=inherited_from_by_index.get(
-                    structure_index
-                ),
-            )
+        updated_by_index[structure_index] = replace(
+            structure,
+            ground_span_metres=ground_span_metres,
+            needs_pad=needs_pad,
+            inherited_from_structure_index=inherited_from_by_index.get(
+                structure_index
+            ),
         )
+
+    # Back to caller order: ``structures[i]`` ↔ ``updated_structures[i]``,
+    # whatever order pass 3 evaluated them in.
+    updated_structures: list[Structure] = [
+        updated_by_index[structure_index]
+        for structure_index in range(len(structures))
+    ]
 
     # Amendment A19: structure-level skips must be VISIBLE at the
     # resource level.  Forty-nine HECA resources vanished from the bake

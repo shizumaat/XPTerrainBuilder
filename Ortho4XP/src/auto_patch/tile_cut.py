@@ -33,7 +33,8 @@ from .layout import (
     ROLE_PRIMARY_PARALLEL, ROLE_SECONDARY_PARALLEL,
     ROLE_STUB, ROLE_CROSS_CONNECTOR, ROLE_RUNWAY, ROLE_JUNCTION,
     ROLE_APRON, ROLE_BUILDING, ROLE_SERVICE_ROAD, ROLE_TUNNEL_RAMP,
-    ROLE_RETAINING_WALL, ROLE_GRADED_STRIP, vertex_bucket,
+    ROLE_RETAINING_WALL, ROLE_GRADED_STRIP, ROLE_RUNWAY_CROSSING,
+    vertex_bucket,
 )
 from .config import (
     TUNNEL_RAMP_MAX_GRADE, RUNWAY_SEAM_DEM_PIN, TILE_CUT_HALF_WIDTH_M,
@@ -132,6 +133,78 @@ _SEAM_TERRAIN_PIN_STEP_M = 10.0
 _SEAM_CUTBACK_TOL_M = 0.20
 
 
+def derive_tile_cut_lines(layout: PavementLayout) -> list:
+    """The integer lat/lon lines this layout's footprint straddles, as
+    LineStrings in local metres.
+
+    ONE SOURCE for the cut geometry: ``cut_layout_at_tile_boundaries``
+    cuts on these, and the post-unify seam re-pin
+    (:func:`repin_airside_seam_cutbacks`) locates its cut-back edges from
+    the same list, so the two passes can never disagree about where the
+    seam is.  Empty when the layout has no anchor, no shapes, or no
+    integer line strictly inside its bounds (the single-tile case).
+    """
+    if not layout.shapes or layout.anchor is None:
+        return []
+    lat0, lon0 = layout.anchor
+    cos0 = math.cos(math.radians(lat0))
+    polys = [s.polygon for s in layout.shapes
+             if s.polygon is not None and not s.polygon.is_empty]
+    if not polys:
+        return []
+    try:
+        union = unary_union(polys)
+    except _GEOM_EXC:
+        return []
+    minx, miny, maxx, maxy = union.bounds
+
+    # Footprint bounds in lat/lon.
+    min_lat = lat0 + math.degrees(miny / R_EARTH)
+    max_lat = lat0 + math.degrees(maxy / R_EARTH)
+    min_lon = lon0 + math.degrees(minx / (R_EARTH * cos0))
+    max_lon = lon0 + math.degrees(maxx / (R_EARTH * cos0))
+
+    cut_lines: list[LineString] = []
+    # Integer lat lines strictly inside the airport's lat range.
+    for lat_int in range(
+            int(math.ceil(min_lat)), int(math.floor(max_lat)) + 1):
+        if min_lat < lat_int < max_lat:
+            y_int = math.radians(lat_int - lat0) * R_EARTH
+            cut_lines.append(LineString([
+                (minx - 100.0, y_int), (maxx + 100.0, y_int)]))
+    # Integer lon lines strictly inside the airport's lon range.
+    for lon_int in range(
+            int(math.ceil(min_lon)), int(math.floor(max_lon)) + 1):
+        if min_lon < lon_int < max_lon:
+            x_int = math.radians(lon_int - lon0) * R_EARTH * cos0
+            cut_lines.append(LineString([
+                (x_int, miny - 100.0), (x_int, maxy + 100.0)]))
+    return cut_lines
+
+
+def cutback_stations(t0: float, t1: float,
+                     step: float = _SEAM_TERRAIN_PIN_STEP_M) -> list[float]:
+    """The ABSOLUTE stations strictly between ``t0`` and ``t1``.
+
+    ONE SOURCE for the cut-back densification spacing: both
+    ``_pin_terrain_piece_seam_edge`` (graded strips) and
+    :func:`repin_airside_seam_cutbacks` (airside pavement) place their
+    nodes here, so a strip and the pavement beside it land on the SAME
+    stations and the two tiles' independent builds reproduce them from
+    the anchor frame alone.  Returned in traversal order (reversed when
+    ``t1 < t0``); empty when the edge is shorter than one step.
+    """
+    if abs(t1 - t0) <= step:
+        return []
+    lo, hi = (t0, t1) if t1 > t0 else (t1, t0)
+    stations = [k * step for k in range(int(math.floor(lo / step)) + 1,
+                                        int(math.ceil(hi / step)) + 1)]
+    stations = [t for t in stations if lo + 1e-6 < t < hi - 1e-6]
+    if t1 < t0:
+        stations.reverse()
+    return stations
+
+
 def cut_layout_at_tile_boundaries(
         layout: PavementLayout,
         half_width_m: float = TILE_CUT_HALF_WIDTH_M,
@@ -173,41 +246,21 @@ def cut_layout_at_tile_boundaries(
         return 0
     lat0, lon0 = layout.anchor
     cos0 = math.cos(math.radians(lat0))
-
-    polys = [s.polygon for s in layout.shapes
-             if s.polygon is not None and not s.polygon.is_empty]
-    if not polys:
-        return 0
-    try:
-        union = unary_union(polys)
-    except _GEOM_EXC:
-        return 0
-    minx, miny, maxx, maxy = union.bounds
-
-    # Footprint bounds in lat/lon.
-    min_lat = lat0 + math.degrees(miny / R_EARTH)
-    max_lat = lat0 + math.degrees(maxy / R_EARTH)
-    min_lon = lon0 + math.degrees(minx / (R_EARTH * cos0))
-    max_lon = lon0 + math.degrees(maxx / (R_EARTH * cos0))
-
-    # Integer lat lines strictly inside the airport's lat range.
-    cut_lines: list[LineString] = []
-    for lat_int in range(
-            int(math.ceil(min_lat)), int(math.floor(max_lat)) + 1):
-        if min_lat < lat_int < max_lat:
-            y_int = math.radians(lat_int - lat0) * R_EARTH
-            cut_lines.append(LineString([
-                (minx - 100.0, y_int), (maxx + 100.0, y_int)]))
-    # Integer lon lines strictly inside the airport's lon range.
-    for lon_int in range(
-            int(math.ceil(min_lon)), int(math.floor(max_lon)) + 1):
-        if min_lon < lon_int < max_lon:
-            x_int = math.radians(lon_int - lon0) * R_EARTH * cos0
-            cut_lines.append(LineString([
-                (x_int, miny - 100.0), (x_int, maxy + 100.0)]))
-
+    cut_lines = derive_tile_cut_lines(layout)
     if not cut_lines:
         return 0
+    # RECORD the lines this cut actually opened.  After the cut + drop the
+    # layout no longer STRADDLES the line (its pieces stop 5 m short), so a
+    # later pass cannot re-derive them from the footprint — the post-unify
+    # airside seam re-pin reads them from here.  Recorded as
+    # ``(axis, coordinate)`` in local metres, accumulated across the several
+    # cut calls a build makes, deduplicated.
+    recorded = list(getattr(layout, "tile_cut_lines", None) or ())
+    for line in cut_lines:
+        spec = _line_axis_spec(line)
+        if spec is not None and spec not in recorded:
+            recorded.append(spec)
+    layout.tile_cut_lines = recorded    # type: ignore[attr-defined]
 
     try:
         cut_polys = [line.buffer(half_width_m, cap_style=2)
@@ -356,7 +409,29 @@ def cut_layout_at_tile_boundaries(
                     # + same boundary HGT pixels), which is all the
                     # 2026-06-20 pin actually needed.  Falls back to the
                     # DEM pin when no CIFP profile exists for the ref.
-                    if not _pin_runway_piece_to_profile(
+                    #
+                    # ★ 2026-07-25 owner ruling (config
+                    # ``RUNWAY_SEAM_VERTEX_DEM_PIN``): "every node along
+                    # the tile seam cutback MUST be exactly at DEM ...
+                    # definitely including the runway."  The 4.2 m V-notch
+                    # above no longer reproduces — re-measured at the same
+                    # corners it is 2.03 m over 140.86 m of station =
+                    # 1.44 %, inside the cap, and the OLD sampler reads the
+                    # same, so the ravine wall was a DEM-STATE artifact,
+                    # not terrain.  With the gate ON the runway takes the
+                    # per-vertex DEM pin like every other role; the profile
+                    # path stays as the fallback for a ref the DEM cannot
+                    # value.
+                    from .config import RUNWAY_SEAM_VERTEX_DEM_PIN
+                    if RUNWAY_SEAM_VERTEX_DEM_PIN:
+                        if not _terrain_pin_slice_nodes(
+                                new_s, cut_union, (), layout, dem,
+                                cur_tile_lat, cur_tile_lon):
+                            # DEM valued nothing here — the profile is the
+                            # fallback, exactly as before the ruling.
+                            _pin_runway_piece_to_profile(
+                                new_s, cut_union, layout)
+                    elif not _pin_runway_piece_to_profile(
                             new_s, cut_union, layout):
                         _terrain_pin_slice_nodes(
                             new_s, cut_union, (), layout, dem,
@@ -1232,6 +1307,42 @@ def _pin_runway_piece_to_profile(fs, cut_union, layout) -> bool:
     return True
 
 
+def _line_axis_spec(line):
+    """``(axis, coordinate)`` of an axis-aligned cut line, else None.
+
+    ``axis`` is 0 for a vertical (constant-x) line, 1 for a horizontal one
+    — the same convention ``_cutback_line_specs`` returns.
+    """
+    try:
+        (ax, ay), (bx, by) = list(line.coords)[0], list(line.coords)[-1]
+    except (_GEOM_EXC + (IndexError, ValueError)):
+        return None
+    if abs(bx - ax) < 1e-6:
+        return (0, ax)
+    if abs(by - ay) < 1e-6:
+        return (1, ay)
+    return None
+
+
+def cutback_specs_for_layout(layout, half_width_m=TILE_CUT_HALF_WIDTH_M):
+    """The ``(axis, coordinate)`` cut-back lines of this layout.
+
+    Prefers ``layout.tile_cut_lines`` — the lines a real
+    ``cut_layout_at_tile_boundaries`` call recorded — because after the cut
+    the footprint no longer straddles the tile line and cannot be used to
+    re-derive them.  Falls back to deriving from the footprint (a layout
+    that has not been cut yet, e.g. in tests).
+    """
+    recorded = getattr(layout, "tile_cut_lines", None)
+    if recorded:
+        specs = []
+        for axis, c in recorded:
+            specs.append((axis, c - half_width_m))
+            specs.append((axis, c + half_width_m))
+        return specs
+    return _cutback_line_specs(derive_tile_cut_lines(layout), half_width_m)
+
+
 def _cutback_line_specs(cut_lines, half_width_m):
     """The CUT-BACK lines of a cut, as ``(axis, coordinate)`` pairs in local
     metres — ``axis`` 0 for a vertical (constant-x) line, 1 for a horizontal
@@ -1333,14 +1444,10 @@ def _pin_terrain_piece_seam_edge(fs, cut_lines, half_width_m, layout,
             continue
         var = 1 - on_spec[i][0]          # the coordinate that varies
         t0, t1 = coords[i][var], coords[j][var]
-        if abs(t1 - t0) <= step:
-            continue
-        lo, hi = (t0, t1) if t1 > t0 else (t1, t0)
-        ts = [k * step for k in range(int(math.floor(lo / step)) + 1,
-                                      int(math.ceil(hi / step)) + 1)]
-        ts = [t for t in ts if lo + 1e-6 < t < hi - 1e-6]
-        if t1 < t0:
-            ts.reverse()
+        # Shared station math (``cutback_stations``) — the airside re-pin
+        # sweep places its nodes on the very same absolute multiples, so a
+        # graded strip and the pavement it abuts meet vertex-for-vertex.
+        ts = cutback_stations(t0, t1, step)
         for t in ts:
             px = ((coords[i][0], t) if var == 1 else (t, coords[i][1]))
             v = _dem_at(px[0], px[1])
@@ -1364,8 +1471,206 @@ def _pin_terrain_piece_seam_edge(fs, cut_lines, half_width_m, layout,
     return n_pinned
 
 
+# ── AIRSIDE SEAM RE-PIN (owner ruling 2026-07-25) ─────────────────────────
+# AIRSIDE pavement roles whose cut-back edges the post-unify sweep
+# densifies and DEM-pins.  ROLE_RUNWAY was deliberately ABSENT until
+# 2026-07-26: it carries an FAA vertical profile as well as the seam
+# contract, so a raw per-vertex overwrite of the runway ring here was held
+# to risk the 4.2 m V-notch of 2026-07-03 (see ``config.RUNWAY_SEAM_DEM_PIN``
+# for that ruling's reasoning).
+#
+# ★ 2026-07-26 owner ruling (``config.RUNWAY_SEAM_CUTBACK_DEM_ANCHORS``):
+#   "ALL nodes along the seam MUST be at exact DEM and anchored BEFORE the
+#    solve, then the solver can grade between them and its other anchors to
+#    maintain grade."
+# The runway joins the sweep — see ``_seam_repin_roles``.  The V-notch that
+# motivated the exclusion was re-measured on 2026-07-25 at 1.44 % (inside
+# the 1.5 % cap) and traced to the DEM state of 2026-07-03.
+_AIRSIDE_SEAM_REPIN_ROLES = frozenset({
+    ROLE_PRIMARY_PARALLEL, ROLE_SECONDARY_PARALLEL,
+    ROLE_STUB, ROLE_CROSS_CONNECTOR,
+    ROLE_JUNCTION, ROLE_APRON, ROLE_RUNWAY_CROSSING,
+})
+
+
+def _seam_repin_roles() -> frozenset:
+    """The roles :func:`repin_airside_seam_cutbacks` sweeps.
+
+    Reads the gate at CALL time (not import time) so a test can flip
+    ``config.RUNWAY_SEAM_CUTBACK_DEM_ANCHORS`` with ``monkeypatch.setattr``
+    and get the pre-ruling role set back.
+    """
+    from . import config as _cfg
+    if getattr(_cfg, "RUNWAY_SEAM_CUTBACK_DEM_ANCHORS", False):
+        return _AIRSIDE_SEAM_REPIN_ROLES | {ROLE_RUNWAY}
+    return _AIRSIDE_SEAM_REPIN_ROLES
+
+
+def repin_airside_seam_cutbacks(layout, dem, tile_lat: int, tile_lon: int,
+                                half_width_m: float = TILE_CUT_HALF_WIDTH_M
+                                ) -> tuple[int, int]:
+    """DENSIFY and DEM-pin every AIRSIDE cut-back edge.  Idempotent.
+
+    Returns ``(vertices_inserted, vertices_pinned)``.
+
+    ``tile_cut`` mints exactly the two slice crossings on each cut-back
+    edge, so a long airside seam edge ran between DEM-true ends with
+    nothing in between — a chord across the terrain the 10 m seam gap
+    renders at raw DEM, and no shared node for the neighbouring tile's
+    independent build to agree on.  This sweep runs once at the end of
+    ``pipeline._unify_airside_geometry`` (the FINAL pre-solve node set, so
+    every vertex it mints is a solver node) and:
+
+      1. densifies each cut-back edge onto the absolute stations
+         :func:`cutback_stations` yields — the SAME source the
+         graded-strip pin uses, so strip and pavement meet vertex for
+         vertex;
+      2. sets every seam vertex, pre-existing or newly minted, to
+         ``dem.alt`` at its own position (on shapes that carry
+         ``node_altitudes``; a SOFT pre-solve shape has none, and the
+         solver re-samples the DEM at every registered bucket anyway);
+      3. registers each seam vertex's bucket on
+         ``layout._seam_anchor_keys``, which is what makes the per-surface
+         solver HARD-anchor it on writeback instead of letting the body
+         fill drag it up to the route level.
+
+    Pure function of (cut-back line, station spacing, DEM) — no build
+    state — so both tiles land on the identical node set and the identical
+    altitudes.  A no-op returning ``(0, 0)`` when the gate is off, the
+    layout has no anchor/DEM, or no integer tile line crosses the
+    footprint (every single-tile airport).
+
+    ★ ROLE_RUNWAY joined the swept roles on 2026-07-26 (owner ruling,
+    ``config.RUNWAY_SEAM_CUTBACK_DEM_ANCHORS``; see
+    :func:`_seam_repin_roles`).  Its cut-back edge carried ONLY the two
+    slice crossings ``cut_layout_at_tile_boundaries`` mints — 148 m apart at
+    SPLP's 18-degree oblique crossing — and every node later inserted
+    between them (emit-time chord densification, the epsilon-wedge weld) was
+    valued by PLAIN LERP, floating up to 0.45 m above the terrain the 10 m
+    gap renders.  Densifying pre-solve onto the shared stations both fixes
+    the values and removes the lerp source (no chord long enough to densify).
+    """
+    from .config import AIRSIDE_SEAM_DEM_REPIN
+    if (not AIRSIDE_SEAM_DEM_REPIN or dem is None or layout is None
+            or not getattr(layout, "shapes", None)
+            or getattr(layout, "anchor", None) is None):
+        return (0, 0)
+    specs = cutback_specs_for_layout(layout, half_width_m)
+    if not specs:
+        return (0, 0)
+    nodata = getattr(dem, "nodata", -32768)
+
+    def _dem_at(x: float, y: float):
+        try:
+            lat, lon = layout.m_to_ll(x, y)
+            v = float(dem.alt((lon - tile_lon, lat - tile_lat)))
+        except _GEOM_EXC:
+            return None
+        if v != v or v == nodata:
+            return None
+        return v
+
+    def _spec_of(x: float, y: float):
+        point = (x, y)
+        for axis, c in specs:
+            if abs(point[axis] - c) <= _SEAM_CUTBACK_TOL_M:
+                return (axis, c)
+        return None
+
+    seam_keys = getattr(layout, "_seam_anchor_keys", None)
+    if seam_keys is None:
+        seam_keys = set()
+        layout._seam_anchor_keys = seam_keys  # type: ignore[attr-defined]
+
+    step = _SEAM_TERRAIN_PIN_STEP_M
+    n_inserted = 0
+    n_pinned = 0
+    roles = _seam_repin_roles()
+    for shape in layout.shapes:
+        if shape.role not in roles:
+            continue
+        if shape.polygon is None or shape.polygon.is_empty:
+            continue
+        try:
+            coords = list(shape.polygon.exterior.coords)
+        except _GEOM_EXC:
+            continue
+        if len(coords) < 4:
+            continue
+        open_n = len(coords) - 1
+        on_spec = [_spec_of(coords[i][0], coords[i][1])
+                   for i in range(open_n)]
+        if not any(spec is not None for spec in on_spec):
+            continue
+        # A shape carrying per-vertex altitudes keeps its array aligned
+        # with the ring.  A shape still tagged as a flat/sloping RECT
+        # (``altitude``/``altitude_high``) is left to the cut's own rect
+        # path — densifying it would break the 4-corner invariant that
+        # tagging depends on — but its seam buckets are still registered,
+        # which is what actually holds the vertex in the solve.
+        alts = (list(shape.node_altitudes[:len(coords)])
+                if shape.node_altitudes
+                and len(shape.node_altitudes) >= len(coords) else None)
+        rect_tagged = alts is None and (
+            shape.altitude is not None
+            or shape.altitude_high is not None
+            or shape.altitude_low is not None)
+        out_xy: list[tuple[float, float]] = []
+        out_z: list[float] = []
+        n_inserted_here = 0
+        values_changed = False
+        for i in range(open_n):
+            x0, y0 = coords[i][0], coords[i][1]
+            out_xy.append((x0, y0))
+            value = _dem_at(x0, y0) if on_spec[i] is not None else None
+            if value is None:
+                out_z.append(alts[i] if alts is not None else 0.0)
+            else:
+                rounded = round(value, 2)
+                if alts is not None and abs(alts[i] - rounded) > 1e-9:
+                    values_changed = True
+                out_z.append(rounded)
+                seam_keys.add(vertex_bucket(float(x0), float(y0)))
+                n_pinned += 1
+            # A CUT-BACK EDGE has BOTH ends on the SAME cut-back line.
+            # Already-densified edges yield NO stations (consecutive
+            # vertices sit exactly one step apart) — that is what makes a
+            # second sweep insert nothing.
+            j = (i + 1) % open_n
+            if on_spec[i] is None or on_spec[i] != on_spec[j] or rect_tagged:
+                continue
+            var = 1 - on_spec[i][0]          # the coordinate that varies
+            for t in cutback_stations(coords[i][var], coords[j][var], step):
+                point = ((coords[i][0], t) if var == 1 else (t, coords[i][1]))
+                value = _dem_at(point[0], point[1])
+                if value is None:
+                    continue
+                out_xy.append(point)
+                out_z.append(round(value, 2))
+                seam_keys.add(vertex_bucket(float(point[0]), float(point[1])))
+                n_inserted_here += 1
+                n_pinned += 1
+        if n_inserted_here:
+            try:
+                poly = Polygon(out_xy + [out_xy[0]])
+                if poly.is_empty or not poly.is_valid:
+                    continue                # keep the ring, drop the insert
+            except _GEOM_EXC:
+                continue
+            shape.polygon = poly
+            n_inserted += n_inserted_here
+        elif not values_changed:
+            continue                        # nothing to rewrite (idempotent)
+        # NEVER fabricate an altitude array: a SOFT pre-solve shape has no
+        # altitudes yet and must stay soft (the solver seeds it from the
+        # DEM and hard-holds exactly the seam buckets registered above).
+        if alts is not None:
+            shape.node_altitudes = out_z + [out_z[0]]
+    return (n_inserted, n_pinned)
+
+
 def _terrain_pin_slice_nodes(fs, cut_union, clip_pts, layout,
-                             dem, tile_lat, tile_lon) -> None:
+                             dem, tile_lat, tile_lon) -> int:
     """Overwrite a filler's slice-edge ``node_altitudes`` with the DEM
     terrain altitude (so they follow the tilted terrain at a steep
     crossing instead of the rect's flat end value), leaving nodes shared
@@ -1373,15 +1678,19 @@ def _terrain_pin_slice_nodes(fs, cut_union, clip_pts, layout,
     untouched.  The pinned buckets are recorded on
     ``layout._seam_anchor_keys`` so the per-surface solver HARD-anchors
     them to these terrain altitudes (otherwise the final solve grades
-    them back toward the flat rect)."""
+    them back toward the flat rect).
+
+    Returns the NUMBER of vertices pinned, so the runway caller (owner
+    ruling 2026-07-25, ``config.RUNWAY_SEAM_VERTEX_DEM_PIN``) can fall
+    back to the redistributed FAA profile when the DEM valued nothing."""
     if (dem is None or layout is None
             or fs.polygon is None or fs.polygon.is_empty):
-        return
+        return 0
     try:
         cut_boundary = cut_union.boundary
         coords = list(fs.polygon.exterior.coords)
     except _GEOM_EXC:
-        return
+        return 0
     nodata = getattr(dem, "nodata", -32768)
 
     def _dem_at(x: float, y: float) -> float | None:
@@ -1409,19 +1718,23 @@ def _terrain_pin_slice_nodes(fs, cut_union, clip_pts, layout,
         alts = [round(_dem_at(x, y) or 0.0, 2) for (x, y) in coords]
         created_from_dem = True
     else:
-        return
+        return 0
     seam_keys = getattr(layout, "_seam_anchor_keys", None)
     if seam_keys is None:
         seam_keys = set()
         layout._seam_anchor_keys = seam_keys  # type: ignore[attr-defined]
     changed = False
+    n_pinned = 0
     # AIRSIDE pins are RUNWAY-CLAMPED (user SPLP report 2026-07-03): the
     # raw-DEM pin sat metres below the design surface next to a runway,
     # making the pin↔runway chain infeasible — the solve split the
     # violation into a V-notch at the seam (mirrored on both tiles).  The
     # clamp floor comes from CIFP-profiled runways, identical on both
-    # tiles, so cross-tile continuity is preserved.  Runway pieces keep
-    # their own gated pin path (profile authority; see RUNWAY_SEAM_DEM_PIN).
+    # tiles, so cross-tile continuity is preserved.  ROLE_RUNWAY is not in
+    # ``_PIN_SLICE_ROLES``, so a runway arriving here under
+    # ``RUNWAY_SEAM_VERTEX_DEM_PIN`` is never clamped: it takes the RAW DEM
+    # at its own vertex, which is exactly what the 2026-07-25 ruling asks
+    # for ("every node along the tile seam cutback MUST be exactly at DEM").
     #
     # ★ 2026-07-24 owner ruling: the clamp is OFF by default
     # (``config.SEAM_PIN_RUNWAY_CLAMP``) — a cut-back slice-edge node IS the
@@ -1451,6 +1764,7 @@ def _terrain_pin_slice_nodes(fs, cut_union, clip_pts, layout,
                 v = f
         alts[i] = round(v, 2)
         seam_keys.add(vertex_bucket(float(x), float(y)))
+        n_pinned += 1
         changed = True
     if changed or created_from_dem:
         fs.node_altitudes = alts
@@ -1460,6 +1774,7 @@ def _terrain_pin_slice_nodes(fs, cut_union, clip_pts, layout,
             fs.altitude_high = None
             fs.altitude_low = None
             fs.altitude = None
+    return n_pinned
 
 
 def _grade_feature_piece_to_seam_dem(

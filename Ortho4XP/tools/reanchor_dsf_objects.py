@@ -266,6 +266,14 @@ def main(argument_list: list[str] | None = None) -> int:
             epsilon_metres=arguments.epsilon,
             write_changes=not arguments.dry_run,
         )
+        if result.get("short_circuited"):
+            print(
+                f"{target['label']}: re-anchor up to date — "
+                f"{result['structures_up_to_date']} structure(s) already "
+                "baked against this mesh, nothing re-derived "
+                "(O4_REANCHOR_SHORT_CIRCUIT=0 to force a full run)"
+            )
+            continue
         if arguments.dry_run:
             # Nothing was written; count what WOULD be from the decisions.
             resources_with_offsets = set()

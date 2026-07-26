@@ -66,6 +66,7 @@ from .config import (
     MIN_SERVICE_STRIP_LEN_M,
     SERVICE_ROAD_PAVEMENT_NEAR_M,
     ENABLE_SERVICE_ROADS,
+    AIRPORT_ROAD_FEED,
     SERVICE_ROAD_CARVE,
     ENABLE_DISCOVERED_TAXIWAYS,
     HANGAR_PADS as HANGAR_PADS_GATE,
@@ -96,6 +97,7 @@ from .layout import (
 # OSM cache + apt.dat selection helpers
 # ──────────────────────────────────────────────────────────────────
 from .osm_load import (
+    _load_airport_road_network,
     _load_osm_airports,
     _load_osm_big_roads,
     _load_osm_small_roads,
@@ -164,7 +166,9 @@ _POSTSOLVE_FEATURE_OWNER_ROLES = frozenset({
 })
 
 
-def _unify_airside_geometry(layout, icao: str) -> None:
+def _unify_airside_geometry(layout, icao: str, dem=None,
+                            tile_lat: int | None = None,
+                            tile_lon: int | None = None) -> None:
     """Settle the airside pavement node-set into a CONFORMING partition:
     re-connect discovered lane dead-ends, weld near-coincident airside
     vertices to one canonical coordinate, insert every shared-boundary
@@ -258,6 +262,25 @@ def _unify_airside_geometry(layout, icao: str) -> None:
     # share-neighbour-corners handles the 0.10–0.5 m junction case.
     _snap_near_corner_vertices_to_rect_corners(layout, icao=icao)
     _share_neighbour_corners_into_junctions(layout, icao=icao)
+
+    # AIRSIDE SEAM RE-PIN (owner ruling 2026-07-25, config
+    # ``AIRSIDE_SEAM_DEM_REPIN``).  LAST in this pass, so it sees the
+    # settled node-set and every vertex it mints is a solver node: densify
+    # each airside cut-back edge onto the shared 10 m stations, pin each
+    # seam vertex to the DEM at its own position, and register the buckets
+    # the solver hard-holds.  ROLE_RUNWAY JOINED the sweep on 2026-07-26
+    # (owner ruling, ``config.RUNWAY_SEAM_CUTBACK_DEM_ANCHORS``) — see
+    # ``tile_cut._seam_repin_roles``.  No-op without a DEM, and on
+    # every single-tile airport (no cut line).
+    if dem is not None:
+        from .tile_cut import repin_airside_seam_cutbacks
+        n_new, n_pin = repin_airside_seam_cutbacks(
+            layout, dem, tile_lat, tile_lon)
+        if n_new or n_pin:
+            UI.vprint(1,
+                f"  [pav-builder] {icao}: airside seam re-pin — "
+                f"{n_pin} cut-back node(s) at DEM ({n_new} newly "
+                f"densified onto 10 m stations).")
 
 
 # Defect 4a (KBNA 2026-07-15) ring-needle collapse thresholds.  A needle is
@@ -938,6 +961,10 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # resource-type note in the DSF loop.)
     nodes, ways, relations = _load_osm_airports(
         xplane_root, icao, anchor[0], anchor[1])
+    # Publish the aeroway layer on the layout (references, no copy) so
+    # the classification pass can measure OSM airside backing without a
+    # second read of the same cache.  Inert on its own.
+    layout._osm_airport_features = (nodes, ways)
     # Compute the airport's bounding box from runway corners +
     # apt.dat pavement.  DSF polygons farther than
     # DSF_AIRPORT_RADIUS_M from this bbox are not this airport's.
@@ -1476,6 +1503,31 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 layout.apt_pavement_boundary = _pub
         except _GEOM_EXC:
             pass
+
+    # ── AIRPORT-REGION ROAD FEED (2026-07-26) ────────────────────
+    # Publish the ONE shared road/rail dataset for this airport here,
+    # the first point where the query box's inputs (row-130 boundary,
+    # source pavement union, runway union) all exist.  See the section
+    # header at the bottom of ``osm_load`` for what it fixes: the tile
+    # ``small_roads`` cache the small-road loader reads is written only
+    # at ``road_level >= 2`` and the default is 1, so at default config
+    # EVERY airport saw zero minor-road evidence, silently.
+    #
+    # FOUNDATION ONLY — nothing downstream reads it yet (classification
+    # refinement and inset road grading will), so the emitted patch is
+    # byte-identical with ``O4_AIRPORT_ROAD_FEED`` on or off.  The
+    # service-road builder below deliberately keeps reading
+    # ``_load_osm_small_roads``; rewiring it would widen the service-road
+    # network at every airport in the world and is the owner's call.
+    if AIRPORT_ROAD_FEED:
+        try:
+            _load_airport_road_network(layout)
+        except Exception as _road_feed_error:
+            # Evidence is never a dependency: a failed feed logs and the
+            # build proceeds exactly as it did before the feed existed.
+            UI.vprint(
+                1, f"   [road-feed] {icao}: feed unavailable "
+                   f"({_road_feed_error}); continuing without it.")
 
     # ── Border-strip-derived shoulder DECLARATION (user 2026-07-17) ──
     # KBNA construction style: the runway's own ``.pol`` pieces are
@@ -4814,6 +4866,34 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 layout, icao=icao, dem=dem,
                 tile_lat=tile_lat, tile_lon=tile_lon)
 
+        # ── PAVEMENT CLASSIFICATION v1 (owner rulings 2026-07-26) ──
+        # ``apron`` is the geometry phase's FALLBACK bucket, so a pack
+        # that draws LANDSIDE pavement (perimeter roads, car parks,
+        # terminal frontage) as ordinary pavement puts all of it under
+        # the airside 1.5 % apron law and flattens the terrain relief
+        # beneath it — HECA: 251 shapes / 904,433 m², mean 5.35 m of
+        # grading damage, worst +21 m.  This pass votes on POSITIVE
+        # evidence (OSM aeroway backing vs the airport-region road
+        # feed's corridors) and demotes what is landside; a shape that
+        # is BOTH (a real apron with a 5 km road tail) is cut at the
+        # mouth where the corridor leaves the body, the body keeping
+        # apron.  See ``config.PAVEMENT_CLASS_V1`` and the module
+        # docstring for the two rulings (R-VETO / R-SPLIT).
+        #
+        # ★ ORDER: AFTER ``_reclassify_apron_junctions`` (the apron set
+        # is settled — this classifier must see the final aprons, not
+        # junction residue) and BEFORE the runway-disconnected pass
+        # below, so a demotion SEVERS the touch-chain and whatever the
+        # demotion orphans is picked up by that existing cascade in the
+        # same build rather than being left airside behind a landside
+        # blob.
+        from .config import PAVEMENT_CLASS_V1
+        if PAVEMENT_CLASS_V1:
+            from .pavement_classification import classify_pavement_v1
+            classify_pavement_v1(layout, icao=icao, dem=dem,
+                                 tile_lat=tile_lat, tile_lon=tile_lon)
+            _covp(layout, "post-pavement-class")
+
         # An apron must have a touch-chain back to a runway (user
         # 2026-06-09); pavement islands without one are landside ramps /
         # parking → groundside (4 %).  MUST run before tile_cut: the
@@ -5656,7 +5736,23 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # sees the FINAL node-set and grades every shared vertex to ONE
         # altitude — the post-solve coincident-vertex cliffs (#291↔#371 class)
         # are eliminated at the source.  THE cliff fix.
-        _unify_airside_geometry(layout, icao)
+        # The seam re-pin inside the unify pass needs the DEM and the tile
+        # frame it is indexed in.  Resolved with the SAME rule the solve
+        # uses (see the ``dem = tile_dem if ...`` block above): the current
+        # build tile when the driver handed us its DEM, else the anchor
+        # tile's own DEM — mixing the two reads terrain ~1 degree away.
+        from .elevation import _load_airport_dem as _unify_load_dem
+        _unify_dem = tile_dem if tile_dem is not None else _unify_load_dem(
+            layout.anchor[0], layout.anchor[1])
+        if tile_dem is not None and current_tile_lat is not None:
+            _unify_tile_lat, _unify_tile_lon = (current_tile_lat,
+                                                current_tile_lon)
+        else:
+            _unify_tile_lat = int(math.floor(layout.anchor[0]))
+            _unify_tile_lon = int(math.floor(layout.anchor[1]))
+        _unify_airside_geometry(layout, icao, dem=_unify_dem,
+                                tile_lat=_unify_tile_lat,
+                                tile_lon=_unify_tile_lon)
         _airside_unified_presolve = True
 
         # (s79) FINAL pre-solve overlap clip: the unify pass's vertex

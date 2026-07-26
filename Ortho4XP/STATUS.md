@@ -1,4 +1,176 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260726 — IN-SIM ROUND 3 RESPONSE: PERF + CLASSIFICATION + SEATING
+# (all uncommitted at time of writing; consolidation in progress)
+# ══════════════════════════════════════════════════════════════════
+# Owner round-3 report drove six workstreams; all landed or ruled:
+#
+# PERF (the <5 min/tile program, owner directive):
+#  * The "12m33s mesh" at +30+031 was NOT the mesh (Triangle4XP 1.2 s) —
+#    it was the DSF-object re-anchor: weld_parts rebuilt an 8M-entry
+#    union-find PER STRUCTURE (783.6 s = 57.8 % of the tile). FIXED
+#    (local index space, byte-identical 953/953 sha256): 811 -> 40.4 s
+#    cold; + run-fingerprint short-circuit (O4_REANCHOR_SHORT_CIRCUIT):
+#    5.4 s warm. Tile projects ~10 min cold now; remaining path to <5 min
+#    = the T4/T5 airport program + the in-memory patch handoff (chip
+#    session: the 27 s was a quadratic patches_area union, fixed there).
+#  * Road feed cold cost 1.2 s/airport: HARD-LAW review VERDICT ACCEPT
+#    (amortized to extract refresh ~2x/year; warm 3-8 ms; the batching
+#    offset was MEASURED 4.2x WORSE and rejected — the osmium pre-cut
+#    already removed the shared cost).
+#  * DSF encode progress lines + red_flag polls landed (the encode was
+#    never the 16 min — ~27 s; premise corrected).
+#
+# CLASSIFICATION v1 (owner-approved; O4_PAVEMENT_CLASS_V1 default ON):
+#  * Foundation: airport road feed (O4_AIRPORT_ROAD_FEED) — regional-
+#    clip extraction per airport bbox, sidecar-cached. HECA: 0 -> 4,611
+#    road ways (no *_small_roads cache exists ANYWHERE at road_level 1;
+#    absence now logs loudly).
+#  * Rules: R1 OSM-airside evidence = ABSOLUTE veto (owner: a road
+#    inside/edge-sharing a real apron follows the apron's grade); mouth
+#    split via existing apron_necks for apron+road-tail author blobs;
+#    tails road-backed with empty terrain both flanks -> service_road/
+#    groundside; R2-R5 votes for whole-shape demotion.
+#  * HECA: 83 flips / 792 k m²; idx-1307 hillside +19.6 m lift -> ±0.3 m
+#    DEM-follow; grade violations -42 %; R-VETO 15/15 keeps; build 78 s
+#    FASTER. Other airports ~4 evidence-backed flips each; gate-off
+#    byte-proven. RESIDUALS: one coarse mixed shape (112 k m²) needs a
+#    v2 sub-region pass; 4 new ~1 m skirt findings on shape #1215.
+#
+# OBJECT SEATING (owner rulings: per-cluster chartered; pads must never
+# deform graded pavement; HECA IS NOT FLAT — ~85 m relief is REAL,
+# DEM+CIFP agree, recorded in memory after repeated wrong assumptions):
+#  * KCLT/KBNA-vs-HECA comparison: identical mega-welded architecture
+#    everywhere; the discriminator is relief under ground contacts
+#    (0.022/0.005 m vs 26.86 m). Not authoring style, not multi-foot
+#    (exonerated with numbers).
+#  * LANDED: supporter-fate (O4_SUPPORTER_FATE — inheritors share their
+#    supporter's outcome; kills the -2.45 m tear across 8,102 HECA
+#    structures; foot-candidate variant measured and deliberately NOT
+#    changed — clutter on a skipped supporter must stay authored) +
+#    smallest-containing supporter (O4_SUPPORTER_SMALLEST, grid-indexed,
+#    16,278 lookups brute-verified; HECA 1,736 structures un-skipped;
+#    KCLT/KBNA ≤ 2 mm movement).
+#  * STOPPED BY DESIGN: the robust seat gate (Defect A) — EGGW's owner-
+#    verified floater component bakes on a 0.025 m MEAN margin while its
+#    median and worst part WORSEN; the A3 mean is the wrong criterion.
+#    Retry criterion on file (median improves ≥0.3 m AND max not worse —
+#    separates every measured case); evidence in config.py:2641-2659 +
+#    object_anchor.py:1696-1712 comments.
+#  * SPEC DRAFTED: docs/specs/per-cluster-object-seating-spec.md (T-cut
+#    clusters, I-20' unexplained-seam invariant, pad law "pavement wins
+#    absolutely", 4 phases ~9-11 agent-days, 5 owner questions open).
+#
+# ALSO: SPLP runway seam completed per owner ruling (all 48 seam
+# contacts hard DEM anchors pre-solve, feasibility veto -> report;
+# owner's named stretch now ≤0.005 m of DEM); apron-wall scope (walls
+# only with pavement within 5 m, open terrain drapes to the apron edge;
+# multipart-safe walls; corridor clamp killed the 2,277-vertex notch
+# class; wave 6-8 s FASTER at SPJC).
+#
+# SUITE STATE: 7 pre-existing failures expected (msfs round-trip,
+# compare_target ×3 — fixtures pre-date the rulings, owner call on
+# re-cut; terrain_following[CYXY] 0.1 m quantization drift — owner call;
+# pavement_grade CYXYxHECA). An 8-failure settings/data_root cluster was
+# ENV POLLUTION (exported ORTHO4XP_DATA_ROOT defeats the tests' chdir
+# sandbox — run suites with it unset; hermeticity chip spawned).
+# FOREIGN IN-TREE WORK left uncommitted deliberately: the blast-index
+# set (root blast.py/tools/, test_blast_index.py, .gitignore line,
+# HANDOVER/doc-link edits) belongs to another live session.
+# ══════════════════════════════════════════════════════════════════
+# 20260725 EVENING — SEAM PROGRAM + IN-SIM ROUND 2 (ALL UNCOMMITTED)
+# Committed base: c2c46a2. Everything in this section is working-tree.
+# ══════════════════════════════════════════════════════════════════
+# Origin: owner in-sim round 2 (SPLP seam dip persists; SPJC passes;
+# CYXY "shape 3 m low" + band-395 apron wrap) + owner directives
+# (<5 min/tile default compute; every seam-cutback node exactly at DEM
+# INCLUDING runways; band ray occlusion; fix DSF progress reporting).
+#
+# ONE-SURFACE PRINCIPLE (the round's unifying fix): grading, the factor
+# ballot, and the mesher previously read THREE different DEM surfaces
+# (nearest-30m-composite / two-triangle-split model / bilinear baked
+# raster). Now: O4_INSET_BAKE_INTERP (bake bilinear when coarser,
+# area-average when finer), O4_INSET_SEAM_HARMONIZE (adjacent tiles
+# sharing a seam-straddling inset ballot identical grid factors),
+# O4_DEM_QUERY_BAKED (grading reads bilinear on the baked raster =
+# exactly Triangle4XP's surface). Cross-tile seam agreement measured
+# 0.000000 m (was 3.8-5.5 m); Cairo mesh triangles 2.48 M -> 1.14 M
+# (nearest-bake staircase was saturating refinement — the "906 s mesh
+# step"); factor ballot now models the true interpolant.
+#
+# SEAM LAW LANDED (owner ruling: every cutback node exactly at DEM):
+#  * O4_AIRSIDE_SEAM_DEM_REPIN — post-unify sweep densifies non-runway
+#    airside cutback edges to the graded-strip 10 m stations + pins to
+#    dem.alt + registers solver buckets. All non-runway airside roles
+#    ≤0.005 m (storage quantum). Needed layout.tile_cut_lines (cut
+#    records the lines; post-cut footprint derivation is a silent no-op).
+#  * O4_RUNWAY_SEAM_VERTEX_DEM_PIN default ON — per-vertex runway pin;
+#    the historic 4.2 m V-notch was a DEM-STATE artifact (not sampler):
+#    today's corner spans read 1.36-1.44 % vs the 1.5 % cap, seam-edge
+#    ramps monotone ~1.03/1.30 %. The 3 interior runway nodes that stayed
+#    0.29-0.45 m off DEM are CLOSED by the 2026-07-26 gate below.
+#  * O4_RUNWAY_SEAM_CUTBACK_DEM default ON (owner ruling 2026-07-26: "ALL
+#    nodes along the seam MUST be at exact DEM and anchored BEFORE the
+#    solve, then the solver can grade between them and its other anchors
+#    to maintain grade"). Two halves: (a) ROLE_RUNWAY joins
+#    repin_airside_seam_cutbacks (pre-solve densify to the shared 10 m
+#    stations + dem.alt + solver buckets) — the real root cause was that
+#    tile_cut mints only the TWO slice crossings on the oblique cut-back
+#    edge (148 m apart) and every node between them was minted later by
+#    emit densify / the weld and valued by PLAIN LERP; (b)
+#    _select_feasible_seam_anchors stops VETOING contact samples over the
+#    1.5 % cap — all 48 are anchored and the over-cap pairs are REPORTED
+#    (23 pairs at SPLP, steepest 4.51 %). Solver: the Phase-3 seam
+#    write-back no longer skips runway-owned HARD buckets under
+#    RUNWAY_SEAM_VERTEX_DEM_PIN. Validator: check_runway_profile treats a
+#    segment with BOTH ends on a cut-back line as terrain and publishes it
+#    on layout._runway_seam_grade_steps instead of flagging it.
+#    MEASURED (both SPLP tiles, warm inset cache, 1/3" harmonized grid):
+#    EVERY cut-back node of EVERY airside role incl. runway now
+#    |emitted-dem.alt| <= 0.005 m (layout AND emitted patch); owner's
+#    stretch -12.1637711..-12.1631059 went +0.156/+0.429/+0.448 ->
+#    <=0.005; seam-edge grades now up to 2.57 % (layout) / 2.36 %
+#    (emitted) — lawful-and-reported; no V-notch; cross-tile DEM
+#    agreement 0.0000 m at every runway cut-back node.
+#  * Prolongation host-ref fix (O4_ADJACENT_GROUND_PROLONG_HOST_REF):
+#    zone rows on prolonged ring vertices were re-homed to the cutback
+#    CORNER (300 m wrong station) and inherited its altitude reference —
+#    the stage-3 blocker (4.55 m parity spike) AND a latent defect pin-
+#    off (21 SPLP vertices up to +2.20 m now take lawful values).
+#  * OLS seam refusal (O4_OLS_SEAM_TILE_LINE_REFUSAL): "boundary-
+#    touching islands refused whole" was measured against the RASTER
+#    window edge, not the tile line — islands ON the meridian emitted
+#    cuts to the cutback (4 nodes 0.35-2.18 m BELOW DEM; pinning UP
+#    would un-cut real obstructions, so refusal implemented; spec
+#    amended). SPLP -078: 3 islands refused, zero ols_cut seam nodes.
+#  * Crown spine seam weld (O4_CROWN_SPINE_SEAM_WELD): terminus welds
+#    into the runway ring as a shared T-vertex at ring interpolation
+#    (was an unwelded mid-edge T; literal duplicates at even densify
+#    counts); force-keeps in BOTH decimators (measured no-op without).
+#  * Band ray occlusion (O4_BAND_RAY_OCCLUSION, owner-approved): a
+#    band's outward scan stops at the first pavement hit (was: march
+#    through, clip after). CYXY 395's apron-wrapping 883 m² lobe gone
+#    (strict shrink); SPJC band area -4.6 %; validator MIRROR 5 in
+#    lockstep; vectorized contains_xy (29×); net +0.15 s SPJC.
+#    Known: CYXY check_adjacent_ground 0->1 (honest pre-existing
+#    3.02 m uncovered breach the worst-column selection now surfaces).
+#  * Conformance insert dedupe already in c2c46a2 (3cdc8a3).
+#
+# ALSO: DSF encode progress lines + red_flag polls (O4_DSF encode was
+# NOT the 16 min — build_dsf ≈27 s at +30+031; the 16 min was the mesh
+# step's Triangle4XP saturation, fixed by the bake interp above).
+# docs/whole_tile_5min_feasibility.md (DRAFT) = the 5-min/tile program:
+# with these fixes most tile classes project <300 s; exceptions are
+# fjord-coast masks (unowned program) and 3+-heavy-airport metros.
+#
+# SUITE STATE (working tree): 8 failed / 3287 passed. vs the morning 8:
+# FIXED no_self_overlap[CYXY] + pavement_grade[SPJC]; NEW-but-expected
+# churn: compare_target_splp[-13--78] (intentional geometry changes),
+# elevation_terrain_following[CYXY] (0.0975 m miss on a strict >= at
+# the 0.1 m quantization limit — sampler+1 m-lidar-refetch threshold
+# drift, needs tolerance-or-rederive owner call, NOT over-flattening).
+# compare_target fixtures (SPLP ×2 + SPJC) are stale vs ~5 intentional
+# geometry changes — owner call on re-cutting via tools/build_target_osm.
+# ══════════════════════════════════════════════════════════════════
 # 20260725 — RUNWAY-END + POCKET + OLS ROUND: HANDOFF
 # ══════════════════════════════════════════════════════════════════
 # Everything is UNCOMMITTED in the working tree. Six gates are default ON
@@ -56,11 +228,15 @@ unreachable for this ref.
    value-authority guard stands. Gate `O4_CONFORMANCE_CUT_CLAMP` default
    ON, off ⇒ byte-identical. ~0.5 µs/insert. +8 tests
    (tests/test_conformance_cut_clamp.py).
- * ★ KNOWN LIMITATION LEFT ON RECORD: the RESA outer-row SURFACE between
-   stations still floats above terrain where daylight distances jump
-   (SPJC 16R: chords +2.65 m / +2.28 m worst over ~60 m spans at
-   140→120→60→6 m daylight steps) — the vertex clamp cannot fix polygon
-   interiors. If the owner sees a floating wedge near 16R in-sim, the fix
+ * ★ KNOWN LIMITATION LEFT ON RECORD (RE-MEASURED 2026-07-25 PM — the
+   original figure overstated it): the RESA outer-row SURFACE between
+   stations still floats above terrain where daylight distances jump —
+   but the B2-clamped T-vertices SPLIT the long chords, so the shipped
+   surface is better than first recorded. Post-clamp at SPJC 16R: worst
+   ring-chord float +1.72 m (19.6 m edge), worst polygon-interior float
+   +1.45 m at -12.0055511,-77.1347555; 0.32 % of the shape above +0.5 m,
+   nothing above +2 m, median -2.27 m (overwhelmingly a genuine cut).
+   The vertex clamp cannot fix polygon interiors; If the owner sees a floating wedge near 16R in-sim, the fix
    is densifying the outer daylight row in `_build_graded_strips` (the
    flank discontinuity-split pattern at clearance.py ~3205) — touches
    every graded strip, needs build-time evaluation. Do NOT lift the outer

@@ -2070,6 +2070,16 @@ def _build_adjacent_ground_zone_constraints(layout, bucket_to_idx):
     edges, no longitudinal edges, no fairing.  Projection of the DEM
     seed onto the signed slab IS the analytic clamp).
 
+    NOTE on ``floor_off`` / ``ceil_off``: they are the law envelope at the
+    node's depth SHIFTED, where the constructor had to re-home a
+    tile-seam-PROLONGED (synthetic) host onto a real ring vertex, by
+    ``station frontage altitude - re-homed host altitude`` — see the
+    frozen-nearest host repair in
+    ``adjacent_ground.construct_adjacent_ground_presolve``.  Without that
+    shift a station up to a full prolongation away in station would be
+    anchored to the cut-back corner's altitude.  The shift is 0.0 for
+    every un-re-homed node, i.e. everywhere outside a seam prolongation.
+
     IDENTITY-COLLISION RULE: a zone node whose canonical bucket resolves
     to a PRE-EXISTING solver node (a pavement ring vertex, a gap-spine
     node — index below ``layout._adjacent_ground_first_zone_index``)
@@ -2428,9 +2438,19 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
         # crossings (the SPLP 4.2 m V-notch; see
         # ``tile_cut._pin_runway_piece_to_profile``); they still act as
         # fixed SOURCES for the fairing envelope below.
+        # ★ 2026-07-25 owner ruling (config ``RUNWAY_SEAM_VERTEX_DEM_PIN``):
+        # "every node along the tile seam cutback MUST be exactly at DEM ...
+        # definitely including the runway."  The runway exemption below was
+        # the solver half of the profile-authority path; with the gate ON a
+        # runway-owned seam bucket takes the DEM re-sample like every other
+        # seam bucket, so ``tile_cut``'s per-vertex pin is not silently
+        # overwritten back to the profile.  The 4.2 m V-notch that motivated
+        # the exemption was re-measured on 2026-07-25 at 1.44 % (inside the
+        # 1.5 % cap) and traced to the DEM state of 2026-07-03, not terrain.
+        from ..config import RUNWAY_SEAM_VERTEX_DEM_PIN
         pin_vals: dict = {}      # idx -> value to write
         for idx, (x, y, fallback, airside, runway) in seam_pins.items():
-            if runway and is_hard[idx]:
+            if runway and is_hard[idx] and not RUNWAY_SEAM_VERTEX_DEM_PIN:
                 pin_vals[idx] = float(elev[idx])
                 continue
             v = None
@@ -2674,8 +2694,12 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
         # ── Phase 3: write ────────────────────────────────────────────
         for idx, v in pin_vals.items():
             runway = seam_pins[idx][4]
-            if runway and is_hard[idx]:
+            if runway and is_hard[idx] and not RUNWAY_SEAM_VERTEX_DEM_PIN:
                 continue     # runway hard-anchor value already in place
+            # ★ 2026-07-25/26 rulings: with the gate ON a runway seam bucket
+            # is a DEM anchor like any other — Phase 1 already re-sampled it,
+            # and skipping the write here would silently restore the FAA
+            # profile value on top of ``tile_cut``'s per-vertex pin.
             # Seam wins: override any existing HARD value too.
             elev[idx] = v
             is_hard[idx] = True

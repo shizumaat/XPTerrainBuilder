@@ -107,7 +107,8 @@ from .geom_safe import min_rotated_rect
 from .pavement.junctions import _decompose_polygon_with_holes
 from .pavement.runways import _sample_runway_segment_elev
 
-__all__ = ["emit_surface_clearance_cuts", "emit_runway_end_skirts"]
+__all__ = ["emit_surface_clearance_cuts", "emit_runway_end_skirts",
+           "road_corridors_from_ways", "airport_road_feed_corridors"]
 
 
 _TAXIWAY_ROLES = (
@@ -2520,16 +2521,38 @@ def _surface_road_corridors(layout, ll_to_m):
 
 def _surface_road_corridors_uncached(layout, ll_to_m):
     try:
-        from .bridges import (
-            _carriageway_width_from_tags, _load_tunnel_road_network)
+        from .bridges import _load_tunnel_road_network
         nodes_r, ways_r, _big_way_ids, _node_tags_r = (
             _load_tunnel_road_network(layout))
     except _GEOM_EXC:
         return None
     if not ways_r:
         return None
+    return road_corridors_from_ways(nodes_r, ways_r, ll_to_m)
+
+
+def road_corridors_from_ways(nodes, ways, ll_to_m, widths=None):
+    """THE corridor-union law, applied to any road/rail way set.
+
+    A surface way becomes ``LineString.buffer(½·carriageway width +
+    _SKIRT_ROAD_SHOULDER_M)``; tunnel-tagged ways are EXCLUDED (filling
+    over a tunnel is lawful — see :func:`_surface_road_corridors`);
+    railways use the fixed ``_SKIRT_RAILWAY_CORRIDOR_M`` corridor.
+    Returns the union, or ``None`` when nothing qualified.
+
+    Factored out of :func:`_surface_road_corridors_uncached` (pure
+    refactor — that path passes exactly the ways it always did, so its
+    result is unchanged) so the airport-region ROAD FEED can build its
+    corridors under the SAME law rather than a second copy of it.  One
+    buffer rule, three future consumers.
+
+    ``nodes`` maps id → ``(lat, lon)``; ``ways`` is
+    ``[(id, [node id, ...], tags)]``; ``widths``, when given (the feed
+    resolves them once), supplies the per-way carriageway width instead
+    of re-deriving it from the tags."""
+    from .bridges import _carriageway_width_from_tags
     corridors = []
-    for _wid, node_refs, tags in ways_r:
+    for way_id, node_refs, tags in ways:
         highway_type = tags.get("highway")
         railway_type = tags.get("railway")
         if highway_type is None and railway_type is None:
@@ -2539,15 +2562,18 @@ def _surface_road_corridors_uncached(layout, ll_to_m):
             continue
         points = []
         for node_ref in node_refs:
-            ll = nodes_r.get(node_ref)
+            ll = nodes.get(node_ref)
             if ll is not None:
                 points.append(ll_to_m(ll[0], ll[1]))
         if len(points) < 2:
             continue
-        if railway_type is not None:
-            width = _SKIRT_RAILWAY_CORRIDOR_M
-        else:
-            width = _carriageway_width_from_tags(highway_type, tags, 6.0)
+        width = None if widths is None else widths.get(way_id)
+        if width is None:
+            if railway_type is not None:
+                width = _SKIRT_RAILWAY_CORRIDOR_M
+            else:
+                width = _carriageway_width_from_tags(
+                    highway_type, tags, 6.0)
         try:
             corridors.append(
                 LineString(points).buffer(
@@ -2560,6 +2586,35 @@ def _surface_road_corridors_uncached(layout, ll_to_m):
         return unary_union(corridors)
     except _GEOM_EXC:
         return None
+
+
+def airport_road_feed_corridors(layout, ll_to_m):
+    """Corridor union of the AIRPORT-REGION ROAD FEED
+    (``layout.airport_road_network``), in the layout's meter frame —
+    ``None`` when the feed is off or empty.
+
+    The feed's counterpart to :func:`_surface_road_corridors`, memoized
+    the same way (``layout._airport_road_feed_corridors_cache``, 1-tuple
+    so a computed ``None`` also caches) and built under the same law via
+    :func:`road_corridors_from_ways`.
+
+    DELIBERATELY SEPARATE from :func:`_surface_road_corridors`, which
+    keeps reading the TILE caches: at default config those hold no minor
+    roads at all, so serving clearance from the feed would widen the
+    corridor exemption at every airport in the world — a behaviour change
+    for the owner features to make explicitly.  Classification refinement
+    and inset road grading call THIS one."""
+    cached = getattr(layout, "_airport_road_feed_corridors_cache", None)
+    if cached is not None:
+        return cached[0]
+    network = getattr(layout, "airport_road_network", None)
+    result = None
+    if network is not None and getattr(network, "ways", None):
+        result = road_corridors_from_ways(
+            network.nodes, network.ways, ll_to_m,
+            widths=getattr(network, "widths", None))
+    layout._airport_road_feed_corridors_cache = (result,)
+    return result
 
 
 # Emitted-shape roles that mark a runway end as constrained the same

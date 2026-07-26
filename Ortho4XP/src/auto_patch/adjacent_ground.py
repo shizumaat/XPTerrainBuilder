@@ -57,11 +57,16 @@ _GEOM_EXC = (ValueError, GEOSException, TopologicalError)
 from .config import (
     ADJACENT_GROUND_END_PIN_ENABLED,
     ADJACENT_GROUND_LIP_WIDTH_M,
+    ADJACENT_GROUND_PROLONG_HOST_REF,
     ADJACENT_GROUND_SEAM_PROLONG_ENABLED,
     ADJACENT_GROUND_SEAM_PROLONG_MAX_M,
     APRON_BEYOND_SHOULDER_MAX_DOWN_SLOPE,
     APRON_EDGE_WALL_MIN_DROP_M,
     APRON_SHOULDER_WIDTH_M,
+    APRON_WALL_MIN_AREA_M2,
+    APRON_WALL_MIN_RUN_M,
+    APRON_WALL_PAVEMENT_ADJACENCY_M,
+    APRON_WALL_RUN_HYSTERESIS_M,
     CLEARANCE_MAX_REACH_M,
     CLEARANCE_OBSTRUCTION_THRESHOLD_M,
     CLEARANCE_STATION_STEP_M,
@@ -205,11 +210,44 @@ _STRIP_WIDTH_FROM_CENTERLINE = STRIP_WIDTH_FROM_CENTERLINE_ENABLED
 # surface's handover S instead of marching the zone-3 ceiling to the
 # earthwork reach cap.  Read once, like every sibling gate.
 from .config import OLS_CUT_ENABLED as _OLS_CUT              # noqa: E402
+# BAND RAY OCCLUSION (owner ruling 2026-07-25, "Yes for adjacent ground
+# using a ray occlusion, it should stop at pavement"; the rationale and the
+# CYXY shapeID 395 diagnosis live in the config block).  The module-local
+# binding the two band builders read, so a test can flip it without
+# re-importing config.  OFF ⇒ the occlusion limits are all +inf and every
+# ``min(..., occ)`` / ``d > occ`` below is a structural no-op —
+# byte-identical to the pre-fix march.
+from .config import (                                        # noqa: E402
+    BAND_RAY_OCCLUSION_ENABLED as _RAY_OCCLUSION)
+# APRON WALL CONTINUITY (2026-07-25 diagnosis — see the config block
+# ``APRON_WALL_CONTINUITY_ENABLED``).  Module-local binding so a test can
+# flip it without re-importing config.  OFF ⇒ ``_emit_apron_walls`` takes
+# its pre-fix single-Polygon / no-hysteresis path verbatim.
+from .config import (                                        # noqa: E402
+    APRON_WALL_CONTINUITY_ENABLED as _APRON_WALL_CONTINUITY)
+# APRON WALL SCOPE — pavement adjacency (owner ruling 2026-07-25, lead
+# reading; see the config block ``APRON_WALL_SCOPE_ENABLED``).  Kept on a
+# gate SEPARATE from the continuity fixes above: this one narrows the LAW's
+# scope (and carries a validator mirror), those repair emission mechanics,
+# so the owner can back either out without losing the other.
+from .config import (                                        # noqa: E402
+    APRON_WALL_SCOPE_ENABLED as _APRON_WALL_SCOPE)
+# SOLVED-BAND EMIT-SIDE CORRIDOR CLAMP (2026-07-25 diagnosis — see the
+# config block ``BAND_CORRIDOR_CLAMP_ENABLED``).  OFF ⇒ the solved
+# resampler returns its raw solved value, byte-identical to the pre-fix
+# valuation.
+from .config import (                                        # noqa: E402
+    BAND_CORRIDOR_CLAMP_ENABLED as _BAND_CORRIDOR_CLAMP)
 # TILE-SEAM PROLONGATION (owner ruling 2026-07-24 — see the config block
 # ``ADJACENT_GROUND_SEAM_PROLONG_ENABLED`` for the full rationale and the
 # SPLP measurements).  The module-local bindings the march reads.
 _SEAM_PROLONG = ADJACENT_GROUND_SEAM_PROLONG_ENABLED
 _SEAM_PROLONG_MAX_M = ADJACENT_GROUND_SEAM_PROLONG_MAX_M
+# Value-sourcing half of the prolongation (config
+# ``ADJACENT_GROUND_PROLONG_HOST_REF``): a re-homed zone-node host carries
+# the station's own frontage altitude as the law reference instead of the
+# cut-back corner's.  OFF ⇒ every host shift is 0.0 — the pre-fix values.
+_PROLONG_HOST_REF = ADJACENT_GROUND_PROLONG_HOST_REF
 # A ring vertex is ON a tile cut-back line within this distance.  ``tile_cut``
 # places them EXACTLY on the line; the tolerance only absorbs the local-metre
 # <-> lat/lon round trip (micrometres) and emit rounding.
@@ -278,11 +316,34 @@ _APPARATUS_KEYS = (
     # Arc B1: stations stood down because they face a COLLARED POCKET
     # (0 with nothing collared, by construction).
     "collar_zone_excluded_stations",
+    # RAY OCCLUSION (2026-07-25): stations whose outward march hit
+    # pavement and was terminated there (0 with the gate OFF, by
+    # construction).
+    "band_ray_occluded_stations",
+    # EMIT-SIDE CORRIDOR CLAMP (2026-07-25): solved band vertices whose
+    # value sat OUTSIDE this shape's own law corridor and was clamped
+    # back into it (0 with O4_BAND_CORRIDOR_CLAMP off, by construction).
+    # A non-zero count is the cross-shape canonical-variable collision
+    # population — see the config block ``BAND_CORRIDOR_CLAMP_ENABLED``.
+    "band_corridor_clamped_vertices",
+    # APRON WALL SCOPE (owner ruling 2026-07-25): apron frontage stations
+    # facing OPEN TERRAIN (no built pavement within
+    # ``APRON_WALL_PAVEMENT_ADJACENCY_M``) whose FILL side the ruling
+    # leaves ungoverned — no wall, no shoulder band, raw DEM up to the
+    # apron edge.  0 with O4_APRON_WALL_SCOPE off, by construction.
+    "apron_open_frontage_stations",
 )
 _APPARATUS_HITS: dict[str, int] = {}
+# Largest single clamp magnitude (m) applied by the emit-side corridor
+# clamp this emission — reported beside the counter above.  Kept OUT of
+# ``_APPARATUS_HITS`` so that table stays integer-valued (the OFF-vs-ON
+# retirement report parses it).
+_BAND_CLAMP_MAX_DELTA_M = 0.0
 
 
 def _reset_apparatus_hits():
+    global _BAND_CLAMP_MAX_DELTA_M
+    _BAND_CLAMP_MAX_DELTA_M = 0.0
     for _hit_key in _APPARATUS_KEYS:
         _APPARATUS_HITS[_hit_key] = 0
 
@@ -303,6 +364,93 @@ _TAXIWAY_ROLES = (
     ROLE_STUB, ROLE_CROSS_CONNECTOR, ROLE_JUNCTION,
 )
 _APRON_ROLES = (ROLE_APRON,)
+
+# APRON WALL SCOPE (owner ruling 2026-07-25).  The roles that count as
+# "adjacent PAVEMENT" for the 5 m qualification: every BUILT surface — the
+# airside pavement the emitter marches plus the groundside / service /
+# tunnel-ramp surfaces that are equally impossible to grade over.  Terrain
+# roles are deliberately absent (``graded_strip`` bands, ``retaining_wall``
+# faces, the boundary ribbon, clearance shadows and building pads), so the
+# emitter (pre-emit) and the validator (post-emit) derive the identical set
+# from ``layout.shapes`` — lockstep by construction, exactly as
+# ``airside_seam_vertex_keys`` does.
+_WALL_SCOPE_PAVEMENT_ROLES = frozenset(
+    _RUNWAY_ROLES + _TAXIWAY_ROLES + _APRON_ROLES) | frozenset({
+        "groundside_pavement", "service_road", "service_junction",
+        "tunnel_ramp",
+    })
+
+
+def apron_wall_pavement_adjacency_index(layout):
+    """``(STRtree, polys, owner_ids)`` over every BUILT pavement shape, or
+    ``None`` — the shared geometry source for the apron-wall scope ruling
+    (owner 2026-07-25; see ``config.APRON_WALL_SCOPE_ENABLED``).
+
+    Built once per emission / per validation, never per shape: the test it
+    serves runs on every apron station of the airport.  ``owner_ids`` holds
+    ``id(shape)`` per polygon so a shape is never counted as adjacent to
+    ITSELF."""
+    from shapely.strtree import STRtree
+    polys = []
+    owners = []
+    for s in layout.shapes:
+        if s.role not in _WALL_SCOPE_PAVEMENT_ROLES:
+            continue
+        if s.polygon is None or s.polygon.is_empty:
+            continue
+        polys.append(s.polygon)
+        owners.append(id(s))
+    if not polys:
+        return None
+    try:
+        return (STRtree(polys), polys, owners)
+    except _GEOM_EXC:
+        return None
+
+
+def apron_wall_frontage_qualifier(shape, index):
+    """``qualifies(sx, sy) -> bool`` for one APRON shape, or ``None`` when
+    the scope gate is off / there is nothing to test against (caller then
+    governs every station exactly as before — byte-identical).
+
+    True when ANOTHER built pavement shape lies within
+    ``APRON_WALL_PAVEMENT_ADJACENCY_M`` of the station: the owner's "there's
+    adjacent pavement within 5 m, then we need a wall".  False = OPEN
+    TERRAIN frontage, which the ruling leaves ungoverned on the FILL side
+    (no wall, no shoulder band; the raw DEM grades up to the apron edge).
+
+    Cost discipline (the ray-occlusion / collar standard): one STRtree box
+    query plus a distance test per DISTINCT station, memoized on the
+    millimetre vertex key so the march and the wall pass — which walk the
+    same station list — pay for it once."""
+    if not _APRON_WALL_SCOPE or index is None:
+        return None
+    from shapely.geometry import box as _box
+    tree, polys, owners = index
+    r = APRON_WALL_PAVEMENT_ADJACENCY_M
+    me = id(shape)
+    cache: dict[tuple[int, int], bool] = {}
+
+    def qualifies(sx, sy):
+        key = _vertex_key(sx, sy)
+        hit = cache.get(key)
+        if hit is not None:
+            return hit
+        p = Point(sx, sy)
+        hit = False
+        try:
+            for gi in tree.query(_box(sx - r, sy - r, sx + r, sy + r)):
+                if owners[gi] == me:
+                    continue
+                if polys[gi].distance(p) <= r:
+                    hit = True
+                    break
+        except _GEOM_EXC:
+            hit = True     # degrade toward the pre-ruling behaviour
+        cache[key] = hit
+        return hit
+
+    return qualifies
 
 
 def airside_seam_vertex_keys(layout):
@@ -425,11 +573,113 @@ def _repair_self_lenses(g):
         return [g]
 
 
+# Sentinel occlusion limit — "this ray is clear all the way to the cap".
+# Every consumer spends it through ``min(..., occ)`` / ``d > occ``, so the
+# gate-OFF path (which returns nothing but this value) is byte-identical.
+_OCCLUSION_CLEAR = float("inf")
+
+
+def _station_occlusion_limits(edge_stations, outwards, band_caps, step,
+                              prep_static, wrap_skirt_prep=None):
+    """RAY OCCLUSION — the per-station maximum band depth measured through
+    FREE GROUND ONLY (gate ``O4_BAND_RAY_OCCLUSION``; owner ruling
+    2026-07-25: "Yes for adjacent ground using a ray occlusion, it should
+    stop at pavement").
+
+    THE LAW: a lateral band's outward reach is measured through free ground
+    only — a station's outward march TERMINATES at the first sample
+    distance whose point falls inside the static pavement union, and the
+    station's band depth becomes the LAST FREE-GROUND sample before that
+    hit.  Beyond an occluding pavement the ground is that pavement's own
+    frontage: its bands march outward from ITS edge and cover it, so
+    stopping here leaves nothing ungoverned (and the emitted band never
+    wraps a foreign pavement's corner — the CYXY shapeID 395 defect, where
+    junction 129's deep cut slab marched straight through apron 132 +
+    junction 131 because the lidar reads the built apron bench as terrain
+    needing a cut, so daylight never closed).
+
+    Returns one float per station — the largest lawful depth, or
+    ``_OCCLUSION_CLEAR`` (+inf) where that ray is clear; a station whose
+    FIRST sample is already occluded gets 0.0 (no band at all).  Returns
+    ``None`` when NOTHING is occluded (and always with the gate off), which
+    is the builders' structural no-op path: byte-identical.
+
+    Sampled on the SAME ``k * step`` grid the two band builders march
+    (``d = min(cap, k * step)``, ``k = 1 … ceil(cap / step)``), with
+    ``band_caps`` the per-station MAX of the fill and cut caps so one march
+    serves both directions.  (The cut builder samples one millimetre
+    inside its cap; that 1e-3 is immaterial to a containment test and is
+    deliberately not reproduced here — one march, one law.)
+
+    ``wrap_skirt_prep`` — the taxiway-end WRAP exemption, verbatim from
+    ``_station_reference_ex``: a runway-END skirt is the corridor's JOIN
+    target, not an obstruction, so a hit that lies on the skirt does not
+    occlude.  ``None`` (runways, aprons, wrap gate OFF): every static hit
+    occludes.
+
+    BUILD-TIME: the naive form (one prepared ``contains`` + one ``Point``
+    per sample) measured 2.45 s per 700k samples — SPJC scale — against
+    a 0.6 s budget, so the whole station x sample grid is tested in ONE
+    vectorized ``shapely.contains_xy`` call against the same prepared
+    union (measured 0.084 s for the same 700k samples, a 29x cut, and
+    exactly equivalent by construction: ``contains_xy(g, x, y)`` IS
+    ``g.contains(Point(x, y))``).  This is the collar-zone guard's
+    precedent (450 ms naive -> 35 ms guarded) taken to the same standard.
+    """
+    n = len(edge_stations)
+    if not _RAY_OCCLUSION or n == 0 or prep_static is None:
+        return None
+    static = getattr(prep_static, "context", None)
+    if static is None or static.is_empty:
+        return None
+    import numpy as _np
+    from shapely import contains_xy as _contains_xy
+    caps = _np.asarray([float(c) for c in band_caps], dtype=float)
+    cap_max = float(caps.max()) if n else 0.0
+    if not (cap_max > 0.0):
+        return None
+    kmax = max(1, int(math.ceil(cap_max / float(step))))
+    ks = _np.arange(1, kmax + 1, dtype=float)[None, :]
+    # d[i, j] and the per-station validity mask: k runs 1 … ceil(cap/step),
+    # i.e. exactly the builders' ``nst`` (equivalently (k-1)*step < cap).
+    dgrid = _np.minimum(caps[:, None], ks * float(step))
+    valid = (ks - 1.0) * float(step) < caps[:, None]
+    seeds = _np.asarray([(float(sx), float(sy))
+                         for sx, sy in edge_stations], dtype=float)
+    norms = _np.asarray([(float(nx), float(ny))
+                         for nx, ny in outwards], dtype=float)
+    xs = seeds[:, 0][:, None] + norms[:, 0][:, None] * dgrid
+    ys = seeds[:, 1][:, None] + norms[:, 1][:, None] * dgrid
+    try:
+        hit = _contains_xy(static, xs, ys) & valid
+    except _GEOM_EXC:
+        return None
+    if wrap_skirt_prep is not None:
+        skirt = getattr(wrap_skirt_prep, "context", None)
+        if skirt is not None and not skirt.is_empty:
+            try:
+                hit &= ~_contains_xy(skirt, xs, ys)
+            except _GEOM_EXC:
+                pass
+    any_hit = hit.any(axis=1)
+    if not any_hit.any():
+        return None
+    limits = [_OCCLUSION_CLEAR] * n
+    first = hit.argmax(axis=1)
+    for i in _np.nonzero(any_hit)[0]:
+        j = int(first[i])
+        # The last FREE-GROUND sample before the hit (0.0 when the very
+        # first sample is already inside pavement).
+        limits[int(i)] = float(dgrid[i, j - 1]) if j > 0 else 0.0
+    _APPARATUS_HITS["band_ray_occluded_stations"] += int(any_hit.sum())
+    return limits
+
+
 def _build_cut_bands(edge_stations, edge_alts, outwards, band_caps,
                      ceiling_offset, band_edges, trigger, step,
                      sample_dem, is_ring_vertex=None,
                      at_continuation_seam=None, zone_collect=None,
-                     force_full_reach=False):
+                     force_full_reach=False, occlusion=None):
     """CUT-direction mirror of ``clearance._build_filled_skirts``.
 
     At each station a CEILING sits at ``edge_alt + ceiling_offset(d)``
@@ -456,6 +706,14 @@ def _build_cut_bands(edge_stations, edge_alts, outwards, band_caps,
     pavement ring) without adding information.  Only ring vertices +
     each run's surviving endpoints are kept on that row; the outer row and
     every d0 > 0 row keep full station density.
+
+    ``occlusion`` (per station, aligned with ``edge_stations``; None = off,
+    byte-identical) — RAY OCCLUSION (``_station_occlusion_limits``, gate
+    ``O4_BAND_RAY_OCCLUSION``): the station's maximum depth through FREE
+    GROUND, i.e. the last sample before its outward ray enters pavement.
+    The scan STOPS there, the daylight depth is clamped to it, and so is
+    the widened taper neighbour's row — no band vertex ever lands beyond an
+    occluding pavement (owner ruling 2026-07-25; CYXY shapeID 395).
     """
     n = len(edge_stations)
     outer: list[float] = [0.0] * n
@@ -471,6 +729,9 @@ def _build_cut_bands(edge_stations, edge_alts, outwards, band_caps,
             continue
         cap_max = max(cap_max, cap)
         nst = max(1, int(math.ceil(cap / step)))
+        # RAY OCCLUSION: +inf with the gate off, so every ``min``/``>``
+        # below is a structural no-op there.
+        occ = _OCCLUSION_CLEAR if occlusion is None else occlusion[i]
         last = 0.0
         for k in range(1, nst + 1):
             # Clamp INSIDE the cap: at exactly d == reach the corridor is
@@ -479,6 +740,11 @@ def _build_cut_bands(edge_stations, edge_alts, outwards, band_caps,
             # unprotected — the validator samples reach − 1e-3 and flags
             # it (CYXY round-2 addendum findings at d ≈ reach).
             d = min(cap - 1e-3, k * step)
+            if d > occ:
+                # RAY OCCLUSION: pavement stands in the ray — the march
+                # terminates here and every deeper sample belongs to the
+                # occluder's own frontage, not this band's.
+                break
             co = ceiling_offset(d)
             if co is None:      # unbounded up at/beyond the reach — no cut
                 continue
@@ -492,10 +758,12 @@ def _build_cut_bands(edge_stations, edge_alts, outwards, band_caps,
             # reach regardless of the worst-case terrain trigger, so the
             # staged zone-row grid bounds any solved-edge cut the emit
             # re-march produces (over-coverage = unused solved variables).
-            last = cap - 1e-3
+            # Occlusion binds the staged grid too, so the pre-solve
+            # construct and the emit re-march bound the SAME ground.
+            last = min(cap - 1e-3, occ)
         if last > 0.0:
             obstructed[i] = True
-            outer[i] = min(cap - 1e-3, last + step)
+            outer[i] = min(cap - 1e-3, last + step, occ)
     if not any(obstructed):
         return []
     # DAYLIGHT slope-limit (grade_law.adjacent_ground_supported_depths, user
@@ -665,6 +933,12 @@ def _build_cut_bands(edge_stations, edge_alts, outwards, band_caps,
                 # The ceiling is unbounded exactly AT the reach; keep the
                 # outer row a hair inside so it stays finite.
                 off = min(off, cap_max - 1e-3)
+                # RAY OCCLUSION also binds the WIDENED taper neighbour: its
+                # ``d0 + step`` row is not scanned, so without this a taper
+                # station standing against pavement would still place an
+                # outer vertex inside it (+inf off-gate — no-op).
+                if occlusion is not None:
+                    off = min(off, occlusion[i])
                 if off <= d0:
                     continue
                 co0 = ceiling_offset(d0)
@@ -700,7 +974,8 @@ def _build_cut_bands(edge_stations, edge_alts, outwards, band_caps,
 def _build_fill_bands(edge_stations, edge_alts, outwards, band_caps,
                       floor_depth, band_edges, trigger, step, sample_dem,
                       is_ring_vertex=None, at_continuation_seam=None,
-                      zone_collect=None, force_full_reach=False):
+                      zone_collect=None, force_full_reach=False,
+                      occlusion=None):
     """FILL-direction band geometry — clearance._build_filled_skirts,
     inline-duplicated MINIMALLY (flagged for the cleanup slice) with two
     lateral-law differences the shared skirt builder must not inherit:
@@ -719,6 +994,11 @@ def _build_fill_bands(edge_stations, edge_alts, outwards, band_caps,
 
     ``is_ring_vertex`` thins the d0 == 0 weld row to ring vertices + run
     endpoints exactly as in ``_build_cut_bands`` (see there).
+
+    ``occlusion`` — RAY OCCLUSION, the cut twin's verbatim (see there):
+    the march terminates at the first pavement hit and the depth (and the
+    widened taper neighbour's row) is clamped to the last free-ground
+    sample.  None = off, byte-identical.
     """
     n = len(edge_stations)
     outer: list[float] = [0.0] * n
@@ -734,9 +1014,12 @@ def _build_fill_bands(edge_stations, edge_alts, outwards, band_caps,
             continue
         cap_max = max(cap_max, cap)
         nst = max(1, int(math.ceil(cap / step)))
+        occ = _OCCLUSION_CLEAR if occlusion is None else occlusion[i]
         last = 0.0
         for k in range(1, nst + 1):
             d = min(cap, k * step)
+            if d > occ:
+                break               # RAY OCCLUSION (see the cut twin)
             floor = ref - floor_depth(d)
             dd = sample_dem(sx + nx * d, sy + ny * d)
             if dd is not None and dd < floor - trigger:
@@ -745,10 +1028,10 @@ def _build_fill_bands(edge_stations, edge_alts, outwards, band_caps,
             # Full-extent coverage grid (see _build_cut_bands): drop the
             # whole reach so the fill zone-row grid bounds any solved-edge
             # fill the emit re-march produces.
-            last = cap
+            last = min(cap, occ)
         if last > 0.0:
             dropped[i] = True
-            outer[i] = min(cap, last + step)
+            outer[i] = min(cap, last + step, occ)
     if not any(dropped):
         return []
     # DAYLIGHT slope-limit — the fill twin of the cut clamp (see
@@ -871,6 +1154,10 @@ def _build_fill_bands(edge_stations, edge_alts, outwards, band_caps,
                     off = min(d1, outer[i])
                 else:
                     off = min(d1, d0 + step)    # widened taper neighbour
+                # RAY OCCLUSION binds the widened taper neighbour too —
+                # see the cut twin (+inf off-gate — no-op).
+                if occlusion is not None:
+                    off = min(off, occlusion[i])
                 if off <= d0:
                     continue
                 sx, sy = edge_stations[i]
@@ -2042,7 +2329,8 @@ def _make_edge_projection_resampler(coords, ring_alts, envelope_at,
 
 
 def _make_solved_band_resampler(entry, coords, ring_alts,
-                                analytic_resample):
+                                analytic_resample,
+                                envelope_at=None, graded_width_m=None):
     """Slice B stage B3 order 2 GATE-ON band valuation: every emitted
     band vertex reads the SOLVED band surface instead of the analytic
     corridor clamp (which runs only gate-OFF — the valuation dies
@@ -2074,6 +2362,30 @@ def _make_solved_band_resampler(entry, coords, ring_alts,
          estimate did not cover): the analytic resampler values the
          vertex and the case is COUNTED loudly
          (``solved_analytic_fallback`` — the B2 degrade convention).
+
+    EMIT-SIDE CORRIDOR CLAMP (``O4_BAND_CORRIDOR_CLAMP``, 2026-07-25 —
+    full rationale in the config block ``BAND_CORRIDOR_CLAMP_ENABLED``).
+    Rules 2-4 above take their value from the SOLVED field, which the
+    canonical-point registry interns ACROSS SHAPES: a foreign shape's zone
+    node within 0.5 m of this shape's own can claim the variable, and this
+    shape's band then emits a value its OWN corridor forbids (SPJC: 34.49 m
+    where the apron shoulder corridor is [36.00, 36.06] — a 1.56 m notch).
+    So every solved value is finally clamped into this shape's analytic
+    corridor ``[edge_alt + floor_off(d), edge_alt + ceil_off(d)]`` — the
+    IDENTICAL bounds ``_make_edge_projection_resampler`` enforces by
+    construction, read from the same ``grade_law.adjacent_ground_envelope``
+    partial and with the same ``kind`` continuity treatment (fill clamps
+    ``d`` to the graded width; cut drops the floor).  The weld row (rule 1)
+    is pavement identity and is never clamped; the analytic fallback
+    (rule 4) is already inside the corridor by construction.  Where the
+    clamp bites, this shape and its neighbour emit different values at one
+    canonical point — the emitter's supported "deliberate wall of two
+    separate nodes" node-split convention (see the adoption block's own
+    comment further down this module), not a tear.
+
+    ``envelope_at`` / ``graded_width_m`` are this shape's family corridor
+    closure and band cap (``_band_family_closures``); ``None`` (or the gate
+    off) disables the clamp and restores the pre-fix values verbatim.
     """
     line, _edge_alt_at = _ring_edge_reference(coords, ring_alts)
     zone_values = entry.get("zone_values") or {}
@@ -2128,6 +2440,47 @@ def _make_solved_band_resampler(entry, coords, ring_alts,
     # distance means the query sits ON that row (the on-edge lerp case).
     _ON_ROW_TOL_M = 0.5
 
+    # EMIT-SIDE CORRIDOR CLAMP (see the docstring).  Structurally inert
+    # with the gate off or without a corridor closure: ``_clamp`` is then
+    # the identity on its ``value`` argument and costs one predicate.
+    _clamp_on = bool(_BAND_CORRIDOR_CLAMP) and envelope_at is not None
+
+    def _clamp(p, d, kind, value):
+        """``value`` forced into THIS shape's law corridor at depth ``d``.
+
+        Mirrors ``_make_edge_projection_resampler``'s bound handling
+        exactly — ``kind == "fill"`` clamps ``d`` to the band cap so an
+        outer-row vertex whose projection jitters past W stays on the
+        shelf, ``kind == "cut"`` drops the floor (below-floor terrain
+        inside a cut piece belongs to the fill machinery) — so the two
+        valuation paths agree on what "lawful" means.  No snap-to-bound:
+        a value already inside the corridor is returned untouched, so the
+        clamp only ever bites on the collision population it targets.
+        """
+        global _BAND_CLAMP_MAX_DELTA_M
+        if not _clamp_on:
+            return value
+        edge_alt = _edge_alt_at(line.project(p))
+        if edge_alt is None:
+            return value
+        dd = d
+        if kind == "fill" and graded_width_m is not None:
+            dd = min(dd, graded_width_m)
+        floor_offset, ceiling_offset = envelope_at(dd)
+        if kind == "cut":
+            floor_offset = None
+        out = value
+        if floor_offset is not None:
+            out = max(out, float(edge_alt) + floor_offset)
+        if ceiling_offset is not None:
+            out = min(out, float(edge_alt) + ceiling_offset)
+        delta = abs(out - value)
+        if delta > 1e-9:
+            _APPARATUS_HITS["band_corridor_clamped_vertices"] += 1
+            if delta > _BAND_CLAMP_MAX_DELTA_M:
+                _BAND_CLAMP_MAX_DELTA_M = delta
+        return out
+
     def resample(x, y, kind):
         p = Point(x, y)
         d = p.distance(line)
@@ -2150,7 +2503,7 @@ def _make_solved_band_resampler(entry, coords, ring_alts,
                         best_d, best_v = dd, v
         if best_v is not None:
             _APPARATUS_HITS["solved_exact_variable"] += 1
-            return (round(float(best_v), 1), False)
+            return (round(_clamp(p, d, kind, float(best_v)), 1), False)
         # 2) row interpolation on the solved band surface.
         candidates = []
         for row in rows_prepared:
@@ -2173,7 +2526,7 @@ def _make_solved_band_resampler(entry, coords, ring_alts,
         prim_dist, prim_depth, prim_val = candidates[0]
         if abs(prim_depth - d) <= _ON_ROW_TOL_M:
             _APPARATUS_HITS["solved_row_on"] += 1
-            return (round(float(prim_val), 1), False)
+            return (round(_clamp(p, d, kind, float(prim_val)), 1), False)
         below = None      # deepest row not deeper than the query
         above = None      # shallowest row not shallower than the query
         for dist, depth, val in candidates:
@@ -2192,12 +2545,12 @@ def _make_solved_band_resampler(entry, coords, ring_alts,
             # Outward of the deepest solved row: clamp to it (counted —
             # the geometry is reported rather than a fallback invented).
             _APPARATUS_HITS["solved_beyond_coverage"] += 1
-            return (round(float(below[2]), 1), False)
+            return (round(_clamp(p, d, kind, float(below[2])), 1), False)
         span = above[1] - below[1]
         t = 0.0 if span <= 0 else (d - below[1]) / span
         value = below[2] + t * (above[2] - below[2])
         _APPARATUS_HITS["solved_row_interpolated"] += 1
-        return (round(float(value), 1), False)
+        return (round(_clamp(p, d, kind, float(value)), 1), False)
 
     return resample
 
@@ -2751,7 +3104,9 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
                                      crossing_zone_prep=None,
                                      collar_zone_prep=None,
                                      axis_line=None,
-                                     axis_classes=None):
+                                     axis_classes=None,
+                                     prolonged_keys=None,
+                                     fill_station_filter=None):
     """Frontage detection + corridor MARCH for one airside shape — the band
     FOOTPRINT geometry (everything that decides WHERE the bands are, given the
     edge-altitude references ``ring_alts``).  Returns
@@ -2763,14 +3118,18 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
 
     ``zone_rows_out`` (Slice B stage B3 order 2, pre-solve constructor
     only): a list that receives one dict per band ZONE ROW —
-    ``{"kind", "d0", "pts", "depths", "hosts"}`` — where a zone row is
+    ``{"kind", "d0", "pts", "depths", "hosts", "ref_alts"}`` — where a
+    zone row is
     every band row at lateral depth > 0 (the d0 == 0 weld row is the
     pavement chain itself, never a zone row) and ``hosts`` is the
     frozen-nearest pavement RING VERTEX per station (the B2
     frozen-nearest pattern: every ring vertex is a solver variable, so
     the envelope interval edge is mappable to a node index at
-    constraint-build time).  ``None`` (every post-solve caller): no
-    collection, byte-identical.
+    constraint-build time).  ``ref_alts`` is the station's OWN frontage
+    altitude — the value the band's analytic surface is built on — kept
+    beside the host so a consumer can tell the two apart (the seam
+    prolongation's host repair needs exactly that difference).  ``None``
+    (every post-solve caller): no collection, byte-identical.
 
     ``wrap_skirt_prep`` (Slice B stage B3 order 3, scope A — taxiway-end
     wrap; passed only for TAXIWAY shapes with O4_ADJACENT_GROUND_END_WRAP
@@ -2798,13 +3157,34 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
     2026-07-15).  ``None`` (default; nothing published — no crossings, no
     depressed road): no zone test — byte-identical.
 
+    ``prolonged_keys`` (tile-seam prolongation, pre-solve constructor
+    only): the vertex keys of the SYNTHETIC ring vertices
+    ``_seam_prolonged_ring`` spliced in.  Purely informational — each zone
+    row records, per point, whether its station sits on a PROLONGED ring
+    edge (``host_pro``), which is what the constructor's host repair needs
+    to know to keep the law corridor referenced to the prolonged frontage
+    rather than to the cut-back corner.  ``None`` (default; every emit
+    caller, every ring with no prolongation): all flags False —
+    byte-identical.
+
     ``collar_zone_prep`` (arc B1, ``_collar_zone_prep``): the PREPARED
     published COLLARED-POCKET zone — the pockets whose drainage collar
     rings actually emitted.  Tested exactly like the crossing zone, for
     EVERY family (a pocket is ringed by mixed roles — runway, taxiway and
     apron edges all face the same hole), so the collar and the bands
     never govern the same ground.  ``None`` (default; nothing collared):
-    no zone test — byte-identical."""
+    no zone test — byte-identical.
+
+    ``fill_station_filter`` (APRON WALL SCOPE, owner ruling 2026-07-25 —
+    passed only for APRON shapes with ``O4_APRON_WALL_SCOPE`` ON; see
+    ``apron_wall_frontage_qualifier``): ``qualifies(sx, sy) -> bool``.  A
+    station it rejects faces OPEN TERRAIN, which the ruling leaves
+    UNGOVERNED ON THE FILL SIDE — the raw DEM grades right up to the apron
+    edge — so its FILL reference is nulled and no fill band, and therefore
+    no fill zone row, is built there.  The CUT side is untouched: terrain
+    standing above the clearance ceiling is a wingtip obstruction wherever
+    it stands.  ``None`` (default; every other family, gate off): no
+    filtering — byte-identical."""
     if ring_alts_fill is None:
         ring_alts_fill = ring_alts
 
@@ -2913,6 +3293,9 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
     # ``zone_rows_out``).  A fan station sits AT its corner (a ring
     # vertex); an edge station takes the nearer edge endpoint.
     hosts: list[tuple[float, float]] = []
+    # Per-station "this station sits on a tile-seam PROLONGED ring edge"
+    # (either endpoint synthetic).  All False without ``prolonged_keys``.
+    host_pro: list[bool] = []
     previous_out = None
     for i in range(len(coords) - 1):
         eax, eay = coords[i]
@@ -2925,6 +3308,9 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
         a1 = ring_alts[i + 1]
         a0f = ring_alts_fill[i]
         a1f = ring_alts_fill[i + 1]
+        edge_pro = bool(prolonged_keys) and (
+            _vertex_key(eax, eay) in prolonged_keys
+            or _vertex_key(ebx, eby) in prolonged_keys)
         # CORNER FAN (coverage): at a CONVEX ring corner insert stations AT
         # the corner with normals interpolated across the turn so the band
         # outer row follows the fan arc piecewise (see the emitter's inline
@@ -2981,6 +3367,7 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
                     at_seam.append(False)
                     end_skipped.append(_fan_reason == _SKIP_END)
                     hosts.append((eax, eay))
+                    host_pro.append(edge_pro)
         previous_out = out
         nseg = max(1, int(math.ceil(
             math.hypot(ebx - eax, eby - eay) / step)))
@@ -3009,6 +3396,7 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
                            or (k == nseg - 1 and edge_b_seam))
             end_skipped.append(reason == _SKIP_END)
             hosts.append((eax, eay) if t < 0.5 else (ebx, eby))
+            host_pro.append(edge_pro)
     if len(stations) < 2:
         return [], [], stations, st_alts, outs
     m = len(stations)
@@ -3111,11 +3499,53 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
                     _code, _cls, _d_axis) for _cls in _classes)
                 cut_caps[_i] = min(reach, _s)
 
+    # ── RAY OCCLUSION (owner ruling 2026-07-25) ─────────────────────
+    # A lateral band's outward reach is measured through FREE GROUND ONLY.
+    # Computed ONCE here — the single station march both the pre-solve
+    # constructor and the post-solve emit re-march run through — off the
+    # SAME ``prep_static`` the terrain-facing probe reads, over the MAX of
+    # the two directions' caps, so the fill and cut builders bound
+    # themselves against identical geometry.  All +inf with the gate off.
+    occlusion = _station_occlusion_limits(
+        stations, outs,
+        [f if f > c else c for f, c in zip(fill_caps, cut_caps)],
+        step, prep_static, wrap_skirt_prep)
+
     # Zone-row collectors (order 2): translate the builders' per-run
     # provenance into row dicts with frozen-nearest hosts.  The d0 == 0
     # INNER row is the pavement weld chain — dropped here (pavement
     # variables already exist; a band never mints one).
+    # ── APRON WALL SCOPE (owner ruling 2026-07-25) ──────────────────
+    # An apron frontage station with no built pavement within
+    # ``APRON_WALL_PAVEMENT_ADJACENCY_M`` faces OPEN TERRAIN: the ruling
+    # declines to govern its FILL side, so the raw DEM grades up to the
+    # apron edge.  Implemented as a nulled FILL REFERENCE — the one input
+    # ``_build_fill_bands`` skips a station on — which leaves the CUT
+    # march, the daylight law and every other station untouched, and
+    # therefore also mints no fill ZONE ROW (no solver variable) there.
+    # ``fill_station_filter is None`` (every non-apron family, gate off)
+    # leaves ``st_alts_fill`` the same object it already was.
+    fill_refs = st_alts_fill
+    if fill_station_filter is not None:
+        _open = [i for i, (sx, sy) in enumerate(stations)
+                 if st_alts_fill[i] is not None
+                 and not fill_station_filter(sx, sy)]
+        if _open:
+            _open_set = set(_open)
+            fill_refs = [None if i in _open_set else a
+                         for i, a in enumerate(st_alts_fill)]
+            _APPARATUS_HITS["apron_open_frontage_stations"] += len(_open)
+
     def _make_zone_collector(kind):
+        # The band law's OWN reference per station — the frontage altitude
+        # the analytic surface is built on (``_build_*_bands`` reads exactly
+        # this array).  Recorded alongside the frozen-nearest host so the
+        # seam-prolongation host repair can tell how far a re-homed host's
+        # altitude is from the station's real frontage altitude (see
+        # ``construct_adjacent_ground_presolve``); every other consumer
+        # ignores it, so collecting it changes nothing.
+        _ref_alts = fill_refs if kind == "fill" else st_alts
+
         def _collect(d0, inner_entries, outer_entries):
             if d0 > 0.0 and len(inner_entries) >= 1:
                 zone_rows_out.append({
@@ -3123,7 +3553,11 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
                     "pts": [(float(x), float(y))
                             for _i, x, y in inner_entries],
                     "depths": [float(d0)] * len(inner_entries),
-                    "hosts": [hosts[i] for i, _x, _y in inner_entries]})
+                    "hosts": [hosts[i] for i, _x, _y in inner_entries],
+                    "ref_alts": [_ref_alts[i]
+                                 for i, _x, _y in inner_entries],
+                    "host_pro": [host_pro[i]
+                                 for i, _x, _y in inner_entries]})
             if outer_entries:
                 zone_rows_out.append({
                     "kind": kind, "d0": float(d0),
@@ -3132,7 +3566,11 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
                     "depths": [float(dd)
                                for _i, _x, _y, dd in outer_entries],
                     "hosts": [hosts[i]
-                              for i, _x, _y, _d in outer_entries]})
+                              for i, _x, _y, _d in outer_entries],
+                    "ref_alts": [_ref_alts[i]
+                                 for i, _x, _y, _d in outer_entries],
+                    "host_pro": [host_pro[i]
+                                 for i, _x, _y, _d in outer_entries]})
         return _collect
 
     _collect_fill = (_make_zone_collector("fill")
@@ -3151,15 +3589,15 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
         fill_edges = _coverage_grid_edges(fill_edges, width)
         cut_edges = _coverage_grid_edges(cut_edges, reach)
     fill_bands = _build_fill_bands(
-        stations, st_alts_fill, outs, fill_caps, floor_depth,
+        stations, fill_refs, outs, fill_caps, floor_depth,
         fill_edges, trigger, step, sample_dem,
         is_ring_vertex, at_seam, zone_collect=_collect_fill,
-        force_full_reach=coverage_grid)
+        force_full_reach=coverage_grid, occlusion=occlusion)
     cut_bands = _build_cut_bands(
         stations, st_alts, outs, cut_caps, ceil_off,
         cut_edges, trigger, step, sample_dem,
         is_ring_vertex, at_seam, zone_collect=_collect_cut,
-        force_full_reach=coverage_grid)
+        force_full_reach=coverage_grid, occlusion=occlusion)
     return fill_bands, cut_bands, stations, st_alts, outs
 
 
@@ -3209,12 +3647,21 @@ def _split_zone_rows_off_static(zone_rows, prep_static, static_boundary):
             continue
         depths = row.get("depths") or []
         hosts = row.get("hosts") or []
+        # Per-point parallel arrays carried through the split in lockstep
+        # with ``pts`` (a desync would mis-pair a station's law reference
+        # with another station's point).
+        refs = row.get("ref_alts") or [None] * len(pts)
+        deltas = row.get("host_delta") or [0.0] * len(pts)
+        pro = row.get("host_pro") or [False] * len(pts)
         for run in runs:
             out.append({
                 "kind": row["kind"], "d0": row["d0"],
                 "pts": [pts[j] for j in run],
                 "depths": [depths[j] for j in run],
-                "hosts": [hosts[j] for j in run]})
+                "hosts": [hosts[j] for j in run],
+                "ref_alts": [refs[j] for j in run],
+                "host_pro": [pro[j] for j in run],
+                "host_delta": [deltas[j] for j in run]})
     if n_dropped:
         _APPARATUS_HITS["zone_static_keepout_dropped"] += n_dropped
     return out
@@ -3297,6 +3744,11 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
     except _GEOM_EXC:
         layout.adjacent_ground_presolve = []
         return 0
+    # APRON WALL SCOPE (owner ruling 2026-07-25): built ONCE for the whole
+    # construction, consumed per apron shape below.  ``None`` with the gate
+    # off / no pavement — the march is then unfiltered, byte-identical.
+    _wall_scope_index = (apron_wall_pavement_adjacency_index(layout)
+                         if _APRON_WALL_SCOPE else None)
     # Zone-node static keep-out (B4 flip defect 1): the boundary of the
     # SAME static block the march probes, prepared once for the vectorized
     # dwithin test in ``_split_zone_rows_off_static``.
@@ -3416,11 +3868,19 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
                        else [ring_alts, ring_alts_fill])
         coords, _pro_arrays, _npro = _seam_prolonged_ring(
             layout, coords, ccw, _pro_arrays, _depth_cap, _offcut_union)
+        _real_keys: set = set()
+        _pro_keys: set = set()
         if _npro:
             ring_alts = _pro_arrays[0]
             if ring_alts_fill is not None:
                 ring_alts_fill = _pro_arrays[1]
             _n_prolonged += _npro
+            # The SYNTHETIC vertices this splice minted — the march flags
+            # every station on an edge touching one, and the host repair
+            # below re-homes the hosts that ARE one.
+            _real_keys = {_vertex_key(px, py) for px, py in _pre_coords}
+            _pro_keys = {_vertex_key(px, py)
+                         for px, py in coords} - _real_keys
         zone_rows: list[dict] = []
         fill_bands, cut_bands, _st, _sa, _ou = \
             _derive_shape_stations_and_bands(
@@ -3434,7 +3894,16 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
                 crossing_zone_prep=(crossing_zone_prep
                                     if family == "taxiway" else None),
                 axis_line=axis_line,
-                axis_classes=axis_classes)
+                axis_classes=axis_classes,
+                prolonged_keys=_pro_keys,
+                # APRON WALL SCOPE — apron frontage only (owner ruling
+                # 2026-07-25).  Applied in the PRE-SOLVE construct as
+                # well as at emit so the two marches stay identical and
+                # no solver variable is minted for ground the ruling
+                # leaves ungoverned.
+                fill_station_filter=(
+                    apron_wall_frontage_qualifier(s, _wall_scope_index)
+                    if family == "apron" else None))
         if not fill_bands and not cut_bands:
             continue
         # FROZEN-NEAREST HOST REPAIR: a zone row stationed on a PROLONGED
@@ -3442,8 +3911,61 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
         # ring vertex and therefore not a solver variable.  Re-home those
         # rows onto the nearest REAL ring vertex — the cut-back corner —
         # so the B3 frozen-nearest contract still holds.
+        #
+        # ★ VALUE DEFECT FIXED 2026-07-25 (the stage-3 blocker on
+        # ``config.RUNWAY_SEAM_VERTEX_DEM_PIN``).  The re-home is a
+        # positional repair, but the host is ALSO the law's altitude
+        # reference: ``solver_primitives.adjacent_ground_zone_constraints``
+        # encodes each zone node as ``elev[node] - elev[host] in
+        # [floor_off, ceil_off]``.  Frozen-nearest is a sound proxy for the
+        # station's frontage altitude while the host is metres away on a
+        # densely-vertexed ring — but a re-homed host is the CUT-BACK
+        # CORNER, up to a whole prolongation (300 m at SPLP) away in
+        # station, so the band 270 m up the prolonged frontage was
+        # anchored to the corner's altitude.  Measured SPLP -13/-078 with
+        # the runway pin ON: zone node (-148.8, -141.5), host
+        # (-142.3, -364.4) at 55.80 m, ceil_off -1.17 -> 54.63 m emitted,
+        # while the station's OWN frontage altitude there is 58.52 m
+        # (the analytic resampler read exactly that) and the neighbouring
+        # seam vertices sit at 59.0 m — the 4.4 m spike that failed
+        # ``test_tile_cut_parity`` at 4.55 m.
+        #
+        # FIX (value-sourcing only — the geometry, the host and the
+        # envelope are untouched): carry the station's own frontage
+        # altitude (``ref_alts``, the very array ``_build_*_bands`` values
+        # the analytic surface from) and shift the node's envelope by
+        # ``ref_alt - host_alt``, so the corridor is centred on the
+        # FLANKING FRONTAGE EDGE's own extrapolated altitude — the
+        # ADJACENT_GROUND_SEAM_PROLONGATION design ruling — while the
+        # constraint still references a real solver variable.
+        #
+        # Applied to every station ON a prolonged edge (``host_pro``), not
+        # only to the re-homed half: a prolonged edge carries NO interior
+        # vertices, so frozen-nearest hands its first half the cut-back
+        # corner and its second half the synthetic tip, and shifting only
+        # the second half would step the corridor by half the
+        # prolongation's rise at the changeover (measured 2.0 m at SPLP).
+        # Shifting the whole edge makes the reference the linearly
+        # interpolated frontage altitude — continuous into the real ring
+        # at the corner, where the shift goes to zero by construction.
+        # Untouched everywhere else, so a ring with no prolongation (every
+        # single-tile airport) is byte-identical.
         if _npro and zone_rows:
-            _real_keys = {_vertex_key(px, py) for px, py in _pre_coords}
+            # Ring altitude by vertex identity, per band direction (the
+            # two arrays are the SAME object off order-3 coverage).  Read
+            # off the PROLONGED ring, so a real host and a synthetic host
+            # resolve through one map.
+            def _alt_map(values):
+                out: dict[tuple[int, int], float] = {}
+                for (px, py), av in zip(coords, values):
+                    if av is None:
+                        continue
+                    out.setdefault(_vertex_key(px, py), float(av))
+                return out
+
+            _alt_by_key = {"cut": _alt_map(ring_alts),
+                           "fill": _alt_map(ring_alts if ring_alts_fill
+                                            is None else ring_alts_fill)}
             # The synthetic hosts are the (at most 2-per-run) prolonged
             # vertices, repeated across every row they host — memoise the
             # nearest-real scan per exact coordinate pair instead of
@@ -3461,13 +3983,35 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
                 return hit
 
             for _row in zone_rows:
-                if all(_vertex_key(hx, hy) in _real_keys
-                       for hx, hy in _row["hosts"]):
+                _pro_flags = _row.get("host_pro") or ()
+                if not any(_pro_flags) and all(
+                        _vertex_key(hx, hy) in _real_keys
+                        for hx, hy in _row["hosts"]):
                     continue
-                _row["hosts"] = [
-                    (hx, hy) if _vertex_key(hx, hy) in _real_keys
-                    else _nearest_real(hx, hy)
-                    for hx, hy in _row["hosts"]]
+                _alts = _alt_by_key[_row["kind"]]
+                _refs = _row.get("ref_alts") or [None] * len(_row["hosts"])
+                _flags = list(_pro_flags) or [False] * len(_row["hosts"])
+                _new_hosts = []
+                _deltas = []
+                for (hx, hy), _ref, _flag in zip(_row["hosts"], _refs,
+                                                 _flags):
+                    if _vertex_key(hx, hy) in _real_keys:
+                        _real = (hx, hy)
+                    else:
+                        _real = _nearest_real(hx, hy)
+                    _new_hosts.append(_real)
+                    # The station's frontage altitude vs its host's own:
+                    # the shift the law corridor needs to stay referenced
+                    # to the prolonged frontage.  Unknown on either side
+                    # (a skipped station, an unvalued ring vertex) => no
+                    # shift, i.e. the pre-fix behaviour.
+                    _hal = _alts.get(_vertex_key(*_real))
+                    _deltas.append(
+                        0.0 if (not _PROLONG_HOST_REF or not _flag
+                                or _ref is None or _hal is None)
+                        else float(_ref) - _hal)
+                _row["hosts"] = _new_hosts
+                _row["host_delta"] = _deltas
         # Zone-node static keep-out (B4 flip defect 1): no zone point on,
         # inside, or hugging static pavement ever becomes a solver variable.
         if zone_rows and _zone_static_boundary is not None:
@@ -3486,8 +4030,13 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
         zone_nodes: list[dict] = []
         seen_zone_keys: set[tuple[int, int]] = set()
         for row in zone_rows:
-            for (zx, zy), zd, zhost in zip(row["pts"], row["depths"],
-                                           row["hosts"]):
+            # Seam-prolongation host shift (see the repair block above):
+            # 0.0 everywhere the host is the station's own real ring
+            # vertex, so this is a structural no-op for every row that was
+            # not re-homed — and for every airport with no prolongation.
+            _row_delta = row.get("host_delta") or [0.0] * len(row["pts"])
+            for (zx, zy), zd, zhost, zdelta in zip(
+                    row["pts"], row["depths"], row["hosts"], _row_delta):
                 zkey = _vertex_key(zx, zy)
                 if zkey in seen_zone_keys:
                     continue
@@ -3497,6 +4046,11 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
                     zone_ceil = envelope_at(zd)[1]
                 else:
                     zone_floor, zone_ceil = envelope_at(min(zd, width))
+                if zdelta:
+                    if zone_floor is not None:
+                        zone_floor += zdelta
+                    if zone_ceil is not None:
+                        zone_ceil += zdelta
                 zone_nodes.append({
                     "xy": (float(zx), float(zy)),
                     "host": (float(zhost[0]), float(zhost[1])),
@@ -3633,6 +4187,24 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
         prep_static = prep(static_union)
     except _GEOM_EXC:
         return 0
+    # APRON WALL SCOPE (owner ruling 2026-07-25): built ONCE for the whole
+    # emission — over PAVEMENT roles only, so it is the same index the
+    # validator's MIRROR 6 rebuilds after the bands land.  ``None`` with
+    # the gate off — the march and the wall pass are then unfiltered.
+    _wall_scope_index = (apron_wall_pavement_adjacency_index(layout)
+                         if _APRON_WALL_SCOPE else None)
+    # RAY-OCCLUSION PUBLICATION (2026-07-25, the crossing-zone pattern):
+    # the validator's MIRROR 5 must occlude against the EXACT geometry the
+    # emitter marched through, and it cannot rebuild it — by verify time
+    # ``layout.shapes`` also carries this pass's own ``graded_strip`` bands
+    # (which weld to the pavement edge, so rebuilding would occlude every
+    # ray at the first sample and blind the reader) plus the apron
+    # ``retaining_wall`` pieces ``_emit_apron_walls`` appends BELOW.
+    # Published here, at the state the march reads.  Absent (this emitter
+    # never ran / gate off) the validator simply does not occlude — the
+    # pre-mirror reader verbatim.
+    if _RAY_OCCLUSION:
+        layout.adjacent_ground_occlusion = static_union
     boundary = layout.airport_boundary
     # Taxiway-end WRAP join target (scope A): built once, passed to the
     # inline (legacy-path) march for taxiway shapes with the gate ON.  The
@@ -4225,6 +4797,12 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
         # enumerated seed/late-feature footprint deltas.  Gate-OFF the march
         # runs inline exactly as today through the shared helper
         # (byte-identical).
+        # APRON WALL SCOPE (owner ruling 2026-07-25): ONE qualifier per
+        # shape, shared by the march and the wall pass below — they walk
+        # the same station list, and the qualifier memoizes per station,
+        # so the STRtree query is paid once per station per airport.
+        _apron_q = (apron_wall_frontage_qualifier(s, _wall_scope_index)
+                    if family == "apron" else None)
         _pre = _presolve_bands.get(id(s)) if _presolve_bands else None
         if _pre is not None:
             fill_bands, cut_bands = _pre["fill"], _pre["cut"]
@@ -4244,7 +4822,10 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                 # and apron frontage face it just as taxiway frontage does.
                 collar_zone_prep=collar_zone_prep,
                 axis_line=axis_line,
-                axis_classes=axis_classes)
+                axis_classes=axis_classes,
+                # APRON WALL SCOPE — apron frontage only (owner ruling
+                # 2026-07-25): open-terrain stations take no fill band.
+                fill_station_filter=_apron_q)
         if not fill_bands and not cut_bands:
             continue
 
@@ -4266,7 +4847,12 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
             if (_solved_entry is not None
                     and _solved_entry.get("zone_values")):
                 resample_alt = _make_solved_band_resampler(
-                    _solved_entry, coords, ring_alts, resample_alt)
+                    _solved_entry, coords, ring_alts, resample_alt,
+                    # EMIT-SIDE CORRIDOR CLAMP (2026-07-25): the SAME
+                    # corridor closure + band cap the analytic resampler
+                    # above was built with, so the solved path cannot
+                    # emit a value the analytic path would have refused.
+                    envelope_at=envelope_at, graded_width_m=width)
             else:
                 _APPARATUS_HITS["solved_store_missing_shape"] += 1
                 UI.vprint(1, f"  [adjacent-ground] WARN: no solved "
@@ -4750,7 +5336,11 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
             n_wall, wall_union = _emit_apron_walls(
                 layout, stations, st_alts, outs, ceil_off, step,
                 sample_dem, static_union, boundary, wall_clip,
-                emitted_shapes)
+                emitted_shapes,
+                # APRON WALL SCOPE (owner ruling 2026-07-25): a wall only
+                # where another built pavement stands within
+                # ``APRON_WALL_PAVEMENT_ADJACENCY_M``.
+                station_filter=_apron_q)
             emitted += n_wall
             if n_wall and wall_union is not None:
                 current_shape_union = wall_union
@@ -4847,25 +5437,79 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
     UI.vprint(1, "  [adjacent-ground] apparatus hits: "
                  + " ".join(f"{k}={_APPARATUS_HITS[k]}"
                             for k in _APPARATUS_KEYS))
+    if _APPARATUS_HITS["band_corridor_clamped_vertices"]:
+        UI.vprint(1, f"  [adjacent-ground] emit-side corridor clamp: "
+                     f"{_APPARATUS_HITS['band_corridor_clamped_vertices']} "
+                     f"solved band vertex(es) forced back into their own "
+                     f"law corridor (worst "
+                     f"{_BAND_CLAMP_MAX_DELTA_M:.2f} m).")
     return emitted
 
 
 def _emit_apron_walls(layout, stations, st_alts, outs, ceil_off, step,
                       sample_dem, static_union, boundary,
-                      emitted_union=None, emitted_shapes=None):
+                      emitted_union=None, emitted_shapes=None,
+                      station_filter=None):
     """Emit ``retaining_wall`` faces along an apron edge where the DEM
     drops more than ``APRON_EDGE_WALL_MIN_DROP_M`` below the shoulder
     outer-edge altitude (reuses the ``ROLE_RETAINING_WALL`` emit contract
     — a thin vertical band, top row at the shoulder edge, bottom row at
-    the DEM).  Grouped into runs of consecutive dropped stations."""
+    the DEM).  Grouped into runs of consecutive dropped stations.
+
+    APRON WALL CONTINUITY (``O4_APRON_WALL_CONTINUITY``, 2026-07-25; full
+    diagnosis in the config block ``APRON_WALL_CONTINUITY_ENABLED``) adds
+    two things the owner's "ramps and sharp drops" report traced to:
+
+      * MULTIPART-SAFE emission.  The clip against static pavement, the
+        just-emitted graded strips and the boundary can split ONE wall run
+        into several pieces — a neighbouring junction band nicking 5.29 m²
+        out of a 173 m frontage was enough.  The pre-fix code emitted only
+        a single ``Polygon`` residue and dropped every other run WHOLE
+        (SPJC: 4 runs / 240.4 m² of owed wall face).  The residue is now
+        decomposed exactly the way the graded-band emitter decomposes its
+        own (``_repair_self_lenses`` → ``_decompose_polygon_with_holes``)
+        and every surviving part is emitted; ``_nearest_alt`` values each
+        part against the run's own top/bottom rows unchanged.  Parts below
+        ``APRON_WALL_MIN_RUN_M`` / ``APRON_WALL_MIN_AREA_M2`` are confetti
+        and are skipped and COUNTED (never silently capped).
+      * RUN HYSTERESIS.  A run STARTS only above the full
+        ``APRON_EDGE_WALL_MIN_DROP_M``, but CONTINUES through stations down
+        to ``… - APRON_WALL_RUN_HYSTERESIS_M`` — stations millimetres under
+        the threshold (SPJC: 1.4988 m, 1.4936 m) no longer chop a
+        continuous frontage into pieces with a bare notch between.
+
+    Gate OFF ⇒ ``join`` collapses onto ``start`` and the single-Polygon
+    emission returns, i.e. byte-identical to the pre-fix emitter.
+
+    ``station_filter`` (APRON WALL SCOPE, owner ruling 2026-07-25 —
+    ``apron_wall_frontage_qualifier``, gated by ``O4_APRON_WALL_SCOPE``):
+    ``qualifies(sx, sy) -> bool``.  A wall is emitted ONLY at stations with
+    another built pavement shape within
+    ``APRON_WALL_PAVEMENT_ADJACENCY_M`` — between two built surfaces there
+    is no room to grade, so a vertical face is the only lawful answer.
+    Frontage facing OPEN TERRAIN takes no wall at all (and, in the march
+    above, no fill band either): the raw DEM grades up to the apron edge.
+    ``None`` (gate off): every station is eligible, as before.
+    """
     w = APRON_SHOULDER_WIDTH_M
     n = len(stations)
     top_alt: list = [None] * n
     dem_alt: list = [None] * n
     dropped = [False] * n
+    joinable = [False] * n
+    # Hysteresis floor: the drop at which an ALREADY-OPEN run continues.
+    # Equal to the start threshold with the gate off, so ``joinable`` is
+    # then ``dropped`` and the grouping below is unchanged.
+    join_drop = (APRON_EDGE_WALL_MIN_DROP_M - APRON_WALL_RUN_HYSTERESIS_M
+                 if _APRON_WALL_CONTINUITY else APRON_EDGE_WALL_MIN_DROP_M)
+    n_out_of_scope = 0
     for i, (sx, sy) in enumerate(stations):
         ref = st_alts[i]
         if ref is None:
+            continue
+        # APRON WALL SCOPE: open-terrain frontage takes no wall.
+        if station_filter is not None and not station_filter(sx, sy):
+            n_out_of_scope += 1
             continue
         nx, ny = outs[i]
         ox, oy = sx + nx * w, sy + ny * w
@@ -4873,28 +5517,50 @@ def _emit_apron_walls(layout, stations, st_alts, outs, ceil_off, step,
         dd = sample_dem(ox, oy)
         if dd is None:
             continue
-        if shoulder_edge - float(dd) > APRON_EDGE_WALL_MIN_DROP_M:
-            dropped[i] = True
+        drop = shoulder_edge - float(dd)
+        if drop > join_drop:
+            # Rows are prepared for every JOINABLE station; only a
+            # ``dropped`` one may START a run.
+            joinable[i] = True
+            dropped[i] = drop > APRON_EDGE_WALL_MIN_DROP_M
             top_alt[i] = shoulder_edge
             dem_alt[i] = float(dd)
+    if n_out_of_scope:
+        UI.vprint(1, f"  [adjacent-ground] apron wall scope: "
+                     f"{n_out_of_scope} open-terrain station(s) skipped "
+                     f"(no pavement within "
+                     f"{APRON_WALL_PAVEMENT_ADJACENCY_M:g} m — owner "
+                     f"ruling 2026-07-25).")
     if not any(dropped):
         return 0, emitted_union
-    idx = [i for i in range(n) if dropped[i]]
+    idx = [i for i in range(n) if joinable[i]]
     runs: list[list[int]] = []
-    cur = [idx[0]]
+    cur = [idx[0]] if dropped[idx[0]] else []
     for j in idx[1:]:
         # Physical-distance bridge (see _build_cut_bands): an index
         # bridge on long ring edges mints spike walls.
         jx, jy = stations[j]
-        cx_, cy_ = stations[cur[-1]]
-        if (j - cur[-1] <= 2
-                and math.hypot(jx - cx_, jy - cy_) <= 2.5 * step):
+        contiguous = False
+        if cur:
+            cx_, cy_ = stations[cur[-1]]
+            contiguous = (j - cur[-1] <= 2
+                          and math.hypot(jx - cx_, jy - cy_) <= 2.5 * step)
+        if cur and contiguous:
+            # An open run absorbs its neighbour at the RELAXED threshold.
             cur.append(j)
-        else:
-            runs.append(cur)
+        elif dropped[j]:
+            # A fresh run may only be STARTED by a full-threshold station.
+            if cur:
+                runs.append(cur)
             cur = [j]
-    runs.append(cur)
+        elif cur:
+            runs.append(cur)
+            cur = []
+    if cur:
+        runs.append(cur)
     emitted = 0
+    n_confetti = 0
+    n_multipart_parts = 0
     for run in runs:
         if len(run) < 2:
             continue
@@ -4926,27 +5592,96 @@ def _emit_apron_walls(layout, stations, st_alts, outs, ceil_off, step,
                 poly = poly.difference(emitted_union)
             if boundary is not None and not boundary.is_empty:
                 poly = poly.intersection(boundary)
-            if poly.is_empty or poly.geom_type != "Polygon":
+            if poly.is_empty:
                 continue
+            if not _APRON_WALL_CONTINUITY:
+                if poly.geom_type != "Polygon":
+                    continue
+                parts = [poly]
+            else:
+                # MULTIPART-SAFE decomposition — the band emitter's own
+                # idiom (see the ``comps`` block in the graded-strip
+                # loop): every lobe of the clip residue is a real piece
+                # of the owed wall face, not a reason to drop the run.
+                if poly.geom_type == "Polygon":
+                    comps = [poly]
+                elif poly.geom_type in ("MultiPolygon",
+                                        "GeometryCollection"):
+                    comps = [g for g in poly.geoms
+                             if g.geom_type == "Polygon"]
+                else:
+                    continue
+                comps = [r for c in comps for r in _repair_self_lenses(c)]
+                parts = [simple for c in comps
+                         for simple in _decompose_polygon_with_holes(
+                             c, min_area_m2=1.0)
+                         if not simple.is_empty]
+                if len(parts) > 1:
+                    n_multipart_parts += len(parts)
         except _GEOM_EXC:
             continue
-        pr = _open_coords(poly)
-        if len(pr) < 3:
-            continue
-        walts = [round(float(_nearest_alt(
-            ring, alts, vx, vy)), 1) for vx, vy in pr]
-        wall_shape = BuiltShape(
-            polygon=poly, role=ROLE_RETAINING_WALL,
-            ref=_ADJACENT_WALL_REF,
-            node_altitudes=walts + [walts[0]])
-        layout.shapes.append(wall_shape)
-        if emitted_shapes is not None:
-            emitted_shapes.append(wall_shape)
-        emitted += 1
-        try:
-            emitted_union = (
-                poly if emitted_union is None
-                else unary_union([emitted_union, poly]))
-        except _GEOM_EXC:
-            pass
+        for part in parts:
+            if _APRON_WALL_CONTINUITY:
+                # CONFETTI GATE: a face too short along the frontage, or
+                # too small, protects nothing a neighbouring band does not
+                # already cover and reads in-sim as a spike triangle.
+                if (_wall_part_run_length(part) < APRON_WALL_MIN_RUN_M
+                        or part.area < APRON_WALL_MIN_AREA_M2):
+                    n_confetti += 1
+                    continue
+            pr = _open_coords(part)
+            if len(pr) < 3:
+                continue
+            walts = [round(float(_nearest_alt(
+                ring, alts, vx, vy)), 1) for vx, vy in pr]
+            wall_shape = BuiltShape(
+                polygon=part, role=ROLE_RETAINING_WALL,
+                ref=_ADJACENT_WALL_REF,
+                node_altitudes=walts + [walts[0]])
+            layout.shapes.append(wall_shape)
+            if emitted_shapes is not None:
+                emitted_shapes.append(wall_shape)
+            emitted += 1
+            try:
+                emitted_union = (
+                    part if emitted_union is None
+                    else unary_union([emitted_union, part]))
+            except _GEOM_EXC:
+                pass
+    if n_multipart_parts or n_confetti:
+        UI.vprint(1, f"  [adjacent-ground] apron walls: "
+                     f"{n_multipart_parts} part(s) from multipart clip "
+                     f"residue kept, {n_confetti} sub-minimum part(s) "
+                     f"skipped (<{APRON_WALL_MIN_RUN_M:g} m run / "
+                     f"<{APRON_WALL_MIN_AREA_M2:g} m2).")
     return emitted, emitted_union
+
+
+def _wall_part_run_length(poly):
+    """Along-frontage LENGTH (m) of one emitted apron-wall part.
+
+    A wall face is a thin strip — its top row sits at the shoulder edge
+    and its bottom row one ``_PAVEMENT_GAP_M`` further out — so the LONG
+    side of the part's minimum rotated rectangle is the frontage run it
+    actually covers.  Used by the confetti gate; ``0.0`` for anything
+    shapely cannot rectangle (which the gate then rejects)."""
+    import warnings
+    try:
+        with warnings.catch_warnings():
+            # GEOS' oriented_envelope raises a spurious "divide by zero"
+            # RuntimeWarning on a PERFECT rectangle — which an unclipped
+            # wall face always is.  Suppressed here rather than left to
+            # spam every build log; the returned rectangle is correct.
+            warnings.simplefilter("ignore", RuntimeWarning)
+            mrr = poly.minimum_rotated_rectangle
+        ext = getattr(mrr, "exterior", None)
+        if ext is None:
+            return 0.0
+        xs = list(ext.coords)[:-1]
+        if len(xs) < 3:
+            return 0.0
+        return max(math.hypot(xs[(k + 1) % len(xs)][0] - xs[k][0],
+                              xs[(k + 1) % len(xs)][1] - xs[k][1])
+                   for k in range(len(xs)))
+    except (_GEOM_EXC + (AttributeError, ValueError)):
+        return 0.0

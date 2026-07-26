@@ -151,6 +151,13 @@ def test_worst_case_coverage_catches_in_corridor_dem(monkeypatch):
     # reference equals the DEM, so cut/fill both see zero excursion.
     monkeypatch.setattr(AG, "_sample_dem",
                         lambda dem, tl, tn, lat, lon: EDGE_ALT)
+    # APRON WALL SCOPE is OFF for this fixture (owner ruling 2026-07-25):
+    # the lone apron here stands in open terrain, where the ruling declines
+    # to govern the FILL side at all — which would make the FILL half of
+    # this worst-case-coverage assertion untestable.  The scope ruling has
+    # its own tests (test_adjacent_ground_apron_wall.py); this one is about
+    # the reach-band worst-case march.
+    monkeypatch.setattr(AG, "_APRON_WALL_SCOPE", False)
 
     # ── DEM-seed (admission gate OFF): no band at all. ──
     layout_seed = _FakeLayout([_apron_unsolved(0.0, 0.0, 200.0, 80.0)])

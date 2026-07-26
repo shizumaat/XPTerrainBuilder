@@ -485,10 +485,23 @@ def _select_feasible_seam_anchors(
         candidates: List[Tuple[float, float]],
         phys_dist: float,
         grade_cap: float = MAX_RUNWAY_GRADE,
+        enforce_cap: bool | None = None,
 ) -> Tuple[List[Tuple[float, float]],
            List[Tuple[float, float, float]]]:
     """Split seam-contact candidates into the set the runway profile CAN
     hold at DEM and the set it cannot.
+
+    ★ 2026-07-26 owner ruling (``config.RUNWAY_SEAM_CUTBACK_DEM_ANCHORS``):
+      "ALL nodes along the seam MUST be at exact DEM and anchored BEFORE
+       the solve, then the solver can grade between them and its other
+       anchors to maintain grade."
+    With the gate ON (``enforce_cap`` False) NOTHING is vetoed: every
+    candidate is returned as ACCEPTED and the second list becomes a pure
+    REPORT of the consecutive pairs whose DEM-to-DEM step exceeds
+    ``grade_cap`` — the same honest-residual discipline as the
+    ``[seam-pins]`` report and the 2026-07-24 cut-back ruling.  The
+    pre-ruling selection below is what ``enforce_cap=True`` (gate off)
+    restores.
 
     Every sampled contact point is a place the owner ruling wants the
     pavement sitting exactly on the DEM.  Terrain does not always allow it:
@@ -512,6 +525,9 @@ def _select_feasible_seam_anchors(
     never a silent midpoint.  When even the two extremes conflict, only the
     first is held and every other candidate is reported.
     """
+    if enforce_cap is None:
+        from .config import RUNWAY_SEAM_CUTBACK_DEM_ANCHORS
+        enforce_cap = not RUNWAY_SEAM_CUTBACK_DEM_ANCHORS
     pts = sorted(candidates)
     if len(pts) < 2:
         return list(pts), []
@@ -521,6 +537,19 @@ def _select_feasible_seam_anchors(
         if d < 1e-6:
             return 0.0
         return abs(b[1] - a[1]) / d
+
+    if not enforce_cap:
+        # THE DEM WINS AT EVERY SEAM SAMPLE (ruling above).  Accept the
+        # whole contact; report — never drop — each consecutive pair the
+        # runway grade law cannot step through.  The report entry names
+        # the LATER point of the pair and the grade that pair needs, so a
+        # reader can locate it by station exactly as before.
+        over: List[Tuple[float, float, float]] = []
+        for a, b in zip(pts, pts[1:]):
+            g = _grade(a, b)
+            if g > grade_cap + 1e-9:
+                over.append((b[0], b[1], g))
+        return list(pts), over
 
     first, last = pts[0], pts[-1]
     rejected: List[Tuple[float, float, float]] = []
@@ -912,7 +941,9 @@ def redistribute_runway_profile(
                   f"{[(round(t,4), round(_interp_profile(state['fractions'], state['elevs'], t), 2)) for t, _v in _es]}")
             print(f"    [seam-debug] kept seam_samples="
                   f"{[(round(t,4), round(v,2)) for t, v in seam_samples]}")
-            print(f"    [seam-debug] rejected (law-infeasible)="
+            from .config import RUNWAY_SEAM_CUTBACK_DEM_ANCHORS as _RSC
+            print(f"    [seam-debug] "
+                  f"{'over-cap (ANCHORED anyway, reported)' if _RSC else 'rejected (law-infeasible)'}="
                   f"{[(round(t,4), round(v,2), f'{g*100:.2f}%') for t, v, g in seam_rejects]}")
         # The ruling's reporting duty is discharged AFTER the solve, where
         # the residual (profile minus DEM) is known — see the seam audit
@@ -1019,19 +1050,40 @@ def redistribute_runway_profile(
         # alone, and those land within centimetres of the solved profile).
         _conf = _seam_audit[ref]['law_conflicts']
         if _conf:
+            from .config import RUNWAY_SEAM_CUTBACK_DEM_ANCHORS as _RSC_REP
             _worst = max(_conf, key=lambda c: abs(c['residual_m']))
+            _steepest = max(_conf, key=lambda c: c['grade_needed'])
             try:
                 from O4_UI_Utils import vprint
-                vprint(1,
-                       f"  [pav-builder] runway {ref}: tile-seam contact "
-                       f"anchored at the DEM at {len(seam_samples)} point(s); "
-                       f"{len(_conf)} further sample(s) could not be reached "
-                       f"within the {MAX_RUNWAY_GRADE * 100:.1f}% runway "
-                       f"grade law — worst residual "
-                       f"{_worst['residual_m']:+.2f} m at station "
-                       f"{_worst['fraction'] * phys_dist:.0f} m (DEM "
-                       f"{_worst['dem_m']:.2f} m would need "
-                       f"{_worst['grade_needed'] * 100:.2f}%).")
+                if _RSC_REP:
+                    # ★ 2026-07-26 ruling: these samples ARE anchored at the
+                    # DEM.  What is reported is the grade the solver must
+                    # step through between two DEM anchors — lawful and
+                    # named, never a silently dropped anchor.
+                    vprint(1,
+                           f"  [pav-builder] runway {ref}: tile-seam contact "
+                           f"anchored at the DEM at {len(seam_samples)} "
+                           f"point(s); {len(_conf)} adjacent seam pair(s) "
+                           f"step through more than the "
+                           f"{MAX_RUNWAY_GRADE * 100:.1f}% runway grade law "
+                           f"(owner ruling 2026-07-26 — the DEM anchor wins, "
+                           f"the grade is reported) — steepest "
+                           f"{_steepest['grade_needed'] * 100:.2f}% at station "
+                           f"{_steepest['fraction'] * phys_dist:.0f} m; worst "
+                           f"profile-vs-DEM residual "
+                           f"{_worst['residual_m']:+.2f} m at station "
+                           f"{_worst['fraction'] * phys_dist:.0f} m.")
+                else:
+                    vprint(1,
+                           f"  [pav-builder] runway {ref}: tile-seam contact "
+                           f"anchored at the DEM at {len(seam_samples)} point(s); "
+                           f"{len(_conf)} further sample(s) could not be reached "
+                           f"within the {MAX_RUNWAY_GRADE * 100:.1f}% runway "
+                           f"grade law — worst residual "
+                           f"{_worst['residual_m']:+.2f} m at station "
+                           f"{_worst['fraction'] * phys_dist:.0f} m (DEM "
+                           f"{_worst['dem_m']:.2f} m would need "
+                           f"{_worst['grade_needed'] * 100:.2f}%).")
             except ImportError:
                 pass
         escalated = end_zone_cap > RUNWAY_END_GRADE + 1e-9

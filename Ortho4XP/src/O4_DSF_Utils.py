@@ -1230,6 +1230,9 @@ def build_dsf(tile, download_queue):
         (n1, n2, n3) = tri_idx[3 * tri: 3 * tri + 3]
         if done % step == 0:
             UI.progress_bar(1, int(done / step * 0.9))
+            if done and not done % (10 * step):
+                UI.vprint(1, "     " + str(done // step)
+                          + "% of the mesh triangles treated.")
             if UI.red_flag:
                 UI.vprint(1, "DSF construction interrupted.")
                 return 0
@@ -1482,6 +1485,9 @@ def build_dsf(tile, download_queue):
         
         if done % step == 0:
             UI.progress_bar(1, int(done / step * 0.9))
+            if done and not done % (10 * step):
+                UI.vprint(1, "     " + str(done // step)
+                          + "% of the mesh triangles treated.")
             if UI.red_flag:
                 UI.vprint(1, "DSF construction interrupted.")
                 return 0
@@ -1805,9 +1811,32 @@ def build_dsf(tile, download_queue):
     f.write(b"DOEG")
     f.write(struct.pack("<I", size_of_geod_atom))
     f.write(bGEOD)
+    # Writing the point pools is the longest silent stretch of the encoder
+    # (tens of millions of 16-bit words on a dense tile), so the loop
+    # reports on the same idiom as the triangle loops above: progress bar,
+    # a console line every tenth of the pools, and a red_flag poll on the
+    # same milestone.  The bar covers 90 -> 95 %.
+    nbr_pools_to_write = int(numpy.count_nonzero(dsf_pool_length))
+    pool_step = max(1, nbr_pools_to_write // 10)
+    pools_done = 0
     for k in range(dsf_pool_nbr):
         if dsf_pool_length[k] == 0:
             continue
+        if pools_done % pool_step == 0:
+            UI.progress_bar(
+                1, 90 + int(5 * pools_done / nbr_pools_to_write)
+            )
+            UI.vprint(
+                1,
+                "     Encoding point pools : "
+                + str(pools_done)
+                + "/"
+                + str(nbr_pools_to_write),
+            )
+            if UI.red_flag:
+                UI.vprint(1, "DSF construction interrupted.")
+                return 0
+        pools_done += 1
         f.write(b"LOOP")
         f.write(
             struct.pack(
@@ -1874,9 +1903,31 @@ def build_dsf(tile, download_queue):
     f.write(b"SDMC")  # CMDS header
     f.write(struct.pack("<I", size_of_cmds_atom))  # CMDS length
     f.write(bCMDS)
+    # Same reporting idiom as the pool loop above, over the terrains this
+    # time (one patch group each); the bar covers 95 -> 98 %.
+    nbr_terrains_to_write = sum(
+        1 for idx in textured_tris if len(textured_tris[idx]) != 0
+    )
+    terrain_step = max(1, nbr_terrains_to_write // 10)
+    terrains_done = 0
     for terrain_idx in textured_tris:
         if len(textured_tris[terrain_idx]) == 0:
             continue
+        if terrains_done % terrain_step == 0:
+            UI.progress_bar(
+                1, 95 + int(3 * terrains_done / nbr_terrains_to_write)
+            )
+            UI.vprint(
+                1,
+                "     Encoding terrain patches : "
+                + str(terrains_done)
+                + "/"
+                + str(nbr_terrains_to_write),
+            )
+            if UI.red_flag:
+                UI.vprint(1, "DSF construction interrupted.")
+                return 0
+        terrains_done += 1
         # print("terrain_idx = "+str(terrain_idx))
         f.write(struct.pack("<B", 4))  # SET DEFINITION 16
         f.write(struct.pack("<H", terrain_idx))  # TERRAIN INDEX

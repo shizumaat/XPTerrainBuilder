@@ -364,3 +364,107 @@ def test_cutback_line_specs_cover_both_sides_of_every_cut_line():
     assert sorted(specs) == sorted([
         (0, X_SEAM - TILE_CUT_HALF_WIDTH_M),
         (0, X_SEAM + TILE_CUT_HALF_WIDTH_M)])
+
+
+# ── the VALUE contract on a prolonged frontage ───────────────────────────
+#
+# Defect fixed 2026-07-25 (the stage-3 blocker on
+# ``config.RUNWAY_SEAM_VERTEX_DEM_PIN``).  A prolonged edge carries NO
+# interior vertices, so the band march's frozen-nearest host for a station
+# on it is either the cut-back CORNER or the synthetic tip — up to a whole
+# prolongation away in station.  The host is also the law corridor's
+# altitude reference in
+# ``solver_primitives._build_adjacent_ground_zone_constraints``, so the
+# band 270 m up the prolonged frontage was anchored to the corner's
+# altitude (measured SPLP -13/-078: 54.60 / 55.10 m between neighbours at
+# 59.0 m).  The march therefore records, per zone-row point, BOTH the host
+# and the station's own frontage altitude, and flags the points that sit
+# on a prolonged edge.
+
+def _flat_static():
+    """A prepared static block far from the ring (no station is skipped)."""
+    from shapely.prepared import prep
+    return prep(Polygon([(-9e3, -9e3), (-8e3, -9e3), (-8e3, -8e3),
+                         (-9e3, -8e3)]))
+
+
+def _march_rows(coords, alts, prolonged_keys):
+    """Zone rows for one CCW ring under a DEM high above the corridor (so
+    every station emits a cut band)."""
+    rows: list[dict] = []
+    AG._derive_shape_stations_and_bands(
+        coords, True, alts, None, 75.0, 100.0, 1.0,
+        lambda d: 0.02 * d, lambda d: -0.015 * d, 5.0, _flat_static(), set(),
+        lambda x, y: 500.0, zone_rows_out=rows,
+        prolonged_keys=prolonged_keys)
+    return rows
+
+
+def _prolonged_ring():
+    """One oblique runway half, its cut-back run spliced back out."""
+    piece = _oblique_runway_piece(+1)
+    lay = _layout()
+    lay.tile_seam_offcuts = [_offcut_of(+1)]
+    coords = list(piece.exterior.coords)
+    ccw = bool(piece.exterior.is_ccw)
+    if not ccw:                       # the march helper assumes CCW
+        coords = coords[::-1]
+    alts = [50.0 + 0.01 * c[1] for c in coords]
+    out_c, out_a, n = AG._seam_prolonged_ring(
+        lay, coords, True, [alts], 75.0, AG.seam_offcut_union(lay))
+    assert n == 1
+    real = {AG._vertex_key(x, y) for x, y in coords}
+    pro = {AG._vertex_key(x, y) for x, y in out_c} - real
+    assert pro, "the splice must have minted synthetic vertices"
+    return out_c, out_a[0], real, pro
+
+
+def test_zone_rows_carry_the_station_frontage_altitude():
+    """``ref_alts`` is the array the band's own analytic surface is valued
+    from — one entry per row point, aligned with ``pts``/``hosts``."""
+    coords, alts, _real, pro = _prolonged_ring()
+    rows = _march_rows(coords, alts, pro)
+    assert rows
+    for row in rows:
+        assert len(row["ref_alts"]) == len(row["pts"])
+        assert len(row["host_pro"]) == len(row["pts"])
+        for v in row["ref_alts"]:
+            assert v is None or 40.0 <= float(v) <= 70.0
+
+
+def test_stations_on_a_prolonged_edge_are_flagged():
+    """The flag is what tells the host repair which corridors must be
+    re-referenced; without ``prolonged_keys`` every flag is False, so the
+    march is byte-identical for a ring that was never prolonged."""
+    coords, alts, _real, pro = _prolonged_ring()
+    flagged = _march_rows(coords, alts, pro)
+    assert any(any(r["host_pro"]) for r in flagged), \
+        "no station was recognised as sitting on the prolonged frontage"
+    plain = _march_rows(coords, alts, None)
+    assert not any(any(r["host_pro"]) for r in plain)
+    assert [r["pts"] for r in plain] == [r["pts"] for r in flagged], \
+        "the flag must not move a single station"
+
+
+def test_flagged_station_reference_is_not_the_cut_back_corner():
+    """The defect in one assertion: on a prolonged frontage the station's
+    own altitude differs from its frozen-nearest host's by metres, so
+    anchoring the corridor on the host alone mis-values the band."""
+    coords, alts, real, pro = _prolonged_ring()
+    by_key = {}
+    for (x, y), a in zip(coords, alts):
+        if a is not None:
+            by_key.setdefault(AG._vertex_key(x, y), float(a))
+    worst = 0.0
+    for row in _march_rows(coords, alts, pro):
+        for (hx, hy), ref, flag in zip(row["hosts"], row["ref_alts"],
+                                       row["host_pro"]):
+            if not flag or ref is None:
+                continue
+            host_alt = by_key.get(AG._vertex_key(hx, hy))
+            if host_alt is None:
+                continue
+            worst = max(worst, abs(float(ref) - host_alt))
+    assert worst > 0.5, (
+        "expected a metre-scale host/station altitude gap on the "
+        f"prolonged frontage, got {worst:.3f} m")

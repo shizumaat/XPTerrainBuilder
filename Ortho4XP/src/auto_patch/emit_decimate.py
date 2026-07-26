@@ -550,6 +550,19 @@ def decimate_emit_nodes(layout, icao: str = "") -> int:
             return False
         return (abs(la - round(la)) < 1e-6 or abs(lo - round(lo)) < 1e-6)
 
+    # CROWN-SPINE WELD vertices are the same class of invisible anchor
+    # (owner ruling 2026-07-25, gate ``config.CROWN_SPINE_SEAM_WELD``):
+    # ``crown._weld_terminus_into_rings`` inserts the re-extended spine
+    # TERMINUS into its host ring so the two share one emitted node, and
+    # values it at the host edge's own lerp — which makes it exactly the
+    # 3D-redundant vertex this pass removes.  The vote is taken over
+    # ``layout.shapes``, and a crown spine is not a shape, so nothing here
+    # can see that dropping it re-opens the unwelded T-vertex the weld
+    # exists to close (measured SPLP -13/-77).  Force-keep them.
+    _weld_keys = {_key(float(x), float(y))
+                  for (x, y) in (getattr(
+                      layout, "_crown_spine_weld_xy", None) or ())}
+
     # round 1: per-ring drop votes
     votes: dict = {}
     prepared = []
@@ -563,7 +576,8 @@ def decimate_emit_nodes(layout, icao: str = "") -> int:
             continue
         if len(ring) < 5:
             continue
-        seam_idx = {i for i, (x, y) in enumerate(ring) if _on_seam(x, y)}
+        seam_idx = {i for i, (x, y) in enumerate(ring)
+                    if _on_seam(x, y) or _key(x, y) in _weld_keys}
         keep = _ring_keep_set(ring, alts, z_tol, forced=seam_idx)
         keep |= seam_idx
         prepared.append((s, ring, alts, closed_alts, z_tol, seam_idx))

@@ -96,6 +96,9 @@ _COUNT_KEYS = (
     "objects_partially_baked",
     "airports_failed",
     "foot_pad_requests",
+    # Airports whose recorded run fingerprint still matched every input,
+    # so nothing was re-derived (O4_REANCHOR_SHORT_CIRCUIT).
+    "airports_up_to_date",
 )
 
 
@@ -401,7 +404,56 @@ def discover_and_rebake_airport(
         # Objects written with SOME structures left unbaked (amendment
         # A21): (resource_path, summary) pairs from the rebake report.
         "partially_baked": [],
+        # True when the whole airport was skipped because the pack's
+        # recorded run fingerprint still matches every input.
+        "short_circuited": False,
+        "structures_up_to_date": 0,
     }
+
+    # Short-circuit (O4_REANCHOR_SHORT_CIRCUIT, default on).  The pack's
+    # provenance sidecar records a fingerprint of EVERY input the last
+    # full run read — mesh, DSF, each referenced resource's resolution
+    # and bytes, the exclusion set, every config gate, the code version.
+    # When they all still match, this run would rewrite the bytes already
+    # on disk (the bake is byte-idempotent, invariant I-15), so there is
+    # nothing to derive.  Anything else — including any doubt — runs the
+    # full pipeline exactly as before.  Dry runs (``write_changes=False``)
+    # never short-circuit: their whole purpose is to report the decision.
+    if (
+        write_changes
+        and pack_root is not None
+        and not _is_protected_scenery_root(pack_root)
+        and object_rebake.short_circuit_enabled()
+    ):
+        record, reason = object_rebake.matching_run_record(
+            pack_root,
+            dsf_path,
+            mesh_path,
+            epsilon_metres=epsilon_metres,
+            excluded_resources=excluded_resources,
+            resolve_resource=lambda resource_path: (
+                obj8_reader.resolve_object_resource(
+                    resource_path, pack_root, xplane_root
+                )
+            ),
+        )
+        if record is not None:
+            result["short_circuited"] = True
+            result["structures_up_to_date"] = record.get(
+                "structures_baked", 0
+            )
+            result["structures_baked"] = record.get("structures_baked", 0)
+            result["structures_needing_pad"] = record.get(
+                "structures_needing_pad", 0
+            )
+            result["foot_pad_requests"] = (
+                object_rebake.run_record_foot_pad_requests(record)
+            )
+            return result
+        UI.vprint(
+            2,
+            f"  [object-anchor] full re-anchor run: {reason}",
+        )
 
     lines = dsf_reader._load_dsf_text(dsf_path)
     if not lines:
@@ -415,6 +467,12 @@ def discover_and_rebake_airport(
     )
     if not placements:
         return result
+    # Every ``.obj`` the DSF names, captured BEFORE any filtering: the
+    # run fingerprint has to notice a resource whose resolution changes
+    # even when the current run drops it (ruling R4, the reach floor, …).
+    referenced_resources = sorted(
+        {placement.resource_path for placement in placements}
+    )
     if pack_root is None:
         pack_root = dsf_reader._pack_root_for_dsf(dsf_path)
 
@@ -638,6 +696,33 @@ def discover_and_rebake_airport(
                             + resource_skipped[0].skip_reason,
                         )
                     )
+
+    # Fingerprint this full run so the NEXT mesh build can skip it.
+    # Written last, after ``object_rebake.apply`` has rewritten the pack
+    # (the recorded ``.obj`` stats must be the post-write ones).  Dry
+    # runs record nothing — they changed nothing.
+    if write_changes and object_rebake.short_circuit_enabled():
+        object_rebake.store_run_record(
+            pack_root,
+            dsf_path,
+            mesh_path,
+            object_rebake.build_run_record(
+                pack_root,
+                dsf_path,
+                mesh_path,
+                epsilon_metres=epsilon_metres,
+                excluded_resources=excluded_resources,
+                referenced_resources=referenced_resources,
+                resolve_resource=lambda resource_path: (
+                    obj8_reader.resolve_object_resource(
+                        resource_path, pack_root, xplane_root
+                    )
+                ),
+                structures_baked=result["structures_baked"],
+                structures_needing_pad=result["structures_needing_pad"],
+                foot_pad_requests=result["foot_pad_requests"],
+            ),
+        )
     return result
 
 
@@ -768,6 +853,15 @@ def rebake_dsf_objects(tile) -> dict:
                 continue
 
             counts["airports_processed"] += 1
+            if airport_result.get("short_circuited"):
+                counts["airports_up_to_date"] += 1
+                UI.vprint(
+                    1,
+                    f"  [object-anchor] {icao}: re-anchor up to date — "
+                    f"skipped {airport_result['structures_up_to_date']} "
+                    "structure(s) (mesh, DSF, pack objects and gates all "
+                    "unchanged; O4_REANCHOR_SHORT_CIRCUIT=0 to force)",
+                )
             counts["structures_baked"] += airport_result["structures_baked"]
             counts["structures_needing_pad"] += airport_result[
                 "structures_needing_pad"
@@ -883,6 +977,10 @@ def rebake_dsf_objects(tile) -> dict:
                         else ""
                     ),
                 )
+            # The span limit's OWN skips.  A supporter-fate skip quotes
+            # its parent's reason verbatim, so it contains the span
+            # phrase too — exclude it here and count it on its own line
+            # below, or the two summaries double-count each other.
             structures_left_at_authored = sum(
                 1
                 for _pool, decision in airport_result["decisions"]
@@ -890,6 +988,9 @@ def rebake_dsf_objects(tile) -> dict:
                 if structure.skip_reason
                 and object_anchor.GROUND_SPAN_SKIP_REASON_PHRASE
                 in structure.skip_reason
+                and not structure.skip_reason.startswith(
+                    object_anchor.SUPPORTER_FATE_SKIP_REASON_PHRASE
+                )
             )
             if structures_left_at_authored:
                 UI.vprint(
@@ -897,6 +998,29 @@ def rebake_dsf_objects(tile) -> dict:
                     f"  [object-anchor] {icao}: "
                     f"{structures_left_at_authored} structure(s) left at "
                     "authored elevations (ground span > limit)",
+                )
+            # Supporter fate (DSF_OBJECT_SUPPORTER_FATE): elevated
+            # structures left at their authored elevations because the
+            # supporter whose ground they inherit did not move.  ONE
+            # summary line per airport — HECA alone produces thousands.
+            structures_sharing_supporter_fate = sum(
+                1
+                for _pool, decision in airport_result["decisions"]
+                for structure in decision.structures
+                if structure.skip_reason
+                and structure.skip_reason.startswith(
+                    object_anchor.SUPPORTER_FATE_SKIP_REASON_PHRASE
+                )
+            )
+            if structures_sharing_supporter_fate:
+                UI.vprint(
+                    1,
+                    f"  [object-anchor] {icao}: "
+                    f"{structures_sharing_supporter_fate} elevated "
+                    "structure(s) left at authored elevations because "
+                    "their supporter was skipped (they inherit its "
+                    "ground and share its fate; O4_SUPPORTER_FATE=0 to "
+                    "restore the old split behaviour)",
                 )
             if (
                 (

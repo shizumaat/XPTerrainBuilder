@@ -74,6 +74,42 @@ grading seeds).  So this feature needs BOTH:
 The synthetic-inset unit test in ``tests/test_airport_elevation_insets.py``
 proves the bake: a flat inset over a flat base appears at inset cells, ramps
 across the feather, and leaves the base untouched outside.
+
+G2 addendum (owner ruling 2026-07-25) -- ONE SURFACE, TWO READERS
+--------------------------------------------------------------------------
+Steps 1 and 2 above left TWO surfaces standing: the query path returned the
+inset's own nearest-neighbour value on its native 30 m posting, while the
+mesh renders BILINEAR over the baked working raster.  They agree exactly at
+the 30 m block centres and diverge by up to ~0.9 m at the block edges -- a
+sawtooth, and the source of the owner-visible seam dip at SPLP, because
+every auto_patch "pin this vertex to the DEM" pinned to a surface X-Plane
+never shows.  ``bake_airport_insets_into_alt_dem`` therefore ends by calling
+``DEM.enable_baked_query``, which re-points ``dem.alt``/``dem.alt_vec`` at a
+Python reproduction of ``Triangle4XP.altitude()`` over the very array just
+baked.  The composite is then bypassed -- but only when the baked raster
+provably represents the WHOLE composite (every sub-DEM baked); a legacy
+hand-written ``custom_dem = "base;local"`` keeps ``alt_composite``.
+
+G2 addendum II (owner ruling 2026-07-25) -- HOW THE INSET REACHES THE GRID
+--------------------------------------------------------------------------
+The bake itself was NEAREST NEIGHBOUR, which quantises the inset onto the
+working grid in the worst way available in both directions: a coarser
+inset became a literal staircase for the mesher to refine (2,482,100
+triangles at +30+031 against 1,140,668 for identical content baked
+smoothly), and a finer inset was point-subsampled below its Nyquist limit
+and aliased.  It now resamples BILINEARLY when the inset is coarser than
+the grid and AREA-AVERAGES when it is finer -- see the section comment
+above ``inset_bake_resample_mode`` (gate ``O4_INSET_BAKE_INTERP``).
+
+Two consequences ride along.  The working-grid BALLOT
+(``ideal_bake_errors_per_probe``) modelled the built value with a
+two-triangle split it wrongly attributed to the mesher; it now scores the
+real chain -- bilinear bake, then Triangle4XP's true bilinear read.  And
+adjacent tiles sharing a seam-straddling inset now ballot over the MERGED
+inset sets of their whole seam-connected component, so they cannot pick
+different working grids and disagree along the seam (measured at SPLP:
+3.7995 m -> 0.0000 m); see the section comment above
+``seam_harmonized_ballot_insets`` (gate ``O4_INSET_SEAM_HARMONIZE``).
 """
 
 import contextlib as _contextlib
@@ -7256,6 +7292,189 @@ def _warn_if_provider_offsets_systematic(provider_ring_offsets):
         )
 
 
+# =====================================================================
+# Bake RESAMPLING (O1) -- how an inset's posting reaches the working grid
+# =====================================================================
+# The bake stamps an inset raster onto the tile's working grid.  Until
+# now it did so with ``DEM.alt_vec_strict`` -- NEAREST NEIGHBOUR -- which
+# is wrong in both directions:
+#
+# * INSET COARSER THAN THE GRID (a 30 m Copernicus inset on a 1/3
+#   arc-second, ~10.3 m grid): nearest neighbour writes each inset post
+#   into a 3x3 block of working cells, i.e. a literal 30 m STAIRCASE, into
+#   the very ``.alt`` file Triangle4XP reads with TRUE BILINEAR
+#   interpolation (``Utils/src/Triangle4XP.c:3571`` ``altitude()``).  The
+#   mesher then spends its error budget refining the staircase risers --
+#   measured at +30+031 (Cairo): 2,482,100 triangles / ~870 s against
+#   383,390 / 2.6 s for the identical content baked bilinearly.  Zero
+#   fidelity is gained (the risers are a resampling artefact, not data)
+#   and X-Plane renders the staircase.  BILINEAR is the right reader:
+#   every inset post is still reproduced EXACTLY (bilinear at a post
+#   returns that post), only the cells between posts stop stepping.
+#
+# * INSET FINER THAN THE GRID (1 m / 3 m lidar on a 1/2 arc-second,
+#   ~15.4 m grid): nearest neighbour is point SUBSAMPLING of a signal
+#   with detail far above the grid's Nyquist limit -- textbook aliasing,
+#   which folds real high-frequency relief down into false long-wavelength
+#   ripples ("mirror images") that look like terrain but are not.  The
+#   fix is to LOW-PASS before sampling: AREA-AVERAGE every inset post
+#   whose centre falls inside the destination cell (a box filter), which
+#   is also the physically honest answer -- a working-grid post stands for
+#   its cell, and the cell's mean elevation is what the coarser mesh can
+#   represent.
+#
+# Choice is per inset and purely geometric (the ratio of postings in
+# DEGREES, so it is latitude-free and identical on both axes for the
+# square-in-degrees rasters both sides actually use).  Area-averaging is
+# taken only when the inset is finer on BOTH axes: a mixed case would
+# leave the coarse axis stepping while the fine axis smoothed.
+#
+# GATE ``O4_INSET_BAKE_INTERP`` (default "1" = ON).  Set to "0" to restore
+# the historic nearest-neighbour bake BYTE-IDENTICALLY.
+INSET_BAKE_FINER_RATIO = 0.999
+
+
+def inset_bake_interpolation_enabled():
+    """True when the bake may interpolate/area-average (gate default ON).
+
+    ``O4_INSET_BAKE_INTERP=0`` restores the historic nearest-neighbour
+    stamp byte-for-byte.
+    """
+    return os.environ.get("O4_INSET_BAKE_INTERP", "1") == "1"
+
+
+def inset_bake_resample_mode(inset, x_step, y_step):
+    """The resampling mode for one inset onto a working grid.
+
+    ``x_step``/``y_step`` are the WORKING grid's node spacing in degrees.
+    Returns ``"nearest"`` (gate off, or geometry unusable), ``"area"``
+    (inset finer than the grid on both axes -> box filter) or
+    ``"bilinear"`` (everything else).
+    """
+    if not inset_bake_interpolation_enabled():
+        return "nearest"
+    if inset is None or getattr(inset, "alt_dem", None) is None:
+        return "nearest"
+    if inset.nxdem < 2 or inset.nydem < 2:
+        return "nearest"
+    if not x_step or not y_step:
+        return "nearest"
+    inset_x_step = abs(inset.x1 - inset.x0) / (inset.nxdem - 1)
+    inset_y_step = abs(inset.y1 - inset.y0) / (inset.nydem - 1)
+    finer_x = inset_x_step < abs(x_step) * INSET_BAKE_FINER_RATIO
+    finer_y = inset_y_step < abs(y_step) * INSET_BAKE_FINER_RATIO
+    return "area" if (finer_x and finer_y) else "bilinear"
+
+
+def _inset_area_average_onto_grid(
+    inset, x_coordinates, y_coordinates, x_step, y_step, fallback
+):
+    """Box-filter a FINER inset onto the working grid's cells.
+
+    Every working-grid node owns the cell ``+/- half a step`` around it;
+    its baked value is the mean of the inset posts whose centres fall in
+    that cell.  Implemented as a separable two-pass slab reduction (see the
+    comment at the loops), so the cost is one pass over the inset window
+    regardless of how many destination nodes it feeds -- a per-node loop
+    over a 1 m lidar inset would be minutes -- and the peak extra memory is
+    one (inset rows x destination columns) array, not a second copy of the
+    inset.
+
+    Nodes whose cell contains no valid inset post (a nodata hole, or a
+    destination cell narrower than one inset post after clamping) take the
+    corresponding entry of ``fallback`` -- the bilinear value, computed by
+    the caller -- so coverage is never smaller than the interpolating path.
+    Nodes outside the inset extent keep ``inset.nodata`` via ``fallback``.
+    """
+    inset_x_step = (inset.x1 - inset.x0) / (inset.nxdem - 1)
+    inset_y_step = (inset.y1 - inset.y0) / (inset.nydem - 1)
+    half_x = abs(x_step) / 2.0
+    half_y = abs(y_step) / 2.0
+
+    # Inset column indices whose post centre lies in [x-half, x+half].
+    column_low = numpy.ceil(
+        (x_coordinates - half_x - inset.x0) / inset_x_step - 1e-9
+    ).astype(numpy.int64)
+    column_high = numpy.floor(
+        (x_coordinates + half_x - inset.x0) / inset_x_step + 1e-9
+    ).astype(numpy.int64)
+    # Row 0 is the NORTHERN edge of the inset, so a node's north edge maps
+    # to the low row index.
+    row_low = numpy.ceil(
+        (inset.y1 - (y_coordinates + half_y)) / inset_y_step - 1e-9
+    ).astype(numpy.int64)
+    row_high = numpy.floor(
+        (inset.y1 - (y_coordinates - half_y)) / inset_y_step + 1e-9
+    ).astype(numpy.int64)
+    column_low = numpy.clip(column_low, 0, inset.nxdem - 1)
+    column_high = numpy.clip(column_high, 0, inset.nxdem - 1)
+    row_low = numpy.clip(row_low, 0, inset.nydem - 1)
+    row_high = numpy.clip(row_high, 0, inset.nydem - 1)
+
+    # SEPARABLE two-pass reduction.  Pass 1 collapses the inset's columns
+    # onto the destination columns, pass 2 collapses the (already narrow)
+    # result's rows onto the destination rows.  The only full-width
+    # intermediate is (inset rows x destination columns), so a metre-class
+    # inset never materialises a second full-resolution float64 copy of
+    # itself -- the summed-area-table formulation would have needed two,
+    # gigabytes for a big lidar airport.  The Python loop runs once per
+    # destination column/row (hundreds), each iteration a vectorised slab
+    # sum, so the total work is still one pass over the inset.
+    array = inset.alt_dem
+    column_totals = numpy.zeros(
+        (inset.nydem, len(column_low)), dtype=numpy.float64
+    )
+    column_counts = numpy.zeros_like(column_totals)
+    for index in range(len(column_low)):
+        slab = array[:, column_low[index]:column_high[index] + 1]
+        if slab.size == 0:
+            continue
+        slab_valid = slab != inset.nodata
+        column_totals[:, index] = numpy.where(slab_valid, slab, 0.0).sum(
+            axis=1, dtype=numpy.float64
+        )
+        column_counts[:, index] = slab_valid.sum(axis=1)
+    totals = numpy.zeros((len(row_low), len(column_low)), dtype=numpy.float64)
+    counts = numpy.zeros_like(totals)
+    for index in range(len(row_low)):
+        rows_slice = slice(row_low[index], row_high[index] + 1)
+        totals[index] = column_totals[rows_slice].sum(axis=0)
+        counts[index] = column_counts[rows_slice].sum(axis=0)
+    averaged = totals / numpy.where(counts > 0, counts, 1.0)
+    # The clamped index window is never empty even for a node well outside
+    # the raster, so the EXTENT decides nodata (exactly as
+    # ``alt_vec_strict``/``alt_vec_bilinear_strict`` do), not the box.
+    inside = (
+        (x_coordinates >= inset.x0) & (x_coordinates <= inset.x1)
+    )[None, :] & (
+        (y_coordinates >= inset.y0) & (y_coordinates <= inset.y1)
+    )[:, None]
+    return numpy.where(
+        inside, numpy.where(counts > 0, averaged, fallback), inset.nodata
+    )
+
+
+def sample_inset_onto_working_grid(
+    inset, query, shape, x_coordinates, y_coordinates, x_step, y_step
+):
+    """The inset's values at the working-grid nodes of the bake window.
+
+    Dispatches on :func:`inset_bake_resample_mode`; returns an array shaped
+    like the destination window.  Every mode keeps ``inset.nodata`` outside
+    the inset extent, so the caller's ``valid`` mask and feather logic are
+    unchanged.
+    """
+    mode = inset_bake_resample_mode(inset, x_step, y_step)
+    if mode == "nearest":
+        return inset.alt_vec_strict(query).reshape(shape)
+    bilinear = inset.alt_vec_bilinear_strict(query).reshape(shape)
+    if mode == "bilinear":
+        return bilinear
+    return _inset_area_average_onto_grid(
+        inset, x_coordinates, y_coordinates, x_step, y_step, bilinear
+    )
+
+
 def bake_airport_insets_into_alt_dem(tile):
     """Bake cached insets into ``tile.dem.alt_dem`` with a feather band.
 
@@ -7308,6 +7527,18 @@ def bake_airport_insets_into_alt_dem(tile):
             )
         baked_provenance.append(_inset_bake_provenance_entry(inset_path))
     _warn_if_provider_offsets_systematic(provider_ring_offsets)
+    # The raster is now the surface the mesher will render, so the QUERY
+    # path must read it too: the grading law measures the surface the
+    # mesher renders -- one surface, two readers.  Before this, an inset
+    # query returned ``subdem.alt_strict`` = nearest neighbour on the
+    # inset's native 30 m posting, up to ~0.9 m off the bilinear ramp the
+    # mesh draws from these very cells, and every auto_patch "pin to DEM"
+    # pinned to a surface X-Plane never shows.  Refused (byte-identical)
+    # when the ``O4_DEM_QUERY_BAKED`` gate is off or a sub-DEM did not
+    # bake -- see ``O4_DEM_Utils.DEM.enable_baked_query``.
+    enable_baked_query = getattr(tile.dem, "enable_baked_query", None)
+    if enable_baked_query is not None:
+        enable_baked_query([entry["path"] for entry in baked_provenance])
 
 
 def _inset_bake_provenance_entry(inset_path):
@@ -7400,7 +7631,20 @@ def _bake_one_inset(tile, inset_path, feather_m):
         (mesh_x.ravel(), mesh_y.ravel())
     )
 
-    inset_values = inset.alt_vec_strict(query).reshape(mesh_x.shape)
+    # RESAMPLING (O1): bilinear when the inset is coarser than the working
+    # grid (no fabricated staircase for the mesher to refine), area-average
+    # when it is finer (no aliasing).  Nearest neighbour -- the historic,
+    # byte-identical path -- only under ``O4_INSET_BAKE_INTERP=0``.  See the
+    # module comment above ``inset_bake_resample_mode``.
+    inset_values = sample_inset_onto_working_grid(
+        inset,
+        query,
+        mesh_x.shape,
+        x_coordinates,
+        y_coordinates,
+        x_step,
+        y_step,
+    )
     valid = inset_values != inset.nodata
 
     # Distance in metres to the nearest inset-extent edge (rectangular data
@@ -8206,13 +8450,34 @@ def ideal_bake_errors_per_probe(inset_path, probes, factor, base_geometry):
 
     For each probe, ``truth`` is the inset's own bilinear value there.
     ``built`` models the value the probe would read from a working raster
-    posting at ``factor`` x the base grid: each surrounding working-grid
-    NODE takes the inset's bilinear value, and the probe is interpolated
-    across the cell with the SAME two-triangle split the pipeline's
-    ``DEM.alt_nostrict`` (and hence the built mesh) uses -- so the number
-    is the grid-quantisation error the mesh will actually carry, not an
-    optimistic full-bilinear estimate.  Returns a list of ``|built -
-    truth|`` aligned with ``probes`` (empty when the inset is unreadable).
+    posting at ``factor`` x the base grid, by walking the REAL surface
+    chain end to end:
+
+      1. the BAKE writes each surrounding working-grid node with the
+         inset's BILINEAR value there (``_bake_one_inset`` via
+         ``DEM.alt_vec_bilinear_strict`` -- the O1 resampling);
+      2. the MESHER reads that ``.alt`` raster with TRUE BILINEAR
+         interpolation across the working-grid cell
+         (``Utils/src/Triangle4XP.c:3571`` ``altitude()``: corner weights
+         (1-rx)(1-ry), rx(1-ry), (1-rx)ry, rx*ry).
+
+    So the number is the grid-quantisation error the rendered mesh
+    actually carries.  This model previously used a two-triangle
+    (barycentric) split, described as "identical to ``DEM.alt_nostrict``";
+    that was a factual error about the mesher -- Triangle4XP has never
+    been a triangle-split reader, and the two interpolants differ by
+    +-(t1+t2-t3-t4)/4 at the cell centre, mis-scoring every candidate
+    factor by up to that much.  Returns a list of ``|built - truth|``
+    aligned with ``probes`` (empty when the inset is unreadable).
+
+    LIMIT, stated honestly: step 1 is modelled as bilinear for every
+    inset, while the bake AREA-AVERAGES an inset that is FINER than the
+    working grid (the ``"area"`` mode).  Modelling the box filter here
+    would need a full window read per candidate node instead of four
+    point samples, and the two agree wherever the inset is smooth at the
+    grid scale; where they differ the box filter is the SMOOTHER of the
+    two, so the ballot's error is the conservative (larger) figure and can
+    only ever err towards a finer grid.
 
     ``base_geometry`` is ``(x0, x1, y0, y1, nxdem, nydem)`` of the base
     working grid in tile-relative degrees; the densified node spacing is
@@ -8294,19 +8559,15 @@ def ideal_bake_errors_per_probe(inset_path, probes, factor, base_geometry):
             top_right = float(values[2])
             bottom_left = float(values[3])
             bottom_right = float(values[4])
-            # Two-triangle split identical to DEM.alt_nostrict (rx vs ry).
-            if rx >= ry:
-                built = (
-                    (1 - rx) * top_left
-                    + ry * bottom_right
-                    + (rx - ry) * top_right
-                )
-            else:
-                built = (
-                    (1 - ry) * top_left
-                    + rx * bottom_right
-                    + (ry - rx) * bottom_left
-                )
+            # TRUE BILINEAR -- the interpolation Triangle4XP.altitude()
+            # applies to the .alt raster (rx eastward, ry southward, row 0
+            # being the northern edge exactly as there).
+            built = (
+                top_left * (1 - rx) * (1 - ry)
+                + top_right * rx * (1 - ry)
+                + bottom_left * (1 - rx) * ry
+                + bottom_right * rx * ry
+            )
             errors.append(abs(built - truth))
     except Exception:
         return []
@@ -8424,6 +8685,243 @@ def _working_grid_candidate_factors(inset_paths, base_geometry):
     return (1,) + tuple(WORKING_GRID_CANDIDATE_FACTORS)
 
 
+# =====================================================================
+# SEAM FACTOR HARMONIZATION (O3) -- owner ruling 2026-07-25
+# =====================================================================
+# RULE: adjacent tiles that share a seam-straddling inset MUST resolve
+# IDENTICAL working-grid factors.
+#
+# Why it is not optional.  SPLP's inset (W-77.0282 .. W-76.9750) crosses
+# the lon = -77 tile seam and is cached under BOTH S13W077 and S13W078.
+# Balloted independently the two tiles picked 1/3" (11017^2) and 1/2"
+# (7345^2).  Their baked rasters agree EXACTLY where their postings
+# coincide (225 exactly-shared posts, 0.0000 m), but the surface a mesh
+# renders is the BILINEAR interpolant BETWEEN posts -- and bilinear
+# between DIFFERENT post sets straddling the same escarpment diverges by
+# up to 3.7995 m (p90 0.36 m) along the seam.  That is a visible cliff in
+# the rendered scenery today.  Pinning both tiles to the same factor --
+# either one -- drives the seam disagreement to exactly 0.0000 m.
+#
+# HOW the two sides are made to agree, without either knowing about the
+# other's build.  Both extend _historic_working_grid_factor's stated
+# principle (the decision is DISK-STATE DRIVEN, so any two callers on the
+# same disk state agree): the ballot runs over the MERGED cached inset
+# sets of the whole seam-connected COMPONENT of tiles, not just the
+# tile's own.  Because the adjacency relation is symmetric by
+# construction and the merge is a deterministic function of the component
+# (sorted, deduplicated by cache-file name), every member of a component
+# assembles the SAME ballot and therefore returns the SAME factor.
+#
+#   adjacency(A, B) := A and B are 4-neighbours
+#                      AND some inset cached under A *or* under B has a
+#                          footprint crossing their shared edge.
+#
+# The "or" is what makes it symmetric, and it costs nothing: a straddling
+# inset is fetched footprint-first, so it is normally cached under both
+# sides anyway (SPLP's two copies are byte-identical).
+#
+# TERMINATION.  The traversal only enters a tile that has a NON-EMPTY
+# cached inset directory on disk; ``component`` never re-admits a tile;
+# the set of such directories is finite and fixed for the duration of one
+# ballot.  So the frontier empties after at most that many expansions.
+# The explicit SEAM_HARMONIZATION_COMPONENT_LIMIT is a runtime guard, not
+# a correctness one -- and because "the component exceeds the limit" is a
+# property of the component rather than of the traversal's starting
+# point, every member reaches the same fallback decision.
+#
+# KNOWN LIMITS, stated rather than hidden:
+#  * a neighbour that has NEVER been fetched contributes nothing (it has
+#    no cache); when it is built later it will see this tile's cache and
+#    harmonize to it, but this tile -- already built -- will not be
+#    revisited.  Rebuild order therefore still matters for a first-ever
+#    build of one side only;
+#  * the component is listed with the BALLOTING tile's provider codes, so
+#    two neighbours configured with different ``airport_elevation_providers``
+#    can still disagree.  That configuration is global in practice.
+#
+# GATE ``O4_INSET_SEAM_HARMONIZE`` (default "1" = ON); "0" restores the
+# per-tile ballot exactly.
+SEAM_HARMONIZATION_COMPONENT_LIMIT = 32
+
+
+def seam_harmonization_enabled():
+    """True when the ballot merges seam-neighbour inset sets (default ON)."""
+    return os.environ.get("O4_INSET_SEAM_HARMONIZE", "1") == "1"
+
+
+def _inset_footprint_degrees(inset_path):
+    """``(west, south, east, north)`` of a cached inset, absolute degrees.
+
+    Header-only (no raster decode); ``None`` when the file cannot be read.
+    """
+    header = _inset_header_geometry(inset_path)
+    if header is None:
+        return None
+    (geotransform, rows, columns) = header
+    west = geotransform[0]
+    north = geotransform[3]
+    east = west + columns * geotransform[1]
+    south = north + rows * geotransform[5]
+    return (
+        min(west, east),
+        min(south, north),
+        max(west, east),
+        max(south, north),
+    )
+
+
+def _footprint_crosses_meridian(footprint, longitude, south, north):
+    """The footprint straddles ``longitude`` over the ``[south, north]`` edge."""
+    return (
+        footprint[0] < longitude < footprint[2]
+        and footprint[1] < north
+        and footprint[3] > south
+    )
+
+
+def _footprint_crosses_parallel(footprint, latitude, west, east):
+    """The footprint straddles ``latitude`` over the ``[west, east]`` edge."""
+    return (
+        footprint[1] < latitude < footprint[3]
+        and footprint[0] < east
+        and footprint[2] > west
+    )
+
+
+def _seam_neighbour_tiles(lat, lon, footprints_of):
+    """Neighbours of ``(lat, lon)`` across a seam an inset footprint crosses.
+
+    ``footprints_of(lat, lon)`` yields that tile's cached inset footprints.
+    A neighbour with NO cached inset is skipped: it has nothing to merge
+    and no inset of its own to carry the component further.  The crossing
+    test unions BOTH tiles' footprints, which is what makes the relation
+    symmetric (and hence the component identical from either side).
+    """
+    own = footprints_of(lat, lon)
+    found = []
+    for (neighbour, axis, value) in (
+        ((lat, lon - 1), "lon", lon),
+        ((lat, lon + 1), "lon", lon + 1),
+        ((lat - 1, lon), "lat", lat),
+        ((lat + 1, lon), "lat", lat + 1),
+    ):
+        other = footprints_of(*neighbour)
+        if not other:
+            continue
+        if axis == "lon":
+            crosses = any(
+                _footprint_crosses_meridian(
+                    footprint, value, lat, lat + 1
+                )
+                for footprint in own + other
+            )
+        else:
+            crosses = any(
+                _footprint_crosses_parallel(
+                    footprint, value, lon, lon + 1
+                )
+                for footprint in own + other
+            )
+        if crosses:
+            found.append(neighbour)
+    return sorted(found)
+
+
+def seam_harmonized_ballot_insets(lat, lon, provider_codes):
+    """The inset set the working-grid ballot runs over, seam-harmonized.
+
+    Returns a list of ``(inset_path, owner_lat, owner_lon)``, sorted by
+    cache-file name and deduplicated by it, covering this tile plus every
+    tile in its seam-connected component (see the section comment above).
+    ``owner_lat``/``owner_lon`` name the tile whose ``index.json`` holds
+    that inset's cached acceptance probes.
+
+    Degrades to this tile's own insets -- the pre-O3 behaviour -- when the
+    gate is off, GDAL is missing (no footprints readable), the tile has no
+    inset, or the component exceeds
+    :data:`SEAM_HARMONIZATION_COMPONENT_LIMIT`.
+    """
+    own = list_cached_inset_dems(lat, lon, provider_codes=provider_codes)
+    solo = [(path, lat, lon) for path in own]
+    if not own or not has_gdal or not seam_harmonization_enabled():
+        return solo
+
+    listing_memo = {}
+    footprint_memo = {}
+
+    def _insets_of(tile_lat, tile_lon):
+        key = (tile_lat, tile_lon)
+        if key not in listing_memo:
+            listing_memo[key] = list_cached_inset_dems(
+                tile_lat, tile_lon, provider_codes=provider_codes
+            )
+        return listing_memo[key]
+
+    def _footprints_of(tile_lat, tile_lon):
+        key = (tile_lat, tile_lon)
+        if key not in footprint_memo:
+            footprint_memo[key] = [
+                footprint
+                for footprint in (
+                    _inset_footprint_degrees(path)
+                    for path in _insets_of(tile_lat, tile_lon)
+                )
+                if footprint is not None
+            ]
+        return footprint_memo[key]
+
+    component = {(lat, lon)}
+    frontier = [(lat, lon)]
+    overflowed = False
+    while frontier:
+        (current_lat, current_lon) = frontier.pop(0)
+        for neighbour in _seam_neighbour_tiles(
+            current_lat, current_lon, _footprints_of
+        ):
+            if neighbour in component:
+                continue
+            if len(component) >= SEAM_HARMONIZATION_COMPONENT_LIMIT:
+                overflowed = True
+                continue
+            component.add(neighbour)
+            frontier.append(neighbour)
+    if overflowed:
+        UI.vprint(
+            1,
+            "   WARNING: airport elevation insets: more than",
+            SEAM_HARMONIZATION_COMPONENT_LIMIT,
+            "tiles are chained by seam-straddling insets around",
+            FNAMES.hem_latlon(lat, lon)
+            + "; skipping working-grid seam harmonization for this tile.",
+        )
+        return solo
+    if len(component) == 1:
+        return solo
+
+    merged = []
+    seen = set()
+    for (tile_lat, tile_lon) in sorted(component):
+        for path in _insets_of(tile_lat, tile_lon):
+            name = os.path.basename(path)
+            if name in seen:
+                continue
+            seen.add(name)
+            merged.append((path, tile_lat, tile_lon))
+    merged.sort(key=lambda entry: os.path.basename(entry[0]))
+    UI.vprint(
+        2,
+        "   Airport elevation insets: working-grid ballot harmonized over",
+        len(component),
+        "seam-connected tiles (" + ", ".join(
+            FNAMES.hem_latlon(t_lat, t_lon)
+            for (t_lat, t_lon) in sorted(component)
+        ) + ");",
+        len(merged),
+        "inset(s) on the ballot.",
+    )
+    return merged
+
+
 def _historic_working_grid_factor(tile, base_dem):
     """The pre-elevation-level working-grid decision (1, 2 or 3).
 
@@ -8440,6 +8938,13 @@ def _historic_working_grid_factor(tile, base_dem):
     set includes ``1`` when no inset is finer than the base grid (see
     :func:`_working_grid_candidate_factors`), so a tile carrying only the
     30 m global fallback can decline densification on measurement.
+
+    SEAM HARMONIZATION (O3): the ballot runs over
+    :func:`seam_harmonized_ballot_insets` -- this tile's cached insets
+    PLUS those of every tile chained to it by a seam-straddling inset
+    footprint -- so two neighbours sharing such an inset provably resolve
+    the SAME factor and their rendered surfaces meet at the seam.  The
+    BAKE is untouched: a tile still bakes only its own cached insets.
     """
     if not insets_enabled_for_tile(tile):
         return 1
@@ -8461,17 +8966,39 @@ def _historic_working_grid_factor(tile, base_dem):
     finest_factor = WORKING_GRID_CANDIDATE_FACTORS[-1]
     tolerance = WORKING_GRID_IDEAL_TOLERANCE_M
 
+    # The BALLOT set (O3) -- this tile's insets plus every seam-connected
+    # neighbour's, so both sides of a straddling inset decide alike.  The
+    # BAKE set (``inset_paths`` above) is untouched.
+    ballot_insets = seam_harmonized_ballot_insets(
+        tile.lat, tile.lon, codes or None
+    )
+    ballot_paths = [path for (path, _lat, _lon) in ballot_insets]
+
     # Assemble every probe once, carrying its tile-relative and absolute
     # coordinates (the geometry math and the inset sampling each need one
     # frame) plus whether it is a hand-seeded acceptance probe.  Probes
     # come back from the inset index where the fetch phase cached them
     # (derivation is only the fallback for legacy/foreign records), so in
-    # the common case no inset raster is decoded in full here.
-    index = _read_index(tile.lat, tile.lon)
+    # the common case no inset raster is decoded in full here.  A merged-in
+    # neighbour's probes come from THAT tile's index, and its probe
+    # coordinates are expressed in THIS tile's frame -- the working grids
+    # of adjacent tiles share one lattice, so the modelled quantisation
+    # error of a given probe is the same number on either side.
+    index_memo = {}
+
+    def _index_for(owner_lat, owner_lon):
+        key = (owner_lat, owner_lon)
+        if key not in index_memo:
+            index_memo[key] = _read_index(owner_lat, owner_lon)
+        return index_memo[key]
+
     all_probes = []  # (inset_path, adjusted_probe, is_seeded)
-    for inset_path in inset_paths:
+    for (inset_path, owner_lat, owner_lon) in ballot_insets:
         (probes, is_seeded) = _acceptance_probes_with_source_from_index(
-            inset_path, index.get(_inset_icao_from_path(inset_path))
+            inset_path,
+            _index_for(owner_lat, owner_lon).get(
+                _inset_icao_from_path(inset_path)
+            ),
         )
         for (latitude, longitude) in probes:
             all_probes.append(
@@ -8514,7 +9041,7 @@ def _historic_working_grid_factor(tile, base_dem):
     # error model reads only small pixel windows around each probe, so no
     # full inset decode happens in this loop.
     candidate_factors = _working_grid_candidate_factors(
-        inset_paths, base_geometry
+        ballot_paths, base_geometry
     )
     errors_by_factor = {factor: [] for factor in candidate_factors}
     for (inset_path, probes) in _group_probes_by_inset(all_probes):

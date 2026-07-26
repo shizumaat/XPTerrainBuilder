@@ -400,6 +400,36 @@ Extends the prototype's. The `written_sha256` field is new and closes a real hol
 }
 ```
 
+#### 3.5.1 Run fingerprints — the `runs` map (2026-07-26)
+
+Ruling R2 made the sidecar a diagnostic, not a gate, and Phase 2 duly
+re-derived every structure on every mesh build — 10,607 structures and
+~811 s of hook wall at +30+031 even when nothing had changed. The sidecar
+now also carries a `runs` map, keyed `"<tile>|<abs dsf path>"`, which is
+NOT a diagnostic: it is a complete fingerprint of every input the Phase 2
+decision reads, written at the end of a full run and re-verified at the
+start of the next one. A run whose fingerprint still matches would rewrite
+the bytes already on disk (invariant I-15, byte-idempotent bake), so it is
+skipped with one log line; any mismatch, or any doubt, runs in full.
+`O4_REANCHOR_SHORT_CIRCUIT=0` disables the skip entirely.
+
+Each record covers:
+
+| field | input it pins |
+| --- | --- |
+| `record_version` | the CODE — bump `object_rebake.RUN_RECORD_VERSION` whenever the derived result can change without an input changing |
+| `mesh` | the built mesh: path, size, `mtime_ns` (Phase 2's only elevation source) |
+| `dsf` | the airport DSF: path, size, `mtime_ns` (placements, anchors, headings) |
+| `resources[].physical` | how each DSF-referenced `.obj` RESOLVES (pack-relative vs `library.txt`) |
+| `resources[].files` | for a resource inside the pack, the exact SET of `{live, .anchor_bak}` files present, each with size, `mtime_ns` and sha256 |
+| `gate_digest` | every configuration gate discovery / partition / seating / the writer consult (`object_rebake._GATE_NAMES` + `_GATE_ENVIRONMENT_NAMES`), the contact epsilon, `VERTEX_WELD_DECIMALS` and the partition cache version |
+| `excluded_digest` | the ruling-R4 exclusion set (feature A/B objects) for this pack |
+| `structures_baked`, `structures_needing_pad`, `foot_pad_requests` | what a skipped run must still report, so the per-tile foot-pad sidecar is not deleted as stale |
+
+Deliberately not covered, because Phase 2 never reads them: the DEM /
+`.alt` raster (the O3 ordering guard already refuses a mesh older than the
+`.alt`), the OSM patch, and pack files the DSF never references.
+
 ---
 
 ## 4. Workstreams

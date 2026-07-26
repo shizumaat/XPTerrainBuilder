@@ -131,6 +131,9 @@ class DEM:
         # inset bake reuses the already-decoded subdem instead of decoding
         # the same GeoTIFF a second time).
         self.source_path = source
+        # True once ``enable_baked_query`` has re-pointed the query path at
+        # the baked working raster (see that method).
+        self.baked_query_active = False
         if ";" in source:
             self.alt = self.alt_composite
             self.alt_vec = self.alt_vec_composite
@@ -414,6 +417,130 @@ class DEM:
                 return tmp
         return self.alt_nostrict(node)
 
+    # ------------------------------------------------------------------
+    # THE BAKED-RASTER QUERY (owner ruling 2026-07-25)
+    #
+    # the grading law measures the surface the mesher renders -- one
+    # surface, two readers.
+    #
+    # ``alt_baked``/``alt_vec_baked`` reproduce, in Python, the
+    # interpolation Triangle4XP performs on the ``.alt`` raster it is
+    # handed (``Utils/src/Triangle4XP.c:3571`` ``altitude()``): TRUE
+    # BILINEAR on the working grid ``alt_dem``, whose four corners are
+    # weighted (1-rx)(1-ry), rx(1-ry), (1-rx)ry, rx*ry.  That is the only
+    # surface the mesh actually renders, so it is the only surface a
+    # "pin this vertex to the DEM" rule may legitimately measure.
+    #
+    # Note that neither of the pre-existing readers equals it inside a
+    # grid cell:
+    #   * ``alt_strict`` (which ``alt_composite`` reaches for first) is
+    #     NEAREST NEIGHBOUR on the sub-DEM's own native posting -- a 30 m
+    #     staircase against the mesh's ramp;
+    #   * ``alt_nostrict`` is a TRIANGLE-SPLIT (barycentric) interpolant,
+    #     which agrees with bilinear only on the cell edges and differs by
+    #     +-(t1+t2-t3-t4)/4 at the cell centre.
+    # ``alt_nostrict`` is left untouched: it is the legacy reader for
+    # non-composite DEMs and for the ``smoothen``/curvature paths, and
+    # re-pointing it would change every tile ever built.
+    # ------------------------------------------------------------------
+
+    def alt_baked(self, node):
+        """Bilinear altitude on the baked working raster ``alt_dem``.
+
+        Bit-for-bit the interpolation ``Triangle4XP.altitude()`` applies
+        to the ``.alt`` file written from this same array, save that the
+        node is CLAMPED into the raster extent first (``alt_nostrict``'s
+        convention -- Triangle4XP assumes its callers stay in range) and
+        that a nodata corner is not propagated: by the time a query DEM
+        reaches the grading law its nodata has been filled, and returning
+        the -32768 sentinel into a grade computation would be far worse
+        than the interpolation it replaces.
+        """
+        Nx = self.nxdem - 1
+        Ny = self.nydem - 1
+        x = min(max(node[0], self.x0), self.x1)
+        y = min(max(node[1], self.y0), self.y1)
+        px = (x - self.x0) / (self.x1 - self.x0) * Nx
+        py = (self.y1 - y) / (self.y1 - self.y0) * Ny
+        nx = min(int(px), Nx)
+        ny = min(int(py), Ny)
+        nxp = min(nx + 1, Nx)
+        nyp = min(ny + 1, Ny)
+        rx = px - nx
+        ry = py - ny
+        return (
+            self.alt_dem[ny, nx] * (1 - rx) * (1 - ry)
+            + self.alt_dem[ny, nxp] * rx * (1 - ry)
+            + self.alt_dem[nyp, nx] * (1 - rx) * ry
+            + self.alt_dem[nyp, nxp] * rx * ry
+        )
+
+    def alt_vec_baked(self, way):
+        """Vectorized :meth:`alt_baked` over an ``(n, 2)`` array of nodes."""
+        Nx = self.nxdem - 1
+        Ny = self.nydem - 1
+        x = numpy.clip(numpy.asarray(way)[:, 0], self.x0, self.x1)
+        y = numpy.clip(numpy.asarray(way)[:, 1], self.y0, self.y1)
+        px = (x - self.x0) / (self.x1 - self.x0) * Nx
+        py = (self.y1 - y) / (self.y1 - self.y0) * Ny
+        nx = numpy.minimum(px.astype(numpy.int64), Nx)
+        ny = numpy.minimum(py.astype(numpy.int64), Ny)
+        nxp = numpy.minimum(nx + 1, Nx)
+        nyp = numpy.minimum(ny + 1, Ny)
+        rx = px - nx
+        ry = py - ny
+        return (
+            self.alt_dem[ny, nx] * (1 - rx) * (1 - ry)
+            + self.alt_dem[ny, nxp] * rx * (1 - ry)
+            + self.alt_dem[nyp, nx] * (1 - rx) * ry
+            + self.alt_dem[nyp, nxp] * rx * ry
+        )
+
+    def enable_baked_query(self, baked_source_paths):
+        """Re-point ``alt``/``alt_vec`` at the baked working raster.
+
+        Called once by ``O4_Airport_Elevation_Insets`` at the end of the
+        raster bake -- the moment ``alt_dem`` becomes the surface the
+        mesher will render.  Returns True when the switch was made.
+
+        GATE ``O4_DEM_QUERY_BAKED``, default ON.  It shipped OFF for one
+        session: reading each tile's OWN baked raster exposed a 3.80 m
+        cross-tile disagreement on the SPLP seam, because the two tiles had
+        auto-picked different working grids (1/3" on -13/-077, 1/2" on
+        -13/-078) and bilinear between different post sets straddles the
+        same escarpment differently.  The rasters always agreed EXACTLY
+        (0.0000 m over 225 exactly-shared posts) -- the divergence was
+        never in this query, it was the ballot, and it was equally present
+        in the two tiles' RENDERED meshes; the old nearest-neighbour
+        composite merely hid it by measuring a surface neither tile draws.
+        ``seam_harmonized_ballot_insets`` (gate ``O4_INSET_SEAM_HARMONIZE``)
+        now makes seam-sharing tiles ballot identically, and the same
+        601-sample probe reads 0.0000 m on all three seam lines.
+
+        Refused (legacy composite behaviour kept, byte-identical) when:
+
+        * the gate ``O4_DEM_QUERY_BAKED`` is off;
+        * this DEM is not a composite, or has no raster;
+        * ANY sub-DEM is absent from ``baked_source_paths``.  A sub-DEM
+          that was never baked lives only in the query path (the legacy
+          ``custom_dem = "base;local1"`` feature), so bypassing the
+          composite would silently drop it.  The switch is made only when
+          the baked raster provably represents the WHOLE composite.
+        """
+        if os.environ.get("O4_DEM_QUERY_BAKED", "1") != "1":
+            return False
+        subdems = getattr(self, "subdems", None)
+        if not subdems or self.alt_dem is None:
+            return False
+        baked = set(baked_source_paths or ())
+        for subdem in subdems:
+            if getattr(subdem, "source_path", None) not in baked:
+                return False
+        self.alt = self.alt_baked
+        self.alt_vec = self.alt_vec_baked
+        self.baked_query_active = True
+        return True
+
     def alt_vec_nostrict(self, way):
         Nx = self.nxdem - 1
         Ny = self.nydem - 1
@@ -462,6 +589,76 @@ class DEM:
                 self.alt_dem[i][j] if k else self.nodata
                 for i, j, k in zip(Nminusny, nx, mask)
             ]
+        )
+
+    def alt_vec_bilinear_strict(self, way):
+        """Strict-extent BILINEAR altitude on this DEM's own posting.
+
+        The interpolating twin of :meth:`alt_vec_strict`: same extent
+        semantics (``nodata`` for every node outside ``[x0, x1] x [y0,
+        y1]``), but the value inside comes from the four surrounding
+        posts weighted (1-rx)(1-ry), rx(1-ry), (1-rx)ry, rx*ry instead of
+        from the single nearest post.
+
+        This is the reader the airport-inset BAKE uses when the inset is
+        COARSER than the working grid (see
+        ``O4_Airport_Elevation_Insets._bake_one_inset``): stamping a 30 m
+        inset onto a 10 m working grid with nearest neighbour writes a
+        literal 30 m staircase into the ``.alt`` file, which Triangle4XP
+        --- a TRUE BILINEAR reader (``Utils/src/Triangle4XP.c:3571``
+        ``altitude()``) --- then refines against, at no fidelity gain.
+
+        NODATA handling is RENORMALISING rather than propagating: corners
+        carrying the sentinel are dropped from the weighted sum and the
+        remaining weights are rescaled, so a node keeps a value as long as
+        ANY of its four posts has one.  Propagating instead would erode
+        the inset's data footprint by one post all round on every hole
+        edge --- a coverage change --- whereas renormalising keeps the
+        footprint at least as large as nearest neighbour's.  Only a node
+        whose four posts are all nodata returns ``nodata``.
+        """
+        way = numpy.asarray(way)
+        x, y = way[:, 0], way[:, 1]
+        inside = (
+            (x >= self.x0) * (x <= self.x1) * (y >= self.y0) * (y <= self.y1)
+        )
+        Nx = self.nxdem - 1
+        Ny = self.nydem - 1
+        px = numpy.clip((x - self.x0) / (self.x1 - self.x0) * Nx, 0, Nx)
+        py = numpy.clip((self.y1 - y) / (self.y1 - self.y0) * Ny, 0, Ny)
+        # Anchor on the LOWER post of each cell so ``+1`` stays in range;
+        # a node landing exactly on the far edge gets rx (or ry) == 1 and
+        # therefore reads that edge post exactly.
+        nx = numpy.minimum(px.astype(numpy.int64), max(Nx - 1, 0))
+        ny = numpy.minimum(py.astype(numpy.int64), max(Ny - 1, 0))
+        nxp = numpy.minimum(nx + 1, Nx)
+        nyp = numpy.minimum(ny + 1, Ny)
+        rx = px - nx
+        ry = py - ny
+        corners = numpy.stack(
+            (
+                self.alt_dem[ny, nx],
+                self.alt_dem[ny, nxp],
+                self.alt_dem[nyp, nx],
+                self.alt_dem[nyp, nxp],
+            )
+        ).astype(numpy.float64)
+        weights = numpy.stack(
+            (
+                (1 - rx) * (1 - ry),
+                rx * (1 - ry),
+                (1 - rx) * ry,
+                rx * ry,
+            )
+        )
+        valid = corners != self.nodata
+        weights = weights * valid
+        total = weights.sum(axis=0)
+        values = (weights * numpy.where(valid, corners, 0.0)).sum(axis=0)
+        return numpy.where(
+            inside * (total > 0),
+            values / numpy.where(total > 0, total, 1.0),
+            self.nodata,
         )
 
     def alt_vec_composite(self, way):

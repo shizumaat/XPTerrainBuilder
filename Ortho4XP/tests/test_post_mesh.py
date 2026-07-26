@@ -32,7 +32,7 @@ import O4_UI_Utils as UI
 from auto_patch import config
 from auto_patch import driver
 from auto_patch import dsf_reader as D
-from auto_patch import obj8_reader, post_mesh
+from auto_patch import obj8_reader, object_rebake, post_mesh
 
 TILE_LATITUDE = 35
 TILE_LONGITUDE = -81
@@ -454,6 +454,9 @@ def test_partition_cache_serves_second_run_and_content_invalidates(
 def test_partition_cache_disabled_by_environment_flag(
         phase_two_harness, monkeypatch):
     monkeypatch.setenv("O4_OBJECT_PARTITION_CACHE", "0")
+    # This test is about the PARTITION cache only; the outer re-anchor
+    # short-circuit would skip run 2 before the partition is reached.
+    monkeypatch.setenv("O4_REANCHOR_SHORT_CIRCUIT", "0")
     harness = phase_two_harness
     dsf_path, pack_root = _make_pack(
         harness.tmp_path, "Fake Pack", SINGLE_PLACEMENT_DSF_BODY,
@@ -1251,3 +1254,372 @@ def test_library_resolved_resource_outside_the_pack_is_skipped(
         assert handle.read() == OFFSET_SLAB_OBJECT
     # ...and the pack-local sibling still bakes.
     assert result["objects_written"] == ["objects/offset_bake.obj"]
+
+
+# ── Phase 2 short-circuit (O4_REANCHOR_SHORT_CIRCUIT) ────────────────
+#
+# The re-anchor re-derived every structure on every mesh build (10,607
+# structures, ~811 s of hook wall at +30+031, profile 2026-07-26) even
+# when nothing had changed.  The pack's provenance sidecar now carries a
+# fingerprint of EVERY input the decision reads; a run whose fingerprint
+# still matches is skipped.  These tests pin the hit case and each miss
+# case — the whole value of the short-circuit is that it misses whenever
+# it possibly could matter.
+
+
+def _count_derivations(monkeypatch):
+    """Count the calls that only a FULL run makes."""
+    calls = []
+    real_deltas = post_mesh.object_anchor.structure_deltas
+
+    def counting_deltas(*args, **kwargs):
+        calls.append(1)
+        return real_deltas(*args, **kwargs)
+
+    monkeypatch.setattr(
+        post_mesh.object_anchor, "structure_deltas", counting_deltas)
+    return calls
+
+
+def _slab_pack(harness):
+    dsf_path, pack_root = _make_pack(
+        harness.tmp_path, "Fake Pack", SINGLE_PLACEMENT_DSF_BODY,
+        {"objects/offset_bake.obj": OFFSET_SLAB_OBJECT})
+    harness.write_worklist(
+        [harness.worklist_entry("KTST", dsf_path, pack_root)])
+    return dsf_path, pack_root
+
+
+def test_second_consecutive_build_short_circuits(
+        phase_two_harness, monkeypatch):
+    """Run 2 skips the whole airport: no structure_deltas call, the pack
+    untouched, and the counts still report the baked structures."""
+    harness = phase_two_harness
+    _dsf_path, pack_root = _slab_pack(harness)
+    live_path = os.path.join(pack_root, "objects", "offset_bake.obj")
+
+    first_counts = post_mesh.rebake_dsf_objects(harness.tile)
+    assert first_counts["airports_up_to_date"] == 0
+    assert first_counts["structures_baked"] == 1
+    with open(live_path, "rb") as handle:
+        live_after_first_run = handle.read()
+    live_mtime = os.path.getmtime(live_path)
+
+    calls = _count_derivations(monkeypatch)
+    messages = []
+    monkeypatch.setattr(
+        UI, "vprint",
+        lambda level, *parts: messages.append(" ".join(map(str, parts))))
+
+    second_counts = post_mesh.rebake_dsf_objects(harness.tile)
+    assert calls == []  # nothing re-derived
+    assert second_counts["airports_up_to_date"] == 1
+    assert second_counts["airports_processed"] == 1
+    assert second_counts["structures_baked"] == 1
+    assert second_counts["packs_corrected"] == 0
+    assert any("re-anchor up to date" in message for message in messages)
+    with open(live_path, "rb") as handle:
+        assert handle.read() == live_after_first_run
+    assert os.path.getmtime(live_path) == pytest.approx(live_mtime)
+
+
+def test_short_circuit_records_its_fingerprint_in_the_sidecar(
+        phase_two_harness):
+    harness = phase_two_harness
+    dsf_path, pack_root = _slab_pack(harness)
+    post_mesh.rebake_dsf_objects(harness.tile)
+
+    with open(os.path.join(
+            pack_root, ".o4_reanchor_provenance.json")) as handle:
+        provenance = json.load(handle)
+    (record,) = provenance[object_rebake.RUN_RECORDS_KEY].values()
+    assert record["record_version"] == object_rebake.RUN_RECORD_VERSION
+    assert record["mesh"]["path"] == harness.mesh_path
+    assert record["dsf"]["path"] == dsf_path
+    assert record["structures_baked"] == 1
+    assert record["gate_digest"] and record["excluded_digest"]
+    (resource_entry,) = record["resources"]
+    assert resource_entry["resource"] == "objects/offset_bake.obj"
+    # Both the live file and the .anchor_bak original are fingerprinted.
+    assert set(resource_entry["files"]) == {
+        os.path.join("objects", "offset_bake.obj"),
+        os.path.join("objects", "offset_bake.obj.anchor_bak"),
+    }
+    for file_record in resource_entry["files"].values():
+        assert len(file_record["sha256"]) == 64
+
+
+def test_touching_an_object_forces_a_full_run(
+        phase_two_harness, monkeypatch):
+    """`touch` on a pack ``.obj`` — same bytes, new mtime — must re-run:
+    the owner touching a file is the owner asking for a reconsideration."""
+    harness = phase_two_harness
+    _dsf_path, pack_root = _slab_pack(harness)
+    post_mesh.rebake_dsf_objects(harness.tile)
+
+    live_path = os.path.join(pack_root, "objects", "offset_bake.obj")
+    stamp = os.path.getmtime(live_path) + 500.0
+    os.utime(live_path, (stamp, stamp))
+
+    calls = _count_derivations(monkeypatch)
+    counts = post_mesh.rebake_dsf_objects(harness.tile)
+    assert len(calls) == 1
+    assert counts["airports_up_to_date"] == 0
+    assert counts["structures_baked"] == 1
+
+
+def test_editing_an_object_behind_its_mtime_forces_a_full_run(
+        phase_two_harness, monkeypatch):
+    """Content change with the mtime restored — only the sha256 leg can
+    catch this, and it must."""
+    harness = phase_two_harness
+    _dsf_path, pack_root = _slab_pack(harness)
+    post_mesh.rebake_dsf_objects(harness.tile)
+
+    backup_path = os.path.join(
+        pack_root, "objects", "offset_bake.obj.anchor_bak")
+    stat_before = os.stat(backup_path)
+    with open(backup_path, "r+b") as handle:
+        handle.seek(0)
+        handle.write(b"B")  # 'A' -> 'B' on line 1: same size, new bytes
+    os.utime(backup_path, ns=(stat_before.st_atime_ns,
+                              stat_before.st_mtime_ns))
+    assert os.stat(backup_path).st_size == stat_before.st_size
+    assert os.stat(backup_path).st_mtime_ns == stat_before.st_mtime_ns
+
+    calls = _count_derivations(monkeypatch)
+    post_mesh.rebake_dsf_objects(harness.tile)
+    assert len(calls) == 1  # the hash caught it
+
+
+def test_deleting_the_anchor_bak_forces_a_full_run(
+        phase_two_harness, monkeypatch):
+    """The recorded FILE SET matters: ruling R1 reads geometry from the
+    backup when one exists, so losing (or gaining) one is a new input."""
+    harness = phase_two_harness
+    _dsf_path, pack_root = _slab_pack(harness)
+    post_mesh.rebake_dsf_objects(harness.tile)
+    os.remove(os.path.join(
+        pack_root, "objects", "offset_bake.obj.anchor_bak"))
+
+    calls = _count_derivations(monkeypatch)
+    post_mesh.rebake_dsf_objects(harness.tile)
+    assert len(calls) == 1
+
+
+def test_changing_the_mesh_forces_a_full_run(
+        phase_two_harness, monkeypatch):
+    harness = phase_two_harness
+    _slab_pack(harness)
+    post_mesh.rebake_dsf_objects(harness.tile)
+
+    _write_synthetic_mesh(harness.mesh_path)  # a fresh mesh build
+    stamp = os.path.getmtime(harness.mesh_path) + 100.0
+    os.utime(harness.mesh_path, (stamp, stamp))
+
+    calls = _count_derivations(monkeypatch)
+    counts = post_mesh.rebake_dsf_objects(harness.tile)
+    assert len(calls) == 1
+    assert counts["airports_up_to_date"] == 0
+
+
+def test_changing_the_dsf_forces_a_full_run(
+        phase_two_harness, monkeypatch):
+    harness = phase_two_harness
+    dsf_path, _pack_root = _slab_pack(harness)
+    post_mesh.rebake_dsf_objects(harness.tile)
+
+    # Run 1 migrated the pre-seeded ``.dsf.text`` into the pack cache;
+    # keep that dump newer than the touched ``.dsf`` so the second run
+    # reads it instead of invoking DSFTool.
+    stamp = os.path.getmtime(dsf_path) + 100.0
+    os.utime(dsf_path, (stamp, stamp))
+    cache_directory = post_mesh.dsf_reader.airport_mod_cache_dir(
+        os.path.dirname(os.path.dirname(os.path.dirname(dsf_path))))
+    for name in os.listdir(cache_directory):
+        if name.endswith(".text"):
+            os.utime(os.path.join(cache_directory, name),
+                     (stamp + 10.0, stamp + 10.0))
+
+    calls = _count_derivations(monkeypatch)
+    counts = post_mesh.rebake_dsf_objects(harness.tile)
+    assert len(calls) == 1
+    assert counts["airports_up_to_date"] == 0
+
+
+def test_changing_a_configuration_gate_forces_a_full_run(
+        phase_two_harness, monkeypatch):
+    harness = phase_two_harness
+    _slab_pack(harness)
+    post_mesh.rebake_dsf_objects(harness.tile)
+
+    monkeypatch.setattr(config, "DSF_OBJECT_MIN_REACH_M", 24.0)
+    calls = _count_derivations(monkeypatch)
+    post_mesh.rebake_dsf_objects(harness.tile)
+    assert len(calls) == 1
+
+
+def test_short_circuit_flag_off_always_runs_in_full(
+        phase_two_harness, monkeypatch):
+    harness = phase_two_harness
+    _slab_pack(harness)
+    post_mesh.rebake_dsf_objects(harness.tile)
+
+    monkeypatch.setenv("O4_REANCHOR_SHORT_CIRCUIT", "0")
+    calls = _count_derivations(monkeypatch)
+    counts = post_mesh.rebake_dsf_objects(harness.tile)
+    assert len(calls) == 1
+    assert counts["airports_up_to_date"] == 0
+
+
+def test_dry_run_never_short_circuits(phase_two_harness, monkeypatch):
+    """``write_changes=False`` exists to REPORT the decision; a cached
+    'nothing to do' would report nothing."""
+    harness = phase_two_harness
+    dsf_path, pack_root = _slab_pack(harness)
+    post_mesh.rebake_dsf_objects(harness.tile)
+
+    calls = _count_derivations(monkeypatch)
+    result = post_mesh.discover_and_rebake_airport(
+        dsf_path, harness.mesh_path, pack_root, None, write_changes=False)
+    assert len(calls) == 1
+    assert result["short_circuited"] is False
+    assert result["structures_baked"] == 1
+
+
+def test_short_circuit_keeps_the_foot_pad_sidecar(phase_two_harness):
+    """A skipped airport must still contribute its foot-pad requests, or
+    the per-tile sidecar would be deleted as stale on every second
+    build."""
+    harness = phase_two_harness
+    dsf_path, pack_root = _make_pack(
+        harness.tmp_path, "Gantry Pack", TWO_FOOT_GANTRY_DSF_BODY,
+        {"objects/gantry.obj": TWO_FOOT_GANTRY_OBJECT})
+    harness.write_worklist(
+        [harness.worklist_entry("KTST", dsf_path, pack_root)])
+
+    first_counts = post_mesh.rebake_dsf_objects(harness.tile)
+    assert first_counts["foot_pad_requests"] == 1
+    sidecar_path = harness.patches_directory / (
+        post_mesh.OBJECT_FOOT_PAD_SIDECAR_FILENAME)
+    first_payload = json.loads(sidecar_path.read_text())
+
+    second_counts = post_mesh.rebake_dsf_objects(harness.tile)
+    assert second_counts["airports_up_to_date"] == 1
+    assert second_counts["foot_pad_requests"] == 1
+    assert sidecar_path.exists()
+    assert json.loads(sidecar_path.read_text()) == first_payload
+
+
+def test_short_circuit_survives_a_prototype_era_sidecar(
+        phase_two_harness, monkeypatch):
+    """A pack carrying the prototype's flat provenance has no run
+    fingerprint: run in full, then record one."""
+    harness = phase_two_harness
+    _dsf_path, pack_root = _slab_pack(harness)
+    provenance_path = os.path.join(
+        pack_root, ".o4_reanchor_provenance.json")
+    with open(provenance_path, "w") as handle:
+        json.dump({"mesh": harness.mesh_path, "size": 1, "mtime": 1,
+                   "objects": ["objects/offset_bake.obj"],
+                   "anchor": [0.0, 0.0, 0.0], "anchor_ground": 1.0},
+                  handle)
+
+    calls = _count_derivations(monkeypatch)
+    post_mesh.rebake_dsf_objects(harness.tile)
+    assert len(calls) == 1
+    with open(provenance_path) as handle:
+        assert json.load(handle)[object_rebake.RUN_RECORDS_KEY]
+
+
+# ── object_rebake run-record unit cases (synthetic sidecar) ──────────
+
+def test_matching_run_record_reports_each_miss_reason(tmp_path):
+    """Every rejection path returns a human reason and never raises."""
+    pack_root = tmp_path / "pack"
+    pack_root.mkdir()
+    mesh_path = tmp_path / ("Data" + TILE_NAME + ".mesh")
+    mesh_path.write_text("mesh")
+    dsf_path = tmp_path / (TILE_NAME + ".dsf")
+    dsf_path.write_text("dsf")
+
+    def check():
+        return object_rebake.matching_run_record(
+            str(pack_root), str(dsf_path), str(mesh_path),
+            epsilon_metres=0.25, excluded_resources=None,
+            resolve_resource=lambda resource_path: None)
+
+    record, reason = check()
+    assert record is None and "no provenance sidecar" in reason
+
+    record = object_rebake.build_run_record(
+        str(pack_root), str(dsf_path), str(mesh_path),
+        epsilon_metres=0.25, excluded_resources=None,
+        referenced_resources=[], resolve_resource=lambda path: None,
+        structures_baked=7, structures_needing_pad=0, foot_pad_requests=[])
+    object_rebake.store_run_record(
+        str(pack_root), str(dsf_path), str(mesh_path), record)
+
+    hit, reason = check()
+    assert hit is not None and hit["structures_baked"] == 7
+
+    # a different epsilon is a different decision
+    miss, reason = object_rebake.matching_run_record(
+        str(pack_root), str(dsf_path), str(mesh_path),
+        epsilon_metres=0.5, excluded_resources=None,
+        resolve_resource=lambda resource_path: None)
+    assert miss is None and "configuration gate" in reason
+
+    # a different exclusion set is a different decision
+    miss, reason = object_rebake.matching_run_record(
+        str(pack_root), str(dsf_path), str(mesh_path),
+        epsilon_metres=0.25,
+        excluded_resources={(str(pack_root), "objects/a.obj")},
+        resolve_resource=lambda resource_path: None)
+    assert miss is None and "exclusion set" in reason
+
+    # a stale record version never serves new code
+    provenance_path = os.path.join(
+        str(pack_root), ".o4_reanchor_provenance.json")
+    with open(provenance_path) as handle:
+        provenance = json.load(handle)
+    for stored in provenance[object_rebake.RUN_RECORDS_KEY].values():
+        stored["record_version"] = object_rebake.RUN_RECORD_VERSION - 1
+    with open(provenance_path, "w") as handle:
+        json.dump(provenance, handle)
+    miss, reason = check()
+    assert miss is None and "older code" in reason
+
+
+def test_matching_run_record_misses_when_a_resource_moves(tmp_path):
+    """Resolution is fingerprinted, not just content: a resource that now
+    resolves to a different physical file is a new input."""
+    pack_root = tmp_path / "pack"
+    (pack_root / "objects").mkdir(parents=True)
+    live_path = pack_root / "objects" / "thing.obj"
+    live_path.write_text(OFFSET_SLAB_OBJECT)
+    mesh_path = tmp_path / ("Data" + TILE_NAME + ".mesh")
+    mesh_path.write_text("mesh")
+    dsf_path = tmp_path / (TILE_NAME + ".dsf")
+    dsf_path.write_text("dsf")
+
+    record = object_rebake.build_run_record(
+        str(pack_root), str(dsf_path), str(mesh_path),
+        epsilon_metres=0.25, excluded_resources=None,
+        referenced_resources=["objects/thing.obj"],
+        resolve_resource=lambda path: str(live_path),
+        structures_baked=1, structures_needing_pad=0, foot_pad_requests=[])
+    object_rebake.store_run_record(
+        str(pack_root), str(dsf_path), str(mesh_path), record)
+
+    hit, _reason = object_rebake.matching_run_record(
+        str(pack_root), str(dsf_path), str(mesh_path),
+        epsilon_metres=0.25, excluded_resources=None,
+        resolve_resource=lambda path: str(live_path))
+    assert hit is not None
+
+    miss, reason = object_rebake.matching_run_record(
+        str(pack_root), str(dsf_path), str(mesh_path),
+        epsilon_metres=0.25, excluded_resources=None,
+        resolve_resource=lambda path: "/elsewhere/thing.obj")
+    assert miss is None and "resolves elsewhere" in reason

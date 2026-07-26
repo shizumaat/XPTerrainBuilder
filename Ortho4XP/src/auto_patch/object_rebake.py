@@ -85,6 +85,97 @@ VERTEX_Y_TOKEN_INDEX = 2
 # genuine cross-structure difference is far larger.
 OFFSET_AGREEMENT_TOLERANCE_METRES = 1e-9
 
+# ---------------------------------------------------------------------------
+# Phase 2 short-circuit (``O4_REANCHOR_SHORT_CIRCUIT``, default ON)
+# ---------------------------------------------------------------------------
+# Ruling R2 says the sidecar is a diagnostic, not a gate — and it was:
+# every mesh build re-derived all 10,607 structures at +30+031 (~811 s of
+# hook wall, 2026-07-26 profile) even when nothing whatsoever had changed.
+# The ``runs`` map added here is NOT that diagnostic; it is a complete,
+# self-contained fingerprint of every input the Phase 2 decision reads,
+# recorded at the end of a full run and re-verified before the next one.
+# A run whose fingerprint still matches is provably going to produce the
+# bytes already on disk, so it is skipped; ANY mismatch (or any doubt)
+# runs the full pipeline exactly as before.
+#
+# What the fingerprint covers, input by input (see ``build_run_record``):
+#
+#   * the built MESH — size + mtime_ns (the elevation source);
+#   * the airport DSF — size + mtime_ns (placements, anchors, headings);
+#   * every resource the DSF references, by RESOLUTION and by CONTENT:
+#     the resolved physical path (so a new pack-local file that steals a
+#     library-resolved virtual path is caught), and, for a resource
+#     inside the pack, the exact set of {live, .anchor_bak} files that
+#     exist plus each one's size, mtime_ns and sha256.  A resource that
+#     resolves OUTSIDE the pack is never read (amendment A15 skips it
+#     before the geometry load), so only its resolution is recorded;
+#   * the ruling-R4 exclusion set for this pack (feature A/B objects);
+#   * every configuration gate the discovery, partition, seating and
+#     writer paths consult — ``_gate_digest`` below names them one by
+#     one, so adding a gate without adding it there is a visible
+#     omission, not a silent one;
+#   * ``RUN_RECORD_VERSION`` — the CODE version.  Bump it whenever the
+#     derived result can change without any of the above changing (new
+#     discovery filter, different seating arithmetic, a new partition
+#     cache version, …).  A stale record can then never short-circuit
+#     new logic.
+#
+# Deliberately NOT covered, because nothing in Phase 2 reads them: the
+# DEM / ``.alt`` raster (Phase 2 samples the BUILT MESH only — the O3
+# ordering guard in ``post_mesh`` already refuses a mesh older than the
+# ``.alt``), the OSM patch, and pack files the DSF never references.
+#
+# RUN_RECORD_VERSION history: 2 -> 3 (2026-07-26) for defect B — the
+# smallest containing supporter changes WHICH structure an inheritor
+# seats on, and hence its offset and its fate, with no input file
+# touched.
+RUN_RECORD_VERSION = 3
+RUN_RECORDS_KEY = "runs"
+
+# The configuration gates whose values change what Phase 2 decides.
+# Read by NAME from ``auto_patch.config`` at digest time so a test's
+# ``monkeypatch.setattr(config, ...)`` is seen (importing the values at
+# module scope would freeze them).
+_GATE_NAMES = (
+    "DSF_OBJECT_REANCHOR",
+    "DSF_OBJECT_ALLOW_ANIM",
+    "DSF_OBJECT_MIN_REACH_M",
+    "DSF_OBJECT_CONTACT_EPSILON_M",
+    "DSF_OBJECT_ELEVATED_BASE_M",
+    "DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M",
+    # Supporter fate (O4_SUPPORTER_FATE, HECA 2026-07-26): decides
+    # whether an inheritor is skipped alongside a skipped supporter,
+    # so flipping it must force a full re-derivation.
+    "DSF_OBJECT_SUPPORTER_FATE",
+    # Supporter SELECTION (O4_SUPPORTER_SMALLEST, defect B): decides
+    # WHICH containing structure an inheritor takes its ground (and,
+    # with supporter fate, its outcome) from.
+    "DSF_OBJECT_SUPPORTER_SMALLEST",
+    "DSF_OBJECT_PAD_FLAG_SPAN_M",
+    "DSF_OBJECT_MAX_STRUCTURE_SPAN_M",
+    "DSF_OBJECT_MIN_BUILDING_HEIGHT_M",
+    "DSF_OBJECT_CONNECTOR_PREFILTER",
+    "DSF_OBJECT_CONNECTOR_SPAN_M",
+    "DSF_OBJECT_CONNECTOR_MAX_FILL",
+    "DSF_OBJECT_FOOT_ANCHOR",
+    "DSF_OBJECT_FOOT_MIN_REACH_M",
+    "DSF_OBJECT_FOOT_BAND_M",
+    "DSF_OBJECT_FOOT_CLUSTER_GAP_M",
+    "DSF_OBJECT_FOOT_MAX_BASE_SPREAD_M",
+    "DSF_OBJECT_FOOT_CONTACT_TOLERANCE_M",
+    "DSF_OBJECT_FOOT_PAD_RESIDUAL_M",
+    "DSF_OBJECT_FOOT_PAD_MARGIN_M",
+)
+
+# Environment gates read directly (no config constant) by the rebake
+# writer and the object-terrain exclusion set.
+_GATE_ENVIRONMENT_NAMES = (
+    "O4_OBJECT_REBAKE_REVERT_EXCLUDED",
+    "O4_OBJECT_BRIDGE_TERRAIN",
+    "O4_OBJECT_TUNNEL_TERRAIN",
+    "O4_OBJECT_SPLIT_LEVEL_TERRAIN",
+)
+
 
 @dataclass(frozen=True)
 class RebakeReport:
@@ -152,6 +243,7 @@ def _fresh_provenance() -> dict:
         "warning": REDISTRIBUTION_WARNING,
         "meshes": {},
         "objects": {},
+        RUN_RECORDS_KEY: {},
     }
 
 
@@ -168,6 +260,7 @@ def _normalise_provenance(raw: dict) -> dict:
         raw.setdefault("warning", REDISTRIBUTION_WARNING)
         raw.setdefault("meshes", {})
         raw.setdefault("objects", {})
+        raw.setdefault(RUN_RECORDS_KEY, {})
         return raw
 
     upgraded = _fresh_provenance()
@@ -198,6 +291,313 @@ def _load_provenance(pack_root: str) -> dict:
         return _fresh_provenance()
     with open(sidecar_path) as handle:
         return _normalise_provenance(json.load(handle))
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 short-circuit: record, and re-verify, every input
+# ---------------------------------------------------------------------------
+
+def short_circuit_enabled() -> bool:
+    """``O4_REANCHOR_SHORT_CIRCUIT=0`` ⇒ always run the full pipeline."""
+    return os.environ.get("O4_REANCHOR_SHORT_CIRCUIT", "1") != "0"
+
+
+def _stat_signature(path: str) -> dict | None:
+    """``{size, mtime_ns}`` for a file, or ``None`` when it is absent."""
+    try:
+        stat_result = os.stat(path)
+    except OSError:
+        return None
+    return {"size": stat_result.st_size, "mtime_ns": stat_result.st_mtime_ns}
+
+
+def _file_record(path: str) -> dict | None:
+    signature = _stat_signature(path)
+    if signature is None:
+        return None
+    signature["sha256"] = _sha256_of_file(path)
+    return signature
+
+
+def _file_matches(path: str, recorded: dict) -> bool:
+    """Size, mtime AND content must all agree.
+
+    Requiring the mtime as well as the hash is deliberate: `touch`-ing a
+    pack ``.obj`` is the owner's way of saying "reconsider this file",
+    and a re-anchor that ignored it would be indistinguishable from a
+    broken cache.  Cheap fields first — the hash is only paid when the
+    stat already matches.
+    """
+    signature = _stat_signature(path)
+    if signature is None:
+        return False
+    if (signature["size"], signature["mtime_ns"]) != (
+        recorded.get("size"),
+        recorded.get("mtime_ns"),
+    ):
+        return False
+    return _sha256_of_file(path) == recorded.get("sha256")
+
+
+def _gate_digest(epsilon_metres: float) -> str:
+    """sha1 over every configuration input to the Phase 2 decision."""
+    from . import config as _config
+
+    digest = hashlib.sha1()
+    digest.update(f"record:{RUN_RECORD_VERSION}".encode())
+    digest.update(f"|epsilon:{epsilon_metres!r}".encode())
+    try:
+        from . import post_mesh as _post_mesh
+
+        digest.update(
+            f"|partition:{_post_mesh._PARTITION_CACHE_VERSION}".encode()
+        )
+    except Exception:  # pragma: no cover - import cycle safety net
+        digest.update(b"|partition:?")
+    from .obj8_partition import VERTEX_WELD_DECIMALS
+
+    digest.update(f"|weld:{VERTEX_WELD_DECIMALS}".encode())
+    for name in _GATE_NAMES:
+        digest.update(f"|{name}={getattr(_config, name, None)!r}".encode())
+    for name in _GATE_ENVIRONMENT_NAMES:
+        digest.update(f"|{name}={os.environ.get(name)!r}".encode())
+    return digest.hexdigest()
+
+
+def _excluded_digest(
+    pack_root: str,
+    excluded_resources: set | None,
+) -> str:
+    """sha1 over the ruling-R4 exclusion set that applies to this pack."""
+    digest = hashlib.sha1()
+    for entry_pack_root, resource_path in sorted(excluded_resources or ()):
+        if entry_pack_root == pack_root:
+            digest.update(f"|{resource_path}".encode())
+    return digest.hexdigest()
+
+
+def _run_key(mesh_path: str, dsf_path: str) -> str:
+    return "%s|%s" % (
+        _tile_name_from_mesh_path(mesh_path),
+        os.path.abspath(dsf_path),
+    )
+
+
+def _resource_files(pack_root: str, physical_path: str | None) -> list[str]:
+    """The pack files this resource's decision reads, in a fixed order:
+    the live ``.obj`` and its ``.anchor_bak`` original, whichever exist.
+
+    Keyed off the RESOLVED physical path, not a pack-relative join, so a
+    resource that reaches a pack file by an unexpected route is still
+    fingerprinted by the file actually read.  Empty for a resource that
+    resolves outside the pack: amendment A15 skips those before the
+    geometry load, so their bytes are never an input.
+
+    Recording the exact SET (not just the files present last time) is
+    what makes a backup appearing or disappearing a mismatch — ruling R1
+    reads geometry from the backup when there is one, so its arrival
+    changes the decision's input.
+    """
+    if physical_path is None:
+        return []
+    pack_prefix = os.path.join(os.path.realpath(pack_root), "")
+    if not os.path.realpath(physical_path).startswith(pack_prefix):
+        return []
+    return [
+        candidate
+        for candidate in (physical_path, physical_path + BACKUP_SUFFIX)
+        if os.path.isfile(candidate)
+    ]
+
+
+def build_run_record(
+    pack_root: str,
+    dsf_path: str,
+    mesh_path: str,
+    *,
+    epsilon_metres: float,
+    excluded_resources: set | None,
+    referenced_resources: list[str],
+    resolve_resource,
+    structures_baked: int,
+    structures_needing_pad: int,
+    foot_pad_requests: list,
+) -> dict:
+    """Fingerprint everything the just-finished full run read.
+
+    ``referenced_resources`` is every ``.obj`` resource the DSF names
+    (before any filtering), and ``resolve_resource(resource_path)``
+    returns the physical path discovery resolved it to, or ``None``.
+    """
+    resources = []
+    for resource_path in sorted(set(referenced_resources)):
+        physical_path = resolve_resource(resource_path)
+        entry: dict = {
+            "resource": resource_path,
+            "physical": physical_path,
+        }
+        files = {}
+        for candidate in _resource_files(pack_root, physical_path):
+            record = _file_record(candidate)
+            if record is not None:
+                files[os.path.relpath(candidate, pack_root)] = record
+        entry["files"] = files
+        resources.append(entry)
+
+    return {
+        "record_version": RUN_RECORD_VERSION,
+        "mesh": dict(
+            path=mesh_path, **(_stat_signature(mesh_path) or {})
+        ),
+        "dsf": dict(path=dsf_path, **(_stat_signature(dsf_path) or {})),
+        "gate_digest": _gate_digest(epsilon_metres),
+        "excluded_digest": _excluded_digest(pack_root, excluded_resources),
+        "resources": resources,
+        "structures_baked": structures_baked,
+        "structures_needing_pad": structures_needing_pad,
+        "foot_pad_requests": [
+            {
+                "structure_index": request.structure_index,
+                "resource_path": request.resource_path,
+                "latitude": request.latitude,
+                "longitude": request.longitude,
+                "base_y": request.base_y,
+                "residual_metres": request.residual_metres,
+                "target_ground_metres": request.target_ground_metres,
+                "contact_points_lonlat": [
+                    list(point) for point in request.contact_points_lonlat
+                ],
+            }
+            for request in foot_pad_requests
+        ],
+    }
+
+
+def store_run_record(
+    pack_root: str,
+    dsf_path: str,
+    mesh_path: str,
+    record: dict,
+) -> str | None:
+    """Merge ``record`` into the pack's provenance sidecar.
+
+    Best-effort: a pack we cannot write is a pack that simply never
+    short-circuits.
+    """
+    try:
+        provenance = _load_provenance(pack_root)
+        provenance.setdefault(RUN_RECORDS_KEY, {})[
+            _run_key(mesh_path, dsf_path)
+        ] = record
+        sidecar_path = _provenance_path(pack_root)
+        with open(sidecar_path, "w") as handle:
+            json.dump(provenance, handle, indent=2)
+            handle.write("\n")
+        return sidecar_path
+    except Exception as exception:  # pragma: no cover - defensive
+        _LOGGER.warning(
+            "object re-anchor could not record its run fingerprint in "
+            "%s (%s); the next build will re-derive everything",
+            pack_root,
+            exception,
+        )
+        return None
+
+
+def matching_run_record(
+    pack_root: str,
+    dsf_path: str,
+    mesh_path: str,
+    *,
+    epsilon_metres: float,
+    excluded_resources: set | None,
+    resolve_resource,
+) -> tuple[dict | None, str]:
+    """``(record, reason)`` — the stored record when EVERY input still
+    matches, else ``(None, why-not)``.
+
+    Never raises: any surprise (unreadable sidecar, vanished file,
+    malformed record) reports a mismatch and the caller runs in full.
+    """
+    try:
+        if not short_circuit_enabled():
+            return None, "O4_REANCHOR_SHORT_CIRCUIT is off"
+        if not os.path.isfile(_provenance_path(pack_root)):
+            return None, "no provenance sidecar"
+        provenance = _load_provenance(pack_root)
+        record = provenance.get(RUN_RECORDS_KEY, {}).get(
+            _run_key(mesh_path, dsf_path)
+        )
+        if not record:
+            return None, "no run fingerprint for this (tile, DSF)"
+        if record.get("record_version") != RUN_RECORD_VERSION:
+            return None, "run fingerprint written by older code"
+
+        for label, key, path in (
+            ("mesh", "mesh", mesh_path),
+            ("DSF", "dsf", dsf_path),
+        ):
+            recorded = record.get(key) or {}
+            signature = _stat_signature(path)
+            if signature is None:
+                return None, f"{label} missing at {path}"
+            if recorded.get("path") != path:
+                return None, f"{label} path changed"
+            if (signature["size"], signature["mtime_ns"]) != (
+                recorded.get("size"),
+                recorded.get("mtime_ns"),
+            ):
+                return None, f"{label} changed since the recorded run"
+
+        if record.get("gate_digest") != _gate_digest(epsilon_metres):
+            return None, "a configuration gate changed"
+        if record.get("excluded_digest") != _excluded_digest(
+            pack_root, excluded_resources
+        ):
+            return None, "the object-terrain exclusion set changed"
+
+        for entry in record.get("resources", ()):
+            resource_path = entry["resource"]
+            physical_path = resolve_resource(resource_path)
+            if physical_path != entry.get("physical"):
+                return None, f"{resource_path} now resolves elsewhere"
+            recorded_files = entry.get("files") or {}
+            present = {
+                os.path.relpath(candidate, pack_root)
+                for candidate in _resource_files(pack_root, physical_path)
+            }
+            if present != set(recorded_files):
+                return None, f"{resource_path}: its pack files changed"
+            for relative_path, recorded_file in recorded_files.items():
+                if not _file_matches(
+                    os.path.join(pack_root, relative_path), recorded_file
+                ):
+                    return None, f"{relative_path} changed"
+        return record, "every recorded input matches"
+    except Exception as exception:  # pragma: no cover - defensive
+        return None, f"run fingerprint unusable ({exception})"
+
+
+def run_record_foot_pad_requests(record: dict) -> list:
+    """Rebuild the ``FootPadRequest`` list a short-circuited run would
+    have produced, so the per-tile foot-pad sidecar stays correct."""
+    from .object_anchor import FootPadRequest
+
+    return [
+        FootPadRequest(
+            structure_index=entry["structure_index"],
+            resource_path=entry["resource_path"],
+            latitude=entry["latitude"],
+            longitude=entry["longitude"],
+            base_y=entry["base_y"],
+            residual_metres=entry["residual_metres"],
+            target_ground_metres=entry["target_ground_metres"],
+            contact_points_lonlat=tuple(
+                tuple(point) for point in entry["contact_points_lonlat"]
+            ),
+        )
+        for entry in record.get("foot_pad_requests", ())
+    ]
 
 
 # ---------------------------------------------------------------------------

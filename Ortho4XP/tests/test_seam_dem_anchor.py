@@ -352,3 +352,50 @@ def test_no_residual_reported_when_dem_is_cap_legal():
     layout = _steep_seam_layout()
     _seed(layout, _FakeDEM(slope=0.0))
     assert getattr(layout, "_seam_pin_residuals", None) == []
+
+
+# ── 5. a RUNWAY-owned seam bucket (owner rulings 2026-07-25 / 26) ────
+#   "every node along the tile seam cutback MUST be exactly at DEM ...
+#    definitely including the runway."   (2026-07-25)
+#   "ALL nodes along the seam MUST be at exact DEM and anchored BEFORE the
+#    solve, then the solver can grade between them and its other anchors to
+#    maintain grade."                                        (2026-07-26)
+#
+# The solver's seam write-back USED to skip any runway-owned bucket that was
+# already HARD ("the redistributed FAA profile is authority there") — which
+# silently restored the profile value on top of ``tile_cut``'s per-vertex DEM
+# pin whenever a later pass re-hardened the vertex.  Under the gate the
+# runway bucket is a DEM anchor like every other.
+def _runway_seam_layout(profile_alt: float = 70.0):
+    """A runway whose EAST edge sits on the cut-back line, carrying HARD
+    per-vertex profile altitudes well above the terrain there."""
+    poly = Polygon([(0.0, 0.0), (SEAM_X, 0.0),
+                    (SEAM_X, 30.0), (0.0, 30.0)])
+    na = [profile_alt] * 4
+    rw = _Shape(ROLE_RUNWAY, poly, ref="09/27",
+                node_altitudes=na + [na[0]])
+    layout = _Layout([rw])
+    layout._seam_anchor_keys = {
+        vertex_bucket(SEAM_X, 0.0), vertex_bucket(SEAM_X, 30.0)}
+    return layout
+
+
+def test_runway_seam_bucket_takes_the_dem_not_the_profile():
+    layout = _runway_seam_layout()
+    _nodes, b2i, elev, is_hard, _hi = _seed(layout, _FakeDEM())
+    want = _dem_at(SEAM_X)
+    assert want < 70.0 - 1.0, "fixture must separate profile from DEM"
+    for y in (0.0, 30.0):
+        i = _idx(layout, b2i, SEAM_X, y)
+        assert is_hard[i]
+        assert elev[i] == pytest.approx(want, abs=1e-6)
+
+
+def test_runway_seam_bucket_keeps_the_profile_under_the_gate(monkeypatch):
+    """``O4_RUNWAY_SEAM_VERTEX_DEM_PIN=0`` = the pre-2026-07-25 path: the
+    runway's redistributed profile stays the authority at its seam."""
+    monkeypatch.setattr(cfg, "RUNWAY_SEAM_VERTEX_DEM_PIN", False)
+    layout = _runway_seam_layout()
+    _nodes, b2i, elev, _ih, _hi = _seed(layout, _FakeDEM())
+    i = _idx(layout, b2i, SEAM_X, 0.0)
+    assert elev[i] == pytest.approx(70.0, abs=1e-6)

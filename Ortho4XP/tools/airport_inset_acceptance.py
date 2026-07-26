@@ -6,8 +6,10 @@ Phase C1 ``working_grid_arc_seconds`` so a 1 arc-second baseline and a
 densified run can be compared, and (b) recording the guardrail metrics the
 spec asks for: step-1 and step-2 wall time, the written ``.alt`` size and
 grid, and the Triangle4XP vertex/triangle counts.  It then probes the
-written ``.alt`` (with the pipeline's own ``DEM.alt_nostrict`` interpolation)
-and the built ``Data<tile>.mesh`` (barycentric, via
+written ``.alt`` (with the MESHER's own TRUE BILINEAR interpolation --
+``Utils/src/Triangle4XP.c:3571`` ``altitude()``; NOT ``DEM.alt_nostrict``'s
+two-triangle split, which this harness used to claim the mesher applies)
+and the built ``Data<tile>.mesh`` (barycentric over the built triangles, via
 ``tools/mesh_elevation_sampler.MeshElevationSampler``) at the spec section 5
 KBNA acceptance probes and reports a transect.
 
@@ -65,8 +67,18 @@ TRANSECT_END = (36.13815, -86.67525)
 
 
 def _sample_alt_raster(alt_path, latitude, longitude, geometry):
-    """Sample a written ``.alt`` raster with the pipeline's own
-    two-triangle ``DEM.alt_nostrict`` interpolation (what the mesher sees)."""
+    """Sample a written ``.alt`` raster the way the MESHER reads it.
+
+    TRUE BILINEAR, transcribed from ``Utils/src/Triangle4XP.c:3571``
+    ``altitude()`` (corner weights (1-rx)(1-ry), rx(1-ry), (1-rx)ry,
+    rx*ry), with the node clamped into the raster extent first.
+
+    This used to run ``DEM.alt_nostrict``'s two-triangle (barycentric)
+    split and call it "what the mesher sees".  It is not: Triangle4XP has
+    always been bilinear, and the two disagree by up to
+    +-(t1+t2-t3-t4)/4 inside a cell -- so the harness was reporting a
+    surface X-Plane never renders.
+    """
     (tile_latitude, tile_longitude, x0, x1, y0, y1) = geometry
     array = numpy.fromfile(alt_path, dtype=numpy.float32)
     side = int(round(math.sqrt(array.size)))
@@ -76,22 +88,19 @@ def _sample_alt_raster(alt_path, latitude, longitude, geometry):
     x = min(max(longitude - tile_longitude, x0), x1)
     y = min(max(latitude - tile_latitude, y0), y1)
     px = (x - x0) / (x1 - x0) * number_x
-    py = (y - y0) / (y1 - y0) * number_y
-    column = int(px)
-    n_minus_ny = number_y - int(py)
+    py = (y1 - y) / (y1 - y0) * number_y      # row 0 is the northern edge
+    column = min(int(px), number_x)
+    row = min(int(py), number_y)
+    column_plus = min(column + 1, number_x)
+    row_plus = min(row + 1, number_y)
     rx = px - column
-    ry = py + n_minus_ny - number_y
-    column_plus = (column + 1) * (column < number_x) + number_x * (
-        column == number_x
+    ry = py - row
+    return float(
+        array[row, column] * (1 - rx) * (1 - ry)
+        + array[row, column_plus] * rx * (1 - ry)
+        + array[row_plus, column] * (1 - rx) * ry
+        + array[row_plus, column_plus] * rx * ry
     )
-    row_up = (n_minus_ny - 1) * (n_minus_ny >= 1)
-    t1 = array[n_minus_ny, column]
-    t2 = array[row_up, column_plus]
-    t3 = array[n_minus_ny, column_plus]
-    t4 = array[row_up, column]
-    if rx >= ry:
-        return float((1 - rx) * t1 + ry * t2 + (rx - ry) * t3)
-    return float((1 - ry) * t1 + rx * t2 + (ry - rx) * t4)
 
 
 def _read_mesh_counts(mesh_path):

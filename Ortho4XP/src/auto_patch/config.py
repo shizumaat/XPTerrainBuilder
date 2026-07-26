@@ -27,6 +27,8 @@ __all__ = [
     "DSF_OBJECT_ELEVATED_BASE_M",
     "DSF_OBJECT_MAX_FOOTPRINT_AREA_M2",
     "DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M",
+    "DSF_OBJECT_SUPPORTER_FATE",
+    "DSF_OBJECT_SUPPORTER_SMALLEST",
     "DSF_OBJECT_PAVEMENT",
     "DSF_OBJECT_PAVEMENT_MAX_LAYER_OFFSET",
     "DSF_OBJECT_PAVEMENT_MIN_PATCH_M2",
@@ -55,6 +57,31 @@ __all__ = [
     "EMIT_JUNCTIONS",
     "EMIT_APRONS",
     "ENABLE_SERVICE_ROADS",
+    "AIRPORT_ROAD_FEED",
+    "AIRPORT_ROAD_FEED_CACHE",
+    "AIRPORT_ROAD_FEED_PAD_M",
+    "PAVEMENT_CLASS_V1",
+    "PAVEMENT_CLASS_MOUTH_SPLIT",
+    "PAVEMENT_CLASS_AIRSIDE_KEEP_FRAC",
+    "PAVEMENT_CLASS_ROAD_DOMINANT_FRAC",
+    "PAVEMENT_CLASS_AIRSIDE_WEAK_FRAC",
+    "PAVEMENT_CLASS_PARKING_FRAC",
+    "PAVEMENT_CLASS_ROAD_PARTIAL_FRAC",
+    "PAVEMENT_CLASS_AIRSIDE_NONE_FRAC",
+    "PAVEMENT_CLASS_RUNWAY_STANDOFF_M",
+    "PAVEMENT_CLASS_STAND_BUFFER_M",
+    "PAVEMENT_CLASS_TAXI_BUFFER_M",
+    "PAVEMENT_CLASS_AEROWAY_LINE_BUFFER_M",
+    "PAVEMENT_CLASS_MIN_AREA_M2",
+    "PAVEMENT_CLASS_TAIL_MAX_WIDTH_M",
+    "PAVEMENT_CLASS_TAIL_MIN_LENGTH_M",
+    "PAVEMENT_CLASS_TAIL_ROAD_FRAC",
+    "PAVEMENT_CLASS_TAIL_AXIS_ROAD_FRAC",
+    "PAVEMENT_CLASS_FLANK_CLEAR_M",
+    "PAVEMENT_CLASS_TAIL_MAX_FLANK_CONTACT",
+    "PAVEMENT_CLASS_SPLIT_MIN_BODY_AREA_M2",
+    "PAVEMENT_CLASS_SPLIT_MIN_TAIL_AREA_M2",
+    "PAVEMENT_CLASS_SPLIT_MAX_RING_VERTICES",
     "ABSORB_RECTS_ALONGSIDE_APRONS",
     "ENABLE_DISCOVERED_TAXIWAYS",
     "PAINTED_CENTERLINE_FALLBACK",
@@ -107,9 +134,12 @@ __all__ = [
     "CROWN_SERVICE",
     "RUNWAY_CROWN_SEAM_TAPER",
     "CROWN_SEAM_RAMP",
+    "CROWN_SPINE_SEAM_WELD",
     "SERVICE_ROAD_WIDTH_M",
     "MIN_SERVICE_STRIP_LEN_M",
     "OSM_SMALL_ROAD_HIGHWAY_TYPES",
+    "OSM_NON_DRIVABLE_HIGHWAY_TYPES",
+    "OSM_RAIL_TRACK_TYPES",
     "SERVICE_ROAD_PAVEMENT_NEAR_M",
     "RUNWAY_MAX_GRADE",
     "RUNWAY_END_GRADE",
@@ -209,6 +239,7 @@ __all__ = [
     "STRIP_WIDTH_FROM_CENTERLINE_ENABLED",
     "POCKET_COLLAR_RINGS_ENABLED",
     "CONFORMANCE_CUT_CLAMP_ENABLED",
+    "BAND_RAY_OCCLUSION_ENABLED",
     "OLS_CUT_ENABLED",
     "OLS_TRANSITIONAL_SLOPE",
     "OLS_TRANSITIONAL_SLOPE_STEEP",
@@ -222,6 +253,7 @@ __all__ = [
     "OLS_APPROACH_EMIT_REACH_M",
     "OLS_MAX_CUT_DEPTH_M",
     "OLS_OBSTRUCTION_THRESHOLD_M",
+    "OLS_SEAM_TILE_LINE_REFUSAL",
     "OBJECT_BRIDGE_TERRAIN",
     "OBJECT_TUNNEL_TERRAIN",
     "OBJECT_SPLIT_LEVEL_TERRAIN",
@@ -667,6 +699,32 @@ RUNWAY_CROWN_SEAM_TAPER = 0.005
 # cut-back edge).  Airports with no tile-cut seam vertices at all are a
 # strict no-op either way.
 CROWN_SEAM_RAMP = _os_early.environ.get("O4_CROWN_SEAM_RAMP", "1") == "1"
+# Gate: O4_CROWN_SPINE_SEAM_WELD=0 restores the pre-ruling emission of the
+# re-extended spine TERMINUS (diagnosis 2026-07-25, SPLP -13/-77 and
+# -13/-78).  The extension snaps the terminus to axis ∩ cut-back edge = the
+# geometric MIDPOINT of that ring edge, while ``densify_long_edges`` splits
+# the edge into ``ceil(L/60)`` EQUAL parts — so the terminus coincides with
+# a ring vertex iff that count is EVEN.  Both parities were broken:
+#   * ODD (SPLP: L = 148.09 m → 3 parts) — the terminus sits mid-edge as an
+#     UNWELDED T-VERTEX: same lon bits as the ring edge it lies on, but its
+#     own node, and its own (stale) profile value — measured forks of
+#     -0.015 m (55.60 spine vs 55.615 ring lerp) and -0.085 m (55.12 vs
+#     55.205).  No weld can catch it: crown spines are not ``layout.shapes``
+#     (they live on ``layout.crown_spines`` as (latlon, alts) tuples), so
+#     ``enforce_conformance`` never sees them.
+#   * EVEN — ``to_osm`` minted the spine's node ids unconditionally, with no
+#     coordinate lookup, so the terminus emitted as a LITERAL coincident
+#     DUPLICATE node (the Triangle4XP degenerate class the
+#     ``gap_interior_rings`` first-node reuse already guards against).
+# ON: the terminus is inserted into the host ring as a T-vertex valued by
+# the ring edge's own lerp (the ring is the value authority — the crown has
+# ramped to ZERO at the cut edge by design, so the spine's profile value
+# there is the stale party), and ``to_osm`` REUSES the existing node at any
+# spine coordinate instead of minting a second one.  OFF: byte-identical
+# pre-ruling behaviour.  Strictly narrower than O4_CROWN_SEAM_RAMP, which
+# reverts the whole spine-extension feature.
+CROWN_SPINE_SEAM_WELD = (
+    _os_early.environ.get("O4_CROWN_SPINE_SEAM_WELD", "1") == "1")
 # Transverse LAW cap for service roads (AASHTO normal crown high end,
 # 2 %; up to 2.5 % only in intense-rainfall areas).  Used as the cT in
 # the anisotropic allowance so a service road's cross-section cannot
@@ -805,6 +863,27 @@ MIN_SERVICE_STRIP_LEN_M = 25.0      # min dedicated-strip length to emit a rect
 OSM_SMALL_ROAD_HIGHWAY_TYPES = frozenset((
     "service", "unclassified", "residential", "living_street",
     "track", "road", "tertiary",
+))
+# ``highway=`` values the AIRPORT-REGION ROAD FEED drops: pedestrian /
+# non-motorised ways and the not-yet-a-road placeholders.  The feed
+# selects on the highway KEY (the whole point — it must see the service /
+# track / residential classes the tile caches never held), so this is
+# where "drivable" is enforced.  Same exclusion spirit as the non-car
+# omissions from OSM_SMALL_ROAD_HIGHWAY_TYPES above; at HECA it drops 575
+# footways + 48 steps + the path/cycleway tail from a 5.3k-way region.
+OSM_NON_DRIVABLE_HIGHWAY_TYPES = frozenset((
+    "footway", "path", "cycleway", "steps", "pedestrian", "bridleway",
+    "corridor", "elevator", "via_ferrata", "platform", "proposed",
+    "construction", "raceway", "bus_guideway", "escape", "rest_area",
+    "services",
+))
+# ``railway=`` values that are actual TRACK (the rest of the key is
+# platforms, signals, disused alignments and yard furniture, none of
+# which is a rail corridor).  Deliberately the same five classes as
+# ``bridges.RAIL_TUNNEL_TYPES`` so "what counts as a railway" reads the
+# same everywhere in the builder.
+OSM_RAIL_TRACK_TYPES = frozenset((
+    "rail", "light_rail", "subway", "narrow_gauge", "tram",
 ))
 # OSM small roads are kept ONLY where they hug airfield pavement: within
 # SERVICE_ROAD_PAVEMENT_NEAR_M of any apt.dat/DSF pavement.  This drops
@@ -1478,6 +1557,177 @@ def parallel_airports_worker_count(n_tasks: int) -> int:
         cap = _o.cpu_count() or 1
     return max(1, min(n_tasks, cap))
 
+
+# ── AIRPORT-REGION ROAD FEED (2026-07-26) ──────────────────────────────
+# The tile-wide ``<tile>_small_roads.osm.bz2`` cache the small-road loader
+# reads is written by the vector step ONLY at ``road_level >= 2``, and the
+# default is 1 — so at default config that file exists NOWHERE and every
+# consumer of ``_load_osm_small_roads`` silently saw ZERO minor roads at
+# EVERY airport (verified 2026-07-26 across the whole data root: not one
+# ``*_small_roads.osm.bz2``).  The feed closes that hole from the source
+# the tile pipeline already keeps on disk: the regional-extract CLIP for
+# this area (``OSM_data/_regional_extracts/clips/clip_+0LL+0LLL_*.pbf``),
+# read for the AIRPORT REGION ONLY (boundary/pavement footprint padded by
+# ``AIRPORT_ROAD_FEED_PAD_M``) and cached to a per-airport sidecar.
+#
+# FOUNDATION ONLY: the result is published on the layout
+# (``layout.airport_road_network``) for the classification-refinement and
+# inset-road-grading features to consume.  NO existing consumer is
+# rewired — clearance keeps reading the tile caches through
+# ``bridges._load_tunnel_road_network`` and the service-road builder keeps
+# reading ``_load_osm_small_roads`` — so ON vs OFF is byte-identical on
+# every airport today (see ``osm_load._load_airport_road_network``).
+# OFF ⇒ exactly the pre-feed loaders (no extract read, no sidecar, no log).
+AIRPORT_ROAD_FEED = _os.environ.get("O4_AIRPORT_ROAD_FEED", "1") == "1"
+# Pad (m) around the airport footprint (row-130 boundary ∪ source pavement
+# ∪ runways) for the feed's query box.  500 m keeps the perimeter road,
+# the approach-road stubs and the level crossings just off the fence.
+AIRPORT_ROAD_FEED_PAD_M = float(
+    _os.environ.get("O4_AIRPORT_ROAD_FEED_PAD_M", "500"))
+# Per-airport sidecar cache of the extracted feed (fingerprinted on the
+# clip files + the query box + the feed's schema version).  A cold read of
+# the HECA clip costs ~1.1 s (osmium-tool cut + pyosmium filter; ~11.7 s
+# without the bundled osmium binary); a warm one is a pickle load.  Set
+# ``O4_AIRPORT_ROAD_FEED_CACHE=0`` to disable read AND write.
+AIRPORT_ROAD_FEED_CACHE = (
+    _os.environ.get("O4_AIRPORT_ROAD_FEED_CACHE", "1") == "1")
+
+# ── PAVEMENT CLASSIFICATION v1 (owner rulings 2026-07-26) ────────────
+# ``apron`` is the FALLBACK bucket of the geometry phase
+# (``pavement/global_slice.classify_faces``: "everything else").  A
+# third-party pack that draws LANDSIDE pavement — perimeter roads, car
+# parks, terminal frontage — as ordinary pavement therefore lands the
+# whole lot in the airside 1.5 % apron law, which then FLATTENS real
+# terrain relief under it.  Measured at HECA (2026-07-26, Tai pack,
+# 99 % DSF-sourced): 251 of 318 apron shapes / 904,433 m² (32.1 % of
+# apron area) are landside; mean |offset vs DEM| 5.35 m, worst +21 m.
+#
+# THE EVIDENCE IS BIMODAL.  Every big misclassification has 0.0 % OSM
+# aeroway backing and 45-95 % road-corridor overlap; every genuine
+# apron has 26-89 % aeroway backing and ≤27 % road.  So the classifier
+# votes on positive evidence rather than on the absence of a taxiway.
+#
+# THE TWO OWNER RULINGS THIS ENCODES.
+#   R-VETO  Positive OSM airside evidence keeps a shape apron,
+#           absolutely.  "A road inside, or sharing an edge with a real
+#           apron must follow the apron's grade."  Service roads
+#           along / through aprons absorb into apron grading — never
+#           split, never demoted.
+#   R-SPLIT "An airport author might … make a single piece of asphalt
+#           that covers both a large apron, and 5km of thin roadway.
+#           We have to be able to identify where the road leaves the
+#           apron … so we can clearly separate roads from aprons. …
+#           roads with empty terrain on both sides need to be free to
+#           grade as roads and not be classified as aprons."
+#
+# Implementation: ``pavement_classification.classify_pavement_v1``,
+# called from the pipeline AFTER ``_reclassify_apron_junctions`` and
+# BEFORE ``_reclassify_runway_disconnected_to_groundside`` so a
+# demotion severs the runway touch-chain and the existing cascade
+# picks up whatever the demotion orphaned.
+# OFF ⇒ the pass returns immediately; the patch is byte-identical to
+# the pre-feature build.
+PAVEMENT_CLASS_V1 = _os.environ.get("O4_PAVEMENT_CLASS_V1", "1") == "1"
+# The R-SPLIT half on its own knob: a mouth split is geometry surgery
+# and the owner may want the vote without it.
+PAVEMENT_CLASS_MOUTH_SPLIT = (
+    _os.environ.get("O4_PAVEMENT_CLASS_MOUTH_SPLIT", "1") == "1")
+
+# R1 — POSITIVE AIRSIDE EVIDENCE (the R-VETO threshold).  Fraction of
+# the shape covered by OSM ``aeroway=apron`` polygons, by
+# ``parking_position`` stand geometry, or by taxiway/taxilane
+# centerline territory.  ≥ this ⇒ ABSOLUTE keep, whole shape.  0.25
+# sits in the empty band between the HECA keeps (26-89 %) and the
+# flips (0.0 %).
+PAVEMENT_CLASS_AIRSIDE_KEEP_FRAC = float(
+    _os.environ.get("O4_PAVEMENT_CLASS_AIRSIDE_KEEP_FRAC", "0.25"))
+# R2 — ROAD CORRIDOR DOMINATES.  Road-feed corridor overlap ≥ this and
+# airside evidence below ``AIRSIDE_WEAK`` ⇒ landside.  (227 of the 251
+# HECA flips come from this rule; the flipped shapes sit at 45-95 %.)
+PAVEMENT_CLASS_ROAD_DOMINANT_FRAC = float(
+    _os.environ.get("O4_PAVEMENT_CLASS_ROAD_DOMINANT_FRAC", "0.30"))
+# "No meaningful airside evidence" for R2 / R4.
+PAVEMENT_CLASS_AIRSIDE_WEAK_FRAC = float(
+    _os.environ.get("O4_PAVEMENT_CLASS_AIRSIDE_WEAK_FRAC", "0.10"))
+# R3 — NOWHERE WIDE ENOUGH FOR AN AIRCRAFT.  The morphological opening
+# ratio of ``object_footprints.is_vehicle_pavement_patch``, reused
+# verbatim at its own constants (``DSF_OBJECT_PAVEMENT_MIN_AIRCRAFT_
+# WIDTH_M`` / ``..._OPENING_RATIO``) — 24 of the 251 HECA flips.
+# R4 — PARKING LOT.  Fraction of the shape covered by OSM parking
+# evidence.  The airports OSM layer is an ``aeroway``-only Overpass
+# query and the road feed's tag whitelist carries no ``amenity``, so
+# the only parking signal available without a NEW extract read is the
+# feed's ``service=parking_aisle`` ways; the fraction is measured over
+# their corridors.  Fires on nothing at HECA (R2 claims those shapes
+# first) — it is here so a lot with no through-road still reads as
+# landside.
+PAVEMENT_CLASS_PARKING_FRAC = float(
+    _os.environ.get("O4_PAVEMENT_CLASS_PARKING_FRAC", "0.40"))
+# R5 — PARTIAL ROAD + NO AIRSIDE EVIDENCE AT ALL, well away from any
+# runway.  The long-tail catcher; fires on nothing at HECA.
+PAVEMENT_CLASS_ROAD_PARTIAL_FRAC = float(
+    _os.environ.get("O4_PAVEMENT_CLASS_ROAD_PARTIAL_FRAC", "0.12"))
+PAVEMENT_CLASS_AIRSIDE_NONE_FRAC = float(
+    _os.environ.get("O4_PAVEMENT_CLASS_AIRSIDE_NONE_FRAC", "0.02"))
+PAVEMENT_CLASS_RUNWAY_STANDOFF_M = float(
+    _os.environ.get("O4_PAVEMENT_CLASS_RUNWAY_STANDOFF_M", "150"))
+
+# Evidence-geometry buffers.  A ``parking_position`` is a stand LINE
+# (or a small polygon) — the aircraft it holds occupies ~20 m either
+# side; a taxiway/taxilane centerline carries ~15 m of taxi territory;
+# other airside aeroway LINES (runway, holding_position, jet_bridge)
+# get the plain 12 m half-width.  These are the diagnosis's own
+# numbers.
+PAVEMENT_CLASS_STAND_BUFFER_M = float(
+    _os.environ.get("O4_PAVEMENT_CLASS_STAND_BUFFER_M", "20"))
+PAVEMENT_CLASS_TAXI_BUFFER_M = float(
+    _os.environ.get("O4_PAVEMENT_CLASS_TAXI_BUFFER_M", "15"))
+PAVEMENT_CLASS_AEROWAY_LINE_BUFFER_M = float(
+    _os.environ.get("O4_PAVEMENT_CLASS_AEROWAY_LINE_BUFFER_M", "12"))
+# Shapes below this never vote: a sub-100 m² residue sliver is a
+# geometry artefact, and demoting it only opens a grade cliff against
+# the pavement it was carved out of.
+PAVEMENT_CLASS_MIN_AREA_M2 = float(
+    _os.environ.get("O4_PAVEMENT_CLASS_MIN_AREA_M2", "100"))
+
+# ── R-SPLIT geometry ────────────────────────────────────────────────
+# A TAIL is a corridor nowhere wider than this: erode by half of it and
+# nothing survives.  30 m clears the widest mapped carriageway plus
+# shoulders while staying well under any aircraft-capable apron neck
+# (``pavement/apron_necks`` treats ≤32 m as a taxilane pinch).
+PAVEMENT_CLASS_TAIL_MAX_WIDTH_M = float(
+    _os.environ.get("O4_PAVEMENT_CLASS_TAIL_MAX_WIDTH_M", "30"))
+# …and long enough to be a road rather than an apron nib.
+PAVEMENT_CLASS_TAIL_MIN_LENGTH_M = float(
+    _os.environ.get("O4_PAVEMENT_CLASS_TAIL_MIN_LENGTH_M", "60"))
+# A tail only leaves the body when the ROAD FEED backs it.
+PAVEMENT_CLASS_TAIL_ROAD_FRAC = float(
+    _os.environ.get("O4_PAVEMENT_CLASS_TAIL_ROAD_FRAC", "0.50"))
+# …and it becomes a ``service_road`` (axial grading) rather than
+# ``groundside_pavement`` (DEM-following) when a road CENTERLINE tracks
+# its long axis for this fraction of the axis length.
+PAVEMENT_CLASS_TAIL_AXIS_ROAD_FRAC = float(
+    _os.environ.get("O4_PAVEMENT_CLASS_TAIL_AXIS_ROAD_FRAC", "0.60"))
+# "Empty terrain on both sides" (R-SPLIT): OTHER built pavement within
+# this of the tail's perimeter is a flank contact.  Same 5 m the
+# apron-wall scope ruling uses for pavement adjacency.
+PAVEMENT_CLASS_FLANK_CLEAR_M = float(
+    _os.environ.get("O4_PAVEMENT_CLASS_FLANK_CLEAR_M", "5"))
+# A tail qualifies when at most this fraction of its perimeter has a
+# flank contact — "empty terrain on both sides … along most of its
+# length".  The mouth chord is shared with the BODY, i.e. with the
+# tail's own parent shape, and is excluded by construction.
+PAVEMENT_CLASS_TAIL_MAX_FLANK_CONTACT = float(
+    _os.environ.get("O4_PAVEMENT_CLASS_TAIL_MAX_FLANK_CONTACT", "0.20"))
+# Anti-sliver guards on the cut, and a ring-size ceiling so the
+# quadratic mouth search can never run away on a pathological ring.
+PAVEMENT_CLASS_SPLIT_MIN_BODY_AREA_M2 = float(
+    _os.environ.get("O4_PAVEMENT_CLASS_SPLIT_MIN_BODY_AREA_M2", "2000"))
+PAVEMENT_CLASS_SPLIT_MIN_TAIL_AREA_M2 = float(
+    _os.environ.get("O4_PAVEMENT_CLASS_SPLIT_MIN_TAIL_AREA_M2", "400"))
+PAVEMENT_CLASS_SPLIT_MAX_RING_VERTICES = int(
+    _os.environ.get("O4_PAVEMENT_CLASS_SPLIT_MAX_RING_VERTICES", "400"))
+
 # APRON↔TAXI GRADE BLEND (user 2026-06-25).  A taxi route runs THROUGH aprons, so
 # the apron cannot be a flat 1 % everywhere: as it approaches a taxi centerline it
 # must blend toward that route's (steeper) per-letter cap to make the transition.
@@ -1815,6 +2065,37 @@ ADJACENT_GROUND_SEAM_PROLONG_ENABLED = (
 ADJACENT_GROUND_SEAM_PROLONG_MAX_M = float(
     _os.environ.get("O4_ADJACENT_GROUND_SEAM_PROLONG_MAX_M", "300.0"))
 
+# PROLONGED FRONTAGE = THE ZONE NODE'S ALTITUDE REFERENCE (defect fix
+# 2026-07-25; the stage-3 blocker on ``RUNWAY_SEAM_VERTEX_DEM_PIN``).
+#
+# The band's zone nodes are encoded for the solver as an envelope interval
+# to their FROZEN-NEAREST host pavement ring vertex
+# (``solver_primitives._build_adjacent_ground_zone_constraints``:
+# ``elev[node] - elev[host] in [floor_off, ceil_off]``).  A zone row
+# stationed on a PROLONGED (synthetic) ring vertex cannot host there — the
+# vertex is not a solver variable — so ``adjacent_ground`` re-homes it onto
+# the nearest REAL ring vertex, which is the CUT-BACK CORNER, up to a whole
+# prolongation away IN STATION (300 m at SPLP).  That repair was positional
+# only, so the law corridor for the whole prolonged frontage stayed anchored
+# to the corner's altitude.  Measured SPLP -13/-078 with the runway seam
+# vertex pin ON: band vertices 260 m north of the runway's seam crossing
+# emitted 54.60 / 55.10 m (corner 55.80 m + the envelope) between
+# seam-pinned neighbours at 59.0 m — a 4.4 m spike that failed
+# ``tests/test_tile_cut_parity.py`` at 4.55 m.  The profile-authority path
+# MASKED it (the corner's profile altitude sat near the band's own level);
+# the wrong SOURCE was there either way.
+#
+# With this ON the re-homed node's envelope is shifted by
+# ``station frontage altitude - re-homed host altitude``, so the corridor is
+# centred on the flanking frontage edge's OWN extrapolated altitude — the
+# design ruling above — while still referencing a real solver variable.
+# Geometry, host choice and envelope width are untouched (value sourcing
+# only).  Zero shift wherever the host was already the station's own ring
+# vertex, so this is a structural no-op for every airport that prolongs
+# nothing.  "0" restores the pre-fix corner-anchored values.
+ADJACENT_GROUND_PROLONG_HOST_REF = (
+    _os.environ.get("O4_ADJACENT_GROUND_PROLONG_HOST_REF", "1") == "1")
+
 # TERRAIN CUT-BACK EDGE = DEM CONTRACT (same owner ruling; the ELEVATION
 # half of the same defect).  ``tile_cut``'s polygon difference mints exactly
 # TWO vertices per graded-strip cut-back edge and values them by
@@ -1834,6 +2115,38 @@ ADJACENT_GROUND_SEAM_PROLONG_MAX_M = float(
 # single-tile airport is byte-identical.
 TILE_SEAM_TERRAIN_DEM_PIN_ENABLED = (
     _os.environ.get("O4_TILE_SEAM_TERRAIN_DEM_PIN", "1") == "1")
+
+# AIRSIDE CUT-BACK EDGE = DEM CONTRACT (owner ruling 2026-07-25, the
+# PAVEMENT half of the rule the graded strips above already honour).  The
+# strip pin fixed terrain; the pavement beside it was still only pinned
+# where ``tile_cut`` happened to MINT a vertex — the two slice crossings —
+# so an airside cut-back edge could run tens of metres between DEM-true
+# ends, chording across the terrain the neighbouring 10 m gap renders, and
+# the two tiles' independent builds had no shared node to agree on in
+# between.
+#
+# With the gate ON, ``tile_cut.repin_airside_seam_cutbacks`` runs once at
+# the end of ``pipeline._unify_airside_geometry`` (the final PRE-solve
+# node-set) and, over airside rings:
+#   1. DENSIFIES every cut-back edge onto the SAME absolute
+#      ``cutback_stations`` the graded-strip pin uses — one source, so a
+#      strip and the pavement it abuts meet vertex-for-vertex;
+#   2. sets every seam vertex, pre-existing or newly minted, to ``dem.alt``
+#      at its own position;
+#   3. registers each in ``layout._seam_anchor_keys`` so the per-surface
+#      solver HARD-anchors it on writeback (solver_primitives) instead of
+#      letting the body fill drag it to the route level.
+# Idempotent (a second run finds every station already present) and a
+# pure function of (cut-back line, station spacing, DEM), so both tiles
+# reproduce the identical node set.  Fires only where a tile cut actually
+# severs airside pavement => every single-tile airport is byte-identical.
+#
+# ROLE_RUNWAY is EXCLUDED from this sweep: see RUNWAY_SEAM_DEM_PIN above
+# and RUNWAY_SEAM_VERTEX_DEM_PIN below — the runway carries an FAA
+# vertical profile as well as the seam contract, so it gets its own
+# reconciled path rather than a raw per-vertex overwrite of this shape.
+AIRSIDE_SEAM_DEM_REPIN = (
+    _os.environ.get("O4_AIRSIDE_SEAM_DEM_REPIN", "1") == "1")
 
 # ── RUNWAY SEAM CONTACT ANCHORS (owner ruling 2026-07-24) ────────────────
 #   "This has never worked, trying to do anything other than DEM at the tile
@@ -1874,6 +2187,100 @@ RUNWAY_SEAM_CONTACT_STEP_M = 10.0
 # i.e. only where the DEM pokes ABOVE the profile).
 RUNWAY_SEAM_CONTACT_ANCHORS = _os.environ.get(
     "O4_RUNWAY_SEAM_CONTACT", "1") == "1"
+
+# ── RUNWAY CUT-BACK VERTICES = DEM (owner ruling 2026-07-25) ─────────────
+#   "every node along the tile seam cutback MUST be exactly at DEM ...
+#    definitely including the runway."
+#
+# The last exemption falls.  ``RUNWAY_SEAM_DEM_PIN`` (above) routed a cut
+# runway piece's vertices through the REDISTRIBUTED FAA PROFILE instead of
+# the DEM, because on 2026-07-03 the raw per-vertex pin was measured to
+# carve a 4.2 m V-notch into SPLP's RW02/20: the seam crosses at 18 deg, the
+# cut-back edge's two band-edge corners span 141 m of station, and their DEM
+# values (55.5 / 59.7 m — read as a ravine wall) implied 2.98 %, twice the
+# 1.5 % cap.
+#
+# THAT MEASUREMENT NO LONGER REPRODUCES.  Re-measured 2026-07-25 at the same
+# four cut-back corners, station separation 140.86 m (matching the original
+# report's "141 m", so the geometry is the same): worst corner span 2.03 m =
+# 1.44 %, INSIDE the cap — and the pre-2026-07-25 nearest-neighbour sampler
+# reads the same 1.44 %.  The ravine wall was never in the terrain; it was an
+# artifact of the DEM STATE of that day (pre-densification working grid,
+# pre-honest-resolution smoothing radius, pre-bilinear inset bake).  With the
+# working grid harmonized across the seam and the query reading the surface
+# the mesher renders (``O4_DEM_QUERY_BAKED``), both tiles read the identical
+# value at every cut-back corner, so the pin is now cross-tile exact.
+#
+# With the gate ON a cut runway piece takes ``_terrain_pin_slice_nodes`` —
+# the same per-vertex DEM pin every other role already takes — and the
+# solver stops exempting runway-owned seam buckets from the DEM re-sample.
+# ``_pin_runway_piece_to_profile`` remains as the gated fallback and is
+# still used whenever the DEM pin cannot value a vertex.
+# ``O4_RUNWAY_SEAM_VERTEX_DEM_PIN=0`` restores the profile-authority path
+# byte-identically.
+#
+# ★ DEFAULT **ON** since 2026-07-25 (owner ruling above, blocker cleared).
+# The RUNWAY half verified at the flip: SPLP RW02/20's cut-back edge on
+# -13/-078 reads 55.80 / 55.29 / 55.03 / 54.78 / 54.27 m — a smooth 1.53 m
+# ramp over the edge (~1.09 % of station, inside the 1.5 % cap), no V-notch,
+# and cross-tile exact.
+#
+# HISTORY (kept: it names the defect this pin exposed).  The first flip
+# attempt was reverted because the ADJACENT-GROUND bands flanking the runway
+# emitted 4.4 m spikes ~270 m NORTH of the seam crossing (SPLP -13/-078:
+# band vertices at 55.10 / 54.60 m between neighbours at 59.0 m), failing
+# ``tests/test_tile_cut_parity.py::
+# test_cross_tile_cut_edge_elevations_consistent`` at 4.55 m.  ROOT CAUSE
+# (found 2026-07-25, NOT in this pin): the band's zone nodes are encoded to
+# their frozen-nearest host pavement ring vertex, and
+# ``adjacent_ground``'s seam-prolongation host repair re-homed a station on
+# a PROLONGED frontage onto the cut-back CORNER — hundreds of metres away in
+# station — so the corner's altitude anchored the whole prolonged band.  The
+# profile path merely MASKED it (the corner's profile altitude sat near the
+# band's own level); the wrong source was there either way, and with the pin
+# OFF the same fix moves 21 SPLP band vertices by up to 2.20 m.  Fixed by
+# ``config.ADJACENT_GROUND_PROLONG_HOST_REF`` (value sourcing only); parity
+# with this pin ON is now worst 2.15 m of the 2.5 m tolerance.
+RUNWAY_SEAM_VERTEX_DEM_PIN = _os.environ.get(
+    "O4_RUNWAY_SEAM_VERTEX_DEM_PIN", "1") == "1"
+
+# ── RUNWAY SEAM CUT-BACK: EVERY NODE AT DEM (owner ruling 2026-07-26) ────
+#   "ALL nodes along the seam MUST be at exact DEM and anchored BEFORE the
+#    solve, then the solver can grade between them and its other anchors to
+#    maintain grade."
+#
+# The COMPLETION of ``RUNWAY_SEAM_VERTEX_DEM_PIN`` above, which shipped
+# 2026-07-25 pinning only the vertices that EXISTED when ``tile_cut`` ran.
+# On SPLP that was exactly TWO — the runway's cut-back edge crosses the
+# seam obliquely, so the cut mints only the two slice crossings 148 m
+# apart — and every node BETWEEN them was minted later (emit-time chord
+# densification / the epsilon-wedge weld) and valued by PLAIN LERP between
+# the two DEM-pinned ends.  The owner saw exactly that on -13/-077's west
+# cut-back: three interior nodes 0.16 / 0.43 / 0.45 m ABOVE the terrain the
+# neighbouring 10 m gap renders.  Two halves, both under this gate:
+#
+#   1. ROLE_RUNWAY joins ``tile_cut.repin_airside_seam_cutbacks`` — the
+#      PRE-solve sweep every other airside role already takes.  The runway
+#      cut-back edge is densified onto the SAME absolute
+#      ``cutback_stations`` the graded strip beside it uses, every station
+#      is set to ``dem.alt`` at its own position, and every bucket is
+#      registered on ``layout._seam_anchor_keys`` so the solver hard-holds
+#      it.  Because the edge then carries a node every 10 m, the emit-time
+#      densifier (60 m chord cap) has nothing left to interpolate — the
+#      lerp class that produced the defect cannot re-appear.
+#   2. ``runway_redistribute._select_feasible_seam_anchors`` stops VETOING
+#      seam contact samples the FAA grade law cannot step through.  Under
+#      the ruling the DEM anchor wins at every seam sample and the grade
+#      residual is REPORTED (same discipline as the 2026-07-24 cut-back
+#      ruling and the ``[seam-pins]`` residual report), never silently
+#      dropped.  The old sweep kept the two extremes plus 5 of 48 samples
+#      at SPLP and let the profile float up to 0.51 m over the rest.
+#
+# ``O4_RUNWAY_SEAM_CUTBACK_DEM=0`` restores the 2026-07-25 behaviour
+# (two-extremes-only pin + feasibility veto) byte-identically.
+RUNWAY_SEAM_CUTBACK_DEM_ANCHORS = (
+    RUNWAY_SEAM_VERTEX_DEM_PIN
+    and _os.environ.get("O4_RUNWAY_SEAM_CUTBACK_DEM", "1") == "1")
 
 # RUNWAY DE-SEGMENTATION (user mandate 2026-07-07, docs/
 # runway_single_polygon_plan.md).  Segments are a hi/lo-era vestige: each
@@ -2230,6 +2637,67 @@ DSF_OBJECT_PAD_FLAG_SPAN_M = float(
 # structure; past this larger limit the structure is not baked at all.
 DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M = float(
     _os.environ.get("O4_DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M", "3.0"))
+
+# DEFECT A, MEASURED AND NOT LANDED (2026-07-26).  The limit above is a
+# max-min statistic that pre-empts the amendment-A3 arithmetic: a
+# structure whose A19 median seat would be a large A3 improvement is
+# refused unheard (HECA structure 0: authored ground-part residuals
+# median 3.089 m against 0.450 m at the median seat, over 1,821 parts).
+# A "robust seat gate" — put every over-span structure to the A3 test
+# and bake it when the median seat strictly improves the MEAN residual —
+# was implemented and dry-run, and it FAILED its EGGW stop condition:
+# all three UK2000 over-span components bake under it, including the
+# 662,669 m2 / 9.39 m-span mega component the owner verified in-sim must
+# skip, which the mean test accepts on a 0.025 m margin (2.0167 ->
+# 1.9919 m) while its residual MEDIAN gets worse (1.854 -> 2.017 m) and
+# its worst part goes 5.33 -> 5.78 m.  Any future version of this fix
+# needs a test the EGGW components fail — a median/quantile criterion,
+# a worst-part cap, or per-cluster seating
+# (docs/specs/per-cluster-object-seating-spec.md) — not the A3 mean.
+
+# (2026-07-26, HECA "a ton of floating objects" tear diagnosis) OUTCOME
+# CONSISTENCY between a supporter and the structures that inherit its
+# ground.  An elevated structure with no ground-touching part of its own
+# takes its seating elevation from a SUPPORTER (invariant I-8) — but the
+# supporter itself may be left at its authored elevations (the rigid-seat
+# span limit above, or any other skip).  Baking the inheritor while its
+# supporter does not move is the worst of both worlds: at HECA the Tai
+# Models pack's structure 0 (a 1237 x 2480 m, 16,868-part mega-structure
+# with a 25.8 m ground span) span-skipped and stayed put, while the 8,102
+# elevated structures whose centroids land in its bounding box were baked
+# -2.00 .. -2.45 m relative to it — signage, roof clutter and fittings
+# sunk through parents that had not moved.  With this gate on, an
+# inheritor SHARES ITS SUPPORTER'S FATE: a skipped supporter leaves its
+# inheritors at their authored elevations too, with a counted
+# ``skip_reason`` naming the parent's reason.  It deliberately does NOT
+# re-home them (that is DSF_OBJECT_SUPPORTER_SMALLEST below) and does NOT
+# change which structures the span limit itself skips.
+# ``O4_SUPPORTER_FATE=0`` restores the pre-fix behaviour byte for byte.
+DSF_OBJECT_SUPPORTER_FATE = (
+    _os.environ.get("O4_SUPPORTER_FATE", "1") == "1")
+
+# (2026-07-26, defect B — the size guard the supporter-fate note above
+# deferred) WHICH containing structure an elevated structure inherits
+# from.  Invariant I-8 picks a ground-touching structure whose plan
+# bounding box contains the inheritor's centroid; the original code took
+# the FIRST such candidate in structure-index order, which is an
+# arbitrary choice whenever boxes nest.  Payware mega-structures are
+# partitioned early (HECA's Tai Models terminal web is structure 0, a
+# 1237 x 2480 m box), so "first in index order" systematically hands
+# every nested inheritor to the largest possible parent: at HECA
+# structure 0 claimed 8,102 inheritors, and for 1,761 of them a SMALLER
+# containing ground-touching structure — the building they actually sit
+# on — existed and was ignored.  With this gate on the supporter is the
+# SMALLEST containing ground-touching structure by plan bounding-box
+# area, ties broken by lowest structure index (determinism).  A tighter
+# box is a strictly better statement of "what this thing rests on", and
+# with DSF_OBJECT_SUPPORTER_FATE the re-homed inheritors follow their
+# NEW supporter's fate — at HECA that moves 1,761 structures off the
+# span-skipped mega-structure onto supporters that actually bake.
+# ``O4_SUPPORTER_SMALLEST=0`` restores first-containing-in-index-order
+# byte for byte.
+DSF_OBJECT_SUPPORTER_SMALLEST = (
+    _os.environ.get("O4_SUPPORTER_SMALLEST", "1") == "1")
 
 # ── Multi-ground-cluster (foot) re-anchor ─────────────────────────────
 # An author-BAKED vertical offset (the KBNA water-treatment stairs carry
@@ -3264,6 +3732,37 @@ OLS_MAX_CUT_DEPTH_M = 15.0
 # can be retuned without touching the clearance passes.
 OLS_OBSTRUCTION_THRESHOLD_M = 1.0
 
+# ── OLS SEAM REFUSAL MEASURED AT THE TILE LINE (fix 2026-07-25) ─────────
+# The OLS spec's cross-tile determinism rule refuses whole any penetration
+# island "touching the covering DEM's tile-boundary edge"; ``ols._dem_raster``
+# implements that as the rows/columns where the raster WINDOW WAS CLAMPED by
+# the DEM's own extent.  An airport DEM usually covers well past the tile it
+# is keyed to, so at SPLP -13/-078 the raster runs 1088 m EAST of lon -77 and
+# nothing near the seam was ever flagged: two islands — one sitting exactly
+# ON the meridian, one 5 m inside the cut-back line — were admitted, and the
+# post-emit ``cut_layout_at_tile_boundaries`` sliced their bands, leaving four
+# ``ols_cut`` cut-back nodes 0.35 / 1.06 / 1.47 / 2.18 m BELOW the DEM that
+# the 10 m seam gap renders (measured; the -13/-077 build cuts nothing there,
+# so the wall is one-sided as well).
+#
+# Those nodes cannot be repaired by the universal seam DEM pin: an OLS cut is
+# ``min(ceiling, DEM)``, so lifting a node to the DEM would UN-CUT a real
+# obstruction at the seam — the seam law and the cut-only law genuinely
+# conflict AT the node.  They agree one step earlier: the OLS must not reach
+# the seam at all.  With this ON the refusal is measured against the CURRENT
+# TILE's own boundary (what the cut actually slices) as well as the data
+# extent — a cell within ``TILE_CUT_HALF_WIDTH_M`` + one raster cell of the
+# tile boundary, or outside it, is a seam cell, and any island touching one is
+# refused whole and reported (``refused_reason`` "tile_line").  Both tile
+# builds apply the same geometric test to the shared line, so the verdict
+# cannot disagree — the determinism property the spec's rule is FOR.
+#
+# The trade is the spec's own ("some lawful cuts near seams are given up to
+# buy a verdict that cannot disagree across a seam"), now actually in force.
+# "0" restores the data-extent-only test byte-identically.
+OLS_SEAM_TILE_LINE_REFUSAL = (
+    _os.environ.get("O4_OLS_SEAM_TILE_LINE_REFUSAL", "1") == "1")
+
 # GAP-FILL + DRAINAGE SPINE (user design ruling 2026-07-09,
 # docs/chain_identity_one_solve_plan.md): ground ENCLOSED between
 # pavements grades as ONE unit — boundary = the pavement chains
@@ -3390,6 +3889,29 @@ POCKET_COLLAR_RINGS_ENABLED = (
 # claim.  Gate OFF ⇒ byte-identical to the pre-fix emit.
 CONFORMANCE_CUT_CLAMP_ENABLED = (
     _os.environ.get("O4_CONFORMANCE_CUT_CLAMP", "1") == "1")
+
+# ADJACENT-GROUND BAND RAY OCCLUSION (2026-07-25).  An adjacent-ground
+# band's outward station scan
+# (``adjacent_ground._build_cut_bands`` / ``_build_fill_bands``) sampled
+# the DEM out to the full family reach (100 m) with NO test for pavement
+# standing IN the ray.  Diagnosed at CYXY shapeID 395: junction 129's deep
+# cut slab marched straight THROUGH apron 132 + junction 131 — the lidar
+# reads the built apron bench (~703 m) as "terrain needing a cut", so
+# daylight never closes — and the after-the-fact exact clip
+# ``poly.difference(static_union)`` left the band wrapping the apron's NE
+# corner with a ~1 m drop hugging its edge.  Owner ruling 2026-07-25:
+# "Yes for adjacent ground using a ray occlusion, it should stop at
+# pavement" — i.e. A LATERAL BAND'S OUTWARD REACH IS MEASURED THROUGH FREE
+# GROUND ONLY: the scan terminates at the first pavement hit and the
+# station's band depth is the last free-ground sample before it.  The
+# occluding pavement grades its own frontage (its bands march outward
+# toward the stopped band), so no ground is left ungoverned.  Mirrored in
+# ``verification.check_adjacent_ground`` (MIRROR 5) off the SAME helper and
+# the SAME published geometry, so the validator never mints a
+# should_cut/should_fill against ground the emitter lawfully stopped short
+# of.  Gate OFF ⇒ byte-identical to the pre-fix march.
+BAND_RAY_OCCLUSION_ENABLED = (
+    _os.environ.get("O4_BAND_RAY_OCCLUSION", "1") == "1")
 
 # OPEN-FRONTAGE DRAINAGE SPINE (slice B pilot, user design ruling 3
 # 2026-07-09; docs/chain_identity_one_solve_plan.md §Slice B).  The
@@ -3610,6 +4132,104 @@ APRON_BEYOND_SHOULDER_MAX_DOWN_SLOPE = 0.05
 # apron shoulder edge (reuse the tunnel ``retaining_wall`` emitter; tune
 # at KSVH / KEXX — slice 3).
 APRON_EDGE_WALL_MIN_DROP_M = 1.5
+
+# ── APRON WALL CONTINUITY (owner in-sim report "ramps and sharp drops",
+# diagnosed 2026-07-25 at SPJC apron -10153's SW frontage) ─────────────
+# Two defects broke ONE 237 m apron frontage into a scatter of confetti
+# walls and bare, un-walled ground:
+#   1. MULTIPART DROP.  ``adjacent_ground._emit_apron_walls`` clipped each
+#      wall run against the static union, the just-emitted graded strips
+#      and the boundary, then emitted only when the residue was a single
+#      ``Polygon`` — any run a neighbouring junction band NICKED became a
+#      MultiPolygon and was discarded WHOLE.  Measured at SPJC: a 173 m /
+#      167.9 m² run lost to two nicks totalling 5.29 m² (3 %); airport-wide
+#      4 runs / 240.4 m² of owed wall face silently vanished.  The graded-
+#      band emitter 500 lines up already decomposes its own clip residue —
+#      the wall path simply never adopted the idiom.
+#   2. THRESHOLD FLAP.  A station qualifies for a wall at a drop strictly
+#      greater than ``APRON_EDGE_WALL_MIN_DROP_M``; SPJC stations sitting
+#      at 1.4988 m / 1.4936 m — millimetres under the 1.5 m line — split
+#      one continuous frontage into two runs with a bare notch between.
+# The gate covers both fixes (they interlock: hysteresis merges runs, and
+# a merged run is exactly the long run most likely to be nicked into a
+# MultiPolygon).  Gate OFF ⇒ byte-identical to the pre-fix emitter.
+APRON_WALL_CONTINUITY_ENABLED = (
+    _os.environ.get("O4_APRON_WALL_CONTINUITY", "1") == "1")
+# CONFETTI GATE (fix 1's companion).  Decomposing the clip residue also
+# surfaces the genuinely tiny pieces the whole-run drop used to hide — at
+# SPJC three surviving walls were 2.8–3.9 m² slivers.  A wall part shorter
+# along the frontage than this, or smaller in area than
+# ``APRON_WALL_MIN_AREA_M2``, protects nothing a neighbouring band does not
+# already cover and reads in-sim as a spike; it is skipped and COUNTED (the
+# emitter logs the tally — no silent caps).  6 m ≈ one 5 m station step
+# plus slack, the shortest run that can carry a readable vertical face.
+APRON_WALL_MIN_RUN_M = 6.0
+# Companion area floor for the same gate: the face is a thin strip one
+# ``_PAVEMENT_GAP_M`` (1 m) deep, so ~4 m² is the 6 m run's own area with
+# clip slack — it catches wedge-shaped residue that is long but vanishing.
+APRON_WALL_MIN_AREA_M2 = 4.0
+# RUN HYSTERESIS (fix 2).  A wall run only STARTS at a drop above the full
+# ``APRON_EDGE_WALL_MIN_DROP_M``, but an already-open run CONTINUES through
+# stations down to ``APRON_EDGE_WALL_MIN_DROP_M - APRON_WALL_RUN_HYSTERESIS_M``.
+# Classic Schmitt-trigger discipline: the wall's EXISTENCE decision stays at
+# the ruled threshold, only its continuation is tolerant, so no wall is ever
+# created where the law does not ask for one.  0.3 m spans the DEM's own
+# station-to-station jitter at an apron edge with margin.
+APRON_WALL_RUN_HYSTERESIS_M = 0.3
+
+# ── APRON WALL SCOPE — pavement adjacency (owner ruling 2026-07-25) ───
+# Owner, on the same "ramps and sharp drops" report: "narrowing the scope of
+# apron walls so that they only occur if there's adjacent pavement within
+# 5m, then we need a wall; if it's open terrain just let the raw Ortho4XP
+# dem grade up to the apron edge."  LEAD READING (stated back to the owner
+# for confirmation, 2026-07-25):
+#   * An apron frontage station qualifies for a retaining WALL only when
+#     ANOTHER pavement shape lies within ``APRON_WALL_PAVEMENT_ADJACENCY_M``
+#     of it.  There the drop-based wall machinery applies unchanged — there
+#     is no room to grade between two built surfaces, so a vertical face is
+#     the only lawful answer.
+#   * Where the frontage faces OPEN TERRAIN (no pavement inside that
+#     radius) the law DECLINES TO GOVERN THE FILL SIDE: no wall AND no
+#     shoulder/fill band, and the raw (Ortho4XP-smoothed) DEM is allowed to
+#     grade right up to the apron edge.  This is lawful — no code mandates
+#     grading beyond an apron edge (see ``APRON_SHOULDER_WIDTH_M``: the
+#     shoulder is an FAA RECOMMENDATION, not a requirement).
+#   * CUT-side stations are UNAFFECTED.  "Grade up to the apron edge" is the
+#     terrain-BELOW case; terrain standing ABOVE the clearance ceiling is a
+#     wingtip-clearance obstruction and its cut still applies everywhere.
+#   * APRON frontage only — runway / taxiway / junction bands unchanged.
+# Mirrored in ``verification.check_adjacent_ground`` (MIRROR 6) off the SAME
+# helper (``adjacent_ground.apron_wall_frontage_qualifier``), so the
+# validator never mints a ``should_fill`` against apron frontage this ruling
+# leaves ungoverned.  Gate OFF ⇒ byte-identical to the pre-ruling scope.
+APRON_WALL_SCOPE_ENABLED = (
+    _os.environ.get("O4_APRON_WALL_SCOPE", "1") == "1")
+APRON_WALL_PAVEMENT_ADJACENCY_M = 5.0
+
+# ── SOLVED-BAND EMIT-SIDE CORRIDOR CLAMP (diagnosed 2026-07-25, SPJC) ──
+# The GATE-ON band valuation (``adjacent_ground._make_solved_band_resampler``)
+# reads the SOLVED band surface: a band vertex within the canonical-point
+# registry tolerance (0.5 m) of a solved zone node adopts that variable's
+# value.  Defect: the registry interns ACROSS SHAPES.  At SPJC an apron
+# 3 m-shoulder zone-row point and a junction 25–30 m CUT zone-row point lie
+# 0.19 m apart and intern to ONE canonical variable; the junction's corridor
+# claims the clamp, and the apron's writeback then carries that value —
+# 34.49 m where the apron's OWN corridor at d=3 m is [36.00, 36.06].  The
+# result is a 1.56 m notch in the shoulder at the owner's reported point
+# (-12.0339451, -77.1057292); 367 such cross-shape collisions at SPJC.
+# The ANALYTIC valuation path is immune BY CONSTRUCTION (it clamps the DEM
+# into the corridor), so this gate simply restores that invariant on the
+# solved path: every solved value is clamped into THIS shape's own
+# ``grade_law.adjacent_ground_envelope`` corridor at the vertex's true
+# lateral depth before it is emitted.  A clamp can make two shapes emit
+# different values at one canonical point — that is the emitter's supported
+# "deliberate wall of two separate nodes" convention (adjacent_ground
+# ~:4890), not a tear.  Fixed here at the EMIT side only; the at-source
+# variant (per-shape canonical variables in the solver writeback) is
+# recorded as future work.  Gate OFF ⇒ byte-identical to the pre-fix
+# valuation.
+BAND_CORRIDOR_CLAMP_ENABLED = (
+    _os.environ.get("O4_BAND_CORRIDOR_CLAMP", "1") == "1")
 
 
 def runway_code_number(length_m: float) -> int:

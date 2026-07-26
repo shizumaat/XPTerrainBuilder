@@ -549,6 +549,26 @@ class PavementLayout:
     # cached; ``None`` here means "not computed yet".
     _surface_road_corridors_cache: tuple | None = None
 
+    # ── Airport-region road feed (2026-07-26) ───────────────────────
+    # The ONE shared road/rail dataset for this airport
+    # (``osm_load.AirportRoadNetwork``: ways + tags + carriageway
+    # widths, for the airport footprint padded by
+    # ``config.AIRPORT_ROAD_FEED_PAD_M``).  Published by
+    # ``pipeline.build_airport_pavement`` so classification refinement
+    # and inset-area road grading read the SAME geometry instead of each
+    # re-deriving one.  ``None`` when the feed gate is off or no road
+    # data exists for the area (the loader says so loudly, once).
+    #
+    # Typed loosely to keep ``layout`` free of an ``osm_load`` import
+    # (osm_load imports FROM layout).
+    airport_road_network: object | None = None
+    # Memo for ``clearance.airport_road_feed_corridors`` — the corridor
+    # union of the FEED's ways, same 1-tuple convention (and same reason)
+    # as ``_surface_road_corridors_cache`` above.  Kept separate from it
+    # on purpose: that one is clearance's EXISTING tile-cache-derived
+    # union and must stay byte-identical.
+    _airport_road_feed_corridors_cache: tuple | None = None
+
     # ---- rebuild-freshness stamps (driver.generate_auto_patches) -----
     # ``{stamp key: value}`` for the build inputs the DRIVER knows (config
     # digest, DEM inputs, CIFP, scenery-pack enablement, engine version) —
@@ -1466,6 +1486,12 @@ class PavementLayout:
         def _corner_alt(nid: int) -> float | None:
             return node_id_to_consensus.get(nid)
 
+        # Crown-spine seam weld (owner ruling 2026-07-25) — read lazily so
+        # a reload / monkeypatch of the gate is honoured at call time.
+        from . import config as _spine_cfg
+        _spine_weld_on = bool(getattr(
+            _spine_cfg, "CROWN_SPINE_SEAM_WELD", True))
+
         # ── CHAIN-AWARE FINAL DECIMATION (slice C, 2026-07-09) ────
         # After the welds/adoptions, pavement rings carry thousands of
         # 3D-REDUNDANT vertices (collinear in XY AND on the altitude
@@ -1504,6 +1530,27 @@ class PavementLayout:
                                              ROLE_TUNNEL_TRENCH):
                 for _nid in _enids:
                     _law_plate_ll.add(node_id_to_ll[_nid])
+        # CROWN-SPINE WELD protection (owner ruling 2026-07-25, gate
+        # CROWN_SPINE_SEAM_WELD): the T-vertex ``crown._weld_terminus_
+        # into_rings`` inserted for a re-extended spine terminus is
+        # 3D-REDUNDANT by construction — it sits ON its host edge at that
+        # edge's own lerp, which is exactly what this sweep removes.  The
+        # sweep's unanimity vote is taken over the pending SHAPE ways
+        # only, and a crown spine is not a shape, so nothing here can see
+        # that removing it re-opens the unwelded terminus (SPLP -13/-77:
+        # the insert landed, both decimators dropped it, and the spine
+        # end emitted mid-edge again).  Exempt those coordinates.
+        if _spine_weld_on:
+            for (_wx, _wy) in (getattr(
+                    self, "_crown_spine_weld_xy", None) or ()):
+                try:
+                    _wk = registry.find_nearest(float(_wx), float(_wy),
+                                                registry.tol_m)
+                except Exception:                   # pragma: no cover
+                    continue
+                _we = xy_to_nodes.get(_wk) if _wk is not None else None
+                if _we:
+                    _law_plate_ll.add(node_id_to_ll[_we[0][0]])
         for _sweep in range(4):
             # Group by COORDINATE, not nid: coincident twin nids (wall
             # splits, the weld's coordinate-twins) must be removed
@@ -1924,6 +1971,29 @@ class PavementLayout:
         # way carries NO ``role`` tag — every OSM reader in this repo
         # (check_grade, compare_target) selects shapes by ``role`` and
         # closed-ring geometry, so the breakline is invisible to them.
+        # NODE REUSE (owner ruling 2026-07-25, gate
+        # ``CROWN_SPINE_SEAM_WELD``): a spine point that coincides with an
+        # ALREADY-INTERNED node must reference that node, never a second
+        # one at the same coordinate — a coincident twin / zero-length
+        # constrained edge is exactly the Triangle4XP degenerate class the
+        # ``gap_interior_rings`` first-node reuse below already guards
+        # against, and it is the EVEN-parity half of the seam-terminus
+        # defect (see config.CROWN_SPINE_SEAM_WELD).  The lookup is the
+        # emitter's OWN canonical map at its OWN tolerance — ``_intern``
+        # minus the insert — so a hit is precisely a coordinate
+        # ``_intern`` would have collapsed onto that node anyway.
+        def _spine_reuse_nid(la: float, lo: float) -> int | None:
+            try:
+                _x, _y = self.ll_to_m(la, lo)
+                _k = registry.find_nearest(float(_x), float(_y),
+                                           registry.tol_m)
+            except Exception:                       # pragma: no cover
+                return None
+            if _k is None:
+                return None
+            _ent = xy_to_nodes.get(_k)
+            return _ent[0][0] if _ent else None
+
         _spines = getattr(self, "crown_spines", None) or []
         if _spines:
             _next_spine_nid = (min(node_id_to_ll) - 1
@@ -1931,6 +2001,21 @@ class PavementLayout:
             for _pts_ll, _alts in _spines:
                 _snids: list[int] = []
                 for (_sla, _slo), _sa in zip(_pts_ll, _alts):
+                    _hit = (_spine_reuse_nid(_sla, _slo)
+                            if _spine_weld_on else None)
+                    if _hit is not None:
+                        # The RING is the value authority: never overwrite
+                        # a resolved consensus with the spine's own
+                        # profile value.  An unvalued node adopts the
+                        # spine's (no fork is possible there), and either
+                        # way the node must carry ``alt_abs`` or the
+                        # reader drops this spine vertex onto raw DEM.
+                        if node_id_to_consensus.get(_hit) is None:
+                            node_id_to_consensus[_hit] = float(_sa)
+                        node_alt_abs_nids.add(_hit)
+                        if not _snids or _snids[-1] != _hit:
+                            _snids.append(_hit)
+                        continue
                     node_id_to_ll[_next_spine_nid] = (_sla, _slo)
                     node_id_to_consensus[_next_spine_nid] = float(_sa)
                     node_alt_abs_nids.add(_next_spine_nid)

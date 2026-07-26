@@ -23,8 +23,13 @@ What these tests pin:
   current profile is anchored just like one above it (that filter is what
   left SPLP's north seam contact floating +0.67 m over the terrain);
 * where the terrain across the contact is itself steeper than
-  ``MAX_RUNWAY_GRADE``, the law wins and the unreachable samples are
-  REPORTED with the grade they would have demanded — never midpointed;
+  ``MAX_RUNWAY_GRADE`` the DEM ANCHOR wins (★ owner ruling 2026-07-26,
+  ``config.RUNWAY_SEAM_CUTBACK_DEM_ANCHORS``: "ALL nodes along the seam MUST
+  be at exact DEM and anchored BEFORE the solve, then the solver can grade
+  between them and its other anchors to maintain grade") and the over-cap
+  pair is REPORTED with the grade it steps through — never midpointed, and
+  since 2026-07-26 never vetoed either.  ``O4_RUNWAY_SEAM_CUTBACK_DEM=0``
+  restores the 2026-07-24 feasibility sweep (``enforce_cap=True``);
 * the accepted anchor set depends only on (whole-runway geometry, DEM), so
   BOTH tile builds derive it identically without seeing each other;
 * the gate ``O4_RUNWAY_SEAM_CONTACT=0`` restores the pre-ruling behaviour;
@@ -223,16 +228,94 @@ class TestSeamContactWalk:
 
 # ═════════════════ feasibility selection + reporting ═════════════════
 
-class TestFeasibleAnchorSelection:
-    """``_select_feasible_seam_anchors`` — DEM everywhere the law allows,
-    an honest report everywhere it does not."""
+class TestSeamAnchorsUnderTheRuling:
+    """★ Owner ruling 2026-07-26 (``config.RUNWAY_SEAM_CUTBACK_DEM_ANCHORS``):
+
+        "ALL nodes along the seam MUST be at exact DEM and anchored BEFORE
+         the solve, then the solver can grade between them and its other
+         anchors to maintain grade."
+
+    The feasibility VETO is gone.  ``_select_feasible_seam_anchors`` now
+    anchors every sampled contact point at its DEM and REPORTS the adjacent
+    pairs whose DEM-to-DEM step exceeds the runway grade law — the same
+    honest-residual discipline as the ``[seam-pins]`` report.
+    """
 
     PHYS = 1000.0
+
+    def test_every_sample_is_anchored_however_steep(self):
+        # A 1 % ramp with a 4 % spike in it: pre-ruling the spike was
+        # dropped; under the ruling it is an anchor like any other.
+        cands = [(0.30, 50.00), (0.305, 50.05), (0.31, 50.40),
+                 (0.315, 50.15), (0.32, 50.20)]
+        acc, rep = RR._select_feasible_seam_anchors(cands, self.PHYS)
+        assert acc == cands, "the DEM must win at EVERY seam sample"
+        assert rep, "the over-cap steps must still be reported"
+
+    def test_the_report_names_the_pair_and_the_grade(self):
+        cands = [(0.30, 50.00), (0.305, 50.05), (0.31, 50.40),
+                 (0.315, 50.15), (0.32, 50.20)]
+        _acc, rep = RR._select_feasible_seam_anchors(cands, self.PHYS)
+        # Both legs of the spike are over the 1.5 % cap and reported by the
+        # LATER point of the pair, with the grade that pair steps through.
+        assert [round(t, 4) for t, _v, _g in rep] == [0.31, 0.315]
+        for _t, _v, g in rep:
+            assert g > CFG.RUNWAY_MAX_GRADE
+        assert rep[0][2] == pytest.approx(0.35 / 5.0, rel=1e-6)   # 7 %
+
+    def test_gentle_terrain_reports_nothing(self):
+        cands = [(0.30 + 0.01 * k, 50.0 + 0.05 * k) for k in range(6)]
+        acc, rep = RR._select_feasible_seam_anchors(cands, self.PHYS)
+        assert acc == cands
+        assert rep == []
+
+    def test_extremes_that_conflict_are_both_still_anchored(self):
+        # 3 % between the two visible contacts.  Pre-ruling only the first
+        # survived; now both are held and the step is reported.
+        cands = [(0.30, 50.0), (0.32, 50.6)]
+        acc, rep = RR._select_feasible_seam_anchors(cands, self.PHYS)
+        assert acc == cands
+        assert len(rep) == 1
+        assert rep[0][2] == pytest.approx(0.03, rel=1e-6)
+
+    def test_still_order_independent(self):
+        cands = [(0.30, 50.0), (0.31, 50.02), (0.32, 50.03),
+                 (0.33, 50.05), (0.34, 50.50)]
+        a = RR._select_feasible_seam_anchors(cands, self.PHYS)
+        b = RR._select_feasible_seam_anchors(list(reversed(cands)),
+                                             self.PHYS)
+        assert a == b
+
+    def test_gate_off_restores_the_veto(self, monkeypatch):
+        monkeypatch.setenv("O4_RUNWAY_SEAM_CUTBACK_DEM", "0")
+        cfg = importlib.reload(CFG)
+        try:
+            assert cfg.RUNWAY_SEAM_CUTBACK_DEM_ANCHORS is False
+            cands = [(0.30, 50.00), (0.305, 50.05), (0.31, 50.40),
+                     (0.315, 50.15), (0.32, 50.20)]
+            acc, rej = RR._select_feasible_seam_anchors(cands, self.PHYS)
+            assert (0.31, 50.40) not in acc
+        finally:
+            monkeypatch.delenv("O4_RUNWAY_SEAM_CUTBACK_DEM", raising=False)
+            importlib.reload(CFG)
+        assert CFG.RUNWAY_SEAM_CUTBACK_DEM_ANCHORS is True
+
+
+class TestFeasibleAnchorSelectionGateOff:
+    """The pre-ruling (2026-07-24) selection, still reachable with
+    ``enforce_cap=True`` — what ``O4_RUNWAY_SEAM_CUTBACK_DEM=0`` restores."""
+
+    PHYS = 1000.0
+
+    @staticmethod
+    def _select(cands, phys):
+        return RR._select_feasible_seam_anchors(cands, phys,
+                                                enforce_cap=True)
 
     def test_gentle_terrain_anchors_every_sample(self):
         # 0.5 % across the contact: every candidate is reachable.
         cands = [(0.30 + 0.01 * k, 50.0 + 0.05 * k) for k in range(6)]
-        acc, rej = RR._select_feasible_seam_anchors(cands, self.PHYS)
+        acc, rej = self._select(cands, self.PHYS)
         assert acc == cands
         assert rej == []
 
@@ -243,7 +326,7 @@ class TestFeasibleAnchorSelection:
         # anchor and is reported instead.
         cands = [(0.30, 50.0), (0.31, 50.02), (0.32, 50.03),
                  (0.33, 50.05), (0.34, 50.50)]
-        acc, rej = RR._select_feasible_seam_anchors(cands, self.PHYS)
+        acc, rej = self._select(cands, self.PHYS)
         assert acc[0] == (0.30, 50.0)
         assert acc[-1] == (0.34, 50.50)
         assert rej, "the steep interior must be reported, not silently kept"
@@ -254,7 +337,7 @@ class TestFeasibleAnchorSelection:
     def test_reports_when_even_the_two_extremes_conflict(self):
         # 3 % between the two visible contacts: no profile can hold both.
         cands = [(0.30, 50.0), (0.32, 50.6)]
-        acc, rej = RR._select_feasible_seam_anchors(cands, self.PHYS)
+        acc, rej = self._select(cands, self.PHYS)
         assert acc == [(0.30, 50.0)]
         assert len(rej) == 1
         assert rej[0][0] == 0.32
@@ -265,7 +348,7 @@ class TestFeasibleAnchorSelection:
         # anchored, and every accepted pair stays inside the cap.
         cands = [(0.30, 50.00), (0.305, 50.05), (0.31, 50.40),
                  (0.315, 50.15), (0.32, 50.20)]
-        acc, rej = RR._select_feasible_seam_anchors(cands, self.PHYS)
+        acc, rej = self._select(cands, self.PHYS)
         assert (0.31, 50.40) not in acc
         assert len(acc) == 4
         assert [r[0] for r in rej] == [0.31]
@@ -277,9 +360,8 @@ class TestFeasibleAnchorSelection:
         # Cross-tile determinism relies on the SET, not the arrival order.
         cands = [(0.30, 50.0), (0.31, 50.02), (0.32, 50.03),
                  (0.33, 50.05), (0.34, 50.50)]
-        acc_a, rej_a = RR._select_feasible_seam_anchors(cands, self.PHYS)
-        acc_b, rej_b = RR._select_feasible_seam_anchors(
-            list(reversed(cands)), self.PHYS)
+        acc_a, rej_a = self._select(cands, self.PHYS)
+        acc_b, rej_b = self._select(list(reversed(cands)), self.PHYS)
         assert acc_a == acc_b
         assert rej_a == rej_b
 

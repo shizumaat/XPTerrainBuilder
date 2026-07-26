@@ -1142,6 +1142,14 @@ def include_patches(vector_map, tile):
 
     patches_list = []
     patches_area = geometry.Polygon()
+    # Inputs of ``patches_area``, unioned in ONE pass after the file loop.
+    # The former per-way ``patches_area = patches_area.union(pol)``
+    # accumulator rebuilt the whole accumulated geometry once per closed
+    # way — quadratic in way count, and the dominant cost of this
+    # function on multi-airport tiles (22 s of the 27 s spent here at
+    # +30+031, HECA + HEAZ ≈ 3.7k ways).  ``ops.unary_union`` at the end
+    # computes the same region.
+    patches_area_polys = []
     # Closed patch polygons, kept so that INTERP_ALT seeds can be placed
     # per planar FACE after all patch files are read (see below).
     interp_alt_patch_polygons = []
@@ -1388,7 +1396,7 @@ def include_patches(vector_map, tile):
                 try:
                     pol = geometry.Polygon(way)
                     if pol.is_valid and pol.area:
-                        patches_area = patches_area.union(pol)
+                        patches_area_polys.append(pol)
                         vector_map.insert_way(
                             numpy.hstack([way, alti_way]),
                             "INTERP_ALT",
@@ -1412,6 +1420,17 @@ def include_patches(vector_map, tile):
                 vector_map.insert_way(
                     numpy.hstack([way, alti_way]), "DUMMY", check=True
                 )
+    if patches_area_polys:
+        try:
+            patches_area = ops.unary_union(patches_area_polys)
+        except Exception:
+            # Fall back to the historical per-polygon accumulation so a
+            # single bad pairwise interaction drops that polygon only.
+            for pol in patches_area_polys:
+                try:
+                    patches_area = patches_area.union(pol)
+                except Exception:
+                    UI.vprint(2, "     Skipping invalid patch polygon.")
     # Seed every planar FACE of the patch coverage, not one point per ring.
     # Triangle4XP spreads a regional attribute by plague, and the flood is
     # blocked by ANY segment carrying the same attribute bit (see the

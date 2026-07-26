@@ -1,4 +1,30 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260726 — include_patches quadratic union fix (−21 s/tile at +30+031)
+# ══════════════════════════════════════════════════════════════════
+Task brief said step 1 loses 27 s re-parsing freshly written auto-patch
+.osm files.  PREMISE FALSE: parsing HECA (8.5 MB) + HEAZ (1.4 MB) with
+OSM_layer.update_dicosm costs 0.11 s total.  Profiler (tools/
+profile_tile_build.py --steps vector, +30+031) showed include_patches =
+25.9 s, of which 22.3 s was `patches_area = patches_area.union(pol)` —
+one binary shapely union per closed patch way (~3.7k ways), quadratic.
+FIX (O4_Vector_Map.include_patches): collect the polygons and build
+patches_area with ONE ops.unary_union after the file loop (fallback to
+the old accumulator if unary_union raises).  In-memory patch handoff NOT
+built — not worth plumbing for 0.11 s; parse-from-disk stays the single
+path (fresh and cached).
+VERIFIED byte-identical .poly/.node at +30+031 (clean HEAD 5eecc3f vs
+HEAD+fix, same cfg/DEM/caches; md5 equal).  Step 1: 48.3 s → 27.9 s
+(include_patches 25.9 → 4.7 s).  patches_area is consumed only through
+predicates (subsumed-by-patches ratio, prepared contains for INTERP_ALT
+seeds, treated_area union), never encoded directly.
+MEASUREMENT TRAP hit on the way: baseline runs from the MAIN checkout
+ran its dirty in-flight inset work (1/2 vs 1/3 arc-sec DEM grid) — A/B
+must be same-tree stash/pop.  Also the data-root Ortho4XP.cfg got
+rewritten during these runs (defaults briefly created 09:58, migrated
+2056-byte cfg written 09:59; .bak now holds the defaults dump) — owner
+should eyeball /Users/noah/XPTerrainBuilderData/Ortho4XP.cfg.
+
+# ══════════════════════════════════════════════════════════════════
 # 20260725 — RUNWAY-END + POCKET + OLS ROUND: HANDOFF
 # ══════════════════════════════════════════════════════════════════
 # Everything is UNCOMMITTED in the working tree. Six gates are default ON

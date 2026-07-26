@@ -259,8 +259,16 @@ def test_full_ortho_still_queues_ortho(tmp_path, stub_elevation):
 
 # ── test 3: full_ortho byte-identity vs the base commit ─────────────────
 
+# Baseline for the byte-identity guard.  The texture-mode work itself landed
+# before the Ortho4XP sources were vendored into XPTerrainBuilder, so the
+# true pre-feature commit does not exist in this repository; the earliest
+# vendored snapshot is the pin.  The feature's contract is that full_ortho
+# bytes are untouched, so this snapshot carries the exact baseline bytes.
+_BASE_COMMIT = "38b3eaf54df66592627fbc07c22fae0ff900ea27"
+
+
 def _load_base_module(tmp_path):
-    """Import ``O4_DSF_Utils`` from the base commit (26ea8ee) as a distinct
+    """Import ``O4_DSF_Utils`` from the pinned baseline commit as a distinct
     module, so its ``build_dsf`` can be run side-by-side with the edited one.
     No working-tree mutation (no stash): the base source is read straight out
     of git."""
@@ -269,8 +277,12 @@ def _load_base_module(tmp_path):
 
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     try:
+        toplevel = subprocess.check_output(
+            ["git", "-C", here, "rev-parse", "--show-toplevel"],
+            text=True).strip()
         base_src = subprocess.check_output(
-            ["git", "-C", here, "show", "26ea8ee:src/O4_DSF_Utils.py"],
+            ["git", "-C", toplevel, "show",
+             _BASE_COMMIT + ":Ortho4XP/src/O4_DSF_Utils.py"],
             text=True)
     except (subprocess.SubprocessError, OSError):
         return None
@@ -295,7 +307,15 @@ def test_full_ortho_byte_identical_to_base(tmp_path, monkeypatch):
     os.environ["PYTHONHASHSEED"] = "0"
     base = _load_base_module(tmp_path)
     if base is None:
-        pytest.skip("could not load base-commit O4_DSF_Utils (git show failed)")
+        if os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"):
+            pytest.fail(
+                f"pinned baseline commit {_BASE_COMMIT} is unavailable "
+                "(git show failed) — CI checkouts must include it "
+                "(fetch full history, not a shallow clone); this guard "
+                "must not silently skip in CI")
+        pytest.skip(
+            f"could not load baseline O4_DSF_Utils from {_BASE_COMMIT[:7]} "
+            "(git show failed)")
 
     def _build(module, sub):
         build_dir = _prepare_build_dir(tmp_path / sub)

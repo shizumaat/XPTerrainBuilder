@@ -708,6 +708,52 @@ def _resa_cut_alt(analytic_ceiling: float, dem_alt) -> float:
     return min(analytic_ceiling, float(dem_alt))
 
 
+def _fill_lateral_refs(raw_refs, scalar_ref, spacing):
+    """Dense per-station EXIT-ROW reference profile from sparse local
+    pavement reads (KCLT skirt #845, 2026-07-26).
+
+    ``raw_refs`` holds one entry per exit-row station: the local
+    pavement-edge altitude where the station touches pavement (the same
+    containment-free read the weld row carries), else ``None``.  The
+    returned profile anchors the skirt floor so the weld/no-weld
+    transition is continuous: interior gaps interpolate linearly
+    between their valid neighbours and the row ends HOLD the outermost
+    valid value.  An off-pavement station is NEVER given a nearest-
+    pavement read of its own — that imports a FOREIGN shape's value
+    (the 63 % skirt-edge spike class of the first weld round); holding
+    this end's own edge profile laterally cannot.
+
+    Falls back to ``[scalar_ref] * n`` — the single centre-line anchor,
+    today's behaviour verbatim — when
+      * no station touches pavement (the plain daylighting end), or
+      * two valid stations step faster than the skirt's lawful
+        down-grade over their separation (the SPLP flank class: a fill
+        reference must never bridge a pavement-level wall — see the
+        flank's discontinuity split).
+    """
+    n = len(raw_refs)
+    valid = [i for i, v in enumerate(raw_refs) if v is not None]
+    if not valid:
+        return [float(scalar_ref)] * n
+    for a, b in zip(valid, valid[1:]):
+        dist = (b - a) * spacing
+        if abs(raw_refs[b] - raw_refs[a]) > (
+                RUNWAY_END_SKIRT_MAX_DOWN_GRADE * dist
+                + _SKIRT_REF_STEP_NOISE_M):
+            return [float(scalar_ref)] * n
+    refs = [float(v) if v is not None else 0.0 for v in raw_refs]
+    first, last = valid[0], valid[-1]
+    for i in range(first):
+        refs[i] = refs[first]
+    for i in range(last + 1, n):
+        refs[i] = refs[last]
+    for a, b in zip(valid, valid[1:]):
+        for i in range(a + 1, b):
+            w = (i - a) / (b - a)
+            refs[i] = refs[a] + (refs[b] - refs[a]) * w
+    return refs
+
+
 def _build_filled_skirts(edge_stations, edge_alts, outwards,
                          band_caps, floor_depth, band_edges, trigger,
                          step, sample_dem, weld_predicate=None,
@@ -1737,8 +1783,30 @@ def emit_runway_end_skirts(layout: PavementLayout, dem,
         band_edges = runway_end_skirt_profile_breakpoints_beyond_pavement(
             entry_grade, pavement_beyond_end)
 
-        def _end_alt_at(vx, vy, p0=p0, nx=nx, ny=ny,
-                        ref=float(ref), floor_depth=_floor_depth,
+        # PER-STATION LATERAL REFERENCE across the exit row (KCLT skirt
+        # #845, 2026-07-26): where the abutting pavement varies
+        # laterally across the runway end, a floor anchored to the
+        # single centre-line ``ref`` steps against the weld row at every
+        # weld/no-weld transition (KCLT junction #313 at 226.40 m under
+        # the weld vs ref 227.1 m ⇒ 0.70 m over 7 m).  Each station that
+        # touches pavement (the weld predicate) takes the SAME
+        # containment-free read the weld row carries at that station, so
+        # the floor and the weld agree wherever they meet;
+        # ``_fill_lateral_refs`` densifies the profile (gap lerp, end
+        # hold, scalar fallback — see its docstring for the
+        # foreign-value and pavement-wall guards).
+        row_spacing = ((2.0 * half) / (m - 1)) if m > 1 else 1.0
+        raw_refs: list = []
+        for (sx, sy) in stations:
+            v = None
+            if pav_union.distance(Point(sx, sy)) <= 0.05:
+                v = _nearest_pav_alt(airside, sx - nx * 1.0, sy - ny * 1.0)
+            raw_refs.append(None if v is None else float(v))
+        row_refs = _fill_lateral_refs(raw_refs, float(ref), row_spacing)
+
+        def _end_alt_at(vx, vy, p0=p0, nx=nx, ny=ny, ea=ea, perp=perp,
+                        row_refs=row_refs, row_spacing=row_spacing,
+                        floor_depth=_floor_depth,
                         cap=governed, sample_dem=sample_dem):
             d = (vx - p0[0]) * nx + (vy - p0[1]) * ny
             if d <= 0.02 and pav_union.distance(Point(vx, vy)) <= 0.05:
@@ -1749,21 +1817,34 @@ def emit_runway_end_skirts(layout: PavementLayout, dem,
                 # skirt abuts the pavement with zero step.  ONLY where
                 # the vertex actually touches pavement: the inner row
                 # spans the full strip half-width, and its off-pavement
-                # stretch must keep the ref-anchored floor (a nearest-
-                # pavement read there imports a FOREIGN shape's value —
+                # stretch keeps the row-profile floor (never a nearest-
+                # pavement read of its own — a FOREIGN shape's value,
                 # the 63 % skirt-edge spikes of the first weld round).
                 pav = _nearest_pav_alt(
                     airside, vx - nx * 1.0, vy - ny * 1.0)
                 if pav is not None:
                     return float(pav)
-            floor = ref - floor_depth(max(0.0, min(cap, d)))
+            # Lateral position on the exit row → the local reference
+            # (piecewise-linear between stations; exact at stations, so
+            # this closure and _build_filled_skirts' ring altitudes
+            # agree wherever both evaluate).
+            if len(row_refs) > 1:
+                u = ((vx - ea[0]) * perp[0]
+                     + (vy - ea[1]) * perp[1]) / row_spacing
+                u = max(0.0, min(float(len(row_refs) - 1), u))
+                j = min(int(u), len(row_refs) - 2)
+                ref_t = row_refs[j] + (row_refs[j + 1] - row_refs[j]) \
+                    * (u - j)
+            else:
+                ref_t = row_refs[0]
+            floor = ref_t - floor_depth(max(0.0, min(cap, d)))
             # Lift-only, exactly as _build_filled_skirts' ring altitudes
             # (clip-introduced vertices ride the DEM where it is above
             # the analytic floor rather than cutting it down).
             return round(_skirt_lift_alt(floor, sample_dem(vx, vy)), 1)
 
         for ring, _ralts in _build_filled_skirts(
-                stations, [ref] * m, [outward] * m, [governed] * m,
+                stations, row_refs, [outward] * m, [governed] * m,
                 _floor_depth, band_edges, trigger, step, sample_dem,
                 weld_predicate=_pav_weld_at,
                 pav_vertex_at=_pav_vertex_at):
@@ -1881,10 +1962,15 @@ def emit_runway_end_skirts(layout: PavementLayout, dem,
                 })
 
         if os.environ.get("O4_SKIRT_DEBUG") == "1":
+            _n_row_valid = sum(1 for v in raw_refs if v is not None)
             print(f"  [skirt-debug] end at ({seed[0]:.1f},{seed[1]:.1f}) "
                   f"outward ({nx:.3f},{ny:.3f}) start={start:.1f} "
                   f"ref={ref} entry={entry_grade:.4f} "
-                  f"governed={governed} strips_so_far={len(skirt_strips)}")
+                  f"governed={governed} strips_so_far={len(skirt_strips)} "
+                  f"row_refs={_n_row_valid}/{len(raw_refs)} valid"
+                  + (" (scalar fallback)"
+                     if _n_row_valid and row_refs == [float(ref)] * m
+                     else ""))
 
         # ── Blast-pad / stopway FLANK wrap (user 2026-07-05) ──
         # The end strip governs beyond the pavement exit; the FLANKS of

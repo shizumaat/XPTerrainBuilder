@@ -1364,6 +1364,39 @@ def _check_runway_end_skirt_edges(ways: List[Way],
             if neigh and all(hi_elev > ne + skirt_edge_noise_m
                              for ne in neigh):
                 continue
+            # END-CAP exclusion (CYXY diagnosis 2026-07-26): the skirt
+            # ring is two station rows; the short edges CLOSING the ring
+            # run ACROSS the band, where the surface is pure DEM drape —
+            # the 5 % law bounds the descent ALONG the rows, not the
+            # lateral terrain.  An edge near-perpendicular to BOTH its
+            # ring neighbours is such an end-cap/row-transition edge and
+            # is exempt; along-row steps (the real dropped-vertex class,
+            # KCLT #845) stay flagged because they parallel their
+            # neighbours.  Rings under 6 distinct vertices have no row
+            # structure to protect (a bare quad reads all-perpendicular),
+            # so they keep the full check.
+            m_ring = len(ring) - 1
+            if m_ring >= 6 and dist > 1e-6:
+                ex, ey = (xb - xa) / dist, (yb - ya) / dist
+                perp_both = True
+                for pj, qj in (((i - 1) % m_ring, i),
+                               ((i + 1) % m_ring, (i + 2) % m_ring)):
+                    pn, qn = ring[pj], ring[qj]
+                    if pn not in nodes or qn not in nodes:
+                        perp_both = False
+                        break
+                    px, py = ll_to_m(*nodes[pn])
+                    qx, qy = ll_to_m(*nodes[qn])
+                    nlen = math.hypot(qx - px, qy - py)
+                    if nlen < 0.5:
+                        perp_both = False
+                        break
+                    if abs(ex * (qx - px) / nlen
+                           + ey * (qy - py) / nlen) > 0.35:
+                        perp_both = False
+                        break
+                if perp_both:
+                    continue
             grade = de / dist
             out.append(Violation(
                 grade_pct=grade * 100,

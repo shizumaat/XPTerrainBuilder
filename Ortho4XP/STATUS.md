@@ -1,4 +1,95 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260727 — ROUND 4 COMMITTED: seam-heal, crown collapse, KCLT/CYXY/
+# HECA rulings, cluster seating ON, roads AUTO, EAT law (gated)
+# ══════════════════════════════════════════════════════════════════
+# Everything below is IN this commit; verified counts in the messages.
+#  * SPLP: gap-fill seam healing (tile_seam_offcuts detection union +
+#    tile clip, O4_GAP_FILL_SEAM_HEAL); crown seam PROFILE COLLAPSE
+#    (one anchor/line at centerline, O4_RUNWAY_SEAM_PROFILE_COLLAPSE;
+#    3.07% wobble -> monotone; over-cap ramp spans within 150 m of a
+#    cut line report as seam_dem_step, never flag).
+#  * KCLT: apron-186 root cause = through-route test (length backstop
+#    APRON_ROUTE_THROUGH_MIN_LEN_M=150) -> law-true within-shape now 0;
+#    Yorkmont tunnel emits (road feed -> bridges loader, apron in
+#    implied-cross roles, chain merge for OSM segmentation).
+#  * CYXY: half-corridor CUT cap (halved occlusion to the cut builder,
+#    validator mirrored); route-content test merges artifact near-
+#    pieces back into aprons (132->133).
+#  * HECA (owner's 5 notes): phantom pads dead (hull-fill 0.1 +
+#    tall-base 0.002 floors + cache fingerprint; pads 493->97, real
+#    terminals keep pads); slice carves on road-feed service lines
+#    (859 ways, svc junctions 4->76 — REVIEW: old 636 region demoted
+#    to one 419k m2 groundside); wall keepout (wall-on-pavement 550->0
+#    m2); dip: through-weld fairing splice (9.4->5.15 m; remainder =
+#    05L reach ceiling, lawful; chord-sag cap exists, default OFF).
+#  * Object seating: per-cluster law DEFAULT ON (owner ruling; HECA
+#    skips 6386->41, Private Hall +31.8->+5.7 m worst; road_train =
+#    audited bridge).  O4_OBJECT_CLUSTER_SEATING=0 reverts.
+#  * Roads: road_level="auto" default (level 1 tile-wide + level-5
+#    roads/rails inside airport-inset bboxes, merged per-tile cache
+#    airport_small_roads).
+#  * Hydro-flat basin scan RETIRED (include_water no longer calls it).
+#  * EAT surface law: fully built, GATED OFF (negative-slab solver
+#    blow-up).  NEXT SESSION: build the ANCHOR-RECT revision instead —
+#    docs/specs/eat-anchor-rect-spec.md (owner rulings: hard anchor at
+#    the regulation value unconditionally, FAA 40:1 in North America /
+#    EASA 2% elsewhere).  Rides existing anchor machinery; no
+#    one_solve.py surgery needed.
+#  * TRAPS: standalone builds on tiles missing their base .hgt read an
+#    ALL-ZERO DEM (now refused loudly, elevation.py guard); bare
+#    check_grade without the law-true frame overcounts wildly.
+#  * Known reds (pre-existing): compare-target fixtures stale (Jul 20,
+#    re-cut after in-sim review); CYXY bench-cliff; HECA edge-steps
+#    (improved 65->44); DSFTool round-trip (environment).
+#  * Chips: torn datum-pin re-seat (below) IN this tree; skirt weld-row
+#    merged from claude/friendly-fermi-fa914c; wall-exemption chip
+#    still in flight (worktree silly-satoshi, uncommitted);
+#    declared-width chip in flight — EAT rect MUST use its fixed
+#    accessor when it lands.
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
+# 20260727 — KCLT JUNCTION MICRO-STEP CLASS: TORN DATUM-PIN RE-SEAT
+# (uncommitted; session "suspicious-bun"; solve.py + new test only)
+# ══════════════════════════════════════════════════════════════════
+# The 2026-07-26 diagnosis (junction rings #171/#313, 0.15-0.44 m
+# steps over ~1 m at a runway corner) root-caused DIFFERENTLY than
+# diagnosed: not a post-solve ring insert missed by the scoped-defer
+# stub (scoped projection is default-OFF; the late projection full-
+# rebuilds).  Actual mechanism, probe-verified at 18L/36R:
+#  1. The junction ring holds a vertex 4.3 cm from the runway corner
+#     (interns to the SAME node = runway-hard, emitted 227.24) and,
+#     0.99 m along the ring, a runway-end-SKIRT overhang corner that
+#     the B1 skirt absorption HARD-PINS at its birth value (227.54).
+#  2. In z-prime (crown-lifted) law space the pair is LEVEL — the
+#     corner's z' is ridge-level (drop 0.30), the pin has no drop —
+#     so no projection ever saw a violation; the 0.30 m step exists
+#     only in EMITTED space (the crown-drop discontinuity).
+#  3. Both endpoints hard -> even a seen violation was unfixable, and
+#     the current KCLT late projection exits ~40-80k edges over cap
+#     (non-convergent), so sweep-based fixes cannot be relied on.
+# FIX (O4_TORN_DATUM_PIN_RELEASE, default ON, route_profile/solve.py
+# final_grade_projection): fixpoint TORN DATUM-PIN RE-SEAT — a skirt
+# birth pin / runway-boundary-freeze capture holding a violated law
+# pair against runway datum IN EMITTED SPACE (elev − crown drop) is
+# re-valued into the interval its datum-side edges admit and STAYS
+# HARD (freed pins ground the worklist heap 20+ min between
+# contradictory pins; freed-then-quarantined pins get re-blended by
+# the envelope).  True runway ring vertices + tile-seam pins never
+# move; G.runway_anchor members that are feature pins DO re-seat
+# (the anchor derivation adopts torn values and must not masquerade
+# as datum).  Measured: the 30 % pair emits 227.24/227.25 (at cap);
+# KCLT re-seats 8 pins, KJQF 0 (class absent there now).
+# TESTS: tests/test_torn_datum_pin_release.py (6, incl. crown-space
+# variant + gate-off + tile-seam-sacred).  Suite A/B with the gate
+# OFF: the 15 current failures (supporter/dsf-object/pavement_grade/
+# compare_target) reproduce IDENTICALLY with the fix inert — they
+# belong to the in-flight round-3 consolidation, not this change.
+# NOTE for the KJQF service_road/-10025 "141 % over 1 m" sibling: it
+# is currently buried under 10-185 m garbage values in service_road/
+# junction/groundside shapes (the broken-node mass, 13.5k at the KCLT
+# mid projection) — re-measure after consolidation lands.
+# ══════════════════════════════════════════════════════════════════
 # 20260726 — IN-SIM ROUND 3 RESPONSE: PERF + CLASSIFICATION + SEATING
 # (all uncommitted at time of writing; consolidation in progress)
 # ══════════════════════════════════════════════════════════════════

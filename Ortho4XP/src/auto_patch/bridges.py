@@ -438,7 +438,147 @@ def _load_tunnel_road_network(layout: "PavementLayout"):
         ways_r = list(ways_r) + [
             ("S|" + wid, ["S|" + n for n in nrefs], tags)
             for wid, nrefs, tags in ways_s]
+    # AIRPORT ROAD FEED (owner ruling 2026-07-26, KCLT Yorkmont Road).
+    # ``small_roads`` exists only at ``road_level >= 2`` (default 1), so
+    # the minor-road classes — tertiary, the *_link ramps, mapped
+    # service/unclassified tunnels — were simply ABSENT from this
+    # emitter at default config: a tertiary road under KCLT's south
+    # apron got no bore because the road was never loaded.  The
+    # per-airport road feed (``layout.airport_road_network``,
+    # ``osm_load._ensure_airport_road_feed``) already carries every
+    # ``highway=`` way for the region, so merge its NON-big classes
+    # here under a third namespace ("F|" — the feed uses its own id
+    # space, see the ⚠ above) exactly as a small_roads cache would
+    # have.  Skipped when a real small_roads cache loaded (tile cache
+    # stays authoritative — same precedence the feed itself applies)
+    # and when the feed is absent/empty.  Rail stays big_roads-only.
+    _BIG_HW = {"motorway", "trunk", "primary", "secondary"}
+    net = getattr(layout, "airport_road_network", None)
+    if (not nodes_s and net is not None
+            and getattr(net, "source", "none") != "none"
+            and getattr(net, "ways", None)):
+        feed_ways = [
+            (wid, nrefs, tags) for wid, nrefs, tags in net.ways
+            if tags.get("highway") and tags.get("highway") not in _BIG_HW
+            and not tags.get("railway")]
+        if feed_ways:
+            merged_n = dict(nodes_r)
+            for nid, ll in net.nodes.items():
+                merged_n["F|" + nid] = ll
+            nodes_r = merged_n
+            node_tags_r = dict(node_tags_r)
+            for nid, tags in (net.node_tags or {}).items():
+                node_tags_r["F|" + nid] = tags
+            ways_r = list(ways_r) + [
+                ("F|" + wid, ["F|" + n for n in nrefs], tags)
+                for wid, nrefs, tags in feed_ways]
     return nodes_r, ways_r, _big_way_ids, node_tags_r
+
+
+def _merge_eligible_chains(ways_r, hw_types, excluded_ids):
+    """Merge consecutive same-road OSM pieces into single chain ways for
+    the implied-crossing walk (owner ruling 2026-07-26, KCLT Yorkmont
+    Road).  OSM splits a road wherever any attribute changes: Yorkmont
+    Road crosses ~61 m under KCLT's south apron as SIX 9-69 m pieces, so
+    every candidate interval ended within the end-margin of a way end
+    and the must-CROSS test vetoed all of them — the walk saw the
+    mapper's segmentation, not the road.
+
+    Only plain surface pieces merge (no tunnel/bridge tag, not excluded,
+    implied-eligible class), and only at a DEGREE-2 join: a node hosting
+    exactly two eligible endpoints with the same
+    ``(highway, railway, name)`` signature.  Junctions (degree ≥ 3),
+    class changes and name changes all break the chain, so unrelated
+    roads never merge.  Chain ways take the id ``C|<first member id>``
+    and the tags of their longest member; member pieces are REPLACED by
+    the chain (their geometry lives on inside it)."""
+    def _sig(tags):
+        return (tags.get("highway"), tags.get("railway"),
+                tags.get("name"))
+
+    idx_of: dict = {}
+    for i, (wid, nrefs, tags) in enumerate(ways_r):
+        if (tags.get("tunnel") in TUNNEL_VALUES or tags.get("bridge")
+                or wid in excluded_ids or len(nrefs) < 2
+                or nrefs[0] == nrefs[-1]
+                or not (tags.get("highway") in hw_types
+                        or tags.get("railway") in RAIL_TUNNEL_TYPES)):
+            continue
+        idx_of[wid] = i
+    if len(idx_of) < 2:
+        return ways_r
+    ends: dict = {}
+    for wid, i in idx_of.items():
+        nrefs = ways_r[i][1]
+        ends.setdefault(nrefs[0], []).append(wid)
+        ends.setdefault(nrefs[-1], []).append(wid)
+    # Pairwise links at clean degree-2 joins.
+    link: dict = {}          # (wid, node) -> other wid
+    for node, wids in ends.items():
+        if len(wids) != 2 or wids[0] == wids[1]:
+            continue
+        a, b = wids
+        if _sig(ways_r[idx_of[a]][2]) != _sig(ways_r[idx_of[b]][2]):
+            continue
+        link[(a, node)] = b
+        link[(b, node)] = a
+    if not link:
+        return ways_r
+    merged_members: set = set()
+    chains: list = []
+    for wid in idx_of:
+        if wid in merged_members:
+            continue
+        nrefs = ways_r[idx_of[wid]][1]
+        # Walk to the chain's start (no link at the entry node), then
+        # forward — loops bail out via the visited set.
+        start_wid, entry = wid, nrefs[0]
+        seen = {wid}
+        while (start_wid, entry) in link:
+            prev = link[(start_wid, entry)]
+            if prev in seen:
+                break                       # closed loop — leave as-is
+            seen.add(prev)
+            p_refs = ways_r[idx_of[prev]][1]
+            entry = p_refs[0] if p_refs[-1] == entry else p_refs[-1]
+            start_wid = prev
+        if (start_wid, entry) in link:      # closed loop — leave as-is
+            continue
+        # Forward walk building the merged node list.
+        members = []
+        cur, cur_entry = start_wid, entry
+        chain_refs: list = []
+        visited = set()
+        while True:
+            if cur in visited:
+                break
+            visited.add(cur)
+            members.append(cur)
+            c_refs = list(ways_r[idx_of[cur]][1])
+            if c_refs[0] != cur_entry:
+                c_refs.reverse()
+            if chain_refs:
+                chain_refs.extend(c_refs[1:])
+            else:
+                chain_refs.extend(c_refs)
+            exit_node = c_refs[-1]
+            nxt = link.get((cur, exit_node))
+            if nxt is None or nxt in visited:
+                break
+            cur, cur_entry = nxt, exit_node
+        if len(members) < 2:
+            continue
+        longest = max(members,
+                      key=lambda w: len(ways_r[idx_of[w]][1]))
+        chains.append((members, chain_refs,
+                       dict(ways_r[idx_of[longest]][2])))
+        merged_members.update(members)
+    if not chains:
+        return ways_r
+    out = [wt for wt in ways_r if wt[0] not in merged_members]
+    for members, chain_refs, tags in chains:
+        out.append(("C|" + str(members[0]), chain_refs, tags))
+    return out
 
 
 def _synthesize_implied_crossing_bores(
@@ -503,9 +643,16 @@ def _synthesize_implied_crossing_bores(
             "motorway", "trunk", "primary", "secondary", "tertiary",
             "motorway_link", "trunk_link", "primary_link",
         }
+        # "apron" joined 2026-07-26 (owner ruling, KCLT Yorkmont Road):
+        # an apron is load-bearing aircraft pavement — a public
+        # tertiary+ road can no more run at grade beneath it than under
+        # a taxiway.  ``_built_over_u`` below narrowed to buildings
+        # accordingly: an apron-only mapped tunnel now bores + ramps
+        # instead of silently degrading to ``building_passage``.
         _IMPLIED_CROSS_ROLES = (
             "runway", "runway_crossing", "primary_parallel",
-            "secondary_parallel", "stub", "cross_connector", "junction")
+            "secondary_parallel", "stub", "cross_connector", "junction",
+            "apron")
         _IMPLIED_MIN_BORE_M = 6.0      # narrower = a sliver graze
         _IMPLIED_MAX_BORE_M = 500.0    # longer = through-airport road
         _IMPLIED_END_MARGIN_M = 2.0    # way must CROSS, not END inside
@@ -531,16 +678,19 @@ def _synthesize_implied_crossing_bores(
                 _cross_pav_u = None
         except _GEOM_EXC:
             _cross_pav_u = None
-        # Built-over cover (buildings / apron pads): a mapped tunnel
-        # under THESE is a road built up and over — no trench, no
-        # ramps.  A mapped tunnel under mere grass/RESA (CYUL's
-        # runway-24-end underpass, KPHL's hill bore) is a REAL trench
-        # and keeps its mapped portals when it crosses no taxiway.
+        # Built-over cover (buildings ONLY since 2026-07-26 — aprons
+        # moved to ``_IMPLIED_CROSS_ROLES`` above): a mapped tunnel
+        # under a BUILDING is a road built up and over — no trench, no
+        # ramps (KDFW/KPHL terminal passages, which run under the
+        # terminal buildings themselves).  A mapped tunnel under mere
+        # grass/RESA (CYUL's runway-24-end underpass, KPHL's hill
+        # bore) is a REAL trench and keeps its mapped portals when it
+        # crosses no taxiway.
         try:
             _built_over_u = unary_union(
                 [s.polygon for s in layout.shapes
                  if s.polygon is not None and not s.polygon.is_empty
-                 and s.role in ("building", "apron")])
+                 and s.role in ("building",)])
             if _built_over_u.is_empty:
                 _built_over_u = None
         except _GEOM_EXC:
@@ -567,6 +717,12 @@ def _synthesize_implied_crossing_bores(
                     except _GEOM_EXC:
                         continue
         _excluded_early = excluded_way_ids or set()
+        # CHAIN MERGE (owner ruling 2026-07-26): let the walk see roads,
+        # not the mapper's segmentation — see _merge_eligible_chains.
+        if (os.environ.get("O4_IMPLIED_TUNNEL_CHAINS", "1") == "1"
+                and _cross_pav_u is not None):
+            ways_r = _merge_eligible_chains(
+                ways_r, _IMPLIED_HW_TYPES, _excluded_early)
         _n_implied = 0
         _n_level_crossings = 0
         if _cross_pav_u is not None:

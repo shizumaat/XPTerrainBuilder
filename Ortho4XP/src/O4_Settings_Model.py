@@ -137,7 +137,6 @@ _LAYOUT: list = [
         ("airport_elevation_inset_margin_m", "Lidar extent beyond airport (m)", "tile", False),
         ("airport_elevation_inset_feather_m", "Lidar edge blend width (m)", "tile", False),
         ("airport_elevation_providers", "Inset providers", "tile", True),
-        ("airport_inset_water", "Detect ponds in lidar", "tile", True),
         ("apt_smoothing_pix", "Airport elevation smoothing (px)", "tile", True),
         ("apt_smoothing_auto", "Scale smoothing to data quality", "tile", True),
         ("working_grid_arc_seconds", "Working grid spacing", "tile", True),

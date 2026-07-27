@@ -50,7 +50,7 @@ spine) → **72%** (slice+dedup+keyholes); unshared T-junctions **0** (de-dup so
 conformance); remaining ~28% is interior apron/junction segments that polygonize can't
 edge — those get interior spine nodes at **Phase 4 emit** (see Phase 1 "hybrid" note).
 
-**venv note.** Use the main-repo venv: `/Users/noah/Ortho4XP-novemberlima/venv/bin/python3`.
+**venv note.** Use the main-repo venv: `/Users/noah/XPTerrainBuilder/Ortho4XP/venv/bin/python3`.
 
 ---
 

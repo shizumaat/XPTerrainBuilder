@@ -1,8 +1,9 @@
 # Onboarding — `auto_patch` (X-Plane airport terrain grading)
 
 Welcome. This walks a new engineer (human or AI) from zero to a first build and a first
-change. For the terse reference version that Claude auto-loads, see
-`src/auto_patch/CLAUDE.md`; for the design-standards index see `docs/STANDARDS.md`.
+change. For the terse reference version Claude loads when working under
+`src/auto_patch/`, see `src/auto_patch/CLAUDE.md`; for the design-standards index see
+`docs/STANDARDS.md`.
 
 ## What this project does, and why
 X-Plane (and the base Ortho4XP scenery generator this repo is built on) drapes airport
@@ -33,7 +34,7 @@ X-Plane.**
   tricky code exists to keep grade continuous across that seam.
 
 ## First setup
-- The project lives at `/Users/noah/Ortho4XP-novemberlima`.
+- The project lives at `/Users/noah/XPTerrainBuilder/Ortho4XP`.
 - Use the bundled virtualenv: **`venv/bin/python`** (there's no system `python`).
 - Python **3.11+ supported, 3.13+ recommended** (~5-10% faster builds; verified
   2026-07-05 — same outputs, all dependency wheels present).  Newer Python is a
@@ -48,11 +49,12 @@ X-Plane.**
   (pyosmium) filters the Geofabrik regional OSM extracts that stand in for
   Overpass downloads (`O4_OSM_Extracts` / `O4_OSM_Extract_Filter`,
   `docs/specs/osm-regional-extracts-spec.md`).
-- **PySide6 (Qt UI only).** `Ortho4XP_Qt.py` launches the modernized Qt
-  interface (live map, settings window, onboarding wizard — see
-  `docs/UI_MODERNIZATION.md`); it needs `PySide6` from `requirements.txt`.
-  The legacy Tk interface (`Ortho4XP.py`) does not, and headless builds
-  import neither (tkinter is optional in `O4_Config_Utils`).
+- **PySide6 (Qt UI only).** `Ortho4XP_Qt.py` launches the Qt interface (live
+  map, settings window, onboarding wizard — see `docs/UI_MODERNIZATION.md`);
+  it needs `PySide6` from `requirements.txt`.  It is the only GUI: the legacy
+  Tk interface was retired 2026-07-26, leaving `Ortho4XP.py` as the engine
+  (`--engine-jsonl`) and CLI entry point.  Headless builds import no GUI
+  toolkit at all (tkinter is optional in `O4_Config_Utils`).
 - **GDAL (optional at runtime).** The GDAL python bindings (`osgeo`) power the
   airport elevation insets (automatic meter-class lidar over airports, see
   `docs/airport_elevation_insets_spec.md`) and GeoTIFF `custom_dem` reading.
@@ -92,8 +94,9 @@ green; check `STATUS.md` for the currently-expected failures before assuming you
 ## Making your first change
 1. **Read `src/auto_patch/CLAUDE.md`** for the module map and gotchas.
 2. Find the right module (`pipeline.py` orchestrates; `config.py` holds the rules; the
-   `pavement/` package builds geometry; `elevation_per_surface/unified_jacobi.py` is the
-   active elevation solver).
+   `pavement/` package builds geometry; the `elevation_per_surface/route_profile/`
+   package is the active elevation solver, with its elevation-neutral primitives in
+   `elevation_per_surface/solver_primitives.py`).
 3. If you're touching a **standard** (a grade cap, a clearance width), change the constant
    in `config.py` — never a magic number at a call site — and check `docs/STANDARDS.md`.
 4. Build an affected airport, eyeball it in JOSM, then run the suite.

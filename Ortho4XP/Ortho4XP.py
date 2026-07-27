@@ -48,8 +48,10 @@ sys.path.append(os.path.join(Ortho4XP_dir, 'src'))
 
 # JSON-lines engine transport (docs/specs/engine-protocol-multi-gui.md §5):
 # a subprocess front end runs `Ortho4XP.py --engine-jsonl` and speaks the
-# protocol over stdio.  Handle it here, BEFORE any GUI toolkit import below,
-# so the engine-only path never pulls in Tkinter/PySide6.  The __name__
+# protocol over stdio.  Handle it here, BEFORE the core imports below, so
+# the engine-only path pulls in no more than the transport needs.  (It also
+# predates the retirement of the Tkinter GUI on 2026-07-26: until then a GUI
+# toolkit was imported below and this dispatch had to dodge it.)  The __name__
 # guard is LOAD-BEARING: multiprocessing spawn helpers (the auto-patch
 # airport pool and its Manager) re-import this module as "__mp_main__"
 # with the parent's argv restored — without the guard the helper becomes
@@ -84,12 +86,30 @@ import O4_Vector_Map as VMAP
 import O4_Mesh_Utils as MESH
 import O4_Mask_Utils as MASK
 import O4_Tile_Utils as TILE
-import O4_GUI_Utils as GUI
 import O4_Config_Utils as CFG  # CFG imported last because it can modify other modules variables
 
 cmd_line = "USAGE: Ortho4XP.py lat lon imagery zl (won't read a tile config)\n  OR:  Ortho4XP.py lat lon (with existing tile config file)"
 
+# A bare invocation used to launch the Tkinter GUI from here; that GUI was
+# retired 2026-07-26 (owner ruling) and this file is engine + CLI only, so
+# with no arguments there is nothing to do but point at each entry point.
+usage = (
+    "Ortho4XP.py is the engine and command line entry point; the graphical\n"
+    "interface is Ortho4XP_Qt.py (started by ./start_mac.sh on macOS or\n"
+    "start_windows.bat on Windows).\n"
+    "\n"
+    "USAGE: Ortho4XP_Qt.py                  graphical interface\n"
+    "  OR:  Ortho4XP.py lat lon imagery zl  build a tile (won't read a tile config)\n"
+    "  OR:  Ortho4XP.py lat lon             build a tile (with existing tile config file)\n"
+    "  OR:  Ortho4XP.py --engine-jsonl      JSON-lines engine transport over stdin/stdout,\n"
+    "                                       spoken by front ends such as the mac app\n"
+    "                                       (docs/specs/engine-protocol-multi-gui.md)"
+)
+
 if __name__ == '__main__':
+    if len(sys.argv) == 1:  # no GUI here anymore, and nothing to build
+        print(usage)
+        sys.exit(0)
     if not os.path.isdir(FNAMES.Utils_dir):
         print("Missing ", FNAMES.Utils_dir, "directory, check your install. Exiting.")
         sys.exit()
@@ -107,38 +127,34 @@ if __name__ == '__main__':
     IMG.initialize_color_filters_dict()
     IMG.initialize_providers_dict()
     IMG.initialize_combined_providers_dict()
-    if len(sys.argv) == 1:  # switch to the graphical interface
-        Ortho4XP = GUI.Ortho4XP_GUI()
-        Ortho4XP.mainloop()
+    # sequel is only concerned with command line
+    if len(sys.argv) < 3:
+        print(cmd_line); sys.exit()
+    try:
+        lat = int(sys.argv[1])
+        lon = int(sys.argv[2])
+    except:
+        print(cmd_line); sys.exit()
+    if len(sys.argv) == 3:
+        try:
+            tile = CFG.Tile(lat, lon, '')
+        except Exception as e:
+            print(e)
+            print("ERROR: could not read tile config file."); sys.exit()
+    else:
+        try:
+            provider_code = sys.argv[3]
+            zoomlevel = int(sys.argv[4])
+            tile = CFG.Tile(lat, lon, '')
+            tile.default_website = provider_code
+            tile.default_zl = zoomlevel
+        except:
+            print(cmd_line); sys.exit()
+    try:
+        VMAP.build_poly_file(tile)
+        MESH.build_mesh(tile)
+        MASK.build_masks(tile)
+        TILE.build_tile(tile)
         print("Bon vol!")
-    else:  # sequel is only concerned with command line
-        if len(sys.argv) < 3:
-            print(cmd_line); sys.exit()
-        try:
-            lat = int(sys.argv[1])
-            lon = int(sys.argv[2])
-        except:
-            print(cmd_line); sys.exit()
-        if len(sys.argv) == 3:
-            try:
-                tile = CFG.Tile(lat, lon, '')
-            except Exception as e:
-                print(e)
-                print("ERROR: could not read tile config file."); sys.exit()
-        else:
-            try:
-                provider_code = sys.argv[3]
-                zoomlevel = int(sys.argv[4])
-                tile = CFG.Tile(lat, lon, '')
-                tile.default_website = provider_code
-                tile.default_zl = zoomlevel
-            except:
-                print(cmd_line); sys.exit()
-        try:
-            VMAP.build_poly_file(tile)
-            MESH.build_mesh(tile)
-            MASK.build_masks(tile)
-            TILE.build_tile(tile)
-            print("Bon vol!")
-        except:
-            print("Crash!")
+    except:
+        print("Crash!")

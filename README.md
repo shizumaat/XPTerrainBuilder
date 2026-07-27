@@ -25,9 +25,8 @@ This repo merges what used to be two projects:
 The app is focused on terrain building only. The scenery-analysis
 functionality of the former XPSceneryDoctor project (missing-resource
 diagnosis, redundant-pack detection, package health checks, …) is **not
-part of this app** — it is planned as a separate app. Some of its code
-still lives in `SceneryKit` and the `xptb-cli` target but is not surfaced
-in the app.
+part of this app** — it lives in its own separate repository, and its
+code has been removed from this one.
 
 ## What it does
 
@@ -123,10 +122,8 @@ changed anytime in **Settings** (⌘,).
 ## Project layout
 
 ```
-Sources/SceneryKit/         Engine glue + supporting library (no UI, unit-tested);
-                            also holds legacy analysis code not surfaced in the app
+Sources/SceneryKit/         Engine glue + supporting library (no UI, unit-tested)
 Sources/XPTerrainBuilder/   SwiftUI app
-Sources/xptb-cli/           Headless CLI (legacy analysis; not part of the app)
 Ortho4XP/                   Vendored Ortho4XP engine (Python; own README,
                             tests, and install scripts)
 Tests/SceneryKitTests/      Tests + fixture fake X-Plane install + fake engine
@@ -137,4 +134,4 @@ scripts/                    Build/test helpers
 ## Status
 
 Prototype, under active development. The scenery-doctor analysis features
-are out of scope for this app and planned as a separate project.
+are out of scope for this app and live in a separate project.

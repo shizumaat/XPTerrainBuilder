@@ -4,11 +4,31 @@ import Foundation
 
 @Suite struct Phase1Tests {
 
+    static func atom(_ id: String, _ body: Data) -> Data {
+        var data = Data(id.utf8)
+        var length = Int32(body.count + 8).littleEndian
+        withUnsafeBytes(of: &length) { data.append(contentsOf: $0) }
+        data.append(body)
+        return data
+    }
+
+    static func stringTable(_ strings: [String]) -> Data {
+        var data = Data()
+        for string in strings {
+            data.append(Data(string.utf8))
+            data.append(0)
+        }
+        return data
+    }
+
+    /// Minimal structurally-valid DSF: magic + version, an optional HEAD
+    /// property atom, a DEFN atom with the given terrain/object tables, and
+    /// the 16-byte footer.
     static func makeDSF(terrains: [String] = [], objects: [String] = [],
                         properties: [String: String] = [:]) -> Data {
         var body = Data()
-        body.append(UnusedResourceTests.atom("TERT", UnusedResourceTests.stringTable(terrains)))
-        body.append(UnusedResourceTests.atom("OBJT", UnusedResourceTests.stringTable(objects)))
+        body.append(atom("TERT", stringTable(terrains)))
+        body.append(atom("OBJT", stringTable(objects)))
 
         var dsf = Data("XPLNEDSF".utf8)
         var version = Int32(1).littleEndian
@@ -16,17 +36,15 @@ import Foundation
         if !properties.isEmpty {
             var propStrings: [String] = []
             for (key, value) in properties { propStrings.append(key); propStrings.append(value) }
-            let head = UnusedResourceTests.atom("PROP", UnusedResourceTests.stringTable(propStrings))
-            dsf.append(UnusedResourceTests.atom("HEAD", head))
+            dsf.append(atom("HEAD", atom("PROP", stringTable(propStrings))))
         }
-        dsf.append(UnusedResourceTests.atom("DEFN", body))
+        dsf.append(atom("DEFN", body))
         dsf.append(Data(repeating: 0, count: 16))
         return dsf
     }
 
-    /// An install with: default library, an installed pack whose DSF has one
-    /// good ref, one default-lib ref, one missing ref, one mojibake ref, a
-    /// dead object with its texture, and an uninstalled pack.
+    /// An install with an installed overlay pack (DSF carrying sim/overlay)
+    /// and an uninstalled pack that has an apt.dat.
     func makeInstall() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("XPSDPhase1-\(UUID().uuidString)")
@@ -38,34 +56,13 @@ import Foundation
         }
 
         try Self.makeDSF(
-            objects: [
-                "objects/good.obj",           // exists
-                "lib/airport/default_thing.obj", // default library
-                "objects/ghost.obj",          // genuinely missing
-                "objects/señal.obj",          // on disk as mojibake
-            ],
+            objects: ["objects/good.obj"],
             properties: ["sim/overlay": "1"]
         ).write(to: pack.appendingPathComponent("Earth nav data/+40-080/+41-073.dsf"))
 
         try "A\n800\nOBJ\n\nTEXTURE ../textures/good.png\nVT 0 0 0 0 1 0 0 0\nTRIS 0 1\n"
             .write(to: pack.appendingPathComponent("objects/good.obj"), atomically: true, encoding: .utf8)
         try Data(repeating: 1, count: 64).write(to: pack.appendingPathComponent("textures/good.png"))
-
-        // Mojibake: disk name has 'Ã±' where the DSF says 'ñ'.
-        try "A\n800\nOBJ\n\nVT 0 0 0 0 1 0 0 0\nTRIS 0 1\n"
-            .write(to: pack.appendingPathComponent("objects/se\u{00C3}\u{00B1}al.obj"),
-                   atomically: true, encoding: .utf8)
-
-        // Dead object and its texture: nothing references either.
-        try "A\n800\nOBJ\n\nTEXTURE ../textures/dead.png\nVT 0 0 0 0 1 0 0 0\nTRIS 0 1\n"
-            .write(to: pack.appendingPathComponent("objects/dead.obj"), atomically: true, encoding: .utf8)
-        try Data(repeating: 2, count: 128).write(to: pack.appendingPathComponent("textures/dead.png"))
-
-        // Default library.
-        let defaultLib = root.appendingPathComponent("Resources/default scenery/900 US")
-        try fm.createDirectory(at: defaultLib, withIntermediateDirectories: true)
-        try "A\n800\nLIBRARY\n\nEXPORT lib/airport/default_thing.obj objects/thing.obj\n"
-            .write(to: defaultLib.appendingPathComponent("library.txt"), atomically: true, encoding: .utf8)
 
         // Uninstalled pack.
         let uninstalled = root.appendingPathComponent("Custom Scenery (Disabled)/Shelved Pack/Earth nav data")
@@ -79,38 +76,6 @@ import Foundation
         return root
     }
 
-    @Test func proactiveMissingResourceAudit() throws {
-        let root = try makeInstall()
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let installation = InstallationScanner(root: root).scan()
-        #expect(installation.defaultLibraryIndex.exportCount == 1)
-
-        let (findings, groups) = ResourceAuditAnalyzer(installation: installation).analyze()
-        let ids = findings.map { $0.checkID }
-
-        // ghost.obj: missing. default_thing: resolved via default library (no finding).
-        let missing = findings.filter { $0.checkID == "RES-01" }
-        #expect(missing.count == 1, "\(ids)")
-        #expect(missing.first?.title.contains("ghost.obj") == true)
-
-        // señal.obj: mojibake rename with auto fix.
-        let rename = findings.first { $0.checkID == "RES-02" }
-        #expect(rename != nil, "\(ids)")
-        if case .renameFile(_, let to)? = rename?.proposedFix {
-            #expect(URL(fileURLWithPath: to).lastPathComponent == "señal.obj")
-        } else {
-            Issue.record("RES-02 should carry a renameFile fix")
-        }
-
-        // dead.obj AND its texture are unreachable (transitive).
-        let unusedNames = Set(groups.flatMap { $0.files }
-            .map { URL(fileURLWithPath: $0.path).lastPathComponent })
-        #expect(unusedNames.contains("dead.obj"))
-        #expect(unusedNames.contains("dead.png"))
-        #expect(!unusedNames.contains("good.png"))
-    }
-
     @Test func uninstalledPacksScannedWithStatus() throws {
         let root = try makeInstall()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -120,25 +85,6 @@ import Foundation
         #expect(shelved?.status == .uninstalled)
         #expect(shelved?.airports["KPDX"] != nil)
         #expect(installation.packs.first { $0.name == "Test Airport" }?.status == .enabled)
-    }
-
-    @Test func installActionRoundTrip() throws {
-        let root = try makeInstall()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let fm = FileManager.default
-        let service = PackActionService(root: root)
-
-        let outcomes = service.apply(.install, to: ["Shelved Pack"])
-        #expect(outcomes.allSatisfy { $0.success }, "\(outcomes.map { $0.message ?? "" })")
-        #expect(fm.fileExists(atPath: root.appendingPathComponent("Custom Scenery/Shelved Pack/Earth nav data/apt.dat").path))
-        #expect(!fm.fileExists(atPath: root.appendingPathComponent("Custom Scenery (Disabled)/Shelved Pack").path))
-        let ini = TextFile.contents(of: root.appendingPathComponent("Custom Scenery/scenery_packs.ini")) ?? ""
-        #expect(ini.contains("SCENERY_PACK Custom Scenery/Shelved Pack/"))
-
-        // And back out.
-        let uninstall = service.apply(.uninstall, to: ["Shelved Pack"])
-        #expect(uninstall.allSatisfy { $0.success })
-        #expect(fm.fileExists(atPath: root.appendingPathComponent("Custom Scenery (Disabled)/Shelved Pack").path))
     }
 
     @Test func overlayPropertyParsed() throws {
@@ -154,298 +100,6 @@ import Foundation
         #expect(installation.packs.first { $0.name == "Shelved Pack" }?.kind == .airport)
     }
 
-    @Test func globalNoBlendPromotion() throws {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("XPSDPromote-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
-
-        let obj = dir.appendingPathComponent("fence.obj")
-        let text = """
-        A
-        800
-        OBJ
-
-        TEXTURE tex.png
-        POINT_COUNTS 2 0 0 3
-        VT 0 0 0 0 1 0 0 0
-        VT 1 1 1 0 1 0 0 0
-        IDX 0
-        ATTR_no_blend
-        TRIS 0 3
-        """
-        try Data(text.utf8).write(to: obj)
-        let original = try Data(contentsOf: obj)
-
-        let engine = FixEngine(log: ModificationLog(fileURL: dir.appendingPathComponent("mods.json")))
-        let finding = Finding(
-            checkID: "C-03", severity: .info, category: .packageHealth,
-            title: "t", detail: "d", fixability: .auto,
-            proposedFix: .promoteGlobalNoBlend(objPath: obj.path)
-        )
-        let outcomes = engine.apply([finding])
-        #expect(outcomes.allSatisfy { $0.success }, "\(outcomes.map { $0.message ?? "" })")
-
-        let info = try #require(ObjParser.parse(url: obj))
-        #expect(info.hasGlobalNoBlend)
-        #expect(info.perMeshNoBlend == 0)
-        #expect(info.vertexCount == 2)
-
-        // Revert restores byte-identical original.
-        let reverts = engine.revert(engine.log.load())
-        #expect(reverts.allSatisfy { $0.success })
-        #expect(try Data(contentsOf: obj) == original)
-    }
-
-    @Test func crlfAndTabLibraryFilesParse() throws {
-        // Swift treats "\r\n" as ONE grapheme, so split(separator: "\n")
-        // never splits CRLF text — the bug that zeroed every Windows-authored
-        // library index. Tabs as separators are the same family.
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("XPSDCRLF-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
-
-        let crlf = "A\r\n800\r\nLIBRARY\r\n\r\nEXPORT Foo/a.obj\tobjects/a.obj\r\nEXPORT Foo/b.obj  objects/b.obj\r\n"
-        try Data(crlf.utf8).write(to: dir.appendingPathComponent("library.txt"))
-
-        var index = LibraryIndex()
-        index.indexLibrary(at: dir, packName: "test")
-        #expect(index.exportCount == 2)
-        #expect(index.caseInsensitiveMatch(for: "Foo/a.obj") != nil)
-        #expect(index.caseInsensitiveMatch(for: "foo/B.OBJ") != nil)
-
-        // TextFile.lines handles every newline convention.
-        #expect(TextFile.lines("a\r\nb\nc\rd").count == 4)
-
-        // Backslash separators (RD_Library style) resolve to slash queries.
-        let bs = "A\r\n800\r\nLIBRARY\r\n\r\nEXPORT RD_Lib\\Veg\\Pine.obj Veg\\Pine.obj\r\n"
-        let bsDir = dir.appendingPathComponent("bs")
-        try FileManager.default.createDirectory(at: bsDir, withIntermediateDirectories: true)
-        try Data(bs.utf8).write(to: bsDir.appendingPathComponent("library.txt"))
-        var bsIndex = LibraryIndex()
-        bsIndex.indexLibrary(at: bsDir, packName: "bs")
-        let export = bsIndex.caseInsensitiveMatch(for: "RD_Lib/Veg/Pine.obj")
-        #expect(export != nil)
-        #expect(export?.realPath == "Veg/Pine.obj")
-    }
-
-    @Test func seasonExportKeywordsParse() throws {
-        // XP12's default libraries remap legacy XP8–XP11 paths (lib/g8/…)
-        // through EXPORT_SEASON / EXPORT_EXCLUDE_SEASON, whose extra season
-        // token ("sum" / "spr,sum") precedes the virtual path. Mis-parsing
-        // it as the virtual path made those resources look uninstalled and
-        // false-alarmed RES-01 on paths the sim substitutes automatically.
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("XPSDSeason-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
-
-        let text = """
-        A
-        800
-        LIBRARY
-
-        EXPORT_SEASON sum\tlib/g8/coni_vcld_sdry.for\t\tsum/coni_vcld.for
-        EXPORT_SEASON win\tlib/g8/coni_vcld_sdry.for\t\twin/coni_vcld.for
-        EXPORT_EXCLUDE_SEASON spr,sum\tlib/g10/autogen/natural.ags\tEU/sub_Resid02.ags
-        EXPORT_RATIO 0.5 lib/trees/oak.obj trees/oak.obj
-        """
-        try Data(text.utf8).write(to: dir.appendingPathComponent("library.txt"))
-
-        var index = LibraryIndex()
-        index.indexLibrary(at: dir, packName: "1000 world terrain")
-        #expect(index.caseInsensitiveMatch(for: "lib/g8/coni_vcld_sdry.for") != nil)
-        #expect(index.caseInsensitiveMatch(for: "lib/g10/autogen/natural.ags") != nil)
-        #expect(index.caseInsensitiveMatch(for: "lib/trees/oak.obj") != nil)
-        // The season token must not be indexed as a virtual path.
-        #expect(index.caseInsensitiveMatch(for: "sum") == nil)
-        #expect(index.caseInsensitiveMatch(for: "spr,sum") == nil)
-    }
-
-    @Test func controllerLossParsingAndDiagnosis() throws {
-        // Log line extraction.
-        let log = """
-        0:00:00.000 E/APT: The airport KBNA (Nashville) has lost some controllers due to bad frequencies.  Each controller needs at least one frequency in the range of 118.00 to 136.990 mhz.
-        0:00:00.000 E/APT: The airport EEEI (Ämari AB) has lost some controllers due to bad frequencies.  Each controller needs at least one frequency in the range of 118.00 to 136.990 mhz.
-        """
-        let scan = LogAnalyzer.parseLog(text: log)
-        #expect(scan.controllerLosses.map { $0.icao } == ["KBNA", "EEEI"])
-        #expect(scan.controllerLosses[1].name == "Ämari AB")
-        #expect(scan.otherSceneryErrors.isEmpty) // not double-reported as noise
-
-        // apt.dat diagnosis: UHF-only groups flagged; mixed groups not;
-        // legacy 2-digit rows are in 10 kHz units; whitespace variants in
-        // names split groups exactly as X-Plane sees them.
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("XPSDApt-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let apt = """
-        I
-        1200 Generated by test
-
-        1    599 0 0 KBNA Nashville
-        1054 118600 NASHVILLE TOWER
-        1054 257800 NASHVILLE TOWER
-        1055 118400 NASHVILLE APPROACH (EAST)
-        1055 372000 NASHVILLE APPROACH (WEST)
-        54 25780 OLD  TOWER
-        54 11860 OLD TOWER
-        1    10 0 0 KOTH Other
-        1054 999000 GHOST TOWER
-
-        99
-        """
-        let aptURL = dir.appendingPathComponent("apt.dat")
-        try apt.write(to: aptURL, atomically: true, encoding: .utf8)
-
-        let bad = LogAnalyzer.outOfBandControllers(icao: "KBNA", aptURL: aptURL)
-        let controllers = bad.map { $0.controller }
-        #expect(controllers.contains("NASHVILLE APPROACH (WEST)"))
-        #expect(!controllers.contains("NASHVILLE TOWER"))          // has 118.600
-        #expect(!controllers.contains("NASHVILLE APPROACH (EAST)"))
-        #expect(controllers.contains("OLD  TOWER"))                // 257.800, split by double space
-        #expect(!controllers.contains("OLD TOWER"))                // 118.600 via legacy units
-        #expect(bad.first { $0.controller == "NASHVILLE APPROACH (WEST)" }?.frequencies == "372.000 MHz")
-        // Other airports' rows don't leak in.
-        #expect(!controllers.contains("GHOST TOWER"))
-    }
-
-    @Test func frequencyLookupParsers() {
-        // Real AirNav markup (KBNA), including sector notes that must not
-        // parse as frequencies and UHF values that must be dropped.
-        let airnav = """
-        <TR><TD align=right>UNICOM:&nbsp;</TD><TD>122.95</TD></TR>
-        <TR><TD nowrap valign=top align=right>NASHVILLE GROUND:&nbsp;</TD><TD valign=top>121.9 348.6</TD></TR>
-        <TR><TD nowrap valign=top align=right>NASHVILLE APPROACH:&nbsp;</TD><TD valign=top>118.4 ;030-196 119.35 ;197-029 360.7 ;030-196 372.0 ;197-029</TD></TR>
-        <TR><TD nowrap align=right>CLEARANCE DELIVERY:&nbsp;</TD><TD>126.05</TD></TR>
-        <TR><TD valign=top align=right>EMERG:&nbsp;</TD><TD valign=top>121.5 243.0</TD></TR>
-        """
-        let airnavParsed = FrequencyLookup.parseAirNav(html: airnav)
-        let approach = airnavParsed.filter { $0.codeSuffix == "5" }.map { $0.khz }
-        #expect(approach == [118_400, 119_350])          // UHF 360.7/372.0 dropped
-        #expect(airnavParsed.contains { $0.codeSuffix == "3" && $0.khz == 121_900 })
-        #expect(airnavParsed.contains { $0.codeSuffix == "2" && $0.khz == 126_050 })
-        #expect(!airnavParsed.contains { $0.khz == 122_950 })  // UNICOM: not a controller
-        #expect(!airnavParsed.contains { $0.khz == 121_500 })  // EMERG: not a controller
-
-        // Real OurAirports markup (EHLW) — the dropped "Leeuwarden Arrival".
-        let ourairports = """
-        <section class="frequency listing row">
-          <div class="col-xs-4 col-sm-2"><p><b>ARR</b></p></div>
-          <div class="col-xs-8 col-sm-10"><p>132.03 MHz</p>
-            <p class="text-muted">Leeuwarden Arrival</p></div>
-        </section>
-        <section class="frequency listing row">
-          <div class="col-xs-4 col-sm-2"><p><b>TWR</b></p></div>
-          <div class="col-xs-8 col-sm-10"><p>120.1 MHz</p></div>
-        </section>
-        """
-        let oaParsed = FrequencyLookup.parseOurAirports(html: ourairports)
-        #expect(oaParsed.contains { $0.codeSuffix == "5" && $0.khz == 132_030 })
-        #expect(oaParsed.contains { $0.codeSuffix == "4" && $0.khz == 120_100 })
-    }
-
-    @Test func controllerFrequencyRepairLooksUpAndAssigns() throws {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("XPSDFreqFix-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
-
-        // KBNA-like: APPROACH (WEST) is UHF-only (published VHF exists);
-        // legacy OLD TOWER is UHF-only (no published VHF -> assigned, in
-        // 10 kHz-representable legacy units).
-        let apt = """
-        I
-        1200 Generated by test
-
-        1    599 0 0 KBNA Nashville
-        1054 118600 NASHVILLE TOWER
-        1055 118400 NASHVILLE APPROACH (EAST)
-        1055 372000 NASHVILLE APPROACH (WEST)
-        54 25780 OLD TOWER
-
-        99
-        """
-        let aptURL = dir.appendingPathComponent("apt.dat")
-        try apt.write(to: aptURL, atomically: true, encoding: .utf8)
-
-        var engine = FixEngine(log: ModificationLog(fileURL: dir.appendingPathComponent("mods.json")))
-        engine.frequencyProvider = { icao in
-            #expect(icao == "KBNA")
-            return [LookedUpFrequency(codeSuffix: "5", khz: 118_400, label: "APPROACH", source: "AirNav"),
-                    LookedUpFrequency(codeSuffix: "5", khz: 119_350, label: "APPROACH", source: "AirNav")]
-        }
-        let finding = Finding(
-            checkID: "LOG-91", severity: .warning, category: .packageHealth,
-            title: "test", detail: "test",
-            proposedFix: .repairControllerFrequencies(aptPath: aptURL.path, icao: "KBNA")
-        )
-        let outcomes = engine.apply([finding])
-        #expect(outcomes.allSatisfy { $0.success }, "\(outcomes.map { $0.message ?? "" })")
-
-        let edited = try String(contentsOf: aptURL, encoding: .utf8)
-        let lines = edited.components(separatedBy: "\n")
-        // 118.400 is already used at the airport, so WEST gets 119.350.
-        let westIndex = lines.firstIndex(of: "1055 372000 NASHVILLE APPROACH (WEST)")!
-        #expect(lines[westIndex + 1] == "1055 119350 NASHVILLE APPROACH (WEST)")
-        // Legacy group: assigned fallback in legacy 10 kHz units (13695 = 136.95).
-        let oldIndex = lines.firstIndex(of: "54 25780 OLD TOWER")!
-        #expect(lines[oldIndex + 1] == "54 13695 OLD TOWER")
-        // Healthy controllers untouched.
-        #expect(edited.contains("1054 118600 NASHVILLE TOWER"))
-
-        // Re-applying: nothing left to repair.
-        let again = engine.apply([finding])
-        #expect(again.allSatisfy { !$0.success })
-
-        // Revert restores byte-identical original.
-        let reverts = engine.revert(engine.log.load())
-        #expect(reverts.allSatisfy { $0.success })
-        #expect(try String(contentsOf: aptURL, encoding: .utf8) == apt)
-    }
-
-    @Test func deprecationMarkersScopeExports() throws {
-        // Bare PUBLIC / PRIVATE / DEPRECATED / SEMI_DEPRECATED lines scope
-        // every EXPORT after them (WED semantics). Laminar's default
-        // libraries mark legacy art this way — RES-05 flags references to
-        // paths whose every export is deprecated, and nothing else.
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("XPSDDeprecated-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
-
-        let text = """
-        A
-        800
-        LIBRARY
-
-        DEPRECATED
-        EXPORT lib/ships/Carrier.obj dynamic/blank.obj
-        SEMI_DEPRECATED
-        EXPORT lib/dynamic/balloon1.obj dynamic/balloon1.obj
-        PUBLIC 20240630
-        EXPORT lib/airport/windsock.obj landscape/windsock.obj
-        DEPRECATED
-        EXPORT lib/mixed/asset.obj old/asset.obj
-        PUBLIC
-        EXPORT lib/mixed/asset.obj new/asset.obj
-        """
-        try Data(text.utf8).write(to: dir.appendingPathComponent("library.txt"))
-
-        var index = LibraryIndex()
-        index.indexLibrary(at: dir, packName: "sim objects")
-        #expect(index.caseInsensitiveMatch(for: "lib/ships/Carrier.obj")?.status == .deprecated)
-        #expect(index.caseInsensitiveMatch(for: "lib/dynamic/balloon1.obj")?.status == .semiDeprecated)
-        #expect(index.caseInsensitiveMatch(for: "lib/airport/windsock.obj")?.status == .public)
-        #expect(index.fullyDeprecatedMatch(for: "lib/ships/Carrier.obj") != nil)
-        #expect(index.fullyDeprecatedMatch(for: "lib/dynamic/balloon1.obj") != nil)
-        #expect(index.fullyDeprecatedMatch(for: "lib/airport/windsock.obj") == nil)
-        // One public export keeps a mixed-status path off the deprecated list.
-        #expect(index.fullyDeprecatedMatch(for: "lib/mixed/asset.obj") == nil)
-    }
-
     @Test func tileMathRoundTrips() {
         #expect(TileMath.key(lat: 41, lon: -73) == "+41-073")
         #expect(TileMath.key(lat: -9, lon: 8) == "-09+008")
@@ -459,12 +113,5 @@ import Foundation
             let parsed = TileMath.parse(key)
             #expect(parsed?.lat == lat && parsed?.lon == lon, "\(key)")
         }
-    }
-
-    @Test func nonPOTResampledToPowerOfTwo() throws {
-        #expect(DDSEncoder.nearestPowerOfTwo(100) == 128)
-        #expect(DDSEncoder.nearestPowerOfTwo(60) == 64)
-        #expect(DDSEncoder.nearestPowerOfTwo(64) == 64)
-        #expect(DDSEncoder.nearestPowerOfTwo(1500) == 1024)
     }
 }

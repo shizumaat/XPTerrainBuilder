@@ -1319,8 +1319,11 @@ def _widen_runway_rect(
 
     Mutates ``runway.lat_a/lon_a/lat_b/lon_b/width_m`` in place and
     returns the rebuilt 4-corner rect, so downstream CIFP segmenting
-    (which reads ``width_m``) picks up the new width.  Returns ``None``
-    and leaves the record untouched when the rebuild degenerates.
+    (which reads ``width_m``) picks up the new width.  The pre-widening
+    width is saved to ``runway.published_width_m`` (if not already set)
+    so ``declared_width_m`` keeps answering with the published runway
+    width.  Returns ``None`` and leaves the record untouched when the
+    rebuild degenerates.
 
     The perpendicular recentre offset is applied back through the
     inverse of the meter projection (anchored at ``anchor`` =
@@ -1354,4 +1357,10 @@ def _widen_runway_rect(
         (runway.lat_a, runway.lon_a, runway.lat_b,
          runway.lon_b, runway.width_m) = saved
         return None
+    # Preserve the PUBLISHED width: rules keyed on "the runway width"
+    # (``Runway.declared_width_m`` readers, e.g. ICAO Annex 14 §3.5.3's
+    # RESA factor of two) must not see runway+shoulders.  Only when still
+    # None, so a second widening doesn't overwrite the first save.
+    if runway.published_width_m is None:
+        runway.published_width_m = saved[4]
     return rect

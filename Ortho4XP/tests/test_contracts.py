@@ -66,6 +66,15 @@ FLAG_EXPECTATIONS = [
     ("DSF_OBJECT_CONNECTOR_SPAN_M", float, 300.0),
     ("DSF_OBJECT_CONNECTOR_MAX_FILL", float, 0.20),
     ("DSF_OBJECT_MAX_STRUCTURE_SPAN_M", float, 0.0),
+    # Per-cluster seating (docs/specs/per-cluster-object-seating-spec.md).
+    # Phase C lands GATED OFF (spec section 7.1: default-on waits on the
+    # owner's HECA in-sim verdict); T and the pad relief cap ship at
+    # their measured/recommended values so flipping the gate is one flag.
+    # Default ON since the owner ruling 2026-07-27 ("we have to find a
+    # way to get them down") — HECA skipped structures 6,386 → 41.
+    ("DSF_OBJECT_CLUSTER_SEATING", bool, True),
+    ("DSF_OBJECT_CLUSTER_SEAT_TOLERANCE_M", float, 0.5),
+    ("DSF_OBJECT_PAD_MAX_RELIEF_M", float, 3.0),
 ]
 
 
@@ -316,6 +325,14 @@ def test_structure_fields():
         "needs_pad",
         "skip_reason",
         "inherited_from_structure_index",
+        # Per-cluster seating
+        # (docs/specs/per-cluster-object-seating-spec.md section 3.1):
+        # the epsilon-contact edges among this structure's parts,
+        # threaded through from partition_structures so structure_deltas
+        # can cut them without recomputing the narrow phase.  Defaults
+        # empty — an empty edge set means "fall back to the
+        # per-STRUCTURE rigid seat", never a shredded cluster set.
+        "contact_edges",
     )
 
 
@@ -335,6 +352,15 @@ def test_rebake_decision_fields():
         # default empty for hand-constructed decisions.
         "foot_clusters_by_structure_index",
         "foot_pad_requests",
+        # Per-cluster seating
+        # (docs/specs/per-cluster-object-seating-spec.md sections 4.5
+        # and 5.3): the ClusterPadRequest sibling of the foot requests,
+        # the tear audit's reported cut/bridge seams, and the run
+        # record's cluster counts.  All empty when
+        # DSF_OBJECT_CLUSTER_SEATING is off.
+        "cluster_pad_requests",
+        "cluster_seams",
+        "cluster_counts",
     )
 
 

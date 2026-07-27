@@ -254,7 +254,7 @@ measured step.  Do not bundle the two changes — attribution dies.
 ## 9. Practical/ops notes for the implementing session
 
 - Work in the worktree
-  `/Users/noah/Ortho4XP-novemberlima/.claude/worktrees/joint-corridor-solve`
+  `/Users/noah/XPTerrainBuilder/Ortho4XP/.claude/worktrees/joint-corridor-solve`
   (branch `corridor-curves`).  ⚠ The harness RESETS the cwd to the main
   repo at EVERY turn boundary — re-`cd` or use absolute paths in every
   command, and re-verify with `pwd`/`git branch --show-current` before

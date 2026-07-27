@@ -7,6 +7,11 @@ import SceneryKit
 /// mid-run), and an Activity box (per-tile rows + run clock, only during a
 /// run).
 struct BuildPane: View {
+    /// Height of the pane's bottom status bar. Fixed, not padding-driven:
+    /// the bar contains regular-size buttons, and padding alone gives an
+    /// unstable height as the label text changes.
+    static let bottomBarHeight: CGFloat = 38
+
     @EnvironmentObject var buildModel: BuildModel
     @EnvironmentObject var controller: AnalysisController
     @StateObject private var showingBaseFolderPicker = ViewState(false)
@@ -819,7 +824,7 @@ struct BuildPane: View {
         }
         .font(.callout)
         .padding(.horizontal, 12)
-        .frame(height: ResultsPane.bottomBarHeight)
+        .frame(height: Self.bottomBarHeight)
         .background(.bar)
     }
 

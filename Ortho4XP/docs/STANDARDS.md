@@ -116,6 +116,8 @@ any line (runway axis, rail, oblique cut edge) is ≤ the rate.
 | Code NUMBER from runway length | 1 (<800 m), 2 (800–1199), 3 (1200–1799), 4 (≥1800 m) | ICAO Annex 14 | `config.py` `runway_code_number()` |
 | Code LETTER from taxiway width | A (≥7.5), B (≥10.5), C (≥15), D (≥18), E (≥23), F (≥25 m) | ICAO Annex 14 | `config.py` `taxiway_code_letter()` |
 | Max wingspan per code letter | A 15 … F 80 m | ICAO Annex 14 | `config.py` `WINGSPAN_BY_CODE_LETTER` |
+| Max aircraft TAIL HEIGHT per code letter | A 6.1, B 9.1, C 13.7, D 18.3, E 20.1, F 24.4 m | FAA AC 150/5300-13B Table 1-1 (ADG by tail height: I ≤20 ft, II <30, III <45, IV <60, V <66, VI <80); ADG I–VI ↔ code letter A–F | `config.py` `TAIL_HEIGHT_BY_CODE_LETTER` |
+| Code LETTER from RUNWAY width | A (<15), B (≥15), C (≥21), D (≥28), E (≥42), F (≥55 m) | FAA AC 150/5300-13B Table 3-3 runway widths by ADG (I 18.3, II 22.9, III 30.5, IV/V 45.7, VI 61.0 m); ICAO Annex 14 Table 3-1. ADG IV and V share 150 ft, so 45 m resolves to **E** — the taller tail, i.e. the conservative reading for a ceiling law | `config.py` `runway_code_letter()` (distinct from the TAXIWAY table above — different standard) |
 
 ## Runway-end safety area (RESA) and runway strip
 
@@ -261,3 +263,53 @@ inner-horizontal and conical surfaces are refused as cut surfaces.
 the approach first-section slope as "3.33% (NPA 3/4)" with a 60–280 m inner edge. NPA code
 3/4 is **2%** (the same as precision 3/4); 3.33% is NPA code **1/2**, and 280 m is EASA's
 figure where ICAO gives 300 m. Corrected in that file and tabled correctly above.
+
+## End-around taxiway (EAT) departure-surface ceiling — owner ruling 2026-07-27
+
+An **end-around taxiway** loops beyond a runway end and crosses the extended
+centreline, so an aircraft taxiing there stands directly under the departure /
+take-off-climb surface. The surface must clear the aircraft's **tail**, which forces
+the EAT **pavement** *below* the runway-end elevation — KATL taxiway Victor runs
+~30 ft (≈9 m) below its runway end for exactly this reason.
+
+This is the **first grade law that binds taxi PAVEMENT to a runway-end surface**.
+The OLS section above is a *terrain-cut* law and lists the take-off climb surface
+among the surfaces deliberately **not** cut; that ruling is about terrain and is
+unchanged. This law is a different object: a ceiling on our own paved geometry, so
+the taxiway we build is one an aircraft can actually use.
+
+Ruleset selection is by region (owner ruling): **FAA for North America, EASA
+everywhere else**, decided from the ICAO location-indicator first letter.
+
+| Rule | Value | Standard | Implemented in |
+|------|-------|----------|----------------|
+| Ruleset by region | ICAO prefix `K`/`C`/`P`/`M` (USA, Canada, US Pacific, Mexico–Central America) ⇒ FAA; everything else ⇒ EASA. Unknown/blank ⇒ EASA (the stricter ceiling beyond ~240 m) | owner ruling 2026-07-27 | `config.py` `eat_surface_slope_and_setback()`, `EAT_FAA_ICAO_PREFIXES` |
+| FAA departure surface | 40:1 (**2.5%**) rising **from the DER at DER elevation**, setback **0** | FAA AC 150/5300-13B §4.12; FAA Order 8260.3 (TERPS) departure surface | `config.py` `EAT_FAA_DEPARTURE_SLOPE`, `EAT_FAA_SETBACK_M` |
+| EASA take-off climb surface (code 3/4) | **2%** from a **60 m** inner edge beyond the runway end | EASA CS-ADR-DSN H.435 / Table J-2; CS-ADR-DSN J.480(e) | `config.py` `EAT_EASA_TAKEOFF_CLIMB_SLOPE`, `EAT_EASA_SETBACK_M` |
+| Max EAT pavement elevation | `end_elev + max(0, D − setback)·slope − tail_height` (D = distance beyond the runway end along the extended centreline) | the two rows above + Table 1-1 tail heights; the tail is what penetrates, not the wingtip | `grade_law.eat_pavement_ceiling()` |
+| Tail height by code letter | A 6.1 … F 24.4 m | FAA AC 150/5300-13B Table 1-1 (see *Aerodrome reference code* above) | `config.py` `TAIL_HEIGHT_BY_CODE_LETTER` |
+| Anchor point / elevation | the apt.dat **row-100 endpoint** (the DER), at the end's **SOLVED** profile elevation read through its frozen-nearest pavement ring vertex — never a DEM read | FAA §4.12 / CS-ADR-DSN J.480(e) both measure from the runway end; the solved-elevation anchor matches the skirt / RESA / OLS-approach discipline | `clearance.emit_runway_end_skirts` publishes `layout.eat_ceiling_presolve`; `solver_primitives._build_eat_ceiling_constraints` + `verification.check_eat_ceiling` consume it (lockstep, via `solver_primitives.eat_ceiling_offset`) |
+| Scoping — minimum crossing distance | **300 m** beyond the end | design, NOT regulatory. Taxi pavement closer than this is an ordinary runway-end connector, and the ceiling there is violently infeasible (−18.6 m at 60 m for a code-E tail). A real EAT crosses hundreds of metres out — KCLT's 18C loop at 439–482 m | `config.py` `EAT_MIN_CROSSING_DIST_M` |
+| Scoping — corridor half-width | **90 m** about the extended centreline | design, NOT regulatory. A single conservative constant instead of the surface's true splay (a refinement); wider than the code-4 graded strip (75 m), narrow enough to leave the flanking apron/taxi network alone | `config.py` `EAT_CORRIDOR_HALF_WIDTH_M` |
+| Enforcement | ONE one-sided solver interval edge per governed pavement node to the end's anchor node (`z_node − z_end ≤ ceiling`); the floor side is OPEN and no ramp geometry is stamped — the grade caps and smoothest target produce the descent/climb ramps | design (the RESA B3 band template, inverted: this law *deliberately* constrains pavement variables) | `solver_primitives._build_eat_ceiling_constraints`, wired in `elevation_per_surface/route_profile/solve.py`; gate `config.EAT_SURFACE_CEILING_ENABLED` (`O4_EAT_SURFACE_CEILING`) |
+
+> **Gate state: DEFAULT OFF (2026-07-27) — build-time blocker, not a design doubt.**
+> The law, its encoding, its scoping and its reader are complete and unit-proven
+> (`tests/test_eat_ceiling.py`, including a projection test showing the pavement driven
+> from +0.9 m to a full tail height under the surface). What is unsolved is the
+> reach-envelope interaction. Measured at KCLT: **228.9 s** with the ceiling constraints
+> neutered, versus a build **killed at 15:02 of CPU and 20.3 GB RSS** with them active,
+> `sample(1)` showing ~100 % of the time in `heapq.heappop`/`siftup` inside
+> `one_solve.feasibility_project`'s `_reach` Dijkstra.
+>
+> This is the documented KBNA class (`one_solve.py`, "ENVELOPE EXCLUSION FOR ZONE
+> EDGES"): a signed slab injects negative directed weights into `ceil_radj`, and `_reach`
+> is a lazy Dijkstra. Adjacent-ground zone slabs escape it via the `interval_yield_from`
+> **index threshold** — but an EAT ceiling couples *pavement to pavement*, so both
+> endpoints sit below that threshold and the exclusion cannot fire. No reorientation of
+> the slab helps: a ceiling below its anchor *is* a negative ceiling-propagation weight.
+>
+> Unblocking fix (owner call — it changes a shared solver file): give
+> `feasibility_project` an explicit per-edge "envelope leaf" marker instead of the index
+> threshold, so the EAT slabs are excluded from the envelope adjacency the way the zone
+> slabs are. Then flip the default and re-measure KCLT.

@@ -904,6 +904,41 @@ def ols_approach_ceiling(
     return OLS_APPROACH_FIRST_SECTION_SLOPE[approach_class][code_number] * s
 
 
+def eat_pavement_ceiling(D_m: float, slope: float, setback_m: float,
+                         tail_height_m: float) -> float:
+    """Ceiling offset (m) relative to the RUNWAY-END elevation for
+    END-AROUND TAXIWAY pavement at ``D_m`` beyond that end.
+
+    An end-around taxiway crosses the extended centreline beyond a runway
+    end, so the tallest aircraft using it stands under the departure /
+    take-off-climb surface.  The surface itself sits at
+    ``max(0, D − setback) · slope`` above the runway end; the PAVEMENT
+    must sit a whole tail height below that, because it is the tail —
+    not the wingtip — that penetrates::
+
+        ceiling(D) = max(0, D − setback) · slope − tail_height
+
+    The result is normally NEGATIVE (the pavement is below the runway
+    end) and is deliberately NOT clamped at 0: that depression is the
+    entire point of the law (KATL taxiway Victor ≈ −9 m).  Only the
+    surface's own rise is floored at 0, so a point inside the setback
+    reads the inner-edge height rather than a fictitious below-DER
+    surface.
+
+    The sibling of ``ols_approach_ceiling``: same anchor discipline (the
+    SOLVED runway-end elevation, matching the skirt / RESA / approach
+    readers), same "offset relative to the end" contract.  Unlike the OLS
+    ceilings this one governs PAVEMENT, not terrain — it is the one place
+    where a runway-end surface binds the taxiway network.
+
+    No rule number lives here: ``slope``/``setback_m`` come from
+    ``config.eat_surface_slope_and_setback`` (FAA vs EASA by region) and
+    ``tail_height_m`` from ``config.TAIL_HEIGHT_BY_CODE_LETTER``.
+    """
+    rise = max(0.0, float(D_m) - float(setback_m)) * float(slope)
+    return rise - float(tail_height_m)
+
+
 def ols_island_refused(max_cut_depth_m: float) -> bool:
     """Whether a contiguous penetration ISLAND is refused whole.
 

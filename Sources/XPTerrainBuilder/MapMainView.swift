@@ -71,37 +71,28 @@ struct MapMainView: View {
     }
 
     private var subtitle: String {
-        if buildModel.mode == .build {
-            guard buildModel.engine != nil else {
-                return "Ortho4XP engine not configured — see Settings"
-            }
-            // Engine version lives in Settings, not the main window chrome.
-            var parts: [String] = []
-            let built = buildModel.built.values.filter { $0.dsfPresent }.count
-            if built > 0 { parts.append("\(built.formatted()) tile\(built == 1 ? "" : "s") built") }
-            if !buildModel.installed.isEmpty {
-                parts.append("\(buildModel.installed.count.formatted()) installed")
-            }
-            if !buildModel.selected.isEmpty {
-                parts.append("\(buildModel.selected.count.formatted()) selected")
-            }
-            return parts.joined(separator: " — ")
+        guard buildModel.engine != nil else {
+            return "Ortho4XP engine not configured — see Settings"
         }
-        if controller.isScanningInstallation { return "Scanning Custom Scenery…" }
-        let packs = controller.installationPacks
-        guard !packs.isEmpty else { return "" }
-        let builtIn = packs.filter { $0.isLaminar }.count
-        let user = packs.count - builtIn
-        return "\(packs.count.formatted()) packages (\(user.formatted()) user installed, \(builtIn.formatted()) X-Plane built-in)"
+        // Engine version lives in Settings, not the main window chrome.
+        var parts: [String] = []
+        let built = buildModel.built.values.filter { $0.dsfPresent }.count
+        if built > 0 { parts.append("\(built.formatted()) tile\(built == 1 ? "" : "s") built") }
+        if !buildModel.installed.isEmpty {
+            parts.append("\(buildModel.installed.count.formatted()) installed")
+        }
+        if !buildModel.selected.isEmpty {
+            parts.append("\(buildModel.selected.count.formatted()) selected")
+        }
+        return parts.joined(separator: " — ")
     }
 
     // MARK: - Toolbar
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        // Manage (and its mode switcher) is disabled for now — the toolbar
-        // is Build-only: refresh + imagery picker up front (own buttons,
-        // away from the search cluster), search and inspector trailing.
+        // Refresh + imagery picker up front (own buttons, away from the
+        // search cluster), search and inspector trailing.
         ToolbarItem(placement: .navigation) {
             Button {
                 controller.refreshInstallation()
@@ -150,8 +141,7 @@ struct MapMainView: View {
         }
         ToolbarItem(placement: .automatic) {
             ToolbarSearchField(text: searchText,
-                               placeholder: buildModel.mode == .build
-                                   ? "Airport or tile like +48-006" : "Search",
+                               placeholder: "Airport or tile like +48-006",
                                onSubmit: performSearch)
                 .frame(width: 220)
         }
@@ -173,13 +163,13 @@ struct MapMainView: View {
     // MARK: - Search
 
     /// Zoom the map to a matching airport (ICAO or name), a tile key like
-    /// "+48-006" (build mode), or a package.
+    /// "+48-006", or a package.
     private func performSearch() {
         let query = searchText.value.trimmingCharacters(in: .whitespaces).lowercased()
         guard !query.isEmpty else { return }
 
         // Tile-key search, like the Qt search field.
-        if buildModel.mode == .build, let tile = TileMath.parse(searchText.value.trimmingCharacters(in: .whitespaces)) {
+        if let tile = TileMath.parse(searchText.value.trimmingCharacters(in: .whitespaces)) {
             buildModel.click(lat: tile.lat, lon: tile.lon, command: false, shift: false)
             var cam = controller.mapCamera.value
             cam.centerLon = Double(tile.lon) + 0.5
@@ -202,12 +192,10 @@ struct MapMainView: View {
             cam.scale = max(cam.scale, 60)
             cam.clamp(in: controller.mapCanvasSize.value)
             controller.mapCamera.value = cam
-            // Build mode: finding an airport also selects its tile — the
-            // airport index doubles as the tile picker.
-            if buildModel.mode == .build {
-                buildModel.selectTile(containingLat: match.info.latitude,
-                                      lon: match.info.longitude)
-            }
+            // Finding an airport also selects its tile — the airport index
+            // doubles as the tile picker.
+            buildModel.selectTile(containingLat: match.info.latitude,
+                                  lon: match.info.longitude)
             return
         }
 
@@ -236,34 +224,19 @@ struct MapMainView: View {
                 .environmentObject(buildModel.activity)
                 .environmentObject(buildModel.imagery)
         } second: {
-            // Same slot both modes: results while managing, the engine
-            // console while building.
-            Group {
-                if buildModel.mode == .manage {
-                    ResultsPane(packFilter: Set(controller.viewportPacks.map { $0.name }))
-                } else {
-                    BuildConsoleView()
-                }
-            }
-            .environmentObject(controller)
-            .environmentObject(controller.progress)
-            .environmentObject(buildModel)
+            BuildConsoleView()
+                .environmentObject(controller)
+                .environmentObject(controller.progress)
+                .environmentObject(buildModel)
         }
         .inspector(isPresented: inspectorBinding) {
-            // Hairline between the map/results and the inspector — the
+            // Hairline between the map/console and the inspector — the
             // inspector container doesn't draw its own separator here.
             HStack(spacing: 0) {
                 Divider()
-                if buildModel.mode == .manage {
-                    PackInspectorView(packs: controller.viewportPacks)
-                        .environmentObject(controller)
-                        .environmentObject(controller.progress)
-                        .environmentObject(controller.packSizes)
-                } else {
-                    BuildPane()
-                        .environmentObject(buildModel)
-                        .environmentObject(controller)
-                }
+                BuildPane()
+                    .environmentObject(buildModel)
+                    .environmentObject(controller)
             }
             .inspectorColumnWidth(min: 240, ideal: 300, max: 420)
         }

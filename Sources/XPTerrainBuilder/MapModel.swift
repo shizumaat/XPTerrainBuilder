@@ -347,13 +347,16 @@ struct MapOverlays: Sendable {
         }
     }
 
-    /// Same overlays with landmark marks moved from tile centroids to the
-    /// exact object-placement centroids the analysis computed.
-    func applyingExactMarkers(_ exact: [String: GeoPoint]) -> MapOverlays {
+    /// Same overlays with marks moved from tile centroids to the exact
+    /// positions the scan pinned (see PackMarker); packs the scan could not
+    /// pin keep their centroid.
+    func applyingExactMarkers(_ exact: [PackMarker]) -> MapOverlays {
         guard !exact.isEmpty else { return self }
+        let byName = Dictionary(exact.map { ($0.packName, $0.point) },
+                                uniquingKeysWith: { first, _ in first })
         var updated = self
         updated.markers = markers.map { marker in
-            guard let point = exact[marker.packName] else { return marker }
+            guard let point = byName[marker.packName] else { return marker }
             return Marker(lon: point.lon, lat: point.lat,
                           packName: marker.packName, status: marker.status)
         }

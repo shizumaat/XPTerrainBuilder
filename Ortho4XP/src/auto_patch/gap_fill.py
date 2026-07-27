@@ -72,12 +72,14 @@ from .config import (
     OPEN_FRONTAGE_CLOSE_M,
     POCKET_COLLAR_RINGS_ENABLED,
     RUNWAY_STRIP_HALF_WIDTH_BY_CODE,
+    TILE_CUT_HALF_WIDTH_M,
     runway_code_number,
     taxiway_strip_graded_half_width_for_letter,
 )
 from .grade_law import adjacent_ground_envelope
 from .layout import (
     BuiltShape,
+    R_EARTH,
     ROLE_APRON,
     ROLE_BUILDING,
     ROLE_CROSS_CONNECTOR,
@@ -1956,6 +1958,173 @@ def _airside_shapes(layout):
             and s.polygon.geom_type == "Polygon"]
 
 
+# SEAM HEALING (owner ruling 2026-07-26; SPLP adjacent-ground bands
+# 165/168).  "Fully enclosed pavement area" was classified off the
+# POST-tile-cut airside union, so a pocket whose enclosing pavement ring
+# continues into the neighbour tile was never a hole in either tile's own
+# union — the cut broke the ring, the hole opened toward the seam, and
+# the pocket fell through to the open-edge band consumer (which covered
+# 40k of its 52k m² and detached 12-25 m from the west/south frontage).
+# With this gate ON the DETECTION union is healed with
+# ``layout.tile_seam_offcuts`` — the exact dropped neighbour halves
+# ``tile_cut`` records (evidence-bounded, never invents pavement; the
+# same pattern the band-march prolongation ratified 2026-07-24) — and
+# each detected hole is clipped straight back to the in-tile side of
+# every cut-back line, its minted seam chords densified on the shared
+# ``cutback_stations`` lattice so the two tiles' independent builds land
+# the same seam nodes (chord stations take DEM at emission — the
+# ``_SEAM_DEM_TERRAIN_ROLES`` contract).  No offcuts (every single-tile
+# airport) => detection identical to the plain union, byte-identical
+# output.
+GAP_FILL_SEAM_HEAL_ENABLED = os.environ.get(
+    "O4_GAP_FILL_SEAM_HEAL", "1") == "1"
+
+_SEAM_CHORD_TOL_M = 0.02
+
+
+def _tile_clip_specs(layout, airside, offcuts):
+    """``(axis, line_coord, keep_sign)`` per integer tile line inside the
+    HEALED footprint, in local metres — ``axis`` 0 for x (integer
+    longitude), 1 for y (integer latitude); ``keep_sign`` points from the
+    line INTO the current tile (every post-cut airside shape lies wholly
+    in-tile, so any airside point decides the side).  Mirrors
+    ``tile_cut.derive_tile_cut_lines`` — which cannot be reused directly
+    here because the post-cut layout no longer straddles the line."""
+    if layout.anchor is None or not airside:
+        return []
+    try:
+        healed = unary_union([s.polygon for s in airside]
+                             + list(offcuts))
+        minx, miny, maxx, maxy = healed.bounds
+        ref = airside[0].polygon.representative_point()
+    except _GEOM_EXC:
+        return []
+    lat0, lon0 = layout.anchor
+    cos0 = math.cos(math.radians(lat0))
+    min_lat = lat0 + math.degrees(miny / R_EARTH)
+    max_lat = lat0 + math.degrees(maxy / R_EARTH)
+    min_lon = lon0 + math.degrees(minx / (R_EARTH * cos0))
+    max_lon = lon0 + math.degrees(maxx / (R_EARTH * cos0))
+    specs = []
+    for lat_int in range(
+            int(math.ceil(min_lat)), int(math.floor(max_lat)) + 1):
+        if min_lat < lat_int < max_lat:
+            y_int = math.radians(lat_int - lat0) * R_EARTH
+            specs.append((1, y_int, 1.0 if ref.y >= y_int else -1.0))
+    for lon_int in range(
+            int(math.ceil(min_lon)), int(math.floor(max_lon)) + 1):
+        if min_lon < lon_int < max_lon:
+            x_int = math.radians(lon_int - lon0) * R_EARTH * cos0
+            specs.append((0, x_int, 1.0 if ref.x >= x_int else -1.0))
+    return specs
+
+
+def _densify_seam_chords(ring_pts, clip_specs):
+    """Insert the shared ``cutback_stations`` lattice points on every
+    ring segment that runs ALONG a tile cut-back line, so the seam edge
+    of a clipped gap face carries the same stations the pavement and
+    graded-strip seam pins use (cross-tile reproducible from the anchor
+    frame alone)."""
+    from .tile_cut import cutback_stations
+    out: list[tuple[float, float]] = []
+    n = len(ring_pts)
+    for i in range(n):
+        x0, y0 = ring_pts[i]
+        x1, y1 = ring_pts[(i + 1) % n]
+        out.append((x0, y0))
+        for ax, coord, keep in clip_specs:
+            cb = coord + keep * TILE_CUT_HALF_WIDTH_M
+            a0 = x0 if ax == 0 else y0
+            a1 = x1 if ax == 0 else y1
+            if (abs(a0 - cb) <= _SEAM_CHORD_TOL_M
+                    and abs(a1 - cb) <= _SEAM_CHORD_TOL_M):
+                t0 = y0 if ax == 0 else x0
+                t1 = y1 if ax == 0 else x1
+                for t in cutback_stations(t0, t1):
+                    out.append((cb, t) if ax == 0 else (t, cb))
+                break
+    return out
+
+
+def _clip_gap_to_tile(gap_poly, clip_specs):
+    """Clip one healed gap polygon back to the in-tile side of every
+    cut-back line; returns the polygon part(s), seam chords densified."""
+    parts = [gap_poly]
+    for ax, coord, keep in clip_specs:
+        cb = coord + keep * TILE_CUT_HALF_WIDTH_M
+        nxt = []
+        for g in parts:
+            minx, miny, maxx, maxy = g.bounds
+            pad = 100.0
+            if ax == 0:
+                lo = cb if keep > 0 else minx - pad
+                hi = cb if keep < 0 else maxx + pad
+                clip_box = box(lo, miny - pad, hi, maxy + pad)
+            else:
+                lo = cb if keep > 0 else miny - pad
+                hi = cb if keep < 0 else maxy + pad
+                clip_box = box(minx - pad, lo, maxx + pad, hi)
+            try:
+                res = g.intersection(clip_box)
+            except _GEOM_EXC:
+                continue
+            for gg in getattr(res, "geoms", [res]):
+                if gg.geom_type == "Polygon" and not gg.is_empty:
+                    nxt.append(gg)
+        parts = nxt
+    out = []
+    for g in parts:
+        ring = _open_coords(g)
+        if len(ring) < 3:
+            continue
+        try:
+            p = Polygon(_densify_seam_chords(ring, clip_specs))
+        except _GEOM_EXC:
+            continue
+        if not p.is_empty and p.is_valid:
+            out.append(p)
+    return out
+
+
+def _gap_detection_polys(layout, airside):
+    """The enclosed-gap candidate polygons for this layout — ONE
+    definition shared by the pre-solve construction, the spine emitter
+    and the pit-floor pass (parity is load-bearing: the emitter matches
+    its spines against the pre-solve store by coordinate, so all three
+    passes MUST detect off identical geometry).  Plain path: the
+    interior holes of the post-cut airside union.  Seam-heal path (see
+    ``GAP_FILL_SEAM_HEAL_ENABLED`` above): holes of the offcut-healed
+    union, clipped back to the tile."""
+    offcuts = ([p for p in (getattr(layout, "tile_seam_offcuts", None)
+                            or ()) if p is not None and not p.is_empty]
+               if GAP_FILL_SEAM_HEAL_ENABLED else [])
+    try:
+        union = unary_union([s.polygon for s in airside] + offcuts)
+    except _GEOM_EXC:
+        return []
+    if union.is_empty:
+        return []
+    comps = ([union] if union.geom_type == "Polygon"
+             else [g for g in getattr(union, "geoms", [])
+                   if g.geom_type == "Polygon"])
+    clip_specs = (_tile_clip_specs(layout, airside, offcuts)
+                  if offcuts else [])
+    gaps: list[Polygon] = []
+    for comp in comps:
+        for interior in comp.interiors:
+            try:
+                gap_poly = Polygon(list(interior.coords))
+            except _GEOM_EXC:
+                continue
+            if gap_poly.is_empty or not gap_poly.is_valid:
+                continue
+            if clip_specs:
+                gaps.extend(_clip_gap_to_tile(gap_poly, clip_specs))
+            else:
+                gaps.append(gap_poly)
+    return gaps
+
+
 def _gap_parents(layout):
     """The gap-parent shapes (building pads + runway-end skirts) per
     their sub-gates — shared by construction and emission (same parity
@@ -2051,15 +2220,9 @@ def construct_gap_fill_presolve(layout) -> int:
     airside = _airside_shapes(layout)
     if len(airside) < 2:
         return 0
-    try:
-        union = unary_union([s.polygon for s in airside])
-    except _GEOM_EXC:
+    gap_candidates = _gap_detection_polys(layout, airside)
+    if not gap_candidates:
         return 0
-    if union.is_empty:
-        return 0
-    comps = ([union] if union.geom_type == "Polygon"
-             else [g for g in getattr(union, "geoms", [])
-                   if g.geom_type == "Polygon"])
     pads, skirts = _gap_parents(layout)
     parents = pads + skirts
     # Geometry-only chain-key set (the ``_face_is_verbatim`` gate needs
@@ -2102,15 +2265,7 @@ def construct_gap_fill_presolve(layout) -> int:
         other_polys.append((0, _crossing_zone))
     step = GAP_FILL_SPINE_STEP_M
     entries: list[dict] = []
-    for comp in comps:
-        for interior in comp.interiors:
-            ring_coords = list(interior.coords)
-            try:
-                gap_poly = Polygon(ring_coords)
-            except _GEOM_EXC:
-                continue
-            if gap_poly.is_empty or not gap_poly.is_valid:
-                continue
+    for gap_poly in gap_candidates:
             if gap_poly.area < GAP_FILL_MIN_AREA_M2:
                 continue
             overlapped = False
@@ -2210,15 +2365,9 @@ def emit_gap_fill_spines(layout, dem, tile_lat, tile_lon,
     airside = _airside_shapes(layout)
     if len(airside) < 2:
         return 0
-    try:
-        union = unary_union([s.polygon for s in airside])
-    except _GEOM_EXC:
-        return 0
-    if union.is_empty:
-        return 0
-    comps = ([union] if union.geom_type == "Polygon"
-             else [g for g in getattr(union, "geoms", [])
-                   if g.geom_type == "Polygon"])
+    # NO early return on an empty candidate list: the open-frontage
+    # pilot below runs on corridor geometry, not holes.
+    gap_candidates = _gap_detection_polys(layout, airside)
 
     # WELD-VALUE registry (mm key): every airside ring vertex → its solved
     # value, so a gap-ring vertex (which IS a pavement ring vertex) emits
@@ -2340,16 +2489,10 @@ def emit_gap_fill_spines(layout, dem, tile_lat, tile_lon,
                   if (GAP_FILL_INTERIOR_RINGS_ENABLED
                       or POCKET_COLLAR_RINGS_ENABLED) else None)
     emitted = 0
-    for comp in comps:
-        for interior in comp.interiors:
-            # Verbatim ring coords — no cleaning op touches the boundary.
-            ring_coords = list(interior.coords)
-            try:
-                gap_poly = Polygon(ring_coords)
-            except _GEOM_EXC:
-                continue
-            if gap_poly.is_empty or not gap_poly.is_valid:
-                continue
+    for gap_poly in gap_candidates:
+            # Ring coords stay verbatim — detection already produced the
+            # final gap polygons (seam-healed + tile-clipped when offcuts
+            # exist; see ``_gap_detection_polys``).
             if gap_poly.area < GAP_FILL_MIN_AREA_M2:
                 continue
             # A foreign shape inside the gap (groundside / service /
@@ -2428,9 +2571,21 @@ def emit_gap_fill_spines(layout, dem, tile_lat, tile_lon,
     # surface_clearance chain used to grade and the corridor bands do
     # badly once it is deleted.  A no-op with the gate off.
     if os.environ.get("O4_OPEN_FRONTAGE_SPINE", "0") == "1":
-        emitted += _emit_open_frontage(
-            layout, airside, comps, union, registry, chain_keys,
-            other_polys, parents, step)
+        # The open-corridor detection runs on the PLAIN in-tile airside
+        # union (open corridors are not holes, so the seam-heal path
+        # above never concerns them).
+        try:
+            _of_union = unary_union([s.polygon for s in airside])
+        except _GEOM_EXC:
+            _of_union = None
+        if _of_union is not None and not _of_union.is_empty:
+            _of_comps = ([_of_union]
+                         if _of_union.geom_type == "Polygon"
+                         else [g for g in getattr(_of_union, "geoms", [])
+                               if g.geom_type == "Polygon"])
+            emitted += _emit_open_frontage(
+                layout, airside, _of_comps, _of_union, registry,
+                chain_keys, other_polys, parents, step)
     # Stage B2 movement report: solved-vs-analytic spine value deltas
     # accumulated per emitted gap (gate-ON only — the store is empty or
     # absent gate-OFF).
@@ -2761,15 +2916,9 @@ def emit_gap_interior_floor(layout, dem, tile_lat, tile_lon) -> int:
     airside = _airside_shapes(layout)
     if len(airside) < 2:
         return 0
-    try:
-        union = unary_union([s.polygon for s in airside])
-    except _GEOM_EXC:
+    gap_candidates = _gap_detection_polys(layout, airside)
+    if not gap_candidates:
         return 0
-    if union.is_empty:
-        return 0
-    comps = ([union] if union.geom_type == "Polygon"
-             else [g for g in getattr(union, "geoms", [])
-                   if g.geom_type == "Polygon"])
 
     # Solved pavement value at every airside ring vertex (mm key).
     registry: dict[tuple[int, int], float] = {}
@@ -2820,14 +2969,8 @@ def emit_gap_interior_floor(layout, dem, tile_lat, tile_lon) -> int:
                                         tile_lon, other_polys,
                                         _other_shapes)
 
-    for comp in comps:
-        for interior in comp.interiors:
-            try:
-                gap_poly = Polygon(list(interior.coords))
-            except _GEOM_EXC:
-                continue
-            if (gap_poly.is_empty or not gap_poly.is_valid
-                    or gap_poly.area < GAP_FILL_MIN_AREA_M2):
+    for gap_poly in gap_candidates:
+            if gap_poly.area < GAP_FILL_MIN_AREA_M2:
                 continue
             if _pocket_is_collared(gap_poly, collars):
                 continue
@@ -2844,7 +2987,8 @@ def emit_gap_interior_floor(layout, dem, tile_lat, tile_lon) -> int:
                 continue
             # Pavement lip at THIS pocket's ring.
             lip_values = [registry[k] for k in
-                          (_key(vx, vy) for vx, vy in interior.coords)
+                          (_key(vx, vy)
+                           for vx, vy in gap_poly.exterior.coords)
                           if k in registry]
             if len(lip_values) < 3:
                 _c = gap_poly.centroid
@@ -3026,6 +3170,22 @@ def _emit_one_gap(layout, airside, gap_poly, long_dir, long_len, step,
     ring = _open_coords(gap_poly)
     if len(ring) < 3:
         return 0
+    # SEAM-CHORD stations (seam-heal path): a clipped gap's edge along a
+    # tile cut-back line carries densified lattice stations that are NOT
+    # pavement chain vertices — they take DEM verbatim, the
+    # ``_SEAM_DEM_TERRAIN_ROLES`` contract, so the two tiles' independent
+    # halves agree at the seam by sampling the same raster.
+    _seam_cb = []
+    if GAP_FILL_SEAM_HEAL_ENABLED and dem is not None:
+        _offc = [p for p in (getattr(layout, "tile_seam_offcuts", None)
+                             or ()) if p is not None and not p.is_empty]
+        if _offc:
+            _seam_cb = [
+                (ax, coord + keep * TILE_CUT_HALF_WIDTH_M)
+                for ax, coord, keep in _tile_clip_specs(
+                    layout, airside, _offc)]
+    if _seam_cb:
+        from .elevation import _sample_dem as _seam_sample_dem
     new_ring: list[tuple[float, float]] = []
     alts = []
     for vx, vy in ring:
@@ -3034,6 +3194,15 @@ def _emit_one_gap(layout, airside, gap_poly, long_dir, long_len, step,
             new_ring.append((vx, vy))
             alts.append(registry[k])        # boundary vertex, verbatim
             continue
+        if _seam_cb and any(
+                abs((vx if _ax == 0 else vy) - _cb) <= _SEAM_CHORD_TOL_M
+                for _ax, _cb in _seam_cb):
+            _lat, _lon = layout.m_to_ll(vx, vy)
+            _e = _seam_sample_dem(dem, tile_lat, tile_lon, _lat, _lon)
+            if _e is not None:
+                new_ring.append((vx, vy))
+                alts.append(float(_e))      # seam station, DEM verbatim
+                continue
         # UNION-DIVERGENCE point — where two pavement rings disagree
         # by millimetres the union outline follows neither, and an
         # un-snapped gap vertex mints a near-parallel lens (measured

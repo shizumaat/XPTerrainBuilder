@@ -6491,8 +6491,16 @@ def _file_size_or_zero(path):
 
 
 # =====================================================================
-# Inset-derived water supplement (hydro-flat basins)
+# Inset-derived water supplement (hydro-flat basins) — RETIRED
 # =====================================================================
+# RETIRED from production (owner ruling 2026-07-26): ``include_water``
+# no longer calls ``ensure_inset_water_supplement`` — water comes from
+# OpenStreetMap / custom data only.  The scan re-read every cached
+# inset raster in a tile whenever any one raster changed (~11 min on
+# +35-081 / 54 rasters / 658 detected farm ponds) and never fixed the
+# KBNA case it was built for.  The machinery below is kept importable
+# (unit-tested, and callable from tools) but has no production caller.
+#
 # Lidar reads water surfaces as (near-)constant elevation, so real
 # basins appear in the inset rasters as large flat plateaus sitting
 # BELOW their rims — the KBNA wastewater ponds measure a 0.02 m

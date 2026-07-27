@@ -928,6 +928,15 @@ class TestOutsideMeshSkips:
 
 
 class TestAmendmentA3:
+    @pytest.fixture(autouse=True)
+    def _legacy_rigid_seating(self, monkeypatch):
+        """These tests encode the PER-STRUCTURE rigid-seat law.  With
+        per-cluster seating default-ON (owner ruling 2026-07-27) the
+        over-span outcome is seat-at-median + pad request, so the
+        legacy refusal law is only reachable gate-off — pin it."""
+        from auto_patch import config as _cfg
+        monkeypatch.setattr(_cfg, "DSF_OBJECT_CLUSTER_SEATING", False)
+
     def test_large_ground_span_is_left_at_authored_elevations(
         self, plane_sampler
     ):
@@ -1410,11 +1419,17 @@ def _kclt_pool_available():
     not _kclt_pool_available(),
     reason="KCLT pack (with .anchor_bak originals) or built mesh absent",
 )
-def test_kclt_eight_bake_pool_end_to_end():
+def test_kclt_eight_bake_pool_end_to_end(monkeypatch):
     """The real eight co-anchored KCLT bakes, read-only (geometry from
     the ``.anchor_bak`` originals): one pool, ~220 structures at the
     epsilon-0.25 knee, equal per-structure deltas across all eight
-    resources (shared anchor), zero skips."""
+    resources (shared anchor), zero skips.  Pinned to the legacy
+    per-structure law: this mesh state carries two over-span
+    structures, so gate-ON legitimately cuts/seats them and the
+    equal-delta invariant this test asserts no longer applies (the
+    cluster law has its own suite)."""
+    from auto_patch import config as _cfg
+    monkeypatch.setattr(_cfg, "DSF_OBJECT_CLUSTER_SEATING", False)
     from auto_patch import dsf_reader
 
     dsf_text_lines = dsf_reader._load_dsf_text(KCLT_DSF_PATH)

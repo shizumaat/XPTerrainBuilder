@@ -68,8 +68,12 @@ def disable_minimum_building_height(monkeypatch):
     (walls would obscure the ring-shape assertions), which the
     amendment-A11 ground-plate filter would reject wholesale.  Default
     it off for this file; ``TestStructureRingMinimumBuildingHeight``
-    re-enables it explicitly to test the filter itself."""
+    re-enables it explicitly to test the filter itself.  The TALL-BASE
+    fill floor rejects flat slabs for the same reason (no tall member)
+    — off here too; ``TestStructureRingTallBaseFill`` re-enables it
+    per test."""
     monkeypatch.setattr(config, "DSF_OBJECT_MIN_BUILDING_HEIGHT_M", 0.0)
+    monkeypatch.setattr(config, "DSF_OBJECT_MIN_TALL_BASE_FILL", 0.0)
 
 
 # ── shared construction helpers ──────────────────────────────────────
@@ -1268,3 +1272,128 @@ class TestAdmissionHelper:
             _scaled_to_metres_transform, None, None, pool)
         assert len(pool) == 1
         assert pool[0].area == pytest.approx(100.0)
+
+
+class TestStructureRingHullFill:
+    """HULL-FILL FLOOR (owner defect 2026-07-27, HECA building188): a
+    convex hull over SPARSE bases — one floodlight mast, a few jersey
+    barriers, a stray below-grade fragment — minted a phantom 4,638 m²
+    building pad punched into a graded apron.  Fill = Σ(base-triangle
+    areas)/hull area; below ``DSF_OBJECT_MIN_FOOTPRINT_FILL`` the
+    structure gets no pad."""
+
+    # Three tiny 2 m "masts" at the corners of a ~100 m triangle: tall
+    # (passes the building-height floor) but the hull is ~99.98 % empty.
+    def _sparse_ring(self):
+        vertices = []
+        triangles = []
+        for cx, cz in ((0.0, 0.0), (100.0, 0.0), (0.0, 100.0)):
+            base = len(vertices)
+            vertices += [
+                (cx, 0.0, cz), (cx + 2.0, 0.0, cz),
+                (cx + 2.0, 0.0, cz + 2.0),
+                (cx, 28.0, cz), (cx + 2.0, 28.0, cz),
+                (cx + 2.0, 28.0, cz + 2.0),
+            ]
+            triangles += [(base, base + 1, base + 2),
+                          (base + 3, base + 4, base + 5)]
+        geometry = make_geometry(vertices, triangles)
+        structure = make_structure({"a.obj": triangles}, {"a.obj": 0.0})
+        return object_footprints.structure_ring(
+            structure, {"a.obj": geometry}, [make_placement("a.obj")])
+
+    def test_sparse_bases_get_no_pad(self, fake_projection, monkeypatch):
+        monkeypatch.setattr(config, "DSF_OBJECT_MIN_FOOTPRINT_FILL", 0.1)
+        assert self._sparse_ring() is None
+
+    def test_zero_disables_the_gate(self, fake_projection, monkeypatch):
+        monkeypatch.setattr(config, "DSF_OBJECT_MIN_FOOTPRINT_FILL", 0.0)
+        monkeypatch.setattr(config, "DSF_OBJECT_MIN_TALL_BASE_FILL", 0.0)
+        assert self._sparse_ring() is not None
+
+    def test_dense_building_passes(self, fake_projection, monkeypatch):
+        monkeypatch.setattr(config, "DSF_OBJECT_MIN_FOOTPRINT_FILL", 0.1)
+        # A solid 20 x 20 floor with an 8 m roof: fill ≈ 1.
+        vertices = [
+            (0.0, 0.0, 0.0), (20.0, 0.0, 0.0),
+            (20.0, 0.0, 20.0), (0.0, 0.0, 20.0),
+            (0.0, 8.0, 0.0), (20.0, 8.0, 0.0),
+            (20.0, 8.0, 20.0), (0.0, 8.0, 20.0),
+        ]
+        triangles = [(0, 1, 2), (0, 2, 3), (4, 5, 6), (4, 6, 7)]
+        geometry = make_geometry(vertices, triangles)
+        structure = make_structure({"a.obj": triangles}, {"a.obj": 0.0})
+        assert object_footprints.structure_ring(
+            structure, {"a.obj": geometry},
+            [make_placement("a.obj")]) is not None
+
+
+class TestStructureRingTallBaseFill:
+    """TALL-BASE FILL (owner defect 2026-07-27, HECA building124): a
+    SOLID 0.3 m ground plate welded to a 28 m mast defeats the height
+    gate (mast supplies extent) AND the base-fill gate (plate supplies
+    dense base) — but no TALL member covers the footprint, so it is a
+    slab/mast weld, not a building."""
+
+    def _plate_and_mast_ring(self):
+        # 40 x 40 solid plate, 0.3 m thick (dense base, short) …
+        vertices = [
+            (0.0, 0.0, 0.0), (40.0, 0.0, 0.0),
+            (40.0, 0.3, 40.0), (0.0, 0.3, 40.0),
+        ]
+        plate_triangles = [(0, 1, 2), (0, 2, 3)]
+        # … plus a 2 x 2 x 28 m mast in one corner (tall, tiny base).
+        base = len(vertices)
+        vertices += [
+            (0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (2.0, 0.0, 2.0),
+            (0.0, 28.0, 0.0), (2.0, 28.0, 0.0), (2.0, 28.0, 2.0),
+        ]
+        mast_triangles = [(base, base + 1, base + 2),
+                          (base + 3, base + 4, base + 5)]
+        geometry = make_geometry(vertices,
+                                 plate_triangles + mast_triangles)
+        structure = make_structure(
+            {"plate.obj": plate_triangles, "mast.obj": mast_triangles},
+            {"plate.obj": 0.0, "mast.obj": 0.0})
+        return object_footprints.structure_ring(
+            structure,
+            {"plate.obj": geometry, "mast.obj": geometry},
+            [make_placement("plate.obj"), make_placement("mast.obj")])
+
+    def test_plate_plus_mast_gets_no_pad(self, fake_projection,
+                                         monkeypatch):
+        monkeypatch.setattr(config, "DSF_OBJECT_MIN_TALL_BASE_FILL", 0.05)
+        assert self._plate_and_mast_ring() is None
+
+    def test_zero_disables(self, fake_projection, monkeypatch):
+        monkeypatch.setattr(config, "DSF_OBJECT_MIN_TALL_BASE_FILL", 0.0)
+        assert self._plate_and_mast_ring() is not None
+
+    def test_tall_building_on_plate_passes(self, fake_projection,
+                                           monkeypatch):
+        monkeypatch.setattr(config, "DSF_OBJECT_MIN_TALL_BASE_FILL", 0.05)
+        # A real terminal: a 30 x 30 tall block whose own base covers
+        # most of the hull, welded to the same kind of apron plate.
+        vertices = [
+            (0.0, 0.0, 0.0), (40.0, 0.0, 0.0),
+            (40.0, 0.3, 40.0), (0.0, 0.3, 40.0),
+        ]
+        plate_triangles = [(0, 1, 2), (0, 2, 3)]
+        base = len(vertices)
+        vertices += [
+            (0.0, 0.0, 0.0), (30.0, 0.0, 0.0), (30.0, 0.0, 30.0),
+            (0.0, 12.0, 0.0), (30.0, 12.0, 0.0), (30.0, 12.0, 30.0),
+        ]
+        block_triangles = [(base, base + 1, base + 2),
+                           (base + 3, base + 4, base + 5)]
+        geometry = make_geometry(vertices,
+                                 plate_triangles + block_triangles)
+        structure = make_structure(
+            {"plate.obj": plate_triangles,
+             "terminal.obj": block_triangles},
+            {"plate.obj": 0.0, "terminal.obj": 0.0})
+        assert object_footprints.structure_ring(
+            structure,
+            {"plate.obj": geometry, "terminal.obj": geometry},
+            [make_placement("plate.obj"),
+             make_placement("terminal.obj")]) is not None

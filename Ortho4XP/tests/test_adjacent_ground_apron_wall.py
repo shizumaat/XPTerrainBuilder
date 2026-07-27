@@ -515,3 +515,41 @@ def test_validator_still_flags_cuts_on_open_frontage(monkeypatch):
     far = _neighbour_pavement(50.0, length_m=200.0)
     findings = _run_validator(monkeypatch, [host, far], dem_offset_m=+20.0)
     assert any(f[0] == "should_cut" for f in findings), findings
+
+
+def test_pavement_block_clips_the_wall_off_groundside():
+    """BUILT-PAVEMENT KEEPOUT (owner defect 2026-07-27, HECA wall
+    #1668): the wall SCOPE counts groundside as the qualifying
+    neighbour, but the clip set excluded it — a wall owed at a 4-5 m
+    apron↔groundside step emitted ON TOP of the groundside surface.
+    ``pavement_block`` now clips it out."""
+    stations, alts, outs = _straight_edge(length_m=100.0)
+    # The wall face occupies y in [3, 4]; groundside pavement covers the
+    # middle 40 m of the frontage (buffered block, as the call site
+    # builds it).
+    groundside = Polygon([(30.0, 2.0), (70.0, 2.0),
+                          (70.0, 6.0), (30.0, 6.0)])
+
+    layout = _FakeLayout()
+    n, union = AG._emit_apron_walls(
+        layout, stations, alts, outs, _apron_ceil_off, STEP,
+        _deep_dem(), None, None,
+        pavement_block=groundside.buffer(1.0))
+    walls = _wall_shapes(layout)
+    assert n == len(walls) == 2, "the run splits around the keepout"
+    for s in walls:
+        assert s.polygon.intersection(groundside).area < 1e-6, (
+            "no wall face may cover the groundside pavement")
+
+
+def test_no_pavement_block_keeps_the_full_run():
+    """``pavement_block=None`` (every airport without groundside near an
+    apron wall) is byte-identical to the pre-fix emission."""
+    stations, alts, outs = _straight_edge(length_m=100.0)
+    layout = _FakeLayout()
+    n, _ = AG._emit_apron_walls(
+        layout, stations, alts, outs, _apron_ceil_off, STEP,
+        _deep_dem(), None, None, pavement_block=None)
+    assert n == 1
+    walls = _wall_shapes(layout)
+    assert len(walls) == 1 and abs(walls[0].polygon.area - 100.0) < 1.0

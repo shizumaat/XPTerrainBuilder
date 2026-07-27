@@ -219,6 +219,8 @@ from .config import OLS_CUT_ENABLED as _OLS_CUT              # noqa: E402
 # byte-identical to the pre-fix march.
 from .config import (                                        # noqa: E402
     BAND_RAY_OCCLUSION_ENABLED as _RAY_OCCLUSION)
+from .config import (                                        # noqa: E402
+    ADJACENT_GROUND_CUT_HALF_CORRIDOR_ENABLED as _CUT_HALF_CORRIDOR)
 # APRON WALL CONTINUITY (2026-07-25 diagnosis — see the config block
 # ``APRON_WALL_CONTINUITY_ENABLED``).  Module-local binding so a test can
 # flip it without re-importing config.  OFF ⇒ ``_emit_apron_walls`` takes
@@ -1664,7 +1666,15 @@ def blend_cross_strip_seam_steps(strip_shapes, layout):
         return a
 
     paired = False
+    # Radius adjacency over ALL pairs (BEFORE the Δ/grade filter) — the
+    # NON-WORSENING guard below needs every near neighbour, including
+    # the ones excluded from clustering precisely because they already
+    # AGREE with a member (Δ < the step floor).
+    nbrs: "defaultdict[int, list]" = defaultdict(list)
     for a, b in zip(left.tolist(), right.tolist()):
+        if a != b:
+            nbrs[a].append(b)
+            nbrs[b].append(a)
         if a >= b:
             continue
         delta = abs(node_value[a] - node_value[b])
@@ -1700,12 +1710,42 @@ def blend_cross_strip_seam_steps(strip_shapes, layout):
         source = anchors if anchors else members
         target = round(
             sum(node_value[m] for m in source) / float(len(source)), 2)
+        member_set = set(members)
         for m in free_nodes:
-            if abs(node_value[m] - target) < 1e-9:
+            # NON-WORSENING GUARD (CYXY tear diagnosis 2026-07-26): the
+            # cluster mean can hoist a node away from a near neighbour
+            # that was EXCLUDED from the cluster because it already
+            # agreed (Δ below the step floor) — the re-level then MINTS
+            # a fresh step under this pass's own law (measured: a
+            # daylight-line node lifted +1.15 m to the bench mean, its
+            # 2.2 m neighbour untouched → 1.25 m tear).  Clamp each move
+            # so it cannot open a new over-floor step against any
+            # radius neighbour left outside the cluster; when the
+            # outside neighbours disagree in both directions, leave the
+            # node where it was.
+            tgt = target
+            lo = hi = None
+            for n in nbrs.get(m, ()):
+                if n in member_set:
+                    continue
+                hi_n = node_value[n] + SEAM_STEP_MIN_DELTA_M - 0.05
+                lo_n = node_value[n] - SEAM_STEP_MIN_DELTA_M + 0.05
+                if hi is None or hi_n < hi:
+                    hi = hi_n
+                if lo is None or lo_n > lo:
+                    lo = lo_n
+            if lo is not None and hi is not None and lo > hi:
                 continue
-            node_value[m] = target
+            if hi is not None and tgt > hi:
+                tgt = hi
+            if lo is not None and tgt < lo:
+                tgt = lo
+            tgt = round(tgt, 2)
+            if abs(node_value[m] - tgt) < 1e-9:
+                continue
+            node_value[m] = tgt
             for (entry_index, position, _a, _x, _y) in logical[m]:
-                entries[entry_index][2][position] = target
+                entries[entry_index][2][position] = tgt
                 changed_entries.add(entry_index)
                 moved += 1
     # Write back ONLY the touched strips — untouched shapes keep their
@@ -3511,6 +3551,25 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
         [f if f > c else c for f, c in zip(fill_caps, cut_caps)],
         step, prep_static, wrap_skirt_prep)
 
+    # ── HALF-CORRIDOR CUT CAP (owner ruling 2026-07-26) ─────────────
+    # Where a station's outward ray is occluded by facing pavement, the
+    # CUT may claim at most HALF the corridor — the facing frontage owns
+    # the other half — so two pavements' cut slabs meet mid-corridor
+    # instead of one marching to the neighbour's edge and ending in a
+    # wall (CYXY shape 337 against taxiway 132).  Implemented by HALVING
+    # the occlusion limit handed to the CUT builder — not by shrinking
+    # ``cut_caps`` — so the builder's scan-break, daylight clamp and
+    # taper row all honour the same half-corridor bound and the
+    # cap-derived zone breakpoints stay as designed (a per-station cap
+    # shrink silently dropped whole-shape zone edges).  ``occlusion`` is
+    # +inf off-corridor and with ray occlusion off, so this is a no-op
+    # there.  CUT only: the FILL mandate is a graded-strip law bounded
+    # by ``width``/A4 and does not steamroll corridors.
+    cut_occ = occlusion
+    if _CUT_HALF_CORRIDOR and occlusion:
+        cut_occ = [o if (o is None or o == float("inf")) else o * 0.5
+                   for o in occlusion]
+
     # Zone-row collectors (order 2): translate the builders' per-run
     # provenance into row dicts with frozen-nearest hosts.  The d0 == 0
     # INNER row is the pavement weld chain — dropped here (pavement
@@ -3597,7 +3656,7 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
         stations, st_alts, outs, cut_caps, ceil_off,
         cut_edges, trigger, step, sample_dem,
         is_ring_vertex, at_seam, zone_collect=_collect_cut,
-        force_full_reach=coverage_grid, occlusion=occlusion)
+        force_full_reach=coverage_grid, occlusion=cut_occ)
     return fill_bands, cut_bands, stations, st_alts, outs
 
 
@@ -5333,6 +5392,35 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                                                    previous_shapes_union]))
                 except _GEOM_EXC:
                     pass
+            # BUILT-PAVEMENT KEEPOUT for the wall face (owner defect
+            # 2026-07-27, HECA wall #1668): the wall SCOPE counts
+            # groundside/service pavement as the qualifying neighbour
+            # (``_WALL_SCOPE_PAVEMENT_ROLES``), but the CLIP set excluded
+            # groundside — so a wall owed at a 4-5 m apron↔groundside
+            # step emitted ON TOP of the groundside surface it steps
+            # down to (93 % of #1668 inside groundside #1135; 17 of 25
+            # HECA verify overlaps were this class).  Scope and clip
+            # must agree: the wall face is clipped out of the buffered
+            # groundside block the strip path already uses, plus the
+            # service pavement footprints.
+            _wall_pav_parts = ([groundside_block]
+                               if groundside_block is not None
+                               and not groundside_block.is_empty else [])
+            _svc_polys = [s.polygon for s in layout.shapes
+                          if s.role in ("service_road", "service_junction")
+                          and s.polygon is not None
+                          and not s.polygon.is_empty]
+            if _svc_polys:
+                try:
+                    _wall_pav_parts.append(
+                        unary_union(_svc_polys).buffer(1.0))
+                except _GEOM_EXC:
+                    pass
+            try:
+                _wall_pav_block = (unary_union(_wall_pav_parts)
+                                   if _wall_pav_parts else None)
+            except _GEOM_EXC:
+                _wall_pav_block = None
             n_wall, wall_union = _emit_apron_walls(
                 layout, stations, st_alts, outs, ceil_off, step,
                 sample_dem, static_union, boundary, wall_clip,
@@ -5340,7 +5428,8 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                 # APRON WALL SCOPE (owner ruling 2026-07-25): a wall only
                 # where another built pavement stands within
                 # ``APRON_WALL_PAVEMENT_ADJACENCY_M``.
-                station_filter=_apron_q)
+                station_filter=_apron_q,
+                pavement_block=_wall_pav_block)
             emitted += n_wall
             if n_wall and wall_union is not None:
                 current_shape_union = wall_union
@@ -5449,7 +5538,7 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
 def _emit_apron_walls(layout, stations, st_alts, outs, ceil_off, step,
                       sample_dem, static_union, boundary,
                       emitted_union=None, emitted_shapes=None,
-                      station_filter=None):
+                      station_filter=None, pavement_block=None):
     """Emit ``retaining_wall`` faces along an apron edge where the DEM
     drops more than ``APRON_EDGE_WALL_MIN_DROP_M`` below the shoulder
     outer-edge altitude (reuses the ``ROLE_RETAINING_WALL`` emit contract
@@ -5558,6 +5647,20 @@ def _emit_apron_walls(layout, stations, st_alts, outs, ceil_off, step,
             cur = []
     if cur:
         runs.append(cur)
+    # RAMP-MOUTH KEEPOUT (owner ruling 2026-07-26): an implied tunnel
+    # under an APRON pierces the apron edge with its ramp corridor — a
+    # wall built across the mouth would seal the tunnel (tunnel ramps
+    # are not pavement, so the adjacency scope alone cannot see them).
+    # Walls never cover ground a tunnel ramp owns.
+    try:
+        _ramp_block = unary_union(
+            [s.polygon.buffer(1.0) for s in layout.shapes
+             if s.role == ROLE_TUNNEL_RAMP
+             and s.polygon is not None and not s.polygon.is_empty])
+        if _ramp_block.is_empty:
+            _ramp_block = None
+    except _GEOM_EXC:
+        _ramp_block = None
     emitted = 0
     n_confetti = 0
     n_multipart_parts = 0
@@ -5584,6 +5687,14 @@ def _emit_apron_walls(layout, stations, st_alts, outs, ceil_off, step,
                 poly = poly.buffer(0)
             if static_union is not None and not static_union.is_empty:
                 poly = poly.difference(static_union)
+            if _ramp_block is not None:
+                poly = poly.difference(_ramp_block)
+            if (pavement_block is not None
+                    and not pavement_block.is_empty):
+                # Groundside/service keepout (owner defect 2026-07-27,
+                # HECA #1668) — see the call site: the wall steps DOWN
+                # TO that pavement; it must never cover it.
+                poly = poly.difference(pavement_block)
             # Clip the wall out of the just-emitted graded strips'
             # footprint EXACTLY (weld ruling 2026-07-09): a shared
             # boundary welds at shared coordinates; a standoff would
@@ -5632,8 +5743,20 @@ def _emit_apron_walls(layout, stations, st_alts, outs, ceil_off, step,
             pr = _open_coords(part)
             if len(pr) < 3:
                 continue
-            walts = [round(float(_nearest_alt(
-                ring, alts, vx, vy)), 1) for vx, vy in pr]
+            # ROW-AWARE clip-vertex valuation (owner defect 2026-07-26,
+            # KCLT wall #1070 → strip #1046 tear): the wall face is
+            # ``_PAVEMENT_GAP_M`` (1 m) thin, so a plain nearest-vertex
+            # read across the merged ring let a TOP-row clip vertex
+            # adopt the BOTTOM row's DEM value whenever the run-end
+            # geometry put a bottom vertex closer than the next top
+            # station (measured 210.3 claimed at a 215.3 top corner;
+            # the soft consensus mean then dragged the shared strip
+            # node to 211.98 — a 3.4 m mid-air tear).  Project onto
+            # each ROW's polyline, take the nearer row, interpolate
+            # ALONG it.
+            walts = [round(float(_wall_row_alt(
+                top_pts, top_alts, bot_pts, bot_alts, ring, alts,
+                vx, vy)), 1) for vx, vy in pr]
             wall_shape = BuiltShape(
                 polygon=part, role=ROLE_RETAINING_WALL,
                 ref=_ADJACENT_WALL_REF,
@@ -5655,6 +5778,42 @@ def _emit_apron_walls(layout, stations, st_alts, outs, ceil_off, step,
                      f"skipped (<{APRON_WALL_MIN_RUN_M:g} m run / "
                      f"<{APRON_WALL_MIN_AREA_M2:g} m2).")
     return emitted, emitted_union
+
+
+def _wall_row_alt(top_pts, top_alts, bot_pts, bot_alts, ring, alts,
+                  vx, vy):
+    """Row-aware altitude for one apron-wall clip vertex — see the call
+    site in ``_emit_apron_walls``.  Falls back to the legacy merged-ring
+    nearest-vertex read when the rows are degenerate."""
+    best_d = None
+    best_v = None
+    p = Point(vx, vy)
+    for pts, alts_row in ((top_pts, top_alts), (bot_pts, bot_alts)):
+        if len(pts) < 2 or len(alts_row) != len(pts):
+            continue
+        try:
+            ls = LineString(pts)
+            d = ls.distance(p)
+            s = ls.project(p)
+        except _GEOM_EXC:
+            continue
+        if best_d is not None and d >= best_d:
+            continue
+        acc = 0.0
+        val = alts_row[-1]
+        for k in range(len(pts) - 1):
+            seg = math.hypot(pts[k + 1][0] - pts[k][0],
+                             pts[k + 1][1] - pts[k][1])
+            if s <= acc + seg or k == len(pts) - 2:
+                f = (0.0 if seg <= 1e-9
+                     else max(0.0, min(1.0, (s - acc) / seg)))
+                val = alts_row[k] + f * (alts_row[k + 1] - alts_row[k])
+                break
+            acc += seg
+        best_d, best_v = d, val
+    if best_v is None:
+        return _nearest_alt(ring, alts, vx, vy)
+    return best_v
 
 
 def _wall_part_run_length(poly):

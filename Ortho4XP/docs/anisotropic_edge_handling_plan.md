@@ -39,7 +39,7 @@ phase has an explicit **Done-when** checklist with verification commands. Verify
 everything with:
 
 ```
-cd /Users/noah/Ortho4XP-novemberlima
+cd /Users/noah/XPTerrainBuilder/Ortho4XP
 PYTHONHASHSEED=0 PYTHONPATH=src:.:tests venv/bin/python ...
 ```
 

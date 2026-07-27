@@ -28,7 +28,7 @@ echo " "
 # proj + gdal also power the optional airport elevation insets
 # (meter-class lidar over airports); if the python bindings are missing
 # that feature logs one line and disables itself — builds still work.
-brew install python python-tk spatialindex p7zip proj gdal
+brew install python spatialindex p7zip proj gdal
 
 # Create a Python virtual environment
 python3 -m venv venv

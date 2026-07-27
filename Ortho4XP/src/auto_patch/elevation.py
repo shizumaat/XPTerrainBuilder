@@ -351,6 +351,33 @@ def _load_airport_dem(lat0: float, lon0: float, override_dem=None):
         )
         _DEM_CACHE[key] = None
         return None
+    # ALL-ZERO GUARD (measurement trap, 2026-07-27): with the base
+    # raster ABSENT from this checkout's Elevation_data (present only in
+    # another data root), the compose path can hand back a surface that
+    # samples 0.0 EVERYWHERE — and a whole standalone airport build then
+    # "succeeds", quietly grading every shape down its reach floor
+    # toward a zero-elevation world (KCLT's end-around taxiway measured
+    # 85 m below the runway end; two independent probes reported the
+    # garbage as real geometry before the mechanism was found).  A DEM
+    # that is identically zero over the airport neighbourhood is never
+    # real data — refuse it loudly.
+    try:
+        import numpy as _np
+        _arr = getattr(dem, "alt_dem", None)
+        if _arr is not None and _arr.size and not _np.any(_arr):
+            UI.vprint(
+                0,
+                f"  [pav-builder] ERROR: standalone DEM for {fname} is "
+                "IDENTICALLY ZERO — the base raster is missing from this "
+                "checkout's Elevation_data (and no provider fetch "
+                "replaced it).  Refusing the surface: elevations built "
+                "on it are garbage.  Copy the tile's .hgt into "
+                "Elevation_data or set the data root.",
+            )
+            _DEM_CACHE[key] = None
+            return None
+    except Exception:                              # pragma: no cover
+        pass
     _DEM_CACHE[key] = dem
     return dem
 

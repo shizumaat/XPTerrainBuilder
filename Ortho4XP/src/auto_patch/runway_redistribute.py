@@ -345,10 +345,21 @@ def _find_edge_boundary_crossings(
         tile_lat: int,
         tile_lon: int,
         step_m: float = 0.0,
-        cutback_m: float = 0.0) -> List[Tuple[float, float]]:
+        cutback_m: float = 0.0,
+        collapse_per_line: bool = False) -> List[Tuple[float, float]]:
     """Sample DEM along the runway's CONTACT with each integer lat/lon
     line (user 2026-07-04, SPLP west edge; densified by the owner ruling
     2026-07-24).
+
+    ``collapse_per_line`` (owner ruling 2026-07-26,
+    ``config.RUNWAY_SEAM_PROFILE_COLLAPSE``): return ONE sample per
+    boundary line — at the CENTERLINE crossing, valued at that point's
+    own DEM — instead of the full lateral contact walk.  The 1-DOF
+    longitudinal profile cannot hold a cross-runway slope; folding the
+    laterally-spread contact DEMs onto station produced the SPLP seam
+    wobble (0.4→3.1 % spans against a 1.41 % design grade).  The
+    cut-back RING stations keep their own 10 m DEM pins regardless —
+    this flag only decides what enters the profile.
 
     The tile cut leaves a ~10 m unpaved strip at the boundary whose
     mesh spans the two patch edges — so the runway's VISIBLE terrain
@@ -434,6 +445,51 @@ def _find_edge_boundary_crossings(
             lines.append(_LS([(p0[0] + off, p0[1]), (p1[0] + off, p1[1])]))
 
     crossings: List[Tuple[float, float]] = []
+    if collapse_per_line:
+        # ONE profile anchor per line: the centerline crossing, at its
+        # own DEM.  Falls back to the midpoint of the line's pavement
+        # contact when the centerline itself misses the line (a corner
+        # clip) — still a single, laterally-unbiased station.
+        axis_ls = _LS([(ax_a_x, ax_a_y), (ax_b_x, ax_b_y)])
+        for line in lines:
+            try:
+                cross = axis_ls.intersection(line)
+            except _GEOM_EXC:
+                continue
+            cand = None
+            if not cross.is_empty and cross.geom_type == "Point":
+                cand = (cross.x, cross.y)
+            else:
+                try:
+                    inter = union.intersection(line)
+                except _GEOM_EXC:
+                    continue
+                if inter.is_empty:
+                    continue
+                pts = []
+                parts = ([inter] if inter.geom_type == "LineString"
+                         else list(getattr(inter, "geoms", ())))
+                for part in parts:
+                    coords = list(getattr(part, "coords", ()))
+                    if coords:
+                        pts.extend([coords[0], coords[-1]])
+                if len(pts) < 2:
+                    continue
+                pts.sort(key=lambda c: (c[0], c[1]))
+                cand = ((pts[0][0] + pts[-1][0]) / 2.0,
+                        (pts[0][1] + pts[-1][1]) / 2.0)
+            if cand is None:
+                continue
+            t = ((cand[0] - ax_a_x) * ax_dx
+                 + (cand[1] - ax_a_y) * ax_dy) / ax_len2
+            if not (0.001 < t < 0.999):
+                continue
+            lat_c, lon_c = layout.m_to_ll(cand[0], cand[1])
+            v = _sample(lat_c, lon_c)
+            if v is not None:
+                crossings.append((t, v))
+        crossings.sort(key=lambda c: c[0])
+        return crossings
     for line in lines:
         try:
             inter = union.intersection(line)
@@ -906,6 +962,7 @@ def redistribute_runway_profile(
         seam_rejects: List[Tuple[float, float, float]] = []
         seam_samples: List[Tuple[float, float]] = []
         if os.environ.get("O4_RUNWAY_SEAM_EDGE_ANCHORS", "1") == "1":
+            from .config import RUNWAY_SEAM_PROFILE_COLLAPSE
             edge_samples = _find_edge_boundary_crossings(
                 layout, shapes,
                 state['phys_end_a_ll'], state['phys_end_b_ll'],
@@ -913,7 +970,8 @@ def redistribute_runway_profile(
                 step_m=(RUNWAY_SEAM_CONTACT_STEP_M
                         if RUNWAY_SEAM_CONTACT_ANCHORS else 0.0),
                 cutback_m=(TILE_CUT_HALF_WIDTH_M
-                           if RUNWAY_SEAM_CONTACT_ANCHORS else 0.0))
+                           if RUNWAY_SEAM_CONTACT_ANCHORS else 0.0),
+                collapse_per_line=RUNWAY_SEAM_PROFILE_COLLAPSE)
             if RUNWAY_SEAM_CONTACT_ANCHORS:
                 seam_samples, seam_rejects = _select_feasible_seam_anchors(
                     edge_samples, phys_dist)

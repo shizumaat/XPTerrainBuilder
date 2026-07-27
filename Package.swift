@@ -23,10 +23,6 @@ let package = Package(
             resources: [.copy("Resources/land.json"), .copy("Resources/land50.json"),
                         .copy("Resources/VERSION")]
         ),
-        .executableTarget(
-            name: "xptb-cli",
-            dependencies: ["SceneryKit"]
-        ),
         .testTarget(
             name: "SceneryKitTests",
             dependencies: ["SceneryKit"],

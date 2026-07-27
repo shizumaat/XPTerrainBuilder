@@ -130,16 +130,36 @@ def test_cyxy_taxi_e_south_apron_follows_terrain():
     _nodes, b2i = _build_node_list(layout)
     G = GG.build_unified_graph(layout, b2i)
     band = reach_band_unified(layout, G)
-    ceilings = []
+    # PER-VERTEX pairing (fixed 2026-07-26): the old formula took
+    # ``max(ceiling)`` over one vertex set and compared it against
+    # ``max(alt)`` over another — the ceiling max landed on a vertex
+    # whose own terrain was metres LOWER (ceiling 710.7 where DEM is
+    # only 706.1), so the requirement was unattainable by construction.
+    # The lawful bound at a vertex is ``min(ceiling(v), DEM(v))``; the
+    # region bound is its max over vertices.
+    from auto_patch.elevation import _load_airport_dem, _sample_dem
+    lat0, lon0 = layout.anchor
+    dem = _load_airport_dem(lat0, lon0)
+    tile_lat, tile_lon = int(lat0 // 1), int(lon0 // 1)
+
+    def _dem_at(x, y):
+        if dem is None:
+            return None
+        la, lo = layout.m_to_ll(x, y)
+        return _sample_dem(dem, tile_lat, tile_lon, la, lo)
+
+    bounds = []
     for s in candidates:
         for (x, y) in s.polygon.exterior.coords:
             if not (bbox[0] <= x <= bbox[1] and bbox[2] <= y <= bbox[3]):
                 continue
             fb = band(x, y)
-            if fb is not None:
-                ceilings.append(fb[1])
-    assert ceilings, "CYXY: reach band returned no ceiling in the SW bbox"
-    region_ceiling = max(ceilings)
+            if fb is None:
+                continue
+            dd = _dem_at(x, y)
+            bounds.append(fb[1] if dd is None else min(fb[1], float(dd)))
+    assert bounds, "CYXY: reach band returned no ceiling in the SW bbox"
+    region_ceiling = max(bounds)
 
     DEM_TRUTH_TARGET_M = 714.0          # user 2026-05-02, DEM ~715-718 here
     REQUIRED_M = min(DEM_TRUTH_TARGET_M, region_ceiling)

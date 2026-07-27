@@ -8,7 +8,7 @@ Usage: venv/bin/python connector_coverage_probe.py ICAO
 import os, sys, math
 
 os.environ.setdefault("O4_LOG_VERBOSITY", "0")
-ROOT = "/Users/noah/Ortho4XP-novemberlima"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 for p in (ROOT + "/src", ROOT, ROOT + "/tests", ROOT + "/tools"):
     if p not in sys.path:
         sys.path.insert(0, p)

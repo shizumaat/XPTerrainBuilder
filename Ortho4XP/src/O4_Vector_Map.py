@@ -129,21 +129,123 @@ def small_roads_queries(road_level):
     return queries
 
 
+def resolved_road_level(tile):
+    """``(numeric_level, auto)`` for the tile's ``road_level`` setting.
+
+    "auto" (the default since 2026-07-27, owner ruling — same pattern as
+    the elevation/imagery auto modes) means: level 1 tile-wide (major
+    roads + railways) PLUS full level-5 roads and rails inside each
+    airport's elevation-inset neighbourhood (see ``build_roads``).
+    Numeric strings and legacy ints resolve to the historical tile-wide
+    levels.  Unparseable values read as "auto" rather than crashing a
+    build over a config typo."""
+    raw = getattr(tile, "road_level", "auto")
+    if isinstance(raw, str) and raw.strip().lower() == "auto":
+        return 1, True
+    try:
+        return int(raw), False
+    except (TypeError, ValueError):
+        return 1, True
+
+
+# Rail classes added on top of ``small_roads_queries(5)`` inside the
+# airport-inset regions in auto mode: the tile-wide big_roads layer
+# already levels ``rail``/``narrow_gauge`` mainlines, but airport rail
+# yards, sidings and people-mover lines are none of those.
+AUTO_AIRPORT_RAIL_QUERIES = [
+    'way["railway"="siding"]',
+    'way["railway"="spur"]',
+    'way["railway"="yard"]',
+    'way["railway"="tram"]',
+    'way["railway"="light_rail"]',
+]
+
+
+def _airport_auto_roads_layer(tile):
+    """The auto-road-mode OSM layer: level-5 road classes + airport rail
+    classes fetched ONLY inside the airport elevation-inset bounding
+    boxes (read from the inset GeoTIFF json sidecars), merged into one
+    per-tile cache (``airport_small_roads``).  Returns ``None`` when the
+    tile has no cached insets (feature off, no airports) or every bbox
+    query failed — the caller then simply keeps the level-1 behaviour."""
+    import json as _json
+
+    import O4_Airport_Elevation_Insets as INSETS
+
+    try:
+        inset_paths = INSETS.list_cached_inset_dems(tile.lat, tile.lon)
+    except Exception:
+        inset_paths = []
+    boxes = []
+    for tif_path in inset_paths:
+        sidecar = os.path.splitext(tif_path)[0] + ".json"
+        try:
+            with open(sidecar, "r", encoding="utf-8") as handle:
+                meta = _json.load(handle)
+            lon_min, lat_min, lon_max, lat_max = meta["bounding_box_wgs84"]
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        boxes.append((lat_min, lon_min, lat_max, lon_max))
+    if not boxes:
+        return None
+    queries = small_roads_queries(5) + AUTO_AIRPORT_RAIL_QUERIES
+    # target/input tag dicts exactly as ``OSM_query_to_OSM_layer``
+    # derives them from (queries, tags_of_interest) — needed for the
+    # merged-cache recycle path, which that function cannot serve
+    # (it caches per call, we cache per tile across all boxes).
+    target_tags = {"n": [], "w": [], "r": []}
+    input_tags = {"n": [], "w": [], "r": []}
+    for q in queries:
+        items = q.split('"')
+        osm_type = items[0][0]
+        target_tags[osm_type].append((items[1], items[3]))
+        input_tags[osm_type].append((items[1], items[3]))
+        for tag in ROADS_TAGS_OF_INTEREST:
+            target_tags[osm_type].append((tag, ""))
+    layer = OSM.OSM_layer()
+    cache_path = FNAMES.osm_cached(tile.lat, tile.lon,
+                                   "airport_small_roads")
+    if os.path.isfile(cache_path):
+        UI.vprint(1, "    * Recycling airport-area road data from",
+                  cache_path)
+        layer.update_dicosm(cache_path, input_tags, target_tags)
+        return layer
+    got_any = False
+    for bbox in boxes:
+        if OSM.OSM_query_to_OSM_layer(
+                queries, bbox, layer,
+                tags_of_interest=ROADS_TAGS_OF_INTEREST):
+            got_any = True
+        if UI.red_flag:
+            return None
+    if not got_any:
+        return None
+    try:
+        layer.write_to_file(cache_path)
+    except OSError:
+        pass
+    return layer
+
+
 def _osm_layer_prefetch_specifications(tile):
     """Every OSM layer this tile build will download besides the airports
     layer, in download order, honouring the same conditions the encoders
     apply (road_level gates; custom coastline/water data replaces the
     Overpass download entirely)."""
     specifications = []
-    if tile.road_level:
+    _road_level, _road_auto = resolved_road_level(tile)
+    if _road_level:
         specifications.append(
             ("big_roads", BIG_ROADS_QUERIES, ROADS_TAGS_OF_INTEREST,
              ROAD_NODE_TAGS_OF_INTEREST, ROAD_CACHE_TAG_SCHEMA))
-    if tile.road_level >= 2:
+    if _road_level >= 2:
         specifications.append(
-            ("small_roads", small_roads_queries(tile.road_level),
+            ("small_roads", small_roads_queries(_road_level),
              ROADS_TAGS_OF_INTEREST,
              ROAD_NODE_TAGS_OF_INTEREST, ROAD_CACHE_TAG_SCHEMA))
+    # Auto mode's per-airport-inset road fetch uses bbox queries with its
+    # own merged cache (``airport_small_roads``) — not a tile-wide layer,
+    # so it has no prefetch specification here.
     if not (os.path.isfile(FNAMES.custom_coastline(tile.lat, tile.lon))
             or os.path.isdir(FNAMES.custom_coastline_dir(tile.lat,
                                                          tile.lon))):
@@ -295,7 +397,7 @@ def build_poly_file(tile):
 
     # Roads
     include_roads(vector_map, tile, apt_array, apt_area)
-    if tile.road_level:
+    if resolved_road_level(tile)[0]:
         UI.vprint(
             1, "   Number of edges at this point:", len(vector_map.dico_edges)
         )
@@ -687,7 +789,8 @@ def include_roads(vector_map, tile, apt_array, apt_area):
     def alt_vec_shift(way):
         return tile.dem.alt_vec(VECT.shift_way(way, tile.lane_width))
 
-    if not tile.road_level:
+    road_level, road_auto = resolved_road_level(tile)
+    if not road_level:
         return
     UI.vprint(0, "-> Dealing with roads")
     wait_for_background_osm_prefetch()
@@ -717,10 +820,10 @@ def include_roads(vector_map, tile, apt_array, apt_area):
     )
     if UI.red_flag:
         return 0
-    if tile.road_level >= 2:
+    if road_level >= 2:
         road_layer = OSM.OSM_layer()
         if not OSM.OSM_queries_to_OSM_layer(
-            small_roads_queries(tile.road_level),
+            small_roads_queries(road_level),
             road_layer,
             tile.lat,
             tile.lon,
@@ -746,6 +849,31 @@ def include_roads(vector_map, tile, apt_array, apt_area):
         road_network_banked = geometry.MultiLineString(
             list(road_network_banked.geoms) + list(road_network_banked_2.geoms)
         )
+    if road_auto:
+        # AUTO MODE (owner ruling 2026-07-27): level-5 roads + airport
+        # rail classes, fetched ONLY inside each airport's elevation-
+        # inset bounding box (bbox Overpass queries, one merged per-tile
+        # cache), then levelled through the identical banked-check +
+        # buffer + INTERP_ALT encoding as every other road.  The
+        # existing ``apt_area`` subtraction below still keeps them out
+        # of the flattened airport polygons themselves — auto_patch
+        # owns that ground.
+        auto_layer = _airport_auto_roads_layer(tile)
+        if auto_layer is not None:
+            UI.vprint(1, "    * Checking which airport-area roads need "
+                         "leveling (auto road mode).")
+            (road_network_banked_3, _flat_3) = OSM.OSM_to_MultiLineString(
+                auto_layer,
+                tile.lat,
+                tile.lon,
+                tags_for_exclusion,
+                road_is_too_much_banked,
+            )
+            if not road_network_banked_3.is_empty:
+                road_network_banked = geometry.MultiLineString(
+                    list(road_network_banked.geoms)
+                    + list(road_network_banked_3.geoms)
+                )
     if not road_network_banked.is_empty:
         UI.vprint(1, "    * Buffering banked road network as multipolygon.")
         timer = time.time()
@@ -1012,27 +1140,14 @@ def include_water(vector_map, tile):
             cache_schema=WATER_CACHE_TAG_SCHEMA,
         ):
             return 0
-    # Airport-inset water supplement (additive, never a replacement):
-    # hydro-flat basins detected in the lidar insets — standing water
-    # OpenStreetMap does not carry (the KBNA wastewater ponds).  The
-    # supplement joins whichever base layer loaded above (custom or
-    # Overpass) and flows through the normal WATER seed + smoothing.
-    if getattr(tile, "airport_inset_water", True):
-        import O4_Airport_Elevation_Insets as INSETS
-
-        if INSETS.insets_enabled_for_tile(tile):
-            inset_water_path = INSETS.ensure_inset_water_supplement(
-                tile.lat, tile.lon
-            )
-            if inset_water_path:
-                UI.vprint(
-                    1,
-                    "    * Airport-inset water supplement merged "
-                    "(hydro-flat basins from the elevation insets).",
-                )
-                water_layer.update_dicosm(
-                    inset_water_path, input_tags=None, target_tags=None
-                )
+    # Airport-inset water supplement — RETIRED (owner ruling 2026-07-26).
+    # The hydro-flat basin scan (O4_Airport_Elevation_Insets.
+    # ensure_inset_water_supplement) re-read every cached lidar inset in
+    # the tile whenever any one raster changed (~11 min on +35-081 for
+    # 658 farm ponds) and never fixed the KBNA case it was built for.
+    # Water comes from OpenStreetMap / custom data only; the
+    # ``airport_inset_water`` cfg var is retired and ignored here
+    # regardless of its saved value.
     UI.vprint(1, "    * Building water multipolygon.")
     (water_area, sea_equiv_area) = OSM.OSM_to_MultiPolygon(
         water_layer, tile.lat, tile.lon, filter_large_lakes

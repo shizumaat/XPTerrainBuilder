@@ -5,18 +5,6 @@ import os
 
 private let buildLog = Logger(subsystem: "com.novemberlima.XPTerrainBuilder", category: "build")
 
-/// Main-window mode: the doctor (Manage) or the Ortho4XP front-end (Build).
-enum AppMode: String, CaseIterable {
-    case manage, build
-
-    var label: String {
-        switch self {
-        case .manage: return "Manage"
-        case .build: return "Build"
-        }
-    }
-}
-
 /// One tile's live build progress — the Qt map badge / activity row model.
 /// state mirrors the protocol's TileState vocabulary exactly.
 struct TileProgress: Equatable {
@@ -147,11 +135,6 @@ final class BuildModel: ObservableObject {
     @AppStorage("OrthoSkipBuilt") var skipBuilt: Bool = true
     /// Install finished tiles into Custom Scenery automatically.
     @AppStorage("OrthoLinkTiles") var linkTiles: Bool = true
-
-    /// Manage (the scenery doctor) is disabled for now — the app always
-    /// runs the Build front-end. The Manage panes and their models stay in
-    /// the codebase for when it returns.
-    var mode: AppMode { .build }
 
     // MARK: Engine state
 
@@ -348,7 +331,7 @@ final class BuildModel: ObservableObject {
         reloadGlobalConfig()
         seedPathsFromXPlane()
         if !usesProtocol { refreshTileStatesLegacy() }
-        if mode == .build { connectIfNeeded() }
+        connectIfNeeded()
 
         Task { [weak self] in
             let (missing, extracted) = await Task.detached(priority: .utility) {

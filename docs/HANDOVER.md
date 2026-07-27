@@ -1,4 +1,8 @@
 # XPSceneryDoctor — Session Handover
+> **⚠ RETIRED PROJECT DOC (pre-2026-07-20 vendoring).** This describes the old
+> XPSceneryDoctor app: the file map, bundle id, and CLI names are obsolete
+> (`Sources/XPSceneryDoctor/` → `Sources/XPTerrainBuilder/`, `xpdoctor-cli` →
+> `xptb-cli`). The numbered correctness-lore items remain valid.
 
 Last updated: 2026-07-07 (post-`a83bc0a` session). Repo: https://github.com/shizumaat/XPSceneryDoctor (private).
 

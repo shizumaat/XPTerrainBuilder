@@ -128,8 +128,11 @@ OFFSET_AGREEMENT_TOLERANCE_METRES = 1e-9
 # RUN_RECORD_VERSION history: 2 -> 3 (2026-07-26) for defect B — the
 # smallest containing supporter changes WHICH structure an inheritor
 # seats on, and hence its offset and its fate, with no input file
-# touched.
-RUN_RECORD_VERSION = 3
+# touched.  3 -> 4 (2026-07-27) for per-cluster seating: the record
+# gained the cluster pad requests, the tear-audit seams and the cluster
+# counts, and a record written before them cannot answer for a run that
+# has them.
+RUN_RECORD_VERSION = 4
 RUN_RECORDS_KEY = "runs"
 
 # The configuration gates whose values change what Phase 2 decides.
@@ -151,6 +154,16 @@ _GATE_NAMES = (
     # WHICH containing structure an inheritor takes its ground (and,
     # with supporter fate, its outcome) from.
     "DSF_OBJECT_SUPPORTER_SMALLEST",
+    # Per-cluster seating (O4_OBJECT_CLUSTER_SEATING and its tolerance,
+    # docs/specs/per-cluster-object-seating-spec.md section 3.5): the
+    # gate and T decide WHICH rigid bodies exist and hence every seat,
+    # fate and pad request, with no input file touched — so flipping
+    # either must force a full re-derive instead of a stale
+    # short-circuit.  The pad relief cap changes which requests are
+    # flagged over-cap, which is recorded in the run record too.
+    "DSF_OBJECT_CLUSTER_SEATING",
+    "DSF_OBJECT_CLUSTER_SEAT_TOLERANCE_M",
+    "DSF_OBJECT_PAD_MAX_RELIEF_M",
     "DSF_OBJECT_PAD_FLAG_SPAN_M",
     "DSF_OBJECT_MAX_STRUCTURE_SPAN_M",
     "DSF_OBJECT_MIN_BUILDING_HEIGHT_M",
@@ -422,6 +435,9 @@ def build_run_record(
     structures_baked: int,
     structures_needing_pad: int,
     foot_pad_requests: list,
+    cluster_pad_requests: list | None = None,
+    cluster_seams: list | None = None,
+    cluster_counts: dict | None = None,
 ) -> dict:
     """Fingerprint everything the just-finished full run read.
 
@@ -470,6 +486,42 @@ def build_run_record(
             }
             for request in foot_pad_requests
         ],
+        # Per-cluster seating (spec section 3.5: reporting only — the
+        # fingerprint match logic above is untouched).  The pad requests
+        # are rebuilt on a short-circuited run so the per-tile sidecar
+        # stays correct; the seams and counts are the tear audit's
+        # durable trail, so the reader never re-derives geometry.
+        "cluster_pad_requests": [
+            {
+                "structure_index": request.structure_index,
+                "cluster_id": request.cluster_id,
+                "resource_path": request.resource_path,
+                "latitude": request.latitude,
+                "longitude": request.longitude,
+                "base_y": request.base_y,
+                "residual_metres": request.residual_metres,
+                "target_ground_metres": request.target_ground_metres,
+                "part_count": request.part_count,
+                "over_relief_cap": request.over_relief_cap,
+                "contact_points_lonlat": [
+                    list(point) for point in request.contact_points_lonlat
+                ],
+            }
+            for request in (cluster_pad_requests or ())
+        ],
+        "cluster_seams": [
+            {
+                "kind": seam.kind,
+                "structure_index": seam.structure_index,
+                "cluster_id": seam.cluster_id,
+                "other_cluster_id": seam.other_cluster_id,
+                "seam_metres": seam.seam_metres,
+                "ground_step_metres": seam.ground_step_metres,
+                "part_count": seam.part_count,
+            }
+            for seam in (cluster_seams or ())
+        ],
+        "cluster_counts": dict(cluster_counts or {}),
     }
 
 
@@ -597,6 +649,32 @@ def run_record_foot_pad_requests(record: dict) -> list:
             ),
         )
         for entry in record.get("foot_pad_requests", ())
+    ]
+
+
+def run_record_cluster_pad_requests(record: dict) -> list:
+    """Rebuild the ``ClusterPadRequest`` list a short-circuited run would
+    have produced, so the per-tile pad sidecar stays correct (the
+    ``FootPadRequest`` sibling above)."""
+    from .object_anchor import ClusterPadRequest
+
+    return [
+        ClusterPadRequest(
+            structure_index=entry["structure_index"],
+            cluster_id=entry["cluster_id"],
+            resource_path=entry["resource_path"],
+            latitude=entry["latitude"],
+            longitude=entry["longitude"],
+            base_y=entry["base_y"],
+            residual_metres=entry["residual_metres"],
+            target_ground_metres=entry["target_ground_metres"],
+            contact_points_lonlat=tuple(
+                tuple(point) for point in entry["contact_points_lonlat"]
+            ),
+            part_count=entry.get("part_count", 1),
+            over_relief_cap=entry.get("over_relief_cap", False),
+        )
+        for entry in record.get("cluster_pad_requests", ())
     ]
 
 

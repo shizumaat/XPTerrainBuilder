@@ -1,0 +1,160 @@
+{
+  "_doc": "Hand-verified producer -> artifact -> consumer table for FILESYSTEM couplings that the import graph cannot see: one module writes a file, another reads it back, and nothing in either AST names the other. Every writer/reader below was confirmed at a real I/O call site (open/write_text/json.dump/tofile/pickle/os.replace) or at a path helper whose result is passed to one; the `evidence` field records the file:line that was read. A mention in a comment or docstring is NOT evidence and was dropped. `writers`/`readers` are repo-relative paths and are what blast.py renders as WRITES ARTIFACT / READS ARTIFACT lines. Modules that only consume the SERVED RESULT of a reader function (e.g. pipeline.py calling dsf_reader.read_dsf_object_pavements) are deliberately excluded: that coupling is a plain import edge and is already covered by the AST index. Verified 2026-07-26 against 5eecc3f; re-verify after any move of the reader/writer modules.",
+  "rows": [
+    {
+      "pattern": "Patches/<tile>/<ICAO>_auto.patch.osm",
+      "note": "The auto-patch vector layer. layout.to_osm writes it atomically; O4_Vector_Map merges it into the tile's OSM dicos at build time, and driver re-reads its header to decide whether the patch is stale. production_airport_patch only stats/removes it (weak edge).",
+      "writers": [
+        "Ortho4XP/src/auto_patch/layout.py",
+        "Ortho4XP/src/auto_patch/driver.py"
+      ],
+      "readers": [
+        "Ortho4XP/src/O4_Vector_Map.py",
+        "Ortho4XP/src/auto_patch/driver.py",
+        "Ortho4XP/tools/wedge_audit.py",
+        "Ortho4XP/tools/production_airport_patch.py"
+      ],
+      "evidence": [
+        "W Ortho4XP/src/auto_patch/layout.py:2356  tmp_file.write(text)  (_atomic_write_text, called from to_osm at :2201)",
+        "W Ortho4XP/src/auto_patch/driver.py:1063  patch_dir, \"{}_auto.patch.osm\".format(icao)  (name construction; to_osm call at :632)",
+        "R Ortho4XP/src/O4_Vector_Map.py:1158  auto_patches = [f for f in all_patch_files if \"_auto.patch.osm\" in f]  -> :1210 passed to patch_layer.update_dicosm",
+        "R Ortho4XP/src/auto_patch/driver.py:245  meta = read_patch_source(auto_patch_file)  -> layout.py:2390 open(path, \"r\")",
+        "R Ortho4XP/tools/wedge_audit.py:100  p = f\"{base}/{a}_auto.patch.osm\"  -> :12 ET.parse(path)",
+        "R Ortho4XP/tools/production_airport_patch.py:57-59  FNAMES.patch_dir(...)/f\"{icao}_auto.patch.osm\"; os.path.isfile / os.remove"
+      ]
+    },
+    {
+      "pattern": "Patches/<tile>/<ICAO>_auto.patch.osm.axes.json",
+      "note": "Runway-axis sidecar written next to the patch. The write is best-effort (bare except: pass), so a missing sidecar is normal -- check_grade guards with .exists(), flex_audit does NOT and will raise.",
+      "writers": [
+        "Ortho4XP/src/auto_patch/layout.py"
+      ],
+      "readers": [
+        "Ortho4XP/tools/check_grade.py",
+        "Ortho4XP/tools/flex_audit.py"
+      ],
+      "evidence": [
+        "W Ortho4XP/src/auto_patch/layout.py:2303  Path(str(path) + \".axes.json\").write_text(_json.dumps(data))  (_write_axes_sidecar, called from to_osm at :2202)",
+        "R Ortho4XP/tools/check_grade.py:2468-2472  sidecar = Path(str(args.osm) + \".axes.json\") ... _json.loads(sidecar.read_text())",
+        "R Ortho4XP/tools/flex_audit.py:92  sidecar = json.load(open(on_path + \".axes.json\"))"
+      ]
+    },
+    {
+      "pattern": "<pack root>/.o4_reanchor_provenance.json",
+      "note": "Object-rebake provenance at the scenery pack root. tools/reanchor_kclt_terminal_bakes.py is a SECOND independent writer that hardcodes the filename instead of importing object_rebake.PROVENANCE_FILENAME, and writes a flat schema the library then normalises (_normalise_provenance, object_rebake.py:241) -- a duplicated-constant coupling.",
+      "writers": [
+        "Ortho4XP/src/auto_patch/object_rebake.py",
+        "Ortho4XP/tools/reanchor_kclt_terminal_bakes.py"
+      ],
+      "readers": [
+        "Ortho4XP/src/auto_patch/object_rebake.py",
+        "Ortho4XP/tools/reanchor_kclt_terminal_bakes.py",
+        "Ortho4XP/tests/test_post_mesh.py"
+      ],
+      "evidence": [
+        "W Ortho4XP/src/auto_patch/object_rebake.py:68  PROVENANCE_FILENAME = \".o4_reanchor_provenance.json\"  -> :228 os.path.join(pack_root, PROVENANCE_FILENAME)",
+        "W Ortho4XP/src/auto_patch/object_rebake.py:484-485 and :1230-1231  open(path, \"w\") / json.dump(provenance, handle, indent=2)",
+        "W Ortho4XP/tools/reanchor_kclt_terminal_bakes.py:520-521  open(PROVENANCE_PATH, \"w\") / json.dump(...)  (literal at :163)",
+        "R Ortho4XP/src/auto_patch/object_rebake.py:283 (_load_provenance) and :1281 (mesh-freshness check)  open(sidecar_path)",
+        "R Ortho4XP/tools/reanchor_kclt_terminal_bakes.py:180  open(PROVENANCE_PATH)  (os.remove at :224)",
+        "R Ortho4XP/tests/test_post_mesh.py:1332-1333, :1521, :1583  open(os.path.join(pack_root, \".o4_reanchor_provenance.json\"))"
+      ]
+    },
+    {
+      "pattern": "Airport_mod_cache/<pack>/o4_*_<dsf-stem>.cache  (umbrella)",
+      "note": "Per-pack derived-data cache. dsf_reader.airport_mod_cache_dir (:1151) is the cross-module contract -- object_terrain_assembly (:286/:463/:793) and post_mesh (:264) import it. agp_reader uses a FLAT sibling (Airport_mod_cache/o4_library_index_<root>.cache) built from its own path helper. Changing the directory name, the pickle payload shape, or the cache-version stamp silently invalidates or corrupts every consumer. O4_Airport_Elevation_Insets.py and O4_Tile_Utils.py were DROPPED from this row: their references are prose only.",
+      "writers": [
+        "Ortho4XP/src/auto_patch/dsf_reader.py",
+        "Ortho4XP/src/auto_patch/object_terrain_assembly.py",
+        "Ortho4XP/src/auto_patch/post_mesh.py",
+        "Ortho4XP/src/auto_patch/agp_reader.py"
+      ],
+      "readers": [
+        "Ortho4XP/src/auto_patch/dsf_reader.py",
+        "Ortho4XP/src/auto_patch/object_terrain_assembly.py",
+        "Ortho4XP/src/auto_patch/post_mesh.py",
+        "Ortho4XP/src/auto_patch/agp_reader.py"
+      ],
+      "evidence": [
+        "path Ortho4XP/src/auto_patch/dsf_reader.py:1172  return _FNAMES.data_path(os.path.join(\"Airport_mod_cache\", pack_name))",
+        "path Ortho4XP/src/auto_patch/agp_reader.py:281  cache_directory = _FNAMES.data_path(\"Airport_mod_cache\")",
+        "W Ortho4XP/src/auto_patch/dsf_reader.py:1757-1758, :1960-1961, :2096-2097  os.makedirs(...) / open(sidecar_path, \"wb\")",
+        "W Ortho4XP/src/auto_patch/object_terrain_assembly.py:379-380, :683-684, :843-845(+os.replace :853)",
+        "W Ortho4XP/src/auto_patch/post_mesh.py:320-322  os.makedirs / open(temporary_path, \"wb\")  (+os.replace :330)",
+        "W Ortho4XP/src/auto_patch/agp_reader.py:341,:347  os.makedirs(cache_directory) / os.replace(temporary_path, sidecar_path)",
+        "R Ortho4XP/src/auto_patch/dsf_reader.py:1361-1362 (pickle.load), :2076",
+        "R Ortho4XP/src/auto_patch/object_terrain_assembly.py:361, :594, :832",
+        "R Ortho4XP/src/auto_patch/post_mesh.py:309  open(cache_path, \"rb\")",
+        "R Ortho4XP/src/auto_patch/agp_reader.py:301  open(sidecar_path, \"rb\")"
+      ]
+    },
+    {
+      "pattern": "Airport_mod_cache/<pack>/o4_object_footprints_<dsf-stem>.cache  (pickle)",
+      "note": "The highest-traffic pavement-pack sidecar. Written and read only by dsf_reader, but its SERVED result crosses into pipeline.py:576 and O4_Airport_Elevation_Insets.py:5654 via read_dsf_object_buildings. Gated off by O4_OBJECT_FOOTPRINT_CACHE=0 (dsf_reader.py:1868 region). A stale sidecar books phantom work into later phases -- check the STALE/read log line before attributing any A/B timing delta.",
+      "writers": [
+        "Ortho4XP/src/auto_patch/dsf_reader.py"
+      ],
+      "readers": [
+        "Ortho4XP/src/auto_patch/dsf_reader.py"
+      ],
+      "evidence": [
+        "prefix Ortho4XP/src/auto_patch/dsf_reader.py:1189  _OBJECT_FOOTPRINT_SIDECAR_PREFIX",
+        "name   Ortho4XP/src/auto_patch/dsf_reader.py:1303  f\"{sidecar_prefix}_{dsf_stem}.cache\"  (_object_footprint_sidecar, def :1195)",
+        "W Ortho4XP/src/auto_patch/dsf_reader.py:1757-1758  os.makedirs(os.path.dirname(sidecar_path)) / open(sidecar_path, \"wb\")",
+        "R Ortho4XP/src/auto_patch/dsf_reader.py:1361-1362  open(sidecar_path, \"rb\") / pickle.load(sidecar_file)  (_read_footprint_sidecar, def :1348)"
+      ]
+    },
+    {
+      "pattern": "Airport_mod_cache/<pack>/o4_object_pavements_<dsf-stem>.cache  (pickle)",
+      "note": "Sibling of the footprint sidecar: shares _object_footprint_sidecar for path+fingerprint and _read_footprint_sidecar for the read; only the prefix and cache-version stream differ. Served result consumed at pipeline.py:1094.",
+      "writers": [
+        "Ortho4XP/src/auto_patch/dsf_reader.py"
+      ],
+      "readers": [
+        "Ortho4XP/src/auto_patch/dsf_reader.py"
+      ],
+      "evidence": [
+        "prefix Ortho4XP/src/auto_patch/dsf_reader.py:1787  _OBJECT_PAVEMENT_SIDECAR_PREFIX = \"o4_object_pavements\"  (selected at :1886)",
+        "W Ortho4XP/src/auto_patch/dsf_reader.py:1960-1961  os.makedirs(...) / open(sidecar_path, \"wb\")  (_compute_dsf_object_pavements)",
+        "R Ortho4XP/src/auto_patch/dsf_reader.py:1361-1362  open(sidecar_path, \"rb\") / pickle.load(...)  via read_dsf_object_pavements (def :1824)"
+      ]
+    },
+    {
+      "pattern": "<build_dir>/Data<+-NN+-EEE>.alt  (raw float32 elevation raster)",
+      "note": "The mesher's elevation raster. NO Python module reads the bytes back -- the consumer is the EXTERNAL Triangle4XP binary, invoked with the path in mesh_cmd. O4_Mesh_Utils only stats it and hard-errors 'You must run Step 1 first'. Candidate row for a '.dem' extension was DROPPED: no .dem file extension exists anywhere in src/tools/tests (every hit is the in-memory tile.dem attribute). O4_DSF_Utils.py and auto_patch/elevation.py were DROPPED: no raster I/O (elevation.py:326 explicitly passes write_alt_file=False).",
+      "writers": [
+        "Ortho4XP/src/O4_DEM_Utils.py",
+        "Ortho4XP/src/O4_Airport_Utils.py",
+        "Ortho4XP/src/O4_Mesh_Utils.py"
+      ],
+      "readers": [
+        "Ortho4XP/src/O4_Mesh_Utils.py"
+      ],
+      "evidence": [
+        "name Ortho4XP/src/O4_File_Names.py:381  tile.build_dir, \"Data\" + short_latlon(tile.lat, tile.lon) + \".alt\"  (def alt_file :368)",
+        "W Ortho4XP/src/O4_DEM_Utils.py:303  self.alt_dem.astype(numpy.float32).tofile(filename)",
+        "W Ortho4XP/src/O4_Airport_Utils.py:973, :1101  tile.dem.write_to_file(FNAMES.alt_file(tile))",
+        "W Ortho4XP/src/O4_Mesh_Utils.py:773  tile.dem.write_to_file(FNAMES.alt_file(tile))",
+        "R Ortho4XP/src/O4_Mesh_Utils.py:680  if not os.path.isfile(alt_file):  (existence gate)  -> :838 alt_file passed into mesh_cmd (Triangle4XP)",
+        "D Ortho4XP/src/O4_Tile_Utils.py:364 and Ortho4XP/src/O4_Mesh_Utils.py:925  os.remove(FNAMES.alt_file(tile))"
+      ]
+    },
+    {
+      "pattern": "<inset dir>/<ICAO>_<provider>.tif  (airport inset DEM)",
+      "note": "Downloaded/patched airport elevation inset raster. Written once, then re-opened GA_Update in place, and read back through GDAL. auto_patch/driver.py:188 + provenance.py:632-650 are a STAT-ONLY coupling (dem_fingerprint -> os.stat at provenance.py:460), not a read -- left out of readers on purpose.",
+      "writers": [
+        "Ortho4XP/src/O4_Airport_Elevation_Insets.py"
+      ],
+      "readers": [
+        "Ortho4XP/src/O4_Airport_Elevation_Insets.py",
+        "Ortho4XP/tools/fetch_airport_elevation_insets.py"
+      ],
+      "evidence": [
+        "name Ortho4XP/src/O4_File_Names.py:545  icao + \"_\" + provider_code.lower() + \".tif\"  (def airport_inset_dem :538)",
+        "W Ortho4XP/src/O4_Airport_Elevation_Insets.py:6187  destination = FNAMES.airport_inset_dem(lat, lon, icao, code)  (+ :5831 gdal.Open(inset_path, gdal.GA_Update))",
+        "R Ortho4XP/src/O4_Airport_Elevation_Insets.py:6620  dataset = gdal.Open(inset_tif_path)  (_load_inset_raster, def :6598)",
+        "R Ortho4XP/tools/fetch_airport_elevation_insets.py:182  candidate = FNAMES.airport_inset_dem("
+      ]
+    }
+  ]
+}

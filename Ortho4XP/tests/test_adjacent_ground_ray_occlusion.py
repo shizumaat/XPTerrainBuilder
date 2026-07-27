@@ -229,13 +229,27 @@ def _north_depth(bands):
     return (max(ys) - 20.0) if ys else 0.0
 
 
-def test_cut_band_stops_at_the_occluding_pavement():
+def test_cut_band_stops_at_half_the_corridor():
+    """HALF-CORRIDOR CUT CAP (owner ruling 2026-07-26, CYXY shape 337):
+    the CUT claims at most half its occlusion distance, so two facing
+    frontages meet mid-corridor instead of one marching to the
+    neighbour's edge and ending in a wall.  The occlusion limit here is
+    ~25 m (the pre-ruling stop), so the cut now reaches ~12.5 m."""
     fill, cut, _st, _a, _o = _derive(_rising_dem, _north_occluder())
     assert cut, "the rising DEM must produce cut bands"
     assert _north_depth(cut) <= 30.0
-    assert _north_depth(cut) == pytest.approx(25.0, abs=1e-6)
+    assert _north_depth(cut) == pytest.approx(12.499, abs=1e-3)
     # The fill twin has nothing to do against a rising DEM.
     assert _north_depth(fill) == 0.0
+
+
+def test_cut_half_corridor_gate_off_stops_at_the_pavement(monkeypatch):
+    """O4_ADJACENT_GROUND_CUT_HALF_CORRIDOR=0 restores the 2026-07-25
+    behaviour: the cut stops at the occluding pavement itself."""
+    monkeypatch.setattr(AG, "_CUT_HALF_CORRIDOR", False)
+    fill, cut, _st, _a, _o = _derive(_rising_dem, _north_occluder())
+    assert cut
+    assert _north_depth(cut) == pytest.approx(25.0, abs=1e-6)
 
 
 def test_fill_band_stops_at_the_occluding_pavement():
@@ -252,7 +266,7 @@ def test_clear_frontage_is_untouched():
     _fill, cut, _st, _a, _o = _derive(_rising_dem, _north_occluder())
     south = [-y for ring, _a in cut for _x, y in ring if y < 0.0]
     assert south and max(south) > 40.0
-    assert _north_depth(cut) == pytest.approx(25.0, abs=1e-6)
+    assert _north_depth(cut) == pytest.approx(12.499, abs=1e-3)
 
 
 def test_gate_off_is_byte_identical(monkeypatch):

@@ -1,7 +1,43 @@
 # Per-cluster object seating + terrain-side building pads (Fable design, 2026-07-26)
 
-**STATUS: DRAFT FOR OWNER REVIEW — no code has been written against this
-document.  Every constant, law and phase below is proposed, not landed.**
+**STATUS (2026-07-27): PHASES C1 + C2 LANDED, GATED OFF
+(`DSF_OBJECT_CLUSTER_SEATING`, default 0 per section 7.1 — default-on
+waits on the owner's HECA in-sim verdict).  Phases P1/P2 (the pad
+CONSUMER) are NOT written: clusters raise pad REQUESTS into the existing
+sidecar and nothing emits terrain from them yet.**
+
+What landed, against this document:
+
+* Section 3.2 the cut, 3.3 T (`DSF_OBJECT_CLUSTER_SEAT_TOLERANCE_M` =
+  0.5 with the epsilon guard), 3.4 degenerate handling, 3.5 determinism
+  and the gate digest — `auto_patch/object_clusters.py` (pure) plus
+  `object_anchor.structure_deltas` pass 2a.
+* Section 3.1 edge threading — `Structure.contact_edges`, filled by
+  `partition_structures` and by the connector split's new
+  `obj8_partition.split_oversized_components_with_edges`.  An edge set
+  is VERIFIED spanning before seating may cut on it; an unverifiable set
+  falls back to the per-structure rigid seat.
+* Section 4.1 the per-cluster median seat (WITHOUT the pavement-adjacency
+  refinement — that is phase P2 and needs the pavement union, which the
+  post-mesh pass does not load), 4.2a the bridge rule with reported
+  seams, 4.2b inheritance re-pointed at supporter CLUSTERS, 4.3
+  bake-and-pad and the per-cluster A3 gate.
+* Section 5.3 `ClusterPadRequest` into the (now version 2) foot-pad
+  sidecar, and section 5.1 clause 2's clip as a tested pure law
+  (`object_footprints.clip_pad_ring_against_pavement`) for the consumer
+  to use — no pad is emitted, so no pavement can be deformed.
+
+Deviations, each argued at the point of code: 4.3-vs-5.1 refusal
+(section 5.1 clause 1 wins — an over-cap pad is a recorded FINDING, the
+cluster still bakes); the bridge tie-break uses contact COUNT then lowest
+cluster id (the contact graph carries no area); and the cut runs on
+`contact_graph`'s spanning subset, which is the population section 1
+measured.
+
+Not yet written: section 4.5's `verification.check_object_seating`
+reader (the audit's INPUTS — per-edge `g(e)`, cluster assignment, cluster
+grounds — are recorded in the run record and the decision, so the reader
+is a pure consumer), and all of section 5.2/5.4/5.5.
 
 **Reads with:** `docs/dsf_object_integration_spec.md` (the OBJ8
 reader / partition / y-bake machinery this extends, and the invariant

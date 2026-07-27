@@ -148,7 +148,7 @@ struct MapCanvasView: View {
         // DSF tile of installed ortho/mesh packs in its own color —
         // orange over half a continent for a big ortho install.
 
-        if buildModel.mode == .build, sceneryFilter != .othersOnly {
+        if sceneryFilter != .othersOnly {
             drawBuildOverlays(context: context, size: size, cam: cam,
                               minLon: minLon, maxLon: maxLon, minLat: minLat, maxLat: maxLat)
         }
@@ -537,7 +537,6 @@ struct MapCanvasView: View {
     private func tileSelect(size: CGSize) -> some Gesture {
         SpatialTapGesture(count: 1)
             .onEnded { value in
-                guard buildModel.mode == .build else { return }
                 let flags = NSEvent.modifierFlags
                 let coord = camera.value.coordinate(of: value.location, in: size)
                 buildModel.click(lat: Int(floor(coord.lat)), lon: Int(floor(coord.lon)),

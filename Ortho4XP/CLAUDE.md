@@ -5,8 +5,9 @@
 Ortho4XP — scenery generation tool for X-Plane: builds base mesh, water masks,
 and orthophoto textures per 1°×1° tile.
 
-- **Entry points:** `Ortho4XP.py` (legacy Tkinter GUI + CLI), `Ortho4XP_Qt.py`
-  (new PySide6 map-first GUI, in development).
+- **Entry points:** `Ortho4XP.py` (engine + CLI only: `--engine-jsonl` protocol
+  and tile builds; the Tkinter GUI was retired 2026-07-26), `Ortho4XP_Qt.py`
+  (PySide6 map-first GUI).
 - **Pipeline:** `src/O4_Vector_Map` → `O4_Mesh_Utils` → `O4_Mask_Utils` →
   `O4_Tile_Utils`. The GUI↔core contract is `src/O4_UI_Utils.py` only:
   `progress_bar(nbr, pct)`, the polled `red_flag` cancellation flag, and
@@ -64,8 +65,8 @@ top-tier-model tokens only where judgment is required:
 
 - New modules: type hints, docstrings, no `exec`/`eval` (legacy code still
   has them; don't add more).
-- New UI work targets the PySide6 app; the Tkinter app is legacy and gets
-  fixes only.
+- All UI work targets the PySide6 app (Tkinter GUI removed 2026-07-26, owner
+  ruling).
 - Tests for new modules are mandatory and must run headless
   (`tmp_path`-based, no network, no X-Plane install required).
 - **Run ledger (owner 2026-07-18):** correctness verification (pytest,

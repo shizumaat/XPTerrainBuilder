@@ -141,29 +141,31 @@ public struct InstallationScanner {
             }
         }
 
-        // Library indexing mutates shared state; do it serially (few packs
-        // are libraries, and library.txt files are small).
         var packs: [SceneryPack] = []
-        var libraryIndex = LibraryIndex()
         for (entry, probe) in zip(entries, probes) {
             guard let probe else { continue }
-            let pack = makePack(url: entry.url, installed: entry.installed, probe: probe)
-            if entry.installed, probe.isLibrary {
-                libraryIndex.indexLibrary(at: entry.url, packName: pack.name)
-            }
-            packs.append(pack)
-        }
-
-        // X-Plane's own libraries: needed to audit lib/… references.
-        var defaultIndex = LibraryIndex()
-        let defaultScenery = root.appendingPathComponent("Resources/default scenery")
-        for url in packDirectories(in: defaultScenery) {
-            defaultIndex.indexLibrary(at: url, packName: url.lastPathComponent)
+            packs.append(makePack(url: entry.url, installed: entry.installed, probe: probe))
         }
 
         return (Installation(root: root, packs: packs,
-                             libraryIndex: libraryIndex, defaultLibraryIndex: defaultIndex),
+                             packMarkers: Self.packMarkers(for: packs)),
                 newCache)
+    }
+
+    /// Exact map marks for the scanned packs. The scan is deliberately
+    /// metadata-only (see `packSignature`), so it can pin a pack only when
+    /// the data it already parsed says exactly where the pack sits: a pack
+    /// whose whole footprint is one airport. Everything else keeps the map's
+    /// own tile-coverage centroid — pinning a sprawling landmark pack would
+    /// need a full DSF placement parse per tile, which is not scan-grade work.
+    public static func packMarkers(for packs: [SceneryPack]) -> [PackMarker] {
+        packs.compactMap { pack in
+            guard pack.tiles.count <= 1, pack.airports.count == 1,
+                  let airport = pack.airports.values.first,
+                  airport.latitude != 0 || airport.longitude != 0 else { return nil }
+            return PackMarker(packName: pack.name,
+                              point: GeoPoint(lon: airport.longitude, lat: airport.latitude))
+        }
     }
 
     struct PackProbe {

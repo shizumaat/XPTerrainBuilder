@@ -488,6 +488,34 @@ def solve_route_profile(layout, icao: str,
                   f"adopted={_resa_collisions[0]} "
                   f"cross={_resa_collisions[1]} "
                   f"no_anchor={_resa_collisions[2]}")
+    # ── END-AROUND TAXIWAY (EAT) CEILING constraints (owner ruling
+    # 2026-07-27, gate ``EAT_SURFACE_CEILING_ENABLED``) ───────────────
+    # An end-around taxiway crosses the extended centreline beyond a
+    # runway end, so its pavement must clear the departure (FAA 40:1 from
+    # the DER) / take-off-climb (EASA 2 % from 60 m) surface by a whole
+    # tail height — which puts it BELOW the runway end (KATL taxiway
+    # Victor ≈ −9 m).  Every taxi/junction/apron node inside an end's
+    # corridor gets ONE ONE-SIDED interval edge to that end's
+    # frozen-nearest pavement anchor node; the grade caps and the
+    # smoothest target then produce the descent/climb ramps by
+    # themselves.  Unlike the RESA cut this DELIBERATELY constrains
+    # pavement variables — that is the law.  Gate OFF: no store, no
+    # constraint — byte-inert.
+    _eat_idx: set = set()
+    if getattr(layout, "eat_ceiling_presolve", None):
+        from auto_patch.elevation_per_surface.solver_primitives import (
+            _build_eat_ceiling_constraints)
+        _eat_scs, _eat_idx, _eat_counts = (
+            _build_eat_ceiling_constraints(layout, bucket_to_idx))
+        shape_constraints.extend(_eat_scs)
+        if _os.environ.get("O4_STEP_DEBUG") == "1":
+            _n_eat_edges = sum(len(_sc["edges"]) for _sc in _eat_scs)
+            print(f"    [eat-ceiling] {len(_eat_scs)} shape entr(ies), "
+                  f"{len(_eat_idx)} governed pavement node(s), "
+                  f"{_n_eat_edges} one-sided surface interval edge(s), "
+                  f"in_corridor={_eat_counts[0]} "
+                  f"cross={_eat_counts[1]} "
+                  f"no_anchor={_eat_counts[2]}")
     # ── ADJACENT-GROUND ZONE-ROW constraints (Slice B stage B3 order 2,
     # gated) ──────────────────────────────────────────────────────────
     # The band zone-row vertices admitted by ``_build_node_list`` (from
@@ -2368,6 +2396,7 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # pavement ring stays free (it must move with the pavement the late
     # projection is fixing; the band's claim reconciles at ``to_osm``).
     _late_projection_run = False
+    _rwy_boundary_frozen: set = set()
     try:
         from auto_patch.layout import ROLE_GRADED_STRIP as _R_STRIP
         from auto_patch.clearance import (
@@ -2417,8 +2446,9 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                     and _s.polygon is not None
                     and not _s.polygon.is_empty
                     and _s.polygon.geom_type == "Polygon")]
-            hard |= _runway_boundary_freeze_indexes(
+            _rwy_boundary_frozen = _runway_boundary_freeze_indexes(
                 nodes, n, hard, _rwy_lines, _FRZ_TOL)
+            hard |= _rwy_boundary_frozen
     except _snapshot_geom_exceptions():                # pragma: no cover
         pass
     # RUNWAY-JOIN anchored nodes (user ruling 2026-07-16: taxi joins
@@ -2442,12 +2472,14 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # between two terrain-pinned nodes is the terrain's own slope, not a
     # solver miss — exported to the break quarantine after the projection.
     terrain_hard: set = set()
+    _tile_seam_idx: set = set()
     try:
         for i, (x, y) in enumerate(nodes):
             la, lo = layout.m_to_ll(x, y)
             if (abs(la - round(la)) < 1e-7 or abs(lo - round(lo)) < 1e-7):
                 hard.add(i)
                 terrain_hard.add(i)
+                _tile_seam_idx.add(i)
     except Exception:
         pass
     # nodes welded to already-emitted FEATURE shapes (ribbon/bridge/
@@ -2561,6 +2593,151 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                 pad_groups.append(g)
                 pad_nodes |= g
         hard -= pad_nodes
+
+    # ── TORN DATUM-PIN RELEASE (2026-07-26, KCLT junction micro-steps).
+    # A post-solve feature weld can put a NON-runway hard pin — a runway-
+    # end-skirt birth pin (B1: pinned pre-solve at the inverse-RESA floor)
+    # or a runway-boundary-freeze capture — into a pavement ring a metre
+    # from a runway-hard vertex, at a value the solve never graded against
+    # the runway (measured KCLT 18L/36R: the skirt's lateral-overhang
+    # corner pinned 227.54 sits 0.99 m from the runway corner 227.24 in a
+    # junction ring = a 30 % ring step; the law pair IS in the projection
+    # graph but BOTH endpoints are frozen, so the step ships).  The runway
+    # is the datum (2026-07-16 ruling) and a weld that DISAGREES with it
+    # is torn, not authoritative (the 2026-07-06 agreement gate).  The
+    # repair: FIXPOINT-RE-SEAT the torn cluster — every re-seatable pin
+    # with a violated law edge to the datum (or to an already re-seated
+    # pin) has its value moved INSIDE the interval its datum-side edges
+    # admit, while STAYING HARD.  Staying hard is the load-bearing part:
+    # a FREED pin ping-pongs between the datum and the cluster's
+    # remaining pins (measured KCLT: one freed node ground the worklist
+    # heap 20+ min), and a freed-then-quarantined pin is re-blended by
+    # the envelope pass onto the very contradiction being repaired (the
+    # ``pre_broken`` merge happens after the envelope, which re-derives
+    # its interval from the SAME remaining torn pins).  A hard pin skips
+    # both; the writeback then carries the datum-lawful value into every
+    # pavement ring holding the node, and at ``to_osm`` the authority
+    # consensus carries it into the feature ring (pavement wins; the
+    # skirt bends).  Re-seating is the converged projection of the
+    # datum pairs applied directly — the sweep budget cannot be relied
+    # on to reach them (measured KCLT late run: 42k edges over cap at
+    # exit).  Tile-seam pins are the owner's seam law and never move.
+    _torn_release_idx: set = set()
+    if _os.environ.get("O4_TORN_DATUM_PIN_RELEASE", "1") == "1":
+        _datum_idx = ({i for i in runway_idx if i < n}
+                      | {i for i in G.runway_anchor if i < n})
+        from auto_patch.layout import (
+            ROLE_RUNWAY_CLEARANCE as _REL_CLR,
+            REF_RUNWAY_END_SKIRT as _REL_SKIRT)
+        _cps_rel = layout.canonical_points
+        _skirt_pin_idx: set = set()
+        for _s in layout.shapes:
+            if (_s.role != _REL_CLR
+                    or getattr(_s, "ref", None) != _REL_SKIRT
+                    or _s.polygon is None or _s.polygon.is_empty
+                    or _s.polygon.geom_type != "Polygon"):
+                continue
+            for (_x, _y) in _s.polygon.exterior.coords:
+                _i = b2i.get(_cps_rel.get_or_add(float(_x), float(_y)))
+                if _i is not None and _i < n:
+                    _skirt_pin_idx.add(_i)
+        # Only true runway RING vertices are unconditionally datum.  A
+        # ``G.runway_anchor`` member can be a mis-captured join: the
+        # anchor derivation adopts the node AT ITS CURRENT value on the
+        # premise that a join carries the runway edge value — but a
+        # torn feature pin sitting 0.1 m off the boundary (KCLT: the
+        # skirt overhang corner at 227.54 beside the 227.24 corner)
+        # gets anchored at the torn value and would then masquerade as
+        # datum.  A feature-pinned anchor therefore stays RE-SEATABLE
+        # and loses datum status; a genuine join (value already on the
+        # edge profile) has no violated datum pair and never moves.
+        _releasable = ((_skirt_pin_idx | _rwy_boundary_frozen)
+                       - {i for i in runway_idx if i < n}
+                       - _tile_seam_idx)
+        _datum_idx -= _releasable
+        if _releasable:
+            # Candidate-edge adjacency, releasable nodes only.  Shape
+            # entries carry their node set — skip whole entries that
+            # touch no releasable node (the edge lists are the O(n²)
+            # all-pair sets; the build-time HARD LAW).
+            _rel_adj: dict = {}
+            for _sc in joint:
+                _sc_nodes = _sc.get("nodes")
+                if _sc_nodes is not None and _releasable.isdisjoint(
+                        _sc_nodes):
+                    continue
+                for _e in _sc.get("edges") or ():
+                    if len(_e) >= 4:
+                        continue          # interval edge (Stage B0)
+                    _a, _b, _bud = _e
+                    if _a >= n or _b >= n:
+                        continue
+                    if _a in _releasable:
+                        _rel_adj.setdefault(_a, []).append((_b, _bud))
+                    if _b in _releasable:
+                        _rel_adj.setdefault(_b, []).append((_a, _bud))
+            # EMITTED-space comparison (the load-bearing subtlety): the
+            # law pairs here live in z′ = z + crown, and a runway ring
+            # corner's z′ is its ridge-level value — a torn neighbour
+            # holding the RIDGE value with NO crown drop looks LEVEL in
+            # z′ while emitting a full crown-drop step (measured KCLT:
+            # corner z′ 227.54/drop 0.30 beside the skirt pin z′ 227.537/
+            # drop 0 = z′-level, emitted 227.24 vs 227.54 = the 30 %
+            # step).  The mesh renders EMITTED values, so the torn test
+            # and the re-seat interval both work in z − crown space; the
+            # re-seated pin keeps its own crown drop.
+            def _emit_val(_i):
+                return elev[_i] - _crown_of.get(_i, 0.0)
+
+            _datum_like = set(_datum_idx)
+            _progress = True
+            while _progress:
+                _progress = False
+                for _q in sorted(_releasable - _torn_release_idx):
+                    if _q not in hard:
+                        continue
+                    _q_edges = _rel_adj.get(_q, ())
+                    if not any(_p in _datum_like
+                               and abs(_emit_val(_p) - _emit_val(_q)) - _pb
+                               > _WELD_AGREE_TOL_M
+                               for (_p, _pb) in _q_edges):
+                        continue
+                    # Re-seat into the intersection of ALL datum-side
+                    # intervals (violated or not — the move must not
+                    # break a currently-lawful datum pair).  An empty
+                    # intersection (contradictory datums) keeps the
+                    # birth value — that pin's pairs stay in the
+                    # both-hard report exactly as before.
+                    _lo, _hi = float("-inf"), float("inf")
+                    for (_p, _pb) in _q_edges:
+                        if _p in _datum_like:
+                            _lo = max(_lo, _emit_val(_p) - _pb)
+                            _hi = min(_hi, _emit_val(_p) + _pb)
+                    if _lo <= _hi:
+                        _new_emit = min(max(_emit_val(_q), _lo), _hi)
+                        elev[_q] = _new_emit + _crown_of.get(_q, 0.0)
+                        _torn_release_idx.add(_q)
+                        _datum_like.add(_q)
+                        _progress = True
+                    else:
+                        # Contradictory datum sides: nothing lawful to
+                        # re-seat onto; mark visited so the fixpoint
+                        # terminates.
+                        _torn_release_idx.add(_q)
+        if _os.environ.get("O4_STEP_DEBUG") == "1":
+            print(f"    [torn-release-debug] releasable={len(_releasable)} "
+                  f"skirt_pins={len(_skirt_pin_idx)} "
+                  f"boundary_frozen={len(_rwy_boundary_frozen)} "
+                  f"reseated={sorted(_torn_release_idx)}")
+            for _dbg_i in sorted(_torn_release_idx):
+                print(f"    [torn-release-debug]   idx={_dbg_i} "
+                      f"xy={nodes[_dbg_i]} elev={elev[_dbg_i]:.3f}")
+        if _torn_release_idx:
+            import O4_UI_Utils as _UI_rel
+            _UI_rel.vprint(1,
+                f"    [route-profile] torn datum-pin re-seat: "
+                f"{len(_torn_release_idx)} non-runway hard pin(s) "
+                f"re-seated onto the runway datum.")
 
     _stage("hard")
     # BROKEN-NODE EDGE COUPLING (config.SVC_SPINE_EDGE_COUPLE, round-6 site-4):
@@ -3187,6 +3364,119 @@ def _fair_spine_chains(elev, spine_adj, anchors, node_band, nodes_xy,
                 prev, cur = cur, nxt
             if len(chain) >= 3:
                 chains.append(chain)
+            elif len(chain) == 2:
+                # Two-node stubs carry no fairable triple on their own,
+                # but a through-weld SPLICE below can absorb them into a
+                # longer chain (a short connector between two welds).
+                chains.append(chain)
+
+    # ── THROUGH-WELD SPLICE (owner defect 2026-07-27, HECA dip) ──────
+    # Chains break at degree-≠2 nodes, so the K-factor was blind at
+    # junction welds — the exact node a through-route inherits a
+    # descending spine's value at (a solver-manufactured 10 m V under a
+    # monotone DEM).  Splice chains whose terminal segments continue
+    # near-straight through a weld, so the POCS pass fairs across it;
+    # genuine turns (tees, corners) keep separate chains.
+    from auto_patch.config import (SPINE_FAIR_THROUGH_WELDS,
+                                   SPINE_FAIR_WELD_MAX_DEVIATION_DEG)
+    if SPINE_FAIR_THROUGH_WELDS and chains:
+        _cos_min = math.cos(math.radians(
+            SPINE_FAIR_WELD_MAX_DEVIATION_DEG))
+
+        def _end_dir(chain, at_start):
+            # Unit vector of the terminal segment pointing INTO the
+            # weld (i.e. along the walk direction toward the end).
+            a, b = ((chain[1], chain[0]) if at_start
+                    else (chain[-2], chain[-1]))
+            (xa, ya), (xb, yb) = nodes_xy[a], nodes_xy[b]
+            d = math.hypot(xb - xa, yb - ya)
+            if d < 1e-9:
+                return None
+            return ((xb - xa) / d, (yb - ya) / d)
+
+        # weld node -> [(chain_idx, at_start)]
+        weld_ends: dict = {}
+        for ci, c in enumerate(chains):
+            for at_start, node in ((True, c[0]), (False, c[-1])):
+                if deg.get(node, 0) != 2:
+                    weld_ends.setdefault(node, []).append(
+                        (ci, at_start))
+        # Union-find over chain indices so multi-weld corridors merge
+        # transitively without re-walking.
+        parent = list(range(len(chains)))
+
+        def _find(a):
+            while parent[a] != a:
+                parent[a] = parent[parent[a]]
+                a = parent[a]
+            return a
+
+        splices: dict = {}     # (chain_root_end) merges recorded as pairs
+        merges = []            # (ci, ai_start, cj, aj_start, weld)
+        for weld, ends in weld_ends.items():
+            if len(ends) < 2:
+                continue
+            # Greedy best-continuation pairing: the pair whose incoming
+            # directions are most nearly OPPOSITE (straight-through).
+            cand = []
+            dirs = {}
+            for (ci, at_start) in ends:
+                v = _end_dir(chains[ci], at_start)
+                if v is not None:
+                    dirs[(ci, at_start)] = v
+            items = list(dirs.items())
+            for i in range(len(items)):
+                for j in range(i + 1, len(items)):
+                    (ea, va), (eb, vb) = items[i], items[j]
+                    if ea[0] == eb[0]:
+                        continue      # never splice a chain to itself
+                    # va, vb both point INTO the weld: straight-through
+                    # means anti-parallel.
+                    c = -(va[0] * vb[0] + va[1] * vb[1])
+                    if c >= _cos_min:
+                        cand.append((c, ea, eb))
+            cand.sort(key=lambda t: -t[0])
+            used = set()
+            for _c, ea, eb in cand:
+                if ea in used or eb in used:
+                    continue
+                if _find(ea[0]) == _find(eb[0]):
+                    continue          # already one corridor (loop guard)
+                used.add(ea)
+                used.add(eb)
+                merges.append((ea, eb, weld))
+                parent[max(_find(ea[0]), _find(eb[0]))] = min(
+                    _find(ea[0]), _find(eb[0]))
+        if merges:
+            # Assemble spliced node lists: join at the recorded weld,
+            # orienting each member so the weld sits between them (the
+            # weld node appears once in the result).  ``splices`` maps a
+            # consumed chain index to its surviving container so later
+            # merges resolve through prior ones.
+            for ea, eb, weld in merges:
+                ca = ea[0]
+                while ca in splices:
+                    ca = splices[ca]
+                cb = eb[0]
+                while cb in splices:
+                    cb = splices[cb]
+                if ca == cb:
+                    continue
+                la, lb = chains[ca], chains[cb]
+                if not la or not lb:
+                    continue
+                if la[0] == weld:
+                    la = la[::-1]
+                if lb[-1] == weld:
+                    lb = lb[::-1]
+                if la[-1] != weld or lb[0] != weld:
+                    continue          # a prior splice consumed this end
+                chains[ca] = la + lb[1:]
+                chains[cb] = []
+                splices[cb] = ca
+            chains = [c for c in chains if len(c) >= 3]
+    else:
+        chains = [c for c in chains if len(c) >= 3]
     if not chains:
         return 0
 
@@ -3196,6 +3486,38 @@ def _fair_spine_chains(elev, spine_adj, anchors, node_band, nodes_xy,
 
     chain_lens = [[_seg_len(c[k], c[k + 1]) for k in range(len(c) - 1)]
                   for c in chains]
+
+    # ── CHORD-SAG FLOOR (owner defect 2026-07-27, HECA dip depth) ────
+    # See ``config.SPINE_CHORD_MAX_SAG_M`` — the K-factor cannot bound a
+    # long shallow bowl's DEPTH, only its curvature.  One-shot floor at
+    # (chord − cap) before the sweeps; the POCS pass then re-fairs any
+    # rate kinks the clamp introduces.  Band clamps still win.
+    from auto_patch.config import SPINE_CHORD_MAX_SAG_M
+    n_band = len(node_band) if node_band is not None else 0
+    if SPINE_CHORD_MAX_SAG_M > 0.0:
+        for c, lens in zip(chains, chain_lens):
+            total = sum(lens)
+            if total < 1.0:
+                continue
+            e0, e1 = elev[c[0]], elev[c[-1]]
+            acc = 0.0
+            for t in range(1, len(c) - 1):
+                acc += lens[t - 1]
+                b = c[t]
+                if b in anchors:
+                    continue
+                chord = e0 + (e1 - e0) * (acc / total)
+                floor = chord - SPINE_CHORD_MAX_SAG_M
+                if elev[b] >= floor:
+                    continue
+                nb = floor
+                band = node_band[b] if b < n_band else None
+                if band is not None:
+                    lo, hi = band
+                    if lo <= hi:
+                        nb = min(max(nb, lo), hi)
+                if nb > elev[b]:
+                    elev[b] = nb
     n_band = len(node_band) if node_band is not None else 0
     for _sweep in range(max_sweeps):
         worst_move = 0.0

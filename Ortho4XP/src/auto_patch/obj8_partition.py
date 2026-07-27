@@ -215,6 +215,24 @@ def split_oversized_components(
     epsilon_metres: float,
 ) -> tuple[list[list[int]], int]:
     """Re-partition never-seatable oversized components at their linear
+    connectors — ``(groups, split_count)``.
+
+    Thin wrapper over :func:`split_oversized_components_with_edges` for
+    callers that do not need the re-derived contact edges.
+    """
+    groups, split_count, _edges = split_oversized_components_with_edges(
+        vertices, parts, part_index_groups, epsilon_metres
+    )
+    return (groups, split_count)
+
+
+def split_oversized_components_with_edges(
+    vertices: list[tuple[float, float, float]],
+    parts: list[list[Triangle]],
+    part_index_groups: list[list[int]],
+    epsilon_metres: float,
+) -> tuple[list[list[int]], int, list[list[tuple[int, int]] | None]]:
+    """Re-partition never-seatable oversized components at their linear
     connectors (see the CONNECTOR_SPLIT constants' comment).
 
     ``contact_graph`` returns a SPANNING edge subset, so connector edges
@@ -223,9 +241,29 @@ def split_oversized_components(
     already joined them.  Instead the non-connector parts of an
     oversized component are re-run through ``contact_graph`` fresh, so
     real direct contacts re-form their own components.  Connector parts
-    become singleton structures.  Returns ``(groups, split_count)``."""
+    become singleton structures.
+
+    Returns ``(groups, split_count, edges_by_group)``.  ``edges_by_group``
+    is positional with ``groups``: ``None`` for a group this function
+    left alone (its caller's original edges still describe it), otherwise
+    the re-derived contact edges of a group it BUILT — the fresh
+    sub-graph plus one edge per reattached thin part, in the caller's
+    part-index space.
+
+    Handing those edges back is a requirement of per-cluster seating
+    (docs/specs/per-cluster-object-seating-spec.md section 3.1), not a
+    convenience: seating cuts contact edges, and a split group's
+    connectivity is NOT the caller's original graph restricted to it.
+    Measured 2026-07-27 at HECA — the pack whose terminal complex the
+    whole spec is about — this function re-partitions exactly the
+    mega-structure, so without the re-derived edges the one structure
+    that must cluster is the one that cannot, and recomputing its narrow
+    phase in the seating pass is the budget breach section 7.5 designs
+    out.
+    """
     vertex_array = numpy.asarray(vertices, dtype=numpy.float64)
     result: list[list[int]] = []
+    result_edges: list[list[tuple[int, int]] | None] = []
     split_count = 0
     for group in part_index_groups:
         group_indices = sorted(
@@ -236,6 +274,7 @@ def split_oversized_components(
         diameter = float(numpy.hypot(extent[0], extent[1]))
         if diameter <= CONNECTOR_SPLIT_MIN_DIAMETER_M:
             result.append(group)
+            result_edges.append(None)
             continue
         thin_parts = [
             part_index for part_index in group
@@ -243,18 +282,33 @@ def split_oversized_components(
         ]
         if not thin_parts:
             result.append(group)
+            result_edges.append(None)
             continue
         kept = [index for index in group if index not in set(thin_parts)]
         if not kept:
             result.extend([thin] for thin in thin_parts)
+            result_edges.extend([] for _thin in thin_parts)
             split_count += 1
             continue
         sub_edges = contact_graph(
             vertices, [parts[index] for index in kept], epsilon_metres)
-        sub_groups = [
-            [kept[local] for local in sub_group]
-            for sub_group in connected_structures(len(kept), sub_edges)
+        sub_component_of_kept: dict[int, int] = {}
+        sub_groups: list[list[int]] = []
+        for sub_index, sub_group in enumerate(
+                connected_structures(len(kept), sub_edges)):
+            sub_groups.append([kept[local] for local in sub_group])
+            for local in sub_group:
+                sub_component_of_kept[kept[local]] = sub_index
+        # The re-derived edges, in the CALLER's part-index space, kept
+        # positional with ``sub_groups`` so a reattached thin part can
+        # add its own contact edge to the group it joined.
+        edges_by_sub_group: list[list[tuple[int, int]]] = [
+            [] for _sub_group in sub_groups
         ]
+        for left, right in sorted(sub_edges):
+            left_part, right_part = kept[left], kept[right]
+            edges_by_sub_group[sub_component_of_kept[left_part]].append(
+                (left_part, right_part))
         # REATTACH thin parts that touch exactly ONE sub-component:
         # building-internal trim (roof strips, parapet bands) is thin
         # but not a connector, and leaving it out shattered real
@@ -284,6 +338,7 @@ def split_oversized_components(
                 vertex_array, parts[thin])
             if thin_long_extent > CHAIN_GLUE_REATTACH_MAX_EXTENT_M:
                 sub_groups.append([thin])
+                edges_by_sub_group.append([])
                 continue
             thin_geometry = geometry_by_part[thin]
             overlap_mask = (
@@ -293,6 +348,7 @@ def split_oversized_components(
                    <= thin_geometry.box_maximum).all(axis=1)
             )
             touched: set[int] = set()
+            contact_member_by_sub_index: dict[int, int] = {}
             candidate_order = numpy.flatnonzero(overlap_mask)
             for candidate in candidate_order:
                 sub_index = int(member_sub_index[candidate])
@@ -303,15 +359,26 @@ def split_oversized_components(
                         geometry_by_part[members[candidate]],
                         epsilon_metres):
                     touched.add(sub_index)
+                    contact_member_by_sub_index[sub_index] = members[
+                        candidate]
                     if len(touched) >= 2:
                         break
             if len(touched) == 1:
-                sub_groups[touched.pop()].append(thin)
+                host_sub_index = touched.pop()
+                sub_groups[host_sub_index].append(thin)
+                # The contact that PROVED the reattachment is a real
+                # contact edge: recording it keeps the returned edge set
+                # spanning, which is what seating verifies before it
+                # trusts an edge set at all.
+                edges_by_sub_group[host_sub_index].append(
+                    (contact_member_by_sub_index[host_sub_index], thin))
             else:
                 sub_groups.append([thin])
+                edges_by_sub_group.append([])
         result.extend(sorted(sub_group) for sub_group in sub_groups)
+        result_edges.extend(edges_by_sub_group)
         split_count += 1
-    return (result, split_count)
+    return (result, split_count, result_edges)
 
 
 def weld_parts(

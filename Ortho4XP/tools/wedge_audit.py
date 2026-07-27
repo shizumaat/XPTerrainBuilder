@@ -1,9 +1,10 @@
 """Count near-zero-angle wedges: pairs of constrained edges sharing a node,
 angle < 0.5 deg, where the shorter edge's far endpoint is NOT a shared node
 and lies within 20 cm of the longer edge (epsilon divergence)."""
-import sys, math
+import os, sys, math
 import xml.etree.ElementTree as ET
-sys.path[:0] = ["/Users/noah/Ortho4XP-novemberlima/src"]
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path[:0] = [os.path.join(_ROOT, "src")]
 from shapely.geometry import LineString, Point
 from collections import Counter, defaultdict
 
@@ -93,13 +94,13 @@ if __name__ == "__main__":
         # Default batch: the main-tree Patches fixtures (the KJQF/+35-081
         # regression set + HECA).  Latitude is read per-file so any tile
         # works.
-        base = "/Users/noah/Ortho4XP-novemberlima/Patches/+30-090/+35-081"
+        base = os.path.join(_ROOT, "Patches", "+30-090", "+35-081")
         for a in ["KJQF", "KCLT", "KEXX", "KSVH", "KVUJ", "KRUQ",
                   "KEQY", "KAFP"]:
             p = f"{base}/{a}_auto.patch.osm"
             if os.path.exists(p):
                 analyze(p, f"{a} fresh", _lat_of(p, 35))
-        heca = ("/Users/noah/Ortho4XP-novemberlima/Patches/"
-                "+30+030/+30+031/HECA_auto.patch.osm")
+        heca = os.path.join(_ROOT, "Patches", "+30+030", "+30+031",
+                            "HECA_auto.patch.osm")
         if os.path.exists(heca):
             analyze(heca, "HECA (17:23)", _lat_of(heca, 30))

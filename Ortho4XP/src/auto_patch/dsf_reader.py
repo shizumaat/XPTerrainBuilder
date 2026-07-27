@@ -1487,7 +1487,10 @@ def _object_buildings_sidecar(
         DSF_OBJECT_CONTACT_EPSILON_M,
         DSF_OBJECT_MAX_FOOTPRINT_AREA_M2,
         DSF_OBJECT_MAX_STRUCTURE_SPAN_M,
+        DSF_OBJECT_MIN_FOOTPRINT_FILL,
         DSF_OBJECT_MIN_REACH_M,
+        DSF_OBJECT_MIN_TALL_BASE_FILL,
+        DSF_OBJECT_TALL_MEMBER_MIN_EXTENT_M,
         OBJECT_BRIDGE_TERRAIN,
     )
     return _object_footprint_sidecar(
@@ -1501,6 +1504,13 @@ def _object_buildings_sidecar(
             float(DSF_OBJECT_CONNECTOR_PREFILTER),
             DSF_OBJECT_CONNECTOR_SPAN_M,
             DSF_OBJECT_CONNECTOR_MAX_FILL,
+            # Hull-fill floor (owner defect 2026-07-27, HECA
+            # building188): its value shapes the ring set, so the
+            # first HECA A/B silently REUSED pre-gate rings and the
+            # phantom pad survived — exactly the miss this entry fixes.
+            DSF_OBJECT_MIN_FOOTPRINT_FILL,
+            DSF_OBJECT_MIN_TALL_BASE_FILL,
+            DSF_OBJECT_TALL_MEMBER_MIN_EXTENT_M,
             # Terrain-feature exclusion (defect 2026-07-17, EGLL
             # Building36): tunnel/bridge/deck resources drop from the
             # building pool when this feature is on, so the cached

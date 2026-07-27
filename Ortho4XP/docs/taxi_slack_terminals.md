@@ -3,7 +3,7 @@
 **Branch:** `taxi-slack-terminals` (worktree `/Users/noah/Ortho4XP-taxi-slack`,
 off `dev@de15311`). **Gate:** `TAXI_SLACK_TERMINALS` (config, default OFF →
 byte-identical until shipped). Build/test with the main repo venv:
-`/Users/noah/Ortho4XP-novemberlima/venv/bin/python3`.
+`/Users/noah/XPTerrainBuilder/Ortho4XP/venv/bin/python3`.
 
 ## User ruling (2026-06-16) — the grade hierarchy this implements
 1. **Buildings FLAT.** Raise/lower the flat pad to whatever level lets the

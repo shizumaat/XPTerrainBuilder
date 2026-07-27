@@ -680,22 +680,46 @@ def check_runway_profile(layout, end_grade_cap="default",
     # Gate off ⇒ ``seam_specs`` is empty ⇒ byte-identical to the old reader,
     # as it is for every single-tile airport.
     seam_specs: list = []
+    _ramp_zone_m = 0.0
     try:
         from .config import RUNWAY_SEAM_CUTBACK_DEM_ANCHORS as _RSC_V
         if _RSC_V:
             from .tile_cut import cutback_specs_for_layout as _cb_specs
             seam_specs = list(_cb_specs(layout) or [])
+            # SEAM RAMP ZONE (collapse ruling 2026-07-26): with the
+            # profile anchored at the seam's own DEM — which sits below
+            # the design line — the ramp closing that deviation back to
+            # a 1.4 %-class design grade NECESSARILY exceeds the 1.5 %
+            # law for a stretch (SPLP: 1.77-1.88 % over ~60-120 m; the
+            # pre-collapse code carried the same physics at up to
+            # 3.07 % hidden inside anchor-to-anchor pairs).  Same
+            # honest-residual discipline as the cut-back steps: an
+            # over-cap span whose BOTH ends lie within the ramp zone of
+            # a cut line is REPORTED as a ``seam_dem_step``, never
+            # flagged.  Zone 0 (gate off / single-tile) keeps the
+            # reader byte-identical.
+            from .config import RUNWAY_SEAM_PROFILE_COLLAPSE as _RSPC_V
+            if _RSPC_V:
+                from .config import RUNWAY_SEAM_RAMP_ZONE_M as _RSRZ_V
+                _ramp_zone_m = float(_RSRZ_V)
     except Exception:                                  # pragma: no cover
         seam_specs = []
+        _ramp_zone_m = 0.0
     _SEAM_SEG_TOL_M = 0.5
 
-    def _on_cutback(x, y):
+    def _on_cutback(x, y, tol=_SEAM_SEG_TOL_M):
         pt = (x, y)
-        return any(abs(pt[axis] - c) <= _SEAM_SEG_TOL_M
+        return any(abs(pt[axis] - c) <= tol
                    for axis, c in seam_specs)
 
     def _seam_segment(x0, y0, x1, y1):
-        return bool(seam_specs) and _on_cutback(x0, y0) and _on_cutback(x1, y1)
+        if not seam_specs:
+            return False
+        if _on_cutback(x0, y0) and _on_cutback(x1, y1):
+            return True
+        return (_ramp_zone_m > 0.0
+                and _on_cutback(x0, y0, tol=_ramp_zone_m)
+                and _on_cutback(x1, y1, tol=_ramp_zone_m))
 
     seam_steps: list = []
     out = []
@@ -2210,6 +2234,12 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
         # nothing.
         fill_raw = [0.0] * n_st
         cut_raw = [0.0] * n_st
+        # MIRROR 5b — HALF-CORRIDOR CUT CAP (owner ruling 2026-07-26):
+        # the emitter's CUT march honours HALF the free-ground reach
+        # (facing frontages meet mid-corridor), so the cut side of this
+        # reader must not govern the far half either.
+        from .config import (
+            ADJACENT_GROUND_CUT_HALF_CORRIDOR_ENABLED as _HALF_CORR_V)
         marched = [None] * n_st        # station → [(d, offset, fo, co, qx, qy)]
         for idx in range(n_st):
             if not st_flag[idx]:
@@ -2235,6 +2265,9 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
             n_out = max(1, int(math.ceil(scan_cap / step_m)))
             # MIRROR 5 — the station's free-ground reach (+inf = clear).
             occ = _OCCLUSION_CLEAR if occlusion is None else occlusion[idx]
+            cut_occ_v = (occ if (not _HALF_CORR_V
+                                 or occ == _OCCLUSION_CLEAR)
+                         else occ * 0.5)
             samples = []
             last_fill = last_cut = 0.0
             for j in range(1, n_out + 1):
@@ -2260,6 +2293,7 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
                         and offset < floor_off - trigger):
                     last_fill = d
                 if (ceil_off is not None and d <= cut_cap
+                        and d <= cut_occ_v
                         and offset > ceil_off + trigger):
                     last_cut = d
             marched[idx] = samples
@@ -2270,7 +2304,7 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
                                     last_fill + step_m, occ)
             if last_cut > 0.0:
                 cut_raw[idx] = min(scan_cap - 1e-3, cut_cap,
-                                   last_cut + step_m, occ)
+                                   last_cut + step_m, cut_occ_v)
 
         # DAYLIGHT slope-limit (the ONE law, in lockstep with the emitter's
         # ``_build_*_bands`` clamp): a column BEYOND the supported depth is not
@@ -2539,6 +2573,122 @@ def _shape_vertex_altitudes(shape, vertex_count):
         return [float(shape.altitude_high), float(shape.altitude_low),
                 float(shape.altitude_low), float(shape.altitude_high)]
     return None
+
+
+def check_eat_ceiling(layout, tolerance_m: float = 0.15):
+    """Invariant (END-AROUND TAXIWAY surface ceiling, owner ruling
+    2026-07-27): taxi / junction / apron pavement inside a runway end's
+    departure-surface corridor must not stand above
+    ``grade_law.eat_pavement_ceiling`` measured off that end's SOLVED
+    elevation.
+
+    LOCKSTEP.  The reader does not re-derive the surface: it reads the
+    emitter's own per-end store (``layout.eat_ceiling_presolve``, built by
+    ``clearance.emit_runway_end_skirts``) and calls the SAME scoping /
+    ceiling function the constraint builder calls
+    (``solver_primitives.eat_ceiling_offset``), so a finding is always
+    "the solve did not reach the ceiling", never a disagreement about
+    where the surface is.
+
+    Pure reporter, no DEM: it measures the EMITTED altitudes.  Returns
+    ``[("eat_above_departure_surface", ref, metres_above_ceiling,
+    tolerance_m, "lat,lon"), …]`` worst-first; empty when the gate is off
+    or the store is absent.
+
+    ``tolerance_m`` (0.15 m) absorbs emit rounding (altitudes round to
+    0.1 m) and the projection's own convergence tolerance, exactly as the
+    sibling readers do.
+    """
+    from .config import EAT_SURFACE_CEILING_ENABLED
+    end_specs = getattr(layout, "eat_ceiling_presolve", None) or []
+    if not end_specs or not EAT_SURFACE_CEILING_ENABLED:
+        return []
+    from .elevation_per_surface.solver_primitives import (
+        EAT_CEILING_ROLES, _eat_shape_may_be_governed, eat_ceiling_offset,
+        eat_scoping_bounds)
+    from . import clearance as CL
+    bounds = eat_scoping_bounds()
+
+    # Per-shape open rings + their solved altitudes, computed ONCE: the
+    # end-elevation lookup and the corridor scan both need them.
+    rings = []
+    for shape in layout.shapes:
+        if shape.polygon is None or shape.polygon.is_empty:
+            continue
+        try:
+            coords = list(shape.polygon.exterior.coords)
+        except CL._GEOM_EXC:
+            continue
+        if len(coords) >= 2 and coords[0] == coords[-1]:
+            coords = coords[:-1]
+        if not coords:
+            continue
+        alts = _shape_vertex_altitudes(shape, len(coords))
+        if alts is None:
+            continue
+        rings.append((shape, coords, alts))
+
+    # Flattened (x, y, alt) arrays over every elevation-carrying ring
+    # vertex, built ONCE.  Each end's anchor lookup is then a vectorised
+    # nearest-vertex query instead of a Python sweep of the whole airport
+    # per end (a large airport has O(10^5) ring vertices and up to a
+    # dozen ends — the naive form is the only part of this reader that
+    # could show up in a build-time budget).
+    import numpy as _np
+    _vx = _np.fromiter((x for _s, coords, _a in rings for (x, _y) in coords),
+                       dtype=_np.float64)
+    _vy = _np.fromiter((y for _s, coords, _a in rings for (_x, y) in coords),
+                       dtype=_np.float64)
+    _va = _np.fromiter((a for _s, _c, alts in rings for a in alts),
+                       dtype=_np.float64)
+
+    def _end_elevation(anchor_xy):
+        """The SOLVED elevation at an end's frozen-nearest pavement ring
+        vertex — the reference the ceiling offset is relative to (never a
+        DEM read; the same anchor discipline as the constraint builder)."""
+        if anchor_xy is None or _vx.size == 0:
+            return None
+        ax, ay = float(anchor_xy[0]), float(anchor_xy[1])
+        d2 = (_vx - ax) ** 2 + (_vy - ay) ** 2
+        j = int(_np.argmin(d2))
+        if d2[j] > 1.0:                # 1 m² — the anchor IS a ring vertex
+            return None
+        return float(_va[j])
+
+    end_elev = [_end_elevation(spec.get("anchor_xy")) for spec in end_specs]
+
+    out = []
+    for shape, coords, alts in rings:
+        if shape.role not in EAT_CEILING_ROLES:
+            continue
+        # Same whole-shape corridor reject the constraint builder uses —
+        # exact (``s``/``q`` are affine), and it keeps the reader off the
+        # ~99 % of an airport's pavement nowhere near a runway end.
+        try:
+            near = [k for k, spec in enumerate(end_specs)
+                    if end_elev[k] is not None
+                    and _eat_shape_may_be_governed(
+                        shape.polygon.bounds, spec, bounds)]
+        except CL._GEOM_EXC:                       # pragma: no cover
+            continue
+        if not near:
+            continue
+        ident = (getattr(shape, "ref", "") or "").strip() or shape.role
+        for k, (x, y) in enumerate(coords):
+            worst = None
+            for _n in near:
+                spec, ref_elev = end_specs[_n], end_elev[_n]
+                off = eat_ceiling_offset(spec, x, y, bounds)
+                if off is None:
+                    continue
+                excess = float(alts[k]) - (ref_elev + off)
+                if worst is None or excess > worst:
+                    worst = excess
+            if worst is not None and worst > tolerance_m:
+                out.append(("eat_above_departure_surface", ident, worst,
+                            tolerance_m, _ll(layout, x, y)))
+    out.sort(key=lambda r: -r[2])
+    return out
 
 
 def check_bridge_deck_end_pins(layout, dem, tile_lat, tile_lon,
@@ -3648,7 +3798,7 @@ def _verify_debug_lines(layout, icao, taxi_index, gdesc, *,
                         short_e, wedges, cross, within, steps,
                         rwy_grade, adjacent=(), bridge_pins=(),
                         bridge_floor=(), midedge=(),
-                        join_steps=()) -> list:
+                        join_steps=(), eat=()) -> list:
     """Build the full per-category diagnostic lines for the verify debug
     log (no 5-item cap — this is for an engineer, not the console)."""
     def ds(idx):
@@ -3704,6 +3854,9 @@ def _verify_debug_lines(layout, icao, taxi_index, gdesc, *,
             else "un-cut above ceiling"
         out.append(f"  ADJACENT-GROUND {mag:.1f} m {verb} "
                    f"(tol {tol:.1f} m) @ {loc}: {ref}")
+    for _kind, ref, mag, tol, loc in sorted(eat, key=lambda r: -r[2]):
+        out.append(f"  EAT-CEILING {mag:.2f} m above the departure "
+                   f"surface (tol {tol:.2f} m) @ {loc}: {ref}")
     for _kind, ref, mag, tol, loc in sorted(
             bridge_pins, key=lambda r: -r[2]):
         out.append(f"  BRIDGE-DECK-PIN {mag:.2f} m off the deck-end law "
@@ -3924,6 +4077,25 @@ def verify_and_log(layout, icao: str, debug_log_path: str | None = None,
                 f"too deep to cut (worst {_refused[0][2]:.2f} m) — by "
                 f"design, not a violation.")
 
+    # END-AROUND TAXIWAY ceiling reader (owner ruling 2026-07-27) —
+    # gate-guarded exactly like the adjacent-ground block above: with
+    # O4_EAT_SURFACE_CEILING off it is neither called nor counted, so the
+    # counts dict, the console summary and the debug log are byte-identical
+    # to the pre-feature build.  No DEM: it measures EMITTED altitudes.
+    eat_findings = []
+    from .config import EAT_SURFACE_CEILING_ENABLED
+    if EAT_SURFACE_CEILING_ENABLED:
+        from .clearance import _GEOM_EXC as _shapely_domain_exceptions
+        try:
+            eat_findings = check_eat_ceiling(layout)
+        except _shapely_domain_exceptions:         # pragma: no cover
+            eat_findings = []
+    if eat_findings:
+        UI.vprint(1,
+            f"  [verify] EAT: {len(eat_findings)} pavement vertex(es) above "
+            f"the departure surface; worst {eat_findings[0][2]:.2f} m at "
+            f"{eat_findings[0][4]} ({eat_findings[0][1]}).")
+
     # Object-bridge law readers (feature B stage 2) — gate-guarded like
     # the adjacent-ground law: a gate-off build has ZERO overhead and
     # byte-identical verify output.  Shapely-domain failures only may
@@ -3990,6 +4162,8 @@ def verify_and_log(layout, icao: str, debug_log_path: str | None = None,
         getattr(layout, "airside_weld_drops", []) or [])
     if ADJACENT_GROUND_LAW_ENABLED:
         counts["adjacent_ground"] = len(adjacent)
+    if EAT_SURFACE_CEILING_ENABLED:
+        counts["eat_ceiling"] = len(eat_findings)
     if collar_band:
         counts["collar_ring_in_band"] = len(collar_band)
     if OBJECT_BRIDGE_TERRAIN:
@@ -4024,7 +4198,7 @@ def verify_and_log(layout, icao: str, debug_log_path: str | None = None,
         cross=cross, within=within, steps=steps, rwy_grade=rwy_grade,
         adjacent=adjacent, bridge_pins=bridge_pins,
         bridge_floor=bridge_floor, midedge=midedge,
-        join_steps=join_steps)
+        join_steps=join_steps, eat=eat_findings)
     _write_verify_debug(debug_log_path, icao, counts, lines)
 
     # User console: one summary line only (suppressed at build verbosity 0);

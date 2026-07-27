@@ -46,7 +46,6 @@ import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
 
 from . import apt_dat_reader as APR
-from .pavement import strips as PS
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -4117,6 +4116,74 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 _cn_svc.append(_ln)
             else:
                 _cn_cls.append(_ln)
+        # ROAD-FEED SERVICE CENTERLINES (owner defect 2026-07-27, HECA
+        # shape 636): ``apt_taxi_centerlines`` comes from the airports
+        # OSM layer ONLY — at HECA that layer carries ZERO
+        # ``highway=service`` ways, so the slice never cut along 2.2 km
+        # of service road crossing one face and classification's R1
+        # apron veto froze the whole 93k m² blob (apron + groundside +
+        # roads in one shape).  The per-airport road feed
+        # (``layout.airport_road_network``) already carries every
+        # drivable ``highway=`` way for the region; append the ones that
+        # actually TOUCH the sliced pavement to the service set so the
+        # service-only-face rule and ``carve_narrow_service_strips``
+        # work exactly as they do when the airports layer has the roads.
+        # Pavement-intersection prefilter + duplicate suppression keep
+        # the noding cost bounded (HECA: 4,611 feed ways → a few dozen
+        # appended lines).
+        if (os.environ.get("O4_SLICE_ROAD_FEED_SERVICE", "1") == "1"
+                and _cn_pav is not None and not _cn_pav.is_empty):
+            _net = getattr(layout, "airport_road_network", None)
+            if (_net is not None
+                    and getattr(_net, "source", "none") != "none"
+                    and getattr(_net, "ways", None)):
+                from shapely.prepared import prep as _cn_prep
+                from .layout import _projection as _cn_projection
+                try:
+                    _cn_pav_prep = _cn_prep(_cn_pav)
+                except _GEOM_EXC:
+                    _cn_pav_prep = None
+                _svc_dup_block = None
+                if _cn_svc:
+                    try:
+                        _svc_dup_block = unary_union(
+                            _cn_svc).buffer(4.0)
+                    except _GEOM_EXC:
+                        _svc_dup_block = None
+                _cn_to_m = _cn_projection(layout.anchor)
+                _n_feed_svc = 0
+                if _cn_pav_prep is not None:
+                    for _wid, _nrefs, _tags in _net.ways:
+                        if not _tags.get("highway"):
+                            continue
+                        _pts = [_net.nodes[n] for n in _nrefs
+                                if n in _net.nodes]
+                        if len(_pts) < 2:
+                            continue
+                        try:
+                            _fl = LineString(
+                                [_cn_to_m(_lo, _la)
+                                 for _la, _lo in _pts])
+                        except _GEOM_EXC:
+                            continue
+                        if (_fl.is_empty or _fl.length < 1.0
+                                or not _cn_pav_prep.intersects(_fl)):
+                            continue
+                        if _svc_dup_block is not None:
+                            try:
+                                if _fl.intersection(
+                                        _svc_dup_block).length \
+                                        > 0.7 * _fl.length:
+                                    continue  # airports layer has it
+                            except _GEOM_EXC:
+                                pass
+                        _cn_svc.append(_fl)
+                        _n_feed_svc += 1
+                if _n_feed_svc:
+                    UI.vprint(1,
+                        f"  [pav-builder] {icao}: road-feed service "
+                        f"centerlines joined the slice: {_n_feed_svc} "
+                        f"way(s) touching pavement.")
         # De-dup once here so classification indexes the SAME effective set the
         # slice tagged faces against (coincident lines bury duplicates).
         # ROUTE-ARC source: NO dedup — the route-arc graph is planarized,
@@ -5088,7 +5155,8 @@ def build_airport_pavement(icao: str, xplane_root: str,
             # An apron entirely inside the zone re-roles whole; entirely
             # outside stays whole.  Mitre joins / flat caps keep the cut
             # boundary arc-free (same reason as the groundside clip).
-            from .config import APRON_ROUTE_PROXIMITY_M
+            from .config import (APRON_ROUTE_PROXIMITY_M,
+                                 APRON_ROUTE_THROUGH_MIN_LEN_M)
             from .layout import ROLE_JUNCTION as _R_JCT_NEAR
             _near_zone = None
             try:
@@ -5114,6 +5182,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 # reaches the runway union — dead-end spurs are the
                 # stand's own territory, not the movement network.
                 _JOIN_TOL_M = 2.0
+                _taxi_union = None
                 _taxi_lines = []
                 for _k1, _ln in enumerate(_candidate_lines):
                     try:
@@ -5137,10 +5206,19 @@ def build_airport_pavement(icao: str, xplane_root: str,
                         if not _joined:
                             _through = False
                             break
-                    if _through:
+                    # LENGTH BACKSTOP (owner ruling 2026-07-26, KCLT
+                    # taxiway U): a route whose tips both die inside
+                    # apron pavement fails the join test yet IS the
+                    # movement network when it is hundreds of metres
+                    # long — admit it so the cut can free the neck it
+                    # runs through.  Gate lead-ins stay excluded (tens
+                    # of metres, far under the floor).
+                    if _through or _ln.length >= \
+                            APRON_ROUTE_THROUGH_MIN_LEN_M:
                         _taxi_lines.append(_ln)
                 if _taxi_lines:
-                    _zone_parts.append(unary_union(_taxi_lines).buffer(
+                    _taxi_union = unary_union(_taxi_lines)
+                    _zone_parts.append(_taxi_union.buffer(
                         APRON_ROUTE_PROXIMITY_M, cap_style=2,
                         join_style=2))
                 if _rwy_union is not None and not _rwy_union.is_empty:
@@ -5185,7 +5263,48 @@ def build_airport_pavement(icao: str, xplane_root: str,
                     _near_polys = [g for g in getattr(
                         _near_part, "geoms", [_near_part])
                         if g.geom_type == "Polygon" and g.area > 1.0]
+                    # NEAR-PIECE ROUTE-CONTENT TEST (owner ruling
+                    # 2026-07-26; CYXY shape 132): the 50 m contour can
+                    # slice off an annulus band of an apron that no taxi
+                    # route ever enters — a pure geometric artifact that
+                    # then grades under taxi law with a hard edge against
+                    # its own apron.  A split near-piece re-roles to
+                    # junction only when a through taxi centerline
+                    # actually enters it, or it genuinely lies inside the
+                    # runway proximity zone (preserving the "no apron
+                    # ever touches a runway" corollary); otherwise it is
+                    # merged back into the apron side of the cut.
+                    _kept_near: list = []
+                    _rejected_near: list = []
                     for _g in _near_polys:
+                        _has_route = (
+                            _taxi_union is not None
+                            and _g.intersection(_taxi_union).length > 0.0)
+                        if (not _has_route and _rwy_union is not None
+                                and not _rwy_union.is_empty):
+                            _has_route = (_g.distance(_rwy_union)
+                                          <= APRON_ROUTE_PROXIMITY_M)
+                        if _has_route:
+                            _kept_near.append(_g)
+                        else:
+                            _rejected_near.append(_g)
+                    if not _kept_near:
+                        # every near-piece was an artifact → the apron
+                        # stays whole (original shape, uncut)
+                        _cut_shapes.append(_s)
+                        continue
+                    if _rejected_near:
+                        try:
+                            _far_merge = unary_union(
+                                _far_polys + _rejected_near)
+                        except _GEOM_EXC:
+                            _far_merge = None
+                        if _far_merge is not None:
+                            _far_polys = [g for g in getattr(
+                                _far_merge, "geoms", [_far_merge])
+                                if g.geom_type == "Polygon"
+                                and g.area > 1.0]
+                    for _g in _kept_near:
                         _cut_shapes.append(_BS(
                             polygon=_g, role=_R_JCT_NEAR, ref=_s.ref,
                             from_route_proximity_cut=True))
@@ -6214,72 +6333,11 @@ def build_airport_pavement(icao: str, xplane_root: str,
             skip_roles=_ps_skip,
         )
 
-        # Wingtip / RESA terrain-clearance cuts (user 2026-05-22).  Cut
-        # terrain that rises into a surface's lateral clearance band
-        # (taxiway TOFA / runway graded strip) or runway-end safety area;
-        # terrain at or below the surface is left alone (cut-only).
-        #
-        # Runs LAST, AFTER every elevation pass (user 2026-05-23): the
-        # solver, runway redistribution, tile_cut resampling and the final
-        # per-surface solve all change taxiway/runway profiles, and a
-        # lateral clearance strip must MIRROR the FINAL profile of the
-        # surface it shadows.  Emitting earlier sampled a stale profile and
-        # left the cut floating below the settled surface (CYXY taxiway E:
-        # clearance pinned ~6 m under the post-solve taxiway → a trench).
-        # Because clearance is emitted here, no later solver touches it —
-        # its node_altitudes are final by construction.
-        # LEGACY-CHAIN RETIREMENT GATE (user in-sim review 2026-07-09):
-        # the adjacent-ground bands + runway-end skirts supersede the
-        # legacy surface_clearance strips, whose 5 m stationing (plus
-        # every neighbour vertex the final weld inserts) is now the
-        # dominant patch-density cost (CYXY shape 261).  Default ON
-        # until the cross-airport coverage verification signs off;
-        # O4_LEGACY_SURFACE_CLEARANCE=0 builds without the chain.  The ONE
-        # B4 review switch (config.B4_FLIP_DEFAULTS) flips this default OFF
-        # under the flip bundle; the explicit env var always wins.  Applied
-        # as a post-assignment override so the gate keeps a plain "1"
-        # literal (see config for the provenance-accuracy rationale).
-        from .config import B4_FLIP_DEFAULTS as _b4_flip
-        _legacy_clearance = os.environ.get(
-            "O4_LEGACY_SURFACE_CLEARANCE", "1") == "1"
-        if _b4_flip and "O4_LEGACY_SURFACE_CLEARANCE" not in os.environ:
-            _legacy_clearance = False
-        try:
-            from .clearance import emit_surface_clearance_cuts
-            _cl_tl = (current_tile_lat if current_tile_lat is not None
-                      else math.floor(layout.anchor[0]))
-            _cl_tn = (current_tile_lon if current_tile_lon is not None
-                      else math.floor(layout.anchor[1]))
-            n_cl = 0
-            if _legacy_clearance:
-                # Fractions are measured shares of the emit phase
-                # (CYXY 2026-07-10 trace): the clearance + conformance
-                # block below runs ~95% of the phase, so the later
-                # emitters cluster near the end.
-                _progress.substep(0.05, "Emitting clearance cuts")
-                n_cl = emit_surface_clearance_cuts(
-                    layout, dem, _cl_tl, _cl_tn,
-                    source_runways=apt.runways)
-            if n_cl:
-                UI.vprint(1,
-                    f"  [pav-builder] {icao}: emitted {n_cl} "
-                    f"surface-clearance cut polygon(s).")
-                # A clearance strip alongside a seam-parallel surface, or a
-                # RESA thrown up to 300 m off a runway end near a seam, can
-                # cross an integer tile line — slice it like every other
-                # shape.  Pavement was already cut above (10 m gap), so it
-                # no longer crosses; only the new clearance pieces are cut,
-                # and neighbour-tile pieces dropped.  No-op for single-tile
-                # airports (no integer line in the footprint).
-                cut_layout_at_tile_boundaries(
-                    layout,
-                    current_tile_lat=current_tile_lat,
-                    current_tile_lon=current_tile_lon,
-                    dem=dem,
-                    skip_roles=_ps_skip,
-                )
-        except _GEOM_EXC:
-            pass
+        # ── Surface-clearance chain: RETIRED (owner ruling 2026-07-26) ────
+        # The adjacent-ground bands + runway-end skirts supersede the legacy
+        # emit_surface_clearance_cuts strips; the chain, its B4_FLIP review
+        # gate (O4_LEGACY_SURFACE_CLEARANCE), and its tests are deleted.
+        # Recover from git history if ever needed.
 
     # ── Boundary-interior clip: RETIRED (user 2026-07-16) ─────────────
     # The "no shape may straddle the row-130 boundary" invariant (user

@@ -49,6 +49,13 @@ for path in (os.path.join(_ROOT, "src"), _ROOT):
 METRES_PER_DEGREE_LATITUDE = 111320.0
 
 
+def _resource_group(resource_path: str) -> str:
+    """The pack directory a resource lives in — payware packs group one
+    building's objects together, so this names the BUILDING an in-sim
+    "that floats" observation is about."""
+    return os.path.dirname(resource_path) or "(pack root)"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dsf", required=True)
@@ -63,6 +70,13 @@ def main() -> int:
                         help="report structures whose worst part residual "
                              "exceeds this (metres)")
     parser.add_argument("--limit", type=int, default=40)
+    parser.add_argument(
+        "--include-skipped", action="store_true",
+        help="measure structures left at their AUTHORED elevations too "
+             "(delta 0), instead of listing them as 'skipped' with no "
+             "number.  This is what makes a before/after float "
+             "comparison possible: a refused structure is not "
+             "unmeasurable, it is floating.")
     arguments = parser.parse_args()
 
     os.environ.setdefault("O4_DSF_OBJECT_BUILDINGS", "1")
@@ -104,7 +118,52 @@ def main() -> int:
               f"{(structure.skip_reason or '')[:80]}")
     print()
 
+    # Per-cluster seating (DSF_OBJECT_CLUSTER_SEATING,
+    # docs/specs/per-cluster-object-seating-spec.md).  Silent when the
+    # gate is off; with it on this is the tear audit's reporting surface
+    # (section 4.5): how many clusters, how many edges were cut, and the
+    # seam distribution per class.
+    cluster_counts = {}
+    for _pool, decision in result["decisions"]:
+        for name, value in (decision.cluster_counts or {}).items():
+            cluster_counts[name] = cluster_counts.get(name, 0) + value
+    if cluster_counts:
+        seams = [
+            seam
+            for _pool, decision in result["decisions"]
+            for seam in decision.cluster_seams
+        ]
+        pad_requests = [
+            request
+            for _pool, decision in result["decisions"]
+            for request in decision.cluster_pad_requests
+        ]
+        print("per-cluster seating: " + ", ".join(
+            f"{name}={value}" for name, value in sorted(cluster_counts.items())
+        ))
+        for kind in ("cut", "bridge"):
+            magnitudes = sorted(
+                seam.seam_metres for seam in seams if seam.kind == kind)
+            if not magnitudes:
+                continue
+            def _quantile(fraction):
+                return magnitudes[
+                    min(len(magnitudes) - 1,
+                        int(fraction * len(magnitudes)))]
+            print(f"  {kind} seams: {len(magnitudes)}  "
+                  f"p50 {_quantile(0.5):.2f}  p90 {_quantile(0.9):.2f}  "
+                  f"max {magnitudes[-1]:.2f} m")
+        if pad_requests:
+            over_cap = sum(1 for r in pad_requests if r.over_relief_cap)
+            worst = max(abs(r.residual_metres) for r in pad_requests)
+            print(f"  cluster pad requests: {len(pad_requests)} "
+                  f"({over_cap} over the relief cap), worst residual "
+                  f"{worst:.2f} m, "
+                  f"{sum(r.part_count for r in pad_requests)} part(s) covered")
+        print()
+
     rows = []
+    residual_by_group: dict = {}
     for pool, decision in result["decisions"]:
         # Re-load geometry the same way discovery did (backup preferred).
         geometry_by_resource = {}
@@ -121,7 +180,7 @@ def main() -> int:
             for placement in pool.placements}
 
         for structure_index, structure in enumerate(decision.structures):
-            if structure.skip_reason:
+            if structure.skip_reason and not arguments.include_skipped:
                 rows.append((math.inf, 0.0, structure, "skipped", 0.0, 0.0))
                 continue
             feet = decision.foot_clusters_by_structure_index.get(
@@ -195,13 +254,39 @@ def main() -> int:
                 (max(longitudes) - min(longitudes))
                 * METRES_PER_DEGREE_LATITUDE
                 * math.cos(math.radians(latitudes[0])))
-            kind = ("inherited"
-                    if structure.inherited_from_structure_index is not None
-                    else ("needs_pad" if structure.needs_pad else ""))
+            kind = ("skipped"
+                    if structure.skip_reason
+                    else ("inherited"
+                          if structure.inherited_from_structure_index
+                          is not None
+                          else ("needs_pad" if structure.needs_pad else "")))
             rows.append((abs(worst), worst, structure, kind, diameter,
                          structure.ground_span_metres or 0.0))
+            for resource in structure.triangles_by_resource:
+                residual_by_group.setdefault(
+                    _resource_group(resource), []).append(worst)
 
     rows.sort(key=lambda row: -row[0])
+    if residual_by_group:
+        # PER-PACK-DIRECTORY float/sink summary.  Payware packs group a
+        # terminal's objects in one directory, so this names the building
+        # an in-sim "that floats" observation is about (HECA: T23,
+        # Private_hall, road_train).  Signed: positive floats, negative
+        # sinks.  Only meaningful with --include-skipped, which measures
+        # unbaked structures at their authored elevations.
+        print(f"{'group':28} {'n':>5} {'median':>8} {'p90':>8} {'worst':>8}")
+        def _sort_key(item):
+            magnitudes = sorted(abs(value) for value in item[1])
+            return -magnitudes[len(magnitudes) // 2]
+        for group, residuals in sorted(
+                residual_by_group.items(), key=_sort_key)[:20]:
+            ordered = sorted(residuals, key=abs)
+            median = ordered[len(ordered) // 2]
+            p90 = ordered[min(len(ordered) - 1, int(0.9 * len(ordered)))]
+            worst_of_group = ordered[-1]
+            print(f"{group[:28]:28} {len(residuals):5d} {median:+8.2f} "
+                  f"{p90:+8.2f} {worst_of_group:+8.2f}")
+        print()
     offenders = [row for row in rows
                  if row[0] != math.inf and row[0] > arguments.threshold]
     baked = [row for row in rows if row[0] != math.inf]

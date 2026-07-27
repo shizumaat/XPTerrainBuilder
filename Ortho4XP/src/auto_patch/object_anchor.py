@@ -133,6 +133,19 @@ class Structure:
     # Set only for structures with no ground-touching part that inherit a
     # supporter's offset (invariant I-8).
     inherited_from_structure_index: int | None
+    # The epsilon-contact edges AMONG this structure's parts, as pairs of
+    # PART KEYS (a part's key is the lowest pool-frame shared vertex index
+    # it touches — see ``object_clusters``).  ``partition_structures``
+    # computes the contact graph once and used to throw it away; per-cluster
+    # seating (docs/specs/per-cluster-object-seating-spec.md section 3.1)
+    # needs those edges again in ``structure_deltas``, and recomputing the
+    # narrow phase there would be the one way that phase could breach the
+    # build-time budget.  EMPTY means "not available" (a hand-built
+    # structure, a pre-clustering partition cache, or a group whose edges
+    # could not be verified spanning after the connector split): seating
+    # then falls back to the per-STRUCTURE rigid seat, never to a shredded
+    # cluster set.
+    contact_edges: tuple[tuple[int, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -186,6 +199,63 @@ class FootPadRequest:
 
 
 @dataclass(frozen=True)
+class ClusterPadRequest:
+    """A per-CLUSTER terrain-pad request — the sibling of
+    :class:`FootPadRequest` (per-cluster seating spec section 5.3).
+
+    Raised for every maximal connected group of a baked cluster's ground
+    parts whose post-seat residual ``|cluster_ground + base_y −
+    ground_under(part)|`` exceeds ``DSF_OBJECT_FOOT_PAD_RESIDUAL_M``:
+    the rigid seat took the whole cluster as far as one offset can, and
+    what is left is terrain's share of the work.  Grouping CONNECTED
+    residual parts (rather than one request per part) keeps a sloping
+    terminal end as a handful of coherent pads instead of hundreds of
+    confetti rings.
+
+    ``over_relief_cap`` marks a group whose required relief exceeds
+    ``DSF_OBJECT_PAD_MAX_RELIEF_M``: the pad is inadmissible as-is (spec
+    section 5.1 clause 1) and the request is kept as a FINDING carrying
+    the measured numbers — the cluster still bakes, the residual is not
+    hidden.
+    """
+
+    structure_index: int
+    cluster_id: int
+    resource_path: str
+    latitude: float
+    longitude: float
+    base_y: float
+    residual_metres: float
+    target_ground_metres: float
+    contact_points_lonlat: tuple[tuple[float, float], ...]  # (lon, lat)
+    part_count: int = 1
+    over_relief_cap: bool = False
+
+
+@dataclass(frozen=True)
+class ClusterSeam:
+    """One reported seam of the per-cluster tear audit (spec section
+    4.5), in two classes.
+
+    ``kind="cut"`` — a ground-to-ground contact edge the cut law severed:
+    ``ground_step_metres`` is the measured ``g(e)`` that justified it and
+    ``seam_metres`` the rendered displacement between the two cluster
+    seats.  ``kind="bridge"`` — an elevated component contacting several
+    clusters (spec section 4.2a): it joined its majority-contact cluster
+    and ``seam_metres`` is the residual toward the cluster it left.
+    Reported, counted, never averaged across.
+    """
+
+    kind: str  # "cut" | "bridge"
+    structure_index: int
+    cluster_id: int
+    other_cluster_id: int
+    seam_metres: float
+    ground_step_metres: float | None = None
+    part_count: int = 0
+
+
+@dataclass(frozen=True)
 class RebakeDecision:
     """Everything ``object_rebake.apply`` needs, and nothing it must
     compute: per-resource, per-vertex y offsets plus the audit trail."""
@@ -216,6 +286,18 @@ class RebakeDecision:
     # Feet the rigid offset could not seat (see FootPadRequest).
     foot_pad_requests: list[FootPadRequest] = (
         dataclass_field(default_factory=list))
+    # Per-cluster seating (DSF_OBJECT_CLUSTER_SEATING; all empty when the
+    # gate is off).  ``cluster_pad_requests`` is the ClusterPadRequest
+    # sibling of the foot requests; ``cluster_seams`` is the tear audit's
+    # reported cut/bridge seams; ``cluster_counts`` carries the run
+    # record's reporting numbers (clusters, clusters_baked,
+    # clusters_refused, cut_edges, bridge_seams).
+    cluster_pad_requests: list[ClusterPadRequest] = (
+        dataclass_field(default_factory=list))
+    cluster_seams: list[ClusterSeam] = (
+        dataclass_field(default_factory=list))
+    cluster_counts: dict[str, int] = (
+        dataclass_field(default_factory=dict))
 
 
 @dataclass(frozen=True)
@@ -931,6 +1013,47 @@ def discover_object_pools(
     return pools
 
 
+def _edges_span_group(
+    part_indices: list[int],
+    group_edges: tuple[tuple[int, int], ...],
+    part_key_by_index: list[int],
+) -> bool:
+    """True when ``group_edges`` is a spanning tree of the group.
+
+    The contact graph is a spanning SUBSET, so a component of ``k``
+    parts carries exactly ``k − 1`` of its edges and they connect it.
+    Anything else means the group was re-partitioned after the graph was
+    built (the connector split) and its restricted edges no longer
+    describe its connectivity — per-cluster seating must not cut on
+    them (see ``Structure.contact_edges``).
+    """
+    if len(part_indices) <= 1:
+        return not group_edges
+    if len(group_edges) != len(part_indices) - 1:
+        return False
+    index_of_key = {
+        part_key_by_index[part_index]: position
+        for position, part_index in enumerate(part_indices)
+    }
+    parent = list(range(len(part_indices)))
+
+    def find(node: int) -> int:
+        while parent[node] != node:
+            parent[node] = parent[parent[node]]
+            node = parent[node]
+        return node
+
+    for left_key, right_key in group_edges:
+        left, right = index_of_key.get(left_key), index_of_key.get(right_key)
+        if left is None or right is None:
+            return False
+        left_root, right_root = find(left), find(right)
+        if left_root == right_root:
+            return False  # a cycle: cannot be the spanning subset
+        parent[left_root] = right_root
+    return len({find(node) for node in range(len(part_indices))}) == 1
+
+
 def partition_structures(
     pool: ObjectPool,
     geometry_by_resource: dict[str, ObjectGeometry],
@@ -997,8 +1120,13 @@ def partition_structures(
     # offset — re-partition it at its linear connectors so each real
     # building bakes on its own (see the CONNECTOR_SPLIT constants in
     # obj8_partition for the design and the accepted fence-joint cost).
-    part_index_groups, connector_splits = (
-        obj8_partition.split_oversized_components(
+    # ``..._with_edges`` because a split group's connectivity is NOT the
+    # pool graph restricted to it — the split re-derives it, and seating
+    # needs the re-derived edges (per-cluster seating spec section 3.1;
+    # at HECA the split re-partitions exactly the mega-structure the
+    # whole spec is about).
+    part_index_groups, connector_splits, split_edges_by_group = (
+        obj8_partition.split_oversized_components_with_edges(
             frame.shared_vertices, parts, part_index_groups, epsilon_metres
         )
     )
@@ -1013,8 +1141,46 @@ def partition_structures(
             "seat individually",
         )
 
+    # Thread the contact edges through to seating (per-cluster seating
+    # spec section 3.1): a part's KEY is the lowest shared vertex index it
+    # touches, which ``structure_deltas`` reproduces exactly when it
+    # re-welds the structure (welding is intra-part), so keys — not the
+    # pool's part indices — are what survives the trip.
+    part_key_by_index = [
+        min(shared_index for triangle in part for shared_index in triangle)
+        for part in parts
+    ]
+    group_of_part: dict[int, int] = {
+        part_index: group_index
+        for group_index, part_indices in enumerate(part_index_groups)
+        for part_index in part_indices
+    }
+    edges_by_group: dict[int, list[tuple[int, int]]] = defaultdict(list)
+    for left, right in sorted(contact_edges):
+        left_group = group_of_part.get(left)
+        if left_group is not None and left_group == group_of_part.get(right):
+            edges_by_group[left_group].append(
+                (part_key_by_index[left], part_key_by_index[right])
+            )
+
     structures: list[Structure] = []
-    for part_indices in part_index_groups:
+    for group_index, part_indices in enumerate(part_index_groups):
+        # A component's share of the spanning contact subset is exactly
+        # ``len(parts) - 1`` edges AND connects it.  A group the connector
+        # split BUILT carries its own re-derived edges instead (the pool
+        # graph restricted to it would describe the wrong connectivity).
+        # Either way the set is VERIFIED spanning before seating may cut
+        # on it; a set that fails becomes empty, and seating falls back
+        # to the per-structure rigid seat rather than mis-cutting.
+        split_edges = split_edges_by_group[group_index]
+        group_edges = tuple(
+            (part_key_by_index[left], part_key_by_index[right])
+            for left, right in split_edges
+        ) if split_edges is not None else tuple(
+            edges_by_group.get(group_index, ())
+        )
+        if not _edges_span_group(part_indices, group_edges, part_key_by_index):
+            group_edges = ()
         structure_shared_triangles = [
             triangle
             for part_index in part_indices
@@ -1070,9 +1236,622 @@ def partition_structures(
                 needs_pad=False,
                 skip_reason=None,
                 inherited_from_structure_index=None,
+                contact_edges=group_edges,
             )
         )
     return structures
+
+
+@dataclass(frozen=True)
+class _PartMeasurement:
+    """One welded part of a structure with everything the seat needs.
+
+    Exactly the measurement pass 3 always made per part, hoisted into a
+    helper so per-cluster seating can run it once, before inheritance,
+    without duplicating (or perturbing) the arithmetic.  Ground parts —
+    base at or below ``DSF_OBJECT_ELEVATED_BASE_M`` — additionally carry
+    their centroid, its world position and the mesh elevation there;
+    ``ground_measured`` is False when that sample fell off the mesh and
+    the structure centroid's ground was borrowed.
+    """
+
+    key: int  # lowest shared vertex index — the part's stable identity
+    triangles: list[Triangle]  # shared-index triangles
+    base_y: float
+    base_resource: str
+    is_ground: bool
+    plan_box: tuple[float, float, float, float]  # min_x, max_x, min_z, max_z
+    area_square_metres: float = 0.0
+    centroid_x: float = 0.0
+    centroid_z: float = 0.0
+    latitude: float | None = None
+    longitude: float | None = None
+    ground_metres: float | None = None
+    ground_measured: bool = True
+
+
+@dataclass
+class _SeatCluster:
+    """One rigid body inside a structure (per-cluster seating spec
+    section 4): its parts, its median seat, and its own gate outcome."""
+
+    cluster_id: int
+    part_keys: list[int]
+    ground_keys: list[int]
+    # (ground, base_y, base_resource) in part order — the A19/A3 input.
+    ground_records: list[tuple[float, float, str]]
+    ground_metres: float
+    span_metres: float
+    box: tuple[float, float, float, float] | None
+    centroid_x: float
+    centroid_z: float
+    diameter_metres: float
+    needs_pad: bool = False
+    skip_reason: str | None = None
+
+
+def _median(values: list[float]) -> float:
+    """Amendment A19's statistic, verbatim (the seat of a set of ground
+    samples: the best single rigid offset)."""
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    if len(ordered) % 2 == 1:
+        return ordered[middle]
+    return (ordered[middle - 1] + ordered[middle]) / 2.0
+
+
+def _measure_structure_parts(
+    frame: _PoolFrame,
+    sampler: MeshElevationSampler,
+    structure_shared_triangles: list[Triangle],
+    structure_ground: float,
+    elevated_base_metres: float,
+    *,
+    for_clustering: bool = False,
+) -> list[_PartMeasurement]:
+    """Weld one structure's triangles into parts and measure each one.
+
+    Ground-touching parts, re-derived from the SAME welding the
+    partition used (welding is intra-part, so welding a structure's own
+    triangles reproduces exactly its parts).  A part centroid off the
+    mesh borrows the structure centroid's ground — noted, not fatal:
+    the structure centroid IS on the mesh, and one stray part must not
+    poison the whole structure (invariant I-13 applies to the structure).
+
+    ``for_clustering`` adds the two fields only per-cluster seating needs
+    — the part KEY and its plan box — which cost a sweep over every
+    part's vertices.  Off (the default, and the whole per-STRUCTURE
+    path) this function performs exactly the operations the pass-3
+    inline loop always did: the seating gate must not be paid for by
+    builds that have it switched off (build-time HARD LAW, repo-root
+    CLAUDE.md).
+    """
+    measurements: list[_PartMeasurement] = []
+    for part_triangles in obj8_partition.weld_parts(
+        frame.shared_vertices, structure_shared_triangles
+    ):
+        used_shared_indices = {
+            shared_index
+            for triangle in part_triangles
+            for shared_index in triangle
+        }
+        base_shared_index = min(
+            used_shared_indices,
+            key=lambda shared_index: frame.shared_vertices[shared_index][1],
+        )
+        part_base_y = frame.shared_vertices[base_shared_index][1]
+        base_resource = frame.resource_of_shared_vertex[base_shared_index]
+        if for_clustering:
+            plan_x = [
+                frame.shared_vertices[shared_index][0]
+                for shared_index in used_shared_indices
+            ]
+            plan_z = [
+                frame.shared_vertices[shared_index][2]
+                for shared_index in used_shared_indices
+            ]
+            plan_box = (min(plan_x), max(plan_x), min(plan_z), max(plan_z))
+            key = min(used_shared_indices)
+        else:
+            plan_box = (0.0, 0.0, 0.0, 0.0)
+            key = base_shared_index
+        common = dict(
+            key=key,
+            triangles=part_triangles,
+            base_y=part_base_y,
+            base_resource=base_resource,
+            plan_box=plan_box,
+        )
+        if part_base_y > elevated_base_metres:
+            measurements.append(_PartMeasurement(is_ground=False, **common))
+            continue
+        part_area, part_x, part_z = obj8_reader.area_weighted_centroid(
+            frame.shared_vertices, part_triangles
+        )
+        part_latitude, part_longitude = _pool_frame_to_world_point(
+            frame.origin_latitude, frame.origin_longitude, part_x, part_z
+        )
+        part_ground = sampler.elevation_at_or_none(part_latitude, part_longitude)
+        ground_measured = part_ground is not None
+        if part_ground is None:
+            import O4_UI_Utils as UI
+
+            UI.vprint(
+                2,
+                "  [object-anchor] ground part centroid "
+                f"({part_latitude:.6f}, {part_longitude:.6f}) lies "
+                "outside the built mesh; using the structure "
+                "centroid's ground for it",
+            )
+            part_ground = structure_ground
+        measurements.append(
+            _PartMeasurement(
+                is_ground=True,
+                area_square_metres=part_area,
+                centroid_x=part_x,
+                centroid_z=part_z,
+                latitude=part_latitude,
+                longitude=part_longitude,
+                ground_metres=part_ground,
+                ground_measured=ground_measured,
+                **common,
+            )
+        )
+    return measurements
+
+
+def _union_plan_boxes(
+    boxes: list[tuple[float, float, float, float]],
+) -> tuple[float, float, float, float] | None:
+    if not boxes:
+        return None
+    return (
+        min(box[0] for box in boxes),
+        max(box[1] for box in boxes),
+        min(box[2] for box in boxes),
+        max(box[3] for box in boxes),
+    )
+
+
+def _build_structure_clusters(
+    measurements: list[_PartMeasurement],
+    partition,
+    structure_box: tuple[float, float, float, float] | None,
+    structure_centroid: tuple[float, float],
+) -> list[_SeatCluster]:
+    """Turn a :class:`object_clusters.ClusterPartition` into seated
+    clusters: members, median seat, span, plan box, diameter.
+
+    Elevated components that touched no cluster (spec section 4.2a,
+    "touches zero clusters") are re-homed here by the invariant-I-8 rule
+    applied to CLUSTER boxes: the smallest containing box, else the
+    nearest cluster centroid.
+
+    Degeneracy (spec section 2): with exactly one cluster the box and
+    centroid are the STRUCTURE's own, so the A3 diameter guard and the
+    nearest-supporter arithmetic are bit-for-bit what per-structure
+    seating computed.
+    """
+    measurement_by_key = {
+        measurement.key: measurement for measurement in measurements
+    }
+    order_by_key = {
+        measurement.key: order
+        for order, measurement in enumerate(measurements)
+    }
+    keys_by_cluster: dict[int, list[int]] = {
+        cluster_id: [] for cluster_id in range(partition.cluster_count)
+    }
+    for measurement in measurements:
+        cluster_id = partition.cluster_id_by_part_key.get(measurement.key)
+        if cluster_id is not None:
+            keys_by_cluster[cluster_id].append(measurement.key)
+
+    if partition.unassigned_elevated_components:
+        preliminary_boxes = {
+            cluster_id: _union_plan_boxes(
+                [measurement_by_key[key].plan_box for key in keys]
+            )
+            for cluster_id, keys in keys_by_cluster.items()
+        }
+        preliminary_centroids = {
+            cluster_id: (
+                ((box[0] + box[1]) / 2.0, (box[2] + box[3]) / 2.0)
+                if box is not None
+                else (0.0, 0.0)
+            )
+            for cluster_id, box in preliminary_boxes.items()
+        }
+        for component_keys in partition.unassigned_elevated_components:
+            component_box = _union_plan_boxes(
+                [measurement_by_key[key].plan_box for key in component_keys]
+            )
+            if component_box is None or not keys_by_cluster:
+                continue
+            point_x = (component_box[0] + component_box[1]) / 2.0
+            point_z = (component_box[2] + component_box[3]) / 2.0
+            containing = [
+                cluster_id
+                for cluster_id, box in preliminary_boxes.items()
+                if box is not None
+                and box[0] <= point_x <= box[1]
+                and box[2] <= point_z <= box[3]
+            ]
+            if containing:
+                host = min(
+                    containing,
+                    key=lambda cluster_id: (
+                        _plan_box_area_square_metres(
+                            preliminary_boxes[cluster_id]
+                        ),
+                        cluster_id,
+                    ),
+                )
+            else:
+                host = min(
+                    keys_by_cluster,
+                    key=lambda cluster_id: (
+                        math.hypot(
+                            preliminary_centroids[cluster_id][0] - point_x,
+                            preliminary_centroids[cluster_id][1] - point_z,
+                        ),
+                        cluster_id,
+                    ),
+                )
+            keys_by_cluster[host].extend(component_keys)
+
+    clusters: list[_SeatCluster] = []
+    single = partition.cluster_count == 1
+    for cluster_id in range(partition.cluster_count):
+        keys = sorted(keys_by_cluster[cluster_id], key=order_by_key.get)
+        ground_keys = [
+            key for key in keys if measurement_by_key[key].is_ground
+        ]
+        ground_records = [
+            (
+                measurement_by_key[key].ground_metres,
+                measurement_by_key[key].base_y,
+                measurement_by_key[key].base_resource,
+            )
+            for key in ground_keys
+        ]
+        grounds = [record[0] for record in ground_records]
+        box = (
+            structure_box
+            if single
+            else _union_plan_boxes(
+                [measurement_by_key[key].plan_box for key in keys]
+            )
+        )
+        if single:
+            centroid_x, centroid_z = structure_centroid
+        else:
+            total_area = sum(
+                measurement_by_key[key].area_square_metres
+                for key in ground_keys
+            )
+            if total_area > 0.0:
+                centroid_x = sum(
+                    measurement_by_key[key].centroid_x
+                    * measurement_by_key[key].area_square_metres
+                    for key in ground_keys
+                ) / total_area
+                centroid_z = sum(
+                    measurement_by_key[key].centroid_z
+                    * measurement_by_key[key].area_square_metres
+                    for key in ground_keys
+                ) / total_area
+            elif box is not None:
+                centroid_x = (box[0] + box[1]) / 2.0
+                centroid_z = (box[2] + box[3]) / 2.0
+            else:
+                centroid_x, centroid_z = structure_centroid
+        clusters.append(
+            _SeatCluster(
+                cluster_id=cluster_id,
+                part_keys=keys,
+                ground_keys=ground_keys,
+                ground_records=ground_records,
+                ground_metres=_median(grounds) if grounds else 0.0,
+                span_metres=(
+                    max(grounds) - min(grounds) if grounds else 0.0
+                ),
+                box=box,
+                centroid_x=centroid_x,
+                centroid_z=centroid_z,
+                diameter_metres=(
+                    math.hypot(box[1] - box[0], box[3] - box[2])
+                    if box is not None
+                    else 0.0
+                ),
+            )
+        )
+    return clusters
+
+
+def _seat_clusters(
+    *,
+    structure: Structure,
+    structure_index: int,
+    clusters: list[_SeatCluster],
+    partition,
+    measurements: list[_PartMeasurement],
+    frame: _PoolFrame,
+    anchor_ground_by_resource: dict[str, float],
+    delta_by_resource_and_vertex: dict[str, dict[int, float]],
+    cluster_pad_requests: list[ClusterPadRequest],
+    cluster_seams: list[ClusterSeam],
+    maximum_ground_span_metres: float,
+    pad_flag_span_metres: float,
+    pad_residual_metres: float,
+    pad_maximum_relief_metres: float,
+) -> tuple[Structure, int, int]:
+    """Seat one clustered structure: per-cluster gates, deltas, pads and
+    seams (per-cluster seating spec sections 4.1, 4.3, 4.5, 5.3).
+
+    Returns ``(updated structure, clusters baked, clusters refused)``.
+    Each cluster is a rigid body:
+
+    * SPAN GATE — a cluster over ``DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M`` is
+      no longer refused outright.  It is **baked and padded** (spec
+      section 4.3): seated at its median, flagged ``needs_pad``, and its
+      out-of-tolerance ground parts raise ``ClusterPadRequest``s.  The
+      backstop survives as an accumulation guard (a chain of kept edges
+      each under T can climb a gentle slope without bound), but its
+      OUTCOME changes — refusing a real terminal zone and leaving it at
+      authored elevations is the failure this whole spec exists to fix.
+    * ROBUST A3 — the median-seat-vs-authored comparison runs per
+      cluster, with the diameter guard now applied to a building-scale
+      diameter (which is the meaning A19 took away from it at
+      mega-structure scale).  A cluster whose correction would worsen
+      its seating stays unbaked.
+
+    Only the parts of BAKED clusters receive deltas; a refused cluster's
+    vertices simply carry none and keep their authored y, exactly as a
+    refused structure's do (amendment A21 accounting is unchanged).
+    """
+    measurement_by_key = {
+        measurement.key: measurement for measurement in measurements
+    }
+    all_grounds = [
+        record[0] for cluster in clusters for record in cluster.ground_records
+    ]
+    structure_span_metres = (
+        max(all_grounds) - min(all_grounds) if all_grounds else 0.0
+    )
+
+    clusters_baked = 0
+    clusters_refused = 0
+    for cluster in clusters:
+        cluster.needs_pad = cluster.span_metres > pad_flag_span_metres
+        over_span = cluster.span_metres > maximum_ground_span_metres
+        if over_span:
+            # Bake-and-pad (spec section 4.3): seated at its median, the
+            # residue handed to the terrain side.
+            cluster.needs_pad = True
+
+        # Amendment A3, bounded by amendment A19, per cluster.
+        if cluster.ground_records and (
+            cluster.diameter_metres <= A3_GUARD_MAXIMUM_DIAMETER_METRES
+        ):
+            corrected_residuals = [
+                abs(cluster.ground_metres + part_base_y - part_ground)
+                for part_ground, part_base_y, _base_resource in (
+                    cluster.ground_records
+                )
+            ]
+            uncorrected_residuals = [
+                abs(
+                    anchor_ground_by_resource[base_resource]
+                    + part_base_y
+                    - part_ground
+                )
+                for part_ground, part_base_y, base_resource in (
+                    cluster.ground_records
+                )
+            ]
+            corrected_mean = sum(corrected_residuals) / len(
+                corrected_residuals
+            )
+            uncorrected_mean = sum(uncorrected_residuals) / len(
+                uncorrected_residuals
+            )
+            if corrected_mean > (
+                uncorrected_mean + RESIDUAL_COMPARISON_TOLERANCE_METRES
+            ):
+                cluster.skip_reason = (
+                    "single-offset correction would worsen the seating: "
+                    f"mean ground-part residual {corrected_mean:.3f} m "
+                    f"corrected vs {uncorrected_mean:.3f} m uncorrected "
+                    f"over {len(cluster.ground_records)} ground-touching "
+                    "part(s) — left unbaked (amendment A3, per cluster "
+                    f"{cluster.cluster_id})"
+                )
+        if cluster.skip_reason is not None:
+            clusters_refused += 1
+            continue
+
+        clusters_baked += 1
+        # The deltas.  Invariant I-3 at cluster granularity: each
+        # resource's offset is measured from ITS OWN anchor's ground, and
+        # a resource contributing to several clusters simply carries
+        # several values across its vertex map (the rebake writer, the
+        # reversion pass and the I-16 rewriter are all vertex-granular).
+        for key in cluster.part_keys:
+            for triangle in measurement_by_key[key].triangles:
+                resource_path = frame.resource_of_shared_vertex[triangle[0]]
+                anchor_ground = anchor_ground_by_resource.get(resource_path)
+                if anchor_ground is None:
+                    continue
+                base_offset = frame.base_offset_by_resource[resource_path]
+                delta = cluster.ground_metres - anchor_ground
+                resource_deltas = delta_by_resource_and_vertex.setdefault(
+                    resource_path, {}
+                )
+                for shared_index in triangle:
+                    resource_deltas[shared_index - base_offset] = delta
+
+        # Pad requests (spec section 5.3): maximal CONNECTED groups of
+        # ground parts the rigid seat still leaves off the mesh.
+        _raise_cluster_pad_requests(
+            cluster=cluster,
+            structure_index=structure_index,
+            partition=partition,
+            measurement_by_key=measurement_by_key,
+            frame=frame,
+            cluster_pad_requests=cluster_pad_requests,
+            pad_residual_metres=pad_residual_metres,
+            pad_maximum_relief_metres=pad_maximum_relief_metres,
+        )
+
+    # The tear audit's reported seams (spec section 4.5).  A cut seam is
+    # explained by the ground step measured at decision time; a bridge
+    # seam is the residual an elevated component spanning two clusters
+    # keeps toward the cluster it did not join — reported, never
+    # averaged across.
+    ground_metres_by_cluster = {
+        cluster.cluster_id: cluster.ground_metres for cluster in clusters
+    }
+    cluster_id_by_part_key = partition.cluster_id_by_part_key
+    for cut in partition.cut_edges:
+        left_cluster = cluster_id_by_part_key.get(cut.left_key)
+        right_cluster = cluster_id_by_part_key.get(cut.right_key)
+        if left_cluster is None or right_cluster is None:
+            continue
+        cluster_seams.append(
+            ClusterSeam(
+                kind="cut",
+                structure_index=structure_index,
+                cluster_id=left_cluster,
+                other_cluster_id=right_cluster,
+                seam_metres=abs(
+                    ground_metres_by_cluster.get(left_cluster, 0.0)
+                    - ground_metres_by_cluster.get(right_cluster, 0.0)
+                ),
+                ground_step_metres=cut.ground_step_metres,
+            )
+        )
+    for seam in partition.bridge_seams:
+        cluster_seams.append(
+            ClusterSeam(
+                kind="bridge",
+                structure_index=structure_index,
+                cluster_id=seam.cluster_id,
+                other_cluster_id=seam.other_cluster_id,
+                seam_metres=abs(
+                    ground_metres_by_cluster.get(seam.cluster_id, 0.0)
+                    - ground_metres_by_cluster.get(seam.other_cluster_id, 0.0)
+                ),
+                part_count=seam.part_count,
+            )
+        )
+
+    refused_reasons = [
+        cluster.skip_reason
+        for cluster in clusters
+        if cluster.skip_reason is not None
+    ]
+    structure_skip_reason = None
+    if refused_reasons and len(refused_reasons) == len(clusters):
+        # Every cluster refused: the structure as a whole stays at its
+        # authored elevations, and its inheritors share that fate.
+        structure_skip_reason = refused_reasons[0]
+    return (
+        replace(
+            structure,
+            ground_span_metres=structure_span_metres,
+            needs_pad=any(cluster.needs_pad for cluster in clusters),
+            skip_reason=structure_skip_reason,
+        ),
+        clusters_baked,
+        clusters_refused,
+    )
+
+
+def _raise_cluster_pad_requests(
+    *,
+    cluster: _SeatCluster,
+    structure_index: int,
+    partition,
+    measurement_by_key: dict[int, _PartMeasurement],
+    frame: _PoolFrame,
+    cluster_pad_requests: list[ClusterPadRequest],
+    pad_residual_metres: float,
+    pad_maximum_relief_metres: float,
+) -> None:
+    """One ``ClusterPadRequest`` per maximal connected group of the
+    cluster's still-unseated ground parts (spec section 5.3).
+
+    The pad target under a group is the median of its parts' rendered
+    bases ``cluster_ground + base_y(p)`` — the same robust statistic the
+    seat uses, so the pad asks terrain for the least it can.  A group
+    whose required relief exceeds ``DSF_OBJECT_PAD_MAX_RELIEF_M`` is
+    still recorded, flagged ``over_relief_cap``: the pad law (spec
+    section 5.1 clause 1) refuses to promise that much terrain movement,
+    and an unrecorded residual is exactly the blindness this spec set
+    out to remove.
+    """
+    from . import object_clusters
+
+    residual_by_key: dict[int, float] = {}
+    for key in cluster.ground_keys:
+        measurement = measurement_by_key[key]
+        residual = (
+            cluster.ground_metres
+            + measurement.base_y
+            - measurement.ground_metres
+        )
+        if abs(residual) > pad_residual_metres:
+            residual_by_key[key] = residual
+    if not residual_by_key:
+        return
+    for group_keys in object_clusters.residual_part_groups(
+        cluster.ground_keys, partition.kept_edges, set(residual_by_key)
+    ):
+        worst_key = max(
+            group_keys, key=lambda key: (abs(residual_by_key[key]), key)
+        )
+        worst = measurement_by_key[worst_key]
+        target_ground_metres = _median(
+            [
+                cluster.ground_metres + measurement_by_key[key].base_y
+                for key in group_keys
+            ]
+        )
+        contact_points_lonlat: list[tuple[float, float]] = []
+        for key in group_keys:
+            box = measurement_by_key[key].plan_box
+            for corner_x, corner_z in (
+                (box[0], box[2]),
+                (box[1], box[2]),
+                (box[1], box[3]),
+                (box[0], box[3]),
+            ):
+                latitude, longitude = _pool_frame_to_world_point(
+                    frame.origin_latitude,
+                    frame.origin_longitude,
+                    corner_x,
+                    corner_z,
+                )
+                contact_points_lonlat.append((longitude, latitude))
+        cluster_pad_requests.append(
+            ClusterPadRequest(
+                structure_index=structure_index,
+                cluster_id=cluster.cluster_id,
+                resource_path=worst.base_resource,
+                latitude=worst.latitude,
+                longitude=worst.longitude,
+                base_y=worst.base_y,
+                residual_metres=residual_by_key[worst_key],
+                target_ground_metres=target_ground_metres,
+                contact_points_lonlat=tuple(contact_points_lonlat),
+                part_count=len(group_keys),
+                over_relief_cap=(
+                    abs(residual_by_key[worst_key])
+                    > pad_maximum_relief_metres
+                ),
+            )
+        )
 
 
 def structure_deltas(
@@ -1147,7 +1926,10 @@ def structure_deltas(
     """
     from .config import (
         DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M,
+        DSF_OBJECT_CLUSTER_SEAT_TOLERANCE_M,
+        DSF_OBJECT_CLUSTER_SEATING,
         DSF_OBJECT_ELEVATED_BASE_M,
+        DSF_OBJECT_PAD_MAX_RELIEF_M,
         DSF_OBJECT_SUPPORTER_FATE,
         DSF_OBJECT_SUPPORTER_SMALLEST,
         DSF_OBJECT_FOOT_ANCHOR,
@@ -1338,6 +2120,97 @@ def structure_deltas(
             if feet:
                 foot_candidate_by_index[structure_index] = feet
 
+    # Pass 2a — CLUSTER FORMATION (DSF_OBJECT_CLUSTER_SEATING; per-cluster
+    # seating spec sections 3.2 and 4.2).  A payware pack welds its whole
+    # terminal complex into one contact component; on flat ground that is
+    # harmless, on 26 m of real relief (HECA) no rigid body can seat it
+    # and the whole complex — plus everything inheriting from it — stays
+    # at authored elevations.  So: measure every ground part FIRST, cut
+    # the ground-to-ground contact edges whose ends want seats more than
+    # T apart, and seat the resulting clusters independently.  This runs
+    # before pass 2 because inheritance re-points at supporter CLUSTERS
+    # (spec section 4.2b), which do not exist until here.
+    #
+    # With the gate off, nothing below runs and pass 3 measures its parts
+    # inline exactly as it always did.
+    cluster_seating = (
+        DSF_OBJECT_CLUSTER_SEATING
+        and DSF_OBJECT_CLUSTER_SEAT_TOLERANCE_M > 0.0
+    )
+    measurements_by_index: dict[int, list[_PartMeasurement]] = {}
+    clusters_by_index: dict[int, list[_SeatCluster]] = {}
+    cluster_partition_by_index: dict[int, object] = {}
+    unthreaded_structures = 0
+    if cluster_seating:
+        from . import object_clusters
+
+        for structure_index, structure in enumerate(structures):
+            if (
+                structure_index in skip_reason_by_index
+                or not structure.is_ground_touching
+                or structure_index not in ground_by_index
+            ):
+                continue
+            structure_shared_triangles = shared_triangles_by_structure[
+                structure_index
+            ]
+            if not structure_shared_triangles:
+                continue
+            measurements = _measure_structure_parts(
+                frame,
+                sampler,
+                structure_shared_triangles,
+                ground_by_index[structure_index],
+                DSF_OBJECT_ELEVATED_BASE_M,
+                for_clustering=True,
+            )
+            measurements_by_index[structure_index] = measurements
+            if len(measurements) > 1 and not structure.contact_edges:
+                # Edges unavailable (hand-built structure, pre-clustering
+                # partition cache, connector-split group): merge on doubt
+                # — this structure keeps the per-STRUCTURE rigid seat.
+                unthreaded_structures += 1
+                del measurements_by_index[structure_index]
+                continue
+            partition = object_clusters.form_clusters(
+                [
+                    object_clusters.ClusterPart(
+                        key=measurement.key,
+                        is_ground=measurement.is_ground,
+                        base_y=measurement.base_y,
+                        ground_metres=measurement.ground_metres,
+                        ground_measured=measurement.ground_measured,
+                    )
+                    for measurement in measurements
+                ],
+                structure.contact_edges,
+                DSF_OBJECT_CLUSTER_SEAT_TOLERANCE_M,
+            )
+            clusters = _build_structure_clusters(
+                measurements,
+                partition,
+                bounding_box_by_structure[structure_index],
+                frame_centroid_by_structure[structure_index],
+            )
+            if not clusters:
+                # No ground cluster at all (nothing the cut law can seat
+                # on): keep the per-STRUCTURE path rather than silently
+                # leaving every part delta-less.
+                del measurements_by_index[structure_index]
+                continue
+            cluster_partition_by_index[structure_index] = partition
+            clusters_by_index[structure_index] = clusters
+        if unthreaded_structures:
+            import O4_UI_Utils as UI
+
+            UI.vprint(
+                2,
+                f"   [object-anchor] {unthreaded_structures} structure(s) "
+                "carry no threaded contact edges (connector-split or "
+                "cached pre-clustering partition) — per-structure rigid "
+                "seat kept for them",
+            )
+
     # Pass 2 — inheritance for structures with no ground-touching part
     # (invariant I-8).  Supporters are ground-touching structures with a
     # valid ground sample; containment wins over distance.  Among the
@@ -1345,6 +2218,11 @@ def structure_deltas(
     # by lowest structure index (``DSF_OBJECT_SUPPORTER_SMALLEST``,
     # defect B); with the gate off it is the first containing candidate
     # in structure-index order, exactly as before.
+    #
+    # With per-cluster seating on, the candidates are supporter CLUSTERS
+    # (spec section 4.2b): the same smallest-containing rule applied to
+    # cluster plan boxes, so an inheritor hovering over one terminal zone
+    # follows THAT zone's seat and fate instead of the mega-structure's.
     supporter_indices = [
         structure_index
         for structure_index, structure in enumerate(structures)
@@ -1356,6 +2234,47 @@ def structure_deltas(
         if DSF_OBJECT_SUPPORTER_SMALLEST and supporter_indices
         else None
     )
+    # Cluster-granular candidate list: entry i is (structure index,
+    # cluster id) and ``cluster_candidate_boxes[i]`` its plan box, so the
+    # existing smallest-containing machinery works unchanged over
+    # clusters.  A ground-touching structure with no cluster set (edges
+    # unthreaded) contributes its whole-structure box, keeping it a
+    # legitimate supporter.
+    cluster_candidates: list[tuple[int, int]] = []
+    cluster_candidate_boxes: list[
+        tuple[float, float, float, float] | None
+    ] = []
+    cluster_candidate_centroids: list[tuple[float, float]] = []
+    if cluster_seating:
+        for structure_index in supporter_indices:
+            clusters = clusters_by_index.get(structure_index)
+            if clusters is None:
+                cluster_candidates.append((structure_index, -1))
+                cluster_candidate_boxes.append(
+                    bounding_box_by_structure[structure_index]
+                )
+                cluster_candidate_centroids.append(
+                    frame_centroid_by_structure[structure_index]
+                )
+                continue
+            for cluster in clusters:
+                cluster_candidates.append(
+                    (structure_index, cluster.cluster_id)
+                )
+                cluster_candidate_boxes.append(cluster.box)
+                cluster_candidate_centroids.append(
+                    (cluster.centroid_x, cluster.centroid_z)
+                )
+    cluster_candidate_grid = (
+        _build_supporter_index(
+            list(range(len(cluster_candidates))), cluster_candidate_boxes
+        )
+        if cluster_seating
+        and DSF_OBJECT_SUPPORTER_SMALLEST
+        and cluster_candidates
+        else None
+    )
+    inherited_from_cluster_by_index: dict[int, tuple[int, int]] = {}
     inherited_from_by_index: dict[int, int] = {}
     foot_anchored_by_index: dict[int, list[FootCluster]] = {}
     for structure_index, structure in enumerate(structures):
@@ -1389,6 +2308,58 @@ def structure_deltas(
                 foot_anchored_by_index[structure_index] = feet
                 continue
         centroid_x, centroid_z = frame_centroid_by_structure[structure_index]
+        if cluster_seating and cluster_candidates:
+            # Supporter CLUSTER (spec section 4.2b): identical rule, one
+            # level finer — smallest containing cluster box, else the
+            # nearest cluster centroid.
+            candidate_position = None
+            if cluster_candidate_grid is not None:
+                candidate_position = _smallest_containing_supporter_index(
+                    cluster_candidate_grid,
+                    cluster_candidate_boxes,
+                    centroid_x,
+                    centroid_z,
+                )
+            else:
+                for position, box in enumerate(cluster_candidate_boxes):
+                    if box is None:
+                        continue
+                    if (
+                        box[0] <= centroid_x <= box[1]
+                        and box[2] <= centroid_z <= box[3]
+                    ):
+                        candidate_position = position
+                        break
+            if candidate_position is None:
+                candidate_position = min(
+                    range(len(cluster_candidates)),
+                    key=lambda position: (
+                        math.hypot(
+                            cluster_candidate_centroids[position][0]
+                            - centroid_x,
+                            cluster_candidate_centroids[position][1]
+                            - centroid_z,
+                        ),
+                        position,
+                    ),
+                )
+            supporter_index, supporter_cluster_id = cluster_candidates[
+                candidate_position
+            ]
+            inherited_from_by_index[structure_index] = supporter_index
+            inherited_from_cluster_by_index[structure_index] = (
+                supporter_index,
+                supporter_cluster_id,
+            )
+            if supporter_cluster_id < 0:
+                ground_by_index[structure_index] = ground_by_index[
+                    supporter_index
+                ]
+            else:
+                ground_by_index[structure_index] = clusters_by_index[
+                    supporter_index
+                ][supporter_cluster_id].ground_metres
+            continue
         supporter_index = None
         if supporter_index_grid is not None:
             supporter_index = _smallest_containing_supporter_index(
@@ -1446,6 +2417,11 @@ def structure_deltas(
     delta_by_resource_and_vertex: dict[str, dict[int, float]] = {}
     foot_clusters_by_structure_index: dict[int, tuple[FootCluster, ...]] = {}
     foot_pad_requests: list[FootPadRequest] = []
+    cluster_pad_requests: list[ClusterPadRequest] = []
+    cluster_seams: list[ClusterSeam] = []
+    clusters_seen = 0
+    clusters_baked = 0
+    clusters_refused = 0
     if DSF_OBJECT_SUPPORTER_FATE:
         processing_order = sorted(
             range(len(structures)),
@@ -1469,11 +2445,28 @@ def structure_deltas(
         # from it describes a seat that no longer exists.
         supporter_index = inherited_from_by_index.get(structure_index)
         if DSF_OBJECT_SUPPORTER_FATE and supporter_index is not None:
+            supporter_cluster = inherited_from_cluster_by_index.get(
+                structure_index
+            )
             supporter_skip_reason = (
                 updated_by_index[supporter_index].skip_reason
                 if supporter_index in updated_by_index
                 else None
             )
+            if (
+                supporter_skip_reason is None
+                and supporter_cluster is not None
+                and supporter_cluster[1] >= 0
+                and supporter_index in clusters_by_index
+            ):
+                # Per-cluster fate (spec section 4.2b): the inheritor
+                # follows the CLUSTER it hovers over, not the whole
+                # mega-structure — which is the HECA payoff line.  The
+                # supporter has already been evaluated (processing order),
+                # so its clusters carry their outcomes.
+                supporter_skip_reason = clusters_by_index[supporter_index][
+                    supporter_cluster[1]
+                ].skip_reason
             if supporter_skip_reason:
                 # NOTE (measured 2026-07-26, and deliberately NOT done):
                 # pass 2's foot-candidate ``supported`` test also counts
@@ -1552,63 +2545,65 @@ def structure_deltas(
             enriched_feet = []
             ground_part_records = []
 
+        # PER-CLUSTER SEATING (spec sections 4.1–4.3).  A clustered
+        # structure is not one rigid body: each cluster seats on its own
+        # median ground, runs the span and A3 gates for itself, and
+        # raises its own pad requests.  Handled entirely in the helper
+        # below, which then continues the loop.
+        if (
+            anchored_feet is None
+            and structure_index in clusters_by_index
+        ):
+            clusters = clusters_by_index[structure_index]
+            partition = cluster_partition_by_index[structure_index]
+            measurements = measurements_by_index[structure_index]
+            outcome = _seat_clusters(
+                structure=structure,
+                structure_index=structure_index,
+                clusters=clusters,
+                partition=partition,
+                measurements=measurements,
+                frame=frame,
+                anchor_ground_by_resource=anchor_ground_by_resource,
+                delta_by_resource_and_vertex=delta_by_resource_and_vertex,
+                cluster_pad_requests=cluster_pad_requests,
+                cluster_seams=cluster_seams,
+                maximum_ground_span_metres=(
+                    DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M
+                ),
+                pad_flag_span_metres=DSF_OBJECT_PAD_FLAG_SPAN_M,
+                pad_residual_metres=DSF_OBJECT_FOOT_PAD_RESIDUAL_M,
+                pad_maximum_relief_metres=DSF_OBJECT_PAD_MAX_RELIEF_M,
+            )
+            clusters_seen += len(clusters)
+            clusters_baked += outcome[1]
+            clusters_refused += outcome[2]
+            updated_by_index[structure_index] = outcome[0]
+            continue
+
         # Ground-touching parts, re-derived from the SAME welding the
         # partition used (welding is intra-part, so welding a structure's
         # own triangles reproduces exactly its parts).
         structure_shared_triangles = shared_triangles_by_structure[
             structure_index
         ]
-        parts = (
-            obj8_partition.weld_parts(
-                frame.shared_vertices, structure_shared_triangles
-            )
-            if structure_shared_triangles and anchored_feet is None
-            else []
-        )
-        for part_triangles in parts:
-            used_shared_indices = {
-                shared_index
-                for triangle in part_triangles
-                for shared_index in triangle
-            }
-            base_shared_index = min(
-                used_shared_indices,
-                key=lambda shared_index: frame.shared_vertices[shared_index][
-                    1
-                ],
-            )
-            part_base_y = frame.shared_vertices[base_shared_index][1]
-            if part_base_y > DSF_OBJECT_ELEVATED_BASE_M:
-                continue
-            _part_area, part_x, part_z = obj8_reader.area_weighted_centroid(
-                frame.shared_vertices, part_triangles
-            )
-            part_latitude, part_longitude = _pool_frame_to_world_point(
-                frame.origin_latitude, frame.origin_longitude, part_x, part_z
-            )
-            part_ground = sampler.elevation_at_or_none(
-                part_latitude, part_longitude
-            )
-            if part_ground is None:
-                # Noted, not fatal: the structure centroid IS on the
-                # mesh; a single part centroid off it borrows that
-                # ground rather than poisoning the whole structure.
-                import O4_UI_Utils as UI
-
-                UI.vprint(
-                    2,
-                    "  [object-anchor] ground part centroid "
-                    f"({part_latitude:.6f}, {part_longitude:.6f}) lies "
-                    "outside the built mesh; using the structure "
-                    "centroid's ground for it",
+        if structure_shared_triangles and anchored_feet is None:
+            for measurement in _measure_structure_parts(
+                frame,
+                sampler,
+                structure_shared_triangles,
+                structure_ground,
+                DSF_OBJECT_ELEVATED_BASE_M,
+            ):
+                if not measurement.is_ground:
+                    continue
+                ground_part_records.append(
+                    (
+                        measurement.ground_metres,
+                        measurement.base_y,
+                        measurement.base_resource,
+                    )
                 )
-                part_ground = structure_ground
-            base_resource = frame.resource_of_shared_vertex[
-                base_shared_index
-            ]
-            ground_part_records.append(
-                (part_ground, part_base_y, base_resource)
-            )
 
         if anchored_feet is not None:
             part_grounds = [record[0] for record in ground_part_records]
@@ -1665,14 +2660,7 @@ def structure_deltas(
             # the area-weighted centroid, which is one unrepresentative
             # sample for a large structure (a kilometre-wide chained web
             # at HECA was judged, and wrongly skipped, by it).
-            sorted_grounds = sorted(part_grounds)
-            middle = len(sorted_grounds) // 2
-            structure_ground = (
-                sorted_grounds[middle]
-                if len(sorted_grounds) % 2 == 1
-                else (sorted_grounds[middle - 1] + sorted_grounds[middle])
-                / 2.0
-            )
+            structure_ground = _median(part_grounds)
         else:
             ground_span_metres = 0.0
         needs_pad = ground_span_metres > DSF_OBJECT_PAD_FLAG_SPAN_M
@@ -1846,6 +2834,37 @@ def structure_deltas(
             ),
         )
 
+    if cluster_seating and clusters_seen:
+        import O4_UI_Utils as UI
+
+        cut_edge_count = sum(
+            len(partition.cut_edges)
+            for partition in cluster_partition_by_index.values()
+        )
+        bridge_count = sum(
+            1 for seam in cluster_seams if seam.kind == "bridge"
+        )
+        UI.vprint(
+            1,
+            f"   [object-anchor] per-cluster seating: {clusters_seen} "
+            f"cluster(s) across {len(clusters_by_index)} structure(s) "
+            f"({clusters_baked} seated, {clusters_refused} refused) from "
+            f"{cut_edge_count} cut contact edge(s); {bridge_count} bridge "
+            f"seam(s) reported, {len(cluster_pad_requests)} pad request(s)",
+        )
+        for seam in cluster_seams:
+            if seam.kind != "bridge":
+                continue
+            UI.vprint(
+                2,
+                "  [object-anchor] bridge seam: structure "
+                f"{seam.structure_index} elevated component "
+                f"({seam.part_count} part(s)) joined cluster "
+                f"{seam.cluster_id}; residual toward cluster "
+                f"{seam.other_cluster_id} is {seam.seam_metres:.2f} m "
+                "(reported, never averaged across)",
+            )
+
     # Back to caller order: ``structures[i]`` ↔ ``updated_structures[i]``,
     # whatever order pass 3 evaluated them in.
     updated_structures: list[Structure] = [
@@ -1903,4 +2922,24 @@ def structure_deltas(
         },
         foot_clusters_by_structure_index=foot_clusters_by_structure_index,
         foot_pad_requests=foot_pad_requests,
+        cluster_pad_requests=cluster_pad_requests,
+        cluster_seams=cluster_seams,
+        cluster_counts=(
+            {
+                "structures_clustered": len(clusters_by_index),
+                "clusters": clusters_seen,
+                "clusters_baked": clusters_baked,
+                "clusters_refused": clusters_refused,
+                "cut_edges": sum(
+                    len(partition.cut_edges)
+                    for partition in cluster_partition_by_index.values()
+                ),
+                "bridge_seams": sum(
+                    1 for seam in cluster_seams if seam.kind == "bridge"
+                ),
+                "structures_unthreaded": unthreaded_structures,
+            }
+            if cluster_seating
+            else {}
+        ),
     )

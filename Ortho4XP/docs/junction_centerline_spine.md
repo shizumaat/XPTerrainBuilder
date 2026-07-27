@@ -202,7 +202,7 @@ fan** instead of one ring:
 - `src/auto_patch/conformance.py` — shared-edge / T-junction conformance.
 
 ## Build & test
-- Worktree + main-repo venv: `/Users/noah/Ortho4XP-novemberlima/venv/bin/python3`.
+- Worktree + main-repo venv: `/Users/noah/XPTerrainBuilder/Ortho4XP/venv/bin/python3`.
   Run the WORKTREE's `tools/build_target_osm.py` (puts its own `src` on the path).
 - `O4_JCT_SPINE=1 ... tools/build_target_osm.py OMAA --out /tmp/x.osm`; validate with
   `tools/check_grade.py`. The decisive metric is **field-vs-emitted grade along a

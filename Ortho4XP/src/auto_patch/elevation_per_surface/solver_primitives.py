@@ -46,6 +46,11 @@ from auto_patch.layout import (
     ROLE_SECONDARY_PARALLEL, ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION,
     ROLE_STUB, ROLE_BUILDING, taxi_shape_code_letter,
 )
+# The EAT ceiling law is evaluated per PAVEMENT VERTEX, so its import is
+# module-level (the other grade_law calls here are per-shape and stay
+# lazy).  ``grade_law`` imports only ``config`` — no cycle.
+from auto_patch.grade_law import (
+    eat_pavement_ceiling as _eat_pavement_ceiling)
 
 # Narrow exception tuple for shapely / numeric-geometry failure
 # modes.  Programming errors propagate so they surface immediately.
@@ -2049,6 +2054,228 @@ def _build_resa_cut_constraints(layout, bucket_to_idx):
               f"{n_cross} interned with an earlier cut vertex, "
               f"{n_no_anchor} had no resolvable end anchor")
     return sc_out, cut_idx, (n_adopted, n_cross, n_no_anchor)
+
+
+# ── END-AROUND TAXIWAY (EAT) surface ceiling (owner ruling 2026-07-27) ──
+# The pavement roles an end-around taxiway is built from.  Runway,
+# runway-crossing, building and service-vehicle roles are excluded: the
+# runway profile is HARD (an EAT ceiling must never bend it), and a
+# service road carries no aircraft tail.
+EAT_CEILING_ROLES = frozenset({
+    ROLE_PRIMARY_PARALLEL, ROLE_SECONDARY_PARALLEL, ROLE_STUB,
+    ROLE_CROSS_CONNECTOR, ROLE_JUNCTION, ROLE_APRON,
+})
+
+# ``ref`` tag on the EAT constraint entries.  NOT a layout REF_* constant:
+# these entries carry no SHAPE — they hang extra law edges on existing
+# pavement nodes — so nothing is ever emitted under this name.
+REF_EAT_CEILING = "eat_ceiling"
+
+def eat_end_projection(end_spec, x, y):
+    """``(s, q)`` of point ``(x, y)`` in one runway end's EAT frame:
+    ``s`` = distance ALONG the extended centreline beyond the row-100
+    endpoint (negative = still inside the runway), ``q`` = signed lateral
+    offset from that centreline.
+
+    The named form of the frame every EAT consumer works in.
+    ``eat_ceiling_offset`` inlines this arithmetic (it runs per pavement
+    vertex per end); diagnostics and probes call it here."""
+    p0 = end_spec["p0"]
+    nx, ny = end_spec["outward"]
+    dx, dy = float(x) - p0[0], float(y) - p0[1]
+    return (dx * nx + dy * ny, -dx * ny + dy * nx)
+
+
+def eat_scoping_bounds():
+    """``(min_crossing_distance_m, corridor_half_width_m)`` — the EAT
+    ceiling's two scoping rule values, read from ``config`` in ONE place.
+
+    Hoisted out of ``eat_ceiling_offset`` so a caller sweeping tens of
+    thousands of vertices resolves them once instead of per call (the
+    per-call ``from … import`` cost that scoping test would otherwise pay
+    is ~0.35 µs, i.e. ~0.3 s on a large airport's pavement)."""
+    from auto_patch.config import (EAT_CORRIDOR_HALF_WIDTH_M,
+                                   EAT_MIN_CROSSING_DIST_M)
+    return (float(EAT_MIN_CROSSING_DIST_M), float(EAT_CORRIDOR_HALF_WIDTH_M))
+
+
+def eat_ceiling_offset(end_spec, x, y, bounds=None):
+    """THE LAW at one candidate EAT vertex: the CEILING offset (m,
+    normally negative) relative to the runway-END elevation that
+    ``grade_law.eat_pavement_ceiling`` allows there — or ``None`` when
+    this end's surface does not govern the point.
+
+    Two scoping tests, both from ``config`` (no rule number here):
+
+    * ``s >= EAT_MIN_CROSSING_DIST_M`` — closer than that the pavement is
+      an ordinary runway-end connector, not an end-around taxiway, and
+      the ceiling would be violently infeasible.
+    * ``|q| <= EAT_CORRIDOR_HALF_WIDTH_M`` — the surface's lateral extent.
+
+    ``bounds`` is the optional pre-resolved ``eat_scoping_bounds()`` pair
+    (a pure hoist for hot loops — the answer is identical either way).
+
+    ``end_spec`` is one entry of ``layout.eat_ceiling_presolve`` (see
+    ``clearance.emit_runway_end_skirts``), which already carries the
+    region-selected slope/setback and the end's tail height."""
+    min_s, half = eat_scoping_bounds() if bounds is None else bounds
+    p0 = end_spec["p0"]
+    nx, ny = end_spec["outward"]
+    dx, dy = float(x) - p0[0], float(y) - p0[1]
+    s = dx * nx + dy * ny
+    if s < min_s or abs(-dx * ny + dy * nx) > half:
+        return None
+    return float(_eat_pavement_ceiling(
+        s, end_spec["slope"], end_spec["setback_m"],
+        end_spec["tail_height_m"]))
+
+
+def _eat_shape_may_be_governed(bbox, end_spec, bounds):
+    """Conservative WHOLE-SHAPE reject for the corridor test.
+
+    ``s`` and ``q`` are AFFINE in ``(x, y)``, so over an axis-aligned
+    bounding box each attains its extremes at a corner: a box whose
+    largest ``s`` is still short of the minimum crossing distance, or
+    whose whole ``q`` range lies outside the corridor, cannot contain a
+    governed vertex.  Exact (never rejects a vertex the law would
+    govern), and it keeps the per-vertex sweep off the ~99 % of an
+    airport's pavement that is nowhere near a runway end.
+    """
+    min_s, half = bounds
+    x0, y0, x1, y1 = bbox
+    p0x, p0y = end_spec["p0"]
+    nx, ny = end_spec["outward"]
+    # An affine function's extremes over an axis-aligned box are reached
+    # by taking, per axis, whichever bound the coefficient's sign favours
+    # — so the four corners collapse to two closed forms (no allocation:
+    # this runs once per shape per runway end on every airport).
+    ax, ay = (x1 - p0x, x0 - p0x), (y1 - p0y, y0 - p0y)
+    s_max = (ax[0] if nx >= 0.0 else ax[1]) * nx \
+        + (ay[0] if ny >= 0.0 else ay[1]) * ny
+    if s_max < min_s:
+        return False
+    qx_hi = (ax[0] if -ny >= 0.0 else ax[1]) * -ny
+    qx_lo = (ax[1] if -ny >= 0.0 else ax[0]) * -ny
+    qy_hi = (ay[0] if nx >= 0.0 else ay[1]) * nx
+    qy_lo = (ay[1] if nx >= 0.0 else ay[0]) * nx
+    return not (qx_lo + qy_lo > half or qx_hi + qy_hi < -half)
+
+
+def _build_eat_ceiling_constraints(layout, bucket_to_idx):
+    """Constraint entries for the END-AROUND TAXIWAY surface ceiling.
+
+    THE LAW (owner ruling 2026-07-27): an end-around taxiway crosses the
+    extended centreline beyond a runway end, so its pavement must sit low
+    enough that the design aircraft's TAIL clears the departure (FAA 40:1
+    from the DER) / take-off-climb (EASA 2 % from a 60 m inner edge)
+    surface.  KATL taxiway Victor runs ~9 m below its runway end for
+    exactly this reason.
+
+    ENCODING — the same B3 band template the RESA cut uses, with the
+    lower side OPEN: exactly ONE interval 4-tuple ``(node_index,
+    end_anchor_index, None, ceiling_offset(s))`` per governed node, i.e.
+    the signed slab ``z_node − z_end <= ceiling_offset``.  The floor side
+    is open because nothing forbids an EAT sitting LOWER than the
+    surface demands; the grade caps and the smoothest-target then produce
+    the descent and climb ramps on their own — no ramp geometry is
+    stamped anywhere.  One-sided intervals are already carried by the
+    projection (``one_solve.feasibility_project``) and skipped by the
+    runway-flex envelope, which models symmetric budgets only.
+
+    DELIBERATELY CONSTRAINS PAVEMENT.  This is the one place a runway-end
+    surface binds a pavement variable, and the inversion of the RESA
+    cut's identity-collision rule (there a law edge must never touch a
+    pavement variable).  That is the point of the law: the EAT is
+    pavement and the surface is what forces it down.
+
+    ANCHOR: the end's FROZEN-NEAREST pavement ring vertex
+    (``clearance``'s ``anchor_xy`` off the row-100 endpoint), whose
+    solved value IS the runway-end elevation the surface is referenced
+    to — never a DEM read.  Runway nodes are HARD in the projection, so
+    the slab moves only the taxi side.
+
+    A node inside SEVERAL end corridors (crossing runways) takes the
+    LOWEST ceiling — the most restrictive surface governs, and the choice
+    is deterministic.  A node already claimed by an earlier shape's ring
+    takes no second edge (two slabs on one variable is the measured B2
+    ping-pong class).
+
+    Returns ``(sc_entries, eat_idx_set, counts)`` with ``counts =
+    (n_in_corridor, n_cross_claimed, n_no_anchor)``.
+    """
+    from auto_patch.config import EAT_SURFACE_CEILING_ENABLED
+    end_specs = getattr(layout, "eat_ceiling_presolve", None) or []
+    if not end_specs or not EAT_SURFACE_CEILING_ENABLED:
+        return [], set(), (0, 0, 0)
+    bounds = eat_scoping_bounds()
+    cps = layout.canonical_points
+    anchor_idx: list = []
+    for spec in end_specs:
+        a = spec.get("anchor_xy")
+        j = None
+        if a is not None:
+            j = bucket_to_idx.get(cps.get_or_add(float(a[0]), float(a[1])))
+        anchor_idx.append(j)
+    sc_out: list[dict] = []
+    eat_idx: set[int] = set()
+    claimed: set[int] = set()
+    n_in = n_cross = n_no_anchor = 0
+    for s in layout.shapes:
+        if s.role not in EAT_CEILING_ROLES:
+            continue
+        if s.polygon is None or s.polygon.is_empty:
+            continue
+        try:
+            bbox = s.polygon.bounds
+            near = [k for k, spec in enumerate(end_specs)
+                    if _eat_shape_may_be_governed(bbox, spec, bounds)]
+            if not near:
+                continue
+            coords = _open_ring(list(s.polygon.exterior.coords))
+        except _GEOM_EXC:
+            continue
+        edges: list[tuple] = []
+        node_list: list[int] = []
+        for (x, y) in coords:
+            i = bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
+            if i is None:
+                continue
+            best = None
+            missing_anchor = False
+            for k in near:
+                spec = end_specs[k]
+                off = eat_ceiling_offset(spec, x, y, bounds)
+                if off is None:
+                    continue
+                j = anchor_idx[k]
+                if j is None or j == i:
+                    missing_anchor = True
+                    continue
+                if best is None or off < best[0]:
+                    best = (off, j)
+            if best is None:
+                if missing_anchor:
+                    n_no_anchor += 1
+                continue
+            n_in += 1
+            node_list.append(i)
+            eat_idx.add(i)
+            if i in claimed:
+                n_cross += 1
+                continue
+            claimed.add(i)
+            edges.append((i, best[1], None, float(best[0])))
+        if not edges:
+            continue
+        sc_out.append({"nodes": node_list, "edges": edges, "flat": False,
+                       "flat_pairs": (), "area": 0.0,
+                       "role": s.role, "ref": REF_EAT_CEILING})
+    if _os.environ.get("O4_STEP_DEBUG") == "1" and (n_in or n_no_anchor):
+        print(f"    [eat-ceiling] {n_in} pavement vertex(es) inside a "
+              f"departure-surface corridor, {n_cross} already claimed by "
+              f"an earlier shape, {n_no_anchor} had no resolvable end "
+              f"anchor")
+    return sc_out, eat_idx, (n_in, n_cross, n_no_anchor)
 
 
 def _build_adjacent_ground_zone_constraints(layout, bucket_to_idx):

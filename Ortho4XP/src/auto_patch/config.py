@@ -27,6 +27,9 @@ __all__ = [
     "DSF_OBJECT_ELEVATED_BASE_M",
     "DSF_OBJECT_MAX_FOOTPRINT_AREA_M2",
     "DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M",
+    "DSF_OBJECT_CLUSTER_SEATING",
+    "DSF_OBJECT_CLUSTER_SEAT_TOLERANCE_M",
+    "DSF_OBJECT_PAD_MAX_RELIEF_M",
     "DSF_OBJECT_SUPPORTER_FATE",
     "DSF_OBJECT_SUPPORTER_SMALLEST",
     "DSF_OBJECT_PAVEMENT",
@@ -194,7 +197,18 @@ __all__ = [
     "CLEARANCE_LATERAL_MAX_SLOPE",
     "RUNWAY_STRIP_HALF_WIDTH_BY_CODE",
     "WINGSPAN_BY_CODE_LETTER",
+    "TAIL_HEIGHT_BY_CODE_LETTER",
     "TAXIWAY_WINGTIP_MARGIN_M",
+    "EAT_SURFACE_CEILING_ENABLED",
+    "EAT_FAA_DEPARTURE_SLOPE",
+    "EAT_FAA_SETBACK_M",
+    "EAT_EASA_TAKEOFF_CLIMB_SLOPE",
+    "EAT_EASA_SETBACK_M",
+    "EAT_MIN_CROSSING_DIST_M",
+    "EAT_CORRIDOR_HALF_WIDTH_M",
+    "EAT_FAA_ICAO_PREFIXES",
+    "eat_surface_slope_and_setback",
+    "runway_code_letter",
     "ADJACENT_GROUND_LIP_WIDTH_M",
     "ADJACENT_GROUND_LIP_MIN_DOWN_SLOPE",
     "ADJACENT_GROUND_LIP_MAX_DOWN_SLOPE",
@@ -752,6 +766,17 @@ RUNWAY_FLEX_MAX_DISPLACEMENT_M = 4.0
 # pipeline.py (shapes are split at this contour) — "no apron should ever
 # touch a runway" follows as a corollary.
 APRON_ROUTE_PROXIMITY_M = 50.0
+# THROUGH-ROUTE LENGTH BACKSTOP (owner ruling 2026-07-26, KCLT shape
+# 186).  The route-proximity cut counts only THROUGH taxi routes (each
+# end joins another centerline or the runway — the 2026-07-06 KCLT
+# gate-lead-in regression fix).  But a real movement-network taxiway can
+# dead-end INSIDE apron pavement at both tips (KCLT taxiway U: a 956 m
+# route joining two apron lobes through a 36-56 m neck) — excluded, the
+# neck stayed apron, the neck's cross-corridor grade edges were spine-
+# SKIPPED, and the two lobes floated 4.7 m apart inside one "apron".  A
+# dead-end route at least this long is a through route for the cut: gate
+# lead-ins are tens of metres, an inter-apron connector is hundreds.
+APRON_ROUTE_THROUGH_MIN_LEN_M = 150.0
 # The building-frontage rule (user 2026-07-02/03, buildings-heaviest):
 # ANY within-shape pair touching a building pad is capped here no matter
 # which face role hosts it (grade_law.classify_pair binds it last).
@@ -836,6 +861,34 @@ TAXI_CORRIDOR_PROFILE = True
 # change (default 3000; larger ⇒ flatter, longer vertical curves).
 TAXIWAY_MAX_GRADE_CHANGE_PER_M = 1.0 / float(
     _os_early.environ.get("O4_TAXIWAY_CURVE_RUN_M", "3000"))
+# THROUGH-WELD FAIRING (owner defect 2026-07-27, HECA taxiway dip at
+# 30.11221,31.41089).  ``_fair_spine_chains`` breaks its chains at every
+# degree-≠2 spine node, so the vertical-curve law was blind exactly at
+# junction WELDS — a through-taxiway crossing a descending spine
+# inherited the weld value and carved a solver-manufactured 10 m V
+# (9.4 m under its own 1019 m chord) that no law measured: the DEM
+# along the corridor is strictly monotone.  With this ON, chains whose
+# terminal segments meet at a weld within
+# ``SPINE_FAIR_WELD_MAX_DEVIATION_DEG`` of straight-on are SPLICED and
+# the K-factor fairs across the weld like any interior vertex (band
+# clamps and anchors still hold).  Branches that genuinely turn keep
+# their own chains — the deviation bound is what keeps a 90° tee from
+# fairing around the corner.
+SPINE_FAIR_THROUGH_WELDS = (
+    _os_early.environ.get("O4_SPINE_FAIR_THROUGH_WELDS", "1") == "1")
+SPINE_FAIR_WELD_MAX_DEVIATION_DEG = float(
+    _os_early.environ.get("O4_SPINE_FAIR_WELD_MAX_DEVIATION_DEG", "30.0"))
+# CHORD-SAG CAP (same HECA dip): the K-factor bounds only the RATE of
+# grade change — a 10 m bowl under a 1 km corridor is legal curvature
+# at 1/3000 — so through-weld splicing irons the kink but not the
+# DEPTH.  With this > 0, every spliced/plain chain's interior free
+# nodes are floored at (chord between the chain-end values − this many
+# metres) before the POCS sweeps, clamped into each node's reach band
+# as always.  DEFAULT 0 (OFF): the interaction with the final grade
+# projection is unmeasured at airport scale — enable via
+# ``O4_SPINE_CHORD_MAX_SAG_M`` after the HECA A/B, not before.
+SPINE_CHORD_MAX_SAG_M = float(
+    _os_early.environ.get("O4_SPINE_CHORD_MAX_SAG_M", "0"))
 # ── Corridor-profile DAMPING (user 2026-06-14) ──────────────────
 # The taxi-corridor field SEEDS at the DEM and projects onto the legal
 # band, so wherever the DEM is locally legal the profile sits ON the
@@ -2282,6 +2335,37 @@ RUNWAY_SEAM_CUTBACK_DEM_ANCHORS = (
     RUNWAY_SEAM_VERTEX_DEM_PIN
     and _os.environ.get("O4_RUNWAY_SEAM_CUTBACK_DEM", "1") == "1")
 
+# ── SEAM PROFILE ANCHOR COLLAPSE (owner ruling 2026-07-26) ───────────────
+# The 2026-07-26 all-nodes-at-DEM ruling above anchored every EDGE-contact
+# sample in the LONGITUDINAL profile too — and at an oblique crossing the
+# ~48 laterally-spread samples fold the terrain's CROSS-runway slope into
+# the 1-DOF profile over ±70 m of station (SPLP RW02/20 at 17.7°: spans
+# wobbling 0.41 → 2.07 → 3.07 → 2.65 → 1.66 % against a 1.41 % design
+# grade — an unsmoothed terrain trace, not a ramp; anchored samples are
+# exempt from every grade cap, ``pavement/runway_segments.py``).  The
+# owner's follow-up: the SPINE must grade cleanly from the DEM at the cut
+# back to crown height.  With this ON the profile takes ONE anchor per
+# boundary line — at the CENTERLINE crossing, valued at that point's own
+# DEM — so inter-anchor grades reflect the true longitudinal terrain and
+# the joint solve's caps + K-factor own the ramp back to design grade.
+# The lateral seam contract is untouched: the cut-back RING stations stay
+# DEM-pinned every 10 m (half 1 of the ruling above), and the transverse
+# crown taper absorbs the cross-slope, as it should — a 1-DOF profile
+# never could.  ``O4_RUNWAY_SEAM_PROFILE_COLLAPSE=0`` restores the
+# all-contact-samples profile anchoring byte-identically.
+RUNWAY_SEAM_PROFILE_COLLAPSE = (
+    RUNWAY_SEAM_CUTBACK_DEM_ANCHORS
+    and _os.environ.get("O4_RUNWAY_SEAM_PROFILE_COLLAPSE", "1") == "1")
+# How far from a tile cut line the deviation-closure ramp is treated as
+# seam-governed by the profile reader (``verification.
+# check_runway_profile``): over-cap spans wholly inside the zone are
+# REPORTED as ``seam_dem_step`` residuals (the seam anchor sits at raw
+# DEM below the design line; closing that deviation on a 1.4 %-class
+# design grade cannot stay under 1.5 % — SPLP measures 1.77-1.88 % over
+# ~60-120 m).  Consumed only with the collapse gate ON.
+RUNWAY_SEAM_RAMP_ZONE_M = float(
+    _os.environ.get("O4_RUNWAY_SEAM_RAMP_ZONE_M", "150.0"))
+
 # RUNWAY DE-SEGMENTATION (user mandate 2026-07-07, docs/
 # runway_single_polygon_plan.md).  Segments are a hi/lo-era vestige: each
 # sub-rect was a 4-corner PLANE, so the curved FAA profile required cutting
@@ -2379,6 +2463,52 @@ DSF_OBJECT_BUILDINGS = _os.environ.get("O4_DSF_OBJECT_BUILDINGS", "1") == "1"
 # needs a simplify tolerance and a hole policy.  OFF restores the hull.
 DSF_OBJECT_FOOTPRINT_UNION = (
     _os.environ.get("O4_DSF_OBJECT_FOOTPRINT_UNION", "0") == "1")
+
+# HULL-FILL FLOOR on the hull-path footprint (owner defect 2026-07-27,
+# HECA building188): a convex hull over a handful of SPARSE bases — an
+# apron floodlight mast (2.6 × 2.6 m), a few jersey barriers and one
+# stray below-grade co-baked fragment that opened the 1.5 m base band —
+# minted a phantom 4,638 m² "building" pad punched into a graded apron
+# (1.9 m pad↔apron step; no OSM building exists there).  A real
+# building's triangulated floor/wall bases fill their own hull (ratio
+# ≥ 1 is common); scattered street furniture fills ~0.02.  Below this
+# floor the structure gets NO pad — same law family as
+# ``DSF_OBJECT_CONNECTOR_MAX_FILL``, applied to the FINAL hull.  0
+# disables.  The triangle-union path (``DSF_OBJECT_FOOTPRINT_UNION``)
+# is fill-true by construction and skips the gate.
+DSF_OBJECT_MIN_FOOTPRINT_FILL = float(
+    _os.environ.get("O4_DSF_OBJECT_MIN_FOOTPRINT_FILL", "0.1"))
+
+# TALL-BASE FILL FLOOR, the fill gate's sibling (same HECA defect,
+# second composition): a SOLID 0.3 m sidewalk/ground plate welded to a
+# 28 m floodlight mast defeats both the height gate (the mast supplies
+# 37 m of vertical extent) and the base-fill gate (the plate supplies
+# dense base triangles) — yet it is still street furniture on a slab,
+# not a building.  The discriminator: a building's TALL member covers
+# its own footprint; the weld's tall member (the mast) covers 0.15 % of
+# the hull and its covering member (the plate) is 0.3 m tall.  Tall-base
+# fill = Σ base-triangle area of resources whose own vertical extent ≥
+# ``DSF_OBJECT_MIN_BUILDING_HEIGHT_M`` ÷ hull area; a real terminal
+# reads ~1.0, the plate+mast weld ~0.002.  Kept LOW so multi-object
+# compositions (a tall core with short annexes welded in) pass.  0
+# disables.
+# FLOOR CALIBRATION (measured HECA 2026-07-27): the plate+mast weld
+# class and sparse street furniture measure < 0.002 (670 of 813 skip
+# events; phantom building124 at ~0.0015); THIN-WALL terminal shells —
+# material-split wall objects whose 1.5 m footing band projects as thin
+# strips — measure ~0.002-0.01 and are REAL buildings that need their
+# pads.  The floor sits between the two populations; raising it toward
+# 0.05 culled ~140 thin-wall shells (buildings 498 -> 90) and must not
+# happen silently.
+DSF_OBJECT_MIN_TALL_BASE_FILL = float(
+    _os.environ.get("O4_DSF_OBJECT_MIN_TALL_BASE_FILL", "0.002"))
+# What counts as a TALL member for the tall-base fill above.  Its own
+# constant on purpose: A11's ``DSF_OBJECT_MIN_BUILDING_HEIGHT_M`` is a
+# separately owned gate (tests and users legitimately zero it), and the
+# tall-base discriminator must not silently degrade to "everything is
+# tall" when they do.
+DSF_OBJECT_TALL_MEMBER_MIN_EXTENT_M = float(
+    _os.environ.get("O4_DSF_OBJECT_TALL_MEMBER_MIN_EXTENT_M", "2.5"))
 
 # (20260708) DSF OBJECT RE-ANCHOR (user 2026-07-08, rulings R1 + R2):
 # post-mesh, rewrite the ``y`` column of each structure's vertices by
@@ -2637,6 +2767,65 @@ DSF_OBJECT_PAD_FLAG_SPAN_M = float(
 # structure; past this larger limit the structure is not baked at all.
 DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M = float(
     _os.environ.get("O4_DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M", "3.0"))
+
+# ── Per-cluster object seating ────────────────────────────────────────
+# (docs/specs/per-cluster-object-seating-spec.md, owner ruling R1
+# 2026-07-26.)  A heavy payware pack welds its whole terminal complex
+# into ONE km-scale contact component; on flat ground (KCLT 0.022 m /
+# KBNA 0.005 m of ground-contact relief) that is harmless, but at HECA
+# the same topology sits on 26 m of REAL relief and the rigid-seat limit
+# above refuses the lot — 385 objects, 6,339 supporter-inheritors, the
+# whole Tai Models terminal complex left at authored elevations.  The
+# fix is to stop pretending the mega-structure is one rigid body: it is
+# many rigid bodies (CLUSTERS) joined at contact edges where the ground
+# steps.  With this gate on, ``object_anchor.structure_deltas`` cuts the
+# ground-to-ground contact edges whose two ends want seats more than
+# DSF_OBJECT_CLUSTER_SEAT_TOLERANCE_M apart and seats each remaining
+# connected component on its own median ground (spec sections 3.2, 4.1).
+# OFF restores per-structure seating byte for byte.  Spec section 7.1
+# landed this gated off pending the owner's verdict; the owner ruling
+# 2026-07-27 ("all the buildings and big terminals that actually touch
+# airside, many are still floating, some by a lot, we have to find a
+# way to get them down, even if we have to remove things like the rail
+# connector between terminals") IS that verdict — default ON.  Measured
+# at flip time: HECA skipped structures 6,386 → 41, Private Hall worst
+# float +31.8 → +5.7 m, road_train reported as a bridge; KCLT a strict
+# improvement (worst 23.7 → 4.5 m).  ``O4_OBJECT_CLUSTER_SEATING=0``
+# reverts.
+DSF_OBJECT_CLUSTER_SEATING = (
+    _os.environ.get("O4_OBJECT_CLUSTER_SEATING", "1") == "1")
+
+# The cut tolerance T (spec section 3.3).  A ground-to-ground contact
+# edge is CUT when the two ends' seat targets — ``ground_under(part) −
+# base_y(part)``, the y = 0 elevation that lands each end exactly on the
+# mesh — differ by more than this.  Measured on HECA structure 0's 1,634
+# ground-to-ground contacts: |Δseat| p50 0.006 / p90 0.258 / p99 1.60 /
+# max 4.13 m.  T = 0.05 cuts 38 % of edges (shredding the structure);
+# T = 0.5 cuts 3.6 % — exactly the genuine relief transitions, well
+# above the modelling-noise shoulder and well below the zone steps.  It
+# is also one stair riser plus margin, the scale a seam at a facade base
+# reads as deliberate.  0 disables clustering (same as the gate off).
+# Guard (spec section 3.3): T must exceed the contact epsilon — a
+# tolerance below the modelling gap it partitions across would be
+# self-inconsistent.
+DSF_OBJECT_CLUSTER_SEAT_TOLERANCE_M = float(
+    _os.environ.get("O4_DSF_OBJECT_CLUSTER_SEAT_TOLERANCE_M", "0.5"))
+assert (
+    DSF_OBJECT_CLUSTER_SEAT_TOLERANCE_M == 0.0
+    or DSF_OBJECT_CLUSTER_SEAT_TOLERANCE_M > DSF_OBJECT_CONTACT_EPSILON_M
+), (
+    "DSF_OBJECT_CLUSTER_SEAT_TOLERANCE_M must exceed "
+    "DSF_OBJECT_CONTACT_EPSILON_M (spec section 3.3 guard)"
+)
+
+# (spec section 5.1 clause 1, owner ruling R2: "as close as feasible to
+# DEM, then some adjustment to terrain is acceptable".)  A requested
+# building pad may deviate from the mesh by at most this; a residual
+# group needing more is still RECORDED, flagged over-cap, and reported
+# as a finding rather than silently promising terrain nobody will build.
+# 3.0 m inherits the rigid-seat limit's scale.
+DSF_OBJECT_PAD_MAX_RELIEF_M = float(
+    _os.environ.get("O4_DSF_OBJECT_PAD_MAX_RELIEF_M", "3.0"))
 
 # DEFECT A, MEASURED AND NOT LANDED (2026-07-26).  The limit above is a
 # max-min statistic that pre-empts the amendment-A3 arithmetic: a
@@ -3525,6 +3714,153 @@ WINGSPAN_BY_CODE_LETTER = {
 # Margin (m) added beyond the wingtip (FAA-style wingtip clearance).
 TAXIWAY_WINGTIP_MARGIN_M = 3.0
 
+# Maximum aircraft TAIL HEIGHT (m) per ADG / ICAO code letter.  FAA AC
+# 150/5300-13B Table 1-1 keys the Airplane Design Group by tail height
+# AND wingspan (ADG I ≤20 ft, II <30, III <45, IV <60, V <66, VI <80 ft);
+# the ICAO code letters map A↔I, B↔II, C↔III, D↔IV, E↔V, F↔VI, so the
+# table is keyed by LETTER here to match ``WINGSPAN_BY_CODE_LETTER``
+# above.  20 ft = 6.1, 30 = 9.1, 45 = 13.7, 60 = 18.3, 66 = 20.1,
+# 80 = 24.4 m.  Used by the END-AROUND TAXIWAY ceiling below: it is the
+# TAIL, not the wingtip, that penetrates a departure surface.
+TAIL_HEIGHT_BY_CODE_LETTER = {
+    "A": 6.1, "B": 9.1, "C": 13.7, "D": 18.3, "E": 20.1, "F": 24.4,
+}
+
+
+# ── END-AROUND TAXIWAY (EAT) departure/approach surface ceiling ───────
+# Owner ruling 2026-07-27.  An end-around taxiway loops BEYOND a runway
+# end and crosses the extended centreline, so an aircraft on it stands
+# directly under the departure (take-off climb) surface.  The surface
+# must clear the aircraft's TAIL, which forces the EAT PAVEMENT below
+# the runway-end elevation — KATL taxiway Victor runs ~30 ft (≈9 m)
+# below its runway end for exactly this reason.
+#
+# This is the first grade law that binds TAXI PAVEMENT to a runway-end
+# surface: ``ols.py`` is a terrain-CUT law and pavement is explicitly
+# exempt from it (``solver_primitives._build_resa_cut_constraints``'s
+# identity-collision rule), so before this nothing tied taxi pavement
+# beyond a runway end to any surface at all.
+#
+# Gate OFF ⇒ no per-end store, no constraint, no verification reader —
+# byte-identical to the pre-feature build.
+#
+# DEFAULT OFF — BUILD-TIME BLOCKER, measured KCLT 2026-07-27.  The law,
+# its encoding and its reader are complete and unit-proven; what is NOT
+# yet solved is the reach-envelope interaction, and the HARD LAW
+# (CLAUDE.md §6) forbids landing this default-ON:
+#
+#   * with the ceiling constraints neutered, KCLT builds in 228.9 s;
+#   * with them active the build was killed at 15:02 of CPU and 20.3 GB
+#     RSS, `sample(1)` showing ~100 % of the time in ``heapq.heappop`` /
+#     ``siftup`` inside ``one_solve.feasibility_project``'s reach-envelope
+#     Dijkstra (``_reach``).
+#
+# CAUSE — the documented KBNA class, one_solve.py ~1075 "ENVELOPE
+# EXCLUSION FOR ZONE EDGES": a signed slab injects SIGNED (here strongly
+# NEGATIVE, ≈ −10 m) directed weights into ``ceil_radj``, and ``_reach``
+# is a lazy Dijkstra — non-negative weights only.  Adjacent-ground zone
+# slabs are excluded from it by the ``interval_yield_from`` INDEX
+# THRESHOLD, but an EAT ceiling couples PAVEMENT to PAVEMENT, so both
+# endpoints sit below that threshold and the exclusion cannot fire.  No
+# reformulation of the edge avoids it: a ceiling BELOW its anchor IS a
+# negative ceiling-propagation weight, whichever way the slab is
+# oriented.
+#
+# UNBLOCKING FIX (owner call — it changes a shared solver file, outside
+# this feature's scope): teach ``one_solve.feasibility_project`` to
+# exclude EAT ceiling slabs from the envelope adjacency the way the zone
+# slabs are excluded — e.g. an explicit per-edge "envelope leaf" marker
+# instead of the index threshold.  Flip this default the moment that
+# lands and re-measure KCLT.
+EAT_SURFACE_CEILING_ENABLED = (
+    _os.environ.get("O4_EAT_SURFACE_CEILING", "0") == "1")
+
+# FAA (North America).  AC 150/5300-13B §4.12 + FAA Order 8260.3 (TERPS)
+# departure surface: 40:1 (2.5 %) rising FROM the departure end of runway
+# (DER) AT the DER elevation — no setback.
+EAT_FAA_DEPARTURE_SLOPE = 0.025
+EAT_FAA_SETBACK_M = 0.0
+
+# EASA (everywhere else).  CS-ADR-DSN H.435 / Table J-2 + J.480(e)
+# take-off climb surface, code 3/4: 2 % from an inner edge 60 m beyond
+# the runway end.
+EAT_EASA_TAKEOFF_CLIMB_SLOPE = 0.02
+EAT_EASA_SETBACK_M = 60.0
+
+# SCOPING GUARD — minimum along-centreline distance beyond the runway end
+# at which the ceiling binds.  Taxi pavement CLOSER than this is an
+# ordinary runway-end connector (a rapid exit, a threshold link), not an
+# end-around taxiway; applying the surface there is violently infeasible
+# (at 60 m the FAA ceiling for a code-E tail is 60·0.025 − 20.1 = −18.6 m
+# below the runway end).  A real EAT crosses the extended centreline
+# hundreds of metres out — KCLT's 18C-end loop crosses at 439–482 m.
+EAT_MIN_CROSSING_DIST_M = 300.0
+
+# Lateral half-width (m) of the corridor about the extended centreline
+# inside which the ceiling binds.  Deliberately a single conservative
+# constant rather than the departure surface's true splayed extent: the
+# real FAA/EASA surfaces flare outward with distance, and reproducing the
+# splay is a refinement.  90 m is the runway OFZ-ish corridor — wider than
+# the code-4 graded strip half-width (75 m) and comfortably covering the
+# centreline crossing of a real end-around loop, narrow enough that the
+# apron/taxi network to either side of the extended centreline is not
+# swept in.
+EAT_CORRIDOR_HALF_WIDTH_M = 90.0
+
+# ICAO prefixes that select the FAA ruleset (North America).  "K" = the
+# contiguous USA, "C" = Canada, "P" = Alaska / Hawaii / US Pacific,
+# "M" = Mexico + Central America.  Everything else takes EASA.  The
+# owner ruling is "FAA for North America, EASA everywhere else"; keying
+# on the ICAO location-indicator first letter is the cheapest faithful
+# expression of that split and needs no external region database.
+EAT_FAA_ICAO_PREFIXES = frozenset({"K", "C", "P", "M"})
+
+
+def eat_surface_slope_and_setback(icao) -> tuple:
+    """``(slope, setback_m)`` of the departure / take-off-climb surface
+    that governs an end-around taxiway at airport ``icao``.
+
+    FAA (AC 150/5300-13B §4.12, FAA Order 8260.3 TERPS) in North America
+    — 40:1 from the DER with no setback; EASA (CS-ADR-DSN H.435 /
+    Table J-2, J.480(e)) everywhere else — 2 % from a 60 m inner edge.
+    Region is decided from the ICAO location indicator's first letter
+    (see ``EAT_FAA_ICAO_PREFIXES``); an empty/unknown ICAO falls to EASA,
+    which is the STRICTER (lower) ceiling at every distance beyond
+    ~240 m, so missing data never buys a permissive surface.
+    """
+    letter = (str(icao or "").strip().upper() or " ")[0]
+    if letter in EAT_FAA_ICAO_PREFIXES:
+        return (EAT_FAA_DEPARTURE_SLOPE, EAT_FAA_SETBACK_M)
+    return (EAT_EASA_TAKEOFF_CLIMB_SLOPE, EAT_EASA_SETBACK_M)
+
+
+def runway_code_letter(width_m: float) -> str:
+    """ICAO code LETTER of the design aircraft a RUNWAY is built for,
+    inferred from its declared width (m).
+
+    ``taxiway_code_letter`` above is the TAXIWAY table and must not be
+    reused here — runway width standards are a different table.  FAA AC
+    150/5300-13B Table 3-3 runway widths by ADG: I 18.3 m, II 22.9 m,
+    III 30.5 m, IV/V 45.7 m, VI 61.0 m (ICAO Annex 14 Table 3-1 agrees
+    at code 4: C/D/E 45 m, F 60 m).  ADG IV and V share the 150 ft width,
+    so a 45 m runway is ambiguous between letters D and E; it resolves to
+    **E**, the taller tail — for a CEILING law the taller aircraft is the
+    conservative reading (a lower ceiling), and 45 m runways at
+    ADG-V airports (KCLT, KATL) are the case this law exists for.
+    """
+    w = float(width_m or 0.0)
+    if w >= 55.0:
+        return "F"
+    if w >= 42.0:
+        return "E"
+    if w >= 28.0:
+        return "D"
+    if w >= 21.0:
+        return "C"
+    if w >= 15.0:
+        return "B"
+    return "A"
+
 
 # ── Adjacent-ground grade law — lateral corridor off a pavement edge ──
 # (Fable design 2026-07-08, docs/adjacent_ground_grade_law_plan.md; the
@@ -3912,6 +4248,20 @@ CONFORMANCE_CUT_CLAMP_ENABLED = (
 # of.  Gate OFF ⇒ byte-identical to the pre-fix march.
 BAND_RAY_OCCLUSION_ENABLED = (
     _os.environ.get("O4_BAND_RAY_OCCLUSION", "1") == "1")
+
+# HALF-CORRIDOR CUT CAP (owner ruling 2026-07-26, CYXY shape 337).  Ray
+# occlusion alone stops a cut band AT the facing pavement's edge, so the
+# zone-3 cut of one frontage steamrolls the whole corridor between two
+# pavements and terminates as a wall 0-5 m short of the neighbour (CYXY:
+# junction 130's zone-3 band reached to taxiway 132's edge, shaving
+# 1.3-2.9 m off the natural cross-slope).  With this ON, each station's
+# CUT cap is additionally clamped to HALF its occlusion distance, so two
+# facing frontages meet mid-corridor and the terrain between them keeps
+# its natural transition.  Occlusion is +inf where no pavement faces the
+# station (and everywhere with ray occlusion OFF), so the clamp is a
+# no-op outside true pavement-to-pavement corridors.
+ADJACENT_GROUND_CUT_HALF_CORRIDOR_ENABLED = (
+    _os.environ.get("O4_ADJACENT_GROUND_CUT_HALF_CORRIDOR", "1") == "1")
 
 # OPEN-FRONTAGE DRAINAGE SPINE (slice B pilot, user design ruling 3
 # 2026-07-09; docs/chain_identity_one_solve_plan.md §Slice B).  The

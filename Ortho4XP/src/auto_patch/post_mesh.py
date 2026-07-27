@@ -82,7 +82,13 @@ OBJECT_ANCHOR_WORKLIST_VERSION = 2
 # elevation.  A future terrain-shaping stream consumes it; until then
 # it is the durable audit trail for feet a rigid body cannot seat.
 OBJECT_FOOT_PAD_SIDECAR_FILENAME = "o4_object_foot_pads.json"
-OBJECT_FOOT_PAD_SIDECAR_VERSION = 1
+# 2: per-CLUSTER pad requests join the per-foot ones (per-cluster seating
+#    spec section 5.3).  Every request now carries a "kind" tag —
+#    "foot" | "cluster" — and cluster requests additionally carry
+#    "cluster_id", "part_count" and "over_relief_cap".  A version-1 file
+#    is exactly the "foot"-only subset, so readers stay
+#    version-agnostic.
+OBJECT_FOOT_PAD_SIDECAR_VERSION = 2
 
 # The counts returned by rebake_dsf_objects, all starting at zero.
 _COUNT_KEYS = (
@@ -96,6 +102,11 @@ _COUNT_KEYS = (
     "objects_partially_baked",
     "airports_failed",
     "foot_pad_requests",
+    # Per-cluster seating (DSF_OBJECT_CLUSTER_SEATING): terrain-pad
+    # requests raised by seated clusters, and the reported seams of
+    # elevated components that span two clusters.
+    "cluster_pad_requests",
+    "cluster_bridge_seams",
     # Airports whose recorded run fingerprint still matched every input,
     # so nothing was re-derived (O4_REANCHOR_SHORT_CIRCUIT).
     "airports_up_to_date",
@@ -232,7 +243,13 @@ def _pool_world_bounds(
 # Bump when partition_structures' output shape or semantics change, or
 # when anything new starts feeding the partition (the pickle payload and
 # the hash must both change meaning together).
-_PARTITION_CACHE_VERSION = 2  # 2: oversized-chain connector split
+# 3: Structure.contact_edges — the epsilon-contact edges threaded
+#    through to per-cluster seating (a version-2 pickle has no such
+#    attribute, and seating must never read one).
+# 4: connector-split groups carry the split's RE-DERIVED edges instead
+#    of an empty set (a version-3 pickle left exactly the split
+#    mega-structures unclusterable).
+_PARTITION_CACHE_VERSION = 4
 
 
 def _cached_partition_structures(
@@ -333,6 +350,16 @@ def _cached_partition_structures(
     return structures
 
 
+def _merge_cluster_counts(decisions: list) -> dict:
+    """Sum the per-pool per-cluster seating counts for the run record
+    (spec section 3.5: reporting only)."""
+    merged: dict[str, int] = {}
+    for _pool, decision in decisions:
+        for name, value in (decision.cluster_counts or {}).items():
+            merged[name] = merged.get(name, 0) + value
+    return merged
+
+
 def discover_and_rebake_airport(
     dsf_path: str,
     mesh_path: str,
@@ -397,6 +424,10 @@ def discover_and_rebake_airport(
         "decisions": [],
         # object_anchor.FootPadRequest instances, all pools merged.
         "foot_pad_requests": [],
+        # object_anchor.ClusterPadRequest / ClusterSeam instances, all
+        # pools merged (empty unless DSF_OBJECT_CLUSTER_SEATING is on).
+        "cluster_pad_requests": [],
+        "cluster_seams": [],
         # Objects un-baked because they are excluded from the current
         # decision but still carried a stale live bake (reversion pass).
         "objects_reverted": [],
@@ -448,6 +479,9 @@ def discover_and_rebake_airport(
             )
             result["foot_pad_requests"] = (
                 object_rebake.run_record_foot_pad_requests(record)
+            )
+            result["cluster_pad_requests"] = (
+                object_rebake.run_record_cluster_pad_requests(record)
             )
             return result
         UI.vprint(
@@ -651,6 +685,8 @@ def discover_and_rebake_airport(
         )
         result["decisions"].append((pool, decision))
         result["foot_pad_requests"].extend(decision.foot_pad_requests)
+        result["cluster_pad_requests"].extend(decision.cluster_pad_requests)
+        result["cluster_seams"].extend(decision.cluster_seams)
         if write_changes:
             report = object_rebake.apply(decision, pack_root, mesh_path)
             result["objects_written"].extend(report.objects_written)
@@ -721,6 +757,9 @@ def discover_and_rebake_airport(
                 structures_baked=result["structures_baked"],
                 structures_needing_pad=result["structures_needing_pad"],
                 foot_pad_requests=result["foot_pad_requests"],
+                cluster_pad_requests=result["cluster_pad_requests"],
+                cluster_seams=result["cluster_seams"],
+                cluster_counts=_merge_cluster_counts(result["decisions"]),
             ),
         )
     return result
@@ -897,46 +936,122 @@ def rebake_dsf_objects(tile) -> dict:
             counts["foot_pad_requests"] += len(
                 airport_result["foot_pad_requests"]
             )
-            if airport_result["foot_pad_requests"]:
+            counts["cluster_pad_requests"] += len(
+                airport_result.get("cluster_pad_requests", ())
+            )
+            if (
+                airport_result["foot_pad_requests"]
+                or airport_result.get("cluster_pad_requests")
+            ):
                 from . import object_footprints
                 from .config import DSF_OBJECT_FOOT_PAD_MARGIN_M
 
+                requests: list[dict] = [
+                    {
+                        "kind": "foot",
+                        "resource_path": request.resource_path,
+                        "latitude": request.latitude,
+                        "longitude": request.longitude,
+                        "base_y": request.base_y,
+                        "residual_metres": request.residual_metres,
+                        "target_ground_metres": (
+                            request.target_ground_metres
+                        ),
+                        "ring_lonlat": (
+                            object_footprints.foot_pad_ring(
+                                list(request.contact_points_lonlat),
+                                DSF_OBJECT_FOOT_PAD_MARGIN_M,
+                            )
+                        ),
+                    }
+                    for request in airport_result["foot_pad_requests"]
+                ]
+                # Per-CLUSTER requests (spec section 5.3).  The ring is
+                # the same builder over the residual group's contact
+                # points; the PAD LAW's clip against graded pavement
+                # (spec section 5.1 clause 2) belongs to the pad
+                # CONSUMER, which does not exist yet — the ring recorded
+                # here is therefore unclipped and flagged as such, and
+                # ``object_footprints.clip_pad_ring_against_pavement``
+                # is the single function that consumer must clip with.
+                # Nothing is emitted into the terrain from this file
+                # today, so no pavement can be deformed by it.
+                requests.extend(
+                    {
+                        "kind": "cluster",
+                        "cluster_id": request.cluster_id,
+                        "structure_index": request.structure_index,
+                        "resource_path": request.resource_path,
+                        "latitude": request.latitude,
+                        "longitude": request.longitude,
+                        "base_y": request.base_y,
+                        "residual_metres": request.residual_metres,
+                        "target_ground_metres": (
+                            request.target_ground_metres
+                        ),
+                        "part_count": request.part_count,
+                        "over_relief_cap": request.over_relief_cap,
+                        "pavement_clipped": False,
+                        "ring_lonlat": (
+                            object_footprints.foot_pad_ring(
+                                list(request.contact_points_lonlat),
+                                DSF_OBJECT_FOOT_PAD_MARGIN_M,
+                            )
+                        ),
+                    }
+                    for request in airport_result.get(
+                        "cluster_pad_requests", ()
+                    )
+                )
                 foot_pad_airports.append(
                     {
                         "icao": icao,
                         "pack_root": pack_root,
-                        "requests": [
-                            {
-                                "resource_path": request.resource_path,
-                                "latitude": request.latitude,
-                                "longitude": request.longitude,
-                                "base_y": request.base_y,
-                                "residual_metres": request.residual_metres,
-                                "target_ground_metres": (
-                                    request.target_ground_metres
-                                ),
-                                "ring_lonlat": (
-                                    object_footprints.foot_pad_ring(
-                                        list(
-                                            request.contact_points_lonlat
-                                        ),
-                                        DSF_OBJECT_FOOT_PAD_MARGIN_M,
-                                    )
-                                ),
-                            }
-                            for request in airport_result[
-                                "foot_pad_requests"
-                            ]
-                        ],
+                        "requests": requests,
                     }
                 )
+                if airport_result["foot_pad_requests"]:
+                    UI.vprint(
+                        1,
+                        f"  [object-anchor] {icao}: "
+                        f"{len(airport_result['foot_pad_requests'])} foot "
+                        "pad request(s) — a rigid offset could not seat "
+                        "every foot; recorded in "
+                        + OBJECT_FOOT_PAD_SIDECAR_FILENAME,
+                    )
+                cluster_requests = airport_result.get(
+                    "cluster_pad_requests", ()
+                )
+                if cluster_requests:
+                    over_cap = sum(
+                        1
+                        for request in cluster_requests
+                        if request.over_relief_cap
+                    )
+                    UI.vprint(
+                        1,
+                        f"  [object-anchor] {icao}: "
+                        f"{len(cluster_requests)} cluster pad request(s) "
+                        "— seated clusters whose residual only terrain "
+                        f"can close ({over_cap} over the "
+                        "DSF_OBJECT_PAD_MAX_RELIEF_M cap, kept as "
+                        "findings); recorded in "
+                        + OBJECT_FOOT_PAD_SIDECAR_FILENAME,
+                    )
+            cluster_seams = airport_result.get("cluster_seams", ())
+            bridge_seams = [
+                seam for seam in cluster_seams if seam.kind == "bridge"
+            ]
+            if bridge_seams:
+                counts["cluster_bridge_seams"] += len(bridge_seams)
+                worst = max(seam.seam_metres for seam in bridge_seams)
                 UI.vprint(
                     1,
-                    f"  [object-anchor] {icao}: "
-                    f"{len(airport_result['foot_pad_requests'])} foot "
-                    "pad request(s) — a rigid offset could not seat "
-                    "every foot; recorded in "
-                    + OBJECT_FOOT_PAD_SIDECAR_FILENAME,
+                    f"  [object-anchor] {icao}: {len(bridge_seams)} bridge "
+                    "seam(s) — elevated components spanning two seated "
+                    "clusters joined their majority-contact side; worst "
+                    f"reported residual {worst:.2f} m (never averaged "
+                    "across, spec section 4.2a)",
                 )
 
             for resource_path, reason in airport_result["skipped"]:

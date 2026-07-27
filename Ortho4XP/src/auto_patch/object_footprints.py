@@ -181,6 +181,86 @@ def foot_pad_ring(
     return ring if len(ring) >= 3 else None
 
 
+def clip_pad_ring_against_pavement(
+    ring_lonlat: list[tuple[float, float]],
+    pavement_rings_lonlat: list[list[tuple[float, float]]],
+    minimum_area_fraction: float = 0.02,
+) -> list[list[tuple[float, float]]]:
+    """THE PAD LAW's clip (per-cluster seating spec section 5.1 clause 2,
+    owner ruling R2): **pavement wins absolutely**.
+
+    A building pad may raise or lower open terrain to meet a seated
+    building, but it must never contribute, move or re-value a graded
+    pavement vertex — at HECA the Private Hall's north face is INSIDE an
+    apron polygon, and a pad that ignored the apron would grade the
+    apron.  So the pad footprint is DIFFERENCED against the union of the
+    airport's airside polygons before it can be emitted; what survives
+    is the open-terrain remainder, which may be several pieces or none.
+
+    Both the ring and the pavement rings are ``(longitude, latitude)``,
+    unclosed, in the :func:`foot_pad_ring` convention.  Returns the
+    surviving pieces in the same convention, largest first; an empty
+    list means the pad was wholly inside pavement and is INADMISSIBLE
+    (spec section 5.4 — the caller reports it, never emits a shrunken
+    stand-in).  Pieces smaller than ``minimum_area_fraction`` of the
+    original are dropped as clip slivers.
+
+    This function is the single source both the future pad emitter and
+    its validator must clip with (ruling R5, lockstep).
+    """
+    if not ring_lonlat or len(ring_lonlat) < 3:
+        return []
+    try:
+        pad = Polygon(ring_lonlat)
+        if not pad.is_valid:
+            pad = pad.buffer(0)
+    except (ValueError, _GEOS_EXCEPTION):
+        return []
+    if pad.is_empty or pad.area <= 0.0:
+        return []
+    original_area = pad.area
+
+    pavement_polygons = []
+    for pavement_ring in pavement_rings_lonlat or ():
+        if not pavement_ring or len(pavement_ring) < 3:
+            continue
+        try:
+            pavement = Polygon(pavement_ring)
+            if not pavement.is_valid:
+                pavement = pavement.buffer(0)
+        except (ValueError, _GEOS_EXCEPTION):
+            continue
+        if not pavement.is_empty and pavement.area > 0.0:
+            pavement_polygons.append(pavement)
+    if pavement_polygons:
+        try:
+            remainder = pad.difference(unary_union(pavement_polygons))
+        except (ValueError, _GEOS_EXCEPTION):
+            return []
+    else:
+        remainder = pad
+    if remainder.is_empty:
+        return []
+
+    pieces = (
+        list(remainder.geoms)
+        if remainder.geom_type == "MultiPolygon"
+        else [remainder]
+    )
+    kept = [
+        piece
+        for piece in pieces
+        if piece.geom_type == "Polygon"
+        and not piece.is_empty
+        and piece.area > original_area * minimum_area_fraction
+    ]
+    kept.sort(key=lambda piece: -piece.area)
+    return [
+        [(float(x), float(y)) for x, y in piece.exterior.coords[:-1]]
+        for piece in kept
+    ]
+
+
 def draped_pavement_patches(
     geometry: ObjectGeometry,
     placement: ObjectPlacement,
@@ -376,6 +456,9 @@ def structure_ring(
         DSF_OBJECT_MAX_FOOTPRINT_AREA_M2,
         DSF_OBJECT_MAX_STRUCTURE_SPAN_M,
         DSF_OBJECT_MIN_BUILDING_HEIGHT_M,
+        DSF_OBJECT_MIN_FOOTPRINT_FILL,
+        DSF_OBJECT_MIN_TALL_BASE_FILL,
+        DSF_OBJECT_TALL_MEMBER_MIN_EXTENT_M,
     )
 
     if not structure.is_ground_touching:
@@ -404,12 +487,20 @@ def structure_ring(
     base_triangle_corner_points: list = []
     all_triangle_corner_points: list = []
     maximum_local_y = minimum_base_y
+    # TALL-BASE accumulator (see config.DSF_OBJECT_MIN_TALL_BASE_FILL):
+    # base-triangle footprint area contributed by resources whose OWN
+    # vertical extent clears the building-height floor — the evidence a
+    # tall member covers the footprint.
+    tall_base_area = 0.0
 
     for resource_path, triangles in structure.triangles_by_resource.items():
         geometry = geometry_by_resource.get(resource_path)
         placement = placement_by_resource.get(resource_path)
         if geometry is None or placement is None or not triangles:
             continue
+        _res_min_y = None
+        _res_max_y = None
+        _res_base_area = 0.0
         # Project each vertex through its OWN object's placement (spec
         # section 2.4: the anchor is a per-object property).
         projected_by_vertex_index: dict[int, tuple[float, float]] = {}
@@ -421,6 +512,10 @@ def structure_ring(
                 local_x, local_y, local_z = geometry.vertices[vertex_index]
                 if local_y > maximum_local_y:
                     maximum_local_y = local_y
+                if _res_min_y is None or local_y < _res_min_y:
+                    _res_min_y = local_y
+                if _res_max_y is None or local_y > _res_max_y:
+                    _res_max_y = local_y
                 latitude, longitude = obj8_reader.local_offset_to_lonlat(
                     placement.latitude,
                     placement.longitude,
@@ -434,7 +529,11 @@ def structure_ring(
                 all_points.append(point)
                 if is_base_vertex[vertex_index]:
                     base_points.append(point)
-        if DSF_OBJECT_FOOTPRINT_UNION:
+        # Corner tuples feed the union footprint AND the fill/tall-base
+        # floors — collect them whenever any consumer is active.
+        if (DSF_OBJECT_FOOTPRINT_UNION
+                or DSF_OBJECT_MIN_FOOTPRINT_FILL > 0.0
+                or DSF_OBJECT_MIN_TALL_BASE_FILL > 0.0):
             for triangle in triangles:
                 corner_points = tuple(
                     projected_by_vertex_index[vertex_index]
@@ -443,6 +542,18 @@ def structure_ring(
                 if all(is_base_vertex[vertex_index]
                        for vertex_index in triangle):
                     base_triangle_corner_points.append(corner_points)
+                    if len(corner_points) >= 3:
+                        (bx0, by0), (bx1, by1), (bx2, by2) = \
+                            corner_points[:3]
+                        _res_base_area += abs(
+                            (bx1 - bx0) * (by2 - by0)
+                            - (bx2 - bx0) * (by1 - by0)) * 0.5
+        _res_extent = ((_res_max_y - _res_min_y)
+                       if (_res_min_y is not None
+                           and _res_max_y is not None) else 0.0)
+        if (DSF_OBJECT_TALL_MEMBER_MIN_EXTENT_M <= 0.0
+                or _res_extent >= DSF_OBJECT_TALL_MEMBER_MIN_EXTENT_M):
+            tall_base_area += _res_base_area
 
     if len(all_points) < 3:
         return None
@@ -481,6 +592,71 @@ def structure_ring(
             return None
         footprint = hull if (not hull.is_empty
                              and hull.geom_type == "Polygon") else None
+        # HULL-FILL FLOOR (owner defect 2026-07-27, HECA building188 —
+        # see config.DSF_OBJECT_MIN_FOOTPRINT_FILL): the hull over
+        # SPARSE bases (one floodlight mast + jersey barriers + a stray
+        # below-grade fragment) is street furniture, not a building.
+        # Fill = Σ(projected base-triangle areas) / hull area, both in
+        # the same degree space so the lat/lon anisotropy cancels; the
+        # triangle sum may double-count overlaps, which only ever KEEPS
+        # a real building.  Empty triangle evidence skips the gate.
+        if (footprint is not None
+                and (DSF_OBJECT_MIN_FOOTPRINT_FILL > 0.0
+                     or DSF_OBJECT_MIN_TALL_BASE_FILL > 0.0)):
+            def _tri_area_sum(corner_lists):
+                total = 0.0
+                for corners in corner_lists:
+                    if len(corners) < 3:
+                        continue
+                    (x0, y0), (x1, y1), (x2, y2) = corners[:3]
+                    total += abs(
+                        (x1 - x0) * (y2 - y0)
+                        - (x2 - x0) * (y1 - y0)) * 0.5
+                return total
+
+            corner_lists = (base_triangle_corner_points
+                            if use_base_vertices
+                            else all_triangle_corner_points)
+            triangle_area = _tri_area_sum(corner_lists)
+            hull_area = footprint.area
+            # TALL-BASE FILL (see config.DSF_OBJECT_MIN_TALL_BASE_FILL):
+            # a plate+mast weld passes base fill AND the height gate,
+            # but no TALL member covers the footprint.  Base-evidence
+            # structures only — a fewer-than-3-base-vertices structure
+            # has no base rows to measure.
+            if (DSF_OBJECT_MIN_TALL_BASE_FILL > 0.0 and hull_area > 0.0
+                    and use_base_vertices):
+                tall_fill = tall_base_area / hull_area
+                if tall_fill < DSF_OBJECT_MIN_TALL_BASE_FILL:
+                    _c = footprint.centroid
+                    UI.vprint(
+                        1,
+                        "  [object-footprints] structure tall-base "
+                        f"fill {tall_fill:.3f} is below the "
+                        f"{DSF_OBJECT_MIN_TALL_BASE_FILL:.2f} floor "
+                        "(O4_DSF_OBJECT_MIN_TALL_BASE_FILL) at "
+                        f"{_c.y:.6f},{_c.x:.6f} "
+                        f"({_footprint_area_square_metres(footprint):.0f}"
+                        " m2 hull) — no tall member covers the "
+                        "footprint: a slab/mast weld, not a building; "
+                        "skipped.")
+                    return None
+            if (DSF_OBJECT_MIN_FOOTPRINT_FILL > 0.0
+                    and corner_lists and hull_area > 0.0):
+                fill = triangle_area / hull_area
+                if fill < DSF_OBJECT_MIN_FOOTPRINT_FILL:
+                    _c = footprint.centroid
+                    UI.vprint(
+                        1,
+                        "  [object-footprints] structure hull fill "
+                        f"{fill:.3f} is below the "
+                        f"{DSF_OBJECT_MIN_FOOTPRINT_FILL:.2f} floor "
+                        "(O4_DSF_OBJECT_MIN_FOOTPRINT_FILL) at "
+                        f"{_c.y:.6f},{_c.x:.6f} "
+                        f"({_footprint_area_square_metres(footprint):.0f}"
+                        " m2 hull) — sparse bases under one hull are "
+                        "street furniture, not a building pad; skipped.")
+                    return None
     if footprint is None:
         return None
 

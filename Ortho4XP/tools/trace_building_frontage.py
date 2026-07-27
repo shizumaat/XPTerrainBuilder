@@ -66,7 +66,7 @@ def main():
         _nearest_visible_centerline, _pavement_visibility)
     from auto_patch.elevation_per_surface.route_profile.anchors import (
         reach_band_for)
-    from auto_patch.elevation_per_surface.unified_jacobi import (
+    from auto_patch.elevation_per_surface.solver_primitives import (
         _build_node_list, _seed_elevations)
     from tools.trace_reach_route import _binding_route
 

@@ -280,3 +280,99 @@ def test_degenerate_edge_not_a_number_is_contact_not_separation():
     assert edges, (
         "degenerate-edge not-a-number separated two parts in true contact"
     )
+
+
+# ---------------------------------------------------------------------------
+# split_oversized_components_with_edges — the re-derived contact edges
+# per-cluster seating consumes (per-cluster seating spec section 3.1)
+# ---------------------------------------------------------------------------
+
+def _oversized_chain():
+    """Two two-box buildings 900 m apart, joined by a long thin fence,
+    with a short trim plate on the first building.
+
+    Everything is 0.1 m apart — inside the contact epsilon, outside the
+    weld tolerance — so the parts CONTACT without sharing vertices,
+    which is how a payware bake is actually assembled.  The component
+    spans 940 m, so the connector split re-partitions it: the fence is
+    the connector (too long to reattach), the trim is building-internal
+    and must come back.
+    """
+    vertices: list[tuple[float, float, float]] = []
+    triangles = box_geometry(0.0, 0.0, 0.0, 20.0, vertices)        # A1
+    triangles += box_geometry(20.1, 0.0, 0.0, 20.0, vertices)      # A2
+    triangles += box_geometry(900.0, 0.0, 0.0, 20.0, vertices)     # B1
+    triangles += box_geometry(920.1, 0.0, 0.0, 20.0, vertices)     # B2
+    triangles += quad_triangles(                                   # fence
+        (40.2, 0.0, 0.0), (899.9, 0.0, 0.0),
+        (899.9, 1.0, 0.0), (40.2, 1.0, 0.0), vertices)
+    triangles += quad_triangles(                                   # trim
+        (0.0, 20.1, 0.0), (10.0, 20.1, 0.0),
+        (10.0, 20.1, 10.0), (0.0, 20.1, 10.0), vertices)
+    return vertices, triangles
+
+
+def test_split_returns_spanning_edges_for_every_group_it_builds():
+    vertices, triangles = _oversized_chain()
+    parts = weld_parts(vertices, triangles)
+    assert len(parts) == 6
+    edges = contact_graph(vertices, parts, epsilon_metres=0.25)
+    groups = connected_structures(len(parts), edges)
+    assert len(groups) == 1, "the fence chains everything into one"
+
+    split_groups, split_count, edges_by_group = (
+        obj8_partition.split_oversized_components_with_edges(
+            vertices, parts, groups, epsilon_metres=0.25))
+    assert split_count == 1
+    # Two buildings plus the fence as its own singleton; the trim came
+    # back to the building it belongs to.
+    assert sorted(len(group) for group in split_groups) == [1, 2, 3]
+    assert len(edges_by_group) == len(split_groups)
+
+    for group, group_edges in zip(split_groups, edges_by_group):
+        # Every group here was BUILT by the split, so none may report
+        # "use the caller's edges" — and each edge set must SPAN its
+        # group, which is exactly what seating verifies before it cuts.
+        assert group_edges is not None
+        assert len(group_edges) == len(group) - 1
+        members = set(group)
+        assert all(
+            left in members and right in members
+            for left, right in group_edges)
+        reached = {group[0]}
+        for _pass in range(len(group)):
+            for left, right in group_edges:
+                if left in reached or right in reached:
+                    reached.update((left, right))
+        assert reached == members
+
+
+def test_split_leaves_untouched_groups_edgeless_for_the_caller():
+    """A group the split did not build reports ``None`` — the caller's
+    own contact edges still describe it, and re-deriving them would be
+    work for nothing."""
+    vertices: list[tuple[float, float, float]] = []
+    triangles = box_geometry(0.0, 0.0, 0.0, 20.0, vertices)
+    parts = weld_parts(vertices, triangles)
+    edges = contact_graph(vertices, parts, epsilon_metres=0.25)
+    groups = connected_structures(len(parts), edges)
+    split_groups, split_count, edges_by_group = (
+        obj8_partition.split_oversized_components_with_edges(
+            vertices, parts, groups, epsilon_metres=0.25))
+    assert split_count == 0
+    assert split_groups == groups
+    assert edges_by_group == [None]
+
+
+def test_the_plain_split_wrapper_still_returns_two_values():
+    """``split_oversized_components`` keeps its shape for callers that
+    do not need the edges."""
+    vertices, triangles = _oversized_chain()
+    parts = weld_parts(vertices, triangles)
+    edges = contact_graph(vertices, parts, epsilon_metres=0.25)
+    groups = connected_structures(len(parts), edges)
+    plain = obj8_partition.split_oversized_components(
+        vertices, parts, groups, epsilon_metres=0.25)
+    with_edges = obj8_partition.split_oversized_components_with_edges(
+        vertices, parts, groups, epsilon_metres=0.25)
+    assert plain == with_edges[:2]

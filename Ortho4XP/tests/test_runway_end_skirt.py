@@ -1031,10 +1031,10 @@ class TestExitRowLateralAnchor(SkirtHarness):
             clearance, "_sample_dem", self._cliff_sample_dem())
         monkeypatch.setattr(
             clearance, "RUNWAY_END_SKIRT_ENABLED", gate_on)
-        n = clearance.emit_surface_clearance_cuts(
-            layout, dem=object(), tile_lat=0, tile_lon=0,
-            source_runways=[runway])
-        n += clearance.emit_runway_end_skirts(
+        # (The chip was authored on a pre-round-3 base that still had
+        # ``emit_surface_clearance_cuts``; that legacy chain is retired
+        # — the exit-row law under test lives in the skirt emitter.)
+        n = clearance.emit_runway_end_skirts(
             layout, dem=object(), tile_lat=0, tile_lon=0,
             source_runways=[runway])
         return n

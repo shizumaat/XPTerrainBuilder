@@ -939,3 +939,189 @@ class TestSkirtValidatorAtFixtures:
             print(f"[skirt-baseline] {icao}: {len(findings)} end(s) "
                   + "; ".join(f"{f[1]} −{f[2]:.1f} m @{f[4]}"
                               for f in findings))
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Exit-row lateral anchor: the skirt floor tracks the LOCAL pavement
+# edge profile across the runway end, not one centre-line reference
+# (KCLT skirt #845, diagnosed 2026-07-26)
+# ──────────────────────────────────────────────────────────────────────
+def _oversteep_skirt_edges(skirts):
+    """Replicate ``tools/check_grade``'s runway-end-skirt reader on
+    built shapes: ring edges steeper than the law max down-grade
+    (+0.1 m quantization noise), excluding edges whose HIGHER endpoint
+    is a strict local lift peak (a lawful ``max(floor, DEM)`` bump)."""
+    import math
+    noise = 0.15
+    bad = []
+    for s in skirts:
+        coords = list(s.polygon.exterior.coords)
+        alts = list(s.node_altitudes or [])
+        n = min(len(coords), len(alts)) - 1   # ring closes
+        if n < 2:
+            continue
+        for i in range(n):
+            (xa, ya), (xb, yb) = coords[i], coords[(i + 1) % n]
+            ea, eb = float(alts[i]), float(alts[(i + 1) % n])
+            dist = math.hypot(xb - xa, yb - ya)
+            if dist < 0.5:
+                continue
+            de = abs(ea - eb)
+            if de <= RUNWAY_END_SKIRT_MAX_DOWN_GRADE * dist + noise:
+                continue
+            hi = i if ea >= eb else (i + 1) % n
+            hi_elev = max(ea, eb)
+            neigh = [float(alts[(hi - 1) % n]), float(alts[(hi + 1) % n])]
+            if all(hi_elev > ne + noise for ne in neigh):
+                continue   # lifted DEM bump — lawful
+            bad.append((s, i, de, dist))
+    return bad
+
+
+class TestExitRowLateralAnchor(SkirtHarness):
+    """Where the pavement abutting a runway end varies LATERALLY across
+    the exit row (KCLT junction #313: 226.40 m under the weld vs the
+    227.1 m centre-line ``ref``), the weld/no-weld transition must not
+    emit the difference as a step (KCLT skirt #845: 0.70 m over 7 m).
+    The floor of every exit-row vertex anchors to the local pavement
+    edge profile; off-pavement stations HOLD the outermost on-row value
+    (never a nearest-pavement read — the 63 % foreign-value spikes)."""
+
+    _J_LO, _J_HI = -40.0, 10.0     # junction lateral extent on the row
+    _J_ALT_LO = 98.5               # junction value at y = _J_LO
+    _J_ALT_HI = 100.0              # …rising to runway level at y = _J_HI
+    # The outward march starts at the seed (runway end − 3 m inset) and
+    # quantizes its exit to (5k − 2.5) m, so a far edge at the runway
+    # end + 4.5 m puts p0 EXACTLY on the junction's far edge — the
+    # geometry that arms the weld row (d ≤ 0.02 AND pavement ≤ 0.05).
+    _J_FAR_BEYOND_END = 4.5
+
+    def _j_far(self):
+        return self._RUNWAY_LEN + self._J_FAR_BEYOND_END
+
+    def _junction_alt(self, y):
+        f = (y - self._J_LO) / (self._J_HI - self._J_LO)
+        return self._J_ALT_LO + f * (self._J_ALT_HI - self._J_ALT_LO)
+
+    def _make_layout(self):
+        from shapely.geometry import Polygon
+        from auto_patch.layout import BuiltShape
+        layout = super()._make_layout()
+        poly = Polygon([
+            (self._RUNWAY_LEN, self._J_LO), (self._j_far(), self._J_LO),
+            (self._j_far(), self._J_HI), (self._RUNWAY_LEN, self._J_HI)])
+        alts = [self._junction_alt(y) for _x, y in poly.exterior.coords]
+        layout.shapes.append(BuiltShape(
+            polygon=poly, role="junction", ref="J-end",
+            node_altitudes=alts))
+        return layout
+
+    def _cliff_sample_dem(self):
+        """Flat at runway level over the pavement; a 30 m drop starting
+        AT the junction's far edge, so the exit row's floor (not a DEM
+        lift) is what the emitted altitudes carry."""
+        import math
+        from auto_patch.layout import R_EARTH
+        edge = self._j_far() - 0.05
+
+        def _fake(dem, tile_lat, tile_lon, lat, lon):
+            x = math.radians(lon) * R_EARTH
+            return (self._RUNWAY_ALT - 30.0 if x > edge
+                    else self._RUNWAY_ALT)
+        return _fake
+
+    def _emit(self, monkeypatch, layout, runway, gate_on=True):
+        from auto_patch import clearance
+        monkeypatch.setattr(
+            clearance, "_sample_dem", self._cliff_sample_dem())
+        monkeypatch.setattr(
+            clearance, "RUNWAY_END_SKIRT_ENABLED", gate_on)
+        n = clearance.emit_surface_clearance_cuts(
+            layout, dem=object(), tile_lat=0, tile_lon=0,
+            source_runways=[runway])
+        n += clearance.emit_runway_end_skirts(
+            layout, dem=object(), tile_lat=0, tile_lon=0,
+            source_runways=[runway])
+        return n
+
+    def _skirts(self, layout):
+        return [s for s in layout.shapes if s.ref == "runway_end_skirt"]
+
+    def test_no_step_at_the_weld_transition(self, monkeypatch):
+        """The emitted skirt carries no ring edge steeper than the law
+        down-grade whose steepness is a weld/floor mismatch (the reader
+        signature of KCLT #845)."""
+        layout = self._make_layout()
+        self._emit(monkeypatch, layout, self._make_runway())
+        skirts = self._skirts(layout)
+        assert skirts, "east-end skirt expected over the cliff"
+        bad = _oversteep_skirt_edges(skirts)
+        assert not bad, (
+            "weld/floor step(s) on the exit row: "
+            + "; ".join(f"|de|={de:.2f} m over {dist:.1f} m"
+                        for _s, _i, de, dist in bad))
+
+    def test_exit_row_anchors_to_local_pavement(self, monkeypatch):
+        """Vertices beside the junction's LOW corner anchor to the
+        junction's local edge value (~98.5 m), not the centre-line
+        reference (~99.7 m)."""
+        layout = self._make_layout()
+        self._emit(monkeypatch, layout, self._make_runway())
+        near_corner = [
+            float(a)
+            for s in self._skirts(layout)
+            for (x, y), a in zip(s.polygon.exterior.coords,
+                                 s.node_altitudes or [])
+            if -0.6 <= x - self._j_far() <= 6.0
+            and self._J_LO - 6.0 <= y <= self._J_LO + 1.0]
+        assert near_corner, "no skirt vertices beside the junction corner"
+        assert max(near_corner) <= self._J_ALT_LO + 0.5, (
+            f"exit-row floor beside the junction corner anchored to the "
+            f"centre-line ref: {sorted(near_corner)}")
+
+
+class TestFillLateralRefs:
+    """Unit law of ``clearance._fill_lateral_refs``: dense exit-row
+    profile from sparse on-pavement reads — gap lerp, end hold, and the
+    two scalar-fallback guards."""
+
+    def _fill(self, raw, scalar=50.0, spacing=5.0):
+        from auto_patch.clearance import _fill_lateral_refs
+        return _fill_lateral_refs(raw, scalar, spacing)
+
+    def test_no_valid_station_returns_scalar(self):
+        assert self._fill([None, None, None]) == [50.0, 50.0, 50.0]
+
+    def test_valid_stations_kept_verbatim(self):
+        assert self._fill([10.0, 10.2, 10.4]) == [10.0, 10.2, 10.4]
+
+    def test_ends_hold_the_outermost_valid_value(self):
+        """Off-pavement stretches extend this end's own edge profile —
+        never a nearest-pavement read of their own (the 63 % foreign-
+        value spike class)."""
+        assert self._fill([None, None, 10.0, 10.3, None]) == \
+            [10.0, 10.0, 10.0, 10.3, 10.3]
+
+    def test_interior_gap_interpolates(self):
+        assert self._fill([10.0, None, None, None, 10.8]) == \
+            pytest.approx([10.0, 10.2, 10.4, 10.6, 10.8])
+
+    def test_pavement_wall_falls_back_to_scalar(self):
+        """Adjacent valid stations stepping faster than the lawful
+        down-grade over their separation mark a pavement-level wall
+        (the SPLP flank class): the profile must not bridge it."""
+        from auto_patch.grade_law import RUNWAY_END_SKIRT_MAX_DOWN_GRADE
+        step_ok = RUNWAY_END_SKIRT_MAX_DOWN_GRADE * 5.0 + 0.1
+        assert self._fill([10.0, 10.0 + step_ok, None]) == \
+            [10.0, 10.0 + step_ok, 10.0 + step_ok]
+        wall = RUNWAY_END_SKIRT_MAX_DOWN_GRADE * 5.0 + 0.2
+        assert self._fill([10.0, 10.0 + wall, None]) == [50.0] * 3
+
+    def test_wall_test_scales_with_separation(self):
+        """The same 1 m difference is a wall over one 5 m spacing but a
+        lawful ramp when the valid stations sit 40 m apart."""
+        assert self._fill([10.0, 11.0, None]) == [50.0] * 3
+        raw = [10.0] + [None] * 7 + [11.0]
+        filled = self._fill(raw)
+        assert filled[0] == 10.0 and filled[-1] == 11.0
+        assert filled[4] == pytest.approx(10.5)

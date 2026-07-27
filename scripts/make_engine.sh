@@ -29,12 +29,15 @@ cd "$ENGINE"
 # can match the conflict pattern ("… 3.0 Nueva Terminal …"); it is runtime
 # data the spec never embeds, so it is exempt — as are the dev venv (the
 # freeze uses its own venv; iCloud mints thousands of dupes in
-# site-packages) and dist/build.
+# site-packages), dist/build, and .claude (session worktrees carry full
+# checkout copies — including nested Airport_mod_cache dirs whose pack
+# names re-trip the pattern, 2026-07-27 — and are never embedded).
 # No `| head` inside the substitution: with pipefail, head closing the
 # pipe early SIGPIPEs find and the whole script died with exit 141 —
 # silently, under callers that piped our output (2026-07-23).
 CONFLICTS="$(find . -path ./dist -prune -o -path ./build -prune \
   -o -path ./Airport_mod_cache -prune -o -path ./venv -prune \
+  -o -path ./.claude -prune \
   -o -name '* [2-9].*' -print)"
 if [[ -n "$CONFLICTS" ]]; then
   echo "ERROR: iCloud conflict copies in the engine checkout — clean first:" >&2

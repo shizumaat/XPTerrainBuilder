@@ -1,4 +1,48 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260727 — EAT ANCHOR-RECT LANDED, DEFAULT ON (owner rulings
+# 2026-07-27, docs/specs/eat-anchor-rect-spec.md)
+# ══════════════════════════════════════════════════════════════════
+# The negative-edge builder (_build_eat_ceiling_constraints) is DELETED;
+# the active mechanism is a HARD ANCHOR RECT stamped in
+# solver_primitives._seed_elevations (_build_eat_anchor_rect_pins):
+# corridor at the DECLARED half-width (row-100, shoulders excluded —
+# the declared-width chip's accessor) ∩ taxi/junction/apron pavement
+# beyond 300 m, clustered into crossing segments, each pinned FLAT at
+# end_elev + eat_pavement_ceiling(D_mid) UNCONDITIONALLY (fills DEM).
+# Pins join _seam_pin_idx (seat/yield protection, law-context pin-pair
+# skip) and G.runway_anchor post-flex (reach bands propagate
+# E_anchor ± cap·d); flat-airport fast path refuses when pins exist.
+# VERIFIED KCLT: 6 nodes / 1 segment, s 439-482, end −8.58 m (the
+# spec's smoke number), build 146 s — no blow-up; audit reports 26
+# loop-part residuals ≤1.5 m outside the rect (designed cap-governed
+# escalation, splay refinement would shrink them).
+#  * ⚠ OWNER RATIFICATION NEEDED — two FALSE-EAT scoping guards added
+#    after the first default-ON run:
+#    (1) EAT_MIN_RUNWAY_CODE_NUMBER=3 — CYXY's 700 m strip 02/20 aimed
+#        its corridor across the GA apron and pinned 23 vertices ~5 m
+#        into the ground; publish-side (clearance) + pin-side twins.
+#    (2) EAT_RECT_MAX_ALONG_M=150 — per-shape AND per-segment: pavement
+#        running ALONG the extended centreline (CYXY 327 m apron smear)
+#        is refused; a real crossing is transverse (KCLT spans 43 m).
+#  * ⚠ HECA pins 4 nodes at one end (s 305-327, EASA, end −15 m) — a
+#    short transverse crossing, structurally EAT-like; sim-check
+#    whether Cairo really has one before trusting it.
+#  * EAT pins are EXCLUDED from runway-flex envelope seeds (a derived
+#    pin must never bend the runway datum — unguarded it flexed HECA's
+#    profile → runway_longitudinal_grade red).  Pin values derive from
+#    PRE-flex profiles; if flex moves an EAT airport's profile the pin
+#    is slightly stale (documented approximation).
+#  * Suite parity PROVEN: 7 worst-case files gate-ON vs gate-OFF both
+#    fail the IDENTICAL 14 (all pre-existing classes); full suite
+#    3498 passed / 17 failed pre-guard (3 EAT-caused, all fixed by the
+#    guards + flex exclusion).  test_eat_ceiling.py: 58 (anchor-pin
+#    tests replace the edge-form tests; law/region/scoping carry over).
+#  * Build-time: pin sweep 60 ms at an adversarial synthetic (5001
+#    shapes × 6 ends); check_build_time stored-record FAIL predates
+#    this change (store records are Jul 26, pre-change tree).
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
 # 20260727 — ROUND 4 COMMITTED: seam-heal, crown collapse, KCLT/CYXY/
 # HECA rulings, cluster seating ON, roads AUTO, EAT law (gated)
 # ══════════════════════════════════════════════════════════════════

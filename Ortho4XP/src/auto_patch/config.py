@@ -206,6 +206,9 @@ __all__ = [
     "EAT_EASA_SETBACK_M",
     "EAT_MIN_CROSSING_DIST_M",
     "EAT_CORRIDOR_HALF_WIDTH_M",
+    "EAT_RECT_SEGMENT_GAP_M",
+    "EAT_MIN_RUNWAY_CODE_NUMBER",
+    "EAT_RECT_MAX_ALONG_M",
     "EAT_FAA_ICAO_PREFIXES",
     "eat_surface_slope_and_setback",
     "runway_code_letter",
@@ -3741,39 +3744,29 @@ TAIL_HEIGHT_BY_CODE_LETTER = {
 # identity-collision rule), so before this nothing tied taxi pavement
 # beyond a runway end to any surface at all.
 #
-# Gate OFF ⇒ no per-end store, no constraint, no verification reader —
+# Gate OFF ⇒ no per-end store, no pins, no verification reader —
 # byte-identical to the pre-feature build.
 #
-# DEFAULT OFF — BUILD-TIME BLOCKER, measured KCLT 2026-07-27.  The law,
-# its encoding and its reader are complete and unit-proven; what is NOT
-# yet solved is the reach-envelope interaction, and the HARD LAW
-# (CLAUDE.md §6) forbids landing this default-ON:
-#
-#   * with the ceiling constraints neutered, KCLT builds in 228.9 s;
-#   * with them active the build was killed at 15:02 of CPU and 20.3 GB
-#     RSS, `sample(1)` showing ~100 % of the time in ``heapq.heappop`` /
-#     ``siftup`` inside ``one_solve.feasibility_project``'s reach-envelope
-#     Dijkstra (``_reach``).
-#
-# CAUSE — the documented KBNA class, one_solve.py ~1075 "ENVELOPE
-# EXCLUSION FOR ZONE EDGES": a signed slab injects SIGNED (here strongly
-# NEGATIVE, ≈ −10 m) directed weights into ``ceil_radj``, and ``_reach``
-# is a lazy Dijkstra — non-negative weights only.  Adjacent-ground zone
-# slabs are excluded from it by the ``interval_yield_from`` INDEX
-# THRESHOLD, but an EAT ceiling couples PAVEMENT to PAVEMENT, so both
-# endpoints sit below that threshold and the exclusion cannot fire.  No
-# reformulation of the edge avoids it: a ceiling BELOW its anchor IS a
-# negative ceiling-propagation weight, whichever way the slab is
-# oriented.
-#
-# UNBLOCKING FIX (owner call — it changes a shared solver file, outside
-# this feature's scope): teach ``one_solve.feasibility_project`` to
-# exclude EAT ceiling slabs from the envelope adjacency the way the zone
-# slabs are excluded — e.g. an explicit per-edge "envelope leaf" marker
-# instead of the index threshold.  Flip this default the moment that
-# lands and re-measure KCLT.
+# DEFAULT ON — ANCHOR-RECT REVISION (owner rulings 2026-07-27,
+# docs/specs/eat-anchor-rect-spec.md).  The FIRST implementation encoded
+# the surface as one-sided pavement↔pavement interval edges
+# (``_build_eat_ceiling_constraints``); their strongly NEGATIVE (≈ −10 m)
+# slab weights blew up the lazy (non-negative-weight) reach-envelope
+# Dijkstra in ``one_solve.feasibility_project`` — KCLT killed at 15 min
+# CPU / 20.3 GB RSS in a ``heappop`` storm — so it shipped gated off.
+# The ACTIVE mechanism is now a HARD ANCHOR RECT
+# (``solver_primitives._build_eat_anchor_rect_pins``, applied inside
+# ``_seed_elevations``): the runway-width × EAT-crossing-width rectangle
+# on the extended centreline is PINNED at the regulation value
+# (``end_elev + eat_pavement_ceiling(D_mid)``) unconditionally — even
+# where it must fill DEM — and the solver grades the ramps to it through
+# the EXISTING positive-weight anchor machinery, exactly as it grades to
+# crossing runways and tile seams.  No negative edge exists anywhere, so
+# the envelope blow-up class is structurally gone.  A loop too short to
+# ramp lawfully surfaces in the both-hard step report and the
+# ``check_eat_ceiling`` audit — never a silent grade break.
 EAT_SURFACE_CEILING_ENABLED = (
-    _os.environ.get("O4_EAT_SURFACE_CEILING", "0") == "1")
+    _os.environ.get("O4_EAT_SURFACE_CEILING", "1") == "1")
 
 # FAA (North America).  AC 150/5300-13B §4.12 + FAA Order 8260.3 (TERPS)
 # departure surface: 40:1 (2.5 %) rising FROM the departure end of runway
@@ -3806,6 +3799,41 @@ EAT_MIN_CROSSING_DIST_M = 300.0
 # apron/taxi network to either side of the extended centreline is not
 # swept in.
 EAT_CORRIDOR_HALF_WIDTH_M = 90.0
+
+# ANCHOR-RECT segmentation (m): governed pavement vertices are clustered
+# into connected CROSSING SEGMENTS (one per end-around taxiway) by their
+# along-centreline distance; a gap larger than this splits two segments.
+# Must exceed the 60 m emit-decimation chord cap (consecutive ring
+# vertices of ONE crossing can be up to a chord apart in ``s``) while
+# staying well under the separation of two genuinely distinct crossings
+# (a second EAT sits at least a runway-strip width further out).  Each
+# segment is pinned FLAT at its own mid-distance regulation value; where
+# two ends' corridors overlap one segment, the LOWER value wins.
+EAT_RECT_SEGMENT_GAP_M = 75.0
+
+# FALSE-EAT SCOPING GUARDS (measured 2026-07-27, first default-ON run —
+# ⚠ scoping refinements pending owner ratification; the value law and
+# the rect mechanism are the owner's rulings verbatim, these two guards
+# only decide WHICH pavement counts as an end-around taxiway):
+#
+# 1. Minimum runway CODE NUMBER whose ends can own an EAT.  End-around
+#    taxiways exist at transport-category runways (FAA AC 150/5300-13B
+#    builds them for air-carrier hubs; every real example — KATL, KCLT,
+#    KDFW — is a code 3-4 runway).  CYXY's 700 m code-1 crosswind strip
+#    02/20 aims its extension across the GA apron 300-630 m out; without
+#    this guard those 23 apron/junction vertices were PINNED ~5 m into
+#    the ground as a phantom EAT.
+EAT_MIN_RUNWAY_CODE_NUMBER = 3
+#
+# 2. Maximum ALONG-centreline extent (m) of one crossing segment.  A
+#    real EAT CROSSES the corridor transversely — the owner's ruling
+#    itself: "the rect is short along the direction of EAT travel"
+#    (KCLT's crossing spans 43 m of ``s``; an oblique crossing plus its
+#    junction fan stays well inside 150 m).  Pavement that RUNS ALONG
+#    the extended centreline (CYXY: a 327 m apron smear) is another
+#    facility under the surface, not an end-around taxiway — refused
+#    whole, counted, and reported; never pinned.
+EAT_RECT_MAX_ALONG_M = 150.0
 
 # ICAO prefixes that select the FAA ruleset (North America).  "K" = the
 # contiguous USA, "C" = Canada, "P" = Alaska / Hawaii / US Pacific,

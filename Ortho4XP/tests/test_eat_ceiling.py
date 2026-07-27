@@ -1,5 +1,5 @@
-"""END-AROUND TAXIWAY (EAT) departure-surface ceiling — owner ruling
-2026-07-27.
+"""END-AROUND TAXIWAY (EAT) departure-surface law — owner rulings
+2026-07-27, ANCHOR-RECT revision (docs/specs/eat-anchor-rect-spec.md).
 
 An end-around taxiway loops beyond a runway end and crosses the extended
 centreline, so an aircraft on it stands under the departure / take-off-climb
@@ -12,17 +12,25 @@ This file pins:
     (D = 460 m, code E: FAA −8.6 m, EASA −12.1 m off the runway end);
   * the REGION selector — FAA for North America (ICAO K/C/P/M), EASA
     everywhere else;
-  * the constraint-builder SCOPING — the 300 m minimum crossing distance
-    and the 90 m corridor half-width, and the one-sided edge form;
-  * the GATE — off ⇒ no edges, no findings, and verify output with no
+  * the ANCHOR RECT — the crossing segment (extended centreline corridor
+    at the runway's DECLARED half-width ∩ taxi/junction/apron pavement,
+    beyond the 300 m minimum crossing distance) HARD-PINNED flat at
+    ``end_elev + eat_pavement_ceiling(D_mid)`` inside
+    ``solver_primitives._seed_elevations`` — the regulation value,
+    unconditionally; lower value wins where two ends' corridors overlap;
+    senior pins (runway / seam) never overridden;
+  * the scoping HELPERS the rect construction and the verification
+    reader share (``eat_end_projection``, ``eat_scoping_bounds``,
+    ``eat_ceiling_offset``, ``_eat_shape_may_be_governed``);
+  * the GATE — off ⇒ no pins, no findings, and verify output with no
     trace of the feature.
 
-``EAT_SURFACE_CEILING_ENABLED`` currently defaults OFF (see the config
-comment: the reach-envelope Dijkstra in ``one_solve`` cannot yet carry a
-pavement↔pavement negative slab — measured at KCLT), so the tests that
-exercise the machinery force the gate ON; the gate-OFF tests force it
-OFF explicitly rather than relying on the default, so neither direction
-silently stops testing anything when the default flips.
+The first implementation's one-sided pavement↔pavement interval edges
+(``_build_eat_ceiling_constraints``) are RETIRED: their negative slab
+weights blew up the reach-envelope Dijkstra (KCLT killed at 15 min CPU /
+20.3 GB).  The gate now defaults ON — the tests still state the gate they
+want explicitly, so neither direction silently stops testing anything if
+the default ever moves again.
 
 Hermetic: hand-built layouts, no fixtures, no DEM files, no X-Plane, no
 network.
@@ -43,19 +51,18 @@ from auto_patch.layout import (
 
 @pytest.fixture(autouse=True)
 def _eat_gate_on(monkeypatch):
-    """Every test here states the gate it wants; today's default is OFF
-    and must not silently decide what these tests measure.  The gate-OFF
-    tests re-patch it to False."""
+    """Every test here states the gate it wants; the default (ON) and
+    any ``O4_*`` override in the developer's shell must not silently
+    decide what these tests measure.  The gate-OFF tests re-patch it to
+    False."""
     monkeypatch.setattr(cfg, "EAT_SURFACE_CEILING_ENABLED", True)
 
 
-def test_gate_defaults_off_pending_the_reach_envelope_fix():
-    """The law is complete and unit-proven, but a pavement↔pavement
-    negative slab blows up ``one_solve``'s reach-envelope Dijkstra
-    (measured KCLT: 228.9 s with the constraints neutered → killed at
-    15 min CPU / 20 GB with them active).  Until that is fixed in the
-    solver the gate ships OFF — flip this assertion WITH the default,
-    never before it.
+def test_gate_defaults_on_with_the_anchor_rect_revision():
+    """The anchor-rect revision rides the positive-weight hard-anchor
+    machinery — no negative slab exists anywhere — so the build-time
+    blocker that kept the first implementation gated off is structurally
+    gone and the owner ruling is to ship the law ON.
 
     Read from the source line, not the imported value: the autouse
     fixture above (and any ``O4_*`` override in the developer's shell)
@@ -65,7 +72,7 @@ def test_gate_defaults_off_pending_the_reach_envelope_fix():
     src = (Path(cfg.__file__)).read_text(encoding="utf-8")
     m = re.search(r'O4_EAT_SURFACE_CEILING",\s*"(\d)"', src)
     assert m is not None, "the gate's env default line moved"
-    assert m.group(1) == "0"
+    assert m.group(1) == "1"
 
 
 # ── THE LAW ──────────────────────────────────────────────────────────
@@ -156,25 +163,13 @@ def test_runway_code_letter_resolves_a_45m_runway_to_E():
     assert cfg.runway_code_letter(23.0) == "C"
 
 
-# ── the constraint builder ───────────────────────────────────────────
-class _FakeShape:
-    def __init__(self, role, polygon, ref=None, node_altitudes=None):
-        self.role = role
-        self.polygon = polygon
-        self.ref = ref
-        self.node_altitudes = node_altitudes
-
-
-class _FakeLayout:
-    def __init__(self, shapes):
-        self.shapes = shapes
-        self.canonical_points = CanonicalPointRegistry()
-
-
+# ── the anchor-rect pin builder ──────────────────────────────────────
 # Runway lying along −x, its EAST end (the DER) at x = 0.
 _RWY = Polygon([(-1000.0, -22.0), (0.0, -22.0), (0.0, 22.0),
                 (-1000.0, 22.0)])
 _ANCHOR_XY = (0.0, -22.0)          # a runway ring vertex at the end
+_END_ELEV = 100.0                  # the runway's (flat) profile value
+_HALF = 22.5                       # declared 45 m runway → half-width
 
 
 def _rect(x0, x1, y0, y1):
@@ -193,62 +188,273 @@ def _end_spec(letter="E", slope=None, setback=None):
         "setback_m": float(setback),
         "tail_height_m": float(cfg.TAIL_HEIGHT_BY_CODE_LETTER[letter]),
         "anchor_xy": _ANCHOR_XY,
+        "half_width_m": _HALF,
     }
 
 
-# Three candidate taxi rects: one too close to the end, one squarely in
-# the corridor, one far off to the side.
+# Candidate taxi rects: one too close to the end, one squarely in the
+# rect corridor, one inside the 90 m SCOPING corridor but outside the
+# declared half-width, one far off to the side.
 _NEAR = _rect(40.0, 60.0, -10.0, 10.0)            # s ≈ 50 m
 _IN = _rect(390.0, 410.0, -10.0, 10.0)            # s ≈ 400 m, |q| ≤ 10
+_FLANK = _rect(390.0, 410.0, 30.0, 50.0)          # |q| 30-50 > 22.5
 _ASIDE = _rect(390.0, 410.0, 190.0, 210.0)        # s ≈ 400 m, |q| ≥ 190
+# The expected pin for ``_IN``: flat at the mid-distance (D_mid = 400)
+# regulation value off the 100 m runway end.
+_IN_PIN = _END_ELEV + eat_pavement_ceiling(
+    400.0, cfg.EAT_FAA_DEPARTURE_SLOPE, cfg.EAT_FAA_SETBACK_M,
+    cfg.TAIL_HEIGHT_BY_CODE_LETTER["E"])           # = 89.9
 
 
-def _layout(*taxi_polys, roles=None):
+def _layout(*taxi_polys, roles=None, specs=None):
+    """A real ``PavementLayout``: the 100 m runway (its corners seed
+    HARD, so the end anchor is readable) plus the given taxi shapes."""
     roles = roles or [ROLE_PRIMARY_PARALLEL] * len(taxi_polys)
-    shapes = [_FakeShape(ROLE_RUNWAY, _RWY)]
-    shapes += [_FakeShape(role, poly)
-               for role, poly in zip(roles, taxi_polys)]
-    layout = _FakeLayout(shapes)
-    layout.eat_ceiling_presolve = [_end_spec()]
+    layout = PavementLayout(icao="KTST", anchor=(35.231, -80.955))
+    layout.canonical_points = CanonicalPointRegistry()
+    layout.shapes = [BuiltShape(role=ROLE_RUNWAY, polygon=_RWY,
+                                altitude_high=_END_ELEV,
+                                altitude_low=_END_ELEV)]
+    layout.shapes += [BuiltShape(role=role, polygon=poly)
+                      for role, poly in zip(roles, taxi_polys)]
+    layout.eat_ceiling_presolve = ([_end_spec()] if specs is None
+                                   else list(specs))
     return layout
 
 
-def _build(layout):
-    _nodes, b2i = SP._build_node_list(layout)
-    return b2i, SP._build_eat_ceiling_constraints(layout, b2i)
+def _seed(layout):
+    """Run the real seeding pass; returns ``(nodes, b2i, elev, hard)``."""
+    nodes, b2i = SP._build_node_list(layout)
+    elev, hard, _have = SP._seed_elevations(layout, nodes, b2i)
+    return nodes, b2i, elev, hard
+
+
+def _taxi_idx(layout, b2i, poly):
+    cps = layout.canonical_points
+    return [b2i[cps.get_or_add(float(x), float(y))]
+            for (x, y) in list(poly.exterior.coords)[:-1]]
+
+
+class TestAnchorRectPins:
+    def test_rect_pins_flat_at_the_mid_distance_regulation_value(self):
+        """THE MECHANISM: the crossing segment (s 390-410, D_mid 400) is
+        HARD-PINNED flat at ``end_elev + eat_pavement_ceiling(400)`` =
+        89.9 — a KATL-scale depression below the 100 m runway end,
+        stamped as a hard anchor the solver grades to."""
+        layout = _layout(_IN)
+        _nodes, b2i, elev, hard = _seed(layout)
+        idx = _taxi_idx(layout, b2i, _IN)
+        assert len(idx) == 4
+        for i in idx:
+            assert hard[i], "a rect pin must be HARD"
+            assert elev[i] == pytest.approx(_IN_PIN)
+        assert _IN_PIN == pytest.approx(89.9)
+        assert _IN_PIN < _END_ELEV - 9.0
+
+    def test_pins_are_published_and_join_the_seam_pin_store(self):
+        """The solve registers the pins as runway-class anchors via
+        ``layout._eat_anchor_pin_idx``, and the seam-pin protection set
+        keeps every downstream seat-stamp / yield relaxation off them."""
+        layout = _layout(_IN)
+        _nodes, b2i, _elev, _hard = _seed(layout)
+        idx = set(_taxi_idx(layout, b2i, _IN))
+        assert set(layout._eat_anchor_pin_idx) == idx
+        for v in layout._eat_anchor_pin_idx.values():
+            assert v == pytest.approx(_IN_PIN)
+        assert idx <= layout._seam_pin_idx
+
+    def test_pavement_near_the_end_is_not_pinned(self):
+        """A node at s = 50 m is an ordinary runway-end connector, not
+        an end-around taxiway — the regulation value there would be
+        −18.6 m."""
+        layout = _layout(_NEAR)
+        _nodes, b2i, _elev, hard = _seed(layout)
+        assert not any(hard[i] for i in _taxi_idx(layout, b2i, _NEAR))
+        assert layout._eat_anchor_pin_idx == {}
+
+    def test_rect_uses_the_declared_half_width_not_the_corridor(self):
+        """|q| = 30-50 m is inside the 90 m SCOPING corridor but outside
+        the 22.5 m declared half-width: the rect is only the segment the
+        runway itself would cover if extended — the loop parts are
+        governed via the caps, not pinned."""
+        layout = _layout(_FLANK)
+        _nodes, b2i, _elev, hard = _seed(layout)
+        assert not any(hard[i] for i in _taxi_idx(layout, b2i, _FLANK))
+
+    def test_pavement_off_to_the_side_is_not_pinned(self):
+        layout = _layout(_ASIDE)
+        _nodes, b2i, _elev, hard = _seed(layout)
+        assert not any(hard[i] for i in _taxi_idx(layout, b2i, _ASIDE))
+
+    def test_only_the_rect_shape_is_pinned(self):
+        layout = _layout(_NEAR, _IN, _ASIDE)
+        _nodes, b2i, _elev, _hard = _seed(layout)
+        assert (set(layout._eat_anchor_pin_idx)
+                == set(_taxi_idx(layout, b2i, _IN)))
+
+    def test_kclt_class_rect_solves_to_end_minus_8_6(self):
+        """The spec's smoke arithmetic: a code-E crossing at D_mid =
+        460 m under FAA 40:1 pins at end − 8.6 m."""
+        layout = _layout(_rect(450.0, 470.0, -10.0, 10.0))
+        _nodes, _b2i, _elev, _hard = _seed(layout)
+        for v in layout._eat_anchor_pin_idx.values():
+            assert v == pytest.approx(_END_ELEV - 8.6)
+
+    def test_two_crossings_pin_at_their_own_mid_distance(self):
+        """Two connected segments split by an along-centreline gap
+        larger than ``EAT_RECT_SEGMENT_GAP_M`` — one per EAT, each flat
+        at its OWN ``D_mid`` regulation value."""
+        far_rect = _rect(600.0, 620.0, -10.0, 10.0)
+        layout = _layout(_IN, far_rect)
+        _nodes, b2i, elev, _hard = _seed(layout)
+        far_pin = _END_ELEV + eat_pavement_ceiling(
+            610.0, cfg.EAT_FAA_DEPARTURE_SLOPE, cfg.EAT_FAA_SETBACK_M,
+            cfg.TAIL_HEIGHT_BY_CODE_LETTER["E"])
+        for i in _taxi_idx(layout, b2i, _IN):
+            assert elev[i] == pytest.approx(_IN_PIN)
+        for i in _taxi_idx(layout, b2i, far_rect):
+            assert elev[i] == pytest.approx(far_pin)
+        assert far_pin > _IN_PIN          # the surface rises with D
+
+    def test_overlapping_end_corridors_take_the_lower_value(self):
+        """Two ends whose corridors cover one EAT: the most restrictive
+        (lower) regulation value governs, deterministically.  The far
+        end's runway sits 20 m lower, so its surface wins even though
+        its D is larger."""
+        far_rwy = Polygon([(-1200.0, -22.0), (-200.0, -22.0),
+                           (-200.0, 22.0), (-1200.0, 22.0)])
+        layout = _layout(_IN)
+        layout.shapes.append(BuiltShape(
+            role=ROLE_RUNWAY, polygon=far_rwy,
+            altitude_high=80.0, altitude_low=80.0))
+        far_spec = dict(_end_spec(), p0=(-200.0, 0.0),
+                        anchor_xy=(-200.0, -22.0))
+        layout.eat_ceiling_presolve = [_end_spec(), far_spec]
+        _nodes, b2i, elev, _hard = _seed(layout)
+        far_pin = 80.0 + eat_pavement_ceiling(
+            600.0, cfg.EAT_FAA_DEPARTURE_SLOPE, cfg.EAT_FAA_SETBACK_M,
+            cfg.TAIL_HEIGHT_BY_CODE_LETTER["E"])
+        assert far_pin < _IN_PIN
+        for i in _taxi_idx(layout, b2i, _IN):
+            assert elev[i] == pytest.approx(far_pin)
+
+    def test_senior_hard_nodes_are_never_overridden(self):
+        """A rect vertex shared with a runway ring is already HARD at
+        the profile value — the runway (and the seam law) outrank the
+        rect; the pin never masquerades over a datum."""
+        cross = Polygon([(390.0, -10.0), (420.0, -10.0),
+                         (420.0, -60.0), (390.0, -60.0)])
+        layout = _layout(_IN)
+        layout.shapes.append(BuiltShape(
+            role=ROLE_RUNWAY, polygon=cross,
+            altitude_high=95.0, altitude_low=95.0))
+        _nodes, b2i, elev, hard = _seed(layout)
+        shared = b2i[layout.canonical_points.get_or_add(390.0, -10.0)]
+        assert hard[shared]
+        assert elev[shared] == pytest.approx(95.0)
+        assert shared not in layout._eat_anchor_pin_idx
+        others = [i for i in _taxi_idx(layout, b2i, _IN) if i != shared]
+        for i in others:
+            assert elev[i] == pytest.approx(_IN_PIN)
+
+    def test_an_unresolvable_anchor_pins_nothing(self):
+        """No readable end elevation ⇒ no pin — a guessed datum would
+        masquerade as regulation."""
+        layout = _layout(_IN,
+                         specs=[dict(_end_spec(),
+                                     anchor_xy=(5000.0, 5000.0))])
+        _nodes, b2i, _elev, hard = _seed(layout)
+        assert not any(hard[i] for i in _taxi_idx(layout, b2i, _IN))
+        assert layout._eat_anchor_pin_idx == {}
+
+    def test_a_legacy_spec_without_half_width_is_skipped(self):
+        spec = _end_spec()
+        del spec["half_width_m"]
+        layout = _layout(_IN, specs=[spec])
+        _nodes, b2i, _elev, hard = _seed(layout)
+        assert not any(hard[i] for i in _taxi_idx(layout, b2i, _IN))
+
+    def test_a_small_runway_end_owns_no_eat(self):
+        """FALSE-EAT GUARD 1: end-around taxiways exist at transport-
+        category runways only (code ≥ 3).  CYXY's 700 m code-1 strip
+        02/20 aimed its corridor across the GA apron — 23 vertices were
+        pinned ~5 m into the ground as a phantom EAT."""
+        assert cfg.EAT_MIN_RUNWAY_CODE_NUMBER == 3
+        layout = _layout(_IN,
+                         specs=[dict(_end_spec(), code_number=2)])
+        _nodes, b2i, _elev, hard = _seed(layout)
+        assert not any(hard[i] for i in _taxi_idx(layout, b2i, _IN))
+        assert layout._eat_anchor_pin_idx == {}
+
+    def test_pavement_running_along_the_corridor_is_refused(self):
+        """FALSE-EAT GUARD 2: a real EAT CROSSES the corridor — its
+        segment is short along ``s`` (KCLT: 43 m).  A shape running
+        ALONG the extended centreline (CYXY: a 327 m apron smear) is
+        another facility under the surface and is refused whole."""
+        along = _rect(310.0, 310.0 + cfg.EAT_RECT_MAX_ALONG_M + 60.0,
+                      -10.0, 10.0)
+        layout = _layout(along)
+        _nodes, b2i, _elev, hard = _seed(layout)
+        assert not any(hard[i] for i in _taxi_idx(layout, b2i, along))
+        assert layout._eat_anchor_pin_idx == {}
+        # The KCLT-class short crossing stays pinned under the same cap.
+        assert 410.0 - 390.0 < cfg.EAT_RECT_MAX_ALONG_M
+
+    def test_service_roads_and_runways_are_not_governed(self):
+        """A service road carries no aircraft tail; the runway profile
+        is HARD and the rect must never bend it."""
+        assert ROLE_SERVICE_ROAD not in SP.EAT_CEILING_ROLES
+        assert ROLE_RUNWAY not in SP.EAT_CEILING_ROLES
+        assert ROLE_APRON in SP.EAT_CEILING_ROLES
+        layout = _layout(_IN, roles=[ROLE_SERVICE_ROAD])
+        _nodes, b2i, _elev, hard = _seed(layout)
+        assert not any(hard[i] for i in _taxi_idx(layout, b2i, _IN))
+
+    def test_no_store_means_no_pins(self):
+        layout = _layout(_IN)
+        del layout.eat_ceiling_presolve
+        _nodes, b2i, _elev, hard = _seed(layout)
+        assert not any(hard[i] for i in _taxi_idx(layout, b2i, _IN))
+        assert not hasattr(layout, "_eat_anchor_pin_idx")
+
+    def test_gate_off_is_byte_inert(self, monkeypatch):
+        """Gate OFF with a (stale) store present: seeding is byte-
+        identical to the no-store build and publishes nothing."""
+        monkeypatch.setattr(cfg, "EAT_SURFACE_CEILING_ENABLED", False)
+        layout = _layout(_IN)
+        _nodes, _b2i, elev_off, hard_off = _seed(layout)
+        assert not hasattr(layout, "_eat_anchor_pin_idx")
+        bare = _layout(_IN)
+        del bare.eat_ceiling_presolve
+        _nodes2, _b2i2, elev_bare, hard_bare = _seed(bare)
+        assert elev_off == elev_bare
+        assert hard_off == hard_bare
+
+    def test_pins_stay_hard_through_the_projection(self):
+        """The anchor discipline the spec rides: a hard pin is held by
+        every projection exactly like a tile-seam pin — the ramps grade
+        to it; it never moves."""
+        from auto_patch.elevation_per_surface.route_profile.one_solve \
+            import feasibility_project
+        layout = _layout(_IN)
+        nodes, b2i, elev, hard = _seed(layout)
+        idx = _taxi_idx(layout, b2i, _IN)
+        hard_set = {i for i in range(len(elev)) if hard[i]}
+        # One symmetric law edge from each pin to the runway-end anchor
+        # at a generous budget — the projection must leave the hard pins
+        # alone whatever the edges say.
+        anchor = b2i[layout.canonical_points.get_or_add(*_ANCHOR_XY)]
+        scs = [{"nodes": list(idx) + [anchor],
+                "edges": [(i, anchor, 50.0) for i in idx],
+                "flat": False, "flat_pairs": (), "area": 0.0,
+                "role": ROLE_PRIMARY_PARALLEL, "ref": "eat_test"}]
+        before = list(elev)
+        feasibility_project(elev, scs, hard_set, force_scalar=True)
+        for i in idx:
+            assert elev[i] == pytest.approx(before[i], abs=1e-12)
 
 
 class TestScoping:
-    def test_pavement_near_the_end_takes_no_edge(self):
-        """A node at s = 50 m is an ordinary runway-end connector, not an
-        end-around taxiway — the ceiling there would be −18.6 m."""
-        _b2i, (scs, idx, counts) = _build(_layout(_NEAR))
-        assert scs == []
-        assert idx == set()
-        assert counts == (0, 0, 0)
-
-    def test_pavement_in_the_corridor_takes_one_edge_per_node(self):
-        b2i, (scs, idx, counts) = _build(_layout(_IN))
-        assert len(scs) == 1
-        entry = scs[0]
-        assert entry["role"] == ROLE_PRIMARY_PARALLEL
-        assert entry["ref"] == SP.REF_EAT_CEILING
-        assert len(idx) == 4
-        assert len(entry["edges"]) == 4
-        assert counts == (4, 0, 0)
-
-    def test_pavement_off_to_the_side_takes_no_edge(self):
-        """|q| = 190-210 m is outside the 90 m corridor half-width."""
-        _b2i, (scs, idx, counts) = _build(_layout(_ASIDE))
-        assert scs == []
-        assert idx == set()
-        assert counts == (0, 0, 0)
-
-    def test_only_the_corridor_shape_is_governed(self):
-        _b2i, (scs, idx, _c) = _build(_layout(_NEAR, _IN, _ASIDE))
-        assert len(scs) == 1
-        assert len(idx) == 4
-
     def test_scoping_thresholds_come_from_config(self):
         """The 300 m / 90 m numbers are rule VALUES and live in config."""
         assert cfg.EAT_MIN_CROSSING_DIST_M == 300.0
@@ -338,131 +544,6 @@ class TestScoping:
                      (900.0, -89.0)):
             assert (SP.eat_ceiling_offset(spec, x, y)
                     == SP.eat_ceiling_offset(spec, x, y, bounds))
-
-
-class TestEdgeForm:
-    def test_edges_are_one_sided_intervals_to_the_end_anchor(self):
-        layout = _layout(_IN)
-        b2i, (scs, _idx, _c) = _build(layout)
-        cps = layout.canonical_points
-        anchor = b2i[cps.get_or_add(*_ANCHOR_XY)]
-        nodes, _ = SP._build_node_list(layout)
-        for (i, j, lo, hi) in scs[0]["edges"]:
-            assert j == anchor
-            assert lo is None, "nothing forbids an EAT sitting LOWER"
-            s = nodes[i][0]           # outward = +x, p0 = origin
-            assert hi == pytest.approx(
-                eat_pavement_ceiling(s, cfg.EAT_FAA_DEPARTURE_SLOPE,
-                                     cfg.EAT_FAA_SETBACK_M,
-                                     cfg.TAIL_HEIGHT_BY_CODE_LETTER["E"]),
-                abs=1e-9)
-            assert hi < 0.0
-
-    def test_the_edge_constrains_a_PAVEMENT_variable(self):
-        """Unlike the RESA cut this law DELIBERATELY binds pavement — it
-        is the taxiway itself that must go down."""
-        layout = _layout(_IN)
-        b2i, (scs, _idx, _c) = _build(layout)
-        first_terrain = layout._terrain_host_yield_first_index
-        for (i, j, _lo, _hi) in scs[0]["edges"]:
-            assert i < first_terrain
-            assert j < first_terrain
-
-    def test_a_shared_node_takes_no_second_edge(self):
-        """Two slabs on one variable is the measured B2 ping-pong class:
-        the first claimant governs."""
-        layout = _layout(_IN, _IN)
-        _b2i, (scs, idx, counts) = _build(layout)
-        assert len(idx) == 4
-        assert sum(len(e["edges"]) for e in scs) == 4
-        assert counts[1] == 4          # the second ring's four re-claims
-
-    def test_crossing_corridors_take_the_lowest_ceiling(self):
-        """Two ends whose corridors overlap: the most restrictive
-        surface governs, deterministically."""
-        layout = _layout(_IN)
-        far = dict(_end_spec(), p0=(-200.0, 0.0))     # s is 200 m larger
-        layout.eat_ceiling_presolve = [_end_spec(), far]
-        _b2i, (scs, _idx, _c) = _build(layout)
-        nodes, _ = SP._build_node_list(layout)
-        for (i, _j, _lo, hi) in scs[0]["edges"]:
-            near_off = SP.eat_ceiling_offset(
-                layout.eat_ceiling_presolve[0], *nodes[i])
-            far_off = SP.eat_ceiling_offset(far, *nodes[i])
-            assert hi == pytest.approx(min(near_off, far_off))
-
-    def test_service_roads_and_runways_are_not_governed(self):
-        """A service road carries no aircraft tail; the runway profile is
-        HARD and an EAT ceiling must never bend it."""
-        assert ROLE_SERVICE_ROAD not in SP.EAT_CEILING_ROLES
-        assert ROLE_RUNWAY not in SP.EAT_CEILING_ROLES
-        assert ROLE_APRON in SP.EAT_CEILING_ROLES
-        _b2i, (scs, idx, _c) = _build(
-            _layout(_IN, roles=[ROLE_SERVICE_ROAD]))
-        assert scs == [] and idx == set()
-
-
-# ── the projection actually depresses the pavement ───────────────────
-def test_projection_drives_the_taxiway_under_the_surface():
-    """THE point of the law: with the runway end HARD, projecting the
-    solved surface onto the one-sided slab pulls the EAT pavement down to
-    the ceiling — from +1 m above the runway end (the pre-law symptom) to
-    a whole tail height below the departure surface."""
-    from auto_patch.elevation_per_surface.route_profile.one_solve import (
-        feasibility_project)
-    layout = _layout(_IN)
-    nodes, b2i = SP._build_node_list(layout)
-    scs, idx, _c = SP._build_eat_ceiling_constraints(layout, b2i)
-    anchor = b2i[layout.canonical_points.get_or_add(*_ANCHOR_XY)]
-    end_elev = 221.5
-
-    elev = [end_elev] * len(nodes)
-    for i in idx:
-        elev[i] = end_elev + 0.9          # the pre-law KCLT symptom
-    feasibility_project(elev, scs, {anchor}, force_scalar=True)
-
-    assert elev[anchor] == pytest.approx(end_elev, abs=1e-12), \
-        "the runway end is HARD — the ceiling must never bend it"
-    q = cfg.EMIT_QUANTIZATION_MARGIN_M
-    for i in sorted(idx):
-        s = nodes[i][0]
-        ceiling = end_elev + eat_pavement_ceiling(
-            s, cfg.EAT_FAA_DEPARTURE_SLOPE, cfg.EAT_FAA_SETBACK_M,
-            cfg.TAIL_HEIGHT_BY_CODE_LETTER["E"])
-        assert elev[i] <= ceiling + 1e-6
-        assert elev[i] == pytest.approx(ceiling, abs=q + 1e-6)
-        assert elev[i] < end_elev - 9.0    # a real, KATL-scale depression
-
-
-def test_projection_leaves_a_compliant_taxiway_alone():
-    """One-sided: nothing forbids an EAT sitting LOWER than the surface
-    demands, so a taxiway already under the ceiling does not move."""
-    from auto_patch.elevation_per_surface.route_profile.one_solve import (
-        feasibility_project)
-    layout = _layout(_IN)
-    nodes, b2i = SP._build_node_list(layout)
-    scs, idx, _c = SP._build_eat_ceiling_constraints(layout, b2i)
-    anchor = b2i[layout.canonical_points.get_or_add(*_ANCHOR_XY)]
-    elev = [221.5] * len(nodes)
-    for i in idx:
-        elev[i] = 221.5 - 40.0             # far below the surface
-    before = list(elev)
-    feasibility_project(elev, scs, {anchor}, force_scalar=True)
-    assert elev == pytest.approx(before, abs=1e-12)
-
-
-def test_no_store_means_no_constraints():
-    layout = _FakeLayout([])
-    assert SP._build_eat_ceiling_constraints(layout, {}) == (
-        [], set(), (0, 0, 0))
-
-
-def test_gate_off_produces_zero_edges(monkeypatch):
-    monkeypatch.setattr(cfg, "EAT_SURFACE_CEILING_ENABLED", False)
-    layout = _layout(_IN)
-    _nodes, b2i = SP._build_node_list(layout)
-    assert SP._build_eat_ceiling_constraints(layout, b2i) == (
-        [], set(), (0, 0, 0))
 
 
 # ── the verification reader ──────────────────────────────────────────

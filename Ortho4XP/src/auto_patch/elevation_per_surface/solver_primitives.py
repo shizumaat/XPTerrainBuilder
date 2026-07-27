@@ -2066,11 +2066,6 @@ EAT_CEILING_ROLES = frozenset({
     ROLE_CROSS_CONNECTOR, ROLE_JUNCTION, ROLE_APRON,
 })
 
-# ``ref`` tag on the EAT constraint entries.  NOT a layout REF_* constant:
-# these entries carry no SHAPE — they hang extra law edges on existing
-# pavement nodes — so nothing is ever emitted under this name.
-REF_EAT_CEILING = "eat_ceiling"
-
 def eat_end_projection(end_spec, x, y):
     """``(s, q)`` of point ``(x, y)`` in one runway end's EAT frame:
     ``s`` = distance ALONG the extended centreline beyond the row-100
@@ -2161,121 +2156,176 @@ def _eat_shape_may_be_governed(bbox, end_spec, bounds):
     return not (qx_lo + qy_lo > half or qx_hi + qy_hi < -half)
 
 
-def _build_eat_ceiling_constraints(layout, bucket_to_idx):
-    """Constraint entries for the END-AROUND TAXIWAY surface ceiling.
+def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard):
+    """HARD-PIN values for the END-AROUND TAXIWAY anchor rect.
 
-    THE LAW (owner ruling 2026-07-27): an end-around taxiway crosses the
-    extended centreline beyond a runway end, so its pavement must sit low
-    enough that the design aircraft's TAIL clears the departure (FAA 40:1
-    from the DER) / take-off-climb (EASA 2 % from a 60 m inner edge)
+    THE LAW (owner rulings 2026-07-27, anchor-rect revision —
+    docs/specs/eat-anchor-rect-spec.md): an end-around taxiway crosses
+    the extended centreline beyond a runway end, so its pavement must sit
+    low enough that the design aircraft's TAIL clears the departure (FAA
+    40:1 from the DER) / take-off-climb (EASA 2 % from a 60 m inner edge)
     surface.  KATL taxiway Victor runs ~9 m below its runway end for
     exactly this reason.
 
-    ENCODING — the same B3 band template the RESA cut uses, with the
-    lower side OPEN: exactly ONE interval 4-tuple ``(node_index,
-    end_anchor_index, None, ceiling_offset(s))`` per governed node, i.e.
-    the signed slab ``z_node − z_end <= ceiling_offset``.  The floor side
-    is open because nothing forbids an EAT sitting LOWER than the
-    surface demands; the grade caps and the smoothest-target then produce
-    the descent and climb ramps on their own — no ramp geometry is
-    stamped anywhere.  One-sided intervals are already carried by the
-    projection (``one_solve.feasibility_project``) and skipped by the
-    runway-flex envelope, which models symmetric budgets only.
+    ENCODING — a HARD ANCHOR, not a law edge.  The first implementation
+    hung one-sided pavement↔pavement interval edges on the governed
+    nodes; their negative slab weights blew up the reach-envelope
+    Dijkstra (non-negative weights only; KCLT killed at 15 min CPU /
+    20.3 GB).  Here the RECT — corridor about the extended centreline at
+    the runway's DECLARED half-width (``half_width_m``; apt.dat row-100
+    width, shoulders excluded), intersected with taxi/junction/apron
+    pavement beyond ``EAT_MIN_CROSSING_DIST_M`` — is PINNED at the
+    regulation value
 
-    DELIBERATELY CONSTRAINS PAVEMENT.  This is the one place a runway-end
-    surface binds a pavement variable, and the inversion of the RESA
-    cut's identity-collision rule (there a law edge must never touch a
-    pavement variable).  That is the point of the law: the EAT is
-    pavement and the surface is what forces it down.
+        ``end_elev + eat_pavement_ceiling(D_mid, slope, setback, tail)``
 
-    ANCHOR: the end's FROZEN-NEAREST pavement ring vertex
-    (``clearance``'s ``anchor_xy`` off the row-100 endpoint), whose
-    solved value IS the runway-end elevation the surface is referenced
-    to — never a DEM read.  Runway nodes are HARD in the projection, so
-    the slab moves only the taxi side.
+    UNCONDITIONALLY (owner: "anchoring it at the regulation is the right
+    course, even if it has to fill DEM" — no min-with-terrain
+    refinement).  ``end_elev`` is the SOLVED runway-end value read off
+    the end's frozen-nearest pavement ring vertex (profiles freeze
+    before the field solve, so it is a constant here); ``D_mid`` is the
+    crossing segment's mid-distance from the DER along the outward
+    vector.  The pins then ride the same positive-weight anchor
+    machinery as crossing runways and tile seams: reach bands propagate
+    ``E_anchor ± cap·d`` outward and the solve grades the descent/climb
+    ramps at taxi caps — no solver change, no negative edge anywhere.
 
-    A node inside SEVERAL end corridors (crossing runways) takes the
-    LOWEST ceiling — the most restrictive surface governs, and the choice
-    is deterministic.  A node already claimed by an earlier shape's ring
-    takes no second edge (two slabs on one variable is the measured B2
-    ping-pong class).
+    Governed vertices cluster into connected CROSSING SEGMENTS by
+    along-centreline gap (``EAT_RECT_SEGMENT_GAP_M``) — one segment per
+    EAT, each pinned FLAT at its own ``D_mid`` value (the rect is short
+    along the direction of EAT travel).  Where two ends' corridors
+    overlap one segment, the LOWER value wins (the most restrictive
+    surface governs, deterministically).  A node that is ALREADY hard
+    (runway ring, tile-seam pin, bridge deck, skirt birth pin) is never
+    overridden — the runway profile and the seam law outrank the rect.
 
-    Returns ``(sc_entries, eat_idx_set, counts)`` with ``counts =
-    (n_in_corridor, n_cross_claimed, n_no_anchor)``.
+    Called from ``_seed_elevations`` AFTER every senior pin family, so
+    ``elev``/``is_hard`` reflect the runway profile the anchor read
+    needs.  Returns ``(pins, counts)`` — ``pins`` maps node index →
+    regulation value; ``counts = (n_segments, n_no_anchor,
+    n_hard_skipped)``.
     """
-    from auto_patch.config import EAT_SURFACE_CEILING_ENABLED
+    from auto_patch.config import (EAT_MIN_CROSSING_DIST_M,
+                                   EAT_MIN_RUNWAY_CODE_NUMBER,
+                                   EAT_RECT_MAX_ALONG_M,
+                                   EAT_RECT_SEGMENT_GAP_M)
     end_specs = getattr(layout, "eat_ceiling_presolve", None) or []
-    if not end_specs or not EAT_SURFACE_CEILING_ENABLED:
-        return [], set(), (0, 0, 0)
-    bounds = eat_scoping_bounds()
     cps = layout.canonical_points
-    anchor_idx: list = []
+    pins: dict[int, float] = {}
+    min_s = float(EAT_MIN_CROSSING_DIST_M)
+    gap = float(EAT_RECT_SEGMENT_GAP_M)
+    max_along = float(EAT_RECT_MAX_ALONG_M)
+    n_seg = n_no_anchor = n_hard_skip = n_refused_along = 0
     for spec in end_specs:
+        half = spec.get("half_width_m")
+        if half is None:
+            continue          # pre-revision store: no declared half-width
+        # FALSE-EAT GUARD 1, re-checked at pin time (the publish-side
+        # twin lives in ``clearance._collect_eat_end`` — belt and
+        # braces against a stale store).
+        if int(spec.get("code_number", 0)) < EAT_MIN_RUNWAY_CODE_NUMBER:
+            continue
         a = spec.get("anchor_xy")
         j = None
         if a is not None:
             j = bucket_to_idx.get(cps.get_or_add(float(a[0]), float(a[1])))
-        anchor_idx.append(j)
-    sc_out: list[dict] = []
-    eat_idx: set[int] = set()
-    claimed: set[int] = set()
-    n_in = n_cross = n_no_anchor = 0
-    for s in layout.shapes:
-        if s.role not in EAT_CEILING_ROLES:
+        if j is None or not is_hard[j]:
+            # The end's elevation is unreadable — a pin at a guessed
+            # datum would masquerade as regulation; skip and count.
+            n_no_anchor += 1
             continue
-        if s.polygon is None or s.polygon.is_empty:
+        end_elev = float(elev[j])
+        bounds = (min_s, float(half))
+        members: list[tuple[float, int]] = []       # (s, node_index)
+        seen: set[int] = set()
+        for s in layout.shapes:
+            if s.role not in EAT_CEILING_ROLES:
+                continue
+            if s.polygon is None or s.polygon.is_empty:
+                continue
+            try:
+                if not _eat_shape_may_be_governed(
+                        s.polygon.bounds, spec, bounds):
+                    continue
+                coords = _open_ring(list(s.polygon.exterior.coords))
+            except _GEOM_EXC:
+                continue
+            shape_members: list[tuple[float, int]] = []
+            for (x, y) in coords:
+                sv, qv = eat_end_projection(spec, x, y)
+                if sv < min_s or abs(qv) > bounds[1]:
+                    continue
+                i = bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
+                if i is None or i in seen:
+                    continue
+                shape_members.append((sv, i))
+            if not shape_members:
+                continue
+            # FALSE-EAT GUARD 2, per SHAPE: a single shape whose
+            # governed vertices span more than the crossing cap along
+            # ``s`` RUNS ALONG the corridor (a decimated long rect can
+            # carry vertices only at its far-apart ends, so the
+            # cluster-extent check below alone would read it as two
+            # short crossings).  Along-corridor pavement is another
+            # facility, never an EAT — the whole shape is refused, and
+            # its vertices stay unclaimed so a genuine crossing shape
+            # sharing a weld vertex can still take it.
+            s_lo = min(v for v, _i in shape_members)
+            s_hi = max(v for v, _i in shape_members)
+            if s_hi - s_lo > max_along:
+                n_refused_along += 1
+                continue
+            seen.update(i for _v, i in shape_members)
+            members.extend(shape_members)
+        if not members:
             continue
+        members.sort()
+        seg_start = 0
+        for k in range(1, len(members) + 1):
+            if (k < len(members)
+                    and members[k][0] - members[k - 1][0] <= gap):
+                continue
+            seg = members[seg_start:k]
+            seg_start = k
+            # FALSE-EAT GUARD 2: a real EAT CROSSES the corridor — the
+            # segment is SHORT along ``s`` (owner's ruling: "the rect is
+            # short along the direction of EAT travel"; KCLT spans
+            # 43 m).  Pavement running ALONG the extended centreline
+            # (CYXY: a 327 m apron smear) is another facility, refused
+            # whole and counted — never pinned into the ground.
+            if seg[-1][0] - seg[0][0] > max_along:
+                n_refused_along += 1
+                continue
+            n_seg += 1
+            d_mid = 0.5 * (seg[0][0] + seg[-1][0])
+            value = end_elev + float(_eat_pavement_ceiling(
+                d_mid, spec["slope"], spec["setback_m"],
+                spec["tail_height_m"]))
+            for (_sv, i) in seg:
+                if is_hard[i]:
+                    n_hard_skip += 1
+                    continue
+                prev = pins.get(i)
+                if prev is None or value < prev:
+                    pins[i] = float(value)
+    if n_refused_along:
         try:
-            bbox = s.polygon.bounds
-            near = [k for k, spec in enumerate(end_specs)
-                    if _eat_shape_may_be_governed(bbox, spec, bounds)]
-            if not near:
-                continue
-            coords = _open_ring(list(s.polygon.exterior.coords))
-        except _GEOM_EXC:
-            continue
-        edges: list[tuple] = []
-        node_list: list[int] = []
-        for (x, y) in coords:
-            i = bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
-            if i is None:
-                continue
-            best = None
-            missing_anchor = False
-            for k in near:
-                spec = end_specs[k]
-                off = eat_ceiling_offset(spec, x, y, bounds)
-                if off is None:
-                    continue
-                j = anchor_idx[k]
-                if j is None or j == i:
-                    missing_anchor = True
-                    continue
-                if best is None or off < best[0]:
-                    best = (off, j)
-            if best is None:
-                if missing_anchor:
-                    n_no_anchor += 1
-                continue
-            n_in += 1
-            node_list.append(i)
-            eat_idx.add(i)
-            if i in claimed:
-                n_cross += 1
-                continue
-            claimed.add(i)
-            edges.append((i, best[1], None, float(best[0])))
-        if not edges:
-            continue
-        sc_out.append({"nodes": node_list, "edges": edges, "flat": False,
-                       "flat_pairs": (), "area": 0.0,
-                       "role": s.role, "ref": REF_EAT_CEILING})
-    if _os.environ.get("O4_STEP_DEBUG") == "1" and (n_in or n_no_anchor):
-        print(f"    [eat-ceiling] {n_in} pavement vertex(es) inside a "
-              f"departure-surface corridor, {n_cross} already claimed by "
-              f"an earlier shape, {n_no_anchor} had no resolvable end "
-              f"anchor")
-    return sc_out, eat_idx, (n_in, n_cross, n_no_anchor)
+            import O4_UI_Utils as _UI_eatg
+            _UI_eatg.vprint(1,
+                f"    [eat-anchor-rect] {n_refused_along} corridor "
+                f"segment(s) longer than {max_along:.0f} m along the "
+                f"extended centreline refused (pavement along the "
+                f"corridor, not an end-around crossing).")
+        except Exception:                              # pragma: no cover
+            pass
+    if _os.environ.get("O4_STEP_DEBUG") == "1" and (
+            pins or n_no_anchor or n_refused_along):
+        print(f"    [eat-anchor-rect] {n_seg} crossing segment(s), "
+              f"{len(pins)} pavement node(s) pinned at the regulation "
+              f"value, {n_hard_skip} senior-hard node(s) kept, "
+              f"{n_no_anchor} end(s) had no resolvable anchor, "
+              f"{n_refused_along} over-long segment(s) refused")
+    return pins, (n_seg, n_no_anchor, n_hard_skip, n_refused_along)
 
 
 def _build_adjacent_ground_zone_constraints(layout, bucket_to_idx):
@@ -3054,6 +3104,45 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
             layout._seam_pin_idx = (  # type: ignore[attr-defined]
                 set(existing_pin_idx) if existing_pin_idx else set()
             ) | skirt_pinned_idx
+
+    # ── EAT ANCHOR-RECT hard pins (owner rulings 2026-07-27, gated) ──
+    # docs/specs/eat-anchor-rect-spec.md.  The end-around-taxiway
+    # crossing rect is pinned at the regulation value — computed from
+    # the SOLVED runway-end elevation, which the runway pass above has
+    # already hardened — and held exactly like a tile-seam pin.  Runs
+    # LAST of the pin families: every senior pin (runway, seam, deck,
+    # skirt) is already hard and is never overridden.  The pinned set
+    # joins ``_seam_pin_idx`` so (a) downstream seat-stamp / yield
+    # relaxations never move a pin and (b) the grade-law context skips
+    # pin↔pin pairs inside the flat rect while keeping every ramp pair
+    # (one pinned end) at the body cap — the ramps the solver must
+    # grade.  ``layout._eat_anchor_pin_idx`` (node index → value) is
+    # published for the solve to register the pins as runway-class
+    # anchors (reach bands propagate ``E_anchor ± cap·d``).  Gate OFF
+    # ⇒ clearance publishes no store ⇒ byte-inert.
+    from auto_patch.config import EAT_SURFACE_CEILING_ENABLED
+    if EAT_SURFACE_CEILING_ENABLED \
+            and getattr(layout, "eat_ceiling_presolve", None):
+        eat_pins, _eat_counts = _build_eat_anchor_rect_pins(
+            layout, bucket_to_idx, elev, is_hard)
+        for idx, v in eat_pins.items():
+            elev[idx] = float(v)
+            is_hard[idx] = True
+            have_initial[idx] = True
+        layout._eat_anchor_pin_idx = dict(eat_pins)  # type: ignore[attr-defined]
+        if eat_pins:
+            existing_pin_idx = getattr(layout, "_seam_pin_idx", None)
+            layout._seam_pin_idx = (  # type: ignore[attr-defined]
+                set(existing_pin_idx) if existing_pin_idx else set()
+            ) | set(eat_pins)
+            try:
+                import O4_UI_Utils as _UI_eat
+                _UI_eat.vprint(1,
+                    f"    [eat-anchor-rect] {len(eat_pins)} node(s) over "
+                    f"{_eat_counts[0]} crossing segment(s) pinned at the "
+                    f"departure-surface regulation value.")
+            except Exception:                          # pragma: no cover
+                pass
 
     # Warm-start soft nodes.
     for s in layout.shapes:

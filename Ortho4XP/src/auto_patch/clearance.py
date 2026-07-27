@@ -1685,8 +1685,22 @@ def emit_runway_end_skirts(layout: PavementLayout, dem,
         uses): the runway-end ELEVATION the ceiling is referenced to must
         be the end's SOLVED profile value, so the solver reads it off
         that node rather than off the DEM.
+
+        ``half_width_m`` is HALF the DECLARED runway width (apt.dat
+        row-100 published width, shoulders EXCLUDED — the caller passes
+        ``declared_width_m``): the anchor-rect revision pins only the
+        segment of the EAT the runway itself would cover if extended,
+        not the whole scoping corridor.
         """
         if not _eat_gate:
+            return
+        # FALSE-EAT GUARD 1 (2026-07-27): end-around taxiways exist at
+        # transport-category runways only.  A small strip's extension
+        # crossing unrelated pavement is not an EAT (CYXY 02/20 aimed
+        # its corridor across the GA apron); publishing no spec keeps
+        # builder AND reader scoped identically.
+        from .config import EAT_MIN_RUNWAY_CODE_NUMBER
+        if int(runway_code_number(full_len)) < EAT_MIN_RUNWAY_CODE_NUMBER:
             return
         anchor = _nearest_pav_vertex(end_pt[0], end_pt[1])
         if anchor is None:
@@ -1701,6 +1715,7 @@ def emit_runway_end_skirts(layout: PavementLayout, dem,
             "setback_m": float(_eat_setback),
             "tail_height_m": float(TAIL_HEIGHT_BY_CODE_LETTER[letter]),
             "anchor_xy": (float(anchor[0]), float(anchor[1])),
+            "half_width_m": float(runway_width) / 2.0,
         })
 
     def _floor_depth_for(entry_grade: float,

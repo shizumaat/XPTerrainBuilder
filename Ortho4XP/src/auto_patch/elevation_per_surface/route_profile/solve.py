@@ -209,8 +209,19 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
             profile = profiles.get(ref)
             if profile is None:
                 continue
+            # EAT ANCHOR-RECT pins are DERIVED from the runway-end
+            # profile values (owner rulings 2026-07-27) and must never
+            # feed back as flex envelope seeds: a regulation pin sits a
+            # whole tail height BELOW its end, so seeding from it would
+            # demand the runway profile flex DOWN toward its own
+            # derivative — bending the datum the EAT law explicitly
+            # must never bend (measured HECA: a −15 m EASA pin 316 m
+            # off the 23C end).
+            _eat_pin_idx = getattr(layout, "_eat_anchor_pin_idx",
+                                   None) or ()
             seeds = {i: elev[i] for i in range(n)
-                     if base_hard[i] and i not in own_nodes}
+                     if base_hard[i] and i not in own_nodes
+                     and i not in _eat_pin_idx}
             if not seeds:
                 continue
             ceil_env = _value_envelope(seeds, +1)
@@ -488,34 +499,16 @@ def solve_route_profile(layout, icao: str,
                   f"adopted={_resa_collisions[0]} "
                   f"cross={_resa_collisions[1]} "
                   f"no_anchor={_resa_collisions[2]}")
-    # ── END-AROUND TAXIWAY (EAT) CEILING constraints (owner ruling
-    # 2026-07-27, gate ``EAT_SURFACE_CEILING_ENABLED``) ───────────────
-    # An end-around taxiway crosses the extended centreline beyond a
-    # runway end, so its pavement must clear the departure (FAA 40:1 from
-    # the DER) / take-off-climb (EASA 2 % from 60 m) surface by a whole
-    # tail height — which puts it BELOW the runway end (KATL taxiway
-    # Victor ≈ −9 m).  Every taxi/junction/apron node inside an end's
-    # corridor gets ONE ONE-SIDED interval edge to that end's
-    # frozen-nearest pavement anchor node; the grade caps and the
-    # smoothest target then produce the descent/climb ramps by
-    # themselves.  Unlike the RESA cut this DELIBERATELY constrains
-    # pavement variables — that is the law.  Gate OFF: no store, no
-    # constraint — byte-inert.
-    _eat_idx: set = set()
-    if getattr(layout, "eat_ceiling_presolve", None):
-        from auto_patch.elevation_per_surface.solver_primitives import (
-            _build_eat_ceiling_constraints)
-        _eat_scs, _eat_idx, _eat_counts = (
-            _build_eat_ceiling_constraints(layout, bucket_to_idx))
-        shape_constraints.extend(_eat_scs)
-        if _os.environ.get("O4_STEP_DEBUG") == "1":
-            _n_eat_edges = sum(len(_sc["edges"]) for _sc in _eat_scs)
-            print(f"    [eat-ceiling] {len(_eat_scs)} shape entr(ies), "
-                  f"{len(_eat_idx)} governed pavement node(s), "
-                  f"{_n_eat_edges} one-sided surface interval edge(s), "
-                  f"in_corridor={_eat_counts[0]} "
-                  f"cross={_eat_counts[1]} "
-                  f"no_anchor={_eat_counts[2]}")
+    # ── END-AROUND TAXIWAY (EAT) anchor rect (owner rulings 2026-07-27,
+    # gate ``EAT_SURFACE_CEILING_ENABLED``) ───────────────────────────
+    # The anchor-rect revision (docs/specs/eat-anchor-rect-spec.md)
+    # carries NO constraint entries here: the crossing rect was HARD-
+    # PINNED at the regulation value inside ``_seed_elevations`` (so it
+    # is already in ``base_hard``), and the pins are registered as
+    # runway-class anchors below (after the flex pass re-derives
+    # ``G.runway_anchor``).  The first implementation's one-sided
+    # pavement↔pavement interval edges — whose negative slab weights
+    # blew up the reach-envelope Dijkstra — are retired.
     # ── ADJACENT-GROUND ZONE-ROW constraints (Slice B stage B3 order 2,
     # gated) ──────────────────────────────────────────────────────────
     # The band zone-row vertices admitted by ``_build_node_list`` (from
@@ -613,6 +606,20 @@ def solve_route_profile(layout, icao: str,
             _UI_flex.vprint(1, f"  [pav-builder] WARN: {icao}: runway "
                                f"flex pass failed ({_flex_exc}) — "
                                f"profiles stay frozen.")
+    # ── EAT ANCHOR-RECT pins as runway-class anchors (owner rulings
+    # 2026-07-27, docs/specs/eat-anchor-rect-spec.md) ─────────────────
+    # The crossing-rect pins (hardened in ``_seed_elevations``) join
+    # ``G.runway_anchor`` so the reach band propagates their value
+    # outward at cap (``E_anchor ± cap·d``) through the EXISTING
+    # positive-weight machinery — the same mechanism by which a low
+    # runway's ceiling binds distant pavement, and what shapes the
+    # descent/climb ramps.  Registered AFTER the flex pass, which
+    # clears and re-derives the anchor map.  ``setdefault``: a genuine
+    # runway-join anchor at a shared bucket keeps datum authority.
+    _eat_anchor_pins = getattr(layout, "_eat_anchor_pin_idx", None) or {}
+    for _pi, _pv in _eat_anchor_pins.items():
+        if _pi < len(elev):
+            G.runway_anchor.setdefault(_pi, float(_pv))
     # ── FLAT-AIRPORT FAST PATH (spec §3.3, Tier 2, O4_FLAT_AIRPORT_FAST_PATH) ──
     # The runway profiles are now final (birth-datum law + flex).  BEFORE any
     # reach-band / spine / body-fill / feasibility work, test a whole-airport
@@ -626,19 +633,29 @@ def solve_route_profile(layout, icao: str,
         from .flat_airport_fast_path import (
             apply_flat_airport_fast_path, certify_flat_airport,
             report_flat_certificate_fast_path)
-        _flat_cert = certify_flat_airport(
-            layout, dem, tile_lat, tile_lon,
-            nodes=nodes, bucket_to_idx=bucket_to_idx, elev=elev,
-            base_hard=base_hard, dem_elev=dem_elev, runway_nodes=runway_nodes,
-            shape_constraints=shape_constraints, unified_graph=G)
-        if _flat_cert is not None:
-            apply_flat_airport_fast_path(
-                layout, icao, nodes, bucket_to_idx, elev, base_hard,
-                _flat_cert, t0)
-            return
-        report_flat_certificate_fast_path(
-            layout, icao,
-            f"refused({getattr(layout, '_flat_airport_fast_path_reason', '?')})")
+        # An EAT anchor-rect pin forces pavement a whole tail height
+        # below its runway end — definitionally not a flat airport, and
+        # the certificate's DEM-seed premise cannot hold the ramp law.
+        if _eat_anchor_pins:
+            layout._flat_airport_fast_path_reason = "eat_anchor_rect"
+            report_flat_certificate_fast_path(
+                layout, icao, "refused(eat_anchor_rect)")
+        else:
+            _flat_cert = certify_flat_airport(
+                layout, dem, tile_lat, tile_lon,
+                nodes=nodes, bucket_to_idx=bucket_to_idx, elev=elev,
+                base_hard=base_hard, dem_elev=dem_elev,
+                runway_nodes=runway_nodes,
+                shape_constraints=shape_constraints, unified_graph=G)
+            if _flat_cert is not None:
+                apply_flat_airport_fast_path(
+                    layout, icao, nodes, bucket_to_idx, elev, base_hard,
+                    _flat_cert, t0)
+                return
+            report_flat_certificate_fast_path(
+                layout, icao,
+                f"refused("
+                f"{getattr(layout, '_flat_airport_fast_path_reason', '?')})")
     band, dem_fn, runway_pts, _G = reach_band_for(
         layout, elev, bucket_to_idx, dem, tile_lat, tile_lon, unified_graph=G)
     # ZONE-NODE REACH-BAND SKIP (Slice B stage B3 performance lever,
@@ -1834,14 +1851,16 @@ def _capture_projection_snapshot(layout, fairing_moved_keys=None,
       its sparser envelope cannot un-quarantine an infeasible pocket.
 
     ``_seed_elevations`` republishes ``layout._seam_pin_idx``/``_seam_pin_ll``
-    in ITS node-index space; the solve's published sets are restored so
-    downstream passes see exactly the state they see with the gate off."""
+    (and ``_eat_anchor_pin_idx``) in ITS node-index space; the solve's
+    published sets are restored so downstream passes see exactly the
+    state they see with the gate off."""
     from auto_patch.elevation_per_surface.solver_primitives import (
         _build_node_list, _seed_elevations)
 
     geom_exc = _snapshot_geom_exceptions()
     saved_pins = [(attr, getattr(layout, attr, None))
-                  for attr in ("_seam_pin_idx", "_seam_pin_ll")]
+                  for attr in ("_seam_pin_idx", "_seam_pin_ll",
+                               "_eat_anchor_pin_idx")]
     values: dict = {}
     try:
         nodes, bucket_to_idx = _build_node_list(layout)

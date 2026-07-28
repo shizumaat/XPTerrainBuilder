@@ -334,6 +334,125 @@ def _dem_follow_polygon(p, _dem_at, densify_step_m: float = 15.0,
     return new_poly, alts + [alts[0]]
 
 
+def _svc_contiguous_width(line, arc, pav_union, probe: float = 60.0):
+    """Contiguous pavement cross-section (m) at arc-length ``arc`` of a
+    service centerline — the ONE measurement both the narrow-strip carve
+    and the free-road slice filter key on, so they cannot drift.  ``None``
+    on geometry failure (callers treat that as NOT road-width —
+    conservative, never carve on a broken measurement)."""
+    p = line.interpolate(arc)
+    q = line.interpolate(min(arc + 1.0, line.length))
+    dx, dy = q.x - p.x, q.y - p.y
+    dn = math.hypot(dx, dy) or 1.0
+    nx, ny = -dy / dn, dx / dn
+    cross = LineString([(p.x - nx * probe, p.y - ny * probe),
+                        (p.x + nx * probe, p.y + ny * probe)])
+    try:
+        inter = cross.intersection(pav_union)
+    except _GEOM_EXC:
+        return None
+    parts = ([inter] if inter.geom_type == "LineString"
+             else list(getattr(inter, "geoms", ())))
+    for part in parts:
+        if part.geom_type == "LineString" and part.distance(p) < 2.0:
+            return part.length
+    return 0.0
+
+
+def free_road_subsegments(lines, pav_union, *,
+                          narrow_width_m: float = 25.0,
+                          sample_step_m: float = 5.0,
+                          min_run_m: float = 12.0):
+    """The sub-segments of ``lines`` along which a road is COMPLETELY
+    FREE — owner ruling 2026-07-27 (canonical text):
+
+        "Any road inside, or sharing an edge with an apron must be
+        graded the same as the apron, so essentially just becomes part
+        of the apron and never needs to be carved in the first place.
+        We only want completely free roads, with no pavement on either
+        side of road-width pavement, to be graded as roads."
+
+    A station is FREE when the contiguous pavement cross-section there
+    is at most ``narrow_width_m`` (the pavement IS the road — the same
+    standing 25 m rule ``carve_narrow_service_strips`` carves by) or
+    zero (the road runs over open terrain).  A station inside or along
+    WIDER pavement is part of the apron: feeding it to the slice would
+    cut a face the classifiers then mis-role — the SPJC east-terminal
+    frontage (109 k m² of phantom ``service_junction``) and HECA's
+    "svc junctions 4→76" carve were exactly this.  Consecutive free
+    stations group into intervals; intervals shorter than ``min_run_m``
+    are dropped (a road momentarily narrow inside an apron is still the
+    apron's road).
+
+    Pure function over LineStrings — the slice feeds the result in
+    place of the raw service set; the narrow-strip carve keeps its own
+    identical per-station test.
+
+    Interval ends SNAP to the nearest ORIGINAL vertex within one sample
+    step; interior vertices are carried over exactly, and a cut that
+    genuinely falls mid-segment interpolates only there — at least a
+    full sample step from any original vertex.  A blind ``substring()``
+    minted endpoints ~mm off source vertices, and the solver/validator
+    budget lockstep test caught exactly that (CYXY: one shared edge,
+    7.7e-5 budget drift on near-duplicate vertices).
+    """
+    if pav_union is None or pav_union.is_empty:
+        return list(lines)
+    out = []
+    for line in lines:
+        if line is None or line.is_empty or line.length < min_run_m:
+            continue
+        n_st = max(2, int(line.length / sample_step_m) + 1)
+        arcs = [line.length * k / (n_st - 1) for k in range(n_st)]
+        free = []
+        for arc in arcs:
+            w = _svc_contiguous_width(line, arc, pav_union)
+            free.append(w is not None and w <= narrow_width_m)
+        coords = list(line.coords)
+        vertex_arcs = [0.0]
+        for (xa, ya), (xb, yb) in zip(coords, coords[1:]):
+            vertex_arcs.append(vertex_arcs[-1]
+                               + math.hypot(xb - xa, yb - ya))
+
+        def _snap(a):
+            best = min(range(len(vertex_arcs)),
+                       key=lambda i: abs(vertex_arcs[i] - a))
+            if abs(vertex_arcs[best] - a) <= sample_step_m:
+                return vertex_arcs[best]
+            return a
+
+        k = 0
+        while k < len(arcs):
+            if not free[k]:
+                k += 1
+                continue
+            k2 = k
+            while k2 + 1 < len(arcs) and free[k2 + 1]:
+                k2 += 1
+            a1, a2 = _snap(arcs[k]), _snap(arcs[k2])
+            k = k2 + 1
+            if a2 - a1 < min_run_m:
+                continue
+            pts = []
+            if a1 not in vertex_arcs:
+                p = line.interpolate(a1)
+                pts.append((p.x, p.y))
+            pts.extend(coords[i] for i, va in enumerate(vertex_arcs)
+                       if a1 - 1e-9 <= va <= a2 + 1e-9)
+            if a2 not in vertex_arcs:
+                p = line.interpolate(a2)
+                pts.append((p.x, p.y))
+            if len(pts) < 2:
+                continue
+            try:
+                seg = LineString(pts)
+            except _GEOM_EXC:
+                continue
+            if not seg.is_empty and seg.length >= min_run_m:
+                out.append(seg)
+    return out
+
+
 def carve_narrow_service_strips(
         layout: "PavementLayout",
         pav_union,
@@ -382,23 +501,7 @@ def carve_narrow_service_strips(
         return 0
 
     def _contiguous_width(line, arc, probe=60.0):
-        p = line.interpolate(arc)
-        q = line.interpolate(min(arc + 1.0, line.length))
-        dx, dy = q.x - p.x, q.y - p.y
-        dn = math.hypot(dx, dy) or 1.0
-        nx, ny = -dy / dn, dx / dn
-        cross = LineString([(p.x - nx * probe, p.y - ny * probe),
-                            (p.x + nx * probe, p.y + ny * probe)])
-        try:
-            inter = cross.intersection(pav_union)
-        except _GEOM_EXC:
-            return None
-        parts = ([inter] if inter.geom_type == "LineString"
-                 else list(getattr(inter, "geoms", ())))
-        for part in parts:
-            if part.geom_type == "LineString" and part.distance(p) < 2.0:
-                return part.length
-        return 0.0
+        return _svc_contiguous_width(line, arc, pav_union, probe=probe)
 
     corridors = []
     for centerline in service_lines:

@@ -169,6 +169,8 @@ def _terminal_groundside_zone(
     apt_pavement_seeds: Optional[List[Polygon]] = None,
     apt_pavement_polys: Optional[List[Polygon]] = None,
     relations: Optional[List[Tuple[str, List[str], Dict[str, str]]]] = None,
+    road_ways: Optional[List[Tuple[str, List[str], Dict[str, str]]]] = None,
+    road_nodes: Optional[Dict[str, Tuple[float, float]]] = None,
 ) -> Optional[Polygon]:
     """Identify pavement strips on the GROUNDSIDE of terminal
     buildings — the road/curbside frontage where access roads,
@@ -199,7 +201,20 @@ def _terminal_groundside_zone(
     indicator fires AND no airside indicator does.  An edge with
     NEITHER indicator (most common at airports with sparse OSM
     coverage) defaults to airside (no subtraction) — the safer
-    choice when the data can't tell us.
+    choice when the data can't tell us.  This is a HARD contract
+    (owner report 2026-07-27): an "any-airside promotion" that
+    turned UNKNOWN edges into groundside once one edge was airside
+    stamped 100 m rectangles straight across the REAL apron at
+    SPJC's new east terminal (~190 k m² of airside gone) and at
+    HECA — absence of evidence is never groundside evidence.
+
+    ``road_ways`` / ``road_nodes`` (optional) are the airport-region
+    ROAD FEED (``layout.airport_road_network``): the extract-local
+    ``ways`` list at default config carries no minor roads at all,
+    so genuine curbside/drop-off edges often had no groundside
+    indicator to fire.  Feed ways with a road-class ``highway`` tag
+    join the groundside catalog exactly like extract ways — the
+    positive evidence that replaces the deleted promotion.
 
     For each groundside edge a perpendicular outward rectangle
     (depth ``groundside_extent_m``, width = edge length) is added
@@ -263,6 +278,28 @@ def _terminal_groundside_zone(
             airside_geoms.append(g)
         else:
             groundside_geoms.append(g)
+    # AIRPORT-REGION ROAD FEED ways (2026-07-27): the same road-class
+    # filter over the feed's regional-clip ways.  The feed's node dict is
+    # separate from the extract's; geometry construction is otherwise
+    # identical.  Aeroway tags never appear in the feed (it is a
+    # road/rail clip), so only the groundside catalog can grow here.
+    if road_ways and road_nodes:
+        for _wid, nrefs, tags in road_ways:
+            if tags.get("highway", "") not in GROUNDSIDE_HIGHWAY:
+                continue
+            pts = []
+            for nid in nrefs:
+                ll = road_nodes.get(nid)
+                if ll is not None:
+                    pts.append(to_m(ll[1], ll[0]))
+            if len(pts) < 2:
+                continue
+            try:
+                g = LineString(pts)
+                if not g.is_empty:
+                    groundside_geoms.append(g)
+            except _GEOM_EXC:
+                continue
     # Aeroway multipolygon RELATIONS (KCLT, 2026-07-07): big terminal
     # ramps are commonly mapped as multipolygon relations whose member
     # ways carry NO tags of their own, so the ways-only catalog above
@@ -561,18 +598,20 @@ def _terminal_groundside_zone(
         #
         # Identification: airside if OSM aeroway features are
         # nearby; UNKNOWN if neither aeroway nor highway is
-        # present (typical at airports with sparse OSM road
-        # coverage — most of our test set).  When at least ONE
-        # edge has an airside indicator, every edge that ISN'T
-        # airside is treated as groundside (UNKNOWN promoted).
-        # When no edge is airside, we have no signal to pick
-        # which direction is which — leave the building alone.
-        any_airside = any(c == EDGE_AIRSIDE for c in edge_class)
+        # present.  UNKNOWN NEVER subtracts (the docstring's hard
+        # contract, restored 2026-07-27): the former any-airside
+        # promotion turned every un-taggable edge of a partly
+        # mapped terminal into a 100 m groundside stamp — at SPJC's
+        # new east terminal 78 UNKNOWN edges of the pier complex
+        # carved ~190 k m² of REAL apron (the terminal sits between
+        # the runways; both faces are airside), and HECA lost
+        # airside apron the same way.  With the road feed in the
+        # groundside catalog, a genuine curbside edge has a mapped
+        # road within its 30 m probe and still classifies
+        # GROUNDSIDE on positive evidence.
         for i in range(n):
             cls = edge_class[i]
-            if cls == EDGE_AIRSIDE:
-                continue
-            if cls == EDGE_UNKNOWN and not any_airside:
+            if cls in (EDGE_AIRSIDE, EDGE_UNKNOWN):
                 continue
             geom = edge_geom[i]
             if geom is None:

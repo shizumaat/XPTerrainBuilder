@@ -107,6 +107,7 @@ from .layout import (
     ROLE_RUNWAY,
     ROLE_RUNWAY_CROSSING,
     ROLE_SECONDARY_PARALLEL,
+    ROLE_SERVICE_JUNCTION,
     ROLE_SERVICE_ROAD,
     ROLE_STUB,
     ROLE_BUILDING,
@@ -3723,8 +3724,14 @@ def _drop_overlap_against_fixed_shapes(
     # so two junctions can't both claim the same residue area.
     # The residue tier: junctions always; aprons too when requested (so
     # an apron clips against a larger apron/junction and vice versa).
-    residue_tier = ({ROLE_JUNCTION, ROLE_APRON} if include_aprons
-                    else {ROLE_JUNCTION})
+    # SERVICE_JUNCTION rides the residue tier too (2026-07-27): the
+    # free-road ruling leaves more slice faces near terminal pads as
+    # ``service_junction``, and with NO tier they never clipped against
+    # buildings at all (SPJC building21 ∩ service_junction, 127 m² —
+    # the zero-tolerance self-overlap test).
+    residue_tier = ({ROLE_JUNCTION, ROLE_APRON, ROLE_SERVICE_JUNCTION}
+                    if include_aprons
+                    else {ROLE_JUNCTION, ROLE_SERVICE_JUNCTION})
     priority: list[set] = [
         # ROLE_RUNWAY_CROSSING is runway-derived geometry that
         # replaced its source runway segments — same tier as

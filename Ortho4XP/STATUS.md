@@ -1,4 +1,54 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260727 (evening) — FREE-ROAD RULING + GROUNDSIDE OVER-DEMOTION
+# FIXES (owner in-sim reports: SPJC building81, HECA airside breaks,
+# HECA taxiway step @30.1313963,31.3976116)
+# ══════════════════════════════════════════════════════════════════
+# NEW OWNER RULING (canonical text: groundside.free_road_subsegments):
+# "Any road inside, or sharing an edge with an apron must be graded
+# the same as the apron … never needs to be carved in the first place.
+# We only want completely free roads, with no pavement on either side
+# of road-width pavement, to be graded as roads."  Five fixes landed:
+#  1. FREE-ROAD SLICE SCOPING — the slice's service set (apt 1206 +
+#     road-feed ways) filters through free_road_subsegments: stations
+#     where the contiguous pavement cross-section (shared measurement
+#     _svc_contiguous_width, same 25 m rule as the narrow-strip carve)
+#     exceeds road width never reach the slice.  SPJC kept 14/33 km,
+#     HECA 94/176 km; the 109k m² phantom service_junction frontage at
+#     building81 and HECA's "svc junctions 4→76" carve are gone; the
+#     owner's HECA taxiway step (4.4 m junction interleave) healed —
+#     it was svc-carve fragments solved on different regimes.
+#  2. ROAD-ONLY-LOT AIRSIDE VETO (junction_repair) — a candidate lot
+#     sharing a traversable edge (≥1 m) with airside pavement is the
+#     apron's own carving, never demoted (R1).  SPJC building81: 195k
+#     m² groundside → 0; HECA whole-airport groundside 419k+ → ~12-17k.
+#     Genuine lots (CYXY crew cars) still demote via their connectors.
+#  3. TERMINAL ZONE: any-airside UNKNOWN promotion DELETED (docstring
+#     contract restored: no indicator ⇒ never subtracted); road feed
+#     merged into the zone's groundside catalog (positive evidence
+#     replaces the promotion); airside-rescue BFS walks the FULL
+#     row-110+DSF pavement (mixed packs: Lima's DSF-drawn new terminal
+#     had no chain to rescue with).  tests/test_terminal_groundside_
+#     zone.py + tests/test_free_road_scoping.py pin the contracts.
+#  4. SERVICE_JUNCTION joined the priority-clip residue tier
+#     (elevation.py) — it had NO tier, so faces never clipped against
+#     building pads (SPJC building21 ∩ service_junction 127 m²).
+#  5. SUB-CM TWIN SNAP (conformance.snap_subcm_vertex_twins, pre-final-
+#     weld) — mm-apart cross-shape vertex twins (arrangement grid_size
+#     0.01 vs full-precision rings) unify onto one coordinate; the
+#     solver/validator budget lockstep drift (CYXY, 1 edge, 7.7e-5)
+#     is the caught symptom; the weld can't fix it (inserts, never
+#     merges).
+#  * Suite: 40/40 on the affected files; full-suite run at commit time
+#    (expect the standing known-red classes only: supporter/dsf-object/
+#    compare-target-stale/DSFTool + pavement_grade SPLP/CYXY/HECA).
+#    pavement_grade[SPJC] now PASSES (was red).
+#  * ⚠ OWNER REVIEW: compare-target fixtures are stale against all of
+#    this (re-cut after in-sim approval); the road-feed carve now only
+#    fires on free roads — check in-sim that real landside roads still
+#    read as roads at HECA/SPJC/CYXY.
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
 # 20260727 — EAT ANCHOR-RECT LANDED, DEFAULT ON (owner rulings
 # 2026-07-27, docs/specs/eat-anchor-rect-spec.md)
 # ══════════════════════════════════════════════════════════════════

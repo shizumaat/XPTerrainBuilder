@@ -3986,16 +3986,54 @@ def _reclassify_road_only_lots_to_groundside(
                 continue
         if not members:
             continue
-        # Emit the lot as ONE surface: union the carved fragments (the
-        # oversized road rect + its junction frames) into a single polygon
-        # per contiguous blob and drop carve-gap interior holes, so the lot
-        # is one clean ``groundside`` shape with the thin connector road
-        # reaching its edge — instead of a fragmented road blob.
         try:
             merged = unary_union(
                 [layout.shapes[i].polygon for i in members])
         except _GEOM_EXC:
             continue
+        # AIRSIDE-ADJACENCY VETO (owner report 2026-07-27, SPJC east
+        # terminal / HECA airside breaks).  The charter is "a wide paved
+        # lot reachable ONLY via a service road" — but this pass never
+        # tested that.  The road-feed service carve shreds a TERMINAL
+        # FRONTAGE apron into service_road corridors + service_junction
+        # fragments too, and those pass the opening test exactly like a
+        # landside lot (SPJC: two ~97 k m² frontage blobs beside
+        # building81 demoted; HECA: the flagged 419 k m² region).  A
+        # candidate lot sharing a TRAVERSABLE edge (≥ 1 m, the
+        # runway-disconnected pass's rule) with live airside pavement is
+        # the apron's own service carving, and owner ruling R1
+        # (2026-07-26) is absolute there: "a road inside, or sharing an
+        # edge with a real apron must follow the apron's grade".  A
+        # genuine landside lot (CYXY crew cars, 6-153 m from the airside
+        # network) touches airside only THROUGH its service-road
+        # connectors — which stay ``service_road`` and are not members —
+        # so it still demotes.
+        _airside_touch = False
+        for _s in layout.shapes:
+            if (_s.role not in (ROLE_RUNWAY, ROLE_RUNWAY_CROSSING,
+                                ROLE_PRIMARY_PARALLEL,
+                                ROLE_SECONDARY_PARALLEL, ROLE_STUB,
+                                ROLE_CROSS_CONNECTOR, ROLE_JUNCTION,
+                                ROLE_APRON)
+                    or _s.polygon is None or _s.polygon.is_empty):
+                continue
+            try:
+                if merged.distance(_s.polygon) > touch_tol_m:
+                    continue
+                shared = merged.buffer(touch_tol_m).intersection(
+                    _s.polygon.boundary).length
+            except _GEOM_EXC:
+                continue
+            if shared >= 1.0:
+                _airside_touch = True
+                break
+        if _airside_touch:
+            continue
+        # Emit the lot as ONE surface: union the carved fragments (the
+        # oversized road rect + its junction frames) into a single polygon
+        # per contiguous blob and drop carve-gap interior holes, so the lot
+        # is one clean ``groundside`` shape with the thin connector road
+        # reaching its edge — instead of a fragmented road blob.
         emitted = False
         for blob in _as_polys(merged):
             if blob.interiors:

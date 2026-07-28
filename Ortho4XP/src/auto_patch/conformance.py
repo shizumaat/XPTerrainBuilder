@@ -465,6 +465,125 @@ def find_conformance_violations(shapes, tol=CONFORMANCE_TOL_M):
     return t_junctions, crossings
 
 
+def snap_subcm_vertex_twins(layout: "PavementLayout",
+                            tol: float = 0.005) -> tuple[int, int]:
+    """Conform CROSS-SHAPE vertex twins closer than ``tol`` (5 mm) to one
+    shared coordinate (2026-07-27).
+
+    Ring vertices of abutting shapes can end up bitwise-distinct at the
+    same physical corner — the spine-slice arrangement nodes on a 1 cm
+    grid (``junction_spine``: ``grid_size=0.01``) while difference-built
+    and repair-rebuilt rings keep full-precision source coords, so a
+    shared corner carries mm-apart twins.  The canonical-point registry
+    interns the pair as ONE solver node, but each emitted ring keeps its
+    own variant: the solver measures the edge from the canonical
+    position and the validator from the ring-local one, and the budget
+    LOCKSTEP test catches the drift (CYXY: one shared edge, 7.7e-5 —
+    two junction rings 2.5 mm apart at one corner).  The epsilon-wedge
+    weld cannot help: it INSERTS T-vertices, propagating both twins
+    into the neighbour instead of unifying them.
+
+    Groups are formed by union-find over a ``tol``-cell grid across
+    DIFFERENT shapes only (a shape's own near-duplicate vertices are its
+    author's business); every member rewrites to the group's
+    lexicographically smallest coordinate — deterministic, and a ≤5 mm
+    lateral move with altitudes untouched is far below every grade /
+    overlap tolerance in the pipeline.  Runs immediately BEFORE the
+    final epsilon-wedge weld so the weld sees unified corners.
+
+    Returns ``(n_shapes_touched, n_vertices_snapped)``.
+    """
+    cell = max(float(tol), 1e-9)
+    tol2 = float(tol) * float(tol)
+    grid: dict = defaultdict(list)   # cell -> [(x, y, shape_idx, ring_no, vtx_no)]
+    entries: list = []
+    for si, s in enumerate(layout.shapes):
+        p = getattr(s, "polygon", None)
+        if p is None or p.is_empty or p.geom_type != "Polygon":
+            continue
+        rings = [list(p.exterior.coords)]
+        rings += [list(r.coords) for r in p.interiors]
+        for ri, ring in enumerate(rings):
+            closed = (len(ring) >= 2 and ring[0] == ring[-1])
+            upto = len(ring) - 1 if closed else len(ring)
+            for vi in range(upto):
+                x, y = ring[vi]
+                eid = len(entries)
+                entries.append([x, y, si, ri, vi])
+                grid[(int(x // cell), int(y // cell))].append(eid)
+    if not entries:
+        return (0, 0)
+
+    parent = list(range(len(entries)))
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    for eid, (x, y, si, _ri, _vi) in enumerate(entries):
+        i0, j0 = int(x // cell), int(y // cell)
+        for i in (i0 - 1, i0, i0 + 1):
+            for j in (j0 - 1, j0, j0 + 1):
+                for oid in grid.get((i, j), ()):
+                    if oid <= eid:
+                        continue
+                    ox, oy, osi = entries[oid][0], entries[oid][1], \
+                        entries[oid][2]
+                    if osi == si:
+                        continue
+                    dx, dy = ox - x, oy - y
+                    if dx * dx + dy * dy < tol2:
+                        ra, rb = find(eid), find(oid)
+                        if ra != rb:
+                            parent[rb] = ra
+    groups: dict = defaultdict(list)
+    for eid in range(len(entries)):
+        groups[find(eid)].append(eid)
+    rewrites: dict = defaultdict(dict)   # shape_idx -> {(ring,vtx): (x,y)}
+    n_vertices = 0
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        coords = {(entries[m][0], entries[m][1]) for m in members}
+        if len(coords) < 2:
+            continue
+        rep = min(coords)
+        for m in members:
+            x, y, si, ri, vi = entries[m]
+            if (x, y) != rep:
+                rewrites[si][(ri, vi)] = rep
+                n_vertices += 1
+    n_shapes = 0
+    for si, moves in rewrites.items():
+        s = layout.shapes[si]
+        p = s.polygon
+        rings = [list(p.exterior.coords)]
+        rings += [list(r.coords) for r in p.interiors]
+        for ri, ring in enumerate(rings):
+            closed = (len(ring) >= 2 and ring[0] == ring[-1])
+            for (rj, vi), rep in moves.items():
+                if rj != ri:
+                    continue
+                ring[vi] = rep
+                if closed and vi == 0:
+                    ring[-1] = rep
+        try:
+            from shapely.geometry import Polygon as _Poly
+            newp = _Poly(rings[0], rings[1:])
+            if not newp.is_valid:
+                newp = newp.buffer(0)
+            if (newp.is_empty or newp.geom_type != "Polygon"
+                    or abs(newp.area - p.area) > 1.0):
+                continue          # never trade a twin for broken geometry
+        except Exception:
+            continue
+        s.polygon = newp
+        n_shapes += 1
+    return (n_shapes, n_vertices)
+
+
 def enforce_conformance(layout: "PavementLayout",
                         tol=CONFORMANCE_TOL_M,
                         owner_roles: "set[str] | None" = None,

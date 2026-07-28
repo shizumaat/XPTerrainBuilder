@@ -2320,19 +2320,33 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # touching a runway (e.g. the apron extends NW past the
         # terminal) classified UNKNOWN and got mis-promoted to
         # groundside.
-        # Connectivity indicator fallback (KCLT, 2026-07-07): payware
-        # packs that draw ALL pavement in the DSF ship an apt.dat with
-        # zero row-110 polygons, so the apt-only snapshot is empty and
-        # the airside-reachability BFS degenerates to "within 100 m of
-        # a runway" — never true at a terminal.  Fall back to the full
-        # pavement list (which includes the DSF polygons) so the BFS
-        # still has a chain to walk; airports with real row-110
-        # pavement keep the apt-only list, exactly as before.
+        # Connectivity over the FULL pavement list — row-110 AND DSF
+        # (owner report 2026-07-27, SPJC building81).  The 2026-07-07
+        # form walked the apt-only snapshot whenever it was non-empty
+        # (full list only as a zero-row-110 fallback), so a MIXED pack
+        # — row-110 on the legacy side, the new terminal's aprons drawn
+        # only in the DSF — left every new-terminal edge without an
+        # airside rescue: the BFS could not reach pavement it never saw,
+        # the edges fell through to road evidence (airside service
+        # roads are ``highway=service`` in OSM too), and 100 m
+        # groundside stamps carved ~190 k m² of real apron.  The BFS
+        # walks whatever pavement actually exists; the airside rescue
+        # is tested BEFORE road evidence, so pavement chained to a
+        # runway always wins (the zone-level R-VETO).
+        # ROAD FEED evidence (2026-07-27): the extract's ``ways`` carry
+        # no minor roads at default config, so curbside edges often had
+        # no groundside indicator at all; the feed supplies them.  The
+        # UNKNOWN-edge promotion that papered over that hole is gone —
+        # groundside now requires this positive evidence (see
+        # ``_terminal_groundside_zone``'s contract).
+        _road_net = getattr(layout, "airport_road_network", None)
         _ground_zone = _terminal_groundside_zone(
             _osm_terminal_buildings, nodes, ways, to_m,
             apt_pavement_seeds=runway_polys,
-            apt_pavement_polys=(apt_only_pav_polys or pav_polys),
-            relations=relations)
+            apt_pavement_polys=(pav_polys or apt_only_pav_polys),
+            relations=relations,
+            road_ways=getattr(_road_net, "ways", None),
+            road_nodes=getattr(_road_net, "nodes", None))
         # O4_COVERAGE_PROBE at the ground-zone boundary: report, per probe
         # point, whether the PRE-subtraction pav_union covers it and whether
         # the ground zone claims it — the earliest coverage handoff, before
@@ -4184,6 +4198,32 @@ def build_airport_pavement(icao: str, xplane_root: str,
                         f"  [pav-builder] {icao}: road-feed service "
                         f"centerlines joined the slice: {_n_feed_svc} "
                         f"way(s) touching pavement.")
+        # ── FREE-ROAD scoping of the service slice set (owner ruling
+        # 2026-07-27, canonical text in ``groundside.
+        # free_road_subsegments``): a road inside or edge-sharing an
+        # apron IS the apron — it is never carved; only the sub-segments
+        # where the pavement cross-section is road-width (or the road
+        # crosses open terrain) reach the slice.  Unfiltered, every
+        # service line cut faces straight through wide aprons and the
+        # face classifiers mis-roled the frontage (SPJC east terminal:
+        # 109 k m² of phantom ``service_junction``; HECA: the
+        # "svc junctions 4→76" carve the owner flagged).  Applies to the
+        # apt.dat 1206 routes and the road-feed ways alike — the ruling
+        # names roads, not sources.
+        if _cn_svc and _cn_pav is not None and not _cn_pav.is_empty:
+            from .groundside import free_road_subsegments
+            _n_svc_lines_in = len(_cn_svc)
+            _svc_len_in = sum(ln.length for ln in _cn_svc)
+            _cn_svc = free_road_subsegments(_cn_svc, _cn_pav)
+            _svc_len_out = sum(ln.length for ln in _cn_svc)
+            if _svc_len_out < _svc_len_in - 1.0:
+                UI.vprint(1,
+                    f"  [pav-builder] {icao}: free-road scoping kept "
+                    f"{_svc_len_out:,.0f} of {_svc_len_in:,.0f} m of "
+                    f"service centerline for the slice "
+                    f"({_n_svc_lines_in} → {len(_cn_svc)} line(s)); "
+                    f"the rest runs inside/along apron pavement and "
+                    f"grades with the apron (owner ruling 2026-07-27).")
         # De-dup once here so classification indexes the SAME effective set the
         # slice tagged faces against (coincident lines bury duplicates).
         # ROUTE-ARC source: NO dedup — the route-arc graph is planarized,
@@ -6961,7 +7001,19 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # triangulation: 1,993,832 → 14,252 tris.
     if compute_elevations:
         from .conformance import (enforce_conformance as _enf_final,
-                                  find_conformance_violations as _fcv)
+                                  find_conformance_violations as _fcv,
+                                  snap_subcm_vertex_twins as _snap_twins)
+        # SUB-CM TWIN SNAP (2026-07-27): unify mm-apart cross-shape
+        # vertex twins (arrangement-grid vs full-precision rings) onto
+        # one coordinate BEFORE the weld — the weld inserts T-vertices
+        # and would propagate both twins; the solver/validator budget
+        # lockstep test catches the drift (CYXY, one edge, 7.7e-5).
+        _n_tw_s, _n_tw_v = _snap_twins(layout)
+        if _n_tw_v:
+            UI.vprint(1,
+                f"  [pav-builder] {icao}: snapped {_n_tw_v} sub-cm "
+                f"vertex twin(s) across {_n_tw_s} shape(s) onto shared "
+                f"coordinates.")
         # DEM + tile frame (the SAME pair the clearance / OLS emitters were
         # driven with above): an inserted T-vertex on a CUT-ONLY shape is
         # bounded by min(lerp, DEM) — the shape's own "cuts never fill" law,

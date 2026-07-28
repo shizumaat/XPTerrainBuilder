@@ -57,8 +57,10 @@ def window(qapp, tmp_path, monkeypatch):
 
 
 def _row_widgets(window, tile):
-    """(bar, status, row, cancel) for a tile in the progress page."""
-    return window._tile_rows[tile]
+    """(bar, status, row, cancel) for a tile in the progress page.  The
+    row tuple's 5th member (the TileClocks clock label, 2026-07-27) has
+    its own coverage — these tests pin the cancel machinery only."""
+    return window._tile_rows[tile][:4]
 
 
 def test_rows_have_padding_and_spacing(window):

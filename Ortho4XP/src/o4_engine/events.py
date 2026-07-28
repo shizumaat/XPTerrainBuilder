@@ -23,7 +23,9 @@ from typing import Optional
 # 1.2 (2026-07-23, additive): SecretRequest — the engine asks its front
 # end to service one platform-secret-store operation (credential broker;
 # answered with the ``secret_response`` command, o4_engine.secret_broker).
-PROTOCOL_VERSION = "1.2"
+# 1.3 (2026-07-27, additive): TileClocks — per-tile elapsed/remaining
+# rows beside RunEta, so activity views can show each tile's own clock.
+PROTOCOL_VERSION = "1.3"
 
 
 @dataclass(frozen=True)
@@ -170,6 +172,25 @@ class RunEta(EngineEvent):
     remaining_seconds: Optional[float] = None
     done_tiles: int = 0
     total_tiles: int = 0
+
+
+@dataclass(frozen=True)
+class TileClocks(EngineEvent):
+    """Per-tile clocks for the current run, emitted beside RunEta (~1 Hz).
+
+    ``rows``: one ``[lat, lon, elapsed_seconds, remaining_seconds,
+    finished]`` entry per tile in the run (tuples in-process, 5-item
+    lists over JSON).  ``elapsed_seconds`` is wall-clock since the
+    tile's first step started — 0.0 while it is still queued — and
+    freezes at its terminal BuildDone.  ``remaining_seconds`` is the
+    tile's OWN remaining work (compute seconds; the run-level RunEta
+    stays the slot-aware wall clock, so in a parallel run the per-tile
+    figures deliberately sum to more than the wall estimate) or None
+    while no defensible basis exists — views show a dash, never a wild
+    number, exactly as with RunEta.
+    """
+
+    rows: tuple = ()
 
 
 @dataclass(frozen=True)

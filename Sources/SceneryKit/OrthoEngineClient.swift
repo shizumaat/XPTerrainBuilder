@@ -52,6 +52,24 @@ public enum O4JSON: Sendable, Equatable {
     public subscript(key: String) -> O4JSON? { objectValue?[key] }
 }
 
+/// One tile's clock row from a `TileClocks` event (protocol 1.3).
+public struct O4TileClock: Sendable, Equatable {
+    public let lat: Int
+    public let lon: Int
+    public let elapsedSeconds: Double
+    public let remainingSeconds: Double?
+    public let finished: Bool
+
+    public init(lat: Int, lon: Int, elapsedSeconds: Double,
+                remainingSeconds: Double?, finished: Bool) {
+        self.lat = lat
+        self.lon = lon
+        self.elapsedSeconds = elapsedSeconds
+        self.remainingSeconds = remainingSeconds
+        self.finished = finished
+    }
+}
+
 /// Typed mirror of the engine protocol's event stream
 /// (docs/specs/engine-protocol-multi-gui.md §5; src/o4_engine/events.py is
 /// the schema). Unknown event types and fields are ignored by protocol rule.
@@ -70,6 +88,10 @@ public enum O4Event: Sendable, Equatable {
                            status: String, etaTotalSeconds: Double?, lat: Int, lon: Int)
     case buildDone(lat: Int, lon: Int, ok: Bool, error: String)
     case runEta(elapsedSeconds: Double, remainingSeconds: Double?, doneTiles: Int, totalTiles: Int)
+    /// Per-tile clocks beside RunEta (protocol 1.3): each row is one
+    /// tile's elapsed wall time and its OWN remaining-work estimate
+    /// (nil = no defensible basis; views show a dash, never a guess).
+    case tileClocks(rows: [O4TileClock])
     case runDone(doneCount: Int, errorCount: Int, cancelled: Bool)
     /// The engine asks the app to service one secret-store operation from
     /// the app's own Keychain (credential broker; answer with a
@@ -148,6 +170,19 @@ public enum O4Event: Sendable, Equatable {
             return .runEta(elapsedSeconds: double("elapsed_seconds"),
                            remainingSeconds: remaining,
                            doneTiles: int("done_tiles"), totalTiles: int("total_tiles"))
+        case "TileClocks":
+            // Rows are positional [lat, lon, elapsed, remaining|null, finished].
+            var rows: [O4TileClock] = []
+            for entry in object["rows"] as? [[Any]] ?? [] where entry.count >= 5 {
+                guard let lat = (entry[0] as? NSNumber)?.intValue,
+                      let lon = (entry[1] as? NSNumber)?.intValue else { continue }
+                rows.append(O4TileClock(
+                    lat: lat, lon: lon,
+                    elapsedSeconds: (entry[2] as? NSNumber)?.doubleValue ?? 0,
+                    remainingSeconds: (entry[3] as? NSNumber)?.doubleValue,
+                    finished: (entry[4] as? NSNumber)?.boolValue ?? false))
+            }
+            return .tileClocks(rows: rows)
         case "RunDone":
             return .runDone(doneCount: int("done_count"), errorCount: int("error_count"),
                             cancelled: bool("cancelled"))

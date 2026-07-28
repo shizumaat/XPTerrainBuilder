@@ -31,6 +31,7 @@ import O4_UI_Utils as UI
 from .events import (
     AutoPatchBegin, AutoPatchProgress, BuildDone, EngineEvent, EngineHello,
     RunDone, RunEta, ScanBatch, ScanDone, ScanProgress, StepProgress,
+    TileClocks,
     TileState,
 )
 
@@ -299,6 +300,11 @@ class _EtaTracker:
         self.bar_windows = {}
         self.autopatch = None                  # {"icao": (t_begin, eta_total)}
         self.finished_steps = {}               # (lat,lon) -> set(step)
+        # Per-tile wall clocks (TileClocks event, protocol 1.3): first
+        # step start stamp, and the frozen final elapsed at the tile's
+        # terminal (BuildDone / all planned steps finished).
+        self.tile_t0 = {}                      # (lat,lon) -> wall time
+        self.tile_final = {}                   # (lat,lon) -> seconds
 
     def add_tiles(self, tiles, per_tile_estimates, planned_keys):
         """Extend the run with tiles enqueued while it is running."""
@@ -308,6 +314,9 @@ class _EtaTracker:
             self.planned_keys[tile] = list(planned_keys)
             self.estimates[tile] = per_tile_estimates.get(tile, {})
             self.finished_steps.pop(tile, None)
+            # A re-enqueued tile restarts its clock with its steps.
+            self.tile_t0.pop(tile, None)
+            self.tile_final.pop(tile, None)
 
     def is_tile_finished(self, tile):
         planned = self.planned_keys.get(tile, ())
@@ -319,12 +328,25 @@ class _EtaTracker:
         self.tile_index = max(self.tile_index, self.tiles.index(tile))
         self.step_key = key
         self.step_started_at = time.time()
+        self.tile_t0.setdefault(tile, self.step_started_at)
         self.bar_windows = {}
 
     def step_finished(self, tile, key):
         self.finished_steps.setdefault(tile, set()).add(key)
         self.step_key = None
         self.autopatch = None
+        if self.is_tile_finished(tile):
+            self.tile_terminal(tile)
+
+    def tile_terminal(self, tile):
+        """Freeze the tile's clock at its terminal (done, failed or
+        stopped) — idempotent, and a no-op for a tile that never
+        started (its elapsed stays 0.0)."""
+        if tile in self.tile_final:
+            return
+        t0 = self.tile_t0.get(tile)
+        if t0 is not None:
+            self.tile_final[tile] = max(0.0, time.time() - t0)
 
     def percent_sample(self, bar, percent):
         window = self.bar_windows.setdefault(bar, deque(maxlen=10000))
@@ -451,6 +473,57 @@ class _EtaTracker:
                 if estimate is not None:
                     total += estimate
         return total if total > 0 else None
+
+    def tile_remaining(self, tile):
+        """One tile's own remaining seconds, or None with no basis.
+
+        The current tile's running step is priced by the SAME live
+        machinery the run clock uses (bar rates, the auto-patch model,
+        meter floors); every other unfinished planned step is priced by
+        the learned model.  A queued tile with no estimates at all
+        reports None — a dash, never a guess.
+        """
+        if tile in self.tile_final:
+            return 0.0
+        done = self.finished_steps.get(tile, set())
+        planned = self.planned_keys.get(
+            tile, [k for (k, _b, _w) in self.plan])
+        current_tile = (self.tiles[min(self.tile_index,
+                                       len(self.tiles) - 1)]
+                        if self.tiles else None)
+        total = 0.0
+        have_basis = False
+        if tile == current_tile and self.step_key is not None:
+            total += self._current_step_remaining()
+            have_basis = True
+        for key in planned:
+            if key in done:
+                have_basis = True
+                continue
+            if tile == current_tile and key == self.step_key:
+                continue          # priced live above
+            estimate = self.estimates.get(tile, {}).get(key)
+            if estimate is not None:
+                total += estimate
+                have_basis = True
+        return total if have_basis else None
+
+    def tile_rows(self):
+        """The TileClocks payload: one row per tile in the run."""
+        now = time.time()
+        rows = []
+        for tile in self.tiles:
+            final = self.tile_final.get(tile)
+            if final is not None:
+                elapsed, finished = final, True
+            else:
+                t0 = self.tile_t0.get(tile)
+                elapsed = (now - t0) if t0 is not None else 0.0
+                finished = False
+            rows.append((int(tile[0]), int(tile[1]),
+                         round(max(0.0, elapsed), 1),
+                         self.tile_remaining(tile), finished))
+        return tuple(rows)
 
 
 class EngineSession:
@@ -958,6 +1031,8 @@ class EngineSession:
                     if result == 0:
                         failed_step_keys.append(key)
                 if UI.red_flag:
+                    if self._eta:
+                        self._eta.tile_terminal((lat, lon))
                     self._emit(TileState(lat=lat, lon=lon, state="queued",
                                          label="stopped"))
                     if (not self._cancel_all
@@ -976,6 +1051,8 @@ class EngineSession:
                     UI.total_bottom_line(lat, lon)
                 if failed_step_keys:
                     errors += 1
+                    if self._eta:
+                        self._eta.tile_terminal((lat, lon))
                     self._emit(TileState(lat=lat, lon=lon, state="error",
                                          label="failed"))
                     self._emit(BuildDone(
@@ -1010,6 +1087,8 @@ class EngineSession:
                 import traceback
                 traceback.print_exc()
                 errors += 1
+                if self._eta:
+                    self._eta.tile_terminal((lat, lon))
                 self._emit(TileState(lat=lat, lon=lon, state="error",
                                      label="failed"))
                 self._emit(BuildDone(
@@ -1062,6 +1141,8 @@ class EngineSession:
             remaining_seconds=self._eta.remaining(),
             done_tiles=finished,
             total_tiles=len(self._eta.tiles)))
+        # Per-tile clocks ride the same cadence gate (protocol 1.3).
+        self._emit(TileClocks(rows=self._eta.tile_rows()))
 
     # -- legacy channel entry points (called via O4_UI_Utils from the
     #    build worker thread; see that module) -------------------------

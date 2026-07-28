@@ -332,12 +332,17 @@ class MainWindow(QMainWindow):
             EV.StepProgress: self._on_step_progress,
             EV.TileState: self._on_tile_state,
             EV.RunEta: self._on_run_eta,
+            EV.TileClocks: self._on_tile_clocks,
             EV.BuildDone: self._on_build_done,
             EV.RunDone: self._on_run_done,
         }
         self._scan_built = {}
         self._scan_installed = set()
         self._last_run_eta = None
+        # (lat,lon) -> (elapsed_seconds, remaining_seconds|None, finished)
+        # from the engine's TileClocks rows (protocol 1.3); rendered by
+        # the same 1 Hz clock tick as the run totals.
+        self._tile_clocks = {}
         self._build_t0 = None
         # Per-tile timing/outcome for the end-of-run console report:
         # started_at is stamped by the tile's FIRST progress event (queue
@@ -1805,9 +1810,10 @@ class MainWindow(QMainWindow):
 
     def _setup_progress_page(self, todo):
         """Reset the Activity box to a fresh run's per-tile rows."""
-        for bar, status, row, cancel in self._tile_rows.values():
+        for bar, status, row, cancel, clock in self._tile_rows.values():
             row.deleteLater()
         self._tile_rows = {}
+        self._tile_clocks = {}
         self._add_progress_rows(todo)
         self._done_count = 0
         self._ntiles = len(todo)
@@ -1818,8 +1824,8 @@ class MainWindow(QMainWindow):
             "<b>Building %d tile%s</b>"
             % (len(todo), "s" if len(todo) > 1 else "")
         )
-        self.elapsed_label.setText("Elapsed 0 s")
-        self.eta_label.setText("Remaining —")
+        self.elapsed_label.setText("Total elapsed 0 s")
+        self.eta_label.setText("Total remaining —")
         self._elapsed_timer.start()
         self._set_activity_box_visible(True)
 
@@ -1828,10 +1834,11 @@ class MainWindow(QMainWindow):
         "queued") the row of a finished tile being built again."""
         for tile in tiles:
             if tile in self._tile_rows:
-                bar, status, _row, cancel = self._tile_rows[tile]
+                bar, status, _row, cancel, clock = self._tile_rows[tile]
                 bar.setValue(0)
                 status.setText("queued")
                 status.setStyleSheet("color: gray; font-size: 11px;")
+                clock.setText("")
                 cancel.setEnabled(True)
                 continue
             row = QWidget()
@@ -1842,6 +1849,10 @@ class MainWindow(QMainWindow):
             head.setSpacing(6)
             head.addWidget(QLabel(FNAMES.short_latlon(*tile)))
             head.addStretch(1)
+            # Per-tile clock (elapsed · ~remaining), fed by TileClocks.
+            clock = QLabel("")
+            clock.setStyleSheet("color: gray; font-size: 11px;")
+            head.addWidget(clock)
             status = QLabel("queued")
             status.setStyleSheet("color: gray; font-size: 11px;")
             head.addWidget(status)
@@ -1867,7 +1878,7 @@ class MainWindow(QMainWindow):
             self._rows_layout.insertWidget(
                 self._rows_layout.count() - 1, row
             )
-            self._tile_rows[tile] = (bar, status, row, cancel)
+            self._tile_rows[tile] = (bar, status, row, cancel, clock)
 
     def _on_step_progress(self, event):
         tile = (event.lat, event.lon)
@@ -1889,7 +1900,7 @@ class MainWindow(QMainWindow):
         self._progress_states[tile] = (state, label, pct)
         self.map.set_progress(self._progress_states)
         if tile in self._tile_rows:
-            bar, status, _, cancel = self._tile_rows[tile]
+            bar, status, _, cancel, _clock = self._tile_rows[tile]
             if state == "done":
                 bar.setValue(100)
                 status.setText("done ✓")
@@ -1911,9 +1922,17 @@ class MainWindow(QMainWindow):
     def _on_run_eta(self, event):
         self._last_run_eta = event
 
+    def _on_tile_clocks(self, event):
+        """Per-tile clocks (protocol 1.3): stash; the 1 Hz clock tick
+        renders (same discipline as RunEta — views never compute)."""
+        self._tile_clocks = {
+            (int(row[0]), int(row[1])): (row[2], row[3], bool(row[4]))
+            for row in event.rows
+        }
+
     def _update_tile_row(self, tile, pct, label):
         if tile in self._tile_rows:
-            bar, status, _, _cancel = self._tile_rows[tile]
+            bar, status, _, _cancel, _clock = self._tile_rows[tile]
             bar.setValue(int(pct))
             status.setText("%s · %d%%" % (label, pct))
 
@@ -1921,7 +1940,7 @@ class MainWindow(QMainWindow):
         """Per-tile X button: stop this tile, let the others continue."""
         if self._session.cancel_tile(tile[0], tile[1]):
             if tile in self._tile_rows:
-                _bar, status, _row, cancel = self._tile_rows[tile]
+                _bar, status, _row, cancel, _clock = self._tile_rows[tile]
                 cancel.setEnabled(False)
                 status.setText("stopping…")
 
@@ -1931,16 +1950,24 @@ class MainWindow(QMainWindow):
         if self._build_t0 is None:
             return
         elapsed = _time.time() - self._build_t0
-        self.elapsed_label.setText("Elapsed %s" % _fmt_duration(elapsed))
+        self.elapsed_label.setText(
+            "Total elapsed %s" % _fmt_duration(elapsed))
         # The engine session owns the estimate (learned per-step model +
         # live in-step rate + the auto-patch model); the view only renders.
         eta = self._last_run_eta
         if eta is not None and eta.remaining_seconds is not None:
             self.eta_label.setText(
-                "Remaining ≈ %s" % _fmt_remaining(eta.remaining_seconds)
+                "Total remaining ≈ %s"
+                % _fmt_remaining(eta.remaining_seconds)
             )
         else:
-            self.eta_label.setText("Remaining —")
+            self.eta_label.setText("Total remaining —")
+        # Per-tile clocks (TileClocks rows, stashed by _on_tile_clocks).
+        for tile, entry in self._tile_clocks.items():
+            row = self._tile_rows.get(tile)
+            if row is None:
+                continue
+            row[4].setText(_fmt_tile_clock(*entry))
 
     def _on_build_done(self, event):
         """One tile's terminal outcome: remember it (with the tile's own
@@ -1953,6 +1980,9 @@ class MainWindow(QMainWindow):
     def _on_run_done(self, event):
         self._building = False
         self._last_run_eta = None
+        # One last render so every row shows its frozen final clock,
+        # then stop ticking (the stash stays for the visible rows).
+        self._update_build_clock()
         self._elapsed_timer.stop()
         self.stop_btn.setEnabled(False)
         self.stop_btn.setText("■ Stop")
@@ -2202,6 +2232,26 @@ def _fmt_duration(seconds):
     if seconds < 3600:
         return "%d m %02d s" % (seconds // 60, seconds % 60)
     return "%d h %02d m" % (seconds // 3600, (seconds % 3600) // 60)
+
+
+def _fmt_tile_clock(elapsed, remaining, finished):
+    """One Activity row's clock text from a TileClocks entry.
+
+    Finished: the final elapsed alone.  Active: "elapsed · ~remaining"
+    (the estimate is the tile's OWN outstanding work).  Queued: "~est"
+    alone.  A missing estimate is a dash on an active tile and empty on
+    a queued one — a row of dashes before anything starts is noise.
+    """
+    if finished:
+        return _fmt_duration(elapsed)
+    if elapsed > 0:
+        if remaining is not None:
+            return "%s · ~%s" % (_fmt_duration(elapsed),
+                                 _fmt_remaining(remaining))
+        return "%s · —" % _fmt_duration(elapsed)
+    if remaining is not None:
+        return "~%s" % _fmt_remaining(remaining)
+    return ""
 
 
 def _compose_run_report(tiles, tile_results, progress_states,

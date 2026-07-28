@@ -174,7 +174,7 @@ def test_requeue_of_finished_tile_resets_its_row(window, enqueue_calls):
     window.start_build()
     window._on_tile_state(EV.TileState(lat=48, lon=-6, state="done",
                                        percent=100.0))
-    bar, status, _row, cancel = window._tile_rows[(48, -6)]
+    bar, status, _row, cancel, _clock = window._tile_rows[(48, -6)]
     assert status.text() == "done ✓"
     # Re-queue the finished tile while the run continues.
     window.map.set_selection({(48, -6)})

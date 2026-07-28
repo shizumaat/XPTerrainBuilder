@@ -176,8 +176,16 @@ _VOLATILE_FIELDS = {"ts", "elapsed_seconds", "remaining_seconds"}
 def _normalize(value):
     """Blank out wall-clock volatile fields so two runs compare equal."""
     if isinstance(value, dict):
-        return {key: (None if key in _VOLATILE_FIELDS else _normalize(item))
-                for key, item in value.items()}
+        normalized = {
+            key: (None if key in _VOLATILE_FIELDS else _normalize(item))
+            for key, item in value.items()}
+        if value.get("event") == "TileClocks":
+            # Rows are positional [lat, lon, elapsed, remaining,
+            # finished]; elapsed/remaining are wall-clock volatile.
+            normalized["rows"] = [
+                [row[0], row[1], None, None, row[4]]
+                for row in value.get("rows", [])]
+        return normalized
     if isinstance(value, list):
         return [_normalize(item) for item in value]
     return value

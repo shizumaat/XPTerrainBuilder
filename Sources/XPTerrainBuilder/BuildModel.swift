@@ -33,6 +33,10 @@ final class BuildActivityModel: ObservableObject {
     @Published var remainingUnreliable = false
     @Published var doneTiles = 0
     @Published var totalTiles = 0
+    /// Per-tile clocks (TileClocks, protocol 1.3), keyed like `tiles`.
+    /// Kept apart from TileProgress so the wholesale row replacement in
+    /// the TileState/StepProgress handlers can never stomp a clock.
+    @Published var tileClocks: [BuildModel.TileCoord: O4TileClock] = [:]
 
     func reset() {
         tiles = [:]
@@ -41,6 +45,7 @@ final class BuildActivityModel: ObservableObject {
         remainingSeconds = nil
         doneTiles = 0
         totalTiles = 0
+        tileClocks = [:]
     }
 }
 
@@ -527,6 +532,12 @@ final class BuildModel: ObservableObject {
                 etaSamples.removeAll()
                 activity.remainingUnreliable = false
             }
+        case .tileClocks(let rows):
+            var clocks: [TileCoord: O4TileClock] = [:]
+            for row in rows {
+                clocks[TileCoord(lat: row.lat, lon: row.lon)] = row
+            }
+            activity.tileClocks = clocks
         case .runDone(let done, let errors, let cancelled):
             isBuilding = false
             isStopping = false

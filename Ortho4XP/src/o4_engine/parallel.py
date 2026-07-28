@@ -50,7 +50,8 @@ import O4_UI_Utils as UI
 
 from . import events as EVENTS
 from . import tile_time_model
-from .events import BuildDone, RunDone, RunEta, StepProgress, TileState
+from .events import (BuildDone, RunDone, RunEta, StepProgress, TileClocks,
+                     TileState)
 from .session import (
     _predict_step_seconds, plan_steps, prediction_features,
     reweight_plan_by_seconds,
@@ -123,6 +124,61 @@ def estimate_remaining_wall_seconds(estimates, programs, queued_tiles,
         return None
     parallelism = max(1, min(int(slots), tiles_with_work))
     return total_work / parallelism
+
+
+def per_tile_clock_rows(estimates, programs, queued_tiles, next_step_index,
+                        in_flight_steps, now, live_step_remaining,
+                        first_started, final_elapsed):
+    """The TileClocks rows for a parallel run (protocol 1.3).
+
+    Same inputs and step-pricing rules as
+    :func:`estimate_remaining_wall_seconds` — an in-flight step takes the
+    child's live report (aged), else the model degraded by elapsed — but
+    summed PER TILE and never divided by slots: a tile's remaining figure
+    is its OWN outstanding work, while the run-level RunEta stays the
+    slot-aware wall clock.  ``first_started``/``final_elapsed`` are the
+    parent's wall stamps ({tile: t} / {tile: seconds}); a tile with no
+    priced step at all reports None (the dash), never a guess.
+    """
+    live_step_remaining = live_step_remaining or {}
+    live_report_max_age = 10.0
+    queued = set(queued_tiles)
+    rows = []
+    for tile in programs:
+        final = final_elapsed.get(tile)
+        if final is not None:
+            rows.append((int(tile[0]), int(tile[1]),
+                         round(max(0.0, final), 1), 0.0, True))
+            continue
+        started = first_started.get(tile)
+        elapsed = (now - started) if started is not None else 0.0
+        index = 0 if tile in queued else next_step_index.get(tile, 0)
+        total = 0.0
+        have_basis = False
+        for position, key in enumerate(programs.get(tile, ())):
+            if position < index:
+                have_basis = True
+                continue
+            value = (estimates.get(tile) or {}).get(key)
+            estimate = (float(value)
+                        if isinstance(value, (int, float)) and value > 0
+                        else None)
+            started_at = in_flight_steps.get((tile, key))
+            if started_at is not None:
+                live = live_step_remaining.get((tile, key))
+                if live is not None and now - live[1] <= live_report_max_age:
+                    estimate = max(live[0] - (now - live[1]), 0.0)
+                else:
+                    estimate = tile_time_model.remaining_step_seconds(
+                        estimate, now - started_at)
+            elif estimate is None:
+                continue
+            total += estimate
+            have_basis = True
+        rows.append((int(tile[0]), int(tile[1]),
+                     round(max(0.0, elapsed), 1),
+                     total if have_basis else None, False))
+    return tuple(rows)
 
 # Seconds to wait for a freshly spawned worker's EngineHello line before
 # declaring the spawn failed (interpreter start + light imports only —
@@ -454,6 +510,10 @@ class ParallelBuildRun:
         self._estimates: dict = {}
         self._tile_step_windows: dict = {}
         self._step_started_at: dict = {}      # (tile, step) -> monotonic t
+        # Per-tile wall clocks (TileClocks, protocol 1.3): first step
+        # start stamp + frozen final elapsed at the tile's terminal.
+        self._tile_first_started: dict = {}   # tile -> wall time
+        self._tile_final_elapsed: dict = {}   # tile -> seconds
         # tile -> summed dispatched-step seconds, for the per-tile
         # "completed in" console line (a worker child sees one step at a
         # time, so only the parent can total the tile).
@@ -723,6 +783,7 @@ class ParallelBuildRun:
             return False
         if child.start_step(step_key, self._tile_arguments[child.tile]):
             self._step_started_at[(child.tile, step_key)] = time.time()
+            self._tile_first_started.setdefault(child.tile, time.time())
             self._class_active[step_class] += 1
             if step_key == "mesh":
                 self._meshing_tiles.add(child.tile)
@@ -935,6 +996,11 @@ class ParallelBuildRun:
                 else:
                     child.step_failed = True
                     self._errors += 1
+                # Freeze the tile's clock at its terminal (TileClocks).
+                started = self._tile_first_started.get(tile)
+                if started is not None:
+                    self._tile_final_elapsed.setdefault(
+                        tile, max(0.0, time.time() - started))
         elif event_name == "TileState":
             if event.state == "done" and not last_step:
                 return
@@ -1285,17 +1351,27 @@ class ParallelBuildRun:
                     and child.live_remaining is not None
                     and child.live_remaining[0] == child.running_step
                 }
+                first_started = dict(self._tile_first_started)
+                final_elapsed = dict(self._tile_final_elapsed)
+            now = time.time()
             remaining = None
             try:
                 remaining = estimate_remaining_wall_seconds(
                     self._estimates, programs, queued_tiles,
-                    next_step_index, in_flight_steps, time.time(),
+                    next_step_index, in_flight_steps, now,
                     self._slots, live_step_remaining)
             except Exception:
                 remaining = None
             self._session._emit(RunEta(
-                elapsed_seconds=time.time() - self._t0,
+                elapsed_seconds=now - self._t0,
                 remaining_seconds=remaining,
                 done_tiles=completed,
                 total_tiles=total))
+            try:
+                self._session._emit(TileClocks(rows=per_tile_clock_rows(
+                    self._estimates, programs, queued_tiles,
+                    next_step_index, in_flight_steps, now,
+                    live_step_remaining, first_started, final_elapsed)))
+            except Exception:
+                pass
             time.sleep(1.0)

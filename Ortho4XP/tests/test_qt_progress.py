@@ -306,3 +306,18 @@ def test_run_eta_overrun_step_estimate_keeps_receding(session):
     remaining = s._eta.remaining()
     # 0.5 × 470 s overrun + the 25 s of future steps.
     assert 255.0 < remaining < 265.0
+
+
+def test_fmt_tile_clock():
+    """The Activity row clock (TileClocks, protocol 1.3): finished shows
+    the frozen elapsed alone; active shows elapsed · ~remaining (dash
+    without a basis); queued shows the bare estimate, or nothing."""
+    import O4_Qt_GUI as GUI
+
+    assert GUI._fmt_tile_clock(125.0, 0.0, True) == "2 m 05 s"
+    assert GUI._fmt_tile_clock(42.0, 130.0, False) == \
+        "42 s · ~" + GUI._fmt_remaining(130.0)
+    assert GUI._fmt_tile_clock(42.0, None, False) == "42 s · —"
+    assert GUI._fmt_tile_clock(0.0, 300.0, False) == \
+        "~" + GUI._fmt_remaining(300.0)
+    assert GUI._fmt_tile_clock(0.0, None, False) == ""

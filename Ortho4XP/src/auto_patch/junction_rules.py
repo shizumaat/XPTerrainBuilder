@@ -1530,11 +1530,19 @@ def _do_widen(
         on_pav_boundary_obj = None
         if pav_union is not None and not pav_union.is_empty:
             try:
-                on_pav_combined = (unary_union([pav_union, runway_union])
-                                   if runway_union is not None
-                                   and not runway_union.is_empty
-                                   else pav_union)
-                on_pav_boundary_obj = on_pav_combined.boundary
+                # Union the BOUNDARIES, not the areas: a junction anchor
+                # on the pavement/runway interface lies on both source
+                # boundaries but strictly INSIDE the merged area, so an
+                # area union erases exactly the edges those anchors sit
+                # on (CYXY 14L/32R: a runway-seam vertex measured 19.7 m
+                # "interior" against the merged boundary, was pruned,
+                # and the re-routed ring abandoned 200 m² of taxiway —
+                # the in-sim hole at 60.7016718,-135.057938).
+                bnds = [pav_union.boundary]
+                if (runway_union is not None
+                        and not runway_union.is_empty):
+                    bnds.append(runway_union.boundary)
+                on_pav_boundary_obj = unary_union(bnds)
             except _GEOM_EXC:
                 on_pav_boundary_obj = None
         if on_pav_boundary_obj is not None and newly_inserted_keys:
@@ -1587,9 +1595,23 @@ def _do_widen(
                         and test_poly.is_valid
                         and test_poly.is_simple
                         and test_poly.area >= 0.5 * poly.area):
-                    current_coords = pruned_coords
-                    if pruned_alts is not None:
-                        current_alts = pruned_alts
+                    # Same law as ``_attempt_insert``: the prune's
+                    # re-routed ring must not abandon real pavement
+                    # (the insert guard bounds each insert, but the
+                    # prune re-routes without one).
+                    prune_ok = True
+                    if pav_union is not None and not pav_union.is_empty:
+                        try:
+                            _ab = original_body.difference(test_poly)
+                            if (_ab.intersection(pav_union).area
+                                    > WIDEN_MAX_ABANDONED_PAVEMENT_M2):
+                                prune_ok = False
+                        except _GEOM_EXC:
+                            pass
+                    if prune_ok:
+                        current_coords = pruned_coords
+                        if pruned_alts is not None:
+                            current_alts = pruned_alts
 
         # Final polygon from the running coords (already validated
         # piecewise; guaranteed to be a single valid Polygon).

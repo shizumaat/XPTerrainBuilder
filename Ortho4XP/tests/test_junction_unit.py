@@ -369,3 +369,87 @@ def test_off_source_drop_near_zero_beats_route_proximity_exemption():
     assert dropped == 1
     assert len(layout.shapes) == 1
     assert layout.shapes[0] is partial
+
+
+# ── widen_junctions_to_runway_corners: interior-vert prune ────────
+# CYXY 2026-07-28 (owner in-sim report, hole at 60.7016718,
+# -135.057938): the post-insert interior-vert prune measured vertex
+# "interiorness" against the boundary of unary_union([pav_union,
+# runway_union]) — an AREA union, whose boundary loses exactly the
+# pavement/runway interface edges that junction seam anchors sit on.
+# A runway-seam vertex (0 m from the runway boundary, 1.2 m from the
+# pavement boundary) read as 19.7 m interior, was pruned, and the
+# re-routed ring abandoned ~200 m² of real taxiway along the runway
+# edge — a visible hole, with no guard on the prune path.  The
+# geometry below is the real CYXY junction #85 ring with a minimal
+# hand-built runway chain reproducing the insert-then-prune walk.
+
+# Pre-widen ring of CYXY junction #85 (meter frame, rounded 1 cm).
+# [20] is a runway-chain corner; [0] is the seam vertex the buggy
+# prune dropped; [1] is the owner-reported hole point.
+_CYXY_J85_RING = [
+    (522.58, -872.57), (511.46, -877.04), (500.33, -881.51),
+    (489.21, -885.98), (478.09, -890.46), (466.96, -894.93),
+    (455.84, -899.40), (444.71, -903.87), (433.59, -908.34),
+    (422.47, -912.81), (411.34, -917.29), (400.22, -921.76),
+    (391.77, -923.73), (383.31, -925.70), (374.86, -927.67),
+    (365.54, -903.00), (361.37, -891.97), (397.40, -905.91),
+    (442.35, -895.80), (483.38, -873.07), (493.86, -796.64),
+]
+
+
+def test_widen_prune_keeps_runway_seam_verts_and_abandons_no_pavement():
+    from shapely.geometry import Point
+
+    from auto_patch.junction_rules import _do_widen
+    from auto_patch.layout import vertex_bucket
+
+    ring = list(_CYXY_J85_RING)
+    junction = BuiltShape(polygon=Polygon(ring), role=ROLE_JUNCTION)
+    layout = _layout(junction)
+
+    # Runway east edge runs through ring[20] → ring[0] (collinear with
+    # the de-seg station corner below); the runway body lies on the
+    # far side from the junction.
+    p0 = (493.86, -796.64)
+    seam = (522.58, -872.57)
+    dx, dy = seam[0] - p0[0], seam[1] - p0[1]
+    n = math.hypot(dx, dy)
+    dx, dy = dx / n, dy / n
+    # normal pointing away from the junction body
+    nx, ny = -dy, dx
+    a = (p0[0] - 60.0 * dx, p0[1] - 60.0 * dy)
+    b = (p0[0] + 150.0 * dx, p0[1] + 150.0 * dy)
+    runway_union = Polygon([
+        a, b, (b[0] + 45.0 * nx, b[1] + 45.0 * ny),
+        (a[0] + 45.0 * nx, a[1] + 45.0 * ny)])
+    assert runway_union.exterior.distance(Point(*seam)) < 0.01
+    # Source pavement: a band on the junction side of the same edge —
+    # the pavement/runway interface edge disappears in an AREA union
+    # of the two, which is exactly the buggy prune's frame.
+    pav_union = Polygon([
+        a, b, (b[0] - 25.0 * nx, b[1] - 25.0 * ny),
+        (a[0] - 25.0 * nx, a[1] - 25.0 * ny)])
+
+    # Chain: the de-seg station corner (510.66,-841.06) sits between
+    # ring[20] and the seam vertex on the runway edge; two far/dummy
+    # corners separate it from the ring's other two chain anchors so
+    # the walk can only insert the station corner.
+    station = (510.66, -841.06)
+    chain = [p0, station, (600.0, -1200.0),
+             (365.54, -903.00), (361.37, -891.97)]
+    corner_index = {vertex_bucket(x, y): i
+                    for i, (x, y) in enumerate(chain)}
+    _do_widen(layout, chain, corner_index, {}, runway_union, pav_union)
+
+    post = junction.polygon
+    post_keys = {vertex_bucket(x, y)
+                 for (x, y) in post.exterior.coords}
+    # The walk must actually exercise the insert-then-prune path.
+    assert vertex_bucket(*station) in post_keys
+    # The runway-seam vertex is an anchor on the pavement/runway
+    # interface — the prune must keep it.
+    assert vertex_bucket(*seam) in post_keys
+    # THE LAW: widening (insert or prune) never abandons pavement.
+    abandoned = Polygon(ring).difference(post)
+    assert abandoned.intersection(pav_union).area < 1.0

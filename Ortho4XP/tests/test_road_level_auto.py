@@ -86,6 +86,14 @@ def test_auto_layer_queries_each_inset_bbox_and_caches(
         FNAMES, "osm_cached",
         lambda lat, lon, suffix: str(cache_path))
 
+    # Pin the regional-extract backend off: this test asserts the
+    # historic per-bbox Overpass loop, and without the pin the batched
+    # extract attempt can serve the boxes from a real local store
+    # (breaking the no-network/headless charter of this file).
+    import O4_OSM_Extracts as EXTRACTS
+    monkeypatch.setattr(
+        EXTRACTS, "osm_xml_from_local_extracts", lambda *a, **k: None)
+
     seen_bboxes = []
 
     def _fake_query(queries, bbox, layer, tags_of_interest=None,
@@ -118,6 +126,71 @@ def test_auto_layer_queries_each_inset_bbox_and_caches(
     # convention get_overpass_data expects.
     assert seen_bboxes == [(35.1, -80.9, 35.2, -80.8),
                            (35.4, -80.5, 35.5, -80.4)]
+    assert written == [str(cache_path)]
+
+
+def test_auto_layer_serves_all_boxes_from_extracts_in_one_pass(
+        tmp_path, monkeypatch):
+    """Regional extracts first: ONE batched filtering call covering every
+    inset bbox, no Overpass query, merged cache still written."""
+    inset_dir = tmp_path / "insets"
+    inset_dir.mkdir()
+    _write_inset(inset_dir, "A_usgs3dep", [-80.9, 35.1, -80.8, 35.2])
+    _write_inset(inset_dir, "B_usgs3dep", [-80.5, 35.4, -80.4, 35.5])
+
+    import O4_Airport_Elevation_Insets as INSETS
+    import O4_File_Names as FNAMES
+    import O4_OSM_Extracts as EXTRACTS
+    monkeypatch.setattr(
+        INSETS, "list_cached_inset_dems",
+        lambda lat, lon, provider_codes=None: [
+            str(inset_dir / "A_usgs3dep.tif"),
+            str(inset_dir / "B_usgs3dep.tif"),
+        ])
+    cache_path = tmp_path / "+35-081_airport_small_roads.osm.bz2"
+    monkeypatch.setattr(
+        FNAMES, "osm_cached",
+        lambda lat, lon, suffix: str(cache_path))
+
+    extract_calls = []
+
+    def _fake_extracts(statements, boxes, request_description=""):
+        extract_calls.append((list(statements), list(boxes),
+                              request_description))
+        joined = ";".join(statements)
+        assert '"highway"="track"' in joined
+        assert '"railway"="siding"' in joined
+        return b"<osm version='0.6'/>"
+
+    monkeypatch.setattr(
+        EXTRACTS, "osm_xml_from_local_extracts", _fake_extracts)
+    monkeypatch.setattr(
+        VMAP.OSM, "OSM_query_to_OSM_layer",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("extract-served run must not hit Overpass")))
+
+    fed = []
+    written = []
+
+    class _FakeLayer:
+        def update_dicosm(self, data, input_tags, target_tags):
+            fed.append(data)
+
+        def write_to_file(self, path):
+            written.append(path)
+            Path(path).write_bytes(b"x")
+
+    monkeypatch.setattr(VMAP.OSM, "OSM_layer", _FakeLayer)
+
+    layer = VMAP._airport_auto_roads_layer(_Tile("auto"))
+    assert layer is not None
+    # One call, both boxes batched (one filtering pass reads the extract
+    # once instead of once per bbox).
+    assert len(extract_calls) == 1
+    assert extract_calls[0][1] == [(35.1, -80.9, 35.2, -80.8),
+                                   (35.4, -80.5, 35.5, -80.4)]
+    assert extract_calls[0][2] == "airport_small_roads"
+    assert fed == [b"<osm version='0.6'/>"]
     assert written == [str(cache_path)]
 
 

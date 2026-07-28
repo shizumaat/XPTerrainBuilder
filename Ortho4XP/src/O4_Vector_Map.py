@@ -211,13 +211,32 @@ def _airport_auto_roads_layer(tile):
         layer.update_dicosm(cache_path, input_tags, target_tags)
         return layer
     got_any = False
-    for bbox in boxes:
-        if OSM.OSM_query_to_OSM_layer(
-                queries, bbox, layer,
-                tags_of_interest=ROADS_TAGS_OF_INTEREST):
-            got_any = True
-        if UI.red_flag:
-            return None
+    # Regional-extract backend first, all inset boxes batched into ONE
+    # filtering pass (the pbf filtering cost is dominated by reading the
+    # whole extract, so N boxes in one pass cost one read instead of N).
+    # ``OSM_query_to_OSM_layer`` below has no extract path — before this
+    # attempt existed, a cold cache meant one Overpass round per airport
+    # bbox even with the covering extract already on disk.  Same
+    # accelerator-never-dependency discipline as the tile-wide layers:
+    # any failure falls through to the historic Overpass loop.
+    try:
+        import O4_OSM_Extracts as EXTRACTS
+
+        xml_bytes = EXTRACTS.osm_xml_from_local_extracts(
+            queries, boxes, request_description="airport_small_roads")
+    except Exception:
+        xml_bytes = None
+    if xml_bytes:
+        layer.update_dicosm(xml_bytes, input_tags, target_tags)
+        got_any = True
+    else:
+        for bbox in boxes:
+            if OSM.OSM_query_to_OSM_layer(
+                    queries, bbox, layer,
+                    tags_of_interest=ROADS_TAGS_OF_INTEREST):
+                got_any = True
+            if UI.red_flag:
+                return None
     if not got_any:
         return None
     try:

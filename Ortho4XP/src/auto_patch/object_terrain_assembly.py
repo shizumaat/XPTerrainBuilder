@@ -54,6 +54,7 @@ from . import obj8_reader
 from . import dsf_road_network
 from . import object_terrain_features
 from . import config
+from .geom_safe import min_rotated_rect
 
 
 # The layout attribute names the bridge emitters read.  Kept as module
@@ -1117,7 +1118,7 @@ def _chop_long_band_parts(parts, maximum_length_m=25.0):
     out = []
     for part in parts:
         try:
-            rectangle = part.minimum_rotated_rectangle
+            rectangle = min_rotated_rect(part)
             ring = list(rectangle.exterior.coords)
             side_a = math.hypot(ring[1][0] - ring[0][0],
                                 ring[1][1] - ring[0][1])
@@ -1349,7 +1350,7 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
             # trench-shaped (elongated) — a blocky spread would over-cut.
             try:
                 facility_union = unary_union(body_parts)
-                corridor = facility_union.minimum_rotated_rectangle
+                corridor = min_rotated_rect(facility_union)
                 ring = list(corridor.exterior.coords)
                 side_a = math.hypot(ring[1][0] - ring[0][0],
                                     ring[1][1] - ring[0][1])

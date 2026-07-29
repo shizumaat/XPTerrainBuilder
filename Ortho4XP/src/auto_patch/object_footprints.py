@@ -619,13 +619,26 @@ def structure_ring(
                             else all_triangle_corner_points)
             triangle_area = _tri_area_sum(corner_lists)
             hull_area = footprint.area
+            # NAME-VOUCHED BUILDINGS (owner CYXY 2026-07-28, missing
+            # hangar at 60.706235,-135.0696776): a resource whose
+            # library path NAMES it a building (lib/airport/hangars/…,
+            # terminal kits) is definitionally a building — the same
+            # semantic trust the .fac path classifier
+            # (dsf_reader._building_role_for_def) already extends.  An
+            # arched-shell hangar's footings project ~0.001 of its hull
+            # (below the 0.002 slab/mast floor calibrated at HECA), so
+            # the heuristic alone would cull real stock hangars.
+            name_vouched = any(
+                ("hangar" in rp.lower() or "term_building" in rp.lower()
+                 or "/terminal" in rp.lower())
+                for rp in structure.triangles_by_resource)
             # TALL-BASE FILL (see config.DSF_OBJECT_MIN_TALL_BASE_FILL):
             # a plate+mast weld passes base fill AND the height gate,
             # but no TALL member covers the footprint.  Base-evidence
             # structures only — a fewer-than-3-base-vertices structure
             # has no base rows to measure.
             if (DSF_OBJECT_MIN_TALL_BASE_FILL > 0.0 and hull_area > 0.0
-                    and use_base_vertices):
+                    and use_base_vertices and not name_vouched):
                 tall_fill = tall_base_area / hull_area
                 if tall_fill < DSF_OBJECT_MIN_TALL_BASE_FILL:
                     _c = footprint.centroid
@@ -642,7 +655,8 @@ def structure_ring(
                         "skipped.")
                     return None
             if (DSF_OBJECT_MIN_FOOTPRINT_FILL > 0.0
-                    and corner_lists and hull_area > 0.0):
+                    and corner_lists and hull_area > 0.0
+                    and not name_vouched):
                 fill = triangle_area / hull_area
                 if fill < DSF_OBJECT_MIN_FOOTPRINT_FILL:
                     _c = footprint.centroid

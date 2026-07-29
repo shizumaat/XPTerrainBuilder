@@ -1808,6 +1808,7 @@ def taxi_centerlines(
         airport: Airport,
         to_m: Callable[[float, float], tuple[float, float]],
         rwy_centerlines: list[LineString] | None = None,
+        trimmed_leadins: list | None = None,
 ) -> list[TaxiCenterline]:
     """Build taxi centerlines from apt.dat 1201/1202 rows, BY CONNECTIVITY.
 
@@ -1962,6 +1963,22 @@ def taxi_centerlines(
                                    pts[k + 1][1] - pts[k][1])
                         for k in range(len(pts) - 1))
                     if chain_m <= RAMP_LEADIN_MAX_M:
+                        # Dropped from the SLICING spine (CYUL: keep it
+                        # simple) — but the lead-in is still an AUTHORED
+                        # aircraft route, and the reachability law needs
+                        # it (owner 2026-07-28, CYXY building2: the
+                        # trimmed 47 m route to the hangar face left the
+                        # frontage "unreachable" and a whole lot mis-
+                        # severed).  Hand it back on the side channel.
+                        if trimmed_leadins is not None and len(pts) >= 2:
+                            try:
+                                trimmed_leadins.append(TaxiCenterline(
+                                    line=LineString(pts),
+                                    seg_sizes=list(r[1]),
+                                    name=next(
+                                        (nm for nm in r[2] if nm), "")))
+                            except (ValueError, TypeError):
+                                pass
                         continue
             kept_routes.append(r)
         routes = kept_routes

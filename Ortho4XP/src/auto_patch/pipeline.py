@@ -737,9 +737,14 @@ def build_airport_pavement(icao: str, xplane_root: str,
             continue
         if pm.geom_type == "Polygon":
             pav_polys.append(pm)
+            layout.apt_pavement_records.append(
+                (pm, pav.name, pav.surface_code))
         else:
-            pav_polys.extend(g for g in getattr(pm, "geoms", [])
-                             if g.geom_type == "Polygon")
+            for g in getattr(pm, "geoms", []):
+                if g.geom_type == "Polygon":
+                    pav_polys.append(g)
+                    layout.apt_pavement_records.append(
+                        (g, pav.name, pav.surface_code))
     # Snapshot the apt.dat-only polygon list before DSF additions.
     # Terminal-pad selection prefers the SMALLEST containing
     # polygon, and DSF often ships small overlay-style polygons
@@ -749,6 +754,9 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # loses most of its area (SPJC terminal1 regressed from
     # 105 K m² → 35 K m² before this fix).
     apt_only_pav_polys: List[Polygon] = list(pav_polys)
+    # Stash the pre-DSF snapshot for the scoring classifier's provenance
+    # layer (DSF-drawn area = area these polygons do not cover).
+    layout.apt_only_pavement_polys = list(apt_only_pav_polys)
 
     # Capture every apt.dat row-110 pavement polygon vertex so the
     # source-attribution test recognises junction perimeter
@@ -2171,8 +2179,14 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # mis-clipped centerlines.  If apt.dat is missing a taxi network the
     # build will have no taxiway rects — fix the apt.dat input, don't
     # synthesise from OSM.
+    _trimmed_leadins: list = []
     apt_centerlines = APR.taxi_centerlines(
-        apt, to_m, rwy_centerlines=rwy_centerlines)
+        apt, to_m, rwy_centerlines=rwy_centerlines,
+        trimmed_leadins=_trimmed_leadins)
+    # Ramp lead-in routes trimmed from the slicing spine — still part
+    # of the AUTHORED aircraft network, consumed by the reachability
+    # law only (owner 2026-07-28, CYXY building2).
+    layout.apt_taxi_leadin_centerlines = _trimmed_leadins
     osm_centerlines = apt_centerlines  # legacy name retained; see below
     if apt_centerlines:
         UI.vprint(1,
@@ -4157,11 +4171,32 @@ def build_airport_pavement(icao: str, xplane_root: str,
                     _cn_pav_prep = _cn_prep(_cn_pav)
                 except _GEOM_EXC:
                     _cn_pav_prep = None
+                # SINGLE-SPINE dedup (owner 2026-07-28 round 9: four
+                # CYXY spots showed a second spine slicing parallel
+                # strips out of taxiways/roads).  A feed way is OSM's
+                # rendering of the SAME physical way wherever it runs
+                # inside the AUTHORED network's corridor — service
+                # lines (4 m) AND taxi routes (6 m; narrow taxiways
+                # read as road-width, so free-road scoping alone does
+                # not stop the duplicate).  Segment-level: only the
+                # OUTSIDE remainder of a partially-riding way joins.
                 _svc_dup_block = None
+                _dup_parts = []
                 if _cn_svc:
                     try:
-                        _svc_dup_block = unary_union(
-                            _cn_svc).buffer(4.0)
+                        _dup_parts.append(unary_union(
+                            _cn_svc).buffer(4.0))
+                    except _GEOM_EXC:
+                        pass
+                if _cn_cls:
+                    try:
+                        _dup_parts.append(unary_union(
+                            _cn_cls).buffer(6.0))
+                    except _GEOM_EXC:
+                        pass
+                if _dup_parts:
+                    try:
+                        _svc_dup_block = unary_union(_dup_parts)
                     except _GEOM_EXC:
                         _svc_dup_block = None
                 _cn_to_m = _cn_projection(layout.anchor)
@@ -4185,14 +4220,22 @@ def build_airport_pavement(icao: str, xplane_root: str,
                             continue
                         if _svc_dup_block is not None:
                             try:
-                                if _fl.intersection(
-                                        _svc_dup_block).length \
-                                        > 0.7 * _fl.length:
-                                    continue  # airports layer has it
+                                _fl_out = _fl.difference(_svc_dup_block)
                             except _GEOM_EXC:
-                                pass
-                        _cn_svc.append(_fl)
-                        _n_feed_svc += 1
+                                _fl_out = _fl
+                            _fl_pieces = [
+                                g for g in getattr(_fl_out, "geoms",
+                                                   [_fl_out])
+                                if g.geom_type == "LineString"
+                                and g.length >= 5.0]
+                            if not _fl_pieces:
+                                continue  # authored network has it
+                            for _fp in _fl_pieces:
+                                _cn_svc.append(_fp)
+                            _n_feed_svc += 1
+                        else:
+                            _cn_svc.append(_fl)
+                            _n_feed_svc += 1
                 if _n_feed_svc:
                     UI.vprint(1,
                         f"  [pav-builder] {icao}: road-feed service "
@@ -4244,6 +4287,20 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # Taxi centerlines first, service roads appended — a face's
         # ``centerline_ids`` >= len(_cn_eff) are truck routes.
         _cn_all = list(_cn_eff) + _cn_svc
+        # END-CAP chords at service-line ends dying mid-pavement (owner
+        # 2026-07-28): sever BOTH halves of the road at the interval
+        # station, not just the spine side.  Ids >= _cn_cap_base are
+        # CUT-ONLY — stripped from face classification below.
+        _cn_cap_base = len(_cn_all)
+        try:
+            from .groundside import service_end_cap_lines
+            _cn_all = _cn_all + service_end_cap_lines(_cn_svc, _cn_pav)
+        except Exception:
+            pass
+        # Stash the scoped service subsegments for post-build probing
+        # (severance debugging needs to see WHERE the free intervals
+        # actually ended — the full centerlines can't show that).
+        layout._slice_service_subsegments = list(_cn_svc)
         _cn_dbg_pts = None
         _cp_spec = os.environ.get("O4_COVERAGE_PROBE")
         if _cp_spec:
@@ -4260,7 +4317,8 @@ def build_airport_pavement(icao: str, xplane_root: str,
         _svc_faces = set()
         for _fi, _f in enumerate(_cn_faces):
             _taxi_ids = [i for i in _f.centerline_ids if i < _svc_base]
-            _svc_ids = [i for i in _f.centerline_ids if i >= _svc_base]
+            _svc_ids = [i for i in _f.centerline_ids
+                        if _svc_base <= i < _cn_cap_base]
             if _svc_ids and not _taxi_ids:
                 # A face whose ONLY centerlines are truck routes is road
                 # territory (user 2026-07-02: service roads between aprons
@@ -4847,9 +4905,18 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # apron-territory residue still tagged ``junction`` (CYXY 21->0,
         # SPJC 74->3).  Reclassifying first converts that residue to
         # ROLE_APRON so absorb only targets genuine final junctions.
-        from .junction_repair import _reclassify_apron_junctions
-        _reclassify_apron_junctions(layout, icao=icao)
-        _covp(layout, "post-apron-reclass")
+        # Under scorer enactment the LEGACY ROLE-DECIDING CHAIN IS
+        # DISABLED (owner 2026-07-28: "To test if the new system
+        # actually works, we need to disable the legacy system") — the
+        # scorer is the only classifier.  Shape-making (slice, carve,
+        # neck split) and geometry hygiene (welds, deconfliction,
+        # airside/groundside separation) still run.
+        from .config import PAVEMENT_SCORE_V2 as _PS_MODE
+        _scorer_owns_roles = _PS_MODE == "on"
+        if not _scorer_owns_roles:
+            from .junction_repair import _reclassify_apron_junctions
+            _reclassify_apron_junctions(layout, icao=icao)
+            _covp(layout, "post-apron-reclass")
         # (s79) SERVICE-JUNCTION re-role (docs/service_road_carve.md):
         # a junction OR apron whose pavement neighbours are EXCLUSIVELY
         # ``service_road`` rects (the #198 U-turn bulge between the two
@@ -4872,7 +4939,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # when it touches NO aircraft pavement at all — a real aircraft
         # apron always chains to a taxiway/stub/building, so the guard
         # claims only genuine road plazas.
-        if SERVICE_ROAD_CARVE:
+        if SERVICE_ROAD_CARVE and not _scorer_owns_roles:
             from .layout import ROLE_SERVICE_JUNCTION, ROLE_SERVICE_ROAD
             _aircraft_roles = {
                 ROLE_RUNWAY, "primary_parallel", "secondary_parallel",
@@ -4966,7 +5033,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # groundside, leaving the narrow connector strips as service_road.
         from .config import ROAD_ONLY_LOT_GROUNDSIDE
         _covp(layout, "pre-road-lots")
-        if ROAD_ONLY_LOT_GROUNDSIDE:
+        if ROAD_ONLY_LOT_GROUNDSIDE and not _scorer_owns_roles:
             from .junction_repair import (
                 _reclassify_road_only_lots_to_groundside)
             _reclassify_road_only_lots_to_groundside(
@@ -4994,8 +5061,17 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # demotion orphans is picked up by that existing cascade in the
         # same build rather than being left airside behind a landside
         # blob.
-        from .config import PAVEMENT_CLASS_V1
-        if PAVEMENT_CLASS_V1:
+        from .config import PAVEMENT_CLASS_V1, PAVEMENT_SCORE_V2
+        if PAVEMENT_SCORE_V2 == "on":
+            # Phase B ENACTMENT no longer runs in this slot — it moved
+            # AFTER the neck-split / route-proximity geometry (CYXY
+            # ground truth 2026-07-28: verdicts enacted on pre-split
+            # blobs were inherited by split-off corridors whose own
+            # features contradict them; old #100/#25/#105 read APRON
+            # from their parent blob while scoring TAXI on their final
+            # geometry).  See the enact call below merge-fragments.
+            pass
+        elif PAVEMENT_CLASS_V1:
             from .pavement_classification import classify_pavement_v1
             classify_pavement_v1(layout, icao=icao, dem=dem,
                                  tile_lat=tile_lat, tile_lon=tile_lon)
@@ -5010,12 +5086,17 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # junction`` (excluded here) rather than being demoted to a DEM
         # groundside blob that splits the road network.
         _covp(layout, "post-road-lots")
-        from .junction_repair import (
-            _reclassify_runway_disconnected_to_groundside)
-        _reclassify_runway_disconnected_to_groundside(
-            layout, icao=icao, dem=dem,
-            tile_lat=tile_lat, tile_lon=tile_lon)
-        _covp(layout, "post-rwy-disconnected")
+        if PAVEMENT_SCORE_V2 != "on":
+            # Under enactment the scorer's G-CHAIN owns this law and its
+            # own orphan sweep handles the severing cascade; the later
+            # service-adjacency-scoped reruns still run (orphan hygiene
+            # for the neck-split / carve, which happen after the slot).
+            from .junction_repair import (
+                _reclassify_runway_disconnected_to_groundside)
+            _reclassify_runway_disconnected_to_groundside(
+                layout, icao=icao, dem=dem,
+                tile_lat=tile_lat, tile_lon=tile_lon)
+            _covp(layout, "post-rwy-disconnected")
 
         # Single-pass sloping-edge absorption (user 2026-05-17): dissolve
         # a sloping rect that shares a sloping edge with a genuine
@@ -5150,8 +5231,25 @@ def build_airport_pavement(icao: str, xplane_root: str,
             _split_count = 0
             _n_piece_promoted = 0
             _new_shapes: list = []
+            # Under scorer-owns, JUNCTION blobs split too (owner CYXY
+            # #105, 2026-07-28): before enactment the raw slice roles
+            # stand, so a mixed apron+taxiway-loop blob is still tagged
+            # ``junction`` here and the apron-only filter skipped it —
+            # enactment then scored the WHOLE blob and the "Ramp" name
+            # made 36 k m² of taxiway loop an apron.  The split is pure
+            # geometry; enact (which now runs after) scores each piece.
+            # SERVICE_JUNCTION blobs likewise (owner CYXY #64,
+            # 2026-07-28 round 6): the building2 lot+frontage blob was
+            # born service_junction, skipped every splitter, and its
+            # 4.8 m neck at the building corner — the owner's expected
+            # cut — never fired; enactment then re-classed the whole
+            # blob as one piece.
+            from .layout import (ROLE_JUNCTION as _R_JCT_SPLIT,
+                                 ROLE_SERVICE_JUNCTION as _R_SVJ_SPLIT)
+            _splittable = ({_R_APRON, _R_JCT_SPLIT, _R_SVJ_SPLIT}
+                           if _scorer_owns_roles else {_R_APRON})
             for _s in layout.shapes:
-                if (_s.role != _R_APRON or _s.polygon is None
+                if (_s.role not in _splittable or _s.polygon is None
                         or _s.polygon.is_empty
                         or _s.polygon.geom_type != "Polygon"):
                     _new_shapes.append(_s)
@@ -5162,7 +5260,13 @@ def build_airport_pavement(icao: str, xplane_root: str,
                     continue
                 _split_count += 1
                 for _p in _pieces:
-                    _piece_role = _R_APRON
+                    # apron/junction pieces take the historical apron
+                    # default (enact re-scores them); a service parent's
+                    # pieces keep the service role — flipping them to
+                    # apron would hand them to apron-only passes their
+                    # evidence never earned.
+                    _piece_role = (_R_APRON if _s.role != _R_SVJ_SPLIT
+                                   else _R_SVJ_SPLIT)
                     if getattr(_s, "reclassified_from_junction", False):
                         if _reeval_centerlines is None:
                             _reeval_centerlines = \
@@ -5269,7 +5373,8 @@ def build_airport_pavement(icao: str, xplane_root: str,
             except _GEOM_EXC:
                 _near_zone = None
             _n_cut = _n_whole = 0
-            if _near_zone is not None and not _near_zone.is_empty:
+            if (_near_zone is not None and not _near_zone.is_empty
+                    and not _scorer_owns_roles):
                 _cut_shapes: list = []
                 for _s in layout.shapes:
                     if (_s.role != _R_APRON or _s.polygon is None
@@ -5377,6 +5482,20 @@ def build_airport_pavement(icao: str, xplane_root: str,
         _drop_overlap_against_fixed_shapes(
             layout, icao=icao, include_aprons=True)
 
+        # Phase B ENACTMENT (owner approval 2026-07-28; scorer-owns-
+        # roles — the legacy role chain is gated off throughout).  Runs
+        # HERE, after the neck-split and the overlap clip, so verdicts
+        # apply to the FINAL geometry: enacting in the old v1 slot let
+        # later splits inherit a mixed parent blob's role against their
+        # own evidence (CYXY old #100/#25/#105).  Before merge-
+        # fragments and groundside emission, both of which read roles.
+        if PAVEMENT_SCORE_V2 == "on":
+            from .pavement_scoring import enact_classify
+            enact_classify(layout, icao=icao, dem=dem,
+                           tile_lat=tile_lat, tile_lon=tile_lon,
+                           xplane_root=xplane_root)
+            _covp(layout, "post-pavement-score")
+
         # (user 2026-06-03) Fold small apron fragments fully enclosed by apron/
         # terminal into their larger neighbour BEFORE the solve — the fragment's
         # edges/elevation disappear and the solver grades the unified apron, so
@@ -5433,7 +5552,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
             pass
         _covp(layout, "post-groundside-emit")
         try:
-            _n_abs = _absorb_gs(layout)
+            _n_abs = 0 if _scorer_owns_roles else _absorb_gs(layout)
             if _n_abs:
                 UI.vprint(1,
                     f"  [pav-builder] {icao}: absorbed {_n_abs} airside-wedged "
@@ -5441,7 +5560,8 @@ def build_airport_pavement(icao: str, xplane_root: str,
         except _GEOM_EXC:
             pass
         try:
-            _n_orph = _reclass_gs(layout, dem, tile_lat, tile_lon)
+            _n_orph = (0 if _scorer_owns_roles
+                       else _reclass_gs(layout, dem, tile_lat, tile_lon))
             if _n_orph:
                 UI.vprint(1,
                     f"  [pav-builder] {icao}: reclassified {_n_orph} "
@@ -5453,16 +5573,20 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # #206): an OSM-captured groundside piece that IS a truck-route
         # road corridor (route runs through it end-to-end) grades as a
         # ROAD along its route, never as a re-levelled destination lot.
-        try:
-            from .groundside import reclassify_groundside_route_corridors
-            _n_corr = reclassify_groundside_route_corridors(layout)
-            if _n_corr:
-                UI.vprint(1,
-                    f"  [pav-builder] {icao}: re-roled {_n_corr} groundside "
-                    f"route-corridor piece(s) → service_road (rides a truck "
-                    f"route).")
-        except _GEOM_EXC:
-            pass
+        # Under scorer enactment the SERVICE-vs-GROUNDSIDE call is the
+        # scorer's (truck/road threading + the road_narrow ruling).
+        if PAVEMENT_SCORE_V2 != "on":
+            try:
+                from .groundside import (
+                    reclassify_groundside_route_corridors)
+                _n_corr = reclassify_groundside_route_corridors(layout)
+                if _n_corr:
+                    UI.vprint(1,
+                        f"  [pav-builder] {icao}: re-roled {_n_corr} "
+                        f"groundside route-corridor piece(s) → service_road "
+                        f"(rides a truck route).")
+            except _GEOM_EXC:
+                pass
 
         # GROUNDSIDE-CONNECTOR re-role (user 2026-06-27): a narrow service_junction
         # that links a service road to a groundside lot is a CONNECTOR corridor, not
@@ -5470,7 +5594,8 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # toward DEM).  Runs HERE, after groundside is emitted, because the earlier
         # service-junction re-role cannot see groundside (not emitted yet).  Gate
         # off → no change.
-        if os.environ.get("O4_SVC_CONNECTOR_AS_ROAD", "1") == "1":
+        if (os.environ.get("O4_SVC_CONNECTOR_AS_ROAD", "1") == "1"
+                and not _scorer_owns_roles):
             from .layout import (ROLE_SERVICE_JUNCTION, ROLE_SERVICE_ROAD,
                                  ROLE_GROUNDSIDE_PAVEMENT)
             _gs_polys = [g.polygon for g in layout.shapes
@@ -5576,7 +5701,15 @@ def build_airport_pavement(icao: str, xplane_root: str,
                     _outside, "geoms", [_outside])
                     if g.geom_type == "Polygon" and g.area > 1.0]
                 if not _outside_polys:
-                    # wholly inside/alongside the apron → adopts whole
+                    # wholly inside/alongside the apron → adopts whole.
+                    # GRADE only (owner 2026-07-28 round 9, CYXY
+                    # #259/#264): the band is a PROXIMITY zone — a
+                    # truck-route piece merely NEAR an apron is still
+                    # the road; upgrading the ROLE here over-flipped
+                    # threaded service pieces to apron.  Identity flips
+                    # belong to the scorer's G-APRON-EDGE (real
+                    # edge-binding) and reclass_building_faces
+                    # (building airside faces).
                     _s.adopts_apron_grade = True
                     _adopt_shapes.append(_s)
                     _n_adopt_whole += 1
@@ -5593,6 +5726,9 @@ def build_airport_pavement(icao: str, xplane_root: str,
                     _adopt_shapes.append(_s)
                     continue
                 for _g in _inside_polys:
+                    # grade adoption only — see the whole-adopt note
+                    # (owner 2026-07-28 round 9: role upgrades here
+                    # over-flipped near-apron road pieces).
                     _adopt_shapes.append(_BS_ADOPT(
                         polygon=_g, role=_s.role, ref=_s.ref,
                         adopts_apron_grade=True,
@@ -5735,6 +5871,22 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 f"  [pav-builder] {icao}: taxiway-edge grade adoption — "
                 f"{_n_taxi_whole} service shape(s) adopted whole, "
                 f"{_n_taxi_split} split at the taxi band (user rule).")
+
+        # BUILDING-AIRSIDE-FACE re-role (owner 2026-07-28, SPJC #182:
+        # "apron should always abut the airside side of buildings").
+        # The adoption/carve splitters above run AFTER enactment and
+        # mint service fragments the scorer never saw — any service
+        # piece sharing a real edge with BOTH a building and aircraft
+        # pavement is that building's airside frontage and becomes
+        # apron.  Scorer-owns only (the legacy chain has its own laws).
+        if _scorer_owns_roles:
+            from .pavement_scoring import reclass_building_faces
+            _n_face = reclass_building_faces(layout)
+            if _n_face:
+                UI.vprint(1,
+                    f"  [pav-builder] {icao}: building airside-face "
+                    f"re-role — {_n_face} service piece(s) became "
+                    f"apron (owner abutment ruling).")
 
         # (refactor Phase 5) The boundary ribbon + boundary→DEM bridge emit
         # and their airside vertex touches (_snap_bridge_vertices_to_runway_
@@ -5967,7 +6119,8 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # slice and the sliver-merge only folds junction→junction, so these survive.
         # Aircraft adjacency (apron/runway/taxi rect) or an aircraft taxi-line
         # through it VETOES the re-role; boundary adjacency does not.  Gate → no-op.
-        if os.environ.get("O4_SVC_CONNECTOR_AS_ROAD", "1") == "1":
+        if (os.environ.get("O4_SVC_CONNECTOR_AS_ROAD", "1") == "1"
+                and not _scorer_owns_roles):
             from .layout import (ROLE_SERVICE_ROAD, ROLE_JUNCTION)
             _cps = layout.canonical_points
 
@@ -6044,7 +6197,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
             # chain by a carved service corridor — plus the apron
             # neck-split above can mint the orphan fragment only after
             # the first classifier run.
-            if _n_sl or _n_strip:
+            if (_n_sl or _n_strip) and not _scorer_owns_roles:
                 from .junction_repair import (
                     _reclassify_runway_disconnected_to_groundside)
                 _reclassify_runway_disconnected_to_groundside(
@@ -6105,7 +6258,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # orphaned too late for the earlier runs (CYXY: the 692 m² pad at
         # (60.710421,-135.0725738) that is only accessed via the Crew-cars
         # road).  Service-adjacency scoping keeps seam-gapped aprons safe.
-        if _n_strip:
+        if _n_strip and not _scorer_owns_roles:
             from .junction_repair import (
                 _reclassify_runway_disconnected_to_groundside)
             _reclassify_runway_disconnected_to_groundside(
@@ -6511,6 +6664,20 @@ def build_airport_pavement(icao: str, xplane_root: str,
             UI.vprint(1,
                 f"  [pav-builder] {icao}: deconflicted {_n_svc_ov} "
                 f"overlapping service shape(s) (lens clip).")
+
+    # LAST-WORD building-pad re-clip (owner CYXY building1 2026-07-28):
+    # the post-solve conformance weld's 0.5 m tolerance can bow a
+    # pavement ring back ACROSS a building-pad edge (36.9 m²
+    # apron∩building1) and nothing later owned the pair.  Pavement
+    # yields to the pad (the slice's own ``pav − terminal_union``
+    # invariant); pure difference with altitude carry, BEFORE the final
+    # T-weld so the clip's new on-edge vertices get welded.
+    from .groundside import _clip_pavement_against_building_pads
+    _n_bpad = _clip_pavement_against_building_pads(layout)
+    if _n_bpad:
+        UI.vprint(1,
+            f"  [pav-builder] {icao}: building-pad re-clip — "
+            f"{_n_bpad} pavement shape(s) yielded to pads.")
 
     # LAST-WORD bridge re-clip: drop_flatedge_nodes / planarize above can
     # STRAIGHTEN a pavement edge that the emit-time bridge clip followed,
@@ -7237,6 +7404,26 @@ def build_airport_pavement(icao: str, xplane_root: str,
             UI.vprint(1, f"  [pav-builder] WARN {icao}: deferred "
                          f"post-projection conformance passes failed "
                          f"({_deferred_conformance_exc!r}).")
+
+    # SHADOW pavement scoring classifier v2 (docs/specs/pavement-scoring-
+    # classifier-spec.md): score every final pavement shape against all
+    # evidence layers and log agreement with the chain's verdicts.
+    # Mutates nothing; the emitted patch is byte-identical.  Must never
+    # break a build — but a failure is loudly logged, not swallowed.
+    try:
+        from .config import PAVEMENT_SCORE_V2 as _ps_mode
+        # Runs under "on" too: the enact-slot records describe
+        # SLOT-TIME shapes, which later split/merge — this final pass
+        # re-scores the EMITTED shapes and records their shapeID
+        # (= layout.shapes index, what layout.to_osm tags), so a shape
+        # the owner flags in the patch maps 1:1 to its decision.
+        if _ps_mode in ("shadow", "on"):
+            from .pavement_scoring import shadow_classify as _ps_shadow
+            _ps_shadow(layout, icao=icao, xplane_root=xplane_root)
+    except Exception as _ps_exc:
+        UI.vprint(1, f"  [pav-score] {icao}: shadow scoring failed "
+                     f"({type(_ps_exc).__name__}: {_ps_exc}) — build "
+                     f"unaffected.")
 
     # Record this build's actual per-phase and total wall time so the
     # NEXT build of this (or a similarly-sized) airport starts with a

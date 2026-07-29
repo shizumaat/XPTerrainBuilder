@@ -71,11 +71,17 @@ def estimate_remaining_wall_seconds(estimates, programs, queued_tiles,
     by its own staleness; otherwise it is credited for its elapsed time
     (degrading into overrun-proportional remaining once it outlives its
     prediction — see :func:`tile_time_model.remaining_step_seconds`).
-    The total work is divided by the effective parallelism (``slots``
-    capped by the tiles still holding work) — coarse (class limits and
-    the memory gate are not modelled) but a defensible estimate where
-    there was previously an honest dash.  Returns ``None`` when no
-    work remains.
+    The wall clock is a MAKESPAN, not a fluid: a tile is bound to one
+    worker, so the run can never end before the longest single tile's
+    own remaining chain (owner report 2026-07-28: tiles of 6 min and
+    1 min on 2 slots showed "3 min" total — total-work ÷ slots underran
+    the longest tile).  Per-tile remainders are packed longest-first
+    onto ``slots`` workers (active tiles keep the worker they hold) and
+    the estimate is the fullest worker's load — with every tile already
+    running this reduces to max(per-tile remaining), exactly the
+    per-tile clocks' longest row.  Still coarse (class limits and the
+    memory gate are not modelled).  Returns ``None`` when no work
+    remains.
 
     ``estimates``: ``{tile: {step: seconds}}``; ``programs``:
     ``{tile: ordered step keys}`` (batches enqueued into a live run may
@@ -84,8 +90,6 @@ def estimate_remaining_wall_seconds(estimates, programs, queued_tiles,
     ``{(tile, step): started_at}``; ``live_step_remaining``:
     ``{(tile, step): (seconds, received_at)}``.
     """
-    total_work = 0.0
-    tiles_with_work = 0
     live_step_remaining = live_step_remaining or {}
     # A child reports at ~1 Hz; a report much older than that belongs
     # to a wedged or dying child and the model estimate is honester.
@@ -97,14 +101,17 @@ def estimate_remaining_wall_seconds(estimates, programs, queued_tiles,
             return float(value)
         return None
 
+    active_remaining = []       # tiles holding a worker right now
+    queued_remaining = []       # tiles waiting for a slot
     for tile in queued_tiles:
-        tiles_with_work += 1
+        tile_work = 0.0
         for key in programs.get(tile, ()):
             estimate = step_estimate(tile, key)
             if estimate is not None:
-                total_work += estimate
+                tile_work += estimate
+        queued_remaining.append(tile_work)
     for tile, index in next_step_index.items():
-        tiles_with_work += 1
+        tile_work = 0.0
         for position, key in enumerate(programs.get(tile, ())):
             if position < index:
                 continue
@@ -119,11 +126,20 @@ def estimate_remaining_wall_seconds(estimates, programs, queued_tiles,
                         estimate, now - started_at)
             elif estimate is None:
                 continue
-            total_work += estimate
-    if not tiles_with_work:
+            tile_work += estimate
+        active_remaining.append(tile_work)
+    if not active_remaining and not queued_remaining:
         return None
-    parallelism = max(1, min(int(slots), tiles_with_work))
-    return total_work / parallelism
+    # Longest-first packing onto the workers.  Active tiles seed the
+    # loads (each already owns its worker); queued tiles land on the
+    # least-loaded worker as one becomes free.
+    n_workers = max(1, int(slots))
+    loads = sorted(active_remaining, reverse=True)[:n_workers]
+    loads += [0.0] * (n_workers - len(loads))
+    for tile_work in sorted(queued_remaining, reverse=True):
+        loads.sort()
+        loads[0] += tile_work
+    return max(loads)
 
 
 def per_tile_clock_rows(estimates, programs, queued_tiles, next_step_index,

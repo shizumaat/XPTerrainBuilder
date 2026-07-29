@@ -1,4 +1,510 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260728 (round 7) — TAUT-STRING SPINE PROFILE (HECA dip fix), owner
+# model ratified; CORRIDOR FIXED + one open mint class at flat airports
+# ══════════════════════════════════════════════════════════════════
+# Owner report: HECA taxiway dip (30.11056,31.40871)->(30.11373,
+# 31.41292) steeper than needed.  Measured root cause OVERTURNS the
+# round-4 "05L reach ceiling, lawful" verdict: profile sat 6.3 m UNDER
+# the ceiling, 5.5 m under DEM — solver drag (phase-A harmonic has no
+# altitude preference + yield projections fp#6/7/8 re-drag; fp#8
+# movable-pads wave is DOMINANT at −7.9 m and runs AFTER the
+# O4_DUMP_SOLVE_STATE dump, so dump-based measurements understate).
+# OWNER MODEL (ratified): per corridor, draw the longest straight line
+# between the farthest pinned points and stay on it within the feasible
+# band = TAUT STRING through [floor,ceiling] tube.  Spec:
+# docs/specs/taut-string-spine-profile-spec.md (+2 amendments).
+# LANDED (uncommitted, gates default ON):
+#  * taut_string.py — exact funnel, DP-oracle-verified (2000 fuzz
+#    bit-identical), 13 unit tests.  O4_SPINE_TAUT_STRING (default 1,
+#    OFF byte-identical), O4_SPINE_TAUT_STRING_FINAL_HOLD sub-gate.
+#  * solve.py — phase-A string pass; PRE-YIELD re-string at the fp#8
+#    site (optimization-reviewed restructure: fp#8 IS the body
+#    re-yield, strung spine in yield_hard minus pad-rings minus
+#    APRON-ONLY nodes; fp#9 + _fair_ring_edges inherit the hold);
+#    scoped spine re-legalise; cross-corridor law coupling (moving
+#    walls from u_edges pairs); witness [taut-string] resag line;
+#    final_grade_projection hold via canonical keys (rebuilt space).
+#  * grade_graph.py build_context — ON-EDGE PAD MEMBERSHIP fix (NOT
+#    gated; pre-existing bug: solve ctx 627 vs final ctx 683 building
+#    keys at SPJC — nodes exactly ON a pad boundary registered only
+#    after the nid-level weld; gate-OFF near-neutral: HECA −4/+4).
+# VERIFIED: emitted corridor sag 0.22-0.41 m, 0 over-cap stations
+#  (gate-OFF: 2.88 m, 5 over-cap) — tests/test_spine_taut_string_heca
+#  (opt-in O4_TEST_AIRPORTS=HECA, measures the EMITTED patch — never
+#  use the dump for this).  Cost ~0.35-0.40 s attributable (< 0.6 s
+#  hard-law line; Fable optimization review on file).  Gate-OFF suite
+#  parity + zero [taut-string] lines confirmed.
+# OPEN — WITHIN-SHAPE MINT CLASS at flat airports (printed law-true
+# counts, gate ON vs OFF): KCLT ~1382 vs 6, SPJC ~523 vs 26, HECA
+# ~1893 vs 1864, CYXY ~72 vs 106 (better), SPLP ~87 vs 65.  Owner
+# in-sim: "taxiway edges left behind, not graded with their spines" —
+# the strung↔free-body class is VISUALLY REAL, must be fixed.
+# FALSIFIED hypotheses (do NOT retry): hold-boundary joint-graph
+# pre-legalise (re-drags corridor via body edges, 2.6 s);
+# strung-pair-scoped final pre-legalise (misses offenders, mints 4%
+# steps); cross-corridor coupling alone (offenders are strung↔
+# free-body, 84%); on-edge membership alone (enforcing the 1% chords
+# doesn't clear them); PROXIMITY-based frontage ceiling (unsound —
+# clamps corridors near unrelated pads across grass; CYXY 107->144;
+# REVERTED, inert frontage_ceil hook left in _spine_string_walls);
+# APRON-SPINE RELEASE (WITHDRAWN same night — improved counts
+# KCLT->938/SPJC->215 but created 5-7 m SPINE SEAM STEPS at held/
+# released boundaries (owner in-sim at 30.11211,31.40562/30.11195,
+# 31.40578: adjacent spine nodes 7 m apart, 23%; re-verified emitted
+# 106.20 vs 100.93; post-withdrawal 106.10 vs 106.43 = 1.4% ok) AND
+# leans on classification the owner rules unreliable — role-
+# conditional solver behavior amplifies misclassification).  ALSO:
+# owner reports a misclassified shape near those coords ("should be
+# taxiway"; classified apron in probe build, ways shapeID 2145/2573) —
+# routes to pavement-scoring, not the solver.  NEXT: law-pair-scoped
+# forensic of the strung↔free-body residual (which pairs, which stage)
+# — fresh session; forensic scripts in the session scratchpad
+# (taut_string_audit.md, trace_spjc.py, why_absent.py, root*.py).
+# RATIFIED NEXT (owner, late session): STRING-AS-LAW — spec §10.  The
+# string becomes SIGNED INTERVAL EDGES (z_i−z_j ∈ Δstring±ε, existing
+# Stage-B0 machinery) registered in shape_constraints, so every
+# projection maintains the shape (a rod that translates, never sags);
+# DELETE the re-string block + yield_hard hold + final hold (the mint
+# class dies with the holds).  ALSO §10.2: remove the legacy rect
+# stamping (_flatten_rect_ends / _restamp_caps_unified — zero rect
+# roles emitted anywhere; they misled this session) after a role
+# census across all fixtures.  Owner is WAITING on this work before
+# rebuilding the app (engine 1.50.1661 frozen, seam fix verified).
+# BUILT FOR IN-SIM: engine 1.50.1658 / app 1.0.214 (superseded — had
+# the ceiling + release); rebuild after withdrawal is the current
+# hand-test app (see build log for version).
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
+# 20260728 (round 6) — OLS ROAD REGRADE, v2 per owner ruling (spine +
+# two matching service_junction halves, ≥100 m past the OLS)
+# ══════════════════════════════════════════════════════════════════
+# Owner report at SPJC 16R: ols_cut welds along the flanking service
+# roads but the corridor MASK left them on their DEM embankment — a
+# 9-13 m hump at 12.8%/13.2% (ways F|-2472 / F|-3948), 3-6 m proud of
+# the fan cut.  Owner ruling (v2, superseding the same-day flat-deck
+# v1): the OSM way IS the road spine; emit TWO MATCHING
+# service_junction half-shapes half a corridor width outward each
+# side, graded under the full service-road rules — longitudinal
+# SERVICE_ROAD_MAX_GRADE via the grade-capped lower envelope
+# z(s)=min_t(bound(t)+g|s-t|) (g-Lipschitz everywhere → grade held
+# through the OLS), LATERAL SERVICE_ROAD_MAX_TRANSVERSE via per-side
+# outer-edge envelopes clamped around the spine; segment follows the
+# spine ≥ OLS_ROAD_REGRADE_FOLLOW_M (100 m, config) past the OLS both
+# ways and lands ON the DEM at both ends.  BLEND refusal (span end
+# still cut at way end/refused ground/no-DEM/tile seam = refused
+# whole) + DEPTH refusal via grade_law.ols_island_refused (lockstep).
+# Railways stay embankments.  Gate O4_OLS_ROAD_REGRADE default ON
+# (sub-gate of O4_OLS_CUT).  Spec amendment 2026-07-28 rewritten in
+# obstacle-limitation-surfaces-spec.md.
+# VERIFIED SPJC: 3 spans → 6 halves; spine weld 131 shared vertices,
+# 0 alt mismatches; worst edge grade 3.95% (< 5% cap, curves
+# included); worst cut 7.9 m; band/deck overlap 0.0 m²;
+# test_pavement_grade[SPJC] violation counts IDENTICAL gate-on vs off
+# (5, all pre-existing round-3/4 tree); emit_ols_cuts total 0.23 s.
+# 76 OLS-battery tests green (13 in test_ols_road_regrade.py).  Full
+# suite (v1 run): 3597 passed / 17 failed, all pre-existing (A/B'd
+# with O4_OLS_ROAD_REGRADE=0; HECA has zero OLS shapes).
+# NOT DONE: in-sim look at the SPJC road.  (Conformance WARNs
+# "service_junction rebuilt ring invalid — left UNWELDED" in the
+# grade-test log are byte-identical gate-on vs gate-off — ordinary
+# service junctions, not the new halves.)
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
+# 20260728 (round 9) — SINGLE-SPINE DEDUP + ADOPTION ROLE-UPGRADE
+# REVERT + APRON-WRAPPED G-ABUT (owner 1.0.213 report)
+# ══════════════════════════════════════════════════════════════════
+# 1. DOUBLE SPINES (4 owner coords): the road-feed slice join deduped
+#    only against SERVICE lines — an OSM way riding a TAXI route
+#    joined as a second spine (narrow taxiways read road-width, so
+#    free-road scoping kept it).  Feed ways now dedup against the
+#    WHOLE authored network (svc 4 m, taxi 6 m corridors), SEGMENT-
+#    level (only outside remainders ≥5 m join).  Spots 3/4 fully
+#    single; 1/2 lost their parallel service strips (94 m² residue at
+#    spot 2).
+# 2. #259/#264 (service road pieces flipped apron): REVERTED the
+#    round-8 apron-edge adoption ROLE upgrade — the band is proximity
+#    (grade-adoption correct), not identity; truck-threaded pieces
+#    with apron_edge_bound 0.13-0.28 flipped wrongly.  Identity flips
+#    remain with G-APRON-EDGE (real ≥0.4 edge-binding) +
+#    reclass_building_faces.  Both now service_road ✓.
+# 3. #178 (8.9k gravel blob, building frontage, apron-wrapped):
+#    G-ABUT third path — building_abut + airside_contact +
+#    apron_edge_bound ≥ 0.4 gates even when erosion-disconnected
+#    (#104 lot touches airside only via its pinch, far below the
+#    bar).  Now apron ✓.
+# 4. #208 RESOLVED (owner ruling: "the difference is the service road
+#    connections to 104, and no taxiways, while 208 has taxiway and no
+#    roads") — G-TAXI-ONLY gate: ≥3 m shared edge with OTHER aircraft
+#    pavement (self-count bug in airside_contact fixed en route: a
+#    chain shape's own polygon vouched for it) + road_cover/truck <
+#    0.05 + no threading ⇒ SERVICE/GROUNDSIDE removed regardless of
+#    erosion; survives G-CONFLICT.  #104 keeps landside via its road
+#    evidence.  #208 now apron 3,653 m² ✓.  G-ABUT airside-face also
+#    satisfied by the owner BEING chain-role (identity, not
+#    self-count).  NOTE: the "#96 gravel taxiway-named lot" (round-2
+#    OPEN) may now flip airside under G-TAXI-ONLY if it touches chain
+#    pavement — owner should re-check it in-sim.
+# 168 tests green.  Engine 1.50.1660 frozen with ALL of round 9;
+# app rebuild blocked (owner running 1.0.213 — quit + make_app.sh).
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
+# 20260728 (round 8) — MISSING HANGAR RESTORED + REFINED CORNER CUT +
+# SHADOW-AWARE G-ABUT
+# ══════════════════════════════════════════════════════════════════
+# 1. BUILDING2 CORNER REFINED (owner: cut in the wrong place): the
+#    route-vouch gained a FRONTAGE FLOOD — within a route-touched
+#    remainder piece only, the vouched region floods along building
+#    faces through channels ≥ PAVEMENT_SCORE_SEVER_FRONTAGE_W_M (8;
+#    building FOOTPRINTS as blockers, not clearance), dying at the
+#    sub-width neck.  VERIFIED: apron 375 m² covers the full airside
+#    facia up to the owner's 2.8 m neck chord
+#    (60.7045958,-135.0694524 → 60.7046172,-135.069427); lot
+#    groundside beyond; no facia slivers.  #104 untouched (flood runs
+#    only inside route-touched pieces).
+# 2. MISSING HANGAR at 60.706235,-135.0696776 (owner report): the
+#    stock arched hangar (lib/airport/hangars/arched/30x30/gray_1.obj
+#    → default-scenery hangar_A30x30_01.obj) was culled by the
+#    TALL-BASE-FILL slab/mast heuristic — an arch's footings project
+#    0.001 of its hull, below the 0.002 HECA-calibrated floor.  FIX:
+#    NAME-VOUCHED resources (library path contains hangar/
+#    term_building/terminal) bypass the slab/mast + sparse-fill
+#    heuristics (same semantic trust as the .fac path classifier).
+#    _OBJECT_FOOTPRINT_CACHE_VERSION 3→4 (stale sidecars had baked the
+#    empty result).
+# 3. G-ABUT SELF-SHADOWING (owner: shapes 169/170/179 should be
+#    apron): a building-abutting airside-contact shape that is
+#    DISCONNECTED still gates APRON when ≥95 % of it lies inside the
+#    buildings' clearance shadow (its disconnection is caused by the
+#    building it fronts); gate survives the G-CONFLICT reopen.  The
+#    #104 lot keeps the connectivity guard (extends far beyond any
+#    shadow).  VERIFIED: hangar surround now ONE 3,954 m² apron.
+# 166 tests green.  STANDING RED (separate task in flight): CYXY
+# building1 pavement overlap — NOTE its signature changed with the
+# round-8 reclassification: now apron ∩ building1 36.96 m² @
+# 60.70516,-135.06935 (was junction ∩ building1 12.32 m²).  Same
+# root cause: pavement is not clipped against that building pad.
+# ROUND 8b — BUILDING1 OVERLAP FIXED (owner: "why didn't you fix
+# it?"): stage-trace showed the POST-SOLVE conformance weld (0.5 m
+# tol) bows a pavement ring back across the pad edge (0→36.9 m² in
+# one enforce_conformance call); shapes are BORN clear (slice does
+# pav − terminal_union) and no later pass owned pavement∩building.
+# FIX: groundside._clip_pavement_against_building_pads — LAST-WORD
+# pure-difference re-clip (snap_tol=0, altitude carry) before the
+# final T-weld; pavement always yields to pads.  SUITES FULLY GREEN:
+# 167/167 (the standing red is gone).  NOTE: the spun-off
+# "Fix CYXY junction∩building overlap" worktree session is now
+# REDUNDANT — this fix landed in the main tree.
+# Engine 1.50.1657 / app 1.0.213 built with everything (freshness
+# verified: embedded VERSION.txt == 1.50.1657).
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
+# 20260728 (round 7) — BUILDING2 CORNER SOLVED (the round-6 open item)
+# ══════════════════════════════════════════════════════════════════
+# Owner explained the missing signal: a taxi route runs straight up to
+# building2's airside face — its spine was MISSING from our network.
+# ROOT CAUSE: apt.dat edge 11→12 (taxiway_B, 47 m, dead-ends 8 m from
+# building2, 24.4 m from a row-1300 ramp start) was swallowed by the
+# RAMP-START LEAD-IN TRIM in apt_dat_reader.taxi_centerlines (CYUL
+# 2026-07-04 rule: leaf chain ≤80 m ending ≤30 m from a startup drops).
+# The trim predates the reachability law; a real hangar-face route died
+# with it.  FIX: trimmed lead-ins now return on a side channel
+# (taxi_centerlines(trimmed_leadins=[]) →
+# layout.apt_taxi_leadin_centerlines); the SLICING spine still drops
+# them (CYUL simplicity preserved) but _reach_zone's authored network
+# includes them, so route-touch vouches the frontage.
+# SEVERANCE ROUTE-VOUCHED PARTS: the binary per-piece route-touch weld
+# became part-level — a route vouches its corridor (half-width) PLUS
+# any aircraft-wide region connected to it (223/224: route INTO a wide
+# lot still vouches the whole lot); pavement beyond a sub-aircraft
+# neck the route never crosses severs (building2: the corner wrap +
+# lot).  VERIFIED at CYXY: severed apron strip 250 m² on building2's
+# airside face; lot 10,400 m² incl. the narrow wrap stays groundside;
+# cut at the neck.  166 tests green (67 scorer); standing red = the
+# pre-existing CYXY junction∩building overlap (separate task).
+# Engine 1.50.1655 / app 1.0.212 built with ALL of round 7 (freeze
+# freshness verified: embedded VERSION.txt == 1.50.1655).
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
+# 20260728 (round 6) — OWNER 1.0.210 TEST REPORT FIXED (CYXY 64/69/
+# building4, SPJC 182) + THREE MORE RULINGS
+# ══════════════════════════════════════════════════════════════════
+# Owner tested app 1.0.210 and reported: #69 wholesale groundside
+# (want: corridor=service, end blob=groundside), #64 stealing taxiway
+# at building2 + missing svc-chord cut, building4 pavement groundside
+# (want apron), SPJC #182 service on a building airside face.
+# ROOT CAUSES + FIXES (all verified at CYXY/SPJC unless noted):
+#  1. END-CAP REACH: service_end_cap_lines max_half_width 15→40 — a
+#     cap stopping 1.4-2.3 m short of the pavement boundary cannot
+#     partition the face and the slice silently ignored it (this was
+#     the round-4 "widen-cut/interval-edge didn't fire" mystery).
+#     69-blob + 64-svc chords now cut; #69 = service corridor 1147 +
+#     groundside blob 872 ✓.
+#  2. SEVERANCE TIMING: born-service blobs flip to junction in enact
+#     round 1 and were invisible to pre-score severance; the orphan
+#     sweep then demoted them WHOLE.  Post-enact severance round added
+#     (zone recomputed, pieces join the sweep).
+#  3. SHADOW-BAND laws: building-clearance shadow strips are the SAME
+#     surface, not landside — (a) severance welds back remainder
+#     pieces that are BAND-shaped (iface ≥ 26 m AND depth ≤ 14 m);
+#     (b) runway_connectivity second chance: ≥ 26 m shared edge with a
+#     connected shape ⇒ connected (a real lot's pinch is 11-13 m —
+#     #104 ruling preserved); (c) per-straddler access extends 14 m
+#     around connected NEIGHBOURS.  building4 pavement now all apron ✓.
+#  4. pavement_frontage feature: narrow + fully-flanked + zero
+#     road/truck evidence ⇒ narrow penalty withdrawn, +1.5 APRON
+#     (width alone must not make hangar frontage a road/lot).
+#  5. DETERMINISTIC TIE-BREAK: equal scores rank in CLASSES order
+#     (bare set order was hash-seed dependent — #62/#279 flipped
+#     between runs).
+#  6. NEW RULING "apron always abuts the airside side of buildings"
+#     (SPJC #182): G-ABUT gate (building edge ≥5 m + aircraft-pavement
+#     edge ≥5 m + not disconnected ⇒ SERVICE/GROUNDSIDE removed) +
+#     late reclass_building_faces sweep for post-enact splinters.
+#  7. STANDING FREE-ROAD LAW scorer-side: G-APRON-EDGE (road corridor
+#     with ≥0.4 boundary shared with apron ⇒ SERVICE removed) and the
+#     apron-edge ADOPTION pass now upgrades role (not just grade) to
+#     apron under scorer-owns.
+#  8. Service-junction blobs join the geometry-final neck-split
+#     (pieces keep service role; enact re-scores).
+# OPEN (needs owner ruling — could NOT be done geometrically without
+# breaking the #104 lot ruling): #64's building-corner cut
+# (60.7046075,-135.0694422→60.7046427,-135.0694917).  The NE strip is
+# >25 m from any connected shape, has no authored route, and every
+# flood/band rule that reclaims it also reclaims the #104 lot through
+# its 11-13 m pinch.  Owner input wanted: what marks that strip as
+# taxiway — the OSM taxiway polygon? distance-limited frontage chain?
+# 166 tests green across the affected suites (67 in
+# test_pavement_scoring); only standing red = the pre-existing
+# CYXY junction∩building overlap (separate task in flight).
+# Engine 1.50.1654 / app 1.0.211 built with ALL of round 6
+# (freeze freshness verified).
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
+# 20260728 (round 5) — SEVERANCE BUILT + TWO NEW TOPOLOGY RULINGS
+# ══════════════════════════════════════════════════════════════════
+# SEVERANCE CUT LANDED (pavement_scoring.sever_unreachable, runs first
+# in enact_classify): reachable_part = shape ∩ dilate(reach core,
+# half + 0.05 + 0.5 standoff — cut edge must land STRICTLY past the
+# connectivity threshold or pieces re-score connected); unreachable
+# remainder pieces ≥ PAVEMENT_SCORE_SEVER_MIN_AREA_M2 (20) split off;
+# each piece scores against its own connectivity.  Route-touch applies
+# PER PIECE (a routed remainder stays welded — it would re-score
+# connected anyway).  Pieces snap to the parent ring (0.5 weld tol) and
+# carry from_severance_cut + from_route_proximity_cut.  CYXY: 14 shapes
+# severed.  _reach_zone extracted so connectivity + severance share one
+# erosion.
+# TWO NEW OWNER RULINGS (same day, both implemented):
+#  1. G-ENCLAVE — "groundside can never be surrounded by airside
+#     pavement unless it has a tunnel or bridge service road to get
+#     out"; single-continuous-boundary topology.  Post-enact sweep
+#     re-verdicts enacted-groundside shapes whose exterior ring is
+#     covered by the airside union (gap ≤ PAVEMENT_SCORE_ENCLAVE_GAP_M,
+#     no touching tunnel/bridge/is_bridge escape); GROUNDSIDE removed
+#     from candidates, survives G-CONFLICT reopen.
+#  2. G-BOUNDARY (REFINED same day — owner: contiguous pavement
+#     legitimately spans the fence, apron + outside lot): a shape
+#     ENTIRELY outside the OSM aeroway=aerodrome boundary
+#     (≥ PAVEMENT_SCORE_BOUNDARY_OUT_FRAC = 95 % of area) is
+#     GUARANTEED groundside-or-road — candidates ∩= {GROUNDSIDE,
+#     SERVICE}, overrides R-VETO.  A CROSSER gets NO gate; its
+#     outside fraction weighs +2.0 GROUNDSIDE as plain evidence and
+#     the rest of the rules decide.  Aerodrome polys SCOPED to ones
+#     intersecting our own source pavement (the ~5 km OSM bbox
+#     carries neighbours' aerodromes — HECA/HEAZ).  Aerodrome-as-
+#     relation ⇒ gate inert (way-only layer).
+# REGRESSION FIXED EN ROUTE (SPJC overlap test): the deconflict pass's
+# 0.25 snap-clip could sweep a severed piece's 28 m cut edge across a
+# neighbouring service_junction (1.27 m² lens) and snap-rounds
+# OSCILLATE — _deconflict_service_overlaps now loops to convergence
+# and falls back to a NO-SNAP pure-difference round (cannot mint).
+# SUITES: 163 green across scoring/classification/geometry/dsf/
+# build-time (14 new tests: 6 severance, 5 boundary, 3 enclave).
+# Engine 1.50.1653 / app 1.0.210 built with ALL of round 5 (freeze
+# freshness verified: dist VERSION.txt 1.50.1653 == embedded).
+# BUILD BUDGET: SPJC enact slot 1.23 s (sever off) → 1.39 s (on,
+# 27 severed) — ~0.16 s delta, under the 0.6 s hard-law line.
+# KNOWN PRE-EXISTING RED (not this work, task chip spawned):
+# test_no_self_overlap[CYXY] — junction #163 ∩ building1 12.32 m² @
+# 60.70532,-135.06944; identical with severance disabled.
+# Owner's round-4 probe cases (pinch 60.7046075,-135.0694422 etc.)
+# should be re-checked in JOSM on the next CYXY patch.
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
+# 20260728 (round 4, superseded by round 5) — SEVERANCE RULING +
+# ROUTE-TOUCH
+# ══════════════════════════════════════════════════════════════════
+# NEW OWNER RULING: "We need to sever landside from airside so we can
+# classify correctly" — where a landside verdict meets airside over a
+# narrow pinch, CUT the shape there (one side airside, one ground-
+# side).  Owner's CYXY cases: pinch next to building at
+# 60.7046075,-135.0694422; half-cut scoping boundary at
+# 60.7058633,-135.0701112 (svc line runs THROUGH — cut is a free-
+# interval edge, not a line end); shape-64 widen-cut expected between
+# 60.7101126,-135.0726633 and 60.7101015,-135.0728089 ('Crew cars'
+# route END is exactly there — a service_end_cap SHOULD have fired;
+# investigate via layout._slice_service_subsegments, now stashed).
+# LANDED THIS ROUND: route-touch connectivity — a shape within 2 m of
+# the AUTHORED 1201/1202 non-service network is reachable regardless
+# of erosion (CYXY 223/224 over-demotions; must NOT use the derived
+# centerlines union — its gap-fill/synthetic spines re-connected the
+# ruled-unreachable lot).  Lot VERIFIED still groundside.
+# NOT YET BUILT: the severance CUT mechanism itself (design:
+# reachable_part = shape ∩ dilate(reach core); split off unreachable
+# remainder ≥ threshold, re-score pieces; also covers the widen-cut
+# and interval-edge cases).  76 tests green.
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
+# 20260728 (round 3) — REACHABILITY LAW + SPLIT/CAP FIXES (owner's
+# second CYXY report: #104 groundside-by-reachability, #105 unsplit
+# blob, half-cut roads)
+# ══════════════════════════════════════════════════════════════════
+# 1. AIRCRAFT REACHABILITY (owner ruling, canonical text in
+#    pavement_scoring.runway_connectivity docstring): connectivity is
+#    now EROSION-based — pavement union minus buildings buffered by
+#    PAVEMENT_SCORE_BUILDING_CLEARANCE_M (7.5, wingtip standoff),
+#    eroded by half PAVEMENT_SCORE_AIRCRAFT_PATH_WIDTH_M (11); shapes
+#    reachable iff within half-width of a runway-connected core.
+#    Replaces the ≥1 m shared-boundary touch chain.
+# 2. NECK-SPLIT under scorer-owns processes JUNCTION blobs too (the
+#    apron-only filter skipped raw-slice-role blobs → owner's #105
+#    36k m² apron+taxi-loop never split; now 21 pieces, VERIFIED).
+# 3. SERVICE END-CAP CUTS (groundside.service_end_cap_lines): cap
+#    chords across the full cross-section where a scoped service line
+#    dies mid-pavement; cut-only ids (>= _cn_cap_base) stripped from
+#    face classification.  Owner's half-road at 60.71312,-135.07536
+#    VERIFIED fixed (own service_road shape now).
+# 4. MIN_AREA 50 → 10 (config): 20-40 m² road-residue slivers stuck as
+#    ``junction`` were permanent aircraft bridges in the erosion.
+# RESOLVED (owner JOSM check → post-mortem on FINAL shapes): the
+#    lot's only link to the taxiable core was a 7 m² core contact
+#    through an 11-13 m pinch (one 649 m² junction fragment, "taxiway"
+#    -named, no truck route).  Earlier "broad connections" finding was
+#    an ARTIFACT of probing a compute_elevations=False build
+#    (pre-split blobs — never probe reachability on geometry-only
+#    builds).  PAVEMENT_SCORE_AIRCRAFT_PATH_WIDTH_M 11 → 13 (sweep:
+#    11 connects, 13/15/18 disconnect); lot now groundside_pavement,
+#    VERIFIED.  Reach-core JOSM overlay tool:
+#    scratchpad reach_debug2.py → /tmp/CYXY_reach_debug.osm.
+# 99 tests green across the affected files.  Engine 1.50.1651 / app
+# 1.0.208 built with all of round 3.
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
+# 20260728 (round 2) — CYXY GROUND-TRUTH FIXES (owner evaluated the
+# emitted patch, 11 labels; scorer went 4/11 → 8/11)
+# ══════════════════════════════════════════════════════════════════
+# Four defects found via the owner's shape-by-shape evaluation:
+#  1. G-VETO over-broad → narrowed to the actual R-VETO ruling:
+#     apron-flavored evidence only (osm_apron/stand + name_apron),
+#     removes ONLY GROUNDSIDE.  TAXI-vs-SERVICE is a scores question.
+#  2. Enactment ran pre-split (blob verdicts inherited by split
+#     corridors against their own evidence) → enact_classify MOVED
+#     after neck-split + overlap-clip, before merge-fragments.
+#  3. Territory ≠ identity: name_taxi *= (1-truck_cover) (CYXY names
+#     roads "Taxiway"); on road-width corridors spine_cover *=
+#     (1-truck_cover) and truck_corridor votes SERVICE 2.0.
+#  4. Decisions now joinable: final-shape log records shapeID
+#     (= layout.shapes index = to_osm tag); enact-time records kept at
+#     layout.pavement_score_enact_decisions.
+# Remaining CYXY misses: #46/#105 (possible match artifacts — verify
+# via shapeID join next patch), #96 gravel "taxiway"-named lot (OPEN:
+# no groundside evidence in any layer; owner ruling wanted on
+# unpaved+wide+low-spine as groundside signal).  Taxiway HOLE at
+# 60.7016718,-135.057938 is PRE-EXISTING (identical 21.8 m² with
+# scorer off) — spawned as separate task.  76 tests green.  Engine
+# 1.50.1649 / app 1.0.206 built with all of this.
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
+# 20260728 (latest) — PURE SCORER-ONLY (owner: "To test if the new
+# system actually works, we need to disable the legacy system")
+# ══════════════════════════════════════════════════════════════════
+# Under O4_PAVEMENT_SCORE_V2=on (default) the ENTIRE legacy
+# role-deciding chain is gated off (_scorer_owns_roles in pipeline):
+# 55 m flip, svc re-role, road-lots, unscoped + both scoped
+# runway-disconnected runs, route corridors, absorption, orphan
+# junctions, SVC-connector re-roles, 50 m route-proximity re-role.
+# PAVEMENT_SCORE_PURE=1 (default): LOW margins enact argmax too —
+# nothing falls through; scorer verdicts ARE the classification.
+# reclassified_from_junction no longer set (neck re-eval must not
+# overturn scorer verdicts).  Shape-making + geometry hygiene still
+# run.  Escapes: O4_PAVEMENT_SCORE_PURE=0 (hybrid), =off (full
+# legacy).  75 tests green.  Engine refrozen AFTER these changes —
+# check VERSION.txt ≥ 1.50.1647 before trusting an app build.
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
+# 20260728 (later) — ENACTMENT LIVE (owner: "turn it on so I can
+# test it"; expects HECA to NOT match legacy — legacy is wrong there)
+# ══════════════════════════════════════════════════════════════════
+# O4_PAVEMENT_SCORE_V2 default = "on".  enact_classify runs in the
+# classify_pavement_v1 slot: HIGH/MED verdicts become roles, LOW left
+# to legacy; one post-enactment connectivity re-verdict (severing
+# cascade).  Gated off under "on": v1 vote, first unscoped
+# runway-disconnected pass, groundside route-corridor promotion.
+# Pre-slot passes + late scoped orphan reruns still run.  NEW WEIGHT
+# RULING (owner 2026-07-28): road_narrow {SERVICE: 2.5} — narrow +
+# road-covered votes SERVICE even unthreaded (the HECA 296-fragment
+# bucket).  75 tests green (4 new enact tests).  Owner build-budget
+# approval recorded (spec §9/§10.3): ~1.4 s scorer cost accepted for
+# the test phase.  ⚠ Suite beyond these files NOT yet re-baselined
+# against enactment — compare-target and pavement_grade classes will
+# shift; triage after in-sim verdict.  Revert switch:
+# O4_PAVEMENT_SCORE_V2=shadow (or off).  RESTART the Ortho4XP app
+# before testing (it caches auto_patch imports).
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
+# 20260728 — PAVEMENT SCORING CLASSIFIER v2 (SHADOW) BUILT
+# (owner decisions 2026-07-27: full 4-class scope, shadow-first,
+# legacy fallback on LOW margin, chain retirement as the end goal)
+# ══════════════════════════════════════════════════════════════════
+# Spec: docs/specs/pavement-scoring-classifier-spec.md.  New:
+# src/auto_patch/pavement_scoring.py (evidence-fusion scorer),
+# tools/classify_report.py (legacy-vs-scorer diff report),
+# tests/test_pavement_scoring.py (45 tests; legacy 26 still green).
+# Every final pavement shape accumulates weighted points toward
+# APRON/TAXI/SERVICE/GROUNDSIDE from ~16 evidence layers (apt.dat 110
+# name priors + surface codes, OSM aeroway, road feed, 1206 truck
+# territory, spine territory — coverage only, SINGLE-SPINE law kept —
+# morphology, runway touch-chain, provenance, and the owner-requested
+# GLOBAL AIRPORTS apt.dat cross-reference with alignment-discounted
+# reliability).  Per-airport source reliability scales every weight
+# (HECA apt names r=0.117 vs SPJC r=1.0 — the variance the owner
+# predicted).  Owner rulings are hard gates (G-FREE-ROAD/G-VETO/
+# G-CHAIN), scores decide within what the law leaves open.
+#  * Shadow agreement vs legacy: CYXY 69%, SPJC 81%, HECA 53%.
+#    HECA diff buckets (the tuning agenda): SERVICE→GROUNDSIDE 296
+#    tiny road-carve fragments (median 225 m², road_cover 0.89,
+#    truck_cover 0 — likely wants road_cover+narrow to vote SERVICE);
+#    TAXI→APRON 45 wide spine-covered blobs, 936k m² (genuine
+#    ambiguity, incl. 217k m² shape near the owner's taxiway-step
+#    coords); APRON→GROUNDSIDE 51 third-party road-covered shapes
+#    (scorer likely RIGHT — the HECA landside class v1 misses).
+#  * ⚠ HARD-LAW BUDGET: shadow costs 1.39 s @HECA / 0.82 s @SPJC
+#    after two optimization rounds (Fable optimization agent ran;
+#    2.37→1.39 verdict-stable).  Both builds already over the 60 s
+#    budget ⇒ default-on needs OWNER APPROVAL.  Committed default is
+#    O4_PAVEMENT_SCORE_V2=off; classify_report.py forces shadow for
+#    its own runs.  Owner options in spec §10.3 impact statement.
+#  * Dumps for review: /tmp/shadow_{HECA,SPJC,CYXY}.json (render via
+#    tools/classify_report.py --from-json), or rebuild fresh:
+#    venv/bin/python tools/classify_report.py HECA SPJC CYXY
+#  * Next (Phase B, after weight tuning on shadow diffs): enact in the
+#    classify_pavement_v1 slot, gate off subsumed passes one at a
+#    time (v1 vote, 55 m junction→apron flip, road-lot, service
+#    re-role, groundside corridor promotion), A/B per fixture airport.
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
 # 20260727 (evening) — FREE-ROAD RULING + GROUNDSIDE OVER-DEMOTION
 # FIXES (owner in-sim reports: SPJC building81, HECA airside breaks,
 # HECA taxiway step @30.1313963,31.3976116)

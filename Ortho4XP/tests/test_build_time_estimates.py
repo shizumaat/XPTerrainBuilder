@@ -187,3 +187,34 @@ class TestEstimateRemainingWallSeconds:
             {}, self.PROGRAM, queued_tiles=[], next_step_index={},
             in_flight_steps={}, now=1000.0, slots=2)
         assert remaining is None
+
+    def test_wall_clock_is_a_makespan_never_below_the_longest_tile(self):
+        """Owner report 2026-07-28: +30+031 at ~6 min and +60-136 at
+        ~1 min on 2 slots showed "3 min" total — total-work ÷ slots
+        underran the longest tile.  The run cannot end before its
+        longest single tile: with every tile running, remaining is the
+        MAX of the per-tile clocks."""
+        estimates = {(30, 31): {"vector": 60.0, "mesh": 300.0},
+                     (60, -136): {"vector": 20.0, "mesh": 40.0}}
+        remaining = estimate_remaining_wall_seconds(
+            estimates, self._programs((30, 31), (60, -136)),
+            queued_tiles=[], next_step_index={(30, 31): 0, (60, -136): 0},
+            in_flight_steps={}, now=1000.0, slots=2)
+        assert remaining == pytest.approx(360.0)
+
+    def test_queued_tiles_pack_longest_first_onto_free_slots(self):
+        # One slot busy for 100 s, the other takes the 90 s queued tile,
+        # then the 30 s tile lands on whichever frees first (90 s side
+        # would be 120; the 100 s side finishes at 130 only if mispacked
+        # — LPT puts it on the 100 s worker? No: loads after 90 lands
+        # are [100, 90]; the 30 s tile goes to the 90 → 120 total).
+        estimates = {(1, 1): {"vector": 0.0, "mesh": 100.0},
+                     (2, 2): {"vector": 45.0, "mesh": 45.0},
+                     (3, 3): {"vector": 15.0, "mesh": 15.0}}
+        remaining = estimate_remaining_wall_seconds(
+            estimates,
+            self._programs((1, 1), (2, 2), (3, 3)),
+            queued_tiles=[(2, 2), (3, 3)],
+            next_step_index={(1, 1): 1},
+            in_flight_steps={}, now=1000.0, slots=2)
+        assert remaining == pytest.approx(120.0)

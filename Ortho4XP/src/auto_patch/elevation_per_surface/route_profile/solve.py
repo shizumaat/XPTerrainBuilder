@@ -865,9 +865,9 @@ def solve_route_profile(layout, icao: str,
         # nodes), runway/seam HARD at their LOCAL value, building floors honoured.
         # The spine is min-curvature and ≤cap by construction, then FROZEN so the
         # body grades to it (the body twists to meet the spine, never the reverse).
-        frozen = _solve_spine_profile(
+        frozen, _rod_pieces = _solve_spine_profile(
             elev, base_hard, u_spine_adj, u_spine_floor, node_band,
-            nodes_xy=nodes)
+            nodes_xy=nodes, graph=G)
         for i in frozen:
             if i < n:
                 base_hard[i] = True
@@ -959,6 +959,55 @@ def solve_route_profile(layout, icao: str,
                       f"groundside piece(s); pinned {len(_gs_hard)} route node(s); "
                       f"DEM-followed {len(_svc_moved)} service node(s).")
         _psub(0.88, "Solving elevations — feasibility projection")
+        # ── STRING-AS-LAW INTERVAL ROD registration (spec §10, owner
+        # ruling 2026-07-28 late session — supersedes the §7 holds) ────
+        # The corridor string becomes ORDINARY LAW: one signed interval
+        # edge ``z_i − z_j ∈ [Δstring − ε, Δstring + ε]`` per
+        # consecutive strung spine pair, registered in
+        # ``shape_constraints`` like the adjacent-ground envelope edges.
+        # Every subsequent projection that reads ``shape_constraints`` /
+        # ``joint`` maintains the string's SHAPE automatically: the
+        # corridor is a quasi-rigid ROD that translates vertically to
+        # meet seats, seams, runways and the body web — the yields keep
+        # their feasibility freedom but cannot manufacture dips, and
+        # bodies follow through their body↔spine law edges to wherever
+        # the rod SETTLED (no value-holds, so nothing is minted where
+        # the law graph lacks a body↔spine pair).
+        # Δ IS SNAPSHOT HERE — at yield entry — not at phase-A end:
+        # every projection between the phase-A freeze and this point
+        # holds the spine HARD, so a taxi corridor's Δ here IS the
+        # faired phase-A string (spec §10.1) byte-for-byte, while a
+        # SERVICE corridor's Δ includes the authoritative
+        # ``apply_service_road_dem_follow`` re-shape above (a rod
+        # snapshot at phase-A end froze the pre-follow shape and minted
+        # 8.95 % service pairs at CYXY).
+        # ``envelope_skip``: rod slabs carry signed (often negative)
+        # directed weights that the reach-envelope Dijkstra must not
+        # see (the retired EAT interval edges' blowup class); the
+        # sweeps enforce them fully.  The canonical-key export lets
+        # ``final_grade_projection`` carry the SAME edges into its
+        # rebuilt node space.  Gate off ⇒ no strung pieces ⇒ no entry,
+        # no export — byte-identical.
+        if _rod_pieces:
+            from auto_patch.config import SPINE_ROD_EPSILON_M as _ROD_EPS
+            _rod_edges: list = []
+            for _rp in _rod_pieces:
+                for _ra, _rb in zip(_rp, _rp[1:]):
+                    _rd = elev[_ra] - elev[_rb]
+                    _rod_edges.append((_ra, _rb, _rd - _ROD_EPS,
+                                       _rd + _ROD_EPS))
+            if _rod_edges:
+                shape_constraints.append({"edges": _rod_edges,
+                                          "envelope_skip": True})
+                _rod_key_of = {i: k for k, i in bucket_to_idx.items()}
+                layout._taut_rod_key_edges = [
+                    (_rod_key_of[a], _rod_key_of[b], lo, hi)
+                    for (a, b, lo, hi) in _rod_edges
+                    if a in _rod_key_of and b in _rod_key_of]
+                if _os.environ.get("O4_STEP_DEBUG") == "1":
+                    print(f"    [taut-string] rod edges="
+                          f"{len(_rod_edges)} (ε per edge, "
+                          f"shape-as-law, snapshot at yield entry)")
         # SPINE-YIELD projection (global-slice spine adaptation, 2026-07-02).
         # Under the global slice most graph nodes ARE spine (every face is
         # born from a centerline cut), so "both ends frozen = genuine step"
@@ -1092,6 +1141,12 @@ def solve_route_profile(layout, icao: str,
             # worklist visits).  Keys, not indices: the projection rebuilds
             # its own node list.
             _solve_broken_idx: set = set()
+            # (The §7 pre-yield re-string + ``yield_hard`` hold that
+            # lived here were DELETED by spec §10 — the string is now
+            # ordinary law via the interval-rod entry registered after
+            # phase A, so this yield and everything downstream maintain
+            # the string's shape without any value-hold to fight.)
+            _t_fp8 = _time.perf_counter()
             rem, bh = feasibility_project(elev, joint, yield_hard,
                                           force_scalar=True, max_iters=2400,
                                           flat_groups=pad_groups or None,
@@ -1099,6 +1154,15 @@ def solve_route_profile(layout, icao: str,
                                           broken_out=(_solve_broken_idx
                                                       if _scoped_gate
                                                       else None))
+            _t_fp8_end = _time.perf_counter()
+            # Tagged ``[spine-yield]``, NOT ``[taut-string]``: this line
+            # must print on BOTH sides of the gate or the held-vs-baseline
+            # delta is unmeasurable, and a gate-OFF run must emit zero
+            # ``[taut-string]`` lines.
+            if _os.environ.get("O4_STEP_DEBUG") == "1":
+                print(f"    [spine-yield] fp#8 body yield "
+                      f"{_t_fp8_end - _t_fp8:.3f}s "
+                      f"hard={len(yield_hard)}")
             # MOUTH VERIFY-AND-RELAX (user 2026-07-06, HECA #541/#546): the
             # groundside mouth welds (``_gs_hard``) were pinned from lot
             # rings computed BEFORE this movable-pad/free-seat yield — a
@@ -1246,6 +1310,12 @@ def solve_route_profile(layout, icao: str,
             if _os.environ.get("O4_STEP_DEBUG") == "1":
                 print(f"    [gap-spine] fairing residual "
                       f"kinks={_n_gap_kink}")
+        # (The §7 taut-string witness + final-hold canonical-key export
+        # that lived here were DELETED by spec §10.  The interval-rod
+        # entry registered after phase A carries the string's shape
+        # through every projection above, and its canonical-key form —
+        # ``layout._taut_rod_key_edges`` — is what
+        # ``final_grade_projection`` maps into its rebuilt node space.)
         _psub(0.97, "Solving elevations — writing back")
         # ── SPINE CROWN v2 (user 2026-07-07, part 30) ────────────────────
         # The whole solve above ran in UNCROWNED space z′.  The crown is a
@@ -2590,6 +2660,43 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                 # terrain-dictated for the quarantine scan below.
                 torn_feature_weld.add(i)
 
+    # ── STRING-AS-LAW INTERVAL ROD carry (spec §10 — supersedes the §7
+    # final hold) ────────────────────────────────────────────────────
+    # This pass runs on a REBUILT node list (measured HECA: n = 125549 /
+    # 128526 vs the solve's 130290) and has no spine concept, so the
+    # solve exported the rod's interval edges as CANONICAL REGISTRY KEY
+    # pairs (``layout.canonical_points`` buckets — the same keys
+    # ``_build_node_list`` assigns indices to).  Re-map them here and
+    # append them to ``joint`` as ordinary law edges: the projection
+    # then maintains the string's SHAPE (the rod translates, never
+    # sags) with no value-hold to fight — the §7 hold minted both-hard
+    # violations wherever the law graph lacked a body↔spine pair.  A
+    # pair with EITHER endpoint missing in THIS space (a corridor node
+    # whose shape did not survive to the final geometry) is dropped and
+    # counted — never enforced one-sided.  ``envelope_skip``: same
+    # Dijkstra-safety rule as at registration.  Gate off ⇒ no export ⇒
+    # byte-identical.
+    from auto_patch.config import SPINE_TAUT_STRING as _TAUT_ON_FP
+    if _TAUT_ON_FP:
+        _rod_key_edges = getattr(layout, "_taut_rod_key_edges", None) or ()
+        _rod_t0 = _time.time()
+        _rod_fp_edges: list = []
+        _rod_dropped = 0
+        for (_ka, _kb, _rlo, _rhi) in _rod_key_edges:
+            _ia = b2i.get(_ka)
+            _ib = b2i.get(_kb)
+            if (_ia is None or _ib is None or _ia >= n or _ib >= n
+                    or _ia == _ib):
+                _rod_dropped += 1
+                continue
+            _rod_fp_edges.append((_ia, _ib, _rlo, _rhi))
+        if _rod_fp_edges:
+            joint.append({"edges": _rod_fp_edges, "envelope_skip": True})
+        if _rod_key_edges and _os.environ.get("O4_STEP_DEBUG") == "1":
+            print(f"    [taut-string] rod carried={len(_rod_fp_edges)} "
+                  f"dropped={_rod_dropped} "
+                  f"({_time.time() - _rod_t0:.3f}s)")
+
     # building pads: rigid movable FLAT groups (same model as the yield).
     # DETACHED pads (user 2026-07-17) stay OUT: they are hard flat DEM
     # pins, not airside-coupled surfaces — freeing them here let the
@@ -3335,27 +3442,19 @@ def _seam_spine_anchors(layout, G, spine_adj, elev, base_hard,
     return pinned
 
 
-def _fair_spine_chains(elev, spine_adj, anchors, node_band, nodes_xy,
-                       k_rate, *, max_sweeps=400, tol=1e-4):
-    """FAIRING (user 2026-07-04, task 3): bound the grade CHANGE between
-    consecutive spine segments along every chain —
-    ``|g2 − g1| ≤ k_rate·(L1 + L2)/2`` — the taxiway vertical-curve
-    K-factor analog (``config.TAXIWAY_MAX_GRADE_CHANGE_PER_M``,
-    tunable via ``O4_TAXIWAY_CURVE_RUN_M``).
+def _build_spine_corridors(spine_adj, nodes_xy):
+    """The spine CORRIDOR decomposition — maximal degree-2 runs of the
+    spine graph, spliced through welds that continue near-straight-on.
 
-    The grade law bounds only the FIRST derivative, so the spine solve
-    tracks DEM noise in legal ±cap wiggles (the residual-waviness
-    class); real grading is long linear/parabolic profiles.  This is a
-    POCS pass on second-difference constraints: a too-sharp sag raises
-    its centre vertex, a crest lowers it, split by segment stiffness
-    (``δ/(1/L1 + 1/L2)``), clamped into the reach band.  Anchors
-    (runway contacts, seam pins) never move — the curve fits BETWEEN
-    them.  Chains are maximal degree-2 runs of the spine graph; the
-    profile through a junction node (degree ≠ 2) is left to the
-    junction's own solve.
+    Extracted verbatim from ``_fair_spine_chains`` (taut-string spec §6,
+    2026-07-28) so the FAIRING and the STRINGING operate on the SAME
+    corridors: the string's objective and the K-factor's rounding must
+    agree on where a route begins and ends, or the fairing re-introduces
+    the very bends the string placed at witnessed wall contacts.  The
+    extraction is behavior-preserving for fairing (same chains, same
+    order) — ``tests/test_spine_fair_through_welds.py`` is the guard.
 
-    Mutates ``elev``; returns the number of triples still over the
-    rate (honest residual — anchors can force a kink)."""
+    Returns the list of chains (node-index lists, length >= 3)."""
     import math
     deg = {i: len(lst) for i, lst in spine_adj.items()}
     visited_edges: set = set()
@@ -3496,6 +3595,298 @@ def _fair_spine_chains(elev, spine_adj, anchors, node_band, nodes_xy,
             chains = [c for c in chains if len(c) >= 3]
     else:
         chains = [c for c in chains if len(c) >= 3]
+    return chains
+
+
+def _build_taut_couple_adj(law_edges, members, wall_extra=()):
+    """CROSS-CORRIDOR LAW COUPLING adjacency (spec §6 amendment
+    2026-07-28, the measured blocker).
+
+    Two corridors crossing one junction WITHOUT a shared spine node string
+    to mutually-inconsistent values (KCLT: 0.2-0.4 m disagreements on
+    3-8 m within-junction pairs → 1373 minted law-true violations once the
+    hold froze them).  Both hold-boundary pre-legalise variants failed —
+    the joint-graph one re-drags the corridor through body edges (2.6 s,
+    corridor sag 0.22 → 2.58 m) and the strung-pair-scoped one misses the
+    offenders and mints 4 % longitudinal steps instead.  The fix belongs
+    at STRING TIME: an already-settled node imposes a MOVING WALL on a
+    later-strung one, so crossing corridors come out cap-consistent BY
+    CONSTRUCTION and the holds have nothing to mint.
+
+    ``law_edges`` is an iterable of ``(a, b, budget)`` from the UNIFIED
+    graph — the validator's own materialized pair set.  Deliberately NOT
+    the shape-constraint entries: flat-airport junction all-pairs largely
+    live in lazy-certified entries there, so filtering those would miss
+    exactly the pairs this exists to couple.
+
+    Kept: pairs with both endpoints in ``members | wall_extra`` and at
+    least one in ``members`` — ``wall_extra`` carries the HARD spine nodes
+    that are law neighbours of a corridor without lying on one (an
+    off-corridor seat 2 m from a corridor still dictates a wall).
+
+    Returns ``(adj, n_edges)`` with ``adj = {i: [(j, budget), ...]}``
+    keyed only by ``members``."""
+    adj: dict = {}
+    walls = set(members)
+    walls.update(wall_extra)
+    n_edges = 0
+    for (a, b, budget) in law_edges:
+        if a not in walls or b not in walls:
+            continue
+        a_m = a in members
+        b_m = b in members
+        if not (a_m or b_m):
+            continue
+        n_edges += 1
+        if a_m:
+            adj.setdefault(a, []).append((b, budget))
+        if b_m:
+            adj.setdefault(b, []).append((a, budget))
+    return adj, n_edges
+
+
+def _spine_string_walls(i, node_band, spine_floor, frontage_ceil=None):
+    """Taut-string tube walls for ONE spine node (spec §6 "per-corridor
+    data"): the reach band ``node_band[i] = (floor, ceiling)`` — ``None``
+    or off-list ⇒ ±inf (off-network nodes are unbounded; the exact cap
+    projection stays the safety net) — with the floor RAISED by the
+    building-frontage floor ``spine_floor[i]``, never above the ceiling
+    (the ``min(f, hi)`` idiom the harmonic clamp already uses), and the
+    ceiling LOWERED by the building-frontage CEILING ``frontage_ceil[i]``
+    (owner mint-class closure 2026-07-28: the frontage pair law is
+    SYMMETRIC — ``|z_i − seat| ≤ cap·d`` — but only its floor side ever
+    existed because the harmonic dragged spines DOWN; the taut string
+    LIFTS them, and an over-lifted spine mints unfixable 1 % frontage
+    chords against pad-edge body nodes once held.  The mirror idiom
+    ``max(fc, lo)`` keeps the ceiling from crossing the floor).
+
+    Returns ``(floor, ceiling, ok)``; ``ok`` is False for a BAND-INVERTED
+    node (floor > ceiling — quarantine territory), which SPLITS the
+    corridor and keeps its current value."""
+    INF = float("inf")
+    lo, hi = -INF, INF
+    if node_band is not None and i < len(node_band):
+        b = node_band[i]
+        if b is not None:
+            lo, hi = b
+    if lo > hi:
+        return lo, hi, False
+    if spine_floor:
+        f = spine_floor.get(i)
+        if f is not None and f > lo:
+            lo = min(f, hi)
+    if frontage_ceil:
+        fc = frontage_ceil.get(i)
+        if fc is not None and fc < hi:
+            hi = max(fc, lo)
+    return lo, hi, True
+
+
+def _string_spine_corridors(elev, corridors, nodes_xy, node_band,
+                            spine_floor, pegged, *, passes=2, apply=True,
+                            couple_adj=None, frontage_ceil=None,
+                            pieces_out=None):
+    """Deterministic taut-string NETWORK SETTLE over the spine corridors
+    (docs/specs/taut-string-spine-profile-spec.md §6).
+
+    Per corridor: stations are the cumulative straight-line chord length,
+    the tube is :func:`_spine_string_walls`, and the pegs are (a) every
+    corridor node in ``pegged`` (the genuinely-pinned nodes — runway
+    joins, seam pins, seats) at its CURRENT value, (b) every node an
+    EARLIER corridor of this pass already strung — the crossing rule,
+    "the crossing taxiway meets the through-taxiway's surface" — and (c)
+    each free corridor endpoint at its current value clamped into its own
+    walls (the provisional junction value).
+
+    ``passes`` fixed sweeps (no convergence loop, spec §6: two).  Each
+    sweep processes corridors LONGEST-FIRST (tie: smaller first-node
+    index) and writes a corridor's values into ``elev`` immediately, so
+    the crossing rule sees them.  A corridor/piece with fewer than two
+    pegs strings to ``None`` and keeps its harmonic values.
+
+    ``apply=False`` measures only (nothing is written): that is the §7
+    witness — how far the LIVE profile sags below its re-derived string.
+
+    ``couple_adj`` (spec §6 amendment) is the cross-corridor LAW COUPLING
+    adjacency from :func:`_build_taut_couple_adj`: while settling, every
+    already-settled or hard law-neighbour OFF the corridor imposes a
+    moving wall, so crossing corridors are mutually cap-consistent by
+    construction.  ``None`` disables it (walls are the reach band alone).
+
+    ``pieces_out`` (spec §10 interval rod): a list that receives, for the
+    LAST sweep, each STRUNG piece's node-index list (in corridor order).
+    Pieces are already split at band-inverted nodes and zero-length
+    stations, so consecutive pairs within one recorded piece are exactly
+    the pairs the rod may couple — no interval edge ever crosses a split.
+
+    Returns ``(n_corridors, n_strung, worst_resag, strung_nodes,
+    n_inverted)``; ``worst_resag`` is the largest interior
+    ``string − live`` deviation of the LAST sweep, clamped at 0, and
+    ``n_inverted`` counts nodes whose coupling walls contradicted."""
+    from .taut_string import string_with_pegs
+
+    def _seg_len(a, b):
+        (xa, ya), (xb, yb) = nodes_xy[a], nodes_xy[b]
+        return _math.hypot(xa - xb, ya - yb)
+
+    # Longest-first, tie-broken by the smaller first-node index — the
+    # owner's model ("draw the longest straight line first"); the sort
+    # key never touches the chain lists, so ordering is total.
+    order = []
+    for c in corridors:
+        total = 0.0
+        for t in range(len(c) - 1):
+            total += _seg_len(c[t], c[t + 1])
+        order.append((-total, c[0], c))
+    order.sort(key=lambda t: (t[0], t[1]))
+
+    n_strung = 0
+    worst = 0.0
+    n_inverted = 0
+    strung_nodes: set = set()
+    # SETTLED = nodes whose current value may impose a coupling wall.  It
+    # accumulates ACROSS sweeps and is never reset: after sweep 1 every
+    # corridor holds a settled value, so sweep 2 re-strings each corridor
+    # against the FULL mutual walls (spec §6 amendment) instead of only
+    # against the corridors that happened to precede it.
+    settled: set = set()
+    for _sweep in range(passes):
+        strung: set = set()
+        n_strung = 0
+        worst = 0.0
+        n_inverted = 0
+        sweep_pieces: list = []
+        for (_neg_total, _first, c) in order:
+            k = len(c)
+            stations = [0.0] * k
+            acc = 0.0
+            for t in range(1, k):
+                acc += _seg_len(c[t - 1], c[t])
+                stations[t] = acc
+            # A corridor never walls ITSELF — its own nodes are the
+            # variables being re-solved, not settled data.
+            own = set(c)
+            # Split into strung PIECES at band-inverted nodes (they keep
+            # their value) and at any degenerate zero-length step (the
+            # string needs strictly increasing stations).
+            pieces = []
+            cur: list = []
+            for t in range(k):
+                lo, hi, ok = _spine_string_walls(c[t], node_band,
+                                                 spine_floor,
+                                                 frontage_ceil)
+                if ok and couple_adj is not None:
+                    # MOVING WALLS (spec §6 amendment): every settled or
+                    # hard law-neighbour off this corridor pins a slab
+                    # [z_j − budget, z_j + budget] the string must honour,
+                    # so the crossing pair is cap-consistent BY
+                    # CONSTRUCTION and no later hold can mint it.
+                    node_i = c[t]
+                    for (j, budget) in couple_adj.get(node_i, ()):
+                        if j in own:
+                            continue
+                        if not (j in pegged or j in settled
+                                or j in strung):
+                            continue
+                        zj = elev[j]
+                        if zj + budget < hi:
+                            hi = zj + budget
+                        if zj - budget > lo:
+                            lo = zj - budget
+                    if lo > hi:
+                        # Contradictory neighbours (both-hard class).
+                        # Collapse to the midpoint and keep the node in
+                        # the corridor — unlike a band inversion this is
+                        # NOT a quarantine signal, so it must not split
+                        # the string.
+                        mid = 0.5 * (lo + hi)
+                        lo = hi = mid
+                        n_inverted += 1
+                if not ok:
+                    if len(cur) >= 2:
+                        pieces.append(cur)
+                    cur = []
+                    continue
+                if cur and stations[t] - stations[cur[-1][0]] < 1e-6:
+                    if len(cur) >= 2:
+                        pieces.append(cur)
+                    cur = []
+                cur.append((t, lo, hi))
+            if len(cur) >= 2:
+                pieces.append(cur)
+            corridor_strung = False
+            for piece in pieces:
+                st = [stations[t] for (t, _lo, _hi) in piece]
+                fl = [lo for (_t, lo, _hi) in piece]
+                ce = [hi for (_t, _lo, hi) in piece]
+                pegs: dict = {}
+                for m, (t, lo, hi) in enumerate(piece):
+                    node = c[t]
+                    if node in pegged or node in strung:
+                        pegs[m] = float(elev[node])
+                last_m = len(piece) - 1
+                for m in (0, last_m):
+                    if m in pegs:
+                        continue
+                    node = c[piece[m][0]]
+                    v = float(elev[node])
+                    lo, hi = piece[m][1], piece[m][2]
+                    if v < lo:
+                        v = lo
+                    elif v > hi:
+                        v = hi
+                    pegs[m] = v
+                out = string_with_pegs(st, fl, ce, pegs)
+                if out is None:
+                    continue          # < 2 pegs: keep harmonic values
+                corridor_strung = True
+                sweep_pieces.append([c[t] for (t, _lo, _hi) in piece])
+                for m, (t, _lo, _hi) in enumerate(piece):
+                    node = c[t]
+                    d = out[m] - elev[node]
+                    if 0 < m < last_m and d > worst:
+                        worst = d
+                    if node in pegged:
+                        continue      # anchors are never overwritten
+                    if apply:
+                        elev[node] = out[m]
+                        strung_nodes.add(node)
+                    strung.add(node)
+                    settled.add(node)
+            if corridor_strung:
+                n_strung += 1
+    if pieces_out is not None:
+        pieces_out.extend(sweep_pieces)
+    return len(corridors), n_strung, worst, strung_nodes, n_inverted
+
+
+def _fair_spine_chains(elev, spine_adj, anchors, node_band, nodes_xy,
+                       k_rate, *, max_sweeps=400, tol=1e-4):
+    """FAIRING (user 2026-07-04, task 3): bound the grade CHANGE between
+    consecutive spine segments along every chain —
+    ``|g2 − g1| ≤ k_rate·(L1 + L2)/2`` — the taxiway vertical-curve
+    K-factor analog (``config.TAXIWAY_MAX_GRADE_CHANGE_PER_M``,
+    tunable via ``O4_TAXIWAY_CURVE_RUN_M``).
+
+    The grade law bounds only the FIRST derivative, so the spine solve
+    tracks DEM noise in legal ±cap wiggles (the residual-waviness
+    class); real grading is long linear/parabolic profiles.  This is a
+    POCS pass on second-difference constraints: a too-sharp sag raises
+    its centre vertex, a crest lowers it, split by segment stiffness
+    (``δ/(1/L1 + 1/L2)``), clamped into the reach band.  Anchors
+    (runway contacts, seam pins) never move — the curve fits BETWEEN
+    them.  Chains are maximal degree-2 runs of the spine graph; the
+    profile through a junction node (degree ≠ 2) is left to the
+    junction's own solve.
+
+    Mutates ``elev``; returns the number of triples still over the
+    rate (honest residual — anchors can force a kink)."""
+    import math
+    # Chain building + through-weld splice live in
+    # ``_build_spine_corridors`` (taut-string spec §6): the stringing
+    # pass must fair and string the SAME corridors.  Behavior-preserving
+    # extraction — same chains, same order.
+    chains = _build_spine_corridors(spine_adj, nodes_xy)
     if not chains:
         return 0
 
@@ -3886,7 +4277,8 @@ def _fair_ring_edges(layout, elev, bucket_to_idx, anchors, node_band,
 
 def _solve_spine_profile(elev, base_hard, spine_adj, spine_floor,
                          node_band=None, nodes_xy=None,
-                         *, max_sweeps=5000, tol=1e-3, curvature=0.25):
+                         *, max_sweeps=5000, tol=1e-3, curvature=0.25,
+                         graph=None):
     """Dedicated SMOOTH spine solve on the unified graph's geometry nodes.
 
     Min-curvature (inverse-budget² harmonic mean blended with the plain mean),
@@ -3896,8 +4288,11 @@ def _solve_spine_profile(elev, base_hard, spine_adj, spine_floor,
     too: it can't sit BELOW its reachable floor (CYXY TX3 at 677 when its floor is
     ~685) nor above its ceiling.  Anchors = the nodes already HARD (runway
     contacts at their LOCAL runway elevation + tile seams).  Mutates ``elev`` in
-    place; returns the set of spine node indices it solved (to be frozen for the
-    body fill)."""
+    place; returns ``(frozen, rod_pieces)``: the set of spine node indices it
+    solved (to be frozen for the body fill) and the strung corridor PIECES
+    (node-index lists, splits respected) from which the caller derives the
+    STRING-AS-LAW interval-rod edges (spec §10) at yield entry.  Gate off or
+    no strung corridor ⇒ ``[]``."""
     import math
     INF = float("inf")
     anchors = {i for i in spine_adj if i < len(base_hard) and base_hard[i]}
@@ -3950,6 +4345,56 @@ def _solve_spine_profile(elev, base_hard, spine_adj, spine_floor,
                     moved = abs(d)
         if moved < tol:
             break
+    # ── PHASE-A TAUT-STRING PASS (docs/specs/taut-string-spine-profile-
+    # spec.md §5 step 2 + §6, owner ruling 2026-07-28) ───────────────
+    # The harmonic above minimises CURVATURE and has NO altitude
+    # preference, so where the network descends it interpolates a
+    # corridor toward that descent and parks it metres under its own
+    # lawful ceiling (HECA: 6.3 m below the ceiling, 5.5 m below DEM,
+    # spec §1 — the dip is not law-forced; the straight chord fits).
+    # The taut string is the shortest path in (station, z) through the
+    # feasible tube: symmetric, so it also stops the profile rising more
+    # than needed, and every bend has a witnessed wall contact.  The
+    # harmonic result stays as the junction seed, the peg values for
+    # free corridor endpoints, and the fallback for unstrung nodes.
+    # Runs BEFORE the fairing, which then rounds the string's few bends
+    # instead of rescuing a wiggly field.  ``nodes_xy is None`` ⇒ no
+    # geometry ⇒ no stations ⇒ the pass is skipped entirely.
+    from auto_patch.config import SPINE_TAUT_STRING as _TAUT_ON
+    _rod_pieces: list = []
+    if _TAUT_ON and nodes_xy is not None:
+        _t_string = _time.perf_counter()
+        _corridors = _build_spine_corridors(spine_adj, nodes_xy)
+        # CROSS-CORRIDOR LAW COUPLING (spec §6 amendment): the unified
+        # graph's own pair set, filtered to corridor members (+ the hard
+        # spine nodes that neighbour one), becomes moving walls during the
+        # settle.  Built from ``graph.edges`` — materialized, unlike the
+        # shape-constraint entries whose junction all-pairs are lazily
+        # certified on flat airports.
+        _couple_adj = None
+        _n_couple = 0
+        if graph is not None:
+            _members = {i for c in _corridors for i in c}
+            from auto_patch import grade_graph as _GG_c
+            _law = []
+            for (_a, _b, _cap, _sp) in graph.edges:
+                _pa = graph.pos.get(_a)
+                _pb = graph.pos.get(_b)
+                if _pa is None or _pb is None:
+                    continue
+                _law.append((_a, _b, _cap.at(_GG_c._dist(_pa, _pb), 0.0)))
+            _couple_adj, _n_couple = _build_taut_couple_adj(
+                _law, _members, anchors)
+        _t_couple = _time.perf_counter()
+        _n_corr, _n_strung, _worst, _, _n_inv = _string_spine_corridors(
+            elev, _corridors, nodes_xy, node_band, spine_floor, anchors,
+            couple_adj=_couple_adj, pieces_out=_rod_pieces)
+        if _os.environ.get("O4_STEP_DEBUG") == "1":
+            print(f"    [taut-string] phase-A corridors={_n_corr} "
+                  f"strung={_n_strung} lift worst={_worst:.2f}m "
+                  f"coupled={_n_couple} inverted={_n_inv} "
+                  f"(couple={_t_couple - _t_string:.3f}s "
+                  f"string={_time.perf_counter() - _t_couple:.3f}s)")
     # FAIRING (task 3): bound the grade CHANGE along every spine chain by
     # the taxiway vertical-curve rate — runs after the harmonic solve
     # (which minimises grade, not grade CHANGE, so it still tracks DEM
@@ -3979,7 +4424,16 @@ def _solve_spine_profile(elev, base_hard, spine_adj, spine_floor,
             seen.add(e)
             s_edges.append((e[0], e[1], w))
     feasibility_project(elev, [{"edges": s_edges}], anchors)
-    return set(nodes)
+    # ``_rod_pieces`` (spec §10.1): the strung corridor pieces, returned
+    # so the caller can derive the STRING-AS-LAW interval-rod edges.
+    # The Δ snapshot is taken AT YIELD ENTRY, not here: between this
+    # freeze and the first spine-yield projection every projection holds
+    # the spine HARD, so a taxi corridor's values there ARE this faired
+    # string byte-for-byte — but ``apply_service_road_dem_follow``
+    # deliberately re-shapes SERVICE spines in between (roads follow
+    # DEM ≤cap), and a rod derived HERE would freeze the pre-follow
+    # shape and fight it (measured CYXY: 4 minted 8.95 % service pairs).
+    return set(nodes), _rod_pieces
 
 
 def _merge_spine_adj(a, b):

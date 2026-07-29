@@ -378,9 +378,11 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
 
     cps = getattr(layout, "canonical_points", None)
     bld_keys: set = set()
+    bld_polys: list = []
     for s in layout.shapes:
         if (s.role == ROLE_BUILDING and s.polygon is not None
                 and not s.polygon.is_empty):
+            bld_polys.append(s.polygon)
             for (x, y) in _open_ring(list(s.polygon.exterior.coords)):
                 if bucket_to_idx is not None and cps is not None:
                     i = bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
@@ -388,6 +390,56 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
                         bld_keys.add(i)
                 else:
                     bld_keys.add((round(x, 3), round(y, 3)))
+    # ON-EDGE PAD MEMBERSHIP (2026-07-28).  A solve node can lie EXACTLY on a
+    # pad boundary without being one of that pad's ring vertices: the pad only
+    # acquires the shared vertex later, at the nid-level final weld.  Keying
+    # building membership off ring-vertex identity alone therefore read the
+    # SAME PHYSICAL VERTEX two ways in one build — SPJC apron/-10191 node
+    # (915.482, -1130.138) sits 0.00000 m from ``building81``'s boundary, yet
+    # the solve context held 627 building keys and the final projection's 683,
+    # differing by exactly the 56 on-edge nodes.  That is not cosmetic:
+    # ``grade_law.classify_pair``'s apron body-chord cap
+    # (``APRON_BODY_CHORD_MAX_M``) EXEMPTS building-endpoint pairs, so the
+    # divergence silently dropped every long building-frontage chord from the
+    # body yield's graph (fp#8 never enforced them, the free endpoint drifted)
+    # while ``final_grade_projection`` DID bake them — and the validator,
+    # consuming that bake in lockstep, graded pairs the solve had never
+    # constrained.  Register on-boundary nodes here so both readings agree BY
+    # CONSTRUCTION.  Solver key space only: the validator's post-emit rings
+    # already carry the welded vertex, so its coordinate keying sees it.
+    if bucket_to_idx and bld_polys:
+        from .layout import SHARED_VERTEX_TOL_M
+        tol = float(SHARED_VERTEX_TOL_M)
+        # Cheap spatial prefilter: mark the coarse cells each pad's BOUNDING
+        # BOX covers, then run the precise (prepared) boundary test only on
+        # nodes landing in one.  Bounding boxes, not a perimeter walk — the
+        # dense walk cost 0.34 s/call at HECA (507 k cells) and this costs
+        # ~0.01 s for the same candidate set.
+        gcell = 8.0
+        cells: set = set()
+        for poly in bld_polys:
+            x0, y0, x1, y1 = poly.bounds
+            for cx in range(int(math.floor((x0 - tol) / gcell)),
+                            int(math.floor((x1 + tol) / gcell)) + 1):
+                for cy in range(int(math.floor((y0 - tol) / gcell)),
+                                int(math.floor((y1 + tol) / gcell)) + 1):
+                    cells.add((cx, cy))
+        cand = [(c, i) for (c, i) in bucket_to_idx.items()
+                if i not in bld_keys
+                and (int(math.floor(c[0] / gcell)),
+                     int(math.floor(c[1] / gcell))) in cells]
+        if cand:
+            try:
+                from shapely.geometry import Point as _Pt
+                from shapely.ops import unary_union as _uu0
+                from shapely.prepared import prep as _prep0
+                zone = _prep0(_uu0([p.boundary for p in bld_polys])
+                              .buffer(tol))
+                for (c, i) in cand:
+                    if zone.contains(_Pt(c[0], c[1])):
+                        bld_keys.add(i)
+            except Exception:                                 # pragma: no cover
+                pass
     # Service-road carve zone — a soft-shape pair on a road carve descends at the
     # road cap (the carve corners lie on the host ring).  Built ONCE here so the
     # solver and the validator regulate it identically (the law, not a fudge).

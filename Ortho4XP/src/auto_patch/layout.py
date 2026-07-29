@@ -436,6 +436,15 @@ class BuiltShape:
     # though its parent passed (KCLT junction #255, 1.9 k m² dropped),
     # so ``_drop_off_source_residue`` must not judge it.
     from_route_proximity_cut: bool = False
+    # Set on pieces minted by the reachability SEVERANCE cut (owner
+    # ruling 2026-07-28: "sever landside from airside so we can
+    # classify correctly" — pavement_scoring.sever_unreachable).  The
+    # shape straddled the aircraft-reachability contour and was cut
+    # there so each side could be scored against its own connectivity.
+    # Severed pieces also carry ``from_route_proximity_cut`` (same
+    # already-kept-pavement protection); this flag exists so decision
+    # logs and probes can tell the two cuts apart.
+    from_severance_cut: bool = False
     # USER RULING 2026-07-06: a service road / service junction that
     # SHARES AN EDGE with an apron follows the APRON grading rules —
     # the road is part of the stand surface there, and a 4-5 % ramp
@@ -510,6 +519,16 @@ class PavementLayout:
     # legitimate vertex sources rather than densification orphans.
     apt_pavement_vertices: list[tuple[float, float]] = field(
         default_factory=list)
+    # Per-polygon apt.dat row-110 provenance for the scoring classifier
+    # (docs/specs/pavement-scoring-classifier-spec.md §5): one
+    # ``(polygon_m, name, surface_code)`` per exterior piece, meter
+    # space.  Without this only the anonymous union survives assembly —
+    # the names/surface codes were parsed and then dropped.
+    apt_pavement_records: list = field(default_factory=list)
+    # apt.dat-only pavement polygons (the pre-DSF snapshot), meter
+    # space — provenance evidence for the scoring classifier: DSF-drawn
+    # area is whatever these do not cover.
+    apt_only_pavement_polys: list = field(default_factory=list)
     # Union of apt.dat row-110 pavement polygons' boundaries in
     # meter space.  Junction perimeters that follow the row-110
     # pavement edge can land at any point ALONG these segments

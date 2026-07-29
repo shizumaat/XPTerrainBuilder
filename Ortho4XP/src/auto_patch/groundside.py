@@ -2512,12 +2512,17 @@ def _separate_groundside_from_airside(
     return n_clipped
 
 
-def _clip_shape_yielding_to(ys, kept_polygon):
+def _clip_shape_yielding_to(ys, kept_polygon, snap_tol: float = 0.25):
     """Clip shape ``ys`` so it yields its overlap with ``kept_polygon``:
     snap-then-difference (the contact chain passes exactly through the
     kept vertices), largest surviving part, kept-vertex projections
     inserted on the new ring (no residual T-junction), and
     ``node_altitudes`` carried from the nearest original vertex.
+
+    ``snap_tol=0`` disables the pre-difference snap: the result then
+    only ever SHRINKS ``ys``, so the clip cannot sweep an edge across a
+    third shape — the non-converging-rounds fallback in
+    ``_deconflict_service_overlaps``.
 
     Returns the new ``Polygon`` (``ys`` already mutated), or ``None``
     when nothing survives — the yielder lies (essentially) wholly
@@ -2525,8 +2530,9 @@ def _clip_shape_yielding_to(ys, kept_polygon):
     Extracted verbatim from the service↔service loop so the
     senior-pavement stage shares one clip semantics."""
     try:
-        diff = snap(ys.polygon, kept_polygon, 0.25).difference(
-            kept_polygon)
+        base = (snap(ys.polygon, kept_polygon, snap_tol) if snap_tol
+                else ys.polygon)
+        diff = base.difference(kept_polygon)
     except _GEOM_EXC:
         return ys.polygon
     parts = ([diff] if diff.geom_type == "Polygon"
@@ -2583,8 +2589,99 @@ def _clip_shape_yielding_to(ys, kept_polygon):
     return new_poly
 
 
+def _clip_pavement_against_building_pads(
+        layout: "PavementLayout", min_overlap_m2: float = 1e-3) -> int:
+    """LAST-WORD building-pad re-clip (owner CYXY building1, 12.3 →
+    36.9 m² apron∩building — the standing zero-tolerance-overlap red).
+
+    The slice builds pavement from ``pav_union − terminal_union``, so
+    shapes are BORN clear of building pads — but the post-solve
+    conformance weld (0.5 m tolerance) can bow a pavement ring back
+    ACROSS a pad edge (the exact overlap class the final T-weld's
+    tight-tolerance comment predicts), and no later pass owned the
+    pavement∩building pair.  Pavement always yields to the pad (the
+    slice's own invariant).  Pure difference (``snap_tol=0`` — only
+    ever shrinks the yielder, cannot mint overlap elsewhere) with the
+    shared clip's altitude carry-over; runs BEFORE the final T-weld so
+    the clip's new on-edge vertices get welded.  Returns shapes
+    clipped/dropped.
+    """
+    from shapely.strtree import STRtree
+    pads = [s.polygon for s in layout.shapes
+            if s.role in (ROLE_BUILDING, "terminal")
+            and s.polygon is not None and not s.polygon.is_empty
+            and s.polygon.geom_type == "Polygon"]
+    if not pads:
+        return 0
+    clip_roles = (ROLE_APRON, ROLE_JUNCTION, ROLE_SERVICE_ROAD,
+                  ROLE_SERVICE_JUNCTION, ROLE_GROUNDSIDE_PAVEMENT)
+    tree = STRtree(pads)
+    n_clipped = 0
+    drop_ids: set = set()
+    for s in layout.shapes:
+        if (s.role not in clip_roles or s.polygon is None
+                or s.polygon.is_empty
+                or s.polygon.geom_type != "Polygon"):
+            continue
+        try:
+            candidates = tree.query(s.polygon)
+        except _GEOM_EXC:
+            continue
+        for qk in candidates:
+            pad = pads[int(qk)]
+            try:
+                overlap = s.polygon.intersection(pad).area
+            except _GEOM_EXC:
+                continue
+            if overlap <= min_overlap_m2:
+                continue
+            new_poly = _clip_shape_yielding_to(s, pad, snap_tol=0.0)
+            if new_poly is None:
+                # wholly inside the pad — the building owns the
+                # footprint; drop the redundant pavement.
+                drop_ids.add(id(s))
+                n_clipped += 1
+                break
+            n_clipped += 1
+    if drop_ids:
+        layout.shapes = [s for s in layout.shapes
+                         if id(s) not in drop_ids]
+    return n_clipped
+
+
 def _deconflict_service_overlaps(
         layout: "PavementLayout", min_overlap_m2: float = 1e-3) -> int:
+    """Clip lens-scale service-shape overlaps to CONVERGENCE.
+
+    One round is not always enough: a round's own snap-clips can sweep
+    a rebuilt edge across a THIRD shape and mint a fresh lens (SPJC
+    severed piece 2026-07-28: the senior-pavement clip re-crossed a
+    neighbouring service_junction by 1.27 m²; snap-clip rounds then
+    OSCILLATE — each stage's 0.25 m snap re-minting the other's
+    overlap — and nothing later owns service↔service).  Repeat until a
+    full round clips nothing; if the rounds cap out without
+    converging, run one last round with the snap DISABLED — a pure
+    difference only ever shrinks the yielder, so it cannot mint
+    overlap anywhere and the pass ends overlap-free (the cost is a
+    possible T-vertex on the contact, which the final T-weld inserts
+    handle).  Returns total shapes clipped."""
+    total = 0
+    converged = False
+    for _ in range(3):
+        n = _deconflict_service_overlaps_once(layout, min_overlap_m2)
+        total += n
+        if not n:
+            converged = True
+            break
+    if not converged:
+        total += _deconflict_service_overlaps_once(layout, min_overlap_m2,
+                                                   snap_tol=0.0)
+    return total
+
+
+def _deconflict_service_overlaps_once(
+        layout: "PavementLayout", min_overlap_m2: float = 1e-3,
+        snap_tol: float = 0.25) -> int:
     """Clip lens-scale overlaps between SERVICE shapes (last word, before
     emit).  The canonical vertex weld can cross two near-coincident
     service boundaries whose contact chains carry different vertex
@@ -2631,7 +2728,8 @@ def _deconflict_service_overlaps(
             yi, ys = (ia, sa) if sa.polygon.area < sb.polygon.area \
                 else (ib, sb)
             ki, ks = (ib, sb) if ys is sa else (ia, sa)
-            new_poly = _clip_shape_yielding_to(ys, ks.polygon)
+            new_poly = _clip_shape_yielding_to(ys, ks.polygon,
+                                               snap_tol=snap_tol)
             if new_poly is None:
                 # Nothing survives the difference → the yielder lies
                 # (essentially) WHOLLY inside the kept shape.  A plain
@@ -2683,7 +2781,8 @@ def _deconflict_service_overlaps(
                     continue
                 if overlap <= min_overlap_m2:
                     continue
-                new_poly = _clip_shape_yielding_to(s, kept_polygon)
+                new_poly = _clip_shape_yielding_to(s, kept_polygon,
+                                                   snap_tol=snap_tol)
                 if new_poly is None:
                     drop_ids.add(id(s))
                     n_clipped += 1
@@ -2776,3 +2875,70 @@ def _deconflict_groundside_overlaps(
     return n_mod
 
 
+
+
+def service_end_cap_lines(lines, pav_union, *, max_half_width_m=40.0,
+                          edge_tol_m=1.0):
+    """Perpendicular CUT chords at service-line ends that die
+    mid-pavement.
+
+    Owner report 2026-07-28 (CYXY 60.7131204,-135.0753622): a free-road
+    interval end cut the pavement only up to the SPINE — the far half of
+    the road stayed fused to the neighbouring shape ("one half of a road
+    or taxiway correct, the other half lumped in with a larger shape").
+    A cap chord across the full local cross-section makes the slice
+    sever both halves at the same station.  Returns bare cut GEOMETRY —
+    the caller must keep cap ids out of face classification.
+
+    ``max_half_width_m`` must exceed any real corridor cross-section:
+    a cap that stops SHORT of the pavement boundary leaves the face
+    unpartitioned and the polygonizer silently ignores the cut (CYXY
+    shape 64/69, caps 1.4-2.3 m short at 15 m — the owner's round-4
+    "widen-cut" chords never fired).  The contiguous-piece filter below
+    keeps a long chord local, so a generous reach is safe.
+    """
+    import math as _math
+    from shapely.geometry import LineString as _LS, Point as _P
+    caps = []
+    if pav_union is None or pav_union.is_empty:
+        return caps
+    boundary = pav_union.boundary
+    for line in lines:
+        try:
+            coords = list(line.coords)
+        except _GEOM_EXC:
+            continue
+        if len(coords) < 2:
+            continue
+        for end, prev in ((coords[0], coords[1]),
+                          (coords[-1], coords[-2])):
+            dx, dy = end[0] - prev[0], end[1] - prev[1]
+            run = _math.hypot(dx, dy)
+            if run < 1e-6:
+                continue
+            point = _P(end)
+            try:
+                if not pav_union.contains(point):
+                    continue
+                if boundary.distance(point) < edge_tol_m:
+                    continue      # dies at the pavement edge: no cap
+                px, py = -dy / run, dx / run
+                chord = _LS([
+                    (end[0] - px * max_half_width_m,
+                     end[1] - py * max_half_width_m),
+                    (end[0] + px * max_half_width_m,
+                     end[1] + py * max_half_width_m)])
+                cut = chord.intersection(pav_union)
+            except _GEOM_EXC:
+                continue
+            best = None
+            for piece in getattr(cut, "geoms", [cut]):
+                if piece.geom_type != "LineString":
+                    continue
+                if piece.distance(point) > 0.5:
+                    continue      # a disjoint sliver across a gap
+                if best is None or piece.length > best.length:
+                    best = piece
+            if best is not None and best.length >= 2.0:
+                caps.append(best)
+    return caps

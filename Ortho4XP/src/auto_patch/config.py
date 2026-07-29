@@ -85,6 +85,23 @@ __all__ = [
     "PAVEMENT_CLASS_SPLIT_MIN_BODY_AREA_M2",
     "PAVEMENT_CLASS_SPLIT_MIN_TAIL_AREA_M2",
     "PAVEMENT_CLASS_SPLIT_MAX_RING_VERTICES",
+    "PAVEMENT_SCORE_V2",
+    "PAVEMENT_SCORE_PURE",
+    "PAVEMENT_SCORE_WEIGHTS",
+    "PAVEMENT_SCORE_RELIABILITY",
+    "PAVEMENT_SCORE_MIN_AREA_M2",
+    "PAVEMENT_SCORE_MARGIN_HIGH",
+    "PAVEMENT_SCORE_MARGIN_MED",
+    "PAVEMENT_SCORE_VETO_FRAC",
+    "PAVEMENT_SCORE_WIDE_HALF_M",
+    "PAVEMENT_SCORE_THREAD_MIN_FRAC",
+    "PAVEMENT_SCORE_SPINE_BUFFER_M",
+    "PAVEMENT_SCORE_TRUCK_BUFFER_M",
+    "PAVEMENT_SCORE_SEVER_MIN_AREA_M2",
+    "PAVEMENT_SCORE_SEVER_PINCH_MAX_M",
+    "PAVEMENT_SCORE_SEVER_FRONTAGE_W_M",
+    "PAVEMENT_SCORE_BOUNDARY_OUT_FRAC",
+    "PAVEMENT_SCORE_ENCLAVE_GAP_M",
     "ABSORB_RECTS_ALONGSIDE_APRONS",
     "ENABLE_DISCOVERED_TAXIWAYS",
     "PAINTED_CENTERLINE_FALLBACK",
@@ -271,6 +288,8 @@ __all__ = [
     "OLS_MAX_CUT_DEPTH_M",
     "OLS_OBSTRUCTION_THRESHOLD_M",
     "OLS_SEAM_TILE_LINE_REFUSAL",
+    "OLS_ROAD_REGRADE_ENABLED",
+    "OLS_ROAD_REGRADE_FOLLOW_M",
     "OBJECT_BRIDGE_TERRAIN",
     "OBJECT_TUNNEL_TERRAIN",
     "OBJECT_SPLIT_LEVEL_TERRAIN",
@@ -892,6 +911,35 @@ SPINE_FAIR_WELD_MAX_DEVIATION_DEG = float(
 # ``O4_SPINE_CHORD_MAX_SAG_M`` after the HECA A/B, not before.
 SPINE_CHORD_MAX_SAG_M = float(
     _os_early.environ.get("O4_SPINE_CHORD_MAX_SAG_M", "0"))
+# ── TAUT-STRING SPINE PROFILE (owner ruling 2026-07-28,
+# docs/specs/taut-string-spine-profile-spec.md) ──────────────────
+# The taut string REPLACES the min-curvature harmonic as the taxi-spine
+# LONGITUDINAL objective: per corridor the profile is the shortest path
+# in (station, elevation) through the feasible reach tube
+# [floor(s), ceiling(s)], pinned at genuinely-pinned nodes.  The
+# harmonic minimises curvature and has NO altitude preference, so on a
+# real-relief airport it interpolates a corridor toward the network-wide
+# descent and parks it metres under its own lawful ceiling (HECA
+# corridor: 6.3 m below the ceiling, 5.5 m below DEM — spec §1); the
+# string is symmetric (it never rises more than needed either) and every
+# bend has a witnessed wall contact.  The harmonic stays as the junction
+# seed and the fallback for unstrung nodes; the K-factor fairing becomes
+# what it was meant to be — rounding at the string's few bends.  OFF
+# restores the harmonic path BYTE-IDENTICALLY (every new code path is
+# behind this gate).
+SPINE_TAUT_STRING = (
+    _os_early.environ.get("O4_SPINE_TAUT_STRING", "1") == "1")
+# STRING-AS-LAW interval rod ε (spec §10, owner ruling 2026-07-28 late
+# session — supersedes the §7 hold mechanisms): the faired phase-A
+# string is registered as SIGNED INTERVAL EDGES ``z_i − z_j ∈
+# [Δstring − ε, Δstring + ε]`` per consecutive spine pair, so every
+# projection maintains the string's SHAPE while the corridor stays free
+# to TRANSLATE vertically (a rod that cannot sag).  ε is the per-edge
+# slack: quantization-scale, so accumulated shape drift over a 30-edge
+# corridor stays ≤ ~0.6 m.  Inert when SPINE_TAUT_STRING is off (no
+# string ⇒ no rod edges).
+SPINE_ROD_EPSILON_M = float(
+    _os_early.environ.get("O4_SPINE_ROD_EPSILON_M", "0.02"))
 # ── Corridor-profile DAMPING (user 2026-06-14) ──────────────────
 # The taxi-corridor field SEEDS at the DEM and projects onto the legal
 # band, so wherever the DEM is locally legal the profile sits ON the
@@ -1783,6 +1831,215 @@ PAVEMENT_CLASS_SPLIT_MIN_TAIL_AREA_M2 = float(
     _os.environ.get("O4_PAVEMENT_CLASS_SPLIT_MIN_TAIL_AREA_M2", "400"))
 PAVEMENT_CLASS_SPLIT_MAX_RING_VERTICES = int(
     _os.environ.get("O4_PAVEMENT_CLASS_SPLIT_MAX_RING_VERTICES", "400"))
+
+# ── PAVEMENT SCORING CLASSIFIER v2 (evidence fusion) ─────────────────
+# Spec: docs/specs/pavement-scoring-classifier-spec.md (owner decisions
+# 2026-07-27: full 4-class scope; 2026-07-28: enactment approved).
+# Modes: "off" | "shadow" (score + log at pipeline end, mutate
+# nothing) | "on" (Phase B ENACTMENT: the scorer classifies in the
+# classify_pavement_v1 slot; the v1 vote, the first unscoped
+# runway-disconnected pass, and the groundside route-corridor
+# promotion are gated off — their laws live in the scorer).
+# DEFAULT "on" — owner approval 2026-07-28 ("turn it on so I can test
+# it"), accepting the measured ~1.4 s cost at HECA (builds already
+# over the 60 s budget; HARD-LAW written record: spec §10.3).  Low
+# legacy agreement at HECA is EXPECTED — the legacy chain is the
+# thing being replaced there.
+PAVEMENT_SCORE_V2 = _os.environ.get("O4_PAVEMENT_SCORE_V2", "on")
+# PURE enactment (owner 2026-07-28: "how will I be able to validate the
+# new system if things are falling through to the legacy one?"): LOW
+# margins enact the argmax too, so every scored shape takes the
+# scorer's verdict — nothing falls through.  0 restores the hybrid
+# (LOW → legacy passes) development behavior.  Shapes with NO winner
+# (zero evidence) always keep their born role.
+PAVEMENT_SCORE_PURE = _os.environ.get("O4_PAVEMENT_SCORE_PURE", "1") == "1"
+# Points each feature contributes toward each class, BEFORE the
+# per-airport source-reliability scaling (spec §6).  Feature values are
+# fractions in [0,1]; negative points are allowed.  Override individual
+# rows with O4_PAVEMENT_SCORE_WEIGHTS='{"feature": {"CLASS": pts}}'.
+PAVEMENT_SCORE_WEIGHTS: dict = {
+    "name_apron":          {"APRON": 3.0},
+    "name_taxi":           {"TAXI": 3.0},
+    "name_service":        {"SERVICE": 3.0},
+    "osm_apron":           {"APRON": 2.5},
+    "osm_stand":           {"APRON": 2.0},
+    "osm_taxi":            {"TAXI": 2.5},
+    "spine_cover":         {"TAXI": 2.0},
+    "spine_thread":        {"TAXI": 2.5},
+    "truck_cover":         {"SERVICE": 1.5},
+    "truck_thread":        {"SERVICE": 2.5},
+    # Truck territory ON a road-width corridor is road identity (CYXY
+    # #45/#46: service roads beside taxiways sit inside the spine halo;
+    # spine_cover is suppressed by truck_cover on corridors and this
+    # votes SERVICE in its place).
+    "truck_corridor":      {"SERVICE": 2.0},
+    "road_cover":          {"SERVICE": 0.5, "GROUNDSIDE": 2.0},
+    "road_thread":         {"SERVICE": 2.0},
+    # Owner ruling 2026-07-28: narrow (vehicle-only) + road-covered is a
+    # SERVICE road even when too short to thread — the HECA 296-fragment
+    # shadow bucket.  Outvotes road_cover's GROUNDSIDE 2.0 on narrow
+    # shapes (2.5 + 0.5 vs 2.0), leaves wide lots alone.
+    "road_narrow":         {"SERVICE": 2.5},
+    "parking_cover":       {"GROUNDSIDE": 2.5},
+    # Global-airports cross-reference (owner 2026-07-27): the default
+    # apt.dat's naming/network, discounted by measured alignment — half
+    # the primary name weights because it describes ANOTHER author's
+    # layout of the same airport.
+    "alt_name_apron":      {"APRON": 1.5},
+    "alt_name_taxi":       {"TAXI": 1.5},
+    "alt_name_service":    {"SERVICE": 1.5},
+    "alt_taxi_cover":      {"TAXI": 1.0},
+    "narrow_only":         {"APRON": -2.0, "TAXI": -1.0,
+                            "SERVICE": 1.5, "GROUNDSIDE": 1.0},
+    "wide_blob":           {"APRON": 1.5},
+    "runway_connected":    {"APRON": 1.0, "TAXI": 1.0},
+    "runway_disconnected": {"GROUNDSIDE": 2.0},
+    "enclosed_by_airside": {"APRON": 1.0},
+    "open_perimeter":      {"GROUNDSIDE": 0.5},
+    "third_party_source":  {"GROUNDSIDE": 0.5},
+    # Owner ruling 2026-07-28: airside never exists outside the OSM
+    # aerodrome boundary.  Also a hard gate (G-BOUNDARY) past
+    # PAVEMENT_SCORE_BOUNDARY_OUT_FRAC; the weight makes the fraction
+    # itself evidence so a gated shape always carries a positive
+    # GROUNDSIDE score.
+    "outside_boundary":    {"GROUNDSIDE": 2.0},
+    # BUILDING-FRONTAGE ruling (owner 2026-07-28, CYXY building4: "the
+    # pavement around building4 should all be apron"): a narrow strip
+    # fully flanked by other built shapes with NO road/truck evidence
+    # is stand/frontage pavement that grades with its surroundings —
+    # the vehicle-only narrow penalty does not apply (zeroed when this
+    # fires) and the strip leans APRON.
+    "pavement_frontage":   {"APRON": 1.5},
+    # Set by the enclave re-verdict (G-ENCLAVE): pavement topologically
+    # locked inside airside defaults toward the apron law — it grades
+    # with what surrounds it.
+    "airside_enclave":     {"APRON": 1.5},
+    # STANDING FREE-ROAD LAW (owner, canonical text in
+    # groundside.free_road_subsegments; scorer restatement 2026-07-28:
+    # "any portion of a defined service road running along the edge
+    # of, or through an apron, becomes apron").  Fraction of the
+    # shape's boundary shared with apron pavement; also gates SERVICE
+    # off road corridors past PAVEMENT_SCORE_APRON_EDGE_FRAC.
+    "apron_edge_bound":    {"APRON": 2.0},
+    # Owner ruling 2026-07-28 (SPJC #182): "apron should always abut
+    # the airside side of buildings" — a shape sharing a building edge
+    # while aircraft-side votes and gates APRON.
+    "building_abut":       {"APRON": 1.5},
+    "unpaved_cover":       {},          # logged only; tune from shadows
+}
+_ps_weights_env = _os.environ.get("O4_PAVEMENT_SCORE_WEIGHTS")
+if _ps_weights_env:
+    import json as _json
+    try:
+        PAVEMENT_SCORE_WEIGHTS.update(_json.loads(_ps_weights_env))
+    except (ValueError, TypeError):
+        pass
+# Reliability metric denominators (spec §4): how much of a source counts
+# as "fully present" at an airport.
+PAVEMENT_SCORE_RELIABILITY: dict = {
+    "osm_area_ratio": 0.5,     # aeroway area vs half the pavement area
+    "osm_ways": 20.0,          # airside aeroway way count
+    "road_ways": 25.0,         # road-feed way count
+    "truck_len_m": 500.0,      # apt.dat 1206 total length
+    "spine_len_m": 1000.0,     # taxi-spine total length
+}
+# Shapes below this area are not scored.  10 m², not 50 (CYXY gravel
+# lot, 2026-07-28): 20-40 m² road-residue slivers left tagged
+# ``junction`` by the floor acted as permanent AIRCRAFT bridges in the
+# reachability erosion, welding an unreachable lot into the taxiable
+# core — their road evidence is decisive, so classify them.
+PAVEMENT_SCORE_MIN_AREA_M2 = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_MIN_AREA_M2", "10"))
+# Confidence bands on the relative margin (s1-s2)/s1 (spec §8).
+PAVEMENT_SCORE_MARGIN_HIGH = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_MARGIN_HIGH", "0.35"))
+PAVEMENT_SCORE_MARGIN_MED = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_MARGIN_MED", "0.15"))
+# G-VETO: airside evidence fraction that removes landside candidates
+# (the R-VETO ruling; same 0.25 as PAVEMENT_CLASS_AIRSIDE_KEEP_FRAC).
+PAVEMENT_SCORE_VETO_FRAC = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_VETO_FRAC", "0.25"))
+# "Wide" morphology half-width: a shape surviving buffer(-25) is ≥~50 m
+# across somewhere (the global-slice corridor cap), apron-scale.
+PAVEMENT_SCORE_WIDE_HALF_M = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_WIDE_HALF_M", "25"))
+# A layer's centerline must thread at least this fraction of a corridor
+# shape's long axis to count as *_thread evidence.
+PAVEMENT_SCORE_THREAD_MIN_FRAC = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_THREAD_MIN_FRAC", "0.6"))
+# Aircraft-reachability path width (owner ruling 2026-07-28, CYXY
+# #104: groundside = aircraft cannot REACH it — a connection counts
+# only when wide enough to fit an aircraft without hitting a
+# building).  13, not the 11 m pavement-existence figure: a taxi ROUTE
+# needs more than bare gear width — measured at the CYXY lot, the only
+# link to the taxiable core is an 11-13 m pinch through one junction
+# fragment (7 m² of core contact); the owner's on-the-ground call is
+# that no aircraft taxis through it.  Sweep 2026-07-28: 11 m connects,
+# 13/15/18 m disconnect.
+PAVEMENT_SCORE_AIRCRAFT_PATH_WIDTH_M = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_AIRCRAFT_PATH_WIDTH_M", "13"))
+# Wingtip standoff from building pads in the reachability erosion — the
+# owner's "without HITTING a building": pavement passing closer than
+# this to a building is not an aircraft path (≈ half a code-A wingspan).
+PAVEMENT_SCORE_BUILDING_CLEARANCE_M = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_BUILDING_CLEARANCE_M", "7.5"))
+# SEVERANCE ruling (owner 2026-07-28, CYXY round 4: "we need to sever
+# landside from airside so we can classify correctly").  A shape
+# straddling the reachability contour is CUT there; an unreachable
+# remainder piece splits off as its own shape only at or above this
+# area.  Twice PAVEMENT_SCORE_MIN_AREA_M2: a severed piece must be
+# scoreable on its own, with margin over the sliver noise a buffer
+# contour cut produces along pinches.
+PAVEMENT_SCORE_SEVER_MIN_AREA_M2 = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_SEVER_MIN_AREA_M2", "20"))
+# G-BOUNDARY (owner ruling 2026-07-28, refined same day): "a shape
+# ENTIRELY outside the airport boundary is guaranteed to be groundside
+# or road.  If it crosses the boundary it requires further analysis by
+# the rest of our rules" — airports are often authored with large
+# contiguous pavement spanning the fence (an airside apron connecting
+# to a parking lot outside).  The gate therefore fires only when at
+# least this fraction of the shape lies outside the aerodrome polygon
+# (the missing 5 % absorbs digitization misalignment); a mere crosser
+# gets no gate, its outside fraction weighing in as plain GROUNDSIDE
+# evidence instead.
+PAVEMENT_SCORE_BOUNDARY_OUT_FRAC = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_BOUNDARY_OUT_FRAC", "0.95"))
+# Severance PINCH test (owner CYXY building4, 2026-07-28): a remainder
+# is severed only when it hangs off the reachable side through a
+# NARROW interface (a true pinch an aircraft cannot pass).  A piece
+# sharing a LONG cut edge with the reachable side is merely the
+# building-clearance SHADOW band of the same contiguous surface
+# ("the pavement around building4 should all be apron") — it stays
+# welded and classifies with its parent.  Default: twice the
+# aircraft-path width.
+PAVEMENT_SCORE_SEVER_PINCH_MAX_M = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_SEVER_PINCH_MAX_M",
+                    str(2.0 * PAVEMENT_SCORE_AIRCRAFT_PATH_WIDTH_M)))
+# Severance route-vouch FRONTAGE width (owner CYXY building2,
+# 2026-07-28/29 refinement: "the entire airside facia of the building
+# should be welded smoothly to airside pavement").  Within a
+# route-touched piece, the vouched region floods along building faces
+# through channels at least this wide (building FOOTPRINTS as hard
+# blockers, not wingtip clearance) — the flood dies at a sub-width
+# neck, so the groundside cut lands at the narrowest pavement chord
+# off the building corner.  Applies ONLY inside route-touched pieces,
+# so the un-routed #104 lot ruling is unaffected.
+PAVEMENT_SCORE_SEVER_FRONTAGE_W_M = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_SEVER_FRONTAGE_W_M", "8.0"))
+# G-ENCLAVE (owner ruling 2026-07-28): "groundside can never be
+# surrounded by airside pavement unless it has a tunnel or bridge
+# service road to get out" — airside and groundside must be separable
+# by one continuous boundary.  A groundside shape whose exterior ring
+# has less than this length uncovered by airside pavement counts as
+# fully surrounded (the gap allowance absorbs vertex noise; a real
+# vehicle exit is far wider).
+PAVEMENT_SCORE_ENCLAVE_GAP_M = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_ENCLAVE_GAP_M", "3.0"))
+# Territory buffers: taxi-spine / truck-route evidence half-widths.
+PAVEMENT_SCORE_SPINE_BUFFER_M = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_SPINE_BUFFER_M", "25"))
+PAVEMENT_SCORE_TRUCK_BUFFER_M = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_TRUCK_BUFFER_M", "8"))
 
 # APRON↔TAXI GRADE BLEND (user 2026-06-25).  A taxi route runs THROUGH aprons, so
 # the apron cannot be a flat 1 % everywhere: as it approaches a taxi centerline it
@@ -4126,6 +4383,38 @@ OLS_OBSTRUCTION_THRESHOLD_M = 1.0
 # "0" restores the data-extent-only test byte-identically.
 OLS_SEAM_TILE_LINE_REFUSAL = (
     _os.environ.get("O4_OLS_SEAM_TILE_LINE_REFUSAL", "1") == "1")
+
+# ── OLS ROAD REGRADE (owner direction 2026-07-28, SPJC 16R fan) ─────────
+# The corridor mask (2026-07-25) makes the OLS cut ABSENT over surface
+# road/rail corridors, so the road keeps its own embankment.  Where the
+# corridor crosses an admitted penetration ISLAND that is exactly wrong:
+# the DEM hill the law cuts back everywhere else is left standing as a
+# road-width causeway 3-6 m proud of the fan, carrying grades far beyond
+# what a ground vehicle route allows (measured SPJC 16R: 12.8 % and
+# 13.2 % over 10 m steps on the two flanking service roads).  With this
+# ON, such a road is REGRADED instead: the OSM way is the road SPINE,
+# carrying a continuous longitudinal profile — cut-only against the
+# DEM, capped at ``SERVICE_ROAD_MAX_GRADE`` (the ground-vehicle grade
+# law, single source), bounded by the composed OLS ceiling over
+# admitted cells — so the road descends THROUGH the hill with the cut.
+# Emitted as TWO matching ``service_junction`` half-shapes (ref
+# ``ols_road``), half a corridor width outward each side of the spine,
+# welded along it, outer edges under the service-road LATERAL rule
+# (``SERVICE_ROAD_MAX_TRANSVERSE``); the graded segment follows the
+# spine at least ``OLS_ROAD_REGRADE_FOLLOW_M`` past the OLS in both
+# directions and lands ON the DEM at both ends.  Sub-gate of
+# ``OLS_CUT_ENABLED``; "0" restores the embankment behavior
+# byte-identically.
+OLS_ROAD_REGRADE_ENABLED = (
+    _os.environ.get("O4_OLS_ROAD_REGRADE", "1") == "1")
+# The graded road follows the spine AT LEAST this far past the OLS
+# surface footprint in both directions before blending into the DEM
+# (owner 2026-07-28: "at least 100m past the OLS in both directions,
+# DEM on both ends") — extended further where the service-road grade
+# needs more length to meet the terrain, clamped at the way's end when
+# the way itself stops sooner (an end already at the DEM is a lawful
+# blend point).
+OLS_ROAD_REGRADE_FOLLOW_M = 100.0
 
 # GAP-FILL + DRAINAGE SPINE (user design ruling 2026-07-09,
 # docs/chain_identity_one_solve_plan.md): ground ENCLOSED between

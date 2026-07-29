@@ -1180,7 +1180,11 @@ def airport_mod_cache_dir(pack_root: str) -> str | None:
 # sidecar.
 # 2: portal-face exclusions (EGGW); 3: terrain classifier refuses stock
 # library (lib/...) resources, changing the terrain-exclusion pass output
-_OBJECT_FOOTPRINT_CACHE_VERSION = 3
+# v4: name-vouched building resources (hangar/terminal library paths)
+# bypass the slab/mast + sparse-fill heuristics in
+# object_footprints.structure_ring (owner CYXY 2026-07-28 — the stock
+# arched hangar measured tall-base fill 0.001 and was culled).
+_OBJECT_FOOTPRINT_CACHE_VERSION = 4
 
 # Sidecar file name prefix; the full name carries the DSF stem
 # (``o4_object_footprints_<dsf-stem>.cache``) so two DSFs of one pack

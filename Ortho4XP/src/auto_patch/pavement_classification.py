@@ -199,6 +199,56 @@ class CoverIndex:
         except _GEOM_EXC:
             return 0.0
 
+    def cover_fractions(self, polygons) -> list:
+        """``cover_fraction`` over many polygons via ONE bulk tree query.
+
+        Identical per-polygon math (single-hit shortcut, per-query
+        union; equivalence discipline as above).  The bulk ``query``
+        removes the per-call round trip, and zero-hit polygons — the
+        common case against a sparse layer — cost nothing at all.
+        """
+        fractions = [0.0] * len(polygons)
+        if self.tree is None or not polygons:
+            return fractions
+        try:
+            import numpy as np
+            arr = np.array(polygons, dtype=object)
+            pairs = self.tree.query(arr, predicate="intersects")
+            # A polygon lying fully inside ONE part is covered outright
+            # (ratio 1.0 to within an ulp of the overlay's answer) —
+            # the prepared predicate is far cheaper than the overlay.
+            inside = {int(qi) for qi in
+                      self.tree.query(arr, predicate="within")[0]}
+        except _GEOM_EXC:
+            return [self.cover_fraction(p) for p in polygons]
+        hits_by: dict = {}
+        for qi, gi in zip(pairs[0], pairs[1]):
+            hits_by.setdefault(int(qi), []).append(self.parts[int(gi)])
+        import shapely
+        for qi, hits in hits_by.items():
+            polygon = polygons[qi]
+            try:
+                area = polygon.area
+                if area <= 0.0:
+                    continue
+                if qi in inside:
+                    fractions[qi] = 1.0
+                    continue
+                if len(hits) == 1:
+                    covered = polygon.intersection(hits[0]).area
+                else:
+                    # Clip each hit to the polygon FIRST, then union the
+                    # small clipped pieces — same covered area as
+                    # intersecting against the union of the full parts,
+                    # without ever merging full-size layer geometry
+                    # (equivalence discipline as above).
+                    covered = shapely.union_all(shapely.intersection(
+                        polygon, np.array(hits, dtype=object))).area
+                fractions[qi] = min(1.0, covered / area)
+            except _GEOM_EXC:
+                fractions[qi] = 0.0
+        return fractions
+
 
 def _cover_index(pieces) -> CoverIndex:
     """A :class:`CoverIndex` over ``pieces`` (see there: NOT pre-merged)."""
@@ -541,6 +591,14 @@ class SplitResult:
 def _is_tail(piece, tail_half_width: float) -> bool:
     """A piece nowhere wider than ``2 * tail_half_width`` is a corridor."""
     try:
+        # A bbox dimension under the erosion diameter proves the buffer
+        # empty without computing it (an inscribed disk of radius r
+        # needs 2r in both axes) — the erosion is a per-shape build-time
+        # hotspot and most pieces fail this box test.
+        minx, miny, maxx, maxy = piece.bounds
+        if (maxx - minx < 2.0 * tail_half_width
+                or maxy - miny < 2.0 * tail_half_width):
+            return True
         return piece.buffer(-tail_half_width).is_empty
     except _GEOM_EXC:
         return False

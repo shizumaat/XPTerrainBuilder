@@ -954,7 +954,18 @@ def feasibility_project(elev, shape_constraints, hard, *,
     # symmetric solve is byte-identical to today.
     edge_lim: dict = {}
     interval_lim: dict = {}          # canonical pair (a<b) -> (low, high)
+    # ENVELOPE-SKIP entries (spec §10 interval rod): an entry flagged
+    # ``envelope_skip`` keeps its interval edges OUT of the reach-envelope
+    # adjacency below — a signed slab whose |Δ| exceeds ε injects NEGATIVE
+    # directed weights, and ``_reach`` is a Dijkstra (the lazy-re-expand
+    # blowup class; the EAT one-sided edges were retired for exactly
+    # this).  Skipping is law-safe: the sweep still enforces every skipped
+    # slab; only the one-shot warm start / break detection loses those
+    # (spine nodes keep their symmetric-edge envelope).  No flagged entry
+    # ⇒ empty set ⇒ byte-identical.
+    envelope_skip_pairs: set = set()
     for sc in shape_constraints:
+        _sc_env_skip = bool(sc.get("envelope_skip"))
         for edge in sc["edges"]:
             if len(edge) >= 4:
                 # INTERVAL EDGE — signed slab on ``z_i − z_j``.
@@ -967,6 +978,8 @@ def feasibility_project(elev, shape_constraints, hard, *,
                 i, j = _r(i), _r(j)
                 if i == j:
                     continue
+                if _sc_env_skip:
+                    envelope_skip_pairs.add((i, j) if i < j else (j, i))
                 if i < j:
                     pair, low, high = (i, j), raw_low, raw_high
                 else:
@@ -1088,7 +1101,7 @@ def feasibility_project(elev, shape_constraints, hard, *,
         _zone_slab = (interval_yield_from is not None
                       and ((i >= interval_yield_from)
                            != (j >= interval_yield_from)))
-        if _zone_slab:
+        if _zone_slab or (i, j) in envelope_skip_pairs:
             continue
         if sweep_high is not None:
             ceil_radj.setdefault(j, []).append((i, sweep_high))

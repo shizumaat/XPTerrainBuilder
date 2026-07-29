@@ -423,6 +423,68 @@ step-free at the cost of a slightly late handover.
   cut and depends on A4 for the clean handover; land order A4 → A2 → OLS
   slice 3, or carry the `max()` fallback.
 
+## AMENDMENT 2026-07-28 — ROAD REGRADE THROUGH THE CUT (owner direction)
+
+The 2026-07-25 corridor mask makes the banded cut ABSENT over surface
+road/rail corridors (`clearance._surface_road_corridors` — one source with
+the skirt and the validator), so a road keeps its own embankment.  Across an
+ADMITTED penetration island that is exactly wrong: the mask preserves the
+very hill the law removes, as a road-width causeway metres proud of the fan
+carrying grades no ground-vehicle route allows (measured SPJC 16R: the two
+flanking service roads ride a 9–13 m DEM hump at 12.8 % / 13.2 % against the
+5 % `SERVICE_ROAD_MAX_GRADE`, standing 3–6 m above the surrounding cut).
+
+**The law** (`ols._emit_road_regrades`, sub-gate
+`config.OLS_ROAD_REGRADE_ENABLED` / `O4_OLS_ROAD_REGRADE`, default ON under
+the main gate; owner ruling 2026-07-28).  The OSM way IS the road spine.
+Along each mapped surface highway way whose corridor reaches an admitted
+island — stations at `CLEARANCE_STATION_STEP_M`; per-station spine bound
+`min(DEM, composed ceiling)` where the ceiling governs near an admitted
+cell, plain DEM elsewhere; spine profile = the grade-capped lower envelope
+`z(s) = min_t(bound(t) + g·|s−t|)` with `g = SERVICE_ROAD_MAX_GRADE` (the
+ground-vehicle grade rule, imported not re-declared; the envelope is
+g-Lipschitz EVERYWHERE, so grade is maintained through the OLS and both
+over-steep rises and descents are cut).
+
+**Emission — two matching `service_junction` half-shapes**, one each side
+of the spine, half a corridor width (½ carriageway + shoulder, the mask's
+own width law) outward.  Both halves share the spine chain
+coordinate-exactly with identical spine altitudes (verified SPJC: 131
+shared vertices, 0 mismatches); each carries its own outer-edge profile —
+the grade-capped envelope of the terrain bound sampled along the offset
+edge, clamped within `SERVICE_ROAD_MAX_TRANSVERSE · half_w` of the spine
+(the service-road LATERAL rule, enforced by construction and validated by
+`check_grade`, since `service_junction` is a graded pavement role).
+Clip-introduced vertices are valued analytically by `(s, d)`: spine profile
+at `d = 0` blending linearly to the outer profile at `d = half_w`.
+
+**Extent**: the graded segment follows the spine through the whole OLS
+crossing and AT LEAST `OLS_ROAD_REGRADE_FOLLOW_M` (100 m) past the OLS
+surface footprint in both directions, then extends to the profile's own
+blend points — both ends land ON the DEM.  Clamped at the way's end when
+the way stops sooner, lawful only if that end is already at the DEM.
+
+**Refusals**, in the island-refusal spirit: BLEND refusal — a span that
+cannot return to the DEM inside its own way (way end, refused ground,
+missing DEM, or the tile seam per `_near_tile_seam`, while still cut) is
+refused whole, since a road ending mid-cut would mint the wall this
+amendment removes; DEPTH refusal — a span needing a refused-class cut
+anywhere (`grade_law.ols_island_refused`, same helper, lockstep) is refused
+whole.  Railways are out of scope (rail grade law is far stricter; the
+embankment stands); tunnel-tagged ways stay excluded exactly as in the mask.
+
+Halves difference against the SHAPES-ONLY static set plus every piece
+already emitted; bands cannot enter a corridor, so band/deck overlap is
+impossible by construction (verified 0.0000 m² at SPJC; the two halves meet
+only on the zero-area spine line).  Validator unchanged:
+`check_ols_surfaces` already exempts the corridors the halves occupy;
+`test_pavement_grade[SPJC]` violation counts identical gate-on vs gate-off.
+Build-time: an O(1) admitted-bbox prefilter rejects distant ways before any
+buffering; airports with no admitted island never reach the pass.  Measured
+SPJC (worst case, 6–8 ways at islands, 3 spans → 6 half-shapes): whole
+`emit_ols_cuts` 0.23 s including prescan + bands + road halves — well under
+the 0.6 s Fable-review threshold.  Tests: `tests/test_ols_road_regrade.py`.
+
 ## Sources
 
 - ICAO APAC OLS Quick Reference Guide (Amendment 18 parameters) —

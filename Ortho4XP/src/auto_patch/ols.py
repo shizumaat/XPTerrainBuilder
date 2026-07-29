@@ -60,6 +60,22 @@ would leave a groove of raw DEM that renders as a knife edge.
 Deliberately NOT clipped to the airport boundary: an OLS lives outside
 the fence by nature (the runway-end skirt already emits beyond it).
 
+**ROAD REGRADE** (owner direction 2026-07-28, sub-gate
+``config.OLS_ROAD_REGRADE_ENABLED``).  Surface road corridors are masked
+out of the banded cut (2026-07-25) so a road keeps its own embankment —
+but where a corridor crosses an ADMITTED penetration island that
+preserved the very hill the law removes, as a road-width causeway proud
+of the fan at grades no ground vehicle route allows.  Such a road is
+regraded instead (:func:`_emit_road_regrades`): the OSM way is the road
+SPINE, carrying a continuous ``SERVICE_ROAD_MAX_GRADE``-capped,
+cut-only profile bounded by the composed ceiling over admitted cells;
+emitted as TWO matching ``service_junction`` half-shapes, half a
+corridor width outward each side of the spine, with outer edges under
+the service-road LATERAL rule (``SERVICE_ROAD_MAX_TRANSVERSE``).  The
+graded segment follows the spine at least
+``OLS_ROAD_REGRADE_FOLLOW_M`` past the OLS both ways and lands ON the
+DEM at both ends.
+
 Behind ``config.OLS_CUT_ENABLED`` (env ``O4_OLS_CUT``, default OFF).  The
 gate is read at CALL time so a test can toggle it without a re-import;
 with it off :func:`emit_ols_cuts` returns 0 having touched nothing.
@@ -70,7 +86,7 @@ import math
 from typing import Optional
 
 import numpy as np
-from shapely.geometry import Point, Polygon, box
+from shapely.geometry import LineString, Point, Polygon, box
 from shapely.ops import unary_union
 from shapely.prepared import prep
 from shapely.strtree import STRtree
@@ -97,7 +113,8 @@ from .grade_law import (
     ols_transitional_ceiling,
     ols_transitional_slope,
 )
-from .layout import BuiltShape, PavementLayout, ROLE_OLS_CUT, R_EARTH
+from .layout import (BuiltShape, PavementLayout, ROLE_OLS_CUT,
+                     ROLE_SERVICE_JUNCTION, R_EARTH)
 from .elevation import _sample_dem
 from .emit_decimate import Z_TOL_BOUNDARY_M, decimate_shape_group
 from .adjacent_ground import _CORRIDOR_SNAP_TOL_M, _build_cut_bands
@@ -1222,8 +1239,9 @@ def emit_ols_cuts(layout: PavementLayout, dem, tile_lat: int, tile_lon: int,
     # square metres, so each piece is differenced against only the shapes
     # its own bbox reaches (the ``_nearby_static_polys`` pattern).  Same
     # result, exact clip either way.
-    static_polys = [s.polygon for s in layout.shapes
-                    if s.polygon is not None and not s.polygon.is_empty]
+    shape_polys = [s.polygon for s in layout.shapes
+                   if s.polygon is not None and not s.polygon.is_empty]
+    static_polys = shape_polys
 
     # SURFACE ROAD / RAILWAY / WATER CORRIDORS (owner report 2026-07-25).
     # The runway-end skirt has masked these since 2026-07-05 — "the ground
@@ -1253,7 +1271,7 @@ def emit_ols_cuts(layout: PavementLayout, dem, tile_lat: int, tile_lon: int,
     except (_GEOM_EXC + (ImportError, AttributeError, TypeError)):
         _road_block = None
     if _road_block is not None and not _road_block.is_empty:
-        static_polys = list(static_polys) + [_road_block]
+        static_polys = list(shape_polys) + [_road_block]
 
     try:
         static_tree = STRtree(static_polys) if static_polys else None
@@ -1314,6 +1332,23 @@ def emit_ols_cuts(layout: PavementLayout, dem, tile_lat: int, tile_lon: int,
                     emitted += 1
                     emitted_pieces.append(piece)
                     emitted_shapes.append(shape)
+    # ROAD REGRADE (config.OLS_ROAD_REGRADE_ENABLED): a surface road
+    # whose corridor crosses an admitted island is regraded THROUGH the
+    # cut instead of standing on its masked-out DEM embankment.  Decks
+    # clip against the SHAPES-ONLY static set (``shape_polys``) — the
+    # corridor mask itself must not erase them — and against the pieces
+    # already emitted, so bands and decks never overlap.
+    if _config.OLS_ROAD_REGRADE_ENABLED:
+        try:
+            deck_tree = STRtree(shape_polys) if shape_polys else None
+        except _GEOM_EXC:
+            deck_tree = None
+        road_shapes = _emit_road_regrades(
+            scene, grid, layout, admitted_tree, admitted_cells,
+            cell_radius, shape_polys, deck_tree, emitted_pieces,
+            refused_block)
+        emitted += len(road_shapes)
+        emitted_shapes.extend(road_shapes)
     _decimate_ols_group(layout, emitted_shapes)
     return emitted
 
@@ -1492,3 +1527,381 @@ def _value_ring(scene: _Scene, srf: _Surface, coords):
             continue
         out.append(round(float(d), 2))
     return out
+
+
+# ──────────────────────────────────────────────────────────────────
+# Road regrade through the cut (config.OLS_ROAD_REGRADE_ENABLED)
+# ──────────────────────────────────────────────────────────────────
+#: Ref tag on regraded road half-shapes (role ``service_junction`` — a
+#: graded pavement role, so ``check_grade`` validates them under the
+#: service-road rules; the ref keeps them identifiable as this law's).
+REF_ROAD = "ols_road"
+
+# A deck run is emitted only where the graded profile cuts below the DEM
+# by more than this; the first station back at (or within this of) the
+# DEM is where the deck ends and the road returns to its own ground.
+# Implementation epsilon, not a rule value.
+_ROAD_REGRADE_MIN_CUT_M = 0.05
+
+
+def _road_regrade_profile(ss, bound, valid, grade):
+    """Grade-capped LOWER ENVELOPE of ``bound`` over stations ``ss``:
+    ``z(s) = min over t of (bound(t) + grade * |s - t|)`` within each
+    contiguous ``valid`` segment — one forward plus one backward pass
+    computes it exactly.  Cut-only by construction (``z <= bound``
+    everywhere), and wherever the profile is below the bound on either
+    side of a station its longitudinal grade is exactly capped."""
+    z = np.asarray(bound, dtype=float).copy()
+    n = len(z)
+    for i in range(1, n):
+        if valid[i] and valid[i - 1]:
+            z[i] = min(z[i], z[i - 1] + grade * (ss[i] - ss[i - 1]))
+    for i in range(n - 2, -1, -1):
+        if valid[i] and valid[i + 1]:
+            z[i] = min(z[i], z[i + 1] + grade * (ss[i + 1] - ss[i]))
+    return z
+
+
+def _near_tile_seam(scene: _Scene, x: float, y: float) -> bool:
+    """True when local ``(x, y)`` lies within the tile-cut standoff of the
+    CURRENT TILE's integer boundary (or outside the tile).  A deck node
+    below the DEM at the seam is the exact wall the island seam refusal
+    exists to prevent, and like an OLS cut node it cannot be DEM-pinned
+    without un-grading the road — so a run is broken before the seam and
+    the blend refusal (below) decides its fate."""
+    lat = scene.lat0 + math.degrees(y / R_EARTH)
+    lon = scene.lon0 + math.degrees(x / (R_EARTH * scene.cos0))
+    m_per_deg = math.radians(1.0) * R_EARTH
+    margin_lat = (TILE_CUT_HALF_WIDTH_M + CLEARANCE_STATION_STEP_M) / m_per_deg
+    margin_lon = margin_lat / max(scene.cos0, 1e-6)
+    return (lat < scene.tile_lat + margin_lat
+            or lat > scene.tile_lat + 1 - margin_lat
+            or lon < scene.tile_lon + margin_lon
+            or lon > scene.tile_lon + 1 - margin_lon)
+
+
+def _emit_road_regrades(scene: _Scene, grid: _Grid, layout: PavementLayout,
+                        admitted_tree, admitted_cells, cell_radius: float,
+                        shape_polys, deck_tree, emitted_pieces,
+                        refused_block):
+    """Regrade surface roads through the cut (owner direction 2026-07-28,
+    SPJC 16R).  Returns the list of emitted deck shapes.
+
+    The corridor mask makes the banded cut ABSENT over surface road
+    corridors, which is right everywhere except across an admitted
+    penetration island: there the mask preserves the very hill the law
+    cuts back, as a road-width causeway metres proud of the fan carrying
+    grades no ground vehicle route allows (measured SPJC 16R: 12.8 % and
+    13.2 % on the two flanking service roads, against the 5 %
+    ``SERVICE_ROAD_MAX_GRADE``).
+
+    THE LAW (owner ruling 2026-07-28).  The OSM way IS the road spine.
+    Along each mapped surface highway way whose corridor reaches an
+    admitted island: stations at ``CLEARANCE_STATION_STEP_M``;
+    per-station spine bound ``min(DEM, composed OLS ceiling)`` where the
+    ceiling governs near an admitted cell, plain DEM elsewhere; spine
+    profile = the grade-capped lower envelope of that bound
+    (:func:`_road_regrade_profile`, cap ``SERVICE_ROAD_MAX_GRADE`` — the
+    ground-vehicle grade rule, imported not re-declared; the envelope is
+    grade-Lipschitz EVERYWHERE, so the profile maintains grade through
+    the OLS and cuts both rises and over-steep descents).
+
+    EMISSION: TWO MATCHING ``service_junction`` HALF-SHAPES, one each
+    side of the spine, ``half_w`` (½ carriageway + shoulder — the mask's
+    own width law) outward.  Both halves share the spine chain
+    coordinate-exactly with identical spine altitudes, so they weld into
+    one road surface, and each carries its own outer-edge profile: the
+    grade-capped envelope of the terrain bound sampled along the offset
+    edge, clamped within ``SERVICE_ROAD_MAX_TRANSVERSE * half_w`` of the
+    spine — the service-road LATERAL grade rule, enforced by
+    construction (and by ``check_grade``, since ``service_junction`` is
+    a graded pavement role).  A clip-introduced vertex is valued
+    analytically by its ``(s, d)`` position: spine profile at ``d = 0``
+    blending linearly to the outer profile at ``d = half_w``.
+
+    EXTENT: the graded segment follows the spine through the whole OLS
+    crossing and AT LEAST ``OLS_ROAD_REGRADE_FOLLOW_M`` (100 m) past the
+    OLS surface footprint in both directions, then extends further to
+    the profile's own blend points, so both ends land ON the DEM.
+    Clamped at the way's end when the way stops sooner — lawful only if
+    that end is already at the DEM.
+
+    REFUSALS, in the island-refusal spirit:
+
+    * BLEND refusal — a span that cannot return to the DEM inside its
+      own way (it reaches the way's end, refused ground, missing DEM, or
+      the tile seam, :func:`_near_tile_seam`, while still cut) is
+      refused whole: a road ending mid-cut would mint the wall this
+      module exists to remove.
+    * DEPTH refusal — a span needing a refused-class cut anywhere
+      (``grade_law.ols_island_refused``, same helper, lockstep) is
+      refused whole (a road trench through a real mountain is obstacle
+      removal, not DEM repair).
+    * Railway ways are out of scope (rail grade law is far stricter than
+      the road law; the embankment behavior stands) and tunnel-tagged
+      ways stay excluded exactly as in the mask.
+
+    Halves difference against the SHAPES-ONLY static set plus every
+    piece already emitted (bands cannot overlap a corridor, so band/deck
+    overlap is impossible by construction; the two halves meet only on
+    the zero-area spine line; overlap between two parallel ways resolves
+    first-wins in deterministic way order).
+    """
+    from shapely.ops import substring
+    from .bridges import (_load_tunnel_road_network,
+                          _carriageway_width_from_tags)
+    from .clearance import _SKIRT_ROAD_SHOULDER_M
+    try:
+        nodes_r, ways_r, _big_ids, _ntags = _load_tunnel_road_network(layout)
+    except (_GEOM_EXC + (ImportError, AttributeError, TypeError)):
+        return []
+    if not ways_r:
+        return []
+    step = CLEARANCE_STATION_STEP_M
+    grade = float(_config.SERVICE_ROAD_MAX_GRADE)
+    shapes_out: list = []
+    n_ways = n_spans = n_blend_refused = n_depth_refused = 0
+    worst_cut = 0.0
+    # O(1) bbox prefilter before any per-way buffer: the road caches can
+    # hold thousands of ways and ``buffer()`` is the expensive step of
+    # the quick reject below.  40 m covers the widest carriageway the
+    # width law can return (40 m sanity clamp) at half width + shoulder.
+    _adm_pts = np.asarray(admitted_cells, dtype=float)
+    _margin = 40.0 + cell_radius
+    _adm_bbox = (_adm_pts[:, 0].min() - _margin,
+                 _adm_pts[:, 1].min() - _margin,
+                 _adm_pts[:, 0].max() + _margin,
+                 _adm_pts[:, 1].max() + _margin)
+    for way_id, node_refs, tags in sorted(ways_r, key=lambda w: str(w[0])):
+        highway_type = tags.get("highway")
+        if highway_type is None:
+            continue
+        if tags.get("tunnel", "no") not in ("", "no"):
+            continue
+        pts = [layout.ll_to_m(*nodes_r[n]) for n in node_refs
+               if n in nodes_r]
+        if len(pts) < 2:
+            continue
+        try:
+            line = LineString(pts)
+        except _GEOM_EXC:
+            continue
+        if line.length < 2.0 * step:
+            continue
+        lb = line.bounds
+        if (lb[2] < _adm_bbox[0] or lb[0] > _adm_bbox[2]
+                or lb[3] < _adm_bbox[1] or lb[1] > _adm_bbox[3]):
+            continue
+        try:
+            half_w = (0.5 * _carriageway_width_from_tags(
+                highway_type, tags, 6.0) + _SKIRT_ROAD_SHOULDER_M)
+        except _GEOM_EXC:
+            continue
+        # Quick reject: only ways whose corridor reaches an admitted cell.
+        try:
+            if len(admitted_tree.query(
+                    line.buffer(half_w + cell_radius))) == 0:
+                continue
+        except _GEOM_EXC:
+            continue
+        n_ways += 1
+        n_st = int(math.ceil(line.length / step)) + 1
+        ss = np.linspace(0.0, float(line.length), n_st)
+        st = [line.interpolate(float(s)) for s in ss]
+        xs = np.array([p.x for p in st], dtype=float)
+        ys = np.array([p.y for p in st], dtype=float)
+        ceil_v = scene.composed_ceiling(xs, ys)
+        dem_v = np.full(n_st, np.nan, dtype=float)
+        valid = np.zeros(n_st, dtype=bool)
+        near_adm = np.zeros(n_st, dtype=bool)
+        for i in range(n_st):
+            x, y = float(xs[i]), float(ys[i])
+            d = scene.sample_dem(x, y)
+            if d is None or _near_tile_seam(scene, x, y):
+                continue
+            ij = grid.index(x, y)
+            if ij is not None and grid.refused[ij]:
+                continue
+            valid[i] = True
+            dem_v[i] = float(d)
+            try:
+                near_adm[i] = len(admitted_tree.query(
+                    Point(x, y).buffer(cell_radius))) > 0
+            except _GEOM_EXC:
+                near_adm[i] = False
+        if not valid.any():
+            continue
+        bound = dem_v.copy()
+        gov = valid & near_adm & ~np.isnan(ceil_v)
+        bound[gov] = np.minimum(bound[gov], ceil_v[gov])
+        z = _road_regrade_profile(ss, np.where(valid, bound, np.inf),
+                                  valid, grade)
+        depth = np.where(valid, dem_v - z, 0.0)
+        cut = depth > _ROAD_REGRADE_MIN_CUT_M
+        gov_any = ~np.isnan(ceil_v)
+        follow_st = int(math.ceil(
+            float(_config.OLS_ROAD_REGRADE_FOLLOW_M) / step))
+        lat_cap = float(_config.SERVICE_ROAD_MAX_TRANSVERSE) * half_w
+        # 1. ANCHORS: contiguous cut runs that actually touch an
+        #    admitted cell (island scoping, in lockstep with the bands).
+        anchors = []
+        i = 0
+        while i < n_st:
+            if not cut[i]:
+                i += 1
+                continue
+            j = i
+            while j + 1 < n_st and cut[j + 1]:
+                j += 1
+            try:
+                probe = substring(
+                    line, float(ss[i]), float(ss[j])).buffer(
+                        half_w + cell_radius)
+                if len(admitted_tree.query(probe)) > 0:
+                    anchors.append((i, j))
+            except _GEOM_EXC:
+                pass
+            i = j + 1
+        if not anchors:
+            continue
+        # 2. SPANS: each anchor grows to the contiguous OLS-governed
+        #    stretch containing it, follows the spine >= FOLLOW_M past
+        #    the OLS both ways (stopping early only at invalid ground),
+        #    then extends to the profile's own blend points.
+        spans = []
+        for a, b in anchors:
+            lo, hi = a, b
+            gov_idx = np.nonzero(gov_any[a:b + 1])[0]
+            if gov_idx.size:
+                g_lo = a + int(gov_idx[0])
+                while g_lo - 1 >= 0 and gov_any[g_lo - 1]:
+                    g_lo -= 1
+                g_hi = a + int(gov_idx[-1])
+                while g_hi + 1 < n_st and gov_any[g_hi + 1]:
+                    g_hi += 1
+                lo, hi = min(lo, g_lo), max(hi, g_hi)
+            for _ in range(follow_st):
+                if lo - 1 >= 0 and valid[lo - 1]:
+                    lo -= 1
+                else:
+                    break
+            for _ in range(follow_st):
+                if hi + 1 < n_st and valid[hi + 1]:
+                    hi += 1
+                else:
+                    break
+            while (depth[lo] > _ROAD_REGRADE_MIN_CUT_M
+                   and lo - 1 >= 0 and valid[lo - 1]):
+                lo -= 1
+            while (depth[hi] > _ROAD_REGRADE_MIN_CUT_M
+                   and hi + 1 < n_st and valid[hi + 1]):
+                hi += 1
+            spans.append((lo, hi))
+        spans.sort()
+        merged = [list(spans[0])]
+        for lo, hi in spans[1:]:
+            if lo <= merged[-1][1] + 1:
+                merged[-1][1] = max(merged[-1][1], hi)
+            else:
+                merged.append([lo, hi])
+        for lo, hi in merged:
+            # BLEND refusal: both ends must sit ON the DEM.
+            if (depth[lo] > _ROAD_REGRADE_MIN_CUT_M
+                    or depth[hi] > _ROAD_REGRADE_MIN_CUT_M):
+                n_blend_refused += 1
+                continue
+            d_max = float(depth[lo:hi + 1].max())
+            # SAME depth law as the islands (lockstep, not a re-declared
+            # number): a span needing a refused-class cut refuses whole.
+            if ols_island_refused(d_max):
+                n_depth_refused += 1
+                continue
+            if hi - lo < 2:
+                continue
+            n_spans += 1
+            # 3. Per-side OUTER-EDGE profiles: terrain bound sampled
+            #    along the offset edge, grade-capped (same envelope
+            #    law), clamped to the lateral rule around the spine.
+            span = np.arange(lo, hi + 1)
+            z_sp = z[span]
+            ss_sp = ss[span]
+            txs = np.gradient(xs[span])
+            tys = np.gradient(ys[span])
+            tl = np.hypot(txs, tys)
+            tl[tl == 0] = 1.0
+            nxs, nys = -tys / tl, txs / tl        # left normal
+            outer_prof = {}
+            for sgn in (1.0, -1.0):
+                ox = xs[span] + sgn * half_w * nxs
+                oy = ys[span] + sgn * half_w * nys
+                oceil = scene.composed_ceiling(ox, oy)
+                tgt = np.empty(len(span), dtype=float)
+                for k in range(len(span)):
+                    d = scene.sample_dem(float(ox[k]), float(oy[k]))
+                    if d is None:
+                        tgt[k] = float(z_sp[k])   # no data: no tilt
+                        continue
+                    b_ = float(d)
+                    if (near_adm[span[k]]
+                            and not math.isnan(float(oceil[k]))):
+                        b_ = min(b_, float(oceil[k]))
+                    tgt[k] = b_
+                env = _road_regrade_profile(
+                    ss_sp, tgt, np.ones(len(span), dtype=bool), grade)
+                outer_prof[sgn] = np.clip(
+                    env, z_sp - lat_cap, z_sp + lat_cap)
+            # 4. The two matching halves, welded along the spine.
+            try:
+                sub = substring(line, float(ss[lo]), float(ss[hi]))
+                halves = ((1.0, sub.buffer(half_w, single_sided=True)),
+                          (-1.0, sub.buffer(-half_w, single_sided=True)))
+            except _GEOM_EXC:
+                continue
+            for sgn, poly in halves:
+                try:
+                    if not poly.is_valid:
+                        poly = poly.buffer(0)
+                    poly = poly.segmentize(step)
+                except _GEOM_EXC:
+                    continue
+                if poly is None or poly.is_empty:
+                    continue
+                for piece in _clipped_pieces(poly, shape_polys, deck_tree,
+                                             emitted_pieces, refused_block):
+                    coords = _open_coords(piece)
+                    if len(coords) < 3:
+                        continue
+                    vals = []
+                    for cx, cy in coords:
+                        p = Point(cx, cy)
+                        try:
+                            s_loc = float(sub.project(p))
+                            d_sp = min(float(sub.distance(p)), half_w)
+                        except _GEOM_EXC:
+                            s_loc, d_sp = 0.0, 0.0
+                        s_abs = float(ss[lo]) + s_loc
+                        zs = float(np.interp(s_abs, ss, z))
+                        zo = float(np.interp(
+                            s_abs, ss_sp, outer_prof[sgn]))
+                        vals.append(round(
+                            zs + (d_sp / half_w) * (zo - zs), 2))
+                    shape = BuiltShape(polygon=piece,
+                                       role=ROLE_SERVICE_JUNCTION,
+                                       ref=REF_ROAD,
+                                       node_altitudes=vals + [vals[0]])
+                    layout.shapes.append(shape)
+                    emitted_pieces.append(piece)
+                    shapes_out.append(shape)
+                    worst_cut = max(worst_cut, d_max)
+    if n_ways:
+        try:
+            import O4_UI_Utils as UI
+            UI.vprint(1, f"  [ols] road regrade: {n_ways} way(s) at "
+                         f"admitted island(s) -> {len(shapes_out)} "
+                         f"service-road half-shape piece(s) over "
+                         f"{n_spans} span(s), worst cut {worst_cut:.2f} m; "
+                         f"{n_blend_refused} blend-refused, "
+                         f"{n_depth_refused} depth-refused span(s).")
+        except Exception:
+            pass
+    return shapes_out

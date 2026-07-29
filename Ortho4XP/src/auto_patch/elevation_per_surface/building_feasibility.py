@@ -784,6 +784,21 @@ def reach_band_unified(layout, G):
     # PAIR so ``_band_via`` can form its candidate values with exactly
     # the original float expression (ae + ((dist + foot) + perp)) —
     # patches stay byte-identical.
+    # AIRSIDE REACHABILITY NEVER RIDES SERVICE ROADS (owner ruling
+    # 2026-07-29, config.REACH_NO_SERVICE_SPINES default ON): edges
+    # woven from a service-road centerline are excluded from the value
+    # fields — a truck route can no longer justify an airside
+    # ceiling/floor.  The serving-foot centerline set below already
+    # excludes service lines (``not cl.is_service``); this closes the
+    # Dijkstra side.  Service roads keep their spine for the SOLVE (they
+    # grade along it); nodes reachable ONLY via service paths simply get
+    # no field entry and read as off-net (band None) — the same policy
+    # as any unanchored fragment.  Gate off ⇒ empty skip set ⇒
+    # byte-identical.
+    from auto_patch.config import REACH_NO_SERVICE_SPINES
+    _svc_pairs = (getattr(G, "service_spine_pairs", None) or set()
+                  if REACH_NO_SERVICE_SPINES else set())
+
     def _runway_value_field(sign):
         best: dict = {}
         pq = [((ae if sign > 0 else -ae), 0.0, ae, k)
@@ -797,6 +812,9 @@ def reach_band_unified(layout, G):
             for (v, budget) in G.spine_adj.get(u, ()):
                 if v in best:
                     continue
+                if _svc_pairs and ((u, v) if u < v else (v, u)) \
+                        in _svc_pairs:
+                    continue
                 nd = dd + budget
                 heapq.heappush(
                     pq, (((ae + nd) if sign > 0 else -(ae - nd)),
@@ -809,7 +827,15 @@ def reach_band_unified(layout, G):
         return lambda x, y: None
 
     # Unified spine-node positions for the perp-foot → reachable-node lookup.
-    sidx = [i for i in G.spine_adj if i in G.pos]
+    # Under the service exclusion, service-only nodes carry no field entry;
+    # keeping them in the nearest-node tree would eat queries whose second-
+    # nearest TAXI node has a real value, so they are dropped from the
+    # lookup (gate off ⇒ original set, byte-identical).
+    if _svc_pairs:
+        sidx = [i for i in G.spine_adj if i in G.pos
+                and (i in ceiling_field or i in floor_field)]
+    else:
+        sidx = [i for i in G.spine_adj if i in G.pos]
     if not sidx:
         return lambda x, y: None
     spts = [Point(*G.pos[i]) for i in sidx]

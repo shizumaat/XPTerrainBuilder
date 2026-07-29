@@ -184,8 +184,53 @@ def shape_constraints_edges(shape_constraints):
             yield edge
 
 
+def _box_isect(box_a, box_b):
+    """Tightest-per-side intersection of two optional ``(lo, hi)`` boxes
+    (``None`` = unbounded).  BOUNDED YIELD (owner ruling 2026-07-29): two
+    flat groups merged into one rigid unit must satisfy BOTH feasibility
+    boxes, so the merged box is the intersection."""
+    if box_a is None:
+        return box_b
+    if box_b is None:
+        return box_a
+    return (max(box_a[0], box_b[0]), min(box_a[1], box_b[1]))
+
+
+def _node_box_arrays(node_box, np):
+    """``(idx, lo, hi)`` numpy columns for a per-node feasibility-box dict
+    (BOUNDED YIELD, owner ruling 2026-07-29).  Caller guarantees non-empty."""
+    count = len(node_box)
+    box_idx = np.fromiter(node_box.keys(), dtype=np.intp, count=count)
+    box_lo = np.fromiter((b[0] for b in node_box.values()),
+                         dtype=np.float64, count=count)
+    box_hi = np.fromiter((b[1] for b in node_box.values()),
+                         dtype=np.float64, count=count)
+    return box_idx, box_lo, box_hi
+
+
+def _node_ref_arrays(node_ref, np):
+    """``(idx, z_ref)`` numpy columns for the REFERENCE-ROD proximal pull
+    (owner ruling 2026-07-29 #2, spec §7: the yield minimizes displacement
+    from the reference field).  Caller guarantees non-empty."""
+    count = len(node_ref)
+    ref_idx = np.fromiter(node_ref.keys(), dtype=np.intp, count=count)
+    ref_val = np.fromiter(node_ref.values(), dtype=np.float64, count=count)
+    return ref_idx, ref_val
+
+
+def _ref_pull_weight():
+    """Proximal-pull weight for the reference term — SMALL vs the cap
+    projections so the law always wins locally (spec §7); each sweep pulls
+    BEFORE its projections, so the exit state is always cap-projected."""
+    try:
+        return float(_os.environ.get("O4_YIELD_REF_WEIGHT", "0.2"))
+    except ValueError:                                    # pragma: no cover
+        return 0.2
+
+
 def _project_vectorized(elev, iter_edges, n, max_iters, tol,
-                        interval_bounds_by_index=None):
+                        interval_bounds_by_index=None, node_box=None,
+                        node_ref=None):
     """Vectorised DEGREE-NORMALISED JACOBI variant of the feasibility projection
     (gated by ``_FP_VECTORIZE``).  Mutates ``elev`` (a list) in place.
 
@@ -240,7 +285,28 @@ def _project_vectorized(elev, iter_edges, n, max_iters, tol,
         wi_int = np.where(Ki == 0, 0.5, np.where(Ki == 2, 1.0, 0.0))
         wj_int = np.where(Ki == 0, 0.5, np.where(Ki == 1, 1.0, 0.0))
     z = np.asarray(elev, dtype=np.float64)
+    # BOUNDED YIELD (owner ruling 2026-07-29): every node with a feasibility
+    # box stays inside it — clamp at seed and after each Jacobi step, so the
+    # exit state always honors the boxes.  ``node_box=None`` (every caller
+    # without the yield bounds) is byte-identical: no arrays, no clamps.
+    box_idx = box_lo = box_hi = None
+    if node_box:
+        box_idx, box_lo, box_hi = _node_box_arrays(node_box, np)
+        z[box_idx] = np.minimum(np.maximum(z[box_idx], box_lo), box_hi)
+    # REFERENCE RODS (owner ruling 2026-07-29 #2, spec §7): a small
+    # proximal pull toward ``z_ref`` BEFORE each iteration's projections
+    # (the law wins — the step ends cap-projected); iteration stays active
+    # while any pull exceeds tol.  ``node_ref=None`` ⇒ byte-identical.
+    ref_idx = ref_val = None
+    ref_w = _ref_pull_weight() if node_ref else 0.0
+    if node_ref:
+        ref_idx, ref_val = _node_ref_arrays(node_ref, np)
     for _it in range(max_iters):
+        ref_active = False
+        if ref_idx is not None:
+            pull = ref_w * (ref_val - z[ref_idx])
+            z[ref_idx] += pull
+            ref_active = bool((np.abs(pull) > tol).any())
         if m:
             d = z[I] - z[J]
             over = np.abs(d) - B
@@ -281,10 +347,13 @@ def _project_vectorized(elev, iter_edges, n, max_iters, tol,
             afi = active_int.astype(np.float64)
             cnt += (np.bincount(Ii, weights=afi, minlength=n)
                     + np.bincount(Ji, weights=afi, minlength=n))
-        if not any_active:
+        if not any_active and not ref_active:
             break
         nz = cnt > 0.0
         z[nz] += acc[nz] / cnt[nz]                          # degree-normalised step
+        if box_idx is not None:
+            # BOUNDED YIELD: re-clamp after the step (see seed clamp above).
+            z[box_idx] = np.minimum(np.maximum(z[box_idx], box_lo), box_hi)
     elev[:] = z.tolist()
 
 
@@ -583,7 +652,8 @@ def _project_chain_prepass(elev, iter_edges, n, immovable):
 
 def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                        interval_bounds_by_index=None, *, stats=None,
-                       coloring_state=None, run_feasibility_precheck=True):
+                       coloring_state=None, run_feasibility_precheck=True,
+                       node_box=None, node_ref=None):
     """Colored Gauss-Seidel POCS (survey candidate 1) — the vectorized
     replacement for BOTH legacy inner sweeps.  Mutates ``elev`` in place.
 
@@ -621,7 +691,21 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
 
     Interval edges (``budget is None``) carry a signed slab
     ``[s_low, s_high]`` in ``interval_bounds_by_index`` (keyed by ``iter_edges``
-    position); they relax in the same color classes as the symmetric edges."""
+    position); they relax in the same color classes as the symmetric edges.
+
+    ``node_ref`` — REFERENCE RODS (owner ruling 2026-07-29 #2, spec §7):
+    ``{node: z_ref}``.  Each sweep starts with a small proximal pull of
+    every referenced node toward its reference, THEN runs the cap
+    projections and the box clamp — the law always wins locally and the
+    exit state is always cap-projected.  Convergence: certified when a
+    sweep applies no cap correction, no clamp move AND every pull is
+    ≤ tol; a conflicted region instead reaches a pull↔projection
+    EQUILIBRIUM, detected as a whole-sweep state change ≤ tol (the
+    steady-state exit) — the caller's exact-return polish then settles
+    slack nodes onto their references exactly.  ``None`` ⇒ byte-identical
+    (and the feasibility pre-check shortcut stays available; with refs it
+    is skipped — an all-satisfied system may still owe reference
+    pulls)."""
     import numpy as np
     bounds = interval_bounds_by_index or {}
     _NEG_INF = float("-inf")
@@ -666,6 +750,25 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
     slab_high_column = np.asarray(flat_slab_high, dtype=np.float64)
     interval_mask = np.asarray(flat_is_interval, dtype=bool)
     z = np.asarray(elev, dtype=np.float64)
+    # BOUNDED YIELD (owner ruling 2026-07-29: "Any yield absolutely needs to
+    # stay within the feasibility box"): every node with a box stays inside
+    # it — clamp at seed (the chain prepass may have moved a bounded node)
+    # and after every sweep; a clamp movement > tol keeps the sweep active,
+    # so certification proves edges AND boxes jointly satisfied.
+    # ``node_box=None`` (every caller without the yield bounds) is
+    # byte-identical: no arrays, no clamps.
+    box_idx = box_lo = box_hi = None
+    if node_box:
+        box_idx, box_lo, box_hi = _node_box_arrays(node_box, np)
+        z[box_idx] = np.minimum(np.maximum(z[box_idx], box_lo), box_hi)
+    # REFERENCE RODS arrays (spec §7; see docstring).  The pre-check
+    # shortcut is skipped with refs present: an all-satisfied edge system
+    # may still owe reference pulls.
+    ref_idx = ref_val = None
+    ref_w = _ref_pull_weight() if node_ref else 0.0
+    if node_ref:
+        ref_idx, ref_val = _node_ref_arrays(node_ref, np)
+        run_feasibility_precheck = False
     # ── feasibility pre-check (see docstring): certified without coloring ──
     if run_feasibility_precheck and max_iters >= 1:
         feasible = True
@@ -729,10 +832,18 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
     sweeps = 0
     certified = False
     worst = 0.0
+    ref_prev = z.copy() if ref_idx is not None else None
     for _sweep in range(max_iters):
         sweeps += 1
         any_active = False
         worst = 0.0
+        ref_active = False
+        if ref_idx is not None:
+            # REFERENCE RODS: pull BEFORE the projections (the law wins —
+            # the sweep ends cap-projected + box-clamped).
+            pull = ref_w * (ref_val - z[ref_idx])
+            z[ref_idx] += pull
+            ref_active = bool((np.abs(pull) > tol).any())
         for color_index in range(color_count):
             I, J, B, WI, WJ = sym[color_index]
             if I.size:
@@ -768,9 +879,32 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                         worst = float(aw)
                     z[Ii] += -se * IWI
                     z[Ji] += se * IWJ
-        if not any_active:
+        if box_idx is not None:
+            # BOUNDED YIELD: re-clamp after the sweep; movement beyond tol
+            # means an edge pushed a node out of its box — stay active so
+            # the incident edges re-relax against the clamped value.
+            clamped = np.minimum(np.maximum(z[box_idx], box_lo), box_hi)
+            clamp_move = np.abs(clamped - z[box_idx])
+            if (clamp_move > tol).any():
+                any_active = True
+                w = float(clamp_move.max())
+                if w > worst:
+                    worst = w
+            z[box_idx] = clamped
+        if not any_active and not ref_active:
             certified = True
             break
+        if ref_prev is not None:
+            # REFERENCE-ROD steady state (spec §7): a conflicted node's
+            # pull is cancelled by the projections every sweep, so
+            # ``ref_active`` alone never quiets there — exit when the
+            # whole sweep left the state unchanged (pull ↔ projection
+            # equilibrium = the least-displacement fixpoint; the exit
+            # state is cap-projected + clamped, and the caller's polish
+            # settles slack nodes exactly onto their references).
+            if float(np.abs(z - ref_prev).max()) <= tol:
+                break
+            np.copyto(ref_prev, z)
     elev[:] = z.tolist()
     if stats is not None:
         stats["colors"] = color_count
@@ -785,7 +919,9 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
 def feasibility_project(elev, shape_constraints, hard, *,
                         max_iters=4000, tol=1e-3, force_scalar=False,
                         flat_groups=None, broken_out=None, pre_broken=None,
-                        edge_couple_nodes=None, interval_yield_from=None):
+                        edge_couple_nodes=None, interval_yield_from=None,
+                        group_bounds=None, node_bounds=None,
+                        group_refs=None, node_refs=None):
     """Drive EVERY grade-graph edge to ``|Δelev| ≤ budget`` by iterative
     constraint projection (user 2026-06-25: nothing may violate a grade cap).
 
@@ -826,6 +962,41 @@ def feasibility_project(elev, shape_constraints, hard, *,
     the exact failure the broken quarantine exists to prevent).  Quarantining
     extra nodes is always law-safe: their over-cap pairs are reported, never
     hidden.
+
+    ``group_bounds`` / ``node_bounds`` — BOUNDED YIELD (owner ruling
+    2026-07-29: "Any yield absolutely needs to stay within the feasibility
+    box").  ``group_bounds`` is a list parallel to ``flat_groups``: entry k
+    is the ``(lo, hi)`` interval group k's rigid level may take (``None`` =
+    unbounded); merged groups intersect their boxes.  ``node_bounds`` is
+    ``{node_idx: (lo, hi)}`` for individually freed nodes.  A bounded node
+    clamps to its box at seed and after every step that moves it, so a
+    yielded seat can never be dragged outside the reach-band interval it
+    was seated from — a conflict that exceeds a box surfaces as a remaining
+    over-cap edge in the final tally instead of burying the seat (HECA
+    building199: seated 101.13, parked at 87.94 by the unbounded yield).
+    A box is a refinement of the yield, never a new hold: immovable nodes,
+    group members (the representative carries the value) and contradictory
+    (``lo > hi``) boxes are dropped.  ``None`` for both = today's behavior,
+    byte-identical.
+
+    ``group_refs`` / ``node_refs`` — REFERENCE RODS (owner ruling
+    2026-07-29 #2, spec §7): the yield solves "minimum displacement from
+    the reference field, subject to the caps and the boxes", never "any
+    feasible point".  ``group_refs`` is a list parallel to
+    ``flat_groups`` (a merged rigid unit takes the size-weighted mean of
+    its constituent references — the least-total-displacement level);
+    ``node_refs`` is ``{node: z_ref}``.  Mechanically: the chromatic /
+    Jacobi sweeps add a small proximal pull toward ``z_ref`` before each
+    sweep's projections (the law always wins — see ``_project_chromatic``),
+    and an EXACT-RETURN POLISH after the sweeps projects each reference
+    onto the interval the node's own (current-neighbour) constraints and
+    box admit — a node with no binding pair ends AT its reference
+    exactly (owner clarification 2026-07-29: cap-lawful sag below the
+    string is a forbidden answer; the surface leaves its reference only
+    where a constraint forces it, minimally, in-box).  The legacy scalar
+    worklist has no sweep structure, so with refs it enforces caps+boxes
+    only and the polish supplies the reference semantics.  ``None`` for
+    both = today's behavior, byte-identical.
     """
     import heapq
     n = len(elev)
@@ -833,21 +1004,48 @@ def feasibility_project(elev, shape_constraints, hard, *,
     # ── flat groups → representative mapping ─────────────────────────────
     gmap: dict = {}
     groups_eff: list = []
+    rep_bounds: dict = {}       # representative -> group feasibility box
+    rep_refs: dict = {}         # representative -> group reference level
     if flat_groups:
         # merge overlapping groups (two touching pads sharing a ring node act
-        # as one rigid unit), then map member → representative.
+        # as one rigid unit), then map member → representative.  BOUNDED
+        # YIELD: each group's box rides the merge (intersection — the merged
+        # unit must satisfy every constituent box; a group without a box
+        # bounds nothing).  REFERENCE RODS: each group's reference rides it
+        # too, as a size-weighted running mean — the least-total-
+        # displacement level for the merged rigid unit.
         pool = [set(g) for g in flat_groups if g]
+        pool_bounds = ([b for g, b in zip(flat_groups, group_bounds) if g]
+                       if group_bounds else [None] * len(pool))
+        pool_refs = ([r for g, r in zip(flat_groups, group_refs) if g]
+                     if group_refs else [None] * len(pool))
         merged: list = []
-        for g in pool:
+        merged_bounds: list = []
+        merged_refs: list = []       # [weighted_ref_sum, weight] or None
+        for pool_index, g in enumerate(pool):
+            g_ref = pool_refs[pool_index]
+            g_ref_acc = ([float(g_ref) * len(g), float(len(g))]
+                         if g_ref is not None else None)
             attached = None
-            for mg in merged:
+            for merged_index, mg in enumerate(merged):
                 if mg & g:
                     mg |= g
+                    merged_bounds[merged_index] = _box_isect(
+                        merged_bounds[merged_index], pool_bounds[pool_index])
+                    if g_ref_acc is not None:
+                        prev_ref = merged_refs[merged_index]
+                        if prev_ref is None:
+                            merged_refs[merged_index] = g_ref_acc
+                        else:
+                            prev_ref[0] += g_ref_acc[0]
+                            prev_ref[1] += g_ref_acc[1]
                     attached = mg
                     break
             if attached is None:
                 merged.append(set(g))
-        for g in merged:
+                merged_bounds.append(pool_bounds[pool_index])
+                merged_refs.append(g_ref_acc)
+        for merged_index, g in enumerate(merged):
             g = {i for i in g if 0 <= i < n}
             if len(g) < 2:
                 continue
@@ -855,6 +1053,12 @@ def feasibility_project(elev, shape_constraints, hard, *,
                 continue                      # runway/seam-welded pad: stays hard
             rep = min(g)
             groups_eff.append((rep, g))
+            mb = merged_bounds[merged_index]
+            if mb is not None and mb[0] <= mb[1]:
+                rep_bounds[rep] = (float(mb[0]), float(mb[1]))
+            mr = merged_refs[merged_index]
+            if mr is not None and mr[1] > 0.0:
+                rep_refs[rep] = mr[0] / mr[1]
             for m in g:
                 if m != rep:
                     gmap[m] = rep
@@ -1246,6 +1450,50 @@ def feasibility_project(elev, shape_constraints, hard, *,
                     nhi = elev[h] + lim
         return nlo, nhi
 
+    # ── BOUNDED YIELD boxes → one per-node clamp map ─────────────────────
+    # (owner ruling 2026-07-29; see the docstring.)  Built BEFORE the reach
+    # envelope: a freed seat the envelope declares BROKEN (hard anchors
+    # contradict through it) would otherwise be parked at the distance-
+    # weighted blend — measured at HECA the blend sat ~15 m under the
+    # seats' band floors, which IS the burial — so the broken branch below
+    # clamps the blend of a bounded node into its box (the same pattern as
+    # the SVC_SPINE_EDGE_COUPLE hard-neighbour clamp).  Group boxes attach
+    # to the representative (the only member the sweeps move); duplicate
+    # node boxes intersect (tightest per side).  Hard nodes (held, not
+    # yielded), aliased group members and empty boxes drop out: the clamp
+    # refines the yield, never adds a hold.
+    bound_of: dict = {}
+    if node_bounds:
+        for bn, bb in node_bounds.items():
+            if bb is None or not (0 <= bn < n):
+                continue
+            bound_of[bn] = _box_isect(bound_of.get(bn), bb)
+    if rep_bounds:
+        for bn, bb in rep_bounds.items():
+            bound_of[bn] = _box_isect(bound_of.get(bn), bb)
+    if bound_of:
+        bound_of = {bn: (float(bb[0]), float(bb[1]))
+                    for bn, bb in bound_of.items()
+                    if bn not in hard and bn not in gmap
+                    and bb[0] <= bb[1]}
+
+    # ── REFERENCE RODS → one per-node reference map ──────────────────────
+    # (owner ruling 2026-07-29 #2, spec §7; see the docstring.)  Built
+    # BEFORE the reach envelope, like the boxes: the broken branch below
+    # must know a node's reference to keep it there instead of at the
+    # anchor blend.  Group references attach to the representative;
+    # hard nodes and aliased members drop out.
+    ref_of: dict = {}
+    if node_refs:
+        for rn, rv in node_refs.items():
+            if rv is not None and 0 <= rn < n:
+                ref_of[rn] = float(rv)
+    if rep_refs:
+        ref_of.update(rep_refs)
+    if ref_of:
+        ref_of = {rn: rv for rn, rv in ref_of.items()
+                  if rn not in hard and rn not in gmap}
+
     broken: set = set()
     if hard:
         ceil, ceil_dist = _reach(+1, ceil_radj)
@@ -1274,6 +1522,33 @@ def feasibility_project(elev, shape_constraints, hard, *,
                 df = floor_dist.get(i, 0.0)
                 t = dc / (dc + df) if (dc + df) > 1e-9 else 0.5
                 elev[i] = hi + (lo - hi) * t
+                # REFERENCE RODS (owner ruling 2026-07-29 #2, spec §7
+                # conflict semantics): a REFERENCED broken node takes its
+                # reference CLAMPED into the interval its HARD WELDED
+                # NEIGHBOURS admit — never the distance-weighted anchor
+                # blend.  The blend's drag toward the low anchor is the
+                # fabric burial (measured HECA final projection: ~9.9k
+                # broken fabric nodes blended to ~86 beside seats held
+                # at 101 = 519 % cliff pairs at the owner seam site);
+                # the BARE reference, though, must not win against an
+                # adjacent anchor either — a freed runway-seed vertex
+                # held at its (entry-unlawful) 115.77 reference beside
+                # its hard 112.12 runway neighbour minted the 05C 63 %
+                # longitudinal kink, the spec's named anti-goal.
+                # ``clamp(z_ref, hard-neighbour interval)`` grades the
+                # node into any anchor it is welded to (runway joins,
+                # seam pins, mouth welds) and keeps the reference only
+                # where no anchor binds (the deep-fabric burial case).
+                # CONTRADICTORY hard neighbours (empty interval) keep
+                # the blend above — the genuine both-anchor conflict it
+                # exists for.  Un-referenced broken nodes keep the blend
+                # (seam-descent class untouched).
+                if ref_of:
+                    _brv = ref_of.get(i)
+                    if _brv is not None:
+                        _bnlo, _bnhi = _hard_neighbour_interval(i)
+                        if _bnlo <= _bnhi:
+                            elev[i] = min(max(_brv, _bnlo), _bnhi)
                 # BROKEN-NODE EDGE COUPLING (config.SVC_SPINE_EDGE_COUPLE,
                 # round-6 site-4): the global reach envelope may call a node
                 # broken while its OWN hard welded neighbours still admit a
@@ -1294,6 +1569,21 @@ def feasibility_project(elev, shape_constraints, hard, *,
                     nlo, nhi = _hard_neighbour_interval(i)
                     if nlo <= nhi:
                         elev[i] = min(max(elev[i], nlo), nhi)
+                # BOUNDED YIELD (owner ruling 2026-07-29): a broken node
+                # with a feasibility box is a RELEASED SEAT the anchors
+                # contradict through — the blend must not park it outside
+                # the interval it was seated from (HECA: blends ~15 m
+                # under the band floor = the south-terminal burial).
+                # Clamp the blend into the box; the residual anchor
+                # conflict stays visible as the node's over-cap edges in
+                # the final tally, exactly like a both-hard pair.
+                if bound_of:
+                    bb = bound_of.get(i)
+                    if bb is not None:
+                        if elev[i] < bb[0]:
+                            elev[i] = bb[0]
+                        elif elev[i] > bb[1]:
+                            elev[i] = bb[1]
                 broken.add(i)
             else:
                 elev[i] = min(max(elev[i], lo), hi)  # clamp into the envelope
@@ -1322,6 +1612,29 @@ def feasibility_project(elev, shape_constraints, hard, *,
     if broken_out is not None:
         broken_out.update(broken)
     immovable = hard | broken if broken else hard
+
+    # BOUNDED YIELD, sweep side: broken bounded nodes were clamped at the
+    # blend above and stay quarantined; the sweeps only ever move the
+    # remaining (movable) bounded nodes, so the clamp map they carry is
+    # filtered to those — and each is clamped once here at seed (the
+    # reach-envelope clamp above knows nothing about boxes) and then after
+    # every step that moves it inside the sweep paths below.
+    if bound_of:
+        bound_of = {bn: bb for bn, bb in bound_of.items()
+                    if bn not in immovable}
+        for bn, (blo, bhi) in bound_of.items():
+            if elev[bn] < blo:
+                elev[bn] = blo
+            elif elev[bn] > bhi:
+                elev[bn] = bhi
+
+    # REFERENCE RODS, sweep side: broken referenced nodes were parked at
+    # their reference above and stay quarantined; the sweeps and the
+    # exact-return polish only ever move the remaining (movable)
+    # referenced nodes.
+    if ref_of:
+        ref_of = {rn: rv for rn, rv in ref_of.items()
+                  if rn not in immovable}
 
     # Pre-split the edges ONCE by hard-membership.  The inner loop otherwise ran
     # two ``in hard`` set lookups PER edge PER iteration (up to ~0.5 B lookups on
@@ -1484,7 +1797,9 @@ def feasibility_project(elev, shape_constraints, hard, *,
         _coloring_state: dict = {}
         _project_chromatic(elev, iter_edges, n, max_iters, tol,
                            interval_bounds_by_index, stats=_chroma_stats,
-                           coloring_state=_coloring_state)
+                           coloring_state=_coloring_state,
+                           node_box=bound_of or None,
+                           node_ref=ref_of or None)
         # Lazy shapes: as for the Jacobi path, only the FINAL state matters for
         # a certificate, so re-warm + re-sweep on the grown edge set until no
         # further shape expands (bounded: each round expands ≥1 entry).
@@ -1506,7 +1821,9 @@ def feasibility_project(elev, shape_constraints, hard, *,
                 _project_chain_prepass(elev, iter_edges, n, immovable)
             _project_chromatic(elev, iter_edges, n, max_iters, tol,
                                interval_bounds_by_index, stats=_chroma_stats,
-                               coloring_state=_coloring_state)
+                               coloring_state=_coloring_state,
+                               node_box=bound_of or None,
+                               node_ref=ref_of or None)
         _sweeps_run = _chroma_stats.get("sweeps", 0)
         _last_worst = _chroma_stats.get("worst", 0.0)
         if _os.environ.get("O4_STEP_DEBUG") == "1":
@@ -1518,7 +1835,9 @@ def feasibility_project(elev, shape_constraints, hard, *,
                   f"chains={_chain_count} worst={_last_worst:.4f}")
     elif _vec and iter_edges:
         _project_vectorized(elev, iter_edges, n, max_iters, tol,
-                            interval_bounds_by_index)
+                            interval_bounds_by_index,
+                            node_box=bound_of or None,
+                            node_ref=ref_of or None)
         # Lazy shapes under the vectorised Jacobi: only the FINAL state
         # matters for the certificate (a shape whose nodes END at their seed
         # has its body pairs satisfied at that seed, transient wiggles
@@ -1542,7 +1861,9 @@ def feasibility_project(elev, shape_constraints, hard, *,
             if not expanded_any:
                 break
             _project_vectorized(elev, iter_edges, n, max_iters, tol,
-                                interval_bounds_by_index)
+                                interval_bounds_by_index,
+                                node_box=bound_of or None,
+                                node_ref=ref_of or None)
     else:
         # WORKLIST Gauss-Seidel (perf 2026-07-04): the cyclic sweep
         # re-examined EVERY edge up to ``max_iters`` times even when
@@ -1683,6 +2004,19 @@ def feasibility_project(elev, shape_constraints, hard, *,
                     moved = (i,)
                 if ex > _last_worst:
                     _last_worst = ex
+            if bound_of:
+                # BOUNDED YIELD (owner ruling 2026-07-29): clamp every moved
+                # node back into its feasibility box; the incident-edge
+                # re-enqueue below re-relaxes its edges against the clamped
+                # value, so a box conflict ends as a reported over-cap edge,
+                # never as a seat dragged outside its interval.
+                for moved_node in moved:
+                    bb = bound_of.get(moved_node)
+                    if bb is not None:
+                        if elev[moved_node] < bb[0]:
+                            elev[moved_node] = bb[0]
+                        elif elev[moved_node] > bb[1]:
+                            elev[moved_node] = bb[1]
             for moved_node in moved:
                 nbrs = incident[moved_node]
                 if nbrs is not None:
@@ -1763,6 +2097,73 @@ def feasibility_project(elev, shape_constraints, hard, *,
                                and _edge_pops[_e] > 2)
             print(f"    [fp-reentry] edges popped >2x: "
                   f"interval={_int_reenter} symmetric={_sym_reenter}")
+    # ── REFERENCE RODS: exact-return polish (owner clarification
+    # 2026-07-29: cap-lawful sag below the string is a FORBIDDEN answer —
+    # a node with no binding pair must end AT its reference, not near
+    # it).  Sequential per-node projection of ``z_ref`` onto the interval
+    # the node's own incident constraints (at current neighbour values)
+    # and box admit: slack nodes land exactly on their reference,
+    # binding nodes at the nearest lawful point (least local
+    # displacement), and no pass ever violates a constraint it can see
+    # (the value stays inside every incident interval).  Runs to a small
+    # fixpoint; nodes still watched by an unexpanded lazy certificate
+    # are skipped (moving them off the certified seed would uncover
+    # unenforced body pairs).  Enforces the MARGINED sweep budgets, like
+    # the sweeps — the raw-law tally below is unaffected.
+    if ref_of:
+        lazy_watch: set = set()
+        for lazy_entry in lazy_entries_pending:
+            if "lazy_expand" in lazy_entry:
+                for lazy_node in lazy_entry.get("lazy_nodes", ()):
+                    lazy_watch.add(_r(lazy_node))
+        ref_adj: dict = {}
+        for (ai, aj, _rb, sweep_b) in edges:
+            if ai in ref_of:
+                ref_adj.setdefault(ai, []).append((aj, -sweep_b, sweep_b))
+            if aj in ref_of:
+                ref_adj.setdefault(aj, []).append((ai, -sweep_b, sweep_b))
+        for (ii, jj, _rl, _rh, s_lo, s_hi) in interval_edges:
+            # slab s_lo ≤ z_ii − z_jj ≤ s_hi (None = open side):
+            #   z_ii ∈ [z_jj + s_lo, z_jj + s_hi]
+            #   z_jj ∈ [z_ii − s_hi, z_ii − s_lo]
+            if ii in ref_of:
+                ref_adj.setdefault(ii, []).append((jj, s_lo, s_hi))
+            if jj in ref_of:
+                ref_adj.setdefault(jj, []).append(
+                    (ii, None if s_hi is None else -s_hi,
+                     None if s_lo is None else -s_lo))
+        # Pass cap: each pass walks the return one neighbour layer up a
+        # chain, so deep drift needs many (measured HECA: 8 left 3.9k
+        # slack nodes ≤0.25 m off reference; the loop exits early at the
+        # fixpoint and each pass is O(ref nodes · degree)).
+        for _polish_pass in range(64):
+            polish_moved = False
+            for rn, rv in ref_of.items():
+                if rn in lazy_watch:
+                    continue
+                allow_lo, allow_hi = -_INF, _INF
+                for (nb, lo_off, hi_off) in ref_adj.get(rn, ()):
+                    znb = elev[nb]
+                    if lo_off is not None and znb + lo_off > allow_lo:
+                        allow_lo = znb + lo_off
+                    if hi_off is not None and znb + hi_off < allow_hi:
+                        allow_hi = znb + hi_off
+                bb = bound_of.get(rn)
+                if bb is not None:
+                    if bb[0] > allow_lo:
+                        allow_lo = bb[0]
+                    if bb[1] < allow_hi:
+                        allow_hi = bb[1]
+                if allow_lo > allow_hi:
+                    continue          # contradictory: keep the swept value
+                target = min(max(rv, allow_lo), allow_hi)
+                if target != elev[rn]:
+                    if abs(target - elev[rn]) > 1e-12:
+                        polish_moved = True
+                    elev[rn] = target
+            if not polish_moved:
+                break
+
     # broadcast each flat group's representative level back to its members.
     for rep, g in (groups_eff if flat_groups else ()):
         for m in g:

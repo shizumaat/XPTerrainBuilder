@@ -873,12 +873,9 @@ def solve_route_profile(layout, icao: str,
                 base_hard[i] = True
         _psub(0.62, "Solving elevations — spine profile solved")
 
-        # Seat every sloping taxi RECT as a flat-ended tilted plane (read from the
-        # solved spine), freezing its corners so the body grades to it.  Returns
-        # each rect's plane (end node indices) for the final cap re-stamp.
-        rect_planes = _flatten_rect_ends(
-            layout, bucket_to_idx, elev, base_hard, frozen)
-
+        # (The sloping-rect flat-end stamp that lived here was RETIRED by
+        # spec §10.2 — the global slice emits no rect roles and no end
+        # caps; role census across all fixtures measured zero.)
         # PHASE B — body fill (apron/junction interiors + rect bodies + caps) with
         # the spine frozen.  Apron body = 1% VISIBILITY/GEODESIC smoothing within
         # the reach band [floor, ceiling] (apron_smooth=True) — graded ≤1% from its
@@ -918,11 +915,8 @@ def solve_route_profile(layout, icao: str,
         u_edges.extend(near_miss_building_frontage_edges(
             layout, bucket_to_idx, building_seats))
         rem, bh = feasibility_project(elev, [{"edges": u_edges}], hard)
-        # FINAL re-stamp: continue each end-cap as a planar extension of its
-        # parent rect's FINAL plane (rect ends may have flexed in feasibility),
-        # skipping any cap corner the spine already owns — done LAST so nothing
-        # moves it (the route-graph path's _restamp_caps, on geometry nodes).
-        _restamp_caps_unified(layout, bucket_to_idx, elev, rect_planes, frozen)
+        # (The end-cap planar re-stamp that lived here was RETIRED by spec
+        # §10.2 with the rect flat-end stamp above.)
         # GROUNDSIDE REACH + MOUTH WELD (user 2026-06-27).  Done LAST — after the
         # body solve + feasibility project — so buildings + aprons are anchored:
         #   1. Re-level each groundside piece a service road connects to an apron, to
@@ -990,12 +984,61 @@ def solve_route_profile(layout, icao: str,
         # no export — byte-identical.
         if _rod_pieces:
             from auto_patch.config import SPINE_ROD_EPSILON_M as _ROD_EPS
+            # LAW CLAMP (2026-07-29, CYXY service spine 6.2 %): spec §10.1
+            # premises every rod slab on being at most cap-grade ("a
+            # cap-grade interval is consistent with the symmetric cap
+            # edge").  A SERVICE corridor's Δ is snapshotted AFTER the
+            # authoritative ``apply_service_road_dem_follow`` re-shape,
+            # which is cap-Lipschitz along the ROUTE metric but not in
+            # the ring-pair metric — one CYXY leg snapshotted at 6.03 %
+            # against the pair's 5 % symmetric budget, and the slab then
+            # pinned the over-cap step through every later projection
+            # (the worklist satisfies the slab, permanently violating
+            # the law edge; 24 000 sweeps change nothing).  Clamp each
+            # slab into the pair's own symmetric law budget; a snapshot
+            # step beyond the law rides the ceiling at cap, exactly the
+            # spec's infeasible-tube rule.  Pairs without a symmetric
+            # law edge keep the raw slab (nothing to contradict).
+            # Budgets are looked up rod-pairs-first (the rod pair set is
+            # tiny) so the one pass over ``shape_constraints`` pays a
+            # set-membership test per edge, not a dict insert.
+            _rod_pair_keys = {
+                (min(_ra, _rb), max(_ra, _rb))
+                for _rp in _rod_pieces for _ra, _rb in zip(_rp, _rp[1:])}
+            _rod_pair_budget: dict = {}
+            for _sc_ent in shape_constraints:
+                for _e in _sc_ent.get("edges", ()):
+                    if len(_e) >= 4:
+                        continue
+                    _pk = (_e[0], _e[1]) if _e[0] <= _e[1] \
+                        else (_e[1], _e[0])
+                    if _pk not in _rod_pair_keys:
+                        continue
+                    _pb = float(_e[2])
+                    _cur = _rod_pair_budget.get(_pk)
+                    if _cur is None or _pb < _cur:
+                        _rod_pair_budget[_pk] = _pb
             _rod_edges: list = []
+            _rod_clamped = 0
             for _rp in _rod_pieces:
                 for _ra, _rb in zip(_rp, _rp[1:]):
                     _rd = elev[_ra] - elev[_rb]
-                    _rod_edges.append((_ra, _rb, _rd - _ROD_EPS,
-                                       _rd + _ROD_EPS))
+                    _rlo = _rd - _ROD_EPS
+                    _rhi = _rd + _ROD_EPS
+                    _pb = _rod_pair_budget.get(
+                        (min(_ra, _rb), max(_ra, _rb)))
+                    if _pb is not None:
+                        _clo = max(_rlo, -_pb)
+                        _chi = min(_rhi, _pb)
+                        if _clo > _chi:      # step beyond the law: ride cap
+                            if _rd >= 0.0:
+                                _clo, _chi = _pb - 2.0 * _ROD_EPS, _pb
+                            else:
+                                _clo, _chi = -_pb, -_pb + 2.0 * _ROD_EPS
+                        if (_clo, _chi) != (_rlo, _rhi):
+                            _rod_clamped += 1
+                        _rlo, _rhi = _clo, _chi
+                    _rod_edges.append((_ra, _rb, _rlo, _rhi))
             if _rod_edges:
                 shape_constraints.append({"edges": _rod_edges,
                                           "envelope_skip": True})
@@ -1006,8 +1049,17 @@ def solve_route_profile(layout, icao: str,
                     if a in _rod_key_of and b in _rod_key_of]
                 if _os.environ.get("O4_STEP_DEBUG") == "1":
                     print(f"    [taut-string] rod edges="
-                          f"{len(_rod_edges)} (ε per edge, "
-                          f"shape-as-law, snapshot at yield entry)")
+                          f"{len(_rod_edges)} ({_rod_clamped} "
+                          f"law-clamped; ε per edge, shape-as-law, "
+                          f"snapshot at yield entry)")
+                # ROD CARRY AUDIT (phase-1 probe, gate O4_ROD_CARRY_AUDIT=1
+                # — docs/specs/single-space-string-audit-spec.md §2).  Off
+                # ⇒ not even imported ⇒ byte-identical.
+                if _os.environ.get("O4_ROD_CARRY_AUDIT") == "1":
+                    from auto_patch import rod_carry_audit as _rca
+                    _rca.record_mint(layout, _rod_edges, nodes,
+                                     _rod_key_of, graph=G,
+                                     pieces=_rod_pieces, icao=icao)
         # SPINE-YIELD projection (global-slice spine adaptation, 2026-07-02).
         # Under the global slice most graph nodes ARE spine (every face is
         # born from a centerline cut), so "both ends frozen = genuine step"
@@ -1085,6 +1137,82 @@ def solve_route_profile(layout, icao: str,
             # freed pin lets the final GS park the boundary off the
             # terrain it must meet (SPLP: 0.7 m float at the band edge).
             yield_hard |= {i for i in _seam_pin_idx if i < n}
+            # BOUNDED YIELD (owner ruling 2026-07-29: "Any yield absolutely
+            # needs to stay within the feasibility box").  Everything the
+            # yield above released keeps its seat-time reach-band box as a
+            # hard clamp inside the projection: a pad flat group translates
+            # only within the intersection of its member seats' boxes; a
+            # freed non-pad seat clamps to the band interval that seated it
+            # (``layout._seat_boxes``, recorded by whatever seated the
+            # node).  A node with no recorded box keeps the unbounded yield
+            # — the clamp refines the yield, never adds a hold.  Conflicts
+            # that exceed a box surface as remaining over-cap edges / break
+            # regions instead of burying seated structures (HECA
+            # building199: seated 101.13 by the reach band, parked at 87.94
+            # by the unbounded projection — the south-terminal ~15 m drag;
+            # the blunt hard-hold arm instead minted 9 runway grade
+            # violations, the anti-goal).  ``O4_BOUNDED_YIELD=0`` restores
+            # the unbounded yield byte-identically.
+            _yield_group_bounds = None
+            _yield_node_bounds = None
+            _seat_box_idx: dict = {}
+            if _os.environ.get("O4_BOUNDED_YIELD", "1") == "1":
+                # ``_seat_boxes`` is CANONICAL-KEY-keyed (rebuilt-node-list
+                # carry); map into THIS solve's index space, intersecting
+                # keys that alias one node (tightest per side).
+                for _bk, _bb in (getattr(layout, "_seat_boxes", None)
+                                 or {}).items():
+                    _bi = bucket_to_idx.get(_bk)
+                    if _bi is None or _bi >= n:
+                        continue
+                    _prev = _seat_box_idx.get(_bi)
+                    _seat_box_idx[_bi] = (
+                        _bb if _prev is None
+                        else (max(_prev[0], _bb[0]), min(_prev[1], _bb[1])))
+                _pn = _pad_nodes if pad_groups else set()
+                if pad_groups:
+                    _yield_group_bounds = []
+                    for _g in pad_groups:
+                        _gb = None
+                        for _i in _g:
+                            _b = _seat_box_idx.get(_i)
+                            if _b is not None:
+                                _gb = (_b if _gb is None
+                                       else (max(_gb[0], _b[0]),
+                                             min(_gb[1], _b[1])))
+                        _yield_group_bounds.append(_gb)
+                # The freed non-pad seats are exactly the seat nodes no
+                # longer in ``yield_hard`` (pads carry the group box above).
+                _yield_node_bounds = {
+                    _i: _seat_box_idx[_i]
+                    for _i in building_seats
+                    if _i < n and _i not in yield_hard and _i not in _pn
+                    and _i in _seat_box_idx}
+            # REFERENCE RODS (owner ruling 2026-07-29 #2, spec §7): the
+            # yield minimizes displacement from the reference field, never
+            # settling for "any feasible point".  The reference field AT
+            # THIS POINT is the pre-yield state itself — pads sit flat at
+            # their seats (§7 priority 2), the fabric carries the
+            # phase-A/B chord-shaped solve between seats and anchors
+            # (priority 3), service corridors their DEM-followed shape
+            # (priority 4) — so ``z_ref`` = the entry value for every
+            # movable node and each pad group's reference is its entry
+            # (seat) level.  Anchors stay hard (priority 1).
+            # ``O4_YIELD_REFERENCE_RODS=0`` drops the reference term (the
+            # clamp-only §2-§6 arm).
+            _yield_group_refs = None
+            _yield_node_refs = None
+            if (_os.environ.get("O4_BOUNDED_YIELD", "1") == "1"
+                    and _os.environ.get("O4_YIELD_REFERENCE_RODS", "1")
+                    == "1"):
+                if pad_groups:
+                    _yield_group_refs = [
+                        (sum(elev[_i] for _i in _g) / len(_g)) if _g
+                        else None
+                        for _g in pad_groups]
+                _yield_node_refs = {
+                    _i: elev[_i] for _i in range(n)
+                    if _i not in yield_hard}
             joint = list(shape_constraints) + [{"edges": u_edges}]
             # DEBUG snapshot (O4_DUMP_SOLVE_STATE=<path>): pickle the final-
             # projection inputs so projection variants iterate OFFLINE (~1 s)
@@ -1116,6 +1244,18 @@ def solve_route_profile(layout, icao: str,
                         "dem_elev": list(dem_elev),
                         "node_band": list(node_band),
                         "hard_cat": _cat,
+                        # BOUNDED YIELD (2026-07-29): the live seat boxes
+                        # (this solve's index space), so an offline fp#8
+                        # replay passes the exact bounds the build did
+                        # (node_band is only a proxy).
+                        "seat_boxes": {
+                            int(_bi): (float(_bl), float(_bh))
+                            for _bi, (_bl, _bh) in _seat_box_idx.items()},
+                        # Replay fidelity (2026-07-29): the zone-slab
+                        # threshold fp#8 actually ran with — without it
+                        # an offline replay mis-kinds the zone<->host
+                        # slabs and inflates the broken set.
+                        "interval_yield_from": _iyf,
                         # Spine graph (per-edge cap budgets) + runway
                         # anchors: lets an offline probe audit whether a
                         # node's solved level equals its cap-reachable
@@ -1153,7 +1293,11 @@ def solve_route_profile(layout, icao: str,
                                           interval_yield_from=_iyf,
                                           broken_out=(_solve_broken_idx
                                                       if _scoped_gate
-                                                      else None))
+                                                      else None),
+                                          group_bounds=_yield_group_bounds,
+                                          node_bounds=_yield_node_bounds,
+                                          group_refs=_yield_group_refs,
+                                          node_refs=_yield_node_refs)
             _t_fp8_end = _time.perf_counter()
             # Tagged ``[spine-yield]``, NOT ``[taut-string]``: this line
             # must print on BOTH sides of the gate or the held-vs-baseline
@@ -1208,10 +1352,23 @@ def solve_route_profile(layout, icao: str,
                     _freed = expand_mouth_cluster(
                         layout, bucket_to_idx, _conflicted, _gs_hard)
                     yield_hard = yield_hard - _freed
+                    # Same BOUNDED YIELD boxes + REFERENCE RODS as fp#8
+                    # above: the mouth-relax re-projection moves the same
+                    # freed seats and must not un-do the clamp or the
+                    # reference — EXCEPT the freed mouth cluster itself,
+                    # whose old weld value is the broken premise being
+                    # relaxed (a reference there would fight the adopt).
                     rem, bh = feasibility_project(
                         elev, joint, yield_hard, force_scalar=True,
                         max_iters=1200, flat_groups=pad_groups or None,
-                        interval_yield_from=_iyf)
+                        interval_yield_from=_iyf,
+                        group_bounds=_yield_group_bounds,
+                        node_bounds=_yield_node_bounds,
+                        group_refs=_yield_group_refs,
+                        node_refs=({_k: _v for _k, _v
+                                    in _yield_node_refs.items()
+                                    if _k not in _freed}
+                                   if _yield_node_refs else None))
                     _n_adopted = adopt_projected_mouths(
                         layout, bucket_to_idx, elev, _freed, _gs_hard)
                     # A relaxed mouth is a solver-DECLARED authority-
@@ -2679,12 +2836,28 @@ def final_grade_projection(layout, icao: str = "", dem=None,
         _rod_t0 = _time.time()
         _rod_fp_edges: list = []
         _rod_dropped = 0
+        # ROD CARRY AUDIT (phase-1 probe, gate O4_ROD_CARRY_AUDIT=1 —
+        # docs/specs/single-space-string-audit-spec.md §2): record WHICH
+        # endpoint(s) failed to resolve, per dropped link.  Off ⇒ nothing
+        # is recorded and nothing is imported ⇒ byte-identical.
+        _rod_audit_on = _os.environ.get("O4_ROD_CARRY_AUDIT") == "1"
+        _rod_drop_rec: list = []
         for (_ka, _kb, _rlo, _rhi) in _rod_key_edges:
             _ia = b2i.get(_ka)
             _ib = b2i.get(_kb)
             if (_ia is None or _ib is None or _ia >= n or _ib >= n
                     or _ia == _ib):
                 _rod_dropped += 1
+                if _rod_audit_on:
+                    _a_bad = _ia is None or _ia >= n
+                    _b_bad = _ib is None or _ib >= n
+                    if _a_bad and _b_bad:
+                        _why = "both_endpoints_unresolved"
+                    elif _a_bad or _b_bad:
+                        _why = "one_endpoint_unresolved"
+                    else:
+                        _why = "endpoints_collapsed_to_one_node"
+                    _rod_drop_rec.append((_ka, _kb, _a_bad, _b_bad, _why))
                 continue
             _rod_fp_edges.append((_ia, _ib, _rlo, _rhi))
         if _rod_fp_edges:
@@ -2693,6 +2866,10 @@ def final_grade_projection(layout, icao: str = "", dem=None,
             print(f"    [taut-string] rod carried={len(_rod_fp_edges)} "
                   f"dropped={_rod_dropped} "
                   f"({_time.time() - _rod_t0:.3f}s)")
+        if _rod_audit_on and _rod_key_edges:
+            from auto_patch import rod_carry_audit as _rca
+            _rca.report_carry(layout, _rod_drop_rec, len(_rod_fp_edges),
+                              nodes, icao=icao)
 
     # building pads: rigid movable FLAT groups (same model as the yield).
     # DETACHED pads (user 2026-07-17) stay OUT: they are hard flat DEM
@@ -2955,6 +3132,67 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                 list(_rs.node_altitudes)
                 if _rs.node_altitudes is not None else None,
                 _rs.altitude, _rs.altitude_high, _rs.altitude_low))
+    # BOUNDED YIELD (owner ruling 2026-07-29: "Any yield absolutely needs
+    # to stay within the feasibility box") — THIS pass releases seated
+    # values too (``hard -= pad_nodes`` above), and it is where the HECA
+    # burial actually shipped from: with fp#8 bounded, the pads still
+    # emitted 87.99 vs seat 101.13 because this rebuilt-graph projection
+    # re-freed them unbounded (measured 2026-07-29, /tmp/HECA_bounded.osm
+    # first arm).  Same boxes, carried by CANONICAL KEY (this node list is
+    # rebuilt — index carry is the rod-key lesson), lifted per node into
+    # this pass's z′ = z + c crown space.  Hard nodes (seam pins, feature
+    # welds, torn re-seats) are dropped inside ``feasibility_project`` —
+    # the clamp refines the yield, never adds a hold.
+    # ``O4_BOUNDED_YIELD=0`` restores the unbounded behavior.
+    _fp_group_bounds = None
+    _fp_node_bounds = None
+    if _os.environ.get("O4_BOUNDED_YIELD", "1") == "1":
+        _fp_box_idx: dict = {}
+        for _bk, _bb in (getattr(layout, "_seat_boxes", None) or {}).items():
+            _bi = b2i.get(_bk)
+            if _bi is None or _bi >= n:
+                continue
+            _bc = _crown_of.get(_bi, 0.0)
+            _bx = (_bb[0] + _bc, _bb[1] + _bc)
+            _prev = _fp_box_idx.get(_bi)
+            _fp_box_idx[_bi] = (_bx if _prev is None
+                                else (max(_prev[0], _bx[0]),
+                                      min(_prev[1], _bx[1])))
+        if _fp_box_idx:
+            if pad_groups:
+                _fp_group_bounds = []
+                for _g in pad_groups:
+                    _gb = None
+                    for _i in _g:
+                        _b = _fp_box_idx.get(_i)
+                        if _b is not None:
+                            _gb = (_b if _gb is None
+                                   else (max(_gb[0], _b[0]),
+                                         min(_gb[1], _b[1])))
+                    _fp_group_bounds.append(_gb)
+            _fp_node_bounds = {_i: _b for _i, _b in _fp_box_idx.items()
+                               if _i not in pad_nodes}
+    # REFERENCE RODS at the final projection (spec §7 — every pass that
+    # releases seated values carries the reference term): the reference
+    # field HERE is the incoming state — the solve's lawful writeback
+    # (seats, chord-shaped fabric, service DEM-follow, groundside), in
+    # THIS pass's z′ crown space already, so no lift is needed.  This
+    # pass's documented intent was always "flex minimally from the solved
+    # value"; the reference term makes that the solved objective instead
+    # of a warm-start hope (measured 2026-07-29: this pass re-dragged the
+    # fp#8-held seam fabric from ~101 back to 85.98 without it) — and it
+    # holds the corridor's shape even where the §10 rod's canonical-key
+    # carry drops keys (the measured 2.54 m sag cause).
+    _fp_group_refs = None
+    _fp_node_refs = None
+    if (_os.environ.get("O4_BOUNDED_YIELD", "1") == "1"
+            and _os.environ.get("O4_YIELD_REFERENCE_RODS", "1") == "1"):
+        if pad_groups:
+            _fp_group_refs = [
+                (sum(elev[_i] for _i in _g) / len(_g)) if _g else None
+                for _g in pad_groups]
+        _fp_node_refs = {_i: elev[_i] for _i in range(n)
+                         if _i not in hard}
     rem, bh = feasibility_project(elev, joint, hard, force_scalar=True,
                                   max_iters=int(_os.environ.get(
                                       "O4_FINAL_PROJECTION_MAX_ITERS",
@@ -2962,7 +3200,11 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                                   flat_groups=pad_groups or None,
                                   pre_broken=(pre_broken or None),
                                   broken_out=_projection_broken_idx,
-                                  edge_couple_nodes=(_svc_couple_nodes or None))
+                                  edge_couple_nodes=(_svc_couple_nodes or None),
+                                  group_bounds=_fp_group_bounds,
+                                  node_bounds=_fp_node_bounds,
+                                  group_refs=_fp_group_refs,
+                                  node_refs=_fp_node_refs)
     # Late-run lift-only pad restore (see the snapshot above): a group
     # the projection SANK reverts to its seeded level; lifts stay.
     # Tolerance 0.15 m: a pad may absorb a small law-driven settle (the
@@ -3297,100 +3539,6 @@ def final_grade_projection(layout, icao: str = "", dem=None,
 def _open4(poly):
     c = list(poly.exterior.coords)
     return c[:-1] if c and c[0] == c[-1] else c
-
-
-def _flatten_rect_ends(layout, bucket_to_idx, elev, base_hard, frozen_spine):
-    """Make each sloping taxi rect a FLAT-ENDED tilted plane: both corners of each
-    short end take that end's solved-spine elevation (mean over the corners the
-    spine solve actually set), so the rect emits as a clean plane (the validator
-    checks all-pair).  Freezes the corners.  Returns each rect's plane as
-    ``(corner_idx_set, (e0x,e0y), e0_node, (e1x,e1y), e1_node)`` for the final cap
-    re-stamp (the node indices let the cap re-read the rect's FINAL ends)."""
-    import math
-    from auto_patch.junction_rules import SLOPING_RECT_ROLES
-    cps = layout.canonical_points
-    n = len(elev)
-
-    def _idx(x, y):
-        return bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
-
-    from auto_patch.grade_graph import _rect_ends
-    planes = []
-    for s in layout.shapes:
-        if (s.role not in SLOPING_RECT_ROLES or s.polygon is None
-                or s.polygon.is_empty):
-            continue
-        coords = _open4(s.polygon)
-        if len(coords) < 4:
-            continue
-        endA, endB, _ext = _rect_ends(coords)
-        if endA is None:
-            continue
-        ends_mid, end_node, ckeys, ok = [], [], set(), True
-        for grp in (endA, endB):
-            cis = [_idx(*coords[k]) for k in grp]
-            if any(c is None or c >= n for c in cis):
-                ok = False
-                break
-            solved = [c for c in cis if c in frozen_spine]
-            if not solved:
-                ok = False
-                break
-            ez = sum(elev[c] for c in solved) / len(solved)
-            for c in cis:
-                elev[c] = ez            # flatten the whole end
-                ckeys.add(c)
-            mx = sum(coords[k][0] for k in grp) / len(grp)
-            my = sum(coords[k][1] for k in grp) / len(grp)
-            ends_mid.append((mx, my))
-            end_node.append(cis[0])
-        if ok and len(ends_mid) == 2:
-            planes.append((ckeys, ends_mid[0], end_node[0],
-                           ends_mid[1], end_node[1]))
-    return planes
-
-
-def _restamp_caps_unified(layout, bucket_to_idx, elev, rect_planes, frozen_spine):
-    """Continue each end-cap as a planar extension of its parent rect's FINAL
-    plane (matched by ≥2 shared corners), set LAST so nothing moves it.  A cap
-    corner the SPINE owns (``frozen_spine`` — a junction node) is left untouched:
-    the spine is paramount, the cap yields there.  Mutates ``elev`` in place."""
-    cps = layout.canonical_points
-    n = len(elev)
-
-    def _idx(x, y):
-        return bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
-
-    for s in layout.shapes:
-        if (not getattr(s, "is_rect_cap", False) or s.polygon is None
-                or s.polygon.is_empty):
-            continue
-        coords = _open4(s.polygon)
-        if len(coords) < 3:
-            continue
-        ckeys = {_idx(x, y) for (x, y) in coords}
-        best, best_sh = None, 1
-        for pl in rect_planes:
-            sh = len(pl[0] & ckeys)
-            if sh > best_sh:
-                best_sh, best = sh, pl
-        if best is None:
-            continue
-        _ck, e0, e0n, e1, e1n = best
-        z0 = elev[e0n] if e0n < n else None
-        z1 = elev[e1n] if e1n < n else None
-        if z0 is None or z1 is None:
-            continue
-        ax, ay = e1[0] - e0[0], e1[1] - e0[1]
-        L2 = ax * ax + ay * ay
-        if L2 < 1e-9:
-            continue
-        for (x, y) in coords:
-            ci = _idx(x, y)
-            if ci is None or ci >= n or ci in frozen_spine:
-                continue
-            t = ((x - e0[0]) * ax + (y - e0[1]) * ay) / L2
-            elev[ci] = z0 + t * (z1 - z0)
 
 
 def _seam_spine_anchors(layout, G, spine_adj, elev, base_hard,
@@ -4433,22 +4581,3 @@ def _solve_spine_profile(elev, base_hard, spine_adj, spine_floor,
     return set(nodes), _rod_pieces
 
 
-def _merge_spine_adj(a, b):
-    """Union two ``{i: [(j, budget), ...]}`` spine adjacencies (the apron/junction
-    consecutive chain + the unified graph's rect-axis links), keeping ONE edge per
-    pair (min budget = tightest cap)."""
-    out: dict = {}
-    seen: dict = {}
-    for src in (a, b):
-        for i, lst in src.items():
-            for (j, w) in lst:
-                e = (min(i, j), max(i, j))
-                if e in seen:
-                    if w < seen[e]:
-                        seen[e] = w
-                    continue
-                seen[e] = w
-    for (i, j), w in seen.items():
-        out.setdefault(i, []).append((j, w))
-        out.setdefault(j, []).append((i, w))
-    return out

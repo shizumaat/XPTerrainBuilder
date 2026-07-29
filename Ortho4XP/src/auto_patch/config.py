@@ -93,6 +93,7 @@ __all__ = [
     "PAVEMENT_SCORE_MARGIN_HIGH",
     "PAVEMENT_SCORE_MARGIN_MED",
     "PAVEMENT_SCORE_VETO_FRAC",
+    "PAVEMENT_SCORE_TAXI_MAJOR_MIN",
     "PAVEMENT_SCORE_WIDE_HALF_M",
     "PAVEMENT_SCORE_THREAD_MIN_FRAC",
     "PAVEMENT_SCORE_SPINE_BUFFER_M",
@@ -939,6 +940,17 @@ SPINE_TAUT_STRING = (
 # string ⇒ no rod edges).
 SPINE_ROD_EPSILON_M = float(
     _os_early.environ.get("O4_SPINE_ROD_EPSILON_M", "0.02"))
+# ── AIRSIDE REACHABILITY excludes service-road paths (owner ruling
+# 2026-07-29: "reachability for all airside should never use any
+# groundside or service road paths") ─────────────────────────────
+# Service-road centerlines still weave into the unified spine graph —
+# the solve grades roads along their own spine at the road cap — but
+# ``reach_band_unified``'s ceiling/floor value fields skip edges woven
+# from a service centerline, so an airside level can never be justified
+# through a truck route.  Groundside was never in the graph.  OFF
+# restores the pre-ruling band byte-identically.
+REACH_NO_SERVICE_SPINES = (
+    _os_early.environ.get("O4_REACH_NO_SERVICE_SPINES", "1") == "1")
 # ── Corridor-profile DAMPING (user 2026-06-14) ──────────────────
 # The taxi-corridor field SEEDS at the DEM and projects onto the legal
 # band, so wherever the DEM is locally legal the profile sits ON the
@@ -1849,6 +1861,15 @@ PAVEMENT_SCORE_WEIGHTS: dict = {
     "osm_apron":           {"APRON": 2.5},
     "osm_stand":           {"APRON": 2.0},
     "osm_taxi":            {"TAXI": 2.5},
+    # MAPPED-TAXIWAY DOMINANCE (owner HECA burial report 2026-07-29):
+    # the OSM aeroway layer maps this shape as taxiway MORE than as
+    # apron/stand and nothing names it an apron.  Binary; carries the
+    # taxiway mapping past the apron geometry priors (wide_blob +
+    # enclosed_by_airside + apron_edge_bound = up to 4.5 APRON), which
+    # at dense airports fire on every between-terminal shape and were
+    # flipping mapped-taxiway junction fabric to APRON's 1 % all-pair
+    # cap — the HECA south-terminal burial chain.
+    "osm_taxi_major":      {"TAXI": 2.5},
     "spine_cover":         {"TAXI": 2.0},
     "spine_thread":        {"TAXI": 2.5},
     "truck_cover":         {"SERVICE": 1.5},
@@ -1944,6 +1965,11 @@ PAVEMENT_SCORE_MARGIN_MED = float(
 # (the R-VETO ruling; same 0.25 as PAVEMENT_CLASS_AIRSIDE_KEEP_FRAC).
 PAVEMENT_SCORE_VETO_FRAC = float(
     _os.environ.get("O4_PAVEMENT_SCORE_VETO_FRAC", "0.25"))
+# osm_taxi_major noise floor: below this taxiway cover the mapping is
+# incidental (a taxiway polygon clipping a corner), not an identity
+# claim about the shape.
+PAVEMENT_SCORE_TAXI_MAJOR_MIN = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_TAXI_MAJOR_MIN", "0.15"))
 # "Wide" morphology half-width: a shape surviving buffer(-25) is ≥~50 m
 # across somewhere (the global-slice corridor cap), apron-scale.
 PAVEMENT_SCORE_WIDE_HALF_M = float(
@@ -1977,6 +2003,21 @@ PAVEMENT_SCORE_BUILDING_CLEARANCE_M = float(
 # contour cut produces along pinches.
 PAVEMENT_SCORE_SEVER_MIN_AREA_M2 = float(
     _os.environ.get("O4_PAVEMENT_SCORE_SEVER_MIN_AREA_M2", "20"))
+# AEROWAY-EVIDENCE severance (owner axis-A ruling 2026-07-29, HECA
+# mega-apron): only shapes at/above this area with MIXED aeroway mapping
+# (taxi AND apron/stand each covering ≥ the fraction) are cut at the
+# mapped-taxiway zone.  Big blobs only — the slice's welded mega-shapes;
+# ordinary mixed shapes score whole via osm_taxi_major.
+PAVEMENT_SCORE_AEROWAY_SEVER_MIN_M2 = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_AEROWAY_SEVER_MIN_M2", "50000"))
+PAVEMENT_SCORE_AEROWAY_SEVER_MIX_FRAC = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_AEROWAY_SEVER_MIX_FRAC", "0.2"))
+# Severed-piece floor for the aeroway cut — a corridor piece must be a
+# real corridor, not contour noise (the reachability cut's 20 m² floor
+# is for pinch slivers; an aeroway piece under ~2000 m² carries too
+# little of the chain to matter and just mints seams).
+PAVEMENT_SCORE_AEROWAY_PIECE_MIN_M2 = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_AEROWAY_PIECE_MIN_M2", "2000"))
 # G-BOUNDARY (owner ruling 2026-07-28, refined same day): "a shape
 # ENTIRELY outside the airport boundary is guaranteed to be groundside
 # or road.  If it crosses the boundary it requires further analysis by

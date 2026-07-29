@@ -1,8 +1,202 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260729 (acceptance green) — SINGLE-GRAPH ACCEPTANCE FILE: 3
+# pre-existing failures diagnosed + fixed (service weld/registry area)
+# ══════════════════════════════════════════════════════════════════
+# tests/test_single_graph_acceptance.py is 4/4 GREEN at default env AND
+# with O4_SPINE_FRAME_PAIRS=0 O4_ROUTE_METRIC_PAIRS=0 (measured on a
+# frozen snapshot of this tree in worktree gracious-perlman-31623d;
+# venv/OSM_data/Elevation_data symlinked in — NOTE the zero-DEM trap
+# struck again: a bare worktree "reproduced" 3/4 passing FALSELY off
+# the refused all-zero DEM).
+# ROOT CAUSES (all three in the service-road weld/registry area):
+#  1. budget lockstep (3 edges): near-coincident-but-distinct ring
+#     vertices bucketing to ONE canonical node.  (a) adjacent service
+#     shapes carried 0.03-0.05 m pre-solve drift — service roles were
+#     never in the pre-solve weld set; (b) post-solve conformance
+#     T-inserted a groundside vertex 0.40 m off its canonical point
+#     into a service sliver — solver keys edges at G.pos (canonical),
+#     validator at ring coords, min-aggregation then diverged.
+#  2. emitted vertices ∉ law graph (2 at (-504.1,491.2)): same (b) —
+#     emit interning dragged the off-canonical insert onto the
+#     canonical position, the sliver went bowtie, and the emit
+#     buffer(0) repair minted the self-intersection vertex no
+#     projection ever graded.
+#  3. spine 6.2 % > 5 % over 11.9 m: taut-string rod slab (spec §10)
+#     snapshotted the SERVICE corridor Δ AFTER apply_service_road_
+#     dem_follow at 6.03 % chord grade and pinned it (±2 cm) against
+#     the pair's 5 % symmetric law edge — directly contradictory
+#     constraints; the worklist satisfies the slab (24 000 sweeps
+#     change nothing).  Both endpoints FREE, so no break quarantine.
+# FIXES (landed uncommitted, this session):
+#  * pipeline.py `_weld_roles` += ROLE_SERVICE_ROAD/_JUNCTION (the
+#    small-roads layer's law shapes were never welded).
+#  * conformance.py enforce_conformance: CANONICAL-IDENTITY GUARD at
+#    the T-insert — a candidate resolving to a different canonical
+#    point is inserted AT that point when it lies on the edge, and
+#    SKIPPED when it does not (the insert would emit bent).
+#  * route_profile/solve.py rod registration: LAW CLAMP — each rod
+#    slab is clamped into its pair's symmetric law budget ("a
+#    cap-grade interval is consistent with the symmetric cap edge",
+#    spec §10.1); a snapshot step beyond the law rides the cap.
+#    Rod-pairs-first lookup, one set-membership pass — sub-0.1 s.
+# VERIFIED: full-suite A/B on the SAME frozen snapshot — baseline
+#  20F/3621P/18S → fixed 17F/3624P/18S: the 3 acceptance failures
+#  FIXED plus test_cyxy_spine_zero_no_bowl (bonus); the one new F was
+#  test_conformance.py::test_insert_adopts_through_registry_radius_
+#  drift, which pinned the OLD insert-at-drifted-coordinate behavior —
+#  expectation updated to the canonical-position semantics (adopt
+#  still fires; file 12/12 green).  Net: −4 pre-existing, 0 new.
+#  Re-verified IN THIS TREE (with the concurrent one_solve.py edits):
+#  acceptance 4/4 default env AND gates-off, conformance 12/12.
+#  Acceptance-file wall 39.7-42.7 s both sides (impact well under the
+#  0.6 s hard-law line — no formal check_build_time run).
+# COORDINATION: solve.py edit is in the §10 TAUT-STRING rod block —
+#  NOT bounded-yield scope; no overlap with feasibility_project's
+#  bounded-yield/reference-rod params (one_solve.py untouched).
+# ⚠ HEAD REPAIR (resolved by the owner-requested commit carrying this
+#  block): d4f61d6 MISSED the retirement hunks deleting
+#  _flatten_rect_ends/_restamp_caps_unified and their
+#  SLOPING_RECT_ROLES import, so at d4f61d6 with a real DEM every
+#  CYXY build CRASHED (ImportError solve.py:3310) — and a bare
+#  worktree's zero-DEM refusal masked it as "tests pass".  This
+#  commit lands the deletions (whole-tree snapshot, Round style — it
+#  also carries the in-flight bounded-yield/reference-rod WIP; see
+#  the bounded-yield spec + that session's notes for its state).
+
+# ══════════════════════════════════════════════════════════════════
+# 20260729 (burial triage) — HECA SOUTH-TERMINAL BURIAL RECOVERED:
+# seam 86.88 → 100.35 via SPINE-FRAME PAIR LAW (owner model) +
+# SEAT-PRIMACY (O4_YIELD_MOVABLE_PADS=0, default flip pending owner).
+# See the addendum block below the mechanism history.
+# ══════════════════════════════════════════════════════════════════
+# ADDENDUM (end of session — supersedes "OWNER RULING PENDING"):
+#  OWNER RULED THE MODEL mid-session: "taxi spines, even through
+#  aprons, get the 1.5% grade; aprons grade out from the spines."
+#  Landed as the SPINE-FRAME PAIR LAW (O4_SPINE_FRAME_PAIRS=1):
+#   (a) apron/junction pairs decompose against their shared/nearest
+#       route WITHOUT the blend-zone gate (ds_decompose is a pure
+#       rotation — no arc credit);
+#   (b) cL upgrades to the route's per-letter taxi cap (never a
+#       service road's 5%; building pairs stay excluded);
+#   (c) ROUTE-LEG FLOOR: every non-adjacent non-building pair's
+#       budget ≥ cT·(off legs) + taxi·graph-dist on the non-service
+#       centerline oracle — kills the cross-cell short-hop 1%
+#       composition (offline replay: seam ceiling 91→117).
+#  MEASURED after (a)+(b)+(c): ceiling healthy but seam EMITTED at
+#  85.7 — the burial's second half is the DRAG, not the cap: fp#8
+#  frees the (healthy! building199 seated flat 101.13, DEM 103-105)
+#  pads and the projection — no altitude preference — parked it at
+#  87.94, dragging the welded fabric.  SEAT-PRIMACY A/B
+#  (O4_YIELD_MOVABLE_PADS=0, existing gate): seam 100.35/100.32
+#  (DEM 103.6; seat-lawful class), site gross pairs 33→1, edge steps
+#  15+120 (baseline class 168), law-true 1911 (noise band 1855-1911
+#  across today's builds; pre-session 1907).  Flat-fixture +
+#  taut-string acceptance under the candidate env running at session
+#  end — verify before flipping the O4_YIELD_MOVABLE_PADS default
+#  (its 1.0 m-residual/oscillation rationale was measured on the OLD
+#  chord web and needs re-measurement under the fixed web).
+#  Flat fixtures under the new LAW (pads still movable): CYXY 6→2,
+#  SPJC 25→9 (surface steps/tears all zero except ONE new 1.9 m
+#  strip-vs-strip seam tear pair at SPJC #728 — follow-up), SPLP
+#  0+40→0+24.  Counts DROP by design (looser lawful web).
+#  ENGINE+APP shipped to owner mid-session (engine 1.50.1662, app
+#  1.0.215) — that build PRE-DATES the recovery (still buried).
+# ACCEPTANCE VERDICT (end of session): BLUNT seat-primacy FAILS the
+#  battery at HECA — corridor sags 2.54 m below the taut chord, 135
+#  edge steps (cap 0, worst 4.14 m), 9 RUNWAY grade violations (05C
+#  63%/22.8% at 30.1034,31.4027) — holding EVERY seat pushes genuine
+#  conflicts into runways; the yield was protecting them.  Flat
+#  fixtures under seats-held are fine (CYXY 3/0 steps, SPJC 11 + the
+#  1.9 m tears GONE + one 0.6 m pad-frontage step pair, SPLP 0 +
+#  break 24→7) — the damage is relief-airport-only.  NEITHER yield
+#  extreme is right at HECA: free = 15 m drag burial (85.7), hard =
+#  runway kinks.  NEXT (needs owner sign-off, not implemented):
+#  BOUNDED YIELD — fp#8's flat groups clamp to their seat's
+#  reach-band feasibility box ([lo,hi] already computed by
+#  build_building_seats) instead of being freed unconditionally;
+#  runway-adjacent seats keep full yield.  Also: rod canonical-key
+#  carry is ~47% at HECA (dropped keys let the corridor sag) — raise
+#  it.  DO NOT rebuild the app expecting HECA recovery until the
+#  bounded yield lands; current tree DEFAULT (pads movable) is
+#  strictly ≥ the morning tree everywhere (flats improved, HECA
+#  equal-buried, web now lawful).
+# ══════════════════════════════════════════════════════════════════
+# SYMPTOM (owner): south terminals (~100 m real) emit ~87-92; seam
+#  site (30.11211,31.40562) 86.88 vs 106.10 last-healthy; 168 steps.
+# LANDED THIS SESSION (all measured, all default-ON with env-off):
+#  1. pavement_scoring OSM_TAXI_MAJOR (+ TAXI 2.5; O4_PAVEMENT_SCORE_
+#     TAXI_MAJOR_MIN=0.15): mapped-taxiway-dominant shapes no longer
+#     flipped APRON by the geometry priors (wide_blob+enclosed+
+#     apron_edge_bound were outscoring the actual mapping on 10 HECA
+#     shapes / 219k m², incl. both owner seam shapes).  Guarded: only
+#     fires where OSM maps apron/stand somewhere (CYXY's mapper never
+#     did; unguarded it flipped a 13.7k apron off 20% incidental
+#     cover).  OWNER ACCEPTED the CYXY law-true change 9→6.
+#  2. grade_graph ROUTE-METRIC FAR PAIRS (owner ruling this session;
+#     O4_ROUTE_METRIC_PAIRS=1, O4_PAIR_CHORD_LOCAL_M=120, O4_PAIR_
+#     BUDGET_PRUNE_M=150): within-shape pairs > 120 m chord price at
+#     cap × max(chord, d_route) on a NON-SERVICE centerline oracle
+#     (_RouteDistanceOracle, memoized fields, ctx-cached) — baked via
+#     Allowance.baked at the ONE mint point (shape_constraints), so
+#     solver / validator / check_grade / lockstep bake stay in step.
+#     Deep-set-building 1% law preserved (straight off-graph leg =
+#     chord); building-endpoint pairs excluded (2026-07-03 ruling).
+#     Verified: SPJC 24=24, SPLP 0+40=0+40, CYXY 6=6 (byte-neutral);
+#     HECA fp#8 rem 61k→27k.  Synthetic oracle test in-session (route
+#     2000 vs chord 1414; service excluded; off-leg exact).
+#  3. pavement_scoring SEVER_MIXED_AEROWAY (O4_PAVEMENT_SEVER_AEROWAY,
+#     ≥50k m² + both covers ≥0.2): big mixed-mapping blobs cut at the
+#     taxi zone (taxi cover minus apron/stand) pre-scoring, pieces
+#     re-scored.  At HECA it fires on 2 shapes (~57k) only — see WHY.
+# RESULT: seam site 86.88 → 86.51 (+0.4 only).  NOT the fix.  WHY,
+#  PROVEN (megatrace of max-apron-area per _covp phase): the 994,953 m²
+#  mega-apron is BORN AT THE SLICE (post-slice phase), spans 3.0×2.1 km
+#  incl. both chain ends, and survives to emission (-10929, 931k).
+#  OSM maps HECA's terminal fabric as GIANT APRONS (603k/435k/154k…)
+#  with taxiway CENTERLINES drawn through them (only 2 closed taxiway
+#  areas exist near HECA) — so the taxi zone inside the mega is ~empty
+#  and NO classification evidence supports cutting taxi corridors out
+#  of it.  Axis A is exhausted, honestly.
+# ROOT ARITHMETIC (the thing needing an owner ruling): the binding
+#  chain is a CONTIGUOUS soft-fabric path, 05L join anchor 63.62 m →
+#  2,940 m of welded apron/pad hops → south terminals.  Composed
+#  budget = Σ cap×dist ≈ 28-30 m (aprons 1%, pads 0%, no within-fence
+#  terraces allowed) → ceiling ~92-94.  Reaching ~106 needs ≥1.44%
+#  AVERAGE along that physical path.  Pair PRICING cannot change this
+#  (short-hop composition; route-metric only affects far chords —
+#  measured byte-identical seam).  Real Cairo climbs ~1.4-1.7% through
+#  this fabric, so the law as ruled (apron 1% + pads-weld-smooth +
+#  terrace-only-toward-groundside) is contradicted by the terrain.
+#  OPTIONS PRESENTED TO OWNER (choose one, none implemented):
+#   A. DEM-aware apron cap: apron fabric may grade at the taxi cap
+#      (1.5%) where the smoothed DEM itself climbs — "follow the
+#      terrain" as a cap selector, relief airports only in effect.
+#   B. Within-fence terrace lines: designated pad↔apron or
+#      apron↔apron edges may step (extends ruling 1's groundside
+#      terrace to airside lines the owner designates).
+#   D. Seat-primacy: band-lawful building seats stay HARD through the
+#      movable-pads yield; web contradictions mint contained
+#      BREAK-REGION blends (existing machinery) instead of dragging
+#      the region 15 m — matches the owner's instinct this session
+#      ("why would we move them after seating them?!").
+#  fp#8 EXPLAINED TO OWNER (this session): it reconciles per-pad
+#  seats vs neighbours/runway (residual 1.0→0.02 m, SPJC law-true
+#  406→180 when added); it buried HECA only because the web it
+#  projects onto was wrong; removal would re-mint the oscillation
+#  cliffs — keep, re-measure post-ruling.
+# PROBE ADDITIONS: tools/probes_heca_burial_20260729/hop_ownership.py
+#  (ring-vertex hop→owning-way attribution; midpoint containment in
+#  chain_anatomy is coarse — 807 m of the chain is BUILDING-owned 1%
+#  chords, 271 m lawful 0% pad welds, ~1.5 km mega-apron).
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
 # 20260729 (retirement) — LEGACY SPINE GATE + SLOPING-RECT MACHINERY
 # RETIRED (owner rulings 2026-07-29 a+b; Tier C approved)
 # ══════════════════════════════════════════════════════════════════
-# LANDED (uncommitted): the global slice is the ONLY path.  Deleted:
+# LANDED (committed d4f61d6, mine-only carve — concurrent session's
+#  REACH/rod work left uncommitted; revert-verified clean): the global
+#  slice is the ONLY path.  Deleted:
 #  O4_ROUTE_ARC_SPINE / O4_CURVE_NATIVE_SPINE gates + every legacy
 #  branch (pipeline, solve.py ×4, one_solve, fast_path, route_arcs,
 #  elevation, grade_graph, verification, junction_repair sliver-veto
@@ -65,6 +259,136 @@
 #  (unit-tested by test_flat_certificate_coverage, now dead code);
 #  _natural_half_widths_lr/_axis_half_width_at died with rects.py
 #  (only dead consumers — deviation from the "move :958/:1078" map).
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
+# 20260729 (round 8) — STRING-AS-LAW INTERVAL ROD (spec §10) LANDED;
+# rect stamping removed (§10.2); TWO TREE-LEVEL REGRESSIONS FOUND
+# (HECA burial + KCLT build OOM), both independent of §10
+# ══════════════════════════════════════════════════════════════════
+# §10.1 LANDED (uncommitted): the faired phase-A string becomes SIGNED
+#  INTERVAL EDGES z_i−z_j ∈ [Δ±ε] per consecutive strung spine pair
+#  (existing Stage-B0 4-tuple machinery), registered in
+#  shape_constraints with a new per-entry "envelope_skip" flag (rod
+#  slabs carry signed weights the reach-envelope Dijkstra must not see
+#  — the retired-EAT blowup class; sweeps enforce them fully).
+#  Δ SNAPSHOT AT YIELD ENTRY, not phase-A end: every projection in
+#  between holds the spine hard, so taxi corridors' Δ IS the faired
+#  string byte-for-byte, while SERVICE corridors include the
+#  authoritative apply_service_road_dem_follow re-shape (phase-A-end
+#  snapshot minted 8.95% service pairs at CYXY — measured, fixed).
+#  ε=0.02 via O4_SPINE_ROD_EPSILON_M.  Canonical-key carry into
+#  final_grade_projection's rebuilt space (both endpoints must resolve;
+#  dropped+counted — carried ~47% at HECA, ~27% CYXY: keys are
+#  position-buckets, so weld-moved vertices drop).  DELETED per §10:
+#  pre-yield re-string, yield_hard hold, final-projection hold +
+#  SPINE_TAUT_STRING_FINAL_HOLD gate.  Corridor splits carry over.
+# §10.2 DONE: _flatten_rect_ends + _restamp_caps_unified + dead
+#  _merge_spine_adj removed.  Census (layout shapes + emitted ways):
+#  SPJC/SPLP/CYXY/HECA all zero rect roles & zero is_rect_cap; owner
+#  ruled mid-census "if our code does not emit rects, there are none"
+#  (KCLT/MMOX census stopped).  Owner rulings 2026-07-29: (a)
+#  O4_ROUTE_ARC_SPINE legacy path can be retired; (b) service roads
+#  confirmed rect-free (all rect treatment is 4-corner+alt_high/low
+#  conditional — zero 4-corner service roads except 1 incidental at
+#  SPJC; live-under-rect-names: grade_graph cap inheritance, corner
+#  snap/seam-pin role sets — extract+rename, keep service_road in
+#  PAVEMENT_ROLES directly).  Retirement task chip spawned with the
+#  full tiered map (rect GENERATION still runs ungated on every build
+#  and is discarded — pipeline.py:3501-4062, the build-time win).
+# §10.3 ACCEPTANCE — MINT CLASS DEAD AT FLAT AIRPORTS: printed
+#  law-true gate-ON vs gate-OFF-baseline: SPJC 26 vs 26 (exact),
+#  SPLP 65+0 vs 65+0 (exact), CYXY 9 vs 106 (same-tree OFF today: 8;
+#  +1 marginal ~2% settle pair).  KCLT unmeasurable (see OOM below).
+# HECA BLOCKED BY TREE REGRESSION (NOT §10 — measured exhaustively):
+#  gate-ON == gate-OFF byte-level at the owner seam site (86.88/87.61
+#  BOTH), identical 168 edge steps >0.5m (worst 4.71), law-true 1907
+#  ON vs 1853 OFF.  But yesterday: census build (holds, same tree
+#  pre-§10-edits) had 106.10 there; round-7 gate-OFF corridor emitted
+#  ~98-103.  MECHANISM (dump + offline fp#8 + budget-Dijkstra trace):
+#  the pairwise-cap chain from the 05L join anchor (63.62m, north/low
+#  side) to the south terminals permits only 28.25m rise over ~2.5km
+#  (1.13% avg) — tighter than the real ~1.6-1.8% grade HECA actually
+#  climbs (north area ~75m, south terminals ~100m, owner) — so the
+#  yields lawfully bury the south side at ~87-92 (fp#8 rem=61k,
+#  non-convergent).  The §7 holds were MASKING this by propping the
+#  spine (minting the in-sim cliffs).  ATTRIBUTION SO FAR: scoring
+#  enactment OFF (O4_PAVEMENT_SCORE_V2=off) recovers +5.3m (seam site
+#  92.2) and kills 26/32 gross step pairs → role flips to
+#  tighter-capped roles are the largest single trigger; remaining
+#  ~6-10m vs yesterday points at round-8/9 role/network changes
+#  (G-ABUT flips, spine dedup, on-edge pad membership — ungated).
+#  Corridor regression test + cost gate CANNOT pass until the tree is
+#  triaged; DO NOT rebuild the app off this tree state.
+# KCLT BUILD OOM (tree-level): KCLT builds reach ~26GB RSS and die by
+#  silent SIGKILL (reproduced on pre-§10 code this morning and again
+#  standalone; 128GB machine, no crash report).  Instrumented RSS-
+#  sampled gate-OFF run in flight to name the stage.
+# FALSIFIED THIS ROUND (do not retry): rod Δ snapshot at phase-A end
+#  (freezes pre-DEM-follow service shapes → 8.95% service mints);
+#  "the §7 holds caused the HECA burial" (gate-OFF buries identically
+#  on today's tree — the chain-tightening did it); "the burial chain
+#  violates the airside-outside-boundary law" (the whole 2.9 km chain
+#  is INSIDE the aerodrome way; also the earlier "HECA has no
+#  aeroway=aerodrome way" claim was a probe bug — way -98 "Cairo
+#  International Airport", 762 nodes, closed, contains the site; the
+#  G-BOUNDARY gate should be LIVE at HECA.  Real latent gap found:
+#  pipeline.py:969/974 loads OSM relations then DROPS them —
+#  relation-mapped aerodromes never reach the scorer).
+# OWNER RULINGS 2026-07-29 (this session):
+#  1. AIRSIDE REACHABILITY NEVER RIDES SERVICE ROADS — implemented:
+#     Centerline.is_service → UnifiedGraph.service_spine_pairs (taxi-
+#     woven pairs subtracted); reach_band_unified value-field Dijkstras
+#     + nearest-node lookup skip them (O4_REACH_NO_SERVICE_SPINES,
+#     default ON; OFF byte-identical; serving-foot lines already
+#     excluded service).  NOTE: the raster reach band (O4_RASTER_
+#     REACH_BAND, default OFF) does NOT yet honor the exclusion.
+#     Fixture A/B pending (tree mid-surgery, below).  Groundside was
+#     never in the route graph (verified).
+#  2. PAD WELD LAW (ratified): airside pavement welds SMOOTH to a
+#     building's airside face (sometimes all the way around) — pad
+#     flat-pairs as law-web links are legitimate; a pad↔GROUNDSIDE
+#     pavement boundary may TERRACE (step allowed).  Matches current
+#     behavior; the HECA burial chain is therefore lawful under this
+#     ruling and the fix space narrows to (a) within-fence
+#     classification and (b) role caps over km-scale fabric.
+#  3. O4_ROUTE_ARC_SPINE retired + service-road rect-freedom confirmed
+#     → "Retire legacy rect pipeline" session launched by owner
+#     (COMPLETED + committed d4f61d6; see its own block above.  The
+#     omnibus 1c965ba swept part of this session's dirty work — clean
+#     git status ≠ lost edits).
+#  4. G-BOUNDARY DATA GUARANTEE (owner 2026-07-29 "ensure we have
+#     airport boundary data for role classification") — DONE: the
+#     scorer's boundary assembles from THREE sources best-first:
+#     (a) closed aeroway=aerodrome OSM ways (as before); (b) aerodrome
+#     RELATIONS — pipeline now stashes relations in
+#     _osm_airport_features (3rd tuple element; readers index [0]/[1],
+#     unaffected) and the scorer stitches outer member ways into
+#     closed rings by endpoint chaining (unstitchable ⇒ skipped,
+#     never guessed); (c) apt.dat ROW-130 fallback
+#     (layout.airport_boundary, despiked metre-space) when OSM has
+#     nothing.  O4_STEP_DEBUG prints "[pav-scoring] boundary: <src>".
+#     4 new unit tests (72/72 scoring green); fixture-verified: CYXY
+#     osm ways=1 / SPLP+SPJC osm ways=2, counts unchanged
+#     (9 / 65+0 / 25).  Airports with row-130 but no OSM fence gain a
+#     live G-BOUNDARY for the first time — counts there may shift BY
+#     DESIGN.
+# HECA RETEST post-exclusion + post-retirement (2026-07-29, owner
+#  asked whether the service-reachability theory fixed it): burial
+#  UNCHANGED — seam site 86.88/87.61 byte-identical, corridor chord
+#  94.53->91.68, within-shape 1888 (vs 1907, noise).  The service
+#  exclusion governs the reach band, which was already healthy at the
+#  corridor; the burial is the PROJECTION LAW-WEB chain (falsified
+#  hypothesis: do not retry).  Triage chip stands (within-fence
+#  classification + chained-cap law).
+# KCLT OOM UPDATE: instrumented gate-OFF run peaks ~55.8 GB RSS inside
+#  the ONE-PROFILE solve stage (NOT §10 code — reproduced with the
+#  taut gate OFF), then died AGAIN by silent SIGKILL at ~27 GB after
+#  26 min (three deaths total 2026-07-29).  Suspect: quadratic
+#  within-shape all-pair explosion on giant merged/flipped shapes
+#  (scoring enactment / round-8/9 reclassification).  KCLT counts are
+#  UNMEASURABLE until fixed — investigation spun off as its own task
+#  (needs an exclusive machine window + shape-size instrumentation).
 # ══════════════════════════════════════════════════════════════════
 
 # ══════════════════════════════════════════════════════════════════

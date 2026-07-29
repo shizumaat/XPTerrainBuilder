@@ -359,15 +359,37 @@ def test_interval_reach_compatible_parents_do_not_false_break():
 def test_interval_reach_directed_bounds_through_a_free_relay():
     # The directed propagation must chain THROUGH a free intermediate node:
     # hard 0 = 0; interval 1←0 gives z1 ≥ z0 + 1; interval 2←1 gives
-    # z2 ≥ z1 + 1; so the FLOOR envelope must lift z2 to ≥ 2 even though node 2
-    # touches no anchor directly.
+    # z2 ≥ z1 + 1; so z2 must end at ≥ 2 even though node 2 touches no anchor
+    # directly.  ENVELOPE SIGN DISCIPLINE (KCLT 2026-07-29): same-sign slab
+    # components (``low > 0`` "must climb") are EXCLUDED from the reach
+    # envelope — including them injects improving edges into the lazy-deletion
+    # Dijkstra, unbounded when jointly infeasible — so the lift now comes from
+    # the iterative sweep, which halves the violation per pass instead of
+    # one-shotting it.  This 100 m seed needs ~17 passes to tol=1e-3; 64
+    # bounds that with margin so a convergence regression still fails fast.
     elev = [0.0, -100.0, -100.0]
     edges = [(1, 0, 1.0, None),         # z1 − z0 ≥ 1
              (2, 1, 1.0, None)]         # z2 − z1 ≥ 1
-    rem, _bh = _project(elev, edges, hard={0}, max_iters=1)
+    rem, _bh = _project(elev, edges, hard={0}, max_iters=64)
     assert rem == 0
     assert elev[1] == pytest.approx(1.0, abs=1e-3)
     assert elev[2] == pytest.approx(2.0, abs=1e-3)
+
+
+def test_infeasible_same_sign_slab_terminates_and_tallies():
+    # Pin of the ENVELOPE SIGN DISCIPLINE's safety property: a must-climb slab
+    # JOINTLY INFEASIBLE with a symmetric cap (z1 − z0 ≥ 3 vs |z1 − z0| ≤ 1)
+    # is exactly the negative-cycle class that grew the reach heap to 56 GB at
+    # KCLT when such slabs fed the envelope.  With the slab excluded, the call
+    # must TERMINATE promptly and report the contradiction in the residual
+    # tally instead of relaxing toward −∞.  (A regression here manifests as a
+    # hang/timeout, like the CYXY strict-pop case below.)
+    elev = [0.0, 0.0]
+    edges = [(0, 1, 1.0),               # |z1 − z0| ≤ 1
+             (1, 0, 3.0, None)]         # z1 − z0 ≥ 3  (jointly infeasible)
+    rem, _bh = _project(elev, edges, hard={0}, max_iters=200)
+    assert rem >= 1                     # contradiction surfaced, not swallowed
+    assert elev[0] == 0.0               # hard anchor never moves
 
 
 def test_reach_strict_pop_guard_survives_equal_keys():

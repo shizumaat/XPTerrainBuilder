@@ -136,7 +136,18 @@ PLIST
 # Strip any metadata the sources carried over, then sign in the temp dir
 # where nothing races us.
 xattr -cr "$STAGE" 2>/dev/null || true
-codesign --force --sign - "$STAGE"
+# Ad-hoc signatures give TCC a per-build cdhash identity, so every rebuild
+# re-prompts for removable-volume access (and the macOS 27 beta dialog can
+# wedge — see scripts/unstick_tcc.sh). A real identity keeps grants across
+# rebuilds. Set XPTB_SIGN_IDENTITY, or create a self-signed code-signing
+# cert named "XPTerrainBuilder Dev" in Keychain Access to be auto-detected.
+SIGN_IDENTITY="${XPTB_SIGN_IDENTITY:-}"
+if [ -z "$SIGN_IDENTITY" ] && security find-identity -v -p codesigning 2>/dev/null \
+     | grep -q '"XPTerrainBuilder Dev"'; then
+    SIGN_IDENTITY="XPTerrainBuilder Dev"
+fi
+codesign --force --sign "${SIGN_IDENTITY:--}" "$STAGE"
+[ -n "$SIGN_IDENTITY" ] && echo "Signed with identity: $SIGN_IDENTITY"
 
 rm -rf "$APP"
 mkdir -p "$ROOT/dist.nosync"

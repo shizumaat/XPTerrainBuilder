@@ -119,6 +119,18 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts):
         building_feasible_levels)
 
     cps = layout.canonical_points
+    # BOUNDED YIELD box registry (owner ruling 2026-07-29: "Any yield
+    # absolutely needs to stay within the feasibility box"): whatever seats
+    # a node also records the reach-band interval the seat was chosen from,
+    # keyed by CANONICAL KEY (the ``canonical_points`` registry point) —
+    # never by node index: the final projection runs on a REBUILT node
+    # list (the rod-key lesson), so only the key survives.  Consumers
+    # (solve.py fp#8 + final_grade_projection) map key → their own index
+    # space and clamp every freed value inside its box.  Reset here —
+    # this is the first seat producer of a solve;
+    # ``build_nobuilding_apron_seats`` merges its contact boxes into the
+    # same dict afterwards.
+    layout._seat_boxes = {}
     # ``building_feasible_levels`` decides WHICH buildings are airside-served (its
     # touch test) + gives the centroid level as a fallback for off-network pads.
     levels = building_feasible_levels(layout, runway_pts, dem_fn, band=band)
@@ -319,11 +331,24 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts):
             # regression vs the uncoupled model, conflicts stay as they were.
 
     seats: dict = {}
-    for (s, ring, level, _lo, _hi) in pads:
+    seat_boxes = layout._seat_boxes
+    for (s, ring, level, lo, hi) in pads:
+        # BOUNDED YIELD box (owner ruling 2026-07-29): the pad's box is the
+        # ``[lo, hi]`` its seat was chosen from, WIDENED to include the
+        # chosen level — an uncoupled seat is ``min(DEM, hi)`` and may rest
+        # below ``lo``, and the box must never move a resting seat (the
+        # clamp refines the yield, it is not a new hold).  A ring node
+        # shared by two pads keeps the tighter interval per side.
+        blo = min(float(lo), float(level))
+        bhi = max(float(hi), float(level))
         for (x, y) in ring:
-            i = bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
+            k = cps.get_or_add(float(x), float(y))
+            i = bucket_to_idx.get(k)
             if i is not None:
                 seats[i] = float(level)
+            prev = seat_boxes.get(k)
+            seat_boxes[k] = ((blo, bhi) if prev is None
+                             else (max(prev[0], blo), min(prev[1], bhi)))
     return seats
 
 
@@ -494,7 +519,7 @@ def build_nobuilding_apron_seats(layout, bucket_to_idx, band, dem_fn):
             continue                            # a building anchors the level
         # Each feeder's CONTACT = its nearest vertex to the apron (what route_reach
         # measures), with its reach band + DEM-biased target.
-        idxs, tgts, boxes, poss = [], [], [], []
+        idxs, tgts, boxes, poss, keys = [], [], [], [], []
         for t in routes:
             if t is s or s.polygon.distance(t.polygon) > 1.5:
                 continue
@@ -509,7 +534,8 @@ def build_nobuilding_apron_seats(layout, bucket_to_idx, band, dem_fn):
             b = band(px, py)
             if b is None:
                 continue
-            i = bucket_to_idx.get(cps.get_or_add(float(px), float(py)))
+            k = cps.get_or_add(float(px), float(py))
+            i = bucket_to_idx.get(k)
             if i is None:
                 continue
             de = dem_fn(px, py)
@@ -518,13 +544,28 @@ def build_nobuilding_apron_seats(layout, bucket_to_idx, band, dem_fn):
             tgts.append(min(max(tgt, b[0]), b[1]))
             boxes.append(b)
             poss.append((px, py))
+            keys.append(k)
         if len(idxs) < 2:
             continue
         L = _project_apron_contacts(tgts, boxes, poss, APRON_MAX_GRADE)
         if L is None:
             continue                            # fundamental → documented transition
-        for i, Li in zip(idxs, L):
+        # BOUNDED YIELD box (owner ruling 2026-07-29): a contact seat's box
+        # is the band interval that seated it (``band(x, y)`` at the contact
+        # — the same lookup), widened to include the projected level (POCS
+        # keeps ``L_i`` in-box; the widen is a no-op guard).  Keyed by
+        # CANONICAL KEY (see ``build_building_seats``); merged into the
+        # registry that function reset (it runs first).
+        seat_boxes = getattr(layout, "_seat_boxes", None)
+        if seat_boxes is None:
+            seat_boxes = layout._seat_boxes = {}
+        for i, Li, b, k in zip(idxs, L, boxes, keys):
             seats[i] = float(Li)
+            blo = min(float(b[0]), float(Li))
+            bhi = max(float(b[1]), float(Li))
+            prev = seat_boxes.get(k)
+            seat_boxes[k] = ((blo, bhi) if prev is None
+                             else (max(prev[0], blo), min(prev[1], bhi)))
     return seats
 
 

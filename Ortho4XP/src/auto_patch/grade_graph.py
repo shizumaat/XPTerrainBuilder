@@ -93,6 +93,45 @@ SPINE_PERP_TOL_M = 1.0
 APRON_ROUTE_CONTACT = os.environ.get("O4_APRON_ROUTE_CONTACT", "1") == "1"
 _ROUTE_CONTACT_TOL_M = 0.5
 
+# ROUTE-METRIC FAR PAIRS (owner ruling 2026-07-29, HECA south-terminal
+# burial): a within-shape pair's budget is priced by the distance a vehicle
+# actually travels, not the straight chord.  Near pairs (chord ≤
+# ``PAIR_CHORD_LOCAL_M``) keep the chord — local apron planarity is the law
+# there, and the deep-set-building case (a pad 200 m back from its taxiway)
+# prices as a straight off-graph leg, byte-identical to the chord.  Far
+# pairs price at ``cap × max(chord, d_route)`` where ``d_route`` is
+# measured on the NON-SERVICE centerline graph (off-graph leg + graph
+# distance + off-graph leg — the same airside-only metric the reach band
+# seats buildings with).  Without this the all-pair web composes across
+# welded shapes into a straight-line Lipschitz bound (HECA: 28 m of budget
+# over 2,940 m of chords vs the 5,500 m taxi route) and the movable-pads
+# yield lawfully drags route-seated pads ~15 m off their seats.
+# BUILDING-endpoint pairs are excluded exactly like the route-arc bake
+# (2026-07-03 ruling: buildings are the heaviest constraint).
+# ``PAIR_BUDGET_PRUNE_M``: a far pair whose priced budget exceeds any
+# plausible airport relief span can never bind and is dropped outright.
+ROUTE_METRIC_PAIRS = os.environ.get("O4_ROUTE_METRIC_PAIRS", "1") == "1"
+PAIR_CHORD_LOCAL_M = float(os.environ.get("O4_PAIR_CHORD_LOCAL_M", "120"))
+PAIR_BUDGET_PRUNE_M = float(os.environ.get("O4_PAIR_BUDGET_PRUNE_M", "150"))
+
+# SPINE-FRAME PAIR LAW (owner model, 2026-07-29 burial session: "taxi
+# spines, even through aprons, should get the 1.5 % grade, then aprons
+# grade out from the spines").  Two deltas over the §3c decomposition:
+# (1) apron/junction pairs decompose against their shared/nearest route
+# WITHOUT the blend-zone distance gate (the decomposition is a pure
+# rotation of the pair separation — see ds_decompose — so this grants
+# no arc credit; a far interior chord with no route keeps isotropic
+# 1 %), and (2) the LONGITUDINAL cap upgrades to the route's per-letter
+# taxi cap (never a service road's 5 % — the free-road ruling makes
+# in-apron road pavement apron) while the TRANSVERSE cap stays the
+# pair's own (apron 1 % across).  Without this the apron's isotropic
+# 1 % all-pair web overrides the spine's 1.5 % — the composed
+# short-hop chain over HECA's slice-born mega-apron capped the south
+# terminals ~15 m under their route-lawful seats no matter how far
+# pairs were priced.  Building-endpoint pairs remain excluded
+# (2026-07-03: buildings are the heaviest constraint).
+SPINE_FRAME_PAIRS = os.environ.get("O4_SPINE_FRAME_PAIRS", "1") == "1"
+
 # The per-pair eligibility/cap decision (min-pair-dist, apron body-chord max,
 # seam/building/spine/visibility skips, cap selection) is THE LAW — it lives in
 # ``grade_law`` so the solver and the grade test share one source.  This module
@@ -116,6 +155,16 @@ class Centerline:
     # belongs to (the chained-route spine-arc frame, see :class:`RouteChain`).
     # ``-1`` ⇒ no chained route attached (legacy / piece is its own route).
     route_idx: int = -1
+    # SERVICE-ROAD spine (owner ruling 2026-07-29: "reachability for all
+    # airside should never use any groundside or service road paths").
+    # Service centerlines still WEAVE into ``G.spine_adj`` (the solve
+    # grades roads along their own spine), but edges woven from a
+    # flagged centerline are recorded in
+    # ``UnifiedGraph.service_spine_pairs`` so the airside reach band can
+    # refuse to justify a ceiling/floor through them
+    # (``building_feasibility.reach_band_unified``).
+    is_service: bool = False
+
     @property
     def cap(self) -> float:
         return min(self.seg_caps) if self.seg_caps else TAXI_MAX_GRADE
@@ -323,7 +372,8 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
                 ridx = len(routes)
                 routes.append(RouteChain(pts=rpts))
                 route_key_to_idx[rkey] = ridx
-            cls.append(Centerline(pts=pts, seg_caps=seg_caps, route_idx=ridx))
+            cls.append(Centerline(pts=pts, seg_caps=seg_caps, route_idx=ridx,
+                                  is_service=True))
             continue
         if len(pts) >= 2:
             # Per-segment cap from the route's per-segment ICAO size (no name→
@@ -610,8 +660,32 @@ def ds_decompose(pa: tuple[float, float], pb: tuple[float, float],
     validator both call it, so the built and checked surfaces use identical math.
     For a STRAIGHT route this returns ``(sep, 0)`` (the isotropic ``cap·dist``
     case), so straight taxiways/aprons are unaffected."""
-    _arc_a, _da, qa = _project(route, pa[0], pa[1])
-    _arc_b, _db, qb = _project(route, pb[0], pb[1])
+    # Per-route projection memo: under the spine-frame law every
+    # same-cell pair decomposes, so a big shape re-projects each ring
+    # vertex O(n) times — cache the foot point per (rounded) vertex.
+    memo = getattr(route, "_proj_memo", None)
+    if memo is None:
+        memo = {}
+        try:
+            route._proj_memo = memo
+        except Exception:
+            memo = None
+    if memo is not None:
+        ka = (round(pa[0], 3), round(pa[1], 3))
+        kb = (round(pb[0], 3), round(pb[1], 3))
+        ra = memo.get(ka)
+        if ra is None:
+            ra = _project(route, pa[0], pa[1])
+            memo[ka] = ra
+        rb = memo.get(kb)
+        if rb is None:
+            rb = _project(route, pb[0], pb[1])
+            memo[kb] = rb
+        _arc_a, _da, qa = ra
+        _arc_b, _db, qb = rb
+    else:
+        _arc_a, _da, qa = _project(route, pa[0], pa[1])
+        _arc_b, _db, qb = _project(route, pb[0], pb[1])
     sep = math.hypot(pa[0] - pb[0], pa[1] - pb[1])
     long_chord = math.hypot(qa[0] - qb[0], qa[1] - qb[1])
     ds_par = min(long_chord, sep)
@@ -931,10 +1005,215 @@ def _edge_route(role, shared, ctx, vr_i, vr_j, di_perp, dj_perp):
     ri, rj = vr_i, vr_j
     if ri < 0 or ri != rj:
         return None
-    if role == APRON_ROLE and (di_perp > APRON_TAXI_TRANSITION_M
-                               or dj_perp > APRON_TAXI_TRANSITION_M):
+    if (role == APRON_ROLE and not SPINE_FRAME_PAIRS
+            and (di_perp > APRON_TAXI_TRANSITION_M
+                 or dj_perp > APRON_TAXI_TRANSITION_M)):
+        # Legacy blend-zone scoping.  Under the SPINE-FRAME law the
+        # whole apron decomposes against its route (pure rotation, no
+        # arc credit) so the spine can carry its cap through it.
         return None
     return ctx.routes[ri]
+
+
+class _RouteDistanceOracle:
+    """Airside route-graph distance for the far-pair metric (see the
+    ``ROUTE_METRIC_PAIRS`` block).  Graph = the NON-SERVICE centerline
+    polylines, vertices fused by coordinate bucket so crossing lines join;
+    ``distance(a, b) = |a−att(a)| + graph(att(a), att(b)) + |att(b)−b|``
+    with straight off-graph legs (a pad deep in an apron reaches its
+    serving route across the apron, exactly what the reach band measures).
+    Distance fields are memoized per attachment vertex as float arrays and
+    evicted FIFO — the bake walks shapes sequentially, so attachments
+    cluster and locality is high."""
+
+    _CELL = 50.0
+    _MAX_FIELDS = 512
+
+    def __init__(self, centerlines):
+        verts: list = []
+        vid: dict = {}
+        adj: list = []
+
+        def _vert(p):
+            k = (round(p[0], 1), round(p[1], 1))
+            i = vid.get(k)
+            if i is None:
+                i = len(verts)
+                vid[k] = i
+                verts.append((p[0], p[1]))
+                adj.append([])
+            return i
+
+        for cl in centerlines or ():
+            if getattr(cl, "is_service", False):
+                continue
+            pts = list(cl.pts)
+            for a, b in zip(pts, pts[1:]):
+                ia, ib = _vert(a), _vert(b)
+                if ia == ib:
+                    continue
+                w = math.hypot(a[0] - b[0], a[1] - b[1])
+                adj[ia].append((ib, w))
+                adj[ib].append((ia, w))
+        self.verts = verts
+        self.adj = adj
+        self.grid: dict = {}
+        for i, (x, y) in enumerate(verts):
+            self.grid.setdefault(
+                (int(x // self._CELL), int(y // self._CELL)), []).append(i)
+        self._fields: dict = {}
+        self._field_order: list = []
+        self._nearest_memo: dict = {}
+
+    def _nearest(self, p):
+        if not self.verts:
+            return None
+        memo_key = (round(p[0], 2), round(p[1], 2))
+        cached = self._nearest_memo.get(memo_key)
+        if cached is not None:
+            return cached
+        cx, cy = int(p[0] // self._CELL), int(p[1] // self._CELL)
+        best, bd = None, float("inf")
+        found_at = None
+        # expand square rings until a hit, then one extra ring (a nearer
+        # vertex can hide in the next ring at corner geometries).
+        for r in range(4096):
+            if found_at is not None and r > found_at + 1:
+                break
+            for dx in range(-r, r + 1):
+                for dy in range(-r, r + 1):
+                    if max(abs(dx), abs(dy)) != r:
+                        continue
+                    for i in self.grid.get((cx + dx, cy + dy), ()):
+                        x, y = self.verts[i]
+                        d = (x - p[0]) ** 2 + (y - p[1]) ** 2
+                        if d < bd:
+                            bd = d
+                            best = i
+            if best is not None and found_at is None:
+                found_at = r
+        if best is not None:
+            self._nearest_memo[memo_key] = best
+        return best
+
+    def _field(self, src):
+        f = self._fields.get(src)
+        if f is None:
+            import heapq
+            from array import array
+            f = array("d", [float("inf")] * len(self.verts))
+            f[src] = 0.0
+            pq = [(0.0, src)]
+            while pq:
+                dcur, i = heapq.heappop(pq)
+                if dcur > f[i]:
+                    continue
+                for (j, w) in self.adj[i]:
+                    nd = dcur + w
+                    if nd < f[j]:
+                        f[j] = nd
+                        heapq.heappush(pq, (nd, j))
+            if len(self._field_order) >= self._MAX_FIELDS:
+                old = self._field_order.pop(0)
+                self._fields.pop(old, None)
+            self._fields[src] = f
+            self._field_order.append(src)
+        return f
+
+    def legs(self, pa, pb):
+        """``(off_a, graph_d, off_b)`` — straight off-graph legs plus the
+        route-graph distance between the attachments; ``None`` when no
+        graph exists / the attachments are disconnected."""
+        ia = self._nearest(pa)
+        ib = self._nearest(pb)
+        if ia is None or ib is None:
+            return None
+        va, vb = self.verts[ia], self.verts[ib]
+        off_a = math.hypot(pa[0] - va[0], pa[1] - va[1])
+        off_b = math.hypot(pb[0] - vb[0], pb[1] - vb[1])
+        g = self._field(ia)[ib]
+        if g == float("inf"):
+            return None
+        return off_a, g, off_b
+
+    def distance(self, pa, pb):
+        """Airside route-metric distance, or ``None`` when no graph exists /
+        the attachments are disconnected (caller keeps the chord law)."""
+        legs = self.legs(pa, pb)
+        if legs is None:
+            return None
+        return legs[0] + legs[1] + legs[2]
+
+
+def _route_oracle(ctx) -> "_RouteDistanceOracle | None":
+    """The context's memoized :class:`_RouteDistanceOracle` (None when the
+    airport has no non-service centerlines)."""
+    oracle = getattr(ctx, "_route_metric_oracle", "unset")
+    if oracle == "unset":
+        try:
+            oracle = _RouteDistanceOracle(ctx.centerlines)
+            if not oracle.verts:
+                oracle = None
+        except Exception:
+            oracle = None
+        try:
+            ctx._route_metric_oracle = oracle
+        except Exception:
+            pass
+    return oracle
+
+
+def _route_leg_floor(allow, pa, pb, d, ctx):
+    """The SPINE-FRAME model's route-leg budget floor for one pair (owner
+    2026-07-29: spine carries the taxi cap, apron grades out at its own
+    rate).  ``budget ≥ cT·(off_a + off_b) + taxi_cap·graph_distance`` —
+    the pair's lawful rise along the airside travel path: transverse rate
+    on the off-spine legs (the deep-set-building 1 % law byte-exact),
+    taxi rate along the route graph.  Applied as a FLOOR (max with the
+    pair's chord-priced budget — never tightens); cross-cell and
+    off-frame pairs, which stay isotropic under the frame decomposition,
+    get their route-lawful budget this way, so the short-hop 1 %
+    composition across a slice-born mega-apron can no longer form the
+    binding path.  Returns ``None`` when the floored budget exceeds
+    ``PAIR_BUDGET_PRUNE_M`` (unbindable — pair dropped)."""
+    oracle = _route_oracle(ctx)
+    if oracle is None:
+        return allow
+    legs = oracle.legs(pa, pb)
+    if legs is None:
+        return allow
+    off_a, g, off_b = legs
+    base = allow.budget if allow.budget is not None else allow.at(d, 0.0)
+    floor = allow.cT * (off_a + off_b) + TAXI_MAX_GRADE * g
+    budget = max(base, floor)
+    if budget > PAIR_BUDGET_PRUNE_M:
+        return None
+    if budget <= base + 1e-12:
+        return allow
+    return GL.Allowance.baked(allow.cL, allow.cT, budget)
+
+
+def _route_metric_far_pair(allow, pa, pb, d, ctx):
+    """Re-price a FAR pair (chord ``d`` > ``PAIR_CHORD_LOCAL_M``) on the
+    airside route metric: budget = allowance at ``max(chord, d_route)``.
+    Returns the (possibly re-baked) allowance, or ``None`` when the priced
+    budget exceeds ``PAIR_BUDGET_PRUNE_M`` (unbindable — pair dropped).
+    (Superseded by :func:`_route_leg_floor` when the SPINE-FRAME law is
+    on; kept as the fallback pricing under ``O4_SPINE_FRAME_PAIRS=0``.)"""
+    oracle = _route_oracle(ctx)
+    if oracle is None:
+        return allow
+    dr = oracle.distance(pa, pb)
+    if dr is None or dr <= d:
+        return allow
+    if allow.budget is not None:
+        # already-baked (route-arc) budget: scale by the metric inflation.
+        budget = allow.budget * (dr / d)
+    else:
+        budget = allow.at(dr, 0.0)
+    if budget > PAIR_BUDGET_PRUNE_M:
+        return None
+    return GL.Allowance.baked(allow.cL, allow.cT, budget)
 
 
 def _bake_edge(allow, role, pa, pb, shared, ctx, vr_i, vr_j):
@@ -960,14 +1239,50 @@ def _bake_edge(allow, role, pa, pb, shared, ctx, vr_i, vr_j):
     # longitudinal cap: 25 cm across a 5 m road was the visible
     # ridge/valley budget).  Every other cap (C–F 1.5 %, apron 1 %,
     # apron-blend gradients) stays isotropic cT == cL.
+    # (cT resolves from the PAIR's own cap BEFORE the spine-frame
+    # upgrade below — "aprons grade out from the spines" at their own
+    # transverse rate.)
     if abs(cL - TAXI_MAX_GRADE_NARROW) < 1e-9:
         cT = TAXI_MAX_TRANSVERSE_NARROW
     elif abs(cL - SERVICE_ROAD_MAX_GRADE) < 1e-9:
         cT = SERVICE_ROAD_MAX_TRANSVERSE
     else:
         cT = cL
+    if SPINE_FRAME_PAIRS:
+        # SPINE-FRAME upgrade (owner model 2026-07-29): the route's
+        # per-letter TAXI cap carries longitudinally through the shape
+        # it threads — never a service road's rate (free-road ruling).
+        rcap = _route_taxi_cap(shared, vr_i[0], ctx)
+        if rcap is not None and rcap > cL:
+            cL = rcap
     return GL.Allowance.baked(
         cL, cT, math.hypot(cL * dp, cT * dt))
+
+
+def _route_taxi_cap(shared, vr, ctx):
+    """The per-letter taxi cap of the route a pair decomposes against, or
+    ``None`` when the route is service-only (its cap must not carry)."""
+    if shared:
+        c_star = max(shared, key=lambda c: ctx.centerlines[c].cap)
+        cl = ctx.centerlines[c_star]
+        return None if getattr(cl, "is_service", False) else cl.cap
+    if vr is None or vr < 0:
+        return None
+    memo = getattr(ctx, "_route_taxi_cap_memo", None)
+    if memo is None:
+        memo = {}
+        try:
+            ctx._route_taxi_cap_memo = memo
+        except Exception:
+            pass
+    cap = memo.get(vr, "unset")
+    if cap == "unset":
+        caps = [cl.cap for cl in ctx.centerlines
+                if cl.route_idx == vr and not getattr(cl, "is_service",
+                                                     False)]
+        cap = max(caps) if caps else None
+        memo[vr] = cap
+    return cap
 
 
 # ── junction mesh edges (O4_JUNCTION_MESH_CONSTRAINTS) ───────────────────────
@@ -1273,6 +1588,24 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
             if vert_route is not None and not (ki_bld or kj_bld):
                 allow = _bake_edge(allow, shape.role, (xi, yi), (xj, yj),
                                    shared, ctx, vert_route[i], vert_route[j])
+            # ROUTE-LEG FLOOR / ROUTE-METRIC FAR PAIRS (owner rulings
+            # 2026-07-29): price interior pairs by the airside travel
+            # path, not the chord.  Building-endpoint pairs keep the
+            # chord law (2026-07-03: buildings are the heaviest
+            # constraint); ring-adjacent pairs are the surface
+            # smoothness law and stay tight.
+            if (SPINE_FRAME_PAIRS
+                    and not ring_adjacent and not (ki_bld or kj_bld)):
+                allow = _route_leg_floor(
+                    allow, (xi, yi), (xj, yj), d, ctx)
+                if allow is None:
+                    continue
+            elif (ROUTE_METRIC_PAIRS and d > PAIR_CHORD_LOCAL_M
+                    and not ring_adjacent and not (ki_bld or kj_bld)):
+                allow = _route_metric_far_pair(
+                    allow, (xi, yi), (xj, yj), d, ctx)
+                if allow is None:
+                    continue
             sc.edges.append((ki, kj, allow))
 
     sc.spine_chains = _build_spine_chains(shape, ctx, membership)
@@ -1412,6 +1745,12 @@ class UnifiedGraph:
     runway_anchor: dict = field(default_factory=dict)
     runway_anchor_sample: dict = field(default_factory=dict)
     # Canonical ``(min, max)`` node pairs of spine edges woven from a
+    # SERVICE-ROAD centerline (owner ruling 2026-07-29): the solve still
+    # grades roads along these, but airside REACHABILITY must never ride
+    # them — ``reach_band_unified`` skips these pairs in its value-field
+    # Dijkstras (gate ``O4_REACH_NO_SERVICE_SPINES``).
+    service_spine_pairs: set = field(default_factory=set)
+
     def spine_edge_set(self):
         """The undirected spine pairs ``{(min(a,b), max(a,b))}`` (is_spine)."""
         return {(min(a, b), max(a, b))
@@ -1587,6 +1926,7 @@ def _build_global_spine(G, ctx):
         node_tree = _NTree([_NPt(x, y) for (_i, (x, y)) in items])
     except Exception:                                  # pragma: no cover
         node_tree = None
+    _taxi_woven_pairs: set = set()
     for cl in ctx.centerlines:
         if node_tree is not None:
             xs = [p[0] for p in cl.pts]
@@ -1613,6 +1953,17 @@ def _build_global_spine(G, ctx):
             # route may change width along its length).
             budget = cl.cap_at(0.5 * (a0 + a1)) * max(gap, d, 1e-3)
             _spine_link(G.spine_adj, i0, i1, budget)
+            # Reachability exclusion bookkeeping (owner ruling 2026-07-29)
+            # — see ``UnifiedGraph.service_spine_pairs``.
+            _pair = (i0, i1) if i0 < i1 else (i1, i0)
+            if cl.is_service:
+                G.service_spine_pairs.add(_pair)
+            else:
+                _taxi_woven_pairs.add(_pair)
+    # A pair ALSO woven by a taxi centerline (a road crossing a taxi
+    # route's nodes) is a genuine taxi edge — the service tag must not
+    # remove it from reachability.
+    G.service_spine_pairs -= _taxi_woven_pairs
 
 
 def _dist(pa, pb):

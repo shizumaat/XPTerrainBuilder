@@ -106,7 +106,14 @@ def test_insert_adopts_through_registry_radius_drift():
     """Node identity is the registry's RADIUS rule (the same rule
     ``to_osm`` assigns OSM node ids by), not exact coordinates: ring
     reshaping leaves emitted vertices centimetres off their registered
-    canonical point (HECA A2: 0.07 m), and the adopt must still fire."""
+    canonical point (HECA A2: 0.07 m), and the adopt must still fire.
+
+    (2026-07-29, canonical-identity guard) The insert now lands AT the
+    canonical point — the exact position ``to_osm`` will intern the
+    node to — instead of at the drifted candidate coordinate (a
+    candidate whose canonical point falls OFF the host edge is skipped
+    entirely; see the CYXY service-sliver bowtie).  The adopt fires as
+    before, keyed by the same radius rule."""
     receiver = _receiver_square(10.0, 10.4)      # lerp at midpoint: 10.2
     donor = _donor_triangle(apex_alt=10.05)
     layout = PavementLayout(icao="TEST", anchor=(0.0, 0.0),
@@ -121,7 +128,9 @@ def test_insert_adopts_through_registry_radius_drift():
     layout.canonical_points = registry
     assert registry.find_nearest(10.0, 0.0, registry.tol_m) != (10.0, 0.0)
     enforce_conformance(layout)
-    assert _alt_at(receiver, 10.0, 0.0) == 10.05
+    # The vertex sits at the CANONICAL point (emitted node position),
+    # with the donor's adopted altitude.
+    assert _alt_at(receiver, 10.03, 0.03) == 10.05
 
 
 def test_authority_receiver_never_adopts():

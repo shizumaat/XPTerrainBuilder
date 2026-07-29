@@ -1322,3 +1322,77 @@ def test_enact_road_narrow_ruling_votes_service_not_groundside(
                           PS.ROLE_SERVICE_JUNCTION), \
         f"expected SERVICE role, got {shape.role}"
     assert summary["flips"].get("APRON->SERVICE") == 1
+
+
+# ═════════════════════════════════════════════════════════════════════
+# Boundary SOURCES (owner ruling 2026-07-29: "ensure we have airport
+# boundary data for role classification") — relation-mapped aerodromes
+# + the apt.dat row-130 fallback
+# ═════════════════════════════════════════════════════════════════════
+
+def _fence_relation(layout, max_x=100.0, reverse_second=True):
+    """The same fence as :func:`_fence`, mapped as a RELATION
+    (multipolygon): two OPEN member ways sharing endpoint nodes, the
+    ``aeroway=aerodrome`` tag on the relation only (member ways carry
+    no aeroway tag — exactly the shape the loader returns for
+    relation-mapped airports)."""
+    corners = [(-600.0, -600.0), (max_x, -600.0), (max_x, 600.0),
+               (-600.0, 600.0)]
+    nodes = {}
+    refs = []
+    for i, (x, y) in enumerate(corners):
+        latitude, longitude = layout.m_to_ll(x, y)
+        nodes[f"b{i}"] = (latitude, longitude)
+        refs.append(f"b{i}")
+    frag_a = [refs[0], refs[1], refs[2]]
+    frag_b = [refs[2], refs[3], refs[0]]
+    if reverse_second:
+        frag_b = frag_b[::-1]          # exercise reversed stitching
+    ways = [("wa", frag_a, {}), ("wb", frag_b, {})]
+    relations = [("r1", ["wa", "wb"], {"aeroway": "aerodrome"})]
+    layout._osm_airport_features = (nodes, ways, relations)
+    return layout
+
+
+def test_gate_boundary_from_relation_mapped_aerodrome():
+    """A relation-mapped fence must gate exactly like a closed-way
+    fence (the pipeline used to drop relations on the floor)."""
+    layout = _fence_relation(_layout(), max_x=100.0)
+    record = PS.score_shape(_rect(150.0, 0.0, 250.0, 50.0), layout)
+    assert "G-BOUNDARY" in record["gates"]
+    assert record["winner"] == "GROUNDSIDE"
+    assert record["features"]["outside_boundary"] == pytest.approx(
+        1.0, abs=0.01)
+
+
+def test_relation_fence_with_missing_member_is_skipped_not_guessed():
+    """An unstitchable relation (member way absent from the layer)
+    contributes nothing — no boundary, no gate."""
+    layout = _fence_relation(_layout(), max_x=100.0)
+    nodes, ways, relations = layout._osm_airport_features
+    layout._osm_airport_features = (nodes, ways[:1], relations)
+    record = PS.score_shape(_rect(150.0, 0.0, 250.0, 50.0), layout)
+    assert "G-BOUNDARY" not in record["gates"]
+    assert record["features"]["outside_boundary"] == 0.0
+
+
+def test_boundary_row130_fallback_when_osm_has_no_aerodrome():
+    """No OSM aerodrome way or relation ⇒ the apt.dat row-130 fence
+    (``layout.airport_boundary``, metre space) takes over, so
+    classification always has a boundary wherever apt.dat drew one."""
+    layout = _layout(airport_boundary=box(-600.0, -600.0, 100.0, 600.0))
+    record = PS.score_shape(_rect(150.0, 0.0, 250.0, 50.0), layout)
+    assert "G-BOUNDARY" in record["gates"]
+    assert record["winner"] == "GROUNDSIDE"
+    assert record["features"]["outside_boundary"] == pytest.approx(
+        1.0, abs=0.01)
+
+
+def test_osm_aerodrome_way_beats_row130_fallback():
+    """When BOTH exist the OSM fence wins (row-130 is the fallback,
+    not a union partner — their disagreement is OSM's to own)."""
+    layout = _fence(_layout(), max_x=100.0)
+    layout.airport_boundary = box(-600.0, -600.0, 400.0, 600.0)
+    record = PS.score_shape(_rect(150.0, 0.0, 250.0, 50.0), layout)
+    # inside the row-130 fence but outside the OSM fence ⇒ still gated
+    assert "G-BOUNDARY" in record["gates"]

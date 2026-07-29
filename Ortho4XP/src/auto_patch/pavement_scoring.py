@@ -27,6 +27,7 @@ the legacy passes it subsumes are gated off in the pipeline.
 """
 from __future__ import annotations
 
+import os as _os
 from dataclasses import dataclass, field
 
 from shapely.geometry import Point, Polygon
@@ -36,6 +37,9 @@ import O4_UI_Utils as UI
 from .config import (
     DSF_OBJECT_PAVEMENT_MIN_AIRCRAFT_WIDTH_M,
     DSF_OBJECT_PAVEMENT_OPENING_RATIO,
+    PAVEMENT_SCORE_AEROWAY_PIECE_MIN_M2,
+    PAVEMENT_SCORE_AEROWAY_SEVER_MIN_M2,
+    PAVEMENT_SCORE_AEROWAY_SEVER_MIX_FRAC,
     PAVEMENT_SCORE_AIRCRAFT_PATH_WIDTH_M,
     PAVEMENT_CLASS_TAIL_AXIS_ROAD_FRAC,
     PAVEMENT_CLASS_TAIL_MAX_WIDTH_M,
@@ -48,6 +52,7 @@ from .config import (
     PAVEMENT_SCORE_PURE,
     PAVEMENT_SCORE_RELIABILITY,
     PAVEMENT_SCORE_SPINE_BUFFER_M,
+    PAVEMENT_SCORE_TAXI_MAJOR_MIN,
     PAVEMENT_SCORE_THREAD_MIN_FRAC,
     PAVEMENT_SCORE_TRUCK_BUFFER_M,
     PAVEMENT_SCORE_V2,
@@ -130,7 +135,7 @@ _FEATURE_SOURCE = {
     "name_apron": "apt_names", "name_taxi": "apt_names",
     "name_service": "apt_names",
     "osm_apron": "osm_aeroway", "osm_stand": "osm_aeroway",
-    "osm_taxi": "osm_aeroway",
+    "osm_taxi": "osm_aeroway", "osm_taxi_major": "osm_aeroway",
     "spine_cover": "spine", "spine_thread": "spine",
     "truck_cover": "truck", "truck_thread": "truck",
     "truck_corridor": "truck",
@@ -307,51 +312,125 @@ def score_sources(layout) -> ScoreSources:
     # apt.dat-only pavement (pre-DSF snapshot) → third-party provenance.
     ss.apt_only = _cover_index(
         list(getattr(layout, "apt_only_pavement_polys", None) or []))
-    # OSM ``aeroway=aerodrome`` boundary (owner ruling 2026-07-28,
-    # G-BOUNDARY): closed aerodrome ways from the already-loaded tile
-    # OSM layer, in metre space.  Aerodromes mapped only as RELATIONS
-    # are not in the way set — the gate simply stays inert there.
-    # SCOPING: the layer's bbox (~5 km) can contain a NEIGHBOURING
-    # airport's aerodrome polygon (HECA/HEAZ sit ~1 km apart) — a
-    # polygon only joins the boundary when it intersects THIS airport's
-    # own source pavement, else every shape here would read "outside".
+    # AIRPORT BOUNDARY for role classification (owner rulings
+    # 2026-07-28 G-BOUNDARY + 2026-07-29 "ensure we have airport
+    # boundary data").  THREE sources, best-first, all in metre space:
+    #   1. closed ``aeroway=aerodrome`` WAYS from the tile OSM layer;
+    #   2. ``aeroway=aerodrome`` RELATIONS (multipolygons) — outer
+    #      member ways stitched into closed rings (endpoint chaining;
+    #      an unstitchable ring — e.g. a member outside the 9-tile
+    #      merge — is skipped, never guessed);
+    #   3. the apt.dat ROW-130 boundary (``layout.airport_boundary``,
+    #      already despiked + metre-space) when OSM contributes
+    #      nothing — so classification always has a fence wherever
+    #      apt.dat drew one.
+    # SCOPING (unchanged): the layer's bbox (~5 km) can contain a
+    # NEIGHBOURING airport's aerodrome polygon (HECA/HEAZ sit ~1 km
+    # apart) — an OSM polygon only joins the boundary when it
+    # intersects THIS airport's own source pavement, else every shape
+    # here would read "outside".
     features = getattr(layout, "_osm_airport_features", None)
+    aerodrome_polys: list = []
+    _bnd_n_ways = _bnd_n_rels = 0
     if features and features[0] and features[1]:
         nodes, ways = features[0], features[1]
         ll_to_m = layout.ll_to_m
         own = getattr(layout, "source_pavement_union", None)
-        aerodrome_polys = []
+
+        def _admit_ring(points):
+            """Closed metre-space ring -> admitted Polygon or None."""
+            if len(points) < 4:
+                return None
+            try:
+                p = Polygon(points).buffer(0)
+                if p.is_empty or p.area <= 0.0:
+                    return None
+                if own is not None and not own.is_empty:
+                    if not p.intersects(own):
+                        return None
+                elif p.distance(_ORIGIN) > 2000.0:
+                    # No pavement union to test against — accept only
+                    # a polygon around the anchor itself.
+                    return None
+                return p
+            except _GEOM_EXC:
+                return None
+
         for _way_id, node_refs, tags in ways:
             if tags.get("aeroway", "") != "aerodrome":
                 continue
             points = [ll_to_m(*ll) for ll in
                       (nodes.get(ref) for ref in node_refs)
                       if ll is not None]
-            if (len(points) >= 4
+            if (points
                     and abs(points[0][0] - points[-1][0]) < 0.5
                     and abs(points[0][1] - points[-1][1]) < 0.5):
-                try:
-                    p = Polygon(points).buffer(0)
-                    if p.is_empty or p.area <= 0.0:
-                        continue
-                    if own is not None and not own.is_empty:
-                        if not p.intersects(own):
-                            continue
-                    elif p.distance(_ORIGIN) > 2000.0:
-                        # No pavement union to test against — accept
-                        # only a polygon around the anchor itself.
-                        continue
+                p = _admit_ring(points)
+                if p is not None:
                     aerodrome_polys.append(p)
-                except _GEOM_EXC:
-                    pass
-        if aerodrome_polys:
-            try:
-                ss.aerodrome = unary_union(aerodrome_polys)
-                from shapely.prepared import prep as _prep
-                ss.aerodrome_prep = _prep(ss.aerodrome)
-            except _GEOM_EXC:
-                ss.aerodrome = None
-                ss.aerodrome_prep = None
+                    _bnd_n_ways += 1
+        # RELATION-mapped aerodromes (owner 2026-07-29: the loader
+        # already returns relations as ``(id, [outer member way ref,
+        # ...], tags)`` but the pipeline used to drop them).  Stitch
+        # each relation's outer member ways into closed rings by
+        # endpoint chaining (members arrive unordered and possibly
+        # reversed).
+        relations = features[2] if len(features) > 2 else ()
+        way_nds = {wid: nds for (wid, nds, _t) in ways}
+        for _rid, outer_ids, tags in (relations or ()):
+            if tags.get("aeroway", "") != "aerodrome":
+                continue
+            frags = [list(way_nds[w]) for w in outer_ids if w in way_nds]
+            frags = [f for f in frags if len(f) >= 2]
+            while frags:
+                chain = frags.pop(0)
+                grew = True
+                while grew and chain[0] != chain[-1]:
+                    grew = False
+                    for k, f in enumerate(frags):
+                        if f[0] == chain[-1]:
+                            chain += f[1:]
+                        elif f[-1] == chain[-1]:
+                            chain += f[-2::-1]
+                        elif f[-1] == chain[0]:
+                            chain = f[:-1] + chain
+                        elif f[0] == chain[0]:
+                            chain = f[::-1][:-1] + chain
+                        else:
+                            continue
+                        frags.pop(k)
+                        grew = True
+                        break
+                if chain[0] != chain[-1]:
+                    continue          # unstitchable — skip, never guess
+                points = [ll_to_m(*ll) for ll in
+                          (nodes.get(ref) for ref in chain)
+                          if ll is not None]
+                p = _admit_ring(points)
+                if p is not None:
+                    aerodrome_polys.append(p)
+                    _bnd_n_rels += 1
+    _bnd_src = "osm"
+    if not aerodrome_polys:
+        # ROW-130 FALLBACK: apt.dat's own hand-traced fence.  Already
+        # metre-space + despiked; no scoping test needed (it IS this
+        # airport's boundary by construction).
+        _row130 = getattr(layout, "airport_boundary", None)
+        if _row130 is not None and not _row130.is_empty:
+            aerodrome_polys = [_row130]
+            _bnd_src = "row130"
+    if aerodrome_polys:
+        try:
+            ss.aerodrome = unary_union(aerodrome_polys)
+            from shapely.prepared import prep as _prep
+            ss.aerodrome_prep = _prep(ss.aerodrome)
+        except _GEOM_EXC:
+            ss.aerodrome = None
+            ss.aerodrome_prep = None
+    if _os.environ.get("O4_STEP_DEBUG") == "1":
+        print(f"    [pav-scoring] boundary: "
+              f"{'none' if ss.aerodrome is None else _bnd_src} "
+              f"(osm ways={_bnd_n_ways} relation rings={_bnd_n_rels})")
     layout._pavement_score_sources = ss
     return ss
 
@@ -1041,6 +1120,101 @@ def sever_unreachable(layout, zone=_ZONE_UNSET) -> int:
     return n_cut
 
 
+def sever_mixed_aeroway(layout) -> int:
+    """Cut BIG apron/junction shapes at the mapped-taxiway zone (owner
+    axis-A ruling 2026-07-29, HECA mega-apron).
+
+    The slice can weld true aprons and mapped-taxiway corridors into ONE
+    shape (HECA: a 1.03M m² apron spanning 3 km of terminal fabric).  A
+    whole-shape verdict then paints the corridors with the apron 1 %
+    all-pair law, and its SHORT-HOP composition across the interior
+    buries the far end (~1 % × 2.9 km ≈ 29 m of lawful rise where the
+    real field climbs 40+) — no pair pricing can fix a mis-roled rate.
+    Where the aeroway layer maps BOTH classes on one big shape, cut at
+    the taxiway zone (taxi cover minus apron/stand cover) so each piece
+    scores on its own mapping — ``osm_taxi_major`` then keeps corridor
+    pieces at the taxi cap.  Same discipline as ``sever_unreachable``:
+    the cut partitions the polygon (no dropped coverage), pieces keep
+    the parent role/ref, sub-floor slivers stay welded to the parent
+    side, and piece rings are snapped onto the parent ring so the weld
+    chain sees canonical vertices.  Returns the number of shapes cut.
+    """
+    if _os.environ.get("O4_PAVEMENT_SEVER_AEROWAY", "1") != "1":
+        return 0
+    from .pavement_classification import evidence_sources
+    ev = evidence_sources(layout)
+    if not ev.osm_taxi.parts or not (ev.osm_apron.parts
+                                     or ev.osm_stand.parts):
+        return 0            # distinction not expressed at this airport
+    try:
+        taxi_u = unary_union(ev.osm_taxi.parts)
+        apron_u = unary_union(list(ev.osm_apron.parts)
+                              + list(ev.osm_stand.parts))
+        taxi_zone = taxi_u.difference(apron_u)
+        if taxi_zone.is_empty:
+            return 0
+    except _GEOM_EXC:
+        return 0
+    from shapely.ops import snap as _snap
+    frac = PAVEMENT_SCORE_AEROWAY_SEVER_MIX_FRAC
+    n_cut = 0
+    new_shapes: list = []
+    for s in layout.shapes:
+        poly = s.polygon
+        if (s.role not in (ROLE_APRON, ROLE_JUNCTION) or poly is None
+                or poly.is_empty or poly.geom_type != "Polygon"
+                or poly.area < PAVEMENT_SCORE_AEROWAY_SEVER_MIN_M2):
+            new_shapes.append(s)
+            continue
+        t_frac = ev.osm_taxi.cover_fraction(poly)
+        a_frac = max(ev.osm_apron.cover_fraction(poly),
+                     ev.osm_stand.cover_fraction(poly))
+        if t_frac < frac or a_frac < frac:
+            new_shapes.append(s)
+            continue
+        try:
+            inside = poly.intersection(taxi_zone)
+        except _GEOM_EXC:
+            new_shapes.append(s)
+            continue
+        kept_taxi = [g for g in getattr(inside, "geoms", [inside])
+                     if g.geom_type == "Polygon"
+                     and g.area >= PAVEMENT_SCORE_AEROWAY_PIECE_MIN_M2]
+        if not kept_taxi:
+            new_shapes.append(s)
+            continue
+        try:
+            rest = poly.difference(unary_union(kept_taxi))
+        except _GEOM_EXC:
+            new_shapes.append(s)
+            continue
+        rest_polys = [g for g in getattr(rest, "geoms", [rest])
+                      if g.geom_type == "Polygon" and g.area > 1.0]
+        if not rest_polys:
+            new_shapes.append(s)
+            continue
+
+        def _weld(g):
+            try:
+                snapped = _snap(g, poly.boundary, 0.5)
+                if (snapped.geom_type == "Polygon" and snapped.is_valid
+                        and not snapped.is_empty):
+                    return snapped
+            except _GEOM_EXC:
+                pass
+            return g
+
+        for g in kept_taxi + rest_polys:
+            new_shapes.append(BuiltShape(
+                polygon=_weld(g), role=s.role, ref=s.ref,
+                from_severance_cut=True))
+        n_cut += 1
+    if n_cut:
+        layout.shapes = new_shapes
+        layout._pavement_score_abut_unions = None
+    return n_cut
+
+
 # ═════════════════════════════════════════════════════════════════════
 # Enclave test — the airside/groundside topology rule
 # (owner ruling 2026-07-28: "groundside can never be surrounded by
@@ -1425,6 +1599,30 @@ def shape_features(polygon, layout, *, adjacency=None, owner=None,
         x["truck_corridor"] = x["truck_cover"]
     else:
         x["truck_corridor"] = 0.0
+
+    # MAPPED-TAXIWAY DOMINANCE (owner standing report, HECA burial
+    # 2026-07-29: within-fence classification "still terribly
+    # inaccurate" — between-terminal junction fabric mapped mostly
+    # aeroway=taxiway flipped to APRON on the geometry priors alone,
+    # wide_blob + enclosed_by_airside + apron_edge_bound outscoring the
+    # actual mapping; the resulting 1 % all-pair caps buried the south
+    # terminals under a km-scale pairwise-cap chain).  When the OSM
+    # aeroway layer actively maps this shape as taxiway MORE than as
+    # apron/stand — and nothing names it an apron — that mapping is
+    # direct evidence the geometry priors must not swamp.  Comparative
+    # and binary like ``taxi_contact``: the priors keep their votes,
+    # the dominant mapping gets a decisive one of its own.  Dominance
+    # is only a statement where the mapper EXPRESSED the apron-vs-
+    # taxiway distinction: at an airport whose OSM maps no apron/stand
+    # at all (CYXY), "taxiway beats apron" is vacuous — any incidental
+    # taxiway sliver over an apt.dat apron would fire — so the feature
+    # stays inert there (absence of the source is never evidence).
+    x["osm_taxi_major"] = 0.0
+    if ((ev.osm_apron.parts or ev.osm_stand.parts)
+            and x["osm_taxi"] >= PAVEMENT_SCORE_TAXI_MAJOR_MIN
+            and x["osm_taxi"] > max(x["osm_apron"], x["osm_stand"],
+                                    x["name_apron"])):
+        x["osm_taxi_major"] = 1.0
 
     # Connectivity (already computed airport-wide; None = guard inert).
     if connected is None:
@@ -1979,7 +2177,11 @@ def enact_classify(layout, icao: str = "", dem=None,
     # connectivity pass below.
     zone = _reach_zone(layout)
     summary["severed"] = sever_unreachable(layout, zone)
-    if summary["severed"]:
+    # AEROWAY-EVIDENCE severance (owner axis-A ruling 2026-07-29): cut
+    # big mixed-mapping blobs at the taxiway zone BEFORE scoring, so a
+    # slice-welded mega-apron's corridors score on their own mapping.
+    summary["aeroway_severed"] = sever_mixed_aeroway(layout)
+    if summary["severed"] or summary["aeroway_severed"]:
         candidates = _candidates()
     connectivity = runway_connectivity(layout, zone)
     adjacency = _pavement_adjacency_index(layout)
@@ -2120,6 +2322,9 @@ def enact_classify(layout, icao: str = "", dem=None,
                 else "left to legacy passes")
     sever_note = (f"; {summary['severed']} shape(s) severed at the "
                   f"reachability contour" if summary["severed"] else "")
+    if summary.get("aeroway_severed"):
+        sever_note += (f"; {summary['aeroway_severed']} mixed-mapping "
+                       f"shape(s) severed at the aeroway boundary")
     if summary.get("enclaves"):
         sever_note += (f"; {summary['enclaves']} airside-enclave "
                        f"re-verdict(s)")

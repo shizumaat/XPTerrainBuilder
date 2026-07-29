@@ -645,6 +645,7 @@ def enforce_conformance(layout: "PavementLayout",
                     donor_alt[(dx, dy)] = float(da)
     shapes_modified = 0
     vertices_inserted = 0
+    registry = getattr(layout, "canonical_points", None)
     insert_altitude = _make_insert_altitude(layout, elig)
     # Final bound for CUT-ONLY receivers (None ⇒ no clamp at all).
     cut_bound = _make_cut_law_clamp(layout, dem, tile_lat, tile_lon)
@@ -687,6 +688,31 @@ def enforce_conformance(layout: "PavementLayout",
             tjs = _tjunctions_on_edge(ax, ay, bx, by, cands, tol)
             _recv_overlay = getattr(s, "ref", None) in _OVERLAY_REFS
             for t, (px, py) in tjs:
+                # CANONICAL-IDENTITY GUARD (2026-07-29, CYXY service
+                # sliver): the OSM emitter interns every vertex through
+                # the canonical-point registry, so an inserted vertex
+                # that resolves to a DIFFERENT canonical point is
+                # dragged onto that point at emit.  When the canonical
+                # point still lies on this edge, insert IT (the
+                # position the node will actually emit at); when it
+                # lies off the edge, skip the insert — the "weld"
+                # would emit bent (a groundside vertex 0.40 m from its
+                # canonical point bowtied a CYXY service sliver via the
+                # emit ``buffer(0)`` repair, minting a vertex the final
+                # grade projection never graded).
+                if registry is not None:
+                    _cp = registry.find_nearest(px, py, registry.tol_m)
+                    if _cp is not None and _cp != (px, py):
+                        _tc = _param_on_edge(ax, ay, bx, by,
+                                             _cp[0], _cp[1])
+                        if not (0.0 < _tc < 1.0):
+                            continue
+                        _fx = ax + (bx - ax) * _tc
+                        _fy = ay + (by - ay) * _tc
+                        if math.hypot(_cp[0] - _fx,
+                                      _cp[1] - _fy) > tol:
+                            continue
+                        t, (px, py) = _tc, _cp
                 # A candidate near a shallow corner can qualify on TWO
                 # edges of this ring; inserting it twice self-touches
                 # the ring, the rebuild goes invalid, and the bail

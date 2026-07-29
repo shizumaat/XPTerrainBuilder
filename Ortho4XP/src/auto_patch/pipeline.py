@@ -46,6 +46,10 @@ import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
 
 from . import apt_dat_reader as APR
+# Rod-carry probe (docs/specs/single-space-string-audit-spec.md §2).
+# ``rod_ckpt`` returns immediately unless O4_ROD_CARRY_AUDIT=1, so the
+# post-solve checkpoint calls below are inert in a default build.
+from .rod_carry_audit import checkpoint as _rod_ckpt
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -186,7 +190,8 @@ def _unify_airside_geometry(layout, icao: str, dem=None,
     from .layout import (
         ROLE_PRIMARY_PARALLEL, ROLE_SECONDARY_PARALLEL, ROLE_STUB,
         ROLE_CROSS_CONNECTOR, ROLE_JUNCTION, ROLE_RUNWAY,
-        ROLE_RUNWAY_CROSSING, ROLE_APRON, ROLE_BUILDING)
+        ROLE_RUNWAY_CROSSING, ROLE_APRON, ROLE_BUILDING,
+        ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION)
 
     # Re-connect discovered (TX) lane dead-ends pulled away from their
     # residue junction (SPJC TX15), extending the junction back onto the
@@ -213,10 +218,19 @@ def _unify_airside_geometry(layout, icao: str, dem=None,
     # single point (the conformance below then has only genuine T-junctions
     # left).  ROLE_BUILDING included so a terminal's boundary vertices weld
     # 1:1 with the surrounding apron's (one solver node, no tilt/wall).
+    # SERVICE roles joined 2026-07-29: the small-roads layer's pieces are
+    # law-carrying airside shapes (SOFT_VISIBILITY_ROLES) but were never
+    # welded, so adjacent service_road/service_junction rings kept
+    # near-coincident duplicate vertices (up to tol) that the solver's
+    # canonical registry later merged onto ONE node — ring coordinate ≠
+    # node position (CYXY: a 0.40 m drift minted a quantization bowtie,
+    # an emit-time buffer(0) vertex outside the law graph, and
+    # solver↔validator budget-key mismatches).
     _weld_roles = {ROLE_PRIMARY_PARALLEL, ROLE_SECONDARY_PARALLEL,
                    ROLE_STUB, ROLE_CROSS_CONNECTOR, ROLE_JUNCTION,
                    ROLE_RUNWAY, ROLE_RUNWAY_CROSSING, ROLE_APRON,
-                   ROLE_BUILDING}
+                   ROLE_BUILDING, ROLE_SERVICE_ROAD,
+                   ROLE_SERVICE_JUNCTION}
     n_welded = weld_layout_vertices(layout, _weld_roles)
     if n_welded:
         UI.vprint(1,
@@ -966,7 +980,10 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # Publish the aeroway layer on the layout (references, no copy) so
     # the classification pass can measure OSM airside backing without a
     # second read of the same cache.  Inert on its own.
-    layout._osm_airport_features = (nodes, ways)
+    # Relations included (owner 2026-07-29): relation-mapped aerodromes
+    # must reach the scorer's G-BOUNDARY assembly — the tuple grew a
+    # third element; existing readers index [0]/[1] and are unaffected.
+    layout._osm_airport_features = (nodes, ways, relations)
     # Compute the airport's bounding box from runway corners +
     # apt.dat pavement.  DSF polygons farther than
     # DSF_AIRPORT_RADIUS_M from this bbox are not this airport's.
@@ -5690,6 +5707,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
             per_surface_solve(layout, icao,
                                dem=dem,
                                tile_lat=tile_lat, tile_lon=tile_lon)
+            _rod_ckpt(layout, "00_post_solve")
             # (Legacy junction ring-curvature smoothing removed: it was a no-op
             # under the single-grade-graph connecting solve, which produces a
             # smooth in-grade junction surface directly.)
@@ -5738,6 +5756,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
             tile_dem=tile_dem,
             current_tile_lat=current_tile_lat,
             current_tile_lon=current_tile_lon)
+        _rod_ckpt(layout, "01_terrain_transition_emit")
         try:
             # Bridge vertex post-processing (POST-solve, with the bridge): the
             # boundary→DEM bridge is solve-dependent (Phase 5), so its airside
@@ -5752,6 +5771,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
             _ins_br(layout)
         except _GEOM_EXC:
             pass
+        _rod_ckpt(layout, "02_bridge_vertex_postproc")
         # The boundary ribbon / bridges just emitted may cross an integer
         # tile line on cross-tile airports — slice them like every other
         # shape (pavement was already cut pre-solve, so only the new
@@ -5769,6 +5789,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
             dem=dem,
             skip_roles=_ps_skip,
         )
+        _rod_ckpt(layout, "03_tile_cut")
 
         # ── Surface-clearance chain: RETIRED (owner ruling 2026-07-26) ────
         # The adjacent-ground bands + runway-end skirts supersede the legacy
@@ -5813,6 +5834,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # the settled geometry so road features stay single-cover; the
     # feature conformance below then heals the clipped seams.
     finalize.deconflict_road_features(layout, icao)
+    _rod_ckpt(layout, "04_deconflict_road_features")
 
     from .conformance import (
         enforce_conformance, find_conformance_violations)
@@ -5826,6 +5848,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 f"shape(s) (airside frozen).")
     else:
         _unify_airside_geometry(layout, icao)
+    _rod_ckpt(layout, "05_feature_conformance")
 
     # Ribbon YIELDS its elevation to abutting pavement at every shared
     # seam node (incl. the ones conformance just inserted), so there is
@@ -5863,12 +5886,14 @@ def build_airport_pavement(icao: str, xplane_root: str,
         UI.vprint(1,
             f"  [pav-builder] {icao}: re-clipped {n_bclip} DEM-bridge "
             f"shape(s) against final pavement / ribbon.")
+    _rod_ckpt(layout, "06_ribbon_seam_and_bridge_clip")
 
     # Strip zero-length edges (duplicate ring vertices) the geometry passes
     # left behind — they triangulate into degenerate slivers (stretched
     # textures).  Geometry-neutral, so it runs after conformance enforcement
     # and before the final conformance audit.
     _dedup_coincident_ring_vertices(layout, icao)
+    _rod_ckpt(layout, "07_dedup_ring_vertices")
 
     # (Legacy post-solve cap-debulge removed: it ran only under the retired
     # O4_SINGLE_GRADE_GRAPH=0 path; the single-grade-graph connecting solve grades
@@ -5883,6 +5908,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # (final geometry + altitudes), before the conformance audit below.
     from .flatedge_snap import drop_flatedge_nodes
     drop_flatedge_nodes(layout)
+    _rod_ckpt(layout, "08_drop_flatedge_nodes")
 
     # FINAL planarization (user 2026-06-30, gate O4_PLANARIZE_AIRSIDE): drive the
     # conformance invariant to 0 as the LAST geometry step — resolve edge
@@ -5894,6 +5920,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
     if os.environ.get("O4_PLANARIZE_AIRSIDE", "1") == "1":
         from .conformance import planarize_airside
         planarize_airside(layout, icao=icao)
+    _rod_ckpt(layout, "09_planarize_airside")
 
     # SERVICE lens deconfliction (user 2026-07-04): the canonical vertex
     # weld can cross two near-coincident service boundaries whose contact
@@ -5908,6 +5935,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
             UI.vprint(1,
                 f"  [pav-builder] {icao}: deconflicted {_n_svc_ov} "
                 f"overlapping service shape(s) (lens clip).")
+        _rod_ckpt(layout, "10_service_lens_deconflict")
 
     # LAST-WORD building-pad re-clip (owner CYXY building1 2026-07-28):
     # the post-solve conformance weld's 0.5 m tolerance can bow a
@@ -5922,6 +5950,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
         UI.vprint(1,
             f"  [pav-builder] {icao}: building-pad re-clip — "
             f"{_n_bpad} pavement shape(s) yielded to pads.")
+    _rod_ckpt(layout, "11_building_pad_reclip")
 
     # LAST-WORD bridge re-clip: drop_flatedge_nodes / planarize above can
     # STRAIGHTEN a pavement edge that the emit-time bridge clip followed,
@@ -5932,6 +5961,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
         UI.vprint(1,
             f"  [pav-builder] {icao}: final DEM-bridge re-clip — "
             f"{n_bclip2} shape(s).")
+    _rod_ckpt(layout, "12_bridge_reclip_final")
 
     # FINAL T-vertex weld (user 2026-07-02): a node lying ON another
     # shape's edge interior without a weld tears Triangle4XP's
@@ -5953,6 +5983,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
         UI.vprint(1,
             f"  [pav-builder] {icao}: final T-vertex weld — inserted "
             f"{_n_wv} vertex(es) into {_n_ws} shape(s).")
+    _rod_ckpt(layout, "13_final_t_vertex_weld")
 
     # LAST groundside↔airside separation (user 2026-07-04): the strip
     # carve + the late runway-disconnection sweeps demote shapes AFTER
@@ -5982,6 +6013,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
             _grade_limit_groundside_chords(layout)
         except _GEOM_EXC:
             pass
+        _rod_ckpt(layout, "14_groundside_separation")
 
     tjs, crossings = find_conformance_violations(layout.shapes)
     if tjs or crossings:
@@ -6017,6 +6049,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # splits) becomes per-vertex node_altitudes before the geometry
         # passes and the final projection.
         normalize_runway_altitudes(layout, icao)
+        _rod_ckpt(layout, "15_normalize_runway_altitudes")
         # Sliver-needle repair BEFORE decimation + the final projection
         # (user 2026-07-06): the emit-time repair removed needle vertices
         # AFTER the last law projection, merging two enforced ring edges
@@ -6024,6 +6057,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # emit-time scan remains as the backstop for quantization-born
         # needles.
         repair_sliver_corners(layout, icao)
+        _rod_ckpt(layout, "16_repair_sliver_corners")
         # LATE EDGE DENSIFY (user in-sim finding 2026-07-09): shapes
         # reshaped post-solve (junction merges / slice re-cuts) can be
         # born with over-long edges the pre-solve densify never saw
@@ -6039,8 +6073,10 @@ def build_airport_pavement(icao: str, xplane_root: str,
             UI.vprint(1,
                 f"  [pav-builder] {icao}: late edge densify — inserted "
                 f"{_n_dense2} vertex(es) on over-60 m pavement edges.")
+        _rod_ckpt(layout, "17_late_edge_densify")
         _progress.substep(0.90, "Decimating emitted geometry")
         decimate_emit_nodes(layout, icao)
+        _rod_ckpt(layout, "18_emit_decimate")
 
     # FINAL GRADE PROJECTION (round 4, user 2026-07-03): the passes above
     # (planarize, welds, clips, merges, emit decimation) reshaped rings

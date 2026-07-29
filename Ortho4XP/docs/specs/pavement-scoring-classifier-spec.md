@@ -116,6 +116,7 @@ x ∈ [0, 1]. Weight matrix `PAVEMENT_SCORE_WEIGHTS` lives in `config.py`
 | osm_apron | +2.5 | | | | OSM aeroway |
 | osm_stand | +2.0 | | | | OSM aeroway |
 | osm_taxi | | +2.5 | | | OSM aeroway |
+| osm_taxi_major (binary: osm_taxi ≥ 0.15 AND > max(osm_apron, osm_stand, name_apron), only at airports whose OSM maps apron/stand somewhere — a dominant taxiway mapping the geometry priors must not swamp; vacuous where the mapper never expressed the distinction; owner HECA burial report 2026-07-29) | | +2.5 | | | OSM aeroway |
 | spine_cover | | +2.0 | | | spine |
 | spine_thread | | +2.5 | | | spine |
 | truck_cover | | | +1.5 | | truck routes |

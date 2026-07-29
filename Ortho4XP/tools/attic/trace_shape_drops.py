@@ -36,7 +36,6 @@ import _diag
 # The function must take ``layout`` as its first positional arg.
 SUSPECT_PASSES = [
     ("auto_patch.junction_rules", "_enforce_runway_1to1_sharing"),
-    ("auto_patch.junction_repair", "_absorb_rects_at_junction_perimeters"),
     ("auto_patch.junction_repair", "_merge_sliver_junctions_into_neighbours"),
     ("auto_patch.junction_repair", "_drop_thin_orphan_slivers"),
     ("auto_patch.junction_repair", "_drop_floating_orphan_junctions"),

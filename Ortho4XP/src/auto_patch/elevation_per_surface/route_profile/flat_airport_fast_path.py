@@ -461,7 +461,6 @@ def apply_flat_airport_fast_path(layout, icao, nodes, bucket_to_idx, elev,
     ``fast-path=TAKEN``.  Mutates ``layout`` (via write-back) and ``elev`` /
     ``base_hard`` in place.  The caller returns from ``solve_route_profile``
     immediately after."""
-    from auto_patch.config import CURVE_NATIVE_SPINE, ROUTE_ARC_SPINE
     from auto_patch.elevation_per_surface.solver_primitives import (
         _report, _writeback)
 
@@ -480,8 +479,7 @@ def apply_flat_airport_fast_path(layout, icao, nodes, bucket_to_idx, elev,
     # shape deferrable (Tier-0 machinery) and visits approximately nothing.  The
     # snapshot is only consulted under the global-slice spine + scoped gate — the
     # same guard the projection itself applies.
-    if ((CURVE_NATIVE_SPINE or ROUTE_ARC_SPINE)
-            and os.environ.get("O4_SCOPED_FINAL_PROJECTION", "1") == "1"):
+    if os.environ.get("O4_SCOPED_FINAL_PROJECTION", "1") == "1":
         from .solve import _capture_projection_snapshot
         try:
             _capture_projection_snapshot(layout)

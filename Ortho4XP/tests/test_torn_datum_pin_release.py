@@ -98,7 +98,6 @@ def _projection_env(monkeypatch):
     monkeypatch.delenv("O4_TORN_DATUM_PIN_RELEASE", raising=False)
     # The projection is active only under the spine gates; force the arc
     # gate on so the test never silently no-ops on a gate flip.
-    monkeypatch.setattr(config, "ROUTE_ARC_SPINE", True, raising=False)
     # The skirt HARD-PIN family (B1) must be admitted for the pin to
     # exist — the class under test requires it.
     monkeypatch.setattr(config, "ONE_SOLVE_TERRAIN", True, raising=False)

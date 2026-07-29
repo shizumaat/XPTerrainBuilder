@@ -163,37 +163,6 @@ def test_no_vertex_on_sloping_rect_edge(icao):
 
 
 @pytest.mark.parametrize("icao", _test_airports())
-def test_sloping_rect_slopes_only_along_axis(icao):
-    """A canonical sloping taxi rect may slope ONLY along its centerline
-    (``source_axis``): its two AXIS-END edges (perpendicular to ``source_axis``)
-    must each be FLAT — both endpoints at the same elevation.  A non-flat
-    axis-end means the rect slopes ACROSS its centerline (X-Plane renders a
-    perpendicular tilt).  Per user 2026-05-22: "taxi rects can only slope along
-    the axis of their taxi centerline."
-
-    Scope: ONLY canonical sloping rects (``altitude_high``/``altitude_low``
-    set).  ``node_altitudes`` shapes are EXEMPT — a tile/seam slice legitimately
-    produces irregular per-vertex node_altitudes polygons whose edges are not
-    expected to be flat (user 2026-05-22: a sliced node_altitudes shape "is a
-    reasonable shape given the slice").  Hi/lo rects satisfy the invariant by
-    the ``[H, L, L, H]`` convention; the guard catches a future path that sets
-    altitude_high/low on a non-canonically-ordered ring.  Tolerance 0.3 m.
-    """
-    from auto_patch.verification import (
-        check_sloping_rect_axis, describe_shape, build_taxi_index)
-    layout = _build_layout(icao)
-    violations = check_sloping_rect_axis(layout)
-    ti = build_taxi_index(layout)
-    summary = "; ".join(
-        f"{describe_shape(layout, idx, ti)} — {detail} @ {loc}"
-        for idx, detail, loc in violations[:5])
-    assert not violations, (
-        f"{icao}: {len(violations)} taxi rect(s) slope ACROSS their "
-        f"centerline (axis-end edge not flat — perpendicular tilt).  "
-        f"Worst: {summary}")
-
-
-@pytest.mark.parametrize("icao", _test_airports())
 def test_no_vertex_on_sloping_rect_flat_edge(icao):
     """A sloping rect's FLAT (cross/short) edge — the side
     perpendicular to ``source_axis`` — is where the rect meets a
@@ -225,39 +194,6 @@ def test_no_vertex_on_sloping_rect_flat_edge(icao):
         f"violation(s).  Sloping rects must share flat (cross) edges 1:1 "
         f"— only the 2 corners are legal shared vertices.  First "
         f"{min(8, len(violations))}: {summary}.")
-
-
-@pytest.mark.parametrize("icao", _test_airports())
-def test_rect_short_edges_connect(icao):
-    """Per user 2026-04-29: a sloping rect (primary_parallel,
-    secondary_parallel, stub, cross_connector) has TWO short
-    edges, and each short edge represents an end where the
-    corridor meets something else — a junction, a runway, a
-    terminal, or another rect via shared vertices.  A short edge
-    with both corners *un*shared with any other shape means the
-    rect is ending in the middle of nowhere — usually an
-    artifact of the long-edge-adjacent absorption clipping the
-    rect mid-corridor and not extending the surrounding junction
-    polygon to share the new clip-boundary corners.
-
-    For each rect, check that EACH of its two short edges has at
-    least one corner shared (within ``CORNER_SHARE_TOL_M``) with
-    a non-rect-self vertex.  An entirely-disconnected short edge
-    is the failure case.
-    """
-    from auto_patch.verification import (
-        check_rect_short_edges, describe_shape, build_taxi_index)
-    layout = _build_layout(icao)
-    failures = check_rect_short_edges(layout)
-    ti = build_taxi_index(layout)
-    summary = "; ".join(
-        f"{describe_shape(layout, idx, ti)} — {detail} @ {loc}"
-        for idx, detail, loc in failures[:5])
-    assert not failures, (
-        f"{icao}: {len(failures)} rect short edge(s) disconnected from "
-        f"any other shape.  A taxi rect's short edge always meets "
-        f"something (junction / runway / terminal / other rect).  First "
-        f"{min(5, len(failures))}: {summary}.")
 
 
 @pytest.mark.parametrize("icao", _test_airports())

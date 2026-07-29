@@ -3103,188 +3103,6 @@ def check_vertex_on_flat_edge(layout):
     return out
 
 
-def check_sloping_rect_axis(layout):
-    """Invariant: a canonical sloping rect may slope ONLY along its
-    centerline — each of its two AXIS-END (flat) edges must be level
-    (both endpoints at the same elevation).  A non-flat axis-end means
-    the rect tilts ACROSS the taxiway.  node_altitudes shapes are exempt
-    (slice-conforming).  Returns ``[(idx, detail, "lat,lon"), …]``."""
-    from .layout import corner_alts_from_high_low
-    sloping_roles = {"primary_parallel", "secondary_parallel", "stub",
-                     "cross_connector", "service_road"}
-    TOL = 0.3
-    out = []
-    for i, s in enumerate(layout.shapes):
-        if s.role not in sloping_roles:
-            continue
-        if s.polygon is None or s.polygon.is_empty:
-            continue
-        if s.node_altitudes:
-            continue
-        if s.altitude_high is None or s.altitude_low is None:
-            continue
-        coords = list(s.polygon.exterior.coords)
-        if coords and coords[0] == coords[-1]:
-            coords = coords[:-1]
-        if len(coords) != 4:
-            continue
-        alts = corner_alts_from_high_low(s.altitude_high, s.altitude_low)
-        cmap = {(round(c[0], 3), round(c[1], 3)): alts[k]
-                for k, c in enumerate(coords)}
-        for a, b in _rect_flat_edges(s):
-            za = cmap.get((round(a[0], 3), round(a[1], 3)))
-            zb = cmap.get((round(b[0], 3), round(b[1], 3)))
-            if za is None or zb is None:
-                continue
-            if abs(za - zb) > TOL:
-                c = s.polygon.representative_point()
-                out.append((i, f"axis-end edge not flat (Δ{abs(za - zb):.2f} "
-                               f"m — rect tilts across the taxiway)",
-                            _ll(layout, c.x, c.y)))
-                break
-    return out
-
-
-def check_rect_short_edges(layout):
-    """Invariant: each of a taxi rect's two SHORT edges must connect to
-    something (junction / runway / terminal / other rect) — at least one
-    corner shared with another shape.  A fully-disconnected short edge =
-    a rect ending in mid-air.  Faithful exemptions: tile-cut boundary
-    edges (bridged by the neighbour tile), and discovered ("TX") lanes
-    that genuinely dead-end (isolated, or at the pavement tip).  Returns
-    ``[(rect_idx, detail, "lat,lon"), …]``."""
-    import math
-    from shapely.geometry import Point as _P
-    CORNER_SHARE_TOL_M = 0.5
-    TILE_EDGE_TOL_M = 8.0
-    DEAD_END_ISOLATION_M = 25.0
-    TIP_BOUNDARY_TOL_M = 1.0
-    rect_roles = {"primary_parallel", "secondary_parallel",
-                  "stub", "cross_connector"}
-
-    def _on_tile_edge(x, y):
-        lat, lon = layout.m_to_ll(x, y)
-        dlat_m = abs(lat - round(lat)) * 111195.0
-        dlon_m = (abs(lon - round(lon)) * 111195.0
-                  * math.cos(math.radians(lat)))
-        return dlat_m < TILE_EDGE_TOL_M or dlon_m < TILE_EDGE_TOL_M
-
-    all_vertices = []
-    for si, s in enumerate(layout.shapes):
-        if s.polygon is None or s.polygon.is_empty:
-            continue
-        try:
-            coords = list(s.polygon.exterior.coords)
-        except Exception:
-            continue
-        if coords and coords[0] == coords[-1]:
-            coords = coords[:-1]
-        for x, y in coords:
-            all_vertices.append((x, y, si))
-    tol2 = CORNER_SHARE_TOL_M * CORNER_SHARE_TOL_M
-    pav_b = getattr(layout, "apt_pavement_boundary", None)
-    # Groundside-clearance terminus exemption: a taxiway that runs to a
-    # GROUNDSIDE ramp / vehicle area legitimately STOPS at the airside↔
-    # groundside boundary, where ``_separate_groundside_from_airside`` clips
-    # the groundside pavement back by GROUNDSIDE_CLEARANCE_M (1.0 m) from all
-    # airside pavement.  The short edge therefore shares no corner — the gap
-    # IS the connection (the same exemption check_vertex_on_flat_edge /
-    # check_vertex_on_sloping_edge already make for groundside).  An end whose
-    # BOTH corners sit within GROUNDSIDE_PROX_M of a groundside shape is such a
-    # terminus, not a rect ending in mid-air.
-    from .layout import ROLE_GROUNDSIDE_PAVEMENT
-    GROUNDSIDE_PROX_M = 1.5            # clearance 1.0 m + weld/conformance drift
-    _gs_polys = [s.polygon for s in layout.shapes
-                 if s.role == ROLE_GROUNDSIDE_PAVEMENT
-                 and s.polygon is not None and not s.polygon.is_empty]
-    _gs_tree = None
-    if _gs_polys:
-        try:
-            from shapely.strtree import STRtree
-            _gs_tree = STRtree(_gs_polys)
-        except Exception:
-            _gs_tree = None
-
-    def _abuts_groundside(px, py):
-        if _gs_tree is None:
-            return False
-        pt = _P(px, py)
-        try:
-            for j in _gs_tree.query(pt.buffer(GROUNDSIDE_PROX_M)):
-                if _gs_polys[j].distance(pt) <= GROUNDSIDE_PROX_M:
-                    return True
-        except Exception:
-            return False
-        return False
-
-    out = []
-    for ri, r in enumerate(layout.shapes):
-        if r.role not in rect_roles or r.polygon is None or r.polygon.is_empty:
-            continue
-        try:
-            rc = list(r.polygon.exterior.coords)
-        except Exception:
-            continue
-        if rc and rc[0] == rc[-1]:
-            rc = rc[:-1]
-        if len(rc) != 4:
-            continue
-        for end_label, (i_a, i_b) in (("end_A", (0, 3)), ("end_B", (1, 2))):
-            ax, ay = rc[i_a]
-            bx, by = rc[i_b]
-            shared_a = shared_b = False
-            for vx, vy, vsi in all_vertices:
-                if vsi == ri:
-                    continue
-                if not shared_a and (vx - ax) ** 2 + (vy - ay) ** 2 <= tol2:
-                    shared_a = True
-                if not shared_b and (vx - bx) ** 2 + (vy - by) ** 2 <= tol2:
-                    shared_b = True
-                if shared_a and shared_b:
-                    break
-            if shared_a or shared_b:
-                continue
-            if _on_tile_edge(ax, ay) and _on_tile_edge(bx, by):
-                continue
-            if _abuts_groundside(ax, ay) and _abuts_groundside(bx, by):
-                continue                       # airside→groundside terminus
-            if (r.ref or "").startswith("TX"):
-                o_a, o_b = ((1, 2) if end_label == "end_A" else (0, 3))
-                oax, oay = rc[o_a]
-                obx, oby = rc[o_b]
-                other_shared = False
-                near_iso2 = DEAD_END_ISOLATION_M ** 2
-                min_a2 = min_b2 = float("inf")
-                for vx, vy, vsi in all_vertices:
-                    if vsi == ri:
-                        continue
-                    if not other_shared and (
-                            (vx - oax) ** 2 + (vy - oay) ** 2 <= tol2
-                            or (vx - obx) ** 2 + (vy - oby) ** 2 <= tol2):
-                        other_shared = True
-                    da2 = (vx - ax) ** 2 + (vy - ay) ** 2
-                    db2 = (vx - bx) ** 2 + (vy - by) ** 2
-                    if da2 < min_a2:
-                        min_a2 = da2
-                    if db2 < min_b2:
-                        min_b2 = db2
-                isolated = (min_a2 > near_iso2 and min_b2 > near_iso2)
-                on_tip = False
-                if pav_b is not None:
-                    try:
-                        on_tip = (pav_b.distance(_P(ax, ay)) <= TIP_BOUNDARY_TOL_M
-                                  and pav_b.distance(_P(bx, by))
-                                  <= TIP_BOUNDARY_TOL_M)
-                    except Exception:
-                        on_tip = False
-                if other_shared and (isolated or on_tip):
-                    continue
-            mx, my = (ax + bx) / 2.0, (ay + by) / 2.0
-            out.append((ri, f"{end_label} short edge connects to nothing "
-                            f"(rect ends in mid-air)", _ll(layout, mx, my)))
-    return out
-
-
 # ── Grade invariants (reuse the check_grade engine) ─────────────────
 def taxi_axes_ll(layout):
     """The builder's APT.DAT taxi centerlines as
@@ -3373,10 +3191,8 @@ def taxi_axes_exact_ll(layout):
     anisotropic budget on the validator side only — SPJC's 91-pair class);
     ``routes`` = ``[latlon_pts, …]`` deduped by ``route_line`` identity in
     encounter order, INCLUDING service chains, exactly like build_context."""
-    from .config import (CURVE_NATIVE_SPINE as _CNS, ROUTE_ARC_SPINE as _RAS,
-                         SERVICE_ROAD_MAX_GRADE as _SVC_CAP,
+    from .config import (SERVICE_ROAD_MAX_GRADE as _SVC_CAP,
                          taxi_grade_cap_for_letter)
-    _svc_spines = _CNS or _RAS
     axes = []
     routes = []
     route_key_to_idx: dict = {}
@@ -3400,8 +3216,6 @@ def taxi_axes_exact_ll(layout):
         if ln is None or getattr(ln, "is_empty", True):
             continue
         _is_svc = getattr(tcl, "is_service", False)
-        if _is_svc and not _svc_spines:
-            continue
         try:
             pts = list(ln.coords)
         except Exception:
@@ -3782,8 +3596,6 @@ def run_grade_checks(layout):
                                           None) or [])])
 
 
-
-
 # ── Per-tile verify DEBUG log ────────────────────────────────────────
 # EVERY verification finding is an auto-patch BUG to be tracked down and
 # fixed, NOT something the user can correct in the source data (user ruling
@@ -3941,15 +3753,10 @@ def verify_and_log(layout, icao: str, debug_log_path: str | None = None,
         flat_v = check_vertex_on_flat_edge(layout)
     except Exception:                              # pragma: no cover
         pass
-    try:
-        axis_v = check_sloping_rect_axis(layout)
-    except Exception:                              # pragma: no cover
-        pass
+    # (2026-07-29) check_sloping_rect_axis / check_rect_short_edges were
+    # retired with the rect machinery; axis_v / short_e stay as empty
+    # lists so the report shape is unchanged.
     short_e = []
-    try:
-        short_e = check_rect_short_edges(layout)
-    except Exception:                              # pragma: no cover
-        pass
     wedges = []
     try:
         wedges = check_epsilon_wedges(layout)

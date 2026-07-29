@@ -35,7 +35,7 @@ from auto_patch.elevation import (
 from auto_patch.config import (
     taxi_grade_cap_for_letter, TAXI_MAX_GRADE_NARROW, JUNCTION_NARROW_GRADE,
     CORRIDOR_SPINE_CHAINS,
-    FLATNESS_CERTIFICATE_RATE_FACTOR, FLAT_CERTIFICATE_COVERAGE,
+    FLATNESS_CERTIFICATE_RATE_FACTOR,
     RECT_CROSS_FLATNESS_TOLERANCE_M)
 from auto_patch.layout import (
     REF_RUNWAY_END_RESA, REF_RUNWAY_END_SKIRT,
@@ -56,19 +56,26 @@ from auto_patch.grade_law import (
 # modes.  Programming errors propagate so they surface immediately.
 _GEOM_EXC = (ValueError, GEOSException, TopologicalError)
 
-SLOPING_RECT_ROLES = (
-    ROLE_PRIMARY_PARALLEL, ROLE_SECONDARY_PARALLEL,
-    ROLE_STUB, ROLE_CROSS_CONNECTOR,
+# Roles whose ring-node contact lets a spineless neighbour INHERIT a grade
+# cap (grade_graph cap inheritance: a junction sharing ring nodes with a
+# service road inherits the 4 % road cap).  This is the surviving slice of
+# the retired SLOPING_RECT_ROLES set (owner ruling 2026-07-29): the four
+# taxi rect roles no longer occur — the global slice emits corridor faces
+# as junction/apron — so only ``service_road`` remains.
+ADJACENT_CAP_ROLES = (
     # Ground-vehicle service roads grade along their axis like a taxiway
     # (ring-only + flat cross-section), but at 4% — see _role_grade.
     ROLE_SERVICE_ROAD,
 )
 
-# Taxi rects that FOLLOW THE SPINE PROFILE (the aircraft taxiways) — service
-# roads are excluded (not taxi spines; their own role/grade).
-
 PAVEMENT_ROLES = {
-    ROLE_RUNWAY, *SLOPING_RECT_ROLES,
+    ROLE_RUNWAY,
+    # The retired rect-era taxi roles stay listed so any legacy shape data
+    # (old dumps, synthetic tests) keeps solving; live builds never mint
+    # them (owner census 2026-07-29: zero rect-role shapes).
+    ROLE_PRIMARY_PARALLEL, ROLE_SECONDARY_PARALLEL,
+    ROLE_STUB, ROLE_CROSS_CONNECTOR,
+    ROLE_SERVICE_ROAD,
     ROLE_APRON, ROLE_BUILDING, ROLE_JUNCTION,
     # Service-road network junction: all-pair grading branch at 4%
     # (not a sloping rect — irregular fill polygon at bends/intersections).
@@ -378,18 +385,15 @@ def _open_ring(coords) -> list[tuple[float, float]]:
 
 def _corridor_segments(layout, split: bool = False,
                        include_roads: bool = True):
-    """Taxi-corridor polyline segments: apt.dat/OSM taxi centerlines PLUS
-    every taxi rect's ``source_axis`` (discovered taxiways carry no apt.dat
-    row; CYXY's TX1 apron is served only by discovered rects).
-    ``split=True`` returns ``(apt_segs, axis_segs)`` — the network-profile
-    graph needs the provenance (apt rows are the route-graph plain set;
-    axis nodes enter it across straight gaps, the law's anchor-entry
-    mechanic).  ``include_roads=False`` drops the ground-vehicle SVC
+    """Taxi-corridor polyline segments: the apt.dat/OSM taxi centerlines.
+    ``split=True`` returns ``(apt_segs, axis_segs)`` — ``axis_segs`` is
+    empty since the rect retirement (2026-07-29: no shape carries a taxi
+    rect ``source_axis`` any more), kept for the call contract.
+    ``include_roads=False`` drops the ground-vehicle SVC
     centerlines (s79 Step D): an APRON must never bind to a road's
     profile — the road descends at 4 % toward terrain and is
     wall-separated; corridor-seeding aprons from it split the apron
-    into two write families (HECA #266: 98 vs 102.7, 30 violations).
-    Rect source AXES already exclude ROLE_SERVICE_ROAD."""
+    into two write families (HECA #266: 98 vs 102.7, 30 violations)."""
     apt_segs: list = []
     for entry in (getattr(layout, "apt_taxi_centerlines", None) or []):
         ls = entry.line if hasattr(entry, "line") else (entry[0] if isinstance(entry, (tuple, list)) else entry)
@@ -401,18 +405,9 @@ def _corridor_segments(layout, split: bool = False,
         except (AttributeError, TypeError):
             continue
         apt_segs.extend(zip(cs, cs[1:]))
+    # (2026-07-29) rect-role source_axis segments retired with the taxi
+    # rect roles — no live shape carries them, so the axis set is empty.
     axis_segs: list = []
-    for s in layout.shapes:
-        if s.role not in SLOPING_RECT_ROLES or s.role == ROLE_SERVICE_ROAD:
-            continue
-        ax = getattr(s, "source_axis", None)
-        if ax is None or ax.is_empty:
-            continue
-        try:
-            cs = list(ax.coords)
-        except (AttributeError, TypeError):
-            continue
-        axis_segs.extend(zip(cs, cs[1:]))
     if split:
         return apt_segs, axis_segs
     return apt_segs + axis_segs
@@ -1159,31 +1154,6 @@ def _build_shape_constraints(layout, bucket_to_idx, ctx=None, dem=None,
     # rect keeps its flat-cross edges (cross coupling stays byte-identical) and
     # defers its two AXIAL edges to a lazy thunk — the solve enforces them the
     # moment a corner drifts.
-    rect_certificate_enabled = (
-        flat_lazy_enabled and FLAT_CERTIFICATE_COVERAGE
-        and _os.environ.get("O4_FLAT_CERTIFICATE_COVERAGE", "1") != "0")
-    # Node indices on a clean sloping-rect PLANE (4-corner, altitude_high/low).
-    # Used to grade a rect end-cap as a PLANAR EXTENSION of its parent rect
-    # (O4_CAP_PLANAR): the cap's inner edge sits on these nodes.
-    # Default ON (user 2026-06-19, for in-sim test): grade rect end-caps as a
-    # planar extension of their parent rect so the rect+cap tilt as one plane
-    # and the cap-adjacent junctions co-solve flat (CYXY 4→0, SPJC 44→0; SPLP
-    # neutral).  ⚠ HECA REGRESSES (741→883) — the terminal-canyon caps where
-    # the rect can't tilt over-constrain; investigate.  O4_CAP_PLANAR=0 reverts.
-    _cap_planar = _os.environ.get("O4_CAP_PLANAR", "1") == "1"
-    rect_plane_idx: set = set()
-    if _cap_planar:
-        for s in layout.shapes:
-            if (s.role in SLOPING_RECT_ROLES and s.node_altitudes is None
-                    and s.polygon is not None and not s.polygon.is_empty):
-                _c = _open_ring(list(s.polygon.exterior.coords))
-                if len(_c) != 4:
-                    continue
-                for (x, y) in _c:
-                    k = bucket_to_idx.get(
-                        layout.canonical_points.get_or_add(float(x), float(y)))
-                    if k is not None:
-                        rect_plane_idx.add(k)
     for s in layout.shapes:
         if s.role not in PAVEMENT_ROLES or s.role == ROLE_RUNWAY:
             continue
@@ -1222,15 +1192,6 @@ def _build_shape_constraints(layout, bucket_to_idx, ctx=None, dem=None,
         edges: list[tuple[int, int, float]] = []
         flat_pairs: list[tuple[int, int]] = []   # rect flat-end coupled pairs
         lazy_extras = None                       # flatness-certified lazy keys
-        # A clean PLANAR rect (altitude_high/low) gets the flat-cross + axial
-        # constraints.  A per-vertex ``node_altitudes`` piece is NOT planar —
-        # e.g. the tile-cut seam WEDGE that follows the seam terrain's cross-
-        # slope and blends back to the rect (user 2026-05-28) — so it must use
-        # the all-pair rule, NOT a cap-0 flat end (which would force its two
-        # seam-pinned corners equal and read as a spurious 3.3 m violation).
-        is_rect = s.role in SLOPING_RECT_ROLES and len(coords) == 4 \
-            and all(i is not None for i in idx) \
-            and s.node_altitudes is None
         if (defer_shape_ids is not None and id(s) in defer_shape_ids
                 and s.role in (ROLE_APRON, ROLE_JUNCTION)):
             # SCOPED FINAL PROJECTION deferral (see docstring): proven-
@@ -1262,130 +1223,6 @@ def _build_shape_constraints(layout, bucket_to_idx, ctx=None, dem=None,
             }
         elif flat:
             pass                                  # handled by _project_shape
-        elif is_rect:
-            # Identify the two AXIS-END (flat-cross, cap 0) edges and the two
-            # AXIAL (sloping, cap = grade·length) edges by projecting each ring
-            # edge onto ``source_axis`` (user 2026-05-28) — NOT by ring index:
-            # absorption / snaps / tile-cut can rotate the ring, and a stale
-            # [H,L,L,H] index assumption mis-labels which edges must stay flat.
-            ring_edges = [(0, 1), (1, 2), (2, 3), (3, 0)]
-            scored = []
-            adx = ady = None
-            ax = getattr(s, "source_axis", None)
-            if ax is not None and not ax.is_empty:
-                acs = list(ax.coords)
-                if len(acs) >= 2:
-                    adx, ady = acs[-1][0] - acs[0][0], acs[-1][1] - acs[0][1]
-                    al = math.hypot(adx, ady) or 1.0
-                    adx, ady = adx / al, ady / al
-            for (a, b) in ring_edges:
-                ex, ey = coords[b][0] - coords[a][0], coords[b][1] - coords[a][1]
-                el = math.hypot(ex, ey) or 1e-9
-                # |edge·axis|/|edge|: 1 = axial (sloping), 0 = perpendicular (flat)
-                par = abs(ex * adx + ey * ady) / el if adx is not None else 0.0
-                scored.append((par, a, b, el))
-            scored.sort()                # ascending: first 2 = flat, last 2 = axial
-            axial_edge_list: list[tuple[int, int, float]] = []
-            axial_positions: list[tuple[int, int, float]] = []
-            cross_positions: list[tuple[int, int]] = []
-            rect_edges_wellformed = True
-            for n, (_par, a, b, el) in enumerate(scored):
-                if idx[a] is None or idx[b] is None or idx[a] == idx[b]:
-                    rect_edges_wellformed = False
-                    continue
-                if n < 2:                # the two most-perpendicular = flat ends
-                    edges.append((idx[a], idx[b], 0.0))
-                    flat_pairs.append((idx[a], idx[b]))
-                    cross_positions.append((a, b))
-                else:                    # the two most-parallel = sloping edges
-                    axial_edge_list.append((idx[a], idx[b], cap * el))
-                    axial_positions.append((a, b, el))
-            # FLAT-RECT CERTIFICATE (Tier 1, spec §3.2): when the airport-
-            # smoothed DEM under the rect is provably flat, DEFER its two axial
-            # (sloping) edges — proven satisfied at the DEM seed — to a lazy
-            # thunk; the flat-cross edges above stay eager so the cross coupling
-            # is byte-identical.  ``feasibility_project`` re-enforces the axial
-            # edges the moment a corner drifts off its seed (expand → the exact
-            # eager edge set), so a mis-certified rect fails toward correctness.
-            rect_is_candidate = (
-                rect_certificate_enabled and rect_edges_wellformed
-                and len(axial_positions) == 2 and len(cross_positions) == 2
-                and not any(i in hard_nodes for i in nodes))
-            rect_certificate = None
-            if rect_is_candidate:
-                _record_flat_certificate(layout, "rect", "candidate")
-                try:
-                    rect_certificate = _certify_flat_rect(
-                        layout, s, coords, cross_positions, axial_positions,
-                        cap, dem, tile_lat, tile_lon, flat_safety_factor)
-                except _GEOM_EXC:
-                    rect_certificate = None
-            if rect_certificate is not None:
-                rect_seed_by_vertex, minimum_axial_length = rect_certificate
-                # Slack-aware movement tolerance: axial edges sit at
-                # ≤ rate_factor·cap·len, leaving (1−rate_factor)·cap·len of
-                # slack; two endpoints drifting ``tolerance`` each consume
-                # 2·tolerance, so tolerance = 0.2·cap·len_min keeps every axial
-                # edge inside its budget without expansion (the apron tier's
-                # rule, applied to the rect's own axial span).
-                rect_move_tolerance = min(
-                    0.02, max(1e-6, 0.2 * cap * minimum_axial_length))
-                _record_flat_certificate(layout, "rect", "certified")
-                rect_lazy_nodes: list[int] = []
-                rect_lazy_seeds: list[float] = []
-                seen_rect_nodes: set = set()
-                for vertex_position, node_index in enumerate(idx):
-                    if node_index is None or node_index in seen_rect_nodes:
-                        continue
-                    seen_rect_nodes.add(node_index)
-                    rect_lazy_nodes.append(node_index)
-                    rect_lazy_seeds.append(rect_seed_by_vertex[vertex_position])
-
-                def _expand_rect(_layout=layout,
-                                 _edges=list(axial_edge_list)):
-                    _record_flat_certificate(_layout, "rect", "expanded")
-                    return list(_edges)
-
-                lazy_extras = {
-                    "lazy_expand": _expand_rect,
-                    "lazy_nodes": rect_lazy_nodes,
-                    "lazy_seed": rect_lazy_seeds,
-                    "lazy_move_tolerance": rect_move_tolerance,
-                    "lazy_certified": True,
-                    "lazy_rect": True,
-                }
-            else:
-                if rect_is_candidate:
-                    _record_flat_certificate(layout, "rect", "refused")
-                edges.extend(axial_edge_list)
-        elif (_cap_planar and getattr(s, "is_rect_cap", False)
-              and len([i for i in idx if i in rect_plane_idx]) >= 2
-              and len([i for i in idx
-                       if i is not None and i not in rect_plane_idx]) >= 2):
-            # Rect end-cap → PLANAR EXTENSION of its parent rect (user
-            # 2026-06-19).  INNER edge = the 2 nodes welded to the rect's flat
-            # end (already the rect's coupled pair, so _build_level_coupling
-            # unions them); OUTER edge = the 2 corners + the centreline node M.
-            # Couple inner flat and outer flat, join them with axial edges at
-            # the taxi cap → the rect+cap form one plane that TILTS as a unit so
-            # the cap-adjacent junction co-solves flat (a free-junction cap
-            # stays a rigid flat buffer that blocks the rect from tilting to the
-            # network → the 0.1-0.4 m cap-adjacent grade violations).
-            inner = [i for i in range(len(idx))
-                     if idx[i] is not None and idx[i] in rect_plane_idx]
-            outer = [i for i in range(len(idx))
-                     if idx[i] is not None and idx[i] not in rect_plane_idx]
-            edges.append((idx[inner[0]], idx[inner[1]], 0.0))
-            flat_pairs.append((idx[inner[0]], idx[inner[1]]))
-            for k in range(1, len(outer)):
-                edges.append((idx[outer[0]], idx[outer[k]], 0.0))
-                flat_pairs.append((idx[outer[0]], idx[outer[k]]))
-            for ii in inner:
-                jj = min(outer, key=lambda o: (coords[ii][0] - coords[o][0]) ** 2
-                         + (coords[ii][1] - coords[o][1]) ** 2)
-                d = math.hypot(coords[ii][0] - coords[jj][0],
-                               coords[ii][1] - coords[jj][1])
-                edges.append((idx[ii], idx[jj], cap * d))
         elif s.role in (ROLE_APRON, ROLE_JUNCTION):
             # SINGLE GRADE GRAPH: apron/junction within-shape edges from the ONE
             # shared generator (auto_patch.grade_graph) — junction = apron with a
@@ -3341,7 +3178,10 @@ def _writeback(layout, elev, bucket_to_idx):
             s.altitude_high = None
             s.altitude_low = None
             n_terms += 1
-        elif s.role in SLOPING_RECT_ROLES:
+        elif s.role in (ROLE_PRIMARY_PARALLEL, ROLE_SECONDARY_PARALLEL,
+                        ROLE_STUB, ROLE_CROSS_CONNECTOR):
+            # Legacy rect-role writeback (no live build mints these roles —
+            # owner 2026-07-29; kept for legacy shape data only).
             # Per user 2026-05-13: keep node_altitudes when the shape
             # came in with them — even for 4-corner shapes.  This
             # preserves per-vertex precision for runway sub-rects
@@ -3375,14 +3215,22 @@ def _writeback(layout, elev, bucket_to_idx):
                 s.altitude_low = None
                 s.altitude = None
                 n_rects += 1
-        elif s.role in (ROLE_JUNCTION, ROLE_SERVICE_JUNCTION):
-            # Junction + service-road-network junction: per-corner
+        elif s.role in (ROLE_JUNCTION, ROLE_SERVICE_JUNCTION,
+                        ROLE_SERVICE_ROAD):
+            # Junction + service-road-network shapes: per-corner
             # node_altitudes (all-pair shapes, irregular polygons).
+            # Service roads joined this branch when the rect machinery
+            # retired (owner 2026-07-29): their corridor polygons solve
+            # all-pair, so per-corner writeback is the faithful output
+            # (including the one 4-corner SPJC service road, which
+            # previously canonicalised to an altitude_high/low plane).
             alts = [round(float(e), 2) for e in corner_elevs]
             if ring_closed:
                 alts.append(alts[0])
             s.node_altitudes = alts
             s.altitude = None
+            s.altitude_high = None
+            s.altitude_low = None
             n_juncs += 1
         elif s.role == ROLE_RUNWAY:
             # Seam-converted runway sub-rect — write per-vertex

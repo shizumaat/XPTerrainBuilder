@@ -1021,9 +1021,9 @@ def solve_route_profile(layout, icao: str,
         # and would otherwise re-wall what an earlier yield fixed), right
         # before writeback.  The phase-A profile is the seed, so smooth
         # spines stay smooth wherever they were already feasible.
-        # Rect-model builds keep the legacy behaviour (global-slice only).
-        from auto_patch.config import CURVE_NATIVE_SPINE, ROUTE_ARC_SPINE
-        if CURVE_NATIVE_SPINE or ROUTE_ARC_SPINE:
+        # (2026-07-29) the legacy rect-model gate was retired — the
+        # global slice is the only path, so this always runs.
+        if True:
             yield_hard = (truth_hard
                           | {i for i in runway_nodes if i < n}
                           | {i for i in building_seats if i < n}
@@ -1811,7 +1811,7 @@ def solve_route_profile(layout, icao: str,
         layout._break_node_ll = [
             layout.m_to_ll(nodes[i][0], nodes[i][1])
             for i in sorted(_solve_broken_idx) if i < len(nodes)]
-        if ((CURVE_NATIVE_SPINE or ROUTE_ARC_SPINE) and _scoped_gate):
+        if _scoped_gate:
             _solve_broken_keys = {key for key, i in bucket_to_idx.items()
                                   if i in _solve_broken_idx}
             _capture_projection_snapshot(layout, _fairing_moved_keys,
@@ -1951,7 +1951,7 @@ def _capture_projection_snapshot(layout, fairing_moved_keys=None,
     for s in layout.shapes:
         if s.polygon is None or s.polygon.is_empty:
             continue
-        if not (s.role in roles or getattr(s, "is_rect_cap", False)):
+        if s.role not in roles:
             continue
         if s.polygon.geom_type != "Polygon":
             continue        # never matches at projection time → stays changed
@@ -2042,7 +2042,7 @@ def _scoped_projection_defer_ids(layout, nodes, bucket_to_idx, elev,
     for s in layout.shapes:
         if s.polygon is None or s.polygon.is_empty:
             continue
-        if not (s.role in roles or getattr(s, "is_rect_cap", False)):
+        if s.role not in roles:
             continue
         ring_key = None
         coords = None
@@ -2326,10 +2326,7 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     are HARD; building pads move as rigid flat groups; everything else
     flexes minimally from its solved value (warm seed → only violated
     neighbourhoods move).  Gate ``O4_FINAL_GRADE_PROJECTION=0`` disables.
-    Global-slice only (the rect path keeps its byte-identical emit)."""
-    from auto_patch.config import CURVE_NATIVE_SPINE, ROUTE_ARC_SPINE
-    if not (CURVE_NATIVE_SPINE or ROUTE_ARC_SPINE):
-        return
+    """
     # DEFAULT ON (2026-07-04): the 2026-07-03 "no change at SPJC"
     # measurement predated the EXACT-AXES sidecar — the residuals then
     # were reader-divergent pairs no projection could fix.  With unified
@@ -3254,7 +3251,7 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # run's sparser envelope cannot un-quarantine an infeasible pocket.
     # A stale snapshot is SAFE (mismatched values ⇒ nothing defers), so a
     # geometry hiccup here simply keeps the previous snapshot.
-    if ((CURVE_NATIVE_SPINE or ROUTE_ARC_SPINE) and _scoped_projection_gate
+    if (_scoped_projection_gate
             and recapture_snapshot):
         try:
             _recapture_broken_keys = set(getattr(

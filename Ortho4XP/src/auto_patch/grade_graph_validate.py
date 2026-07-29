@@ -48,16 +48,13 @@ def _iter_checked_pairs(layout):
     """Yield EVERY within-shape constrained pair the validator checks, as
     ``(role, is_spine, (xa, ya), za, (xb, yb), zb, cap)``:
 
-      * apron / junction within-shape edges (body + spine, ``grade_graph``);
-      * sloping-rect + end-cap ALL-pair edges (the taxi spine as tilted planes).
+      * apron / junction within-shape edges (body + spine, ``grade_graph``).
 
     The single source both ``within_violations`` (applies the cap check) and
     ``checked_spine_geometry`` (extracts the spine node/edge set for the
     structural test) consume, so the checker and the structural gate cannot
     drift from each other.  Runway joins are handled separately (one side is a
     runway-surface sample, not a node)."""
-    from auto_patch.junction_rules import SLOPING_RECT_ROLES
-    from auto_patch.layout import taxi_shape_code_letter
     ctx = GG.build_context(layout)
 
     # apron / junction within-shape (body + spine).
@@ -113,49 +110,10 @@ def _iter_checked_pairs(layout):
             is_spine = (min(a, b), max(a, b)) in spine_pairs
             yield (s.role, is_spine, ring[a], elevs[a], ring[b], elevs[b], cap)
 
-    # sloping rects + end-caps (all-pair, the taxi spine as tilted planes).
-    rect_caps = []                      # (corner_key_set, cap)
-    for s in layout.shapes:
-        if (s.role not in SLOPING_RECT_ROLES or s.polygon is None
-                or s.polygon.is_empty):
-            continue
-        ring = _open_ring(list(s.polygon.exterior.coords))
-        if len(ring) < 3:
-            continue
-        cap = float(taxi_grade_cap_for_letter(taxi_shape_code_letter(layout, s)))
-        rect_caps.append(({(round(x, 3), round(y, 3)) for (x, y) in ring}, cap))
-        yield from _all_pair_pairs(s.role, ring, _shape_elevs(s, len(ring)),
-                                   cap, ctx)
-    for s in layout.shapes:
-        if (not getattr(s, "is_rect_cap", False) or s.polygon is None
-                or s.polygon.is_empty):
-            continue
-        ring = _open_ring(list(s.polygon.exterior.coords))
-        if len(ring) < 3:
-            continue
-        ckeys = {(round(x, 3), round(y, 3)) for (x, y) in ring}
-        cap, best = None, 0
-        for (rkeys, rcap) in rect_caps:
-            sh = len(rkeys & ckeys)
-            if sh > best:
-                best, cap = sh, rcap
-        if cap is None:                 # unmatched cap → uniform taxi cap
-            cap = float(taxi_grade_cap_for_letter(None))
-        yield from _all_pair_pairs("rect_cap", ring, _shape_elevs(s, len(ring)),
-                                   cap, ctx)
-
-
-def _all_pair_pairs(role, ring, elevs, cap, ctx):
-    """Plane shape (rect / cap) pairs via the SHARED plane rule
-    (``grade_graph.plane_constraints`` → ``grade_law``) — the same one the solver
-    enforces (``build_unified_graph``) and the OSM test checks (``check_grade``)."""
-    if elevs is None:
-        return
-    n = len(ring)
-    gs = GG.GradeShape(role=role, ring=[(x, y) for (x, y) in ring],
-                       keys=list(range(n)))
-    for (a, b, c) in GG.plane_constraints(gs, ctx, cap).edges:
-        yield (role, True, ring[a], elevs[a], ring[b], elevs[b], c)
+    # (2026-07-29) The sloping-rect + end-cap all-pair stage was retired
+    # with the rect machinery — no live shape carries a rect role or the
+    # ``is_rect_cap`` flag, so the checker mirrors the solver exactly with
+    # the within-shape stage above alone.
 
 
 def within_violations(layout, noise=ELEV_ROUNDING_NOISE_M):
@@ -396,13 +354,13 @@ def route_reach_violations(layout, noise=ELEV_ROUNDING_NOISE_M):
     from auto_patch.layout import (ROLE_APRON, ROLE_BUILDING, ROLE_JUNCTION,
                                    ROLE_RUNWAY)
     from auto_patch.config import (APRON_MAX_GRADE, taxi_grade_cap_for_letter)
-    from auto_patch.junction_rules import SLOPING_RECT_ROLES
 
-    # the route shapes whose contact elevation feeds an apron/junction: the taxi
-    # network (sloping rects + taxi junctions) — NOT service roads (own datum) and
-    # NOT runways (handled by the runway-join check; a runway contact is not a
-    # flat-apron constraint, it is the hard anchor itself).
-    route_roles = set(SLOPING_RECT_ROLES) | {ROLE_JUNCTION}
+    # the route shapes whose contact elevation feeds an apron/junction: the
+    # taxi network — corridor faces are ROLE_JUNCTION under the global slice
+    # (the rect roles are retired, owner 2026-07-29) — NOT service roads
+    # (own datum) and NOT runways (handled by the runway-join check; a runway
+    # contact is not a flat-apron constraint, it is the hard anchor itself).
+    route_roles = {ROLE_JUNCTION}
 
     routes = []                 # (shape, elevs)
     for s in layout.shapes:

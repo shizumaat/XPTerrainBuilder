@@ -7,11 +7,9 @@ Such pavement otherwise dissolves into the all-pair junction/apron residue
 that cannot articulate as a travel path and is a grade liability.
 
 This module extracts the **medial axis** (skeleton) of the lane-width pavement
-and synthesises a centerline along each lane, so the SINGLE downstream
-``_build_taxi_rects`` pass turns them into axial taxi rects exactly like a
-referenced taxiway.  A lane that runs through / alongside an apron is handled
-the same way a referenced taxiway is — the rect emits and the existing
-apron-absorption pass dissolves it where it shares an edge with the apron.
+and synthesises a centerline along each lane; the discovered centerlines
+join the global-slice spine downstream exactly like a referenced taxiway
+(the rect-era builder that consumed them was retired 2026-07-29).
 
 Why a medial axis (not rectangle fitting): unreferenced lanes form a connected
 *web*; fitting one rectangle per residue blob collapses the web into a single
@@ -210,33 +208,6 @@ def _perp_exceeds_axial(rect, axis) -> bool:
     along = [x * ux + y * uy for x, y in rc]
     perp = [x * nx + y * ny for x, y in rc]
     return (max(perp) - min(perp)) > (max(along) - min(along))
-
-
-def reject_curved_discovered_rects(taxi_rects, max_shear_deg=_MAX_SHEAR_DEG):
-    """Drop UNREFERENCED rects (discovered ``TX…`` or ``ref=''``) that aren't
-    real lanes — they stay as residue (handled by Phase-2 apron decomposition).
-    Free-strip lanes (clean rects) and any apt.dat-referenced taxiway are kept.
-    Returns ``(kept_list, n_dropped)``.
-
-    Two rejection criteria, both apron-blob signatures:
-      * SHEARED — corner angles deviate > ``max_shear_deg`` from 90° (an
-        apron-embedded lane the rect builder's snap distorted);
-      * WIDER-THAN-LONG — extent perpendicular to the axis exceeds the axial
-        extent (a short/refless centerline snapped into a wide apron rect,
-        e.g. SPJC #44).  Real lanes are long along their axis, never this.
-    """
-    kept = []
-    dropped = 0
-    for entry in taxi_rects:
-        rect, axis, _role, ref = entry
-        unref = (not ref) or ref.startswith("TX")
-        if (unref and rect is not None and not rect.is_empty
-                and (_rect_corner_shear_deg(rect) > max_shear_deg
-                     or _perp_exceeds_axial(rect, axis))):
-            dropped += 1
-            continue
-        kept.append(entry)
-    return kept, dropped
 
 
 def discover_unreferenced_centerlines(

@@ -32,7 +32,7 @@ import time
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from shapely.errors import GEOSException, TopologicalError
-from shapely.geometry import LineString, MultiLineString, Point, Polygon
+from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import (
     linemerge, nearest_points, transform as shp_transform, unary_union)
 
@@ -103,7 +103,7 @@ from .osm_load import (
     _pick_best_apt_dat_against_osm,
 )
 from .pavement.service_roads import build_service_road_network
-from . import finalize, junction_emit
+from . import finalize
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -136,11 +136,6 @@ from .pavement.union_helpers import (
 # Stub residue / runway-bridge helpers
 # (re-exported from pavement.stubs)
 # ──────────────────────────────────────────────────────────────────
-
-
-from .pavement.absorption import (
-    _drop_primary_parallels_embedded_in_pavement,
-)
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -186,7 +181,7 @@ def _unify_airside_geometry(layout, icao: str, dem=None,
     from .canonical_points import weld_layout_vertices
     from .conformance import enforce_conformance
     from .junction_repair import (
-        _snap_near_corner_vertices_to_rect_corners,
+        _snap_near_corner_vertices_to_plane_corners,
         _share_neighbour_corners_into_junctions)
     from .layout import (
         ROLE_PRIMARY_PARALLEL, ROLE_SECONDARY_PARALLEL, ROLE_STUB,
@@ -259,7 +254,7 @@ def _unify_airside_geometry(layout, icao: str, dem=None,
     # FINAL near-corner snap: a non-rect vertex left on a sloped rect's edge
     # near a corner is snapped onto the corner so the two SHARE it; companion
     # share-neighbour-corners handles the 0.10–0.5 m junction case.
-    _snap_near_corner_vertices_to_rect_corners(layout, icao=icao)
+    _snap_near_corner_vertices_to_plane_corners(layout, icao=icao)
     _share_neighbour_corners_into_junctions(layout, icao=icao)
 
     # AIRSIDE SEAM RE-PIN (owner ruling 2026-07-25, config
@@ -2240,25 +2235,9 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # longer reachable from layout.shapes.
     layout.apt_taxi_centerlines = list(osm_centerlines)
 
-    # Painted (row-120) taxiway centerlines carry the authored BEZIER
-    # curves that the straight 1201/1202 edges lack — continuous arcs
-    # through junctions where the routing graph is disconnected at the
-    # node.  The fallback above only used them when the 1201/1202 network
-    # was ABSENT; when the junction-spine is on, compute them HERE even
-    # WITH a network and stash them for the spine, which prefers the
-    # curves and fills any gaps from the 1201/1202 edges (junction_spine.
-    # _full_centerlines).  Gated, so gate-off stays byte-identical; only
-    # needed in the WITH-network case (no-network already left the painted
-    # curves in ``apt_taxi_centerlines``).
-    from .config import JUNCTION_CENTERLINE_SPINE as _JCS
-    if _JCS and apt.taxi_edges:
-        try:
-            _painted = APR.painted_taxi_centerlines(
-                apt, to_m, pavement_union_m=pav_union,
-                runway_union_m=layout.runway_union)
-            layout._painted_centerlines = [ln for ln, _nm in _painted]
-        except Exception:
-            layout._painted_centerlines = []
+    # (2026-07-29) The painted-centerlines stash for the per-junction
+    # spine slice was removed with junction_spine.py — only that retired
+    # consumer read ``layout._painted_centerlines``.
 
     # RAW painted lines in METERS (ALL row-120 features, paint codes IGNORED — a
     # code marks centerline OR edge line unreliably, so the taxi-fillet extractor
@@ -3509,858 +3488,281 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 f"  [pav-builder] {icao}: trimmed {_n_cl_trim} "
                 f"centerline(s) at building-pad edges.")
 
-    _progress.step()  # [4] Building taxi rects, junctions & service roads
+    _progress.step()  # [4] Building the global-slice faces & service roads
 
-    # ── Build taxi rects from centerlines ────────────────────────
-    taxi_rects = _build_taxi_rects(
-        osm_centerlines, pav_union, layout.runway_union,
-        rwy_centerlines, apt_vertices=apt_pav_vertices,
-        ref_overall_bearings=ref_overall_bearings,
-        registry=layout.canonical_points,
-        svc_widths=_svc_widths or None)
+    # (2026-07-29, owner ruling) The taxi-rect GENERATION block that ran
+    # here (…_build_taxi_rects + ~15 shaping passes, ~560 lines) was
+    # retired: under the global slice its output was discarded — the
+    # slice below cuts the real pav_union along the route-arc spine and
+    # emits every face directly.  Its only side effect was interning
+    # rect corners into layout.canonical_points, so registry numbering
+    # differs from rect-era builds (verify semantically, not byte-wise).
 
-    # (s81) Building pads win rect overlap: an axis trimmed at the
-    # pad boundary can still sweep a rect corner INTO the pad when
-    # the building edge is oblique to the lane.  Clip each rect
-    # against the pad union (largest surviving piece); the
-    # degenerate sub-quad drop below then culls what no longer has
-    # a usable 4-corner footprint.
-    if HANGAR_PADS_GATE and terminal_union is not None \
-            and not terminal_union.is_empty:
-        _pad_clipped: list = []
-        _n_rect_clip = 0
-        for _re in taxi_rects:
-            _rp = _re[0]
-            try:
-                if _rp is None or _rp.is_empty \
-                        or not _rp.intersects(terminal_union):
-                    _pad_clipped.append(_re)
-                    continue
-                _diff = _rp.difference(terminal_union)
-            except _GEOM_EXC:
-                _pad_clipped.append(_re)
-                continue
-            _n_rect_clip += 1
-            if _diff.is_empty:
-                continue  # rect entirely under the building
-            if _diff.geom_type == "MultiPolygon":
-                _diff = max(_diff.geoms, key=lambda g: g.area)
-            if _diff.geom_type != "Polygon" or _diff.is_empty:
-                continue
-            _pad_clipped.append((_diff,) + tuple(_re[1:]))
-        if _n_rect_clip:
-            UI.vprint(1,
-                f"  [pav-builder] {icao}: clipped {_n_rect_clip} "
-                f"taxi rect(s) against building pads.")
-        taxi_rects = _pad_clipped
-
-    # Drop DEGENERATE clipped taxi rects (user 2026-06-01).  The rect builder
-    # sizes each rect to the local pavement width and clips it to the pavement
-    # boundary.  Where a centerline segment runs through the tapering EDGE of
-    # an apron, the clip collapses the rect to a TRIANGLE (one short edge
-    # shrinks to a point) — a thin sliver that is not a usable taxi corridor
-    # and, kept, becomes a sloping stub hugging the apron's long edge at a
-    # different level (HECA J1: a 978 m² triangle → a 3.4 m cliff vs the
-    # apron, and ~41 edge-steps).  A valid taxi rect has 4 corners; a clipped
-    # corner yields a pentagon/hexagon (≥ 4, kept).  Only sub-quad shapes are
-    # degenerate.  Dropping loses no coverage — apron = pav_union − rects, so
-    # the footprint simply becomes apron residue.
-    def _distinct_corners(poly, tol_m: float = 0.5) -> int:
-        try:
-            c = list(poly.exterior.coords)
-        except _GEOM_EXC:
-            return 0
-        if c and c[0] == c[-1]:
-            c = c[:-1]
-        # Merge consecutive near-coincident vertices so a collapsed (≈0-length)
-        # edge counts as one corner — a quad with a vanished end edge IS a
-        # triangle.
-        merged: list = []
-        for p in c:
-            if not merged or math.hypot(p[0] - merged[-1][0],
-                                        p[1] - merged[-1][1]) > tol_m:
-                merged.append(p)
-        if (len(merged) > 1
-                and math.hypot(merged[0][0] - merged[-1][0],
-                               merged[0][1] - merged[-1][1]) <= tol_m):
-            merged.pop()
-        return len(merged)
-
-    _n_before = len(taxi_rects)
-    taxi_rects = [e for e in taxi_rects
-                  if e[0] is not None and not e[0].is_empty
-                  and _distinct_corners(e[0]) >= 4]
-    _n_degen = _n_before - len(taxi_rects)
-    if _n_degen:
-        UI.vprint(1, f"  [pav-builder] {icao}: dropped {_n_degen} degenerate "
-                     f"(sub-quad) clipped taxi rect(s) → apron residue.")
-
-    # Scope discovery to clean free-strip lanes: drop discovered (TX) rects
-    # the builder left sheared — those are apron-EMBEDDED lanes (snap fit the
-    # rect to the ragged apron boundary).  They stay as residue and are handled
-    # by the Phase-2 apron narrow-neck decomposition, not rammed through here.
-    if ENABLE_DISCOVERED_TAXIWAYS:
-        from .pavement.discovered_taxiways import (
-            reject_curved_discovered_rects)
-        taxi_rects, _n_curved = reject_curved_discovered_rects(taxi_rects)
-        if _n_curved:
-            UI.vprint(1,
-                f"  [pav-builder] {icao}: deferred {_n_curved} apron-embedded "
-                f"discovered taxi rect(s) to residue (Phase 2).")
-
-    # Filter stubs by user's runway-connection rule: a stub rect is
-    # kept only if its OSM centerline reaches a runway.  Stubs whose
-    # pavement is only between apron and parallel (or apron-internal)
-    # get dropped — that pavement folds into the apron or junction.
-    # This removes OSM sub-refs like A1-A6, D1/D2, F1, M1-M3, R1/R2, N
-    # that the user's target doesn't emit.
-    # Look up raw OSM ways per ref (untrimmed).  A stub "connects to
-    # a runway" iff one of its raw endpoints lies within
-    # RUNWAY_ENDPOINT_DIST_M of the runway footprint.  The threshold
-    # accounts for the junction polygon between the stub rect and
-    # the runway: target stub-rect corners are 22–66 m from the
-    # runway edge (measured from the actual target), so 80 m gives
-    # a small margin for freehand drift.
-    #
-    # Per user 2026-05-11: SKIP this filter when the taxi graph
-    # comes from apt.dat (rows 1201/1202).  apt.dat doesn't carry
-    # OSM-noise sub-refs; every row-1202 edge is a canonical taxi
-    # path.  CYXY's G runs apron-to-apron without ever touching
-    # a runway — under OSM-only filtering it gets dropped here as
-    # "apron-internal" even though apt.dat declares it a real
-    # taxiway.  The downstream absorption pass
-    # (``_drop_primary_parallels_embedded_in_pavement``) is the
-    # authoritative place to decide whether an apron-running taxi
-    # rect should be partially absorbed or kept intact.
-    RUNWAY_ENDPOINT_DIST_M = 80.0
-    raw_endpoints_by_ref: Dict[str, List[Tuple[float, float]]] = {}
-    if not apt_centerlines:
-        for wid, nds, tags in ways:
-            if tags.get("aeroway") != "taxiway":
-                continue
-            ref = tags.get("ref", "")
-            pts = []
-            for n in nds:
-                if n in nodes:
-                    lat, lon = nodes[n]
-                    pts.append(to_m(lon, lat))
-            if len(pts) >= 2:
-                raw_endpoints_by_ref.setdefault(ref, []).append(pts[0])
-                raw_endpoints_by_ref.setdefault(ref, []).append(pts[-1])
-
-    if not apt_centerlines and layout.runway_union is not None:
-        rwy_boundary = layout.runway_union.boundary
-        filtered: List[Tuple[Polygon, LineString, str, str]] = []
-        for rect, axis, role, ref in taxi_rects:
-            if role != ROLE_STUB:
-                filtered.append((rect, axis, role, ref))
-                continue
-            # Reject stubs whose RECT touches (or sits inside) the
-            # runway polygon.  SPLP has a short unrefed taxi at the
-            # SW end whose rect at (-463,-1266) has one corner
-            # exactly on the runway boundary — user wants "only a
-            # single stub at the south end" so this one must go.
-            try:
-                if rect.distance(rwy_boundary) < 5.0 and (
-                        rect.intersects(layout.runway_union)
-                        or rect.distance(layout.runway_union) < 2.0):
-                    continue
-            except _GEOM_EXC:
-                pass
-            reaches_runway = False
-            for (px, py) in raw_endpoints_by_ref.get(ref, []):
-                if Point(px, py).distance(
-                        layout.runway_union) <= RUNWAY_ENDPOINT_DIST_M:
-                    reaches_runway = True
-                    break
-            if reaches_runway:
-                filtered.append((rect, axis, role, ref))
-        taxi_rects = filtered
-
-    # ── Runway-end stubs for primary parallels ─────────────────────
-    # Per user (2026-04-21): primary parallels whose OSM path
-    # terminates INSIDE the runway polygon (i.e. the taxi merges
-    # onto runway pavement) should emit a wider-than-normal STUB
-    # at the transition — the "ramp" where A / F meet the runway
-    # short-edge.  Target A stub (688,1562) L=79 W=73 and F stub
-    # (2243,-1666) L=93 W=78 both sit ~100 m out from the runway
-    # polygon boundary.  Add an extra stub rect at the path vertex
-    # just OUTSIDE the runway along the path.
-    # Per user 2026-05-14: prefer apt.dat taxi-network as the
-    # authoritative source for runway-end stub detection.  Build
-    # one linemerged polyline per apt.dat taxi name (UNTRIMMED —
-    # the trimming in ``taxi_centerlines`` runs ``split_merged_
-    # centerline`` which curve-skips at runway-end transitions,
-    # losing exactly the endpoints this function needs to detect).
-    # The function falls back to OSM ways when apt.dat is absent.
-    apt_merged_polylines: Optional[
-        List[Tuple[LineString, str]]] = None
-    if apt is not None and apt.taxi_nodes and apt.taxi_edges:
-        from shapely.ops import linemerge as _linemerge
-        by_name_segs: Dict[str, List[LineString]] = {}
-        for edge in apt.taxi_edges:
-            if edge.kind == "runway":
-                continue
-            if (edge.node_from not in apt.taxi_nodes
-                    or edge.node_to not in apt.taxi_nodes):
-                continue
-            na = apt.taxi_nodes[edge.node_from]
-            nb = apt.taxi_nodes[edge.node_to]
-            ax, ay = to_m(na.lon, na.lat)
-            bx, by = to_m(nb.lon, nb.lat)
-            if (ax - bx) ** 2 + (ay - by) ** 2 < 0.01:
-                continue
-            try:
-                by_name_segs.setdefault(
-                    edge.name, []).append(
-                    LineString([(ax, ay), (bx, by)]))
-            except _GEOM_EXC:
-                continue
-        apt_merged_polylines = []
-        for name, segs in by_name_segs.items():
-            if len(segs) == 1:
-                apt_merged_polylines.append((segs[0], name))
-                continue
-            try:
-                merged = _linemerge(MultiLineString(segs))
-            except _GEOM_EXC:
-                for s in segs:
-                    apt_merged_polylines.append((s, name))
-                continue
-            if merged.is_empty:
-                continue
-            if merged.geom_type == "LineString":
-                apt_merged_polylines.append((merged, name))
-            elif merged.geom_type == "MultiLineString":
-                for g in merged.geoms:
-                    if not g.is_empty:
-                        apt_merged_polylines.append((g, name))
-    extra_stubs = _emit_primary_parallel_runway_stubs(
-        nodes, ways, to_m, layout.runway_union, pav_union,
-        apt_pav_vertices, taxi_rects,
-        apt_centerlines=apt_merged_polylines,
-        rwy_centerlines=rwy_centerlines)
-    taxi_rects.extend(extra_stubs)
-
-    # ── Drop overlapping taxi rects ───────────────────────────────
-    # Pavement layout invariant (user 2026-04-26): rects MUST NOT
-    # overlap each other.  Junctions are constructed as the residue
-    # of pavement minus rects/runways/terminals; if rects overlap,
-    # the residue is wrong and junctions can't tile the gaps.
-    #
-    # Sources of rect-rect overlap from upstream rect extraction:
-    #   - OSM centerlines too close to each other (a main taxi and a
-    #     service road parallel to it; each produces a rect whose
-    #     half-width buffer covers the other).
-    #   - Apron-emit retries that try to add more rects to simplify
-    #     a junction polygon — without an explicit overlap check the
-    #     new rect can land on top of an existing one.
-    #
-    # Drop rule: walk all rect pairs; if their intersection exceeds
-    # RECT_OVERLAP_NOISE_M2 (a tiny float-noise threshold so corners
-    # that "kiss" but don't actually overlap aren't flagged), drop
-    # the rect with the SHORTER axis — the longer rect is more
-    # likely the real centerline.  Tie-break by larger area.
-    # Iterate until no rect-pair overlap remains.
-    RECT_OVERLAP_NOISE_M2 = 1.0
-    # Drop only when the overlap is a SIGNIFICANT fraction of the
-    # smaller rect's area; a diagonal stub joining a primary parallel
-    # legitimately produces a small corner-overlap triangle (e.g. at
-    # SPJC, C joining A produces a 24 m² corner overlap on a 10 051 m²
-    # C rect — 0.2 %, not a duplicate).  5 % is the empirical
-    # boundary: above that, the rects clearly cover the same area;
-    # below that, it's a diagonal-stub corner kiss.
-    RECT_OVERLAP_FRAC_TOL = 0.05
-    if len(taxi_rects) >= 2:
-        kept = list(taxi_rects)
-        changed = True
-        while changed:
-            changed = False
-            n = len(kept)
-            drop_idx: set = set()
-            for i in range(n):
-                if i in drop_idx:
-                    continue
-                rect_i, axis_i, role_i, ref_i = kept[i]
-                len_i = axis_i.length if axis_i is not None else 0.0
-                for j in range(i + 1, n):
-                    if j in drop_idx:
-                        continue
-                    rect_j, axis_j, role_j, ref_j = kept[j]
-                    len_j = axis_j.length if axis_j is not None else 0.0
-                    try:
-                        if not rect_i.intersects(rect_j):
-                            continue
-                        inter = rect_i.intersection(rect_j)
-                        if inter.is_empty:
-                            continue
-                        if inter.area <= RECT_OVERLAP_NOISE_M2:
-                            continue
-                        # Diagonal stubs that join a primary parallel
-                        # (e.g. SPJC's B/C/E/G connecting to A/F/L/V)
-                        # legitimately share a small corner triangle
-                        # with their parent.  Drop only when the
-                        # overlap is a SIGNIFICANT fraction of the
-                        # smaller rect — not just a corner kiss.
-                        smaller_area = min(rect_i.area, rect_j.area)
-                        if (smaller_area > 0
-                                and inter.area
-                                / smaller_area
-                                <= RECT_OVERLAP_FRAC_TOL):
-                            continue
-                        # (s79) 1206 PROVENANCE BEATS DISCOVERY (user
-                        # 2026-06-11): a road (SVC) rect overlapping a
-                        # medial-DISCOVERED (TX) rect wins regardless of
-                        # axis length — the lane is a road.  apt.dat
-                        # aircraft rows — INCLUDING unnamed ones (the
-                        # SPLP lesson: unref 1202 rows are real
-                        # taxiways; SPJC lost secondary_parallel/stub
-                        # floors when blank refs yielded to roads) —
-                        # rank via the normal length rule below.
-                        _svc_i = ref_i.startswith("SVC")
-                        _svc_j = ref_j.startswith("SVC")
-                        _disc_i = ref_i.startswith("TX")
-                        _disc_j = ref_j.startswith("TX")
-                        if _svc_i and _disc_j:
-                            drop_idx.add(j)
-                            continue
-                        if _svc_j and _disc_i:
-                            drop_idx.add(i)
-                            break
-                        # A road vs an AIRCRAFT rect (referenced or
-                        # unnamed apt.dat row): the road ALWAYS yields
-                        # — vehicles drive on the taxiway, aircraft
-                        # rules govern (the absorption ruling).  The
-                        # length rule below would let a LONG road beat
-                        # a short stub (SPJC lost 2 secondary_parallels
-                        # + a stub to SVC8's 5,441 m² rect).
-                        if _svc_i and not _svc_j:
-                            drop_idx.add(i)
-                            break
-                        if _svc_j and not _svc_i:
-                            drop_idx.add(j)
-                            continue
-                        if _svc_i and _svc_j:
-                            # (s79) ROAD-vs-ROAD overlap: an out-and-
-                            # back 1206 route yields two parallel runs
-                            # whose rects overlap; dropping one loses
-                            # real road coverage (CYXY "Crew cars" /
-                            # pav[1]).  CLIP the shorter rect to its
-                            # non-overlapping remainder instead; drop
-                            # only when nothing usable remains.
-                            #
-                            # CONTAINMENT (CYXY SVC7⊃SVC8): when one rect
-                            # (almost) fully contains the other, the
-                            # difference is a DONUT.  The donut survives to
-                            # the layout, but the pre-solve weld /
-                            # conformance rebuilds rings from the EXTERIOR
-                            # only (``_open_ring``) and silently FILLS the
-                            # hole — re-creating the very overlap the clip
-                            # removed (the 237 m² CYXY self-overlap).  The
-                            # contained rect adds no coverage the container
-                            # lacks, so DROP it whole and keep the container
-                            # intact: no donut, no coverage loss.
-                            if inter.area >= 0.9 * smaller_area:
-                                drop_c = (i if rect_i.area <= rect_j.area
-                                          else j)
-                                drop_idx.add(drop_c)
-                                if drop_c == i:
-                                    break
-                                continue
-                            li, lj = ((i, j) if len_i < len_j
-                                      or (abs(len_i - len_j) < 0.5
-                                          and rect_i.area < rect_j.area)
-                                      else (j, i))
-                            r_lose, a_lose, ro_lose, rf_lose = kept[li]
-                            r_win = kept[lj][0]
-                            try:
-                                rem = r_lose.difference(r_win)
-                            except _GEOM_EXC:
-                                rem = None
-                            best_rem = None
-                            if rem is not None and not rem.is_empty:
-                                cand = (rem.geoms if rem.geom_type
-                                        == "MultiPolygon" else [rem])
-                                # Reject HOLED remainders too: a donut
-                                # passes the area floor but its hole is
-                                # dropped downstream (see above), so it is
-                                # not a usable non-overlapping piece.
-                                polys9 = [g for g in cand
-                                          if g.geom_type == "Polygon"
-                                          and g.area >= 150.0
-                                          and len(g.interiors) == 0]
-                                if polys9:
-                                    best_rem = max(polys9,
-                                                   key=lambda g: g.area)
-                            if best_rem is None:
-                                drop_idx.add(li)
-                            else:
-                                try:
-                                    a_new = a_lose.difference(r_win)
-                                except _GEOM_EXC:
-                                    a_new = a_lose
-                                if a_new.geom_type == "MultiLineString" \
-                                        and not a_new.is_empty:
-                                    a_new = max(a_new.geoms,
-                                                key=lambda g: g.length)
-                                if (a_new.is_empty
-                                        or a_new.geom_type
-                                        != "LineString"):
-                                    a_new = a_lose
-                                kept[li] = (best_rem, a_new, ro_lose,
-                                            rf_lose)
-                                changed = True
-                            if li == i:
-                                break
-                            continue
-                        # Drop the shorter-axis rect; tie-break by
-                        # smaller area.
-                        if len_i < len_j or (
-                                abs(len_i - len_j) < 0.5
-                                and rect_i.area < rect_j.area):
-                            drop_idx.add(i)
-                            if os.environ.get("O4_RECT_DROP_DEBUG") == "1":
-                                print(f"[rect-drop] loser ref={ref_i} "
-                                      f"len={len_i:.0f} area={rect_i.area:.0f} "
-                                      f"bounds={tuple(round(v,1) for v in rect_i.bounds)} "
-                                      f"winner ref={ref_j} len={len_j:.0f} "
-                                      f"inter={inter.area:.0f}")
-                            break
-                        else:
-                            drop_idx.add(j)
-                            if os.environ.get("O4_RECT_DROP_DEBUG") == "1":
-                                print(f"[rect-drop] loser ref={ref_j} "
-                                      f"len={len_j:.0f} area={rect_j.area:.0f} "
-                                      f"bounds={tuple(round(v,1) for v in rect_j.bounds)} "
-                                      f"winner ref={ref_i} len={len_i:.0f} "
-                                      f"inter={inter.area:.0f}")
-                    except _GEOM_EXC:
-                        continue
-            if drop_idx:
-                kept = [k for idx, k in enumerate(kept)
-                        if idx not in drop_idx]
-                changed = True
-        if len(kept) < len(taxi_rects):
-            try:
-                UI.vprint(1,
-                    f"  [pav-builder] {icao}: dropped "
-                    f"{len(taxi_rects) - len(kept)} taxi rect(s) "
-                    f"that overlapped another rect.")
-            except _GEOM_EXC:
-                pass
-            taxi_rects = kept
-
-    # Per user 2026-04-27 invariant: a junction polygon must NEVER run
-    # along a sloping rect's sloping edge.  When a primary_parallel rect
-    # sits FULLY INSIDE the airport's pavement union (apt.dat row-110
-    # ⊕ DSF ⊕ OSM-synthetic — i.e. the same union that becomes the
-    # residue), the surrounding apron junction unavoidably wraps the
-    # rect's sloping edges as it traces around the rect-shaped hole.
-    # The fix is not to emit the rect at all: let the apron absorb
-    # the rect's footprint and slope multi-directionally.  Primary
-    # parallels that legitimately cross unpaved area are unaffected
-    # (their sloping edges aren't inside pavement).
-    #
-    # Note: ``pav_union`` is now apt.dat ∪ DSF only (no OSM-synth);
-    # that's the right denominator for the absorption check.
-    # Including DSF is essential — at SPJC's SE apron, F's long
-    # edges are 0 % / 24 % inside row-110 alone but ≈100 % inside
-    # apt.dat ∪ DSF.
-    # Embedded-parallel removal (full drop + partial clip) is part of the
-    # old absorption model: a taxilane rect whose footprint lies inside
-    # apron pavement was dropped/clipped so the apron covered it.  In the
-    # no-absorption model (ABSORB_RECTS_ALONGSIDE_APRONS=False) we KEEP the
-    # rect so the taxilane through the apron stays a directionally-graded
-    # rect; it's subtracted from the apron (apron = pav_union − rects), so
-    # the apron simply wraps it — no overlap, perfect node parity.
-    # Phase-1 absorption — always-on (session 51 per user 2026-05-27):
-    # drop fully-embedded primary_parallels AND partial-clip half-embedded
-    # ones.  This is the "build it right at construction" stage,
-    # independent of the elevation-block post-emit absorb.  Without the
-    # drop, the rect shape is kept but doesn't fit the surrounding free-
-    # form apt.dat pavement well, leaving the rect's "extra" area as a
-    # residue piece that downstream passes (decompose / sliver merge /
-    # overlap-clip) end up losing — CYXY Taxi E example: rect kept ->
-    # 3626 m^2 adjacent area lost from apron coverage.
-    #
-    # Trade-off (accepted by user 2026-05-27): named taxiways whose long
-    # edges are embedded in surrounding apron (SPJC Taxi A1) get dropped
-    # too — their footprint becomes apron rather than a directional rect.
-    # The audit-flagged residue-loss path is a future fix; the drop is the
-    # only thing currently keeping CYXY's coverage intact.
-    taxi_rects = _drop_primary_parallels_embedded_in_pavement(
-        taxi_rects, pav_union, runway_polys=runway_polys)
-    from .pavement.absorption import (
-        _split_primary_parallels_at_pavement_boundary)
-    taxi_rects = _split_primary_parallels_at_pavement_boundary(
-        taxi_rects, pav_union)
-    # (session 51) The session-47 `build_apron_lane_rects` (fixed-code-letter-
-    # width lanes for taxi centerlines through OPEN apron interiors) was
-    # REMOVED per user 2026-05-27.  In the clean model, those middle-of-apron
-    # centerlines produce no rect — the apron wraps the whole footprint as
-    # one polygon.  No directional grading for those lanes; cleaner geometry.
-
-    # ── Detect bridge taxi rects from OSM (user 2026-04-29) ───────
-    # Per OSM convention, bridge taxiways carry ``bridge=yes`` (or
-    # any non-empty bridge=*) on their parent way.  Build a list of
-    # raw OSM bridge-tagged taxiway LineStrings; a rect is a
-    # "bridge rect" if its axis lies within a small lateral
-    # tolerance of one of those LineStrings.  We use spatial
-    # proximity rather than tag-pass-through because
-    # ``_extract_osm_taxi_centerlines`` linemerges per-ref, which
-    # loses the per-way bridge tag.
-    bridge_lines: List[LineString] = []
-    for _wid, _nds, _tags in ways:
-        if _tags.get("aeroway") != "taxiway":
-            continue
-        b = _tags.get("bridge", "")
-        if not b or b == "no":
-            continue
-        _pts = []
-        for _n in _nds:
-            if _n in nodes:
-                _lat, _lon = nodes[_n]
-                _pts.append(to_m(_lon, _lat))
-        if len(_pts) < 2:
-            continue
-        try:
-            _ls = LineString(_pts)
-        except _GEOM_EXC:
-            continue
-        if _ls.is_empty or _ls.length < 5.0:
-            continue
-        bridge_lines.append(_ls)
-    bridge_rect_indices: set = set()
-    BRIDGE_AXIS_PROXIMITY_M = 5.0
-    if bridge_lines:
-        for ri, (_rect, _axis, _role, _ref) in enumerate(taxi_rects):
-            if _axis is None or _axis.is_empty:
-                continue
-            for _bl in bridge_lines:
-                # An axis is on a bridge if it lies within
-                # BRIDGE_AXIS_PROXIMITY_M of the bridge LineString
-                # along most of its length AND has overlap.
-                try:
-                    if _axis.distance(_bl) > BRIDGE_AXIS_PROXIMITY_M:
-                        continue
-                    inter = _axis.intersection(
-                        _bl.buffer(BRIDGE_AXIS_PROXIMITY_M))
-                    if (not inter.is_empty
-                            and hasattr(inter, "length")
-                            and inter.length
-                            >= 0.5 * _axis.length):
-                        bridge_rect_indices.add(ri)
-                        break
-                except _GEOM_EXC:
-                    continue
-
-    # ── Hole-aware sloping-edge snap (user 2026-05-04) ────────────
-    # When a sloping rect's long edge runs near and parallel to an
-    # apt.dat row-110 hole boundary, snap the rect so its sloping
-    # edge LIES ON the hole boundary.  Without this, the rect's body
-    # sits inside the hole's interior or crosses the hole's perimeter,
-    # which then gets absorbed by ``pav_union.difference(rect)`` (the
-    # "tunnel" effect): the apron polygon then spans across the hole
-    # and ends up sharing boundary with the rect's sloping side.
-    # Aligning the rect's sloping edge with the hole boundary makes
-    # the surrounding junction wrap around the hole via the rect's
-    # CROSS edges instead.
-    taxi_rects = _snap_rect_sloping_edges_to_holes(taxi_rects, pav_union)
-
-    # Square slanted rect ends (gate RECT_SQUARE_ENDS) — LAST word after the
-    # per-corner pavement snap and the hole-edge snap, either of which can
-    # leave a taxi rect's end following an angled junction /
-    # hole boundary (CYXY cross_connector G).  Keeps each end perpendicular so
-    # the junction (pav_union - rect) absorbs the angled-pavement wedge.
-    from .pavement.rects import _square_taxi_rect_ends
-    taxi_rects = _square_taxi_rect_ends(taxi_rects, pav_union)
-
-    # ── CURVE-NATIVE SPINE v2 (gate O4_CURVE_NATIVE_SPINE) ───────────
-    # Instead of emitting straight rects + carving junctions out of the
-    # residue (and the whole downstream sliver/weld/conformance cleanup),
-    # cut the real pav_union by the recognized centerlines in ONE global
-    # arrangement.  The faces are conformant by construction, so the rect
-    # build, junction emit and spine slice are all bypassed under the gate.
-    # docs/curve_native_spine_v2_plan.md.
-    from .config import CURVE_NATIVE_SPINE, ROUTE_ARC_SPINE
+    # ── CURVE-NATIVE GLOBAL SLICE ────────────────────────────────────
+    # Cut the real pav_union by the route-arc spine (or the recognized
+    # painted centerlines) in ONE global arrangement — the faces are
+    # conformant by construction.  docs/curve_native_spine_v2_plan.md.
+    # (2026-07-29, owner ruling) This is the ONLY path: the legacy
+    # O4_ROUTE_ARC_SPINE / O4_CURVE_NATIVE_SPINE gates and the rect-model
+    # branch were retired.
     emitted_taxi_rects: List[Polygon] = []
-    # ROUTE-ARC SPINE (user ruling 2026-07-02): with the full route-arc spine
-    # the taxi-rect pipeline is disabled entirely — the spine feeds the SAME
-    # global slice, so it runs everywhere (rects would otherwise confine it
-    # to junction/apron residue and double-cut every junction: arcs + their
-    # corner legs sliced separately measured 2.25x the constrained pairs).
-    # Recognized painted centerlines, when on, stay the spine source.
-    _global_slice_spine = CURVE_NATIVE_SPINE or ROUTE_ARC_SPINE
-    if _global_slice_spine:
-        if (ROUTE_ARC_SPINE
-                and os.environ.get("O4_RECOGNIZED_CENTERLINES", "0") != "1"):
-            from .pavement.route_arcs import apply_route_arc_spine
-            apply_route_arc_spine(layout, icao)
-        from .pavement.global_slice import (
-            build_global_slice_faces, classify_faces, dedup_centerlines)
-        from .layout import ROLE_APRON, ROLE_JUNCTION
-        _cn_pav = pav_union
-        # SOURCE FIDELITY (user 2026-07-02, test_pavement_rests_on_source):
-        # the slice emits EVERY face of its input, so the input must be
-        # real source pavement (apt.dat row-110 ∪ DSF ∪ runway).  The
-        # working pav_union accretes non-source area downstream of the
-        # early source snapshot (lot merges, closing, absorbed residue) —
-        # under the rect model those regions never became shapes (rect
-        # residue rules dropped them), but the slice would emit them as
-        # pavement over grass (SPLP faces at 20-24 % on source) AND their
-        # bulk displaces/clips the boundary→DEM bridges.
-        _src = getattr(layout, "source_pavement_union", None)
-        if os.environ.get("O4_SLICE_SOURCE_CLIP", "1") != "1":
-            _src = None
-        if _src is not None and not _src.is_empty:
-            try:
-                _src_all = _src
-                if (layout.runway_union is not None
-                        and not layout.runway_union.is_empty):
-                    _src_all = _src_all.union(layout.runway_union)
-                _cn_pav = _cn_pav.intersection(_src_all.buffer(0.5))
-            except _GEOM_EXC:
-                _cn_pav = pav_union
-        if terminal_union is not None and not terminal_union.is_empty:
-            try:
-                _cn_pav = _cn_pav.difference(terminal_union)
-            except _GEOM_EXC:
-                pass
-        _cn_cls, _cn_svc, _cn_seen = [], [], set()
-        for _it in (getattr(layout, "apt_taxi_centerlines", []) or []):
-            _ln = getattr(_it, "chained_line", None) or getattr(_it, "line", None)
-            if (_ln is None or _ln.is_empty or _ln.length < 1.0
-                    or id(_ln) in _cn_seen):
-                continue
-            _cn_seen.add(id(_ln))
-            # SERVICE ROADS (user 2026-07-02): narrow truck routes are
-            # sliced too — the road centerline cuts its strip out of the
-            # surrounding pavement and the resulting narrow faces emit as
-            # ROLE_SERVICE_JUNCTION at the road grade cap (4 %), which also
-            # feeds the law's road_zone carve relaxation.  Kept in a
-            # SEPARATE list so face classification can tell taxi spine
-            # from truck path (a face touching both is taxi territory).
-            if getattr(_it, "is_service", False):
-                _cn_svc.append(_ln)
-            else:
-                _cn_cls.append(_ln)
-        # ROAD-FEED SERVICE CENTERLINES (owner defect 2026-07-27, HECA
-        # shape 636): ``apt_taxi_centerlines`` comes from the airports
-        # OSM layer ONLY — at HECA that layer carries ZERO
-        # ``highway=service`` ways, so the slice never cut along 2.2 km
-        # of service road crossing one face and classification's R1
-        # apron veto froze the whole 93k m² blob (apron + groundside +
-        # roads in one shape).  The per-airport road feed
-        # (``layout.airport_road_network``) already carries every
-        # drivable ``highway=`` way for the region; append the ones that
-        # actually TOUCH the sliced pavement to the service set so the
-        # service-only-face rule and ``carve_narrow_service_strips``
-        # work exactly as they do when the airports layer has the roads.
-        # Pavement-intersection prefilter + duplicate suppression keep
-        # the noding cost bounded (HECA: 4,611 feed ways → a few dozen
-        # appended lines).
-        if (os.environ.get("O4_SLICE_ROAD_FEED_SERVICE", "1") == "1"
-                and _cn_pav is not None and not _cn_pav.is_empty):
-            _net = getattr(layout, "airport_road_network", None)
-            if (_net is not None
-                    and getattr(_net, "source", "none") != "none"
-                    and getattr(_net, "ways", None)):
-                from shapely.prepared import prep as _cn_prep
-                from .layout import _projection as _cn_projection
-                try:
-                    _cn_pav_prep = _cn_prep(_cn_pav)
-                except _GEOM_EXC:
-                    _cn_pav_prep = None
-                # SINGLE-SPINE dedup (owner 2026-07-28 round 9: four
-                # CYXY spots showed a second spine slicing parallel
-                # strips out of taxiways/roads).  A feed way is OSM's
-                # rendering of the SAME physical way wherever it runs
-                # inside the AUTHORED network's corridor — service
-                # lines (4 m) AND taxi routes (6 m; narrow taxiways
-                # read as road-width, so free-road scoping alone does
-                # not stop the duplicate).  Segment-level: only the
-                # OUTSIDE remainder of a partially-riding way joins.
-                _svc_dup_block = None
-                _dup_parts = []
-                if _cn_svc:
-                    try:
-                        _dup_parts.append(unary_union(
-                            _cn_svc).buffer(4.0))
-                    except _GEOM_EXC:
-                        pass
-                if _cn_cls:
-                    try:
-                        _dup_parts.append(unary_union(
-                            _cn_cls).buffer(6.0))
-                    except _GEOM_EXC:
-                        pass
-                if _dup_parts:
-                    try:
-                        _svc_dup_block = unary_union(_dup_parts)
-                    except _GEOM_EXC:
-                        _svc_dup_block = None
-                _cn_to_m = _cn_projection(layout.anchor)
-                _n_feed_svc = 0
-                if _cn_pav_prep is not None:
-                    for _wid, _nrefs, _tags in _net.ways:
-                        if not _tags.get("highway"):
-                            continue
-                        _pts = [_net.nodes[n] for n in _nrefs
-                                if n in _net.nodes]
-                        if len(_pts) < 2:
-                            continue
-                        try:
-                            _fl = LineString(
-                                [_cn_to_m(_lo, _la)
-                                 for _la, _lo in _pts])
-                        except _GEOM_EXC:
-                            continue
-                        if (_fl.is_empty or _fl.length < 1.0
-                                or not _cn_pav_prep.intersects(_fl)):
-                            continue
-                        if _svc_dup_block is not None:
-                            try:
-                                _fl_out = _fl.difference(_svc_dup_block)
-                            except _GEOM_EXC:
-                                _fl_out = _fl
-                            _fl_pieces = [
-                                g for g in getattr(_fl_out, "geoms",
-                                                   [_fl_out])
-                                if g.geom_type == "LineString"
-                                and g.length >= 5.0]
-                            if not _fl_pieces:
-                                continue  # authored network has it
-                            for _fp in _fl_pieces:
-                                _cn_svc.append(_fp)
-                            _n_feed_svc += 1
-                        else:
-                            _cn_svc.append(_fl)
-                            _n_feed_svc += 1
-                if _n_feed_svc:
-                    UI.vprint(1,
-                        f"  [pav-builder] {icao}: road-feed service "
-                        f"centerlines joined the slice: {_n_feed_svc} "
-                        f"way(s) touching pavement.")
-        # ── FREE-ROAD scoping of the service slice set (owner ruling
-        # 2026-07-27, canonical text in ``groundside.
-        # free_road_subsegments``): a road inside or edge-sharing an
-        # apron IS the apron — it is never carved; only the sub-segments
-        # where the pavement cross-section is road-width (or the road
-        # crosses open terrain) reach the slice.  Unfiltered, every
-        # service line cut faces straight through wide aprons and the
-        # face classifiers mis-roled the frontage (SPJC east terminal:
-        # 109 k m² of phantom ``service_junction``; HECA: the
-        # "svc junctions 4→76" carve the owner flagged).  Applies to the
-        # apt.dat 1206 routes and the road-feed ways alike — the ruling
-        # names roads, not sources.
-        if _cn_svc and _cn_pav is not None and not _cn_pav.is_empty:
-            from .groundside import free_road_subsegments
-            _n_svc_lines_in = len(_cn_svc)
-            _svc_len_in = sum(ln.length for ln in _cn_svc)
-            _cn_svc = free_road_subsegments(_cn_svc, _cn_pav)
-            _svc_len_out = sum(ln.length for ln in _cn_svc)
-            if _svc_len_out < _svc_len_in - 1.0:
-                UI.vprint(1,
-                    f"  [pav-builder] {icao}: free-road scoping kept "
-                    f"{_svc_len_out:,.0f} of {_svc_len_in:,.0f} m of "
-                    f"service centerline for the slice "
-                    f"({_n_svc_lines_in} → {len(_cn_svc)} line(s)); "
-                    f"the rest runs inside/along apron pavement and "
-                    f"grades with the apron (owner ruling 2026-07-27).")
-        # De-dup once here so classification indexes the SAME effective set the
-        # slice tagged faces against (coincident lines bury duplicates).
-        # ROUTE-ARC source: NO dedup — the route-arc graph is planarized,
-        # noded and arc-deduped by construction, and the 3.5 m paint-dedup
-        # eats the SHORT junction connector fragments (SPJC 481→399), which
-        # disconnects the spine chains through junctions: PHASE A then solves
-        # adjacent route chains to different levels and freezes both (the
-        # 2.6 m frozen-spine walls, 1622 spine/spine residual edges).
-        _cn_eff = (list(_cn_cls) if ROUTE_ARC_SPINE
-                   else dedup_centerlines(_cn_cls))
-        # Diagnostic (O4_DUMP_SLICE_INPUT=<prefix>): dump the exact pav_union +
-        # spine fed to the slice as two JOSM layers, to verify inputs.
-        _cn_dump = os.environ.get("O4_DUMP_SLICE_INPUT")
-        if _cn_dump:
-            from .pavement.global_slice import dump_slice_inputs_osm
-            dump_slice_inputs_osm(layout, _cn_pav, _cn_eff, _cn_dump,
-                                  runway_union=layout.runway_union)
-        # Taxi centerlines first, service roads appended — a face's
-        # ``centerline_ids`` >= len(_cn_eff) are truck routes.
-        _cn_all = list(_cn_eff) + _cn_svc
-        # END-CAP chords at service-line ends dying mid-pavement (owner
-        # 2026-07-28): sever BOTH halves of the road at the interval
-        # station, not just the spine side.  Ids >= _cn_cap_base are
-        # CUT-ONLY — stripped from face classification below.
-        _cn_cap_base = len(_cn_all)
+    if os.environ.get("O4_RECOGNIZED_CENTERLINES", "0") != "1":
+        from .pavement.route_arcs import apply_route_arc_spine
+        apply_route_arc_spine(layout, icao)
+    from .pavement.global_slice import (
+        build_global_slice_faces, classify_faces)
+    from .layout import ROLE_APRON, ROLE_JUNCTION
+    _cn_pav = pav_union
+    # SOURCE FIDELITY (user 2026-07-02, test_pavement_rests_on_source):
+    # the slice emits EVERY face of its input, so the input must be
+    # real source pavement (apt.dat row-110 ∪ DSF ∪ runway).  The
+    # working pav_union accretes non-source area downstream of the
+    # early source snapshot (lot merges, closing, absorbed residue) —
+    # under the rect model those regions never became shapes (rect
+    # residue rules dropped them), but the slice would emit them as
+    # pavement over grass (SPLP faces at 20-24 % on source) AND their
+    # bulk displaces/clips the boundary→DEM bridges.
+    _src = getattr(layout, "source_pavement_union", None)
+    if os.environ.get("O4_SLICE_SOURCE_CLIP", "1") != "1":
+        _src = None
+    if _src is not None and not _src.is_empty:
         try:
-            from .groundside import service_end_cap_lines
-            _cn_all = _cn_all + service_end_cap_lines(_cn_svc, _cn_pav)
-        except Exception:
+            _src_all = _src
+            if (layout.runway_union is not None
+                    and not layout.runway_union.is_empty):
+                _src_all = _src_all.union(layout.runway_union)
+            _cn_pav = _cn_pav.intersection(_src_all.buffer(0.5))
+        except _GEOM_EXC:
+            _cn_pav = pav_union
+    if terminal_union is not None and not terminal_union.is_empty:
+        try:
+            _cn_pav = _cn_pav.difference(terminal_union)
+        except _GEOM_EXC:
             pass
-        # Stash the scoped service subsegments for post-build probing
-        # (severance debugging needs to see WHERE the free intervals
-        # actually ended — the full centerlines can't show that).
-        layout._slice_service_subsegments = list(_cn_svc)
-        _cn_dbg_pts = None
-        _cp_spec = os.environ.get("O4_COVERAGE_PROBE")
-        if _cp_spec:
-            from .layout import _projection as _cp_proj
-            _cp_to_m = _cp_proj(layout.anchor)
-            _cn_dbg_pts = []
-            for _part in _cp_spec.split(";"):
-                _la, _lo = (float(v) for v in _part.split(","))
-                _cn_dbg_pts.append(_cp_to_m(_lo, _la))
-        _cn_faces = build_global_slice_faces(
-            _cn_pav, _cn_all, runway_union=layout.runway_union, dedup=False,
-            debug_pts=_cn_dbg_pts)
-        _svc_base = len(_cn_eff)
-        _svc_faces = set()
-        for _fi, _f in enumerate(_cn_faces):
-            _taxi_ids = [i for i in _f.centerline_ids if i < _svc_base]
-            _svc_ids = [i for i in _f.centerline_ids
-                        if _svc_base <= i < _cn_cap_base]
-            if _svc_ids and not _taxi_ids:
-                # A face whose ONLY centerlines are truck routes is road
-                # territory (user 2026-07-02: service roads between aprons
-                # and parking lots) — ROLE_SERVICE_JUNCTION at any width.
-                # This also SEVERS the runway touch-chain there, so lot
-                # faces beyond it demote to groundside (DEM-follow) via
-                # _reclassify_runway_disconnected_to_groundside, matching
-                # the rect model where the road CARVE separated the lots.
-                _svc_faces.add(_fi)
-            # classification below reasons over TAXI spine only; a face
-            # touching both taxi and truck lines is taxi territory.
-            _f.centerline_ids = _taxi_ids
-        classify_faces(_cn_faces, _cn_all)
-        from .layout import ROLE_SERVICE_JUNCTION as _ROLE_SVC_JCT
-        _cn_roles = {"corridor": 0, "junction": 0, "apron": 0, "service": 0}
-        for _fi, _f in enumerate(_cn_faces):
-            if _fi in _svc_faces:
-                _f.kind = "service"
-                _f.axis = None
-            _cn_roles[_f.kind] = _cn_roles.get(_f.kind, 0) + 1
-            if _f.kind == "service":
-                _role = _ROLE_SVC_JCT
-            elif _f.kind == "apron":
-                _role = ROLE_APRON
-            else:
-                _role = ROLE_JUNCTION
-            layout.shapes.append(BuiltShape(
-                polygon=_f.polygon, role=_role, ref="", source_axis=_f.axis))
-        UI.vprint(1, f"  [pav-builder] {icao}: curve-native global slice — "
-                  f"{len(_cn_faces)} face(s) from {len(_cn_all)} centerline(s) "
-                  f"({_cn_roles['corridor']} corridor / "
-                  f"{_cn_roles['junction']} junction / {_cn_roles['apron']} apron / "
-                  f"{_cn_roles['service']} service; "
-                  f"rects/junction-emit/spine bypassed).")
-    else:
-        # Emit taxi rects (already trimmed to narrow-width portion).
-        for ri, (rect, axis, role, ref) in enumerate(taxi_rects):
-            emitted_taxi_rects.append(rect)
-            layout.shapes.append(BuiltShape(
-                polygon=rect, role=role, ref=ref, source_axis=axis,
-                is_bridge=(ri in bridge_rect_indices)))
-
+    _cn_cls, _cn_svc, _cn_seen = [], [], set()
+    for _it in (getattr(layout, "apt_taxi_centerlines", []) or []):
+        _ln = getattr(_it, "chained_line", None) or getattr(_it, "line", None)
+        if (_ln is None or _ln.is_empty or _ln.length < 1.0
+                or id(_ln) in _cn_seen):
+            continue
+        _cn_seen.add(id(_ln))
+        # SERVICE ROADS (user 2026-07-02): narrow truck routes are
+        # sliced too — the road centerline cuts its strip out of the
+        # surrounding pavement and the resulting narrow faces emit as
+        # ROLE_SERVICE_JUNCTION at the road grade cap (4 %), which also
+        # feeds the law's road_zone carve relaxation.  Kept in a
+        # SEPARATE list so face classification can tell taxi spine
+        # from truck path (a face touching both is taxi territory).
+        if getattr(_it, "is_service", False):
+            _cn_svc.append(_ln)
+        else:
+            _cn_cls.append(_ln)
+    # ROAD-FEED SERVICE CENTERLINES (owner defect 2026-07-27, HECA
+    # shape 636): ``apt_taxi_centerlines`` comes from the airports
+    # OSM layer ONLY — at HECA that layer carries ZERO
+    # ``highway=service`` ways, so the slice never cut along 2.2 km
+    # of service road crossing one face and classification's R1
+    # apron veto froze the whole 93k m² blob (apron + groundside +
+    # roads in one shape).  The per-airport road feed
+    # (``layout.airport_road_network``) already carries every
+    # drivable ``highway=`` way for the region; append the ones that
+    # actually TOUCH the sliced pavement to the service set so the
+    # service-only-face rule and ``carve_narrow_service_strips``
+    # work exactly as they do when the airports layer has the roads.
+    # Pavement-intersection prefilter + duplicate suppression keep
+    # the noding cost bounded (HECA: 4,611 feed ways → a few dozen
+    # appended lines).
+    if (os.environ.get("O4_SLICE_ROAD_FEED_SERVICE", "1") == "1"
+            and _cn_pav is not None and not _cn_pav.is_empty):
+        _net = getattr(layout, "airport_road_network", None)
+        if (_net is not None
+                and getattr(_net, "source", "none") != "none"
+                and getattr(_net, "ways", None)):
+            from shapely.prepared import prep as _cn_prep
+            from .layout import _projection as _cn_projection
+            try:
+                _cn_pav_prep = _cn_prep(_cn_pav)
+            except _GEOM_EXC:
+                _cn_pav_prep = None
+            # SINGLE-SPINE dedup (owner 2026-07-28 round 9: four
+            # CYXY spots showed a second spine slicing parallel
+            # strips out of taxiways/roads).  A feed way is OSM's
+            # rendering of the SAME physical way wherever it runs
+            # inside the AUTHORED network's corridor — service
+            # lines (4 m) AND taxi routes (6 m; narrow taxiways
+            # read as road-width, so free-road scoping alone does
+            # not stop the duplicate).  Segment-level: only the
+            # OUTSIDE remainder of a partially-riding way joins.
+            _svc_dup_block = None
+            _dup_parts = []
+            if _cn_svc:
+                try:
+                    _dup_parts.append(unary_union(
+                        _cn_svc).buffer(4.0))
+                except _GEOM_EXC:
+                    pass
+            if _cn_cls:
+                try:
+                    _dup_parts.append(unary_union(
+                        _cn_cls).buffer(6.0))
+                except _GEOM_EXC:
+                    pass
+            if _dup_parts:
+                try:
+                    _svc_dup_block = unary_union(_dup_parts)
+                except _GEOM_EXC:
+                    _svc_dup_block = None
+            _cn_to_m = _cn_projection(layout.anchor)
+            _n_feed_svc = 0
+            if _cn_pav_prep is not None:
+                for _wid, _nrefs, _tags in _net.ways:
+                    if not _tags.get("highway"):
+                        continue
+                    _pts = [_net.nodes[n] for n in _nrefs
+                            if n in _net.nodes]
+                    if len(_pts) < 2:
+                        continue
+                    try:
+                        _fl = LineString(
+                            [_cn_to_m(_lo, _la)
+                             for _la, _lo in _pts])
+                    except _GEOM_EXC:
+                        continue
+                    if (_fl.is_empty or _fl.length < 1.0
+                            or not _cn_pav_prep.intersects(_fl)):
+                        continue
+                    if _svc_dup_block is not None:
+                        try:
+                            _fl_out = _fl.difference(_svc_dup_block)
+                        except _GEOM_EXC:
+                            _fl_out = _fl
+                        _fl_pieces = [
+                            g for g in getattr(_fl_out, "geoms",
+                                               [_fl_out])
+                            if g.geom_type == "LineString"
+                            and g.length >= 5.0]
+                        if not _fl_pieces:
+                            continue  # authored network has it
+                        for _fp in _fl_pieces:
+                            _cn_svc.append(_fp)
+                        _n_feed_svc += 1
+                    else:
+                        _cn_svc.append(_fl)
+                        _n_feed_svc += 1
+            if _n_feed_svc:
+                UI.vprint(1,
+                    f"  [pav-builder] {icao}: road-feed service "
+                    f"centerlines joined the slice: {_n_feed_svc} "
+                    f"way(s) touching pavement.")
+    # ── FREE-ROAD scoping of the service slice set (owner ruling
+    # 2026-07-27, canonical text in ``groundside.
+    # free_road_subsegments``): a road inside or edge-sharing an
+    # apron IS the apron — it is never carved; only the sub-segments
+    # where the pavement cross-section is road-width (or the road
+    # crosses open terrain) reach the slice.  Unfiltered, every
+    # service line cut faces straight through wide aprons and the
+    # face classifiers mis-roled the frontage (SPJC east terminal:
+    # 109 k m² of phantom ``service_junction``; HECA: the
+    # "svc junctions 4→76" carve the owner flagged).  Applies to the
+    # apt.dat 1206 routes and the road-feed ways alike — the ruling
+    # names roads, not sources.
+    if _cn_svc and _cn_pav is not None and not _cn_pav.is_empty:
+        from .groundside import free_road_subsegments
+        _n_svc_lines_in = len(_cn_svc)
+        _svc_len_in = sum(ln.length for ln in _cn_svc)
+        _cn_svc = free_road_subsegments(_cn_svc, _cn_pav)
+        _svc_len_out = sum(ln.length for ln in _cn_svc)
+        if _svc_len_out < _svc_len_in - 1.0:
+            UI.vprint(1,
+                f"  [pav-builder] {icao}: free-road scoping kept "
+                f"{_svc_len_out:,.0f} of {_svc_len_in:,.0f} m of "
+                f"service centerline for the slice "
+                f"({_n_svc_lines_in} → {len(_cn_svc)} line(s)); "
+                f"the rest runs inside/along apron pavement and "
+                f"grades with the apron (owner ruling 2026-07-27).")
+    # NO dedup — the route-arc graph is planarized, noded and
+    # arc-deduped by construction, and the 3.5 m paint-dedup eats the
+    # SHORT junction connector fragments (SPJC 481→399), which
+    # disconnects the spine chains through junctions: PHASE A then
+    # solves adjacent route chains to different levels and freezes
+    # both (the 2.6 m frozen-spine walls, 1622 residual edges).
+    _cn_eff = list(_cn_cls)
+    # Diagnostic (O4_DUMP_SLICE_INPUT=<prefix>): dump the exact pav_union +
+    # spine fed to the slice as two JOSM layers, to verify inputs.
+    _cn_dump = os.environ.get("O4_DUMP_SLICE_INPUT")
+    if _cn_dump:
+        from .pavement.global_slice import dump_slice_inputs_osm
+        dump_slice_inputs_osm(layout, _cn_pav, _cn_eff, _cn_dump,
+                              runway_union=layout.runway_union)
+    # Taxi centerlines first, service roads appended — a face's
+    # ``centerline_ids`` >= len(_cn_eff) are truck routes.
+    _cn_all = list(_cn_eff) + _cn_svc
+    # END-CAP chords at service-line ends dying mid-pavement (owner
+    # 2026-07-28): sever BOTH halves of the road at the interval
+    # station, not just the spine side.  Ids >= _cn_cap_base are
+    # CUT-ONLY — stripped from face classification below.
+    _cn_cap_base = len(_cn_all)
+    try:
+        from .groundside import service_end_cap_lines
+        _cn_all = _cn_all + service_end_cap_lines(_cn_svc, _cn_pav)
+    except Exception:
+        pass
+    # Stash the scoped service subsegments for post-build probing
+    # (severance debugging needs to see WHERE the free intervals
+    # actually ended — the full centerlines can't show that).
+    layout._slice_service_subsegments = list(_cn_svc)
+    _cn_dbg_pts = None
+    _cp_spec = os.environ.get("O4_COVERAGE_PROBE")
+    if _cp_spec:
+        from .layout import _projection as _cp_proj
+        _cp_to_m = _cp_proj(layout.anchor)
+        _cn_dbg_pts = []
+        for _part in _cp_spec.split(";"):
+            _la, _lo = (float(v) for v in _part.split(","))
+            _cn_dbg_pts.append(_cp_to_m(_lo, _la))
+    _cn_faces = build_global_slice_faces(
+        _cn_pav, _cn_all, runway_union=layout.runway_union, dedup=False,
+        debug_pts=_cn_dbg_pts)
+    _svc_base = len(_cn_eff)
+    _svc_faces = set()
+    for _fi, _f in enumerate(_cn_faces):
+        _taxi_ids = [i for i in _f.centerline_ids if i < _svc_base]
+        _svc_ids = [i for i in _f.centerline_ids
+                    if _svc_base <= i < _cn_cap_base]
+        if _svc_ids and not _taxi_ids:
+            # A face whose ONLY centerlines are truck routes is road
+            # territory (user 2026-07-02: service roads between aprons
+            # and parking lots) — ROLE_SERVICE_JUNCTION at any width.
+            # This also SEVERS the runway touch-chain there, so lot
+            # faces beyond it demote to groundside (DEM-follow) via
+            # _reclassify_runway_disconnected_to_groundside, matching
+            # the rect model where the road CARVE separated the lots.
+            _svc_faces.add(_fi)
+        # classification below reasons over TAXI spine only; a face
+        # touching both taxi and truck lines is taxi territory.
+        _f.centerline_ids = _taxi_ids
+    classify_faces(_cn_faces, _cn_all)
+    from .layout import ROLE_SERVICE_JUNCTION as _ROLE_SVC_JCT
+    _cn_roles = {"corridor": 0, "junction": 0, "apron": 0, "service": 0}
+    for _fi, _f in enumerate(_cn_faces):
+        if _fi in _svc_faces:
+            _f.kind = "service"
+            _f.axis = None
+        _cn_roles[_f.kind] = _cn_roles.get(_f.kind, 0) + 1
+        if _f.kind == "service":
+            _role = _ROLE_SVC_JCT
+        elif _f.kind == "apron":
+            _role = ROLE_APRON
+        else:
+            _role = ROLE_JUNCTION
+        layout.shapes.append(BuiltShape(
+            polygon=_f.polygon, role=_role, ref="", source_axis=_f.axis))
+    UI.vprint(1, f"  [pav-builder] {icao}: curve-native global slice — "
+              f"{len(_cn_faces)} face(s) from {len(_cn_all)} centerline(s) "
+              f"({_cn_roles['corridor']} corridor / "
+              f"{_cn_roles['junction']} junction / {_cn_roles['apron']} apron / "
+              f"{_cn_roles['service']} service; "
+              f"rects/junction-emit/spine bypassed).")
     from .geom_guard import coverage_probe as _covp
     _covp(layout, "post-slice")
 
@@ -4375,8 +3777,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # lots/pads beyond it demote to groundside downstream.  Gate
     # O4_SERVICE_STRIP_CARVE=0 restores the sliced-halves behaviour.
     _n_strip = 0
-    if _global_slice_spine and os.environ.get(
-            "O4_SERVICE_STRIP_CARVE", "1") == "1":
+    if os.environ.get("O4_SERVICE_STRIP_CARVE", "1") == "1":
         from .groundside import carve_narrow_service_strips
         _n_strip = carve_narrow_service_strips(
             layout, pav_union, terminal_union)
@@ -4462,19 +3863,6 @@ def build_airport_pavement(icao: str, xplane_root: str,
             UI.vprint(1,
                 f"  [pav-builder] {icao}: emitted {_n_svc_jct} narrow SVC "
                 f"connector(s) as service_junction (rectless, between shapes).")
-
-    # ── Junction emission (finalize/repair runs downstream) ──────
-    # Under the curve-native / route-arc gates the global slice already
-    # produced the junction/apron faces from pav_union, so there is no rect
-    # residue to carve — skip junction emit entirely.
-    if not _global_slice_spine:
-        junction_emit.emit_junctions(
-            layout,
-            pav_union=pav_union,
-            emitted_taxi_rects=emitted_taxi_rects,
-            terminal_union=terminal_union,
-            taxi_rects=taxi_rects,
-            icao=icao)
 
     # ── Ground-vehicle service_road rects (4 %) ──────────────────
     # Combine apt.dat 1206 truck routes with OSM small roads inside the
@@ -4588,8 +3976,6 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # within the within-shape grade tolerance).
         from .junction_rules import (
             _enforce_runway_1to1_sharing,
-            _snap_junction_vertices_to_rect_flat_edge_corners,
-            _snap_to_sloping_edge_corners,
             stitch_pavement_to_flat_runways,
             widen_junctions_to_runway_corners,
         )
@@ -4852,47 +4238,10 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # adjacent shapes agree at shared corners by construction and
         # there is nothing to reconcile.
 
-        # Split sloped 4-corner rects where a junction vertex lies on a
-        # sloping (long) edge (user 2026-05-12).  De-coupled (session
-        # 51): detects sloped rects by ROLE and runs PRE-solve, so the
-        # violating junction vertex coincides with a sub-rect short-edge
-        # corner (a shared node) before the solver assigns altitudes —
-        # the solver then gives both the same value (no step).
-        from .junction_repair import _split_sloped_rects_at_violations
-        _split_sloped_rects_at_violations(layout, icao=icao)
-        _covp(layout, "post-split-sloped")
-        # Re-run flat-edge corner snap: the rect split above introduces
-        # new sub-rect corners that may not align with adjacent junction
-        # vertices.  Snap "almost-at-the-corner" junction vertices
-        # (perpendicular ≤ 2 m, corner ≤ 10 m) to the new corners.
-        _snap_junction_vertices_to_rect_flat_edge_corners(layout)
-        # The split can carve a WEDGE sub-rect whose narrow end cannot
-        # carry a plane differential (KPHL K5: a 16.9 m -> 3.3 m quad;
-        # the solve later puts 0.2 m across the 3.3 m end = 6 %).
-        # Absorb it into the adjacent junction so per-vertex
-        # node_altitudes + twist smooth the transition (user
-        # 2026-06-12).  The finalize-time pass runs BEFORE this split
-        # and cannot see these sub-rects.
-        from .junction_repair import _absorb_wedge_rects_into_junctions
-        _absorb_wedge_rects_into_junctions(layout, icao=icao)
-        _covp(layout, "post-wedge-absorb-2")
-        # Single-pass sloping-edge absorption at end of pipeline
-        # (user 2026-05-17).  At this point all post-elevation
-        # junction-refinement passes have run, so the FINAL
-        # geometry is settled.  Transient shared-edge artifacts
-        # at junction-emit time (SPJC B/C/E stubs with raw apron
-        # residue along their sloping edges) have been resolved
-        # by intermediate passes; what remains are GENUINE
-        # violations the user wants absorbed (CYXY E sub-rects
-        # inside the south apron, etc.).  Replaces the earlier
-        # _drop_rects_with_shared_sloping_edge_and_absorb pass
-        # which only handled the consecutive-corner case.
-        # Absorption (session 47, default OFF): only KEEP rects that share
-        # a sloping edge with an apron/junction — a taxilane through an
-        # apron should stay a directionally-graded rect, not dissolve into
-        # the all-pair apron.  Node parity is automatic (apron = union −
-        # rects), so the apron adopts the rect's sloping-edge altitudes
-        # with no cliff.  Flip ABSORB_RECTS_ALONGSIDE_APRONS to restore.
+        # (2026-07-29) The sloped-rect split / flat-edge snap / wedge
+        # absorb passes and the sloping-edge absorption chain that ran
+        # here were retired with the rect machinery (owner ruling;
+        # vacuous under the global slice).
         # Apron reclassification (user 2026-05-18): a junction whose
         # boundary strays > 55 m from any taxi/runway centerline
         # contains apron-territory pavement (no centerline running
@@ -5098,46 +4447,10 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 tile_lat=tile_lat, tile_lon=tile_lon)
             _covp(layout, "post-rwy-disconnected")
 
-        # Single-pass sloping-edge absorption (user 2026-05-17): dissolve
-        # a sloping rect that shares a sloping edge with a genuine
-        # junction perimeter into that junction.  Only KEEP rects that
-        # share a sloping edge with an apron/junction — a taxilane
-        # through an apron should stay a directionally-graded rect, not
-        # dissolve into the all-pair apron.  Node parity is automatic
-        # (apron = union − rects).  Flip ABSORB_RECTS_ALONGSIDE_APRONS.
-        from .config import ABSORB_RECTS_ALONGSIDE_APRONS
-        if ABSORB_RECTS_ALONGSIDE_APRONS:
-            from .junction_repair import (
-                _absorb_rects_at_junction_perimeters)
-            _absorb_rects_at_junction_perimeters(layout, icao=icao)
-            # Re-run sloping-edge / flat-edge cleanup against the new
-            # geometry: clipped sub-rects from absorption may have new
-            # corners that don't yet align with adjacent junction
-            # vertices (junction vertex sitting on the new sub-rect's
-            # sloping edge interior).
-            _split_sloped_rects_at_violations(layout, icao=icao)
-            _snap_junction_vertices_to_rect_flat_edge_corners(layout)
-            # The split can carve a WEDGE sub-rect whose narrow end
-            # cannot carry its plane differential (KPHL K5: 0.2 m
-            # across a 3.3 m end).  Absorb it into the adjacent
-            # junction (per-vertex altitudes sample the junction's
-            # surface) — user 2026-06-12.
-            from .junction_repair import (
-                _absorb_wedge_rects_into_junctions as _awj)
-            _awj(layout, icao=icao)
-
-        # Rule-2 sloping-edge snap, re-run on the FINAL junction set.
-        # ``_absorb_rects_at_junction_perimeters`` extends junction
-        # perimeters along absorbed-rect edges, which can leave a
-        # junction vertex within SLOPING_EDGE_SNAP_M of a NEIGHBOURING
-        # sloped rect's long edge (SPJC junction#154 near stub G, #174
-        # near parallel U).  It MUST run AFTER apron reclassification:
-        # a junction destined to become an apron (Rule 2 doesn't apply
-        # to aprons) would otherwise have a boundary vertex yanked
-        # across grass to a far rect corner (SPJC apron #189 → M's
-        # corner, ~28 m).  Running post-reclassification snaps only
-        # genuine final junctions (user 2026-05-20).
-        _snap_to_sloping_edge_corners(layout)
+        # (2026-07-29) The sloping-edge absorption chain
+        # (ABSORB_RECTS_ALONGSIDE_APRONS, default OFF since session 47)
+        # and the final Rule-2 sloping-edge snap were retired with the
+        # rect machinery.
 
         # (session 51) The boundary→DEM bridge re-emit moved POST-solve
         # into the feature-emit phase below — bridges (like the boundary
@@ -5149,37 +4462,13 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # separately).  Cut a 10 m gap along every tile boundary
         # line that passes through the airport's pavement footprint;
         # Ortho4XP + X-Plane stitch the seam at render time.
-        from .tile_cut import (
-            cut_layout_at_tile_boundaries,
-            nudge_runway_corners_at_seam_junctions,
-        )
+        from .tile_cut import cut_layout_at_tile_boundaries
         n_tile_delta = cut_layout_at_tile_boundaries(
             layout,
             current_tile_lat=current_tile_lat,
             current_tile_lon=current_tile_lon,
             dem=dem,
         )
-
-        # Tile_cut can leave a junction bridging a runway corner and a
-        # terrain-pinned seam stub at an ungradeable step (the runway
-        # follows its FAA profile while the stub is pinned to the
-        # immutable seam DEM).  Nudge the abutting runway corner toward
-        # the seam (user 2026-05-20) so the final solver below can grade
-        # the junction.  Detectable only here — the stub is created by
-        # tile_cut, after runway-profile redistribution.
-        # GLOBAL-SLICE spine: SKIP.  The rule assumes a seam piece is a
-        # SMALL stub whose whole body carries the seam DEM — a sliced
-        # face can reach the tile line from hundreds of metres away, so
-        # the nudge dragged SPLP's runway 02 threshold 5.4 m off its FAA
-        # profile through a face vertex 480 m from the seam (cap x 480 m
-        # = 7.2 m of legal spread — the slice solver grades the drop
-        # across the network; the runway keeps its profile).
-        if not _global_slice_spine:
-            n_rwy_nudged = nudge_runway_corners_at_seam_junctions(layout)
-            if n_rwy_nudged:
-                UI.vprint(1,
-                    f"  [pav-builder] {icao}: nudged {n_rwy_nudged} runway "
-                    f"sub-rect(s) toward seam pavement at junction bridges.")
 
         # THE single per-surface solver pass (session 51) — runs ONCE,
         # against the FULLY-FINALIZED geometry (all stitch / split /
@@ -5225,8 +4514,8 @@ def build_airport_pavement(icao: str, xplane_root: str,
             # must keep the apron law).
             from .junction_repair import (
                 _aeroway_centerlines_union,
+                _reeval_apron_piece_role,
                 _APRON_RECLASSIFY_MAX_DISTANCE_M as _RECLASS_CAP_M)
-            from .junction_spine import _reeval_apron_piece_role
             _reeval_centerlines = None       # computed lazily, once
             _split_count = 0
             _n_piece_promoted = 0
@@ -5939,55 +5228,11 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # see inside the monolithic shape.
         _drop_off_source_residue(layout, icao=icao)
 
-        # Rect end-caps (gate RECT_END_CAPS; rect_end_caps.py).  Carve a
-        # flat cap off each junction-facing sloping-rect end RIGHT BEFORE the
-        # spine — after every dissolve/merge/drop pass that would otherwise
-        # eat it, and after the junctions exist.  The rect body shrinks to a
-        # full-length 4-corner plane; the cap takes its vacated 2 m so the
-        # spine welds onto the flat cap (a soft junction edge) instead of the
-        # rect's sloping edge, leaving the rect free to grade its whole
-        # length.  Gate-off = no carve (byte-identical).
-        from .config import RECT_END_CAPS, RECT_END_CAP_DEPTH_M
-        if RECT_END_CAPS:
-            from .rect_end_caps import carve_rect_end_caps_before_spine
-            carve_rect_end_caps_before_spine(
-                layout, depth_m=RECT_END_CAP_DEPTH_M)
-
-        # Junction/apron centerline-spine SLICE (gated JUNCTION_CENTERLINE_
-        # SPINE; docs/junction_centerline_spine.md).  PURE GEOMETRY, run
-        # HERE — right after the hole cuts and BEFORE _unify_airside_
-        # geometry + the solver — so the unify pass welds the new shared
-        # centerline nodes and the elevation solver grades the sliced
-        # surface coherently (the corridor profile is the solver's job).
-        # Gate-off = no-op (shapes survive unchanged → byte-identical).
-        # SYNTHETIC turn-fillet arcs (user 2026-06-30, gate O4_TAXI_FILLET): the
-        # sparse 1201/1202 network has no arc where two taxi routes meet, so add
-        # the standard-radius fillet to the ROUTE GRAPH here — BEFORE the spine
-        # slice — and it is cut into the junctions like any taxiway centerline.
-        # Curve-native / route-arc gates: the global slice already cut every
-        # centerline into the pav_union, so the fillet/synthetic/slice feeders
-        # are all bypassed (the faces are the spine).  NOTE the route-arc
-        # spine itself now runs at the GLOBAL-SLICE stage (user ruling
-        # 2026-07-02: with the full spine, no taxi rects — the spine runs
-        # everywhere), not at this per-junction pre-slice hook.
-        if not _global_slice_spine:
-            from .taxi_route_fillets import add_junction_fillet_arcs
-            add_junction_fillet_arcs(layout, icao)
-
-            # SYNTHETIC junction spines (user 2026-06-26): every junction must
-            # have a route through it.  Append synthetic centerlines for
-            # spineless junctions BEFORE the slice, so they are sliced + graded
-            # like any taxiway.  Recognized painted centerlines are the real
-            # spine; do NOT manufacture straight synthetic centerlines for
-            # spineless junctions (user 2026-06-30: no synthetic centerlines for
-            # any spine when recognition is on).
-            if (os.environ.get("O4_SYNTH_JUNCTION_SPINE", "1") == "1"
-                    and os.environ.get("O4_RECOGNIZED_CENTERLINES", "0") != "1"):
-                from .synthetic_junction_spine import synthesize_junction_spines
-                synthesize_junction_spines(layout, icao)
-
-            from .junction_spine import apply_junction_centerline_spine
-            apply_junction_centerline_spine(layout)
+        # (2026-07-29) The per-junction centerline-spine slice hook
+        # (taxi_route_fillets + synthetic_junction_spine + junction_spine)
+        # was retired with the legacy path: the GLOBAL slice already cut
+        # every centerline into pav_union, so the fillet/synthetic/slice
+        # feeders were bypassed on every build.
 
         # LATERAL corridor nodes (user 2026-06-26): a vertex on each apron/
         # junction edge within ±half-taxi-width of a spine, so the lateral grade
@@ -6220,36 +5465,35 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # faces around a hole.  Decompose any survivor with the (modernised)
         # hole slicer — the same _decompose_polygon_with_holes the rect
         # model ran in junction_emit, which the global slice bypasses.
-        if _global_slice_spine:
-            from .pavement.junctions import _decompose_polygon_with_holes
-            from .layout import ROLE_SERVICE_JUNCTION as _RSJ2
-            _new_shapes = []
-            _n_decomp = 0
-            for _s in layout.shapes:
-                _p = _s.polygon
-                if (_s.role in (ROLE_APRON, ROLE_JUNCTION, _RSJ2)
-                        and _p is not None and not _p.is_empty
-                        and _p.geom_type == "Polygon" and _p.interiors):
-                    try:
-                        _pieces = _decompose_polygon_with_holes(_p)
-                    except Exception:
-                        _pieces = [_p]
-                    if _pieces and (len(_pieces) > 1
-                                    or not _pieces[0].interiors):
-                        _n_decomp += 1
-                        for _pc in _pieces:
-                            _new_shapes.append(BuiltShape(
-                                polygon=_pc, role=_s.role, ref=_s.ref,
-                                source_axis=_s.source_axis,
-                                is_bridge=_s.is_bridge))
-                        continue
-                _new_shapes.append(_s)
-            if _n_decomp:
-                layout.shapes[:] = _new_shapes
-                UI.vprint(1,
-                    f"  [pav-builder] {icao}: decomposed {_n_decomp} "
-                    f"holed airside shape(s) into simple pieces "
-                    f"(pre-solve).")
+        from .pavement.junctions import _decompose_polygon_with_holes
+        from .layout import ROLE_SERVICE_JUNCTION as _RSJ2
+        _new_shapes = []
+        _n_decomp = 0
+        for _s in layout.shapes:
+            _p = _s.polygon
+            if (_s.role in (ROLE_APRON, ROLE_JUNCTION, _RSJ2)
+                    and _p is not None and not _p.is_empty
+                    and _p.geom_type == "Polygon" and _p.interiors):
+                try:
+                    _pieces = _decompose_polygon_with_holes(_p)
+                except Exception:
+                    _pieces = [_p]
+                if _pieces and (len(_pieces) > 1
+                                or not _pieces[0].interiors):
+                    _n_decomp += 1
+                    for _pc in _pieces:
+                        _new_shapes.append(BuiltShape(
+                            polygon=_pc, role=_s.role, ref=_s.ref,
+                            source_axis=_s.source_axis,
+                            is_bridge=_s.is_bridge))
+                    continue
+            _new_shapes.append(_s)
+        if _n_decomp:
+            layout.shapes[:] = _new_shapes
+            UI.vprint(1,
+                f"  [pav-builder] {icao}: decomposed {_n_decomp} "
+                f"holed airside shape(s) into simple pieces "
+                f"(pre-solve).")
 
         # FINAL scoped runway-disconnection sweep (user 2026-07-04): the
         # narrow-strip carve + the passes after the 2nd classifier run
@@ -7543,13 +6787,6 @@ from .pavement.centerlines import _bridge_same_ref_polylines
 
 
 # ──────────────────────────────────────────────────────────────────
-# Runway-end primary-parallel stub emission
-# (re-exported from O4_Pavement_Stubs)
-# ──────────────────────────────────────────────────────────────────
-from .pavement.stubs import _emit_primary_parallel_runway_stubs
-
-
-# ──────────────────────────────────────────────────────────────────
 # OSM aeroway centerline extraction + splitting
 # (re-exported from O4_Pavement_Centerlines)
 # ──────────────────────────────────────────────────────────────────
@@ -7560,11 +6797,3 @@ from .pavement.centerlines import (
 )
 
 
-# ──────────────────────────────────────────────────────────────────
-# Taxi rect construction (re-exported from O4_Pavement_Rects)
-# ──────────────────────────────────────────────────────────────────
-from .pavement.rects import (
-    _build_taxi_rects,
-    _classify_role,
-    _snap_rect_sloping_edges_to_holes,
-)

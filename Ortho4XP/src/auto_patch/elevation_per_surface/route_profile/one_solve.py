@@ -1103,10 +1103,24 @@ def feasibility_project(elev, shape_constraints, hard, *,
                            != (j >= interval_yield_from)))
         if _zone_slab or (i, j) in envelope_skip_pairs:
             continue
-        if sweep_high is not None:
+        # ENVELOPE SIGN DISCIPLINE (KCLT 2026-07-29 memory blowup): ``_reach``
+        # is a lazy-deletion Dijkstra — its heap is bounded ONLY while every
+        # ceiling weight is ≥ 0 and every floor weight ≤ 0.  A same-sign slab
+        # component (``high < 0`` "must drop" / ``low > 0`` "must climb")
+        # injects an improving edge, and the moment such slabs are JOINTLY
+        # INFEASIBLE with the symmetric cap paths (difference-constraint
+        # duality: infeasible ⟺ a net-negative cycle exists) the relaxation
+        # loops toward −∞ growing the heap without bound — KCLT's gap-spine
+        # corridors (839 negative ceiling weights) hit 56 GB RSS and a silent
+        # SIGKILL exactly this way, the same class the EAT anchor-rect
+        # rewrite and the ``envelope_skip`` rod flag already dodge.  Dropping
+        # a direction here only LOOSENS the envelope (warm start + break
+        # detection); the sweep below still enforces the full slab and the
+        # tally still reports it, so law coverage is unchanged.
+        if sweep_high is not None and sweep_high >= 0.0:
             ceil_radj.setdefault(j, []).append((i, sweep_high))
             floor_radj.setdefault(i, []).append((j, -sweep_high))
-        if sweep_low is not None:
+        if sweep_low is not None and sweep_low <= 0.0:
             ceil_radj.setdefault(i, []).append((j, -sweep_low))
             floor_radj.setdefault(j, []).append((i, sweep_low))
 
@@ -1124,7 +1138,73 @@ def feasibility_project(elev, shape_constraints, hard, *,
     # recompute the envelope.
     INF = float("inf")
 
+    _env_diag = _os.environ.get("O4_ENVELOPE_DIAG") == "1"
+    if _env_diag:
+        _neg_c = [(k, j, w) for k, lst in ceil_radj.items()
+                  for (j, w) in lst if w < 0.0]
+        _neg_f = [(k, j, w) for k, lst in floor_radj.items()
+                  for (j, w) in lst if w < 0.0]
+        print(f"    [env-diag] n={n} sym={len(edge_lim)} "
+              f"interval={len(interval_lim)} iyf={interval_yield_from} "
+              f"env_skip={len(envelope_skip_pairs)} "
+              f"neg ceil_w={len(_neg_c)} floor_w={len(_neg_f)}", flush=True)
+        for (k, j, w) in sorted(_neg_c, key=lambda t: t[2])[:10]:
+            print(f"    [env-diag]   ceil {k}->{j} w={w:.3f}", flush=True)
+        _ivs = list(interval_lim.items())[:10]
+        for ((a, b), (lo, hi)) in _ivs:
+            print(f"    [env-diag]   interval ({a},{b}) low={lo} high={hi}",
+                  flush=True)
+
     def _reach(sign, radj):                 # sign +1 → ceil, −1 → floor
+        if _env_diag:
+            return _reach_diag(sign, radj)
+        return _reach_plain(sign, radj)
+
+    def _reach_diag(sign, radj):
+        # Instrumented twin of ``_reach_plain``: counts pops per node and
+        # aborts loudly (instead of eating RAM) when the pop count reveals
+        # an improving cycle — printing the most re-expanded nodes and
+        # their incident weights so the offending edge family is named.
+        from collections import Counter as _Counter
+        pop_c: dict = _Counter()
+        n_edges = sum(len(v) for v in radj.values())
+        pop_cap = max(1_000_000, 20 * (n + n_edges))
+        best: dict = {}
+        dist: dict = {}
+        pops = 0
+        pq = [((elev[a] if sign > 0 else -elev[a]), 0.0, a)
+              for a in hard if a < n]
+        heapq.heapify(pq)
+        while pq:
+            val, dk, k = heapq.heappop(pq)
+            pops += 1
+            if pops > pop_cap:
+                top = pop_c.most_common(12)
+                print(f"    [env-diag] _reach(sign={1 if sign > 0 else -1}) "
+                      f"ABORT: pops>{pop_cap} (n={n} edges={n_edges} "
+                      f"pq={len(pq)}); top re-expanded nodes:", flush=True)
+                for (nd, cnt) in top:
+                    ws = [(j, round(w, 3)) for (j, w) in radj.get(nd, ())][:8]
+                    print(f"    [env-diag]   node {nd} pops={cnt} "
+                          f"out={ws}", flush=True)
+                raise RuntimeError("envelope Dijkstra improving cycle "
+                                   "(O4_ENVELOPE_DIAG abort)")
+            t = val if sign > 0 else -val
+            if k in best and ((sign > 0 and t >= best[k])
+                              or (sign < 0 and t <= best[k])):
+                continue
+            pop_c[k] += 1
+            best[k] = t
+            dist[k] = dk
+            for (j, w) in radj.get(k, ()):
+                nt = t + w
+                pj = best.get(j)
+                if pj is None or (sign > 0 and nt < pj) or (sign < 0 and nt > pj):
+                    heapq.heappush(pq, ((nt if sign > 0 else -nt),
+                                        dk + (w if w >= 0.0 else -w), j))
+        return best, dist
+
+    def _reach_plain(sign, radj):
         # ``radj`` provides directed weights with the sign already baked in
         # (``ceil_radj`` for +1, ``floor_radj`` for −1); the relaxation is
         # ``nt = t + w`` and the budget-metric distance accumulates ``|w|``.
@@ -1377,14 +1457,9 @@ def feasibility_project(elev, shape_constraints, hard, *,
     # reaches residual ~0 in <100 sweeps).  The last projection before
     # writeback therefore runs scalar — seeded by the fast Jacobi passes, so
     # it needs few sweeps.
-    _vec = not force_scalar and _FP_VECTORIZE
-    if not _vec and not force_scalar:
-        try:
-            from auto_patch.config import (CURVE_NATIVE_SPINE as _CNS,
-                                           ROUTE_ARC_SPINE as _RAS)
-            _vec = _CNS or _RAS
-        except Exception:
-            _vec = False
+    # (2026-07-29) legacy-gate fallback retired: the global slice is the
+    # only path, so non-scalar callers always vectorize.
+    _vec = not force_scalar
     _sweeps_run = 0
     _last_worst = 0.0
     # CHROMATIC (graph-colored) Gauss-Seidel (Tier 3 wave 2c, survey candidate

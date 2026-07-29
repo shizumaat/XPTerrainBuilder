@@ -357,7 +357,6 @@ def _extract_osm_taxi_centerlines(
     at SPJC) retain bend vertices and emit multiple rects that
     share corner vertices at the bend.
     """
-    from .rects import _natural_half_width
     by_ref: dict[str, list[LineString]] = {}
     for wid, nds, tags in ways:
         # Per user 2026-05-04: treat aeroway=parking_position as
@@ -798,7 +797,6 @@ def _find_width_transition_breakpoints(
     Endpoint probes do NOT emit breakpoints (the centerline
     endpoint is already a natural breakpoint or junction).
     """
-    from .rects import _natural_half_width
     if pav_union is None or pav_union.is_empty:
         return []
 
@@ -1053,7 +1051,6 @@ def _split_centerlines_at_points(
     primary and on the runway sit farther down the taxi's own axis
     — without the larger margin the rect overlaps both junctions.
     """
-    from .rects import _natural_half_width
     if not centerlines:
         return centerlines
     from shapely.ops import substring
@@ -1731,3 +1728,92 @@ def _split_centerlines_at_points(
                 result.append((piece, ref))
     return result
 
+
+# ──────────────────────────────────────────────────────────────────
+# Local half-width probe (moved from the retired pavement/rects.py,
+# owner ruling 2026-07-29 — the sole surviving member of the rect
+# builder's width-probe family; used by the centerline split /
+# breakpoint passes)
+# ──────────────────────────────────────────────────────────────────
+def _natural_half_width(axis: LineString, pav: Polygon,
+                        n_probes: int = 15) -> tuple[float, float, float]:
+    """Return (natural_hw, max_hw, narrow_hw) LOCAL half-width probes
+    along the axis.
+
+    Uses PERPENDICULAR RAY CAST (not distance-to-boundary) so the
+    probe measures the taxi's own local half-width on EACH side
+    rather than the distance to some faraway edge.  Per user
+    rule 4 (2026-04-20): the rect half-width should be the
+    NARROWEST pavement width (the taxi's own strip width), not
+    an inflated value from adjacent aprons or runway clearance.
+
+    For each probe point:
+      * cast a ray perpendicular LEFT from axis; find where ray
+        first exits the pavement polygon.
+      * cast a ray perpendicular RIGHT from axis similarly.
+      * half-width at this probe = min(left, right), capped at
+        RAY_CAP_M to avoid saturating across an apron.
+    """
+    RAY_CAP_M = 40.0
+    RAY_STEP_M = 0.5
+    if axis.length < 1e-3:
+        return 0.0, 0.0, 0.0
+
+    def _perpendicular_half_at(t: float) -> float:
+        """Cast perpendicular rays left/right at axis param t.
+
+        Returns the AVERAGE of the two sides — (left + right) / 2 —
+        so the width reflects the full pavement strip centered on
+        the pavement (not a narrow corridor seen from an off-center
+        axis).  Corner snapping downstream pulls the 4 rect corners
+        onto the pav boundary, centering the rect on the actual
+        pavement regardless of the axis's offset.
+        """
+        # Local tangent: use points slightly before/after t.
+        dt = min(2.0, axis.length * 0.05)
+        t0 = max(0.0, t - dt)
+        t1 = min(axis.length, t + dt)
+        a = axis.interpolate(t0)
+        b = axis.interpolate(t1)
+        tx, ty = b.x - a.x, b.y - a.y
+        mag = math.hypot(tx, ty)
+        if mag < 1e-6:
+            return 0.0
+        ux, uy = tx / mag, ty / mag
+        nx, ny = -uy, ux  # left-perp
+        pt = axis.interpolate(t)
+        ox, oy = pt.x, pt.y
+        sides: list[float] = []
+        for sign in (-1, 1):
+            side = RAY_CAP_M
+            d = 0.0
+            while d <= RAY_CAP_M:
+                qx = ox + sign * nx * d
+                qy = oy + sign * ny * d
+                if not pav.contains(Point(qx, qy)):
+                    side = d
+                    break
+                d += RAY_STEP_M
+            sides.append(side)
+        return sum(sides) / 2.0 if sides else RAY_CAP_M
+
+    dists: list[float] = []
+    for k in range(n_probes):
+        t = (k + 1) / (n_probes + 1) * axis.length
+        hw = _perpendicular_half_at(t)
+        if hw > 0.1:
+            dists.append(hw)
+    if not dists:
+        return 0.0, 0.0, 0.0
+    dists.sort()
+    median = dists[len(dists) // 2]
+    p90_idx = max(0, int(len(dists) * 0.9) - 1)
+    p90 = dists[p90_idx] if p90_idx < len(dists) else dists[-1]
+    # ``narrow`` = the MIN half-width probe with a floor to guard
+    # against grazing a building corner (skip probes < 3.5 m as
+    # noise).  Per user rule 4: rect width = the ACTUAL narrowest
+    # section, so the rect fits snugly along the taxi's own narrow
+    # corridor, leaving widened areas to junctions.
+    filtered = [d for d in dists if d >= 3.5]
+    narrow = filtered[0] if filtered else dists[0]
+    return median, p90, narrow

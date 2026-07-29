@@ -94,17 +94,12 @@ def build_capturing_union(icao: str, xplane: str = DEFAULT_XPLANE):
 # pipeline — instrumentation fires on each call, so the timeline shows
 # every invocation in order.  Add new geometry passes here as they appear.
 PIPELINE_GEOMETRY_PASSES = [
-    ("auto_patch.junction_rules", "_align_rect_slope_to_axis"),
-    ("auto_patch.junction_rules", "_snap_to_sloping_edge_corners"),
-    ("auto_patch.junction_rules",
-     "_snap_junction_vertices_to_rect_flat_edge_corners"),
     ("auto_patch.junction_rules", "_enforce_runway_1to1_sharing"),
     ("auto_patch.junction_rules", "widen_junctions_to_runway_corners"),
     ("auto_patch.junction_rules", "stitch_pavement_to_flat_runways"),
     ("auto_patch.seam_anchors", "split_pavement_at_seams"),
     ("auto_patch.junction_rules", "stitch_pavement_to_terminals"),
     ("auto_patch.junction_rules", "stitch_pavement_polygons"),
-    ("auto_patch.junction_repair", "_absorb_rects_at_junction_perimeters"),
     ("auto_patch.junction_repair", "_merge_sliver_junctions_into_neighbours"),
     ("auto_patch.junction_repair", "_drop_thin_orphan_slivers"),
     ("auto_patch.junction_repair", "_drop_floating_orphan_junctions"),

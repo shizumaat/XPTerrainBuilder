@@ -502,13 +502,10 @@ def apply_route_arc_spine(layout, icao: str = "") -> int:
     contact — right before the global slice consumes them.  Service
     routes pass through untouched.
 
-    Gate ``config.ROUTE_ARC_SPINE`` (env O4_ROUTE_ARC_SPINE).  Called from
-    the pipeline's GLOBAL-SLICE stage (user ruling 2026-07-02): with the
-    full route-arc spine the taxi-rect pipeline is disabled and pav_union
-    is cut once by these ways — the spine runs everywhere."""
-    from ..config import ROUTE_ARC_SPINE
-    if not ROUTE_ARC_SPINE:
-        return 0
+    Called from the pipeline's GLOBAL-SLICE stage (user ruling
+    2026-07-02): the route-arc spine is the ONLY path since the legacy
+    rect pipeline retired (owner 2026-07-29) — pav_union is cut once by
+    these ways; the spine runs everywhere."""
     cls = list(getattr(layout, "apt_taxi_centerlines", None) or [])
     if not cls:
         return 0

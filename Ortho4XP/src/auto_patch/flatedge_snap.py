@@ -28,18 +28,14 @@ from shapely.strtree import STRtree
 
 import O4_UI_Utils as UI
 
-from .layout import (
-    ROLE_CROSS_CONNECTOR, ROLE_PRIMARY_PARALLEL, ROLE_SECONDARY_PARALLEL,
-    ROLE_STUB)
-
 _GEOM_EXC = (ValueError, GEOSException, TopologicalError)
 
 __all__ = ["drop_flatedge_nodes"]
 
-# Sloping 4-corner rects whose flat ends admit only corner shared vertices.
-_RECT_ROLES = frozenset({
-    ROLE_PRIMARY_PARALLEL, ROLE_SECONDARY_PARALLEL, ROLE_STUB,
-    ROLE_CROSS_CONNECTOR, "service_road"})
+# Axially-planar 4-corner shapes whose flat ends admit only corner shared
+# vertices.  Since the rect retirement (owner 2026-07-29) only 4-corner
+# ``service_road`` shapes can qualify.
+_RECT_ROLES = frozenset({"service_road"})
 _ON_EDGE_TOL_M = 0.25     # perpendicular distance to count as "on" the edge
 _CORNER_TOL_M = 0.40      # within this of a corner = already legal
 _MIN_RING_VERTS = 4

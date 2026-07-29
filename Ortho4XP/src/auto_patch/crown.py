@@ -761,13 +761,14 @@ def build_crown_drop_field(layout, nodes, bucket_to_idx,
                 drop_by_idx.pop(j_idx, None)
                 drop_by_key.pop(key, None)
 
-    # Equalize over each crown-family RECT ring (and thereby its
-    # level-coupled flat ends): a rect emits as a tilted PLANE whose axial
-    # grade may sit exactly at cap (flex law: taxi at max cap first) — a
-    # corner-to-corner drop DIFFERENCE would tip it over.  MIN wins;
-    # runway-owned keys keep their (uniform) runway drop.
+    # Equalize over each crown-family axially-planar ring (and thereby its
+    # level-coupled flat ends): such a shape emits as a tilted PLANE whose
+    # axial grade may sit exactly at cap (flex law: taxi at max cap first)
+    # — a corner-to-corner drop DIFFERENCE would tip it over.  MIN wins;
+    # runway-owned keys keep their (uniform) runway drop.  Since the rect
+    # retirement (owner 2026-07-29) only service roads remain in the set.
     from .elevation_per_surface.solver_primitives import (
-        SLOPING_RECT_ROLES as _RECT_ROLES)
+        ADJACENT_CAP_ROLES as _RECT_ROLES)
     rect_keys: set = set()
     for s in layout.shapes:
         if (s.role not in _RECT_ROLES or s.polygon is None

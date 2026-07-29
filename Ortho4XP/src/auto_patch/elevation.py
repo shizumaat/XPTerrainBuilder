@@ -121,7 +121,6 @@ from .pavement.vertices import (
     _enforce_shared_vertices,
     _insert_rect_corners_into_grazing_junction_edges,
     _push_junction_vertices_off_taxi_rect_edges,
-    _snap_polygon_vertices_to_rect_corners,
     _validate_shared_vertex_invariant,
 )
 from .pavement.runways import (
@@ -159,7 +158,6 @@ __all__ = [
     "_load_airport_dem",
     "_match_elev",
     "_merge_sliver_junctions_into_neighbours",
-    "_split_sloped_rects_at_violations",
     "_orient_rect_for_altitude",
     "_planar_fit",
     "_planar_fit_residuals",
@@ -1145,54 +1143,12 @@ def _compute_elevations(layout: "PavementLayout", icao: str,
                 from .geom_guard import coverage_probe as _covpe
                 _covpe(layout, "ce-post-runway-clip")
 
-                # Per user 2026-04-28: junction polygon vertices
-                # cannot land on a sloping rect's edge interior —
-                # only on corners.  Boundary intersection points
-                # from the runway difference can land along a
-                # runway rect's edge; snap them to the nearest
-                # corner.  Same helper used in
-                # ``_resolve_runway_crossings``.
-                sloping_rect_polys_for_snap = [
-                    s.polygon for s in layout.shapes
-                    if s.role in (ROLE_RUNWAY,
-                                   ROLE_PRIMARY_PARALLEL,
-                                   ROLE_SECONDARY_PARALLEL,
-                                   ROLE_STUB,
-                                   ROLE_CROSS_CONNECTOR)
-                    and s.polygon is not None
-                    and not s.polygon.is_empty]
-                # RECT-ERA PASS — RETIRED UNDER THE GLOBAL SLICE (user
-                # 2026-07-03): with no taxi rects, this snapped slice-face
-                # vertices up to 5 m onto RUNWAY corners, and the helper
-                # rebuilds from ``poly.exterior`` ONLY — a conformant
-                # keyhole-cut face wrapping a pav_union hole came back with
-                # its cut topology collapsed and the hole PAVED OVER (the
-                # SPJC 7,025 m² U-hole between two parallel spines; the
-                # slice itself preserved it, measured face-by-face).  The
-                # runway seam is owned by planarize_airside + the stitch
-                # passes under the slice.  Rect model keeps the snap (its
-                # rect-corner altitude convention still needs it).
-                from .config import (CURVE_NATIVE_SPINE as _CNS9,
-                                     ROUTE_ARC_SPINE as _RAS9)
-                if not (_CNS9 or _RAS9):
-                    for shape in layout.shapes:
-                        if shape.role != ROLE_JUNCTION:
-                            continue
-                        if (shape.polygon is None
-                                or shape.polygon.is_empty):
-                            continue
-                        # 5 m tolerance is enough to catch overlay-
-                        # precision drift after the (no-buffer)
-                        # runway difference; tighter than the legacy
-                        # 2 m buffer's 5 m margin in cases where the
-                        # junction's exact boundary should remain
-                        # flush with the runway side.
-                        snapped = _snap_polygon_vertices_to_rect_corners(
-                            shape.polygon,
-                            sloping_rect_polys_for_snap,
-                            snap_tol_m=5.0)
-                        if snapped is not None and not snapped.is_empty:
-                            shape.polygon = snapped
+                # (2026-07-29) The rect-era post-runway-clip corner snap
+                # was deleted with the legacy path: under the global slice
+                # it snapped slice-face vertices up to 5 m onto RUNWAY
+                # corners and collapsed keyhole-cut topology (SPJC 7,025 m²
+                # U-hole paved over).  The runway seam is owned by
+                # planarize_airside + the stitch passes.
 
     # ── Terminal pad elevations ─────────────────────────────────
     # Per user 2026-05-03: only runway corners are HARD; terminals
@@ -3399,7 +3355,6 @@ from .junction_repair import (
     _clamp_junction_free_vertices,
     _drop_thin_orphan_slivers,
     _merge_sliver_junctions_into_neighbours,
-    _split_sloped_rects_at_violations,
     _subdivide_violating_junctions,
 )
 

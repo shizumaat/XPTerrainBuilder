@@ -102,7 +102,6 @@ __all__ = [
     "PAVEMENT_SCORE_SEVER_FRONTAGE_W_M",
     "PAVEMENT_SCORE_BOUNDARY_OUT_FRAC",
     "PAVEMENT_SCORE_ENCLAVE_GAP_M",
-    "ABSORB_RECTS_ALONGSIDE_APRONS",
     "ENABLE_DISCOVERED_TAXIWAYS",
     "PAINTED_CENTERLINE_FALLBACK",
     "ENABLE_APRON_NECK_SPLIT",
@@ -1568,20 +1567,6 @@ EMIT_APRONS = False
 # and the apt.dat 1206 truck-edge parse are skipped while disabled so we
 # don't waste cycles loading roads we won't use.  Flip to re-enable.
 ENABLE_SERVICE_ROADS = False
-# Absorb taxi rects that share a sloping edge with an apron/junction into
-# that apron (the "junctions don't live on sloping rect edges" rule).
-# ON.  Session 51 TESTED OFF (no-absorption / clean model = keep the taxilane
-# rect, apron = pav_union − rects wraps it).  Result: 20 failed vs 12 with
-# absorb ON — the suite ENCODES the absorption model.  Turning it off makes
-# taxi rects sit alongside junctions/aprons, which directly violates
-# no_long_edge_proximity / no_vertex_on_sloping_rect_flat_edge /
-# rect_short_edges_connect / runway_node_sharing / neighbour_corners.  The
-# clean no-absorption model is viable but requires REDEFINING those ~7
-# invariant tests (deliberate decision, not done).  Kept ON pending that.
-# NOTE (audit): if kept ON, `_absorb_rects_at_junction_perimeters` should
-# identify sloping edges via `source_axis`, not the corner-order convention
-# (mis-IDs 1 CYXY / 14 SPJC rects).
-ABSORB_RECTS_ALONGSIDE_APRONS = False  # (session 51 experiment 2026-05-27)
 
 # Synthesise taxi-rect centerlines for strip-shaped pavement that carries no
 # apt.dat/OSM centerline (unreferenced taxiways — common at small/remote
@@ -3294,92 +3279,11 @@ RUNWAY_SHOULDER_SEGMENT = (
 RUNWAY_CROSSING_PHYSICAL_EXTENT = (
     _os.environ.get("O4_RW_XING_EXTENT", "1") == "1")
 
-# (20260616) JUNCTION CENTERLINE SPINE — docs/junction_centerline_spine.md.
-# Junctions/aprons emit as a single ring polygon, so X-Plane interpolates
-# the interior between boundary-only node_altitudes and a taxi centerline
-# crossing the INTERIOR (no vertices on it) waves instead of tracking the
-# solver's clean ≤1.5% corridor profile (OMAA taxiway H @ junction -10225:
-# field flat 1.5% but the emitted surface spikes to 3.6%).  When ON, each
-# junction/apron is SLICED along every crossing taxi centerline (pre-solve
-# pure geometry) so the centerline becomes a real shared edge the solver
-# grades — see junction_spine.py.  Default ON (2026-06-17, user — enabled
-# in dev for in-sim testing); set O4_JCT_SPINE=0 to disable / restore the
-# byte-identical ring junctions.  Outstanding issues: STATUS.md 20260617-01.
-JUNCTION_CENTERLINE_SPINE = _os.environ.get("O4_JCT_SPINE", "1") == "1"
-# Spacing (m) of spine nodes densified along each crossing centerline
-# inside a junction.
+# Spine node spacing (m) — the target spacing junction exterior edges are
+# densified to (lateral_spine_nodes.densify_junction_edges).
 SPINE_STEP_M = float(_os.environ.get("O4_JCT_SPINE_STEP_M", "12.0"))
-# (20260701) INTERIOR-STITCH fallback for the junction slice.  A taxi route
-# is bend-split into TaxiCenterline pieces; where it bends INSIDE a junction,
-# each piece dead-ends in the interior and the per-piece cut spans no
-# boundary, so polygonize never splits the shape and no spine forms (HECA
-# T5→05C).  When ON, ``_partition_junction`` tries the plain per-piece slice
-# FIRST and only when it fails to split retries with the crossing pieces
-# stitched at their shared INTERIOR bends — so junctions that already slice
-# stay byte-identical and only no-spine shapes are rescued.  Set
-# O4_JCT_SPINE_INTERIOR_STITCH=0 to restore the plain-only (pre-fix) slice.
-JUNCTION_SPINE_INTERIOR_STITCH = _os.environ.get(
-    "O4_JCT_SPINE_INTERIOR_STITCH", "1") == "1"
 
-# (20260701) CURVE-NATIVE SPINE v2 — docs/curve_native_spine_v2_plan.md.
-# Instead of manufacturing straight taxi rects and slicing junctions/aprons
-# out of the residue, CUT the real ``pav_union`` (which already follows every
-# true curve, fillet and width change) by the RECOGNIZED curved centerlines in
-# ONE global polygonize arrangement.  Each face is a grading cell carrying a
-# spine edge; conformance is 0/0 by construction (one re-noded arrangement →
-# faces share exact edges, no T-junction repair, no sliver/residue cleanup).
-# Requires O4_RECOGNIZED_CENTERLINES for a curved spine to cut with.  Default
-# OFF; gate-OFF byte-identical to the rect pipeline.  Env O4_CURVE_NATIVE_SPINE.
-CURVE_NATIVE_SPINE = _os.environ.get("O4_CURVE_NATIVE_SPINE", "0") == "1"
 
-# (20260702) ROUTE-ARC SPINE — the apt.dat 1201/1202 route graph VERBATIM
-# (metric-true taxi distances, the feasibility/anchor math depends on them)
-# plus standard-radius fillet arcs at every junction turn, bend and runway
-# contact (pavement/route_arcs.py).  The spine feeds the curve-native GLOBAL
-# SLICE above (user ruling 2026-07-02: with the full spine, taxi-RECT
-# creation is disabled so the spine can run everywhere — pav_union is cut
-# once by the route-arc ways; no rect build, no junction emit, no
-# per-junction spine slice).  Env O4_ROUTE_ARC_SPINE.
-# DEFAULT ON in dev (user 2026-07-02 — for JOSM / in-sim review; SPJC
-# law-true 185 < rect baseline 198, CYXY/SPLP/HECA residuals named in
-# STATUS.md).  Set O4_ROUTE_ARC_SPINE=0 for the legacy rect pipeline.
-ROUTE_ARC_SPINE = _os.environ.get("O4_ROUTE_ARC_SPINE", "1") == "1"
-
-# (20260620) SPINE PIECE ROLE RE-EVALUATION — apron-spine grade model.
-# ``_reclassify_apron_junctions`` (junction_repair) runs BEFORE the spine
-# slice and demotes a WIDE pavement blob (boundary > 55 m from any
-# centerline) to ROLE_APRON.  When a taxiway then runs THROUGH that blob,
-# the spine slice carves it into narrow corridor pieces — but those pieces
-# blindly inherit the parent's apron role (junction_spine emits
-# ``role=s.role``), so the corridor where the taxiway runs is capped at the
-# 1 % APRON_MAX_GRADE and cannot climb to reach high buildings / sloping
-# terrain (CYXY taxiway G: corridor pieces 7-18 m from the G centerline,
-# stuck flat at ~705 m while the buildings beside them sit at 714-718 m).
-# When ON, every piece sliced from an APRON parent is re-tested with the
-# SAME geometry rule and 55 m cap: a piece whose whole boundary stays
-# within the cap of a centerline is a corridor → promoted back to
-# ROLE_JUNCTION (taxi-rate grade); a piece that strays beyond stays apron.
-# PROMOTION-ONLY by construction: slicing only removes area, so a piece's
-# max boundary-to-centerline distance is always <= its parent's — a
-# junction parent (<= 55 m) can never spawn a > 55 m piece, so junction
-# parents are never re-tested and stay byte-identical.  Default ON (dev);
-# O4_SPINE_ROLE_REEVAL=0 restores the inherit-parent-role behaviour.
-SPINE_PIECE_ROLE_REEVAL = _os.environ.get("O4_SPINE_ROLE_REEVAL", "1") == "1"
-
-# (20260618) RECT END-CAPS — STATUS.md 20260618-01.  A centerline-spine
-# slice ending at a SLOPING taxi rect used to weld a mid-edge node onto the
-# rect's long edge, flipping the clean 4-corner sloping plane to
-# ``node_altitudes`` so it graded only ~half its length (SPJC taxiway L
-# dropped 3.8 m of a 7.5 m drop), starving the apron of slack.  When ON,
-# each sloping rect is carved 2 m at every JUNCTION-FACING flat end at
-# RECT-BUILD TIME (Phase 1, before junctions form as ``pav_union − rects``
-# and before any elevation); the carved strip is emitted as a junction cap
-# and subtracted from the residue.  The rect body stays a full-length
-# 4-corner plane (the spine now welds onto the FLAT cap's edge, a soft
-# junction edge), and the solver grades the cap like any other junction so
-# the rect end settles to the junction level on its own.  Default OFF =
-# byte-identical (no caps carved).  Two earlier Phase-2 attempts regressed
-# within-shape grade — the PHASE, not the role, was the bug.
 # (20260618 W2) CLEAN ENFORCE BANDS — docs/grade_enforcement_plan.md.
 # The legacy within-shape enforce is 3 accreted cap-projections whose
 # artificial constraints (field self-anchor + corridor held-write band
@@ -3395,39 +3299,6 @@ SPINE_PIECE_ROLE_REEVAL = _os.environ.get("O4_SPINE_ROLE_REEVAL", "1") == "1"
 # to restore the legacy field-anchored bands.
 W2_CLEAN_BANDS = _os.environ.get("O4_W2_BANDS", "1") == "1"
 
-# Rect end-caps (rect_end_caps.py) DEFAULT ON (user 2026-06-19): a cap SHRINKS
-# the sloping rect at its junction-facing flat end and occupies the vacated
-# 2 m, so the rect stays a full-length 4-corner plane and the junction/apron
-# keeps its caps-off size (the cap is carved from the RECT, never the junction).
-# Set O4_RECT_CAPS=0 to restore the old behaviour (rect ends emit as
-# node_altitudes where a spine centerline crosses them).
-RECT_END_CAPS = _os.environ.get("O4_RECT_CAPS", "1") == "1"
-# SQUARE RECT ENDS (rects.py `_square_rect_ends`).  `_snap_corners_to_pavement`
-# snaps each rect corner INDEPENDENTLY to the nearest apt.dat pavement vertex,
-# so where a taxi rect meets an angled junction mouth its two end corners snap
-# to boundary vertices at different AXIAL positions — the end goes slanted and
-# the rect emits as a trapezoid (CYXY cross_connector G: long edges 42.6 vs
-# 47.1 m, 9.7% asym — just under the 10% trim threshold, so it slipped through;
-# the end-cap carve then propagated the slant into an off-axis node).  User
-# ruling 2026-06-20: the rect END must stay PERPENDICULAR (straight) and the
-# junction must align to IT — so collapse each genuinely-slanted end's two
-# corners to the INNER axial position (never poking past either into the
-# junction), keeping their lateral pavement fit; `pav_union - rect` then gives
-# the junction the slanted-pavement wedge.  Gate OFF = legacy per-corner snap.
-RECT_SQUARE_ENDS = _os.environ.get("O4_RECT_SQUARE_ENDS", "1") == "1"
-# Only square an end whose two corners differ in AXIAL position by more than
-# this (m) — a perpendicular end (the common case) is left byte-identical; only
-# a genuinely slanted end is corrected.
-RECT_END_SQUARE_TOL_M = float(_os.environ.get("O4_RECT_SQUARE_TOL_M", "1.0"))
-# Depth (m, perpendicular to the rect's flat end) of each end-cap — strictly
-# beyond verification.check_vertex_on_flat_edge's EDGE_PROX_M (1.5 m) so no
-# junction vertex lands in the rect's exclusion band.
-RECT_END_CAP_DEPTH_M = float(_os.environ.get("O4_RECT_CAP_DEPTH_M", "12.0"))
-# A sloping rect shorter than this (m, along its axis) gets NO cap and just
-# converts to node_altitudes where the spine centerline crosses it (user
-# 2026-06-19): short rects don't have the length to host a cap + tilt cleanly.
-RECT_END_CAP_MIN_RECT_LEN_M = float(
-    _os.environ.get("O4_RECT_CAP_MIN_RECT_LEN_M", "40.0"))
 
 # SHORT-RECT → JUNCTION (user 2026-06-30): a taxi rect shorter than this along
 # its axis is a rigid sloping PLANE where the spine wants to CURVE through

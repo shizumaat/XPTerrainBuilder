@@ -68,7 +68,7 @@ from .config import (
 # ``service_road`` joins the soft set so the road body gets within-shape LAW
 # edges on BOTH readers (this graph and the validator, which import the same
 # tuple) — previously a service_road emitted ZERO within-shape edges (not
-# soft, not a ``junction_rules.SLOPING_RECT_ROLES`` rect since it carries
+# soft, not a rect-era sloping rect since it carries
 # per-node altitudes), so its two long edges could bind to different anchor
 # regimes with no law between them (the CYXY 2.49 m cross-road tear).  Its
 # pairs resolve through the SAME ``classify_pair``/``_bake_edge`` path as
@@ -116,7 +116,6 @@ class Centerline:
     # belongs to (the chained-route spine-arc frame, see :class:`RouteChain`).
     # ``-1`` ⇒ no chained route attached (legacy / piece is its own route).
     route_idx: int = -1
-
     @property
     def cap(self) -> float:
         return min(self.seg_caps) if self.seg_caps else TAXI_MAX_GRADE
@@ -290,7 +289,7 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
         index and matches buildings by coordinate.
     """
     from .elevation_per_surface.solver_primitives import (
-        SLOPING_RECT_ROLES, _shape_grade)
+        ADJACENT_CAP_ROLES, _shape_grade)
     from .layout import ROLE_BUILDING
 
     cls: list[Centerline] = []
@@ -299,18 +298,13 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
     # GLOBAL-SLICE spine (user 2026-07-02): service ROADS are spines too —
     # narrow truck routes are sliced like taxiways and their faces grade
     # LONGITUDINALLY along the road at the road cap ("two roughly parallel
-    # spines with the right grade cap").  Rect model keeps the legacy skip
-    # (service roads have their own 4-corner rect role there).
-    from .config import (CURVE_NATIVE_SPINE as _CNS, ROUTE_ARC_SPINE as _RAS,
-                         SERVICE_ROAD_MAX_GRADE as _SVC_CAP)
-    _svc_spines = _CNS or _RAS
+    # spines with the right grade cap").
+    from .config import SERVICE_ROAD_MAX_GRADE as _SVC_CAP
     for tcl in (getattr(layout, "apt_taxi_centerlines", []) or []):
         ln = getattr(tcl, "line", tcl)
         if ln is None or getattr(ln, "is_empty", True):
             continue
         _is_svc = getattr(tcl, "is_service", False)
-        if _is_svc and not _svc_spines:
-            continue            # rect model: service roads are NOT taxi spines
         try:
             pts = list(ln.coords)
         except Exception:
@@ -355,11 +349,14 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
                 route_key_to_idx[rkey] = ridx
             cls.append(Centerline(pts=pts, seg_caps=seg_caps, route_idx=ridx))
 
-    # taxiway-sized rect node coords -> cap (a junction with NO spine inherits
-    # the cap of the nearest CONNECTED taxiway = a rect it shares a node with).
+    # Adjacent-cap node coords -> cap: a shape with NO spine inherits the
+    # cap of an ADJACENT_CAP_ROLES shape it shares a ring node with (live
+    # via service roads — a junction sharing ring nodes with a 4 % road
+    # inherits the 4 % cap; the surviving slice of the rect-era
+    # inheritance, owner 2026-07-29).
     rect_cap_at: dict = {}
     for s in layout.shapes:
-        if (s.role not in SLOPING_RECT_ROLES or s.polygon is None
+        if (s.role not in ADJACENT_CAP_ROLES or s.polygon is None
                 or s.polygon.is_empty):
             continue
         cap = _shape_grade(layout, s)
@@ -1345,7 +1342,7 @@ def plane_constraints(shape: GradeShape, ctx: GradeContext,
     # domain``); a pair spanning 2+ stations leaves this domain to the profile
     # law.  ONE predicate in ``grade_law``, applied HERE — ``plane_constraints``
     # is the single plane-rule source both the OSM grade test (``check_grade``'s
-    # runway path) and any solver plane-edge build (``_add_plane_edges``) call —
+    # runway path) and any solver plane-edge build call —
     # so BUILD and CHECK scope in lockstep.  ONLY the de-segmented single-poly
     # ring (``shape.single_poly``) is scoped: its length ≫ width so the
     # longest-pair ref axis IS the runway axis and same-cross-end vertices
@@ -1414,7 +1411,7 @@ class UnifiedGraph:
     spine_adj: dict = field(default_factory=dict)
     runway_anchor: dict = field(default_factory=dict)
     runway_anchor_sample: dict = field(default_factory=dict)
-
+    # Canonical ``(min, max)`` node pairs of spine edges woven from a
     def spine_edge_set(self):
         """The undirected spine pairs ``{(min(a,b), max(a,b))}`` (is_spine)."""
         return {(min(a, b), max(a, b))
@@ -1478,14 +1475,10 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
     shapes it proved unchanged since the solve — their identical pair set is
     carried by that caller's lazy entries instead, so law coverage is
     unchanged.  ``include_spine=False`` additionally skips the global spine /
-    rect-weave / cap-weave / runway-anchor stages (``spine_adj`` and
+    runway-anchor stages (``spine_adj`` and
     ``runway_anchor`` consumers), which that caller never reads — it uses
     ``G.edges`` only.  Defaults reproduce the full graph exactly.
     """
-    from .layout import taxi_shape_code_letter
-    from .junction_rules import SLOPING_RECT_ROLES
-    from .config import taxi_grade_cap_for_letter
-
     cps = layout.canonical_points
     if ctx is None:
         ctx = build_context(layout, bucket_to_idx)
@@ -1563,187 +1556,18 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
         bake_store[id(s)] = (
             s.role, ring_signature, baked_edges, baked_spine)
 
-    # ── sloping-rect + cap all-pair edges (the taxi spine as tilted planes) ───
-    rect_caps = []                          # (corner_idx_set, cap)
-    for s in layout.shapes:
-        if (s.role not in SLOPING_RECT_ROLES or s.polygon is None
-                or s.polygon.is_empty):
-            continue
-        ring = _open_ring(list(s.polygon.exterior.coords))
-        if len(ring) < 3:
-            continue
-        if getattr(s, "adopts_apron_grade", False):
-            cap = float(APRON_MAX_GRADE)   # user 2026-07-06 apron-edge rule
-        elif getattr(s, "adopts_taxi_grade", False):
-            cap = float(taxi_grade_cap_for_letter(   # user 2026-07-07
-                getattr(s, "adopted_taxi_letter", None)))
-        else:
-            cap = float(taxi_grade_cap_for_letter(
-                taxi_shape_code_letter(layout, s)))
-        idxs = []
-        for (x, y) in ring:
-            i = _idx(x, y)
-            if i is not None:
-                G.pos[i] = (x, y)
-            idxs.append(i)
-        rect_caps.append(({i for i in idxs if i is not None}, cap))
-        _add_plane_edges(G, s.role, ring, idxs, ctx, cap)
-    cap_shapes = []           # (cap_corner_idxs, parent_corner_set, cap)
-    for s in layout.shapes:
-        if (not getattr(s, "is_rect_cap", False) or s.polygon is None
-                or s.polygon.is_empty):
-            continue
-        ring = _open_ring(list(s.polygon.exterior.coords))
-        if len(ring) < 3:
-            continue
-        idxs = []
-        for (x, y) in ring:
-            i = _idx(x, y)
-            if i is not None:
-                G.pos[i] = (x, y)
-            idxs.append(i)
-        ckeys = {i for i in idxs if i is not None}
-        cap, best, parent = None, 0, frozenset()
-        for (rkeys, rcap) in rect_caps:
-            sh = len(rkeys & ckeys)
-            if sh > best:
-                best, cap, parent = sh, rcap, rkeys
-        if cap is None:
-            cap = float(taxi_grade_cap_for_letter(None))
-        _add_plane_edges(G, getattr(s, "role", "rect_cap"), ring, idxs, ctx, cap)
-        cap_shapes.append(([i for i in idxs if i is not None], parent, cap))
-
     if include_spine:
         # ── GLOBAL spine chains: per centerline, all on-line geometry nodes
         # ordered by arc and linked consecutive (budget = cap·arc-gap).  This
         # connects the spine ACROSS shape boundaries (junction→apron→junction)
-        # and SPANS each rect (the rect interior has no on-line node, so its
-        # two flanking junction nodes are consecutive at budget
-        # cap·rect-length) — one connected, ≤cap profile, exactly what the
-        # route graph gave but on the geometry nodes themselves.
+        # — one connected, ≤cap profile, exactly what the route graph gave
+        # but on the geometry nodes themselves.
         _build_global_spine(G, ctx)
-
-        # ── weave each sloping RECT into the spine network as a connected
-        # sub-chain (flat ends + axial + links to the flanking on-line nodes)
-        # so the ONE spine solve produces rect-end elevations consistent with
-        # the junctions they abut.
-        _add_rects_to_spine(G, layout, bucket_to_idx)
-
-        # ── weave each end-CAP in too: its INNER corners (shared with the
-        # parent rect) link to its OUTER corners at the cap rate, and the
-        # outer corners (junction spine nodes) ride the same profile — so a
-        # cap can't be a steep plane that conflicts with the junction it
-        # abuts.
-        _add_caps_to_spine(G, cap_shapes)
 
         # ── runway anchors: every geometry node a taxi spine joins the runway
         # at ──
         _runway_anchors(layout, G, bucket_to_idx)
     return G
-
-
-def _add_caps_to_spine(G, cap_shapes):
-    """Weave each end-cap into ``G.spine_adj``: its INNER corners (shared with the
-    parent rect) link to its OUTER corners at the cap rate (budget ``cap·dist``),
-    so the cap rides the rect→junction profile instead of being a free plane that
-    can conflict with the junction node it shares an outer corner with."""
-    for (idxs, parent, cap) in cap_shapes:
-        present = [i for i in idxs if i in G.pos]
-        inner = [i for i in present if i in parent]
-        outer = [i for i in present if i not in parent]
-        if not inner or not outer:
-            continue
-        # each outer corner links to its nearest inner corner at the cap rate.
-        for o in outer:
-            po = G.pos[o]
-            ni = min(inner, key=lambda i: _dist(po, G.pos[i]))
-            d = _dist(po, G.pos[ni])
-            _spine_link(G.spine_adj, o, ni, cap * max(d, 1e-3))
-        # keep the outer corners flat to each other (a clean cap end).
-        for a, b in zip(outer, outer[1:]):
-            _spine_link(G.spine_adj, a, b, 1e-3)
-
-
-def _add_rects_to_spine(G, layout, bucket_to_idx):
-    """Add each sloping taxi rect to ``G.spine_adj`` as a connected sub-chain:
-    the two short-end corner pairs are flat (budget ``cap·width``), the ends are
-    joined along the axis (budget ``cap·axis_len``), and each end links to the
-    nearest on-line spine node (the flanking junction/apron centerline node) so
-    the rect rides the same continuous profile."""
-    from .layout import taxi_shape_code_letter
-    from .junction_rules import SLOPING_RECT_ROLES
-    from .config import taxi_grade_cap_for_letter
-    cps = layout.canonical_points
-
-    def _idx(x, y):
-        return bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
-
-    spine_pts = [(i, G.pos[i]) for i in set(G.spine_adj)]
-    for s in layout.shapes:
-        if (s.role not in SLOPING_RECT_ROLES or s.polygon is None
-                or s.polygon.is_empty):
-            continue
-        ring = _open_ring(list(s.polygon.exterior.coords))
-        if len(ring) < 4:
-            continue
-        idx = [_idx(x, y) for (x, y) in ring]
-        if any(i is None for i in idx):
-            continue            # (a 5+-corner stub has a split end — handled below)
-        cap = float(taxi_grade_cap_for_letter(taxi_shape_code_letter(layout, s)))
-        endA, endB, ext = _rect_ends(ring)
-        if endA is None:
-            continue
-        # FLAT ends (budget ~0): every corner at an axis extreme stays equal, so
-        # the rect emits as a clean tilted plane (the validator checks all-pair —
-        # a non-flat end makes a diagonal exceed cap).
-        for grp in (endA, endB):
-            for u, v in zip(grp, grp[1:]):
-                _spine_link(G.spine_adj, idx[u], idx[v], 1e-3)
-        # axial link end-A ↔ end-B at the per-letter cap over the axis extent.
-        _spine_link(G.spine_adj, idx[endA[0]], idx[endB[0]],
-                    cap * max(ext, 1e-3))
-        # connect each end to the nearest on-line spine node (the flanking junction
-        # centerline node) so the rect rides the same continuous profile.
-        for grp in (endA, endB):
-            mx = sum(ring[k][0] for k in grp) / len(grp)
-            my = sum(ring[k][1] for k in grp) / len(grp)
-            gi = {idx[k] for k in grp}
-            best, bd = None, 15.0 * 15.0
-            for (j, (jx, jy)) in spine_pts:
-                if j in gi:
-                    continue
-                d2 = (jx - mx) ** 2 + (jy - my) ** 2
-                if d2 < bd:
-                    bd, best = d2, j
-            if best is not None:
-                _spine_link(G.spine_adj, idx[grp[0]], best,
-                            cap * max(math.sqrt(bd), 1e-3))
-
-
-def _rect_ends(ring):
-    """Split a sloping-rect ring into its two axis-END corner groups (handles
-    4-corner rects AND 5+-corner stubs whose short end is split).  Returns
-    ``(endA_indices, endB_indices, axis_extent)`` or ``(None, None, 0)``."""
-    n = len(ring)
-    elens = [math.hypot(ring[(k + 1) % n][0] - ring[k][0],
-                        ring[(k + 1) % n][1] - ring[k][1]) for k in range(n)]
-    le = max(range(n), key=lambda k: elens[k])      # longest edge = axis dir
-    ax = ring[(le + 1) % n][0] - ring[le][0]
-    ay = ring[(le + 1) % n][1] - ring[le][1]
-    al = math.hypot(ax, ay) or 1.0
-    ax, ay = ax / al, ay / al
-    ts = [(ring[k][0] - ring[0][0]) * ax + (ring[k][1] - ring[0][1]) * ay
-          for k in range(n)]
-    tmin, tmax = min(ts), max(ts)
-    ext = tmax - tmin
-    if ext < 1e-6:
-        return None, None, 0.0
-    tol = 0.25 * ext
-    endA = [k for k in range(n) if ts[k] <= tmin + tol]
-    endB = [k for k in range(n) if ts[k] >= tmax - tol]
-    if not endA or not endB:
-        return None, None, 0.0
-    return endA, endB, ext
 
 
 def _build_global_spine(G, ctx):
@@ -1804,21 +1628,6 @@ def _spine_link(spine_adj, a, b, budget):
         spine_adj[a].append((b, budget))
     if all(j != a for (j, _w) in spine_adj[b]):
         spine_adj[b].append((a, budget))
-
-
-def _add_plane_edges(G, role, ring, idxs, ctx, cap):
-    """Add a plane shape's (rect / cap) all-pair spine edges to the unified graph
-    via the SHARED plane rule (:func:`plane_constraints` → ``grade_law``), so the
-    SOLVER enforces the exact pairs/caps the validator checks for plane shapes —
-    not a separate inline all-pair.  Every plane pair is a spine constraint
-    (is_spine=True)."""
-    pts = [(ring[p], i) for p, i in enumerate(idxs) if i is not None]
-    if len(pts) < 3:
-        return
-    gs = GradeShape(role=role, ring=[c for (c, _i) in pts],
-                    keys=[i for (_c, i) in pts])
-    for (a, b, c) in plane_constraints(gs, ctx, cap).edges:
-        G.edges.append((a, b, c, True))
 
 
 def _runway_anchors(layout, G, bucket_to_idx):

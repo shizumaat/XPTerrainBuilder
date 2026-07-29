@@ -340,7 +340,7 @@ def _clip_boundary_bridges_against_pavement(
     ``_emit_boundary_dem_bridge`` subtracts the junctions/terminals
     AND the ribbon present AT EMIT TIME, but downstream passes
     (per_surface_solve, subdivide_violating_junctions,
-    stitch_pavement_polygons, _split_sloped_rects_at_violations,
+    stitch_pavement_polygons,
     boundary-interior clip, feature conformance) reshape pavement and
     ribbon polygons — a junction may merge with a neighbour, a
     subdivide may grow a junction across the bridge boundary, the

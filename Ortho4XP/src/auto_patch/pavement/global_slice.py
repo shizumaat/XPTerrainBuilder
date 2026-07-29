@@ -10,7 +10,8 @@ result is conformant (no T-junctions) by construction, with no per-junction
 weld/repair pass.
 
 This module is pure geometry (no elevations, no roles beyond a placeholder).
-It is consumed behind the ``O4_CURVE_NATIVE_SPINE`` gate.  See
+It is the production slicing path (the legacy rect pipeline and
+its gate were retired 2026-07-29).  See
 docs/curve_native_spine_v2_plan.md.
 """
 from __future__ import annotations

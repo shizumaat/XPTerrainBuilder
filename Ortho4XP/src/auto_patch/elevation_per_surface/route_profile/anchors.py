@@ -471,15 +471,15 @@ def build_nobuilding_apron_seats(layout, bucket_to_idx, band, dem_fn):
         return {}
     from shapely.geometry import Point
     from auto_patch.layout import ROLE_APRON, ROLE_BUILDING, ROLE_JUNCTION
-    from auto_patch.junction_rules import SLOPING_RECT_ROLES
     from auto_patch.config import APRON_MAX_GRADE
     cps = layout.canonical_points
     buildings = [b.polygon for b in layout.shapes
                  if b.role == ROLE_BUILDING and b.polygon is not None
                  and not b.polygon.is_empty]
     # The taxi-network shapes whose contact feeds an apron (the SAME set
-    # ``route_reach_violations`` measures): sloping rects + junctions, not SVC.
-    route_roles = set(SLOPING_RECT_ROLES) | {ROLE_JUNCTION}
+    # ``route_reach_violations`` measures): corridor junctions, not SVC
+    # (the rect roles are retired, owner 2026-07-29).
+    route_roles = {ROLE_JUNCTION}
     routes = [t for t in layout.shapes
               if t.role in route_roles and t.polygon is not None
               and not t.polygon.is_empty
@@ -773,7 +773,6 @@ def build_apron_contact_floors(layout, bucket_to_idx, band, dem_fn, building_sea
         return near_miss_floors
     from shapely.geometry import Point
     from auto_patch.layout import ROLE_APRON, ROLE_BUILDING, ROLE_JUNCTION
-    from auto_patch.junction_rules import SLOPING_RECT_ROLES
     from auto_patch.config import APRON_MAX_GRADE
     cps = layout.canonical_points
     cap = APRON_MAX_GRADE
@@ -795,7 +794,7 @@ def build_apron_contact_floors(layout, bucket_to_idx, band, dem_fn, building_sea
     if not bseats:
         return near_miss_floors
 
-    route_roles = set(SLOPING_RECT_ROLES) | {ROLE_JUNCTION}
+    route_roles = {ROLE_JUNCTION}
     routes = [t for t in layout.shapes
               if t.role in route_roles and t.polygon is not None
               and not t.polygon.is_empty

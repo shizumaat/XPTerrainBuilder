@@ -27,7 +27,6 @@ from shapely.strtree import STRtree
 
 import O4_UI_Utils as UI
 
-from .junction_rules import SLOPING_RECT_ROLES
 from .layout import ROLE_APRON, ROLE_JUNCTION, ROLE_SERVICE_JUNCTION
 
 _GEOM_EXC = (ValueError, GEOSException, TopologicalError)
@@ -144,15 +143,6 @@ def densify_junction_edges(layout, icao: str = "", step: float = None) -> int:
     return n_added
 
 
-def _short_edge_half_w(poly):
-    cs = _open(poly)
-    if len(cs) != 4:
-        return None
-    elens = [math.hypot(cs[(k + 1) % 4][0] - cs[k][0],
-                        cs[(k + 1) % 4][1] - cs[k][1]) for k in range(4)]
-    return 0.5 * min(elens)
-
-
 def insert_lateral_spine_nodes(layout, icao: str = "") -> int:
     """Insert lateral-corridor vertices; returns the number inserted."""
     centerlines = getattr(layout, "apt_taxi_centerlines", None) or []
@@ -163,15 +153,10 @@ def insert_lateral_spine_nodes(layout, icao: str = "") -> int:
     if not targets or not centerlines:
         return 0
 
-    # per-ref half-width from the taxi rects built on each centerline.
+    # (2026-07-29) The per-ref half-width lookup was fed by taxi-rect
+    # shapes; with the rect roles retired no shape populates it, so every
+    # centerline takes the default half-width (same as before by data).
     hw_by_ref: dict = {}
-    for s in layout.shapes:
-        if (s.role in SLOPING_RECT_ROLES and s.polygon is not None
-                and not s.polygon.is_empty):
-            hw = _short_edge_half_w(s.polygon)
-            if hw is not None:
-                r = str(getattr(s, "ref", None))
-                hw_by_ref[r] = max(hw_by_ref.get(r, 0.0), hw)
 
     polys = [s.polygon for s in targets]
     tree = STRtree(polys)

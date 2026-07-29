@@ -52,16 +52,6 @@ _SEAM_SPLIT_ROLES = {
     ROLE_GROUNDSIDE_PAVEMENT,
 }
 
-# Sloping taxi rect roles — per user 2026-05-19 these stay 4-corner
-# through seam-crossings (split-at-seam, not insert-vertex-at-seam).
-# Runways are intentionally NOT in this set: the runway seam pipeline
-# converts to node_altitudes to preserve per-vertex precision at
-# DEM-noisy tile boundaries (user 2026-05-13).
-_TAXI_RECT_ROLES = {
-    ROLE_PRIMARY_PARALLEL, ROLE_SECONDARY_PARALLEL,
-    ROLE_STUB, ROLE_CROSS_CONNECTOR,
-}
-
 # Sub-meter tolerance for skipping insertions at existing vertices.
 _EDGE_T_TOL = 1e-4
 
@@ -133,116 +123,6 @@ def _split_ring_at_seam(ring, seam_line):
     return [ring_a, ring_b]
 
 
-def _split_taxi_rect_at_seams(
-        shape: BuiltShape,
-        cut_lines: list[LineString],
-        anchor_keys: set[tuple[int, int]],
-        layout: PavementLayout,
-) -> list[BuiltShape] | None:
-    """Replace a 4-corner taxi rect with sub-rects produced by
-    splitting at each seam crossing, preserving 4-corner geometry.
-
-    Per user 2026-05-19: a taxi rect's slope rendering depends on
-    the canonical 4-corner [HI-LEFT, LO-LEFT, LO-RIGHT, HI-RIGHT]
-    ring convention (or equivalent CCW rotation), and EVERY
-    downstream pass that operates on rects assumes 4 corners
-    (absorption, junction-rule tests,
-    sloping-edge identification).  Inserting seam vertices into a
-    sloping edge breaks that assumption: even a vertex collinear
-    with its neighbours produces 5- or 6-corner rings that the
-    rest of the pipeline rejects.
-
-    Splitting the rect at each seam produces N + 1 sub-rects, each
-    still 4-corner.  Sub-rect altitudes are intentionally left
-    unset — the elevation solver's first pass fills them after
-    HARD-anchoring the seam corners (recorded in ``anchor_keys``)
-    to ``dem.alt_strict``.
-
-    Returns ``None`` if any seam crossing doesn't admit a clean
-    2 × 4-corner split (e.g. a seam clips a single corner); the
-    caller then falls back to the legacy insert-vertices path so
-    no shape is dropped.
-    """
-    if shape.polygon is None or shape.polygon.is_empty:
-        return None
-    ring = list(shape.polygon.exterior.coords)
-    if ring and ring[0] == ring[-1]:
-        ring = ring[:-1]
-    if len(ring) != 4:
-        return None
-
-    rings: list[list[tuple[float, float]]] = [
-        [(float(x), float(y)) for x, y in ring]]
-    new_corner_pts: list[tuple[float, float]] = []
-    original_pt_keys = {_bucket_key(x, y) for x, y in ring}
-    for seam_line in cut_lines:
-        next_rings: list[list[tuple[float, float]]] = []
-        for r in rings:
-            poly_r = Polygon(r)
-            try:
-                if not poly_r.boundary.intersects(seam_line):
-                    next_rings.append(r)
-                    continue
-            except _GEOM_EXC:
-                next_rings.append(r)
-                continue
-            split = _split_ring_at_seam(r, seam_line)
-            if split is None:
-                # Couldn't split cleanly — abort and let caller fall
-                # back to insert-in-place.
-                return None
-            next_rings.extend(split)
-            for sub in split:
-                for x, y in sub:
-                    if _bucket_key(x, y) in original_pt_keys:
-                        continue
-                    new_corner_pts.append((x, y))
-        rings = next_rings
-
-    if len(rings) < 2:
-        return None
-
-    # Route every new corner through the canonical-point registry
-    # (so adjacent shapes see the same coords) and record bucket
-    # keys for the solver's HARD-anchor pass.
-    registry = getattr(layout, "canonical_points", None)
-
-    def _canon(x: float, y: float) -> tuple[float, float]:
-        if registry is None:
-            return (x, y)
-        return registry.get_or_add(float(x), float(y))
-
-    for x, y in new_corner_pts:
-        cx, cy = _canon(x, y)
-        anchor_keys.add(_bucket_key(cx, cy))
-
-    out: list[BuiltShape] = []
-    import copy
-    for r in rings:
-        canon_ring = [_canon(x, y) for x, y in r]
-        # Drop degenerate rings (sub-tol vertices).
-        canon_ring_dedup: list[tuple[float, float]] = []
-        for pt in canon_ring:
-            if not canon_ring_dedup or canon_ring_dedup[-1] != pt:
-                canon_ring_dedup.append(pt)
-        if (len(canon_ring_dedup) >= 2
-                and canon_ring_dedup[0] == canon_ring_dedup[-1]):
-            canon_ring_dedup = canon_ring_dedup[:-1]
-        if len(canon_ring_dedup) != 4:
-            return None
-        new_s = copy.copy(shape)
-        new_s.polygon = Polygon(canon_ring_dedup + [canon_ring_dedup[0]])
-        new_s.altitude = None
-        new_s.altitude_high = None
-        new_s.altitude_low = None
-        new_s.node_altitudes = None
-        # source_axis inherited via copy.copy — both sub-rects share
-        # the parent's axis direction, which is what
-        # ``_canonicalise_rect`` needs at writeback time.
-        out.append(new_s)
-    return out
-
-
 def split_pavement_at_seams(layout: PavementLayout) -> int:
     """Insert seam vertices and convert sloped rects to ``node_altitudes``.
 
@@ -300,14 +180,6 @@ def split_pavement_at_seams(layout: PavementLayout) -> int:
     # — every downstream pass (absorption, junction-rule tests,
     # sloping-edge identification) assumes a canonical 4-corner ring and
     # breaks when extra vertices appear on a sloping edge.  Instead,
-    # for taxi rect roles, SPLIT the rect at each seam into 2
-    # 4-corner sub-rects so each sub-rect remains 4-corner.  Altitude
-    # handling: leave altitudes unset on the sub-rects; the elevation
-    # solver fills them after seeding seam corners from DEM (the
-    # seam keys recorded here drive ``_seed_elevations``' HARD-anchor
-    # pass).
-    new_shapes_extra: list[BuiltShape] = []
-    indices_to_drop: list[int] = []
     for i, shape in enumerate(layout.shapes):
         if shape.role not in _SEAM_SPLIT_ROLES:
             continue
@@ -320,32 +192,9 @@ def split_pavement_at_seams(layout: PavementLayout) -> int:
                 continue
         except _GEOM_EXC:
             continue
-        if shape.role in _TAXI_RECT_ROLES:
-            sub_rects = _split_taxi_rect_at_seams(
-                shape, cut_lines, anchor_keys, layout)
-            if sub_rects is not None and len(sub_rects) >= 2:
-                indices_to_drop.append(i)
-                new_shapes_extra.extend(sub_rects)
-            # Per user 2026-05-23: when the clean 2×4-corner split is NOT
-            # available (the rect only grazes / ENDS at the seam — e.g.
-            # SPLP taxiway A, whose oblique end short-edge straddles
-            # lon=-77 so the seam clips a single corner), do NOT fall
-            # back to inserting seam vertices in place: that converts the
-            # whole sloping rect to node_altitudes and loses the
-            # flat-cross-section guarantee (a long taxiway turns into a
-            # tilted node_altitudes polygon).  Leave it a 4-corner rect;
-            # the tile-cut slice (``_clip_sloping_rect_piece``) clips the
-            # end to a clean perpendicular edge clear of the seam and
-            # emits a small terrain-pinned wedge there, keeping the bulk
-            # a rect.
-            continue
         new_shape = _insert_seam_vertices(shape, cut_lines, anchor_keys)
         if new_shape is not None:
             layout.shapes[i] = new_shape
-    if indices_to_drop:
-        keep_set = set(range(len(layout.shapes))) - set(indices_to_drop)
-        layout.shapes = [layout.shapes[i] for i in sorted(keep_set)]
-        layout.shapes.extend(new_shapes_extra)
 
     # Per user 2026-05-13: when ANY sub-rect of a runway has been
     # seam-converted to node_altitudes, ALL sub-rects of that same
@@ -405,11 +254,9 @@ def _insert_seam_vertices(
     altitudes are preserved (sloped rect → unpacked via [H, L, L, H]
     convention; flat → broadcast; per-vertex → carried through).
 
-    When the shape arrives with no altitude representation at all —
-    the corner-clip fallback path from
-    ``_split_taxi_rect_at_seams`` for a taxi rect awaiting solver
-    assignment — geometric vertices and anchor keys are still
-    inserted/recorded, but ``node_altitudes`` is left ``None`` on
+    When the shape arrives with no altitude representation at all
+    (awaiting solver assignment), geometric vertices and anchor keys are
+    still inserted/recorded, but ``node_altitudes`` is left ``None`` on
     the returned shape.  The solver assigns altitudes downstream.
     """
     poly = shape.polygon
@@ -421,10 +268,8 @@ def _insert_seam_vertices(
         return None
 
     # Determine the original per-vertex altitudes.  ``old_alts`` is
-    # ``None`` when the shape has no altitude representation yet —
-    # taxi rects awaiting solver assignment (see
-    # ``_split_taxi_rect_at_seams`` docstring) that fell through to
-    # this function via the corner-clip fallback path.  In that case
+    # ``None`` when the shape has no altitude representation yet
+    # (awaiting solver assignment).  In that case
     # we still insert geometric seam vertices and record anchor keys
     # for the solver's HARD-anchor pass; we just don't fabricate
     # altitudes (the previous ``[0.0] * n_orig`` placeholder produced

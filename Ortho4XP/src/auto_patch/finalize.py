@@ -59,7 +59,6 @@ from .elevation import (
     _report_within_shape_violations,
     _smooth_within_junction_adjacent_pair_grade,
     _snap_junction_altitudes_to_rect_corners,
-    _split_sloped_rects_at_violations,
 )
 from .groundside import (
     _separate_groundside_from_airside,
@@ -321,13 +320,6 @@ def compute_elevations_and_repair_geometry(layout: PavementLayout, icao: str, xp
     _covp(layout, "pre-sliver-merge")
     _merge_sliver_junctions_into_neighbours(layout, icao=icao)
     _covp(layout, "post-sliver-merge")
-    # Per user 2026-06-12: a wedge rect whose narrow end cannot carry
-    # its plane differential dissolves into the adjacent junction so
-    # per-vertex node_altitudes + twist smooth the transition (KPHL
-    # stub K5: 0.2 m across a 3.3 m end = 6 %).
-    from .junction_repair import _absorb_wedge_rects_into_junctions
-    _absorb_wedge_rects_into_junctions(layout, icao=icao)
-    _covp(layout, "post-wedge-absorb")
     # Per user 2026-05-12: drop thin orphan sliver junctions that
     # form residue along a stub / parallel rect's long edge.  These
     # appear when the apt.dat row-110 pavement boundary curves
@@ -342,10 +334,6 @@ def compute_elevations_and_repair_geometry(layout: PavementLayout, icao: str, xp
     # (the bulk of the elevation phase) takes the bar from here.
     from .progress import substep as _psub
     _psub(0.15, "Solving elevations — geometry repairs done")
-    # Note: _split_sloped_rects_at_violations runs from pipeline.py
-    # AFTER per_surface_solve has populated altitude_high/_low on
-    # rect shapes.  Calling it here (before solver) would find
-    # zero candidates because rects have None altitudes here.
     # Per user 2026-05-03: when the per-surface solver is on,
     # geometry passes above (overlap clip, push-off, sliver merge)
     # may have moved or added vertices since the solver finished.

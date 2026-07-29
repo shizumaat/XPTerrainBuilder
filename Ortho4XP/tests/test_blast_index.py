@@ -35,9 +35,10 @@ def index(tmp_path_factory):
 # ---------------------------------------------------------------- R1 canaries
 def test_relative_imports_resolve_layout_has_all_importers(index):
     card = index["modules"][LAYOUT]
-    assert len(card["imported_by"]) >= 120, (
-        "layout.py has 753 relative importers in auto_patch/; a low count "
-        "means ast.ImportFrom node.level is being ignored again")
+    assert len(card["imported_by"]) >= 100, (
+        "layout.py has 100+ relative importers in auto_patch/ (119 after "
+        "the 2026-07-29 rect-machinery retirement); a LOW count means "
+        "ast.ImportFrom node.level is being ignored again")
 
 
 def test_submodule_package_gets_a_card(index):

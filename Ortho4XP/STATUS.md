@@ -1,4 +1,73 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260729 (retirement) — LEGACY SPINE GATE + SLOPING-RECT MACHINERY
+# RETIRED (owner rulings 2026-07-29 a+b; Tier C approved)
+# ══════════════════════════════════════════════════════════════════
+# LANDED (uncommitted): the global slice is the ONLY path.  Deleted:
+#  O4_ROUTE_ARC_SPINE / O4_CURVE_NATIVE_SPINE gates + every legacy
+#  branch (pipeline, solve.py ×4, one_solve, fast_path, route_arcs,
+#  elevation, grade_graph, verification, junction_repair sliver-veto
+#  gate); the ungated rect GENERATION block (pipeline ~3512-4077,
+#  _build_taxi_rects + ~15 passes, output discarded under the slice —
+#  the build-time win); modules junction_emit.py, junction_spine.py
+#  (after extracting _reeval_apron_piece_role → junction_repair),
+#  synthetic_junction_spine.py, cap_plane.py, rect_end_caps.py,
+#  pavement/{rects,stubs,absorption}.py (_natural_half_width moved →
+#  pavement/centerlines.py); rect consumers (grade_graph rect/cap
+#  all-pair + _add_rects_to_spine/_rect_ends/_add_caps_to_spine,
+#  grade_graph_validate rect loops, solver_primitives is_rect/
+#  rect_plane_idx/is_rect_cap branches + axis_segs, verification
+#  check_sloping_rect_axis/check_rect_short_edges, junction_rules
+#  SLOPING_RECT_ROLES + apply_junction_rules + rect snaps, junction_
+#  repair split/wedge/absorb chain, tile_cut _clip_sloping_rect_piece
+#  + _extend_rect_over_sliver + seam nudge, seam_anchors rect split,
+#  BuiltShape.is_rect_cap, discovered_taxiways.reject_curved_*);
+#  configs RECT_END_CAPS/RECT_SQUARE_ENDS/RECT_END_*/ABSORB_RECTS_
+#  ALONGSIDE_APRONS/JUNCTION_CENTERLINE_SPINE/JUNCTION_SPINE_
+#  INTERIOR_STITCH/SPINE_PIECE_ROLE_REEVAL.
+# ROLE-SET SPLICE (the trap, handled): solver_primitives.SLOPING_RECT_
+#  ROLES → ADJACENT_CAP_ROLES = (service_road,) — grade_graph cap
+#  inheritance + crown equalize re-pointed; PAVEMENT_ROLES membership
+#  UNCHANGED (roles listed explicitly); service_road writeback moved to
+#  the junction/service_junction node_altitudes branch (the one
+#  4-corner SPJC service road no longer canonicalises to a plane —
+#  measured neutral, SPJC law-true 26 = 26); tile_cut._PIN_SLICE_ROLES
+#  = {junction, apron, service_road}; flatedge_snap set = {service_
+#  road}; junction_repair._snap_near_corner_vertices_to_rect_corners →
+#  _snap_near_corner_vertices_to_plane_corners ({service_road});
+#  route_roles at anchors.py ×2 + grade_graph_validate = {junction}.
+# VERIFIED: suite parity EXACT vs same-day baseline (20F/3615P/33S →
+#  21F/3591P/18S; the −24P/−15S are exactly the retired tests; the one
+#  extra F was test_blast_index's ≥120-importer canary at 119 →
+#  threshold lowered, now green).  Law-true counts: SPJC 26=26,
+#  SPLP 65+0=65+0, CYXY 9=9, MMOX pass=pass EXACT; HECA 1907→1895
+#  (→1888 with O4_REACH_NO_SERVICE_SPINES=0) — HECA is the known
+#  tree-regressed non-convergent airport and the canonical-registry
+#  renumbering (rect corners no longer interned) legitimately moves
+#  its fixpoint; healthy airports prove behavioural neutrality.
+#  KCLT unverifiable (pre-existing OOM, this round's blocker).
+# BUILD-TIME A/B (same-day, same-tree stash-free flip; check_build_time
+#  --run, 2-3 run medians, quiet machine): phase-4 ("Building taxi
+#  rects...", label kept) CYXY 1.10→0.61 SPJC 3.25→1.71 HECA
+#  60.05→51.05 (−9.0 s — the generation-block win).  BUT the registry
+#  renumbering shifts the solver's convergence path: solving phase
+#  SPJC 51.2→57.8 (+6.3 s, reproduced across 5 samples/side — real,
+#  not noise), HECA 155.9→163.9, CYXY −0.5.  TOTALS: CYXY 38.9→37.5,
+#  HECA 337.1→334.5, SPJC 83.7→88.0 (+4.3 s on an over-budget
+#  airport).  ⚠ HARD-LAW ITEM: the SPJC regression is a fixpoint-path
+#  shift (chromatic/worklist order is registry-order sensitive;
+#  "counts-not-worse, not byte-identical"), not an algorithmic cost —
+#  needs OWNER APPROVAL per CLAUDE.md item 6 (nothing written to
+#  build_time_approvals.json).
+# NOTES: progress phase label "Building taxi rects, junctions &
+#  service roads" kept (check_build_time baselines key on it — rename
+#  needs a baseline update); taxi_route_fillets.py is now importer-
+#  free (left in place, owner may delete); _certify_flat_rect kept
+#  (unit-tested by test_flat_certificate_coverage, now dead code);
+#  _natural_half_widths_lr/_axis_half_width_at died with rects.py
+#  (only dead consumers — deviation from the "move :958/:1078" map).
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
 # 20260728 (round 7) — TAUT-STRING SPINE PROFILE (HECA dip fix), owner
 # model ratified; CORRIDOR FIXED + one open mint class at flat airports
 # ══════════════════════════════════════════════════════════════════

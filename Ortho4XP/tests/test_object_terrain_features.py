@@ -864,6 +864,86 @@ class TestAglBuriedBuildingNotTunnel:
         assert len(result.tunnels) == 1
 
 
+class TestAglLowBridgeNotTunnel:
+    """OTHH Bridge_04 (owner ruling 2026-07-31): a road bridge whose deck
+    stands only +1.91 m up sits INSIDE the AGL limb's +2.0 m height cap,
+    and the underside of its at-grade slab reads as below-grade deck.  The
+    above-grade deck-area gate is what refuses it."""
+
+    @staticmethod
+    def _bridge_like(above_grade_deck_area_m2):
+        """Bridge_04's shape: a deck standing just above grade, its
+        underside half a metre down, and a crest under the height cap."""
+        builder = _GeometryBuilder()
+        # Deck top, effective +1.0 (authored +4.0 at OBJECT_AGL -3.0).
+        half_width = above_grade_deck_area_m2 / 2.0 / 20.0
+        builder.add_horizontal_rectangle(
+            -10, 10, -half_width, half_width, 4.0, segments=2
+        )
+        # Deck UNDERSIDE, effective -0.8 — 1,200 m², far over the 25 m²
+        # below-grade gate, exactly as Bridge_04's 1,022 m² is.
+        builder.add_horizontal_rectangle(-30, 30, -10, 10, 2.2, segments=2)
+        return builder.build()
+
+    def test_low_bridge_refused(self):
+        resource = "Airport/Bridges/low_bridge_synthetic.obj"
+        placements = [
+            _placement(
+                resource,
+                above_ground_level_metres=-3.0,
+                placement_kind="OBJECT_AGL",
+            )
+        ]
+        result = otf.classify_object_terrain_features(
+            placements, {resource: self._bridge_like(1650.0)}
+        )
+        assert result.tunnels == []
+
+    def test_shell_with_a_sub_deck_roof_still_fires(self):
+        """The gate is an ABSOLUTE floor, not a fraction: EGLL Tunnel/10
+        carries 128.7 m² above grade (and only 55.1 m² below) and must
+        keep firing.  A fraction test is what the height cap's comment
+        refutes."""
+        resource = "Airport/Tunnel/sub_deck_synthetic.obj"
+        placements = [
+            _placement(
+                resource,
+                above_ground_level_metres=-3.0,
+                placement_kind="OBJECT_AGL",
+            )
+        ]
+        result = otf.classify_object_terrain_features(
+            placements, {resource: self._bridge_like(128.0)}
+        )
+        assert len(result.tunnels) == 1
+
+    def test_deepening_the_below_grade_floor_would_break_egll(self):
+        """Guard on the REJECTED alternative.  Measured on the installed
+        pack, EGLL Tunnel/7 carries 52.8 m² of below-grade near-horizontal
+        area at −1.0 m but only 19.4 m² at −2.0 m: moving the limb's
+        below-grade floor to TUNNEL_MIN_BODY_DEPTH_M drops it under the
+        25 m² gate and un-classifies a real tunnel.  The floor stays at
+        the at-grade tolerance."""
+        assert (
+            otf.TUNNEL_ROOF_TOP_TOLERANCE_M < otf.TUNNEL_MIN_BODY_DEPTH_M
+        )
+        builder = _GeometryBuilder()
+        # Tunnel/7's shape in miniature: 30 m² of floor between −1 and −2.
+        builder.add_horizontal_rectangle(-5, 5, -1.5, 1.5, 6.0, segments=2)
+        resource = "Airport/Tunnel/shallow_floor_synthetic.obj"
+        placements = [
+            _placement(
+                resource,
+                above_ground_level_metres=-7.5,
+                placement_kind="OBJECT_AGL",
+            )
+        ]
+        result = otf.classify_object_terrain_features(
+            placements, {resource: builder.build()}
+        )
+        assert len(result.tunnels) == 1
+
+
 class TestRealStockLibrarySmoke:
     def test_norway_tower_at_redhill_offset(self):
         """The real EGKR misclassification, end to end: the stock 16 m

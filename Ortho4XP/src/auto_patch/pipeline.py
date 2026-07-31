@@ -71,7 +71,6 @@ from .config import (
     ENABLE_SERVICE_ROADS,
     AIRPORT_ROAD_FEED,
     SERVICE_ROAD_CARVE,
-    ENABLE_DISCOVERED_TAXIWAYS,
     HANGAR_PADS as HANGAR_PADS_GATE,
 )
 from .layout import (
@@ -193,13 +192,13 @@ def _unify_airside_geometry(layout, icao: str, dem=None,
         ROLE_RUNWAY_CROSSING, ROLE_APRON, ROLE_BUILDING,
         ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION)
 
-    # Re-connect discovered (TX) lane dead-ends pulled away from their
-    # residue junction (SPJC TX15), extending the junction back onto the
-    # lane's end corners so the weld + conformance below share the vertices.
-    if ENABLE_DISCOVERED_TAXIWAYS:
-        from .junction_repair import (
-            _connect_discovered_lane_dead_ends_to_junctions)
-        _connect_discovered_lane_dead_ends_to_junctions(layout, icao=icao)
+    # (2026-07-31) The discovered-(TX)-lane dead-end reconnect ran here.
+    # Retired with the rest of the medial-axis discovery branch: it needs a
+    # 4-corner rect SHAPE carrying a ``TX`` ref, and ``TX`` refs are minted
+    # only on discovered CENTERLINES — the rect builder that turned those
+    # into shapes went with d4f61d6, and the global slice emits every face
+    # with ``ref=""``.  It could not fire.  See ``pavement/
+    # discovered_taxiways.py``'s header for the retirement record.
 
     # A junction EDGE that grazes past a rect/runway CORNER with no
     # junction vertex nearby never shares a node with the rect (the
@@ -588,6 +587,95 @@ def _collect_dsf_object_building_footprints(
         if admit_footprint(outer_ring, hole_rings):
             admitted += 1
     return admitted
+
+
+# ──────────────────────────────────────────────────────────────────
+# STRING-SUBSTRATE CAPTURE (Fable RULING 4, 2026-07-31 —
+# docs/specs/s1-taut-chord-constructor-spec.md, second rulings block)
+# ──────────────────────────────────────────────────────────────────
+
+def _capture_string_substrate(layout, icao: str, apt_centerlines,
+                              nodes, ways, to_m) -> None:
+    """Capture the taut-chord constructor's substrate INPUT, both tiers.
+
+    Called from ``build_airport_pavement`` AT the S2 snapshot (the
+    ``layout.apt_taxi_centerlines = list(osm_centerlines)`` assignment
+    under the "Preserve the full input centerline set" comment) — that
+    call site is the whole point and must not move: recognition
+    reassigns the attribute a few lines later.
+
+    Captures INPUT only.  It never builds the substrate: that happens
+    once, at the hook, in the pure ``build_string_substrate`` every
+    test and instrument calls.
+
+    Gate ``O4_TAUT_STRING_CONSTRUCTION`` (default OFF), read directly
+    to match ``route_profile/solve.py``'s hook rather than minting a
+    config constant the hook does not use.  Gate OFF ⇒ returns before
+    ANY import: no capture, no import, no new attribute.  That early
+    return is load-bearing — ``taut_string`` must stay unimported in a
+    gate-off build, and the fingerprint import below is inside it.
+
+    ``apt_centerlines`` is the SAME list object assigned to
+    ``layout.apt_taxi_centerlines``; ``nodes``/``ways`` are the single
+    ``_load_osm_airports`` result from the same build (also published
+    as ``layout._osm_airport_features``) — no OSM file is re-read.
+
+    Writes the field in the shape the hook's ``substrate_from_carriage``
+    reads: ``{"apt": [(coords, is_service)], "osm": [(way_id, coords)],
+    "fingerprint": str}``.
+    """
+    if os.environ.get("O4_TAUT_STRING_CONSTRUCTION", "0") != "1":
+        return
+    from .layout import (AptSubstratePiece, set_string_substrate_src,
+                         substrate_polyline_length_m)
+    from .osm_load import capture_osm_taxi_linework
+    # ★ THE ONE FINGERPRINT (Ruling 4).  Imported from the hook's own
+    # module so capture and hook compute the SAME function over the
+    # SAME content — two implementations of "the same hash" would make
+    # the hook's assertion vacuous the first time they drifted.
+    from .elevation_per_surface.route_profile.taut_string import (
+        substrate_fingerprint)
+
+    sub_apt: list = []
+    for cl in apt_centerlines or []:
+        ln = getattr(cl, "line", None)
+        if ln is None or ln.is_empty:
+            continue
+        # Materialising the coordinates into an immutable tuple IS the
+        # deep copy Ruling 4 requires — and it is stronger than
+        # ``copy.deepcopy`` of the shapely object: recognition's later
+        # reassignment cannot reach a tuple of floats.
+        cs = tuple((float(x), float(y)) for x, y in ln.coords)
+        if len(cs) < 2:
+            continue
+        # Service pieces are CARRIED, not filtered (Ruling 5's
+        # substrate corollary: they COUNT for membership / coverage and
+        # are excluded only from the STRUNG domain).
+        sub_apt.append(AptSubstratePiece(
+            coords=cs, is_service=bool(getattr(cl, "is_service", False))))
+
+    sub_osm = capture_osm_taxi_linework(nodes or {}, ways or [], to_m)
+    src = {
+        "apt": sub_apt,
+        "osm": sub_osm,
+        "fingerprint": substrate_fingerprint(sub_apt, sub_osm),
+    }
+    set_string_substrate_src(layout, src)
+    _apt_m = sum(substrate_polyline_length_m(p.coords) for p in sub_apt)
+    _osm_m = sum(substrate_polyline_length_m(w.coords) for w in sub_osm)
+    UI.vprint(1, f"  [string-substrate] {icao}: captured apt "
+                 f"{len(sub_apt)} piece(s) {_apt_m:.1f} m / osm "
+                 f"{len(sub_osm)} way(s) {_osm_m:.1f} m / fp "
+                 f"{src['fingerprint'][:12]}")
+    if not sub_osm:
+        # LAWFUL degradation (Ruling 4) — logged, never silent.  The
+        # known cause is the cwd / worktree trap: a build run outside
+        # Ortho4XP/ (or in a worktree without OSM_data/) loads no OSM
+        # cache, so the OSM tier is legitimately empty and the
+        # substrate is apt.dat-only.
+        UI.vprint(1, f"  [string-substrate] {icao}: OSM tier EMPTY — no "
+                     f"aeroway=taxiway linework in the airport cache "
+                     f"(apt.dat-only substrate; lawful degradation).")
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -2252,6 +2340,37 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # longer reachable from layout.shapes.
     layout.apt_taxi_centerlines = list(osm_centerlines)
 
+    # ── STRING-SUBSTRATE CAPTURE (Fable RULING 4, 2026-07-31;
+    # docs/specs/s1-taut-chord-constructor-spec.md, second rulings
+    # block — §10(i) FIRED AND CLOSED) ────────────────────────────
+    # THIS IS THE S2 SNAPSHOT.  The taut-chord constructor's substrate
+    # is assembled from this exact centerline set ∪ the OSM linear
+    # taxiways, and NEITHER tier is reachable at the solver hook:
+    #
+    #   gap 2 — ``centerline_recognition.recognize_curved_centerlines``
+    #     (called ~20 lines below) REASSIGNS ``apt_taxi_centerlines``
+    #     to merged / resampled / re-split geometry, so the hook-time
+    #     attribute is a processed proxy of this snapshot, not this
+    #     snapshot.  Capturing HERE, deep-copied into immutable
+    #     coordinate tuples, is the whole point: the reassignment
+    #     below cannot reach a tuple of floats.  (The regression guard
+    #     is ``tests/test_string_substrate_capture.py``.)
+    #   gap 1 — the OSM linework is materialised in phase 1 and
+    #     discarded; there is no field to read in phase 2.
+    #
+    # Captured under ONE projection (``to_m``, line ~679) into ONE
+    # write-once attribute.  Gate OFF ⇒ no capture, no import, no new
+    # attribute — inertness by construction, not by re-proof.  The
+    # phase-1 side CAPTURES AND FINGERPRINTS; it never builds (the
+    # substrate is built once, at the hook, by the pure
+    # ``build_string_substrate`` every test and instrument calls).
+    #
+    # The gate lives inside ``_capture_string_substrate`` so the tests
+    # drive the REAL production path (gate included) rather than a
+    # re-implementation of it.
+    _capture_string_substrate(layout, icao, osm_centerlines,
+                              nodes, ways, to_m)
+
     # (2026-07-29) The painted-centerlines stash for the per-junction
     # spine slice was removed with junction_spine.py — only that retired
     # consumer read ``layout._painted_centerlines``.
@@ -2512,45 +2631,25 @@ def build_airport_pavement(icao: str, xplane_root: str,
     except _GEOM_EXC:
         pass
 
-    # ── Discover unreferenced taxiways (no centerline/ref) ───────
-    # Strip-shaped pavement that carries no apt.dat/OSM centerline (common at
-    # small/remote airports) otherwise dissolves into all-pair junction/apron
-    # residue.  Synthesise a centerline for each such strip on the raw
-    # pav_union and add it to the network, so the SINGLE _build_taxi_rects
-    # pass below turns it into an axial taxi rect like any referenced taxiway.
-    # The builder's long-edge-at-boundary + apron-interior gates ensure only
-    # strips with nothing along their sloping edge survive as rects.
-    if ENABLE_DISCOVERED_TAXIWAYS and pav_union is not None \
-            and not pav_union.is_empty:
-        from .pavement.discovered_taxiways import (
-            discover_unreferenced_centerlines)
-        _disc_bld_polys = [p for p in dsf_building_polys
-                           if p is not None and not p.is_empty]
-        try:                          # OSM terminals/hangars (meters) too — a
-            _disc_bld_polys += [p for p in _osm_terminal_buildings  # noqa: F821
-                                if p is not None and not p.is_empty]
-        except NameError:
-            pass
-        _disc_bld_u = None
-        if _disc_bld_polys:
-            try:
-                _disc_bld_u = unary_union(_disc_bld_polys)
-            except Exception:
-                _disc_bld_u = None
-        _discovered = discover_unreferenced_centerlines(
-            pav_union, osm_centerlines, rwy_centerlines,
-            runway_union=layout.runway_union, building_union=_disc_bld_u)
-        if _discovered:
-            osm_centerlines = list(osm_centerlines) + _discovered
-            # Persist the discovered (unreferenced TX) centerlines so the
-            # junction-spine pass can densify the FULL route graph through
-            # junctions.  ``layout.apt_taxi_centerlines`` was snapshotted
-            # ABOVE (before discovery), so it carries only apt.dat refs;
-            # the spine pass unions these in (see junction_spine.py).
-            layout._discovered_centerlines = list(_discovered)
-            UI.vprint(1,
-                f"  [pav-builder] {icao}: discovered "
-                f"{len(_discovered)} unreferenced taxiway centerline(s).")
+    # ── Discovered (medial-axis) taxiways: RETIRED 2026-07-31 ────
+    # The medial-axis discovery pass ran here and synthesised a ``TX…``
+    # centerline for every strip of pavement carrying no apt.dat/OSM
+    # centerline.  It had exactly TWO consumers and d4f61d6 deleted both on
+    # 2026-07-29: ``_build_taxi_rects`` (the rect GENERATION block) and
+    # ``junction_spine.py``.  Nothing downstream read its output after that
+    # — the global slice takes its spine from ``layout.apt_taxi_centerlines``
+    # (snapshotted above, deliberately, for junction_repair's apron
+    # reclassification), never from the local ``osm_centerlines`` list the
+    # discovery appended to.  MEASURED 2026-07-31 before removal: 595
+    # discovered centerlines at HECA (27 at SPJC) and ZERO effect on the
+    # emitted patch — identical body hash (``tail -n +3``) with the block
+    # gone, at both airports.  Phase 3 "Building taxiways & terminals" paid
+    # for it: HECA 16.71 → 6.02 s, SPJC 4.78/4.69 → 3.08 s (the medial
+    # Voronoi itself, plus the ~590 extra lines every downstream trim then
+    # walked).
+    # The extractor itself is KEPT — see ``pavement/discovered_taxiways.py``,
+    # whose helpers still serve the 1206 road strip-extension, and whose
+    # header records what re-wiring it into the slice would require.
 
     # ── Project the SPINE model (TaxiCenterline, connectivity + per-segment size,
     # already snapshotted onto ``layout.apt_taxi_centerlines`` above) down to the
@@ -2821,45 +2920,13 @@ def build_airport_pavement(icao: str, xplane_root: str,
         layout.shapes.append(BuiltShape(
             polygon=tp, role=ROLE_BUILDING, ref=f"building{i+1}"))
 
-    # Drop discovered (TX) centerlines that thread THROUGH a building (user
-    # 2026-06-26: CYXY TX16).  Run HERE — the FINAL building shapes are now in
-    # ``layout.shapes`` (the merge/simplify/gate stages reshape them, so the
-    # discovery-time DSF-only set missed the OSM building TX16 crosses).  Removes
-    # from BOTH the centerline list (→ no rect) and the persisted discovered set
-    # (→ not in the route graph), before rects are built below.
-    if ENABLE_DISCOVERED_TAXIWAYS:
-        _bld_shapes = [s.polygon for s in layout.shapes
-                       if s.role == ROLE_BUILDING and s.polygon is not None
-                       and not s.polygon.is_empty]
-        _disc_bu = None
-        if _bld_shapes:
-            try:
-                _disc_bu = unary_union(_bld_shapes)
-            except _GEOM_EXC:
-                _disc_bu = None
-
-        def _tx_thru_bld(entry):
-            ls = entry.line if hasattr(entry, "line") else (entry[0] if isinstance(entry, tuple) else entry)
-            ref = (entry[1] if isinstance(entry, tuple)
-                   and len(entry) > 1 else None)
-            if (_disc_bu is None or ls is None or ls.is_empty
-                    or not str(ref or "").startswith("TX")):
-                return False
-            try:
-                return ls.intersection(_disc_bu).length > 1.0
-            except _GEOM_EXC:
-                return False
-
-        _nb = len(osm_centerlines)
-        osm_centerlines = [e for e in osm_centerlines if not _tx_thru_bld(e)]
-        _dropped_tx = _nb - len(osm_centerlines)
-        if getattr(layout, "_discovered_centerlines", None):
-            layout._discovered_centerlines = [
-                e for e in layout._discovered_centerlines
-                if not _tx_thru_bld(e)]
-        if _dropped_tx:
-            UI.vprint(1, f"  [pav-builder] {icao}: dropped {_dropped_tx} "
-                      f"discovered TX centerline(s) crossing a building.")
+    # (2026-07-31) The "drop discovered (TX) centerlines threading THROUGH a
+    # building" pass (CYXY TX16) ran here.  It tested ``ref.startswith("TX")``
+    # and TX refs exist only on medial-axis DISCOVERED centerlines, retired
+    # above — so it now has nothing to match.  Measured at HECA before
+    # removal: it dropped 6 of the 595 discovered lines, all of them already
+    # unread.  Referenced (apt.dat) centerlines are trimmed at building pads
+    # by ``trim_centerlines_at_buildings`` further down; that is untouched.
 
     # ── Identify junction node CLUSTERS ──────────────────────────
     # Per user 2026-05-12: when the taxi graph comes from apt.dat
@@ -4136,6 +4203,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
                         layout, xplane_root))
                 from .bridges import (
                     build_bridge_layout_shapes,
+                    emit_bridge_ramp_shapes,
                     insert_bridge_deck_end_pins,
                     insert_bridge_profile_pins)
                 # User ruling R12: the trench and causeway are
@@ -4171,6 +4239,10 @@ def build_airport_pavement(icao: str, xplane_root: str,
                     layout, dem, tile_lat, tile_lon)
                 n_bridge_profile_pins = insert_bridge_profile_pins(
                     layout, dem, tile_lat, tile_lon)
+                # W1b's emitter: a road-carried span standing in unpaved
+                # ground has no ring to pin, so its ramp is BUILT.
+                n_bridge_ramps = emit_bridge_ramp_shapes(
+                    layout, dem, tile_lat, tile_lon)
                 # ALWAYS print the summary when the classifier ran —
                 # a zero here is the coupling-failure signal, and a
                 # silent zero is this project's classic failure mode
@@ -4180,7 +4252,8 @@ def build_airport_pavement(icao: str, xplane_root: str,
                     UI.vprint(1,
                         f"  [pav-builder] {icao}: object-bridge pins — "
                         f"{n_bridge_deck_pins} deck-end, "
-                        f"{n_bridge_profile_pins} profile.")
+                        f"{n_bridge_profile_pins} profile; "
+                        f"{n_bridge_ramps} span(s) ramped.")
             except Exception as _object_bridge_error:  # never fail the build
                 UI.vprint(1,
                           "   [object-bridge] solve-side pins skipped:",
@@ -6568,65 +6641,77 @@ def build_airport_pavement(icao: str, xplane_root: str,
         except _GEOM_EXC:
             pass
 
-    # Cross-strip SEAM-STEP blend (2026-07-18, SPJC in-sim cliffs): strips
-    # from DIFFERENT emitters (adjacent-ground bands, gap-fill spines)
-    # grading off different hosts hold metre-scale value disagreements at
-    # near-adjacent — or exactly stacked — boundary vertices, emitting
-    # bare terrain cliffs (SPJC: 152 pairs, worst 4.4 m over 1.26 m).
-    # Must run at PIPELINE level over the COMPLETE strip population (the
-    # tearing seams are cross-family) and BEFORE the late projection,
-    # whose strip freeze then anchors the blended values.
-    if compute_elevations:
+    # ── STRIP RECONCILE (seam blend → tear heal → conflict walls) ───────
+    # These three passes reconcile the graded_strip / adjacent_ground
+    # population against the pavement it grades off.  They are ONE unit
+    # with a fixed internal order:
+    #   1. Cross-strip SEAM-STEP blend (2026-07-18, SPJC in-sim cliffs):
+    #      strips from DIFFERENT emitters (adjacent-ground bands, gap-fill
+    #      spines) grading off different hosts hold metre-scale value
+    #      disagreements at near-adjacent — or exactly stacked — boundary
+    #      vertices, emitting bare terrain cliffs (SPJC: 152 pairs, worst
+    #      4.4 m over 1.26 m).  Must run at PIPELINE level over the
+    #      COMPLETE strip population (the tearing seams are cross-family).
+    #   2. Post-merge tear heal: the hard-merge consensus + the seam blend
+    #      can mint sub-metre near-vertical pinches after the
+    #      adjacent-ground emit's own final heal ran (that one sees only
+    #      its own emit group, and earlier values).
+    #   3. Stacked-conflict wall emission (owner ruling 2026-07-19: nodes
+    #      are NEVER stacked — same spot ⇒ one merged node, one elevation;
+    #      a genuine level change is horizontal wall geometry).  ``to_osm``
+    #      hard-merges every coincident claim, so a strip vertex coincident
+    #      with a designed-split authority corner (building pad, service
+    #      road, groundside — non-donor classes) would be AVERAGED into it,
+    #      bending the strip metres at one column.  Resolve those sites as
+    #      geometry: retreat the strip edge and emit a retaining_wall face
+    #      over the vacated band.
+    # ORDER CONTRACT (2 before 3): a wall-retreated vertex is unshared by
+    # the heal's tests, and healing after the retreat drops it, springing
+    # the strip edge back across the already-emitted wall band (measured
+    # CYXY: a 2.16 m² strip∩wall overlap, the zero-tolerance
+    # self-overlap invariant).
+    #
+    # ★ SPEC reference-honesty-and-terracing §2b (owner plan 2026-07-30):
+    # the unit used to run BEFORE the LATE final grade projection, so the
+    # projection moved the host pavement AFTERWARDS and the strips never
+    # re-reconciled — every legitimate pavement move minted a fresh
+    # ``graded_strip ↔ adjacent_ground`` tear class (CYXY 0 → 6 under the
+    # apron reference surface, HECA 7 → 23).  The spec's remedy is
+    # REORDERING, not a second derivation (single-pass principle): the
+    # unit MOVES to after the late projection so it reconciles the FINAL
+    # pavement.  Gate ``O4_STRIP_RESOLVE_LAST`` (default on); OFF restores
+    # the pre-spec position exactly, so gate-off is byte-identical.
+    _strip_resolve_last = (
+        os.environ.get("O4_STRIP_RESOLVE_LAST", "1") == "1")
+
+    def _strip_reconcile_passes():
+        if not compute_elevations:
+            return
         try:
-            from .adjacent_ground import (
-                _raster_reach_band_active, blend_cross_strip_seam_steps)
-            if _raster_reach_band_active():
-                _n_seam_blend = blend_cross_strip_seam_steps(
-                    layout.shapes, layout)
-                if _n_seam_blend:
-                    UI.vprint(1, f"  [pav-builder] {icao}: cross-strip "
-                                 f"seam blend — re-levelled "
-                                 f"{_n_seam_blend} vertex(es) at "
-                                 f"strip-to-strip steps.")
+            from .adjacent_ground import blend_cross_strip_seam_steps
+            # Unconditional since 2026-07-29 (the ``O4_RASTER_REACH_BAND``
+            # gate this was scoped to went with the deleted band engines).
+            _n_seam_blend = blend_cross_strip_seam_steps(
+                layout.shapes, layout)
+            if _n_seam_blend:
+                UI.vprint(1, f"  [pav-builder] {icao}: cross-strip "
+                             f"seam blend — re-levelled "
+                             f"{_n_seam_blend} vertex(es) at "
+                             f"strip-to-strip steps.")
         except _GEOM_EXC as _seam_blend_exc:
             UI.vprint(1, f"  [pav-builder] WARN {icao}: cross-strip seam "
                          f"blend failed ({_seam_blend_exc!r}).")
-
-    # ── Stacked-conflict wall emission (owner ruling 2026-07-19: nodes
-    # are NEVER stacked — same spot ⇒ one merged node, one elevation;
-    # a genuine level change is horizontal wall geometry).  to_osm now
-    # hard-merges every coincident claim, so a strip vertex coincident
-    # with a designed-split authority corner (building pad, service
-    # road, groundside — non-donor classes) would be AVERAGED into it,
-    # bending the strip metres at one column.  Resolve those sites as
-    # geometry instead: retreat the strip edge and emit a
-    # retaining_wall face over the vacated band.  Runs after the seam
-    # blend (soft↔soft steps level first) and BEFORE the late
-    # projection, whose strip freeze then anchors the final values.
-    if compute_elevations:
-        # Post-merge tear heal FIRST: the hard-merge consensus + the
-        # seam blend can mint sub-metre near-vertical pinches after the
-        # adjacent-ground emit's own final heal ran (that one sees only
-        # its own emit group, and earlier values).  Same doctrine: the
-        # pinch edge is the only unlawful thing — collapse it by
-        # dropping an unshared, non-donor vertex.  ORDER CONTRACT: the
-        # heal must run BEFORE the wall pass — a wall-retreated vertex
-        # is unshared by the heal's tests, and healing after the
-        # retreat drops it, springing the strip edge back across the
-        # already-emitted wall band (measured CYXY: a 2.16 m² strip∩
-        # wall overlap, the zero-tolerance self-overlap invariant).
         try:
-            from .adjacent_ground import (
-                _heal_emitted_band_tears, _raster_reach_band_active)
-            if _raster_reach_band_active():
-                _strip_shapes = [s for s in layout.shapes
-                                 if s.ref == "adjacent_ground"]
-                _n_late_heal = _heal_emitted_band_tears(
-                    _strip_shapes, layout)
-                if _n_late_heal:
-                    UI.vprint(1, f"  [pav-builder] {icao}: post-merge "
-                                 f"tear heal — collapsed pinch edge(s) "
-                                 f"in {_n_late_heal} strip(s).")
+            from .adjacent_ground import _heal_emitted_band_tears
+            # Unconditional since 2026-07-29 (the ``O4_RASTER_REACH_BAND``
+            # gate this was scoped to went with the deleted band engines).
+            _strip_shapes = [s for s in layout.shapes
+                             if s.ref == "adjacent_ground"]
+            _n_late_heal = _heal_emitted_band_tears(_strip_shapes, layout)
+            if _n_late_heal:
+                UI.vprint(1, f"  [pav-builder] {icao}: post-merge "
+                             f"tear heal — collapsed pinch edge(s) "
+                             f"in {_n_late_heal} strip(s).")
         except _GEOM_EXC as _late_heal_exc:
             UI.vprint(1, f"  [pav-builder] WARN {icao}: post-merge tear "
                          f"heal failed ({_late_heal_exc!r}).")
@@ -6642,6 +6727,27 @@ def build_airport_pavement(icao: str, xplane_root: str,
             UI.vprint(1, f"  [pav-builder] WARN {icao}: stacked-conflict "
                          f"wall emission failed "
                          f"({_conflict_wall_exc!r}).")
+        # ★ GROUNDSIDE TERRACE FACES (owner ruling 2026-07-30, spec §2a).
+        # Same doctrine as the stacked-conflict walls above, applied to the
+        # groundside lots: where a GRADED RIBBON (pavement or road) meets a
+        # lot at a level the lot's own 4 % cap cannot reach, the boundary is
+        # a designated TERRACE LINE — the lot retreats and the step ships as
+        # a retaining_wall face instead of being averaged into the lot ring
+        # by the emit consensus.  Runs LAST of the reconcile unit: the walls
+        # it emits must see the strip retreats already committed.
+        try:
+            from .adjacent_ground import emit_groundside_terrace_walls
+            _n_terrace = emit_groundside_terrace_walls(layout)
+            if _n_terrace:
+                UI.vprint(1, f"  [pav-builder] {icao}: groundside "
+                             f"terraces — {_n_terrace} retaining face(s) "
+                             f"at graded-ribbon level changes.")
+        except _GEOM_EXC as _terrace_exc:
+            UI.vprint(1, f"  [pav-builder] WARN {icao}: groundside terrace "
+                         f"wall emission failed ({_terrace_exc!r}).")
+
+    if not _strip_resolve_last:
+        _strip_reconcile_passes()
 
     # ── LATE final grade projection (2026-07-17): the mid-pipeline
     # ``final_grade_projection`` is no longer last — band/gap emission,
@@ -6671,6 +6777,13 @@ def build_airport_pavement(icao: str, xplane_root: str,
             UI.vprint(1, f"  [pav-builder] WARN {icao}: late final "
                          f"grade projection failed ({_late_fgp_exc!r}) "
                          f"— mid-pipeline projection values kept.")
+
+    # ★ SPEC §2b: the strip reconcile unit runs HERE by default — after the
+    # last pavement move, so graded strips settle against the pavement that
+    # actually ships instead of a value the late projection then invalidates.
+    if _strip_resolve_last:
+        _strip_reconcile_passes()
+
     # T1b reorder second half: with the MID projection gated off, the
     # pad-host / ribbon-re-adoption / groundside-re-limit passes were
     # deferred to run against LATE-projected values (see the closure at

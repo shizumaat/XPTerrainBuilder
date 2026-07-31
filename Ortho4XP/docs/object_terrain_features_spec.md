@@ -74,7 +74,9 @@ and carries the drivable surface: tunnel roofs (pavement cut over the trench bod
 the ground there) and deck-carried bridge spans (pavement cut between the abutment lines, the
 pattern the KBNA author already uses). This resolves open question 5: no pavement is left
 coplanar over a hard roof slab. A **non-hard** roof or deck gets no cut — pavement wins (R2) and
-the object stays cosmetic beneath it.
+the object stays cosmetic beneath it. **Amended by R13** (owner, 2026-07-30): a modelled OPEN PIT
+is also cut, hard deck or not — it has no deck at all, and pavement drawn across a hole is not
+cosmetic.
 
 **R9 — The vertical split is derived, never assumed (user requirement, 2026-07-09).** Bridges
 divide the taxiway-to-road separation between road depression and taxiway rise differently per
@@ -707,6 +709,155 @@ law value). Post-solve plate emission and deconflict participation are retired f
 features. Supersedes the iteration-3 post-solve cut/plate approach; W-B iteration 4 implements
 the restructure. Amendment recorded live during the KBNA build iterations (J/R abutments pass
 at 167.10/167.09; the trench plate's repeated loss to mutation passes is what this ruling ends).
+
+**R13 — An open pit takes the pavement with it (owner, 2026-07-30).** Ruling, verbatim: *"for
+below grade drainage objects, cut a trench in the pavement."* **Our pavement is cut over the
+footprint of a modelled OPEN PIT**, exactly as R8 already cuts it over a hard deck — through the
+same `bridges.cut_pavement_over_footprint`. This is a deliberate amendment to R2 ("pavement value
+always wins at any contact") and an extension of R8 past its hard-deck condition: an open pit
+provides no deck at all, so unlike R8 nothing is left carrying a drivable surface there. That is
+the point — the hole is real, and pavement spanning it is the defect.
+
+*Why it was needed.* The two OTHH basins the owner reported were buried by exactly this
+interlock. Both lie wholly under an auto_patch `apron`, so the trench floor yielded to the last
+square metre (Drainage_04 2 054 of 2 055 m², Drainage_05 all 519 m²) and no floor plate was ever
+born. The apron was checked against the source and is FAITHFUL, not an over-reach: the pack's own
+DSF draws `Ground/Poly/ASPH3.pol` straight across both pits, and `pav_polys` is the union of
+apt.dat row-110 and DSF draped pavement. (apt.dat alone — the pack's file and Global Airports
+alike — leaves the area unpaved: both points sit 22-30 m OUTSIDE the row-110 union, and outside
+it entirely rather than in a hole. The two sources genuinely disagree, and taking the union is by
+design.) So the pavement is really there, and only a cut can expose the pit.
+
+*Scope — the narrow predicate.* R13 fires on `object_terrain_features.is_open_pit_interface`:
+a carved basin (R4's `is_carved_basin_interface`) that is a `BOWL_UNDER_DECK` admitted by the
+bowl rule's OPEN-PIT limb (`above_grade_area_fraction <= BOWL_MAX_ABOVE_GRADE_AREA_FRACTION` —
+"essentially nothing above grade IS the pit signal"). Every other carved class keeps R2, because
+something the pack authored is the visible surface there: a `BOWL_UNDER_DECK` admitted by the A7
+ground-contact limb (LFPG T1's drum over its sunken floor), and `TRENCH_SPINE` (LFPG T2's halls
+at grade over one continuous level; at OTHH the two Dewatering pits pooled with their aux
+buildings and control posts). `INTERIOR_CUTOUT` is unaffected — R10 forbids carving pavement
+outright.
+
+*Reach — airside AND landside (owner, 2026-07-30, second directive: "chase any additional objects
+that are below terrain, they should be getting carve outs").* R13's cut covers LANDSIDE pavement
+(`ROLE_GROUNDSIDE_PAVEMENT`) as well as the airside/service roles R8 uses. A hard deck seats flush
+inside the airside network, but an open pit can sit anywhere — measured at OTHH, two of the six
+basins are buried by groundside pavement with *zero* apron over them (Drainage_02 100 % of its
+body, Drainage_06 4 155 of 5 121 m²), so an airside-only cut left them buried. `bridges.
+pavement_cut_roles(include_groundside=...)` is the one place the two scopes are written down;
+R8's is deliberately unchanged.
+
+*Ordering (load-bearing).* The cut runs BEFORE the anchor-seat pin, not merely before the floor
+geometry. The seat only fires where no earlier shape owns the anchor, so with the apron still in
+place it declines — and the object then drapes on our own trench floor and sinks by the cut depth,
+which is exactly the "object sitting below terrain" defect the seat was added for (2026-07-18f).
+Both OTHH targets anchor inside their own pit body, so both were exposed; with the correct order
+they are seated at datum 1.27 m and 1.13 m.
+
+*Guard.* A cut that then seats no trench floor is PUT BACK (facility-scoped, so an anchor seat
+born after the cut is undone with it) and the restore is logged. Pavement removed with no trench
+under it is a hole in the drivable surface — strictly worse than the buried pit it was meant to
+expose.
+
+**R14 — Everything more than 1 m below grade is cut out (owner, 2026-07-31). IMPLEMENTATION
+PENDING.** Ruling, verbatim: *"for any object that extends more than 1m below grade, I want cutouts
+so the whole below grade portion is visible."*
+
+This is a general law, and it **supersedes amendment A6's buried-by-default** for anything past the
+1 m line: below-grade slack is no longer written off as invisible foundation depth. It also makes
+ruling **R10's interior cutout a requirement rather than a design note** — R10 already specifies the
+shape (carve inside the at-grade footprint, down past the below-grade content) but has never had an
+emitter, and its guards were parked pending a KDEN calibration pass. R14 is the instruction to
+build it.
+
+*Scope not yet fixed — one input outstanding.* BRIDGE-family structures are held back: the owner
+asked for a KML of the bridges that get no cutout today in order to rule on what they should do
+(`tools/probes_othh_basins_20260730/OTHH_bridges_no_cutout.kml`; at OTHH, Bridge_02 −9.67 m,
+Bridge_03 −8.72 m, Bridge_05 −5.32 m and Bridge_06 −1.99 m have none, while Bridge_01 and
+Bridge_04 are cut as tunnels). That ruling decides whether R14 reads "cut every below-grade solid"
+or "cut every below-grade solid that no bridge/tunnel feature already owns", which is a different
+emitter, so the build waits for it.
+
+*What is already measured* (the classifier's own interface records, not a re-pooled approximation):
+at OTHH six pools are at-grade structures with a genuine below-grade interior — Qatar Duty Free
+−12.21 m, TerminalRoads_Parking −9.09 m (an underground car park), Fuel_02, FuelFarm_01,
+GA_Hangar9, HangarC — with wall-base-at-grade 0.29–0.77, i.e. their walls do meet the ground. Those
+are the R10 cases R14 turns on. Three further resources carry below-grade geometry with no
+clustered below-grade level (the A6 class R14 now claims).
+
+*MEASUREMENT LAW — "below grade" is not the object's own negative y (owner correction,
+2026-07-31).* An object drapes at `terrain(anchor)`, so authored `y = 0` is the ground at ONE point.
+Reading negative authored y as "buried" therefore counts every pier, abutment and foundation stub
+of a perfectly above-ground structure. Measured on the six OTHH bridges — all of which the owner
+confirms are above-ground road bridges — every deck END sits within ±1.9 m of the datum
+(+0.77/−0.55, +1.90/−0.39, +0.23/+0.24, +1.08/+1.09, +0.78/−0.70, −1.22/−1.28) while the lowest
+face reaches −7.60 m; on Bridge_02 the −8..−2 m bands hold 305 m² of faces carrying **zero** deck
+area, and Bridge_03 the same (328 m², zero deck). R14's 1 m test must therefore be applied to
+structure that is genuinely below the LOCAL ground — deck/floor surfaces, not foundation stubs —
+or the emitter will carve a pit under every bridge pier on the field.
+
+*Corollary — the deck-end contract (owner, 2026-07-31).* For a bridge or ramp the wanted outcome is
+not a cutout at all: *"they just need to be set so their top edge (the road deck) at either end is
+flush with grade."* Terrain meets the deck; where the deck runs below the surrounding ground the
+terrain is graded UP to it, not dug away beneath it. Bridge_01 is the live counter-example: it
+carries 1 113 m² of DECK-like face more than 1 m below datum (a ramp descending to the terminal's
+below-grade level, reaching −5.84 m), is classified a TUNNEL today, and its trench cut to −6.34 m
+puts terrain *below* the ramp and leaves it floating — the defect the owner reports. Bridge_04 is
+the same treatment applied to an essentially flat deck (ends +0.23/+0.24, only 8 m² of deck below
+−1 m).
+
+*W1 as BUILT — the AGL limb's two above-grade gates (2026-07-31).* A structure reaches the tunnel
+classifier's AGL limb only if it looks like a shell living below the grade plane.
+`TUNNEL_AGL_MAX_ABOVE_GRADE_HEIGHT_M` (2.0 m) catches a structure that TOWERS over grade, and W1a
+made it — and the below-grade deck-area floor — read the WHOLE structure rather than the seeding
+resource, which retired Bridge_01's wrong trench. It cannot catch a LOW bridge: Bridge_04 crests at
++1.91 m, inside the cap, and the underside of its at-grade slab reads as below-grade deck (1,022 m²
+of near-horizontal face between −0.5 and −1.0 m; only 8.4 m² below −1.0 — slab thickness, not a
+floor). The second gate, `TUNNEL_AGL_MAX_ABOVE_GRADE_DECK_AREA_M2`, refuses any structure carrying a
+deck's worth of near-horizontal area standing clear above grade (≥ `+TUNNEL_ROOF_TOP_TOLERANCE_M`),
+because a below-grade shell does not have a deck on top of grade and a bridge does. Measured on the
+installed packs:
+
+| structure | area ≥ +0.5 m | area ≤ −1.0 m | outcome |
+|---|---|---|---|
+| OTHH Bridge_04 | 1 650.6 m² | 8.4 m² | refused (8× over the floor) |
+| EGLL Tunnel/7 | 0.0 m² | 52.8 m² | still a tunnel — the only real AGL-limb case |
+| EGLL Tunnel/6 | 0.0 m² | 50.0 m² | unchanged |
+| EGLL Tunnel/10 | 128.7 m² | 55.1 m² | kept, 1.55× under the floor |
+
+The alternative the plan proposed — deepening the below-grade floor to `TUNNEL_MIN_BODY_DEPTH_M`
+(2.0 m) — was measured and REJECTED: EGLL Tunnel/7 falls to 19.4 m², under the 25 m² gate, and stops
+being a tunnel. Tunnel/10's 128.7 m² is exactly the figure the height cap's own comment cites when
+it warns that "an above-grade AREA test cannot do this job"; that warning is about a FRACTION test
+(Tunnel/10 carries more near-horizontal area above grade than below) and it stands — an ABSOLUTE
+floor is a different test and clears Tunnel/10 with margin.
+
+*⚠ W1b's premise does not hold at OTHH — measured 2026-07-31, BEFORE building it.* The plan's W1b
+adds a deck-flush partition outcome so a bridge that today takes no pins gets its two deck ends
+pinned. It cannot reach any OTHH bridge, because **none of the six ever becomes a `BridgeStructure`**
+— all six carry ZERO hard triangles (hardness codes all 0), so `_hard_face_components` seeds nothing
+and only the whole-pool COSMETIC limb can fire. Three distinct gates stop them:
+
+| bridge | pool | n | gate |
+|---|---|---|---|
+| Bridge_01 | #1 | 2 251 | building gate — 57 299 wall columns ≥ `BUILDING_MIN_WALL_COLUMN_COUNT` (500) |
+| Bridge_02 / _03 / _06 | #65 | 239 | merged into ONE candidate, refused *"piered viaduct: no solid geometry reaches effective grade within 35 m of the deck end(s)"* |
+| Bridge_04 | #5495 | 5 | cosmetic limb needs ≥ `BRIDGE_MIN_DECK_AREA_M2` (200 m²) of deck at or above `BRIDGE_DECK_CARRIED_MIN_HEIGHT_M` (+2.0 m); it has **0.0 m²** |
+| Bridge_05 | #5494 | 5 | same floor; it has 45.7 m² |
+
+So the deck-flush partition is an EGLL-only change as specified (4.obj: `DECK_CARRIED`, hard_deck,
+crest +7.84, ends 7.84/7.84, 52 m, zero deck-end pins today). Making it reach the owner's bridges
+needs a prior ruling on which of the three gates yields — the cosmetic limb's +2 m elevated-deck
+floor, the mega-pool building gate, or the pooling that merges Bridge_02/03/06 — each with its own
+blast radius across every pack. Recorded, not decided.
+
+*Known implementation hazard, recorded so it is not rediscovered.* The plan extent of a below-grade
+portion cannot be taken from the frame's triangle list alone: a perfectly vertical pier, abutment or
+shaft face has zero horizontal area and is dropped from that list, so a triangle-only union draws
+nothing for a wall-only structure (measured on Bridge_04 and Bridge_05, both empty). Nor from the
+raw vertex columns alone: those are sparse over a large flat slab whose interior carries no
+vertices (Bridge_02 collapsed 4 058 m² → 87 m²). The union of the two is what the KML uses and what
+the emitter will need.
 
 ---
 

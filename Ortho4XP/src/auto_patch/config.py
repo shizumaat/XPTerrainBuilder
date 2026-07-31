@@ -103,7 +103,6 @@ __all__ = [
     "PAVEMENT_SCORE_SEVER_FRONTAGE_W_M",
     "PAVEMENT_SCORE_BOUNDARY_OUT_FRAC",
     "PAVEMENT_SCORE_ENCLAVE_GAP_M",
-    "ENABLE_DISCOVERED_TAXIWAYS",
     "PAINTED_CENTERLINE_FALLBACK",
     "ENABLE_APRON_NECK_SPLIT",
     "HOLE_ROUTER_ENABLED",
@@ -121,7 +120,6 @@ __all__ = [
     "FLAT_AIRPORT_FAST_PATH",
     "REACH_BAND_CLUSTERS",
     "REACH_BAND_CLUSTER_SIZE_M",
-    "RASTER_REACH_BAND",
     "RASTER_REACH_BAND_CELL_M",
     "RASTER_REACH_BAND_CONNECTIVITY",
     "RASTER_REACH_BAND_OFFNET_RADIUS_M",
@@ -293,6 +291,7 @@ __all__ = [
     "OBJECT_BRIDGE_TERRAIN",
     "OBJECT_TUNNEL_TERRAIN",
     "OBJECT_SPLIT_LEVEL_TERRAIN",
+    "OBJECT_BASIN_TRENCH",
     "TUNNEL_FLOOR_BELOW_OBJECT_DECK_M",
     "BRIDGE_ROAD_CLEARANCE_M",
     "BRIDGE_ROAD_CLEARANCE_MINIMUM_M",
@@ -940,6 +939,122 @@ SPINE_TAUT_STRING = (
 # string ⇒ no rod edges).
 SPINE_ROD_EPSILON_M = float(
     _os_early.environ.get("O4_SPINE_ROD_EPSILON_M", "0.02"))
+# ── S1 TAUT-CHORD CONSTRUCTOR — Stage 0 follow-through threshold
+# (docs/specs/s1-taut-chord-constructor-spec.md §2) ───────────────
+# Maximal-string assembly walks THROUGH a junction onto the adjoining
+# corridor piece whose heading deviates least, while that deviation is
+# within this many degrees.  The measured defect it exists for: HECA's
+# 3,980 m parallel-taxiway chord is cut by ``_build_spine_corridors``
+# into 62 pieces with ZERO hard anchors, and the 59 interior piece
+# ENDPOINTS carry inherited draped values — 8 % of the chord's nodes
+# carrying 100 % of the movable sag (S1 spec §1a).  Assembling the
+# pieces back into one maximal string DISSOLVES those pegs into
+# ordinary stations, so "the longest possible straight chord between
+# its anchors" (model spec §4.3.1) is attempted at all.
+# Initial value 15° is MEASURED, NOT SACRED — reviewed at S1-CP2
+# against the assembled inventory (S1 spec §2, §11).  Compare
+# ``SPINE_FAIR_WELD_MAX_DEVIATION_DEG`` (30°) above, which governs the
+# DIFFERENT and much more fragile per-weld splice inside
+# ``_build_spine_corridors``; the two are deliberately independent.
+TAUT_STRING_FOLLOW_THROUGH_DEG = float(
+    _os_early.environ.get("O4_TAUT_STRING_FOLLOW_THROUGH_DEG", "15.0"))
+# Level-2 heading WINDOW (metres).  The heading compared at a junction is
+# the WHOLE-FRAGMENT bearing, capped at this length — deliberately
+# neither of the two things measured to fail: not the piece-scale
+# TERMINAL-SEGMENT heading (jitter: chord-piece terminal segments peel
+# perpendicular onto crossers and fillets, median best deviation 36° per
+# junction), and not an UNBOUNDED centerline bearing (a long curving
+# centerline's overall bearing misrepresents its own end).  37 m is the
+# MEASURED median along-extent of HECA's chord-1 authoring fragments, so
+# a typical fragment contributes its whole bearing and only the long
+# ones are capped.
+# §3 class (ii-b) TRUNK END DATUMS (owner-confirmed 2026-07-31).  A
+# trunk end adopts the live value of the canonically-adjacent junction-
+# complex fabric ONLY IF a clause-1 anchor lies within this many metres
+# THROUGH THE SPINE GRAPH.  The gate is what keeps the harmonic-
+# contamination door shut: only anchor-governed fabric may hand values
+# in.  No anchor in radius ⇒ the end stays FREE and is COUNTED — do not
+# widen this to catch more ends; short coverage is a FINDING.
+# 250 m is measured cover for the ~107 m nearest-anchor distance at
+# chord 1; measured-not-sacred, reviewed at S1-CP2.
+# ── TURN: the ONE criterion, both uses (Fable ruling 2026-07-31) ──
+# The owner's object is the straight RUN.  A string is cut at a turn,
+# and it merges across a junction IFF that junction is NOT a turn — one
+# test, not two.  6.0° is calibrated on the owner's 36 clean strings
+# (max interior bend 5.0°) and seated in the MEASURED EMPTY interval
+# (5.0°, 7.54°), not fitted to a disputed sample.  The 4 outlier strings
+# (119.05/90.92/67.39/7.54°) are referred to the owner; do NOT fit here.
+# ── RUN MARGIN (owner rule, 2026-07-31) ──────────────────────────
+# "each string only has two nodes, one at either end of the longest
+# straight run that follows the spine within a small margin."
+# 20.0 m is DERIVED from the spine-to-string calibration on the owner's
+# own map (clean set p90 11-18 m, max 13-21 m; chord-1 max 18.43 m).
+# ★ CORRECTION CHAIN, kept visible (register 21 — "a margin is only as
+# valid as its population"): the map's INTERNAL straightness is <=0.06 m,
+# a DIFFERENT quantity ~250x tighter, and quoting it here would set a
+# tolerance the spine cannot satisfy.  The population that matters is
+# spine-node-to-owner-string, never map-node-to-its-own-chord, never
+# emitted polygon nodes (those measure pavement half-width).
+# Minimum length for STRING DUTY (owner 2026-07-31: "strings under 100m
+# are probably not very useful").  Owner-stated, not fitted.  Shorter
+# walked segments stay in the inventory as MEASUREMENT — selection is a
+# layer above construction, never a suppression at construction time.
+TAUT_STRING_MIN_STRING_M = float(
+    _os_early.environ.get("O4_TAUT_STRING_MIN_STRING_M", "100.0"))
+# ── SPINE TOLERANCE: the owner's margin, ONE constant with TWO jobs ──
+# OWNER-SUPPLIED 2026-07-31, verbatim: "+/- 8m is acceptable, and the
+# union is fine."  ONLY THE OWNER MOVES THIS — it is not calibrated,
+# re-derived, or tuned by us in either direction.
+#   job 1 — the SIMPLIFICATION band: how far the spine may wander from
+#           the idealized straight line and still be "followed" by it
+#           (the owner's strings ARE the route network without the
+#           curves and intermediate nodes).
+#   job 2 — the string-vs-spine VALIDATION bound: an emitted string
+#           lies within this of the spine it was walked from.
+# ★ CORRECTION CHAIN, kept visible (register 21 — "a margin is only as
+# valid as its population"): 20.0 -> 5.0 -> 8.0, each source recorded.
+# The 20.0 below was OURS, calibrated on a spine-to-string population
+# that contained the very spine holes a sibling track was investigating
+# — the fifth strike, and the shipped-constant edition.  5.0 and then
+# 8.0 are the owner's own numbers; ``TAUT_STRING_RUN_MARGIN_M`` is
+# SUPERSEDED for the walk and retires with ``assemble_runs`` (a later
+# MEASURED step, never a silent deletion).  ``SPINE_PERP_TOL_M`` (1.0)
+# sits consistently inside this bound.
+# ★ ``walk_spine_runs``' ``bound_m`` stays REQUIRED-EXPLICIT: production
+# call sites pass THIS constant, and the pure constructor never reads
+# config (the ratified API rule — the mechanism must stay expressible
+# and a necessity test must be able to vary it).
+TAUT_STRING_SPINE_TOLERANCE_M = float(
+    _os_early.environ.get("O4_TAUT_STRING_SPINE_TOLERANCE_M", "8.0"))
+TAUT_STRING_RUN_MARGIN_M = float(
+    _os_early.environ.get("O4_TAUT_STRING_RUN_MARGIN_M", "20.0"))
+# Authored-direction alignment for RUN membership.  ROUTE filter — it
+# tests the authored route's own direction against the run chord.  It is
+# expressly NOT the retired pairwise join gate (bend between consecutive
+# fragments), which is dead and must not be reintroduced.
+TAUT_STRING_ROUTE_ALIGN_DEG = float(
+    _os_early.environ.get("O4_TAUT_STRING_ROUTE_ALIGN_DEG", "15.0"))
+TAUT_STRING_TURN_DEG = float(
+    _os_early.environ.get("O4_TAUT_STRING_TURN_DEG", "6.0"))
+# MEMBERSHIP near-miss recognition (metres).  Chaining exists only to
+# heal the DATA's fragmentation — 36 authored fragments tile the owner's
+# single chord-1 string — so membership is collinearity-first:
+# collinear within TAUT_STRING_TURN_DEG **and** along-contiguous within
+# this tolerance.  Endpoint identity is now ONE EVIDENCE SOURCE, not the
+# gate (a 0.86 m source-data near-miss stalled chord 1 at along 1652).
+# ★ THE THREE-WAY DISTINCTION IS NORMATIVE — do not collapse it:
+#   identity   = the canonical registry.  UNTOUCHED.  Never widen the
+#                interning radius (β measured 0: the registry is CLEAN,
+#                and holding two nodes 0.86 m apart distinct is RIGHT).
+#   membership = may recognize near-misses.  THIS constant.  Mints no
+#                identity, exactly like BUILDING_FRONTAGE_NEAR_MISS_M.
+#   bridging   = still FORBIDDEN.
+TAUT_STRING_MEMBER_NEAR_MISS_M = float(
+    _os_early.environ.get("O4_TAUT_STRING_MEMBER_NEAR_MISS_M", "1.5"))
+TAUT_STRING_END_DATUM_ANCHOR_RADIUS_M = float(
+    _os_early.environ.get("O4_TAUT_STRING_END_DATUM_ANCHOR_RADIUS_M", "250.0"))
+TAUT_STRING_HEADING_WINDOW_M = float(
+    _os_early.environ.get("O4_TAUT_STRING_HEADING_WINDOW_M", "37.0"))
 # ── AIRSIDE REACHABILITY excludes service-road paths (owner ruling
 # 2026-07-29: "reachability for all airside should never use any
 # groundside or service road paths") ─────────────────────────────
@@ -1416,43 +1531,31 @@ REACH_BAND_CLUSTERS = (
 # scan over the tens of apron/taxiway body nodes a bucket holds.
 REACH_BAND_CLUSTER_SIZE_M = 24.0
 
-# ── Rasterized reach-band field (Tier 3 wave 2a, ``O4_RASTER_REACH_BAND``) ──
-# Replace the per-query nearest-visible-centerline reach-band evaluation (the
-# ~460 s band/nvc/node_bands wall of a warm OTHH build) with a precomputed
-# raster field: the pavement-with-holes mask is rasterized once per airport,
-# the runway-anchor cells are seeded with their (de-crowned) values, and TWO
-# multi-source Dijkstra passes over the masked grid settle
-# ``ceiling = min_a(value_a + cap·d_grid)`` / ``floor = max_a(value_a −
-# cap·d_grid)`` — the TRUE min-plus (cone-envelope) reach field in the grid
-# metric.  Every band query is then an O(1) nearest-cell grid read; the 74 ms
-# off-net skeleton fallback and the 45 k zone tail collapse into the same
-# lookup (bounded-radius nearest-paved-cell, else None).
+# ── THE reach band's grid lookup (one engine, no selector) ──────────────────
+# The band is ROUTE-METRIC and SERVICE-EXCLUDED: value is propagated on the
+# unified spine graph minus ``UnifiedGraph.service_spine_pairs``
+# (``building_feasibility.spine_value_fields``), and this grid answers only the
+# LOOKUP — a point's nearest route ATTACHMENT and the local off-route leg to it
+# (``raster_reach_band.solve_attachment_field``).  Grid/raster is a query
+# acceleration; it does not carry the metric.
 #
-# This is a DELIBERATE SEMANTIC REPLACEMENT (spec §3.5 "Wave 1 outcome"): the
-# raster field computes the exact envelope over all anchors in the grid metric,
-# where the legacy nearest-band-node evaluation could read a ceiling too high (a
-# recorded latent inexactness).  The solve and the validator both consume it
-# through the single producer ``building_feasibility.reach_band_unified``, so
-# they stay aligned.  Gate OFF restores the legacy nvc band byte-identically.
+# HISTORY (owner directive 2026-07-29, spec ``rod-compose-and-band-single-
+# source-spec.md`` §B): there used to be THREE band engines behind an
+# ``O4_RASTER_REACH_BAND`` selector — the raster field, a legacy per-query
+# nearest-visible-centerline path serving the raster's ``None`` answers (engine
+# MIXING inside one building's ring), and a ``_build_skeleton_band`` fallback
+# with no service filter at all.  The raster propagated VALUE through the paved
+# grid, an AREA metric, and under-credited 8.7 m on the U-fixture whenever a
+# service route crossed apron pavement (HECA's shape — biases seats LOW).  The
+# legacy paths were DELETED, not gated, and the selector went with them: one
+# engine needs none.  ``REACH_NO_SERVICE_SPINES`` stays — it gates the LAW
+# (which edges reachability may ride), not the engine.
 #
-# DEFAULT ON (Tier 3 wave 2b, 2026-07-18): gate-on delivers the perf win (OTHH
-# band machinery 74 s -> 1.2 s, nvc 123 s -> 0, wall -29 %) and IMPROVES
-# route_band counts (CYXY -44, HECA -52 including all 1037 HECA "pinned"
-# empty-band infeasibilities -> 0) with the emitted surface preserved in the
-# mean (|Δelev| ≤ 0.24 m).  The raster envelope is genuinely TIGHTER than the
-# legacy centerline+perp band (legacy over-credits reach by the perpendicular-
-# foot climb the true geodesic never takes), so a handful of aprons/junctions
-# clamp ~2 m down to the corrected ceiling.  Wave 2b RECONCILED the two
-# adjacent-ground tear classes that opened at that step (a strip's own host-weld
-# pinch, and a soft strip-vs-strip seam the emit consensus tears): the emit
-# ``_heal_emitted_band_tears`` pass + the ``to_osm`` soft-strip twin, both
-# scoped to this gate, drive the required-subset tear count to ZERO
-# (test_pavement_grade CYXY/HECA no NEW failures).  The sole residual is the
-# documented sub-0.25 m SPJC junction ``route_band`` grid-discretization noise
-# (``RASTER_REACH_BAND_GRID_RESIDUAL_M``, surface unchanged).  ``O4_RASTER_
-# REACH_BAND=0`` restores the legacy nvc band byte-identically.
-RASTER_REACH_BAND = (
-    _os_early.environ.get("O4_RASTER_REACH_BAND", "1") == "1")
+# The tear classes the tighter, correct ceiling opens at adjacent ground are
+# reconciled unconditionally now (``adjacent_ground._heal_emitted_band_tears``
+# + the ``to_osm`` soft-strip twin).  The documented residual is sub-0.25 m
+# junction ``route_band`` grid-discretization noise
+# (``RASTER_REACH_BAND_GRID_RESIDUAL_M``, emitted surface unchanged).
 # Cell side (m).  Fine enough that the narrowest real taxiway corridor (≥15 m)
 # spans ≥3 cells and a ½-cell conservative erosion cannot close it; also the
 # nearest-cell query error is ≤ cell/√2.  3 m keeps the OTHH grid at a few
@@ -1580,13 +1683,12 @@ EMIT_APRONS = False
 # don't waste cycles loading roads we won't use.  Flip to re-enable.
 ENABLE_SERVICE_ROADS = False
 
-# Synthesise taxi-rect centerlines for strip-shaped pavement that carries no
-# apt.dat/OSM centerline (unreferenced taxiways — common at small/remote
-# airports).  Detected on the raw pav_union and fed through the SAME
-# _build_taxi_rects pass; the builder's long-edge-at-boundary + apron-interior
-# gates ensure only strips with nothing along their sloping edge become rects.
-# See pavement/discovered_taxiways.py.
-ENABLE_DISCOVERED_TAXIWAYS = True
+# (2026-07-31) ENABLE_DISCOVERED_TAXIWAYS lived here.  It gated the
+# medial-axis discovery of unreferenced taxiway centerlines, whose only two
+# consumers — ``_build_taxi_rects`` and ``junction_spine`` — were retired by
+# d4f61d6 on 2026-07-29; from then on the gate switched nothing.  Retired
+# with the branch (pipeline.py).  The extractor survives, unwired, in
+# pavement/discovered_taxiways.py — its header records the re-wiring cost.
 
 # When apt.dat has NO 1201/1202 taxi-route network, synthesize the taxi
 # centerline set from its row-120 PAINTED lines (paint codes 1/7/51/57 =
@@ -3634,6 +3736,77 @@ OBJECT_TUNNEL_TERRAIN = (
 # excluded).  Flip on only together with a real feature-C emitter.
 OBJECT_SPLIT_LEVEL_TERRAIN = (
     _os.environ.get("O4_OBJECT_SPLIT_LEVEL_TERRAIN", "0") == "1")
+
+# Feature C, open-pit limb — object-derived BASIN trenches (owner defect
+# 2026-07-30, OTHH Aeroscape drainage basins).  DEFAULT ON.  This is the
+# NARROW slice of feature C that has a real emitter: a BOWL_UNDER_DECK or
+# TRENCH_SPINE interface carrying a below-grade footprint and floor is
+# adapted by ``object_terrain_assembly.basin_trench_structures`` into a
+# feature-A trench record and cut by the SAME emitter under the SAME
+# ``grade_law.tunnel_trench_*`` functions — an open pit whose rim is at
+# grade is geometrically the tunnel case with no roof.  Only those
+# interfaces join the ruling-R4 exclusion feed (predicate:
+# ``object_terrain_features.is_carved_basin_interface``), so the
+# LSGG y-bake starvation that keeps OBJECT_SPLIT_LEVEL_TERRAIN off
+# cannot recur here: an interface is excluded exactly when it is carved.
+# The parked ELLX/LFPG depressed-frontage seating stays behind
+# OBJECT_SPLIT_LEVEL_TERRAIN.  With O4_OBJECT_BASIN_TRENCH=0 no basin
+# plate is born and the emitted patch is byte-identical to the
+# pre-feature build.
+OBJECT_BASIN_TRENCH = (
+    _os.environ.get("O4_OBJECT_BASIN_TRENCH", "1") == "1")
+
+# Feature B, W1b — DECK-FLUSH deck-end pins for road-carried overpasses
+# (owner ruling 2026-07-31: "all the bridges you highlighted are above
+# ground bridges … they just need to be set so their top edge (the road
+# deck) at either end is flush with grade").  DEFAULT ON per the ruling.
+#
+# A ``road_carried`` span already takes no causeway, no corridor and no
+# trench — the road machinery owns the crossing — but it also took no
+# PINS, so nothing made the terrain meet the deck where it lands.  This
+# gate adds exactly those two pins and nothing else.
+#
+# Pinning cannot build a false causeway: amendment A4's abutment test
+# refuses any structure without solid geometry reaching effective grade
+# within ABUTMENT_GRADE_SEARCH_RADIUS_M of BOTH deck ends, so every
+# surviving BridgeStructure has grounded abutments by construction.
+#
+# With O4_OBJECT_BRIDGE_DECK_FLUSH=0 no road-carried span is pinned and
+# the emitted patch is byte-identical to the pre-feature build.
+OBJECT_BRIDGE_DECK_FLUSH = (
+    _os.environ.get("O4_OBJECT_BRIDGE_DECK_FLUSH", "1") == "1")
+
+# W1b's EMITTER — the bridge ramp (owner ruling 2026-07-31: "a bridge
+# ramp, that follows a road and just ramps up to the object, rather than
+# down to it like a tunnel").  DEFAULT ON per the ruling.
+#
+# Deck-end pinning alone cannot satisfy the flush ruling for a span
+# standing in unpaved ground — there is no pavement ring to pin (OTHH:
+# nearest pinnable shape 139-790 m from the six deck ends).  This emits
+# the terrain instead: the surface road out of each deck end is ramped UP
+# to the deck-end elevation under a grade-capped FILL envelope.
+#
+# The grade cap is TUNNEL_RAMP_MAX_GRADE — one navigable-ramp number for
+# both directions, so a bridge ramp and a tunnel ramp can never drift
+# apart.  With O4_OBJECT_BRIDGE_RAMP=0 no ramp quad is born and the
+# emitted patch is byte-identical to the pre-feature build.
+OBJECT_BRIDGE_RAMP = (
+    _os.environ.get("O4_OBJECT_BRIDGE_RAMP", "1") == "1")
+
+# Ramp chain step (m) along the road, and the full width of the ramp
+# surface.  The step matches the tunnel-portal chain's granularity; the
+# width is one carriageway — the ramp carries the road the bridge
+# carries, not the whole crossing opening.
+BRIDGE_RAMP_STEP_M = 10.0
+BRIDGE_RAMP_WIDTH_M = 16.0
+
+# A ramp never runs further than this even if the grade cap asks for it
+# (a 20 m deck end at 4 % would otherwise walk 500 m down the road).
+BRIDGE_RAMP_MAX_LENGTH_M = 250.0
+
+# Below this rise the deck end is already flush and a ramp would be a
+# no-op plate.  Same order as GROUND_CONTACT_TOLERANCE_M.
+BRIDGE_RAMP_MIN_RISE_M = 0.5
 
 # Amendment A1: the tunnel-trench mesh floor sits this far (m) BELOW the
 # OBJ8 road deck the object renders.  The deck carries the visible road;

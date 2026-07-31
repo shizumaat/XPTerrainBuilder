@@ -3236,3 +3236,158 @@ class TestPortalCollarCoverage:
         collars = [shape for shape in layout.shapes
                    if shape.ref == "object_tunnel_portal_collar"]
         assert len(collars) == 2
+
+
+# ---------------------------------------------------------------------------
+# W1b — the deck-flush outcome (owner ruling 2026-07-31)
+# ---------------------------------------------------------------------------
+
+def _groundside_rect_across_start_abutment() -> BuiltShape:
+    """Landside pavement straddling the START abutment, the shape a road
+    overpass actually lands on.  Same geometry as the junction rect above
+    so the two are directly comparable; only the role differs."""
+    from auto_patch.layout import ROLE_GROUNDSIDE_PAVEMENT
+
+    polygon = Polygon([(-30.0, -5.0), (30.0, -5.0), (30.0, 5.0),
+                       (-30.0, 5.0)])
+    return BuiltShape(polygon=polygon, role=ROLE_GROUNDSIDE_PAVEMENT,
+                      ref="G1", node_altitudes=[150.0] * 5)
+
+
+class TestDeckFlushPins:
+    """A road-carried overpass takes deck-end pins and nothing else.
+
+    Before W1b, ``road_carried`` meant "no pins, no causeway, no
+    corridor" — so nothing made the terrain meet the deck where it
+    lands, which is the whole of the owner's report.  Deck-flush adds
+    exactly the two end pins.
+    """
+
+    def _road_carried_layout(self, monkeypatch):
+        """A bridge with NO taxi/truck route or airside pavement on its
+        deck, landing on groundside pavement — ``_bridge_is_road_carried``
+        reads True because groundside is not a crossing role."""
+        layout = _gate_on_layout_with_bridge(monkeypatch, _bridge())
+        layout.shapes.append(_groundside_rect_across_start_abutment())
+        return layout
+
+    def test_road_carried_span_is_partitioned_as_such(self, monkeypatch):
+        layout = self._road_carried_layout(monkeypatch)
+        corridor, _suppress, _refused, road_carried, _portals = (
+            bridges._partition_bridges_for_corridors(
+                getattr(
+                    layout,
+                    bridges._OBJECT_BRIDGE_CLASSIFICATION_ATTRIBUTE,
+                ),
+                layout,
+            )
+        )
+        assert not corridor and len(road_carried) == 1
+
+    def test_deck_flush_pins_the_groundside_landing(self, monkeypatch):
+        """THE RULING.  The deck end meets the landside pavement it
+        lands on — which the airside-only pin set could never reach."""
+        monkeypatch.setattr(config, "OBJECT_BRIDGE_DECK_FLUSH", True)
+        layout = self._road_carried_layout(monkeypatch)
+        pinned = bridges.insert_bridge_deck_end_pins(layout, None, 36, -87)
+        assert pinned >= 2, "both long-edge crossings must be pinned"
+
+    def test_gate_off_restores_the_pre_ruling_zero(self, monkeypatch):
+        """Byte-identity claim for O4_OBJECT_BRIDGE_DECK_FLUSH=0."""
+        monkeypatch.setattr(config, "OBJECT_BRIDGE_DECK_FLUSH", False)
+        layout = self._road_carried_layout(monkeypatch)
+        assert bridges.insert_bridge_deck_end_pins(
+            layout, None, 36, -87) == 0
+
+    def test_groundside_widening_is_scoped_to_deck_flush(self, monkeypatch):
+        """A CORRIDOR span keeps the airside-only set: adding groundside
+        pavement at its abutment must change nothing.  Otherwise the
+        widening would leak into every airside bridge on the field."""
+        monkeypatch.setattr(config, "OBJECT_BRIDGE_DECK_FLUSH", True)
+        without = _gate_on_layout_with_bridge(monkeypatch, _bridge())
+        without.shapes.append(_junction_rect_across_start_abutment())
+        airside_only = bridges.insert_bridge_deck_end_pins(
+            without, None, 36, -87)
+
+        with_groundside = _gate_on_layout_with_bridge(monkeypatch, _bridge())
+        with_groundside.shapes.append(
+            _junction_rect_across_start_abutment())
+        with_groundside.shapes.append(
+            _groundside_rect_across_start_abutment())
+        both = bridges.insert_bridge_deck_end_pins(
+            with_groundside, None, 36, -87)
+
+        assert airside_only >= 2
+        assert both == airside_only, (
+            "groundside pavement must not be pinned for a corridor span"
+        )
+
+    def test_pin_role_sets(self):
+        from auto_patch.layout import ROLE_GROUNDSIDE_PAVEMENT
+
+        assert ROLE_GROUNDSIDE_PAVEMENT not in bridges.bridge_pin_roles()
+        assert ROLE_GROUNDSIDE_PAVEMENT in bridges.bridge_pin_roles(
+            include_groundside=True)
+        # The airside set is untouched by the widening.
+        assert bridges.bridge_pin_roles() <= bridges.bridge_pin_roles(
+            include_groundside=True)
+
+
+class TestBridgeRampFillLaw:
+    """The grade-capped FILL envelope — the mirror of the OLS road cut.
+
+    ``z(s) = max(ground(s), deck_end - grade * s)``.  Two properties make
+    it a ramp rather than the linear blend the tunnel corridor uses:
+    it never cuts below the DEM, and its descent is capped.
+    """
+
+    @staticmethod
+    def _profile(deck_end, grounds, step, grade):
+        return [
+            max(ground, deck_end - grade * (index * step))
+            for index, ground in enumerate(grounds)
+        ]
+
+    def test_never_cuts_below_the_ground(self):
+        """A rise between the deck end and the ramp's end must not be
+        dug through — the linear blend to the far ground would."""
+        deck_end = 1.0
+        grounds = [0.0, 0.0, 6.0, 0.0, 0.0]      # a knoll at station 2
+        profile = self._profile(deck_end, grounds, 10.0, 0.04)
+        assert all(z >= g - 1e-9 for z, g in zip(profile, grounds))
+        linear = [
+            (1.0 - i / 4.0) * deck_end + (i / 4.0) * grounds[i]
+            for i in range(5)
+        ]
+        assert linear[2] < grounds[2], (
+            "the tunnel-corridor blend digs through the knoll — the "
+            "reason the ramp needs its own law"
+        )
+
+    def test_descent_is_grade_capped(self):
+        grade, step = 0.04, 10.0
+        grounds = [0.0] * 40
+        profile = self._profile(10.0, grounds, step, grade)
+        for near, far in zip(profile, profile[1:]):
+            assert (near - far) <= grade * step + 1e-9
+
+    def test_anchored_exactly_on_the_deck_end(self):
+        profile = self._profile(3.0, [0.0] * 10, 10.0, 0.04)
+        assert profile[0] == pytest.approx(3.0)
+
+    def test_reaches_the_ground_and_stays(self):
+        """Past the point where the cap has shed the whole rise the ramp
+        is the ground — no plate hovering over terrain."""
+        grade, step, deck_end = 0.04, 10.0, 1.2
+        profile = self._profile(deck_end, [0.0] * 12, step, grade)
+        settled = deck_end / grade          # 30 m
+        for index, z in enumerate(profile):
+            if index * step > settled:
+                assert z == pytest.approx(0.0)
+
+    def test_config_defaults_are_sane(self):
+        assert config.OBJECT_BRIDGE_RAMP in (True, False)
+        assert config.BRIDGE_RAMP_MIN_RISE_M > 0.0
+        assert config.BRIDGE_RAMP_MAX_LENGTH_M > config.BRIDGE_RAMP_STEP_M
+        # One navigable-ramp number shared with the tunnel ramp.
+        assert config.TUNNEL_RAMP_MAX_GRADE > 0.0

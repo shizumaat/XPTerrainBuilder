@@ -1506,6 +1506,34 @@ def _gather_portal_walks(
         # whole (user 2026-07-04, CYUL runway-24 end).
         if system_veto.get(tw_id, False):
             _n_adj_skip += 1
+            # NAME THE VETOED WAY (plan item W4a, owner 2026-07-31: the
+            # 8th OTHH tunnel "should be one cutout that exposes the
+            # whole below grade area").  The aggregate count below says
+            # only THAT something was skipped — it cannot be flown to,
+            # measured, or matched against the pack, so the ruling had
+            # nowhere to land.  Verbosity 1 because a silent skip is
+            # this project's classic failure mode.  Reports the way's
+            # own centroid and end-to-end extent in metres.
+            try:
+                _veto_pts = [nodes_m[_nid] for _nid in t_nrefs
+                             if _nid in nodes_m]
+                if _veto_pts:
+                    _veto_x = sum(p[0] for p in _veto_pts) / len(_veto_pts)
+                    _veto_y = sum(p[1] for p in _veto_pts) / len(_veto_pts)
+                    _veto_span = math.hypot(
+                        _veto_pts[-1][0] - _veto_pts[0][0],
+                        _veto_pts[-1][1] - _veto_pts[0][1])
+                    _veto_lat, _veto_lon = meters_to_lat_lon(
+                        _veto_x, _veto_y)
+                    UI.vprint(
+                        1,
+                        f"  [pav-builder] tunnel way {tw_id} "
+                        f"({hw or t_tags.get('railway') or '?'}) VETOED — "
+                        f"adjacent/crossing road; {len(t_nrefs)} node(s), "
+                        f"{_veto_span:.0f} m end-to-end, centre "
+                        f"{_veto_lat:.6f},{_veto_lon:.6f}")
+            except (KeyError, IndexError, ZeroDivisionError, _GEOM_EXC):
+                pass
             continue
         for portal_idx in (0, len(t_nrefs) - 1):
             portal_nid = t_nrefs[portal_idx]
@@ -4991,19 +5019,51 @@ def _partition_bridges_for_corridors(classification, layout=None):
     return corridor, suppress, refused, road_carried, tunnel_portals
 
 
-def _cut_pavement_over_hard_deck(layout, footprint) -> int:
-    """Ruling R8 flush seating: cut every taxi/junction/apron/service
-    pavement shape by a genuine ``ATTR_hard_deck`` span footprint — the
-    object sits flush and carries the drivable surface between the
-    abutments (the pattern the KBNA author already uses in the source;
-    auto_patch rebuilds pavement from centerlines and must repeat the
-    cut).  Solved per-vertex values on the surviving pieces are
-    preserved by nearest-neighbour resampling (the boundary-cut pattern
-    above).  Returns the number of shapes cut."""
-    from .layout import ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION
-    cut_roles = _BRIDGE_PIN_ROLES | {
-        ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION,
-    }
+def pavement_cut_roles(include_groundside: bool = False) -> frozenset:
+    """The shape roles a footprint cut removes.
+
+    The base set is R8's: airside pavement plus service roads/junctions.
+    ``include_groundside`` adds LANDSIDE pavement, which ruling R13 needs
+    and R8 does not — a hard deck seats flush in the airside network,
+    while an open pit can sit anywhere, and at OTHH two of the six
+    drainage basins are buried by groundside pavement rather than apron
+    (Drainage_02 100 % of its body, Drainage_06 4 155 of 5 121 m²).
+    R8's scope is deliberately left alone."""
+    from .layout import (
+        ROLE_GROUNDSIDE_PAVEMENT, ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION,
+    )
+    roles = _BRIDGE_PIN_ROLES | {ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION}
+    if include_groundside:
+        roles = roles | {ROLE_GROUNDSIDE_PAVEMENT}
+    return frozenset(roles)
+
+
+def cut_pavement_over_footprint(layout, footprint, cut_roles=None) -> int:
+    """Cut every pavement shape in ``cut_roles`` by an object footprint
+    that OWNS the surface there.  Solved per-vertex values on the
+    surviving pieces are preserved by nearest-neighbour resampling (the
+    boundary-cut pattern above).  Returns the number of shapes cut.
+
+    ``cut_roles`` defaults to :func:`pavement_cut_roles` with no
+    groundside — R8's historical scope.
+
+    Two rulings share this one cut — both are cases where leaving our
+    pavement in place would draw a surface the pack contradicts:
+
+    * **R8 flush seating** (hard decks, the caller below): a genuine
+      ``ATTR_hard_deck`` span carries the drivable surface between the
+      abutments and must sit flush, the pattern the KBNA author already
+      uses in the source (auto_patch rebuilds pavement from centerlines,
+      so it must repeat the cut).
+    * **R13 open pits** (``object_terrain_assembly``, passing the
+      groundside-inclusive set): a modelled hole open to the sky takes
+      the pavement with it — there is no deck to seat flush, and pavement
+      spanning the hole is what buried the OTHH drainage basins.
+
+    Everything else keeps ruling R2 (pavement always wins): a cosmetic
+    roof or deck stays under our pavement."""
+    if cut_roles is None:
+        cut_roles = pavement_cut_roles()
     n_cut = 0
     kept_shapes: list[BuiltShape] = []
     for shape in layout.shapes:
@@ -5765,14 +5825,34 @@ def _emit_object_sourced_bridge_corridors(
     return n_emitted, suppression_polygons, covered_polygons
 
 
-def _load_underpass_osm_road_lines(layout, to_meters):
-    """OSM big-road LineStrings (local meters) eligible to pass under a
+def _load_underpass_osm_road_lines(layout, to_meters,
+                                   include_small_roads=False):
+    """OSM road LineStrings (local meters) eligible to pass under a
     bridge — the same filter the legacy underpass emitter applies (skip
-    ways tagged ``bridge`` or ``tunnel``)."""
+    ways tagged ``bridge`` or ``tunnel``).
+
+    ``include_small_roads`` merges the airport small-roads layer in
+    (owner 2026-07-31: "OSM big or small roads should probably have the
+    data").  The underpass caller keeps the historical big-roads-only
+    set; the BRIDGE RAMP asks for both, because the roads a pack's
+    service bridges carry are routinely small roads and the big-roads
+    layer alone returned nothing at OTHH."""
     from .pipeline import _load_osm_big_roads
     nodes_raw, ways_raw = _load_osm_big_roads(
         layout.anchor[0], layout.anchor[1]
     )
+    nodes_raw = dict(nodes_raw or {})
+    ways_raw = list(ways_raw or [])
+    if include_small_roads:
+        try:
+            from .pipeline import _load_osm_small_roads
+            small_nodes, small_ways = _load_osm_small_roads(
+                layout.anchor[0], layout.anchor[1]
+            )
+            nodes_raw.update(small_nodes or {})
+            ways_raw.extend(small_ways or [])
+        except Exception:      # a missing small-roads cache is not fatal
+            pass
     if not ways_raw:
         return []
     nodes_meters: dict[str, tuple[float, float]] = {}
@@ -5808,7 +5888,8 @@ def _emit_corridor_for_footprint(
         footprint, floor_elevation, road_lines,
         road_width_m, ramp_step_m, approach_length_m,
         keep_out=None, crossing_union=None, emitted_registry=None,
-        outward=None, width_override_m=None):
+        outward=None, width_override_m=None, fill_grade=None,
+        ramp_ref=None):
     """Emit stepped approach ramps from ``floor_elevation`` up to the DEM
     for each road crossing a bridge footprint (the under-deck trench
     plate itself is emitted by the caller as the FULL footprint, stage
@@ -5891,6 +5972,8 @@ def _emit_corridor_for_footprint(
                 emitted_registry=emitted_registry,
                 refuse_inverted=(outward is not None),
                 weld_edge=weld_edge,
+                fill_grade=fill_grade,
+                ramp_ref=ramp_ref,
             ):
                 emitted = True
     return emitted
@@ -5986,7 +6069,7 @@ def _emit_corridor_ramp_chain(
         layout, dem, tile_lat, tile_lon, meters_to_lat_lon,
         walk, walk_length, floor_elevation, half_width, ramp_step_m,
         keep_out=None, emitted_registry=None, refuse_inverted=False,
-        weld_edge=None):
+        weld_edge=None, fill_grade=None, ramp_ref=None):
     """Step ``walk`` from the bridge edge (``floor_elevation``) out to the
     DEM in ``ramp_step_m`` increments, emitting one sloped
     ``ROLE_TUNNEL_RAMP`` quad per step.  Returns True when any quad was
@@ -6108,9 +6191,29 @@ def _emit_corridor_ramp_chain(
         if ground is None:
             usable_stations = index
             break
-        fraction = stations[index] / walk_length
-        elevations.append(
-            (1.0 - fraction) * floor_elevation + fraction * ground)
+        if fill_grade is not None:
+            # BRIDGE-RAMP law (owner ruling 2026-07-31): a grade-capped
+            # FILL envelope anchored on the deck end —
+            #     z(s) = max(ground(s), deck_end − grade · s)
+            # the mirror of ``ols._road_regrade_profile``'s cut envelope
+            # (that one takes ``min`` of ``bound + grade·|s−t|``).  With
+            # a SINGLE anchor the two-pass forward/backward sweep the OLS
+            # version needs collapses to this one expression, and the
+            # ``max`` against the ground is what makes it fill-only: the
+            # ramp descends at the cap until the terrain comes up to meet
+            # it and never cuts below the DEM on the way.
+            #
+            # The default law below is a LINEAR blend to the far ground,
+            # which is right for a tunnel corridor (both ends are ours)
+            # and wrong here — it would dig through any rise between the
+            # deck end and the ramp's end.
+            elevations.append(
+                max(ground, floor_elevation - fill_grade * stations[index])
+            )
+        else:
+            fraction = stations[index] / walk_length
+            elevations.append(
+                (1.0 - fraction) * floor_elevation + fraction * ground)
         left_corners.append((point_x + normal_x * half_width,
                              point_y + normal_y * half_width))
         right_corners.append((point_x - normal_x * half_width,
@@ -6190,7 +6293,7 @@ def _emit_corridor_ramp_chain(
                     layout.shapes.append(BuiltShape(
                         polygon=polygon,
                         role=ROLE_TUNNEL_RAMP,
-                        ref="object_bridge_approach",
+                        ref=ramp_ref or "object_bridge_approach",
                         altitude_high=round(
                             max(elevation_near, elevation_far), 1),
                         altitude_low=round(
@@ -6199,7 +6302,7 @@ def _emit_corridor_ramp_chain(
                     layout.shapes.append(BuiltShape(
                         polygon=polygon,
                         role=ROLE_TUNNEL_RAMP,
-                        ref="object_bridge_approach",
+                        ref=ramp_ref or "object_bridge_approach",
                         altitude=round(
                             0.5 * (elevation_near + elevation_far), 1)))
                 if emitted_registry is not None:
@@ -6225,6 +6328,27 @@ _BRIDGE_PIN_ROLES = frozenset({
     ROLE_SECONDARY_PARALLEL, ROLE_STUB, ROLE_CROSS_CONNECTOR,
     ROLE_APRON, ROLE_JUNCTION,
 })
+
+
+def bridge_pin_roles(include_groundside: bool = False) -> frozenset:
+    """The shape roles a bridge deck-end pin may attach to.
+
+    The base set is the solved AIRSIDE network above.  ``include_
+    groundside`` adds LANDSIDE pavement, which W1b's deck-flush pins need
+    and the airside pin law does not — the same split ruling R13 made for
+    :func:`pavement_cut_roles`, and copied from it deliberately.
+
+    An airside deck meets taxiways and aprons, so the base set is
+    complete for it.  A ROAD-carried overpass generally does not: OTHH's
+    Bridge_01 lands on the main terminal's groundside pavement, and with
+    the base set its deck ends have nothing to pin to — the owner's
+    "flush with grade" would silently do nothing.  Owner ruling
+    2026-07-31: bridges MAY pin groundside."""
+    from .layout import ROLE_GROUNDSIDE_PAVEMENT
+
+    if not include_groundside:
+        return _BRIDGE_PIN_ROLES
+    return frozenset(_BRIDGE_PIN_ROLES | {ROLE_GROUNDSIDE_PAVEMENT})
 
 # A ring vertex within this distance (m) of an abutment line counts as
 # lying ON it (inserted crossings are exact intersections; pre-existing
@@ -6503,17 +6627,78 @@ def insert_bridge_deck_end_pins(layout, dem, tile_lat, tile_lon) -> int:
     No-op without a cached classification (gate off).  Returns the number
     of pinned vertices; abutment ends that pin NO vertex (pavement cut
     short of the abutment) are logged — the analytic causeway/approach
-    emitters own that gap and take the same pin value (audited by W-V)."""
+    emitters own that gap and take the same pin value (audited by W-V).
+
+    W1b — THE DECK-FLUSH OUTCOME (owner ruling 2026-07-31, ``config.
+    OBJECT_BRIDGE_DECK_FLUSH``).  ``road_carried`` spans are pinned here
+    too.  Such a span already takes no causeway, no corridor and no
+    trench — the road machinery owns the crossing — but it took no pins
+    either, so nothing made the terrain meet its deck where it lands;
+    that is the whole of the owner's report, and at OTHH it is where all
+    three of the pack's road bridges end up.  Pinning adds ONLY the two
+    end values: no causeway plate, no corridor, no trench, because those
+    all read the ``corridor`` set and this set is not it.
+
+    IMPLEMENTATION NOTE — smaller than the plan's letter, deliberately.
+    The plan asked for a NEW partition outcome beside the existing four.
+    Measured, the outcome already exists: ``road_carried`` means exactly
+    "no causeway, no corridor, no trench", which is three quarters of the
+    deck-flush contract, and every one of its consumers wants that
+    unchanged.  What was missing was its pins.  A sixth return value that
+    always equalled an existing one would have churned fourteen unpack
+    sites to carry no information.
+
+    Deck-flush pins may attach to GROUNDSIDE pavement (owner ruling: a
+    bridge may pin groundside); airside pins keep the airside-only set.
+
+    ⚠ AND THAT WIDENING IS NOT A CONVENIENCE — IT IS THE ONLY THING THAT
+    CAN EVER FIRE HERE.  A road-carried span takes an AIRSIDE deck-end
+    pin never, by construction, at any airport.  Proof:
+    ``_bridge_is_road_carried`` returns True exactly when no shape whose
+    role is in ``_BRIDGE_PIN_ROLES | {service road, service junction}``
+    intersects ``deck footprint buffered by BRIDGE_ABUTMENT_PIN_CAPTURE_
+    BAND_M``.  An abutment line lies ON the deck footprint edge, so every
+    shape within the capture band of that line is inside the same
+    buffered footprint.  Any airside shape close enough to pin would
+    therefore have made the span NOT road-carried in the first place.
+    ``ROLE_GROUNDSIDE_PAVEMENT`` is the one role in the pin set that is
+    absent from the road-carried test, so it is the sole escape.
+
+    Measured 2026-07-31, and the result is ZERO pins at both airports
+    tested: at OTHH the nearest groundside pavement is 139-790 m from the
+    six deck ends (nearest ANY pinnable role: 139 m), at EGLL likewise
+    for 4.obj.  These bridges stand in open ground the patch does not
+    pave.  The feature is correct and inert there; making the owner's
+    ruling visible at OTHH needs terrain EMITTED at the deck ends, not a
+    pin on a pavement ring that does not exist."""
     classification = _object_bridge_classification(layout)
     if classification is None:
         return 0
     from .grade_law import bridge_deck_end_pin_elevation_m
-    corridor_bridges, _suppress, _refused, _road_carried, _portals = (
+    corridor_bridges, _suppress, _refused, road_carried, _portals = (
         _partition_bridges_for_corridors(classification, layout)
     )
+    deck_flush_bridges = (
+        list(road_carried) if _CFG.OBJECT_BRIDGE_DECK_FLUSH else []
+    )
+    deck_flush_ids = {id(bridge) for bridge in deck_flush_bridges}
+    airside_roles = bridge_pin_roles()
+    groundside_roles = bridge_pin_roles(include_groundside=True)
     capture_band = float(_CFG.BRIDGE_ABUTMENT_PIN_CAPTURE_BAND_M)
     total_pinned = 0
-    for bridge in corridor_bridges:
+    if deck_flush_bridges:
+        UI.vprint(
+            1,
+            f"   [object-bridge] deck-flush: {len(deck_flush_bridges)} "
+            "road-carried span(s) take deck-end pins (no causeway, no "
+            "corridor, no trench)",
+        )
+    for bridge in list(corridor_bridges) + deck_flush_bridges:
+        pin_roles = (
+            groundside_roles
+            if id(bridge) in deck_flush_ids
+            else airside_roles
+        )
         datum = _bridge_datum_elevation_m(bridge, dem, tile_lat, tile_lon)
         if datum is None:
             # Verbosity 1 ALWAYS: a silent skip here is the project's
@@ -6536,7 +6721,7 @@ def insert_bridge_deck_end_pins(layout, dem, tile_lat, tile_lon) -> int:
             pin_value = bridge_deck_end_pin_elevation_m(datum, end_y)
             pinned_here = 0
             for shape_index, shape in enumerate(list(layout.shapes)):
-                if shape.role not in _BRIDGE_PIN_ROLES:
+                if shape.role not in pin_roles:
                     continue
                 if shape.polygon is None or shape.polygon.is_empty:
                     continue
@@ -6562,6 +6747,19 @@ def insert_bridge_deck_end_pins(layout, dem, tile_lat, tile_lon) -> int:
                     f"{pin_value:.2f} m (end {end_index}) for "
                     f"{bridge.object_resources}",
                 )
+            elif id(bridge) in deck_flush_ids:
+                # A deck-flush span has NO causeway plate to fall back
+                # on, so a zero-pin end here means the ruling did nothing
+                # at that end and the reason must say so honestly rather
+                # than name a plate that was never born.
+                UI.vprint(
+                    1,
+                    "   [object-bridge] ZERO deck-flush pins at end "
+                    f"{end_index} of {bridge.object_resources} (no "
+                    f"airside or groundside pavement ring within "
+                    f"{capture_band:.0f} m) — the deck end is NOT made "
+                    f"flush ({pin_value:.2f} m intended)",
+                )
             else:
                 UI.vprint(
                     1,
@@ -6573,6 +6771,220 @@ def insert_bridge_deck_end_pins(layout, dem, tile_lat, tile_lon) -> int:
                 )
             total_pinned += pinned_here
     return total_pinned
+
+
+def _bridge_ramp_road_lines(bridge, road_networks, to_meters, reach_m):
+    """Road centrelines within ``reach_m`` of a deck, as local-meter
+    LineStrings, from the pack's own DSF road networks.
+
+    Deliberately NOT :func:`_draped_road_centerlines_meters`, which the
+    under-deck corridor uses.  That one keeps only FULLY DRAPED segments
+    crossing the deck footprint — right for "which road passes beneath
+    this bridge", wrong for "which road does this bridge CARRY".  The
+    carried road is elevated over the span by construction, so the drape
+    filter discards exactly the road the ramp must follow (measured at
+    OTHH: 0 fully-draped segments on Bridge_04's and Bridge_05's decks,
+    yet 1-2 segments within 25 m of every deck end).
+
+    The on-deck portion is not a hazard here: the caller splits these
+    lines by the classifier-owned crossing union before walking, so only
+    the pieces OUTSIDE the deck — the approaches, where the road comes
+    back down to the ground — are ever ramped."""
+    if bridge.deck_polygon is None or not road_networks:
+        return []
+    from .object_terrain_features import frame_polygon_to_longitude_latitude
+    try:
+        reach = bridge.deck_polygon.buffer(reach_m)
+    except _GEOM_EXC:
+        return []
+    if reach.is_empty:
+        return []
+    reach_longitude_latitude = frame_polygon_to_longitude_latitude(
+        reach, bridge.frame_origin_longitude_latitude
+    )
+    if reach_longitude_latitude.geom_type == "MultiPolygon":
+        reach_longitude_latitude = max(
+            reach_longitude_latitude.geoms,
+            key=lambda geometry: geometry.area,
+        )
+    ring = list(reach_longitude_latitude.exterior.coords)
+    lines: list[LineString] = []
+    seen: set = set()
+    for network in road_networks:
+        for segment in dsf_road_network.segments_crossing(network, ring):
+            points = [
+                to_meters(point.longitude, point.latitude)
+                for point in segment.shape_points
+            ]
+            if len(points) < 2:
+                continue
+            key = (round(points[0][0], 2), round(points[0][1], 2),
+                   round(points[-1][0], 2), round(points[-1][1], 2))
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                line = LineString(points)
+            except _GEOM_EXC:
+                continue
+            if not line.is_empty and line.length >= 5.0:
+                lines.append(line)
+    return lines
+
+
+def emit_bridge_ramp_shapes(layout, dem, tile_lat, tile_lon) -> int:
+    """W1b's emitter — the BRIDGE RAMP (owner ruling 2026-07-31).
+
+    *"This is a bridge ramp, that follows a road and just ramps up to the
+    object, rather than down to it like a tunnel."*
+
+    Deck-end PINNING alone is provably inert for a road-carried span
+    (see :func:`insert_bridge_deck_end_pins`): the only pinnable role it
+    can ever reach is groundside pavement, and at OTHH the nearest is
+    139-790 m from the six deck ends.  These bridges stand in open ground
+    the patch does not pave, so terrain has to be EMITTED to meet them.
+
+    The ramp follows the surface road out of each deck end and climbs to
+    the deck-end elevation under a grade-capped FILL envelope — the
+    mirror of the OLS road cut the owner named, and the inverse of a
+    tunnel ramp, which descends from grade to a floor.  Reuses the proven
+    corridor-ramp chain verbatim (shared facing edges, keep-out,
+    cross-chain overlap registry, [H,L,L,H] corner order): only the
+    elevation law differs, passed as ``fill_grade``.
+
+    Returns the number of spans that emitted at least one ramp."""
+    if not _CFG.OBJECT_BRIDGE_RAMP:
+        return 0
+    classification = _object_bridge_classification(layout)
+    if classification is None:
+        return 0
+    from .grade_law import bridge_deck_end_pin_elevation_m
+
+    _corridor, _suppress, _refused, road_carried, _portals = (
+        _partition_bridges_for_corridors(classification, layout)
+    )
+    if not road_carried:
+        return 0
+    to_meters, meters_to_lat_lon = _local_meter_projections(layout.anchor)
+    road_networks = _object_bridge_road_networks(layout)
+    osm_road_lines = _load_underpass_osm_road_lines(
+        layout, to_meters, include_small_roads=True)
+    grade = float(_CFG.TUNNEL_RAMP_MAX_GRADE)
+    ramp_step_m = float(_CFG.BRIDGE_RAMP_STEP_M)
+    road_width_m = float(_CFG.BRIDGE_RAMP_WIDTH_M)
+    max_length_m = float(_CFG.BRIDGE_RAMP_MAX_LENGTH_M)
+    crossing_union = _classifier_owned_crossing_union(layout)
+    emitted_registry: list = []
+    n_spans = 0
+    for bridge in road_carried:
+        datum = _bridge_datum_elevation_m(bridge, dem, tile_lat, tile_lon)
+        if datum is None:
+            UI.vprint(
+                1,
+                "   [object-bridge] bridge ramp: no datum for "
+                f"{bridge.object_resources} — skipped",
+            )
+            continue
+        footprint = _bridge_footprint_meters(bridge, to_meters)
+        if footprint is None or footprint.is_empty:
+            continue
+        centroid = footprint.centroid
+        # The pack's own DSF roads first — they are what the bridge
+        # CARRIES.  OSM big roads are the fallback for packs that model
+        # no road network of their own.
+        road_lines = _bridge_ramp_road_lines(
+            bridge, road_networks, to_meters, max_length_m
+        ) or osm_road_lines
+        if not road_lines:
+            UI.vprint(
+                1,
+                "   [object-bridge] bridge ramp: no road line within "
+                f"{max_length_m:.0f} m of {bridge.object_resources} — "
+                "no ramp emitted",
+            )
+            continue
+        span_emitted = False
+        for end_index, line in enumerate(
+                _abutment_lines_layout_meters(bridge, layout)):
+            end_y = (
+                bridge.deck_end_elevations_y_m[end_index]
+                if end_index < len(bridge.deck_end_elevations_y_m)
+                else bridge.deck_top_y_m
+            )
+            deck_end_elevation = bridge_deck_end_pin_elevation_m(
+                datum, end_y)
+            midpoint = line.interpolate(0.5, normalized=True)
+            outward_x = midpoint.x - centroid.x
+            outward_y = midpoint.y - centroid.y
+            norm = math.hypot(outward_x, outward_y)
+            if norm < 1e-6:
+                continue
+            outward = (outward_x / norm, outward_y / norm)
+            try:
+                latitude, longitude = meters_to_lat_lon(
+                    midpoint.x, midpoint.y)
+                ground = _sample_dem(
+                    dem, tile_lat, tile_lon, latitude, longitude)
+            except _GEOM_EXC:
+                ground = None
+            if ground is None or ground != ground:
+                continue
+            rise = deck_end_elevation - ground
+            if rise <= _CFG.BRIDGE_RAMP_MIN_RISE_M:
+                # The deck end already sits on the ground here; a ramp
+                # would be a no-op plate.  Logged, never silent.
+                UI.vprint(
+                    2,
+                    f"   [object-bridge] bridge ramp: end {end_index} of "
+                    f"{bridge.object_resources} rises {rise:.2f} m — "
+                    "already flush, no ramp",
+                )
+                continue
+            # The ramp is exactly long enough to shed the rise at the cap.
+            length_m = min(rise / grade, max_length_m)
+            # Source order per the owner (2026-07-31): the PACK's own
+            # roads first because they align best with the pack's own
+            # objects, OSM as the fallback — and the fallback is tried
+            # PER END, not per bridge, since a pack network can cover one
+            # approach and miss the other (measured: OTHH Bridge_04
+            # end 0 ramps from the DSF network, end 1 has no outward DSF
+            # piece at all).
+            sources = [road_lines]
+            if osm_road_lines and osm_road_lines is not road_lines:
+                sources.append(osm_road_lines)
+            if any(
+                _emit_corridor_for_footprint(
+                    layout, dem, tile_lat, tile_lon, meters_to_lat_lon,
+                    footprint, deck_end_elevation, source,
+                    road_width_m, ramp_step_m, length_m,
+                    crossing_union=crossing_union,
+                    emitted_registry=emitted_registry,
+                    outward=outward,
+                    fill_grade=grade,
+                    ramp_ref="object_bridge_ramp",
+                )
+                for source in sources
+            ):
+                span_emitted = True
+                UI.vprint(
+                    1,
+                    f"   [object-bridge] bridge ramp: end {end_index} of "
+                    f"{bridge.object_resources} climbs {rise:.2f} m over "
+                    f"{length_m:.0f} m at {grade * 100:.1f}% to "
+                    f"{deck_end_elevation:.2f} m",
+                )
+            else:
+                # Silent-zero rule: a road exists but no quad was born.
+                UI.vprint(
+                    1,
+                    f"   [object-bridge] bridge ramp: end {end_index} of "
+                    f"{bridge.object_resources} emitted NOTHING (rise "
+                    f"{rise:.2f} m, no outward road piece within reach) "
+                    "— the deck end is NOT made flush",
+                )
+        if span_emitted:
+            n_spans += 1
+    return n_spans
 
 
 def insert_bridge_profile_pins(layout, dem, tile_lat, tile_lon) -> int:
@@ -6881,7 +7293,7 @@ def build_bridge_layout_shapes(layout, dem, tile_lat, tile_lon):
       building pad mostly inside ANY classified bridge footprint is a
       stacking artifact and is removed, logged per pad.
     * **Ruling R8 flush seat**: pavement cut over a genuine hard deck
-      (``_cut_pavement_over_hard_deck``); a cosmetic deck keeps its
+      (``cut_pavement_over_footprint``); a cosmetic deck keeps its
       pavement (R2 pavement wins) and the trench carves around it.
     * **Trench** (:data:`layout.ROLE_BRIDGE_TRENCH`): the under-deck
       footprint inset 0.6 m (> the 0.5 m weld tolerance — the R2
@@ -8070,7 +8482,7 @@ def build_bridge_layout_shapes(layout, dem, tile_lat, tile_lon):
         # Ruling R8 flush seat (hard decks) / pavement wins (cosmetic).
         pavement_kept_union = None
         if bridge.hard_deck:
-            n_cut = _cut_pavement_over_hard_deck(layout, deck_box)
+            n_cut = cut_pavement_over_footprint(layout, deck_box)
             if n_cut:
                 UI.vprint(
                     1,

@@ -166,6 +166,30 @@ TUNNEL_ROOF_TOP_TOLERANCE_M = 0.5
 # measured.
 BRIDGE_MIN_DECK_AREA_M2 = 200.0
 
+# The AGL limb's SECOND above-grade gate, and the one that catches a LOW
+# bridge (owner ruling 2026-07-31, "all the bridges you highlighted are
+# above ground bridges").  The height cap above catches a structure that
+# TOWERS over grade — the EGKR control tower, OTHH Bridge_01 at +10.25 —
+# but it cannot catch a road bridge whose deck stands only a metre or two
+# up: OTHH Bridge_04 crests at +1.91, inside the 2.0 m cap, and was cut as
+# a tunnel.  A below-grade SHELL does not carry a deck's worth of surface
+# standing clear above grade; a bridge does — that is what a bridge is.
+# Measured on the installed packs, near-horizontal area at or above
+# +TUNNEL_ROOF_TOP_TOLERANCE_M:
+#   OTHH Bridge_04   1 650.6 m²   <- refused here (8x over the floor)
+#   EGLL Tunnel/7        0.0 m²   <- the only real AGL-limb tunnel today
+#   EGLL Tunnel/6        0.0 m²
+#   EGLL Tunnel/10     128.7 m²   <- kept, 1.55x under the floor
+# Tunnel/10's 128.7 m² is exactly the figure
+# TUNNEL_AGL_MAX_ABOVE_GRADE_HEIGHT_M's comment cites when it warns that
+# "an above-grade AREA test cannot do this job".  That warning is about a
+# FRACTION test — Tunnel/10 carries more near-horizontal area above grade
+# than below — and it stands.  An ABSOLUTE floor is a different test and
+# clears Tunnel/10 with margin.  The floor is the bridge-deck floor by
+# construction: the question being asked is literally "is there a deck up
+# there?", so there is one number, not two.
+TUNNEL_AGL_MAX_ABOVE_GRADE_DECK_AREA_M2 = BRIDGE_MIN_DECK_AREA_M2
+
 # Deck-top profile bin length along the bridge axis (spec section 3.1 as
 # amended by A2: a single deck plane cannot represent the KMCO/KDFW
 # rising-bridge class — ruling R9, the vertical split is derived).
@@ -440,6 +464,42 @@ BOWL_MAX_GROUND_CONTACT_FRACTION = 0.10
 # was actually pointing at.
 BOWL_MAX_AT_GRADE_BASE_SHARE = 0.10
 
+# ...OR — the OPEN-PIT limb (owner defect 2026-07-30, OTHH Aeroscape
+# ``Buildings/Dewatering Drainage/*``) — the structure has essentially
+# NOTHING above grade.  ``BOWL_MAX_GROUND_CONTACT_FRACTION`` cannot
+# recognize a shallow open basin: the ground band is ±1 m of grade, and
+# a 3.8 m pit with sloped batters necessarily has its own rim and upper
+# batter inside that band, so the SHALLOWER the pit the MORE it reads as
+# "ground contact" (measured at OTHH: Drainage_04 0.502, Drainage_05
+# 0.676, Drainage_06 0.546 — the deep −13 m Dewatering pair scores
+# 0.145/0.172 and already classified TRENCH_SPINE).  The signal a pit
+# cannot fake is the other side of grade: a bowl has no geometry ABOVE
+# it.  Measured above-grade face-area share is 0.000 for all six OTHH
+# basins (zero triangles above +1 m); the floor sits just off zero to
+# tolerate stray clutter welded into a pool.  This limb REPLACES only
+# the ground-contact term — the at-grade wall-base share, floor depth
+# and footprint-area gates below still all apply, and they are what
+# keep the ELLX/EGLL at-grade halls (base share 0.32-0.5) out.
+BOWL_MAX_ABOVE_GRADE_AREA_FRACTION = 0.02
+
+# Open-pit COMPONENT seeding (owner defect 2026-07-30, OTHH Drainage_03
+# and _05).  The pit rule above is a whole-STRUCTURE measure, and a pool
+# is not a structure: ``discover_object_pools`` groups by world-footprint
+# overlap, so at OTHH the Drainage_05 basin landed in one pool with the
+# entire Emiri Terminal complex (52 resources) and the merged frame
+# measured 0.944 above-grade area — the basin vanished into FLAT_CONFIRMED
+# while the geometrically identical Drainage_04, which happened to pool
+# alone, classified BOWL_UNDER_DECK.  This is exactly the mega-pool
+# dilution the round-5 work fixed for tunnels by classifying per
+# COMPONENT (``_below_grade_drivable_components``); these two constants
+# are the non-hard analogue of that seed.  A resource seeds a pit
+# component when its OWN authored geometry is a pit: nothing above the
+# ground band, and a floor at least PIT_SEED_MIN_DEPTH_M below it.  Both
+# come from ``_ResourceGeometryCache.evidence`` (already computed for the
+# pool pre-screen), so seeding costs no new geometry pass.
+PIT_SEED_MIN_DEPTH_M = 2.5
+PIT_SEED_MAX_ABOVE_GRADE_Y_M = GROUND_CONTACT_BAND_HALF_WIDTH_M
+
 # ...and the structure carries a below-grade interface level at least
 # this deep.  Round-5 calibration against the EGLL full-pack run: every
 # TRUE bowl measures −3.41 m or deeper (LFPG T1 shell −3.42, satellite
@@ -514,6 +574,21 @@ INTERFACE_BOWL_UNDER_DECK = "BOWL_UNDER_DECK"
 INTERFACE_TRENCH_SPINE = "TRENCH_SPINE"
 INTERFACE_INTERIOR_CUTOUT = "INTERIOR_CUTOUT"
 
+# ``TunnelStructure.terrain_feature`` values — which classifier produced
+# a trench record (see that field).
+TERRAIN_FEATURE_TUNNEL = "tunnel"
+TERRAIN_FEATURE_BASIN = "basin"
+
+# The ground-interface classes the basin-trench emitter carves
+# (``config.OBJECT_BASIN_TRENCH``).  INTERIOR_CUTOUT is deliberately NOT
+# here: ruling R10 cuts it strictly inside the structure's at-grade
+# perimeter, which is a different shape from the open trench this feature
+# emits, and it has no emitter yet.
+CARVED_BASIN_INTERFACE_CLASSES = (
+    INTERFACE_BOWL_UNDER_DECK,
+    INTERFACE_TRENCH_SPINE,
+)
+
 
 # ---------------------------------------------------------------------------
 # Emitted records (spec section 3.1)
@@ -567,6 +642,20 @@ class TunnelStructure:
     # sliver and the rest of the shell stayed buried (user 2026-07-18c,
     # in-sim).  The trench footprint unions this with deck and roof.
     solid_outline_footprint: Polygon | MultiPolygon | None = None
+    # Which below-grade terrain feature this record came from:
+    # :data:`TERRAIN_FEATURE_TUNNEL` (the feature-A classifier) or
+    # :data:`TERRAIN_FEATURE_BASIN` (a feature-C open pit adapted by
+    # ``object_terrain_assembly.basin_trench_structures``).  Both cut the
+    # same open trench under the same ``grade_law`` functions; the tag
+    # only names the emitted plates and log lines so an in-sim defect is
+    # traceable to the classifier that produced it.
+    terrain_feature: str = "tunnel"
+    # Ruling R13 (owner 2026-07-30): this trench TAKES THE PAVEMENT WITH
+    # IT — airside pavement over the body is cut instead of winning under
+    # R2.  Set only for open pits (``is_open_pit_interface``); a tunnel
+    # record leaves it False, so a roofed body keeps R2/R8 exactly as
+    # before (the roof object, not our terrain, is the surface there).
+    cuts_pavement: bool = False
 
 
 @dataclass(frozen=True)
@@ -787,6 +876,73 @@ class StructureGroundInterface:
     floor_y_m: float | None
     floor_is_bound_not_target: bool
     elevated_deck_above: bool
+    # Face-area share standing clear ABOVE the ground band — the
+    # open-pit limb of the bowl rule (see
+    # :data:`BOWL_MAX_ABOVE_GRADE_AREA_FRACTION`).  Defaulted so
+    # hand-constructed records in tests stay valid.
+    above_grade_area_fraction: float = 0.0
+
+
+def is_carved_basin_interface(interface: StructureGroundInterface) -> bool:
+    """Does the basin-trench feature cut terrain for this interface?
+
+    THE predicate, imported by both consumers so they can never drift
+    (the lockstep pattern ruling R1 sets for the trench law itself): the
+    classifier uses it to decide which interfaces join the ruling-R4
+    y-bake exclusion list, and
+    ``object_terrain_assembly.basin_trench_structures`` uses it to decide
+    which become trench records.  An interface excluded from the y-bake
+    but not carved — or carved but still y-baked — is exactly the
+    stacked terrain-to-object/object-to-terrain correction R4 forbids.
+
+    A carved interface is a BOWL_UNDER_DECK or TRENCH_SPINE
+    (:data:`CARVED_BASIN_INTERFACE_CLASSES`) that actually carries the
+    two things a cut needs: a below-grade footprint to cut, and a floor
+    strictly below grade to cut it to.
+    """
+    if interface.interface_class not in CARVED_BASIN_INTERFACE_CLASSES:
+        return False
+    footprint = interface.below_grade_footprint
+    if footprint is None or getattr(footprint, "is_empty", True):
+        return False
+    return interface.floor_y_m is not None and interface.floor_y_m < 0.0
+
+
+def is_open_pit_interface(interface: StructureGroundInterface) -> bool:
+    """Is this carved basin an OPEN pit — a hole with nothing of the
+    pack's own standing over it?
+
+    Ruling R13 (owner, 2026-07-30: "for below grade drainage objects, cut
+    a trench in the pavement") keys on THIS, deliberately NOT on
+    :func:`is_carved_basin_interface`.  Removing taxiable pavement is
+    only right where the modelled hole is open to the sky; every other
+    carved class keeps ruling R2's "pavement always wins", because
+    something the pack authored is the visible surface there:
+
+    * a :data:`INTERFACE_BOWL_UNDER_DECK` admitted by the amendment-A7
+      ground-contact limb — LFPG Terminal 1's drum floats over its sunken
+      floor, and the drum is what a walker sees;
+    * a :data:`INTERFACE_TRENCH_SPINE` — LFPG Terminal 2's halls sit at
+      grade over one continuous below-grade level (at OTHH: the
+      Dewatering pits pooled with their aux buildings and control posts).
+
+    (:data:`INTERFACE_INTERIOR_CUTOUT` never reaches here — ruling R10
+    forbids carving pavement outright, and ``is_carved_basin_interface``
+    already rejects it.)
+
+    The signal is the bowl rule's own open-pit limb, re-read off the
+    record: "essentially nothing above grade IS the pit signal"
+    (:data:`BOWL_MAX_ABOVE_GRADE_AREA_FRACTION`).  ``elevated_deck_above``
+    is deliberately NOT consulted — amendment A7 records it as a decoy
+    that a flat structure also raises (it happens to agree on all eight
+    OTHH records, which is why it earns no vote).
+    """
+    if not is_carved_basin_interface(interface):
+        return False
+    if interface.interface_class != INTERFACE_BOWL_UNDER_DECK:
+        return False
+    return (interface.above_grade_area_fraction
+            <= BOWL_MAX_ABOVE_GRADE_AREA_FRACTION)
 
 
 @dataclass(frozen=True)
@@ -1798,7 +1954,36 @@ def _agl_tunnel_seed_resources(
     offset at or below −:data:`TUNNEL_MIN_BELOW_GRADE_AGL_OFFSET_M`, real
     below-effective-grade horizontal deck area, and nothing standing more
     than :data:`TUNNEL_AGL_MAX_ABOVE_GRADE_HEIGHT_M` above grade (a shell
-    lives below the grade plane; a buried BUILDING towers over it)."""
+    lives below the grade plane; a buried BUILDING towers over it).
+
+    THE ABOVE-GRADE CAP IS JUDGED ON THE WHOLE STRUCTURE (owner ruling
+    2026-07-31, "all the bridges you highlighted are above ground
+    bridges").  It used to be read per RESOURCE, and a multi-part
+    structure could therefore be seeded by ONE low sub-object while the
+    rest of it towered overhead: measured at OTHH, Bridge_01 (12
+    resources, pool crest **+10.25 m**) and Bridge_04 (5 resources, crest
+    +1.91 m) were each seeded by a single ``*_LOD0_002.obj`` and cut as
+    tunnels — Bridge_01's trench then ran to −6.34 m and left its ramp
+    floating above the hole.  A structure that crests ten metres over
+    grade is not a below-grade shell, whatever one of its twelve parts
+    looks like.  The pool-wide floor on below-grade deck area travels
+    with it for the same reason (Bridge_04 carries 8 m² pool-wide against
+    the 25 m² gate).
+
+    A SINGLE-PLACEMENT structure is unaffected by the pool-wide reading —
+    pool equals resource — so every one-object AGL tunnel (the EGLL 6/7/10
+    shells, and the fixtures pinning them) reads as it did before it.
+
+    THE HEIGHT CAP ALONE CANNOT CATCH A LOW BRIDGE.  Bridge_04 crests at
+    +1.91 m, inside the 2.0 m cap, and its below-grade "deck" is the
+    UNDERSIDE of an at-grade slab: 1,022 m² of near-horizontal face between
+    −0.5 and −1.0 m, and 8.4 m² below −1.0 — slab thickness, not a floor.
+    Deepening the below-grade floor to catch that was measured and
+    REJECTED: at −2.0 m (the plan's candidate) EGLL Tunnel/7 falls to
+    19.4 m², under the 25 m² gate, and stops being a tunnel.  The gate that
+    separates them is the area standing clear ABOVE grade
+    (:data:`TUNNEL_AGL_MAX_ABOVE_GRADE_DECK_AREA_M2`): Bridge_04 1,650.6 m²
+    against Tunnel/7's 0.0 and Tunnel/10's 128.7."""
     placement_count: dict[str, int] = {}
     for placement in placements:
         placement_count[placement.resource_path] = (
@@ -1834,6 +2019,28 @@ def _agl_tunnel_seed_resources(
             highest_face_by_index.tolist(),
         )
     }
+    # Whole-structure gates (see the docstring): the tallest face, the deck
+    # area standing clear above grade, and the total below-grade deck area
+    # over EVERY part, not the seeding part.
+    structure_highest_face = (
+        float(frame.triangle_height_m.max())
+        if frame.triangle_count else -numpy.inf
+    )
+    structure_below_grade_area = float(
+        frame.triangle_area_m2[below_grade_mask].sum()
+    )
+    above_grade_deck_mask = (
+        frame.triangle_horizontality >= NEAR_HORIZONTAL_NORMAL_Y_MIN
+    ) & (frame.triangle_height_m >= TUNNEL_ROOF_TOP_TOLERANCE_M)
+    structure_above_grade_deck_area = float(
+        frame.triangle_area_m2[above_grade_deck_mask].sum()
+    )
+    if (structure_highest_face > TUNNEL_AGL_MAX_ABOVE_GRADE_HEIGHT_M
+            or structure_above_grade_deck_area
+            >= TUNNEL_AGL_MAX_ABOVE_GRADE_DECK_AREA_M2
+            or structure_below_grade_area
+            < TUNNEL_AGL_MIN_BELOW_GRADE_DECK_AREA_M2):
+        return set()
     return {
         placement.resource_path
         for placement in placements
@@ -2392,18 +2599,46 @@ def _classify_bridge(
             COSMETIC_BRIDGE_NAME_HINT in placement.resource_path.lower()
             for placement in placements
         )
+        grounds = (
+            frame.minimum_effective_height_m <= GROUND_CONTACT_TOLERANCE_M
+        )
+        if not name_hint or not grounds:
+            # Tested BEFORE any face pass: on a mega-pool frame each pass
+            # walks millions of triangles, and a structure failing these
+            # two can never be a cosmetic bridge whatever its faces say.
+            return None, None
         elevated_faces = [
             triangle
             for triangle in near_horizontal
             if triangle.height_m >= BRIDGE_DECK_CARRIED_MIN_HEIGHT_M
         ]
-        grounds = (
-            frame.minimum_effective_height_m <= GROUND_CONTACT_TOLERANCE_M
-        )
         if (
-            not name_hint
-            or not grounds
-            or sum(face.area_m2 for face in elevated_faces)
+            sum(face.area_m2 for face in elevated_faces)
+            < BRIDGE_MIN_DECK_AREA_M2
+        ):
+            # LOW-BRIDGE LIMB (owner ruling 2026-07-31: "all the bridges
+            # you highlighted are above ground bridges … they just need to
+            # be set so their top edge at either end is flush with
+            # grade").  The +2 m floor asks "is there a deck standing well
+            # ABOVE grade?", which is the wrong question for a road bridge
+            # that crosses at grade: measured at OTHH, Bridge_04 carries
+            # 0 m² above +2 m and Bridge_05 46 m² — yet 1 937 and 3 036 m²
+            # of deck at or above grade.  Bridge_01, the owner's headline
+            # case, carries 43 m² above +2 m against 6 333 m² of deck.
+            # Retry against the AT-GRADE band, which is what "flush with
+            # grade" means.
+            #
+            # STRICTLY ADDITIVE: the retry runs only when the +2 m set has
+            # already failed, so every structure that classifies today
+            # classifies identically (verified byte-for-byte on KBNA's two
+            # Murfreesboro cosmetic decks and every other installed pack).
+            elevated_faces = [
+                triangle
+                for triangle in near_horizontal
+                if triangle.height_m >= -GROUND_CONTACT_TOLERANCE_M
+            ]
+        if (
+            sum(face.area_m2 for face in elevated_faces)
             < BRIDGE_MIN_DECK_AREA_M2
         ):
             return None, None
@@ -2911,6 +3146,20 @@ def _classify_structure_ground_interface(
     ground_contact_fraction = (
         contact_area_total / total_face_area if total_face_area > 0 else 0.0
     )
+    # The open-pit signal (see BOWL_MAX_ABOVE_GRADE_AREA_FRACTION): face
+    # area standing clear ABOVE the ground band.  Same band half-width as
+    # the contact test, so the two partition the structure with the band
+    # itself shared: contact ∪ above ∪ below covers every triangle.
+    above_grade_area_total = float(
+        frame.triangle_area_m2[
+            frame.triangle_height_m > GROUND_CONTACT_BAND_HALF_WIDTH_M
+        ].sum()
+    )
+    above_grade_area_fraction = (
+        above_grade_area_total / total_face_area
+        if total_face_area > 0
+        else 0.0
+    )
     ground_contact_fraction_by_sector = [
         (
             float(contact_area_by_sector[index] / area_by_sector[index])
@@ -3061,7 +3310,25 @@ def _classify_structure_ground_interface(
             below_grade_footprint = enclosure.below_grade_hard_union
         floor_y_m = enclosure.hard_content_minimum_y_m
     elif (
-        ground_contact_fraction <= BOWL_MAX_GROUND_CONTACT_FRACTION
+        (
+            # The A7 limb: essentially no ground-contact geometry (LFPG
+            # T1's drum floats above its sunken floor)...
+            ground_contact_fraction <= BOWL_MAX_GROUND_CONTACT_FRACTION
+            # ...or the OPEN-PIT limb: essentially nothing above grade
+            # (the OTHH drainage basins, whose own rim IS the ground
+            # band — see BOWL_MAX_ABOVE_GRADE_AREA_FRACTION).  It YIELDS
+            # to a trench spine: the LFPG-T2 pattern (halls at grade over
+            # one continuous −7.5 m level) also has nothing above +1 m,
+            # and the trench branch below is its correct, narrower
+            # verdict.  The A7 ground-contact limb keeps its original
+            # precedence over trench — this limb only claims structures
+            # nothing else does.
+            or (
+                trench_level is None
+                and above_grade_area_fraction
+                <= BOWL_MAX_ABOVE_GRADE_AREA_FRACTION
+            )
+        )
         and at_grade_wall_base_share <= BOWL_MAX_AT_GRADE_BASE_SHARE
         and bowl_floor_level is not None
         and _structure_footprint_area()
@@ -3115,6 +3382,7 @@ def _classify_structure_ground_interface(
         floor_y_m=floor_y_m,
         floor_is_bound_not_target=floor_is_bound_not_target,
         elevated_deck_above=elevated_deck_above,
+        above_grade_area_fraction=above_grade_area_fraction,
     )
 
 
@@ -3146,6 +3414,60 @@ def _resources_with_triangles_near(
             frame.triangle_resource_indices[near_mask]
         ).tolist()
     }
+
+
+def _open_pit_components(
+    placements: Sequence[ObjectPlacement],
+    frame: _StructureFrame,
+    cache: _ResourceGeometryCache,
+) -> list[set[str]]:
+    """Open-pit candidate components inside one pool.
+
+    The non-hard analogue of :func:`_below_grade_drivable_components`, and
+    for the same reason (owner defect 2026-07-30, OTHH Drainage_03/_05): a
+    pool is a world-footprint overlap group, not a structure, so a basin
+    that happens to sit inside a terminal complex's footprint has its
+    whole-structure pit metrics averaged away by the terminal.  Feature A
+    solved this in round 5 by classifying per component; feature C never
+    did, and the identical Drainage_04 (pooled alone) and Drainage_05
+    (pooled with 52 Emiri Terminal resources) classified differently.
+
+    Seeds are resources whose OWN authored geometry is a pit — nothing
+    above the ground band, a floor at least
+    :data:`PIT_SEED_MIN_DEPTH_M` below it — read straight from
+    ``cache.evidence``, so this costs no geometry pass.  A terminal with a
+    basement never seeds: its roof is far above the band.  Seeds are then
+    joined into components by footprint proximity, the same union-find and
+    the same buffer the tunnel components use.
+    """
+    pit_resources: set[str] = set()
+    for placement in placements:
+        _has_hard, has_solid, minimum_vertex_y, maximum_vertex_y = (
+            cache.evidence(placement.resource_path)
+        )
+        if not has_solid:
+            continue
+        offset = placement.above_ground_level_metres
+        if offset + maximum_vertex_y > PIT_SEED_MAX_ABOVE_GRADE_Y_M:
+            continue
+        if offset + minimum_vertex_y > -PIT_SEED_MIN_DEPTH_M:
+            continue
+        pit_resources.add(placement.resource_path)
+    if not pit_resources:
+        return []
+    seed_footprints = _class_footprints_by_resource(
+        placements,
+        frame.origin_latitude,
+        frame.origin_longitude,
+        cache,
+        _FACE_CLASS_ALL,
+        restrict_resources=pit_resources,
+    )
+    if not seed_footprints:
+        return []
+    return _footprint_components(
+        seed_footprints, TUNNEL_COMPONENT_JOIN_BUFFER_M
+    )
 
 
 def _footprint_components(
@@ -3267,6 +3589,71 @@ def _below_grade_drivable_components(
     return attached_components
 
 
+def _cosmetic_bridge_components(
+    placements: Sequence[ObjectPlacement],
+    frame: _StructureFrame,
+    cache: _ResourceGeometryCache,
+) -> list[set[str]]:
+    """Cosmetic (hard-less) bridge candidate components inside one pool.
+
+    The name-hinted analogue of :func:`_hard_face_components`, and the
+    third instance of the same lesson (owner ruling 2026-07-31, the six
+    OTHH road bridges): a pool is a world-footprint OVERLAP group, not a
+    structure, so a bridge pooled with anything else has its whole-pool
+    metrics decided by that anything else.  Feature A fixed this for
+    tunnels in round 5 (:func:`_below_grade_drivable_components`),
+    feature C for basins on 2026-07-30 (:func:`_open_pit_components`);
+    the cosmetic bridge path still read the whole pool, and at OTHH that
+    cost every one of the owner's bridges:
+
+    * Bridge_01 pooled with 2 250 other placements, whose 57 299 wall
+      columns read the pool as a BUILDING — ``_classify_bridge`` was
+      never called on it at all;
+    * Bridge_02, _03 and _06 share one 239-placement pool, so the three
+      of them were classified as ONE structure whose minimum rotated
+      rectangle spans all three and ends in mid-air — duly refused as a
+      piered viaduct, a verdict about the merge rather than about any
+      bridge.
+
+    Seeds are resources that are name-hinted AND carry no hard triangle
+    anywhere, read from ``cache.evidence`` at no geometry cost.  The
+    hard-less requirement is :data:`COSMETIC_BRIDGE_NAME_HINT`'s own
+    standing law — a name must never gate a hard deck (the KMCO
+    ``puente`` objects are named in Spanish) — so nothing that reaches
+    the geometric deck path can be diverted here.  Seeds join into
+    components by footprint proximity, the same union-find and buffer the
+    hard path uses, which is what separates three bridges 10 m apart.
+    """
+    seed_resources: set[str] = set()
+    for placement in placements:
+        if (
+            COSMETIC_BRIDGE_NAME_HINT
+            not in placement.resource_path.lower()
+        ):
+            continue
+        has_hard, has_solid, _minimum_y, _maximum_y = cache.evidence(
+            placement.resource_path
+        )
+        if has_hard or not has_solid:
+            continue
+        seed_resources.add(placement.resource_path)
+    if not seed_resources:
+        return []
+    seed_footprints = _class_footprints_by_resource(
+        placements,
+        frame.origin_latitude,
+        frame.origin_longitude,
+        cache,
+        _FACE_CLASS_ALL,
+        restrict_resources=seed_resources,
+    )
+    if not seed_footprints:
+        return []
+    return _footprint_components(
+        seed_footprints, BRIDGE_COMPONENT_JOIN_BUFFER_M
+    )
+
+
 def _hard_face_components(
     placements: Sequence[ObjectPlacement],
     frame: _StructureFrame,
@@ -3294,28 +3681,37 @@ def _bridge_evidence_resources(
     placements: Sequence[ObjectPlacement],
     frame: _StructureFrame,
     cache: _ResourceGeometryCache,
+    face_class: int = _FACE_CLASS_HARD_NEAR_HORIZONTAL,
 ) -> set[str]:
     """The component plus every pool resource whose footprint intersects
-    the component's hard footprint buffered by the abutment search radius
+    the component's own footprint buffered by the abutment search radius
     — the grounding cladding the per-end test must see (EDDF's Tunnel_N
     trench walls belong to their Bridge_N deck).
 
-    A resource's footprint union intersects the buffered hard footprint
+    ``face_class`` selects which of the component's faces define that
+    footprint.  The default is the hard near-horizontal deck, which is
+    what a hard-path component is seeded on.  A COSMETIC component has no
+    hard face at all, so it passes :data:`_FACE_CLASS_ALL` — otherwise the
+    seed footprint is empty and the widening silently returns the bare
+    component, leaving the abutment test blind to the very cladding that
+    grounds it.
+
+    A resource's footprint union intersects the buffered seed footprint
     exactly when SOME face of it does, so membership is decided by a
     bulk per-triangle intersection test (bounding-box prefiltered) — no
     per-resource footprint unions are ever built here."""
-    component_hard = _class_footprints_by_resource(
+    component_seed = _class_footprints_by_resource(
         placements,
         frame.origin_latitude,
         frame.origin_longitude,
         cache,
-        _FACE_CLASS_HARD_NEAR_HORIZONTAL,
+        face_class,
         restrict_resources=component,
     )
-    if not component_hard:
+    if not component_seed:
         return set(component)
     try:
-        buffered = unary_union(list(component_hard.values())).buffer(
+        buffered = unary_union(list(component_seed.values())).buffer(
             ABUTMENT_GRADE_SEARCH_RADIUS_M
         )
     except (ValueError, _GEOS_EXCEPTION):
@@ -3600,6 +3996,7 @@ def classify_object_terrain_features(
     pack_root: str = "",
     epsilon_metres: float = STRUCTURE_GROUPING_EPSILON_M,
     split_level_terrain_enabled: bool = False,
+    basin_trench_enabled: bool = False,
 ) -> ClassificationResult:
     """Classify tunnels and bridges from placements and per-object geometry.
 
@@ -3833,7 +4230,67 @@ def classify_object_terrain_features(
                 )
             ).any()
         )
-        if not bridge_components and (
+        # Cosmetic bridges are classified per COMPONENT first, for the
+        # reason spelled out in _cosmetic_bridge_components: the whole-pool
+        # read let one pool's other 2 250 placements decide a bridge's
+        # verdict.  Where the pool IS the bridge the component plus its
+        # evidence widening is the same placement set, so the Murfreesboro
+        # class reads exactly as before.  When components exist there is
+        # NO whole-pool fallback — falling back would restore the merged
+        # frame whose bogus axis is the defect.
+        cosmetic_components = (
+            _cosmetic_bridge_components(
+                remaining_placements, remaining_frame, cache
+            )
+            if not bridge_components and remaining_cosmetic_possible
+            else []
+        )
+        for component in cosmetic_components:
+            evidence_resources = _bridge_evidence_resources(
+                component,
+                remaining_placements,
+                remaining_frame,
+                cache,
+                face_class=_FACE_CLASS_ALL,
+            )
+            component_placements = [
+                placement
+                for placement in remaining_placements
+                if placement.resource_path in evidence_resources
+            ]
+            if not component_placements:
+                continue
+            component_frame = _build_structure_frame(
+                component_placements, geometry_by_resource, cache
+            )
+            if component_frame.triangle_count == 0:
+                continue
+            if (
+                _wall_column_count(component_frame)
+                >= BUILDING_MIN_WALL_COLUMN_COUNT
+            ):
+                continue
+            bridge, refusal_reason = _classify_bridge(
+                component_placements,
+                component_frame,
+                pavement_frame_union,
+                mean_sea_level_placements,
+            )
+            if bridge is not None:
+                bridges.append(bridge)
+                consumed_resources |= set(bridge.object_resources)
+                for resource in bridge.object_resources:
+                    exclusions.append((pack_root, resource))
+            elif refusal_reason is not None:
+                refusals.append(
+                    RefusedStructure(
+                        object_resources=sorted(component),
+                        reason=refusal_reason,
+                    )
+                )
+                consumed_resources |= component
+
+        if not cosmetic_components and not bridge_components and (
             remaining_cosmetic_possible or remaining_hard_deck_possible
         ) and (
             _wall_column_count(remaining_frame)
@@ -3867,6 +4324,50 @@ def classify_object_terrain_features(
                     for placement in remaining_placements
                 }
 
+        # --- stage 2b: open-pit components (round-5 refinement, feature C)
+        # A basin pooled with a terminal complex has its pit metrics
+        # averaged away (OTHH Drainage_05 in the Emiri pool: 0.944
+        # above-grade area).  Classify pit components FIRST, on their own
+        # frames, and take the verdict only when it is one this feature
+        # actually carves — a component that measures FLAT is released
+        # back to the whole-pool pass below, unconsumed, so this can only
+        # ADD interfaces the pool pass would have diluted.  Gated with the
+        # adapter that consumes them.
+        if basin_trench_enabled:
+            for component in _open_pit_components(
+                pool.placements, frame, cache
+            ):
+                component_placements = [
+                    placement
+                    for placement in pool.placements
+                    if placement.resource_path in component
+                    and placement.resource_path not in consumed_resources
+                ]
+                if not component_placements:
+                    continue
+                component_frame = _build_structure_frame(
+                    component_placements, geometry_by_resource, cache
+                )
+                if component_frame.triangle_count == 0:
+                    continue
+                pit_interface = _classify_structure_ground_interface(
+                    component_placements,
+                    component_frame,
+                    _below_grade_hard_enclosure(component_frame),
+                    cache,
+                )
+                if pit_interface is None or not is_carved_basin_interface(
+                    pit_interface
+                ):
+                    continue
+                ground_interfaces.append(pit_interface)
+                consumed_resources |= {
+                    placement.resource_path
+                    for placement in component_placements
+                }
+                for resource in pit_interface.object_resources:
+                    exclusions.append((pack_root, resource))
+
         # --- stage 3: feature C on what remains --------------------------
         building_placements = [
             placement
@@ -3896,6 +4397,13 @@ def classify_object_terrain_features(
                 split_level_terrain_enabled
                 and ground_interface.interface_class
                 != INTERFACE_FLAT_CONFIRMED
+            ) or (
+                # The basin-trench adapter (config.OBJECT_BASIN_TRENCH)
+                # carves this interface's terrain, so R4 excludes it from
+                # the Phase 2 y-bake for exactly the same reason a tunnel
+                # is excluded — the two corrections must never stack.
+                basin_trench_enabled
+                and is_carved_basin_interface(ground_interface)
             ):
                 # Split-level structures whose terrain is adapted to them
                 # join the R4 exclusion list exactly like tunnels (§3.4);

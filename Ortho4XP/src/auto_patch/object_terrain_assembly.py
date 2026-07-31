@@ -406,7 +406,26 @@ def _discover_sibling_road_networks(
 # 9: classification reads AUTHORED geometry (.anchor_bak when present),
 # and feature-C ground-interface exclusions are gated behind
 # config.OBJECT_SPLIT_LEVEL_TERRAIN (LSGG 2026-07-23 y-bake starvation).
-_CLASSIFICATION_CACHE_VERSION = 9
+# 10: the bowl rule grew its OPEN-PIT limb (BOWL_MAX_ABOVE_GRADE_AREA_
+# FRACTION) so shallow basins stop reading FLAT_CONFIRMED, interfaces
+# carry above_grade_area_fraction, and carved basins join the R4
+# exclusions under config.OBJECT_BASIN_TRENCH — a cached v9 result would
+# hand back the pre-fix FLAT verdicts on an unchanged pack.
+# 11: open-pit COMPONENTS are classified on their own frames before the
+# whole-pool feature-C pass (_open_pit_components), so a basin pooled
+# with a terminal complex stops being averaged away — a v10 result still
+# carries the diluted mega-pool records (measured at OTHH: Drainage_05
+# absent entirely, Dewatering_02 cut 3.96 m instead of 13.08 m).
+# 12: the AGL tunnel seed's above-grade cap and below-grade deck floor
+# are judged on the WHOLE structure, not one resource (owner ruling
+# 2026-07-31) — a v11 result still classifies OTHH's above-ground
+# Bridge_01/_04 as tunnels and cuts trenches under them.
+# 13: the AGL tunnel seed also refuses a structure carrying a deck's worth
+# of near-horizontal area standing clear above grade (TUNNEL_AGL_MAX_
+# ABOVE_GRADE_DECK_AREA_M2) — the low-bridge case the +2.0 m height cap
+# cannot see.  A v12 result still cuts a trench under OTHH Bridge_04
+# (crest +1.91, 1,650.6 m² of deck above grade).
+_CLASSIFICATION_CACHE_VERSION = 13
 
 # Sidecar file name prefix; the full name carries the DSF stem
 # (``o4_object_terrain_classification_<dsf-stem>.cache``).  Lives under
@@ -479,6 +498,11 @@ def _classification_sidecar(dsf_path, pack_root, pavement_polygons,
         # feeds to the R4 exclusion list — a flip must miss the cache.
         digest.update(
             f"split-level:{config.OBJECT_SPLIT_LEVEL_TERRAIN}".encode()
+        )
+        # Same reason for the basin-trench gate: it decides whether a
+        # carved open pit joins those exclusions.
+        digest.update(
+            f"basin-trench:{config.OBJECT_BASIN_TRENCH}".encode()
         )
         dsf_stat = os.stat(dsf_path)
         digest.update(
@@ -662,6 +686,7 @@ def attach_bridge_classification(layout, xplane_root: str):
         mean_sea_level_placements=mean_sea_level_placements,
         pack_root=pack_root or "",
         split_level_terrain_enabled=config.OBJECT_SPLIT_LEVEL_TERRAIN,
+        basin_trench_enabled=config.OBJECT_BASIN_TRENCH,
     )
 
     # Ruling R4 breadth: pull the whole anchor family of every consumed
@@ -808,6 +833,9 @@ def _cached_exclusion_pairs(
                 # Section 3.4 gate: decides whether feature-C ground
                 # interfaces join the exclusion set — key it.
                 config.OBJECT_SPLIT_LEVEL_TERRAIN,
+                # Basin-trench gate: decides whether carved open pits
+                # join it — same reason.
+                config.OBJECT_BASIN_TRENCH,
             )
         ).encode()
     )
@@ -1157,6 +1185,87 @@ def _chop_long_band_parts(parts, maximum_length_m=25.0):
     return out
 
 
+def basin_trench_structures(classification) -> list:
+    """Feature-C open pits as feature-A trench records.
+
+    Owner defect 2026-07-30 (OTHH Aeroscape ``Buildings/Dewatering
+    Drainage/*``): the pack models drainage basins as open pits whose rim
+    is flush with grade and whose body reaches ~3.8 m below it.  Left
+    alone the mesh stays at grade over them and the whole object is
+    buried — invisible in the sim.
+
+    An open pit is geometrically the cut-and-cover tunnel case with the
+    roof removed: rim at the anchor datum, floor strictly below the
+    object's own lowest solid, near-vertical walls between them as an R2
+    node split.  So this adapts, rather than duplicates —
+    :func:`build_tunnel_layout_shapes` cuts both under the same
+    ``grade_law.tunnel_trench_floor_elevation_m`` /
+    ``…_rim_elevation_m`` (ruling R1: one law, every consumer imports
+    it).  ``terrain_feature`` tags the record so the plates and log lines
+    still name the classifier they came from.
+
+    Which interfaces qualify is
+    :func:`object_terrain_features.is_carved_basin_interface` — the same
+    predicate the classifier uses to place them on the ruling-R4
+    exclusion list, so carved and excluded can never disagree.  Whether a
+    qualifying pit also CUTS PAVEMENT is the narrower ruling-R13 question
+    (:func:`object_terrain_features.is_open_pit_interface`), carried onto
+    the record as ``cuts_pavement``.
+
+    Depth is the object's own floor, never deeper.  A bowl's
+    ``floor_y_m`` is a BOUND, not a target (amendment A7: LFPG T1's shell
+    bases at −3.4 m where the reference hand patch cuts −8 m), and this
+    emitter deliberately takes the bound: cutting to the object's floor
+    less ``TUNNEL_FLOOR_BELOW_OBJECT_DECK_M`` makes the modelled basin
+    visible and keeps the mesh clear of it, which is the whole ask.
+    Inventing extra depth is a law/audit decision with no object
+    evidence behind it.
+    """
+    interfaces = getattr(classification, "ground_interfaces", None) or []
+    structures: list = []
+    for interface in interfaces:
+        if not object_terrain_features.is_carved_basin_interface(interface):
+            continue
+        floor_y = float(interface.floor_y_m)
+        structures.append(
+            object_terrain_features.TunnelStructure(
+                object_resources=list(interface.object_resources),
+                anchor_longitude_latitude=(
+                    interface.anchor_longitude_latitude),
+                frame_origin_longitude_latitude=(
+                    interface.frame_origin_longitude_latitude),
+                heading_degrees=interface.heading_degrees,
+                placement_kind="OBJECT",
+                # The classifier folds any OBJECT_AGL offset into its
+                # effective heights before the interface levels are
+                # clustered, so ``floor_y_m`` is already effective and no
+                # offset may be re-applied (the double-count the trench
+                # law's own docstring warns about).
+                above_ground_offset_m=0.0,
+                # No roof: the pit is open to the sky, which is why its
+                # WHOLE footprint is cut rather than deck-minus-roof.
+                roof_footprint=None,
+                deck_footprint=interface.below_grade_footprint,
+                mouth_polygons=[],
+                mouth_depth_samples=[],
+                body_depth_m=-floor_y,
+                solid_minimum_y_m=floor_y,
+                solid_outline_footprint=interface.below_grade_footprint,
+                terrain_feature=object_terrain_features.
+                TERRAIN_FEATURE_BASIN,
+                # Ruling R13 (owner 2026-07-30): an OPEN pit takes the
+                # pavement with it.  The narrower predicate, not the
+                # carve one — a carved basin with the pack's own
+                # structure over it keeps R2 (see
+                # ``is_open_pit_interface``).
+                cuts_pavement=(
+                    object_terrain_features.is_open_pit_interface(
+                        interface)),
+            )
+        )
+    return structures
+
+
 def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
     """Feature A (``O4_OBJECT_TUNNEL_TERRAIN``, spec section 3.3 + amendment
     A1, ruling R12): born pre-solve tunnel-trench terrain as FIRST-CLASS
@@ -1191,6 +1300,8 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
       every earlier-born shape.
     * **PAVEMENT WINS** (rulings R2/R8): the airside pavement union is
       subtracted from the body before birth and the yielded area is logged.
+      **Except over an OPEN PIT** (ruling R13, owner 2026-07-30): there the
+      pavement is CUT instead — see the open-pit note below.
 
     Both plates carry ``layout.ROLE_TUNNEL_TRENCH`` — a flat-by-law terrain
     role wired (decimation exemption, weld LAW tier, per-node ``alt_abs`` at
@@ -1202,11 +1313,43 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
     airside pavement through the one-solve while the flat-by-law per-node
     ``alt_abs`` still cuts the trench and wins the LAW-tier weld at any
     shared vertex.  Returns ``(floor_plate_count, rim_plate_count)``; all
-    zeros when the gate is off or no tunnel classified."""
-    if not config.OBJECT_TUNNEL_TERRAIN:
+    zeros when the gate is off or no tunnel classified.
+
+    **Open pits ride the same machinery** (``config.OBJECT_BASIN_TRENCH``):
+    :func:`basin_trench_structures` adapts feature-C BOWL_UNDER_DECK /
+    TRENCH_SPINE interfaces into trench records, which enter here beside
+    the classified tunnels and are cut identically — an open basin is the
+    cut-and-cover case with no roof.  The two gates are independent, so
+    either family can be exercised alone.
+
+    **RULING R13 — an open pit takes the pavement with it** (owner
+    2026-07-30, "for below grade drainage objects, cut a trench in the
+    pavement").  A basin whose interface is an OPEN pit
+    (``object_terrain_features.is_open_pit_interface``: nothing of the
+    pack's own stands over it) cuts every taxi/junction/apron/service
+    shape over its body through the SAME
+    ``bridges.cut_pavement_over_footprint`` R8 uses for hard decks,
+    instead of yielding to them under R2.  Without it the two OTHH basins
+    the owner reported stayed buried: their bodies lay wholly under an
+    apron the pack's own DSF draws across the pit, so the floor pan
+    yielded to the last square metre and no plate was ever born.  A cut
+    that then fails to seat a floor is PUT BACK — pavement removed with
+    no trench under it is a hole in the drivable surface.  Every other
+    carved basin (and every tunnel) keeps R2 unchanged."""
+    tunnel_terrain_enabled = config.OBJECT_TUNNEL_TERRAIN
+    basin_terrain_enabled = config.OBJECT_BASIN_TRENCH
+    if not (tunnel_terrain_enabled or basin_terrain_enabled):
         return 0, 0
     classification = getattr(layout, CLASSIFICATION_ATTRIBUTE, None)
-    if classification is None or not getattr(classification, "tunnels", None):
+    if classification is None:
+        return 0, 0
+    trench_structures = []
+    if tunnel_terrain_enabled:
+        trench_structures.extend(
+            getattr(classification, "tunnels", None) or [])
+    if basin_terrain_enabled:
+        trench_structures.extend(basin_trench_structures(classification))
+    if not trench_structures:
         return 0, 0
 
     from shapely.geometry import Point, Polygon
@@ -1216,6 +1359,8 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
         _local_meter_projections,
         _BRIDGE_PIN_ROLES,
         born_flat_solver_plate,
+        cut_pavement_over_footprint,
+        pavement_cut_roles,
     )
     from .elevation import _sample_dem
     from .grade_law import (
@@ -1239,6 +1384,26 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
         )
     except Exception:
         pavement_union = None
+    # RULING R13's own coverage view.  It is WIDER than the airside union
+    # above — an open pit can sit under LANDSIDE pavement just as easily
+    # (Drainage_02 is buried by groundside pavement alone, with zero
+    # apron over it), so gating the cut on the airside union would have
+    # skipped it entirely.  R8's scope is unchanged.
+    open_pit_cut_roles = pavement_cut_roles(include_groundside=True)
+    open_pit_union = None
+
+    def _reindex_open_pit_union():
+        nonlocal open_pit_union
+        polygons = [
+            shape.polygon for shape in layout.shapes
+            if shape.role in open_pit_cut_roles
+            and shape.polygon is not None and not shape.polygon.is_empty
+        ]
+        try:
+            open_pit_union = unary_union(polygons) if polygons else None
+        except Exception:
+            open_pit_union = None
+
     # Ground already owned by ANY earlier-born shape: the outward rim band
     # must never re-grade it (its nodes then serve as the wall-top row).
     # Kept as (bounds, polygon) entries and bbox-filtered per body — a
@@ -1248,6 +1413,61 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
         (shape.polygon.bounds, shape.polygon) for shape in layout.shapes
         if shape.polygon is not None and not shape.polygon.is_empty
     ]
+
+    def _reindex_owned_ground():
+        """Re-derive the owned-ground index from ``layout.shapes``.
+
+        It is a snapshot of the layout AS IT STOOD when this emitter
+        started, and the ruling-R13 cut below REPLACES pavement shapes
+        mid-pass — a stale index would keep yielding the trench floor to
+        pavement this function has already removed.  Bounds only, no
+        geometry ops: this runs after every cut."""
+        owned_entries[:] = [
+            (shape.polygon.bounds, shape.polygon) for shape in layout.shapes
+            if shape.polygon is not None and not shape.polygon.is_empty
+        ]
+
+    def _drop_cut_from_unions(body):
+        """Take a just-cut body out of the cached pavement unions.
+
+        REBUILDING them from ``layout.shapes`` after every cut is what a
+        first version did, and at OTHH it put this whole function at
+        1.179 s — past the 0.6 s review line — because each rebuild
+        unions ~1 500 polygons twice over.  Subtracting the body is
+        local, and exact where it is read: the cut removes precisely
+        ``body`` from pavement, and pit bodies never overlap each other,
+        so no later facility can observe the difference.  (The tiny
+        sub-5 m² remainder slivers the cut also drops are pavement
+        OUTSIDE the body; they survive here, which only ever makes the
+        next facility's coverage estimate conservative.)"""
+        nonlocal pavement_union, open_pit_union
+        if pavement_union is not None:
+            try:
+                pavement_union = pavement_union.difference(body)
+            except Exception:
+                pass
+        if open_pit_union is not None:
+            try:
+                open_pit_union = open_pit_union.difference(body)
+            except Exception:
+                pass
+
+    def _rebuild_pavement_unions():
+        """Full rebuild — only the RESTORE path needs it (a subtraction
+        cannot be undone), and restores are the rare failure branch."""
+        nonlocal pavement_union
+        current_pavement = [
+            shape.polygon for shape in layout.shapes
+            if shape.role in _BRIDGE_PIN_ROLES
+            and shape.polygon is not None and not shape.polygon.is_empty
+        ]
+        try:
+            pavement_union = (
+                unary_union(current_pavement) if current_pavement else None
+            )
+        except Exception:
+            pavement_union = None
+        _reindex_open_pit_union()
 
     def _owned_near(bounds):
         minimum_x, minimum_y, maximum_x, maximum_y = bounds
@@ -1275,20 +1495,42 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
     # open CORRIDOR between the shells (the union's minimum rotated
     # rectangle, only when trench-shaped) is cut at the facility floor.
     facilities: dict = {}
-    for tunnel in classification.tunnels:
+    for tunnel in trench_structures:
         anchor_longitude, anchor_latitude = tunnel.anchor_longitude_latitude
-        anchor_key = (round(anchor_longitude * 100000.0),
+        # The feature tag joins the key: a basin and a tunnel that happen
+        # to share an anchor point are not one facility, and the
+        # corridor cut below would bridge the gap between them.
+        anchor_key = (getattr(tunnel, "terrain_feature", "tunnel"),
+                      round(anchor_longitude * 100000.0),
                       round(anchor_latitude * 100000.0))
         facilities.setdefault(anchor_key, []).append(tunnel)
 
     for facility_tunnels in facilities.values():
+        # Plate and log naming follow the classifier the facility came
+        # from (the geometry treatment is identical) so an in-sim defect
+        # is traceable without re-running the classifier.
+        is_basin_facility = (
+            getattr(facility_tunnels[0], "terrain_feature", "tunnel")
+            == object_terrain_features.TERRAIN_FEATURE_BASIN)
+        log_tag = "object-basin" if is_basin_facility else "object-tunnel"
+        plate_prefix = "object_basin" if is_basin_facility \
+            else "object_tunnel"
+        # RULING R13 (owner 2026-07-30, "for below grade drainage objects,
+        # cut a trench in the pavement"): an OPEN pit takes the airside
+        # pavement with it instead of yielding to it under R2.  ALL
+        # members must qualify — a facility with one non-pit shell has
+        # something of the pack's own standing over the shared anchor,
+        # and R2 keeps that surface.
+        facility_cuts_pavement = all(
+            getattr(tunnel, "cuts_pavement", False)
+            for tunnel in facility_tunnels)
         member_records = []
         for tunnel in facility_tunnels:
             resources = tunnel.object_resources
             if tunnel.body_depth_m is None or tunnel.body_depth_m <= 0.0:
                 UI.vprint(
                     1,
-                    f"   [object-tunnel] {resources}: no below-grade body "
+                    f"   [{log_tag}] {resources}: no below-grade body "
                     "depth — skipped",
                 )
                 continue
@@ -1303,7 +1545,7 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                 # swallowed.
                 UI.vprint(
                     1,
-                    f"   [object-tunnel] {resources}: no DEM datum at the "
+                    f"   [{log_tag}] {resources}: no DEM datum at the "
                     "anchor — skipped",
                 )
                 continue
@@ -1327,7 +1569,7 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
             if not member_parts:
                 UI.vprint(
                     1,
-                    f"   [object-tunnel] {resources}: no deck footprint to "
+                    f"   [{log_tag}] {resources}: no deck footprint to "
                     "cut — skipped",
                 )
                 continue
@@ -1363,7 +1605,7 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                     body_parts = [corridor]
                     UI.vprint(
                         1,
-                        f"   [object-tunnel] {resources}: facility corridor "
+                        f"   [{log_tag}] {resources}: facility corridor "
                         f"cut joins {len(member_records)} shells sharing "
                         f"one anchor (+{added:.0f} m2 of open trench)",
                     )
@@ -1390,11 +1632,57 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
             if airside_distance > _TUNNEL_MAX_AIRSIDE_DISTANCE_M:
                 UI.vprint(
                     1,
-                    f"   [object-tunnel] {resources}: body "
+                    f"   [{log_tag}] {resources}: body "
                     f"{airside_distance:.0f} m from this airport's "
                     "airside — another airport's object, skipped",
                 )
                 continue
+
+        # ── RULING R13 (owner 2026-07-30) — THE OPEN-PIT PAVEMENT CUT ──
+        # "for below grade drainage objects, cut a trench in the
+        # pavement".  The pack draws this pit as a hole open to the sky,
+        # and at OTHH its own DSF draws apron straight across it (apt.dat
+        # leaves the notch unpaved; ``pipeline.pav_polys`` unions the two,
+        # so the apron is a FAITHFUL read of the source, not an
+        # over-reach).  Under R2 that pavement won and the whole body
+        # yielded — Drainage_05 all 519 m2, Drainage_04 2054 of 2055 — so
+        # no floor plate was ever born and the modelled pit stayed buried.
+        # R13 amends R2/R8 for this one class: cut the pavement, through
+        # the same helper R8 uses over a hard deck.
+        #
+        # ORDER MATTERS TWICE.  It runs BEFORE the anchor seat, because
+        # the seat only fires where no earlier shape owns the anchor —
+        # with the apron still in place the seat would decline, and then
+        # the object would drape on our own trench floor and sink by the
+        # cut depth (the exact "object sitting below terrain" defect the
+        # seat exists for).  And it runs before the floor geometry, so the
+        # floor stops yielding to pavement this pass has just removed.
+        pre_cut_shapes = None
+        cut_pavement_area = 0.0
+        cut_shape_count = 0
+        if facility_cuts_pavement:
+            if open_pit_union is None:
+                _reindex_open_pit_union()
+        if facility_cuts_pavement and open_pit_union is not None:
+            for body in body_parts:
+                try:
+                    covered_area = body.intersection(open_pit_union).area
+                except Exception:
+                    covered_area = 0.0
+                if covered_area <= 0.0:
+                    continue
+                if pre_cut_shapes is None:
+                    pre_cut_shapes = list(layout.shapes)
+                body_cut_shapes = cut_pavement_over_footprint(
+                    layout, body, cut_roles=open_pit_cut_roles)
+                if body_cut_shapes:
+                    _reindex_owned_ground()
+                    _drop_cut_from_unions(body)
+                    cut_shape_count += body_cut_shapes
+                    cut_pavement_area += covered_area
+        # (the cut is REPORTED at the end of the facility, where its
+        # restore guard has already run — a cut that was put back must
+        # never be logged as one that happened.)
 
         # ANCHOR SEAT (user 2026-07-18f, "object sitting below terrain"):
         # every shell of the facility drapes at terrain(anchor), and the
@@ -1431,14 +1719,14 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                         (seat_x - 1.5, seat_y + 1.5)])
                     if born_flat_solver_plate(
                             layout, seat_polygon, ROLE_TUNNEL_TRENCH,
-                            "object_tunnel_anchor_seat", float(datum),
+                            f"{plate_prefix}_anchor_seat", float(datum),
                             record_pins=False):
                         anchor_seat_keep_out = seat_polygon.buffer(
                             _TUNNEL_WALL_SETBACK_M,
                             join_style=2, mitre_limit=2.0)
                         UI.vprint(
                             1,
-                            f"   [object-tunnel] {resources}: anchor seat "
+                            f"   [{log_tag}] {resources}: anchor seat "
                             f"pinned at datum {float(datum):.2f} m (the "
                             "facility cut reaches the placement anchor)",
                         )
@@ -1446,8 +1734,11 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
             anchor_seat_keep_out = None
 
         yielded_area = 0.0
+        facility_floor_born = 0
         for body in body_parts:
-            if pavement_union is not None:
+            # R2 accounting.  A facility that CUT (R13) has no yield left
+            # to report — its pavement is already gone.
+            if pavement_union is not None and not facility_cuts_pavement:
                 try:
                     kept = body.intersection(pavement_union)
                     if not kept.is_empty:
@@ -1522,7 +1813,7 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                     continue
                 if born_flat_solver_plate(
                         layout, floor_part, ROLE_TUNNEL_TRENCH,
-                        "object_tunnel_trench", floor_elevation,
+                        f"{plate_prefix}_trench", floor_elevation,
                         record_pins=False):
                     body_floor_born += 1
             if not body_floor_born:
@@ -1532,6 +1823,7 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                 # the rim is meaningless without a floor to wall down to.
                 continue
             floor_plate_count += body_floor_born
+            facility_floor_born += body_floor_born
             for band_part in _chop_long_band_parts(
                     _split_annulus_to_simple_parts(band_geometry)):
                 if band_part.area < 1.0:
@@ -1562,21 +1854,46 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                     part_elevation = rim_elevation
                 if born_flat_solver_plate(
                         layout, band_part, ROLE_TUNNEL_TRENCH,
-                        "object_tunnel_rim", part_elevation,
+                        f"{plate_prefix}_rim", part_elevation,
                         record_pins=False):
                     rim_plate_count += 1
 
+        if cut_shape_count and not facility_floor_born:
+            # RULING R13's GUARD: the cut bought nothing, so PUT IT BACK.
+            # Pavement removed with no trench under it is a hole in the
+            # drivable surface — strictly worse than the buried pit it was
+            # meant to expose.  Nothing born since the snapshot survives
+            # either, which is right: the only plates that could exist are
+            # this facility's own anchor seat and rim bands, and a rim is
+            # meaningless without a floor to wall down to.
+            layout.shapes = pre_cut_shapes
+            _reindex_owned_ground()
+            _rebuild_pavement_unions()
+            UI.vprint(
+                1,
+                f"   [{log_tag}] R13 open-pit cut RESTORED for "
+                f"{resources}: {cut_pavement_area:.0f} m2 of pavement was "
+                "removed but no trench floor could be seated under it",
+            )
+        elif cut_shape_count:
+            UI.vprint(
+                1,
+                f"   [{log_tag}] R13 open-pit cut: {cut_pavement_area:.0f} "
+                f"m2 of pavement (airside + landside) removed from "
+                f"{cut_shape_count} shape(s) over the open pit of "
+                f"{resources}",
+            )
         if yielded_area > 1.0:
             UI.vprint(
                 1,
-                f"   [object-tunnel] {resources}: {yielded_area:.0f} m2 of "
+                f"   [{log_tag}] {resources}: {yielded_area:.0f} m2 of "
                 "body under airside pavement kept at pavement grade",
             )
         facility_depth = max(
             float(record[0].body_depth_m) for record in member_records)
         UI.vprint(
             1,
-            f"   [object-tunnel] {resources}: trench floor {floor_elevation:.2f} "
+            f"   [{log_tag}] {resources}: trench floor {floor_elevation:.2f} "
             f"m, rim {rim_elevation:.2f} m (datum {float(datum):.2f}, body "
             f"depth {facility_depth:.2f} m, "
             f"{len(member_records)} shell(s))",

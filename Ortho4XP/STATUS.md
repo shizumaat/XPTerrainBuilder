@@ -1,4 +1,1752 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260731c (HYGIENE — spawned out of the taut-string line by P7
+# ruling (4)) — THE DEAD DISCOVERY BRANCH IS RETIRED, AND THE SILENT
+# SPINE DROPS ARE NOW COUNTED.  Byte-identical patches at SPJC and
+# HECA.  ⚠ A THIRD ARM PROVED THE WHOLE REMAINING CENTERLINE CHAIN IS
+# DEAD TOO — filed, deliberately NOT landed here.
+# ══════════════════════════════════════════════════════════════════
+# The two defects named in docs/specs/taut-string-implementation-plan.md
+# step P7, ruling (4).  NOTHING about spine composition changed —
+# proven, not asserted: four full SPJC builds and two full HECA builds,
+# bodies (tail -n +3) identical across every arm.
+#
+# ── DEFECT 1 — the medial-axis discovery branch was DEAD, and the
+#    INTENT question has a documented answer ─────────────────────────
+#  WHAT IT FED (from the tree's own history, not a guess): exactly two
+#  consumers, ``_build_taxi_rects`` and ``junction_spine.py``, and
+#  d4f61d6 DELETED BOTH on 2026-07-29.  Its planned successor exists on
+#  paper and was never built — docs/curve_native_spine_v2_plan.md
+#  **Phase 5, coverage fallback**: "synthesize a spine from the
+#  discovered/TX edge-skeleton centerline (reuse the existing
+#  discovered-taxiway extractor) and cut with it".  What shipped on
+#  2026-07-29 was that plan's PHASE 6 (retire the straight rects) with
+#  Phase 5 still outstanding, so the extractor lost its consumer before
+#  its replacement existed.  The same commit rewrote the module
+#  docstring to say the discovered centerlines "join the global-slice
+#  spine downstream exactly like a referenced taxiway" — an ASSERTION
+#  with no wiring behind it: the slice reads
+#  ``layout.apt_taxi_centerlines``, snapshotted at pipeline:2253
+#  DELIBERATELY (it is junction_repair's apt.dat-only route model),
+#  never the local ``osm_centerlines`` list discovery appended to.
+#  The snapshot ORDER is not the defect; the missing Phase 5 is.
+#  RETIRED RATHER THAN WIRED: re-wiring would push 595 synthetic lanes
+#  at HECA into the route model that the grade solve, the reachability
+#  law and junction_repair's reclassification all read — a spine-
+#  COMPOSITION change needing an owner/design ruling, and P7 has
+#  already measured the medial axis as NOT covering the spine-coverage
+#  defect it would be the obvious candidate for (ruling (b3)).
+#  DELETED: the discovery call site (pipeline); the TX-crossing-a-
+#  building drop (its ``ref.startswith("TX")`` test can never match —
+#  TX refs are minted only on discovered centerlines);
+#  ``ENABLE_DISCOVERED_TAXIWAYS`` (no live reader left);
+#  ``junction_repair._connect_discovered_lane_dead_ends_to_junctions``
+#  + its call (it needs a 4-corner rect SHAPE carrying a TX ref, and
+#  the slice emits every face with ``ref=""`` — dead by data since
+#  2026-07-29).
+#  KEPT: ``pavement/discovered_taxiways.py`` — ``_flatten_lines`` /
+#  ``_medial_segments`` / ``_prune`` are LIVE for the 1206 road
+#  strip-extension — under a ⚠ UNWIRED header recording all of the
+#  above and what re-wiring would cost.
+#  LOG LINES GONE, both describing discarded output: "discovered N
+#  unreferenced taxiway centerline(s)" (595 HECA / 27 SPJC) and
+#  "dropped N discovered TX centerline(s) crossing a building".
+#
+# ── DEFECT 2 — the silent ``len(on_line) < 2`` drop is now a census ──
+#  ``grade_graph._build_global_spine`` skipped every centerline with
+#  fewer than two on-line geometry nodes on a bare ``continue``.  It
+#  now counts them on the graph (``UnifiedGraph.spine_centerlines /
+#  spine_no_string / spine_no_string_zero``) and prints ONE summary
+#  line per graph build.  Zero-node and one-node are counted APART —
+#  no geometry under the way vs a THINNED region are different
+#  findings with different fix loci (P7's density-is-not-a-binary
+#  lesson).  Two hermetic tests in tests/test_grade_graph.py.
+#  WHAT IT SHOWS ON THE FIRST RUN (four lines per build = four graph
+#  builds, and the four are NOT the same number):
+#    HECA   13 of 658 ( 7 zero-node,  6 one-node)  ← pre-solve, ×2
+#           45 of 658 (10 zero-node, 35 one-node)  ← later, ×2
+#    SPJC   26 of 499 (22 zero-node,  4 one-node)  ← pre-solve, ×2
+#           75 of 499 (34 zero-node, 41 one-node)  ← later, ×2
+#  ⚠ AT BOTH AIRPORTS the later graph rebuilds lose ~3x as many ways as
+#  the pre-solve one, and nearly all of the extra loss is ways falling
+#  to exactly ONE node (HECA 6 → 35, SPJC 4 → 41): a THINNING between
+#  the solve graph and the later ones, not absent geometry.  Surfaced,
+#  NOT diagnosed — spine coverage belongs to P7.
+#
+# ── ⚠ FILED, NOT LANDED: the REST of the chain is dead too, and this
+#    is INTERVENTIONAL, not a code-read ──────────────────────────────
+#  A third arm (C) emptied ``osm_centerlines`` right after the tuple
+#  projection — killing the junction-point crossing detection, the
+#  parallel spine/corridor construction, the diagonal / perpendicular
+#  / corridor trims, ``_split_centerlines_at_points``,
+#  ``_trim_short_bend_hooks``, ``_drop_offcorridor_centerlines`` and
+#  ``trim_centerlines_at_buildings``.  SPJC came out BYTE-IDENTICAL to
+#  the unmodified tree; phase 3 fell 4.78 → 0.33 s.  So even after this
+#  change SPJC still spends ~2.7 s per build on a chain nothing reads,
+#  and two log lines still describe discarded output ("dropped N
+#  runway-crossing + M junction-buried centerline(s)", "trimmed N
+#  centerline(s) at building-pad edges").
+#  NOT retired here on purpose: ~700 lines in a shared file mid-
+#  session; it forces a decision on the default-OFF
+#  ``O4_SVC_CURVED_JUNCTION`` block (the last reader of the final list
+#  and of ``_svc_widths``); and one airport's arm C does not cover the
+#  chain's airport-specific branches (painted-centerline fallback, OSM
+#  junction-point fallback).  Spawned as its own task with the
+#  evidence and the two survivors named.
+#
+# ── EVIDENCE ────────────────────────────────────────────────────────
+#  Frozen COPIED ``src/`` trees, never the shared one: A = the tree at
+#  14:48, B = A + this change, C = B + the arm-C stub.  Body sha256 =
+#  sha256 of the patch minus its two provenance header lines.
+#    SPJC  A / A2 (determinism control) / B / C  ALL
+#          8a1d8adb032d18bd9ad11b80551d2f8dd2a50c9f14ffd5fef6b99d65074d1261
+#    HECA  A / B  BOTH
+#          d4f52f02fad3ed87b49df90c6b0692b76788f7bbe7f140830118bcf3c04e757c
+#  BUILD TIME (CLAUDE.md item 6) — this change only REMOVES work; the
+#  numbers are the pipeline's own per-phase records
+#  (~/.ortho4xp/auto_patch_build_times), same machine, arms in
+#  sequence.  Phase 3 "Building taxiways & terminals":
+#    SPJC  4.78 / 4.69 s (A/A2)  →  3.08 s (B)   = −1.6 s
+#    HECA  16.71 s (A)           →  6.02 s (B) = -10.7 s
+#  Totals move with it but sit inside solver noise (SPJC 163.6 / 159.9
+#  → 156.8; HECA 358.4 → 345.0).  No new code runs anywhere, so
+#  there is nothing for a Fable-5 optimisation review to weigh.
+#  TESTS: 445 passed / 5 failed over the blast radius of all five files
+#  (blast.py's test lists, unioned; run through run_with_ledger.py).
+#  The 5 are tests/test_crown_seam_ramp.py, and they are PRE-EXISTING,
+#  proven not asserted: a pytest ``-p`` plugin binding ``auto_patch`` to
+#  the FROZEN pre-change tree fails the same five with the same
+#  ``KeyError: 'axis_len2'`` at runway_redistribute.py:245 (the test's
+#  hand-built ``_runway_redistributed_profiles`` fixture is missing a
+#  key the code has required since; test file untouched since 07-24,
+#  crown.py dirty from a concurrent session).
+#
+# ══════════════════════════════════════════════════════════════════
+# 20260731 (below-grade cutouts, W1 continued) — W1a-PART2 LANDED:
+# BRIDGE_04'S WRONG TRENCH IS GONE (OTHH object-tunnels 1 -> 0, EGLL
+# byte-unchanged).  W4d VETO UNIT TESTS LANDED.  ⚠ W1b IS BLOCKED ON A
+# RULING — measured, its premise does not hold at OTHH.
+# ══════════════════════════════════════════════════════════════════
+# Continues the "PLAN + FABLE REVIEW + FIRST TWO ITEMS LANDED" block
+# below (20260730b).  PLAN: docs/specs/below-grade-cutouts-and-deck-
+# flush-plan.md, updated in place with every measurement here.
+#
+# ── W1a-PART2 LANDED — and the plan's own candidate fix was measured
+#    and REJECTED before it was written ──────────────────────────────
+#  The open item was Bridge_04: crest +1.91 m sits INSIDE the AGL
+#  limb's 2.0 m height cap, and the underside of its at-grade slab
+#  reads as below-grade deck.  The plan proposed deepening the
+#  below-grade floor from TUNNEL_ROOF_TOP_TOLERANCE_M (0.5) to
+#  TUNNEL_MIN_BODY_DEPTH_M (2.0).  MEASURED on the installed packs
+#  (tools/probes_bridge04_20260731/, ~27 s per run, no build):
+#    structure        >= +0.5    <= -0.5   <= -1.0   <= -2.0
+#    OTHH Bridge_04   1 650.6     1 022.1      8.4       0.0
+#    EGLL Tunnel/7        0.0        89.8     52.8      19.4
+#    EGLL Tunnel/6        0.0        50.0     50.0      42.8
+#    EGLL Tunnel/10     128.7        55.1     55.1      49.9
+#  At a 2.0 m floor Tunnel/7 falls to 19.4 m2, UNDER the 25 m2 gate,
+#  and stops being a tunnel — the plan's fix would have un-classified
+#  a real EGLL tunnel and flipped two synthetic fixtures.
+#  ⇒ WHAT LANDED INSTEAD: a SECOND above-grade gate,
+#  TUNNEL_AGL_MAX_ABOVE_GRADE_DECK_AREA_M2 (= BRIDGE_MIN_DECK_AREA_M2,
+#  one number not two).  The AGL limb refuses any structure carrying a
+#  deck's worth of near-horizontal area standing CLEAR above grade
+#  (>= +TUNNEL_ROOF_TOP_TOLERANCE_M).  The height cap catches what
+#  TOWERS over grade (the EGKR tower, Bridge_01 at +10.25); this
+#  catches the LOW bridge it cannot see.  A below-grade shell does not
+#  carry a deck on top of grade; a bridge does.
+#  Tunnel/10's 128.7 m2 is EXACTLY the figure TUNNEL_AGL_MAX_ABOVE_
+#  GRADE_HEIGHT_M's comment cites when warning "an above-grade AREA
+#  test cannot do this job".  That warning is about a FRACTION test
+#  (Tunnel/10 carries more near-horizontal area above grade than
+#  below) and it STANDS; an absolute floor is a different test and
+#  clears Tunnel/10 by 1.55x.
+#  VERIFIED: OTHH object-tunnels 1 -> 0 (Bridge_04's trench gone);
+#  EGLL UNCHANGED (8 tunnels, same list, 1 bridge).  315 passed / 11
+#  skipped over the six-file blast radius (skips are pre-existing
+#  third-party-pack fixtures).  THREE new fixtures, one of them a
+#  guard on the rejected alternative so it is not re-proposed.
+#  _CLASSIFICATION_CACHE_VERSION 12 -> 13 (W0).
+#  BUILD-TIME: no measurable cost.  classify() best-of-3, gate ON vs
+#  OFF: OTHH -0.279 s, EGLL +0.158 s — opposite signs, both inside
+#  run-to-run noise on a 5-10 s call that is pack-sidecar cached.  The
+#  added work is one boolean mask + one sum per AGL-limb call (47 at
+#  OTHH).  Well under the 0.6 s / 1 % review threshold.
+#  FULL SUITE: 24 failed / 3895 passed / 18 skipped / 7 xfailed in
+#  588 s — the failure COUNT and SET match the plan's 24F baseline
+#  exactly (the +46 passes are this session's 12 new tests plus a
+#  concurrent session's work in the shared dirty tree).  The one
+#  object-family failure, test_object_bake_span_limit's high-span
+#  chained-structure case, was PROVEN pre-existing: it fails
+#  identically with the new gate forced to +inf, and the file carries
+#  no OBJECT_AGL placement for the limb to act on.
+#  W1d BOOKKEEPING: Bridge_04 leaves the R4 tunnel exclusion list and
+#  becomes a Phase-2 y-bake candidate, exactly as Bridge_01 did in
+#  W1a.  Bridge_02/03/05/06 unchanged (they were never tunnels).
+#
+# ── ⚠ W1b BLOCKED — ITS PREMISE DOES NOT HOLD AT OTHH (measured) ────
+#  W1b adds a deck-flush partition outcome so a bridge that takes no
+#  pins today gets its two deck ends pinned.  A partition outcome only
+#  reaches a structure that reaches the partition.  NONE OF THE SIX
+#  OTHH BRIDGES EVER BECOMES A BridgeStructure: all six carry ZERO
+#  hard triangles (hardness codes all 0 — verified on this tree), so
+#  _hard_face_components seeds nothing and only the whole-pool
+#  COSMETIC limb can fire.  THREE DIFFERENT gates stop them:
+#    Bridge_01        pool #1    n=2251  building gate: 57 299 wall
+#                                        columns >= the 500 floor;
+#                                        _classify_bridge never called
+#    Bridge_02/03/06  pool #65   n= 239  merged into ONE candidate ->
+#                                        refused "piered viaduct: no
+#                                        solid geometry reaches grade
+#                                        within 35 m of the deck ends"
+#                                        (the min-rotated-rect of three
+#                                        merged bridges ends in mid-air)
+#    Bridge_04        pool #5495 n=   5  cosmetic limb needs >= 200 m2
+#                                        of deck at/above +2.0 m; it
+#                                        has 0.0 m2
+#    Bridge_05        pool #5494 n=   5  same floor; it has 45.7 m2
+#  Built as specified, W1b is an EGLL-ONLY change (4.obj: DECK_CARRIED,
+#  hard_deck, crest +7.84, ends 7.84/7.84, 52 m, zero deck-end pins
+#  today — the gap flagged in the block below).  That is real but it is
+#  NOT the owner's case.  Reaching the owner's bridges needs a ruling
+#  on WHICH GATE YIELDS, each with its own cross-pack blast radius:
+#   (1) relax the cosmetic limb's +2 m elevated-deck floor (reaches
+#       Bridge_04/05; every low soft deck in every pack becomes a
+#       bridge candidate);
+#   (2) exempt bridge-name-hinted members from the mega-pool building
+#       gate (reaches Bridge_01);
+#   (3) split pool #65 so Bridge_02/03/06 are three candidates
+#       (reaches them; the abutment refusal is an artefact of the
+#       merge, not of the geometry).
+#  Per CLAUDE.md 1a that is a design question, NOT an implementer's
+#  call.  W1b IS NOT BUILT — building it now would ship a change that
+#  measurably does nothing at OTHH.
+#
+# ── OWNER RULING (2026-07-31): "having bridge in the name is great,
+#    but not always guaranteed, we can use that for now" ─────────────
+#  Two of the three W1b gates are now OPEN.  The ruling's scoping is
+#  what bounds them: COSMETIC_BRIDGE_NAME_HINT's OWN standing law
+#  already restricts the hint to structures with ZERO hard triangles
+#  ("a name must never gate a hard deck — the KMCO puente objects are
+#  named in Spanish"), so nothing reaching the geometric deck path can
+#  be diverted.  Using the hint here follows that design, not bends it.
+#  * GATE A+B — _cosmetic_bridge_components LANDED.  Cosmetic bridges
+#    classify per COMPONENT: the THIRD instance of the lesson feature A
+#    learned in round 5 (_below_grade_drivable_components) and feature
+#    C on 2026-07-30 (_open_pit_components).  Bridge_01's component is
+#    11 resources with 85 wall columns instead of the pool's 57 299, so
+#    _classify_bridge finally runs on it.
+#    ⚠ GATE B IS NOT FIXED BY THIS, and the merge hypothesis is
+#    FALSIFIED: Bridge_02/_03/_06 sit within BRIDGE_COMPONENT_JOIN_
+#    BUFFER_M (10 m) of each other, so they are GENUINELY one component
+#    (31 seeds, 495 wall columns) and still refuse as a piered viaduct.
+#    Their adjacency is physical, not a pooling artefact — so "split
+#    pool #65" was the wrong fix and is retired as an option.
+#  * GATE C — the low-bridge limb LANDED.  The cosmetic limb's +2 m
+#    floor asks "is there a deck well ABOVE grade?", the wrong question
+#    for a road bridge crossing AT grade (Bridge_04 0 m2 above +2 m but
+#    1 937 m2 at/above grade; Bridge_05 46 vs 3 036; Bridge_01 43 vs
+#    6 333).  When the +2 m set fails, the deck is re-measured against
+#    the AT-GRADE band.  STRICTLY ADDITIVE — the retry runs only after
+#    the old test has already failed, so nothing that classifies today
+#    changes.
+#  RESULT: OTHH 0 bridges -> 3 (Bridge_01, _04, _05, all cosmetic).
+#  EVERY OTHER INSTALLED PACK BYTE-IDENTICAL — KBNA (4 bridges, both
+#  Murfreesboro cosmetic decks), KMCO, EGLL, EGGW, ELLX, LFPG — proven
+#  by a forced-off/on diff (tools/probes_bridge04_20260731/
+#  probe_cross_pack.py [--off]).  324 passed / 11 skipped over the
+#  seven-file object blast radius.
+#  ⚠ CONTRACT READING CORRECTED: I first read the three new bridges'
+#  TERRAIN_CARRIED contract as meaning they would be SUPPRESSED.  Wrong
+#  — _partition_bridges_for_corridors tests `is_cosmetic` BEFORE the
+#  contract, so a cosmetic bridge NEVER reaches the suppress branch.
+#  They go to corridor or, with no taxi/truck route on the deck,
+#  road_carried.  road_carried takes ZERO pins = review finding 1, so
+#  W1b's deck-flush outcome is road_carried PLUS deck-end pins.
+#  ⚠ AND THE FALSE-CAUSEWAY HAZARD NEEDS NO RULING: amendment A4's
+#  abutment test already refuses any structure without solid geometry
+#  reaching grade within 35 m of BOTH deck ends, so every surviving
+#  BridgeStructure has grounded abutments BY CONSTRUCTION.  A deck-end
+#  pin cannot build a causeway over thin air.
+#  STILL OPEN (needs ONE build — _bridge_is_road_carried reads a
+#  layout, so it cannot be settled offline): do deck-end pins go to
+#  EVERY road_carried bridge or only cosmetic ones?
+#
+# ── W1b LANDED — AND MEASURED INERT, FOR A STRUCTURAL REASON ───────
+#  Built as specified: road_carried spans now take deck-end pins (gate
+#  config.OBJECT_BRIDGE_DECK_FLUSH / O4_OBJECT_BRIDGE_DECK_FLUSH,
+#  DEFAULT ON per the ruling); no causeway, no corridor, no trench —
+#  those all read the `corridor` set and this is not it.  New
+#  bridge_pin_roles(include_groundside=) copies R13's pavement_cut_
+#  roles split (owner: bridges MAY pin groundside).  5 new tests
+#  (tests/test_object_bridge_terrain.py TestDeckFlushPins), 329 passed
+#  / 11 skipped over the object blast radius.
+#  DEVIATION FROM THE PLAN'S LETTER, deliberately SMALLER: the plan
+#  asked for a NEW partition outcome beside the existing four.
+#  Measured, `road_carried` ALREADY means "no causeway, no corridor, no
+#  trench" — three quarters of the deck-flush contract — and all 14 of
+#  its unpack sites want that unchanged.  Only its pins were missing.
+#  A sixth return value always equal to an existing one would churn 14
+#  sites to carry no information.
+#  ⚠⚠ TWO BUILDS (OTHH + EGLL, ~90 s each, the first of this
+#  workstream) SAY THE FEATURE IS INERT — and the reason is a THEOREM,
+#  not an OTHH accident:
+#    A ROAD-CARRIED SPAN CAN NEVER TAKE AN AIRSIDE DECK-END PIN.
+#    _bridge_is_road_carried returns True exactly when no shape in
+#    (_BRIDGE_PIN_ROLES | service road/junction) intersects the deck
+#    footprint buffered by BRIDGE_ABUTMENT_PIN_CAPTURE_BAND_M.  An
+#    abutment line lies ON that footprint's edge, so anything within
+#    the capture band of the line is inside the same buffered
+#    footprint — i.e. any airside shape close enough to PIN would have
+#    made the span not-road-carried to begin with.
+#  ROLE_GROUNDSIDE_PAVEMENT is the ONLY role in the pin set that is
+#  absent from the road-carried test, so the owner's groundside ruling
+#  is not a convenience — it is the sole path by which a deck-flush pin
+#  can EVER fire.  It does not fire at OTHH or EGLL: measured distance
+#  from each deck end to the nearest pinnable shape —
+#    Bridge_01  end0 groundside 213.8 m   end1 groundside 208.2 m
+#    Bridge_05  end0 groundside 789.5 m   end1 groundside 726.5 m
+#    Bridge_04  end0 groundside 217.1 m   end1 groundside 139.0 m
+#    (Bridge_04 end1 shows retaining_wall/tunnel_ramp at 0.0 m — FEATURE
+#     shapes, excluded from _BRIDGE_PIN_ROLES by its own docstring)
+#    EGLL 4.obj  both ends: nothing within 12 m
+#  ⇒ THESE BRIDGES STAND IN OPEN GROUND THE PATCH DOES NOT PAVE.  To
+#  make the owner's ruling VISIBLE at OTHH, terrain must be EMITTED at
+#  the deck ends (an approach plate at the pin value, the causeway
+#  machinery scoped to the two ends), not pinned onto a pavement ring
+#  that does not exist.  That is a new emitter and an owner decision;
+#  it is NOT built.  The zero is logged loudly per the silent-zero rule
+#  ("the deck end is NOT made flush (X m intended)").
+#
+# ── THE BRIDGE RAMP EMITTER LANDED (owner ruling 2026-07-31: "a
+#    bridge ramp, that follows a road and just ramps up to the object,
+#    rather than down to it like a tunnel") ───────────────────────────
+#  bridges.emit_bridge_ramp_shapes, gate config.OBJECT_BRIDGE_RAMP /
+#  O4_OBJECT_BRIDGE_RAMP, DEFAULT ON.  Wired in pipeline.py beside the
+#  deck-end pins; the summary line now reads "... ; N span(s) ramped."
+#  THE LAW (the owner's OLS reference, mirrored):
+#      z(s) = max(ground(s), deck_end - grade * s)
+#  ols._road_regrade_profile is the CUT envelope (min of bound +
+#  grade*|s-t|, two passes because it has many bound points).  With a
+#  SINGLE anchor - the deck end - the two-pass sweep collapses to the
+#  one expression above, and the max against the ground is what makes
+#  it fill-only: the ramp descends at the cap until terrain rises to
+#  meet it, and never cuts.  Grade = TUNNEL_RAMP_MAX_GRADE (4%), ONE
+#  navigable-ramp number shared with the tunnel ramp so up and down can
+#  never drift apart.  Ramp length = rise / grade, capped at
+#  BRIDGE_RAMP_MAX_LENGTH_M.
+#  REUSE, not reinvention: _emit_corridor_ramp_chain does the quads
+#  (shared facing edges, keep-out, cross-chain overlap registry,
+#  [H,L,L,H] corner order - all of it hard-won).  Only the elevation
+#  law is new, passed as fill_grade=; the default linear blend is kept
+#  verbatim for the tunnel corridor.  A unit test shows WHY the blend
+#  cannot be reused: over a knoll it digs through the terrain.
+#  ROAD SOURCE, per the owner's mid-flight note: the PACK's own DSF
+#  road network FIRST ("if there IS road data in the airport package
+#  that will align best with its objects"), OSM big+small as the
+#  fallback, tried PER END rather than per bridge.  _load_underpass_
+#  osm_road_lines grew include_small_roads= for this; the underpass
+#  caller keeps its historical big-roads-only set.
+#  ⚠ NOT _draped_road_centerlines_meters: that keeps only FULLY DRAPED
+#  segments crossing the deck, which is right for "what passes BENEATH
+#  this bridge" and exactly wrong for "what does this bridge CARRY" -
+#  the carried road is elevated over the span by construction (measured:
+#  0 fully-draped segments on Bridge_04's and Bridge_05's decks).
+#  RESULT AT OTHH — 3 of 6 deck ends now ramp:
+#    Bridge_05 end 0  climbs 1.19 m over 30 m at 4.0%
+#    Bridge_05 end 1  climbs 1.19 m over 30 m at 4.0%
+#    Bridge_04 end 0  climbs 1.07 m over 27 m at 4.0%
+#  349 passed / 11 skipped over the object+tunnel blast radius.
+#  ⚠ THE OTHER THREE ENDS, both causes MEASURED, neither guessed:
+#   * Bridge_04 end 1 — ZERO outward road pieces in EITHER source
+#     (nearest DSF line 8.0 m away but none reaching the footprint).
+#     There is simply no road continuing from that end in the data.
+#   * BRIDGE_01 BOTH ENDS — the rise is NEGATIVE: pin -0.33 m against
+#     ground +1.39 m (end 0) and 0.00 m (end 1).  Its deck ends sit
+#     BELOW local ground, so terrain must come DOWN to them - a CUT,
+#     which is ols._road_regrade_profile UNMODIFIED (the owner's other
+#     reference), not the fill mirror.  NOT BUILT: a cut removes
+#     terrain and wants its own gate + owner sign-off.  This is also
+#     why Bridge_01 reads TERRAIN_CARRIED with a -0.31 m crest - its
+#     dominant deck plane is the at-grade bulk; the descending ramp to
+#     the terminal's below-grade level is W2's profiled floor, not this.
+#   DEM sanity checked per the measurement law: OTHH really is ~0-1.4 m
+#   here (values VARY across samples, so this is not the all-zero DEM
+#   trap); datum 0.0 is the field, not a failure.
+#
+# ── W4d LANDED — the veto finally has a test ────────────────────────
+#  tests/test_tunnel_system_veto.py, 9 cases, 0.13 s, no pack/DEM/
+#  build.  _compute_tunnel_system_veto had NO test anywhere; its only
+#  evidence was 7-minute LMML/CYUL builds, and W4b proposes to narrow
+#  it.  Pins: lone bore emits; crossing road vetoes; distant road does
+#  not; SYSTEM PROPAGATION (the LMML law); separate systems keep
+#  separate verdicts (CYUL); shared-node continuation is never foreign;
+#  gate off yields an empty map; building_passage is not a candidate.
+#  ⚠ The propagation test is SELF-FALSIFYING by construction: a guard
+#  case calls _tunnel_has_adjacent_road on the twin directly and
+#  asserts its OWN verdict is False (26 m twin offset groups at 30 m
+#  but sits 25 m from the road, outside the 20 m adjacency band), and
+#  the grouped/ungrouped pair differs ONLY in separation.  The first
+#  draft of that test passed for the wrong reason — the twin sat 10 m
+#  from the crossing road, inside the adjacency band, so it was vetoed
+#  DIRECTLY and proved nothing about propagation.
+#
+# ── PROBES (kept; each re-runs in ~30 s, none needs a build) ────────
+#  tools/probes_bridge04_20260731/
+#    probe_agl_limb.py       instruments _agl_tunnel_seed_resources at
+#                            both call sites; per-frame gate metrics
+#    probe_agl_bands.py      fine height ladder + the pack's numbered
+#                            tunnel objects with their AGL offsets
+#    probe_egll_shells.py    isolated frames for Tunnel/6, /7, /10
+#    probe_bridge_hardness.py  the zero-hard-triangle proof
+#    probe_bridge_records.py   what each pack classifies AS
+#    probe_deck_end_flush.py   pool/gate attribution per bridge
+#  ⚠ probe_deck_end_flush.py's DELTA table is UNSOUND and must not be
+#  quoted: it feeds _deck_top_profile the whole near-horizontal set
+#  instead of the deck plane (the classifier uses _dominant_height_
+#  plane), so Bridge_04 reads ends 1.91/1.91 where the real measured
+#  ends are +0.23/+0.24.  Its POOL/GATE table (the first one) is the
+#  sound part and is what the W1b finding rests on.
+#
+# ── STILL OPEN, in the plan's own order ────────────────────────────
+#  W1b  BLOCKED on the ruling above.
+#  W4b/c  merged trench for the named 8th tunnel (service way F|-172,
+#         10 nodes, 74 m, centre 25.254287,51.620925).  W4d's tests
+#         are now the net.  W4c's discriminator is still UNDECIDED —
+#         candidates are _classifier_owned_crossing_union(layout), the
+#         crossing way's own bridge=yes/layer tags, or the pack DSF
+#         road-network sidecar.
+#  W2   profiled ramp floor (largest; gated; needs the four tunnel-
+#       fixture airports byte-identical).
+#  W3b  AuxBuilding_09 mega-pool component extraction (66 837 m2, the
+#       largest uncarved below-grade area on the field).
+#  W6   R10 interior-cutout emitter.
+#
+# ══════════════════════════════════════════════════════════════════
+# 20260730c (taut-string consolidation — Fable DESIGN lead) — OWNER
+# ANSWERS FOLDED INTO THE SPEC (3 HECA sites, W-CHORD1/2 witnesses,
+# U-first resequencing); U1 NODE-SPACE STORE LANDED byte-identical;
+# OPUS-EXECUTABLE IMPLEMENTATION PLAN WRITTEN.  NEW STANDING RULINGS:
+# Fable = design/review ONLY, writes ALL specs, approves EVERY
+# mid-implementation deviation (CLAUDE.md item 1a).
+# ══════════════════════════════════════════════════════════════════
+# ADDENDUM (same night — P0 results + three Fable rulings + the
+#  S1/R2/R3 sub-specs; implementation proceeding per owner):
+#  * P0 COMPLETE (two independent clean suites, tree 50f45b49d849):
+#    24F comparator CONFIRMED and now NORMATIVE (spec §5.0); one
+#    suite-context flake (test_to_osm_is_idempotent, 3/3 isolated) →
+#    new plan step P0b.  test_node_space 49/49 both runs → U1
+#    ACCEPTED.  ⚠ FALSIFIED: OFF does NOT green the suite — all 10
+#    airport-build failures are ARM-INDEPENDENT tree defects (spec
+#    §1.7 P0 falsification note; §1.2's ON-attribution was wrong).
+#  * RULING 1: R0 default-OFF STANDS on lawfulness alone (owner
+#    confirmation + envON 3.7% law violation at the seam pair + weld
+#    0.49→1.40 + 663 neither-arm pairs + ON's unapproved phase
+#    regression); "suite green" struck everywhere; 24F = the
+#    comparator, R3 aims to heal its 10 airport-build members.
+#  * RULING 2: U1's byte-identity proof STANDS (sequential
+#    copied-tree protocol is the conditioned claim); flake tracked as
+#    P0b with a DEADLINE (attributed or N≥20 non-repro BEFORE R3's
+#    battery); suite-context hashes are never identity evidence.
+#  * P2-CP1 DEVIATION RESOLVED (checkpoint fired exactly as
+#    designed): /tmp/bandq "fp8" dump is MID-PROJECTION; candidate B
+#    reads seam 106.717 vs the ~108.5 the passes MANUFACTURE via the
+#    §7 hold — model shape STANDS, §4.1 sharpened (layer 4 owns ALL
+#    strung vertices; layer 6 = candidate-A pre-projection state via
+#    one elev list-copy; assembly at B's location; B falsified as a
+#    layer-6 source; frozen signature unchanged).  1 instrumented
+#    HECA build authorized (extend O4_DUMP_SOLVE_STATE with
+#    elev_entry_A + rod edges; reused by P2/P3/S1); P2 budget
+#    corrected 4 → 5 HECA builds.
+#  * SUB-SPECS WRITTEN (P4-P6 unblocked): s1-taut-chord-constructor-
+#    spec.md (funnel taut-string through a cap-propagated tube;
+#    trunk-first junction policy; declared bends w/ witnesses; gate
+#    O4_TAUT_STRING_CONSTRUCTION), r2-reference-tube-spec.md (tube as
+#    node-interval via the EXISTING bounded-yield channel; ε in
+#    config.py 0.50/1.0; tube_face witness class; gate O4_REF_TUBE),
+#    r3-flip-and-deletion-spec.md (two-stage: flip-with-legacy then
+#    row-by-row hash-proven deletion; broken = clamp(field, interval),
+#    t-ramp only as empty-interval containment; battery gated on P0b).
+# ADDENDUM 2 (P3 attribution landed — THE HEADLINE DEFECT IS
+#  ATTRIBUTED; S1 spec revised same night):
+#  * P3 COMPLETE (interventional, zero builds): chord-1 dip cause =
+#    CLASS (f) CORRIDOR DECOMPOSITION + PEG INHERITANCE —
+#    _build_spine_corridors cuts the 3,980 m chord into 62 corridors
+#    (longest 900 m, zero anchors); 59 endpoint pegs (8% of nodes)
+#    carry 100% of the movable defect (A8≡A3 bin-for-bin); with pegs
+#    freed + ceiling masked the constructor holds the owner's line at
+#    −0.05 m.  EXONERATED as direct pullers: runway crossings, seats,
+#    gs pins (anchor-set swap moves NOTHING; nearest hard node 107 m
+#    off-chord).  FALSIFIED: the correlational band-ceiling reading —
+#    ceiling sits 0.66-5.94 m below the string yet masking it alone
+#    moves 0.00 m (LATENT; binding only after pegs freed, ~5.7 m).
+#    Would have been the TENTH falsified mechanism; the early-stop
+#    licence that invited it was in the FABLE-written S1 spec and is
+#    replaced by the normative rule: latent-vs-binding is decided
+#    ONLY by masking.
+#  * S1 SPEC REVISED (§1a table + rulings): NEW STAGE 0 — maximal-
+#    string assembly by follow-through at junctions (config threshold
+#    15°, CP2-reviewed); interior pegs DISSOLVE (not re-seeded —
+#    structural fix, not symptom patch); _build_spine_corridors NOT
+#    modified (own read-only assembly in taut_string.py); chord-1
+#    must assemble as ONE string (acceptance gate); S1-CP1 SATISFIED
+#    by P3's table + ruling.
+#  * NEW PLAN STEP P3c: band-ceiling provenance OFFLINE (mask one
+#    class per arm during reach_band_unified recomputation on P2's
+#    enriched dump; control-arm fidelity proof required; NO build
+#    authorized unless offline is shown insufficient).  Feeds owner
+#    ruling §6.6 (bends stand vs ceiling inputs are the defect).
+#  * P2's instrumented build payload extended (same single build):
+#    spine_floor, couple_adj, five _solve_spine_profile elev
+#    snapshots (owns the OPEN post-phase-A 2.2 m drag — 262/721
+#    chord nodes below their own band floor, mover unnamed), band
+#    inputs for P3c.
+# ADDENDUM 3 (2026-07-31 — P2-CP1 measured w/ a correction to MY
+#  normative number; split-source field ruled; P0b CLOSED):
+#  * ⚠ §4.1's 106.717 WAS A CROSS-TREE ARTIFACT (Jul-29 dump vs
+#    Jul-30 finals; 2.5 m error, sign flipped).  Single-tree
+#    instrumented HECA: A=108.454 (in class), B=109.266 (above),
+#    finals 108.500/108.450.  Conclusion (A for layer 6) SURVIVES;
+#    evidence corrected in spec+plan.  NEW NORMATIVE RULES (spec
+#    §5.0): cross-tree elevation comparisons are never moment-ruling
+#    evidence; flake claims need POWERED samples.
+#  * SPLIT-SOURCE FIELD RULED (gate (iv) as pre-registered arbiter):
+#    layer 4 reads the ASSEMBLY-moment strung state (|field−final#2|
+#    spine p50 0.077 from B vs 0.628 from A — 8x); layers 2/3/6 read
+#    the A-copy (LOAD-BEARING: 14.78% of fabric moves A→B, p90
+#    0.259, max 19.199 = the drag class references must not
+#    inherit).  Pre-S1 the B-read embeds chord-1's sag level — 
+#    CORRECT for R1 (no scope-sneak).  build_reference_field gains
+#    elev_entry; _solve_spine_profile gains keyword-only probe_out
+#    (pieces_out idiom precedent; module-global stash REJECTED as
+#    the pattern U1 deleted).  ONE final instrumented HECA build
+#    authorized against the full payload spec (plan P2); staged half
+#    already landed + SPLP-verified gate-on AND gate-off
+#    (d8d0f065… = U1 arm); candidate B = existing elev key.  P2
+#    budget honest total: 6 HECA (1 spent 718.7s + 1 authorized +
+#    ≤4 dev) + 7 SPLP.  P2 UNBLOCKED (ruling b was the critical
+#    path).
+#  * P0b CLOSED BY ATTRIBUTION (interventional, zero builds): the
+#    idempotency flake = o4_provenance_built WALL-CLOCK stamp in the
+#    OSM root line vs full-text compare (frozen clock 0/20 + 0/100;
+#    forced straddle 8/20; all 9 captured diffs = timestamp only,
+#    geometry byte-identical).  ⚠ CORRECTED: "3/3 isolated ⇒
+#    suite-context" was an underpowered-sample error (true isolated
+#    rate ~2/20); cache warmth/xdist EXCLUDED (audit-hook trace).
+#    R3's BATTERY PRECONDITION SATISFIED BY MECHANISM (root line is
+#    exactly what tail -n +3 excludes; U1's proof stands by
+#    mechanism).  NEW plan step P0c: test fix (bodies identical +
+#    root diff confined to the timestamp attr + honest assertion
+#    message — the old one asserts a falsified cause).  R6 note:
+#    2 git subprocesses per to_osm = ~52 of 54 ms emit; per-build
+#    provenance cache + drop-wall-clock = owner question, R6 carries
+#    it with the numbers.
+# ADDENDUM 4 (2026-07-31 later — S1 Stage-0 mechanism FALSIFIED and
+#  replaced; the DRAG attributed to the HARMONIC; ordering ruled):
+#  * S1 §10(vi) STOP FIRED (2nd checkpoint save): heading
+#    follow-through CANNOT assemble chord 1 at any threshold (zero
+#    merges 5-30°; only 23 of ~46 needed piece junctions EXIST;
+#    median 36° deviations; endpoints median 9.1 m off-centerline —
+#    terminal segments peel onto crossers).  The chord IS
+#    graph-reachable (3,992 m through-path, one component).  RULED:
+#    Stage 0 = CENTERLINE-IDENTITY ASSEMBLY (level 1: group by
+#    authoring Centerline — authorship exists in the
+#    _build_global_spine walk, export authorized from the SAME walk;
+#    level 2: centerline-scale windowed continuation; unauthored
+#    fallback counted).  Heading heuristics = falsified proxy for
+#    authored truth.  Mechanism-before-wiring gate: replay must show
+#    chord-1 authorship census + ONE-string assembly before further
+#    wiring.  §6 gate disambiguated: the string = the THROUGH-PATH
+#    (~3,992 m), corridor spine nodes off it must belong to other
+#    strings.  ⚠ FALSE-CONFIDENCE FIXTURE: the synthetic 62-piece
+#    test PASSED under the broken mechanism — assembly acceptance
+#    now runs on a REAL-GEOMETRY fixture (risk-register rule).
+#  * DRAG ATTRIBUTED (P2's five snapshots, cross-validated 2 builds):
+#    HARMONIC MIN-CURVATURE owns 67.1% of strung motion (seam
+#    103.620→107.973, +4.353 of +4.834 net); internal taut pass is
+#    an 11.1% corrector (+0.039); exact-cap projection +0.442.  One
+#    mechanism, two signs: no-altitude-preference interpolation
+#    toward the network's descent lifts the seam off low DEM AND
+#    sags chord 1 below the owner's string.  ORDERING RULED (S1
+#    §1b): S1's hook SUPERSEDES the harmonic on string interiors
+#    (α); end policy HARDENED (ends = anchors | earlier-string
+#    junctions | FREE-solved terminals; phase-A values only on
+#    fallback pieces, counted); S1b ORDAINED as end-state
+#    (constructor first-class inside phase A, harmonic demoted to
+#    gap-filler w/ Dirichlet BCs, internal taut pass deleted there)
+#    — Fable-designed AFTER S1 measures, never implementer-initiated.
+#  * P2: probe_out landed (kwargs gate passed), view_scalar (55
+#    green), reference_field.py split-source w/ docstring caveat;
+#    identity re-proven d8d0f065…; wiring + tests HONESTLY unstarted.
+#    node_band DROPPED from build_reference_field (unused — rule-2
+#    dies per §4.6; U1 store makes it forever unnecessary).  Spend:
+#    2 HECA (718.7 cold + 352.5 warm, warm≠baseline) + 11 SPLP;
+#    ≤4 HECA left for CP2.  S1 landed gate-off inert (existing
+#    taut_string.py EXTENDED; 23 tests; 2 replay-found bugs incl.
+#    the base_hard silent-no-op hazard — now spec-normative).
+#  * TWO SMALL RULINGS (same day): (1) S1's centerline-authorship
+#    export (UnifiedGraph.centerline_chains/_service) stays UNGATED
+#    w/ 3 conditions — identity proof w/ grade_graph.py reverted in
+#    the pre copy ("reasoned inert" not accepted), build-time
+#    statement, a READER lands with it (census now, real-geometry
+#    fixture permanently).  Gap was in the Fable authorization
+#    (never said gated-or-ungated) — rule: such authorizations are
+#    INCOMPLETE, ask first.  (2) 24F comparator RE-BASED to
+#    ATTRIBUTED-DELTA semantics (pinned hash 50f45b49d849 is dead):
+#    live comparator = 24F minus the removal ledger; additions =
+#    Fable rulings only; suite runs label the CURRENT hash as
+#    metadata.  ⚠ CORRECTED SAME DAY: ledger entry 1 (the flake) was
+#    WRONG — the flake was NEVER a 24F member (9-file breakdown sums
+#    to 24, zero test_layout entries; P0's 25 = 24F + flake).  Entry
+#    VOIDED in place; LIVE COMPARATOR = 24.  New ledger discipline:
+#    per-file counts reconciled against the membership claim BEFORE
+#    any entry is written (the failure was a reconciliation never
+#    performed).  Under the wrong 23, P2's CLEAN suite would have
+#    read as a phantom +1.  Also risk-register: background waiters
+#    must arm on the exact PID + kill -0 re-verify after loop exit
+#    (P0c hit a false CLEAR mid-build).
+#  * P2 R1 WIRING LANDED + REVIEWED: O4_REFERENCE_FIELD default "0"
+#    ×3 sites, minimal-diff (OFF path character-identical); field
+#    built once at fp#8 assembly, finals via view_scalar crown-
+#    lifted, no re-snapshot/no R rebuild; node_band gone.  Identity
+#    SPLP×3 + CYXY pre==post (U1's hashes); 66 tests green
+#    (mutation-checked); cbt PASS 34.57 s (−9.84 disclaimed, not
+#    P2's).  Suite taut-P2-suite 24F/3876P @6b019fdee962, only delta
+#    vs P0 = the flake HEALED (P0c working) — clean vs comparator
+#    24.  Spend 2 HECA + 20 SPLP + 3 CYXY + 1 suite; ≤4 HECA held
+#    for CP2 (not started: HECA arms, W-CHORD gates, seam class,
+#    weld, default flip).
+#  * S1 AUTHORSHIP CENSUS RULED (gate PASSED, condition CORRECTED):
+#    chord 1 = 75 authoring chains (count expectation FAILED; best
+#    single 678 m/17%) BUT 36 collinear chains (≤15° of chord
+#    bearing) tile it END-TO-END: 3,806/3,968 m = 95.9%, median AND
+#    max gap 0.0 m across 33 junctions; crossers cleanly outside
+#    (median 27.8°).  S1 STOPPED at the literal gate, did not
+#    bridge — correct; the COUNT was a Fable proxy error for the
+#    real property (bridgeless concatenability).  GATE RESTATED in
+#    property terms: collinear + >=95% METRE tiling + ZERO-length
+#    gaps (positive gap = STOP for Fable, never a heuristic bridge);
+#    metre extents are gate currency, node percentages NEVER
+#    (density-dependent); level-2 heading = WHOLE-FRAGMENT bearing.
+#    Register item 12: proxy gates (companion to correlational
+#    attribution + false-confidence fixtures).  Part (ii) — the
+#    one-string assembly demo on the real-geometry fixture — now
+#    unblocked, still required.  0/5,085 unauthored pairs = MEASURED
+#    zero (fallback stays for other airports).  Export build-time
+#    MEASURED 0.080 ms (~75x under review line).  grade_graph
+#    identity proof staged; pre-flight guard correctly aborted on
+#    P2's live HECA (exact-PID waiter armed) — runs when box clears.
+#    S1 spend: 0 of <=4 HECA.
+#  * PART (ii) PASSED (zero builds): chord 1 = ONE string, 36
+#    fragments/293 nodes, 99.9% ALONG-span (1->3,966 of 3,968 m),
+#    0/463 chord nodes orphaned (two-sided gate).  THE WINDOW IS THE
+#    MECHANISM (interventional: window 0 -> 59.8%, 37 m -> 99.9%;
+#    thresholds 10/15/20 deg byte-identical — threshold not doing
+#    the work).  RULED: gate currency = along-span for COVERAGE,
+#    polyline arc-length for STATIONS/CAPS (law follows the taxied
+#    path; +316 m excess reported per trunk); window_m=0.0 API param
+#    RATIFIED (production passes TAUT_STRING_HEADING_WINDOW_M=37.0
+#    explicitly, default is for fixtures).  ⚠ FIXTURE SELF-CATCH →
+#    COMPETITION CLAUSE (register 13, 4th taxonomy entry): S1's
+#    first fixture (77 chord-touching fragments only) let the
+#    FALSIFIED window-0 mechanism pass at 99.9% — subsetting removed
+#    the junction competition; real geometry, wrongly subset, tests
+#    intent again.  Landed fixture = all 647 non-service fragments
+#    (tests/fixtures/heca_chord1_authorship.json) w/ the window-
+#    necessity test as its own NEGATIVE CONTROL.  25 tests green.
+#    Next: level-2 wiring + hardened ends; S1 spend still 0/<=4 HECA.
+#  * P2 CP2 MEASURED — DO-NOT-FLIP (default held "0"; Fable
+#    ENDORSED): gate-off hash PASS d4f52f02…; W-CHORD2 law PASS both
+#    arms.  ON FAILS: seam 108.23 (3 cm marginal, gate NOT widened),
+#    building199 weld 0.490→0.890, W-CHORD1 −11.07→−11.28, law-true
+#    5→6 w/ ONE new failure test_cyxy_spine_zero_no_bowl (the ONLY
+#    arm delta across 4 airports).  ⚠ Fable gate error owned: the
+#    ≤0.2 weld gate was IMPOSSIBLE at R1 (OFF itself 0.490; ≤0.2 is
+#    R2's) — restated "not worse than 0.490", ON still fails.
+#    Synthetic-limit discharge: 3 PASS (field minted once, 131,055
+#    entries, absent 0.00-0.14%; 7,347 slabs; crown frames clean);
+#    the HIT = R ON REAL APRON RINGS — the limit P2 NAMED IN WRITING
+#    pre-build (taxonomy paying off).  P2-CP2b DIRECTED: (1) zero-
+#    build reference-diff at building199 + CYXY failing nodes (name
+#    the authoring layer); (2) masked arms only if implicated: ARM-5
+#    (per-pass R under ON), ARM-5v (R on pass-entry anchors), ARM-6
+#    (layer 6 from live-B).  2 CP2 HECA remain + CYXY builds
+#    authorized; NO FIX before an arm lands.  R1 flip BLOCKED on
+#    CP2b; S1 NOT blocked (gates vs OFF) — box handed to S1.
+#  * ⚠ REGISTER 14: O4_TEST_AIRPORTS=HECA did NOT scope the law-true
+#    run — it built 4 airports (708.88 s).  Budget rule: price
+#    "single-airport" law-true as FOUR airports until a Fable-spec'd
+#    conftest fix (fix shape is a design question — the leak is what
+#    caught the CYXY regression).  All spec mentions annotated.
+#  * S1 ARM 1 (1 of <=4 HECA): CLEAN NEGATIVE — emitted chord
+#    bit-identical (W-CHORD1 exactly −11.07) because chord 1 FELL
+#    BACK: 239/296 strings (81%) under the whole-chain policy; 179
+#    infeasible_station defects, binding class ANCHOR-vs-ANCHOR
+#    through the cap, gap median 1.515/max 1.618 m, clustered.
+#    RULED: §2.2 fallback → MINIMAL (split at declared defect,
+#    string feasible spans, NO blending across the gap; whole-chain
+#    retired — granularity never considered at authoring, owned);
+#    §2.2b arithmetic directed (|zA−zB| vs g·d per defect pair,
+#    authors classed; pre-existing → §6.4 owner pathway per
+#    feasibility-is-guaranteed, manufactured → S1 bugs); TAXONOMY
+#    ENTRY FIVE (register 15): fixture preserved competition NOT
+#    DENSITY (phase-1 predicted 99.9%, build assembled 2,366 m) —
+#    re-base ONLY after shortfall attribution.  Arm 2 waits on all
+#    three zero-build items.  Cross-arm: S1 −11.07 exact, P2 ON
+#    −11.28 — two levers, neither improving, no cross-tuning.
+#  * CP2b CYXY HALF RULED — SPEC-CONFORMANCE DEFECT, ARM-6 RETIRED
+#    UNSPENT: ON's reference is UNLAWFUL PRE-SOLVE at the CYXY
+#    service pair (6.03% prescribed vs 5.0% cap, both endpoints
+#    layer-6/A-copy; legacy refs lawful; layer-4 pair byte-identical
+#    = control).  §4.1 layer 4's SERVICE SUB-DOMAIN ("service from
+#    apply_service_road_dem_follow's shape") was skipped by the
+#    implementation — the absorbed legacy ★ comment warned of
+#    exactly this at exactly this airport.  FIX (P2, no API change):
+#    service nodes take live-elev (never rod strings, never
+#    elev_entry).  SEQUENCE: fix+tests (0 builds) → 1 CYXY (ON 1→0
+#    required) → 1 HECA re-arm (4 gates) → ARM-5 only if
+#    building199/W-CHORD1 still fail (A==B there, ARM-6 inert).
+#    REGISTER 16: warning comments are LOAD-BEARING SPEC — absorb/
+#    delete steps harvest ★ comments as conformance obligations
+#    FIRST (now binding on R3's row deletions).
+#  * S1 THREE ZERO-BUILD ITEMS DONE + TWO RULINGS: minimal fallback
+#    INSTALLED (29 tests; free-solved facing ends, no blending).
+#    §2.2b: recorded lo−hi excess IS |zA−zB|−g·d (S1's correct
+#    recognition) → ≥146/179 SURFACED (band author predates hook;
+#    median excess 1.515 m MATERIAL; 2/179 dust) → §6.4 owner
+#    pathway, MERGED w/ P3c into ONE presentation (same band-input
+#    question); 33 anchor-vs-anchor UNDECIDABLE until arm 2's
+#    anchor/xstring relabel — claimed neither way.  ⚠ REGISTER 15
+#    FALSIFIED BY ITS AUTHOR (interventional): density ×1/×3/×6 →
+#    identical assembly; endpoints unshared → 15.9%.  RE-RECORDED as
+#    ENDPOINT-NODE SHARING w/ DOUBLE ownership (S1's label + Fable
+#    RATIFIED without demanding the mask — the register's own rule,
+#    one entry later).  RULED: endpoint identity = CANONICAL-
+#    REGISTRY ID (the pipeline's one 0.5 m identity; sharing test
+#    compares canonical IDs, never indices/coords; NO chaining
+#    beyond it); arm 2 carries α/β/γ instrumentation (compared-
+#    wrongly / within-0.5 m / real-gap→STOP) + per-end stop
+#    reasons.  ⚠ PART (ii)'s PASS DEMOTED to phase-1 scope —
+#    bridgeless concatenability UNVERIFIED at build density (22
+#    fragments max vs fixture's 36); THIRD proxy in the lineage.
+#    Fixture still NOT re-based (attribution first; re-base must
+#    preserve endpoint-sharing structure + negative control).
+#  * CONFORMANCE FIX VERIFIED: CYXY spine invariant HEALED 1→0 (67
+#    tests, mutation-checked — deleting 4b fails exactly the 2
+#    service tests; fixture live≠string≠entry so no silent pass;
+#    REGISTER 16 FIRST OUTING — ★ obligation at code site + test
+#    docstring).  Layer 4 now canonical as 4a (taxi/rod-string) +
+#    4b (service/live-elev).  HECA re-arm: ALL GATES UNCHANGED TO
+#    THE DIGIT (weld 0.890, W-CHORD1 −11.28, seam 108.23) — the two
+#    CP2 defects are INDEPENDENT, measured.  Hashes: OFF d4f52f02…
+#    (comparator valid — fix lives in ON branch), ON pre 606c7d70…,
+#    ON post 71b8e944….  RULINGS: (1) ARM-5 = SHAPE (A) — overlay
+#    layer 5 only (legacy per-pass R; layers 1-4/6 field-sourced);
+#    riders: (A) BUNDLES moment+anchor-source+rule-2, heal ⇒ layer 5
+#    owns + OFFLINE decomposition before any fix, no-heal ⇒ layer 5
+#    exonerated + back to reference-diff; INSTRUMENT the arm (R
+#    per-pass values at building199/seam/dip) — last HECA is never a
+#    bare boolean; queues behind S1 arm 2.  (2) CYXY +4 NON-SPINE
+#    violations (7→11 ON post-fix): the CP2 gate reads the TOTAL —
+#    spine-only pass is necessary NOT sufficient; zero-build
+#    reference-diff directed on the 4 pairs; CYXY half = healed-
+#    spine, +4 PENDING ATTRIBUTION (reported, not accepted; blocks
+#    closure not ARM-5).  (3) service_skip RENAMED service_nodes
+#    (frozen-API owner; a name stating the opposite of behavior is
+#    the register-16 trap in miniature).
+#  * +N ATTRIBUTED (zero builds): ONE service↔apron cluster
+#    (z'≈701.6-702.2); A-sourced field prescribes 13.2-27.9% vs 5%
+#    caps PRE-SOLVE, legacy lawful ≤4.6%, 4b restores legacy exactly
+#    on service members — the +N = the SAME A-copy defect on the
+#    half 4b was scoped not to touch.  P2 SELF-CAUGHT its script's
+#    inverted "FIX-MINTED" label (register 17: output labels are
+#    claims).  ARM-5 EXTENDED to TWO SITES (+1 instrumented CYXY
+#    ~40s authorized; two-site disagreement = decomposition
+#    evidence).  CYXY half: healed-spine, +N attributed, NOT closed
+#    (needs the 5/6 split).  HYPOTHESIS named (plan log only): A-copy
+#    may be pre-reconciliation at cross-source interfaces.
+#  * S1 ARM 2 (2 of <=4): α 522/592 (88%, median best-dev 29.9°),
+#    β=0 (REGISTRY CLEAN), γ=70 at median 112.9 m — Fable's dropped-
+#    junction hypothesis FALSIFIED (register 18).  α-SPLIT analysis
+#    directed (should-have-merged vs correct crossers, offline).
+#    §2.2b CLOSED: ≥159/168 SURFACED, ZERO xstring-vs-xstring (S1
+#    manufactures nothing).  Minimal fallback works as specified —
+#    DATUM SCARCITY is the blocker (split spans inherit no datums;
+#    zero interior hard anchors on chord corridors).  RULED: class
+#    (ii-b) TRUNK-END DATUMS (anchor-governed complex fabric at
+#    trunk extremities; PROPOSED-PENDING-OWNER); trunk-first
+#    ordering STANDS (owner's worked example falsifies anchor-
+#    distance reordering); split spans stay datum-poor pending §6.4
+#    (counted consequences).  OWNER PRESENTATION = ONE filing, THREE
+#    items: ≥159 surfaced contradictions + P3c band provenance +
+#    (ii-b) datum-flow confirmation.  W-CHORD1 −11.07 unchanged 2nd
+#    consecutive arm (expected pending rulings).  S1 HOLDS remaining
+#    <=2 HECA; ARM-5 UNBLOCKED (box free).
+#  * ARM-5 RAN BOTH SITES — BUNDLE DECOMPOSED, 3 FAILURES 3 OWNERS:
+#    HECA building199 0.890→0.480 HEALED (layer 5 OWNS it;
+#    ownership NOT mechanism — moment/anchor-source/rule-2
+#    decomposition runs OFFLINE from the 6 banked _a5_dump R dumps);
+#    W-CHORD1 −11.28 unchanged to the digit (layer 5 EXONERATED —
+#    sag rides layer 4's faithful read, S1's to dissolve); CYXY
+#    7→11→14 (layer 5 EXONERATED + ACTIVELY HARMFUL — measured
+#    counter-indication vs any global R fix; residual stays with the
+#    A-copy).  Seam creep 108.26→108.23→108.21 rides the
+#    decomposition.  R-FIX SHAPE CONSTRAINT (Fable): any layer-5 fix
+#    preserves CROSS-LAYER MOMENT-CONSISTENCY at interfaces
+#    (pass-entry R beside A-copy fabric = the measured harm
+#    signature; legacy never mixed moments).  REGISTER 19: TWO-SITE
+#    ARMS ARE A METHOD (2nd proof; "CYXY is what prevents 'found
+#    it'"); yield = sites × instrumentation.  Arm clean:
+#    O4_REF_FIELD_ARM5 default "0", shape (A) exact, SPLP smoke +
+#    identity d8d0f065… ×3 BEFORE the last HECA.  ⚠ CP2 BUDGET
+#    EXHAUSTED (4/4 HECA + authorized CYXY; session 5 HECA/5 CYXY/
+#    24 SPLP/1 suite/1 law-true).  Posture: every further build
+#    returns to the coordinator BEFORE spending; insufficient dumps
+#    = a finding to price, never a build licence.  PENDING FABLE:
+#    the building199 decomposition table; S1 still holds <=2 HECA
+#    pending owner (ii-b) + α-split.
+#  * BUILDING199 DECOMPOSED → MOMENT AXIS (zero builds): R is
+#    pass-dependent (site spread 1.397 m; 812 sites p50 0.299/p90
+#    1.898/max 7.589); field emitted = fp#8-R +5 mm, ARM-5 emitted =
+#    final#2-R +2 mm; anchor-source+rule-2 bounded together <=0.01 m
+#    (consistency argument, unseparated, no builds asked).  RULED
+#    (spec §4.1): "BUILT ONCE" RETAINED AS A MEASURED CHOICE — the
+#    moment explains the ARM DELTA not the LAWFUL VALUE (pad 89.27,
+#    weld target <=0.2: frozen R 0.9 HIGH, final R 0.48 LOW =
+#    legacy's steady state); per-pass = the §1.3 amplifier (CYXY
+#    11→14) — retired; no per-site moment rules.  HYPOTHESIS: R's
+#    construction inputs at pad faces (layer-3 shadow reach);
+#    offline test rides next authorized dump.  Weld <=0.2 delivery
+#    remains R2's.  REGISTER 20: analysis joins key by SITE never
+#    index (P2's index-join printed spread=0.000 across REBUILT
+#    node lists — the exact inverse, caught pre-report; 4th
+#    self-catch).
+#  * α-SPLIT DONE (phase-1 scope): 0/452 genuine rejections wrong —
+#    admission EXONERATED AT PHASE-1 ONLY (the split can only see
+#    the arm where the defect is absent; qualifier mandatory).  NEW
+#    HYPOTHESIS (unacted): build-density shortfall = ENDPOINT
+#    SELECTION by the centerline projection (the ×3/×6 arm
+#    subdivided WITHIN fragments, preserved endpoints — scope
+#    narrower than its label; register 15 sharpened).  ★-marked
+#    pieces/cand_pieces payload added proactively (register 16
+#    working FORWARD) — build-scoped α-split rides arm 3 FREE.
+#  * OWNER CONFIRMED (ii-b) ("We can try using the anchor governed
+#    fabric already there") — SPEC'D (S1 §3): live hook-moment value
+#    of canonically-adjacent complex fabric, gated by anchor
+#    proximity (TAUT_STRING_END_DATUM_ANCHOR_RADIUS_M=250.0,
+#    CP2-reviewed); no anchor in radius ⇒ end stays FREE + counted;
+#    ENDS ONLY (interior spans datum-poor pending §6.4 BY DESIGN);
+#    "we can try" = MEASURE directive — failure declares
+#    datum_infeasible to the §6.4 filing, NEVER softened datums or
+#    band-seat retreat; anti-band-seat rationale recorded (no band
+#    read ⇒ cannot inherit the 137 band-vs-anchor contradictions).
+#    S1 UNBLOCKED: implement + offline acceptance (0 builds), then
+#    ARM 3 = ONE held HECA carrying (ii-b) W-CHORD1 measurement +
+#    the build-scoped α-split (two questions, one build, register
+#    19).
+#  * OWNER MODEL QUESTION RULED CONFIRMED ("only long strings...
+#    everything draws toward the master string"): MASTER STRINGS =
+#    AUTHORED ROUTES W/ DATUMS, never extent (chord 2 ~565 m IS a
+#    string; densification fragments never found strings; dense
+#    nodes attach BY AUTHORSHIP not nearest-neighbour).  "Draws
+#    toward" = the S1b END-STATE, not current behaviour (fabric refs
+#    R/snapshot today; harmonic has no altitude preference): fabric
+#    ref = grade-law projection from the string web (1.5%/1%), R
+#    re-founded as its apron instance, layer 6 shrunk to off-web
+#    fallback, harmonic gains STRING Dirichlet BCs — S1b + the
+#    owner's question are ONE end-state from two sides, designed
+#    together after S1 measures.  Fallback metrics trunk-set-scoped;
+#    ≥159 contradictions REMAIN §6.4 defects (non-laundering).
+#    S1's current work SURVIVES; arm 3 = THREE questions.
+#  * STAGE-1 BLOCKER + (a) CALL: authorship+solve-state had NEVER
+#    coexisted in a dump (§3 asserted a graph nobody had — JOINT
+#    blind spot, the P2-CP1 no-new-dump pattern recurring).  Fix
+#    O4_STRING_STATE_DUMP ★-marked (register 16 forward #2).
+#    Coordinator's dedicated-capture call ENDORSED w/ true grounds
+#    (inputs-only + offline-first so stage 1 GATES arm 3; the
+#    staleness risk didn't materialize post-ruling).  S1 3 of <=4,
+#    1 held.  (ii-b) IMPLEMENTATION REVIEWED: CONFORMS (no band
+#    read; bounded Dijkstra gate; ends only; datum_infeasible
+#    re-kind; NO softening path in code; 29 tests; operationalization
+#    = nearest non-spine neighbour, annotated).  ATTACHMENT CENSUS
+#    re-routed OFFLINE onto the capture (zero-build); arm 3 keeps
+#    W-CHORD1 + build-scoped α-split.
+#  * OWNER REFINEMENT RULED ("strings should be only straight
+#    trunks, changing if there's a turn" + GROUND-TRUTH MAP OFFER):
+#    AUTHORSHIP = MEMBERSHIP, STRAIGHTNESS = SEGMENTATION (turns cut
+#    authored routes into strings).  AXIS SEPARATION normative:
+#    straight in PLAN (horizontal turn ENDS a string); bends only in
+#    ELEVATION where grade forces (declared WITHIN a string).  Turn
+#    criterion STRUCTURE ruled: authored-segment bearings at
+#    fragment scale (validated window); JUNCTIONS are NOT turns
+#    (chord 1 runs straight through 33); AUTHORED BREAKS are NOT
+#    turns (36-fragment tiling is straight); dense-node local
+#    bearings NEVER (measured fillet noise).  THRESHOLD calibrated
+#    against the OWNER'S MAP then frozen — never invented; level-2
+#    merge ≡ not-a-turn (one criterion, two sides).  OFFER TAKEN —
+#    request: KML LineStrings 1/string, named, TAXIWAYS ONLY (no
+#    service/runways), turns per OWNER JUDGMENT, count stated,
+#    partial OK.  Uses: expected count (never had it), wrong-merge
+#    vs wrong-split decomposition, threshold calibration, fixture
+#    re-base target; negative controls MUST FAIL against it
+#    (terminal-segment heading + dense-node bearing).  SEQUENCING:
+#    capture completes; STAGE 1 SPLITS (chord-1-scoped ii-b + census
+#    PROCEED offline — chord 1 is a string under every criterion;
+#    FULL-INVENTORY acceptance HOLDS for the map); ARM 3 HOLDS (the
+#    held HECA carries the FINAL segmentation).
+#  * STAGE 1 MEASURED — FAIL BOTH CLAUSES, GATE WORKED (capture =
+#    S1's 3rd HECA; /tmp/s1/s1_state.pkl — authorship + solve-state
+#    coexist FIRST TIME).  ATTACHMENT CENSUS: 100% of spine nodes
+#    attach to an authored route (7,126/7,126; chord 1 707/707) —
+#    the owner's coverage premise MEASURED TRUE at build density;
+#    zero orphan fabric, no geometric fallback anywhere.  (ii-b)
+#    live: 137 adopted / 281 free-counted / fallbacks 231→197.
+#    CHORD-1 ACCEPTANCE FAILS: 58.5% along-span (1652→3977; orphans
+#    0); 45 datum_infeasible vs required ZERO — declared + routed,
+#    no softening, as specced.  Coordinator's bearing test: DEAD-
+#    PARALLEL segments inside the uncovered region (bins 1000-1400
+#    median AND max 0.0°) — WEAKENS the correct-cut reading (limits
+#    stated); burden stays on ASSEMBLY provisionally; the MAP
+#    settles.  RULED: the 45 = CLASS D (FIRST defects authored by
+#    an owner-ruled mechanism) — §2.2b-style classification on the
+#    capture BEFORE filing; radius-gate-as-governance-PROXY
+#    hypothesis framed (NO tuning either direction pending the
+#    table); §6.4 filing now = ≥159 surfaced + P3c + CLASS D w/
+#    sub-classification (the "we can try" report-back the owner
+#    asked for).  1652 STOP ATTRIBUTION directed offline on the
+#    capture (Stage 0 is pure; per-end stop reasons + candidate
+#    bearings at the terminus — the endpoint-selection hypothesis's
+#    direct test).  ARM 3 HELD (map + both classifications precede
+#    the last HECA).  S1: 3 of <=4 spent, 1 held.
+#  * OWNER'S MAP ARRIVED (/Users/noah/heca_strings.osm: 40 strings/
+#    37,327 m) + TERMINUS ATTRIBUTION — TOGETHER THEY KILL THE
+#    CORRECT-CUT HYPOTHESIS: chord 1 = ONE string 3,974.8 m, max
+#    interior bend 0.00° ⇒ NO turn at 1652; 58.5% = ASSEMBLY DEFECT
+#    definitively (296 vs 40 ≈ 7x over-assembly).  At the terminus:
+#    0 candidates at the canonical ID, continuation 0.86 m away
+#    under a DIFFERENT ID — ENDPOINT-SELECTION CONFIRMED (2nd
+#    sub-metre γ vs median 112.9).  FOUR RULINGS: (1) MEMBERSHIP
+#    GOES COLLINEARITY-FIRST (owner drew independent straight RUNS —
+#    chaining serves the data's fragmentation; endpoint-identity
+#    demoted to evidence); (2) 0.86 m = SOURCE-DATA NEAR-MISS not a
+#    registry defect (β=0, 0.86>0.5 — registry CORRECT; precedent
+#    BUILDING_FRONTAGE_NEAR_MISS_M; IDENTITY ≠ MEMBERSHIP ≠
+#    BRIDGING normative; interning radius untouched — 5th proxy
+#    refused); (3) TAUT_STRING_TURN_DEG=6.0 calibrated on the 36
+#    clean strings (<=5.0° interior), seated in the empty interval
+#    (5.0, 7.54), 4 outliers (7.5/67/91/119°) REFERRED TO OWNER
+#    ("should these have been split?"); recognition tolerance
+#    fitted jointly (count-40 target; wrong-merge vs wrong-split);
+#    (4) 200-cap lift + CLASS-D PROVENANCE instrumentation
+#    AUTHORIZED (class D = ~1,629 SAMPLED-AT-45, 45/45 datum-vs-
+#    anchor, excess med 2.618 ≈ 1.7x surfaced — filing states
+#    sampling + scale).  REVISED ARM-3 GATE CHAIN: collinearity
+#    revision → provenance → class-D resolution → re-acceptance vs
+#    THE MAP (40±, chord-1 end-to-end, zero unresolved D) → last
+#    HECA.  Assembly fixture re-bases to the map.
+#  * OWNER GAVE THE CONSTRUCTION RULE OUTRIGHT ("each string only
+#    has two nodes, one at either end of the longest straight run
+#    that follows the spine within a small margin... they all trace
+#    centerlines") + UPDATED MAP (46 ways/99 nodes; 41/46 dead
+#    straight <=0.06 m INTERNAL).  RULED: construction REPLACED by
+#    MAXIMAL-STRAIGHT-RUN EXTRACTION over the spine (supersedes
+#    fragment assembly; the 0.86 m near-miss class DISSOLVES by
+#    construction; runs may OVERLAP at crossings; maximality +
+#    de-dup replaces greedy).  Pairwise calibration negative
+#    (305→327 strings wrong direction, coverage flat) independently
+#    confirmed the pivot: FRAGMENT JOINS CARRY NOISE THE RUN DOES
+#    NOT (fillet noise at authorship scale).  TURN_DEG +
+#    MEMBER_NEAR_MISS retire w/ derivations; ★ identity ≠
+#    membership ≠ bridging SURVIVES.
+#  * MARGIN CALIBRATED (spine-vs-owner-strings, the only valid
+#    population): "small margin" ≈ 15-20 m NOT sub-metre (clean set
+#    p90 11-18/max 13-21; chord-1 max 18.43).  ⚠ CORRECTION CHAIN:
+#    the <=0.06 m was INTERNAL straightness (~250x too tight —
+#    coordinator self-corrected); Fable's flatline epitaph WITHDRAWN
+#    as under-ranged (0-5 m sweep = bottom quarter of the real
+#    distribution); re-sweep NOT owed (quantity gone from the live
+#    design).  RULED: TAUT_STRING_RUN_MARGIN_M=20.0; MEMBERSHIP =
+#    margin + authored-direction (15°, census-validated) +
+#    spine-path connectivity.  REGISTER 21: a margin is only as
+#    valid as its population (4 near-instances, one wave, incl.
+#    Fable's jitter guess).  ANOMALY BATCH to owner = ONE question,
+#    8 ways; count gate 46±8.  S1: 3 of <=4, 1 held; arm-3 chain
+#    unchanged (run construction + calibration → provenance →
+#    class-D → re-acceptance vs map → last HECA).
+#  * RUN-BASED CONSTRUCTION MEASURED: chord 1 58.5%→89.8% as ONE
+#    run (0.86 m terminus DISSOLVED — run-vs-pair confirmed on the
+#    case that produced it); count 286 vs 46, TOLERANCE-INSENSITIVE
+#    (margin 15-30/align 10-15 all 286; seated-in-empty-interval
+#    constants SHOULD be insensitive).  Excess ~240 runs at ~28 m =
+#    stub scale.  ~375 m chord-1 extent gap OPENED as its own item.
+#  * OWNER GAVE THE SELECTION RULE ("wherever there's a parallel
+#    taxiway... a single straight string from one end to the other,
+#    same for cross connecting taxiways") = ONE ROUTE ⇒ ONE STRING;
+#    the TIER EXISTS: RouteChain (whole route) → Centerline
+#    (bend-split piece, route_idx) — S1 seeded at PIECE tier (645)
+#    while strings live at ROUTE tier (explains stub scale + mean
+#    154-vs-811 + tolerance insensitivity).  RULED CONDITIONALLY:
+#    seed from GradeContext.routes IF the RouteChain count (phase-1
+#    check, zero HECA, running) lands in the PRE-REGISTERED class
+#    (~1-2x of 46); turn cut REDUCES to margin failure at route
+#    tier; piece boundaries never re-used as turns; membership test
+#    (ii) expected-inert, deleted only on MEASURED inertness;
+#    extent attribution re-sequenced AFTER the pivot (single-pass).
+#  * OWNER REFUTED SELECTION ("I drew almost every straight run,
+#    maybe skipping a couple under 100m"): map NEAR-EXHAUSTIVE ⇒
+#    the ~240 excess are SPURIOUS over-fragmentation, NOT undrawn
+#    runs; selection frame RETIRED (readings a/c die as count
+#    explanations; length filter doubly dead).  COUNT GATE: 46-49;
+#    the 8 in-map anomalies = SEPARATE quality track (mis-drawn not
+#    missing — never count tolerance).  Route-count check now
+#    DECISIVE pass/fail.  REGISTER 22: INTENT questions route to
+#    the SOURCE (one owner sentence replaced a build; measurement
+#    is for mechanisms).  Arm 3 held; 3 of <=4 HECA, 1 held;
+#    nothing tuned; fixture not re-based.
+#  * ROUTE-TIER FALSIFIED (658 routes = 658 pieces 1:1; chord-1 75→
+#    75) — pivot DEAD; seeding stays piece-tier; THE RUN
+#    CONSTRUCTION IS THE AGGREGATOR.  OWNER SUPPLIED THE THRESHOLD
+#    ("strings under 100m are probably not very useful... not more
+#    than 50 at HECA"): RULED SELECTION not construction —
+#    TAUT_STRING_MIN_LENGTH_M=100.0 OWNER-SUPPLIED (only he moves
+#    it); inventory minted unfiltered (measurement); string duty
+#    >=100 m; dropped nodes = non-string spine (unchanged today;
+#    draw-toward at S1b).  Register 22 paid 3x in one session.
+#  * FILTER MEASURED: 286→69 (<=50 FAIL as stated) BUT surviving
+#    total 37,543 vs owner 37,327 m = 0.6% UNTARGETED — correct
+#    geometry, split too fine; chord 1 untouched 89.8%; drop
+#    distribution = GENUINE VALLEY (144 @ 25-50 m then 4/2/2 —
+#    threshold robust ~60-130, corroborated).  ACCEPTANCE RESTATED
+#    3-part: length ~2% + coverage + count <=50 vs CORRECTED owner
+#    count (~51-56: the 5 real-offset anomalies are 2-3 strings
+#    each under his own rule; anomaly track FEEDS the count gate —
+#    independence claim corrected).  Count NOT softened —
+#    fragmentation IS the peg mechanism (2 endpoint datums per
+#    boundary; P3's 59-peg class).  DIRECTED: survivor-to-owner
+#    CORRESPONDENCE TABLE (one zero-build artifact: corrected
+#    comparison + 19-excess attribution + wrong-merge/split + the
+#    375 m gap).  SPLITTER QUESTION RE-OPENED bounded (code-read
+#    only; Fable's "moot" corrected — the filter didn't close the
+#    count).  3 of <=4 HECA, 1 held; arm 3 gated; nothing tuned.
+#  * CORRESPONDENCE TABLE (zero builds) — THE COUNT HID A
+#    CANCELLATION: matched 37/69↔30/46; WRONG-MERGE ZERO (class
+#    retired); wrong-split 7; DOMINANT 32 unmatched-OURS vs 16
+#    unmatched-HIS (opposite directions, partially cancelling:
+#    7+32 vs visible 23).  REGISTER 23: aggregates cancel —
+#    decompose before diagnosing; unmatched columns are only as
+#    valid as the MATCH RULE.  CHORD-1 375 m ATTRIBUTED =
+#    WRONG-SPLIT at ≈368 (179 m head orphan + ~20 m break +
+#    complete body); margin hypothesis PRE-KILLED by the 15-30
+#    sweep.  RULED: GEOMETRY-PARTITION TEST = priority zero-build
+#    w/ MANDATORY STEP 0 (publish match rule; cross-match 32-vs-16
+#    under looser correspondence FIRST — cheapest kill of the
+#    different-geometry inference); step-1 buckets decide fix locus
+#    (match rule/membership/stop-conditions/SOURCE DATA — his 16
+#    may sit on routes the centerline data LACKS); ≈368 stop reason
+#    named (one line); splitter code-read queues BEHIND.  S1's
+#    inference held unacted — correct.  3 of <=4, 1 held.
+#  * STEP 0: INFERENCE SURVIVES (triple-loosened rule recovers only
+#    3; ~90% of both columns stand).  BASELINE CORRECTED 31/15
+#    never 32/16 (5th self-catch: min-vs-max lateral).  Binding
+#    over-strictness = LATERAL not the flagged overlap.  S1-15 →
+#    wrong-split (matched 38/ws 8/columns 28/12).  RULED: two cheap
+#    filters NOW (parallel-neighbour scan; spine-existence on his);
+#    full bucketing holds for the owner's tagged-file verdict.
+#  * STEP 1 REFRAMES THE DEFECT → SPINE COVERAGE (counts ±2, 6th
+#    self-catch — lateral direction unpinned; canonical definition
+#    directed): HIS 16 = (c) NO SPINE 8 (five ~zero entire length) /
+#    (b) spine present no run 6 (OURS) / (a) dropped-sub-100 2.
+#    CHORD-1 ≈368 = SPINE-GRAPH CONNECTIVITY HOLE (zero edges
+#    between runs) — membership RETIRED for the 375 m; explains all
+#    tolerance-insensitivity.  Parallel-neighbour 3/33.  RULED:
+#    SPINE-COVERAGE DEFECT NAMED = plan step P7 (UPSTREAM,
+#    grade_graph domain, above S1's brief; step 0 = source-presence
+#    under the 8 lines in OUR inputs — yes ⇒ extraction defect,
+#    no ⇒ owner's substrate exceeds our sources); SPLITTER
+#    CODE-READ PROMOTED into P7 (3 symptoms, possibly 1 mechanism);
+#    S1 remainder = attribute (b)'s 6 + fold (a)'s 2, then HOLD
+#    (constructor closer to correct than counts implied);
+#    STAGE-1 RE-ACCEPTANCE RE-SCOPED to the SPINE-REACHABLE subset
+#    (impossible-gate lesson); full-map = JOINT gate of both
+#    tracks.  3 of <=4 HECA, 1 held; arm 3 gated; nothing tuned.
+#  * S1 FINAL SUBSTANTIVE RESULT — (b) DISSOLVES, NO CONFIRMED
+#    BUILD FAILURES: none of the 6 is a build failure (all spine
+#    CLAIMED by minted runs — never unclaimed; mechanisms:
+#    correspondence near-misses, TRANSVERSE claims, shared-with-
+#    drops; (b)<6, overlaps (a)); fragmentation family ~6 not 2;
+#    7th refusal endorsed (owner's way-id+reason verdict supersedes
+#    re-bucketing).  CANONICAL TABLE PINNED: lateral = max perp of
+#    OUR endpoints from HIS chord — 32/16 under this definition or
+#    not at all (canonical restores the ORIGINAL figures — the
+#    unpinned definition was the problem, never the number).
+#    RULED: P7 = the construction fork's CRITICAL PATH (P7 → owner
+#    verdict → re-scoped re-acceptance → arm 3); FORK B (law-defect
+#    filing) RESUMES NOW independent of P7 — P3c offline
+#    immediately; class D RE-MEASURES on the frozen constructor at
+#    filing time (stale 1,629-sampled-45 predates two pivots; not
+#    filed) w/ authorized provenance — measurement, not a hold
+#    violation.  P7 STEP 0 REFINED: per-line DENSITY PROFILES not
+#    binary (two "no-spine" ways retain 17/5 nodes — thinning ≠
+#    absent input); the ≈368 hole joins the same instrument, one
+#    pass.  S1 HOLDING; 3 of <=4, 1 held; arm 3 gated.
+#  * OWNER VERDICT ON THE 32 → ONE DEFECT + THE SPINE-WALK (3rd
+#    reframe): runs CUT OPEN TERRAIN between spines; rule supplied
+#    as an algorithm (follow spine; stop at turns; curves get no
+#    string; emit >100 m).  FIVE RULINGS (delivered in report body
+#    before a SPEND-LIMIT TERMINATION; coordinator preserved
+#    verbatim in a marked non-spec file, loop held open; folded on
+#    recovery, file deleted — REGISTER 24: continuity protocol,
+#    executed once, worked): S1 UN-HELD for the walk; walk = DOMAIN
+#    change (chord core survives; open-terrain UNREPRESENTABLE);
+#    contamination re-measure directed pre-registered (REGISTER 21
+#    FIFTH STRIKE, shipped-constant edition, Fable's ratification:
+#    the 20 m was calibrated on a population plausibly containing
+#    P7's holes — new corollary: check the calibration population
+#    for the defect class under investigation); S1-06/09/12 named
+#    fixtures; P7 step 0 on the construction critical path.
+#  * WALK LANDED (33/34; open-terrain crossing VERIFIED
+#    UNREPRESENTABLE; gaps never bridged; selection layering kept).
+#    Failing curve test = REAL ruling-2 gap ("sustained"/
+#    "straightens" undefined — Fable's, owned).  CURVE-EXIT RULED:
+#    criteria are EMERGENT (bound-departure segmentation + >=100 m
+#    emission discards curve segments; sub-bound curvature IS
+#    straight); the fix is DIRECTION SYMMETRY (forward/backward
+#    CONSENSUS — parameter-free; forward-only growth was the
+#    absorption artifact); ZERO new constants.  min_len_m defaults
+#    to the owner's TAUT_STRING_MIN_LENGTH_M; bound_m REQUIRED-
+#    EXPLICIT until the re-measure.  assemble_runs stays additive
+#    until the walk passes acceptance.  3 of <=4 HECA, 1 held;
+#    arm 3 gated; nothing tuned.
+#  * DIRECTION SYMMETRY IN (33/34, parameter-free; consensus of
+#    both-end growth; fixture bug self-caught — one-directional
+#    adjacency EXPOSED by the stricter mechanism, ★-noted).
+#    FIXTURE-PREMISE RULED: (b) REJECTED (straightening test
+#    resurrected); (a) ADOPTED RIGOROUS — fixture constructs its
+#    sustained region beyond bound (apex >=2x bound); assertions =
+#    the RULED invariants (count; strung nodes within bound of own
+#    chord; constructed beyond-bound region unstrung); sub-bound
+#    entry nodes may belong to either flank (owner's strings are
+#    2-node ideals — transition membership is our detail).  S1-06
+#    unblocked same shape.
+#  * P7 STEP 0 + CODE-READ — THREE DEVIATIONS RULED: D1 the 8
+#    lines' data EXISTS in OSM linear aeroway=taxiway (95.6% vs
+#    34.3% apt.dat; apt.dat taxi graph = 111 COMPONENTS at HECA)
+#    and is DELIBERATELY EXCLUDED by the owner's 2026-05-27
+#    apt.dat-only ruling → RULED (b): TO THE OWNER (his ruling; its
+#    motivating evidence — unmeasurable misalignment — is now
+#    MEASURABLE per-line; options b1 conditioned re-admission where
+#    measured-aligned / b2 apt.dat input defects / b3 medial-axis
+#    (measured-not-covering); our read b1; NO build before D1
+#    ruled).  D2 the CHORD-1 "CONNECTIVITY HOLE" REFUTED (raw spine
+#    fully covered, ONE component, 2.7 m max lateral through the
+#    375 m) — it was the RUN-MEMBERSHIP population; membership BACK
+#    on the table; DIRECTED zero-build: settling test + WALK-CLAIM
+#    census (M-new ranked: _NODE_KEY_M=0.05 vs canonical 0.5 —
+#    0.86 m near-miss ⇒ no shared node ⇒ no inter-chain edge; 669
+#    intra/0 inter measured; interning-alignment FLAGGED for after
+#    the census).  D3 sparse bucket = 6 not 8 (residual-vs-raw
+#    population — register-21 instance, self-corrected).  Q1:
+#    RouteChain 1:1 BY CONSTRUCTION (memo never hits) — symptom 3
+#    RETIRED; three-symptoms-one-cause DEAD (remaining two have
+#    DIFFERENT causes).  SPINE_PERP_TOL_M=1.0 noted vs the 20 m
+#    margin re-measure.  3 of <=4 HECA, 1 held; arm 3 gated.
+#  * OWNER RULED D1 + MARGIN + SIMPLIFICATION FRAMING ("strings
+#    should BE the existing route network just without the curves
+#    and intermediate nodes... could be 5m either side of the
+#    spine... OSM... acceptable for purpose of our simple string
+#    lines"): R1 PER-CONSUMER SOURCE POLICY (May ruling STANDS
+#    where aimed — clipping; strings clipped against NOTHING ⇒
+#    admit OSM linear; general principle: source admission keyed to
+#    the consumer's failure mode — never "relaxed").  R2 MARGIN
+#    OWNER-SUPPLIED ±5 m (TAUT_STRING_SPINE_TOLERANCE_M=5.0, one
+#    constant two jobs; 20 m RETIRES, epitaph completes when the
+#    re-measure names the CAUSE — downgraded to explanatory;
+#    SPINE_PERP_TOL 1.0 consistent inside; bound_m still unwired
+#    pending R3).  R3 MECHANISM SURVIVES / SUBSTRATE MOVES
+#    CONDITIONALLY (walk = the simplifier, validated 33/34; input
+#    tier → RAW route network apt.dat+OSM-for-strings; COMMIT GATE
+#    pre-registered on P7's raw-network characterization — per-
+#    route polylines must cover the owner's inventory class; if
+#    committed the processed-tier artifact classes DISSOLVE incl.
+#    the 0.05-vs-0.5 interning question).  Spine provenance relayed
+#    (apt.dat; +0.953; 76.2% within 1 m; 110 edgeless 0.0%).  P7's
+#    characterization = the construction fork's GATING item.
+#    3 of <=4 HECA, 1 held; arm 3 gated; nothing wired.
+#  * CHARACTERIZATION LANDED → R3 COMMITTED: the raw tier IS the
+#    owner's model as-ingested (151 routes → 196 pieces, −0.1 m;
+#    161/196 ALREADY two-point straights; 121/151 one-piece; no
+#    beziers).  THE FRAGMENTATION IS MANUFACTURED AT ONE STAGE:
+#    apply_route_arc_spine 151→653 ways, route_line=None at
+#    route_arcs.py:556-564 — ONE LINE explains RouteChain 1:1 AND
+#    the 36-fragment tiling.  ±5 m in the processed spine violated
+#    by ADDED arcs (fillets ~15 m; 120-550 m runway blends), not
+#    moved geometry.  The owner's primitive already exists as DEAD
+#    CODE (_collapse_straight_edges + 5 siblings, attic-only).
+#    Discovery branch DEAD (snapshot :2253 precedes discovery
+#    :2540; 5 of 8 log lines describe discarded output — (b3)
+#    retired WITH mechanism); effective input 287/255 not 366/311;
+#    on_line<2 drops SILENT.  RULED: SUBSTRATE = S2 ∪ OSM-linear
+#    per D1 (apt.dat-first dedup in ±5 m); bound_m WIRES at 5.0;
+#    census+settling CLOSED superseded; fixtures re-freeze from S2;
+#    stage-1 acceptance back to FULL map.  _collapse_straight_edges
+#    NOT revived (walk = the validated primitive; dead family =
+#    prior art w/ register-16 harvest).  Added arcs NOT a ±5 m
+#    defect (wrong scope; strings never see them under S2);
+#    [w.size]*nseg cap collapse noted as §6.4 context, unasserted.
+#    Pipeline hygiene SPAWNED OUT (dead branch + logs + silent-drop
+#    counter — task chip).  3 of <=4 HECA, 1 held; arm 3 gated.
+#  * 2ND OUTAGE RECONCILED: the preserved queue was captured against
+#    a LIVE STREAM — disk verification shows ALL SIX items were
+#    ruled+folded by the streamed edits (disposition table in the
+#    plan; queue file deleted).  Register-24 refinement: verify the
+#    disk before re-ruling a capture.  OWNER RULED (verbatim "+/-
+#    8m is acceptable, and the union is fine.  The goal here is
+#    majority coverage for long straight sections so we can smooth
+#    them to our string which is more faithful to a real airport.
+#    We don't need 100% coverage."): ±8 m (chain 20→5→8; bound_m
+#    WIRES at 8.0); UNION approved; ACCEPTANCE REFRAMED — GATE A
+#    length-weighted MAJORITY coverage at ±8 (measured state 95.6%
+#    length-weighted; 12/12 of his >=1000 m strings; chord 1 whole
+#    3,990 m), GATE B chord-1 end-to-end, GATE C W-CHORD1/2
+#    (unchanged — smoothing to the string IS the elevation goal),
+#    <=50 sanity bound.  Count-matching + 69-vs-46 +
+#    correspondence equality DEMOTED to diagnostics; 8-anomaly
+#    answer → denominator hygiene.  S1 DIRECTED to run acceptance
+#    ITSELF (zero-build; characterization instruments ≠ acceptance
+#    instruments, register 21).  3 of <=4 HECA, 1 held; arm 3
+#    gated; hygiene task running separately (coordinate).
+# ══════════════════════════════════════════════════════════════════
+# READ FIRST (the session's deliverables):
+#  * docs/specs/taut-string-model-spec.md — REVISED: §0 owner answers
+#    verbatim (two follow-up chord rulings + KML); §1.7 ruling 1
+#    ANSWERED-with-nuance (envOFF lawful-but-high SHIPS, envON
+#    right-height-but-UNLAWFUL 3.75% at the seam pair; R0 does NOT
+#    close the seam); §1.8 THREE distinct sites + W-CHORD1/W-CHORD2;
+#    §4.3.1 string construction (maximal straight chords, declared
+#    bends); §4.4 ε_role ANSWERED (apron/taxi 0.50 m, roads 1.0 m,
+#    spines keep the ±2 cm rod — acceptance-vs-construction reading,
+#    flagged for owner veto); §5 resequenced R0→U1→R1→S1(new)→R2→R3.
+#  * docs/specs/node-space-unification-spec.md — NEW (U1).
+#  * docs/specs/taut-string-implementation-plan.md — NEW: the
+#    Opus-executable plan (P0 suite+R0-v first; P1 U1 done-see-paths;
+#    P2 R1 field w/ frozen API + two Fable checkpoints; P3 S1 dip
+#    attribution measurement; deviation rule at top).
+# MEASURED (ZERO builds — patch analysis of /tmp/HECA_eb{OFF,ON}.osm,
+#  law frame z'; tool tools/probes_heca_burial_20260729/
+#  owner_chord_probe.py with PASS/FAIL gates):
+#  * Chord 1 (parallel taxiway A→B): sag to −11.07 m below the
+#    owner's 111→113 string at along 1800 IN THE SHIPPED envOFF ARM
+#    (dip span min 100.56/med 103.58; ends 110.54/111.92 match owner
+#    nominal).  §10 rod holds spines ±2 cm to the PHASE-A string ⇒
+#    the STRING ITSELF is constructed sagging ⇒ fix is S1 string
+#    construction, not rod enforcement.  05L-pull explanation for the
+#    dip = HYPOTHESIS ONLY (a local V that recovers is not facially
+#    reach-justified) — P3 measures it interventionally.
+#  * Seam pair (ON chord 2's centerline, C→D toward 05L/23R): envOFF
+#    108.26→108.59 = 1.44% law PASS but above the owner's 103-106
+#    band; envON 102.75→103.61 in-band but 3.75% VIOLATES; raw DEM
+#    3.7% itself unlawful.  1.5% here is EXISTING law
+#    (taxi_grade_cap_for_letter; junction/apron excluded from width
+#    relaxation).  05L/23R z' 60.76-64.42 vs 05C/23C 111.23-115.75.
+# U1 LANDED (uncommitted; owner: built code STAYS):
+#  * src/auto_patch/elevation_per_surface/node_space.py NEW —
+#    NodeSpaceStore keyed by canonical-point ID, ONE resolver (crown
+#    lift in the view; alias semantics per site: boxes intersect,
+#    band last-write-wins).
+#  * route_profile/solve.py (12 edits) + anchors.py (4): seat_boxes /
+#    apron_band_broken / env_band / pad_weld_refs / apron_spine_keys
+#    all minted+resolved through the store; legacy layout._* attrs
+#    GONE.  Rod EDGE family deferred (U1b rides R1 — compose is
+#    ledger-exact, zero redundancy).  tests/test_node_space.py NEW
+#    (49 green; Opus-authored vs frozen API; 16/16 mutant kill).
+# VERIFIED: three-way BYTE-IDENTITY per airport from copied src/
+#  trees (/tmp/gsw/build_alt_src.py; pre-tree = current minus the 16
+#  U1 hunks, /tmp/tautstring/u1_hunk_ledger.py = exact hunk list):
+#  SPLP d8d0f065… ×3, CYXY dcebb6ff… ×3 (pre1==post==pre2 ⇒ cache
+#  state provably irrelevant); rod chain-end line identical both arms
+#  (126/128).  check_build_time --run --runs 3 CYXY: PASS, 35.97 s
+#  median (spread 0.2 s) vs 44.41 baseline — the −8.44 belongs to the
+#  accumulated stack at OFF default, NOT U1 (U1 bounded by spread +
+#  identical hashes).  §1.6's +5.47 s phase FAIL is ON-arm-only —
+#  absent at default env; R6 stack review still owed.
+# ⚠ NO COMPLETED SUITE RUN THIS SESSION: first run was MIXED-TREE
+#  (conftest imports auto_patch LAZILY PER XDIST WORKER — a baseline
+#  suite is only valid if it FINISHES before the first src edit;
+#  killed), second killed by the mid-session scope ruling.  Plan P0
+#  runs it first and records the R0-v disposition (the "10
+#  airport-build tests heal at OFF" claim is STILL AN INFERENCE).
+# ⚠ SCOPE RULINGS (owner, mid-session, now CLAUDE.md item 1a): Fable
+#  agents design+review only; Fable writes ALL specs; every
+#  mid-implementation deviation needs Fable approval BEFORE landing;
+#  built code kept ("no sense throwing away code it already built").
+# COORDINATION: this session's edits = node_space.py (new),
+#  route_profile/{solve,anchors}.py (store migration ONLY),
+#  tests/test_node_space.py (new), tools/probes…/owner_chord_probe.py
+#  (new), heca_diag_build.py (1-line fallback), the three docs/specs
+#  files.  Everything else dirty = other sessions', untouched.
+# NEXT: plan P0 (suite+R0-v) → P1 acceptance → P2 (R1 field; replay
+#  checkpoint decides the field moment BEFORE wiring) → P3 (dip
+#  attribution) → Fable S1 design.  OPEN OWNER RULINGS: spec §6.3
+#  (ratify keep-ends), §6.4 (R4 classes), §6.6 (NEW: W-CHORD1 bend
+#  admissions), §4.4 rod-width reading flagged for veto.
+# ══════════════════════════════════════════════════════════════════
+# 20260730b (OTHH basins, part 2) — APRON QUESTION ANSWERED + RULING
+# R13 LANDED: the open pit takes the pavement with it.  All six OTHH
+# open pits are now CUT AND FLOORED.  RULING R14 RECORDED, NOT BUILT.
+# ══════════════════════════════════════════════════════════════════
+# Supersedes the "⚠ OPEN OWNER QUESTION — APRON OVER THE PITS" in the
+# block below; everything else there stands.
+#
+# ── OWNER DIRECTIVE 3 (2026-07-31) — RULING R14, RECORDED NOT BUILT ──
+#  "for any object that extends more than 1m below grade, I want
+#  cutouts so the whole below grade portion is visible."  Written up as
+#  R14 in docs/object_terrain_features_spec.md §10.  It SUPERSEDES
+#  amendment A6's buried-by-default past the 1 m line and promotes
+#  ruling R10's interior cutout from design note to requirement (R10
+#  specifies the shape but has never had an emitter).
+#  NOT BUILT THIS SESSION, and the reason is scope, not effort: the
+#  owner asked in the same breath for a KML of the bridges that get no
+#  cutout so they can rule on what those should do.  That ruling
+#  decides whether R14 reads "cut every below-grade solid" or "cut
+#  every below-grade solid no bridge/tunnel feature already owns" —
+#  a different emitter — and at OTHH the bridges are 4 of the 8
+#  uncarved structures and much the largest.  Building before the
+#  ruling would be building the wrong thing.
+#  DELIVERED: tools/probes_othh_basins_20260730/OTHH_bridges_no_cutout
+#  .kml — per bridge family, whole footprint (grey) + the portion more
+#  than 1 m below grade (red = no cutout today, green = cut today),
+#  each carrying depth, area and the classifier's current verdict:
+#    Bridge_01  −5.84 m  1 619 m2  cut today (tunnel)
+#    Bridge_02  −9.67 m  4 168 m2  NO CUTOUT (refused, A4 piered viaduct)
+#    Bridge_03  −8.72 m    347 m2  NO CUTOUT (same refusal pool)
+#    Bridge_04  −5.57 m     26 m2  cut today (tunnel)
+#    Bridge_05  −5.32 m     18 m2  NO CUTOUT (FLAT_CONFIRMED, fell
+#                                   between bridge and basin classifiers)
+#    Bridge_06  −1.99 m  1 082 m2  NO CUTOUT (same refusal pool)
+#  ⚠⚠ OWNER CORRECTION 2026-07-31 — THE DEPTHS ABOVE ARE THE WRONG
+#  MEASURE, and the KML inherits it.  All six are ABOVE-GROUND road
+#  bridges.  An object drapes at terrain(anchor), so authored y=0 is
+#  the ground at ONE point; reading negative y as "buried" counts every
+#  pier and foundation stub.  Re-measured from the object files, deck
+#  faces separated from the rest:
+#    bridge   deck ENDS       crest   lowest face   >1m below datum
+#    01      -1.22 / -1.28   +10.25      -5.84   1 174 m2 (17.1%) DECK
+#    02      +0.77 / -0.55   +19.87      -7.60   1 289 m2 ( 5.5%)
+#    03      +1.90 / -0.39   +12.63      -6.66     780 m2 ( 6.0%)
+#    04      +0.23 / +0.24    +1.91      -3.35     107 m2 ( 3.1%)
+#    05      +1.08 / +1.09    +2.16      -1.72      19 m2 ( 0.5%)
+#    06      +0.78 / -0.70   +18.20      -1.81     853 m2 ( 4.4%)
+#  EVERY deck END is within ±1.9 m of the datum — exactly the owner's
+#  "flush with grade" reading.  The -9.67 / -8.72 m I quoted are
+#  FOUNDATIONS: Bridge_02's -8..-2 m bands hold 305 m2 of face with
+#  ZERO deck area, Bridge_03's 328 m2 likewise.  R14's 1 m test must be
+#  applied to genuinely-below-LOCAL-ground structure, not to authored
+#  y, or the emitter carves a pit under every pier on the field.
+#  BRIDGE_01 IS THE REAL DEFECT and the owner called it: 1 113 m2 of
+#  DECK-like face below -1 m (a ramp to the terminal's below-grade
+#  level, -5.84 m), classified TUNNEL, trench cut to -6.34 m — terrain
+#  ends up BELOW the ramp and leaves it floating.  Terrain should grade
+#  UP to the deck.  Bridge_04 is the same treatment on a flat deck
+#  (ends +0.23/+0.24, 8 m2 of deck below -1 m).
+#  ⚠ THE SAME DATUM FLAW INFECTS THE BUCKET-B/D NUMBERS above (terminal
+#  ramps, Duty Free, hangars): those depths are also drape-datum, not
+#  local ground.  Re-measure deck/floor faces per structure before any
+#  of them is carved.
+#  ⚠ NOT ADDRESSED, and the owner asked: the big terminal's small ramps
+#  connecting below-grade points up to apron level (TerminalRoads_
+#  Parking_005 -9.09, TerminalRoads_02_004 -6.55, 03_004 -6.35, 03_005
+#  -4.73, 03_002 / 02_002 -3.76, Parking_002 -3.18, all drape-datum)
+#  get NO cutout today.  SEPARATE FEATURE: the "8 tunnel ramps" are
+#  ROLE_TUNNEL_RAMP from the OSM road-tunnel portal machinery in
+#  bridges.py, nothing to do with pack objects — this build emitted
+#  "7 tunnel-portal cluster(s) (ramp + walls along approach)" and
+#  "skipped 1 tunnel with an adjacent/crossing road (ramps not
+#  modelled)", i.e. 7 of 8.  Untouched by any of this session's work.
+#
+# ── PLAN + FABLE REVIEW + FIRST TWO ITEMS LANDED (2026-07-31) ──
+#  PLAN: docs/specs/below-grade-cutouts-and-deck-flush-plan.md.
+#  FABLE REVIEW verdict "NOT implementable as written", 5 blocking
+#  findings — ALL VERIFIED against source before accepting:
+#   1. Bridge_04 cannot reach insert_bridge_deck_end_pins: pins go only
+#      to the `corridor` partition and its crest +1.91 <
+#      BRIDGE_DECK_CARRIED_MIN_HEIGHT_M=2.0 ⇒ AMBIGUOUS/road_carried,
+#      ZERO pins.  A new "deck-flush" partition outcome is required.
+#   2. A 1 m deck discriminator FLIPS the EGLL tunnel-10 fixture
+#      (tests/test_object_terrain_features.py:751 — deck at effective
+#      −0.5 m, AGL −1.0, asserts one tunnel).  Must be HARDNESS-
+#      qualified (the EGLL AGL shells carry no hard triangles) with its
+#      own constant, not R14's 1 m.
+#   3. W4c's discriminator does NOT exist: `excluded` is
+#      _depressed_way_ids and EMIT_DEPRESSED_ROADS=False ⇒ empty in
+#      every default build, and it means "ways WE depressed" anyway.
+#   4. _CLASSIFICATION_CACHE_VERSION=11 must bump or a warm build
+#      serves pre-change records and reads as "no change".
+#   5. born_flat_solver_plate is FLAT-ONLY; a sloped floor is ONE plate
+#      with per-vertex node_altitudes (the ROLE_BRIDGE_TRENCH idiom),
+#      not stepped pans (which mint one-node-two-altitude cliffs).
+#  Also corrected my own attribution: Bridge_01 canNOT have seeded via
+#  the AGL limb (_agl_tunnel_seed_resources caps the highest face at
+#  TUNNEL_AGL_MAX_ABOVE_GRADE_HEIGHT_M; Bridge_01 crests +10.25) — it
+#  seeds via the hard-below-grade limb.  Only Bridge_04 is AGL-limb.
+#  LANDED W4a — the vetoed tunnel is now NAMED at verbosity 1
+#  (bridges.py, inside the system_veto skip).  OTHH's 8th tunnel is
+#  service way F|-172, 10 nodes, 74 m end-to-end, centre
+#  25.254287,51.620925.  Behaviour-neutral: basin table byte-identical,
+#  217 object/tunnel/bridge tests green.
+#  LANDED W3a — terminal ramps re-measured against LOCAL ground
+#  (near-horizontal faces only).  The method validates itself: every
+#  basin we carve shows large sunken deck, every structure the owner
+#  calls above-ground shows ~zero.
+#    AuxBuilding_09 pool (TerminalRoads/Parking) 66 837 m2  -7.79 CARVE
+#    AuxBuilding_17 / _13 (Dewatering_02 / _01)  5 183 / 7 275  carved
+#    Drainage_01..06                         204-2 772 m2 each  carved
+#    AuxBuilding_15 (Qatar Duty Free)              252 m2  -2.62  carve
+#    ControlPost_07/08, CorpOffice_01, CabinBase  0-16 m2  stubs only
+#    Bridge_05                             5 m2 of 3 144  ABOVE GROUND
+#  ⇒ the drape-datum inventory is RETIRED.  Duty Free is 252 m2, not
+#  what the -12.21 m implied; Bridge_05's -5.32 m was a stub.
+#  THE REAL PRIZE is the AuxBuilding_09 pool at 66 837 m2 — the
+#  terminal ramps + underground parking, much the largest uncarved
+#  below-grade area on the field.  It is the MEGA-POOL (2.5 M m2 of
+#  face, 589 resources), so it needs component extraction first
+#  (analogous to _open_pit_components) before anything can carve it.
+#  LANDED W0 + W1a — and THE REVIEW'S OWN PREMISE WAS WRONG, measured:
+#   * Fable proposed a HARDNESS-qualified discriminator, safe because
+#     the EGLL AGL shells carry no hard triangles.  But NONE of the six
+#     OTHH bridges has any hard triangle either (0 m2 hard near-
+#     horizontal, above or below grade) - such a test could never fire
+#     on them and both bridges would have stayed tunnels.
+#   * Fable also held Bridge_01 could not seed via the AGL limb (crest
+#     +10.25 > the 2.0 m cap).  That cap is applied PER RESOURCE:
+#     _agl_tunnel_seed_resources returns exactly ONE seeding object for
+#     each of Bridge_01 and Bridge_04 (*_LOD0_002.obj).  Both seed via
+#     the AGL limb - my original attribution, not the review's.
+#   FIX (simpler than either draft): judge the AGL limb's above-grade
+#   cap AND its below-grade deck floor on the WHOLE STRUCTURE, not the
+#   seeding resource.  A single-placement structure is unaffected by
+#   construction (pool == resource), so every one-object AGL tunnel -
+#   EGLL 6/7/10 and the fixtures pinning them - reads as before.
+#   _CLASSIFICATION_CACHE_VERSION 11 -> 12 so warm packs re-classify.
+#   VERIFIED (OTHH full build): Bridge_01's wrong trench is GONE
+#   (object-tunnel floors 12 -> 11, rims 84 -> 74); basin table
+#   BYTE-IDENTICAL; 399 passed / 11 skipped across the ten-file blast
+#   radius (the skips are pre-existing third-party-pack fixtures).
+#   BRIDGE_04 STILL TRENCHES.  Crest +1.91 m is under the 2.0 m cap and
+#   its pool-wide below-grade near-horizontal area clears the 25 m2
+#   floor, because below_grade_mask keys on TUNNEL_ROOF_TOP_TOLERANCE_M
+#   - a shallow tolerance that catches the UNDERSIDE of an at-grade
+#   deck (Bridge_04's deck dips to -1.23 m, ends +0.23/+0.24).
+#   Candidate fix: measure that floor at TUNNEL_MIN_BODY_DEPTH_M
+#   instead; it ripples to the EGLL fixtures and must be measured
+#   against them first - deliberately NOT rushed at session end.
+#  EGLL TEST BED — UNBLOCKED by the owner supplying N51W001.hgt, and
+#  the result is a LARGE improvement.  The tile DEM lives in the
+#  PRODUCTION root (XPTerrainBuilderData/Elevation_data/+50-010) while
+#  builds run from Ortho4XP/ cwd, so it was symlinked in
+#  (Ortho4XP/Elevation_data/+50-010 -> production; gitignored, nothing
+#  to commit).  Same cwd data-root trap as the classification sidecar.
+#    metric                     no DEM      with DEM
+#    "no DEM datum" skips            8             0
+#    object_tunnel_trench            0            12
+#    object_tunnel_rim               0           133
+#    tunnel_ramp / retaining_wall  0 / 0      45 / 42
+#    graded_strip                   89           182
+#    WARN lines                     94             8
+#  EGLL emitted NO object terrain at all before; it now emits a full
+#  set, and the remaining 8 warnings are pre-existing conformance /
+#  gap-fill classes, not new ones.  W1a CONFIRMED NEUTRAL there: 8
+#  tunnels classified in both runs, 7 of them kind=OBJECT agl=0.00
+#  (hard-deck limb, untouched) and the 8th a single placement.
+#  ⚠ STILL ZERO deck-end pins at EGLL ("object-bridge pins — 0
+#  deck-end, 0 profile") for its 1 DECK_CARRIED bridge — the same W1b
+#  gap the OTHH bridges show, now visible on a second airport.
+#  (superseded) EGLL was BLOCKED ON MISSING DEM,
+#  not on anything in this work.  EGLL builds (pack c_GBR - 100_airport
+#  - EGLL_LONDON_TAIMODELS) and classifies 8 tunnels + 1 bridge + 14
+#  ground interfaces, but emits ZERO tunnel_trench plates: all 8
+#  tunnels skip with "no DEM datum at the anchor".  Cause: tile
+#  +51-001's base N51W001.hgt is absent from BOTH data roots
+#  (Ortho4XP/Elevation_data/+50-010 is EMPTY, XPTerrainBuilderData has
+#  no +50-010 at all) and the in-build Viewfinderpanoramas fetch did
+#  not land it — the same fetch also failed for OTHH's neighbours
+#  earlier this session, so the provider looks unreachable here.  The
+#  loader's refusal is CORRECT (zero-DEM trap); the airport simply
+#  cannot produce object terrain until the .hgt is present.  Do not
+#  read "EGLL emits nothing" as an engine defect.
+#  ⇒ W1a is nonetheless PROVABLY NEUTRAL at EGLL by construction: 7 of
+#  its 8 tunnels are kind=OBJECT with agl=0.00 (they seed via the HARD
+#  below-grade deck limb, which this change does not touch), and the
+#  8th (7.obj, agl -7.50) is a SINGLE placement, where the new
+#  pool-wide gate equals the old per-resource one exactly.
+#  NOT LANDED, specified and ready: W1b deck-flush partition (owner has
+#  ruled bridges MAY pin groundside, and to reuse the SPJC/OLS road
+#  regrade - ols._road_regrade_profile is a pure grade-capped envelope,
+#  directly reusable, though it is CUT-ONLY and a fill up to a deck end
+#  needs the mirrored max-pass), W2 profiled ramp floor, W4b/c merged
+#  trench for way F|-172, W6 the R10 interior-cutout emitter.
+#  ⚠ FOOTPRINT HAZARD worth keeping (cost two rebuilds of the KML): the
+#  plan extent of a below-grade portion needs BOTH the frame's triangle
+#  list AND its raw vertex columns.  Triangles alone drop perfectly
+#  VERTICAL faces (zero horizontal area) — Bridge_04 and Bridge_05 both
+#  came out EMPTY.  Columns alone are sparse over a flat slab whose
+#  interior carries no vertices — Bridge_02 collapsed 4 058 → 87 m2.
+#  ⚠ A blast-radius probe that re-pooled the pack with
+#  object_anchor.discover_object_pools is NOT quoted here: its pools are
+#  far coarser than the classifier's (top pool 589 resources), so one
+#  carved member labelled a whole mega-pool "carved" and the per-pool
+#  attribution is unsound.  The per-INTERFACE triage below stands
+#  because it reads the classifier's own records.
+#
+# Q1 — IS THAT APRON FAITHFUL TO THE SOURCE?  YES.  It is NOT an
+#  auto_patch over-reach.  Measured three ways:
+#  * apt.dat says NO.  Neither the pack's own file nor Global Airports
+#    covers either point: both sit 22-30 m OUTSIDE the row-110 union,
+#    and OUTSIDE it entirely — NOT inside a hole (checked explicitly:
+#    neither point falls inside any pavement polygon's exterior ring).
+#    The brief's 33.6 m / 48.3 m are nearest-VERTEX distances and so
+#    overstate the gap; distance to the polygon itself is 29.8 m /
+#    23.2 m (pack), 29.0 m / 21.9 m (Global).  Either way it is a real
+#    unpaved notch, not a rounding question.
+#  * the taxi network is not the source either — nearest 1201/1202
+#    edge is 115 m / 89 m away, no truck routes at all.
+#  * the PACK'S OWN DSF says YES, and that settles it: draped
+#    ``Ground/Poly/ASPH3.pol`` polygons (2 546 m2 and 4 192 m2) cover
+#    the two points outright.  ``pipeline.pav_polys`` is the union of
+#    apt.dat row-110 AND DSF draped pavement (plus wrapping .lin
+#    border strips), so the apron reads the source correctly — the two
+#    sources genuinely disagree about this ground and the union is by
+#    design.  Confirmed in-pipeline: ``pav_union`` covers both points
+#    at distance 0.00, and one shape (#236, role apron, 238 817 m2)
+#    covers both.
+#  ⇒ nothing to fix upstream; the pavement really is there, so only a
+#    cut can expose the pit.  That is exactly what the owner ruled.
+# Q2 — OWNER RULED (verbatim): "Yes, for below grade drainage objects,
+#  cut a trench in the pavement."  Landed as RULING R13
+#  (docs/object_terrain_features_spec.md §10, R8 cross-referenced).
+# LANDED (uncommitted, this session):
+#  * object_terrain_features.is_open_pit_interface — the NARROW
+#    predicate R13 keys on: a carved basin that is a BOWL_UNDER_DECK
+#    admitted by the bowl rule's own OPEN-PIT limb
+#    (above_grade_area_fraction <= BOWL_MAX_ABOVE_GRADE_AREA_FRACTION).
+#    Deliberately NOT is_carved_basin_interface: TRENCH_SPINE (LFPG-T2,
+#    and at OTHH both Dewatering pits pooled with their aux buildings)
+#    and A7-limb bowls (LFPG-T1's drum) keep R2 — something the pack
+#    authored is the visible surface there.  Measured separation at
+#    OTHH: the 6 bare pits read above_grade 0.000, the 2 TRENCH_SPINE
+#    facilities 0.356 / 0.243.
+#  * TunnelStructure.cuts_pavement carries the verdict; tunnels leave
+#    it False so R2/R8 are untouched for every roofed body.
+#  * bridges._cut_pavement_over_hard_deck RENAMED
+#    ``cut_pavement_over_footprint`` (public — two rulings share it
+#    now; the old name lied about the basin caller).  3 refs, all in
+#    bridges.py; no external importer.
+#  * object_terrain_assembly.build_tunnel_layout_shapes gained a
+#    per-facility R13 pre-pass that cuts pavement over every open-pit
+#    body, then re-indexes owned ground + the pavement union (a stale
+#    index would keep yielding the floor to pavement this pass just
+#    removed).
+#  * ORDERING (caught in review of the first working version, and it
+#    MATTERED): the cut must run BEFORE the anchor-seat block, not just
+#    before the floor geometry.  The seat only fires where no earlier
+#    shape owns the anchor — with the apron still in place it declines,
+#    and the object then drapes on our own trench floor and sinks by the
+#    cut depth, which is precisely the "object sitting below terrain"
+#    defect the seat was added for (2026-07-18f).  Both OTHH targets
+#    anchor INSIDE their own pit body, so both were exposed.  Measured
+#    control: R13 off ⇒ 0 anchor seats on the fixture, R13 on ⇒ 1.
+#  * GUARD: a facility whose cut seats no floor is PUT BACK (pavement
+#    removed with no trench under it is a hole in the drivable surface —
+#    strictly worse than the buried pit), and the restore is LOGGED.
+#    Facility-scoped, so the seat born after the cut is undone with it.
+# VERIFIED (OTHH full build, real DEM, per PIT BODY — note the owner's
+#  point B is literally a CORNER VERTEX of Drainage_04's footprint,
+#  1 cm OUTSIDE the polygon, so a point-in-shape test there answers
+#  nothing; body coverage is the honest measure):
+#    pit            class          body   still-paved  floored
+#    Drainage_05     BOWL           519         0        439   ✔ target A
+#    Drainage_04     BOWL         2 054         0      1 858   ✔ target B
+#    Drainage_01     BOWL         3 472         0      3 185   ✔
+#    Drainage_02     BOWL         2 639         1      2 391   ✔ (landside)
+#    Drainage_03     BOWL         3 550         0      3 206   ✔
+#    Drainage_06     BOWL         5 720         0      5 067   ✔ (landside)
+#    Dewatering_01   TRENCH_SPINE 6 205         6      5 913   R2, unchanged
+#    Dewatering_02   TRENCH_SPINE 4 333         0      4 049   R2, unchanged
+#  ALL SIX open pits are now cut and floored.  R13 removed 13 170 m2 of
+#  pavement over 5 pits (519 + 2 054 + 3 472 + 2 639 + 4 486); basin
+#  trench floors 4 → 12 on the emitter's summary line (6 → 12 counting
+#  the two tunnels), rim collars 84, anchor seats 2 → 5.  Nothing
+#  downstream re-fills the holes (checked on the FINAL layout, not just
+#  at birth; emission is the pre-existing basin-plate path, unchanged).
+#  The ~18 m2 each pit's floor gives up versus the first (mis-ordered)
+#  run IS the anchor seat + its setback — the ordering fix visible in
+#  the numbers: seats now pinned at datum 1.27 / 1.13 / 0.13 m for
+#  Drainage_05 / _04 / _01, which had none before.
+#
+# ── OWNER DIRECTIVE 2: "chase any additional objects that are below
+#    terrain, they should be getting carve outs" ──
+# ATTRIBUTION FIRST (the two that R13's airside-only cut still missed):
+#  measured per pit body against the built layout — Drainage_02 had
+#  2 442 of 2 442 m2 of its inset body owned by GROUNDSIDE_PAVEMENT and
+#  Drainage_06 4 155 of 5 121 m2, with ZERO airside pavement over
+#  either.  Same defect as the owner's original two, different pavement
+#  family.  FIX: R13's cut roles now include ROLE_GROUNDSIDE_PAVEMENT
+#  (bridges.pavement_cut_roles(include_groundside=True)) and the R13
+#  gate/accounting reads its OWN union of those roles — reading the
+#  airside union skipped Drainage_02 entirely.  R8's role set is
+#  deliberately unchanged; a hard deck seats flush in the airside
+#  network, an open pit can sit anywhere.
+# FULL SWEEP of the pack (11 902 placements / 1 331 resources): 95
+#  resources have SOLID geometry more than 1 m below effective grade.
+#  Triaged by WHY, not by name:
+#   A  19  carved now (6 basins + 2 dewatering + 2 tunnels)
+#   B  59  (6 pools) buildings AT GRADE with a below-grade INTERIOR —
+#          Qatar DutyFree −12.21 m, TerminalRoads_Parking −9.09 m
+#          (underground car park), Fuel_02, FuelFarm_01, GA_Hangar9,
+#          HangarC.  wall-base-at-grade 0.29-0.77, above-grade area
+#          0.89-0.99: their walls DO meet the ground.  This is exactly
+#          ruling R10's INTERIOR_CUTOUT — a DESIGNED feature with NO
+#          EMITTER and guards the spec says are pending a KDEN
+#          calibration pass.  Not taken unilaterally: it is a feature,
+#          not a fix, and R10 itself says "never carve pavement".
+#   C  13  refused bridges — ONE pool, amendment A4 piered viaduct
+#          ("no solid geometry reaches effective grade within 35 m of
+#          the deck end"), deliberate and correct.
+#   D   3  incidental buried slack, no clustered below-grade level —
+#          amendment A6 buries these by design.  Correct.
+#   F   1  CLASSIFIER GAP: OTHH_Bridge_05, −5.32 m, wall-base-at-grade
+#          0.000 (nothing holds it at grade) and 72 % of its perimeter
+#          at −5.32 m, yet FLAT_CONFIRMED — it misses the A7 bowl limb
+#          (ground contact 0.467 > 0.10) AND the open-pit limb
+#          (above-grade area 0.528 > 0.02), and the bridge classifier
+#          did not claim it either (Bridge_01/04 became tunnels,
+#          02/03/06 were refused, 05 fell between).  Half its face area
+#          IS above grade, so it is bridge-family, not a pit — widening
+#          the bowl rule to grab it would be the wrong fix.  Needs an
+#          owner/design call on which family owns it.
+# BUILD TIME: +0.155 s for all 5 cuts, and NOT measured as a whole-build
+#  A/B (single runs swing ±25%) — timed on the ONE function that
+#  changed, paired ON/OFF via the predicate, 2 pairs:
+#  build_tunnel_layout_shapes runs 0.231 / 0.220 s with R13 and 0.072 /
+#  0.069 s without, on OTHH's 1331-resource pack.  Well under the 0.6 s
+#  review line.
+#  ⚠ IT DID NOT START THERE.  The first groundside-inclusive version
+#  rebuilt BOTH pavement unions from layout.shapes after every cut and
+#  measured 1.179 s — OVER the line.  Fix: the owned-ground index still
+#  rebuilds (bounds only, no geometry ops), but the unions now have the
+#  cut body SUBTRACTED instead (_drop_cut_from_unions).  Exact where it
+#  is read — the cut removes precisely the body, and pit bodies never
+#  overlap — and the rare RESTORE path still does a full rebuild,
+#  because a subtraction cannot be undone.  Lesson: measure the cost of
+#  a widened scope; do not assume it scales from the narrow one.
+# ⚠ SCOPE NOTE: the airside cut roles are R8's exactly (shared set),
+#  which includes ROLE_RUNWAY.  No OTHH pit is near a runway and a pit
+#  under one would be a classification defect, but the exposure is
+#  inherited rather than newly introduced — flagged, not narrowed,
+#  because narrowing the owner's ruling unilaterally is the worse call.
+# TESTS: tests/test_object_basin_trench.py 29 → 43 (14 new: the
+#  predicate's scope, the cut, the TRENCH_SPINE guard, gate-off, the
+#  restore path, the anchor-seat ordering, a pit clear of pavement, the
+#  LANDSIDE cut, and R8's scope staying put).  Every new behaviour
+#  NEGATIVE-CONTROLLED so none can pass vacuously: predicate stubbed
+#  False → 4 fail; restore deleted → the restore test fails; R13 off →
+#  0 anchor seats where the guard expects 1; groundside dropped from
+#  the cut roles → the landside test fails.
+#  Bridges/tunnel/basin blast radius (9 files): 340 passed.
+#  FULL SUITE: 24F/3849P/18S/7xf in 518 s — the failure set is
+#  BYTE-IDENTICAL (diffed test-by-test) to the run before these changes
+#  and to the 24 the block below records: pavement_grade 5,
+#  crown_seam_ramp 5, supporter_fate 3, runway_end_resa_cut 3,
+#  compare_target 3, supporter_smallest 2, tile_cut_parity /
+#  object_bake_span_limit / msfs_xplane_pack 1 each.  None is in a file
+#  this session touched.
+# ⚠ CACHE-ROOT TRAP (cost an hour): the classification sidecar root
+#  follows the CWD — a build from Ortho4XP/ writes
+#  Ortho4XP/Airport_mod_cache/, NOT XPTerrainBuilderData/. Reading the
+#  latter served a Jul-27 PRE-fix pickle (Drainage_04/05 as
+#  FLAT_CONFIRMED, above_grade_area_fraction 0.000 everywhere = the
+#  dataclass default) while the build was using the current one.
+# COORDINATION: object_terrain_features.py / object_terrain_assembly.py
+#  are this session's; bridges.py was CLEAN at HEAD before this rename.
+
+# ══════════════════════════════════════════════════════════════════
+# 20260730 (OTHH drainage basins) — SUNKEN OBJECTS: pit recognition +
+# basin trench emitter landed; ONE OPEN OWNER QUESTION (apron overlap)
+# ══════════════════════════════════════════════════════════════════
+# DEFECT (owner, OTHH Aeroscape "Buildings/Dewatering Drainage/*"):
+#  the pack models 8 drainage basins as OPEN PITS — rim flush with
+#  grade, body 2.9-13.2 m below it, sides ≤45° batters (~100% of face
+#  area near-horizontal).  Two independent bugs buried all of them.
+#  (a) BUILDING: object_footprints.structure_ring measured TOTAL
+#      vertical extent against the A11 has-walls floor, so a 3.87 m
+#      HOLE passed as a 3.87 m building and got a flat pad over it
+#      (Drainage_04 2337 m2, Drainage_06 20 055 m2).
+#  (b) FLAT: the bowl rule's only sunken-ness signal was ground-contact
+#      fraction, and a shallow pit's own rim/upper batter sit inside
+#      the ±1 m ground band — the SHALLOWER the pit the MORE contact it
+#      scores (measured 0.44-0.68 vs the 0.10 gate).  Feature C also
+#      had NO emitter: nothing in src/ read .ground_interfaces.
+# FIXES (landed uncommitted, this session):
+#  * object_footprints.structure_ring: A11 gate measures ABOVE-GRADE
+#    extent, max(max_y,0)-max(min_y,0) (the base_ceiling_y idiom).
+#    dsf_reader: DSF_OBJECT_MIN_BUILDING_HEIGHT_M ADDED to the
+#    footprint sidecar gate_constants — it was never keyed, so the fix
+#    read back pre-fix rings from an unchanged pack.
+#  * object_terrain_features: bowl rule grew an OPEN-PIT limb
+#    (BOWL_MAX_ABOVE_GRADE_AREA_FRACTION 0.02) — essentially nothing
+#    above grade IS the pit signal.  It YIELDS to trench_level so the
+#    LFPG-T2 fixture keeps TRENCH_SPINE.
+#  * _open_pit_components: THE fix that made Drainage_05 work.  Pools
+#    group by footprint OVERLAP, not structure, so Drainage_05 sat in
+#    a 52-resource Emiri Terminal pool measuring 0.944 above-grade and
+#    vanished, while the identical Drainage_04 (pooled alone) did not.
+#    Non-hard analogue of round 5's _below_grade_drivable_components;
+#    seeds off cache.evidence (no new geometry pass).  Also fixed a
+#    silent UNDER-cut: Dewatering_02 was cut 3.96 m, not 13.08 m.
+#  * object_terrain_assembly.basin_trench_structures: adapts carved
+#    interfaces into feature-A TunnelStructure records so the EXISTING
+#    emitter cuts them under the SAME grade_law.tunnel_trench_* (R1);
+#    plates named object_basin_* via TunnelStructure.terrain_feature.
+#    Gate O4_OBJECT_BASIN_TRENCH (default ON); R4 exclusions driven by
+#    the ONE shared predicate is_carved_basin_interface.
+#  * Cache versions: classification 9→11, plus basin-trench keyed into
+#    the classification AND exclusion fingerprints.
+# VERIFIED (OTHH full build, real DEM): 8/8 basins classified at true
+#  depth (Drainage_01-06 ~3.8 m, Dewatering_01/02 12.99/13.08 m); 72
+#  basin plates born (4 trench floors, 66 rims, 2 anchor seats) + 22
+#  tunnel plates.  tests/test_object_basin_trench.py 29/29 new; the 10
+#  directly-affected files 430 passed.
+# BUILD TIME: +0.05 s mean on OTHH's 1331-resource pack (noise ±0.35 s
+#  on a 10.3 s classification) — under the 0.6 s review line.  Build
+#  wall 428.3 s (OTHH was already over the 60 s airport budget).
+# ⚠ OPEN OWNER QUESTION — APRON OVER THE PITS.  The two basins the
+#  owner named (Drainage_05 @25.253914,51.62213 and Drainage_04
+#  @25.2539239,51.6225404) are BOTH covered by an auto_patch 'apron'
+#  shape, and ruling R2 (pavement always wins) suppresses their cut:
+#  Drainage_04 yields 2054 of 2055 m2, Drainage_05 all 519 m2, so NO
+#  plate lands at either point.  Classification is correct; the trench
+#  is blocked downstream.  R8 already carves pavement over an object
+#  that provides a HARD deck — extending that to a modelled open pit
+#  would fix these two, but it removes taxiable pavement and is an
+#  R2/R8 amendment, NOT taken without an owner ruling.  Undetermined:
+#  whether that apron faithfully reads the source (nearest apt.dat
+#  pavement NODE is 33.6 m / 48.3 m away, which does not settle
+#  containment).
+# ⚠ ZERO-DEM TRAP struck again: the FIRST verification build carved
+#  nothing — N25E051.hgt was missing from Elevation_data, so EVERY
+#  trench (basins and the pre-existing tunnels alike) was skipped "no
+#  DEM datum at the anchor".  Copied in from XPTerrainBuilderData.
+# SUITE: 24F/3784P/18S full run.  14 reproduce with these changes
+#  reverted + gate off in a copied tree (pre-existing).  The other 10
+#  are airport-build tests failing on SOLVER assertions in the
+#  curve-native global slice (SPLP nan elevations in service
+#  junctions, SPJC 1113 within-shape plane violations, HECA 190 edge
+#  steps, CYXY 36) — a concurrent session's in-flight work, not a path
+#  these changes touch; NOT bisected per-commit, so stated as
+#  attribution with its limits.
+# COORDINATION: object_terrain_features.py / object_footprints.py /
+#  object_terrain_assembly.py diffs are entirely this session's;
+#  config.py and dsf_reader.py are shared with the concurrent tree.
+
+# ══════════════════════════════════════════════════════════════════
 # 20260729 (acceptance green) — SINGLE-GRAPH ACCEPTANCE FILE: 3
 # pre-existing failures diagnosed + fixed (service weld/registry area)
 # ══════════════════════════════════════════════════════════════════
@@ -68,6 +1816,59 @@
 # seam 86.88 → 100.35 via SPINE-FRAME PAIR LAW (owner model) +
 # SEAT-PRIMACY (O4_YIELD_MOVABLE_PADS=0, default flip pending owner).
 # See the addendum block below the mechanism history.
+# ══════════════════════════════════════════════════════════════════
+# EVENING ADDENDUM 2 (§7 rods + audits + single-source, all landed):
+#  §7 REFERENCE RODS (bounded-yield-spec §7) recovered the seam to
+#  106.57/106.72 with seats holding EXACTLY (z_ref return proven to
+#  one emit quantum over 90k nodes); the 05C 63% runway kink was a
+#  broken-ref-at-hard-neighbour case, clamped (offline-verified).
+#  ROD AUDIT (single-space-string-audit-spec, O4_ROD_CARRY_AUDIT):
+#  100% of rod-link loss = emit_decimate DELETING strung collinear
+#  vertices; 0% re-keyed (registry stable); 0% service; all 18 other
+#  post-solve passes clean.  ROD COMPOSE landed (O4_ROD_COMPOSE):
+#  coverage 42→97% HECA; ledger exact; residual = terminal runs
+#  (chain end decimated — needs owner semantics ruling).  FALSIFIED:
+#  "dropped keys let the corridor sag" — Part A moved sag 0.000 m.
+#  BAND SINGLE SOURCE landed: raster band now route-metric value
+#  fields on non-service spines + attachment-leg lookup; DELETED
+#  legacy nvc path, raster→legacy fall-through, _build_skeleton_band,
+#  area-metric solve_reach_fields, O4_RASTER_REACH_BAND gate.  The
+#  area-metric band had been under-crediting 8.7 m-class on
+#  service-over-apron shapes (seats LOW): fixing it raised the dragged
+#  south terminal 87.94→104.51, seam 106.57→109.14, corridor worst
+#  station grade 69.5%→2.6%, sag 2.155→1.234.  Exclusion suite 6/6.
+#  Flats final: CYXY 4, SPJC 80(+2227 break, NO same-tree baseline —
+#  unattributed), SPLP 0; step/tear sections all ZERO at flats.
+#  PAD ROD COUPLING + STRING-END KEEP LANDED (both default ON,
+#  gate-off byte-identical, sha256-proven):
+#   * O4_PAD_ROD_COUPLING — pad-face fabric contacts take z_ref from
+#     the PAD'S §7 ROD LEVEL (semantic correction vs the spec's raw
+#     seat scalar, measured: 21/25 HECA pads don't end at the raw
+#     scalar — it reads before the no-building-apron merge — and the
+#     literal reading REGRESSED building199 1.68→8.72; rod-level
+#     reference gives 0.16 m ✓).  Pads: 7 improved / 2 slightly worse;
+#     seam-box gross pairs 23→17; MID-EDGE 178→164; battery steps
+#     189→174; seam 109.14 held.
+#   * O4_ROD_KEEP_CHAIN_ENDS — emit_decimate force-keeps strung
+#     chain-terminal vertices, identity via the CANONICAL REGISTRY
+#     (coordinate matching missed 88/593); rod drops now 0 at HECA
+#     AND CYXY, ledgers exact.
+#  REATTRIBUTED: the 37 strip SEAM tears are graded_strip↔adjacent_
+#  ground on BOTH ends by the validator's own filter — pad faces
+#  CANNOT appear there; my earlier pad-face attribution was wrong.
+#  Adjacent-ground work item, separate.  Corridor "sag 1.23→1.53" is
+#  a MEASUREMENT-WINDOW artifact (worst vertex 101.39 both arms; kept
+#  string ends lengthened the measured chain 565→588 m, chord +0.30).
+#  OPEN (final): (1) residual corridor sag ~1.2 m vs chord —
+#  unattributed (surface real, rod 100% enforced, band fixed);
+#  (2) 37 adjacent-ground strip tears; (3) HECA ~174 emitted steps —
+#  the standing non-convergence class (rem ~18k, broken ~7k),
+#  predates today; (4) runway test 2 vios (one vertex 0.05 m);
+#  (5) SPJC 80/2133 counts lack a same-tree baseline.
+#  RULING RECORDED: O4_YIELD_MOVABLE_PADS=1 + §7 IS production; flip
+#  question retired.  Another session committed 16d30c9 mid-day
+#  (swept audit files; omnibus pattern).
+# ══════════════════════════════════════════════════════════════════
 # ══════════════════════════════════════════════════════════════════
 # ADDENDUM (end of session — supersedes "OWNER RULING PENDING"):
 #  OWNER RULED THE MODEL mid-session: "taxi spines, even through

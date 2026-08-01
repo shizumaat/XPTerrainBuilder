@@ -241,6 +241,73 @@ def test_unrelated_wall_does_not_exempt_a_tear(tmp_path):
     assert len(violations) == 1
 
 
+def test_wall_straddling_pair_is_not_flagged(tmp_path):
+    # The sanctioned face need not REFERENCE either node: here the wall
+    # runs strictly between them (top row x=0.6, bottom row x=0.9) and
+    # its elevation range covers the step, so the level change is drawn
+    # as wall geometry, not as a bare cliff.
+    ways_spec = [
+        {"wid": "-10", "role": "graded_strip", "shapeID": "1",
+         "nodes": [("-1", 0.0, 0.0, 12.0)] + _pad_a()},
+        {"wid": "-20", "role": "graded_strip", "shapeID": "2",
+         "nodes": [("-2", 1.5, 0.0, 10.0)] + _pad_b()},
+        {"wid": "-30", "role": "retaining_wall", "shapeID": "3",
+         "nodes": [("-31", 0.6, -5.0, 12.0), ("-32", 0.6, 5.0, 12.0),
+                   ("-33", 0.9, 5.0, 10.0), ("-34", 0.9, -5.0, 10.0)]},
+    ]
+    violations = _run(tmp_path, ways_spec)
+    assert violations == []
+
+
+def test_wall_bottom_vertex_straddle_is_not_flagged(tmp_path):
+    # The HECA class (2026-08-01): the pair is a high-side pavement weld
+    # vertex against the WALL'S OWN bottom-row node — shared with the low
+    # strip, so only ONE endpoint is a wall coordinate and _wall_spans
+    # cannot fire.  The wall's top row still crosses the pair interior.
+    ways_spec = [
+        {"wid": "-10", "role": "graded_strip", "shapeID": "1",
+         "nodes": [("-1", 0.0, 0.0, 12.0)] + _pad_a()},
+        {"wid": "-20", "role": "graded_strip", "shapeID": "2",
+         "nodes": [("-2", 1.5, 0.0, 10.0)] + _pad_b()},
+        {"wid": "-30", "role": "retaining_wall", "shapeID": "3",
+         "nodes": [("-31", 0.6, -5.0, 12.0), ("-32", 0.6, 5.0, 12.0),
+                   ("-33", 1.5, 5.0, 10.0), ("-2", 1.5, 0.0, 10.0)]},
+    ]
+    violations = _run(tmp_path, ways_spec)
+    assert violations == []
+
+
+def test_bare_cliff_pair_still_flagged(tmp_path):
+    # Control for the straddle tests: the SAME pair geometry with no wall
+    # anywhere near is an unsanctioned cliff and stays flagged.
+    ways_spec = [
+        {"wid": "-10", "role": "graded_strip", "shapeID": "1",
+         "nodes": [("-1", 0.0, 0.0, 12.0)] + _pad_a()},
+        {"wid": "-20", "role": "graded_strip", "shapeID": "2",
+         "nodes": [("-2", 1.5, 0.0, 10.0)] + _pad_b()},
+    ]
+    violations = _run(tmp_path, ways_spec)
+    assert len(violations) == 1
+    assert abs(violations[0].de_m - 2.0) < 1e-6
+
+
+def test_low_wall_not_bracketing_does_not_exempt(tmp_path):
+    # A wall DOES cross the pair interior, but its 10.0-10.5 m face
+    # cannot account for a 10.0 -> 20.5 m step even with the step-floor
+    # slack: 10 m of the level change is still bare mesh.
+    ways_spec = [
+        {"wid": "-10", "role": "graded_strip", "shapeID": "1",
+         "nodes": [("-1", 0.0, 0.0, 20.5)] + _pad_a()},
+        {"wid": "-20", "role": "graded_strip", "shapeID": "2",
+         "nodes": [("-2", 1.5, 0.0, 10.0)] + _pad_b()},
+        {"wid": "-30", "role": "retaining_wall", "shapeID": "3",
+         "nodes": [("-31", 0.6, -5.0, 10.5), ("-32", 0.6, 5.0, 10.5),
+                   ("-33", 0.9, 5.0, 10.0), ("-34", 0.9, -5.0, 10.0)]},
+    ]
+    violations = _run(tmp_path, ways_spec)
+    assert len(violations) == 1
+
+
 def test_stacked_wall_same_coordinate_is_flagged(tmp_path):
     # Two strips holding DIFFERENT values at the same coordinate emit as
     # stacked separate nodes — a bare vertical terrain wall.  The grade

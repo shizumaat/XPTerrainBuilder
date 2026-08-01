@@ -1511,6 +1511,10 @@ STRIP_SEAM_TEAR_MIN_STEP_M = 1.0       # Δalt at/under this = lawful terrace / 
 # step floor is a stacked bare wall and MUST be flagged.
 STRIP_SEAM_TEAR_MIN_GRADE = 0.5
 STRIP_SEAM_TEAR_MIN_DISTANCE_M = 0.01  # grade denominator clamp (stacked walls)
+# Planar slack for "the wall face passes BETWEEN the two nodes": the wall
+# row and the strip chain it welds are separate emissions, so a crossing
+# is not exact to the millimetre.
+STRIP_SEAM_WALL_STRADDLE_TOL_M = 0.5
 STRIP_SEAM_ROLE = "graded_strip"
 
 
@@ -1551,6 +1555,14 @@ def _check_strip_seam_tears(
     — is the ruling's sanctioned form, not a bare tear; the face fills
     the gap the bare-seam reading assumes empty.
 
+    STRADDLE form (HECA, 2026-08-01): the same sanctioned face also sits
+    BETWEEN two nodes neither of which the wall references — a pavement
+    weld vertex metres up-slope paired against the wall's own bottom row.
+    A pair is straddle-exempt when a ``retaining_wall`` segment crosses
+    the pair's INTERIOR (within ``STRIP_SEAM_WALL_STRADDLE_TOL_M``, the
+    contact point off both endpoints) and that wall way's elevation range
+    brackets both pair altitudes to within one step floor.
+
     Runs in ~linear time via a spatial grid over the strip nodes (never an
     O(n^2) all-pairs scan — airports reach ~50k strip nodes).  Returns
     ``Violation`` rows (``grade_pct`` = the seam's near-vertical grade),
@@ -1581,6 +1593,106 @@ def _check_strip_seam_tears(
         return bool(wb) and bool(wa & wb)
 
     cell = max(radius_m, 0.5)
+
+    # Straddle exemption: the wall's own FACE segments, plus the per-way
+    # elevation range the face spans.  Wall vertices arrive in ring order
+    # per way, so consecutive same-way entries are the face's segments.
+    wall_segs: List[Tuple[float, float, float, float, int]] = []
+    wall_elev_range: Dict[int, Tuple[float, float]] = {}
+    if wall_keys:
+        prev: Optional[Vertex] = None
+        for v in vertices:
+            if ways[v.way_idx].tags.get("role") != "retaining_wall":
+                prev = None
+                continue
+            if prev is not None and prev.way_idx == v.way_idx:
+                wall_segs.append((prev.x, prev.y, v.x, v.y, v.way_idx))
+            if v.elev is not None:
+                lo, hi = wall_elev_range.get(
+                    v.way_idx, (v.elev, v.elev))
+                wall_elev_range[v.way_idx] = (
+                    min(lo, v.elev), max(hi, v.elev))
+            prev = v
+    wall_grid: Dict[Tuple[int, int], List[int]] = defaultdict(list)
+    for i, (x1, y1, x2, y2, _wi) in enumerate(wall_segs):
+        for cx in range(int(math.floor(min(x1, x2) / cell)),
+                        int(math.floor(max(x1, x2) / cell)) + 1):
+            for cy in range(int(math.floor(min(y1, y2) / cell)),
+                            int(math.floor(max(y1, y2) / cell)) + 1):
+                wall_grid[(cx, cy)].append(i)
+
+    def _pt_seg(px: float, py: float, ax: float, ay: float,
+                bx: float, by: float) -> Tuple[float, float]:
+        """Distance from P to segment A–B, and the clamped parameter of
+        the achieving point along A–B."""
+        vx, vy = bx - ax, by - ay
+        L2 = vx * vx + vy * vy
+        t = 0.0 if L2 <= 0.0 else max(0.0, min(
+            1.0, ((px - ax) * vx + (py - ay) * vy) / L2))
+        return (math.hypot(px - (ax + t * vx), py - (ay + t * vy)), t)
+
+    def _seg_seg(px: float, py: float, qx: float, qy: float,
+                 ax: float, ay: float, bx: float, by: float
+                 ) -> Tuple[float, float]:
+        """Closest approach between segments P–Q and A–B: the distance
+        and the parameter along P–Q of the achieving point.  Disjoint
+        segments always achieve it at an endpoint of one of the two, so
+        the crossing test plus the four point-segment cases is exact."""
+        ux, uy = qx - px, qy - py
+        vx, vy = bx - ax, by - ay
+        den = vx * uy - ux * vy
+        if abs(den) > 1e-12:
+            rx, ry = ax - px, ay - py
+            s = (vx * ry - rx * vy) / den
+            t = (ux * ry - rx * uy) / den
+            if 0.0 <= s <= 1.0 and 0.0 <= t <= 1.0:
+                return (0.0, s)
+        best = _pt_seg(px, py, ax, ay, bx, by)[0], 0.0
+        cand = _pt_seg(qx, qy, ax, ay, bx, by)[0], 1.0
+        if cand[0] < best[0]:
+            best = cand
+        for wx, wy in ((ax, ay), (bx, by)):
+            d_w, t_w = _pt_seg(wx, wy, px, py, qx, qy)
+            if d_w < best[0]:
+                best = (d_w, t_w)
+        return best
+
+    def _wall_straddles(a: Vertex, b: Vertex) -> bool:
+        if not wall_segs:
+            return False
+        e_lo = min(a.elev, b.elev)
+        e_hi = max(a.elev, b.elev)
+        length = math.hypot(b.x - a.x, b.y - a.y)
+        if length <= 2 * min_distance_m:
+            return False  # no interior to straddle (stacked pair)
+        tol = STRIP_SEAM_WALL_STRADDLE_TOL_M
+        seen: set = set()
+        for cx in range(int(math.floor((min(a.x, b.x) - tol) / cell)),
+                        int(math.floor((max(a.x, b.x) + tol) / cell)) + 1):
+            for cy in range(
+                    int(math.floor((min(a.y, b.y) - tol) / cell)),
+                    int(math.floor((max(a.y, b.y) + tol) / cell)) + 1):
+                for i in wall_grid.get((cx, cy), ()):
+                    if i in seen:
+                        continue
+                    seen.add(i)
+                    x1, y1, x2, y2, w_idx = wall_segs[i]
+                    rng = wall_elev_range.get(w_idx)
+                    if rng is None:
+                        continue
+                    if (e_lo < rng[0] - min_step_m
+                            or e_hi > rng[1] + min_step_m):
+                        continue  # face cannot account for the level change
+                    d_w, t_w = _seg_seg(a.x, a.y, b.x, b.y,
+                                        x1, y1, x2, y2)
+                    if d_w > tol:
+                        continue
+                    along = t_w * length
+                    if (along >= min_distance_m
+                            and (length - along) >= min_distance_m):
+                        return True
+        return False
+
     grid = _bucket_vertices(strip_vertices, cell)
     out: List[Violation] = []
     for v_local, v in enumerate(strip_vertices):
@@ -1614,6 +1726,8 @@ def _check_strip_seam_tears(
                         continue  # steep-terrain drape, not a cliff
                     if _wall_spans(v, u):
                         continue  # deliberate retaining_wall face
+                    if _wall_straddles(v, u):
+                        continue  # face crosses BETWEEN the two nodes
                     out.append(Violation(
                         grade_pct=grade * 100,
                         excess_pct=grade * 100,

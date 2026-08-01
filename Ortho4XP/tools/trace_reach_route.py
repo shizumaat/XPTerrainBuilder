@@ -82,9 +82,15 @@ def _binding_route(layout, x, y):
     from auto_patch.config import TAXI_MAX_GRADE, VISIBLE_CHORD_CONNECT
     from auto_patch.elevation_per_surface.solver_primitives import _build_node_list
     from auto_patch.elevation_per_surface.building_feasibility import (
-        reach_band_unified, _pavement_visibility, _nearest_visible_centerline,
-        _TAXI_HALF_W_M)
+        reach_band_unified, _pavement_visibility, _nearest_visible_centerline)
     from auto_patch.grade_law import APRON_MAX_GRADE as _APRON_CAP
+    # Taxiway half-width corridor (perp split point).  This tool replays the
+    # CENTERLINE+PERP pricing to EXPLAIN a binding route in human terms; the
+    # production band no longer prices that way (2026-07-29: route value on
+    # the non-service spine graph + a grid off-route leg — spec
+    # rod-compose-and-band-single-source §B), so the constant lives here
+    # rather than being imported from the band module that dropped it.
+    _TAXI_HALF_W_M = 7.5
     from auto_patch.layout import ROLE_RUNWAY
 
     nodes, b2i = _build_node_list(layout)

@@ -30,6 +30,21 @@ Tile-coordinate scripts (switch on ``lat``):
 * ``lat == 62`` — a crashing worker: emit one progress line then
   ``os._exit(1)`` mid-build (no ``RunDone`` — the parent synthesizes the
   failure from the unexpected exit).
+* ``lat == 63`` — an AUTO-PATCH tile: its ``vector`` step fetches
+  briefly, emits ``AutoPatchBegin``, then BURNS PROCESSOR for
+  ``STUB_WORKER_SOLVE_SECONDS`` (default 0.6) before reporting the
+  airport done — the hybrid vector step of
+  docs/specs/vector-step-class-split-spec.md, so a test can prove the
+  solve phase runs uncapped while the fetch phase stays capped (markers
+  ``solvestart_``/``solveend_``).  Every other step is the happy path.
+* ``lat == 64`` — an IMAGERY tile: its ``imagery`` step downloads
+  briefly, emits ``ImageryDownloadsDone``, then BURNS PROCESSOR for
+  ``STUB_WORKER_CONVERT_SECONDS`` (default 0.6) as the DDS conversion
+  tail — the hybrid imagery step of
+  docs/specs/apron-string-and-scheduling-spec.md §A.2, so a test can
+  prove the tail runs uncapped while the download phase stays capped
+  (markers ``downloadend_``, ``convertstart_``/``convertend_``).  Every
+  other step is the happy path.
 * anything else — the happy path: two ``StepProgress`` lines, then
   ``TileState`` done + ``BuildDone`` ok + ``RunDone``.
 
@@ -57,6 +72,17 @@ _STEP_PAUSE = 0.06
 _TERMINAL_PAUSE = 0.08
 _SLEEPER_SECONDS = 0.6
 _SLEEPER_POLL = 0.02
+
+_SOLVE_SECONDS = float(os.environ.get("STUB_WORKER_SOLVE_SECONDS", "0.6"))
+# The fetch part of an auto-patch tile's vector step: long enough that
+# the osm class cap is observable in the marker intervals.
+_FETCH_SECONDS = float(os.environ.get("STUB_WORKER_FETCH_SECONDS", "0.15"))
+# The DDS conversion tail of an imagery tile, and the download phase that
+# precedes it (same roles as _SOLVE_SECONDS / _FETCH_SECONDS above).
+_CONVERT_SECONDS = float(
+    os.environ.get("STUB_WORKER_CONVERT_SECONDS", "0.6"))
+_DOWNLOAD_SECONDS = float(
+    os.environ.get("STUB_WORKER_DOWNLOAD_SECONDS", "0.15"))
 
 _cancel_flag = threading.Event()
 _build_queue: "queue.Queue" = queue.Queue()
@@ -169,6 +195,10 @@ def _run_one_build(message):
         _failing_tile(lat, lon, step_key)
     elif lat == 62:
         _crashing_tile(lat, lon, step_key)
+    elif lat == 63 and step_key == "vector":
+        _auto_patch_tile(lat, lon, step_key)
+    elif lat == 64 and step_key == "imagery":
+        _imagery_tile(lat, lon, step_key)
     else:
         _happy_tile(lat, lon, step_key)
 
@@ -220,6 +250,60 @@ def _failing_tile(lat, lon, step_key="vector"):
     _build_done(lat, lon, False, error="a build step failed")
     time.sleep(_TERMINAL_PAUSE)
     _tile_state(lat, lon, "error", label="failed")
+    time.sleep(_TERMINAL_PAUSE)
+
+
+def _auto_patch_tile(lat, lon, step_key="vector"):
+    """The hybrid vector step: a remote FETCH, then the auto-patch solve.
+
+    The solve burns processor deliberately (a sleeping "solve" would
+    prove nothing about the concurrency the class split is meant to
+    unlock — a ``ps`` sample must be able to SEE these workers running).
+    """
+    airport = "S%d%d" % (abs(lat) % 10, abs(lon) % 100)
+    _step(lat, lon, step_key, 0.0)
+    time.sleep(_FETCH_SECONDS)               # the remote fetch
+    _write_marker("fetchend", lat, lon)
+    _emit({"event": "AutoPatchBegin", "airports": [airport],
+           "lat": lat, "lon": lon})
+    _write_marker("solvestart", lat, lon)
+    _burn_processor(_SOLVE_SECONDS)          # the solve: real processor
+    _write_marker("solveend", lat, lon)
+    _emit({"event": "AutoPatchProgress", "airport": airport,
+           "done": 1, "total": 1, "label": "Done", "status": "done",
+           "lat": lat, "lon": lon})
+    time.sleep(_STEP_PAUSE)                  # the vector tail
+    _tile_state(lat, lon, "done", percent=100.0)
+    time.sleep(_TERMINAL_PAUSE)
+    _build_done(lat, lon, True)
+    time.sleep(_TERMINAL_PAUSE)
+
+
+def _burn_processor(seconds):
+    """Occupy a core for ``seconds`` — a sleeping phase would prove
+    nothing about concurrency a ``ps`` sample is supposed to SEE."""
+    deadline = time.time() + seconds
+    spin = 0
+    while time.time() < deadline:
+        spin = (spin + 1) % 1000003
+        for _ in range(2000):
+            spin = (spin * 31 + 7) % 1000003
+
+
+def _imagery_tile(lat, lon, step_key="imagery"):
+    """The hybrid imagery step: a remote DOWNLOAD phase, then the local
+    DDS conversion tail (which burns processor, like the solve does)."""
+    _step(lat, lon, step_key, 0.0)
+    time.sleep(_DOWNLOAD_SECONDS)            # the remote downloads
+    _write_marker("downloadend", lat, lon)
+    _emit({"event": "ImageryDownloadsDone", "lat": lat, "lon": lon,
+           "downloaded": 4, "failed": 0})
+    _write_marker("convertstart", lat, lon)
+    _burn_processor(_CONVERT_SECONDS)
+    _write_marker("convertend", lat, lon)
+    _tile_state(lat, lon, "done", percent=100.0)
+    time.sleep(_TERMINAL_PAUSE)
+    _build_done(lat, lon, True)
     time.sleep(_TERMINAL_PAUSE)
 
 

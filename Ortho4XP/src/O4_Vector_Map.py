@@ -292,6 +292,59 @@ def osm_layer_warm_specifications(tile):
     ] + _osm_layer_prefetch_specifications(tile)
 
 
+def _layer_cache_is_current(lat, lon, cached_suffix, cache_schema):
+    """True when this OSM layer's cache is on disk AND schema-current.
+
+    The single source for "would this layer download?" — the background
+    prefetch filter below and the parallel scheduler's fetch-admission
+    predicate (:func:`is_cached`) both ask through here, so the two can
+    never drift apart.  Exactly the test
+    ``O4_OSM_Utils._OSM_queries_to_OSM_layer_serialized`` applies before
+    it recycles a cache: presence plus the ``o4_tag_schema`` marker.
+    """
+    cache_path = FNAMES.osm_cached(lat, lon, cached_suffix)
+    return (os.path.isfile(cache_path)
+            and OSM._cached_osm_schema_matches(cache_path, cache_schema))
+
+
+def is_cached(tile) -> bool:
+    """True when this tile's vector step would fetch no OSM layer.
+
+    One of the per-subsystem fetch-admission predicates of
+    docs/specs/apron-string-and-scheduling-spec.md §A.2: cheap (an
+    ``isfile`` plus a two-line read of each cache's header), never a
+    network probe, and conservative — an absent, unreadable or
+    wrong-schema cache reads as NOT cached.
+
+    A tile fully covered by locally stored regional extracts also counts
+    as cached: its build filters the stored ``.pbf`` files in its own
+    process and never reaches Overpass (the same reasoning the parent
+    warmer applies).  That check comes second because it is the dearer
+    of the two.
+
+    ``tile`` is a configured ``O4_Config_Utils.Tile``.
+    """
+    try:
+        specifications = osm_layer_warm_specifications(tile)
+    except Exception:
+        return False
+    missing = [
+        specification[0]
+        for specification in specifications
+        if not _layer_cache_is_current(
+            tile.lat, tile.lon, specification[0], specification[4])
+    ]
+    if not missing:
+        return True
+    try:
+        import O4_OSM_Extracts as EXTRACTS
+
+        return bool(EXTRACTS.local_extracts_cover(
+            (tile.lat, tile.lon, tile.lat + 1, tile.lon + 1)))
+    except Exception:
+        return False
+
+
 _osm_prefetch_thread = None
 
 
@@ -312,11 +365,8 @@ def start_background_osm_prefetch(tile):
     specifications = [
         specification
         for specification in _osm_layer_prefetch_specifications(tile)
-        if not (os.path.isfile(
-                    FNAMES.osm_cached(tile.lat, tile.lon, specification[0]))
-                and OSM._cached_osm_schema_matches(
-                    FNAMES.osm_cached(tile.lat, tile.lon, specification[0]),
-                    specification[4]))
+        if not _layer_cache_is_current(
+            tile.lat, tile.lon, specification[0], specification[4])
     ]
     if not specifications:
         return

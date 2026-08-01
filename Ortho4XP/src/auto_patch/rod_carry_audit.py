@@ -270,14 +270,26 @@ def checkpoint(layout, name):
 
 # ── phase 3: the carry site verdict ─────────────────────────────────────
 
-def report_carry(layout, dropped, carried, nodes, icao=""):
+def report_carry(layout, dropped, carried, nodes, icao="", minted=None,
+                 composed=0, absorbed=0, span_max=0):
     """Classify every dropped rod link at ``final_grade_projection``.
 
     ``dropped``  ``[(ka, kb, ka_missing, kb_missing, reason)]`` — the links
                  the carry could not re-attach, which endpoint(s) failed to
                  resolve, and the drop reason;
-    ``carried``  count of links that DID re-attach;
-    ``nodes``    the REBUILT node coordinate list.
+    ``carried``  count of links EMITTED into the projection (1:1 carries
+                 plus composed links);
+    ``nodes``    the REBUILT node coordinate list;
+    ``minted``   total links minted at the solve (``None`` ⇒ derived as
+                 ``carried + len(dropped)``, the pre-composition identity);
+    ``composed`` number of emitted links that COMPOSE a removed run (spec
+                 rod-compose-and-band-single-source §A);
+    ``absorbed`` number of MINTED links those composed links absorb;
+    ``span_max`` longest composed run, in minted links.
+
+    The composition ledger the spec asks for is
+    ``minted = carried_1to1 + absorbed + dropped`` — a mismatch means a
+    minted link went unaccounted and is reported as an ALARM.
     """
     if not enabled():
         return
@@ -332,12 +344,26 @@ def report_carry(layout, dropped, carried, nodes, icao=""):
     def _pct(a, b):
         return (100.0 * a / b) if b else 0.0
 
+    n_1to1 = max(0, carried - int(composed or 0))
+    n_minted = int(minted) if minted is not None else n_total
+    n_accounted = n_1to1 + int(absorbed or 0) + n_drop
     lines = [
         "",
         f"    [rod-audit] ===== CARRY REPORT {icao} =====",
         f"    [rod-audit] links total={n_total} carried={carried} "
         f"({_pct(carried, n_total):.1f}%) dropped={n_drop} "
         f"({_pct(n_drop, n_total):.1f}%)",
+        f"    [rod-audit] composition: minted={n_minted} "
+        f"carried_1to1={n_1to1} composed_links={int(composed or 0)} "
+        f"(absorbing {int(absorbed or 0)} minted link(s), longest run "
+        f"{int(span_max or 0)}) dropped={n_drop}",
+        f"    [rod-audit] LEDGER carried_1to1+absorbed+dropped="
+        f"{n_accounted} vs minted={n_minted} — "
+        + ("OK" if n_accounted == n_minted else "*** ALARM: UNACCOUNTED "
+           f"{n_minted - n_accounted} ***"),
+        f"    [rod-audit] enforced-link coverage: "
+        f"{_pct(n_1to1 + int(absorbed or 0), n_minted):.1f}% of minted "
+        f"links are represented (1:1 or inside a composed link)",
         f"    [rod-audit] dropped links: taxi={taxi_drop} "
         f"({_pct(taxi_drop, n_drop):.1f}%) service={svc_drop} "
         f"({_pct(svc_drop, n_drop):.1f}%)",
@@ -393,7 +419,12 @@ def report_carry(layout, dropped, carried, nodes, icao=""):
             "icao": icao,
             "links": {"total": n_total, "carried": carried,
                       "dropped": n_drop, "taxi_dropped": taxi_drop,
-                      "service_dropped": svc_drop, "reasons": reasons},
+                      "service_dropped": svc_drop, "reasons": reasons,
+                      "minted": n_minted, "carried_1to1": n_1to1,
+                      "composed": int(composed or 0),
+                      "absorbed": int(absorbed or 0),
+                      "span_max": int(span_max or 0),
+                      "accounted": n_accounted},
             "endpoints": {"failed": len(failed),
                           "rekeyed": len(rekeyed), "moved": len(moved)},
             "rekeyed": rekeyed,

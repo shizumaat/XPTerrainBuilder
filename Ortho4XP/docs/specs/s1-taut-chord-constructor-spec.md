@@ -2745,7 +2745,11 @@ the spec.)**
   pre-clip endpoints) — Ruling 18's collinearity, now true by
   definition.  (f) Chord grade vs cap is TELEMETRY, not law —
   a steeper-than-cap chord is a lawful preference; the surface
-  rides its cap (the invariant covers it).
+  rides its cap (the invariant covers it).  [AMENDED by Ruling
+  52 (fifteenth block): TRUE for the CHORD, which is never bent
+  by law — but under S1b's Dirichlet transport a both-pinned
+  over-cap pair CANNOT ride its cap, so the GRIP is
+  law-filtered: telemetry for the chord, law for the grip.]
 * **RULING 44 — GATES RESTATED FOR A CHORD THAT CANNOT BEND.**
   W-CHORD1 becomes: worst-bin departure strictly improves from
   −11.07 (unchanged), AND every remaining surface-vs-chord
@@ -2939,6 +2943,132 @@ on a node — awaits its measurement below.)**
   no selection rule can conjure law where it does not — that
   remainder is the known extraction gap, not an endpoint
   policy choice.
+
+**THE FIFTEENTH BLOCK — S1b SPECCED, PRICED, AND SCOPED FOR THE
+OWNER'S TONIGHT DEADLINE (2026-07-31, late.  S1's measurement
+landed: `f1b13c3` — chord model in production, defects 949 → 0
+by construction, 113 tests green, gate-off proved, value path
+73.5 ms = 43 ms cheaper than the funnel; endpoint band centres
+vs the owner's CIFP data +0.07 m at 05C / +0.61 m at 23C — the
+23C number is the carried-open Ruling 47/48 endpoint-provenance
+question, now concrete.  The gate-ON HECA arm running tonight is
+the α BASELINE ARM.)**
+
+* **RULING 50 — S1b IS PRICED AND SPECCED:
+  `docs/specs/s1b-first-class-chord-boundaries-spec.md` (its own
+  Opus-executable document; this block is the pointer, that file
+  is the law).**  THE PRICING: the chord model collapses
+  S1b-core to THREE SEAM-LEVEL EDITS — (1) the chord-target
+  computation moves ahead of the harmonic inside
+  `_solve_spine_profile` (call-site move of landed code, gated,
+  function-local import); (2) the targets enter the harmonic as
+  DIRICHLET pins through the solver's EXISTING fixed-value
+  mechanism (hard > string; plural-claim never pinned;
+  pre-freeze anchor set — all S1 law carried); (3) the
+  post-phase-A overwrite and the phase-A-internal taut pass on
+  assembled strings RETIRE, mask-before-delete.  The harmonic
+  demotes to residual gap-filler with string boundaries — the
+  ordained S1b, at a fraction of its ordained size, because a
+  string is now two numbers and a linear evaluation whose every
+  input exists before the harmonic runs.  DEFERRED OUT,
+  explicitly: the DRAW-TOWARD re-founding (projection out from
+  the string web, R as instance, layer 6 shrink) — a
+  reference-system redesign, not an evening edit; service 4b
+  untouched.  GATES G1-G5 pre-registered in chord terms against
+  the α arm; S1b adds ZERO builds (verification folds into the
+  owner's planned tile build + suite read; SPLP+CYXY identity
+  three-way stays the cheap non-HECA proof).  EXPECT-DIVERGENCE
+  clauses name the one real hazard class: consumers reading
+  elev between the harmonic and the old hook point (couple_adj,
+  spine_floor, §7 z_ref snapshots, the quarantine blend) —
+  enumerated first, any must-see-pre-string consumer is a STOP.
+* **RULING 51 — R2 IS BLOCKED TONIGHT, twice over (the
+  coordinator's read CONFIRMED):** R1's precondition is unmet
+  (`O4_REFERENCE_FIELD` default "0", CP2 unread) AND S1 just
+  changed R1's own layer 4 (spine layer = chord), so R1's gates
+  re-read BEFORE anything enforces against them — offline, on
+  tonight's build artifacts, no extra spend, but not by
+  morning.  "Found the tube on chord targets directly" is not a
+  shortcut: partial-coverage chords as a tube centre IS the
+  deferred DRAW-TOWARD design.  Sequence: S1b-core tonight →
+  R1 layer-4 re-read (offline) → R1 CP2 → R2.
+* **RULING 52 — THE LAW-FILTERED GRIP (S1b step 0 surfaced the
+  pins-vs-Ruling-19 conflict; ruled the same night; full law in
+  the S1b spec §1 edit 2).**  S1b's step 0 was CLEAN — no
+  §5(i) class-(b) consumer exists (`couple_adj` reads no elev;
+  `spine_floor` is a pre-phase-A input; §7 `z_ref` snapshots
+  already sit downstream of the old hook), §5(v) is satisfied
+  by the existing `anchors` mechanism, pin/hard conflicts 0.
+  But pins-in-anchors makes 3,223 spine pairs both-anchored,
+  and 76 of them (2.36 %; excess max 0.584 m) carry chord
+  grades over their cap budget — the exact cap projection
+  leaves both-anchor pairs alone, so those 76 would be
+  STRING-FORCED over-cap pairs: Ruling 19's required-zero
+  class, latent under α, surfaced by S1b, frozen by
+  `base_hard` after phase A.  THE RULING: pins join `anchors`
+  (forced), AND the pin set is LAW-FILTERED first — no pair
+  may remain both-pinned where the chord grade between the
+  pinned values exceeds that pair's cap (strict >, the
+  existing 1e-9 audit epsilon).  THE CHORD IS NEVER BENT BY
+  LAW; THE GRIP IS.  Releases are minimal, deterministic,
+  endpoint-protective, never touch a law anchor, and are
+  WITNESSED (the grip-yield witness — Ruling 44/47(B)'s
+  delivery gate reads released spans as cap-contact departures
+  with their author named).  Ruling 43(f) amended (telemetry
+  for the chord, law for the grip); Ruling 21 untouched (it
+  governed strings gripping EACH OTHER; a pin grips the
+  string's OWN pavement); Ruling 19 back to zero BY
+  CONSTRUCTION.  Accepting the 76 was rejected (fails Ruling
+  19 outright); solver-moved pins were rejected (launders the
+  yield, destroys attribution).  Pre-registered: the release
+  population ≈ the 76-pair class; chord 1 unaffected
+  (near-flat); materially more releases is a FINDING before
+  G1 is trusted.  [LANDED same night, pre-registration HELD on
+  both counts: 3,470 offered → 3,429 kept / 41 released over 79
+  over-cap pairs (1.18 % of pins); excess median 0.000 /
+  p90 0.081 / max 0.584 m; ZERO releases on chord 1.  G2
+  amended form on the delivered arm: max |emitted − chord| at
+  kept pins = 0.000e+00 exact through harmonic, fairing AND the
+  cap projection; completeness zero; witness reconciles 79 → 41
+  minimal.  Implementation notes adopted into the record: strict
+  > at the existing 1e-9 epsilon; both-law-anchor pairs never
+  touched; endpoint-protective ordering; and a RE-ADMISSION PASS
+  so minimality is VERIFIED rather than assumed by a greedy
+  stop.  The owner's invariant is now STRUCTURAL at the pin
+  layer.]
+* **RULING 53 — THE PHASE-A TAUT PASS: KEEP-AND-RESCOPE.  The
+  §3 mask FIRED as designed (567 of 3,697 unstrung spine
+  vertices move, max 0.283 m; pinned 0 of 3,429; off-spine 0 of
+  123,929; both arms `graph=None`, labelled) and the finding
+  re-frames the deletion: the pass strings ALL spine corridors,
+  and with pins in `anchors` it is PROVABLY INERT on strung
+  ground — its whole remaining effect is unstrung spine.  It
+  has stopped being a competing string constructor and become
+  the RESIDUAL SPINE SMOOTHER on ground S1 does not claim.**
+  The §1b ordination ("the internal taut pass on assembled
+  strings is deleted there") is SATISFIED IN SUBSTANCE — on
+  assembled strings it is structurally dead; the surviving code
+  is a different-domain mechanism.  Deleting tonight would hand
+  567 vertices to harmonic+fairing alone with an unmeasured
+  0.28 m-class surface change — deleting through a fired STOP,
+  and retiring by NAME where the DOMAIN no longer overlaps: the
+  inverse of the lesson that produced the chord model.  Four
+  guards in the S1b spec §3: G2 is the standing inertness gate;
+  the domain is spec-named (unstrung spine, fairing-class
+  authority, never string authority; spec name "the residual
+  spine smoother", code rename deferred to hygiene); the mask
+  table is the recorded footprint and the baseline for any
+  future retirement measurement; harmonic-alone-vs-smoother on
+  the residual domain is a deferred MEASURED question,
+  pre-registered before it runs, pulled earlier only if the
+  suite read shows unstrung-spine regressions (first suspect:
+  the pass's changed inputs — it now sees pinned boundaries).
+  Endorsed alongside: G4's SPLP+CYXY three-way identity builds
+  (authorized by the coordinator; code-level proof — gate
+  unset, module never imported, ungated AST refs [] — is
+  necessary, the byte identity remains the standard); §5(iv)
+  iteration-count read folds into the tile build, recorded
+  never tuned.
 
 Service corridors are EXCLUDED (their reference is the DEM-follow
 shape — spec §4.1 layer 4 exception).  Runway profiles are EXCLUDED

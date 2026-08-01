@@ -30,6 +30,7 @@ import O4_UI_Utils as UI
 
 from .events import (
     AutoPatchBegin, AutoPatchProgress, BuildDone, EngineEvent, EngineHello,
+    ImageryDownloadsDone,
     RunDone, RunEta, ScanBatch, ScanDone, ScanProgress, StepProgress,
     TileClocks,
     TileState,
@@ -1167,6 +1168,17 @@ class EngineSession:
             lat=tile[0], lon=tile[1], step_key=key,
             label=STEP_LABELS.get(key, key), percent=percent))
         self._emit_eta()
+
+    def imagery_downloads_done(self, lat, lon, downloaded=0, failed=0):
+        """The imagery step's download queue drained (UI hook target).
+
+        Emitted so a parent orchestrator can release this tile's imagery
+        fetch token while its local DDS conversion tail runs
+        (docs/specs/apron-string-and-scheduling-spec.md §A.2).
+        """
+        self._emit(ImageryDownloadsDone(
+            lat=int(lat), lon=int(lon),
+            downloaded=int(downloaded or 0), failed=int(failed or 0)))
 
     def _autopatch_running(self):
         state = self._autopatch_state

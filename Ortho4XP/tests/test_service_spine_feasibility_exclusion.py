@@ -10,10 +10,21 @@ silently reintroduce service-road feasibility.
 
 Ordered by ``docs/specs/single-space-string-audit-spec.md`` §3:
 
-  1. reach-band VALUE FIELDS      (``reach_band_unified``'s Dijkstras)
-  2. NEAREST-NODE lookup          (the same factory's spine STRtree)
+  1. reach-band VALUE FIELDS      (``spine_value_fields``' Dijkstras)
+  2. NEAREST-ATTACHMENT lookup    (the band's route-attachment assignment)
   3. ROUTE-DISTANCE oracle        (``grade_graph._RouteDistanceOracle``)
   4. RASTER reach band            (``build_raster_reach_band``)
+
+SINGLE ENGINE (2026-07-29, spec ``rod-compose-and-band-single-source-
+spec.md`` §B): consumers 1, 2 and 4 are now ONE producer —
+``reach_band_unified`` is a thin wrapper over ``build_raster_reach_band``,
+which reads its VALUE from ``spine_value_fields`` (route metric,
+service-excluded) and uses the grid only to find a point's nearest route
+attachment and the local off-route leg.  The legacy nearest-visible-
+centerline band, the raster→legacy fall-through and ``_build_skeleton_band``
+were deleted, and with them the ``O4_RASTER_REACH_BAND`` selector.  Tests
+1-3 therefore exercise the same engine as tests 4-5; they still pin the
+distinct CONSUMER contracts, which is the point of the file.
 
 THE FIXTURE — a "U" airport, all coordinates in local metres:
 
@@ -105,22 +116,18 @@ def _u_layout(shapes=()):
 
 
 @pytest.fixture
-def legacy_band(monkeypatch):
-    """Pin the LEGACY (non-raster) band producer.
-
-    ``config.RASTER_REACH_BAND`` defaults ON, and ``reach_band_unified``
-    short-circuits to the raster field whenever it can build one — so the
-    legacy value fields / nearest-node lookup are only reached with the
-    gate off.  Tests 1-3 pin the legacy consumer explicitly; tests 4-5
-    pin the raster one.
-    """
-    monkeypatch.setenv("O4_RASTER_REACH_BAND", "0")
+def band_engine():
+    """The band engine needs scipy (the grid lookup); skip without it."""
+    pytest.importorskip("scipy")
 
 
 # ── 1. reach-band VALUE FIELDS ──────────────────────────────────────────
 
-def test_reach_band_value_fields_refuse_the_service_shortcut(legacy_band):
-    """The ceiling/floor Dijkstras must price T by the 700 m TAXI route."""
+def test_reach_band_value_fields_refuse_the_service_shortcut(band_engine):
+    """The ceiling/floor Dijkstras must price T by the 700 m TAXI route.
+
+    T sits ON a valued spine node, so the off-route leg is zero and the
+    band reads that node's route value exactly."""
     band = reach_band_unified(_u_layout(_paved_u()), _u_graph())
     got = band(100.0, 0.0)
     assert got is not None, "T must still be reachable — by the taxi route"
@@ -129,7 +136,7 @@ def test_reach_band_value_fields_refuse_the_service_shortcut(legacy_band):
     assert floor == pytest.approx(ANCHOR_VALUE - TAXI_CLIMB, abs=1e-6)
 
 
-def test_fixture_actually_exercises_the_gate(legacy_band, monkeypatch):
+def test_fixture_actually_exercises_the_gate(band_engine, monkeypatch):
     """A/B proof the fixture discriminates: with the exclusion OFF the very
     same band rides the road and prices T at the 100 m shortcut."""
     monkeypatch.setattr(ap_config, "REACH_NO_SERVICE_SPINES", False)
@@ -139,17 +146,16 @@ def test_fixture_actually_exercises_the_gate(legacy_band, monkeypatch):
     assert floor == pytest.approx(ANCHOR_VALUE - SVC_CLIMB, abs=1e-6)
 
 
-# ── 2. NEAREST-NODE lookup ──────────────────────────────────────────────
+# ── 2. NEAREST-ATTACHMENT lookup ────────────────────────────────────────
 
-def test_nearest_node_lookup_drops_service_only_nodes(legacy_band):
-    """The spine STRtree must not hand a query a node with no field entry.
+def test_nearest_node_lookup_drops_service_only_nodes(band_engine):
+    """The attachment lookup must not hand a query a node with no value.
 
-    The service road's far end sits 0.1 m from the taxi centerline's end
-    vertex and the taxi chain's own end sits 0.6 m away.  Under the
-    exclusion the service node carries NO field entry, so keeping it in
-    the tree would win the nearest-node query and silently drop the
-    ``kB`` candidate — the band would fall back to the ``kA`` candidate
-    at the far corner.  The filter must pick the taxi node instead.
+    The service road's far end sits 0.1 m from the query point and the
+    taxi chain's own end 1.0 m away.  Under the exclusion the service node
+    carries NO field entry, so it is never seeded as an attachment; the
+    nearer-but-valueless node must not win the assignment and leave the
+    point priced off something else (or off-net).  The taxi node must.
     """
     G = _u_graph(taxi_end=(100.0, 1.0), service_end=(100.0, 0.1))
     band = reach_band_unified(_u_layout(_paved_u()), G)
@@ -213,7 +219,6 @@ def _paved_u(shortcut_role=ROLE_SERVICE_ROAD, width=15.0):
 
 def _raster_ceiling(shortcut_role, monkeypatch):
     pytest.importorskip("scipy")
-    monkeypatch.setenv("O4_RASTER_REACH_BAND", "1")
     from auto_patch.elevation_per_surface.raster_reach_band import (
         build_raster_reach_band)
     layout = _u_layout(_paved_u(shortcut_role))
@@ -226,35 +231,37 @@ def _raster_ceiling(shortcut_role, monkeypatch):
 
 
 def test_raster_band_refuses_a_service_road_paved_shortcut(monkeypatch):
-    """Measured 2026-07-29: the raster field DOES refuse a service road.
+    """The band refuses a service route drawn over its own road pavement.
 
-    Not through ``service_spine_pairs`` — it propagates over a pavement
-    MASK and never consults the pair set — but because ``_domain_geom``'s
-    role set omits ``ROLE_SERVICE_ROAD``.  Pin it, so a future widening of
-    the domain roles cannot quietly re-open the road.  (Measured ceiling
-    110.17 vs the legacy 110.5: 3 m grid discretization.)
+    TWO independent guards now hold this: ``_domain_geom``'s role set omits
+    ``ROLE_SERVICE_ROAD`` (the road is not even in the leg's grid), AND the
+    route value comes from the service-excluded spine fields.  Pin it, so a
+    future widening of the domain roles cannot quietly re-open the road.
     """
     ceil = _raster_ceiling(ROLE_SERVICE_ROAD, monkeypatch)
     assert ceil > ANCHOR_VALUE + SVC_CLIMB + 1.0, (
-        f"raster ceiling {ceil:.3f} is at/below the SERVICE-shortcut "
+        f"band ceiling {ceil:.3f} is at/below the SERVICE-shortcut "
         f"price {ANCHOR_VALUE + SVC_CLIMB:.3f} — reach rode the road")
     assert ceil == pytest.approx(ANCHOR_VALUE + TAXI_CLIMB, abs=1.5)
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "KNOWN VIOLATOR (STATUS 2026-07-29, docs/specs/"
-    "single-space-string-audit-spec.md §3): the raster reach band does not "
-    "honor the service_spine_pairs exclusion.  Its role-based domain guard "
-    "protects only service-road PAVEMENT; a service route drawn across "
-    "AIRSIDE pavement (HECA's aprons) is still ridden — measured ceiling "
-    "101.485 vs the legacy band's 110.5, an 8.7 m over-credit.  Phase 2 / "
-    "owner review; do NOT redesign the raster band here."))
 def test_raster_band_refuses_a_service_route_over_airside_pavement(
         monkeypatch):
     """Same graph, same ``service_spine_pairs``; only the pavement role
-    under the shortcut changes.  The legacy band answers 110.5 either way
-    (``test_reach_band_value_fields_refuse_the_service_shortcut``)."""
+    under the shortcut changes — the case the ROLE guard cannot see.
+
+    THIS WAS THE VIOLATOR (strict xfail until 2026-07-29): the old raster
+    engine propagated VALUE through the paved grid, an AREA metric, so a
+    service route over AIRSIDE pavement (HECA's giant aprons carry service
+    routes through them) short-circuited the 700 m taxi route and priced T
+    at 101.485 — an 8.7 m UNDER-credit that biases building seats LOW.
+    The engine is now route-metric: value on the non-service spine graph,
+    grid only for the nearest attachment + local leg.  T sits on the
+    valued taxi node, so it prices at the taxi route either way."""
     ceil = _raster_ceiling(ROLE_APRON, monkeypatch)
     assert ceil > ANCHOR_VALUE + SVC_CLIMB + 1.0, (
-        f"raster ceiling {ceil:.3f} is at/below the SERVICE-shortcut "
+        f"band ceiling {ceil:.3f} is at/below the SERVICE-shortcut "
         f"price {ANCHOR_VALUE + SVC_CLIMB:.3f} — reach rode the road")
+    assert ceil == pytest.approx(ANCHOR_VALUE + TAXI_CLIMB, abs=1.5), (
+        "the route metric must price T at the 700 m taxi route, not at any "
+        "cheaper path across the apron")

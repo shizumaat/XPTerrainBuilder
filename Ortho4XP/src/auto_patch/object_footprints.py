@@ -563,16 +563,30 @@ def structure_ring(
     # mis-elevated ground plate is exactly a float/sink artifact.
     # HECA's ``heca_ground_polygon.obj`` spans 2.1 km and must never
     # become a 2 km flat building pad.
+    #
+    # ABOVE GRADE, not total extent (owner defect 2026-07-30, OTHH
+    # Aeroscape ``Buildings/Dewatering Drainage/*``): the extent that
+    # makes a structure a building is the part standing ABOVE grade.
+    # The drainage basins there are open pits authored −3.82 .. +0.06 —
+    # every millimetre of their 3.87 m extent is BELOW grade — and the
+    # raw ``maximum − minimum`` read a 3.87 m hole as a 3.87 m building,
+    # emitting a flat pad that buried the pit (measured: Drainage_04
+    # 2337 m², Drainage_06 20 055 m²).  Clamping both ends at grade is
+    # exactly the ``base_ceiling_y`` idiom a few lines above and leaves
+    # every at-or-above-grade structure's extent unchanged (a building
+    # based at +6.5 reaching +20 still measures 13.5 m).
+    above_grade_extent = (
+        max(maximum_local_y, 0.0) - max(minimum_base_y, 0.0))
     if (DSF_OBJECT_MIN_BUILDING_HEIGHT_M > 0.0
-            and (maximum_local_y - minimum_base_y)
-            < DSF_OBJECT_MIN_BUILDING_HEIGHT_M):
+            and above_grade_extent < DSF_OBJECT_MIN_BUILDING_HEIGHT_M):
         UI.vprint(
             2,
-            "  [object-footprints] structure vertical extent "
-            f"{maximum_local_y - minimum_base_y:.2f} m is below the "
+            "  [object-footprints] structure above-grade vertical extent "
+            f"{above_grade_extent:.2f} m (total "
+            f"{maximum_local_y - minimum_base_y:.2f} m) is below the "
             f"{DSF_OBJECT_MIN_BUILDING_HEIGHT_M:.2f} m building floor "
-            "(O4_DSF_OBJECT_MIN_BUILDING_HEIGHT_M) — ground plate or "
-            "decal, no pad.")
+            "(O4_DSF_OBJECT_MIN_BUILDING_HEIGHT_M) — ground plate, decal "
+            "or below-grade pit, no pad.")
         return None
     # Fewer than 3 base vertices → all solid vertices (low flat objects
     # authored entirely above the height window).

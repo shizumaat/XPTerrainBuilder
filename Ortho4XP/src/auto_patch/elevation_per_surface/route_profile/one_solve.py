@@ -916,12 +916,134 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
     return sweeps, certified
 
 
+def _reach_witness(sign, radj, seeds, elev, n, horizon=None):
+    """``_reach_plain`` plus the WITNESS: which hard anchor each node's
+    envelope value came from.
+
+    Forensics only (spec ``docs/specs/reference-honesty-and-terracing-
+    spec.md`` Track 1 step 4).  Kept as a separate function so the
+    production Dijkstra is untouched — this one only runs when
+    ``O4_BREAK_FORENSICS`` is set.  ``seeds`` / ``horizon`` mirror
+    ``_reach_plain`` so the report names the anchors the LIVE envelope
+    actually consulted (see the groundside-witness clause)."""
+    import heapq
+    best: dict = {}
+    src: dict = {}
+    # Tuple order (value, anchor, distance, node) deliberately keeps ANCHOR
+    # ahead of the added distance field: the tie-break order — and therefore
+    # which witness a tied label reports — is exactly the pre-horizon one.
+    pq = [((elev[a] if sign > 0 else -elev[a]), a, 0.0, a)
+          for a in seeds if a < n]
+    heapq.heapify(pq)
+    while pq:
+        val, _tie, dk, k = heapq.heappop(pq)
+        anchor = _tie
+        t = val if sign > 0 else -val
+        if k in best and ((sign > 0 and t >= best[k])
+                          or (sign < 0 and t <= best[k])):
+            continue
+        best[k] = t
+        src[k] = anchor
+        for (j, w) in radj.get(k, ()):
+            ndk = dk + (w if w >= 0.0 else -w)
+            if horizon is not None and ndk > horizon:
+                continue
+            nt = t + w
+            pj = best.get(j)
+            if pj is None or (sign > 0 and nt < pj) or (sign < 0 and nt > pj):
+                heapq.heappush(pq, ((nt if sign > 0 else -nt), anchor,
+                                    ndk, j))
+    return best, src
+
+
+def _merge_witness(best_a, src_a, best_b, src_b, sign):
+    """Merge a horizon-bounded witness pass into the unrestricted one with
+    the same rule the live envelope uses (``min`` for the ceiling, ``max``
+    for the floor)."""
+    for k, v in best_b.items():
+        cur = best_a.get(k)
+        if cur is None or (sign > 0 and v < cur) or (sign < 0 and v > cur):
+            best_a[k] = v
+            src_a[k] = src_b.get(k)
+    return best_a, src_a
+
+
+def _break_forensics_report(path, label, broken, hard, elev, n,
+                            ceil_radj, floor_radj, classes, latlon,
+                            limited=None, horizon=None):
+    """Name every broken node's ``floor > ceiling`` WITNESS PAIR by ANCHOR
+    CLASS (spec Track 1 step 4 — a deliverable in its own right).
+
+    This is the honest answer to whether a component is feasible whole: a
+    broken node is not "the solver failing", it is two HARD anchors whose
+    values cannot both be reached through the fabric between them.  Naming
+    the pair by class says WHICH law or WHICH anchor value is wrong."""
+    import statistics as _stats
+    try:
+        _seeds = (set(hard) - set(limited)) if limited else hard
+        _c_best, _c_src = _reach_witness(+1, ceil_radj, _seeds, elev, n)
+        _f_best, _f_src = _reach_witness(-1, floor_radj, _seeds, elev, n)
+        if limited:
+            _merge_witness(_c_best, _c_src,
+                           *_reach_witness(+1, ceil_radj, limited, elev, n,
+                                           horizon), sign=+1)
+            _merge_witness(_f_best, _f_src,
+                           *_reach_witness(-1, floor_radj, limited, elev, n,
+                                           horizon), sign=-1)
+    except Exception as exc:                           # pragma: no cover
+        print(f"    [break-forensics] witness pass failed: {exc}")
+        return
+    rows = []
+    buckets: dict = {}
+    for i in sorted(broken):
+        lo = _f_best.get(i)
+        hi = _c_best.get(i)
+        if lo is None or hi is None:
+            continue
+        fw = _f_src.get(i)
+        cw = _c_src.get(i)
+        fc = classes.get(fw, "unclassified") if fw is not None else "none"
+        cc = classes.get(cw, "unclassified") if cw is not None else "none"
+        deficit = lo - hi
+        rows.append((i, lo, hi, deficit, fw, fc, cw, cc))
+        buckets.setdefault((fc, cc), []).append(deficit)
+    print(f"    [break-forensics] {label}: {len(rows)} broken node(s) with a "
+          f"witness pair (of {len(broken)} broken); "
+          f"{len(buckets)} floor×ceiling ANCHOR-CLASS pair(s)")
+    for (key, deficits) in sorted(buckets.items(),
+                                  key=lambda kv: -len(kv[1])):
+        print(f"    [break-forensics]   floor={key[0]:<20s} "
+              f"ceil={key[1]:<20s} n={len(deficits):<7d} "
+              f"deficit p50={_stats.median(deficits):8.3f} m "
+              f"max={max(deficits):8.3f} m")
+    if not path:
+        return
+    try:
+        out = path
+        if label:
+            stem, _dot, ext = path.rpartition(".")
+            out = (f"{stem}.{label.replace('#', '')}.{ext}"
+                   if stem else path)
+        with open(out, "w") as fh:
+            fh.write("node,lat,lon,floor,ceil,deficit,"
+                     "floor_witness,floor_class,ceil_witness,ceil_class\n")
+            for (i, lo, hi, deficit, fw, fc, cw, cc) in rows:
+                la, lon = (latlon[i] if latlon and i < len(latlon)
+                           else (0.0, 0.0))
+                fh.write(f"{i},{la:.7f},{lon:.7f},{lo:.4f},{hi:.4f},"
+                         f"{deficit:.4f},{fw},{fc},{cw},{cc}\n")
+        print(f"    [break-forensics] {label} -> {out} ({len(rows)} row(s))")
+    except Exception as exc:                           # pragma: no cover
+        print(f"    [break-forensics] dump failed: {exc}")
+
+
 def feasibility_project(elev, shape_constraints, hard, *,
                         max_iters=4000, tol=1e-3, force_scalar=False,
                         flat_groups=None, broken_out=None, pre_broken=None,
                         edge_couple_nodes=None, interval_yield_from=None,
                         group_bounds=None, node_bounds=None,
-                        group_refs=None, node_refs=None):
+                        group_refs=None, node_refs=None, forensics=None,
+                        witness_limited=None, env_band=None):
     """Drive EVERY grade-graph edge to ``|Δelev| ≤ budget`` by iterative
     constraint projection (user 2026-06-25: nothing may violate a grade cap).
 
@@ -963,6 +1085,18 @@ def feasibility_project(elev, shape_constraints, hard, *,
     extra nodes is always law-safe: their over-cap pairs are reported, never
     hidden.
 
+    ``witness_limited`` — ``(node_indices, horizon)``: anchors whose FEASIBILITY-
+    WITNESS role is bounded (owner ruling 2026-07-30, memory
+    ``groundside-terrace-law``: "groundside values never act as a feasibility
+    witness — floor or ceiling — for airside pavement beyond the Part-C mouth
+    allowance").  They stay HARD (immovable for the sweeps, so groundside is
+    still pinned and every mouth-weld law edge is still enforced) but seed the
+    reach envelope only within ``horizon`` metres of BUDGET distance — the
+    Part-C mouth allowance expressed in the envelope's own metric.  Beyond the
+    throat they contribute nothing to any node's ``[floor, ceiling]`` and so can
+    no longer declare a break.  ``None`` ⇒ the single unrestricted envelope pass
+    (byte-identical to the pre-clause code).
+
     ``group_bounds`` / ``node_bounds`` — BOUNDED YIELD (owner ruling
     2026-07-29: "Any yield absolutely needs to stay within the feasibility
     box").  ``group_bounds`` is a list parallel to ``flat_groups``: entry k
@@ -997,6 +1131,47 @@ def feasibility_project(elev, shape_constraints, hard, *,
     worklist has no sweep structure, so with refs it enforces caps+boxes
     only and the polish supplies the reference semantics.  ``None`` for
     both = today's behavior, byte-identical.
+
+    ``env_band`` — THE REACH BAND, one entry per node (``(floor, ceiling)``
+    or ``None``), in THIS call's elevation space (owner ruling 2026-07-30,
+    spec ``envelope-uses-the-centerline-graph``; gate
+    ``O4_ENVELOPE_FROM_BAND``, default ON).  When supplied it is the SOURCE
+    of the feasibility interval — both the break declaration and the clamp
+    below — replacing the transitive closure over the within-shape pavement
+    PAIR graph.  The caller hands in the band the build ALREADY computed
+    (``building_feasibility.reach_band_unified`` via ``anchors.node_bands``,
+    the same object ``build_building_seats`` and ``route_band_violations``
+    consume): nothing is re-derived and no second graph is built
+    (``single-pass-principle``).
+
+    *Why.*  The pair closure answers a reach-shaped question with pavement
+    adjacency: its argmin binding path at HECA is 119 pavement vertices /
+    5,349 m crossing 14 rigid-flat pads at ZERO budget — "neither KML
+    represents any sort of route an aircraft could take" (owner).  It is
+    also seeded from EVERY hard node, so ``gs_pin``/``pad_detached_dem``/
+    terrain pins declare airside infeasible; the band is seeded from
+    ``G.runway_anchor`` alone over non-service spine routes.  Measured
+    replay (HECA 2026-07-30): broken 13,428 → 0 at fp#8, 9,991 → 0 and
+    7,634 → 0 at the two final passes, with ZERO band inversions and zero
+    newly-broken nodes — while 11,109 band-feasible fp#8 nodes were
+    emitting BELOW their own band floor under the closure.
+
+    *Off-net ⇒ NOT broken.*  A node the band cannot answer for (``None``)
+    is left to the LOCAL within-shape law — the tree's own documented
+    contract in ``reach_band_unified``, ``one_profile_solve.node_band`` and
+    ``route_band_violations``.  The opposite default triples the quarantine
+    (42,008 nodes, measured).
+
+    *The clamp moves with the declaration.*  The non-broken branch's
+    ``elev[i] = min(max(elev[i], lo), hi)`` used the SAME closure interval;
+    for the 13,056 nodes the band frees that interval is still empty and
+    the clamp collapses to ``hi``, pinning them anyway.  Re-sourcing only
+    the break predicate is NOT isolable, so both read ``env_band``.
+
+    This bounds FEASIBILITY only.  Every pair constraint still enforces in
+    the sweeps and in the final RAW-budget tally (which never reads
+    ``broken``); the local apron/taxi/visible-geodesic laws are untouched.
+    ``None`` (or gate off) = the pair-closure envelope, byte-identical.
     """
     import heapq
     n = len(elev)
@@ -1359,12 +1534,12 @@ def feasibility_project(elev, shape_constraints, hard, *,
             print(f"    [env-diag]   interval ({a},{b}) low={lo} high={hi}",
                   flush=True)
 
-    def _reach(sign, radj):                 # sign +1 → ceil, −1 → floor
+    def _reach(sign, radj, seeds, horizon=None):   # sign +1 → ceil, −1 → floor
         if _env_diag:
-            return _reach_diag(sign, radj)
-        return _reach_plain(sign, radj)
+            return _reach_diag(sign, radj, seeds, horizon)
+        return _reach_plain(sign, radj, seeds, horizon)
 
-    def _reach_diag(sign, radj):
+    def _reach_diag(sign, radj, seeds, horizon=None):
         # Instrumented twin of ``_reach_plain``: counts pops per node and
         # aborts loudly (instead of eating RAM) when the pop count reveals
         # an improving cycle — printing the most re-expanded nodes and
@@ -1377,7 +1552,7 @@ def feasibility_project(elev, shape_constraints, hard, *,
         dist: dict = {}
         pops = 0
         pq = [((elev[a] if sign > 0 else -elev[a]), 0.0, a)
-              for a in hard if a < n]
+              for a in seeds if a < n]
         heapq.heapify(pq)
         while pq:
             val, dk, k = heapq.heappop(pq)
@@ -1401,21 +1576,31 @@ def feasibility_project(elev, shape_constraints, hard, *,
             best[k] = t
             dist[k] = dk
             for (j, w) in radj.get(k, ()):
+                ndk = dk + (w if w >= 0.0 else -w)
+                if horizon is not None and ndk > horizon:
+                    continue              # WITNESS HORIZON (see _reach_plain)
                 nt = t + w
                 pj = best.get(j)
                 if pj is None or (sign > 0 and nt < pj) or (sign < 0 and nt > pj):
-                    heapq.heappush(pq, ((nt if sign > 0 else -nt),
-                                        dk + (w if w >= 0.0 else -w), j))
+                    heapq.heappush(pq, ((nt if sign > 0 else -nt), ndk, j))
         return best, dist
 
-    def _reach_plain(sign, radj):
+    def _reach_plain(sign, radj, seeds, horizon=None):
         # ``radj`` provides directed weights with the sign already baked in
         # (``ceil_radj`` for +1, ``floor_radj`` for −1); the relaxation is
         # ``nt = t + w`` and the budget-metric distance accumulates ``|w|``.
+        #
+        # ``seeds`` — the anchors whose VALUES seed the envelope.  Normally
+        # every hard node; the groundside-witness clause (below) runs a
+        # SECOND, horizon-bounded pass whose seeds are the groundside pins.
+        # ``horizon`` — drop any label once its budget-metric distance from
+        # its seed exceeds this many metres of budget.  Truncation only
+        # REMOVES labels, so the resulting envelope is a valid relaxation
+        # (looser or equal) — it can never manufacture a break.
         best: dict = {}
         dist: dict = {}                     # budget-metric distance to the
         pq = [((elev[a] if sign > 0 else -elev[a]), 0.0, a)
-              for a in hard if a < n]       # value-optimal anchor
+              for a in seeds if a < n]      # value-optimal anchor
         heapq.heapify(pq)
         while pq:
             val, dk, k = heapq.heappop(pq)
@@ -1426,11 +1611,13 @@ def feasibility_project(elev, shape_constraints, hard, *,
             best[k] = t
             dist[k] = dk
             for (j, w) in radj.get(k, ()):
+                ndk = dk + (w if w >= 0.0 else -w)
+                if horizon is not None and ndk > horizon:
+                    continue
                 nt = t + w
                 pj = best.get(j)
                 if pj is None or (sign > 0 and nt < pj) or (sign < 0 and nt > pj):
-                    heapq.heappush(pq, ((nt if sign > 0 else -nt),
-                                        dk + (w if w >= 0.0 else -w), j))
+                    heapq.heappush(pq, ((nt if sign > 0 else -nt), ndk, j))
         return best, dist
 
     from auto_patch.config import SVC_SPINE_EDGE_COUPLE as _EDGE_COUPLE
@@ -1494,15 +1681,111 @@ def feasibility_project(elev, shape_constraints, hard, *,
         ref_of = {rn: rv for rn, rv in ref_of.items()
                   if rn not in hard and rn not in gmap}
 
+    # ── GROUNDSIDE FEASIBILITY-WITNESS CLAUSE (owner ruling 2026-07-30,
+    # memory ``groundside-terrace-law``; gate ``O4_GS_NO_AIRSIDE_WITNESS``
+    # is evaluated by the CALLER, which passes ``witness_limited`` or not) ─
+    # "Groundside values never act as a feasibility witness (floor or
+    # ceiling) for airside pavement beyond the Part-C mouth allowance."
+    # Part C (``anchors.apply_groundside_reach``) bounds the groundside
+    # pin's VALUE; this bounds its ROLE.  Mechanically: the listed anchors
+    # are pulled out of the envelope seed set and re-seeded in a SECOND
+    # Dijkstra truncated at the mouth allowance expressed in the envelope's
+    # own budget metric (``cap · MOUTH_ALLOWANCE_M`` metres of budget = one
+    # connector throat of reach at cap).  Inside that throat the pin still
+    # witnesses — the permitted exception, so a genuinely broken mouth weld
+    # is still detected; beyond it the pin contributes nothing to any
+    # airside node's ``[floor, ceiling]``.
+    # It remains HARD for the sweeps (groundside is still pinned, and the
+    # mouth-weld law edges are still enforced): only the witness role is
+    # withdrawn.  ``witness_limited=None`` ⇒ ``_wl_nodes`` empty ⇒ the
+    # single unrestricted pass below, byte-identical to the pre-clause code.
+    _wl_nodes: set = set()
+    _wl_horizon = 0.0
+    if witness_limited:
+        _wl_raw, _wl_horizon = witness_limited
+        _wl_nodes = {_r(a) for a in (_wl_raw or ()) if a < n}
+        _wl_nodes &= set(hard)
+        # A limited anchor that is ALSO reachable as an ordinary anchor
+        # (aliased into a flat group representative that carries other
+        # authority) keeps its unrestricted role — the clause withdraws
+        # groundside's authority, not the pad/seam authority it merged with.
+        _wl_nodes -= {_r(a) for a in gmap} if gmap else set()
+
+    # ── THE ENVELOPE READS THE CENTERLINE GRAPH (owner ruling 2026-07-30,
+    # spec ``envelope-uses-the-centerline-graph``; gate
+    # ``O4_ENVELOPE_FROM_BAND``, default ON) ─────────────────────────────
+    # "Feasibility and reach must only follow actual taxi route
+    # centerlines… We already have the graph, use it, don't duplicate it."
+    # ``env_band`` IS that graph's answer, computed once per build by
+    # ``reach_band_unified`` and handed in by the caller — see the
+    # docstring.  Absent (unit tests, synthetic graphs, gate off) the
+    # pair-closure envelope below runs exactly as before.
+    _band_env = (env_band
+                 if (env_band is not None
+                     and _os.environ.get("O4_ENVELOPE_FROM_BAND",
+                                         "1") == "1")
+                 else None)
+    _band_broken: set = set()
+    if _band_env is not None:
+        _nbe = len(_band_env)
+        for i in range(n):
+            if i in hard or (gmap and i in gmap):
+                continue
+            _b = _band_env[i] if i < _nbe else None
+            if _b is not None and _b[0] > _b[1]:
+                _band_broken.add(i)
+
     broken: set = set()
     if hard:
-        ceil, ceil_dist = _reach(+1, ceil_radj)
-        floor, floor_dist = _reach(-1, floor_radj)
+        _env_seeds = (set(hard) - _wl_nodes) if _wl_nodes else hard
+        # The pair-closure fields survive band-sourcing for ONE purpose:
+        # the distance-weighted ``t`` of the break blend below (an inverted
+        # band says HOW MUCH the anchors contradict, not where the two
+        # anchor fields meet).  With no band inversion nothing reads them,
+        # so the two Dijkstras are skipped outright — the single-pass
+        # dividend of not computing an envelope nobody consumes.
+        if _band_env is not None and not _band_broken:
+            ceil, ceil_dist, floor, floor_dist = {}, {}, {}, {}
+        else:
+            ceil, ceil_dist = _reach(+1, ceil_radj, _env_seeds)
+            floor, floor_dist = _reach(-1, floor_radj, _env_seeds)
+        if _wl_nodes and (_band_env is None or _band_broken):
+            _c2, _cd2 = _reach(+1, ceil_radj, _wl_nodes, _wl_horizon)
+            _f2, _fd2 = _reach(-1, floor_radj, _wl_nodes, _wl_horizon)
+            for _k, _v in _c2.items():
+                if _k not in ceil or _v < ceil[_k]:
+                    ceil[_k] = _v
+                    ceil_dist[_k] = _cd2.get(_k, 0.0)
+            for _k, _v in _f2.items():
+                if _k not in floor or _v > floor[_k]:
+                    floor[_k] = _v
+                    floor_dist[_k] = _fd2.get(_k, 0.0)
+            if _os.environ.get("O4_STEP_DEBUG") == "1":
+                print(f"    [gs-witness] withdrew {len(_wl_nodes)} groundside "
+                      f"anchor(s) from the airside envelope "
+                      f"(mouth horizon {_wl_horizon:.3f} m of budget)")
         for i in range(n):
             if i in hard:
                 continue
-            lo = floor.get(i, -INF)
-            hi = ceil.get(i, INF)
+            if _band_env is not None:
+                # A rigid flat group's members are aliased onto their
+                # representative (which carries the level and is broadcast
+                # back at the end); the pair closure gives them an empty
+                # adjacency and therefore an infinite interval, so the band
+                # path skips them for the same reason — clamping a member
+                # individually would fight the flatness invariant.
+                if gmap and i in gmap:
+                    continue
+                _bi = (_band_env[i] if i < len(_band_env) else None)
+                if _bi is None:
+                    # OFF-NET: the band has no answer here, so the LOCAL
+                    # within-shape law governs (the documented contract).
+                    # Neither broken nor envelope-clamped.
+                    continue
+                lo, hi = float(_bi[0]), float(_bi[1])
+            else:
+                lo = floor.get(i, -INF)
+                hi = ceil.get(i, INF)
             if lo > hi:
                 # GENUINE break: the hard anchors contradict through this
                 # node (e.g. a tile-seam terrain pin below a plateau the
@@ -1587,6 +1870,216 @@ def feasibility_project(elev, shape_constraints, hard, *,
                 broken.add(i)
             else:
                 elev[i] = min(max(elev[i], lo), hi)  # clamp into the envelope
+        if _band_env is not None and _os.environ.get("O4_STEP_DEBUG") == "1":
+            _bn_none = _bn_ok = 0
+            for i in range(n):
+                if i in hard or (gmap and i in gmap):
+                    continue
+                _b = (_band_env[i] if i < len(_band_env) else None)
+                if _b is None:
+                    _bn_none += 1
+                elif _b[0] <= _b[1]:
+                    _bn_ok += 1
+            print(f"    [env-band] envelope from THE graph: "
+                  f"band-broken={len(_band_broken)} feasible={_bn_ok} "
+                  f"off-net={_bn_none} (pair closure "
+                  f"{'skipped' if not _band_broken else 'kept for the blend'})")
+        # ── BREAK FORENSICS (spec reference-honesty Track 1 step 4, gate
+        # ``O4_BREAK_FORENSICS=<path>``) ─────────────────────────────────
+        # Name every broken node's floor>ceiling WITNESS PAIR by ANCHOR
+        # CLASS.  Standing principle ``feasibility-is-guaranteed``: a real
+        # airport proves a lawful surface exists, so "infeasible" is never
+        # an answer — every break must be attributed to a wrong law, a
+        # wrong anchor value or a wrong topology, and the witness pair is
+        # what names which.  Unset ⇒ nothing runs (the witness Dijkstras
+        # are a second pass) ⇒ byte-identical and cost-free.
+        _forensics_path = _os.environ.get("O4_BREAK_FORENSICS")
+        if _forensics_path and broken and forensics is not None:
+            _break_forensics_report(
+                _forensics_path, forensics.get("label", ""), broken,
+                hard, elev, n, ceil_radj, floor_radj,
+                forensics.get("classes") or {},
+                forensics.get("nodes_ll"),
+                limited=_wl_nodes, horizon=_wl_horizon)
+
+    # ── CHAIN-RIGID BROKEN BLEND (spec apron-string-and-scheduling §D.2.1,
+    # gate ``O4_CHAIN_RIGID_BLEND``) ─────────────────────────────────────
+    # ATTRIBUTED 2026-07-30: the HECA corridor sag is the break-region
+    # blend, not the string.  At the spine-yield projection EVERY corridor
+    # node is broken (envelope floor > ceiling by 13-18 m), so the law
+    # exempts them and the POINTWISE distance-weighted blend above repaints
+    # the profile — the sag IS the blend's t-ramp (t 0.936 → 0.731 along
+    # the corridor).  A rod slab is a DIFFERENCE constraint, so a strung
+    # chain is always satisfiable inside a break region AT ZERO COST IN
+    # LEVEL: the chain may translate freely.  Treat each maximal run of
+    # broken rod-linked nodes as RIGID — compute the blend per chain and
+    # apply the chain's Δ SHAPE at the least-displacement level, instead of
+    # letting the pointwise blend bend it.
+    #
+    # ★ The per-node hard-neighbour clamp is PRESERVED FOR CHAIN ENDPOINTS
+    # (the 05C runway-kink guard): the chain's level is first constrained
+    # by every endpoint's hard-neighbour interval, and the per-node clamp is
+    # then re-applied at the endpoints as a final guard.  A chain whose
+    # endpoint intervals and boxes cannot be reconciled by ANY translation
+    # keeps today's pointwise result exactly (no regression class).
+    #
+    # Chains come from the ENVELOPE-SKIP interval edges — the §10 taut-rod
+    # slabs, the only entry that carries that flag — so nothing is
+    # re-derived or re-strung (single-pass principle).  No rod ⇒ no chain
+    # ⇒ this block is inert and the solve is byte-identical.
+    if (broken and envelope_skip_pairs
+            and _os.environ.get("O4_CHAIN_RIGID_BLEND", "1") == "1"):
+        rod_adj: dict = {}
+        _rp_both = _rp_one = _rp_none = 0
+        for (_ra, _rb) in envelope_skip_pairs:
+            _nb = (_ra in broken) + (_rb in broken)
+            if _nb == 2:
+                _rp_both += 1
+            elif _nb == 1:
+                _rp_one += 1
+            else:
+                _rp_none += 1
+            if _nb != 2:
+                continue          # chain end: a free/hard neighbour anchors
+            _iv = interval_lim.get((_ra, _rb))
+            if _iv is None or _iv[0] is None or _iv[1] is None:
+                continue
+            _mid = 0.5 * (_iv[0] + _iv[1])        # z_a − z_b (the Δ shape)
+            # entry (neighbour, Δoffset, slab_lo, slab_hi) on z_nb − z_self.
+            rod_adj.setdefault(_ra, []).append(
+                (_rb, -_mid, -_iv[1], -_iv[0]))
+            rod_adj.setdefault(_rb, []).append(
+                (_ra, +_mid, _iv[0], _iv[1]))
+        # CHAIN ≠ CONNECTED COMPONENT (measured HECA 2026-07-30): corridors
+        # SHARE their junction vertices, so the rod graph is one giant
+        # component — 6,176 of 7,346 both-broken slabs in a single blob.
+        # A single rigid translation for the whole blob is over-constrained
+        # by construction (it was infeasible at HECA and fell back to the
+        # pointwise blend, i.e. the pass did nothing).  The spec's "chain"
+        # is one STRUNG CORRIDOR: split the graph at BRANCH vertices
+        # (rod degree >= 3, the junctions where corridors meet).  A branch
+        # vertex keeps today's pointwise value and acts as an anchor: each
+        # incident chain's level must still satisfy its own rod slab to it,
+        # so the string stays continuous through the junction.
+        _rod_deg = {_v: len(_l) for _v, _l in rod_adj.items()}
+        _branch = {_v for _v, _d in _rod_deg.items() if _d >= 3}
+        _seen: set = set()
+        _n_chains = 0
+        _n_rigid_nodes = 0
+        _n_infeasible = 0
+        for _root in rod_adj:
+            if _root in _seen or _root in _branch:
+                continue
+            # BFS the chain (branch vertices bound it), accumulating the
+            # rigid Δ offsets.
+            _off = {_root: 0.0}
+            _order = [_root]
+            _seen.add(_root)
+            _qi = 0
+            while _qi < len(_order):
+                _u = _order[_qi]
+                _qi += 1
+                for (_v, _d, _slo, _shi) in rod_adj.get(_u, ()):
+                    if _v in _off or _v in _branch:
+                        continue
+                    _off[_v] = _off[_u] + _d
+                    _seen.add(_v)
+                    _order.append(_v)
+            if len(_order) < 2:
+                continue
+            # Least-displacement level: the mean of the pointwise targets
+            # de-shaped by the rigid offsets.
+            _L = sum(elev[_v] - _off[_v] for _v in _order) / len(_order)
+            _ends = [_v for _v in _order
+                     if sum(1 for (_w, _dd, _sl, _sh) in rod_adj.get(_v, ())
+                            if _w in _off) == 1]
+            _lo_L, _hi_L = -INF, INF
+            for _e in _ends:
+                _elo, _ehi = _hard_neighbour_interval(_e)
+                if _elo <= _ehi:
+                    _lo_L = max(_lo_L, _elo - _off[_e])
+                    _hi_L = min(_hi_L, _ehi - _off[_e])
+            # The rod slab to every bounding BRANCH vertex (which keeps its
+            # pointwise value) enters as a least-displacement SAMPLE, not a
+            # hard bound.  Measured HECA 2026-07-30: as a hard bound it
+            # made 440 of 538 chains infeasible and the pass degenerated to
+            # the pointwise blend — the branch vertices are themselves bent
+            # by that blend, so two bent junctions can contradict any rigid
+            # placement of the chain between them.  A sample keeps the
+            # string continuous where it can be and still lets the chain
+            # straighten where the junctions disagree.
+            _samples = [elev[_v] - _off[_v] for _v in _order]
+            for _v in _order:
+                for (_w, _dd, _slo, _shi) in rod_adj.get(_v, ()):
+                    if _w in _branch:
+                        _samples.append(
+                            elev[_w] - 0.5 * (_slo + _shi) - _off[_v])
+            _L = sum(_samples) / len(_samples)
+            if bound_of:
+                for _v in _order:
+                    _bb = bound_of.get(_v)
+                    if _bb is not None:
+                        _lo_L = max(_lo_L, _bb[0] - _off[_v])
+                        _hi_L = min(_hi_L, _bb[1] - _off[_v])
+            if _lo_L > _hi_L:
+                _n_infeasible += 1
+                continue          # no lawful translation → keep pointwise
+            _L = min(max(_L, _lo_L), _hi_L)
+            for _v in _order:
+                elev[_v] = _L + _off[_v]
+            # ★ endpoint guard (05C runway kink): the per-node clamp the
+            # pointwise branch applied stays in force at the chain ends.
+            for _e in _ends:
+                _elo, _ehi = _hard_neighbour_interval(_e)
+                if _elo <= _ehi:
+                    elev[_e] = min(max(elev[_e], _elo), _ehi)
+            _n_chains += 1
+            _n_rigid_nodes += len(_order)
+        # ── RIGID BRANCH VERTICES (spec reference-honesty Track 1 step 3,
+        # gate ``O4_BRANCH_RIGID_BLEND``) ────────────────────────────────
+        # The chain split above leaves every BRANCH vertex (rod degree ≥ 3
+        # — the junctions corridors share) on its POINTWISE blend value,
+        # while the chains around it have been placed rigidly.  That is
+        # memory ``rod-chains-split-at-branches``'s named residual: a
+        # ~1.2 m step where a rigid chain meets a still-pointwise junction
+        # (HECA corridor mouth, s ≈ −5 m).  Place the junction on the
+        # string too: its rod slabs to the (now placed) incident chains
+        # each imply a level ``z[branch] = z[neighbour] − Δ``, and the
+        # least-displacement point among them is their mean.
+        # ★ The hard-neighbour clamp is APPLIED HERE TOO (it is the 05C
+        # runway-kink guard — a junction welded to a runway must grade into
+        # it, never hold a string value against it), and the bounded-yield
+        # box still binds.  Branch-to-branch slabs are skipped: neither end
+        # has a rigid authority, so using one to place the other would only
+        # make the result order-dependent.
+        _n_branch_placed = 0
+        if (_branch
+                and _os.environ.get("O4_BRANCH_RIGID_BLEND", "1") == "1"):
+            for _bv in _branch:
+                if _bv in hard:
+                    continue
+                _bvals = [elev[_w] - _d
+                          for (_w, _d, _slo, _shi) in rod_adj.get(_bv, ())
+                          if _w not in _branch and _w in _seen]
+                if not _bvals:
+                    continue
+                _bt = sum(_bvals) / len(_bvals)
+                _bnlo, _bnhi = _hard_neighbour_interval(_bv)   # ★ 05C guard
+                if _bnlo <= _bnhi:
+                    _bt = min(max(_bt, _bnlo), _bnhi)
+                if bound_of:
+                    _bbox = bound_of.get(_bv)
+                    if _bbox is not None:
+                        _bt = min(max(_bt, _bbox[0]), _bbox[1])
+                elev[_bv] = _bt
+                _n_branch_placed += 1
+        if _os.environ.get("O4_STEP_DEBUG") == "1":
+            print(f"    [chain-rigid] rod pairs both/one/no broken end="
+                  f"{_rp_both}/{_rp_one}/{_rp_none}; broken={len(broken)}; "
+                  f"{_n_chains} chain(s), {_n_rigid_nodes} node(s) placed "
+                  f"rigidly; {_n_infeasible} kept the pointwise blend; "
+                  f"{_n_branch_placed}/{len(_branch)} branch vertex(es) "
+                  f"placed on the string")
 
     # BROKEN nodes stay AT their blended value and never move in the
     # sweeps.  Both reach envelopes are cap-Lipschitz along the edge graph

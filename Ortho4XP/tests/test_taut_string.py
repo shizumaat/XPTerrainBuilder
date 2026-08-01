@@ -981,8 +981,9 @@ def test_walk_s1_06_forty_five_degree_bend_needs_two_strings():
 from auto_patch.config import (TAUT_STRING_MIN_STRING_M,  # noqa: E402
                                TAUT_STRING_SPINE_TOLERANCE_M)
 from auto_patch.elevation_per_surface.route_profile.taut_string import (  # noqa: E402
-    compose_through_paths, decorate_nodes_onto_strings, strings_with_tenure,
-    substrate_from_carriage, through_path_chains)
+    compass_ends, compose_through_paths, decorate_nodes_onto_strings,
+    filter_pins_by_grade_law, strings_with_tenure, substrate_from_carriage,
+    through_path_chains)
 import pytest  # noqa: E402
 
 
@@ -1565,3 +1566,119 @@ def test_clip_telemetry_reaches_the_inventory():
     assert inv["remainders_in_duty_band"][0]["remainder_m"] == 60.0
     assert inv["n_remainders_dropped"] == 0
     assert inv["n_strings"] == 2
+
+
+# ── compass labels: geography is COMPUTED, never inferred from order ──
+def test_compass_ends_are_computed_not_walk_order():
+    """★ REGRESSION PIN.  A string's endpoint order is WALK ORDER and
+    carries no geography.  Reading "start" as "north" transposed chord
+    1's two endpoint values and cost a round of investigation -- the
+    chord appeared to fall north->south against the owner's expectation.
+    The label must come from the COORDINATES, in either traversal order.
+    """
+    south, north = (0.0, -875.1), (0.0, 1732.4)
+    assert compass_ends(south, north) == ("south", "north")
+    assert compass_ends(north, south) == ("north", "south")   # order-proof
+    # ★ north/south is PREFERRED even when the chord is more east-west:
+    # chord 1 runs SW->NE and a dominant-axis rule would have called its
+    # ends "east" and "west" -- true, and useless to everyone who names
+    # this taxiway by its north and south ends.
+    sw, ne = (-3713.2, -875.1), (-710.6, 1732.4)
+    assert compass_ends(sw, ne) == ("south", "north")
+    assert compass_ends(sw, ne, axis="ew") == ("west", "east")
+    # east/west is the fallback only when the ends share a latitude
+    assert compass_ends((0.0, 5.0), (500.0, 5.0)) == ("west", "east")
+
+
+def test_endpoint_witness_ships_the_compass_label():
+    """The build's own artifact must carry the labelling, so the swap
+    cannot reappear downstream."""
+    layout, g, adj, n = _walk_case((21,))
+    # lay the string south -> north so walk order and geography differ
+    for v in list(g.pos):
+        g.pos[v] = (0.0, g.pos[v][0])
+    layout.carry([([g.pos[v] for v in range(n)], False)])
+    band = _pin(n, {0: 100.0, n - 1: 102.0})
+    _out, inv, rows = _drive(layout, g, adj, n, [100.0] * n,
+                             hard={0, n - 1}, band=band)
+    labels = {w["end_label"] for w in inv["endpoint_witness"]}
+    assert labels == {"south", "north"}, inv["endpoint_witness"]
+    row = rows[0]
+    assert {row["label_start"], row["label_end"]} == {"south", "north"}
+    # the value keyed BY COMPASS agrees with the value keyed by order
+    for w in inv["endpoint_witness"]:
+        assert row[f"z_{w['end_label']}"] == w["value"]
+    assert row["z_south"] == 100.0 and row["z_north"] == 102.0
+
+
+# ══════════════════════════════════════════════════════════════════════
+# RULING 52 — the chord is never bent by law; the GRIP is
+# ══════════════════════════════════════════════════════════════════════
+def _pin_chain(zs, budget=0.15, step=10.0):
+    """A straight pinned chain; ``budget`` is each pair's cap allowance."""
+    pins = {i: z for i, z in enumerate(zs)}
+    adj = {}
+    for i in range(len(zs) - 1):
+        adj.setdefault(i, []).append((i + 1, budget))
+        adj.setdefault(i + 1, []).append((i, budget))
+    return pins, adj
+
+
+def test_grip_filter_releases_only_over_cap_pairs():
+    """A pin joins ``anchors``, so a both-pinned pair the projection can
+    no longer flatten must not stay both-pinned.  Lawful pairs are
+    untouched -- releasing them would hand the solver stations the chord
+    could have held."""
+    pins, adj = _pin_chain([100.0, 100.1, 100.2, 100.3])      # all lawful
+    kept, rel = filter_pins_by_grade_law(pins, adj)
+    assert kept == pins and rel == []
+    pins, adj = _pin_chain([100.0, 100.1, 101.0, 101.1])      # 2-3 over cap
+    kept, rel = filter_pins_by_grade_law(pins, adj)
+    assert len(kept) == 3 and len(rel) == 1
+    w = rel[0]
+    assert w["pair"] == [1, 2] and w["rule"] == "grade_law_over_cap"
+    assert abs(w["excess_m"] - (0.9 - 0.15)) < 1e-9
+    # COMPLETENESS: no both-pinned over-cap pair survives
+    for i, lst in adj.items():
+        for (j, b) in lst:
+            if i < j and i in kept and j in kept:
+                assert abs(kept[i] - kept[j]) <= b + 1e-9
+
+
+def test_grip_filter_is_endpoint_protective_and_minimal():
+    """Gate (A) reads ENDPOINTS, so a run of consecutive over-cap pairs
+    releases its INTERIOR pins first; and no release may be unnecessary."""
+    pins, adj = _pin_chain([100.0, 101.0, 102.0, 103.0])   # every pair over
+    depth = {0: 0.0, 1: 10.0, 2: 10.0, 3: 0.0}             # 1,2 interior
+    kept, rel = filter_pins_by_grade_law(pins, adj, endpoint_depth=depth)
+    assert 0 in kept and 3 in kept, kept          # endpoints protected
+    assert set(kept) == {0, 3}, kept              # both interiors released
+    # MINIMALITY: re-admitting any released pin re-creates an over-cap pair
+    for v in (1, 2):
+        trial = dict(kept)
+        trial[v] = pins[v]
+        assert any(abs(trial[i] - trial[j]) > b + 1e-9
+                   for i, lst in adj.items() for (j, b) in lst
+                   if i < j and i in trial and j in trial), v
+
+
+def test_grip_filter_never_releases_a_law_anchor():
+    """A pair whose BOTH ends are law anchors and over cap is the
+    projection's pre-existing genuine-step contract, not ours."""
+    pins, adj = _pin_chain([100.0, 101.0])
+    kept, rel = filter_pins_by_grade_law(pins, adj, hard={0, 1})
+    assert kept == pins and rel == []
+    # one law anchor, one string pin -> the STRING side yields
+    kept, rel = filter_pins_by_grade_law(pins, adj, hard={0})
+    assert set(kept) == {0} and rel and rel[0]["released"] == 1
+
+
+def test_grip_filter_is_deterministic():
+    zs = [100.0, 101.0, 101.05, 102.0, 102.05, 103.0]
+    pins, adj = _pin_chain(zs)
+    depth = {i: min(i, len(zs) - 1 - i) * 10.0 for i in range(len(zs))}
+    a = filter_pins_by_grade_law(pins, adj, endpoint_depth=depth)
+    b = filter_pins_by_grade_law(dict(reversed(list(pins.items()))), adj,
+                                 endpoint_depth=depth)
+    assert a[0] == b[0]
+    assert [w["released"] for w in a[1]] == [w["released"] for w in b[1]]

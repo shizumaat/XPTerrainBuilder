@@ -558,9 +558,30 @@ def test_to_osm_does_not_mutate_shape_on_invalid_polygon():
         "to_osm mutated altitude on the input shape")
 
 
+# An emission is: line 1 the XML declaration, line 2 the <osm> root
+# element (the ONLY line carrying the provenance attributes), lines 3+
+# the body.  "Body" below is therefore exactly `tail -n +3` — the same
+# slice the repo's byte-identity protocol hashes.
+_ROOT_LINE_IDX = 1
+_BODY_START_IDX = 2
+_BUILT_ATTR_RE = re.compile(r"o4_provenance_built='[^']*'")
+
+
 def test_to_osm_is_idempotent():
-    """Calling to_osm twice produces byte-identical output — proves
-    no input shape was degraded by the first call."""
+    """Two to_osm calls emit an identical BODY and a root line that
+    differs only in the wall-clock provenance stamp.
+
+    The body — nodes, ways, tags — is the identity object that every
+    byte-identity proof in this repo hashes, and it must be
+    deterministic.  The <osm> root element additionally carries
+    ``o4_provenance_built``, a whole-second wall-clock timestamp
+    (``provenance.assemble_provenance``), so two emissions straddling a
+    second boundary legitimately differ *there and nowhere else*.  Only
+    that one attribute's VALUE is excluded: every other root attribute
+    — ICAO, git sha, gate list, gate counts, DEM provenance — is still
+    compared byte-for-byte, so a real root-line regression cannot hide
+    behind the exclusion.
+    """
     layout = _make_layout()
     # Mix of valid + invalid-with-altitudes shapes.
     layout.shapes.append(BuiltShape(
@@ -581,11 +602,37 @@ def test_to_osm_is_idempotent():
         finally:
             Path(path).unlink()
 
-    first = _emit_text()
-    second = _emit_text()
-    assert first == second, (
-        "to_osm is not idempotent — the first call mutated layout "
-        "state that the second call then emitted differently")
+    first = _emit_text().splitlines(keepends=True)
+    second = _emit_text().splitlines(keepends=True)
+
+    # (1) The body is the identity object: byte-identical, always.
+    assert first[_BODY_START_IDX:] == second[_BODY_START_IDX:], (
+        "to_osm emission is NOT deterministic: the patch body (nodes, "
+        "ways, tags) differs between two consecutive emissions of the "
+        "same unmodified layout.  This is a real determinism defect — "
+        "candidates are layout state mutated by the first call, or an "
+        "emission order that depends on unstable set/dict iteration.  "
+        "It is NOT the provenance stamp, which lives on the root line "
+        "and is excluded separately below.")
+
+    # (2) The header may differ ONLY in that wall-clock stamp.  Mask
+    #     the attribute's value, then compare the header exactly.
+    first_root, second_root = first[_ROOT_LINE_IDX], second[_ROOT_LINE_IDX]
+    assert (_BUILT_ATTR_RE.search(first_root)
+            and _BUILT_ATTR_RE.search(second_root)), (
+        "the o4_provenance_built stamp is missing from the <osm> root "
+        "element — this test masks that attribute's value, so its "
+        "disappearance has to be caught explicitly here rather than "
+        "being silently excused by the mask")
+    masked = "o4_provenance_built='<stamp>'"
+    assert (first[:_ROOT_LINE_IDX] + [_BUILT_ATTR_RE.sub(masked, first_root)]
+            == second[:_ROOT_LINE_IDX]
+            + [_BUILT_ATTR_RE.sub(masked, second_root)]), (
+        "the emission header differs by more than the wall-clock "
+        "provenance stamp: with o4_provenance_built masked out, the "
+        "XML declaration and the <osm> root element must still match "
+        "byte-for-byte (ICAO, git sha, gate list, gate counts and DEM "
+        "provenance are all compared exactly)")
 
 
 # ──────────────────────────────────────────────────────────────────────

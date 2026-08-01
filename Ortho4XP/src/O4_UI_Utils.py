@@ -121,6 +121,25 @@ def auto_patch_progress(icao, done, total, label, status="run",
 
 
 ################################################################################
+def imagery_downloads_done(lat, lon, downloaded=0, failed=0):
+    """The imagery step's DOWNLOAD queue drained for this tile: only the
+    local DDS conversion tail remains.
+
+    A scheduling signal for the parallel-build orchestrator, which
+    releases the tile's imagery fetch token here so a queued tile may
+    start downloading while this one converts (docs/specs/
+    apron-string-and-scheduling-spec.md §A.2).  No-op without an engine
+    session and never raises — a build must not fail because nobody is
+    listening."""
+    if engine_session is not None:
+        try:
+            engine_session.imagery_downloads_done(
+                lat, lon, downloaded, failed)
+        except Exception:
+            pass
+
+
+################################################################################
 def vprint(min_verbosity, *args):
     if verbosity >= min_verbosity:
         print(*args)

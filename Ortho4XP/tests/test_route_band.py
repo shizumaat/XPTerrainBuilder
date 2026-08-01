@@ -101,15 +101,6 @@ def test_route_band_detects_injected_overshoot():
         "too weak; do not relax it to fake route-band=0")
 
 
-def _raster_reach_band_on():
-    """The active band producer — the runtime env overriding the config
-    default (the resolution ``reach_band_unified`` uses)."""
-    import os
-    from auto_patch.config import RASTER_REACH_BAND
-    env = os.environ.get("O4_RASTER_REACH_BAND")
-    return (env == "1") if env is not None else bool(RASTER_REACH_BAND)
-
-
 @pytest.mark.parametrize("icao", [_param(a) for a in _FIXTURES])
 def test_route_band_zero(icao):
     """OUTCOME: zero route-band violations — every airside vertex sits inside the
@@ -117,8 +108,7 @@ def test_route_band_zero(icao):
     others are xfail-tracked infeasibilities (the check runs, the count is
     surfaced — NOT ignored).
 
-    RASTER-BAND RESIDUAL (Tier 3 wave 2b): under the deliberate raster
-    reach-band replacement, junction ``route_band`` violations up to the
+    BAND GRID RESIDUAL: under the grid lookup the band uses, junction ``route_band`` violations up to the
     documented grid-discretization bound (``RASTER_REACH_BAND_GRID_RESIDUAL_M``,
     cited in config.py — SPJC's one dense multi-anchor junction complex, worst
     0.228 m, EMITTED SURFACE unchanged) are the discretization residual, not a
@@ -132,11 +122,12 @@ def test_route_band_zero(icao):
     if not layout.shapes:
         pytest.skip(f"{icao}: no shapes built")
     v = route_band_violations(layout)
-    if _raster_reach_band_on():
-        # ``t = (excess_m, side, role, x, y, elev, lo, hi)``.
-        v = [t for t in v
-             if not (t[2] == "junction"
-                     and t[0] <= RASTER_REACH_BAND_GRID_RESIDUAL_M)]
+    # ``t = (excess_m, side, role, x, y, elev, lo, hi)``.  Unconditional
+    # since 2026-07-29: there is ONE band engine (the grid lookup), so its
+    # documented discretization residual always applies.
+    v = [t for t in v
+         if not (t[2] == "junction"
+                 and t[0] <= RASTER_REACH_BAND_GRID_RESIDUAL_M)]
     cls = Counter(t[1] for t in v)
     assert not v, (
         f"{icao}: {len(v)} route-band violation(s) "

@@ -1,44 +1,57 @@
-"""Rasterized reach-band field (Tier 3 wave 2a).
+"""THE reach band's grid half — a LOOKUP accelerator, never the metric.
 
-The reach band is the lower/upper envelope of cones of slope ``cap`` seeded at
-the runway anchors, measured INSIDE the pavement-with-holes:
+Owner ruling 2026-07-29 (spec ``rod-compose-and-band-single-source-spec.md``
+§B): *"airside reachability never rides service roads or groundside; the
+taxi route graph is the metric"*.  The band at a point is therefore
+
+    band(x) = route value at x's nearest ROUTE ATTACHMENT
+              ± the local OFF-ROUTE LEG to that attachment
+
+where the route value comes from
+``building_feasibility.spine_value_fields`` — anchor values propagated along
+NON-SERVICE spine routes at the applicable caps, the same route metric as
+the pair-pricing oracle and the seats' reachability ruling.
+
+WHAT THIS MODULE USED TO DO, AND WHY IT WAS WRONG.  It propagated the anchor
+VALUES through the paved grid itself:
 
     ceiling(x) = min over anchors a ( value_a + cap · d_pavement(x, a) )
-    floor(x)   = max over anchors a ( value_a − cap · d_pavement(x, a) )
 
-The legacy :func:`building_feasibility.reach_band_unified` answers this per query
-with a nearest-visible-centerline scan (~77 % of a KBNA build) plus an off-net
-skeleton fallback (~74 ms/point).  This module answers it ONCE per airport with a
-precomputed raster field and then O(1) nearest-cell reads.
+— a min-plus envelope in an AREA metric.  Reach then flowed across any
+pavement, so a service route drawn over AIRSIDE pavement (HECA maps its
+terminal fabric as giant aprons with routes through them) short-circuited
+the real taxi route: measured on the U-fixture
+(``tests/test_service_spine_feasibility_exclusion.py``) ceiling 101.485 vs
+the route-metric 110.5 — an 8.7 m UNDER-credit that biases building seats
+LOW.  Its role-based domain guard only kept reach off service-road
+PAVEMENT; it never consulted ``service_spine_pairs`` at all.  Same
+area-vs-route class as the burial's pair web, on the seat side.
 
-Method (research survey candidate S1 / the FH generalized-distance-transform
-entry):
+Method now:
 
 1. Rasterize the pavement-with-holes union into a boolean mask at
-   ``RASTER_REACH_BAND_CELL_M``; erode conservatively by ½ cell so the discrete
-   domain ⊆ the true pavement and discrete geodesics never UNDER-estimate the
-   true in-pavement distance.
-2. Paint a per-cell longitudinal ``cap`` field: the taxi cap (1.5 %) as the base
-   (the reach climbs along the taxi ROUTE at taxi cap, which the legacy band also
-   credits — an apron 1 % discount spuriously tightens apron ceilings and shifts
-   the solve fixpoint), and the narrow code-A/B cap (3 %) inside the corridors of
-   narrow taxi centerlines — the same per-letter credit the legacy band gives.
-3. Snap every (de-crowned) runway anchor to its nearest paved cell and seed it at
-   its value.
-4. Two multi-source Dijkstra passes over the masked grid graph (edge weight =
-   mean-cap · Euclidean step) via a virtual super-source
-   (``scipy.sparse.csgraph.dijkstra``) settle the ceiling and floor fields — the
-   exact additively-weighted cone envelope on the grid graph.
-5. ``band(x, y)`` reads the nearest cell; an off-mask point reads the nearest
-   paved cell within a bounded radius (via a distance transform), widened by
-   ``APRON_MAX_GRADE × offset``, else returns ``None`` (off-net).
+   ``RASTER_REACH_BAND_CELL_M``; erode conservatively by ½ cell so the
+   discrete domain ⊆ the true pavement and discrete legs never
+   UNDER-estimate the true in-pavement distance.
+2. Paint a per-cell longitudinal ``cap`` field for the LEG: the taxi cap
+   (1.5 %) as the base, the narrow code-A/B cap (3 %) inside narrow taxi
+   corridors — the same per-letter credit the band has always given.
+3. Snap every VALUED spine node (the service-excluded field's node set) to
+   its nearest paved cell: these are the route ATTACHMENTS.
+4. ONE multi-source Dijkstra over the masked grid
+   (:func:`solve_attachment_field`) assigns every paved cell its nearest
+   attachment and the leg cost to it.
+5. ``band(x, y)`` reads the cell's attachment value ± leg; an off-mask
+   point reads the nearest paved cell within a bounded radius (distance
+   transform), widened by ``APRON_MAX_GRADE × offset``, else ``None``
+   (off-net — the local within-shape law governs it).
 
-This is a DELIBERATE SEMANTIC REPLACEMENT, gated ``O4_RASTER_REACH_BAND``
-(default ON since Tier 3 wave 2b, 2026-07-18 — the adjacent-ground tear classes
-the tighter band opened are reconciled; see ``config.py`` and
-``adjacent_ground._heal_emitted_band_tears``).  It is NOT byte-identical to the
-legacy band.  The solve and the validator both build the band through
-:func:`reach_band_unified`, so gating there keeps them on the same producer.
+There is ONE band engine, so there is no selector: the
+``O4_RASTER_REACH_BAND`` gate was deleted with the legacy paths.
+``config.REACH_NO_SERVICE_SPINES`` stays — it gates the LAW, not the
+engine.  The solve and the validator both build the band through
+``building_feasibility.reach_band_unified``, which is now a thin wrapper
+over this module.
 """
 
 from __future__ import annotations
@@ -165,50 +178,21 @@ def _domain_geom(layout):
     return prep(raw), raw
 
 
-def _anchor_seeds(layout, G):
-    """``{node_idx: de-crowned_value}`` — the runway-reach anchor set for the
-    field: the centerline→runway JOINS ``G.runway_anchor``, lifted into the ONE
-    uncrowned profile space the band lives in (the EXACT anchor set the legacy
-    :func:`reach_band_unified` seeds).  The raster propagates over the whole
-    pavement mask — runways included — so these joins reach every connected
-    pavement cell (a no-centerline taxiway crossing a runway routes to a join
-    through the runway pavement); the legacy skeleton fallback's extra runway-ring
-    seeds are unnecessary and would over-permit the ceiling versus the legacy
-    centerline band."""
-    from auto_patch.elevation_per_surface.building_feasibility import (
-        _decrowned_anchor_seeds)
-    return dict(_decrowned_anchor_seeds(
-        layout, G, getattr(G, "runway_anchor", {}) or {}))
+def _grid_edges(paved, cap, cell, connectivity=8):
+    """The masked pavement grid graph.
 
-
-def solve_reach_fields(paved, cap, seed_min, seed_max, cell, connectivity=8):
-    """Settle the ceiling and floor reach fields on a masked grid.
-
-    ``paved`` (``bool[nrows, ncols]``), ``cap`` (``float[nrows, ncols]`` local
-    longitudinal cap, 0 off-mask), ``seed_min`` / ``seed_max`` (``{cell_id:
-    value}`` — the min / max anchor seed value per paved cell, cell_id being the
-    row-major rank among paved cells), ``cell`` (metres), ``connectivity`` (8 or
-    16).  Returns ``(ceiling, floor)`` full-grid ``float64[nrows, ncols]`` arrays
-    (``inf`` on non-paved / unreachable cells for the ceiling; the floor mirrors).
-
-    ceiling[c] = min over anchors a ( value_a + Σ mean-cap · Euclidean-step )
-    floor[c]   = max over anchors a ( value_a − Σ mean-cap · Euclidean-step )
-
-    computed exactly on the grid graph via a virtual super-source
-    (``scipy.sparse.csgraph.dijkstra``): the ceiling super-source edge to anchor
-    cell ``a`` weighs ``value_a − Vmin`` (≥ 0) so the settled cost is
-    ``min_a(value_a − Vmin + d)`` ⇒ ceiling = cost + Vmin; the floor edge weighs
-    ``Vmax − value_a`` ⇒ floor = Vmax − cost.  ``directed=False`` treats the four
-    unique grid offsets as undirected 8-neighbour edges."""
-    from scipy.sparse import csr_matrix
-    from scipy.sparse.csgraph import dijkstra
-
+    Returns ``(rows, cols, data, n_paved, cell_id)``: one undirected edge per
+    unique 8- (or 16-) neighbour offset between paved cells, weighted
+    ``mean-cap · Euclidean-step · cell``; ``cell_id`` is the row-major rank
+    of each paved cell (``-1`` off-mask).  Extracted so the propagation
+    core has exactly ONE definition of the grid metric."""
     nrows, ncols = paved.shape
     cell_id = np.full((nrows, ncols), -1, dtype=np.int64)
     paved_flat = paved.ravel()
     n_paved = int(paved_flat.sum())
-    if n_paved == 0 or not seed_min:
-        return (np.full((nrows, ncols), _INF), np.full((nrows, ncols), -_INF))
+    if n_paved == 0:
+        return (np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64),
+                np.empty(0, dtype=float), 0, cell_id)
     cell_id.ravel()[paved_flat] = np.arange(n_paved, dtype=np.int64)
 
     offsets = [(0, 1, 1.0), (1, 0, 1.0),
@@ -244,55 +228,100 @@ def solve_reach_fields(paved, cap, seed_min, seed_max, cell, connectivity=8):
                      dc - (int(np.sign(dc)) if abs(dc) == 2 else 0))]
             _add_edges(dr, dc, step, require_mids=mids)
 
-    grid_rows = (np.concatenate(rows_all) if rows_all
-                 else np.empty(0, dtype=np.int64))
-    grid_cols = (np.concatenate(cols_all) if cols_all
-                 else np.empty(0, dtype=np.int64))
-    grid_data = (np.concatenate(data_all) if data_all
-                 else np.empty(0, dtype=float))
+    rows = (np.concatenate(rows_all) if rows_all
+            else np.empty(0, dtype=np.int64))
+    cols = (np.concatenate(cols_all) if cols_all
+            else np.empty(0, dtype=np.int64))
+    data = (np.concatenate(data_all) if data_all
+            else np.empty(0, dtype=float))
+    return rows, cols, data, n_paved, cell_id
 
-    src_cells = np.fromiter(sorted(seed_min), dtype=np.int64, count=len(seed_min))
-    vmin = min(seed_min.values())
-    vmax = max(seed_max.values())
-    ceil_seed = np.array([seed_min[int(c)] - vmin for c in src_cells])
-    floor_seed = np.array([vmax - seed_max[int(c)] for c in src_cells])
-    super_id = n_paved
-    n_nodes = n_paved + 1
 
-    def _field(seed_weights, transform):
-        rows = np.concatenate(
-            [grid_rows, np.full(len(src_cells), super_id, dtype=np.int64)])
-        cols = np.concatenate([grid_cols, src_cells])
-        data = np.concatenate([grid_data, seed_weights])
-        M = csr_matrix((data, (rows, cols)), shape=(n_nodes, n_nodes))
-        dist = dijkstra(M, directed=False, indices=super_id)
-        out = np.full(nrows * ncols, _INF)
-        out[paved_flat] = transform(dist[:n_paved])
-        return out.reshape(nrows, ncols)
+def solve_attachment_field(paved, cap, seed_cells, cell, connectivity=8):
+    """Nearest-ATTACHMENT assignment over the masked pavement grid.
 
-    ceiling = _field(ceil_seed, lambda d: d + vmin)
-    floor = _field(floor_seed, lambda d: vmax - d)
-    return (ceiling, floor)
+    ROUTE METRIC, NOT AREA METRIC (owner ruling 2026-07-29; spec
+    rod-compose-and-band-single-source §B).  The reach VALUE is propagated
+    on the taxi route graph by
+    ``building_feasibility.spine_value_fields`` — never here.  This grid
+    answers only the two LOOKUP questions the band needs at a point:
+
+        which route ATTACHMENT (spine node) serves this cell, and what
+        does the LOCAL OFF-ROUTE LEG to it cost?
+
+    The predecessor of this function propagated the anchor VALUES through
+    the grid — a min-plus envelope in an AREA metric.  That is what let a
+    service route drawn across apron pavement short-circuit a 700 m taxi
+    route (U-fixture: ceiling 101.485 vs the route-metric 110.5, an 8.7 m
+    UNDER-credit that biases building seats LOW — exactly HECA's shape).
+    Assigning each cell to its NEAREST attachment cannot short-circuit:
+    the route price is read off the graph, and the grid only pays for
+    leaving the route.
+
+    ``paved`` (``bool[nrows, ncols]``), ``cap`` (``float[nrows, ncols]``
+    local longitudinal cap, 0 off-mask), ``seed_cells`` (iterable of paved
+    cell ids — the attachments), ``cell`` (metres), ``connectivity``
+    (8 or 16).
+
+    Returns ``(leg, source)``: ``float64[nrows, ncols]`` leg cost (``inf``
+    off-mask or unreachable from every attachment) and
+    ``int64[nrows, ncols]`` the winning attachment's cell id (``-1`` where
+    the leg is ``inf``)."""
+    from scipy.sparse import csr_matrix
+    from scipy.sparse.csgraph import dijkstra
+
+    nrows, ncols = paved.shape
+    rows, cols, data, n_paved, cell_id = _grid_edges(
+        paved, cap, cell, connectivity)
+    leg = np.full(nrows * ncols, _INF)
+    source = np.full(nrows * ncols, -1, dtype=np.int64)
+    seeds = np.fromiter(sorted({int(c) for c in seed_cells}),
+                        dtype=np.int64)
+    if n_paved == 0 or seeds.size == 0:
+        return leg.reshape(nrows, ncols), source.reshape(nrows, ncols)
+
+    M = csr_matrix((data, (rows, cols)), shape=(n_paved, n_paved))
+    # ``min_only`` settles ONE multi-source pass and reports, per node, the
+    # SOURCE that reached it — the argmin the value lookup needs (a plain
+    # super-source pass would give the distance but lose the identity).
+    dist, _pred, src = dijkstra(M, directed=False, indices=seeds,
+                               return_predecessors=True, min_only=True)
+    paved_flat = paved.ravel()
+    leg[paved_flat] = dist
+    source[paved_flat] = src
+    source[~np.isfinite(leg)] = -1
+    return leg.reshape(nrows, ncols), source.reshape(nrows, ncols)
 
 
 def build_raster_reach_band(layout, G) -> Optional[Callable[
         [float, float], "Tuple[float, float] | None"]]:
-    """Build the rasterized reach band ``band(x, y) -> (floor, ceiling) | None``.
+    """Build THE reach band ``band(x, y) -> (floor, ceiling) | None``.
 
-    Returns ``None`` when the field cannot be built (no anchors, no pavement,
-    empty mask, or the grid exceeds ``RASTER_REACH_BAND_MAX_CELLS``) — the caller
-    then falls through to the legacy band."""
+    VALUE comes from the ROUTE metric
+    (``building_feasibility.spine_value_fields``: anchor values propagated
+    along NON-SERVICE spine routes at the applicable caps); this grid
+    supplies only the LOOKUP — the nearest route attachment and the local
+    off-route leg to it (:func:`solve_attachment_field`).
+
+    Returns ``None`` when no field can be built (no anchors, no pavement,
+    empty mask, or the grid exceeds ``RASTER_REACH_BAND_MAX_CELLS``).  There
+    is no fallback engine to hand off to — the caller reports off-net."""
     from scipy.ndimage import distance_transform_edt
     import shapely as _sh
     from auto_patch.config import (
         APRON_MAX_GRADE, TAXI_MAX_GRADE, RASTER_REACH_BAND_CELL_M,
         RASTER_REACH_BAND_CONNECTIVITY, RASTER_REACH_BAND_OFFNET_RADIUS_M,
         RASTER_REACH_BAND_MAX_CELLS)
+    from auto_patch.elevation_per_surface.building_feasibility import (
+        spine_value_fields)
 
     if not getattr(G, "pos", None):
         return None
-    seeds = _anchor_seeds(layout, G)
-    if not seeds:
+    # ROUTE-METRIC value fields, service-excluded.  A node reachable only
+    # through ``service_spine_pairs`` gets no entry, so it never becomes an
+    # attachment — the same filter the legacy value-field path honoured.
+    ceil_val, floor_val = spine_value_fields(layout, G)
+    if not ceil_val:
         return None
 
     # Pavement-with-holes PROPAGATION domain (runway interior excluded — see
@@ -316,7 +345,7 @@ def build_raster_reach_band(layout, G) -> Optional[Callable[
             import O4_UI_Utils as _UI
             _UI.vprint(1, f"  [raster-reach-band] grid {nrows}x{ncols} "
                           f"({nrows * ncols} cells) exceeds cap "
-                          f"{RASTER_REACH_BAND_MAX_CELLS}; legacy band used")
+                          f"{RASTER_REACH_BAND_MAX_CELLS}; no band")
         except Exception:                          # pragma: no cover
             pass
         return None
@@ -363,22 +392,27 @@ def build_raster_reach_band(layout, G) -> Optional[Callable[
     n_paved = int(paved_flat.sum())
     cell_id.ravel()[paved_flat] = np.arange(n_paved, dtype=np.int64)
 
-    # Snap each anchor to its nearest paved cell, aggregating per cell the min and
-    # max seed value (min feeds the ceiling super-source, max the floor).
-    # ``distance_transform_edt`` gives, for EVERY cell, the nearest paved cell —
-    # so an anchor landing just off the mask still seeds the pavement it abuts.
+    # ATTACHMENT CELLS: every spine node that CARRIES a route value (the
+    # service-excluded field's node set — a service-only node has no entry
+    # and therefore never becomes an attachment), snapped to its nearest
+    # paved cell.  ``distance_transform_edt`` gives, for EVERY cell, the
+    # nearest paved cell, so a node landing just off the eroded mask still
+    # attaches to the pavement it lies on.  Per cell the CEILING takes the
+    # min value and the FLOOR the max — the tightest interval the
+    # coincident attachments justify.
     inv = ~paved
     edt_cells, edt_idx = distance_transform_edt(
         inv, return_indices=True) if inv.any() else (
             np.zeros((nrows, ncols)), None)
-    seed_min: dict = {}                            # cell_id -> min value
-    seed_max: dict = {}                            # cell_id -> max value
+    seed_ceil: dict = {}                           # cell_id -> min ceiling
+    seed_floor: dict = {}                          # cell_id -> max floor
     n_seeded = 0
-    for k in sorted(seeds):                        # sorted() for determinism
+    for k in sorted(ceil_val):                     # sorted() for determinism
         p = G.pos.get(k)
         if p is None:
             continue
-        val = float(seeds[k])
+        cv = float(ceil_val[k])
+        fv = float(floor_val.get(k, cv))
         ci = int(round((p[0] - x0) / cell - 0.5))
         ri = int(round((p[1] - y0) / cell - 0.5))
         if not (0 <= ri < nrows and 0 <= ci < ncols):
@@ -394,15 +428,30 @@ def build_raster_reach_band(layout, G) -> Optional[Callable[
         cid = int(cell_id[ri, ci])
         if cid < 0:
             continue
-        seed_min[cid] = min(seed_min.get(cid, _INF), val)
-        seed_max[cid] = max(seed_max.get(cid, -_INF), val)
+        seed_ceil[cid] = min(seed_ceil.get(cid, _INF), cv)
+        seed_floor[cid] = max(seed_floor.get(cid, -_INF), fv)
         n_seeded += 1
-    if not seed_min:
+    if not seed_ceil:
         return None
 
-    ceiling, floor = solve_reach_fields(
-        paved, cap, seed_min, seed_max, cell,
+    # ONE grid pass: nearest attachment + its off-route leg cost.
+    leg, source = solve_attachment_field(
+        paved, cap, seed_ceil.keys(), cell,
         connectivity=int(RASTER_REACH_BAND_CONNECTIVITY))
+
+    # band = route value AT the attachment ± the local off-route leg.
+    sc = np.full(max(n_paved, 1), _INF)
+    sf = np.full(max(n_paved, 1), -_INF)
+    for cid, v in seed_ceil.items():
+        sc[cid] = v
+    for cid, v in seed_floor.items():
+        sf[cid] = v
+    ceiling = np.full((nrows, ncols), _INF)
+    floor = np.full((nrows, ncols), -_INF)
+    have = source >= 0
+    if have.any():
+        ceiling[have] = sc[source[have]] + leg[have]
+        floor[have] = sf[source[have]] - leg[have]
 
     # Off-mask nearest-paved lookup (bounded radius) via the distance transform
     # already computed.  ``edt_cells`` is in CELL units.
@@ -433,11 +482,24 @@ def build_raster_reach_band(layout, G) -> Optional[Callable[
         return (float(floor[nr, nc]) - slack, float(c) + slack)
 
     # Diagnostics on the closure (opt-in probes; also read by the profile A/B).
+    # The OFF-ROUTE LEG distribution is the honest measure of how much of the
+    # band this grid is responsible for: a large leg means a cell far from any
+    # route attachment, which is exactly where a route metric and an area
+    # metric would disagree most.
+    _finite_leg = leg[np.isfinite(leg)]
+    if _finite_leg.size:
+        _lq = [float(np.percentile(_finite_leg, q)) for q in (50, 95)]
+        _lmax = float(_finite_leg.max())
+    else:                                          # pragma: no cover
+        _lq, _lmax = [0.0, 0.0], 0.0
     band.raster_meta = {                           # type: ignore[attr-defined]
         "nrows": nrows, "ncols": ncols, "cells": nrows * ncols,
         "paved_cells": n_paved, "cell_m": cell,
         "connectivity": int(RASTER_REACH_BAND_CONNECTIVITY),
         "anchors_seeded": n_seeded,
+        "attachment_cells": len(seed_ceil),
+        "unreached_paved_cells": int(n_paved - int(have.sum())),
+        "leg_p50_m": _lq[0], "leg_p95_m": _lq[1], "leg_max_m": _lmax,
         "grid_bytes": int((ceiling.nbytes + floor.nbytes + paved.nbytes
                            + cap.nbytes + cell_id.nbytes)),
     }
@@ -445,10 +507,14 @@ def build_raster_reach_band(layout, G) -> Optional[Callable[
         try:
             import O4_UI_Utils as _UI
             m = band.raster_meta
-            _UI.vprint(1, f"  [raster-reach-band] {nrows}x{ncols} @ {cell:.1f} m "
+            _UI.vprint(1, f"  [reach-band] {nrows}x{ncols} @ {cell:.1f} m "
                           f"({n_paved} paved / {m['cells']} cells), "
-                          f"{n_seeded} anchor(s), conn-"
-                          f"{m['connectivity']}, ~{m['grid_bytes'] // (1 << 20)} MB")
+                          f"{n_seeded} route attachment(s) in "
+                          f"{m['attachment_cells']} cell(s), conn-"
+                          f"{m['connectivity']}, off-route leg p50/p95/max "
+                          f"{_lq[0]:.2f}/{_lq[1]:.2f}/{_lmax:.2f} m, "
+                          f"{m['unreached_paved_cells']} paved cell(s) "
+                          f"off-net, ~{m['grid_bytes'] // (1 << 20)} MB")
         except Exception:                          # pragma: no cover
             pass
     return band

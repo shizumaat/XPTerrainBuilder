@@ -1750,6 +1750,33 @@ class UnifiedGraph:
     # them — ``reach_band_unified`` skips these pairs in its value-field
     # Dijkstras (gate ``O4_REACH_NO_SERVICE_SPINES``).
     service_spine_pairs: set = field(default_factory=set)
+    # ── CENTERLINE AUTHORSHIP of the spine (S1 Stage 0 level 1, Fable
+    # ruling 2026-07-31) ───────────────────────────────────────────────
+    # ``_build_global_spine`` already orders each centerline's on-line
+    # nodes by arc position before linking them; recording that ordered
+    # list is the AUTHORED truth of "which taxiway is this", exported
+    # from the same walk at zero extra cost.  S1 assembles its string
+    # domains from these instead of from heading heuristics, which were
+    # MEASURED to fail on real geometry (terminal segments of the
+    # ``_build_spine_corridors`` pieces peel perpendicular onto crossers
+    # and fillets, so a piece-scale heading is jitter, not signal).
+    # Plain graph attributes ON PURPOSE: this never crosses node spaces,
+    # so it is deliberately NOT a U1 node-space artifact.
+    centerline_chains: dict = field(default_factory=dict)   # ci -> [node]
+    centerline_service: set = field(default_factory=set)    # service ci's
+    # ── SPINE-DROP CENSUS (hygiene 2026-07-31) ─────────────────────────
+    # ``_build_global_spine`` can only link a centerline into ``spine_adj``
+    # once it has found at least TWO geometry nodes within
+    # ``SPINE_PERP_TOL_M`` of it; a centerline with 0 or 1 contributes NO
+    # string and used to vanish without a counter or a log line (P7 2026-
+    # 07-31: the route-arc stage hands this walk 653 ways at HECA and
+    # nothing in the build log said how many died here).  Counted apart
+    # because they are DIFFERENT findings with different fix loci — zero
+    # nodes means no geometry under the way at all, one node means a
+    # THINNED region (P7's density-is-not-a-binary lesson).
+    spine_centerlines: int = 0        # centerlines walked
+    spine_no_string: int = 0          # ... that yielded < 2 on-line nodes
+    spine_no_string_zero: int = 0     # ... of those, with NO on-line node
 
     def spine_edge_set(self):
         """The undirected spine pairs ``{(min(a,b), max(a,b))}`` (is_spine)."""
@@ -1901,7 +1928,7 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
         # connects the spine ACROSS shape boundaries (junction→apron→junction)
         # — one connected, ≤cap profile, exactly what the route graph gave
         # but on the geometry nodes themselves.
-        _build_global_spine(G, ctx)
+        _build_global_spine(G, ctx, icao=getattr(layout, "icao", ""))
 
         # ── runway anchors: every geometry node a taxi spine joins the runway
         # at ──
@@ -1909,11 +1936,15 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
     return G
 
 
-def _build_global_spine(G, ctx):
+def _build_global_spine(G, ctx, icao: str = ""):
     """Order every on-line geometry node along each centerline by arc position and
     link consecutive ones into ``G.spine_adj`` at the centerline's per-letter cap.
     A node may lie on several centerlines (a junction crossing) — it is linked on
-    each, so the chains fuse into one connected spine network."""
+    each, so the chains fuse into one connected spine network.
+
+    A centerline with fewer than two on-line nodes contributes NO string.  That
+    is counted (``G.spine_no_string`` / ``…_zero``) and summarised in one log
+    line — it used to be a silent ``continue`` (hygiene 2026-07-31)."""
     items = list(G.pos.items())
     # Spatial prefilter (CYUL: the naive centerlines × nodes double loop was
     # 52 M ``_project`` calls / 140 s — 2,473 fragmented route pieces × 21 k
@@ -1927,7 +1958,9 @@ def _build_global_spine(G, ctx):
     except Exception:                                  # pragma: no cover
         node_tree = None
     _taxi_woven_pairs: set = set()
-    for cl in ctx.centerlines:
+    _n_no_node = 0            # centerlines with NO node within the tolerance
+    _n_one_node = 0           # ... with exactly one (a thinned region)
+    for _ci, cl in enumerate(ctx.centerlines):
         if node_tree is not None:
             xs = [p[0] for p in cl.pts]
             ys = [p[1] for p in cl.pts]
@@ -1942,8 +1975,21 @@ def _build_global_spine(G, ctx):
             if d <= SPINE_PERP_TOL_M:
                 on_line.append((a, i))
         if len(on_line) < 2:
+            # No string from this way — counted, and said out loud in the
+            # census line at the end of the walk.
+            if on_line:
+                _n_one_node += 1
+            else:
+                _n_no_node += 1
             continue
         on_line.sort(key=lambda t: t[0])
+        # S1 level-1 authorship export (see ``centerline_chains``): the
+        # arc-ordered on-line node list IS this centerline's authored
+        # string.  Recorded here, inside the existing walk — no extra
+        # pass, no extra projection.
+        G.centerline_chains[_ci] = [i for (_a, i) in on_line]
+        if cl.is_service:
+            G.centerline_service.add(_ci)
         for (a0, i0), (a1, i1) in zip(on_line, on_line[1:]):
             if i0 == i1:
                 continue
@@ -1964,6 +2010,17 @@ def _build_global_spine(G, ctx):
     # route's nodes) is a genuine taxi edge — the service tag must not
     # remove it from reachability.
     G.service_spine_pairs -= _taxi_woven_pairs
+    # ── spine-drop census (hygiene 2026-07-31) ──────────────────────────
+    G.spine_centerlines = len(ctx.centerlines)
+    G.spine_no_string = _n_no_node + _n_one_node
+    G.spine_no_string_zero = _n_no_node
+    if G.spine_centerlines:
+        import O4_UI_Utils as _UI
+        _UI.vprint(1,
+            f"  [global-spine] {icao}: {G.spine_no_string} of "
+            f"{G.spine_centerlines} centerline(s) contributed no string "
+            f"({_n_no_node} with no geometry node within "
+            f"{SPINE_PERP_TOL_M:.1f} m, {_n_one_node} with one).")
 
 
 def _dist(pa, pb):

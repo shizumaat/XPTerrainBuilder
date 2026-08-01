@@ -29,10 +29,28 @@ top-tier-model tokens only where judgment is required:
    architecture, public interfaces, UX decisions, integration, and final
    review. It writes the judgment-heavy code itself (core widgets, wiring,
    anything user-facing in copy or behavior).
+1a. **Fable is DESIGN AND REVIEW ONLY — never implementation** (owner
+   2026-07-30). A Fable agent's brief stops at the design artifact; it
+   must never be told to "write the spec, then implement it."
+   Corollaries, both standing owner rulings:
+   * **Fable writes ALL specs.** No spec is authored by an Opus agent or
+     improvised inside an implementation brief.
+   * **Any mid-implementation deviation from the spec must be reviewed
+     and approved by a Fable agent** before it lands — implementers stop
+     and report the deviation rather than deciding it themselves. Resume
+     the spec's Fable author for the ruling so it is judged against the
+     design intent.
+   The one Fable exception the hard law below requires — the Fable-5
+   whole-pipeline optimisation review — is review, so it fits the rule.
+   If a Fable agent has already written code when this surfaces, stop it
+   writing more but **keep the code** (owner: do not throw away work);
+   require a handoff inventory naming each path's state as COMPLETE /
+   PARTIAL / EXPERIMENTAL instead.
 2. **Delegate mechanical, well-specified work to Opus subagents** (Agent tool
    with `model: "opus"`): leaf-module implementations against a frozen
    interface, test authoring, migrations and sweeps, doc formatting,
-   large-file reconnaissance.
+   large-file reconnaissance. Every Agent launch passes an explicit
+   `model` — Opus by default, never left to inherit the session model.
 3. **Every delegation prompt must include:** exact file paths, the frozen
    public API, acceptance criteria (tests that must pass), and constraints
    (no GUI-toolkit imports in core modules, keep imports light). Agents may

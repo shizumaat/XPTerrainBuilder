@@ -153,6 +153,152 @@ def download_textures(
     return 1
 
 ################################################################################
+# Imagery step-completion manifest + the cache predicate built on it
+# (docs/specs/apron-string-and-scheduling-spec.md §A.2).
+#
+# The imagery step's needed set is MESH-DERIVED — build_dsf walks the
+# triangles and only then knows which textures exist (O4_DSF_Utils
+# :915/:1571) — so it cannot be enumerated up front and no filesystem
+# scan can answer "is this tile's imagery complete?".  The step therefore
+# STAMPS its own completion, and :func:`is_cached` compares that stamp
+# against the cheap inputs that would invalidate it.  Absent or
+# unreadable stamp ⇒ NOT cached, always.
+################################################################################
+
+IMAGERY_MANIFEST_SCHEMA = "2026-07-30"
+
+
+def imagery_manifest_path(tile):
+    """Where one tile's imagery step-completion manifest lives.
+
+    Beside the tile config in the build directory and TILE-SCOPED by
+    name, because a "grouped" build directory is shared by every tile
+    that writes into it (O4_File_Names.build_dir).
+    """
+    return os.path.join(
+        tile.build_dir,
+        "Ortho4XP_" + FNAMES.short_latlon(tile.lat, tile.lon)
+        + "_imagery.json",
+    )
+
+
+def _mesh_identity(tile):
+    """(size, mtime) of the mesh the texture set was derived from.
+
+    The needed texture set is a function of the mesh; a rebuilt mesh
+    invalidates the manifest whatever the textures directory looks like.
+    ``None`` when the mesh is gone (cleaning level 3 removes it) — which
+    the predicate reads as "cannot judge" ⇒ not cached.
+    """
+    try:
+        stat = os.stat(FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon))
+        return [stat.st_size, round(stat.st_mtime, 3)]
+    except OSError:
+        return None
+
+
+def _count_dds_textures(tile):
+    """How many built textures the tile's textures directory holds."""
+    try:
+        return sum(
+            1 for name in os.listdir(
+                os.path.join(tile.build_dir, "textures"))
+            if name.endswith(".dds")
+        )
+    except OSError:
+        return 0
+
+
+def _write_imagery_manifest(tile, download_stats, convert_progress):
+    """Stamp a completed imagery step.  Never raises — the manifest is a
+    scheduling optimisation, not a build artefact."""
+    import json
+
+    import O4_Version as VERSION
+
+    try:
+        manifest = {
+            "schema": IMAGERY_MANIFEST_SCHEMA,
+            "engine_version": getattr(VERSION, "version", ""),
+            "provider": getattr(tile, "default_website", ""),
+            "zoomlevel": int(getattr(tile, "default_zl", 0) or 0),
+            "texture_mode": getattr(tile, "texture_mode", "full_ortho"),
+            "cleaning_level": int(UI.cleaning_level),
+            "mesh": _mesh_identity(tile),
+            "textures_total": int(
+                getattr(tile, "textures_total_last_build", 0) or 0),
+            "textures_missing": int(
+                getattr(tile, "textures_missing_last_build", 0) or 0),
+            "downloaded": int((download_stats or {}).get("done", 0) or 0),
+            # A step with permanently failed downloads is NOT complete:
+            # build_tile still returns 1 and still activates the DSF as
+            # long as ANY texture landed (see the guard above), so the
+            # failure count is the only thing that distinguishes them.
+            "failed": int((download_stats or {}).get("failed", 0) or 0),
+            "converted": int((convert_progress or {}).get("done", 0) or 0),
+            "dds_present": _count_dds_textures(tile),
+        }
+        path = imagery_manifest_path(tile)
+        temporary = path + ".tmp"
+        with open(temporary, "w") as handle:
+            json.dump(manifest, handle, indent=2, sort_keys=True)
+        os.replace(temporary, path)
+    except Exception as error:
+        UI.vprint(2, "Could not write the imagery manifest:", error)
+
+
+def read_imagery_manifest(tile):
+    """The tile's imagery manifest as a dict, or ``{}`` when there is
+    none / it is unreadable (both read as "not cached")."""
+    import json
+
+    try:
+        with open(imagery_manifest_path(tile), "r") as handle:
+            manifest = json.load(handle)
+        return manifest if isinstance(manifest, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def is_cached(tile) -> bool:
+    """True when this tile's imagery step would issue NO remote request.
+
+    The fetch-admission predicate for the ``imagery`` step (spec §A.2).
+    Cheap: one JSON read, one ``stat`` of the mesh and one ``listdir`` of
+    the textures directory — never a network probe.  Conservative in
+    every unknown: no manifest, a manifest from another schema, a
+    different imagery source/zoom/texture mode, a rebuilt mesh, a run
+    that left failed downloads behind, or textures deleted since the
+    stamp all read as NOT cached.
+
+    ``tile`` is a configured ``O4_Config_Utils.Tile``
+    (``read_from_config()`` already called).
+    """
+    manifest = read_imagery_manifest(tile)
+    if manifest.get("schema") != IMAGERY_MANIFEST_SCHEMA:
+        return False
+    if manifest.get("failed"):
+        return False
+    if manifest.get("provider") != getattr(tile, "default_website", ""):
+        return False
+    if int(manifest.get("zoomlevel") or 0) != int(
+            getattr(tile, "default_zl", 0) or 0):
+        return False
+    if manifest.get("texture_mode") != getattr(
+            tile, "texture_mode", "full_ortho"):
+        return False
+    recorded_mesh = manifest.get("mesh")
+    current_mesh = _mesh_identity(tile)
+    if not recorded_mesh or current_mesh is None:
+        return False
+    if list(recorded_mesh) != list(current_mesh):
+        return False
+    if _count_dds_textures(tile) < int(manifest.get("dds_present") or 0):
+        return False
+    return True
+
+
+################################################################################
 def build_tile(tile):
     if UI.is_working:
         return 0
@@ -318,6 +464,16 @@ def build_tile(tile):
     producer_done_event.set()
     if download_launched:
         download_thread.join()
+        # The imagery step's REMOTE phase ends HERE: everything below is
+        # local work (DDS conversion, DSF activation, cleaning).  Tell the
+        # parallel orchestrator so it can hand this tile's imagery fetch
+        # token to a queued tile while the conversion tail runs — the
+        # hybrid-step release of docs/specs/
+        # apron-string-and-scheduling-spec.md §A.2, generalising the
+        # vector step's AutoPatchBegin release.
+        UI.imagery_downloads_done(
+            tile.lat, tile.lon,
+            download_stats.get("done", 0), download_stats.get("failed", 0))
         if harmonization_active and not UI.red_flag:
             IMG.compute_color_harmonization_targets(tile)
             _launch_convert_workers()
@@ -330,6 +486,11 @@ def build_tile(tile):
                 UI.vprint(1, "DDS conversion process interrupted.")
             elif dico_conv_progress["done"] >= 1:
                 UI.vprint(1, " *DDS conversion of textures completed.")
+    else:
+        # No download thread at all (default X-Plane texture mode, or
+        # skip_downloads): the step never issues a remote request, so its
+        # fetch token is free from the outset.
+        UI.imagery_downloads_done(tile.lat, tile.lon, 0, 0)
     if dsf_build_error:
         UI.exit_message_and_bottom_line("")
         return 0
@@ -391,6 +552,7 @@ def build_tile(tile):
         remove_unwanted_textures(tile)
     if UI.cleaning_level >= 1:
         remove_dsftool_dump_leftovers(tile)
+    _write_imagery_manifest(tile, download_stats, dico_conv_progress)
     UI.timings_and_bottom_line(timer)
     UI.logprint(
         "Step 3 for tile lat=", tile.lat, ", lon=", tile.lon, ": normal exit."

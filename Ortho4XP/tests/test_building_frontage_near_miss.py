@@ -157,6 +157,104 @@ def test_shared_frontage_is_not_a_near_miss():
     assert edges == []
 
 
+# ── PAD ROD COUPLING contact map (docs/specs/pad-rod-coupling-spec.md) ───
+
+def test_weld_refs_out_carries_the_pad_seat():
+    """``weld_refs_out`` fills the SAME contact set with the pad's seat —
+    the §7 reference of a pad-face-welded fabric vertex IS the seat."""
+    gap = 0.7
+    (layout, bucket_to_idx, building_seats,
+     pad_nodes, apron_nodes) = _build_fixture(gap)
+
+    weld_refs = {}
+    edges = near_miss_building_frontage_edges(
+        layout, bucket_to_idx, building_seats, weld_refs_out=weld_refs)
+
+    assert weld_refs, "the pad-face contacts must carry a reference"
+    # Same contact set as the law edges — one reference per contact node.
+    assert set(weld_refs) == {a for (a, _p, _b) in edges}
+    # Apron side only; never the pad (the pad's own rod is its seat).
+    assert set(weld_refs) <= apron_nodes
+    assert not (set(weld_refs) & pad_nodes)
+    for (level, pad_node) in weld_refs.values():
+        assert level == pytest.approx(PAD_SEAT, abs=1e-9)
+        # The PAD NODE rides along: the call site resolves the pad's own
+        # rod through it (the seat scalar is pre-merge and can be stale).
+        assert pad_node in pad_nodes
+
+
+def test_weld_refs_out_is_optional_and_leaves_edges_identical():
+    """Omitting the out-param is the pre-coupling behavior exactly."""
+    (layout, bucket_to_idx, building_seats,
+     _pad_nodes, _apron_nodes) = _build_fixture(0.7)
+    without = near_miss_building_frontage_edges(
+        layout, bucket_to_idx, building_seats)
+    (layout2, b2i2, seats2, _pn2, _an2) = _build_fixture(0.7)
+    weld_refs = {}
+    with_out = near_miss_building_frontage_edges(
+        layout2, b2i2, seats2, weld_refs_out=weld_refs)
+    assert with_out == without
+    assert weld_refs
+
+
+def test_weld_refs_out_takes_the_nearer_pad():
+    """A fabric vertex facing TWO pads references the NEARER contact
+    (spec §2 — pads may legitimately differ; the inter-pad step
+    exemption stays)."""
+    near_seat, far_seat = 25.56, 31.0
+    near_pad = _Shape(ROLE_BUILDING, Polygon(
+        [(0, 0), (10, 0), (10, 10), (0, 10)]), ref="near")
+    # Gaps 0.7 m / 0.95 m: both inside the near-miss radius and both wider
+    # than the canonical merge radius (0.5 m — a narrower gap would make
+    # the corner a SHARED vertex and identity would own it).
+    apron = _Shape(ROLE_APRON, Polygon(
+        [(10.7, 0), (20.0, 0), (20.0, 10), (10.7, 10)]))
+    far_pad = _Shape(ROLE_BUILDING, Polygon(
+        [(20.95, 0), (30, 0), (30, 10), (20.95, 10)]), ref="far")
+    layout = _Layout([near_pad, apron, far_pad])
+    bucket_to_idx = {}
+    for shape in layout.shapes:
+        for (x, y) in _open_ring(shape.polygon):
+            key = layout.canonical_points.get_or_add(float(x), float(y))
+            bucket_to_idx.setdefault(key, len(bucket_to_idx))
+
+    def _idx(x, y):
+        return bucket_to_idx[layout.canonical_points.get_or_add(
+            float(x), float(y))]
+
+    building_seats = {}
+    for (x, y) in _open_ring(near_pad.polygon):
+        building_seats[_idx(x, y)] = near_seat
+    for (x, y) in _open_ring(far_pad.polygon):
+        building_seats[_idx(x, y)] = far_seat
+
+    weld_refs = {}
+    near_miss_building_frontage_edges(
+        layout, bucket_to_idx, building_seats, weld_refs_out=weld_refs)
+
+    # The apron's west corners are 0.4 m from the near pad and 0.9 m from
+    # the far one: both contacts fire, the NEARER seat wins.
+    west = _idx(10.7, 0.0)
+    east = _idx(20.0, 0.0)
+    assert weld_refs[west][0] == pytest.approx(near_seat, abs=1e-9)
+    assert weld_refs[east][0] == pytest.approx(far_seat, abs=1e-9)
+    assert weld_refs[west][1] in {_idx(x, y)
+                                 for (x, y) in _open_ring(near_pad.polygon)}
+    assert weld_refs[east][1] in {_idx(x, y)
+                                 for (x, y) in _open_ring(far_pad.polygon)}
+
+
+def test_weld_refs_out_empty_when_recognition_is_off(monkeypatch):
+    monkeypatch.setenv("O4_BUILDING_FRONTAGE_NEAR_MISS", "0")
+    (layout, bucket_to_idx, building_seats,
+     _pad_nodes, _apron_nodes) = _build_fixture(0.7)
+    weld_refs = {}
+    assert near_miss_building_frontage_edges(
+        layout, bucket_to_idx, building_seats,
+        weld_refs_out=weld_refs) == []
+    assert weld_refs == {}
+
+
 def test_gate_off_disables_recognition(monkeypatch):
     monkeypatch.setenv("O4_BUILDING_FRONTAGE_NEAR_MISS", "0")
     (layout, bucket_to_idx, building_seats,

@@ -291,3 +291,43 @@ def test_taxi_transverse_cap_per_letter():
     # gate OFF → cT collapses to cL (isotropic) for every letter
     for L in ("A", "B", "C", "F"):
         assert cT(L, enabled=False) == cL(L, enabled=False)
+
+
+# ── spine-drop census (hygiene 2026-07-31) ───────────────────────────────────
+
+def test_global_spine_counts_centerlines_that_contribute_no_string(capsys):
+    """A centerline with < 2 on-line geometry nodes weaves NO spine string.
+    That used to be a silent ``continue``; it is now counted (zero-node and
+    one-node apart — absent geometry vs a THINNED region are different
+    findings) and summarised in one build-log line."""
+    G = GG.UnifiedGraph()
+    G.pos = {0: (0.0, 0.0), 1: (10.0, 0.0), 2: (20.0, 0.0)}
+    cap = [TAXI_MAX_GRADE]
+    strung = GG.Centerline(pts=[(0.0, 0.0), (20.0, 0.0)], seg_caps=cap)
+    one_node = GG.Centerline(pts=[(20.0, 0.0), (60.0, 0.0)], seg_caps=cap)
+    no_node = GG.Centerline(pts=[(0.0, 500.0), (20.0, 500.0)], seg_caps=cap)
+    ctx = GG.GradeContext(centerlines=[strung, one_node, no_node])
+
+    GG._build_global_spine(G, ctx, icao="TEST")
+
+    assert G.spine_centerlines == 3
+    assert G.spine_no_string == 2            # one_node + no_node
+    assert G.spine_no_string_zero == 1       # ... of which no_node
+    # the strung centerline still wove its chain
+    assert G.spine_adj.get(0) and G.spine_adj.get(2)
+    assert G.centerline_chains[0] == [0, 1, 2]
+    out = capsys.readouterr().out
+    assert "contributed no string" in out
+    assert "2 of 3 centerline(s)" in out
+
+
+def test_global_spine_census_is_zero_when_every_centerline_strings(capsys):
+    """No false positives: a fully covered centerline set reports 0 drops."""
+    G = GG.UnifiedGraph()
+    G.pos = {0: (0.0, 0.0), 1: (10.0, 0.0)}
+    ctx = GG.GradeContext(centerlines=[
+        GG.Centerline(pts=[(0.0, 0.0), (10.0, 0.0)], seg_caps=[TAXI_MAX_GRADE])])
+    GG._build_global_spine(G, ctx, icao="TEST")
+    assert (G.spine_centerlines, G.spine_no_string, G.spine_no_string_zero) \
+        == (1, 0, 0)
+    assert "0 of 1 centerline(s) contributed no string" in capsys.readouterr().out

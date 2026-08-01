@@ -563,6 +563,63 @@ def decimate_emit_nodes(layout, icao: str = "") -> int:
                   for (x, y) in (getattr(
                       layout, "_crown_spine_weld_xy", None) or ())}
 
+    # STRING ENDS MUST NOT BE DELETED (owner ruling 2026-07-29).  The
+    # taut-string rod is carried into ``final_grade_projection`` by
+    # COMPOSING its links across runs of decimated vertices — a removed
+    # vertex between two survivors is absorbed exactly (the kept pair's
+    # grade is the length-weighted mean of the removed sub-segments).
+    # That composition has no answer at a chain's FIRST/LAST strung
+    # vertex: delete it and there is no second survivor to compose to, so
+    # the link is simply lost (the audited residual 218 drops at HECA /
+    # 46 at CYXY, 100 % terminal runs).  A chain terminal is therefore
+    # non-removable here, exactly like a tile-seam or crown-weld anchor —
+    # the same class of invisible anchor no in-ring vote can see.
+    #
+    # IDENTITY IS THE REGISTRY, NOT THE COORDINATE (measured 2026-07-29):
+    # a chain key is a CANONICAL point, and the registry merges anything
+    # within ``SHARED_VERTEX_TOL_M`` (0.5 m) onto the bucket's first
+    # coordinate — so the ring vertex that IS this string end can sit up
+    # to half a metre from the key.  An exact-coordinate match found only
+    # 505 of 593 HECA string ends and left 17 links still dropping at
+    # this pass; resolving each ring vertex through the registry closes
+    # them.  ``O4_ROD_KEEP_CHAIN_ENDS=0`` restores today's behavior
+    # byte-identically.
+    _chain_end_keys: set = set()
+    if os.environ.get("O4_ROD_KEEP_CHAIN_ENDS", "1") == "1":
+        for _chain in (getattr(layout, "_taut_rod_key_chains", None) or ()):
+            if not _chain:
+                continue
+            for _pt in (_chain[0][0], _chain[-1][1]):
+                try:
+                    _chain_end_keys.add(_key(float(_pt[0]), float(_pt[1])))
+                except (TypeError, ValueError, IndexError):
+                    continue
+    _forced_keys = _weld_keys | _chain_end_keys
+    _chain_end_seen: set = set()
+    _cps = getattr(layout, "canonical_points", None) if _chain_end_keys \
+        else None
+    _canon_cache: dict = {}
+
+    def _chain_end_key_of(x, y):
+        """The string-end key this ring vertex IS, or ``None``.  Exact
+        grid key first (the common case, no lookup); otherwise ONE
+        registry resolution, memoized per coordinate."""
+        k = _key(x, y)
+        if k in _chain_end_keys:
+            return k
+        if _cps is None:
+            return None
+        if k in _canon_cache:
+            return _canon_cache[k]
+        try:
+            pt = _cps.find_nearest(float(x), float(y), _cps.tol_m)
+        except _GEOM_EXC:
+            pt = None
+        ck = _key(*pt) if pt is not None else None
+        ck = ck if ck in _chain_end_keys else None
+        _canon_cache[k] = ck
+        return ck
+
     # round 1: per-ring drop votes
     votes: dict = {}
     prepared = []
@@ -576,8 +633,13 @@ def decimate_emit_nodes(layout, icao: str = "") -> int:
             continue
         if len(ring) < 5:
             continue
+        _ring_ends = ({i: _chain_end_key_of(x, y)
+                       for i, (x, y) in enumerate(ring)}
+                      if _chain_end_keys else {})
         seam_idx = {i for i, (x, y) in enumerate(ring)
-                    if _on_seam(x, y) or _key(x, y) in _weld_keys}
+                    if _on_seam(x, y) or _key(x, y) in _forced_keys
+                    or _ring_ends.get(i) is not None}
+        _chain_end_seen |= {k for k in _ring_ends.values() if k is not None}
         keep = _ring_keep_set(ring, alts, z_tol, forced=seam_idx)
         keep |= seam_idx
         prepared.append((s, ring, alts, closed_alts, z_tol, seam_idx))
@@ -627,7 +689,9 @@ def decimate_emit_nodes(layout, icao: str = "") -> int:
                 f"  [pav-builder] {icao}: emit decimation — removed "
                 f"{removed} 3D-collinear ring vertex(es) "
                 f"(airside ±{Z_TOL_AIRSIDE_M} m, boundary "
-                f"±{Z_TOL_BOUNDARY_M} m).")
+                f"±{Z_TOL_BOUNDARY_M} m; force-kept "
+                f"{len(_chain_end_seen)} rod chain-end vertex(es) of "
+                f"{len(_chain_end_keys)} string ends).")
         except Exception:
             pass
     return removed

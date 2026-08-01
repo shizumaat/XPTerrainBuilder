@@ -1315,16 +1315,6 @@ def _heal_band_tears(ring, alts, weld, tear_max, min_jump,
     return new_ring, new_alts
 
 
-def _raster_reach_band_active() -> bool:
-    """Whether the rasterized reach band is the active band producer (the
-    runtime env ``O4_RASTER_REACH_BAND`` overriding the ``config`` default —
-    the exact resolution :func:`building_feasibility.reach_band_unified`
-    uses, so the emitter's reconciliation and the band producer agree)."""
-    from .config import RASTER_REACH_BAND
-    env = os.environ.get("O4_RASTER_REACH_BAND")
-    return (env == "1") if env is not None else bool(RASTER_REACH_BAND)
-
-
 def _heal_emitted_band_tears(emitted_shapes, layout):
     """FINAL tear-heal over the emitted ``graded_strip`` group (2026-07-18).
 
@@ -2198,6 +2188,417 @@ def emit_stacked_conflict_walls(layout) -> int:
                     clipped = max(clipped.geoms, key=lambda g: g.area)
                 if (clipped.geom_type != "Polygon"
                         or clipped.is_empty or clipped.area < 1e-6):
+                    continue
+                pr = _open_coords(clipped)
+                if len(pr) < 3:
+                    continue
+                src_ring = list(wall.polygon.exterior.coords)[:-1]
+                src_alts = wall.node_altitudes[:len(src_ring)]
+                walts = [round(float(_nearest_alt(
+                    src_ring, src_alts, vx, vy)), 1) for (vx, vy) in pr]
+                wall.polygon = clipped
+                wall.node_altitudes = walts + [walts[0]]
+                clipped_walls.append(wall)
+            except _GEOM_EXC:
+                continue
+        new_walls.extend(clipped_walls)
+        emitted += len(clipped_walls)
+    layout.shapes.extend(new_walls)
+    return emitted
+
+
+# ── GROUNDSIDE TERRACE FACES (owner ruling 2026-07-30) ──────────────────
+# "Accept groundside terracing — only pavement and roads need to be graded
+#  there, terraces between are acceptable."  (memory ``groundside-terrace-law``;
+#  spec docs/specs/reference-honesty-and-terracing-spec.md §2a.)
+#
+# THE LAW.  Within groundside the GRADED objects are the pavement surfaces
+# and the ROADS, each graded along itself under its own cap.  The ground
+# BETWEEN them may TERRACE — step without limit, EMITTED AS RETAINING WALLS.
+# A groundside region is therefore not required to be one continuous graded
+# surface, and a lot whose span exceeds its cap x extent MUST terrace rather
+# than hold one level.
+#
+# WHAT WAS ACTUALLY HAPPENING (measured HECA 2026-07-30, this tree).  The
+# 1,497 emitted groundside-internal within-shape violations (worst 390 % =
+# 14.78 m over 3.79 m) are NOT a layout-level grading failure: instrumenting
+# every groundside pass showed ``_grade_limit_groundside_chords`` leaves the
+# rings 4 %-lawful to within 0.02 m, and they are still lawful in the instant
+# BEFORE ``to_osm``.  The steps are minted INSIDE the emit consensus.
+# ``groundside_pavement`` is not a SOFT_RECEIVER role, so where a graded
+# ribbon (service road / junction, apron, terminal, building pad) shares a
+# canonical point with a lot, BOTH claims are AUTHORITIES and the consensus
+# takes their MEAN — a value belonging to neither law.  HECA lot #1771 (a
+# 4.5 m x 141 m band between service_junction #1979 above and lots #780/#786
+# below) emitted 89.74 at one long edge and 74.96 at the other: the mean of
+# the junction's level and the lot's own, on a ring the limiter had made
+# lawful.  Averaging is exactly what the owner's 2026-07-19 no-stacked-nodes
+# ruling forbids resolving ("a genuine level change is horizontal wall
+# geometry"), and the 2026-07-30 terrace ruling names the geometry: a wall.
+#
+# THE PASS.  Same machine as ``emit_stacked_conflict_walls`` and the same two
+# constants: where a groundside ring vertex is coincident (vertex- or
+# edge-wise) with a GRADED RIBBON claim differing by more than
+# ``VERTEX_ALT_MERGE_TOL_M``, the LOT retreats ``STACKED_WALL_RETREAT_M`` into
+# its own interior and a ``retaining_wall`` face is emitted over the vacated
+# band — top row at the ribbon's level, bottom row at the lot's own lawful
+# level.  The ribbon keeps its level and its cap (it is a GRADED object); the
+# lot keeps its own 4 %-lawful field (it is the ground BETWEEN); the step
+# between them is a designated TERRACE LINE and ships as wall geometry.
+#
+# The terrace lines are therefore a DESIGNATED set — "the boundary where a
+# graded ribbon meets the ground at a level the ground's own cap cannot
+# reach" — not "wherever the solver struggles"; and the graded ribbons are
+# untouched, so they stay continuous along themselves under their own caps.
+#
+# Gate ``O4_GROUNDSIDE_TERRACE`` (default on).  OFF ⇒ the pass returns 0
+# before reading anything ⇒ byte-identical to the pre-ruling emit.
+_GROUNDSIDE_TERRACE = os.environ.get("O4_GROUNDSIDE_TERRACE", "1") == "1"
+
+
+def _shape_ring_values(shape):
+    """Open exterior ring + aligned per-vertex values, mirroring
+    ``to_osm``'s derivation (node_altitudes > flat altitude broadcast >
+    sloped-rect high/low corners).  ``None`` when the shape carries no
+    elevation or the lists misalign.  (Module-level twin of the closure
+    inside ``emit_stacked_conflict_walls`` — the terrace pass needs the
+    identical reading, and two readings of "what will emit" would drift.)"""
+    from .layout import corner_alts_from_high_low
+    poly = shape.polygon
+    if poly is None or poly.is_empty or poly.geom_type != "Polygon":
+        return None
+    try:
+        coords = list(poly.exterior.coords)
+    except _GEOM_EXC:
+        return None
+    if len(coords) > 1 and coords[0] == coords[-1]:
+        coords = coords[:-1]
+    if len(coords) < 3:
+        return None
+    if shape.node_altitudes is not None:
+        alts = list(shape.node_altitudes)
+        if len(alts) == len(coords) + 1:
+            alts = alts[:-1]
+        if len(alts) != len(coords):
+            return None
+        return coords, [float(a) for a in alts]
+    if shape.altitude is not None:
+        return coords, [float(shape.altitude)] * len(coords)
+    if (shape.altitude_high is not None
+            and shape.altitude_low is not None and len(coords) == 4):
+        return coords, corner_alts_from_high_low(
+            float(shape.altitude_high), float(shape.altitude_low))
+    return None
+
+
+def _ring_point_value(coords_a, alts_a, vx, vy, tol):
+    """Edge-interpolated value of a ring at ``(vx, vy)``, or ``None`` when
+    the point lies farther than ``tol`` from every ring segment."""
+    best = None
+    na = len(coords_a)
+    for i in range(na):
+        ax, ay = coords_a[i]
+        bx, by = coords_a[(i + 1) % na]
+        dx, dy = bx - ax, by - ay
+        len2 = dx * dx + dy * dy
+        if len2 < 1e-12:
+            continue
+        t = ((vx - ax) * dx + (vy - ay) * dy) / len2
+        t = min(1.0, max(0.0, t))
+        px, py = ax + dx * t, ay + dy * t
+        d = math.hypot(vx - px, vy - py)
+        if best is None or d < best[0]:
+            best = (d, (1.0 - t) * alts_a[i] + t * alts_a[(i + 1) % na])
+    if best is None or best[0] > tol:
+        return None
+    return best[1]
+
+
+def emit_groundside_terrace_walls(layout) -> int:
+    """Emit the designated groundside TERRACE FACES (owner ruling
+    2026-07-30 — see the block comment above for the law, the measurement
+    and the mechanism).  Returns the number of wall faces emitted."""
+    if not _GROUNDSIDE_TERRACE:
+        return 0
+    from .crown import _point_in_seam_band
+    from .layout import (
+        ROLE_GROUNDSIDE_PAVEMENT, ROLE_SERVICE_JUNCTION, ROLE_SERVICE_ROAD,
+        WELD_DONOR_ROLES)
+    from shapely.strtree import STRtree
+
+    registry = getattr(layout, "canonical_points", None)
+    if registry is None:
+        return 0
+
+    # GRADED RIBBONS: the objects the law keeps graded inside groundside —
+    # the pavement surfaces (apron / taxi / runway families, terminals,
+    # building pads) and the ROADS (service road + service junction).  Every
+    # one of them is a value AUTHORITY the lot must yield to.
+    ribbon_roles = frozenset(WELD_DONOR_ROLES | {
+        ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION, ROLE_BUILDING})
+    ribbon_claims: dict = {}
+    ribbon_edges: list = []          # (exterior, coords, alts)
+    # LOT-vs-LOT terraces: two groundside lots meeting on different levels
+    # are ALSO a terrace under the ruling — the ground between the graded
+    # pieces is not required to be one surface.  Both are AUTHORITIES, so
+    # the emit consensus averaged them exactly as it averaged lot-vs-ribbon.
+    # Measured at HECA once the ribbon class was resolved: every remaining
+    # worst emitted groundside pair, and every new mid-edge step, was
+    # lot-vs-lot (#1769 vs #1770, 8.68 m over 0.43 m).  Same rule as the
+    # strip pass's soft branch — the TOP holder keeps the point and the
+    # LOWER lot retreats, so each terrace gets ONE face, not two.
+    lot_claims: dict = {}
+    lot_edges: list = []             # (exterior, coords, alts, id(shape))
+    for shape in layout.shapes:
+        role = shape.role or ""
+        if role == ROLE_GROUNDSIDE_PAVEMENT:
+            rv = _shape_ring_values(shape)
+            if rv is None:
+                continue
+            coords, alts = rv
+            for (vx, vy), value in zip(coords, alts):
+                key = registry.get_or_add(float(vx), float(vy))
+                lot_claims.setdefault(key, []).append((value, id(shape)))
+            try:
+                lot_edges.append(
+                    (shape.polygon.exterior, coords, alts, id(shape)))
+            except _GEOM_EXC:
+                pass
+            continue
+        if role not in ribbon_roles:
+            continue
+        rv = _shape_ring_values(shape)
+        if rv is None:
+            continue
+        coords, alts = rv
+        for (vx, vy), value in zip(coords, alts):
+            key = registry.get_or_add(float(vx), float(vy))
+            ribbon_claims.setdefault(key, []).append(value)
+        try:
+            ribbon_edges.append((shape.polygon.exterior, coords, alts))
+        except _GEOM_EXC:
+            pass
+    if not ribbon_claims and not ribbon_edges and not lot_claims:
+        return 0
+    edge_tree = None
+    if ribbon_edges:
+        try:
+            edge_tree = STRtree([e[0] for e in ribbon_edges])
+        except _GEOM_EXC:
+            edge_tree = None
+    _EDGE_TOL_M = 0.01
+
+    def _ribbon_edge_value(vx, vy):
+        if edge_tree is None:
+            return None
+        try:
+            idxs = edge_tree.query_nearest(
+                Point(vx, vy), max_distance=_EDGE_TOL_M)
+        except _GEOM_EXC:
+            return None
+        if idxs is None or len(idxs) == 0:
+            return None
+        _ext, coords_a, alts_a = ribbon_edges[int(idxs[0])]
+        return _ring_point_value(coords_a, alts_a, vx, vy, _EDGE_TOL_M)
+
+    lot_edge_tree = None
+    if lot_edges:
+        try:
+            lot_edge_tree = STRtree([e[0] for e in lot_edges])
+        except _GEOM_EXC:
+            lot_edge_tree = None
+
+    def _lot_edge_value(vx, vy, own_id):
+        """Highest OTHER-lot chain value at ``(vx, vy)`` when the point
+        lies on another lot's exterior; ``None`` otherwise."""
+        if lot_edge_tree is None:
+            return None
+        try:
+            idxs = lot_edge_tree.query(
+                Point(vx, vy), predicate="dwithin", distance=_EDGE_TOL_M)
+        except _GEOM_EXC:
+            return None
+        best = None
+        for k in idxs:
+            _ext, coords_a, alts_a, sid = lot_edges[int(k)]
+            if sid == own_id:
+                continue
+            val = _ring_point_value(coords_a, alts_a, vx, vy, _EDGE_TOL_M)
+            if val is not None and (best is None or val > best):
+                best = val
+        return best
+
+    emitted = 0
+    new_walls: list = []
+    for shape in layout.shapes:
+        if shape.role != ROLE_GROUNDSIDE_PAVEMENT:
+            continue
+        rv = _shape_ring_values(shape)
+        if rv is None or shape.node_altitudes is None:
+            continue
+        coords, alts = rv
+        n = len(coords)
+        if n < 4:
+            continue
+        ribbon_top: list = [None] * n
+        spread: list = [0.0] * n
+        for i, ((vx, vy), own) in enumerate(zip(coords, alts)):
+            key = registry.get_or_add(float(vx), float(vy))
+            claims = ribbon_claims.get(key)
+            top = (sum(claims) / len(claims) if claims
+                   else _ribbon_edge_value(vx, vy))
+            if top is None:
+                # LOT-vs-LOT terrace: this lot retreats only where another
+                # lot holds a HIGHER value at the point (the top holder
+                # keeps the weld; equal values are the ordinary shared
+                # boundary the chord limiter already unified).
+                cluster = lot_claims.get(key)
+                if cluster and len(cluster) > 1:
+                    others_max = max(
+                        (v for (v, sid) in cluster if sid != id(shape)),
+                        default=None)
+                    if others_max is not None and others_max > own:
+                        top = others_max
+                if top is None:
+                    le = _lot_edge_value(vx, vy, id(shape))
+                    if le is not None and le > own:
+                        top = le
+                if top is None:
+                    continue
+            sp = abs(top - own)
+            if sp <= 0.05:
+                continue
+            if _point_in_seam_band(layout, vx, vy):
+                continue        # cross-tile contract — consensus merge only
+            ribbon_top[i] = top
+            spread[i] = sp
+        primary = [i for i in range(n)
+                   if spread[i] > VERTEX_ALT_MERGE_TOL_M]
+        if not primary:
+            continue
+        # Extend each terrace run along ring neighbours still coincident
+        # with the ribbon at a real (above emit-rounding) spread, so the
+        # level change tapers INSIDE the face instead of stepping against
+        # the run's shoulder (the shoulder-tear class the strip pass names).
+        selected: set = set(primary)
+        for i in primary:
+            for step in (1, -1):
+                j = i
+                while True:
+                    j = (j + step) % n
+                    if (j in selected or ribbon_top[j] is None
+                            or spread[j] <= STACKED_WALL_TAPER_MIN_M):
+                        break
+                    selected.add(j)
+        conflict_top = [ribbon_top[i] if i in selected else None
+                        for i in range(n)]
+        poly = shape.polygon
+        moved_pos: list = [None] * n
+        for i in range(n):
+            if conflict_top[i] is None:
+                continue
+            ax, ay = coords[(i - 1) % n]
+            bx, by = coords[i]
+            cx, cy = coords[(i + 1) % n]
+            tx, ty = (cx - ax), (cy - ay)
+            norm = math.hypot(tx, ty)
+            if norm < 1e-9:
+                continue
+            tx, ty = tx / norm, ty / norm
+            for (nx_, ny_) in ((-ty, tx), (ty, -tx)):
+                px = bx + nx_ * STACKED_WALL_RETREAT_M
+                py = by + ny_ * STACKED_WALL_RETREAT_M
+                try:
+                    if poly.contains(Point(px, py)):
+                        moved_pos[i] = (px, py)
+                        break
+                except _GEOM_EXC:
+                    continue
+        run_indices = [i for i in range(n) if moved_pos[i] is not None]
+        if not run_indices:
+            continue
+        runs: list[list[int]] = []
+        current = [run_indices[0]]
+        for i in run_indices[1:]:
+            if (i - current[-1]) % n == 1:
+                current.append(i)
+            else:
+                runs.append(current)
+                current = [i]
+        runs.append(current)
+        if (len(runs) > 1 and runs[0][0] == 0
+                and (runs[-1][-1] + 1) % n == 0):
+            runs[0] = runs[-1] + runs[0]
+            runs.pop()
+        new_coords = list(coords)
+        new_alts = list(alts)
+        shape_walls: list = []
+        for run in runs:
+            top_pts = [coords[i] for i in run]
+            top_alts_run = [round(float(conflict_top[i]), 1) for i in run]
+            bot_pts = [moved_pos[i] for i in run]
+            bot_alts_run = [round(float(alts[i]), 1) for i in run]
+            prev_i = (run[0] - 1) % n
+            next_i = (run[-1] + 1) % n
+            ring_pts = ([coords[prev_i]] + top_pts + [coords[next_i]]
+                        + bot_pts[::-1])
+            ring_alts = ([round(float(alts[prev_i]), 1)] + top_alts_run
+                         + [round(float(alts[next_i]), 1)]
+                         + bot_alts_run[::-1])
+            try:
+                wall_poly = Polygon(ring_pts)
+                if not wall_poly.is_valid:
+                    wall_poly = wall_poly.buffer(0)
+                if wall_poly.is_empty or wall_poly.geom_type != "Polygon":
+                    continue
+            except _GEOM_EXC:
+                continue
+            rebuilt = _open_coords(wall_poly)
+            if len(rebuilt) < 3:
+                continue
+            if len(rebuilt) == len(ring_pts):
+                wall_alts = ring_alts
+            else:
+                wall_alts = [round(float(_nearest_alt(
+                    ring_pts, ring_alts, vx, vy)), 1)
+                    for (vx, vy) in rebuilt]
+            shape_walls.append(BuiltShape(
+                polygon=wall_poly, role=ROLE_RETAINING_WALL,
+                ref="groundside_terrace_wall",
+                node_altitudes=wall_alts + [wall_alts[0]]))
+            for i in run:
+                new_coords[i] = moved_pos[i]
+        if not shape_walls:
+            continue
+        try:
+            moved_poly = Polygon(new_coords + [new_coords[0]],
+                                 [list(h.coords)
+                                  for h in shape.polygon.interiors])
+            if not moved_poly.is_valid:
+                moved_poly = moved_poly.buffer(0)
+            if (moved_poly.is_empty or moved_poly.geom_type != "Polygon"
+                    or len(_open_coords(moved_poly)) != n):
+                continue        # retreat degenerated the ring — fall back
+            shape.polygon = moved_poly
+            rebuilt_open = _open_coords(moved_poly)
+            if rebuilt_open != new_coords:
+                new_alts = [float(_nearest_alt(
+                    new_coords, new_alts, vx, vy))
+                    for (vx, vy) in rebuilt_open]
+            shape.node_altitudes = ([round(a, 2) for a in new_alts]
+                                    + [round(new_alts[0], 2)])
+        except _GEOM_EXC:
+            continue
+        clipped_walls: list = []
+        for wall in shape_walls:
+            try:
+                clipped = wall.polygon.difference(shape.polygon)
+                if clipped.is_empty:
+                    continue
+                if clipped.geom_type == "MultiPolygon":
+                    clipped = max(clipped.geoms, key=lambda g: g.area)
+                if (clipped.geom_type != "Polygon" or clipped.is_empty
+                        or clipped.area < 1e-6):
                     continue
                 pr = _open_coords(clipped)
                 if len(pr) < 3:
@@ -5492,20 +5893,19 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                     continue
             return False
 
-        # FINAL TEAR HEAL (raster-reach-band reconciliation, 2026-07-18):
-        # collapse any sub-metre near-vertical pinch the per-piece heal could
-        # not see because a later geometry op (this piece's re-deconflict, a
+        # FINAL TEAR HEAL (reach-band reconciliation, 2026-07-18): collapse
+        # any sub-metre near-vertical pinch the per-piece heal could not see
+        # because a later geometry op (this piece's re-deconflict, a
         # neighbour band's clip) minted it — the class a tighter, correct
         # reach ceiling exposes at an apron/junction it clamps down.  Runs
-        # before decimation so the healed rings decimate cleanly.  Scoped to
-        # the raster reach band (the path this reconciles): gate-OFF keeps its
-        # established byte-identical baseline — the legacy band does not drop
-        # aprons, so the pinch class does not arise there.
+        # before decimation so the healed rings decimate cleanly.
+        # UNCONDITIONAL since 2026-07-29: it used to be scoped to the
+        # ``O4_RASTER_REACH_BAND`` gate, and that gate is gone with the
+        # legacy band engines (one engine needs no selector).
         # (The cross-strip SEAM-STEP blend runs at PIPELINE level, after
         # every strip emitter — this group is only one strip family, and
         # the tearing seams are precisely the cross-family ones.)
-        _n_final_heal = (_heal_emitted_band_tears(emitted_shapes, layout)
-                         if _raster_reach_band_active() else 0)
+        _n_final_heal = _heal_emitted_band_tears(emitted_shapes, layout)
         if _n_final_heal:
             UI.vprint(1, f"  [adjacent-ground] final tear heal: collapsed "
                          f"pinch edge(s) in {_n_final_heal} strip(s).")

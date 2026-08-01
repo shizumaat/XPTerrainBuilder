@@ -7216,8 +7216,119 @@ def ensure_insets_for_tile(tile, dico_airports, refresh=False):
             str(error),
             "- continuing without insets.",
         )
+    else:
+        # The pass settled every airport against every provider without
+        # raising: nothing is left to fetch for THIS configuration, so
+        # stamp it for the scheduler's fetch-admission predicate
+        # (:func:`is_cached`).  A raised pass deliberately leaves no
+        # stamp — the next run retries it.
+        _write_inset_completion_stamp(tile)
     finally:
         tile.insets_fetched_last_build = fetch_counter[0]
+
+
+# ---------------------------------------------------------------------
+# Inset step-completion stamp + the cache predicate built on it
+# (docs/specs/apron-string-and-scheduling-spec.md §A.2)
+#
+# Whether a cached inset is STALE is decided per airport per provider
+# against the box that airport currently requests (_fetch_airport_insets
+# above: margin shrink, residual-masking mismatch, over-sampling).  That
+# needs ``dico_airports`` — parsed out of the OSM airports layer — so it
+# is not a cheap question, and re-deriving it scheduler-side is exactly
+# the duplicated derivation the spec forbids.  ``ensure_insets_for_tile``
+# therefore STAMPS a settled pass together with the inputs that decided
+# it, and the predicate compares only those.  Any mismatch, and every
+# unknown, reads as NOT cached.
+# ---------------------------------------------------------------------
+
+INSET_COMPLETION_SCHEMA = "2026-07-30"
+
+
+def inset_completion_stamp_path(lat, lon):
+    """Where a tile's settled-inset stamp lives."""
+    return os.path.join(
+        FNAMES.airport_inset_directory(lat, lon), "complete.json")
+
+
+def _inset_completion_key(tile):
+    """The cheap inputs that decide what an inset pass would fetch.
+
+    The airport SET comes from the tile's OSM airports layer, so that
+    cache's identity stands in for the set itself: an unchanged cache
+    means an unchanged set, and a refreshed one invalidates the stamp
+    without anybody parsing it.
+    """
+    try:
+        airports_cache = FNAMES.osm_cached(tile.lat, tile.lon, "airports")
+        stat = os.stat(airports_cache)
+        airports_identity = [stat.st_size, round(stat.st_mtime, 3)]
+    except OSError:
+        airports_identity = None
+    return {
+        "schema": INSET_COMPLETION_SCHEMA,
+        "margin_m": float(
+            getattr(tile, "airport_elevation_inset_margin_m", 2000.0)),
+        "providers": str(
+            getattr(tile, "airport_elevation_providers", "auto")),
+        "level": str(getattr(tile, "airport_elevation_level", "auto")),
+        "airports_layer": airports_identity,
+    }
+
+
+def _write_inset_completion_stamp(tile):
+    """Record that an inset pass left nothing to fetch.  Never raises."""
+    try:
+        stamp = _inset_completion_key(tile)
+        if stamp["airports_layer"] is None:
+            # Without an airports layer on disk the set is unknowable and
+            # the stamp could never be validated — do not write one.
+            return
+        stamp["insets"] = sorted(
+            os.path.basename(path)
+            for path in list_cached_inset_dems(tile.lat, tile.lon)
+        )
+        path = inset_completion_stamp_path(tile.lat, tile.lon)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        temporary = path + ".tmp"
+        with open(temporary, "w") as handle:
+            json.dump(stamp, handle, indent=2, sort_keys=True)
+        os.replace(temporary, path)
+    except Exception as error:
+        UI.vprint(2, "Could not stamp the airport-inset cache:", error)
+
+
+def is_cached(tile) -> bool:
+    """True when this tile's airport-inset pass would fetch nothing.
+
+    One of the per-subsystem fetch-admission predicates of
+    docs/specs/apron-string-and-scheduling-spec.md §A.2.  Cheap (one
+    JSON read plus a ``stat`` per recorded inset), never a network
+    probe, and conservative in every unknown.  A tile with insets
+    DISABLED is trivially cached — the pass returns before touching the
+    network.
+    """
+    try:
+        if not insets_enabled_for_tile(tile):
+            return True
+        with open(inset_completion_stamp_path(tile.lat, tile.lon),
+                  "r") as handle:
+            stamp = json.load(handle)
+        if not isinstance(stamp, dict):
+            return False
+        wanted = _inset_completion_key(tile)
+        if wanted["airports_layer"] is None:
+            return False
+        for key, value in wanted.items():
+            if stamp.get(key) != value:
+                return False
+        directory = FNAMES.airport_inset_directory(tile.lat, tile.lon)
+        for name in stamp.get("insets") or ():
+            if _file_size_or_zero(os.path.join(directory, name)) <= 0:
+                return False
+        return True
+    except Exception:
+        return False
 
 
 def assemble_inset_composite_source(tile, base_source):
@@ -9721,6 +9832,39 @@ def resolve_base_definition(lat, lon, selector="auto", prefer_coarse=False):
     if definition is not None and definition.get("role") == ROLE_BASE:
         return definition
     return None
+
+
+def base_tile_is_cached(source, lat, lon, prefer_coarse=False):
+    """True when :func:`ensure_base_tile` would download NOTHING.
+
+    The read-only twin of :func:`ensure_base_tile`: it resolves the
+    source through the same :func:`resolve_base_definition` call and asks
+    the same strategy for the same ``tile_cache_path``, then stops at
+    :func:`cached_elevation_file_is_valid` instead of taking the file
+    lock and fetching.  Feeds the parallel scheduler's fetch-admission
+    predicate (docs/specs/apron-string-and-scheduling-spec.md §A.2), so
+    it is filesystem-only and answers False for everything it cannot
+    decide — an unknown selector, an unknown strategy, or a strategy
+    that publishes no cache path.
+    """
+    try:
+        definition = resolve_base_definition(
+            lat, lon, source, prefer_coarse=prefer_coarse
+        )
+        if definition is None:
+            return False
+        strategy_factory = ACCESS_STRATEGIES.get(
+            definition.get("access_strategy"))
+        if strategy_factory is None:
+            return False
+        cache_path_of = getattr(
+            strategy_factory(), "tile_cache_path", None)
+        if cache_path_of is None:
+            return False
+        return cached_elevation_file_is_valid(
+            cache_path_of(definition, lat, lon))
+    except Exception:
+        return False
 
 
 def ensure_base_tile(source, lat, lon, verbose=True, prefer_coarse=False):

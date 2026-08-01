@@ -632,6 +632,104 @@ _prefetch_futures_guard = threading.Lock()
 _prefetch_futures = {}
 
 
+def _band_gating_key(tile, fine_nearshore_only: bool,
+                     intertidal_ok: bool) -> list:
+    """The settings that decide WHICH cells a tile's band covers.
+
+    Stamped into ``index.json`` beside the per-cell outcomes so
+    :func:`is_cached` can tell a settled band from one whose gating
+    moved under it (a wider ``bathymetry_band_km`` wants cells that were
+    never fetched).  A list, not a tuple: it round-trips through JSON.
+    """
+    return [
+        bool(fine_nearshore_only),
+        bool(intertidal_ok),
+        float(getattr(tile, "bathymetry_band_km", 5.0)),
+    ]
+
+
+def _cell_path_from_stem(tile, stem: str):
+    """Undo the stem naming of :func:`_band_cell` for a stamped cell.
+
+    A cell of the overhang ring belongs to a NEIGHBOUR tile's band
+    directory and is stamped ``"<basename>@<short_latlon>"``; a cell of
+    this tile is stamped by its basename alone.  ``None`` when the stem
+    cannot be resolved (which :func:`is_cached` reads as not cached).
+    """
+    try:
+        if "@" in stem:
+            (basename, _, owner) = stem.partition("@")
+            directory = FNAMES.bathymetry_band_directory(
+                int(owner[:3]), int(owner[3:]))
+        else:
+            basename = stem
+            directory = FNAMES.bathymetry_band_directory(tile.lat, tile.lon)
+        return os.path.join(directory, basename + ".tif")
+    except (ValueError, TypeError):
+        return None
+
+
+def is_cached(tile) -> bool:
+    """True when this tile's bathymetry band would fetch nothing.
+
+    One of the per-subsystem fetch-admission predicates of
+    docs/specs/apron-string-and-scheduling-spec.md §A.2.  Cheap (one
+    JSON read plus a ``getsize`` per recorded cell), never a network
+    probe, conservative in every unknown.  A tile whose mask settings do
+    not call for the band, or that no bathymetry provider covers, is
+    trivially cached: the prefetch returns before touching the network.
+
+    Known gap, deliberate: the fetch pass validates each cached cell
+    through GDAL (:func:`_cell_file_state` — a truncated or fully-nodata
+    leftover is deleted and refetched), which is far too dear for an
+    admission predicate.  This one only requires a non-empty file, so a
+    tile whose band holds a *broken* cell can be admitted as cached and
+    still refetch that one cell.  Recorded as residual slack, not as a
+    breach of the admission invariant.
+    """
+    try:
+        if not has_gdal:
+            return True
+        masks_dem_setting = str(getattr(tile, "masks_use_DEM_too", "False"))
+        if masks_dem_setting not in ("auto", "True"):
+            return True
+        import O4_Airport_Elevation_Insets as INSETS
+
+        definitions = INSETS.select_bathymetry_definitions(
+            tile.lat, tile.lon)
+        if not definitions:
+            return True
+        stamp = _read_band_stamp(
+            FNAMES.bathymetry_band_index(tile.lat, tile.lon))
+        cells = stamp.get("cells")
+        provider = stamp.get("provider")
+        if not provider or not isinstance(cells, dict) or not cells:
+            return False
+        if stamp.get("gating") != _band_gating_key(
+                tile, masks_dem_setting == "auto",
+                masks_dem_setting == "True"):
+            return False
+        if not os.path.isfile(
+                FNAMES.bathymetry_band_vrt(tile.lat, tile.lon, provider)):
+            return False
+        for (stem, outcome) in cells.items():
+            if outcome == NO_COVERAGE:
+                continue
+            if outcome != "ok":
+                return False
+            cell_path = _cell_path_from_stem(tile, stem)
+            if cell_path is None:
+                return False
+            try:
+                if os.path.getsize(cell_path) <= 0:
+                    return False
+            except OSError:
+                return False
+        return True
+    except Exception:
+        return False
+
+
 def prefetch_bathymetry_band(tile) -> None:
     """Start the band fetch in the background when it will be wanted.
 
@@ -1265,6 +1363,8 @@ def _ensure_bathymetry_band_now(
                         "provider": code,
                         "cells": cell_outcomes,
                         "checked": datetime.date.today().isoformat(),
+                        "gating": _band_gating_key(
+                            tile, fine_nearshore_only, intertidal_ok),
                     },
                 )
             finally:
@@ -1277,6 +1377,8 @@ def _ensure_bathymetry_band_now(
             if (
                 previous_stamp.get("provider") != code
                 or previous_stamp.get("cells") != cell_outcomes
+                or previous_stamp.get("gating") != _band_gating_key(
+                    tile, fine_nearshore_only, intertidal_ok)
             ) and _acquire_band_lock(band_directory, wait=False):
                 try:
                     _write_band_stamp(
@@ -1285,6 +1387,8 @@ def _ensure_bathymetry_band_now(
                             "provider": code,
                             "cells": cell_outcomes,
                             "checked": datetime.date.today().isoformat(),
+                            "gating": _band_gating_key(
+                                tile, fine_nearshore_only, intertidal_ok),
                         },
                     )
                 finally:

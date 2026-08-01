@@ -1491,6 +1491,7 @@ def _object_buildings_sidecar(
         DSF_OBJECT_CONTACT_EPSILON_M,
         DSF_OBJECT_MAX_FOOTPRINT_AREA_M2,
         DSF_OBJECT_MAX_STRUCTURE_SPAN_M,
+        DSF_OBJECT_MIN_BUILDING_HEIGHT_M,
         DSF_OBJECT_MIN_FOOTPRINT_FILL,
         DSF_OBJECT_MIN_REACH_M,
         DSF_OBJECT_MIN_TALL_BASE_FILL,
@@ -1515,6 +1516,13 @@ def _object_buildings_sidecar(
             DSF_OBJECT_MIN_FOOTPRINT_FILL,
             DSF_OBJECT_MIN_TALL_BASE_FILL,
             DSF_OBJECT_TALL_MEMBER_MIN_EXTENT_M,
+            # A11 building-height floor (owner defect 2026-07-30, OTHH
+            # drainage basins): it shapes the ring set exactly like the
+            # fill floors above, and its ABSENCE here meant the
+            # above-grade-extent fix read back pre-fix rings from an
+            # unchanged pack — the same silent reuse the hull-fill entry
+            # was added for.
+            DSF_OBJECT_MIN_BUILDING_HEIGHT_M,
             # Terrain-feature exclusion (defect 2026-07-17, EGLL
             # Building36): tunnel/bridge/deck resources drop from the
             # building pool when this feature is on, so the cached

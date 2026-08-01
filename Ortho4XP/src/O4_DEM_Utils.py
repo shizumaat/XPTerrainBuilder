@@ -107,6 +107,86 @@ def resolve_default_base_source(lat, lon, elevation_level="auto"):
         ]
     return available_sources[1]
 
+
+_world_tiles_mask = [None]
+
+
+def _world_tiles():
+    """The land/ocean mask ``build_combined_raster`` consults, loaded once.
+
+    ``None`` when it cannot be read — :func:`is_cached` then treats every
+    neighbour as land, which is the conservative direction (more files
+    demanded, so fewer tiles claim to be cached).
+    """
+    if _world_tiles_mask[0] is None:
+        try:
+            _world_tiles_mask[0] = numpy.array(
+                Image.open(os.path.join(FNAMES.Utils_dir, "world_tiles.png"))
+            )
+        except Exception:
+            _world_tiles_mask[0] = False
+    mask = _world_tiles_mask[0]
+    return None if mask is False else mask
+
+
+def is_cached(tile) -> bool:
+    """True when this tile's base elevation is already on disk.
+
+    One of the per-subsystem fetch-admission predicates of
+    docs/specs/apron-string-and-scheduling-spec.md §A.2 — filesystem
+    only, never a network probe, conservative in every unknown.
+
+    It mirrors, in order, the source dispatch :meth:`DEM.__init__`
+    performs and the neighbourhood :func:`build_combined_raster`
+    assembles:
+
+    * a ``custom_dem`` whose first token names a file needs no download;
+    * a ``generic_tif`` present for the tile short-circuits the default
+      resolution exactly as the loader does;
+    * a GLOBAL source is read over the 3x3 neighbourhood, so all nine
+      tiles must be cached — ocean-only neighbours excepted, which
+      ``build_combined_raster`` zero-fills instead of fetching;
+    * any other source is a single-file read.
+
+    ``tile`` is a configured ``O4_Config_Utils.Tile``.
+    """
+    try:
+        import O4_Airport_Elevation_Insets as ELEVATION_PROVIDERS
+        import O4_Elevation_Level as ELEVATION_LEVEL
+
+        lat, lon = tile.lat, tile.lon
+        elevation_level = getattr(tile, "elevation_level", "auto")
+        source = str(getattr(tile, "custom_dem", "") or "").replace(
+            "{latlon}", FNAMES.hem_latlon(lat, lon))
+        source = source.split(";")[0].strip()
+        if source and (os.path.isabs(source) or os.path.exists(source)):
+            return os.path.exists(source)
+        if not source:
+            if os.path.exists(FNAMES.generic_tif(lat, lon)):
+                return True
+            source = resolve_default_base_source(lat, lon, elevation_level)
+        if source in available_sources[1::2]:
+            source = available_sources[available_sources.index(source) - 1]
+        prefer_coarse = ELEVATION_LEVEL.base_prefers_coarse(elevation_level)
+        if source not in global_sources:
+            return ELEVATION_PROVIDERS.base_tile_is_cached(
+                source, lat, lon, prefer_coarse=prefer_coarse)
+        world_tiles = _world_tiles()
+        for (lat0, lon0) in itertools.product(
+            (lat, lat - 1, lat + 1), (lon, lon - 1, lon + 1)
+        ):
+            if (world_tiles is not None
+                    and not world_tiles[89 - lat0, (180 + lon0) % 360]):
+                continue          # ocean only: zero-filled, never fetched
+            if not ELEVATION_PROVIDERS.base_tile_is_cached(
+                    source, lat0, (lon0 + 180) % 360 - 180,
+                    prefer_coarse=prefer_coarse):
+                return False
+        return True
+    except Exception:
+        return False
+
+
 ################################################################################
 class DEM:
     def __init__(

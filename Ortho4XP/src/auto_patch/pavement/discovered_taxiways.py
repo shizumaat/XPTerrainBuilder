@@ -1,15 +1,46 @@
 """Discover unreferenced taxiway centerlines from raw pavement geometry.
 
+⚠ ``discover_unreferenced_centerlines`` IS UNWIRED (2026-07-31).  Nothing
+calls it.  Its two consumers — ``_build_taxi_rects`` and ``junction_spine``
+— were deleted by d4f61d6 on 2026-07-29, and the docstring written that day
+("the discovered centerlines join the global-slice spine downstream exactly
+like a referenced taxiway") was an ASSERTION, not a wiring: the slice takes
+its spine from ``layout.apt_taxi_centerlines``, which ``pipeline`` snapshots
+BEFORE discovery ran (deliberately — that snapshot is junction_repair's
+apt.dat-only route model), never from the local list discovery appended to.
+Measured 2026-07-31: 595 discovered centerlines at HECA, 27 at SPJC, ZERO
+spine nodes from either, and a byte-identical patch body with the call site
+gone.  Removing it took phase 3 from 16.71 to 6.02 s at HECA and 4.7 to
+3.08 s at SPJC.  The call site is retired; this extractor is kept as prior
+art.
+
+There WAS a planned successor consumer and it was never built:
+``docs/curve_native_spine_v2_plan.md`` **Phase 5 — coverage fallback**
+("synthesize a spine from the discovered/``TX`` edge-skeleton centerline
+(reuse the existing discovered-taxiway extractor) and cut with it").  That
+plan's Phase 6 — retire the straight rects — is what shipped on 2026-07-29,
+with Phase 5 still outstanding, so the extractor lost its consumer before
+its replacement existed.
+
+Re-wiring it is therefore a SPINE-COMPOSITION change, not a repair: 595
+synthetic lanes would enter the route model that the grade solve, the
+reachability law and junction_repair's reclassification all read.  It needs
+an owner / design ruling and its own gate + measurement — and P7 has since
+measured the medial axis as NOT covering the spine-coverage defect it would
+be the obvious candidate for (ruling (b3), docs/specs/taut-string-
+implementation-plan.md).
+
+The module still loads: ``_flatten_lines`` / ``_medial_segments`` / ``_prune``
+are LIVE — ``pavement/service_roads.py`` uses them to extend a 1206 truck
+route along a narrow strip's own medial axis.
+
 Small / remote airports (and the fringes of larger ones) have real taxiways
 that carry NO apt.dat row-1201/1202 edge and NO OSM ``aeroway=taxiway`` way.
-Such pavement otherwise dissolves into the all-pair junction/apron residue
-(``pav_union − rects``), where a long thin lane becomes an all-pair surface
-that cannot articulate as a travel path and is a grade liability.
-
-This module extracts the **medial axis** (skeleton) of the lane-width pavement
-and synthesises a centerline along each lane; the discovered centerlines
-join the global-slice spine downstream exactly like a referenced taxiway
-(the rect-era builder that consumed them was retired 2026-07-29).
+Such pavement otherwise dissolves into the all-pair junction/apron residue,
+where a long thin lane becomes an all-pair surface that cannot articulate as
+a travel path and is a grade liability.  This module extracts the **medial
+axis** (skeleton) of the lane-width pavement and synthesises a centerline
+along each lane.
 
 Why a medial axis (not rectangle fitting): unreferenced lanes form a connected
 *web*; fitting one rectangle per residue blob collapses the web into a single
@@ -225,6 +256,9 @@ def discover_unreferenced_centerlines(
 ) -> list[tuple[LineString, str]]:
     """Return ``[(centerline, ref)]`` for lane-width pavement skeletons in
     ``pav_union`` that no ``existing_centerlines`` line already covers.
+
+    ⚠ UNWIRED since 2026-07-31 — no caller.  See the module header for why,
+    and for what re-wiring it would cost.
 
     ``existing_centerlines`` is the pipeline's ``[(LineString, ref), ...]``
     (a bare list of LineStrings is also accepted).  Synthesised refs are

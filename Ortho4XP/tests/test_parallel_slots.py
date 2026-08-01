@@ -19,7 +19,7 @@ import pytest
 import O4_Parallel_Utils as PARALLEL_UTILS
 
 
-def _machine(monkeypatch, cores, memory_gigabytes):
+def _machine(monkeypatch, cores, memory_gigabytes, available_gigabytes=None):
     monkeypatch.setattr(
         PARALLEL_UTILS, "machine_core_count", lambda: cores
     )
@@ -27,35 +27,59 @@ def _machine(monkeypatch, cores, memory_gigabytes):
         PARALLEL_UTILS, "machine_memory_gigabytes",
         lambda: float(memory_gigabytes),
     )
+    if available_gigabytes is None:
+        available_gigabytes = memory_gigabytes
+    monkeypatch.setattr(
+        PARALLEL_UTILS, "machine_available_memory_gigabytes",
+        lambda: float(available_gigabytes),
+    )
 
 
 # ---------------------------------------------------------------------
-# Build slots: min(cores // 3, gigabytes // 6), clamped to 1..6 in Auto;
-# explicit settings are honoured beyond the Auto ceiling.
+# Build slots: the logical core count, bounded by how many workers
+# 80 % of AVAILABLE memory could ever admit at ~2 GB each (revised
+# 2026-07-30, docs/specs/apron-string-and-scheduling-spec.md §A.2 —
+# remote pressure is bounded by the orchestrator's class caps and memory
+# by its per-step projection, so slots buy compute parallelism only).
+# Explicit settings are honoured verbatim.
 # ---------------------------------------------------------------------
 @pytest.mark.parametrize(
-    "cores,memory,expected",
+    "cores,available,expected",
     [
-        (16, 64, 5),    # big workstation: cores allow 5, memory allows 10
-        (24, 128, 6),   # the Auto server-politeness ceiling holds
-        (10, 32, 3),    # typical laptop: cores are the binding constraint
-        (12, 16, 2),    # memory is the binding constraint (16 // 6 = 2)
-        (4, 8, 1),      # small machine floors at 1
-        (2, 4, 1),
-        (64, 512, 6),
+        (16, 64, 16),   # big workstation: cores bind (memory allows 25)
+        (18, 128, 18),  # the machine of the 2026-07-30 defect report
+        (10, 32, 10),   # typical laptop: cores bind
+        (12, 6, 2),     # memory binds: 6 * 0.8 // 2 = 2
+        (16, 10, 4),    # memory binds: 10 * 0.8 // 2 = 4
+        (4, 8, 3),      # small machine: 8 * 0.8 // 2 = 3
+        (2, 4, 1),      # ...and floors at 1
+        (64, 512, 64),  # no Auto ceiling any more: cores are the answer
     ],
 )
-def test_auto_build_slots(monkeypatch, cores, memory, expected):
-    _machine(monkeypatch, cores, memory)
+def test_auto_build_slots(monkeypatch, cores, available, expected):
+    _machine(monkeypatch, cores, available, available)
     assert PARALLEL_UTILS.effective_build_slots(0) == expected
 
 
-def test_explicit_build_slots_pass_through_beyond_auto_cap(monkeypatch):
-    _machine(monkeypatch, 4, 8)  # auto would say 1
+def test_auto_build_slots_floor_at_one(monkeypatch):
+    """A machine reporting almost no free memory still builds one tile."""
+    _machine(monkeypatch, 8, 32, 0.5)
+    assert PARALLEL_UTILS.effective_build_slots(0) == 1
+
+
+def test_explicit_build_slots_pass_through(monkeypatch):
+    _machine(monkeypatch, 4, 8, 2)  # auto would say 1
     assert PARALLEL_UTILS.effective_build_slots(3) == 3
     assert PARALLEL_UTILS.effective_build_slots("2") == 2
-    # Explicit big-memory settings are honoured past the Auto ceiling.
     assert PARALLEL_UTILS.effective_build_slots(8) == 8
+
+
+def test_available_memory_probe_is_sane():
+    """The probe answers a positive number no larger than physical RAM
+    (the fallback IS physical RAM when the platform will not say)."""
+    available = PARALLEL_UTILS.machine_available_memory_gigabytes()
+    assert available > 0.0
+    assert available <= PARALLEL_UTILS.machine_memory_gigabytes() + 1e-6
 
 
 # ---------------------------------------------------------------------
@@ -137,7 +161,7 @@ def test_session_resolves_auto_through_configuration(monkeypatch):
     import O4_Config_Utils as CFG
 
     monkeypatch.setattr(CFG, "max_build_slots", 0, raising=False)
-    assert SESSION._configured_build_slots() == 5
+    assert SESSION._configured_build_slots() == 16
     monkeypatch.setattr(CFG, "max_build_slots", 1, raising=False)
     assert SESSION._configured_build_slots() == 1
 

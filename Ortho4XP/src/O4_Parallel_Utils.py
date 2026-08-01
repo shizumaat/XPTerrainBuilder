@@ -1,5 +1,8 @@
 import os
+import subprocess
+import sys
 import threading
+import time
 import O4_UI_Utils as UI
 
 
@@ -62,6 +65,119 @@ def machine_memory_gigabytes() -> float:
     return 8.0
 
 
+# Fraction of AVAILABLE memory one run may PROJECT onto the steps it has
+# admitted concurrently (owner ruling 2026-07-30, "cap memory usage to
+# 80 % of available memory"; docs/specs/apron-string-and-scheduling-spec
+# §A.2).  The orchestrator samples the ceiling ONCE per run — see
+# o4_engine.parallel.step_memory_budget_gigabytes for why re-sampling it
+# live would be a feedback loop rather than a gate.
+MEMORY_CEILING_FRACTION = 0.8
+
+# The available-memory probe shells out on macOS; a short cache keeps a
+# dispatch loop from spawning one ``vm_stat`` per admission decision
+# while still letting a long-lived front end see the machine change.
+_AVAILABLE_MEMORY_CACHE_SECONDS = 2.0
+_available_memory_cache = [0.0, 0.0]   # [sampled_at, gigabytes]
+_available_memory_lock = threading.Lock()
+
+
+def _probe_available_memory_gigabytes():
+    """Free-plus-reclaimable physical memory, or ``None`` if unknowable.
+
+    Standard library only (this module is imported by core pipeline
+    code).  Linux reads ``MemAvailable``, macOS totals ``vm_stat``'s
+    free + inactive + speculative + purgeable pages (the pages the
+    kernel hands out without swapping), Windows reads
+    ``GlobalMemoryStatusEx().ullAvailPhys``.
+    """
+    try:
+        with open("/proc/meminfo", "r") as handle:
+            for line in handle:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) / (1024.0 ** 2)
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        if "dar" in sys.platform:
+            page_size = os.sysconf("SC_PAGE_SIZE")
+            # close_fds=False is load-bearing, not tidiness: it is what
+            # makes CPython take posix_spawn() instead of fork()+exec().
+            # This function may be called from a process that has
+            # imported the pipeline, and once GDAL has warped anything
+            # its bundled PROJ registers a pthread_atfork handler that
+            # segfaults in the forked child before exec runs (the
+            # 2026-07-16 crash class — see
+            # O4_UI_Utils.external_tool_keyword_arguments).  Python file
+            # descriptors are non-inheritable by default (PEP 446), so
+            # not sweeping them is safe.
+            output = subprocess.run(
+                ["/usr/bin/vm_stat"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                text=True, timeout=5.0, check=True,
+                close_fds=False).stdout
+            counts = {}
+            for line in output.splitlines():
+                if ":" not in line:
+                    continue
+                name, _, value = line.partition(":")
+                digits = value.strip().rstrip(".")
+                if digits.isdigit():
+                    counts[name.strip().lower()] = int(digits)
+            pages = sum(
+                counts.get(key, 0)
+                for key in ("pages free", "pages inactive",
+                            "pages speculative", "pages purgeable")
+            )
+            if pages > 0:
+                return pages * page_size / (1024.0 ** 3)
+    except Exception:
+        pass
+    try:
+        import ctypes
+
+        class _AvailableStatus(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_uint32),
+                ("dwMemoryLoad", ctypes.c_uint32),
+                ("ullTotalPhys", ctypes.c_uint64),
+                ("ullAvailPhys", ctypes.c_uint64),
+                ("ullTotalPageFile", ctypes.c_uint64),
+                ("ullAvailPageFile", ctypes.c_uint64),
+                ("ullTotalVirtual", ctypes.c_uint64),
+                ("ullAvailVirtual", ctypes.c_uint64),
+                ("ullAvailExtendedVirtual", ctypes.c_uint64),
+            ]
+
+        status = _AvailableStatus()
+        status.dwLength = ctypes.sizeof(_AvailableStatus)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            return status.ullAvailPhys / (1024.0 ** 3)
+    except Exception:
+        pass
+    return None
+
+
+def machine_available_memory_gigabytes() -> float:
+    """Physical memory the machine can hand out right now, in gigabytes.
+
+    Falls back to TOTAL physical memory when the platform will not say —
+    the conservative direction is debatable either way, so the fallback
+    keeps the old total-memory behaviour rather than inventing a number.
+    """
+    now = time.time()
+    with _available_memory_lock:
+        sampled_at, value = _available_memory_cache
+        if value > 0.0 and now - sampled_at < _AVAILABLE_MEMORY_CACHE_SECONDS:
+            return value
+    probed = _probe_available_memory_gigabytes()
+    if not probed or probed <= 0.0:
+        probed = machine_memory_gigabytes()
+    with _available_memory_lock:
+        _available_memory_cache[0] = now
+        _available_memory_cache[1] = float(probed)
+    return float(probed)
+
+
 # Set by the parallel-build scheduler in every worker child's
 # environment (and refreshed by the "siblings" broadcast as tiles
 # finish): how many sibling tiles are building at once.  Since the
@@ -80,26 +196,45 @@ def parallel_sibling_count() -> int:
         return 1
 
 
+# Rough resident cost of ONE worker child that has imported the pipeline
+# and is running a step (gigabytes).  This is the pool-SIZE sanity bound
+# only: per-step peak footprints are the orchestrator's business (its
+# projection against MEMORY_CEILING_FRACTION of available memory,
+# o4_engine.parallel), and this divisor exists solely so Auto never
+# spawns interpreters the orchestrator's ceiling could not admit.
+BUILD_SLOT_MEMORY_GIGABYTES = 2.0
+
+
 def effective_build_slots(configured) -> int:
     """Concurrent tile builds for a ``max_build_slots`` value (0 = Auto).
 
-    Auto weighs BOTH constraints: each concurrent tile runs its own
-    multi-threaded downloads and conversions (cores divide by three) and
-    carries its own working memory (gigabytes divide by six).  The
-    memory divisor is soft on purpose — modern systems (macOS memory
-    compression, fast solid-state swap) degrade gracefully rather than
-    fail, so it guards against the paging performance cliff of actively
-    swept rasters, not out-of-memory.  Auto's ceiling of six keeps the
-    default a good citizen toward the OpenStreetMap and imagery servers;
-    an EXPLICIT setting may go higher — big-memory machines can carry
-    more, at the price of occasional server throttling (downloads retry).
+    Auto is the LOGICAL CORE COUNT, floored at one and bounded by how
+    many worker interpreters the memory ceiling could ever admit
+    (``MEMORY_CEILING_FRACTION`` of available memory divided by
+    :data:`BUILD_SLOT_MEMORY_GIGABYTES`).
+
+    Sizing revised 2026-07-30 (docs/specs/apron-string-and-scheduling-
+    spec.md §A.2, owner: "I could run as many tiles as I have cores
+    concurrently if they have all their data downloaded") from
+    ``min(12, cores // 2, memory // 6)``.  Both retired divisors were
+    proxies for constraints that are now gated explicitly and per step:
+    REMOTE pressure by the orchestrator's osm/imagery class caps, MEMORY
+    by its projected-footprint admission gate.  Leaving the proxies in
+    place as well would cap compute below the cores the owner asked for
+    — the 2026-07-30 defect report (18 cores at 46 % utilisation) was
+    exactly that double-counting one revision earlier.  An EXPLICIT
+    setting is honoured verbatim, above or below Auto.
     """
     configured = int(configured or 0)
     if configured > 0:
         return configured
-    by_cores = machine_core_count() // 3
-    by_memory = int(machine_memory_gigabytes() // 6)
-    return max(1, min(6, by_cores, by_memory))
+    by_cores = machine_core_count()
+    by_memory = int(
+        machine_available_memory_gigabytes()
+        * MEMORY_CEILING_FRACTION
+        // BUILD_SLOT_MEMORY_GIGABYTES
+    )
+    return max(1, min(by_cores, by_memory))
 
 
 def effective_convert_slots(configured) -> int:

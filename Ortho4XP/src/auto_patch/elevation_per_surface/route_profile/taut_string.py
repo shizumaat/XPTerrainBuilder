@@ -77,7 +77,7 @@ __all__ = [
     "ThroughPathChains", "through_path_chains", "domains_from_walk",
     "TenureRound", "TenureResult", "strings_with_tenure",
     "EndpointRead", "read_endpoint_band_centre", "chord_station",
-    "chord_targets",
+    "chord_targets", "compass_ends", "filter_pins_by_grade_law",
     "construct_taut_strings",
 ]
 
@@ -1013,6 +1013,144 @@ def read_endpoint_band_centre(station, banded, *, identity_m):
                         (r[1],))
 
 
+def filter_pins_by_grade_law(pins, spine_adj, *, hard=(), endpoint_depth=None,
+                             eps: float = 1e-9):
+    """★ RULING 52 — THE CHORD IS NEVER BENT BY LAW; THE GRIP IS.
+
+    Chord targets become Dirichlet pins, and pins join the solve's
+    ``anchors`` set — which means fairing and the exact cap projection can
+    no longer drive a both-pinned pair to its cap.  So the pin SET is
+    law-filtered first: **no pair remains both-pinned where the chord
+    grade between the pinned values exceeds that pair's cap budget**
+    (strict ``>`` at the existing 1e-9 audit epsilon — no new constant).
+
+    The chord itself is NEVER modified and never clipped: it stays gate
+    (A)'s object, a pure straight ideal.  43(f) reads: telemetry for the
+    CHORD, law for the GRIP.  Releasing a pin does not move a value — it
+    hands that station back to the solver, which then rides its cap toward
+    the chord, which is the owner's own sentence (grade law overrules the
+    string when needed) applied exactly where "when needed" is true.
+
+    Release policy, all of it:
+      * MINIMAL — no released pin can be re-pinned without re-creating an
+        over-cap pair (verified by a re-admission pass, not merely by a
+        greedy stopping rule);
+      * DETERMINISTIC — same input, same output;
+      * ENDPOINT-PROTECTIVE — release the member FARTHER from its string's
+        nearer endpoint (gate (A) reads endpoints), so within a run of
+        consecutive over-cap pairs the INTERIOR pins go first;
+      * ties break on stable node id;
+      * a pair whose BOTH ends are law anchors is NEVER released — that is
+        the projection's pre-existing genuine-step contract, not ours.
+
+    Returns ``(kept_pins, releases)``; each release is a GRIP-YIELD
+    WITNESS naming the pair, cap, chord grade, excess, released end and
+    the rule that fired.
+    """
+    hard = set(hard)
+    depth = endpoint_depth or {}
+    # over-cap pairs among BOTH-pinned vertices
+    over: List[tuple] = []
+    seen: Set[Tuple[int, int]] = set()
+    for i, lst in (spine_adj or {}).items():
+        if i not in pins:
+            continue
+        for e in lst:
+            j = e[0] if isinstance(e, (tuple, list)) else e
+            budget = float(e[1]) if isinstance(e, (tuple, list)) and len(e) > 1 \
+                else 0.0
+            if j not in pins:
+                continue
+            key = (i, j) if i < j else (j, i)
+            if key in seen:
+                continue
+            seen.add(key)
+            dz = abs(pins[key[0]] - pins[key[1]])
+            if dz > budget + eps:
+                if key[0] in hard and key[1] in hard:
+                    continue          # pre-existing genuine step: not ours
+                over.append((key, budget, dz))
+    if not over:
+        return dict(pins), []
+
+    incident: Dict[int, Set[Tuple[int, int]]] = {}
+    info: Dict[Tuple[int, int], tuple] = {}
+    for key, budget, dz in over:
+        info[key] = (budget, dz)
+        for v in key:
+            if v not in hard:         # a law anchor is never a candidate
+                incident.setdefault(v, set()).add(key)
+
+    def _rank(v):
+        # most pairs covered first; then MOST INTERIOR (farthest from its
+        # string's nearer endpoint); then stable id.
+        return (-len(incident.get(v, ())), -float(depth.get(v, 0.0)), v)
+
+    remaining = set(info)
+    released: List[int] = []
+    while remaining:
+        cands = sorted({v for k in remaining for v in k if v in incident},
+                       key=_rank)
+        if not cands:
+            break                     # only law-anchor pairs left: not ours
+        v = cands[0]
+        released.append(v)
+        remaining -= incident[v]
+    # MINIMALITY: re-admit any release that is no longer necessary (the
+    # greedy may over-release when a later pick covered the same pair).
+    kept_released = list(released)
+    for v in sorted(released, key=lambda x: (float(depth.get(x, 0.0)), x)):
+        trial = set(kept_released) - {v}
+        if all(k[0] in trial or k[1] in trial for k in info):
+            kept_released = sorted(trial)
+    releases = []
+    for v in kept_released:
+        for key in sorted(incident.get(v, ())):
+            budget, dz = info[key]
+            releases.append({
+                "pair": list(key), "released": v, "cap_budget_m": budget,
+                "chord_dz_m": dz, "excess_m": dz - budget,
+                "rule": "grade_law_over_cap"})
+    kept = {v: z for v, z in pins.items() if v not in set(kept_released)}
+    return kept, releases
+
+
+def compass_ends(a, b, *, axis: str = "auto"):
+    """★ COMPASS LABELS FOR A CHORD'S TWO ENDS — emitted, never inferred.
+
+    A string's endpoint order is WALK ORDER: it follows the composed
+    path's traversal, which is seeded by edge id and carries no
+    geographic meaning whatsoever.  Reading "start" as "north" transposed
+    chord 1's two endpoint values in a report and cost a round of
+    investigation (the chord appeared to fall north->south, contradicting
+    the owner's expectation; corrected, band centre rises +2.11 m
+    north->south against his +2.00 and the runway's +1.57).  So the
+    labels are COMPUTED FROM THE COORDINATES and shipped in the artifact:
+    no consumer should ever have to infer geography from our iteration
+    order again.
+
+    The layout's metre frame is anchor-relative equirectangular — x is
+    EASTING, y is NORTHING — so the comparison is direct.
+
+    ``axis="ns"`` labels north/south, ``"ew"`` east/west, and ``"auto"``
+    PREFERS NORTH/SOUTH — that is how every taxiway on this line is named
+    (chord 1 runs SW->NE, and a dominant-axis rule would have called its
+    ends "east" and "west", which is true and useless).  East/west is the
+    fallback for a chord whose ends share a latitude.  ``None`` when the
+    requested axis is degenerate.  Returns ``(label_of_a, label_of_b)``.
+    """
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    ns = (("south", "north") if dy >= 0 else ("north", "south")) \
+        if abs(dy) > 1e-6 else None
+    ew = (("west", "east") if dx >= 0 else ("east", "west")) \
+        if abs(dx) > 1e-6 else None
+    if axis == "ns":
+        return ns
+    if axis == "ew":
+        return ew
+    return ns or ew or ("a", "b")
+
+
 def chord_station(point, a, u):
     """Along-station of ``point`` on the chord ``a`` with unit dir ``u``."""
     return (point[0] - a[0]) * u[0] + (point[1] - a[1]) * u[1]
@@ -1263,6 +1401,7 @@ def construct_taut_strings(layout, G, *, elev, bucket_to_idx, n, node_band,
     n_plural_skipped = 0
     _plural_ledger: List[int] = []
     _mode_census: Dict[str, int] = {}
+    _pin_depth: Dict[int, float] = {}
 
     for dom in domains:
         _si = dom.pieces[0]
@@ -1290,10 +1429,15 @@ def construct_taut_strings(layout, G, *, elev, bucket_to_idx, n, node_band,
                                         identity_m=_identity_m)
         _r1 = read_endpoint_band_centre(chord_station(_b, _a, _u), _banded,
                                         identity_m=_identity_m)
-        for _r, _which in ((_r0, "start"), (_r1, "end")):
+        # ★ Endpoint order is WALK ORDER and carries NO geography; the
+        # compass label is computed and SHIPPED so no consumer infers it.
+        _lab0, _lab1 = compass_ends(_a, _b)
+        _ew = compass_ends(_a, _b, axis="ew")
+        for _r, _which, _lab in ((_r0, "start", _lab0), (_r1, "end", _lab1)):
             _mode_census[_r.mode] = _mode_census.get(_r.mode, 0) + 1
             endpoint_witness.append({
-                "string": _si, "which": _which, "mode": _r.mode,
+                "string": _si, "which": _which, "end_label": _lab,
+                "mode": _r.mode,
                 "value": _r.value, "lo": _r.lo, "hi": _r.hi,
                 "offset_m": round(_r.offset_m, 3),
                 "bracket": list(_r.bracket),
@@ -1312,6 +1456,12 @@ def construct_taut_strings(layout, G, *, elev, bucket_to_idx, n, node_band,
         else:
             _targets = chord_targets(_a, _b, _r0.value, _r1.value,
                                      dom.vertices, pos)
+            for _v in _targets:
+                _st = chord_station(pos[_v], _a, _u)
+                # distance from the NEARER endpoint: gate (A) reads
+                # endpoints, so the grip filter releases interior pins
+                # first (ruling 52, endpoint-protective).
+                _pin_depth[_v] = min(abs(_st), abs(_L - _st))
             for _v, _z in _targets.items():
                 # ★ RULING 42, unconditional: the hook rewrites only
                 # vertices claimed by exactly ONE string.  A plural-claimed
@@ -1347,6 +1497,17 @@ def construct_taut_strings(layout, G, *, elev, bucket_to_idx, n, node_band,
             "last_vertex": dom.vertices[-1] if dom.vertices else -1,
             "z_start": _r0.value,
             "z_end": _r1.value,
+            # geography, computed from the coordinates -- never from the
+            # traversal order that produced z_start / z_end
+            "label_start": _lab0,
+            "label_end": _lab1,
+            f"z_{_lab0}": _r0.value,
+            f"z_{_lab1}": _r1.value,
+            # both axes when both are defined: a SW->NE trunk has a real
+            # north end AND a real east end, and no reader should have to
+            # pick which one our dominant-axis rule happened to choose.
+            **({f"z_{_ew[0]}": _r0.value, f"z_{_ew[1]}": _r1.value}
+               if _ew and _ew[0] not in (_lab0, _lab1) else {}),
             "read_mode_start": _r0.mode,
             "read_mode_end": _r1.mode,
             "endpoint_offset_start_m": round(_r0.offset_m, 3),
@@ -1391,6 +1552,9 @@ def construct_taut_strings(layout, G, *, elev, bucket_to_idx, n, node_band,
             "n_plural_claim_skipped": n_plural_skipped,
             "plural_claim_ledger": sorted(set(_plural_ledger))[:400],
             "endpoint_witness": endpoint_witness[:400],
+            # per-pin distance from its string's nearer endpoint — the
+            # grip filter's endpoint-protective ordering (ruling 52).
+            "pin_depth": _pin_depth,
             # ── the DENOMINATOR LINE, in the artifact as well as the log
             # (ruling 4): which substrate, at which resolution, under
             # which identities.  Mixed-definition tables are forbidden
@@ -1515,10 +1679,12 @@ def construct_taut_strings(layout, G, *, elev, bucket_to_idx, n, node_band,
         # bends; a chord's two reads ARE its whole elevation content.
         with open(dump, "w", newline="") as fh:
             writer = _csv.writer(fh)
-            writer.writerow(["string", "which", "mode", "value", "lo", "hi",
-                             "offset_m", "bracket", "n_banded_stations"])
+            writer.writerow(["string", "which", "end_label", "mode", "value",
+                             "lo", "hi", "offset_m", "bracket",
+                             "n_banded_stations"])
             for w in endpoint_witness:
-                writer.writerow([w["string"], w["which"], w["mode"],
+                writer.writerow([w["string"], w["which"], w["end_label"],
+                                 w["mode"],
                                  w["value"], w["lo"], w["hi"], w["offset_m"],
                                  " ".join(str(x) for x in w["bracket"]),
                                  w["n_banded_stations"]])

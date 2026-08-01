@@ -1,6 +1,6 @@
 """Tier 3 wave 2b — adjacent-ground / raster-reach-band tear reconciliation.
 
-When the rasterized reach band (``O4_RASTER_REACH_BAND``) clamps an apron or
+When the reach band clamps an apron or
 junction ~2 m down to its tighter, CORRECT ceiling, the adjacent-ground graded
 strips bridging the resulting step used to emit a sub-metre near-vertical TEAR
 (the ``check_grade`` adjacent-ground sentinel).  Two mechanisms reconcile it:
@@ -99,13 +99,12 @@ def test_heal_keeps_lawful_wide_terrain_edges():
     assert _open_ring(strip.polygon) == ring
 
 
-# ── 2. gate flag ─────────────────────────────────────────────────────────
-
-def test_raster_reach_band_active_respects_env(monkeypatch):
-    monkeypatch.setenv("O4_RASTER_REACH_BAND", "1")
-    assert AG._raster_reach_band_active() is True
-    monkeypatch.setenv("O4_RASTER_REACH_BAND", "0")
-    assert AG._raster_reach_band_active() is False
+# ── 2. (the gate flag test was DELETED 2026-07-29) ───────────────────────
+# ``AG._raster_reach_band_active`` gated the tear reconciliation on the
+# ``O4_RASTER_REACH_BAND`` selector.  With one band engine there is no
+# selector and the reconciliation is unconditional (spec rod-compose-and-
+# band-single-source §B), so the flag — and the test that pinned its env
+# resolution — are gone.
 
 
 # ── 3. cross-strip seam twin (to_osm) ────────────────────────────────────

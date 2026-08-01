@@ -8,16 +8,32 @@ existing JSON-lines engine transport (``Ortho4XP.py --engine-jsonl``).
 The parent dispatches ONE STEP AT A TIME (spec §3.8): every ``build``
 command a child receives selects a single step key, so the parent knows
 and controls each tile's phase.  Steps belong to resource classes; the
-two NETWORK classes ("osm" for vector, "imagery") carry concurrency
-caps so a forty-tile queue can never stampede the OpenStreetMap or
-imagery servers, and the memory admission gate keeps concurrent mesh
-steps within the machine's budget.  Compute concurrency is otherwise
-uncapped — processor arbitration is the operating system's job
-(2026-07-17 owner ruling).  A child whose next step's class is full
-waits idle (a between-steps child holds almost nothing — the pipeline
-communicates through files).  When capacity frees, blocked children
-are dispatched finish-first (later steps before earlier ones, work in
-progress drains before new tiles enter).
+two NETWORK classes ("osm" for vector, "imagery") carry concurrency caps
+(four each) so a forty-tile queue can never stampede the OpenStreetMap
+or imagery servers.  COMPUTE admission is the machine's logical core
+count, bounded by a projection of the admitted steps' peak memory
+against 80 % of the memory the machine could hand out when the run
+started (owner rulings 2026-07-30, docs/specs/
+apron-string-and-scheduling-spec.md §A.2) — within that, processor
+arbitration is the operating system's job (2026-07-17 owner ruling).
+
+Two things move a tile OUT of a fetch class.  A step may change class
+MID-FLIGHT: the vector step holds its network token only while it
+fetches, then runs the auto-patch solve under the compute class
+(``VECTOR_SOLVE_CLASS``), and the imagery step likewise hands its token
+back when its download queue drains and converts to DDS under
+``IMAGERY_TAIL_CLASS``.  And a tile whose inputs are ALREADY ON DISK
+never takes a fetch token at all: each fetch subsystem answers for
+itself through an ``is_cached(tile)`` predicate co-located with its own
+fetch code (``STEP_FETCH_SUBSYSTEMS``), so the scheduler never
+re-derives what a step will read.  The parent-side OpenStreetMap cache
+warmer below takes an osm token like any other fetcher.
+
+A child whose next step's class is full waits idle (a between-steps
+child holds almost nothing — the pipeline communicates through files).
+When capacity frees, blocked children are dispatched finish-first
+(later steps before earlier ones, work in progress drains before new
+tiles enter).
 
 Children are reused across steps and tiles (one interpreter start-up
 per slot), except after a mid-step cancel, where the child is retired
@@ -208,6 +224,12 @@ HANDSHAKE_TIMEOUT_SECONDS = 30.0
 CANCEL_ESCALATE_SECONDS = 12.0
 CANCEL_KILL_SECONDS = 15.0
 
+# How often the parent-side cache warmer re-tries for an osm token when
+# the class is full (spec §A.3: the warmer is a fetcher and takes a token
+# like any other).  It drops its warming claim between tries, so a
+# waiting warmer never keeps its tile off the workers.
+WARM_TOKEN_POLL_SECONDS = 0.05
+
 # Resource classes (spec §3.8): which shared resource each step leans
 # on, and how many tiles may occupy a class at once.  The two network
 # classes are SEPARATE because they exhaust separate servers — a tile
@@ -225,16 +247,119 @@ STEP_CLASSES = {
     "masks": "compute",
     "overlays": "compute",
 }
-OSM_CLASS_LIMIT = 2
-IMAGERY_CLASS_LIMIT = 2
+# The vector step is a HYBRID (owner ruling 2026-07-30,
+# docs/specs/vector-step-class-split-spec.md): it FETCHES remote vector
+# data and then runs the auto-patch SOLVE, the heaviest pure-processor
+# phase in the product (minutes per airport).  The step therefore holds
+# its osm token only while fetching; when the child reports
+# AutoPatchBegin the token is released — immediately available to a
+# queued tile that needs to FETCH — and the tile continues under this
+# class for the duration of the solve.  When the last airport reports
+# its terminal, the remainder of the vector step (roads/coastline/water
+# encoding, which may still touch the network on a cache miss) takes an
+# osm token back.  Setting this to "osm" restores the pre-2026-07-30
+# behaviour exactly (the swap becomes a no-op) — the before/after arm of
+# the acceptance measurement uses that.
+VECTOR_SOLVE_CLASS = "compute"
+
+# The imagery step is hybrid for the same reason the vector step is
+# (docs/specs/apron-string-and-scheduling-spec.md §A.2): it DOWNLOADS a
+# mesh-derived texture set and then converts it to DDS locally, and the
+# conversion tail is pure processor work that no remote server cares
+# about.  The tile releases its imagery token when the child reports
+# ImageryDownloadsDone (O4_Tile_Utils, at the download queue's drain)
+# and finishes the step under this class.  Setting it to "imagery"
+# restores the pre-2026-07-30 behaviour exactly.
+IMAGERY_TAIL_CLASS = "compute"
+
+# The two NETWORK classes.  A tile occupies one of them only while it may
+# issue remote requests.
+FETCH_CLASSES = ("osm", "imagery")
+# Where a tile whose inputs are already on disk is admitted instead: a
+# cached tile issues no remote request, so holding a fetch token would
+# only keep a genuinely cold tile out of the servers' way (owner ruling
+# 2026-07-30 — "I could run as many tiles as I have cores concurrently
+# if they have all their data downloaded").
+CACHED_STEP_CLASS = "compute"
+
+OSM_CLASS_LIMIT = 4
+IMAGERY_CLASS_LIMIT = 4
+# The pre-2026-07-30 caps, restored when the admission gate below is off
+# — the BEFORE arm of the acceptance measurement, and the gate-off
+# byte-identity proof.
+LEGACY_OSM_CLASS_LIMIT = 2
+LEGACY_IMAGERY_CLASS_LIMIT = 2
+# Environment overrides for the two REMOTE-SERVER caps, for operators
+# whose Overpass/imagery endpoints tolerate more (spec §3.1).  A
+# non-numeric or non-positive value is ignored.
+OSM_CLASS_LIMIT_ENVIRONMENT_KEY = "O4_OSM_CLASS_LIMIT"
+IMAGERY_CLASS_LIMIT_ENVIRONMENT_KEY = "O4_IMAGERY_CLASS_LIMIT"
+
+# The named gate for the whole of Part A (spec Acceptance: "every part is
+# default-ON behind a named env gate ... with gate-off byte-identity").
+# Off restores the pre-2026-07-30 scheduler exactly: 2/2 fetch caps,
+# compute bounded by the slot count, no cached-tile bypass, an untokened
+# cache warmer and no imagery-tail release.
+CACHE_AWARE_ADMISSION_ENVIRONMENT_KEY = "O4_CACHE_AWARE_ADMISSION"
+_GATE_OFF_VALUES = ("0", "false", "no", "off")
+
+
+def cache_aware_admission_enabled():
+    """Is cache-aware admission (spec Part A) active?  Default yes."""
+    value = os.environ.get(CACHE_AWARE_ADMISSION_ENVIRONMENT_KEY)
+    if value is None:
+        return True
+    return str(value).strip().lower() not in _GATE_OFF_VALUES
+
+
+def _limit_from_environment(key, default):
+    try:
+        value = int(os.environ.get(key, "").strip())
+    except (AttributeError, TypeError, ValueError):
+        return default
+    return value if value >= 1 else default
+
+
+def osm_class_limit():
+    """How many tiles may FETCH OpenStreetMap data at once."""
+    return _limit_from_environment(
+        OSM_CLASS_LIMIT_ENVIRONMENT_KEY,
+        OSM_CLASS_LIMIT if cache_aware_admission_enabled()
+        else LEGACY_OSM_CLASS_LIMIT)
+
+
+def imagery_class_limit():
+    """How many tiles may occupy the imagery servers at once."""
+    return _limit_from_environment(
+        IMAGERY_CLASS_LIMIT_ENVIRONMENT_KEY,
+        IMAGERY_CLASS_LIMIT if cache_aware_admission_enabled()
+        else LEGACY_IMAGERY_CLASS_LIMIT)
+
+
+def compute_class_limit(slots):
+    """How many tiles may run a COMPUTE step at once.
+
+    The machine's LOGICAL CORE COUNT (owner ruling 2026-07-30: "I could
+    run as many tiles as I have cores concurrently if they have all
+    their data downloaded"; "I think we can let the machine manage the
+    CPU").  Memory is bounded separately and per step, by the projection
+    gate below — the review of revision 1 showed a cores-ONLY rule
+    admitting 16 tiles where the old formula admitted 5, which is why
+    both bounds exist.  Gate off: the slot count, as before.
+    """
+    if not cache_aware_admission_enabled():
+        return slots
+    import O4_Parallel_Utils as PARALLEL_UTILS
+
+    return max(1, PARALLEL_UTILS.machine_core_count())
 
 
 def class_limits(slots):
     """Per-class concurrency caps for a run of ``slots`` children."""
     return {
-        "osm": min(OSM_CLASS_LIMIT, slots),
-        "imagery": min(IMAGERY_CLASS_LIMIT, slots),
-        "compute": slots,
+        "osm": min(osm_class_limit(), slots),
+        "imagery": min(imagery_class_limit(), slots),
+        "compute": compute_class_limit(slots),
     }
 
 
@@ -269,13 +394,157 @@ def mesh_memory_estimate_gigabytes(elevation_level_value):
 
 
 def mesh_memory_budget_gigabytes():
-    """Total gigabytes the run may commit to concurrent mesh steps."""
+    """Total gigabytes the run may commit to concurrent mesh steps.
+
+    The pre-2026-07-30 budget, still used when the cache-aware admission
+    gate is off (see :func:`step_memory_budget_gigabytes`).
+    """
     import O4_Parallel_Utils as PARALLEL_UTILS
 
     return max(
         4.0,
         PARALLEL_UTILS.machine_memory_gigabytes() - MESH_MEMORY_HEADROOM_GB,
     )
+
+
+# Peak working-set estimates for the steps OTHER than mesh (gigabytes),
+# extending the mesh sizing above to "any step with a memory estimate"
+# (spec §A.2).  Deliberately coarse: their job is to stop a cores-wide
+# compute admission committing more memory than the machine has, not to
+# model a step.  A step absent from this table projects nothing and is
+# admitted on the core count alone.
+#
+# Provenance, honestly: only the VECTOR figure is measured — a live
+# auto-patch build (HECA, 2026-07-30) held 2.55-2.56 GB resident at
+# 100 % of one core across a five-sample window, and the vector step
+# runs that solve after its own OSM parse, so it is rounded UP to 3.0.
+# A worker with the whole pipeline imported and nothing running is
+# 0.12 GB, so the others are that baseline plus a deliberately generous
+# working-set allowance, NOT measurements; refine them when a
+# per-step peak-RSS measurement exists.
+STEP_MEMORY_ESTIMATES_GB = {
+    "vector": 3.0,     # measured: OSM parse + the auto-patch solve
+    "masks": 1.0,      # estimate
+    "imagery": 1.5,    # estimate: download buffers + the DDS convert pool
+    "overlays": 0.5,   # estimate
+}
+
+
+def step_memory_budget_gigabytes():
+    """Gigabytes a run may PROJECT onto its concurrently admitted steps.
+
+    ``MEMORY_CEILING_FRACTION`` (80 %, owner ruling 2026-07-30) of the
+    memory the machine can hand out.  Sampled ONCE per run, on purpose:
+    re-sampling it live would make the run's own consumption shrink its
+    own budget — a feedback loop that starves admission rather than
+    gating it — and would make the gate untestable.  Floored at one
+    default estimate so a single tile can never deadlock.
+    """
+    import O4_Parallel_Utils as PARALLEL_UTILS
+
+    return max(
+        MESH_MEMORY_DEFAULT_GB,
+        PARALLEL_UTILS.machine_available_memory_gigabytes()
+        * PARALLEL_UTILS.MEMORY_CEILING_FRACTION,
+    )
+
+
+# ---------------------------------------------------------------------
+# Cache determination (spec §A.2): per-subsystem predicates, never a
+# scheduler-side re-derivation
+# ---------------------------------------------------------------------
+# Which fetch subsystems each step's REMOTE traffic comes from.  This
+# table is the whole of the scheduler's knowledge: it never re-derives
+# "what will this step read" — that duplicated derivation is exactly
+# what drifts (scheduler says cached, step fetches anyway, the fetch cap
+# is breached silently).  Each name resolves to a module-level
+# ``is_cached(tile)`` co-located with that subsystem's fetch code, which
+# is cheap, filesystem/manifest-only, never a network probe, and answers
+# False for anything it cannot decide.
+STEP_FETCH_SUBSYSTEMS = {
+    # The vector step downloads OSM layers, prepares the DEM (base tiles
+    # plus airport elevation insets), kicks the bathymetry band prefetch
+    # and runs the auto-patch airport builds.
+    "vector": (
+        "O4_Vector_Map",
+        "O4_DEM_Utils",
+        "O4_Airport_Elevation_Insets",
+        "O4_Bathymetry_Band",
+        "auto_patch.osm_load",
+    ),
+    "imagery": ("O4_Tile_Utils",),
+}
+
+
+_PREDICATES: dict = {}
+_PREDICATES_LOCK = threading.Lock()
+
+
+def preload_cache_predicates():
+    """Import the fetch subsystems and register their predicates.
+
+    Run OFF the dispatch path (a daemon thread at run start): importing
+    these modules pulls the whole pipeline into the FRONT-END process,
+    which must never happen while the scheduler lock is held — that is
+    the 2026-07-17 "build appears hung" shape all over again.  Until the
+    preload finishes, no subsystem can answer and every tile is treated
+    as NOT cached, which is simply the pre-2026-07-30 behaviour.
+    """
+    for module_name in sorted({
+        name
+        for names in STEP_FETCH_SUBSYSTEMS.values()
+        for name in names
+    }):
+        predicate = None
+        try:
+            module = __import__(module_name, fromlist=["is_cached"])
+            predicate = getattr(module, "is_cached", None)
+        except Exception:
+            predicate = None
+        with _PREDICATES_LOCK:
+            _PREDICATES[module_name] = predicate or False
+
+
+def _subsystem_is_cached(module_name):
+    """One subsystem's registered ``is_cached`` predicate, or ``None``.
+
+    ``None`` means "cannot answer" — not yet preloaded, unimportable, or
+    a subsystem that publishes no predicate — and every caller reads that
+    as NOT cached.
+    """
+    with _PREDICATES_LOCK:
+        predicate = _PREDICATES.get(module_name)
+    return predicate or None
+
+
+def cache_predicates_ready(step_key):
+    """Can every subsystem this step fetches from answer for itself?"""
+    return all(
+        _subsystem_is_cached(module_name) is not None
+        for module_name in STEP_FETCH_SUBSYSTEMS.get(step_key, ())
+    )
+
+
+def tile_inputs_are_cached(tile_configuration, step_key):
+    """Would this step of this tile issue NO remote request?
+
+    Asks every subsystem the step fetches from, in order, and stops at
+    the first that says no.  ``tile_configuration`` is a configured
+    ``O4_Config_Utils.Tile``.  A step with no fetch subsystems (mesh,
+    masks, overlays) is trivially cached; so is a step whose subsystems
+    all answer yes.  Anything else — a subsystem that cannot answer, a
+    predicate that raises — is NOT cached.
+    """
+    for module_name in STEP_FETCH_SUBSYSTEMS.get(step_key, ()):
+        predicate = _subsystem_is_cached(module_name)
+        if predicate is None:
+            return False
+        try:
+            if not predicate(tile_configuration):
+                return False
+        except Exception:
+            return False
+    return True
 
 
 # Event types forwarded verbatim (modulo remapping/suppression, spec
@@ -365,6 +634,16 @@ class _WorkerChild:
         self.process: Optional[subprocess.Popen] = None
         self.tile = None               # tile this child is carrying
         self.running_step = None       # step key in flight, None = waiting
+        # The resource class this child OCCUPIES right now (None between
+        # steps).  Usually STEP_CLASSES[running_step], but the vector
+        # step swaps to VECTOR_SOLVE_CLASS for the auto-patch solve, so
+        # the release path must read what is held, never re-derive it
+        # from the step key — that is also what makes the release
+        # crash-safe (the pool's reaping path releases this same field).
+        self.step_class = None
+        # Airports still solving while this child is in the auto-patch
+        # phase of its vector step (None outside that phase).
+        self.autopatch_pending = None
         # The child's own live in-step estimate: (step_key, seconds,
         # received_at).  A worker child runs a full EngineSession whose
         # tracker sees the live signals the parent cannot (bar rates,
@@ -541,13 +820,32 @@ class ParallelBuildRun:
         # broadcasts below shrink that as tiles finish (see
         # _broadcast_sibling_count).
         self._sibling_broadcast = slots
-        # Memory-aware mesh admission (spec §3.8): per-tile estimates
-        # from each tile's configured elevation detail level, admitted
-        # against the machine's budget (at least one mesh always runs).
+        # Memory-aware admission (spec §3.8, widened by
+        # apron-string-and-scheduling §A.2 from the mesh step to every
+        # step with an estimate).  Per-tile MESH estimates come from each
+        # tile's configured elevation detail level; the other steps take
+        # the flat STEP_MEMORY_ESTIMATES_GB sizing.  The budget is
+        # sampled ONCE (see step_memory_budget_gigabytes) and at least
+        # one step is always admitted, so no single tile can deadlock.
         self._mesh_memory_estimates: dict = {}
-        self._mesh_memory_budget = mesh_memory_budget_gigabytes()
-        self._mesh_memory_in_use = 0.0
-        self._meshing_tiles: set = set()
+        self._memory_budget = (
+            step_memory_budget_gigabytes()
+            if cache_aware_admission_enabled()
+            else mesh_memory_budget_gigabytes())
+        self._memory_in_use = 0.0
+        self._memory_holders: dict = {}   # (tile, step) -> gigabytes
+        # Cache-aware fetch admission (spec §A.2): the per-subsystem
+        # predicates' verdict per (tile, step), memoised because a tile's
+        # first step is re-evaluated on every dispatch sweep and the
+        # predicates, while cheap, are not free.  A tile's configured
+        # Tile object is built once and shared by all five predicates
+        # (the single-pass principle), never rebuilt per subsystem.
+        self._cache_state: dict = {}
+        self._tile_configurations: dict = {}
+        # The parent-side cache warmer holds an osm token exactly like
+        # any other fetcher while it downloads (spec §A.3, binding
+        # invariant).
+        self._warm_token_held = False
         self._lock = threading.Lock()
         self._children: list = []
         self._next_child_index = 0
@@ -621,6 +919,7 @@ class ParallelBuildRun:
             self._mesh_memory_estimates[tile] = (
                 self._estimate_mesh_memory(tile, custom_build_dir))
             self._percent_high_water.pop(tile, None)
+            self._forget_cache_state_locked(tile)
             self._queue.append(tile)
         self._total += len(admitted)
         return admitted
@@ -657,6 +956,12 @@ class ParallelBuildRun:
             self._warmer_running = True
         threading.Thread(target=self._osm_cache_warmer, daemon=True).start()
         threading.Thread(target=self._ticker, daemon=True).start()
+        # Import the fetch subsystems' cache predicates off the dispatch
+        # path (see preload_cache_predicates): until they land every tile
+        # reads as not cached, which is exactly the old behaviour.
+        if cache_aware_admission_enabled():
+            threading.Thread(
+                target=preload_cache_predicates, daemon=True).start()
         # Children spawned believing `slots` siblings share the machine;
         # tell them the real count right away (a two-tile run on four
         # slots must not throttle itself for two ghosts).
@@ -772,41 +1077,218 @@ class ParallelBuildRun:
             level_value = None
         return mesh_memory_estimate_gigabytes(level_value)
 
-    def _mesh_memory_admits_locked(self, tile):
-        """True when the tile's mesh step fits the memory budget now.
+    def _forget_cache_state_locked(self, tile):
+        """Drop a tile's memoised cache verdicts and its configuration.
 
-        One mesh is always admitted (a single tile must never deadlock,
-        however big its raster); beyond that, the sum of running
-        estimates stays within the budget.
+        Called whenever something may have changed what is on disk for
+        it: a re-queued (previously finished) tile, a completed step, a
+        finished warm.  Re-asking is cheap; a stale "not cached" would
+        keep a warm tile queueing for a fetch token it does not need.
         """
-        if not self._meshing_tiles:
+        for key in [k for k in self._cache_state if k[0] == tile]:
+            del self._cache_state[key]
+        self._tile_configurations.pop(tile, None)
+
+    def _step_memory_estimate(self, tile, step_key):
+        """Projected peak memory (gigabytes) for one step of one tile.
+
+        The mesh step keeps its per-tile elevation-level sizing; the
+        other steps take the flat table, but only while the cache-aware
+        admission gate is on — with it off the projection is the
+        pre-2026-07-30 mesh-only one.
+        """
+        if step_key == "mesh":
+            return self._mesh_memory_estimates.get(
+                tile, MESH_MEMORY_DEFAULT_GB)
+        if not cache_aware_admission_enabled():
+            return 0.0
+        return STEP_MEMORY_ESTIMATES_GB.get(step_key, 0.0)
+
+    def _memory_admits_locked(self, tile, step_key):
+        """True when the step's projected memory fits the budget now.
+
+        One step is always admitted (a single tile must never deadlock,
+        however big its raster); beyond that, the sum of the admitted
+        steps' projections stays within the budget — 80 % of the memory
+        the machine could hand out when the run started.
+        """
+        estimate = self._step_memory_estimate(tile, step_key)
+        if estimate <= 0.0:
             return True
-        estimate = self._mesh_memory_estimates.get(
-            tile, MESH_MEMORY_DEFAULT_GB)
-        return (self._mesh_memory_in_use + estimate
-                <= self._mesh_memory_budget)
+        if not self._memory_holders:
+            return True
+        return self._memory_in_use + estimate <= self._memory_budget
+
+    def _tile_configuration(self, tile):
+        """This tile's configured ``Tile``, built once and reused.
+
+        The one object every cache predicate is handed (spec §A.2 asks
+        each subsystem, not the scheduler, what it needs from it).
+        ``None`` when the configuration cannot be read at all — the
+        callers treat that as "not cached".
+        """
+        if tile in self._tile_configurations:
+            return self._tile_configurations[tile]
+        configuration = None
+        try:
+            import O4_Config_Utils as CFG
+
+            build_dir = (self._tile_arguments.get(tile)
+                         or {}).get("custom_build_dir", "")
+            configuration = CFG.Tile(tile[0], tile[1], build_dir)
+            configuration.read_from_config()
+            arguments = self._tile_arguments.get(tile) or {}
+            # The build command's imagery selection is explicit user
+            # intent and wins over the recorded config, exactly as the
+            # worker's own session applies it before running the step —
+            # otherwise the imagery predicate would judge the manifest
+            # against the wrong provider.
+            if arguments.get("provider"):
+                configuration.default_website = arguments["provider"]
+            if arguments.get("zoomlevel"):
+                configuration.default_zl = arguments["zoomlevel"]
+        except Exception:
+            configuration = None
+        self._tile_configurations[tile] = configuration
+        return configuration
+
+    def _fetch_is_cached_locked(self, tile, step_key):
+        """Memoised verdict of the per-subsystem cache predicates."""
+        key = (tile, step_key)
+        if key in self._cache_state:
+            return self._cache_state[key]
+        if not cache_predicates_ready(step_key):
+            # The preload thread has not finished importing the fetch
+            # subsystems.  Answer NOT cached and do NOT memoise it —
+            # the next dispatch sweep asks again.
+            return False
+        configuration = self._tile_configuration(tile)
+        cached = False
+        if configuration is not None:
+            started = time.time()
+            cached = tile_inputs_are_cached(configuration, step_key)
+            elapsed = time.time() - started
+            if elapsed > 1.0:
+                # The predicates are cheap BY CONTRACT; a slow one is
+                # holding the scheduler lock and deserves to be named.
+                print("Cache check for %s %s took %.1f s — a fetch cache "
+                      "predicate is doing more than filesystem work."
+                      % (_short_latlon(tile), step_key, elapsed))
+        self._cache_state[key] = cached
+        return cached
+
+    def _effective_step_class_locked(self, tile, step_key):
+        """The resource class this step of this tile will OCCUPY.
+
+        A fetch-class step whose inputs are all on disk issues no remote
+        request, so it is admitted under the compute class instead and
+        never waits for a fetch token (spec §A.2, "an already-cached
+        queued tile never waits for a fetch token").
+        """
+        step_class = STEP_CLASSES.get(step_key, "compute")
+        if step_class not in FETCH_CLASSES:
+            return step_class
+        if not cache_aware_admission_enabled():
+            return step_class
+        if self._fetch_is_cached_locked(tile, step_key):
+            return CACHED_STEP_CLASS
+        return step_class
 
     def _try_start_step_locked(self, child):
         """Dispatch the child's tile's next step if its class has room
-        (and, for mesh steps, the memory budget admits it)."""
+        and the memory projection admits it."""
         step_index = self._next_step_index.get(child.tile, 0)
         step_key = self._programs[child.tile][step_index]
-        step_class = STEP_CLASSES.get(step_key, "compute")
+        step_class = self._effective_step_class_locked(child.tile, step_key)
         if self._class_active[step_class] >= self._class_limits[step_class]:
             return False
-        if step_key == "mesh" and not self._mesh_memory_admits_locked(
-                child.tile):
+        if not self._memory_admits_locked(child.tile, step_key):
             return False
         if child.start_step(step_key, self._tile_arguments[child.tile]):
             self._step_started_at[(child.tile, step_key)] = time.time()
             self._tile_first_started.setdefault(child.tile, time.time())
             self._class_active[step_class] += 1
-            if step_key == "mesh":
-                self._meshing_tiles.add(child.tile)
-                self._mesh_memory_in_use += self._mesh_memory_estimates.get(
-                    child.tile, MESH_MEMORY_DEFAULT_GB)
+            child.step_class = step_class
+            child.autopatch_pending = None
+            estimate = self._step_memory_estimate(child.tile, step_key)
+            if estimate > 0.0:
+                self._memory_holders[(child.tile, step_key)] = estimate
+                self._memory_in_use += estimate
             return True
         return False
+
+    def _swap_class_locked(self, child, new_class):
+        """Move a running child from the class it holds to ``new_class``.
+
+        The child is ALREADY running, so an acquire cannot be refused:
+        the count may exceed the class limit for as long as the returning
+        tiles take to finish their step, and every gate compares ``>=``,
+        so the effect is to SHUT the class to new dispatches while they
+        drain.  Never re-acquiring at all would be worse: the tails would
+        run alongside a full complement of freshly dispatched fetchers.
+        """
+        old_class = child.step_class
+        if old_class == new_class:
+            return
+        if old_class is not None:
+            self._class_active[old_class] = max(
+                0, self._class_active[old_class] - 1)
+        self._class_active[new_class] = (
+            self._class_active.get(new_class, 0) + 1)
+        child.step_class = new_class
+
+    def _note_autopatch_begin_locked(self, child, airports):
+        """The child's vector step handed off to the auto-patch solve.
+
+        Releases the osm token (a queued tile may start FETCHING at
+        once) and continues under ``VECTOR_SOLVE_CLASS``.  Ignored for a
+        child that is not in the fetch phase of a vector step, and for an
+        empty airport list (nothing to solve).
+        """
+        if (child.running_step != "vector"
+                or child.step_class != STEP_CLASSES.get("vector", "osm")
+                or not airports):
+            return False
+        self._swap_class_locked(child, VECTOR_SOLVE_CLASS)
+        child.autopatch_pending = {str(a) for a in airports}
+        return True
+
+    def _note_autopatch_terminal_locked(self, child, airport):
+        """One airport finished (done/fail); the last one ends the solve.
+
+        The vector step's remainder can still touch the network, so the
+        tile takes an osm token back for it.
+        """
+        pending = child.autopatch_pending
+        if pending is None:
+            return False
+        pending.discard(str(airport))
+        if pending:
+            return False
+        child.autopatch_pending = None
+        if child.running_step != "vector":
+            return False
+        self._swap_class_locked(child, STEP_CLASSES.get("vector", "osm"))
+        return True
+
+    def _note_imagery_downloads_done_locked(self, child):
+        """The imagery step's download queue drained for this child.
+
+        Releases the imagery token (a queued tile may start downloading
+        at once) and lets the local DDS conversion tail finish under
+        ``IMAGERY_TAIL_CLASS`` — the same hybrid-step release the vector
+        step performs at ``AutoPatchBegin``.  Ignored for a child that is
+        not in the fetch phase of an imagery step, so a duplicate or
+        late signal cannot double-release.
+        """
+        if not cache_aware_admission_enabled():
+            return False
+        if (child.running_step != "imagery"
+                or child.step_class != STEP_CLASSES.get(
+                    "imagery", "imagery")):
+            return False
+        self._swap_class_locked(child, IMAGERY_TAIL_CLASS)
+        return True
 
     def _release_step_resources_locked(self, child):
         """Return a finished/aborted step's class and memory budget."""
@@ -818,15 +1300,19 @@ class ParallelBuildRun:
             self._tile_step_seconds[child.tile] = (
                 self._tile_step_seconds.get(child.tile, 0.0)
                 + (time.time() - started))
-        step_class = STEP_CLASSES.get(step_key, "compute")
+        # Release the class the child ACTUALLY holds: a vector step that
+        # handed off to the auto-patch solve is occupying
+        # VECTOR_SOLVE_CLASS, not "osm".  This one path serves normal
+        # step completion AND the reaping of a child that died mid-solve
+        # (_on_child_exit), so no token can leak.
+        step_class = child.step_class or STEP_CLASSES.get(step_key, "compute")
         self._class_active[step_class] = max(
             0, self._class_active[step_class] - 1)
-        if step_key == "mesh" and child.tile in self._meshing_tiles:
-            self._meshing_tiles.discard(child.tile)
-            self._mesh_memory_in_use = max(
-                0.0,
-                self._mesh_memory_in_use - self._mesh_memory_estimates.get(
-                    child.tile, MESH_MEMORY_DEFAULT_GB))
+        child.step_class = None
+        child.autopatch_pending = None
+        held = self._memory_holders.pop((child.tile, step_key), None)
+        if held is not None:
+            self._memory_in_use = max(0.0, self._memory_in_use - held)
         child.running_step = None
 
     def _start_new_tile_locked(self, child):
@@ -837,16 +1323,22 @@ class ParallelBuildRun:
         §3.7); the warmer re-dispatches the moment it finishes a tile.
         A tile whose FIRST step's class is full is also skipped in favour
         of a later queued tile whose first step has room (mixed-batch
-        programs may lead with different classes).
+        programs may lead with different classes).  That scan uses the
+        EFFECTIVE class, so a queued tile whose inputs are already
+        cached overtakes cold tiles waiting on a full fetch class rather
+        than queueing behind them (spec §A.2).
         """
         tile = None
         for candidate in self._queue:
             if candidate == self._warming_tile:
                 continue
-            first_class = STEP_CLASSES.get(
-                self._programs[candidate][0], "compute")
+            first_step = self._programs[candidate][0]
+            first_class = self._effective_step_class_locked(
+                candidate, first_step)
             if (self._class_active[first_class]
                     >= self._class_limits[first_class]):
+                continue
+            if not self._memory_admits_locked(candidate, first_step):
                 continue
             tile = candidate
             break
@@ -986,6 +1478,29 @@ class ParallelBuildRun:
                 child.live_remaining = (
                     child.running_step, float(remaining), time.time())
             return
+        if event_name == "AutoPatchBegin":
+            # The vector step's fetch phase is over and its auto-patch
+            # solve has started: hand the osm token back so a queued tile
+            # can fetch, and let the solve run under the uncapped compute
+            # class (spec: vector-step-class-split §2).
+            with self._lock:
+                if self._note_autopatch_begin_locked(
+                        child, payload.get("airports") or ()):
+                    self._dispatch_locked()
+        elif (event_name == "AutoPatchProgress"
+                and payload.get("status") in ("done", "fail")):
+            with self._lock:
+                if self._note_autopatch_terminal_locked(
+                        child, payload.get("airport")):
+                    self._dispatch_locked()
+        elif event_name == "ImageryDownloadsDone":
+            # The imagery step's download queue drained: hand the imagery
+            # token back so a queued tile can download, and let the DDS
+            # conversion tail run under compute (spec §A.2).
+            with self._lock:
+                if self._note_imagery_downloads_done_locked(child):
+                    self._dispatch_locked()
+            return
         if event_name == "Error" and payload.get("fatal"):
             # A fatal child error ends that CHILD, never the parent
             # session; the crash path in _on_child_exit accounts for it.
@@ -1109,6 +1624,11 @@ class ParallelBuildRun:
                 child.tile = None
                 child.step_failed = False
             elif child.tile is not None:
+                # A finished step may have landed exactly the data the
+                # NEXT step would fetch (the vector step's background
+                # prefetch is the common case), so the tile's memoised
+                # cache verdicts are re-asked rather than carried over.
+                self._forget_cache_state_locked(child.tile)
                 self._next_step_index[child.tile] = (
                     self._next_step_index.get(child.tile, 0) + 1)
                 if (self._next_step_index[child.tile]
@@ -1195,6 +1715,33 @@ class ParallelBuildRun:
         self._maybe_finish()
 
     # -- OpenStreetMap cache warmer (spec §3.7) ---------------------------
+    def _acquire_warm_token_locked(self):
+        """Take an osm token for the warmer, or refuse.
+
+        The parent-side warmer is a FETCHER and takes a token like any
+        other (spec §A.3, the binding admission invariant: revision 1's
+        untokened warmer could push concurrent Overpass conversations to
+        cap + 1).  Gate off: no token, exactly as before.
+        """
+        if not cache_aware_admission_enabled():
+            return True
+        if self._warm_token_held:
+            return True
+        if self._class_active["osm"] >= self._class_limits["osm"]:
+            return False
+        self._class_active["osm"] += 1
+        self._warm_token_held = True
+        return True
+
+    def _release_warm_token_locked(self):
+        """Hand the warmer's osm token back (idempotent)."""
+        if not self._warm_token_held:
+            return False
+        self._class_active["osm"] = max(
+            0, self._class_active["osm"] - 1)
+        self._warm_token_held = False
+        return True
+
     def _osm_cache_warmer(self):
         """Warmer thread body: run the warm loop, then mark the thread
         dead so a later enqueue knows to revive it (the loop returns
@@ -1203,7 +1750,14 @@ class ParallelBuildRun:
             self._warm_queued_tiles()
         finally:
             with self._lock:
+                # A thread that dies anywhere — including inside a warm —
+                # must not leak its token; this is the warmer's half of
+                # the crash-safe release the pool's reaping path gives
+                # the children.
+                self._release_warm_token_locked()
+                self._warming_tile = None
                 self._warmer_running = False
+                self._dispatch_locked()
 
     def _warm_queued_tiles(self):
         """Pre-download queued tiles' OpenStreetMap layer caches.
@@ -1271,6 +1825,7 @@ class ParallelBuildRun:
                     self._dispatch_locked()
                 self._maybe_finish()
                 continue
+            tile_configuration = None
             try:
                 with self._lock:
                     tile_build_dir = self._tile_arguments.get(
@@ -1278,6 +1833,26 @@ class ParallelBuildRun:
                 tile_configuration = CFG.Tile(
                     tile[0], tile[1], tile_build_dir)
                 tile_configuration.read_from_config()
+            except Exception as error:
+                print("[warm] OpenStreetMap warm failed for",
+                      _short_latlon(tile), ":", error,
+                      "- its build will download for itself.")
+            # A tile whose layer caches are already current needs no
+            # Overpass conversation at all — and must therefore not
+            # occupy an osm token to discover that.
+            vector_is_cached = getattr(VMAP, "is_cached", None)
+            if tile_configuration is None or (
+                    vector_is_cached is not None
+                    and vector_is_cached(tile_configuration)):
+                with self._lock:
+                    self._warming_tile = None
+                    self._warmed_tiles.add(tile)
+                    self._dispatch_locked()
+                self._maybe_finish()
+                continue
+            if not self._await_warm_token(tile):
+                continue
+            try:
                 specifications = VMAP.osm_layer_warm_specifications(
                     tile_configuration)
                 warmed_layers = 0
@@ -1309,10 +1884,36 @@ class ParallelBuildRun:
                       _short_latlon(tile), ":", error,
                       "- its build will download for itself.")
             with self._lock:
+                self._release_warm_token_locked()
                 self._warming_tile = None
                 self._warmed_tiles.add(tile)
+                self._cache_state.pop((tile, "vector"), None)
                 self._dispatch_locked()
             self._maybe_finish()
+
+    def _await_warm_token(self, tile):
+        """Block until the warmer holds an osm token for ``tile``.
+
+        Returns False (nothing acquired, nothing to do) when the run is
+        stopping or a worker child took the tile meanwhile.  The warming
+        CLAIM is dropped while waiting: a warmer parked on a full osm
+        class must not also keep its tile off the workers, or a queue
+        whose whole osm budget is busy would stall behind it.
+        """
+        while True:
+            with self._lock:
+                if self._finished or self._cancel_all:
+                    self._warming_tile = None
+                    return False
+                if tile not in self._queue:
+                    self._warming_tile = None
+                    return False
+                self._warming_tile = tile
+                if self._acquire_warm_token_locked():
+                    return True
+                self._warming_tile = None
+                self._dispatch_locked()
+            time.sleep(WARM_TOKEN_POLL_SECONDS)
 
     # -- run end ----------------------------------------------------------
     def _maybe_finish(self):

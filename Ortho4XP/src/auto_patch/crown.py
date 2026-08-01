@@ -47,6 +47,7 @@ Gate: ``config.ENABLE_SPINE_CROWN`` (env ``O4_SPINE_CROWN``, default on).
 from __future__ import annotations
 
 import math
+import os as _os
 from typing import Dict, List, Optional, Tuple
 
 from shapely.errors import GEOSException, TopologicalError
@@ -127,6 +128,41 @@ _RWY_SHADOW_M = 2.5
 # to its own uniform drop, so there is no step at the transition.
 _XING_INFLUENCE_M = 40.0     # foreign-centerline reach of the blend zone
 
+# ── RAIL CONTINUITY (spec reference-honesty-and-terracing §2c, 2026-07-30) ──
+# The Lipschitz shed below exempts runway keys on a "uniform-drop profile"
+# premise measured FALSE: HECA's rails carry 30 / 10 / 18 crown on/off
+# transitions (05C/23C, 05L/23R, 05R/23L).  A rail vertex co-owned by a
+# non-crown shape (an apron or junction welded to the runway edge) is a hard
+# ``c = 0`` contract, and its crowned rail neighbour carries the full
+# ``RUNWAY_CROWN_TRANSVERSE × half_width`` drop — so the EMITTED rail steps by
+# the whole crown over one ring edge, ON TOP of the profile's own longitudinal
+# grade.  Measured at HECA: 2.45 % (05C/23C, 30.6 m), 2.27 % (05L/23R, 37.1 m),
+# 2.17 % (05R/23L, 14.8 m) — all compliant at ~0.4-1.5 % in UNCROWNED space,
+# i.e. pure crown-boundary artefacts.
+#
+# The existing END/WELD AXIAL TAPER (below) already sheds toward those
+# frontier points, but at the FULL ``RUNWAY_MAX_GRADE``: it therefore spends
+# the entire longitudinal budget on the crown and leaves none for the profile,
+# which at HECA runs at 1.44-1.47 % right there.  This pass makes the drop
+# assignment CONTINUOUS ALONG THE RAILS in the sense the emitted surface
+# needs: over every runway ring EDGE the crown may change by at most the
+# longitudinal budget MINUS the profile's own change across that edge
+# (``|Δc| ≤ RUNWAY_MAX_GRADE·d − |ΔP|``), so
+# ``|Δz_emit| = |ΔP − Δc| ≤ RUNWAY_MAX_GRADE·d`` by construction.
+# Relaxation is monotone DOWNWARD (a drop is only ever lowered, never
+# invented), so it converges and can never raise a node above its designed
+# per-ref crown.  Where the profile already uses the whole cap the crown must
+# release over a long run — that is the honest arithmetic, not a tuning knob.
+#
+# Gate: ``O4_CROWN_RAIL_CONTINUITY`` (default on).  OFF ⇒ the pass returns
+# before touching anything ⇒ byte-identical to the pre-spec field.
+_RAIL_CONTINUITY = _os.environ.get("O4_CROWN_RAIL_CONTINUITY", "1") == "1"
+# Ring edges shorter than this are cross-end / densify confetti whose
+# quantized altitudes cannot resolve a grade; constraining them would chase
+# emit rounding.  (The runway profile itself emits on a 0.1 m grid.)
+_RAIL_MIN_EDGE_M = 0.5
+_RAIL_MAX_SWEEPS = 60
+
 _SPINE_SAMPLE_STEP_M = 12.0  # breakline node spacing along the spine
 _SPINE_EDGE_CLEAR_M = 1.0    # keep spine samples ≥ this inside the pavement
 _SPINE_RING_CLEAR_M = 0.9    # and ≥ this from any pavement ring line
@@ -187,6 +223,123 @@ def runway_crown_drop_m(half_width_m: float) -> float:
         return 0.0
     return round(RUNWAY_CROWN_TRANSVERSE
                  * min(float(half_width_m), _RUNWAY_HALFW_CAP_M), 2)
+
+
+def _rail_continuous_drops(layout, cps, bucket_to_idx, nodes,
+                           drop_by_key, drop_by_idx) -> int:
+    """Make the runway crown drop CONTINUOUS ALONG THE RAILS (spec §2c).
+
+    For every ring EDGE of every runway / runway_crossing shape, enforce
+
+        |c_a − c_b|  ≤  RUNWAY_MAX_GRADE · d  −  |P(a) − P(b)|
+
+    where ``P`` is the runway's own redistributed FAA profile
+    (``sample_redistributed_profile`` — the laterally-flat centreline
+    authority, so along a rail ``ΔP`` IS the profile's longitudinal change
+    across that edge).  Because the emitted value is ``z' − c`` and the
+    solve holds ``Δz' ≈ ΔP`` along the rail, this is exactly the statement
+    "the crown may not spend budget the profile already needs".
+
+    Relaxed to a fixed point by lowering the LARGER drop of any offending
+    edge — monotone downward, bounded by 0, so it terminates and can never
+    lift a node above the designed per-ref crown.  Drops falling to the
+    register threshold are removed outright (an uncrowned node).
+
+    Returns the number of canonical keys whose drop changed."""
+    if not _RAIL_CONTINUITY or not drop_by_key:
+        return 0
+    try:
+        from .runway_redistribute import sample_redistributed_profile
+    except Exception:                                   # pragma: no cover
+        return 0
+    profiles = getattr(layout, "_runway_redistributed_profiles", None) or {}
+
+    def _prof(ref: str, x: float, y: float):
+        """Profile elevation at (x, y); for a crossing's ``A+B`` ref the
+        MEMBER profiles are sampled and the reader takes the widest
+        member swing below (conservative: the largest |ΔP| binds)."""
+        out = []
+        for part in (ref or "").split("+"):
+            if part in profiles:
+                v = sample_redistributed_profile(layout, part, x, y)
+                if v is not None:
+                    out.append(float(v))
+        return out
+
+    # Ring edges as (key_a, key_b, allowance) — allowance is the crown
+    # headroom left by the profile over that edge.
+    edges: List[Tuple[object, object, float]] = []
+    for s in layout.shapes:
+        if s.role not in (ROLE_RUNWAY, ROLE_RUNWAY_CROSSING):
+            continue
+        if (s.polygon is None or s.polygon.is_empty
+                or s.polygon.geom_type != "Polygon"):
+            continue
+        try:
+            ring = list(s.polygon.exterior.coords)[:-1]
+        except _GEOM_EXC:
+            continue
+        if len(ring) < 3:
+            continue
+        ref = getattr(s, "ref", "") or ""
+        n = len(ring)
+        for i in range(n):
+            (xa, ya) = ring[i]
+            (xb, yb) = ring[(i + 1) % n]
+            d = math.hypot(xa - xb, ya - yb)
+            if d < _RAIL_MIN_EDGE_M:
+                continue
+            pa = _prof(ref, float(xa), float(ya))
+            pb = _prof(ref, float(xb), float(yb))
+            d_prof = 0.0
+            for va, vb in zip(pa, pb):
+                d_prof = max(d_prof, abs(va - vb))
+            allow = RUNWAY_MAX_GRADE * d - d_prof
+            if allow < 0.0:
+                allow = 0.0
+            ka = cps.get_or_add(float(xa), float(ya))
+            kb = cps.get_or_add(float(xb), float(yb))
+            if ka == kb:
+                continue
+            edges.append((ka, kb, allow))
+    if not edges:
+        return 0
+
+    # Working field: every key touched by an edge, absent ⇒ uncrowned (0).
+    work: Dict[object, float] = {}
+    for (ka, kb, _al) in edges:
+        work.setdefault(ka, float(drop_by_key.get(ka, 0.0)))
+        work.setdefault(kb, float(drop_by_key.get(kb, 0.0)))
+    for _sweep in range(_RAIL_MAX_SWEEPS):
+        moved = False
+        for (ka, kb, allow) in edges:
+            ca, cb = work[ka], work[kb]
+            if ca - cb > allow + 1e-9:
+                work[ka] = cb + allow
+                moved = True
+            elif cb - ca > allow + 1e-9:
+                work[kb] = ca + allow
+                moved = True
+        if not moved:
+            break
+
+    n_changed = 0
+    for key, c in work.items():
+        old = float(drop_by_key.get(key, 0.0))
+        new = round(max(0.0, c), 3)
+        if abs(new - old) <= 1e-9:
+            continue
+        n_changed += 1
+        idx = bucket_to_idx.get(key)
+        if new > 0.005:
+            drop_by_key[key] = new
+            if idx is not None:
+                drop_by_idx[idx] = new
+        else:
+            drop_by_key.pop(key, None)
+            if idx is not None:
+                drop_by_idx.pop(idx, None)
+    return n_changed
 
 
 # ── the per-node crown drop field (taxi / service corridors) ────────────────
@@ -573,6 +726,25 @@ def build_crown_drop_field(layout, nodes, bucket_to_idx,
             d = min(d, _seam_ramp_cap(layout, x, y))
         _register(key, idx, d)
 
+    # RAIL CONTINUITY (spec §2c): the assignment above is per-node — a rail
+    # vertex frozen by a non-crown co-owner keeps c = 0 next to a neighbour
+    # holding the full drop, and the emitted rail steps by the whole crown
+    # ON TOP of the profile's own grade.  Relax the field along every runway
+    # ring edge so the crown never spends budget the profile needs.  Runs
+    # BEFORE the shadow / family / join passes so all three read the FINAL
+    # rail field (the join pass already samples ``drop_by_key`` per ring
+    # vertex, so it follows automatically).  Gate off ⇒ no-op.
+    _n_rail = _rail_continuous_drops(layout, cps, bucket_to_idx, nodes,
+                                     drop_by_key, drop_by_idx)
+    if _n_rail:
+        try:
+            import O4_UI_Utils as _UI
+            _UI.vprint(1, f"  [crown] rail continuity: released the crown at "
+                          f"{_n_rail} runway ring vertex(es) so the emitted "
+                          f"rail keeps the profile's own grade budget.")
+        except Exception:                               # pragma: no cover
+            pass
+
     # Crowned-runway pavement (for the shadow-adoption rule below).
     rwy_shadow = None
     _rwy_shadow_items = []
@@ -589,6 +761,38 @@ def build_crown_drop_field(layout, nodes, bucket_to_idx,
                           _rwy_shadow_items)
         except _GEOM_EXC:                               # pragma: no cover
             rwy_shadow = None
+
+    def _rail_edge_drop(poly, x, y):
+        """The rail's OWN post-continuity drop at the ring point nearest
+        ``(x, y)``, linear along the ring edge — i.e. exactly what the
+        runway edge emits there.  The uniform per-ref value is only an
+        upper bound once ``_rail_continuous_drops`` has released the crown
+        somewhere; a shadow node must follow the rail it hugs, not the
+        design constant, or the weld it exists to protect steps instead."""
+        try:
+            ring = list(poly.exterior.coords)
+        except _GEOM_EXC:                               # pragma: no cover
+            return None
+        best_d2 = None
+        best_c = None
+        for i in range(len(ring) - 1):
+            (ax, ay), (bx, by) = ring[i], ring[i + 1]
+            vx, vy = bx - ax, by - ay
+            len2 = vx * vx + vy * vy
+            if len2 <= 0.0:
+                continue
+            t = ((x - ax) * vx + (y - ay) * vy) / len2
+            t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+            px, py = ax + t * vx, ay + t * vy
+            d2 = (x - px) ** 2 + (y - py) ** 2
+            if best_d2 is None or d2 < best_d2:
+                ca = drop_by_key.get(
+                    cps.get_or_add(float(ax), float(ay)), 0.0)
+                cb = drop_by_key.get(
+                    cps.get_or_add(float(bx), float(by)), 0.0)
+                best_d2 = d2
+                best_c = ca + (cb - ca) * t
+        return best_c
 
     def _shadow_drop(x, y):
         """The crowned-runway edge drop this node must adopt (value-tied
@@ -613,6 +817,10 @@ def build_crown_drop_field(layout, nodes, bucket_to_idx,
         except _GEOM_EXC:
             return None
         best = d_ref
+        if _RAIL_CONTINUITY:
+            rail_c = _rail_edge_drop(poly, x, y)
+            if rail_c is not None:
+                best = min(best, max(0.0, rail_c))
         if _xing_axes:
             dome, in_zone, _n = _crossing_dome_drop(x, y, _xing_axes)
             if in_zone:

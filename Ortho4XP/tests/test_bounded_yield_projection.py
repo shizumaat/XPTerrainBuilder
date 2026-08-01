@@ -185,6 +185,88 @@ def test_reference_with_binding_box(_sweep_path):
     assert rem == 1
 
 
+# ── (g) PAD ROD COUPLING (docs/specs/pad-rod-coupling-spec.md §2) ────────
+# The reference of a soft-fabric vertex welded to a pad FACE is the pad's
+# SEAT, not the fabric's yield-entry state.  These pin the projection-side
+# semantics the coupling relies on; the contact-set side (which vertices
+# are pad-face contacts, and which seat a two-pad contact takes) is pinned
+# in tests/test_building_frontage_near_miss.py.
+
+def _pad_face_arm(contact_ref, outward_refs):
+    """One fp#8-shaped arm: rigid pad {0} at seat 100 welded to fabric
+    node 1 (entry 92, the phase-A/B-shaped apron edge), which strings
+    outward through node 2 to a hard anchor at 90.  ``contact_ref`` is
+    node 1's reference — the entry state (pre-coupling) or the seat."""
+    elev = [100.0, 92.0, 91.0, 90.0]
+    edges = [(1, 2, 5.0), (2, 3, 5.0)]
+    refs = {1: contact_ref}
+    refs.update(outward_refs)
+    rem, _ = feasibility_project(
+        elev, [{"edges": edges}], {3}, force_scalar=True,
+        flat_groups=[{0}], group_refs=[100.0], node_refs=refs)
+    return elev, rem
+
+
+def test_pad_face_contact_ends_at_the_seat(_sweep_path):
+    """With nothing else referencing the outward fabric, the welded
+    contact ends AT the seat (weld-tolerance class) and the fabric
+    strings out at its own cap — graded, not stepped."""
+    entry_arm, rem_entry = _pad_face_arm(92.0, {})
+    assert rem_entry == 0
+    assert entry_arm[1] == pytest.approx(92.0)          # 8 m wall at the face
+    seat_arm, rem_seat = _pad_face_arm(100.0, {})
+    assert rem_seat == 0
+    assert seat_arm[0] == pytest.approx(100.0, abs=1e-9)   # pad never moved
+    assert seat_arm[3] == 90.0                             # anchor never moved
+    assert seat_arm[1] > entry_arm[1]                      # the step closes
+    assert abs(seat_arm[1] - seat_arm[2]) <= 5.0 + 1e-9    # outward grade lawful
+    assert abs(seat_arm[2] - seat_arm[3]) <= 5.0 + 1e-9
+    if _sweep_path:
+        # CHROMATIC sweeps (production default): the proximal pull carries
+        # THROUGH the fabric, so the contact reaches the seat and the
+        # transition emits as a cap-rate ramp outward.
+        assert seat_arm[1] == pytest.approx(100.0, abs=0.02)
+        assert seat_arm[2] == pytest.approx(95.0, abs=0.02)
+    else:
+        # LEGACY SCALAR worklist: no sweep structure, so the reference
+        # semantics come from the exact-return polish alone — the contact
+        # rises to the most its caps admit against the fabric's CURRENT
+        # values (one cap hop above node 2), not to the seat.
+        assert seat_arm[1] == pytest.approx(96.0, abs=1e-9)
+
+
+def test_pad_face_contact_least_displacement_against_fabric_refs(
+        _sweep_path):
+    """MEASURED SEMANTICS (do not "fix" this to 100): the outward fabric
+    carries its OWN §7 reference (its yield-entry state), so the coupled
+    contact rises only as far as the cap web against those competing
+    references admits — least displacement from the seat, not a hold at
+    it.  The face step shrinks and the remainder emits as lawful outward
+    grade; a frontage needing more than the caps allow stays a reported
+    conflict rather than a silent lift."""
+    entry_arm, _ = _pad_face_arm(92.0, {2: 91.0})
+    seat_arm, rem = _pad_face_arm(100.0, {2: 91.0})
+    assert rem == 0
+    assert entry_arm[1] < seat_arm[1] < 100.0        # toward the seat, not to it
+    assert abs(seat_arm[1] - seat_arm[2]) <= 5.0 + 1e-9
+    expected = 97.996 if _sweep_path else 96.0
+    assert seat_arm[1] == pytest.approx(expected, abs=1e-3)
+
+
+def test_pad_face_contact_takes_least_displacement_when_capped(_sweep_path):
+    """The seat reference is a REFERENCE, not a hold: where the caps
+    cannot reach it the contact settles at the nearest lawful value
+    (minimum displacement), never past it."""
+    elev = [100.0, 92.0, 90.0]
+    edges = [(1, 2, 1.0)]
+    rem, _ = feasibility_project(
+        elev, [{"edges": edges}], {2}, force_scalar=True,
+        flat_groups=[{0}], group_refs=[100.0],
+        node_refs={1: 100.0})
+    assert rem == 0
+    assert elev[1] == pytest.approx(91.0, abs=1e-9)      # 90 + cap, not 100
+
+
 def test_group_reference_returns_exactly(_sweep_path):
     # Flat pad {1, 2} displaced to 95 with slack edges: the rigid group
     # must return to its reference level exactly and stay flat.

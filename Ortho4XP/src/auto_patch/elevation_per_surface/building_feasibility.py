@@ -40,13 +40,12 @@ from typing import Callable, Dict, List, Tuple
 from shapely.errors import GEOSException
 
 from auto_patch.config import (
-    ANISO_EDGES,
     BUILDING_AIRSIDE_CONTACT_MIN_COMPONENT_M2,
     BUILDING_FULL_FRONTAGE,
     BUILDING_FULL_FRONTAGE_AREA_M2,
     BUILDING_SEAT_FLATNESS_TOLERANCE_M,
     FLAT_CERTIFICATE_COVERAGE,
-    TAXI_MAX_GRADE, VISIBLE_CHORD_CONNECT,
+    VISIBLE_CHORD_CONNECT,
 )
 from auto_patch.grade_law import APRON_MAX_GRADE, BUILDING_REACH_CORRIDOR_M
 from auto_patch.layout import (
@@ -55,16 +54,14 @@ from auto_patch.layout import (
 )
 
 __all__ = ["building_feasible_levels", "reach_band_unified",
-           "runway_edge_anchors"]
+           "runway_edge_anchors", "spine_value_fields"]
 
 # Pavement a building must touch to count as airside-served (else → DEM).
 _AIRSIDE_ROLES = frozenset({
     ROLE_APRON, ROLE_JUNCTION, ROLE_RUNWAY, ROLE_PRIMARY_PARALLEL,
     ROLE_SECONDARY_PARALLEL, ROLE_STUB, ROLE_CROSS_CONNECTOR,
 })
-_TAXI_HALF_W_M = 7.5       # taxiway half-width corridor (perp split point)
 _TOUCH_TOL_M = 2.0         # building↔airside distance to count as "touching"
-_MULTI_ROUTE_M = 30.0      # junction-band: widen ceiling over routes within this
 _INF = float("inf")
 _UNSET = object()          # build-wide-cache sentinel (distinguishes None result)
 
@@ -79,13 +76,6 @@ _ACCEPT_MIN_PAVED = {
     n: next(p for p in range(n + 1) if (p / n) >= _VIS_ON_PAV_FRAC)
     for n in range(1, 97)
 }
-# A reach binding is PHANTOM only when the serving centerline is BOTH far AND
-# only reachable across grass.  The CYXY south runway-crossing junction binds a
-# centerline 367 m away over 77 % grass; a building/apron vertex a few tens of m
-# from its serving centerline across a small grass sliver is NOT phantom (forcing
-# IT onto the skeleton band shifts building seats — building12's pad).  The perp
-# gate isolates the egregious case without disturbing normal apron-frontage reach.
-_PHANTOM_MIN_PERP_M = 100.0
 
 
 def _pavement_visibility(layout):
@@ -545,27 +535,6 @@ def _nearest_visible_centerline(c, cls, vis, tree=None, cache=None,
             cls, key=lambda L: L.distance(c)))
 
 
-def _chord_on_pavement(c, foot, vis):
-    """True when the straight chord from ``c`` to its centerline ``foot`` stays on
-    pavement (≥ ``_VIS_ON_PAV_FRAC`` paved) — the SAME visible-chord rule
-    :func:`_nearest_visible_centerline` uses to accept a connection.  A chord that
-    mostly crosses grass is a PHANTOM route (you cannot taxi it), so the reach band
-    must not be bound through it."""
-    from shapely.geometry import LineString
-    chord = LineString([(c.x, c.y), (foot.x, foot.y)])
-    if chord.length < 1e-6:
-        return True
-    # Paved-fraction first (perf 2026-07-15) — same OR of the same two tests
-    # as before, with the ~20× cheaper sampled test promoted ahead of the
-    # exact prepared contains; see _nearest_visible_centerline.
-    try:
-        if _paved_frac(chord, vis) >= _VIS_ON_PAV_FRAC:
-            return True
-    except Exception:                                      # pragma: no cover
-        pass
-    return vis.contains(chord)
-
-
 def _decrowned_anchor_seeds(layout, G, anchor_elev):
     """Lift CROWNED runway-edge anchor values into the ONE uncrowned profile
     space the reach band is documented to solve in.
@@ -590,217 +559,45 @@ def _decrowned_anchor_seeds(layout, G, anchor_elev):
     return out
 
 
-def _build_skeleton_band(layout, G):
-    """EDGE-SKELETON reach for NO-CENTERLINE pavement (user 2026-06-28).
+def spine_value_fields(layout, G):
+    """The ROUTE-METRIC reach value fields on the unified spine graph — the
+    ONE producer of reach VALUE in the tree (spec rod-compose-and-band-
+    single-source §B).
 
-    A taxiway/apron that has no taxi centerline never enters the centerline spine,
-    so :func:`reach_band_unified`'s centerline path returns ``None`` for it and the
-    apron it feeds becomes an unreachable island (no band → ``route_reach`` flags,
-    feeders land at incompatible DEM levels).  This builds a SECOND reach over the
-    pavement's WELDED EDGE SKELETON — ``G.edges`` (abutting shapes share EXACT node
-    indices, so connectivity needs no perpendicular tolerance) unioned with the
-    centerline ``spine_adj`` — anchored at BOTH the centerline→runway joins
-    (``G.runway_anchor``) AND every pavement node COINCIDENT with a runway segment
-    (a no-centerline taxiway reaches the runway through a CROSSING the
-    centerline-endpoint anchor misses).  Returns ``band(x, y) -> (floor, ceiling)
-    | None`` = the nearest skeleton node's reach interval, widened by the apron cap
-    over the offset to it.  Used ONLY where the centerline band is ``None``, so
-    centerlined airports are unchanged."""
-    from shapely.geometry import Point
-    from shapely.strtree import STRtree
-    from auto_patch.layout import ROLE_RUNWAY
-    from auto_patch.grade_graph_validate import _shape_elevs, _open_ring
+    ``ceiling[i] = min over runway anchors a ( value_a + Σ per-edge budget
+    along the cheapest NON-SERVICE spine route a→i )``; the floor mirrors
+    with ``−``.  This is the pair-pricing oracle's and the seats'
+    reachability semantic verbatim: *"airside reachability never rides
+    service roads or groundside; the taxi route graph is the metric"*
+    (owner ruling 2026-07-29).  It is a ROUTE metric — reach travels along
+    routes, never across the paved AREA — which is why the raster grid may
+    only accelerate LOOKUPS (nearest attachment + the local off-route leg)
+    and must never carry the value itself.
 
-    def _d(a, b):
-        pa, pb = G.pos.get(a), G.pos.get(b)
-        return math.hypot(pa[0] - pb[0], pa[1] - pb[1]) if pa and pb else 1e-3
+    The anchor seeds are de-crowned into the ONE uncrowned profile space
+    the band lives in (:func:`_decrowned_anchor_seeds`).  Edges woven from
+    a SERVICE-road centerline are skipped
+    (``UnifiedGraph.service_spine_pairs``, gate
+    ``config.REACH_NO_SERVICE_SPINES`` — the LAW gate, which stays); a node
+    reachable ONLY through service paths gets no entry and reads as off-net,
+    the same policy as any unanchored fragment.
 
-    # Augmented adjacency: centerline spine ∪ welded edge skeleton.
-    adj: dict = {}
+    Value-seeded multi-source Dijkstra per direction (perf 2026-07-04): the
+    per-anchor passes were only ever consumed as ``min over anchors (ae +
+    dist)`` / ``max over anchors (ae − dist)``, so ONE pass per field gives
+    the same answer by commutation, with the same float expression.
 
-    def _add(a, b, w):
-        adj.setdefault(a, []).append((b, w))
-        adj.setdefault(b, []).append((a, w))
-
-    for u, nbrs in G.spine_adj.items():
-        for (v, b) in nbrs:
-            _add(u, v, b)
-    for (a, b, cap, _sp) in G.edges:
-        if a in G.pos and b in G.pos:
-            _add(a, b, cap.at(_d(a, b), 0.0))
-
-    # Anchors: centerline→runway joins + runway-coincident pavement nodes.
-    # All seeds are de-crowned into the ONE uncrowned profile space the band
-    # is documented to solve in (see :func:`_decrowned_anchor_seeds` and the
-    # matching de-crown in reach_band_unified): the runway-join anchors AND
-    # the runway-ring vertices both carry the EMITTED crowned edge value, but
-    # route_band_violations compares against a de-crowned vertex, so seeding
-    # the reach field crowned depresses the whole field by the edge drop.
-    from auto_patch.crown import crown_drop_at
-    anchor_elev = _decrowned_anchor_seeds(layout, G, G.runway_anchor)
-    pos_to_idx = {(round(x, 3), round(y, 3)): i for (i, (x, y)) in G.pos.items()}
-    for s in layout.shapes:
-        if (s.role != ROLE_RUNWAY or s.polygon is None or s.polygon.is_empty):
-            continue
-        ring = _open_ring(list(s.polygon.exterior.coords))
-        elevs = _shape_elevs(s, len(ring))
-        if elevs is None:
-            continue
-        for (x, y), e in zip(ring, elevs):
-            i = pos_to_idx.get((round(x, 3), round(y, 3)))
-            if i is not None and e is not None and i not in anchor_elev:
-                anchor_elev[i] = float(e) + crown_drop_at(layout, x, y)
-    if not anchor_elev:
-        return lambda x, y: None
-
-    # Value-seeded reach FIELDS (perf 2026-07-04): the per-anchor loop
-    # ran a full Dijkstra PER anchor (550 at KDFW → 140 s of the build,
-    # cProfile) yet only ever consumed ``min(ae + dist)`` /
-    # ``max(ae − dist)`` across anchors.  ONE multi-source pass per
-    # field — every anchor seeded at its own elevation — settles each
-    # node at its optimal (anchor, path) pair: the same min/max by
-    # commutation.  ``dist`` is accumulated separately and the field
-    # value formed as ``ae + dist`` (one addition, exactly the
-    # per-anchor expression) so patches stay byte-identical.  Strict
-    # settled-set pop guard — see the lazy-Dijkstra re-expand hang.
-    def _anchor_value_field(sign):
-        best: dict = {}
-        pq = [((ae if sign > 0 else -ae), 0.0, ae, k)
-              for k, ae in anchor_elev.items() if k in adj]
-        heapq.heapify(pq)
-        while pq:
-            _key, dd, ae, u = heapq.heappop(pq)
-            if u in best:
-                continue
-            best[u] = (ae + dd) if sign > 0 else (ae - dd)
-            for (v, budget) in adj.get(u, ()):
-                if v in best:
-                    continue
-                nd = dd + budget
-                heapq.heappush(
-                    pq, (((ae + nd) if sign > 0 else -(ae - nd)),
-                         nd, ae, v))
-        return best
-
-    node_ceil = _anchor_value_field(+1)
-    node_floor = _anchor_value_field(-1)
-    if not node_ceil:
-        return lambda x, y: None
-
-    bidx = list(node_ceil.keys())
-    bpts = [Point(*G.pos[i]) for i in bidx if i in G.pos]
-    bidx = [i for i in bidx if i in G.pos]
-    if not bpts:
-        return lambda x, y: None
-    tree = STRtree(bpts)
-
-    def band(x, y):
-        try:
-            j = bidx[int(tree.nearest(Point(x, y)))]
-        except Exception:                                     # pragma: no cover
-            return None
-        off = math.hypot(G.pos[j][0] - x, G.pos[j][1] - y)
-        slack = APRON_MAX_GRADE * off
-        return (node_floor[j] - slack, node_ceil[j] + slack)
-
-    return band
-
-
-def reach_band_unified(layout, G):
-    """The reach band computed on THE unified grade graph — the SAME graph the
-    spine solves on and the validator checks (user 2026-06-27, "stop building the
-    same thing in different ways").
-
-    Reachability is a cap-Dijkstra over ``G.spine_adj`` from ``G.runway_anchor``
-    (the exact nodes + elevations the spine solve pins), so the ceiling is the
-    spine's ACHIEVABLE level and is cap-consistent along the spine BY CONSTRUCTION
-    — no separate route graph, no per-node inconsistency, no ceiling-consistency
-    bridge.  Geometry of the perpendicular foot still uses the taxi centerlines (an
-    accurate perp), but the foot's reachable elevation comes from the nearest
-    unified spine node.  The band contract is
-    ``band(x, y) -> (floor, ceiling) | None``."""
-    import heapq
-    from shapely.geometry import Point
-    from shapely.strtree import STRtree
-
-    if not getattr(G, "runway_anchor", None) or not getattr(G, "spine_adj", None):
-        return lambda x, y: None
-
-    # RASTER REACH FIELD (Tier 3 wave 2a, ``O4_RASTER_REACH_BAND``, default ON
-    # since wave 2b 2026-07-18):
-    # replace the per-query nearest-visible-centerline evaluation below with a
-    # precomputed grid field (one masked multi-source Dijkstra per direction, O(1)
-    # nearest-cell reads).  This is a SEMANTIC replacement — the true min-plus cone
-    # envelope in the grid metric, not byte-identical to the legacy band (spec §3.5
-    # "Wave 1 outcome") — consumed by BOTH the solve and the validator through this
-    # one producer, so they stay aligned.  A None return (no pavement / empty grid /
-    # over the cell cap) falls through to the legacy band below.  Gate off restores
-    # the legacy nvc band byte-identically.
-    from auto_patch.config import RASTER_REACH_BAND
-    # Runtime env overrides the import-time default (so an A/B harness or a test
-    # can flip the gate after import); unset ⇒ the config default (on).
-    _rrb_env = os.environ.get("O4_RASTER_REACH_BAND")
-    _rrb_on = (_rrb_env == "1") if _rrb_env is not None else RASTER_REACH_BAND
-    if _rrb_on:
-        try:
-            from auto_patch.elevation_per_surface.raster_reach_band import (
-                build_raster_reach_band)
-            _raster = build_raster_reach_band(layout, G)
-        except Exception:                                      # pragma: no cover
-            _raster = None
-        if _raster is not None:
-            # OFF-NET POLICY (mission item 3): the raster field answers a query
-            # inside the mask directly and a point just off the mask via the
-            # nearest paved cell within ``RASTER_REACH_BAND_OFFNET_RADIUS_M``
-            # (widened by the apron-cap slack); a point beyond that radius, or a
-            # paved component unreachable from any anchor, returns None (off-net —
-            # the local within-shape law governs it, exactly as the zone-node skip
-            # already yields None).  We deliberately do NOT fall back to the legacy
-            # skeleton band for far points: that ~74 ms/point path is precisely the
-            # cost this field eliminates (mission: "the off-net fallback path
-            # disappearing is a big part of the win"), and a point tens of metres
-            # from every paved cell is legitimately off the taxi network.
-            return _raster
-
-    # De-crown the runway-join anchor SEEDS into the ONE uncrowned profile
-    # space this band is documented to live in (space invariant — see
-    # crown.crown_drop_at / the flex_slack_at note; grade_graph_validate.
-    # route_band_violations de-crowns each vertex by ``+crown_drop`` before
-    # the band test).  ``G.runway_anchor`` is VALUE-DERIVED from the EMITTED
-    # runway edge (2026-07-16 edge-anchor ruling), which on a wide runway
-    # carries the profile MINUS the transverse crown drop; seeding the field
-    # with that crowned value depresses the whole ceiling/floor field by the
-    # edge drop, so a de-crowned airside vertex reads its own designed crown
-    # drop above the ceiling (SPJC: 216 phantom ``ceil`` flags, ~0.30 m at a
-    # ~30 m half-width edge).  ``crown_drop_at`` is 0.0 with no crown field,
-    # so non-crowned airports stay byte-identical.
-    anchor_seeds = _decrowned_anchor_seeds(layout, G, G.runway_anchor)
-
-    # Value-seeded reach FIELDS (perf 2026-07-04, same collapse as the
-    # skeleton band above): the per-anchor Dijkstras were only ever
-    # consumed as ``min over anchors (ae + dist + extras)`` /
-    # ``max over anchors (ae − dist − extras)`` with anchor-independent
-    # extras, so ONE multi-source pass per field replaces |anchors|
-    # full-graph passes.  Each field stores the winning ``(dist, ae)``
-    # PAIR so ``_band_via`` can form its candidate values with exactly
-    # the original float expression (ae + ((dist + foot) + perp)) —
-    # patches stay byte-identical.
-    # AIRSIDE REACHABILITY NEVER RIDES SERVICE ROADS (owner ruling
-    # 2026-07-29, config.REACH_NO_SERVICE_SPINES default ON): edges
-    # woven from a service-road centerline are excluded from the value
-    # fields — a truck route can no longer justify an airside
-    # ceiling/floor.  The serving-foot centerline set below already
-    # excludes service lines (``not cl.is_service``); this closes the
-    # Dijkstra side.  Service roads keep their spine for the SOLVE (they
-    # grade along it); nodes reachable ONLY via service paths simply get
-    # no field entry and read as off-net (band None) — the same policy
-    # as any unanchored fragment.  Gate off ⇒ empty skip set ⇒
-    # byte-identical.
+    Returns ``(ceiling, floor)`` as ``{node_index: value}`` (both fields
+    cover exactly the anchor-reachable non-service node set)."""
+    if not getattr(G, "runway_anchor", None) or not getattr(G, "spine_adj",
+                                                            None):
+        return {}, {}
     from auto_patch.config import REACH_NO_SERVICE_SPINES
-    _svc_pairs = (getattr(G, "service_spine_pairs", None) or set()
-                  if REACH_NO_SERVICE_SPINES else set())
+    anchor_seeds = _decrowned_anchor_seeds(layout, G, G.runway_anchor)
+    svc_pairs = (getattr(G, "service_spine_pairs", None) or set()
+                 if REACH_NO_SERVICE_SPINES else set())
 
-    def _runway_value_field(sign):
+    def _field(sign):
         best: dict = {}
         pq = [((ae if sign > 0 else -ae), 0.0, ae, k)
               for (k, ae) in anchor_seeds.items()]
@@ -809,12 +606,11 @@ def reach_band_unified(layout, G):
             _key, dd, ae, u = heapq.heappop(pq)
             if u in best:
                 continue
-            best[u] = (dd, ae)
+            best[u] = (ae + dd) if sign > 0 else (ae - dd)
             for (v, budget) in G.spine_adj.get(u, ()):
                 if v in best:
                     continue
-                if _svc_pairs and ((u, v) if u < v else (v, u)) \
-                        in _svc_pairs:
+                if svc_pairs and ((u, v) if u < v else (v, u)) in svc_pairs:
                     continue
                 nd = dd + budget
                 heapq.heappush(
@@ -822,299 +618,74 @@ def reach_band_unified(layout, G):
                          nd, ae, v))
         return best
 
-    ceiling_field = _runway_value_field(+1)
-    floor_field = _runway_value_field(-1)
-    if not ceiling_field:
-        return lambda x, y: None
+    return _field(+1), _field(-1)
 
-    # Unified spine-node positions for the perp-foot → reachable-node lookup.
-    # Under the service exclusion, service-only nodes carry no field entry;
-    # keeping them in the nearest-node tree would eat queries whose second-
-    # nearest TAXI node has a real value, so they are dropped from the
-    # lookup (gate off ⇒ original set, byte-identical).
-    if _svc_pairs:
-        sidx = [i for i in G.spine_adj if i in G.pos
-                and (i in ceiling_field or i in floor_field)]
-    else:
-        sidx = [i for i in G.spine_adj if i in G.pos]
-    if not sidx:
-        return lambda x, y: None
-    spts = [Point(*G.pos[i]) for i in sidx]
-    tree = STRtree(spts)
 
-    def _nn(pt):
-        try:
-            return sidx[int(tree.nearest(Point(pt[0], pt[1])))]
-        except Exception:                                     # pragma: no cover
-            return None
+def reach_band_unified(layout, G):
+    """THE reach band — ONE engine, route-metric, service-excluded.
 
-    # Per-centerline longitudinal cap from its OWN ICAO code letter (apt.dat
-    # row-1202) — the SAME per-letter cap the spine edges carry.  Used for the
-    # foot climb (along the serving centerline + the taxiway-width perp) so the
-    # band credits a code-A/B taxiway at its real 3 %, CONSISTENTLY at every query
-    # point.  The old spine-edge lookup read the cap off the edge between the two
-    # nearest spine nodes to the foot's centerline segment, falling back to 1.5 %
-    # whenever those nodes were not a DIRECT edge — which happens on any long
-    # apt.dat segment — so the SAME taxiway was credited 3 % at a building
-    # frontage but only 1.5 % at an apron 60 m further along it: the building seat
-    # and the route-band check then disagreed though both go through this one band
-    # (CYXY A2 = code B, a 457 m segment → 118 false apron ceil flags).
-    from auto_patch.config import taxi_grade_cap_for_letter
-    # PER-SEGMENT cap: keep the TaxiCenterline so the foot climb credits the cap of
-    # the SEGMENT the foot lands on (no name→letter table; a route may change width
-    # along its length).  ``cap_of`` maps a line's identity to its TaxiCenterline.
-    cls_tcl = [cl for cl in (getattr(layout, "apt_taxi_centerlines", None) or [])
-               if cl.line is not None and not cl.line.is_empty
-               and not cl.is_service]
-    if not cls_tcl:
-        return lambda x, y: None
-    cls = [cl.line for cl in cls_tcl]
-    # Object ndarray over the same lines, built ONCE per factory call — the
-    # vectorized deep walk in _nearest_visible_centerline needs one and
-    # filling it per query would cost ~0.5 µs × |cls| × every walker.
-    import numpy as _np_arr
-    cls_arr = _np_arr.empty(len(cls), dtype=object)
-    for _i, _ln in enumerate(cls):
-        cls_arr[_i] = _ln
-    cap_of = {id(cl.line): cl for cl in cls_tcl}
-    vis = _pavement_visibility(layout) if VISIBLE_CHORD_CONNECT else None
-    # STRtree over the centerlines: every band query needs them in distance
-    # order (nearest-visible + the multi-route widening); the naive per-query
-    # full sort was ~half the solve time (~10k queries × ~500 lines).
+    Contract: ``band(x, y) -> (floor, ceiling) | None``.
+
+    SINGLE SOURCE (owner directive 2026-07-29, spec rod-compose-and-band-
+    single-source §B).  This factory used to contain THREE band engines —
+    a raster field, a per-query nearest-visible-centerline path serving the
+    raster's ``None`` answers, and a ``_build_skeleton_band`` fallback with
+    no service filter — and mixed them PER QUERY inside one building's ring.
+    Two of them are gone; what remains is:
+
+      * VALUE — :func:`spine_value_fields`: anchor values propagated along
+        NON-SERVICE airside routes at the applicable caps, on the unified
+        graph the spine solves and the validator checks.  A route metric.
+      * LOOKUP — :func:`raster_reach_band.build_raster_reach_band`: a grid
+        that answers "which route attachment serves this point, and what
+        does the local off-route leg to it cost".  Grid/raster is a QUERY
+        ACCELERATION only; it does not carry the metric (the audited bug it
+        used to have: propagating VALUE through the paved grid is an AREA
+        metric, and it under-credited 8.7 m on the U-fixture whenever a
+        service route crossed apron pavement — biasing seats LOW, exactly
+        HECA's shape).
+
+    The ``O4_RASTER_REACH_BAND`` selector went with the deleted engines —
+    one engine needs no selector.  ``config.REACH_NO_SERVICE_SPINES``
+    STAYS: it gates the LAW (which edges reachability may ride), not the
+    engine.  A point off the pavement mask beyond the bounded off-net
+    radius reads ``None`` (the local within-shape law governs it) — there
+    is no fallback path left to mix in.
+
+    ``band.batch(nodes, limit)`` is the list form ``node_bands`` may
+    dispatch to; with O(1) lookups it is exactly the per-point scan (the
+    cluster amortization existed only to share the deleted nvc scan)."""
+    from auto_patch.elevation_per_surface.raster_reach_band import (
+        build_raster_reach_band)
+    band = None
     try:
-        from shapely.strtree import STRtree as _STRtree
-        cl_tree = _STRtree(cls) if len(cls) > 8 else None
+        band = build_raster_reach_band(layout, G)
     except Exception:                                      # pragma: no cover
-        cl_tree = None
-
-    # ANISOTROPIC EDGES: a JUNCTION is graded UNIFORMLY at the taxi cap (its body
-    # is the spine's per-letter cap, not 1 %), so a junction foot point beyond the
-    # taxiway corridor must climb at the taxi cap too — NOT drop to APRON_MAX_GRADE.
-    # Without this the band under-credits the junction interior and false-flags the
-    # very junction-body points the new edge law lets climb (docs/anisotropic_edge_
-    # handling_plan.md Phase 4).  Prepared junction union; tested per query.  Gate
-    # OFF ⇒ ``junc_zone`` is None and the foot climb is byte-identical (apron drop).
-    junc_zone = None
-    if ANISO_EDGES:
+        band = None
+    if band is None:
+        # No anchors / no pavement / no scipy / grid over the cell cap.
+        # With one engine there is nothing to fall back TO — every query
+        # reads off-net and the within-shape law governs.  Loud, because a
+        # silently band-less airport used to be masked by the fallbacks.
         try:
-            from shapely.ops import unary_union
-            from shapely.prepared import prep
-            jpolys = [s.polygon for s in layout.shapes
-                      if s.role == ROLE_JUNCTION and s.polygon is not None
-                      and not s.polygon.is_empty]
-            if jpolys:
-                junc_zone = prep(unary_union(jpolys))
-        except Exception:                                     # pragma: no cover
-            junc_zone = None
-
-    # EDGE-SKELETON fallback (user 2026-06-28): no-centerline pavement returns
-    # None below; the skeleton band reaches it over the welded edge graph +
-    # runway-contact anchors.  Used ONLY where the centerline path is None, so
-    # centerlined airports are unchanged.  Gate O4_SKELETON_REACH=0 disables.
-    _skel_band = (_build_skeleton_band(layout, G)
-                  if os.environ.get("O4_SKELETON_REACH", "1") == "1" else None)
-
-    def _fallback(x, y):
-        return _skel_band(x, y) if _skel_band is not None else None
-
-    def _band_via(c, x, y, ln, in_junc):
-        """``(floor, ceil)`` reachable for point ``c`` SERVED by centerline ``ln``,
-        or None if ``ln`` cannot serve it (no anchored spine node).  ``in_junc`` ⇒
-        the climb beyond the taxiway corridor stays at the taxi cap (uniform
-        junction), not the apron cap."""
-        perp = c.distance(ln)
-        coords = list(ln.coords)
-        sp = ln.project(c)
-        acc = 0.0
-        A = B = None
-        for i in range(len(coords) - 1):
-            seg_len = math.hypot(coords[i + 1][0] - coords[i][0],
-                                 coords[i + 1][1] - coords[i][1])
-            if acc - 1e-6 <= sp <= acc + seg_len + 1e-6:
-                A = (coords[i], sp - acc)
-                B = (coords[i + 1], (acc + seg_len) - sp)
-                break
-            acc += seg_len
-        if A is None:
-            A = (coords[0], 0.0)
-            B = (coords[-1], ln.length)
-        kA = _nn(A[0])
-        kB = _nn(B[0])
-        if kA is None and kB is None:
-            return None
-        _tcl = cap_of.get(id(ln))
-        ecap = (taxi_grade_cap_for_letter(_tcl.size_at_arc(sp))
-                if _tcl is not None else TAXI_MAX_GRADE)
-        beyond_cap = ecap if in_junc else APRON_MAX_GRADE
-        perp_climb = (ecap * min(perp, _TAXI_HALF_W_M)
-                      + beyond_cap * max(0.0, perp - _TAXI_HALF_W_M))
-        # Candidate values from the collapsed fields: each field entry is
-        # the winning (dist, ae) pair for its node, and for fixed foot
-        # extras the same anchor wins with the extras added — so forming
-        # ``ae + ((dist + foot) + perp)`` here reproduces the per-anchor
-        # loop's minima to the float bit.
-        floor, ceil = -_INF, _INF
-        for (k, foot) in ((kA, A[1]), (kB, B[1])):
-            fc = ceiling_field.get(k)
-            if fc is not None:
-                dd, ae = fc
-                ceil = min(ceil, ae + ((dd + ecap * foot) + perp_climb))
-            ff = floor_field.get(k)
-            if ff is not None:
-                dd, ae = ff
-                floor = max(floor, ae - ((dd + ecap * foot) + perp_climb))
-        if ceil >= _INF:
-            return None
-        return (floor, ceil)
-
-    # Build-wide serving-centerline memo (see _nearest_visible_centerline): the
-    # scan is a pure function of the frozen 2D geometry, so the construct, the
-    # solve and the emit share ONE cache keyed by exact query point.
-    _nvc_cache = layout.__dict__.setdefault("_reach_nvc_cache", {})
-
-    def _serving_line(c):
-        """The serving centerline for point ``c`` — the nearest-visible
-        centerline (memoized) when visibility is on, else the plain nearest."""
-        if vis is not None:
-            return _nearest_visible_centerline(c, cls, vis, tree=cl_tree,
-                                               cache=_nvc_cache, cls_arr=cls_arr)
-        return next(_cl_by_distance(c, cls, cl_tree),
-                    min(cls, key=lambda L: L.distance(c)))
-
-    def _band_for_line(x, y, c, ln):
-        """The band ``(floor, ceil) | None`` for ``c`` given its serving line
-        ``ln`` — everything ``band`` does AFTER the serving-line lookup (phantom
-        fallback, ``_band_via``, junction multi-route widening).  Splitting the
-        serving-line lookup out lets the cluster batch reuse a proven-shared
-        line without re-running the expensive nearest-visible scan, while this
-        tail (and therefore the returned value) stays bit-identical to
-        ``band``."""
-        perp = c.distance(ln)
-        if vis is not None and perp > _PHANTOM_MIN_PERP_M:
-            from shapely.ops import nearest_points
-            foot = nearest_points(ln, c)[0]
-            if not _chord_on_pavement(c, foot, vis):
-                # PHANTOM binding: the only nearby centerline is FAR and only
-                # reachable ACROSS GRASS (CYXY south runway-crossing junction →
-                # centerline D, 367 m, 23 % paved).  Binding the reach band to it
-                # pins the floor far above the node's real route (3.3 m high → a
-                # 36.7 % body cliff).  Reach it over the welded-edge SKELETON
-                # instead — that taxiway over its OWN pavement.
-                return _fallback(x, y)
-        in_junc = junc_zone is not None and junc_zone.contains(c)
-        prim = _band_via(c, x, y, ln, in_junc)
-        if prim is None:
-            return _fallback(x, y)
-        floor, ceil = prim
-        # ANISOTROPIC EDGES: the within-shape law lets a point be reached from ANY
-        # nearby converging spine route, but the band above used the NEAREST
-        # centerline only — under-crediting the ceiling and false-flagging the
-        # junction/apron interiors the new law lets climb.  Widen to the
-        # most-reachable route over the other on-pavement centerlines within a
-        # BOUNDED reach (so a genuinely-too-high point still flags — no far route
-        # reaches it) and only across a VISIBLE on-pavement chord, so band and law
-        # agree without over-loosening.
-        if junc_zone is not None:
-            from shapely.ops import nearest_points
-            others = [L for L in _cl_by_distance(c, cls, cl_tree,
-                                                 max_r=_MULTI_ROUTE_M)
-                      if L is not ln][:3]
-            for L in others:
-                if vis is not None:
-                    foot = nearest_points(L, c)[0]
-                    if not _chord_on_pavement(c, foot, vis):
-                        continue
-                r = _band_via(c, x, y, L, in_junc)
-                if r is not None:
-                    floor = min(floor, r[0])
-                    ceil = max(ceil, r[1])
-        return (floor, ceil)
-
-    def band(x, y):
-        c = Point(x, y)
-        return _band_for_line(x, y, c, _serving_line(c))
-
-    def _confirms_line(c, ln):
-        """True iff ``_serving_line(c)`` provably equals ``ln`` — a cheap
-        SUFFICIENT condition (never a false positive): ``ln`` is the nearest
-        centerline to ``c`` AND, under visibility, its chord is on pavement.
-        ``_nearest_visible_centerline`` walks candidates in true distance order
-        and returns the first whose chord is accepted, so when the nearest line
-        itself is accepted it is the serving line — reproducing that decision
-        without the multi-candidate walk.  A False result (nearest is some other
-        line, or the nearest's chord is not on pavement) is inconclusive, so the
-        caller falls back to the exact per-point ``band``.  Bit-identical: a
-        confirmed member takes ``_band_for_line(.., ln)`` = ``band`` exactly."""
-        first = next(_cl_by_distance(c, cls, cl_tree), None)
-        if first is not ln:
-            return False
-        if vis is None:
-            return True
-        from shapely.ops import nearest_points
-        foot = nearest_points(ln, c)[0]
-        return _chord_on_pavement(c, foot, vis)
+            import O4_UI_Utils as _UI
+            _UI.vprint(1, "  [reach-band] no field could be built "
+                          "(no anchors / no pavement / grid over cap) — "
+                          "every query reads off-net (band None).")
+        except Exception:                                  # pragma: no cover
+            pass
+        return lambda x, y: None
 
     def _batch(nodes, limit):
-        """Cluster-amortized EXACT band evaluation (Tier 3 wave 1,
-        ``O4_REACH_BAND_CLUSTERS``): bucket the first ``limit`` query points
-        into ``REACH_BAND_CLUSTER_SIZE_M`` grid cells, run the expensive
-        nearest-visible serving-line scan ONCE per cell (at the cell
-        representative), and give every other member the SAME line WITHOUT the
-        scan when :func:`_confirms_line` proves that line is also the member's
-        serving line — then compute its band through the identical
-        ``_band_for_line`` tail.  A member the shared line does not provably
-        serve takes the exact per-point ``band``.  The result is bit-identical
-        to ``[band(x, y) for (x, y) in nodes[:limit]]`` (plus ``None`` past
-        ``limit``); the only thing amortized is the serving-line scan for
-        members that share the representative's line."""
-        from auto_patch.config import REACH_BAND_CLUSTER_SIZE_M
-        size = REACH_BAND_CLUSTER_SIZE_M
+        """The per-point scan as a list — bit-identical by construction."""
         n = len(nodes)
-        out = [None] * n
         lim = n if limit is None else min(limit, n)
-        if lim <= 0:
-            return out
-        buckets: dict = {}
-        for i in range(lim):
-            x, y = nodes[i]
-            buckets.setdefault((int(math.floor(x / size)),
-                                int(math.floor(y / size))), []).append(i)
-        n_rep = n_shared = n_exact = 0
-        for key in sorted(buckets):
-            members = buckets[key]
-            cx = (key[0] + 0.5) * size
-            cy = (key[1] + 0.5) * size
-            rep = min(members,
-                      key=lambda i: ((nodes[i][0] - cx) ** 2
-                                     + (nodes[i][1] - cy) ** 2, i))
-            rx, ry = nodes[rep]
-            c_rep = Point(rx, ry)
-            ln_rep = _serving_line(c_rep)
-            out[rep] = _band_for_line(rx, ry, c_rep, ln_rep)
-            n_rep += 1
-            for i in members:
-                if i == rep:
-                    continue
-                x, y = nodes[i]
-                c = Point(x, y)
-                if _confirms_line(c, ln_rep):
-                    out[i] = _band_for_line(x, y, c, ln_rep)
-                    n_shared += 1
-                else:
-                    out[i] = band(x, y)
-                    n_exact += 1
-        if os.environ.get("O4_REACH_BAND_CLUSTER_QUIET") != "1":
-            try:
-                import O4_UI_Utils as _UI
-                _UI.vprint(1, f"  [reach-band-clusters] {len(buckets)} bucket(s): "
-                              f"{n_rep} rep scan(s) + {n_exact} exact, "
-                              f"{n_shared} line-shared (scan skipped) "
-                              f"of {lim} node(s)")
-            except Exception:                                  # pragma: no cover
-                pass
+        out = [None] * n
+        for i in range(max(0, lim)):
+            out[i] = band(nodes[i][0], nodes[i][1])
         return out
 
-    band.batch = _batch                                        # type: ignore
+    band.batch = _batch                                    # type: ignore
     return band
 
 

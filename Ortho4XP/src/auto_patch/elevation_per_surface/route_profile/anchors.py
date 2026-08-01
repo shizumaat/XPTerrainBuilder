@@ -23,8 +23,47 @@ from auto_patch.layout import (
     ROLE_PRIMARY_PARALLEL, ROLE_SECONDARY_PARALLEL, ROLE_SERVICE_JUNCTION,
     ROLE_SERVICE_ROAD, ROLE_STUB,
 )
+from ..node_space import store_of as _store_of
 
 _INF = float("inf")
+
+
+# ── THE PART-C MOUTH ALLOWANCE (one definition, two consumers) ───────────
+# ``MOUTH_ALLOWANCE_M = 15 m`` — justification (spec
+# ``apron-string-and-scheduling-spec.md`` §C): the physical mouth zone is the
+# connector throat, whose scale is already named in ``apply_groundside_reach``
+# as ``RAISE_W = 14 m`` (the truck-route corridor half-width the raise pass
+# uses); 15 m is one throat-width, rounded.
+#
+# It bounds groundside twice, and the two bounds must never drift apart:
+#   * Part C bounds the pin's VALUE — a pin may not exceed its own DEM by
+#     more than ``cap · MOUTH_ALLOWANCE_M`` (``gs_pin_float_cap``);
+#   * the groundside FEASIBILITY-WITNESS CLAUSE (owner ruling 2026-07-30,
+#     memory ``groundside-terrace-law``) bounds the pin's ROLE — it may
+#     witness an airside node's ``[floor, ceiling]`` only inside the same
+#     one-throat reach, expressed in the envelope's BUDGET metric
+#     (``gs_witness_horizon``, the identical scalar).
+# Single-pass principle: one definition, so a change to the allowance moves
+# both bounds together.
+def gs_mouth_allowance_m() -> float:
+    """The Part-C mouth allowance, in metres of route length."""
+    return float(_os.environ.get("O4_GS_PIN_MOUTH_ALLOWANCE_M", "15.0"))
+
+
+def gs_pin_float_cap(cap: float) -> float:
+    """Part C's VALUE bound: how far above its own DEM a groundside pin may
+    float (metres of elevation)."""
+    return cap * gs_mouth_allowance_m()
+
+
+def gs_witness_horizon(cap: float) -> float:
+    """The witness clause's ROLE bound: how far a groundside pin's envelope
+    label may travel, in metres of BUDGET distance (the reach-envelope
+    Dijkstra's own metric, ``Σ cap_e · len_e``).  Numerically the same scalar
+    as :func:`gs_pin_float_cap` — one throat of reach at cap — because a
+    label that has spent ``cap · MOUTH_ALLOWANCE_M`` of budget has left the
+    mouth zone by exactly the distance Part C allows the mouth to float."""
+    return gs_pin_float_cap(cap)
 
 # ── Parallel-road station coupling (part 30m OPEN item (a), DEFAULT OFF) ──
 # The queued fix for the "two NON-touching parallel service roads seat a
@@ -124,13 +163,14 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts):
     # a node also records the reach-band interval the seat was chosen from,
     # keyed by CANONICAL KEY (the ``canonical_points`` registry point) —
     # never by node index: the final projection runs on a REBUILT node
-    # list (the rod-key lesson), so only the key survives.  Consumers
-    # (solve.py fp#8 + final_grade_projection) map key → their own index
-    # space and clamp every freed value inside its box.  Reset here —
-    # this is the first seat producer of a solve;
+    # list (the rod-key lesson), so only the key survives.  Lives in the
+    # NODE-SPACE STORE (U1, ``node_space.py``): consumers (solve.py fp#8 +
+    # final_grade_projection) resolve it through ``view_interval`` into
+    # their own index space and clamp every freed value inside its box.
+    # Reset here — this is the first seat producer of a solve;
     # ``build_nobuilding_apron_seats`` merges its contact boxes into the
-    # same dict afterwards.
-    layout._seat_boxes = {}
+    # same payload afterwards.
+    _store_of(layout).open_map("seat_boxes", "interval", reset=True)
     # ``building_feasible_levels`` decides WHICH buildings are airside-served (its
     # touch test) + gives the centroid level as a fallback for off-network pads.
     levels = building_feasible_levels(layout, runway_pts, dem_fn, band=band)
@@ -331,7 +371,7 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts):
             # regression vs the uncoupled model, conflicts stay as they were.
 
     seats: dict = {}
-    seat_boxes = layout._seat_boxes
+    seat_boxes = _store_of(layout).raw("seat_boxes")
     for (s, ring, level, lo, hi) in pads:
         # BOUNDED YIELD box (owner ruling 2026-07-29): the pad's box is the
         # ``[lo, hi]`` its seat was chosen from, WIDENED to include the
@@ -556,9 +596,7 @@ def build_nobuilding_apron_seats(layout, bucket_to_idx, band, dem_fn):
         # keeps ``L_i`` in-box; the widen is a no-op guard).  Keyed by
         # CANONICAL KEY (see ``build_building_seats``); merged into the
         # registry that function reset (it runs first).
-        seat_boxes = getattr(layout, "_seat_boxes", None)
-        if seat_boxes is None:
-            seat_boxes = layout._seat_boxes = {}
+        seat_boxes = _store_of(layout).open_map("seat_boxes", "interval")
         for i, Li, b, k in zip(idxs, L, boxes, keys):
             seats[i] = float(Li)
             blo = min(float(b[0]), float(Li))
@@ -647,7 +685,8 @@ def near_miss_building_frontage_floors(layout, bucket_to_idx, band,
     return floors
 
 
-def near_miss_building_frontage_edges(layout, bucket_to_idx, building_seats):
+def near_miss_building_frontage_edges(layout, bucket_to_idx, building_seats,
+                                      weld_refs_out=None):
     """``[(apron_node_idx, pad_node_idx, budget_m)]`` — the near-miss frontage
     relationship as LAW EDGES for the joint feasibility projections.
 
@@ -666,16 +705,43 @@ def near_miss_building_frontage_edges(layout, bucket_to_idx, building_seats):
     displacement, pad stays flat) instead of un-doing the floor.
 
     Same recognition and gate as :func:`near_miss_building_frontage_floors`
-    (``O4_BUILDING_FRONTAGE_NEAR_MISS=0`` → no edges, byte-identical)."""
+    (``O4_BUILDING_FRONTAGE_NEAR_MISS=0`` → no edges, byte-identical).
+
+    ``weld_refs_out`` — PAD ROD COUPLING (owner approval 2026-07-29,
+    ``docs/specs/pad-rod-coupling-spec.md``; completes bounded-yield-spec §7.3
+    at building faces).  When a dict is passed it is filled with
+    ``{apron_node_idx: (pad_seat_level, pad_node_idx)}`` over THIS SAME
+    contact set: the §7 reference value (``z_ref``) of a soft-fabric vertex
+    welded to a pad face IS the pad's seat, not the fabric's yield-entry state
+    (the pad-weld ruling — "airside pavement welds SMOOTH to a building's
+    airside face" — and "the seat is the rod for the building").  A vertex
+    facing TWO pads takes the NEARER contact (pads may legitimately differ;
+    the inter-pad step exemption is unchanged).  The PAD NODE rides along
+    because the seat level recorded here is read BEFORE the no-building apron
+    seat merge and the groundside/service passes: the value the pad's own §7
+    rod holds at yield entry is the one the weld must reference, and the call
+    site resolves it through this node (measured 2026-07-29: 21 of 25 HECA
+    pads emit off this scalar, by up to 8.7 m — referencing the scalar OPENS
+    the frontage it is supposed to weld).  Filled from the ONE recognition
+    pass the edges already run — no second geometry sweep, no measurable
+    build-time cost."""
     from auto_patch.config import APRON_MAX_GRADE
     edges: list = []
+    nearest: dict = {}          # apron node -> (distance_m, seat, pad_node)
     for contact in _near_miss_frontage_contacts(layout, bucket_to_idx,
                                                 building_seats,
                                                 log_firings=True):
-        (i, pad_node, d, _seat, _x, _y) = contact
+        (i, pad_node, d, seat, _x, _y) = contact
+        if weld_refs_out is not None:
+            prev = nearest.get(i)
+            if prev is None or d < prev[0]:
+                nearest[i] = (float(d), float(seat), pad_node)
         if pad_node is None:
             continue
         edges.append((i, pad_node, float(APRON_MAX_GRADE * d)))
+    if weld_refs_out is not None:
+        for i, (_d, seat, pad_node) in nearest.items():
+            weld_refs_out[i] = (seat, pad_node)
     return edges
 
 
@@ -1273,6 +1339,31 @@ def apply_groundside_reach(layout, bucket_to_idx, elev, cap):
     MAX_ROUTE = 90.0           # cap the route distance budgeted (m)
     RAISE_W = 14.0             # half-width of the truck-route corridor to raise
 
+    # ── GROUNDSIDE PIN DEM BOUND (spec apron-string-and-scheduling §C) ────
+    # Measured defect 2026-07-30: ``gs_pin`` anchors sit +7.76 m MEDIAN
+    # above their own DEM (max +9.88) while detached building pads sit at
+    # +0.06, and they are independently the floor witness for 4,213 broken
+    # nodes.  Mechanism: ``lo = base_elev − cap·route_len − dem_gs`` below
+    # caps ``route_len`` at ``MAX_ROUTE`` but leaves the LIFT ITSELF
+    # unbounded — a high apron launders its own error into a HARD pin that
+    # then locks the error in.
+    #
+    # THE BOUND IS ON THE VALUE (owner semantics): a groundside pin may not
+    # exceed its own DEM by more than ``cap · MOUTH_ALLOWANCE_M``.  Where
+    # the connector cannot reach the apron mouth inside that bound the
+    # deficit surfaces AIRSIDE (an over-cap connector chord / mouth step)
+    # and is never resolved by lifting groundside.
+    #
+    # ``MOUTH_ALLOWANCE_M`` is defined ONCE at module level
+    # (:func:`gs_mouth_allowance_m`) because the groundside FEASIBILITY-
+    # WITNESS CLAUSE reads the same scalar — see the module header.  At the
+    # service-road cap (5 %) that is 0.75 m of permitted float — an order
+    # of magnitude below the measured +7.76 m median, and above both the
+    # 0.5 m sag class and the 0.2 m weld class used elsewhere in the
+    # acceptance battery, so a lawful mouth is never clipped by it.
+    _gs_dem_bound = _os.environ.get("O4_GS_PIN_DEM_BOUND", "1") == "1"
+    _gs_float_cap = gs_pin_float_cap(cap)
+
     # Apron nodes (x, y, idx) — for the route ANCHOR elevation (apron at the deep
     # end of the truck route) and for the apron-arm RAISE along the route; plus the
     # connector/service nodes (the corridor includes the connector itself).
@@ -1381,6 +1472,14 @@ def apply_groundside_reach(layout, bucket_to_idx, elev, cap):
         # reaches don't overlap (no uniform shift keeps them all <=cap) fall back
         # to the band midpoint, which minimises the worst residual.
         delta = (min(max(0.0, lo), hi) if lo <= hi else 0.5 * (lo + hi))
+        # DEM BOUND (spec §C.2): the shift may never lift the piece more
+        # than ``cap·MOUTH_ALLOWANCE_M`` above its own DEM.  ``min`` only —
+        # a LOWERING shift (the apron sits below the lot's DEM) is honest
+        # and stays.  The mid-point fallback for contradictory connector
+        # reaches (``lo > hi``) is bounded here too; unbounded it was the
+        # widest float in the measured set.
+        if _gs_dem_bound and delta > _gs_float_cap:
+            delta = _gs_float_cap
         deltas[gid] = delta
         if abs(delta) < 1e-6:
             continue
@@ -1530,6 +1629,42 @@ def apply_groundside_reach(layout, bucket_to_idx, elev, cap):
             print(f"  [groundside-reach] mouth reconciliation adjusted "
                   f"{n_reconciled} lot ring(s).")
 
+    # ── ENFORCE THE DEM BOUND ON THE FINAL RING (spec §C.2) ──────────────
+    # The shift clamp above bounds the RELEVEL; two later writers can still
+    # push a ring vertex up — the lot↔lot mouth reconciliation (a smaller
+    # lot adopts a larger lot's band) and the absolute-Lipschitz support it
+    # paints.  The bound is a VALUE bound, so enforce it on the value that
+    # is actually welded: every re-levelled ring vertex is ceiled at its own
+    # DEM + ``cap·MOUTH_ALLOWANCE_M``, then re-chord-limited (the limiter is
+    # downward-only and idempotent, so it cannot re-introduce the lift).
+    # ``dem_ceiling`` is stashed per canonical key for the post-yield
+    # mouth-relax, whose re-projection would otherwise re-open the same door
+    # (spec §C.2 ★).
+    dem_ceiling: dict = {}
+    if _gs_dem_bound:
+        for (g, kalt) in gs_pieces:
+            gcoords = list(g.polygon.exterior.coords)
+            galts = list(g.node_altitudes or [])
+            new_alts = list(galts)
+            touched = False
+            for k in range(min(len(gcoords), len(galts))):
+                if galts[k] is None:
+                    continue
+                kk = _key(*gcoords[k])
+                dem_k = kalt.get(kk)
+                if dem_k is None:
+                    continue
+                ceil_k = dem_k + _gs_float_cap
+                if kk not in dem_ceiling or ceil_k < dem_ceiling[kk]:
+                    dem_ceiling[kk] = ceil_k
+                if galts[k] > ceil_k:
+                    new_alts[k] = ceil_k
+                    touched = True
+            if touched:
+                g.node_altitudes = chord_limit_ring_altitudes(
+                    gcoords, new_alts, cap=GROUNDSIDE_MAX_GRADE)
+    layout._gs_pin_dem_ceiling_key = dem_ceiling
+
     # (now-shifted) groundside altitude per key, for the weld.  LARGEST
     # piece first: where a big lot and a sliver connector piece share a
     # mouth key with different altitudes, the mouth serves the LOT
@@ -1654,6 +1789,40 @@ def apply_groundside_reach(layout, bucket_to_idx, elev, cap):
                 hard.add(pi)
                 weld_coord_keys.add((round(px, 2), round(py, 2)))
     layout._groundside_weld_keys = weld_coord_keys
+    # Per-PIN DEM ceiling in solver-index space — consumed by the post-yield
+    # mouth verify-and-relax (spec §C.2 ★: a DEM-bounded pin's ADOPTED
+    # profile must be bounded the same way or the lift returns through that
+    # door).  Also the measurement handle for the §C acceptance gate.
+    _pin_ceiling_idx: dict = {}
+    _pin_dem_idx: dict = {}
+    for (g, kalt) in gs_pieces:
+        for kk, dem_k in kalt.items():
+            i = bucket_to_idx.get(kk)
+            if i is None or i not in hard:
+                continue
+            if i not in _pin_dem_idx or dem_k < _pin_dem_idx[i]:
+                _pin_dem_idx[i] = float(dem_k)
+    for i, dem_k in _pin_dem_idx.items():
+        _pin_ceiling_idx[i] = dem_k + _gs_float_cap
+    layout._gs_pin_dem_ceiling_idx = _pin_ceiling_idx
+    # GROUNDSIDE FEASIBILITY-WITNESS CLAUSE (owner ruling 2026-07-30) — the
+    # pinned mouth/weld nodes by CANONICAL KEY, so the later passes that
+    # rebuild the node space (``final_grade_projection``) can still name the
+    # anchors whose witness role the clause withdraws.  A key set only; it
+    # asserts nothing on its own.
+    _key_of = {i: k for k, i in bucket_to_idx.items()}
+    layout._gs_pin_keys = {_key_of[i] for i in hard if i in _key_of}
+    if _os.environ.get("O4_STEP_DEBUG") == "1" and _pin_dem_idx:
+        floats = sorted(elev[i] - d for i, d in _pin_dem_idx.items()
+                        if i < len(elev))
+        if floats:
+            _m50 = floats[len(floats) // 2]
+            _nover = sum(1 for f in floats if f > _gs_float_cap + 1e-6)
+            print(f"  [gs-pin-dem] {len(floats)} pin(s) with DEM: "
+                  f"float median={_m50:+.2f} max={floats[-1]:+.2f} "
+                  f"min={floats[0]:+.2f}; bound={_gs_float_cap:.2f} "
+                  f"over-bound={_nover} (gate="
+                  f"{'on' if _gs_dem_bound else 'OFF'})")
     return n, hard
 
 

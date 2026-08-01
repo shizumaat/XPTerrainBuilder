@@ -25,7 +25,11 @@ from typing import Optional
 # answered with the ``secret_response`` command, o4_engine.secret_broker).
 # 1.3 (2026-07-27, additive): TileClocks — per-tile elapsed/remaining
 # rows beside RunEta, so activity views can show each tile's own clock.
-PROTOCOL_VERSION = "1.3"
+# 1.4 (2026-07-30, additive): ImageryDownloadsDone — the imagery step's
+# download queue drained and only its local DDS tail remains, so the
+# parallel orchestrator can release that tile's imagery fetch token
+# (docs/specs/apron-string-and-scheduling-spec.md §A.2).
+PROTOCOL_VERSION = "1.4"
 
 
 @dataclass(frozen=True)
@@ -147,6 +151,26 @@ class AutoPatchProgress(EngineEvent):
     eta_total_seconds: Optional[float] = None
     lat: int = 0
     lon: int = 0
+
+
+@dataclass(frozen=True)
+class ImageryDownloadsDone(EngineEvent):
+    """This tile's imagery DOWNLOAD queue drained; only the local DDS
+    conversion tail remains (docs/specs/apron-string-and-scheduling-spec
+    §A.2 — the imagery step is hybrid exactly as the vector step is).
+
+    A scheduling signal for the parallel orchestrator: it releases the
+    tile's ``imagery`` fetch token here, so a queued tile may start
+    downloading while this one converts.  Additive to the protocol —
+    unknown event names are dropped by the Python re-assembler
+    (``parallel._rebuild_event``) and reported as ``.unknown`` by the
+    Swift client (``Sources/SceneryKit/OrthoEngineClient.swift``).
+    """
+
+    lat: int = 0
+    lon: int = 0
+    downloaded: int = 0
+    failed: int = 0
 
 
 @dataclass(frozen=True)

@@ -1,4 +1,129 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260731d (HYGIENE — the item 20260731c FILED AND DID NOT LAND) —
+# THE DEAD ``osm_centerlines`` RECT CHAIN IS RETIRED.  655 lines out of
+# pipeline.py; BYTE-IDENTICAL patches at FOUR airports, including the
+# two branches SPJC never took.  ⚠ ONE OWNER CALL LEFT OPEN: the
+# default-OFF ``O4_SVC_CURVED_JUNCTION`` experiment was PRESERVED and
+# rewired, not retired — retiring it is the owner's call.
+# ══════════════════════════════════════════════════════════════════
+# Nothing about spine composition changed — proven, not asserted.
+#
+# ── WHAT WENT ───────────────────────────────────────────────────────
+#  Everything ``build_airport_pavement`` did to the LOCAL
+#  ``osm_centerlines`` list between the snapshot
+#  ``layout.apt_taxi_centerlines = list(osm_centerlines)`` and
+#  ``trim_centerlines_at_buildings``:
+#   * the ``(line, name)`` tuple projection of the spine model;
+#   * per-ref overall chord bearings; the primary-parallel SPINE lines
+#     (± 800 m) and the ± 30 m parallel-CORRIDOR polygons;
+#   * junction-point detection — apt.dat ``taxi_junction_points`` + the
+#     O(n²) shapely ``intersects`` crossing scan, and the OSM
+#     ``_find_junction_points`` fallback;
+#   * the diagonal-stub spine trim, the buffered-runway trim, the
+#     parallel-corridor perpendicular trim, the diagonal-stub corridor
+#     trim, ``_split_centerlines_at_points``, ``_trim_short_bend_hooks``,
+#     ``_drop_offcorridor_centerlines``, ``trim_centerlines_at_buildings``;
+#   * the ``O4_RECOGNIZED_CENTERLINES`` re-feed of the recognized
+#     centerlines back into the local list (same dead consumer — its
+#     stated purpose was "the taxi RECTS must be built from the SAME
+#     recognized centerlines the spine uses");
+#   * ``emitted_taxi_rects`` — the rect model's emit ledger, append-only
+#     and unread since d4f61d6 — and the module constants
+#     ``_RWY_JUNCTION_BUFFER_M`` / ``_RWY_DIAG_BUFFER_M`` /
+#     ``_PARALLEL_BUFFER_M`` that tuned the trims.
+#  Their consumers, ``_build_taxi_rects`` and ``junction_spine.py``, were
+#  deleted by d4f61d6 on 2026-07-29.  The slice takes its spine from
+#  ``layout.apt_taxi_centerlines``, snapshotted ABOVE the chain.
+#  LOG LINES GONE, both describing discarded output: "dropped N runway-
+#  crossing + M junction-buried centerline(s) (of K)" and "trimmed N
+#  centerline(s) at building-pad edges".
+#  KEPT — every helper, still imported and unit-tested where it lives:
+#  ``pavement/centerlines.py`` (_split_centerlines_at_points,
+#  _trim_short_bend_hooks, _drop_offcorridor_centerlines),
+#  ``pavement/junctions.py`` (_find_junction_points), ``terminals.py``
+#  (trim_centerlines_at_buildings — tests/test_hangar_pads.py).  Only the
+#  dead call sites are gone.
+#
+# ── THE TWO LIVE THINGS INSIDE THE SPAN, BOTH PRESERVED ─────────────
+#  1. The SERVICE-ROAD block still appends its ``_svc_lines`` to
+#     ``layout.apt_taxi_centerlines`` as ``TaxiCenterline(is_service=
+#     True, …)``.  That append feeds the slice (``_cn_svc``) and is
+#     untouched; only its feed into the retired local list is gone.
+#  2. ⚠ OWNER CALL, NOT TAKEN HERE.  The default-OFF
+#     ``O4_SVC_CURVED_JUNCTION`` block was the last reader of the final
+#     list and of ``_svc_widths``.  It is PRESERVED, rewired to read
+#     ``_svc_lines`` directly (hoisted out of the ``if`` that built it).
+#     Behaviour is unchanged and MEASURED, not argued: SVC lines join the
+#     list AFTER every taxi-specific trim and are exempt from the off-
+#     corridor drop, so the only transform they ever picked up was the
+#     building-pad trim — reproduced inside the gate (``trim_centerlines_
+#     at_buildings`` is per-line independent and order-preserving, so the
+#     SVC subset of a full-list call IS an SVC-only call).  CYXY with
+#     ``O4_SVC_CURVED_JUNCTION=1``, before vs after: 18 narrow SVC
+#     connectors both times, 465 shapes both times, body
+#     e0f695ff2ece5629519ef669d9455310e61050d580551fc332a952296301509e
+#     both times.  Gate is default OFF ⇒ zero production cost.
+#     WHETHER TO RETIRE THE EXPERIMENT OUTRIGHT IS STILL OPEN.
+#
+# ── EVIDENCE (interventional, not a code read) ──────────────────────
+#  Frozen COPIED ``src/`` trees, never the shared one; one build per
+#  process, serial, warm caches; body sha256 = sha256 of the patch minus
+#  its two provenance header lines (``tail -n +3``).
+#    A = the tree at 16:07 unmodified;  A1/A2 = determinism control
+#    C = A + ``osm_centerlines = []`` right after the tuple projection
+#    D = A + THE ACTUAL DELETION (what landed)
+#    SPJC  A1/A2/C/D  ALL 8a1d8adb032d18bd9ad11b80551d2f8dd2a50c9f14ffd5fef6b99d65074d1261
+#    HECA  A1/A2/C/D  ALL d4f52f02fad3ed87b49df90c6b0692b76788f7bbe7f140830118bcf3c04e757c
+#    HEAZ  A1/A2/C/D  ALL 3d0e34581e6942e2db46ffe6bc844ddcdce27d24f963d73d16ba00feef9d2a1b
+#    CYXY  A1/A2/C/D  ALL dcebb6ff668ff125b2cf9fd4a01aa2b931c5a45d47d33272ca52be759c00c298
+#  ⚠ HEAZ is exactly the coverage 20260731c said arm C lacked: it is the
+#  one fixture airport with ZERO apt.dat 1201/1202 edges (0 nodes /
+#  0 edges / 94 painted lines), so it takes BOTH branches SPJC never
+#  exercised — PAINTED_CENTERLINE_FALLBACK and the OSM
+#  ``_find_junction_points`` fallback.
+#  The arm-A HECA hash REPRODUCES 20260731c's recorded HECA hash, which
+#  anchors this harness to the prior block's datum.
+#  THE LANDED FILE, not only the frozen arm: a build driven from the main
+#  tree AFTER the edit reproduces CYXY dcebb6ff… exactly.
+#  STRUCTURAL, alongside the builds: no deleted line writes anything
+#  outside the chain's own locals (no ``layout.*`` assignment, no
+#  append/extend/add to a non-local), and below the snapshot the only
+#  readers of ``osm_centerlines`` were the default-OFF gate above and
+#  ``_capture_string_substrate`` (which runs ABOVE the chain and is
+#  untouched — tests/test_string_substrate_capture.py green, including
+#  its ``O4_RECOGNIZED_CENTERLINES=1`` case).
+#  ⚠ A concurrent session was editing pipeline.py THROUGHOUT (the
+#  ``_capture_string_substrate`` work; the file grew +120 lines between
+#  the first read and the freeze).  The deletion is scripted against
+#  unique TEXT anchors, never line numbers, and the edit it made to the
+#  main tree was verified byte-identical to the edit arm D proved — the
+#  two changes are orthogonal.
+#
+# ── BUILD TIME (CLAUDE.md item 6) — a REDUCTION; no new code runs ───
+#  Pipeline's own per-phase records (~/.ortho4xp/auto_patch_build_times),
+#  same machine, arms in sequence.  Phase 3 "Building taxiways &
+#  terminals":
+#    SPJC  3.18 / 3.02 s (A)  →  0.32 s (D)  = −2.8 s
+#    HECA  6.13 / 6.40 s (A)  →  1.45 s (D)  = −4.8 s
+#    HEAZ  0.86 / 0.86 s (A)  →  0.05 s (D)  = −0.81 s
+#    CYXY  0.53 / 0.54 s (A)  →  0.09 s (D)  = −0.45 s
+#  Arm D beats arm C at HECA (1.45 vs 1.60) and HEAZ (0.05 vs 0.06) and
+#  ties it at SPJC/CYXY, because D also removes ``taxi_junction_points``
+#  and the walks C still made over an empty list.  Totals sit inside
+#  solver noise, and a concurrent session was building during the arm-D
+#  runs, so these phase-3 figures are conservative.  Nothing new runs
+#  anywhere, so there is nothing for a Fable-5 optimisation review.
+#
+# ── TESTS ───────────────────────────────────────────────────────────
+#  444 passed / 5 failed over pipeline.py's blast radius (blast.py's test
+#  list plus tests/test_hangar_pads.py for the kept helper), through
+#  run_with_ledger.py.  The 5 are tests/test_crown_seam_ramp.py and are
+#  PRE-EXISTING — proven, not asserted: the SAME five fail with the SAME
+#  ``KeyError: 'axis_len2'`` at runway_redistribute.py:245 when pytest is
+#  bound to the FROZEN pre-change tree via a ``-p`` plugin.  Identical
+#  finding to 20260731c.
+#
+# ══════════════════════════════════════════════════════════════════
 # 20260731c (HYGIENE — spawned out of the taut-string line by P7
 # ruling (4)) — THE DEAD DISCOVERY BRANCH IS RETIRED, AND THE SILENT
 # SPINE DROPS ARE NOW COUNTED.  Byte-identical patches at SPJC and

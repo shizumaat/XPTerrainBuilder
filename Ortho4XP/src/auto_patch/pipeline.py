@@ -142,13 +142,10 @@ from .pavement.union_helpers import (
 
 
 # ──────────────────────────────────────────────────────────────────
-# Tunable runway / parallel-taxiway centerline pull-backs (session 56).
-# Exposed as module globals so the centerline output can be regenerated
-# with different pull-backs for review.  Defaults = historical values.
+# (2026-07-31) The tunable runway / parallel-taxiway centerline
+# pull-backs (session 56: _RWY_JUNCTION_BUFFER_M, _RWY_DIAG_BUFFER_M,
+# _PARALLEL_BUFFER_M) were retired with the rect trim chain they tuned.
 # ──────────────────────────────────────────────────────────────────
-_RWY_JUNCTION_BUFFER_M = 25.0   # runway-end pull-back (perpendicular)
-_RWY_DIAG_BUFFER_M = 25.0       # runway-end pull-back (diagonal)
-_PARALLEL_BUFFER_M = 15.0       # parallel-taxiway-end pull-back
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -2395,11 +2392,12 @@ def build_airport_pavement(icao: str, xplane_root: str,
     try:
         from .centerline_recognition import recognize_curved_centerlines
         recognize_curved_centerlines(layout, icao)
-        # ONE source: when recognition ran, the taxi RECTS must be built from the
-        # SAME recognized centerlines the spine uses — not the separate straight
-        # ``osm_centerlines`` (user 2026-07-01: no multiple/conflicting sources).
-        if os.environ.get("O4_RECOGNIZED_CENTERLINES", "0") == "1":
-            osm_centerlines = list(layout.apt_taxi_centerlines)
+        # (2026-07-31) The re-feed of the recognized centerlines into the
+        # local ``osm_centerlines`` list went with the rect chain — its
+        # stated purpose ("the taxi RECTS must be built from the SAME
+        # recognized centerlines the spine uses") had no consumer left.
+        # Recognition still rewrites ``layout.apt_taxi_centerlines``, which
+        # IS what the slice reads.
     except Exception:
         UI.vprint(1, f"  [pav-builder] {icao}: curved-centerline recognition "
                   f"skipped (error).")
@@ -2651,130 +2649,31 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # whose helpers still serve the 1206 road strip-extension, and whose
     # header records what re-wiring it into the slice would require.
 
-    # ── Project the SPINE model (TaxiCenterline, connectivity + per-segment size,
-    # already snapshotted onto ``layout.apt_taxi_centerlines`` above) down to the
-    # ``(line, name)`` tuples the RECT-BUILDING pipeline consumes (user 2026-06-29).
-    # The rect builder + its trimming/splitting transforms only need geometry +
-    # label, not size, so they stay tuple-based; the size model lives on
-    # ``layout.apt_taxi_centerlines`` for the grade solve.
-    osm_centerlines = [
-        (c.line, c.name) if hasattr(c, "line") else c for c in osm_centerlines]
-
-    # ── Per-ref OVERALL chord bearings (pre-split) ───────────────
-    # Used by ``_classify_role`` to disambiguate diagonal-overall
-    # taxis whose curving ends happen to align near-parallel to
-    # the runway locally.  Without this, a B/C/E/G stub at SPJC —
-    # which enters the runway at a shallow angle — gets a small
-    # post-curve segment classified as PRIMARY_PARALLEL because
-    # the segment's local bearing falls inside the 20° parallel
-    # window, even though the OVERALL B/C/E/G chord is diagonal.
-    # The parent's overall chord bearing is the right reference.
-    ref_overall_bearings: Dict[str, float] = {}
-    _ref_longest_len: Dict[str, float] = {}
-    for _ls, _ref in osm_centerlines:
-        if not _ref:
-            continue
-        if _ls.length <= _ref_longest_len.get(_ref, 0.0):
-            continue
-        _coords = list(_ls.coords)
-        if len(_coords) < 2:
-            continue
-        _dx = _coords[-1][0] - _coords[0][0]
-        _dy = _coords[-1][1] - _coords[0][1]
-        if math.hypot(_dx, _dy) < 1.0:
-            continue
-        ref_overall_bearings[_ref] = (
-            math.degrees(math.atan2(_dx, _dy)) % 180.0)
-        _ref_longest_len[_ref] = _ls.length
-
-    # ── Primary-parallel SPINE LINES (pre-split) ─────────────────
-    # Per user 2026-04-27: identify each primary-parallel taxiway
-    # (overall db < 20° to the nearest runway) and build a single
-    # extended SPINE LINE running through it.  Diagonal stubs
-    # (B/C/D/E/G at SPJC) should END where they cross this spine —
-    # not where the diagonal's OSM polyline happens to terminate
-    # (which can be inside the apron, past where the parallel
-    # ought to "continue" through).  The spine line lets us
-    # imagine the parallel's centerline continuing through gaps
-    # / aprons in the OSM data, providing a stable inland-side
-    # bound for diagonal-stub trimming.
-    parallel_spines: List[LineString] = []
-    parallel_corridors: List[Tuple[str, Polygon]] = []
-    SPINE_EXTEND_M = 800.0  # extend each spine ±800 m past its
-                              # OSM-fragment endpoints so it acts
-                              # as a guide line through aprons.
-    PARALLEL_CORRIDOR_HALF_WIDTH_M = 30.0
-                              # half-width of the imagined
-                              # primary-parallel pavement corridor.
-                              # Used to TRIM diagonal stubs at the
-                              # corridor's runway-facing edge — so
-                              # B/C/D/E at SPJC stop where they
-                              # enter A's pavement (real or
-                              # imagined-via-apron) rather than
-                              # extending deep into the apron.
-                              # 30 m is wider than a typical taxi
-                              # half-width (22 m) so the corridor
-                              # forgives small OSM/apt.dat
-                              # misalignment.
-    if rwy_centerlines:
-        # Bearing of the FIRST runway centerline; we use it to
-        # decide whether a ref qualifies as a primary parallel
-        # (db < 20°).  All SPJC runways are parallel so any
-        # runway works as the reference.
-        _r0 = rwy_centerlines[0]
-        _rc = list(_r0.coords)
-        _rdx = _rc[-1][0] - _rc[0][0]
-        _rdy = _rc[-1][1] - _rc[0][1]
-        if math.hypot(_rdx, _rdy) > 1e-6:
-            _rwy_bearing = (
-                math.degrees(math.atan2(_rdx, _rdy)) % 180.0)
-            for _ref, _bearing in ref_overall_bearings.items():
-                _db = abs(_bearing - _rwy_bearing)
-                _db = min(_db, 180.0 - _db)
-                if _db >= 20.0:
-                    continue  # not a primary parallel
-                # Find the longest OSM centerline for this ref;
-                # use its endpoints to define the spine direction
-                # and base position.
-                best_ls: Optional[LineString] = None
-                best_len = 0.0
-                for _ls, _r2 in osm_centerlines:
-                    if _r2 != _ref:
-                        continue
-                    if _ls.length > best_len:
-                        best_len = _ls.length
-                        best_ls = _ls
-                if best_ls is None or best_len < 100.0:
-                    continue
-                _ec = list(best_ls.coords)
-                _eax, _eay = _ec[0]
-                _ebx, _eby = _ec[-1]
-                _edx = _ebx - _eax
-                _edy = _eby - _eay
-                _emag = math.hypot(_edx, _edy)
-                if _emag < 1e-6:
-                    continue
-                _ux = _edx / _emag
-                _uy = _edy / _emag
-                _start = (_eax - _ux * SPINE_EXTEND_M,
-                          _eay - _uy * SPINE_EXTEND_M)
-                _end = (_ebx + _ux * SPINE_EXTEND_M,
-                        _eby + _uy * SPINE_EXTEND_M)
-                try:
-                    _spine = LineString([_start, _end])
-                    parallel_spines.append(_spine)
-                    # Build the corridor polygon: spine buffered to
-                    # PARALLEL_CORRIDOR_HALF_WIDTH_M, square ends so
-                    # the corridor's apron-facing extension stays
-                    # rectangular.
-                    _corridor = _spine.buffer(
-                        PARALLEL_CORRIDOR_HALF_WIDTH_M,
-                        cap_style=2, join_style=2)
-                    if (not _corridor.is_empty
-                            and _corridor.geom_type == "Polygon"):
-                        parallel_corridors.append((_ref, _corridor))
-                except _GEOM_EXC:
-                    pass
+    # ── (line, name) projection + parallel SPINE / CORRIDOR model:
+    #    RETIRED 2026-07-31 ──────────────────────────────────────────
+    # The projection of the ``TaxiCenterline`` spine model down to
+    # ``(line, name)`` tuples ran here, followed by the per-ref overall
+    # chord bearings, the primary-parallel SPINE lines (± 800 m) and the
+    # ± 30 m parallel-CORRIDOR polygons.  All of it fed the RECT-BUILDING
+    # chain below — junction-point detection, the diagonal / perpendicular
+    # / corridor trims, split-at-points, bend-hook trim, the off-corridor
+    # drop and the building-pad trim — whose only consumers
+    # (``_build_taxi_rects`` + its ~15 shaping passes, and
+    # ``junction_spine.py``) d4f61d6 deleted on 2026-07-29.  Nothing has
+    # read the transformed list since: the global slice takes its spine
+    # from ``layout.apt_taxi_centerlines``, snapshotted ABOVE this point
+    # (deliberately — junction_repair's apron reclassification needs the
+    # UNtrimmed input set), never from the local ``osm_centerlines`` list
+    # the chain rewrote.
+    # MEASURED before removal (interventional; frozen COPIED src/ trees, one
+    # build per process, warm caches, body sha256 of ``tail -n +3``): the
+    # emitted patch is BYTE-IDENTICAL with the whole chain gone at SPJC,
+    # HECA, CYXY and HEAZ — the last of which takes BOTH branches SPJC
+    # never exercised (PAINTED_CENTERLINE_FALLBACK and the OSM
+    # ``_find_junction_points`` fallback).
+    # STILL LIVE, do not confuse with the above: the service-road (SVC)
+    # block further down appends ``TaxiCenterline(is_service=True, …)`` to
+    # ``layout.apt_taxi_centerlines``.  That append feeds the slice.
 
     # ── Pavement source-of-truth (user 2026-04-28): apt.dat row-110
     # ∪ DSF pavement, period.  Earlier revisions augmented pav_union
@@ -2925,495 +2824,22 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # and TX refs exist only on medial-axis DISCOVERED centerlines, retired
     # above — so it now has nothing to match.  Measured at HECA before
     # removal: it dropped 6 of the 595 discovered lines, all of them already
-    # unread.  Referenced (apt.dat) centerlines are trimmed at building pads
-    # by ``trim_centerlines_at_buildings`` further down; that is untouched.
+    # unread.  The ``trim_centerlines_at_buildings`` call that used to run
+    # further down went with the rest of the rect chain on 2026-07-31.
 
-    # ── Identify junction node CLUSTERS ──────────────────────────
-    # Per user 2026-05-12: when the taxi graph comes from apt.dat
-    # row 1201/1202, the junction nodes ARE explicit in the data —
-    # any taxi node referenced by edges of ≥ 2 distinct names, or
-    # by a runway-cross edge, is a chart-level junction.  Use
-    # those points so ``_split_centerlines_at_points`` trims the
-    # apt.dat centerlines at the right places (otherwise long
-    # parallel taxis terminate deep inside apron polygons and
-    # ``_snap_corners_to_pavement`` rejects them as
-    # apron-interior).  Fall back to OSM topology when apt.dat
-    # has no taxi network.
-    if apt_centerlines:
-        junction_points = APR.taxi_junction_points(apt, to_m)
-        # Also add geometric crossing points between centerlines of
-        # different names — covers the case where a taxi node was
-        # tagged with one name but the connecting edge has another.
-        # Same behaviour ``_find_junction_points`` provides for OSM.
-        for i in range(len(osm_centerlines)):
-            ls1, ref1 = osm_centerlines[i]
-            for j in range(i + 1, len(osm_centerlines)):
-                ls2, ref2 = osm_centerlines[j]
-                if ref1 and ref2 and ref1 == ref2:
-                    continue
-                try:
-                    if not ls1.intersects(ls2):
-                        continue
-                    inter = ls1.intersection(ls2)
-                except _GEOM_EXC:
-                    continue
-                if inter.is_empty:
-                    continue
-                if inter.geom_type == "Point":
-                    junction_points.append((inter.x, inter.y))
-                elif inter.geom_type == "MultiPoint":
-                    for p in inter.geoms:
-                        junction_points.append((p.x, p.y))
-    else:
-        # Any OSM node referenced by ≥2 taxi ways is a potential
-        # junction point.  Nodes within JUNCTION_CLUSTER_DIST of
-        # each other are merged into one cluster (target junctions
-        # often span a whole multi-way intersection, not just a
-        # single OSM node).
-        junction_points = _find_junction_points(
-            nodes, ways, to_m, osm_centerlines=osm_centerlines)
-
-    # Width-transition breakpoints: experimented with this
-    # (user 2026-05-12 option A) — found that splitting V at
-    # detected width transitions creates new V rects in regions
-    # where target treats the pavement as junction territory.
-    # Those new rects' sloping edges introduce cross-shape
-    # altitude-step violations against adjacent junctions
-    # (failed pavement-grade test).  Disabled.  V under-
-    # segmentation (target 5 rects vs v20 3 rects) remains a
-    # known limitation of the apt.dat-derived centerline.
-    pass
-
-    # ── Diagonal-stub trim at primary-parallel SPINES ────────────
-    # Per user 2026-04-27: a diagonal stub (B/C/D/E/G overall db
-    # ∈ [20°, 45°)) should END where its centerline crosses the
-    # nearest primary-parallel SPINE LINE — even when the spine
-    # passes through an apron with no OSM coverage.  Without this
-    # the stub's apron-side OSM endpoint can sit deep inside the
-    # apron, producing an over-long rect that the surrounding
-    # junction has to wrap around.  Adding the spine intersection
-    # to ``junction_points`` lets the existing
-    # ``_split_centerlines_at_points`` machinery clip the diagonal
-    # at the right place using its standard junction-margin rule.
-    if parallel_spines and rwy_centerlines:
-        _rwy_first = rwy_centerlines[0]
-        _rfc = list(_rwy_first.coords)
-        _rfdx = _rfc[-1][0] - _rfc[0][0]
-        _rfdy = _rfc[-1][1] - _rfc[0][1]
-        _rfmag = math.hypot(_rfdx, _rfdy)
-        if _rfmag > 1e-6:
-            _rfb = (math.degrees(math.atan2(_rfdx, _rfdy))
-                    % 180.0)
-            for _ls, _ref in osm_centerlines:
-                if not _ref:
-                    continue
-                _b = ref_overall_bearings.get(_ref)
-                if _b is None:
-                    continue
-                _db = abs(_b - _rfb)
-                _db = min(_db, 180.0 - _db)
-                # Only diagonal stubs (db ∈ [20°, 45°)) need this.
-                if not (20.0 <= _db < 45.0):
-                    continue
-                # Find the closest spine and intersect.
-                best_pt = None
-                best_d = float("inf")
-                for _spine in parallel_spines:
-                    try:
-                        _x = _ls.intersection(_spine)
-                    except _GEOM_EXC:
-                        continue
-                    if _x.is_empty:
-                        # Try extending the centerline ends to reach
-                        # the spine — handles diagonals whose OSM
-                        # path stops short of the spine's location.
-                        continue
-                    if _x.geom_type == "Point":
-                        _pt = (_x.x, _x.y)
-                    elif _x.geom_type == "MultiPoint":
-                        # Pick the intersection furthest from the
-                        # closest runway centerline — that's the
-                        # apron-side cut we want for trimming.
-                        _pt = None
-                        _far = -1.0
-                        for _g in _x.geoms:
-                            _gp = (_g.x, _g.y)
-                            try:
-                                _gd = min(
-                                    Point(_gp).distance(_r)
-                                    for _r in rwy_centerlines)
-                            except _GEOM_EXC:
-                                _gd = 0.0
-                            if _gd > _far:
-                                _far = _gd
-                                _pt = _gp
-                        if _pt is None:
-                            continue
-                    else:
-                        continue
-                    # Distance along centerline from runway end —
-                    # used to pick the closest spine intersection.
-                    try:
-                        _proj = _ls.project(Point(_pt))
-                    except _GEOM_EXC:
-                        continue
-                    _d = abs(_proj - _ls.length / 2)
-                    if _d < best_d:
-                        best_d = _d
-                        best_pt = _pt
-                if best_pt is not None:
-                    junction_points.append(best_pt)
-
-    # Trim runway-approaching centerlines at a BUFFERED runway
-    # polygon so the last rect on a taxi that crosses or enters
-    # the runway stops short of the runway-junction approach.
-    # The runway boundary IS an intersection (rule 70 % of gap
-    # between intersections), but the physical junction — where
-    # the taxi widens into the runway apron — extends some
-    # distance OUTSIDE the runway polygon too.  Pulling the
-    # centerline end back from the approach widening keeps the
-    # rect from "encroaching into intersections" (user
-    # 2026-04-21).
-    #
-    # Two thresholds:
-    #   * Perpendicular (perp_diff < 25°): pull back 30 m.  These
-    #     taxis hit the runway head-on and the widening is large.
-    #   * Diagonal (25° ≤ perp_diff < 70°): pull back 15 m.
-    #     The widening is gentler at oblique angles (B/C/D/E/G at
-    #     SPJC) but still significant.  Per user 2026-04-27: "B,
-    #     C, D, E, G should be handled like V3 stub" — V3 is a
-    #     near-perpendicular sub-ref and gets the 30 m buffer; the
-    #     diagonals get a smaller buffer so they don't over-shrink
-    #     while still getting the same kind of pull-back.
-    RWY_JUNCTION_BUFFER_M = _RWY_JUNCTION_BUFFER_M
-    RWY_DIAG_BUFFER_M = _RWY_DIAG_BUFFER_M
-    PERP_TRIM_MAX_DEG = 25.0
-    DIAG_TRIM_MAX_DEG = 70.0
-    if (layout.runway_union is not None
-            and not layout.runway_union.is_empty
-            and rwy_centerlines):
-        try:
-            rwy_buffered = layout.runway_union.buffer(
-                RWY_JUNCTION_BUFFER_M)
-        except _GEOM_EXC:
-            rwy_buffered = layout.runway_union
-        # Nearest-runway bearing for angle check
-        def _perp_diff_to_runway(ls: LineString) -> float:
-            c = list(ls.coords)
-            if len(c) < 2:
-                return 90.0
-            dx = c[-1][0] - c[0][0]
-            dy = c[-1][1] - c[0][1]
-            mag = math.hypot(dx, dy)
-            if mag < 1e-6:
-                return 90.0
-            ax_bearing = math.degrees(
-                math.atan2(dx, dy)) % 180.0
-            mid = ls.interpolate(ls.length / 2)
-            best = min(rwy_centerlines,
-                       key=lambda r: mid.distance(r))
-            rc = list(best.coords)
-            rx = rc[-1][0] - rc[0][0]
-            ry = rc[-1][1] - rc[0][1]
-            rmag = math.hypot(rx, ry)
-            if rmag < 1e-6:
-                return 90.0
-            rwy_bearing = math.degrees(
-                math.atan2(rx, ry)) % 180.0
-            delta = abs(ax_bearing - rwy_bearing)
-            delta = min(delta, 180.0 - delta)
-            return abs(delta - 90.0)
-
-        trimmed_centerlines: List[Tuple[LineString, str]] = []
-        for ls, ref in osm_centerlines:
-            # Per user 2026-05-12: extend the 30 m runway-buffer
-            # pull-back to DIAGONAL centerlines too (was perpendicular-
-            # only).  Reason: a diagonal stub's centerline at, say,
-            # 27° to the runway axis can have its runway-side endpoint
-            # 10-15 m off the runway pavement edge.  Without
-            # perpendicular clearance, the rect built from that
-            # centerline has its runway-side long-edge snapped onto
-            # the runway boundary (SPJC stubs E + G ended up 0.5 m
-            # off the runway edge — the snap collapsed the adjacent
-            # junction polygon to a sliver).  Apply the 30 m
-            # buffer-pullback to everything that's NOT essentially
-            # parallel to the runway (perp_diff < 70°); pure
-            # parallels skip — they shouldn't shorten by 30 m on
-            # their runway-facing end.
-            pd = _perp_diff_to_runway(ls)
-            if pd >= DIAG_TRIM_MAX_DEG:
-                trimmed_centerlines.append((ls, ref))
-                continue
-            _buf = rwy_buffered
-            try:
-                diff = ls.difference(_buf)
-            except _GEOM_EXC:
-                trimmed_centerlines.append((ls, ref))
-                continue
-            if diff.is_empty:
-                trimmed_centerlines.append((ls, ref))
-                continue
-            if diff.geom_type == "LineString":
-                if diff.length >= MIN_SEGMENT_LEN_M:
-                    trimmed_centerlines.append((diff, ref))
-                else:
-                    trimmed_centerlines.append((ls, ref))
-            elif diff.geom_type == "MultiLineString":
-                longest = max(diff.geoms, key=lambda g: g.length)
-                if longest.length >= MIN_SEGMENT_LEN_M:
-                    trimmed_centerlines.append((longest, ref))
-                else:
-                    trimmed_centerlines.append((ls, ref))
-            else:
-                trimmed_centerlines.append((ls, ref))
-        osm_centerlines = trimmed_centerlines
-
-    # Trim PERPENDICULAR centerlines at a BUFFERED PARALLEL-
-    # CENTERLINE polygon.  Per user (2026-04-22): at SPLP
-    # (unrefed airport), perpendicular stubs come from long
-    # multipurpose taxis whose gap is bounded by a POINT
-    # crossing with the primary axis.  That crossing doesn't
-    # account for the primary's WIDTH — the 70 % rect then
-    # extends into the primary's rect zone, reading as
-    # "off-center toward the taxiway".  A 15 m buffer around
-    # each parallel-to-runway centerline (= primary half-width)
-    # pulls the perpendicular stub's primary-side endpoint
-    # out to the primary's physical edge.  SPJC doesn't need
-    # this because each sub-ref stub has its own dedicated OSM
-    # way — the geometry inherently excludes the primary
-    # width.
-    PARALLEL_BUFFER_M = _PARALLEL_BUFFER_M
-    PARALLEL_MIN_LEN_M = 200.0
-    if rwy_centerlines:
-        parallel_polys = []
-        for ls, _ref in osm_centerlines:
-            if ls.length < PARALLEL_MIN_LEN_M:
-                continue
-            # Check if this centerline is PARALLEL to runway
-            # (perp_diff > 75°).
-            c = list(ls.coords)
-            if len(c) < 2:
-                continue
-            dx = c[-1][0] - c[0][0]
-            dy = c[-1][1] - c[0][1]
-            mag = math.hypot(dx, dy)
-            if mag < 1e-6:
-                continue
-            ax_bearing = math.degrees(
-                math.atan2(dx, dy)) % 180.0
-            mid = ls.interpolate(ls.length / 2)
-            best_r = min(rwy_centerlines,
-                         key=lambda r: mid.distance(r))
-            rc = list(best_r.coords)
-            rx = rc[-1][0] - rc[0][0]
-            ry = rc[-1][1] - rc[0][1]
-            rmag = math.hypot(rx, ry)
-            if rmag < 1e-6:
-                continue
-            rwy_bearing = math.degrees(
-                math.atan2(rx, ry)) % 180.0
-            delta = abs(ax_bearing - rwy_bearing)
-            delta = min(delta, 180.0 - delta)
-            perp_diff = abs(delta - 90.0)
-            if perp_diff > 75.0:
-                # Parallel to runway → create buffer polygon
-                try:
-                    parallel_polys.append(
-                        ls.buffer(PARALLEL_BUFFER_M))
-                except _GEOM_EXC:
-                    pass
-        if parallel_polys:
-            try:
-                parallel_union = unary_union(parallel_polys)
-            except _GEOM_EXC:
-                parallel_union = None
-            if parallel_union is not None and not parallel_union.is_empty:
-                def _perp_diff_to_rwy(ls):
-                    c = list(ls.coords)
-                    if len(c) < 2:
-                        return 90.0
-                    dx = c[-1][0] - c[0][0]
-                    dy = c[-1][1] - c[0][1]
-                    mag = math.hypot(dx, dy)
-                    if mag < 1e-6:
-                        return 90.0
-                    ax_b = math.degrees(
-                        math.atan2(dx, dy)) % 180.0
-                    mid_p = ls.interpolate(ls.length / 2)
-                    best = min(rwy_centerlines,
-                               key=lambda r: mid_p.distance(r))
-                    rc = list(best.coords)
-                    rx = rc[-1][0] - rc[0][0]
-                    ry = rc[-1][1] - rc[0][1]
-                    rmag = math.hypot(rx, ry)
-                    if rmag < 1e-6:
-                        return 90.0
-                    rw_b = math.degrees(
-                        math.atan2(rx, ry)) % 180.0
-                    dlt = abs(ax_b - rw_b)
-                    dlt = min(dlt, 180.0 - dlt)
-                    return abs(dlt - 90.0)
-
-                trimmed_perp: List[Tuple[LineString, str]] = []
-                for ls, ref in osm_centerlines:
-                    # Trim perpendicular AND diagonal centerlines
-                    # — both cross the parallel-parallel corridor
-                    # and benefit from starting at the primary
-                    # EDGE not axis.  Skip only near-parallel ones
-                    # (perp_diff >= 75°) which are themselves
-                    # primaries.
-                    if _perp_diff_to_rwy(ls) >= 75.0:
-                        trimmed_perp.append((ls, ref))
-                        continue
-                    try:
-                        diff = ls.difference(parallel_union)
-                    except _GEOM_EXC:
-                        trimmed_perp.append((ls, ref))
-                        continue
-                    if diff.is_empty:
-                        trimmed_perp.append((ls, ref))
-                        continue
-                    if diff.geom_type == "LineString":
-                        if diff.length >= MIN_SEGMENT_LEN_M:
-                            trimmed_perp.append((diff, ref))
-                        else:
-                            trimmed_perp.append((ls, ref))
-                    elif diff.geom_type == "MultiLineString":
-                        # Multiple pieces — keep ALL so each stub
-                        # between parallels emits separately.
-                        for g in diff.geoms:
-                            if g.length >= MIN_SEGMENT_LEN_M:
-                                trimmed_perp.append((g, ref))
-                    else:
-                        trimmed_perp.append((ls, ref))
-                osm_centerlines = trimmed_perp
-
-    # ── Diagonal-stub corridor trim ──────────────────────────────
-    # Per user 2026-04-27: when a diagonal stub (B/C/D/E/G at SPJC)
-    # connects directly to a large apron rather than crossing a
-    # primary parallel's actual rect, the stub's apron-end ends up
-    # floating in the apron (no nearby pavement edge to snap to).
-    # The fix: subtract the IMAGINED PRIMARY PARALLEL CORRIDOR
-    # (spine ± PARALLEL_CORRIDOR_HALF_WIDTH_M, extended through
-    # gaps in the OSM coverage) from each diagonal stub's
-    # centerline.  The diagonal then ends at the corridor's
-    # runway-facing edge — exactly where the imagined primary
-    # parallel's "near" pavement boundary sits.  Downstream rect-
-    # build + corner-snap-to-pavement then puts the rect's apron-
-    # end corners on the pavement edge between runway and apron.
-    if parallel_corridors and ref_overall_bearings:
-        _r0c = list(rwy_centerlines[0].coords)
-        _r0db = math.degrees(math.atan2(
-            _r0c[-1][0] - _r0c[0][0],
-            _r0c[-1][1] - _r0c[0][1])) % 180.0
-        corridor_trimmed: List[Tuple[LineString, str]] = []
-        for ls, ref in osm_centerlines:
-            if not ref:
-                corridor_trimmed.append((ls, ref))
-                continue
-            _b = ref_overall_bearings.get(ref)
-            if _b is None:
-                corridor_trimmed.append((ls, ref))
-                continue
-            _db_local = abs(_b - _r0db)
-            _db_local = min(_db_local, 180.0 - _db_local)
-            # Only diagonal stubs (overall db ∈ [20°, 45°)) need
-            # this corridor trim.  Sub-refs (V3 etc) would also
-            # qualify and benefit, so include them.
-            if not (20.0 <= _db_local < 45.0):
-                corridor_trimmed.append((ls, ref))
-                continue
-            # Subtract every OTHER ref's corridor from this
-            # centerline.  Skip the centerline's own corridor
-            # (so e.g. an A1 stub doesn't subtract A's corridor
-            # from itself if it was somehow classified as
-            # diagonal).
-            # Subtract the union of every OTHER ref's corridor at once.
-            # Keep ALL SUBSTANTIAL surviving pieces, not just the longest
-            # (user 2026-05-30): a diagonal STUB ends at the apron, so the
-            # subtraction leaves one body piece (+ maybe a short float we
-            # drop).  But a long diagonal THROUGH-taxiway (HECA R, 1.9 km
-            # at db~30°) CROSSES a parallel's corridor in its middle —
-            # subtraction leaves TWO long pieces, and keeping only the
-            # longest DISCARDED ~670 m of R.  Keeping every piece >=
-            # SUBSTANTIAL_PIECE_M preserves the through-taxi (its corridor
-            # crossing becomes a junction at the split) while still
-            # dropping short apron-floats.
-            SUBSTANTIAL_PIECE_M = 150.0
-            others = [corr for c_ref, corr in parallel_corridors
-                      if c_ref != ref]
-            kept_pieces = [ls]
-            if others:
-                try:
-                    diff = ls.difference(unary_union(others))
-                except _GEOM_EXC:
-                    diff = ls
-                if diff.is_empty:
-                    kept_pieces = [ls]
-                elif diff.geom_type == "LineString":
-                    kept_pieces = ([diff]
-                                   if diff.length >= MIN_SEGMENT_LEN_M
-                                   else [ls])
-                elif diff.geom_type == "MultiLineString":
-                    subs = [g for g in diff.geoms
-                            if g.length >= SUBSTANTIAL_PIECE_M]
-                    if len(subs) >= 2:
-                        # ≥ 2 substantial pieces survive ⇒ this is a
-                        # through-TAXIWAY crossing other corridors in
-                        # its middle, NOT a stub ending in one apron.
-                        # Subtracting the corridors here leaves a
-                        # permanent GAP at each crossing (HECA R lost
-                        # ~372 m, coverage 100→88.7 %).  Keep the
-                        # centerline WHOLE; the real crossing junctions
-                        # are cut downstream by _split_centerlines_at_
-                        # points with a small junction margin instead
-                        # of a corridor-width hole.
-                        kept_pieces = [ls]
-                    elif subs:
-                        kept_pieces = subs
-                    else:
-                        longest = max(diff.geoms, key=lambda g: g.length)
-                        kept_pieces = ([longest]
-                                       if longest.length >= MIN_SEGMENT_LEN_M
-                                       else [ls])
-            for piece in kept_pieces:
-                corridor_trimmed.append((piece, ref))
-        osm_centerlines = corridor_trimmed
-
-    # Per user rule (2026-04-18): "Implement splitting at cross ref
-    # crossings" — split every centerline at each multi-ref
-    # junction node along its path, so each straight section
-    # between intersections emits as a single rect.
-    # Split per user rules 1+4 (2026-04-20):
-    #   Rule 1: stop rects at intersections; cluster close
-    #           intersections into single junction region.
-    #   Rule 4: cover only narrowest straight sections; widened
-    #           pavement belongs to junctions.
-    # Uses OSM multi-ref nodes as intersection anchors, gated by
-    # gap + pav-width clustering at the midpoint.
-    # Uniform pipeline per user (2026-04-20): intersections +
-    # sharp curves define break points; 70% rect between
-    # consecutive breaks.  No width analysis.
-    # Per user 2026-05-05: use the SAME pav_union for rect building
-    # and junction emit.  Previously rects used ``pav_union_for_rects``
-    # (full runway subtraction) while junctions used ``pav_union``
-    # (effective_runway subtraction, retaining apron-merged-runway
-    # pavement).  The split was added to fix CYXY's F primary
-    # parallel, but it caused SPJC rect corners to land on
-    # pav_for_rects.boundary that doesn't exist on pav_union.boundary
-    # — leaving thin tabs in the residue.  Single-source-of-truth
-    # boundary lets corners snap consistently.
-    osm_centerlines = _split_centerlines_at_points(
-        osm_centerlines, junction_points, approach_tol_m=25.0,
-        pav_union=pav_union, rwy_union=layout.runway_union,
-        rwy_centerlines=rwy_centerlines)
-
-    # ── Trim short bend-hooks (straight-piece target) ────────────
-    # The hand target represents taxiways as straight pieces; a sharp
-    # bend with a short arm is a hook into a junction/apron the target
-    # omits.  Keep the long straight run (user 2026-05-31).
-    from .pavement.centerlines import _trim_short_bend_hooks
-    osm_centerlines = _trim_short_bend_hooks(osm_centerlines)
+    # ── Junction points + the rect trim/split chain: RETIRED
+    #    2026-07-31 (see the note above) ──────────────────────────────
+    # Deleted here: the apt.dat / OSM junction-point detection (including
+    # the O(n²) shapely ``intersects`` crossing scan and the
+    # ``_find_junction_points`` OSM fallback), the diagonal-stub trim at
+    # the parallel spines, the buffered-runway trim, the parallel-corridor
+    # perpendicular trim, the diagonal-stub corridor trim,
+    # ``_split_centerlines_at_points`` and ``_trim_short_bend_hooks``.
+    # Every one of them rewrote the local ``osm_centerlines`` list and
+    # nothing downstream read it.  The helpers themselves are KEPT in
+    # ``pavement/centerlines.py`` / ``pavement/junctions.py`` (still
+    # imported there, still unit-tested); only the dead call sites are
+    # gone.
 
     # ── (s79) ON-PAVEMENT service-road centerlines (SVC refs) ─────
     # docs/service_road_carve.md: qualifying apt.dat 1206 truck-route
@@ -3425,6 +2851,10 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # trim / spine passes (roads are not aircraft taxi paths), before
     # the off-corridor drop and rect construction.
     _svc_widths: Dict[str, float] = {}   # SVC run ref → measured width
+    # Hoisted out of the block below (2026-07-31): the default-OFF
+    # ``O4_SVC_CURVED_JUNCTION`` block is now the only reader, and it used
+    # to reach these lines through the retired ``osm_centerlines`` list.
+    _svc_lines: List[Tuple[LineString, str]] = []
     if SERVICE_ROAD_CARVE and pav_union is not None \
             and not pav_union.is_empty:
         _svc_routes = list(getattr(layout, "apt_service_centerlines",
@@ -3445,7 +2875,6 @@ def build_airport_pavement(icao: str, xplane_root: str,
             from .pavement.service_roads import _split_at_bends as _svc_bends
             _svc_bend_split = (
                 os.environ.get("O4_SVC_BEND_SPLIT", "1") == "1")
-            _svc_lines: List[Tuple[LineString, str]] = []
             for _k, (_run, _w, _rname) in enumerate(_svc_runs, 1):
                 _ref = f"SVC{_k}"
                 _svc_widths[_ref] = float(_w)
@@ -3481,8 +2910,6 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 # SPJC lost TX6/TX9 secondary_parallels to roads that
                 # never materialised.  Arbitrating on EMITTED geometry
                 # keeps whichever surface actually exists.
-                _n_tx_dropped = 0
-                osm_centerlines = list(osm_centerlines) + _svc_lines
                 # Reclassification / repair passes measure junction
                 # territory against the FULL preserved centerline set —
                 # roads included, so the road-junction territory at
@@ -3497,34 +2924,13 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 UI.vprint(1,
                     f"  [pav-builder] {icao}: {len(_svc_lines)} "
                     f"service-road centerline piece(s) from "
-                    f"{len(_svc_runs)} qualifying 1206 run(s)"
-                    + (f"; {_n_tx_dropped} discovered TX line(s) "
-                       f"yielded to road provenance."
-                       if _n_tx_dropped else "."))
+                    f"{len(_svc_runs)} qualifying 1206 run(s).")
 
-    # ── Drop runway-crossing + junction-buried centerlines ────────
-    # A taxi centerline whose body lies inside the runway (the runway
-    # emit covers that surface) or buried in the middle of a wide
-    # junction/apron (no narrow corridor) does not correspond to a
-    # taxiway rect — drop it before rect construction (user 2026-05-31).
-    from .pavement.centerlines import _drop_offcorridor_centerlines
-    _n_before = len(osm_centerlines)
-    # (s79) SVC road lines are EXEMPT from the off-corridor drop:
-    # `detect_road_runs` already qualified them, and an edge-blended
-    # road (its own strip ALONG apron pavement) reads "junction-buried"
-    # to the corridor test even though it is a real road lane.
-    _svc_keep = [(c, r) for (c, r) in osm_centerlines
-                 if str(r or "").startswith("SVC")]
-    _non_svc = [(c, r) for (c, r) in osm_centerlines
-                if not str(r or "").startswith("SVC")]
-    _non_svc, _n_rwy, _n_buried = _drop_offcorridor_centerlines(
-        _non_svc, pav_union, layout.runway_union)
-    osm_centerlines = _non_svc + _svc_keep
-    if _n_rwy or _n_buried:
-        UI.vprint(1,
-            f"  [pav-builder] {icao}: dropped {_n_rwy} runway-crossing + "
-            f"{_n_buried} junction-buried centerline(s) "
-            f"(of {_n_before}).")
+    # ── Off-corridor centerline drop: RETIRED 2026-07-31 ─────────
+    # ``_drop_offcorridor_centerlines`` (runway-crossing + junction-buried)
+    # ran here on the dead rect-chain list, and its log line reported a
+    # discard nothing consumed.  The function is kept in
+    # ``pavement/centerlines.py``.
 
     # ── Canonical-point registry (user 2026-05-18) ────────────────
     # Build the shared registry now, before any rect / junction
@@ -3553,24 +2959,15 @@ def build_airport_pavement(icao: str, xplane_root: str,
         except _GEOM_EXC:
             pass
 
-    # ── (s81) Taxilanes stop at building edges ───────────────────
-    # User ruling 2026-06-12: a lane that intersects a building pad
-    # (terminal / hangar) ends AT the pad boundary and welds to it —
-    # shared edge/nodes/elevation, like rects ending against aprons.
-    # Trim the rect-feeding centerlines against the pad union so no
-    # rect is ever built over (or through) a building.  The FULL
-    # centerline set stashed on ``layout.apt_taxi_centerlines``
-    # stays untrimmed — route-graph laws still measure the route
-    # up to the building.
-    if HANGAR_PADS_GATE and terminal_union is not None \
-            and not terminal_union.is_empty:
-        from .terminals import trim_centerlines_at_buildings
-        osm_centerlines, _n_cl_trim = trim_centerlines_at_buildings(
-            osm_centerlines, terminal_union)
-        if _n_cl_trim:
-            UI.vprint(1,
-                f"  [pav-builder] {icao}: trimmed {_n_cl_trim} "
-                f"centerline(s) at building-pad edges.")
+    # ── (s81) Taxilanes stop at building edges: call site RETIRED
+    #    2026-07-31 ────────────────────────────────────────────────
+    # ``trim_centerlines_at_buildings`` ran here against the dead rect-
+    # chain list (the ruling's LIVE effect is in the slice, which cuts
+    # ``_cn_pav`` by ``terminal_union`` below, and in the route-graph laws
+    # that read the UNtrimmed ``layout.apt_taxi_centerlines``).  The
+    # function is kept in ``terminals.py`` — unit-tested by
+    # tests/test_hangar_pads.py, and still used by the default-OFF
+    # ``O4_SVC_CURVED_JUNCTION`` block below.
 
     _progress.step()  # [4] Building the global-slice faces & service roads
 
@@ -3589,7 +2986,6 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # (2026-07-29, owner ruling) This is the ONLY path: the legacy
     # O4_ROUTE_ARC_SPINE / O4_CURVE_NATIVE_SPINE gates and the rect-model
     # branch were retired.
-    emitted_taxi_rects: List[Polygon] = []
     if os.environ.get("O4_RECOGNIZED_CENTERLINES", "0") != "1":
         from .pavement.route_arcs import apply_route_arc_spine
         apply_route_arc_spine(layout, icao)
@@ -3902,10 +3298,25 @@ def build_airport_pavement(icao: str, xplane_root: str,
         _SVC_JCT_MIN_AREA_M2 = 30.0
         _BRIDGE_REACH_M = 60.0       # local pavement window around a connector
         _BRIDGE_PIECE_M2 = 50.0      # a split-off piece this big = a real shape
-        _covered = (unary_union(emitted_taxi_rects)
-                    if emitted_taxi_rects else None)
+        # SOURCE (2026-07-31): reads ``_svc_lines`` directly.  This block used
+        # to walk the final ``osm_centerlines``, but it only ever matched the
+        # SVC entries — and those joined that list AFTER every taxi-specific
+        # trim, exempt from the off-corridor drop, so the sole transform they
+        # picked up was the building-pad trim.  Reproduced here (default-OFF
+        # gate ⇒ no cost in a production build) so the experiment sees exactly
+        # what it saw before the chain was retired.
+        _svc_jct_lines = _svc_lines
+        if HANGAR_PADS_GATE and terminal_union is not None \
+                and not terminal_union.is_empty:
+            from .terminals import trim_centerlines_at_buildings
+            _svc_jct_lines, _ = trim_centerlines_at_buildings(
+                _svc_jct_lines, terminal_union)
+        # ``_covered`` used to start as ``unary_union(emitted_taxi_rects)``;
+        # that list has been empty here since d4f61d6 retired rect
+        # generation, so the union was always None.  Kept incremental.
+        _covered = None
         _n_svc_jct = 0
-        for _ln, _ref in osm_centerlines:
+        for _ln, _ref in _svc_jct_lines:
             if (not str(_ref or "").startswith("SVC")
                     or _ln is None or _ln.is_empty):
                 continue
@@ -3937,7 +3348,6 @@ def build_airport_pavement(icao: str, xplane_root: str,
                         continue          # not a bridge between two shapes
                 except _GEOM_EXC:
                     continue
-                emitted_taxi_rects.append(_p)
                 _covered = (unary_union([_covered, _p])
                             if _covered is not None else _p)
                 layout.shapes.append(BuiltShape(

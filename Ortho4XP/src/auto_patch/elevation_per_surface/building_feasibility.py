@@ -726,7 +726,8 @@ def reach_band_unified(layout, G):
     if not getattr(G, "runway_anchor", None) or not getattr(G, "spine_adj", None):
         return lambda x, y: None
 
-    # RASTER REACH FIELD (Tier 3 wave 2a, ``O4_RASTER_REACH_BAND``, default OFF):
+    # RASTER REACH FIELD (Tier 3 wave 2a, ``O4_RASTER_REACH_BAND``, default ON
+    # since wave 2b 2026-07-18):
     # replace the per-query nearest-visible-centerline evaluation below with a
     # precomputed grid field (one masked multi-source Dijkstra per direction, O(1)
     # nearest-cell reads).  This is a SEMANTIC replacement — the true min-plus cone
@@ -737,7 +738,7 @@ def reach_band_unified(layout, G):
     # the legacy nvc band byte-identically.
     from auto_patch.config import RASTER_REACH_BAND
     # Runtime env overrides the import-time default (so an A/B harness or a test
-    # can flip the gate after import); unset ⇒ the config default (off).
+    # can flip the gate after import); unset ⇒ the config default (on).
     _rrb_env = os.environ.get("O4_RASTER_REACH_BAND")
     _rrb_on = (_rrb_env == "1") if _rrb_env is not None else RASTER_REACH_BAND
     if _rrb_on:

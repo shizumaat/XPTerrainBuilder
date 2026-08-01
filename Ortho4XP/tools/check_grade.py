@@ -1554,6 +1554,29 @@ STRIP_SEAM_GRADED_ROLES = frozenset({
     "tunnel_ramp", "bridge_trench", "bridge_causeway", "hangar_pad",
 })
 
+# ── PROVISIONAL open-boundary floor (owner 2026-08-01) ──────────
+# OWNER RULING, PROVISIONAL, PENDING IN-SIM REVIEW: "I want to see it
+# with no wall, raise it to 15 m until I can view some test cases in the
+# sim".  A tear pair at the OPEN BOUNDARY — ungraded ground lies in the
+# pair's interior, i.e. the same clause the straddle exemption uses — is
+# the graded→DEM terrace, and the owner is deciding in the simulator how
+# large an unwalled terrace is acceptable there.  Until that review, such
+# pairs are flagged only past this floor instead of past
+# ``STRIP_SEAM_TEAR_MIN_STEP_M`` (1.0 m, the pre-ruling value and still
+# the floor for every OTHER pair).
+#
+# SCOPE, exactly: this floor applies ONLY where the open-ground test
+# fires.  Tears INTERIOR to the graded domain — corridor zones 1-2 and
+# filled pockets — keep the 1.0 m floor; they are real defects and the
+# owner's ruling does not touch them.  Every other rule is unchanged, in
+# particular the wall-straddle exemption still runs (it is what will
+# dissolve zone-boundary rows once the owner lowers this floor again).
+#
+# Measured at the ruling (round-6 population, 438 tear rows, 4 airports,
+# both arms): the open-boundary class tops out at Δalt 10.48 m, so 15.0
+# clears all of it — the number is the owner's, not a fitted threshold.
+STRIP_SEAM_OPEN_BOUNDARY_FLOOR_M = 15.0
+
 
 def _point_in_ring(px: float, py: float,
                    pts: List[Tuple[float, float]]) -> bool:
@@ -1637,6 +1660,7 @@ def _check_strip_seam_tears(
     radius_m: float = STRIP_SEAM_TEAR_RADIUS_M,
     min_step_m: float = STRIP_SEAM_TEAR_MIN_STEP_M,
     min_distance_m: float = STRIP_SEAM_TEAR_MIN_DISTANCE_M,
+    open_boundary_floor_m: float = STRIP_SEAM_OPEN_BOUNDARY_FLOOR_M,
 ) -> List[Violation]:
     """DEM-free SEAM-tear sentinel BETWEEN two different ``graded_strip``
     shapes — the cross-shape twin of ``_check_adjacent_ground_edges``.
@@ -1682,6 +1706,16 @@ def _check_strip_seam_tears(
     ground, so a tear INTERIOR to graded ground (corridor zones 1-2, or a
     filled pocket) is never dissolved by a wall face that happens to
     cross it.
+
+    OPEN-BOUNDARY FLOOR (PROVISIONAL, owner 2026-08-01): that same
+    open-ground test now also sets the pair's STEP FLOOR.  A pair with
+    ungraded ground in its interior sits at the graded→DEM boundary and
+    is reported only past ``open_boundary_floor_m``
+    (``STRIP_SEAM_OPEN_BOUNDARY_FLOOR_M``, 15 m) — the owner is judging
+    unwalled terraces in the simulator and raised the floor until then.
+    A pair whose interior stays graded keeps ``min_step_m`` (1 m).  The
+    wall exemptions above are unchanged and still run for pairs that
+    clear the floor.
 
     Runs in ~linear time via a spatial grid over the strip nodes (never an
     O(n^2) all-pairs scan — airports reach ~50k strip nodes).  Returns
@@ -1791,11 +1825,18 @@ def _check_strip_seam_tears(
     # The graded domain, for the open-ground clause.  Ring points come
     # from the vertex table (closing repeat already dropped), so each
     # entry is the way's ring in order.
+    #
+    # BUILT UNCONDITIONALLY since the open-boundary floor (2026-08-01).
+    # Under the straddle-only v2 the domain was reachable only from
+    # ``_wall_straddles`` and was built under ``if wall_keys``; the floor
+    # gates EVERY pair, and an empty domain answers "not covered" to every
+    # query — which would read every pair as open boundary and silence a
+    # wall-free patch's tears wholesale.  The guard is not an optimisation
+    # to restore.
     _graded_ring_pts: Dict[int, List[Tuple[float, float]]] = defaultdict(list)
-    if wall_keys:
-        for v in vertices:
-            if ways[v.way_idx].tags.get("role") in STRIP_SEAM_GRADED_ROLES:
-                _graded_ring_pts[v.way_idx].append((v.x, v.y))
+    for v in vertices:
+        if ways[v.way_idx].tags.get("role") in STRIP_SEAM_GRADED_ROLES:
+            _graded_ring_pts[v.way_idx].append((v.x, v.y))
     graded_domain = _GradedDomain(
         [pts for pts in _graded_ring_pts.values() if len(pts) >= 3],
         STRIP_SEAM_OPEN_GROUND_MIN_M)
@@ -1812,10 +1853,10 @@ def _check_strip_seam_tears(
                 return True
         return False
 
-    def _wall_straddles(a: Vertex, b: Vertex) -> bool:
+    def _wall_straddles(a: Vertex, b: Vertex, open_ground: bool) -> bool:
         if not wall_segs:
             return False
-        if not _open_ground_between(a, b):
+        if not open_ground:
             return False  # interior to graded ground: zones 1-2 / pocket
         e_lo = min(a.elev, b.elev)
         e_hi = max(a.elev, b.elev)
@@ -1883,7 +1924,15 @@ def _check_strip_seam_tears(
                         continue  # steep-terrain drape, not a cliff
                     if _wall_spans(v, u):
                         continue  # deliberate retaining_wall face
-                    if _wall_straddles(v, u):
+                    # The open-ground test is now BOTH the straddle
+                    # exemption's precondition and the pair's step-floor
+                    # selector, so compute it once.
+                    open_ground = _open_ground_between(v, u)
+                    if open_ground and de <= open_boundary_floor_m:
+                        continue  # graded→DEM terrace, under the
+                        # PROVISIONAL open-boundary floor (owner
+                        # 2026-08-01, pending in-sim review)
+                    if _wall_straddles(v, u, open_ground):
                         continue  # face crosses BETWEEN the two nodes,
                         # and ungraded ground lies between them
                     out.append(Violation(
@@ -2666,7 +2715,9 @@ def run_checks(
     _pv(f"ADJACENT-GROUND strip SEAM tear (cross-shape step, "
         f"> {STRIP_SEAM_TEAR_MIN_STEP_M:.1f}m at "
         f"> {STRIP_SEAM_TEAR_MIN_GRADE * 100:.0f}% within "
-        f"{STRIP_SEAM_TEAR_RADIUS_M:.1f}m)",
+        f"{STRIP_SEAM_TEAR_RADIUS_M:.1f}m; "
+        f"> {STRIP_SEAM_OPEN_BOUNDARY_FLOOR_M:.0f}m at the OPEN "
+        f"graded→DEM boundary — PROVISIONAL, owner 2026-08-01)",
         strip_seam_tears, top_n)
     within = within + strip_seam_tears
 

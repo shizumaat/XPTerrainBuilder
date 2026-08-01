@@ -108,6 +108,36 @@ def _pad_b() -> List[Node]:
     return [("-92", 200.0, 0.0, 10.0), ("-93", 400.0, 0.0, 10.0)]
 
 
+# ── ENCLOSURE, since the open-boundary floor (2026-08-01) ─────────
+# Every fixture here is now also an ENCLOSURE fixture: the pair's step
+# floor is 1 m when graded ground fills the pair's interior (corridor
+# zones 1-2 / a filled pocket) and 15 m when raw terrain does
+# (``STRIP_SEAM_OPEN_BOUNDARY_FLOOR_M``, the owner's provisional
+# in-sim-review value).  The padded strips above are degenerate chains
+# with nothing between them, so a bare fixture is OPEN ground.
+#
+# Tests whose subject is the PAIRING rules (radius / step floor / grade
+# floor / same-way / same-shape) therefore carry ``_graded_backdrop()``
+# so the pair is interior and the 1 m floor applies — otherwise the 15 m
+# floor would answer for them and the rule under test would go untested.
+# Tests whose subject is a WALL exemption keep OPEN ground (the exemption
+# requires it) and use a step above the open-boundary floor, so the
+# assertion is carried by the exemption and not by the floor.
+def _graded_backdrop() -> Dict:
+    """A 24x24 m graded plate centred on the origin: it covers the ground
+    between every pair used below, and its corners sit >16 m from every
+    pair node, so it mints no pairs of its own."""
+    return {"wid": "-40", "role": "graded_strip", "shapeID": "4",
+            "nodes": [("-41", -12.0, -12.0, 11.0), ("-42", 12.0, -12.0, 11.0),
+                      ("-43", 12.0, 12.0, 11.0), ("-44", -12.0, 12.0, 11.0)]}
+
+
+# Step used by the open-ground wall-exemption fixtures: above the 15 m
+# open-boundary floor, so those pairs reach the exemption logic at all.
+_HIGH = 28.0
+_LOW = 10.0
+
+
 def test_metre_step_across_short_gap_is_flagged(tmp_path):
     # Strip A node at (0,0)=10.0 m; strip B node 1.5 m away at (1.5,0)=12.0 m.
     # Δalt 2.0 m over 1.5 m ⇒ a seam tear (~133 %).
@@ -116,6 +146,7 @@ def test_metre_step_across_short_gap_is_flagged(tmp_path):
          "nodes": [("-1", 0.0, 0.0, 10.0)] + _pad_a()},
         {"wid": "-20", "role": "graded_strip", "shapeID": "2",
          "nodes": [("-2", 1.5, 0.0, 12.0)] + _pad_b()},
+        _graded_backdrop(),
     ]
     violations = _run(tmp_path, ways_spec)
     assert len(violations) == 1, [
@@ -134,6 +165,7 @@ def test_exactly_shared_node_is_not_a_tear(tmp_path):
          "nodes": [("-1", 0.0, 0.0, 10.0)] + _pad_a()},
         {"wid": "-20", "role": "graded_strip", "shapeID": "2",
          "nodes": [("-1", 0.0, 0.0, 10.0)] + _pad_b()},
+        _graded_backdrop(),
     ]
     violations = _run(tmp_path, ways_spec)
     assert violations == []
@@ -147,6 +179,7 @@ def test_sub_metre_step_is_not_flagged(tmp_path):
          "nodes": [("-1", 0.0, 0.0, 10.0)] + _pad_a()},
         {"wid": "-20", "role": "graded_strip", "shapeID": "2",
          "nodes": [("-2", 1.5, 0.0, 10.5)] + _pad_b()},
+        _graded_backdrop(),
     ]
     violations = _run(tmp_path, ways_spec)
     assert violations == []
@@ -160,6 +193,7 @@ def test_nodes_beyond_radius_are_not_flagged(tmp_path):
          "nodes": [("-1", 0.0, 0.0, 10.0)] + _pad_a()},
         {"wid": "-20", "role": "graded_strip", "shapeID": "2",
          "nodes": [("-2", 8.0, 0.0, 12.0)] + _pad_b()},
+        _graded_backdrop(),
     ]
     violations = _run(tmp_path, ways_spec)
     assert violations == []
@@ -174,6 +208,7 @@ def test_same_way_step_is_not_counted(tmp_path):
          "nodes": [("-1", 0.0, 0.0, 10.0),
                    ("-2", 1.5, 0.0, 12.0),
                    ("-90", 0.0, 200.0, 10.0)]},
+        _graded_backdrop(),
     ]
     violations = _run(tmp_path, ways_spec)
     assert violations == []
@@ -187,6 +222,7 @@ def test_same_shape_id_across_two_ways_is_not_paired(tmp_path):
          "nodes": [("-1", 0.0, 0.0, 10.0)] + _pad_a()},
         {"wid": "-20", "role": "graded_strip", "shapeID": "7",
          "nodes": [("-2", 1.5, 0.0, 12.0)] + _pad_b()},
+        _graded_backdrop(),
     ]
     violations = _run(tmp_path, ways_spec)
     assert violations == []
@@ -201,6 +237,7 @@ def test_steep_drape_below_grade_floor_is_not_flagged(tmp_path):
          "nodes": [("-1", 0.0, 0.0, 10.0)] + _pad_a()},
         {"wid": "-20", "role": "graded_strip", "shapeID": "2",
          "nodes": [("-2", 5.0, 0.0, 11.5)] + _pad_b()},
+        _graded_backdrop(),
     ]
     violations = _run(tmp_path, ways_spec)
     assert violations == []
@@ -214,12 +251,12 @@ def test_wall_spanned_step_is_not_flagged(tmp_path):
     # gap, so the pair is deliberate geometry — NOT a tear.
     ways_spec = [
         {"wid": "-10", "role": "graded_strip", "shapeID": "1",
-         "nodes": [("-1", 0.0, 0.0, 12.0)] + _pad_a()},
+         "nodes": [("-1", 0.0, 0.0, _HIGH)] + _pad_a()},
         {"wid": "-20", "role": "graded_strip", "shapeID": "2",
-         "nodes": [("-2", 0.6, 0.0, 10.0)] + _pad_b()},
+         "nodes": [("-2", 0.6, 0.0, _LOW)] + _pad_b()},
         {"wid": "-30", "role": "retaining_wall", "shapeID": "3",
-         "nodes": [("-1", 0.0, 0.0, 12.0), ("-2", 0.6, 0.0, 10.0),
-                   ("-3", 0.6, 5.0, 10.0), ("-4", 0.0, 5.0, 12.0)]},
+         "nodes": [("-1", 0.0, 0.0, _HIGH), ("-2", 0.6, 0.0, _LOW),
+                   ("-3", 0.6, 5.0, _LOW), ("-4", 0.0, 5.0, _HIGH)]},
     ]
     violations = _run(tmp_path, ways_spec)
     assert violations == []
@@ -230,12 +267,12 @@ def test_unrelated_wall_does_not_exempt_a_tear(tmp_path):
     # pair — the tear is still bare and must be flagged.
     ways_spec = [
         {"wid": "-10", "role": "graded_strip", "shapeID": "1",
-         "nodes": [("-1", 0.0, 0.0, 12.0)] + _pad_a()},
+         "nodes": [("-1", 0.0, 0.0, _HIGH)] + _pad_a()},
         {"wid": "-20", "role": "graded_strip", "shapeID": "2",
-         "nodes": [("-2", 0.6, 0.0, 10.0)] + _pad_b()},
+         "nodes": [("-2", 0.6, 0.0, _LOW)] + _pad_b()},
         {"wid": "-30", "role": "retaining_wall", "shapeID": "3",
-         "nodes": [("-1", 0.0, 0.0, 12.0), ("-5", 0.0, 5.0, 12.0),
-                   ("-6", -0.6, 5.0, 10.0), ("-7", -0.6, 0.0, 10.0)]},
+         "nodes": [("-1", 0.0, 0.0, _HIGH), ("-5", 0.0, 5.0, _HIGH),
+                   ("-6", -0.6, 5.0, _LOW), ("-7", -0.6, 0.0, _LOW)]},
     ]
     violations = _run(tmp_path, ways_spec)
     assert len(violations) == 1
@@ -248,12 +285,10 @@ def test_wall_straddling_pair_is_not_flagged(tmp_path):
     # as wall geometry, not as a bare cliff.
     ways_spec = [
         {"wid": "-10", "role": "graded_strip", "shapeID": "1",
-         "nodes": [("-1", 0.0, 0.0, 12.0)] + _pad_a()},
+         "nodes": [("-1", 0.0, 0.0, _HIGH)] + _pad_a()},
         {"wid": "-20", "role": "graded_strip", "shapeID": "2",
-         "nodes": [("-2", 1.5, 0.0, 10.0)] + _pad_b()},
-        {"wid": "-30", "role": "retaining_wall", "shapeID": "3",
-         "nodes": [("-31", 0.6, -5.0, 12.0), ("-32", 0.6, 5.0, 12.0),
-                   ("-33", 0.9, 5.0, 10.0), ("-34", 0.9, -5.0, 10.0)]},
+         "nodes": [("-2", 1.5, 0.0, _LOW)] + _pad_b()},
+        _straddling_wall(_HIGH),
     ]
     violations = _run(tmp_path, ways_spec)
     assert violations == []
@@ -266,12 +301,12 @@ def test_wall_bottom_vertex_straddle_is_not_flagged(tmp_path):
     # cannot fire.  The wall's top row still crosses the pair interior.
     ways_spec = [
         {"wid": "-10", "role": "graded_strip", "shapeID": "1",
-         "nodes": [("-1", 0.0, 0.0, 12.0)] + _pad_a()},
+         "nodes": [("-1", 0.0, 0.0, _HIGH)] + _pad_a()},
         {"wid": "-20", "role": "graded_strip", "shapeID": "2",
-         "nodes": [("-2", 1.5, 0.0, 10.0)] + _pad_b()},
+         "nodes": [("-2", 1.5, 0.0, _LOW)] + _pad_b()},
         {"wid": "-30", "role": "retaining_wall", "shapeID": "3",
-         "nodes": [("-31", 0.6, -5.0, 12.0), ("-32", 0.6, 5.0, 12.0),
-                   ("-33", 1.5, 5.0, 10.0), ("-2", 1.5, 0.0, 10.0)]},
+         "nodes": [("-31", 0.6, -5.0, _HIGH), ("-32", 0.6, 5.0, _HIGH),
+                   ("-33", 1.5, 5.0, _LOW), ("-2", 1.5, 0.0, _LOW)]},
     ]
     violations = _run(tmp_path, ways_spec)
     assert violations == []
@@ -282,13 +317,13 @@ def test_bare_cliff_pair_still_flagged(tmp_path):
     # anywhere near is an unsanctioned cliff and stays flagged.
     ways_spec = [
         {"wid": "-10", "role": "graded_strip", "shapeID": "1",
-         "nodes": [("-1", 0.0, 0.0, 12.0)] + _pad_a()},
+         "nodes": [("-1", 0.0, 0.0, _HIGH)] + _pad_a()},
         {"wid": "-20", "role": "graded_strip", "shapeID": "2",
-         "nodes": [("-2", 1.5, 0.0, 10.0)] + _pad_b()},
+         "nodes": [("-2", 1.5, 0.0, _LOW)] + _pad_b()},
     ]
     violations = _run(tmp_path, ways_spec)
     assert len(violations) == 1
-    assert abs(violations[0].de_m - 2.0) < 1e-6
+    assert abs(violations[0].de_m - (_HIGH - _LOW)) < 1e-6
 
 
 def test_low_wall_not_bracketing_does_not_exempt(tmp_path):
@@ -297,9 +332,9 @@ def test_low_wall_not_bracketing_does_not_exempt(tmp_path):
     # slack: 10 m of the level change is still bare mesh.
     ways_spec = [
         {"wid": "-10", "role": "graded_strip", "shapeID": "1",
-         "nodes": [("-1", 0.0, 0.0, 20.5)] + _pad_a()},
+         "nodes": [("-1", 0.0, 0.0, _HIGH)] + _pad_a()},
         {"wid": "-20", "role": "graded_strip", "shapeID": "2",
-         "nodes": [("-2", 1.5, 0.0, 10.0)] + _pad_b()},
+         "nodes": [("-2", 1.5, 0.0, _LOW)] + _pad_b()},
         {"wid": "-30", "role": "retaining_wall", "shapeID": "3",
          "nodes": [("-31", 0.6, -5.0, 10.5), ("-32", 0.6, 5.0, 10.5),
                    ("-33", 0.9, 5.0, 10.0), ("-34", 0.9, -5.0, 10.0)]},
@@ -317,13 +352,13 @@ def test_low_wall_not_bracketing_does_not_exempt(tmp_path):
 # terrain does lie between the nodes and the exemption still fires.
 
 
-def _straddling_wall() -> Dict:
+def _straddling_wall(top_alt: float = 12.0) -> Dict:
     """The wall of ``test_wall_straddling_pair_is_not_flagged``: its top
     row (x=0.6) and bottom row (x=0.9) cross the pair's interior and its
-    10-12 m elevation range brackets the step."""
+    ``_LOW``-to-``top_alt`` elevation range brackets the step."""
     return {"wid": "-30", "role": "retaining_wall", "shapeID": "3",
-            "nodes": [("-31", 0.6, -5.0, 12.0), ("-32", 0.6, 5.0, 12.0),
-                      ("-33", 0.9, 5.0, 10.0), ("-34", 0.9, -5.0, 10.0)]}
+            "nodes": [("-31", 0.6, -5.0, top_alt), ("-32", 0.6, 5.0, top_alt),
+                      ("-33", 0.9, 5.0, _LOW), ("-34", 0.9, -5.0, _LOW)]}
 
 
 def test_zone_1_2_pair_with_crossing_wall_stays_flagged(tmp_path):
@@ -400,12 +435,12 @@ def test_wall_ring_closing_face_straddle_is_not_flagged(tmp_path):
     # strips are degenerate chains), so the exemption must fire.
     ways_spec = [
         {"wid": "-10", "role": "graded_strip", "shapeID": "1",
-         "nodes": [("-1", 0.0, 0.0, 12.0)] + _pad_a()},
+         "nodes": [("-1", 0.0, 0.0, _HIGH)] + _pad_a()},
         {"wid": "-20", "role": "graded_strip", "shapeID": "2",
-         "nodes": [("-2", 1.5, 0.0, 10.0)] + _pad_b()},
+         "nodes": [("-2", 1.5, 0.0, _LOW)] + _pad_b()},
         {"wid": "-30", "role": "retaining_wall", "shapeID": "3",
-         "nodes": [("-31", 0.75, 3.0, 12.0), ("-32", 60.0, 3.0, 12.0),
-                   ("-33", 60.0, -3.0, 10.0), ("-34", 0.75, -3.0, 10.0)]},
+         "nodes": [("-31", 0.75, 3.0, _HIGH), ("-32", 60.0, 3.0, _HIGH),
+                   ("-33", 60.0, -3.0, _LOW), ("-34", 0.75, -3.0, _LOW)]},
     ]
     violations = _run(tmp_path, ways_spec)
     assert violations == []
@@ -420,7 +455,55 @@ def test_stacked_wall_same_coordinate_is_flagged(tmp_path):
          "nodes": [("-1", 0.0, 0.0, 10.0)] + _pad_a()},
         {"wid": "-20", "role": "graded_strip", "shapeID": "2",
          "nodes": [("-2", 0.0, 0.0, 13.8)] + _pad_b()},
+        _graded_backdrop(),
     ]
     violations = _run(tmp_path, ways_spec)
     assert len(violations) == 1
     assert violations[0].de_m > 3.0
+
+
+# ── The PROVISIONAL open-boundary floor (owner 2026-08-01) ────────
+# "I want to see it with no wall, raise it to 15 m until I can view some
+# test cases in the sim."  A pair with ungraded ground in its interior is
+# the graded→DEM boundary terrace and is reported only past
+# ``STRIP_SEAM_OPEN_BOUNDARY_FLOOR_M``; a pair interior to graded ground
+# keeps ``STRIP_SEAM_TEAR_MIN_STEP_M`` (1 m).  The floor needs no wall —
+# it is exactly the unwalled case the owner is going to look at.
+
+
+def _open_pair(step_m: float) -> List[Dict]:
+    """The bare open-ground pair: two degenerate strips 1.5 m apart with
+    raw terrain between them and no wall anywhere."""
+    return [
+        {"wid": "-10", "role": "graded_strip", "shapeID": "1",
+         "nodes": [("-1", 0.0, 0.0, _LOW + step_m)] + _pad_a()},
+        {"wid": "-20", "role": "graded_strip", "shapeID": "2",
+         "nodes": [("-2", 1.5, 0.0, _LOW)] + _pad_b()},
+    ]
+
+
+def test_open_boundary_step_under_the_provisional_floor_passes(tmp_path):
+    # 9.61 m — the largest open-boundary step in the round-6 census
+    # population (438 tear rows, 4 airports, both arms).  Unwalled, in
+    # open ground, so the provisional floor holds it: NOT reported.
+    violations = _run(tmp_path, _open_pair(9.61))
+    assert violations == [], [(v.de_m, v.distance_m) for v in violations]
+
+
+def test_open_boundary_step_over_the_provisional_floor_is_flagged(tmp_path):
+    # 15.1 m clears the 15 m floor: even at the open boundary this is
+    # reported, so the floor is a threshold and not a blanket exemption.
+    violations = _run(tmp_path, _open_pair(15.1))
+    assert len(violations) == 1, [
+        (v.de_m, v.distance_m) for v in violations]
+    assert abs(violations[0].de_m - 15.1) < 1e-6
+
+
+def test_zone_1_2_step_keeps_the_one_metre_floor(tmp_path):
+    # The SAME pair geometry, but the graded corridor's own fabric covers
+    # the ground between the two nodes: an interior zone-1/2 tear, which
+    # the owner's ruling does not touch.  A 2.0 m step stays a defect.
+    violations = _run(tmp_path, _open_pair(2.0) + [_graded_backdrop()])
+    assert len(violations) == 1, [
+        (v.de_m, v.distance_m) for v in violations]
+    assert abs(violations[0].de_m - 2.0) < 1e-6

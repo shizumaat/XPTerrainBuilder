@@ -376,3 +376,99 @@ class TestGatesAndRefusals:
                 {"highway": "service"})]
         layout, _dem, _n = _emit(monkeypatch, far)
         assert not decks(layout)
+
+
+class TestNonFiniteAltitudeGuard:
+    """The OLS-ROAD NaN class (census class C, SPLP 2026-08-01): the span
+    grower extended over ``gov_any`` with no ``valid`` guard, swallowing
+    stations the DEM/seam/refusal rules had excluded.  Those carry the
+    ``+inf`` profile sentinel (``_road_regrade_profile`` never propagates
+    across an invalid station) and ``depth`` is forced 0.0 there, so the
+    blend refusal passed and the analytic blend computed ``inf - inf``
+    = NaN vertex altitudes — 34 within + 14 cross law-true violations at
+    SPLP, every one of them ``inf``-graded."""
+
+    @staticmethod
+    def _seam_band(monkeypatch, y_lo, y_hi):
+        """Mark a BAND of the way invalid through the real invalidity
+        seam (``_near_tile_seam``), which is the cause that actually
+        fires at SPLP — measured from the assertion's own output: 97
+        invalid stations, all ``_near_tile_seam``, none a DEM hole or a
+        refused cell."""
+        real = ols._near_tile_seam
+
+        def fake(scene, x, y):
+            if y_lo <= y <= y_hi:
+                return True
+            return real(scene, x, y)
+
+        monkeypatch.setattr(ols, "_near_tile_seam", fake)
+
+    def test_span_stops_at_an_invalid_station_and_stays_finite(
+            self, gate_on, monkeypatch):
+        """A span whose OLS-governed stretch runs INTO invalid ground
+        stops at the last valid station: decks still emit, every emitted
+        altitude is finite, and nothing is emitted beyond the band."""
+        y_bad = RUNWAY_LEN_M + 500.0
+        self._seam_band(monkeypatch, y_bad, RUNWAY_LEN_M + 10_000.0)
+        layout, _dem, _n = _emit(monkeypatch, THROUGH_ROAD)
+        dk = decks(layout)
+        assert dk, "the guard must not suppress the feature itself"
+        for s in dk:
+            for z in s.node_altitudes:
+                assert math.isfinite(z), (s.ref, s.node_altitudes)
+        assert max(s.polygon.bounds[3] for s in dk) <= y_bad + 5.1, \
+            "span grew past the first invalid station"
+
+    def test_forced_infinite_profile_raises_with_the_piece_named(
+            self, gate_on, monkeypatch):
+        """FORCED-INVALID fixture: a ``+inf`` left in the spine profile
+        inside a span (the exact shape of the sentinel leak) must fail
+        LOUDLY at emission, never reach a shape."""
+        real = ols._road_regrade_profile
+        state = {"n": 0}
+
+        def fake(ss, bound, valid, grade):
+            z = real(ss, bound, valid, grade)
+            state["n"] += 1
+            if state["n"] == 1 and len(z) > 40:
+                z = np.asarray(z, dtype=float).copy()
+                z[len(z) // 2 + 8] = np.inf
+            return z
+
+        monkeypatch.setattr(ols, "_road_regrade_profile", fake)
+        with pytest.raises(ols.NonFiniteRoadAltitude) as exc:
+            _emit(monkeypatch, THROUGH_ROAD)
+        msg = str(exc.value)
+        assert "non-finite vertex altitude" in msg
+        assert "road_a" in msg, msg          # the piece's way
+        assert "span stations" in msg, msg   # the stations
+
+    def test_assertion_message_names_the_invalidity_cause(self):
+        """The message helper names WHICH of the three invalidity causes
+        fired, per station, so the attribution is read off production's
+        own output instead of reconstructed offline."""
+        ss = np.arange(6, dtype=float) * 5.0
+        valid = np.array([True, False, False, False, True, True])
+        cause = [None, "sample_dem is None", "_near_tile_seam",
+                 "grid.refused", None, None]
+        coords = [(0.0, 0.0), (1.0, 1.0), (2.0, 2.0)]
+        vals = [1.0, float("nan"), 3.0]
+        msg = ols._nonfinite_road_vals_msg(
+            "way_x", 1.0, 0, 5, ss, valid, cause, coords, vals,
+            Polygon([(0, 0), (1, 0), (1, 1), (0, 0)]))
+        assert "way_x" in msg
+        assert "span stations [0, 5]" in msg
+        assert "sample_dem is None" in msg
+        assert "_near_tile_seam" in msg
+        assert "grid.refused" in msg
+        assert "vertex 1" in msg
+
+    def test_clean_fixture_emits_finite_altitudes(self, gate_on,
+                                                  monkeypatch):
+        """Control: with no invalid ground the decks are unchanged and
+        every altitude is finite (the assertion is silent)."""
+        layout, _dem, _n = _emit(monkeypatch, THROUGH_ROAD)
+        dk = decks(layout)
+        assert dk
+        assert all(math.isfinite(z) for s in dk for z in s.node_altitudes)

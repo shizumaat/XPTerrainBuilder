@@ -1580,6 +1580,52 @@ def _near_tile_seam(scene: _Scene, x: float, y: float) -> bool:
             or lon > scene.tile_lon + 1 - margin_lon)
 
 
+class NonFiniteRoadAltitude(AssertionError):
+    """A road-regrade half-shape was about to carry a non-finite vertex
+    altitude.  Raised LOUDLY (production, ungated): a NaN/inf altitude is
+    not a defect the validator should have to discover — it mints
+    ``inf``-graded violations, poisons every downstream statistic, and
+    there is no lawful "off" behaviour to preserve."""
+
+
+def _nonfinite_road_vals_msg(way_id, sgn, lo, hi, ss, valid, invalid_cause,
+                             coords, vals, piece) -> str:
+    """Name the piece, the stations, and WHICH invalidity cause fired.
+
+    The three causes are the only ways a station can be invalid
+    (:func:`_emit_road_regrades` station loop): ``sample_dem is None``
+    (DEM hole), ``_near_tile_seam`` (tile-cut standoff), ``grid.refused``
+    (refused OLS cell).  Reported for the offending span, so the answer
+    is read off production's own output instead of reconstructed."""
+    bad = [k for k, v in enumerate(vals) if not math.isfinite(v)]
+    inside = [(i, invalid_cause[i]) for i in range(lo, hi + 1)
+              if not valid[i]]
+    census: dict = {}
+    for _i, c in inside:
+        census[c] = census.get(c, 0) + 1
+    try:
+        bnds = tuple(round(float(b), 1) for b in piece.bounds)
+    except Exception:
+        bnds = None
+    head = (f"OLS road regrade emitted {len(bad)} non-finite vertex "
+            f"altitude(s) of {len(vals)} on way {way_id!r} "
+            f"side {'+' if sgn > 0 else '-'}: piece bounds {bnds}, "
+            f"span stations [{lo}, {hi}] "
+            f"s=[{float(ss[lo]):.1f}, {float(ss[hi]):.1f}] m.")
+    v_lines = "; ".join(
+        f"vertex {k} @ ({coords[k][0]:.1f},{coords[k][1]:.1f}) = {vals[k]}"
+        for k in bad[:5])
+    if inside:
+        cause = (f"INVALID stations INSIDE the span: "
+                 f"{[i for i, _c in inside][:12]} "
+                 f"(causes {census}) — the span grew over invalid ground.")
+    else:
+        cause = ("NO invalid station inside the span — the non-finite "
+                 "value did not come from the +inf station sentinel; "
+                 "look at the outer-edge profile / interpolation.")
+    return f"{head}  {v_lines}.  {cause}"
+
+
 def _emit_road_regrades(scene: _Scene, grid: _Grid, layout: PavementLayout,
                         admitted_tree, admitted_cells, cell_radius: float,
                         shape_polys, deck_tree, emitted_pieces,
@@ -1714,13 +1760,23 @@ def _emit_road_regrades(scene: _Scene, grid: _Grid, layout: PavementLayout,
         dem_v = np.full(n_st, np.nan, dtype=float)
         valid = np.zeros(n_st, dtype=bool)
         near_adm = np.zeros(n_st, dtype=bool)
+        # WHY each invalid station is invalid — read only by the
+        # finiteness assertion below, so a NaN altitude can name its own
+        # cause instead of being guessed at offline.  The three causes are
+        # disjoint and tested in the SAME short-circuit order as before.
+        invalid_cause: list = [None] * n_st
         for i in range(n_st):
             x, y = float(xs[i]), float(ys[i])
             d = scene.sample_dem(x, y)
-            if d is None or _near_tile_seam(scene, x, y):
+            if d is None:
+                invalid_cause[i] = "sample_dem is None"
+                continue
+            if _near_tile_seam(scene, x, y):
+                invalid_cause[i] = "_near_tile_seam"
                 continue
             ij = grid.index(x, y)
             if ij is not None and grid.refused[ij]:
+                invalid_cause[i] = "grid.refused"
                 continue
             valid[i] = True
             dem_v[i] = float(d)
@@ -1773,11 +1829,22 @@ def _emit_road_regrades(scene: _Scene, grid: _Grid, layout: PavementLayout,
             lo, hi = a, b
             gov_idx = np.nonzero(gov_any[a:b + 1])[0]
             if gov_idx.size:
+                # ``valid`` guard, in the same idiom as the FOLLOW and
+                # blend extensions below: an INVALID station carries the
+                # ``+inf`` profile sentinel (:func:`_road_regrade_profile`
+                # never propagates across one), and ``depth`` is forced
+                # 0.0 there, so an unguarded walk over ``gov_any`` alone
+                # could swallow invalid ground, pass the blend refusal on
+                # a fake 0.0 depth, and mint ``inf - inf = NaN`` vertex
+                # altitudes in the analytic blend.  OLS governance is a
+                # property of the CEILING, which exists over ground the
+                # DEM/seam/refusal rules exclude.
                 g_lo = a + int(gov_idx[0])
-                while g_lo - 1 >= 0 and gov_any[g_lo - 1]:
+                while g_lo - 1 >= 0 and gov_any[g_lo - 1] and valid[g_lo - 1]:
                     g_lo -= 1
                 g_hi = a + int(gov_idx[-1])
-                while g_hi + 1 < n_st and gov_any[g_hi + 1]:
+                while (g_hi + 1 < n_st and gov_any[g_hi + 1]
+                       and valid[g_hi + 1]):
                     g_hi += 1
                 lo, hi = min(lo, g_lo), max(hi, g_hi)
             for _ in range(follow_st):
@@ -1885,6 +1952,16 @@ def _emit_road_regrades(scene: _Scene, grid: _Grid, layout: PavementLayout,
                             s_abs, ss_sp, outer_prof[sgn]))
                         vals.append(round(
                             zs + (d_sp / half_w) * (zo - zs), 2))
+                    # FINITENESS ASSERTION (production, ungated): never
+                    # emit a non-finite altitude silently.  With the
+                    # ``valid`` guard above, every station of a span is
+                    # valid and every ``vals`` entry is finite; if that
+                    # ever fails, say WHY on the spot.
+                    if not all(math.isfinite(v) for v in vals):
+                        raise NonFiniteRoadAltitude(
+                            _nonfinite_road_vals_msg(
+                                way_id, sgn, lo, hi, ss, valid,
+                                invalid_cause, coords, vals, piece))
                     shape = BuiltShape(polygon=piece,
                                        role=ROLE_SERVICE_JUNCTION,
                                        ref=REF_ROAD,

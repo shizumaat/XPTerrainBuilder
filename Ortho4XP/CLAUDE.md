@@ -52,10 +52,12 @@ top-tier-model tokens only where judgment is required:
    large-file reconnaissance. Every Agent launch passes an explicit
    `model` — Opus by default, never left to inherit the session model.
 3. **Every delegation prompt must include:** exact file paths, the frozen
-   public API, acceptance criteria (tests that must pass), and constraints
-   (no GUI-toolkit imports in core modules, keep imports light). Agents may
-   not change a public interface; if blocked, they report back rather than
-   improvise.
+   public API, acceptance criteria (tests that must pass), constraints
+   (no GUI-toolkit imports in core modules, keep imports light), and a link
+   to `docs/RULINGS.md` (canonical owner rulings — a brief that would
+   violate a listed ruling is invalid; deviations are ruled by the owner,
+   never decided by the agent). Agents may not change a public interface;
+   if blocked, they report back rather than improvise.
 4. **Run independent agents in parallel** (single message, multiple Agent
    calls). Verify all agent output by running its tests before integrating.
 5. **Never delegate:** interface design, UX copy, destructive operations,

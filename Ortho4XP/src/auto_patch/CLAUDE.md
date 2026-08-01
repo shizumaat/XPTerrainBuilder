@@ -12,8 +12,10 @@ spec-compliant surface rather than a terrain tracing. Output is an OSM patch tha
 Ortho4XP bakes into the tile mesh.
 
 This is an orientation map, not a full manual. It documents what's *durable*. For
-current in-flight work and handover state, read the repo-root `STATUS.md` (that file is
-ephemeral; this one is not — do not track current task state here).
+current in-flight work and handover state, read the TOP dated block of the repo-root
+`STATUS.md` only — the file is ~90k tokens of append-only history; never load it whole
+(Read with a line limit). That file is ephemeral; this one is not — do not track
+current task state here.
 
 ## Pipeline at a glance
 Public entry point: `pipeline.build_airport_pavement(icao, xplane_root, *,
@@ -104,8 +106,11 @@ so there is no second copy to keep in sync. Change the number in `config.py` onl
 
 ## Other resources
 - `docs/STANDARDS.md` — the FAA/EASA/ICAO rule index (rule → citation → code constant).
+- `docs/RULINGS.md` — canonical owner rulings that gate design and implementation
+  (every delegation brief links it; briefs violating a ruling are invalid).
 - `ONBOARDING.md` (repo root) — walkthrough-style onboarding for new engineers.
-- `STATUS.md` (repo root) — current handover / in-flight work (ephemeral).
+- `STATUS.md` (repo root) — current handover / in-flight work (ephemeral; TOP dated
+  block only, ~90k tokens — never load whole).
 - `docs/auto_patch_design_requirements.docx` — original design requirements.
 - `docs/elevation_solver.md` — **the elevation solver reference** (cascade +
   stiffness-weighted relief; the model, the rules, and the approaches rejected).

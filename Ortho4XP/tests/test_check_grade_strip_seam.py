@@ -308,6 +308,109 @@ def test_low_wall_not_bracketing_does_not_exempt(tmp_path):
     assert len(violations) == 1
 
 
+# ── The straddle exemption's OPEN-GROUND clause (2026-08-01) ──────
+# The exemption is for the graded→DEM terrace in OPEN ground.  A pair
+# whose connecting segment never leaves the graded domain is an INTERIOR
+# tear of the graded corridor (zones 1-2) or of a filled pocket, and no
+# crossing wall face may dissolve it.  The two straddle tests above are
+# the positive controls: their strips are degenerate chains, so raw
+# terrain does lie between the nodes and the exemption still fires.
+
+
+def _straddling_wall() -> Dict:
+    """The wall of ``test_wall_straddling_pair_is_not_flagged``: its top
+    row (x=0.6) and bottom row (x=0.9) cross the pair's interior and its
+    10-12 m elevation range brackets the step."""
+    return {"wid": "-30", "role": "retaining_wall", "shapeID": "3",
+            "nodes": [("-31", 0.6, -5.0, 12.0), ("-32", 0.6, 5.0, 12.0),
+                      ("-33", 0.9, 5.0, 10.0), ("-34", 0.9, -5.0, 10.0)]}
+
+
+def test_zone_1_2_pair_with_crossing_wall_stays_flagged(tmp_path):
+    # The SAME pair and the SAME crossing wall as
+    # test_wall_straddling_pair_is_not_flagged, but the graded corridor's
+    # own fabric (a third graded_strip, 24x24 m, its corners >16 m away
+    # so it mints no pairs of its own) covers the ground BETWEEN the two
+    # nodes.  Nothing there falls to DEM, so this is a zone-1/2 interior
+    # tear: a real defect, and the wall face must not dissolve it.
+    ways_spec = [
+        {"wid": "-10", "role": "graded_strip", "shapeID": "1",
+         "nodes": [("-1", 0.0, 0.0, 12.0)] + _pad_a()},
+        {"wid": "-20", "role": "graded_strip", "shapeID": "2",
+         "nodes": [("-2", 1.5, 0.0, 10.0)] + _pad_b()},
+        _straddling_wall(),
+        {"wid": "-40", "role": "graded_strip", "shapeID": "4",
+         "nodes": [("-41", -12.0, -12.0, 11.0), ("-42", 12.0, -12.0, 11.0),
+                   ("-43", 12.0, 12.0, 11.0), ("-44", -12.0, 12.0, 11.0)]},
+    ]
+    violations = _run(tmp_path, ways_spec)
+    assert len(violations) == 1, [
+        (v.de_m, v.distance_m) for v in violations]
+    assert abs(violations[0].de_m - 2.0) < 1e-6
+
+
+def test_pocket_interior_pair_with_crossing_wall_stays_flagged(tmp_path):
+    # The pocket class: the pair sits inside a pavement-enclosed pocket
+    # whose fill/drainage grading the owner's enclosure ruling KEEPS, so
+    # the ground between the two nodes is graded, not DEM.  Same pair,
+    # same crossing wall; the exemption must refuse to fire.
+    ways_spec = [
+        {"wid": "-10", "role": "graded_strip", "shapeID": "1",
+         "nodes": [("-1", 0.0, 0.0, 12.0)] + _pad_a()},
+        {"wid": "-20", "role": "graded_strip", "shapeID": "2",
+         "nodes": [("-2", 1.5, 0.0, 10.0)] + _pad_b()},
+        _straddling_wall(),
+        {"wid": "-50", "role": "apron", "shapeID": "5",
+         "nodes": [("-51", -12.0, -12.0, 11.0), ("-52", 12.0, -12.0, 11.0),
+                   ("-53", 12.0, 12.0, 11.0), ("-54", -12.0, 12.0, 11.0)]},
+    ]
+    violations = _run(tmp_path, ways_spec)
+    assert len(violations) == 1
+    assert abs(violations[0].de_m - 2.0) < 1e-6
+
+
+def test_hairline_graded_gap_is_not_open_ground(tmp_path):
+    # Two abutting pavement plates leave a 4 mm slit at x=0.748-0.752 —
+    # a polygon-boundary artifact, not open ground.  The interior sample
+    # that lands in it is within STRIP_SEAM_OPEN_GROUND_MIN_M of graded
+    # ground, so the pair is still interior and stays flagged.
+    ways_spec = [
+        {"wid": "-10", "role": "graded_strip", "shapeID": "1",
+         "nodes": [("-1", 0.0, 0.0, 12.0)] + _pad_a()},
+        {"wid": "-20", "role": "graded_strip", "shapeID": "2",
+         "nodes": [("-2", 1.5, 0.0, 10.0)] + _pad_b()},
+        _straddling_wall(),
+        {"wid": "-60", "role": "apron", "shapeID": "6",
+         "nodes": [("-61", -12.0, -12.0, 11.0), ("-62", 0.748, -12.0, 11.0),
+                   ("-63", 0.748, 12.0, 11.0), ("-64", -12.0, 12.0, 11.0)]},
+        {"wid": "-70", "role": "apron", "shapeID": "7",
+         "nodes": [("-71", 0.752, -12.0, 11.0), ("-72", 12.0, -12.0, 11.0),
+                   ("-73", 12.0, 12.0, 11.0), ("-74", 0.752, 12.0, 11.0)]},
+    ]
+    violations = _run(tmp_path, ways_spec)
+    assert len(violations) == 1
+
+
+def test_wall_ring_closing_face_straddle_is_not_flagged(tmp_path):
+    # The wall ring's CLOSING face — last node back to first, its end cap
+    # — is a real emitted face, but the vertex table drops a closed ring's
+    # repeated last node, so walking consecutive vertices alone misses it.
+    # Here ONLY the closing face (x=0.75, y=-3..3) crosses the pair; every
+    # consecutive segment is >=3 m away.  The pair is open ground (both
+    # strips are degenerate chains), so the exemption must fire.
+    ways_spec = [
+        {"wid": "-10", "role": "graded_strip", "shapeID": "1",
+         "nodes": [("-1", 0.0, 0.0, 12.0)] + _pad_a()},
+        {"wid": "-20", "role": "graded_strip", "shapeID": "2",
+         "nodes": [("-2", 1.5, 0.0, 10.0)] + _pad_b()},
+        {"wid": "-30", "role": "retaining_wall", "shapeID": "3",
+         "nodes": [("-31", 0.75, 3.0, 12.0), ("-32", 60.0, 3.0, 12.0),
+                   ("-33", 60.0, -3.0, 10.0), ("-34", 0.75, -3.0, 10.0)]},
+    ]
+    violations = _run(tmp_path, ways_spec)
+    assert violations == []
+
+
 def test_stacked_wall_same_coordinate_is_flagged(tmp_path):
     # Two strips holding DIFFERENT values at the same coordinate emit as
     # stacked separate nodes — a bare vertical terrain wall.  The grade

@@ -1517,6 +1517,119 @@ STRIP_SEAM_TEAR_MIN_DISTANCE_M = 0.01  # grade denominator clamp (stacked walls)
 STRIP_SEAM_WALL_STRADDLE_TOL_M = 0.5
 STRIP_SEAM_ROLE = "graded_strip"
 
+# ── OPEN-GROUND clause for the straddle exemption (2026-08-01) ──
+# The owner's law exempts terraces at the graded→DEM boundary in OPEN
+# ground: only zones 1-2 of the adjacent-ground corridor are graded, and
+# where grading ENDS the surface may lawfully step down to raw terrain
+# behind an emitted wall face.  A pair whose connecting segment never
+# leaves the graded domain is NOT at that boundary — it is an interior
+# tear of the graded corridor (zones 1-2) or of a filled pocket, both of
+# which stay defects however many wall faces cross them.  Round-5
+# measurement (438 tear rows, four airports, both arms): 9 of the
+# exemption's 21 firings dissolved zone-1/2 tears, worst Δalt 10.33 m.
+#
+# The ungraded-gap distribution over that population is BIMODAL — 6e-15…
+# 3e-7 m (polygon-boundary floating point: no ungraded ground at all) vs
+# ≥ 0.02 m — with nothing in between, so any threshold in [1 µm, 1 cm]
+# gives the same split; 1 cm is the conservative end.
+STRIP_SEAM_OPEN_GROUND_MIN_M = 0.01
+# Interior samples along the pair's connecting segment (the two endpoints
+# are strip vertices and therefore lie ON the graded domain's boundary —
+# sampling them would read every pair as open).
+STRIP_SEAM_OPEN_GROUND_SAMPLES = 21    # ⇒ 19 interior samples
+# The GRADED DOMAIN: graded_strip ∪ the pavement polygons.  This is the
+# round-5 instrument's set verbatim (scratchpad round5/geom.py), kept
+# identical so the v1-vs-v2 quantification is one instrument.  The three
+# further areal roles the battery patches carry — ``runway_crossing``,
+# ``ols_cut``, ``runway_clearance`` — are NOT in it; adding all three
+# changes the graded/open verdict on 0 of the 438 measured tear rows
+# (round-6 pre-flight), so the choice is not load-bearing on this
+# population.  NOTE (blast role-literal hazard): renaming any role value
+# in auto_patch/layout.py silently empties this set.
+STRIP_SEAM_GRADED_ROLES = frozenset({
+    "graded_strip",
+    "runway", "primary_parallel", "secondary_parallel", "stub",
+    "junction", "cross_connector", "apron", "terminal", "building",
+    "service_road", "service_junction", "groundside_pavement",
+    "tunnel_ramp", "bridge_trench", "bridge_causeway", "hangar_pad",
+})
+
+
+def _point_in_ring(px: float, py: float,
+                   pts: List[Tuple[float, float]]) -> bool:
+    """Even-odd crossing test: is (px, py) inside the closed ring
+    ``pts`` (given WITHOUT the closing repeat)?  Degenerate (zero-area)
+    rings never contain a point, which is the honest answer for them."""
+    inside = False
+    n = len(pts)
+    j = n - 1
+    for i in range(n):
+        xi, yi = pts[i]
+        xj, yj = pts[j]
+        if (yi > py) != (yj > py):
+            x_cross = xi + (py - yi) * (xj - xi) / (yj - yi)
+            if px < x_cross:
+                inside = not inside
+        j = i
+    return inside
+
+
+class _GradedDomain:
+    """Point membership in the union of the graded rings, with a planar
+    slack: a point counts as GRADED when it is inside any ring OR within
+    ``tol`` of any ring's boundary (rings meet along shared edges, and a
+    sample landing on such an edge is graded ground, not a gap).
+
+    Indexed by a uniform grid over each ring's inflated bounding box, so
+    a query is O(local rings), never O(all rings)."""
+
+    CELL_M = 32.0
+
+    def __init__(self, rings: List[List[Tuple[float, float]]],
+                 tol: float) -> None:
+        self._rings = rings
+        self._tol = tol
+        self._bbox: List[Tuple[float, float, float, float]] = []
+        self._grid: Dict[Tuple[int, int], List[int]] = defaultdict(list)
+        c = self.CELL_M
+        for ri, pts in enumerate(rings):
+            xs = [p[0] for p in pts]
+            ys = [p[1] for p in pts]
+            bb = (min(xs) - tol, min(ys) - tol,
+                  max(xs) + tol, max(ys) + tol)
+            self._bbox.append(bb)
+            for cx in range(int(math.floor(bb[0] / c)),
+                            int(math.floor(bb[2] / c)) + 1):
+                for cy in range(int(math.floor(bb[1] / c)),
+                                int(math.floor(bb[3] / c)) + 1):
+                    self._grid[(cx, cy)].append(ri)
+
+    def covers(self, px: float, py: float) -> bool:
+        if not self._rings:
+            return False
+        c = self.CELL_M
+        tol = self._tol
+        for ri in self._grid.get((int(math.floor(px / c)),
+                                  int(math.floor(py / c))), ()):
+            x0, y0, x1, y1 = self._bbox[ri]
+            if px < x0 or px > x1 or py < y0 or py > y1:
+                continue
+            pts = self._rings[ri]
+            if _point_in_ring(px, py, pts):
+                return True
+            n = len(pts)
+            for i in range(n):
+                ax, ay = pts[i]
+                bx, by = pts[(i + 1) % n]
+                vx, vy = bx - ax, by - ay
+                l2 = vx * vx + vy * vy
+                t = 0.0 if l2 <= 0.0 else max(0.0, min(
+                    1.0, ((px - ax) * vx + (py - ay) * vy) / l2))
+                if math.hypot(px - (ax + t * vx),
+                              py - (ay + t * vy)) <= tol:
+                    return True
+        return False
+
 
 def _check_strip_seam_tears(
     vertices: List[Vertex],
@@ -1560,8 +1673,15 @@ def _check_strip_seam_tears(
     weld vertex metres up-slope paired against the wall's own bottom row.
     A pair is straddle-exempt when a ``retaining_wall`` segment crosses
     the pair's INTERIOR (within ``STRIP_SEAM_WALL_STRADDLE_TOL_M``, the
-    contact point off both endpoints) and that wall way's elevation range
-    brackets both pair altitudes to within one step floor.
+    contact point off both endpoints), that wall way's elevation range
+    brackets both pair altitudes to within one step floor, AND ungraded
+    ground lies between the two nodes — the pair's connecting segment
+    must leave the graded domain (``STRIP_SEAM_GRADED_ROLES`` polygons)
+    by more than ``STRIP_SEAM_OPEN_GROUND_MIN_M``.  That last clause is
+    the owner's law: the exemption is for the graded→DEM terrace in OPEN
+    ground, so a tear INTERIOR to graded ground (corridor zones 1-2, or a
+    filled pocket) is never dissolved by a wall face that happens to
+    cross it.
 
     Runs in ~linear time via a spatial grid over the strip nodes (never an
     O(n^2) all-pairs scan — airports reach ~50k strip nodes).  Returns
@@ -1597,22 +1717,33 @@ def _check_strip_seam_tears(
     # Straddle exemption: the wall's own FACE segments, plus the per-way
     # elevation range the face spans.  Wall vertices arrive in ring order
     # per way, so consecutive same-way entries are the face's segments.
+    #
+    # RING-CLOSING FACE (2026-08-01): ``_build_vertex_edge_tables`` drops
+    # a closed ring's repeated last node, so walking the vertex table
+    # alone MISSES each wall ring's closing segment — its end cap, a real
+    # emitted face.  Close every wall ring here, exactly as that function
+    # closes every ring for its EDGE table.  (Measured: production walls
+    # are 100 % closed rings — 95/95 across the four battery patches.)
     wall_segs: List[Tuple[float, float, float, float, int]] = []
     wall_elev_range: Dict[int, Tuple[float, float]] = {}
     if wall_keys:
-        prev: Optional[Vertex] = None
+        wall_pts: Dict[int, List[Tuple[float, float]]] = defaultdict(list)
         for v in vertices:
             if ways[v.way_idx].tags.get("role") != "retaining_wall":
-                prev = None
                 continue
-            if prev is not None and prev.way_idx == v.way_idx:
-                wall_segs.append((prev.x, prev.y, v.x, v.y, v.way_idx))
+            wall_pts[v.way_idx].append((v.x, v.y))
             if v.elev is not None:
                 lo, hi = wall_elev_range.get(
                     v.way_idx, (v.elev, v.elev))
                 wall_elev_range[v.way_idx] = (
                     min(lo, v.elev), max(hi, v.elev))
-            prev = v
+        for w_idx, pts in wall_pts.items():
+            for k in range(len(pts) - 1):
+                wall_segs.append((pts[k][0], pts[k][1],
+                                  pts[k + 1][0], pts[k + 1][1], w_idx))
+            if len(pts) > 2 and pts[-1] != pts[0]:
+                wall_segs.append((pts[-1][0], pts[-1][1],
+                                  pts[0][0], pts[0][1], w_idx))
     wall_grid: Dict[Tuple[int, int], List[int]] = defaultdict(list)
     for i, (x1, y1, x2, y2, _wi) in enumerate(wall_segs):
         for cx in range(int(math.floor(min(x1, x2) / cell)),
@@ -1657,9 +1788,35 @@ def _check_strip_seam_tears(
                 best = (d_w, t_w)
         return best
 
+    # The graded domain, for the open-ground clause.  Ring points come
+    # from the vertex table (closing repeat already dropped), so each
+    # entry is the way's ring in order.
+    _graded_ring_pts: Dict[int, List[Tuple[float, float]]] = defaultdict(list)
+    if wall_keys:
+        for v in vertices:
+            if ways[v.way_idx].tags.get("role") in STRIP_SEAM_GRADED_ROLES:
+                _graded_ring_pts[v.way_idx].append((v.x, v.y))
+    graded_domain = _GradedDomain(
+        [pts for pts in _graded_ring_pts.values() if len(pts) >= 3],
+        STRIP_SEAM_OPEN_GROUND_MIN_M)
+
+    def _open_ground_between(a: Vertex, b: Vertex) -> bool:
+        """Does UNGRADED ground lie between the two nodes?  True when any
+        INTERIOR sample of the pair's connecting segment is outside the
+        graded domain by more than ``STRIP_SEAM_OPEN_GROUND_MIN_M``."""
+        n = STRIP_SEAM_OPEN_GROUND_SAMPLES
+        for k in range(1, n - 1):
+            f = k / (n - 1)
+            if not graded_domain.covers(a.x + (b.x - a.x) * f,
+                                        a.y + (b.y - a.y) * f):
+                return True
+        return False
+
     def _wall_straddles(a: Vertex, b: Vertex) -> bool:
         if not wall_segs:
             return False
+        if not _open_ground_between(a, b):
+            return False  # interior to graded ground: zones 1-2 / pocket
         e_lo = min(a.elev, b.elev)
         e_hi = max(a.elev, b.elev)
         length = math.hypot(b.x - a.x, b.y - a.y)
@@ -1727,7 +1884,8 @@ def _check_strip_seam_tears(
                     if _wall_spans(v, u):
                         continue  # deliberate retaining_wall face
                     if _wall_straddles(v, u):
-                        continue  # face crosses BETWEEN the two nodes
+                        continue  # face crosses BETWEEN the two nodes,
+                        # and ungraded ground lies between them
                     out.append(Violation(
                         grade_pct=grade * 100,
                         excess_pct=grade * 100,

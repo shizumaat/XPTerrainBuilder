@@ -328,8 +328,16 @@ def _stations_of(points: Sequence[Tuple[float, float]]) -> List[float]:
     return out
 
 
-def _walk_segments(walk, pos, adj, bound_m):
-    """Bound-departure segmentation along ONE walk direction."""
+def _walk_segments(walk, pos, adj, bound_m, stops_out=None):
+    """Bound-departure segmentation along ONE walk direction.
+
+    ``stops_out`` (out-parameter, ``None`` in every production call that
+    does not want it) collects ``(end_node, reason)`` for each boundary
+    this direction creates: ``gap`` when the spine edge is absent (P7's
+    holes) and ``turn`` when the chord departs beyond ``bound_m``.  The
+    distinction is not cosmetic — a turn is the owner's +/-8 m tolerance
+    doing its job and his to rule on, a gap is substrate and ours.
+    """
     def _dev(pts):
         a, b = pts[0], pts[-1]
         L = math.hypot(b[0] - a[0], b[1] - a[1])
@@ -341,21 +349,26 @@ def _walk_segments(walk, pos, adj, bound_m):
     segs, seg = [], [walk[0]]
     for k in range(1, len(walk)):
         prev, cur = walk[k - 1], walk[k]
-        if cur in adj.get(prev, ()):                  # (b) no spine gap
+        _gap = cur not in adj.get(prev, ())
+        if not _gap:                                  # (b) no spine gap
             cand = seg + [cur]
             if _dev([pos[v] for v in cand]) <= bound_m:
                 seg = cand
                 continue
+        if stops_out is not None:
+            stops_out.append((prev, "gap" if _gap else "turn"))
         if len(seg) >= 2:
             segs.append(seg)
         seg = [cur]
+    if stops_out is not None and len(seg) >= 2:
+        stops_out.append((seg[-1], "route_end"))
     if len(seg) >= 2:
         segs.append(seg)
     return segs
 
 
 def walk_spine_runs(chains, pos, spine_adj, *, bound_m, min_len_m=None,
-                    service=()):
+                    service=(), stops_out=None):
     """The SPINE WALK with DIRECTION SYMMETRY (Fable rulings, 2026-07-31).
 
     The chord-growing core is unchanged — the DOMAIN changes.  Candidates
@@ -396,7 +409,8 @@ def walk_spine_runs(chains, pos, spine_adj, *, bound_m, min_len_m=None,
         walk = [v for v in chain if v in pos]
         if len(walk) < 2:
             continue
-        fwd = _walk_segments(walk, pos, adj, bound_m)
+        _fstops = [] if stops_out is not None else None
+        fwd = _walk_segments(walk, pos, adj, bound_m, _fstops)
         bwd = [list(reversed(sg)) for sg in
                _walk_segments(list(reversed(walk)), pos, adj, bound_m)]
         # CONSENSUS: a node is strung only where BOTH directions agree.
@@ -419,9 +433,32 @@ def walk_spine_runs(chains, pos, spine_adj, *, bound_m, min_len_m=None,
                     run = []
             if len(run) >= 2:
                 consensus.append(run)
+        if stops_out is not None:
+            # the forward pass's own boundaries, plus the ones DIRECTION
+            # SYMMETRY created: a node the backward pass did not cover
+            # ends its run by consensus, which is a different author from
+            # a turn and must not be reported as one.
+            _fwdset = {v for f in fwd for v in f}
+            for _v, _why in _fstops:
+                stops_out.append({"chain": ci, "node": _v, "reason": _why,
+                                  "x": pos[_v][0], "y": pos[_v][1]})
+            for _run in consensus:
+                for _end in (_run[0], _run[-1]):
+                    if _end in _fwdset and not any(
+                            _s["node"] == _end and _s["chain"] == ci
+                            for _s in stops_out):
+                        stops_out.append({"chain": ci, "node": _end,
+                                          "reason": "consensus",
+                                          "x": pos[_end][0],
+                                          "y": pos[_end][1]})
         for seg in consensus:
             a, b = pos[seg[0]], pos[seg[-1]]
             ln = math.hypot(b[0] - a[0], b[1] - a[1])
+            if ln < min_len_m and stops_out is not None:
+                for _end in (seg[0], seg[-1]):
+                    stops_out.append({"chain": ci, "node": _end,
+                                      "reason": "tenure", "x": pos[_end][0],
+                                      "y": pos[_end][1]})
             (strings if ln >= min_len_m else sub_min).append(
                 (a, b, list(seg), ln, ci))
     return strings, sub_min
@@ -650,7 +687,8 @@ def through_path_chains(polylines, *, intern_m: float = SUBSTRATE_INTERN_M
                              items, pos)
 
 
-def strings_with_tenure(items, pos, spine_adj, *, bound_m, min_len_m):
+def strings_with_tenure(items, pos, spine_adj, *, bound_m, min_len_m,
+                        stops_out=None):
     """★ RULING 3 — EXCLUSIVITY IS AN EMISSION INVARIANT, CHARGED AT
     STRUNG COVERAGE, never at composition time.
 
@@ -706,9 +744,21 @@ def strings_with_tenure(items, pos, spine_adj, *, bound_m, min_len_m):
         paths, cstats = compose_through_paths(round_items, pos)
         for pid, n_src in (cstats.get("path_source_chains") or {}).items():
             src_counts[base + pid] = n_src
+        _rstops = [] if stops_out is not None else None
         got, sub = walk_spine_runs({base + pid: nodes for pid, nodes in paths},
                                    pos, spine_adj, bound_m=bound_m,
-                                   min_len_m=min_len_m)
+                                   min_len_m=min_len_m, stops_out=_rstops)
+        if stops_out is not None:
+            _emitted_ends = {v for (_a, _b, nd, _l, _c) in got
+                             for v in (nd[0], nd[-1])}
+            for _row in _rstops:
+                _row["round"] = len(rounds)
+                # ★ population, stated not implied: a boundary is either an
+                # END OF AN EMITTED STRING or a boundary of something the
+                # walk discarded.  Conflating them is how this class of
+                # instrument lies.
+                _row["is_emitted_end"] = _row["node"] in _emitted_ends
+                stops_out.append(_row)
         base += len(paths)
         if not got:
             sub_min = sub                    # the converged unstrung mass
@@ -1345,9 +1395,10 @@ def construct_taut_strings(layout, G, *, elev, bucket_to_idx, n, node_band,
     # ``min_len`` deleted RETURN to the pool and the identical constructor
     # re-runs on the residual until a round emits nothing.
     # ★ ONE margin, the owner's ``TAUT_STRING_SPINE_TOLERANCE_M`` (8.0).
+    _boundaries: List[dict] = []
     _tenure = strings_with_tenure(
         _tp.items, _tp.pos, _sadj, bound_m=TAUT_STRING_SPINE_TOLERANCE_M,
-        min_len_m=TAUT_STRING_MIN_STRING_M)
+        min_len_m=TAUT_STRING_MIN_STRING_M, stops_out=_boundaries)
     walk_sub_min = _tenure.sub_min
     # ── THE OWNER'S RUNWAY CLIP (2026-07-31, verbatim: "Use the runway
     # outline to clip any strings, discarding anything inside the runway,
@@ -1379,6 +1430,17 @@ def construct_taut_strings(layout, G, *, elev, bucket_to_idx, n, node_band,
         _one = clip_strings_to_runways(
             [_s], _tp.pos, layout.runway_union,
             min_remainder_m=TAUT_STRING_RUNWAY_CLIP_MIN_REMAINDER_M)
+        if len(_one.strings) != 1 or _one.strings[0][2] != _s[2]:
+            # the clip created boundaries of its own: a remainder end that
+            # is not the pre-clip string's end was authored by the RUNWAY
+            # OUTLINE, not by the walk.
+            for _t in _one.strings:
+                for _end in (_t[2][0], _t[2][-1]) if _t[2] else ():
+                    if _end not in (_s[2][0], _s[2][-1]):
+                        _boundaries.append({
+                            "chain": _s[4], "node": _end, "reason": "clip",
+                            "x": _tp.pos[_end][0], "y": _tp.pos[_end][1],
+                            "round": -1, "is_emitted_end": True})
         for _t in _one.strings:
             _chord_of_string[len(_clip_strings)] = (_s[0], _s[1])
             _clip_strings.append(_t)
@@ -1441,6 +1503,7 @@ def construct_taut_strings(layout, G, *, elev, bucket_to_idx, n, node_band,
     _mode_census: Dict[str, int] = {}
     _pin_depth: Dict[int, float] = {}
     _pin_rows: List[dict] = []
+    _departures: List[dict] = []
 
     for dom in domains:
         _si = dom.pieces[0]
@@ -1464,6 +1527,20 @@ def construct_taut_strings(layout, G, *, elev, bucket_to_idx, n, node_band,
                 continue
             _banded.append((chord_station(pos[_v], _a, _u), _v, _lo, _hi))
         _banded.sort()
+        # ── DEPARTURE LEDGER (smooth bow vs localized excursion) ───────
+        # Perpendicular offset of every strung vertex from its own
+        # string's chord.  Already computed geometry, emitted rather than
+        # inferred: the offline walk has diverged from production three
+        # times, so a 25 m wander must be attributable to substrate pieces
+        # from the BUILD, not reconstructed.
+        for _v in dom.vertices:
+            _dev_s = chord_station(pos[_v], _a, _u)
+            _departures.append({
+                "string": _si, "vertex": _v,
+                "along_station_m": round(_dev_s, 3),
+                "perp_offset_m": round(
+                    abs(-(pos[_v][0] - _a[0]) * _u[1]
+                        + (pos[_v][1] - _a[1]) * _u[0]), 4)})
         _r0 = read_endpoint_band_centre(chord_station(_a, _a, _u), _banded,
                                         identity_m=_identity_m)
         _r1 = read_endpoint_band_centre(chord_station(_b, _a, _u), _banded,
@@ -1618,6 +1695,20 @@ def construct_taut_strings(layout, G, *, elev, bucket_to_idx, n, node_band,
             # caller stamps after the law filter runs.
             "pins": _pin_rows,
             "n_targets": len(_pin_rows),
+            # one row per STRUNG vertex; max is the headline the arm reads
+            # every boundary the WALK + CLIP created, with its author:
+            # turn / gap / route_end / consensus / tenure / clip.  The
+            # turn-vs-tenure distinction decides whose defect a split is.
+            "walk_boundaries": _boundaries,
+            "n_walk_boundaries": len(_boundaries),
+            "boundary_reasons": {_r: sum(1 for _b in _boundaries
+                                         if _b["reason"] == _r)
+                                 for _r in sorted({_b["reason"] for _b
+                                                   in _boundaries})},
+            "departures": _departures,
+            "n_departure_rows": len(_departures),
+            "max_departure_m": max((r["perp_offset_m"] for r in _departures),
+                                   default=0.0),
             # ── the DENOMINATOR LINE, in the artifact as well as the log
             # (ruling 4): which substrate, at which resolution, under
             # which identities.  Mixed-definition tables are forbidden
@@ -1700,10 +1791,22 @@ def construct_taut_strings(layout, G, *, elev, bucket_to_idx, n, node_band,
                         for d in all_defects],
             "n_endpoint_reads": len(endpoint_witness),
         }}
+    # ★ ONE PAYLOAD ROW PER STRING.  Keying by first vertex alone made
+    # strings that SHARE a first vertex overwrite each other: 8 of 64 at
+    # HECA vanished from the keyed view while the summary still said 64 —
+    # a per-string reading over a 56-string population reported as 64.
+    # Third defect of this class tonight; all three were the population
+    # not being what the key claimed.
+    _seen_keys: Dict[object, int] = {}
     for row in inventory:
         key = key_of.get(row["first_vertex"])
-        if key is not None:
-            domains_payload[key] = row
+        if key is None:
+            continue
+        if key in _seen_keys:
+            key = (key, row["chain_id"])      # collision: disambiguate
+        _seen_keys[key] = row["chain_id"]
+        domains_payload[key] = row
+    domains_payload["__summary__"]["n_inventory_rows"] = len(_seen_keys)
     store.mint("string_domains", "keyset", domains_payload, replace=True)
 
     # ★ S1 INPUT STATE CAPTURE (do not drop): the §3 stage-1 acceptance

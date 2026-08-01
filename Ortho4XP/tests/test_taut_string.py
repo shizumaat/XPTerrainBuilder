@@ -1726,3 +1726,16 @@ def test_sidecar_is_written_after_the_grip_filter_stamps_it(tmp_path):
     assert side["n_over_cap_pairs"] == 7
     assert side["pins"] and all(r["grip"] == "kept" for r in side["pins"])
     assert (tmp_path / "w.csv").exists()              # endpoint witness CSV
+
+
+def test_inventory_keeps_one_payload_row_per_string():
+    """★ REGRESSION PIN.  Rows were keyed by first vertex, so two strings
+    sharing one silently overwrote each other -- 8 of 64 vanished from the
+    keyed view while the summary still reported 64.  Any per-string
+    reading taken from that view was over the wrong population."""
+    layout, g, adj, n = _walk_case((21, 21), gap_x=800.0)
+    _out, inv, rows = _drive(layout, g, adj, n, [100.0] * n, hard=set(),
+                             band=_pin(n, {0: 100.0, 20: 101.0,
+                                           21: 100.0, 41: 101.0}))
+    assert inv["n_strings"] == len(rows) == inv["n_inventory_rows"]
+    assert len({r["chain_id"] for r in rows}) == len(rows)

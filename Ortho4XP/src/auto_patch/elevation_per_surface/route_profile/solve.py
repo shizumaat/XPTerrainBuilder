@@ -919,6 +919,11 @@ def solve_route_profile(layout, icao: str,
         # byte-identical.
         _string_pins = None
         _grip_yields: list = []
+        # Bound unconditionally: ``_summary`` is written in the gated
+        # block below and read again at the yield site (ruling 54).  A
+        # name bound only inside a branch is the UnboundLocalError class
+        # the SPLP/CYXY identity build caught in this very function.
+        _summary: dict = {}
         if _os.environ.get("O4_TAUT_STRING_CONSTRUCTION", "0") == "1":
             from auto_patch.config import TAXI_MAX_GRADE as _TAUT_CAP_DEF
             from .taut_string import construct_taut_strings as _cts
@@ -1375,6 +1380,33 @@ def solve_route_profile(layout, icao: str,
                           | {i for i in runway_nodes if i < n}
                           | {i for i in building_seats if i < n}
                           | {i for i in _gs_hard if i < n})
+            # ── RULING 54: THE KEPT PIN SET JOINS ``yield_hard`` ───────
+            # ★ A BLEND IS NOT GRADE LAW.  Under the owner's invariant a
+            # string may be overruled only by LAW; the measured 4.87 m at
+            # chord 1's dip was the surface sitting BELOW ITS OWN CEILING
+            # with no law author at all — no cap contact, no clamp, no
+            # runway, no clip.  The quarantine blend's retained purpose is
+            # GENUINE BAND INVERSIONS, which does not cover a station with
+            # 4.87 m of admitted headroom, so the blend was overwriting a
+            # lawful strung value and §7 then froze the result.
+            # ★ WHY THE KEPT PIN SET AND NOT THE FREEZE.  Inheriting the
+            # whole ~3.7 k-node phase-A spine freeze is REJECTED: it would
+            # over-freeze exactly the unstrung residual domain that has no
+            # string authority and MUST yield — the smoother's ground,
+            # junctions, sub-min runs.  The kept pins are the vertices S1b
+            # holds to a lawful chord value, already Ruling-52 law-filtered
+            # so none of them forces an over-cap pair.  Excluding pins from
+            # the blend alone is UNDER-SCOPED (1892/1988 consume
+            # ``yield_hard`` too), and hard membership is the existing
+            # protection idiom — no new mechanism.
+            # ★ PRECEDENCE (Ruling 52, carried): law is never released.  A
+            # genuine law demand reaching a pin at yield time is a DECLARED
+            # CONFLICT for attribution, never a silent un-pin — a pinned
+            # node behaves here exactly as a truth anchor already does.
+            # ``_string_pins`` is None with the gate off ⇒ byte-identical.
+            _pins_in_yield = ({i for i in _string_pins if i < n}
+                              if _string_pins else set())
+            yield_hard = yield_hard | _pins_in_yield
             # Fast Jacobi first (bulk of the correction), then the FINAL pass
             # as scalar Gauss-Seidel POCS on the joint edge set — Jacobi has no
             # convergence guarantee and stalls with ~2.5k edges marginally over
@@ -1421,6 +1453,41 @@ def solve_route_profile(layout, icao: str,
                                           yield_hard, broken_out=_bo,
                                           witness_limited=_gs_witness,
                                           env_band=_env_band)
+            # ── RULING 54 INSTRUMENTATION ─────────────────────────────
+            # The ruling expects pin-vs-neighbour declarations to be small
+            # and AUTHOR-CARRYING; "small and author-carrying" is only
+            # checkable if they are emitted.  Read straight off the graph
+            # after the yield, so it depends on no projection internal.
+            if _pins_in_yield:
+                _pin_decl = []
+                for _pi, _plst in u_spine_adj.items():
+                    if _pi not in _pins_in_yield:
+                        continue
+                    for (_pj, _pbudget) in _plst:
+                        if _pj >= n or (_pj in _pins_in_yield and _pi > _pj):
+                            continue
+                        _pdz = abs(elev[_pi] - elev[_pj])
+                        if _pdz <= float(_pbudget) + 1e-9:
+                            continue
+                        _pin_decl.append({
+                            "pin": _pi, "neighbour": _pj,
+                            "pin_z": elev[_pi], "neighbour_z": elev[_pj],
+                            "budget_m": float(_pbudget),
+                            "excess_m": _pdz - float(_pbudget),
+                            "neighbour_class": (
+                                "law_anchor" if _pj in truth_hard else
+                                "pin" if _pj in _pins_in_yield else
+                                "free")})
+                _summary["n_pins_in_yield_hard"] = len(_pins_in_yield)
+                _summary["pins_in_yield_hard"] = sorted(_pins_in_yield)
+                _summary["n_pin_yield_conflicts"] = len(_pin_decl)
+                _summary["pin_yield_conflicts"] = _pin_decl
+                from .taut_string import write_string_sidecar as _ws
+                _ws(layout)                      # last call wins
+                if _os.environ.get("O4_STEP_DEBUG") == "1":
+                    print(f"    [S1b yield] {len(_pins_in_yield)} pin(s) held "
+                          f"through the yield; {len(_pin_decl)} declared "
+                          f"neighbour conflict(s)")
             # MOVABLE FLAT PADS (user 2026-07-03): building pads leave the
             # hard set and become rigid flat GROUPS the projection may move —
             # the audit proves the polytope is feasible ONLY when buildings

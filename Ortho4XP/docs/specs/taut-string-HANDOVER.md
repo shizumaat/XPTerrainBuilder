@@ -1,5 +1,36 @@
 # Taut-string line — session handover, 2026-08-01
 
+## 0-EVENING PIVOT — 2026-08-01 late (supersedes everything below where
+## it conflicts; read the memory index too — several owner rulings landed)
+
+The owner flew both arms. VERDICTS: strings-on is "a massive mess"
+(cliffs/canyons/tears); strings-off "still has many of the same type,
+lower magnitude". STRING WORK IS PAUSED (his purpose statement: strings
+are an anti-hills-and-valleys refinement for lawful taxiways, possibly
+not aprons — memory `string-purpose-statement`). The QUARANTINE IS
+UNAUTHORIZED (zero breaks in paved areas; ALL counts full-census —
+memory `feasibility-is-guaranteed`, escalated). ATTRIBUTED CHAIN: the
+visible mess = break regions (HECA α full census 19,591 rows/1,023
+cliffs, 21.5k quarantined) × a DISCONTINUOUS blend weight
+(value-Dijkstra dist by-product as geometric t — one_solve.py:1884; 80%
+of ≥2 m close-pair steps carry |Δt|≥0.1) painting pockets manufactured
+by FALSE TOPOLOGY: the final projection's envelope walks the pavement
+PAIR graph (apron chords, zero-budget pad teleports, 45-hop/4.8 km
+chains) instead of taxi routes, letting the two REAL 05L/23R↔05C/23C
+tensions ceiling/floor 67%/53% of all break nodes at 3.3 km reach.
+Owner directive: FIX THE ROUTE GRAPH ("via actual routes, not cutting
+across the edge of aprons"). Counterfactual (megaanchor/): route metric
++ withdrawing non-route-role witnesses (47% of hard anchors —
+graded_strip traces etc.) kills every ≥20 m deficit; residue ~17%/p50
+5 m incl. the real 282 runway×runway class. IN FLIGHT: break-blend
+continuity fix (spec `break-blend-continuity-spec.md`, implementing);
+NEXT: `route-metric-envelope-spec.md` (written, implement AFTER blend
+fix lands — same files); then residue attribution → quarantine retires
+into loud errors → full-census validator → string refit LAST against
+the repaired α surface. SPLP baseline is now `c2316222…` (corrected
+CIFP; owner fixed a known-bad RW02 253 ft→158 ft). Probe purity fixed
+(`b87a1dc`). Sim-review packs + KMLs in `sim_review/` (gitignored).
+
 ## 0. CURRENT STATE — 2026-08-01 EOD (this block supersedes §§3-8 below;
 ## §§1-2 — the delegation model and the owner's model — remain law)
 

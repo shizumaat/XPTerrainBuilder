@@ -120,7 +120,6 @@ __all__ = [
     "FLAT_AIRPORT_FAST_PATH",
     "REACH_BAND_CLUSTERS",
     "REACH_BAND_CLUSTER_SIZE_M",
-    "RASTER_REACH_BAND",
     "RASTER_REACH_BAND_CELL_M",
     "RASTER_REACH_BAND_CONNECTIVITY",
     "RASTER_REACH_BAND_OFFNET_RADIUS_M",
@@ -1027,6 +1026,23 @@ TAUT_STRING_MIN_STRING_M = float(
 # and a necessity test must be able to vary it).
 TAUT_STRING_SPINE_TOLERANCE_M = float(
     _os_early.environ.get("O4_TAUT_STRING_SPINE_TOLERANCE_M", "8.0"))
+# ── RUNWAY CLIP remainder floor (OWNER-SUPPLIED, 2026-07-31) ──────
+# His words, verbatim, reason included:
+#   "Use the runway outline to clip any strings, discarding anything
+#    inside the runway, and if the remainder is less than 50m just drop
+#    it, the taxiway's grade will be smooth enough without it"
+# ★ OWNER-SUPPLIED: only he moves it.  It is NEVER recalibrated by us in
+# either direction, and it is not fitted to any measurement — the reason
+# is his (a sub-50 m remainder buys no smoothing), not a tuned effect.
+# It also SUBSUMES the along-vs-across discriminator: a string running
+# ALONG a runway is mostly interior, so its remainders fall under this
+# floor and it drops; a CROSSING is mostly exterior, so its remainders
+# survive.  One rule, both classes, no angle test — do not reintroduce
+# one (the measured 0-29 deg vs 74-90 deg separation is recorded
+# MEASUREMENT history, never construction).
+TAUT_STRING_RUNWAY_CLIP_MIN_REMAINDER_M = float(
+    _os_early.environ.get(
+        "O4_TAUT_STRING_RUNWAY_CLIP_MIN_REMAINDER_M", "50.0"))
 TAUT_STRING_RUN_MARGIN_M = float(
     _os_early.environ.get("O4_TAUT_STRING_RUN_MARGIN_M", "20.0"))
 # Authored-direction alignment for RUN membership.  ROUTE filter — it
@@ -1532,51 +1548,31 @@ REACH_BAND_CLUSTERS = (
 # scan over the tens of apron/taxiway body nodes a bucket holds.
 REACH_BAND_CLUSTER_SIZE_M = 24.0
 
-# ── Rasterized reach-band field (Tier 3 wave 2a, ``O4_RASTER_REACH_BAND``) ──
-# Replace the per-query nearest-visible-centerline reach-band evaluation with a
-# precomputed raster field: the pavement-with-holes mask is rasterized once per
-# airport, the runway-anchor cells are seeded with their (de-crowned) values,
-# and TWO multi-source Dijkstra passes over the masked grid settle
-# ``ceiling = min_a(value_a + cap·d_grid)`` / ``floor = max_a(value_a −
-# cap·d_grid)`` — the min-plus (cone-envelope) reach field in the grid metric.
-# Every band query is then an O(1) nearest-cell grid read.  BOTH the solve and
-# the validator consume it through the single producer
-# ``building_feasibility.reach_band_unified``, so they stay aligned.  A ``None``
-# return (no pavement / empty grid / over the cell cap) falls through to the
-# legacy band below it; gate OFF restores the legacy nvc band byte-identically
-# (``test_raster_reach_band.test_gate_off_is_legacy`` pins both directions).
+# ── THE reach band's grid lookup (one engine, no selector) ──────────────────
+# The band is ROUTE-METRIC and SERVICE-EXCLUDED: value is propagated on the
+# unified spine graph minus ``UnifiedGraph.service_spine_pairs``
+# (``building_feasibility.spine_value_fields``), and this grid answers only the
+# LOOKUP — a point's nearest route ATTACHMENT and the local off-route leg to it
+# (``raster_reach_band.solve_attachment_field``).  Grid/raster is a query
+# acceleration; it does not carry the metric.
 #
-# DEFAULT ON (Tier 3 wave 2b, 2026-07-18).
+# HISTORY (owner directive 2026-07-29, spec ``rod-compose-and-band-single-
+# source-spec.md`` §B): there used to be THREE band engines behind an
+# ``O4_RASTER_REACH_BAND`` selector — the raster field, a legacy per-query
+# nearest-visible-centerline path serving the raster's ``None`` answers (engine
+# MIXING inside one building's ring), and a ``_build_skeleton_band`` fallback
+# with no service filter at all.  The raster propagated VALUE through the paved
+# grid, an AREA metric, and under-credited 8.7 m on the U-fixture whenever a
+# service route crossed apron pavement (HECA's shape — biases seats LOW).  The
+# legacy paths were DELETED, not gated, and the selector went with them: one
+# engine needs none.  ``REACH_NO_SERVICE_SPINES`` stays — it gates the LAW
+# (which edges reachability may ride), not the engine.
 #
-# ★ PLANNED END STATE — NOT YET IN THIS TREE.  Owner directive 2026-07-29
-# (spec ``rod-compose-and-band-single-source-spec.md`` §B) retires this
-# selector outright: the band becomes ROUTE-METRIC and SERVICE-EXCLUDED (value
-# propagated on the unified spine graph minus ``UnifiedGraph.
-# service_spine_pairs``), the grid drops to a pure LOOKUP (a point's nearest
-# route ATTACHMENT plus the local off-route leg to it), and the legacy nvc /
-# ``_build_skeleton_band`` engines are DELETED rather than gated — one engine
-# needs no selector.  The motivating defect is in the engine below: it
-# propagates VALUE through the paved grid, an AREA metric, and under-credits
-# 8.7 m on the U-fixture whenever a service route crosses apron pavement
-# (HECA's shape — biases seats LOW).
-#
-# That rewrite (``building_feasibility.spine_value_fields`` /
-# ``raster_reach_band.solve_attachment_field``) has NOT landed here — neither
-# function exists in this tree.  Both engines and this gate are still live.
-# 67440c7 swept in the end-state prose and deleted this constant while all
-# three consumers still read it (``building_feasibility.reach_band_unified``,
-# ``adjacent_ground._raster_reach_band_active``, ``test_route_band``), which
-# made HEAD unbuildable; restored 2026-07-31.  Do not delete it again ahead of
-# the engines it selects.  ``REACH_NO_SERVICE_SPINES`` is unaffected either
-# way — it gates the LAW (which edges reachability may ride), not the engine.
-#
-# The tear classes the tighter ceiling opens at adjacent ground are reconciled
-# unconditionally (``adjacent_ground._heal_emitted_band_tears`` + the
-# ``to_osm`` soft-strip twin).  The documented residual is sub-0.25 m junction
-# ``route_band`` grid-discretization noise
+# The tear classes the tighter, correct ceiling opens at adjacent ground are
+# reconciled unconditionally now (``adjacent_ground._heal_emitted_band_tears``
+# + the ``to_osm`` soft-strip twin).  The documented residual is sub-0.25 m
+# junction ``route_band`` grid-discretization noise
 # (``RASTER_REACH_BAND_GRID_RESIDUAL_M``, emitted surface unchanged).
-RASTER_REACH_BAND = (
-    _os_early.environ.get("O4_RASTER_REACH_BAND", "1") == "1")
 # Cell side (m).  Fine enough that the narrowest real taxiway corridor (≥15 m)
 # spans ≥3 cells and a ½-cell conservative erosion cannot close it; also the
 # nearest-cell query error is ≤ cell/√2.  3 m keeps the OTHH grid at a few

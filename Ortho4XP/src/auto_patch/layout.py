@@ -16,6 +16,8 @@ Public API:
     AEROWAY_FOR_ROLE                        — role -> aeroway tag value
     SHARED_VERTEX_TOL_M, R_EARTH            — geometry constants
     airport_anchor(apt), projection(anchor) — meter-space helpers
+    AptSubstratePiece, OsmSubstrateWay,
+    set_string_substrate_src                — Ruling 4 substrate carriage
 
 Used by every O4_Pavement_* module.  Sits at the bottom of the
 pavement-builder dependency hierarchy alongside Pavement_Config.
@@ -29,7 +31,7 @@ import tempfile
 import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, overload
+from typing import TYPE_CHECKING, NamedTuple, overload
 
 import O4_UI_Utils as UI
 
@@ -373,6 +375,130 @@ def taxi_shape_code_letter(layout, shape) -> str | None:
         return None
     width = _rect_short_edge_width_m(shape.polygon)
     return taxiway_code_letter(width) if width is not None else None
+
+
+# ──────────────────────────────────────────────────────────────────
+# STRING-SUBSTRATE CARRIAGE (Fable RULING 4, 2026-07-31 —
+# docs/specs/s1-taut-chord-constructor-spec.md, second rulings block)
+# ──────────────────────────────────────────────────────────────────
+# The taut-chord constructor's substrate is assembled from two tiers
+# (apt.dat S2-snapshot centerlines ∪ OSM linear taxiways).  Neither
+# tier is reachable at the solver hook: the apt tier is REASSIGNED by
+# ``centerline_recognition`` post-recognition (so the hook-time
+# attribute is a processed proxy, not the snapshot), and the OSM
+# linework is materialised in phase 1 and discarded.  Ruling 4 carries
+# the CAPTURED INPUT across on ONE write-once layout attribute,
+# ``string_substrate_src``, in the layout's own anchor-relative metre
+# frame under ONE projection (the layout's ``to_m``).
+#
+# THE CARRIED FIELD'S SHAPE (what the hook's
+# ``taut_string.substrate_from_carriage`` reads, and nothing else):
+#
+#     layout.string_substrate_src = {
+#         "apt": [(coords, is_service), ...],
+#         "osm": [(way_id, coords), ...],
+#         "fingerprint": str,
+#     }
+#
+# ``coords`` is a tuple of ``(x, y)`` in the layout's own ``to_m``
+# metre frame, in BOTH tiers.  The two NamedTuples below are exactly
+# those pair shapes, named — they unpack as the plain tuples the hook
+# expects, so they are documentation, not a second protocol.
+#
+# The ATTRIBUTE itself is deliberately NOT a dataclass field: Ruling 4
+# requires "gate OFF ⇒ no capture, no import, no new attribute", so the
+# capture sets it dynamically under the gate only, exactly as the
+# pipeline already does for ``_osm_airport_features`` /
+# ``_painted_lines_m``.  Read it with
+# ``getattr(layout, "string_substrate_src", None)``.
+
+
+class AptSubstratePiece(NamedTuple):
+    """One apt.dat taxi centerline as captured at the S2 snapshot.
+
+    ``coords`` is the piece's polyline in LAYOUT-LOCAL METRES (the
+    layout's own ``to_m``), materialised as an immutable tuple — that
+    materialisation IS the deep copy Ruling 4 requires, and it is both
+    cheaper and stronger than ``copy.deepcopy`` of a shapely object:
+    recognition's later reassignment of ``layout.apt_taxi_centerlines``
+    cannot reach a tuple of floats.
+
+    ``is_service`` is the row-1206 ground-vehicle flag
+    (``apt_dat_reader.TaxiCenterline.is_service``).  Service pieces are
+    CARRIED: per Ruling 5's substrate corollary they COUNT for
+    membership/coverage and are excluded only from the strung domain,
+    so the capture must not filter them out.
+    """
+    coords: tuple[tuple[float, float], ...]
+    is_service: bool
+
+
+class OsmSubstrateWay(NamedTuple):
+    """One OSM ``aeroway=taxiway`` linear way as captured in phase 1.
+
+    ``coords`` is in LAYOUT-LOCAL METRES under the same ``to_m`` as the
+    apt tier — ONE projection end to end (the denominator-hygiene
+    block's 0.4 % mixed-projection lesson is why no second projection
+    may ever touch this data).
+    """
+    way_id: str
+    coords: tuple[tuple[float, float], ...]
+
+
+def substrate_polyline_length_m(
+        coords: "tuple[tuple[float, float], ...]") -> float:
+    """Plain Euclidean length of a metre-space polyline.
+
+    Used only for the capture-side denominator LOG line.  The
+    fingerprint has its own metre total (see below) — this helper is
+    not part of the identity proof and must never become a second one.
+    """
+    total = 0.0
+    for i in range(len(coords) - 1):
+        dx = coords[i + 1][0] - coords[i][0]
+        dy = coords[i + 1][1] - coords[i][1]
+        total += math.hypot(dx, dy)
+    return total
+
+
+# ★ THE FINGERPRINT LIVES ELSEWHERE, ON PURPOSE — DO NOT ADD ONE HERE.
+# Ruling 4's identity proof only works if capture and hook compute the
+# SAME function over the SAME content; two implementations of "the same
+# hash" is exactly the drift the fingerprint exists to catch, and would
+# make the hook's assertion vacuous the first time they diverged.  The
+# ONE fingerprint is
+#     ``route_profile.taut_string.substrate_fingerprint(apt, osm)``
+# and the capture side imports it — FUNCTION-LOCALLY, under the gate,
+# because ``taut_string`` must stay unimported in a gate-off build
+# (that inertness is what lets this land while the default is "0", and
+# it is re-proved after every change).  ``layout`` is imported by
+# essentially every module, so it can never import ``taut_string``:
+# that is precisely why the fingerprint is not defined in this file.
+
+
+def set_string_substrate_src(layout, src: dict) -> None:
+    """WRITE-ONCE setter for ``layout.string_substrate_src``.
+
+    A second write RAISES (Ruling 4: "a second write is an error, not a
+    silent overwrite").  The attribute does not exist until this is
+    called, so gate-off builds grow no new attribute at all.
+
+    ``src`` is the carried field in the shape the hook's
+    ``substrate_from_carriage`` reads:
+
+        {"apt": [(coords, is_service), ...],
+         "osm": [(way_id, coords), ...],
+         "fingerprint": str}
+
+    with every ``coords`` in the layout's own ``to_m`` metre frame.
+    """
+    if getattr(layout, "string_substrate_src", None) is not None:
+        raise RuntimeError(
+            "string_substrate_src is write-once and is already set "
+            f"(carried fingerprint "
+            f"{str(layout.string_substrate_src.get('fingerprint'))[:12]}); "
+            "a second capture is a plumbing defect, not an overwrite")
+    layout.string_substrate_src = src
 
 
 # ──────────────────────────────────────────────────────────────────

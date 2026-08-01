@@ -12,6 +12,10 @@ per-airport build (``pipeline.build_airport_pavement``):
   the natural tile on first use if not cached.
 * ``_score_apt_dat_against_osm``: rate how well an apt.dat covers
   the OSM-known apron / taxiway features at a given airport.
+  ⚠ DEAD since 2026-05-21 — zero call sites; see the section header
+  above ``capture_osm_taxi_linework``.
+* ``capture_osm_taxi_linework``: capture the RAW ``aeroway=taxiway``
+  linework as the OSM tier of the string substrate (Ruling 4).
 * ``_pick_best_apt_dat_against_osm``: choose the apt.dat for an
   airport — currently a Custom Scenery pack if present, else Global
   Airports / default (no pavement / OSM coverage analysis).
@@ -55,6 +59,7 @@ _GEOM_EXC = (OSError, ValueError,
 
 __all__ = [
     "AirportRoadNetwork",
+    "capture_osm_taxi_linework",
     "_load_airport_road_network",
     "_load_osm_airports",
     "_load_osm_big_roads",
@@ -178,6 +183,41 @@ def ensure_airports_osm_tile_cached(tile_latitude: int,
             f"  [pav-builder] WARN: airport OSM download error: "
             f"{exc}")
     return os.path.isfile(cache_path)
+
+
+def is_cached(tile) -> bool:
+    """True when this tile's airport packs would fetch nothing remote.
+
+    One of the per-subsystem fetch-admission predicates of
+    docs/specs/apron-string-and-scheduling-spec.md §A.2, co-located with
+    :func:`ensure_airports_osm_tile_cached` — the ONLY remote traffic an
+    auto-patch build issues.  Everything else it reads is local: apt.dat
+    and CIFP come from the X-Plane install, scenery-pack DSFs from disk,
+    and ``Airport_mod_cache`` holds derived sidecars, not downloads.
+
+    Cheap (``isfile`` only), never a network probe, and conservative:
+    the road layers an airport build pre-feeds from
+    (:func:`_tile_small_roads_cache_exists`) are required whenever the
+    tile's ``road_level`` calls for them, so a tile that would fall back
+    to a regional-extract fetch is never reported cached.
+
+    ``tile`` is a configured ``O4_Config_Utils.Tile``.
+    """
+    try:
+        lat, lon = int(tile.lat), int(tile.lon)
+        if not os.path.isfile(FNAMES.osm_cached(lat, lon, "airports")):
+            return False
+        import O4_Vector_Map as _VMAP
+
+        (road_level, _auto) = _VMAP.resolved_road_level(tile)
+        if road_level >= 1 and not os.path.isfile(
+                FNAMES.osm_cached(lat, lon, "big_roads")):
+            return False
+        if road_level >= 2 and not _tile_small_roads_cache_exists(lat, lon):
+            return False
+        return True
+    except Exception:
+        return False
 
 
 def _load_osm_airports(xplane_root: str, icao: str,
@@ -467,6 +507,89 @@ def _score_apt_dat_against_osm(
     taxi_cov = (taxi_inside / taxi_total
                  if taxi_total > 0 else 1.0)
     return (apron_cov, taxi_cov)
+
+
+# ──────────────────────────────────────────────────────────────────
+# STRING-SUBSTRATE OSM TIER (Fable RULING 4, 2026-07-31)
+# ──────────────────────────────────────────────────────────────────
+# ★ MEASURED, AND A DEVIATION TO RATIFY.  Ruling 4(b) names the
+# capture site as "the EXISTING phase-1 taxiway parse" — the
+# ``ay == "taxiway"`` branch of ``_score_apt_dat_against_osm`` above.
+# That function is DEAD CODE: it has exactly three references in the
+# whole tree (this module's docstring, ``__all__``, and its own
+# ``def``) and ZERO call sites in ``src/``, ``tools/``, ``tests/`` or
+# ``Sources/``.  ``_pick_best_apt_dat_against_osm`` replaced it on
+# 2026-05-21 ("No pavement / OSM coverage analysis is performed"; the
+# ``*_threshold`` parameters "are retained for signature compatibility
+# but are now unused").  So the branch never executes in any build and
+# nothing can be captured at it.
+#
+# This is Ruling 4's PRE-NAMED DIVERGENCE ("if some build path reaches
+# the S2-snapshot assignment without the scorer's OSM parse having
+# run, report the actual order — do not add a second parse"), in its
+# strongest form: NO build path runs it.  The actual order is:
+#
+#   pipeline.build_airport_pavement
+#     ├─ to_m = _projection(anchor)                    ONE projection
+#     ├─ nodes, ways, relations = _load_osm_airports() ONE OSM read
+#     │    → published as layout._osm_airport_features
+#     └─ layout.apt_taxi_centerlines = list(osm_centerlines)
+#          ("Preserve the full input centerline set") = S2 SNAPSHOT
+#
+# NO SECOND PARSE IS ADDED.  This function reads nothing: it is handed
+# the ``nodes``/``ways`` from that single existing read and filters
+# them in memory.  The POPULATION is replicated EXACTLY from the dead
+# scorer's branch — ``aeroway == "taxiway"`` (parking_position is NOT
+# included; that is ``pavement.centerlines``' wider, processed tier),
+# ≥ 2 resolvable nodes, length ≥ 1.0 m — so the carried tier is the
+# population Ruling 4(b) names, even though the site moved to where
+# the data is actually live.
+def capture_osm_taxi_linework(
+        nodes: dict[str, tuple[float, float]],
+        ways: list[tuple[str, list[str], dict[str, str]]],
+        to_m,
+        ) -> list["OsmSubstrateWay"]:
+    """Capture the OSM tier of the string substrate — RAW linework.
+
+    Returns ``(way_id, coords)`` per ``aeroway=taxiway`` linear way, in
+    LAYOUT-LOCAL METRES under the caller's ``to_m``.  This is the
+    CAPTURED INPUT: no linemerge, no RDP, no bend-split, no ref
+    filtering — every one of those is the processed tier the substrate
+    exists to escape (measured: the processed tier topped out at
+    2,391.2 m with no ~4 km path at all, against the substrate's
+    4,312.2 m through-path).
+
+    Order is the OSM ``ways`` iteration order, which is deterministic
+    for a given cache — the fingerprint is order-sensitive, so this
+    stability is load-bearing.
+
+    An empty result is LAWFUL degradation (no OSM data present — the
+    known cwd / worktree trap); the caller logs it, never silently.
+    """
+    from .layout import OsmSubstrateWay
+
+    out: list[OsmSubstrateWay] = []
+    for wid, nrefs, tags in ways:
+        if tags.get("aeroway", "") != "taxiway":
+            continue
+        pts: list[tuple[float, float]] = []
+        for n in nrefs:
+            if n in nodes:
+                la, lo = nodes[n]
+                pts.append(to_m(lo, la))
+        if len(pts) < 2:
+            continue
+        # Same 1.0 m floor the scorer's branch applied, computed
+        # directly rather than via shapely (this runs on every build;
+        # a LineString per way is needless allocation).
+        total = 0.0
+        for i in range(len(pts) - 1):
+            total += math.hypot(pts[i + 1][0] - pts[i][0],
+                                pts[i + 1][1] - pts[i][1])
+        if total < 1.0:
+            continue
+        out.append(OsmSubstrateWay(way_id=str(wid), coords=tuple(pts)))
+    return out
 
 
 def _pick_best_apt_dat_against_osm(

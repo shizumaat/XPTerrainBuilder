@@ -1323,7 +1323,9 @@ def write_string_sidecar(layout, path=None) -> Optional[str]:
 
 def construct_taut_strings(layout, G, *, elev, bucket_to_idx, n, node_band,
                            hard, corridor_pieces, junction_adj,
-                           cap_of_segment) -> Dict[int, float]:
+                           cap_of_segment,
+                           hard_cat=None,
+                           have_initial=None) -> Dict[int, float]:
     """S1 — Stage 0 assembly, §3 ordering, and the per-string constructor.
 
     PURE with respect to the solve: ``elev`` and the layout geometry are
@@ -1348,6 +1350,22 @@ def construct_taut_strings(layout, G, *, elev, bucket_to_idx, n, node_band,
     Mints ``string_bends`` (bend witnesses) and ``string_domains`` (the
     Stage-0 assembly inventory) into the node-space store, and dumps the
     witnesses as CSV when ``O4_STRING_WITNESS_DUMP`` names a path.
+
+    ``hard_cat`` / ``have_initial`` — PROBE B (docs/specs/taut-string-probe-
+    spec.md §2): pure passengers.  Neither is read by any code path here;
+    both are written verbatim into the ``O4_STRING_STATE_DUMP`` pickle so
+    the hook-entry band violations can be attributed OFFLINE to the writer
+    that made them.  ``hard_cat`` is the solve's ``_hard_cat`` (a COPY,
+    made by the caller) — it names the stamp category of every hard node;
+    ``have_initial`` is ``_seed_elevations``' third return.
+    ⚠ MEASURED 2026-08-01: ``have_initial`` is NOT a layout-warm-start vs
+    DEM-sample discriminator (the probe spec §2.2 assumed it was).  Every
+    seeding branch in ``_seed_elevations`` sets it — warm start, DEM
+    sample AND the nearest-hard backfill (solver_primitives.py:3021,
+    :3040) — so it is a COVERAGE flag and comes out ``True`` for every
+    node (131,753 of 131,753 at HECA).  It ships as the spec asks; do not
+    read a P0 sub-class out of it without re-deriving one.
+    ``None`` (the default) ⇒ the key is absent from the pickle.
     """
     import os as _os
 
@@ -1817,8 +1835,17 @@ def construct_taut_strings(layout, G, *, elev, bucket_to_idx, n, node_band,
     _st_dump = _os.environ.get("O4_STRING_STATE_DUMP")
     if _st_dump:
         import pickle as _pkl
+        # PROBE B (spec §2): the two attribution fields ride the SAME
+        # pickle.  Absent when the caller supplied nothing, so an offline
+        # reader can tell "not carried" from "carried and empty".
+        _probe_b = {}
+        if hard_cat is not None:
+            _probe_b["hard_cat"] = dict(hard_cat)
+        if have_initial is not None:
+            _probe_b["have_initial"] = list(have_initial)
         with open(_st_dump, "wb") as _sf:
-            _pkl.dump({"elev": list(elev), "hard": set(hard_set),
+            _pkl.dump({**_probe_b,
+                       "elev": list(elev), "hard": set(hard_set),
                        "node_band": list(node_band) if node_band else None,
                        "pos": dict(pos), "spine_adj": {k: list(v) for k, v
                                                        in (junction_adj or {}).items()},

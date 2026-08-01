@@ -1043,7 +1043,8 @@ def feasibility_project(elev, shape_constraints, hard, *,
                         edge_couple_nodes=None, interval_yield_from=None,
                         group_bounds=None, node_bounds=None,
                         group_refs=None, node_refs=None, forensics=None,
-                        witness_limited=None, env_band=None):
+                        witness_limited=None, env_band=None,
+                        probe_out=None):
     """Drive EVERY grade-graph edge to ``|Δelev| ≤ budget`` by iterative
     constraint projection (user 2026-06-25: nothing may violate a grade cap).
 
@@ -1172,6 +1173,16 @@ def feasibility_project(elev, shape_constraints, hard, *,
     the sweeps and in the final RAW-budget tally (which never reads
     ``broken``); the local apron/taxi/visible-geodesic laws are untouched.
     ``None`` (or gate off) = the pair-closure envelope, byte-identical.
+
+    ``probe_out`` — WRITE-ONLY measurement out-parameter (the ``broken_out``
+    idiom; docs/specs/taut-string-probe-spec.md §1, probe A).  When a dict
+    carrying a ``"watch"`` key of node indices is passed, this call copies
+    ``{i: elev[i] for i in watch}`` into ``probe_out["post_blend"]`` at the
+    BLEND/SWEEP boundary — after the reach envelope's clamp + break blend,
+    before any sweep moves a node — so the caller can attribute a watched
+    node's move to the blend half or the sweep half of THIS call.  Nothing
+    is read back and ``elev`` is never written through it; ``None`` (the
+    production default) allocates nothing and is byte-identical.
     """
     import heapq
     n = len(elev)
@@ -2080,6 +2091,14 @@ def feasibility_project(elev, shape_constraints, hard, *,
                   f"rigidly; {_n_infeasible} kept the pointwise blend; "
                   f"{_n_branch_placed}/{len(_branch)} branch vertex(es) "
                   f"placed on the string")
+
+    # ── PROBE A, BLEND/SWEEP BOUNDARY (spec §1; write-only) ──────────
+    # Everything above is the reach envelope's clamp + break blend;
+    # everything below is the sweeps.  One dict comprehension over the
+    # caller's watch set, only when the caller passed one.
+    if probe_out is not None and probe_out.get("watch"):
+        probe_out["post_blend"] = {_pi: elev[_pi]
+                                   for _pi in probe_out["watch"]}
 
     # BROKEN nodes stay AT their blended value and never move in the
     # sweeps.  Both reach envelopes are cap-Lipschitz along the edge graph

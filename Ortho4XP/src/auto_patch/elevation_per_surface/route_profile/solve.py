@@ -405,6 +405,198 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
     return n_demands
 
 
+# ══ PROBE A — THE MOVER LEDGER (docs/specs/taut-string-probe-spec.md §1)
+# Gate ``O4_STRING_MOVER_LEDGER`` (default "0").  A MEASUREMENT
+# INSTRUMENT: it reads ``elev`` and copies; it never writes ``elev``, never
+# mutates ``u_spine_adj`` / ``_hard_cat`` / ``bucket_to_idx`` / any set the
+# solver iterates.  NO MODULE-GLOBAL STATE (spec §0.2 —
+# ``feasibility_project`` is re-entered from three call sites): all of it
+# lives in ONE dict, created by ``solve_route_profile``, passed DOWN as
+# the ``probe_out`` out-parameter and handed ACROSS to the two
+# ``final_grade_projection`` passes on the layout — the same handoff
+# ``_taut_rod_key_edges`` / ``_crown_drop_key`` already use.
+#
+# The ledger answers "which stage LAST moved this watched node", by diffing
+# a watch set at each ``elev``-writing stage boundary and re-stamping the
+# label wherever the value changed since the PREVIOUS boundary.  Exact
+# float ``!=`` (spec §1: pointer-identical unless written).
+_MOVER_LABEL_LEDGER = (
+    "unchanged_since_freeze",   # phase A's frozen value, never re-written
+    "svc_dem_follow",           # stage G, apply_service_road_dem_follow
+    "proj_shape.blend",         # the :1447 projection, envelope+break blend
+    "proj_shape.sweep",         # the :1447 projection, sweeps
+    "proj_u.blend",             # the :1452 projection, envelope+break blend
+    "proj_u.sweep",             # the :1452 projection, sweeps
+)
+# The pin-drag TAIL (spec §1 extension): separation (i) proved the G2 drag
+# is real and BROAD, so it accrues after the conflict ledger is computed.
+# These boundaries carry the same watch set to the emit copy.
+_MOVER_LABEL_TAIL = (
+    "fp8",                      # the body yield (stamped OUTSIDE _t_fp8)
+    "mouth_relax",              # the mouth verify-and-relax re-projection
+    "ring_fairing",             # _fair_ring_edges
+    "gap_spine_fairing",        # _fair_gap_spine_chains
+)
+# ── THE FINAL-PROJECTION TAIL (spec amendment, 2026-08-01) ──────────────
+# MEASURED at HECA before the amendment: every one of the 3,790 kept pins
+# reads |Δz| = 0.0000 at the emit copy — nothing inside
+# ``solve_route_profile`` moves a pin after phase A.  The drag is
+# downstream, in the TWO ``final_grade_projection`` passes (mid, gate
+# ``O4_FINAL_PROJECTION_MID``; late, ``O4_FINAL_PROJECTION_LATE``), where
+# pins are NOT Dirichlet and nothing holds them.  Each pass gets two
+# boundaries: ``.entry`` (everything between the previous boundary and
+# this pass starting — the pipeline work in between) and the bare label
+# (what the pass ITSELF did).  Both are read in the UNCROWNED frame z′:
+# the pass adds c on entry and subtracts it just before its writeback, so
+# the exit boundary is taken BEFORE the crown transform back, and the
+# emitted value is ``z′ − crown`` (both are recorded per pin).
+_MOVER_LABEL_FINAL = (
+    "final_proj_1.entry",
+    "final_proj_1",
+    "final_proj_2.entry",
+    "final_proj_2",
+)
+MOVER_LABELS = (_MOVER_LABEL_LEDGER + _MOVER_LABEL_TAIL
+                + _MOVER_LABEL_FINAL)
+
+
+def _mover_ledger_new(watch, elev, svc_moved=()):
+    """Open a mover ledger over ``watch`` at the current ``elev``.
+
+    Every watched node starts at ``unchanged_since_freeze``; stage G is
+    stamped without a diff from the moved set it already returns.
+    """
+    watch = {int(i) for i in watch}
+    label = dict.fromkeys(watch, "unchanged_since_freeze")
+    for i in (svc_moved or ()):
+        if i in label:
+            label[i] = "svc_dem_follow"
+    return {"watch": watch,
+            "label": label,
+            "prev": {i: elev[i] for i in watch}}
+
+
+def _mover_snapshot(ledger, elev):
+    """The watch-set slice of ``elev`` (the caller-side boundary copy)."""
+    return {i: elev[i] for i in ledger["watch"]}
+
+
+def _mover_stamp(ledger, snap, label):
+    """Diff ``snap`` against the previous boundary; stamp what moved."""
+    if ledger is None or not snap:
+        return 0
+    prev = ledger["prev"]
+    lab = ledger["label"]
+    n_moved = 0
+    for i, z in snap.items():
+        if z != prev[i]:
+            lab[i] = label
+            prev[i] = z
+            n_moved += 1
+    return n_moved
+
+
+def _mover_stamp_probe(ledger, label):
+    """Stamp the ``post_blend`` copy ``feasibility_project`` left behind.
+
+    Consumed (popped) so a call that returned early — no edges, no
+    snapshot — can never be attributed a stale boundary.
+    """
+    if ledger is None:
+        return 0
+    return _mover_stamp(ledger, ledger.pop("post_blend", None), label)
+
+
+def _mover_rebind(ledger, key_to_idx, n):
+    """Re-resolve the watch set into a REBUILT node space, by key.
+
+    ``final_grade_projection`` rebuilds its node list, so a solve INDEX
+    means nothing there (the rod-key lesson: an index carry does not
+    survive a rebuild).  The ledger carries the canonical key of every
+    watched node, taken from the rod export's reverse map; this resolves
+    those keys through the new pass's ``bucket_to_idx``.  A watched node
+    the rebuild no longer contains (emit decimation deletes strung
+    collinear vertices) simply drops out of the map — it is never
+    silently attributed to the pass.
+    """
+    out = {}
+    for i, key in (ledger.get("key_of") or {}).items():
+        j = key_to_idx.get(key)
+        if j is not None and j < n:
+            out[i] = j
+    return out
+
+
+def _mover_stamp_rebound(ledger, elev, idx_map, label):
+    """Diff-and-stamp a boundary inside a rebuilt node space."""
+    if ledger is None or not idx_map:
+        return 0
+    return _mover_stamp(ledger, {i: elev[j] for i, j in idx_map.items()},
+                        label)
+
+
+def _mover_publish(ledger, layout, elev=None, idx_map=None, crown_of=None,
+                   pass_no=None):
+    """Refresh the pin-drag delivery and re-write the string sidecar.
+
+    Idempotent and last-call-wins, exactly like ``write_string_sidecar``
+    itself.  ``elev`` / ``idx_map`` / ``crown_of`` are supplied by a
+    final-projection boundary so each pin row also records the value that
+    pass ended on (uncrowned z′) and the crown drop that turns it into
+    the emitted number — the amendment's "the last boundary must equal
+    the values the .osm will spell (quantisation excluded)".
+    """
+    if ledger is None:
+        return
+    rows = ledger.get("pin_rows") or ()
+    label = ledger["label"]
+    for row in rows:
+        v = row["vertex"]
+        row["last_writer"] = label.get(v)
+        if elev is not None and idx_map is not None:
+            j = idx_map.get(v)
+            if j is None:
+                row[f"z_final_proj_{pass_no}"] = None
+                continue
+            z = float(elev[j])
+            row[f"z_final_proj_{pass_no}"] = z
+            row["z_emit_uncrowned"] = z
+            row["crown_drop_m"] = float((crown_of or {}).get(j, 0.0))
+            row["z_emitted"] = z - row["crown_drop_m"]
+    summary = ledger.get("summary")
+    if summary is None:
+        return
+
+    def _median(vals):
+        vals.sort()
+        mid = len(vals) // 2
+        return (vals[mid] if len(vals) % 2
+                else 0.5 * (vals[mid - 1] + vals[mid]))
+
+    buckets: dict = {}
+    for row in rows:
+        buckets.setdefault(row["last_writer"], []).append(row)
+    counts = {}
+    for lab, brows in buckets.items():
+        # The spec's Δ (z at the solve's emit copy − pin z) AND — once a
+        # final pass has run — the drag all the way to the EMITTED value.
+        # The first is 0 for every pin (measured), so the second is the
+        # one that carries the signal; both ship, neither replaces the
+        # other.
+        emitted = [abs(r["z_emitted"] - r["pin_z"]) for r in brows
+                   if r.get("z_emitted") is not None]
+        counts[lab] = {
+            "n": len(brows),
+            "median_abs_dz_m": _median(
+                [abs(r["z_at_emit_copy"] - r["pin_z"]) for r in brows]),
+            "median_abs_dz_emitted_m": (_median(emitted) if emitted
+                                        else None),
+            "max_abs_dz_emitted_m": (max(emitted) if emitted else None)}
+    summary["pin_drag_counts"] = counts
+    from .taut_string import write_string_sidecar as _ws
+    _ws(layout)                                   # last call wins
+
+
 def solve_route_profile(layout, icao: str,
                         dem=None, tile_lat: int = 0, tile_lon: int = 0) -> None:
     """Run the one-profile solve and write elevations back onto ``layout``.
@@ -948,7 +1140,17 @@ def solve_route_profile(layout, icao: str,
                 hard=(truth_hard | {i for i in runway_nodes if i < n}
                       | {i for i in building_seats if i < n}),
                 corridor_pieces=_build_spine_corridors(u_spine_adj, nodes),
-                junction_adj=u_spine_adj, cap_of_segment=_taut_cap_of)
+                junction_adj=u_spine_adj, cap_of_segment=_taut_cap_of,
+                # ── PROBE B (spec §2): pure passengers for the hook-entry
+                # state dump.  ``_hard_cat`` is passed as a COPY so the
+                # callee cannot alias a set the solver iterates.
+                # ⚠ ``_have_initial`` is NOT the warm-start/DEM splitter
+                # the spec assumed — every seeding branch sets it, so it
+                # reads True for every node (see the constructor's
+                # docstring).  It ships as specified; do not read a P0
+                # sub-class out of it.  Neither is read by the callee.
+                hard_cat=dict(_hard_cat),
+                have_initial=_have_initial)
             # ★ ``_store_of`` is imported at MODULE level (line ~20) and
             # used unconditionally later in this function.  Re-importing
             # it HERE would make the name function-LOCAL, so with the gate
@@ -1096,6 +1298,10 @@ def solve_route_profile(layout, icao: str,
         #      altitude, so connector and groundside emit as ONE node (no cliff).
         # Gate off → elev + groundside untouched → byte-identical.
         _gs_hard = set()
+        # Stage G's moved set, bound unconditionally so the mover ledger
+        # (probe A) can read it whether or not the groundside gate ran.
+        # Re-bound below by ``apply_service_road_dem_follow``.
+        _svc_moved: set = set()
         # ── GROUNDSIDE FEASIBILITY-WITNESS CLAUSE (owner ruling 2026-07-30,
         # memory ``groundside-terrace-law``; gate
         # ``O4_GS_NO_AIRSIDE_WITNESS``, default ON) ──────────────────────
@@ -1237,6 +1443,11 @@ def solve_route_profile(layout, icao: str,
         # needs the slabs in THIS index space); empty ⇒ no string ⇒ that
         # block is inert.
         _rod_edges: list = []
+        # The solve-index → canonical-key reverse map, bound unconditionally
+        # so the conflict ledger below can carry canonical keys without
+        # building a THIRD reverse map (spec §1 identity clause).  Filled by
+        # the rod export below when there are strung pieces.
+        _rod_key_of: dict = {}
         if _rod_pieces:
             from auto_patch.config import SPINE_ROD_EPSILON_M as _ROD_EPS
             # LAW CLAMP (2026-07-29, CYXY service spine 6.2 %): spec §10.1
@@ -1407,6 +1618,40 @@ def solve_route_profile(layout, icao: str,
             _pins_in_yield = ({i for i in _string_pins if i < n}
                               if _string_pins else set())
             yield_hard = yield_hard | _pins_in_yield
+            # ── PROBE A: OPEN THE MOVER LEDGER (spec §1) ───────────────
+            # WATCH SET = the conflict-eligible population: every kept pin
+            # ∪ its ``u_spine_adj`` neighbours (~10 k at HECA).  Built
+            # ONCE, here, because this is where the pin set is known and
+            # nothing has yet re-projected the spine.  Stages B-F cannot
+            # move a spine node (the spine is ``base_hard`` from the phase-A
+            # freeze), so the only earlier boundary that matters is stage G
+            # — and it hands back its own moved set, no diff needed.
+            # BASELINE = ``elev`` at this statement.  Nothing between here
+            # and the first spine-yield projection below writes ``elev``
+            # (the only intervening statement is the ``_elev_entry_A``
+            # COPY), so this is exactly the spec's pre-projection baseline.
+            # Gate off ⇒ ``None`` ⇒ a handful of ``is None`` checks.
+            _mover = None
+            if (_pins_in_yield and _os.environ.get(
+                    "O4_STRING_MOVER_LEDGER", "0") == "1"):
+                _ml_watch = set(_pins_in_yield)
+                for _wi in _pins_in_yield:
+                    for _we in (u_spine_adj.get(_wi) or ()):
+                        _wj = _we[0] if isinstance(_we, (tuple, list)) else _we
+                        if _wj < n:
+                            _ml_watch.add(_wj)
+                _mover = _mover_ledger_new(_ml_watch, elev,
+                                           svc_moved=_svc_moved)
+                # CANONICAL KEYS for the final-projection tail (spec
+                # amendment): those passes REBUILD the node list, so the
+                # watch set must cross by key.  Read off the rod export's
+                # reverse map — the same complete ``{i: key}`` inversion
+                # of ``bucket_to_idx`` the rod carry already built; never
+                # a third map.  Empty (no strung pieces ⇒ no rod export)
+                # is reported, never silent: ``n_mover_keyed`` below.
+                _mover["key_of"] = {_wi: _rod_key_of[_wi]
+                                    for _wi in _ml_watch
+                                    if _wi in _rod_key_of}
             # Fast Jacobi first (bulk of the correction), then the FINAL pass
             # as scalar Gauss-Seidel POCS on the joint edge set — Jacobi has no
             # convergence guarantee and stalls with ~2.5k edges marginally over
@@ -1448,11 +1693,24 @@ def solve_route_profile(layout, icao: str,
                                           interval_yield_from=_iyf,
                                           witness_limited=_gs_witness,
                                           broken_out=_bo,
-                                          env_band=_env_band)
+                                          env_band=_env_band,
+                                          probe_out=_mover)
+            # PROBE A boundaries 1-2: the blend copy the callee left in the
+            # ledger, then the post-return state (the sweeps).
+            _mover_stamp_probe(_mover, "proj_shape.blend")
+            if _mover is not None:
+                _mover_stamp(_mover, _mover_snapshot(_mover, elev),
+                             "proj_shape.sweep")
             rem, bh = feasibility_project(elev, [{"edges": u_edges}],
                                           yield_hard, broken_out=_bo,
                                           witness_limited=_gs_witness,
-                                          env_band=_env_band)
+                                          env_band=_env_band,
+                                          probe_out=_mover)
+            # PROBE A boundaries 3-4.
+            _mover_stamp_probe(_mover, "proj_u.blend")
+            if _mover is not None:
+                _mover_stamp(_mover, _mover_snapshot(_mover, elev),
+                             "proj_u.sweep")
             # ── RULING 54 INSTRUMENTATION ─────────────────────────────
             # The ruling expects pin-vs-neighbour declarations to be small
             # and AUTHOR-CARRYING; "small and author-carrying" is only
@@ -1469,7 +1727,7 @@ def solve_route_profile(layout, icao: str,
                         _pdz = abs(elev[_pi] - elev[_pj])
                         if _pdz <= float(_pbudget) + 1e-9:
                             continue
-                        _pin_decl.append({
+                        _row = {
                             "pin": _pi, "neighbour": _pj,
                             "pin_z": elev[_pi], "neighbour_z": elev[_pj],
                             "budget_m": float(_pbudget),
@@ -1477,11 +1735,37 @@ def solve_route_profile(layout, icao: str,
                             "neighbour_class": (
                                 "law_anchor" if _pj in truth_hard else
                                 "pin" if _pj in _pins_in_yield else
-                                "free")})
+                                "free")}
+                        # ── PROBE A DELIVERY (spec §1) ────────────────
+                        # Identity: ``pin`` / ``neighbour`` / ``elev``
+                        # indices are ONE space (raw solver node indices),
+                        # so no join is needed — but the CANONICAL key
+                        # rides along for offline geometry, read off the
+                        # rod export's reverse map (never a third map).
+                        if _mover is not None:
+                            _row["pin_last_writer"] = \
+                                _mover["label"].get(_pi)
+                            _row["neighbour_last_writer"] = \
+                                _mover["label"].get(_pj)
+                            _row["pin_key"] = _rod_key_of.get(_pi)
+                            _row["neighbour_key"] = _rod_key_of.get(_pj)
+                        _pin_decl.append(_row)
                 _summary["n_pins_in_yield_hard"] = len(_pins_in_yield)
                 _summary["pins_in_yield_hard"] = sorted(_pins_in_yield)
                 _summary["n_pin_yield_conflicts"] = len(_pin_decl)
                 _summary["pin_yield_conflicts"] = _pin_decl
+                if _mover is not None:
+                    # The label histogram over the FREE member — the
+                    # spec's question is which stage last moved it.  Per-
+                    # row labels (both sides) carry every finer cut the
+                    # readings need, offline.
+                    _mlc: dict = {}
+                    for _row in _pin_decl:
+                        _lbl = _row.get("neighbour_last_writer")
+                        _mlc[_lbl] = _mlc.get(_lbl, 0) + 1
+                    _summary["mover_ledger_counts"] = _mlc
+                    _summary["n_mover_watch"] = len(_mover["watch"])
+                    _summary["n_mover_keyed"] = len(_mover["key_of"])
                 from .taut_string import write_string_sidecar as _ws
                 _ws(layout)                      # last call wins
                 if _os.environ.get("O4_STEP_DEBUG") == "1":
@@ -1994,6 +2278,13 @@ def solve_route_profile(layout, icao: str,
                                           node_refs=_yield_node_refs,
                                           env_band=_env_band)
             _t_fp8_end = _time.perf_counter()
+            # ── PROBE A, TAIL BOUNDARY 1: fp#8 (spec §1 extension) ────
+            # STAMPED OUTSIDE THE ``_t_fp8`` WINDOW (spec §0.3 — the
+            # ``[spine-yield]`` line is a published A/B number), and the
+            # fp#8 call is NOT given ``probe_out`` for the same reason:
+            # one post-call diff, no snapshot inside the timed region.
+            if _mover is not None:
+                _mover_stamp(_mover, _mover_snapshot(_mover, elev), "fp8")
             # Tagged ``[spine-yield]``, NOT ``[taut-string]``: this line
             # must print on BOTH sides of the gate or the held-vs-baseline
             # delta is unmeasurable, and a gate-OFF run must emit zero
@@ -2090,6 +2381,12 @@ def solve_route_profile(layout, icao: str,
                         env_band=_env_band)
                     _n_adopted = adopt_projected_mouths(
                         layout, bucket_to_idx, elev, _freed, _gs_hard)
+                    # ── PROBE A, TAIL BOUNDARY 2: mouth_relax ─────────
+                    # One boundary for the whole stage (re-projection +
+                    # lot adoption), stamped after both.
+                    if _mover is not None:
+                        _mover_stamp(_mover, _mover_snapshot(_mover, elev),
+                                     "mouth_relax")
                     # A relaxed mouth is a solver-DECLARED authority-
                     # conflict pocket: export it to the break quarantine
                     # (a fully reconciled mouth has no over-cap pairs, so
@@ -2159,6 +2456,10 @@ def solve_route_profile(layout, icao: str,
                     skip_nodes=_resa_no_fair)
                 if _os.environ.get("O4_STEP_DEBUG") == "1":
                     print(f"    [edge-fairing] residual kinks={_n_ekink}")
+            # ── PROBE A, TAIL BOUNDARY 3: ring_fairing ────────────────
+            if _mover is not None:
+                _mover_stamp(_mover, _mover_snapshot(_mover, elev),
+                             "ring_fairing")
             _fairing_moved_keys = None
             if _pre_fairing_elev is not None:
                 _fairing_moved_keys = {
@@ -2186,6 +2487,12 @@ def solve_route_profile(layout, icao: str,
             if _os.environ.get("O4_STEP_DEBUG") == "1":
                 print(f"    [gap-spine] fairing residual "
                       f"kinks={_n_gap_kink}")
+        # ── PROBE A, TAIL BOUNDARY 4: gap_spine_fairing ──────────────
+        # Unconditional (a no-op diff when there were no chains) so the
+        # ledger's last boundary is always the same statement.
+        if _mover is not None:
+            _mover_stamp(_mover, _mover_snapshot(_mover, elev),
+                         "gap_spine_fairing")
         # (The §7 taut-string witness + final-hold canonical-key export
         # that lived here were DELETED by spec §10.  The interval-rod
         # entry registered after phase A carries the string's shape
@@ -2283,6 +2590,59 @@ def solve_route_profile(layout, icao: str,
                                f"field failed ({_crown_exc!r}) — flat "
                                f"sections emitted.")
                 _crown_drop_idx = {}
+        # ══ PROBE A DELIVERY, THE PIN-DRAG TAIL (spec §1 extension) ══════
+        # Separation (i) proved the G2 pin drag is REAL (identity-joined
+        # median 0.2520 m) and BROAD — not concentrated on conflict rows —
+        # so the conflict-ledger window above cannot attribute it.  Read
+        # every kept pin ONE statement before the emit copy, in the SAME
+        # UNCROWNED FRAME the pin value lives in (``elev`` is uncrowned
+        # until the writeback below subtracts ``_crown_drop_idx``), and
+        # ship the per-pin row plus the last-writer histogram.
+        # Write-only: nothing here is read back by the solve.
+        if _mover is not None and _string_pins:
+            _pd_rows = []
+            _pd_lab: dict = {}
+            for _pv, _pz in sorted(_string_pins.items()):
+                if _pv >= n:
+                    continue
+                _plab = _mover["label"].get(_pv)
+                _pd_rows.append({"vertex": int(_pv),
+                                 "pin_z": float(_pz),
+                                 "z_at_emit_copy": float(elev[_pv]),
+                                 "last_writer": _plab})
+                _pd_lab.setdefault(_plab, []).append(
+                    abs(float(elev[_pv]) - float(_pz)))
+            _pd_counts = {}
+            for _plab, _pds in _pd_lab.items():
+                _pds.sort()
+                _pm = len(_pds) // 2
+                _pd_counts[_plab] = {
+                    "n": len(_pds),
+                    "median_abs_dz_m": (_pds[_pm] if len(_pds) % 2
+                                        else 0.5 * (_pds[_pm - 1]
+                                                    + _pds[_pm]))}
+            _summary["pin_drag"] = _pd_rows
+            _summary["pin_drag_counts"] = _pd_counts
+            # ── HAND THE LEDGER TO THE FINAL PROJECTIONS (spec amendment)
+            # The two ``final_grade_projection`` passes run AFTER this
+            # function returns, from the pipeline, on the same ``layout``
+            # — the established solve→final handoff (``_taut_rod_key_
+            # edges``, ``_crown_drop_key``, ``_crown_solved_keys`` all
+            # travel this way).  Rows are shared by REFERENCE, so a pass
+            # that re-stamps them updates the summary in place.  Attached
+            # only under the gate; ``getattr(..., None)`` there otherwise.
+            _mover["pin_rows"] = _pd_rows
+            _mover["summary"] = _summary
+            layout._string_mover_ledger = _mover
+            from .taut_string import write_string_sidecar as _ws2
+            _ws2(layout)                      # last call wins
+            if _os.environ.get("O4_STEP_DEBUG") == "1":
+                print(f"    [mover-ledger] pin drag over {len(_pd_rows)} "
+                      f"kept pin(s): "
+                      + ", ".join(f"{_k}={_v['n']}"
+                                  for _k, _v in sorted(_pd_counts.items(),
+                                                       key=lambda kv: str(
+                                                           kv[0]))))
         if _crown_drop_idx:
             _elev_emit = list(elev)
             for _i, _c in _crown_drop_idx.items():
@@ -3578,6 +3938,23 @@ def final_grade_projection(layout, icao: str = "", dem=None,
             if _v:
                 _crown_of[_i] = _v
                 elev[_i] = elev[_i] + _v
+    # ── PROBE A, FINAL-PROJECTION TAIL: THIS PASS'S ENTRY BOUNDARY ──────
+    # (spec amendment 2026-08-01.)  Placed AFTER the crown transform in,
+    # so the whole tail is read in ONE frame — the uncrowned z′ the law
+    # lives in and the ledger has used since the solve.  A move seen here
+    # happened BETWEEN the previous boundary and this pass starting (the
+    # solve's writeback, band/gap emission, tile cuts, conformance welds,
+    # densify) — it is NOT the pass's doing, hence the ``.entry`` label.
+    # Gate off ⇒ no ledger on the layout ⇒ one ``getattr``.
+    _ml = getattr(layout, "_string_mover_ledger", None)
+    _ml_idx: dict = {}
+    _ml_pass = 0
+    if _ml is not None:
+        _ml_pass = int(_ml.get("n_final_passes", 0)) + 1
+        _ml["n_final_passes"] = _ml_pass
+        _ml_idx = _mover_rebind(_ml, b2i, n)
+        _mover_stamp_rebound(_ml, elev, _ml_idx,
+                             f"final_proj_{_ml_pass}.entry")
     if scoped:
         shape_constraints = _build_shape_constraints(
             layout, b2i, ctx=ctx, defer_shape_ids=defer_ids)
@@ -4808,6 +5185,17 @@ def final_grade_projection(layout, icao: str = "", dem=None,
             key for key, i in b2i.items()
             if elev[i] != _pre_fairing_elev[i]}
     _stage("fairing")
+    # ── PROBE A, FINAL-PROJECTION TAIL: THIS PASS'S EXIT BOUNDARY ───────
+    # (spec amendment 2026-08-01.)  Taken BEFORE the crown transform back,
+    # so it is in the SAME uncrowned z′ frame as every other boundary in
+    # the tail; a move seen here is this pass's own doing.  This is also
+    # the last state before ``_writeback``, so on the LAST pass the row's
+    # ``z_emitted`` (= z′ − crown, recorded alongside) is the number the
+    # .osm spells, up to emit quantisation.  Write-only.
+    if _ml is not None:
+        _mover_stamp_rebound(_ml, elev, _ml_idx, f"final_proj_{_ml_pass}")
+        _mover_publish(_ml, layout, elev=elev, idx_map=_ml_idx,
+                       crown_of=_crown_of, pass_no=_ml_pass)
     # crown transform back: z = z′ − c (see the entry transform above).
     if _crown_of:
         for _i, _v in _crown_of.items():

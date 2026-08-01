@@ -31,7 +31,7 @@ from auto_patch.elevation_per_surface.route_profile.one_solve import (
 from auto_patch.elevation_per_surface.route_profile.solve import (
     MOVER_LABELS, _mover_ledger_new, _mover_publish, _mover_rebind,
     _mover_snapshot, _mover_stamp, _mover_stamp_probe,
-    _mover_stamp_rebound)
+    _mover_stamp_rebound, is_mover_label, mover_stage_boundary)
 from auto_patch.elevation_per_surface.route_profile.taut_string import (
     construct_taut_strings, substrate_fingerprint)
 
@@ -254,6 +254,128 @@ def test_mover_publish_records_the_emitted_value_and_is_inert_off(
     assert stats["n"] == 1
     assert stats["median_abs_dz_m"] == 0.0          # the emit-copy delta
     assert abs(stats["median_abs_dz_emitted_m"] - 0.15) < 1e-9
+
+
+# ══════════════════════════════════════════════════════════════════════
+# ROUND 2 §2 — sub-boundaries inside the ``final_proj_N.entry`` window
+# ══════════════════════════════════════════════════════════════════════
+def _stage_layout(z, crown=None):
+    """One apron ring with per-node altitudes — the smallest layout the
+    real ``_build_node_list`` / ``_seed_elevations`` pair will read."""
+    from auto_patch.canonical_points import CanonicalPointRegistry
+    from auto_patch.layout import BuiltShape, PavementLayout
+    layout = PavementLayout(icao="ZZZZ", anchor=(0.0, 0.0))
+    layout.canonical_points = CanonicalPointRegistry()
+    ring = Polygon([(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)])
+    layout.shapes.append(BuiltShape(polygon=ring, role="apron", ref="-1",
+                                    node_altitudes=list(z)))
+    if crown is not None:
+        layout._crown_drop_key = dict(crown)
+    return layout
+
+
+def _stage_ledger(layout, z0):
+    """A ledger watching the apron's first ring vertex, by canonical key."""
+    from auto_patch.elevation_per_surface.solver_primitives import (
+        _build_node_list)
+    _nodes, b2i = _build_node_list(layout)
+    key = next(k for k, i in b2i.items() if i == 0)
+    ledger = _mover_ledger_new({0}, [z0])
+    ledger["key_of"] = {0: key}
+    layout._string_mover_ledger = ledger
+    return ledger
+
+
+def test_stage_boundary_is_inert_without_a_ledger():
+    """The ledger only exists on the layout under
+    ``O4_STRING_MOVER_LEDGER=1``; without it the seam is one getattr."""
+    assert mover_stage_boundary(_stage_layout([1.0] * 4), "03_tile_cut") == 0
+
+    class _Bare:
+        pass
+    assert mover_stage_boundary(_Bare(), "03_tile_cut") == 0
+
+
+def test_stage_boundary_names_the_stage_that_moved_the_node():
+    """The whole point: a mover inside the entry window is attributed to
+    the pipeline stage that ran, not to the undifferentiated window."""
+    layout = _stage_layout([100.0, 100.0, 100.0, 100.0])
+    ledger = _stage_ledger(layout, 100.0)
+    assert mover_stage_boundary(layout, "00_post_solve") == 0
+    assert ledger["label"][0] == "unchanged_since_freeze"
+    layout.shapes[0].node_altitudes[0] = 101.0        # a stage moved it
+    assert mover_stage_boundary(layout, "03_tile_cut") == 1
+    assert ledger["label"][0] == "final_proj_1.entry.03_tile_cut"
+    assert is_mover_label(ledger["label"][0])
+    # and the boundary is a boundary: re-reading the same state moves
+    # nothing, so a later stage is never credited with an earlier move
+    assert mover_stage_boundary(layout, "05_feature_conformance") == 0
+    assert ledger["label"][0] == "final_proj_1.entry.03_tile_cut"
+    assert set(ledger["stage_moves"]) == {
+        "final_proj_1.entry.00_post_solve",
+        "final_proj_1.entry.03_tile_cut",
+        "final_proj_1.entry.05_feature_conformance"}
+    # MAGNITUDES ride beside the count: a stage that "moved everything" by
+    # 1e-16 is a frame artefact, not a writer, and only the size says so.
+    cut = ledger["stage_moves"]["final_proj_1.entry.03_tile_cut"]
+    assert cut == {"n_moved": 1, "n_watched_here": 1,
+                   "median_abs_dz_m": 1.0, "max_abs_dz_m": 1.0,
+                   "n_over_0p01_m": 1}
+    quiet = ledger["stage_moves"]["final_proj_1.entry.05_feature_conformance"]
+    assert quiet["n_moved"] == 0 and quiet["max_abs_dz_m"] is None
+
+
+def test_stage_boundary_reads_the_uncrowned_frame():
+    """One frame for the whole tail: the layout carries the CROWNED value
+    and the ledger lives in z′, so the drop is added back — exactly what
+    ``final_grade_projection`` does on entry."""
+    layout = _stage_layout([100.0] * 4)
+    from auto_patch.elevation_per_surface.solver_primitives import (
+        _build_node_list)
+    _nodes, b2i = _build_node_list(layout)
+    key = next(k for k, i in b2i.items() if i == 0)
+    layout._crown_drop_key = {key: 0.25}
+    ledger = _stage_ledger(layout, 100.25)            # z′ = 100.0 + 0.25
+    assert mover_stage_boundary(layout, "00_post_solve") == 0
+    layout._crown_drop_key = {key: 0.30}              # crown changed ⇒ z′ did
+    assert mover_stage_boundary(layout, "09_planarize_airside") == 1
+    assert ledger["prev"][0] == 100.30
+
+
+def test_stage_boundary_follows_the_pass_counter():
+    """Sub-boundaries belong to the window of the NEXT pass, so a seam
+    after pass 1 is never mislabelled as pass 1's entry."""
+    layout = _stage_layout([100.0] * 4)
+    ledger = _stage_ledger(layout, 100.0)
+    ledger["n_final_passes"] = 1
+    layout.shapes[0].node_altitudes[0] = 101.0
+    assert mover_stage_boundary(layout, "18_emit_decimate") == 1
+    assert ledger["label"][0] == "final_proj_2.entry.18_emit_decimate"
+    assert is_mover_label(ledger["label"][0])
+
+
+def test_is_mover_label_admits_one_sub_level_of_entry_only():
+    for label in MOVER_LABELS:
+        assert is_mover_label(label)
+    assert is_mover_label("final_proj_1.entry.00_post_solve")
+    assert is_mover_label("final_proj_2.entry.18_emit_decimate")
+    assert not is_mover_label("final_proj_1.entry.")     # empty stage
+    assert not is_mover_label("final_proj_1.18_emit_decimate")
+    assert not is_mover_label("proj_u.blend.something")
+    assert not is_mover_label(None)
+
+
+def test_pipeline_seam_wires_both_probes_and_is_inert_off():
+    """The seam list is the pipeline's OWN (``_rod_ckpt``); round 2 hangs
+    the sub-boundary on it rather than inventing seams."""
+    from auto_patch import pipeline as _P
+    layout = _stage_layout([100.0] * 4)
+    _P._rod_ckpt(layout, "03_tile_cut")               # no ledger ⇒ no-op
+    assert not hasattr(layout, "stage_moves")
+    ledger = _stage_ledger(layout, 100.0)
+    layout.shapes[0].node_altitudes[0] = 102.0
+    _P._rod_ckpt(layout, "03_tile_cut")
+    assert ledger["label"][0] == "final_proj_1.entry.03_tile_cut"
 
 
 # ══════════════════════════════════════════════════════════════════════

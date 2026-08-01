@@ -110,6 +110,219 @@ def test_fix1_is_deterministic_with_the_hard_family():
 
 
 # ══════════════════════════════════════════════════════════════════════
+# ROUND 2 §1 — the grip's pair graph is the LAW's pair graph
+# ══════════════════════════════════════════════════════════════════════
+def _isolated(zs):
+    """Every node in ``pins``/``elev``, NO spine edges at all — so the only
+    law is whatever ``law_edges`` carries (§1a) or a two-hop path (§1b)."""
+    return {i: [] for i in range(len(zs))}
+
+
+def test_1a_a_ring_edge_the_spine_graph_lacks_is_now_filtered():
+    """The measured defect: two kept pins contradicting across a junction
+    RING edge (HECA -12539, s9 112.386 vs s2 104.410 over 3.69 m).  The
+    spine graph does not contain that edge, so round 1 never saw it."""
+    elev = [112.386, 104.410]
+    pins = {0: 112.386, 1: 104.410}
+    ring = [(0, 1, 0.0554)]                      # 1.5 % of 3.69 m
+    kept, rel = filter_pins_by_grade_law(pins, _isolated(elev), elev=elev)
+    assert kept == pins and rel == []            # law_edges absent ⇒ round 1
+    kept, rel = filter_pins_by_grade_law(pins, _isolated(elev), elev=elev,
+                                         law_edges=ring)
+    assert len(kept) == 1 and len(rel) == 1
+    assert rel[0]["rule"] == "ring_edge"
+    assert abs(rel[0]["chord_dz_m"] - 7.976) < 1e-9
+    assert rel[0]["released"] in (0, 1)
+
+
+def test_1a_law_edges_may_be_a_single_use_iterator():
+    """The caller streams the solve's own constraints object; consuming it
+    twice would silently halve the pair universe."""
+    elev = [110.0, 100.0]
+    pins = {0: 110.0, 1: 100.0}
+    stream = iter([(0, 1, 0.15)])
+    kept, rel = filter_pins_by_grade_law(pins, _isolated(elev), elev=elev,
+                                         law_edges=stream)
+    assert len(rel) == 1 and rel[0]["rule"] == "ring_edge"
+
+
+def test_1a_ring_edge_against_a_hard_node_releases_the_pin():
+    elev = [110.0, 100.0]
+    pins = {1: 100.0}
+    kept, rel = filter_pins_by_grade_law(
+        pins, _isolated(elev), hard={0}, elev=elev,
+        law_edges=[(0, 1, 0.15)])
+    assert kept == {} and len(rel) == 1
+    assert rel[0]["released"] == 1               # a hard node is no candidate
+    assert rel[0]["rule"] == "ring_edge"
+
+
+def test_1a_hard_hard_ring_edges_stay_the_pre_existing_genuine_step():
+    elev = [110.0, 100.0]
+    kept, rel = filter_pins_by_grade_law(
+        {}, _isolated(elev), hard={0, 1}, elev=elev,
+        law_edges=[(0, 1, 0.15)])
+    assert kept == {} and rel == []
+
+
+def test_1a_the_tightest_carrier_is_the_law_for_a_pair_in_both_graphs():
+    """A pair the spine graph carries loosely and a within-shape edge
+    carries tightly is judged against the TIGHT one — the law demands
+    every carrier be satisfied — while keeping the spine pair's rule."""
+    elev = [100.0, 100.5]
+    pins = {0: 100.0, 1: 100.5}
+    adj = _chain(elev, budget=1.0)               # satisfied on the spine
+    kept, rel = filter_pins_by_grade_law(pins, adj, elev=elev)
+    assert kept == pins and rel == []
+    kept, rel = filter_pins_by_grade_law(pins, adj, elev=elev,
+                                         law_edges=[(0, 1, 0.1)])
+    assert len(rel) == 1
+    assert rel[0]["cap_budget_m"] == 0.1
+    assert rel[0]["rule"] == "grade_law_over_cap"   # provenance is the spine
+
+
+def test_1b_two_pins_through_one_free_node_are_a_pair():
+    """§1b: the interval the law leaves for the free node between two pins
+    is ``budget(i,v) + budget(v,j)``; over that, no value of the free node
+    satisfies both edges — which is exactly the empty interval round 1
+    DECLARED (2,375 of 5,252 declared rows had both authors kept pins)."""
+    elev = [100.0, 0.0, 101.0]                   # node 1 is FREE
+    pins = {0: 100.0, 2: 101.0}
+    adj = {0: [(1, 0.15)], 1: [(0, 0.15), (2, 0.15)], 2: [(1, 0.15)]}
+    kept, rel = filter_pins_by_grade_law(pins, adj, elev=elev)
+    assert len(kept) == 1 and len(rel) == 1
+    w = rel[0]
+    assert w["rule"] == "through_free"
+    assert w["pair"] == [0, 2]
+    assert abs(w["cap_budget_m"] - 0.30) < 1e-12
+    assert abs(w["chord_dz_m"] - 1.0) < 1e-12
+
+
+def test_1b_pin_through_free_to_hard_releases_the_pin():
+    elev = [110.0, 0.0, 100.0]                   # 0 hard, 1 free, 2 pin
+    pins = {2: 100.0}
+    adj = {0: [(1, 0.15)], 1: [(0, 0.15), (2, 0.15)], 2: [(1, 0.15)]}
+    kept, rel = filter_pins_by_grade_law(pins, adj, hard={0}, elev=elev)
+    assert kept == {} and len(rel) == 1
+    assert rel[0]["released"] == 2 and rel[0]["rule"] == "through_free"
+
+
+def test_1b_hard_through_free_to_hard_is_not_ours():
+    elev = [110.0, 0.0, 100.0]
+    kept, rel = filter_pins_by_grade_law({}, {0: [(1, 0.15)],
+                                             1: [(0, 0.15), (2, 0.15)],
+                                             2: [(1, 0.15)]},
+                                         hard={0, 2}, elev=elev)
+    assert kept == {} and rel == []
+
+
+def test_1b_two_hop_crosses_the_spine_and_the_shape_graph():
+    """The free node's neighbours come from the UNION: one leg on the
+    spine, the other a within-shape edge."""
+    elev = [100.0, 0.0, 101.0]
+    pins = {0: 100.0, 2: 101.0}
+    adj = {0: [(1, 0.15)], 1: [(0, 0.15)]}
+    kept, rel = filter_pins_by_grade_law(pins, adj, elev=elev,
+                                         law_edges=[(1, 2, 0.15)])
+    assert len(rel) == 1 and rel[0]["rule"] == "through_free"
+    assert abs(rel[0]["cap_budget_m"] - 0.30) < 1e-12
+
+
+def test_1b_a_tighter_direct_edge_keeps_the_pair_and_its_rule():
+    """A direct carrier tighter than the two-hop sum wins the budget and
+    the provenance (this is also the all-pair-apron short circuit: inside
+    one shape every two-hop pair is already a direct edge)."""
+    elev = [100.0, 0.0, 101.0]
+    pins = {0: 100.0, 2: 101.0}
+    adj = {0: [(1, 0.15), (2, 0.10)], 1: [(0, 0.15), (2, 0.15)],
+           2: [(1, 0.15), (0, 0.10)]}
+    kept, rel = filter_pins_by_grade_law(pins, adj, elev=elev)
+    assert len(rel) == 1
+    assert rel[0]["cap_budget_m"] == 0.10
+    assert rel[0]["rule"] == "grade_law_over_cap"
+
+
+def test_1c_one_cover_one_minimality_pass_over_all_four_families():
+    """§1c: both new families feed the EXISTING machinery — one ``over``
+    list, one greedy cover, one re-admission pass, the same
+    endpoint-protective rank.  Here pin 1 covers a spine pair, a ring pair
+    and a two-hop pair at once; releasing it alone clears all three."""
+    #  0 hard 110 | 1 pin 100 | 2 pin 100.02 | 3 free | 4 pin 100.05
+    #  (0,1) spine over cap; (1,2) a ring edge; (1,4) two-hop through 3.
+    elev = [110.0, 100.0, 100.02, 0.0, 100.05]
+    pins = {1: 100.0, 2: 100.02, 4: 100.05}
+    adj = {0: [(1, 0.15)], 1: [(0, 0.15), (3, 0.005)],
+           3: [(1, 0.005), (4, 0.005)], 4: [(3, 0.005)]}
+    stats: dict = {}
+    kept, rel = filter_pins_by_grade_law(
+        pins, adj, hard={0}, elev=elev,
+        law_edges=[(1, 2, 0.001)], stats_out=stats,
+        endpoint_depth={1: 10.0, 2: 0.0, 4: 0.0})
+    assert set(kept) == {2, 4}, kept
+    assert {w["rule"] for w in rel} == {"pin_vs_hard", "ring_edge",
+                                        "through_free"}
+    assert {w["released"] for w in rel} == {1}
+    assert stats["n_over"] == 3
+    assert stats["n_over_by_rule"] == {"pin_vs_hard": 1, "ring_edge": 1,
+                                       "through_free": 1}
+    assert stats["n_law_edges_in"] == 1
+    assert stats["n_two_hop_free_nodes"] == 1
+
+
+def test_1c_is_deterministic_across_all_families():
+    elev = [110.0, 100.0, 101.0, 0.0]
+    pins = {1: 100.0, 2: 101.0}
+    adj = {0: [(1, 0.15)], 1: [(0, 0.15), (3, 0.05)],
+           3: [(1, 0.05), (2, 0.05)], 2: [(3, 0.05)]}
+    law = [(1, 2, 0.02)]
+    a = filter_pins_by_grade_law(pins, adj, hard={0}, elev=elev,
+                                 law_edges=list(law))
+    b = filter_pins_by_grade_law(dict(reversed(list(pins.items()))), adj,
+                                 hard={0}, elev=elev,
+                                 law_edges=list(reversed(law)))
+    assert a[0] == b[0]
+    assert sorted((w["released"], tuple(w["pair"]), w["rule"])
+                  for w in a[1]) == sorted(
+        (w["released"], tuple(w["pair"]), w["rule"]) for w in b[1])
+
+
+def test_1a_law_edge_stream_honours_the_constraint_edge_contract():
+    """``shape_constraints`` edges are NOT all symmetric budgets: an
+    UNREGULATED edge carries ``None``/negative, and a Stage-B0 INTERVAL
+    edge is a 4-tuple.  The stream reads them exactly as
+    ``one_solve._build_adjacency`` does — the loosest symmetric slab that
+    contains the interval, one-sided skipped — so the grip can never
+    release a pin an asymmetric law would have allowed.  (SPJC's very
+    first gate-on build died on a ``None`` budget: the contract is real.)
+    """
+    from auto_patch.elevation_per_surface.route_profile.solve import (
+        _law_edge_stream)
+    sc = [{"edges": [(0, 1, 0.15),            # plain symmetric
+                     (1, 2, None),            # unregulated -> skipped
+                     (2, 3, -1.0),            # unregulated -> skipped
+                     (3, 4, -0.2, 0.5),       # interval -> max(|lo|,|hi|)
+                     (4, 5, None, 0.5),       # one-sided -> skipped
+                     (5, 6, -0.2, None)]}]    # one-sided -> skipped
+    assert list(_law_edge_stream(sc)) == [(0, 1, 0.15), (3, 4, 0.5)]
+
+
+def test_1c_lawful_pairs_release_nothing_anywhere():
+    """No release without a violated pair — the grip is not a thinner."""
+    elev = [100.0, 100.01, 100.02, 100.03]
+    pins = {0: 100.0, 2: 100.02}
+    adj = {0: [(1, 1.0)], 1: [(0, 1.0), (2, 1.0)], 2: [(1, 1.0)]}
+    stats: dict = {}
+    kept, rel = filter_pins_by_grade_law(pins, adj, elev=elev,
+                                         law_edges=[(0, 2, 1.0), (2, 3, 1.0)],
+                                         stats_out=stats)
+    assert kept == pins and rel == []
+    # (0,2) is carried directly; (1,*) and (3,*) have a FREE end, so they
+    # never become pairs — only their two-hop composition can, and here it
+    # is looser than the direct carrier, so nothing is added.
+    assert stats["n_over"] == 0 and stats["n_pairs"] == 1
+
+
+# ══════════════════════════════════════════════════════════════════════
 # fix 2 — Ruling 55 neighbour bounding
 # ══════════════════════════════════════════════════════════════════════
 def _corridor():

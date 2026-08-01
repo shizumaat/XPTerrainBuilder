@@ -1063,8 +1063,17 @@ def read_endpoint_band_centre(station, banded, *, identity_m):
                         (r[1],))
 
 
+#: Grip pair PROVENANCE, strongest first.  A pair carried by several
+#: sources keeps the strongest class's name (the direct spine edge is the
+#: round-1 universe and keeps its round-1 rule strings) while the LAW it
+#: is judged against is always the tightest budget any source offers.
+_GRIP_RULE_RANK = {"grade_law_over_cap": 0, "pin_vs_hard": 0,
+                   "ring_edge": 1, "through_free": 2}
+
+
 def filter_pins_by_grade_law(pins, spine_adj, *, hard=(), endpoint_depth=None,
-                             elev=None, eps: float = 1e-9):
+                             elev=None, law_edges=None, stats_out=None,
+                             eps: float = 1e-9):
     """★ RULING 52 — THE CHORD IS NEVER BENT BY LAW; THE GRIP IS.
 
     Chord targets become Dirichlet pins, and pins join the solve's
@@ -1110,49 +1119,167 @@ def filter_pins_by_grade_law(pins, spine_adj, *, hard=(), endpoint_depth=None,
     default, and every pre-fix caller) ⇒ the pin-vs-pin walk exactly as
     before.
 
+    ★ ROUND 2 — THE GRIP'S PAIR GRAPH IS THE LAW'S PAIR GRAPH.  Round 1
+    still filtered on a SUBGRAPH of the law: ``spine_adj`` alone.  Two
+    kept pins could therefore still contradict each other (a) across a
+    junction RING edge the spine graph does not contain (40 such pairs
+    were emitted verbatim under the final hold) and (b) THROUGH a shared
+    FREE neighbour, whose own interval between the two pins is empty
+    (2,375 of 5,252 declared rows had both authors kept pins).  Both are
+    the same defect, and Ruling 52 already rules the remedy — the chord is
+    never bent, the grip is.  So the pair universe becomes
+
+        law_edges = spine_adj
+                    ∪ within-shape law edges with BOTH ends string-relevant
+                    ∪ two-hop pairs through ONE free node, budget
+                      ``budget(i,v) + budget(v,j)`` (the law's own freedom
+                      through ``v``)
+
+    with ``law_edges=`` the caller's within-shape constraint edge stream
+    (``(i, j, budget)`` triples — consumed in ONE pass; the caller passes
+    the object it already built, never a second build).  A pair carried by
+    more than one source is judged against the TIGHTEST budget offered —
+    the law demands every carrier be satisfied — and named by the
+    strongest provenance: the existing two rules for a direct spine pair,
+    ``"ring_edge"`` for a direct within-shape pair beyond ``spine_adj``,
+    ``"through_free"`` for a two-hop pair.  Hard-hard pairs stay skipped
+    at every stage (pre-existing genuine steps).  ``stats_out``, when a
+    dict, receives write-only pair-universe counters.
+
     Returns ``(kept_pins, releases)``; each release is a GRIP-YIELD
     WITNESS naming the pair, cap, chord grade, excess, released end and
     the rule that fired.
     """
     hard = set(hard)
     depth = endpoint_depth or {}
-    # over-cap pairs among BOTH-pinned vertices, plus (fix arm §1) the
-    # pin-vs-hard family when ``elev`` supplies the hard side's value.
-    over: List[tuple] = []
-    seen: Set[Tuple[int, int]] = set()
-    pin_vs_hard: Set[Tuple[int, int]] = set()
     n_elev = len(elev) if elev is not None else 0
+
+    def _readable_hard(v):
+        """A hard node the grip can read a VALUE for (P0-P5 stamped it)."""
+        return elev is not None and v in hard and 0 <= v < n_elev
+
+    def _value(v):
+        """Pin value where pinned (a pin's value is the chord's), else the
+        hard node's stamped elevation."""
+        return pins[v] if v in pins else float(elev[v])
+
+    # ── the pair universe ──────────────────────────────────────────────
+    # ``budget``: the tightest budget any law carrier offers for the pair.
+    # ``rule``:   the strongest provenance class carrying it.
+    budget: Dict[Tuple[int, int], float] = {}
+    rule: Dict[Tuple[int, int], str] = {}
+    # free node -> its string-relevant neighbours (the §1b two-hop family).
+    free_nb: Dict[int, List[Tuple[int, float]]] = {}
+    n_law_edges = 0
+    n_tightened = 0
+
+    def _offer(a, b, bud, kind):
+        nonlocal n_tightened
+        if a == b:
+            return
+        key = (a, b) if a < b else (b, a)
+        prev = budget.get(key)
+        if prev is None:
+            budget[key] = bud
+        elif bud < prev:
+            budget[key] = bud
+            n_tightened += 1
+        old = rule.get(key)
+        if old is None or _GRIP_RULE_RANK[kind] < _GRIP_RULE_RANK[old]:
+            rule[key] = kind
+
+    def _consume(i, j, bud, direct_kind):
+        """One law edge → either a direct pair or a two-hop half-edge.
+
+        ``direct_kind`` is ``None`` for the spine walk (which names the
+        pair by its type, the round-1 rule strings) or ``"ring_edge"``.
+        """
+        i_pin, j_pin = i in pins, j in pins
+        i_rel = i_pin or _readable_hard(i)
+        j_rel = j_pin or _readable_hard(j)
+        if i_rel and j_rel:
+            if not (i_pin or j_pin):
+                return                # hard-hard: never ours
+            _offer(i, j, bud,
+                   direct_kind or ("grade_law_over_cap" if (i_pin and j_pin)
+                                   else "pin_vs_hard"))
+        elif i_rel and j not in pins and j not in hard:
+            free_nb.setdefault(j, []).append((i, bud))
+        elif j_rel and i not in pins and i not in hard:
+            free_nb.setdefault(i, []).append((j, bud))
+
     for i, lst in (spine_adj or {}).items():
-        if i not in pins:
-            continue
         for e in lst:
             j = e[0] if isinstance(e, (tuple, list)) else e
-            budget = float(e[1]) if isinstance(e, (tuple, list)) and len(e) > 1 \
+            bud = float(e[1]) if isinstance(e, (tuple, list)) and len(e) > 1 \
                 else 0.0
-            hard_side = False
-            if j not in pins:
-                if elev is None or j not in hard or j >= n_elev:
+            _consume(i, j, bud, None)
+    for e in (law_edges or ()):
+        n_law_edges += 1
+        _consume(e[0], e[1], float(e[2]), "ring_edge")
+
+    # ── §1b: the two-hop family through ONE free node ──────────────────
+    # Degree-bounded enumeration, no Dijkstra.  A pair a DIRECT law edge
+    # already carries at a tighter-or-equal budget is skipped: the offer
+    # would be a no-op (the min-merge keeps the direct budget), and inside
+    # an all-pair apron that is every pair.
+    n_two_hop_nodes = 0
+    n_two_hop_pairs = 0
+    for v, nbs in free_nb.items():
+        if len(nbs) < 2:
+            continue
+        best: Dict[int, float] = {}
+        for (nb, bud) in nbs:
+            if nb not in best or bud < best[nb]:
+                best[nb] = bud
+        if len(best) < 2:
+            continue
+        items = sorted(best.items())
+        n_two_hop_nodes += 1
+        for x in range(len(items)):
+            i, bi = items[x]
+            for y in range(x + 1, len(items)):
+                j, bj = items[y]
+                if i not in pins and j not in pins:
+                    continue          # hard-hard through a free node
+                key = (i, j) if i < j else (j, i)
+                bud = bi + bj
+                prev = budget.get(key)
+                if prev is not None and prev <= bud:
                     continue
-                hard_side = True
-            key = (i, j) if i < j else (j, i)
-            if key in seen:
-                continue
-            seen.add(key)
-            dz = (abs(pins[i] - float(elev[j])) if hard_side
-                  else abs(pins[key[0]] - pins[key[1]]))
-            if dz > budget + eps:
-                if key[0] in hard and key[1] in hard:
-                    continue          # pre-existing genuine step: not ours
-                over.append((key, budget, dz))
-                if hard_side:
-                    pin_vs_hard.add(key)
+                n_two_hop_pairs += 1
+                _offer(i, j, bud, "through_free")
+
+    over: List[tuple] = []
+    pair_rule: Dict[Tuple[int, int], str] = {}
+    for key, bud in budget.items():
+        if key[0] in hard and key[1] in hard:
+            continue                  # pre-existing genuine step: not ours
+        dz = abs(_value(key[0]) - _value(key[1]))
+        if dz > bud + eps:
+            over.append((key, bud, dz))
+            pair_rule[key] = rule[key]
+    if stats_out is not None:
+        stats_out.update({
+            "n_law_edges_in": n_law_edges,
+            "n_pairs": len(budget),
+            "n_pairs_by_rule": {r: sum(1 for k in rule if rule[k] == r)
+                                for r in sorted(set(rule.values()))},
+            "n_pairs_tightened": n_tightened,
+            "n_two_hop_free_nodes": n_two_hop_nodes,
+            "n_two_hop_pairs_offered": n_two_hop_pairs,
+            "n_over": len(over),
+            "n_over_by_rule": {r: sum(1 for k in pair_rule
+                                      if pair_rule[k] == r)
+                               for r in sorted(set(pair_rule.values()))},
+        })
     if not over:
         return dict(pins), []
 
     incident: Dict[int, Set[Tuple[int, int]]] = {}
     info: Dict[Tuple[int, int], tuple] = {}
-    for key, budget, dz in over:
-        info[key] = (budget, dz)
+    for key, bud, dz in over:
+        info[key] = (bud, dz)
         for v in key:
             if v not in hard:         # a law anchor is never a candidate
                 incident.setdefault(v, set()).add(key)
@@ -1182,12 +1309,11 @@ def filter_pins_by_grade_law(pins, spine_adj, *, hard=(), endpoint_depth=None,
     releases = []
     for v in kept_released:
         for key in sorted(incident.get(v, ())):
-            budget, dz = info[key]
+            bud, dz = info[key]
             releases.append({
-                "pair": list(key), "released": v, "cap_budget_m": budget,
-                "chord_dz_m": dz, "excess_m": dz - budget,
-                "rule": ("pin_vs_hard" if key in pin_vs_hard
-                         else "grade_law_over_cap")})
+                "pair": list(key), "released": v, "cap_budget_m": bud,
+                "chord_dz_m": dz, "excess_m": dz - bud,
+                "rule": pair_rule[key]})
     kept = {v: z for v, z in pins.items() if v not in set(kept_released)}
     return kept, releases
 

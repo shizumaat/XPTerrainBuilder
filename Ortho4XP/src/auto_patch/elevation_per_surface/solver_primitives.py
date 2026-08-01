@@ -1037,6 +1037,14 @@ def _certify_flat_rect(layout, shape, coords, cross_positions, axial_positions,
     return ring_seed, minimum_axial_length
 
 
+#: SINGLE-PASS AUDIT (round-2 fix arm §3): every completed
+#: ``_build_shape_constraints`` call increments this.  The grip reads it
+#: either side of its own use of the solve's constraints object to prove
+#: it consumed the ONE build rather than adding a second.  Monotonic,
+#: process-wide, never reset — a counter, never a control input.
+SHAPE_CONSTRAINT_BUILDS = 0
+
+
 def _build_shape_constraints(layout, bucket_to_idx, ctx=None, dem=None,
                              tile_lat=0, tile_lon=0, hard_nodes=None,
                              defer_shape_ids=None):
@@ -1366,6 +1374,8 @@ def _build_shape_constraints(layout, bucket_to_idx, ctx=None, dem=None,
         print(f"  [flat-lazy] certified {flat_certified_count} of "
               f"{flat_candidate_count} apron/junction shape(s) "
               f"(safety factor {flat_safety_factor:.2f}, per-role rates)")
+    global SHAPE_CONSTRAINT_BUILDS
+    SHAPE_CONSTRAINT_BUILDS += 1
     return out
 
 

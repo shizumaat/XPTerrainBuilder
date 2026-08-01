@@ -49,7 +49,27 @@ from . import apt_dat_reader as APR
 # Rod-carry probe (docs/specs/single-space-string-audit-spec.md §2).
 # ``rod_ckpt`` returns immediately unless O4_ROD_CARRY_AUDIT=1, so the
 # post-solve checkpoint calls below are inert in a default build.
-from .rod_carry_audit import checkpoint as _rod_ckpt
+from .rod_carry_audit import checkpoint as _rod_carry_checkpoint
+
+
+def _rod_ckpt(layout, name: str) -> None:
+    """ONE named post-solve pipeline seam, for the probes that need it.
+
+    Two write-only instruments hang off the same seam list — they are the
+    seams that EXIST, and neither invents one:
+
+    * the rod-carry checkpoint (gate ``O4_ROD_CARRY_AUDIT``), and
+    * the string mover ledger's ``final_proj_N.entry`` sub-boundary
+      (round-2 spec §2; gate ``O4_STRING_MOVER_LEDGER``, which is the only
+      thing that puts a ledger on the layout).
+
+    Both gates off ⇒ one function call and one ``getattr`` per seam.
+    """
+    _rod_carry_checkpoint(layout, name)
+    if getattr(layout, "_string_mover_ledger", None) is not None:
+        from .elevation_per_surface.route_profile.solve import (
+            mover_stage_boundary as _mover_stage_boundary)
+        _mover_stage_boundary(layout, name)
 
 
 # ──────────────────────────────────────────────────────────────────

@@ -535,6 +535,130 @@ def _mover_stamp_rebound(ledger, elev, idx_map, label):
                         label)
 
 
+def _law_edge_stream(shape_constraints):
+    """The within-shape law as SYMMETRIC ``(i, j, budget)`` triples.
+
+    Round-2 §1a.  A ``shape_constraints`` edge is either a symmetric
+    3-tuple ``(i, j, budget)`` — ``budget`` ``None``/negative meaning
+    UNREGULATED, no law, skipped — or a Stage-B0 INTERVAL 4-tuple
+    ``(i, j, lo, hi)`` (``one_solve.shape_constraints_edges`` names that
+    contract; this is its only other consumer).
+
+    The grip judges ``|z_i − z_j|`` against one symmetric budget, so an
+    interval edge takes the SAME conservative surrogate
+    ``one_solve._build_adjacency`` uses: ``max(|lo|, |hi|)``, the loosest
+    symmetric slab containing the interval — so the grip can never
+    release a pin an asymmetric law would have permitted — and a
+    one-sided interval imposes no symmetric bound and is skipped, exactly
+    as there.  A generator: the caller streams the solve's OWN
+    constraints object in one pass, never a second build.
+    """
+    from .one_solve import shape_constraints_edges
+    for edge in shape_constraints_edges(shape_constraints):
+        if len(edge) >= 4:
+            lo, hi = edge[2], edge[3]
+            if lo is None or hi is None:
+                continue
+            bud = max(abs(lo), abs(hi))
+        else:
+            bud = edge[2]
+            if bud is None or bud < 0:
+                continue
+        yield edge[0], edge[1], float(bud)
+
+
+def is_mover_label(label) -> bool:
+    """True for any label the mover ledger may legitimately stamp.
+
+    The base set is closed (``MOVER_LABELS``).  The ``.entry`` windows
+    additionally admit ONE sub-boundary level — ``final_proj_<N>.entry.
+    <stage>`` — whose stage names are the PIPELINE's own seam names
+    (round-2 §2).  They are not enumerated here on purpose: enumerating
+    them would mint a second copy of the pipeline's stage list that could
+    silently drift from the one the pipeline actually walks.
+    """
+    if label in MOVER_LABELS:
+        return True
+    if not isinstance(label, str):
+        return False
+    return any(label.startswith(base + ".") and len(label) > len(base) + 1
+               for base in _MOVER_LABEL_FINAL if base.endswith(".entry"))
+
+
+def mover_stage_boundary(layout, stage: str) -> int:
+    """Sub-boundary INSIDE the ``final_proj_N.entry`` window (round-2 §2).
+
+    Round 1 left SPJC with a 51-pin G2 tail (max 4.74 m) attributed to
+    ``final_proj_1.entry`` — a window that spans EVERY post-solve pipeline
+    stage at once (the solve's writeback through to the first final pass),
+    so the label names no writer.  This splits it at the seams the
+    pipeline ALREADY marks, labelling each ``final_proj_<N>.entry.
+    <stage>``; the residual keeps the bare ``.entry`` label, so nothing is
+    attributed by construction.
+
+    REPORT-ONLY, and active only when the ledger exists on the layout —
+    i.e. under ``O4_STRING_MOVER_LEDGER=1``, which is the only thing that
+    puts it there.  Gate off ⇒ one ``getattr``.  Nothing is written but
+    the ledger's own labels.
+
+    FRAME: the watch set crosses into each stage's node space by CANONICAL
+    KEY (``_mover_rebind``), exactly as the ``.entry`` boundary does, and
+    the values are read in the same UNCROWNED z' frame — the layout value
+    plus that node's crown drop, mirroring ``final_grade_projection``'s
+    crown-in.  ``extend_field_to_new_ring_nodes`` is NOT called (a probe
+    mutates nothing); every watched key predates the solve's writeback and
+    therefore already carries its drop.
+    """
+    ledger = getattr(layout, "_string_mover_ledger", None)
+    if ledger is None or not ledger.get("key_of"):
+        return 0
+    from auto_patch.elevation_per_surface.solver_primitives import (
+        _build_node_list, _seed_elevations)
+    pass_no = int(ledger.get("n_final_passes", 0)) + 1
+    label = f"final_proj_{pass_no}.entry.{stage}"
+    try:
+        nodes, b2i = _build_node_list(layout)
+        if not nodes:
+            return 0
+        elev, _bh, _hi = _seed_elevations(layout, nodes, b2i)
+        n = len(elev)
+        crown_by_key = getattr(layout, "_crown_drop_key", None) or {}
+        if crown_by_key:
+            for _key, _i in b2i.items():
+                _c = crown_by_key.get(_key)
+                if _c and _i < n:
+                    elev[_i] = elev[_i] + _c
+        idx_map = _mover_rebind(ledger, b2i, n)
+        # MAGNITUDES, not just a count: a boundary that reports "every
+        # watched node moved" is indistinguishable from a frame artefact
+        # until the sizes are on the table (the ledger's ``!=`` counts a
+        # 1e-16 round-trip as a move).  Taken BEFORE the stamp, which
+        # rewrites ``prev``.
+        _prev = ledger["prev"]
+        _dz = sorted(abs(elev[j] - _prev[i]) for i, j in idx_map.items()
+                     if elev[j] != _prev[i])
+        moved = _mover_stamp_rebound(ledger, elev, idx_map, label)
+    except Exception as exc:                               # pragma: no cover
+        # A measurement instrument never breaks a build — but it never
+        # fails silently either.
+        ledger.setdefault("stage_boundary_errors", {})[label] = repr(exc)
+        print(f"  [string-mover] stage boundary {label} skipped: {exc!r}")
+        return 0
+    ledger.setdefault("stage_moves", {})[label] = {
+        "n_moved": moved,
+        "n_watched_here": len(idx_map),
+        "median_abs_dz_m": (_dz[len(_dz) // 2] if len(_dz) % 2 else
+                            0.5 * (_dz[len(_dz) // 2 - 1]
+                                   + _dz[len(_dz) // 2])) if _dz else None,
+        "max_abs_dz_m": (_dz[-1] if _dz else None),
+        "n_over_0p01_m": sum(1 for v in _dz if v > 0.01),
+    }
+    summary = ledger.get("summary")
+    if summary is not None:
+        summary["entry_window_moves"] = ledger["stage_moves"]
+    return moved
+
+
 def _string_pin_hold_indexes(layout, key_to_idx, n):
     """Resolve the solve's exported kept-pin KEYS into a rebuilt node space.
 
@@ -1186,11 +1310,52 @@ def solve_route_profile(layout, icao: str,
             # hard set is the one this call already used; the array is read
             # only, and hard values are stamped by P0-P5 well before this
             # point.  Inside the string gate: gate off ⇒ never reached.
+            # ★ ROUND 2 §1a — THE GRIP'S PAIR GRAPH IS THE LAW'S.
+            # ``shape_constraints`` is the ONE constraints object this
+            # solve built at its top (well BEFORE this hook — the round-2
+            # spec's premise that the build follows the hook is stale;
+            # nothing is reordered and nothing is rebuilt).  Its edges
+            # stream through the grip in a single pass, so the pin pair
+            # universe also contains the junction/apron RING edges the
+            # spine graph does not carry, and (§1b) the two-hop pairs
+            # through one free node.  The counter proves no second build.
+            from auto_patch.elevation_per_surface import (
+                solver_primitives as _sp_audit)
+            _sc_builds_before = _sp_audit.SHAPE_CONSTRAINT_BUILDS
+            _grip_stats: dict = {}
+            # THE LAZY TIER IS A HOLE IN THE STREAM, MEASURED not assumed:
+            # a flatness-CERTIFIED apron/junction entry carries only its
+            # ring-adjacent pairs eagerly (the body pairs live behind
+            # ``lazy_expand``).  Expanding them here would be the second
+            # build the spec forbids, so the grip reads what the entry
+            # holds — and this counts the entries where that could hide a
+            # pin-vs-pin pair, so a residual can be attributed instead of
+            # explained away.
+            _lazy_entries = 0
+            _lazy_multi_pin = 0
+            for _sc_e in shape_constraints:
+                if _sc_e.get("lazy_expand") is None:
+                    continue
+                _lazy_entries += 1
+                if sum(1 for _li in (_sc_e.get("lazy_nodes") or ())
+                       if _li in _raw_pins) >= 2:
+                    _lazy_multi_pin += 1
+            _grip_stats["n_lazy_entries"] = _lazy_entries
+            _grip_stats["n_lazy_entries_with_2plus_pins"] = _lazy_multi_pin
+            _t_grip = _time.time()
             _string_pins, _grip_yields = _grip(
                 _raw_pins, u_spine_adj,
                 hard=(truth_hard | {i for i in runway_nodes if i < n}),
                 endpoint_depth=_summary.get("pin_depth") or {},
-                elev=elev)
+                elev=elev,
+                law_edges=_law_edge_stream(shape_constraints),
+                stats_out=_grip_stats)
+            _grip_stats["grip_seconds"] = _time.time() - _t_grip
+            _grip_stats["shape_constraint_builds_during_grip"] = (
+                _sp_audit.SHAPE_CONSTRAINT_BUILDS - _sc_builds_before)
+            _grip_stats["n_constraint_entries"] = len(shape_constraints)
+            assert _grip_stats["shape_constraint_builds_during_grip"] == 0, (
+                "the grip must consume the solve's ONE constraints object")
             # ── THE PIN LEDGER, stamped with its grip disposition ─────
             # Production is the only place that knows which vertices were
             # pinned and to what value; the offline re-walk has failed to
@@ -1210,6 +1375,9 @@ def solve_route_profile(layout, icao: str,
             _summary["n_pins_released"] = len(_raw_pins) - len(_string_pins)
             _summary["n_grip_yields"] = len(_grip_yields)
             _summary["grip_yields"] = _grip_yields
+            # ROUND 2 §3 delivery: the pair universe the grip actually
+            # filtered on, its runtime, and the single-build proof.
+            _summary["grip_pair_universe"] = _grip_stats
             # ★ WRITE THE SIDECAR LAST.  The constructor no longer writes
             # it: the filter runs here, after the constructor returned, so
             # a write during construction could never carry these counts —
@@ -1223,6 +1391,23 @@ def solve_route_profile(layout, icao: str,
                       f"n_released={len(_raw_pins) - len(_string_pins)} "
                       f"n_over_cap_pairs={len(_grip_yields)} "
                       f"(all four in the domains sidecar)")
+                print(f"    [S1b] grip pair universe: "
+                      f"{_grip_stats['n_pairs']} pair(s) from "
+                      f"{_grip_stats['n_law_edges_in']} within-shape law "
+                      f"edge(s) over {_grip_stats['n_constraint_entries']} "
+                      f"constraint entrie(s) + spine_adj; "
+                      f"by rule {_grip_stats['n_pairs_by_rule']}; "
+                      f"over-cap {_grip_stats['n_over_by_rule']}; "
+                      f"two-hop {_grip_stats['n_two_hop_pairs_offered']} "
+                      f"pair(s) over "
+                      f"{_grip_stats['n_two_hop_free_nodes']} free node(s); "
+                      f"tightened {_grip_stats['n_pairs_tightened']}; "
+                      f"lazy entries {_grip_stats['n_lazy_entries']} "
+                      f"({_grip_stats['n_lazy_entries_with_2plus_pins']} "
+                      f"with 2+ pins); "
+                      f"{_grip_stats['grip_seconds']:.3f} s; "
+                      f"second constraints build(s) during grip="
+                      f"{_grip_stats['shape_constraint_builds_during_grip']}")
         frozen, _rod_pieces = _solve_spine_profile(
             elev, base_hard, u_spine_adj, u_spine_floor, node_band,
             nodes_xy=nodes, graph=G, probe_out=_spine_probe,

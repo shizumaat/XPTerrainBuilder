@@ -1,165 +1,208 @@
-# Taut-string line — session handover, 2026-07-31
+# Taut-string line — session handover, 2026-08-01
 
-Written for a new session to continue and finish implementing the spec.
-**Read this, then the specs it points at. Do not re-derive anything in §2 or §6 —
-those cost builds and rounds to establish.**
+Supersedes the 2026-07-31 handover (that one describes the tube-and-funnel
+constructor, which is **retired**). Written for a new session to finish the
+work. **Do not re-derive §2 or §4** — they cost builds and rounds.
 
 ---
 
-## 1. The delegation model (owner standing rules — do not violate)
+## 1. Delegation model (owner standing rules — do not violate)
 
-* **Fable = design and review ONLY.** It writes ALL specs and approves EVERY
+* **Fable = design and review ONLY.** It writes ALL specs and rules EVERY
   mid-implementation deviation. It never implements.
 * **Opus = implementation and investigation.** Every `Agent` launch passes an
   explicit `model`.
 * Canonical text: `Ortho4XP/CLAUDE.md` §"Working style" item 1a.
-* **When Fable is unavailable** (it ran out of credit twice this session):
-  preserve rulings/questions verbatim in a file marked *not a spec*, author no
-  spec text, rule no deviations, tell the owner. Register 24.
+* **Report IN-TURN.** Never end a turn holding a completed measurement, and
+  never rely on a completion notification to wake the coordinator. That
+  pattern cost **eight hours** on 2026-07-31: a finished build sat unread
+  from 22:45 to 06:37. Poll builds inside your own turn.
 
 ## 2. The owner's model — all rulings, do not re-litigate
 
-**What a string IS**
-* Strings are **idealized elevation targets**. They **do not exist and are never
-  emitted**. They give spines a target of the ideal elevation, knowing grading
-  will pull nodes off them; the aim is to achieve the straight profile where the
-  law permits.
-* *"The strings should BE the existing route network just without the curves and
-  intermediate nodes."*
-* **Straight trunks, cut at turns.** A turning route becomes several strings.
-  Straight in **plan**; bending only in **elevation**, where grade forces it.
-* **Follow the spine.** Stop when the spine turns, **leave the curve with no
-  string**, and for segments **>100 m** emit a new string along the spine.
-  A string that crosses open terrain between two spines is the named defect.
-* **Anchors**: CIFP runway thresholds > tile boundary seams > runway crossings,
-  then the longest possible straight strings bending only where grade forces it.
-* **String ends are a new anchor class**, seated by the route feasibility graph
-  then anchored — using **the anchor-governed fabric already there**, not a
-  fresh band seat (class ii-b).
+**What a string IS (2026-07-31, verbatim):**
+> "The string is always a straight chord through space, only the end points
+> sit in the middle of the band."
 
-**Constants ruled by the owner**
-* **±8 m** string-to-spine tolerance (supersedes ±5 m, which superseded a
-  calibrated 20 m that was derived from a contaminated population).
-* **≥100 m** minimum string length; sub-100 m runs stay in the inventory as
-  measurement (selection, not construction).
-* apron/taxi acceptance **0.50 m**, roads **1.0 m**; spines keep the 2 cm §10 rod
-  (tighter is compliant).
-* **APT + OSM union approved** as the string substrate.
+* A string is a **straight chord between two points**. Its two ENDPOINTS take
+  **band centre**; between them the chord **may run above or below the band
+  freely** — the solver pulls the taxiway to its cap where it does.
+* **The string never bends.** It is an idealized elevation target, never
+  emitted.
+* **Strings are PREFERENCES. Grade law overrules them. A string must NEVER
+  CAUSE a grade-law violation.** (Owner, verbatim: *"they should never CAUSE
+  a grade law violation… the grade law overrules the string when needed."*)
+* Corollary, Fable Ruling 52: **the chord is never bent by law — the GRIP
+  is.** Where two pinned ends would force an over-cap pair, the *pin*
+  releases; the chord is never modified or clipped.
+* A string's whole elevation content is **two numbers**. The hook evaluates
+  the chord per vertex by **linear interpolation on the chord station**.
 
-**THE GOAL, as most recently stated — this reframes acceptance**
-> *"majority coverage for long straight sections so we can smooth them to our
-> string which is more faithful to a real airport. We don't need 100% coverage."*
+**Owner constants — ONLY HE MOVES THESE:**
 
-Acceptance is **long-straight coverage**, NOT inventory equality. On measured
-data that may already be met: union at ±8 m = **32/46 (70%)**, length-weighted
-**95.6%**; the apt.dat turn-cut walk reproduces **12/12** of the owner's
-≥1000 m strings and chord 1 whole at 3,990 m vs his 3,979 m.
+| constant | value | job |
+|---|---|---|
+| `TAUT_STRING_SPINE_TOLERANCE_M` | **8.0** | membership + string-vs-spine validation |
+| `TAUT_STRING_MIN_STRING_M` | **100.0** | string duty (sub-100 stays inventory) |
+| `TAUT_STRING_RUNWAY_CLIP_MIN_REMAINDER_M` | **50.0** | clip remainder floor |
+| string count | **≤ 50** | sanity bound |
 
-**Owner ground truth on disk**: `/Users/noah/heca_strings.osm` — 46 hand-drawn
-ways, 99 nodes, tracing taxiway centerlines. He drew *almost every* straight run,
-skipping only a couple under 100 m.
+Ours, not his: `SUBSTRATE_STATION_M` 5.0, `SUBSTRATE_INTERN_M` 1e-6.
+
+**Other owner rulings:**
+* **Runway clip:** clip strings by the **runway outline**, discard anything
+  inside, drop remainders < 50 m. Outline = the **shoulder-absorbed union**
+  (75.6 m at HECA), not the declared rect — his ruling, because shoulders are
+  paved and the runway profile grades them.
+* **Substrate** = apt.dat S2 snapshot (`pipeline.py:2253`) ∪ OSM linear
+  taxiways, **apt.dat-first, per-LOCATION dedup** (the clause is locative).
+* **CIFP is the source of truth for thresholds.** HECA: 05C = 116 m (south
+  end), 23C = 114 m (north end). Band centre at chord 1's endpoints matches
+  these to +0.07 / +0.61 m — the endpoint law is sound.
+* **Chord 1 legitimately descends to 106-107** between along 1462 and 1865
+  (his coords 30.116015,31.416090 → 30.113677,31.412894) because of the
+  cross-connectors to the much lower 05L/23R, then rises near-straight to
+  along 2403 (30.110475,31.408709). **His earlier "111→113" is the IDEAL
+  string, not the expected surface.**
+* Ground truth: `/Users/noah/heca_strings.osm` — 46 ways, 99 nodes,
+  41,412.7 m polyline (the specs' older "40 / 37,327 m" is superseded).
 
 ## 3. Where the work stands
 
-**Landed, gate-off byte-identical, nothing wired to production**
-* `elevation_per_surface/node_space.py` — U1 canonical store (`view_scalar`),
-  66 tests.
-* `elevation_per_surface/reference_field.py` — R1 split-source field
-  (layer 4 from the assembly moment, layers 2/3/6 from the A-copy), wired at
-  fp#8 + both finals behind `O4_REFERENCE_FIELD` (default `"0"`).
-* `route_profile/taut_string.py` — S1 constructor: `assemble_runs` (plane) and
-  **`walk_spine_runs`** (spine-walk, direction-symmetric consensus), gate
-  `O4_TAUT_STRING_CONSTRUCTION` default `"0"`. **33/34 tests.**
-* `grade_graph.py` — ungated `centerline_chains` / `centerline_service` export.
-* `tests/test_layout.py` — P0c fixed the `to_osm` idempotency flake.
+**Branch `taut-string-chord-model`, HEAD `d424c9d`, tree clean.**
 
-**Identity hashes** (body only, `tail -n +3`): SPLP `d8d0f065…`, CYXY
-`dcebb6ff…`, HECA gate-off `d4f52f02…`.
+| commit | content |
+|---|---|
+| `f1b13c3` | chord model, substrate, clip, tenure, specs |
+| `53e1156` | the S1 hook + S1b Dirichlet pins in `solve.py` |
+| `d371e68` | working-tree snapshot (other lines' work — recovery point, do not merge wholesale) |
+| `b9bd57d` | the pin ledger |
+| `d424c9d` | **Ruling 54** + stop-reason and departure ledgers |
 
-**Blocked** — see `PENDING-unruled-queue.md`; six items awaiting Fable, chiefly
-the R3 substrate commit (its pre-registered gate now passes), the dead
-`_collapse_straight_edges` primitive, and S1's fixture premise.
+**Gate `O4_TAUT_STRING_CONSTRUCTION` default `"0"`. Gate-off byte identity
+proven three-way and re-proved after every change: SPLP `d8d0f065…`,
+CYXY `dcebb6ff…`** (body hash past the provenance stamp).
 
-## 4. Disposition of the gates
+**Landed:** substrate assembly + per-location dedup + seam joints; runway clip
+at the owner's outline and floor; through-path composition (authoring
+boundaries are NOT chain boundaries); string tenure (an edge is spent only
+when an emitted string covers it); the chord model with the three endpoint
+read modes; the grip filter; **Ruling 54** (`yield_hard` gains the
+law-filtered kept pin set); three ledgers (`pin_ledger`, `walk_boundaries`,
+`departures`).
 
-* `O4_ENVELOPE_FROM_BAND` **stays `"0"`** — owner-confirmed: envON breaks the
-  1.5% taxiway law at the seam pair (3.66% vs OFF 1.40%).
-* `O4_REFERENCE_FIELD` **stays `"0"`** — CP2 failed four gates; ARM-5 attributed
-  building199 to layer 5's **moment** axis (R drifts 1.397 m at the site, p90
-  1.898 m over 812 sites), and CYXY's regression to a **spec-conformance defect**
-  in §4.1's layer-4 service sub-domain (now fixed: service takes live `elev`).
-* `O4_TAUT_STRING_CONSTRUCTION` **stays `"0"`.**
+**Retired** (measured, with per-test disposition): the tube, cap propagation,
+the funnel, the slope audit, `taut_chain_profile`, `BendWitness`, the
+infeasible `StringDefect` classes, the (ii-b) end-datum machinery, §3's value
+machinery, the fragment-assembly family.
+**KEPT and RESCOPED** (Ruling 53): the phase-A taut pass — provably inert on
+strung ground (0 of 3,429 pinned vertices move), retained as the **residual
+spine smoother** on unstrung spine. Its footprint (567 vertices moved, max
+0.283 m) is the baseline for any future retirement.
 
-## 5. Budget
+## 4. Measured results — do not re-derive
 
-Session totals: **5 HECA, 5 CYXY, ~24 SPLP, 1 full suite, 1 law-true run.**
-CP2's 4 HECA are spent; **S1 holds 1 of ≤4.**
-Live comparator: **24 stable failures** across 9 files, minus an attributed
-removal ledger. Tree hash is provenance, not identity.
-`O4_TEST_AIRPORTS` alone does NOT scope a run — keep the `[<ICAO>]` node-id
-selector or price it as four airports / ~710 s.
+| | |
+|---|---|
+| chord 1 delivered at the dip | **106.40 / 106.90** vs the owner's ~106 |
+| W-CHORD1 worst bin | −11.07 (baseline) → −10.74 (S1b) → **−5.83**, and it **moved off 1800 to 1600** |
+| string-authored defects | **949 → 0** (dissolved by construction) |
+| seam pair (W-CHORD2) | 107.83 → 107.83 = **0.00 %** grade, law passes with margin |
+| GATE A (length-weighted coverage @ ±8 m) | **86.2 %** |
+| GATE B (chord 1 end-to-end) | **FAILS as one string** — corridor fully covered by 3, zero gaps |
+| Stage 0 + value path | **73.5 ms**, cheaper than the funnel it replaced |
 
-## 6. The transformation chain (measured — do not re-derive)
+**The drag mechanism, attributed:** `fp#8` rebuilt `yield_hard` from
+`truth_hard` and never inherited the spine freeze, so every vertex phase A
+froze went free again and the blend moved it. Ruling 54 fixes it by adding
+the kept pins. **Wholesale freeze inheritance was measured to recover the
+same ~5.2 m and was rejected** — it over-freezes the unstrung residual that
+must yield.
 
-apt.dat 1201/1202 → `taxi_centerlines` → **151 routes / 196 pieces, −2 vertices,
-−0.1 m of 46,142.9 m** (161 of 196 pieces are already 2-point straights) →
-**snapshot at `pipeline.py:2253`** → … → **`route_arcs.apply_route_arc_spine`
-turns 151 polylines into 653 ways and sets `route_line=None`** → densification →
-`_build_global_spine` (admission at `SPINE_PERP_TOL_M = 1.0`).
+## 5. OPEN DEFECTS — with evidence
 
-* **`route_arcs.py:564` `route_line=None` is one line explaining two mysteries**:
-  `RouteChain` being 1:1, and "36 authored fragments tile chord 1"
-  (`centerline_chains` is keyed by route-arc way, not apt.dat route).
-* **89.3% of the 7,126 spine nodes sit within 5 m of the apt.dat source** — the
-  chain **preserves position and multiplies count** (366 → 7,126 nodes, 19.5×).
-* **A dead branch misleads the logs**: the snapshot precedes discovery at
-  `:2540`, so 595 discovered centerlines and five of eight log lines change
-  nothing.
-* `_build_global_spine:1958` drops `len(on_line) < 2` **silently**.
-* **`spine_synthesis._collapse_straight_edges:812`** (2.5 m chord collapse) is
-  **exactly the owner's primitive and is dead code**.
-* Added geometry violates ±8 m: `_add_junction_arcs` fillets ~15 m,
-  `_add_runway_turns` blends 120-550 m radius, in no source line.
+1. **G2 FAILS IN PRODUCTION.** `max |emitted − chord|` at kept pins: median
+   **0.2342 m**, p90 1.1407, **max 6.9008**; only **28.5 %** within 0.05 m.
+   Offline it was 0.000e+00. *Population caveat: 1,580 of 3,790 kept pins
+   matched a delivered node within 1 m; the rest are probably spine nodes
+   with no nearby emitted vertex — unconfirmed.*
+2. **Free-neighbour cap coupling — the named candidate for the residual.**
+   `n_pin_yield_conflicts = 874`: **`free` 786 / `law_anchor` 88**, excess
+   median 1.616 m, max 14.682. On chord 1: 36, with the **1400-1800 bin
+   holding 7, all `free`, max excess 7.92 m — the same station the worst bin
+   moved to.** A pin cannot be moved directly, but its un-pinned neighbour
+   can, and cap coupling drags the pin. **Fable ruling pending**: should a
+   pin constrain its immediate cap-coupled neighbour? *Note the trap: masking
+   the free neighbours IS the wholesale freeze already rejected.*
+3. **Chord 1 fragments into 3 strings.** Boundaries at along 398 (turn /
+   consensus / route_end, mixed) and 728 (**both ends `consensus`**).
+   Corridor census over 239 boundaries: **turn 2**, tenure 113, route_end 63,
+   consensus 61. **This is OURS — direction-symmetry and tenure — not the
+   owner's tolerance.**
+4. **49 hook-time band violations** in the dip window (90 of 966 banded
+   corridor nodes above their own ceiling at hook time, worst +2.11 m). The
+   corridor arrives at the hook already outside its feasibility band.
+   **Upstream of everything else, unattributed.**
+5. **The string-attributed law-true slice is UNMEASURED** — that is the flip
+   gate (Ruling 19: it must be **zero**). `n_defects = 0` is NOT that gate.
+   Needs `O4_TEST_AIRPORTS=HECA test_pavement_grade`, which does **not**
+   scope to one airport — price it as four airports / ~710 s.
+6. **Offline-vs-production substrate divergence, 3 instances, unattributed**:
+   22 apt pieces, 7 OSM ways, 18 strings. **The offline walk is no longer a
+   production stand-in.** Make production emit what it did.
 
-## 7. Method lessons that cost real time (the registers)
+## 6. NOT STARTED
 
-1. **Mechanism before fix** — nine mechanisms falsified in two days. Interventional
-   evidence, or say "the data cannot attribute this."
-2. **Intent questions route to the owner** — his sentences twice replaced a build
-   plus rounds. Ask for artifacts; he supplies them.
-3. **A margin is only as valid as its population** — five instances, one of which
-   reached a *shipped constant* (the 20 m margin, calibrated over spine holes).
-   Name the population before any distribution becomes a tolerance.
-4. **Aggregates cancel** — 32 unmatched-ours vs 16 unmatched-his partially
-   cancelled in a bare count. Decompose before diagnosing.
-5. **Synthetic fixtures test intent; real-geometry fixtures test mechanism** —
-   and a real-geometry fixture must **preserve the competition**, not just the
-   geometry. A mechanism fixture carries its own negative control.
-6. **Proxy gates fail** — count proxies, heading proxies, phase-1 endpoint
-   sharing. Gate on the measured property, not a stand-in.
-7. **Warning comments are load-bearing spec** — a lost ★ comment cost the CYXY
-   service defect; harvest them during absorption/deletion.
-8. **Two-site arms decompose bundles** — a 38 s CYXY arm alongside a 398 s HECA
-   arm turned one heal into a three-owner attribution.
-9. **Analysis joins key by site, never index** — an index join silently returned
-   `n/a` and nearly inverted a decomposition.
-10. **Builds are globally exclusive**; arm waiters on the exact PID with a
-    `kill -0` re-verify **inside the same command as the build** — a clear is only
-    valid at the instant of launch.
+* **R1's layer-4 re-read** (offline, on the artifacts) → **R1 CP2** → **R2**.
+  R2 is blocked twice over: `O4_REFERENCE_FIELD` is default `"0"` with its CP2
+  gates unread, AND S1 changed R1's layer 4 (the spine layer is now the chord).
+* **The battery**, then **the tile and the Mac app**. The owner cancelled the
+  tile deliberately — he will build his own once the known issues are resolved.
+* **A suite read** before anything ships (the live comparator is 24 stable
+  failures across 9 files; there were also 5 unrelated `test_crown_seam_ramp`
+  reds from a concurrent session).
+* **The §6.4 owner filing.**
+
+## 7. Method lessons paid for in this session
+
+**THE DOMINANT FAILURE MODE: two instruments describing different
+populations while assumed to describe one.** Seven instances in one night,
+**every one caught by an implausible NUMBER, none by code review**:
+
+* distance-to-centerline over a set containing the string's **own source** →
+  every apt-tier string read 100 %;
+* "corroboration" at 25 m matching the **parallel taxiway 15 m away**;
+* a conclusion built on **transposed labels**;
+* a pin verdict sampled along the **chord line in the plane** while pins
+  follow the walked path — 5 matches against a 311-vertex string;
+* a decomposition mixing **two coordinate projections**;
+* **the max of a FILTERED set reported as the max** — vertices filtered to
+  ≤ 25 m, max quoted as 24.94 m (the filter edge). Real value: **8.64 m**.
+  This nearly reached the owner as a structural impossibility that did not
+  exist;
+* an inventory keyed by `first_vertex`, silently losing **8 of 64 strings**
+  while the summary still said 64.
+
+**Defences that work:** predict the magnitude before computing; treat a
+too-clean or too-extreme result as a reason to audit the instrument;
+exclude the measured object's own source from any reference set; pin ONE
+frame/axis/projection and state it beside every number; **make production
+emit what it did** rather than reconstructing offline.
+
+**Also standing:** mechanism before fix (interventional evidence, or say
+"the data cannot attribute this"); intent questions route to the OWNER, not
+to a build — he has ruled correctly from his own data repeatedly, and he
+supplies artifacts; a gate-off identity arm is not ceremony (it caught a
+shadowed-import `UnboundLocalError` that broke the ungated path for every
+airport, which the AST and import probes could not see).
 
 ## 8. What the next session should do
 
-1. **Get Fable to restate acceptance in the owner's terms** (long-straight
-   coverage, not inventory equality) — several open items may close outright.
-2. **Clear `PENDING-unruled-queue.md`** — R3 substrate commit first; it unblocks
-   the rest.
-3. **Unblock S1's fixture premise**, then S1-06.
-4. Then: stage-1 re-acceptance against the map, arm 3 (S1's last HECA),
-   the §6.4 owner filing (≥159 surfaced contradictions + P3c + class D),
-   S1b, R2-CP1, R3-CP1/2/3.
-
-**Live agents at handover** — resumable by name/id if the harness carries them:
-Fable design lead; S1 constructor (held on the fixture premise); P7 investigator
-(step 0 and code-read complete). A background task
-*"Fix dead centerline-discovery branch and silent spine drops"* runs
-independently and overlaps §6 — coordinate, do not duplicate.
+1. **Get Fable's ruling on the free-neighbour question** (open defect 2) — it
+   is the last named thing between here and closing the residual.
+2. **Measure the string-attributed law-true slice** (open defect 5) — it is
+   the flip gate and it has never been read.
+3. **Attribute the hook-time band violations** (open defect 4) — upstream,
+   and it may explain why the clamp bites so hard at that station.
+4. Then **R1 re-read → R1 CP2 → R2 → the battery**, per the owner's own
+   sequence, and only then a tile and the app.

@@ -1044,7 +1044,7 @@ def feasibility_project(elev, shape_constraints, hard, *,
                         group_bounds=None, node_bounds=None,
                         group_refs=None, node_refs=None, forensics=None,
                         witness_limited=None, env_band=None,
-                        probe_out=None):
+                        probe_out=None, declared_out=None):
     """Drive EVERY grade-graph edge to ``|Δelev| ≤ budget`` by iterative
     constraint projection (user 2026-06-25: nothing may violate a grade cap).
 
@@ -1183,6 +1183,14 @@ def feasibility_project(elev, shape_constraints, hard, *,
     node's move to the blend half or the sweep half of THIS call.  Nothing
     is read back and ``elev`` is never written through it; ``None`` (the
     production default) allocates nothing and is byte-identical.
+
+    ``declared_out`` — WRITE-ONLY out-parameter (the same idiom) for fix
+    arm §2's DECLARED HARD CONFLICTS: a list the caller passes to receive
+    one row per ``(node, low author, high author)`` triple whose hard-
+    neighbour interval is EMPTY under ``O4_HARD_NEIGHBOUR_BOUND=1``.  The
+    node keeps whatever its own law put it at; the row is the ruling's
+    "declared conflict, author-carrying" channel and is never read back.
+    ``None`` ⇒ the rows are computed under the gate and dropped.
     """
     import heapq
     n = len(elev)
@@ -1633,20 +1641,81 @@ def feasibility_project(elev, shape_constraints, hard, *,
 
     from auto_patch.config import SVC_SPINE_EDGE_COUPLE as _EDGE_COUPLE
 
+    def _hard_neighbour_witness(i):
+        """``_hard_neighbour_interval`` plus the two AUTHORS of the bound.
+
+        Same arithmetic, same order — the interval halves are the identical
+        floats; the extra returns name the hard node that set each side, so
+        a DECLARED conflict can carry its authors (fix arm §2)."""
+        nlo, nhi = -INF, INF
+        wlo = whi = None
+        for (h, lim) in adj.get(i, ()):
+            if h in hard:
+                if elev[h] - lim > nlo:
+                    nlo = elev[h] - lim
+                    wlo = h
+                if elev[h] + lim < nhi:
+                    nhi = elev[h] + lim
+                    whi = h
+        return nlo, nhi, wlo, whi
+
     def _hard_neighbour_interval(i):
         """The elevation interval node ``i`` may take while still obeying the
         within-shape grade cap to every one of its HARD welded neighbours:
         ``∩ over hard h of [z_h − budget_ih, z_h + budget_ih]``.  Returns
         ``(lo, hi)``; ``lo > hi`` means the hard neighbours themselves
         contradict (a genuine break the blend must own)."""
-        nlo, nhi = -INF, INF
-        for (h, lim) in adj.get(i, ()):
-            if h in hard:
-                if elev[h] - lim > nlo:
-                    nlo = elev[h] - lim
-                if elev[h] + lim < nhi:
-                    nhi = elev[h] + lim
+        nlo, nhi, _wlo, _whi = _hard_neighbour_witness(i)
         return nlo, nhi
+
+    # ── FIX ARM §2 — RULING 55 NEIGHBOUR BOUNDING (gate
+    # ``O4_HARD_NEIGHBOUR_BOUND``, default "0") ──────────────────────────
+    # "A yield/blend candidate adjacent to a hard node moves within
+    # ``[hard ± cap·d]`` intersected with its own law.  BOUNDING, never
+    # freezing — ``cap·d`` is the law's own freedom, so corridors still
+    # descend away from hard nodes at cap rate."  The defect the ruling
+    # names is ANY stage that MANUFACTURES an over-cap pair against a hard
+    # node; the mover ledger attributed 94.0 % of the free-member conflicts
+    # to ``proj_u.blend`` and 5.2 % to ``proj_shape.blend`` — i.e. to this
+    # function's clamp/blend phase, and to nothing else (zero sweep labels).
+    # So the law is applied HERE, at the three sites of that phase: the
+    # envelope clamp, the break blend, and the chain-rigid rod blend.
+    # The law is stated for ALL hard nodes, pins and truth anchors alike —
+    # it is not pin-special, which is why 75 of the 88 anchor conflicts
+    # pre-exist with the string gate off and why this needs its own gate.
+    # Where the intersection is EMPTY the two hard nodes disagree beyond
+    # their budgets THROUGH this node: that is a DECLARED conflict, the
+    # node keeps whatever its own law puts it at today, and the triple
+    # (node, low author, high author) is emitted write-only through
+    # ``declared_out``.  Suppressing it would be the one thing the ruling
+    # forbids.
+    _hnb_on = _os.environ.get("O4_HARD_NEIGHBOUR_BOUND", "0") == "1"
+    _hnb_declared: list = []
+
+    def _hnb_declare(i, nlo, nhi, wlo, whi, site):
+        _hnb_declared.append({
+            "node": int(i), "site": site,
+            "hard_lo_author": (None if wlo is None else int(wlo)),
+            "hard_hi_author": (None if whi is None else int(whi)),
+            "lo": float(nlo), "hi": float(nhi),
+            "deficit_m": float(nlo - nhi),
+            "z_at_declare": float(elev[i]),
+            "marker": "declared_hard_conflict"})
+
+    def _hnb_isect(i, lo, hi, site):
+        """Intersect ``[lo, hi]`` (the node's OWN law) with the hard-
+        neighbour interval.  Returns the bounded interval, or the input
+        untouched when the intersection is empty (declared conflict) or
+        the node has no hard neighbour at all (nothing to bound)."""
+        nlo, nhi, wlo, whi = _hard_neighbour_witness(i)
+        if wlo is None and whi is None:
+            return lo, hi
+        blo = nlo if nlo > lo else lo
+        bhi = nhi if nhi < hi else hi
+        if blo > bhi:
+            _hnb_declare(i, blo, bhi, wlo, whi, site)
+            return lo, hi
+        return blo, bhi
 
     # ── BOUNDED YIELD boxes → one per-node clamp map ─────────────────────
     # (owner ruling 2026-07-29; see the docstring.)  Built BEFORE the reach
@@ -1878,8 +1947,29 @@ def feasibility_project(elev, shape_constraints, hard, *,
                             elev[i] = bb[0]
                         elif elev[i] > bb[1]:
                             elev[i] = bb[1]
+                # ── FIX ARM §2, SITE 2: THE BREAK BLEND ────────────────
+                # The blend is exactly the stage the mover ledger caught
+                # manufacturing over-cap pairs against hard nodes.  Its
+                # OWN law here is the bounded-yield box (the envelope has
+                # already declared this node broken, so it offers no
+                # interval); bound the blended value into the hard-
+                # neighbour interval intersected with that box.
+                if _hnb_on:
+                    _bb2 = (bound_of.get(i) if bound_of else None)
+                    _blo, _bhi = _hnb_isect(
+                        i,
+                        (-INF if _bb2 is None else _bb2[0]),
+                        (INF if _bb2 is None else _bb2[1]),
+                        "break_blend")
+                    if elev[i] < _blo:
+                        elev[i] = _blo
+                    elif elev[i] > _bhi:
+                        elev[i] = _bhi
                 broken.add(i)
             else:
+                # ── FIX ARM §2, SITE 1: THE ENVELOPE CLAMP ─────────────
+                if _hnb_on:
+                    lo, hi = _hnb_isect(i, lo, hi, "envelope_clamp")
                 elev[i] = min(max(elev[i], lo), hi)  # clamp into the envelope
         if _band_env is not None and _os.environ.get("O4_STEP_DEBUG") == "1":
             _bn_none = _bn_ok = 0
@@ -2005,8 +2095,23 @@ def feasibility_project(elev, shape_constraints, hard, *,
                      if sum(1 for (_w, _dd, _sl, _sh) in rod_adj.get(_v, ())
                             if _w in _off) == 1]
             _lo_L, _hi_L = -INF, INF
-            for _e in _ends:
-                _elo, _ehi = _hard_neighbour_interval(_e)
+            # ── FIX ARM §2, SITE 3: THE CHAIN-RIGID ROD BLEND ──────────
+            # A rigid chain moves as one, so Ruling 55's bound is a bound
+            # on the chain's LEVEL — and it is owed by EVERY member with a
+            # hard neighbour, not only by the two ends (today's rule).
+            # Under the gate the range accumulates over the whole run; a
+            # member whose own hard neighbours contradict is a declared
+            # conflict and contributes no bound (its pointwise value,
+            # already bounded at site 2, stands if the chain cannot be
+            # placed).  Gate off ⇒ the endpoint-only range, unchanged.
+            for _e in (_order if _hnb_on else _ends):
+                if _hnb_on:
+                    _elo, _ehi, _ewlo, _ewhi = _hard_neighbour_witness(_e)
+                    if _elo > _ehi:
+                        _hnb_declare(_e, _elo, _ehi, _ewlo, _ewhi,
+                                     "chain_rigid")
+                else:
+                    _elo, _ehi = _hard_neighbour_interval(_e)
                 if _elo <= _ehi:
                     _lo_L = max(_lo_L, _elo - _off[_e])
                     _hi_L = min(_hi_L, _ehi - _off[_e])
@@ -2075,9 +2180,16 @@ def feasibility_project(elev, shape_constraints, hard, *,
                 if not _bvals:
                     continue
                 _bt = sum(_bvals) / len(_bvals)
-                _bnlo, _bnhi = _hard_neighbour_interval(_bv)   # ★ 05C guard
+                # ★ 05C guard — and, under fix arm §2, already exactly
+                # Ruling 55's bound for a branch vertex.  The only change
+                # under the gate is that an EMPTY interval (which the
+                # guard silently skips today) is DECLARED.
+                _bnlo, _bnhi, _bwlo, _bwhi = _hard_neighbour_witness(_bv)
                 if _bnlo <= _bnhi:
                     _bt = min(max(_bt, _bnlo), _bnhi)
+                elif _hnb_on and (_bwlo is not None or _bwhi is not None):
+                    _hnb_declare(_bv, _bnlo, _bnhi, _bwlo, _bwhi,
+                                 "branch_rigid")
                 if bound_of:
                     _bbox = bound_of.get(_bv)
                     if _bbox is not None:
@@ -2099,6 +2211,23 @@ def feasibility_project(elev, shape_constraints, hard, *,
     if probe_out is not None and probe_out.get("watch"):
         probe_out["post_blend"] = {_pi: elev[_pi]
                                    for _pi in probe_out["watch"]}
+
+    # ── FIX ARM §2 DELIVERY: the declared conflicts of THIS call ─────
+    # Write-only, after the whole clamp/blend phase (the only phase that
+    # declares).  "Small and author-carrying" is the pre-registered
+    # expectation; a LARGE population is a finding, so it is delivered
+    # whole and never truncated.
+    if declared_out is not None and _hnb_declared:
+        declared_out.extend(_hnb_declared)
+    if _hnb_declared and _os.environ.get("O4_STEP_DEBUG") == "1":
+        _hnb_sites: dict = {}
+        for _dr in _hnb_declared:
+            _hnb_sites[_dr["site"]] = _hnb_sites.get(_dr["site"], 0) + 1
+        print(f"    [hard-neighbour-bound] {len(_hnb_declared)} declared "
+              f"hard conflict(s) over "
+              f"{len({_dr['node'] for _dr in _hnb_declared})} node(s): "
+              + ", ".join(f"{_k}={_v}"
+                          for _k, _v in sorted(_hnb_sites.items())))
 
     # BROKEN nodes stay AT their blended value and never move in the
     # sweeps.  Both reach envelopes are cap-Lipschitz along the edge graph

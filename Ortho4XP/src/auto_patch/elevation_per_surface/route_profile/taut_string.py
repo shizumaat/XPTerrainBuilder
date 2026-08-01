@@ -1064,7 +1064,7 @@ def read_endpoint_band_centre(station, banded, *, identity_m):
 
 
 def filter_pins_by_grade_law(pins, spine_adj, *, hard=(), endpoint_depth=None,
-                             eps: float = 1e-9):
+                             elev=None, eps: float = 1e-9):
     """★ RULING 52 — THE CHORD IS NEVER BENT BY LAW; THE GRIP IS.
 
     Chord targets become Dirichlet pins, and pins join the solve's
@@ -1093,15 +1093,35 @@ def filter_pins_by_grade_law(pins, spine_adj, *, hard=(), endpoint_depth=None,
       * a pair whose BOTH ends are law anchors is NEVER released — that is
         the projection's pre-existing genuine-step contract, not ours.
 
+    ★ FIX ARM §1 — GRIP COMPLETENESS (``elev`` supplied).  The pair walk
+    above enumerated only PIN-vs-PIN pairs, so a pin sitting one spine
+    edge from a HARD anchor (a building seat, a runway join, a seam pin)
+    was never examined — and the mover ledger proved those conflicts are
+    STATIC: 100 % ``unchanged_since_freeze`` on BOTH sides, i.e. born in
+    the kept pin set itself, not manufactured by any later stage.  With
+    ``elev`` supplied the SAME edge walk also enumerates ``(i, j)`` with
+    ``i ∈ pins`` and ``j ∈ hard \\ pins``, the hard side's value read from
+    ``elev`` (hard values are stamped by P0-P5 before the hook runs).
+    Over cap ⇒ the PIN is the release candidate: the machinery below
+    already excludes hard nodes from candidacy, and a hard-hard pair is
+    still skipped as the pre-existing genuine step.  These releases carry
+    ``"rule": "pin_vs_hard"``; Ruling 52's minimality/endpoint passes run
+    over the UNION of both pair families, unchanged.  ``elev=None`` (the
+    default, and every pre-fix caller) ⇒ the pin-vs-pin walk exactly as
+    before.
+
     Returns ``(kept_pins, releases)``; each release is a GRIP-YIELD
     WITNESS naming the pair, cap, chord grade, excess, released end and
     the rule that fired.
     """
     hard = set(hard)
     depth = endpoint_depth or {}
-    # over-cap pairs among BOTH-pinned vertices
+    # over-cap pairs among BOTH-pinned vertices, plus (fix arm §1) the
+    # pin-vs-hard family when ``elev`` supplies the hard side's value.
     over: List[tuple] = []
     seen: Set[Tuple[int, int]] = set()
+    pin_vs_hard: Set[Tuple[int, int]] = set()
+    n_elev = len(elev) if elev is not None else 0
     for i, lst in (spine_adj or {}).items():
         if i not in pins:
             continue
@@ -1109,17 +1129,23 @@ def filter_pins_by_grade_law(pins, spine_adj, *, hard=(), endpoint_depth=None,
             j = e[0] if isinstance(e, (tuple, list)) else e
             budget = float(e[1]) if isinstance(e, (tuple, list)) and len(e) > 1 \
                 else 0.0
+            hard_side = False
             if j not in pins:
-                continue
+                if elev is None or j not in hard or j >= n_elev:
+                    continue
+                hard_side = True
             key = (i, j) if i < j else (j, i)
             if key in seen:
                 continue
             seen.add(key)
-            dz = abs(pins[key[0]] - pins[key[1]])
+            dz = (abs(pins[i] - float(elev[j])) if hard_side
+                  else abs(pins[key[0]] - pins[key[1]]))
             if dz > budget + eps:
                 if key[0] in hard and key[1] in hard:
                     continue          # pre-existing genuine step: not ours
                 over.append((key, budget, dz))
+                if hard_side:
+                    pin_vs_hard.add(key)
     if not over:
         return dict(pins), []
 
@@ -1160,7 +1186,8 @@ def filter_pins_by_grade_law(pins, spine_adj, *, hard=(), endpoint_depth=None,
             releases.append({
                 "pair": list(key), "released": v, "cap_budget_m": budget,
                 "chord_dz_m": dz, "excess_m": dz - budget,
-                "rule": "grade_law_over_cap"})
+                "rule": ("pin_vs_hard" if key in pin_vs_hard
+                         else "grade_law_over_cap")})
     kept = {v: z for v, z in pins.items() if v not in set(kept_released)}
     return kept, releases
 

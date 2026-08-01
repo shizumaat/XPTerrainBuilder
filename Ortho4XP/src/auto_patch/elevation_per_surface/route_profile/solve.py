@@ -535,6 +535,25 @@ def _mover_stamp_rebound(ledger, elev, idx_map, label):
                         label)
 
 
+def _string_pin_hold_indexes(layout, key_to_idx, n):
+    """Resolve the solve's exported kept-pin KEYS into a rebuilt node space.
+
+    Fix arm §3.  ``final_grade_projection`` rebuilds its node list, so the
+    kept pin set crosses by CANONICAL KEY — the same rule the mover
+    ledger's watch set already follows (``_mover_rebind``), and never an
+    index carry.  A pin whose key the rebuild no longer contains (emit
+    decimation deletes strung collinear vertices) simply drops out: it is
+    never resolved onto some other node.  Returns the index set; empty
+    when the solve exported nothing (gate off there).
+    """
+    out: set = set()
+    for key in (getattr(layout, "_string_pin_keys", None) or ()):
+        i = key_to_idx.get(key)
+        if i is not None and i < n:
+            out.add(i)
+    return out
+
+
 def _mover_publish(ledger, layout, elev=None, idx_map=None, crown_of=None,
                    pass_no=None):
     """Refresh the pin-drag delivery and re-write the string sidecar.
@@ -1159,10 +1178,19 @@ def solve_route_profile(layout, icao: str,
             # Use the module-level binding; never shadow it.
             _summary = (_store_of(layout).raw("string_domains") or {}).get(
                 "__summary__", {})
+            # ★ FIX ARM §1 — GRIP COMPLETENESS.  ``elev`` supplies the
+            # HARD side's value so the filter can also examine pin-vs-hard
+            # pairs (a pin one spine edge from a seat / runway join / seam
+            # was never enumerated, and the mover ledger proved those 88
+            # ``law_anchor`` conflicts are STATIC — born right here).  The
+            # hard set is the one this call already used; the array is read
+            # only, and hard values are stamped by P0-P5 well before this
+            # point.  Inside the string gate: gate off ⇒ never reached.
             _string_pins, _grip_yields = _grip(
                 _raw_pins, u_spine_adj,
                 hard=(truth_hard | {i for i in runway_nodes if i < n}),
-                endpoint_depth=_summary.get("pin_depth") or {})
+                endpoint_depth=_summary.get("pin_depth") or {},
+                elev=elev)
             # ── THE PIN LEDGER, stamped with its grip disposition ─────
             # Production is the only place that knows which vertices were
             # pinned and to what value; the offline re-walk has failed to
@@ -1652,6 +1680,32 @@ def solve_route_profile(layout, icao: str,
                 _mover["key_of"] = {_wi: _rod_key_of[_wi]
                                     for _wi in _ml_watch
                                     if _wi in _rod_key_of}
+            # ── FIX ARM §3: THE KEPT PIN SET CROSSES BY CANONICAL KEY ──
+            # (gate ``O4_STRING_PINS_FINAL_HOLD``, default "0"; only ever
+            # non-empty when strings are on.)  The mover ledger attributed
+            # 85.8 % of the G2 pin drag to ``final_proj_2``: pins are
+            # Dirichlet ONLY in phase A and nothing downstream holds them.
+            # The two ``final_grade_projection`` passes REBUILD the node
+            # list, so the set crosses the way the probe's watch set
+            # already does — by canonical key, never by index carry —
+            # through the SAME reverse map (``_rod_key_of``; built here
+            # only if the rod export did not already build it, so there is
+            # still no third map).  The value rides along for the ledger;
+            # the HOLD itself is set membership, exactly as Ruling 54
+            # joined the pins to the solve's ``yield_hard``.
+            if (_string_pins and _os.environ.get(
+                    "O4_STRING_PINS_FINAL_HOLD", "0") == "1"):
+                if not _rod_key_of:
+                    _rod_key_of = {i: k for k, i in bucket_to_idx.items()}
+                layout._string_pin_keys = {
+                    _rod_key_of[_pi]: float(_pz)
+                    for _pi, _pz in _string_pins.items()
+                    if _pi in _rod_key_of}
+                if _os.environ.get("O4_STEP_DEBUG") == "1":
+                    print(f"    [S1b final-hold] exported "
+                          f"{len(layout._string_pin_keys)} of "
+                          f"{len(_string_pins)} kept pin(s) by canonical "
+                          f"key for the final projections")
             # Fast Jacobi first (bulk of the correction), then the FINAL pass
             # as scalar Gauss-Seidel POCS on the joint edge set — Jacobi has no
             # convergence guarantee and stalls with ~2.5k edges marginally over
@@ -1689,23 +1743,43 @@ def solve_route_profile(layout, icao: str,
                 or _os.environ.get("O4_CORRIDOR_REF_STRING", "1") == "1")
             _yield_broken: set = set()
             _bo = _yield_broken if _ref_honest else None
+            # ── FIX ARM §2: THE DECLARED-CONFLICT CHANNEL ─────────────
+            # Write-only, allocated only under the gate, one list per
+            # call so each row can name the projection that declared it.
+            _hnb_on = _os.environ.get("O4_HARD_NEIGHBOUR_BOUND",
+                                      "0") == "1"
+            _hnb_decl: list = []
+
+            def _hnb_take(rows, call):
+                for _r in rows:
+                    _r["call"] = call
+                _hnb_decl.extend(rows)
+
+            _hnb_a: list = [] if _hnb_on else None
+            _hnb_b: list = [] if _hnb_on else None
             rem, bh = feasibility_project(elev, shape_constraints, yield_hard,
                                           interval_yield_from=_iyf,
                                           witness_limited=_gs_witness,
                                           broken_out=_bo,
                                           env_band=_env_band,
-                                          probe_out=_mover)
+                                          probe_out=_mover,
+                                          declared_out=_hnb_a)
             # PROBE A boundaries 1-2: the blend copy the callee left in the
             # ledger, then the post-return state (the sweeps).
             _mover_stamp_probe(_mover, "proj_shape.blend")
             if _mover is not None:
                 _mover_stamp(_mover, _mover_snapshot(_mover, elev),
                              "proj_shape.sweep")
+            if _hnb_on:
+                _hnb_take(_hnb_a, "proj_shape")
             rem, bh = feasibility_project(elev, [{"edges": u_edges}],
                                           yield_hard, broken_out=_bo,
                                           witness_limited=_gs_witness,
                                           env_band=_env_band,
-                                          probe_out=_mover)
+                                          probe_out=_mover,
+                                          declared_out=_hnb_b)
+            if _hnb_on:
+                _hnb_take(_hnb_b, "proj_u")
             # PROBE A boundaries 3-4.
             _mover_stamp_probe(_mover, "proj_u.blend")
             if _mover is not None:
@@ -1754,6 +1828,11 @@ def solve_route_profile(layout, icao: str,
                 _summary["pins_in_yield_hard"] = sorted(_pins_in_yield)
                 _summary["n_pin_yield_conflicts"] = len(_pin_decl)
                 _summary["pin_yield_conflicts"] = _pin_decl
+                if _hnb_on:
+                    # FIX ARM §2: the declared population, whole (a LARGE
+                    # one is a finding, never something to suppress).
+                    _summary["n_declared_hard_conflict"] = len(_hnb_decl)
+                    _summary["declared_hard_conflict"] = _hnb_decl
                 if _mover is not None:
                     # The label histogram over the FREE member — the
                     # spec's question is which stage last moved it.  Per-
@@ -4440,6 +4519,29 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                 f"{len(_torn_release_idx)} non-runway hard pin(s) "
                 f"re-seated onto the runway datum.")
 
+    # ── FIX ARM §3 — THE KEPT PINS JOIN THIS PASS'S HARD SET ────────────
+    # (gate ``O4_STRING_PINS_FINAL_HOLD``; the solve exports the set only
+    # when it is also on there, so an unset gate means no attribute and one
+    # ``getattr``.)  Mechanism: EXACTLY Ruling 54's — set membership in the
+    # pass's ``hard``/yield-hard analog, no value write, so a pin is held
+    # here precisely as a truth anchor already is.  It is joined INSIDE the
+    # crown window (``elev`` is z′ from the crown-in above until the
+    # crown-out before writeback), which is where the probe's boundaries
+    # sit, and BEFORE ``hard`` is consumed by the box / reference / dump
+    # builders below — the same ordering the solve uses.
+    # Law still overrules: a held pin whose neighbourhood the law cannot
+    # satisfy surfaces through fix arm §2's bounded-yield / declared-
+    # conflict path, which this pass's projection inherits when
+    # ``O4_HARD_NEIGHBOUR_BOUND`` is on too.
+    _string_pin_hold: set = set()
+    if _os.environ.get("O4_STRING_PINS_FINAL_HOLD", "0") == "1":
+        _string_pin_hold = _string_pin_hold_indexes(layout, b2i, n)
+        hard |= _string_pin_hold
+        if _string_pin_hold and _os.environ.get("O4_STEP_DEBUG") == "1":
+            print(f"    [S1b final-hold] {len(_string_pin_hold)} kept pin(s) "
+                  f"resolved into this pass and held hard "
+                  f"({len(_string_pin_hold & pad_nodes)} of them are pad "
+                  f"ring vertices)")
     _stage("hard")
     # BROKEN-NODE EDGE COUPLING (config.SVC_SPINE_EDGE_COUPLE, round-6 site-4):
     # this pass hardens the road's DEM-following adjacent-ground welds into a
@@ -4909,6 +5011,10 @@ def final_grade_projection(layout, icao: str = "", dem=None,
             print(f"    [env-band] final projection: {_env_hit} of "
                   f"{len(_store_of(layout).raw('env_band'))} carried band "
                   f"key(s) resolved into {n} node(s)")
+    # FIX ARM §2's declared-conflict channel for THIS pass (write-only,
+    # allocated only under the gate).
+    _fp_declared: list = ([] if _os.environ.get(
+        "O4_HARD_NEIGHBOUR_BOUND", "0") == "1" else None)
     rem, bh = feasibility_project(elev, joint, hard, force_scalar=True,
                                   env_band=_fp_env_band,
                                   forensics=_fp_forensics,
@@ -4923,7 +5029,19 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                                   group_bounds=_fp_group_bounds,
                                   node_bounds=_fp_node_bounds,
                                   group_refs=_fp_group_refs,
-                                  node_refs=_fp_node_refs)
+                                  node_refs=_fp_node_refs,
+                                  declared_out=_fp_declared)
+    # Deliver into the string sidecar when the mover ledger is carrying it
+    # (the summary is shared by reference; ``_mover_publish`` below rewrites
+    # the file, last call wins).  ``_ml_pass`` names which pass declared.
+    if _fp_declared and _ml is not None and _ml.get("summary") is not None:
+        for _dr in _fp_declared:
+            _dr["call"] = f"final_proj_{_ml_pass}"
+        _fp_sum = _ml["summary"]
+        _fp_sum.setdefault("declared_hard_conflict_final", []).extend(
+            _fp_declared)
+        _fp_sum["n_declared_hard_conflict_final"] = len(
+            _fp_sum["declared_hard_conflict_final"])
     # Late-run lift-only pad restore (see the snapshot above): a group
     # the projection SANK reverts to its seeded level; lifts stay.
     # Tolerance 0.15 m: a pad may absorb a small law-driven settle (the

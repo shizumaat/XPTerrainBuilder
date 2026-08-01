@@ -585,6 +585,23 @@ def is_mover_label(label) -> bool:
                for base in _MOVER_LABEL_FINAL if base.endswith(".entry"))
 
 
+#: Sentinel for "this attribute did not exist before the probe ran".
+_PROBE_ABSENT = object()
+
+#: Every layout attribute the ``_build_node_list`` / ``_seed_elevations``
+#: readback pair PUBLISHES in its own node-index space.  A probe that
+#: re-runs that pair at a pipeline seam must restore all of them: the
+#: indices it would leave behind name nodes in the PROBE's node space,
+#: which downstream production readers (``grade_graph`` seam pins, the
+#: solve's yield sets, the terrain-host threshold) would then read as
+#: their own.  ``_final_projection_snapshot`` already fences the first
+#: three; the two index publications are ``_build_node_list``'s.
+_PROBE_PUBLISHED_ATTRS = ("_seam_pin_idx", "_seam_pin_ll",
+                          "_seam_pin_residuals", "_eat_anchor_pin_idx",
+                          "_terrain_host_yield_first_index",
+                          "_adjacent_ground_first_zone_index")
+
+
 def mover_stage_boundary(layout, stage: str) -> int:
     """Sub-boundary INSIDE the ``final_proj_N.entry`` window (round-2 §2).
 
@@ -608,6 +625,21 @@ def mover_stage_boundary(layout, stage: str) -> int:
     crown-in.  ``extend_field_to_new_ring_nodes`` is NOT called (a probe
     mutates nothing); every watched key predates the solve's writeback and
     therefore already carries its drop.
+
+    PURITY (probe-spec §1x, round 6).  "Report-only" is a property of the
+    WHOLE call, not of the ledger helpers: round 6 measured this probe
+    moving SPJC's emitted surface (+1 node, 86 altitudes, |dz| <= 0.21 m)
+    because the node-list rebuild interned through the MUTATING
+    ``canonical_points.get_or_add`` — one extra 0.5 m bucket changes which
+    later vertices weld, and the registry feeds the emit consensus.  Both
+    halves of the readback therefore run ``readonly=True`` (get-without-
+    add; a watched key whose bucket is unclaimed at this seam is counted
+    in ``n_unresolved``, never inserted), and every layout attribute the
+    pair PUBLISHES in its own node-index space is snapshotted and
+    restored — the same fence ``_final_projection_snapshot`` uses, plus
+    the two ``_build_node_list`` index publications.  Net effect: the
+    registry, the layout and the emitted body are byte-identical with the
+    gate on and off.
     """
     ledger = getattr(layout, "_string_mover_ledger", None)
     if ledger is None or not ledger.get("key_of"):
@@ -616,11 +648,14 @@ def mover_stage_boundary(layout, stage: str) -> int:
         _build_node_list, _seed_elevations)
     pass_no = int(ledger.get("n_final_passes", 0)) + 1
     label = f"final_proj_{pass_no}.entry.{stage}"
+    saved_pub = [(_a, getattr(layout, _a, _PROBE_ABSENT))
+                 for _a in _PROBE_PUBLISHED_ATTRS]
+    n_unresolved = 0
     try:
-        nodes, b2i = _build_node_list(layout)
+        nodes, b2i = _build_node_list(layout, readonly=True)
         if not nodes:
             return 0
-        elev, _bh, _hi = _seed_elevations(layout, nodes, b2i)
+        elev, _bh, _hi = _seed_elevations(layout, nodes, b2i, readonly=True)
         n = len(elev)
         crown_by_key = getattr(layout, "_crown_drop_key", None) or {}
         if crown_by_key:
@@ -629,6 +664,7 @@ def mover_stage_boundary(layout, stage: str) -> int:
                 if _c and _i < n:
                     elev[_i] = elev[_i] + _c
         idx_map = _mover_rebind(ledger, b2i, n)
+        n_unresolved = len(ledger.get("key_of") or {}) - len(idx_map)
         # MAGNITUDES, not just a count: a boundary that reports "every
         # watched node moved" is indistinguishable from a frame artefact
         # until the sizes are on the table (the ledger's ``!=`` counts a
@@ -644,9 +680,21 @@ def mover_stage_boundary(layout, stage: str) -> int:
         ledger.setdefault("stage_boundary_errors", {})[label] = repr(exc)
         print(f"  [string-mover] stage boundary {label} skipped: {exc!r}")
         return 0
+    finally:
+        # PURITY FENCE (§1x): the readback pair publishes node-index-space
+        # state on the layout; a probe leaves none of it behind.
+        for _a, _saved in saved_pub:
+            if _saved is _PROBE_ABSENT:
+                try:
+                    delattr(layout, _a)
+                except AttributeError:
+                    pass
+            else:
+                setattr(layout, _a, _saved)
     ledger.setdefault("stage_moves", {})[label] = {
         "n_moved": moved,
         "n_watched_here": len(idx_map),
+        "n_unresolved": n_unresolved,
         "median_abs_dz_m": (_dz[len(_dz) // 2] if len(_dz) % 2 else
                             0.5 * (_dz[len(_dz) // 2 - 1]
                                    + _dz[len(_dz) // 2])) if _dz else None,

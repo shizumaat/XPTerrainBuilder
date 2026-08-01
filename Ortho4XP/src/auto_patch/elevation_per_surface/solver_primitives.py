@@ -1481,15 +1481,34 @@ def _build_level_coupling(shape_constraints) -> dict:
 # ── Stage 1: build node list ──────────────────────────────────────
 
 
-def _build_node_list(layout):
+def _build_node_list(layout, *, readonly: bool = False):
     """Assign one node index per unique canonical point across all
     pavement-role shapes.  Returns ``(nodes, bucket_to_idx)`` —
     the dict still names ``bucket_to_idx`` for legacy continuity
     but keys are canonical (x, y) tuples when the layout has a
     registry, else legacy discrete buckets.
+
+    ``readonly`` (probe-spec §1x) swaps the interning query for the
+    registry's GET-WITHOUT-ADD: a vertex whose bucket is unclaimed
+    resolves to ``None`` and is SKIPPED rather than inserted.  It exists
+    for MEASUREMENT INSTRUMENTS.  ``get_or_add`` is not "add if missing"
+    in any harmless sense — the registry snaps within ``tol_m``, so one
+    extra insertion changes which LATER vertices intern together, and
+    the registry feeds ``emit_stacked_conflict_walls`` and ``to_osm``'s
+    consensus; round 6 measured a probe-only node-list rebuild moving
+    SPJC's emitted surface (+1 node, 86 altitudes, |dz| <= 0.21 m).
+    Default ``False`` — byte-identical to before for every production
+    caller.  NOTE: ``readonly`` governs the REGISTRY only; this function
+    still publishes ``layout._terrain_host_yield_first_index`` /
+    ``_adjacent_ground_first_zone_index`` in ITS node space, which a
+    probe caller must snapshot and restore (see
+    ``route_profile.solve.mover_stage_boundary``).
     """
     bucket_to_idx: dict[tuple[float, float], int] = {}
     nodes: list[tuple[float, float]] = []
+    _cps = getattr(layout, "canonical_points", None)
+    _intern = ((_cps.get if readonly else _cps.get_or_add)
+               if _cps is not None else None)
     # TERRAIN-ROLE ADMISSION (Slice B Stage B0, docs/slice_b_solver_absorption_
     # design.md): gate ON, the admitted terrain graph roles join the registry
     # and node list exactly the way the object-bridge plate roles do (they are
@@ -1530,7 +1549,9 @@ def _build_node_list(layout):
         except _GEOM_EXC:
             continue
         for x, y in coords:
-            k = layout.canonical_points.get_or_add(float(x), float(y))
+            k = _intern(float(x), float(y))
+            if k is None:                     # readonly: unclaimed bucket
+                continue
             if k not in bucket_to_idx:
                 bucket_to_idx[k] = len(nodes)
                 nodes.append((float(x), float(y)))
@@ -1551,7 +1572,9 @@ def _build_node_list(layout):
         for _gap_entry in (getattr(layout, "gap_fill_presolve", None)
                            or ()):
             for x, y in _gap_entry.get("spine", ()):
-                k = layout.canonical_points.get_or_add(float(x), float(y))
+                k = _intern(float(x), float(y))
+                if k is None:                 # readonly: unclaimed bucket
+                    continue
                 if k not in bucket_to_idx:
                     bucket_to_idx[k] = len(nodes)
                     nodes.append((float(x), float(y)))
@@ -1581,7 +1604,9 @@ def _build_node_list(layout):
             except _GEOM_EXC:
                 continue
             for x, y in coords:
-                k = layout.canonical_points.get_or_add(float(x), float(y))
+                k = _intern(float(x), float(y))
+                if k is None:                 # readonly: unclaimed bucket
+                    continue
                 if k not in bucket_to_idx:
                     bucket_to_idx[k] = len(nodes)
                     nodes.append((float(x), float(y)))
@@ -1604,7 +1629,9 @@ def _build_node_list(layout):
                                     None) or ()):
             for _zone_node in _band_entry.get("zone_nodes", ()):
                 x, y = _zone_node["xy"]
-                k = layout.canonical_points.get_or_add(float(x), float(y))
+                k = _intern(float(x), float(y))
+                if k is None:                 # readonly: unclaimed bucket
+                    continue
                 if k not in bucket_to_idx:
                     bucket_to_idx[k] = len(nodes)
                     nodes.append((float(x), float(y)))
@@ -2405,7 +2432,8 @@ def _threshold_anchors(layout, elev, bucket_to_idx):
 
 
 def _seed_elevations(layout, nodes, bucket_to_idx,
-                     dem=None, tile_lat: int = 0, tile_lon: int = 0):
+                     dem=None, tile_lat: int = 0, tile_lon: int = 0,
+                     *, readonly: bool = False):
     """Returns ``(elev, is_hard, have_initial)``.
 
     HARD: only CIFP runway corners.  All other nodes are SOFT — even
@@ -2422,8 +2450,24 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
     terrain elevation when the rest of the graph allows it; cap
     projection in subsequent iterations pulls it down toward HARD
     anchors only where the per-edge grade cap is exceeded.
+
+    ``readonly`` (probe-spec §1x) has the same meaning as in
+    ``_build_node_list``: every vertex is resolved through the
+    registry's GET-WITHOUT-ADD, so a MEASUREMENT INSTRUMENT re-reading
+    this seeding cannot intern a new canonical point (which would move
+    the emitted surface — round 6, SPJC).  A vertex whose bucket is
+    unclaimed resolves to ``None``, misses ``bucket_to_idx``, and is
+    skipped by the ``idx is None`` guard already at every site.
+    ``readonly`` governs the REGISTRY only: this function still
+    PUBLISHES ``layout._seam_pin_idx`` / ``_seam_pin_ll`` /
+    ``_seam_pin_residuals`` / ``_eat_anchor_pin_idx`` in its own node
+    space, which a probe caller must snapshot and restore (the pattern
+    ``_final_projection_snapshot`` already uses).
     """
     from auto_patch.elevation import _sample_dem
+    _ro_cps = getattr(layout, "canonical_points", None)
+    _intern = ((_ro_cps.get if readonly else _ro_cps.get_or_add)
+               if _ro_cps is not None else None)
     n = len(nodes)
     elev: list[float] = [0.0] * n
     is_hard: list[bool] = [False] * n
@@ -2479,7 +2523,7 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
             else:
                 continue
             for (x, y), a in zip(coords, per):
-                k = layout.canonical_points.get_or_add(float(x), float(y))
+                k = _intern(float(x), float(y))
                 idx = bucket_to_idx.get(k)
                 if idx is None:
                     continue
@@ -2507,7 +2551,6 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
                                     runway_clamp_floor)
         from ..config import SEAM_PIN_RUNWAY_CLAMP
         bk_s = 1.0 / SHARED_VERTEX_TOL_M
-        cps = layout.canonical_points
         # Gather every seam vertex FIRST (idx → position, stored-altitude
         # fallback, and which roles own it), THEN pin — the runway
         # skip/clamp below must not depend on which shape happens to
@@ -2534,7 +2577,7 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
                 seam_bk = (int(round(x * bk_s)), int(round(y * bk_s)))
                 if seam_bk not in seam_keys:
                     continue
-                idx = bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
+                idx = bucket_to_idx.get(_intern(float(x), float(y)))
                 if idx is None:
                     continue
                 fallback = None
@@ -2658,7 +2701,7 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
                 continue
             ring_idx = []
             for (x, y) in coords:
-                idx = bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
+                idx = bucket_to_idx.get(_intern(float(x), float(y)))
                 ring_idx.append(idx if idx in pin_vals else None)
             pin_positions = [k for k in range(n_ring)
                              if ring_idx[k] is not None]
@@ -2861,7 +2904,6 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
     if bridge_pin_values:
         from ..layout import SHARED_VERTEX_TOL_M as _BRIDGE_TOL
         _bridge_bucket_scale = 1.0 / _BRIDGE_TOL
-        _bridge_cps = layout.canonical_points
         bridge_pinned_idx: set = set()
         for s in layout.shapes:
             if s.polygon is None or s.polygon.is_empty:
@@ -2876,7 +2918,7 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
                 if pin_value is None:
                     continue
                 idx = bucket_to_idx.get(
-                    _bridge_cps.get_or_add(float(x), float(y)))
+                    _intern(float(x), float(y)))
                 if idx is None:
                     continue
                 elev[idx] = float(pin_value)
@@ -2921,7 +2963,6 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
     # below is what keeps them apart, so a cut vertex is never pinned.
     _admitted_terrain = admitted_terrain_roles()
     if ROLE_RUNWAY_CLEARANCE in _admitted_terrain:
-        _skirt_cps = layout.canonical_points
         skirt_pinned_idx: set = set()
         for s in layout.shapes:
             if (s.role != ROLE_RUNWAY_CLEARANCE
@@ -2939,7 +2980,7 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
                 if alt is None:
                     continue
                 idx = bucket_to_idx.get(
-                    _skirt_cps.get_or_add(float(x), float(y)))
+                    _intern(float(x), float(y)))
                 if idx is None:
                     continue
                 elev[idx] = float(alt)
@@ -3011,7 +3052,7 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
         else:
             continue
         for (x, y), a in zip(coords, per):
-            k = layout.canonical_points.get_or_add(float(x), float(y))
+            k = _intern(float(x), float(y))
             idx = bucket_to_idx.get(k)
             if idx is None or is_hard[idx] or have_initial[idx]:
                 continue

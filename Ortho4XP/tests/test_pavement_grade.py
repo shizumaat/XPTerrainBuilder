@@ -11,6 +11,15 @@ to assert:
 * Within-shape grade violations stay below a soft cap (the long-
   thin-apron-triangle case is a known limitation documented for
   follow-up; this test guards against new regressions).
+
+SCOPE (``O4_TEST_AIRPORTS``).  **The FULL battery is the acceptance
+frame** — a claim about this gate means the whole airport set, and
+nothing less.  ``O4_TEST_AIRPORTS=ICAO[,ICAO…]`` narrows the
+parametrisation to exactly those airports; that is an ITERATION tool
+(SPLP alone is ~25 s against the battery's ~712 s), never the evidence
+a change is green.  Scoped runs key the run ledger on the env, so they
+are recorded as distinct entries and can never be mistaken for a full
+run.
 """
 from __future__ import annotations
 
@@ -99,8 +108,26 @@ def _airport_tiles(icao: str, root: str):
 # apron-bridged terminals to a grade-compatible level (see the T8 investigation
 # in docs/presolve_geometry_refactor.md / memory); it turns GREEN when the
 # violations are fixed, proving the fix.
-_GRADE_TEST_AIRPORTS = sorted(
-    set(baseline_airports()) | {"HECA"} | set(airports_under_test()))
+def _grade_test_airports() -> list:
+    """The airport set this module parametrises over.
+
+    * ``O4_TEST_AIRPORTS`` UNSET (or empty) → the FULL BATTERY: the
+      baseline invariant set, plus HECA, plus anything ``O4_TEST_TILE``
+      discovery adds.  Unchanged from before this helper existed — the
+      union semantics for the tile-discovery path are deliberate.
+    * ``O4_TEST_AIRPORTS=ICAO[,ICAO…]`` → EXACTLY those airports.
+
+    Before this, the env list was UNIONED in, so a scoped request still
+    paid for the whole battery (~712 s) and the scoping variable did
+    nothing here.
+    """
+    scoped = set(airports_under_test())
+    if os.environ.get("O4_TEST_AIRPORTS", "").strip():
+        return sorted(scoped)
+    return sorted(set(baseline_airports()) | {"HECA"} | scoped)
+
+
+_GRADE_TEST_AIRPORTS = _grade_test_airports()
 
 
 @pytest.mark.parametrize("icao", _GRADE_TEST_AIRPORTS)

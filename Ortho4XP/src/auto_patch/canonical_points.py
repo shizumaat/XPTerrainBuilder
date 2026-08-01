@@ -91,6 +91,20 @@ class CanonicalPointRegistry:
             return nearby
         return self._add(x, y)
 
+    def get(self, x: float, y: float) -> tuple[float, float] | None:
+        """The READ-ONLY half of ``get_or_add``: the canonical (x, y)
+        already registered for this point, or ``None`` when the bucket
+        is unclaimed.  Never inserts.
+
+        This is the query a MEASUREMENT INSTRUMENT must use (probe-spec
+        §1x).  ``get_or_add`` is not merely "add if missing": because
+        the registry snaps within ``tol_m``, an extra insertion changes
+        which LATER points intern together, and the registry feeds the
+        emit-side consensus — so a probe that interns anything moves
+        the emitted surface (round 6: SPJC, +1 node, 86 altitudes).
+        """
+        return self._find_nearest(x, y, self.tol_m)
+
     def find_nearest(self, x: float, y: float,
                       max_d: float) -> tuple[float, float] | None:
         """Find the nearest canonical point within ``max_d`` of

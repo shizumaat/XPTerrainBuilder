@@ -318,7 +318,7 @@ def test_stage_boundary_names_the_stage_that_moved_the_node():
     # MAGNITUDES ride beside the count: a stage that "moved everything" by
     # 1e-16 is a frame artefact, not a writer, and only the size says so.
     cut = ledger["stage_moves"]["final_proj_1.entry.03_tile_cut"]
-    assert cut == {"n_moved": 1, "n_watched_here": 1,
+    assert cut == {"n_moved": 1, "n_watched_here": 1, "n_unresolved": 0,
                    "median_abs_dz_m": 1.0, "max_abs_dz_m": 1.0,
                    "n_over_0p01_m": 1}
     quiet = ledger["stage_moves"]["final_proj_1.entry.05_feature_conformance"]
@@ -352,6 +352,71 @@ def test_stage_boundary_follows_the_pass_counter():
     assert mover_stage_boundary(layout, "18_emit_decimate") == 1
     assert ledger["label"][0] == "final_proj_2.entry.18_emit_decimate"
     assert is_mover_label(ledger["label"][0])
+
+
+def _unseeded_shape(layout, z=50.0):
+    """A shape whose corners the canonical registry has NEVER seen —
+    what every post-solve pipeline seam holds (tile cut, decimation and
+    conformance all mint vertices after the solve interned its own)."""
+    from auto_patch.layout import BuiltShape
+    layout.shapes.append(BuiltShape(
+        polygon=Polygon([(100.0, 100.0), (110.0, 100.0),
+                         (110.0, 110.0), (100.0, 110.0)]),
+        role="apron", ref="-2", node_altitudes=[z] * 4))
+    return layout
+
+
+def test_stage_boundary_interns_nothing_and_publishes_nothing():
+    """PROBE PURITY (spec §1x) — the whole call is report-only.
+
+    Round 6 proved the opposite interventionally: the stage-boundary
+    probe's node-list rebuild called the MUTATING ``get_or_add``, and
+    because the registry snaps within 0.5 m one extra insertion changed
+    which later vertices welded — ``O4_STRING_MOVER_LEDGER=1`` moved
+    SPJC's emitted surface (+1 node, 86 altitudes, |dz| <= 0.21 m).  Two
+    properties lock it: the registry SIZE is unchanged across the call,
+    and every layout attribute the readback pair publishes in its own
+    node-index space is exactly as it was.
+    """
+    from auto_patch.elevation_per_surface.route_profile.solve import (
+        _PROBE_PUBLISHED_ATTRS)
+    _MISSING = object()
+    layout = _stage_layout([100.0] * 4)
+    ledger = _stage_ledger(layout, 100.0)       # seeds the 4 apron corners
+    _unseeded_shape(layout)
+    size_before = layout.canonical_points.size
+    pub_before = [(a, getattr(layout, a, _MISSING))
+                  for a in _PROBE_PUBLISHED_ATTRS]
+
+    assert mover_stage_boundary(layout, "03_tile_cut") == 0
+
+    assert layout.canonical_points.size == size_before   # nothing interned
+    assert [(a, getattr(layout, a, _MISSING))
+            for a in _PROBE_PUBLISHED_ATTRS] == pub_before
+    # and it still measured: the watched key resolved read-only
+    row = ledger["stage_moves"]["final_proj_1.entry.03_tile_cut"]
+    assert row["n_watched_here"] == 1 and row["n_unresolved"] == 0
+    # the ledger keeps working after the pure readback
+    layout.shapes[0].node_altitudes[0] = 101.0
+    assert mover_stage_boundary(layout, "05_feature_conformance") == 1
+    assert layout.canonical_points.size == size_before
+
+
+def test_stage_boundary_reports_unresolved_keys_instead_of_interning():
+    """A watched key the registry no longer holds is REPORTED, never
+    inserted (§1x): ``n_unresolved`` names it and the surface is
+    untouched."""
+    layout = _stage_layout([100.0] * 4)
+    ledger = _stage_ledger(layout, 100.0)
+    ledger["key_of"] = {0: (999.0, 999.0)}      # nowhere near the registry
+    size_before = layout.canonical_points.size
+
+    assert mover_stage_boundary(layout, "18_emit_decimate") == 0
+
+    assert layout.canonical_points.size == size_before
+    row = ledger["stage_moves"]["final_proj_1.entry.18_emit_decimate"]
+    assert row["n_watched_here"] == 0 and row["n_unresolved"] == 1
+    assert row["max_abs_dz_m"] is None
 
 
 def test_is_mover_label_admits_one_sub_level_of_entry_only():

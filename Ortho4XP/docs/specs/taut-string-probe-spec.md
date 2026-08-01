@@ -103,6 +103,31 @@ of size as the conflict table) plus a `pin_drag_counts` histogram
 (label → count, and label → median |Δz|). Crown is not in this frame —
 `elev` is uncrowned until the writeback, matching G2's frame.
 
+## 1x. PURITY AMENDMENT (2026-08-01, round 6) — the stage-boundary probe
+MUTATES and must be fixed
+
+Round 6 proved interventionally that `O4_STRING_MOVER_LEDGER=1` changes
+the emitted surface at SPJC (+1 node, 86 altitudes, |dz| ≤ 0.21 m):
+`mover_stage_boundary` (solve.py:620 region) calls
+`solver_primitives._build_node_list(layout)`, which calls the MUTATING
+`layout.canonical_points.get_or_add(x, y)` — an extra insertion (and its
+order) changes which vertices intern at the 0.5 m snap, and the registry
+feeds `emit_stacked_conflict_walls` and `to_osm` consensus. The probe's
+own helpers are read-only as documented; the leak is the node-list
+rebuild.
+
+**The fix (required before any further probe-on arm is quoted as
+production):** `mover_stage_boundary` must resolve its watch keys through
+a READ-ONLY view — look keys up in the registry's existing contents
+(a get-without-add query; add one to the registry API if none exists,
+itself read-only) and skip keys not present. A watched key absent from
+the registry at that seam is reported as `n_unresolved`, never inserted.
+Acceptance: with `O4_STRING_MOVER_LEDGER=1`, the emitted body hash
+equals the probes-off hash at SPJC (the airport that caught it) AND at
+HECA; the ledger still stamps (stage_moves populated); a unit test locks
+the no-mutation property (registry size before == after every
+`mover_stage_boundary` call).
+
 ## 2. Probe B — hook-time band-violation attribution (defect 4)
 
 **Question answered:** which upstream writer put 90 of 966 banded corridor

@@ -51,8 +51,18 @@ round-4 fix) + 141 (37 release-induced junctions, 12 CYXY pin-vs-free,
 
 **Gates:** `O4_TAUT_STRING_CONSTRUCTION` still default "0";
 `O4_STRING_MOVER_LEDGER`, `O4_HARD_NEIGHBOUR_BOUND`,
-`O4_STRING_PINS_FINAL_HOLD` default "0". Gate-off byte identity (SPLP
-`d8d0f065…`, CYXY `dcebb6ff…`) re-proven after every round. Flip
+`O4_STRING_PINS_FINAL_HOLD` default "0". Gate-off byte identity: CYXY
+`dcebb6ff…` unchanged; **SPLP RE-BASELINED 2026-08-01 to `1d7f6fc7…`**
+(the old `d8d0f065…` baseline BURIED the RW02 threshold 29 m below its
+CIFP elevation, violating runway_segments' own keep-CIFP rule; the new
+value is correct — 7× reproduced, hash-seed independent; the mid-day
+flip's trigger is positively excluded from code/env/apt/CIFP/data and
+remains unattributed — the specced instrument is an env-gated
+threshold-reconciliation print + a composed-DEM fingerprint in the patch
+provenance header). Probe purity: `O4_STRING_MOVER_LEDGER` proven
+byte-inert at SPJC + HECA after round 7's read-only registry query +
+published-attribute fence (before that fix, probe-on arms were NOT
+production at SPJC). Flip
 decisions after round 4; the `O4_HARD_NEIGHBOUR_BOUND` flip changes
 α output (75/88 anchor conflicts pre-exist gate-off) and goes to the
 owner with battery evidence.

@@ -24,7 +24,7 @@ from __future__ import annotations
 from auto_patch.elevation_per_surface.route_profile.one_solve import (
     feasibility_project)
 from auto_patch.elevation_per_surface.route_profile.solve import (
-    _string_pin_hold_indexes)
+    _pins_on_frozen_graph, _stamp_pin_ledger, _string_pin_hold_indexes)
 from auto_patch.elevation_per_surface.route_profile.taut_string import (
     filter_pins_by_grade_law)
 
@@ -498,3 +498,102 @@ def test_fix3_a_held_pin_is_still_law_overridable_via_fix2(monkeypatch):
     assert elev[1] == 100.0, "a held pin is hard: it does not move"
     # its over-cap pairs are REPORTED as both-hard, never silently forced
     assert bh >= 1, bh
+
+
+# ══════════════════════════════════════════════════════════════════════
+# ROUND 4 §1 — pins live on the frozen graph
+# ══════════════════════════════════════════════════════════════════════
+# ``_solve_spine_profile`` applies every kept pin but freezes only
+# ``spine_adj``-keyed nodes, so an off-graph pin is written, overwritten by
+# phase B, and then held at phase B's value by Ruling 54.  Restricting the
+# applied set to the freeze-covered graph is the fix; off-graph targets are
+# LEDGERED, never applied.
+def _spine(zs, budget=0.15):
+    """Same chain as ``_chain`` — used here as the FREEZE's key set."""
+    return _chain(zs, budget)
+
+
+def test_r4_off_graph_targets_leave_the_applied_set():
+    """A kept target with no ``spine_adj`` entry is not applied — it is
+    exactly the population phase B overwrites."""
+    spine = _spine([100.0, 100.1, 100.2])          # keys 0, 1, 2
+    kept = {1: 100.1, 2: 100.2, 7: 105.0}          # 7 is off-graph
+    applied, off = _pins_on_frozen_graph(kept, spine, n=10)
+    assert applied == {1: 100.1, 2: 100.2}
+    assert off == {7: 105.0}
+    # the split is a partition: nothing invented, nothing lost
+    assert {**applied, **off} == kept
+    assert not set(applied) & set(off)
+
+
+def test_r4_out_of_range_indices_are_off_graph_too():
+    """The freeze is ``{k for k in spine_adj if k < len(elev)}``: a
+    spine-keyed node past the end of ``elev`` is frozen by neither
+    clause, so it is off-graph on the same one bit."""
+    spine = {0: [], 1: [], 9: []}
+    applied, off = _pins_on_frozen_graph({1: 100.0, 9: 101.0}, spine, n=5)
+    assert applied == {1: 100.0} and off == {9: 101.0}
+    applied, off = _pins_on_frozen_graph({-1: 100.0}, {-1: []}, n=5)
+    assert applied == {} and off == {-1: 100.0}
+
+
+def test_r4_an_all_on_graph_airport_is_untouched():
+    """HECA's pre-registered case: zero off-graph pins ⇒ the applied set
+    IS the grip's kept set and nothing about the arm changes."""
+    spine = _spine([100.0, 100.1, 100.2])
+    kept = {0: 100.0, 1: 100.1, 2: 100.2}
+    applied, off = _pins_on_frozen_graph(kept, spine, n=3)
+    assert applied == kept and off == {}
+
+
+def test_r4_ledger_stamps_disposition_and_the_pin_frozen_bit():
+    """Three dispositions, one new bit.  ``pin_frozen`` is a pure function
+    of the vertex, so a RELEASED row carries it too; the affected string
+    ids come back for the summary."""
+    spine = _spine([100.0, 100.1, 100.2])
+    kept = {1: 100.1, 7: 105.0}
+    applied, off = _pins_on_frozen_graph(kept, spine, n=10)
+    rows = [{"vertex": 1, "string": 3, "grip": "offered"},
+            {"vertex": 7, "string": 43, "grip": "offered"},
+            {"vertex": 8, "string": 43, "grip": "offered"},   # released
+            {"vertex": 2, "string": 3, "grip": "offered"}]    # released
+    strings, n_off_targets = _stamp_pin_ledger(rows, applied, off,
+                                               spine, n=10)
+    assert [r["grip"] for r in rows] == ["kept", "off_graph",
+                                         "released", "released"]
+    assert [r["pin_frozen"] for r in rows] == [True, False, False, True]
+    assert strings == [43]
+    # TARGET-level: vertices 7 and 8 are both off the frozen graph, but
+    # only 7 was kept — the two populations must not be conflated.
+    assert n_off_targets == 2
+    assert len(off) == 1
+
+
+def test_r4_the_ledger_is_the_readers_only_kept_set():
+    """Every offline reader selects ``grip == "kept"``.  After the stamp
+    that set is the APPLIED set — so an off-graph target can never be
+    counted as a held pin by any downstream census."""
+    spine = _spine([100.0, 100.1])
+    applied, off = _pins_on_frozen_graph({0: 100.0, 5: 100.0}, spine, n=6)
+    rows = [{"vertex": 0, "string": 1, "grip": "offered"},
+            {"vertex": 5, "string": 1, "grip": "offered"}]
+    _stamp_pin_ledger(rows, applied, off, spine, n=6)
+    assert {r["vertex"] for r in rows if r["grip"] == "kept"} == set(applied)
+    assert 5 not in {r["vertex"] for r in rows if r["grip"] == "kept"}
+
+
+def test_r4_the_drag_and_watch_populations_are_the_applied_pins():
+    """G2 population rule: the mover watch set (Ruling 54 + probe A) and
+    the pin-drag rows are built from the pin dict the solve is handed, and
+    that dict is now ``applied``.  An off-graph target is not a drag
+    population member and is not watched."""
+    spine = _spine([100.0, 100.1, 100.2])
+    applied, off = _pins_on_frozen_graph({1: 100.1, 7: 105.0}, spine, n=10)
+    # Ruling 54 / probe A, verbatim: pins ∪ their spine neighbours.
+    watch = set(applied)
+    for v in applied:
+        watch |= {j for (j, _b) in spine.get(v, ())}
+    assert watch == {0, 1, 2}
+    assert not watch & set(off)
+    # the pin-drag delivery iterates the same dict, one row per applied pin
+    assert sorted(applied) == [1]

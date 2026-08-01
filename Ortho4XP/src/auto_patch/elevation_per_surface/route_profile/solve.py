@@ -678,6 +678,72 @@ def _string_pin_hold_indexes(layout, key_to_idx, n):
     return out
 
 
+# ══════════════════════════════════════════════════════════════════════
+# ROUND 4 §1 — PINS LIVE ON THE FROZEN GRAPH
+# ══════════════════════════════════════════════════════════════════════
+# ★ A PIN THE PHASE-A SOLVE STRUCTURALLY CANNOT HOLD IS NOT A PIN
+# (Fable ruling, round-4 spec §1).  ``_solve_spine_profile`` writes EVERY
+# kept pin into ``elev`` and joins it to ``anchors`` (:6500-6505), but the
+# set it returns as FROZEN — the set the caller stamps into ``base_hard``
+# (:1415-1417) — is ``{k for k in spine_adj if k < len(elev)}`` (:6506,
+# :6654).  A pin on a node with no ``u_spine_adj`` entry is therefore
+# written, immediately overwritten by phase B (nothing froze it), and then
+# HELD AT PHASE B's VALUE by Ruling 54.  Round 3 measured the separation
+# exactly: 32/32 off-spine kept pins moved (0.46-6.16 m), 1,620/1,620
+# on-spine pins held to 0.000000 m, in both arms.
+#
+# So pins are restricted to the freeze-covered graph.  Off-graph targets
+# are LEDGERED, never applied.  The CHORD is untouched — the string still
+# exists; it simply does not pin what the phase-A solve does not govern.
+def _pins_on_frozen_graph(kept, spine_adj, n):
+    """Split the grip's kept pin set on the phase-A freeze.
+
+    Returns ``(applied, off_graph)``.  ``applied`` is exactly the pins the
+    phase-A solve both applies AND freezes — membership in ``spine_adj``
+    (the freeze's own key set) with an in-range index (its ``k < len(elev)``
+    clause, ``n == len(elev)`` at the call site).  Everything else is
+    ``off_graph``: a target the solve cannot hold.
+    """
+    applied: dict = {}
+    off_graph: dict = {}
+    for v, z in kept.items():
+        tgt = applied if (v in spine_adj and 0 <= v < n) else off_graph
+        tgt[v] = z
+    return applied, off_graph
+
+
+def _stamp_pin_ledger(pin_rows, applied, off_graph, spine_adj, n):
+    """Stamp each pin ledger row with its disposition and ``pin_frozen``.
+
+    ``pin_frozen`` is the ONE BIT the round-4 reading turns on: true iff
+    the vertex is in the set the phase-A solve freezes — a pure function of
+    the vertex, so it is stamped on released rows too.  Dispositions:
+    ``kept`` (applied), ``off_graph`` (kept by the grip, off the frozen
+    graph), ``released`` (the grip's own law releases).  Returns
+    ``(off_graph_string_ids, n_targets_off_graph)`` — the second is the
+    row count with ``pin_frozen`` false, i.e. EVERY off-graph target
+    including the ones the grip already released.  Two different
+    populations, both named: the disposition split is over KEPT pins
+    (§1's ``off_graph``), the bit is over TARGETS.
+    """
+    strings: set = set()
+    n_off_targets = 0
+    for row in pin_rows:
+        v = row["vertex"]
+        row["pin_frozen"] = bool(v in spine_adj and 0 <= v < n)
+        if not row["pin_frozen"]:
+            n_off_targets += 1
+        if v in applied:
+            row["grip"] = "kept"
+        elif v in off_graph:
+            row["grip"] = "off_graph"
+            if row.get("string") is not None:
+                strings.add(row["string"])
+        else:
+            row["grip"] = "released"
+    return sorted(strings), n_off_targets
+
+
 def _mover_publish(ledger, layout, elev=None, idx_map=None, crown_of=None,
                    pass_no=None):
     """Refresh the pin-drag delivery and re-write the string sidecar.
@@ -1356,23 +1422,47 @@ def solve_route_profile(layout, icao: str,
             _grip_stats["n_constraint_entries"] = len(shape_constraints)
             assert _grip_stats["shape_constraint_builds_during_grip"] == 0, (
                 "the grip must consume the solve's ONE constraints object")
+            # ── ROUND 4 §1: PINS LIVE ON THE FROZEN GRAPH ─────────────
+            # The grip has finished; ``_kept_by_grip`` is its answer.  Now
+            # drop the targets the phase-A solve structurally cannot hold
+            # (see ``_pins_on_frozen_graph``).  ONE rebinding of
+            # ``_string_pins`` covers every consumer at once — the phase-A
+            # ``string_pins=`` argument, Ruling 54's ``yield_hard``, the
+            # mover watch set, the final-hold export and the G2/pin-drag
+            # delivery all read this name and nothing else.  Off-graph
+            # targets are ledgered below and never applied anywhere.
+            _kept_by_grip = _string_pins
+            _string_pins, _pins_off_graph = _pins_on_frozen_graph(
+                _kept_by_grip, u_spine_adj, n)
             # ── THE PIN LEDGER, stamped with its grip disposition ─────
             # Production is the only place that knows which vertices were
             # pinned and to what value; the offline re-walk has failed to
             # reproduce it three times.  So the disposition ships in the
             # sidecar, and ``max |emitted - chord|`` at kept pins becomes
             # a one-line check on the next build.
-            for _row in _summary.get("pins", ()):
-                _row["grip"] = ("kept" if _row["vertex"] in _string_pins
-                                else "released")
+            _off_graph_strings, _n_off_targets = _stamp_pin_ledger(
+                _summary.get("pins", ()), _string_pins, _pins_off_graph,
+                u_spine_adj, n)
             _summary["n_targets"] = len(_raw_pins)
+            # ★ ARITHMETIC: n_targets = n_pins_kept + n_pins_off_graph
+            #   + n_released.  ``n_pins_kept`` is the APPLIED set (what the
+            # solve holds); the release counts keep their old meaning (what
+            # the grip's law filter released), so no existing reader's
+            # number changes meaning silently — the new third bucket is
+            # named, not folded into either.
             _summary["n_pins_kept"] = len(_string_pins)
-            _summary["n_released"] = len(_raw_pins) - len(_string_pins)
+            _summary["n_pins_off_graph"] = len(_pins_off_graph)
+            # the TARGET-level count (rows with ``pin_frozen`` false):
+            # off-graph pins the grip already released are counted here and
+            # NOT in ``n_pins_off_graph`` — two populations, never mixed.
+            _summary["n_targets_off_graph"] = _n_off_targets
+            _summary["pins_off_graph_strings"] = _off_graph_strings
+            _summary["n_released"] = len(_raw_pins) - len(_kept_by_grip)
             _summary["n_over_cap_pairs"] = len(_grip_yields)
             # kept under their old names too — a renamed key silently
             # breaks whatever already reads the sidecar.
             _summary["n_pins_offered"] = len(_raw_pins)
-            _summary["n_pins_released"] = len(_raw_pins) - len(_string_pins)
+            _summary["n_pins_released"] = len(_raw_pins) - len(_kept_by_grip)
             _summary["n_grip_yields"] = len(_grip_yields)
             _summary["grip_yields"] = _grip_yields
             # ROUND 2 §3 delivery: the pair universe the grip actually
@@ -1388,9 +1478,15 @@ def solve_route_profile(layout, icao: str,
             if _os.environ.get("O4_STEP_DEBUG") == "1":
                 print(f"    [S1b] n_targets={len(_raw_pins)} "
                       f"n_pins_kept={len(_string_pins)} "
-                      f"n_released={len(_raw_pins) - len(_string_pins)} "
+                      f"n_pins_off_graph={len(_pins_off_graph)} "
+                      f"n_released={len(_raw_pins) - len(_kept_by_grip)} "
                       f"n_over_cap_pairs={len(_grip_yields)} "
-                      f"(all four in the domains sidecar)")
+                      f"(all five in the domains sidecar)")
+                if _pins_off_graph:
+                    print(f"    [S1b off-graph] {len(_pins_off_graph)} kept "
+                          f"target(s) have no u_spine_adj entry ⇒ the "
+                          f"phase-A freeze cannot hold them; ledgered, not "
+                          f"applied; string(s) {_off_graph_strings}")
                 print(f"    [S1b] grip pair universe: "
                       f"{_grip_stats['n_pairs']} pair(s) from "
                       f"{_grip_stats['n_law_edges_in']} within-shape law "

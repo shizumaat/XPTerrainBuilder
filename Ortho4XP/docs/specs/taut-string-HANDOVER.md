@@ -1,5 +1,74 @@
 # Taut-string line — session handover, 2026-08-01
 
+## 0. CURRENT STATE — 2026-08-01 EOD (this block supersedes §§3-8 below;
+## §§1-2 — the delegation model and the owner's model — remain law)
+
+**Branch `taut-string-chord-model`. Commits this session:** `50a12ea`
+(probes: mover ledger + hook-time attribution), `b4ff1cd` (fix arm round 1),
+`676f8da` (round 2). **Round 4 in flight** (spec
+`taut-string-fix-arm-round4-spec.md`); round 3 was measurement-only.
+Specs this session: `taut-string-probe-spec.md`,
+`taut-string-fix-arm-spec.md`, `-round2-spec.md`, `-round4-spec.md`.
+
+**Owner rulings added today:**
+* Band-lawful displacement TRUMPS the DEM — metres moved is not a defect
+  metric; conditions: endpoints in band, law-true spines, edge-follow
+  (owner wants a simulator look before final say).
+* There is ONE band (`reach_band_unified`); seats and string endpoints
+  both consume it. Never describe its runway seeding as a second band.
+
+**Old open defects, closed:** #1 G2 pin drag (final passes minted it;
+fix-3 hold ⇒ HECA median 0.0020, 100% ≤1 cm; SPJC's residual tail was the
+OFF-SPINE class below). #2 conflicts (mover ledger: 94% proj_u.blend,
+zero sweeps; Ruling 55 bounding ⇒ 35 undeclared max 0.24 m; the 88
+law_anchor class was STATIC — grip pin-vs-hard extension ⇒ 0). #4
+hook-time band violations (no hard stamp guilty; plain P0 DEM seeds =
+terrain above the runway-anchored ceiling). #5 flip gate READ:
+854 → 837 (r1) → 747 (r2), decomposed 362 adjacent_ground-clamp (side
+task, running separately) + 244 SPJC apron (⅔ = off-spine pin class,
+round-4 fix) + 141 (37 release-induced junctions, 12 CYXY pin-vs-free,
+92 post-solve-minted unattributed).
+
+**Key mechanisms proven (do not re-derive):**
+* Grip completeness: round 1 added pin-vs-hard pairs; round 2 made the
+  grip's pair graph the LAW's graph (ring edges from the solve's own
+  shape-constraints object streamed once + two-hop through-free family,
+  tightest-budget min-merge). Chords never bent; ~29% of pins release.
+* OFF-SPINE PINS (round 3, exact): S1b writes every pin but the phase-A
+  freeze covers only `u_spine_adj` keys ⇒ off-graph pins get overwritten
+  by phase B then held wrong. 32/32 movers off-spine vs 1,620/1,620
+  on-spine at 0.000000 m. Fable ruling: a pin the solve cannot hold is
+  not a pin (round-4 fix: applied vs `off_graph` ledger + `pin_frozen`).
+* DECLARED WEB = LAWFUL BOOKKEEPING (round 3): 0/176 HECA declared
+  both-pin nodes at any created defect, 100% law-true; escalation to a
+  route-metric grip is RULED DOWN to a monitoring ledger (alarms:
+  unquarantined residual >single digits, or defect-coincidence > random
+  control). Rod chains are the cheapest subclass, not the priciest.
+* Canonical identity join: the .osm 11-decimal spelling IS the canonical
+  key (0 collisions); never proximity-join (11.6% wrong-object). ~63% of
+  pin vertices are emit-decimated (survivorship bias in any per-pin
+  emitted stat).
+
+**Gates:** `O4_TAUT_STRING_CONSTRUCTION` still default "0";
+`O4_STRING_MOVER_LEDGER`, `O4_HARD_NEIGHBOUR_BOUND`,
+`O4_STRING_PINS_FINAL_HOLD` default "0". Gate-off byte identity (SPLP
+`d8d0f065…`, CYXY `dcebb6ff…`) re-proven after every round. Flip
+decisions after round 4; the `O4_HARD_NEIGHBOUR_BOUND` flip changes
+α output (75/88 anchor conflicts pre-exist gate-off) and goes to the
+owner with battery evidence.
+
+**Next after round 4:** rule on the round-4 reads (off-graph tenure
+scope, release-induced junctions, CYXY blind spot, post-solve emitter
+probe) → gate flips → suite read → R1 re-read → R1 CP2 → R2 → battery →
+owner's simulator look → tile/app. Session scratchpad artifact sets:
+`ruling55/ flipgate/ fixarm/ round2/ round3/ round4/` (ephemeral — key
+numbers are in the specs and commit messages).
+
+---
+
+(Below: the 2026-08-01 morning handover. §§1-2 remain law; §§3-8 are
+superseded by §0.)
+
 Supersedes the 2026-07-31 handover (that one describes the tube-and-funnel
 constructor, which is **retired**). Written for a new session to finish the
 work. **Do not re-derive §2 or §4** — they cost builds and rounds.

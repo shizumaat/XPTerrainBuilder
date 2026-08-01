@@ -983,7 +983,7 @@ from auto_patch.config import (TAUT_STRING_MIN_STRING_M,  # noqa: E402
 from auto_patch.elevation_per_surface.route_profile.taut_string import (  # noqa: E402
     compass_ends, compose_through_paths, decorate_nodes_onto_strings,
     filter_pins_by_grade_law, strings_with_tenure, substrate_from_carriage,
-    through_path_chains)
+    through_path_chains, write_string_sidecar)
 import pytest  # noqa: E402
 
 
@@ -1682,3 +1682,47 @@ def test_grip_filter_is_deterministic():
                                  endpoint_depth=depth)
     assert a[0] == b[0]
     assert [w["released"] for w in a[1]] == [w["released"] for w in b[1]]
+
+
+def test_pin_ledger_counts_only_actual_targets():
+    """★ The ledger is the ONLY record of what production pinned -- the
+    offline re-walk has failed to reproduce it three times -- so its
+    population must equal the rewrite map exactly.  A row minted before
+    the plural-claim and hard skips would make "released" mean two
+    different things (never offered vs grip-released).
+    """
+    layout, g, adj, n = _walk_case((21,))
+    span = 10.0 * (n - 1)
+    out, inv, _rows = _drive(layout, g, adj, n, [100.0] * n,
+                             hard={0, n - 1},
+                             band=_pin(n, {0: 100.0, n - 1: 100.0 + CAP * span}))
+    rows = inv["pins"]
+    assert inv["n_targets"] == len(rows) == len(out)
+    assert {r["vertex"] for r in rows} == set(out)
+    assert 0 not in {r["vertex"] for r in rows}          # hard, never a pin
+    for r in rows:
+        assert r["z"] == out[r["vertex"]]
+        assert set(r) == {"vertex", "string", "station_m", "z", "depth_m",
+                          "grip"}
+        assert r["grip"] == "offered"      # the call site stamps the rest
+
+
+def test_sidecar_is_written_after_the_grip_filter_stamps_it(tmp_path):
+    """★ REGRESSION PIN.  The sidecar used to be written INSIDE the
+    constructor, so the grip filter -- which runs at the call site, after
+    it returns -- could stamp the store but never the file: the log line
+    proved the treatment ran while the sidecar could not.  The writer is
+    separate and idempotent, and the LAST call wins."""
+    import json
+    layout, g, adj, n = _walk_case((21,))
+    _out, inv, _rows = _drive(layout, g, adj, n, [100.0] * n, hard=set(),
+                              band=_pin(n, {0: 100.0, n - 1: 101.0}))
+    dump = tmp_path / "w.csv"
+    inv["n_over_cap_pairs"] = 7                       # a call-site stamp
+    for r in inv["pins"]:
+        r["grip"] = "kept"
+    assert write_string_sidecar(layout, str(dump)) == str(dump)
+    side = json.loads((tmp_path / "w.csv.domains.json").read_text())
+    assert side["n_over_cap_pairs"] == 7
+    assert side["pins"] and all(r["grip"] == "kept" for r in side["pins"])
+    assert (tmp_path / "w.csv").exists()              # endpoint witness CSV

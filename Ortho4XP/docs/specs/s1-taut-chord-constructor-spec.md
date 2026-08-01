@@ -3069,6 +3069,71 @@ the α BASELINE ARM.)**
   necessary, the byte identity remains the standard); §5(iv)
   iteration-count read folds into the tile build, recorded
   never tuned.
+* **RULING 54 — THE `yield_hard` ENUMERATION: A DEFECT FOR
+  PINNED VERTICES, DESIGN FOR THE REST — AND THE FIX IS THE
+  GRIP, NOT THE FREEZE.**  The finding (candidate correctly
+  labelled, masking arm authorized as a gated DIAGNOSTIC, not
+  landed): at chord 1's dip, target 112.64 / ceiling 105.99 /
+  hook-time 107.20 / delivered 101.12 — 6.64 m is the lawful
+  band clamp (owner-ruled: the 05L/23R cross-connectors), and
+  **4.87 m is the surface below its own ceiling with nothing
+  holding it there**; the same-string control at along 2403
+  tracks within 0.5 m where the band admits the chord.  The
+  construction site: `yield_hard` (solve.py:1351) is REBUILT
+  from `truth_hard | runway_nodes | building_seats | _gs_hard`
+  and never inherits the phase-A spine freeze, so fp#8
+  (:1392) and the finals (:1892, :1988) may move every
+  phase-A-frozen spine node — the standing quarantine-blend
+  prior, now with a construction site in THIS tree.  THE
+  VERDICT, forced by this line's own law: a blend is NOT grade
+  law, so a blend dragging a lawful strung value below its own
+  ceiling is the string overruled by a non-law — the owner's
+  invariant violated in the emitted surface; equivalently, the
+  4.87 m class is a Ruling 47(B) departure bin with NO
+  POSSIBLE binding-law witness (no cap contact, no clamp, no
+  runway, no clip) — "an unexplained slack departure fails the
+  gate" already convicts it.  The blend's own retained purpose
+  ("keep only for genuine band inversions") does not cover a
+  station with 4.87 m of admitted headroom.  DEFECT.  But the
+  case-for-design is answered IN THE FIX, not dismissed: the
+  yield step exists to free nodes, and wholesale inheritance
+  of the ~3,700-node spine freeze would over-freeze the
+  unstrung residual domain (the smoother's ground, junctions,
+  sub-min runs) that has no string authority and MUST yield —
+  the freeze was never the right object; THE KEPT PIN SET is.
+  THE FIX'S SHAPE: `yield_hard` GAINS THE LAW-FILTERED KEPT
+  PINS (the Ruling-52 set, 3,429-class) — and nothing else.
+  Unstrung spine stays yieldable (design ratified there).
+  Wholesale freeze inheritance REJECTED (over-freezing);
+  excluding pins from the blend alone REJECTED (under-scoped —
+  :1892/:1988 also take `yield_hard`, and hard membership is
+  the EXISTING protection idiom; no new mechanism).
+  Consistency: a pinned node behaves during yield exactly as a
+  truth anchor already does — neighbours reconcile against a
+  lawful fixed value or DECLARE, and a neighbour-vs-pin
+  conflict is the surfaced class with authors, never silently
+  absorbed.  Ruling 52's precedence carries: law is never
+  released; where a genuine LAW demand reaches a pinned vertex
+  at yield time, that is a declared conflict for attribution,
+  not a silent un-pin.  PRE-REGISTERED for the diagnostic arm
+  (so it cannot be read backwards): at the dip, delivered
+  rises from 101.12 to the ceiling-clamped chord ≈ 105.99 at
+  pinned stations — the owner's stated ~106; the 6.64 m clamp
+  REMAINS and now carries its band-clamp witness; the 4.87 m
+  closes to ~0 at pinned vertices; clamp-boundary transitions
+  emerge as cap-lawful ramps (pin-to-free pairs are the cap
+  machinery's), not steps; unstrung spine and off-spine
+  unchanged by construction.  The arm CANNOT show
+  breaks-elsewhere (adopted): that needs the gate set —
+  law-true counts and declared-defect deltas vs tonight's arm;
+  pre-registered there: zero new law-true violations
+  attributable to pin-holding, and any neighbour-vs-pin
+  declarations small-with-authors.  ANOMALY, resolved before
+  the arm is read: hook-time 107.20 ABOVE ceiling 105.99 at
+  the cited station — either a station-alignment artifact in
+  the report or a real hook-time band violation; the arm
+  reports (target, ceiling, hook, delivered) aligned on ONE
+  station definition before any number is quoted.
 
 Service corridors are EXCLUDED (their reference is the DEM-follow
 shape — spec §4.1 layer 4 exception).  Runway profiles are EXCLUDED

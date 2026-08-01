@@ -78,7 +78,7 @@ __all__ = [
     "TenureRound", "TenureResult", "strings_with_tenure",
     "EndpointRead", "read_endpoint_band_centre", "chord_station",
     "chord_targets", "compass_ends", "filter_pins_by_grade_law",
-    "construct_taut_strings",
+    "construct_taut_strings", "write_string_sidecar",
 ]
 
 INF = float("inf")
@@ -1233,6 +1233,44 @@ def _scan_roles(layout, bucket_to_idx, n: int):
     return priority_of, service_nodes
 
 
+def write_string_sidecar(layout, path=None) -> Optional[str]:
+    """Serialise the ``string_domains`` summary to the witness sidecar.
+
+    Idempotent and safe to call more than once: the LAST call wins, which
+    is the point — the grip filter stamps its disposition onto the summary
+    after the constructor returns, so the file must be written after that,
+    not during construction.  ``None`` when ``O4_STRING_WITNESS_DUMP`` is
+    unset (no file, no cost).
+    """
+    import json as _json
+    import os as _os
+
+    dump = path or _os.environ.get("O4_STRING_WITNESS_DUMP")
+    if not dump:
+        return None
+    from ..node_space import store_of
+    summary = (store_of(layout).raw("string_domains") or {}).get("__summary__")
+    if summary is None:
+        return None
+    with open(str(dump) + ".domains.json", "w") as fh:
+        _json.dump(summary, fh, indent=1, default=str)
+    import csv as _csv
+    # THE ENDPOINT WITNESS (ruling 46) — the bend CSV retired with the
+    # bends; a chord's two reads ARE its whole elevation content.
+    with open(dump, "w", newline="") as fh:
+        writer = _csv.writer(fh)
+        writer.writerow(["string", "which", "end_label", "mode", "value",
+                         "lo", "hi", "offset_m", "bracket",
+                         "n_banded_stations"])
+        for w in summary.get("endpoint_witness", ()):
+            writer.writerow([w["string"], w["which"], w["end_label"],
+                             w["mode"], w["value"], w["lo"], w["hi"],
+                             w["offset_m"],
+                             " ".join(str(x) for x in w["bracket"]),
+                             w["n_banded_stations"]])
+    return str(dump)
+
+
 def construct_taut_strings(layout, G, *, elev, bucket_to_idx, n, node_band,
                            hard, corridor_pieces, junction_adj,
                            cap_of_segment) -> Dict[int, float]:
@@ -1402,6 +1440,7 @@ def construct_taut_strings(layout, G, *, elev, bucket_to_idx, n, node_band,
     _plural_ledger: List[int] = []
     _mode_census: Dict[str, int] = {}
     _pin_depth: Dict[int, float] = {}
+    _pin_rows: List[dict] = []
 
     for dom in domains:
         _si = dom.pieces[0]
@@ -1462,6 +1501,14 @@ def construct_taut_strings(layout, G, *, elev, bucket_to_idx, n, node_band,
                 # endpoints, so the grip filter releases interior pins
                 # first (ruling 52, endpoint-protective).
                 _pin_depth[_v] = min(abs(_st), abs(_L - _st))
+                # ★ THE PIN LEDGER.  Production is the ONLY place that
+                # knows which vertices were pinned and to what; an offline
+                # re-walk of the substrate has now failed to reproduce it
+                # three times (89 strings vs production's 71).  So the
+                # instrument ships FROM THE BUILD: with these rows,
+                # ``max |emitted - chord|`` at kept pins is a one-line
+                # check on the next build instead of a reconstruction.
+
             for _v, _z in _targets.items():
                 # ★ RULING 42, unconditional: the hook rewrites only
                 # vertices claimed by exactly ONE string.  A plural-claimed
@@ -1476,6 +1523,17 @@ def construct_taut_strings(layout, G, *, elev, bucket_to_idx, n, node_band,
                 if _v in hard_set:
                     continue              # anchors are never rewritten
                 rewrites[_v] = _z
+                # ★ ONE ROW PER ACTUAL TARGET, recorded HERE and not at
+                # evaluation: a row minted before the plural-claim and
+                # hard skips would make "released" mean two different
+                # things (never offered vs grip-released) and the
+                # disposition column would be quietly wrong.
+                _pin_rows.append({
+                    "vertex": _v, "string": _si,
+                    "station_m": round(chord_station(pos[_v], _a, _u), 4),
+                    "z": _z,
+                    "depth_m": round(_pin_depth.get(_v, 0.0), 4),
+                    "grip": "offered"})
             _chord_grade = (abs(_r1.value - _r0.value) / _L
                             if _L > 1e-9 else 0.0)
 
@@ -1555,6 +1613,11 @@ def construct_taut_strings(layout, G, *, elev, bucket_to_idx, n, node_band,
             # per-pin distance from its string's nearer endpoint — the
             # grip filter's endpoint-protective ordering (ruling 52).
             "pin_depth": _pin_depth,
+            # THE PIN LEDGER, complete and unclipped: vertex, string,
+            # along-station, chord target, and the grip disposition the
+            # caller stamps after the law filter runs.
+            "pins": _pin_rows,
+            "n_targets": len(_pin_rows),
             # ── the DENOMINATOR LINE, in the artifact as well as the log
             # (ruling 4): which substrate, at which resolution, under
             # which identities.  Mixed-definition tables are forbidden
@@ -1665,27 +1728,11 @@ def construct_taut_strings(layout, G, *, elev, bucket_to_idx, n, node_band,
                                  in (getattr(G, "edges", ()) or ())
                                  if len(e) >= 4],
                        "bucket_to_idx": dict(bucket_to_idx), "n": n}, _sf)
-    dump = _os.environ.get("O4_STRING_WITNESS_DUMP")
-    if dump:
-        # Sibling JSON: the S1-CP2 assembly + end inventory (one build
-        # must yield the whole checkpoint table, not just the bends).
-        import json as _json
-        summary = domains_payload["__summary__"]
-        summary["strings"] = inventory
-        with open(str(dump) + ".domains.json", "w") as _fh:
-            _json.dump(summary, _fh, indent=1, default=str)
-        import csv as _csv
-        # THE ENDPOINT WITNESS (ruling 46) — the bend CSV retires with the
-        # bends; a chord's two reads ARE its whole elevation content.
-        with open(dump, "w", newline="") as fh:
-            writer = _csv.writer(fh)
-            writer.writerow(["string", "which", "end_label", "mode", "value",
-                             "lo", "hi", "offset_m", "bracket",
-                             "n_banded_stations"])
-            for w in endpoint_witness:
-                writer.writerow([w["string"], w["which"], w["end_label"],
-                                 w["mode"],
-                                 w["value"], w["lo"], w["hi"], w["offset_m"],
-                                 " ".join(str(x) for x in w["bracket"]),
-                                 w["n_banded_stations"]])
+    domains_payload["__summary__"]["strings"] = inventory
+    # ★ The sidecar is written by ``write_string_sidecar`` — NOT here.
+    # Writing it at this point is what made the grip-filter counts
+    # unobservable: the filter runs at the CALL SITE, after this function
+    # returns, so anything it stamps onto the summary reached the store
+    # but never the file.  The caller writes the sidecar once, last.
+    write_string_sidecar(layout)
     return rewrites

@@ -956,15 +956,38 @@ def solve_route_profile(layout, icao: str,
                 _raw_pins, u_spine_adj,
                 hard=(truth_hard | {i for i in runway_nodes if i < n}),
                 endpoint_depth=_summary.get("pin_depth") or {})
-            _summary["n_pins_offered"] = len(_raw_pins)
+            # ── THE PIN LEDGER, stamped with its grip disposition ─────
+            # Production is the only place that knows which vertices were
+            # pinned and to what value; the offline re-walk has failed to
+            # reproduce it three times.  So the disposition ships in the
+            # sidecar, and ``max |emitted - chord|`` at kept pins becomes
+            # a one-line check on the next build.
+            for _row in _summary.get("pins", ()):
+                _row["grip"] = ("kept" if _row["vertex"] in _string_pins
+                                else "released")
+            _summary["n_targets"] = len(_raw_pins)
             _summary["n_pins_kept"] = len(_string_pins)
+            _summary["n_released"] = len(_raw_pins) - len(_string_pins)
+            _summary["n_over_cap_pairs"] = len(_grip_yields)
+            # kept under their old names too — a renamed key silently
+            # breaks whatever already reads the sidecar.
+            _summary["n_pins_offered"] = len(_raw_pins)
             _summary["n_pins_released"] = len(_raw_pins) - len(_string_pins)
             _summary["n_grip_yields"] = len(_grip_yields)
-            _summary["grip_yields"] = _grip_yields[:400]
+            _summary["grip_yields"] = _grip_yields
+            # ★ WRITE THE SIDECAR LAST.  The constructor no longer writes
+            # it: the filter runs here, after the constructor returned, so
+            # a write during construction could never carry these counts —
+            # which is exactly why the log line proved the treatment ran
+            # while the sidecar could not.
+            from .taut_string import write_string_sidecar as _write_sidecar
+            _write_sidecar(layout)
             if _os.environ.get("O4_STEP_DEBUG") == "1":
-                print(f"    [S1b] {len(_raw_pins)} chord target(s); grip "
-                      f"filter released {len(_raw_pins) - len(_string_pins)} "
-                      f"pin(s) over {len(_grip_yields)} over-cap pair(s)")
+                print(f"    [S1b] n_targets={len(_raw_pins)} "
+                      f"n_pins_kept={len(_string_pins)} "
+                      f"n_released={len(_raw_pins) - len(_string_pins)} "
+                      f"n_over_cap_pairs={len(_grip_yields)} "
+                      f"(all four in the domains sidecar)")
         frozen, _rod_pieces = _solve_spine_profile(
             elev, base_hard, u_spine_adj, u_spine_floor, node_band,
             nodes_xy=nodes, graph=G, probe_out=_spine_probe,

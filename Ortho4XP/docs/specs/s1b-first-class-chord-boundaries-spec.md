@@ -266,6 +266,15 @@ work.
 (vi) **If gate-off byte-identity cannot be held** at the new
 call site (import leaks, side effects): STOP — the import-
 neutral law outranks the deadline.
+(vii) **FIRED AND RULED (post-landing, same night): the
+`yield_hard` enumeration.**  Downstream yield stages rebuild
+their hard set from `truth_hard` and never inherit the phase-A
+spine freeze, so fp#8 and the finals could move pinned vertices
+— measured at chord 1's dip as 4.87 m of below-ceiling drag
+with no law author.  RULED at S1 Ruling 54: defect for PINNED
+vertices, design for the rest; the fix is `yield_hard` gaining
+the Ruling-52 KEPT PIN SET — never the wholesale spine freeze.
+Diagnostic arm gated, pre-registered there.
 
 ## §6 The R2 dependency — RULED: BLOCKED tonight, twice over
 

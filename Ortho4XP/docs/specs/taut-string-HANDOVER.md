@@ -52,14 +52,20 @@ round-4 fix) + 141 (37 release-induced junctions, 12 CYXY pin-vs-free,
 **Gates:** `O4_TAUT_STRING_CONSTRUCTION` still default "0";
 `O4_STRING_MOVER_LEDGER`, `O4_HARD_NEIGHBOUR_BOUND`,
 `O4_STRING_PINS_FINAL_HOLD` default "0". Gate-off byte identity: CYXY
-`dcebb6ff…` unchanged; **SPLP RE-BASELINED 2026-08-01 to `1d7f6fc7…`**
-(the old `d8d0f065…` baseline BURIED the RW02 threshold 29 m below its
-CIFP elevation, violating runway_segments' own keep-CIFP rule; the new
-value is correct — 7× reproduced, hash-seed independent; the mid-day
-flip's trigger is positively excluded from code/env/apt/CIFP/data and
-remains unattributed — the specced instrument is an env-gated
-threshold-reconciliation print + a composed-DEM fingerprint in the patch
-provenance header). Probe purity: `O4_STRING_MOVER_LEDGER` proven
+`dcebb6ff…` unchanged; **SPLP BASELINE = `c2316222…` (2026-08-01, final).** Full story, all
+attributed: SPLP RW02's true elevation is **158 ft** (owner-confirmed;
+DEM was right). The owner's mid-day CIFP update had introduced OLD
+INCORRECT data (253 ft) — that WAS the "unattributed" hash flip
+(`d8d0f065…` → `1d7f6fc7…`; Custom Data dir mtimes moved 12:21-12:22,
+file mtimes preserved, which is why the bisect could not see it). Round
+7's "old baseline buried the threshold" verdict INVERTS: the keep-CIFP
+rule was faithfully applying garbage. Owner fixed the CIFP; the
+corrected build hashes `c2316222…` (3× reproduced) with RW02 anchoring
+low and only a ~2 m tiered-budget deficit (was 14.6 m under the bad
+value). `1d7f6fc7…` is retired. The specced instrument stands and is
+now proven necessary: env-gated threshold-reconciliation print +
+composed-DEM (and CIFP) fingerprint in patch provenance — a data update
+must announce itself, not surface as a hash flip. Probe purity: `O4_STRING_MOVER_LEDGER` proven
 byte-inert at SPJC + HECA after round 7's read-only registry query +
 published-attribute fence (before that fix, probe-on arms were NOT
 production at SPJC). Flip

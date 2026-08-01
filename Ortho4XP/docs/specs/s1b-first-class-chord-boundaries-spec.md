@@ -221,7 +221,13 @@ one tile build and the one suite read.  **S1b adds ZERO builds.**
   the completeness assertion: NO both-pinned over-cap pair
   exists after the filter (cheap scan, same epsilon).  The
   grip-yield witness count reconciles with the pre-registered
-  76-pair class.
+  76-pair class.  [PRODUCTION READING: offline-exact did NOT
+  carry — matched-pin median 0.2342 m.  See S1 Ruling 55: the
+  JOIN is suspect first (2,210 of 3,790 pins unmatched at the
+  1 m proximity join — the wrong-object register); G2 re-reads
+  on the canonical-identity join, and the neighbour-drag law
+  (no stage manufactures an over-cap pair against a hard node)
+  is the ruled fix shape behind it.]
 * **G3 (invariants carry):** string-authored defect classes stay
   0 (the 949 → 0 dissolution must survive the reordering);
   `no_datum` stays dissolved; Ruling 19's slice stays 0.

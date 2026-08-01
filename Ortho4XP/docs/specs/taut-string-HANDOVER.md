@@ -100,6 +100,29 @@ strung ground (0 of 3,429 pinned vertices move), retained as the **residual
 spine smoother** on unstrung spine. Its footprint (567 vertices moved, max
 0.283 m) is the baseline for any future retirement.
 
+### 3a. Implementation map (`route_profile/taut_string.py` unless noted)
+
+| symbol | role |
+|---|---|
+| `read_endpoint_band_centre` / `EndpointRead` | Ruling 49's read law: `direct` / `interpolated` / `clamped`. HECA 101/0/27 — mode 2 empty **there**, not in general. No snap, no radius constant. |
+| `chord_station`, `chord_targets` | z linear in along-station **on the chord** — two numbers give every node a target |
+| `compass_ends` | N/S labels from coordinates. **Endpoint order is WALK order and carries no geography** — this caused a transposition that cost a round |
+| `filter_pins_by_grade_law` | Ruling 52 grip filter: strict `>` at 1e-9, minimal via a **re-admission pass** (not a greedy stop), endpoint-protective, never releases a law-anchor pair |
+| `spine_walk_chains` → `compose_through_paths` → `through_path_chains` | the seam. Global best-collinear pairing, parameter-free; **paths stay LINEAR — that is what keeps open-terrain crossing unrepresentable** |
+| `strings_with_tenure` | an edge is spent only by an emitted string; cut/`min_len` edges return; fixpoint, termination arithmetic and asserted |
+| `substrate_fingerprint` / `substrate_from_carriage` / `decorate_nodes_onto_strings` | carriage hook side. **Decoration is multi-valued on purpose** (§3 shared-vertex); its index walks segments cell-by-cell — a bbox fill would allocate ~64 M cells for a 4 km diagonal |
+| `write_string_sidecar` | idempotent, **called LAST** (see trap 3) |
+| `construct_taut_strings` | carriage → service exclusion → chaining → tenure → clip (per-string, so remainders keep the pre-clip chord) → decoration → targets |
+| `solve.py` | targets computed at the phase-A call site, grip-filtered, passed as `string_pins=`; merged into the **existing `anchors` set**; post-phase-A overwrite gone; **Ruling 54: `yield_hard |= kept pins`** |
+
+**Ledgers in the `string_domains` sidecar:** `pins`, `walk_boundaries`
+(with `is_emitted_end`), `departures`, `pins_in_yield_hard`,
+`pin_yield_conflicts`, plus the four counts.
+
+**Retained deliberately:** `taut_string` / `string_with_pegs` are the **§10
+rod sweep's**, not string construction's — do not retire them with the
+constructor family.
+
 ## 4. Measured results — do not re-derive
 
 | | |
@@ -126,14 +149,39 @@ must yield.
    Offline it was 0.000e+00. *Population caveat: 1,580 of 3,790 kept pins
    matched a delivered node within 1 m; the rest are probably spine nodes
    with no nearby emitted vertex — unconfirmed.*
-2. **Free-neighbour cap coupling — the named candidate for the residual.**
-   `n_pin_yield_conflicts = 874`: **`free` 786 / `law_anchor` 88**, excess
-   median 1.616 m, max 14.682. On chord 1: 36, with the **1400-1800 bin
-   holding 7, all `free`, max excess 7.92 m — the same station the worst bin
-   moved to.** A pin cannot be moved directly, but its un-pinned neighbour
-   can, and cap coupling drags the pin. **Fable ruling pending**: should a
-   pin constrain its immediate cap-coupled neighbour? *Note the trap: masking
-   the free neighbours IS the wholesale freeze already rejected.*
+2. **Free-neighbour cap coupling — RULED (Fable Ruling 55), fix not yet
+   implemented.** `n_pin_yield_conflicts = 874`: **`free` 786 /
+   `law_anchor` 88**, excess median 1.616 m, max 14.682. On chord 1: 36, with
+   the **1400-1800 bin holding 7, all `free`, max excess 7.92 m — the same
+   station the worst bin moved to.** A pin cannot be moved directly, but its
+   un-pinned neighbour can, and cap coupling drags the pin: **the string
+   overruled by a blend TRANSITIVELY through the cap.**
+   **THE RULING: the neighbour inherits NO freeze and NO new mechanism — it
+   already owes the pin exactly one thing under law, the cap.** A yield/blend
+   candidate adjacent to a hard node moves within `[hard ± cap·d]`
+   intersected with its own law. **BOUNDING, never freezing** — `cap·d` is
+   the law's own freedom, so corridors still descend away from pins at cap
+   rate. Freezing the neighbours is the wholesale freeze by another name and
+   stays rejected. **The law is stated for ALL hard nodes, pins and truth
+   anchors alike** — the 88 `law_anchor` conflicts show the same violation
+   against anchors, so this was never pin-special; the defect is **any stage
+   that MANUFACTURES an over-cap pair against a hard node.**
+   **THREE SEPARATIONS BEFORE THE FIX, IN ORDER** (mechanism before fix):
+   **(i) THE JOIN FIRST** — 2,210 of 3,790 pins unmatched at a 1 m proximity
+   join is the verify-the-reference failure live in our own instrument.
+   Re-state the pin→delivered join on **CANONICAL identity** and re-read G2
+   on the identity-joined population. **The 0.2342 m median may be partly a
+   wrong-object artifact and must NOT be quoted as pin drag until then.**
+   **(ii) THE MOVER LEDGER** — per conflict, which stage last moved the free
+   member (stamp if cheap, report if not). **(iii)** the 88 `law_anchor`
+   conflicts against the α arm: pre-existing or new, one artifact comparison;
+   pre-existing routes to its own track.
+   **Pre-registered for the fix arm:** identity-joined G2 at pins returns to
+   the 0-class where neighbourhoods are lawful; manufactured conflicts
+   874 → ~0; the 1600 residual closes toward band/cap-explained;
+   hard-adjacent yield infeasibilities surface as **declared** conflicts,
+   small and author-carrying — **a large declared population is a finding**
+   (the pin web over-constraining the yield network) and returns to Fable.
 3. **Chord 1 fragments into 3 strings.** Boundaries at along 398 (turn /
    consensus / route_end, mixed) and 728 (**both ends `consensus`**).
    Corridor census over 239 boundaries: **turn 2**, tenure 113, route_end 63,

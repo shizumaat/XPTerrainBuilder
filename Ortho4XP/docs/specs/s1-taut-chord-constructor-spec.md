@@ -3134,6 +3134,73 @@ the α BASELINE ARM.)**
   the report or a real hook-time band violation; the arm
   reports (target, ceiling, hook, delivered) aligned on ONE
   station definition before any number is quoted.
+  [CONFIRMED IN PRODUCTION same night: delivered at the dip
+  106.40 / 106.90 vs the owner's stated ~106 — +5.18 m from
+  S1b; worst bin −11.07 → −10.74 → −5.83 and MOVED off 1800
+  (the owner's dip is GONE; the residual is a different,
+  shallower station); pre-registration ≈ 105.99 MET;
+  `n_defects` 0, rc 0.  And the wholesale freeze recovered the
+  SAME ~5.2 m — the narrow object was SUFFICIENT, so the
+  over-freeze rejection is vindicated by measurement, not only
+  principle.]
+* **RULING 55 — PINS AND THEIR CAP-COUPLED NEIGHBOURS: THE
+  NEIGHBOUR INHERITS NO FREEZE AND NO NEW MECHANISM — IT
+  ALREADY OWES THE PIN EXACTLY ONE THING UNDER LAW, THE CAP;
+  THE DEFECT IS ANY STAGE THAT MANUFACTURES AN OVER-CAP PAIR
+  AGAINST A HARD NODE.**  The evidence naming one shape: G2
+  fails in production (offline 0.000e+00; build median 0.2342 /
+  p90 1.1407 / max 6.9008 over 1,580 of 3,790 pins MATCHED —
+  population caveat below) and `n_pin_yield_conflicts` = 874 =
+  786 `free` + 88 `law_anchor`, excess median 1.616 / max
+  14.682; chord 1's 1400-1800 bin holds 7 `free`-class
+  conflicts (max 7.92) and W-CHORD1's residual worst bin moved
+  to 1600 — THE CONFLICTS AND THE RESIDUAL SHARE A STATION.
+  The shape: the pin cannot move directly (`yield_hard`), the
+  blend moves its UN-pinned neighbour, the pair goes over-cap,
+  and something later drags the pin — Ruling 54's defect ONE
+  HOP REMOVED: the string overruled by a blend TRANSITIVELY
+  through the cap.  THE LAW: no stage may MANUFACTURE an
+  over-cap pair against a hard node — stated for ALL hard
+  nodes, pins AND truth anchors alike (the 88 `law_anchor`
+  conflicts show the same violation against anchors, so this
+  was never pin-special; the "behaves exactly as a truth
+  anchor" sentence holds — and now indicts the machinery
+  around BOTH).  Mechanically: a yield/blend candidate
+  adjacent to hard nodes moves within the §2-step-2 interval
+  [hard ± cap·d] intersected with its own law — BOUNDING,
+  never freezing.  The named trap is avoided because cap·d is
+  the LAW's own freedom, not ours: corridors still descend
+  away from pins at cap rate — the owner's model, enforced at
+  yield time instead of repaired after.  Freezing the free
+  neighbours REJECTED (the wholesale freeze by another name);
+  doing nothing REJECTED (leaves pins overruled by blends
+  transitively).  MECHANISM BEFORE FIX — candidates are
+  unseparated and the fix lands only after this decomposition:
+  (i) THE JOIN FIRST — 2,210 of 3,790 pins unmatched at 1 m
+  proximity is the VERIFY-THE-REFERENCE register live in our
+  own instrument (nearest-within-1 m is the wrong-object
+  join); the pin→delivered join re-states on CANONICAL
+  identity, and G2 re-reads on the identity-joined population
+  before ANY departure number is trusted; (ii) the MOVER
+  LEDGER — per conflict, which stage last moved the free
+  member (stamp if cheap, report if not); (iii) the
+  `law_anchor` 88 against the α arm — pre-existing or new, one
+  artifact comparison; pre-existing ⇒ its own track, not this
+  line's.  PRE-REGISTERED for the fix arm: identity-joined G2
+  at pins returns to the 0-class where neighbourhoods are
+  lawful; manufactured conflicts 874 → ~0; the 1600 residual
+  closes toward band/cap-explained; hard-adjacent yield
+  infeasibilities surface as DECLARED conflicts
+  small-with-authors — a LARGE declared population is a
+  finding (the pin web over-constraining the yield network)
+  that returns here.  ALSO CLOSED on this run's evidence:
+  fragmentation is OURS, decisively (chord 1's 239 corridor
+  boundaries: turn 2 / tenure 113 / route_end 63 / consensus
+  61; the 24.94 m was a filter artifact, real 8.64 m; the
+  owner's morning intent question WITHDRAWN) — a future work
+  item, not tonight's.  STILL UNGATED, endorsed: the
+  string-attributed law-true slice — `n_defects` = 0 does not
+  speak for it.
 
 Service corridors are EXCLUDED (their reference is the DEM-follow
 shape — spec §4.1 layer 4 exception).  Runway profiles are EXCLUDED

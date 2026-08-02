@@ -149,3 +149,14 @@ ledger) is canonical in `Ortho4XP/CLAUDE.md` and is not duplicated here.
   FAA-ruleset fixture. Acceptance = zero known violations, full census,
   no quarantine machinery, generation-binding law with test twins, all
   five airports.
+
+- **The goal is LAW COMPLIANCE, not instrument-zero** (2026-08-02, owner
+  verbatim: "The goals should always be compliance with grade law, not
+  necessarily absolute zero"). The campaign gate is zero VIOLATIONS OF
+  GRADE LAW — where the law includes its own exemptions, floors and
+  provisional rulings (lawful terraces, the open-boundary floor, the
+  ROFA exemption, the materiality floor). A census row that is lawful-
+  by-exemption or below materiality is NOT a defect; census instruments
+  REPORT, the law ADJUDICATES. "No known violations" on the five-airport
+  battery means no adjudicated law violations, never a demand that every
+  instrument read zero rows.

@@ -453,6 +453,341 @@ def free_road_subsegments(lines, pav_union, *,
     return out
 
 
+# ═════════════════════════════════════════════════════════════════════════
+# LATERAL-CONTIGUITY GRADE LAW — clauses (2)-(5)
+# (owner-confirmed FINAL 2026-08-02; the law itself is
+#  ``grade_law.lateral_contiguity_cap`` / ``…_segments``)
+# ═════════════════════════════════════════════════════════════════════════
+# Clause (1) — the FREE road — is ``free_road_subsegments`` above: only the
+# sub-segments with nothing paved beside them ever reach the slice, so a road
+# inside an apron is absorbed by NEVER BEING CARVED.  This pass is the same
+# ruling for the roads that DO exist as their own faces: at every station of a
+# road-family shape it takes the laterally-contiguous paved cross-section,
+# reads the strictest cap present, and either ABSORBS the stretch into the
+# adjacent surface (clause 4, the preferred form) or, where the surface that
+# owns the cap is not the piece's own neighbour, carries the cap on the piece
+# (``BuiltShape.lateral_cap`` — solver + validator lockstep).
+
+# The station walk itself is ``auto_patch.lateral_contiguity`` — ONE
+# instrument, shared verbatim with ``tools/check_grade``'s twin, so the two
+# readers cannot census different station sets (they did, once: a road the
+# validator flagged had never been walked by the emitter's own axis
+# convention — SPLP way -10009).
+from .lateral_contiguity import (          # noqa: E402
+    GAP_TOL_M as _LATERAL_GAP_TOL_M,
+    MIN_MEMBER_M as _LATERAL_MIN_MEMBER_M,
+    PROBE_M as _LATERAL_PROBE_M,
+    station_caps as _lateral_station_caps,
+    station_normal as _lateral_station_normal,
+)
+
+
+def apply_lateral_contiguity_law(layout, icao: str = "", *,
+                                 rebind_only: bool = False) -> dict:
+    """Clauses (2)-(5) of the lateral-contiguity grade law, per SEGMENT.
+
+    ``rebind_only`` re-evaluates the CAP against the final pre-solve
+    arrangement and changes NO geometry.  The law has to bind what actually
+    ships: the geometric half (absorb / cut) must run early, while the
+    conformance and planarize passes can still weld the rings it makes,
+    but many passes move roles and split shapes between there and the
+    solve — measured at HECA, 255 of 281 residual stations sat on shapes
+    that carried no cap at all because they did not exist, or were not
+    roads, when the geometric pass ran.  So the pass runs twice with ONE
+    law and ONE walker: geometry early, the number late.
+
+    For every road-family shape: walk its axis, read the laterally-contiguous
+    paved cross-section at each 5 m station, and take the STRICTEST cap of the
+    classes present (``grade_law.lateral_contiguity_cap``).  Consecutive
+    stations of equal cap form a SEGMENT
+    (``grade_law.lateral_contiguity_segments``); the shape is cut at the
+    segment boundaries with the existing mouth machinery
+    (``pavement.apron_necks._cut_at_mouth``, the transverse chord across the
+    road at the boundary station), and each segment is then either:
+
+      * ABSORBED into the adjacent surface that owns its cap (clause 4 —
+        merged, so the road stops being a separate shape at all), when that
+        surface is a LITERAL neighbour of the piece and neither side carries
+        per-vertex altitudes (a DEM-followed groundside lot's
+        ``node_altitudes`` align 1:1 with its ring, and a merge would
+        silently misalign them); or
+      * kept, carrying ``lateral_cap`` — the strictest cap, read by the
+        solver (``grade_graph._body_cap``) and stamped for the validator.
+
+    Stations inside a RUNWAY STRIP footprint get no verdict (clause 5: the
+    strip footprint law supersedes there).
+
+    Returns a summary dict; ``layout.shapes`` is rebuilt in place.
+    """
+    from .config import LATERAL_CONTIGUITY_LAW_ENABLED
+    summary = {"roads": 0, "segments": 0, "absorbed": 0, "capped": 0,
+               "cut": 0, "strip_skipped": 0, "rebound": 0, "released": 0}
+    if not LATERAL_CONTIGUITY_LAW_ENABLED:
+        return summary
+    from shapely.strtree import STRtree
+    from .config import ROLE_GRADE_LIMITS
+    from .grade_law import (LATERAL_CONTIGUITY_ROAD_ROLES,
+                            lateral_contiguity_segments)
+    from .pavement.apron_necks import _cut_at_mouth
+
+    def _pav(s):
+        return (s.polygon is not None and not s.polygon.is_empty
+                and s.polygon.geom_type == "Polygon"
+                and ROLE_GRADE_LIMITS.get(s.role) is not None)
+
+    shapes = list(layout.shapes)
+    idx = [i for i, s in enumerate(shapes) if _pav(s)]
+    if not idx:
+        return summary
+    polys = [shapes[i].polygon for i in idx]
+    roles = [shapes[i].role for i in idx]
+    pos = {i: k for k, i in enumerate(idx)}
+    tree = STRtree(polys)
+    strip = None
+    try:
+        from .adjacent_ground import runway_strip_wall_keepout
+        strip = runway_strip_wall_keepout(layout, require_gate=False)
+    except Exception:
+        strip = None
+
+    absorbed_into: dict = {}        # shape index -> [pieces to merge]
+    drop: set = set()
+    add: list = []
+    for i, s in enumerate(shapes):
+        if s.role not in LATERAL_CONTIGUITY_ROAD_ROLES or not _pav(s):
+            continue
+        own_cap = ROLE_GRADE_LIMITS.get(s.role)
+        summary["roads"] += 1
+        normal = _lateral_station_normal(s.polygon)
+        if normal is None:
+            continue
+        nx, ny = normal
+        # THE census — the same call ``tools/check_grade`` makes.
+        stations, caps = _lateral_station_caps(
+            s.polygon, tree, polys, roles, pos.get(i), keepout=strip)
+        if not stations:
+            continue
+        summary["strip_skipped"] += sum(
+            1 for st, cap in zip(stations, caps)
+            if st is not None and cap is None and strip is not None
+            and strip.covers(Point(st)))
+        runs = lateral_contiguity_segments(caps)
+        if not runs:
+            if rebind_only and s.lateral_cap is not None:
+                s.lateral_cap = None
+                summary["released"] += 1
+            continue
+        summary["segments"] += len(runs)
+        binding = [r for r in runs if r[2] < own_cap - 1e-12]
+        if rebind_only:
+            # LATE BINDING: the number only, against the arrangement that
+            # ships.  A road whose neighbours moved out from beside it
+            # RELEASES its cap — the law tightens where it applies and
+            # nowhere else.
+            new_cap = min((r[2] for r in binding), default=None)
+            if new_cap != s.lateral_cap:
+                s.lateral_cap = new_cap
+                summary["rebound"] += 1
+            if new_cap is not None:
+                summary["capped"] += 1
+            continue
+        if not binding:
+            continue
+        # A road that carries PER-VERTEX altitudes (a DEM-followed piece) is
+        # never cut or rebuilt — its ``node_altitudes`` align 1:1 with the
+        # ring it has.  It still takes the law: the STRICTEST cap any of its
+        # stations saw, carried in place.
+        if s.node_altitudes is not None:
+            s.lateral_cap = min(r[2] for r in binding)
+            summary["capped"] += 1
+            continue
+        pieces = _lateral_split(s.polygon, stations, caps, runs, nx, ny,
+                                _cut_at_mouth)
+        if pieces is None:
+            continue
+        if len(pieces) > 1:
+            summary["cut"] += 1
+        for piece, cap in pieces:
+            if cap is None or cap >= own_cap - 1e-12:
+                add.append(_lateral_piece_shape(s, piece, None,
+                                                split=len(pieces) > 1))
+                continue
+            target = _lateral_absorb_target(piece, cap, shapes, idx, polys,
+                                            roles, tree, s)
+            if target is not None:
+                absorbed_into.setdefault(target, []).append(piece)
+                summary["absorbed"] += 1
+            else:
+                add.append(_lateral_piece_shape(s, piece, cap,
+                                                split=len(pieces) > 1))
+                summary["capped"] += 1
+        drop.add(i)
+
+    if rebind_only:
+        import O4_UI_Utils as UI
+        UI.vprint(1,
+            f"  [pav-builder] {icao}: lateral-contiguity law (late "
+            f"re-bind) — {summary['capped']} road shape(s) carry the "
+            f"strictest cap of their cross-section "
+            f"({summary['rebound']} changed, {summary['released']} "
+            f"released) over {summary['roads']} walked.")
+        return summary
+    if not drop and not absorbed_into:
+        return summary
+    for ti, extra in absorbed_into.items():
+        host = shapes[ti]
+        try:
+            merged = unary_union([host.polygon] + extra)
+        except _GEOM_EXC:
+            continue
+        if merged.geom_type == "MultiPolygon":
+            merged = max(merged.geoms, key=lambda g: g.area)
+        if merged.geom_type != "Polygon" or merged.is_empty:
+            continue
+        if not merged.is_valid:
+            merged = merged.buffer(0)
+            if merged.geom_type != "Polygon" or merged.is_empty:
+                continue
+        host.polygon = merged
+    layout.shapes = [s for i, s in enumerate(shapes) if i not in drop] + add
+    import O4_UI_Utils as UI
+    UI.vprint(1,
+        f"  [pav-builder] {icao}: lateral-contiguity law — "
+        f"{summary['roads']} road shape(s) walked, {summary['cut']} cut at "
+        f"segment boundaries, {summary['absorbed']} stretch(es) ABSORBED "
+        f"into the adjacent surface, {summary['capped']} carrying the "
+        f"strictest cap.")
+    return summary
+
+
+def _lateral_piece_shape(src, poly, cap, *, split: bool):
+    """One output shape for a road segment.
+
+    An UNCUT road keeps its own shape object (every field the rest of the
+    build set on it survives — only the cap is added); a CUT road yields
+    dataclass copies, which is safe because a shape carrying per-vertex
+    altitudes is never cut (its ``node_altitudes`` could not follow the
+    new ring)."""
+    if not split:
+        src.polygon = poly
+        src.lateral_cap = cap
+        return src
+    import dataclasses as _dc
+    return _dc.replace(src, polygon=poly, lateral_cap=cap,
+                       node_altitudes=None,
+                       from_route_proximity_cut=True)
+
+
+def _lateral_absorb_target(piece, cap, shapes, idx, polys, roles, tree, src):
+    """The shape index this segment ABSORBS into (clause 4), or ``None``.
+
+    A legal target is a LITERAL neighbour of the piece (shared boundary, not
+    proximity) whose own cap IS the segment's cap, carrying no per-vertex
+    altitudes — merging into a DEM-followed lot would misalign its
+    ``node_altitudes``, so those segments carry the cap instead.  Ties go to
+    the longest shared boundary (the surface the road most belongs to)."""
+    best, best_share = None, 0.0
+    try:
+        boundary = piece.exterior
+    except _GEOM_EXC:
+        return None
+    for k in tree.query(piece.buffer(_LATERAL_GAP_TOL_M)):
+        k = int(k)
+        si = idx[k]
+        host = shapes[si]
+        if host is src or host.polygon is piece:
+            continue
+        if roles[k] in LATERAL_ABSORB_EXCLUDED_ROLES:
+            continue
+        from .config import ROLE_GRADE_LIMITS as _RGL
+        if _RGL.get(roles[k]) != cap:
+            continue
+        if getattr(host, "node_altitudes", None) is not None:
+            continue
+        try:
+            if piece.distance(polys[k]) > _LATERAL_GAP_TOL_M:
+                continue
+            share = boundary.intersection(
+                polys[k].buffer(_LATERAL_GAP_TOL_M)).length
+        except _GEOM_EXC:
+            continue
+        if share > best_share:
+            best, best_share = si, share
+    return best if best_share >= _LATERAL_MIN_MEMBER_M else None
+
+
+# Roles a road may never be merged INTO even when their cap matches: the
+# runway family owns its own footprint law (clause 5) and a building pad is
+# not a surface a road becomes.
+LATERAL_ABSORB_EXCLUDED_ROLES = frozenset({
+    "runway", "runway_crossing", "building", "terminal"})
+
+
+def _lateral_split(poly, stations, caps, runs, nx, ny, cut_at_mouth):
+    """Cut ``poly`` transversely where the segment cap CHANGES and return
+    ``[(piece, cap), …]``.
+
+    The cut chord is the station's own cross-section through the road: the
+    two points where the perpendicular leaves the road's ring.  That is a
+    MOUTH chord in exactly the sense ``_cut_at_mouth`` takes (its non-vertex
+    fallbacks handle a chord whose ends are not ring vertices), so the
+    segmentation reuses the existing machinery rather than inventing one.
+
+    Returns ``None`` when the shape has a single segment and needs no cut
+    (the caller then treats the whole shape as that segment) — except that a
+    single BINDING segment still returns the whole shape with its cap.
+    """
+    if len(runs) == 1:
+        return [(poly, runs[0][2])]
+    cut_stations = [runs[j][0] for j in range(1, len(runs))]
+    pieces = [poly]
+    for si in cut_stations:
+        st = stations[si] if si < len(stations) else None
+        if st is None:
+            continue
+        px, py = st
+        nxt = []
+        for piece in pieces:
+            chord = _lateral_chord(piece, px, py, nx, ny)
+            if chord is None:
+                nxt.append(piece)
+                continue
+            sub = cut_at_mouth(piece, chord[0], chord[1])
+            if sub and len(sub) >= 2 and all(g.area > 1.0 for g in sub):
+                nxt.extend(sub)
+            else:
+                nxt.append(piece)
+        pieces = nxt
+    out = []
+    for piece in pieces:
+        own = [caps[k] for k, st in enumerate(stations)
+               if st is not None and caps[k] is not None
+               and piece.covers(Point(st))]
+        out.append((piece, min(own) if own else None))
+    return out
+
+
+def _lateral_chord(poly, px, py, nx, ny):
+    """The two points where the perpendicular at ``(px, py)`` leaves
+    ``poly``'s ring — the transverse mouth chord across the road."""
+    line = LineString([(px - nx * _LATERAL_PROBE_M, py - ny * _LATERAL_PROBE_M),
+                       (px + nx * _LATERAL_PROBE_M, py + ny * _LATERAL_PROBE_M)])
+    try:
+        inter = line.intersection(poly)
+    except _GEOM_EXC:
+        return None
+    parts = ([inter] if inter.geom_type == "LineString"
+             else [g for g in getattr(inter, "geoms", ())
+                   if g.geom_type == "LineString"])
+    for g in parts:
+        cs = list(g.coords)
+        if len(cs) < 2:
+            continue
+        if g.distance(Point(px, py)) <= _LATERAL_GAP_TOL_M:
+            return cs[0], cs[-1]
+    return None
+
+
 def carve_narrow_service_strips(
         layout: "PavementLayout",
         pav_union,

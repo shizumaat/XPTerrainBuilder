@@ -395,11 +395,14 @@ _WALL_SCOPE_PAVEMENT_ROLES = frozenset(
     })
 
 
-def runway_strip_wall_keepout(layout):
+def runway_strip_wall_keepout(layout, *, require_gate: bool = True):
     """The prepared union of every runway's STRIP FOOTPRINT — the ground on
     which ``ROLE_RETAINING_WALL`` is INADMISSIBLE (owner ruling 2026-08-01;
     the law geometry is ``grade_law.runway_strip_wall_keepout_rings``).
     ``None`` with the gate off, or when the layout carries no runway.
+    ``require_gate=False`` builds the footprint regardless — the
+    lateral-contiguity law's clause (5) ("the runway-strip footprint law
+    supersedes inside strips") needs the SAME geometry under its own gate.
 
     Built ONCE per emitter pass (three passes emit walls) and derived from
     the EMITTED runway rings grouped by ``ref`` — a tile cut or a runway
@@ -407,7 +410,7 @@ def runway_strip_wall_keepout(layout):
     principal axis is not the runway's.  ``tools/check_grade`` re-derives
     the identical footprint from the identical rings in its own frame:
     same law function, same grouping, lockstep by construction."""
-    if not RUNWAY_STRIP_WALL_LAW_ENABLED:
+    if require_gate and not RUNWAY_STRIP_WALL_LAW_ENABLED:
         return None
     groups: dict = {}
     for s in layout.shapes:

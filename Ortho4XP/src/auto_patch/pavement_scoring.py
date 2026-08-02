@@ -59,6 +59,7 @@ from .config import (
     PAVEMENT_SCORE_VETO_FRAC,
     PAVEMENT_SCORE_WEIGHTS,
     PAVEMENT_SCORE_WIDE_HALF_M,
+    SCORER_SERVICE_ADJ,
 )
 from .layout import (
     BuiltShape,
@@ -1268,22 +1269,36 @@ def _enclosed_by_airside(poly, airside_zone, escapes) -> bool:
 PAVEMENT_SCORE_APRON_EDGE_FRAC = 0.4
 # A building abutment counts from this much shared edge.
 _BUILDING_ABUT_MIN_M = 5.0
+# SERVICE-ADJACENCY (owner lateral-contiguity ruling 2026-08-02,
+# classification corollary): "road-width pavement sharing an edge with a
+# service-road spine is SERVICE ROAD, never groundside".  A SUBSTANTIAL
+# shared boundary is the discriminator: an end-connection (one road face
+# meeting the next along the same road) shares only a MOUTH — at most a
+# road width — while a road running ALONGSIDE the service network shares a
+# long flank.  Either bar qualifies: an absolute length (a mouth cannot
+# reach it) or a fraction of the perimeter (a short stub whose whole flank
+# is the shared edge).
+_SERVICE_ADJ_MIN_M = 20.0
+_SERVICE_ADJ_MIN_FRAC = 0.20
 
 
 def _abutment_index(layout):
-    """Memoized ``(apron_tree, apron_polys, apron_ids, bld_union)``.
+    """Memoized ``(apron_tree, apron_polys, apron_ids, bld_union, …)``.
 
     The apron side is an STRtree with owner ids so a shape never
     counts its OWN polygon as an apron edge; the building/terminal
-    side is one buffered union (buildings are never scored).  Roles
-    are read at memo time — enact and shadow each clear the memo on
-    entry so the layers track the current classification.
+    side is one buffered union (buildings are never scored).  The
+    SERVICE layer is the same shape as the apron one (tree + owner ids)
+    and feeds the ``service_adj`` feature.  Roles are read at memo time
+    — enact and shadow each clear the memo on entry so the layers track
+    the current classification.
     """
     cached = getattr(layout, "_pavement_score_abut_unions", None)
     if cached is not None:
         return cached
     aprons, apron_ids, buildings = [], [], []
     chain, chain_ids = [], []
+    service, service_ids = [], []
     for s in layout.shapes:
         p = s.polygon
         if p is None or p.is_empty:
@@ -1293,6 +1308,9 @@ def _abutment_index(layout):
             apron_ids.append(id(s))
         elif s.role in (ROLE_BUILDING, "terminal"):
             buildings.append(p)
+        if s.role in (ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION):
+            service.append(p)
+            service_ids.append(id(s))
         if s.role in _CHAIN_ROLES:
             chain.append(p)
             chain_ids.append(id(s))
@@ -1327,9 +1345,17 @@ def _abutment_index(layout):
             chain_tree = STRtree(chain)
         except _GEOM_EXC:
             chain_tree = None
+    service_tree = None
+    if service:
+        try:
+            from shapely.strtree import STRtree
+            service_tree = STRtree(service)
+        except _GEOM_EXC:
+            service_tree = None
     layout._pavement_score_abut_unions = (
         tree, aprons, apron_ids, bld_u,
-        (chain_tree, chain, chain_ids), bld_shadow_u)
+        (chain_tree, chain, chain_ids), bld_shadow_u,
+        (service_tree, service, service_ids))
     return layout._pavement_score_abut_unions
 
 
@@ -1345,7 +1371,8 @@ def reclass_building_faces(layout) -> int:
     """
     layout._pavement_score_abut_unions = None
     try:
-        _t, _p, _i, bld_u, chain_u, _shadow = _abutment_index(layout)
+        (_t, _p, _i, bld_u, chain_u, _shadow,
+         _svc_layer) = _abutment_index(layout)
     except _GEOM_EXC:
         return 0
     if bld_u is None or chain_u is None:
@@ -1674,9 +1701,10 @@ def shape_features(polygon, layout, *, adjacency=None, owner=None,
     x["airside_contact"] = 0.0
     x["taxi_contact"] = 0.0
     x["building_shadow"] = 0.0
+    x["service_adj"] = 0.0
     try:
         (apron_tree, apron_polys, apron_ids, bld_u,
-         chain_layer, bld_shadow_u) = _abutment_index(layout)
+         chain_layer, bld_shadow_u, service_layer) = _abutment_index(layout)
         boundary = polygon.exterior
         if apron_tree is not None:
             skip = id(owner) if owner is not None else None
@@ -1729,6 +1757,33 @@ def shape_features(polygon, layout, *, adjacency=None, owner=None,
             x["building_shadow"] = _clamp01(
                 polygon.intersection(bld_shadow_u).area
                 / max(polygon.area, 1e-9))
+        # SERVICE-ADJACENCY (owner lateral-contiguity ruling 2026-08-02,
+        # classification corollary): road-width pavement sharing a
+        # SUBSTANTIAL boundary with the service-road network is a service
+        # road, never a landside lot.  Restricted to ROAD-WIDTH shapes
+        # (the same ``road_corridor`` predicate G-FREE-ROAD gates SERVICE
+        # on — the free-road width semantics, one source) so a wide lot
+        # that merely fronts a road never qualifies, and to a shared edge
+        # no MOUTH could reach (see ``_SERVICE_ADJ_MIN_M``), so a road's
+        # own end-connections never vote for it.  The shape's own entry
+        # never self-counts.
+        if (SCORER_SERVICE_ADJ and road_corridor
+                and service_layer[0] is not None):
+            svc_tree, svc_polys, svc_ids = service_layer
+            skip = id(owner) if owner is not None else None
+            near_svc = [
+                int(k) for k in svc_tree.query(
+                    polygon, predicate="dwithin", distance=0.6)
+                if svc_ids[int(k)] != skip
+                and svc_polys[int(k)] is not polygon]
+            if near_svc:
+                svc_halo = unary_union(
+                    [svc_polys[k] for k in near_svc]).buffer(0.6)
+                shared_m = boundary.intersection(svc_halo).length
+                per = max(boundary.length, 1e-9)
+                if (shared_m >= _SERVICE_ADJ_MIN_M
+                        or shared_m / per >= _SERVICE_ADJ_MIN_FRAC):
+                    x["service_adj"] = 1.0
     except _GEOM_EXC:
         pass
 

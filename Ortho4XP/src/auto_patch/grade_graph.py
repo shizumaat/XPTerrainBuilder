@@ -260,6 +260,14 @@ class GradeShape:
     ``BuiltShape.adopts_taxi_grade`` / ``.adopted_taxi_letter``; OSM reader:
     from the ``o4_grade_law='taxi'`` way tag (+ ``code_letter``).  Apron
     (1 %) is more limiting than taxi (1.5 %); when both are set apron wins.
+
+    ``lateral_cap``  LATERAL-CONTIGUITY LAW (owner FINAL 2026-08-02, clause
+    2): the STRICTEST cap of any pavement class in this piece's laterally-
+    contiguous cross-section, when the owning surface could not absorb the
+    piece.  Generalises the two adoption flags to the cap itself.  Layout
+    reader: ``BuiltShape.lateral_cap``; OSM reader: the ``o4_grade_law_cap``
+    way tag.  It is a MINIMUM over the other resolutions — never a
+    relaxation.
     """
     role: str
     ring: list[tuple[float, float]]
@@ -267,6 +275,7 @@ class GradeShape:
     adopts_apron_grade: bool = False
     adopts_taxi_grade: bool = False
     adopted_taxi_letter: str | None = None
+    lateral_cap: float | None = None
     # Runway DE-SEGMENTATION (O4_RUNWAY_SINGLE_POLY): this is the ONE ring
     # per runway ref whose FAA profile stations are interior long-edge
     # vertices.  ``plane_constraints`` scopes such a ring's within-shape
@@ -892,6 +901,19 @@ def _spine_cap(membership: dict, ctx: GradeContext) -> float:
 
 
 def _body_cap(shape: GradeShape, ctx: GradeContext, membership: dict) -> float:
+    cap = _body_cap_unbounded(shape, ctx, membership)
+    # LATERAL-CONTIGUITY LAW (owner FINAL 2026-08-02, clause 2): the piece's
+    # laterally-contiguous cross-section holds a STRICTER class — that cap
+    # governs the whole cross-section.  Applied as a MINIMUM (the law only
+    # ever tightens; a looser lateral answer never relaxes the shape's own
+    # law) and to every role, so the same statement covers a road pulled to
+    # an apron's 1 %, a taxiway's 1.5 % or a groundside lot's 4 %.
+    lat = getattr(shape, "lateral_cap", None)
+    return cap if lat is None else min(cap, float(lat))
+
+
+def _body_cap_unbounded(shape: GradeShape, ctx: GradeContext,
+                        membership: dict) -> float:
     if shape.role == APRON_ROLE:
         return APRON_MAX_GRADE
     # USER RULING 2026-07-06: a service road / junction sharing an edge
@@ -2003,7 +2025,8 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
                         adopts_taxi_grade=getattr(
                             s, "adopts_taxi_grade", False),
                         adopted_taxi_letter=getattr(
-                            s, "adopted_taxi_letter", None))
+                            s, "adopted_taxi_letter", None),
+                        lateral_cap=getattr(s, "lateral_cap", None))
         sc = shape_constraints_cached(id(s.polygon), gs, ctx)
         spine_pairs = set()
         for chain in sc.spine_chains:

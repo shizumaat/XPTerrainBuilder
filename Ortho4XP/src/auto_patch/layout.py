@@ -584,6 +584,16 @@ class BuiltShape:
     # flag is set only on portions NOT already apron-adopted.
     adopts_taxi_grade: bool = False
     adopted_taxi_letter: str | None = None
+    # LATERAL-CONTIGUITY GRADE LAW (owner-confirmed FINAL 2026-08-02, clause
+    # (2)): the STRICTEST cap of any pavement class in this piece's
+    # laterally-contiguous cross-section, when the surface that owns that cap
+    # could not ABSORB the piece (clause 4 is preferred and leaves no shape
+    # behind to carry a cap).  Generalises ``adopts_apron_grade`` /
+    # ``adopts_taxi_grade`` — which name two specific classes — to the cap
+    # itself, so a road pulled to a groundside lot's 4 % is expressible too.
+    # Consumed by ``grade_graph._body_cap`` and emitted as
+    # ``o4_grade_law_cap`` for ``tools/check_grade`` (one law, two readers).
+    lateral_cap: float | None = None
     # Runway DE-SEGMENTATION (O4_RUNWAY_SINGLE_POLY, docs/
     # runway_single_polygon_plan.md): this ROLE_RUNWAY shape is ONE ring
     # per runway ref built from the persisted FAA profile (long-edge
@@ -1941,6 +1951,14 @@ class PavementLayout:
                 _adopted_let = getattr(s, "adopted_taxi_letter", None)
                 if _adopted_let:
                     tags["code_letter"] = str(_adopted_let)
+            # LATERAL-CONTIGUITY LAW (2026-08-02, clause 2): the strictest
+            # cap of the piece's laterally-contiguous cross-section, stamped
+            # so the validator reads the SAME cap the solver built to.  Set
+            # only under ``O4_LATERAL_CONTIGUITY_LAW`` ⇒ gate-off patches
+            # carry no extra tag and stay byte-identical.
+            _lat_cap = getattr(s, "lateral_cap", None)
+            if _lat_cap is not None:
+                tags["o4_grade_law_cap"] = f"{float(_lat_cap):.6f}"
             # Size-dependent taxiway grade cap (gate TAXI_GRADE_BY_WIDTH):
             # stamp the ICAO code letter so the grade validator can apply
             # the same width-dependent cap the solver used (A/B → 3 %,

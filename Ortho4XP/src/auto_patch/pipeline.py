@@ -338,9 +338,23 @@ _NEEDLE_MIN_EDGE_M = 8.0
 # dissolve while no ring loses real pavement to the collapse (keeps the
 # build-time airside-drop counter at zero).
 _NEEDLE_MAX_DROP_AREA_M2 = 100.0
+# THE SOURCE-COVERAGE DISCRIMINATOR (Fable ruling 2026-08-02, gate
+# ``O4_NEEDLE_SOURCE_GUARD``).  Area cannot separate the two classes the
+# collapse must tell apart: the KBNA 289/290 artifact apexes remove ≈85 m²
+# and HECA's H1 REAL pavement wedge is 90.8 m² — no threshold fits between
+# them (field-report round, §D1).  What DOES separate them is what the
+# removed triangle covers: an artifact spike encloses ground the SOURCE
+# pavement never paved, while a real wedge tip is source pavement.  So the
+# discriminator is the test — a drop is admissible only when the apex
+# triangle does not cover source pavement — and the cumulative area cap
+# above stays on as a secondary bound.
+# Fraction of the apex triangle that must be ON source pavement for the
+# apex to count as real pavement (a hair over "touches" so a triangle that
+# merely grazes a source edge still collapses).
+_NEEDLE_SOURCE_COVER_FRAC = 0.10
 
 
-def _collapse_ring_needles(coords_open, na_open):
+def _collapse_ring_needles(coords_open, na_open, source_union=None):
     """Drop degenerate needle apexes from an OPEN ring (no closing repeat).
 
     Iterates to a fixed point (nested spikes / a newly-exposed apex after a
@@ -350,8 +364,15 @@ def _collapse_ring_needles(coords_open, na_open):
     UNLESS doing so would push the cumulative area removed from this ring
     past ``_NEEDLE_MAX_DROP_AREA_M2`` (a real-pavement wedge tip, not a
     zero-area artifact spike; kept so no coverage is lost).
+
+    ``source_union`` (the source pavement footprint, passed only under
+    ``O4_NEEDLE_SOURCE_GUARD``) adds THE discriminator: an apex whose
+    triangle COVERS source pavement is real pavement and is never dropped,
+    whatever its area.  Off ⇒ area is the only test, exactly as before.
+
     Returns ``(coords_open, na_open, n_dropped)``; ``na_open`` may be
-    ``None`` (geometry-only)."""
+    ``None`` (geometry-only).  ``_collapse_ring_needles.last_kept_on_source``
+    counts the apexes the guard alone saved (build-time reporting)."""
     import math as _math
     angle_deg = _NEEDLE_ANGLE_DEG
     min_edge = _NEEDLE_MIN_EDGE_M
@@ -359,6 +380,7 @@ def _collapse_ring_needles(coords_open, na_open):
     coords = list(coords_open)
     na = list(na_open) if na_open is not None else None
     dropped = 0
+    kept_on_source = 0
     area_removed = 0.0
     changed = True
     while changed and len(coords) > 3:
@@ -382,6 +404,12 @@ def _collapse_ring_needles(coords_open, na_open):
                 if (area_removed + apex_area
                         > max_drop):
                     continue          # real-pavement tip — keep it
+                if (source_union is not None and apex_area > 0.0
+                        and _apex_covers_source(
+                            (ax, ay), (bx, by), (cx, cy), apex_area,
+                            source_union)):
+                    kept_on_source += 1
+                    continue          # REAL pavement — the discriminator
                 del coords[i]
                 if na is not None:
                     del na[i]
@@ -389,7 +417,32 @@ def _collapse_ring_needles(coords_open, na_open):
                 area_removed += apex_area
                 changed = True
                 break
+    _collapse_ring_needles.last_kept_on_source = kept_on_source
     return coords, na, dropped
+
+
+_collapse_ring_needles.last_kept_on_source = 0
+
+
+def _apex_covers_source(a, b, c, apex_area, source_union) -> bool:
+    """Does the apex triangle ``a-b-c`` cover SOURCE pavement?
+
+    True ⇒ dropping the apex would carve real pavement out of the emitted
+    surface (the H1 class); False ⇒ the spike encloses ground the source
+    never paved (the KBNA construction-artifact class).  A geometry failure
+    answers True — the conservative side, where the apex is KEPT and no
+    coverage can be lost to a broken measurement."""
+    from shapely.geometry import Polygon as _Poly
+    try:
+        tri = _Poly((a, b, c))
+        if not tri.is_valid:
+            tri = tri.buffer(0)
+        if tri.is_empty:
+            return False
+        return (tri.intersection(source_union).area
+                >= _NEEDLE_SOURCE_COVER_FRAC * apex_area)
+    except Exception:
+        return True
 
 
 def _dedup_coincident_ring_vertices(layout, icao: str, tol_m: float = 0.05,
@@ -417,6 +470,25 @@ def _dedup_coincident_ring_vertices(layout, icao: str, tol_m: float = 0.05,
     n_fixed = 0
     n_needle_shapes = 0
     n_needle_total = 0
+    n_needle_kept_src = 0
+    # THE SOURCE-COVERAGE DISCRIMINATOR (gate ``O4_NEEDLE_SOURCE_GUARD``):
+    # the source pavement footprint the collapse must never carve into —
+    # the SAME union ``verification.check_source_coverage`` measures against
+    # (source ∪ runway), so the guard and the coverage invariant cannot
+    # disagree about what "source pavement" means.
+    needle_source = None
+    if (collapse_needles
+            and os.environ.get("O4_NEEDLE_SOURCE_GUARD", "0") == "1"):
+        needle_source = getattr(layout, "source_pavement_union", None)
+        if needle_source is not None and not needle_source.is_empty:
+            _rwy_u = getattr(layout, "runway_union", None)
+            if _rwy_u is not None and not _rwy_u.is_empty:
+                try:
+                    needle_source = needle_source.union(_rwy_u)
+                except Exception:
+                    pass
+        else:
+            needle_source = None
     for s in layout.shapes:
         p = getattr(s, "polygon", None)
         if p is None or p.is_empty or p.geom_type != "Polygon":
@@ -473,7 +545,8 @@ def _dedup_coincident_ring_vertices(layout, icao: str, tol_m: float = 0.05,
             if aligned:
                 open_na = new_na[:-1] if has_close else list(new_na)
             open_coords, open_na, n_needle = _collapse_ring_needles(
-                open_coords, open_na)
+                open_coords, open_na, source_union=needle_source)
+            n_needle_kept_src += _collapse_ring_needles.last_kept_on_source
             if n_needle:
                 new_coords = list(open_coords) + [open_coords[0]]
                 if aligned:
@@ -519,6 +592,11 @@ def _dedup_coincident_ring_vertices(layout, icao: str, tol_m: float = 0.05,
             f"ring needle(s) (<{_NEEDLE_ANGLE_DEG:.0f} deg apex, edges "
             f">{_NEEDLE_MIN_EDGE_M:.0f} m) from {n_needle_shapes} airside "
             f"shape(s).")
+    if n_needle_kept_src:
+        UI.vprint(1,
+            f"  [pav-builder] {icao}: source-coverage guard KEPT "
+            f"{n_needle_kept_src} needle apex(es) covering real source "
+            f"pavement (they would have been collapsed on area alone).")
     return n_fixed
 
 
@@ -4449,6 +4527,27 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 f"  [pav-builder] {icao}: conformed {_n_parallel} "
                 f"parallel service-road vertex(es) across narrow gaps.")
 
+        # LATERAL-CONTIGUITY GRADE LAW (owner-confirmed FINAL 2026-08-02,
+        # docs/RULINGS.md).  When its gate is on, this ONE pass replaces
+        # the two proximity-band adoption passes below: they are the same
+        # ruling in its earlier form (apron-only 2026-07-06, taxi-only
+        # 2026-07-07, both delimited by a BUFFER band the owner has since
+        # ruled out — "adjacency = literal shared boundary in the sliced
+        # arrangement, never proximity"), and running both would cap the
+        # same pieces twice.  Gate off ⇒ this returns immediately and the
+        # two band passes run exactly as before.
+        from .config import (
+            LATERAL_CONTIGUITY_LAW_ENABLED as _LAT_LAW_ON)
+        if _LAT_LAW_ON:
+            from .groundside import apply_lateral_contiguity_law
+            try:
+                apply_lateral_contiguity_law(layout, icao)
+            except _GEOM_EXC as _lat_exc:
+                UI.vprint(1, f"  [pav-builder] WARN: {icao}: "
+                             f"lateral-contiguity law failed ({_lat_exc!r}) "
+                             f"— pieces keep their own caps.")
+            _covp(layout, "post-lateral-contiguity")
+
         # APRON-EDGE GRADE ADOPTION (USER RULING 2026-07-06, clarified):
         # "the portion of service road that is inside, or running along
         # the edge of an apron follows apron grading.  A service road
@@ -4473,7 +4572,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
             and not _s.polygon.is_empty
             and _s.polygon.geom_type == "Polygon"]
         _adopt_band = None
-        if _apron_polys_adopt:
+        if _apron_polys_adopt and not _LAT_LAW_ON:
             try:
                 _adopt_band = unary_union(_apron_polys_adopt).buffer(
                     _APRON_EDGE_BAND_M, join_style=2)
@@ -4584,7 +4683,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
             and _s.polygon.geom_type == "Polygon"]
         _taxi_polys_tx = [_s.polygon for _s in _taxi_shapes_tx]
         _taxi_band = None
-        if _taxi_polys_tx:
+        if _taxi_polys_tx and not _LAT_LAW_ON:
             try:
                 _taxi_union_tx = unary_union(_taxi_polys_tx)
                 _taxi_band = _taxi_union_tx.buffer(
@@ -5202,6 +5301,20 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 UI.vprint(1, f"  [pav-builder] {icao}: pre-solve "
                              f"adjacent-ground band construction FAILED: "
                              f"{_agpre_exc!r}")
+
+        # LATERAL-CONTIGUITY LAW, late re-bind (owner FINAL 2026-08-02).
+        # The geometric half ran before the conformance passes so its cuts
+        # and merges could be welded; the CAP is re-read here, against the
+        # arrangement the solver is about to see and the emitter will ship.
+        # Nothing moves — this writes one number per road shape.
+        if _LAT_LAW_ON:
+            from .groundside import apply_lateral_contiguity_law as _lat_law
+            try:
+                _lat_law(layout, icao, rebind_only=True)
+            except _GEOM_EXC as _lat_exc2:
+                UI.vprint(1, f"  [pav-builder] WARN: {icao}: "
+                             f"lateral-contiguity re-bind failed "
+                             f"({_lat_exc2!r}).")
 
         if USE_PER_SURFACE_SOLVER and layout.anchor is not None:
             # Runway CIFP thresholds are LOCKED — the solver never moves them.

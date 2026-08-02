@@ -713,7 +713,18 @@ def _grade_graph_edges(s, coords, idx, ctx, ring_only=False):
     shape's ``lazy_expand`` thunk (this same call without ``ring_only``)."""
     from auto_patch import grade_graph as GG
     keys = [i if i is not None else ("_n", p) for p, i in enumerate(idx)]
-    gs = GG.GradeShape(role=s.role, ring=list(coords), keys=keys)
+    # ``lateral_cap`` (LATERAL-CONTIGUITY LAW, owner FINAL 2026-08-02) must
+    # travel with the shape here as well as in ``build_unified_graph``: the
+    # two consumers SHARE one memo keyed by ``(polygon id, role, ring_only)``
+    # (``shape_constraints_cached``), so whichever runs first fixes the caps
+    # for both — a GradeShape built without the cap here would silently hand
+    # the un-capped constraint set to the graph consumer too, and the solver
+    # would build to a law the validator does not check it against.
+    # (The older ``adopts_apron_grade`` / ``adopts_taxi_grade`` flags have
+    # exactly this gap today and are NOT changed here: closing it moves
+    # gate-off output.  Reported, not fixed in this round.)
+    gs = GG.GradeShape(role=s.role, ring=list(coords), keys=keys,
+                       lateral_cap=getattr(s, "lateral_cap", None))
     sc = GG.shape_constraints_cached(id(s.polygon), gs, ctx,
                                      ring_only=ring_only)
     pos = {i: coords[p] for p, i in enumerate(idx) if i is not None}

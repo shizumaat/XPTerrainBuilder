@@ -87,6 +87,8 @@ __all__ = [
     "PAVEMENT_CLASS_SPLIT_MAX_RING_VERTICES",
     "PAVEMENT_SCORE_V2",
     "PAVEMENT_SCORE_PURE",
+    "SCORER_SERVICE_ADJ",
+    "LATERAL_CONTIGUITY_LAW_ENABLED",
     "PAVEMENT_SCORE_WEIGHTS",
     "PAVEMENT_SCORE_RELIABILITY",
     "PAVEMENT_SCORE_MIN_AREA_M2",
@@ -1969,6 +1971,23 @@ PAVEMENT_SCORE_V2 = _os.environ.get("O4_PAVEMENT_SCORE_V2", "on")
 # (LOW → legacy passes) development behavior.  Shapes with NO winner
 # (zero evidence) always keep their born role.
 PAVEMENT_SCORE_PURE = _os.environ.get("O4_PAVEMENT_SCORE_PURE", "1") == "1"
+# SERVICE-ADJACENCY feature (owner lateral-contiguity ruling 2026-08-02,
+# classification corollary: "road-width pavement sharing an edge with a
+# service-road spine is SERVICE ROAD, never groundside").  Gate OFF ⇒ the
+# ``service_adj`` feature is never computed and never scored, so the
+# emitted patch is byte-identical.
+SCORER_SERVICE_ADJ = _os.environ.get("O4_SCORER_SERVICE_ADJ", "0") == "1"
+# LATERAL-CONTIGUITY GRADE LAW (owner-confirmed FINAL 2026-08-02, clauses
+# (2)-(5); the law lives in ``grade_law.lateral_contiguity_cap`` /
+# ``…_segments`` and the emitter in
+# ``groundside.apply_lateral_contiguity_law``).  ON, the new pass REPLACES
+# the two proximity-band grade-adoption passes (apron-edge 2026-07-06 and
+# taxi-edge 2026-07-07): they are the same ruling in its earlier,
+# class-limited, proximity-delimited form, and running both would double-cap
+# the same pieces.  OFF ⇒ those two passes run exactly as before and the
+# emitted patch is byte-identical.
+LATERAL_CONTIGUITY_LAW_ENABLED = _os.environ.get(
+    "O4_LATERAL_CONTIGUITY_LAW", "0") == "1"
 # Points each feature contributes toward each class, BEFORE the
 # per-airport source-reliability scaling (spec §6).  Feature values are
 # fractions in [0,1]; negative points are allowed.  Override individual
@@ -2050,6 +2069,16 @@ PAVEMENT_SCORE_WEIGHTS: dict = {
     # the airside side of buildings" — a shape sharing a building edge
     # while aircraft-side votes and gates APRON.
     "building_abut":       {"APRON": 1.5},
+    # LATERAL-CONTIGUITY ruling 2026-08-02, classification corollary:
+    # road-width pavement sharing a SUBSTANTIAL edge with the
+    # service-road network is a service road, never a landside lot.
+    # 2.0 is calibrated against the GROUNDSIDE case it must answer: a
+    # runway-disconnected road-covered corridor scores GROUNDSIDE 4.0
+    # (``road_cover`` 2.0 + ``runway_disconnected`` 2.0) — the two
+    # reasons the HECA 41-shape class was demoted — while SERVICE holds
+    # ``road_cover`` 0.5 + ``road_narrow`` 2.5.  The feature is only
+    # ever non-zero under ``SCORER_SERVICE_ADJ``.
+    "service_adj":         {"SERVICE": 2.0},
     "unpaved_cover":       {},          # logged only; tune from shadows
 }
 _ps_weights_env = _os.environ.get("O4_PAVEMENT_SCORE_WEIGHTS")

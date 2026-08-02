@@ -3583,7 +3583,8 @@ def _drop_overlap_against_fixed_shapes(
                 adopts_taxi_grade=getattr(
                     source_shape, "adopts_taxi_grade", False),
                 adopted_taxi_letter=getattr(
-                    source_shape, "adopted_taxi_letter", None)))
+                    source_shape, "adopted_taxi_letter", None),
+                lateral_cap=getattr(source_shape, "lateral_cap", None)))
 
     n_dropped = 0
     n_clipped = 0

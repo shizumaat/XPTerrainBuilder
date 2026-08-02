@@ -113,10 +113,25 @@ try:
     from auto_patch.grade_law import (
         runway_axis_and_width as _runway_axis_and_width,
         runway_strip_wall_keepout_rings as _runway_strip_wall_keepout_rings,
+        drainage_spine_parents as _drainage_spine_parents,
+        DRAINAGE_SPINE_PARENT_ROLES as _DRAINAGE_SPINE_PARENT_ROLES,
     )
 except Exception:
     _runway_axis_and_width = None
     _runway_strip_wall_keepout_rings = None
+    _DRAINAGE_SPINE_PARENT_ROLES = frozenset({
+        "runway", "runway_crossing", "primary_parallel",
+        "secondary_parallel", "stub", "cross_connector", "junction",
+        "apron",
+    })
+
+    def _drainage_spine_parents(candidates, max_parents=2):
+        best = {}
+        for d, key, payload in candidates:
+            cur = best.get(key)
+            if cur is None or d < cur[0]:
+                best[key] = (float(d), key, payload)
+        return sorted(best.values(), key=lambda r: (r[0], r[1]))[:max_parents]
 
 
 # ── OSM parsing ─────────────────────────────────────────────────
@@ -717,6 +732,21 @@ def _check_plane_gradient(ways: List[Way],
 
 
 
+def _lateral_cap_tag(way: "Way") -> Optional[float]:
+    """The LATERAL-CONTIGUITY cap the build stamped on this way
+    (``o4_grade_law_cap``, owner FINAL 2026-08-02 clause 2), or ``None``.
+
+    The solver reads the same number off ``BuiltShape.lateral_cap`` through
+    ``grade_graph._body_cap`` — one law, two readers."""
+    raw = way.tags.get("o4_grade_law_cap")
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
 def _role_grade_limit(way: "Way",
                       default_grade: float) -> Optional[float]:
     """Resolve the within-shape grade limit for a way.
@@ -746,22 +776,29 @@ def _role_grade_limit(way: "Way",
     # ``code_letter``; validate at the same letter-aware cap the solver
     # used so both readers apply the same law.
     if _law_override == "taxi":
-        return taxi_grade_cap_for_letter(way.tags.get("code_letter"))
-    if _law_override and _law_override in ROLE_GRADE_LIMITS:
-        return ROLE_GRADE_LIMITS[_law_override]
+        base = taxi_grade_cap_for_letter(way.tags.get("code_letter"))
+    elif _law_override and _law_override in ROLE_GRADE_LIMITS:
+        base = ROLE_GRADE_LIMITS[_law_override]
     # Size-dependent taxiway cap (gate TAXI_GRADE_BY_WIDTH): a sized
     # taxiway carries the ICAO code letter the build stamped on it; code
     # A/B (narrow, <15 m) validate at 3 %, C–F at 1.5 % — ICAO Annex 14
     # §3.9.3.  Mirrors the solver's per-shape cap so the validator and
     # build stay in lockstep.  Patches without the tag (gate off / older
     # builds) fall through to the uniform role cap below.
-    if role in TAXI_GRADE_WIDTH_ROLES:
-        letter = way.tags.get("code_letter")
-        if letter:
-            return taxi_grade_cap_for_letter(letter)
-    if role in ROLE_GRADE_LIMITS:
-        return ROLE_GRADE_LIMITS[role]
-    return default_grade
+    elif role in TAXI_GRADE_WIDTH_ROLES and way.tags.get("code_letter"):
+        base = taxi_grade_cap_for_letter(way.tags.get("code_letter"))
+    elif role in ROLE_GRADE_LIMITS:
+        base = ROLE_GRADE_LIMITS[role]
+    else:
+        base = default_grade
+    # LATERAL-CONTIGUITY LAW (owner FINAL 2026-08-02, clause 2): the piece
+    # carries the strictest cap of its laterally-contiguous cross-section.
+    # A MINIMUM, never a relaxation — the same composition
+    # ``grade_graph._body_cap`` applies on the solver side.
+    lat = _lateral_cap_tag(way)
+    if lat is not None and base is not None:
+        return min(base, lat)
+    return base
 
 
 def _pair_grade_limit(way_a: "Way", way_b: "Way",
@@ -1251,7 +1288,8 @@ def iter_shape_grade_constraints(
                     w.tags.get("o4_grade_law") == "taxi"),
                 adopted_taxi_letter=(
                     w.tags.get("code_letter")
-                    if w.tags.get("o4_grade_law") == "taxi" else None))
+                    if w.tags.get("o4_grade_law") == "taxi" else None),
+                lateral_cap=_lateral_cap_tag(w))
             sc = _GG.shape_constraints(gs, _law_ctx)
             idx = {pnids[k]: k for k in range(n)}
             for (ka, kb, cap) in sc.edges:
@@ -1739,47 +1777,71 @@ def _check_no_wall_in_runway_strip(ways: List[Way], nodes, ll_to_m
 # reports the shortfall against ``DRAINAGE_SPINE_MIN_FALL_M`` separately,
 # because that constant is PROVISIONAL and must not silently become the
 # pass/fail line.
-_SPINE_AIRSIDE_ROLES = frozenset({
-    "runway", "runway_crossing", "primary_parallel", "secondary_parallel",
-    "stub", "cross_connector", "junction", "apron",
-})
+# THE parent role set is the law's (``grade_law``), not a second copy —
+# same statement, same population as ``gap_fill._airside_shapes``.
+_SPINE_AIRSIDE_ROLES = _DRAINAGE_SPINE_PARENT_ROLES
 _SPINE_PARENT_CELL_M = 40.0
 
 
+def _scan_edges(px, py, rings, cand):
+    """``[(distance, wid, edge_alt), …]`` for the candidate ring edges —
+    distance to the ring, elevation LINEARLY INTERPOLATED along the
+    nearest edge (the same metric ``gap_fill._spine_interval`` uses)."""
+    out = []
+    for (si, ei) in cand:
+        wid, ring = rings[si]
+        ax, ay, az = ring[ei]
+        bx, by, bz = ring[(ei + 1) % len(ring)]
+        vx, vy = bx - ax, by - ay
+        l2 = vx * vx + vy * vy
+        t = 0.0 if l2 < 1e-12 else max(0.0, min(
+            1.0, ((px - ax) * vx + (py - ay) * vy) / l2))
+        qx, qy = ax + t * vx, ay + t * vy
+        out.append((math.hypot(px - qx, py - qy), wid, az + t * (bz - az)))
+    return out
+
+
 def _nearest_edge_alt_by_way(px, py, rings, grid, search_m=200.0):
-    """``[(distance, wid, edge_alt), …]`` — for each pavement ring near
-    ``(px, py)``, the distance to that ring and the elevation LINEARLY
-    INTERPOLATED along its nearest edge (the same metric
-    ``gap_fill._spine_interval`` uses: distance to the exterior RING, edge
-    interpolation for the reference altitude).  Sorted nearest-first."""
-    best: Dict[str, Tuple[float, float]] = {}
+    """The station's BOUNDING PARENTS, nearest first, as
+    ``[(distance, wid, edge_alt), …]``.
+
+    Selection is ``grade_law.drainage_spine_parents`` — the same function
+    ``gap_fill._AirsideNearestIndex`` ranks with — so the emitter and this
+    reader cannot pick different parents for the same station.
+
+    THE SEARCH IS SOUND, which the previous grid walk was not: it stopped
+    at the first cell ring holding two distinct ways, and a way whose
+    nearest edge lies just outside that ring can be NEARER than one inside
+    it.  Measured at HECA (2026-08-02): the true nearest parent at 67.31 m
+    was missed and a 91.96 m one substituted, whose lower edge sat 0.85 m
+    under the real one — one spine read 0.47 m ABOVE its "lower" pavement
+    when against its real parents it is 0.38 m BELOW.  Scanning cells
+    ``±k`` about the station's own cell covers every geometry within
+    ``k·r`` of the station (the station is at least ``k·r`` from the
+    scanned region's boundary), so the answer is exact once the SECOND
+    parent sits inside that radius; otherwise the reach doubles, and a
+    station that outruns ``search_m`` falls back to the full scan rather
+    than to a truncated answer."""
     r = _SPINE_PARENT_CELL_M
-    reach = _SPINE_PARENT_CELL_M
+    reach = r
+    cx, cy = int(px // r), int(py // r)
     while reach <= search_m:
         cand = set()
-        cx, cy = int(px // r), int(py // r)
         k = max(1, int(reach // r))
         for dx in range(-k, k + 1):
             for dy in range(-k, k + 1):
                 cand.update(grid.get((cx + dx, cy + dy), ()))
-        for (si, ei) in cand:
-            wid, ring = rings[si]
-            ax, ay, az = ring[ei]
-            bx, by, bz = ring[(ei + 1) % len(ring)]
-            vx, vy = bx - ax, by - ay
-            l2 = vx * vx + vy * vy
-            t = 0.0 if l2 < 1e-12 else max(0.0, min(
-                1.0, ((px - ax) * vx + (py - ay) * vy) / l2))
-            qx, qy = ax + t * vx, ay + t * vy
-            d = math.hypot(px - qx, py - qy)
-            cur = best.get(wid)
-            if cur is None or d < cur[0]:
-                best[wid] = (d, az + t * (bz - az))
-        if len(best) >= 2:
-            break
+        picked = _drainage_spine_parents(
+            [(d, wid, z) for d, wid, z in _scan_edges(px, py, rings, cand)])
+        # SOUND once the second parent lies inside the guaranteed radius
+        # (everything excluded is strictly beyond it).
+        if len(picked) >= 2 and picked[1][0] <= k * r:
+            return [(d, wid, z) for d, wid, z in picked]
         reach *= 2.0
-    return sorted(((d, wid, z) for wid, (d, z) in best.items()),
-                  key=lambda r_: r_[0])
+    all_edges = [(si, ei) for si, (_wid, ring) in enumerate(rings)
+                 for ei in range(len(ring))]
+    return [(d, wid, z) for d, wid, z in _drainage_spine_parents(
+        [(d, wid, z) for d, wid, z in _scan_edges(px, py, rings, all_edges)])]
 
 
 def _check_drainage_spine_below_pavement(
@@ -1871,6 +1933,104 @@ _TRANSVERSE_STEP_M = 10.0
 _TRANSVERSE_HALF_M = 80.0
 _TRANSVERSE_MIN_WIDTH_M = 3.0
 _TRANSVERSE_ROLES = frozenset({"junction", "service_junction", "apron"})
+
+
+# ── LATERAL CONTIGUITY (owner-confirmed FINAL 2026-08-02) ──────────────
+# The VALIDATOR TWIN of ``groundside.apply_lateral_contiguity_law``, and the
+# reason the pair is law rather than visibility (grade-law completeness
+# standard, 2026-08-02: "our grade law must not allow us to GENERATE a patch
+# that violates any of the region-appropriate regulations" — every
+# requirement needs a generation-binding constraint AND its validator twin).
+# The existing ``o4_grade_law`` / ``o4_grade_law_cap`` readers only trust the
+# tag the build stamped: a piece the emitter FAILED to cap reads clean.  This
+# check re-derives the law from the emitted geometry instead — at every
+# station of every road-family way it takes the laterally-contiguous paved
+# cross-section, asks the LAW for the strictest cap present
+# (``grade_law.lateral_contiguity_cap`` — the same function the emitter
+# used), and flags the station when the way's effective cap is looser.
+_LATERAL_STEP_M = 5.0
+_LATERAL_PROBE_M = 60.0
+_LATERAL_GAP_TOL_M = 0.05
+_LATERAL_MIN_MEMBER_M = 0.5
+_LATERAL_ROAD_ROLES = frozenset({"service_road", "service_junction"})
+
+
+def _check_lateral_contiguity(ways: List[Way], nodes, ll_to_m
+                              ) -> Tuple[List[Violation], int, int]:
+    """``(violations, n_stations, n_shapes)`` — road-family stations whose
+    laterally-contiguous cross-section holds a STRICTER class than the cap
+    the way is validated at.
+
+    The station walk is ``auto_patch.lateral_contiguity.station_caps`` — the
+    SAME call the emitter makes, so this reader cannot census a station the
+    emitter never saw.  ``de_m`` carries the cap excess so the worst
+    offenders sort first.
+    """
+    try:
+        from shapely.geometry import Polygon
+        from shapely.strtree import STRtree
+        from auto_patch.lateral_contiguity import ROAD_ROLES, station_caps
+    except Exception:
+        return [], 0, 0
+    rows = []
+    for w in ways:
+        if ROLE_GRADE_LIMITS.get(w.role) is None:
+            continue
+        nn = (w.nids[:-1] if len(w.nids) > 1 and w.nids[0] == w.nids[-1]
+              else w.nids)
+        ring = [ll_to_m(*nodes[n]) for n in nn if n in nodes]
+        if len(ring) < 3:
+            continue
+        try:
+            poly = Polygon(ring)
+            if not poly.is_valid:
+                poly = poly.buffer(0)
+        except Exception:
+            continue
+        if poly.is_empty or poly.geom_type != "Polygon":
+            continue
+        rows.append((w, poly))
+    if not rows:
+        return [], 0, 0
+    polys = [p for _w, p in rows]
+    roles = [w.role for w, _p in rows]
+    tree = STRtree(polys)
+    # Clause (5): the runway-strip footprint law supersedes inside strips —
+    # the SAME keepout the emitter skips its stations on, from the SAME law
+    # geometry (``grade_law.runway_strip_wall_keepout_rings``).
+    keepout = None
+    strip_rings = _runway_strip_keepout_rings(ways, nodes, ll_to_m)
+    if strip_rings:
+        try:
+            from shapely.ops import unary_union
+            keepout = unary_union([Polygon(r) for r in strip_rings])
+        except Exception:
+            keepout = None
+    out: List[Violation] = []
+    n_stations = 0
+    shapes_flagged = set()
+    for i, (w, poly) in enumerate(rows):
+        if w.role not in ROAD_ROLES:
+            continue
+        eff = _role_grade_limit(w, ROLE_GRADE_LIMITS.get(w.role) or 0.05)
+        if eff is None:
+            continue
+        stations, caps = station_caps(poly, tree, polys, roles, i,
+                                      keepout=keepout)
+        for st, law_cap in zip(stations, caps):
+            if st is None or law_cap is None:
+                continue
+            n_stations += 1
+            if eff <= law_cap + 1e-12:
+                continue
+            shapes_flagged.add(w.wid)
+            out.append(Violation(
+                grade_pct=100.0 * eff, excess_pct=100.0 * (eff - law_cap),
+                distance_m=0.0, de_m=eff - law_cap,
+                way_a=w, way_b=w, pt_a=st, pt_b=st,
+                elev_a=0.0, elev_b=0.0))
+    out.sort(key=lambda v: -v.de_m)
+    return out, n_stations, len(shapes_flagged)
 
 
 def _transverse_cap_for_seg_cap(cap_l: float) -> float:
@@ -3175,6 +3335,17 @@ def run_checks(
               f"PROVISIONAL {_DRAINAGE_SPINE_MIN_FALL_M:.2f} m fall — "
               f"reported, not failed)")
     within = within + spine_dams
+
+    lateral, n_lat_stations, n_lat_shapes = _check_lateral_contiguity(
+        ways, nodes, ll_to_m)
+    _pv("LATERAL CONTIGUITY: road graded looser than the STRICTEST class in "
+        "its laterally-contiguous cross-section (owner FINAL 2026-08-02)",
+        lateral, top_n)
+    if n_lat_stations and not quiet:
+        print(f"  ({n_lat_stations} road station(s) censused; "
+              f"{n_lat_shapes} road shape(s) flagged — stations "
+              f"{_LATERAL_STEP_M:g} m apart on one shape are correlated)")
+    within = within + lateral
 
     wall_in_strip = _check_no_wall_in_runway_strip(ways, nodes, ll_to_m)
     _pv("RETAINING WALL inside a RUNWAY STRIP footprint (owner ruling "

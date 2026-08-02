@@ -77,7 +77,8 @@ from .config import (
     runway_code_number,
     taxiway_strip_graded_half_width_for_letter,
 )
-from .grade_law import adjacent_ground_envelope, drainage_spine_envelope
+from .grade_law import (adjacent_ground_envelope, drainage_spine_envelope,
+                        drainage_spine_parents)
 
 # THE spine envelope, chosen ONCE for the whole module (owner field report
 # 2026-08-02, gate ``O4_DRAINAGE_SPINE_LAW``): with the gate on, both the
@@ -595,7 +596,10 @@ class _AirsideNearestIndex:
 
     def _ranked(self, hits, p):
         """``[(distance, airside_index), ...]`` for tree items ``hits``,
-        sorted on the frozen ``(distance, original index)`` key."""
+        sorted on the frozen ``(distance, original index)`` key — the law's
+        own ranking (``grade_law.drainage_spine_parents``), unlimited here
+        because the soundness escalation in ``two_nearest`` reads the
+        SECOND entry to decide whether the candidate set is sufficient."""
         exteriors = self._exteriors
         shape_idx = self._shape_idx
         ranked = []
@@ -604,15 +608,23 @@ class _AirsideNearestIndex:
                 d = exteriors[j].distance(p)
             except _GEOM_EXC:
                 continue
-            ranked.append((d, shape_idx[j]))
-        ranked.sort()
-        return ranked
+            ranked.append((d, shape_idx[j], None))
+        return [(d, k) for d, k, _pl in drainage_spine_parents(
+            ranked, max_parents=len(ranked))]
 
     def two_nearest(self, p):
         """The two nearest airside shapes to ``p`` as
         ``[(distance, shape), ...]`` (0-2 entries) — identical to the
         retired ``sorted(((s.polygon.exterior.distance(p), s) for s in
-        airside), key=distance)[:2]`` under a stable sort."""
+        airside), key=distance)[:2]`` under a stable sort.
+
+        The RANKING itself is ``grade_law.drainage_spine_parents`` (the
+        law's own selection, shared with ``tools/check_grade``); this
+        class supplies the exact candidate set it needs.  ``_ranked``
+        already produces ``(distance, airside index)`` pairs, which are
+        that function's ``(distance_m, tie_key)`` — so routing through
+        it is a no-op on this side and a lockstep guarantee on the
+        other."""
         tree = self._tree
         if tree is None:
             return []

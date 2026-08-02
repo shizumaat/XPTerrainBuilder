@@ -57,6 +57,7 @@ from .config import (
     OLS_TRANSITIONAL_EMIT_REACH_M, OLS_TRANSITIONAL_SLOPE,
     OLS_TRANSITIONAL_SLOPE_STEEP,
     RUNWAY_END_CLEARANCE_LENGTH_BY_CODE, RUNWAY_END_RESA_MAX_SLOPE,
+    ROLE_GRADE_LIMITS,
     RUNWAY_STRIP_BAND_MIN_DOWN_SLOPE,
     RUNWAY_STRIP_BAND_MAX_DOWN_SLOPE_BY_CODE, RUNWAY_STRIP_HALF_WIDTH_BY_CODE,
     SERVICE_ROAD_MAX_GRADE, TAXI_MAX_GRADE, TAXIWAY_STRIP_BAND_MAX_DOWN_SLOPE,
@@ -751,6 +752,130 @@ def drainage_spine_envelope(
     if floor_off is not None and float(floor_off) > ceil_off:
         floor_off = ceil_off
     return floor_off, ceil_off
+
+
+# THE bounding-parent set of a drainage spine station — the SELECTION half
+# of the drainage law (field-report round residual, 2026-08-02).  The
+# offsets above were already one law with two readers, but each reader
+# CHOSE its own parents: the emitter from an exact two-nearest index over
+# the airside shapes, the validator from a grid walk that stopped at the
+# first cell ring holding two distinct ways.  Measured at HECA: the
+# validator's second parent sat 91.96 m away while the true second parent
+# was 67.32 m — the spine read 0.47 m ABOVE its "lower" edge where against
+# its real parents it is 0.38 m BELOW.  Same law, different population —
+# so the SELECTION moves into the law too, and both readers hand it their
+# own candidates and get the same answer by construction.
+DRAINAGE_SPINE_PARENT_ROLES = frozenset({
+    "runway", "runway_crossing", "primary_parallel", "secondary_parallel",
+    "stub", "cross_connector", "junction", "apron",
+})
+DRAINAGE_SPINE_MAX_PARENTS = 2
+
+
+def drainage_spine_parents(candidates, max_parents=DRAINAGE_SPINE_MAX_PARENTS):
+    """THE bounding parents of one drainage-spine station.
+
+    ``candidates`` is an iterable of ``(distance_m, tie_key, payload)`` over
+    pavement shapes of ``DRAINAGE_SPINE_PARENT_ROLES`` whose distance is
+    measured to the shape's EXTERIOR RING.  Rules:
+
+      * one entry per DISTINCT parent — a reader that can offer the same
+        parent twice (per-edge candidates) keeps only its nearest;
+      * ranked on ``(distance, tie_key)`` — tie order is load-bearing, the
+        NEARER parent owns the empty-intersection fallback downstream, so
+        two parents at equal distance must rank the same way for both
+        readers.  ``tie_key`` is the reader's own stable ordering key
+        (the emitter's airside index, the validator's way id);
+      * at most ``max_parents``.
+
+    Returns ``[(distance_m, tie_key, payload), …]``, nearest first.  The
+    caller is responsible for offering a candidate set that CONTAINS the
+    true nearest parents — a truncated search is the defect this function
+    exists to make impossible to hide.
+    """
+    best: dict = {}
+    for distance_m, tie_key, payload in candidates:
+        cur = best.get(tie_key)
+        if cur is None or distance_m < cur[0]:
+            best[tie_key] = (float(distance_m), tie_key, payload)
+    ranked = sorted(best.values(), key=lambda r: (r[0], r[1]))
+    return ranked[:max_parents]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LATERAL-CONTIGUITY GRADE LAW (owner-confirmed FINAL, 2026-08-02 —
+# docs/RULINGS.md "service-road absorption")
+# ═══════════════════════════════════════════════════════════════════════════
+# Owner, verbatim clauses:
+#   (1) A FREE road — road-width, genuinely unpaved ground on BOTH sides (any
+#       real gap counts, however thin; adjacency = literal shared boundary in
+#       the sliced arrangement, NEVER proximity) — takes the service-road cap
+#       with axial route grading.  [``groundside.free_road_subsegments`` is
+#       that clause's emitter: only free sub-segments reach the slice.]
+#   (2) At any STATION, the laterally-contiguous paved CROSS-SECTION
+#       (side-sharing closure across any number of touching pavements) takes
+#       the STRICTEST cap of any class present in it.  The closure NEVER
+#       propagates through end-connections/mouths — a road resumes its own cap
+#       the moment it leaves lateral contact.
+#   (3) Segmentation is per-segment, via the existing mouth-cut machinery.
+#   (4) Implementation SHOULD fully ABSORB laterally-contiguous road stretches
+#       into the adjacent surface (merge, fewer nodes) rather than carry
+#       separate shapes with cap overrides.
+#   (5) The runway-strip footprint law SUPERSEDES inside strips.
+#
+# The station cross-section is what makes clause (2) local and well defined: a
+# shape-level "touching" closure would sweep a dense airport into one component
+# (every apron touches a junction touches a taxiway) and collapse the whole
+# airfield to the strictest cap present anywhere.  The cross-section is taken
+# PERPENDICULAR to the road at the station and stops at the first real gap, so
+# a road DYING INTO an apron (an end connection) never sees it — the apron is
+# ahead of the station, not beside it.
+
+# Cap per pavement class, for the closure.  Keyed on the emitted ROLE and
+# sourced from ``ROLE_GRADE_LIMITS`` so there is no second copy of a rule
+# number; roles with no within-shape cap (``None``: boundary, walls, clearance
+# cuts, graded strips) are not pavement classes and never enter the closure.
+LATERAL_CONTIGUITY_ROAD_ROLES = frozenset({"service_road", "service_junction"})
+
+
+def lateral_contiguity_cap(roles) -> Optional[float]:
+    """Clause (2): the cap of a laterally-contiguous paved cross-section —
+    the STRICTEST (smallest) within-shape cap of any class present in it.
+
+    ``roles`` is the set of emitted roles the cross-section run passes
+    through, INCLUDING the road's own.  Roles carrying no within-shape cap
+    are ignored (they are not pavement classes).  Returns ``None`` when no
+    class in the run is regulated.
+    """
+    caps = [ROLE_GRADE_LIMITS.get(r) for r in set(roles)]
+    caps = [c for c in caps if c is not None]
+    return min(caps) if caps else None
+
+
+def lateral_contiguity_segments(station_caps):
+    """Clause (3): group per-station caps into maximal RUNS of equal cap.
+
+    ``station_caps`` is the ordered list of ``lateral_contiguity_cap``
+    answers along a road's axis (``None`` for a station with no verdict —
+    off the shape, inside a runway strip, or an unmeasurable cross-section;
+    those break a run, they never join one).
+
+    Returns ``[(i_first, i_last, cap), …]`` over the stations that HAVE a
+    cap, in order.  This is the segmentation the mouth cuts are made at: a
+    road that leaves lateral contact starts a new run at that station, which
+    is exactly "a road resumes its own cap the moment it leaves lateral
+    contact".
+    """
+    runs = []
+    start = None
+    cur = None
+    for i, cap in enumerate(list(station_caps) + [None]):
+        if cap is not None and cur is not None and cap == cur:
+            continue
+        if cur is not None:
+            runs.append((start, i - 1, cur))
+        start, cur = (i, cap) if cap is not None else (None, None)
+    return runs
 
 
 # ── Adjacent-ground DAYLIGHT slope-limit law (user 2026-07-09) ───────────────

@@ -69,9 +69,13 @@ try:
         ROUTE_FIELD_MODEL,
         ROUTE_FIELD_LOCAL_WINDOW_M,
         ROAD_FRONTAGE_TOL_M,
+        DRAINAGE_SPINE_MIN_FALL_M as _DRAINAGE_SPINE_MIN_FALL_M,
         SERVICE_ROAD_MAX_GRADE,
         TAXI_GRADE_BY_WIDTH,
         TAXI_GRADE_WIDTH_ROLES,
+        TAXI_MAX_GRADE_NARROW,
+        TAXI_MAX_TRANSVERSE_NARROW,
+        SERVICE_ROAD_MAX_TRANSVERSE,
         taxi_grade_cap_for_letter,
     )
     from auto_patch.layout import SHARED_VERTEX_TOL_M
@@ -86,17 +90,33 @@ except Exception:
     ROUTE_FIELD_MODEL = False
     ROUTE_FIELD_LOCAL_WINDOW_M = 80.0
     ROAD_FRONTAGE_TOL_M = 3.0
+    _DRAINAGE_SPINE_MIN_FALL_M = 0.30
     SERVICE_ROAD_MAX_GRADE = 0.05
     TAXI_GRADE_BY_WIDTH = True
     TAXI_GRADE_WIDTH_ROLES = frozenset({
         "primary_parallel", "secondary_parallel", "stub", "cross_connector",
     })
+    TAXI_MAX_GRADE_NARROW = 0.030
+    TAXI_MAX_TRANSVERSE_NARROW = 0.020
+    SERVICE_ROAD_MAX_TRANSVERSE = 0.020
 
     def taxi_grade_cap_for_letter(letter, *, enabled=None):
         on = TAXI_GRADE_BY_WIDTH if enabled is None else enabled
         if on and letter and str(letter).upper() in ("A", "B"):
             return 0.030
         return 0.015
+
+# LAW GEOMETRY shared with the emitters (single source — never a second
+# copy of a rule number here).  ``None`` when the package is unavailable:
+# the checks that consume them then report nothing rather than guessing.
+try:
+    from auto_patch.grade_law import (
+        runway_axis_and_width as _runway_axis_and_width,
+        runway_strip_wall_keepout_rings as _runway_strip_wall_keepout_rings,
+    )
+except Exception:
+    _runway_axis_and_width = None
+    _runway_strip_wall_keepout_rings = None
 
 
 # ── OSM parsing ─────────────────────────────────────────────────
@@ -126,8 +146,17 @@ class Way:
     tags: Dict[str, str]
 
 
-def _parse_osm(path: Path) -> Tuple[Dict[str, Tuple[float, float]],
-                                    List[Way]]:
+def _parse_osm(path: Path, feature_out: "Optional[Dict[str, List[Way]]]" = None
+               ) -> Tuple[Dict[str, Tuple[float, float]], List[Way]]:
+    """``(nodes, ways)`` — the pavement ways of the patch.
+
+    ``feature_out`` (optional): a dict the OPEN BREAKLINE ways skipped
+    below are collected into, keyed by their ``o4_feature`` value.  They
+    are not pavement rings and must stay out of every ring-shaped check
+    (see the skip comment), but they carry real emitted elevations that
+    their OWN laws are checked against — the drainage-spine law reads
+    ``feature_out["gap_drainage_spine"]``.  Passing the dict keeps that a
+    SINGLE parse of the file rather than a second one."""
     txt = path.read_text()
     nodes: Dict[str, Tuple[float, float]] = {}
     for m in _NODE_RE.finditer(txt):
@@ -159,6 +188,13 @@ def _parse_osm(path: Path) -> Tuple[Dict[str, Tuple[float, float]],
         if tags.get("o4_feature") in ("crown_spine",
                                       "gap_drainage_spine",
                                       "gap_interior_ring"):
+            if feature_out is not None:
+                feature_out.setdefault(tags["o4_feature"], []).append(Way(
+                    wid=wid, role=tags.get("role", ""),
+                    ref=tags.get("ref", ""), aeroway=tags.get("aeroway", ""),
+                    nids=nids,
+                    elevs=_derive_per_vertex_elevations(nids, tags, node_alt),
+                    tags=tags))
             continue
         elevs = _derive_per_vertex_elevations(nids, tags, node_alt)
         ways.append(Way(
@@ -1597,6 +1633,399 @@ def _point_in_ring(px: float, py: float,
     return inside
 
 
+# ── RUNWAY-STRIP WALL LAW (owner ruling 2026-08-01) ─────────────
+# "Retaining walls are NEVER lawful at a runway edge — runway
+# surroundings must grade away smoothly" (docs/RULINGS.md, runway-edge
+# terrain law).  The emitter half is
+# ``adjacent_ground.runway_strip_wall_keepout``; BOTH halves build the
+# footprint from ``grade_law.runway_strip_wall_keepout_rings`` over the
+# same emitted runway rings grouped by ``ref`` — lockstep by
+# construction.  A wall vertex this far INSIDE a strip footprint is a
+# violation; the margin absorbs the emitted-coordinate quantum so a face
+# the emitter clipped AT the strip boundary does not flag on its own
+# boundary vertices.
+_WALL_STRIP_MARGIN_M = 0.05
+
+
+def _point_in_rect_ring(px: float, py: float,
+                        ring: List[Tuple[float, float]],
+                        margin: float) -> bool:
+    """Is ``(px, py)`` at least ``margin`` inside the PARALLELOGRAM closed
+    ring ``ring`` (5 points, last repeating the first)?
+
+    ``runway_strip_wall_keepout_rings`` emits rectangles, so the inset is
+    exact in metres along both edge directions — which a centroid-scaling
+    inset is not (a 3 km × 150 m strip would lose 50× more width than
+    length).  Any other ring shape falls back to the even-odd test with no
+    inset (honest: the law emits no such ring today)."""
+    if len(ring) != 5:
+        return _point_in_ring(px, py, ring[:-1])
+    ox, oy = ring[0]
+    e1x, e1y = ring[1][0] - ox, ring[1][1] - oy
+    e2x, e2y = ring[3][0] - ox, ring[3][1] - oy
+    l1 = math.hypot(e1x, e1y)
+    l2 = math.hypot(e2x, e2y)
+    if l1 <= 2.0 * margin or l2 <= 2.0 * margin:
+        return False
+    t1 = ((px - ox) * e1x + (py - oy) * e1y) / l1
+    t2 = ((px - ox) * e2x + (py - oy) * e2y) / l2
+    return (margin <= t1 <= l1 - margin) and (margin <= t2 <= l2 - margin)
+
+
+def _runway_strip_keepout_rings(ways: List[Way], nodes, ll_to_m):
+    """The runway STRIP footprints of this patch, as closed rings in the
+    check's metre frame — ``[]`` when the law module is unavailable or the
+    patch carries no runway.  Runway ways are grouped by ``ref`` first: a
+    tile cut or a runway crossing leaves one runway as several ways, and a
+    fragment's own principal axis is not the runway's."""
+    if _runway_axis_and_width is None:
+        return []
+    groups: Dict[str, List[Tuple[float, float]]] = {}
+    for w in ways:
+        if w.role != "runway":
+            continue
+        pts = [ll_to_m(*nodes[n]) for n in w.nids if n in nodes]
+        if len(pts) < 3:
+            continue
+        groups.setdefault(w.ref or w.wid, []).extend(pts)
+    rings = []
+    for pts in groups.values():
+        axis = _runway_axis_and_width(pts)
+        if axis is None:
+            continue
+        rings.extend(_runway_strip_wall_keepout_rings(
+            axis[0], axis[1], axis[2]))
+    return rings
+
+
+def _check_no_wall_in_runway_strip(ways: List[Way], nodes, ll_to_m
+                                   ) -> List[Violation]:
+    """Every ``retaining_wall`` vertex standing inside a runway strip
+    footprint (owner ruling 2026-08-01).  Cap ZERO — a wall there is
+    inadmissible geometry, not an over-cap grade, so the reported
+    ``grade_pct`` carries the vertex's depth INSIDE the footprint (metres)
+    rather than a slope."""
+    rings = _runway_strip_keepout_rings(ways, nodes, ll_to_m)
+    if not rings:
+        return []
+    out: List[Violation] = []
+    for w in ways:
+        if w.role != "retaining_wall":
+            continue
+        for k, nid in enumerate(w.nids):
+            if nid not in nodes:
+                continue
+            x, y = ll_to_m(*nodes[nid])
+            if not any(_point_in_rect_ring(x, y, r, _WALL_STRIP_MARGIN_M)
+                       for r in rings):
+                continue
+            z = w.elevs[k] if k < len(w.elevs) else None
+            z = 0.0 if z is None else float(z)
+            out.append(Violation(
+                grade_pct=0.0, excess_pct=0.0, distance_m=0.0, de_m=0.0,
+                way_a=w, way_b=w, pt_a=(x, y), pt_b=(x, y),
+                elev_a=z, elev_b=z))
+            break        # one violation per WAY (the face is the defect)
+    return out
+
+
+# ── DRAINAGE-SPINE LAW (owner field report 2026-08-02) ──────────
+# "The drainage spine must be below the lower adjacent pavement."  The
+# emitter half is ``grade_law.drainage_spine_envelope`` (consumed by
+# ``gap_fill._spine_interval``, ``_freeze_spine_parent_specs`` and the
+# post-projection re-clamp).  This reader takes the geometric form of the
+# same statement — a spine vertex at or above the LOWER of its two nearest
+# airside pavement edges dams the interior it is supposed to drain — and
+# reports the shortfall against ``DRAINAGE_SPINE_MIN_FALL_M`` separately,
+# because that constant is PROVISIONAL and must not silently become the
+# pass/fail line.
+_SPINE_AIRSIDE_ROLES = frozenset({
+    "runway", "runway_crossing", "primary_parallel", "secondary_parallel",
+    "stub", "cross_connector", "junction", "apron",
+})
+_SPINE_PARENT_CELL_M = 40.0
+
+
+def _nearest_edge_alt_by_way(px, py, rings, grid, search_m=200.0):
+    """``[(distance, wid, edge_alt), …]`` — for each pavement ring near
+    ``(px, py)``, the distance to that ring and the elevation LINEARLY
+    INTERPOLATED along its nearest edge (the same metric
+    ``gap_fill._spine_interval`` uses: distance to the exterior RING, edge
+    interpolation for the reference altitude).  Sorted nearest-first."""
+    best: Dict[str, Tuple[float, float]] = {}
+    r = _SPINE_PARENT_CELL_M
+    reach = _SPINE_PARENT_CELL_M
+    while reach <= search_m:
+        cand = set()
+        cx, cy = int(px // r), int(py // r)
+        k = max(1, int(reach // r))
+        for dx in range(-k, k + 1):
+            for dy in range(-k, k + 1):
+                cand.update(grid.get((cx + dx, cy + dy), ()))
+        for (si, ei) in cand:
+            wid, ring = rings[si]
+            ax, ay, az = ring[ei]
+            bx, by, bz = ring[(ei + 1) % len(ring)]
+            vx, vy = bx - ax, by - ay
+            l2 = vx * vx + vy * vy
+            t = 0.0 if l2 < 1e-12 else max(0.0, min(
+                1.0, ((px - ax) * vx + (py - ay) * vy) / l2))
+            qx, qy = ax + t * vx, ay + t * vy
+            d = math.hypot(px - qx, py - qy)
+            cur = best.get(wid)
+            if cur is None or d < cur[0]:
+                best[wid] = (d, az + t * (bz - az))
+        if len(best) >= 2:
+            break
+        reach *= 2.0
+    return sorted(((d, wid, z) for wid, (d, z) in best.items()),
+                  key=lambda r_: r_[0])
+
+
+def _check_drainage_spine_below_pavement(
+        spine_ways: List[Way], ways: List[Way], nodes, ll_to_m
+) -> Tuple[List[Violation], int, int]:
+    """``(violations, n_checked, n_short_of_fall)``.
+
+    A violation is a spine vertex at or ABOVE the lower of its two nearest
+    airside pavement edges (cap 0 — a dam, not an over-cap grade); the
+    reported ``de_m`` is how far above.  ``n_short_of_fall`` counts the
+    vertices that ARE below but by less than ``DRAINAGE_SPINE_MIN_FALL_M``
+    — reported, never failed, while that constant is provisional."""
+    if not spine_ways:
+        return [], 0, 0
+    rings: List[Tuple[str, List[Tuple[float, float, float]]]] = []
+    for w in ways:
+        if w.role not in _SPINE_AIRSIDE_ROLES:
+            continue
+        nn = (w.nids[:-1] if len(w.nids) > 1 and w.nids[0] == w.nids[-1]
+              else w.nids)
+        ring = []
+        for k, nid in enumerate(nn):
+            if nid not in nodes or k >= len(w.elevs) or w.elevs[k] is None:
+                ring = []
+                break
+            x, y = ll_to_m(*nodes[nid])
+            ring.append((x, y, float(w.elevs[k])))
+        if len(ring) >= 3:
+            rings.append((w.wid, ring))
+    if len(rings) < 2:
+        return [], 0, 0
+    grid: Dict[Tuple[int, int], List[Tuple[int, int]]] = {}
+    c = _SPINE_PARENT_CELL_M
+    for si, (_wid, ring) in enumerate(rings):
+        for ei in range(len(ring)):
+            a = ring[ei]
+            b = ring[(ei + 1) % len(ring)]
+            x0, x1 = sorted((a[0], b[0]))
+            y0, y1 = sorted((a[1], b[1]))
+            for gx in range(int(x0 // c), int(x1 // c) + 1):
+                for gy in range(int(y0 // c), int(y1 // c) + 1):
+                    grid.setdefault((gx, gy), []).append((si, ei))
+    out: List[Violation] = []
+    n_checked = 0
+    n_short = 0
+    for w in spine_ways:
+        for k, nid in enumerate(w.nids):
+            if nid not in nodes or k >= len(w.elevs) or w.elevs[k] is None:
+                continue
+            px, py = ll_to_m(*nodes[nid])
+            z = float(w.elevs[k])
+            near = _nearest_edge_alt_by_way(px, py, rings, grid)
+            if len(near) < 2:
+                continue
+            n_checked += 1
+            lower = min(near[0][2], near[1][2])
+            if z >= lower:
+                out.append(Violation(
+                    grade_pct=0.0, excess_pct=0.0,
+                    distance_m=near[0][0], de_m=z - lower,
+                    way_a=w, way_b=w, pt_a=(px, py), pt_b=(px, py),
+                    elev_a=z, elev_b=lower))
+            elif z > lower - _DRAINAGE_SPINE_MIN_FALL_M:
+                n_short += 1
+    out.sort(key=lambda v: -v.de_m)
+    return out, n_checked, n_short
+
+
+# ── TRANSVERSE (cross-corridor) GRADE (owner field report 2026-08-02) ──
+# The law already exists — ICAO Annex 14 Vol I Table 3-2 caps the taxiway
+# TRANSVERSE slope (config.py, ``TAXI_MAX_TRANSVERSE_NARROW``: 2 % at code
+# A/B, and at C–F it coincides with the 1.5 % longitudinal cap, i.e.
+# isotropic) — but NOTHING read it unconditionally.  Within-shape pairs
+# bound transverse slope only INCIDENTALLY, so wherever pair selection
+# drops the spine-to-edge pair (baked pair caps, the route-leg floor,
+# visibility) the cross-section is unbounded: the owner flew a 4.17 m
+# step across a 38 m corridor at ZERO reported violations.  This is a
+# READER, not a new law: perpendicular transects at ``_TRANSVERSE_STEP_M``
+# stations along the sidecar centrelines, the pavement span bracketing the
+# station, elevations interpolated along the crossed RING EDGES (X-Plane
+# renders a boundary edge linearly, so a boundary hit's z is exact — no
+# interior triangulation is modelled and none is claimed).
+#
+# COVERAGE, stated honestly: only pavement a taxi centreline actually
+# crosses is censused (pure apron interior and off-axis fillets are NOT in
+# the population), and stations 10 m apart on one shape are correlated —
+# so both the station count and the distinct-shape count are reported.
+_TRANSVERSE_STEP_M = 10.0
+_TRANSVERSE_HALF_M = 80.0
+_TRANSVERSE_MIN_WIDTH_M = 3.0
+_TRANSVERSE_ROLES = frozenset({"junction", "service_junction", "apron"})
+
+
+def _transverse_cap_for_seg_cap(cap_l: float) -> float:
+    """The TRANSVERSE cap ``cT`` for a centreline segment whose emitted
+    LONGITUDINAL cap is ``cap_l`` — the sidecar carries the longitudinal
+    cap per segment, and the transverse cap is a pure function of the same
+    role/letter (config.py ``taxi_transverse_cap_for_letter`` /
+    ``SERVICE_ROAD_MAX_TRANSVERSE``): code A/B 3 %∥ → 2 %⊥, service road
+    5 %∥ → 2 %⊥, everything else ISOTROPIC (C–F 1.5 %)."""
+    if abs(cap_l - TAXI_MAX_GRADE_NARROW) < 1e-9:
+        return TAXI_MAX_TRANSVERSE_NARROW
+    if abs(cap_l - SERVICE_ROAD_MAX_GRADE) < 1e-9:
+        return SERVICE_ROAD_MAX_TRANSVERSE
+    return cap_l
+
+
+def _check_transverse_grade(ways: List[Way], nodes, ll_to_m, taxi_axes
+                            ) -> Tuple[List[Violation], int, int, int]:
+    """``(violations, n_stations, n_rows, n_shapes)`` — every censused
+    corridor cross-section steeper than its transverse cap.
+
+    The quantization allowance is the SAME one the within-shape pair law
+    grants (``_pair_quant_noise_m`` on the crossed way), because the two
+    hits are emitted ring vertices interpolated along ring edges — the
+    identical emit/weld envelope.  Without it a 0.1 m weld quantum across
+    a 23 m taxiway reads as 0.43 % of phantom transverse grade."""
+    if not taxi_axes:
+        return [], 0, 0, 0
+    shapes: List[Tuple[Way, List[Tuple[float, float, float]]]] = []
+    for w in ways:
+        if w.role not in _TRANSVERSE_ROLES:
+            continue
+        nn = (w.nids[:-1] if len(w.nids) > 1 and w.nids[0] == w.nids[-1]
+              else w.nids)
+        ring = []
+        for k, nid in enumerate(nn):
+            if nid not in nodes or k >= len(w.elevs) or w.elevs[k] is None:
+                ring = []
+                break
+            x, y = ll_to_m(*nodes[nid])
+            ring.append((x, y, float(w.elevs[k])))
+        if len(ring) >= 3:
+            shapes.append((w, ring))
+    if not shapes:
+        return [], 0, 0, 0
+    cell = 40.0
+    grid: Dict[Tuple[int, int], List[Tuple[int, int]]] = {}
+    for si, (_w, ring) in enumerate(shapes):
+        for i in range(len(ring)):
+            a, b = ring[i], ring[(i + 1) % len(ring)]
+            x0, x1 = sorted((a[0], b[0]))
+            y0, y1 = sorted((a[1], b[1]))
+            for gx in range(int(x0 // cell), int(x1 // cell) + 1):
+                for gy in range(int(y0 // cell), int(y1 // cell) + 1):
+                    grid.setdefault((gx, gy), []).append((si, i))
+    out: List[Violation] = []
+    n_stations = n_rows = 0
+    hit_shapes: set = set()
+    half = _TRANSVERSE_HALF_M
+    for entry in taxi_axes:
+        poly = entry[0]
+        caps = entry[1]
+        if len(poly) < 2:
+            continue
+        cap_list = (list(caps) if isinstance(caps, (list, tuple))
+                    else [caps] * (len(poly) - 1))
+        if not cap_list:
+            continue
+        for k in range(len(poly) - 1):
+            (x1, y1), (x2, y2) = poly[k], poly[k + 1]
+            seg_len = math.hypot(x2 - x1, y2 - y1)
+            if seg_len < 1e-6:
+                continue
+            tx, ty = (x2 - x1) / seg_len, (y2 - y1) / seg_len
+            nx, ny = -ty, tx
+            cap_l = float(cap_list[k] if k < len(cap_list) else cap_list[-1])
+            cap_t = _transverse_cap_for_seg_cap(cap_l)
+            s = 0.0
+            while s <= seg_len + 1e-9:
+                px, py = x1 + tx * s, y1 + ty * s
+                s += _TRANSVERSE_STEP_M
+                n_stations += 1
+                cand: set = set()
+                for f in (-half, -0.5 * half, 0.0, 0.5 * half, half):
+                    qx, qy = px + nx * f, py + ny * f
+                    gx, gy = int(qx // cell), int(qy // cell)
+                    for dx in (-1, 0, 1):
+                        for dy in (-1, 0, 1):
+                            cand.update(grid.get((gx + dx, gy + dy), ()))
+                hits: Dict[int, List[Tuple[float, float]]] = {}
+                for (si, i) in cand:
+                    ring = shapes[si][1]
+                    a, b = ring[i], ring[(i + 1) % len(ring)]
+                    ex, ey = b[0] - a[0], b[1] - a[1]
+                    den = nx * ey - ny * ex
+                    if abs(den) < 1e-12:
+                        continue
+                    rx, ry = a[0] - px, a[1] - py
+                    t = (rx * ny - ry * nx) / den
+                    if t < -1e-9 or t > 1.0 + 1e-9:
+                        continue
+                    u = (rx + t * ex) * nx + (ry + t * ey) * ny
+                    if abs(u) > half:
+                        continue
+                    hits.setdefault(si, []).append(
+                        (u, a[2] + t * (b[2] - a[2])))
+                for si, hl in hits.items():
+                    if len(hl) < 2:
+                        continue
+                    hl.sort()
+                    way, ring = shapes[si]
+                    ring2 = [(p[0], p[1]) for p in ring]
+                    # Every consecutive hit pair is a candidate SPAN; keep
+                    # the INSIDE span nearest u=0 (the station can sit
+                    # exactly ON a ring edge, so a strict u≤0≤u bracket is
+                    # floating-point fragile).
+                    span = None
+                    best_gap = None
+                    for j in range(len(hl) - 1):
+                        lo_h, hi_h = hl[j], hl[j + 1]
+                        if hi_h[0] - lo_h[0] < _TRANSVERSE_MIN_WIDTH_M:
+                            continue
+                        gap = (0.0 if lo_h[0] <= 0.0 <= hi_h[0]
+                               else min(abs(lo_h[0]), abs(hi_h[0])))
+                        if gap > 1.0:
+                            continue
+                        mid = 0.5 * (lo_h[0] + hi_h[0])
+                        if not _point_in_ring(px + nx * mid, py + ny * mid,
+                                              ring2):
+                            continue
+                        if best_gap is None or gap < best_gap:
+                            best_gap = gap
+                            span = (lo_h, hi_h)
+                    if span is None:
+                        continue
+                    n_rows += 1
+                    hit_shapes.add(way.wid)
+                    (u_lo, z_lo), (u_hi, z_hi) = span
+                    width = u_hi - u_lo
+                    dz = abs(z_hi - z_lo)
+                    allow = cap_t * width + _pair_quant_noise_m(way)
+                    if dz <= allow:
+                        continue
+                    out.append(Violation(
+                        grade_pct=100.0 * dz / width,
+                        excess_pct=100.0 * (dz - allow) / width,
+                        distance_m=width, de_m=dz,
+                        way_a=way, way_b=way,
+                        pt_a=(px + nx * u_lo, py + ny * u_lo),
+                        pt_b=(px + nx * u_hi, py + ny * u_hi),
+                        elev_a=z_lo, elev_b=z_hi))
+    out.sort(key=lambda v: -v.grade_pct)
+    return out, n_stations, n_rows, len(hit_shapes)
+
+
 class _GradedDomain:
     """Point membership in the union of the graded rings, with a planar
     slack: a point counts as GRADED when it is inside any ring OR within
@@ -2569,7 +2998,8 @@ def run_checks(
     is re-triangulated from the emitted ring (old patches — stricter, and
     cm-noisy where emit repaired a junction ring).
     """
-    nodes, ways = _parse_osm(osm_path)
+    open_features: Dict[str, List[Way]] = {}
+    nodes, ways = _parse_osm(osm_path, feature_out=open_features)
     ll_to_m = _ll_to_m_factory(nodes, anchor=anchor)
     vertices, edges = _build_vertex_edge_tables(nodes, ways, ll_to_m)
     max_grade = max_grade_pct / 100.0
@@ -2720,6 +3150,37 @@ def run_checks(
         f"graded→DEM boundary — PROVISIONAL, owner 2026-08-01)",
         strip_seam_tears, top_n)
     within = within + strip_seam_tears
+
+    transverse, n_tr_st, n_tr_rows, n_tr_shapes = _check_transverse_grade(
+        ways, nodes, ll_to_m, taxi_axes)
+    _pv("TRANSVERSE (cross-corridor) grade > the role/letter transverse "
+        "cap (ICAO Annex 14 Table 3-2 — the law existed, nothing read it)",
+        transverse, top_n)
+    if n_tr_rows and not quiet:
+        print(f"  ({n_tr_st} transect station(s); {n_tr_rows} censused "
+              f"crossing(s) over {n_tr_shapes} shape(s) — coverage is "
+              f"pavement a taxi centreline crosses, stations "
+              f"{_TRANSVERSE_STEP_M:g} m apart are correlated)")
+    within = within + transverse
+
+    spine_dams, n_spine_checked, n_spine_short = (
+        _check_drainage_spine_below_pavement(
+            open_features.get("gap_drainage_spine", []),
+            ways, nodes, ll_to_m))
+    _pv("DRAINAGE SPINE at or above its LOWER adjacent pavement (owner "
+        "field report 2026-08-02 — cap 0)", spine_dams, top_n)
+    if n_spine_checked and not quiet:
+        print(f"  ({n_spine_checked} spine vertex/vertices checked; "
+              f"{n_spine_short} below the lower edge by less than the "
+              f"PROVISIONAL {_DRAINAGE_SPINE_MIN_FALL_M:.2f} m fall — "
+              f"reported, not failed)")
+    within = within + spine_dams
+
+    wall_in_strip = _check_no_wall_in_runway_strip(ways, nodes, ll_to_m)
+    _pv("RETAINING WALL inside a RUNWAY STRIP footprint (owner ruling "
+        "2026-08-01: walls are never lawful at a runway edge — cap 0)",
+        wall_in_strip, top_n)
+    within = within + wall_in_strip
 
     stacked = _check_stacked_nodes(vertices, ways)
     _pv("STACKED NODES (distinct node ids at one coordinate, values "

@@ -4548,6 +4548,55 @@ GAP_FILL_MIN_AREA_M2 = 100.0
 GAP_FILL_INTERIOR_FLOOR_DEPTH_M = float(
     _os.environ.get("O4_GAP_FILL_INTERIOR_FLOOR_DEPTH_M", "2.5"))
 
+# ── DRAINAGE-SPINE LAW (owner field report 2026-08-02) ────────────────
+# Owner: the drainage spine of an enclosed interior must run BELOW the
+# LOWER of the two pavements bounding it — ground enclosed between
+# pavements drains INTO the spine, so a spine at or above either edge is
+# a dam, not a drain.  Measured at HECA before the fix: 182 spine
+# vertices at or above their lower bounding pavement edge, on 21 spines
+# that block drainage outright; the mechanism is the lateral corridor
+# ceiling, which in zone 3 rises at +5 %/m away from the edge and so
+# permits an interior HILL once the spine is far enough from both
+# parents (a code-E taxiway's ceiling crosses back above the pavement
+# edge at d ≈ 25 m; HECA's spines sit at d ≈ 67 m).
+#
+# THE LAW: ``grade_law.drainage_spine_envelope`` — the same corridor
+# FLOOR as ``adjacent_ground_envelope`` (the crater guard: a spine may
+# never sink below the ground the lateral law supports), and a CEILING
+# tightened to at most this far below EACH bounding pavement edge, which
+# composes over the two parents to ``min(edge₁, edge₂) − FALL``.  ONE law
+# with TWO readers — the analytic interval (``gap_fill._spine_interval``)
+# and the solver's frozen parent specs
+# (``gap_fill._freeze_spine_parent_specs``) — plus the post-projection
+# re-clamp, so the emitted spine cannot drift above the pavement the
+# LATE ``final_grade_projection`` leaves behind.
+#
+# 0.30 m is PROVISIONAL — the owner may move it.  It is a drainage
+# fall, not a standards figure: no FAA/EASA/ICAO clause fixes a minimum
+# depth for an interior swale, so this is the smallest fall that reads
+# as a drain rather than as emit-rounding noise (the patch quantises
+# altitudes at 0.1 m, so 0.30 m is three quanta).
+DRAINAGE_SPINE_LAW_ENABLED = (
+    _os.environ.get("O4_DRAINAGE_SPINE_LAW", "0") == "1")
+
+# ── SOURCE-COVERAGE INVARIANT, WIRED (owner field report 2026-08-02) ──
+# ``verification.check_source_coverage`` — emitted pavement must COVER the
+# source pavement, with no INTERIOR hole for X-Plane to interpolate
+# terrain across — has existed since the coverage work and has ZERO call
+# sites: nothing has ever run it on a build.  The owner flew four such
+# holes at HECA (the largest 839.9 m²).  With this gate ON the build's
+# verification pass runs it and reports every enclosed uncovered piece
+# ≥ ``SOURCE_COVERAGE_MIN_AREA_M2`` with ≥
+# ``SOURCE_COVERAGE_MIN_ENCLOSED_FRAC`` of its perimeter against emitted
+# pavement.  Default OFF this round: the check is a whole-airport union +
+# difference and its cost has not been measured against the build budget.
+SOURCE_COVERAGE_CHECK_ENABLED = (
+    _os.environ.get("O4_SOURCE_COVERAGE_CHECK", "0") == "1")
+SOURCE_COVERAGE_MIN_AREA_M2 = 5.0
+SOURCE_COVERAGE_MIN_ENCLOSED_FRAC = 0.70
+DRAINAGE_SPINE_MIN_FALL_M = float(
+    _os.environ.get("O4_DRAINAGE_SPINE_MIN_FALL_M", "0.30"))
+
 # INTERIOR FLOOR PASS — DISABLED BY OWNER RULING 2026-07-24.
 #
 #   "The adjacent ground law should enforce a gentle slope down from
@@ -4974,6 +5023,29 @@ APRON_WALL_RUN_HYSTERESIS_M = 0.3
 APRON_WALL_SCOPE_ENABLED = (
     _os.environ.get("O4_APRON_WALL_SCOPE", "1") == "1")
 APRON_WALL_PAVEMENT_ADJACENCY_M = 5.0
+
+# ── RUNWAY-STRIP WALL INADMISSIBILITY (owner ruling 2026-08-01) ───────
+# Owner, verbatim class: retaining walls are NEVER lawful at a runway
+# edge — "there's very specific requirements for the terrain all around
+# runways"; runway surroundings must grade away smoothly (docs/RULINGS.md,
+# "Runway-edge terrain law").  Measured at HECA before the fix: 4
+# ``retaining_wall`` ways / 19 vertex sites standing inside the code-4
+# graded strip (75 m from the 05R/23L and 05C/23C centrelines).
+#
+# THE LAW: inside the runway STRIP FOOTPRINT
+# (``grade_law.runway_strip_wall_keepout_rings`` — CL ±
+# ``RUNWAY_STRIP_HALF_WIDTH_BY_CODE`` over the runway, plus the
+# ``runway_end_corridor_half_width_m`` end corridors)
+# ``ROLE_RETAINING_WALL`` is INADMISSIBLE: all three wall emitters skip
+# faces there, and a runway never QUALIFIES an apron wall (the runway
+# roles leave ``_WALL_SCOPE_PAVEMENT_ROLES``).  No new corridor math —
+# the displaced drop relocates into the strip corridor law, which already
+# grades to the 75 m edge; beyond it zone 3's free floor makes the terrace
+# lawful (adjacent-ground zone law).
+# The VALIDATOR half is ``check_grade._check_no_wall_in_runway_strip``,
+# built from the SAME law function (lockstep).  Gate OFF ⇒ byte-identical.
+RUNWAY_STRIP_WALL_LAW_ENABLED = (
+    _os.environ.get("O4_RUNWAY_STRIP_WALL_LAW", "0") == "1")
 
 # ── SOLVED-BAND EMIT-SIDE CORRIDOR CLAMP (diagnosed 2026-07-25, SPJC) ──
 # The GATE-ON band valuation (``adjacent_ground._make_solved_band_resampler``)

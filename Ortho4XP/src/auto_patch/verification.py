@@ -3829,6 +3829,47 @@ def verify_and_log(layout, icao: str, debug_log_path: str | None = None,
         except _shapely_domain_exceptions:         # pragma: no cover
             adjacent = []
 
+    # SOURCE COVERAGE (owner field report 2026-08-02, gate
+    # O4_SOURCE_COVERAGE_CHECK).  ``check_source_coverage`` is the DUAL of
+    # ``check_source_adjacency`` above — emitted ⊆ source there, source ⊆
+    # emitted here — and until now it had ZERO call sites, so no build has
+    # ever run it and the owner had to find the holes by flying them.  An
+    # ENCLOSED uncovered piece is source pavement the patch does not
+    # emit: X-Plane interpolates terrain across it and it reads as a bump
+    # in the middle of a taxiway.  Reported LOUDLY, piece by piece, and
+    # counted — a coverage hole is a build defect, not chatter.
+    #
+    # NOT every finding is a defect: a hole with NO SUBSTRATE RECORD (the
+    # source polygon exists but no apt.dat/OSM pavement feature backs it)
+    # is a source-data gap, which the H2 rule says is reported, not
+    # failed.  This reader cannot tell the two apart — it sees only the
+    # source union — so it reports and leaves the verdict to the reader.
+    coverage_gaps = []
+    from .config import SOURCE_COVERAGE_CHECK_ENABLED
+    if SOURCE_COVERAGE_CHECK_ENABLED:
+        from .clearance import _GEOM_EXC as _cov_geom_exc
+        from .config import (SOURCE_COVERAGE_MIN_AREA_M2,
+                             SOURCE_COVERAGE_MIN_ENCLOSED_FRAC)
+        try:
+            coverage_gaps = check_source_coverage(
+                layout,
+                min_gap_area_m2=SOURCE_COVERAGE_MIN_AREA_M2,
+                min_enclosed_frac=SOURCE_COVERAGE_MIN_ENCLOSED_FRAC)
+        except _cov_geom_exc:                      # pragma: no cover
+            coverage_gaps = []
+    if coverage_gaps:
+        _cov_total = sum(g[0] for g in coverage_gaps)
+        UI.vprint(1,
+            f"  [verify] SOURCE COVERAGE: {len(coverage_gaps)} enclosed "
+            f"uncovered source piece(s), {_cov_total:.1f} m2 total — the "
+            f"emitted pavement does not cover the source pavement there "
+            f"(X-Plane interpolates terrain across each hole).")
+        for _area, _frac, _at in coverage_gaps[:10]:
+            UI.vprint(1, f"      {_area:9.1f} m2  enclosed {_frac * 100:5.1f}%"
+                         f"  at {_at}")
+        if len(coverage_gaps) > 10:
+            UI.vprint(1, f"      … {len(coverage_gaps) - 10} more piece(s).")
+
     # COLLAR ↔ BAND double-cover (arc B1) — geometry only, no DEM, and
     # inert unless collar rings actually emitted, so it is gate-guarded by
     # construction (``_pocket_collar_ring_lines`` reads the gate).
@@ -3973,6 +4014,8 @@ def verify_and_log(layout, icao: str, debug_log_path: str | None = None,
         counts["eat_ceiling"] = len(eat_findings)
     if collar_band:
         counts["collar_ring_in_band"] = len(collar_band)
+    if coverage_gaps:
+        counts["source_coverage"] = len(coverage_gaps)
     if OBJECT_BRIDGE_TERRAIN:
         counts["bridge_deck_pins"] = len(bridge_pins)
         counts["bridge_crossing_floor"] = len(bridge_floor)

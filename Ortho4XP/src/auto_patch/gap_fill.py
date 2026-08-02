@@ -62,6 +62,7 @@ from .config import (
     ADJACENT_GROUND_LIP_WIDTH_M,
     APRON_SHOULDER_WIDTH_M,
     CLEARANCE_OBSTRUCTION_THRESHOLD_M,
+    DRAINAGE_SPINE_LAW_ENABLED,
     GAP_FILL_INTERIOR_FLOOR_DEPTH_M,
     GAP_FILL_INTERIOR_FLOOR_ENABLED,
     GAP_FILL_INTERIOR_RINGS_ENABLED,
@@ -76,7 +77,18 @@ from .config import (
     runway_code_number,
     taxiway_strip_graded_half_width_for_letter,
 )
-from .grade_law import adjacent_ground_envelope
+from .grade_law import adjacent_ground_envelope, drainage_spine_envelope
+
+# THE spine envelope, chosen ONCE for the whole module (owner field report
+# 2026-08-02, gate ``O4_DRAINAGE_SPINE_LAW``): with the gate on, both the
+# analytic interval and the solver's frozen parent specs read the
+# ENCLOSED-INTERIOR law — ceiling at most ``DRAINAGE_SPINE_MIN_FALL_M``
+# below each bounding pavement edge, corridor floor unchanged.  Gate off ⇒
+# the lateral corridor verbatim, i.e. byte-identical.  A single binding is
+# what keeps the two readers in lockstep: there is no site where one law
+# could be selected and the other not.
+_spine_envelope = (drainage_spine_envelope if DRAINAGE_SPINE_LAW_ENABLED
+                   else adjacent_ground_envelope)
 from .layout import (
     BuiltShape,
     R_EARTH,
@@ -661,7 +673,13 @@ def _spine_interval(layout, airside, px, py):
     parents each contribute ``[edge + floor(d), edge + ceil(d)]`` from
     ``adjacent_ground_envelope``; the combined interval is
     ``[max(floors), min(ceils)]``.  On an empty intersection it falls back
-    to the nearer parent's own interval (user design ruling 2026-07-09)."""
+    to the nearer parent's own interval (user design ruling 2026-07-09).
+
+    Under ``O4_DRAINAGE_SPINE_LAW`` the per-parent offsets come from
+    ``grade_law.drainage_spine_envelope`` instead, so ``min(ceils)``
+    composes to ``min(edge₁, edge₂) − DRAINAGE_SPINE_MIN_FALL_M`` — the
+    owner's "below the lower adjacent pavement" — with the floors
+    untouched."""
     p = Point(px, py)
     # OPT-1: the STRtree index reproduces the retired full airside scan
     # exactly, tie order included (see _AirsideNearestIndex).
@@ -676,7 +694,7 @@ def _spine_interval(layout, airside, px, py):
             continue
         role, cn, cl = _parent_family_code(layout, s)
         try:
-            floor_off, ceil_off = adjacent_ground_envelope(
+            floor_off, ceil_off = _spine_envelope(
                 role, cn, cl, max(0.0, d))
         except _GEOM_EXC:
             continue
@@ -696,6 +714,62 @@ def _spine_interval(layout, airside, px, py):
         # Empty intersection — the nearer (first) parent's interval alone.
         lo, hi = per_parent[0][1], per_parent[0][2]
     return lo, hi, edge_alts
+
+
+def reclamp_gap_spines(layout) -> int:
+    """Re-clamp every emitted drainage spine into its law interval against
+    the pavement that ACTUALLY SHIPS (owner field report 2026-08-02, gate
+    ``O4_DRAINAGE_SPINE_LAW``).  Returns the number of vertices moved.
+
+    WHY A RE-CLAMP AND NOT A RE-REFERENCE.  The zone-row twin
+    (``solve.py`` ~:3299) re-references its corridor against the pavement
+    ring ``_writeback`` has just written, INSIDE the solver writeback,
+    because that is where its values are produced.  A gap spine's values
+    are produced there too — but the pavement they are referenced to moves
+    AGAIN afterwards, in the LATE ``final_grade_projection`` the pipeline
+    runs after the solve has returned (and after this emitter has run).
+    There is no writeback left to re-reference in, so the composing answer
+    is to evaluate the SAME law once more, through the SAME reader, on the
+    final rings: no third code path, no second law, and idempotent — a
+    spine already inside its interval is untouched.
+
+    Called from the pipeline immediately after the late projection, which
+    is the last pass that moves AIRSIDE pavement (the strip-reconcile and
+    conformance passes after it move graded strips and groundside lots,
+    which are not spine parents)."""
+    if not DRAINAGE_SPINE_LAW_ENABLED:
+        return 0
+    spines = getattr(layout, "gap_spines", None) or []
+    if not spines:
+        return 0
+    airside = _airside_shapes(layout)
+    if len(airside) < 2:
+        return 0
+    n_moved = 0
+    worst = 0.0
+    for _pts_ll, values in spines:
+        for i, ((lat, lon), z) in enumerate(zip(_pts_ll, values)):
+            if z is None:
+                continue
+            try:
+                px, py = layout.ll_to_m(lat, lon)
+                lo, hi, _edges = _spine_interval(layout, airside, px, py)
+            except _GEOM_EXC:
+                continue
+            nz = float(z)
+            if lo is not None and nz < lo:
+                nz = lo
+            if hi is not None and nz > hi:
+                nz = hi
+            if abs(nz - float(z)) > 1e-6:
+                worst = max(worst, abs(nz - float(z)))
+                values[i] = nz
+                n_moved += 1
+    if n_moved:
+        UI.vprint(1, f"  [gap-fill] drainage-spine law re-clamp: "
+                     f"{n_moved} spine vertex/vertices moved against the "
+                     f"final pavement (worst {worst:.2f} m).")
+    return n_moved
 
 
 def _drain_target(lo, hi, edge_alts):
@@ -2159,7 +2233,10 @@ def _freeze_spine_parent_specs(layout, airside, px, py):
     to (a) its nearest ring VERTEX — the pavement chain station the
     envelope interval edge couples to — and (b) the envelope offsets
     ``adjacent_ground_envelope(role, code_number, code_letter, d)`` at
-    the CONSTRUCTION-TIME lateral distance ``d`` to that parent's edge.
+    the CONSTRUCTION-TIME lateral distance ``d`` to that parent's edge
+    (``grade_law.drainage_spine_envelope`` under ``O4_DRAINAGE_SPINE_LAW``
+    — the SAME binding ``_spine_interval`` reads, so the solver's slab and
+    the analytic interval cannot disagree about the law).
     The station identity and ``d`` never re-derive as the solve moves
     elevations; the elevation coupling itself stays live through the
     interval edge.  A parent whose envelope is fully open
@@ -2174,7 +2251,7 @@ def _freeze_spine_parent_specs(layout, airside, px, py):
     for d, s in _airside_index(airside).two_nearest(p):
         role, cn, cl = _parent_family_code(layout, s)
         try:
-            floor_off, ceil_off = adjacent_ground_envelope(
+            floor_off, ceil_off = _spine_envelope(
                 role, cn, cl, max(0.0, d))
         except _GEOM_EXC:
             continue

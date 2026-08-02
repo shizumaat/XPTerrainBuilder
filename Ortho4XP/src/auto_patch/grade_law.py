@@ -47,7 +47,8 @@ from .config import (
     BUILDING_FRONTAGE_MAX_GRADE, BUILDING_FULL_FRONTAGE,
     BUILDING_FULL_FRONTAGE_AREA_M2,
     BUILDING_REACH_CORRIDOR_M, CLEARANCE_LATERAL_MAX_SLOPE,
-    CLEARANCE_MAX_REACH_M, JUNCTION_MESH_CONSTRAINTS,
+    CLEARANCE_MAX_REACH_M, DRAINAGE_SPINE_MIN_FALL_M,
+    JUNCTION_MESH_CONSTRAINTS,
     OLS_APPROACH_DIVERGENCE, OLS_APPROACH_EMIT_REACH_M,
     OLS_APPROACH_FIRST_SECTION_SLOPE,
     OLS_APPROACH_INNER_EDGE_HALF_WIDTH_M, OLS_APPROACH_SETBACK_M,
@@ -372,6 +373,116 @@ def runway_end_corridor_half_width_m(runway_width_m: float,
                float(RUNWAY_STRIP_HALF_WIDTH_BY_CODE[code]))
 
 
+def runway_axis_and_width(points) -> "Optional[tuple]":
+    """``(axis_a, axis_b, width_m)`` for a runway from its EMITTED ring
+    vertices — the centreline axis endpoints (at the two extreme along-axis
+    stations) and the ring's full transverse extent.
+
+    The direction is the PRINCIPAL (largest-variance) axis of the vertex
+    cloud, which is parallel to the runway centreline by construction for a
+    long thin rectangle; the longest-vertex-PAIR alternative picks the
+    corner-to-corner DIAGONAL and skews 1–2° (the same reasoning, and the
+    same closed form, as ``verification._runway_principal_axis`` — that
+    function is NOT reused here on purpose: ``tools/check_grade.py`` is the
+    other consumer and must not import the shapely-heavy ``verification``
+    module to build a footprint out of four numbers).
+
+    ``points`` should be EVERY ring vertex of every emitted shape carrying
+    the runway (a tile cut / crossing split leaves one runway as several
+    ways — pass them all so the axis is the runway's, not a fragment's).
+    ``None`` when the cloud is degenerate.  Pure math, no geometry deps.
+    """
+    import math as _math
+    pts = [(float(x), float(y)) for (x, y) in points]
+    n = len(pts)
+    if n < 2:
+        return None
+    cx = sum(p[0] for p in pts) / n
+    cy = sum(p[1] for p in pts) / n
+    sxx = syy = sxy = 0.0
+    for x, y in pts:
+        ddx, ddy = x - cx, y - cy
+        sxx += ddx * ddx
+        syy += ddy * ddy
+        sxy += ddx * ddy
+    tr = sxx + syy
+    det = sxx * syy - sxy * sxy
+    disc = max(0.0, (0.5 * tr) ** 2 - det)
+    lam = 0.5 * tr + _math.sqrt(disc)                 # largest eigenvalue
+    if abs(sxy) > 1e-9:
+        ux, uy = lam - syy, sxy
+    else:
+        ux, uy = (1.0, 0.0) if sxx >= syy else (0.0, 1.0)
+    norm = _math.hypot(ux, uy)
+    if norm < 1e-12:
+        return None
+    ux, uy = ux / norm, uy / norm
+    along = [(x - cx) * ux + (y - cy) * uy for x, y in pts]
+    across = [(x - cx) * -uy + (y - cy) * ux for x, y in pts]
+    s0, s1 = min(along), max(along)
+    if s1 - s0 <= 0.0:
+        return None
+    return ((cx + s0 * ux, cy + s0 * uy),
+            (cx + s1 * ux, cy + s1 * uy),
+            max(across) - min(across))
+
+
+def runway_strip_wall_keepout_rings(
+        axis_a: tuple[float, float], axis_b: tuple[float, float],
+        runway_width_m: float) -> list[list[tuple[float, float]]]:
+    """THE runway-STRIP footprint inside which a ``retaining_wall`` face is
+    INADMISSIBLE (owner ruling 2026-08-01, runway-edge terrain law: "retaining
+    walls are NEVER lawful at a runway edge — runway surroundings must grade
+    away smoothly").
+
+    Returned as CLOSED RINGS of ``(x, y)`` in whatever planar metre frame the
+    caller's ``axis_a`` / ``axis_b`` live in — deliberately geometry-library
+    free, so the EMITTER (``adjacent_ground``, layout frame) and the VALIDATOR
+    (``tools/check_grade.py``, its own mean-centred frame with the axis
+    re-derived from the emitted runway ring) build the IDENTICAL footprint from
+    the identical numbers.  Lockstep by construction, exactly as
+    ``adjacent_ground_envelope`` is for the corridor.
+
+    Two components, both already law elsewhere — no new constant is minted:
+
+      * the LATERAL graded strip — centreline ± ``RUNWAY_STRIP_HALF_WIDTH_
+        BY_CODE[code]`` (ICAO Annex 14 §3.4.9), over the runway's own length;
+      * the two END corridors — ± ``runway_end_corridor_half_width_m`` (Annex
+        14 §3.5.2-3.5.3, the RESA/skirt corridor this module already owns),
+        extending ``runway_end_clearance_length_m`` beyond each end.
+
+    The displaced drop relocates lawfully: the strip corridor grades to the
+    75 m edge under ``adjacent_ground_envelope``, and beyond it zone 3's free
+    floor makes the terrace lawful (adjacent-ground zone law) — so removing
+    the face here needs no new corridor math.
+    """
+    import math as _math
+    ax, ay = float(axis_a[0]), float(axis_a[1])
+    bx, by = float(axis_b[0]), float(axis_b[1])
+    dx, dy = bx - ax, by - ay
+    length = _math.hypot(dx, dy)
+    if length < 1.0:
+        return []
+    ux, uy = dx / length, dy / length
+    px, py = -uy, ux                      # unit normal
+    code = runway_code_number(length)
+    strip_half = float(RUNWAY_STRIP_HALF_WIDTH_BY_CODE[code])
+    end_half = runway_end_corridor_half_width_m(runway_width_m, length)
+    end_len = float(RUNWAY_END_CLEARANCE_LENGTH_BY_CODE[code])
+
+    def _rect(s0, s1, half):
+        """Closed ring of the axis-aligned band ``s ∈ [s0, s1]``, ``|t| ≤
+        half`` in the (along, across) runway frame."""
+        corners = ((s0, -half), (s1, -half), (s1, half), (s0, half))
+        ring = [(ax + ux * s + px * t, ay + uy * s + py * t)
+                for (s, t) in corners]
+        return ring + [ring[0]]
+
+    return [_rect(0.0, length, strip_half),
+            _rect(-end_len, 0.0, end_half),
+            _rect(length, length + end_len, end_half)]
+
+
 def runway_end_envelope(
         distance_beyond_pavement_m: float,
         *,
@@ -591,6 +702,55 @@ def adjacent_ground_envelope(
             return (None, None)
         return (None, CLEARANCE_LATERAL_MAX_SLOPE * d)
     raise ValueError(f"adjacent_ground_envelope: unmodelled role {role!r}")
+
+
+def drainage_spine_envelope(
+        role: str, code_number: Optional[int], code_letter: Optional[str],
+        distance_from_pavement_edge_m: float,
+) -> tuple[Optional[float], Optional[float]]:
+    """THE lawful corridor for the DRAINAGE SPINE of an ENCLOSED interior,
+    as a signed ``(floor_offset_m, ceiling_offset_m)`` relative to ONE
+    bounding pavement's EDGE elevation — the enclosed-interior variant of
+    :func:`adjacent_ground_envelope` (owner field report 2026-08-02: the
+    spine must run BELOW the lower adjacent pavement).
+
+    Two deltas over the lateral corridor, and only two:
+
+      * the CEILING is tightened to at most ``-DRAINAGE_SPINE_MIN_FALL_M``.
+        Ground enclosed between two pavements drains INTO the spine, so a
+        spine at or above either bounding edge is a dam.  The lateral
+        corridor cannot express that on its own: beyond the graded
+        half-width its zone-3 ceiling RISES at +5 %/m away from the edge
+        (``ADJACENT_GROUND_UNGRADED_STRIP_MAX_UP_SLOPE``), which is correct
+        for open terrain — a hill outside the strip is lawful — and wrong
+        for an interior whose only outlet is the spine.
+      * the FLOOR is the lateral corridor's, UNCHANGED.  It is the crater
+        guard: the spine may not sink below the ground the lateral law
+        supports.  Where that floor is ``None`` (zone 3 and beyond) the
+        corridor is genuinely open downward and this function says so
+        rather than inventing a depth.
+
+    Expressed PER PARENT as an offset — which is what makes it one law with
+    two readers.  ``gap_fill._spine_interval`` composes it analytically as
+    ``hi = min over parents (edge_i + ceil_off_i)``, i.e. exactly
+    ``min(edge₁, edge₂) − FALL``; ``gap_fill._freeze_spine_parent_specs``
+    hands the SAME tightened offset to the solver's pairwise slab.  No
+    second selection, no second geometry.
+
+    A conflicting pair (a floor already above the drainage ceiling, which
+    the lateral law can produce inside zone 1's steep lip) collapses to a
+    PINNED value at the ceiling: drainage is the binding clause there, and
+    an empty interval would send the caller down its
+    empty-intersection fallback for a reason that is not a contradiction
+    between the two parents.
+    """
+    floor_off, ceil_off = adjacent_ground_envelope(
+        role, code_number, code_letter, distance_from_pavement_edge_m)
+    fall = -float(DRAINAGE_SPINE_MIN_FALL_M)
+    ceil_off = fall if ceil_off is None else min(float(ceil_off), fall)
+    if floor_off is not None and float(floor_off) > ceil_off:
+        floor_off = ceil_off
+    return floor_off, ceil_off
 
 
 # ── Adjacent-ground DAYLIGHT slope-limit law (user 2026-07-09) ───────────────

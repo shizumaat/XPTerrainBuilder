@@ -4830,6 +4830,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
                                 tile_lat=_unify_tile_lat,
                                 tile_lon=_unify_tile_lon)
         _airside_unified_presolve = True
+        _covp(layout, "post-unify-airside")
 
         # (s79) FINAL pre-solve overlap clip: the unify pass's vertex
         # snaps (weld / corner snaps / conformance) can sweep an apron
@@ -4842,6 +4843,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
             from .elevation import _drop_overlap_against_fixed_shapes
             _drop_overlap_against_fixed_shapes(
                 layout, icao=icao, include_aprons=True)
+            _covp(layout, "post-presolve-overlap-clip")
 
         # Finalize airside geometry PRE-solve (single-grade-graph Phase 0,
         # docs/single_grade_graph.md): the solver must grade the SAME node-set
@@ -4860,8 +4862,10 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 layout, icao,
                 collapse_needles=os.environ.get(
                     "O4_RING_NEEDLE_COLLAPSE", "1") == "1")
+            _covp(layout, "post-ring-dedup-needle")
             from .flatedge_snap import drop_flatedge_nodes as _pre_flatedge
             _pre_flatedge(layout)
+            _covp(layout, "post-presolve-clean")
 
         # Pre-solve geometry guard (dev, O4_GEOM_GUARD=1): snapshot every
         # airside shape's ring geometry HERE, immediately before the solve,
@@ -4946,6 +4950,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 UI.vprint(1,
                     f"  [pav-builder] {icao}: re-roled {_n_sl} road-only "
                     f"junction(s) → service_road (truck route / sliver).")
+            _covp(layout, "post-road-only-rerole")
 
             # The junction→service_road re-role above runs AFTER the
             # connectivity classifier (it can only see a junction's road-only
@@ -5014,6 +5019,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 f"  [pav-builder] {icao}: decomposed {_n_decomp} "
                 f"holed airside shape(s) into simple pieces "
                 f"(pre-solve).")
+        _covp(layout, "post-simple-shapes-decompose")
 
         # FINAL scoped runway-disconnection sweep (user 2026-07-04): the
         # narrow-strip carve + the passes after the 2nd classifier run
@@ -6207,6 +6213,22 @@ def build_airport_pavement(icao: str, xplane_root: str,
             UI.vprint(1, f"  [pav-builder] WARN {icao}: late final "
                          f"grade projection failed ({_late_fgp_exc!r}) "
                          f"— mid-pipeline projection values kept.")
+
+    # ★ DRAINAGE-SPINE LAW re-clamp (owner field report 2026-08-02, gate
+    # O4_DRAINAGE_SPINE_LAW).  The gap spines were valued against the
+    # pavement as it stood at emission; the late projection above is the
+    # last pass that moves AIRSIDE pavement, so the spine is re-clamped
+    # into its law interval HERE, against the rings that actually ship.
+    # No-op with the gate off (and whenever every spine is already inside
+    # its interval).  See gap_fill.reclamp_gap_spines for why this is a
+    # re-clamp and not the zone rows' foot re-reference.
+    try:
+        from .gap_fill import reclamp_gap_spines as _reclamp_spines
+        _reclamp_spines(layout)
+    except _GEOM_EXC as _spine_reclamp_exc:
+        UI.vprint(1, f"  [pav-builder] WARN {icao}: drainage-spine "
+                     f"re-clamp failed ({_spine_reclamp_exc!r}) — "
+                     f"emitted spine values kept.")
 
     # ★ SPEC §2b: the strip reconcile unit runs HERE by default — after the
     # last pavement move, so graded strips settle against the pavement that

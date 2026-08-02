@@ -71,6 +71,7 @@ from .config import (
     CLEARANCE_OBSTRUCTION_THRESHOLD_M,
     CLEARANCE_STATION_STEP_M,
     RUNWAY_STRIP_HALF_WIDTH_BY_CODE,
+    RUNWAY_STRIP_WALL_LAW_ENABLED,
     STRIP_WIDTH_FROM_CENTERLINE_ENABLED,
     TILE_CUT_HALF_WIDTH_M,
     runway_code_number,
@@ -82,7 +83,9 @@ from .grade_law import (
     adjacent_ground_envelope,
     adjacent_ground_supported_depths,
     ols_lateral_handover_distance_m,
+    runway_axis_and_width,
     runway_strip_band_width_m,
+    runway_strip_wall_keepout_rings,
 )
 from .layout import (
     BuiltShape,
@@ -376,11 +379,65 @@ _APRON_ROLES = (ROLE_APRON,)
 # emitter (pre-emit) and the validator (post-emit) derive the identical set
 # from ``layout.shapes`` — lockstep by construction, exactly as
 # ``airside_seam_vertex_keys`` does.
+#
+# RUNWAY-STRIP WALL LAW (owner ruling 2026-08-01, gate
+# ``RUNWAY_STRIP_WALL_LAW_ENABLED``): a runway NEVER qualifies a wall.  The
+# owner's law is that runway surroundings grade away smoothly, so counting a
+# runway as the "adjacent pavement within 5 m" that makes a vertical face the
+# only lawful answer is exactly backwards — the apron↔runway frontage is the
+# one place the corridor law MUST be allowed to grade.  Gate OFF keeps the
+# runway roles in scope, i.e. byte-identical.
 _WALL_SCOPE_PAVEMENT_ROLES = frozenset(
-    _RUNWAY_ROLES + _TAXIWAY_ROLES + _APRON_ROLES) | frozenset({
+    ((_TAXIWAY_ROLES + _APRON_ROLES) if RUNWAY_STRIP_WALL_LAW_ENABLED
+     else (_RUNWAY_ROLES + _TAXIWAY_ROLES + _APRON_ROLES))) | frozenset({
         "groundside_pavement", "service_road", "service_junction",
         "tunnel_ramp",
     })
+
+
+def runway_strip_wall_keepout(layout):
+    """The prepared union of every runway's STRIP FOOTPRINT — the ground on
+    which ``ROLE_RETAINING_WALL`` is INADMISSIBLE (owner ruling 2026-08-01;
+    the law geometry is ``grade_law.runway_strip_wall_keepout_rings``).
+    ``None`` with the gate off, or when the layout carries no runway.
+
+    Built ONCE per emitter pass (three passes emit walls) and derived from
+    the EMITTED runway rings grouped by ``ref`` — a tile cut or a runway
+    crossing leaves one runway as several ways, and a fragment's own
+    principal axis is not the runway's.  ``tools/check_grade`` re-derives
+    the identical footprint from the identical rings in its own frame:
+    same law function, same grouping, lockstep by construction."""
+    if not RUNWAY_STRIP_WALL_LAW_ENABLED:
+        return None
+    groups: dict = {}
+    for s in layout.shapes:
+        if s.role != ROLE_RUNWAY:
+            continue
+        if s.polygon is None or s.polygon.is_empty:
+            continue
+        try:
+            coords = _open_coords(s.polygon)
+        except _GEOM_EXC:
+            continue
+        if len(coords) < 3:
+            continue
+        groups.setdefault(getattr(s, "ref", "") or id(s), []).extend(coords)
+    rings = []
+    for pts in groups.values():
+        axis = runway_axis_and_width(pts)
+        if axis is None:
+            continue
+        rings.extend(runway_strip_wall_keepout_rings(
+            axis[0], axis[1], axis[2]))
+    if not rings:
+        return None
+    try:
+        block = unary_union([Polygon(r) for r in rings])
+    except _GEOM_EXC:
+        return None
+    if block.is_empty:
+        return None
+    return block
 
 
 def apron_wall_pavement_adjacency_index(layout):
@@ -1799,6 +1856,12 @@ def emit_stacked_conflict_walls(layout) -> int:
     registry = getattr(layout, "canonical_points", None)
     if registry is None:
         return 0
+    # RUNWAY-STRIP WALL LAW (owner ruling 2026-08-01): a face inside a
+    # runway strip footprint is inadmissible.  Skipping the RUN also
+    # cancels its vertex retreat, i.e. the conflict falls back to the emit
+    # consensus merge — the emitter's own documented fallback, not a new
+    # path.  ``None`` with the gate off (byte-identical).
+    _strip_keepout = runway_strip_wall_keepout(layout)
 
     def _ring_values(shape):
         """Open exterior ring + aligned per-vertex values, mirroring
@@ -2141,6 +2204,9 @@ def emit_stacked_conflict_walls(layout) -> int:
                 wall_alts = [round(float(_nearest_alt(
                     ring_pts, ring_alts, vx, vy)), 1)
                     for (vx, vy) in rebuilt]
+            if (_strip_keepout is not None
+                    and wall_poly.intersects(_strip_keepout)):
+                continue            # runway-strip wall law (see above)
             shape_walls.append(BuiltShape(
                 polygon=wall_poly, role=ROLE_RETAINING_WALL,
                 ref="stacked_conflict_wall",
@@ -2329,6 +2395,11 @@ def emit_groundside_terrace_walls(layout) -> int:
     registry = getattr(layout, "canonical_points", None)
     if registry is None:
         return 0
+    # RUNWAY-STRIP WALL LAW (owner ruling 2026-08-01), the stacked-wall
+    # twin: a terrace face inside a runway strip footprint is
+    # inadmissible; skipping the run cancels its retreat and the level
+    # change falls back to the emit consensus merge.
+    _strip_keepout = runway_strip_wall_keepout(layout)
 
     # GRADED RIBBONS: the objects the law keeps graded inside groundside —
     # the pavement surfaces (apron / taxi / runway families, terminals,
@@ -2562,6 +2633,9 @@ def emit_groundside_terrace_walls(layout) -> int:
                 wall_alts = [round(float(_nearest_alt(
                     ring_pts, ring_alts, vx, vy)), 1)
                     for (vx, vy) in rebuilt]
+            if (_strip_keepout is not None
+                    and wall_poly.intersects(_strip_keepout)):
+                continue            # runway-strip wall law (see above)
             shape_walls.append(BuiltShape(
                 polygon=wall_poly, role=ROLE_RETAINING_WALL,
                 ref="groundside_terrace_wall",
@@ -4917,6 +4991,10 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
         "taxiway": CLEARANCE_OBSTRUCTION_THRESHOLD_M["taxiway"],
         "apron": CLEARANCE_OBSTRUCTION_THRESHOLD_M["taxiway"],
     }
+    # RUNWAY-STRIP WALL KEEP-OUT (owner ruling 2026-08-01): built once for
+    # the whole pass; ``None`` with the gate off (the apron-wall emitter
+    # then differences nothing — byte-identical).
+    _strip_keepout = runway_strip_wall_keepout(layout)
 
     # Accumulate per-shape (ring, alts) bands + wall shapes, then clip +
     # emit once.  TWO overlap unions with DIFFERENT clip rules (round 2,
@@ -5830,7 +5908,8 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                 # where another built pavement stands within
                 # ``APRON_WALL_PAVEMENT_ADJACENCY_M``.
                 station_filter=_apron_q,
-                pavement_block=_wall_pav_block)
+                pavement_block=_wall_pav_block,
+                strip_keepout=_strip_keepout)
             emitted += n_wall
             if n_wall and wall_union is not None:
                 current_shape_union = wall_union
@@ -5938,7 +6017,8 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
 def _emit_apron_walls(layout, stations, st_alts, outs, ceil_off, step,
                       sample_dem, static_union, boundary,
                       emitted_union=None, emitted_shapes=None,
-                      station_filter=None, pavement_block=None):
+                      station_filter=None, pavement_block=None,
+                      strip_keepout=None):
     """Emit ``retaining_wall`` faces along an apron edge where the DEM
     drops more than ``APRON_EDGE_WALL_MIN_DROP_M`` below the shoulder
     outer-edge altitude (reuses the ``ROLE_RETAINING_WALL`` emit contract
@@ -5979,6 +6059,14 @@ def _emit_apron_walls(layout, stations, st_alts, outs, ceil_off, step,
     Frontage facing OPEN TERRAIN takes no wall at all (and, in the march
     above, no fill band either): the raw DEM grades up to the apron edge.
     ``None`` (gate off): every station is eligible, as before.
+
+    ``strip_keepout`` (RUNWAY-STRIP WALL LAW, owner ruling 2026-08-01 —
+    ``runway_strip_wall_keepout``, gated by ``O4_RUNWAY_STRIP_WALL_LAW``):
+    ground on which a retaining face is INADMISSIBLE.  Differenced out of
+    each wall run exactly like the ramp-mouth and groundside keep-outs
+    above it, so a run straddling the strip edge keeps its lawful outside
+    part and loses only the part inside the strip.  ``None`` (gate off):
+    nothing is differenced — byte-identical.
     """
     w = APRON_SHOULDER_WIDTH_M
     n = len(stations)
@@ -6064,6 +6152,7 @@ def _emit_apron_walls(layout, stations, st_alts, outs, ceil_off, step,
     emitted = 0
     n_confetti = 0
     n_multipart_parts = 0
+    n_strip_clipped = 0
     for run in runs:
         if len(run) < 2:
             continue
@@ -6089,6 +6178,13 @@ def _emit_apron_walls(layout, stations, st_alts, outs, ceil_off, step,
                 poly = poly.difference(static_union)
             if _ramp_block is not None:
                 poly = poly.difference(_ramp_block)
+            # RUNWAY-STRIP WALL LAW (owner 2026-08-01): a retaining face
+            # is inadmissible inside a runway's strip footprint — the
+            # runway surround grades away smoothly instead.
+            if strip_keepout is not None and not strip_keepout.is_empty:
+                if poly.intersects(strip_keepout):
+                    poly = poly.difference(strip_keepout)
+                    n_strip_clipped += 1
             if (pavement_block is not None
                     and not pavement_block.is_empty):
                 # Groundside/service keepout (owner defect 2026-07-27,
@@ -6177,6 +6273,10 @@ def _emit_apron_walls(layout, stations, st_alts, outs, ceil_off, step,
                      f"residue kept, {n_confetti} sub-minimum part(s) "
                      f"skipped (<{APRON_WALL_MIN_RUN_M:g} m run / "
                      f"<{APRON_WALL_MIN_AREA_M2:g} m2).")
+    if n_strip_clipped:
+        UI.vprint(1, f"  [adjacent-ground] runway-strip wall law: "
+                     f"{n_strip_clipped} apron wall run(s) clipped out of a "
+                     f"runway strip footprint (owner ruling 2026-08-01).")
     return emitted, emitted_union
 
 

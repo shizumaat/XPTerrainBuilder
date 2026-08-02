@@ -112,6 +112,28 @@ _ROUTE_CONTACT_TOL_M = 0.5
 # plausible airport relief span can never bind and is dropped outright.
 ROUTE_METRIC_PAIRS = os.environ.get("O4_ROUTE_METRIC_PAIRS", "1") == "1"
 PAIR_CHORD_LOCAL_M = float(os.environ.get("O4_PAIR_CHORD_LOCAL_M", "120"))
+# EXACT ROUTE LEGS (owner field report 2026-08-02).  Two defects in the
+# route-leg pricing above, measured at HECA, which compose into one
+# over-allowance and are therefore gated together:
+#   (1) ``_RouteDistanceOracle._nearest`` attaches a point to the nearest
+#       graph VERTEX, but the law's "off-spine offset" means the distance
+#       to the CENTRELINE.  440 of HECA's 692 axes are 2-point polylines,
+#       so a point beside a long straight taxiway attaches to a vertex up
+#       to half a segment away: measured off-leg overstatement p90 77.5 m,
+#       max 454.5 m, and the owner's ON-CENTRELINE vertex was charged a
+#       190 m off-leg.  With this ON the attachment is the nearest POINT
+#       ON the polyline and the graph leg is measured from the attachment
+#       SEGMENT's two endpoints.
+#   (2) ``_route_leg_floor`` lost the chord gate its predecessor
+#       ``_route_metric_far_pair`` still applies: it floors EVERY interior
+#       pair, including a 38 m one, at a route-travel budget.  With this
+#       ON the floor applies only beyond ``PAIR_CHORD_LOCAL_M``, restoring
+#       the block comment above ("Near pairs keep the chord — local apron
+#       planarity is the law there") and the ``ds_decompose`` principle:
+#       the pavement between two nearby points is CONTINUOUS, so the
+#       surface gradient between them is what the standards regulate.
+# Gate OFF ⇒ the vertex attachment and the ungated floor, byte-identical.
+ROUTE_LEG_EXACT = os.environ.get("O4_ROUTE_LEG_EXACT", "0") == "1"
 PAIR_BUDGET_PRUNE_M = float(os.environ.get("O4_PAIR_BUDGET_PRUNE_M", "150"))
 
 # SPINE-FRAME PAIR LAW (owner model, 2026-07-29 burial session: "taxi
@@ -1064,6 +1086,77 @@ class _RouteDistanceOracle:
         self._fields: dict = {}
         self._field_order: list = []
         self._nearest_memo: dict = {}
+        # EXACT ATTACHMENT index (``ROUTE_LEG_EXACT``): the graph's
+        # SEGMENTS, bucketed over every cell their bbox touches, so a
+        # point can be attached to the nearest POINT ON a centreline
+        # instead of the nearest vertex.  Built only under the gate —
+        # gate-off construction is untouched.
+        self.segs: list = []
+        self.seg_grid: dict = {}
+        if ROUTE_LEG_EXACT:
+            seen_seg: set = set()
+            for i, nbrs in enumerate(adj):
+                for (j, w) in nbrs:
+                    if i >= j or (i, j) in seen_seg:
+                        continue
+                    seen_seg.add((i, j))
+                    self.segs.append((verts[i], verts[j], i, j, w))
+            c = self._CELL
+            for si, (a, b, _i, _j, _w) in enumerate(self.segs):
+                x0, x1 = sorted((a[0], b[0]))
+                y0, y1 = sorted((a[1], b[1]))
+                for gx in range(int(x0 // c), int(x1 // c) + 1):
+                    for gy in range(int(y0 // c), int(y1 // c) + 1):
+                        self.seg_grid.setdefault((gx, gy), []).append(si)
+        self._attach_memo: dict = {}
+
+    def _attach(self, p):
+        """``(off, seg_index, d_to_i, d_to_j)`` — the nearest POINT ON the
+        centreline graph: the perpendicular offset to it, the segment it
+        lies on, and the along-segment distance from it to each of that
+        segment's two graph vertices.  ``None`` when the graph is empty.
+
+        This is what the law means by "off-spine offset" (see the
+        ``ROUTE_LEG_EXACT`` block): the distance to the CENTRELINE, not to
+        whichever polyline vertex happens to be nearest.  Memoized on the
+        centimetre-rounded point exactly as ``_nearest`` is."""
+        if not self.segs:
+            return None
+        key = (round(p[0], 2), round(p[1], 2))
+        hit = self._attach_memo.get(key)
+        if hit is not None:
+            return hit
+        c = self._CELL
+        cx, cy = int(p[0] // c), int(p[1] // c)
+        best = None
+        r = 0
+        while r < 4096:
+            cand = []
+            for dx in range(-r, r + 1):
+                for dy in range(-r, r + 1):
+                    if max(abs(dx), abs(dy)) != r:
+                        continue
+                    cand.extend(self.seg_grid.get((cx + dx, cy + dy), ()))
+            for si in cand:
+                (ax, ay), (bx, by), _i, _j, w = self.segs[si]
+                vx, vy = bx - ax, by - ay
+                l2 = vx * vx + vy * vy
+                t = 0.0 if l2 < 1e-12 else max(0.0, min(
+                    1.0, ((p[0] - ax) * vx + (p[1] - ay) * vy) / l2))
+                qx, qy = ax + t * vx, ay + t * vy
+                d = math.hypot(p[0] - qx, p[1] - qy)
+                if best is None or d < best[0]:
+                    best = (d, si, t * w, (1.0 - t) * w)
+            # A hit found at ring r can still be beaten from ring r+1
+            # onward only while the ring's inner boundary is nearer than
+            # the incumbent — the same soundness argument ``_nearest``
+            # makes with its "one extra ring", stated as a distance.
+            if best is not None and best[0] <= r * c:
+                break
+            r += 1
+        if best is not None:
+            self._attach_memo[key] = best
+        return best
 
     def _nearest(self, p):
         if not self.verts:
@@ -1124,6 +1217,33 @@ class _RouteDistanceOracle:
         """``(off_a, graph_d, off_b)`` — straight off-graph legs plus the
         route-graph distance between the attachments; ``None`` when no
         graph exists / the attachments are disconnected."""
+        if ROUTE_LEG_EXACT and self.segs:
+            aa = self._attach(pa)
+            ab = self._attach(pb)
+            if aa is None or ab is None:
+                return None
+            off_a, sa, a_i, a_j = aa
+            off_b, sb, b_i, b_j = ab
+            if sa == sb:
+                # SAME SEGMENT: the route between the two attachments IS
+                # that segment, so the graph leg is their separation along
+                # it — no detour through either endpoint.
+                return off_a, abs(a_i - b_i), off_b
+            ia, ja = self.segs[sa][2], self.segs[sa][3]
+            ib, jb = self.segs[sb][2], self.segs[sb][3]
+            best = None
+            for (va, da) in ((ia, a_i), (ja, a_j)):
+                f = self._field(va)
+                for (vb, db) in ((ib, b_i), (jb, b_j)):
+                    g = f[vb]
+                    if g == float("inf"):
+                        continue
+                    tot = da + g + db
+                    if best is None or tot < best:
+                        best = tot
+            if best is None:
+                return None
+            return off_a, best, off_b
         ia = self._nearest(pa)
         ib = self._nearest(pb)
         if ia is None or ib is None:
@@ -1595,7 +1715,16 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
             # constraint); ring-adjacent pairs are the surface
             # smoothness law and stay tight.
             if (SPINE_FRAME_PAIRS
-                    and not ring_adjacent and not (ki_bld or kj_bld)):
+                    and not ring_adjacent and not (ki_bld or kj_bld)
+                    # CHORD GATE (``ROUTE_LEG_EXACT``, owner field report
+                    # 2026-08-02): a LOCAL pair is priced on its chord,
+                    # exactly as ``_route_metric_far_pair`` still is and as
+                    # the ROUTE-METRIC block comment above already states.
+                    # The pavement between two nearby points is continuous
+                    # (``ds_decompose``), so the surface gradient between
+                    # them is what the standards regulate — a route-travel
+                    # budget over a 38 m chord is not a grade law.
+                    and (not ROUTE_LEG_EXACT or d > PAIR_CHORD_LOCAL_M)):
                 allow = _route_leg_floor(
                     allow, (xi, yi), (xj, yj), d, ctx)
                 if allow is None:

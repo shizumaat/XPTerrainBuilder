@@ -93,3 +93,15 @@ ledger) is canonical in `Ortho4XP/CLAUDE.md` and is not duplicated here.
   envelope's two-sided tightening toward the band (measured: 47.7% of
   HECA vertices moved, balanced up/down, dip sag 5.81→4.79 m) is the
   accepted baseline surface character going forward.
+
+- **Region-specific rulesets** (2026-08-02, owner verbatim class): "FAA
+  applies within the USA, and ICAO everywhere else. So we should support
+  region specific regulations and provide the code structure to allow
+  the possibility to choose and/or support multiple rulesets in the
+  future." Grade-law/standards constants become RULESET-keyed (FAA /
+  ICAO-EASA to start), selected per airport by region (default: ICAO
+  code prefix), with a first-class ruleset structure — never hardcoded
+  branches. Each ruleset carries its own authority's PRIMARY-VERIFIED
+  values (standards-gap review 2026-08-02); "take the stricter" is
+  superseded by jurisdictional fidelity. Emitters and validators read
+  the SAME ruleset (lockstep).

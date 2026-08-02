@@ -125,3 +125,15 @@ ledger) is canonical in `Ortho4XP/CLAUDE.md` and is not duplicated here.
   (lockstep). A validator-only check is visibility, not law. Gap
   inventory: standards-gap review 2026-08-02 (G-1..G-14) + the
   field-report families (transverse taxiway, drainage spine, coverage).
+
+- **ROFA exemption approved** (2026-08-02): the FAA existing-runway
+  exemption is taken — the ≤0% side-slope rule does not bind; the
+  back-slope limits (8:1/10:1/16:1 by group, FAA Table 3-7 S-5) do.
+- **THE CAMPAIGN GOAL** (2026-08-02, owner verbatim): "iterate until all
+  issues found in the KML v3 are resolved, the missing regs are added to
+  grade law, all grade law violations are detected and flagged by tests,
+  nothing can be quarantined, and SPJC, SPLP, CYXY, HECA, and KCLT all
+  build with no known violations." KCLT JOINS THE BATTERY as the
+  FAA-ruleset fixture. Acceptance = zero known violations, full census,
+  no quarantine machinery, generation-binding law with test twins, all
+  five airports.

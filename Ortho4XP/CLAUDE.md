@@ -58,6 +58,16 @@ top-tier-model tokens only where judgment is required:
    violate a listed ruling is invalid; deviations are ruled by the owner,
    never decided by the agent). Agents may not change a public interface;
    if blocked, they report back rather than improvise.
+   **Convergence guards (owner 2026-08-02, mandatory in every
+   implementation brief):** (a) a MATERIALITY FLOOR per target — a
+   residual below it (default 0.01 m for elevation classes, 0.01 pp for
+   grades unless the spec says otherwise) is reported as PASS-with-
+   residual, never iterated on; (b) an ATTEMPT CAP — at most 2 fix
+   iterations per pre-registered target; a second miss is a STOP-and-
+   report, not a third attempt; (c) a PROGRESS HEARTBEAT — long-running
+   work writes START/step/EXIT stamps to its scratch dir (the
+   `.progress` convention) so the lead can audit liveness without
+   touching the agent.
 4. **Run independent agents in parallel** (single message, multiple Agent
    calls). Verify all agent output by running its tests before integrating.
 5. **Never delegate:** interface design, UX copy, destructive operations,

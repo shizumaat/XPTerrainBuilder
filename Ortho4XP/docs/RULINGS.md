@@ -105,3 +105,14 @@ ledger) is canonical in `Ortho4XP/CLAUDE.md` and is not duplicated here.
   values (standards-gap review 2026-08-02); "take the stricter" is
   superseded by jurisdictional fidelity. Emitters and validators read
   the SAME ruleset (lockstep).
+
+- **Service-road absorption rule** (2026-08-02, DRAFT from owner field
+  report — pending his confirmation of this canonical text): pavement
+  that shares substantial edge with a service-road spine AND has
+  road-width dimensions IS that service road — classified and graded as
+  service (axial route grading, spine-graph member), never groundside.
+  The service-road analogue of the free-road ruling. Note the existing
+  law runs the OPPOSITE way (service near terminals = groundside
+  evidence, terminals.py GROUNDSIDE_HIGHWAY) and scorer v2 has no
+  service-adjacency feature at all; measured class at HECA: 41 shapes
+  (29 genuine road bodies), invariant across arms, HECA-specific.

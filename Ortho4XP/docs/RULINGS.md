@@ -106,17 +106,29 @@ ledger) is canonical in `Ortho4XP/CLAUDE.md` and is not duplicated here.
   superseded by jurisdictional fidelity. Emitters and validators read
   the SAME ruleset (lockstep).
 
-- **Service-road absorption rule** (2026-08-02, DRAFT from owner field
-  report — pending his confirmation of this canonical text): pavement
-  that shares substantial edge with a service-road spine AND has
-  road-width dimensions IS that service road — classified and graded as
-  service (axial route grading, spine-graph member), never groundside.
-  The service-road analogue of the free-road ruling. Note the existing
-  law runs the OPPOSITE way (service near terminals = groundside
-  evidence, terminals.py GROUNDSIDE_HIGHWAY) and scorer v2 has no
-  service-adjacency feature at all; measured class at HECA: 41 shapes
-  (29 genuine road bodies), invariant across arms, HECA-specific.
-
+- **Lateral-contiguity grade law (service-road absorption, FINAL)**
+  (2026-08-02, owner-confirmed): (1) A FREE road — road-width, genuinely
+  unpaved ground on both sides (any real gap counts, however thin;
+  adjacency = literal shared boundary in the sliced arrangement, never
+  proximity) — takes the service-road cap with axial route grading.
+  (2) At any station, the laterally-contiguous paved CROSS-SECTION
+  (side-sharing closure across any number of touching pavements) takes
+  the STRICTEST cap of any class present in it — a road alongside or
+  through an apron grades as apron; five ring roads touching one apron
+  are one apron-grade surface. The closure NEVER propagates through
+  end-connections/mouths — a road resumes its own cap the moment it
+  leaves lateral contact (two aprons joined by a road: only the free
+  between-segment is road-capped). (3) Segmentation is per-segment via
+  the existing mouth-cut machinery. (4) Implementation SHOULD fully
+  absorb laterally-contiguous road stretches into the adjacent surface
+  (merge, fewer nodes) rather than carry separate shapes with cap
+  overrides — owner: "I'm not sure there's a need to keep the road
+  separate inside an apron"; the free-road ruling's absorption is the
+  model. (5) The runway-strip footprint law supersedes inside strips.
+  Classification corollary: road-width pavement sharing an edge with a
+  service-road spine is SERVICE ROAD, never groundside (scorer v2 needs
+  the service-adjacency feature; the HECA 41-shape class is the fix
+  population).
 - **Grade-law completeness standard** (2026-08-02, owner verbatim class):
   "our grade law must not allow us to generate an airport patch that
   violates any of the region appropriate regulations." Every regulatory

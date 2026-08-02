@@ -116,3 +116,12 @@ ledger) is canonical in `Ortho4XP/CLAUDE.md` and is not duplicated here.
   evidence, terminals.py GROUNDSIDE_HIGHWAY) and scorer v2 has no
   service-adjacency feature at all; measured class at HECA: 41 shapes
   (29 genuine road bodies), invariant across arms, HECA-specific.
+
+- **Grade-law completeness standard** (2026-08-02, owner verbatim class):
+  "our grade law must not allow us to generate an airport patch that
+  violates any of the region appropriate regulations." Every regulatory
+  requirement needs BOTH an emitter/solver-side binding constraint (the
+  patch cannot be generated in violation) AND its validator twin
+  (lockstep). A validator-only check is visibility, not law. Gap
+  inventory: standards-gap review 2026-08-02 (G-1..G-14) + the
+  field-report families (transverse taxiway, drainage spine, coverage).

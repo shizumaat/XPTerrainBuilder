@@ -3724,6 +3724,36 @@ def solve_route_profile(layout, icao: str,
 
 def _scoped_projection_enabled() -> bool:
     return _os.environ.get("O4_SCOPED_FINAL_PROJECTION", "0") == "1"
+
+
+# ── TERRAIN-PIN QUARANTINE RETIREMENT (spec ``docs/specs/quarantine-
+# retirement-round1-spec.md``, gate O4_RETIRE_TERRAIN_PIN_QUARANTINE) ────────
+# Owner law (RULINGS.md): quarantine is UNAUTHORIZED; a real airport with real
+# thresholds has a lawful surface, so a break region is a law defect to
+# attribute, never an answer.  The terrain-pinned pair export below mints
+# 94.2 % of HECA's residual break nodes (4,665 of 4,952) by quarantining BOTH
+# endpoints of an over-cap law edge whenever ONE of them is terrain-pinned — a
+# node-scope quarantine for a pair-scope failure, taken without consulting any
+# envelope.  55 % of its nodes are dragged-in free partners and 36.7 % have no
+# violation of their own.
+#
+# The export has TWO effects, and the gate retires BOTH (Fable ruling
+# 2026-08-02, shape (a), after the pre-condition STOP found the second):
+#   1. BOOKKEEPING — ``_projection_broken_idx`` → ``layout._break_node_ll`` →
+#      the sidecar's ``break_nodes`` → rows hidden from the validator.
+#   2. FREEZE — the same set → ``layout._final_projection_broken_keys``
+#      (below) → the NEXT final projection's ``pre_broken`` (:5104-5111,
+#      ungated) → ``immovable`` in ``feasibility_project``
+#      (one_solve.py:2517-2532).  Measured at HECA: the mid run carried 375
+#      nodes into the late run, 202 of them minted here, 165 of those NOT
+#      hard — free nodes frozen out of every sweep.  They are ~all
+#      groundside/service (4 airside), so freezing them as an input to the
+#      late airside projection independently violates airside-is-king.
+# Released nodes fall under the band-governed envelope like any other free
+# node.  Gate OFF the sink IS ``_projection_broken_idx`` (the same object,
+# same insertion order) — byte-identical by construction, not by argument.
+def _retire_terrain_pin_quarantine_enabled() -> bool:
+    return _os.environ.get("O4_RETIRE_TERRAIN_PIN_QUARANTINE", "0") == "1"
 # Shapely-domain exceptions only (project rule: never catch built-ins here).
 def _snapshot_geom_exceptions():
     from shapely.errors import GEOSException, TopologicalError
@@ -5616,6 +5646,15 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # hides real anchor bugs — runway/pad/weld classes stay actionable).
     _VIOL_TOL_M = 0.03
     _terrain_like = terrain_hard | torn_feature_weld
+    # THE RETIREMENT SINK (see ``_retire_terrain_pin_quarantine_enabled``).
+    # Gate OFF: the sink IS ``_projection_broken_idx`` — every ``add`` below
+    # lands on the same object in the same order, so both the sidecar export
+    # and the ``_final_projection_broken_keys`` carry are bit-for-bit what
+    # they were.  Gate ON: a separate set that is REPORTED and then dropped —
+    # it reaches neither sink, so the law reports what it finds instead of
+    # hiding it, and the freed nodes stay movable in the next projection.
+    _retire_tp = _retire_terrain_pin_quarantine_enabled()
+    _tp_sink = set() if _retire_tp else _projection_broken_idx
     if _terrain_like:
         for _sc in joint:
             for _e in _sc["edges"]:
@@ -5627,8 +5666,8 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                             and _b not in _terrain_like)):
                     continue
                 if abs(elev[_a] - elev[_b]) > _bud + _VIOL_TOL_M:
-                    _projection_broken_idx.add(_a)
-                    _projection_broken_idx.add(_b)
+                    _tp_sink.add(_a)
+                    _tp_sink.add(_b)
         # DEFERRED shapes carry no edges in ``joint`` (the scoped
         # projection proved them untouched), so a terrain-pinned pair
         # inside one is invisible to the scan above (CYXY apron #29: a
@@ -5679,11 +5718,21 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                             continue      # chord leaves the shape
                     except Exception:
                         continue
-                    _projection_broken_idx.add(_it)
-                    _projection_broken_idx.add(_io)
+                    _tp_sink.add(_it)
+                    _tp_sink.add(_io)
         if _os.environ.get("O4_STEP_DEBUG") == "1":
             print(f"    [terrain-scan] terrain_hard={len(terrain_hard)} "
                   f"broken_now={len(_projection_broken_idx)}")
+    # PRODUCTION EMITS WHAT IT DID: under the gate the population this export
+    # would have quarantined is REPORTED, never written.  A silent retirement
+    # would read as "the defect vanished" instead of "the defect is now
+    # visible to the validator" — the whole point of the round.
+    if _retire_tp and _tp_sink:
+        _tp_free = len(_tp_sink - hard)
+        print(f"    [terrain-pin-retired] {icao}: {len(_tp_sink)} node(s) "
+              f"REPORTED not quarantined ({_tp_free} free, "
+              f"{len(_tp_sink) - _tp_free} hard); neither the break sidecar "
+              f"nor the projection carry receives them")
     _dbg_ll = _os.environ.get("O4_PROJ_DEBUG_LL")
     if _dbg_ll:
         try:

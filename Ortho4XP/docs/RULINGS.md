@@ -80,3 +80,16 @@ ledger) is canonical in `Ortho4XP/CLAUDE.md` and is not duplicated here.
   gets asked. Ask for artifacts (KML/OSM/counts) — they're usually offered.
   One owner sentence has repeatedly replaced a build and several analysis
   rounds.
+
+- **Runway-edge terrain law** (2026-08-01, owner verbatim class): retaining
+  walls are NEVER lawful at a runway edge — runway surroundings must grade
+  away smoothly. Further: "there's very specific requirements for the
+  terrain all around runways that should all be part of our grade law.
+  Review the [FAA/EASA] docs, and determine what's missing from our grade
+  law so we are following the regs." The standards-gap review is a
+  standing work item until closed; runway↔retaining_wall pairs must be
+  visible to the validator.
+- **Band-shaped baseline accepted** (2026-08-01). The route-metric
+  envelope's two-sided tightening toward the band (measured: 47.7% of
+  HECA vertices moved, balanced up/down, dip sag 5.81→4.79 m) is the
+  accepted baseline surface character going forward.

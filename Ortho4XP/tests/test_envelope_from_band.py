@@ -18,13 +18,21 @@ about by hand:
   * the bound is on FEASIBILITY only: every pair constraint still enforces in
     the sweeps and in the final RAW-budget tally;
   * gate off / no band ⇒ the pair-closure envelope, unchanged.
-"""
-import os
 
+★ ONE DOCUMENTED DEFAULT (spec ``route-metric-envelope`` §1, 2026-08-01).
+``O4_ENVELOPE_FROM_BAND`` used to read default ``"0"`` in ``solve.py`` and
+default ``"1"`` in ``feasibility_project`` — the same name meaning two
+things depending on who asked.  The surviving default is production's
+``"0"``, resolved once by ``one_solve.envelope_from_band_enabled``, so the
+BAND-SEMANTIC tests below now turn the gate on explicitly instead of
+riding a default that no longer exists.  The semantics they assert are
+unchanged.
+"""
 import pytest
 
 from auto_patch.elevation_per_surface.route_profile.one_solve import (
-    feasibility_project)
+    envelope_from_band_enabled, feasibility_project,
+    route_metric_envelope_enabled)
 
 
 def _chain(budget=1.0):
@@ -41,10 +49,11 @@ def test_pair_closure_is_the_default_without_a_band():
     assert broken == {1, 2}, "the closure must still quarantine without a band"
 
 
-def test_band_feasible_node_is_not_broken():
+def test_band_feasible_node_is_not_broken(monkeypatch):
     """The 13,056-node case: the closure interval is EMPTY here (see
     ``test_pair_closure_is_the_default_without_a_band``) and the band admits
     the node, so nothing is quarantined and the sweeps own the surface."""
+    monkeypatch.setenv("O4_ENVELOPE_FROM_BAND", "1")
     elev = [0.0, 0.0, 0.0, 50.0]
     band = [None, (10.0, 20.0), (30.0, 40.0), None]
     broken = set()
@@ -63,6 +72,7 @@ def test_the_clamp_is_re_sourced_from_the_band(monkeypatch):
     loose = [{"edges": [(0, 1, 100.0), (1, 2, 100.0), (2, 3, 100.0)]}]
     band = [None, (10.0, 20.0), (30.0, 40.0), None]
 
+    monkeypatch.setenv("O4_ENVELOPE_FROM_BAND", "1")
     on = [0.0, 0.0, 0.0, 50.0]
     feasibility_project(on, loose, {0, 3}, force_scalar=True, max_iters=400,
                         env_band=band)
@@ -77,9 +87,10 @@ def test_the_clamp_is_re_sourced_from_the_band(monkeypatch):
     assert off[2] == pytest.approx(0.0), off
 
 
-def test_off_net_is_not_envelope_clamped():
+def test_off_net_is_not_envelope_clamped(monkeypatch):
     """Off-net ⇒ the LOCAL within-shape law governs: no break, and no
     envelope clamp either (there is no interval to source one from)."""
+    monkeypatch.setenv("O4_ENVELOPE_FROM_BAND", "1")
     loose = [{"edges": [(0, 1, 100.0), (1, 2, 100.0), (2, 3, 100.0)]}]
     elev = [0.0, 7.0, 0.0, 50.0]
     band = [None, None, (30.0, 40.0), None]
@@ -91,7 +102,8 @@ def test_off_net_is_not_envelope_clamped():
     assert elev[2] == pytest.approx(30.0), "on-net node clamped into its band"
 
 
-def test_only_a_band_inversion_declares_a_break():
+def test_only_a_band_inversion_declares_a_break(monkeypatch):
+    monkeypatch.setenv("O4_ENVELOPE_FROM_BAND", "1")
     elev = [0.0, 0.0, 0.0, 50.0]
     band = [None, (25.0, 5.0), (30.0, 40.0), None]      # node 1 inverted
     broken = set()
@@ -102,9 +114,10 @@ def test_only_a_band_inversion_declares_a_break():
     assert 5.0 - 1e-6 <= elev[1] <= 25.0 + 1e-6, elev
 
 
-def test_pair_constraints_still_enforce_and_still_tally():
+def test_pair_constraints_still_enforce_and_still_tally(monkeypatch):
     """This bounds FEASIBILITY, not the surface law: a pair the band cannot
     reconcile is still swept and still reported against the RAW budget."""
+    monkeypatch.setenv("O4_ENVELOPE_FROM_BAND", "1")
     elev = [0.0, 0.0, 0.0, 50.0]
     band = [None, (10.0, 20.0), (30.0, 40.0), None]
     rem, bh = feasibility_project(elev, _chain(), {0, 3}, force_scalar=True,
@@ -138,9 +151,10 @@ def test_gate_off_is_byte_identical_to_no_band(monkeypatch):
     assert a == b
 
 
-def test_flat_group_members_ride_their_representative():
+def test_flat_group_members_ride_their_representative(monkeypatch):
     """A rigid pad's members are aliased onto the representative; the band
     path must not clamp them individually or the flatness invariant breaks."""
+    monkeypatch.setenv("O4_ENVELOPE_FROM_BAND", "1")
     edges = [(0, 1, 1.0), (1, 2, 1.0), (2, 3, 1.0), (3, 4, 1.0)]
     elev = [0.0, 0.0, 0.0, 0.0, 50.0]
     # nodes 1,2,3 are one pad; give the members mutually exclusive bands.
@@ -153,12 +167,31 @@ def test_flat_group_members_ride_their_representative():
     assert elev[1] == elev[2] == elev[3], "the pad must still emit FLAT"
 
 
-@pytest.mark.skipif(os.environ.get("O4_ENVELOPE_FROM_BAND", "1") != "1",
-                    reason="gate explicitly disabled in the environment")
-def test_gate_defaults_on():
+def test_one_documented_default(monkeypatch):
+    """★ Spec ``route-metric-envelope`` §1: "one default, defined once,
+    documented; the historical '0'/'1' split dies."
+
+    The flag has exactly ONE resolver and ONE default, and the default is
+    OFF — so an unset environment gets the pair-closure envelope even when
+    a band is handed in, at EVERY call site (this is the property the old
+    ``solve.py``-"0"-vs-``one_solve.py``-"1" split violated).  The
+    route-metric gate implies it."""
+    monkeypatch.delenv("O4_ENVELOPE_FROM_BAND", raising=False)
+    monkeypatch.delenv("O4_ROUTE_METRIC_ENVELOPE", raising=False)
+    assert envelope_from_band_enabled() is False
+    assert route_metric_envelope_enabled() is False
+
     elev = [0.0, 0.0, 0.0, 50.0]
     broken = set()
     feasibility_project(elev, _chain(), {0, 3}, force_scalar=True,
                         max_iters=400, broken_out=broken,
                         env_band=[None, (10.0, 20.0), (30.0, 40.0), None])
-    assert broken == set(), "default must be ON"
+    assert broken == {1, 2}, "unset ⇒ the pair closure, band ignored"
+
+    monkeypatch.setenv("O4_ENVELOPE_FROM_BAND", "1")
+    assert envelope_from_band_enabled() is True
+    monkeypatch.delenv("O4_ENVELOPE_FROM_BAND")
+    monkeypatch.setenv("O4_ROUTE_METRIC_ENVELOPE", "1")
+    assert route_metric_envelope_enabled() is True
+    assert envelope_from_band_enabled() is True, (
+        "the route-metric gate IS the band envelope (spec §1)")

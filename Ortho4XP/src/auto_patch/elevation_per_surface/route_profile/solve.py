@@ -22,7 +22,8 @@ from .anchors import (
     apron_body_nodes, build_building_seats, build_detached_pad_dem_pins,
     build_nobuilding_apron_seats,
     build_apron_contact_floors, building_spine_floor, node_bands, reach_band_for)
-from .one_solve import one_profile_solve
+from .one_solve import (envelope_from_band_enabled, one_profile_solve,
+                        route_metric_envelope_enabled)
 
 
 def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
@@ -854,6 +855,156 @@ def _mover_publish(ledger, layout, elev=None, idx_map=None, crown_of=None,
     _ws(layout)                                   # last call wins
 
 
+def _route_pavement_roles():
+    """The ROUTE-PAVEMENT role set, derived from the layout's OWN registry.
+
+    Spec ``route-metric-envelope`` §2: "Role membership comes from the
+    layout's own shape registry at solve time — never fresh string
+    literals (blast.py role-literal hazard)."  So the two tables decide:
+
+    * ``config.ROLE_GRADE_LIMITS`` — a role whose within-shape limit is
+      ``None`` has no grade law of its own; it is a terrain TRACE
+      (``graded_strip``, ``retaining_wall``, ``runway_clearance``,
+      ``taxiway_clearance``, ``ols_cut``, ``boundary``), never a route.
+    * ``solver_primitives.PAVEMENT_ROLES`` — the roles the solver grades
+      as pavement.  The bridge plates (``bridge_trench`` /
+      ``bridge_causeway``) carry no ``ROLE_GRADE_LIMITS`` entry yet ARE
+      pavement a route crosses, so the union keeps them.
+    * ``groundside_pavement`` HAS a limit (4 %) and is explicitly
+      withdrawn: it is groundside, and groundside is never a feasibility
+      witness for airside (owner ruling 2026-07-30, `groundside terrace
+      law`; the existing ``witness_limited`` clause bounds it to the
+      Part-C mouth allowance, which this set does not disturb).
+
+    Returns ``frozenset`` of role values (the registry's own objects)."""
+    from auto_patch.config import ROLE_GRADE_LIMITS
+    from auto_patch.layout import ROLE_GROUNDSIDE_PAVEMENT
+    from auto_patch.elevation_per_surface.solver_primitives import (
+        PAVEMENT_ROLES)
+    graded = {r for r, lim in ROLE_GRADE_LIMITS.items() if lim is not None}
+    return frozenset((graded | set(PAVEMENT_ROLES))
+                     - {ROLE_GROUNDSIDE_PAVEMENT})
+
+
+def _node_role_sets(layout, key_to_idx, n):
+    """``{node_index: frozenset(roles)}`` from the layout's shape registry.
+
+    READ-ONLY on the canonical-point registry (``find_nearest``, never
+    ``get_or_add``): a role scan must not mint canonical points.  Ring
+    vertices only — the same vertices ``_build_shape_constraints`` maps —
+    so a node interior to no ring simply carries no role and is reported
+    as role-unmatched rather than silently classified."""
+    cps = layout.canonical_points
+    tol = cps.tol_m
+    out: dict = {}
+    for s in layout.shapes:
+        role = getattr(s, "role", None)
+        poly = getattr(s, "polygon", None)
+        if role is None or poly is None or poly.is_empty:
+            continue
+        try:
+            rings = ([poly.exterior] if poly.geom_type == "Polygon"
+                     else [g.exterior for g in poly.geoms])
+        except Exception:                              # pragma: no cover
+            continue
+        for ring in rings:
+            for (x, y) in ring.coords:
+                k = cps.find_nearest(float(x), float(y), tol)
+                if k is None:
+                    continue
+                i = key_to_idx.get(k)
+                if i is None or i >= n:
+                    continue
+                prev = out.get(i)
+                out[i] = (frozenset((role,)) if prev is None
+                          else (prev | {role}))
+    return out
+
+
+def _route_witness_admission(layout, key_to_idx, n):
+    """Build the role scan ONCE per pass and return
+    ``(roles, route_roles, excluded_by_role)``.
+
+    ``excluded_by_role`` is every node whose roles are ALL non-route — it
+    does not depend on any particular ``hard`` set, so one scan serves
+    every ``feasibility_project`` call of the pass (``feasibility_project``
+    intersects with its own hard set).  Single-pass principle: the O(ring
+    vertices) scan is paid once, not once per projection."""
+    roles = _node_role_sets(layout, key_to_idx, n)
+    route_roles = _route_pavement_roles()
+    excluded = {i for i, rs in roles.items() if not (rs & route_roles)}
+    return roles, route_roles, excluded
+
+
+def _non_route_witness_nodes(roles, route_roles, hard, n, provenance=None):
+    """The hard anchors withdrawn from the airside envelope seed set.
+
+    Spec ``route-metric-envelope`` §2.  Three populations, all reported:
+
+    * ROUTE-ROLE anchors — at least one role in
+      :func:`_route_pavement_roles` — keep witnessing.
+    * NON-ROUTE anchors — they have roles, and every one of them is
+      outside that set — are withdrawn.  These are the strip/clearance/
+      boundary traces the owner's directive names.
+    * ROLE-UNMATCHED anchors — no ring vertex of any shape resolved to
+      them (the counterfactual's 889).  The spec forbids dropping these
+      blind, so they are CLASSIFIED from the solver's own provenance map
+      (``provenance``: ``{node: class}``, the same classes the break
+      forensics emits) and withdrawn ONLY when that class is itself a
+      non-route authority — a terrain pin, an agreeing/torn feature weld
+      or a groundside weld/pin.  Anything else (runway, pad, spine,
+      service ring, seam, unclassified) keeps its witness role: the
+      conservative side, since an unwarranted withdrawal LOOSENS the
+      envelope and can hide a real contradiction.
+
+    Returns ``(excluded_set, report_dict)``."""
+    from collections import Counter
+    # Provenance classes that are NOT route authorities.  Names come from
+    # the break-forensics class map built by the callers (one author).
+    NON_ROUTE_PROVENANCE = frozenset(
+        ("terrain_pin", "feature_weld", "gs_weld", "gs_pin",
+         "torn_feature_weld"))
+    excluded: set = set()
+    rep = {"hard": 0, "route_role": 0, "non_route_role": 0,
+           "role_unmatched": 0, "unmatched_withdrawn": 0,
+           "non_route_roles": Counter(), "unmatched_classes": Counter()}
+    for a in hard:
+        if a >= n:
+            continue
+        rep["hard"] += 1
+        rs = roles.get(a)
+        if rs is None:
+            rep["role_unmatched"] += 1
+            cls = (provenance or {}).get(a, "<unclassified>")
+            rep["unmatched_classes"][cls] += 1
+            if cls in NON_ROUTE_PROVENANCE:
+                rep["unmatched_withdrawn"] += 1
+                excluded.add(a)
+            continue
+        if rs & route_roles:
+            rep["route_role"] += 1
+            continue
+        rep["non_route_role"] += 1
+        rep["non_route_roles"][tuple(sorted(str(r) for r in rs))] += 1
+        excluded.add(a)
+    return excluded, rep
+
+
+def _report_witness_admission(icao, label, rep):
+    """One line per pass naming the split (spec §2: "report their split")."""
+    print(f"    [route-metric] {icao} {label}: {rep['hard']} hard anchor(s) — "
+          f"{rep['route_role']} route-role (seed), "
+          f"{rep['non_route_role']} non-route-role (withdrawn), "
+          f"{rep['role_unmatched']} role-unmatched "
+          f"({rep['unmatched_withdrawn']} of them withdrawn by provenance)")
+    if rep["non_route_roles"]:
+        print(f"    [route-metric]   withdrawn role sets: "
+              f"{dict(rep['non_route_roles'].most_common(8))}")
+    if rep["unmatched_classes"]:
+        print(f"    [route-metric]   role-unmatched provenance: "
+              f"{dict(rep['unmatched_classes'].most_common(10))}")
+
+
 def solve_route_profile(layout, icao: str,
                         dem=None, tile_lat: int = 0, tile_lon: int = 0) -> None:
     """Run the one-profile solve and write elevations back onto ``layout``.
@@ -1132,7 +1283,11 @@ def solve_route_profile(layout, icao: str,
     node_band = node_bands(nodes, band, skip_from=_zone_skip)
     # ── THE FEASIBILITY ENVELOPE READS THIS BAND (owner ruling 2026-07-30,
     # spec ``envelope-uses-the-centerline-graph``; gate
-    # ``O4_ENVELOPE_FROM_BAND``, default OFF pending the reference field) ─
+    # ``O4_ENVELOPE_FROM_BAND``, default OFF pending the reference field;
+    # implied by ``O4_ROUTE_METRIC_ENVELOPE`` — spec
+    # ``route-metric-envelope`` §1, where the "0"/"1" default drift dies:
+    # BOTH names are now resolved by ``one_solve.envelope_from_band_enabled``
+    # and the single surviving default is "0") ────────────────────────────
     # DEFAULT FLIPPED TO OFF 2026-07-30 (taut-string-model-spec step R0).
     # The substitution is CORRECT and measured — broken 13,428 → 0, total
     # over-cap 18,278 → 9,096, corridor sag 0.527 → 0.225 — but ON alone
@@ -1146,6 +1301,14 @@ def solve_route_profile(layout, icao: str,
     # pass's drift the next pass's reference.  Re-enable in ONE measured
     # change together with the immutable reference field (spec step R3),
     # never alone.
+    # MEASURED AGAIN 2026-08-01 under ``O4_ROUTE_METRIC_ENVELOPE`` (with
+    # the §7 reference rods now production): HECA α full-severity census
+    # 19,591 → 8,240 rows, cliffs 1,023 → 138, the ≥10 m cliff class
+    # 93 → 0, groundside rows 864 → 595 / cliffs 249 → 53, and the owner's
+    # three sites 8.92 / 0.79 / 1.24 m → 0.07 / 0.13 / 0.10 m.  Cost: the
+    # solve phase grew ~20 % on a CONTAMINATED (concurrent-build) clock at
+    # both HECA and SPJC — a clean exclusive measurement and the Fable-5
+    # whole-pipeline review are owed before any default flip.
     # "We already have the graph, use it, don't duplicate it."  ``node_band``
     # IS ``reach_band_unified`` sampled at these nodes — the route-metric,
     # service-excluded band seeded from ``G.runway_anchor`` that the seats and
@@ -1156,7 +1319,9 @@ def solve_route_profile(layout, icao: str,
     # infeasible).  Nothing is sampled twice: this is the list from the line
     # above (``single-pass-principle``).  Gate off ⇒ ``None`` ⇒ every call
     # below is byte-identical to the pair-closure envelope.
-    _ENV_FROM_BAND = _os.environ.get("O4_ENVELOPE_FROM_BAND", "0") == "1"
+    # ONE default, defined once (spec ``route-metric-envelope`` §1) — the
+    # historical "0"/"1" split across solve.py / one_solve.py is dead.
+    _ENV_FROM_BAND = envelope_from_band_enabled()
     _env_band = node_band if _ENV_FROM_BAND else None
     _psub(0.55, "Solving elevations — reach bands computed")
     building_seats = build_building_seats(
@@ -1580,8 +1745,26 @@ def solve_route_profile(layout, icao: str,
         hard = {i for i in range(n) if base_hard[i]}
         hard |= {i for i in runway_nodes if i < n}
         hard |= {i for i in building_seats if i < n}
+        # ── NON-ROUTE SEED ADMISSION (spec ``route-metric-envelope`` §2;
+        # gate ``O4_ROUTE_METRIC_ENVELOPE``, default "0") ──────────────
+        # "A hard anchor whose node carries NO route-pavement role may not
+        # seed the airside feasibility envelope in ANY pass."  ONE role
+        # scan for this whole solve; ``feasibility_project`` intersects it
+        # with each pass's own hard set.  ``_hard_cat`` is the solve's own
+        # provenance map for the role-unmatched anchors (spec §2: they are
+        # CLASSIFIED, never dropped blind).  Gate off ⇒ ``None`` passed
+        # everywhere ⇒ byte-identical.
+        _route_excluded = None
+        if route_metric_envelope_enabled():
+            _rm_roles, _rm_route_roles, _route_excluded = (
+                _route_witness_admission(layout, bucket_to_idx, n))
+            _rm_excl, _rm_rep = _non_route_witness_nodes(
+                _rm_roles, _rm_route_roles, hard, n, provenance=_hard_cat)
+            _route_excluded |= _rm_excl
+            _report_witness_admission(icao, "solve", _rm_rep)
         rem, bh = feasibility_project(elev, shape_constraints, hard,
                                       interval_yield_from=_iyf,
+                                      witness_excluded=_route_excluded,
                                       env_band=_env_band)
         # Project on the UNIFIED graph's OWN edges too (the EXACT pairs/caps the
         # validator checks — rects/caps all-pair, which shape_constraints only
@@ -1641,6 +1824,7 @@ def solve_route_profile(layout, icao: str,
                       f"contact(s) reference their pad's rod "
                       f"({len(_pw_rel)} carried by key)")
         rem, bh = feasibility_project(elev, [{"edges": u_edges}], hard,
+                                      witness_excluded=_route_excluded,
                                       env_band=_env_band)
         # (The end-cap planar re-stamp that lived here was RETIRED by spec
         # §10.2 with the rect flat-end stamp above.)
@@ -1739,9 +1923,11 @@ def solve_route_profile(layout, icao: str,
                 feasibility_project(elev, shape_constraints, _ghard,
                                     interval_yield_from=_iyf,
                                     witness_limited=_gs_witness,
+                                    witness_excluded=_route_excluded,
                                     env_band=_env_band)
                 feasibility_project(elev, [{"edges": u_edges}], _ghard,
                                     witness_limited=_gs_witness,
+                                    witness_excluded=_route_excluded,
                                     env_band=_env_band)
             # Service roads FOLLOW DEM at <=cap (a ground road climbs toward terrain,
             # anchored only at its airside/groundside welds) — SVC4 was held flat in
@@ -2089,6 +2275,7 @@ def solve_route_profile(layout, icao: str,
             rem, bh = feasibility_project(elev, shape_constraints, yield_hard,
                                           interval_yield_from=_iyf,
                                           witness_limited=_gs_witness,
+                                          witness_excluded=_route_excluded,
                                           broken_out=_bo,
                                           env_band=_env_band,
                                           probe_out=_mover,
@@ -2104,6 +2291,7 @@ def solve_route_profile(layout, icao: str,
             rem, bh = feasibility_project(elev, [{"edges": u_edges}],
                                           yield_hard, broken_out=_bo,
                                           witness_limited=_gs_witness,
+                                          witness_excluded=_route_excluded,
                                           env_band=_env_band,
                                           probe_out=_mover,
                                           declared_out=_hnb_b)
@@ -2684,6 +2872,7 @@ def solve_route_profile(layout, icao: str,
                                           node_bounds=_yield_node_bounds,
                                           group_refs=_yield_group_refs,
                                           node_refs=_yield_node_refs,
+                                          witness_excluded=_route_excluded,
                                           env_band=_env_band)
             _t_fp8_end = _time.perf_counter()
             # ── PROBE A, TAIL BOUNDARY 1: fp#8 (spec §1 extension) ────
@@ -2786,6 +2975,7 @@ def solve_route_profile(layout, icao: str,
                                     in _yield_node_refs.items()
                                     if _k not in _freed}
                                    if _yield_node_refs else None),
+                        witness_excluded=_route_excluded,
                         env_band=_env_band)
                     _n_adopted = adopt_projected_mouths(
                         layout, bucket_to_idx, elev, _freed, _gs_hard)
@@ -5236,8 +5426,12 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # class).  That is the likely source of the SPJC mint.
     _fin_gate = _os.environ.get("O4_GS_NO_AIRSIDE_WITNESS_FINAL", "0")
     _gs_weld_idx: set = set()
+    # The route-metric gate needs the gs-weld class too: it is one of the
+    # provenance classes that decides a ROLE-UNMATCHED anchor's admission
+    # (spec §2 — "classified, never dropped blind").
     _gs_weld_wanted = (bool(_os.environ.get("O4_BREAK_FORENSICS"))
-                       or _fin_gate == "1")
+                       or _fin_gate == "1"
+                       or route_metric_envelope_enabled())
     if _gs_weld_wanted and terrain_hard:
         _gs_ring_grid: dict = {}
         try:
@@ -5281,8 +5475,13 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # BREAK FORENSICS (spec reference-honesty Track 1 step 4) — the EMITTED
     # surface comes out of THIS pass, so its witness pairs are the ones that
     # answer the mega-component feasibility question.
-    _fp_forensics = None
-    if _os.environ.get("O4_BREAK_FORENSICS"):
+    # ONE author for the class map: the break forensics and the route-metric
+    # admission clause read the SAME dict, in the same documented order
+    # (runway_node, pad, tile_seam, gs_weld, terrain_pin, feature_weld,
+    # service_ring, spine, hard_other), so a class name can never mean two
+    # things in two reports.
+    _fcat_fp = None
+    if _os.environ.get("O4_BREAK_FORENSICS") or route_metric_envelope_enabled():
         _fcat_fp = {}
         for _i in (runway_idx or ()):
             if _i < n:
@@ -5311,11 +5510,26 @@ def final_grade_projection(layout, icao: str = "", dem=None,
         for _i in hard:
             if _i < n:
                 _fcat_fp.setdefault(_i, "hard_other")
+    _fp_forensics = None
+    if _os.environ.get("O4_BREAK_FORENSICS"):
         _fp_forensics = {
             "label": "final",
             "classes": _fcat_fp,
             "nodes_ll": [layout.m_to_ll(_x, _y) for (_x, _y) in nodes],
         }
+    # ── NON-ROUTE SEED ADMISSION, FINAL PASS (spec §2: "in ANY pass") ────
+    # The emitted surface comes out of THIS projection, so the clause that
+    # decides who may witness has to hold here above all.  Role membership
+    # from this pass's OWN registry scan (``b2i`` is this pass's node
+    # space); the role-unmatched anchors are classified from ``_fcat_fp``.
+    _fp_witness_excluded = None
+    if route_metric_envelope_enabled():
+        _fp_roles, _fp_route_roles, _fp_witness_excluded = (
+            _route_witness_admission(layout, b2i, n))
+        _fp_excl, _fp_rep = _non_route_witness_nodes(
+            _fp_roles, _fp_route_roles, hard, n, provenance=_fcat_fp)
+        _fp_witness_excluded |= _fp_excl
+        _report_witness_admission(icao, "final", _fp_rep)
     # ── THE ENVELOPE, IN THIS PASS'S NODE SPACE AND z′ FRAME (spec
     # ``envelope-uses-the-centerline-graph``, gate
     # ``O4_ENVELOPE_FROM_BAND``) ─────────────────────────────────────────
@@ -5328,14 +5542,18 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # off-net, local within-shape law, the documented default.  No carry ⇒
     # ``None`` handed in ⇒ the pair-closure envelope, unchanged.
     _fp_env_band = None
-    if _os.environ.get("O4_ENVELOPE_FROM_BAND", "0") == "1":
+    if envelope_from_band_enabled():
         # Store view (U1): the full band artifact resolved positionally
         # into this pass's node space and z′ frame; absent/empty ⇒ None
         # ⇒ the pair-closure envelope, unchanged.
         _fp_env_band = _store_of(layout).view_positional_interval(
             "env_band", b2i, n, crown_of=_crown_of)
-        if _fp_env_band is not None and _os.environ.get(
-                "O4_STEP_DEBUG") == "1":
+        # PRODUCTION EMITS WHAT IT DID: under the route-metric gate this
+        # line is the proof the CARRIAGE resolved (a silently empty carry
+        # would read as "off-net everywhere" and look like a clean result).
+        if _fp_env_band is not None and (
+                route_metric_envelope_enabled()
+                or _os.environ.get("O4_STEP_DEBUG") == "1"):
             _env_hit = sum(1 for _b in _fp_env_band if _b is not None)
             print(f"    [env-band] final projection: {_env_hit} of "
                   f"{len(_store_of(layout).raw('env_band'))} carried band "
@@ -5348,6 +5566,7 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                                   env_band=_fp_env_band,
                                   forensics=_fp_forensics,
                                   witness_limited=_fp_witness_limited,
+                                  witness_excluded=_fp_witness_excluded,
                                   max_iters=int(_os.environ.get(
                                       "O4_FINAL_PROJECTION_MAX_ITERS",
                                       "2400")),

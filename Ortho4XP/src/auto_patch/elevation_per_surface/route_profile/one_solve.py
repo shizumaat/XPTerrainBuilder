@@ -29,6 +29,47 @@ import os as _os
 
 _INF = float("inf")
 
+# ── THE ENVELOPE GATES — ONE default per flag, DEFINED ONCE ──────────────
+# (spec ``docs/specs/route-metric-envelope-spec.md`` §1: "Resolve the
+# env-flag default drift while there: one default, defined once,
+# documented; the historical '0'/'1' split dies.")
+#
+# The historical split was real and silent: ``solve.py`` read
+# ``O4_ENVELOPE_FROM_BAND`` with default ``"0"`` at BOTH its call sites
+# while ``feasibility_project`` read the SAME name with default ``"1"``,
+# so the flag's meaning depended on which file asked.  ``blast.py``
+# reports it as a conflicting-defaults hazard.  Both files now ask these
+# functions, and the surviving default is production's ``"0"``: the band
+# envelope is opt-in this round, so gate-off byte identity holds.
+#
+# ``O4_ROUTE_METRIC_ENVELOPE`` (this spec's gate, default "0") IMPLIES the
+# band envelope — the route metric IS the band (spec §1: "the band engine
+# is THE metric — no third engine") — and additionally turns on the
+# non-route seed-admission clause (spec §2).
+ENVELOPE_FROM_BAND_DEFAULT = "0"
+ROUTE_METRIC_ENVELOPE_DEFAULT = "0"
+
+
+def route_metric_envelope_enabled() -> bool:
+    """True when ``O4_ROUTE_METRIC_ENVELOPE`` is on (default ``"0"``).
+
+    THE one reader of this flag's default (spec §4: "Gate:
+    ``O4_ROUTE_METRIC_ENVELOPE``, default ``"0"`` this round")."""
+    return (_os.environ.get("O4_ROUTE_METRIC_ENVELOPE",
+                            ROUTE_METRIC_ENVELOPE_DEFAULT) == "1")
+
+
+def envelope_from_band_enabled() -> bool:
+    """True when the feasibility envelope reads THE reach band.
+
+    THE one reader of ``O4_ENVELOPE_FROM_BAND``'s default (``"0"``).  The
+    route-metric gate implies it: that spec's §1 fix is precisely "every
+    pass, including the final, runs its envelope on the band"."""
+    return (route_metric_envelope_enabled()
+            or _os.environ.get("O4_ENVELOPE_FROM_BAND",
+                               ENVELOPE_FROM_BAND_DEFAULT) == "1")
+
+
 # EXPERIMENTAL (user 2026-06-30): vectorise feasibility_project's Gauss-Seidel
 # projection with numpy.  This converts it to a DEGREE-NORMALISED JACOBI sweep
 # (all edges updated from the same snapshot each iteration, per-node corrections
@@ -1054,7 +1095,8 @@ def feasibility_project(elev, shape_constraints, hard, *,
                         edge_couple_nodes=None, interval_yield_from=None,
                         group_bounds=None, node_bounds=None,
                         group_refs=None, node_refs=None, forensics=None,
-                        witness_limited=None, env_band=None,
+                        witness_limited=None, witness_excluded=None,
+                        env_band=None,
                         probe_out=None, declared_out=None):
     """Drive EVERY grade-graph edge to ``|Δelev| ≤ budget`` by iterative
     constraint projection (user 2026-06-25: nothing may violate a grade cap).
@@ -1109,6 +1151,24 @@ def feasibility_project(elev, shape_constraints, hard, *,
     no longer declare a break.  ``None`` ⇒ the single unrestricted envelope pass
     (byte-identical to the pre-clause code).
 
+    ``witness_excluded`` — NON-ROUTE SEED ADMISSION (spec
+    ``docs/specs/route-metric-envelope-spec.md`` §2, owner ruling
+    2026-07-30 "reach follows centerlines", escalated 2026-08-01).  A hard
+    anchor whose node carries NO route-pavement role — its patch roles lie
+    entirely inside the ``ROLE_GRADE_LIMITS is None`` family
+    (``graded_strip``, ``retaining_wall``, ``runway_clearance``,
+    ``taxiway_clearance``, ``ols_cut``, ``boundary``) plus
+    ``groundside_pavement`` — MAY NOT SEED the airside feasibility
+    envelope, in ANY pass.  Such an anchor is a terrain TRACE welded to
+    pavement, not a point on a taxi route: letting it witness is what
+    makes a 2.6 km strip vertex declare an apron infeasible.
+    Mechanically this is ``witness_limited`` with a zero horizon and no
+    re-seeding pass — the anchors are simply removed from the envelope
+    seed set.  They stay HARD for the sweeps (their own value and every
+    law edge to them is still enforced) and they still anchor their own
+    vertex: this clause changes WITNESSING, never VALUES.
+    ``None``/empty ⇒ byte-identical to the pre-clause code.
+
     ``group_bounds`` / ``node_bounds`` — BOUNDED YIELD (owner ruling
     2026-07-29: "Any yield absolutely needs to stay within the feasibility
     box").  ``group_bounds`` is a list parallel to ``flat_groups``: entry k
@@ -1147,7 +1207,8 @@ def feasibility_project(elev, shape_constraints, hard, *,
     ``env_band`` — THE REACH BAND, one entry per node (``(floor, ceiling)``
     or ``None``), in THIS call's elevation space (owner ruling 2026-07-30,
     spec ``envelope-uses-the-centerline-graph``; gate
-    ``O4_ENVELOPE_FROM_BAND``, default ON).  When supplied it is the SOURCE
+    ``O4_ENVELOPE_FROM_BAND`` / ``O4_ROUTE_METRIC_ENVELOPE``, ONE default
+    ``"0"`` — see ``envelope_from_band_enabled``).  When supplied it is the SOURCE
     of the feasibility interval — both the break declaration and the clamp
     below — replacing the transitive closure over the within-shape pavement
     PAIR graph.  The caller hands in the band the build ALREADY computed
@@ -1871,9 +1932,25 @@ def feasibility_project(elev, shape_constraints, hard, *,
         # groundside's authority, not the pad/seam authority it merged with.
         _wl_nodes -= {_r(a) for a in gmap} if gmap else set()
 
+    # ── NON-ROUTE SEED ADMISSION (spec ``route-metric-envelope`` §2;
+    # owner ruling "reach follows centerlines") ──────────────────────────
+    # The same withdrawal as the groundside clause above, with NO
+    # re-seeding pass: a hard anchor carrying no route-pavement role never
+    # witnesses at any distance.  Resolved through the same flat-group
+    # aliasing (``_r``) and intersected with ``hard`` so a stale index can
+    # only ever remove an anchor that is actually seeding.  An anchor that
+    # merged into a flat-group representative keeps its authority — the
+    # clause withdraws the strip/clearance trace, not the pad it welded to.
+    _we_nodes: set = set()
+    if witness_excluded:
+        _we_nodes = {_r(a) for a in witness_excluded if a < n}
+        _we_nodes &= set(hard)
+        _we_nodes -= {_r(a) for a in gmap} if gmap else set()
+
     # ── THE ENVELOPE READS THE CENTERLINE GRAPH (owner ruling 2026-07-30,
     # spec ``envelope-uses-the-centerline-graph``; gate
-    # ``O4_ENVELOPE_FROM_BAND``, default ON) ─────────────────────────────
+    # ``O4_ENVELOPE_FROM_BAND``, implied by ``O4_ROUTE_METRIC_ENVELOPE``;
+    # ONE default, ``"0"`` — ``envelope_from_band_enabled``) ─────────────
     # "Feasibility and reach must only follow actual taxi route
     # centerlines… We already have the graph, use it, don't duplicate it."
     # ``env_band`` IS that graph's answer, computed once per build by
@@ -1881,9 +1958,7 @@ def feasibility_project(elev, shape_constraints, hard, *,
     # docstring.  Absent (unit tests, synthetic graphs, gate off) the
     # pair-closure envelope below runs exactly as before.
     _band_env = (env_band
-                 if (env_band is not None
-                     and _os.environ.get("O4_ENVELOPE_FROM_BAND",
-                                         "1") == "1")
+                 if (env_band is not None and envelope_from_band_enabled())
                  else None)
     _band_broken: set = set()
     if _band_env is not None:
@@ -1919,7 +1994,17 @@ def feasibility_project(elev, shape_constraints, hard, *,
 
     broken: set = set()
     if hard:
+        # BYTE-INERTNESS: build the seed set with the SAME expression the
+        # pre-clause code used whenever nothing is withdrawn — an extra
+        # ``- set()`` still copies the set, and a copy can reorder the
+        # heapify below.  Each clause only fires when it has work.
         _env_seeds = (set(hard) - _wl_nodes) if _wl_nodes else hard
+        if _we_nodes:
+            _env_seeds = _env_seeds - _we_nodes
+        if _we_nodes and _os.environ.get("O4_STEP_DEBUG") == "1":
+            print(f"    [route-metric] withdrew {len(_we_nodes)} non-route "
+                  f"anchor(s) from the airside envelope seed set "
+                  f"({len(_env_seeds)} of {len(hard)} still seeding)")
         # The pair-closure fields survive band-sourcing for ONE purpose:
         # the distance-weighted ``t`` of the break blend below (an inverted
         # band says HOW MUCH the anchors contradict, not where the two

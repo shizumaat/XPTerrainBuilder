@@ -168,3 +168,19 @@ ledger) is canonical in `Ortho4XP/CLAUDE.md` and is not duplicated here.
   one (strictest) cap. Consequence: the A2/A3/A4 residual break family
   (259 nodes) is one absorption fix; the service DEM-follow's private
   envelope may not act as a second grading authority.
+
+- **Owner constants: lot 5%, service road 8%** (2026-08-03, approved on
+  the primary-source research): `GROUNDSIDE_MAX_GRADE` 0.040 → 0.050
+  (citations: ADA §403.3 1:20 walking-surface ceiling, Iowa SUDAS §8B-1,
+  Santa Barbara §D.5 — the old 4% was uncited, inherited from the tunnel
+  constant) and `SERVICE_ROAD_MAX_GRADE` 0.050 → 0.080 (VDOT GS-9
+  service-road standard, level terrain 7-8%; no aviation authority
+  regulates either grade — verified FAA/ICAO/EASA/ACRP silent).
+  `service_junction` rides the same constant (flag in the round if the
+  owner wants junctions split). Consequences: lot+road absorbed surface
+  now binds at 5% (the lot); road→apron absorption stays 1%
+  (regulation-backed, unchanged); region-invariant (no FAA/ICAO split
+  exists landside). Lands as its own identity round AFTER kill-prep
+  (new gate-off baselines minted, measured surface effect quoted).
+  Standards-gap addition: groundside has no drainage MINIMUM (every
+  civil source carries 0.6-2%) — queued as a law item.

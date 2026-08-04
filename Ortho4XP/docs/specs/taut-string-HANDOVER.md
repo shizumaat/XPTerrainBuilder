@@ -20,8 +20,31 @@ things changed at once, and they are what a user now gets:
    `RUNWAY_STRIP_WALL_LAW` + `DRAINAGE_SPINE_LAW` + `ROUTE_LEG_EXACT`
    (`0b9efaf`); `PROJECTION_STALL_REPORT` follows by implication.  Every
    gate keeps its env override, so `O4_<GATE>=0` restores the old path.
+   **+1 SINCE THE SEAT-FLIP BATTERY (2026-08-04, lead ruling variant A):
+   `SEAT_BAND_CONSISTENT` ships ON** — a full-frontage building seat
+   clamps into the intersection of its selection interval and the NODE
+   band at its own contact nodes (the band the projection enforces).
+   Measured ALONE: HECA −303 law-true within (`building|building` 440→393
+   AND the surrounding `apron` 6822→6665 / `junction` 1856→1781 follow it
+   down), every other battery airport BYTE-IDENTICAL, no new over-cap
+   class, no sweep cost (HECA 31 676, byte-equal to the pre-flip default),
+   no build-time cost resolvable above the noise floor.
    EXCLUDED and still "0": `SCORER_SERVICE_ADJ` (re-key queued), the
-   string gates (owner pause), `BREAK_BLEND_CONTINUOUS` (died with §2).
+   string gates (owner pause), `BREAK_BLEND_CONTINUOUS` (died with §2),
+   and `SEAT_COUPLE_SHARED_SURFACE` — **HELD, and SEQUENCED not
+   rejected**: measured ALONE it is HEAZ −1 / CYXY −4 / SPJC −7 but KCLT
+   **+145** law-true within, migrating defects out of buildings
+   (`building|building` 46→28) into AIRSIDE pavement (`apron` +75,
+   `junction` +49) with a new `adj_edge::graded_strip` over-cap class at
+   1.15 m — the airside-is-king failure mode.  Root cause is the
+   CHORD-priced metric (at HECA it admits 152 coupled pairs with NO
+   jointly-feasible seat set; 130 ship violating their own coupling
+   limit), which is what `docs/specs/route-distance-seat-coupling-spec.md`
+   (`a5e96a9`) exists to fix.  It re-arms after the seed-fix round lands
+   the law-graph budget oracle and the coupling round re-prices
+   admission/limits on it.  Separability is MEASURED, not assumed:
+   `KCLT_sb1` / `SPJC_sb1` (this gate off, seat-band on) are byte-
+   identical to their old defaults.
 
 2. **§2 THE QUARANTINE MACHINERY IS DELETED** — not gated, deleted: the
    break blend and its continuity gate, the freeze (`broken` → immovable,
@@ -47,8 +70,33 @@ below are RETIRED — gate-off is no longer what ships:
 | SPLP | `1531e6d0`49bb1c6a7865fb9f6141a4cc565d18a58e942d2e47708b8b750f3853 | BYTE-IDENTICAL |
 | CYXY | `5b7a1912`b5c1ce1641e66d4ebaf9d0271a4db24be1c2630ab41a00098fe259dc | BYTE-IDENTICAL |
 | HEAZ | `5854d6e7`73126bd1c39954723e4cf305101a3e8d385647b75ecb88759b087859 | differs (see below) |
-| SPJC | `b3875f84`b5fbbefb1b99697703c84ee2e0427238ffd80ef1249180c49a76851 | no CAND dump exists |
+| SPJC | `b3875f84`b5bfbbefb1b99697703c84ee2e0427238ffd80ef1249180c49a76851 | no CAND dump exists |
 | HECA | `2a28d01b`becaad3dc0c1686d1239e425904620b33499bf079ae8b3a9c37a808d | no CAND dump exists |
+
+**SPJC ROW CORRECTED 2026-08-04** (seat-flip battery): the value recorded
+here was 63 hex characters — a dropped character in `...84b5fbbefb1b...`.
+The true 64-char digest, reproduced 3× that session (a gates-off arm, a
+seat-band-only arm, and the dossier-round arm), is `...84b5bfbbefb1b...`
+as now shown.  No surface changed; only the transcription was wrong.
+
+**SEAT-FLIP BATTERY BASELINES (2026-08-04, lead ruling variant A —
+`SEAT_BAND_CONSISTENT` ON, `SEAT_COUPLE_SHARED_SURFACE` held OFF).**
+Default arm, no `O4_` var set, each reproduced 2× on this tree.  ONLY HECA
+moves; the other five are byte-identical to the rows above, which is the
+whole point of the variant-A ruling:
+
+| airport | body sha256 (default arm) | vs the pre-seat-flip arm |
+|---|---|---|
+| SPLP | `1531e6d0`49bb1c6a7865fb9f6141a4cc565d18a58e942d2e47708b8b750f3853 | BYTE-IDENTICAL |
+| CYXY | `5b7a1912`b5c1ce1641e66d4ebaf9d0271a4db24be1c2630ab41a00098fe259dc | BYTE-IDENTICAL |
+| HEAZ | `5854d6e7`73126bd1c39954723e4cf305101a3e8d385647b75ecb88759b087859 | BYTE-IDENTICAL |
+| SPJC | `b3875f84`b5bfbbefb1b99697703c84ee2e0427238ffd80ef1249180c49a76851 | BYTE-IDENTICAL (`sb1` arm) |
+| KCLT | `74c4731f`2b8954b3d06a18c40c3539b694653e60728feed801b1245ea0d8477f | BYTE-IDENTICAL (`sb1` arm) |
+| HECA | `a785f170`3d600fe2cd57da103978f95c96a8dd41da9da01b2f166c6e7578ac9d | **−303 law-true within** (9 952 → 9 649) |
+
+The split-level-seats spec's band 1 needs NO re-base under variant A: the
+126/105 frame remains the default frame.  The 152/130 empty-polytope frame
+only exists with `SEAT_COUPLE_SHARED_SURFACE` ON, which does not ship.
 
 HEAZ is the only airport whose band is inverted at all, so it is the only
 one §2 can move: 796 of 6,204 shared vertices differ (p50 0.01 m, max

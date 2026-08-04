@@ -229,7 +229,7 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts):
     # Gate off → whole-ring median (legacy, byte-identical).
     _frontage = _os.environ.get("O4_BUILDING_FRONTAGE_SEAT", "1") == "1"
     # ── SEAT-vs-BAND CONSISTENCY (spec dossier-fixes §2, gate
-    # ``O4_SEAT_BAND_CONSISTENT``, DEFAULT OFF) ──────────────────────────
+    # ``O4_SEAT_BAND_CONSISTENT``, DEFAULT ON) ───────────────────────────
     # Two band instruments over one population: a large pad's seat is
     # chosen inside ``_frontage_band`` (a corridor band sampled along the
     # frontage), but the projection bounds the pad's ring nodes by
@@ -243,8 +243,19 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts):
     # node-band interval at its contact nodes.  An EMPTY intersection is
     # not silently resolved — it is the split-level-seat law's trigger
     # (RULINGS 2026-08-04) and is reported, with today's value kept.
-    # Default "0": no new default-on gate without a battery.
-    _seat_band = _os.environ.get("O4_SEAT_BAND_CONSISTENT", "0") == "1"
+    # DEFAULT ON since the seat-flip battery (2026-08-04, lead ruling
+    # variant A): the spec's "flip with the next battery" condition is met.
+    # Measured ALONE (this gate only, ``O4_SEAT_COUPLE_SHARED_SURFACE=0``):
+    # HECA 9 952 → 9 649 law-true within (−303; ``building|building``
+    # 440→393 AND the surrounding ``apron`` 6822→6665 / ``junction``
+    # 1856→1781 follow it down), and every other battery airport
+    # BYTE-IDENTICAL to its old default — SPLP/CYXY/HEAZ/SPJC/KCLT all
+    # reproduced their pre-flip body hashes with this gate on.  No new
+    # over-cap class, no chromatic-sweep cost (HECA 31 676 sweeps, byte-
+    # equal to the pre-flip default arm), no build-time cost resolvable
+    # above the noise floor.  ``O4_SEAT_BAND_CONSISTENT=0`` restores the
+    # unclamped frontage-band seat.
+    _seat_band = _os.environ.get("O4_SEAT_BAND_CONSISTENT", "1") == "1"
     _sb_moved: list = []
     _sb_empty: list = []
     # Large buildings (≥ area) seat at the FULL-FRONTAGE feasible level (user
@@ -424,6 +435,22 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts):
         # sliced arrangement, never proximity"): both pads' rings share a
         # vertex with the SAME paved shape.  The reach corridor still
         # bounds the pair set — this only replaces the visibility veto.
+        # HELD at DEFAULT OFF by the seat-flip battery (2026-08-04, lead
+        # ruling variant A).  The battery SEPARATED this gate from §2 and
+        # measured it alone: HEAZ −1, CYXY −4, SPJC −7, but KCLT **+145**
+        # law-true within, with a new ``adj_edge::graded_strip`` over-cap
+        # class at 1.15 m.  At KCLT it clamps NO seats (§2 is a KCLT no-op)
+        # and admits 36 pairs the visibility fraction rejected, migrating
+        # defects out of buildings (``building|building`` 46→28) into
+        # AIRSIDE pavement (``apron`` +75, ``junction`` +49) — the
+        # airside-is-king failure mode (owner law).
+        # Root cause is the CHORD-priced metric: at HECA this gate admits
+        # 152 coupled pairs that have NO jointly-feasible seat set, and 130
+        # of them ship violating their own coupling limit.  That is exactly
+        # what ``docs/specs/route-distance-seat-coupling-spec.md`` (a5e96a9)
+        # exists to fix.  This flip is SEQUENCED, not rejected: it re-arms
+        # after the seed-fix round lands the law-graph budget oracle and the
+        # coupling round re-prices admission/limits on it.
         _shared = _os.environ.get("O4_SEAT_COUPLE_SHARED_SURFACE",
                                   "0") == "1"
         pad_surfaces: list = []

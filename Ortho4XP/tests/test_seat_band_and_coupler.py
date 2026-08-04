@@ -8,8 +8,7 @@ band and DEM sampler.  Covers:
   §2 ``O4_SEAT_BAND_CONSISTENT`` — a large pad's seat clamps into the
      intersection of its selection interval and the NODE band at its
      contact nodes (the band the projection actually enforces); an EMPTY
-     intersection keeps today's value and is REPORTED, never silent;
-     default OFF is byte-inert.
+     intersection keeps today's value and is REPORTED, never silent.
   §3 ``O4_SEAT_COUPLE_SHARED_SURFACE`` — two pads whose rings share a
      paved shape couple even when the straight chord between them is off
      pavement (the false-negative visibility predicate); pads that share
@@ -17,6 +16,19 @@ band and DEM sampler.  Covers:
   §4 empty coupling polytope — LOUD attribution on every run (RULINGS
      2026-08-04 split-level building seats), with NO change to the shipped
      values.
+
+THE SEAT-FLIP BATTERY (2026-08-04, lead ruling variant A) separated the
+two gates and adopted §2 ONLY:
+
+  * §2 is DEFAULT ON — measured alone it is HECA −303 law-true within with
+    every other battery airport byte-identical.  Its pins below follow the
+    kill-half pattern: the ON behaviour is pinned as the DEFAULT (unset
+    env) and the legacy path survives as the explicit ``=0`` arm.
+  * §3 is HELD DEFAULT OFF — measured alone it is KCLT **+145** law-true
+    within (defects migrating from buildings into airside pavement).  It
+    re-arms after ``docs/specs/route-distance-seat-coupling-spec.md``
+    re-prices admission on a route-distance metric, so its pin below still
+    reads "defaults off".
 """
 import pytest
 from shapely.geometry import Polygon
@@ -98,15 +110,29 @@ def _big_band(ring_ceiling=104.0):
     return band
 
 
-def test_seat_band_gate_defaults_off_and_leaves_the_seat_alone(monkeypatch):
+def test_seat_band_gate_defaults_on_and_clamps_the_seat(monkeypatch):
+    """Seat-flip battery, 2026-08-04: with NO ``O4_`` var set — what a user
+    build now does — the clamp binds."""
     monkeypatch.delenv("O4_SEAT_BAND_CONSISTENT", raising=False)
     layout, apron, pad = _big_pad_layout()
     b2i = _register(layout, [apron, pad])
     seats = _seats(layout, b2i, _big_band(), lambda x, y: 120.0,
                    {id(pad): 108.0}, monkeypatch)
     got = _level_of(seats, b2i, layout.canonical_points, pad)
+    assert got == pytest.approx(104.0), (
+        "the gate is DEFAULT ON — an unset env must clamp into the node band")
+
+
+def test_seat_band_gate_off_leaves_the_seat_alone(monkeypatch):
+    """The legacy path survives as the explicit ``=0`` arm."""
+    monkeypatch.setenv("O4_SEAT_BAND_CONSISTENT", "0")
+    layout, apron, pad = _big_pad_layout()
+    b2i = _register(layout, [apron, pad])
+    seats = _seats(layout, b2i, _big_band(), lambda x, y: 120.0,
+                   {id(pad): 108.0}, monkeypatch)
+    got = _level_of(seats, b2i, layout.canonical_points, pad)
     assert got == pytest.approx(108.0), (
-        "gate OFF must ship today's frontage-band seat unchanged")
+        "gate OFF must ship the legacy frontage-band seat unchanged")
 
 
 def test_seat_clamps_into_its_own_node_band(monkeypatch, capsys):
@@ -203,7 +229,12 @@ def _u_seats(monkeypatch):
 
 def test_shared_surface_gate_defaults_off(monkeypatch, capsys):
     """Today: the pair is 60 m apart with a 0.6 m coupling limit and ships
-    2.0 m apart, because the chord between them crosses the U's mouth."""
+    2.0 m apart, because the chord between them crosses the U's mouth.
+
+    HELD default OFF by the seat-flip battery (2026-08-04, lead ruling
+    variant A) — see the gate comment in ``anchors.py``: measured alone it
+    is KCLT +145 law-true within, and it re-arms only after the
+    route-distance coupling round re-prices admission."""
     monkeypatch.delenv("O4_SEAT_COUPLE_SHARED_SURFACE", raising=False)
     lv_l, lv_r, lv_f = _u_seats(monkeypatch)
     assert abs(lv_l - lv_r) == pytest.approx(2.0)

@@ -100,6 +100,11 @@ Gate: `O4_APRON_TERRACE_LAW`, default "0".
 ## verdict is PROVISIONAL until the attribution certifies the band, and
 ## implementers must report the raw-DEM reading beside it and must not
 ## STOP solely on the instrument's number.
+## RESOLVED (lead, 2026-08-04, attribution landed): the band is
+## TRUTHFUL; the defect was the ENVELOPE adjudication (per-edge quant
+## margin compounding along paths — seed-fix round §1). Band 1 is
+## adjudicated in the RAW-LAW frame at merge review; raw-DEM readings
+## remain the evidence of record.
 
 ## Pre-registered outcomes (bands, not points)
 

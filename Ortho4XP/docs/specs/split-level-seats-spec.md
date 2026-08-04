@@ -60,7 +60,12 @@ One flat seat is forced onto relieved footprints:
    `reach_band_unified` — LEAD ANNOTATION 2026-08-04: this band is
    under owner challenge (1-cm HEAZ intervals are an attribution case);
    §3 pins to WHATEVER band the seed attribution certifies — implement
-   against the current band, expect a re-pin); a section below the small-pad size cut takes
+   against the current band, expect a re-pin. RESOLVED 2026-08-04: the
+   band is certified TRUTHFUL given complete seeds — §3's clamp is
+   lawful once seed-fix §2 (`O4_BAND_SEED_COMPLETE`) lands; before
+   that it inherits the 2-node floor-above-own-hard defect (HECA
+   4818/2863) and merge adjudication checks §3 rows against that
+   list); a section below the small-pad size cut takes
    the small-pad path. No new seat mathematics.
 4. **Section joints.** building|building steps at the joints — already
    step-exempt (the `_both_buildings` exemption, owner 2026-06-20);

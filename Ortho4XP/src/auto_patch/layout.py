@@ -2420,6 +2420,15 @@ class PavementLayout:
                                 for (la, lo) in
                                 (getattr(self, "_break_node_ll", None)
                                  or [])],
+                # TRIANGLE-PLANE REPORT (spec kill-prep §2, gate
+                # ``O4_TRIANGLE_PLANE_REPORTS``): how many triangle
+                # vertices the single-vertex plane search could not fix.
+                # A COUNT, not a quarantine — those vertices stay in the
+                # visible violation census; this is the report the owner
+                # reads to size the widen-the-search work.  0 when the
+                # gate is off (they are break nodes there instead).
+                "triangle_plane_unresolved": int(
+                    getattr(self, "_triangle_plane_unresolved", 0) or 0),
                 # EXACT-MESH sidecar (user 2026-07-05): the solver's
                 # junction triangle-mesh edges, consumed 1:1 by the
                 # validator so emit-time ring repairs cannot mint a

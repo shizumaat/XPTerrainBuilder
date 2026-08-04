@@ -2209,6 +2209,20 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
         return cps.get_or_add(float(x), float(y))
 
     SVC = (ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION)
+    # THE ONE LAW'S CAP (owner 2026-08-03, docs/RULINGS.md
+    # "lateral-contiguity absorption is class-universal"; spec §1).  A road
+    # stretch that is laterally contiguous with another paved class is part
+    # of THAT surface: the stretch the emitter could absorb is not a service
+    # shape at all any more, and a stretch it could only CAP carries the
+    # cross-section's strictest cap in ``BuiltShape.lateral_cap``.  This
+    # envelope consumes that number instead of its private service cap — one
+    # surface, one cap, one authority — and stops exporting those nodes to
+    # the break quarantine (a residual there is the contiguous surface's
+    # law, i.e. a VISIBLE violation, not a second authority's pocket).
+    # Gate off ⇒ ``lat_cap`` stays empty ⇒ the scalar ``cap`` arithmetic and
+    # the export are unchanged, byte for byte.
+    from auto_patch.config import SERVICE_LOT_ABSORPTION as _CLASS_UNIVERSAL
+    lat_cap: dict = {}
     svc_nodes: set = set()
     adj = defaultdict(list)
     node_pos: dict = {}
@@ -2216,6 +2230,7 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
     for s in layout.shapes:
         if s.role not in SVC or s.polygon is None or s.polygon.is_empty:
             continue
+        _lc = getattr(s, "lateral_cap", None) if _CLASS_UNIVERSAL else None
         ring = _open_ring(list(s.polygon.exterior.coords))
         idxs = [bucket_to_idx.get(_key(x, y)) for (x, y) in ring]
         for k in range(len(ring)):
@@ -2223,6 +2238,10 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
             if i is None or i >= len(elev):
                 continue
             svc_nodes.add(i)
+            if _lc is not None:
+                _prev = lat_cap.get(i)
+                lat_cap[i] = (float(_lc) if _prev is None
+                              else min(_prev, float(_lc)))
             node_pos.setdefault(i, ring[k])
             node_shape.setdefault(i, id(s))
             if j is not None and j != i and j < len(elev):
@@ -2309,7 +2328,14 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
             for (j, dd) in adj[k]:
                 if j in best:
                     continue
-                nt = t + sign * cap * dd
+                # ONE cap: where the lateral-contiguity law bound either end
+                # of this edge to a contiguous surface, that surface's
+                # (strictest) cap prices the leg.  Empty map ⇒ the service
+                # cap, exactly as before.
+                e_cap = cap
+                if lat_cap:
+                    e_cap = min(lat_cap.get(k, cap), lat_cap.get(j, cap))
+                nt = t + sign * e_cap * dd
                 heapq.heappush(pq, ((nt if sign > 0 else -nt),
                                     dk + dd, j))
         return best, dist
@@ -2354,13 +2380,22 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
         spine_target, spine_broken = _svc_spine_station_seeds(
             layout, svc_nodes, node_pos, anchors, dem_elev, cap,
             ceil, floor, ceil_dist, floor_dist, prox_pairs)
+    _lat_bound_breaks = 0
     for i in svc_nodes:
         if i in anchors:
             continue
         if i in spine_target:
             tgt = spine_target[i]
             if i in spine_broken:
-                service_break.add(i)
+                # Laterally bound (spec §1): this node belongs to the
+                # contiguous surface, whose law adjudicates it — the
+                # envelope has no standing to quarantine it.  The blend
+                # target below is still applied; the deficit, if any, is
+                # visible to the validator.
+                if i in lat_cap:
+                    _lat_bound_breaks += 1
+                else:
+                    service_break.add(i)
             if abs(tgt - elev[i]) > 1e-3:
                 elev[i] = tgt
                 changed.add(i)
@@ -2389,13 +2424,23 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
             df = floor_dist.get(i, 0.0)
             t = dc / (dc + df) if (dc + df) > 1e-9 else 0.5
             tgt = c + (f - c) * t
-            service_break.add(i)
+            if i in lat_cap:                # laterally bound — see above
+                _lat_bound_breaks += 1
+            else:
+                service_break.add(i)
         else:
             lo = f if f is not None else -float("inf")
             tgt = min(max(de, lo), c)
         if abs(tgt - elev[i]) > 1e-3:
             elev[i] = tgt
             changed.add(i)
+    if _lat_bound_breaks:
+        import O4_UI_Utils as _UI
+        _UI.vprint(1,
+            f"  [pav-builder] service DEM-follow: {_lat_bound_breaks} "
+            f"contradiction(s) at laterally-bound node(s) NOT quarantined "
+            f"— the contiguous surface's law owns them (of "
+            f"{len(lat_cap)} node(s) carrying a lateral cap).")
     return changed
 
 

@@ -483,7 +483,8 @@ from .lateral_contiguity import (          # noqa: E402
 
 
 def apply_lateral_contiguity_law(layout, icao: str = "", *,
-                                 rebind_only: bool = False) -> dict:
+                                 rebind_only: bool = False,
+                                 dem_at=None) -> dict:
     """Clauses (2)-(5) of the lateral-contiguity grade law, per SEGMENT.
 
     ``rebind_only`` re-evaluates the CAP against the final pre-solve
@@ -517,11 +518,29 @@ def apply_lateral_contiguity_law(layout, icao: str = "", *,
     Stations inside a RUNWAY STRIP footprint get no verdict (clause 5: the
     strip footprint law supersedes there).
 
+    ``dem_at`` (``f(x, y) -> Optional[float]``) is an OPTIONAL altitude
+    source for the vertices of a stretch absorbed into a DEM-followed host;
+    ``None`` (every caller today) interpolates the host's own pre-merge
+    surface instead.  MEASURED 2026-08-03: passing the plain groundside DEM
+    sampler here is WORSE, not better — CYXY within-shape 189 → 275 rows,
+    because the merged ring carries sub-metre vertex spacing and raw raster
+    noise reads as a 40 % pair at that scale.  A sampler that carries the
+    lot emitter's own ramp limit would be the candidate; the hook is kept
+    for it, unused.
+
     Returns a summary dict; ``layout.shapes`` is rebuilt in place.
     """
-    from .config import LATERAL_CONTIGUITY_LAW_ENABLED
+    from .config import (LATERAL_CONTIGUITY_LAW_ENABLED,
+                         SERVICE_LOT_ABSORPTION as _CLASS_UNIVERSAL)
     summary = {"roads": 0, "segments": 0, "absorbed": 0, "capped": 0,
-               "cut": 0, "strip_skipped": 0, "rebound": 0, "released": 0}
+               "cut": 0, "strip_skipped": 0, "rebound": 0, "released": 0,
+               # class-universal absorption (owner 2026-08-03) bookkeeping:
+               # stretches merged into a host that carries per-vertex
+               # altitudes, pieces the mouth cut could NOT separate (never
+               # absorbed — the owner's uncut-road defect), and merges that
+               # failed and fell back to carrying the cap.
+               "absorbed_dem_host": 0, "cut_failed": 0, "merge_failed": 0,
+               "absorbed_caps": {}}
     if not LATERAL_CONTIGUITY_LAW_ENABLED:
         return summary
     from shapely.strtree import STRtree
@@ -607,16 +626,29 @@ def apply_lateral_contiguity_law(layout, icao: str = "", *,
             continue
         if len(pieces) > 1:
             summary["cut"] += 1
-        for piece, cap in pieces:
+        for piece, cap, uniform in pieces:
             if cap is None or cap >= own_cap - 1e-12:
                 add.append(_lateral_piece_shape(s, piece, None,
                                                 split=len(pieces) > 1))
                 continue
+            # PORTION-ONLY (owner 2026-08-03): a piece the mouth cut could
+            # not separate still holds stations of DIFFERENT caps — its free
+            # stretch is in there.  Absorbing it would absorb the free road
+            # end-to-end, which is the defect; it carries the strictest cap
+            # instead and the failure is counted, never hidden.
+            if _CLASS_UNIVERSAL and not uniform:
+                summary["cut_failed"] += 1
+                add.append(_lateral_piece_shape(s, piece, cap,
+                                                split=len(pieces) > 1))
+                summary["capped"] += 1
+                continue
             target = _lateral_absorb_target(piece, cap, shapes, idx, polys,
                                             roles, tree, s)
             if target is not None:
-                absorbed_into.setdefault(target, []).append(piece)
+                absorbed_into.setdefault(target, []).append((piece, cap, s))
                 summary["absorbed"] += 1
+                summary["absorbed_caps"][round(cap, 6)] = (
+                    summary["absorbed_caps"].get(round(cap, 6), 0) + 1)
             else:
                 add.append(_lateral_piece_shape(s, piece, cap,
                                                 split=len(pieces) > 1))
@@ -636,18 +668,61 @@ def apply_lateral_contiguity_law(layout, icao: str = "", *,
         return summary
     for ti, extra in absorbed_into.items():
         host = shapes[ti]
+        # CLASS-UNIVERSAL ABSORPTION (owner 2026-08-03): a DEM-followed host
+        # (a groundside lot) carries ``node_altitudes`` aligned 1:1 with its
+        # ring, so the plain union below would misalign them.  Merge through
+        # the existing helper that REBUILDS them (old vertices keep theirs,
+        # new ones sample the host's pre-merge surface) — the same operator
+        # the apron absorb has always used.  A merge that fails does not
+        # lose the road: the piece comes back as a shape carrying its cap.
+        if _CLASS_UNIVERSAL and getattr(host, "node_altitudes", None):
+            for (piece, cap, src) in extra:
+                if _merge_piece_into_apron(piece, host, 0.0,
+                                           alt_for_new=dem_at):
+                    # ``_merge_piece_into_apron`` writes the OPEN ring's
+                    # altitudes; a DEM-followed lot carries the CLOSED
+                    # convention (``_dem_follow_polygon``, len == len of
+                    # exterior.coords with the repeat), which every reader
+                    # alignment test uses.  Re-close so the merged host
+                    # stays in its own convention.
+                    _na = host.node_altitudes
+                    _nc = len(host.polygon.exterior.coords)
+                    if _na is not None and len(_na) == _nc - 1:
+                        host.node_altitudes = list(_na) + [_na[0]]
+                    summary["absorbed_dem_host"] += 1
+                    continue
+                summary["absorbed"] -= 1
+                summary["merge_failed"] += 1
+                summary["capped"] += 1
+                add.append(_lateral_piece_shape(src, piece, cap, split=True))
+            continue
+        merged = None
         try:
-            merged = unary_union([host.polygon] + extra)
+            merged = unary_union([host.polygon] + [p for (p, _c, _s) in extra])
         except _GEOM_EXC:
-            continue
-        if merged.geom_type == "MultiPolygon":
+            merged = None
+        if merged is not None and merged.geom_type == "MultiPolygon":
             merged = max(merged.geoms, key=lambda g: g.area)
-        if merged.geom_type != "Polygon" or merged.is_empty:
-            continue
-        if not merged.is_valid:
+        if merged is not None and (merged.geom_type != "Polygon"
+                                   or merged.is_empty):
+            merged = None
+        if merged is not None and not merged.is_valid:
             merged = merged.buffer(0)
             if merged.geom_type != "Polygon" or merged.is_empty:
-                continue
+                merged = None
+        if merged is None:
+            # The union did not close.  Gate ON, the pieces come BACK as
+            # capped shapes — a failed merge must never delete pavement
+            # (the source-coverage law); gate OFF this keeps its historical
+            # silent-drop behaviour so the arms stay byte-identical.
+            if _CLASS_UNIVERSAL:
+                for (piece, cap, src) in extra:
+                    summary["absorbed"] -= 1
+                    summary["merge_failed"] += 1
+                    summary["capped"] += 1
+                    add.append(_lateral_piece_shape(src, piece, cap,
+                                                    split=True))
+            continue
         host.polygon = merged
     layout.shapes = [s for i, s in enumerate(shapes) if i not in drop] + add
     import O4_UI_Utils as UI
@@ -657,6 +732,15 @@ def apply_lateral_contiguity_law(layout, icao: str = "", *,
         f"segment boundaries, {summary['absorbed']} stretch(es) ABSORBED "
         f"into the adjacent surface, {summary['capped']} carrying the "
         f"strictest cap.")
+    if _CLASS_UNIVERSAL:
+        UI.vprint(1,
+            f"  [pav-builder] {icao}: class-universal absorption — "
+            f"{summary['absorbed_dem_host']} stretch(es) merged into a "
+            f"DEM-followed host, caps "
+            f"{sorted(summary['absorbed_caps'].items())}, "
+            f"{summary['cut_failed']} piece(s) NOT absorbed (mouth cut did "
+            f"not separate the free stretch), {summary['merge_failed']} "
+            f"merge failure(s) returned as capped shapes.")
     return summary
 
 
@@ -682,10 +766,15 @@ def _lateral_absorb_target(piece, cap, shapes, idx, polys, roles, tree, src):
     """The shape index this segment ABSORBS into (clause 4), or ``None``.
 
     A legal target is a LITERAL neighbour of the piece (shared boundary, not
-    proximity) whose own cap IS the segment's cap, carrying no per-vertex
-    altitudes — merging into a DEM-followed lot would misalign its
-    ``node_altitudes``, so those segments carry the cap instead.  Ties go to
-    the longest shared boundary (the surface the road most belongs to)."""
+    proximity) whose own cap IS the segment's cap.  Ties go to the longest
+    shared boundary (the surface the road most belongs to).
+
+    A host carrying per-vertex altitudes (a DEM-followed lot) is legal only
+    under ``config.SERVICE_LOT_ABSORPTION`` (owner 2026-08-03, absorption is
+    CLASS-UNIVERSAL): there the merge goes through ``_merge_piece_into_apron``,
+    which rebuilds ``node_altitudes`` for the merged ring instead of leaving
+    them misaligned.  With that gate off those segments carry the cap."""
+    from .config import SERVICE_LOT_ABSORPTION as _CLASS_UNIVERSAL
     best, best_share = None, 0.0
     try:
         boundary = piece.exterior
@@ -702,7 +791,8 @@ def _lateral_absorb_target(piece, cap, shapes, idx, polys, roles, tree, src):
         from .config import ROLE_GRADE_LIMITS as _RGL
         if _RGL.get(roles[k]) != cap:
             continue
-        if getattr(host, "node_altitudes", None) is not None:
+        if (getattr(host, "node_altitudes", None) is not None
+                and not _CLASS_UNIVERSAL):
             continue
         try:
             if piece.distance(polys[k]) > _LATERAL_GAP_TOL_M:
@@ -725,7 +815,14 @@ LATERAL_ABSORB_EXCLUDED_ROLES = frozenset({
 
 def _lateral_split(poly, stations, caps, runs, nx, ny, cut_at_mouth):
     """Cut ``poly`` transversely where the segment cap CHANGES and return
-    ``[(piece, cap), …]``.
+    ``[(piece, cap, uniform), …]``.
+
+    ``uniform`` is ``True`` when every station the piece covers agrees on
+    that one cap — i.e. the mouth cut DID separate this segment from its
+    neighbours.  ``False`` means the cut did not fire (``cut_at_mouth``
+    fell back to the uncut piece) and the piece still holds stations of
+    another class: absorbing it would absorb a free road stretch end to end,
+    which the owner ruled a defect (2026-08-03), so the caller keeps it.
 
     The cut chord is the station's own cross-section through the road: the
     two points where the perpendicular leaves the road's ring.  That is a
@@ -738,7 +835,7 @@ def _lateral_split(poly, stations, caps, runs, nx, ny, cut_at_mouth):
     single BINDING segment still returns the whole shape with its cap.
     """
     if len(runs) == 1:
-        return [(poly, runs[0][2])]
+        return [(poly, runs[0][2], True)]
     cut_stations = [runs[j][0] for j in range(1, len(runs))]
     pieces = [poly]
     for si in cut_stations:
@@ -763,7 +860,18 @@ def _lateral_split(poly, stations, caps, runs, nx, ny, cut_at_mouth):
         own = [caps[k] for k, st in enumerate(stations)
                if st is not None and caps[k] is not None
                and piece.covers(Point(st))]
-        out.append((piece, min(own) if own else None))
+        cap = min(own) if own else None
+        # UNIFORMITY is judged on the piece's INTERIOR stations only: the
+        # boundary station IS the cut chord (the cut is drawn through it),
+        # so both pieces of a successful cut cover it and it would read as
+        # a disagreement on every cut ever made.
+        interior = [caps[k] for k, st in enumerate(stations)
+                    if st is not None and caps[k] is not None
+                    and piece.covers(Point(st))
+                    and piece.exterior.distance(Point(st)) > 1e-6]
+        uniform = (cap is not None
+                   and all(abs(c - cap) <= 1e-12 for c in interior))
+        out.append((piece, cap, uniform))
     return out
 
 
@@ -1895,7 +2003,7 @@ def merge_small_apron_fragments(layout: "PavementLayout",
 
 
 def _merge_piece_into_apron(piece: "Polygon", apron, radius_m: float,
-                            clip_against=None) -> bool:
+                            clip_against=None, alt_for_new=None) -> bool:
     """Union ``piece`` into ``apron`` as ONE continuous, node-shared polygon and
     rebuild the apron's per-vertex altitudes: old vertices keep theirs, new
     (piece) vertices sample the apron's PRE-merge surface (``_edge_interp_alt``).
@@ -1903,7 +2011,16 @@ def _merge_piece_into_apron(piece: "Polygon", apron, radius_m: float,
     polygon.  ``clip_against`` (e.g. the terminal-pad union) is subtracted
     from the cleaned merge — ``_clean_merge``'s sliver-corner drop can chord
     a notch ACROSS a terminal edge (KPHL terminal22: a 0.4 m × 2.5 m
-    incursion pocket), and no overlap-clip pass runs after this absorb."""
+    incursion pocket), and no overlap-clip pass runs after this absorb.
+
+    ``alt_for_new`` (owner 2026-08-03, the lateral-contiguity absorption):
+    ``f(x, y) -> Optional[float]`` for the NEW vertices instead of the
+    pre-merge-surface interpolation.  A DEM-followed LOT is not a plane —
+    extrapolating its edge field over an absorbed road stretch imprinted
+    steps of 17 % on the merged ring (measured at CYXY before this
+    parameter existed); the lot's own emitter samples the DEM at every
+    vertex, so an absorbed stretch must too.  ``None`` (every legacy
+    caller) keeps the interpolation, byte for byte."""
     from types import SimpleNamespace
     from .clearance import _edge_interp_alt
     before = apron.polygon
@@ -1956,6 +2073,11 @@ def _merge_piece_into_apron(piece: "Polygon", apron, radius_m: float,
     new_na = []
     for (x, y) in new_ring:
         z = oldmap.get((round(x, 2), round(y, 2)))
+        if z is None and alt_for_new is not None:
+            try:
+                z = alt_for_new(x, y)
+            except _GEOM_EXC:
+                z = None
         if z is None:
             try:
                 z = _edge_interp_alt(src, x, y)

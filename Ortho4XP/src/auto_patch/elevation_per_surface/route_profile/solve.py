@@ -2905,6 +2905,12 @@ def solve_route_profile(layout, icao: str,
             # still emit as one lawful welded surface.
             if _gs_hard and _os.environ.get(
                     "O4_MOUTH_VERIFY_RELAX", "1") == "1":
+                # Spec kill-prep §1 (owner 2026-08-03): the class-universal
+                # absorption ruling governs BOTH exports below — A2's
+                # unconditional freed-cluster export and A3's weld↔weld
+                # pocket.  See each site.
+                from auto_patch.config import (
+                    SERVICE_LOT_ABSORPTION as _CLASS_UNIVERSAL)
                 _VIOL_TOL_M = 0.03
                 _conflicted: set = set()
                 for _sc in joint:
@@ -2992,7 +2998,42 @@ def solve_route_profile(layout, icao: str,
                     # the lot ring the adoption re-shaped around the
                     # solved mouth — is quarantined honestly instead of
                     # reading as an actionable solver miss).
-                    _solve_broken_idx |= {i for i in _freed if i < n}
+                    # CLASS-UNIVERSAL ABSORPTION (owner 2026-08-03, spec
+                    # kill-prep §1): "inert there" was never tested — the
+                    # export fired UNCONDITIONALLY on the whole freed
+                    # cluster, and 48 of HECA's + 6 of HEAZ's exported
+                    # nodes carry ZERO deficit (quarret2 decomposition).
+                    # Under the gate the mouth is RE-TESTED after the
+                    # adoption and only a still-deficient node reports;
+                    # quarantine is unauthorized (docs/RULINGS.md), so a
+                    # reconciled mouth exports nothing at all.
+                    if _CLASS_UNIVERSAL:
+                        _still_deficient: set = set()
+                        for _sc in joint:
+                            for _e in _sc["edges"]:
+                                if len(_e) >= 4:
+                                    continue
+                                _a, _b, _bud = _e[0], _e[1], _e[2]
+                                if (_a >= n or _b >= n
+                                        or (_a not in _freed
+                                            and _b not in _freed)):
+                                    continue
+                                if abs(elev[_a] - elev[_b]) <= (
+                                        _bud + _VIOL_TOL_M):
+                                    continue
+                                if _a in _freed:
+                                    _still_deficient.add(_a)
+                                if _b in _freed:
+                                    _still_deficient.add(_b)
+                        _solve_broken_idx |= {i for i in _still_deficient
+                                              if i < n}
+                        if _os.environ.get("O4_STEP_DEBUG") == "1":
+                            print(f"    [mouth-relax] re-tested "
+                                  f"{len(_freed)} freed node(s): "
+                                  f"{len(_still_deficient)} still "
+                                  f"deficient → exported")
+                    else:
+                        _solve_broken_idx |= {i for i in _freed if i < n}
                     if _os.environ.get("O4_STEP_DEBUG") == "1":
                         print(f"    [mouth-relax] {len(_conflicted)} "
                               f"conflicted weld(s) → freed cluster "
@@ -3004,6 +3045,14 @@ def solve_route_profile(layout, icao: str,
                 # reconciliation measured against).  Both ends are truth
                 # welds — neither may yield — so a still-violated edge is
                 # a genuine break pocket: export both mouths.
+                # THE PREMISE DISSOLVES under the class-universal
+                # absorption ruling (owner 2026-08-03, spec kill-prep §1):
+                # a road welded to a lot IS the lot — the two "authorities"
+                # are ONE laterally-contiguous surface taking ONE
+                # (strictest) cap, so "neither may yield" describes a
+                # topology that no longer exists.  Under the gate the scan
+                # stays as a REPORTER and exports nothing; the residual is
+                # a visible violation of that one surface's law.
                 _n_weld_pocket = 0
                 for _sc in joint:
                     for _e in _sc["edges"]:
@@ -3015,13 +3064,15 @@ def solve_route_profile(layout, icao: str,
                                 or _b not in _gs_hard):
                             continue
                         if abs(elev[_a] - elev[_b]) > _bud + _VIOL_TOL_M:
-                            _solve_broken_idx.add(_a)
-                            _solve_broken_idx.add(_b)
+                            if not _CLASS_UNIVERSAL:
+                                _solve_broken_idx.add(_a)
+                                _solve_broken_idx.add(_b)
                             _n_weld_pocket += 1
                 if _n_weld_pocket and _os.environ.get(
                         "O4_STEP_DEBUG") == "1":
                     print(f"    [mouth-relax] {_n_weld_pocket} weld↔weld "
-                          f"edge(s) still contradictory → break export")
+                          f"edge(s) still contradictory → "
+                          f"{'REPORT only' if _CLASS_UNIVERSAL else 'break export'}")
             # EDGE FAIRING (user 2026-07-04, CYXY taxiway E): the spine
             # fairing law covers spine CHAINS only — a corridor's ring
             # EDGE still tracks noise in legal ±cap wiggles (E's edge
@@ -4052,6 +4103,42 @@ def _scoped_projection_defer_ids(layout, nodes, bucket_to_idx, elev,
         if not touched:
             defer_ids.add(id(s))
     return defer_ids, pre_broken
+
+
+def triangle_plane_disposition(layout, tri_broken, n_fixed=0):
+    """Where ``_project_triangle_planes``' UNRESOLVED set goes — the node
+    indexes that join the break quarantine (spec kill-prep §2, gate
+    ``config.TRIANGLE_PLANE_REPORTS``).
+
+    The projection tries ONE vertex at a time and gives up when no single
+    vertex has a lawful move.  That is a limitation of the SEARCH, not a
+    proof that the triangle cannot be made lawful — and under the owner's
+    standing rulings (feasibility is guaranteed; quarantine is
+    unauthorized) a search limitation may not mint a quarantine.  With the
+    gate ON the projection itself is untouched (same fixes, same moves) but
+    its unresolved set becomes a REPORT: a log line plus the
+    ``triangle_plane_unresolved`` sidecar count, and an EMPTY break
+    contribution, so those triangles surface as visible violations for the
+    solver-convergence work.  Gate OFF returns the set unchanged.
+    """
+    from auto_patch.config import TRIANGLE_PLANE_REPORTS
+    tri_broken = set(tri_broken or ())
+    if not TRIANGLE_PLANE_REPORTS:
+        return tri_broken
+    layout._triangle_plane_unresolved = int(
+        getattr(layout, "_triangle_plane_unresolved", 0) or 0
+    ) + len(tri_broken)
+    if tri_broken:
+        try:
+            import O4_UI_Utils as _UItri
+            _UItri.vprint(1,
+                f"  [pav-builder] triangle-plane law: {len(tri_broken)} "
+                f"vertex(es) with no lawful SINGLE-vertex move — REPORTED, "
+                f"not quarantined (a search limitation is not "
+                f"infeasibility); {n_fixed} triangle(s) fixed.")
+        except Exception:                          # pragma: no cover
+            pass
+    return set()
 
 
 def _project_triangle_planes(layout, bucket_to_idx, elev, immovable,
@@ -5773,11 +5860,8 @@ def final_grade_projection(layout, icao: str = "", dem=None,
         _n_tri_fixed, _tri_anchor_idx, _tri_broken = \
             _project_triangle_planes(layout, b2i, elev,
                                      hard | pad_nodes, joint, n)
-        _projection_broken_idx |= _tri_broken
-        if (_n_tri_fixed or _tri_broken) and _os.environ.get(
-                "O4_STEP_DEBUG") == "1":
-            print(f"    [triangle-plane] fixed {_n_tri_fixed}, "
-                  f"quarantined {len(_tri_broken)} vertex(es)")
+        _projection_broken_idx |= triangle_plane_disposition(
+            layout, _tri_broken, _n_tri_fixed)
     _stage("project")
     if _projection_broken_idx:
         try:

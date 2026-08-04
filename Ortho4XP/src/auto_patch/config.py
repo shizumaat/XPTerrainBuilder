@@ -1606,6 +1606,23 @@ RASTER_REACH_BAND_MAX_CELLS = 60_000_000
 # emitted-surface check is affected, and the whole point of the raster field is
 # the OTHH band-machinery win, 74 s → 1.2 s).
 RASTER_REACH_BAND_GRID_RESIDUAL_M = 0.25
+# SEED-CELL EXACTNESS (spec docs/specs/kill-prep-round-spec.md §3).  Two
+# route nodes 0.6–4 m apart can land in ONE 3 m cell; the cell then takes
+# the min ceiling of one and the max floor of the other, pricing the
+# intra-cell route leg between them at ZERO and MANUFACTURING a band
+# inversion up to cap × 3√2 ≈ 0.064 m (HEAZ's six inverted-band nodes:
+# four of four reproduced by a collapsed cell, quarret2/bandforensics).
+# ON, the cell's seed is authored by ONE node — the nearest to the cell
+# CENTRE, ties by node key — and every other node seeding that cell
+# contributes its interval RELAXED by the local cell cap × its
+# straight-line distance to the author.  The seed-cell KEY set, the leg
+# field and the ``seed ± leg`` lookup are untouched, so coverage and
+# determinism cannot move and a single-node cell (distance 0) is
+# byte-identical; straight-line distance under-prices the true in-pavement
+# leg, so the relaxation is conservative.  A residual inversion under the
+# gate is therefore a genuine node-value inconsistency, not a raster
+# artifact.  OFF ⇒ byte-identical.
+BAND_SEED_EXACT = _os_early.environ.get("O4_BAND_SEED_EXACT", "0") == "1"
 
 # ── Chromatic (graph-colored) Gauss-Seidel projection (Tier 3 wave 2c,
 # ``O4_CHROMATIC_PROJECTION``) ──────────────────────────────────────────────
@@ -1988,6 +2005,43 @@ SCORER_SERVICE_ADJ = _os.environ.get("O4_SCORER_SERVICE_ADJ", "0") == "1"
 # emitted patch is byte-identical.
 LATERAL_CONTIGUITY_LAW_ENABLED = _os.environ.get(
     "O4_LATERAL_CONTIGUITY_LAW", "0") == "1"
+# SERVICE↔LOT ABSORPTION (owner 2026-08-03, docs/RULINGS.md
+# "lateral-contiguity absorption is class-universal"; spec
+# docs/specs/kill-prep-round-spec.md §1).  The absorption of clause (4)
+# applies to a service road welded to ANY paved class — groundside LOTS
+# included, not only aprons.  Two consequences, both behind this gate:
+#   * a host carrying per-vertex ``node_altitudes`` (a DEM-followed lot) is
+#     a legal absorb target — the merge goes through
+#     ``groundside._merge_piece_into_apron``, which REBUILDS the host's
+#     altitudes for the merged ring, so the 1:1 ring alignment that made
+#     those hosts illegal is maintained rather than assumed away;
+#   * the absorbed stretch stops being a service shape, so
+#     ``route_profile.anchors.apply_service_road_dem_follow``'s private
+#     cap-Lipschitz envelope no longer grades it — the second grading
+#     authority the A2/A3/A4 residual break family came from.  Where a
+#     stretch cannot absorb, that envelope CONSUMES the one law's number
+#     (``BuiltShape.lateral_cap``) instead of the service cap.
+# PORTION-ONLY (owner amendment 2026-08-03): only the laterally-contiguous
+# portion absorbs; the free portion stays a road and the mouth cut between
+# them is mandatory — a piece whose stations do not agree on ONE cap is
+# never absorbed (it carries the cap and is counted as ``cut_failed``).
+# The service SPINE is never touched: absorption removes a SURFACE, not a
+# centerline.  Requires ``LATERAL_CONTIGUITY_LAW_ENABLED`` (this gate only
+# widens that pass's class set).  OFF ⇒ byte-identical.
+SERVICE_LOT_ABSORPTION = _os.environ.get(
+    "O4_SERVICE_LOT_ABSORPTION", "0") == "1"
+# TRIANGLE-PLANE DEMOTION (spec docs/specs/kill-prep-round-spec.md §2).
+# ``route_profile.solve._project_triangle_planes`` clamps a 3-vertex shape
+# whose PLANE tilts past its role cap by moving its freest vertex; where no
+# single-vertex move is lawful it currently exports the triangle to the
+# break quarantine.  "No single-vertex fix exists" is a SEARCH LIMITATION,
+# not infeasibility (docs/RULINGS.md: feasibility is guaranteed; quarantine
+# is unauthorized), so ON the export becomes a REPORT — a log line plus the
+# ``triangle_plane_unresolved`` sidecar count — and the unresolved
+# triangles surface as visible violations for the solver-convergence work.
+# The projection itself is unchanged either way.  OFF ⇒ byte-identical.
+TRIANGLE_PLANE_REPORTS = _os.environ.get(
+    "O4_TRIANGLE_PLANE_REPORTS", "0") == "1"
 # Points each feature contributes toward each class, BEFORE the
 # per-airport source-reliability scaling (spec §6).  Feature values are
 # fractions in [0,1]; negative points are allowed.  Override individual

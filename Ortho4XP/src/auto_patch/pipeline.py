@@ -4540,6 +4540,13 @@ def build_airport_pavement(icao: str, xplane_root: str,
             LATERAL_CONTIGUITY_LAW_ENABLED as _LAT_LAW_ON)
         if _LAT_LAW_ON:
             from .groundside import apply_lateral_contiguity_law
+            # NOTE (measured 2026-08-03, kill-prep round): giving the
+            # absorbed vertices RAW DEM altitudes instead of the host's
+            # interpolated field was tried and is WORSE — CYXY within-shape
+            # 189 → 275 rows, because sub-metre ring spacing turns raster
+            # noise into 40 % pairs.  ``apply_lateral_contiguity_law``
+            # keeps the ``dem_at`` hook for a future sampler that carries
+            # the lot's own ramp limit; nothing passes one today.
             try:
                 apply_lateral_contiguity_law(layout, icao)
             except _GEOM_EXC as _lat_exc:

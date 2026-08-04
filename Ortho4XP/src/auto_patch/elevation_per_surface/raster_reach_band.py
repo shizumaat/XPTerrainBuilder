@@ -68,6 +68,48 @@ import numpy as np
 _INF = float("inf")
 
 
+def resolve_seed_cell(members, cxs, cys, cap):
+    """The seed interval of ONE cell from its coincident attachments —
+    ``(ceiling, floor, collapsed)`` (spec kill-prep §3, gate
+    ``config.BAND_SEED_EXACT``).
+
+    ``members`` are ``(x, y, ceiling, floor, row, col)`` in the walk's
+    deterministic (node-key sorted) order; every member of one call shares
+    the cell, so the row/col of the first is the cell's.
+
+    A cell holding ONE attachment returns that attachment's own interval —
+    identical to the collapsing path, which is why the gate only ever
+    changes collapsed cells.  A cell holding SEVERAL is the defect: the grid
+    treats them as coincident and prices the route leg BETWEEN them at zero,
+    so a low ceiling from one and a high floor from another manufacture an
+    inversion of up to cap × 3√2 ≈ 0.064 m at a 3 m cell (HEAZ: four of four
+    observed inversions reproduced this way).  Here ONE attachment AUTHORS
+    the cell — the one nearest the cell CENTRE, ties by walk order — so the
+    seed remains a route value AT an attachment, and every other attachment
+    keeps its constraint RELAXED by the local cell cap × its straight-line
+    distance to the author.  Straight-line distance under-prices the true
+    in-pavement route leg, so the relaxation is conservative: a residual
+    inversion under this rule is a genuine node-value inconsistency, not a
+    grid artifact.
+    """
+    first = members[0]
+    if len(members) == 1:
+        return first[2], first[3], False
+    ri0, ci0 = first[4], first[5]
+    cx, cy = float(cxs[ci0]), float(cys[ri0])
+    author = min(members, key=lambda m: math.hypot(m[0] - cx, m[1] - cy))
+    cell_cap = float(cap[ri0][ci0]) if isinstance(cap, list) \
+        else float(cap[ri0, ci0])
+    ceiling, floor = author[2], author[3]
+    for m in members:
+        if m is author:
+            continue
+        slack = cell_cap * math.hypot(m[0] - author[0], m[1] - author[1])
+        ceiling = min(ceiling, m[2] + slack)
+        floor = max(floor, m[3] - slack)
+    return ceiling, floor, True
+
+
 def _local_cap_grids(layout, cxs, cys, paved, taxi_cap):
     """Per-cell longitudinal cap field over the paved cells.
 
@@ -407,6 +449,14 @@ def build_raster_reach_band(layout, G) -> Optional[Callable[
     seed_ceil: dict = {}                           # cell_id -> min ceiling
     seed_floor: dict = {}                          # cell_id -> max floor
     n_seeded = 0
+    # SEED-CELL EXACTNESS (config.BAND_SEED_EXACT, spec kill-prep §3): with
+    # the gate on, the coincident attachments of one cell are resolved AFTER
+    # the walk so the intra-cell route leg between them can be priced —
+    # collapsing them here prices it at ZERO and manufactures inversions up
+    # to cap × 3√2.  ``pending`` keeps the per-cell candidates in the same
+    # deterministic node order the loop walks.
+    from auto_patch.config import BAND_SEED_EXACT as _SEED_EXACT
+    pending: dict = {}
     for k in sorted(ceil_val):                     # sorted() for determinism
         p = G.pos.get(k)
         if p is None:
@@ -428,9 +478,29 @@ def build_raster_reach_band(layout, G) -> Optional[Callable[
         cid = int(cell_id[ri, ci])
         if cid < 0:
             continue
+        if _SEED_EXACT:
+            pending.setdefault(cid, []).append(
+                (float(p[0]), float(p[1]), cv, fv, ri, ci))
+            n_seeded += 1
+            continue
         seed_ceil[cid] = min(seed_ceil.get(cid, _INF), cv)
         seed_floor[cid] = max(seed_floor.get(cid, -_INF), fv)
         n_seeded += 1
+    n_collapsed_cells = 0
+    for cid, members in pending.items():
+        cv, fv, collapsed = resolve_seed_cell(members, cxs, cys, cap)
+        seed_ceil[cid] = cv
+        seed_floor[cid] = fv
+        n_collapsed_cells += int(collapsed)
+    if _SEED_EXACT and os.environ.get("O4_RASTER_REACH_BAND_QUIET") != "1":
+        try:
+            import O4_UI_Utils as _UIseed
+            _UIseed.vprint(1,
+                f"  [raster-reach-band] seed-exact: {n_collapsed_cells} of "
+                f"{len(pending)} seeded cell(s) hold >1 attachment; their "
+                f"intra-cell legs priced at the local cap.")
+        except Exception:                          # pragma: no cover
+            pass
     if not seed_ceil:
         return None
 

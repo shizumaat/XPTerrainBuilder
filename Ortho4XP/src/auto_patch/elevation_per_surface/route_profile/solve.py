@@ -18,6 +18,7 @@ import os as _os
 import time as _time
 
 from ..node_space import store_of as _store_of
+from .apron_terrace import apron_terrace_law_enabled
 from .anchors import (
     apron_body_nodes, build_building_seats, build_detached_pad_dem_pins,
     build_nobuilding_apron_seats,
@@ -2002,6 +2003,52 @@ def solve_route_profile(layout, icao: str,
         # release a runway/CIFP value, a seat or a seam pin.  Empty set
         # (gate off) ⇒ ``hard`` is exactly today's set.
         hard -= _spine_yield_idx
+        # ── APRON TERRACE LAW (owner ruling 2026-08-04; spec
+        # ``docs/specs/apron-terrace-law-spec.md``; gate
+        # ``O4_APRON_TERRACE_LAW``, default off) ──────────────────────
+        # HERE, and not later: the trigger is the ENVELOPE the projection
+        # below is about to fail on, so it must read the same anchors
+        # (``hard``), the same values (``elev``) and the same law edges
+        # (``shape_constraints``) that projection will.  Running it after
+        # the projection would be adjudicating a value the law had
+        # already been asked to produce — the two-instruments trap.
+        # Single-pass: this is a REORDER of the existing adjudication,
+        # not a second solve; the plan binds every downstream projection
+        # through the SAME ``shape_constraints`` object.
+        _terrace_plan = None
+        if apron_terrace_law_enabled():
+            from .apron_terrace import (apply_terrace_budgets,
+                                        plan_apron_terraces)
+            try:
+                _terrace_plan = plan_apron_terraces(
+                    layout, shape_constraints, nodes, dem_elev, elev,
+                    hard, icao=icao)
+                _n_relaxed = apply_terrace_budgets(
+                    _terrace_plan, shape_constraints, nodes)
+                layout._apron_terrace_plan = _terrace_plan
+                if _terrace_plan is not None:
+                    import O4_UI_Utils as _UI_terr
+                    _UI_terr.vprint(1,
+                        f"  [apron-terrace] {icao}: "
+                        f"{_terrace_plan.stats['triggered']} apron(s) "
+                        f"panelized, {_terrace_plan.stats['joints']} "
+                        f"declared joint(s), {_n_relaxed} law edge(s) "
+                        f"bound to a joint step"
+                        + ("  OVER-FIRE"
+                           if _terrace_plan.is_overfire() else ""))
+            except Exception as _terr_exc:
+                # A production build must never die on an optional law
+                # pass — but a MEASUREMENT arm that silently produces the
+                # default surface is worse than a crash (it reads as "the
+                # law did nothing", which is a result).  Under the debug
+                # gate the failure is raised.
+                import O4_UI_Utils as _UI_terr
+                _UI_terr.vprint(1, f"  [pav-builder] WARN: {icao}: apron "
+                                   f"terrace plan failed ({_terr_exc}) — "
+                                   f"no panelization this build.")
+                _terrace_plan = None
+                if _os.environ.get("O4_APRON_TERRACE_DEBUG") == "1":
+                    raise
         # ── NON-ROUTE SEED ADMISSION (spec ``route-metric-envelope`` §2;
         # gate ``O4_ROUTE_METRIC_ENVELOPE``, default "1" since the
         # 2026-08-04 kill-half flip) ─────────────────────────────────
@@ -2082,6 +2129,19 @@ def solve_route_profile(layout, icao: str,
                 print(f"    [pad-rod] {len(_pad_weld_idx)} pad-face fabric "
                       f"contact(s) reference their pad's rod "
                       f"({len(_pw_rel)} carried by key)")
+        # APRON TERRACE LAW: the unified graph carries its OWN copy of the
+        # apron's all-pair law, so the joint budgets have to be bound onto
+        # it too — one law, both edge sets (see
+        # ``apron_terrace.apply_terrace_budgets_to_edges``).  Done once,
+        # here, because ``u_edges`` is reused by every later projection in
+        # this function.  No plan ⇒ the list object is returned unchanged.
+        if _terrace_plan is not None:
+            from .apron_terrace import apply_terrace_budgets_to_edges
+            u_edges, _n_u_relaxed = apply_terrace_budgets_to_edges(
+                _terrace_plan, u_edges, nodes)
+            if _n_u_relaxed and _os.environ.get("O4_STEP_DEBUG") == "1":
+                print(f"    [apron-terrace] {_n_u_relaxed} unified-graph "
+                      f"edge(s) bound to a joint step")
         rem, bh = feasibility_project(elev, [{"edges": u_edges}], hard,
                                       witness_excluded=_route_excluded,
                                       env_band=_env_band,
@@ -4985,9 +5045,29 @@ def final_grade_projection(layout, icao: str = "", dem=None,
             tile_lon=tile_lon, hard_nodes=_hard_for_certificate)
         _stage("constraints")
         G = _GG.build_unified_graph(layout, b2i, ctx=ctx)
+    # APRON TERRACE LAW (2026-08-04): re-bind the SOLVE's plan onto this
+    # pass's freshly-built constraints.  The node list was rebuilt, so the
+    # plan is carried by SHAPE IDENTITY and GEOMETRY (never by index — the
+    # rod-key lesson); the joints themselves are unchanged, which is what
+    # makes the two passes one law rather than two.  No plan (gate off) ⇒
+    # a single dict lookup and byte-identical constraints.
+    _terrace_plan_fp = getattr(layout, "_apron_terrace_plan", None)
+    if _terrace_plan_fp is not None:
+        from .apron_terrace import apply_terrace_budgets as _apply_terr_fp
+        try:
+            _apply_terr_fp(_terrace_plan_fp, shape_constraints, nodes)
+        except Exception:
+            _terrace_plan_fp = None
     u_edges = [(a, b, cap.at(_GG._dist(G.pos.get(a), G.pos.get(b)), 0.0))
                for (a, b, cap, _sp) in G.edges
                if a in G.pos and b in G.pos]
+    if _terrace_plan_fp is not None:
+        from .apron_terrace import (
+            apply_terrace_budgets_to_edges as _apply_terr_u_fp)
+        try:
+            u_edges, _ = _apply_terr_u_fp(_terrace_plan_fp, u_edges, nodes)
+        except Exception:
+            pass
     joint = list(shape_constraints) + [{"edges": u_edges}]
     _stage("graph")
 

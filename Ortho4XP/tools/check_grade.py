@@ -2635,6 +2635,137 @@ def _check_stacked_nodes(
     return out
 
 
+# ── APRON TERRACE LAW — the validator twin (owner ruling 2026-08-04;
+# spec ``docs/specs/apron-terrace-law-spec.md`` §5) ──────────────────
+# The emitter half is
+# ``elevation_per_surface.route_profile.apron_terrace``; the joints
+# themselves arrive through the ``terrace_joints`` sidecar key, so both
+# readers judge the IDENTICAL declared population — a re-derivation here
+# would be a second instrument over the same ground, which is the failure
+# mode this campaign keeps paying for.
+#
+# The BINDING CONSTRAINT (joints never cross a taxi spine/route) is
+# STRUCTURAL in the emitter: a joint is born as the terrace line MINUS the
+# corridor cover.  These checks are its twin — visibility, not
+# enforcement.  A hit here means the structural guarantee was broken and
+# the round STOPS.
+
+
+# Synthetic ways so a terrace-joint finding prints and geocodes through
+# the ordinary ``Violation`` path (``_label`` / ``_way_latlon`` read a Way;
+# a bare ``None`` would crash the reporter on the ONE class that must
+# always be heard).
+_TERRACE_JOINT_WAY = Way("terrace_joint", "retaining_wall",
+                         "apron_terrace_joint", "", [], [], {})
+_TERRACE_ROUTE_WAY = Way("taxi_route", "taxiway_route", "routes_exact",
+                         "", [], [], {})
+_TERRACE_STRIP_WAY = Way("runway_strip", "runway", "strip_footprint",
+                         "", [], [], {})
+
+
+def _segments_cross(p, q, r, s) -> bool:
+    """Proper/improper segment intersection test in the metre frame."""
+    def _o(a, b, c):
+        return ((b[0] - a[0]) * (c[1] - a[1])
+                - (b[1] - a[1]) * (c[0] - a[0]))
+
+    d1, d2 = _o(r, s, p), _o(r, s, q)
+    d3, d4 = _o(p, q, r), _o(p, q, s)
+    if ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0)):
+        return True
+
+    def _on(a, b, c):
+        return (abs(_o(a, b, c)) <= 1e-9
+                and min(a[0], b[0]) - 1e-9 <= c[0] <= max(a[0], b[0]) + 1e-9
+                and min(a[1], b[1]) - 1e-9 <= c[1] <= max(a[1], b[1]) + 1e-9)
+
+    return (_on(r, s, p) or _on(r, s, q) or _on(p, q, r) or _on(p, q, s))
+
+
+def _terrace_joints_to_m(terrace_joints_ll, ll_to_m):
+    """Sidecar rows → ``[(points_m, step_m), …]`` in the audit frame."""
+    out = []
+    for row in (terrace_joints_ll or []):
+        pts = row.get("points") or []
+        if len(pts) < 2:
+            continue
+        out.append(([ll_to_m(float(la), float(lo)) for (la, lo) in pts],
+                    float(row.get("step_m") or 0.0)))
+    return out
+
+
+def _terrace_step_allowance(terrace_joints_m, xa, ya, xb, yb) -> float:
+    """Σ of the declared step heights of every joint this chord crosses."""
+    total = 0.0
+    p, q = (xa, ya), (xb, yb)
+    for (pts, step) in terrace_joints_m:
+        for k in range(len(pts) - 1):
+            if _segments_cross(p, q, pts[k], pts[k + 1]):
+                total += step
+                break
+    return total
+
+
+def _check_terrace_joint_crosses_route(terrace_joints_m, routes_ll,
+                                       taxi_axes) -> List[Violation]:
+    """§5(b)/(c): a declared joint intersecting a taxi ROUTE is an ERROR.
+
+    The population is the sidecar's own ``routes_exact`` chains, converted
+    to metres by the caller (``taxi_axes`` carries the same polylines with
+    their per-segment caps, and every route ordinal indexes into it).  Cap
+    ZERO — this is inadmissible geometry, not an over-cap grade, so the
+    reported ``de_m`` carries nothing but the fact of the crossing."""
+    if not terrace_joints_m or not taxi_axes:
+        return []
+    out: List[Violation] = []
+    for (pts, step) in terrace_joints_m:
+        for entry in taxi_axes:
+            poly = entry[0]
+            for a in range(len(poly) - 1):
+                hit = False
+                for k in range(len(pts) - 1):
+                    if _segments_cross(pts[k], pts[k + 1],
+                                       poly[a], poly[a + 1]):
+                        hit = True
+                        break
+                if not hit:
+                    continue
+                out.append(Violation(
+                    grade_pct=100.0, excess_pct=100.0,
+                    distance_m=0.0, de_m=step,
+                    way_a=_TERRACE_JOINT_WAY, way_b=_TERRACE_ROUTE_WAY,
+                    pt_a=pts[0], pt_b=poly[a],
+                    elev_a=0.0, elev_b=0.0))
+                break
+    return out
+
+
+def _check_terrace_joint_in_runway_strip(terrace_joints_m, ways, nodes,
+                                         ll_to_m) -> List[Violation]:
+    """§5(d): a declared joint inside the runway-strip footprint is an
+    ERROR — walls at runway edges are NEVER lawful (owner 2026-08-01), and
+    a joint is a wall by construction."""
+    if not terrace_joints_m:
+        return []
+    rings = _runway_strip_keepout_rings(ways, nodes, ll_to_m)
+    if not rings:
+        return []
+    out: List[Violation] = []
+    for (pts, step) in terrace_joints_m:
+        for (px, py) in pts:
+            if not any(_point_in_rect_ring(px, py, r, _WALL_STRIP_MARGIN_M)
+                       for r in rings):
+                continue
+            out.append(Violation(
+                grade_pct=100.0, excess_pct=100.0,
+                distance_m=0.0, de_m=step,
+                way_a=_TERRACE_JOINT_WAY, way_b=_TERRACE_STRIP_WAY,
+                pt_a=(px, py), pt_b=(px, py),
+                elev_a=0.0, elev_b=0.0))
+            break
+    return out
+
+
 def _check_within_shape(ways: List[Way],
                         nodes: Dict[str, Tuple[float, float]],
                         ll_to_m,
@@ -2646,6 +2777,7 @@ def _check_within_shape(ways: List[Way],
                         crown_by_nid: Optional[Dict[str, float]] = None,
                         crown_centerline_nids: Optional[set] = None,
                         pair_caps_ll: Optional[list] = None,
+                        terrace_joints_m: Optional[list] = None,
                         ) -> List[Violation]:
     """Grade check between vertex pairs on the same way.  Consumes
     ``iter_shape_grade_constraints`` (the single source of constrained pairs)
@@ -2662,7 +2794,17 @@ def _check_within_shape(ways: List[Way],
             crown_centerline_nids=crown_centerline_nids,
             pair_caps_ll=pair_caps_ll):
         de = abs((c.ea - c.eb) - c.offset)
-        if de <= c.allowance:
+        allowance = c.allowance
+        if terrace_joints_m:
+            # APRON TERRACE LAW (spec §5a): a within-pair edge crossing a
+            # DECLARED joint is judged by the step law, not by the grade
+            # cap alone — ``cap·d + Σ step``, the identical rule
+            # ``apron_terrace._rewrite_edges`` bound the solver to.  One
+            # law, both readers.  A pair crossing no joint is untouched,
+            # so an old patch (or the gate off) reads exactly as before.
+            allowance += _terrace_step_allowance(
+                terrace_joints_m, c.xa, c.ya, c.xb, c.yb)
+        if de <= allowance:
             continue
         grade = de / c.dist
         out.append(Violation(
@@ -3134,6 +3276,7 @@ def run_checks(
     crown_drops_ll: Optional[list] = None,
     crown_centerline_ll: Optional[list] = None,
     pair_caps_ll: Optional[list] = None,
+    terrace_joints_ll: Optional[list] = None,
 ) -> Tuple[List[Violation], List[Violation], List[EdgeStep]]:
     """``taxi_axes_ll`` (the builder's APT.DAT taxi centerlines as
     ``[(latlon_points, cL, cT), …]``) supplies the within-shape grade graph's
@@ -3219,12 +3362,21 @@ def run_checks(
         print(f"  crown centerline: {len(crown_centerline_nids)} ridge "
               f"node(s) exempt from the runway plane all-pairs check")
 
+    # APRON TERRACE LAW (owner 2026-08-04, spec §5): the DECLARED joints,
+    # in this audit's metre frame.  Empty for every patch built without
+    # the law — every check below is then byte-identical to before.
+    terrace_joints_m = _terrace_joints_to_m(terrace_joints_ll, ll_to_m)
+    if terrace_joints_m and not quiet:
+        print(f"  apron terraces: {len(terrace_joints_m)} declared "
+              f"joint(s) (within-pairs crossing one are judged by the "
+              f"step law)")
+
     within = _check_within_shape(
         ways, nodes, ll_to_m, max_grade, seam_nids=seam_nids,
         taxi_axes=taxi_axes, routes_ll=routes_ll,
         mesh_edges_m=mesh_edges_m, crown_by_nid=crown_by_nid,
         crown_centerline_nids=crown_centerline_nids,
-        pair_caps_ll=pair_caps_ll)
+        pair_caps_ll=pair_caps_ll, terrace_joints_m=terrace_joints_m)
     # THE BREAK-REGION SPLIT IS DELETED (spec ``docs/specs/kill-half-
     # spec.md`` §2, 2026-08-04).  Pairs touching a solver-declared broken
     # node used to be moved out of the actionable within-shape count into
@@ -3268,6 +3420,23 @@ def run_checks(
     _pv("RUNWAY-END SKIRT edge grade > law max down-grade",
         skirt_edges, top_n)
     within = within + skirt_edges
+
+    # APRON TERRACE LAW — the BINDING CONSTRAINT's twin (spec §5b/c/d).
+    # A hit on either of these means the emitter's structural guarantee
+    # was broken: the round's STOP rule, not a tuning signal.
+    joint_route = _check_terrace_joint_crosses_route(
+        terrace_joints_m, routes_ll, taxi_axes)
+    _pv("APRON TERRACE JOINT crossing a taxi ROUTE (owner 2026-08-04 "
+        "binding constraint — a joint may NEVER interrupt a spine "
+        "aircraft travel on)", joint_route, top_n)
+    within = within + joint_route
+
+    joint_strip = _check_terrace_joint_in_runway_strip(
+        terrace_joints_m, ways, nodes, ll_to_m)
+    _pv("APRON TERRACE JOINT inside a RUNWAY STRIP footprint (owner "
+        "2026-08-01 — walls at runway edges are NEVER lawful)",
+        joint_strip, top_n)
+    within = within + joint_strip
 
     adjacent_edges = _check_adjacent_ground_edges(ways, nodes, ll_to_m)
     _pv("ADJACENT-GROUND graded-strip TEAR (sub-metre near-vertical edge)",
@@ -3402,6 +3571,7 @@ def main(argv=None) -> int:
     taxi_axes_ll = routes_ll = anchor = seam_pins_ll = None
     mesh_edges_ll = crown_drops_ll = None
     crown_centerline_ll = pair_caps_ll = None
+    terrace_joints_ll = None
     sidecar = Path(str(args.osm) + ".axes.json")
     if sidecar.exists():
         try:
@@ -3422,6 +3592,9 @@ def main(argv=None) -> int:
             crown_drops_ll = _data.get("crown_drops") or None
             crown_centerline_ll = _data.get("crown_centerline") or None
             pair_caps_ll = _data.get("pair_caps") or None
+            # APRON TERRACE LAW (2026-08-04): the DECLARED joints.  A
+            # patch built before the law simply has no key.
+            terrace_joints_ll = _data.get("terrace_joints") or None
             print(f"  (axes sidecar loaded: {len(taxi_axes_ll or [])} axes"
                   + (" [exact]" if _exact else "")
                   + f", {len(routes_ll or [])} routes"
@@ -3450,6 +3623,7 @@ def main(argv=None) -> int:
         crown_drops_ll=crown_drops_ll,
         crown_centerline_ll=crown_centerline_ll,
         pair_caps_ll=pair_caps_ll,
+        terrace_joints_ll=terrace_joints_ll,
     )
     if args.strict and (within or cross or steps):
         return 1

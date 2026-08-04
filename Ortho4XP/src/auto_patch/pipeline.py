@@ -6313,6 +6313,25 @@ def build_airport_pavement(icao: str, xplane_root: str,
         except _GEOM_EXC as _terrace_exc:
             UI.vprint(1, f"  [pav-builder] WARN {icao}: groundside terrace "
                          f"wall emission failed ({_terrace_exc!r}).")
+        # ★ APRON TERRACE JOINT FACES (owner ruling 2026-08-04; spec
+        # ``docs/specs/apron-terrace-law-spec.md`` §3).  The declared
+        # joints the SOLVE panelized on become geometry here — lower panel
+        # retreats ``STACKED_WALL_RETREAT_M``, one ``retaining_wall`` face
+        # per joint run — using the same machine and the same constants as
+        # the two passes above.  Minted BEFORE interning, so no emit-time
+        # consensus can average a declared joint away (the HECA 1,497-row
+        # lesson).  No plan on the layout (gate off) ⇒ one getattr.
+        try:
+            from .elevation_per_surface.route_profile.apron_terrace import (
+                emit_terrace_joint_faces)
+            _n_joint_faces = emit_terrace_joint_faces(
+                layout, getattr(layout, "_apron_terrace_plan", None))
+            if _n_joint_faces:
+                UI.vprint(1, f"  [pav-builder] {icao}: apron terraces — "
+                             f"{_n_joint_faces} declared joint face(s).")
+        except _GEOM_EXC as _apron_terr_exc:
+            UI.vprint(1, f"  [pav-builder] WARN {icao}: apron terrace "
+                         f"joint emission failed ({_apron_terr_exc!r}).")
 
     if not _strip_resolve_last:
         _strip_reconcile_passes()

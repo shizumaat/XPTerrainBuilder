@@ -2412,6 +2412,8 @@ class PavementLayout:
             from .verification import (taxi_axes_ll, taxi_routes_ll,
                                        taxi_axes_exact_ll,
                                        junction_mesh_edges_ll)
+            from .elevation_per_surface.route_profile.apron_terrace import (
+                terrace_joints_sidecar as _terrace_joints_sidecar)
             _axes_exact, _routes_exact = taxi_axes_exact_ll(self)
             data = {
                 # legacy per-size-split axes (older tools); entries may carry
@@ -2495,6 +2497,17 @@ class PavementLayout:
                 # lawfully enforced).
                 "pair_caps": (getattr(self, "_lockstep_pair_caps_ll",
                                       None) or []),
+                # APRON TERRACE JOINTS (owner ruling 2026-08-04; spec
+                # ``docs/specs/apron-terrace-law-spec.md`` §5).  The
+                # DECLARED joint polylines, their panel levels and their
+                # step heights — the validator's half of the lockstep.
+                # A within-pair edge crossing one of these is judged by
+                # the STEP law, not the grade cap; a joint intersecting
+                # ``routes_exact`` is an ERROR (the binding constraint's
+                # twin).  Empty list with the gate off, and the key is
+                # written unconditionally so a reader can tell "no
+                # joints" from "patch predates the law".
+                "terrace_joints": _terrace_joints_sidecar(self),
             }
             Path(str(path) + ".axes.json").write_text(_json.dumps(data))
         except Exception:

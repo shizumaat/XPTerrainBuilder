@@ -172,6 +172,8 @@ def test_pavement_grade(tmp_path, icao):
         # reading.  NEVER re-derive centerlines from the OSM.
         from auto_patch.verification import (taxi_axes_exact_ll,
                                              junction_mesh_edges_ll)
+        from auto_patch.elevation_per_surface.route_profile.apron_terrace \
+            import terrace_joints_sidecar as _terrace_joints_sidecar
         axes_exact, routes_exact = taxi_axes_exact_ll(layout)
         # EXACT-MESH sidecar mirror: the solver's junction mesh, consumed
         # 1:1 (emit-time ring repairs otherwise make the validator's
@@ -231,6 +233,11 @@ def test_pavement_grade(tmp_path, icao):
             # frozen on the layout — same lockstep as the sidecar's
             # ``pair_caps`` (see verification.lockstep_pair_caps_ll).
             pair_caps_ll=getattr(layout, "_lockstep_pair_caps_ll", None),
+            # APRON TERRACE JOINTS (owner 2026-08-04): the same declared
+            # joints the sidecar carries, from the same builder call, so
+            # the law-true suite count and the standalone CLI read one
+            # law.  Empty list with the gate off.
+            terrace_joints_ll=_terrace_joints_sidecar(layout),
         )
         within += w
         cross += c

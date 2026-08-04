@@ -133,6 +133,13 @@ __all__ = [
     "BUILDING_SEAT_FLATNESS_TOLERANCE_M",
     "TAXI_MAX_GRADE",
     "APRON_MAX_GRADE",
+    "APRON_TERRACE_LAW_ENABLED",
+    "APRON_TERRACE_MIN_EXCESS_M",
+    "APRON_TERRACE_MAX_STEP_M",
+    "APRON_TERRACE_JOINT_CLEARANCE_M",
+    "APRON_TERRACE_CORRIDOR_HALF_WIDTH_M",
+    "APRON_TERRACE_MIN_JOINT_LEN_M",
+    "APRON_TERRACE_OVERFIRE_AREA_FRAC",
     "BUILDING_FRONTAGE_MAX_GRADE",
     "TERMINAL_MAX_GRADE",
     "TERMINAL_PADS_SLOPE",
@@ -2104,6 +2111,45 @@ SERVICE_LOT_ABSORPTION = _os.environ.get(
 # the export call, which now lands in a report-only set.
 TRIANGLE_PLANE_REPORTS = _os.environ.get(
     "O4_TRIANGLE_PLANE_REPORTS", "1") == "1"
+# ── APRON TERRACE LAW (owner ruling 2026-08-04; spec
+# ``docs/specs/apron-terrace-law-spec.md``) ─────────────────────────
+# "Long aprons on genuinely steep ground MAY terrace into level panels
+#  with declared joint steps — but it has to be done in a way that does
+#  not interrupt any spine where aircraft have to travel."
+# BINDING CONSTRAINT (structural here, not checked-after): a terrace
+# joint NEVER crosses a taxi spine/route.  The joint geometry is
+# DIFFERENCED against the corridor cover before it exists, so a joint
+# that would cross a route is not shortened after the fact — it is
+# never minted.  Gate OFF ⇒ no trigger, no panel, no joint, no budget
+# change and no sidecar key: byte-identical.
+APRON_TERRACE_LAW_ENABLED = _os.environ.get(
+    "O4_APRON_TERRACE_LAW", "0") == "1"
+# Trigger floor (spec §1): an apron constraint component only panelizes
+# when its anchor/DEM/cap envelope excess reaches this.  25x the 0.01 m
+# elevation materiality floor, so centimetre noise can never panelize.
+# PROVISIONAL (owner-adjustable).
+APRON_TERRACE_MIN_EXCESS_M = 0.25
+# Declared step bound at one joint (spec §3).  PROVISIONAL — flagged
+# for the owner: this is the maximum level change a single declared
+# terrace joint may carry; more relief than this takes more joints.
+APRON_TERRACE_MAX_STEP_M = 2.0
+# Joint-to-spine clearance (spec §2, PINNED by lead review).  The
+# corridor cover is buffered by the corridor half-width PLUS this
+# clearance before the joint is cut out of it, so no joint vertex can
+# sit inside a taxi corridor or on its edge.  PROVISIONAL 2.0 m.
+APRON_TERRACE_JOINT_CLEARANCE_M = 2.0
+# Corridor half-width used for the cover when no per-route width is
+# known (OSM centerlines carry no apt.dat size class).  Code-C taxiway
+# half width; the cover is a NO-CROSS set, so erring wide is the
+# conservative direction (fewer joints, never a joint on a route).
+APRON_TERRACE_CORRIDOR_HALF_WIDTH_M = 11.5
+# A joint piece shorter than this is not a terrace line — it is a
+# sliver between two corridors.  Dropped (and counted).
+APRON_TERRACE_MIN_JOINT_LEN_M = 8.0
+# Over-fire STOP instrument (spec band 6): panelization touching more
+# than this fraction of an airport's apron area is reported as
+# OVER-FIRE.  Report-only — the law adjudicates, the instrument counts.
+APRON_TERRACE_OVERFIRE_AREA_FRAC = 0.20
 # Points each feature contributes toward each class, BEFORE the
 # per-airport source-reliability scaling (spec §6).  Feature values are
 # fractions in [0,1]; negative points are allowed.  Override individual

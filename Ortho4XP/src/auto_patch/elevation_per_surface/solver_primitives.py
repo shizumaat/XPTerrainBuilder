@@ -1389,6 +1389,15 @@ def _build_shape_constraints(layout, bucket_to_idx, ctx=None, dem=None,
                  "flat_pairs": flat_pairs,
                  "area": float(s.polygon.area),
                  "role": s.role,
+                 # SHAPE IDENTITY (apron terrace law, 2026-08-04).  The
+                 # SAME identity ``_scoped_projection_defer_ids`` already
+                 # carries across the solve → final-projection boundary:
+                 # ``layout.shapes`` holds the same objects, so ``id(s)``
+                 # is a stable key while the NODE INDICES are rebuilt.
+                 # A plan keyed by index would not survive that rebuild
+                 # (the rod-key lesson).  Additive field; no reader that
+                 # predates it can see a difference.
+                 "shape_id": id(s),
                  "ref": s.ref or ""}
         if lazy_extras is not None:
             entry.update(lazy_extras)

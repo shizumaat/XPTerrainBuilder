@@ -45,3 +45,23 @@ reds + twins per law; runway vertices byte-identical; work in a
 WORKTREE (the main tree may host concurrent measurement) with the
 documented symlink pattern; foreground; only check_build_time --run
 timings quotable; do NOT commit. Convergence guards apply.
+
+## LEAD AMENDMENTS (2026-08-04, post-implementation; evidence
+## scratchpad rsa_law/)
+
+1. §2's longitudinal cap applies to the LATERAL strip rectangle only —
+   the end corridors keep FAA §3.16.5 items 2-4's own 0…−3%/−5% law
+   (the implementer's scope correction, APPROVED: the literal spec was
+   clamping 0.802 m of lawful HEAZ skirt). §1 keeps the full footprint.
+2. §1 "defers" RULED to mean: strip-interior stations stay and are
+   GOVERNED BY THE STRIP FAMILY's envelope/caps (reading (b)) — never
+   dropped to raw DEM (measured: dropping lost 7.7-14.6% of graded
+   strip area against Annex 14 §3.4.11-13 preparation and added HECA
+   transverse rows). Twin required.
+3. Residual §2 rows (3, fully attributed to weld precedence / adoption
+   re-assertion) are ACCEPTED residue; their fix is the single-solve
+   law-aware value registry, out of scope.
+4. QUEUED as its own round: open-vs-closed runway-ring asymmetry
+   between emitter and check_grade strip footprints (axis endpoints
+   shift 0.27-0.98 m, ring width up to 1.19 m; also biases the wall
+   law). One-line fix + twin; re-read strip numbers there.

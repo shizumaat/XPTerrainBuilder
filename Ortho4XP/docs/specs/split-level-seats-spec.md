@@ -57,7 +57,10 @@ One flat seat is forced onto relieved footprints:
    independently: the frontage/band-consistency law (dossier-fixes §2)
    applies per section — seat clamps into `_frontage_band` ∩ the
    node-band at the section's own contact nodes (ONE band,
-   `reach_band_unified`); a section below the small-pad size cut takes
+   `reach_band_unified` — LEAD ANNOTATION 2026-08-04: this band is
+   under owner challenge (1-cm HEAZ intervals are an attribution case);
+   §3 pins to WHATEVER band the seed attribution certifies — implement
+   against the current band, expect a re-pin); a section below the small-pad size cut takes
    the small-pad path. No new seat mathematics.
 4. **Section joints.** building|building steps at the joints — already
    step-exempt (the `_both_buildings` exemption, owner 2026-06-20);

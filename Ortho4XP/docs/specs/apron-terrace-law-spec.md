@@ -92,6 +92,15 @@ Gate: `O4_APRON_TERRACE_LAW`, default "0".
   machinery and must be lawful in BOTH emit worlds (mean and
   single-authority); neither spec may depend on the other landing.
 
+## INSTRUMENT CONTINGENCY (lead annotation, 2026-08-04): the owner has
+## challenged the envelope/certificate instrument (the spine-seed red-
+## flag attribution is in flight). The steep-truth EVIDENCE here is
+## instrument-independent (raw DEM chord 1.47-2.45% vs cap) so the LAW
+## stands; but band 1 below reads the challenged instrument — its
+## verdict is PROVISIONAL until the attribution certifies the band, and
+## implementers must report the raw-DEM reading beside it and must not
+## STOP solely on the instrument's number.
+
 ## Pre-registered outcomes (bands, not points)
 
 1. HECA deep pockets, comparable-call infeasible fraction (default

@@ -2567,16 +2567,25 @@ def _absorbed_merged_index(layout):
 def is_absorbed_merged_surface(layout, shape) -> bool:
     """Is ``shape`` the MERGED surface a road stretch was absorbed into?
 
+    NO PRODUCTION CONSUMER as of the V2.2 retreat (2026-08-03): the §V2.B
+    finalize exemption this predicate was written for is RETIRED — measured,
+    exempting the merged surface from the post-solve groundside chain is
+    net-negative, because ``anchors.adopt_projected_mouths`` deliberately
+    leaves the ring over cap ("ring lawfulness stays with the post-solve
+    groundside chord limiter", its own words) and the exempted chain IS
+    that limiter.  Merged-surface lawfulness has to be solved IN the solve;
+    that belongs to the one-solve groundside round (RULINGS: single-solve
+    architecture).  Kept as the registry's reader — identity across the
+    fresh-``BuiltShape`` boundary is the hard part and it is solved here.
+
     Keyed on GEOMETRY (overlap with the retained footprint), never on a
     per-shape attribute: the post-solve groundside chain constructs FRESH
     ``BuiltShape``s for every piece it rewrites, so any flag stamped at
-    absorption time is dead by the time the exemption has to be decided
-    (spec §V2.B leaves the keying to the implementer; the registry is the
-    only representation that survives that boundary).  Only absorptions
-    into a DEM-followed groundside host count — those are the merged
-    surfaces whose one grading authority is the lateral-contiguity law
-    plus the merged-host regrade.  Empty registry ⇒ always False, so
-    every build without ``O4_SERVICE_LOT_ABSORPTION`` is untouched.
+    absorption time is dead by the time a merged surface has to be
+    recognised downstream; the registry is the only representation that
+    survives that boundary.  Only absorptions into a DEM-followed
+    groundside host count.  Empty registry ⇒ always False, so every build
+    without ``O4_SERVICE_LOT_ABSORPTION`` is untouched.
     """
     if shape is None or shape.role != ROLE_GROUNDSIDE_PAVEMENT:
         return False

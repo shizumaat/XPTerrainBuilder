@@ -1,25 +1,33 @@
-"""Membership round V2 — context-conservative absorption + the merged-
-surface exemption from the finalize groundside chain.
+"""Membership round — context-conservative absorption (the one mechanism
+this family LANDED), plus the retained-footprint registry it records.
 
-Spec: ``docs/specs/membership-round-spec.md`` §V2 (V1's grade-graph
-membership predicate was MEASURED false and is retired unimplemented —
-nothing here re-lands it).  Owner rulings: ``docs/RULINGS.md``
-(lateral-contiguity absorption is class-universal; airside is king;
-groundside terrace law; law compliance, not instrument-zero).
+Spec: ``docs/specs/membership-round-spec.md``.  Owner rulings:
+``docs/RULINGS.md`` (lateral-contiguity absorption is class-universal;
+airside is king; groundside terrace law; single-solve architecture; law
+compliance, not instrument-zero).
 
-The two mechanisms this round binds, both measured interventionally:
+What survived, and what did not — all three verdicts are MEASURED:
 
-1. absorption DELETED the road's footprint from two solve-input CONTEXT
-   sets (the ``build_context`` road-carve zone, the
-   ``_build_shape_constraints`` airside visibility union), which moved the
-   solve globally — 21 HECA runway vertices 4.2-4.6 km away;
-2. ``finalize.emit_terrain_transition_features``'s groundside chain is a
-   SECOND grading authority over the merged ring, and it rebuilds the
-   surface as a fresh ``BuiltShape`` (so no per-shape flag can carry the
-   exemption — it is keyed on the retained footprint registry).
+1. **LANDED — §V2.A, context-conservative absorption.**  Absorption had
+   DELETED the road's footprint from two solve-input CONTEXT sets (the
+   ``build_context`` road-carve zone, the ``_build_shape_constraints``
+   airside visibility union), moving the solve globally — 21 HECA runway
+   vertices 4.2-4.6 km away.  Retaining the footprint restored
+   airside-is-king: 0 of 514 runway vertices move gate-on vs gate-off.
+2. **RETIRED unimplemented — V1's grade-graph membership predicate**
+   (measured a non-mechanism; nothing here re-lands it).
+3. **RETIRED on measurement — §V2.B, the merged-surface exemption from
+   the finalize groundside chain.**  Exempting the surface made things
+   worse (HECA groundside within-shape 398 → 2,161), because
+   ``anchors.adopt_projected_mouths`` deliberately writes the lot ring
+   over cap and names the post-solve chord limiter as the pass that
+   repairs it — so the exemption removed the surface's only repairer.
+   Merged-surface lawfulness has to be solved IN the solve; that is the
+   one-solve groundside round's job.  ``TestFinalizeChainHasNoExemption``
+   exists so the exemption cannot return silently.
 
-Both halves are tested on BOTH sides: the behaviour, and the inertness of
-the state that ships (the lateral-contiguity law is default-OFF).
+The registry stays: identifying a merged surface across the chain's
+fresh-``BuiltShape`` boundary is the hard part, and it is solved.
 """
 from __future__ import annotations
 
@@ -206,7 +214,7 @@ class TestContextConservationInertness:
 
 
 # ═════════════════════════════════════════════════════════════════════
-# §V2.B — merged surfaces are EXEMPT from the finalize chain
+# the retained-footprint REGISTRY (§V2.A's record; §V2.B retired on it)
 # ═════════════════════════════════════════════════════════════════════
 
 class TestMergedSurfaceIdentity:
@@ -239,10 +247,10 @@ class TestMergedSurfaceIdentity:
         assert is_absorbed_merged_surface(
             layout, _dem_lot(0, 65, 100, 130)) is False      # laps half
 
-    def test_an_airside_host_merge_mints_no_exemption(self, absorption_on):
-        """Only DEM-followed (groundside) hosts are merged SURFACES in the
-        §V2.B sense; the finalize chain only ever touches groundside, and
-        an apron absorption must not exempt some unrelated lot."""
+    def test_an_airside_host_merge_registers_no_groundside_surface(
+            self, absorption_on):
+        """Only DEM-followed (groundside) hosts are merged SURFACES: an
+        apron absorption must not make some unrelated lot answer True."""
         apron = BuiltShape(polygon=_rect(0, 0, 100, 60), role="apron")
         road = BuiltShape(polygon=_rect(0, 60, 100, 70), role="service_road")
         lot = _dem_lot(0, 60, 100, 70)      # same footprint as the stretch
@@ -251,73 +259,165 @@ class TestMergedSurfaceIdentity:
         assert is_absorbed_merged_surface(layout, lot) is False
 
 
-class TestFinalizeChainExemption:
+class TestFinalizeChainHasNoExemption:
+    """THE V2.2 RETREAT, bound on all four passes.  §V2.B exempted the
+    merged surface from the finalize groundside chain; measured, that is
+    net-negative — ``anchors.adopt_projected_mouths`` deliberately leaves
+    the ring over cap and names the post-solve chord limiter as the pass
+    that repairs it, so exempting the surface removes its only repairer.
+    These tests exist so the exemption cannot come back silently: a merged
+    surface is an ORDINARY lot to every pass in the chain."""
 
-    def test_merge_touching_groundside_skips_it(self, absorption_on):
+    def test_merge_touching_groundside_merges_it(self, absorption_on):
         gs = absorption_on
         layout, lot, _o, _s = _absorbed_lot_layout(gs)
-        # a plain lot flush against the merged surface: it WOULD be merged
         touching = _dem_lot(100, 0, 200, 70, z=10.0)
         layout.shapes.append(touching)
-        before = lot.polygon.area
-        n = gs._merge_touching_groundside(layout, None, 0, 0)
-        assert n == 0
-        assert lot in layout.shapes
-        assert lot.polygon.area == pytest.approx(before, rel=1e-9)
+        assert is_absorbed_merged_surface(layout, lot) is True
+        assert gs._merge_touching_groundside(layout, None, 0, 0) == 1
 
-    def test_separation_leaves_the_merged_surface_alone(self,
-                                                       absorption_on):
+    def test_separation_clips_the_merged_surface(self, absorption_on):
         gs = absorption_on
         layout, lot, _o, _s = _absorbed_lot_layout(gs)
-        # a building overlapping the lot would normally clip it back
+        # a building overlapping the lot clips it back, like any lot
         layout.shapes.append(BuiltShape(polygon=_rect(40, 20, 60, 40),
                                         role="building"))
         ring_before = list(lot.polygon.exterior.coords)
-        alts_before = list(lot.node_altitudes)
         gs._separate_groundside_from_airside(layout, None, 0, 0,
                                              preserve_field=True)
-        assert lot in layout.shapes
-        assert list(lot.polygon.exterior.coords) == ring_before
-        assert list(lot.node_altitudes) == alts_before
+        rings = [list(s.polygon.exterior.coords) for s in layout.shapes
+                 if s.role == "groundside_pavement"]
+        assert ring_before not in rings
 
-    def test_deconfliction_makes_others_yield_to_it(self, absorption_on):
-        """The exemption is not merely permissive: the merged surface is
-        the authority for its own ring, so an overlapping ordinary lot —
-        LARGER, which would otherwise win the largest-first order — yields
-        to it instead."""
+    def test_deconfliction_uses_the_ordinary_largest_first_order(
+            self, absorption_on):
+        """No seeding ahead of the order: a LARGER overlapping lot wins and
+        the merged surface yields, exactly as two ordinary lots would."""
         gs = absorption_on
         layout, lot, _o, _s = _absorbed_lot_layout(gs)
-        # laps a QUARTER of the absorbed stretch — an overlapping
-        # neighbour, never the host
         big = _dem_lot(50, 65, 400, 400, z=15.0)
         layout.shapes.append(big)
         assert is_absorbed_merged_surface(layout, big) is False
         gs._deconflict_groundside_overlaps(layout, None, 0, 0)
-        assert any(s is lot for s in layout.shapes)    # never clipped
-        assert not any(s is big for s in layout.shapes)   # it yielded
+        assert any(s is big for s in layout.shapes)        # largest kept
+        assert not any(s is lot for s in layout.shapes)    # it yielded
 
-    def test_the_chord_limiter_never_rewrites_the_merged_ring(
-            self, absorption_on):
+    def test_the_chord_limiter_rewrites_the_merged_ring(self,
+                                                        absorption_on):
         gs = absorption_on
         layout, lot, other, _s = _absorbed_lot_layout(gs)
-        # a steep field the limiter would normally pull down hard
-        lot.node_altitudes = [
-            0.0 if k % 2 else 50.0
-            for k in range(len(lot.polygon.exterior.coords))]
-        before = list(lot.node_altitudes)
+        steep = [0.0 if k % 2 else 50.0
+                 for k in range(len(lot.polygon.exterior.coords))]
+        lot.node_altitudes = list(steep)
         other.node_altitudes = [
             0.0 if k % 2 else 50.0
             for k in range(len(other.polygon.exterior.coords))]
-        gs._grade_limit_groundside_chords(layout)
-        assert list(lot.node_altitudes) == before          # exempt
-        assert list(other.node_altitudes) != [             # not exempt
-            0.0 if k % 2 else 50.0
-            for k in range(len(other.polygon.exterior.coords))]
+        assert gs._grade_limit_groundside_chords(layout) == 2
+        assert list(lot.node_altitudes) != steep
 
 
-class TestExemptionInertness:
-    """Every pass must behave exactly as before when nothing was absorbed —
-    the population the exemption must not reach is "every ordinary lot"."""
+# ═════════════════════════════════════════════════════════════════════
+# the chord law FUNCTION (the one piece of §V2.1 that outlived it)
+# ═════════════════════════════════════════════════════════════════════
+
+def _diag_dem(g=0.04):
+    """A DEM whose gradient is ``g`` in BOTH axes: every axis-aligned ring
+    edge reads ``g`` (lawful at 4 %), while the DIAGONAL chord reads
+    ``g·√2`` = 5.66 % — the exact shape of the gap V2 measured."""
+    return lambda x, y: g * (x + y)
+
+
+def _ring_and_alts(shape):
+    ring = list(shape.polygon.exterior.coords)
+    alts = list(shape.node_altitudes)
+    if len(ring) > 1 and ring[0] == ring[-1]:
+        ring, alts = ring[:-1], alts[:-1]
+    return ring, alts
+
+
+def _worst_pair_grades(shape):
+    """``(worst adjacent ring grade, worst ALL-pair chord grade)`` — the
+    two metrics the round separates.  Chords under 0.5 m are skipped, the
+    same floor ``tools/check_grade`` applies."""
+    import math
+    ring, alts = _ring_and_alts(shape)
+    n = len(ring)
+    adj = chord = 0.0
+    for i in range(n):
+        for j in range(i + 1, n):
+            d = math.hypot(ring[i][0] - ring[j][0], ring[i][1] - ring[j][1])
+            if d < 0.5:
+                continue
+            g = abs(alts[i] - alts[j]) / d
+            chord = max(chord, g)
+            if j == i + 1 or (i == 0 and j == n - 1):
+                adj = max(adj, g)
+    return adj, chord
+
+
+class TestChordLimitLawFunction:
+    """``chord_limit_ring_altitudes`` is the ALL-PAIR half of the
+    groundside law — the metric ``check_grade`` applies to a plane shape,
+    and the reason a ring-ramp limit alone is not enough.  V2.1 tried to
+    apply it at absorption time and the mouth adoption erased the result,
+    so the PLACEMENT is retired; the function is the surviving asset and
+    its contract is tested here directly (its live callers are the
+    finalize chord limiter and ``apply_groundside_reach``)."""
+
+    def test_a_ring_ramp_lawful_field_can_still_be_chord_unlawful(self):
+        """The premise, stated as a test: a diagonal DEM gives every
+        axis-aligned ring edge 4 % and the diagonal chord 5.66 %."""
+        from auto_patch import config as cfg
+        lot = _dem_lot(0, 0, 100, 100)
+        dem = _diag_dem()
+        ring, _a = _ring_and_alts(lot)
+        lot.node_altitudes = [dem(x, y) for x, y in ring] + [dem(*ring[0])]
+        adj, chord = _worst_pair_grades(lot)
+        assert adj <= cfg.GROUNDSIDE_MAX_GRADE + 1e-9
+        assert chord > cfg.GROUNDSIDE_MAX_GRADE + 1e-3
+
+    def test_it_returns_a_chord_lawful_field(self):
+        from auto_patch import config as cfg
+        import auto_patch.groundside as gs
+        lot = _dem_lot(0, 0, 100, 100)
+        dem = _diag_dem()
+        ring, _a = _ring_and_alts(lot)
+        alts = [dem(x, y) for x, y in ring]
+        out = gs.chord_limit_ring_altitudes(ring, alts,
+                                            cfg.GROUNDSIDE_MAX_GRADE)
+        lot.node_altitudes = out + [out[0]]     # the CLOSED convention
+        _adj, chord = _worst_pair_grades(lot)
+        assert chord <= cfg.GROUNDSIDE_MAX_GRADE + 1e-3
+
+    def test_it_only_ever_lowers(self):
+        """The largest lawful field UNDER the input — it never lifts
+        pavement above the terrain the ring follows."""
+        from auto_patch import config as cfg
+        import auto_patch.groundside as gs
+        lot = _dem_lot(0, 0, 100, 100)
+        dem = _diag_dem()
+        ring, _a = _ring_and_alts(lot)
+        alts = [dem(x, y) for x, y in ring]
+        out = gs.chord_limit_ring_altitudes(ring, alts,
+                                            cfg.GROUNDSIDE_MAX_GRADE)
+        assert any(b < a - 1e-6 for a, b in zip(alts, out))
+        assert all(b <= a + 5e-3 for a, b in zip(alts, out))
+
+    def test_a_stricter_cap_binds_harder(self):
+        import auto_patch.groundside as gs
+        lot = _dem_lot(0, 0, 100, 100)
+        dem = _diag_dem()
+        ring, _a = _ring_and_alts(lot)
+        alts = [dem(x, y) for x, y in ring]
+        out = gs.chord_limit_ring_altitudes(ring, alts, 0.01)
+        lot.node_altitudes = out + [out[0]]     # the CLOSED convention
+        _adj, chord = _worst_pair_grades(lot)
+        assert chord <= 0.01 + 1e-3
+
+
+class TestFinalizeChainUnchanged:
+    """The chain's behaviour on an ordinary lot is the pre-round one, and
+    stays so with every gate off — the V2.2 retreat left it untouched."""
 
     def test_ordinary_lots_still_merge(self, law_off):
         gs = law_off

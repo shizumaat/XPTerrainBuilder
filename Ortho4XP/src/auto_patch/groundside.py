@@ -44,7 +44,6 @@ from .layout import (
     ROLE_RETAINING_WALL,
     ROLE_TUNNEL_RAMP,
     SHARED_VERTEX_TOL_M,
-    is_absorbed_merged_surface as _is_merged_surface,
 )
 from .pavement.vertices import _snap_polygon_vertices_to_rect_corners
 from .elevation import _sample_dem, _resample_node_altitudes_nn
@@ -1836,18 +1835,7 @@ def _grade_limit_groundside_chords(layout) -> int:
         if len(alts) != len(ring) or len(ring) < 3:
             continue
         keys = [(round(x, 2), round(y, 2)) for x, y in ring]
-        # MERGED-SURFACE EXEMPTION (membership round V2, spec §V2.B).  A
-        # surface that absorbed a road stretch is graded by the
-        # lateral-contiguity law + the merged-host regrade; this chord
-        # limiter is the "LAST groundside-altitude writer" and would be a
-        # second authority over the same ring.  It still READS the merged
-        # ring into ``node_alt`` — the shared-node unification is what
-        # keeps abutting lots flush, and the exemption is about who
-        # WRITES, not about hiding the surface from its neighbours — but
-        # the merged ring itself is never re-written (absent from
-        # ``rings``, which drives both the sweep and the writeback).
-        if not _is_merged_surface(layout, s):
-            rings[i] = keys
+        rings[i] = keys
         for kxy, a in zip(keys, alts):
             v = float(a)
             node_alt[kxy] = min(node_alt.get(kxy, v), v)
@@ -2860,15 +2848,7 @@ def _merge_touching_groundside(
     from shapely.strtree import STRtree
     gs = [s for s in layout.shapes
           if s.role == ROLE_GROUNDSIDE_PAVEMENT and s.polygon is not None
-          and not s.polygon.is_empty and s.polygon.geom_type == "Polygon"
-          # MERGED-SURFACE EXEMPTION (membership round V2, spec §V2.B —
-          # Fable ruling under the no-second-authority principle): a
-          # surface that ABSORBED a road stretch is already ONE surface
-          # under the lateral-contiguity law, graded by the merged-host
-          # regrade.  Unioning it with a neighbour here would rebuild it
-          # as a fresh raw-DEM-followed shape and discard the law's
-          # values.  Ordinary lots are untouched.
-          and not _is_merged_surface(layout, s)]
+          and not s.polygon.is_empty and s.polygon.geom_type == "Polygon"]
     if len(gs) < 2:
         return 0
     polys = [s.polygon for s in gs]
@@ -3076,24 +3056,10 @@ def _separate_groundside_from_airside(
     _dem_at = _dem_sampler(layout, dem, tile_lat, tile_lon)
     out_shapes = []
     n_clipped = 0
-    n_exempt = 0
     for s in layout.shapes:
         if s.role != ROLE_GROUNDSIDE_PAVEMENT or s.polygon is None \
                 or s.polygon.is_empty:
             out_shapes.append(s)
-            continue
-        # MERGED-SURFACE EXEMPTION (membership round V2, spec §V2.B).  A
-        # surface that absorbed a road stretch has ONE grading authority —
-        # the lateral-contiguity law plus the merged-host regrade — and
-        # this pass is a second one: it re-follows the DEM for every
-        # rebuilt vertex (``preserve_field`` only carries the nearest
-        # ORIGINAL vertex's deviation) and hands back a fresh BuiltShape.
-        # Its values stand.  Note the merged surface is not a clip SOURCE
-        # either way (groundside never is), so exempting it removes no
-        # clearance another shape was owed.
-        if _is_merged_surface(layout, s):
-            out_shapes.append(s)
-            n_exempt += 1
             continue
         try:
             diff = s.polygon.difference(clip)
@@ -3161,12 +3127,6 @@ def _separate_groundside_from_airside(
         if changed:
             n_clipped += 1
     layout.shapes = out_shapes
-    if n_exempt:
-        import O4_UI_Utils as UI
-        UI.vprint(1,
-            f"  [pav-builder] groundside separation: {n_exempt} merged "
-            f"surface(s) EXEMPT (absorbed a road stretch — the "
-            f"lateral-contiguity law is their one authority).")
     return n_clipped
 
 
@@ -3480,24 +3440,8 @@ def _deconflict_groundside_overlaps(
     kept_union = None
     replace: Dict[int, list] = {}   # original idx → [BuiltShape, …] ([] = drop)
     n_mod = 0
-    # MERGED-SURFACE EXEMPTION (membership round V2, spec §V2.B): a
-    # surface that absorbed a road stretch never YIELDS — its values are
-    # the lateral-contiguity law's, and yielding rebuilds it at raw DEM.
-    # It is seeded into ``kept_union`` FIRST, ahead of the largest-first
-    # order, so the exemption is not merely permissive: every ordinary
-    # piece still yields TO it, which is the "authority for its own ring"
-    # half of the same ruling.  Empty set ⇒ identical to before.
-    exempt = {i for i, s in gs if _is_merged_surface(layout, s)}
-    if exempt:
-        try:
-            kept_union = unary_union([layout.shapes[i].polygon
-                                      for i in sorted(exempt)])
-        except _GEOM_EXC:
-            kept_union = None
     for i, s in order:
         poly = s.polygon
-        if i in exempt:
-            continue                  # already seeded; never clipped
         if kept_union is not None and not kept_union.is_empty:
             try:
                 overlap = poly.intersection(kept_union).area

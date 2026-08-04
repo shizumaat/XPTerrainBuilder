@@ -1,9 +1,16 @@
 # Seam continuity as law: bind the fabric, delete the pull
 
 Fable spec, 2026-08-04, assignment 6 (designer-authored, lead-approved
-with the §2a amendment below). DISPATCH FENCE: queued behind the
-ref-pull interim round landing; phase C additionally behind the rod-
-composition fix and the owner's approval. The §7 reference-rod
+with the §2a amendment below). DISPATCH FENCE (updated 2026-08-04
+evening): the owner's no-degradation-shield ruling (RULINGS.md)
+AUTHORIZES this round including its endgame — dispatch follows the
+ref-pull lane's commit and the seed-fix round's merge (one_solve.py
+collision avoidance); the rod-composition fix is phase 0 OF THIS ROUND
+(precondition to the kill, own pre-reg: the 2.54 m corridor-sag class,
+solve.py:5602-03, compose links across removed runs per the audited
+fix). O4_CORRIDOR_REF_STRING arrives already default-"0" (retired by
+ruling; ref-pull lane) — phase C still deletes the code path. Phase C
+honors its bands and STOP rules; a miss returns for attribution. The §7 reference-rod
 proximal pull is a soft second authority implementing the RETIRED
 least-displacement metric; this spec re-expresses the ONE thing it is
 load-bearing for — tile-seam fabric continuity — as a directed

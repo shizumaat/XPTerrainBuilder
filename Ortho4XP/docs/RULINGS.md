@@ -184,3 +184,19 @@ ledger) is canonical in `Ortho4XP/CLAUDE.md` and is not duplicated here.
   (new gate-off baselines minted, measured surface effect quoted).
   Standards-gap addition: groundside has no drainage MINIMUM (every
   civil source carries 0.6-2%) — queued as a law item.
+
+- **Single-solve architecture** (2026-08-03, owner): "the most efficient,
+  and error free, architecture is ingesting all the data, refining all
+  the geometry, and then a single elevation solve with all the grade
+  law." END STATE: ingest → geometry (every shape born with role/
+  ruleset/caps/law) → ONE solve (all law as directed constraints;
+  airside-is-king = constraint direction, groundside receiver-only; the
+  one band; loud error on genuine contradiction) → emit verbatim.
+  EMITTERS EMIT, NEVER GRADE. Every remaining post-solve value-writer is
+  scheduled for ingestion into the solve or retirement: the finalize
+  terrain-transition chain (dies when lot law enters the solve —
+  receiver-only membership), OLS road regrade, adjacent-ground band
+  values, tunnel-ramp lerps, drainage re-clamps, and to_osm consensus
+  averaging (single-authority emission replaces it). Four second
+  authorities already retired this campaign (pair-graph envelope,
+  service private envelope, terrain-pin quarantine, break blend).

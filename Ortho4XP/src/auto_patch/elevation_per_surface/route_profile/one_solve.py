@@ -70,6 +70,74 @@ def envelope_from_band_enabled() -> bool:
                                ENVELOPE_FROM_BAND_DEFAULT) == "1")
 
 
+# ── THE PROJECTION STALL REPORT (spec
+# ``docs/specs/projection-stall-guard-spec.md``, as amended by the Fable
+# ruling 2026-08-04 that CLOSED the early-termination family) ────────────
+#
+# Attributed mechanism (convergence round 2026-08-04): under the band
+# envelope each CAPPED ``_project_chromatic`` call has its max residual
+# pinned from ~sweep 2 by ONE genuinely inconsistent pair — the two-sided
+# envelope gap ``L − U`` at that pair equals the stalled residual to 6
+# decimals — while the solver still reduces tens of thousands of violating
+# EDGES.
+#
+# TERMINATION IS RETIRED, NOT PENDING.  Two metrics were pre-registered
+# and both were falsified for the SAME structural reason: progress
+# ALTERNATES between the max residual and the active violating-edge count,
+# and neither dominates.  Keying termination on the residual doubles the
+# shipped violations (attempt 1); keying it on the active-edge count cuts
+# CERTIFYING calls short — measured, three feasible chains that prove
+# ``worst = 0.0`` when left alone are cut at sweep ~17 with 4-12 violating
+# edges still live, and HEAZ CAND call 0 certifies at sweep 89 where the
+# detector fired at 30 (attempt 2).  No third attempt: no scalar among the
+# three traced metrics is a progress certificate for this POCS.
+#
+# What survives — and what this module now ships — is the FORENSICS half.
+# The detector still runs, but it only WRITES: it names the carrier pair
+# whose ``L − U`` gap pins the stall, which is a VALUE defect for the
+# drain list.  That is also the performance fix: the sweeps those pairs
+# burn disappear when their values are corrected at source, with no
+# solver behaviour change and therefore no surface risk at all.
+#
+# ``O4_PROJECTION_STALL_REPORT`` (default "0") is IMPLIED ON by
+# ``route_metric_envelope_enabled()`` — the same implication idiom
+# ``O4_ENVELOPE_FROM_BAND`` uses above.  Gate-off arms never take a count
+# or a carrier, so their byte identity holds by construction; gate-ON arms
+# are byte-identical too, because nothing here can reach ``z``.
+PROJECTION_STALL_REPORT_DEFAULT = "0"
+
+# Fable-owned tuning constants (spec: "Constants named, Fable-owned (not
+# owner constants)").  A new running minimum of the active violating-edge
+# count RESETS the patience only when it improves the previous qualifying
+# minimum by at least ``STALL_REL_IMPROVEMENT`` (relative); after
+# ``STALL_PATIENCE_SWEEPS`` full passes with no qualifying minimum the
+# call is DECLARED stalled and reported.  They no longer gate any
+# behaviour — only when the write happens.
+STALL_REL_IMPROVEMENT = 0.005
+STALL_PATIENCE_SWEEPS = 16
+
+
+def projection_stall_report_enabled() -> bool:
+    """True when the chromatic sweep loop keeps the stall FORENSICS.
+
+    THE one reader of ``O4_PROJECTION_STALL_REPORT``'s default (``"0"``);
+    the route-metric gate implies it (that envelope is what amplifies the
+    infeasible-site count ~4x and the gap ~8x, so it is the arm whose
+    stalls are worth naming).
+
+    An EXPLICIT value wins over the implication (ratified 2026-08-04).
+    ``O4_ENVELOPE_FROM_BAND`` above cannot be forced off inside a
+    route-metric arm, which is fine for a flag nobody A/Bs there — but
+    this one has to be provable inert INSIDE the CAND arm, and that arm is
+    exactly where the implication turns it on, so the override is part of
+    the gate rather than a loosening of it."""
+    explicit = _os.environ.get("O4_PROJECTION_STALL_REPORT")
+    if explicit is not None:
+        return explicit == "1"
+    return (route_metric_envelope_enabled()
+            or PROJECTION_STALL_REPORT_DEFAULT == "1")
+
+
 # EXPERIMENTAL (user 2026-06-30): vectorise feasibility_project's Gauss-Seidel
 # projection with numpy.  This converts it to a DEGREE-NORMALISED JACOBI sweep
 # (all edges updated from the same snapshot each iteration, per-node corrections
@@ -691,6 +759,158 @@ def _project_chain_prepass(elev, iter_edges, n, immovable):
     return n_chains
 
 
+def _stall_envelope_gap(np, endpoint_i, endpoint_j, budget_column,
+                        interval_mask, weight_i, weight_j, z, n, pairs):
+    """``L − U`` at ``pairs`` on the CAP graph — the adjudication that says
+    whether a stalled carrier pair is genuinely INFEASIBLE.
+
+    For the difference system ``|z_i − z_j| ≤ b_ij`` with the immovable
+    endpoints pinned at their current values ``v_a``, feasibility is decided
+    by the two-sided envelope ``U(i) = min_a (v_a + d(a,i))`` and
+    ``L(i) = max_a (v_a − d(a,i))`` (``d`` = shortest path under the cap
+    weights, all ≥ 0): the system is infeasible exactly where ``L > U``.
+    Two multi-source Dijkstras via a virtual source with offset edges.
+    Interval (slab) edges and node boxes are OMITTED — that only ever
+    REMOVES constraints, so a positive verdict here is conservative and
+    certain.
+
+    COST: two Dijkstras over the whole cap graph (HECA's largest system is
+    272 k edges), which is why this runs only when the forensics channel is
+    open — see ``_stall_guard_report``.  Returns ``None`` when it cannot
+    adjudicate (no scipy, no pinned endpoint)."""
+    try:
+        from scipy.sparse import coo_matrix
+        from scipy.sparse.csgraph import dijkstra
+    except Exception:                                      # pragma: no cover
+        return None
+    symmetric = ~interval_mask
+    ei = endpoint_i[symmetric]
+    ej = endpoint_j[symmetric]
+    eb = budget_column[symmetric]
+    # immovable = the zero-weight endpoint of a kind 1/2 edge (weight_i is
+    # 0.0 exactly there; kind 0 carries 0.5 on both sides)
+    pinned = np.zeros(n, dtype=bool)
+    pinned[endpoint_i[weight_i == 0.0]] = True
+    pinned[endpoint_j[weight_j == 0.0]] = True
+    anchors = np.flatnonzero(pinned)
+    if not anchors.size or not ei.size:
+        return None
+    v = z[anchors]
+
+    def _envelope(offsets):
+        rows = np.concatenate([ei, ej, np.full(len(anchors), n)])
+        cols = np.concatenate([ej, ei, anchors])
+        data = np.concatenate([eb, eb, offsets])
+        graph = coo_matrix((data, (rows, cols)),
+                           shape=(n + 1, n + 1)).tocsr()
+        return dijkstra(graph, directed=True, indices=n)[:n]
+
+    upper = v.min() + _envelope(v - v.min())
+    lower = v.max() - _envelope(v.max() - v)
+    gap = lower - upper
+    finite = np.isfinite(gap)
+    bad = finite & (gap > 1e-9)
+    return {
+        "gap": gap,
+        "pinned": pinned,
+        "infeasible": int(bad.sum()),
+        "reachable": int(finite.sum()),
+        "max_gap": float(gap[bad].max()) if bad.any() else 0.0,
+        "pairs": [(int(a), int(b), float(gap[a]), float(gap[b]))
+                  for (a, b) in pairs if 0 <= a < n and 0 <= b < n],
+    }
+
+
+def _carrier_line(tag, carrier):
+    """One human line for a captured carrier tuple (or None)."""
+    if not carrier:
+        return f"    [stall-report]   {tag} carrier: none"
+    kind, a, b, p0, p1, p2, p3 = carrier
+    if kind == "sym":
+        return (f"    [stall-report]   {tag} carrier symmetric pair "
+                f"({a},{b}) budget={p0:.4f} dz={p1:+.4f} "
+                f"residual={abs(p1) - p0:.6f} "
+                f"mobility={'pinned' if p2 == 0.0 else 'free'}/"
+                f"{'pinned' if p3 == 0.0 else 'free'}")
+    if kind == "int":
+        return (f"    [stall-report]   {tag} carrier interval pair "
+                f"({a},{b}) slab=[{p0:.4f},{p1:.4f}] dz={p2:+.4f}")
+    if kind == "box":
+        return (f"    [stall-report]   {tag} carrier box node ({a}) "
+                f"box=[{p0:.4f},{p1:.4f}] clamp move={p2:.6f}")
+    return f"    [stall-report]   {tag} carrier: unknown kind {kind!r}"
+
+
+def _stall_guard_report(np, sweeps, max_iters, detect_sweep, detect_active,
+                        detect_worst, detect_carrier, active_count, worst,
+                        carrier, endpoint_i, endpoint_j, budget_column,
+                        interval_mask, weight_i, weight_j, z, n):
+    """WRITE-ONLY forensics for one DECLARED-STALLED projection (spec
+    ``projection-stall-guard``, report-only mode): the sweep the stall was
+    detected on, the sweeps burned after it, the active violating-edge
+    count then and at exit, and the CARRIER PAIR of the max residual with
+    its ``L − U`` adjudication class.
+
+    The carrier pairs are the drain-list value defects: a pair whose
+    envelope gap equals the stalled residual is not the solver failing, it
+    is two anchor VALUES (or a cap) that cannot both hold — standing
+    principle ``feasibility-is-guaranteed``.  Correcting them at source is
+    simultaneously the correctness fix and the performance fix, because
+    the sweeps they burn are the ones this report is counting.
+
+    NOTHING HERE CAN REACH ``z``: the call site runs after the writeback,
+    every argument is read-only, and the function's only effects are
+    ``print`` and the returned stats.  That is why the gate-ON arm is
+    byte-identical to the gate-off one and not merely close to it.
+
+    The ``L − U`` adjudication costs two whole-graph Dijkstras, so it runs
+    only when the existing forensics channel is open
+    (``O4_BREAK_FORENSICS`` set, or ``O4_STALL_GUARD_ADJUDICATE=1``); the
+    pairs themselves are always named."""
+    print(f"    [stall-report] edges={len(interval_mask)} n={n}: STALLED "
+          f"at sweep {detect_sweep}/{max_iters}, ran to {sweeps} "
+          f"({max(0, sweeps - detect_sweep)} sweep(s) burned after "
+          f"detection); active violating edges {detect_active} -> "
+          f"{active_count}; worst residual {detect_worst:.6f} -> "
+          f"{worst:.6f}")
+    print(_carrier_line("detect", detect_carrier))
+    same = (detect_carrier is not None and carrier is not None
+            and detect_carrier[:3] == carrier[:3])
+    if not same:
+        print(_carrier_line("exit  ", carrier))
+    if not (_os.environ.get("O4_BREAK_FORENSICS")
+            or _os.environ.get("O4_STALL_GUARD_ADJUDICATE") == "1"):
+        return
+    pairs = []
+    for cand in (detect_carrier, carrier):
+        if not cand or cand[0] not in ("sym", "int"):
+            continue
+        pair = (cand[1], cand[2])
+        if pair[0] >= 0 and pair[1] >= 0 and pair not in pairs:
+            pairs.append(pair)
+    if not pairs:
+        return
+    try:
+        verdict = _stall_envelope_gap(np, endpoint_i, endpoint_j,
+                                      budget_column, interval_mask,
+                                      weight_i, weight_j, z, n, pairs)
+    except Exception as exc:                               # pragma: no cover
+        print(f"    [stall-report]   adjudication failed: {exc}")
+        return
+    if verdict is None:
+        print("    [stall-report]   adjudication unavailable "
+              "(no scipy / no pinned endpoint)")
+        return
+    print(f"    [stall-report]   envelope: INFEASIBLE nodes (L>U) "
+          f"{verdict['infeasible']} of {verdict['reachable']} reachable, "
+          f"max gap {verdict['max_gap']:.6f} m")
+    for (pa, pb, ga, gb) in verdict["pairs"]:
+        klass = ("INFEASIBLE" if max(ga, gb) > 1e-9 else "feasible")
+        print(f"    [stall-report]   carrier ({pa},{pb}) L-U = "
+              f"{ga:.6f} / {gb:.6f} -> {klass}"
+              f"  (stalled residual {worst:.6f})")
+
+
 def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                        interval_bounds_by_index=None, *, stats=None,
                        coloring_state=None, run_feasibility_precheck=True,
@@ -915,11 +1135,31 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
     worst_is_residual_max = bool(tol >= 0.0)
     np_where = np.where
     np_sign = np.sign
+    # ── STALL REPORT state (see ``projection_stall_report_enabled``) ──
+    # ``stall_min`` is the running minimum of the per-sweep active
+    # violating-edge count; ``stall_ref`` is that minimum's value at the
+    # last QUALIFYING improvement (a new minimum counts only when it beats
+    # ``stall_ref`` by ≥ ``STALL_REL_IMPROVEMENT`` relative); ``stall_wait``
+    # is the number of full passes since.  Detection SNAPSHOTS and lets the
+    # sweep loop run on — there is no early exit here, by ruling.  Gate OFF
+    # ⇒ none of this is touched and no count is taken.
+    stall_on = projection_stall_report_enabled()
+    stall_min = None
+    stall_ref = None
+    stall_wait = 0
+    stall_carrier = None
+    stall_active = 0
+    stall_detect_sweep = 0
+    stall_detect_active = 0
+    stall_detect_worst = 0.0
+    stall_detect_carrier = None
     for _sweep in range(max_iters):
         sweeps += 1
         any_active = False
         worst = 0.0
         ref_active = False
+        stall_active = 0
+        stall_carrier = None
         if ref_idx is not None:
             # REFERENCE RODS: pull BEFORE the projections (the law wins —
             # the sweep ends cap-projected + box-clamped).
@@ -942,6 +1182,14 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                     w = residual_max if worst_is_residual_max else ex.max()
                     if w > worst:
                         worst = float(w)
+                        if stall_on:
+                            _k = int(over.argmax() if worst_is_residual_max
+                                     else ex.argmax())
+                            stall_carrier = ("sym", int(I[_k]), int(J[_k]),
+                                             float(B[_k]), float(d[_k]),
+                                             float(WI[_k]), float(WJ[_k]))
+                    if stall_on:
+                        stall_active += int((over > tol).sum())
                     # ``se = sign(d) * ex`` once: ``(-s)*ex*WI`` is exactly
                     # ``-((s*ex)*WI)`` (negation is exact in IEEE 754).
                     se = np_sign(d) * ex
@@ -968,6 +1216,14 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                     aw = abs(se).max()
                     if aw > worst:
                         worst = float(aw)
+                        if stall_on:
+                            _k = int(abs(se).argmax())
+                            stall_carrier = ("int", int(Ii[_k]), int(Ji[_k]),
+                                             float(Lo[_k]), float(Hi[_k]),
+                                             float(di[_k]), 0.0)
+                    if stall_on:
+                        stall_active += int(((above > tol)
+                                             | (below > tol)).sum())
                     if disjoint_i:
                         pair[0] -= se * IWI
                         pair[1] += se * IWJ
@@ -986,6 +1242,11 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                 w = float(clamp_move.max())
                 if w > worst:
                     worst = w
+                    if stall_on:
+                        _k = int(clamp_move.argmax())
+                        stall_carrier = ("box", int(box_idx[_k]), -1,
+                                         float(box_lo[_k]), float(box_hi[_k]),
+                                         float(clamp_move[_k]), 0.0)
             z[box_idx] = clamped
         if not any_active and not ref_active:
             certified = True
@@ -1001,7 +1262,36 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
             if float(np.abs(z - ref_prev).max()) <= tol:
                 break
             np.copyto(ref_prev, z)
+        if stall_on and not stall_detect_sweep:
+            # STALL DETECTION — REPORT ONLY.  There is deliberately no
+            # ``break`` here: the early-termination family was closed
+            # 2026-08-04 after both candidate metrics were falsified, so
+            # the detector's whole job is to SNAPSHOT the state that names
+            # the infeasible carrier pair.  The sweep loop then runs
+            # exactly as long as it always did.
+            if stall_min is None or stall_active < stall_min:
+                stall_min = stall_active
+            if stall_ref is None or (
+                    stall_min < stall_ref
+                    and stall_min <= stall_ref * (1.0 - STALL_REL_IMPROVEMENT)):
+                stall_ref = stall_min
+                stall_wait = 0
+            else:
+                stall_wait += 1
+                if stall_wait >= STALL_PATIENCE_SWEEPS:
+                    stall_detect_sweep = sweeps
+                    stall_detect_active = stall_active
+                    stall_detect_worst = worst
+                    stall_detect_carrier = stall_carrier
     elev[:] = z.tolist()
+    if stall_detect_sweep:
+        # WRITE-ONLY (after the writeback): nothing below feeds the solve.
+        _stall_guard_report(np, sweeps, max_iters, stall_detect_sweep,
+                            stall_detect_active, stall_detect_worst,
+                            stall_detect_carrier, stall_active, worst,
+                            stall_carrier, endpoint_i, endpoint_j,
+                            budget_column, interval_mask, weight_i, weight_j,
+                            z, n)
     if stats is not None:
         stats["colors"] = color_count
         stats["edges"] = len(iter_edges)
@@ -1009,6 +1299,14 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
         stats["sweeps_avoided"] = max(0, max_iters - sweeps) if certified else 0
         stats["certified"] = certified
         stats["worst"] = worst
+        if stall_on:
+            stats["stalled"] = bool(stall_detect_sweep)
+            stats["stall_detect_sweep"] = stall_detect_sweep
+            stats["stall_sweeps_burned"] = (max(0, sweeps - stall_detect_sweep)
+                                            if stall_detect_sweep else 0)
+            stats["active_edges"] = stall_active
+            stats["carrier"] = stall_carrier
+            stats["detect_carrier"] = stall_detect_carrier
     return sweeps, certified
 
 

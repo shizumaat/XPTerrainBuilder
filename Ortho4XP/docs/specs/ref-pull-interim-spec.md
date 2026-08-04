@@ -42,3 +42,39 @@ expect neutral-or-better: the restored projection spends more sweeps;
 quote honestly, the 1% trigger applies); foreground; per-arm envs;
 worktree if main is occupied; do NOT commit. STOP: any airport's census
 rises; seam > +11; a §2 hash change; second miss.
+
+## LEAD ADJUDICATION (2026-08-04 evening; evidence scratchpad
+## refpull_interim/, lane worktree refpull-lane, uncommitted)
+
+Sections 1-3 complete and measured: battery law-true 13,199 -> 11,963
+(-1,236; SPLP -24, KCLT -360 — both previously-unmeasured airports
+improve, no airport rises); seam exactly +11 (at bound); s7_attrib
+reproduced bit-for-bit at three airports on a proven same-code tree;
+two strict-xfail DRAIN-LEDGER markers legitimately closed (the CYXY
+1.9%-vs-1.5% apron pair now grades in bounds — a real adjudicated
+drain-list defect closed by the weight change). Honest cost noted:
+HECA building|building 440->486 (the frontage class pays for the
+weaker pull; KCLT's 46->8 more than offsets battery-wide).
+
+1. **§3 RULING: O4_CORRIDOR_REF_STRING default STAYS "1" for the
+   interim.** Closing the back door now trades KCLT +95 / HEAZ +5 /
+   CYXY +1 / SPLP +1 for HECA -196: four of five airports worse, the
+   FAA fixture worst. The purpose-statement violation is real but its
+   correct remedy is the seam-continuity endgame (the refs channel
+   dies WITH the pull, corridor shape carried by composed rods) — not
+   an interim flip that degrades surfaces before the replacement
+   exists. The adjudication table is the endgame round's baseline.
+2. **Deviation ACCEPTED with attribution:** HECA 2/514 runway-vertex
+   moves (0.16 m) are the APRON side of shared welds — runway-
+   EXCLUSIVE vertices byte-identical at all five, the runway solve
+   untouched, no runway census row minted. Acceptance for this round
+   is re-expressed as runway-exclusive byte-identity; the shared-weld
+   consensus class is the CONSENSUS-RETIREMENT round's named
+   territory (O4_SINGLE_AUTHORITY_EMIT).
+3. **Timing spot-check GATES THE COMMIT** (hard law: the restored
+   projection budget plausibly costs solve time — HEAZ ref-call sweeps
+   36 -> 2400). PENDING-EXCLUSIVE for a quiet machine. FORM AMENDED:
+   recorded baselines read 13-32% fast (machine drift), so the honest
+   instrument is a same-session A/B — exclusive --runs 2 at CYXY+HECA
+   on BOTH the old-default and new-default arms, quoting the A/B
+   delta against the 1% trigger, not the stale-baseline comparison.

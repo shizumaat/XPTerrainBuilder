@@ -33,7 +33,8 @@ with internal callers in ``O4_Airport_Pavement_Builder``):
       USE_PER_POLYGON_ELEVATION_FIELD
 
     Functions (DEM + CIFP):
-      _load_airport_dem, _sample_dem, _find_cifp_path
+      _load_airport_dem, _sample_dem, _find_cifp_path,
+      _build_apt_runway_join
 
     Functions (main pipeline):
       _compute_elevations, _resample_node_altitudes_nn,
@@ -152,6 +153,7 @@ __all__ = [
     "_corner_elevation_bucket",
     "_drop_overlap_against_fixed_shapes",
     "_enforce_shared_vertex_altitudes",
+    "_build_apt_runway_join",
     "_find_cifp_path",
     "_latlon_to_m_local",
     "_drop_thin_orphan_slivers",
@@ -404,14 +406,137 @@ def _sample_dem(dem, tile_lat: int, tile_lon: int,
         return None
 
 
+# CIFP/AIRAC search order, highest priority first.  ``Custom Data/CIFP``
+# is where Navigraph and other AIRAC updaters install; ``Resources/default
+# data/CIFP`` is the stock cycle every X-Plane 12 install ships with.
+# Same precedence as ``O4_Settings_Model.autodetect_cifp`` (the folder-level
+# autodetect both UIs use to seed ``cifp_data_path``) — keep the two in step.
+_CIFP_DIRS = (
+    ("Custom Data", "CIFP"),
+    ("Resources", "default data", "CIFP"),
+)
+
+
 def _find_cifp_path(xplane_root: str, icao: str) -> str | None:
-    """Locate the CIFP .dat file for an ICAO under the X-Plane
-    root.  Returns None if not found."""
-    cifp_dir = os.path.join(xplane_root, "Custom Data", "CIFP")
-    p = os.path.join(cifp_dir, f"{icao.upper()}.dat")
-    if os.path.isfile(p):
-        return p
+    """Locate the CIFP ``.dat`` file for an ICAO under the X-Plane root.
+
+    Prefers an AIRAC update in ``Custom Data/CIFP``, falling back to the
+    stock cycle in ``Resources/default data/CIFP``.  Without that fallback
+    an install with no Navigraph resolved to ``None`` and silently skipped
+    the ENTIRE segmented-runway block in ``_compute_elevations`` — no CIFP
+    threshold elevations, no FAA vertical profile, no segmentation at
+    apt.dat pavement joins — because the stock CIFP X-Plane ships with was
+    never consulted.
+
+    The fallback is PER FILE, not per directory: a partial AIRAC update
+    carrying only some airports still resolves the rest from stock, which
+    a directory-level choice could not do.
+
+    Returns None when neither location has the airport.
+    """
+    if not xplane_root:
+        return None
+    name = f"{icao.upper()}.dat"
+    for parts in _CIFP_DIRS:
+        p = os.path.join(xplane_root, *parts, name)
+        if os.path.isfile(p):
+            return p
     return None
+
+
+def _build_apt_runway_join(apt_runways, pairs):
+    """Join CIFP runway pairs to their apt.dat footprints.
+
+    apt.dat is the sole source of truth for runway footprint lat/lon and
+    width (legacy contract); the CIFP supplies the threshold data the
+    segmenter iterates.  Bridging the two is a *naming* problem, and the
+    two files disagree in two independent ways:
+
+    1. **Spelling.**  apt.dat writes a single-digit runway bare (``9``),
+       the CIFP zero-pads and prefixes it (``RW09``).  Each apt.dat end is
+       therefore registered under its raw, ``RW``-prefixed and canonical
+       (:func:`runway_segments.canonical_runway_desig`) spellings.  Without
+       this, single-digit runways (TBPB 09/27) miss every lookup.
+
+    2. **Renumbering.**  Magnetic-variation drift renumbers runways, so the
+       same physical strip is ``03/21`` in apt.dat but ``RW04/RW22`` in the
+       CIFP (SSUM Umuarama; KCLT under Navigraph 2607 is ``18R/36L`` in
+       apt.dat but ``RW19R/RW01L`` in the CIFP — note the 36→01 wrap and
+       the C→L/R letter change).  A ±1 heading-number change defeats
+       ``canonical_runway_desig``, which only strips ``RW``/zero-padding,
+       so every spelling above misses.
+
+    A missed join is silent: ``runway_segments._runway_physical_extent``
+    sets ``have_apt_geom`` False and the runway falls back to coarse CIFP
+    geometry, never segmenting at its apt.dat pavement joins.  So after
+    spelling, reconcile what is left by POSITION
+    (:func:`runway_geometry.match_runway_ends_by_geometry`) and register
+    the apt.dat geometry/width under the CIFP spellings too.
+
+    Geometry reconciliation uses ``setdefault``: an end whose designator
+    already matched keeps its by-name geometry, so position matching can
+    only ever fill gaps, never override an exact name hit.
+
+    Args:
+        apt_runways: the apt.dat :class:`Runway` records (``apt.runways``).
+        pairs: :func:`runway_geometry.pair_runways` output —
+            ``(desig_a, data_a, desig_b, data_b)`` tuples.
+
+    Returns:
+        ``(apt_runway_geom, runway_widths, cifp_to_apt)`` where
+        ``apt_runway_geom`` maps a designator spelling to
+        ``(lat, lon, width_m, displaced_m, blast_m)``, ``runway_widths``
+        maps a designator spelling to width, and ``cifp_to_apt`` maps a
+        geometry-reconciled ``(cifp_a, cifp_b)`` pair to its
+        ``(apt_desig_a, apt_desig_b)`` — the caller needs that to mirror
+        pavement-intersection seams onto the CIFP designators.
+    """
+    from .pavement import runway_geometry as _RWY
+    from .pavement.runway_segments import (
+        canonical_runway_desig as _canon_desig)
+
+    def _geom(r, end_a: bool):
+        if end_a:
+            return (r.lat_a, r.lon_a, r.width_m, r.displaced_a_m, r.blast_a_m)
+        return (r.lat_b, r.lon_b, r.width_m, r.displaced_b_m, r.blast_b_m)
+
+    def _spellings(desig: str):
+        return (desig, "RW" + desig.lstrip("RW"), _canon_desig(desig))
+
+    # ── 1. By designator spelling ────────────────────────────────────
+    apt_runway_geom: dict = {}
+    runway_widths: dict = {}
+    for r in apt_runways:
+        for desig, end_a in ((r.desig_a, True), (r.desig_b, False)):
+            geom = _geom(r, end_a)
+            for k in _spellings(desig):
+                apt_runway_geom[k] = geom
+            for k in (desig, _canon_desig(desig)):
+                runway_widths[k] = r.width_m
+
+    # ── 2. By position, for whatever renumbering left unmatched ──────
+    apt_ends = [(r.lat_a, r.lon_a, r.lat_b, r.lon_b) for r in apt_runways]
+    cifp_to_apt: dict = {}   # (cifp_a, cifp_b) -> (apt_desig_a, apt_desig_b)
+    for desig_a, data_a, desig_b, data_b in pairs:
+        if (desig_b is None or data_a is None or data_b is None
+                or not apt_ends):
+            continue
+        m = _RWY.match_runway_ends_by_geometry(
+            data_a["lat"], data_a["lon"],
+            data_b["lat"], data_b["lon"], apt_ends)
+        if m is None:
+            continue
+        idx, swapped = m
+        r = apt_runways[idx]
+        geom_a = _geom(r, not swapped)
+        geom_b = _geom(r, swapped)
+        for desig, geom in ((desig_a, geom_a), (desig_b, geom_b)):
+            for k in _spellings(desig):
+                apt_runway_geom.setdefault(k, geom)
+                runway_widths.setdefault(k, r.width_m)
+        cifp_to_apt[(desig_a, desig_b)] = (
+            (r.desig_b, r.desig_a) if swapped else (r.desig_a, r.desig_b))
+    return apt_runway_geom, runway_widths, cifp_to_apt
 
 
 def _compute_elevations(layout: "PavementLayout", icao: str,
@@ -486,80 +611,12 @@ def _compute_elevations(layout: "PavementLayout", icao: str,
             if cifp_runways:
                 pairs = _RWY.pair_runways(cifp_runways)
 
-                # apt.dat runway geometry (sole source of truth for
-                # footprint lat/lon + width) — per legacy contract.
-                # Key each runway end under its ``RW``-prefixed form AND
-                # its canonical (zero-padding-reconciled) form so the
-                # segmenter — which iterates CIFP's zero-padded ``RW09``
-                # designators — finds apt.dat geometry stored under the
-                # bare ``9`` apt.dat spelling (see
-                # ``runway_segments.canonical_runway_desig``).  Without
-                # this, single-digit runways (TBPB 09/27) fall back to
-                # CIFP geometry and never segment at pavement joins.
-                from .pavement.runway_segments import (
-                    canonical_runway_desig as _canon_desig)
-                apt_runway_geom = {}
-                for r in apt.runways:
-                    geom_a = (r.lat_a, r.lon_a, r.width_m,
-                              r.displaced_a_m, r.blast_a_m)
-                    geom_b = (r.lat_b, r.lon_b, r.width_m,
-                              r.displaced_b_m, r.blast_b_m)
-                    for k in (r.desig_a,
-                              "RW" + r.desig_a.lstrip("RW"),
-                              _canon_desig(r.desig_a)):
-                        apt_runway_geom[k] = geom_a
-                    for k in (r.desig_b,
-                              "RW" + r.desig_b.lstrip("RW"),
-                              _canon_desig(r.desig_b)):
-                        apt_runway_geom[k] = geom_b
-                runway_widths = {}
-                for r in apt.runways:
-                    for k in (r.desig_a, _canon_desig(r.desig_a)):
-                        runway_widths[k] = r.width_m
-                    for k in (r.desig_b, _canon_desig(r.desig_b)):
-                        runway_widths[k] = r.width_m
-
-                # Reconcile CIFP designators to apt.dat runways by
-                # GEOMETRY.  Magnetic-variation drift renumbers runways,
-                # so the same physical strip can be ``03/21`` in apt.dat
-                # but ``RW04/RW22`` in the CIFP (SSUM Umuarama).  A ±1
-                # heading-number change defeats ``canonical_runway_desig``
-                # (it only strips ``RW``/zero-padding), so every
-                # designator lookup above misses, ``have_apt_geom`` is
-                # False, and the runway never segments at its apt.dat
-                # pavement joins.  Match by position instead, then register
-                # the apt.dat geometry/width under the CIFP spellings too.
-                apt_ends = [(r.lat_a, r.lon_a, r.lat_b, r.lon_b)
-                            for r in apt.runways]
-                cifp_to_apt = {}  # (cifp_a, cifp_b) -> (apt_desig_a, apt_desig_b)
-                for desig_a, data_a, desig_b, data_b in pairs:
-                    if (desig_b is None or data_a is None or data_b is None
-                            or not apt_ends):
-                        continue
-                    m = _RWY.match_runway_ends_by_geometry(
-                        data_a["lat"], data_a["lon"],
-                        data_b["lat"], data_b["lon"], apt_ends)
-                    if m is None:
-                        continue
-                    idx, swapped = m
-                    r = apt.runways[idx]
-                    geom_a = (r.lat_a, r.lon_a, r.width_m,
-                              r.displaced_a_m, r.blast_a_m)
-                    geom_b = (r.lat_b, r.lon_b, r.width_m,
-                              r.displaced_b_m, r.blast_b_m)
-                    if swapped:
-                        geom_a, geom_b = geom_b, geom_a
-                    for k in (desig_a, "RW" + desig_a.lstrip("RW"),
-                              _canon_desig(desig_a)):
-                        apt_runway_geom.setdefault(k, geom_a)
-                        runway_widths.setdefault(k, r.width_m)
-                    for k in (desig_b, "RW" + desig_b.lstrip("RW"),
-                              _canon_desig(desig_b)):
-                        apt_runway_geom.setdefault(k, geom_b)
-                        runway_widths.setdefault(k, r.width_m)
-                    apt_a = r.desig_b if swapped else r.desig_a
-                    apt_b = r.desig_a if swapped else r.desig_b
-                    cifp_to_apt[(desig_a, desig_b)] = (apt_a, apt_b)
+                # Join the CIFP pairs to their apt.dat footprints, by
+                # designator spelling and then — for runways magnetic
+                # drift has renumbered — by position.  See
+                # ``_build_apt_runway_join``.
+                apt_runway_geom, runway_widths, cifp_to_apt = (
+                    _build_apt_runway_join(apt.runways, pairs))
 
                 class _TileStub:
                     lat: int

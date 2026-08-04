@@ -9,7 +9,6 @@ Public API:
     parse_cifp_lat(s)             — ARINC 424 latitude string -> float
     parse_cifp_lon(s)             — ARINC 424 longitude string -> float
     parse_cifp_file(filepath)     — full CIFP RWY-record extraction
-    find_aptdat(cifp_path)        — locate the apt.dat alongside a CIFP file
     xplane_root_from_cifp_path(p) — derive X-Plane install root from CIFP dir
     discover_cifp_airports(dir)   — enumerate all airports in a CIFP directory
     airport_in_tile(rwys, lat, lon) — does any runway fall in this 1°×1° tile?
@@ -42,7 +41,6 @@ __all__ = [
     "parse_cifp_lat",
     "parse_cifp_lon",
     "parse_cifp_file",
-    "find_aptdat",
     "xplane_root_from_cifp_path",
     "discover_cifp_airports",
     "airport_in_tile",
@@ -178,51 +176,13 @@ def parse_cifp_file(filepath: str) -> dict[str, CifpRunway]:
 # ──────────────────────────────────────────────────────────────────────
 # CIFP File / X-Plane Install Layout Helpers
 # ──────────────────────────────────────────────────────────────────────
-def find_aptdat(cifp_path: str) -> str | None:
-    """Attempt to locate apt.dat relative to the CIFP directory.
-
-    X-Plane directory structure:
-        <X-Plane>/Custom Data/CIFP/           ← cifp_path
-        <X-Plane>/Resources/default scenery/default apt dat/Earth nav data/apt.dat
-        <X-Plane>/Custom Scenery/Global Airports/Earth nav data/apt.dat
-
-    Also checks for a custom apt.dat in Custom Data/.
-
-    Returns:
-        str or None: Path to apt.dat if found.
-    """
-    if not cifp_path:
-        return None
-
-    # cifp_path is typically <X-Plane>/Custom Data/CIFP
-    custom_data = os.path.dirname(cifp_path)  # <X-Plane>/Custom Data
-    xplane_root = os.path.dirname(custom_data)  # <X-Plane>
-
-    candidates = [
-        # Custom apt.dat (user overrides)
-        os.path.join(custom_data, "apt.dat"),
-        # Global Airports scenery pack
-        os.path.join(
-            xplane_root,
-            "Custom Scenery",
-            "Global Airports",
-            "Earth nav data",
-            "apt.dat",
-        ),
-        # Default apt dat
-        os.path.join(
-            xplane_root,
-            "Resources",
-            "default scenery",
-            "default apt dat",
-            "Earth nav data",
-            "apt.dat",
-        ),
-    ]
-    for path in candidates:
-        if os.path.isfile(path):
-            return path
-    return None
+# NOTE: ``find_aptdat(cifp_path)`` was removed 2026-08-03 — it had no
+# callers and its candidate list was XP11-era ("Custom Scenery/Global
+# Airports", "Resources/default scenery/default apt dat"), neither of
+# which exists on an X-Plane 12 install.  Use
+# ``apt_dat_reader.find_airport_apt_dat(xplane_root, icao)``: it is the
+# live selector, is per-airport rather than per-install, and finds custom
+# scenery packs that override the shipped Global Airports data.
 
 
 def xplane_root_from_cifp_path(cifp_path: str) -> str | None:

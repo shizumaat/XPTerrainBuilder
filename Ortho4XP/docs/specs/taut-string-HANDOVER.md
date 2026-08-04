@@ -8,9 +8,31 @@
 its exemptions and floors — instruments report, the law adjudicates),
 quarantine machinery GONE, every reg generation-binding with test twins.
 
-**THE KILL HALF IS IMPLEMENTED, UNCOMMITTED, AWAITING LEAD REVIEW**
-(`docs/specs/kill-half-spec.md`, owner-approved in `b56b37a`).  Three
-things changed at once, and they are what a user now gets:
+**BOARD AS OF 2026-08-04 EVENING (HEAD `9d7eea0`).** Landed today:
+seat-gates variant A (`58e2f99` — SEAT_BAND_CONSISTENT ON, coupler HELD,
+new HECA anchor `a785f170`, others unchanged); the APRON TERRACE LAW
+gated default "0" (`5eaf1e2`, adjudication `768cded` — gate-on at HECA:
+apron.slope −52.9%, law-true within −25.5%, joint∩route ≡ 0 structural);
+KCLT baseline nesting fix (`6a8f4bf`); licensing docs (`98e7805`); specs
+approved: seam-continuity (`6a69d4f`), ref-pull interim (`57f033b`),
+seed-fix + coupling reconciliation (`a5e96a9`), rsa amendments
+(`9d7eea0`).  SPLIT-LEVEL SEATS: round HELD (verdict in its spec §ROUND
+VERDICT, `4c6f449`; worktree seats-lane parked).  SEED ATTRIBUTION
+VERDICT: owner's axiom confirmed — HEAZ infeasibility was 100% minted by
+the per-edge quant margin compounding per path (raw law 0/2032); HECA
+was ONE minted seat (band floor above own hard value + uncapped apron
+polytope); every margined-envelope number battery-wide changes meaning
+when seed-fix §1 lands.  IN FLIGHT: rsa-law (rebasing + ruling (b)
+re-grade), ref-pull interim (worktree refpull-lane), seed-fix (worktree
+seedfix-lane).  QUEUE: coupling round (after the oracle), consensus
+retirement, adjacent_ground pre-flex band probe, open/closed ring
+asymmetry fix, baseline re-record (machine reads 13-32% fast),
+one-solve groundside, remaining reg families, SPLP tile-cut class,
+test-maintenance (23 reds), scorer re-key, strings verdict LAST.
+
+**THE KILL HALF** (`docs/specs/kill-half-spec.md`, owner-approved in
+`b56b37a`).  Three things changed at once, and they are what a user now
+gets:
 
 1. **§1 THE DEFAULTS FLIP.** Eleven gates ship ON:
    `ROUTE_METRIC_ENVELOPE` (`019d0bb`), `RETIRE_TERRAIN_PIN_QUARANTINE`

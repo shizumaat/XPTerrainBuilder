@@ -4540,15 +4540,29 @@ def build_airport_pavement(icao: str, xplane_root: str,
             LATERAL_CONTIGUITY_LAW_ENABLED as _LAT_LAW_ON)
         if _LAT_LAW_ON:
             from .groundside import apply_lateral_contiguity_law
-            # NOTE (measured 2026-08-03, kill-prep round): giving the
-            # absorbed vertices RAW DEM altitudes instead of the host's
-            # interpolated field was tried and is WORSE — CYXY within-shape
-            # 189 → 275 rows, because sub-metre ring spacing turns raster
-            # noise into 40 % pairs.  ``apply_lateral_contiguity_law``
-            # keeps the ``dem_at`` hook for a future sampler that carries
-            # the lot's own ramp limit; nothing passes one today.
+            # MERGED-SURFACE LAWFULNESS (ruling 2026-08-03): a road stretch
+            # absorbed into a groundside lot makes ONE surface, and the lot
+            # emitter's own ramp-limited DEM follow is re-run over the
+            # MERGED ring — which moves the host's pre-existing vertices,
+            # lawfully, because the host is groundside and this is
+            # groundside's law.  The sampler is only built when the
+            # absorption gate is on, so the gate-off path is untouched.
+            # (The earlier attempt — raw DEM for the NEW vertices only —
+            # measured WORSE, CYXY within-shape 189 → 275; see
+            # ``groundside.apply_lateral_contiguity_law``.)
+            from .config import SERVICE_LOT_ABSORPTION as _ABSORB_ON
+            _lat_dem_at = None
+            if _ABSORB_ON:
+                try:
+                    from .groundside import _dem_sampler as _gs_dem_sampler
+                    if layout.anchor is not None and dem is not None:
+                        _lat_dem_at = _gs_dem_sampler(
+                            layout, dem, tile_lat, tile_lon)
+                except _GEOM_EXC:
+                    _lat_dem_at = None
             try:
-                apply_lateral_contiguity_law(layout, icao)
+                apply_lateral_contiguity_law(layout, icao,
+                                             dem_at=_lat_dem_at)
             except _GEOM_EXC as _lat_exc:
                 UI.vprint(1, f"  [pav-builder] WARN: {icao}: "
                              f"lateral-contiguity law failed ({_lat_exc!r}) "

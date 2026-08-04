@@ -21,13 +21,32 @@ genuine terrain-vs-law; HEAZ "inversions" = raster seed-cell bug, fixed
 in kill-prep §3 to sub-materiality); kill-prep (absorption machinery
 portion-only/spine-remains, triangle demotion, band seed fix).
 
-**IN FLIGHT: the constants+absorption round** — owner constants
-GROUNDSIDE 4→5% + SERVICE_ROAD 5→8% (cited, ungated, NEW GATE-OFF
-BASELINES will be minted — the old CYXY dcebb6ff / SPLP c2316222 / HECA
-9a49cbce anchors retire with that round's report) + the two kill-prep §1
-STOP fixes (merged-surface one-law regrade, attempt 2 of 2; the
-21-runway-vertex airside violation, mechanism-first, suspect = emit
-consensus, fix pattern = groundside-as-receiver).
+**COMMITTED: the constants+absorption round** — owner
+constants GROUNDSIDE 4→5% + SERVICE_ROAD 5→8% (cited in `config.py` and
+`docs/STANDARDS.md` rows 25/27, ungated).  **NEW GATE-OFF BASELINES,
+each reproduced 2×** — the old CYXY `dcebb6ff` / SPLP `c2316222` / HECA
+`9a49cbce` anchors are RETIRED:
+
+| airport | frame | baseline (body sha256, `tail -n +3`) |
+|---|---|---|
+| CYXY | bare | `8eab3acd`b470b7c285d61c609d9b3d7c4833974d607d71a765523c3008bac3f1 |
+| SPLP | bare | `f460a8f7`178d7873c46051170c2488d2d96ae189d608d6e1a39ea3f5eac8955c |
+| HECA | repaired | `b7d02779`be109710692558a4bcea0214861f236c1aebe2b9bc8ffd798295396b |
+
+Both constants are GENERATION-binding (the new surface judged by the old
+law is 2.2-2.5× worse); every runway vertex is byte-identical across the
+change at CYXY/SPLP/HECA.  `service_junction` rides
+`SERVICE_ROAD_MAX_GRADE` — flagged for the owner, not split.
+
+Of the two kill-prep §1 STOP fixes: the merged-surface one-law regrade
+LANDED (attempt 2 of 2, gated, big improvement but its pre-registration
+missed — see the round report); the 21-runway-vertex airside violation
+was **attributed and STOPPED, not fixed** — the suspected emit consensus
+is FALSIFIED (staged snapshots: the runway field is identical up to
+`AA_pre_solve` and diverges at `AB_post_solve_immediate`), the mover is
+the SOLVE, because `service_road`/`service_junction` are
+`PAVEMENT_ROLES` and `groundside_pavement` is not, so absorbing a road
+into a lot changes solver MEMBERSHIP.
 
 **QUEUE after it:** flip-and-kill (defaults flip + exclusive timing
 battery + whole-pipeline review + machinery deletion + the loud
@@ -125,7 +144,11 @@ round-4 fix) + 141 (37 release-induced junctions, 12 CYXY pin-vs-free,
 **Gates:** `O4_TAUT_STRING_CONSTRUCTION` still default "0";
 `O4_STRING_MOVER_LEDGER`, `O4_HARD_NEIGHBOUR_BOUND`,
 `O4_STRING_PINS_FINAL_HOLD` default "0". Gate-off byte identity: CYXY
-`dcebb6ff…` unchanged; **SPLP BASELINE = `c2316222…` (2026-08-01, final).** Full story, all
+`dcebb6ff…` unchanged; **SPLP BASELINE = `c2316222…` (2026-08-01, final).**
+*(Both hashes RETIRED 2026-08-03 by the owner-constants round — current
+baselines are in §0 above: CYXY `8eab3acd…`, SPLP `f460a8f7…`, HECA
+repaired `b7d02779…`.  The story below is still the reason SPLP's
+anchor is what it is.)* Full story, all
 attributed: SPLP RW02's true elevation is **158 ft** (owner-confirmed;
 DEM was right). The owner's mid-day CIFP update had introduced OLD
 INCORRECT data (253 ft) — that WAS the "unattributed" hash flip
@@ -240,6 +263,7 @@ Ours, not his: `SUBSTRATE_STATION_M` 5.0, `SUBSTRATE_INTERN_M` 1e-6.
 **Gate `O4_TAUT_STRING_CONSTRUCTION` default `"0"`. Gate-off byte identity
 proven three-way and re-proved after every change: SPLP `d8d0f065…`,
 CYXY `dcebb6ff…`** (body hash past the provenance stamp).
+*(Historical — both superseded; see §0 for the live baselines.)*
 
 **Landed:** substrate assembly + per-location dedup + seam joints; runway clip
 at the owner's outline and floor; through-path composition (authoring

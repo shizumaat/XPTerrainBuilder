@@ -334,6 +334,88 @@ def _dem_follow_polygon(p, _dem_at, densify_step_m: float = 15.0,
     return new_poly, alts + [alts[0]]
 
 
+def _regrade_merged_host(host, _dem_at) -> Optional[float]:
+    """Re-run the LOT EMITTER'S ramp-limited DEM follow over a groundside
+    host whose ring has just absorbed one or more road stretches.
+
+    Ruling (2026-08-03, on the kill-prep round's measured absorbed-surface
+    defect): the merged lot+road polygon is ONE surface and gets graded as
+    ONE.  Moving the host's PRE-EXISTING vertices is lawful — the host is
+    groundside and this is groundside's own law.
+
+    Only the ALTITUDE half of :func:`_dem_follow_polygon` is re-run.  The
+    ring itself is left exactly as the merge built it, because its
+    vertices are shared with the neighbours the absorbed stretch was
+    welded to; a re-simplify / re-densify here would desync those shared
+    nodes and tear the arrangement.  "Sample the DEM at every vertex, then
+    ramp-limit the ring at ``GROUNDSIDE_MAX_GRADE``" IS the lot law —
+    densify and simplify are emit-resolution choices, not law.
+
+    Why the whole ring and not just the new vertices: FIX ATTEMPT 1
+    (2026-08-03) gave the NEW vertices raw DEM and left the host's own
+    alone, and measured WORSE (CYXY within-shape 189 → 275) because the
+    old/new boundary then carried the full DEM-vs-interpolated step at
+    sub-metre spacing.  The step exists precisely BECAUSE the two halves
+    were graded by different authorities; one authority over the whole
+    merged ring removes it at source, and the ring limiter bounds every
+    adjacent pair including the sub-metre ones.
+
+    Returns the worst adjacent ring grade after the regrade (for the
+    round's log line), or ``None`` when it could not run — no DEM
+    sampler (every legacy caller), or a degenerate ring — in which case
+    the host keeps exactly what the merge left it.
+    """
+    if _dem_at is None or host is None:
+        return None
+    poly = getattr(host, "polygon", None)
+    if poly is None or poly.is_empty or poly.geom_type != "Polygon":
+        return None
+    try:
+        ring = list(poly.exterior.coords)
+    except _GEOM_EXC:
+        return None
+    if ring and ring[0] == ring[-1]:
+        ring = ring[:-1]
+    if len(ring) < 3:
+        return None
+    alts: List[Optional[float]] = [_dem_at(x, y) for x, y in ring]
+    if all(a is None for a in alts):
+        return None
+    # Walk outward to the nearest valid sample for any vertex outside the
+    # DEM tile — the same rule ``_dem_follow_polygon`` uses, so a merged
+    # ring and a freshly-emitted one treat tile edges identically.
+    for k, a in enumerate(alts):
+        if a is not None:
+            continue
+        found: Optional[float] = None
+        for off in range(1, len(alts)):
+            if alts[(k - off) % len(alts)] is not None:
+                found = alts[(k - off) % len(alts)]
+                break
+            if alts[(k + off) % len(alts)] is not None:
+                found = alts[(k + off) % len(alts)]
+                break
+        assert found is not None, (
+            "groundside: walk-outward DEM neighbour search failed despite "
+            "precondition ensuring at least one valid sample")
+        alts[k] = found
+    vals = _grade_limit_ring(ring, [float(a) for a in alts],
+                             GROUNDSIDE_MAX_GRADE)
+    vals = [round(float(v), 2) for v in vals]
+    host.node_altitudes = vals + [vals[0]]      # the CLOSED convention
+    host.altitude = None
+    host.altitude_high = None
+    host.altitude_low = None
+    worst = 0.0
+    n = len(ring)
+    for k in range(n):
+        (x0, y0), (x1, y1) = ring[k], ring[(k + 1) % n]
+        d = math.hypot(x1 - x0, y1 - y0)
+        if d > 1e-6:
+            worst = max(worst, abs(vals[(k + 1) % n] - vals[k]) / d)
+    return worst
+
+
 def _svc_contiguous_width(line, arc, pav_union, probe: float = 60.0):
     """Contiguous pavement cross-section (m) at arc-length ``arc`` of a
     service centerline — the ONE measurement both the narrow-strip carve
@@ -518,15 +600,19 @@ def apply_lateral_contiguity_law(layout, icao: str = "", *,
     Stations inside a RUNWAY STRIP footprint get no verdict (clause 5: the
     strip footprint law supersedes there).
 
-    ``dem_at`` (``f(x, y) -> Optional[float]``) is an OPTIONAL altitude
-    source for the vertices of a stretch absorbed into a DEM-followed host;
-    ``None`` (every caller today) interpolates the host's own pre-merge
-    surface instead.  MEASURED 2026-08-03: passing the plain groundside DEM
-    sampler here is WORSE, not better — CYXY within-shape 189 → 275 rows,
-    because the merged ring carries sub-metre vertex spacing and raw raster
-    noise reads as a 40 % pair at that scale.  A sampler that carries the
-    lot emitter's own ramp limit would be the candidate; the hook is kept
-    for it, unused.
+    ``dem_at`` (``f(x, y) -> Optional[float]``) is the groundside DEM
+    sampler used to RE-GRADE a merged host as one surface
+    (:func:`_regrade_merged_host`, ruling 2026-08-03: the merged lot+road
+    polygon is ONE surface and gets graded as ONE).  ``None`` — synthetic
+    callers and tests — leaves the merge's own field in place.
+
+    History, so the reverted attempt is not re-tried: passing this sampler
+    to ``_merge_piece_into_apron``'s ``alt_for_new`` instead, i.e. raw DEM
+    for the NEW vertices only with the host's own left alone, was MEASURED
+    WORSE (CYXY within-shape 189 → 275 rows) — the old/new boundary then
+    carries the full DEM-vs-interpolated step at sub-metre spacing.  The
+    merge is therefore still done with the interpolated field and the
+    WHOLE ring is re-followed and ramp-limited afterwards.
 
     Returns a summary dict; ``layout.shapes`` is rebuilt in place.
     """
@@ -540,7 +626,11 @@ def apply_lateral_contiguity_law(layout, icao: str = "", *,
                # absorbed — the owner's uncut-road defect), and merges that
                # failed and fell back to carrying the cap.
                "absorbed_dem_host": 0, "cut_failed": 0, "merge_failed": 0,
-               "absorbed_caps": {}}
+               "absorbed_caps": {},
+               # merged-surface lawfulness (ruling 2026-08-03): hosts whose
+               # whole ring was re-followed and ramp-limited as ONE surface,
+               # and the worst adjacent ring grade left behind.
+               "host_regraded": 0, "host_regrade_worst": 0.0}
     if not LATERAL_CONTIGUITY_LAW_ENABLED:
         return summary
     from shapely.strtree import STRtree
@@ -676,9 +766,14 @@ def apply_lateral_contiguity_law(layout, icao: str = "", *,
         # the apron absorb has always used.  A merge that fails does not
         # lose the road: the piece comes back as a shape carrying its cap.
         if _CLASS_UNIVERSAL and getattr(host, "node_altitudes", None):
+            n_merged = 0
             for (piece, cap, src) in extra:
+                # ``alt_for_new`` stays None deliberately — see the
+                # ``dem_at`` note in this function's docstring (attempt 1,
+                # measured worse, reverted).  The merged ring is re-graded
+                # as ONE surface below instead.
                 if _merge_piece_into_apron(piece, host, 0.0,
-                                           alt_for_new=dem_at):
+                                           alt_for_new=None):
                     # ``_merge_piece_into_apron`` writes the OPEN ring's
                     # altitudes; a DEM-followed lot carries the CLOSED
                     # convention (``_dem_follow_polygon``, len == len of
@@ -690,11 +785,21 @@ def apply_lateral_contiguity_law(layout, icao: str = "", *,
                     if _na is not None and len(_na) == _nc - 1:
                         host.node_altitudes = list(_na) + [_na[0]]
                     summary["absorbed_dem_host"] += 1
+                    n_merged += 1
                     continue
                 summary["absorbed"] -= 1
                 summary["merge_failed"] += 1
                 summary["capped"] += 1
                 add.append(_lateral_piece_shape(src, piece, cap, split=True))
+            # THE MERGED SURFACE IS ONE SURFACE — grade it as one (ruling
+            # 2026-08-03).  Runs once per host, after every piece has been
+            # welded in, so the ring the lot law sees is the final one.
+            if n_merged:
+                _w = _regrade_merged_host(host, dem_at)
+                if _w is not None:
+                    summary["host_regraded"] += 1
+                    summary["host_regrade_worst"] = max(
+                        summary["host_regrade_worst"], _w)
             continue
         merged = None
         try:
@@ -740,7 +845,10 @@ def apply_lateral_contiguity_law(layout, icao: str = "", *,
             f"{sorted(summary['absorbed_caps'].items())}, "
             f"{summary['cut_failed']} piece(s) NOT absorbed (mouth cut did "
             f"not separate the free stretch), {summary['merge_failed']} "
-            f"merge failure(s) returned as capped shapes.")
+            f"merge failure(s) returned as capped shapes; "
+            f"{summary['host_regraded']} merged host(s) RE-GRADED as one "
+            f"surface (worst adjacent ring grade after "
+            f"{100.0 * summary['host_regrade_worst']:.2f} %).")
     return summary
 
 

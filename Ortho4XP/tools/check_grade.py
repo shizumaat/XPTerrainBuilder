@@ -91,7 +91,7 @@ except Exception:
     ROUTE_FIELD_LOCAL_WINDOW_M = 80.0
     ROAD_FRONTAGE_TOL_M = 3.0
     _DRAINAGE_SPINE_MIN_FALL_M = 0.30
-    SERVICE_ROAD_MAX_GRADE = 0.05
+    SERVICE_ROAD_MAX_GRADE = 0.08
     TAXI_GRADE_BY_WIDTH = True
     TAXI_GRADE_WIDTH_ROLES = frozenset({
         "primary_parallel", "secondary_parallel", "stub", "cross_connector",
@@ -2039,7 +2039,8 @@ def _transverse_cap_for_seg_cap(cap_l: float) -> float:
     cap per segment, and the transverse cap is a pure function of the same
     role/letter (config.py ``taxi_transverse_cap_for_letter`` /
     ``SERVICE_ROAD_MAX_TRANSVERSE``): code A/B 3 %∥ → 2 %⊥, service road
-    5 %∥ → 2 %⊥, everything else ISOTROPIC (C–F 1.5 %)."""
+    8 %∥ → 2 %⊥ (owner constant 2026-08-03), everything else ISOTROPIC
+    (C–F 1.5 %)."""
     if abs(cap_l - TAXI_MAX_GRADE_NARROW) < 1e-9:
         return TAXI_MAX_TRANSVERSE_NARROW
     if abs(cap_l - SERVICE_ROAD_MAX_GRADE) < 1e-9:

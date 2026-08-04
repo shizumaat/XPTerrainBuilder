@@ -1101,7 +1101,24 @@ REACH_NO_SERVICE_SPINES = (
 # gentler / more DEM-near).  Gate ``CORRIDOR_PROFILE_DAMPING``
 # (``O4_CORRIDOR_DAMP``) — OFF restores the pure DEM-follow.
 CORRIDOR_DAMP_ALPHA = 0.5
-SERVICE_ROAD_MAX_GRADE = 0.050  # ground-vehicle route (apt.dat 1206 + OSM small roads) — cars handle 5% (user 2026-07-04, was 4%)
+# GROUND-VEHICLE SERVICE ROAD longitudinal grade — OWNER CONSTANT, approved
+# 2026-08-03 (docs/RULINGS.md "Owner constants: lot 5%, service road 8%";
+# docs/STANDARDS.md row "Ground-vehicle service road").  History: 4 % →
+# 5 % (user 2026-07-04, design judgement) → 0.080 on the cited standard.
+# VDOT Road Design Manual Appendix A1, "Geometric Design Standards for
+# SERVICE ROADS (GS-9)", table "Relationship of maximum grades to design
+# speed": LEVEL terrain 8 % at 10-20 mph and 7 % at 30-40 mph (rolling
+# 9-12 %, mountainous 12-18 %).  An airport service road is the level-
+# terrain, low-design-speed case, so 8 % is its standard maximum.  No
+# aviation authority regulates it (FAA/ICAO/EASA/ACRP verified silent).
+# COUPLING (flagged for the owner, docs/RULINGS.md): ``service_junction``
+# rides this SAME constant — ``ROLE_GRADE_LIMITS`` below maps both
+# ``service_road`` and ``service_junction`` to it, and so do
+# ``grade_graph._body_cap``/``_cap_label`` and the check_grade twin.
+# Raising it to 8 % therefore raises service JUNCTIONS to 8 % as well; if
+# junctions are to be split from the road body that is a second owner
+# ruling and a second constant, not an implementer's call.
+SERVICE_ROAD_MAX_GRADE = 0.080
 # Ground-vehicle ``service_road`` rect geometry (session 47).
 SERVICE_ROAD_WIDTH_M = 6.0          # corridor width for a service-road rect
 MIN_SERVICE_STRIP_LEN_M = 25.0      # min dedicated-strip length to emit a rect
@@ -1227,7 +1244,22 @@ TUNNEL_FORK_THROAT = True
 # SPJC's ~230 m runway spacing was being dug open into an 8-10 m
 # trench.  Gaps above this cap keep the covered/portal form.
 TUNNEL_LOW_CONNECTOR_MAX_OPEN_GAP_M = 100.0
-GROUNDSIDE_MAX_GRADE = 0.040    # groundside pavement ramp grade (user 2026-05-22)
+# GROUNDSIDE (curbside / parking lot) ramp grade — OWNER CONSTANT, approved
+# 2026-08-03 on the primary-source research (docs/RULINGS.md "Owner
+# constants: lot 5%, service road 8%"; docs/STANDARDS.md row "Groundside
+# pavement").  The old 0.040 was UNCITED (inherited from the tunnel-ramp
+# constant, user 2026-05-22).  0.050 is the walking-surface ceiling every
+# landside authority converges on:
+#   * ADA 2010 Standards §403.3 — running slope of a walking surface shall
+#     not be steeper than 1:20 (= 5.0 %);
+#   * Iowa SUDAS Design Manual ch. 8 §8B-1 (Parking Lots, Layout and
+#     Design) — "Slopes greater than 5% are discouraged";
+#   * City of Santa Barbara Parking Design Standards §D.5 — "The slopes of
+#     all parking areas shall not exceed 5%, excluding ramps".
+# No aviation authority regulates a landside lot grade (FAA AC 150/5300-13B,
+# ICAO Annex 14 / Doc 9157, EASA CS-ADR-DSN and ACRP 25 verified SILENT), so
+# the value is region-invariant — there is no FAA/ICAO split to apply.
+GROUNDSIDE_MAX_GRADE = 0.050
 # FAA vertical-curve rule L = K × |Δg|.  K = 305 m for ARC C/D (lighter
 # A/B ≈ 76 m, heavy E ≈ 610 m).  ``RUNWAY_MAX_GRADE_CHANGE_PER_M`` is the
 # segment-smoother's equivalent: a 1% grade change needs ~305 m of curve,
@@ -1442,11 +1474,14 @@ ROLE_GRADE_LIMITS = {
     # (per user 2026-05-08).
     "tunnel_ramp":        TUNNEL_RAMP_MAX_GRADE,
     # Ground-vehicle service roads (apt.dat 1206) grade along their
-    # axis like a taxiway but at 5% — service vehicles handle steeper
-    # terrain than aircraft (session 47).
+    # axis like a taxiway but at 8% — VDOT GS-9 level terrain (owner
+    # 2026-08-03; see SERVICE_ROAD_MAX_GRADE above).
     "service_road":       SERVICE_ROAD_MAX_GRADE,
     # Service-road network junctions (bends / intersections) — graded
-    # all-direction at the same 5% car-logic cap as the rects.
+    # all-direction at the SAME car-logic cap as the rects.  This
+    # coupling is deliberate and flagged for the owner: splitting the
+    # junction rate from the road-body rate needs its own ruling and its
+    # own constant.
     "service_junction":   SERVICE_ROAD_MAX_GRADE,
     # ── Skip-list (no grade enforcement) ─────────────────────────
     # Airport boundary is a footprint outline that traces real
@@ -1459,9 +1494,10 @@ ROLE_GRADE_LIMITS = {
     # full step over a sub-metre run.
     "retaining_wall":     None,
     # Groundside pavement (cars / buildings, curbside / drop-off /
-    # parking) follows the DEM but is graded like a ramp to ≤ 4 % slope
-    # (user 2026-05-22) — same cap as tunnel ramps — so steep terrain is
-    # smoothed to a navigable surface rather than tracing raw terrain.
+    # parking) follows the DEM but is graded like a ramp to ≤ 5 % slope
+    # (owner 2026-08-03, ADA §403.3 / SUDAS §8B-1 / Santa Barbara §D.5 —
+    # see GROUNDSIDE_MAX_GRADE above; was 4 %, uncited) so steep terrain
+    # is smoothed to a navigable surface rather than tracing raw terrain.
     "groundside_pavement": GROUNDSIDE_MAX_GRADE,
     # Wingtip / RESA clearance cuts trace the cut terrain surface
     # (per-vertex node_altitudes computed directly against the DEM

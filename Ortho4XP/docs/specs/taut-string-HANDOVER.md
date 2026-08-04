@@ -1,7 +1,49 @@
 # Taut-string line — session handover, 2026-08-01
 
-## 0-EVENING PIVOT — 2026-08-01 late (supersedes everything below where
-## it conflicts; read the memory index too — several owner rulings landed)
+## 0-CAMPAIGN STATE — 2026-08-03 (supersedes everything below; RULINGS.md
+## is owner-law canon; memory/campaign-goal.md is the goal)
+
+**THE GOAL** (owner): iterate to five-airport LAW COMPLIANCE
+(SPJC/SPLP/CYXY/HECA/KCLT — KCLT joins with the ruleset round as the FAA
+fixture): zero ADJUDICATED violations (law includes its exemptions/
+floors — instruments report, the law adjudicates), quarantine machinery
+GONE, every reg generation-binding with test twins. Heartbeat cron
+(session-local) re-anchors every 20 min.
+
+**Committed through `495660a` + rulings `47455c1`** (read the commit
+messages 0b9efaf..495660a for per-round numbers): the four field-report
+fixes (strip walls / drainage law / lateral pricing+transect / coverage
+guard + H1 source discriminator); the classification round
+(lateral-contiguity law with the owner's ring-road tests, service-
+adjacency scorer, drainage lockstep); quarantine rounds 1-2 (terrain-pin
+export retired BOTH effects; sole-cause decomposition: ZERO of 287
+genuine terrain-vs-law; HEAZ "inversions" = raster seed-cell bug, fixed
+in kill-prep §3 to sub-materiality); kill-prep (absorption machinery
+portion-only/spine-remains, triangle demotion, band seed fix).
+
+**IN FLIGHT: the constants+absorption round** — owner constants
+GROUNDSIDE 4→5% + SERVICE_ROAD 5→8% (cited, ungated, NEW GATE-OFF
+BASELINES will be minted — the old CYXY dcebb6ff / SPLP c2316222 / HECA
+9a49cbce anchors retire with that round's report) + the two kill-prep §1
+STOP fixes (merged-surface one-law regrade, attempt 2 of 2; the
+21-runway-vertex airside violation, mechanism-first, suspect = emit
+consensus, fix pattern = groundside-as-receiver).
+
+**QUEUE after it:** flip-and-kill (defaults flip + exclusive timing
+battery + whole-pipeline review + machinery deletion + the loud
+final-field error >0.01 m — measured to fire ZERO times today) →
+rulesets A/B with KCLT → missing-reg law rounds (strip precedence,
+abeam-longitudinal, RESA transverse, ROFA back-slope per approved
+exemption, shoulder crown, runway-profile arc, RAOA, transverse
+solver-binding, groundside drainage minimum) → KML-v3 class drain →
+strings verdict LAST. Also queued small: spine-keyed scorer re-key,
+late-mint binding point, memo-key bug, service_junction 8% coupling
+(owner may split).
+
+---
+
+## 0-EVENING PIVOT — 2026-08-01 late (superseded by 0-CAMPAIGN STATE;
+## kept for the attribution chain)
 
 The owner flew both arms. VERDICTS: strings-on is "a massive mess"
 (cliffs/canyons/tears); strings-off "still has many of the same type,

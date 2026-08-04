@@ -73,7 +73,13 @@ top-tier-model tokens only where judgment is required:
 5. **Never delegate:** interface design, UX copy, destructive operations,
    security-sensitive code, or the final review.
 6. **HARD LAW — build-time regressions (owner rulings 2026-07-18; this
-   is the canonical text — other documents point here).** Two budgets,
+   is the canonical text — other documents point here).**
+   **[SUSPENDED IN PART, owner 2026-08-04 (RULINGS.md "Per-change
+   timing gates SUSPENDED"): during the architectural campaign, no
+   per-change 1% evaluations, exclusive timing runs, or per-change
+   Fable-5 reviews — the free ledger tripwire (~2x anomaly ⇒
+   investigate) replaces them; the budgets below remain law and are
+   adjudicated once, in the final-design profiling round.]** Two budgets,
    both COLD and EXCLUDING download time: (a) per-airport auto-patch
    wall ≤ **60 s** (docs/specs/flat-airport-fast-path-spec.md §3.5);
    (b) whole-tile compute ≤ **300 s** (provisional figure, owner may

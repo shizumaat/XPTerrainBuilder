@@ -1005,6 +1005,217 @@ def _report_witness_admission(icao, label, rep):
               f"{dict(rep['unmatched_classes'].most_common(10))}")
 
 
+# ══ SPINE-FREEZE ROUND — YIELD-HARD MEMBERSHIP FOR PHASE-A SPINE VALUES ══
+# (``docs/specs/spine-freeze-round-spec.md``; gate ``O4_SPINE_YIELD_HARD``,
+# default "0".)
+#
+# THE DEFECT.  ``_solve_spine_profile`` certifies the phase-A spine on its
+# OWN 1.5-4.8 k-edge graph, and the freeze below stamps those values into
+# ``base_hard`` — IMMOVABLE — for every downstream projection, whose graphs
+# carry 64-272 k edges.  Measured (``carrier_attrib/DOSSIER.md`` §9): 85 %
+# of HEAZ's and 84 % of HECA's violated anchors are frozen spine nodes,
+# median DEM+0.53 / +0.77 m.  A value certified on a subgraph is an
+# ESTIMATE against the full law, and ``feasibility-is-guaranteed`` says an
+# estimate that contradicts the law is a defect to ATTRIBUTE, never an
+# answer.  (DOSSIER §1: HEAZ node 2631 was frozen 1.697 m BELOW the minimum
+# the runway 18/36 profile permits, with 11 m of its own band above it.)
+#
+# THE MECHANISM — RULING 54's, EXTENDED; NO NEW MACHINERY.  Ruling 54 held
+# the kept string pins by SET MEMBERSHIP in a projection's ``hard``.  The
+# complementary membership already exists in the same callee: a node that
+# is NOT hard but carries a REFERENCE ROD (``node_refs``) is held at its
+# reference wherever the law permits — the sweeps add a proximal pull and
+# the EXACT-RETURN POLISH puts a node with no binding pair back AT its
+# reference exactly (``one_solve.feasibility_project`` docstring, owner
+# ruling 2026-07-29 #2).  That IS "held at the phase-A value wherever the
+# full graph's law permits, movable by the projection ONLY where law
+# demands".  So the frozen spine moves from the ``hard`` membership to the
+# ``node_refs`` membership at every downstream projection, and every
+# movement is reported write-only with its binding constraint.
+#
+# THE PRESERVED SET (stays ``base_hard``; law, not phase-A estimate):
+# ``truth_hard`` — everything hard BEFORE the freeze, i.e. the
+# ``_hard_cat`` classes ``seed_rwy_seam`` (runway/CIFP profile values and
+# tile-seam DEM pins), ``rwy_join``, ``rwy_flexed``, ``seat_on_spine``,
+# ``pad_detached_dem``, ``seam_spine_anchor`` — plus ``runway_nodes``,
+# ``building_seats``, ``G.runway_anchor`` and ``layout._seam_pin_idx``
+# (the last two are subsets of ``truth_hard``; the spec names them, so
+# they are enumerated rather than implied).
+#
+# SCOPE.  Phase B (``one_profile_solve``) is a body FILL, not a
+# projection: it keeps the freeze, so the body still twists to meet the
+# spine and the reference the rods carry IS the phase-A value.  The §7
+# movable-pad yield (fp#7/fp#8) already gives every movable node — the
+# spine included, it is not in ``yield_hard`` there — a reference rod at
+# its entry value under its own owner ruling; this round does not
+# re-source that reference.
+#
+# Gate OFF ⇒ the yield set is never built ⇒ every ``hard`` set and every
+# ``node_refs`` argument is exactly what it is today ⇒ byte-identical.
+def spine_yield_hard_enabled() -> bool:
+    """True when phase-A spine values enter the downstream projections as
+    YIELD-HARD members (reference-rod held) instead of frozen ``base_hard``.
+
+    Default "0" — no new default-on gate without a battery."""
+    return _os.environ.get("O4_SPINE_YIELD_HARD", "0") == "1"
+
+
+def _spine_yield_membership(frozen, n, *, truth_hard, runway_nodes,
+                            building_seats, runway_anchor, seam_pins):
+    """Split the phase-A frozen spine into ``(preserved, yield_hard)``.
+
+    THE PRESERVED SET, ENUMERATED (the spec requires the enumeration, not
+    an implication) — these are LAW, never phase-A estimates:
+
+    * ``truth_hard`` — every node hard BEFORE the freeze, i.e. the
+      ``_hard_cat`` classes ``seed_rwy_seam`` (the ``_seed_elevations``
+      runway/CIFP profile values and the tile-seam DEM pins), ``rwy_join``,
+      ``rwy_flexed``, ``seat_on_spine``, ``pad_detached_dem`` and
+      ``seam_spine_anchor``;
+    * ``runway_nodes`` — the whole runway ring/vertex set;
+    * ``building_seats`` — every seated pad / no-building-apron level;
+    * ``runway_anchor`` (``G.runway_anchor``) — a subset of ``truth_hard``,
+      restated because the spec names it;
+    * ``seam_pins`` (``layout._seam_pin_idx``) — likewise.
+
+    YIELD-HARD = ``{i in frozen : 0 <= i < n}`` minus that union.  The two
+    are disjoint and together exhaust the in-range frozen set, so no spine
+    node can fall out of both (the silent-loss shape).
+    """
+    def _in(s):
+        return {int(i) for i in (s or ()) if 0 <= int(i) < n}
+
+    frozen_in = _in(frozen)
+    preserved = (_in(truth_hard) | _in(runway_nodes) | _in(building_seats)
+                 | _in(runway_anchor) | _in(seam_pins))
+    return preserved, (frozen_in - preserved)
+
+
+def _spine_yield_adjacency(edge_lists, want, n):
+    """``{i: [(j, budget_or_interval), ...]}`` over ``want`` only.
+
+    ONE pass over the projection's own edge lists (``single-pass-principle``
+    — no second graph).  Symmetric edges arrive as ``(i, j, budget)`` and
+    signed interval edges as ``(i, j, low, high)``; both are carried
+    verbatim so the binding-constraint scan reports the law that actually
+    bound, not a re-derived approximation.  Write-only."""
+    adj: dict = {}
+    for entry in (edge_lists or ()):
+        for e in (entry.get("edges") or ()):
+            a, b = e[0], e[1]
+            if not (0 <= a < n and 0 <= b < n):
+                continue
+            lim = e[2] if len(e) == 3 else (e[2], e[3])
+            if a in want:
+                adj.setdefault(a, []).append((b, lim))
+            if b in want:
+                adj.setdefault(b, []).append((a, lim))
+    return adj
+
+
+def _spine_yield_binding(i, elev, adj):
+    """The BINDING constraint at node ``i``: the incident law edge with the
+    LEAST SLACK (``budget − |Δz|``, or the tighter side of an interval).
+
+    Returns ``(neighbour, budget, dz, slack, kind)``; ``kind`` is
+    ``"symmetric"`` / ``"interval"``, or ``(None, ...) / "none"`` when the
+    node carries no law edge at all — which is itself a finding (a node
+    that moved with nothing binding it), so it is reported, never dropped.
+    """
+    best = None
+    for (j, lim) in adj.get(i, ()):
+        d = elev[i] - elev[j]
+        if isinstance(lim, tuple):
+            lo, hi = lim
+            slack = float("inf")
+            if hi is not None:
+                slack = min(slack, float(hi) - d)
+            if lo is not None:
+                slack = min(slack, d - float(lo))
+            budget, kind = lim, "interval"
+        else:
+            budget, kind = float(lim), "symmetric"
+            slack = budget - abs(d)
+        if best is None or slack < best[3]:
+            best = (int(j), budget, float(d), float(slack), kind)
+    return best if best is not None else (None, None, 0.0, float("inf"),
+                                          "none")
+
+
+def _spine_yield_movement_report(icao, phase_a, elev, n, edge_lists,
+                                 preserved, yield_idx, latlon_of=None):
+    """WRITE-ONLY movement report for the spine yield (spec: "every movement
+    reported — node, phase-A value, shipped value, the binding constraint").
+
+    Rides the EXISTING forensics channel: the printed summary always, and a
+    CSV next to ``O4_BREAK_FORENSICS`` when that path is set — the same
+    shape ``_break_forensics_report`` already writes.  Nothing here is read
+    back by the solve; ``elev`` is never written."""
+    moved = [i for i in sorted(yield_idx)
+             if i < n and abs(elev[i] - phase_a[i]) > 1e-9]
+    adj = _spine_yield_adjacency(edge_lists, set(moved), n) if moved else {}
+    rows = []
+    for i in moved:
+        j, budget, d, slack, kind = _spine_yield_binding(i, elev, adj)
+        rows.append({
+            "node": int(i),
+            "z_phase_a": float(phase_a[i]),
+            "z_shipped": float(elev[i]),
+            "delta_m": float(elev[i] - phase_a[i]),
+            "binding_neighbour": j,
+            "binding_kind": kind,
+            "binding_budget": budget,
+            "binding_dz_m": d,
+            "binding_slack_m": slack,
+            "binding_neighbour_class": (
+                "none" if j is None
+                else "preserved_anchor" if j in preserved
+                else "spine_yield" if j in yield_idx
+                else "free")})
+    n_mat = sum(1 for r in rows if abs(r["delta_m"]) >= 0.01)
+    n_unbound = sum(1 for r in rows if r["binding_kind"] == "none")
+    deltas = sorted(abs(r["delta_m"]) for r in rows)
+    p50 = (deltas[len(deltas) // 2] if deltas else 0.0)
+    print(f"    [spine-yield] {icao}: {len(yield_idx)} yield-hard spine "
+          f"node(s), {len(rows)} moved ({n_mat} by ≥0.01 m); "
+          f"|Δ| p50={p50:.4f} m max={(deltas[-1] if deltas else 0.0):.4f} m; "
+          f"{n_unbound} moved with NO binding law edge")
+    if rows:
+        _by_class: dict = {}
+        for r in rows:
+            _by_class.setdefault(r["binding_neighbour_class"], 0)
+            _by_class[r["binding_neighbour_class"]] += 1
+        print(f"    [spine-yield]   binding neighbour classes: {_by_class}")
+    path = _os.environ.get("O4_BREAK_FORENSICS")
+    if not path or not rows:
+        return rows
+    try:
+        stem, _dot, ext = str(path).rpartition(".")
+        out = f"{stem}.spine_yield.{ext}" if stem else str(path)
+        with open(out, "w") as fh:
+            fh.write("node,lat,lon,z_phase_a,z_shipped,delta_m,"
+                     "binding_neighbour,binding_neighbour_class,"
+                     "binding_kind,binding_budget,binding_dz_m,"
+                     "binding_slack_m\n")
+            for r in rows:
+                try:
+                    la, lo = (latlon_of(r["node"]) if latlon_of
+                              else (0.0, 0.0))
+                except Exception:
+                    la, lo = 0.0, 0.0
+                fh.write(f"{r['node']},{la:.7f},{lo:.7f},"
+                         f"{r['z_phase_a']:.4f},{r['z_shipped']:.4f},"
+                         f"{r['delta_m']:.4f},{r['binding_neighbour']},"
+                         f"{r['binding_neighbour_class']},"
+                         f"{r['binding_kind']},{r['binding_budget']},"
+                         f"{r['binding_dz_m']:.4f},"
+                         f"{r['binding_slack_m']:.4f}\n")
+        print(f"    [spine-yield] {icao} -> {out} ({len(rows)} row(s))")
+    except Exception as exc:                           # pragma: no cover
+        print(f"    [spine-yield] dump failed: {exc}")
+    return rows
+
+
 def solve_route_profile(layout, icao: str,
                         dem=None, tile_lat: int = 0, tile_lon: int = 0) -> None:
     """Run the one-profile solve and write elevations back onto ``layout``.
@@ -1721,9 +1932,47 @@ def solve_route_profile(layout, icao: str,
             elev, base_hard, u_spine_adj, u_spine_floor, node_band,
             nodes_xy=nodes, graph=G, probe_out=_spine_probe,
             string_pins=_string_pins)
+        # ── SPINE-FREEZE ROUND: the yield-hard set and the preserved set ──
+        # (gate ``O4_SPINE_YIELD_HARD``; see the module comment above
+        # ``spine_yield_hard_enabled``.)  Built BEFORE the freeze loop
+        # because ``truth_hard`` is precisely "hard before the freeze" and
+        # the loop is what makes the difference invisible.  The preserved
+        # set is ENUMERATED here, not implied: a spine node that is also a
+        # runway/CIFP value, a runway join, a seat, a detached-pad pin or a
+        # tile-seam pin is LAW and never yields.
+        _spine_preserved: set = set()
+        _spine_yield_idx: set = set()
+        _spine_phase_a: dict = {}
+        if spine_yield_hard_enabled():
+            _spine_preserved, _spine_yield_idx = _spine_yield_membership(
+                frozen, n,
+                truth_hard=truth_hard,
+                runway_nodes=runway_nodes,
+                building_seats=building_seats,
+                runway_anchor=G.runway_anchor,
+                seam_pins=_seam_pin_idx)
         for i in frozen:
             if i < n:
                 base_hard[i] = True
+        if _spine_yield_idx:
+            # THE phase-A values the rods reference.  Taken here, one
+            # statement after the freeze: phase B holds these nodes hard
+            # (they are ``base_hard``), so this is also their value at the
+            # first projection's entry — the honest "phase-A value".
+            _spine_phase_a = {i: float(elev[i]) for i in _spine_yield_idx}
+            try:
+                import O4_UI_Utils as _UI_sy
+                _UI_sy.vprint(1,
+                    f"  [spine-yield] {icao}: {len(frozen)} frozen spine "
+                    f"node(s); {len(_spine_yield_idx)} enter the downstream "
+                    f"projections YIELD-HARD (reference-rod held), "
+                    f"{len({i for i in frozen if i < n} & _spine_preserved)} "
+                    f"preserved base_hard (runway/CIFP/seat/seam).")
+            except Exception:
+                pass
+        # ONE reference map, reused by every downstream projection call
+        # (``None`` with the gate off ⇒ the callee allocates nothing).
+        _spine_refs = _spine_phase_a or None
         _psub(0.62, "Solving elevations — spine profile solved")
 
         # (The sloping-rect flat-end stamp that lived here was RETIRED by
@@ -1745,6 +1994,14 @@ def solve_route_profile(layout, icao: str,
         hard = {i for i in range(n) if base_hard[i]}
         hard |= {i for i in runway_nodes if i < n}
         hard |= {i for i in building_seats if i < n}
+        # SPINE-FREEZE ROUND: the frozen spine leaves the HARD membership
+        # and enters the REFERENCE-ROD membership (``node_refs`` below) —
+        # held at its phase-A value wherever this graph's law permits,
+        # moved only where the law demands.  ``_spine_yield_idx`` already
+        # excludes every preserved class, so this subtraction can never
+        # release a runway/CIFP value, a seat or a seam pin.  Empty set
+        # (gate off) ⇒ ``hard`` is exactly today's set.
+        hard -= _spine_yield_idx
         # ── NON-ROUTE SEED ADMISSION (spec ``route-metric-envelope`` §2;
         # gate ``O4_ROUTE_METRIC_ENVELOPE``, default "1" since the
         # 2026-08-04 kill-half flip) ─────────────────────────────────
@@ -1766,7 +2023,8 @@ def solve_route_profile(layout, icao: str,
         rem, bh = feasibility_project(elev, shape_constraints, hard,
                                       interval_yield_from=_iyf,
                                       witness_excluded=_route_excluded,
-                                      env_band=_env_band)
+                                      env_band=_env_band,
+                                      node_refs=_spine_refs)
         # Project on the UNIFIED graph's OWN edges too (the EXACT pairs/caps the
         # validator checks — rects/caps all-pair, which shape_constraints only
         # approximates with axial edges), so build and validate cannot leave a
@@ -1826,7 +2084,8 @@ def solve_route_profile(layout, icao: str,
                       f"({len(_pw_rel)} carried by key)")
         rem, bh = feasibility_project(elev, [{"edges": u_edges}], hard,
                                       witness_excluded=_route_excluded,
-                                      env_band=_env_band)
+                                      env_band=_env_band,
+                                      node_refs=_spine_refs)
         # (The end-cap planar re-stamp that lived here was RETIRED by spec
         # §10.2 with the rect flat-end stamp above.)
         # GROUNDSIDE REACH + MOUTH WELD (user 2026-06-27).  Done LAST — after the
@@ -1925,11 +2184,13 @@ def solve_route_profile(layout, icao: str,
                                     interval_yield_from=_iyf,
                                     witness_limited=_gs_witness,
                                     witness_excluded=_route_excluded,
-                                    env_band=_env_band)
+                                    env_band=_env_band,
+                                    node_refs=_spine_refs)
                 feasibility_project(elev, [{"edges": u_edges}], _ghard,
                                     witness_limited=_gs_witness,
                                     witness_excluded=_route_excluded,
-                                    env_band=_env_band)
+                                    env_band=_env_band,
+                                    node_refs=_spine_refs)
             # Service roads FOLLOW DEM at <=cap (a ground road climbs toward terrain,
             # anchored only at its airside/groundside welds) — SVC4 was held flat in
             # the bowl ~6-11 m below DEM.
@@ -2273,6 +2534,13 @@ def solve_route_profile(layout, icao: str,
 
             _hnb_a: list = [] if _hnb_on else None
             _hnb_b: list = [] if _hnb_on else None
+            # SPINE-FREEZE ROUND: the spine is already OUT of ``yield_hard``
+            # here (``truth_hard`` was snapshotted before the freeze), but
+            # it entered these two passes with NO reference at all — free to
+            # settle anywhere feasible.  Under the gate it carries the same
+            # phase-A rod as every projection above, so its status is ONE
+            # thing from the freeze to writeback: yield-hard.  ``None`` off
+            # the gate ⇒ byte-identical.
             rem, bh = feasibility_project(elev, shape_constraints, yield_hard,
                                           interval_yield_from=_iyf,
                                           witness_limited=_gs_witness,
@@ -2280,6 +2548,7 @@ def solve_route_profile(layout, icao: str,
                                           broken_out=_bo,
                                           env_band=_env_band,
                                           probe_out=_mover,
+                                          node_refs=_spine_refs,
                                           declared_out=_hnb_a)
             # PROBE A boundaries 1-2: the blend copy the callee left in the
             # ledger, then the post-return state (the sweeps).
@@ -2295,6 +2564,7 @@ def solve_route_profile(layout, icao: str,
                                           witness_excluded=_route_excluded,
                                           env_band=_env_band,
                                           probe_out=_mover,
+                                          node_refs=_spine_refs,
                                           declared_out=_hnb_b)
             if _hnb_on:
                 _hnb_take(_hnb_b, "proj_u")
@@ -3293,6 +3563,20 @@ def solve_route_profile(layout, icao: str,
                                   for _k, _v in sorted(_pd_counts.items(),
                                                        key=lambda kv: str(
                                                            kv[0]))))
+        # ── SPINE-FREEZE ROUND: THE MOVEMENT REPORT ──────────────────────
+        # "Every yielded movement is reported write-only with its binding
+        # constraint."  Taken HERE — one statement before the emit copy, in
+        # the SAME UNCROWNED frame the phase-A snapshot was taken in, and
+        # spine nodes are crown-frozen (c = 0, see the gap-spine writeback
+        # note below), so ``elev`` at a yield node IS its shipped value.
+        # The binding scan reads the joint edge set the last projection
+        # enforced; nothing is read back by the solve.
+        if _spine_phase_a:
+            _spine_yield_movement_report(
+                icao, _spine_phase_a, elev, n,
+                list(shape_constraints) + [{"edges": u_edges}],
+                _spine_preserved, _spine_yield_idx,
+                latlon_of=lambda i: layout.m_to_ll(*nodes[i]))
         if _crown_drop_idx:
             _elev_emit = list(elev)
             for _i, _c in _crown_drop_idx.items():

@@ -113,3 +113,21 @@ proven a non-mechanism — leave PAVEMENT_ROLES consumers untouched).
 V1's graph-membership predicate is retired unimplemented. The rest of
 v1's constraints stand (spine census identical; gate-off identity vs
 the NEW baselines; airside_buf never gains un-absorbed groundside).
+
+---
+
+# V2.1 (2026-08-03) — the single-authority completion (Fable-approved)
+
+V2.B's miss is attributed to one gap: `_regrade_merged_host` enforces
+adjacent-ring pairs only, while the exempted finalize chain was the
+ALL-PAIR (chord) authority — the replacement law was weaker than what
+it replaced. COMPLETION: `_regrade_merged_host` additionally applies
+the existing `chord_limit_ring_altitudes` (the same one-law family, at
+the merged surface's lateral-contiguity cap) so the single authority
+enforces everything the old chain did. This is the specified completion
+of an attributed mechanism, not attempt 3 of a guess. Pre-registered:
+CYXY merged-ring within-shape rows 39 → ≤ 2 (the pre-fix absorb
+count); HECA groundside within-shape ≤ the control arm's 9,376 (the
+exemption turns net-positive); pre-reg #1/#3/#4/#5 re-verified
+unchanged (the completion touches only merged-host altitudes); suite
+green; no timing battery needed (the call is per-merged-ring, bounded).

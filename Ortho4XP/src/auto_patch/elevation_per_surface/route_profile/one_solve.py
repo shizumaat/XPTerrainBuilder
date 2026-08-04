@@ -854,26 +854,67 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
     stable_order = np.argsort(edge_color_array, kind="stable")
     group_bounds = np.searchsorted(edge_color_array[stable_order],
                                    np.arange(color_count + 1))
-    sym: list = []
-    intv: list = []
+    # PER-COLOR BLOCK LIST (perf 2026-08-04, value-identical).  The sweep
+    # loop below used to index ``sym[color]`` / ``intv[color]``, unpack both
+    # tuples and test ``.size`` for EVERY color on EVERY sweep — at HEAZ that
+    # is 273 colors x 27 747 sweeps = 7.6 M unpacks of partitions that are
+    # very often empty.  The empty partitions are dropped HERE, once per
+    # call, and the survivors keep their original order (color 0 symmetric,
+    # color 0 interval, color 1 symmetric, …), so the Gauss-Seidel visit
+    # sequence — and therefore the fixpoint — is bit-for-bit unchanged.
+    #
+    # Each block also stacks the color's ``I`` and ``J`` into one (2, k)
+    # index array ``IJ``: ``z[IJ]`` is exactly ``stack(z[I], z[J])`` (a pure
+    # gather) in ONE advanced-indexing dispatch instead of two.  When the
+    # color's I|J indices are all distinct the two endpoint updates can then
+    # be applied to that already-gathered pair and scattered back in a single
+    # write, instead of two read-modify-write round trips.  Distinctness is
+    # NOT free from the coloring: ``_extend_edge_coloring_by_write`` only
+    # conflicts on WRITE nodes, so a ``kind`` 1/2 edge's zero-weight endpoint
+    # is unguarded and may repeat inside a color.  It is therefore VERIFIED
+    # here, once per call; ``disjoint=False`` falls back to the original
+    # two-statement form, which is what makes the rewrite exact rather than
+    # merely usually-right.
+    blocks: list = []
     for color in range(color_count):
         members = stable_order[group_bounds[color]:group_bounds[color + 1]]
         member_is_interval = interval_mask[members]
         symmetric_members = members[~member_is_interval]
         interval_members = members[member_is_interval]
-        sym.append((
-            endpoint_i[symmetric_members], endpoint_j[symmetric_members],
-            budget_column[symmetric_members],
-            weight_i[symmetric_members], weight_j[symmetric_members]))
-        intv.append((
-            endpoint_i[interval_members], endpoint_j[interval_members],
-            slab_low_column[interval_members],
-            slab_high_column[interval_members],
-            weight_i[interval_members], weight_j[interval_members]))
+        symmetric_block = interval_block = None
+        if symmetric_members.size:
+            si = endpoint_i[symmetric_members]
+            sj = endpoint_j[symmetric_members]
+            symmetric_block = (
+                si, sj, np.stack((si, sj)),
+                bool(np.unique(np.concatenate((si, sj))).size
+                     == si.size + sj.size),
+                budget_column[symmetric_members],
+                weight_i[symmetric_members], weight_j[symmetric_members])
+        if interval_members.size:
+            ii = endpoint_i[interval_members]
+            ij = endpoint_j[interval_members]
+            interval_block = (
+                ii, ij, np.stack((ii, ij)),
+                bool(np.unique(np.concatenate((ii, ij))).size
+                     == ii.size + ij.size),
+                slab_low_column[interval_members],
+                slab_high_column[interval_members],
+                weight_i[interval_members], weight_j[interval_members])
+        if symmetric_block is not None or interval_block is not None:
+            blocks.append((symmetric_block, interval_block))
     sweeps = 0
     certified = False
     worst = 0.0
     ref_prev = z.copy() if ref_idx is not None else None
+    # ``worst`` shortcut (value-identical, see the sweep body): with a
+    # non-negative tolerance the largest residual is itself active, so
+    # ``np.where(active, over, 0.0).max()`` equals ``over.max()`` — which the
+    # activity test already computed.  A negative tolerance would let an
+    # inactive 0.0 win the max, so that case keeps the original expression.
+    worst_is_residual_max = bool(tol >= 0.0)
+    np_where = np.where
+    np_sign = np.sign
     for _sweep in range(max_iters):
         sweeps += 1
         any_active = False
@@ -885,41 +926,55 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
             pull = ref_w * (ref_val - z[ref_idx])
             z[ref_idx] += pull
             ref_active = bool((np.abs(pull) > tol).any())
-        for color_index in range(color_count):
-            I, J, B, WI, WJ = sym[color_index]
-            if I.size:
-                d = z[I] - z[J]
-                ad = np.abs(d)
-                over = ad - B
-                active = over > tol
-                if active.any():
+        for symmetric_block, interval_block in blocks:
+            if symmetric_block is not None:
+                I, J, IJ, disjoint, B, WI, WJ = symmetric_block
+                # one gather for both endpoints; ``pair`` is a fresh copy, so
+                # ``pair[0]``/``pair[1]`` are the pre-write ``z[I]``/``z[J]``.
+                pair = z[IJ]
+                d = pair[0] - pair[1]
+                over = abs(d) - B
+                # ``over.max() > tol`` is exactly ``(over > tol).any()``.
+                residual_max = over.max()
+                if residual_max > tol:
                     any_active = True
-                    ex = np.where(active, over, 0.0)
-                    w = ex.max()
+                    ex = np_where(over > tol, over, 0.0)
+                    w = residual_max if worst_is_residual_max else ex.max()
                     if w > worst:
                         worst = float(w)
-                    s = np.sign(d)
+                    # ``se = sign(d) * ex`` once: ``(-s)*ex*WI`` is exactly
+                    # ``-((s*ex)*WI)`` (negation is exact in IEEE 754).
+                    se = np_sign(d) * ex
                     # disjoint writes within a color -> fancy-indexed add is a
                     # valid simultaneous update (immovable slots carry weight 0).
-                    z[I] += -s * ex * WI
-                    z[J] += s * ex * WJ
-            Ii, Ji, Lo, Hi, IWI, IWJ = intv[color_index]
-            if Ii.size:
-                di = z[Ii] - z[Ji]
+                    if disjoint:
+                        pair[0] -= se * WI
+                        pair[1] += se * WJ
+                        z[IJ] = pair
+                    else:
+                        z[I] += -(se * WI)
+                        z[J] += se * WJ
+            if interval_block is not None:
+                Ii, Ji, IJi, disjoint_i, Lo, Hi, IWI, IWJ = interval_block
+                pair = z[IJi]
+                di = pair[0] - pair[1]
                 above = di - Hi
                 below = Lo - di
-                active_hi = above > tol
-                active_lo = below > tol
-                act = active_hi | active_lo
-                if act.any():
+                # exactly ``(active_hi | active_lo).any()``
+                if above.max() > tol or below.max() > tol:
                     any_active = True
-                    se = np.where(active_hi, above,
-                                  np.where(active_lo, di - Lo, 0.0))
-                    aw = np.abs(se).max()
+                    se = np_where(above > tol, above,
+                                  np_where(below > tol, di - Lo, 0.0))
+                    aw = abs(se).max()
                     if aw > worst:
                         worst = float(aw)
-                    z[Ii] += -se * IWI
-                    z[Ji] += se * IWJ
+                    if disjoint_i:
+                        pair[0] -= se * IWI
+                        pair[1] += se * IWJ
+                        z[IJi] = pair
+                    else:
+                        z[Ii] += -(se * IWI)
+                        z[Ji] += se * IWJ
         if box_idx is not None:
             # BOUNDED YIELD: re-clamp after the sweep; movement beyond tol
             # means an edge pushed a node out of its box — stay active so

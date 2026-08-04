@@ -107,7 +107,8 @@ class TestClassUniversalAbsorption:
 
     def test_gate_off_keeps_the_lot_out_of_the_class_set(self, lateral_on):
         """The landed behaviour (classification round): the road carries the
-        lot's 4 % instead of merging.  Unchanged when this gate is off."""
+        LOT's cap instead of merging.  Unchanged when this gate is off."""
+        from auto_patch import config as _cfg
         lot = _dem_lot(0, 0, 100, 60)
         road = BuiltShape(polygon=_rect(0, 60, 100, 70), role="service_road")
         layout = _layout([lot, road])
@@ -116,10 +117,10 @@ class TestClassUniversalAbsorption:
         assert summary["capped"] == 1
         assert summary["absorbed_dem_host"] == 0
         roads = [s for s in layout.shapes if s.role == "service_road"]
-        assert roads[0].lateral_cap == pytest.approx(0.04)
+        assert roads[0].lateral_cap == pytest.approx(_cfg.GROUNDSIDE_MAX_GRADE)
 
     def test_the_strictest_cap_still_decides_the_host(self, absorption_on):
-        """A road between an apron (1 %) and a lot (4 %) takes the STRICTEST
+        """A road between an apron (1 %) and a lot takes the STRICTEST
         cap of its cross-section and can only be absorbed by the surface
         that owns it — the apron, never the lot."""
         apron = BuiltShape(polygon=_rect(0, 0, 100, 60), role="apron")
@@ -174,9 +175,10 @@ class TestPortionOnlyAbsorption:
         assert summary["cut_failed"] == 1
         assert summary["absorbed"] == 0
         assert lot.polygon.area == pytest.approx(100 * 60, rel=1e-6)
+        from auto_patch import config as _cfg
         roads = [s for s in layout.shapes if s.role == "service_road"]
         assert len(roads) == 1
-        assert roads[0].lateral_cap == pytest.approx(0.04)
+        assert roads[0].lateral_cap == pytest.approx(_cfg.GROUNDSIDE_MAX_GRADE)
         assert roads[0].polygon.area == pytest.approx(200 * 10, rel=1e-6)
 
     def test_the_split_reports_whether_a_piece_is_uniform(self):

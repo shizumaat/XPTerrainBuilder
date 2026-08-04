@@ -39,19 +39,25 @@ class TestLateralContiguityLaw:
         # a road beside a taxiway takes the taxi cap
         assert lateral_contiguity_cap(
             {"service_road", "primary_parallel"}) == 0.015
-        # a road beside a groundside lot takes the lot's 4 % — the class the
-        # earlier apron/taxi-only adoption passes could not express
+        # a road beside a groundside lot takes the LOT's cap — the class the
+        # earlier apron/taxi-only adoption passes could not express.  The
+        # number itself is an owner constant (docs/RULINGS.md 2026-08-03),
+        # so it is read from config rather than spelled here.
+        from auto_patch import config as _cfg
         assert lateral_contiguity_cap(
-            {"service_road", "groundside_pavement"}) == 0.04
+            {"service_road", "groundside_pavement"}) == \
+            _cfg.GROUNDSIDE_MAX_GRADE
         # a free road is alone in its cross-section and keeps its own cap
-        assert lateral_contiguity_cap({"service_road"}) == 0.05
+        assert lateral_contiguity_cap({"service_road"}) == \
+            _cfg.SERVICE_ROAD_MAX_GRADE
 
     def test_unregulated_classes_are_not_pavement(self):
         # walls / boundary / clearance cuts carry no within-shape cap and
         # never enter the closure
+        from auto_patch import config as _cfg
         assert lateral_contiguity_cap({"retaining_wall", "boundary"}) is None
         assert lateral_contiguity_cap(
-            {"service_road", "retaining_wall"}) == 0.05
+            {"service_road", "retaining_wall"}) == _cfg.SERVICE_ROAD_MAX_GRADE
 
     def test_segments_are_maximal_runs(self):
         runs = lateral_contiguity_segments(
@@ -148,7 +154,8 @@ class TestLateralContiguityEmitter:
     def test_groundside_neighbour_carries_the_cap_not_a_merge(self, lateral_on):
         """A DEM-followed lot carries per-vertex altitudes aligned 1:1 with
         its ring — merging would misalign them, so the road keeps its shape
-        and carries the lot's 4 % instead (the law still binds)."""
+        and carries the LOT's cap instead (the law still binds)."""
+        from auto_patch import config as _cfg
         lot = BuiltShape(polygon=_rect(0, 0, 100, 60),
                          role="groundside_pavement",
                          node_altitudes=[10.0] * 5)
@@ -159,7 +166,7 @@ class TestLateralContiguityEmitter:
         assert summary["capped"] == 1
         roads = [s for s in layout.shapes if s.role == "service_road"]
         assert len(roads) == 1
-        assert roads[0].lateral_cap == pytest.approx(0.04)
+        assert roads[0].lateral_cap == pytest.approx(_cfg.GROUNDSIDE_MAX_GRADE)
 
     def test_gate_off_is_inert(self):
         apron = BuiltShape(polygon=_rect(0, 0, 100, 100), role="apron")
@@ -199,7 +206,7 @@ class TestLateralCapLockstep:
         gs = GG.GradeShape(role="apron", ring=[(0, 0)], keys=[0],
                            lateral_cap=0.05)
         ctx = GG.GradeContext(centerlines=[])
-        # an apron never RELAXES to a road's 5 % because a road touches it
+        # an apron never RELAXES to a road's cap because a road touches it
         assert GG._body_cap(gs, ctx, {}) == pytest.approx(0.01)
 
 

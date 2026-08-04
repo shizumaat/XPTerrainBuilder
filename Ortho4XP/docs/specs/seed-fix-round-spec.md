@@ -177,3 +177,48 @@ sensitivity unmeasured. Also out: the route-distance seat-coupling
 round (consumes the oracle, own dispatch); the split-level and terrace
 rounds (mid-flight/queued); `O4_BAND_SEED_EXACT` (measured
 orthogonal); the seam-continuity round; emit decimation.
+
+## LEAD ADJUDICATION (2026-08-04 evening; evidence scratchpad seedfix/,
+## lane worktree seedfix-lane @ a5e96a9 + edits, uncommitted)
+
+GATED LAND ACCEPTED (all six pinned gate-off hashes reproduce 2x; §1a
+instrument + §5 report proven byte-inert; suite red sets identical vs
+matched control, +26 twins green). Verdict by section: §1 PASS in full
+(HEAZ burn 3983→10, raw envelope 0/2032, both carriers absent, s7 P7
+reversed on the byte-identical surface — the round's headline); §3+§4
+EXCEED band (seat-anchor classes 107/355/34 → 0/0/0; HECA worst
+residual −98.2%); §2 assert WORKS and correctly fails the build — the
+defect it exposes is real and upstream (1302 material inversions at
+HECA under complete seeds).
+
+The five implementation decisions: ALL APPROVED. (1) empty §3 box
+seats against the envelope (what phase A enforces); (2) raw frame for
+adjudication, sweep frame for per-carrier lines, documented; (3) the
+one-point margin gate covering all five consumers including the two
+the spec missed is the correct single-authority shape; (4) the
+untouched `hard |= building_seats` re-hardening (~solve.py:2109) is a
+QUEUED completeness item for the flip round, not this one; (5)
+probe_out sink fine.
+
+OPEN ITEMS THAT GATE ANY DEFAULT FLIP of the release combination:
+(a) HECA transverse worst |de| 3.84→5.32 m (+1.48, above materiality)
+— attribution required; (b) the FIFTH LINK: seed_rwy_seam x
+seed_rwy_seam, 1284 nodes, worst 2.672 m — node 6907 (05R/23L,
+138.720) vs 7236 (111.390): 27.33 m of value over 24.66 m of budget,
+GENUINE inter-runway steep truth (the owner's mega-anchor class; law
+adjudication, not a band hack — queue with the runway-flex/profile
+family); (c) the SIXTH LINK: `spine_floor`
+(build_apron_contact_floors) is a THIRD authority §3 does not cap
+(node 2862: floor 69.833 > cap slab 60.925) — single-authority family,
+queue with consensus retirement. §2's default stays "0" until (b)
+reconciles band construction with hard truth.
+
+Frame note (banked): the attribution round's bandfield.json was the
+FIRST spine_value_fields call (pre-flex construct band, 2467
+inversions); the asserted FINAL band carries 0 at HECA — any citation
+of those witness numbers must state the frame.
+
+MERGE ORDER RULED: seedfix rebases and commits FIRST (byte-inert at
+defaults), ref-pull lands SECOND and mints the true merged new-default
+anchors ONCE (w=0.02 + ref=0 + seat-band ON), seam-continuity
+dispatches on that base.

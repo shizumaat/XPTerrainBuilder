@@ -89,22 +89,22 @@
     "Emitting terrain features & finalizing": 7.69
    },
    "note": "DEFAULT-ARM baseline (no O4_* gates set) recorded for the kill-half round (docs/specs/kill-half-spec.md \u00a75), 2 cold-equivalent runs, foreground + exclusive, median.  MEASUREMENT CONDITION: the machine was measurably slower this session than during the 2026-08-04 overnight approval battery \u2014 phases this round cannot touch drifted with it (HECA emit 79.7-80.1 s overnight vs 81.2-90.2 s in every arm measured here) \u2014 so these numbers are CONSERVATIVE.  A same-session pre-kill control (worktree at 4d20c7c, CAND arm, warm caches) measured CYXY 35.8 / SPJC 177.15 / HECA 336.5 s, i.e. the kill round itself is not resolvable above the noise."
+  },
+  "KCLT": {
+   "recorded_at": "2026-08-04",
+   "git_commit": "2079b84",
+   "git_dirty_file_count": 8,
+   "total_seconds": 307.26,
+   "phase_seconds": {
+    "Loading apt.dat & runway geometry": 0.09,
+    "Assembling pavement & runway shoulders": 0.92,
+    "Building taxiways & terminals": 1.16,
+    "Building taxi rects, junctions & service roads": 19.34,
+    "Solving elevations (FAA grade compliance)": 220.72,
+    "Emitting terrain features & finalizing": 65.12
+   },
+   "note": "KCLT joins the battery as the FAA fixture (docs/RULINGS.md campaign goal). DEFAULT-ARM baseline (no O4_* gates set), WITH the +35-081 regional road clip (clip_+035-0081_3537cb8d9a74) so the road feed is live -- a no-road-clip build is a different airport (1943 vs 2290 shapes). tools/check_build_time.py --run --runs 2, foreground+exclusive, median of 308.0/306.6 s (0.5% apart). OVER the 60 s per-airport budget by 5.1x -- standing fact for the owner's budget ruling, not an approval."
   }
  },
- "tiles": {},
- "KCLT": {
-  "recorded_at": "2026-08-04",
-  "git_commit": "2079b84",
-  "git_dirty_file_count": 8,
-  "total_seconds": 307.26,
-  "phase_seconds": {
-   "Loading apt.dat & runway geometry": 0.09,
-   "Assembling pavement & runway shoulders": 0.92,
-   "Building taxiways & terminals": 1.16,
-   "Building taxi rects, junctions & service roads": 19.34,
-   "Solving elevations (FAA grade compliance)": 220.72,
-   "Emitting terrain features & finalizing": 65.12
-  },
-  "note": "KCLT joins the battery as the FAA fixture (docs/RULINGS.md campaign goal). DEFAULT-ARM baseline (no O4_* gates set), WITH the +35-081 regional road clip (clip_+035-0081_3537cb8d9a74) so the road feed is live -- a no-road-clip build is a different airport (1943 vs 2290 shapes). tools/check_build_time.py --run --runs 2, foreground+exclusive, median of 308.0/306.6 s (0.5% apart). OVER the 60 s per-airport budget by 5.1x -- standing fact for the owner's budget ruling, not an approval."
- }
+ "tiles": {}
 }

@@ -688,13 +688,16 @@ def run_auto_patch_generation(tile, airport_layer, dico_airports):
     if auto_patch_mode != "None":
         cifp_path = CFG.cifp_data_path
         if not cifp_path and CFG.custom_scenery_dir:
-            # Try X-Plane's default CIFP location relative to Custom Scenery
+            # Try X-Plane's CIFP locations relative to Custom Scenery.
+            # ``autodetect_cifp`` owns the precedence (an AIRAC update in
+            # Custom Data/CIFP wins over the stock Resources/default
+            # data/CIFP); this used to look only in Custom Data, so an
+            # install without Navigraph found no CIFP at all.
+            import O4_Settings_Model as SETTINGS
             xplane_root = os.path.dirname(
                 os.path.normpath(CFG.custom_scenery_dir)
             )
-            candidate = os.path.join(xplane_root, "Custom Data", "CIFP")
-            if os.path.isdir(candidate):
-                cifp_path = candidate
+            cifp_path = SETTINGS.autodetect_cifp(xplane_root) or ""
         if cifp_path:
             # The taxiway/building/road extraction below is passed as
             # zero-arg callables: generate_auto_patches invokes them

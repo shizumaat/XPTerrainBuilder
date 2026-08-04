@@ -151,10 +151,23 @@ class TestLateralContiguityEmitter:
         # the surviving road is the free (east) half
         assert min(s.polygon.bounds[0] for s in left) > 60.0
 
-    def test_groundside_neighbour_carries_the_cap_not_a_merge(self, lateral_on):
+    def test_groundside_neighbour_carries_the_cap_not_a_merge(
+            self, lateral_on, monkeypatch):
         """A DEM-followed lot carries per-vertex altitudes aligned 1:1 with
         its ring — merging would misalign them, so the road keeps its shape
-        and carries the LOT's cap instead (the law still binds)."""
+        and carries the LOT's cap instead (the law still binds).
+
+        SUPERSEDED AS A DEFAULT (the cap-carry test, spec kill-half §4a):
+        ``O4_SERVICE_LOT_ABSORPTION`` — class-universal absorption, owner
+        2026-08-03 — is default ON since 2026-08-04, and under it this lot
+        IS absorbed (the merge rebuilds the host's altitudes, which is what
+        made the alignment argument obsolete).  The cap-carry path survives
+        as the absorption-off behaviour and is pinned here as such; the
+        class-universal path has its own twin in
+        ``test_kill_prep_round.TestClassUniversalAbsorption``."""
+        monkeypatch.setenv("O4_SERVICE_LOT_ABSORPTION", "0")
+        import auto_patch.config as _cfgmod
+        importlib.reload(_cfgmod)
         from auto_patch import config as _cfg
         lot = BuiltShape(polygon=_rect(0, 0, 100, 60),
                          role="groundside_pavement",
@@ -168,7 +181,11 @@ class TestLateralContiguityEmitter:
         assert len(roads) == 1
         assert roads[0].lateral_cap == pytest.approx(_cfg.GROUNDSIDE_MAX_GRADE)
 
-    def test_gate_off_is_inert(self):
+    def test_gate_off_is_inert(self, monkeypatch):
+        # kill-half flip: the law is default ON, so ask for off explicitly
+        monkeypatch.setenv("O4_LATERAL_CONTIGUITY_LAW", "0")
+        import auto_patch.config as _cfgmod
+        importlib.reload(_cfgmod)
         apron = BuiltShape(polygon=_rect(0, 0, 100, 100), role="apron")
         road = BuiltShape(polygon=_rect(-10, 0, 0, 100), role="service_road")
         layout = _layout([apron, road])

@@ -51,7 +51,10 @@ def _dem_lot(x0, y0, x1, y1, z=10.0):
 def lateral_on(monkeypatch):
     """The landed lateral-contiguity law's gate ON, this round's gate OFF."""
     monkeypatch.setenv("O4_LATERAL_CONTIGUITY_LAW", "1")
-    monkeypatch.delenv("O4_SERVICE_LOT_ABSORPTION", raising=False)
+    # KILL-HALF FLIP 2026-08-04 (spec kill-half §1): this gate now DEFAULTS
+    # ON, so "off" must be asked for explicitly.  The property under test
+    # is unchanged.
+    monkeypatch.setenv("O4_SERVICE_LOT_ABSORPTION", "0")
     import auto_patch.config as cfg
     importlib.reload(cfg)
     import auto_patch.groundside as gs
@@ -418,8 +421,27 @@ class TestSeedCellExactness:
         # the author's own value is unrelaxed on at least one side
         assert c1 == pytest.approx(90.0)
 
-    def test_the_gate_defaults_off(self):
+    def test_the_gates_default_on_after_the_kill_half_flip(self,
+                                                            monkeypatch):
+        """FLIPPED 2026-08-04 (spec ``docs/specs/kill-half-spec.md`` §1).
+
+        All three of this round's gates ship ON; the evidence is the
+        kill-prep measurement recorded in ``495660a`` (HEAZ band inversions
+        10 → 3 / 0.0569 m → 0.0003 m, CYXY break nodes 52 → 16, every
+        runway vertex byte-identical under the seed fix and the triangle
+        demotion).  The env override still restores the pre-flip default,
+        which is what the second half asserts."""
         import auto_patch.config as cfg
+        for name in ("O4_BAND_SEED_EXACT", "O4_SERVICE_LOT_ABSORPTION",
+                     "O4_TRIANGLE_PLANE_REPORTS"):
+            monkeypatch.delenv(name, raising=False)
+        importlib.reload(cfg)
+        assert cfg.BAND_SEED_EXACT is True
+        assert cfg.SERVICE_LOT_ABSORPTION is True
+        assert cfg.TRIANGLE_PLANE_REPORTS is True
+        for name in ("O4_BAND_SEED_EXACT", "O4_SERVICE_LOT_ABSORPTION",
+                     "O4_TRIANGLE_PLANE_REPORTS"):
+            monkeypatch.setenv(name, "0")
         importlib.reload(cfg)
         assert cfg.BAND_SEED_EXACT is False
         assert cfg.SERVICE_LOT_ABSORPTION is False

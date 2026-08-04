@@ -476,9 +476,13 @@ def _dedup_coincident_ring_vertices(layout, icao: str, tol_m: float = 0.05,
     # the SAME union ``verification.check_source_coverage`` measures against
     # (source ∪ runway), so the guard and the coverage invariant cannot
     # disagree about what "source pavement" means.
+    # DEFAULT FLIPPED TO "1" 2026-08-04 (spec ``docs/specs/kill-half-
+    # spec.md`` §1; evidence: the classification round ``1e5a781``, which
+    # added the discriminator after the area heuristic was measured unable
+    # to separate a genuine needle from source pavement).
     needle_source = None
     if (collapse_needles
-            and os.environ.get("O4_NEEDLE_SOURCE_GUARD", "0") == "1"):
+            and os.environ.get("O4_NEEDLE_SOURCE_GUARD", "1") == "1"):
         needle_source = getattr(layout, "source_pavement_union", None)
         if needle_source is not None and not needle_source.is_empty:
             _rwy_u = getattr(layout, "runway_union", None)
@@ -5819,23 +5823,17 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 from .groundside import _grade_limit_groundside_chords
                 layout._weld_relimit_moved_xy = []
                 _grade_limit_groundside_chords(layout)
-                # Quarantine welds the re-adoption MOVED: the projection
-                # placed the road there, the lot law pulled it back — the
-                # residual tension has no lawful joint value (see the
-                # limiter's moved-weld note).  Their over-cap pairs report
-                # as break-region blends, not actionable misses.
-                _moved = getattr(layout, "_weld_relimit_moved_xy", None) \
-                    or []
-                if _moved:
-                    _existing_ll = list(
-                        getattr(layout, "_break_node_ll", None) or [])
-                    _seen_ll = {(round(la, 7), round(lo, 7))
-                                for (la, lo) in _existing_ll}
-                    for (_wx, _wy) in _moved:
-                        _la, _lo = layout.m_to_ll(_wx, _wy)
-                        if (round(_la, 7), round(_lo, 7)) not in _seen_ll:
-                            _existing_ll.append((_la, _lo))
-                    layout._break_node_ll = _existing_ll
+                # THE WELD-RELIMIT SINK — DELETED 2026-08-04 (spec
+                # ``docs/specs/kill-half-spec.md`` §2).  Welds this
+                # re-adoption moved were pushed into
+                # ``layout._break_node_ll`` so their over-cap pairs would
+                # report as break-region blends instead of actionable
+                # misses.  That is the third writer of the quarantine the
+                # spec kills (quarret2 named it "sink C"; it contributed 0
+                # nodes at HECA/CYXY/HEAZ in the kill-prep measurement).
+                # ``_weld_relimit_moved_xy`` itself stays — it is the
+                # limiter's own bookkeeping (``groundside.py``), not a
+                # quarantine.
             except _GEOM_EXC:
                 pass
 
@@ -6383,6 +6381,26 @@ def build_airport_pavement(icao: str, xplane_root: str,
             UI.vprint(1, f"  [pav-builder] WARN {icao}: deferred "
                          f"post-projection conformance passes failed "
                          f"({_deferred_conformance_exc!r}).")
+
+    # ★ THE LOUD ERROR (spec ``docs/specs/kill-half-spec.md`` §3) — the
+    # POST-SOLVE law, ungated.  Every pass that could move a value has run;
+    # the reach band's LAST value fields are the ones this patch was solved
+    # against.  If the anchors contradict through any node by more than the
+    # materiality floor, the build FAILS here, naming the nodes, their
+    # floor/ceiling values and their route distances.  It replaces the
+    # deleted quarantine (§2): an inverted band used to be painted over
+    # with a blend and hidden from the census; it is now either
+    # sub-materiality or a build error.  Deliberately OUTSIDE any
+    # ``try``/``except`` — a build that cannot be graded lawfully must not
+    # ship a patch.
+    if compute_elevations:
+        from .elevation_per_surface.building_feasibility import (
+            assert_no_final_band_inversion as _assert_band)
+        _n_residual = _assert_band(layout, icao)
+        if _n_residual:
+            UI.vprint(1, f"  [pav-builder] {icao}: final reach band — "
+                         f"{_n_residual} sub-materiality inversion(s) "
+                         f"(≤ 0.01 m), PASS-with-residual.")
 
     # SHADOW pavement scoring classifier v2 (docs/specs/pavement-scoring-
     # classifier-spec.md): score every final pavement shape against all

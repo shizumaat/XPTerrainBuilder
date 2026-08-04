@@ -80,6 +80,7 @@ def test_the_clamp_is_re_sourced_from_the_band(monkeypatch):
     assert on[2] == pytest.approx(30.0), on
 
     monkeypatch.setenv("O4_ENVELOPE_FROM_BAND", "0")
+    monkeypatch.setenv("O4_ROUTE_METRIC_ENVELOPE", "0")   # kill-half flip
     off = [0.0, 0.0, 0.0, 50.0]
     feasibility_project(off, loose, {0, 3}, force_scalar=True, max_iters=400,
                         env_band=band)
@@ -131,6 +132,11 @@ def test_pair_constraints_still_enforce_and_still_tally(monkeypatch):
 def test_gate_off_is_the_pair_closure(monkeypatch):
     band = [None, (10.0, 20.0), (30.0, 40.0), None]
     monkeypatch.setenv("O4_ENVELOPE_FROM_BAND", "0")
+    # KILL-HALF FLIP (2026-08-04, spec kill-half §1): the route-metric
+    # gate is DEFAULT ON and implies this one, so "gate off" now means
+    # both the flag and its implicant off.  The property under test is
+    # unchanged.
+    monkeypatch.setenv("O4_ROUTE_METRIC_ENVELOPE", "0")
     elev = [0.0, 0.0, 0.0, 50.0]
     broken = set()
     feasibility_project(elev, _chain(), {0, 3}, force_scalar=True,
@@ -140,6 +146,7 @@ def test_gate_off_is_the_pair_closure(monkeypatch):
 
 def test_gate_off_is_byte_identical_to_no_band(monkeypatch):
     monkeypatch.setenv("O4_ENVELOPE_FROM_BAND", "0")
+    monkeypatch.setenv("O4_ROUTE_METRIC_ENVELOPE", "0")   # kill-half flip
     band = [None, (10.0, 20.0), (30.0, 40.0), None]
     a = [0.0, 0.0, 0.0, 50.0]
     b = [0.0, 0.0, 0.0, 50.0]
@@ -171,23 +178,30 @@ def test_one_documented_default(monkeypatch):
     """★ Spec ``route-metric-envelope`` §1: "one default, defined once,
     documented; the historical '0'/'1' split dies."
 
-    The flag has exactly ONE resolver and ONE default, and the default is
-    OFF — so an unset environment gets the pair-closure envelope even when
-    a band is handed in, at EVERY call site (this is the property the old
-    ``solve.py``-"0"-vs-``one_solve.py``-"1" split violated).  The
-    route-metric gate implies it."""
+    The flag has exactly ONE resolver and ONE default.  KILL-HALF FLIP
+    (2026-08-04, spec kill-half §1): that default is now ON — the
+    route-metric envelope ships, so an UNSET environment gets the BAND
+    envelope at every call site.  The property the old
+    ``solve.py``-"0"-vs-``one_solve.py``-"1" split violated (one resolver,
+    one default, same answer everywhere) is what is asserted here, not the
+    value of the default."""
     monkeypatch.delenv("O4_ENVELOPE_FROM_BAND", raising=False)
     monkeypatch.delenv("O4_ROUTE_METRIC_ENVELOPE", raising=False)
-    assert envelope_from_band_enabled() is False
-    assert route_metric_envelope_enabled() is False
+    assert route_metric_envelope_enabled() is True
+    assert envelope_from_band_enabled() is True
 
     elev = [0.0, 0.0, 0.0, 50.0]
     broken = set()
     feasibility_project(elev, _chain(), {0, 3}, force_scalar=True,
                         max_iters=400, broken_out=broken,
                         env_band=[None, (10.0, 20.0), (30.0, 40.0), None])
-    assert broken == {1, 2}, "unset ⇒ the pair closure, band ignored"
+    assert broken == set(), "unset ⇒ THE band, and this band is feasible"
 
+    # Both flags still resolve through the one function, and the implicant
+    # still implies: forcing the route metric off restores the closure.
+    monkeypatch.setenv("O4_ROUTE_METRIC_ENVELOPE", "0")
+    assert route_metric_envelope_enabled() is False
+    assert envelope_from_band_enabled() is False
     monkeypatch.setenv("O4_ENVELOPE_FROM_BAND", "1")
     assert envelope_from_band_enabled() is True
     monkeypatch.delenv("O4_ENVELOPE_FROM_BAND")

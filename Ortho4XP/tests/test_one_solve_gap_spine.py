@@ -151,8 +151,16 @@ def test_frozen_specs_carry_law_values_with_none_sides():
             dd = s.polygon.exterior.distance(Point(px, py))
             if best is None or dd < best:
                 best, d = dd, dd
-        # every candidate parent here is an apron at the same distance
-        exp_floor, exp_ceil = adjacent_ground_envelope(
+        # every candidate parent here is an apron at the same distance.
+        # KILL-HALF FLIP (2026-08-04, spec kill-half §1):
+        # ``O4_DRAINAGE_SPINE_LAW`` is default ON, so the frozen spec now
+        # carries the ENCLOSED-INTERIOR envelope (ceiling at most
+        # ``DRAINAGE_SPINE_MIN_FALL_M`` below the bounding edge, floor
+        # unchanged) — the SAME law function ``gap_fill._spine_envelope``
+        # is bound to.  Reading it from that binding is what keeps this a
+        # lockstep test instead of a second copy of the law.
+        from auto_patch.gap_fill import _spine_envelope
+        exp_floor, exp_ceil = _spine_envelope(
             ROLE_APRON, None, None, 20.0)
         assert floor_off == exp_floor          # None preserved if None
         assert ceil_off == exp_ceil

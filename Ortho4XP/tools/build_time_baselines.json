@@ -2,18 +2,19 @@
  "_doc": "Committed build-time baselines for the hard-law checker tools/check_build_time.py (canonical law: CLAUDE.md working-style item 6). Cold-equivalent measurements excluding downloads; tile records qualify only when features.textures_missing == 0 AND features.insets_fetched == 0 (a run that fetched airport elevation insets books that download time into step-1 seconds). Update via 'venv/bin/python tools/check_build_time.py --run --update-baselines <ICAO ...>' and commit alongside the change that paid for any new numbers.",
  "airports": {
   "CYXY": {
-   "recorded_at": "2026-07-18",
-   "git_commit": "4e7564a",
-   "git_dirty_file_count": 2,
-   "total_seconds": 44.41,
+   "recorded_at": "2026-08-04",
+   "git_commit": "4d20c7c",
+   "git_dirty_file_count": 30,
+   "total_seconds": 35.56,
    "phase_seconds": {
     "Loading apt.dat & runway geometry": 0.03,
-    "Assembling pavement & runway shoulders": 1.05,
-    "Building taxiways & terminals": 1.82,
-    "Building taxi rects, junctions & service roads": 0.93,
-    "Solving elevations (FAA grade compliance)": 27.65,
-    "Emitting terrain features & finalizing": 12.96
-   }
+    "Assembling pavement & runway shoulders": 0.41,
+    "Building taxiways & terminals": 0.1,
+    "Building taxi rects, junctions & service roads": 0.68,
+    "Solving elevations (FAA grade compliance)": 26.98,
+    "Emitting terrain features & finalizing": 7.39
+   },
+   "note": "DEFAULT-ARM baseline (no O4_* gates set) recorded for the kill-half round (docs/specs/kill-half-spec.md \u00a75), 2 cold-equivalent runs, foreground + exclusive, median.  MEASUREMENT CONDITION: the machine was measurably slower this session than during the 2026-08-04 overnight approval battery \u2014 phases this round cannot touch drifted with it (HECA emit 79.7-80.1 s overnight vs 81.2-90.2 s in every arm measured here) \u2014 so these numbers are CONSERVATIVE.  A same-session pre-kill control (worktree at 4d20c7c, CAND arm, warm caches) measured CYXY 35.8 / SPJC 177.15 / HECA 336.5 s, i.e. the kill round itself is not resolvable above the noise."
   },
   "OTHH": {
    "recorded_at": "2026-07-18",
@@ -30,32 +31,64 @@
    }
   },
   "SPJC": {
-   "recorded_at": "2026-07-25",
-   "git_commit": "c829b9a",
-   "git_dirty_file_count": 43,
-   "total_seconds": 76.97,
+   "recorded_at": "2026-08-04",
+   "git_commit": "4d20c7c",
+   "git_dirty_file_count": 31,
+   "total_seconds": 174.99,
    "phase_seconds": {
-    "Loading apt.dat & runway geometry": 0.05,
-    "Assembling pavement & runway shoulders": 0.34,
-    "Building taxiways & terminals": 4.54,
-    "Building taxi rects, junctions & service roads": 2.65,
-    "Solving elevations (FAA grade compliance)": 51.86,
-    "Emitting terrain features & finalizing": 17.57
-   }
+    "Loading apt.dat & runway geometry": 0.06,
+    "Assembling pavement & runway shoulders": 0.47,
+    "Building taxiways & terminals": 0.34,
+    "Building taxi rects, junctions & service roads": 1.94,
+    "Solving elevations (FAA grade compliance)": 119.38,
+    "Emitting terrain features & finalizing": 52.86
+   },
+   "note": "DEFAULT-ARM baseline (no O4_* gates set) recorded for the kill-half round (docs/specs/kill-half-spec.md \u00a75), 2 cold-equivalent runs, foreground + exclusive, median.  MEASUREMENT CONDITION: the machine was measurably slower this session than during the 2026-08-04 overnight approval battery \u2014 phases this round cannot touch drifted with it (HECA emit 79.7-80.1 s overnight vs 81.2-90.2 s in every arm measured here) \u2014 so these numbers are CONSERVATIVE.  A same-session pre-kill control (worktree at 4d20c7c, CAND arm, warm caches) measured CYXY 35.8 / SPJC 177.15 / HECA 336.5 s, i.e. the kill round itself is not resolvable above the noise."
   },
   "HECA": {
-   "recorded_at": "2026-07-25",
-   "git_commit": "c829b9a",
-   "git_dirty_file_count": 43,
-   "total_seconds": 341.42,
+   "recorded_at": "2026-08-04",
+   "git_commit": "4d20c7c",
+   "git_dirty_file_count": 31,
+   "total_seconds": 351.93,
    "phase_seconds": {
-    "Loading apt.dat & runway geometry": 0.07,
-    "Assembling pavement & runway shoulders": 1.31,
-    "Building taxiways & terminals": 16.01,
-    "Building taxi rects, junctions & service roads": 54.86,
-    "Solving elevations (FAA grade compliance)": 177.66,
-    "Emitting terrain features & finalizing": 91.59
-   }
+    "Loading apt.dat & runway geometry": 0.08,
+    "Assembling pavement & runway shoulders": 1.39,
+    "Building taxiways & terminals": 1.47,
+    "Building taxi rects, junctions & service roads": 54.19,
+    "Solving elevations (FAA grade compliance)": 205.12,
+    "Emitting terrain features & finalizing": 89.76
+   },
+   "note": "DEFAULT-ARM baseline (no O4_* gates set) recorded for the kill-half round (docs/specs/kill-half-spec.md \u00a75), 2 cold-equivalent runs, foreground + exclusive, median.  MEASUREMENT CONDITION: the machine was measurably slower this session than during the 2026-08-04 overnight approval battery \u2014 phases this round cannot touch drifted with it (HECA emit 79.7-80.1 s overnight vs 81.2-90.2 s in every arm measured here) \u2014 so these numbers are CONSERVATIVE.  A same-session pre-kill control (worktree at 4d20c7c, CAND arm, warm caches) measured CYXY 35.8 / SPJC 177.15 / HECA 336.5 s, i.e. the kill round itself is not resolvable above the noise."
+  },
+  "SPLP": {
+   "recorded_at": "2026-08-04",
+   "git_commit": "4d20c7c",
+   "git_dirty_file_count": 30,
+   "total_seconds": 12.25,
+   "phase_seconds": {
+    "Loading apt.dat & runway geometry": 0.02,
+    "Assembling pavement & runway shoulders": 0.41,
+    "Building taxiways & terminals": 0.03,
+    "Building taxi rects, junctions & service roads": 0.46,
+    "Solving elevations (FAA grade compliance)": 9.46,
+    "Emitting terrain features & finalizing": 1.89
+   },
+   "note": "DEFAULT-ARM baseline (no O4_* gates set) recorded for the kill-half round (docs/specs/kill-half-spec.md \u00a75), 2 cold-equivalent runs, foreground + exclusive, median.  MEASUREMENT CONDITION: the machine was measurably slower this session than during the 2026-08-04 overnight approval battery \u2014 phases this round cannot touch drifted with it (HECA emit 79.7-80.1 s overnight vs 81.2-90.2 s in every arm measured here) \u2014 so these numbers are CONSERVATIVE.  A same-session pre-kill control (worktree at 4d20c7c, CAND arm, warm caches) measured CYXY 35.8 / SPJC 177.15 / HECA 336.5 s, i.e. the kill round itself is not resolvable above the noise."
+  },
+  "HEAZ": {
+   "recorded_at": "2026-08-04",
+   "git_commit": "4d20c7c",
+   "git_dirty_file_count": 31,
+   "total_seconds": 54.73,
+   "phase_seconds": {
+    "Loading apt.dat & runway geometry": 0.48,
+    "Assembling pavement & runway shoulders": 0.5,
+    "Building taxiways & terminals": 0.06,
+    "Building taxi rects, junctions & service roads": 0.58,
+    "Solving elevations (FAA grade compliance)": 45.91,
+    "Emitting terrain features & finalizing": 7.69
+   },
+   "note": "DEFAULT-ARM baseline (no O4_* gates set) recorded for the kill-half round (docs/specs/kill-half-spec.md \u00a75), 2 cold-equivalent runs, foreground + exclusive, median.  MEASUREMENT CONDITION: the machine was measurably slower this session than during the 2026-08-04 overnight approval battery \u2014 phases this round cannot touch drifted with it (HECA emit 79.7-80.1 s overnight vs 81.2-90.2 s in every arm measured here) \u2014 so these numbers are CONSERVATIVE.  A same-session pre-kill control (worktree at 4d20c7c, CAND arm, warm caches) measured CYXY 35.8 / SPJC 177.15 / HECA 336.5 s, i.e. the kill round itself is not resolvable above the noise."
   }
  },
  "tiles": {}

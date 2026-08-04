@@ -117,22 +117,34 @@ def test_merged_groups_intersect_boxes(_sweep_path):
     assert rem == 2
 
 
-# ── (d) broken-node blend clamps into the box ────────────────────────────
+# ── (d) an inverted node takes its ceiling and stays movable ─────────────
 
-def test_broken_blend_clamped_into_box(_sweep_path):
-    # hard@100 and hard@0 contradict through node 1 (floor 99 > ceil 1),
-    # so the envelope quarantines it at the distance-weighted blend (~50)
-    # — the burial mechanism.  With a box the blend clamps to the floor.
+def test_inverted_node_takes_the_ceiling_and_still_sweeps(_sweep_path):
+    """REWRITTEN 2026-08-04 (spec ``docs/specs/kill-half-spec.md`` §2).
+
+    This test pinned the BURIAL MECHANISM's repair: hard@100 and hard@0
+    contradict through node 1 (floor 99 > ceiling 1), the envelope
+    quarantined it at the distance-weighted blend (~50) and froze it, and
+    the bounded-yield box existed to stop that blend parking a released
+    seat outside the interval it was seated from.
+
+    The blend and the freeze are DELETED, so there is no blend for a box
+    to rescue: the node takes the ordinary clamp — the CEILING — and then
+    sweeps.  The box still binds (it is the node's own law, not a
+    quarantine), which is the half of this test that survives."""
     edges = [(0, 1, 1.0), (1, 2, 1.0)]
     unbounded = [100.0, 50.0, 0.0]
     feasibility_project(unbounded, [{"edges": edges}], {0, 2},
                         force_scalar=True)
-    assert 1.0 < unbounded[1] < 99.0        # blended between the anchors
+    assert unbounded[1] == pytest.approx(1.0, abs=1e-9), (
+        "the clamp's answer for an inverted interval is the ceiling "
+        "(hard@0 + one 1.0 m budget)")
     bounded = [100.0, 50.0, 0.0]
     rem, _ = feasibility_project(bounded, [{"edges": edges}], {0, 2},
                                  force_scalar=True,
                                  node_bounds={1: (95.0, 100.0)})
-    assert bounded[1] == pytest.approx(95.0, abs=1e-9)
+    assert bounded[1] == pytest.approx(95.0, abs=1e-9), (
+        "the box is the node's OWN law and still binds")
     assert rem >= 1                          # the contradiction stays visible
 
 

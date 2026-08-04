@@ -21,6 +21,8 @@ No network, no X-Plane install, no DEM: pure arithmetic + ``tmp_path``.
 """
 from __future__ import annotations
 
+import pytest
+
 from auto_patch.elevation_per_surface.route_profile.one_solve import (
     feasibility_project)
 from auto_patch.elevation_per_surface.route_profile.solve import (
@@ -365,6 +367,11 @@ def test_fix2_costs_nothing_where_the_law_is_already_satisfied(monkeypatch):
     assert elev[4] < elev[1] - 0.2, elev
 
 
+@pytest.mark.xfail(strict=True, reason=(
+    "EXPOSED CONSUMER, kill-half §2 (2026-08-04): fix-arm SITE 2 was the "
+    "break blend itself, and the blend is deleted.  Site 1 (the envelope "
+    "clamp) is untouched and still tested above.  Left failing on purpose "
+    "— O4_HARD_NEIGHBOUR_BOUND is not this spec's to retire."))
 def test_fix2_stops_the_blend_manufacturing_an_over_cap_pair(monkeypatch):
     """THE mechanism Ruling 55 names.  Two anchors 20 m apart through a
     3-edge chain make the interior nodes BROKEN, and the distance-weighted
@@ -372,6 +379,13 @@ def test_fix2_stops_the_blend_manufacturing_an_over_cap_pair(monkeypatch):
     neighbour at 110 across a 0.15 m budget, an over-cap pair no anchor
     asked for.  Under the bound node 1 stays inside ``[hard ± cap·d]`` and
     the residual break concentrates where the anchors genuinely disagree.
+
+    POST-§2 MEASUREMENT (recorded, not hidden): with no blend the interior
+    nodes are placed by the sweeps at 100.07/99.93, so the over-cap pair
+    against the hard neighbour survives on this genuinely infeasible
+    synthetic system — 20 m of anchor disagreement across 0.45 m of total
+    budget.  On the five-airport battery the FINAL band carries no material
+    inversion at all (spec §3), so no production surface takes this path.
     """
     sc = [{"edges": [(0, 1, 0.15), (1, 2, 0.15), (2, 3, 0.15)]}]
     monkeypatch.setenv("O4_HARD_NEIGHBOUR_BOUND", "0")

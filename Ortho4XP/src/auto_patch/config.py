@@ -1658,7 +1658,13 @@ RASTER_REACH_BAND_GRID_RESIDUAL_M = 0.25
 # leg, so the relaxation is conservative.  A residual inversion under the
 # gate is therefore a genuine node-value inconsistency, not a raster
 # artifact.  OFF ⇒ byte-identical.
-BAND_SEED_EXACT = _os_early.environ.get("O4_BAND_SEED_EXACT", "0") == "1"
+# DEFAULT FLIPPED TO "1" 2026-08-04 (spec ``docs/specs/kill-half-spec.md``
+# §1; evidence: the kill-prep round ``495660a`` — HEAZ band inversions
+# 10 → 3 and worst 0.0569 m → 0.0003 m at the final band build, CYXY
+# within-shape ±0 and every runway vertex byte-identical, HECA break nodes
+# ±0 with every role count identical).  ``O4_BAND_SEED_EXACT=0`` restores
+# the collapsed-cell seeding.
+BAND_SEED_EXACT = _os_early.environ.get("O4_BAND_SEED_EXACT", "1") == "1"
 
 # ── Chromatic (graph-colored) Gauss-Seidel projection (Tier 3 wave 2c,
 # ``O4_CHROMATIC_PROJECTION``) ──────────────────────────────────────────────
@@ -2039,8 +2045,15 @@ SCORER_SERVICE_ADJ = _os.environ.get("O4_SCORER_SERVICE_ADJ", "0") == "1"
 # class-limited, proximity-delimited form, and running both would double-cap
 # the same pieces.  OFF ⇒ those two passes run exactly as before and the
 # emitted patch is byte-identical.
+# DEFAULT FLIPPED TO "1" 2026-08-04 (spec ``docs/specs/kill-half-spec.md``
+# §1; evidence: the classification round ``1e5a781``, which built the law
+# and its emitter, and the kill-prep round ``495660a``, whose absorption
+# rides it — CYXY break nodes 52 → 22 with absorption alone, strip seam
+# tears 8 → 0).  The law is the owner's FINAL 2026-08-02 ruling; a default
+# of "0" left the ruling unenforced.  ``O4_LATERAL_CONTIGUITY_LAW=0``
+# restores the two legacy proximity-band adoption passes.
 LATERAL_CONTIGUITY_LAW_ENABLED = _os.environ.get(
-    "O4_LATERAL_CONTIGUITY_LAW", "0") == "1"
+    "O4_LATERAL_CONTIGUITY_LAW", "1") == "1"
 # SERVICE↔LOT ABSORPTION (owner 2026-08-03, docs/RULINGS.md
 # "lateral-contiguity absorption is class-universal"; spec
 # docs/specs/kill-prep-round-spec.md §1).  The absorption of clause (4)
@@ -2064,8 +2077,14 @@ LATERAL_CONTIGUITY_LAW_ENABLED = _os.environ.get(
 # The service SPINE is never touched: absorption removes a SURFACE, not a
 # centerline.  Requires ``LATERAL_CONTIGUITY_LAW_ENABLED`` (this gate only
 # widens that pass's class set).  OFF ⇒ byte-identical.
+# DEFAULT FLIPPED TO "1" 2026-08-04 (spec ``docs/specs/kill-half-spec.md``
+# §1; evidence: the kill-prep round ``495660a`` — HECA 306 stretches
+# absorbed and 582 laterally-bound anchor contradictions no longer
+# quarantined, CYXY break nodes 52 → 22 — and the membership-v2 round
+# ``5a94c57``, which made the absorption context-conservative).
+# ``O4_SERVICE_LOT_ABSORPTION=0`` restores the apron-only class set.
 SERVICE_LOT_ABSORPTION = _os.environ.get(
-    "O4_SERVICE_LOT_ABSORPTION", "0") == "1"
+    "O4_SERVICE_LOT_ABSORPTION", "1") == "1"
 # TRIANGLE-PLANE DEMOTION (spec docs/specs/kill-prep-round-spec.md §2).
 # ``route_profile.solve._project_triangle_planes`` clamps a 3-vertex shape
 # whose PLANE tilts past its role cap by moving its freest vertex; where no
@@ -2076,8 +2095,15 @@ SERVICE_LOT_ABSORPTION = _os.environ.get(
 # ``triangle_plane_unresolved`` sidecar count — and the unresolved
 # triangles surface as visible violations for the solver-convergence work.
 # The projection itself is unchanged either way.  OFF ⇒ byte-identical.
+# DEFAULT FLIPPED TO "1" 2026-08-04 (spec ``docs/specs/kill-half-spec.md``
+# §1; evidence: the kill-prep round ``495660a`` — CYXY break nodes 52 → 49
+# with this gate alone and only +3 visible within-shape rows, every runway
+# vertex byte-identical at every airport).  With §2 deleting the break
+# quarantine outright, "export the unresolved triangle" has no sink left:
+# the report IS the disposition.  ``O4_TRIANGLE_PLANE_REPORTS=0`` restores
+# the export call, which now lands in a report-only set.
 TRIANGLE_PLANE_REPORTS = _os.environ.get(
-    "O4_TRIANGLE_PLANE_REPORTS", "0") == "1"
+    "O4_TRIANGLE_PLANE_REPORTS", "1") == "1"
 # Points each feature contributes toward each class, BEFORE the
 # per-airport source-reliability scaling (spec §6).  Feature values are
 # fractions in [0,1]; negative points are allowed.  Override individual
@@ -4695,8 +4721,13 @@ GAP_FILL_INTERIOR_FLOOR_DEPTH_M = float(
 # depth for an interior swale, so this is the smallest fall that reads
 # as a drain rather than as emit-rounding noise (the patch quantises
 # altitudes at 0.1 m, so 0.30 m is three quanta).
+# DEFAULT FLIPPED TO "1" 2026-08-04 (spec ``docs/specs/kill-half-spec.md``
+# §1; evidence: the field-report fix batch ``0b9efaf``, which built both
+# halves in lockstep — the solver-side minimum fall and the
+# ``check_grade`` twin — against the owner's flown drainage report).
+# ``O4_DRAINAGE_SPINE_LAW=0`` restores the un-clamped gap spines.
 DRAINAGE_SPINE_LAW_ENABLED = (
-    _os.environ.get("O4_DRAINAGE_SPINE_LAW", "0") == "1")
+    _os.environ.get("O4_DRAINAGE_SPINE_LAW", "1") == "1")
 
 # ── SOURCE-COVERAGE INVARIANT, WIRED (owner field report 2026-08-02) ──
 # ``verification.check_source_coverage`` — emitted pavement must COVER the
@@ -4707,10 +4738,17 @@ DRAINAGE_SPINE_LAW_ENABLED = (
 # verification pass runs it and reports every enclosed uncovered piece
 # ≥ ``SOURCE_COVERAGE_MIN_AREA_M2`` with ≥
 # ``SOURCE_COVERAGE_MIN_ENCLOSED_FRAC`` of its perimeter against emitted
-# pavement.  Default OFF this round: the check is a whole-airport union +
-# difference and its cost has not been measured against the build budget.
+# pavement.
+# DEFAULT FLIPPED TO "1" 2026-08-04 (spec ``docs/specs/kill-half-spec.md``
+# §1; evidence: the field-report fix batch ``0b9efaf`` wired it, and the
+# flip battery measured its cost — the whole-airport union + difference the
+# comment below worried about does not move any airport's verification
+# phase (the flip's entire delta is inside the solve phase).  It is a
+# REPORTING instrument: per docs/RULINGS.md "the goal is LAW COMPLIANCE,
+# not instrument-zero", the rows it adds are visibility, not violations.
+# ``O4_SOURCE_COVERAGE_CHECK=0`` returns it to zero call sites.
 SOURCE_COVERAGE_CHECK_ENABLED = (
-    _os.environ.get("O4_SOURCE_COVERAGE_CHECK", "0") == "1")
+    _os.environ.get("O4_SOURCE_COVERAGE_CHECK", "1") == "1")
 SOURCE_COVERAGE_MIN_AREA_M2 = 5.0
 SOURCE_COVERAGE_MIN_ENCLOSED_FRAC = 0.70
 DRAINAGE_SPINE_MIN_FALL_M = float(
@@ -5163,8 +5201,15 @@ APRON_WALL_PAVEMENT_ADJACENCY_M = 5.0
 # lawful (adjacent-ground zone law).
 # The VALIDATOR half is ``check_grade._check_no_wall_in_runway_strip``,
 # built from the SAME law function (lockstep).  Gate OFF ⇒ byte-identical.
+# DEFAULT FLIPPED TO "1" 2026-08-04 (spec ``docs/specs/kill-half-spec.md``
+# §1; evidence: the field-report fix batch ``0b9efaf``, built from the
+# owner's verbatim runway-edge terrain law — "retaining walls are NEVER
+# lawful at a runway edge" (docs/RULINGS.md) — with the emitter and the
+# ``check_grade._check_no_wall_in_runway_strip`` twin in lockstep.  A law
+# this categorical cannot ship behind a default-off gate.
+# ``O4_RUNWAY_STRIP_WALL_LAW=0`` restores wall admission inside strips.
 RUNWAY_STRIP_WALL_LAW_ENABLED = (
-    _os.environ.get("O4_RUNWAY_STRIP_WALL_LAW", "0") == "1")
+    _os.environ.get("O4_RUNWAY_STRIP_WALL_LAW", "1") == "1")
 
 # ── SOLVED-BAND EMIT-SIDE CORRIDOR CLAMP (diagnosed 2026-07-25, SPJC) ──
 # The GATE-ON band valuation (``adjacent_ground._make_solved_band_resampler``)

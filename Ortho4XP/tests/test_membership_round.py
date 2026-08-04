@@ -65,9 +65,14 @@ def _dem_lot(x0, y0, x1, y1, z=10.0):
 
 @pytest.fixture()
 def law_off(monkeypatch):
-    """Everything this round rides on is OFF — the shipping default."""
-    monkeypatch.delenv("O4_LATERAL_CONTIGUITY_LAW", raising=False)
-    monkeypatch.delenv("O4_SERVICE_LOT_ABSORPTION", raising=False)
+    """Everything this round rides on is OFF.
+
+    NO LONGER the shipping default — both gates flipped ON 2026-08-04
+    (spec kill-half §1), so this fixture now asks for the pre-flip world
+    explicitly.  What it pins (the passes are inert with the law off) is
+    unchanged."""
+    monkeypatch.setenv("O4_LATERAL_CONTIGUITY_LAW", "0")
+    monkeypatch.setenv("O4_SERVICE_LOT_ABSORPTION", "0")
     import auto_patch.config as cfg
     importlib.reload(cfg)
     import auto_patch.groundside as gs
@@ -79,7 +84,10 @@ def law_off(monkeypatch):
 def lateral_on(monkeypatch):
     """The lateral-contiguity law ON, the class-universal gate OFF."""
     monkeypatch.setenv("O4_LATERAL_CONTIGUITY_LAW", "1")
-    monkeypatch.delenv("O4_SERVICE_LOT_ABSORPTION", raising=False)
+    # KILL-HALF FLIP 2026-08-04 (spec kill-half §1): this gate now DEFAULTS
+    # ON, so "off" must be asked for explicitly.  The property under test
+    # is unchanged.
+    monkeypatch.setenv("O4_SERVICE_LOT_ABSORPTION", "0")
     import auto_patch.config as cfg
     importlib.reload(cfg)
     import auto_patch.groundside as gs

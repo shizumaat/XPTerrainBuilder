@@ -79,7 +79,10 @@ def absorption_on(monkeypatch):
 @pytest.fixture()
 def absorption_off(monkeypatch):
     monkeypatch.setenv("O4_LATERAL_CONTIGUITY_LAW", "1")
-    monkeypatch.delenv("O4_SERVICE_LOT_ABSORPTION", raising=False)
+    # KILL-HALF FLIP 2026-08-04 (spec kill-half §1): this gate now DEFAULTS
+    # ON, so "off" must be asked for explicitly.  The property under test
+    # is unchanged.
+    monkeypatch.setenv("O4_SERVICE_LOT_ABSORPTION", "0")
     import auto_patch.config as cfg
     importlib.reload(cfg)
     import auto_patch.groundside as gs

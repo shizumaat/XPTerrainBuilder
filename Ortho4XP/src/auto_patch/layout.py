@@ -2442,13 +2442,15 @@ class PavementLayout:
                 "seam_pins": [[round(la, 7), round(lo, 7)]
                               for (la, lo) in
                               (getattr(self, "_seam_pin_ll", None) or [])],
-                # Solver-declared BREAK regions (genuine anchor
-                # contradictions, blended): the validator reports their
-                # over-cap ramp pairs separately (user 2026-07-05).
-                "break_nodes": [[round(la, 7), round(lo, 7)]
-                                for (la, lo) in
-                                (getattr(self, "_break_node_ll", None)
-                                 or [])],
+                # ``break_nodes`` — DELETED 2026-08-04 (spec ``docs/specs/
+                # kill-half-spec.md`` §2).  This key carried the solver's
+                # break quarantine to ``check_grade``, which split those
+                # pairs out of the actionable within-shape count.  The
+                # quarantine is retired outright (docs/RULINGS.md: it is
+                # unauthorized and counts are full-census), so the key is
+                # gone and every emitted patch's sidecar is one key
+                # smaller.  A patch built BEFORE this round still carries
+                # it; the reader simply ignores unknown keys.
                 # TRIANGLE-PLANE REPORT (spec kill-prep §2, gate
                 # ``O4_TRIANGLE_PLANE_REPORTS``): how many triangle
                 # vertices the single-vertex plane search could not fix.

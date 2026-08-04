@@ -46,15 +46,23 @@ _INF = float("inf")
 # band envelope — the route metric IS the band (spec §1: "the band engine
 # is THE metric — no third engine") — and additionally turns on the
 # non-route seed-admission clause (spec §2).
+#
+# DEFAULT FLIPPED TO "1" 2026-08-04 (spec ``docs/specs/kill-half-spec.md``
+# §1; evidence: the route-metric-envelope round ``019d0bb``, and the owner
+# ruling "band-shaped baseline accepted" (docs/RULINGS.md 2026-08-01) which
+# adopts this envelope's two-sided tightening as the baseline surface
+# character).  ``O4_ENVELOPE_FROM_BAND``'s own default stays "0" — the
+# route-metric gate implies it, so there is still ONE default to flip.
 ENVELOPE_FROM_BAND_DEFAULT = "0"
-ROUTE_METRIC_ENVELOPE_DEFAULT = "0"
+ROUTE_METRIC_ENVELOPE_DEFAULT = "1"
 
 
 def route_metric_envelope_enabled() -> bool:
-    """True when ``O4_ROUTE_METRIC_ENVELOPE`` is on (default ``"0"``).
+    """True when ``O4_ROUTE_METRIC_ENVELOPE`` is on (default ``"1"`` since
+    the 2026-08-04 kill-half flip; ``O4_ROUTE_METRIC_ENVELOPE=0`` restores
+    the pair-closure envelope).
 
-    THE one reader of this flag's default (spec §4: "Gate:
-    ``O4_ROUTE_METRIC_ENVELOPE``, default ``"0"`` this round")."""
+    THE one reader of this flag's default."""
     return (_os.environ.get("O4_ROUTE_METRIC_ENVELOPE",
                             ROUTE_METRIC_ENVELOPE_DEFAULT) == "1")
 
@@ -1364,14 +1372,17 @@ def _merge_witness(best_a, src_a, best_b, src_b, sign):
 
 def _break_forensics_report(path, label, broken, hard, elev, n,
                             ceil_radj, floor_radj, classes, latlon,
-                            limited=None, horizon=None, t_fallback=None):
-    """Name every broken node's ``floor > ceiling`` WITNESS PAIR by ANCHOR
-    CLASS (spec Track 1 step 4 — a deliverable in its own right).
+                            limited=None, horizon=None):
+    """Name every band-inverted node's ``floor > ceiling`` WITNESS PAIR by
+    ANCHOR CLASS (spec Track 1 step 4 — a deliverable in its own right).
 
-    This is the honest answer to whether a component is feasible whole: a
-    broken node is not "the solver failing", it is two HARD anchors whose
+    This is the honest answer to whether a component is feasible whole: an
+    inverted node is not "the solver failing", it is two HARD anchors whose
     values cannot both be reached through the fabric between them.  Naming
-    the pair by class says WHICH law or WHICH anchor value is wrong."""
+    the pair by class says WHICH law or WHICH anchor value is wrong.
+
+    ``t_fallback`` retired 2026-08-04 with the break blend it counted
+    (spec kill-half §2) — there is no ``t`` left to fall back on."""
     import statistics as _stats
     try:
         _seeds = (set(hard) - set(limited)) if limited else hard
@@ -1401,20 +1412,9 @@ def _break_forensics_report(path, label, broken, hard, elev, n,
         deficit = lo - hi
         rows.append((i, lo, hi, deficit, fw, fc, cw, cc))
         buckets.setdefault((fc, cc), []).append(deficit)
-    # ``t_fallback`` — the break blend's degenerate ``else 0.5`` branch,
-    # COUNTED BY PRODUCTION (spec break-blend-continuity): the attribution
-    # report could only infer ``t`` from emitted values, so "which branch
-    # fired" was unanswerable off-line.  The node list rides along (the
-    # rows above carry each node's lat/lon) so a named site can be checked
-    # against it directly.
-    _tfb = sorted(t_fallback or ())
-    print(f"    [break-forensics] {label}: {len(rows)} broken node(s) with a "
-          f"witness pair (of {len(broken)} broken); "
-          f"{len(buckets)} floor×ceiling ANCHOR-CLASS pair(s); "
-          f"t_fallback={len(_tfb)}")
-    if _tfb:
-        print(f"    [break-forensics]   t_fallback node(s): "
-              f"{_tfb[:200]}{' …' if len(_tfb) > 200 else ''}")
+    print(f"    [break-forensics] {label}: {len(rows)} inverted node(s) "
+          f"with a witness pair (of {len(broken)} inverted); "
+          f"{len(buckets)} floor×ceiling ANCHOR-CLASS pair(s)")
     for (key, deficits) in sorted(buckets.items(),
                                   key=lambda kv: -len(kv[1])):
         print(f"    [break-forensics]   floor={key[0]:<20s} "
@@ -2064,76 +2064,15 @@ def feasibility_project(elev, shape_constraints, hard, *,
                     heapq.heappush(pq, ((nt if sign > 0 else -nt), ndk, j))
         return best, dist
 
-    def _reach_src(sign, radj, seeds, horizon=None):
-        """``_reach_plain`` plus the WITNESS ANCHOR each label came from.
-
-        Break-blend continuity (spec ``docs/specs/break-blend-continuity-
-        spec.md``): the fix needs the ceiling/floor WITNESS SETS — the
-        anchors the live envelope actually consulted at the broken nodes —
-        to seed its distance-only passes.  The anchor rides as a FOURTH
-        tuple element, so it is compared only when value, distance AND node
-        index all tie; two such labels carry the same ``best`` and the same
-        ``dist``, so ``best``/``dist`` are what ``_reach_plain`` returns
-        bit-for-bit and the envelope is untouched.  Only reached under
-        ``O4_BREAK_BLEND_CONTINUOUS=1``, so the ungated pass keeps its
-        three-element heap entries."""
-        best: dict = {}
-        dist: dict = {}
-        src: dict = {}
-        pq = [((elev[a] if sign > 0 else -elev[a]), 0.0, a, a)
-              for a in seeds if a < n]
-        heapq.heapify(pq)
-        while pq:
-            val, dk, k, anchor = heapq.heappop(pq)
-            t = val if sign > 0 else -val
-            if k in best and ((sign > 0 and t >= best[k])
-                              or (sign < 0 and t <= best[k])):
-                continue
-            best[k] = t
-            dist[k] = dk
-            src[k] = anchor
-            for (j, w) in radj.get(k, ()):
-                ndk = dk + (w if w >= 0.0 else -w)
-                if horizon is not None and ndk > horizon:
-                    continue
-                nt = t + w
-                pj = best.get(j)
-                if pj is None or (sign > 0 and nt < pj) or (sign < 0 and nt > pj):
-                    heapq.heappush(pq, ((nt if sign > 0 else -nt), ndk, j,
-                                        anchor))
-        return best, dist, src
-
-    def _dist_plain(radj, seeds, horizon=None):
-        """DISTANCE-ONLY multi-source Dijkstra over EXACTLY the edges the
-        blend's distances already come from, in the envelope's own budget
-        metric (``|w|``).
-
-        Break-blend continuity (spec ``docs/specs/break-blend-continuity-
-        spec.md``): ``_reach_plain``'s ``dist[k]`` is the length of whichever
-        VALUE-winning path happened to win, so it jumps by the two anchors'
-        value gap wherever the winner changes — not a continuous function of
-        position.  A multi-source distance field is 1-Lipschitz in the same
-        metric by construction, so the weight read off it cannot jump
-        between adjacent nodes.  No value is read or written here: this
-        feeds ``t`` and nothing else."""
-        dist: dict = {}
-        pq = [(0.0, a) for a in seeds if a < n]
-        heapq.heapify(pq)
-        while pq:
-            dk, k = heapq.heappop(pq)
-            if k in dist:
-                continue
-            dist[k] = dk
-            for (j, w) in radj.get(k, ()):
-                if j in dist:
-                    continue
-                ndk = dk + (w if w >= 0.0 else -w)
-                if horizon is not None and ndk > horizon:
-                    continue
-                heapq.heappush(pq, (ndk, j))
-        return dist
-
-    from auto_patch.config import SVC_SPINE_EDGE_COUPLE as _EDGE_COUPLE
+    # ``SVC_SPINE_EDGE_COUPLE`` / ``edge_couple_nodes`` — EXPOSED CONSUMER,
+    # STOP-AND-REPORT (spec kill-half §2, 2026-08-04).  This feature's ONLY
+    # effect site was the deleted break blend (it clamped a BLENDED broken
+    # spine node into its hard-neighbour interval), so with the blend gone
+    # the flag, the parameter and the caller's ``_svc_couple_nodes`` walk
+    # in ``solve.final_grade_projection`` are inert.  Nothing here is
+    # deleted on an implementer's own authority: the flag stays defined,
+    # the parameter stays accepted and the caller stays as it is, and the
+    # exposure is reported to the spec author for a ruling.
 
     def _hard_neighbour_witness(i):
         """``_hard_neighbour_interval`` plus the two AUTHORS of the bound.
@@ -2323,28 +2262,28 @@ def feasibility_project(elev, shape_constraints, hard, *,
             if _b is not None and _b[0] > _b[1]:
                 _band_broken.add(i)
 
-    # ── CONTINUOUS BREAK-BLEND WEIGHT (spec ``docs/specs/break-blend-
-    # continuity-spec.md``, gate ``O4_BREAK_BLEND_CONTINUOUS``, default
-    # "0" this round) ────────────────────────────────────────────────────
-    # "While any break region exists, its painted surface must at least be
-    # CONTINUOUS."  The blend below interpolates ``elev = hi + (lo−hi)·t``
-    # with ``t = dc/(dc+df)`` read from ``_reach_plain``'s ``dist`` — the
-    # length of the VALUE-winning path.  Because every ceiling weight is
-    # ≥ 0 (and every floor weight ≤ 0), value and distance accumulate the
-    # SAME terms, so ``dist[i] = |value[i] − z_witness|``: the recorded
-    # distance is continuous WHILE the witness holds and jumps by the two
-    # anchors' value gap the moment the winner changes.  That jump is the
-    # discontinuity: adjacent vertices inherit distances from different
-    # paths, and the blend paints the gap as a step.
-    # The fix: read ``t`` from a distance-ONLY multi-source field seeded by
-    # the WITNESS SETS (the anchors the live envelope consulted at the
-    # nodes THIS pass declares broken).  Values, witnesses, envelope and
-    # break membership are all untouched — only the interpolation weight
-    # changes.  Cost: the value passes gain a write-only source column
-    # (byte-inert, see ``_reach_src``) plus one distance pass per side.
-    _blend_cont = _os.environ.get("O4_BREAK_BLEND_CONTINUOUS", "0") == "1"
-    _t_fallback: list = []          # nodes the degenerate ``0.5`` branch took
-
+    # ── THE BREAK BLEND IS DELETED (spec ``docs/specs/kill-half-spec.md``
+    # §2, 2026-08-04) ────────────────────────────────────────────────────
+    # An inverted envelope interval used to mint a QUARANTINE: the node was
+    # painted at a distance-weighted blend ``hi + (lo−hi)·t`` and then
+    # frozen out of every sweep.  Owner law (docs/RULINGS.md,
+    # feasibility-is-guaranteed, ESCALATED 2026-08-01): "quarantine is
+    # UNAUTHORIZED; break regions are law defects to attribute, never a
+    # legitimate answer."  So the blend, its continuity gate
+    # (``O4_BREAK_BLEND_CONTINUOUS``), its witness-source and distance-only
+    # Dijkstras (``_reach_src`` / ``_dist_plain``) and the freeze all die
+    # together, and an inversion is handled the only two lawful ways:
+    #   * it is RECORDED (``band_inverted`` → ``broken_out``) so the
+    #     minters keep their REPORT halves and the forensics hook still
+    #     names the witness pair, and
+    #   * the node takes the SAME clamp line every feasible node takes.
+    #     For ``lo > hi`` that expression evaluates to ``hi`` — exactly the
+    #     ``t → 0`` end of the blend it replaces, so the value stays inside
+    #     the old blend's own ``[hi, lo]`` range and the node stays MOVABLE
+    #     for the sweeps that follow.
+    # A materially inverted FINAL band is now a build ERROR instead
+    # (spec §3, ``building_feasibility.assert_no_final_band_inversion``).
+    band_inverted: set = set()
     broken: set = set()
     if hard:
         # BYTE-INERTNESS: build the seed set with the SAME expression the
@@ -2358,90 +2297,36 @@ def feasibility_project(elev, shape_constraints, hard, *,
             print(f"    [route-metric] withdrew {len(_we_nodes)} non-route "
                   f"anchor(s) from the airside envelope seed set "
                   f"({len(_env_seeds)} of {len(hard)} still seeding)")
-        # The pair-closure fields survive band-sourcing for ONE purpose:
-        # the distance-weighted ``t`` of the break blend below (an inverted
-        # band says HOW MUCH the anchors contradict, not where the two
-        # anchor fields meet).  With no band inversion nothing reads them,
-        # so the two Dijkstras are skipped outright — the single-pass
-        # dividend of not computing an envelope nobody consumes.
-        _c_src: dict = {}           # node -> ceiling witness anchor (gated)
-        _f_src: dict = {}           # node -> floor witness anchor (gated)
-        if _band_env is not None and not _band_broken:
-            ceil, ceil_dist, floor, floor_dist = {}, {}, {}, {}
-        elif _blend_cont:
-            # Same values, same distances (see ``_reach_src``); the source
-            # column is what the continuity seeds are read from.
-            ceil, ceil_dist, _c_src = _reach_src(+1, ceil_radj, _env_seeds)
-            floor, floor_dist, _f_src = _reach_src(-1, floor_radj, _env_seeds)
+        # The pair-closure fields survived band-sourcing for ONE purpose —
+        # the distance-weighted ``t`` of the break blend.  With the blend
+        # deleted (spec kill-half §2) NOTHING reads them on the band path,
+        # so both Dijkstras are skipped whenever the band answers, inverted
+        # or not: the single-pass dividend of not computing an envelope
+        # nobody consumes.  ``ceil``/``floor`` are read only on the
+        # pair-closure path (no band handed in — unit tests, synthetic
+        # graphs, ``O4_ROUTE_METRIC_ENVELOPE=0``).
+        # ``_reach``'s second return is the budget-metric DISTANCE field.
+        # Its only consumer was the deleted blend's ``t``, so it is dropped
+        # on the floor here rather than merged — a dead store would read as
+        # live state to the next reader.
+        if _band_env is not None:
+            ceil, floor = {}, {}
         else:
-            ceil, ceil_dist = _reach(+1, ceil_radj, _env_seeds)
-            floor, floor_dist = _reach(-1, floor_radj, _env_seeds)
-        if _wl_nodes and (_band_env is None or _band_broken):
-            if _blend_cont:
-                _c2, _cd2, _cs2 = _reach_src(+1, ceil_radj, _wl_nodes,
-                                             _wl_horizon)
-                _f2, _fd2, _fs2 = _reach_src(-1, floor_radj, _wl_nodes,
-                                             _wl_horizon)
-            else:
-                _c2, _cd2 = _reach(+1, ceil_radj, _wl_nodes, _wl_horizon)
-                _f2, _fd2 = _reach(-1, floor_radj, _wl_nodes, _wl_horizon)
-                _cs2 = _fs2 = {}
+            ceil, _ = _reach(+1, ceil_radj, _env_seeds)
+            floor, _ = _reach(-1, floor_radj, _env_seeds)
+        if _wl_nodes and _band_env is None:
+            _c2, _ = _reach(+1, ceil_radj, _wl_nodes, _wl_horizon)
+            _f2, _ = _reach(-1, floor_radj, _wl_nodes, _wl_horizon)
             for _k, _v in _c2.items():
                 if _k not in ceil or _v < ceil[_k]:
                     ceil[_k] = _v
-                    ceil_dist[_k] = _cd2.get(_k, 0.0)
-                    if _blend_cont:
-                        _c_src[_k] = _cs2.get(_k)
             for _k, _v in _f2.items():
                 if _k not in floor or _v > floor[_k]:
                     floor[_k] = _v
-                    floor_dist[_k] = _fd2.get(_k, 0.0)
-                    if _blend_cont:
-                        _f_src[_k] = _fs2.get(_k)
             if _os.environ.get("O4_STEP_DEBUG") == "1":
                 print(f"    [gs-witness] withdrew {len(_wl_nodes)} groundside "
                       f"anchor(s) from the airside envelope "
                       f"(mouth horizon {_wl_horizon:.3f} m of budget)")
-        # ── THE CONTINUITY FIELDS (spec break-blend-continuity) ──────────
-        # Seeded by the WITNESS SETS of the nodes this pass will declare
-        # broken — the break predicate below, evaluated once here (band
-        # path: ``_band_broken`` IS that predicate's answer, already
-        # computed; pair-closure path: the same ``floor > ceil`` test).
-        # Nothing else is derived from this scan: the loop below re-runs
-        # its own untouched predicate, so break MEMBERSHIP still has
-        # exactly one author.  A withdrawn groundside witness keeps its
-        # mouth horizon here too — the clause bounds its witness role, and
-        # this field is read only where it witnessed.
-        _cont_dc: dict = {}
-        _cont_df: dict = {}
-        if _blend_cont:
-            _cont_seen = (_band_broken if _band_env is not None else
-                          {_i for _i in range(n)
-                           if _i not in hard
-                           and floor.get(_i, -INF) > ceil.get(_i, INF)})
-            if _cont_seen:
-                _cw = {_c_src[_i] for _i in _cont_seen if _c_src.get(_i)
-                       is not None}
-                _fw = {_f_src[_i] for _i in _cont_seen if _f_src.get(_i)
-                       is not None}
-                _cont_dc = _dist_plain(ceil_radj, _cw - _wl_nodes)
-                _cont_df = _dist_plain(floor_radj, _fw - _wl_nodes)
-                if _wl_nodes:
-                    for _m, _lim_src in (
-                            (_cont_dc, _dist_plain(ceil_radj,
-                                                   _cw & _wl_nodes,
-                                                   _wl_horizon)),
-                            (_cont_df, _dist_plain(floor_radj,
-                                                   _fw & _wl_nodes,
-                                                   _wl_horizon))):
-                        for _k, _v in _lim_src.items():
-                            if _k not in _m or _v < _m[_k]:
-                                _m[_k] = _v
-                if _os.environ.get("O4_STEP_DEBUG") == "1":
-                    print(f"    [blend-cont] {len(_cont_seen)} broken "
-                          f"node(s); witness sets ceil={len(_cw)} "
-                          f"floor={len(_fw)}; continuity fields reach "
-                          f"{len(_cont_dc)}/{len(_cont_df)} node(s)")
         for i in range(n):
             if i in hard:
                 continue
@@ -2465,132 +2350,20 @@ def feasibility_project(elev, shape_constraints, hard, *,
                 lo = floor.get(i, -INF)
                 hi = ceil.get(i, INF)
             if lo > hi:
-                # GENUINE break: the hard anchors contradict through this
-                # node (e.g. a tile-seam terrain pin below a plateau the
-                # runway anchors hold up).  Distance-weighted blend
-                # (user 2026-07-04, "the seam is a hard anchor the solver
-                # GRADES to"): ``t = d_ceil/(d_ceil + d_floor)`` puts the
-                # surface ON the pin-descent field at the pins (t→0 ⇒
-                # z=hi: smooth, seamless transition), ON the floor field
-                # at the high anchors (t→1 ⇒ z=lo), and spreads the
-                # deficit between them as a gentle over-cap ramp
-                # (cap + deficit/path — e.g. 2.2 % instead of a 1.9 m
-                # wall).  Continuous at the break-region boundary for any
-                # ``t`` (lo = hi there).  A plain midpoint instead parks
-                # HALF the deficit as a wall at the pin interface — the
-                # exact bump the user reported at the SPLP band edge.
-                # CONTINUITY (spec break-blend-continuity, gate
-                # ``O4_BREAK_BLEND_CONTINUOUS``): gate ON reads the two
-                # distances from the multi-source WITNESS-SET fields built
-                # above — same edges, same budget metric, same t→0/t→1
-                # semantics at the two authorities, but 1-Lipschitz, so
-                # adjacent nodes can no longer inherit them from different
-                # value-winning paths.  Gate OFF is the shipped value-path
-                # distance, byte for byte.
-                if _blend_cont:
-                    dc = _cont_dc.get(i, 0.0)
-                    df = _cont_df.get(i, 0.0)
-                else:
-                    dc = ceil_dist.get(i, 0.0)
-                    df = floor_dist.get(i, 0.0)
-                # DEGENERATE BRANCH: kept, and COUNTED (spec — "which
-                # branch fired" is answered by production, not inferred
-                # from emitted values).  Under the gate it is reachable
-                # only where both distance fields are genuinely zero: the
-                # node sits at zero budget from a ceiling witness AND from
-                # a floor witness (same-node witness).
-                if (dc + df) > 1e-9:
-                    t = dc / (dc + df)
-                else:
-                    t = 0.5
-                    _t_fallback.append(i)
-                elev[i] = hi + (lo - hi) * t
-                # REFERENCE RODS (owner ruling 2026-07-29 #2, spec §7
-                # conflict semantics): a REFERENCED broken node takes its
-                # reference CLAMPED into the interval its HARD WELDED
-                # NEIGHBOURS admit — never the distance-weighted anchor
-                # blend.  The blend's drag toward the low anchor is the
-                # fabric burial (measured HECA final projection: ~9.9k
-                # broken fabric nodes blended to ~86 beside seats held
-                # at 101 = 519 % cliff pairs at the owner seam site);
-                # the BARE reference, though, must not win against an
-                # adjacent anchor either — a freed runway-seed vertex
-                # held at its (entry-unlawful) 115.77 reference beside
-                # its hard 112.12 runway neighbour minted the 05C 63 %
-                # longitudinal kink, the spec's named anti-goal.
-                # ``clamp(z_ref, hard-neighbour interval)`` grades the
-                # node into any anchor it is welded to (runway joins,
-                # seam pins, mouth welds) and keeps the reference only
-                # where no anchor binds (the deep-fabric burial case).
-                # CONTRADICTORY hard neighbours (empty interval) keep
-                # the blend above — the genuine both-anchor conflict it
-                # exists for.  Un-referenced broken nodes keep the blend
-                # (seam-descent class untouched).
-                if ref_of:
-                    _brv = ref_of.get(i)
-                    if _brv is not None:
-                        _bnlo, _bnhi = _hard_neighbour_interval(i)
-                        if _bnlo <= _bnhi:
-                            elev[i] = min(max(_brv, _bnlo), _bnhi)
-                # BROKEN-NODE EDGE COUPLING (config.SVC_SPINE_EDGE_COUPLE,
-                # round-6 site-4): the global reach envelope may call a node
-                # broken while its OWN hard welded neighbours still admit a
-                # feasible level — the CYXY service_road #201 spine, draped
-                # ~2.4 m below its 709.5 m edge welds by this blend.  Clamp the
-                # blend into the interval those hard neighbours allow whenever
-                # it is non-empty (the within-shape law: no spine below its
-                # welded edges); an EMPTY interval is the genuine anchor
-                # contradiction the blend is for (seam pin below a plateau) and
-                # is left untouched — so the seam/plateau blends never regress.
-                # SCOPED to ``edge_couple_nodes`` (the service-road / junction
-                # ring nodes the final projection passes): the ravine class is
-                # a road spine draped under its DEM-following adjacent-ground
-                # welds; other broken nodes (apron/junction/seam blends) keep
-                # the untouched blend so the pass stays a no-op for them.
-                if (_EDGE_COUPLE and edge_couple_nodes is not None
-                        and i in edge_couple_nodes):
-                    nlo, nhi = _hard_neighbour_interval(i)
-                    if nlo <= nhi:
-                        elev[i] = min(max(elev[i], nlo), nhi)
-                # BOUNDED YIELD (owner ruling 2026-07-29): a broken node
-                # with a feasibility box is a RELEASED SEAT the anchors
-                # contradict through — the blend must not park it outside
-                # the interval it was seated from (HECA: blends ~15 m
-                # under the band floor = the south-terminal burial).
-                # Clamp the blend into the box; the residual anchor
-                # conflict stays visible as the node's over-cap edges in
-                # the final tally, exactly like a both-hard pair.
-                if bound_of:
-                    bb = bound_of.get(i)
-                    if bb is not None:
-                        if elev[i] < bb[0]:
-                            elev[i] = bb[0]
-                        elif elev[i] > bb[1]:
-                            elev[i] = bb[1]
-                # ── FIX ARM §2, SITE 2: THE BREAK BLEND ────────────────
-                # The blend is exactly the stage the mover ledger caught
-                # manufacturing over-cap pairs against hard nodes.  Its
-                # OWN law here is the bounded-yield box (the envelope has
-                # already declared this node broken, so it offers no
-                # interval); bound the blended value into the hard-
-                # neighbour interval intersected with that box.
-                if _hnb_on:
-                    _bb2 = (bound_of.get(i) if bound_of else None)
-                    _blo, _bhi = _hnb_isect(
-                        i,
-                        (-INF if _bb2 is None else _bb2[0]),
-                        (INF if _bb2 is None else _bb2[1]),
-                        "break_blend")
-                    if elev[i] < _blo:
-                        elev[i] = _blo
-                    elif elev[i] > _bhi:
-                        elev[i] = _bhi
-                broken.add(i)
-            else:
-                # ── FIX ARM §2, SITE 1: THE ENVELOPE CLAMP ─────────────
-                if _hnb_on:
-                    lo, hi = _hnb_isect(i, lo, hi, "envelope_clamp")
-                elev[i] = min(max(elev[i], lo), hi)  # clamp into the envelope
+                # BAND INVERSION — the anchors contradict through this node.
+                # RECORDED, never blended and never frozen (spec kill-half
+                # §2; the deleted blend's rationale is at the top of this
+                # clause).  The clamp below is the ONE surviving line and
+                # for an inverted interval it evaluates to ``hi`` — the
+                # blend's own ``t → 0`` end, so the value stays inside the
+                # range the blend could have produced while the node stays
+                # movable for the sweeps.  A materially inverted FINAL band
+                # is a build ERROR (spec §3).
+                band_inverted.add(i)
+            # ── FIX ARM §2, SITE 1: THE ENVELOPE CLAMP ─────────────
+            if _hnb_on:
+                lo, hi = _hnb_isect(i, lo, hi, "envelope_clamp")
+            elev[i] = min(max(elev[i], lo), hi)  # clamp into the envelope
         if _band_env is not None and _os.environ.get("O4_STEP_DEBUG") == "1":
             _bn_none = _bn_ok = 0
             for i in range(n):
@@ -2602,27 +2375,28 @@ def feasibility_project(elev, shape_constraints, hard, *,
                 elif _b[0] <= _b[1]:
                     _bn_ok += 1
             print(f"    [env-band] envelope from THE graph: "
-                  f"band-broken={len(_band_broken)} feasible={_bn_ok} "
-                  f"off-net={_bn_none} (pair closure "
-                  f"{'skipped' if not _band_broken else 'kept for the blend'})")
+                  f"band-inverted={len(_band_broken)} feasible={_bn_ok} "
+                  f"off-net={_bn_none} (pair closure skipped — the band "
+                  f"answers)")
         # ── BREAK FORENSICS (spec reference-honesty Track 1 step 4, gate
         # ``O4_BREAK_FORENSICS=<path>``) ─────────────────────────────────
-        # Name every broken node's floor>ceiling WITNESS PAIR by ANCHOR
+        # Name every inverted node's floor>ceiling WITNESS PAIR by ANCHOR
         # CLASS.  Standing principle ``feasibility-is-guaranteed``: a real
         # airport proves a lawful surface exists, so "infeasible" is never
-        # an answer — every break must be attributed to a wrong law, a
+        # an answer — every inversion must be attributed to a wrong law, a
         # wrong anchor value or a wrong topology, and the witness pair is
         # what names which.  Unset ⇒ nothing runs (the witness Dijkstras
-        # are a second pass) ⇒ byte-identical and cost-free.
+        # are a second pass) ⇒ byte-identical and cost-free.  Reads the
+        # REPORT set: with the blend deleted there is no quarantine to
+        # read, and the report is what the drain list is built from.
         _forensics_path = _os.environ.get("O4_BREAK_FORENSICS")
-        if _forensics_path and broken and forensics is not None:
+        if _forensics_path and band_inverted and forensics is not None:
             _break_forensics_report(
-                _forensics_path, forensics.get("label", ""), broken,
+                _forensics_path, forensics.get("label", ""), band_inverted,
                 hard, elev, n, ceil_radj, floor_radj,
                 forensics.get("classes") or {},
                 forensics.get("nodes_ll"),
-                limited=_wl_nodes, horizon=_wl_horizon,
-                t_fallback=_t_fallback)
+                limited=_wl_nodes, horizon=_wl_horizon)
 
     # ── CHAIN-RIGID BROKEN BLEND (spec apron-string-and-scheduling §D.2.1,
     # gate ``O4_CHAIN_RIGID_BLEND``) ─────────────────────────────────────
@@ -2850,23 +2624,21 @@ def feasibility_project(elev, shape_constraints, hard, *,
               + ", ".join(f"{_k}={_v}"
                           for _k, _v in sorted(_hnb_sites.items())))
 
-    # BROKEN nodes stay AT their blended value and never move in the
-    # sweeps.  Both reach envelopes are cap-Lipschitz along the edge graph.
-    # The BLEND, though, is continuous only under
-    # ``O4_BREAK_BLEND_CONTINUOUS`` (spec ``docs/specs/break-blend-
-    # continuity-spec.md``): gate OFF, ``t`` is read from the recorded
-    # length of the VALUE-winning path, which jumps by the two anchors'
-    # value gap wherever the winning witness changes — so the break region
-    # is a smooth contained ramp only WITHIN one witness pair's territory,
-    # and carries a step at every witness frontier (measured at HECA:
-    # 80 % of all ≥2 m close-pair steps inside break regions have
-    # |Δt| ≥ 0.1).  Gate ON, ``t`` comes from the multi-source witness-set
-    # distance field, which is 1-Lipschitz, and the region is the smooth
-    # contained ramp throughout.  Sweeping their edges instead cycles POCS
-    # on an infeasible system and smears the break as ±1 m NOISE across
-    # the whole region (SPLP seam approach: 10-14 % wiggles between ring
-    # neighbours).  Their over-cap edges are reported in the final tally
-    # like both-hard edges — infeasibility is never hidden.
+    # THE FREEZE IS DELETED (spec kill-half §2).  A band-inverted node used
+    # to be held at its blended value and dropped from every sweep — the
+    # second half of the quarantine the owner's ruling forbids.  It now
+    # sweeps like any other free node: the clamp above left it at its
+    # ceiling, and the within-shape law is what places it from there.
+    # ``band_inverted`` is delivered through ``broken_out`` as a REPORT
+    # (the A2/A3/A4/B3 minters' surviving halves read it) and nothing in
+    # this function reads it back.
+    if broken_out is not None:
+        broken_out.update(band_inverted)
+    # ``pre_broken`` — the SCOPED final projection's caller-supplied set
+    # (gate ``O4_SCOPED_FINAL_PROJECTION``, default "0").  Left standing:
+    # it is that feature's own machinery, not the envelope quarantine this
+    # spec kills, and with the ``_final_projection_broken_keys`` carry
+    # deleted it is empty in every default build.
     if pre_broken:
         # Caller-supplied quarantine (scoped final projection): the solve's
         # FULL graph proved these nodes sit in infeasible pockets.  Merged
@@ -2880,12 +2652,12 @@ def feasibility_project(elev, shape_constraints, hard, *,
         for _pb in pre_broken:
             if 0 <= _pb < n and _pb not in hard:
                 broken.add(_pb)
-    if broken_out is not None:
-        broken_out.update(broken)
+        if broken_out is not None:
+            broken_out.update(broken)
     immovable = hard | broken if broken else hard
 
-    # BOUNDED YIELD, sweep side: broken bounded nodes were clamped at the
-    # blend above and stay quarantined; the sweeps only ever move the
+    # BOUNDED YIELD, sweep side: quarantined bounded nodes stay put; the
+    # sweeps only ever move the
     # remaining (movable) bounded nodes, so the clamp map they carry is
     # filtered to those — and each is clamped once here at seed (the
     # reach-envelope clamp above knows nothing about boxes) and then after

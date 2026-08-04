@@ -12,9 +12,30 @@ centreline ~2.4 m below its own 709.5 m edge welds — a ~-55 % within-shape
 ravine.  THE LAW: a broken node's blend is clamped into the interval its HARD
 welded neighbours admit whenever that interval is non-empty, so the spine can
 never sit below the edges it is welded to.
+
+★ EXPOSED CONSUMER — STOP AND REPORT (2026-08-04, spec ``docs/specs/
+kill-half-spec.md`` §2).  This feature's ONLY effect site was inside the
+break blend: it clamped a BLENDED broken node into its hard-neighbour
+interval.  §2 deletes that blend, so ``config.SVC_SPINE_EDGE_COUPLE``, the
+``edge_couple_nodes`` parameter and the caller's node walk in
+``solve.final_grade_projection`` are all inert.  Per the spec's own
+exposed-consumer clause NOTHING was deleted on the implementer's
+authority: the flag, the parameter and the caller stand, the coupled test
+below is ``xfail(strict=True)`` naming the exposure, and the ruling is the
+spec author's to make.
+
+MEASURED at the same time, so the exposure is quoted with its consequence:
+on this synthetic (genuinely infeasible) case the spine's drape below its
+welded edge improves 2.4 m → 1.163 m, because the node is no longer frozen
+at the blend and the sweeps own it — but the coupled guarantee ("within
+cap of the welded edge") is gone.  At the real airport the mechanism came
+from (CYXY), the post-flip DEFAULT patch body is byte-identical to the
+pre-deletion CAND arm, i.e. #201 did not regress.
 """
 import os
 import sys
+
+import pytest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _SRC = os.path.normpath(os.path.join(_HERE, "..", "src"))
@@ -49,6 +70,10 @@ def _synthetic_spine_case():
     return elev, shape_constraints, hard
 
 
+@pytest.mark.xfail(strict=True, reason=(
+    "EXPOSED CONSUMER, kill-half §2: the break blend this coupling clamped "
+    "is deleted, so edge_couple_nodes is inert.  Left failing on purpose — "
+    "the feature is not the implementer's to delete."))
 def test_broken_spine_not_draped_below_welded_edge():
     """With the spine node in ``edge_couple_nodes`` the broken-node blend is
     clamped into its hard welded edge's interval — S stays within cap of the
@@ -68,8 +93,14 @@ def test_broken_spine_not_draped_below_welded_edge():
 
 
 def test_control_without_coupling_drapes_the_spine():
-    """Control: without ``edge_couple_nodes`` the blend drapes the same spine
-    well below its welded edge — this is the ravine the coupling removes."""
+    """Control: the spine still ends below its welded edge on this
+    synthetic case.
+
+    Pre-2026-08-04 this was "the ravine the coupling removes"; post-§2 the
+    coupling removes nothing (see the module docstring) and this pins the
+    RESIDUAL: an infeasible pocket's sweeps split the excess instead of
+    honouring the tight direct edge.  Kept red-free as a measurement, not
+    as an endorsement."""
     elev, sc, hard = _synthetic_spine_case()
     broken: set = set()
     feasibility_project(elev, sc, hard, force_scalar=True, max_iters=400,

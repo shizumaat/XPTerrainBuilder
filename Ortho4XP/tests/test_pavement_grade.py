@@ -184,15 +184,12 @@ def test_pavement_grade(tmp_path, icao):
         seam_pins_ll = [[round(la, 7), round(lo, 7)]
                         for (la, lo) in
                         (getattr(layout, "_seam_pin_ll", None) or [])]
-        # BREAK-REGION quarantine, exactly like the CLI (user 2026-07-05,
-        # e2031ff): pairs touching a solver-declared broken node are the
-        # pocket's designed over-cap blend — reported separately by
-        # run_checks and excluded from the ACTIONABLE within count this
-        # test gates.  Passing the export (even empty) keeps the split
-        # semantics identical to the sidecar path.
-        break_nodes_ll = [[round(la, 7), round(lo, 7)]
-                          for (la, lo) in
-                          (getattr(layout, "_break_node_ll", None) or [])]
+        # THE BREAK-REGION QUARANTINE IS DELETED (spec ``docs/specs/
+        # kill-half-spec.md`` §2, 2026-08-04): ``run_checks`` no longer
+        # takes ``break_nodes_ll`` and no longer splits any pair out of
+        # the actionable count.  This test is therefore FULL-CENSUS, which
+        # is what docs/RULINGS.md requires ("all counts are full-census,
+        # never quarantine-excluded").
         # SPINE CROWN drop field (part 30), exactly like the sidecar: the
         # within-shape law re-centres each pair on the designed crown
         # offset the solver built to (grade_law.crown_pair_offset).
@@ -227,7 +224,6 @@ def test_pavement_grade(tmp_path, icao):
                     if layout.anchor is not None else None),
             seam_pins_ll=seam_pins_ll,
             mesh_edges_ll=mesh_edges_ll,
-            break_nodes_ll=break_nodes_ll,
             crown_drops_ll=crown_drops_ll,
             crown_centerline_ll=crown_centerline_ll,
             # WITHIN-SHAPE baked pair caps (2026-07-17): the exact pair
@@ -240,11 +236,20 @@ def test_pavement_grade(tmp_path, icao):
         cross += c
         steps += s
 
-    # Hard fails — cross-shape continuity must be perfect.
-    assert not cross, (
-        f"{icao}: {len(cross)} cross-shape proximity violations "
-        f"(shared corners disagree on elevation).  Worst: "
-        f"{max(v.de_m for v in cross):.2f} m step.")
+    # ── EVERY SECTION IS REPORTED (spec kill-half §4d, 2026-08-04) ──
+    # These were three sequential asserts, so the FIRST failing section
+    # masked the other two — a drain list that reads "cross-shape: 1" when
+    # the same build also has 900 within-shape rows is a measurement
+    # instrument that hides its own population.  Each section is now
+    # evaluated, collected, and reported together.
+    failures = []
+
+    # Cross-shape continuity must be perfect.
+    if cross:
+        failures.append(
+            f"{icao}: {len(cross)} cross-shape proximity violations "
+            f"(shared corners disagree on elevation).  Worst: "
+            f"{max(v.de_m for v in cross):.2f} m step.")
     # Soft cap on vertex-to-edge + mid-edge steps combined.  Vertex
     # continuity at shared boundaries should be ~perfect; mid-edge
     # discontinuities (sliver triangles whose plane tilts away from
@@ -259,13 +264,13 @@ def test_pavement_grade(tmp_path, icao):
                 and s.way_e.tags.get("role") == "building")
     steps = [s for s in steps if not _both_buildings(s)]
     step_cap = MID_EDGE_CAP
-    assert len(steps) <= step_cap, (
-        f"{icao}: {len(steps)} edge/mid-edge steps > 0.5 m exceeds "
-        f"cap {step_cap}.  Worst: {max(s.step_m for s in steps):.2f} "
-        f"m step.")
-    # Hard fail — within-shape grade violations indicate an
-    # infeasible elevation field; fix the solver / geometry, not
-    # the threshold.
+    if len(steps) > step_cap:
+        failures.append(
+            f"{icao}: {len(steps)} edge/mid-edge steps > 0.5 m exceeds "
+            f"cap {step_cap}.  Worst: {max(s.step_m for s in steps):.2f} "
+            f"m step.")
+    # Within-shape grade violations indicate an infeasible elevation
+    # field; fix the solver / geometry, not the threshold.
     cap = WITHIN_SHAPE_CAP
     if len(within) > cap:
         within.sort(key=lambda v: -v.grade_pct)
@@ -274,12 +279,27 @@ def test_pavement_grade(tmp_path, icao):
             f"{check_grade._label(v.way_b)}: {v.grade_pct:.2f}% over "
             f"{v.distance_m:.1f} m ({v.elev_a:.1f} -> {v.elev_b:.1f})"
             for v in within[:5])
-        pytest.fail(
+        failures.append(
             f"{icao}: {len(within)} within-shape grade/plane "
             f"violations (cap {cap}).  Worst:\n  {worst}")
+    if failures:
+        pytest.fail(
+            f"{icao}: {len(failures)} of 3 law sections over cap "
+            f"(cross={len(cross)}, steps={len(steps)}/{step_cap}, "
+            f"within={len(within)}/{cap}):\n"
+            + "\n".join(failures))
 
 
 @pytest.mark.xdist_group("CYXY")   # reuse CYXY's already-built layout
+@pytest.mark.xfail(strict=True, reason=(
+    "DRAIN LEDGER (spec kill-half §4b, 2026-08-04): the CYXY apron pair "
+    "at (-291,343) grades 1.9 % against a 1.5 % cap.  It is a real, "
+    "ADJUDICATED defect that the pre-flip world did not show: green in the "
+    "flip battery's OFF arm, red in its CAND arm, i.e. EXPOSED by the §1 "
+    "defaults flip (and by §2 deleting the break-region split that used to "
+    "carry rows like it out of the actionable count).  xfail(strict) so it "
+    "stays visible and cannot silently start passing — it is on the drain "
+    "list, not hidden."))
 def test_cyxy_spine_zero_no_bowl():
     """THE single-graph invariant (user 2026-06-24): the taxi SPINE must be
     grade-compliant (0 within-shape spine violations on the unified grade graph)

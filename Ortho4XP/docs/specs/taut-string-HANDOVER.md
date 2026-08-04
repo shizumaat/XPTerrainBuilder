@@ -1,7 +1,104 @@
 # Taut-string line — session handover, 2026-08-01
 
-## 0-CAMPAIGN STATE — 2026-08-03 (supersedes everything below; RULINGS.md
-## is owner-law canon; memory/campaign-goal.md is the goal)
+## 0-CAMPAIGN STATE — 2026-08-04, POST KILL-HALF (supersedes everything
+## below; RULINGS.md is owner-law canon; memory/campaign-goal.md is the goal)
+
+**THE GOAL** (owner, unchanged): five-airport LAW COMPLIANCE
+(SPJC/SPLP/CYXY/HECA/KCLT): zero ADJUDICATED violations (the law includes
+its exemptions and floors — instruments report, the law adjudicates),
+quarantine machinery GONE, every reg generation-binding with test twins.
+
+**THE KILL HALF IS IMPLEMENTED, UNCOMMITTED, AWAITING LEAD REVIEW**
+(`docs/specs/kill-half-spec.md`, owner-approved in `b56b37a`).  Three
+things changed at once, and they are what a user now gets:
+
+1. **§1 THE DEFAULTS FLIP.** Eleven gates ship ON:
+   `ROUTE_METRIC_ENVELOPE` (`019d0bb`), `RETIRE_TERRAIN_PIN_QUARANTINE`
+   (`ceef13f`), `LATERAL_CONTIGUITY_LAW` + `NEEDLE_SOURCE_GUARD`
+   (`1e5a781`), `SERVICE_LOT_ABSORPTION` + `TRIANGLE_PLANE_REPORTS` +
+   `BAND_SEED_EXACT` (`495660a`/`5a94c57`), `SOURCE_COVERAGE_CHECK` +
+   `RUNWAY_STRIP_WALL_LAW` + `DRAINAGE_SPINE_LAW` + `ROUTE_LEG_EXACT`
+   (`0b9efaf`); `PROJECTION_STALL_REPORT` follows by implication.  Every
+   gate keeps its env override, so `O4_<GATE>=0` restores the old path.
+   EXCLUDED and still "0": `SCORER_SERVICE_ADJ` (re-key queued), the
+   string gates (owner pause), `BREAK_BLEND_CONTINUOUS` (died with §2).
+
+2. **§2 THE QUARANTINE MACHINERY IS DELETED** — not gated, deleted: the
+   break blend and its continuity gate, the freeze (`broken` → immovable,
+   and the `_final_projection_broken_keys` carry), all three
+   `_break_node_ll` sinks (solve, projection, weld-relimit), the sidecar's
+   `break_nodes` key, `check_grade`'s three splits (pairs, planes, steps)
+   and `grade_graph_validate`'s break scoping.  Counts are FULL-CENSUS.
+   The A2/A3/A4/B3 minters keep their REPORT halves only.
+
+3. **§3 THE LOUD ERROR** (ungated, it IS the law):
+   `building_feasibility.assert_no_final_band_inversion` fails the build
+   when the FINAL reach band is inverted by > 0.01 m at any node, naming
+   nodes, floor/ceiling and route distances.  MEASURED: fires ZERO times
+   across SPLP/CYXY/HEAZ/SPJC/HECA (HEAZ carries 2 sub-materiality
+   inversions ≤ 0.01 m, reported PASS-with-residual).
+
+**NEW DEFAULT-ARM PATCH BASELINES** (body sha256, `tail -n +3`, built with
+NO `O4_` var set).  The `8eab3acd`/`f460a8f7`/`b7d02779` gate-off anchors
+below are RETIRED — gate-off is no longer what ships:
+
+| airport | body sha256 (default arm) | vs the pre-kill CAND arm |
+|---|---|---|
+| SPLP | `1531e6d0`49bb1c6a7865fb9f6141a4cc565d18a58e942d2e47708b8b750f3853 | BYTE-IDENTICAL |
+| CYXY | `5b7a1912`b5c1ce1641e66d4ebaf9d0271a4db24be1c2630ab41a00098fe259dc | BYTE-IDENTICAL |
+| HEAZ | `5854d6e7`73126bd1c39954723e4cf305101a3e8d385647b75ecb88759b087859 | differs (see below) |
+| SPJC | `b3875f84`b5fbbefb1b99697703c84ee2e0427238ffd80ef1249180c49a76851 | no CAND dump exists |
+| HECA | `2a28d01b`becaad3dc0c1686d1239e425904620b33499bf079ae8b3a9c37a808d | no CAND dump exists |
+
+HEAZ is the only airport whose band is inverted at all, so it is the only
+one §2 can move: 796 of 6,204 shared vertices differ (p50 0.01 m, max
+0.12 m — one to two emit quanta), 200 of 6,404 geometry vertices are
+re-placed in junction and gap-interior rings, and NO runway vertex moves.
+Every airport's `.axes.json` sidecar is exactly one key smaller
+(`break_nodes` removed, `[]` at SPLP); no other sidecar key changed.
+
+**SUITE**: 23 failed / 4,204 passed / 18 skipped / 13 xfailed — the reds
+are EXACTLY the standing 23, name for name.  New xfail(strict) rows: the
+2 CYXY drain-ledger tests (the exposed 1.9 % apron pair) and 5
+exposed-consumer tests (below).
+
+**BUILD TIME** (2 cold-equivalent runs each, foreground, exclusive,
+default arm): SPLP 12.25 / CYXY 35.56 / HEAZ 54.73 / SPJC 174.99 / HECA
+351.93 s, written to `tools/build_time_baselines.json`.  The owner's
+approved ceilings (SPJC 153.2, HECA 315.4) are in
+`tools/build_time_approvals.json`.  TODAY'S NUMBERS ARE ABOVE THOSE
+CEILINGS AND THE ROUND IS NOT WHY: a same-session pre-kill control
+(worktree at `4d20c7c`, CAND arm, warm caches) measured CYXY 35.8 /
+SPJC 177.15 / HECA 336.5 s, i.e. the machine itself is 5-15 % slower than
+during the overnight approval battery — visible on phases this round
+cannot touch (HECA emit 79.7-80.1 s overnight vs 81.2-90.2 s in every arm
+measured today).  Post-kill vs same-session pre-kill: CYXY −0.24 s, SPJC
+−2.16 s, HECA +15.4 s, all inside the arms' own spread.
+
+**THE SIM TILE**: `sim_review/zOrtho4XP_+30+031_DEFAULT/` (+
+`DEFAULT_NOTE.md`), built with `O4_ vars in this process: []` — this is
+what every user build now produces.  Textures symlink to the strings-on
+pack as before.
+
+**STOP-AND-REPORT items** (§2's exposed-consumer clause; nothing was
+deleted on the implementer's authority, all are xfail(strict) with the
+exposure named): `SVC_SPINE_EDGE_COUPLE` / `edge_couple_nodes`,
+`O4_CHAIN_RIGID_BLEND` / `O4_BRANCH_RIGID_BLEND`, and fix-arm SITE 2 of
+`O4_HARD_NEIGHBOUR_BOUND` — all three had their ONLY effect site inside
+the deleted blend.
+
+**QUEUE after review**: rulesets A/B with KCLT (the FAA fixture) →
+missing-reg law rounds (strip precedence, abeam-longitudinal, RESA
+transverse, ROFA back-slope per the approved exemption, shoulder crown,
+runway-profile arc, RAOA, transverse solver-binding, groundside drainage
+minimum) → KML-v3 class drain → strings verdict LAST.  Small items still
+queued: spine-keyed scorer re-key, late-mint binding point, memo-key bug,
+`service_junction` 8 % coupling (owner may split).
+
+---
+
+## 0-CAMPAIGN STATE — 2026-08-03 (SUPERSEDED by the 2026-08-04 block
+## above; kept for the attribution chain)
 
 **THE GOAL** (owner): iterate to five-airport LAW COMPLIANCE
 (SPJC/SPLP/CYXY/HECA/KCLT — KCLT joins with the ruleset round as the FAA

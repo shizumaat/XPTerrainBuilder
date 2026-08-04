@@ -54,7 +54,34 @@ from auto_patch.layout import (
 )
 
 __all__ = ["building_feasible_levels", "reach_band_unified",
-           "runway_edge_anchors", "spine_value_fields"]
+           "runway_edge_anchors", "spine_value_fields",
+           "BandInversionError", "assert_no_final_band_inversion",
+           "FINAL_BAND_INVERSION_TOL_M"]
+
+# ── THE LOUD ERROR (spec ``docs/specs/kill-half-spec.md`` §3) ────────────
+# The band quarantine is deleted (§2), and what replaces it is not a
+# quieter quarantine but an ERROR.  Owner law (docs/RULINGS.md,
+# feasibility-is-guaranteed): a real airport with real thresholds HAS a
+# lawful surface, so a FINAL band the anchors contradict through is a law
+# defect — a wrong metric, a wrong anchor value, a wrong role/cap or a
+# false topology — and the build must say so instead of painting over it.
+#
+# Scope: the LAST ``spine_value_fields`` output of the build (earlier
+# calls are intermediate states of an unfinished solve, and their
+# inversions are expected to close as anchors settle).
+# Threshold: the campaign's 0.01 m materiality floor (CLAUDE.md
+# convergence guards) — below it a residual is PASS-with-residual, never a
+# defect.  Measured at the new defaults before this landed: HECA 0 of
+# 18,073 nodes inverted, HEAZ worst 0.00035 m.
+FINAL_BAND_INVERSION_TOL_M = 0.01
+
+
+class BandInversionError(RuntimeError):
+    """The FINAL reach band is inverted beyond the materiality floor.
+
+    Deliberately NOT a ``ValueError``/shapely error: the pipeline's
+    geometry guards (``_GEOM_EXC``) swallow those to keep a build alive,
+    and this one must never be swallowed."""
 
 # Pavement a building must touch to count as airside-served (else → DEM).
 _AIRSIDE_ROLES = frozenset({
@@ -599,6 +626,12 @@ def spine_value_fields(layout, G):
 
     def _field(sign):
         best: dict = {}
+        # ROUTE DISTANCE per node, write-only: the budget-metric length of
+        # the winning route (spec kill-half §3 — the loud error names the
+        # route distances, so the field that already has them records
+        # them instead of a second pass re-deriving them).  No value is
+        # read from it here; ``best`` is byte-identical either way.
+        dist: dict = {}
         pq = [((ae if sign > 0 else -ae), 0.0, ae, k)
               for (k, ae) in anchor_seeds.items()]
         heapq.heapify(pq)
@@ -607,6 +640,7 @@ def spine_value_fields(layout, G):
             if u in best:
                 continue
             best[u] = (ae + dd) if sign > 0 else (ae - dd)
+            dist[u] = dd
             for (v, budget) in G.spine_adj.get(u, ()):
                 if v in best:
                     continue
@@ -616,9 +650,87 @@ def spine_value_fields(layout, G):
                 heapq.heappush(
                     pq, (((ae + nd) if sign > 0 else -(ae - nd)),
                          nd, ae, v))
-        return best
+        return best, dist
 
-    return _field(+1), _field(-1)
+    ceiling, ceil_dist = _field(+1)
+    floor, floor_dist = _field(-1)
+    _record_band_inversions(layout, G, ceiling, floor, ceil_dist, floor_dist)
+    return ceiling, floor
+
+
+def _record_band_inversions(layout, G, ceiling, floor, ceil_dist,
+                            floor_dist):
+    """Stash THIS call's ``floor > ceiling`` rows on the layout (spec
+    kill-half §3).
+
+    Last call wins — ``assert_no_final_band_inversion`` reads the FINAL
+    build's field.  Write-only: nothing in the solve reads it back, so a
+    build that never reaches the assertion behaves exactly as before."""
+    rows = []
+    if ceiling and floor:
+        pos = getattr(G, "pos", None) or {}
+        for node, lo in floor.items():
+            hi = ceiling.get(node)
+            if hi is None:
+                continue
+            deficit = lo - hi
+            if deficit <= 0.0:
+                continue
+            xy = pos.get(node)
+            rows.append({
+                "node": node,
+                "floor": float(lo),
+                "ceiling": float(hi),
+                "deficit_m": float(deficit),
+                "floor_route_m": float(floor_dist.get(node, 0.0)),
+                "ceil_route_m": float(ceil_dist.get(node, 0.0)),
+                "x": (None if xy is None else float(xy[0])),
+                "y": (None if xy is None else float(xy[1])),
+            })
+        rows.sort(key=lambda r: -r["deficit_m"])
+    try:
+        layout._final_band_inversions = rows
+        layout._final_band_node_count = len(ceiling)
+    except AttributeError:                                 # pragma: no cover
+        pass
+
+
+def assert_no_final_band_inversion(layout, icao="",
+                                   tol=FINAL_BAND_INVERSION_TOL_M):
+    """POST-SOLVE LAW (spec kill-half §3) — ungated, it IS the law.
+
+    Raises :class:`BandInversionError` naming every node whose FINAL
+    reach band is inverted by more than ``tol`` metres, with its floor,
+    ceiling, deficit and both route distances.  Returns the number of
+    sub-materiality inversions it tolerated (a PASS-with-residual count,
+    per the convergence guards' materiality floor)."""
+    rows = list(getattr(layout, "_final_band_inversions", None) or [])
+    if not rows:
+        return 0
+    over = [r for r in rows if r["deficit_m"] > tol]
+    if not over:
+        return len(rows)
+    lines = [
+        f"{icao or 'airport'}: the FINAL reach band is INVERTED at "
+        f"{len(over)} node(s) of "
+        f"{int(getattr(layout, '_final_band_node_count', 0) or 0)} "
+        f"(floor − ceiling > {tol:g} m).  A real airport with real "
+        f"thresholds has a lawful surface (docs/RULINGS.md, "
+        f"feasibility-is-guaranteed): this is a law defect to attribute — "
+        f"a wrong metric, a wrong anchor value, a wrong role/cap or a "
+        f"false topology — never a region to quarantine.",
+    ]
+    for r in over[:20]:
+        where = ("" if r["x"] is None
+                 else f" @({r['x']:.1f},{r['y']:.1f})")
+        lines.append(
+            f"  node {r['node']}{where}: floor {r['floor']:.3f} > ceiling "
+            f"{r['ceiling']:.3f} by {r['deficit_m']:.4f} m "
+            f"(route: floor {r['floor_route_m']:.2f} m of budget, "
+            f"ceiling {r['ceil_route_m']:.2f} m)")
+    if len(over) > 20:
+        lines.append(f"  … {len(over) - 20} more")
+    raise BandInversionError("\n".join(lines))
 
 
 def reach_band_unified(layout, G):

@@ -57,8 +57,16 @@ def _run(elev, iter_edges, n, max_iters=4000):
 # ── (a) the gate ─────────────────────────────────────────────────────────
 
 def test_gate_defaults_off_and_is_implied_by_the_route_metric(monkeypatch):
+    """KILL-HALF FLIP (2026-08-04, spec kill-half §1): the REPORT's own
+    default is still "0" (the spec flips 11 gates and this is not one of
+    them) — but its implicant ``O4_ROUTE_METRIC_ENVELOPE`` is default ON,
+    so an unset environment now REPORTS.  Both halves are asserted."""
     monkeypatch.delenv("O4_PROJECTION_STALL_REPORT", raising=False)
     monkeypatch.delenv("O4_ROUTE_METRIC_ENVELOPE", raising=False)
+    assert OS.PROJECTION_STALL_REPORT_DEFAULT == "0"
+    assert OS.projection_stall_report_enabled() is True, (
+        "the flipped route-metric default implies the report on")
+    monkeypatch.setenv("O4_ROUTE_METRIC_ENVELOPE", "0")
     assert OS.projection_stall_report_enabled() is False
     monkeypatch.setenv("O4_PROJECTION_STALL_REPORT", "1")
     assert OS.projection_stall_report_enabled() is True
@@ -78,7 +86,8 @@ def test_an_explicit_zero_wins_over_the_implication(monkeypatch):
 # ── (b) gate-off inertness ───────────────────────────────────────────────
 
 def test_gate_off_takes_no_counters_and_adds_no_stats(monkeypatch):
-    monkeypatch.delenv("O4_PROJECTION_STALL_REPORT", raising=False)
+    # kill-half flip: gate-off is now explicit (the route metric implies it on)
+    monkeypatch.setenv("O4_PROJECTION_STALL_REPORT", "0")
     monkeypatch.delenv("O4_ROUTE_METRIC_ENVELOPE", raising=False)
     elev, iter_edges, n = _infeasible_system()
     sweeps, certified, stats = _run(elev, iter_edges, n, 200)

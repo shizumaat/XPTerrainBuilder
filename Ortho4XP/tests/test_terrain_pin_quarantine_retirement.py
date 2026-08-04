@@ -5,18 +5,24 @@ AMENDMENT).  Owner law (RULINGS.md): quarantine is UNAUTHORIZED — a real
 airport with real thresholds has a lawful surface, so a break region is a law
 defect to attribute, never an answer.
 
-The terrain-pinned pair export in ``final_grade_projection`` has TWO effects,
-and the gate must retire BOTH (the amendment's ruling, after the round's
+The terrain-pinned pair export in ``final_grade_projection`` had TWO effects,
+and the gate retired BOTH (the amendment's ruling, after the round's
 pre-condition STOP found the second one):
 
   1. BOOKKEEPING — ``layout._break_node_ll`` → the sidecar's ``break_nodes``
      → rows hidden from the validator.
   2. FREEZE — ``layout._final_projection_broken_keys`` → the NEXT projection
-     run's ``pre_broken`` (solve.py:5104-5111, ungated) → ``immovable`` in
-     ``feasibility_project`` (one_solve.py:2517-2532).  This is the
-     load-bearing quarantine: measured at HECA, 202 of the 375 nodes the mid
-     run carried into the late run were minted here, and 165 of those were
-     NOT hard — free nodes frozen out of every sweep.
+     run's ``pre_broken`` → ``immovable`` in ``feasibility_project``.  This
+     was the load-bearing quarantine: measured at HECA, 202 of the 375 nodes
+     the mid run carried into the late run were minted here, and 165 of those
+     were NOT hard — free nodes frozen out of every sweep.
+
+UPDATED 2026-08-04 (spec ``docs/specs/kill-half-spec.md`` §§1-2).  The gate
+is DEFAULT ON, and BOTH SINKS ARE THEMSELVES DELETED — so this file no
+longer pins "the gate retires the two effects" (there is nothing left to
+retire them from).  It pins the stronger property the kill round asserts:
+NO code path writes either sink, gate on or off, and the retirement REPORT
+still names the population.
 
 Hermetic, on the ``_FakeShape`` / ``_FakeLayout`` pattern of
 ``test_final_projection_snapshot_recapture.py`` — no fixtures, no DEM, no
@@ -103,64 +109,49 @@ def _run(monkeypatch, retire):
     return layout
 
 
-def test_gate_off_quarantines_the_terrain_pinned_pair(monkeypatch):
-    """CONTROL: without the gate the pair is quarantined exactly as before —
-    both effects present."""
-    layout = _run(monkeypatch, retire=False)
+def test_neither_sink_exists_gate_either_way(monkeypatch):
+    """★ THE KILL (spec kill-half §2).  Both sinks are deleted, so NOTHING
+    — not the terrain-pin export, not the envelope's own inverted nodes,
+    not the weld relimit — writes ``_break_node_ll`` or
+    ``_final_projection_broken_keys``.  Asserted with the gate BOTH ways:
+    gate-off used to be the "quarantine as before" control, and there is
+    no longer an as-before to fall back to."""
+    for retire in (False, True):
+        layout = _run(monkeypatch, retire=retire)
+        assert _break_ll(layout) == set(), (
+            f"retire={retire}: the break sidecar sink is deleted; got "
+            f"{sorted(_break_ll(layout))}")
+        assert _carry_keys_xy(layout) == set(), (
+            f"retire={retire}: the freeze carry is deleted; got "
+            f"{sorted(_carry_keys_xy(layout))}")
 
-    broken_ll = _break_ll(layout)
-    assert PIN_A in broken_ll and PIN_B in broken_ll, (
-        "gate off: the terrain-pinned over-cap pair must reach the break "
-        f"sidecar (effect 1); got {sorted(broken_ll)}")
 
-    carried = _carry_keys_xy(layout)
-    assert PIN_A in carried and PIN_B in carried, (
-        "gate off: the same pair must reach the projection carry that "
-        f"freezes the next run (effect 2); got {sorted(carried)}")
-
-
-def test_gate_on_reports_the_pair_without_quarantining_it(monkeypatch, capsys):
-    """Under the gate the SAME pair is REPORTED and neither effect fires."""
-    layout = _run(monkeypatch, retire=True)
+def test_gate_on_reports_the_pair(monkeypatch, capsys):
+    """The REPORT half survives the kill: the population is still named."""
+    _run(monkeypatch, retire=True)
     output = capsys.readouterr().out
-
     # It was found and said out loud — a silent retirement would read as
     # "the defect vanished" instead of "the defect is now visible".
     assert "[terrain-pin-retired]" in output, (
         "the gate must REPORT the population it no longer quarantines; "
         f"got:\n{output}")
 
-    # EFFECT 1 retired: nothing reaches the break sidecar, so the validator
-    # sees the over-cap pair instead of having it hidden.
-    broken_ll = _break_ll(layout)
-    assert PIN_A not in broken_ll and PIN_B not in broken_ll, (
-        "gate on: the terrain-pinned pair must NOT reach the break sidecar; "
-        f"got {sorted(broken_ll)}")
 
-    # EFFECT 2 retired: nothing reaches the persisted carry, so the next
-    # projection run cannot freeze these nodes via ``pre_broken``.
-    carried = _carry_keys_xy(layout)
-    assert PIN_A not in carried and PIN_B not in carried, (
-        "gate on: the terrain-pinned pair must NOT reach "
-        f"_final_projection_broken_keys; got {sorted(carried)}")
+def test_gate_default_is_on():
+    """FLIPPED 2026-08-04 (spec ``docs/specs/kill-half-spec.md`` §1).
 
-    # NOT OVER-RETIRED: this round retires ONE minter.  The two free corners
-    # are quarantined by the projection's OWN envelope (the ``broken`` set
-    # ``feasibility_project`` returns), a different minter that the spec
-    # keeps this round — they must still be there, in both sinks.
-    for free in _FREE:
-        assert free in broken_ll and free in carried, (
-            "gate on retired more than the terrain-pin export: the "
-            f"envelope's own broken node {free} must survive in both sinks; "
-            f"sidecar={sorted(broken_ll)} carry={sorted(carried)}")
-
-
-def test_gate_default_is_off():
-    """Default "0" this round — the flip is a separate, measured decision."""
+    Evidence: quarantine-retirement round 1 ``ceef13f`` — the export minted
+    94.2 % of HECA's residual break nodes and froze 165 free nodes out of
+    the LATE airside projection.  The owner law it enforces (quarantine is
+    UNAUTHORIZED) is not optional, so the default is "1"; the env override
+    still restores the pre-flip read."""
     import os
     saved = os.environ.pop("O4_RETIRE_TERRAIN_PIN_QUARANTINE", None)
     try:
+        assert RP._retire_terrain_pin_quarantine_enabled() is True
+        os.environ["O4_RETIRE_TERRAIN_PIN_QUARANTINE"] = "0"
         assert RP._retire_terrain_pin_quarantine_enabled() is False
     finally:
+        os.environ.pop("O4_RETIRE_TERRAIN_PIN_QUARANTINE", None)
         if saved is not None:
             os.environ["O4_RETIRE_TERRAIN_PIN_QUARANTINE"] = saved

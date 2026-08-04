@@ -133,7 +133,12 @@ PAIR_CHORD_LOCAL_M = float(os.environ.get("O4_PAIR_CHORD_LOCAL_M", "120"))
 #       the pavement between two nearby points is CONTINUOUS, so the
 #       surface gradient between them is what the standards regulate.
 # Gate OFF ⇒ the vertex attachment and the ungated floor, byte-identical.
-ROUTE_LEG_EXACT = os.environ.get("O4_ROUTE_LEG_EXACT", "0") == "1"
+# DEFAULT FLIPPED TO "1" 2026-08-04 (spec ``docs/specs/kill-half-spec.md``
+# §1; evidence: the field-report fix batch ``0b9efaf``, which built the
+# exact attachment + chord-gated floor from the owner's flown lateral
+# pricing report — the ungated floor priced 38 m interior apron pairs at a
+# route-travel budget, which is the mispricing, not a stricter law).
+ROUTE_LEG_EXACT = os.environ.get("O4_ROUTE_LEG_EXACT", "1") == "1"
 PAIR_BUDGET_PRUNE_M = float(os.environ.get("O4_PAIR_BUDGET_PRUNE_M", "150"))
 
 # SPINE-FRAME PAIR LAW (owner model, 2026-07-29 burial session: "taxi

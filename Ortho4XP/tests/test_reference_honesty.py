@@ -231,6 +231,9 @@ def test_hard_anchors_are_never_refused(monkeypatch):
 
 
 # ── rigid branch vertices (Track 1 step 3) ───────────────────────────────
+# ★ These three tests are xfail(strict) since 2026-08-04 — see the marker's
+# reason.  The blend they refine no longer exists; the STOP is reported to
+# the spec author rather than resolved by deleting the feature.
 
 def _branch_case(env_value):
     """Three rod chains meeting at a junction, every node quarantined by a
@@ -273,6 +276,13 @@ def _worst_mouth_step(elev):
                for (leg, delta) in ((4, 1.0), (6, 2.0), (8, -1.0)))
 
 
+@pytest.mark.xfail(strict=True, reason=(
+    "EXPOSED CONSUMER, kill-half §2 (2026-08-04): the chain/branch-rigid "
+    "pass is a MODE of the deleted break blend — it recomputed that blend "
+    "per rod chain — so with the pointwise blend gone its `broken` input is "
+    "empty and the pass is inert.  O4_CHAIN_RIGID_BLEND / "
+    "O4_BRANCH_RIGID_BLEND are not this spec's to retire; reported instead "
+    "of deleted."))
 def test_branch_vertex_lands_on_the_string_when_the_gate_is_on():
     elev, broken = _branch_case("1")
     assert {3, 4, 5, 6, 7, 8} <= broken, broken
@@ -284,6 +294,13 @@ def test_branch_vertex_lands_on_the_string_when_the_gate_is_on():
     assert elev[3] == pytest.approx(sum(implied) / len(implied))
 
 
+@pytest.mark.xfail(strict=True, reason=(
+    "EXPOSED CONSUMER, kill-half §2 (2026-08-04): the chain/branch-rigid "
+    "pass is a MODE of the deleted break blend — it recomputed that blend "
+    "per rod chain — so with the pointwise blend gone its `broken` input is "
+    "empty and the pass is inert.  O4_CHAIN_RIGID_BLEND / "
+    "O4_BRANCH_RIGID_BLEND are not this spec's to retire; reported instead "
+    "of deleted."))
 def test_branch_rigid_shrinks_the_mouth_step_and_leaves_the_chains_alone():
     off, _ = _branch_case("0")
     on, _ = _branch_case("1")
@@ -293,6 +310,13 @@ def test_branch_rigid_shrinks_the_mouth_step_and_leaves_the_chains_alone():
     assert _worst_mouth_step(on) < _worst_mouth_step(off)
 
 
+@pytest.mark.xfail(strict=True, reason=(
+    "EXPOSED CONSUMER, kill-half §2 (2026-08-04): the chain/branch-rigid "
+    "pass is a MODE of the deleted break blend — it recomputed that blend "
+    "per rod chain — so with the pointwise blend gone its `broken` input is "
+    "empty and the pass is inert.  O4_CHAIN_RIGID_BLEND / "
+    "O4_BRANCH_RIGID_BLEND are not this spec's to retire; reported instead "
+    "of deleted."))
 def test_branch_rigid_gate_off_is_the_landed_pointwise_behaviour():
     """Gate-off must leave the junction on its blend value exactly (the
     byte-identity arm of the gate)."""

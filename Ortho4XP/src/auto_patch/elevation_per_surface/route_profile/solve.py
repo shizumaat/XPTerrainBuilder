@@ -1746,7 +1746,8 @@ def solve_route_profile(layout, icao: str,
         hard |= {i for i in runway_nodes if i < n}
         hard |= {i for i in building_seats if i < n}
         # ── NON-ROUTE SEED ADMISSION (spec ``route-metric-envelope`` §2;
-        # gate ``O4_ROUTE_METRIC_ENVELOPE``, default "0") ──────────────
+        # gate ``O4_ROUTE_METRIC_ENVELOPE``, default "1" since the
+        # 2026-08-04 kill-half flip) ─────────────────────────────────
         # "A hard anchor whose node carries NO route-pavement role may not
         # seed the airside feasibility envelope in ANY pass."  ONE role
         # scan for this whole solve; ``feasibility_project`` intersects it
@@ -3680,22 +3681,20 @@ def solve_route_profile(layout, icao: str,
         # ``_fairing_moved_keys``/``_scoped_gate`` are bound iff the
         # global-slice branch above ran — the same condition
         # ``final_grade_projection`` requires, re-checked here.
-        # BREAK-REGION export (user 2026-07-05, drive-to-zero): the solver's
-        # broken quarantine = genuine anchor contradictions rendered as the
-        # contained distance-weighted blend.  Persist their lat/lon so the
-        # sidecar can tag them and the validator reports their over-cap
-        # ramp pairs in a SEPARATE section — honest, never hidden, but not
-        # mixed into the actionable within-shape count (SPLP seam pockets).
-        # Service DEM-follow break blends join the export (user 2026-07-06,
-        # handover fix (b)): contradictory welded anchors through a road
-        # node render the designed blend — same quarantine semantics as
-        # every other solver-declared pocket.
+        # BREAK-REGION EXPORT — DELETED 2026-08-04 (spec ``docs/specs/
+        # kill-half-spec.md`` §2).  This was THE solve-side sink: the
+        # broken set's lat/lon went to ``layout._break_node_ll`` → the
+        # sidecar's ``break_nodes`` → rows SPLIT OUT of the validator's
+        # actionable count.  Owner law (docs/RULINGS.md): quarantine is
+        # unauthorized and every count is full-census, so there is no
+        # honest reader for a "reported separately" section — the rows
+        # are either lawful under the law's own exemptions or they are
+        # violations.  ``_solve_broken_idx`` survives as the minters'
+        # REPORT (it is logged and carried for reference honesty below);
+        # only the sink is gone.
         _solve_broken_idx |= {
             i for i in (getattr(layout, "_service_break_idx", None) or ())
             if i < len(nodes)}
-        layout._break_node_ll = [
-            layout.m_to_ll(nodes[i][0], nodes[i][1])
-            for i in sorted(_solve_broken_idx) if i < len(nodes)]
         if _scoped_gate:
             _solve_broken_keys = {key for key, i in bucket_to_idx.items()
                                   if i in _solve_broken_idx}
@@ -3788,23 +3787,31 @@ def _scoped_projection_enabled() -> bool:
 # envelope.  55 % of its nodes are dragged-in free partners and 36.7 % have no
 # violation of their own.
 #
-# The export has TWO effects, and the gate retires BOTH (Fable ruling
+# The export had TWO effects, and the gate retired BOTH (Fable ruling
 # 2026-08-02, shape (a), after the pre-condition STOP found the second):
 #   1. BOOKKEEPING — ``_projection_broken_idx`` → ``layout._break_node_ll`` →
 #      the sidecar's ``break_nodes`` → rows hidden from the validator.
-#   2. FREEZE — the same set → ``layout._final_projection_broken_keys``
-#      (below) → the NEXT final projection's ``pre_broken`` (:5104-5111,
-#      ungated) → ``immovable`` in ``feasibility_project``
-#      (one_solve.py:2517-2532).  Measured at HECA: the mid run carried 375
+#   2. FREEZE — the same set → ``layout._final_projection_broken_keys`` →
+#      the NEXT final projection's ``pre_broken`` → ``immovable`` in
+#      ``feasibility_project``.  Measured at HECA: the mid run carried 375
 #      nodes into the late run, 202 of them minted here, 165 of those NOT
 #      hard — free nodes frozen out of every sweep.  They are ~all
 #      groundside/service (4 airside), so freezing them as an input to the
 #      late airside projection independently violates airside-is-king.
-# Released nodes fall under the band-governed envelope like any other free
-# node.  Gate OFF the sink IS ``_projection_broken_idx`` (the same object,
-# same insertion order) — byte-identical by construction, not by argument.
+# BOTH SINKS ARE THEMSELVES DELETED as of 2026-08-04 (spec kill-half §2),
+# so this gate now decides only whether the terrain-pinned endpoints are
+# counted in the surviving REPORT set.  Released nodes fall under the
+# band-governed envelope like any other free node.
+# DEFAULT FLIPPED TO "1" 2026-08-04 (spec ``docs/specs/kill-half-spec.md``
+# §1; evidence: quarantine-retirement round 1 ``ceef13f``, which measured
+# both effects — the export minted 94.2 % of HECA's residual break nodes,
+# 55 % of them dragged-in free partners, and froze 165 free nodes out of
+# the LATE airside projection).  The owner law it enforces is not optional:
+# "quarantine is UNAUTHORIZED" (docs/RULINGS.md, feasibility-is-guaranteed,
+# ESCALATED 2026-08-01).  ``O4_RETIRE_TERRAIN_PIN_QUARANTINE=0`` restores
+# the export into the (now report-only, §2) broken set.
 def _retire_terrain_pin_quarantine_enabled() -> bool:
-    return _os.environ.get("O4_RETIRE_TERRAIN_PIN_QUARANTINE", "0") == "1"
+    return _os.environ.get("O4_RETIRE_TERRAIN_PIN_QUARANTINE", "1") == "1"
 # Shapely-domain exceptions only (project rule: never catch built-ins here).
 def _snapshot_geom_exceptions():
     from shapely.errors import GEOSException, TopologicalError
@@ -5199,11 +5206,11 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                     _k = b2i.get(_cps_ec.get_or_add(float(_x), float(_y)))
                     if _k is not None and _k < n:
                         _svc_couple_nodes.add(_k)
-    # Capture the pockets THIS projection declares broken: they are excluded
-    # from the sweeps by design (contained blend), so they must join the
-    # sidecar's break_nodes export below or the validator reports their
-    # over-cap ramps as ACTIONABLE (the solve-time export alone missed any
-    # pocket only the final geometry manufactures).
+    # THE REPORT SET of this projection: nodes whose envelope interval this
+    # pass found inverted, plus the unresolved triangle planes.  Since §2
+    # deleted both of its sinks (the sidecar export and the freeze carry)
+    # it is write-only — a count for the logs and the drain list.  Nothing
+    # is excluded from the sweeps or from any census because of it.
     _projection_broken_idx: set = set()
     # Sweep budget raised 400 → 2400 (2026-07-17, same headroom as the
     # in-solve projection): 400 exited HECA (158k nodes) with 5,822
@@ -5211,21 +5218,14 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # worst survivors emitted as the within-shape building/apron
     # violation class.  The loop exits early at tol, so converged
     # airports pay nothing.  O4_FINAL_PROJECTION_MAX_ITERS overrides.
-    # BROKEN-QUARANTINE CARRY (2026-07-17, for the LATE re-projection):
-    # the scoped machinery re-quarantines only UNTOUCHED broken nodes,
-    # and after the mid-pipeline projection every value looks touched —
-    # so a second (late) run re-solves the solve-declared infeasible
-    # pockets "normally" and SMEARS them (measured SPJC: a 1.1 m
-    # pavement move beside an already-emitted band = a fresh TEAR).
-    # Carry every previously-declared broken key into ``pre_broken``.
-    _prior_broken_keys = getattr(
-        layout, "_final_projection_broken_keys", None) or set()
-    if _prior_broken_keys:
-        pre_broken = set(pre_broken or ())
-        for _bk in _prior_broken_keys:
-            _bi = b2i.get(_bk)
-            if _bi is not None and _bi < n:
-                pre_broken.add(_bi)
+    # THE BROKEN-QUARANTINE CARRY IS DELETED (spec ``docs/specs/kill-half-
+    # spec.md`` §2, 2026-08-04).  It re-read the previous projection's
+    # declared-broken keys and froze them here as ``pre_broken`` so the
+    # late run could not "re-solve them normally".  With the blend gone
+    # there is no held value to protect: a node the envelope cannot bound
+    # is placed by the within-shape law and swept like any other free
+    # node, and a materially inverted FINAL band is a build ERROR (§3)
+    # rather than a region to carry forward.
     # LIFT-ONLY PADS in the late run: the mid projection seated every
     # pad at (or above) its route-feasible floor (the no-bowl ruling —
     # CYXY building16 ≥706 / building19 ≥698); the late pass may RAISE
@@ -5733,13 +5733,12 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # hides real anchor bugs — runway/pad/weld classes stay actionable).
     _VIOL_TOL_M = 0.03
     _terrain_like = terrain_hard | torn_feature_weld
-    # THE RETIREMENT SINK (see ``_retire_terrain_pin_quarantine_enabled``).
-    # Gate OFF: the sink IS ``_projection_broken_idx`` — every ``add`` below
-    # lands on the same object in the same order, so both the sidecar export
-    # and the ``_final_projection_broken_keys`` carry are bit-for-bit what
-    # they were.  Gate ON: a separate set that is REPORTED and then dropped —
-    # it reaches neither sink, so the law reports what it finds instead of
-    # hiding it, and the freed nodes stay movable in the next projection.
+    # THE RETIREMENT SINK (see ``_retire_terrain_pin_quarantine_enabled``,
+    # default ON since the 2026-08-04 flip).  Gate ON: a separate set that
+    # is REPORTED and then dropped, so the law reports what it finds
+    # instead of hiding it.  Gate OFF the endpoints land in
+    # ``_projection_broken_idx`` — which, since §2 deleted both of its
+    # sinks, is itself only a REPORT now.
     _retire_tp = _retire_terrain_pin_quarantine_enabled()
     _tp_sink = set() if _retire_tp else _projection_broken_idx
     if _terrain_like:
@@ -5852,9 +5851,11 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # projection cannot see this, so clamp it here: move the triangle's
     # freest vertex the minimum that brings the plane inside the cap,
     # bounded by the interval its own law edges allow (ORDERING LAW —
-    # post-projection moves are law-guarded).  Unfixable triangles join
-    # the break quarantine below.  Fixed vertices are anchored through
-    # the later edge fairing so nothing re-tilts them.
+    # post-projection moves are law-guarded).  Unfixable triangles are
+    # REPORTED (``triangle_plane_disposition``, gate default ON since the
+    # 2026-08-04 flip); they no longer have a quarantine to join.  Fixed
+    # vertices are anchored through the later edge fairing so nothing
+    # re-tilts them.
     _tri_anchor_idx: set = set()
     if _os.environ.get("O4_TRIANGLE_PLANE_LAW", "1") == "1":
         _n_tri_fixed, _tri_anchor_idx, _tri_broken = \
@@ -5863,38 +5864,17 @@ def final_grade_projection(layout, icao: str = "", dem=None,
         _projection_broken_idx |= triangle_plane_disposition(
             layout, _tri_broken, _n_tri_fixed)
     _stage("project")
-    if _projection_broken_idx:
-        try:
-            _existing_break_ll = list(
-                getattr(layout, "_break_node_ll", None) or [])
-            _seen_break = {(round(la, 7), round(lo, 7))
-                           for (la, lo) in _existing_break_ll}
-            for i in sorted(_projection_broken_idx):
-                if i >= len(nodes):
-                    continue
-                la, lo = layout.m_to_ll(nodes[i][0], nodes[i][1])
-                if (round(la, 7), round(lo, 7)) not in _seen_break:
-                    _existing_break_ll.append((la, lo))
-            layout._break_node_ll = _existing_break_ll
-        except Exception:
-            pass
-    # Persist the quarantine as canonical keys so a LATER projection run
-    # (the pipeline-end re-projection) carries it in ``pre_broken`` — see
-    # the broken-quarantine-carry note at the projection call above.
-    try:
-        _carry_keys = set(getattr(
-            layout, "_final_projection_broken_keys", None) or set())
-        _cps_carry = layout.canonical_points
-        for i in (_projection_broken_idx | set(pre_broken or ())):
-            if i < len(nodes):
-                _ck = _cps_carry.find_nearest(
-                    float(nodes[i][0]), float(nodes[i][1]),
-                    _cps_carry.tol_m)
-                if _ck is not None:
-                    _carry_keys.add(_ck)
-        layout._final_projection_broken_keys = _carry_keys
-    except Exception:
-        pass
+    # THE PROJECTION SINK AND THE FREEZE CARRY — DELETED 2026-08-04 (spec
+    # ``docs/specs/kill-half-spec.md`` §2).  What stood here appended this
+    # projection's broken set to ``layout._break_node_ll`` (the sidecar
+    # sink) and persisted it as ``layout._final_projection_broken_keys``,
+    # which the NEXT projection re-read as ``pre_broken`` and froze out of
+    # every sweep.  Both halves are the quarantine the owner's ruling
+    # forbids — the bookkeeping half hid rows from the census, the freeze
+    # half held free nodes (measured at HECA: 375 carried, 165 of them not
+    # hard) immovable through the LATE airside projection, which is also an
+    # airside-is-king breach.  ``_projection_broken_idx`` survives as the
+    # REPORT the log lines and the drain list read.
     _n_deferred = _n_expanded = 0
     if scoped:
         _n_deferred = sum(1 for _sc in shape_constraints
@@ -6017,18 +5997,16 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # guard as the solve-side capture: the next projection run scopes
     # against the PREVIOUS run's output, so only shapes the bounded
     # post-mid churn (welds, band adoptions) actually touched re-project.
-    # ``broken`` carries the full persisted quarantine
-    # (``_final_projection_broken_keys``, refreshed above) so the next
-    # run's sparser envelope cannot un-quarantine an infeasible pocket.
+    # The snapshot's ``broken`` slot is now always EMPTY: the persisted
+    # quarantine it used to carry (``_final_projection_broken_keys``) was
+    # deleted with the rest of the machinery (spec kill-half §2).
     # A stale snapshot is SAFE (mismatched values ⇒ nothing defers), so a
     # geometry hiccup here simply keeps the previous snapshot.
     if (_scoped_projection_gate
             and recapture_snapshot):
         try:
-            _recapture_broken_keys = set(getattr(
-                layout, "_final_projection_broken_keys", None) or set())
             _capture_projection_snapshot(layout, _fairing_moved_keys,
-                                         _recapture_broken_keys)
+                                         set())
         except _snapshot_geom_exceptions():
             pass
     _stage("snapshot")

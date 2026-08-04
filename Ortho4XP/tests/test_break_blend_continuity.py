@@ -1,31 +1,46 @@
-"""Unit tests for the CONTINUOUS break-blend weight in
-``feasibility_project`` (docs/specs/break-blend-continuity-spec.md, gate
-``O4_BREAK_BLEND_CONTINUOUS``, default "0").
+"""THE BREAK BLEND IS DELETED — the twin of ``kill-half-spec.md`` §2.
 
-Hermetic — no build, no fixtures.  Covers the spec's acceptance item 1:
+This file used to pin the CONTINUOUS break-blend weight
+(``docs/specs/break-blend-continuity-spec.md``, gate
+``O4_BREAK_BLEND_CONTINUOUS``): a node whose envelope interval was
+inverted took a distance-weighted value ``hi + (lo−hi)·t`` and was then
+frozen out of every sweep, and that spec's work was making ``t``
+continuous so the painted pocket at least carried no steps.
 
-  (a) a synthetic pocket whose envelope is FLAT across a witness frontier
-      still gets a 12 m step from the shipped weight (two adjacent nodes
-      inherit ``dist`` from two different value-winning paths) and grades
-      smoothly under the gate;
-  (b) the gate moves NO break membership and NO envelope value — only the
-      weight (spec: "this changes no envelope, no witness, no break
-      membership");
-  (c) the degenerate ``else 0.5`` branch is counted by production, fires
-      on the constructed same-node-witness case, and fires NOWHERE in the
-      pocket under either arm;
-  (d) gate off (unset or "0") is identical.
+REWRITTEN 2026-08-04.  Owner law (docs/RULINGS.md, feasibility-is-
+guaranteed, ESCALATED 2026-08-01): "quarantine is UNAUTHORIZED; break
+regions are law defects to attribute, never a legitimate answer."  The
+blend, its continuity gate and the freeze are gone; what this file pins is
+what replaced them:
 
-THE POCKET (one frame, stated once).  A 101-node chain, budget 1.0 m per
-step, with a hard LOW anchor at each end (node 0 at 0.0 m, node 100 at
-21.0 m) and one hard HIGH anchor (node 101 at 200.0 m) welded to the
-middle node with a 20 m budget.  Every free node is broken: its floor
-(from the high anchor) is ~130-180 m above its ceiling (from the nearer
-low anchor).  The ceiling WITNESS changes at node 60/61 — and because a
-ceiling value is exactly ``z_anchor + path budget``, the recorded distance
-jumps by the two anchors' value gap (60 -> 39) while the ceiling VALUE
-does not move at all (60.0 both sides).  That is the discontinuity the
-spec attributes; here it is isolated with nothing else in the graph.
+  (a) an inverted interval is REPORTED through ``broken_out`` and nothing
+      else — the A2/A3/A4/B3 minters keep their report halves;
+  (b) the node takes the ordinary envelope clamp, which for ``lo > hi``
+      evaluates to the CEILING — the deleted blend's own ``t → 0`` end, so
+      the value stays inside the range the blend could have produced;
+  (c) the node is NOT frozen: it sweeps like any free node.  The freeze is
+      the half that held free nodes immovable through the LATE airside
+      projection (measured at HECA: 375 carried, 165 of them not hard);
+  (d) ``O4_BREAK_BLEND_CONTINUOUS`` is dead — setting it changes nothing
+      and no module reads it;
+  (e) the SCOPED final projection's own ``pre_broken`` set (gate
+      ``O4_SCOPED_FINAL_PROJECTION``, default "0") still freezes what its
+      caller hands it.  That machinery is not this spec's to kill, and the
+      contrast is what proves (c) is a measured behaviour change rather
+      than an absence.
+
+A materially inverted FINAL band is a BUILD ERROR now instead
+(``building_feasibility.assert_no_final_band_inversion``, spec §3, with
+its own twin in ``test_final_band_inversion.py``).
+
+THE POCKET (the same frame the continuity spec used, so the two histories
+line up).  A 101-node chain, budget 1.0 m per step, hard LOW anchors at
+both ends (node 0 at 0.0 m, node 100 at 21.0 m) and one hard HIGH anchor
+(node 101 at 200.0 m) welded to the middle node with a 20 m budget.  Every
+free node is inverted: its floor (from the high anchor) is ~130-180 m
+above its ceiling (from the nearer low anchor).  On a real airport this
+cannot survive to the final band — that is exactly what §3's error
+asserts — so this frame exists only to exercise the inverted branch.
 """
 import pytest
 
@@ -43,7 +58,6 @@ def _zero_emit_margin(monkeypatch):
 
 CHAIN = 100            # nodes 0..100, budget 1.0 m between neighbours
 HIGH = CHAIN + 1       # the contradicting high anchor
-FRONTIER = 60          # the ceiling witness frontier (0 wins <=60, 100 >60)
 
 
 def _pocket():
@@ -53,153 +67,95 @@ def _pocket():
     elev[0] = 0.0
     elev[CHAIN] = 21.0
     elev[HIGH] = 200.0
-    return edges, elev, {0, CHAIN, HIGH}
+    return [{"edges": edges}], elev, {0, CHAIN, HIGH}
 
 
-def _run(edges, elev, hard, *, gate, monkeypatch, capsys, tmp_path,
-         label="pocket"):
-    """One projection; returns ``(elev, broken, t_fallback_count)``.
-
-    The fallback count is read from the PRODUCTION forensics row — the
-    spec's channel for it — not from a test-only hook."""
-    if gate is None:
-        monkeypatch.delenv("O4_BREAK_BLEND_CONTINUOUS", raising=False)
-    else:
-        monkeypatch.setenv("O4_BREAK_BLEND_CONTINUOUS", gate)
-    monkeypatch.setenv("O4_BREAK_FORENSICS", str(tmp_path / f"{label}.csv"))
+def _run(elev, sc, hard, **kw):
     out = list(elev)
     broken: set = set()
-    feasibility_project(out, [{"edges": edges}], set(hard),
-                        force_scalar=True, broken_out=broken,
-                        forensics={"label": "", "classes": {},
-                                   "nodes_ll": None})
-    text = capsys.readouterr().out
-    marker = "t_fallback="
-    assert marker in text, text
-    count = int(text.split(marker)[1].split()[0].strip())
-    return out, broken, count
+    rem, _both_hard = feasibility_project(
+        out, sc, hard, force_scalar=True, max_iters=4000,
+        broken_out=broken, **kw)
+    return out, broken, rem
 
 
-# ── (a) the discontinuity, and its repair ────────────────────────────────
+# ── (a) the inversion is REPORTED ────────────────────────────────────────
 
-def test_shipped_weight_steps_at_the_witness_frontier(monkeypatch, capsys,
-                                                      tmp_path):
-    edges, elev, hard = _pocket()
-    off, broken, _ = _run(edges, elev, hard, gate=None, monkeypatch=monkeypatch,
-                          capsys=capsys, tmp_path=tmp_path)
-    assert broken == set(range(1, CHAIN))
-    step = abs(off[FRONTIER + 1] - off[FRONTIER])
-    # the envelope is FLAT across the frontier, so this step is the weight
-    # and nothing else
-    assert step > 10.0, step
-    neighbours = max(abs(off[i + 1] - off[i])
-                     for i in range(1, CHAIN - 1) if i != FRONTIER)
-    assert step > 4.0 * neighbours, (step, neighbours)
+def test_the_inversion_is_reported_through_broken_out():
+    sc, elev, hard = _pocket()
+    _out, broken, _rem = _run(elev, sc, hard)
+    assert broken == set(range(1, CHAIN)), (
+        "every free chain node is inverted in this frame, and every one of "
+        "them must still be REPORTED")
+    assert not (broken & hard), "a hard node is never reported inverted"
 
 
-def test_continuous_weight_grades_the_pocket_smoothly(monkeypatch, capsys,
-                                                      tmp_path):
-    edges, elev, hard = _pocket()
-    off, _, _ = _run(edges, elev, hard, gate="0", monkeypatch=monkeypatch,
-                     capsys=capsys, tmp_path=tmp_path, label="off")
-    on, _, _ = _run(edges, elev, hard, gate="1", monkeypatch=monkeypatch,
-                    capsys=capsys, tmp_path=tmp_path, label="on")
-    off_max = max(abs(off[i + 1] - off[i]) for i in range(1, CHAIN - 1))
-    on_max = max(abs(on[i + 1] - on[i]) for i in range(1, CHAIN - 1))
-    assert off_max > 10.0, off_max
-    assert on_max < 3.5, on_max
-    assert on_max < off_max / 3.0
-    # and the frontier itself is now an ordinary interior step
-    assert abs(on[FRONTIER + 1] - on[FRONTIER]) <= on_max
+# ── (b) the surviving line is the clamp, and it lands on the CEILING ─────
+
+def test_an_inverted_band_node_is_clamped_to_its_ceiling():
+    """With slack budgets the sweeps have nothing to do, so what survives
+    IS the clamp — and for ``lo > hi`` it must be ``hi``."""
+    loose = [{"edges": [(0, 1, 100.0), (1, 2, 100.0), (2, 3, 100.0)]}]
+    band = [None, (30.0, 20.0), (30.0, 40.0), None]   # node 1 inverted 10 m
+    out, broken, _rem = _run([0.0, 0.0, 0.0, 50.0], loose, {0, 3},
+                             env_band=band)
+    assert broken == {1}
+    assert out[1] == pytest.approx(20.0), (
+        "the inverted node takes its CEILING, not a blend between the two")
+    assert out[2] == pytest.approx(30.0), "the feasible node clamps as ever"
 
 
-def test_continuous_weight_leaves_no_local_pit(monkeypatch, capsys, tmp_path):
-    """The owner-visible defect is a PIT: a node metres below both of its
-    neighbours.  Under the gate no interior node may sit outside the
-    interval its two neighbours span by more than one budget."""
-    edges, elev, hard = _pocket()
-    on, _, _ = _run(edges, elev, hard, gate="1", monkeypatch=monkeypatch,
-                    capsys=capsys, tmp_path=tmp_path)
-    worst = max(min(on[i - 1], on[i + 1]) - on[i] for i in range(2, CHAIN - 1))
-    assert worst < 1.0, worst
+# ── (c) REPORTED IS NOT FROZEN ───────────────────────────────────────────
+
+def test_a_reported_node_still_sweeps():
+    sc, elev, hard = _pocket()
+    out, broken, _rem = _run(elev, sc, hard)
+    kept_at_clamp = sum(1 for i in broken if out[i] == pytest.approx(100.0))
+    assert kept_at_clamp < len(broken), (
+        "every reported node was left exactly where the clamp put it — "
+        "that is the freeze this round deleted")
+    assert out[0] == 0.0 and out[CHAIN] == 21.0 and out[HIGH] == 200.0, (
+        "hard anchors never move")
 
 
-# ── (b) the gate moves the weight and nothing else ───────────────────────
-
-def test_gate_moves_no_break_membership(monkeypatch, capsys, tmp_path):
-    edges, elev, hard = _pocket()
-    _, broken_off, _ = _run(edges, elev, hard, gate="0",
-                            monkeypatch=monkeypatch, capsys=capsys,
-                            tmp_path=tmp_path, label="off")
-    _, broken_on, _ = _run(edges, elev, hard, gate="1",
-                           monkeypatch=monkeypatch, capsys=capsys,
-                           tmp_path=tmp_path, label="on")
-    assert broken_on == broken_off
-
-
-def test_gate_moves_nothing_outside_the_break(monkeypatch, capsys, tmp_path):
-    """A FEASIBLE component in the same call (hard anchor + a chain the
-    envelope merely clamps) must come out bit-for-bit identical on both
-    arms: the gate may touch the blend weight and nothing else."""
-    edges, elev, hard = _pocket()
-    feas = [HIGH + 1 + k for k in range(5)]          # 102..106
-    edges = edges + [(feas[k], feas[k + 1], 2.0) for k in range(4)]
-    elev = elev + [50.0, 80.0, 80.0, 80.0, 80.0]
-    hard = set(hard) | {feas[0]}
-    off, _, _ = _run(edges, elev, hard, gate="0", monkeypatch=monkeypatch,
-                     capsys=capsys, tmp_path=tmp_path, label="off")
-    on, _, _ = _run(edges, elev, hard, gate="1", monkeypatch=monkeypatch,
-                    capsys=capsys, tmp_path=tmp_path, label="on")
-    assert off[feas[0]:] == on[feas[0]:]
-    assert off[feas[1]] != 80.0                      # it really was clamped
+def test_the_scoped_pre_broken_quarantine_still_freezes():
+    """CONTRAST (e) — and the proof that (c) measures something."""
+    sc, elev, hard = _pocket()
+    free_out, _b, _r = _run(elev, sc, hard)
+    frozen_out, _b2, _r2 = _run(elev, sc, hard, pre_broken={1, 2, 3})
+    # ``pre_broken`` merges AFTER the envelope pass (documented ordering),
+    # so a frozen node keeps the CLAMP's value — node 1's ceiling is the
+    # hard anchor at 0.0 plus one 1.0 m budget — and never sweeps off it.
+    assert frozen_out[1] == pytest.approx(1.0), (
+        "a pre_broken node stays at the value the clamp left it")
+    assert free_out[1] != pytest.approx(frozen_out[1]), (
+        "the two paths must differ — otherwise nothing was proved")
 
 
-def test_gate_moves_no_hard_value(monkeypatch, capsys, tmp_path):
-    edges, elev, hard = _pocket()
-    on, _, _ = _run(edges, elev, hard, gate="1", monkeypatch=monkeypatch,
-                    capsys=capsys, tmp_path=tmp_path)
-    for h in hard:
-        assert on[h] == elev[h]
+# ── (d) the continuity gate is dead ──────────────────────────────────────
+
+@pytest.mark.parametrize("value", ["0", "1"])
+def test_the_continuity_gate_is_dead(monkeypatch, value):
+    sc, elev, hard = _pocket()
+    monkeypatch.setenv("O4_BREAK_BLEND_CONTINUOUS", value)
+    on, on_broken, on_rem = _run(elev, sc, hard)
+    monkeypatch.delenv("O4_BREAK_BLEND_CONTINUOUS")
+    off, off_broken, off_rem = _run(elev, sc, hard)
+    assert on == off and on_broken == off_broken and on_rem == off_rem, (
+        "O4_BREAK_BLEND_CONTINUOUS died with the blend it weighted")
 
 
-# ── (c) the degenerate branch ────────────────────────────────────────────
-
-def test_degenerate_branch_never_fires_in_the_pocket(monkeypatch, capsys,
-                                                     tmp_path):
-    edges, elev, hard = _pocket()
-    for gate in ("0", "1"):
-        _, _, count = _run(edges, elev, hard, gate=gate,
-                           monkeypatch=monkeypatch, capsys=capsys,
-                           tmp_path=tmp_path, label=f"g{gate}")
-        assert count == 0, (gate, count)
-
-
-@pytest.mark.parametrize("gate", ["0", "1"])
-def test_degenerate_branch_fires_on_the_same_node_witness(gate, monkeypatch,
-                                                          capsys, tmp_path):
-    """Both witnesses AT the node (zero-budget welds to a low and a high
-    anchor at once): both distance fields are genuinely zero, so the
-    ``0.5`` branch is the only answer — the one case the spec keeps."""
-    edges = [(0, 1, 0.0), (0, 2, 0.0)]
-    elev = [50.0, 0.0, 100.0]
-    out, broken, count = _run(edges, elev, {1, 2}, gate=gate,
-                              monkeypatch=monkeypatch, capsys=capsys,
-                              tmp_path=tmp_path, label=f"same{gate}")
-    assert broken == {0}
-    assert count == 1
-    assert out[0] == pytest.approx(50.0)
-
-
-# ── (d) gate off is gate absent ──────────────────────────────────────────
-
-def test_gate_off_is_gate_absent(monkeypatch, capsys, tmp_path):
-    edges, elev, hard = _pocket()
-    absent, broken_a, fb_a = _run(edges, elev, hard, gate=None,
-                                  monkeypatch=monkeypatch, capsys=capsys,
-                                  tmp_path=tmp_path, label="absent")
-    zero, broken_z, fb_z = _run(edges, elev, hard, gate="0",
-                                monkeypatch=monkeypatch, capsys=capsys,
-                                tmp_path=tmp_path, label="zero")
-    assert absent == zero
-    assert broken_a == broken_z
-    assert fb_a == fb_z
+def test_the_gate_has_no_reader_left():
+    """Grep twin: the flag name may survive in prose, never in a read that
+    decides anything (``comment-prose-may-describe-unlanded-state`` cuts
+    both ways — a deleted feature must lose its READS, not just its docs)."""
+    import pathlib
+    import re
+    root = pathlib.Path(__file__).resolve().parents[1] / "src"
+    readers = []
+    for path in root.rglob("*.py"):
+        for line in path.read_text().splitlines():
+            if re.search(r"environ\.get\(\s*[\"']O4_BREAK_BLEND_CONTINUOUS",
+                         line):
+                readers.append(f"{path}: {line.strip()}")
+    assert readers == [], readers

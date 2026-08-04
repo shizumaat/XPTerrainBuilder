@@ -3130,7 +3130,6 @@ def run_checks(
     quiet: bool = False,
     anchor: Optional[Tuple[float, float]] = None,
     seam_pins_ll: Optional[list] = None,
-    break_nodes_ll: Optional[list] = None,
     mesh_edges_ll: Optional[list] = None,
     crown_drops_ll: Optional[list] = None,
     crown_centerline_ll: Optional[list] = None,
@@ -3226,49 +3225,22 @@ def run_checks(
         mesh_edges_m=mesh_edges_m, crown_by_nid=crown_by_nid,
         crown_centerline_nids=crown_centerline_nids,
         pair_caps_ll=pair_caps_ll)
-    # BREAK-REGION split (user 2026-07-05): pairs touching a node the
-    # SOLVER declared broken (genuine anchor contradiction, rendered as
-    # the contained distance-weighted blend) are the pocket's designed
-    # over-cap ramp — reported HONESTLY in their own section, excluded
-    # from the actionable within-shape count.  Sidecar ``break_nodes``.
-    break_region: List[Violation] = []
-    if break_nodes_ll:
-        break_points_m = [ll_to_m(la, lo) for (la, lo) in break_nodes_ll]
-
-        def _touches_break_node(violation):
-            for (px, py) in (violation.pt_a, violation.pt_b):
-                for (bx, by) in break_points_m:
-                    if (abs(px - bx) <= SHARED_VERTEX_TOL_M
-                            and abs(py - by) <= SHARED_VERTEX_TOL_M
-                            and math.hypot(px - bx, py - by)
-                            <= SHARED_VERTEX_TOL_M):
-                        return True
-            return False
-
-        kept = []
-        for violation in within:
-            (break_region if _touches_break_node(violation)
-             else kept).append(violation)
-        within = kept
+    # THE BREAK-REGION SPLIT IS DELETED (spec ``docs/specs/kill-half-
+    # spec.md`` §2, 2026-08-04).  Pairs touching a solver-declared broken
+    # node used to be moved out of the actionable within-shape count into
+    # a BREAK-REGION section.  Owner law (docs/RULINGS.md): quarantine is
+    # unauthorized and "all counts are full-census, never quarantine-
+    # excluded".  Every pair is now counted where it falls; the law's own
+    # exemptions still adjudicate what is a violation.
     _pv(f"WITHIN-SHAPE vertex-pair grade > {max_grade_pct}%",
         within, top_n)
 
     plane = _check_plane_gradient(
         ways, nodes, ll_to_m, max_grade, seam_nids=seam_nids,
         crown_by_nid=crown_by_nid)
-    # A triangle whose vertex the solver declared broken is the pocket's
-    # designed blend — quarantine it exactly like the vertex-pair split
-    # above (the triangle-plane law exports unfixable triangles).
-    if break_nodes_ll:
-        kept_plane = []
-        for violation in plane:
-            (break_region if _touches_break_node(violation)
-             else kept_plane).append(violation)
-        plane = kept_plane
-    if break_nodes_ll is not None and not quiet:
-        print(f"\nBREAK-REGION over-cap (solver-declared infeasible "
-              f"pocket, contained blend — by design): "
-              f"{len(break_region)} pair(s)")
+    # The triangle-plane split went with it (§2): an unresolved triangle
+    # is REPORTED (``solve.triangle_plane_disposition``) and its plane
+    # violation stays visible here.
     _pv(f"PLANE GRADIENT (triangle surface) > {max_grade_pct}%",
         plane, top_n)
     within = within + plane
@@ -3370,31 +3342,10 @@ def run_checks(
         vertices, edges, ways, edge_search_m, edge_step_m)
     mid_steps = _check_edge_midpoint_step(
         edges, ways, edge_search_m, edge_step_m)
-    # BREAK-REGION split for steps (user 2026-07-06): a step whose
-    # location touches a solver-declared break node is the same pocket's
-    # cross-shape rendering — quarantined exactly like the pocket's
-    # vertex pairs (HECA #578↔#64: contradictory welded anchors 1 m
-    # apart; the DEM-follow blend contains the deficit by design).
-    n_break_steps = 0
-    if break_nodes_ll:
-        _STEP_BREAK_TOL_M = 2.0
-
-        def _step_touches_break(step):
-            for pt in (step.vert_pt, step.proj_pt):
-                if pt is None:
-                    continue
-                px, py = pt
-                for (bx, by) in break_points_m:
-                    if (abs(px - bx) <= _STEP_BREAK_TOL_M
-                            and abs(py - by) <= _STEP_BREAK_TOL_M):
-                        return True
-            return False
-        kept_steps = [s for s in steps if not _step_touches_break(s)]
-        kept_mid = [s for s in mid_steps if not _step_touches_break(s)]
-        n_break_steps = (len(steps) - len(kept_steps)
-                         + len(mid_steps) - len(kept_mid))
-        steps = kept_steps
-        mid_steps = kept_mid
+    # The step split went with the rest of the break machinery (§2): a
+    # step near a solver-declared break node used to be dropped from both
+    # step checks (at a 2.0 m tolerance, wider than the vertex-pair
+    # split's weld tolerance).  Full census now.
     _ps(f"VERTEX-TO-EDGE step (within {edge_search_m}m of "
         f"another shape)",
         steps, top_n, edge_step_m)
@@ -3402,9 +3353,6 @@ def run_checks(
     _ps(f"MID-EDGE step (sample along each edge, compare to "
         f"nearest other-shape edge)",
         mid_steps, top_n, edge_step_m)
-    if n_break_steps and not quiet:
-        print(f"  ({n_break_steps} step(s) inside solver-declared break "
-              f"region(s) quarantined)")
 
     # Attach a geographic location (lat, lon) to each finding so callers
     # can point a user at the spot in their apt.dat / DSF.  nodes maps
@@ -3452,7 +3400,7 @@ def main(argv=None) -> int:
     # when present; without it the check is context-free and over-flags
     # every spine/blend-relaxed pair.
     taxi_axes_ll = routes_ll = anchor = seam_pins_ll = None
-    break_nodes_ll = mesh_edges_ll = crown_drops_ll = None
+    mesh_edges_ll = crown_drops_ll = None
     crown_centerline_ll = pair_caps_ll = None
     sidecar = Path(str(args.osm) + ".axes.json")
     if sidecar.exists():
@@ -3470,7 +3418,6 @@ def main(argv=None) -> int:
                 routes_ll = _data.get("routes") or None
             anchor = _data.get("anchor") or None
             seam_pins_ll = _data.get("seam_pins")
-            break_nodes_ll = _data.get("break_nodes")
             mesh_edges_ll = _data.get("mesh_edges") or None
             crown_drops_ll = _data.get("crown_drops") or None
             crown_centerline_ll = _data.get("crown_centerline") or None
@@ -3499,7 +3446,6 @@ def main(argv=None) -> int:
         routes_ll=routes_ll,
         anchor=tuple(anchor) if anchor else None,
         seam_pins_ll=seam_pins_ll,
-        break_nodes_ll=break_nodes_ll,
         mesh_edges_ll=mesh_edges_ll,
         crown_drops_ll=crown_drops_ll,
         crown_centerline_ll=crown_centerline_ll,

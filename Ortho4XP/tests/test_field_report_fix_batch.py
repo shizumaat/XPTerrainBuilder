@@ -352,4 +352,8 @@ def test_source_coverage_check_is_wired_under_its_gate():
     src = inspect.getsource(V.verify_and_log)
     assert "check_source_coverage(" in src
     assert "SOURCE_COVERAGE_CHECK_ENABLED" in src
-    assert CFG.SOURCE_COVERAGE_CHECK_ENABLED is False   # default OFF
+    # FLIPPED ON 2026-08-04 (spec ``docs/specs/kill-half-spec.md`` §1):
+    # the invariant the owner flew four holes against now runs on every
+    # build.  It REPORTS (docs/RULINGS.md: "census instruments REPORT, the
+    # law ADJUDICATES"), so turning it on adds visibility, not violations.
+    assert CFG.SOURCE_COVERAGE_CHECK_ENABLED is True    # default ON

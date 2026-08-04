@@ -4,7 +4,8 @@ Spec ``docs/specs/route-metric-envelope-spec.md`` (owner directive
 2026-08-01: "we need to fix the route graph, it has to be via actual
 routes, not cutting across the edge of aprons"; owner ruling 2026-07-30
 "reach follows centerlines", escalated 2026-08-01).  Gate
-``O4_ROUTE_METRIC_ENVELOPE``, default ``"0"`` this round.
+``O4_ROUTE_METRIC_ENVELOPE``, DEFAULT ``"1"`` since the 2026-08-04
+kill-half flip (spec ``docs/specs/kill-half-spec.md`` §1).
 
 Spec §4.1's three unit gates, in order:
 
@@ -84,8 +85,12 @@ def test_route_absorbable_tension_is_feasible_under_the_gate(monkeypatch):
 
 
 def test_gate_off_is_the_pair_closure(monkeypatch):
-    """Gate-off byte identity: the band is ignored even when handed in."""
-    monkeypatch.delenv("O4_ROUTE_METRIC_ENVELOPE", raising=False)
+    """Gate-off byte identity: the band is ignored even when handed in.
+
+    KILL-HALF FLIP (2026-08-04, spec kill-half §1): the gate's DEFAULT is
+    now "1", so gate-off must be asked for explicitly.  The property under
+    test — with the envelope off the band is inert — is unchanged."""
+    monkeypatch.setenv("O4_ROUTE_METRIC_ENVELOPE", "0")
     monkeypatch.delenv("O4_ENVELOPE_FROM_BAND", raising=False)
     chord, hard, elev, band = _two_runway_tension()
     a = list(elev)

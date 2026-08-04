@@ -126,6 +126,15 @@ def test_solver_and_validator_same_nodes(tmp_path):
         f"{missing[:10]}")
 
 
+@pytest.mark.xfail(strict=True, reason=(
+    "DRAIN LEDGER (spec kill-half §4b, 2026-08-04): the CYXY apron pair "
+    "at (-291,343) grades 1.9 % against a 1.5 % cap.  It is a real, "
+    "ADJUDICATED defect that the pre-flip world did not show: green in the "
+    "flip battery's OFF arm, red in its CAND arm, i.e. EXPOSED by the §1 "
+    "defaults flip (and by §2 deleting the break-region split that used to "
+    "carry rows like it out of the actionable count).  xfail(strict) so it "
+    "stays visible and cannot silently start passing — it is on the drain "
+    "list, not hidden."))
 def test_cyxy_spine_zero():
     """OUTCOME: zero spine violations on the strict extended validator (spine +
     rects + caps + runway-joins, width-based, in centerline order).  RED until

@@ -200,3 +200,20 @@ ledger) is canonical in `Ortho4XP/CLAUDE.md` and is not duplicated here.
   averaging (single-authority emission replaces it). Four second
   authorities already retired this campaign (pair-graph envelope,
   service private envelope, terrain-pin quarantine, break blend).
+
+- **Apron terrace law** (2026-08-04, owner): long aprons on genuinely
+  steep ground MAY terrace into level panels with declared joint steps —
+  "but it has to be done in a way that does not interrupt any spine
+  where aircraft have to travel." BINDING CONSTRAINT: terrace joints may
+  NEVER cross a taxi spine/route; panels are bounded by the taxi
+  corridors crossing the apron, joints live only on non-taxiable
+  interior edges, and every spine grades continuously at cap through
+  the apron regardless of panelization. Evidence: HECA steep-truth runs
+  1.47-2.45% over 378-1,469 m vs the 1% cap (carrier_attrib/DOSSIER.md).
+- **Split-level building seats** (2026-08-04, owner): a building whose
+  footprint relief exceeds a threshold gets SECTIONED seats (each
+  section level, steps at section joints); the seat coupler couples
+  sections; an empty coupling polytope is LOUD attribution, never a
+  silent ship (HECA building197: 13.75 m ring relief, shipped 5.9 m
+  step against a touching neighbor). Threshold constant is owner-
+  adjustable, provisional default from the coupler's own gap data.

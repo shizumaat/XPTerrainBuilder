@@ -240,3 +240,26 @@ Binding consequences:
    authorizes the round including its endgame; phase C still honors
    its pre-registered bands and STOP rules — a band miss returns for
    attribution, it does not re-litigate this ruling.
+
+## 2026-08-04 — Per-change timing gates SUSPENDED for the campaign (owner)
+
+Owner question ("Why not build everything to plan, then profile on the
+final design?") resolved with the lead's recommended option: DEFER +
+TRIPWIRE.
+
+1. SUSPENDED for the remainder of the architectural campaign: the
+   per-change 1%-budget evaluation, per-round exclusive
+   check_build_time runs, and per-change Fable-5 optimization reviews.
+   No round's acceptance may require an exclusive timing run.
+2. TRIPWIRE (zero-cost): every build already persists per-phase wall
+   times to the ledger. A round FLAGS (investigation, not measurement
+   builds) only if a comparable airport build goes grossly anomalous —
+   ~2x — under comparable load. Quote no ledger number as a timing
+   claim.
+3. The 60 s / 300 s budgets REMAIN LAW; their adjudication moves to
+   ONE final-design profiling round at campaign end: exclusive, fresh
+   baselines re-recorded (the owed battery re-record folds in),
+   budgets adjudicated, the Fable-5 whole-pipeline optimization review
+   run once against the final architecture.
+4. Timing-exclusivity discipline (foreground-only, no-nohup,
+   quiet-machine) still binds THAT final round.

@@ -85,3 +85,8 @@ weaker pull; KCLT's 46->8 more than offsets battery-wide).
 ## the transitional census cost (KCLT +95 et al.) is ACCEPTED by
 ## ruling — no degradation-shield interims. The timing A/B compares
 ## old default (0.2, ref=1) vs the NEW default (0.02, ref=0).
+
+## TIMING ITEM DROPPED (owner policy, RULINGS 2026-08-04 defer+tripwire):
+## the exclusive A/B no longer gates the commit; acceptance is complete
+## when the corridor-ref flip + new-default baselines land. Ledger
+## tripwire only.

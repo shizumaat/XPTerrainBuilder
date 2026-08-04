@@ -45,6 +45,7 @@ from auto_patch.layout import (
     ROLE_RUNWAY_CROSSING,
     ROLE_SECONDARY_PARALLEL, ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION,
     ROLE_STUB, ROLE_BUILDING, taxi_shape_code_letter,
+    absorbed_road_context_polys as _absorbed_road_context_polys,
 )
 # The EAT ceiling law is evaluated per PAVEMENT VERTEX, so its import is
 # module-level (the other grade_law calls here are per-shape and stay
@@ -1115,6 +1116,17 @@ def _build_shape_constraints(layout, bucket_to_idx, ctx=None, dem=None,
         polys = [s.polygon for s in layout.shapes
                  if s.role in PAVEMENT_ROLES
                  and s.polygon is not None and not s.polygon.is_empty]
+        # CONTEXT-CONSERVATIVE ABSORPTION (membership round V2, spec
+        # §V2.A): a road stretch clause-4 absorption merged into a
+        # DEM-followed groundside lot is no longer a PAVEMENT_ROLES shape,
+        # so this union would lose real pavement and junction chords
+        # kilometres away would stop being visible — the measured global
+        # coupling that moved 21 HECA runway vertices.  Its retained
+        # FOOTPRINT goes back in (a union member, never a shape); an
+        # absorption into an airside host contributes area the host
+        # already covers, so the union is absorption-invariant either way.
+        # Empty list off the lateral-contiguity law ⇒ byte-inert.
+        polys += _absorbed_road_context_polys(layout)
         if polys:
             airside_buf = prep(
                 unary_union(polys).buffer(_GRADE_VISIBILITY_BUFFER_M))

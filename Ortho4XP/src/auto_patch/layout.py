@@ -732,6 +732,35 @@ class PavementLayout:
     dsf_sources_read: list | None = None
     dsf_tiles_scanned: list | None = None
 
+    # ---- retained context footprint of ABSORBED road stretches --------
+    # CONTEXT-CONSERVATIVE ABSORPTION (membership round V2, 2026-08-03,
+    # docs/specs/membership-round-spec.md §V2.A; the owner's
+    # spine-remains amendment generalized).  Clause-4 absorption
+    # (``groundside.apply_lateral_contiguity_law``) DELETES a road
+    # stretch's shape and grows the host over it.  The stretch's
+    # FOOTPRINT, though, is a solve INPUT in its own right: it feeds the
+    # buffered point-membership zones the grade law reads
+    # (``grade_graph.build_context`` road-carve zone) and the prepared
+    # pavement union junction chord-visibility uses
+    # (``solver_primitives._build_shape_constraints`` ``airside_buf``).
+    # Deleting it from those sets moves the solve GLOBALLY — measured:
+    # 21 HECA runway vertices 4.2-4.6 km away move 0.01-0.06 m, an
+    # airside-is-king violation.  Absorption changes surface IDENTITY and
+    # CAP; it must never change the solve's context GEOMETRY, so the
+    # footprint is retained here and re-contributed to those sets.  This
+    # is a footprint, NOT a resurrection: the polygons are never shapes,
+    # never emitted, never solved, never mutated.
+    #
+    # Entries are ``(polygon, source_role, host_is_dem_followed)`` in the
+    # layout's local metre frame.  ``host_is_dem_followed`` marks the
+    # class-universal (``O4_SERVICE_LOT_ABSORPTION``) merges into a
+    # groundside lot — the MERGED SURFACES whose single grading
+    # authority is the lateral-contiguity law plus the merged-host
+    # regrade (§V2.B: they are exempt from the post-solve finalize
+    # groundside chain).  Empty whenever the lateral-contiguity law is
+    # off, which is every default build.
+    absorbed_road_context: list = field(default_factory=list)
+
     # ---- coordinate helpers ------------------------------------------
     # COORDINATE-ORDER CONVENTION (read before editing geometry code):
     #   * "xy"  = local METRES from ``anchor``, order (x=east, y=north).
@@ -2468,6 +2497,108 @@ class PavementLayout:
             Path(str(path) + ".axes.json").write_text(_json.dumps(data))
         except Exception:
             pass
+
+
+# ── retained absorbed-road context (membership round V2, §V2.A/§V2.B) ──
+# Readers of ``PavementLayout.absorbed_road_context``.  Both take the layout
+# defensively (``getattr`` with an empty default) so synthetic layouts, old
+# pickles and the validator's shape bags — which never carry the field — see
+# exactly the pre-round behaviour.
+
+#: The merged surface is the one that holds the MAJORITY of the absorbed
+#: stretch.  A strict majority admits at most one host per stretch in any
+#: non-degenerate arrangement, which is what makes a geometry key as sharp
+#: as the object identity it replaces: a neighbour that merely touches the
+#: footprint, or an overlapping lot that laps a corner of it, is not the
+#: host.  The absolute floor guards a degenerate (near-zero-area) stretch.
+ABSORBED_HOST_MIN_FOOTPRINT_FRACTION = 0.5
+ABSORBED_HOST_MIN_OVERLAP_M2 = 0.5
+
+
+def absorbed_road_context_polys(layout, roles=None) -> list:
+    """Footprints of the road stretches clause-4 absorption deleted.
+
+    These are re-contributed to the solve's CONTEXT geometry — the
+    ``build_context`` road-carve zone and the ``_build_shape_constraints``
+    airside visibility union — so that absorption changes surface identity
+    and cap but never the geometry the grade law reads (spec §V2.A).  The
+    consequence is an invariant worth stating: those two sets are computed
+    over the SAME total pavement footprint whether or not a stretch was
+    absorbed, so they are absorption-invariant.
+
+    ``roles`` optionally restricts to source roles (the road-carve zone
+    wants the road family only).
+    """
+    out = []
+    for entry in (getattr(layout, "absorbed_road_context", None) or ()):
+        poly, role = entry[0], entry[1]
+        if roles is not None and role not in roles:
+            continue
+        if poly is None or getattr(poly, "is_empty", True):
+            continue
+        out.append(poly)
+    return out
+
+
+def _absorbed_merged_index(layout):
+    """``(STRtree, [polygon, …])`` over the DEM-followed-host absorptions,
+    built once per layout and cached (the footprints are immutable)."""
+    cached = getattr(layout, "_absorbed_merged_index_cache", None)
+    entries = getattr(layout, "absorbed_road_context", None) or ()
+    polys = [e[0] for e in entries
+             if len(e) > 2 and e[2] and e[0] is not None
+             and not e[0].is_empty]
+    if cached is not None and cached[0] == len(polys):
+        return cached[1], cached[2]
+    tree = None
+    if polys:
+        try:
+            from shapely.strtree import STRtree
+            tree = STRtree(polys)
+        except Exception:                                     # pragma: no cover
+            tree = None
+    try:
+        layout._absorbed_merged_index_cache = (len(polys), tree, polys)
+    except AttributeError:                                    # pragma: no cover
+        pass
+    return tree, polys
+
+
+def is_absorbed_merged_surface(layout, shape) -> bool:
+    """Is ``shape`` the MERGED surface a road stretch was absorbed into?
+
+    Keyed on GEOMETRY (overlap with the retained footprint), never on a
+    per-shape attribute: the post-solve groundside chain constructs FRESH
+    ``BuiltShape``s for every piece it rewrites, so any flag stamped at
+    absorption time is dead by the time the exemption has to be decided
+    (spec §V2.B leaves the keying to the implementer; the registry is the
+    only representation that survives that boundary).  Only absorptions
+    into a DEM-followed groundside host count — those are the merged
+    surfaces whose one grading authority is the lateral-contiguity law
+    plus the merged-host regrade.  Empty registry ⇒ always False, so
+    every build without ``O4_SERVICE_LOT_ABSORPTION`` is untouched.
+    """
+    if shape is None or shape.role != ROLE_GROUNDSIDE_PAVEMENT:
+        return False
+    poly = getattr(shape, "polygon", None)
+    if poly is None or poly.is_empty:
+        return False
+    tree, polys = _absorbed_merged_index(layout)
+    if not polys:
+        return False
+    try:
+        cand = ([int(k) for k in tree.query(poly)] if tree is not None
+                else range(len(polys)))
+        for k in cand:
+            fp = polys[k]
+            shared = poly.intersection(fp).area
+            if (shared >= ABSORBED_HOST_MIN_OVERLAP_M2
+                    and shared > ABSORBED_HOST_MIN_FOOTPRINT_FRACTION
+                    * fp.area):
+                return True
+    except Exception:                                         # pragma: no cover
+        return False
+    return False
 
 
 _UMASK: int | None = None

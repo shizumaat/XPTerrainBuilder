@@ -525,6 +525,17 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
     road_polys = [s.polygon for s in layout.shapes
                   if s.role in ("service_road", "service_junction")
                   and s.polygon is not None and not s.polygon.is_empty]
+    # CONTEXT-CONSERVATIVE ABSORPTION (membership round V2, spec §V2.A).
+    # Clause-4 absorption deletes a road SHAPE; the carve zone is keyed on
+    # the road FOOTPRINT, and dropping it silently re-prices every soft
+    # pair whose endpoints sat on that carve.  The retained footprint goes
+    # back in, so this zone is the same geometry whether the stretch was
+    # absorbed or not — absorption moves surface identity and cap, never
+    # the law's context geometry.  Both the solver and the validator reach
+    # this code, so they stay in lockstep.  Empty off the lateral law.
+    from .layout import absorbed_road_context_polys as _abs_ctx
+    road_polys += _abs_ctx(layout, roles=("service_road",
+                                          "service_junction"))
     if road_polys:
         try:
             from shapely.ops import unary_union as _uu

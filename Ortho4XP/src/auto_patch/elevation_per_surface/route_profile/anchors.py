@@ -148,6 +148,47 @@ def reach_band_for(layout, elev, bucket_to_idx, dem, tile_lat, tile_lon,
     return band, _dem, runway_pts, G
 
 
+def _seat_node_band(ring, band, cps, bucket_to_idx):
+    """The NODE-BAND interval at a pad's CONTACT NODES — the intersection of
+    ``band(x, y)`` over exactly those ring vertices that are registered solve
+    nodes (``bucket_to_idx``), i.e. the nodes the seat is actually stamped on
+    and that ``node_bands`` later clamps.
+
+    Read-only on the canonical registry (``cps.get``, never ``get_or_add``):
+    interning a point changes which LATER points intern together and would
+    move the emitted surface — this is a measurement, so it uses the
+    measurement query (``canonical_points.get`` docstring).
+
+    Returns ``(floor, ceiling, contacts)``; ``contacts == 0`` ⇒ nothing to
+    say (off-net pad) and the interval is ``(-inf, +inf)``."""
+    nlo, nhi, contacts = -_INF, _INF, 0
+    for (x, y) in ring:
+        k = cps.get(float(x), float(y))
+        if k is None or bucket_to_idx.get(k) is None:
+            continue
+        nb = band(x, y)
+        if nb is None:
+            continue
+        nlo = max(nlo, nb[0])
+        nhi = min(nhi, nb[1])
+        contacts += 1
+    return nlo, nhi, contacts
+
+
+def _report(line):
+    """One line out of a seat-law attribution, on the production channel.
+
+    ``O4_UI_Utils`` is the GUI↔core contract and is what a production build
+    reads; a standalone/probe build has no such module, and an attribution
+    that disappears there would be exactly the silence these reports exist
+    to remove — so it falls back to ``print``."""
+    try:
+        import O4_UI_Utils as _UI
+        _UI.vprint(1, line)
+    except Exception:                                    # pragma: no cover
+        print(line)
+
+
 def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts):
     """``{pad_node_idx: flat_level}`` for every airside-touching building, seated
     at the level its FRONTAGE can reach (the band intersected over the pad ring)
@@ -187,6 +228,25 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts):
     # only 708.4, pinning the A2-end apron 1.8 m high → the 20 % apron cliff.
     # Gate off → whole-ring median (legacy, byte-identical).
     _frontage = _os.environ.get("O4_BUILDING_FRONTAGE_SEAT", "1") == "1"
+    # ── SEAT-vs-BAND CONSISTENCY (spec dossier-fixes §2, gate
+    # ``O4_SEAT_BAND_CONSISTENT``, DEFAULT OFF) ──────────────────────────
+    # Two band instruments over one population: a large pad's seat is
+    # chosen inside ``_frontage_band`` (a corridor band sampled along the
+    # frontage), but the projection bounds the pad's ring nodes by
+    # ``node_bands`` = the SAME band sampled PER NODE.  The two disagree:
+    # HECA building181 ships seated 105.772 while 2 of its 12 ring nodes
+    # have a node-band ceiling of 103.914 — the seat is 1.858 m above a
+    # level the band the solve enforces cannot reach, so no surface can
+    # honour it anywhere (carrier_attrib/DOSSIER.md §5).
+    # Per ``band-lawful-displacement-trumps-DEM`` there is ONE band: the
+    # seat clamps into the INTERSECTION of the frontage interval and the
+    # node-band interval at its contact nodes.  An EMPTY intersection is
+    # not silently resolved — it is the split-level-seat law's trigger
+    # (RULINGS 2026-08-04) and is reported, with today's value kept.
+    # Default "0": no new default-on gate without a battery.
+    _seat_band = _os.environ.get("O4_SEAT_BAND_CONSISTENT", "0") == "1"
+    _sb_moved: list = []
+    _sb_empty: list = []
     # Large buildings (≥ area) seat at the FULL-FRONTAGE feasible level (user
     # 2026-06-27): the entire frontage must grade to the spine ≤1 %, so the seat is
     # the band intersected over the whole frontage (computed by
@@ -269,6 +329,27 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts):
             if fb is None:
                 fb = band(s.polygon.centroid.x, s.polygon.centroid.y)
             lo, hi = (min(*fb), max(*fb)) if fb is not None else (level, level)
+            if _seat_band:
+                nlo, nhi, _nc = _seat_node_band(ring, band, cps,
+                                                bucket_to_idx)
+                if _nc:
+                    ilo, ihi = max(lo, nlo), min(hi, nhi)
+                    if ilo > ihi:
+                        # LOUD, never silently shipped: the frontage band
+                        # and the node band have no common level, which is
+                        # precisely the split-level-seat trigger.
+                        _sb_empty.append((s.ref or "?", lo, hi, nlo, nhi,
+                                          level, _nc))
+                    else:
+                        new = min(max(level, ilo), ihi)
+                        if new != level:
+                            _sb_moved.append((s.ref or "?", level, new,
+                                              nlo, nhi, _nc))
+                        # The box is documented as "the interval the seat
+                        # was chosen from"; narrowing it with the level is
+                        # what stops the coupler putting the seat straight
+                        # back above the node ceiling.
+                        level, lo, hi = new, ilo, ihi
         else:
             box = _frontage_box(ring) if _frontage else None
             if box is not None:
@@ -292,6 +373,21 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts):
                     lo = hi = level                  # off-network: immovable
         pads.append((s, ring, float(level), lo, hi))
 
+    if _seat_band and (_sb_moved or _sb_empty):
+        _report(f"  [seat-band] clamped {len(_sb_moved)} full-frontage seat(s)"
+                f" into their own node band; {len(_sb_empty)} pad(s) have NO "
+                f"common level (split-level-seat trigger)")
+        for (ref, was, now, nlo, nhi, nc) in sorted(
+                _sb_moved, key=lambda r: -abs(r[2] - r[1]))[:12]:
+            _report(f"  [seat-band]   {ref}: {was:.3f} -> {now:.3f} "
+                    f"({now - was:+.3f} m) node band [{nlo:.3f},{nhi:.3f}] "
+                    f"over {nc} contact node(s)")
+        for (ref, lo_, hi_, nlo, nhi, lvl, nc) in _sb_empty:
+            _report(f"  [seat-band]   EMPTY {ref}: frontage [{lo_:.3f},"
+                    f"{hi_:.3f}] vs node band [{nlo:.3f},{nhi:.3f}] over "
+                    f"{nc} contact node(s); seat kept at {lvl:.3f} "
+                    f"— NOT a lawful level, needs sectioned seats")
+
     # ── SEAT COUPLING (user 2026-07-03): jointly-feasible pad levels ─────────
     # Each pad pins nearby spine/apron nodes to ``seat ± 1%·d`` (the building↔
     # spine law, never blended/relaxed), so two pads across shared pavement must
@@ -312,7 +408,45 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts):
         from auto_patch.elevation_per_surface.building_feasibility import (
             _pavement_visibility, _VIS_ON_PAV_FRAC)
         vis = _pavement_visibility(layout) if VISIBLE_CHORD_CONNECT else None
+        # ── SHARED-SURFACE COUPLING (spec dossier-fixes §3, gate
+        # ``O4_SEAT_COUPLE_SHARED_SURFACE``, DEFAULT OFF) ────────────────
+        # The visibility fraction is a FALSE-NEGATIVE pair predicate: two
+        # HEAZ pad seats 17.6 m apart and 1.108 m apart in value were
+        # rejected as "separated by grass" at frac=0.057 while their ring
+        # nodes 35 and 37 sit on ONE apron ring and the projection enforces
+        # the 2-hop chain between them regardless — the pair the law binds
+        # was never offered to the solver that could have made it feasible
+        # (DOSSIER §2).  Two instruments over one population: the coupler's
+        # adjacency is a visible straight chord, the projection's is the
+        # within-shape law graph.
+        # The admitted case is the LATERAL-CONTIGUITY definition of
+        # adjacency (RULINGS 2026-08-02: "literal shared boundary in the
+        # sliced arrangement, never proximity"): both pads' rings share a
+        # vertex with the SAME paved shape.  The reach corridor still
+        # bounds the pair set — this only replaces the visibility veto.
+        _shared = _os.environ.get("O4_SEAT_COUPLE_SHARED_SURFACE",
+                                  "0") == "1"
+        pad_surfaces: list = []
+        if _shared:
+            from auto_patch.layout import (
+                ROLE_JUNCTION as _RJ2, ROLE_SERVICE_JUNCTION as _RSJ2)
+            _key_shapes: dict = {}
+            for a in layout.shapes:
+                if (a.role in (ROLE_APRON, _RJ2, _RSJ2)
+                        and a.polygon is not None
+                        and not a.polygon.is_empty):
+                    for (x, y) in _open_ring(
+                            list(a.polygon.exterior.coords)):
+                        _key_shapes.setdefault(
+                            (round(x, 2), round(y, 2)), set()).add(id(a))
+            for p in pads:
+                own: set = set()
+                for (x, y) in p[1]:
+                    own.update(_key_shapes.get((round(x, 2), round(y, 2)),
+                                               ()))
+                pad_surfaces.append(own)
         pairs: dict = {}
+        _shared_admitted: list = []
         for i in range(len(pads)):
             pi = pads[i][0].polygon
             for j in range(i + 1, len(pads)):
@@ -330,8 +464,21 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts):
                         except Exception:           # pragma: no cover
                             frac = 0.0
                         if frac < _VIS_ON_PAV_FRAC:
-                            continue                # across grass → uncoupled
+                            if not (_shared and pad_surfaces[i]
+                                    & pad_surfaces[j]):
+                                continue            # across grass → uncoupled
+                            _shared_admitted.append(
+                                (pads[i][0].ref or "?", pads[j][0].ref or "?",
+                                 gap, frac))
                 pairs[(i, j)] = APRON_MAX_GRADE * gap
+        if _shared and _shared_admitted:
+            _report(f"  [seat-couple] shared-surface adjacency admitted "
+                    f"{len(_shared_admitted)} pair(s) the visibility "
+                    f"fraction rejected")
+            for (ra, rb, g, fr) in sorted(_shared_admitted,
+                                          key=lambda r: r[2])[:12]:
+                _report(f"  [seat-couple]   {ra} <-> {rb} gap={g:.1f} m "
+                        f"vis_frac={fr:.3f}")
         if pairs:
             targets = [p[2] for p in pads]
             boxes = [(p[3], p[4]) for p in pads]
@@ -365,10 +512,52 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts):
                         pass
                 pads = [(s, ring, L[k], lo, hi)
                         for k, (s, ring, _t, lo, hi) in enumerate(pads)]
-            elif _dbg:
-                print("  [seats] EMPTY polytope -> independent seats kept")
-            # L is None (empty polytope) → keep independent targets: no
-            # regression vs the uncoupled model, conflicts stay as they were.
+            else:
+                # ── EMPTY POLYTOPE → LOUD ATTRIBUTION (spec dossier-fixes
+                # §4; RULINGS 2026-08-04 split-level building seats: "an
+                # empty coupling polytope is LOUD attribution, never a
+                # silent ship") ────────────────────────────────────────
+                # The values are UNCHANGED this round — the fix is the
+                # sectioned seat, its own spec.  What changes is that the
+                # ship is no longer silent: ``feasibility-is-guaranteed``
+                # forbids infeasibility as an ANSWER, so the pads, the gap
+                # and the footprint RELIEF (the quantity the split-level
+                # law thresholds on) are named.  HECA shipped building197
+                # and building201 TOUCHING at gap 0.0 m and 5.9 m apart in
+                # level under the old silent fallback.
+                if _dbg:
+                    print("  [seats] EMPTY polytope -> independent seats kept")
+                from auto_patch.elevation_per_surface.building_feasibility \
+                    import _footprint_dem_relief
+                _relief: dict = {}
+
+                def _rel(k):
+                    if k not in _relief:
+                        r = _footprint_dem_relief(pads[k][0].polygon, dem_fn)
+                        _relief[k] = None if r is None else float(r[1])
+                    return _relief[k]
+
+                conflicts = sorted(
+                    ((abs(targets[i] - targets[j]) - lim, i, j, lim)
+                     for (i, j), lim in pairs.items()
+                     if abs(targets[i] - targets[j]) - lim > 0.0),
+                    reverse=True)
+                _report(f"  [seat-couple] EMPTY POLYTOPE: {len(pads)} pad(s) "
+                        f"/ {len(pairs)} coupled pair(s) admit NO jointly-"
+                        f"feasible seat set; independent seats kept, so "
+                        f"{len(conflicts)} pair(s) SHIP violating their own "
+                        f"coupling limit")
+                for (ex, i, j, lim) in conflicts[:12]:
+                    ri, rj = _rel(i), _rel(j)
+                    gap_ij = pads[i][0].polygon.distance(pads[j][0].polygon)
+                    _report(
+                        f"  [seat-couple]   {pads[i][0].ref or '?'} "
+                        f"{targets[i]:.3f} <-> {pads[j][0].ref or '?'} "
+                        f"{targets[j]:.3f}  gap={gap_ij:.1f} m "
+                        f"|dL|={abs(targets[i] - targets[j]):.3f} "
+                        f"lim={lim:.3f} excess={ex:+.3f} m  ring relief "
+                        f"{'n/a' if ri is None else format(ri, '.2f')} / "
+                        f"{'n/a' if rj is None else format(rj, '.2f')} m")
 
     seats: dict = {}
     seat_boxes = _store_of(layout).raw("seat_boxes")

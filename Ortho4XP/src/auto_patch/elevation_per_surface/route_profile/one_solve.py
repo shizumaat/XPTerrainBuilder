@@ -795,11 +795,24 @@ def _stall_envelope_gap(np, endpoint_i, endpoint_j, budget_column,
     ei = endpoint_i[symmetric]
     ej = endpoint_j[symmetric]
     eb = budget_column[symmetric]
-    # immovable = the zero-weight endpoint of a kind 1/2 edge (weight_i is
-    # 0.0 exactly there; kind 0 carries 0.5 on both sides)
-    pinned = np.zeros(n, dtype=bool)
-    pinned[endpoint_i[weight_i == 0.0]] = True
-    pinned[endpoint_j[weight_j == 0.0]] = True
+    # IMMOVABLE = a node that NEVER carries positive weight on ANY incident
+    # edge (interval edges included).  The earlier "zero weight on SOME
+    # edge" reading was wrong and it mattered: a node is routinely the HELD
+    # endpoint of one edge (kind 1/2, weight 0.0) and the MOVING endpoint of
+    # another (kind 0, weight 0.5), so that set contained genuinely movable
+    # nodes which the envelope then anchored at their post-solve ``z`` — an
+    # anchor no law declared.  Measured on HEAZ call01: 3300 "pinned" of
+    # which 666 had MOVED during the call (max 0.848 m); the strict set is
+    # 1597, of which 0 moved.  The verdict is only conservative-and-certain
+    # under the strict set: every extra anchor ADDS constraints and can mint
+    # an INFEASIBLE class out of a feasible system (HEAZ call07 flipped).
+    present = np.zeros(n, dtype=bool)
+    present[endpoint_i] = True
+    present[endpoint_j] = True
+    movable = np.zeros(n, dtype=bool)
+    movable[endpoint_i[weight_i > 0.0]] = True
+    movable[endpoint_j[weight_j > 0.0]] = True
+    pinned = present & ~movable
     anchors = np.flatnonzero(pinned)
     if not anchors.size or not ei.size:
         return None

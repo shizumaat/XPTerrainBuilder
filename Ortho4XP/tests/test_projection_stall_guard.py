@@ -230,6 +230,74 @@ def test_certifying_systems_still_certify_with_the_gate_on(
     assert sweeps > stats["stall_detect_sweep"]   # ... and outlived it
 
 
+# ── (g) the ANCHOR SET the adjudication uses ─────────────────────────────
+# Spec ``dossier-fixes-round`` §1.  The set was "zero weight on SOME edge",
+# which is not immobility: a node is routinely the HELD endpoint of one
+# edge and the MOVING endpoint of another.  Anchoring such a node at its
+# post-solve ``z`` invents a constraint no law declared, and it mints
+# INFEASIBLE verdicts out of feasible systems (HEAZ call01: 3300 "pinned"
+# of which 666 had moved, max 0.848 m; call07 flipped class).
+
+def _held_but_moving_system():
+    """Node 2 is HELD by edge (1,2) (kind 2) and MOVES on edge (2,3)
+    (kind 0) — the two-authority shape, in miniature.
+
+    Under the old set the anchors are {0, 2}; node 2's post-solve value
+    (~4.5, pushed there by node 3) then bounds node 1 from below at 4.4
+    while node 0 bounds it from above at 1.0 ⇒ "INFEASIBLE".  Under the
+    strict set the only anchor is node 0 and the system is feasible — as
+    it plainly is: ``z ≡ 0`` satisfies every cap edge."""
+    elev = [0.0, 0.0, 0.0, 10.0]
+    iter_edges = [(0, 1, 1.0, 1), (1, 2, 0.1, 2), (2, 3, 1.0, 0)]
+    return elev, iter_edges, 4
+
+
+def test_only_never_moving_nodes_are_anchors():
+    import numpy as np
+    endpoint_i = np.array([0, 1, 2], dtype=np.intp)
+    endpoint_j = np.array([1, 2, 3], dtype=np.intp)
+    budget = np.array([1.0, 0.1, 1.0])
+    interval = np.array([False, False, False])
+    weight_i = np.array([0.0, 1.0, 0.5])
+    weight_j = np.array([1.0, 0.0, 0.5])
+    z = np.array([0.0, 4.4, 4.5, 5.5])
+    verdict = OS._stall_envelope_gap(np, endpoint_i, endpoint_j, budget,
+                                     interval, weight_i, weight_j, z, 4,
+                                     [(1, 2)])
+    assert verdict is not None
+    assert list(verdict["pinned"]) == [True, False, False, False], (
+        "node 2 carries positive weight on edge (2,3) — it is not an anchor")
+    assert verdict["infeasible"] == 0
+    assert verdict["max_gap"] == 0.0
+
+
+def test_a_held_but_moving_endpoint_no_longer_mints_infeasible(
+        monkeypatch, capsys):
+    """End-to-end through the report: the carrier of this stalled system
+    adjudicates FEASIBLE, because the value that made it look otherwise
+    was a movable node's post-solve ``z``."""
+    monkeypatch.setenv("O4_PROJECTION_STALL_REPORT", "1")
+    monkeypatch.setenv("O4_STALL_GUARD_ADJUDICATE", "1")
+    elev, iter_edges, n = _held_but_moving_system()
+    _run(elev, iter_edges, n, 400)
+    text = capsys.readouterr().out
+    assert "INFEASIBLE nodes (L>U) 0 of" in text
+    assert "-> feasible" in text
+    assert "-> INFEASIBLE" not in text
+
+
+def test_a_genuinely_pinned_pair_still_adjudicates_infeasible(
+        monkeypatch, capsys):
+    """The strict set must not blunt the instrument: two truly immovable
+    anchors whose values cannot both hold are still named INFEASIBLE."""
+    monkeypatch.setenv("O4_PROJECTION_STALL_REPORT", "1")
+    monkeypatch.setenv("O4_STALL_GUARD_ADJUDICATE", "1")
+    elev, iter_edges, n = _infeasible_system()
+    _run(elev, iter_edges, n, 400)
+    text = capsys.readouterr().out
+    assert "-> INFEASIBLE" in text
+
+
 @pytest.mark.parametrize("rel", [0.0, 0.005, 0.05])
 def test_raising_the_threshold_never_delays_detection(monkeypatch, rel):
     """The constant is a RELATIVE improvement, so raising it can only make

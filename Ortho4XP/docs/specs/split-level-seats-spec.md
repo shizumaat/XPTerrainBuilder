@@ -136,3 +136,36 @@ target.
 The apron terrace law (own spec — including the pocket clearance); the
 consensus retirement; flipping any seat-gate default (needs a battery);
 groundside lots; changes to the small-pad path.
+
+## ROUND VERDICT (lead, 2026-08-04): HELD — do not land, gated or
+## otherwise (evidence scratchpad seats-lane report + worktree parked)
+
+The implementation is competent and the STOP was correct; the round is
+held on three findings, each independently sufficient:
+1. **The headline instrument sits on a ruled-defective metric.** Band
+   1 counts chord-priced coupler pairs — the gate held at "0" by the
+   seat-flip ruling precisely because chord admission mints infeasible
+   pairs. Sectioning grew pads 76→106 and the chord coupler multiplied
+   pairs (+73/75%) at a flat rate; the census frame confirms no win
+   (HECA building micro +28%). Re-adjudicate ONLY after the
+   route-metric coupling round re-prices admission.
+2. **Band 2's motivating exhibit is FALSIFIED** — the "shipped 5.9 m
+   gap-0 step" between building197/201 does not exist in the emitted
+   patch (emitted step 0.000 m; the 5.911 was a delta of coupler seat
+   TARGETS — a two-instruments/one-population misread that entered
+   this spec as motivation).
+3. **Airside-is-king disqualifier:** gate-ON moves HECA runway
+   ALTITUDES (worst 0.150 m, 15× materiality). A building-seat law may
+   never move a runway. The current solver binding is unlawful
+   regardless of census outcomes.
+Standing knowledge banked: the violation-minting pads are exactly the
+ones the law CANNOT section — refusals are bump-shaped (residual range
+is the binding quantity: building5 7.67 m, building197 5.17, building181
+3.22 vs ramp 2.44) and NO plane-fit sectioning law can address them;
+KCLT has real demand (23.2% of seated buildings — the "few-to-0"
+premise was wrong). Deviation 2 (band-height = T − residual_range;
+refuse-never-truncate; verify plans against real DEM) is APPROVED as
+the correct law shape for any future re-design. Re-design conditions:
+after seed-fix §2/§3 (band floor + capped polytopes change seat
+minting) AND the coupling round; the bump-pad population likely needs
+an owner intent ruling (platform/clamp/structure), not more geometry.

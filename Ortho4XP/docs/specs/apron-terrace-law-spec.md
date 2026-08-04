@@ -157,3 +157,34 @@ Split-level building seats (own spec); consensus retirement (own spec);
 strip-precedence implementation (rsa-law round — fenced only here);
 groundside lots; all string gates (owner pause); the cut-piece floor
 (accept-the-drape stands).
+
+## LEAD ADJUDICATION (2026-08-04, post-implementation; evidence
+## scratchpad terrace_impl/)
+
+Gated land ACCEPTED (default "0", gate-off byte identity 2x5 PASS;
+band 4 HIT: HECA apron.slope -55.7%, law-true within -27.8%, cliff not
+up; band 5 HIT hard-zero: joints never cross routes_exact, never enter
+a strip — the owner's no-spine-interruption clause is structural).
+Deviation rulings, judged against design intent:
+1. APPROVED AS CANON — joint budget is `cap*d + sum(step)` (monotone-
+   relaxing), NOT the literal cap-for-step swap: the literal form
+   TIGHTENS chords >200 m, a regression on the fix population. Spec
+   text is amended by this ruling.
+2. APPROVED — panel count sized from geometric relief demand (DEM
+   plane fit); the envelope remains the trigger. Post-seed-fix this
+   is the only sound reading (the margined envelope is attributed
+   defective).
+3. PROVISIONAL — lower-panel retreat deferred: the emitted wall face
+   laps 0.6 m of apron (HECA 6,222 m^2); conformance warnings byte-
+   identical, nothing measurably regressed. Polygon-split surgery is
+   QUEUED for the default-ON round; the sim look adjudicates lap
+   visibility. Not a license to skip it there.
+4. APPROVED — APRON_TERRACE_CORRIDOR_HALF_WIDTH_M=11.5 (code C)
+   pinned; rulesets phase B keys it by reference code.
+Arm-B pocket verdict (clause 2): the RAW/declared evidence governs —
+terraces landed correctly. Bands 1/3/6 are recorded as instrument-
+frame misses to be RE-READ RAW after seed-fix §1 lands; band 3's
+residual (828 vs <=700, straddle-only relaxation reaches 17% of
+infeasible edges) and band 6's area over-fire (75% of HECA apron area)
+are the named open tension — panel size vs coverage — deferred to the
+default-ON adjudication, not retuned past the attempt cap.

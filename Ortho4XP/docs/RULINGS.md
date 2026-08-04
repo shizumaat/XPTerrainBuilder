@@ -217,3 +217,26 @@ ledger) is canonical in `Ortho4XP/CLAUDE.md` and is not duplicated here.
   silent ship (HECA building197: 13.75 m ring relief, shipped 5.9 m
   step against a touching neighbor). Threshold constant is owner-
   adjustable, provisional default from the coupler's own gap data.
+
+## 2026-08-04 — No degradation-shield interims; retire the string back door (owner)
+
+Owner, verbatim: "There is no need for interim solutions that are
+scheduled for deletion to try and keep airports from degrading
+temporarily. Retire the string back door and implement the correct
+solution."
+
+Binding consequences:
+1. GENERAL PRINCIPLE: a mechanism scheduled for deletion must not be
+   kept alive to shield surfaces from transitional degradation. The
+   lead's interim ruling holding `O4_CORRIDOR_REF_STRING` at "1" (the
+   KCLT +95 / HECA −196 trade) is SUPERSEDED.
+2. `O4_CORRIDOR_REF_STRING` default → "0" immediately (retired from
+   production; the ref-pull lane carries the flip). The code path is
+   DELETED in the seam-continuity round's kill along with the pull and
+   the refs channel, as specced.
+3. The correct solution proceeds: the seam-continuity constraint law
+   (docs/specs/seam-continuity-constraint-spec.md) with the
+   rod-composition fix as its precondition. The owner's directive
+   authorizes the round including its endgame; phase C still honors
+   its pre-registered bands and STOP rules — a band miss returns for
+   attribution, it does not re-litigate this ruling.

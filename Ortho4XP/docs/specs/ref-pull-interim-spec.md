@@ -78,3 +78,10 @@ weaker pull; KCLT's 46->8 more than offsets battery-wide).
    instrument is a same-session A/B — exclusive --runs 2 at CYXY+HECA
    on BOTH the old-default and new-default arms, quoting the A/B
    delta against the 1% trigger, not the stale-baseline comparison.
+
+## §3 RULING SUPERSEDED (owner, 2026-08-04, RULINGS.md): retire the
+## back door NOW. O4_CORRIDOR_REF_STRING default → "0" rides this
+## lane; new-default baselines (w=0.02 + ref=0) minted 2x at all five;
+## the transitional census cost (KCLT +95 et al.) is ACCEPTED by
+## ruling — no degradation-shield interims. The timing A/B compares
+## old default (0.2, ref=1) vs the NEW default (0.02, ref=0).

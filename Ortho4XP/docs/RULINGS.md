@@ -160,3 +160,11 @@ ledger) is canonical in `Ortho4XP/CLAUDE.md` and is not duplicated here.
   REPORT, the law ADJUDICATES. "No known violations" on the five-airport
   battery means no adjudicated law violations, never a demand that every
   instrument read zero rows.
+
+- **Lateral-contiguity absorption is class-universal** (2026-08-03, owner
+  confirmed): the absorption extends to service roads welded to ANY
+  paved class — groundside lots included, not only aprons. "Another
+  class" in the law means any; one paved laterally-contiguous surface,
+  one (strictest) cap. Consequence: the A2/A3/A4 residual break family
+  (259 nodes) is one absorption fix; the service DEM-follow's private
+  envelope may not act as a second grading authority.

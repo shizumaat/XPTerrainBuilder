@@ -1,3 +1,25 @@
+SCOPE NOTICE — READ FIRST
+
+This repository is not licensed as a whole under the MIT License below.
+
+The MIT License applies ONLY to: Sources/, Tests/, Resources/, scripts/,
+tools/, and sim_review/.
+
+Everything under Ortho4XP/ is the vendored Ortho4XP engine, licensed under
+the GNU General Public License v3 (Copyright Oscar Pilote 2014-2018 and
+contributors). Its license texts are in Ortho4XP/Licence/. This includes
+Ortho4XP/src/auto_patch/ and Ortho4XP/src/o4_engine/, which are original
+work of Noah Lieberman but are derivative works of the GPL v3 engine and
+are distributed under GPL v3.
+
+Ortho4XP/Utils/ ships third-party binaries under their own terms. One of
+them (Triangle, by Jonathan Shewchuk) permits redistribution only where no
+compensation is received.
+
+See LICENSING.md for the authoritative, per-component breakdown.
+
+--------------------------------------------------------------------------
+
 MIT License
 
 Copyright (c) 2026 Noah Lieberman

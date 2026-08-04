@@ -135,3 +135,24 @@ scripts/                    Build/test helpers
 
 Prototype, under active development. The scenery-doctor analysis features
 are out of scope for this app and live in a separate project.
+
+## License
+
+This repository is a mix of licenses — **[`LICENSING.md`](LICENSING.md) is
+authoritative**. In short:
+
+- The SwiftUI app and its support code (`Sources/`, `Tests/`, `scripts/`,
+  `tools/`) are **MIT**.
+- The vendored engine under `Ortho4XP/` — including our own `auto_patch/`
+  and `o4_engine/`, which are derivative works of it — is **GPL v3**
+  (Copyright Oscar Pilote 2014–2018 and contributors).
+- `Ortho4XP/Utils/` ships third-party binaries under their own terms.
+  **Triangle** (Jonathan Shewchuk) permits redistribution only where no
+  compensation is received, so XPTerrainBuilder is distributed free of
+  charge.
+
+Scenery you build is **not** covered by these licenses — but the imagery
+provider you select has its own terms of service, and most commercial
+providers prohibit bulk download and redistribution of derived imagery.
+Complying with them is your responsibility. See
+[`LICENSING.md`](LICENSING.md) §5.

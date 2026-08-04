@@ -139,14 +139,60 @@ Qt app and AppImage brand identically without a Mac in the loop.
 
 ### G. License obligation (do not skip)
 
-The engine is **GPL v3** (`Ortho4XP/Licence/`). Distributing frozen engine
-binaries obliges us to make the corresponding source available. The repo is
-currently private, so each release must attach a source archive of the
-`Ortho4XP/` tree (CI can do this automatically), or the repo goes public by
-release time. The Swift app only *spawns* the engine over a pipe protocol
-(separate process, no linking), so the app itself can remain closed; the
-combined download is aggregation, but the engine's source offer must be
-real.
+Full per-component breakdown: [`LICENSING.md`](../LICENSING.md). This
+section is the release-time checklist only.
+
+**Premise: the release is free of charge.** Triangle
+(`Utils/{mac,win,lin}/{triangle,Triangle4XP}`) permits redistribution only
+where "no compensation is received"; commercial distribution requires direct
+arrangement with Jonathan Shewchuk. A paid release — including a paid tier,
+paid feature unlock, or bundling into anything sold — is blocked until
+Triangle is replaced or licensed. See `LICENSING.md` §6(a).
+
+**Source availability (GPL v3).** The repo is now **public**
+(`shizumaat/XPTerrainBuilder`), which satisfies the GPL v3 source offer for
+the engine, `auto_patch`, and `o4_engine`. Still attach a source archive of
+the `Ortho4XP/` tree to each release: a public repo can be renamed, moved,
+or taken private, and the offer must survive the binary. CI does this in the
+final draft-release job. The tag must be the exact tree the binaries were
+frozen from.
+
+**Boundary that keeps the Swift app MIT.** The app *spawns* the engine as a
+separate process over the JSONL pipe protocol — no linking, no shared
+address space. The combined download is mere aggregation. Do not introduce
+in-process linkage (embedded CPython, a shared library, FFI into engine
+code) without re-deciding the app's license.
+
+**PySide6 is LGPL v3** and is frozen into the Windows and Linux Qt builds.
+Keep those builds **onedir, never onefile**, so the Qt libraries stay
+separate relinkable files, and publish the exact PySide6/Qt versions plus
+the freeze recipe. The macOS app does not link Qt and is unaffected.
+
+**Per-artifact checklist.** Every uploaded artifact must contain, at its
+root:
+
+1. `LICENSE` (the scope notice + MIT text)
+2. `LICENSING.md`
+3. `Ortho4XP/Licence/gpl.txt` and `Ortho4XP/Licence/copyright.txt`
+4. `THIRD-PARTY-NOTICES.txt` — generated in CI from `LICENSING.md` §3–§4.
+   Must cover what we actually ship, not what upstream documented in 2018:
+   upstream's `copyright.txt` predates DDSTool, osmium, and the bundled
+   wheels, and gives moulinette no terms at all. The 7-Zip block must be
+   reproduced verbatim (its license requires it). Prune per platform to
+   match the pruned `Utils/` directory.
+5. `Utils/src/` (Triangle sources) — Triangle requires source *and* object
+   code be available without charge, with clear notice of modification.
+   Do not prune `Utils/src/` out of release artifacts.
+
+**Imagery disclosure.** Release notes and first-run must carry the provider
+terms-of-service notice from `LICENSING.md` §5. The providers we ship
+templates for (Esri, Google, Bing, Here) prohibit bulk download and
+redistribution of derived imagery; that is a user obligation we must
+surface, not one we can grant away.
+
+**Before the first release**, close the two open items in `LICENSING.md` §6:
+drop the unused proprietary `medit` binaries (b), and resolve moulinette's
+missing license (c).
 
 ## First-run flow (all platforms)
 

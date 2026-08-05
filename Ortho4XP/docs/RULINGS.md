@@ -304,3 +304,18 @@ Protocol (extends the build-budget ladder):
 Known trade accepted: a cross-airport surprise (the KCLT +145 class)
 surfaces at the tip instead of in-lane — one bisect step later, many
 batteries cheaper.
+
+## 2026-08-04 22:40 PDT — Release-train priority: airside zero first (owner)
+
+Owner: "If necessary, prioritize airside zero defects first, then
+groundside if time allows." Binding for the 06:00 train and after:
+1. Triage at every cut line: airside classes (runway, strip, taxiway,
+   apron, junction, seam-on-airside) outrank groundside (lots,
+   service roads, building seats, groundside pavement) whenever a
+   choice must be made.
+2. Flip verdicts score AIRSIDE-FIRST: a candidate that improves
+   airside and costs groundside may still flip; the reverse may not
+   (consistent with airside-is-king — groundside must never pull
+   airside).
+3. The release bar is ZERO ADJUDICATED AIRSIDE DEFECTS on the battery
+   airports; groundside residue ships named in the release notes.

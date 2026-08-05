@@ -147,8 +147,11 @@ _XING_INFLUENCE_M = 40.0     # foreign-centerline reach of the blend zone
 # assignment CONTINUOUS ALONG THE RAILS in the sense the emitted surface
 # needs: over every runway ring EDGE the crown may change by at most the
 # longitudinal budget MINUS the profile's own change across that edge
-# (``|Δc| ≤ RUNWAY_MAX_GRADE·d − |ΔP|``), so
-# ``|Δz_emit| = |ΔP − Δc| ≤ RUNWAY_MAX_GRADE·d`` by construction.
+# (``|Δc| ≤ cap(ref)·d − |ΔP|``), so
+# ``|Δz_emit| = |ΔP − Δc| ≤ cap(ref)·d`` by construction — where
+# ``cap(ref)`` is the runway's OWN resolved longitudinal law, not the
+# module-level FAA constant (debug lane A 2026-08-05; see
+# ``_rail_continuous_drops``).
 # Relaxation is monotone DOWNWARD (a drop is only ever lowered, never
 # invented), so it converges and can never raise a node above its designed
 # per-ref crown.  Where the profile already uses the whole cap the crown must
@@ -231,7 +234,20 @@ def _rail_continuous_drops(layout, cps, bucket_to_idx, nodes,
 
     For every ring EDGE of every runway / runway_crossing shape, enforce
 
-        |c_a − c_b|  ≤  RUNWAY_MAX_GRADE · d  −  |P(a) − P(b)|
+        |c_a − c_b|  ≤  cap(ref) · d  −  |P(a) − P(b)|
+
+    where ``cap(ref)`` is THAT RUNWAY'S OWN longitudinal law, carried on
+    its redistributed profile (debug lane A 2026-08-05).  It used to be
+    the module-level FAA ``RUNWAY_MAX_GRADE`` (1.5 %) for every runway on
+    earth, so the emitted-rail guarantee ``|Δz_emit| ≤ cap · d`` was only
+    ever the FAA one: an ICAO code-4 runway whose profile solves at
+    1.25 % had its crown free to spend the extra 0.25 %, and the emitted
+    rail stepped at up to 1.5 %.  Measured at SPJC 16L/34R (station
+    2451→2509 m, run 57.35 m): profile Δ 1.2249 % — compliant — plus a
+    crown-drop Δ of 0.157 m (0.2738 %) = 1.4996 % emitted against the
+    runway's own 1.25 % cap, the airport's ONLY runway-grade row.  A
+    crossing's ``A+B`` ref takes the TIGHTEST member cap: both runways'
+    laws bind on a shared edge.
 
     where ``P`` is the runway's own redistributed FAA profile
     (``sample_redistributed_profile`` — the laterally-flat centreline
@@ -253,6 +269,28 @@ def _rail_continuous_drops(layout, cps, bucket_to_idx, nodes,
     except Exception:                                   # pragma: no cover
         return 0
     profiles = getattr(layout, "_runway_redistributed_profiles", None) or {}
+    try:
+        from .runway_redistribute import _profile_law as _rwy_law_of
+    except Exception:                                   # pragma: no cover
+        _rwy_law_of = None
+    _cap_memo: Dict[str, float] = {}
+
+    def _cap(ref: str) -> float:
+        """THAT runway's own longitudinal cap (tightest member for a
+        crossing's ``A+B`` ref); the FAA constant only when no profile
+        carries a law — the same fallback ``_profile_law`` documents."""
+        got = _cap_memo.get(ref)
+        if got is not None:
+            return got
+        caps = []
+        if _rwy_law_of is not None:
+            for part in (ref or "").split("+"):
+                prof = profiles.get(part)
+                if prof is not None:
+                    caps.append(float(_rwy_law_of(prof)["max_grade"]))
+        got = min(caps) if caps else RUNWAY_MAX_GRADE
+        _cap_memo[ref] = got
+        return got
 
     def _prof(ref: str, x: float, y: float):
         """Profile elevation at (x, y); for a crossing's ``A+B`` ref the
@@ -294,7 +332,7 @@ def _rail_continuous_drops(layout, cps, bucket_to_idx, nodes,
             d_prof = 0.0
             for va, vb in zip(pa, pb):
                 d_prof = max(d_prof, abs(va - vb))
-            allow = RUNWAY_MAX_GRADE * d - d_prof
+            allow = _cap(ref) * d - d_prof
             if allow < 0.0:
                 allow = 0.0
             ka = cps.get_or_add(float(xa), float(ya))

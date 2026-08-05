@@ -535,3 +535,30 @@ over-cap relief; a continuous fan-shaped ramp zone at the back edge
 between buildings has no legal form and would today read as apron-cap
 violations or be answered with walls. Encoding awaits the owner's
 three answers (asked in-session).
+
+## 2026-08-05 — THE FAN-RAMP LAW (owner, clarifications answered — now
+## encodable)
+
+The four answers (owner-confirmed):
+1. RAMP CAP: 5% — the groundside-pavement class; no new constant
+   family.
+2. FORM PRECEDENCE: ramps FIRST; a declared wall/step is the FALLBACK
+   only where the 5% cap cannot span the demand within the zone.
+3. ZONE: bounded by adjacent buildings' frontage chords, the back
+   apron edge, and standard clearance from every spine corridor; the
+   fan radiates between adjacent buildings' seat levels along the back
+   edge.
+4. SCOPE: GENERAL law — every apron with building frontage; the HECA
+   central U (between 05C/23C and 05L/23R) is the acceptance exemplar.
+
+The law, composed with what already stands: aircraft-movement surfaces
+(spine corridors + frontage chords + stand entries) hold the strict
+apron cap, always; frontage chords run straight building→spine;
+between frontages at the back edge, the fan-ramp zone carries up to 5%
+continuous grade fanning between building seat levels; walls only as
+the ruled fallback; no ramp, joint, or wall may touch any movement
+surface (structural, via the corridor-cover machinery). The relief
+TRIGGER is anchor-envelope infeasibility (4cbed92); the fan ramp is
+the first-choice relief ANSWER in frontage-backed apron zones, ahead
+of the terrace panel/wall answer which remains the form for
+non-frontage aprons.

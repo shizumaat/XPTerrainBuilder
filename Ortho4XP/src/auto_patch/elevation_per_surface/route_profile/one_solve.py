@@ -28,9 +28,11 @@ import math
 import os as _os
 
 # PROJECTION SELF-LIMITS — derivation beside the constants in config.py
-# (debug lane A 2026-08-05).
+# (debug lane A 2026-08-05).  The sweep budget is DERIVED per projection
+# from its own graph (:func:`derive_sweep_budget`); these are the slack,
+# the floor, the absolute ceiling and the no-graph fallback.
 from auto_patch.config import (
-    PROJECTION_MAX_SWEEPS_DEFAULT, PROJECTION_MAX_SWEEPS_ONE_SOLVE)
+    SWEEP_BUDGET_MAX, SWEEP_BUDGET_MIN, SWEEP_BUDGET_SLACK)
 
 _INF = float("inf")
 
@@ -157,130 +159,135 @@ def projection_stall_report_enabled() -> bool:
 # scalar path stays the byte-identical default until this is validated (elevation
 # delta small, residual violations equivalent-or-better) and re-baselined.
 
-# Floor for the emit-quantization margin (see ``_margined_budget``): a budget
-# at or below this is NEVER reduced.  Rect flat-cross edges are budget 0 BY
-# DESIGN (the two corners stay equal) and must stay 0; and margining a
-# coincident / sub-0.1 m chord's already-tiny budget toward 0 would make the
-# projection try to FLATTEN genuinely-distinct close vertices, fighting the
-# hard anchors.
-_QUANT_MARGIN_FLOOR_M = 0.005
+# ── EMIT-QUANTIZATION MARGIN — RETIRED (docs/RULINGS.md 2026-08-05) ──────
+# ``raw_law_sweeps_enabled``, ``_emit_quantization_margin``,
+# ``_margined_budget``, ``_margined_interval`` and
+# ``config.EMIT_QUANTIZATION_MARGIN_M`` (with its ``O4_QUANT_MARGIN`` /
+# ``O4_RAW_LAW_SWEEPS`` env reads) are ALL DELETED.
+#
+# STANDING LAW: the sweeps enforce the RAW law budgets and the RAW signed
+# intervals.  There is no margin term anywhere in the projection, so there
+# is no frame to keep straight: what the sweep enforces, what the reach
+# envelope measures, what the break detector adjudicates and what the tally
+# reports are ONE law frame by construction.
+#
+# WHY the margin went, not just its gate: ``to_osm`` rounds to the 0.01 m
+# grid, so a pair solved exactly AT budget could read over the law in the
+# emitted patch.  Shrinking every SWEEP budget by one grid step fixes that
+# per PAIR and breaks it per PATH — the subtraction lands on EVERY edge, so
+# an N-hop route loses ``N × margin`` of envelope no law ever took (HEAZ,
+# measured: a 69-hop witness route stole 0.63 m and the projection burned
+# 3983 sweeps chasing the deficit; the stall adjudication read "593 of 2032
+# INFEASIBLE" against a system whose raw envelope is 0/2032).  The 0.01 m
+# guarantee now lives at EMIT — :mod:`auto_patch.emit_snap`'s law-aware,
+# per-pair grid snap, bounded by ONE grid step per node BY CONSTRUCTION and
+# therefore incapable of compounding along a path.
 
 
-def raw_law_sweeps_enabled() -> bool:
-    """RAW LAW SWEEPS (seed-fix round §1b; gate ``O4_RAW_LAW_SWEEPS``,
-    default "0").
+def _hop_eccentricity_bound(iter_edges, n):
+    """An upper bound on the law-edge graph's HOP DIAMETER.
 
-    ON, the sweeps — and with them the reach envelope and the break
-    detection, which must stay self-consistent with what is enforced —
-    run on the RAW law budgets.  The 0.01 m emit-quantization guarantee
-    does not disappear: it MOVES to emit as a per-pair, law-aware grid-snap
-    guard (:mod:`auto_patch.emit_snap`), which is bounded by ONE grid step
-    per node BY CONSTRUCTION and therefore cannot compound along a path.
-    The margined budget could: it is subtracted from EVERY edge, so an
-    N-hop route loses ``N × margin`` of envelope no law ever took (HEAZ,
-    measured: a 69-hop witness route steals 0.63 m, and the projection
-    burns 3983 sweeps chasing the deficit).
+    One BFS per connected component, from an arbitrary member (the first
+    node the scan reaches).  A BFS from any node ``v`` gives that
+    component's eccentricity ``e(v)``, and for any two nodes ``a``, ``b``
+    in it ``d(a, b) <= d(a, v) + d(v, b) <= 2*e(v)`` — so ``2*e(v)``
+    bounds the component's diameter without the all-pairs walk a true
+    diameter needs.  The whole-graph bound is the max over components; a
+    DISCONNECTED graph is then handled by construction rather than by
+    luck (one arbitrary BFS would only have seen its own component, and
+    this graph is routinely disconnected — quarantined pockets,
+    interval-only zone leaves, per-shape islands).
 
-    STANDING LAW (docs/RULINGS.md 2026-08-05, build-complete-then-debug:
-    "NO GATES.  Every believed-in law becomes standing law; O4_ law gates
-    and their env overrides are DELETED as their territory is touched").
-    ``O4_RAW_LAW_SWEEPS`` is GONE; the sweeps run on raw law and
-    :mod:`auto_patch.emit_snap` carries the quantization guarantee, which
-    is its standing half."""
-    return True
+    ``iter_edges`` — the projection's own edge list; only slots 0 and 1
+    (the endpoints) are read, so BOTH the symmetric entries and the
+    interval sentinel entries count, which is right: an interval edge
+    propagates a correction exactly like a symmetric one.
+
+    O(V + E), ONE pass, called ONCE per projection and never from inside
+    the sweep loop.  Isolated nodes (no incident law edge) are skipped:
+    they carry no correction and so cannot lengthen a propagation path.
+
+    Returns ``0`` for an empty graph — :func:`derive_sweep_budget`'s
+    floor is what turns that into a usable budget.
+    """
+    if n <= 0 or not iter_edges:
+        return 0
+    # Flat CSR-ish adjacency (head / next / dst) rather than a dict of
+    # lists: one pass, no per-node allocation, plain integer indexing.
+    head = [-1] * n
+    nxt: list = []
+    dst: list = []
+    for edge in iter_edges:
+        i = edge[0]
+        j = edge[1]
+        if i == j or not (0 <= i < n) or not (0 <= j < n):
+            continue
+        dst.append(j)
+        nxt.append(head[i])
+        head[i] = len(dst) - 1
+        dst.append(i)
+        nxt.append(head[j])
+        head[j] = len(dst) - 1
+    seen = bytearray(n)
+    worst = 0
+    for start in range(n):
+        if seen[start] or head[start] < 0:
+            continue
+        seen[start] = 1
+        frontier = [start]
+        depth = 0
+        while frontier:
+            next_frontier: list = []
+            for u in frontier:
+                p = head[u]
+                while p != -1:
+                    v = dst[p]
+                    if not seen[v]:
+                        seen[v] = 1
+                        next_frontier.append(v)
+                    p = nxt[p]
+            if next_frontier:
+                depth += 1
+            frontier = next_frontier
+        if depth > worst:
+            worst = depth
+    return 2 * worst
 
 
-def _emit_quantization_margin():
-    """The solver-side emit-quantization margin (metres) — lazy config read
-    (one_solve keeps config imports call-time, matching the module style).
+def derive_sweep_budget(iter_edges, n):
+    """``(budget, hop_bound)`` — the POCS sweep budget FOR THIS GRAPH.
 
-    Returns 0.0 under ``O4_RAW_LAW_SWEEPS`` (§1b): every consumer of the
-    margin reaches it through this ONE function (``feasibility_project``'s
-    sweep/envelope budgets, ``solve.py``'s plane-fix and edge-fairing law
-    adjacencies), so the gate is honoured in one place rather than five —
-    and ``_margined_budget`` / ``_margined_interval`` already pass a
-    ``≤ 0`` margin straight through, which is the byte-identical
-    pre-margin path."""
-    if raw_law_sweeps_enabled():
-        return 0.0
-    try:
-        from auto_patch.config import EMIT_QUANTIZATION_MARGIN_M
-        return EMIT_QUANTIZATION_MARGIN_M
-    except Exception:
-        return 0.0
+    A SWEEP CAP IS A NON-TERMINATION GUARD, NOT A LAW QUANTITY.  The law
+    demands a CERTIFIED surface and says nothing whatever about a number
+    of sweeps, so the only honest magnitude is the propagation distance a
+    correction has to travel — and the guard must sit provably ABOVE it,
+    or the guard decides the surface.  It used to: at composed SPJC+HECA
+    (n = 72,472) a hand-set 2,400 exited UNCERTIFIED at 2400/2400 with
+    1,349 edges still over cap, ~30x below that graph's worst case.
 
+        budget = clamp(SWEEP_BUDGET_SLACK * hop_eccentricity_bound,
+                       SWEEP_BUDGET_MIN, SWEEP_BUDGET_MAX)
 
-def _margined_budget(lim, margin):
-    """SWEEP budget for a raw edge budget ``lim``: ``lim − margin``, floored.
+    The SLACK is there because one sweep of a CYCLIC projection does not
+    move one correction cleanly across one hop — every node is pulled by
+    all its incident edges at once, so a correction needs several passes
+    per diameter to settle (``config.SWEEP_BUDGET_SLACK`` carries the
+    reasoning).  The FLOOR keeps a tiny or edgeless graph sane; the
+    CEILING is the actual anti-hang guard, for a graph pathological
+    enough that no derivation should be trusted.
 
-    ``to_osm`` rounds each emitted elevation to the 0.01 m grid, so a pair's
-    emitted |Δelev| can exceed the solved one by up to one full grid step —
-    a pair solved exactly AT its budget then reads over the law in the
-    emitted file (config.EMIT_QUANTIZATION_MARGIN_M has the full story).
-    Enforcing ``lim − margin`` in the sweeps keeps the ROUNDED values inside
-    the raw law.  Budgets at or below ``_QUANT_MARGIN_FLOOR_M`` pass through
-    unchanged (0-budget flat-cross edges stay 0), and no budget is ever
-    reduced below that floor.  ``margin ≤ 0`` (O4_QUANT_MARGIN=0) returns
-    ``lim`` → byte-identical pre-margin behaviour."""
-    if margin <= 0.0 or lim <= _QUANT_MARGIN_FLOOR_M:
-        return lim
-    reduced = lim - margin
-    return reduced if reduced > _QUANT_MARGIN_FLOOR_M else _QUANT_MARGIN_FLOOR_M
-
-
-def _margined_interval(interval_low, interval_high, margin):
-    """SWEEP bounds for a SIGNED INTERVAL edge (Stage B0, docs/slice_b_solver_
-    absorption_design.md): ``interval_low ≤ (z_i − z_j) ≤ interval_high`` with
-    either side ``None`` (that side unbounded — a ``None`` ceiling permits any
-    rise, a ``None`` floor any drop; the adjacent-ground envelope law's own
-    semantics).
-
-    Emit-quantization margin rule (generalises ``_margined_budget``): shrink
-    each FINITE side INWARD by ``margin`` so the 0.01 m-rounded emitted
-    difference still fits the raw interval — the ceiling moves DOWN
-    (``high − margin``), the floor moves UP (``low + margin``), regardless of
-    the side's sign (a positive floor 2.0 is still narrowed inward to 2.1).
-    ``None`` sides are left untouched (an unbounded side cannot round out of
-    the law).  ``_QUANT_MARGIN_FLOOR_M`` floor semantics carry over from the
-    symmetric case:
-      * a finite side whose magnitude is at or below the floor is left alone
-        (mirrors ``_margined_budget`` passing a ≤-floor budget through — a
-        near-zero bound stays enforceable rather than being narrowed away);
-      * a two-sided interval is never narrowed tighter than the floor WIDTH
-        (``2·_QUANT_MARGIN_FLOOR_M``): if the two shrinks would meet or invert,
-        the interval collapses to ``[midpoint ∓ _QUANT_MARGIN_FLOOR_M]``
-        (mirrors ``_margined_budget`` never reducing a symmetric half-width
-        below the floor).
-    ``margin ≤ 0`` returns the bounds unchanged.  The symmetric slab
-    ``(−budget, +budget)`` fed through this yields ``(−(budget−margin),
-    +(budget−margin))`` — identical to ``_margined_budget`` on both sides — but
-    symmetric edges NEVER pass through here (they keep the untouched
-    ``_margined_budget`` fast path), so symmetric behaviour is byte-identical by
-    construction."""
-    if margin <= 0.0:
-        return interval_low, interval_high
-    # A two-sided interval already at or under the floor WIDTH is left entirely
-    # unchanged (mirrors ``_margined_budget`` passing a ≤-floor budget through):
-    # a genuinely tight slab stays enforceable rather than being narrowed away
-    # or widened.
-    if (interval_low is not None and interval_high is not None
-            and interval_high - interval_low <= 2.0 * _QUANT_MARGIN_FLOOR_M):
-        return interval_low, interval_high
-    new_high = interval_high
-    if interval_high is not None and abs(interval_high) > _QUANT_MARGIN_FLOOR_M:
-        new_high = interval_high - margin
-    new_low = interval_low
-    if interval_low is not None and abs(interval_low) > _QUANT_MARGIN_FLOOR_M:
-        new_low = interval_low + margin
-    # If the two inward shrinks meet or invert, collapse to the floor width
-    # about the midpoint (mirrors ``_margined_budget`` never reducing a
-    # half-width below ``_QUANT_MARGIN_FLOOR_M``).
-    if (new_low is not None and new_high is not None
-            and new_high - new_low < 2.0 * _QUANT_MARGIN_FLOOR_M):
-        midpoint = 0.5 * (interval_low + interval_high)
-        new_low = midpoint - _QUANT_MARGIN_FLOOR_M
-        new_high = midpoint + _QUANT_MARGIN_FLOOR_M
-    return new_low, new_high
+    Returning the bound alongside the budget is deliberate: an
+    uncertified exit must be able to report WHICH graph measurement it
+    was priced from, so the test phase can attribute the exit without
+    re-deriving anything (see :func:`_uncertified_exit_report`).
+    """
+    hop_bound = _hop_eccentricity_bound(iter_edges, n)
+    budget = int(SWEEP_BUDGET_SLACK * hop_bound)
+    if budget < SWEEP_BUDGET_MIN:
+        budget = SWEEP_BUDGET_MIN
+    elif budget > SWEEP_BUDGET_MAX:
+        budget = SWEEP_BUDGET_MAX
+    return budget, hop_bound
 
 
 def _build_adjacency(shape_constraints, n):
@@ -789,15 +796,16 @@ def _stall_envelope_gap(np, endpoint_i, endpoint_j, raw_budget_column,
     """``L − U`` at ``pairs`` on the CAP graph — the adjudication that says
     whether a stalled carrier pair is genuinely INFEASIBLE.
 
-    RAW LAW FRAME (seed-fix round §1a).  ``raw_budget_column`` carries the
-    RAW per-edge budgets, never the margined SWEEP budgets.  The
-    emit-quantization margin (``_margined_budget``) is correct PER PAIR at
-    emit and compounding PER PATH, and this adjudication is a path
-    quantity: a 69-hop witness route through margined edges steals 0.69 m
-    of envelope that no law ever took, which is how HEAZ read "593 of 2032
-    INFEASIBLE, max gap 0.7275" against a system whose RAW envelope is
-    0/2032 with gap 0.000000 (measured, ``seed_attrib/`` arms).  The margin
-    is an EMIT concern; a law measure judges the law.
+    RAW LAW FRAME.  ``raw_budget_column`` carries the RAW per-edge budgets.
+    Since the emit-quantization margin was retired (2026-08-05, see the
+    module-head note) the sweep budgets ARE the raw budgets, so the two
+    coincide; the parameter keeps its name because this adjudication is a
+    PATH quantity and must judge the law even if a per-edge frame is ever
+    reintroduced.  A subtracted-per-edge term compounds along a path: a
+    69-hop witness route through margined edges stole 0.69 m of envelope no
+    law ever took, which is how HEAZ read "593 of 2032 INFEASIBLE, max gap
+    0.7275" against a system whose RAW envelope is 0/2032 with gap
+    0.000000 (measured, ``seed_attrib/`` arms).
 
     For the difference system ``|z_i − z_j| ≤ b_ij`` with the immovable
     endpoints pinned at their current values ``v_a``, feasibility is decided
@@ -1014,7 +1022,8 @@ def _uncertified_exit_report(np, tol, sweeps, max_iters,
                              endpoint_i, endpoint_j, budget_column,
                              raw_budget_column, slab_low_column,
                              slab_high_column, interval_mask,
-                             weight_i, weight_j, z, n):
+                             weight_i, weight_j, z, n,
+                             sweep_budget_basis=None):
     """LOUD report for ANY sweep loop that exits WITHOUT a certificate.
 
     THE CONTRACT (build-complete-then-debug round): every exit of the
@@ -1025,9 +1034,33 @@ def _uncertified_exit_report(np, tol, sweeps, max_iters,
     ``certified=False`` with an over-cap residual still live and most of
     the sweep budget abandoned, which downstream was indistinguishable
     from a clean exit (HECA shipped finals that quit at 38 sweeps of
-    2400 with a 6.74 m residual).  The pull and its break are gone; the
-    remaining uncertified exit is budget exhaustion, and it is reported
-    here on exactly the same channel.
+    2400 with a 6.74 m residual).
+
+    WHAT AN UNCERTIFIED EXIT MEANS NOW.  It used to mean "budget
+    exhaustion" — a hand-set cap ~30x below the graph's propagation
+    distance, so the GUARD chose the surface.  That cap is gone: the
+    budget is DERIVED from this projection's own graph
+    (:func:`derive_sweep_budget`) and sits provably above the sweeps the
+    graph can need.  So an exit here is NOT the guard running out.  It is
+    one of exactly two things, and the report says so:
+
+      * THE POLYTOPE IS EMPTY — the law + anchor system handed to this
+        projection has no solution.  Under docs/RULINGS.md 2026-08-05
+        ("there is no lawful-infeasible ground") that is a BUG,
+        INCOMPLETE LAW, INCORRECT LAW or BROKEN INSTRUMENT — never an
+        answer, and never a property of the terrain; or
+      * THE GRAPH IS PATHOLOGICAL — the derivation hit
+        ``config.SWEEP_BUDGET_MAX``, the absolute anti-hang ceiling.  The
+        report prints the derived budget and the hop-diameter bound it
+        came from, so the two cases are told apart without re-deriving
+        anything: ``budget == SWEEP_BUDGET_MAX < SLACK*bound`` is the
+        second, anything else is the first.
+
+    ``sweep_budget_basis`` — the ``hop_bound`` half of
+    :func:`derive_sweep_budget`, or ``None`` when the caller supplied an
+    explicit ``max_iters`` (a test or a deliberately bounded probe); the
+    line then says the budget was IMPOSED rather than derived, which is
+    itself the attribution.
 
     REPORT-ONLY, by construction: the call site is AFTER the writeback,
     every argument is read-only, and the only effects are ``print`` and
@@ -1038,22 +1071,32 @@ def _uncertified_exit_report(np, tol, sweeps, max_iters,
     guaranteed`` principle a live residual means two anchor values (or a
     cap) that cannot both hold — never a legitimate answer.
 
-    TWO BUDGET FRAMES, deliberately (seed-fix round §1a, landed 3e0d554):
-    ``budget_column`` is the MARGINED sweep budget and stays the frame for
-    the exit residual and the carrier line — those describe the sweep that
-    stalled.  ``raw_budget_column`` is the RAW law budget and is the ONLY
-    thing handed to :func:`_stall_envelope_gap`, because the L−U verdict is
-    a LAW measure and a PATH quantity: the emit-quantization margin is
-    correct per pair but compounds per path, which is how HEAZ read "593 of
-    2032 INFEASIBLE" against a system whose raw envelope is 0/2032.  Mixing
-    the frames here would re-mint exactly that falsified verdict."""
+    ONE BUDGET FRAME.  ``budget_column`` and ``raw_budget_column`` both
+    carry the RAW law budget now that the emit-quantization margin is
+    retired (module head).  The split parameter survives because the
+    ``L − U`` verdict is a LAW measure and a PATH quantity — it must
+    never be priced on a per-edge-shrunk frame, which is how HEAZ read
+    "593 of 2032 INFEASIBLE" against a system whose raw envelope is
+    0/2032 — so the adjudication keeps taking the column that is
+    guaranteed raw."""
     active, worst, carrier = _exit_residual_census(
         np, tol, endpoint_i, endpoint_j, budget_column, slab_low_column,
         slab_high_column, interval_mask, weight_i, weight_j, z)
+    if sweep_budget_basis is None:
+        basis = "budget IMPOSED by the caller (not derived)"
+    else:
+        basis = (f"budget {max_iters} DERIVED = slack {SWEEP_BUDGET_SLACK}"
+                 f" x hop-diameter bound {sweep_budget_basis}"
+                 f"{' [AT SWEEP_BUDGET_MAX CEILING]' if max_iters >= SWEEP_BUDGET_MAX else ''}")
     print(f"    [stall-report] edges={len(interval_mask)} n={n}: "
           f"UNCERTIFIED EXIT at sweep {sweeps}/{max_iters} "
           f"({max(0, max_iters - sweeps)} sweep(s) abandoned); "
           f"active violating edges {active}; worst residual {worst:.6f}")
+    print(f"    [stall-report]   {basis} — the budget is a NON-TERMINATION "
+          f"GUARD above this graph's propagation distance, so this exit "
+          f"is NOT budget exhaustion: the polytope is EMPTY (a law / "
+          f"anchor / instrument defect — RULINGS 2026-08-05, there is no "
+          f"lawful-infeasible ground) or the graph is pathological")
     print(_carrier_line("exit  ", carrier))
     verdict = None
     if (worst > tol and carrier is not None
@@ -1088,14 +1131,19 @@ def _uncertified_exit_report(np, tol, sweeps, max_iters,
             # the sweep cap means the NON-TERMINATION GUARD, not
             # convergence, decided this surface.  Flagged in the record so
             # the debug phase can count it instead of grepping logs.
-            "cap_bound": bool(sweeps >= max_iters)}
+            # ``sweep_budget_basis`` is the hop-diameter bound the budget
+            # was derived from (``None`` = the caller imposed a budget),
+            # so an exit can be attributed without re-deriving anything.
+            "cap_bound": bool(sweeps >= max_iters),
+            "sweep_budget_basis": sweep_budget_basis}
 
 
 def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                        interval_bounds_by_index=None, *, stats=None,
                        coloring_state=None, run_feasibility_precheck=True,
                        node_box=None,
-                       raw_budget_by_index=None):
+                       raw_budget_by_index=None,
+                       sweep_budget_basis=None):
     """Colored Gauss-Seidel POCS (survey candidate 1) — the vectorized
     replacement for BOTH legacy inner sweeps.  Mutates ``elev`` in place.
 
@@ -1141,15 +1189,22 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
     There is no third, silent exit — the §7 reference pull and its
     equilibrium break, which used to supply one, are retired.
 
+    ``max_iters`` is a NON-TERMINATION GUARD and callers derive it from
+    the graph (:func:`derive_sweep_budget`); ``sweep_budget_basis`` is
+    that derivation's hop-diameter bound, passed through UNREAD to the
+    exit report so an uncertified exit can name what it was priced from.
+    ``None`` = the caller imposed the budget.
+
     ``raw_budget_by_index`` — INSTRUMENT-ONLY (seed-fix round §1a): a list
-    parallel to ``iter_edges`` carrying each symmetric edge's RAW law
-    budget where it differs from the swept (margined) one, ``None``
-    elsewhere.  NOTHING in the projection reads it — it is handed to the
-    write-only stall report so the ``L − U`` adjudication judges the LAW
-    rather than the margined sweep system (the margin is per-pair at emit
-    but compounds per PATH, and the envelope is a path quantity).
-    ``None`` ⇒ the adjudication sees the sweep budgets exactly as
-    before."""
+    parallel to ``iter_edges`` carrying each edge's RAW law budget where
+    it differs from the swept one, ``None`` elsewhere.  NOTHING in the
+    projection reads it — it is handed to the write-only stall report so
+    the ``L − U`` adjudication judges the LAW.  Since the emit-
+    quantization margin was retired the two frames coincide, so in
+    production this changes nothing; the seam stays because that
+    adjudication is a PATH quantity and must never silently inherit a
+    per-edge-shrunk frame.  ``None`` ⇒ the adjudication sees the sweep
+    budgets exactly as before."""
     import numpy as np
     bounds = interval_bounds_by_index or {}
     _NEG_INF = float("-inf")
@@ -1464,7 +1519,7 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
             np, tol, sweeps, max_iters,
             endpoint_i, endpoint_j, budget_column, raw_budget_column,
             slab_low_column, slab_high_column, interval_mask,
-            weight_i, weight_j, z, n)
+            weight_i, weight_j, z, n, sweep_budget_basis)
     if stall_detect_sweep:
         # WRITE-ONLY (after the writeback): nothing below feeds the solve.
         _stall_guard_report(np, sweeps, max_iters, stall_detect_sweep,
@@ -1620,7 +1675,7 @@ def _break_forensics_report(path, label, broken, hard, elev, n,
 
 
 def feasibility_project(elev, shape_constraints, hard, *,
-                        max_iters=PROJECTION_MAX_SWEEPS_DEFAULT,
+                        max_iters=None,
                         tol=1e-3, force_scalar=False,
                         flat_groups=None, broken_out=None, pre_broken=None,
                         edge_couple_nodes=None, interval_yield_from=None,
@@ -1642,11 +1697,19 @@ def feasibility_project(elev, shape_constraints, hard, *,
     one.  Edges between two hard nodes are genuinely infeasible and reported, not
     forced.  Mutates ``elev`` in place; returns ``(remaining_over_cap, both_hard)``.
 
-    EMIT-QUANTIZATION MARGIN: the sweeps (and the reach envelope) enforce
-    ``budget − config.EMIT_QUANTIZATION_MARGIN_M`` (floored, see
-    ``_margined_budget``) so the 0.01 m-rounded emitted elevations still satisfy
-    the raw law; the returned over-cap tally is measured against the RAW budget
-    (the true law — reporting is never tightened).
+    RAW LAW BUDGETS: the sweeps, the reach envelope, the break detection and
+    the returned over-cap tally ALL run on the raw law budget — one frame,
+    no margin term (the emit-quantization margin is retired; see the
+    module-head note).  The 0.01 m emit guarantee lives in
+    :mod:`auto_patch.emit_snap`.
+
+    ``max_iters`` — the sweep budget, a NON-TERMINATION GUARD.  Leave it
+    ``None`` (the default, and what every production call site does) and it
+    is DERIVED from this projection's own graph by
+    :func:`derive_sweep_budget`, so it is provably above the sweeps the
+    graph can need and can never be the thing that decides the surface.
+    Passing an int overrides the derivation (tests, and any call that
+    deliberately bounds a probe).
 
     ``flat_groups`` — optional list of node-index sets, each a RIGID FLAT group
     (a building pad): its members share ONE elevation that the projection may
@@ -1742,7 +1805,8 @@ def feasibility_project(elev, shape_constraints, hard, *,
     adjacency: its argmin binding path at HECA is 119 pavement vertices /
     5,349 m crossing 14 rigid-flat pads at ZERO budget — "neither KML
     represents any sort of route an aircraft could take" (owner).  It is
-    also seeded from EVERY hard node, so ``gs_pin``/``pad_detached_dem``/
+    also seeded from EVERY hard node, so ``gs_pin``/``pad_detached_dem``
+    (that class is retired — item 3(b))/
     terrain pins declare airside infeasible; the band is seeded from
     ``G.runway_anchor`` alone over non-service spine routes.  Measured
     replay (HECA 2026-07-30): broken 13,428 → 0 at fp#8, 9,991 → 0 and
@@ -1898,7 +1962,7 @@ def feasibility_project(elev, shape_constraints, hard, *,
         if _lazy_nodes_moved(sc):
             # Pre-call movement (an earlier pass moved a node off its seed):
             # expand NOW, before edge_lim is built, so the full set flows
-            # through the ordinary min-budget-wins + margin pipeline.
+            # through the ordinary min-budget-wins pipeline.
             _expand_lazy_entry(sc)
         else:
             lazy_entries_pending.append(sc)
@@ -1990,14 +2054,13 @@ def feasibility_project(elev, shape_constraints, hard, *,
                 edge_lim[e] = lim
     if not edge_lim and not interval_lim:
         return 0, 0
-    # EMIT-QUANTIZATION MARGIN: the SWEEP (and the reach envelope + break
-    # detection, so the enforced system stays self-consistent) runs on
-    # ``budget − margin`` — the rounded emit still fits the raw law — while
-    # the final TALLY below keeps the RAW budget: violations are reported
-    # against the true law, and a both-hard pair (never movable) can not be
-    # tipped into a phantom violation by the margin.  ``edges`` carries both:
-    # ``(i, j, raw_budget, sweep_budget)``.
-    quant_margin = _emit_quantization_margin()
+    # ONE LAW FRAME (the emit-quantization margin is retired — module-head
+    # note).  The SWEEP, the reach envelope, the break detection and the
+    # final TALLY all run on the RAW law budget, so the enforced system and
+    # the reported system are the same system by construction.  ``edges``
+    # keeps its ``(i, j, raw_budget, sweep_budget)`` shape — the two columns
+    # now carry equal values — because it is the seam every consumer reads
+    # and collapsing it is a separate change.
     edges = []
     adj: dict = {}
     # DIRECTED reach-envelope adjacencies (Stage B3, interval-aware envelope).
@@ -2015,7 +2078,7 @@ def feasibility_project(elev, shape_constraints, hard, *,
     ceil_radj: dict = {}
     floor_radj: dict = {}
     for (i, j), lim in edge_lim.items():
-        sweep_lim = _margined_budget(lim, quant_margin)
+        sweep_lim = lim                     # RAW law budget — no margin
         edges.append((i, j, lim, sweep_lim))
         adj.setdefault(i, []).append((j, sweep_lim))
         adj.setdefault(j, []).append((i, sweep_lim))
@@ -2023,11 +2086,11 @@ def feasibility_project(elev, shape_constraints, hard, *,
         ceil_radj.setdefault(j, []).append((i, sweep_lim))
         floor_radj.setdefault(i, []).append((j, -sweep_lim))
         floor_radj.setdefault(j, []).append((i, -sweep_lim))
-    # INTERVAL EDGES (Stage B0): each carries the RAW interval (for the final
-    # tally, measured against the true law) and the SWEEP interval (raw shrunk
-    # inward by the emit-quantization margin — see ``_margined_interval``).
-    # ``interval_edges`` items: ``(i, j, raw_low, raw_high, sweep_low,
-    # sweep_high)`` with ``i < j`` and the slab on ``z_i − z_j``.
+    # INTERVAL EDGES (Stage B0): each carries the RAW interval twice — the
+    # tally frame and the sweep frame are the SAME raw law interval now that
+    # the margin is retired.  ``interval_edges`` items: ``(i, j, raw_low,
+    # raw_high, sweep_low, sweep_high)`` with ``i < j`` and the slab on
+    # ``z_i − z_j``.
     #
     # DIRECTED ENVELOPE PROPAGATION (Stage B3): a signed slab
     # ``low ≤ z_i − z_j ≤ high`` is the directed generalisation of the
@@ -2052,8 +2115,7 @@ def feasibility_project(elev, shape_constraints, hard, *,
     # stations move).
     interval_edges = []
     for (i, j), (raw_low, raw_high) in interval_lim.items():
-        sweep_low, sweep_high = _margined_interval(raw_low, raw_high,
-                                                   quant_margin)
+        sweep_low, sweep_high = raw_low, raw_high    # RAW law — no margin
         interval_edges.append((i, j, raw_low, raw_high,
                                sweep_low, sweep_high))
         # ENVELOPE EXCLUSION FOR ZONE EDGES (Slice B stage B3 solve-side
@@ -2812,12 +2874,16 @@ def feasibility_project(elev, shape_constraints, hard, *,
     # a big airport).  Both-immovable edges can never move, so drop them from the
     # iteration entirely (they are only counted in the final tally below).
     # ``kind``: 0 = both free (split the excess), 1 = i fixed (move j), 2 = j fixed.
-    # The iteration enforces the MARGINED (sweep) budget — see above.
+    # The iteration enforces the RAW law budget — see above.
     # ``iter_raw_budget`` is the INSTRUMENT-ONLY parallel column (seed-fix
     # round §1a): entry ``k`` is ``iter_edges[k]``'s RAW law budget (``None``
     # at interval slots).  Nothing in the projection reads it; it reaches
     # only the write-only stall report, whose ``L − U`` adjudication is a
-    # LAW measure and must not be priced on margined budgets.
+    # LAW measure and must never be priced on a per-edge-shrunk frame.
+    # With the emit-quantization margin retired the two columns carry the
+    # SAME values — the seam is kept, not collapsed, because that
+    # adjudication is a PATH quantity and must not silently inherit a
+    # frame it did not choose.
     iter_edges = []
     iter_raw_budget = []
     for (i, j, _raw_budget, sweep_budget) in edges:
@@ -2909,7 +2975,7 @@ def feasibility_project(elev, shape_constraints, hard, *,
             if previous_budget is not None and previous_budget <= raw_budget:
                 continue
             edge_lim[pair] = raw_budget
-            sweep_budget = _margined_budget(raw_budget, quant_margin)
+            sweep_budget = raw_budget            # RAW law budget — no margin
             edges.append((pair[0], pair[1], raw_budget, sweep_budget))
             a_immovable = pair[0] in immovable
             b_immovable = pair[1] in immovable
@@ -2955,6 +3021,21 @@ def feasibility_project(elev, shape_constraints, hard, *,
     _vec = not force_scalar
     _sweeps_run = 0
     _last_worst = 0.0
+    # ── THE SWEEP BUDGET, DERIVED FROM THIS GRAPH (2026-08-05) ───────────
+    # A sweep cap is a NON-TERMINATION GUARD, never a law quantity, and it
+    # must never be what decides a surface — which is exactly what the
+    # hand-set 2,400 was doing at composed SPJC+HECA.  It is derived HERE,
+    # once, now that ``iter_edges`` is complete: this is the first point in
+    # the call that owns the actual graph, and the three sweep paths below
+    # (chromatic, vectorised Jacobi, scalar worklist) all price off it.
+    # ``max_iters`` passed explicitly ⇒ the caller imposed a budget and the
+    # derivation is skipped; ``_sweep_basis is None`` then tells the exit
+    # report so.  Cost is O(V+E) once per projection, deliberately not
+    # micro-optimised and deliberately not priced here (the wall-time arm
+    # belongs to the test phase — RULINGS 2026-08-05).
+    _sweep_basis = None
+    if max_iters is None:
+        max_iters, _sweep_basis = derive_sweep_budget(iter_edges, n)
     # CHROMATIC (graph-colored) Gauss-Seidel (Tier 3 wave 2c, survey candidate
     # 1): a numpy-vectorized TRUE Gauss-Seidel sweep that converges where the
     # Jacobi stalls, so it replaces BOTH legacy inner paths — the
@@ -2979,7 +3060,8 @@ def feasibility_project(elev, shape_constraints, hard, *,
                            interval_bounds_by_index, stats=_chroma_stats,
                            coloring_state=_coloring_state,
                            node_box=bound_of or None,
-                           raw_budget_by_index=iter_raw_budget)
+                           raw_budget_by_index=iter_raw_budget,
+                           sweep_budget_basis=_sweep_basis)
         # Lazy shapes: as for the Jacobi path, only the FINAL state matters for
         # a certificate, so re-warm + re-sweep on the grown edge set until no
         # further shape expands (bounded: each round expands ≥1 entry).
@@ -2999,11 +3081,18 @@ def feasibility_project(elev, shape_constraints, hard, *,
                 break
             if _chain_prepass:
                 _project_chain_prepass(elev, iter_edges, n, immovable)
+            # RE-DERIVE: a lazy round only APPENDS edges, so the graph the
+            # next sweep faces can be strictly larger (and its diameter
+            # strictly longer) than the one the budget was priced from.
+            # Re-deriving keeps the guard above the graph it is guarding.
+            if _sweep_basis is not None:
+                max_iters, _sweep_basis = derive_sweep_budget(iter_edges, n)
             _project_chromatic(elev, iter_edges, n, max_iters, tol,
                                interval_bounds_by_index, stats=_chroma_stats,
                                coloring_state=_coloring_state,
                                node_box=bound_of or None,
-                                   raw_budget_by_index=iter_raw_budget)
+                               raw_budget_by_index=iter_raw_budget,
+                               sweep_budget_basis=_sweep_basis)
         _sweeps_run = _chroma_stats.get("sweeps", 0)
         _last_worst = _chroma_stats.get("worst", 0.0)
         if _os.environ.get("O4_STEP_DEBUG") == "1":
@@ -3316,7 +3405,7 @@ def one_profile_solve(
         elev, shape_constraints, base_hard, nodes, dem_elev,
         runway_nodes, building_seats, apron_body, spine_nodes, spine_adj,
         node_band, spine_floor, coupling, *,
-        max_sweeps=PROJECTION_MAX_SWEEPS_ONE_SOLVE, tol=0.001,
+        max_sweeps=None, tol=0.001,
         omega=None, curvature=0.25,
         apron_smooth=None):
     """Run the one-profile solve.  Mutates ``elev`` in place; returns #free nodes.
@@ -3344,6 +3433,15 @@ def one_profile_solve(
     adj = _build_adjacency(shape_constraints, n)
     if not adj:
         return 0
+    # THE SWEEP BUDGET, DERIVED FROM THIS GRAPH (2026-08-05).  Same law as
+    # ``feasibility_project``: this body relaxation also propagates one law
+    # edge per sweep, so its guard is priced off the same hop-diameter
+    # bound rather than off a hand-set constant.  ``adj`` is the law-edge
+    # graph, flattened to the ``(i, j)`` pairs the bound reads.
+    if max_sweeps is None:
+        max_sweeps, _ = derive_sweep_budget(
+            [(i, j) for i, incident in adj.items() for (j, _lim) in incident],
+            n)
 
     # ANCHORS — fixed elevations: runway contacts, tile seams, and the building
     # pads (the heaviest, flat at their FRONTAGE-reachable level).  Everything

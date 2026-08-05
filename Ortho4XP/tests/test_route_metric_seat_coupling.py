@@ -39,21 +39,19 @@ from auto_patch.elevation_per_surface.route_profile import one_solve as OS
 # RAW LAW SWEEPS ARE STANDING LAW (docs/RULINGS.md 2026-08-05,
 # build-complete-then-debug: "NO GATES … O4_ law gates and their env
 # overrides are DELETED as their territory is touched").  The solver's
-# emit-quantization MARGIN is therefore 0 — the 0.01 m guarantee lives at
-# emit (``auto_patch.emit_snap``), bounded by ONE grid step per node so it
-# cannot compound along a route.  Every budget below is the RAW law
-# budget; the margined expectations these tests carried were the twin of
-# the retired gate.
-_MARGIN = OS._emit_quantization_margin()
+# emit-quantization margin — and every helper that applied it — is
+# DELETED; the 0.01 m guarantee lives at emit (``auto_patch.emit_snap``),
+# bounded by ONE grid step per node so it cannot compound along a route.
+# Every budget below is therefore the RAW law budget, written plainly:
+# the coupler prices exactly what the projection sweeps.
 
 
 # The dossier's own two hops (HEAZ 35 —0.0578(6.78 m)— 1295 —0.1015(11.15 m)
-# — 37), quoted as the RAW budgets the graph carries; the projection sweeps
-# them margined, and 0.0578 + 0.1015 = 0.1593 is the number that binds.
+# — 37), quoted as the RAW budgets the graph carries; 0.0578 + 0.1015 =
+# 0.1593 is the number that binds.
 _RAW_A = 0.0678
 _RAW_B = 0.1115
-_ROUTE = (OS._margined_budget(_RAW_A, _MARGIN)
-          + OS._margined_budget(_RAW_B, _MARGIN))
+_ROUTE = _RAW_A + _RAW_B
 _CHORD_GAP_M = 17.6
 _CHORD = APRON_MAX_GRADE * _CHORD_GAP_M
 
@@ -228,18 +226,19 @@ def test_the_coupler_budget_is_the_projections_binding_budget():
     assert not diag["ident_over"]
 
 
-def test_the_frame_split_is_reported_law_route_vs_margin(monkeypatch,
-                                                         capsys):
+def test_the_tightening_attribution_is_reported_in_one_law_frame(monkeypatch,
+                                                                 capsys):
     """ATTRIBUTION, not a second authority.
 
     HISTORICALLY the enforced budget was the MARGINED one and the margin
     was subtracted PER EDGE, so a multi-hop route lost one margin per hop
     — the dossier's pair read 0.1593 margined (TIGHTER than the 0.176
-    chord) against a 0.1793 RAW-law route (LOOSER).  Raw-law sweeps are
-    now STANDING LAW (docs/RULINGS.md 2026-08-05), so the margin is 0 and
-    the two frames COINCIDE: nothing is tightened by the margin any more.
-    The report must still carry the attribution line — that is what makes
-    the zero visible rather than absent.
+    chord) against a 0.1793 RAW-law route (LOOSER).  The margin is now
+    DELETED (docs/RULINGS.md 2026-08-05), so there is exactly ONE frame
+    and nothing to split: the report states that every metre of
+    tightening is the law's own route.  The line must still be there —
+    its magnitude is the evidence that the route metric, not the chord,
+    is what binds.
 
     (No ``O4_SEAT_COUPLE_ROUTE_METRIC`` row: the SEATS lane retired that
     gate — the route metric is the coupler's ONLY metric — so pinning it
@@ -247,11 +246,11 @@ def test_the_frame_split_is_reported_law_route_vs_margin(monkeypatch,
     _divergence_case(monkeypatch)
     text = capsys.readouterr().out
     assert "tightening attribution" in text
-    # The margin is 0, so no pair is tightened BY IT — the honest report
-    # is a zero total, not a missing line.
-    assert "0.000 m of it is the emit margin compounding" in text
-    # …and with nothing tightened there is no per-pair raw-law line to
-    # print: the margin frame and the law frame are the same frame now.
+    assert "ALL of it the RAW law route (no margin frame exists)" in text
+    # The census header names the frame it priced in, so a reader never
+    # has to guess which budgets the route walked.
+    assert "RAW law budgets)" in text
+    # With the frames coincident this case tightens nothing.
     assert "0 TIGHTENED" in text
 
 
@@ -260,9 +259,8 @@ def test_raw_budgets_ride_the_diagnostics_only():
     budgets, diag = AN._pad_route_budgets(
         [{"edges": list(edges), "nodes": [0, 1, 2], "flat": False}],
         [{0}, {2}], n_nodes=3)
-    assert budgets[(0, 1)] == pytest.approx(
-        OS._margined_budget(0.05, _MARGIN)
-        + OS._margined_budget(0.07, _MARGIN), abs=1e-9)
+    assert budgets[(0, 1)] == pytest.approx(0.05 + 0.07, abs=1e-9)
+    # ONE FRAME: the reported raw budget IS the priced route budget.
     assert diag["raw_budgets"][(0, 1)] == pytest.approx(0.12, abs=1e-9)
 
 
@@ -274,11 +272,9 @@ def test_budget_identity_is_symmetric_on_every_pair():
         [{"edges": list(edges), "nodes": [0, 1, 2, 3], "flat": False}],
         [{0}, {2}, {3}], n_nodes=4)
     assert diag["ident_worst"] == pytest.approx(0.0, abs=1e-9)
-    # min-budget path 0→2 is 0.05+0.07 (RAW law; the margin is 0 under
-    # standing raw-law sweeps), NOT the direct-ish 0.5 edge via 3.
-    assert budgets[(0, 1)] == pytest.approx(
-        OS._margined_budget(0.05, _MARGIN)
-        + OS._margined_budget(0.07, _MARGIN), abs=1e-9)
+    # min-budget path 0→2 is 0.05+0.07 (RAW law), NOT the direct-ish 0.5
+    # edge via 3.
+    assert budgets[(0, 1)] == pytest.approx(0.05 + 0.07, abs=1e-9)
 
 
 def test_tightest_budget_wins_on_duplicate_pairs():
@@ -288,8 +284,7 @@ def test_tightest_budget_wins_on_duplicate_pairs():
     budgets, _diag = AN._pad_route_budgets(
         [{"edges": list(edges), "nodes": [0, 1], "flat": False}],
         [{0}, {1}], n_nodes=2)
-    assert budgets[(0, 1)] == pytest.approx(
-        OS._margined_budget(0.20, _MARGIN), abs=1e-9)
+    assert budgets[(0, 1)] == pytest.approx(0.20, abs=1e-9)
 
 
 def test_interval_edges_are_not_routed_through():
@@ -308,8 +303,7 @@ def test_unregulated_and_out_of_range_edges_are_dropped():
     budgets, _d = AN._pad_route_budgets(
         [{"edges": list(edges), "nodes": [0, 1, 2], "flat": False}],
         [{0}, {2}], n_nodes=3)
-    assert budgets[(0, 1)] == pytest.approx(
-        OS._margined_budget(0.4, _MARGIN), abs=1e-9)
+    assert budgets[(0, 1)] == pytest.approx(0.4, abs=1e-9)
 
 
 def test_touching_pads_merge_into_one_rigid_unit():
@@ -370,8 +364,7 @@ def test_route_admission_subsumes_the_shared_surface_predicate(
     """The pair the visibility fraction rejected as "separated by grass" is
     offered to the solver — with NO shared-surface gate set."""
     lv_l, lv_r, _lv_f = _u_case(monkeypatch)
-    limit = sum(OS._margined_budget(w, _MARGIN)
-                for w in (0.20, 0.60, 0.20))
+    limit = sum((0.20, 0.60, 0.20))            # RAW law budgets
     assert abs(lv_r - lv_l) <= limit + 1e-3
     text = capsys.readouterr().out
     assert "ROUTE METRIC" in text

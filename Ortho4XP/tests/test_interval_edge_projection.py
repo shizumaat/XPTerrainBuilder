@@ -18,13 +18,10 @@ import pytest
 from auto_patch.elevation_per_surface.route_profile import one_solve as OS
 
 
-@pytest.fixture(autouse=True)
-def _zero_emit_margin(monkeypatch):
-    """Default the emit-quantization margin to 0 so the pure-projection cases
-    converge to their exact law bounds.  The margin-specific tests re-set it
-    (their own monkeypatch runs after this fixture, so it wins)."""
-    import auto_patch.config as cfg
-    monkeypatch.setattr(cfg, "EMIT_QUANTIZATION_MARGIN_M", 0.0)
+# NO MARGIN FIXTURE.  These cases converge to their exact law bounds
+# because the projection enforces the RAW law — the emit-quantization
+# margin and its config constant are DELETED (docs/RULINGS.md 2026-08-05);
+# the 0.01 m guarantee lives in ``auto_patch.emit_snap``.
 
 
 # ── helpers ──────────────────────────────────────────────────────────────
@@ -206,56 +203,37 @@ def test_scalar_and_vectorised_agree_on_an_interval_graph(monkeypatch):
         assert vect[k] == pytest.approx(scalar[k], abs=5e-2)
 
 
-# ── 7. quantization-margin behaviour on interval edges ───────────────────
-def test_interval_finite_sides_are_enforced_at_RAW_law(monkeypatch):
+# ── 7. interval edges are enforced at RAW law ────────────────────────────
+def test_interval_finite_sides_are_enforced_at_RAW_law():
     """RAW LAW SWEEPS ARE STANDING LAW (docs/RULINGS.md 2026-08-05,
     build-complete-then-debug).  The emit-quantization margin used to
     shrink every finite side inward by 0.01 m — correct per pair and
-    COMPOUNDING per path — and is now 0: the sweeps enforce the raw
+    COMPOUNDING per path.  It is DELETED: the sweeps enforce the raw
     interval and ``auto_patch.emit_snap`` carries the 0.01 m guarantee at
-    emit, bounded by one grid step per node.  A stale
-    ``EMIT_QUANTIZATION_MARGIN_M`` in config must no longer reach the
-    projection."""
-    import auto_patch.config as cfg
-    monkeypatch.setattr(cfg, "EMIT_QUANTIZATION_MARGIN_M", 0.1)
+    emit, bounded by one grid step per node."""
     elev = [0.0, 11.0]
     rem, _bh = _project(elev, [(1, 0, None, 3.0)], hard={0})
     assert rem == 0
     assert elev[1] == pytest.approx(3.0, abs=1e-3)
 
 
-def test_interval_open_side_is_still_left_alone(monkeypatch):
-    """The one-sided slab's OPEN side stays open (that was never the
-    margin's business), and its finite side now settles on the RAW law
-    value — see the standing-law note above."""
-    import auto_patch.config as cfg
-    monkeypatch.setattr(cfg, "EMIT_QUANTIZATION_MARGIN_M", 0.1)
+def test_interval_open_side_is_still_left_alone():
+    """The one-sided slab's OPEN side stays open, and its finite side
+    settles on the RAW law value — see the standing-law note above."""
     elev = [0.0, -5.0]
     _project(elev, [(1, 0, 2.0, None)], hard={0})
     assert elev[1] == pytest.approx(2.0, abs=1e-3)
 
 
-def test_margined_interval_helper_matches_margined_budget_symmetric():
-    # The interval margin must generalise _margined_budget: a symmetric slab
-    # (−b, +b) shrinks to (−(b−m), +(b−m)) on both sides.
-    for b in (0.2, 1.0, 5.0):
-        m = 0.05
-        lo, hi = OS._margined_interval(-b, b, m)
-        assert hi == pytest.approx(OS._margined_budget(b, m))
-        assert lo == pytest.approx(-OS._margined_budget(b, m))
-
-
-def test_margined_interval_floor_semantics():
-    # Below-floor finite sides are never driven past ±_QUANT_MARGIN_FLOOR_M,
-    # and a tiny finite side at/under the floor is left unchanged (mirrors the
-    # symmetric flat-cross budget staying enforceable).
-    floor = OS._QUANT_MARGIN_FLOOR_M
-    lo, hi = OS._margined_interval(-0.5, 0.5, 10.0)     # huge margin
-    assert hi == pytest.approx(floor)
-    assert lo == pytest.approx(-floor)
-    lo2, hi2 = OS._margined_interval(-0.001, 0.001, 0.1)   # both inside floor
-    assert (lo2, hi2) == (-0.001, 0.001)
-    assert OS._margined_interval(-2.0, 2.0, 0.0) == (-2.0, 2.0)   # margin 0
+def test_the_interval_margin_helpers_are_deleted():
+    """``_margined_interval`` / ``_margined_budget`` / the shared floor
+    ``_QUANT_MARGIN_FLOOR_M`` are GONE, not defaulted to a no-op margin.
+    Their two unit twins (symmetric-generalisation and floor semantics)
+    were pinning a frame that no longer exists, so they are deleted with
+    the code; what remains asserted is the standing law above."""
+    for gone in ("_margined_interval", "_margined_budget",
+                 "_QUANT_MARGIN_FLOOR_M"):
+        assert not hasattr(OS, gone), f"one_solve.{gone} must be deleted"
 
 
 # ── pure-interval graph (no symmetric edges) still solves ────────────────

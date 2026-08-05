@@ -145,10 +145,9 @@ __all__ = [
     "TERMINAL_MAX_GRADE",
     "TERMINAL_PADS_SLOPE",
     "TAXI_CORRIDOR_PROFILE",
+    "TAXIWAY_CURVE_RUN_M",
     "TAXIWAY_MAX_GRADE_CHANGE_PER_M",
-    "CORRIDOR_PROFILE_DAMPING",
     "CORRIDOR_DAMP_ALPHA",
-    "FIELD_RUNWAY_ROUTE_BANDS",
     "SERVICE_ROAD_MAX_GRADE",
     "SERVICE_ROAD_MAX_TRANSVERSE",
     "SERVICE_ROAD_CROWN_TRANSVERSE",
@@ -194,7 +193,6 @@ __all__ = [
     "GRADE_VISIBILITY_BUFFER_M",
     "ELEV_ROUNDING_NOISE_M",
     "SLOPED_QUAD_ROUNDING_NOISE_M",
-    "EMIT_QUANTIZATION_MARGIN_M",
     "ROUTE_FIELD_MODEL",
     "ROUTE_FIELD_LOCAL_WINDOW_M",
     "SURFACE_FAIRING",
@@ -932,11 +930,17 @@ TAXI_CORRIDOR_PROFILE = True
 # a route chain by it (``_fair_spine_chains``), and
 # ``tools/check_grade.py`` validates the same rate on the emitted
 # profile — the grade law alone lets the solve track DEM noise in
-# legal ±cap wiggles (the residual-waviness class).  TUNABLE:
-# ``O4_TAXIWAY_CURVE_RUN_M`` = metres of run required per unit grade
-# change (default 3000; larger ⇒ flatter, longer vertical curves).
-TAXIWAY_MAX_GRADE_CHANGE_PER_M = 1.0 / float(
-    _os_early.environ.get("O4_TAXIWAY_CURVE_RUN_M", "3000"))
+# legal ±cap wiggles (the residual-waviness class).
+# NOT TUNABLE, and never from the environment (docs/RULINGS.md
+# 2026-08-05, build-complete-then-debug: "NO GATES.  Every believed-in
+# law becomes standing law; O4_ law gates and their env overrides are
+# DELETED as their territory is touched").  This is a LAW value — the
+# run required per unit grade change — so it is a plain constant here
+# and nowhere else; ``O4_TAXIWAY_CURVE_RUN_M`` is GONE.  3000 m of run
+# per unit grade change = 30 m per 1 %, the FAA AC 150/5300-13 §4.14.1
+# taxiway vertical-curve rate cited above.
+TAXIWAY_CURVE_RUN_M = 3000.0
+TAXIWAY_MAX_GRADE_CHANGE_PER_M = 1.0 / TAXIWAY_CURVE_RUN_M
 # THROUGH-WELD FAIRING (owner defect 2026-07-27, HECA taxiway dip at
 # 30.11221,31.41089).  ``_fair_spine_chains`` breaks its chains at every
 # degree-≠2 spine node, so the vertical-curve law was blind exactly at
@@ -1151,8 +1155,7 @@ REACH_NO_SERVICE_SPINES = (
 # Σ grade² → the smoothest profile), clamped to its legal band, with the
 # 1.5 % caps + hard anchors still binding.  ``CORRIDOR_DAMP_ALPHA`` =
 # per-sweep relaxation toward that mean (1.0 = full harmonic; lower =
-# gentler / more DEM-near).  Gate ``CORRIDOR_PROFILE_DAMPING``
-# (``O4_CORRIDOR_DAMP``) — OFF restores the pure DEM-follow.
+# gentler / more DEM-near).
 CORRIDOR_DAMP_ALPHA = 0.5
 # GROUND-VEHICLE SERVICE ROAD longitudinal grade — OWNER CONSTANT, approved
 # 2026-08-03 (docs/RULINGS.md "Owner constants: lot 5%, service road 8%";
@@ -1501,26 +1504,20 @@ ELEV_ROUNDING_NOISE_M = 0.03
 # runway-end-skirt reader's 0.1-m sloped-quad tolerance
 # (``_check_runway_end_skirt_edges``), NOT a per-airport fudge.
 SLOPED_QUAD_ROUNDING_NOISE_M = 0.1
-# ── Emit-quantization grade margin (2026-07-04) ──────────────────────────
-# ``to_osm`` emits elevations rounded to 0.01 m (2-decimal), so each endpoint
-# moves up to ±0.005 m and a pair's |Δelev| can grow by up to 0.01 m — ONE
-# full emit grid step (two worst-case half-step roundings in opposite
-# directions) — between the solved float field and the emitted file.  On a
-# short chord at cap that headroom does not exist: a 2 m chord at 1.5 % has a
-# 0.03 m legal delta, so a pair the solver drives exactly TO its budget can
-# read over the law in the emitted patch (the "rounding hairline" class —
-# CYXY: 126 sub-0.5 % + 38 sub-1 % excesses on 1-4 m chords).  The SOLVER's
-# feasibility projection therefore SWEEPS every pair to
-# ``budget − EMIT_QUANTIZATION_MARGIN_M`` so the rounded values still fit the
-# raw law, while its over-cap TALLY keeps the raw budget (violations are
-# reported against the true law; a both-hard pair can never move, so a
-# margined tally would manufacture phantom both-hard violations).  3-decimal
-# emit was tested and REFUTED (rounding was HIDING pairs — it exposed more
-# than it fixed; see status notes 2026-07-03).  Env override
-# ``O4_QUANT_MARGIN`` (metres); "0" disables → byte-identical pre-margin
-# behaviour.
-EMIT_QUANTIZATION_MARGIN_M = float(
-    _os_early.environ.get("O4_QUANT_MARGIN", "0.01"))
+# ── Emit-quantization grade margin — RETIRED 2026-08-05 ──────────────────
+# ``EMIT_QUANTIZATION_MARGIN_M`` (and its ``O4_QUANT_MARGIN`` env read) are
+# DELETED.  The problem was real: ``to_osm`` emits elevations rounded to
+# 0.01 m, so a pair solved exactly AT its budget can read over the law in the
+# emitted patch.  The FIX was wrong: shrinking every SWEEP budget by one grid
+# step is correct PER PAIR but compounds PER PATH — an N-hop route lost
+# ``N × margin`` of envelope no law ever took (HEAZ, measured: a 69-hop
+# witness route stole 0.63 m and the projection burned 3983 sweeps chasing
+# the deficit; the stall adjudication read "593 of 2032 INFEASIBLE" against a
+# system whose raw envelope is 0/2032).
+# STANDING LAW (docs/RULINGS.md 2026-08-05, build-complete-then-debug): the
+# sweeps enforce the RAW law budgets, and the 0.01 m guarantee lives at EMIT
+# in :mod:`auto_patch.emit_snap` — a per-pair, law-aware grid snap bounded by
+# ONE grid step per node BY CONSTRUCTION, so it cannot compound along a path.
 
 # ── ROUTE-FIELD MODEL (#3, user-approved s73-p3, built s75; see
 # docs/route_field_model.md) ─────────────────────────────────────────────
@@ -2767,37 +2764,6 @@ TAXI_SLACK_TERMINALS = _os.environ.get("O4_TAXI_SLACK", "1") == "1"
 # mode that motivated the old guard).  OFF = fallback-only admission,
 # byte-identical to pre-s81.
 HANGAR_PADS = _os.environ.get("O4_HANGAR_PADS", "1") == "1"
-# Corridor-profile Laplacian damping (see CORRIDOR_DAMP_ALPHA above).
-# Default ON (user 2026-06-14): with FIELD_RUNWAY_ROUTE_BANDS the bands
-# carry real slack, so the harmonic smoothing now halves corridor
-# grade-change (HECA kinks >1%: 56→23) and settles aprons toward terrain
-# instead of being a no-op.  O4_CORRIDOR_DAMP=0 restores the pure DEM-follow.
-CORRIDOR_PROFILE_DAMPING = _os.environ.get("O4_CORRIDOR_DAMP", "1") == "1"
-# Junction node-altitude RIPPLE smoothing (user 2026-06-15): the twist
-# pass leaves a free junction RING vertex bowed off the line between its
-# two ring-neighbours — a grade-CHANGE (curvature) kink under the 1.5 %
-# cap, so the grade-magnitude smoother never touches it (user: "the shape
-# edges are welded and matched correctly but there's a little ripple
-# before getting into the heart of the junction; that second node needs
-# to be averaged between the shape edge node and the third one in").  A
-# ring-Laplacian pass averages each FREE (un-welded, non-rect-corner)
-# vertex toward the distance-linear interpolation of its ring neighbours,
-# HOLDING welded/shared and sloping-rect-corner vertices (so no
-# cross-shape step).  O4_JCT_RIPPLE=0 disables it.
-JUNCTION_RIPPLE_SMOOTH = _os.environ.get("O4_JCT_RIPPLE", "1") == "1"
-# Field RUNWAY-anchor route bands (user 2026-06-14): measure the
-# network-profile field's runway-anchor feasibility band along the
-# centerline TAXI ROUTE (taxi_routing) instead of the field graph.  The
-# field graph carries chord + proximity coupling edges that shortcut
-# STRAIGHT across apron/junction interiors, so a runway contact reachable
-# in 146 m of pavement-geodesic is really ~350 m along the taxiway an
-# aircraft (and the graded surface) follows — the field floors the apron
-# ~1-3 m too high, lifting it off the terrain (the bump the user reports).
-# Mirrors the enforce's _runway_reach_bands (already route-measured); the
-# field was the one out of step.  Seam/threshold pins keep the field-graph
-# entry.  Default ON (user 2026-06-14); O4_FIELD_RW_ROUTE=0 restores the
-# pure field-graph band (byte-identical).
-FIELD_RUNWAY_ROUTE_BANDS = _os.environ.get("O4_FIELD_RW_ROUTE", "1") == "1"
 
 # SEAM FIELD ANCHORS (user 2026-06-20).  On a tile-seam, pavement vertices
 # are pinned to the smoothed DEM for cross-tile continuity
@@ -3174,35 +3140,6 @@ RUNWAY_SEAM_RAMP_ZONE_M = float(
 # legacy segmented path until the crossing-carve slice lands.
 RUNWAY_SINGLE_POLY = _os.environ.get("O4_RUNWAY_SINGLE_POLY", "1") == "1"
 
-# SEAM APRON COMPLEX POLISH (user 2026-06-20).  The per-apron isolated polish
-# (SPREAD_APRON_GRADE) holds every vertex an apron shares with ANOTHER shape, so
-# when a near-seam apron has been sliced into thin slivers (neck-split /
-# spine-slice / decompose), each sliver freezes its shared boundary at the
-# taxi-network level and the 1.5-2 m drop to the seam DEM has no contiguous free
-# interior to ramp through — it dumps into one edge (SPLP -77 aprons #16/#17/#19:
-# 7-18 % cliffs against seam verts that are correctly pinned to terrain).  FIX:
-# for each CONNECTED apron complex that touches a seam, polish the slivers
-# TOGETHER — hold only the seam vertices + vertices shared with NON-apron shapes
-# (the taxi-network boundary), FREE the apron<->apron shared interior, so the
-# ramp spreads across the complex's full depth.  Non-seam apron complexes keep
-# the per-apron polish (byte-identical).  Single-tile airports have no seam → no
-# effect.  O4_SEAM_APRON_COMPLEX=0 restores the per-apron-only polish.
-SEAM_APRON_COMPLEX_POLISH = _os.environ.get(
-    "O4_SEAM_APRON_COMPLEX", "1") == "1"
-
-# SPREAD APRON GRADE (user 2026-06-20).  The global within-shape projection
-# (``_project_within_bands``) doesn't converge on a frustrated apron complex
-# — an apron pinned high on one edge (a seam / neighbour at the higher
-# terrain) and low elsewhere oscillates over the whole welded belt and falls
-# back to the DEM seed, dumping the whole climb into ONE steep edge (SPLP -78
-# apron: 8.35 % over 6 m, the rest flat).  Polish each apron / junction in
-# ISOLATION after the enforce — hold its HARD + SHARED-with-neighbour vertices
-# (so seams and cross-shape joins never move), cap-project only its PRIVATE
-# interior on its own visibility edges (``_project_shape``).  A small isolated
-# shape converges, so the climb SPREADS across the interior to a smooth ramp
-# instead of one wall.  Same machinery as the (gate-off-by-default) terminal
-# pad polish; default ON.  O4_SPREAD_APRON_GRADE=0 restores the old behaviour.
-SPREAD_APRON_GRADE = _os.environ.get("O4_SPREAD_APRON_GRADE", "1") == "1"
 
 # DSF terminal/hangar building footprints (user 2026-06-12) — see the
 # documented block near LOAD_DSF_PAVEMENT above.  Read here because
@@ -5668,83 +5605,6 @@ TAXI_GRADE_WIDTH_ROLES = frozenset({
 })
 
 
-# (20260621) ROUTE-BAND WIDTH CAP — apron-spine climb law.  The runway-reach
-# feasibility band (``_runway_reach_bands``) propagates a single uniform grade
-# cap over the taxi-route graph, so the band ceiling a node can climb to is
-# computed at the 1.5 % ``TAXI_MAX_GRADE`` rate even along a narrow code-A/B
-# taxiway that is allowed 3 %.  That artificially TIGHTENS the band on narrow
-# routes (and can falsely invert a short steep route to the runway — the
-# invariant "every taxi-route centerline stays feasible to the runway").  When
-# ON, each route-graph edge carries its own cap from its taxiway code letter
-# (``taxi_grade_cap_for_letter``): narrow A/B edges 3 %, C–F 1.5 %.  Gate off
-# (or ``TAXI_GRADE_BY_WIDTH`` off, which makes every edge cap fall back to
-# 1.5 %) is byte-identical to the uniform band.  Default ON.
-TAXI_REACH_BAND_BY_WIDTH = _os.environ.get(
-    "O4_REACH_BAND_BY_WIDTH", "1") == "1"
-
-# (20260621) JUNCTION NARROW GRADE (PER-AXIS) — apron-spine climb law.  A
-# JUNCTION is the moving network the taxiways flow through, held to the uniform
-# 1.5 % cap.  But where a narrow code-A/B taxiway runs THROUGH a junction (or a
-# junction-tagged corridor sliced out of an apron — CYXY taxiway G), that
-# corridor IS the narrow taxiway and must climb at its 3 % code-A/B rate to
-# reach high terrain/buildings.  The taxi network's local climb rate is the
-# constraint that actually pins the airside complex ~10 m below terrain (the
-# aprons are welded to the corridor and cannot rise above it).  When ON, the
-# solver's per-axis junction edges that run ALONG a narrow centerline earn the
-# 3 % cap; ring/transverse edges keep 1.5 % (matching the validator's per-axis
-# cL=0.03 / cT=0.02).  ★ PER-AXIS, NOT isotropic: a blunt isotropic 3 % cap
-# destabilises the solve (the corridor tilts transversely; CYXY within 18 → 41).
-# Default ON (the corridor climb only manifests with the DEM attraction present).
-JUNCTION_NARROW_GRADE = _os.environ.get("O4_JCT_NARROW_GRADE", "1") == "1"
-
-# (20260622) CORRIDOR SPINE CHAINS — plan P2 (docs/taxi_centerline_grading_plan
-# .md §5): extend the corridor profile to cover EVERY apt.dat taxi centerline,
-# not only the stretches that have taxi RECTS.  Where a centerline runs through
-# an apron as a stretch of promoted ROLE_JUNCTION pieces (SPINE_PIECE_ROLE_REEVAL
-# — CYXY taxiway G crosses its apron as ~7 such pieces) there is no rect, so no
-# corridor station samples/writes the NETWORK PROFILE field along it and the
-# stretch settles to raw relief (the airside "bowl").  When ON, the corridor
-# pass adds a STATION CHAIN over each such centerline's spine nodes (canonical
-# nodes within ~2 m of the line, ordered by projection) so the already-solved
-# field value is written onto those nodes and HELD — making every centerline
-# route one continuous, field-consistent profile that the surrounding apron then
-# conforms to.  Built ONLY for a centerline with ≥1 node no rect station covers
-# (the promoted-apron case); a fully rect-covered centerline is skipped, so an
-# airport without such stretches stays byte-identical.  Requires
-# NETWORK_PROFILE_MODEL + TAXI_CORRIDOR_PROFILE (the field that supplies the
-# spine values).
-CORRIDOR_SPINE_CHAINS = _os.environ.get("O4_CORRIDOR_SPINE_CHAINS", "1") == "1"
-
-# (20260622) FIELD ROUTE-BAND BY WIDTH — plan P3 (docs/taxi_centerline_grading_
-# plan.md §5).  The NETWORK PROFILE field's per-node feasibility band
-# [floor, ceiling] is the runway-anchor reach measured along the taxi route.
-# Its field-graph leg already honours the per-letter cap (narrow_lines stretch
-# the edge length so the uniform-cap Dijkstra applies 3 %), BUT the
-# FIELD_RUNWAY_ROUTE_BANDS override (`_runway_route_band`, measured over the
-# plain `rw_route_graph`) recomputed the band at the UNIFORM 1.5 % and REPLACED
-# the field-graph band where it reached — re-pinning a narrow code-A/B route's
-# ceiling ~1.5 m/100 m below where the taxiway may legally climb (CYXY taxiway G:
-# field ceiling 727 → route-override 712, ~6 m below the DEM rim → G band-pinned
-# in the "bowl").  When ON, `_runway_route_band` consumes the route graph's
-# per-edge cap (`TaxiRouteGraph.edge_cap`, the same 3 % data `_runway_reach_bands`
-# uses under TAXI_REACH_BAND_BY_WIDTH), so a narrow route's ceiling rises to its
-# real 3 % reach and the DEM-seeded centerline can climb to terrain (minimal-
-# deviation: closest-to-DEM within the band).  Gate off → uniform `eff` →
-# byte-identical to the prior route override.  Requires FIELD_RUNWAY_ROUTE_BANDS.
-# ★ DEFAULT OFF (2026-06-22): the band fix is CORRECT (the route override no
-# longer wrongly clips a narrow route's ceiling to 1.5 %), but loosening the
-# ceiling STANDALONE regresses — the held centerline climbs ~2-3 m higher while
-# its apron/junction neighbours stay at their lower DEM/relief level, so the
-# within-shape grade across those junctions spikes (CYXY test-mirror within
-# 0→10, build 6→14, a new 8.8 % junction).  The climb must be ABSORBED by
-# conforming neighbours = plan P4 (aprons/buildings conform up to the held
-# centerlines).  Flip ON together with P4; OFF keeps the clean P2 baseline.
-# Default ON (2026-06-23): part of the single-grade-graph stack — the per-edge
-# cap-weighted route band the connecting solve relies on.  O4_FIELD_ROUTE_BAND_BY_WIDTH=0
-# restores the legacy uniform-1.5% band.
-FIELD_ROUTE_BAND_BY_WIDTH = _os.environ.get(
-    "O4_FIELD_ROUTE_BAND_BY_WIDTH", "1") == "1"
-
 # (20260624) VISIBLE_CHORD_CONNECT — a building connects to the taxi route by a
 # VISIBLE CHORD (line-of-sight that stays within the pavement), NOT the closest
 # centerline by straight-line distance.  The building-feasibility metric picked
@@ -5768,65 +5628,6 @@ VISIBLE_CHORD_CONNECT = _os.environ.get(
 # so every ref→cap consumer sees the true per-letter cap with no geometry
 # recovery.  This subsumes the old A/B-only ~A/~B recovery hack.
 
-# (20260622) FIELD-TARGET CONFORMANCE — plan P4/P5 (docs §9): make the final
-# within-shape enforce implement the user's stated objective — *minimise
-# |elev − DEM| within the feasibility band* — instead of movement-minimising from
-# a relief-bowled seed.  Before the final difference-constraint projection, lift
-# each soft (non-hard, non-held, non-band-pinned) node toward its closest-to-DEM
-# feasible level ``clamp(DEM, lo, hi)``, **LIFT-ONLY** (never lower; never above
-# the ceiling).  With the per-letter bands now correct (P3a recovers the unnamed
-# arms' 3 %; P3 the field route-band), this lifts the bowled airside — buildings
-# to their reachable-DEM (min(DEM, ceiling)), aprons/junctions with them — so the
-# held corridor's neighbours rise WITH it and the within-shape steps close.  The
-# subsequent projection (held corridor + hard anchors immovable) drives the lifted
-# surface grade-compliant; all-ceiling is Lipschitz-compliant so the lift is
-# grade-safe.  Pairs with UNNAMED_TAXI_SIZE (P3a) + FIELD_ROUTE_BAND_BY_WIDTH (P3).
-# ★ DEFAULT OFF + INCOMPLETE (2026-06-22): this lift is the conformance VEHICLE
-# but is NOT sufficient alone for the wide-apron terminal.  Measured (CYXY,
-# P3a+P3+this): buildings DIRECTLY on a narrow arm un-bowl, but the MAIN terminal
-# (building1/3/6) does NOT lift — its WIDE APRON is lifted by the field only
-# toward the LOW corridor (the apron-plane pass is lift-only-toward-taxi), so the
-# pad is gated to ~corridor+1%·apron-width, not its arm-route ceiling; lifting the
-# corridor to its raw route-CEILING instead explodes within-shape (89) because the
-# ceiling is Lipschitz along the ROUTE, not the geometry (route-vs-geom steps at
-# held junctions).  THE MISSING PIECE: the BUILDING must be the DRIVER — band via
-# per-edge `edge_cap` (NOT the uniform cap `_anchor_buildings_at_feasible_dem`
-# uses), placed at min(DEM, that band), with the apron conforming UP to the
-# *building* (not the corridor) and the corridor→apron transition taken by the
-# arm/an explicit ramp.  Until that lands this gate is net-neutral-to-negative
-# (CYXY within 8→12) — kept gated OFF as the vehicle.
-FIELD_TARGET_CONFORMANCE = _os.environ.get(
-    "O4_FIELD_TARGET_CONFORMANCE", "0") == "1"
-
-# (20260622) BUILDING ROUTE FEASIBILITY — plan P4 (the building DRIVER, docs §9).
-# Seat each building that touches airside pavement FLAT at the elevation closest
-# to its DEM that keeps it reachable WITHIN GRADE from EVERY runway threshold
-# along the real taxi route (user metric, validated on CYXY): a perpendicular
-# from the building centroid to the nearest taxi centerline (taxiway-corridor
-# part at the taxiway cap, apron part at 1%), then the per-edge per-letter-capped
-# centerline route to all thresholds; band = intersection over thresholds;
-# level = clamp(DEM, floor, ceiling).  Buildings NOT touching airside pavement
-# stay at DEM.  Unlike the retired uniform-cap building anchor (bowled),
-# this uses TaxiRouteGraph.edge_cap, so it pairs with UNNAMED_TAXI_SIZE (P3a) —
-# the unnamed arms must carry their real size for the band to be right.  The
-# seated pads become hard anchors the rest of the network grades to.
-# `elevation_per_surface/building_feasibility.py`.  ★ DEFAULT OFF until the
-# network conforms to the anchors (the min-grade network solve is the next step).
-BUILDING_ROUTE_FEASIBILITY = _os.environ.get(
-    "O4_BUILDING_ROUTE_FEASIBILITY", "0") == "1"
-
-# (20260622) MIN-GRADE NETWORK SOLVE — plan P5 (docs §9), the user's stage 2.
-# With buildings (P4) + runway thresholds/interior + tile seams as HARD anchors,
-# re-solve the airside taxi/apron/junction network as the SMOOTHEST profile that
-# connects them — minimise Σ grade² (a harmonic / inverse-distance² Gauss-Seidel
-# step) subject to the per-shape within-shape grade caps as bounds — so the
-# network CONFORMS to the anchors instead of discovering its own bowled levels.
-# Runs as a final override of the free airside nodes (anchors fixed) after the
-# existing solve.  Pairs with BUILDING_ROUTE_FEASIBILITY (P4) — without the
-# building anchors there is nothing new to conform to.  ★ DEFAULT OFF
-# (prototype): replaces field/relief/enforce for the airside; validate before
-# defaulting on.  Gate off → byte-identical.
-MIN_GRADE_NETWORK = _os.environ.get("O4_MIN_GRADE_NETWORK", "0") == "1"
 
 # (20260627) LARGE-BUILDING FULL-FRONTAGE FEASIBILITY (user 2026-06-27): the
 # route-feasibility band is sampled at a SINGLE CENTRAL CHORD — the building
@@ -5852,16 +5653,15 @@ BUILDING_FULL_FRONTAGE = _os.environ.get(
 # apron" convention (pipeline apron demotion note, user 2026-06-30).
 BUILDING_AIRSIDE_CONTACT_MIN_COMPONENT_M2 = 2000.0
 
-# (2026-07-17) DETACHED building pads (touching NO qualifying airside
-# pavement) are HARD-PINNED flat at their footprint DEM (median over
-# ring + centroid samples) for the whole solve.  Without the pin their
-# ring nodes are free field nodes: the route-profile blend paints them
-# with the surrounding airside level (KBNA SE lot: pads emitted at
-# 170-172 over 158-167 ground — flat plateaus 6-11 m above the DEM and
-# the abutting groundside).  ``O4_DETACHED_PAD_DEM_PIN=0`` restores the
-# free-field behaviour.
-DETACHED_PAD_DEM_PIN = _os.environ.get(
-    "O4_DETACHED_PAD_DEM_PIN", "1") == "1"
+# DETACHED building pads: ``DETACHED_PAD_DEM_PIN`` / the
+# ``O4_DETACHED_PAD_DEM_PIN`` gate are DELETED (item 3(b), 2026-08-05).
+# A pad touching no qualifying airside pavement used to be HARD-PINNED
+# flat at its footprint DEM median for the whole solve — DEM as a
+# constraint, which RULINGS "DEM's role, and the constant-DEM invariant"
+# forbids.  The plateau defect that pin masked is fixed at source (the
+# airside reach band is withheld from a pad the airside law does not
+# serve) and the pad now seats on its SOLVED groundside datum:
+# ``route_profile.anchors.seat_detached_pads_by_law``.
 # THE single building↔spine REACH corridor (user 2026-06-29): the max apron span
 # over which a building reaches a taxi spine, gated by a VISIBLE on-pavement chord
 # (no grass / one continuous apron) — the visibility gate, not the distance, is
@@ -6896,36 +6696,92 @@ CROWN_MINIMUM_BOUND = False
 # implies is thus the longest law-edge path in the graph (its diameter);
 # the node count ``n`` is that path's trivial upper bound.
 #
-# WHERE WE ACTUALLY ARE — measured, not asserted (integrate/ evidence,
-# composed SPJC and HECA):
+# WHERE WE WERE — measured, not asserted (debug lane A, integrate/
+# evidence, composed SPJC and HECA):
 #     [stall-report] edges=127520 n=72472: UNCERTIFIED EXIT at sweep
 #     2400/2400 ... active violating edges 1349; worst residual 0.146
-# The guard is BINDING: at n = 72,472 a 2,400-sweep cap is ~30x below the
-# worst-case propagation distance, so on those airports the surface is
-# decided by the guard rather than by convergence.  That is a real
-# finding and it is NOT fixed by editing a number here: raising the cap
-# costs sweeps, and per-airport auto-patch wall time is HARD LAW
-# (CLAUDE.md §6, 60 s).  The value must be raised together with a
-# measured build-time arm, which the current no-builds phase forbids;
-# ``one_solve._uncertified_exit_report`` already makes every such exit
-# loud, and ``layout._projection_uncertified_exits`` (below) makes it
-# COUNTABLE so the debug phase can gate on it instead of reading logs.
+# The hand-set guard was BINDING — the loop spent its whole budget and
+# still exited with 1,349 edges over cap, so on those airports the SURFACE
+# WAS DECIDED BY THE GUARD rather than by convergence.  A non-termination
+# guard that chooses a surface is a defect, not a tuning question, and no
+# hand-set number can be proved above a graph it has never seen.
 #
-# The names below carry today's values verbatim — this pass makes the
-# derivation and the gap explicit and gives the constants one home; it
-# deliberately changes no surface.
+# BE PRECISE ABOUT THE "~30x" IN THE LANE-A WRITE-UP: it compared 2,400 to
+# ``n`` = 72,472 — the TRIVIAL bound on a path length, not that graph's
+# diameter.  The BFS bound below is far tighter, and it is entirely
+# possible that on this graph it lands NEAR 2,400.  That would not make
+# the change cosmetic — it would mean the 2400/2400 exit was never budget
+# exhaustion at all but an EMPTY POLYTOPE wearing a cap's clothing, which
+# is precisely the confusion a derived budget removes and the new exit
+# report names.
 #
-# The two ROLE families and why their magnitudes differ:
-#   * FEASIBILITY / FINAL PROJECTION — whole-graph POCS over every law
-#     edge; propagation distance is the graph diameter (see above).
-#   * FAIRING — a second-difference smoother run PER CHAIN, so its
-#     propagation distance is one chain's station count (tens), not the
-#     graph's.  Those caps are law-adequate at their current values and
-#     are named here only for one home.
-PROJECTION_MAX_SWEEPS_DEFAULT = 4000        # feasibility_project default
-PROJECTION_MAX_SWEEPS_ONE_SOLVE = 3000      # one_profile_solve body
-PROJECTION_MAX_SWEEPS_FINAL = 2400          # final scoped projection
-PROJECTION_MAX_SWEEPS_MOUTH_RELAX = 1200    # the freed mouth-cluster re-project
+# WHAT LANDED (2026-08-05).  The four per-role constants are DELETED.  The
+# budget is DERIVED PER PROJECTION, FROM THE PROJECTION'S OWN GRAPH:
+#
+#     budget = clamp(SWEEP_BUDGET_SLACK × hop_eccentricity_bound(edges, n),
+#                    SWEEP_BUDGET_MIN, SWEEP_BUDGET_MAX)
+#
+# ``hop_eccentricity_bound`` is one BFS per connected component from an
+# arbitrary member (``one_solve._hop_eccentricity_bound``, O(V+E), run once
+# per projection, never inside the sweep loop): a BFS from any node gives
+# that component's eccentricity ``e``, and the hop-diameter is at most
+# ``2e``, so ``2·max_c e_c`` bounds the propagation distance of the WHOLE
+# graph including a disconnected one.
+#
+# CONSEQUENCE, and the point of the change: an UNCERTIFIED EXIT no longer
+# means "we ran out of the number someone typed".  With the budget provably
+# above the graph's propagation distance, it means the polytope is EMPTY
+# (an anchor/law contradiction — under docs/RULINGS.md 2026-08-05 "there is
+# no lawful-infeasible ground" that is a BUG / INCOMPLETE LAW / INCORRECT
+# LAW / BROKEN INSTRUMENT, never an answer) or the graph is pathological
+# enough to have hit ``SWEEP_BUDGET_MAX``.
+# ``one_solve._uncertified_exit_report`` says exactly that, out loud, and
+# names the derived budget and the eccentricity bound it came from so the
+# debug phase can attribute it without re-deriving anything.
+#
+# COST is deliberately NOT priced here.  The sweep loop exits on its KKT
+# certificate, so a converging graph pays for convergence and not for the
+# budget; only a genuinely non-converging projection spends the extra
+# sweeps, and that projection is a defect report.  The wall-time arm
+# belongs to the test phase (docs/RULINGS.md 2026-08-05,
+# build-complete-then-debug).
+
+# SLACK — why the diameter bound alone is not the budget.  In a CYCLIC
+# projection one sweep does not propagate one correction cleanly across one
+# hop: a node is pulled by every incident edge at once, so a correction
+# needs SEVERAL passes per diameter to settle rather than exactly one.
+# 4 is the honest small integer for that: enough that the budget is above
+# what the graph can need, small enough that a pathological graph is caught
+# by SWEEP_BUDGET_MAX rather than by a runaway multiplier.
+# THIS IS A GUARD, NOT LAW.  It may never decide a surface; if it ever
+# does, the uncertified-exit report fires and the number is not the fix.
+SWEEP_BUDGET_SLACK = 4
+# FLOOR — a tiny or empty graph still gets a sane budget (and a graph whose
+# BFS bound is 0 because it has no edges must not get a 0-sweep budget).
+SWEEP_BUDGET_MIN = 200
+# ABSOLUTE CEILING — the actual non-termination guard.  No graph, however
+# pathological, may hang a build forever.  Sized 3.4x the composed
+# SPJC+HECA NODE COUNT (72,472), which is the trivial upper bound on any
+# path length in that graph: a graph would have to be one single 72k-node
+# chain — which airport pavement is not, its hop diameter is orders below
+# n — before this could bind.  So on real geometry it never does, and when
+# it does the uncertified-exit report SAYS it was the ceiling, which is the
+# signal that the graph, not the law, is the thing to look at.
+SWEEP_BUDGET_MAX = 250000
+# NO FALLBACK CONSTANT EXISTS, deliberately.  The brief for this change
+# reserved one for "a call site with no edge list in hand"; auditing the
+# call sites, there is none — every projection owns its graph at the moment
+# it must name a budget, because the budget is named INSIDE
+# ``feasibility_project`` / ``one_profile_solve`` after the edge list is
+# built, not at the call.  A caller may still pass an explicit ``max_iters``
+# (tests, deliberately bounded probes) and the uncertified-exit report then
+# says the budget was IMPOSED rather than derived.  Adding an unused
+# fallback here would just be a magic number waiting to be picked up.
+
+# The FAIRING family is UNCHANGED and is a different problem: a
+# second-difference smoother run PER CHAIN, so its propagation distance is
+# one chain's station count (tens), not the graph's.  These caps are
+# law-adequate at their current values and are named here for one home.
 FAIRING_MAX_SWEEPS_SPINE = 400              # per-chain second-difference fairing
 FAIRING_MAX_SWEEPS_GAP_SPINE = 200          # per gap-fill chain
 FAIRING_MAX_SWEEPS_CHAIN = 200              # per generic chain

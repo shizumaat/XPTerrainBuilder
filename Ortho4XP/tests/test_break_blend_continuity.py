@@ -44,14 +44,15 @@ asserts — so this frame exists only to exercise the inverted branch.
 """
 import pytest
 
-import auto_patch.config as cfg
 from auto_patch.elevation_per_surface.route_profile.one_solve import (
     feasibility_project)
 
 
-@pytest.fixture(autouse=True)
-def _zero_emit_margin(monkeypatch):
-    monkeypatch.setattr(cfg, "EMIT_QUANTIZATION_MARGIN_M", 0.0)
+# NO MARGIN FIXTURE: the projection enforces the RAW law budgets
+# (docs/RULINGS.md 2026-08-05) — the emit-quantization margin and
+# ``config.EMIT_QUANTIZATION_MARGIN_M`` are DELETED, so there is
+# nothing to zero.  The 0.01 m guarantee lives in
+# ``auto_patch.emit_snap``.
 
 
 # ── the pocket ───────────────────────────────────────────────────────────

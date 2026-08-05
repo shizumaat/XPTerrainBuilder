@@ -22,12 +22,12 @@ import time as _time
 # default arguments, which Python binds at def time.
 from auto_patch.config import (
     FAIRING_MAX_SWEEPS_APRON, FAIRING_MAX_SWEEPS_CHAIN,
-    FAIRING_MAX_SWEEPS_GAP_SPINE, FAIRING_MAX_SWEEPS_SPINE,
-    PROJECTION_MAX_SWEEPS_FINAL, PROJECTION_MAX_SWEEPS_MOUTH_RELAX)
+    FAIRING_MAX_SWEEPS_GAP_SPINE, FAIRING_MAX_SWEEPS_SPINE)
 from ..node_space import store_of as _store_of
 from .anchors import (
     apron_body_nodes,
-    build_building_seats, build_detached_pad_dem_pins,
+    build_building_seats, detached_pad_nodes, seat_detached_pads_by_law,
+    withhold_airside_band_from_detached_pads,
     build_nobuilding_apron_seats,
     build_apron_contact_floors, building_spine_floor, node_bands, reach_band_for)
 from .one_solve import (envelope_from_band_enabled, one_profile_solve,
@@ -1329,7 +1329,9 @@ def _report_witness_admission(icao, label, rep):
 # ``truth_hard`` — everything hard BEFORE the freeze, i.e. the
 # ``_hard_cat`` classes ``seed_rwy_seam`` (runway/CIFP profile values and
 # tile-seam DEM pins), ``rwy_join``, ``rwy_flexed``, ``seat_on_spine``,
-# ``pad_detached_dem``, ``seam_spine_anchor`` — plus ``runway_nodes``,
+# ``seam_spine_anchor`` (the ``pad_detached_dem`` class is RETIRED —
+# item 3(b) replaced the detached-pad DEM pins with a law seat) — plus
+# ``runway_nodes``,
 # ``building_seats``, ``G.runway_anchor`` and ``layout._seam_pin_idx``
 # (the last two are subsets of ``truth_hard``; the spec names them, so
 # they are enumerated rather than implied).
@@ -1489,8 +1491,9 @@ def _spine_yield_membership(frozen, n, *, truth_hard, runway_nodes,
     * ``truth_hard`` — every node hard BEFORE the freeze, i.e. the
       ``_hard_cat`` classes ``seed_rwy_seam`` (the ``_seed_elevations``
       runway/CIFP profile values and the tile-seam DEM pins), ``rwy_join``,
-      ``rwy_flexed``, ``seat_on_spine``, ``pad_detached_dem`` and
-      ``seam_spine_anchor``;
+      ``rwy_flexed``, ``seat_on_spine`` and ``seam_spine_anchor``
+      (``pad_detached_dem`` was in this list until item 3(b) retired the
+      detached-pad DEM pins in favour of a groundside law seat);
     * ``runway_nodes`` — the whole runway ring/vertex set;
     * ``building_seats`` — every seated pad / no-building-apron level;
     * ``runway_anchor`` (``G.runway_anchor``) — a subset of ``truth_hard``,
@@ -2228,49 +2231,48 @@ def solve_route_profile(layout, icao: str,
                 f"{_v['bound']:.3f} (witness anchor {_v['witness']}, "
                 f"route budget {_v['route_budget_m']:.4f} m).")
 
-    # DETACHED building pads → HARD flat DEM pins (user 2026-07-17,
-    # KBNA SE lot): a pad with NO airside-served seat follows local
-    # ground.  Un-pinned, its ring nodes are free field nodes and
-    # the route-profile blend paints them with the surrounding
-    # airside level (measured: flat plateaus 6-11 m above the DEM
-    # and the abutting groundside).  Pinned here, the field grades
-    # around them.  ``layout._detached_pad_node_idx`` keeps them
-    # out of every movable-pad relaxation downstream (the final
-    # scoped projection's rigid flat groups included).
-    # ⚠ DEM AUDIT (debug lane A 2026-08-05, RULINGS 1095a3f).  These are
-    # HARD pins (``base_hard[i] = True`` below) whose VALUE is a raw DEM
-    # sample and which are not a law anchor (not CIFP, not the ruled
-    # tile-seam contract) — DEM as a constraint, by the ruling's own
-    # definition.  The comment above records WHY they were hardened: left
-    # free, the route-profile blend paints a detached pad 6-11 m above
-    # both its ground and the abutting groundside.  That is a defect in
-    # the BLEND, and the hard pin is masking it.  REPORTED, not changed:
-    # freeing them without fixing the blend re-opens the measured 6-11 m
-    # plateaus, and the no-builds phase forbids the measurement.
+    # DETACHED building pads — THE GROUNDSIDE LAW (item 3(b),
+    # 2026-08-05; replaces the 2026-07-17 hard DEM pins).
     #
-    # They do NOT contaminate the reach band: the band's seed set is
-    # published ~300 lines above this point, when ``base_hard`` is still
-    # exactly the ``seed_rwy_seam`` class (runway/CIFP profile values plus
-    # the owner-ruled seam DEM contract), so no DEM convenience pin ever
-    # becomes a band anchor.  Keep the publication ABOVE this block.
-    _detached_pad_pins = build_detached_pad_dem_pins(
-        layout, bucket_to_idx, dem_fn, building_seats)
-    _detached_pad_node_idx: set = set()
-    for i, lv in _detached_pad_pins.items():
-        if i < n and lv is not None and i not in _seam_pin_idx \
-                and not base_hard[i]:
-            elev[i] = float(lv)
-            base_hard[i] = True
-            _hard_cat.setdefault(i, "pad_detached_dem")
-            _detached_pad_node_idx.add(i)
-    layout._detached_pad_node_idx = _detached_pad_node_idx
+    # A pad with no airside-served seat is a GROUNDSIDE object.  The
+    # deleted block pinned it HARD at its raw-DEM footprint median for the
+    # whole solve — DEM as a constraint, which the ruling forbids and the
+    # constant-DEM oracle fails outright (DEM ≡ c freezes the pad at c
+    # while the groundside pavement it is welded into sits wherever the
+    # airside solve put it: an arbitrary step at a shared node on ground
+    # with no relief).
+    #
+    # The pin's stated reason — "the route-profile blend paints them with
+    # the surrounding airside level" — was a real measurement (KBNA:
+    # 170-172 over 158-167 ground) but the wrong writer.  ATTRIBUTED (see
+    # ``anchors``' DETACHED-PAD block for the full read): the AIRSIDE REACH
+    # BAND FLOOR writes them.  ``raster_reach_band._domain_geom`` admits
+    # every ROLE_BUILDING polygon to the band's propagation domain with no
+    # airside-service test, so a pad ``building_feasible_levels`` REFUSED
+    # to seat still gets ``node_band`` floors from
+    # ``spine_value_fields`` (``max over runway anchors (value − route
+    # budget)``); ``one_profile_solve`` then clamps the pad's DEM up to
+    # that floor at warm start and holds it there every sweep.
+    #
+    # THE FIX, AT SOURCE: withhold the airside band from a pad the airside
+    # law does not serve.  It then rides its seed through the field solve
+    # and is SEATED BY LAW after the groundside passes, on the solved
+    # groundside datum it abuts (``seat_detached_pads_by_law``, called
+    # there — a groundside object's datum is a solved groundside variable,
+    # so it is necessarily the last thing seated).
+    _detached_pads = detached_pad_nodes(
+        layout, bucket_to_idx, building_seats)
+    _detached_pad_node_idx = withhold_airside_band_from_detached_pads(
+        node_band, _detached_pads, n)
     if _detached_pad_node_idx:
         try:
             import O4_UI_Utils as _UI_dp
             _UI_dp.vprint(1,
-                f"  [seats] {len(_detached_pad_node_idx)} detached "
-                f"building-pad node(s) pinned flat at footprint "
-                f"DEM.")
+                f"  [seats] {len(_detached_pads)} detached building "
+                f"pad(s) / {len(_detached_pad_node_idx)} node(s): "
+                f"airside reach band WITHHELD (not airside-served); "
+                f"seated on their groundside datum after the "
+                f"groundside passes.")
         except Exception:
             pass
 
@@ -2595,14 +2597,13 @@ def solve_route_profile(layout, icao: str,
     # ── APRON TERRACE LAW (owner ruling 2026-08-04; spec
     # ``docs/specs/apron-terrace-law-spec.md``; gate
     # ``O4_APRON_TERRACE_LAW``, default off) ──────────────────────
-    # HERE, and not later: the trigger is the ENVELOPE the projection
-    # below is about to fail on, so it must read the same anchors
-    # (``hard``), the same values (``elev``) and the same law edges
-    # (``shape_constraints``) that projection will.  Running it after
-    # the projection would be adjudicating a value the law had
-    # already been asked to produce — the two-instruments trap.
-    # Single-pass: this is a REORDER of the existing adjudication,
-    # not a second solve; the plan binds every downstream projection
+    # THE PANELIZATION IS NOT HERE ANY MORE — it ran before the solve
+    # (``pipeline`` -> ``construct_apron_terrace_presolve``), which is
+    # what makes the panel boundary a set of SOLVE VARIABLES instead of
+    # geometry invented after the surface settled.  What runs here is
+    # the BINDER: it resolves that declaration into this pass's index
+    # space and hands the projections the actual-step edges.  HERE, and
+    # not later, because the plan must bind every downstream projection
     # through the SAME ``shape_constraints`` object.
     _terrace_plan = None
     from .apron_terrace import (apply_terrace_budgets,
@@ -2610,7 +2611,7 @@ def solve_route_profile(layout, icao: str,
     try:
         _terrace_plan = plan_apron_terraces(
             layout, shape_constraints, nodes, dem_elev, elev,
-            hard, icao=icao)
+            hard, icao=icao, bucket_to_idx=bucket_to_idx)
         _n_relaxed = apply_terrace_budgets(
             _terrace_plan, shape_constraints, nodes)
         layout._apron_terrace_plan = _terrace_plan
@@ -2734,7 +2735,9 @@ def solve_route_profile(layout, icao: str,
     # (memory ``free-road-ruling``).
     #
     # Part C already bounds what a groundside pin may BE (its value may
-    # not exceed its own DEM by more than ``cap·MOUTH_ALLOWANCE_M``).
+    # not exceed its WELD DATUM — a solved pavement variable — by more
+    # than the reach law plus ``cap·MOUTH_ALLOWANCE_M``; item 3(a)
+    # replaced the old own-DEM datum, the allowance is unchanged).
     # This bounds what it may DO: the pin stays HARD — groundside is
     # still pinned, and every mouth-weld law edge is still enforced by
     # the sweeps — but it is withdrawn from the reach-envelope anchor
@@ -2819,6 +2822,36 @@ def solve_route_profile(layout, icao: str,
         print(f"  [groundside-reach] {icao}: re-levelled {_nrl} "
               f"groundside piece(s); pinned {len(_gs_hard)} route node(s); "
               f"DEM-followed {len(_svc_moved)} service node(s).")
+    # ── DETACHED PADS SEAT BY LAW (item 3(b)) ────────────────────────
+    # HERE, not earlier: a detached pad is a groundside object, its datum
+    # is a SOLVED groundside variable, and groundside conforms to airside
+    # — so the pad is the last thing seated.  The seat is FLAT inside the
+    # host-datum box (``anchors.detached_pad_law_box``), at the point of
+    # that box nearest the pad's seed; the box is registered in the
+    # ``seat_boxes`` store so fp#8 and the final projection bound the pad
+    # through the ratified channel.  Merging the seats into
+    # ``building_seats`` is what makes each pad an ORDINARY movable FLAT
+    # group downstream (flatness is the building law; the deleted DEM
+    # pin's exclusion from those groups existed only to protect a value
+    # the law did not choose).  ``building_seats`` is read for the spine
+    # yield membership ~280 lines ABOVE this point, so this merge cannot
+    # retro-preserve anything — keep the call below that read.
+    if _detached_pads:
+        from auto_patch.config import GROUNDSIDE_MAX_GRADE
+        _dp_seats, _dp_stats = seat_detached_pads_by_law(
+            layout, bucket_to_idx, elev, _detached_pads,
+            GROUNDSIDE_MAX_GRADE)
+        building_seats.update(_dp_seats)
+        if _dp_stats[0] or _dp_stats[1] or _dp_stats[2]:
+            import O4_UI_Utils as _UI_dl
+            _UI_dl.vprint(1,
+                f"  [detached-pad] {_dp_stats[0]} pad(s) seated on a "
+                f"solved groundside datum, {_dp_stats[1]} with NO "
+                f"resolvable host (left unbounded on their seed — a "
+                f"missing datum is never a DEM bound), "
+                f"{_dp_stats[2]} DECLARED CONTACT CONFLICT(S) (an empty "
+                f"box is the split-level-seat law's trigger, RULINGS "
+                f"2026-08-04).")
     _psub(0.88, "Solving elevations — feasibility projection")
     # ── S1b: THE POST-PHASE-A OVERWRITE IS RETIRED ────────────────
     # It applied the chord values here, AFTER phase A returned, which
@@ -3529,7 +3562,12 @@ def solve_route_profile(layout, icao: str,
                                   forensics=_fp8_forensics,
                                   witness_limited=_gs_witness,
                                   force_scalar=True,
-                                  max_iters=PROJECTION_MAX_SWEEPS_FINAL,
+                                  # SWEEP BUDGET: derived from this
+                                  # projection's own graph inside
+                                  # ``feasibility_project`` (the hand-set
+                                  # 2400 was BINDING and chose surfaces —
+                                  # config's derivation note).  No
+                                  # ``max_iters`` here BY DESIGN.
                                   flat_groups=pad_groups or None,
                                   interval_yield_from=_iyf,
                                   broken_out=(_solve_broken_idx
@@ -3605,17 +3643,20 @@ def solve_route_profile(layout, icao: str,
             _freed = expand_mouth_cluster(
                 layout, bucket_to_idx, _conflicted, _gs_hard)
             yield_hard = yield_hard - _freed
-            # GROUNDSIDE PIN DEM BOUND (spec §C.2 ★): the freed
-            # mouth cluster is re-projected and the LOT then ADOPTS
-            # the projected profile — so an unbounded re-projection
-            # re-imports exactly the float §C removes, through the
-            # relax door.  Carry the pin's DEM ceiling as a bounded-
-            # yield box on every freed mouth node (the landed
-            # ``node_bounds`` machinery; upper side only — a mouth
-            # may always settle DOWN toward its DEM).
+            # GROUNDSIDE PIN LAW BOUND (spec §C.2 ★, datum replaced by
+            # item 3(a)): the freed mouth cluster is re-projected and
+            # the LOT then ADOPTS the projected profile — so an
+            # unbounded re-projection re-imports exactly the float §C
+            # removes, through the relax door.  Carry the pin's LAW
+            # ceiling (weld datum + one throat of reach; NO DEM term)
+            # as a bounded-yield box on every freed mouth node (the
+            # landed ``node_bounds`` machinery; upper side only — a
+            # mouth may always settle DOWN toward its seed).  A pin
+            # with no weld datum has no entry and stays unbounded
+            # above: a missing datum never becomes a terrain bound.
             _relax_node_bounds = _yield_node_bounds
             _pin_ceil = getattr(
-                layout, "_gs_pin_dem_ceiling_idx", None) or {}
+                layout, "_gs_pin_law_ceiling_idx", None) or {}
             if _pin_ceil:
                 _relax_node_bounds = dict(_yield_node_bounds or {})
                 for _fi in _freed:
@@ -3629,9 +3670,12 @@ def solve_route_profile(layout, icao: str,
             # Same BOUNDED YIELD boxes as fp#8 above: the
             # mouth-relax re-projection moves the same freed seats
             # and must not un-do the clamp.
+            # SWEEP BUDGET derived from the graph (the 1200 this used to
+            # pass was half the already-binding final cap; a re-projection
+            # over the SAME law graph needs the same propagation distance,
+            # so there was never a reason for it to be smaller).
             rem, bh = feasibility_project(
                 elev, joint, yield_hard, force_scalar=True,
-                max_iters=PROJECTION_MAX_SWEEPS_MOUTH_RELAX,
                 flat_groups=pad_groups or None,
                 interval_yield_from=_iyf,
                 witness_limited=_gs_witness,
@@ -4760,7 +4804,8 @@ def _project_triangle_planes(layout, bucket_to_idx, elev, immovable,
     (``check_grade._check_plane_gradient``).  For each triangle over cap,
     move ONE free vertex the minimal amount that brings the plane inside
     the cap, clamped into the interval that vertex's own law edges allow
-    (margined like the projection).  Returns ``(n_fixed, anchored_idx,
+    (the RAW law budgets, exactly what the projection enforces).  Returns
+    ``(n_fixed, anchored_idx,
     broken_idx)`` — anchored vertices must not be re-perturbed by later
     passes; broken = no free vertex could lawfully fix the plane (the
     caller quarantines them).
@@ -4783,11 +4828,9 @@ def _project_triangle_planes(layout, bucket_to_idx, elev, immovable,
     (memory: two-decimators / registry-insertion round 6)."""
     import math as _math
     from auto_patch.config import ROLE_GRADE_LIMITS
-    from .one_solve import (_build_adjacency, _emit_quantization_margin,
-                            _margined_budget)
+    from .one_solve import _build_adjacency
 
     adjacency = _build_adjacency(joint, n)
-    quant_margin = _emit_quantization_margin()
     cps = layout.canonical_points
     n_fixed = 0
     anchored: set = set()
@@ -4879,14 +4922,14 @@ def _project_triangle_planes(layout, bucket_to_idx, elev, immovable,
                 continue               # no value of this vertex fixes it
             sq = _math.sqrt(disc)
             t_lo, t_hi = (-b - sq) / (2.0 * a), (-b + sq) / (2.0 * a)
-            # law-edge interval for the moved vertex (margined budgets)
+            # law-edge interval for the moved vertex (RAW law budgets — the
+            # emit-quantization margin is retired, one_solve module head)
             lo_b, hi_b = -float("inf"), float("inf")
             for (other, budget) in adjacency.get(i_move, ()):
                 if other >= n:
                     continue
-                m_budget = _margined_budget(budget, quant_margin)
-                lo_b = max(lo_b, elev[other] - m_budget)
-                hi_b = min(hi_b, elev[other] + m_budget)
+                lo_b = max(lo_b, elev[other] - budget)
+                hi_b = min(hi_b, elev[other] + budget)
             lo = max(t_lo, lo_b)
             hi = min(t_hi, hi_b)
             if lo > hi:
@@ -5237,8 +5280,15 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # a single dict lookup and byte-identical constraints.
     _terrace_plan_fp = getattr(layout, "_apron_terrace_plan", None)
     if _terrace_plan_fp is not None:
-        from .apron_terrace import apply_terrace_budgets as _apply_terr_fp
+        from .apron_terrace import (apply_terrace_budgets as _apply_terr_fp,
+                                    rebind_terrace_stations)
         try:
+            # THE STATIONS ARE INDICES — re-resolve them against THIS
+            # pass's node list before any of them is used as an edge
+            # endpoint.  Carrying them across the rebuild is the exact
+            # shape of the rod-key bug.
+            rebind_terrace_stations(_terrace_plan_fp, layout,
+                                    shape_constraints, nodes, b2i)
             _apply_terr_fp(_terrace_plan_fp, shape_constraints, nodes)
         except Exception:
             _terrace_plan_fp = None
@@ -5543,22 +5593,26 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                               span_max=_rod_span_max)
 
     # building pads: rigid movable FLAT groups (same model as the yield).
-    # DETACHED pads (user 2026-07-17) stay OUT: they are hard flat DEM
-    # pins, not airside-coupled surfaces — freeing them here let the
-    # projection park them at the surrounding airside field level.
+    # EVERY pad, detached ones included (item 3(b), 2026-08-05).  The
+    # old exclusion existed because a detached pad was a HARD flat DEM
+    # pin and freeing it here let the projection park it at the
+    # surrounding airside field level.  Both halves of that are gone: the
+    # pad no longer carries a DEM value to protect, and it can no longer
+    # be pulled to the airside level because the airside reach band is
+    # withheld from it and its ``seat_boxes`` box — the solved groundside
+    # datum it abuts — bounds this pass through ``_fp_group_bounds``.
+    # Flatness IS the building law, so a detached pad belongs in these
+    # groups exactly like any other pad.
     cps = layout.canonical_points
     pad_groups = []
     pad_nodes: set = set()
-    _detached_pad_idx = (
-        getattr(layout, "_detached_pad_node_idx", None) or set())
     for s in layout.shapes:
         if (s.role != ROLE_BUILDING or s.polygon is None
                 or s.polygon.is_empty):
             continue
         g = {b2i.get(cps.get_or_add(float(x), float(y)))
              for (x, y) in s.polygon.exterior.coords}
-        g = {i for i in g if i is not None and i < n
-             and i not in _detached_pad_idx}
+        g = {i for i in g if i is not None and i < n}
         if len(g) >= 2:
             pad_groups.append(g)
             pad_nodes |= g
@@ -5765,14 +5819,16 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # it is write-only — a count for the logs and the drain list.  Nothing
     # is excluded from the sweeps or from any census because of it.
     _projection_broken_idx: set = set()
-    # Sweep budget raised 400 → 2400 (2026-07-17, same headroom as the
-    # in-solve projection): 400 exited HECA (158k nodes) with 5,822
-    # edges still over cap, 0 both-hard — pure non-convergence, whose
-    # worst survivors emitted as the within-shape building/apron
-    # violation class.  The loop exits early at tol, so converged
-    # airports pay nothing.  The cap is
-    # ``config.PROJECTION_MAX_SWEEPS_FINAL`` (its derivation, and the
-    # measured fact that it BINDS at n=72k, are documented there).
+    # SWEEP BUDGET: no constant here any more.  The history is the point —
+    # 400 exited HECA (158k nodes) with 5,822 edges still over cap and 0
+    # both-hard (pure non-convergence, whose worst survivors emitted as the
+    # within-shape building/apron violation class); raising it to 2,400
+    # still exited UNCERTIFIED at 2400/2400 on composed SPJC+HECA.  A
+    # hand-set guard cannot be proved above a graph it has never seen, so
+    # the budget is now DERIVED per projection from the graph's own
+    # hop-diameter bound (``one_solve.derive_sweep_budget``; the derivation
+    # and the measured evidence live in config.py).  The loop still exits
+    # early on its certificate, so converged airports pay nothing.
     # THE BROKEN-QUARANTINE CARRY IS DELETED (spec ``docs/specs/kill-half-
     # spec.md`` §2, 2026-08-04).  It re-read the previous projection's
     # declared-broken keys and froze them here as ``pre_broken`` so the
@@ -6071,9 +6127,10 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                                   # NO GATES (RULINGS 2026-08-05): the
                                   # O4_FINAL_PROJECTION_MAX_ITERS env
                                   # override is deleted with the rest of
-                                  # this territory's; the self-limit and
-                                  # its derivation live in config.
-                                  max_iters=PROJECTION_MAX_SWEEPS_FINAL,
+                                  # this territory's.  No ``max_iters``
+                                  # either — the sweep budget is DERIVED
+                                  # from this projection's own graph (see
+                                  # the note above the broken set).
                                   flat_groups=pad_groups or None,
                                   pre_broken=(pre_broken or None),
                                   broken_out=_projection_broken_idx,
@@ -6340,8 +6397,8 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # budgets (pairs crossing between two ring runs, invisible to the
     # ring triples) by a median 1.8 cm — the SPJC 43-pair cm-noise
     # class.  Every move is now clamped into the interval its node's
-    # law edges allow, at the same margined budgets the projection just
-    # enforced (``_margined_budget``); nodes of shapes whose body pairs
+    # law edges allow, at the same RAW law budgets the projection just
+    # enforced; nodes of shapes whose body pairs
     # are still lazy (never expanded ⇒ the projection proved them
     # untouched, so there is no sawtooth to re-fair there) are anchored.
     # SNAPSHOT RECAPTURE input (2026-07-18): mirror the solve-side
@@ -6354,13 +6411,9 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                          if _scoped_projection_gate and recapture_snapshot
                          else None)
     from auto_patch.config import TAXIWAY_MAX_GRADE_CHANGE_PER_M
-    from .one_solve import (_build_adjacency, _emit_quantization_margin,
-                            _margined_budget)
-    _quant_margin = _emit_quantization_margin()
-    _law_adjacency = {
-        node: [(other, _margined_budget(budget, _quant_margin))
-               for (other, budget) in incident]
-        for node, incident in _build_adjacency(joint, n).items()}
+    from .one_solve import _build_adjacency
+    # RAW law budgets — the projection enforces exactly these.
+    _law_adjacency = _build_adjacency(joint, n)
     _lazy_guard_nodes: set = set()
     for _sc in shape_constraints:
         if "lazy_expand" in _sc:
@@ -6954,8 +7007,11 @@ def _fair_spine_chains(elev, spine_adj, anchors, node_band, nodes_xy,
     """FAIRING (user 2026-07-04, task 3): bound the grade CHANGE between
     consecutive spine segments along every chain —
     ``|g2 − g1| ≤ k_rate·(L1 + L2)/2`` — the taxiway vertical-curve
-    K-factor analog (``config.TAXIWAY_MAX_GRADE_CHANGE_PER_M``,
-    tunable via ``O4_TAXIWAY_CURVE_RUN_M``).
+    K-factor analog (``config.TAXIWAY_MAX_GRADE_CHANGE_PER_M`` =
+    ``1 / config.TAXIWAY_CURVE_RUN_M``).  NOT TUNABLE: it is a LAW
+    value and lives only as a config constant — the
+    ``O4_TAXIWAY_CURVE_RUN_M`` env read is DELETED (docs/RULINGS.md
+    2026-08-05, build-complete-then-debug).
 
     The grade law bounds only the FIRST derivative, so the spine solve
     tracks DEM noise in legal ±cap wiggles (the residual-waviness

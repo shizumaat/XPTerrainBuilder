@@ -8,8 +8,8 @@ file.  A pair solved exactly AT its budget then reads over the law in the
 patch.
 
 The historical guarantee was bought in the SOLVER: every edge swept to
-``budget − 0.01`` (``one_solve._margined_budget``).  That is correct per
-pair and WRONG per path — the reach envelope, the break detection and the
+``budget − 0.01`` (the retired ``one_solve._margined_budget``).  That is
+correct per pair and WRONG per path — the reach envelope, the break detection and the
 stall adjudication are all path quantities, so the margin compounds
 ``N × 0.01`` along an N-hop route.  Measured at HEAZ: a 69-hop witness
 route loses 0.63 m of envelope, 593 of 2032 nodes read INFEASIBLE that are
@@ -78,10 +78,11 @@ def emit_snap_enabled() -> bool:
     law gates and their env overrides are DELETED as their territory is
     touched").
 
-    The law-aware emit snap IS the 0.01 m emit-quantization guarantee,
-    and the raw-law sweeps are its other half — the margin and the snap
-    must never be off (or on) separately, so retiring one gate retires
-    both.  ``O4_EMIT_SNAP_GUARD`` and ``O4_RAW_LAW_SWEEPS`` are GONE."""
+    The law-aware emit snap IS the 0.01 m emit-quantization guarantee.
+    Its other half — the solver-side margin — is not merely un-gated but
+    DELETED (``one_solve`` module head, 2026-08-05): the sweeps enforce
+    the raw law and this guard carries the quantization.
+    ``O4_EMIT_SNAP_GUARD`` and ``O4_RAW_LAW_SWEEPS`` are GONE."""
     return True
 #: A ring vertex whose incident edges turn by more than this is a REAL
 #: grade break on that ring, not a point on a straight run.  Same value and

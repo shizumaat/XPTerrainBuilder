@@ -372,21 +372,19 @@ def test_converged_value_is_the_analytic_clamp(monkeypatch):
     # RAW LAW SWEEPS ARE STANDING LAW (docs/RULINGS.md 2026-08-05,
     # build-complete-then-debug).  The sweep used to enforce the law
     # shrunk inward by the emit-quantization margin
-    # (``one_solve._margined_interval``); that margin is now 0 — the
+    # (``one_solve._margined_interval``); that margin is DELETED — the
     # 0.01 m guarantee lives at emit (``auto_patch.emit_snap``), bounded
     # by one grid step per node so it cannot compound along a path.
-    # Parity is therefore exact against the RAW analytic ceiling.
-    q = OS._emit_quantization_margin()
+    # Parity is therefore EXACT against the RAW analytic ceiling, with no
+    # margin term to carry through the expectation.
     checked = 0
     for i in sorted(cut_idx):
         if i < first_free:
             continue
         d = nodes[i][0] - 100.0
         ceiling = solved_ref + _SLOPE * max(0.0, min(_REACH, d))
-        assert elev[i] == pytest.approx(min(_dem(nodes[i][0]),
-                                            ceiling - q), abs=1e-6)
         assert elev[i] == pytest.approx(min(_dem(nodes[i][0]), ceiling),
-                                        abs=q + 1e-6)
+                                        abs=1e-6)
         checked += 1
     assert checked >= 4
     # HOST AUTHORITY: the pavement anchor never moved.

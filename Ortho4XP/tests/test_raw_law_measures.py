@@ -1,25 +1,30 @@
-"""Twins for the SEED-FIX round §1 — RAW LAW MEASURES (spec
-``docs/specs/seed-fix-round-spec.md`` §1).
+"""Twins for RAW LAW MEASURES — the standing law that the projection's
+sweeps, its reach envelope, its break detection and its tally all run on
+the RAW law budgets, with the 0.01 m emit-quantization guarantee carried
+at emit by :mod:`auto_patch.emit_snap`.
 
-THE DEFECT.  ``_margined_budget`` subtracts the 0.01 m emit-quantization
-margin from EVERY edge's budget.  That is correct PER PAIR at emit — one
-0.01 m grid step — but the reach/envelope quantities the solver *measures*
-are PATH quantities, so the margin compounds: an N-hop route loses
-``N × margin`` of envelope that no law ever took.  Measured at HEAZ
-(``seed_attrib/``): the default arm's stall adjudication read "593 of 2032
-INFEASIBLE, max gap 0.7275 m" while the same system's RAW envelope is
-"0 of 2032, gap 0.000000".
+THE RETIRED DEFECT.  ``_margined_budget`` used to subtract a 0.01 m
+emit-quantization margin from EVERY edge's budget.  That is correct PER
+PAIR at emit — one grid step — but the reach/envelope quantities the
+solver *measures* are PATH quantities, so the margin compounded: an
+N-hop route lost ``N × margin`` of envelope that no law ever took.
+Measured at HEAZ (``seed_attrib/``): the margined arm's stall
+adjudication read "593 of 2032 INFEASIBLE, max gap 0.7275 m" while the
+same system's RAW envelope is "0 of 2032, gap 0.000000".  The margin,
+its gate ``O4_RAW_LAW_SWEEPS`` and ``config.EMIT_QUANTIZATION_MARGIN_M``
+are all DELETED (docs/RULINGS.md 2026-08-05, build-complete-then-debug).
 
-  (a) the compounding synthetic — an N-hop path RAW-feasible and
-      MARGINED-infeasible: the adjudication is RED in the margined frame
-      and GREEN in the law frame;
-  (b) the instrument is inert: handing ``_project_chromatic`` the raw
-      column changes no solved value;
-  (c) the surface gate ``O4_RAW_LAW_SWEEPS`` is default OFF and, on, makes
-      the sweeps enforce RAW budgets;
-  (d) §1b LEAD AMENDMENT — the emit snap is LAW-AWARE per pair: a pair
-      sitting at EXACTLY its raw cap snaps to a lawful pair, and the
-      over-cap count on a snap-only synthetic is ZERO.
+  (a) WHY the frame had to go — the compounding synthetic: an N-hop path
+      that is RAW-feasible and shrunk-frame-infeasible, so the same
+      adjudication reads RED in a per-edge-shrunk frame and GREEN in the
+      law frame.  The shrunk column is now built by the TEST, not by
+      production — that is the point;
+  (b) the raw-column instrument is inert: handing ``_project_chromatic``
+      the raw column changes no solved value;
+  (c) STANDING LAW: the sweeps enforce the raw budget;
+  (d) the emit snap is LAW-AWARE per pair: a pair sitting at EXACTLY its
+      raw cap snaps to a lawful pair, and the over-cap count on a
+      snap-only synthetic is ZERO.
 """
 import numpy as np
 import pytest
@@ -29,12 +34,19 @@ from auto_patch.elevation_per_surface.route_profile import one_solve as OS
 
 # ── helpers ──────────────────────────────────────────────────────────────
 
+def _shrunk(raw_budget, margin):
+    """A per-edge SHRUNK budget, as the retired ``_margined_budget`` built
+    it.  It lives HERE now: production has one law frame, and this file is
+    the record of what the second frame did wrong."""
+    return max(0.0, float(raw_budget) - float(margin))
+
+
 def _chain_columns(hops, raw_budget, margin, drop):
     """An ``hops``-hop chain 0..hops with both ends PINNED (weight 0 on
     every incident edge, which is how ``_stall_envelope_gap`` recognises an
     immovable node) and a total value drop of ``drop`` across it.
 
-    Returns ``(endpoint_i, endpoint_j, raw_col, margined_col, mask, wi, wj,
+    Returns ``(endpoint_i, endpoint_j, raw_col, shrunk_col, mask, wi, wj,
     z, n, pairs)``.
     """
     n = hops + 1
@@ -47,29 +59,29 @@ def _chain_columns(hops, raw_budget, margin, drop):
         wi.append(0.0 if k == 0 else 0.5)
         wj.append(0.0 if k == hops - 1 else 0.5)
     raw_col = np.full(hops, float(raw_budget))
-    margined_col = np.array(
-        [OS._margined_budget(float(raw_budget), margin) for _ in range(hops)])
+    shrunk_col = np.array([_shrunk(raw_budget, margin) for _ in range(hops)])
     z = np.zeros(n)
     z[-1] = -float(drop)
     return (np.asarray(ei, dtype=np.intp), np.asarray(ej, dtype=np.intp),
-            raw_col, margined_col, np.zeros(hops, dtype=bool),
+            raw_col, shrunk_col, np.zeros(hops, dtype=bool),
             np.asarray(wi), np.asarray(wj), z, n, [(0, hops)])
 
 
-# ── (a) the margin-compounding synthetic ─────────────────────────────────
+# ── (a) why the shrunk frame had to go ───────────────────────────────────
 
 def test_margin_compounds_along_a_path_and_the_law_frame_does_not():
     """69 hops x 0.02 m raw budget = 1.38 m of law envelope; the SAME path
-    margined at 0.01 m carries only 0.69 m.  A 1.00 m end-to-end drop is
-    therefore LAWFUL and MARGINED-INFEASIBLE — the exact shape that burned
-    3983 sweeps at HEAZ."""
+    shrunk by 0.01 m per edge carries only 0.69 m.  A 1.00 m end-to-end
+    drop is therefore LAWFUL and shrunk-frame-INFEASIBLE — the exact shape
+    that burned 3983 sweeps at HEAZ, and the reason production now has one
+    frame."""
     pytest.importorskip("scipy")
     hops, raw_b, margin, drop = 69, 0.02, 0.01, 1.00
     ei, ej, raw_col, marg_col, mask, wi, wj, z, n, pairs = _chain_columns(
         hops, raw_b, margin, drop)
     assert hops * raw_b > drop, "the synthetic must be RAW-feasible"
-    assert hops * OS._margined_budget(raw_b, margin) < drop, (
-        "the synthetic must be MARGINED-infeasible")
+    assert hops * _shrunk(raw_b, margin) < drop, (
+        "the synthetic must be infeasible in the shrunk frame")
 
     margined = OS._stall_envelope_gap(np, ei, ej, marg_col, mask, wi, wj,
                                       z, n, pairs)
@@ -156,33 +168,36 @@ def test_raw_budget_column_absent_is_the_old_behaviour():
     assert elev == [0.0, 1.0]
 
 
-# ── (c) the surface gate ─────────────────────────────────────────────────
-
-def test_raw_law_sweeps_is_standing_law(monkeypatch):
-    """docs/RULINGS.md 2026-08-05, build-complete-then-debug: "NO GATES.
-    Every believed-in law becomes standing law; O4_ law gates and their
-    env overrides are DELETED as their territory is touched."  The sweeps
-    run on RAW law and ``emit_snap`` carries the quantization guarantee;
-    a stale ``O4_RAW_LAW_SWEEPS=0`` must not resurrect the margin."""
-    monkeypatch.delenv("O4_RAW_LAW_SWEEPS", raising=False)
-    assert OS.raw_law_sweeps_enabled() is True
-    monkeypatch.setenv("O4_RAW_LAW_SWEEPS", "0")
-    assert OS.raw_law_sweeps_enabled() is True
-
+# ── (c) STANDING LAW: the sweeps enforce the raw budget ──────────────────
 
 def test_the_sweeps_enforce_raw_budgets(monkeypatch):
-    """Standing law ⇒ the sweep budget IS the raw budget (no margin
-    term), so a pair solved exactly AT cap is not pushed a margin inside
-    it and an N-hop route no longer loses N x margin of envelope."""
+    """Standing law: the sweep budget IS the raw budget (there is no
+    margin term anywhere), so a pair solved exactly AT cap is not pushed
+    a margin inside it and an N-hop route cannot lose N x margin of
+    envelope.  A STALE ``O4_QUANT_MARGIN`` / ``O4_RAW_LAW_SWEEPS`` in the
+    environment must not resurrect anything — nothing reads them."""
     monkeypatch.setenv("O4_QUANT_MARGIN", "0.01")
-    monkeypatch.delenv("O4_RAW_LAW_SWEEPS", raising=False)
+    monkeypatch.setenv("O4_RAW_LAW_SWEEPS", "0")
     elev = [0.0, 5.0]
     OS.feasibility_project(elev, [{"edges": [(0, 1, 1.0)]}], {0})
     assert elev[1] == pytest.approx(1.00, abs=1e-9), (
         "the sweep enforces the RAW law budget")
 
-    # …and the margin accessor every consumer reaches it through is 0.
-    assert OS._emit_quantization_margin() == 0.0
+
+def test_the_margin_machinery_is_deleted_not_merely_defaulted_off():
+    """"NO GATES.  Every believed-in law becomes standing law; O4_ law
+    gates and their env overrides are DELETED as their territory is
+    touched" (docs/RULINGS.md 2026-08-05).  The standing law is asserted
+    by ABSENCE: a constant-true predicate or a constant-0 accessor is the
+    same hole with a nicer name."""
+    import auto_patch.config as cfg
+
+    for gone in ("raw_law_sweeps_enabled", "_emit_quantization_margin",
+                 "_margined_budget", "_margined_interval",
+                 "_QUANT_MARGIN_FLOOR_M"):
+        assert not hasattr(OS, gone), f"one_solve.{gone} must be deleted"
+    assert not hasattr(cfg, "EMIT_QUANTIZATION_MARGIN_M")
+    assert "EMIT_QUANTIZATION_MARGIN_M" not in cfg.__all__
 
 
 # ── (d) §1b LEAD AMENDMENT — the emit snap is LAW-AWARE per pair ─────────

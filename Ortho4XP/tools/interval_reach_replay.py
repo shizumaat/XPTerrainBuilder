@@ -24,10 +24,9 @@ Usage:
 
 The main-yield call the pipeline makes (route_profile/solve.py) is:
     feasibility_project(elev, joint, yield_hard, force_scalar=True,
-                        max_iters=2400, flat_groups=pad_groups or None,
-                        broken_out=...)
-so the replay reconstructs it verbatim (max_iters/force_scalar are the pinned
-pipeline constants).  O4_FP_REENTRY_DEBUG=1 is set for the replay so the
+                        flat_groups=pad_groups or None, broken_out=...)
+so the replay reconstructs it verbatim.  The sweep budget is DERIVED from
+the graph inside the call (2026-08-05) — the replay must not pin one.  O4_FP_REENTRY_DEBUG=1 is set for the replay so the
 per-kind pop / re-entry counters print.
 """
 import os
@@ -43,8 +42,11 @@ for _p in (os.path.join(ROOT, "src"), ROOT, os.path.join(ROOT, "tests"),
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-# The pinned main-yield projection constants (route_profile/solve.py).
-_MAX_ITERS = 2400
+# The main-yield projection's sweep budget is no longer a pinned
+# constant: ``feasibility_project`` DERIVES it from the graph it is
+# handed (``one_solve.derive_sweep_budget``, 2026-08-05).  The replay
+# therefore passes no ``max_iters`` — that is what makes it a replay of
+# production rather than of a number this file remembers.
 
 
 def _snapshot_path(icao):
@@ -89,7 +91,7 @@ def _drive(state, *, label):
     t0 = time.time()
     rem, bh = feasibility_project(
         elev, [{"edges": joint_edges}], yield_hard,
-        force_scalar=True, max_iters=_MAX_ITERS,
+        force_scalar=True,
         flat_groups=pad_groups, broken_out=broken)
     dt = time.time() - t0
     print(f"[{label}] projection {dt:.2f}s  rem={rem} bh={bh} "

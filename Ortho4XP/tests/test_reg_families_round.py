@@ -516,8 +516,12 @@ def test_b3_validator_twin():
 @pytest.mark.parametrize("env", [
     "O4_STRIP_PRECEDENCE",
     "O4_RAW_LAW_SWEEPS",
+    "O4_QUANT_MARGIN",
     "O4_EMIT_SNAP_GUARD",
     "O4_BAND_SEED_COMPLETE",
+    # A LAW value may never come from the environment (2026-08-05): the
+    # taxiway vertical-curve run is ``config.TAXIWAY_CURVE_RUN_M``.
+    "O4_TAXIWAY_CURVE_RUN_M",
 ])
 def test_retired_law_gates_are_gone_from_the_source(env):
     """"NO GATES.  Every believed-in law becomes standing law; O4_ law
@@ -551,10 +555,17 @@ def test_the_retired_gates_laws_are_standing():
 
     assert CFG.STRIP_PRECEDENCE_ENABLED is True
     assert emit_snap.emit_snap_enabled() is True
-    assert one_solve.raw_law_sweeps_enabled() is True
-    # BAND-SEED COMPLETENESS went further in the SEATS lane: the
-    # predicate is deleted, not made constant-true, so the standing law
-    # is asserted by its ABSENCE.
+    # RAW LAW SWEEPS and BAND-SEED COMPLETENESS both went further than a
+    # constant-true predicate: the predicate is DELETED, so the standing
+    # law is asserted by its ABSENCE.  For the raw-law sweeps the whole
+    # margin apparatus went with it (config.EMIT_QUANTIZATION_MARGIN_M,
+    # ``_emit_quantization_margin``, ``_margined_budget`` /
+    # ``_margined_interval``) — a constant-0 accessor is the same hole
+    # with a nicer name.
+    assert not hasattr(one_solve, "raw_law_sweeps_enabled")
+    assert not hasattr(one_solve, "_emit_quantization_margin")
+    assert not hasattr(one_solve, "_margined_budget")
+    assert not hasattr(CFG, "EMIT_QUANTIZATION_MARGIN_M")
     assert not hasattr(BF, "band_seed_complete_enabled")
 
 
@@ -565,11 +576,16 @@ def test_standing_laws_ignore_their_old_env_values(monkeypatch):
     from auto_patch.elevation_per_surface import building_feasibility as BF
     from auto_patch.elevation_per_surface.route_profile import one_solve
 
-    for env in ("O4_RAW_LAW_SWEEPS", "O4_EMIT_SNAP_GUARD",
+    for env in ("O4_RAW_LAW_SWEEPS", "O4_QUANT_MARGIN", "O4_EMIT_SNAP_GUARD",
                 "O4_BAND_SEED_COMPLETE", "O4_STRIP_PRECEDENCE"):
         monkeypatch.setenv(env, "0")
     assert emit_snap.emit_snap_enabled() is True
-    assert one_solve.raw_law_sweeps_enabled() is True
+    # The raw-law sweeps' standing law, asserted where it is OBSERVABLE:
+    # the projection drives a free node to exactly the RAW budget, with
+    # no margin subtracted, whatever the stale environment says.
+    elev = [0.0, 5.0]
+    one_solve.feasibility_project(elev, [{"edges": [(0, 1, 1.0)]}], {0})
+    assert abs(elev[1] - 1.0) < 1e-9
     assert not hasattr(BF, "band_seed_complete_enabled")
     assert 'O4_BAND_SEED_COMPLETE"' not in open(BF.__file__).read()
 

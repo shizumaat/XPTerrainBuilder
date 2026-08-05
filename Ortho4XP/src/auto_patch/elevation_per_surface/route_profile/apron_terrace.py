@@ -201,8 +201,24 @@ _ENVELOPE_SAMPLE_MAX = 240
 # that separation is instrument noise, not relief a panel boundary can
 # discharge.  Sized at the minimum joint length.
 _ENVELOPE_MIN_CHORD_M = 8.0
+# A sample whose band is inverted by more than this is DROPPED from the
+# pair scan and counted (see ``_envelope_demand``).  Read from the band
+# law's own materiality floor so the trigger and the loud FINAL-band
+# assert can never disagree about what "inverted" means.
+try:
+    from auto_patch.elevation_per_surface.building_feasibility import (
+        FINAL_BAND_INVERSION_TOL_M as _BAND_INVERSION_TOL_M)
+except ImportError:                                        # pragma: no cover
+    _BAND_INVERSION_TOL_M = 0.01
 _INF_POS = float("inf")
 _INF_NEG = float("-inf")
+# The demand-margin histogram's upper edges (metres).  Everything at or
+# above ``APRON_TERRACE_MIN_EXCESS_M`` fired; the negative bins are what
+# says whether an apron that did not fire was NEAR firing (the trigger is
+# mis-scaled) or nowhere near it (the anchors are not the author of that
+# apron's grade rows).
+_DEMAND_MARGIN_BINS = (-100.0, -30.0, -10.0, -3.0, -1.0, -0.25, 0.0, 0.25,
+                       1.0, 3.0, 10.0)
 
 
 def _station_grid(length: float) -> list:
@@ -1230,6 +1246,7 @@ def _envelope_demand(polygon, envelope, cap: float):
     if len(pts) < 2:
         return None
     xs, ys, los, his = [], [], [], []
+    n_inverted = 0
     for (x, y) in pts:
         try:
             b = envelope(x, y)
@@ -1245,13 +1262,30 @@ def _envelope_demand(polygon, envelope, cap: float):
             continue
         if lo_v in (_INF_NEG, _INF_POS) or hi_v in (_INF_NEG, _INF_POS):
             continue
+        if lo_v - hi_v > _BAND_INVERSION_TOL_M:
+            # AN INVERTED BAND IS A DEFECT REPORT, NEVER A LICENCE
+            # (RULINGS 5578b6a).  ``floor > ceiling`` at ONE point means
+            # two anchors contradict each other through the route between
+            # them — no elevation satisfies that point at all, and a
+            # terrace cannot add budget to a route it is forbidden to
+            # cross.  Reading it as apron relief would launder a law
+            # defect into lawful-looking geometry, which is exactly what
+            # the ruling forbids.  Measured: HECA's canyon world put
+            # NEGATIVE median band width (down to −9.5 m) under five of
+            # its ten largest aprons, and the unguarded scan turned every
+            # one of them into terrace demand.
+            n_inverted += 1
+            continue
         xs.append(x)
         ys.append(y)
         los.append(lo_v)
         his.append(hi_v)
     n = len(xs)
     if n < 2:
-        return None
+        return {"excess_m": float("-inf"), "samples": n,
+                "samples_offnet": len(pts) - n - n_inverted,
+                "samples_inverted": n_inverted, "width_p50_m": None,
+                "hi": None, "lo": None, "chord_m": 0.0}
     X = _np.asarray(xs, dtype=float)
     Y = _np.asarray(ys, dtype=float)
     L = _np.asarray(los, dtype=float)
@@ -1259,16 +1293,18 @@ def _envelope_demand(polygon, envelope, cap: float):
     D = _np.hypot(X[:, None] - X[None, :], Y[:, None] - Y[None, :])
     M = (L[:, None] - U[None, :]) - float(cap) * D
     _np.fill_diagonal(M, -_np.inf)
+    M[D < _ENVELOPE_MIN_CHORD_M] = -_np.inf
     k, m = _np.unravel_index(int(_np.argmax(M)), M.shape)
     excess = float(M[k, m])
     chord = float(D[k, m])
-    if not (excess > 0.0) or chord < _ENVELOPE_MIN_CHORD_M:
-        return None
     dx, dy = X[k] - X[m], Y[k] - Y[m]
     norm = math.hypot(dx, dy)
-    if norm < 1e-9:                                        # pragma: no cover
-        return None
-    return {
+    # THE MARGIN IS ALWAYS REPORTED, including when it is negative.  A
+    # NEGATIVE margin is the honest statement "the anchors permit a
+    # lawful single panel here", and telling that apart from "the band
+    # could not be read" is the whole difference between a law that did
+    # not have to fire and an instrument that went blind.
+    out = {
         "excess_m": excess,
         "hi": (float(X[k]), float(Y[k])),
         "lo": (float(X[m]), float(Y[m])),
@@ -1276,9 +1312,16 @@ def _envelope_demand(polygon, envelope, cap: float):
         "ceiling_lo": float(U[m]),
         "chord_m": chord,
         "allowance_m": float(cap) * chord,
-        "gdir": (dx / norm, dy / norm),
+        "gdir": ((dx / norm, dy / norm) if norm > 1e-9 else None),
         "samples": n,
+        "samples_offnet": len(pts) - n - n_inverted,
+        "samples_inverted": n_inverted,
+        "width_p50_m": float(_np.median(U - L)),
+        "span_m": float(D.max()),
     }
+    if norm < 1e-9:                                        # pragma: no cover
+        out["excess_m"] = float("-inf")
+    return out
 
 
 def _open_ring_xy(polygon):
@@ -1444,7 +1487,11 @@ def _construct_from_envelope(layout, envelope, sample_dem=None,
              # panel) versus ASKED AND NOTHING FIRED (the demand exists
              # and the panelizer answered none of it, which is a defect).
              "candidates_demanded": 0, "candidates_under_floor": 0,
+             "candidates_no_band": 0,
              "demand_total_m": 0.0, "demand_worst_m": 0.0,
+             "env_samples": 0, "env_samples_offnet": 0,
+             "env_samples_inverted": 0,
+             "margin_hist": {}, "biggest": [],
              "joints_stillborn_keepout": 0, "joints_stillborn_hole": 0,
              "joint_pieces_dropped_short": 0,
              "joint_lines_lost_to_corridor": 0,
@@ -1529,7 +1576,62 @@ def _construct_from_envelope(layout, envelope, sample_dem=None,
             f"pieces dropped short {stats['joint_pieces_dropped_short']}, "
             f"lines lost to the corridor cover "
             f"{stats['joint_lines_lost_to_corridor']}")
+        _UI.vprint(1,
+            f"  [apron-terrace] {icao}: DEMAND CENSUS — envelope samples "
+            f"{stats['env_samples']} ({stats['env_samples_offnet']} off-net, "
+            f"{stats['env_samples_inverted']} DROPPED for an inverted band "
+            f"— a defect report, never a licence), "
+            f"{stats['candidates_no_band']} apron(s) with no readable band; "
+            f"margin histogram (m, upper edge -> aprons) "
+            f"{ {k: v for k, v in sorted(stats['margin_hist'].items(), key=lambda kv: (kv[0] == 'over', kv[0]))} }")
+        for (area, margin, span, width, n) in stats["biggest"]:
+            _UI.vprint(1,
+                f"  [apron-terrace]   largest apron {area:,.0f} m²: margin "
+                f"{margin:+.3f} m over a {span:.0f} m span, band width p50 "
+                f"{width} m, {n} sample(s)")
     return stats["joints"]
+
+
+def _census_demand(stats, poly, demand) -> None:
+    """One row of the PER-APRON demand census, and the ten largest
+    aprons the envelope did NOT license.
+
+    The whole reason this exists: after the re-keying, HECA's plateau
+    world showed 12 of 213 aprons demanding relief while the census
+    carried 10 430 within-apron grade rows.  "The trigger under-fires"
+    and "the envelope is not the author of those rows" predict the same
+    joint count and want opposite fixes, and only the MARGIN
+    distribution separates them — an apron sitting at −0.2 m says the
+    law nearly fired, one at −40 m says the anchors were never the
+    reason that apron is out of grade.
+    """
+    n = int(demand.get("samples") or 0)
+    stats["env_samples"] += n
+    stats["env_samples_offnet"] += int(demand.get("samples_offnet") or 0)
+    stats["env_samples_inverted"] += int(demand.get("samples_inverted") or 0)
+    if n < 2:
+        stats["candidates_no_band"] += 1
+        return
+    margin = float(demand["excess_m"])
+    if margin != margin or margin == float("-inf"):         # pragma: no cover
+        return
+    for edge in _DEMAND_MARGIN_BINS:
+        if margin < edge:
+            stats["margin_hist"][edge] = (
+                stats["margin_hist"].get(edge, 0) + 1)
+            break
+    else:
+        stats["margin_hist"]["over"] = stats["margin_hist"].get("over", 0) + 1
+    try:
+        area = float(poly.area)
+    except _GEOM_EXC:                                      # pragma: no cover
+        area = 0.0
+    stats["biggest"].append(
+        (area, round(margin, 3), round(float(demand.get("span_m") or 0.0), 1),
+         (None if demand.get("width_p50_m") is None
+          else round(float(demand["width_p50_m"]), 2)), n))
+    stats["biggest"].sort(key=lambda r: -r[0])
+    del stats["biggest"][10:]
 
 
 def _panelize_apron(layout, shape, cover, keepout, envelope,
@@ -1552,10 +1654,13 @@ def _panelize_apron(layout, shape, cover, keepout, envelope,
     # measures in.
     demand = _envelope_demand(poly, envelope, APRON_MAX_GRADE)
     if demand is None:
+        stats["candidates_no_band"] += 1
         return None
+    _census_demand(stats, poly, demand)
     envelope_excess = demand["excess_m"]
     if envelope_excess < APRON_TERRACE_MIN_EXCESS_M:
-        stats["candidates_under_floor"] += 1
+        if envelope_excess > 0.0:
+            stats["candidates_under_floor"] += 1
         return None
     # COUNTED HERE, BEFORE ANY GEOMETRY CAN DROP IT: an apron the anchors
     # demanded relief on stays in the demand census even if every joint

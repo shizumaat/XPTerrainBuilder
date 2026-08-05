@@ -402,6 +402,32 @@ def test_dem_steepness_alone_never_licenses_a_terrace():
     assert stats["candidates_demanded"] == 0
 
 
+def test_an_inverted_band_is_never_terrace_licence():
+    """RULINGS 5578b6a: an infeasibility is a DEFECT REPORT about the law
+    or the instrument, never a licence to terrace around it.
+
+    ``floor > ceiling`` at a point means two anchors contradict each other
+    through the route between them; no elevation satisfies that point, and
+    a joint the law forbids to cross a corridor adds no budget to that
+    route.  Terracing on it would bury the defect under lawful-looking
+    geometry.  Measured: HECA's canyon world put NEGATIVE median band
+    width under five of its ten largest aprons.
+    """
+    shape = _grid_apron(width=600.0, slope=0.0)[0]
+    layout = _FakeLayout([shape])
+    # 4 m of inversion everywhere — far past any relief floor if it were
+    # allowed to count.
+    n = AT._construct_from_envelope(layout, lambda x, y: (104.0, 100.0),
+                                    icao="TEST")
+    assert n == 0
+    stats = layout.apron_terrace_presolve_stats
+    assert stats["candidates_demanded"] == 0
+    assert stats["env_samples_inverted"] > 0
+    assert stats["candidates_no_band"] == 1, (
+        "an all-inverted apron must read as NO READABLE BAND, not as a "
+        "feasible one")
+
+
 def test_the_demand_census_separates_none_demanded_from_none_fired():
     """Item 3, fix cycle 2: ``joints == 0`` is TWO different worlds.
 

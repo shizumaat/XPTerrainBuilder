@@ -376,21 +376,26 @@ def test_provisional_values_are_flagged_as_provisional():
     assert CFG.GROUNDSIDE_MIN_DRAINAGE_GRADE == 0.010
 
 
-def test_crown_minimum_is_recorded_but_not_bound():
-    """Owner question 5: binding the 1 % transverse MINIMUM models a real
-    crown on every runway and taxiway — a visible geometry change at
-    every airport.  The values are CARRIED (so the validator can report)
-    and asserted by no constraint until the owner rules."""
-    assert CFG.CROWN_MINIMUM_BOUND is False
+def test_crown_minimum_binds_on_runways_and_is_recorded_on_taxiways():
+    """Owner question 5, ANSWERED for runways (RULINGS d48bc0a): this
+    version implements runway crowns and binds their 1 % minimum; the
+    taxiway floor is CARRIED (so the validator can report) and asserted
+    by no constraint."""
+    assert CFG.CROWN_MINIMUM_BOUND_RUNWAYS is True
+    assert CFG.CROWN_MINIMUM_BOUND_TAXIWAYS is False
     assert CFG.get_ruleset("faa").runway_transverse_min == 0.010
     assert CFG.get_ruleset("icao").runway_transverse_min == 0.010
     assert CFG.get_ruleset("faa").taxi_transverse_min == 0.010
     # ICAO §3.9.11 states no taxiway minimum — fidelity, not an omission.
     assert CFG.get_ruleset("icao").taxi_transverse_min is None
-    # unbound ⇒ the surface bound stays symmetric, no crown mandated
+    # taxiway unbound ⇒ its surface bound stays symmetric
     lo, hi = GL.transverse_surface_bounds("taxiway", "C", 10.0, "faa")
     assert lo == pytest.approx(-0.15)
     assert hi == pytest.approx(0.15)
+    # runway BOUND ⇒ mandatory-down, [-cap·t, -min·t]
+    lo, hi = GL.transverse_surface_bounds("runway", "C", 10.0, "faa")
+    assert lo == pytest.approx(-0.15)
+    assert hi == pytest.approx(-0.10)
 
 
 # ── the end-skirt constants now have ONE copy ────────────────────────

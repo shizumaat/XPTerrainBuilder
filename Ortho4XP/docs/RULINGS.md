@@ -263,3 +263,19 @@ TRIPWIRE.
    run once against the final architecture.
 4. Timing-exclusivity discipline (foreground-only, no-nohup,
    quiet-machine) still binds THAT final round.
+
+## 2026-08-04 — Runway flex law clarified (owner)
+
+Owner, on the HECA 6907↔7236 inter-runway tension: "The CIFP numbers
+can't be changed but as long as it's within grade rules, the runway can
+flex a little."
+
+Binding: CIFP threshold elevations are IMMOVABLE truth; between its
+CIFP pins a runway profile MAY flex within runway grade law to drain
+inter-runway/taxi-route tension. The 05R/23L case is the type specimen:
+its profile rides to +9.18 m above DEM at the 6907 junction while a
+0.125% tilt along its length would surrender the full 2.67 m shortfall
+— lawful flex, CIFP untouched. Fix direction for seed-fix open item
+(b): extend/verify the runway-flex (B2) machinery against this case
+BEFORE any band or law change; the flex ledger + CIFP thresholds for
+05R/23L are the first read.

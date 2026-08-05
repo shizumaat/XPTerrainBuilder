@@ -3962,8 +3962,10 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     if not side.exists():
         raise FileNotFoundError(
             f"no axes sidecar for {osm_path} — refusing a context-free run. "
-            f"The sidecar is written only when config.LOG_VERBOSITY > 0; "
-            f"build through tools/harness/build_airport.py, which sets it.")
+            f"Every emit writes one (the config.LOG_VERBOSITY gate was "
+            f"removed 2026-08-05), so a missing sidecar means the patch was "
+            f"not emitted by this tree — rebuild through "
+            f"tools/harness/build_airport.py.")
     data = _json.loads(side.read_text())
     ctx: dict = {}
     exact = data.get("axes_exact") or None

@@ -306,10 +306,15 @@ def test_the_build_entry_refuses_an_unwarmed_elevation_cache(build_mod,
 
 
 def test_the_build_entry_sets_the_sidecar_verbosity(build_mod):
-    """``_write_axes_sidecar`` is gated on ``config.LOG_VERBOSITY > 0``.
-    Without it the patch has NO sidecar and every census silently degrades
-    to the context-free frame — the single most expensive silent
-    degradation in this tree."""
+    """The build entry raises the verbosity, and must keep doing so.
+
+    This was load-bearing until 2026-08-05: ``_write_axes_sidecar`` was
+    gated on ``config.LOG_VERBOSITY > 0``, so without it the patch had NO
+    sidecar and every census silently degraded to the context-free frame
+    — the single most expensive silent degradation in this tree.  The gate
+    is gone (item 1) and the sidecar is now unconditional; the verbosity
+    is still set here for the per-phase build chatter the harness reports,
+    and belt-and-braces on a contract this expensive to lose is cheap."""
     src = Path(inspect.getfile(build_mod)).read_text()
     assert "O4_LOG_VERBOSITY" in src
 
@@ -385,3 +390,52 @@ def test_every_harness_entry_is_in_the_tool_index():
         assert entry in text, (
             f"tools/harness/{entry} is not listed in tools/INDEX.md — "
             f"a tool absent from the index is treated as absent")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §5 THE ACCEPTANCE GATE READS THE SAME LAW
+# ══════════════════════════════════════════════════════════════════════
+# ``tests/test_pavement_grade.py`` IS the acceptance gate (docs/RULINGS.md
+# "absolute-zero acceptance": app builds require zero adjudicated law
+# violations on the battery airports).  A gate that assembles its own law
+# frame is the census-wrapper defect wearing a different hat — and it had
+# already drifted exactly the same way.
+
+def _grade_gate_src() -> str:
+    return (Path(__file__).parent / "test_pavement_grade.py").read_text()
+
+
+def test_the_acceptance_gate_reads_the_one_law_frame():
+    """The gate hand-mirrored ``_write_axes_sidecar``'s payload out of the
+    layout — sixty lines of axes, anchor, seam pins, mesh, crown field,
+    pair caps and terrace joints.  It never passed ``ruleset``, so KCLT
+    built under FAA law was judged under ICAO.  One reader now."""
+    src = _grade_gate_src()
+    assert "run_checks_law_true(" in src, (
+        "the acceptance gate must take its law frame from "
+        "check_grade.run_checks_law_true, not assemble kwargs")
+    code = _code_only(src)
+    for key in ("taxi_axes_exact_ll", "junction_mesh_edges_ll",
+                "seam_pins_ll", "crown_drops_ll", "crown_centerline_ll",
+                "pair_caps_ll", "terrace_joints_ll"):
+        assert key not in code, (
+            f"the acceptance gate still assembles {key!r} itself — that is "
+            f"a second instrument describing the same population")
+
+
+def test_the_faa_fixture_is_in_the_acceptance_battery():
+    """KCLT is the campaign's FAA fixture and was absent from the default
+    battery ENTIRELY, so the FAA half of the region-ruleset split had no
+    acceptance test — the FAA-only drainage-minimum family (1,099 KCLT
+    rows in the test-phase census) could not be seen here at all."""
+    import os
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent))
+    for var in ("O4_TEST_AIRPORTS", "O4_TEST_TILE"):
+        assert not os.environ.get(var, "").strip(), (
+            f"{var} is set — the DEFAULT battery is what this twin asserts")
+    import test_pavement_grade as gate
+    assert "KCLT" in gate._GRADE_TEST_AIRPORTS, (
+        f"the FAA fixture is not in the default battery: "
+        f"{gate._GRADE_TEST_AIRPORTS}")
+    assert "HECA" in gate._GRADE_TEST_AIRPORTS

@@ -1351,7 +1351,24 @@ def _panelize_apron(layout, shape, cover, keepout, sample_dem,
                 stats["joints_stillborn_hole"] += 1
                 continue
             panels = split
-            bands.append(band)
+            # THE RESERVATION IS THE GROUND THE SPLIT ACTUALLY REMOVED
+            # (item 4, 2026-08-05): ``host − band``, so the removed ground
+            # is ``band ∩ host``.  The raw band OVERHANGS the apron —
+            # ``_joint_stations`` puts its two end stations on the joint
+            # line's own endpoints, which stand off the apron boundary —
+            # and publishing the overhang would reserve terrain that was
+            # never apron and that no emitter owes a cover.  Clipped here,
+            # once, where ``host`` is in hand.
+            try:
+                _reserved = band.intersection(host)
+                if _reserved.geom_type == "Polygon" and not _reserved.is_empty:
+                    bands.append(_reserved)
+                elif _reserved.geom_type.startswith("Multi"):
+                    bands.extend(g for g in _reserved.geoms
+                                 if g.geom_type == "Polygon"
+                                 and not g.is_empty)
+            except _GEOM_EXC:
+                bands.append(band)
             joints.append({
                 "line": [(float(x), float(y)) for (x, y) in pts],
                 "reach": [(float(x), float(y)) for (x, y) in reach],
@@ -2169,13 +2186,25 @@ def emit_terrace_joint_faces(layout, plan: Optional[TerracePlan]) -> int:
             st.z_pos = float(z_hi)
             st.z_neg = float(z_lo)
         joint.stations.sort(key=lambda st: st.k)
-        if drop <= 0.05:
-            # The panels settled LEVEL — only knowable post-solve, so
-            # this joint emits no face, and its sidecar allowance is
-            # DEMOTED to the step the surface actually expresses (0 for
-            # this class).  No unbacked relief survives the drop.
+        # ── LEVEL JOINTS STILL COVER THEIR SLOT (item 4, 2026-08-05) ──
+        # The panels settled LEVEL — only knowable post-solve — so this
+        # joint's ALLOWANCE is DEMOTED to the step the surface actually
+        # expresses (0 for this class): no unbacked relief survives the
+        # drop, and ``faced`` stays False so §3(a) reads it that way.
+        #
+        # But it must still EMIT.  The pre-solve split cut a
+        # ``STACKED_WALL_RETREAT_M`` band out of the apron; a joint that
+        # returns here leaves that band as ground NO SHAPE COVERS —
+        # measured at HECA: 14 of 79 declared joints demoted, and 21.2%
+        # of the published slot area (629 m² over 70 bands) shipping
+        # uncovered while a graded strip marched into 12.9% of it.  A
+        # hole is not the absence of relief, it is a hole.  The cover is
+        # minted from the SAME read rows as any other face — both levels
+        # are already in hand here (the branch is unreachable with fewer
+        # than two readings), so nothing is invented and nothing graded.
+        level_only = drop <= 0.05
+        if level_only:
             plan.stats["joints_demoted_level"] += 1
-            continue
         top = [joint.hi[k] for (k, _s, _zh, _zl) in rows]
         bot = [joint.lo[k] for (k, _s, _zh, _zl) in rows]
         ring = top + bot[::-1]
@@ -2225,9 +2254,23 @@ def emit_terrace_joint_faces(layout, plan: Optional[TerracePlan]) -> int:
             node_altitudes=alts + [alts[0]]))
         joint.panel_lo = round(min(min(r[2], r[3]) for r in rows), 3)
         joint.panel_hi = round(max(max(r[2], r[3]) for r in rows), 3)
+        if level_only:
+            # COVER, not relief.  Same ref, so the validator judges it
+            # through the same law (its across-band delta is ~0, well
+            # inside ``step + cap·d``); ``faced`` stays False, so §3(a)
+            # demotes the sidecar allowance to 0 exactly as before.
+            plan.stats["level_covers_emitted"] = (
+                plan.stats.get("level_covers_emitted", 0) + 1)
+            continue
         joint.faced = True
     layout.shapes.extend(new_walls)
     plan.stats["faces_emitted"] = len(new_walls)
+    # A declared joint whose band NOTHING covers is a hole in the apron:
+    # the pre-solve split cut a retreat band out and no emitter closed
+    # it.  Reported, never silent — this is the honest residue of item
+    # 4's fix (joints the emitter could not read at all: fewer than two
+    # station readings, rows of unequal length, or a keepout drop).
+    plan.stats["slots_uncovered"] = len(plan.joints) - len(new_walls)
     return len(new_walls)
 
 

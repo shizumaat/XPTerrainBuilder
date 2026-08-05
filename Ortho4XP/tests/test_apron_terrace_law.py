@@ -757,9 +757,20 @@ def test_T4b2_a_keepout_outside_the_cover_makes_joints_stillborn(
 
 
 def test_T4c_unfaced_joint_grants_no_relief():
-    """§3(a) DEMOTION: flanks that settled level emit no face, and the
+    """§3(a) DEMOTION: flanks that settled level grant NO RELIEF — the
     sidecar allowance falls to what the surface expresses (0).  Before
-    this, HECA carried 17 of 118 and KCLT 5 of 17 unbacked allowances."""
+    this, HECA carried 17 of 118 and KCLT 5 of 17 unbacked allowances.
+
+    SHARPENED 2026-08-05 (item 4).  §3(a) is about RELIEF, and this test
+    used to also assert ``n == 0`` — no geometry at all.  That left the
+    ``STACKED_WALL_RETREAT_M`` band the PRE-SOLVE split cut out of the
+    apron as ground no shape covers (HECA: 14 of 79 joints demoted, and
+    21.2% of the published slot area shipping uncovered).  A level joint
+    now emits a COVER — same read rows, same ref, no invented value —
+    while ``faced`` stays False and the allowance stays 0.  A hole is
+    not the absence of relief; the two are separate facts and are now
+    separately asserted.
+    """
     layout, plan, shape = _panelized_layout()
     # settle EVERY panel LEVEL: every joint's two panels agree
     for s_ in layout.shapes:
@@ -768,8 +779,18 @@ def test_T4c_unfaced_joint_grants_no_relief():
         ring = list(s_.polygon.exterior.coords)[:-1]
         s_.node_altitudes = [100.0] * len(ring) + [100.0]
     n = AT.emit_terrace_joint_faces(layout, plan)
-    assert n == 0, "a face was minted where the flanks settled level"
     assert plan.stats["joints_demoted_level"] == len(plan.joints)
+    # RELIEF: none.  COVER: every slot the split cut.
+    assert n == plan.stats["level_covers_emitted"] == len(plan.joints), (
+        "a demoted joint left its 0.6 m slot uncovered")
+    assert plan.stats["slots_uncovered"] == 0
+    walls = [s for s in layout.shapes
+             if s.role == "retaining_wall"
+             and s.ref == "apron_terrace_joint"]
+    for w in walls:
+        vals = [v for v in (w.node_altitudes or []) if v is not None]
+        assert max(vals) - min(vals) <= 0.05, (
+            "a LEVEL cover expresses a step — it must express none")
     rows = AT.terrace_joints_sidecar(layout)
     assert rows, "the demoted joints vanished from the sidecar entirely"
     assert all(r["step_m"] == 0.0 for r in rows), (
@@ -1321,3 +1342,99 @@ def test_the_declared_step_bound_is_one_function():
     layout, plan, shape = _panelized_layout()
     for (_i_hi, _i_lo, bud) in AT.terrace_station_edges(plan):
         assert bud in {AT._joint_bound_m(j) for j in plan.joints}
+
+
+# ── ITEM 4: THE 0.6 m SLOT ───────────────────────────────────────────
+# The PRE-SOLVE split cuts a ``STACKED_WALL_RETREAT_M`` band out of the
+# apron for every declared joint.  The face that fills it is minted at
+# the very END of the build (inside the strip reconcile unit, which by
+# standing owner ruling runs after the LATE final grade projection,
+# because the face reads its panels' FINAL settled values by identity).
+# Between the split and that emission the slot is ground no shape covers.
+# Measured at HECA, 79 bands / 2960.62 m²: wall 72.9%, graded-strip march
+# 12.9% (32 bands), UNCOVERED 21.2% (629 m², 70 bands).
+
+def test_every_declared_joint_covers_its_cut_band():
+    """The split may not leave a hole.
+
+    ``apron_terrace_wall_bands`` is the ground the pre-solve split
+    REMOVED (``band ∩ host``) — the raw band overhangs the apron, and
+    reserving the overhang would claim terrain that was never apron.
+    Every declared joint must emit geometry over its own reservation.
+    """
+    from shapely.ops import unary_union
+    layout, plan, shape = _panelized_layout()
+    AT.emit_terrace_joint_faces(layout, plan)
+    bands = [b for b in (getattr(layout, "apron_terrace_wall_bands", None)
+                         or ()) if b is not None and not b.is_empty]
+    assert bands, "no wall band was published — nothing to measure"
+    assert plan.stats["slots_uncovered"] == 0, (
+        "a declared joint emitted no geometry at all — its 0.6 m slot "
+        "ships as ground no shape covers")
+    walls = unary_union([s.polygon for s in layout.shapes
+                         if s.role == "retaining_wall"
+                         and s.ref == "apron_terrace_joint"])
+    for b in bands:
+        assert b.intersection(walls).area > 0.5 * b.area, (
+            "a reserved slot is more than half uncovered")
+
+
+def test_the_only_unread_station_is_a_joint_END():
+    """THE NAMED RESIDUE of item 4, pinned so it cannot grow silently.
+
+    The wall ring is built from the stations the emitter could READ, and
+    the two it cannot read are always the SAME two: ``_joint_stations``
+    puts a station on each end of the joint LINE, and that line's
+    endpoints stand off the apron boundary — so those two corners are
+    not apron ring vertices and the identity lookup correctly returns
+    nothing.  The wall therefore stops at the first interior station and
+    leaves one station-gap of the reservation uncovered at each end
+    (10.4% of the reserved area on this fixture; the HECA build measured
+    21.2% before level covers and the reservation clip).
+
+    NOT FIXED HERE, deliberately: the remedy is to place the end stations
+    where the joint line MEETS the apron boundary — which are readable
+    vertices — but station positions feed ``_band_polygon`` and therefore
+    the CUT, so that changes panel rings, node counts and the solve at
+    every panelized airport.  That is a spec change with a full battery
+    behind it, not a fix-forward edit.
+
+    This twin fails the moment an INTERIOR station stops reading, which
+    is a different (and real) defect.
+    """
+    layout, plan, shape = _panelized_layout()
+    index = AT._apron_ring_values(layout)
+    unread = []
+    for j in plan.joints:
+        last = len(j.grid) - 1
+        for k in range(len(j.grid)):
+            if k >= len(j.hi) or k >= len(j.lo):
+                continue
+            if (AT._value_at(index, j.hi[k]) is None
+                    or AT._value_at(index, j.lo[k]) is None):
+                unread.append((id(j), k, last))
+    assert unread, "the fixture no longer reproduces the residue"
+    for (_jid, k, last) in unread:
+        assert k in (0, last), (
+            f"station {k} of {last} is unread and is NOT a joint end — "
+            f"that is a different defect from the known end-overhang one")
+
+
+def test_the_band_march_treats_a_reserved_slot_as_occupied():
+    """``emit_adjacent_ground_bands`` builds its static block from
+    ``layout.shapes``, and the slot is in NO shape at that moment — so a
+    graded strip could march into ground a retaining wall is about to
+    stand on (HECA: 381 m², 32 of 79 bands).  Reordering cannot fix it:
+    the faces genuinely cannot be minted before the late projection.  The
+    march reads the plan-time RESERVATION instead."""
+    import inspect
+    from auto_patch import adjacent_ground as AG
+    src = inspect.getsource(AG.emit_adjacent_ground_bands)
+    assert "apron_terrace_wall_bands" in src, (
+        "the band march does not read the published slot reservation — a "
+        "strip can still mint terrain where a wall is about to stand")
+    # and the reservation reaches the static union, not some side list
+    i_band = src.index("apron_terrace_wall_bands")
+    i_union = src.index("static_union = unary_union(_static_polys)")
+    assert i_band < i_union, (
+        "the slot bands are read after the static union is built")

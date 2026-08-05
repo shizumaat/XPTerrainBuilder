@@ -6186,6 +6186,30 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
     _static_polys = [s.polygon for s in layout.shapes
                      if s.polygon is not None and not s.polygon.is_empty
                      and s.role != "groundside_pavement"]
+    # ── RESERVED APRON-TERRACE SLOTS (item 4, 2026-08-05) ────────────
+    # The apron-terrace pre-solve SPLIT cuts a ``STACKED_WALL_RETREAT_M``
+    # band out of an apron for every declared joint, and the
+    # ``retaining_wall`` that fills it is minted at the very END of the
+    # build — inside the strip reconcile unit, which by standing owner
+    # ruling runs after the LATE final grade projection, because the face
+    # reads its two panels' FINAL settled values by identity.  So at THIS
+    # point the slot is ground no shape covers, and the march would
+    # happily grade a strip into it: measured at HECA, a strip marched
+    # into 12.9% of the published slot area (381 m² over 32 of 79 bands)
+    # and would then be overwritten, or averaged against, a wall standing
+    # on the same ground.
+    #
+    # Reordering cannot fix this — the faces genuinely cannot be minted
+    # earlier without reading pre-projection values.  The march instead
+    # reads the LIVE reservation: ``apron_terrace_wall_bands`` is
+    # published at plan time, where the band geometry is first known, for
+    # exactly this reader.  Ground that is spoken for is not marchable.
+    _slot_bands = [b for b in
+                   (getattr(layout, "apron_terrace_wall_bands", None) or ())
+                   if b is not None and not b.is_empty
+                   and b.geom_type == "Polygon"]
+    if _slot_bands:
+        _static_polys.extend(_slot_bands)
     try:
         static_union = unary_union(_static_polys)
     except _GEOM_EXC:

@@ -1523,10 +1523,16 @@ def _station_resolver(layout, shape_constraints, node_xy, bucket_to_idx):
     cps = getattr(layout, "canonical_points", None)
     if bucket_to_idx is not None and cps is not None:
         def _by_registry(xy):
+            # GET, NEVER GET-OR-ADD.  The registry snaps within its
+            # tolerance, so one extra insertion changes which LATER
+            # vertices intern together and moves the emitted surface
+            # (measured: a probe-only node-list rebuild moved SPJC by
+            # +1 node and 86 altitudes).  A station is a panel ring
+            # vertex, so its bucket is already claimed; if it is not,
+            # the honest answer is "unresolved", which the caller
+            # counts.
             k = cps.get(float(xy[0]), float(xy[1]))
-            if k is None:
-                k = cps.get_or_add(float(xy[0]), float(xy[1]))
-            return bucket_to_idx.get(k)
+            return None if k is None else bucket_to_idx.get(k)
         return _by_registry
     grid: dict = {}
     for entry in shape_constraints or ():

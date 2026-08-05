@@ -377,9 +377,12 @@ __all__ = [
 #   0 = critical: only verification PROBLEMS + errors — the default, so
 #                 a normal Ortho4XP run's output window stays quiet
 #                 except when an airport patch has issues.
-# Also gates DEBUG ARTIFACTS: the ``<patch>.axes.json`` grade-law sidecar
-# is only written when > 0 (user 2026-07-02 — production patch dirs stay
-# clean).  Env override O4_LOG_VERBOSITY for dev builds.
+# CHATTER VOLUME ONLY.  It used to also gate the ``<patch>.axes.json``
+# grade-law sidecar (user 2026-07-02, to keep production patch dirs
+# clean); that gate is GONE (2026-08-05) — a debug-verbosity flag must
+# never decide whether measurement is possible, and at the default it
+# made every standalone census silently context-free.  The sidecar is
+# written on every emit.  Env override O4_LOG_VERBOSITY for dev builds.
 # (``import os as _os`` only enters scope further down this file.)
 import os as _os_early  # noqa: E402
 try:

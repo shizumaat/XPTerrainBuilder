@@ -16,8 +16,8 @@ Compares a flex-ON patch against a flex-OFF patch of the same airport:
 Usage:
     venv/bin/python tools/flex_audit.py FLEX_ON.osm FLEX_OFF.osm
 
-The ON patch needs its ``.axes.json`` sidecar (built with
-O4_LOG_VERBOSITY=1 — tools/full_airport_build.py does this).
+The ON patch needs its ``.axes.json`` sidecar (every emit writes one
+since 2026-08-05; it used to require O4_LOG_VERBOSITY=1).
 
 Found the 2026-07-06 HECA over-flex: 17.8 m one-sided profile drops
 (sequential rounds let the first runway absorb the whole inter-runway

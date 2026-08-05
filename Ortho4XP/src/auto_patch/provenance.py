@@ -497,8 +497,10 @@ def _stable_repr(value) -> str:
 # output-only, and each is excluded for a reason that is verifiable at its
 # definition site in config.py:
 #
-#   LOG_VERBOSITY      — chatter volume only (it also gates the debug
-#                        ``.axes.json`` sidecar, which is not the patch).
+#   LOG_VERBOSITY      — chatter volume only.  (It used to also gate the
+#                        ``.axes.json`` sidecar; since 2026-08-05 that is
+#                        written unconditionally, so this constant now
+#                        touches nothing but print volume.)
 #   BUILD_PROGRESS     — progress banners; "the emitted patch is byte-identical
 #                        regardless".
 #   REPORT_GRADE_AUDIT — a build-time WARN audit that nothing acts on;

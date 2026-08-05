@@ -2687,140 +2687,147 @@ class PavementLayout:
         use; without it the CLI falls back to the context-free check
         and over-flags every spine/blend-relaxed pair.  The sidecar is
         invisible to Ortho4XP (the patch loader only globs
-        ``*.patch.osm``).  Best-effort: a sidecar failure never fails
-        an emit.
+        ``*.patch.osm``).
 
-        DEBUG-ONLY (user 2026-07-02): written only when
-        ``config.LOG_VERBOSITY > 0``, so production-release patch dirs
-        stay clean.  Dev iteration raises the verbosity (the suite is
-        unaffected — it passes axes to ``run_checks`` directly); a
-        production patch checked with the CLI reverts to the
-        context-free numbers."""
-        from . import config as _cfg
-        if getattr(_cfg, "LOG_VERBOSITY", 0) <= 0:
-            return
-        try:
-            import json as _json
-            from .verification import (taxi_axes_ll, taxi_routes_ll,
-                                       taxi_axes_exact_ll,
-                                       junction_mesh_edges_ll)
-            from .elevation_per_surface.route_profile.apron_terrace import (
-                terrace_certificates_sidecar as _terrace_certs_sidecar,
-                terrace_joints_sidecar as _terrace_joints_sidecar)
-            from .grade_law import ruleset_of as _grade_law_ruleset_of
-            _axes_exact, _routes_exact = taxi_axes_exact_ll(self)
-            data = {
-                # legacy per-size-split axes (older tools); entries may carry
-                # a 4th element (route ordinal into "routes")
-                "axes": [list(entry) for entry in taxi_axes_ll(self)],
-                "routes": taxi_routes_ll(self),
-                # EXACT build_context mirror: unsplit polylines, per-SEGMENT
-                # caps, route ordinal into "routes_exact" — the validator
-                # reconstructs the solver's Centerline objects verbatim
-                # (readers cannot drift on splitting/caps/binding).
-                "axes_exact": [[pts, caps, ridx]
-                               for (pts, caps, ridx) in _axes_exact],
-                "routes_exact": _routes_exact,
-                # The SOLVER's projection anchor: with it the validator
-                # evaluates the law in the SAME meter frame the solver
-                # built in (its default mean-of-nodes frame differs in
-                # x-scale via cos(lat0) — millimetres over a chord,
-                # enough to flip epsilon contact predicates and diverge
-                # crossing verdicts between the two law readers).
-                "anchor": ([self.anchor[0], self.anchor[1]]
-                           if self.anchor is not None else None),
-                # Tile-seam PIN vertices (user 2026-07-04): the exact
-                # DEM-pinned anchors the solver graded to.  The
-                # validator flags only these as seam (pin-pair pairs
-                # skip, one-pin pairs check at body cap) instead of its
-                # legacy 400 m blanket zone — the two readers share one
-                # seam definition.
-                "seam_pins": [[round(la, 7), round(lo, 7)]
-                              for (la, lo) in
-                              (getattr(self, "_seam_pin_ll", None) or [])],
-                # ``break_nodes`` — DELETED 2026-08-04 (spec ``docs/specs/
-                # kill-half-spec.md`` §2).  This key carried the solver's
-                # break quarantine to ``check_grade``, which split those
-                # pairs out of the actionable within-shape count.  The
-                # quarantine is retired outright (docs/RULINGS.md: it is
-                # unauthorized and counts are full-census), so the key is
-                # gone and every emitted patch's sidecar is one key
-                # smaller.  A patch built BEFORE this round still carries
-                # it; the reader simply ignores unknown keys.
-                # TRIANGLE-PLANE REPORT (spec kill-prep §2, gate
-                # ``O4_TRIANGLE_PLANE_REPORTS``): how many triangle
-                # vertices the single-vertex plane search could not fix.
-                # A COUNT, not a quarantine — those vertices stay in the
-                # visible violation census; this is the report the owner
-                # reads to size the widen-the-search work.  0 when the
-                # gate is off (they are break nodes there instead).
-                "triangle_plane_unresolved": int(
-                    getattr(self, "_triangle_plane_unresolved", 0) or 0),
-                # EXACT-MESH sidecar (user 2026-07-05): the solver's
-                # junction triangle-mesh edges, consumed 1:1 by the
-                # validator so emit-time ring repairs cannot mint a
-                # different Delaunay than the one the solver graded to.
-                "mesh_edges": junction_mesh_edges_ll(self),
-                # SPINE CROWN drop field (user 2026-07-07, part 30): the
-                # per-node designed crown drops the solve's writeback
-                # applied.  The validator re-centres each pair's budget
-                # on grade_law.crown_pair_offset from THIS field — one
-                # field, both readers.
-                "crown_drops": [[la, lo, c] for (la, lo, c) in
-                                (getattr(self, "_crown_drop_ll", None)
-                                 or [])],
-                # CROWN CENTERLINE nodes (Phase 0 hotfix, user 2026-07-07):
-                # the lat/lon of every centerline vertex the interior runway
-                # cross-edge crown inserted at profile level.  A node on the
-                # runway ridge — its grade is bounded by the SPINE PROFILE
-                # (longitudinal) check + the sub-cap lateral crown by design,
-                # so the validator skips within-shape runway pairs touching
-                # one (a cross-station diagonal to it conflates the two).
-                "crown_centerline": [[la, lo] for (la, lo) in
-                                     (getattr(self, "_crown_centerline_ll",
-                                              None) or [])],
-                # WITHIN-SHAPE baked pair allowances (2026-07-17): the
-                # exact pair selection + metre budgets the final
-                # projection enforced, frozen by
-                # ``final_grade_projection`` (see
-                # ``verification.lockstep_pair_caps_ll``).  The
-                # validator constrains exactly these pairs instead of
-                # re-baking from the emitted ring — the last lockstep
-                # reader (post-projection vertex inserts otherwise
-                # tighten the re-baked spans below what the solver
-                # lawfully enforced).
-                "pair_caps": (getattr(self, "_lockstep_pair_caps_ll",
-                                      None) or []),
-                # APRON TERRACE JOINTS (owner ruling 2026-08-04; spec
-                # ``docs/specs/apron-terrace-law-spec.md`` §5).  The
-                # DECLARED joint polylines, their panel levels and their
-                # step heights — the validator's half of the lockstep.
-                # A within-pair edge crossing one of these is judged by
-                # the STEP law, not the grade cap; a joint intersecting
-                # ``routes_exact`` is an ERROR (the binding constraint's
-                # twin).  Empty list with the gate off, and the key is
-                # written unconditionally so a reader can tell "no
-                # joints" from "patch predates the law".
-                "terrace_joints": _terrace_joints_sidecar(self),
-                # §2(a) THE CERTIFICATE: the recorded evidence
-                # chain that authorised each PANELIZED apron.
-                # An apron panelizes only with the full chain,
-                # and the twin audits "certificate-free
-                # panelization = 0" from the patch alone.
-                "terrace_certificates": _terrace_certs_sidecar(self),
-                # REGION RULESET (phase B, docs/RULINGS.md
-                # "Region-specific rulesets").  The key the build
-                # actually ran under — the validator judges in THIS
-                # frame and never re-resolves from the ICAO code, which
-                # is the two-instruments law applied to authority:
-                # production emits what it did, and the census judges
-                # the same law.  A sidecar without the key predates the
-                # split and reads as the default ruleset with a warning.
-                "ruleset": _grade_law_ruleset_of(self),
-            }
-            Path(str(path) + ".axes.json").write_text(_json.dumps(data))
-        except Exception:
-            pass
+        CERTIFY-OR-FAIL (fix 2026-08-05).  Two guards used to stand here
+        and both were measurement killers:
+
+        * a bare ``except Exception: pass``.  A ``TypeError`` from ONE
+          terrace joint's stations dropped the WHOLE sidecar, and every
+          census that read it silently degraded to the CONTEXT-FREE
+          check — SPJC read 4,010 rows where the law-true count is 810,
+          HEAZ 959 vs 144, HECA 12,932 vs 8,099.  Nothing in the build
+          said a word.  The sidecar IS the law contract the patch ships
+          under, so a patch that cannot certify itself must not emit
+          quietly: the failure propagates and fails the build.
+        * a ``config.LOG_VERBOSITY > 0`` gate (user 2026-07-02, to keep
+          release patch dirs clean).  A DEBUG-VERBOSITY FLAG MUST NEVER
+          DECIDE WHETHER MEASUREMENT IS POSSIBLE: at default verbosity
+          the shipped constant-DEM oracle and the ``check_grade`` CLI
+          both judged production patches under the CONTEXT-FREE law
+          while reporting nothing unusual.  The sidecar is now written
+          ALWAYS — it is one small JSON file next to a patch that is
+          already there, and Ortho4XP never globs it.
+        """
+        import json as _json
+        from .verification import (taxi_axes_ll, taxi_routes_ll,
+                                   taxi_axes_exact_ll,
+                                   junction_mesh_edges_ll)
+        from .elevation_per_surface.route_profile.apron_terrace import (
+            terrace_certificates_sidecar as _terrace_certs_sidecar,
+            terrace_joints_sidecar as _terrace_joints_sidecar)
+        from .grade_law import ruleset_of as _grade_law_ruleset_of
+        _axes_exact, _routes_exact = taxi_axes_exact_ll(self)
+        data = {
+            # legacy per-size-split axes (older tools); entries may carry
+            # a 4th element (route ordinal into "routes")
+            "axes": [list(entry) for entry in taxi_axes_ll(self)],
+            "routes": taxi_routes_ll(self),
+            # EXACT build_context mirror: unsplit polylines, per-SEGMENT
+            # caps, route ordinal into "routes_exact" — the validator
+            # reconstructs the solver's Centerline objects verbatim
+            # (readers cannot drift on splitting/caps/binding).
+            "axes_exact": [[pts, caps, ridx]
+                           for (pts, caps, ridx) in _axes_exact],
+            "routes_exact": _routes_exact,
+            # The SOLVER's projection anchor: with it the validator
+            # evaluates the law in the SAME meter frame the solver
+            # built in (its default mean-of-nodes frame differs in
+            # x-scale via cos(lat0) — millimetres over a chord,
+            # enough to flip epsilon contact predicates and diverge
+            # crossing verdicts between the two law readers).
+            "anchor": ([self.anchor[0], self.anchor[1]]
+                       if self.anchor is not None else None),
+            # Tile-seam PIN vertices (user 2026-07-04): the exact
+            # DEM-pinned anchors the solver graded to.  The
+            # validator flags only these as seam (pin-pair pairs
+            # skip, one-pin pairs check at body cap) instead of its
+            # legacy 400 m blanket zone — the two readers share one
+            # seam definition.
+            "seam_pins": [[round(la, 7), round(lo, 7)]
+                          for (la, lo) in
+                          (getattr(self, "_seam_pin_ll", None) or [])],
+            # ``break_nodes`` — DELETED 2026-08-04 (spec ``docs/specs/
+            # kill-half-spec.md`` §2).  This key carried the solver's
+            # break quarantine to ``check_grade``, which split those
+            # pairs out of the actionable within-shape count.  The
+            # quarantine is retired outright (docs/RULINGS.md: it is
+            # unauthorized and counts are full-census), so the key is
+            # gone and every emitted patch's sidecar is one key
+            # smaller.  A patch built BEFORE this round still carries
+            # it; the reader simply ignores unknown keys.
+            # TRIANGLE-PLANE REPORT (spec kill-prep §2, gate
+            # ``O4_TRIANGLE_PLANE_REPORTS``): how many triangle
+            # vertices the single-vertex plane search could not fix.
+            # A COUNT, not a quarantine — those vertices stay in the
+            # visible violation census; this is the report the owner
+            # reads to size the widen-the-search work.  0 when the
+            # gate is off (they are break nodes there instead).
+            "triangle_plane_unresolved": int(
+                getattr(self, "_triangle_plane_unresolved", 0) or 0),
+            # EXACT-MESH sidecar (user 2026-07-05): the solver's
+            # junction triangle-mesh edges, consumed 1:1 by the
+            # validator so emit-time ring repairs cannot mint a
+            # different Delaunay than the one the solver graded to.
+            "mesh_edges": junction_mesh_edges_ll(self),
+            # SPINE CROWN drop field (user 2026-07-07, part 30): the
+            # per-node designed crown drops the solve's writeback
+            # applied.  The validator re-centres each pair's budget
+            # on grade_law.crown_pair_offset from THIS field — one
+            # field, both readers.
+            "crown_drops": [[la, lo, c] for (la, lo, c) in
+                            (getattr(self, "_crown_drop_ll", None)
+                             or [])],
+            # CROWN CENTERLINE nodes (Phase 0 hotfix, user 2026-07-07):
+            # the lat/lon of every centerline vertex the interior runway
+            # cross-edge crown inserted at profile level.  A node on the
+            # runway ridge — its grade is bounded by the SPINE PROFILE
+            # (longitudinal) check + the sub-cap lateral crown by design,
+            # so the validator skips within-shape runway pairs touching
+            # one (a cross-station diagonal to it conflates the two).
+            "crown_centerline": [[la, lo] for (la, lo) in
+                                 (getattr(self, "_crown_centerline_ll",
+                                          None) or [])],
+            # WITHIN-SHAPE baked pair allowances (2026-07-17): the
+            # exact pair selection + metre budgets the final
+            # projection enforced, frozen by
+            # ``final_grade_projection`` (see
+            # ``verification.lockstep_pair_caps_ll``).  The
+            # validator constrains exactly these pairs instead of
+            # re-baking from the emitted ring — the last lockstep
+            # reader (post-projection vertex inserts otherwise
+            # tighten the re-baked spans below what the solver
+            # lawfully enforced).
+            "pair_caps": (getattr(self, "_lockstep_pair_caps_ll",
+                                  None) or []),
+            # APRON TERRACE JOINTS (owner ruling 2026-08-04; spec
+            # ``docs/specs/apron-terrace-law-spec.md`` §5).  The
+            # DECLARED joint polylines, their panel levels and their
+            # step heights — the validator's half of the lockstep.
+            # A within-pair edge crossing one of these is judged by
+            # the STEP law, not the grade cap; a joint intersecting
+            # ``routes_exact`` is an ERROR (the binding constraint's
+            # twin).  Empty list with the gate off, and the key is
+            # written unconditionally so a reader can tell "no
+            # joints" from "patch predates the law".
+            "terrace_joints": _terrace_joints_sidecar(self),
+            # §2(a) THE CERTIFICATE: the recorded evidence
+            # chain that authorised each PANELIZED apron.
+            # An apron panelizes only with the full chain,
+            # and the twin audits "certificate-free
+            # panelization = 0" from the patch alone.
+            "terrace_certificates": _terrace_certs_sidecar(self),
+            # REGION RULESET (phase B, docs/RULINGS.md
+            # "Region-specific rulesets").  The key the build
+            # actually ran under — the validator judges in THIS
+            # frame and never re-resolves from the ICAO code, which
+            # is the two-instruments law applied to authority:
+            # production emits what it did, and the census judges
+            # the same law.  A sidecar without the key predates the
+            # split and reads as the default ruleset with a warning.
+            "ruleset": _grade_law_ruleset_of(self),
+        }
+        Path(str(path) + ".axes.json").write_text(_json.dumps(data))
 
 
 # ── retained absorbed-road context (membership round V2, §V2.A/§V2.B) ──

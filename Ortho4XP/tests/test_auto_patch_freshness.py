@@ -674,9 +674,18 @@ def test_repeated_gate_calls_do_not_thrash(install, patch_file):
 
 
 def _stray_temp_files(patch: Path) -> list[str]:
-    """Anything left next to a patch that is not the patch itself."""
+    """Anything left next to a patch that is not a NAMED artifact of it.
+
+    ``<patch>.axes.json`` is the law-contract sidecar, not a leftover:
+    it is written on every successful emit (2026-08-05 — it used to be
+    gated on ``LOG_VERBOSITY``, which made every default-verbosity
+    census silently context-free) and ``check_grade`` / ``flex_audit``
+    read it by that exact name.  Everything else beside a patch is the
+    temp-file leak these tests exist to catch.
+    """
+    named = {patch.name, patch.name + ".axes.json"}
     return sorted(p.name for p in patch.parent.iterdir()
-                  if p.name != patch.name)
+                  if p.name not in named)
 
 
 def test_atomic_write_leaves_no_temp_files(install, tmp_path):

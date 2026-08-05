@@ -127,6 +127,7 @@ __all__ = [
     "runway_strip_keepout_geometry",
     "TerraceJoint",
     "TerracePlan",
+    "TerraceStation",
 ]
 
 # Role literal — the apron is the only class the ruling names.  (Kept as a
@@ -238,6 +239,98 @@ def _as_xy(node_xy):
     return _XY(node_xy)
 
 
+def _joint_bound_m(joint) -> float:
+    """THE declared-step bound for one joint — ONE formula, three readers.
+
+    ``step + cap·retreat``: a wall may be as tall as the step it declares
+    plus the ordinary cap over the face's OWN width, never as tall as the
+    distance its reader had to travel.  The solve binding
+    (:func:`terrace_station_edges`), the emit-time residue counter
+    (:func:`emit_terrace_joint_faces`) and the sidecar's
+    ``reader_bound_m`` all read THIS function, so the number the solve
+    enforced and the number the validator judges against cannot drift.
+    """
+    from auto_patch.adjacent_ground import STACKED_WALL_RETREAT_M
+    return float(joint.step_m) + APRON_MAX_GRADE * STACKED_WALL_RETREAT_M
+
+
+class TerraceStation:
+    """ONE station on a declared joint's densified panel boundary.
+
+    THE SINGLE REPRESENTATION (fix 2026-08-05).  Before this class the
+    same attribute ``TerraceJoint.stations`` carried TWO shapes: the bind
+    pass left 4-tuples ``(k, s, i_hi, i_lo)`` and the face emitter
+    REPLACED the list with dicts.  Every joint the emitter returned from
+    early (too few rows, unreadable levels) therefore reached
+    ``terrace_joints_sidecar`` still holding tuples, where ``r["bound_m"]``
+    raised ``TypeError`` — and ``layout._write_axes_sidecar``'s bare
+    ``except`` dropped the WHOLE sidecar.  Measured cost: 3 of HEAZ's 13
+    joints, 6 of HECA's 79, and with the sidecar gone every census
+    silently degraded to the context-free check (SPJC read 4,010 rows
+    instead of 810).  One class, minted once, enriched in place: the two
+    shapes are now unrepresentable.
+
+    The BINDING half (``k``/``s``/``i_hi``/``i_lo``/``bound_m``) is known
+    at plan time and is always present.  The READING half
+    (``z_pos``/``z_neg``) is filled by the face emitter and stays ``None``
+    on a station no face ever read — an honest null, not an absence.
+    """
+
+    __slots__ = ("k", "s", "i_hi", "i_lo", "bound_m", "span_m",
+                 "z_pos", "z_neg")
+
+    def __init__(self, k: int, s: float, i_hi, i_lo, bound_m: float,
+                 span_m: float):
+        self.k = int(k)
+        self.s = float(s)
+        # Solve-space node indices — meaningful ONLY inside the
+        # ``_build_node_list`` call they were resolved in (see
+        # :func:`rebind_terrace_stations`).  They never leave the
+        # process: :meth:`as_row` does not serialise them.
+        self.i_hi = i_hi
+        self.i_lo = i_lo
+        self.bound_m = float(bound_m)
+        self.span_m = float(span_m)
+        self.z_pos: Optional[float] = None
+        self.z_neg: Optional[float] = None
+
+    @property
+    def bound(self) -> bool:
+        """Did this station resolve to two distinct solve variables?"""
+        return (self.i_hi is not None and self.i_lo is not None
+                and self.i_hi != self.i_lo)
+
+    @property
+    def read(self) -> bool:
+        """Did the face emitter read a settled level on both sides?"""
+        return self.z_pos is not None and self.z_neg is not None
+
+    @property
+    def over_m(self) -> float:
+        """Metres this station's settled step exceeds its own bound."""
+        if not self.read:
+            return 0.0
+        return max(0.0, abs(self.z_pos - self.z_neg) - self.bound_m)
+
+    def as_row(self) -> dict:
+        """The ``<patch>.axes.json`` D2 row (spec §5).
+
+        Solve-space indices are deliberately absent: a node index carried
+        outside its own index space binds the wrong vertex (the rod-key
+        lesson), so the sidecar carries GEOMETRY and LEVELS only.
+        """
+        from auto_patch.adjacent_ground import STACKED_WALL_RETREAT_M
+        return {
+            "s": round(self.s, 2),
+            "z_pos": None if self.z_pos is None else round(self.z_pos, 3),
+            "z_neg": None if self.z_neg is None else round(self.z_neg, 3),
+            "span_m": self.span_m,
+            "bound_m": round(self.bound_m, 4),
+            "reader_slack_m": round(
+                APRON_MAX_GRADE * STACKED_WALL_RETREAT_M, 4),
+            "over_m": round(self.over_m, 4),
+        }
+
 
 class TerraceJoint:
     """One declared terrace joint: a polyline inside ONE apron, provably
@@ -275,12 +368,12 @@ class TerraceJoint:
         # ── D2: PLAN-TIME PANEL-BOUNDARY DENSIFICATION ──────────────
         # The joint's own boundary, densified into STATIONS at plan time
         # (positions only, so it is one computation shared by the solver
-        # binding and the face emitter).  Each entry is
-        # ``(s, i, d_i, j, d_j)``: the station's arc-length along the
-        # joint, the nearest apron node on the positive side and its
-        # perpendicular offset, and the same for the negative side.
+        # binding and the face emitter).  Every entry is a
+        # :class:`TerraceStation` — ONE representation for the whole
+        # lifetime: minted bound at plan time, enriched with the settled
+        # levels by the face emitter, serialised by ``as_row``.
         # The face is then read and BOUNDED per station, in the law's
-        # own frame — ``step + cap·(d_i + d_j)`` — instead of one
+        # own frame — ``step + cap·retreat`` — instead of one
         # whole-joint extrapolation over the flank window.
         self.stations: list = []
         # ── THE PRE-SOLVE PANEL BOUNDARY (completion round) ──────────
@@ -1437,24 +1530,13 @@ def plan_apron_terraces(layout, shape_constraints, node_xy, node_dem,
             joint.grid = [float(s) for s in jd.get("grid") or ()]
             joint.hi = [(float(x), float(y)) for (x, y) in jd["hi"]]
             joint.lo = [(float(x), float(y)) for (x, y) in jd["lo"]]
-            # STATIONS AS SOLVE VARIABLES.  ``(k, s, i_hi, i_lo)`` — the
-            # station's index in the row, its arc-length, and the two
-            # node indices the declared step is BOUND between.  A
+            # STATIONS AS SOLVE VARIABLES.  A :class:`TerraceStation`
+            # carries the station's index in the row, its arc-length, and
+            # the two node indices the declared step is BOUND between.  A
             # station whose rows did not intern (a panel dropped, a
-            # bucket collision) simply carries ``None`` and binds
-            # nothing; it is counted, never guessed at.
-            sts = []
-            for k, s_arc in enumerate(joint.grid):
-                if k >= len(joint.hi) or k >= len(joint.lo):
-                    break
-                i_hi = resolve(joint.hi[k])
-                i_lo = resolve(joint.lo[k])
-                if i_hi is None or i_lo is None or i_hi == i_lo:
-                    plan.stats["stations_unresolved"] = (
-                        plan.stats.get("stations_unresolved", 0) + 1)
-                    continue
-                sts.append((k, float(s_arc), int(i_hi), int(i_lo)))
-            joint.stations = sts
+            # bucket collision) resolves to nothing and is counted, never
+            # guessed at.
+            joint.stations = _mint_stations(joint, resolve, plan.stats)
             plan.add(joint)
     # The §3(c) FACING population, resolved to node indices in THIS
     # pass's index space (positions only — no values, so it is the same
@@ -1544,6 +1626,32 @@ def _station_resolver(layout, shape_constraints, node_xy, bucket_to_idx):
     return _by_grid
 
 
+def _mint_stations(joint, resolve, stats) -> list:
+    """THE ONE station mint — plan-time bind and post-rebuild rebind.
+
+    Both passes resolve the SAME geometry through the SAME canonical
+    join, so they mint the same population through this one function;
+    a second copy is how the two representations diverged in the first
+    place.
+    """
+    from auto_patch.adjacent_ground import STACKED_WALL_RETREAT_M
+    bound = _joint_bound_m(joint)
+    sts = []
+    for k, s_arc in enumerate(joint.grid or ()):
+        if k >= len(joint.hi) or k >= len(joint.lo):
+            break
+        i_hi = resolve(joint.hi[k])
+        i_lo = resolve(joint.lo[k])
+        if i_hi is None or i_lo is None or i_hi == i_lo:
+            if stats is not None:
+                stats["stations_unresolved"] = (
+                    stats.get("stations_unresolved", 0) + 1)
+            continue
+        sts.append(TerraceStation(k, float(s_arc), int(i_hi), int(i_lo),
+                                  bound, STACKED_WALL_RETREAT_M))
+    return sts
+
+
 def rebind_terrace_stations(plan: Optional[TerracePlan], layout,
                             shape_constraints, node_xy,
                             bucket_to_idx=None) -> int:
@@ -1561,17 +1669,8 @@ def rebind_terrace_stations(plan: Optional[TerracePlan], layout,
                                 _as_xy(node_xy), bucket_to_idx)
     n = 0
     for joint in plan.joints:
-        sts = []
-        for k, s_arc in enumerate(joint.grid or ()):
-            if k >= len(joint.hi) or k >= len(joint.lo):
-                break
-            i_hi = resolve(joint.hi[k])
-            i_lo = resolve(joint.lo[k])
-            if i_hi is None or i_lo is None or i_hi == i_lo:
-                continue
-            sts.append((k, float(s_arc), int(i_hi), int(i_lo)))
-        joint.stations = sts
-        n += len(sts)
+        joint.stations = _mint_stations(joint, resolve, None)
+        n += len(joint.stations)
     return n
 
 
@@ -1588,15 +1687,12 @@ def terrace_station_edges(plan: Optional[TerracePlan]):
     as tall as the step it declares, never as tall as the distance its
     reader had to travel.
     """
-    from auto_patch.adjacent_ground import STACKED_WALL_RETREAT_M
     out: list = []
     if plan is None:
         return out
     for joint in plan.joints:
-        budget = (float(joint.step_m)
-                  + APRON_MAX_GRADE * STACKED_WALL_RETREAT_M)
-        for (_k, _s, i_hi, i_lo) in joint.stations:
-            out.append((i_hi, i_lo, budget))
+        for st in joint.stations:
+            out.append((st.i_hi, st.i_lo, st.bound_m))
     return out
 
 
@@ -2031,12 +2127,11 @@ def emit_terrace_joint_faces(layout, plan: Optional[TerracePlan]) -> int:
     for joint in plan.joints:
         if len(joint.hi) < 2 or len(joint.hi) != len(joint.lo):
             continue
-        # THE SAME NUMBER ``terrace_station_edges`` bound the solve to.
-        # ``_RETREAT_TRIM_M`` is the joint LINE's end trim and happens to
-        # equal the band width today; reading the band's own constant is
-        # what keeps the binding and the report one quantity.
-        bound = (float(joint.step_m)
-                 + APRON_MAX_GRADE * STACKED_WALL_RETREAT_M)
+        # THE SAME NUMBER ``terrace_station_edges`` bound the solve to —
+        # literally the same function, so the binding and the report are
+        # one quantity.
+        bound = _joint_bound_m(joint)
+        by_k = {st.k: st for st in joint.stations}
         rows: list = []                   # (k, s, z_hi, z_lo)
         for k, s_arc in enumerate(joint.grid or range(len(joint.hi))):
             if k >= len(joint.hi):
@@ -2059,14 +2154,21 @@ def emit_terrace_joint_faces(layout, plan: Optional[TerracePlan]) -> int:
             plan.stats["joints_sign_flipped"] += 1
         joint.flank_span_m = round(STACKED_WALL_RETREAT_M, 3)
         joint.actual_step_m = round(float(drop), 4)
-        joint.stations = [
-            {"s": round(s_arc, 2), "z_pos": round(z_hi, 3),
-             "z_neg": round(z_lo, 3), "span_m": STACKED_WALL_RETREAT_M,
-             "bound_m": round(bound, 4),
-             "reader_slack_m": round(
-                 APRON_MAX_GRADE * STACKED_WALL_RETREAT_M, 4),
-             "over_m": round(max(0.0, abs(z_hi - z_lo) - bound), 4)}
-            for (_k, s_arc, z_hi, z_lo) in rows]
+        # ENRICH IN PLACE — never replace.  The station list IS the
+        # plan-time population the solve was bound to; the emitter adds
+        # the settled levels it read and nothing else.  A grid station
+        # the bind pass could not resolve still gets its reading (it is
+        # part of the face) but carries no solve indices.
+        for (k, s_arc, z_hi, z_lo) in rows:
+            st = by_k.get(k)
+            if st is None:
+                st = TerraceStation(k, float(s_arc), None, None, bound,
+                                    STACKED_WALL_RETREAT_M)
+                by_k[k] = st
+                joint.stations.append(st)
+            st.z_pos = float(z_hi)
+            st.z_neg = float(z_lo)
+        joint.stations.sort(key=lambda st: st.k)
         if drop <= 0.05:
             # The panels settled LEVEL — only knowable post-solve, so
             # this joint emits no face, and its sidecar allowance is
@@ -2181,10 +2283,10 @@ def terrace_joints_sidecar(layout) -> list:
             # the step from the patch, but it judges against THIS bound
             # — lockstep, and the reader distance is part of the
             # declaration instead of being hidden inside it.
-            "stations": j.stations,
+            "stations": [st.as_row() for st in j.stations],
             "reader_bound_m": (
                 None if not j.stations
-                else round(max(r["bound_m"] for r in j.stations), 4)),
+                else round(max(st.bound_m for st in j.stations), 4)),
         })
     return rows
 

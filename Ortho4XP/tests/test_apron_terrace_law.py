@@ -889,11 +889,13 @@ def test_T5c_the_face_level_is_a_lookup_not_a_reader():
     index = AT._apron_ring_values(layout)
     for j in plan.joints:
         for st in j.stations:
-            if not isinstance(st, dict):
+            if not st.read:
                 continue
             # every reported level IS a panel vertex value, exactly
-            assert st["z_pos"] in {round(v, 3) for v in index.values()}
-            assert st["z_neg"] in {round(v, 3) for v in index.values()}
+            assert round(st.z_pos, 3) in {round(v, 3)
+                                          for v in index.values()}
+            assert round(st.z_neg, 3) in {round(v, 3)
+                                          for v in index.values()}
 
 def test_T5d_validator_reads_the_actual_step_from_the_patch():
     """§3(b)'s honest instrument: an over-step face is flagged from the
@@ -1213,10 +1215,10 @@ def test_stations_are_solve_variables_on_both_panels():
     assert plan.joints
     seen = 0
     for j in plan.joints:
-        for (k, _s, i_hi, i_lo) in j.stations:
-            assert i_hi != i_lo
+        for st in j.stations:
+            assert st.i_hi != st.i_lo
             # the two rows are one wall retreat apart, on the joint normal
-            d = math.dist(j.hi[k], j.lo[k])
+            d = math.dist(j.hi[st.k], j.lo[st.k])
             assert d == pytest.approx(STACKED_WALL_RETREAT_M, abs=1e-6)
             seen += 1
     assert seen > 0, "no station resolved to a solve variable"
@@ -1240,3 +1242,82 @@ def test_a_joint_that_would_punch_a_hole_is_stillborn():
         if s.role == "apron" and s.polygon is not None:
             assert len(s.polygon.interiors) == 0
     assert n == stats["joints"]
+
+
+# ── THE SIDECAR KILLER (fix 2026-08-05) ──────────────────────────────
+
+def test_stations_have_ONE_representation_for_their_whole_lifetime():
+    """``TerraceJoint.stations`` used to carry TWO shapes.
+
+    The bind pass left 4-tuples ``(k, s, i_hi, i_lo)``; the face emitter
+    REPLACED the list with dicts.  Any joint the emitter returned early
+    from — too few rows, unreadable levels — therefore reached
+    ``terrace_joints_sidecar`` still holding tuples, where
+    ``r["bound_m"]`` raised ``TypeError``.  Measured: 3 of HEAZ's 13
+    joints, 2 of SPJC's, 6 of HECA's 79.
+
+    One class, minted once, enriched in place: the duality is now
+    unrepresentable, which is the whole fix.
+    """
+    layout, plan, shape = _panelized_layout()
+    assert plan.joints
+    for j in plan.joints:
+        for st in j.stations:
+            assert isinstance(st, AT.TerraceStation)
+            assert st.bound and not st.read
+            assert st.bound_m == pytest.approx(AT._joint_bound_m(j))
+    AT.emit_terrace_joint_faces(layout, plan)
+    for j in plan.joints:
+        for st in j.stations:
+            assert isinstance(st, AT.TerraceStation), (
+                "the emitter replaced the population instead of "
+                "enriching it")
+
+
+def test_a_joint_the_emitter_never_read_still_yields_a_sidecar():
+    """THE EXACT PRODUCTION FAILURE, reproduced and closed.
+
+    A joint whose rows the emitter cannot use returns early, so its
+    stations never reach the reading pass.  The sidecar must still
+    serialise it — and serialise to JSON, because that is what
+    ``layout._write_axes_sidecar`` does with it.
+    """
+    import json
+    layout, plan, shape = _panelized_layout()
+    victim = plan.joints[-1]
+    # The production shape of "the emitter never got here": the row
+    # lengths disagree, so ``emit_terrace_joint_faces`` continues before
+    # it would have written any level onto the stations.
+    victim.lo = list(victim.lo)[:-1]
+    AT.emit_terrace_joint_faces(layout, plan)
+    assert not victim.faced
+    assert all(not st.read for st in victim.stations), (
+        "the victim joint was read after all — the twin no longer "
+        "reproduces the failure it was written for")
+    rows = AT.terrace_joints_sidecar(layout)
+    assert rows, "the sidecar dropped every joint"
+    text = json.dumps(rows)          # this is the call that used to raise
+    assert "reader_bound_m" in text
+    victim_row = rows[-1]
+    assert victim_row["reader_bound_m"] == pytest.approx(
+        AT._joint_bound_m(victim), abs=1e-4)
+    for r in victim_row["stations"]:
+        # an honest null, not an absence: the station was BOUND but the
+        # face never read a level on it.
+        assert r["z_pos"] is None and r["z_neg"] is None
+        assert r["bound_m"] > 0.0
+
+
+def test_the_declared_step_bound_is_one_function():
+    """``step + cap·retreat`` is the number the solve binds, the number
+    the emitter counts residue against, and the number the sidecar
+    declares.  Three call sites, one function — a second copy is how the
+    binding and the report drift apart."""
+    import inspect
+    src = inspect.getsource(AT)
+    assert src.count("APRON_MAX_GRADE * STACKED_WALL_RETREAT_M") <= 2, (
+        "the joint bound is spelled out again somewhere — read "
+        "_joint_bound_m instead")
+    layout, plan, shape = _panelized_layout()
+    for (_i_hi, _i_lo, bud) in AT.terrace_station_edges(plan):
+        assert bud in {AT._joint_bound_m(j) for j in plan.joints}

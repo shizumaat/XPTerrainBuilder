@@ -374,3 +374,27 @@ Binding consequences:
 4. An "infeasible" report from any solver stage is itself a defect
    report about the law or the instrument — never a property of the
    ground.
+
+## 2026-08-05 — DEM's role, and the constant-DEM invariant (owner)
+
+Owner framing: DEM "provides potential data for where things get
+seated within their feasible bands, but we should be able to emit a
+perfectly compliant, error free airport where all the pavement is
+within the grade laws if the entire DEM was zero, or 10,000m — the
+pavement is all about smooth grades between the small number of
+anchors."
+
+Binding consequences:
+1. DEM chooses WHERE in the lawful band a thing seats. It never
+   shapes the band, never constrains, never blocks.
+2. THE CONSTANT-DEM INVARIANT (a build oracle): a build with DEM ≡ 0
+   or DEM ≡ 10,000 m MUST emit a zero-violation airport. This is the
+   cleanest possible law/solver test — no terrain signal at all, so
+   every remaining row is a law, solver, or instrument defect with no
+   data confound. It joins the verification system as a standing
+   synthetic twin (per real airport geometry, constant DEM).
+3. The DEM loader's all-zero refusal (the missing-.hgt guard) stays
+   for PRODUCTION data but gains an explicit synthetic path for the
+   oracle — the guard catches absent data, not constant data.
+4. Any violation whose explanation requires terrain roughness is a
+   defect: something is reading DEM as a constraint.

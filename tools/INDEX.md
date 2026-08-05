@@ -37,11 +37,22 @@ I reach for" surface across both trees. Retired tools live in
 
 | Tool | Reach for it when |
 |---|---|
-| `Ortho4XP/tools/harness/build_airport.py` | You need to BUILD anything for measurement: one airport patch, a constant-DEM oracle world, or a whole tile. Enforces the build cwd, refuses a cold DEM/inset frame and a drifted config frame, guarantees the axes sidecar, wraps the run in the ledger, and records the env + DEM-frame snapshots every later claim depends on. **There is no other sanctioned way to build.** |
+| `Ortho4XP/tools/harness/build_airport.py` | You need to BUILD anything for measurement: one airport patch, a constant-DEM oracle world, or a whole tile. Enforces the build cwd, refuses a cold DEM/inset frame, a drifted config frame, a PRIVATE data corpus and any implicit download into the shared repo; guarantees the axes sidecar; wraps the run in the ledger; audits the shared repo before/after; and records the env, DEM-frame and data-mount snapshots every later claim depends on. **There is no other sanctioned way to build.** |
 | `Ortho4XP/tools/harness/census.py` | You need DEFECT COUNTS from an emitted patch. All 21 law families always, law-true frame from the patch's own sidecar, airside/groundside/mixed split, worst-N rows, class table, sidecar evidence, JSON + table, A/B across patches. **The only numbers that may be quoted as defect counts.** |
-| `Ortho4XP/tools/harness/lane_worktree.sh` | You are setting up (`up`), auditing (`check`) or tearing down (`down`) a lane worktree. Symlinks `venv`/`OSM_data`/`Airport_mod_cache`/`Elevation_data`, clones `Patches`, audits untracked paths, and refuses teardown while a process holds the tree. |
+| `Ortho4XP/tools/harness/lane_worktree.sh` | You are setting up (`up`), auditing (`check`), reporting (`data`) or tearing down (`down`) a lane worktree. Mounts the WHOLE shared data repo (enumerated from it, never hard-coded), symlinks `venv` from the main engine tree, clones `Patches` + `Ortho4XP.cfg` as lane-local, audits untracked paths, and refuses teardown while a process or a shared-repo lock holds the tree. `data` reports which trees are on the shared corpus and which are private. |
 | `Ortho4XP/tools/harness/oracle.py` | You want the constant-DEM oracle: both worlds built once, all three assertions (compliance, extreme-seating saturation, band-width field), band-width artifact written. |
 | `Ortho4XP/tests/test_harness.py` | The harness's own twins. Run these after touching any harness entry or `check_grade`'s law register. |
+
+**The shared data repo (owner ruling `e9daef5`).**
+`/Users/noah/XPTerrainBuilderData` is THE data repo: DEM + insets, OSM
+extracts + road feeds, airport mod cache, geotiffs, masks, DSF cache,
+orthophotos. Every lane MOUNTS it via the ritual — never copies, never
+keeps a private cache. Downloads and cache regenerations happen EXACTLY
+ONCE as explicit, locked, hash-stamped events
+(`build_airport.py --refresh-data <scope>`), never as a build side effect;
+the refresh ledger lives in the repo at `.harness/refresh_ledger.jsonl`.
+A build that writes there without authorisation is reported and its run is
+marked CONTAMINATED.
 
 `check_grade.py` is the harness's library: `LAW_FAMILIES`,
 `law_context_from_sidecar`, `run_checks(family_out=...)`,
@@ -70,7 +81,7 @@ them anywhere.
 | `Ortho4XP/tools/production_airport_patch.py` | You specifically need the single-airport rebuild through the **tile** prelude (insets, overlay, densification, smoothing). |
 | `Ortho4XP/tools/run_tile_build.py` | A headless whole-tile build with the tile's own config. For a RELEASE-frame tile build use `harness/build_airport.py --tile` (it also applies the owner's X-Plane install paths, without which auto_patch is silently skipped). |
 | `Ortho4XP/tools/run_tile_mesh_only.py` | Consumer-side mesh work: steps 1–2 only, no imagery. |
-| `Ortho4XP/tools/fetch_airport_elevation_insets.py` | Warming or inspecting an airport's inset cache — the fix when the harness refuses a cold DEM frame. |
+| `Ortho4XP/tools/fetch_airport_elevation_insets.py` | Inspecting an airport's inset cache. It WRITES into the shared data repo, so use it to warm a cache only as a deliberate act — `build_airport.py --refresh-data dem` does the same fetch under a lock, hash-stamped into the shared refresh ledger. |
 | `Ortho4XP/tools/fast_suite.sh` | The development fast lane. The full suite stays the merge gate. |
 
 ## Measurement discipline

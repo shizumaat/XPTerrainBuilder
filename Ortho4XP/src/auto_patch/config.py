@@ -6878,3 +6878,55 @@ CROWN_MINIMUM_BOUND = False
 #     (FAA §5.9.2.1.2-.3) — the repo binds the stricter 1 % apron cap
 #     (owner constant), which contains them.
 #   * NFPA 415 fuelling-pavement slope (FAA §5.9.1.2 cross-reference).
+
+
+# ── PROJECTION SELF-LIMITS, RE-DERIVED (debug lane A 2026-08-05) ────────
+# Owner directive relayed 2026-08-05: "every loop cap, retry bound and
+# self-limit constant in route_profile/* gets re-derived from what the law
+# demands, not what prototype fear chose — change it or document why the
+# law itself sets it."
+#
+# WHAT THE LAW DEMANDS.  The projection is a POCS / Gauss-Seidel sweep over
+# the law-edge graph.  The law demands a CERTIFIED surface — every edge
+# inside its slab to ``tol`` — and says nothing whatever about a number of
+# sweeps.  A sweep cap is therefore NOT a law quantity: it is a
+# NON-TERMINATION GUARD, and the only honest derivation of its magnitude is
+# the propagation distance a correction must travel, which for a
+# nearest-neighbour sweep is ONE law edge per sweep.  The bound the law
+# implies is thus the longest law-edge path in the graph (its diameter);
+# the node count ``n`` is that path's trivial upper bound.
+#
+# WHERE WE ACTUALLY ARE — measured, not asserted (integrate/ evidence,
+# composed SPJC and HECA):
+#     [stall-report] edges=127520 n=72472: UNCERTIFIED EXIT at sweep
+#     2400/2400 ... active violating edges 1349; worst residual 0.146
+# The guard is BINDING: at n = 72,472 a 2,400-sweep cap is ~30x below the
+# worst-case propagation distance, so on those airports the surface is
+# decided by the guard rather than by convergence.  That is a real
+# finding and it is NOT fixed by editing a number here: raising the cap
+# costs sweeps, and per-airport auto-patch wall time is HARD LAW
+# (CLAUDE.md §6, 60 s).  The value must be raised together with a
+# measured build-time arm, which the current no-builds phase forbids;
+# ``one_solve._uncertified_exit_report`` already makes every such exit
+# loud, and ``layout._projection_uncertified_exits`` (below) makes it
+# COUNTABLE so the debug phase can gate on it instead of reading logs.
+#
+# The names below carry today's values verbatim — this pass makes the
+# derivation and the gap explicit and gives the constants one home; it
+# deliberately changes no surface.
+#
+# The two ROLE families and why their magnitudes differ:
+#   * FEASIBILITY / FINAL PROJECTION — whole-graph POCS over every law
+#     edge; propagation distance is the graph diameter (see above).
+#   * FAIRING — a second-difference smoother run PER CHAIN, so its
+#     propagation distance is one chain's station count (tens), not the
+#     graph's.  Those caps are law-adequate at their current values and
+#     are named here only for one home.
+PROJECTION_MAX_SWEEPS_DEFAULT = 4000        # feasibility_project default
+PROJECTION_MAX_SWEEPS_ONE_SOLVE = 3000      # one_profile_solve body
+PROJECTION_MAX_SWEEPS_FINAL = 2400          # final scoped projection
+PROJECTION_MAX_SWEEPS_MOUTH_RELAX = 1200    # the freed mouth-cluster re-project
+FAIRING_MAX_SWEEPS_SPINE = 400              # per-chain second-difference fairing
+FAIRING_MAX_SWEEPS_GAP_SPINE = 200          # per gap-fill chain
+FAIRING_MAX_SWEEPS_CHAIN = 200              # per generic chain
+FAIRING_MAX_SWEEPS_APRON = 5000             # apron smoother, per apron body

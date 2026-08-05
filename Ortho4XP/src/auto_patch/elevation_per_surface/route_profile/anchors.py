@@ -52,7 +52,30 @@ def gs_mouth_allowance_m() -> float:
 
 def gs_pin_float_cap(cap: float) -> float:
     """Part C's VALUE bound: how far above its own DEM a groundside pin may
-    float (metres of elevation)."""
+    float (metres of elevation).
+
+    ⚠ DEM AUDIT (debug lane A 2026-08-05, RULINGS 1095a3f "DEM is a SEED,
+    nothing more; a bound derived from DEM in a law path is a defect").
+    This is the ONE surviving DEM-as-CONSTRAINT in the route_profile /
+    runway_redistribute / building_feasibility territory: the ceiling
+    ``own DEM + cap·MOUTH_ALLOWANCE_M`` is applied as a real solver bound
+    (``layout._gs_pin_dem_ceiling_idx`` → ``feasibility_project``'s
+    ``node_bounds``, solve.py mouth-relax), so raw ground DECIDES how high
+    a lawful groundside surface may sit.
+
+    IT FAILS THE CONSTANT-DEM ORACLE BY INSPECTION: on a DEM ≡ 0 build the
+    ceiling is a flat ``cap·15 m`` (≈0.75 m at the groundside cap) for
+    every pin, so any lot that must weld to pavement higher than that is
+    clamped below its lawful level and emits a violation on ground that is
+    perfectly flat.  Under the ruling the datum must be the surface the
+    pin WELDS TO (a solved variable), not the DEM sample under it.
+
+    NOT changed here.  It is a landed §C.2 spec bound with a measured
+    reason (two later writers push mouth rings up), the replacement datum
+    has to be defined, and the no-builds phase forbids the measurement
+    that would price it — so it is REPORTED to the owner rather than
+    silently deleted or silently kept.  Same disposition, same reason, for
+    ``solve.build_detached_pad_dem_pins``' hard pins (see there)."""
     return cap * gs_mouth_allowance_m()
 
 

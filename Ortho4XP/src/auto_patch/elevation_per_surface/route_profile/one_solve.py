@@ -27,6 +27,11 @@ from __future__ import annotations
 import math
 import os as _os
 
+# PROJECTION SELF-LIMITS — derivation beside the constants in config.py
+# (debug lane A 2026-08-05).
+from auto_patch.config import (
+    PROJECTION_MAX_SWEEPS_DEFAULT, PROJECTION_MAX_SWEEPS_ONE_SOLVE)
+
 _INF = float("inf")
 
 # ── THE ENVELOPE GATES — ONE default per flag, DEFINED ONCE ──────────────
@@ -1078,7 +1083,12 @@ def _uncertified_exit_report(np, tol, sweeps, max_iters,
                       f"  (exit residual {worst:.6f})")
     return {"sweep": sweeps, "max_iters": max_iters,
             "sweeps_abandoned": max(0, max_iters - sweeps),
-            "active_edges": active, "worst": worst, "carrier": carrier}
+            "active_edges": active, "worst": worst, "carrier": carrier,
+            # SELF-LIMIT ACCOUNTING (debug lane A 2026-08-05): an exit on
+            # the sweep cap means the NON-TERMINATION GUARD, not
+            # convergence, decided this surface.  Flagged in the record so
+            # the debug phase can count it instead of grepping logs.
+            "cap_bound": bool(sweeps >= max_iters)}
 
 
 def _project_chromatic(elev, iter_edges, n, max_iters, tol,
@@ -1610,7 +1620,8 @@ def _break_forensics_report(path, label, broken, hard, elev, n,
 
 
 def feasibility_project(elev, shape_constraints, hard, *,
-                        max_iters=4000, tol=1e-3, force_scalar=False,
+                        max_iters=PROJECTION_MAX_SWEEPS_DEFAULT,
+                        tol=1e-3, force_scalar=False,
                         flat_groups=None, broken_out=None, pre_broken=None,
                         edge_couple_nodes=None, interval_yield_from=None,
                         group_bounds=None, node_bounds=None,
@@ -3305,7 +3316,8 @@ def one_profile_solve(
         elev, shape_constraints, base_hard, nodes, dem_elev,
         runway_nodes, building_seats, apron_body, spine_nodes, spine_adj,
         node_band, spine_floor, coupling, *,
-        max_sweeps=3000, tol=0.001, omega=None, curvature=0.25,
+        max_sweeps=PROJECTION_MAX_SWEEPS_ONE_SOLVE, tol=0.001,
+        omega=None, curvature=0.25,
         apron_smooth=None):
     """Run the one-profile solve.  Mutates ``elev`` in place; returns #free nodes.
 

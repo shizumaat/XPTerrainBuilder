@@ -17,6 +17,13 @@ import math as _math
 import os as _os
 import time as _time
 
+# PROJECTION SELF-LIMITS — the derivation lives beside the constants in
+# config.py (debug lane A 2026-08-05).  Module-level because they are
+# default arguments, which Python binds at def time.
+from auto_patch.config import (
+    FAIRING_MAX_SWEEPS_APRON, FAIRING_MAX_SWEEPS_CHAIN,
+    FAIRING_MAX_SWEEPS_GAP_SPINE, FAIRING_MAX_SWEEPS_SPINE,
+    PROJECTION_MAX_SWEEPS_FINAL, PROJECTION_MAX_SWEEPS_MOUTH_RELAX)
 from ..node_space import store_of as _store_of
 from .anchors import (
     apron_body_nodes,
@@ -2230,6 +2237,22 @@ def solve_route_profile(layout, icao: str,
     # around them.  ``layout._detached_pad_node_idx`` keeps them
     # out of every movable-pad relaxation downstream (the final
     # scoped projection's rigid flat groups included).
+    # ⚠ DEM AUDIT (debug lane A 2026-08-05, RULINGS 1095a3f).  These are
+    # HARD pins (``base_hard[i] = True`` below) whose VALUE is a raw DEM
+    # sample and which are not a law anchor (not CIFP, not the ruled
+    # tile-seam contract) — DEM as a constraint, by the ruling's own
+    # definition.  The comment above records WHY they were hardened: left
+    # free, the route-profile blend paints a detached pad 6-11 m above
+    # both its ground and the abutting groundside.  That is a defect in
+    # the BLEND, and the hard pin is masking it.  REPORTED, not changed:
+    # freeing them without fixing the blend re-opens the measured 6-11 m
+    # plateaus, and the no-builds phase forbids the measurement.
+    #
+    # They do NOT contaminate the reach band: the band's seed set is
+    # published ~300 lines above this point, when ``base_hard`` is still
+    # exactly the ``seed_rwy_seam`` class (runway/CIFP profile values plus
+    # the owner-ruled seam DEM contract), so no DEM convenience pin ever
+    # becomes a band anchor.  Keep the publication ABOVE this block.
     _detached_pad_pins = build_detached_pad_dem_pins(
         layout, bucket_to_idx, dem_fn, building_seats)
     _detached_pad_node_idx: set = set()
@@ -3505,7 +3528,8 @@ def solve_route_profile(layout, icao: str,
     rem, bh = feasibility_project(elev, joint, yield_hard,
                                   forensics=_fp8_forensics,
                                   witness_limited=_gs_witness,
-                                  force_scalar=True, max_iters=2400,
+                                  force_scalar=True,
+                                  max_iters=PROJECTION_MAX_SWEEPS_FINAL,
                                   flat_groups=pad_groups or None,
                                   interval_yield_from=_iyf,
                                   broken_out=(_solve_broken_idx
@@ -3607,7 +3631,8 @@ def solve_route_profile(layout, icao: str,
             # and must not un-do the clamp.
             rem, bh = feasibility_project(
                 elev, joint, yield_hard, force_scalar=True,
-                max_iters=1200, flat_groups=pad_groups or None,
+                max_iters=PROJECTION_MAX_SWEEPS_MOUTH_RELAX,
+                flat_groups=pad_groups or None,
                 interval_yield_from=_iyf,
                 witness_limited=_gs_witness,
                 group_bounds=_yield_group_bounds,
@@ -6919,7 +6944,8 @@ def _string_spine_corridors(elev, corridors, nodes_xy, node_band,
 
 
 def _fair_spine_chains(elev, spine_adj, anchors, node_band, nodes_xy,
-                       k_rate, *, max_sweeps=400, tol=1e-4):
+                       k_rate, *, max_sweeps=FAIRING_MAX_SWEEPS_SPINE,
+                       tol=1e-4):
     """FAIRING (user 2026-07-04, task 3): bound the grade CHANGE between
     consecutive spine segments along every chain —
     ``|g2 − g1| ≤ k_rate·(L1 + L2)/2`` — the taxiway vertical-curve
@@ -7034,7 +7060,8 @@ def _fair_spine_chains(elev, spine_adj, anchors, node_band, nodes_xy,
     return n_over
 
 
-def _fair_gap_spine_chains(elev, chains, k_rate, *, max_sweeps=200,
+def _fair_gap_spine_chains(elev, chains, k_rate, *,
+                           max_sweeps=FAIRING_MAX_SWEEPS_GAP_SPINE,
                            tol=1e-4, frozen=None):
     """GAP-SPINE longitudinal fairing (Slice B stage B2, ratified
     2026-07-10): the ``_fair_spine_chains`` second-difference law —
@@ -7156,7 +7183,8 @@ def _fair_gap_spine_chains(elev, chains, k_rate, *, max_sweeps=200,
 
 def _fair_ring_edges(layout, elev, bucket_to_idx, anchors, node_band,
                      k_rate, *, max_bend_deg=25.0, min_seg_m=3.0,
-                     max_sweeps=200, tol=1e-4, law_adjacency=None,
+                     max_sweeps=FAIRING_MAX_SWEEPS_CHAIN, tol=1e-4,
+                     law_adjacency=None,
                      skip_nodes=None):
     """Second-difference fairing on STRAIGHT airside boundary runs (user
     2026-07-04, CYXY taxiway E edge): the ``_fair_spine_chains`` law
@@ -7335,7 +7363,8 @@ def _fair_ring_edges(layout, elev, bucket_to_idx, anchors, node_band,
 
 def _solve_spine_profile(elev, base_hard, spine_adj, spine_floor,
                          node_band=None, nodes_xy=None,
-                         *, max_sweeps=5000, tol=1e-3, curvature=0.25,
+                         *, max_sweeps=FAIRING_MAX_SWEEPS_APRON, tol=1e-3,
+                         curvature=0.25,
                          graph=None, probe_out=None, string_pins=None):
     """Dedicated SMOOTH spine solve on the unified graph's geometry nodes.
 

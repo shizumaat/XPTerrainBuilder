@@ -1855,8 +1855,17 @@ def solve_route_profile(layout, icao: str,
     _ENV_FROM_BAND = envelope_from_band_enabled()
     _env_band = node_band if _ENV_FROM_BAND else None
     _psub(0.55, "Solving elevations — reach bands computed")
+    # ``law_graph`` — THE constraints object this solve projects on, handed
+    # to the seat coupler so its pair admission and limits can be priced on
+    # the graph the projection enforces instead of a straight chord (spec
+    # ``route-distance-seat-coupling-spec.md``; gate
+    # ``O4_SEAT_COUPLE_ROUTE_METRIC``, default OFF ⇒ the argument is never
+    # read and this is byte-inert).  Passing the SAME list object is the
+    # point: a re-derived edge set would be the second instrument the round
+    # exists to remove.
     building_seats = build_building_seats(
-        layout, bucket_to_idx, band, dem_fn, runway_pts)
+        layout, bucket_to_idx, band, dem_fn, runway_pts,
+        law_graph=shape_constraints, n_nodes=len(elev))
     # FEEDER CONVERGENCE (user directive #3): seat each NO-BUILDING apron flat at a
     # single level its feeders can all reach (the ring-band intersection, clamped to
     # DEM), so the feeders converge to it instead of arriving incompatible.  Merged

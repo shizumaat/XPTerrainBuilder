@@ -189,10 +189,263 @@ def _report(line):
         print(line)
 
 
-def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts):
+# ── ROUTE-DISTANCE SEAT COUPLING (spec
+# ``docs/specs/route-distance-seat-coupling-spec.md``) ────────────────────
+# The owner dial for pair admission.  It stays a DISTANCE and mirrors
+# ``config.BUILDING_REACH_CORRIDOR_M`` — the spec's "provisional 200 m to
+# preserve today's reach intent" — and is converted ONCE, at the apron cap,
+# into the metric the projection actually enforces (see
+# :func:`route_coupling_horizon_m`).
+ROUTE_COUPLING_MAX_DIST_M: float | None = None      # None ⇒ the corridor
+
+
+def seat_couple_route_metric_enabled() -> bool:
+    """ROUTE-DISTANCE SEAT COUPLING (spec
+    ``docs/specs/route-distance-seat-coupling-spec.md``; gate
+    ``O4_SEAT_COUPLE_ROUTE_METRIC``, default "0").
+
+    ON, the seat coupler admits and prices pairs on the WITHIN-SHAPE LAW
+    GRAPH the projection enforces instead of on a straight chord: pair
+    budget = the per-edge budget sum along the minimum-budget path, priced
+    exactly as ``feasibility_project`` prices its edges.  The chord corridor
+    cutoff and the pavement-visibility fraction are never consulted inside
+    the gate, and ``O4_SEAT_COUPLE_SHARED_SURFACE`` is SUBSUMED (ring-sharing
+    pads have a through-surface path) — bypassed, never fought.
+
+    THE DEFECT (dossier §2, HEAZ).  Pads building4↔building5 are 17.6 m
+    apart by chord (limit 0.176 m) but bound by the 2-hop chain
+    ``35 —0.0578— 1295 —0.1015— 37``: the REAL budget is 0.1593 m, and the
+    pair stalled 8 000 sweeps.  At HECA the shared-surface predicate admits
+    152 pairs of which 130 ship violating their own limit — more admission
+    under the wrong metric only finds more empty polytopes.
+
+    Default "0" — no new default-on gate without a battery."""
+    return _os.environ.get("O4_SEAT_COUPLE_ROUTE_METRIC", "0") == "1"
+
+
+def route_coupling_horizon_m() -> tuple:
+    """``(budget_horizon_m, dial_distance_m)`` for pair admission.
+
+    UNIT NOTE (declared, never silent).  The dial is a DISTANCE — today's
+    ``BUILDING_REACH_CORRIDOR_M`` — and admission is tested in the BUDGET
+    metric at the apron cap, so the gate is exactly today's rule with route
+    distance substituted for chord distance under the same cap
+    (``gap ≤ 200 m`` ⇔ ``APRON_MAX_GRADE·gap ≤ 2.0 m``).  Testing
+    reachability in metres of LENGTH instead would re-introduce a second
+    metric the projection does not enforce, and would reject pairs whose
+    budget genuinely binds: a minimum-BUDGET route may take a long detour
+    over cheap pavement, and it is that route the law walks."""
+    from auto_patch.config import APRON_MAX_GRADE, BUILDING_REACH_CORRIDOR_M
+    dial = ROUTE_COUPLING_MAX_DIST_M
+    if dial is None:
+        dial = float(_os.environ.get("O4_ROUTE_COUPLING_MAX_DIST_M",
+                                     BUILDING_REACH_CORRIDOR_M))
+    return float(APRON_MAX_GRADE) * float(dial), float(dial)
+
+
+def _pad_route_budgets(law_graph, pad_nodes, n_nodes=None):
+    """``(budgets, diag)`` — the min-budget route between every pair of pads
+    on the graph ``feasibility_project`` enforces.
+
+    ``law_graph`` — the solve's own ``shape_constraints`` list (the object
+    handed to the projection, never a re-derivation).  ``pad_nodes`` — one
+    node-index set per pad, in the coupler's pad order.
+
+    THE PRICING IS THE PROJECTION'S OWN, clause for clause
+    (``one_solve._build_adjacency``):
+
+      * SYMMETRIC 3-tuple edges only.  An INTERVAL 4-tuple is a one-sided
+        slab (adjacent-ground zone, RESA cut) and has no symmetric route
+        price; routing a pad↔pad chord through terrain would also
+        contradict ``reach-follows-centerlines`` (RULINGS 2026-07-30).
+      * ``lim is None`` / negative = unregulated ⇒ dropped; ``i >= n`` when
+        the caller states ``n_nodes`` ⇒ dropped.
+      * FLAT-GROUP CONTRACTION: each pad collapses to one representative
+        (``rep = min(group)``, overlapping groups merged first — two
+        touching pads sharing a ring vertex are ONE rigid unit), exactly
+        the collapse the projection performs on ``flat_groups``.
+      * TIGHTEST-BUDGET-WINS per canonical pair after the remap.
+      * the per-edge budget is ``_margined_budget(raw, quant_margin)`` — the
+        SWEEP frame, read through ``one_solve._emit_quantization_margin``
+        (the ONE accessor every consumer of the margin uses, so
+        ``O4_RAW_LAW_SWEEPS`` moves the coupler and the projection
+        together).  The dossier's certificate (0.0578 over 6.78 m, 0.1015
+        over 11.15 m, budget 0.1593) is that frame; pricing the raw law
+        instead would disagree with the projection by one margin per hop,
+        which is the two-instrument defect this round removes.  That the
+        margin COMPOUNDS along a route is a known cost of the margined
+        frame (``raw_law_sweeps_enabled``'s own §1b docstring) — a defect
+        of the frame, not of pricing the coupler in it: the coupler's job
+        is to agree with what the projection enforces.
+
+    The Dijkstra itself is NOT written here: it is
+    ``law_graph_budget.build_anchor_envelope``, the seed-fix round's oracle,
+    seeded ``{rep_i: 0.0}`` so its ``ceil_route_m[rep_j]`` IS ``d(i, j)``
+    (``single-pass-principle`` — one metric, built once, consumed twice).
+
+    ``diag`` carries the census the round reports: pair counts, the
+    certified-lazy entry count (those contribute ring edges only — the
+    approximation is declared, not hidden), and the BUDGET-IDENTITY
+    measurement (§4): every pair is priced from BOTH endpoints and the
+    disagreement reported; >1 % is the spec's STOP."""
+    from .law_graph_budget import build_anchor_envelope
+    from .one_solve import _margined_budget, _emit_quantization_margin
+
+    horizon, dial = route_coupling_horizon_m()
+    # ── flat-group contraction (mirrors one_solve's merge exactly) ──────
+    merged: list = []
+    owner: list = []                      # pad index -> merged-group index
+    for g in pad_nodes:
+        g = set(g)
+        hit = None
+        for mi, mg in enumerate(merged):
+            if mg & g:
+                mg |= g
+                hit = mi
+                break
+        if hit is None:
+            merged.append(set(g))
+            hit = len(merged) - 1
+        owner.append(hit)
+    gmap: dict = {}
+    rep_of_group: list = []
+    for mg in merged:
+        if not mg:
+            rep_of_group.append(None)
+            continue
+        rep = min(mg)
+        rep_of_group.append(rep)
+        for m in mg:
+            gmap[m] = rep
+    rep_of_pad = [rep_of_group[owner[k]] for k in range(len(pad_nodes))]
+
+    # ── the projection's edge set, deduped and margined ─────────────────
+    margin = _emit_quantization_margin()
+    edge_lim: dict = {}
+    lazy_entries = 0
+    interval_edges = 0
+    for sc in law_graph:
+        if sc.get("lazy_expand") is not None:
+            lazy_entries += 1
+        for edge in sc["edges"]:
+            if len(edge) >= 4:
+                interval_edges += 1
+                continue
+            i, j, lim = edge
+            if lim is None or lim < 0:
+                continue
+            if n_nodes is not None and (i >= n_nodes or j >= n_nodes):
+                continue
+            i = gmap.get(i, i)
+            j = gmap.get(j, j)
+            if i == j:
+                continue
+            e = (i, j) if i < j else (j, i)
+            prev = edge_lim.get(e)
+            if prev is None or lim < prev:
+                edge_lim[e] = lim
+    adj: dict = {}
+    raw_adj: dict = {}
+    for (i, j), lim in edge_lim.items():
+        w = _margined_budget(lim, margin)
+        adj.setdefault(i, []).append((j, w))
+        adj.setdefault(j, []).append((i, w))
+        # REPORT-ONLY twin of the same graph at the RAW law budgets.  The
+        # enforced frame is the margined one above and nothing here is
+        # consumed — but the margin is subtracted PER EDGE, so a long route
+        # loses one margin per hop (``raw_law_sweeps_enabled``'s §1b: "a
+        # 69-hop witness route steals 0.63 m").  Quoting both frames is what
+        # turns "the coupler tightened this pair" into an attribution:
+        # tightening the LAW took vs tightening the margin took.
+        raw_adj.setdefault(i, []).append((j, lim))
+        raw_adj.setdefault(j, []).append((i, lim))
+
+    # ── one oracle field per pad; the pair budget is read off it ────────
+    fields: dict = {}
+    raw_fields: dict = {}
+    for rep in rep_of_pad:
+        if rep is None or rep in fields or rep not in adj:
+            continue
+        fields[rep] = build_anchor_envelope(adj, {rep: 0.0},
+                                            horizon_m=horizon)
+        raw_fields[rep] = build_anchor_envelope(raw_adj, {rep: 0.0},
+                                                horizon_m=horizon)
+    budgets: dict = {}
+    raw_budgets: dict = {}
+    merged_pairs = 0
+    ident_worst = 0.0
+    ident_worst_pair = None
+    ident_over = []
+    unreachable = 0
+    off_graph = 0
+    for a in range(len(pad_nodes)):
+        ra = rep_of_pad[a]
+        for b in range(a + 1, len(pad_nodes)):
+            rb = rep_of_pad[b]
+            if ra is None or rb is None:
+                off_graph += 1
+                continue
+            if ra == rb:
+                # MERGED RIGID UNIT.  Two pads sharing a ring vertex are ONE
+                # flat group in the projection, and the merge is transitive —
+                # a chain of touching buildings is a single rigid body that
+                # the projection seats at ONE level (it broadcasts the
+                # group's mean).  Their coupling budget is 0 by law, at any
+                # separation: a chord-priced coupler that let them differ was
+                # choosing levels the projection would overwrite.
+                budgets[(a, b)] = 0.0
+                merged_pairs += 1
+                continue
+            fa, fb = fields.get(ra), fields.get(rb)
+            dab = None if fa is None else fa.ceil_route_m.get(rb)
+            dba = None if fb is None else fb.ceil_route_m.get(ra)
+            if dab is None and dba is None:
+                if ra not in adj or rb not in adj:
+                    off_graph += 1
+                else:
+                    unreachable += 1
+                continue
+            # ── §4 BUDGET IDENTITY: the same pair priced from both ends.
+            if dab is not None and dba is not None:
+                scale = max(abs(dab), abs(dba), 1e-9)
+                rel = abs(dab - dba) / scale
+                if rel > ident_worst:
+                    ident_worst, ident_worst_pair = rel, (a, b)
+                if rel > 0.01:
+                    ident_over.append((a, b, dab, dba))
+            d = min(x for x in (dab, dba) if x is not None)
+            budgets[(a, b)] = float(d)
+            fra, frb = raw_fields.get(ra), raw_fields.get(rb)
+            rab = None if fra is None else fra.ceil_route_m.get(rb)
+            rba = None if frb is None else frb.ceil_route_m.get(ra)
+            _raw = [x for x in (rab, rba) if x is not None]
+            if _raw:
+                raw_budgets[(a, b)] = float(min(_raw))
+    diag = {"horizon_m": horizon, "dial_m": dial, "margin_m": margin,
+            "raw_budgets": raw_budgets, "merged_pairs": merged_pairs,
+            "merged_groups": sum(1 for gi in set(owner)
+                                 if owner.count(gi) > 1),
+            "merged_pads": sum(1 for gi in owner if owner.count(gi) > 1),
+            "pairs": len(budgets), "unreachable": unreachable,
+            "off_graph": off_graph, "lazy_entries": lazy_entries,
+            "interval_edges": interval_edges, "graph_nodes": len(adj),
+            "graph_edges": len(edge_lim),
+            "ident_worst": ident_worst, "ident_worst_pair": ident_worst_pair,
+            "ident_over": ident_over}
+    return budgets, diag
+
+
+def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
+                         *, law_graph=None, n_nodes=None):
     """``{pad_node_idx: flat_level}`` for every airside-touching building, seated
     at the level its FRONTAGE can reach (the band intersected over the pad ring)
-    closest to DEM."""
+    closest to DEM.
+
+    ``law_graph`` / ``n_nodes`` — the solve's own ``shape_constraints`` and
+    node count, consumed ONLY by the route-distance coupling gate
+    (:func:`seat_couple_route_metric_enabled`).  Absent, the gate cannot
+    price on the law graph and says so rather than pricing on a chord in
+    silence."""
     import os as _os
     from auto_patch.layout import ROLE_APRON
     from auto_patch.elevation_per_surface.building_feasibility import (
@@ -418,7 +671,24 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts):
         from auto_patch.grade_law import BUILDING_REACH_CORRIDOR_M
         from auto_patch.elevation_per_surface.building_feasibility import (
             _pavement_visibility, _VIS_ON_PAV_FRAC)
-        vis = _pavement_visibility(layout) if VISIBLE_CHORD_CONNECT else None
+        # ── ROUTE-DISTANCE PRICING (spec
+        # ``route-distance-seat-coupling-spec.md``; gate
+        # ``O4_SEAT_COUPLE_ROUTE_METRIC``, default OFF) ─────────────────
+        # ONE METRIC: admission AND budget come from the within-shape law
+        # graph the projection enforces, so the polytope stops being priced
+        # on a distance the solver never walks.  The visibility fraction is
+        # not consulted (it is a false-negative pair predicate) and the
+        # chord corridor cutoff is replaced by route reachability — the
+        # chord numbers below are still MEASURED, purely as the census the
+        # round reports.
+        _route = seat_couple_route_metric_enabled()
+        if _route and law_graph is None:
+            _report("  [seat-couple] route-metric gate ON but the solve "
+                    "passed no law graph — pricing stays on the chord "
+                    "(this is a wiring defect, not a fallback)")
+            _route = False
+        vis = (_pavement_visibility(layout)
+               if (VISIBLE_CHORD_CONNECT and not _route) else None)
         # ── SHARED-SURFACE COUPLING (spec dossier-fixes §3, gate
         # ``O4_SEAT_COUPLE_SHARED_SURFACE``, DEFAULT OFF) ────────────────
         # The visibility fraction is a FALSE-NEGATIVE pair predicate: two
@@ -451,8 +721,11 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts):
         # exists to fix.  This flip is SEQUENCED, not rejected: it re-arms
         # after the seed-fix round lands the law-graph budget oracle and the
         # coupling round re-prices admission/limits on it.
-        _shared = _os.environ.get("O4_SEAT_COUPLE_SHARED_SURFACE",
-                                  "0") == "1"
+        # SUBSUMED inside the route gate (spec §2): ring-sharing pads have a
+        # through-surface path, so route admission already offers every pair
+        # this predicate was invented to rescue.  Bypassed, never fought.
+        _shared = (_os.environ.get("O4_SEAT_COUPLE_SHARED_SURFACE",
+                                   "0") == "1") and not _route
         pad_surfaces: list = []
         if _shared:
             from auto_patch.layout import (
@@ -474,7 +747,124 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts):
                 pad_surfaces.append(own)
         pairs: dict = {}
         _shared_admitted: list = []
-        for i in range(len(pads)):
+        _chord_lim: dict = {}
+        if _route:
+            _pad_nodes = []
+            for (_s, _ring, *_r) in pads:
+                _g = set()
+                for (x, y) in _ring:
+                    _k = cps.get_or_add(float(x), float(y))
+                    _i = bucket_to_idx.get(_k)
+                    if _i is not None:
+                        _g.add(_i)
+                _pad_nodes.append(_g)
+            pairs, _rdiag = _pad_route_budgets(law_graph, _pad_nodes,
+                                               n_nodes=n_nodes)
+            # THE CHORD CENSUS (report only — it admits nothing).  The
+            # rejection frame the dossier quoted (HECA 2 613 `gap>corridor`,
+            # HEAZ 7) is re-quoted here against route admission, and
+            # `not_visible` is 0 BY CONSTRUCTION: the predicate is gone
+            # inside the gate.
+            _chord_far = 0
+            _far_admitted = 0
+            _far_worst = 0.0
+            for i in range(len(pads)):
+                pi = pads[i][0].polygon
+                for j in range(i + 1, len(pads)):
+                    gap = pi.distance(pads[j][0].polygon)
+                    if gap > BUILDING_REACH_CORRIDOR_M:
+                        _chord_far += 1
+                    if (i, j) in pairs:
+                        _chord_lim[(i, j)] = APRON_MAX_GRADE * gap
+                        if gap > BUILDING_REACH_CORRIDOR_M:
+                            _far_admitted += 1
+                            _far_worst = max(_far_worst, gap)
+            _tight = [(k, pairs[k], _chord_lim[k]) for k in pairs
+                      if k in _chord_lim and pairs[k] < _chord_lim[k] - 1e-9]
+            _loose = [k for k in pairs
+                      if k in _chord_lim and pairs[k] > _chord_lim[k] + 1e-9]
+            _npairs_all = len(pads) * (len(pads) - 1) // 2
+            _report(
+                f"  [seat-couple] ROUTE METRIC: {len(pads)} pad(s), "
+                f"{len(pairs)} coupled pair(s) of {_npairs_all} "
+                f"(horizon {_rdiag['horizon_m']:.2f} m of budget = "
+                f"{_rdiag['dial_m']:.0f} m at the apron cap; law graph "
+                f"{_rdiag['graph_nodes']} node(s) / {_rdiag['graph_edges']} "
+                f"edge(s), margin {_rdiag['margin_m']:.3f} m)")
+            _report(
+                f"  [seat-couple]   rejection census: route-unreachable "
+                f"{_rdiag['unreachable']}, pad off the law graph "
+                f"{_rdiag['off_graph']}, not_visible 0 (predicate retired "
+                f"inside the gate); the chord frame would have rejected "
+                f"{_chord_far} as gap>corridor")
+            # THE DIAL'S UNITS, MEASURED (never assumed).  Admission is the
+            # 200 m corridor expressed in the BUDGET metric, so a route over
+            # cheap pavement — flat-cross edges, and the FLAT shapes and
+            # merged pad chains that cost nothing at all — can reach far past
+            # 200 m of ground distance.  That population is counted here so
+            # the dial's unit choice is adjudicable on evidence.
+            _report(
+                f"  [seat-couple]   reach: {_far_admitted} admitted pair(s) "
+                f"lie beyond the {BUILDING_REACH_CORRIDOR_M:.0f} m chord "
+                f"corridor (worst {_far_worst:.0f} m apart); "
+                f"{_rdiag['merged_pairs']} pair(s) are MERGED RIGID units "
+                f"(budget 0 by law) across {_rdiag['merged_groups']} group(s) "
+                f"covering {_rdiag['merged_pads']} pad(s)")
+            _report(
+                f"  [seat-couple]   budget vs chord: {len(_tight)} "
+                f"TIGHTENED, {len(_loose)} loosened, "
+                f"{len(pairs) - len(_tight) - len(_loose)} equal; "
+                f"{_rdiag['lazy_entries']} certified-lazy entry(ies) "
+                f"contribute ring edges only, {_rdiag['interval_edges']} "
+                f"interval edge(s) excluded (one-sided slabs)")
+            # THE FRAME SPLIT (attribution, never consumed): how much of a
+            # tightening is the LAW's route and how much is the margin
+            # compounding along it (one margin per hop).
+            _rawb = _rdiag["raw_budgets"]
+            _margin_share = 0.0
+            _by_law = 0
+            for (k, rb, cb) in _tight:
+                _rw = _rawb.get(k)
+                if _rw is None:
+                    continue
+                _margin_share += max(0.0, _rw - rb)
+                if _rw < cb - 1e-9:
+                    _by_law += 1
+            _tot_tight = sum(cb - rb for (_k, rb, cb) in _tight)
+            _report(
+                f"  [seat-couple]   tightening attribution: "
+                f"{_tot_tight:.3f} m total, {_margin_share:.3f} m of it is "
+                f"the emit margin compounding along the route "
+                f"({_rdiag['margin_m']:.3f} m per hop); {_by_law} of "
+                f"{len(_tight)} tightened pair(s) are tighter than the chord "
+                f"in the RAW law frame too")
+            for ((i, j), rb, cb) in sorted(_tight,
+                                           key=lambda r: r[1] - r[2])[:12]:
+                _rw = _rawb.get((i, j))
+                _rws = "n/a" if _rw is None else f"{_rw:.4f}"
+                _mg = _rdiag["margin_m"]
+                _hops = ("?" if _rw is None or _mg <= 0.0
+                         else f"{(_rw - rb) / _mg:.0f}")
+                _report(f"  [seat-couple]     tightened "
+                        f"{pads[i][0].ref or '?'} <-> {pads[j][0].ref or '?'}"
+                        f" route {rb:.4f} m vs chord {cb:.4f} m "
+                        f"({rb - cb:+.4f}); raw-law route {_rws} m "
+                        f"(~{_hops} hop(s) of margin)")
+            # ── §4 BUDGET IDENTITY — the point of the round ─────────────
+            if _rdiag["ident_over"]:
+                _report(f"  [seat-couple]   BUDGET-IDENTITY VIOLATION: "
+                        f"{len(_rdiag['ident_over'])} pair(s) disagree by "
+                        f">1 % between their two endpoints — this is a STOP, "
+                        f"not a tolerance to widen")
+                for (i, j, dab, dba) in _rdiag["ident_over"][:12]:
+                    _report(f"  [seat-couple]     {pads[i][0].ref or '?'} "
+                            f"<-> {pads[j][0].ref or '?'}: {dab:.6f} vs "
+                            f"{dba:.6f} m")
+            else:
+                _report(f"  [seat-couple]   budget identity OK: worst "
+                        f"disagreement {100.0 * _rdiag['ident_worst']:.4f} % "
+                        f"over {len(pairs)} pair(s) (limit 1 %)")
+        for i in (() if _route else range(len(pads))):
             pi = pads[i][0].polygon
             for j in range(i + 1, len(pads)):
                 pj = pads[j][0].polygon
@@ -574,16 +964,33 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts):
                         f"feasible seat set; independent seats kept, so "
                         f"{len(conflicts)} pair(s) SHIP violating their own "
                         f"coupling limit")
-                for (ex, i, j, lim) in conflicts[:12]:
+                # Under route pricing every conflict row also carries the
+                # CHORD limit it would have had, so a rise in
+                # shipping-in-violation can be accounted pair by pair as
+                # honestly-tightened budget rather than waved through (spec
+                # pre-registered band 2).  The row cap lifts inside the gate
+                # because that accounting IS the round's evidence.
+                for (ex, i, j, lim) in conflicts[:(200 if _route else 12)]:
                     ri, rj = _rel(i), _rel(j)
                     gap_ij = pads[i][0].polygon.distance(pads[j][0].polygon)
+                    cb = _chord_lim.get((i, j))
+                    if cb is None:
+                        split = ""
+                    else:
+                        if lim < cb - 1e-9:
+                            _tag = "TIGHTENED"
+                        elif lim > cb + 1e-9:
+                            _tag = "loosened"
+                        else:
+                            _tag = "equal"
+                        split = f" chord_lim={cb:.3f} ({_tag})"
                     _report(
                         f"  [seat-couple]   {pads[i][0].ref or '?'} "
                         f"{targets[i]:.3f} <-> {pads[j][0].ref or '?'} "
                         f"{targets[j]:.3f}  gap={gap_ij:.1f} m "
                         f"|dL|={abs(targets[i] - targets[j]):.3f} "
-                        f"lim={lim:.3f} excess={ex:+.3f} m  ring relief "
-                        f"{'n/a' if ri is None else format(ri, '.2f')} / "
+                        f"lim={lim:.3f}{split} excess={ex:+.3f} m  ring relief"
+                        f" {'n/a' if ri is None else format(ri, '.2f')} / "
                         f"{'n/a' if rj is None else format(rj, '.2f')} m")
 
     seats: dict = {}

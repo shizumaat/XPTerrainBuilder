@@ -28,7 +28,8 @@ Usage:
     venv/bin/python tools/full_airport_build.py ICAO [outsuffix]
 
 Env:
-    O4_LOG_VERBOSITY=1 is set here so ``to_osm`` writes the axes sidecar.
+    O4_LOG_VERBOSITY=1 is set here for the per-phase build chatter (the
+    axes sidecar is written at every verbosity since 2026-08-05).
     Grade-law gates (O4_RUNWAY_FLEX=0, O4_STEP_DEBUG=1, ...) pass through.
 
 (Promoted from the /tmp/spjc_lab scratch script, user 2026-07-06:

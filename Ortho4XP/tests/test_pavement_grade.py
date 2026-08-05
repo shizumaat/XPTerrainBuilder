@@ -149,9 +149,9 @@ def _airport_tiles(icao: str, root: str):
     return tiles
 
 
-# HECA is grade-checked here even though it is NOT in the global
-# ``baseline_airports()`` invariant set (adding it there would pull HECA into
-# every geometry invariant at once).  Scoping it to the GRADE gate makes the
+# HECA and KCLT are grade-checked here even though neither is in the global
+# ``baseline_airports()`` invariant set (adding them there would pull them into
+# every geometry invariant at once).  Scoping them to the GRADE gate makes the
 # real within-shape / cross-shape violations the Ortho4XP-window WARN already
 # reports become CI-visible — closing the runtime-vs-test gap where HECA's
 # grade was never asserted (terminal-8 apron ramp, steep stub/cross_connector
@@ -159,13 +159,21 @@ def _airport_tiles(icao: str, root: str):
 # apron-bridged terminals to a grade-compatible level (see the T8 investigation
 # in docs/presolve_geometry_refactor.md / memory); it turns GREEN when the
 # violations are fixed, proving the fix.
+#
+# KCLT ADDED 2026-08-05 (item 3).  It is THE FAA fixture — the campaign's
+# five-airport goal names it, and it is the only airport in the battery whose
+# build runs under ``ruleset='faa'``.  It was absent from this gate ENTIRELY,
+# so the FAA half of the region-ruleset split had no acceptance test at all:
+# the FAA-only drainage-minimum family (1,099 KCLT rows in the test-phase
+# census) could not appear here even once the ruleset was passed correctly.
+_GRADE_ONLY_AIRPORTS = frozenset({"HECA", "KCLT"})
 def _grade_test_airports() -> list:
     """The airport set this module parametrises over.
 
     * ``O4_TEST_AIRPORTS`` UNSET (or empty) → the FULL BATTERY: the
-      baseline invariant set, plus HECA, plus anything ``O4_TEST_TILE``
-      discovery adds.  Unchanged from before this helper existed — the
-      union semantics for the tile-discovery path are deliberate.
+      baseline invariant set, plus ``_GRADE_ONLY_AIRPORTS`` (HECA, KCLT),
+      plus anything ``O4_TEST_TILE`` discovery adds.  The union semantics
+      for the tile-discovery path are deliberate.
     * ``O4_TEST_AIRPORTS=ICAO[,ICAO…]`` → EXACTLY those airports.
 
     Before this, the env list was UNIONED in, so a scoped request still
@@ -175,7 +183,7 @@ def _grade_test_airports() -> list:
     scoped = set(airports_under_test())
     if os.environ.get("O4_TEST_AIRPORTS", "").strip():
         return sorted(scoped)
-    return sorted(set(baseline_airports()) | {"HECA"} | scoped)
+    return sorted(set(baseline_airports()) | _GRADE_ONLY_AIRPORTS | scoped)
 
 
 _GRADE_TEST_AIRPORTS = _grade_test_airports()
@@ -213,83 +221,23 @@ def test_pavement_grade(tmp_path, icao):
         out = tmp_path / f"{icao}_tile{tlat:+d}{tlon:+d}.osm"
         layout.to_osm(str(out))
 
-        # LAW-TRUE frame (2026-07-05): mirror EXACTLY what ``layout.to_osm``'s
-        # ``_write_axes_sidecar`` exports for ``tools/check_grade.py`` — the
-        # EXACT-AXES mirror of ``grade_graph.build_context``
-        # (``verification.taxi_axes_exact_ll``: unsplit polylines, per-SEGMENT
-        # caps, route ordinal), the builder's projection ANCHOR, and the
-        # tile-seam PIN vertices — so this test measures through the SAME
-        # frame as the standalone CLI and cannot drift from the solver's law
-        # reading.  NEVER re-derive centerlines from the OSM.
-        from auto_patch.verification import (taxi_axes_exact_ll,
-                                             junction_mesh_edges_ll)
-        from auto_patch.elevation_per_surface.route_profile.apron_terrace \
-            import terrace_joints_sidecar as _terrace_joints_sidecar
-        axes_exact, routes_exact = taxi_axes_exact_ll(layout)
-        # EXACT-MESH sidecar mirror: the solver's junction mesh, consumed
-        # 1:1 (emit-time ring repairs otherwise make the validator's
-        # Delaunay differ from the solver's — the cm-noise junction class).
-        mesh_edges_ll = junction_mesh_edges_ll(layout) or None
-        # Same 4-tuple shape check_grade's sidecar loader passes to
-        # run_checks: (latlon_pts, seg_caps, None, route_ordinal).
-        taxi_axes_ll = [(pts, caps, None, ridx)
-                        for (pts, caps, ridx) in axes_exact]
-        seam_pins_ll = [[round(la, 7), round(lo, 7)]
-                        for (la, lo) in
-                        (getattr(layout, "_seam_pin_ll", None) or [])]
-        # THE BREAK-REGION QUARANTINE IS DELETED (spec ``docs/specs/
-        # kill-half-spec.md`` §2, 2026-08-04): ``run_checks`` no longer
-        # takes ``break_nodes_ll`` and no longer splits any pair out of
-        # the actionable count.  This test is therefore FULL-CENSUS, which
-        # is what docs/RULINGS.md requires ("all counts are full-census,
-        # never quarantine-excluded").
-        # SPINE CROWN drop field (part 30), exactly like the sidecar: the
-        # within-shape law re-centres each pair on the designed crown
-        # offset the solver built to (grade_law.crown_pair_offset).
-        crown_drops_ll = [[la, lo, c] for (la, lo, c) in
-                          (getattr(layout, "_crown_drop_ll", None) or [])]
-        # CROWN CENTERLINE nodes (Phase 0 hotfix): the runway ridge vertices
-        # the interior cross-edge crown inserted, exempt from the runway
-        # within-shape all-pairs plane law (spine-profile governed).
-        crown_centerline_ll = [[la, lo] for (la, lo) in
-                               (getattr(layout, "_crown_centerline_ll", None)
-                                or [])]
-
-        # proximity_m = the solver's weld tolerance (one definition of
-        # "same point" everywhere — canonical registry, pre-solve weld,
-        # and this check).  Vertices farther apart are INDEPENDENT
-        # solver nodes whose relationship the vertex-to-edge/mid-edge
-        # step checks govern; a wider radius double-counts that class
-        # (the years-old "HECA fails in suite, never standalone"
-        # mystery was exactly this: the CLI defaults to 0.5, this call
-        # hardcoded 1.0).
-        from auto_patch.layout import SHARED_VERTEX_TOL_M
-        w, c, s = check_grade.run_checks(
-            out,
-            max_grade_pct=1.5,
-            proximity_m=SHARED_VERTEX_TOL_M,
-            edge_search_m=5.0,
-            edge_step_m=0.5,
-            top_n=5,
-            taxi_axes_ll=taxi_axes_ll,
-            routes_ll=routes_exact,
-            anchor=(tuple(layout.anchor)
-                    if layout.anchor is not None else None),
-            seam_pins_ll=seam_pins_ll,
-            mesh_edges_ll=mesh_edges_ll,
-            crown_drops_ll=crown_drops_ll,
-            crown_centerline_ll=crown_centerline_ll,
-            # WITHIN-SHAPE baked pair caps (2026-07-17): the exact pair
-            # selection + metre budgets the final projection enforced,
-            # frozen on the layout — same lockstep as the sidecar's
-            # ``pair_caps`` (see verification.lockstep_pair_caps_ll).
-            pair_caps_ll=getattr(layout, "_lockstep_pair_caps_ll", None),
-            # APRON TERRACE JOINTS (owner 2026-08-04): the same declared
-            # joints the sidecar carries, from the same builder call, so
-            # the law-true suite count and the standalone CLI read one
-            # law.  Empty list with the gate off.
-            terrace_joints_ll=_terrace_joints_sidecar(layout),
-        )
+        # LAW-TRUE frame — ONE READER (item 3, 2026-08-05).  This used
+        # to hand-mirror ``_write_axes_sidecar``'s payload out of the
+        # layout: sixty lines assembling axes, anchor, seam pins, solver
+        # mesh, crown field, pair caps and terrace joints by hand.  It was
+        # a SECOND INSTRUMENT describing the same population, and it had
+        # already drifted — it never passed ``ruleset``, so KCLT (the FAA
+        # fixture) was judged under ICAO here and the FAA-only
+        # drainage-minimum family, 1,099 KCLT rows, was invisible to the
+        # acceptance gate.
+        #
+        # The patch's own sidecar IS the contract, and
+        # ``check_grade.run_checks_law_true`` is its single reader (the
+        # harness's own code path, CLAUDE.md "The standard test harness").
+        # A key added to the sidecar now reaches this gate for free
+        # instead of needing a mirror edit nobody remembers to make.
+        w, c, s = check_grade.run_checks_law_true(
+            out, top_n=5, quiet=False)
         within += w
         cross += c
         steps += s

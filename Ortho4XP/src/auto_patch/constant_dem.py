@@ -142,11 +142,36 @@ def canyon_dem(lat: int = 0, lon: int = 0) -> ConstantDEM:
 
 # ── the two derived instruments ───────────────────────────────────────
 
+def node_author(shape) -> str:
+    """``"role/ref"`` — WHO wrote this shape's vertices.
+
+    The band-width join's author key.  ``role`` alone is too coarse: a
+    ``graded_strip`` minted as a ``runway_end_skirt`` and one minted by
+    the adjacent-ground march are different authors under different law,
+    and they share coordinates wherever they abut.
+    """
+    return f"{getattr(shape, 'role', '?')}/{getattr(shape, 'ref', '') or ''}"
+
+
 def _node_values(layout) -> dict:
-    """``{(x, y) rounded: elevation}`` over every value-carrying vertex of
-    a layout, keyed on the metre-frame coordinate so the two worlds' node
-    sets can be joined by IDENTITY (they are the same geometry: the DEM
-    is a seed, so a constant DEM cannot move a vertex in plan).
+    """``{(author, x, y) rounded: elevation}`` over every value-carrying
+    vertex of a layout, keyed on the AUTHOR plus the metre-frame
+    coordinate so the two worlds' node sets can be joined by IDENTITY
+    (they are the same geometry: the DEM is a seed, so a constant DEM
+    cannot move a vertex in plan).
+
+    THE AUTHOR IS PART OF THE KEY (fix 2026-08-05, fix-lane-2 evidence in
+    ``scratchpad/fix2/who/``).  It used to be ``{(x, y): elevation}``, so
+    at any coordinate two shapes share — and abutting surfaces share
+    coordinates by construction, that is what welding IS — the LAST shape
+    iterated won.  Shape order and shape COUNT differ between the two
+    worlds, so the same key could be written by a ``runway_end_skirt`` in
+    one world and by ``adjacent_ground`` / ``resa`` / ``apron`` in the
+    other, and the "band width" reported at that node was the difference
+    between TWO DIFFERENT SURFACES.  Measured: 9 of the 95 negative-width
+    rows were cross-family joins — a negative width is supposed to be
+    impossible-on-its-face evidence of a non-monotone seating, and nine of
+    them were the instrument describing two populations at once.
 
     Rounded to the millimetre — the canonical registry's own resolution is
     far coarser (0.5 m), so a millimetre key never merges two real nodes
@@ -170,15 +195,16 @@ def _node_values(layout) -> dict:
             vals = [float(shape.altitude)] * len(ring)
         else:
             continue
+        author = node_author(shape)
         for (x, y), v in zip(ring, vals):
             if v is None:
                 continue
-            out[(round(float(x), 3), round(float(y), 3))] = v
+            out[(author, round(float(x), 3), round(float(y), 3))] = v
     return out
 
 
 def band_width_field(plateau_layout, canyon_layout) -> dict:
-    """ASSERTION 3's artifact: ``{(x, y): canyon - plateau}``.
+    """ASSERTION 3's artifact: ``{(author, x, y): canyon - plateau}``.
 
     The per-node difference between the two worlds is the WIDTH of the
     feasible band the law grants at that node — the direct empirical map
@@ -188,6 +214,14 @@ def band_width_field(plateau_layout, canyon_layout) -> dict:
     threshold): it has no freedom, and no seed can move it.  A NEGATIVE
     width is a defect on its face — the high world seated a node BELOW the
     low world, which no monotone seating can do.
+
+    SAME AUTHOR ON BOTH SIDES.  The key carries ``role/ref`` (see
+    :func:`_node_values`): differencing a ``runway_end_skirt`` vertex in
+    one world against the ``apron`` vertex that shares its coordinate in
+    the other is two instruments on one assumed population, and it minted
+    9 of the 95 negative widths this artifact reported.  A coordinate that
+    two surfaces share now yields one row PER SURFACE, which is the honest
+    answer: they are two nodes with two bands.
     """
     lo = _node_values(plateau_layout)
     hi = _node_values(canyon_layout)
@@ -268,8 +302,11 @@ def write_band_width_artifact(field: dict, path,
     from pathlib import Path
     doc = {
         "summary": band_width_summary(field),
-        "nodes": [{"x": x, "y": y, "band_width_m": round(w, 6)}
-                  for (x, y), w in sorted(field.items())],
+        # ``author`` is part of the identity, not decoration: it is what
+        # makes each row a difference of ONE surface against itself.
+        "nodes": [{"author": a, "x": x, "y": y,
+                   "band_width_m": round(w, 6)}
+                  for (a, x, y), w in sorted(field.items())],
     }
     if extra:
         doc.update(extra)

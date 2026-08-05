@@ -707,3 +707,61 @@ def test_interior_ring_shares_the_hole_occupant_s_vertices(tmp_path):
     assert ring_nids and ring_nids <= occ_nids, (
         "the interior ring minted its own nodes instead of adopting the "
         "hole occupant's — a proximity join, not an identity one")
+
+
+# ── THE AXES SIDECAR IS THE LAW CONTRACT ─────────────────────────────
+# ``<patch>.axes.json`` is what makes a standalone census law-true: the
+# exact centrelines, caps, anchor, seam pins, pair caps, terrace joints
+# and RULESET the build actually ran under.  Without it every reader
+# silently falls back to the CONTEXT-FREE check, which over-flags by
+# multiples (measured 2026-08-05: SPJC 4,010 rows against a law-true
+# 810; HEAZ 959 vs 144; HECA 12,932 vs 8,099) and says nothing.
+#
+# Two guards used to make that silence possible and both are gone:
+# a ``config.LOG_VERBOSITY > 0`` gate, and a bare
+# ``except Exception: pass`` around the whole write.
+
+def test_the_axes_sidecar_is_written_at_default_verbosity(tmp_path,
+                                                          monkeypatch):
+    """A DEBUG-VERBOSITY FLAG MUST NEVER DECIDE WHETHER MEASUREMENT IS
+    POSSIBLE.  At the shipped default (``LOG_VERBOSITY == 0``) the
+    sidecar used to be absent, so the constant-DEM oracle and the
+    ``check_grade`` CLI both judged production patches under the wrong
+    law while reporting nothing unusual."""
+    import json
+
+    from auto_patch import config as _cfg
+    monkeypatch.setattr(_cfg, "LOG_VERBOSITY", 0, raising=False)
+    layout = _make_layout()
+    layout.shapes.append(BuiltShape(polygon=_square(), role=ROLE_APRON,
+                                    ref="a", altitude=100.0))
+    out = tmp_path / "p.osm"
+    layout.to_osm(str(out))
+    side = Path(str(out) + ".axes.json")
+    assert side.exists(), (
+        "no sidecar at default verbosity — every standalone census of "
+        "this patch would silently read the context-free law")
+    data = json.loads(side.read_text())
+    for key in ("axes_exact", "anchor", "ruleset", "terrace_joints"):
+        assert key in data, f"sidecar is missing the {key!r} contract key"
+
+
+def test_a_sidecar_that_cannot_be_written_fails_the_emit(tmp_path,
+                                                         monkeypatch):
+    """CERTIFY-OR-FAIL.  The sidecar IS the law contract the patch ships
+    under, so a patch that cannot certify itself must not emit quietly.
+
+    The bare ``except Exception: pass`` this replaces turned a
+    ``TypeError`` raised by ONE terrace joint into a whole-build
+    measurement failure with no log line anywhere."""
+    from auto_patch import verification as _ver
+
+    def _boom(*_a, **_k):
+        raise TypeError("string indices must be integers")
+
+    monkeypatch.setattr(_ver, "taxi_axes_exact_ll", _boom)
+    layout = _make_layout()
+    layout.shapes.append(BuiltShape(polygon=_square(), role=ROLE_APRON,
+                                    ref="a", altitude=100.0))
+    with pytest.raises(TypeError):
+        layout.to_osm(str(tmp_path / "p.osm"))

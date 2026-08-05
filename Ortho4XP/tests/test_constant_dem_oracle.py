@@ -89,26 +89,66 @@ def test_the_all_zero_refusal_is_untouched_by_the_oracle():
     assert _load_airport_dem(0.5, 0.5, override_dem=d) is d
 
 
-def _layout_with(values):
-    """One apron ring carrying ``values`` at unit-spaced vertices."""
+def _layout_with(values, role=ROLE_APRON, ref=""):
+    """One ring carrying ``values`` at unit-spaced vertices."""
     ring = [(float(i), 0.0) for i in range(len(values))]
     ring = ring + [(float(len(values)) - 1.0, 10.0), (0.0, 10.0)]
     vals = list(values) + [values[-1], values[0]]
     lay = PavementLayout(icao="ORACLE", anchor=(0.0, 0.0))
     lay.shapes.append(BuiltShape(
-        polygon=Polygon(ring + [ring[0]]), role=ROLE_APRON,
+        polygon=Polygon(ring + [ring[0]]), role=role, ref=ref,
         node_altitudes=vals + [vals[0]]))
     return lay
+
+
+#: the author key ``_layout_with`` produces by default
+_A = "apron/"
 
 
 def test_band_width_field_is_the_difference_of_the_two_worlds():
     lo = _layout_with([10.0, 10.0, 10.0])
     hi = _layout_with([12.0, 13.5, 10.0])
     field = band_width_field(lo, hi)
-    assert field[(0.0, 0.0)] == pytest.approx(2.0)
-    assert field[(1.0, 0.0)] == pytest.approx(3.5)
-    assert field[(2.0, 0.0)] == pytest.approx(0.0), (
+    assert field[(_A, 0.0, 0.0)] == pytest.approx(2.0)
+    assert field[(_A, 1.0, 0.0)] == pytest.approx(3.5)
+    assert field[(_A, 2.0, 0.0)] == pytest.approx(0.0), (
         "a node with equal values in both worlds is PINNED — band width 0")
+
+
+def test_the_band_width_join_never_crosses_AUTHORS():
+    """A coordinate two surfaces share must yield one row PER SURFACE.
+
+    ``_node_values`` used to key on ``(x, y)`` alone, so at any shared
+    coordinate the LAST shape iterated won — and shape order and shape
+    COUNT differ between the two worlds.  The "band width" reported there
+    was the difference between two DIFFERENT surfaces: measured by fix
+    lane 2 (``scratchpad/fix2/who/``), 9 of the 95 negative widths were
+    exactly this — a ``runway_end_skirt`` differenced against
+    ``adjacent_ground`` / ``resa`` / ``apron`` vertices at coordinates
+    they weld on.  A negative width is supposed to be evidence of a
+    non-monotone seating; nine of them were the instrument reading two
+    populations at once.
+    """
+    def _two_authors(apron_vals, skirt_vals):
+        lay = _layout_with(apron_vals)
+        skirt = _layout_with(skirt_vals, role="graded_strip",
+                             ref="runway_end_skirt")
+        lay.shapes.append(skirt.shapes[0])
+        return lay
+
+    # SAME geometry, SAME coordinates, two authors — and the two worlds
+    # carry them in OPPOSITE order, exactly as differing shape counts do.
+    lo = _two_authors([10.0, 10.0, 10.0], [50.0, 50.0, 50.0])
+    hi = _two_authors([11.0, 11.0, 11.0], [51.0, 51.0, 51.0])
+    hi.shapes.reverse()
+    field = band_width_field(lo, hi)
+    authors = {a for (a, _x, _y) in field}
+    assert authors == {_A, "graded_strip/runway_end_skirt"}, (
+        f"the join collapsed two authors into one: {authors}")
+    for (a, _x, _y), w in field.items():
+        assert w == pytest.approx(1.0), (
+            f"author {a!r} was differenced against the other surface "
+            f"(width {w}, not 1.0) — a cross-family join")
 
 
 def test_a_negative_band_width_is_a_defect_on_its_face():
@@ -147,6 +187,32 @@ def test_the_worlds_come_as_an_ordered_pair():
     assert worlds[0][1].elevation_m < worlds[1][1].elevation_m
 
 
+def test_the_oracle_measures_at_DEFAULT_env(tmp_path, monkeypatch):
+    """ITEM 6 — the oracle's read.
+
+    The airport layer is the standing build oracle, so it must measure
+    whatever env it is launched in.  It could not: ``_write_axes_sidecar``
+    was gated on ``config.LOG_VERBOSITY > 0``, and the shipped default is
+    0, so at default env the oracle read NO sidecar and quietly ran the
+    context-free check — a different law, on a different population, with
+    the same green tick.
+
+    This is the unit half (it must not build): one emitted layout at the
+    shipped default, read by the oracle's OWN helper.
+    """
+    monkeypatch.chdir(tmp_path)
+    from auto_patch import config as _cfg
+    monkeypatch.setattr(_cfg, "LOG_VERBOSITY", 0, raising=False)
+    lay = _layout_with([10.0, 10.5, 11.0])
+    lay.icao = "ORACLE"
+    within, cross, steps = _law_true_rows(lay, tmp_path, "default_env")
+    # The assertion under test is that the helper did not RAISE: it found
+    # a sidecar and a ruleset.  The row counts of a 5-vertex synthetic
+    # apron are not the point and are not asserted.
+    assert isinstance(within, list) and isinstance(cross, list)
+    assert isinstance(steps, list)
+
+
 def test_the_artifact_writes(tmp_path):
     lo = _layout_with([10.0, 10.0])
     hi = _layout_with([12.0, 10.0])
@@ -159,6 +225,9 @@ def test_the_artifact_writes(tmp_path):
     assert doc["summary"]["nodes"] >= 2
     assert any(n["band_width_m"] == pytest.approx(2.0)
                for n in doc["nodes"])
+    # the author travels with every row — it is part of the identity that
+    # makes the row a difference of one surface against itself
+    assert all(n.get("author") for n in doc["nodes"])
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -221,14 +290,34 @@ def _law_true_rows(layout, tmp_path, tag):
     """Emit the layout and count law-true rows with the patch's OWN frame
     and the build's OWN ruleset — the census discipline
     (``check_grade.run_checks(ruleset=...)``; the kwarg is not optional,
-    a missing one silently judges an FAA build under ICAO)."""
+    a missing one silently judges an FAA build under ICAO).
+
+    A MISSING SIDECAR IS A FAILURE, NOT A FALLBACK (item 6, 2026-08-05).
+    This used to read ``… if side.exists() else {}``, and with the write
+    gated on ``LOG_VERBOSITY`` — or killed outright by one terrace
+    joint's ``TypeError`` — the oracle silently ran the CONTEXT-FREE
+    check at default env: no axes, no anchor, no pair caps, no ruleset.
+    It then asserted zero rows against a law it was not reading, which
+    over-flags by multiples (HEAZ 959 context-free vs 144 law-true) and
+    would just as happily have passed on a frame that never applied.
+    The sidecar is the contract; without it there is no measurement to
+    report, so this raises instead of degrading.
+    """
     import importlib.util
     import json
     repo = Path(__file__).resolve().parents[1]
     osm = tmp_path / f"{tag}.osm"
     layout.to_osm(str(osm))
     side = Path(str(osm) + ".axes.json")
-    d = json.loads(side.read_text()) if side.exists() else {}
+    assert side.exists(), (
+        f"{tag}: the patch shipped with NO axes sidecar, so this census "
+        f"would silently run the context-free check — the oracle would "
+        f"be judging a law it never read")
+    d = json.loads(side.read_text())
+    assert d.get("ruleset"), (
+        f"{tag}: the sidecar carries no ruleset key, so check_grade "
+        f"would re-resolve the authority instead of judging in the "
+        f"frame the build actually ran under")
     spec = importlib.util.spec_from_file_location(
         f"cg_oracle_{tag}", repo / "tools" / "check_grade.py")
     cg = importlib.util.module_from_spec(spec)

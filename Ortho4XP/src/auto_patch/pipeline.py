@@ -6378,9 +6378,17 @@ def build_airport_pavement(icao: str, xplane_root: str,
             if _n_joint_faces and _apron_plan is not None:
                 _ts = _apron_plan.stats
                 UI.vprint(1, f"  [pav-builder] {icao}: apron terraces — "
-                             f"{_n_joint_faces} declared joint face(s); "
+                             f"{_n_joint_faces} joint face(s) covering the "
+                             f"cut band, of which "
+                             f"{_ts.get('level_covers_emitted', 0)} are "
+                             f"LEVEL COVERS (allowance demoted to 0, the "
+                             f"slot still closed); "
                              f"{_ts['joints_demoted_level']} joint(s) "
                              f"demoted (flanks settled level); "
+                             f"SLOTS LEFT UNCOVERED "
+                             f"{_ts.get('slots_uncovered', 0)} (each is a "
+                             f"0.6 m hole the pre-solve split cut and no "
+                             f"emitter closed); "
                              f"{_ts['station_readings']} station reading(s) "
                              f"on the densified panel boundary, "
                              f"{_ts['stations_over_bound']} over their own "

@@ -1342,7 +1342,7 @@ def seat_stamp_guard_enabled() -> bool:
     4.766 m, never certified).
 
     Default "0" — no new default-on gate without a battery."""
-    return _os.environ.get("O4_SEAT_STAMP_GUARD", "0") == "1"
+    return _os.environ.get("O4_SEAT_STAMP_GUARD", "1") == "1"
 
 
 def spine_yield_hard_enabled() -> bool:

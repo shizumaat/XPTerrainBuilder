@@ -1700,7 +1700,10 @@ def _heal_emitted_band_tears(emitted_shapes, layout):
 def _strip_heal_law_enabled() -> bool:
     """Is the seam-continuity v4 healer law (§1 grade-aware guard, §2
     authority-split clusters, §3 cluster-level guard) enabled?"""
-    return os.environ.get("O4_STRIP_HEAL_LAW", "0") == "1"
+    # DEFAULT ON since the 06:00 release train (lead verdict 31a87b0:
+    # band 1 exceeded — HECA seam 28->4, CYXY 6->0, pavement
+    # byte-identical; O4_STRIP_HEAL_LAW=0 restores the pre-v4 healer).
+    return os.environ.get("O4_STRIP_HEAL_LAW", "1") == "1"
 
 # ── DECLINE LOUDNESS (spec seam-continuity-v3 §2, adjudication item 3) ──
 # The healer's every-node-anchored ⇒ genuine-step rule is CORRECT

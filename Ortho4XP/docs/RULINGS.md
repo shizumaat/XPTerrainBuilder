@@ -279,3 +279,28 @@ its profile rides to +9.18 m above DEM at the 6907 junction while a
 (b): extend/verify the runway-flex (B2) machinery against this case
 BEFORE any band or law change; the flex ledger + CIFP thresholds for
 05R/23L are the first read.
+
+## 2026-08-04 — Streamlined lane verification; one battery at the train tip (owner)
+
+Owner: lanes need not each run full batteries — each lane verifies on
+the single airport that stresses its specific work; ONE full battery +
+suite runs at the merge-train tip before the batch is accepted.
+
+Protocol (extends the build-budget ladder):
+1. PER LANE: offline replay + unit twins first; gate-on measurement on
+   ONE stress airport (lane-chosen, justified in the pre-reg); gate-off
+   byte identity 2x on the stress airport + ONE cheap sentinel (CYXY
+   class). Cross-airport claims are PRE-REGISTERED per lane but
+   VERIFIED at the tip.
+2. TRAIN TIP (once per batch, after the serial lane commits): full
+   five-airport battery — identity, census matrices both frames, one
+   full suite vs matched control. This gates batch acceptance, merge
+   to main, and any sim build (absolute-zero acceptance law
+   unchanged). The anchor-minting lane (defaults changer) lands last
+   and its minting IS the tip battery — never mint anchors twice.
+3. TIP FAILURE: bisect by commit, build only the failing airport;
+   identity-mismatch-is-a-stop applies; the offending lane fixes
+   forward or reverts.
+Known trade accepted: a cross-airport surprise (the KCLT +145 class)
+surfaces at the tip instead of in-lane — one bisect step later, many
+batteries cheaper.

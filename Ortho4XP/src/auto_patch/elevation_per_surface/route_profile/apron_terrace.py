@@ -123,6 +123,7 @@ __all__ = [
     "emit_terrace_joint_faces",
     "terrace_joints_sidecar",
     "terrace_certificates_sidecar",
+    "rebind_terrace_stations",
     "runway_strip_keepout_geometry",
     "TerraceJoint",
     "TerracePlan",

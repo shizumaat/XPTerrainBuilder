@@ -500,6 +500,50 @@ def test_a_ramp_sibling_is_not_its_own_facing_NEIGHBOUR():
     assert apron not in AT._pavement_neighbours(layout, ramp)
 
 
+def test_the_SOLVE_is_handed_the_zone_cap_not_just_the_census():
+    """THE OTHER HALF OF THE MEMO TRAP, and the twin that decides where a
+    residual defect belongs.
+
+    ``solver_primitives._grade_graph_edges`` and
+    ``grade_graph.build_unified_graph`` build ``GradeShape``s from the same
+    polygons and SHARE one memo keyed by ``(polygon id, role, ring_only)``
+    — whichever runs first fixes the caps for both.  The module says so in
+    a comment, and notes that the older adoption flags have exactly this
+    gap.  If ``fan_ramp_zone`` were passed on only one side, the ramp
+    would be inert in the solve while the census judged it at 5 %, and
+    every residual would be misattributed.
+
+    Asserting on the BUDGET the solve receives (``cap·d``), not on an
+    internal, is what makes this evidence: when HECA's ramp pieces came
+    out at a median 10.24 % realized grade, this twin is what says the
+    solve was HANDED 5 % and did something else with it.
+    """
+    from auto_patch.elevation_per_surface import solver_primitives as SP
+    from auto_patch import grade_graph as GG
+
+    ring = [(0.0, 0.0), (60.0, 0.0), (60.0, 40.0), (0.0, 40.0)]
+    ctx = GG.GradeContext(centerlines=[], routes=[])
+    got = {}
+    for name, flag in (("ramp", True), ("plain", False)):
+        s = BuiltShape(polygon=Polygon(ring), role="apron", ref=name,
+                       fan_ramp_zone=flag)
+        coords = list(s.polygon.exterior.coords)[:-1]
+        edges = SP._grade_graph_edges(s, coords, list(range(len(coords))),
+                                      ctx)
+        caps = set()
+        for (a, b, budget) in edges:
+            d = math.hypot(coords[a][0] - coords[b][0],
+                           coords[a][1] - coords[b][1])
+            if d > 1e-6:
+                caps.add(round(budget / d, 6))
+        got[name] = caps
+    assert got["ramp"] == {round(GROUNDSIDE_MAX_GRADE, 6)}, (
+        f"the solve was handed {got['ramp']} on a ramp piece, not the "
+        f"zone cap — the law is inert in the solve")
+    assert got["plain"] == {round(APRON_MAX_GRADE, 6)}, (
+        f"a plain apron's solve budgets moved to {got['plain']}")
+
+
 def test_a_ramp_piece_is_not_a_TERRACE_candidate():
     """Owner answer 2: the wall is the fallback for what 5 % could not
     span, and 5 % is what this piece already holds.  A wall inside a ramp

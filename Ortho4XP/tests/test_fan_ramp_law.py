@@ -298,6 +298,29 @@ def test_the_new_sidecar_key_is_registered_with_a_reader():
     assert CG.SIDECAR_LAW_KEYS["fan_ramp_zones"] == "fan_ramp_zones_ll"
 
 
+def test_the_zone_rows_survive_the_NON_QUIET_reporting_path():
+    """Regression twin, and it earned its place.
+
+    The zone rows grew from ``(polygon, cap)`` to
+    ``(polygon, cap, bounds, prepared)`` when the reader was indexed, and
+    the announce branch — which only runs when the census is NOT quiet —
+    still destructured two.  Every census called with ``quiet=False`` on a
+    patch carrying zones died with ``ValueError: too many values to
+    unpack``; the harness census is quiet, so nothing caught it until the
+    fixture-airport suite did.  Whatever shape the row takes, the report
+    line has to be able to read a cap out of it.
+    """
+    import check_grade as CG
+    layout, _apron = _terminal_apron()
+    layout._fan_ramp_plan = AT.plan_fan_ramp_zones(layout, icao="TEST")
+    rows = AT.fan_ramp_zones_sidecar(layout)
+    zones_m = CG._fan_ramp_zones_to_m(rows, lambda la, lo: (lo, la))
+    assert zones_m
+    caps = sorted({row[1] for row in zones_m})
+    assert caps == [GROUNDSIDE_MAX_GRADE]
+    assert all(len(row) == len(zones_m[0]) for row in zones_m)
+
+
 def test_a_patch_predating_the_law_is_judged_exactly_as_before():
     import check_grade as CG
     assert CG._fan_ramp_zones_to_m(None, lambda a, b: (a, b)) == []

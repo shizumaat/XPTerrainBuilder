@@ -4344,7 +4344,7 @@ def run_checks(
     # frame.  Empty for every patch built without the law.
     fan_ramp_zones_m = _fan_ramp_zones_to_m(fan_ramp_zones_ll, ll_to_m)
     if fan_ramp_zones_m and not quiet:
-        _caps = sorted({c for (_p, c) in fan_ramp_zones_m})
+        _caps = sorted({row[1] for row in fan_ramp_zones_m})
         print(f"  fan ramps: {len(fan_ramp_zones_m)} declared zone(s) at "
               f"{', '.join(f'{c * 100:.0f} %' for c in _caps)} "
               f"(within-apron pairs inside one are judged at the zone cap; "

@@ -5770,7 +5770,9 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # edges still over cap, 0 both-hard — pure non-convergence, whose
     # worst survivors emitted as the within-shape building/apron
     # violation class.  The loop exits early at tol, so converged
-    # airports pay nothing.  O4_FINAL_PROJECTION_MAX_ITERS overrides.
+    # airports pay nothing.  The cap is
+    # ``config.PROJECTION_MAX_SWEEPS_FINAL`` (its derivation, and the
+    # measured fact that it BINDS at n=72k, are documented there).
     # THE BROKEN-QUARANTINE CARRY IS DELETED (spec ``docs/specs/kill-half-
     # spec.md`` §2, 2026-08-04).  It re-read the previous projection's
     # declared-broken keys and froze them here as ``pre_broken`` so the
@@ -6066,9 +6068,12 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                                   forensics=_fp_forensics,
                                   witness_limited=_fp_witness_limited,
                                   witness_excluded=_fp_witness_excluded,
-                                  max_iters=int(_os.environ.get(
-                                      "O4_FINAL_PROJECTION_MAX_ITERS",
-                                      "2400")),
+                                  # NO GATES (RULINGS 2026-08-05): the
+                                  # O4_FINAL_PROJECTION_MAX_ITERS env
+                                  # override is deleted with the rest of
+                                  # this territory's; the self-limit and
+                                  # its derivation live in config.
+                                  max_iters=PROJECTION_MAX_SWEEPS_FINAL,
                                   flat_groups=pad_groups or None,
                                   pre_broken=(pre_broken or None),
                                   broken_out=_projection_broken_idx,

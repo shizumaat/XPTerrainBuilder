@@ -3,6 +3,8 @@
     venv/bin/python tools/harness/build_airport.py ICAO [--tag NAME]
         [--patch-only | --tile LAT LON] [--out DIR] [--dem CONST_M]
         [--allow-degraded-dem] [--allow-no-sidecar] [--no-ledger]
+        [--refresh-data SCOPE[,SCOPE...]] [--break-stale-lock]
+        [--allow-private-data]
 
 Run it from ``Ortho4XP/`` (or a lane worktree set up with
 ``tools/harness/lane_worktree.sh``).  Every lane builds through THIS entry;
@@ -46,14 +48,41 @@ measurement in this repo, and every one of them exits 0 without the check:
    traceback.  It diagnoses and never repairs — a harness that patched the
    emitter would be inventing the frame it exists to measure.
 
+6. **A PRIVATE data corpus.**  Owner ruling e9daef5 makes ONE shared data
+   repo mandatory (``/Users/noah/XPTerrainBuilderData``): every lane mounts
+   it, no lane keeps a private cache.  Two lanes on two corpora do not
+   measure the same thing, and nothing in a build log says which corpus
+   was used.  Every data dir is resolved and recorded; a private one is
+   refused (``--allow-private-data`` proceeds knowingly).
+7. **An implicit download or cache regeneration.**  A build must NEVER
+   mutate the shared repo as a side effect — the KCLT road-feed refresh
+   that ran inside a tile build on 2026-08-05 01:47-01:55 and silently
+   changed campaign hashes is the named precedent.  Two mechanisms:
+
+   * BEFORE the build, every artifact this run needs and the repo lacks is
+     named and refused, with the exact ``--refresh-data`` scope that would
+     fetch it deliberately;
+   * AFTER the build, a FULL before/after snapshot of the shared repo's
+     data dirs (~2.7 k files, ~10 ms) reports every path the build wrote.
+     Writes inside an authorised scope are hash-stamped into the shared
+     ledger; writes outside one are reported as a ruling violation and the
+     run is marked CONTAMINATED, because the corpus changed under it.
+
+   ``--refresh-data SCOPE`` is the explicit override: it takes a per-scope
+   LOCK in the shared repo (refuse-and-report on contention, never a
+   silent block, never a race), performs the refresh exactly once, and
+   appends a hash-stamped record to
+   ``<data repo>/.harness/refresh_ledger.jsonl``.
+
 WHAT IT RECORDS, always, next to the patch:
 
 * ``<tag>.env.json`` — the environment snapshot: every ``O4_*`` variable,
   cwd, git HEAD + dirty flag, the ledger's code-tree hash, the X-Plane
   root, and the cfg-frame comparison.
 * ``<tag>.frame.json`` — the DEM/inset cache state BEFORE the build and the
-  layout's own ``dem_inset_provenance`` AFTER it, plus every
-  ``[pav-builder]`` line the build emitted.  Quote no elevation without it.
+  layout's own ``dem_inset_provenance`` AFTER it; the resolved DATA MOUNTS
+  (which corpus every data dir actually came from); and the shared-repo
+  write audit.  Quote no elevation without it.
 * ``<tag>.progress`` — START / step / EXIT stamps (the ``.progress``
   convention) so a lead can audit liveness without touching the run.
 * the patch body sha256 (``tail -n +3``: the provenance stamp makes the raw
@@ -67,6 +96,7 @@ and ``arm.py``, ``scratchpad/reltiles/run_release_tile.py`` and
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import json
 import os
@@ -77,8 +107,47 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
+#: THE shared data repo (owner ruling e9daef5).  Every lane mounts it; no
+#: lane redownloads or regenerates a cache into a private corpus.
+DATA_REPO = Path(os.environ.get("O4_DATA_REPO",
+                                "/Users/noah/XPTerrainBuilderData"))
+HARNESS_STATE = DATA_REPO / ".harness"
+LOCK_DIR = HARNESS_STATE / "locks"
+REFRESH_LEDGER = HARNESS_STATE / "refresh_ledger.jsonl"
+
 #: The owner's production app config — the one the shipped app runs with.
-OWNER_APP_CFG = Path("/Users/noah/XPTerrainBuilderData/Ortho4XP.cfg")
+#: It lives IN the shared data repo, which is the point: the config and the
+#: corpus it describes travel together.
+OWNER_APP_CFG = DATA_REPO / "Ortho4XP.cfg"
+
+#: The data directories a lane mounts from the shared repo.  Products
+#: (Patches, Tiles, Previews, tmp) are deliberately NOT here — every tile
+#: build writes its emitted patches into Patches/, so sharing it would put
+#: one lane's geometry into another lane's build.
+SHARED_DATA_DIRS = ("OSM_data", "Elevation_data", "Airport_mod_cache",
+                    "Geotiffs", "Masks", "Default_DSF_cache", "Orthophotos")
+
+#: The REGENERABLE artifact classes, most specific prefix first.  A build
+#: may regenerate any of these implicitly today; under the ruling it may
+#: not, so each one is a named ``--refresh-data`` scope instead.
+REFRESH_SCOPES = (
+    ("osm_roadfeed", "OSM_data/_airport_road_feed",
+     "the per-airport ROAD FEED sidecar.  THE NAMED PRECEDENT: a KCLT "
+     "road-feed refresh ran as a tile-build side effect on 2026-08-05 "
+     "01:47-01:55 and silently changed campaign hashes — every later "
+     "build read a different feed and nobody was told"),
+    ("osm_layers", "OSM_data",
+     "cached OSM layers and regional extracts (overpass downloads)"),
+    ("dem", "Elevation_data",
+     "base DEM rasters and airport elevation insets (provider downloads)"),
+    ("airport_mod_cache", "Airport_mod_cache",
+     "third-party apt.dat pack indexes and sidecars"),
+    ("dsf_cache", "Default_DSF_cache",
+     "DSFTool text dumps of X-Plane's default scenery"),
+    ("masks", "Masks", "water/coastline mask rasters"),
+    ("orthophotos", "Orthophotos", "downloaded imagery tiles"),
+    ("geotiffs", "Geotiffs", "user-supplied geotiff sources"),
+)
 
 #: The X-Plane INSTALL paths a whole-tile build needs.  These are
 #: install-location settings, never law gates.
@@ -227,22 +296,26 @@ def require_dem_frame(state: dict, *, allow_degraded: bool = False) -> None:
     if not state["base_raster"]:
         problems.append(
             f"NO base raster for {state['tile_stem']} in Elevation_data — "
-            f"the DEM loader would download mid-measurement or hand back an "
-            f"ALL-ZERO surface.  Copy the tile's .hgt in from "
-            f"XPTerrainBuilderData.")
+            f"the DEM loader would DOWNLOAD it mid-measurement (a "
+            f"shared-repo write as a build side effect, which owner ruling "
+            f"e9daef5 forbids) or hand back an ALL-ZERO surface.  "
+            f"Deliberate fetch: --refresh-data dem")
     if not state["airports_layer"]:
         problems.append(
             f"NO cached airports OSM layer for tile "
             f"{state['tile'][0]:+d}{state['tile'][1]:+d} — airport smoothing "
             f"masks are unavailable and the surface stays UNSMOOTHED "
-            f"(production smooths at apt_smoothing_pix=8).")
+            f"(production smooths at apt_smoothing_pix=8), and the build "
+            f"would run an overpass QUERY to fill it.  Deliberate fetch: "
+            f"--refresh-data osm_layers")
     if not state["airport_insets"]:
         problems.append(
             f"NO cached airport elevation insets for {state['tile_stem']} — "
             f"the build would grade against the BASE surface while "
-            f"production grades against the inset-baked one.  Warm it with "
-            f"tools/fetch_airport_elevation_insets.py or a production "
-            f"tile build.")
+            f"production grades against the inset-baked one.  Deliberate "
+            f"fetch: --refresh-data dem  (or "
+            f"tools/fetch_airport_elevation_insets.py, which writes the "
+            f"same shared cache).")
     if problems and not allow_degraded:
         raise SystemExit(
             "REFUSING: the DEM frame is COLD, and a cold frame degrades "
@@ -253,6 +326,340 @@ def require_dem_frame(state: dict, *, allow_degraded: bool = False) -> None:
               "Never quote a DEM elevation from a degraded frame.")
     for p in problems:
         print(f"  [harness] DEGRADED DEM FRAME (accepted by flag): {p}")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE SHARED DATA REPO (owner ruling e9daef5)
+# ══════════════════════════════════════════════════════════════════════
+
+def data_mounts(root) -> dict:
+    """Where each data directory of ``root`` actually resolves to.
+
+    Recorded on every build.  Two lanes on two corpora do not measure the
+    same thing, and the difference is invisible in a build log: a private
+    ``Elevation_data`` warms on its own schedule, and warm-vs-cold inset
+    state has already moved measured terrain by 12 m here.
+    """
+    root = Path(root)
+    out = {}
+    for name in SHARED_DATA_DIRS:
+        p = root / name
+        if not p.exists():
+            out[name] = {"present": False, "shared": False,
+                         "realpath": None, "symlink": False}
+            continue
+        real = p.resolve()
+        try:
+            real.relative_to(DATA_REPO.resolve())
+            shared = True
+        except ValueError:
+            shared = False
+        out[name] = {"present": True, "shared": shared,
+                     "realpath": str(real), "symlink": p.is_symlink()}
+    return out
+
+
+def require_shared_data(mounts: dict, *, allow_private: bool = False) -> None:
+    """Refuse a build whose data does not come from the shared repo."""
+    private = [n for n, m in mounts.items() if m["present"] and not m["shared"]]
+    if private and not allow_private:
+        lines = "\n  ".join(f"{n} -> {mounts[n]['realpath']}" for n in private)
+        raise SystemExit(
+            f"REFUSING: {len(private)} data directory/directories are a "
+            f"PRIVATE corpus, not a mount of {DATA_REPO}:\n  {lines}\n"
+            f"Owner ruling e9daef5: one shared data repo across lanes is "
+            f"MANDATORY — no lane redownloads or regenerates caches.  A "
+            f"private corpus warms on its own schedule, so its builds are "
+            f"not comparable with any other lane's.\n"
+            f"Fix: tools/harness/lane_worktree.sh up <LANE>   (it mounts "
+            f"every data dir the repo holds).  --allow-private-data "
+            f"proceeds KNOWINGLY and records it.")
+    for n in private:
+        print(f"  [harness] PRIVATE DATA (accepted by flag): {n} -> "
+              f"{mounts[n]['realpath']}")
+
+
+def scope_of(relpath: str):
+    """The ``--refresh-data`` scope a shared-repo path belongs to, most
+    specific prefix first.  ``None`` for a path outside every scope."""
+    rel = str(relpath)
+    for name, prefix, _why in REFRESH_SCOPES:
+        if rel == prefix or rel.startswith(prefix + "/"):
+            return name
+    return None
+
+
+def scope_description(name: str) -> str:
+    for scope, _prefix, why in REFRESH_SCOPES:
+        if scope == name:
+            return why
+    return "(unknown scope)"
+
+
+def shared_repo_snapshot(repo=None) -> dict:
+    """``{relative path: (size, mtime_ns)}`` for every file in the shared
+    repo's data directories.
+
+    A FULL walk on purpose: the whole surface is ~2.7 k files and the walk
+    costs ~10 ms, so there is no reason to sample and then argue about what
+    a coarse tripwire missed.  Completeness is the point — the guarantee is
+    "this build wrote nothing into the shared repo", and a partial snapshot
+    cannot make it.
+    """
+    repo = Path(repo or DATA_REPO)
+    snap = {}
+    for name in SHARED_DATA_DIRS:
+        top = repo / name
+        if not top.is_dir():
+            continue
+        for dirpath, _dirnames, filenames in os.walk(top):
+            for fn in filenames:
+                p = Path(dirpath) / fn
+                try:
+                    st = p.stat()
+                except OSError:
+                    continue
+                snap[str(p.relative_to(repo))] = (st.st_size, st.st_mtime_ns)
+    return snap
+
+
+def snapshot_diff(before: dict, after: dict) -> dict:
+    added = sorted(set(after) - set(before))
+    removed = sorted(set(before) - set(after))
+    modified = sorted(k for k in (set(after) & set(before))
+                      if after[k] != before[k])
+    return {"added": added, "modified": modified, "removed": removed}
+
+
+def _file_stamp(repo: Path, rel: str, max_hash_bytes: int = 64 * 1024 * 1024):
+    """Hash-stamp one file.  Small files get a sha256; a multi-gigabyte
+    imagery tile gets size+mtime, because hashing it would cost more than
+    the refresh did and the identity question it answers is the same."""
+    p = repo / rel
+    try:
+        st = p.stat()
+    except OSError:
+        return {"path": rel, "missing": True}
+    out = {"path": rel, "size": st.st_size, "mtime_ns": st.st_mtime_ns}
+    if st.st_size <= max_hash_bytes:
+        h = hashlib.sha256()
+        with open(p, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+        out["sha256"] = h.hexdigest()
+    else:
+        out["sha256"] = None
+        out["note"] = "too large to hash; size+mtime stamped instead"
+    return out
+
+
+class RefreshLock:
+    """A shared-repo write lock, one per scope.
+
+    REFUSE-AND-REPORT, never block (ruling e9daef5 §3).  A lane that waits
+    silently on another lane's download looks like a hung build, and a lane
+    that ignores the lock races a half-written cache into every other lane's
+    next measurement.  A dead holder is reported with its lane and pid and
+    needs ``--break-stale-lock`` — never broken automatically, because
+    "the pid is gone" and "the write finished" are different facts.
+    """
+
+    def __init__(self, scope: str, lane: str, break_stale: bool = False):
+        self.scope = scope
+        self.lane = lane
+        self.break_stale = break_stale
+        self.path = LOCK_DIR / f"{scope}.lock"
+        self.held = False
+
+    def _payload(self) -> dict:
+        return {"scope": self.scope, "lane": self.lane, "pid": os.getpid(),
+                "host": os.uname().nodename,
+                "started": time.strftime("%Y-%m-%dT%H:%M:%S")}
+
+    @staticmethod
+    def _alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+    def acquire(self) -> "RefreshLock":
+        LOCK_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                         0o644)
+        except FileExistsError:
+            try:
+                holder = json.loads(self.path.read_text())
+            except Exception:
+                holder = {}
+            pid = int(holder.get("pid") or -1)
+            alive = self._alive(pid) if pid > 0 else False
+            if alive or not self.break_stale:
+                raise SystemExit(
+                    f"REFUSING: another lane holds the '{self.scope}' "
+                    f"refresh lock on the shared repo.\n"
+                    f"  holder: lane={holder.get('lane')!r} pid={pid} "
+                    f"host={holder.get('host')!r} since "
+                    f"{holder.get('started')} "
+                    f"({'ALIVE' if alive else 'DEAD — stale lock'})\n"
+                    f"  lock:   {self.path}\n"
+                    + ("  Wait for it and re-run.  The harness never blocks "
+                       "silently on a shared-repo write: a lane waiting on "
+                       "another lane's download is indistinguishable from a "
+                       "hung build."
+                       if alive else
+                       "  The holder is gone, but a dead pid does not mean "
+                       "the write COMPLETED — the cache may be half-written. "
+                       "Inspect it, then re-run with --break-stale-lock."))
+            self.path.unlink()
+            print(f"  [harness] broke STALE '{self.scope}' lock (holder pid "
+                  f"{pid} is gone, --break-stale-lock given)")
+            fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                         0o644)
+        with os.fdopen(fd, "w") as fh:
+            json.dump(self._payload(), fh)
+        self.held = True
+        return self
+
+    def release(self) -> None:
+        if self.held:
+            try:
+                self.path.unlink()
+            except OSError:
+                pass
+            self.held = False
+
+    def __enter__(self):
+        return self.acquire()
+
+    def __exit__(self, *exc):
+        self.release()
+        return False
+
+
+def record_refresh(scope: str, changes: dict, meta: dict,
+                   repo=None) -> dict:
+    """Append ONE hash-stamped refresh event to the shared repo's ledger.
+
+    "Exactly once, as an explicit logged event" (ruling §2) needs a record
+    that outlives the session: the ledger lives in the SHARED repo, so the
+    next lane to wonder why a cache changed reads the answer there instead
+    of reconstructing it from three lanes' scratchpads.
+    """
+    repo = Path(repo or DATA_REPO)
+    stamps = [_file_stamp(repo, rel)
+              for rel in (changes["added"] + changes["modified"])]
+    record = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "scope": scope,
+              "added": len(changes["added"]),
+              "modified": len(changes["modified"]),
+              "removed": changes["removed"], "files": stamps, **meta}
+    REFRESH_LEDGER.parent.mkdir(parents=True, exist_ok=True)
+    with open(REFRESH_LEDGER, "a") as fh:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        fh.write(json.dumps(record) + "\n")
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    return record
+
+
+def missing_shared_artifacts(root, lat, lon) -> list:
+    """Named artifacts this build NEEDS that the shared repo does not have.
+
+    Each one is something the engine would silently download or regenerate
+    mid-build — a shared-repo mutation as a build side effect, which the
+    ruling forbids.  Returned as (scope, artifact, why) so the refusal can
+    name the artifact and the exact flag that authorises fetching it.
+
+    This is the honest half: it names what can be checked from the
+    filesystem BEFORE the build.  Staleness that only the engine can judge
+    (a road-feed fingerprint, a changed query box) is caught by the
+    post-build write audit instead — a mutation, not a prediction.
+    """
+    state = dem_cache_state(root, lat, lon)
+    out = []
+    if not state["base_raster"]:
+        out.append(("dem", f"Elevation_data/**/{state['tile_stem']}.hgt",
+                    "the base DEM raster — the loader would DOWNLOAD it "
+                    "mid-build, or hand back an all-zero surface"))
+    if not state["airport_insets"]:
+        out.append(("dem",
+                    f"Elevation_data/**/{state['tile_stem']}_airport_insets/",
+                    "the airport elevation insets — the build would fetch "
+                    "them, or grade on the base surface while production "
+                    "grades on the inset-baked one"))
+    if not state["airports_layer"]:
+        out.append(("osm_layers",
+                    f"OSM_data/**/{_short_latlon(lat, lon)}_airports.osm.bz2",
+                    "the cached airports OSM layer — the build would run an "
+                    "overpass QUERY, and without it the DEM prep has no "
+                    "smoothing masks"))
+    return out
+
+
+def require_no_implicit_refresh(missing: list, requested: set) -> None:
+    """The refusal.  A build must never mutate the shared repo as a side
+    effect (ruling §2) — so a missing artifact stops the build and names
+    the flag that would fetch it, instead of being fetched silently."""
+    unauthorised = [m for m in missing if m[0] not in requested]
+    if not unauthorised:
+        for scope, artifact, why in missing:
+            print(f"  [harness] refresh AUTHORISED ({scope}): {artifact}")
+        return
+    scopes = sorted({s for s, _a, _w in unauthorised})
+    lines = "\n  ".join(f"[{s}] {a}\n      {w}" for s, a, w in unauthorised)
+    raise SystemExit(
+        f"REFUSING: {len(unauthorised)} artifact(s) are MISSING from the "
+        f"shared data repo, and building would fetch or regenerate them as "
+        f"a SIDE EFFECT:\n  {lines}\n"
+        f"Owner ruling e9daef5: downloads and cache regenerations write "
+        f"into the shared repo EXACTLY ONCE, as EXPLICIT logged events — "
+        f"never as a build side effect.  The KCLT road-feed refresh that "
+        f"ran inside a tile build on 2026-08-05 and silently changed "
+        f"campaign hashes is the precedent this forbids.\n"
+        f"To fetch them deliberately (locked, hash-stamped, recorded in "
+        f"{REFRESH_LEDGER}):\n"
+        f"    --refresh-data {','.join(scopes)}")
+
+
+def report_unauthorised_writes(changes: dict, requested: set,
+                               prog) -> list:
+    """Every shared-repo write this build made outside an authorised scope.
+
+    The harness cannot PREVENT a write inside the engine without touching
+    ``src/`` — so it makes one impossible to miss: named path, scope, and a
+    CONTAMINATED marker on the run, because a corpus that changed mid-build
+    is not the corpus the run started on and its numbers are not comparable
+    with the ones before it.
+    """
+    offenders = []
+    for kind in ("added", "modified", "removed"):
+        for rel in changes[kind]:
+            scope = scope_of(rel)
+            if scope in requested:
+                continue
+            offenders.append({"path": rel, "kind": kind, "scope": scope})
+    if not offenders:
+        prog.note("shared repo UNCHANGED by this build (full-surface "
+                  "before/after snapshot) — no side-effect mutation")
+        return offenders
+    prog.note(f"!! SHARED-REPO SIDE EFFECT: this build wrote "
+              f"{len(offenders)} path(s) NOBODY authorised — owner ruling "
+              f"e9daef5 forbids exactly this.  The run is CONTAMINATED: "
+              f"every lane's next build reads the changed corpus.")
+    by_scope: dict = {}
+    for o in offenders:
+        by_scope.setdefault(o["scope"] or "<outside every scope>",
+                            []).append(o)
+    for scope, items in sorted(by_scope.items(), key=lambda kv: str(kv[0])):
+        prog.note(f"   [{scope}] {len(items)} path(s); "
+                  f"e.g. {items[0]['kind']} {items[0]['path']}")
+        if scope in {s for s, _p, _w in REFRESH_SCOPES}:
+            prog.note(f"      {scope_description(scope)}")
+    prog.note(f"   Re-run with --refresh-data "
+              f"{','.join(sorted({str(o['scope']) for o in offenders}))} "
+              f"to make this an EXPLICIT, locked, hash-stamped refresh.")
+    return offenders
 
 
 def apply_xplane_install_paths(owner_cfg=OWNER_APP_CFG) -> dict:
@@ -566,7 +973,33 @@ def main(argv=None) -> int:
     ap.add_argument("--no-ledger", action="store_true",
                     help="skip the run ledger (only for a run whose output "
                          "is a TIME — those must never be ledger-replayed)")
+    ap.add_argument("--refresh-data", default="",
+                    help="comma-separated scopes this run is AUTHORISED to "
+                         "fetch/regenerate into the SHARED data repo "
+                         "(locked, hash-stamped, recorded).  'all' "
+                         "authorises every scope.  Scopes: "
+                         + ", ".join(s for s, _p, _w in REFRESH_SCOPES))
+    ap.add_argument("--break-stale-lock", action="store_true",
+                    help="break a refresh lock whose holder process is gone "
+                         "— a dead pid does NOT mean the write completed, "
+                         "so inspect the cache first")
+    ap.add_argument("--allow-private-data", action="store_true",
+                    help="build against a PRIVATE data corpus instead of "
+                         "the shared repo, KNOWINGLY (recorded); its "
+                         "numbers are not comparable with any other lane's")
     args = ap.parse_args(argv)
+    all_scopes = {sc for sc, _p, _w in REFRESH_SCOPES}
+    requested = set()
+    if args.refresh_data:
+        requested = ({s.strip() for s in args.refresh_data.split(",")
+                      if s.strip()})
+        if "all" in requested:
+            requested = set(all_scopes)
+        unknown = requested - all_scopes
+        if unknown:
+            raise SystemExit(
+                f"REFUSING: unknown --refresh-data scope(s) "
+                f"{sorted(unknown)}.  Known scopes: {sorted(all_scopes)}")
 
     root = require_build_cwd(Path.cwd())
 
@@ -598,13 +1031,29 @@ def main(argv=None) -> int:
         prog.note(f"DEGRADED CFG FRAME (accepted by flag): "
                   f"{sorted(cfg_diff)}")
 
+    # ── ONE SHARED DATA REPO (ruling e9daef5) ────────────────────────
+    mounts = data_mounts(root)
+    require_shared_data(mounts, allow_private=args.allow_private_data)
+    shared_n = sum(1 for m in mounts.values() if m["shared"])
+    prog.note(f"data corpus: {shared_n}/{len(mounts)} dir(s) mounted from "
+              f"{DATA_REPO}"
+              + (f"; PRIVATE: "
+                 f"{[n for n, m in mounts.items() if m['present'] and not m['shared']]}"
+                 if shared_n != len(mounts) else ""))
+    if requested:
+        prog.note(f"REFRESH AUTHORISED for scope(s) {sorted(requested)} — "
+                  f"this run may write into the SHARED repo, under lock, "
+                  f"hash-stamped into {REFRESH_LEDGER}")
+
     if args.tile:
         lat, lon = args.tile
     else:
         tile = resolve_tile_for(args.icao, root)
         lat, lon = tile if tile else (None, None)
 
-    frame = {"dem_cache_before": None, "requested_constant_dem": args.dem}
+    frame = {"dem_cache_before": None, "requested_constant_dem": args.dem,
+             "data_repo": str(DATA_REPO), "data_mounts": mounts,
+             "refresh_authorised": sorted(requested)}
     if lat is not None:
         state = dem_cache_state(root, lat, lon)
         frame["dem_cache_before"] = state
@@ -618,6 +1067,10 @@ def main(argv=None) -> int:
             prog.note("constant-DEM oracle build: the real DEM frame is "
                       "SUBSTITUTED, so its cache warmth cannot confound "
                       "this run (checked and recorded, not enforced)")
+        # A missing artifact is a DOWNLOAD this build would perform as a
+        # side effect.  Named and refused unless explicitly authorised.
+        require_no_implicit_refresh(
+            missing_shared_artifacts(root, lat, lon), requested)
     else:
         prog.note(f"WARNING: could not resolve the anchor tile for "
                   f"{args.icao} — the DEM cache state is UNKNOWN for this "
@@ -632,17 +1085,55 @@ def main(argv=None) -> int:
 
     os.environ.setdefault("O4_LOG_VERBOSITY", "1")   # the sidecar gate
 
-    t0 = time.time()
-    if args.tile:
-        result = build_tile(lat, lon,
-                            args.build_dir or str(out_dir / f"tile_{tag}"),
-                            prog)
-    else:
-        result = build_patch(args.icao, root, out_dir, tag, prog,
-                             const_dem=args.dem,
-                             allow_no_sidecar=args.allow_no_sidecar)
-    result["wall_seconds"] = round(time.time() - t0, 1)
+    # LOCK FIRST, then snapshot: a concurrent lane's authorised refresh
+    # landing between the two would be attributed to this build.
+    locks = [RefreshLock(sc, lane=str(root),
+                         break_stale=args.break_stale_lock).acquire()
+             for sc in sorted(requested)]
+    if locks:
+        prog.note(f"holding shared-repo refresh lock(s): "
+                  f"{[lk.scope for lk in locks]}")
+    before = shared_repo_snapshot()
+    prog.note(f"shared-repo snapshot: {len(before)} file(s) across "
+              f"{len(SHARED_DATA_DIRS)} data dir(s)")
 
+    t0 = time.time()
+    try:
+        if args.tile:
+            result = build_tile(lat, lon,
+                                args.build_dir or str(out_dir / f"tile_{tag}"),
+                                prog)
+        else:
+            result = build_patch(args.icao, root, out_dir, tag, prog,
+                                 const_dem=args.dem,
+                                 allow_no_sidecar=args.allow_no_sidecar)
+        result["wall_seconds"] = round(time.time() - t0, 1)
+    finally:
+        # The audit runs even when the build raised: a build that died
+        # half-way through a download has still mutated the shared repo,
+        # and that is precisely when nobody would think to look.
+        changes = snapshot_diff(before, shared_repo_snapshot())
+        offenders = report_unauthorised_writes(changes, requested, prog)
+        for sc in sorted(requested):
+            in_scope = {k: [r for r in v if scope_of(r) == sc]
+                        for k, v in changes.items()}
+            if any(in_scope.values()):
+                rec = record_refresh(sc, in_scope,
+                                     {"lane": str(root), "tag": tag,
+                                      "argv": sys.argv[1:]})
+                prog.note(f"REFRESH RECORDED [{sc}]: +{rec['added']} "
+                          f"~{rec['modified']} file(s), hash-stamped into "
+                          f"{REFRESH_LEDGER}")
+            else:
+                prog.note(f"refresh scope '{sc}' was authorised but wrote "
+                          f"NOTHING — the artifact was already present, or "
+                          f"the build never reached it")
+        for lk in locks:
+            lk.release()
+
+    frame["shared_repo_writes"] = changes
+    frame["unauthorised_writes"] = offenders
+    frame["contaminated"] = bool(offenders)
     frame["dem_inset_provenance"] = result.get("dem_inset_provenance")
     frame["dem_cache_after"] = (dem_cache_state(root, lat, lon)
                                 if lat is not None else None)

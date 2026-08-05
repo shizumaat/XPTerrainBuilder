@@ -14,13 +14,19 @@ X-Plane, no network) and they run in the normal suite.
   consumes fails here instead of being silently dropped by every census.
 * §3 THE BUILD ENTRY REFUSES — the wrong-cwd, missing-venv/OSM_data and
   no-sidecar paths raise loudly rather than degrading.
-* §4 THE LANE RITUAL — the worktree script symlinks (never copies) the four
-  shared data dirs, clones Patches, and refuses teardown while a child
-  process holds the tree.
+* §4 THE LANE RITUAL — the worktree script mounts the WHOLE shared data
+  repo (enumerated, never hard-coded), keeps only lane PRODUCTS local, and
+  refuses teardown while a child process or a shared lock holds the tree.
+* §5 THE SHARED DATA REPO (owner ruling e9daef5) — a private corpus is
+  refused, an implicit download is refused and names its ``--refresh-data``
+  scope, a shared-repo write outside an authorised scope is reported as a
+  ruling violation, and the refresh lock refuses-and-reports on contention
+  instead of blocking or racing.
 """
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import inspect
 import json
 import os
@@ -326,32 +332,69 @@ def test_the_ritual_script_is_executable():
     assert os.access(RITUAL, os.X_OK), "lane_worktree.sh is not executable"
 
 
-def test_the_ritual_symlinks_and_never_copies_the_shared_dirs():
-    """Elevation_data must be a SYMLINK: a copied inset cache is a SECOND
-    cache that warms independently, and warm-vs-cold has already moved a
-    measured elevation by 12 m.  Patches, by contrast, must be CLONED —
-    a lane writing patches into the shared dir corrupts every other lane."""
+def test_the_ritual_mounts_the_whole_shared_data_repo():
+    """Owner ruling e9daef5: ONE shared data repo, every lane MOUNTS it.
+
+    The mount list is ENUMERATED from the repo at run time, never
+    hard-coded — a data dir the ritual forgets becomes a private cache by
+    omission, which is the failure the ruling names.  A copied cache is
+    worse still: it warms independently, and warm-vs-cold inset state has
+    moved a measured elevation by 12 m here."""
     src = RITUAL.read_text()
-    link = re.search(r'^LINK_DIRS="([^"]*)"', src, re.M)
+    assert re.search(r'^DATA_REPO="\$\{O4_DATA_REPO:-([^}]*)\}"', src, re.M), (
+        "the ritual must resolve the shared data repo (O4_DATA_REPO with a "
+        "default)")
+    assert "data_dirs()" in src and "for entry in \"$DATA_REPO\"/*/" in src, (
+        "the mounted data dirs must be ENUMERATED from the shared repo, "
+        "not hard-coded — an omitted dir is a private cache")
+    req = re.search(r'^REQUIRED_DATA_DIRS="([^"]*)"', src, re.M)
+    assert req and set(req.group(1).split()) >= {
+        "OSM_data", "Elevation_data", "Airport_mod_cache"}, (
+        "OSM_data, Elevation_data and Airport_mod_cache are the floor: "
+        "without them the road/corridor/DEM paths silently no-op")
+    never = re.search(r'^NEVER_MOUNT="([^"]*)"', src, re.M)
+    assert never and set(never.group(1).split()) == {
+        "Patches", "Tiles", "Previews", "tmp"}, (
+        f"NEVER_MOUNT is {never and never.group(1)!r}: these are lane "
+        f"PRODUCTS, and sharing them would let one lane's output enter "
+        f"another lane's build")
+    assert re.search(r'mount_link "\$d" "\$DATA_REPO/\$d"', src), (
+        "data dirs must be SYMLINKED into the shared repo")
+    engine = re.search(r'^ENGINE_LINKS="([^"]*)"', src, re.M)
+    assert engine and set(engine.group(1).split()) == {"venv"}, (
+        "only venv comes from the main engine tree; everything else is data "
+        "and comes from the shared repo")
+
+
+def test_the_ritual_keeps_patches_lane_local_with_its_reason():
+    """Patches is the ONE clone, and the justification has to be in the
+    file: every tile build writes {ICAO}_auto.patch.osm into Patches/<tile>/
+    (auto_patch.driver), so it is a lane's OUTPUT.  Sharing it would let one
+    lane's emitted geometry enter another lane's build."""
+    src = RITUAL.read_text()
     clone = re.search(r'^CLONE_DIRS="([^"]*)"', src, re.M)
-    assert link and clone, "the ritual must declare LINK_DIRS and CLONE_DIRS"
-    assert set(link.group(1).split()) == {
-        "venv", "OSM_data", "Airport_mod_cache", "Elevation_data"}, (
-        f"LINK_DIRS is {link.group(1)!r}: all four shared dirs must be "
-        f"SYMLINKED — a copied Elevation_data is a second inset cache that "
-        f"warms independently, and warm-vs-cold has moved terrain 12 m")
-    assert set(clone.group(1).split()) == {"Patches"}, (
-        f"CLONE_DIRS is {clone.group(1)!r}: Patches must be CLONED (lanes "
-        f"WRITE there) and nothing else may be")
+    assert clone and set(clone.group(1).split()) == {"Patches"}
+    assert "cp -R" in src, "CLONE_DIRS entries must be copied"
+    assert "WRITES" in src and "Patches" in src, (
+        "the file must say WHY Patches is lane-local")
     files = re.search(r'^CLONE_FILES="([^"]*)"', src, re.M)
     assert files and "Ortho4XP.cfg" in files.group(1), (
         "Ortho4XP.cfg must be CLONED into a lane worktree: it is untracked, "
         "so a fresh worktree has none, and Tile.read_from_config() then "
         "falls back to constructor defaults — a surface production never "
         "builds, announced by one log line")
-    assert re.search(r'ln -s "\$MAIN_ENGINE/\$d"', src), (
-        "LINK_DIRS entries must be created with ln -s")
-    assert "cp -R" in src, "CLONE_DIRS entries must be copied"
+
+
+def test_the_ritual_refuses_a_real_directory_where_a_mount_belongs():
+    """A REAL data directory in a lane tree is a private cache — the one
+    thing the ruling forbids — so the ritual must refuse it rather than
+    silently leave it in place."""
+    src = RITUAL.read_text()
+    assert "PRIVATE CACHE" in src and "e9daef5" in src, (
+        "the refusal must name the private cache and the ruling")
+    assert "OFF-REPO" in src, (
+        "`check` must catch a symlink that resolves OUTSIDE the shared "
+        "repo — a different corpus reads as a working mount")
 
 
 def test_the_ritual_refuses_teardown_while_the_tree_is_busy():
@@ -368,7 +411,228 @@ def test_the_ritual_shell_is_syntactically_valid():
 
 
 # ══════════════════════════════════════════════════════════════════════
-# §5 THE INDEX IS THE CONSULTATION SURFACE
+# §5 THE SHARED DATA REPO (owner ruling e9daef5)
+# ══════════════════════════════════════════════════════════════════════
+
+def _fake_lane(tmp_path, repo, dirs=("OSM_data", "Elevation_data")):
+    """A lane tree whose data dirs are symlinks into ``repo``."""
+    lane = tmp_path / "lane"
+    lane.mkdir(exist_ok=True)
+    for d in dirs:
+        (repo / d).mkdir(parents=True, exist_ok=True)
+        (lane / d).symlink_to(repo / d)
+    return lane
+
+
+def test_a_private_data_corpus_is_refused(build_mod, tmp_path, monkeypatch):
+    """Two lanes on two corpora do not measure the same thing, and nothing
+    in a build log says which corpus was used."""
+    repo = tmp_path / "shared"
+    monkeypatch.setattr(build_mod, "DATA_REPO", repo)
+    lane = tmp_path / "private_lane"
+    (lane / "OSM_data").mkdir(parents=True)          # a REAL dir, not a mount
+    mounts = build_mod.data_mounts(lane)
+    assert mounts["OSM_data"]["present"] and not mounts["OSM_data"]["shared"]
+    with pytest.raises(SystemExit) as exc:
+        build_mod.require_shared_data(mounts)
+    assert "e9daef5" in str(exc.value) and "lane_worktree.sh" in str(exc.value)
+    # ...and the override is explicit, never silent.
+    build_mod.require_shared_data(mounts, allow_private=True)
+
+
+def test_a_mounted_corpus_passes(build_mod, tmp_path, monkeypatch):
+    repo = tmp_path / "shared"
+    monkeypatch.setattr(build_mod, "DATA_REPO", repo)
+    lane = _fake_lane(tmp_path, repo)
+    mounts = build_mod.data_mounts(lane)
+    assert mounts["OSM_data"]["shared"] and mounts["Elevation_data"]["shared"]
+    build_mod.require_shared_data(mounts)
+
+
+def test_every_refresh_scope_prefix_is_a_shared_data_dir(build_mod):
+    """A scope pointing at a directory the harness does not snapshot would
+    authorise writes it cannot see."""
+    for scope, prefix, why in build_mod.REFRESH_SCOPES:
+        top = prefix.split("/")[0]
+        assert top in build_mod.SHARED_DATA_DIRS, (
+            f"scope {scope!r} covers {prefix!r}, which is outside the "
+            f"snapshotted data dirs — its writes would be invisible")
+        assert why.strip(), f"scope {scope!r} has no explanation"
+
+
+def test_the_road_feed_scope_is_the_named_precedent(build_mod):
+    """The KCLT road-feed refresh ran as a tile-build side effect and
+    silently changed campaign hashes.  It must be its OWN scope, matched
+    before the general OSM one, so authorising an overpass download does
+    not silently authorise a feed regeneration too."""
+    order = [sc for sc, _p, _w in build_mod.REFRESH_SCOPES]
+    assert order.index("osm_roadfeed") < order.index("osm_layers"), (
+        "the road-feed prefix must be matched BEFORE the general OSM_data "
+        "prefix, or every road-feed write is attributed to osm_layers")
+    assert build_mod.scope_of(
+        "OSM_data/_airport_road_feed/KCLT_road_feed.cache") == "osm_roadfeed"
+    assert build_mod.scope_of("OSM_data/+30+030/x.osm.bz2") == "osm_layers"
+    assert build_mod.scope_of("Patches/+30+031/x.osm") is None
+    assert "KCLT" in build_mod.scope_description("osm_roadfeed")
+
+
+def test_an_implicit_download_is_refused_and_names_its_scope(build_mod):
+    """A build must never fetch into the shared repo as a side effect."""
+    missing = [("dem", "Elevation_data/**/N30E031.hgt", "the base raster"),
+               ("osm_layers", "OSM_data/**/+30+031_airports.osm.bz2",
+                "the airports layer")]
+    with pytest.raises(SystemExit) as exc:
+        build_mod.require_no_implicit_refresh(missing, set())
+    msg = str(exc.value)
+    assert "e9daef5" in msg and "KCLT road-feed" in msg
+    assert "--refresh-data dem,osm_layers" in msg, (
+        "the refusal must hand back the exact flag that authorises it")
+    # Authorised scopes pass through.
+    build_mod.require_no_implicit_refresh(missing, {"dem", "osm_layers"})
+    # A partially-authorised set still refuses the rest.
+    with pytest.raises(SystemExit) as exc2:
+        build_mod.require_no_implicit_refresh(missing, {"dem"})
+    assert "--refresh-data osm_layers" in str(exc2.value)
+
+
+def test_the_snapshot_sees_every_write(build_mod, tmp_path, monkeypatch):
+    """The audit's guarantee is 'this build wrote NOTHING into the shared
+    repo'.  A sampled snapshot cannot make that claim, so the walk is
+    full — ~2.7 k files, ~10 ms."""
+    repo = tmp_path / "shared"
+    monkeypatch.setattr(build_mod, "DATA_REPO", repo)
+    deep = repo / "OSM_data" / "a" / "b" / "c" / "d"
+    deep.mkdir(parents=True)
+    (deep / "keep.txt").write_text("x")
+    before = build_mod.shared_repo_snapshot(repo)
+    (deep / "written_by_the_build.cache").write_text("new")
+    (deep / "keep.txt").write_text("CHANGED")
+    changes = build_mod.snapshot_diff(before,
+                                      build_mod.shared_repo_snapshot(repo))
+    assert changes["added"] == ["OSM_data/a/b/c/d/written_by_the_build.cache"]
+    assert changes["modified"] == ["OSM_data/a/b/c/d/keep.txt"]
+
+
+def test_an_unauthorised_write_is_reported_and_contaminates_the_run(
+        build_mod, tmp_path):
+    notes = []
+
+    class _P:
+        def note(self, m):
+            notes.append(m)
+
+    changes = {"added": ["OSM_data/_airport_road_feed/KCLT_road_feed.cache"],
+               "modified": [], "removed": []}
+    offenders = build_mod.report_unauthorised_writes(changes, set(), _P())
+    assert offenders and offenders[0]["scope"] == "osm_roadfeed"
+    blob = "\n".join(notes)
+    assert "CONTAMINATED" in blob and "e9daef5" in blob
+    assert "--refresh-data osm_roadfeed" in blob
+    # Authorised: silent about violations, because there is none.
+    notes.clear()
+    assert build_mod.report_unauthorised_writes(
+        changes, {"osm_roadfeed"}, _P()) == []
+
+
+def test_a_clean_build_is_reported_as_leaving_the_repo_untouched(build_mod):
+    notes = []
+
+    class _P:
+        def note(self, m):
+            notes.append(m)
+    empty = {"added": [], "modified": [], "removed": []}
+    assert build_mod.report_unauthorised_writes(empty, set(), _P()) == []
+    assert "UNCHANGED" in notes[0]
+
+
+def test_the_refresh_lock_refuses_and_reports_never_blocks(build_mod,
+                                                           tmp_path,
+                                                           monkeypatch):
+    """Ruling §3: concurrent lanes never race a regeneration.  Blocking is
+    not the answer either — a lane waiting on another lane's download is
+    indistinguishable from a hung build."""
+    monkeypatch.setattr(build_mod, "LOCK_DIR", tmp_path / "locks")
+    first = build_mod.RefreshLock("dem", lane="lane-A").acquire()
+    try:
+        with pytest.raises(SystemExit) as exc:
+            build_mod.RefreshLock("dem", lane="lane-B").acquire()
+        msg = str(exc.value)
+        assert "lane-A" in msg and "ALIVE" in msg
+        assert "never blocks silently" in msg
+        # A different scope is independent.
+        other = build_mod.RefreshLock("osm_layers", lane="lane-B").acquire()
+        other.release()
+    finally:
+        first.release()
+    # Released: the next lane gets it.
+    build_mod.RefreshLock("dem", lane="lane-C").acquire().release()
+
+
+def test_a_stale_lock_is_reported_and_never_broken_automatically(
+        build_mod, tmp_path, monkeypatch):
+    """A dead pid does NOT mean the write completed — the cache may be
+    half-written, which is worse than no cache."""
+    monkeypatch.setattr(build_mod, "LOCK_DIR", tmp_path / "locks")
+    (tmp_path / "locks").mkdir()
+    (tmp_path / "locks" / "dem.lock").write_text(json.dumps(
+        {"scope": "dem", "lane": "dead-lane", "pid": 2 ** 22,
+         "host": "h", "started": "2026-08-05T01:47:00"}))
+    with pytest.raises(SystemExit) as exc:
+        build_mod.RefreshLock("dem", lane="me").acquire()
+    msg = str(exc.value)
+    assert "stale lock" in msg and "--break-stale-lock" in msg
+    assert "does not mean the write COMPLETED" in msg
+    lock = build_mod.RefreshLock("dem", lane="me", break_stale=True).acquire()
+    lock.release()
+
+
+def test_a_refresh_is_hash_stamped_into_the_shared_ledger(build_mod,
+                                                          tmp_path,
+                                                          monkeypatch):
+    """"Exactly once, as an explicit logged event" needs a record that
+    outlives the session, in the SHARED repo where the next lane will
+    look."""
+    repo = tmp_path / "shared"
+    (repo / "Elevation_data").mkdir(parents=True)
+    (repo / "Elevation_data" / "N30E031.hgt").write_text("raster")
+    ledger = repo / ".harness" / "refresh_ledger.jsonl"
+    monkeypatch.setattr(build_mod, "DATA_REPO", repo)
+    monkeypatch.setattr(build_mod, "REFRESH_LEDGER", ledger)
+    rec = build_mod.record_refresh(
+        "dem", {"added": ["Elevation_data/N30E031.hgt"], "modified": [],
+                "removed": []},
+        {"lane": "L", "tag": "T"}, repo=repo)
+    assert rec["scope"] == "dem" and rec["added"] == 1
+    stamp = rec["files"][0]
+    assert stamp["sha256"] == hashlib.sha256(b"raster").hexdigest()
+    assert stamp["size"] == 6
+    on_disk = json.loads(ledger.read_text().strip())
+    assert on_disk["lane"] == "L" and on_disk["files"][0]["sha256"] == \
+        stamp["sha256"]
+
+
+def test_the_data_mounts_are_recorded_on_every_build(build_mod):
+    """Which corpus a build used must be readable from its artifacts —
+    otherwise the question is unanswerable a day later."""
+    src = Path(inspect.getfile(build_mod)).read_text()
+    assert '"data_mounts": mounts' in src
+    assert '"shared_repo_writes"' in src and '"contaminated"' in src
+
+
+def test_the_audit_runs_even_when_the_build_raises(build_mod):
+    """A build that died half-way through a download has still mutated the
+    shared repo — and that is exactly when nobody thinks to look."""
+    src = inspect.getsource(build_mod.main)
+    body = src[src.index("locks = ["):]
+    assert "finally:" in body, (
+        "the shared-repo write audit must run in a finally: block")
+    assert body.index("finally:") < body.index(
+        "report_unauthorised_writes"), (
+        "the audit must be INSIDE the finally, not after the try")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §6 THE INDEX IS THE CONSULTATION SURFACE
 # ══════════════════════════════════════════════════════════════════════
 
 INDEX = ROOT.parent / "tools" / "INDEX.md"

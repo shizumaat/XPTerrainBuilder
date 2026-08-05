@@ -44,6 +44,7 @@ a lane-private build or census wrapper is a **defect**, not a shortcut.
     venv/bin/python tools/harness/census.py PATCH.osm [PATCH.osm ...]
     venv/bin/python tools/harness/oracle.py ICAO
     tools/harness/lane_worktree.sh {up|check|down} NAME [REF]
+    tools/harness/lane_worktree.sh data          # who is on which corpus
 
 Why: two lanes each wrote their own census wrapper. One dropped
 `terrace_joints_ll` (lawful declared terraces reported as violations); the
@@ -57,6 +58,20 @@ where the harness censuses 110. Both wrappers looked right.
 fixtures share one code path; `Ortho4XP/tests/test_harness.py` twin-asserts
 that they do. Adding a check to `run_checks` without registering it in
 `LAW_FAMILIES` fails there.
+
+**One shared data repo (owner ruling, RULINGS `e9daef5`).**
+`/Users/noah/XPTerrainBuilderData` is THE data repo — DEM + insets, OSM
+extracts + road feeds, airport mod cache, geotiffs, masks, DSF cache,
+orthophotos. Every lane MOUNTS it through the ritual; a private cache is a
+second corpus that warms on its own schedule, and two lanes on two corpora
+do not measure the same thing. Downloads and cache regenerations are
+EXPLICIT, locked, hash-stamped events — `build_airport.py --refresh-data
+<scope>`, recorded in `<repo>/.harness/refresh_ledger.jsonl` — never a
+build side effect. The precedent: a KCLT road-feed refresh ran inside a
+tile build on 2026-08-05 01:47–01:55 and silently changed campaign hashes.
+Lane *products* (`Patches`, `Tiles`, `Previews`, `tmp`) stay lane-local —
+every tile build writes its emitted patches into `Patches/`, so sharing it
+would put one lane's geometry into another lane's build.
 
 **Tool discipline (owner ruling, RULINGS `7e90032`).** Consult
 `tools/INDEX.md` BEFORE writing any script that builds, measures or audits —
@@ -81,6 +96,18 @@ is what that costs.
 - A lane worktree missing `OSM_data`, or with a COPIED `Elevation_data` (a
   second inset cache that warms on its own): `lane_worktree.sh` builds and
   audits it.
+- A build on a PRIVATE data corpus, whose numbers no other lane can be
+  compared with: refused; the corpus every data dir resolved to is recorded
+  in `frame.json`.
+- An implicit download or cache regeneration into the shared repo (the
+  KCLT road-feed precedent): refused before the build, naming the artifact
+  and the `--refresh-data` scope; and a full before/after snapshot after it
+  reports any write that happened anyway, marking the run CONTAMINATED.
+  Note `--allow-degraded-dem` does NOT authorise a write — accepting a
+  worse measurement and authorising a change to everyone's data are
+  different acts.
+- Two lanes racing a cache regeneration: per-scope lock in the shared repo,
+  refuse-and-report, never a silent block.
 - A census that omits a law family, a sidecar key, or the ruleset:
   structurally impossible — the twins fail.
 

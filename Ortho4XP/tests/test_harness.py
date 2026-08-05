@@ -649,3 +649,135 @@ def test_every_harness_entry_is_in_the_tool_index():
         assert entry in text, (
             f"tools/harness/{entry} is not listed in tools/INDEX.md — "
             f"a tool absent from the index is treated as absent")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §6 THE AUTHORSHIP TRACER — who_wrote.py
+# ══════════════════════════════════════════════════════════════════════
+# The tool that attributed the constant-DEM oracle's "DEM as a hard
+# authority" class to a named pass.  Its two load-bearing pieces are pure
+# functions over a write history, so they are testable without a build —
+# which is the point: the expensive half is the build, the half that can be
+# WRONG is the bookkeeping.
+
+WHO = _load("who_wrote", HARNESS / "who_wrote.py")
+
+
+class TestIntroducingWrite:
+    """``introducing_write`` must name the AUTHOR, not the last carrier.
+
+    Every value in this repo is rewritten several times after it is
+    authored (the final projection's writeback rewrites almost everything).
+    Reporting the last writer names the carrier and hides the pass that
+    actually put the value there — the mistake this function exists to
+    avoid.
+    """
+
+    def test_empty_history_has_no_author(self):
+        assert WHO.introducing_write([]) is None
+
+    def test_the_author_is_the_first_write_after_the_last_clean_one(self):
+        history = [
+            (0, 10, "solve.py:1:solved_clean"),
+            (4, 10, "groundside.py:2:THE_AUTHOR"),
+            (4, 10, "emit_decimate.py:3:carrier"),
+            (4, 10, "solve.py:4:projection_carrier"),
+        ]
+        assert WHO.introducing_write(history)[2] == "groundside.py:2:THE_AUTHOR"
+
+    def test_a_value_reintroduced_after_a_clean_write_reattributes(self):
+        """A pass that CLEARS the condition and a later pass that brings it
+        back: the author is the later one, not the first ever."""
+        history = [
+            (3, 9, "a.py:1:early"),
+            (0, 9, "b.py:2:cleaned_it"),
+            (2, 9, "c.py:3:BROUGHT_IT_BACK"),
+            (2, 9, "d.py:4:carrier"),
+        ]
+        assert WHO.introducing_write(history)[2] == "c.py:3:BROUGHT_IT_BACK"
+
+    def test_never_clean_falls_back_to_the_first_write(self):
+        history = [(1, 4, "a.py:1:first"), (1, 4, "b.py:2:later")]
+        assert WHO.introducing_write(history)[2] == "a.py:1:first"
+
+
+class TestAuthorshipProbe:
+    """The probe must RECORD without changing the value, and must put the
+    field back — an instrument that mutates its subject is not one."""
+
+    def _shape_cls(self):
+        class _Shape:
+            node_altitudes = None
+
+            def __init__(self, role="apron"):
+                self.role = role
+                self.ref = ""
+                self.polygon = None
+                self.node_altitudes = None
+        return _Shape
+
+    def test_it_records_every_write_and_returns_the_value_unchanged(self):
+        cls = self._shape_cls()
+        probe = WHO.AuthorshipProbe(cls, dem_m=1.0).install()
+        try:
+            s = cls()
+            s.node_altitudes = [5.0, 5.0, 5.0]
+            s.node_altitudes = [1.0, 5.0, 1.0]
+            assert list(s.node_altitudes) == [1.0, 5.0, 1.0]
+        finally:
+            probe.uninstall()
+        history = probe.by_shape[id(s)]
+        assert [h[0] for h in history] == [0, 2], (
+            "the probe must count DEM-matching values per write")
+
+    def test_uninstall_restores_the_field(self):
+        cls = self._shape_cls()
+        probe = WHO.AuthorshipProbe(cls, dem_m=1.0).install()
+        assert isinstance(cls.__dict__["node_altitudes"], property)
+        probe.uninstall()
+        assert not isinstance(cls.__dict__.get("node_altitudes"), property)
+
+    def test_the_role_filter_scopes_recording(self):
+        cls = self._shape_cls()
+        probe = WHO.AuthorshipProbe(cls, dem_m=1.0,
+                                    roles=["service_junction"]).install()
+        try:
+            keep, drop = cls("service_junction"), cls("apron")
+            keep.node_altitudes = [1.0]
+            drop.node_altitudes = [1.0]
+        finally:
+            probe.uninstall()
+        assert id(keep) in probe.by_shape
+        assert id(drop) not in probe.by_shape
+
+
+def test_who_wrote_builds_through_the_harness_entry_only():
+    """It must not grow a private build: the whole point of a lane tool
+    living in tools/harness is that it inherits the entry's refusals."""
+    src = (HARNESS / "who_wrote.py").read_text()
+    assert "HB.build_patch(" in src
+    assert "build_airport_pavement(" not in src, (
+        "who_wrote.py must build through tools/harness/build_airport.py, "
+        "never by calling the pipeline directly")
+
+
+def test_the_probe_values_survive_uninstall():
+    """The report is taken AFTER the build, and uninstall happens in the
+    build's ``finally``.  A probe that parks values in a private alias
+    reports zero findings once the field is restored — measured: an
+    authorship census that should have named 291 vertices printed 0."""
+    class _Shape:
+        node_altitudes = None
+
+        def __init__(self):
+            self.role = "apron"
+            self.ref = ""
+            self.polygon = None
+            self.node_altitudes = None
+
+    probe = WHO.AuthorshipProbe(_Shape, dem_m=1.0).install()
+    s = _Shape()
+    s.node_altitudes = [1.0, 2.0]
+    probe.uninstall()
+    assert list(s.node_altitudes) == [1.0, 2.0], (
+        "values written through the probe must survive uninstall")

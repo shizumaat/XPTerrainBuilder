@@ -65,7 +65,11 @@ def _read_back_values(layout):
 
 def test_projection_recaptures_snapshot_with_post_projection_values(
         monkeypatch):
-    monkeypatch.setenv("O4_SCOPED_FINAL_PROJECTION", "1")   # opt-in since the 2026-07-18 default flip
+    # PARKED FEATURE (integration sweep 2026-08-05): the scoping machinery
+    # is retained but unreachable from the environment — production runs
+    # the FULL projection.  Its twins engage it through the module
+    # constant, which is the only remaining selector.
+    monkeypatch.setattr(RP, "SCOPED_FINAL_PROJECTION", True)
     monkeypatch.delenv("O4_FINAL_GRADE_PROJECTION", raising=False)
     layout = _apron_layout()
     assert getattr(layout, "_final_projection_snapshot", None) is None
@@ -84,7 +88,7 @@ def test_projection_recaptures_snapshot_with_post_projection_values(
 
 
 def test_second_projection_run_defers_unchanged_shape(monkeypatch, capsys):
-    monkeypatch.setenv("O4_SCOPED_FINAL_PROJECTION", "1")   # opt-in since the 2026-07-18 default flip
+    monkeypatch.setattr(RP, "SCOPED_FINAL_PROJECTION", True)
     monkeypatch.delenv("O4_FINAL_GRADE_PROJECTION", raising=False)
     layout = _apron_layout()
     apron = layout.shapes[0]
@@ -113,7 +117,7 @@ def test_second_projection_run_defers_unchanged_shape(monkeypatch, capsys):
 
 
 def test_value_churn_after_projection_blocks_deferral(monkeypatch):
-    monkeypatch.setenv("O4_SCOPED_FINAL_PROJECTION", "1")   # opt-in since the 2026-07-18 default flip
+    monkeypatch.setattr(RP, "SCOPED_FINAL_PROJECTION", True)
     monkeypatch.delenv("O4_FINAL_GRADE_PROJECTION", raising=False)
     layout = _apron_layout()
     apron = layout.shapes[0]
@@ -136,9 +140,15 @@ def test_value_churn_after_projection_blocks_deferral(monkeypatch):
     assert id(apron) not in defer_ids
 
 
-def test_scoped_gate_off_skips_recapture(monkeypatch):
-    monkeypatch.setenv("O4_SCOPED_FINAL_PROJECTION", "0")
+def test_production_never_scopes_and_no_env_can_ask_it_to(monkeypatch):
+    """The parked state IS production (integration sweep 2026-08-05): the
+    projection runs FULL and takes no snapshot, and the retired
+    ``O4_SCOPED_FINAL_PROJECTION`` cannot ask for the scoped arm — the
+    per-site default drift the audit named (fast path "1", consumer "0")
+    is closed by there being no env at all."""
+    monkeypatch.setenv("O4_SCOPED_FINAL_PROJECTION", "1")
     monkeypatch.delenv("O4_FINAL_GRADE_PROJECTION", raising=False)
+    assert RP.SCOPED_FINAL_PROJECTION is False
     layout = _apron_layout()
 
     RP.final_grade_projection(layout, icao="TEST")

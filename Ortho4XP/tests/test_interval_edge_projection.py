@@ -190,8 +190,10 @@ def test_scalar_and_vectorised_agree_on_an_interval_graph(monkeypatch):
     OS.feasibility_project(scalar, [{"edges": list(edges)}], set(hard),
                            force_scalar=True, max_iters=8000, tol=1e-3)
 
-    # Force the vectorised Jacobi variant on for the comparison run.
-    monkeypatch.setattr(OS, "_FP_VECTORIZE", True)
+    # The vectorised variant is selected by ``force_scalar=False`` — the
+    # ONLY switch production has.  (``_FP_VECTORIZE`` was a dead gate,
+    # never read; the row that set it here selected nothing.  Deleted with
+    # the gate, integration sweep 2026-08-05.)
     vect = list(seed)
     OS.feasibility_project(vect, [{"edges": list(edges)}], set(hard),
                            force_scalar=False, max_iters=8000, tol=1e-3)
@@ -277,7 +279,8 @@ def test_pure_interval_graph_vectorised_path(monkeypatch):
     # even with float weights, so the symmetric block's empty bincounts made
     # ``acc``/``cnt`` int64 and the interval block's ``+=`` raised.  The
     # accumulators must be born float64 when no symmetric edges exist.
-    monkeypatch.setattr(OS, "_FP_VECTORIZE", True)
+    # (``force_scalar=False`` below is the selector; the dead
+    # ``_FP_VECTORIZE`` row that used to sit here is gone with its gate.)
     elev = [0.0, 20.0, -20.0]
     edges = [(1, 0, None, 2.0),         # z1 ≤ z0 + 2
              (2, 0, -2.0, None)]        # z2 ≥ z0 − 2

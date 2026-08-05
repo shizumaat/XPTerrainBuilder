@@ -133,10 +133,13 @@ def test_reseat_moves_torn_skirt_pin_onto_the_datum():
         f"pin stayed at a torn value: corner={corner} pin={pin}")
 
 
-def test_gate_off_preserves_the_shipped_defect():
-    """O4_TORN_DATUM_PIN_RELEASE=0 restores the previous behaviour (both
-    endpoints frozen, the step survives) — documents that the release is
-    what closes the class."""
+def test_the_retired_gate_cannot_restore_the_shipped_defect():
+    """OBITUARY for the OFF arm.  ``O4_TORN_DATUM_PIN_RELEASE`` is DELETED
+    in ``src/`` — the release IS the law that closes the torn-datum class —
+    so a stale ``=0`` in an environment must NOT restore the frozen-both-
+    endpoints behaviour.  Before the integration sweep this row still
+    asserted the defect and would have passed green while measuring an arm
+    that no longer exists."""
     layout, junction = _torn_pin_layout()
     import os
     os.environ["O4_TORN_DATUM_PIN_RELEASE"] = "0"
@@ -145,7 +148,11 @@ def test_gate_off_preserves_the_shipped_defect():
     finally:
         del os.environ["O4_TORN_DATUM_PIN_RELEASE"]
     pin = _junction_alt_at(layout, junction, (51.3, 20.3))
-    assert pin == pytest.approx(_PIN_ALT, abs=1e-6)
+    corner = _junction_alt_at(layout, junction, (50.3, 20.3))
+    assert pin != pytest.approx(_PIN_ALT, abs=1e-6), (
+        "a retired env name restored the torn pin — the arm is gone")
+    assert abs(pin - corner) <= 0.015 + 0.05, (
+        f"pin stayed at a torn value: corner={corner} pin={pin}")
 
 
 def test_tile_seam_pin_is_never_released():

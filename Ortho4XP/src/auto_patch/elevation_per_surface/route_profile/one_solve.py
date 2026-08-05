@@ -179,8 +179,13 @@ def raw_law_sweeps_enabled() -> bool:
     measured: a 69-hop witness route steals 0.63 m, and the projection
     burns 3983 sweeps chasing the deficit).
 
-    Default "0" — no new default-on gate without a battery."""
-    return _os.environ.get("O4_RAW_LAW_SWEEPS", "0") == "1"
+    STANDING LAW (docs/RULINGS.md 2026-08-05, build-complete-then-debug:
+    "NO GATES.  Every believed-in law becomes standing law; O4_ law gates
+    and their env overrides are DELETED as their territory is touched").
+    ``O4_RAW_LAW_SWEEPS`` is GONE; the sweeps run on raw law and
+    :mod:`auto_patch.emit_snap` carries the quantization guarantee, which
+    is its standing half."""
+    return True
 
 
 def _emit_quantization_margin():

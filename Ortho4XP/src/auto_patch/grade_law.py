@@ -65,6 +65,48 @@ from .config import (
     SERVICE_ROAD_MAX_GRADE, TAXI_MAX_GRADE, TAXIWAY_STRIP_BAND_MAX_DOWN_SLOPE,
     TAXIWAY_STRIP_BAND_MIN_DOWN_SLOPE, runway_code_number,
     taxiway_strip_graded_half_width_for_letter)
+# ── Region rulesets (phase B) ────────────────────────────────────────
+# EVERY split family is read through these accessors — never through a
+# bare module constant at a law site (owner ruling "Region-specific
+# rulesets", 2026-08-02: "NO ``if icao.startswith('K')`` at any law
+# site").  Emitter and validator call the SAME accessor with the SAME
+# resolved key, which is the lockstep half of the grade-law completeness
+# standard.
+from .config import (                                          # noqa: E402
+    CROWN_MINIMUM_BOUND, DEFAULT_RULESET, FAA_RULESET,
+    GROUNDSIDE_MIN_DRAINAGE_GRADE, get_ruleset, resolve_ruleset,
+    ruleset_apron_max_grade_change, ruleset_apron_min_drainage_grade,
+    ruleset_runway_end_grade, ruleset_runway_end_zone_length_m,
+    ruleset_runway_max_grade, ruleset_runway_max_grade_change,
+    ruleset_runway_max_grade_change_per_m,
+    ruleset_runway_vertical_curve_min_change,
+    ruleset_shoulder_edge_dropoff, ruleset_shoulder_transverse_band,
+    ruleset_stand_max_grade, ruleset_strip_arc_rate_per_m,
+    ruleset_strip_band_max_down_slope, ruleset_strip_half_width_m,
+    ruleset_strip_max_longitudinal_slope, ruleset_taxi_max_grade,
+    ruleset_taxi_transverse_max)
+
+
+def ruleset_of(layout_or_icao=None) -> str:
+    """THE ruleset key for a build, from a ``PavementLayout`` (or an ICAO
+    identifier, or ``None``).
+
+    Resolution happens ONCE per build and is then carried: a layout that
+    already carries a ``ruleset`` attribute is believed verbatim (that is
+    the value the sidecar records and the validator judges in), and only
+    a layout without one is resolved from its ICAO identifier.  A law
+    site never re-resolves from the identifier when a resolved key is
+    available — the two-instruments law: production emits what it did,
+    and the validator judges the same frame.
+    """
+    if layout_or_icao is None:
+        return DEFAULT_RULESET
+    if isinstance(layout_or_icao, str):
+        return resolve_ruleset(layout_or_icao)
+    carried = getattr(layout_or_icao, "ruleset", None)
+    if carried:
+        return str(carried)
+    return resolve_ruleset(getattr(layout_or_icao, "icao", "") or "")
 
 # ── Law constants (the adjustable knobs of the law) ──────────────────────────
 APRON_ROLE = "apron"
@@ -161,10 +203,33 @@ def building_requires_full_frontage(area_m2: float) -> bool:
 # fill.  Single source for the Pass D skirt EMITTER
 # (``clearance._emit_resa_skirt``) and the ``check_grade`` validator —
 # regulatory basis and plan: ``docs/runway_end_skirt_plan.md``.
-RUNWAY_END_SKIRT_NEAR_ZONE_M = 61.0             # FAA "first 200 feet"
-RUNWAY_END_SKIRT_NEAR_MAX_DOWN_GRADE = 0.03     # 0…−3 % in the near zone
-RUNWAY_END_SKIRT_MAX_DOWN_GRADE = 0.05          # −5 % beyond
-RUNWAY_END_SKIRT_MAX_GRADE_CHANGE_PER_M = 0.02 / 30.5   # ±2 % per 100 ft
+#
+# THE VALUES NOW LIVE ON THE FAA RULESET (config.FAA_RULESET), which is
+# where they came from; these names are kept as the FAA ruleset's view so
+# every existing importer (clearance, check_grade, the twins) is
+# unchanged and there is exactly ONE copy of each number.  Ruleset-aware
+# call sites should read ``runway_end_skirt_law(ruleset)`` instead — at
+# an ICAO airport there is NO 61 m near zone and no cited rate.
+RUNWAY_END_SKIRT_NEAR_ZONE_M = FAA_RULESET.end_skirt_near_zone_m
+RUNWAY_END_SKIRT_NEAR_MAX_DOWN_GRADE = FAA_RULESET.end_skirt_near_max_down_grade
+RUNWAY_END_SKIRT_MAX_DOWN_GRADE = FAA_RULESET.end_skirt_max_down_grade
+RUNWAY_END_SKIRT_MAX_GRADE_CHANGE_PER_M = (
+    FAA_RULESET.end_skirt_max_grade_change_per_m)
+
+
+def runway_end_skirt_law(ruleset=None) -> tuple:
+    """``(near_zone_m, near_max_down, max_down, rate_per_m)`` — the
+    end-skirt LONGITUDINAL law of ``ruleset`` (§4 row 10).
+
+    FAA (AC §3.16.5 items 2-5): a 61 m near zone falling 0 to −3 %, −5 %
+    beyond, grade changes ±2 % per 30.5 m.  ICAO (Annex 14 §3.5.10):
+    down ≤5 % with NO near zone and no numeric rate — ``near_zone_m`` is
+    ``None`` there, and the rate is the provisional operationalization
+    flagged on the ruleset (owner question 2).
+    """
+    rs = get_ruleset(ruleset)
+    return (rs.end_skirt_near_zone_m, rs.end_skirt_near_max_down_grade,
+            rs.end_skirt_max_down_grade, rs.end_skirt_max_grade_change_per_m)
 
 # Governed-length scaling by approach class (per-end, from
 # ``config.runway_end_approach_class``).  Visual ends clamp to the ICAO
@@ -217,28 +282,44 @@ def runway_end_constrained_length_m(
         constraint_distance_m - RUNWAY_END_SKIRT_CONSTRAINT_MARGIN_M))
 
 
+def _end_skirt_params(ruleset=None) -> tuple:
+    """``(near_zone_m, near_max_down, max_down, rate_per_m)`` in a form
+    the floor math can consume WITHOUT a per-authority special case.
+
+    ICAO states no near zone (§3.5.10 is a single ≤5 % down cap), so its
+    near zone collapses to length 0 with the near cap equal to the far
+    cap — the identical piecewise-linear machinery then produces ICAO's
+    one-segment law with no branch anywhere below.
+    """
+    near_zone, near_max, max_down, rate = runway_end_skirt_law(ruleset)
+    if near_zone is None or near_max is None:
+        return (0.0, float(max_down), float(max_down), float(rate))
+    return (float(near_zone), float(near_max), float(max_down), float(rate))
+
+
 def _runway_end_skirt_signed_grade(
-        distance_m: float, start_grade: float) -> float:
+        distance_m: float, start_grade: float, ruleset=None) -> float:
     """Signed grade (positive = climbing) of the LOWEST lawful surface at
     ``distance_m`` beyond the runway end.  The steepest permissible
     descent is bounded by BOTH what the grade-change rate can reach from
     the runway's own end grade AND the zone's down-grade cap; the cap
     itself eases from −3 % to −5 % at the near-zone boundary under the
-    same rate limit, so the floor has no curvature kink anywhere."""
-    rate = RUNWAY_END_SKIRT_MAX_GRADE_CHANGE_PER_M
+    same rate limit, so the floor has no curvature kink anywhere.
+
+    Under a ruleset with no near zone (ICAO) the first term is simply the
+    single ≤5 % cap from the pavement exit — see ``_end_skirt_params``."""
+    near_zone, near_max, max_down, rate = _end_skirt_params(ruleset)
     reachable = start_grade - rate * distance_m
-    if distance_m <= RUNWAY_END_SKIRT_NEAR_ZONE_M:
-        lawful = -RUNWAY_END_SKIRT_NEAR_MAX_DOWN_GRADE
+    if distance_m <= near_zone:
+        lawful = -near_max
     else:
-        lawful = max(
-            -RUNWAY_END_SKIRT_MAX_DOWN_GRADE,
-            -RUNWAY_END_SKIRT_NEAR_MAX_DOWN_GRADE
-            - rate * (distance_m - RUNWAY_END_SKIRT_NEAR_ZONE_M))
+        lawful = max(-max_down,
+                     -near_max - rate * (distance_m - near_zone))
     return max(lawful, reachable)
 
 
 def runway_end_skirt_profile_breakpoints(
-        start_grade: float = 0.0) -> list[float]:
+        start_grade: float = 0.0, ruleset=None) -> list[float]:
     """Distances (m, ascending) where the floor profile's GRADE LAW
     changes — the boundaries of its piecewise-linear-grade segments.
     Between consecutive breakpoints the floor is a single quadratic, so
@@ -247,19 +328,18 @@ def runway_end_skirt_profile_breakpoints(
     the 61 m near zone) — far inside the fill trigger.  Single source
     for the Pass D band edges AND the floor integration below."""
     start_grade = min(0.0, start_grade)
-    rate = RUNWAY_END_SKIRT_MAX_GRADE_CHANGE_PER_M
+    near_zone, near_max, max_down, rate = _end_skirt_params(ruleset)
     return sorted({
-        RUNWAY_END_SKIRT_NEAR_ZONE_M,
-        RUNWAY_END_SKIRT_NEAR_ZONE_M
-        + (RUNWAY_END_SKIRT_MAX_DOWN_GRADE
-           - RUNWAY_END_SKIRT_NEAR_MAX_DOWN_GRADE) / rate,
-        (start_grade + RUNWAY_END_SKIRT_NEAR_MAX_DOWN_GRADE) / rate,
-        (start_grade + RUNWAY_END_SKIRT_MAX_DOWN_GRADE) / rate,
+        near_zone,
+        near_zone + (max_down - near_max) / rate,
+        (start_grade + near_max) / rate,
+        (start_grade + max_down) / rate,
     })
 
 
 def runway_end_skirt_floor_profile(
-        distances_m: list[float], start_grade: float = 0.0) -> list[float]:
+        distances_m: list[float], start_grade: float = 0.0,
+        ruleset=None) -> list[float]:
     """THE lowest lawful surface beyond a runway end, as DEPTHS (m, ≥ 0)
     below the runway-end elevation at each requested distance.
 
@@ -282,7 +362,7 @@ def runway_end_skirt_floor_profile(
     # Breakpoints of the piecewise-linear signed-grade function: the
     # near-zone boundary, the cap's own −3 %→−5 % easing end, and where
     # the curvature-reachable line meets each cap level.
-    breakpoints = runway_end_skirt_profile_breakpoints(start_grade)
+    breakpoints = runway_end_skirt_profile_breakpoints(start_grade, ruleset)
 
     def _depth(distance_m: float) -> float:
         drop = 0.0
@@ -291,8 +371,8 @@ def runway_end_skirt_floor_profile(
                 + [distance_m]:
             segment = cut - previous
             drop -= 0.5 * segment * (
-                _runway_end_skirt_signed_grade(previous, start_grade)
-                + _runway_end_skirt_signed_grade(cut, start_grade))
+                _runway_end_skirt_signed_grade(previous, start_grade, ruleset)
+                + _runway_end_skirt_signed_grade(cut, start_grade, ruleset))
             previous = cut
         return max(0.0, drop)
 
@@ -318,7 +398,8 @@ def runway_end_governed_length_beyond_pavement_m(
 
 def runway_end_skirt_profile_breakpoints_beyond_pavement(
         start_grade: float = 0.0,
-        pavement_beyond_end_m: float = 0.0) -> list[float]:
+        pavement_beyond_end_m: float = 0.0,
+        ruleset=None) -> list[float]:
     """``runway_end_skirt_profile_breakpoints`` re-expressed as distances
     beyond the PAVEMENT EXIT when that exit sits ``pavement_beyond_end_m``
     past the runway end: the law profile is anchored at the runway end,
@@ -327,13 +408,13 @@ def runway_end_skirt_profile_breakpoints_beyond_pavement(
     advance = max(0.0, pavement_beyond_end_m)
     return sorted({
         b - advance
-        for b in runway_end_skirt_profile_breakpoints(start_grade)
+        for b in runway_end_skirt_profile_breakpoints(start_grade, ruleset)
         if b > advance + 1e-9})
 
 
 def runway_end_skirt_floor_profile_beyond_pavement(
         distances_m: list[float], start_grade: float = 0.0,
-        pavement_beyond_end_m: float = 0.0) -> list[float]:
+        pavement_beyond_end_m: float = 0.0, ruleset=None) -> list[float]:
     """Floor DEPTHS (m, ≥ 0) below the pavement-EXIT elevation at each
     distance beyond the exit, for an exit ``pavement_beyond_end_m`` past
     the runway end.
@@ -348,14 +429,17 @@ def runway_end_skirt_floor_profile_beyond_pavement(
     ``runway_end_skirt_floor_profile``."""
     advance = max(0.0, pavement_beyond_end_m)
     if advance <= 0.0:
-        return runway_end_skirt_floor_profile(distances_m, start_grade)
+        return runway_end_skirt_floor_profile(
+            distances_m, start_grade, ruleset)
     depths = runway_end_skirt_floor_profile(
-        [advance] + [advance + d for d in distances_m], start_grade)
+        [advance] + [advance + d for d in distances_m], start_grade, ruleset)
     return [d - depths[0] for d in depths[1:]]
 
 
 def runway_end_corridor_half_width_m(runway_width_m: float,
-                                     runway_length_m: float) -> float:
+                                     runway_length_m: float,
+                                     code_letter=None,
+                                     ruleset=None) -> float:
     """Half-width (m) each side of the extended centreline of the governed
     runway-END corridor — the lateral extent of both the skirt fill and the
     RESA cut.
@@ -370,10 +454,14 @@ def runway_end_corridor_half_width_m(runway_width_m: float,
 
     Single source for ``clearance.emit_runway_end_skirts`` (both directions)
     and the ``verification`` reader.
+
+    The strip half-width term is RULESET-KEYED (§4 row 6): under the FAA
+    ruleset it is the Appendix G RSA half-width (76.2 m at ADG III-VI vs
+    ICAO's 75 m), so an FAA end corridor is ~1.2 m wider.
     """
     code = runway_code_number(runway_length_m)
     return max(float(runway_width_m),
-               float(RUNWAY_STRIP_HALF_WIDTH_BY_CODE[code]))
+               float(ruleset_strip_half_width_m(code, code_letter, ruleset)))
 
 
 def runway_axis_and_width(points) -> "Optional[tuple]":
@@ -432,7 +520,8 @@ def runway_axis_and_width(points) -> "Optional[tuple]":
 
 def runway_strip_wall_keepout_rings(
         axis_a: tuple[float, float], axis_b: tuple[float, float],
-        runway_width_m: float) -> list[list[tuple[float, float]]]:
+        runway_width_m: float, code_letter=None,
+        ruleset=None) -> list[list[tuple[float, float]]]:
     """THE runway-STRIP footprint inside which a ``retaining_wall`` face is
     INADMISSIBLE (owner ruling 2026-08-01, runway-edge terrain law: "retaining
     walls are NEVER lawful at a runway edge — runway surroundings must grade
@@ -469,8 +558,9 @@ def runway_strip_wall_keepout_rings(
     ux, uy = dx / length, dy / length
     px, py = -uy, ux                      # unit normal
     code = runway_code_number(length)
-    strip_half = float(RUNWAY_STRIP_HALF_WIDTH_BY_CODE[code])
-    end_half = runway_end_corridor_half_width_m(runway_width_m, length)
+    strip_half = float(ruleset_strip_half_width_m(code, code_letter, ruleset))
+    end_half = runway_end_corridor_half_width_m(
+        runway_width_m, length, code_letter, ruleset)
     end_len = float(RUNWAY_END_CLEARANCE_LENGTH_BY_CODE[code])
 
     def _rect(s0, s1, half):
@@ -502,7 +592,8 @@ def runway_strip_wall_keepout_rings(
 
 def runway_strip_lateral_footprint_ring(
         axis_a: tuple[float, float], axis_b: tuple[float, float],
-        runway_width_m: float) -> "Optional[list]":
+        runway_width_m: float, code_letter=None,
+        ruleset=None) -> "Optional[list]":
     """JUST the LATERAL graded-strip rectangle of the strip footprint —
     centreline ± ``RUNWAY_STRIP_HALF_WIDTH_BY_CODE`` over the runway's own
     length, WITHOUT the two end corridors.
@@ -524,12 +615,14 @@ def runway_strip_lateral_footprint_ring(
     Derived from ``runway_strip_wall_keepout_rings`` (index 0 is the
     lateral rectangle by that function's own construction) so there is one
     strip geometry, never two."""
-    rings = runway_strip_wall_keepout_rings(axis_a, axis_b, runway_width_m)
+    rings = runway_strip_wall_keepout_rings(
+        axis_a, axis_b, runway_width_m, code_letter, ruleset)
     return rings[0] if rings else None
 
 
 def runway_strip_max_longitudinal_slope(code_number: int,
-                                        ruleset: str = "icao") -> float:
+                                        ruleset: str = "icao",
+                                        code_letter=None) -> float:
     """The strip's ALONG-RUNWAY slope cap for aerodrome code ``code_number``
     — the G-2 family the repo never bound (spec ``docs/specs/
     rsa-law-round-spec.md`` §2).
@@ -550,11 +643,14 @@ def runway_strip_max_longitudinal_slope(code_number: int,
     Note that at code 4 the two authorities agree (1.5 %), which is why the
     FAA fixture (KCLT, six precision code-4 ends) is exercised by the ICAO
     value this round without prejudging the split.
+
+    PHASE B: the two-branch body is gone — the value comes from the
+    resolved ruleset's own table (``config.ruleset_strip_max_
+    longitudinal_slope``).  The signature and the ``"icao"`` default are
+    kept so the RSA round's call sites are unchanged.
     """
-    if str(ruleset).lower() == "faa":
-        return float(RUNWAY_STRIP_MAX_LONGITUDINAL_SLOPE_FAA)
-    return float(RUNWAY_STRIP_MAX_LONGITUDINAL_SLOPE_BY_CODE[
-        int(code_number)])
+    return float(ruleset_strip_max_longitudinal_slope(
+        code_number, code_letter, ruleset))
 
 
 def runway_strip_longitudinal_runs(points, axis, inside=None):
@@ -617,9 +713,44 @@ def runway_strip_longitudinal_runs(points, axis, inside=None):
     return runs
 
 
+def _arc_rate_pass(s, z, free, rate_per_m) -> bool:
+    """ONE minimal-move sweep making the chain's consecutive GRADES
+    change no faster than ``rate_per_m`` per metre — the curvature half
+    of a longitudinal law (§A3(b); the same second-difference form the
+    runway profile's vertical-curve rule uses and the same form
+    ``verification`` already reads: the allowance for the pair straddling
+    station ``k`` is ``rate · ½(ds_left + ds_right)``).
+
+    Only the MIDDLE vertex of an offending triple moves, and only by the
+    least amount that satisfies the bound — the locality property the
+    Lipschitz clamp above documents.  Returns whether anything moved."""
+    moved = False
+    n = len(z)
+    for k in range(1, n - 1):
+        if not free[k]:
+            continue
+        dp = s[k] - s[k - 1]
+        dn = s[k + 1] - s[k]
+        if abs(dp) < 1e-9 or abs(dn) < 1e-9:
+            continue
+        g_prev = (z[k] - z[k - 1]) / dp
+        g_next = (z[k + 1] - z[k]) / dn
+        allowed = rate_per_m * 0.5 * (abs(dp) + abs(dn))
+        excess = abs(g_next - g_prev) - allowed
+        if excess <= 1e-12:
+            continue
+        # d(g_next − g_prev)/dz[k] = −(1/dn + 1/dp): move z[k] by the
+        # least amount that removes exactly the excess.
+        denom = 1.0 / abs(dn) + 1.0 / abs(dp)
+        step = excess / denom
+        z[k] += step if (g_next - g_prev) > 0 else -step
+        moved = True
+    return moved
+
+
 def runway_strip_longitudinal_clamp(points, alts, axis, max_slope,
                                     pinned=None, inside=None,
-                                    max_passes=8):
+                                    max_passes=8, arc_rate_per_m=None):
     """THE generation-binding half of the abeam-longitudinal law: return
     ``alts`` with every strip-band run made ``max_slope``-Lipschitz along
     the runway axis.
@@ -671,6 +802,18 @@ def runway_strip_longitudinal_clamp(points, alts, axis, max_slope,
     call in any case — pinning here is what makes the clamp AGREE with that
     re-assertion instead of fighting it.)
 
+    ``arc_rate_per_m`` (§A3(b), the strip's CURVATURE law — ICAO Annex 14
+    §3.4.14 "as gradual as practicable", FAA AC §3.16.5 item 5 ±2 % per
+    100 ft) additionally bounds how fast the run's GRADE may change, in
+    grade units per metre.  Pass ``config.ruleset_strip_arc_rate_per_m
+    (ruleset)``.  The two laws are composed by alternating their sweeps
+    to a joint fixed point: the Lipschitz sweep can only pull a value
+    INTO a neighbour band and the arc sweep only reduces a
+    second-difference excess, so neither re-creates the other's
+    violation without bound and the pair converges (the pass cap is the
+    same pathological-chain guard).  ``None`` (default) ⇒ the slope law
+    alone, exactly as the RSA round landed it.
+
     ``inside`` and the run splitting are ``runway_strip_longitudinal_runs``
     verbatim.  Pure, deterministic, no geometry dependencies; the validator
     twin (``check_grade._check_strip_longitudinal_grade``) reads the SAME
@@ -714,6 +857,9 @@ def runway_strip_longitudinal_clamp(points, alts, axis, max_slope,
                 if new != z[k]:
                     z[k] = new
                     moved = True
+            if arc_rate_per_m and _arc_rate_pass(
+                    s, z, free, float(arc_rate_per_m)):
+                moved = True
             if not moved:
                 break
         for k, i in enumerate(idx):
@@ -729,6 +875,7 @@ def runway_end_envelope(
         entry_grade: float = 0.0,
         pavement_beyond_end_m: float = 0.0,
         resa_reach_m: Optional[float] = None,
+        ruleset=None,
 ) -> tuple[Optional[float], Optional[float]]:
     """THE lawful corridor for terrain BEYOND a runway end, as a signed
     ``(floor_offset_m, ceiling_offset_m)`` relative to the pavement-EXIT
@@ -778,7 +925,7 @@ def runway_end_envelope(
     floor: Optional[float] = None
     if d <= float(governed_length_beyond_pavement_m):
         depth = runway_end_skirt_floor_profile_beyond_pavement(
-            [d], entry_grade, pavement_beyond_end_m)[0]
+            [d], entry_grade, pavement_beyond_end_m, ruleset)[0]
         floor = -depth
 
     ceiling: Optional[float] = None
@@ -786,6 +933,97 @@ def runway_end_envelope(
         ceiling = RUNWAY_END_RESA_MAX_SLOPE * d
 
     return (floor, ceiling)
+
+
+# ── §A1 — RESA / END-CORRIDOR TRANSVERSE LAW ─────────────────────────
+# The gap the reg-families round names exactly: the LATERAL strip
+# transverse law exists (zone 1 lip + zone 2 band above), and the END
+# corridor carries only the LONGITUDINAL skirt law — ACROSS-corridor
+# grades beyond a runway end were unbound AND unread.
+
+def resa_transverse_band(distance_beyond_pavement_m: float,
+                         code_letter=None, ruleset=None) -> tuple:
+    """``(min_down, max_abs)`` for the ACROSS-corridor profile of the
+    end corridor at ``distance_beyond_pavement_m`` past the runway end.
+
+    ``min_down`` is a MANDATORY fall (``None`` where the authority
+    mandates none); ``max_abs`` is the symmetric magnitude cap.
+
+    THE LAW.  FAA AC 150/5300-13B §3.16.5 item 6 puts the RSA's
+    transverse under Table 3-6 "along the runway up to 200 feet (61 m)
+    beyond the runway end", where S-3 reads 1.5-5.0 % (AAC A/B) and
+    1.5-3.0 % (AAC C/D/E).  Beyond 61 m the AC states no transverse
+    number in text; Figure 3-35 shows ±5.0 % across the RSA width, which
+    is what binds there.  ICAO Annex 14 §3.5.11: "The transverse slopes
+    of a runway end safety area should not exceed an upward or downward
+    slope of 5 per cent" — ONE symmetric cap, no near-zone column and no
+    mandatory fall.
+    """
+    rs = get_ruleset(ruleset)
+    near_zone = rs.end_skirt_near_zone_m
+    d = max(0.0, float(distance_beyond_pavement_m))
+    if (near_zone is not None and d <= float(near_zone)
+            and rs.resa_transverse_near_max is not None):
+        near_min = (rs.resa_transverse_near.value(None, code_letter)
+                    if rs.resa_transverse_near is not None else None)
+        return (near_min,
+                rs.resa_transverse_near_max.value(None, code_letter))
+    return (None, rs.resa_transverse_max)
+
+
+def resa_transverse_envelope(distance_beyond_pavement_m: float,
+                             distance_from_axis_m: float,
+                             code_letter=None,
+                             ruleset=None) -> tuple:
+    """The lawful ACROSS-corridor corridor as a signed ``(floor_offset,
+    ceiling_offset)`` relative to the end corridor's CENTRELINE elevation
+    at the same along-station, at lateral offset
+    ``distance_from_axis_m``.
+
+    Exactly the shape ``adjacent_ground_envelope`` uses, so one emitter
+    and one validator can read both: within a mandatory-down band the
+    ceiling is strictly below 0 (a FLAT cross-section is unlawful and is
+    regraded to the drainage fall); with no mandated fall the corridor is
+    the symmetric ±cap.  Pure, deterministic, no geometry deps.
+    """
+    t = abs(float(distance_from_axis_m))
+    if t <= 0.0:
+        return (0.0, 0.0)
+    min_down, max_abs = resa_transverse_band(
+        distance_beyond_pavement_m, code_letter, ruleset)
+    if min_down is None:
+        return (-max_abs * t, max_abs * t)
+    return (-max_abs * t, -float(min_down) * t)
+
+
+def resa_transverse_clamp(offsets_m, alts, axis_alt,
+                          distance_beyond_pavement_m,
+                          code_letter=None, ruleset=None):
+    """THE generation-binding half of §A1: return ``alts`` with every
+    across-corridor station pulled into
+    :func:`resa_transverse_envelope`.
+
+    ``offsets_m`` are signed lateral offsets from the extended centreline
+    (same order as ``alts``); ``axis_alt`` is the corridor centreline's
+    own elevation at this along-station.  A station already inside the
+    corridor is written back UNCHANGED (identity on lawful ground — the
+    same property the longitudinal clamp documents); an unlawful one
+    moves the LEAST amount that makes it lawful.
+    """
+    out = []
+    for t, z in zip(offsets_m, alts):
+        if z is None:
+            out.append(None)
+            continue
+        floor, ceiling = resa_transverse_envelope(
+            distance_beyond_pavement_m, t, code_letter, ruleset)
+        rel = float(z) - float(axis_alt)
+        if floor is not None and rel < floor:
+            rel = floor
+        if ceiling is not None and rel > ceiling:
+            rel = ceiling
+        out.append(float(axis_alt) + rel)
+    return out
 
 
 # ── Adjacent-ground LATERAL grade law (Fable 2026-07-08) ─────────────────────
@@ -817,7 +1055,13 @@ _ADJACENT_TAXIWAY_ROLES = frozenset({
 def _adjacent_strip_envelope(
         graded_half_width_m: float, band_min_down: float,
         band_max_down: float, reach_m: float,
-        distance_m: float) -> tuple[Optional[float], Optional[float]]:
+        distance_m: float,
+        lip_width_m: Optional[float] = None,
+        lip_min_down: Optional[float] = None,
+        lip_max_down: Optional[float] = None,
+        up_slope: Optional[float] = None,
+        shoulder: Optional[tuple] = None,
+        zone3_ceiling_override=None) -> tuple[Optional[float], Optional[float]]:
     """The shared runway/taxiway two-zone-plus-ungraded corridor, given the
     family's graded WIDTH, its zone-2 min/max DOWN slopes and its outward reach.
 
@@ -834,31 +1078,109 @@ def _adjacent_strip_envelope(
       * Zone 3 (W .. reach): ungraded strip — ceiling continues UP at ≤5 % from
         the band's endpoint ceiling, floor = None (cliffs lawful).
       * d ≥ reach: (None, None) — ungoverned (OLS territory / earthwork bound).
+
+    ``shoulder`` (§B1) inserts a PAVED-SHOULDER sub-band of
+    ``(width_m, min_down, max_down)`` between the pavement edge and zone 1
+    where the surface declares a paved shoulder: the shoulder is pavement,
+    so it takes the shoulder transverse band (FAA Table 3-6 S-2 1.5-5 %;
+    ICAO §3.2.3 flush ≤2.5 %) and the zone-1 lip then starts at the
+    SHOULDER's outer edge, which is where the paved surface actually ends.
+    ``None`` (default) ⇒ the pre-§B1 profile verbatim.
+
+    ``zone3_ceiling_override`` (§A2) replaces the flat ≤5 % rising cap
+    with a callable ``f(d_beyond_band_m) -> ceiling_offset_from_band`` —
+    the hook the FAA ROFA back slope binds through.
     """
-    lip = ADJACENT_GROUND_LIP_WIDTH_M
-    lip_min = ADJACENT_GROUND_LIP_MIN_DOWN_SLOPE
-    lip_max = ADJACENT_GROUND_LIP_MAX_DOWN_SLOPE
+    lip = (ADJACENT_GROUND_LIP_WIDTH_M if lip_width_m is None
+           else float(lip_width_m))
+    lip_min = (ADJACENT_GROUND_LIP_MIN_DOWN_SLOPE if lip_min_down is None
+               else float(lip_min_down))
+    lip_max = (ADJACENT_GROUND_LIP_MAX_DOWN_SLOPE if lip_max_down is None
+               else float(lip_max_down))
+    up = (ADJACENT_GROUND_UNGRADED_STRIP_MAX_UP_SLOPE if up_slope is None
+          else float(up_slope))
     if distance_m <= 0.0:
         return (0.0, 0.0)                       # flush at the edge
     if distance_m >= reach_m:
         return (None, None)
-    if distance_m <= lip:                       # ZONE 1 — drainage lip
-        return (-lip_max * distance_m, -lip_min * distance_m)
-    lip_ceiling = -lip_min * lip
-    lip_floor = -lip_max * lip
-    if distance_m <= graded_half_width_m:       # ZONE 2 — graded band
-        ceiling = lip_ceiling - band_min_down * (distance_m - lip)
-        floor = lip_floor - band_max_down * (distance_m - lip)
+
+    # ZONE 0 (§B1) — the PAVED SHOULDER, when one is declared.
+    sh_w = sh_ceiling = sh_floor = 0.0
+    if shoulder:
+        sh_w, sh_min, sh_max = (float(shoulder[0]), shoulder[1],
+                                float(shoulder[2]))
+        # A flush shoulder (ICAO) has no mandated fall: its ceiling stays
+        # at the pavement level and only the MAXIMUM binds.
+        sh_min = 0.0 if sh_min is None else float(sh_min)
+        if distance_m <= sh_w:
+            return (-sh_max * distance_m, -sh_min * distance_m)
+        sh_ceiling = -sh_min * sh_w
+        sh_floor = -sh_max * sh_w
+
+    d = distance_m - sh_w
+    if d <= lip:                                # ZONE 1 — drainage lip
+        return (sh_floor - lip_max * d, sh_ceiling - lip_min * d)
+    lip_ceiling = sh_ceiling - lip_min * lip
+    lip_floor = sh_floor - lip_max * lip
+    graded = max(0.0, float(graded_half_width_m) - sh_w)
+    if d <= graded:                             # ZONE 2 — graded band
+        ceiling = lip_ceiling - band_min_down * (d - lip)
+        floor = lip_floor - band_max_down * (d - lip)
         return (floor, ceiling)
-    band_ceiling = lip_ceiling - band_min_down * (graded_half_width_m - lip)
-    up = ADJACENT_GROUND_UNGRADED_STRIP_MAX_UP_SLOPE
-    ceiling = band_ceiling + up * (distance_m - graded_half_width_m)  # ZONE 3
-    return (None, ceiling)
+    band_ceiling = lip_ceiling - band_min_down * (graded - lip)
+    beyond = d - graded                                              # ZONE 3
+    if zone3_ceiling_override is not None:
+        return (None, band_ceiling + zone3_ceiling_override(beyond))
+    return (None, band_ceiling + up * beyond)
+
+
+def rofa_back_slope_ceiling(code_letter, ruleset=None):
+    """§A2 — the FAA ROFA BACK SLOPE as a zone-3 ceiling function, or
+    ``None`` where the family does not exist (every non-FAA ruleset).
+
+    Returns ``f(d_beyond_graded_band_m) -> ceiling_offset_m``, measured
+    from the graded band's own endpoint ceiling.  THE LAW (AC
+    150/5300-13B Table 3-7): S-5 gives a back-slope RATIO by Airplane
+    Design Group — 8:1 (ADG I-II), 10:1 (III-IV), 16:1 (V-VI), run:rise,
+    so 8:1 is a 12.5 % maximum rise — and D-1 gives the RUN over which it
+    is measured (25/40/59/86/107/131 ft = 7.6/12.2/18.0/26.2/32.6/
+    39.9 m).  Beyond that run the AC states nothing further, so the
+    corridor reverts to the generic ≤5 % rising cap
+    (``ADJACENT_GROUND_UNGRADED_STRIP_MAX_UP_SLOPE``) continuing from
+    wherever the back slope left off — the bound is CONTINUOUS in ``d``,
+    like every other zone transition here.
+
+    S-4, the ≤0 % SIDE slope, is NOT bound: the owner approved the FAA
+    existing-runway exemption (docs/RULINGS.md 2026-08-02, "ROFA
+    exemption approved").  This function is the RISING side only.
+    """
+    rs = get_ruleset(ruleset)
+    ratios = rs.rofa_back_slope_ratio_by_adg
+    runs = rs.rofa_back_slope_run_m_by_adg
+    if not ratios or not runs:
+        return None
+    key = str(code_letter).upper() if code_letter else "C"
+    ratio = ratios.get(key)
+    run = runs.get(key)
+    if not ratio or not run:
+        return None
+    rise_per_m = 1.0 / float(ratio)
+    run = float(run)
+    generic = rs.ungraded_strip_max_up_slope
+
+    def _ceiling(beyond_m: float) -> float:
+        d = max(0.0, float(beyond_m))
+        if d <= run:
+            return rise_per_m * d
+        return rise_per_m * run + generic * (d - run)
+
+    return _ceiling
 
 
 def adjacent_ground_envelope(
         role: str, code_number: Optional[int], code_letter: Optional[str],
         distance_from_pavement_edge_m: float,
+        ruleset=None, shoulder_width_m: Optional[float] = None,
 ) -> tuple[Optional[float], Optional[float]]:
     """THE lawful corridor for ground adjacent to a paved surface, as a signed
     ``(floor_offset_m, ceiling_offset_m)`` relative to the pavement-EDGE
@@ -901,24 +1223,56 @@ def adjacent_ground_envelope(
     law (``runway_end_skirt_floor_profile`` / ``runway_end_governed_length_m``)
     owns terrain beyond a runway end.  This function is the LATERAL law only.
 
+    ``ruleset`` (phase B) keys every value below to the airport's own
+    authority: the graded half-width (§4 row 6), the zone-2 band (rows
+    7/8 — currently blended on BOTH rulesets, see owner question 1), the
+    rising-ground cap (row 9) and, under the FAA ruleset, the ROFA BACK
+    SLOPE replacing the flat ≤5 % rise inside its D-1 run (§A2).
+
+    ``shoulder_width_m`` (§B1) declares a PAVED shoulder of that width at
+    the pavement edge; within it the cross-section takes the ruleset's
+    shoulder transverse band and the zone law starts beyond it.  ``None``
+    ⇒ no shoulder sub-band (the pre-§B1 profile).
+
     Raises ``ValueError`` for an unrecognised role (a law must not silently pick
     a corridor for a surface it does not model).
     """
     d = distance_from_pavement_edge_m
+    rs = get_ruleset(ruleset)
+    shoulder = None
+    if shoulder_width_m and float(shoulder_width_m) > 0.0:
+        sh_min, sh_max = ruleset_shoulder_transverse_band(rs)
+        if sh_max:
+            shoulder = (float(shoulder_width_m), sh_min, sh_max)
     if role in _ADJACENT_RUNWAY_ROLES:
         if code_number is None:
             raise ValueError("runway adjacent-ground envelope needs code_number")
         return _adjacent_strip_envelope(
-            RUNWAY_STRIP_HALF_WIDTH_BY_CODE[code_number],
-            RUNWAY_STRIP_BAND_MIN_DOWN_SLOPE,
-            RUNWAY_STRIP_BAND_MAX_DOWN_SLOPE_BY_CODE[code_number],
-            CLEARANCE_MAX_REACH_M["runway"], d)
+            ruleset_strip_half_width_m(code_number, code_letter, rs),
+            rs.strip_band_min_down_slope,
+            ruleset_strip_band_max_down_slope(code_number, rs),
+            CLEARANCE_MAX_REACH_M["runway"], d,
+            lip_width_m=rs.strip_lip_width_m,
+            lip_min_down=rs.strip_lip_min_down_slope,
+            lip_max_down=rs.strip_lip_max_down_slope,
+            up_slope=rs.ungraded_strip_max_up_slope,
+            shoulder=shoulder,
+            zone3_ceiling_override=rofa_back_slope_ceiling(code_letter, rs))
     if role in _ADJACENT_TAXIWAY_ROLES:
+        widths = rs.taxiway_strip_graded_half_width_m
+        half = (float(widths.get(str(code_letter).upper(), 12.5))
+                if widths and code_letter
+                else taxiway_strip_graded_half_width_for_letter(code_letter))
         return _adjacent_strip_envelope(
-            taxiway_strip_graded_half_width_for_letter(code_letter),
-            TAXIWAY_STRIP_BAND_MIN_DOWN_SLOPE,
-            TAXIWAY_STRIP_BAND_MAX_DOWN_SLOPE,
-            CLEARANCE_MAX_REACH_M["taxiway"], d)
+            half,
+            rs.taxiway_strip_band_min_down_slope,
+            rs.taxiway_strip_band_max_down_slope,
+            CLEARANCE_MAX_REACH_M["taxiway"], d,
+            lip_width_m=rs.strip_lip_width_m,
+            lip_min_down=rs.strip_lip_min_down_slope,
+            lip_max_down=rs.strip_lip_max_down_slope,
+            up_slope=rs.ungraded_strip_max_up_slope,
+            shoulder=shoulder)
     if role in _ADJACENT_APRON_ROLES:
         # Aprons ride the maneuvering-network reach (taxiway); the only governed
         # band is the 3 m shoulder, then zone-3 semantics immediately.
@@ -931,7 +1285,7 @@ def adjacent_ground_envelope(
             return (-APRON_SHOULDER_MAX_DOWN_SLOPE * d,
                     -APRON_SHOULDER_MIN_DOWN_SLOPE * d)
         shoulder_ceiling = -APRON_SHOULDER_MIN_DOWN_SLOPE * APRON_SHOULDER_WIDTH_M
-        up = ADJACENT_GROUND_UNGRADED_STRIP_MAX_UP_SLOPE
+        up = rs.ungraded_strip_max_up_slope
         return (None, shoulder_ceiling + up * (d - APRON_SHOULDER_WIDTH_M))
     if role in _ADJACENT_SERVICE_ROLES:
         # UNCHANGED cut-only flat shadow: cut anything above the edge within the
@@ -1977,3 +2331,499 @@ def tunnel_trench_floor_elevation_m(
         + float(deck_level_y_m)
         - float(TUNNEL_FLOOR_BELOW_OBJECT_DECK_M)
     )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE REMAINING REGULATORY FAMILIES
+# (spec docs/specs/DRAFT-reg-families-round-spec.md, rounds A and B)
+#
+# COMPLETENESS STANDARD (owner 2026-08-02, verbatim: "our grade law must
+# not allow us to generate an airport patch that violates any of the
+# region appropriate regulations"): every family below is a GENERATION-
+# BINDING clamp/envelope AND has a validator twin reading the SAME
+# function.  A validator-only check is visibility, not law.
+#
+# ARCHITECTURE NOTE (decide-and-note, build-complete-then-debug): the
+# draft specced each family as a new parameter threaded into the
+# adjacent-ground march.  Instead every family binds by EXTENDING THE
+# LAW FUNCTION THE EMITTER ALREADY CALLS — ``adjacent_ground_envelope``
+# (§A2, §B1), ``runway_end_envelope`` / ``resa_transverse_clamp`` (§A1),
+# ``runway_strip_longitudinal_clamp`` (§A3(b)), ``classify_pair`` (§B2).
+# One law, one call site, no second authority; it is also the
+# single-pass reading of the owner's single-solve architecture ("EMITTERS
+# EMIT, NEVER GRADE").
+# ══════════════════════════════════════════════════════════════════════
+
+
+# ── THE RUNWAY PROFILE'S OWN LAW, ruleset-keyed (§4 rows 1-4) ────────
+# The runway profile modules (``runway_regrade``, ``runway_redistribute``,
+# ``pavement/runway_segments``) and the validator
+# (``verification.check_runway_profile``) read the caps through THESE
+# functions, so an FAA and an ICAO runway are solved and judged by their
+# own authority's numbers rather than by one blended constant.
+
+def runway_profile_law(code_number, code_letter=None, approach_class=None,
+                       runway_length_m=None, ruleset=None) -> dict:
+    """THE complete longitudinal law of one runway under one ruleset.
+
+    Keys: ``max_grade`` (§3.1.14 / §3.16.1), ``end_grade`` (the
+    first/last-quarter cap, ``None`` where the authority states none for
+    this class), ``end_zone_m`` (the length of ONE end zone — ICAO's
+    quarter, FAA's lesser-of-quarter-and-762 m), ``max_grade_change``
+    (§3.1.15 / §3.16.1), ``vertical_curve_k_m`` (metres of curve per 1 %,
+    §3.1.16 / §3.16.1), ``max_grade_change_per_m`` (the same rule in the
+    segment smoother's unit) and ``vertical_curve_min_change`` (the
+    grade change below which no curve is required, ``None`` where the
+    authority grants no relief).
+
+    ONE resolver for the solver and the validator: a second copy would
+    let the surface we build and the surface we check disagree about
+    which authority governs.
+    """
+    return {
+        "max_grade": ruleset_runway_max_grade(
+            code_number, code_letter, ruleset),
+        "end_grade": ruleset_runway_end_grade(
+            code_number, code_letter, approach_class, ruleset),
+        "end_zone_m": (None if runway_length_m is None
+                       else ruleset_runway_end_zone_length_m(
+                           runway_length_m, ruleset)),
+        "max_grade_change": ruleset_runway_max_grade_change(
+            code_number, code_letter, ruleset),
+        "max_grade_change_per_m": ruleset_runway_max_grade_change_per_m(
+            code_number, code_letter, ruleset),
+        "vertical_curve_min_change": ruleset_runway_vertical_curve_min_change(
+            code_number, code_letter, ruleset),
+    }
+
+
+def taxi_longitudinal_cap(code_letter=None, ruleset=None) -> float:
+    """§4 row 13 — the taxiway family's longitudinal cap, ruleset-keyed.
+    ICAO Annex 14 §3.9.8 gives A/B 3 %; FAA §4.14.1.1.1 gives 1.5 % for
+    every letter (the ≤30,000 lb 2 % relaxation is NOT taken — the
+    builder does not know a taxiway's fleet)."""
+    return ruleset_taxi_max_grade(code_letter, ruleset)
+
+
+# ── §A3(a) — the longitudinal-aware breach trigger ───────────────────
+
+def strip_longitudinal_breaches(stations_s, stations_z, max_slope,
+                                arc_rate_per_m=None):
+    """Indices of strip stations whose RESULTING surface breaches the
+    strip's own LONGITUDINAL law — the completeness half of the
+    breach-trigger design (§A3(a)).
+
+    ``stations_s`` are along-axis positions (m), ``stations_z`` the
+    resulting surface elevations at them (``None`` = no reading).  A
+    station is returned when either
+      * the pair it forms with its predecessor exceeds ``max_slope``, or
+      * (with ``arc_rate_per_m``) the grade CHANGE across it exceeds the
+        rate over the mean of its two spacings — the same
+        second-difference form ``_arc_rate_pass`` binds.
+
+    WHY THIS EXISTS.  The adjacent-ground march emits a band when ground
+    breaches the corridor LATERALLY.  Ground that conforms laterally but
+    breaches longitudinally was therefore never emitted, so the §2 clamp
+    never saw it — the HEAZ 146-row population (worst 7.59 % against the
+    1.50 % cap, 88 rows raw-DEM at both ends).  Wiring this predicate
+    into the march's trigger makes the trigger stop being blind on one
+    axis; it does NOT introduce a fill mandate (ground that is lawful on
+    both axes is still left alone).
+
+    POPULATION CAVEAT (dispatch note, honest): the 146-row measurement
+    was taken at 5eaf1e2 and a later flip adjudication FALSIFIED its
+    reproduction at the current base.  The mechanism is implemented as
+    designed; the population it fires on is a DEBUGGING question, and
+    the first read at the current tree is owed before any effect size is
+    quoted.
+    """
+    hits = []
+    n = min(len(stations_s), len(stations_z))
+    for k in range(1, n):
+        a, b = stations_z[k - 1], stations_z[k]
+        if a is None or b is None:
+            continue
+        ds = abs(float(stations_s[k]) - float(stations_s[k - 1]))
+        if ds < 1e-9:
+            continue
+        if abs(float(b) - float(a)) > float(max_slope) * ds + 1e-12:
+            hits.append(k)
+    if arc_rate_per_m:
+        for k in range(1, n - 1):
+            a, b, c = stations_z[k - 1], stations_z[k], stations_z[k + 1]
+            if a is None or b is None or c is None:
+                continue
+            dp = abs(float(stations_s[k]) - float(stations_s[k - 1]))
+            dn = abs(float(stations_s[k + 1]) - float(stations_s[k]))
+            if dp < 1e-9 or dn < 1e-9:
+                continue
+            change = abs((float(c) - float(b)) / dn
+                         - (float(b) - float(a)) / dp)
+            if change > float(arc_rate_per_m) * 0.5 * (dp + dn) + 1e-12:
+                hits.append(k)
+    return sorted(set(hits))
+
+
+def strip_longitudinal_law(code_number, code_letter=None, ruleset=None):
+    """``(max_slope, arc_rate_per_m)`` — the strip's complete
+    longitudinal law for one runway class under one ruleset.  ONE
+    resolver for the march's trigger, the clamp and the validator."""
+    return (ruleset_strip_max_longitudinal_slope(
+                code_number, code_letter, ruleset),
+            ruleset_strip_arc_rate_per_m(ruleset))
+
+
+# ── §A4 — RADIO ALTIMETER OPERATING AREA (ICAO/EASA only) ────────────
+
+def raoa_footprint_ring(threshold_xy, inward_axis, ruleset=None):
+    """THE RAOA rectangle as a CLOSED ring of ``(x, y)`` in the caller's
+    planar metre frame, or ``None`` where the ruleset has no such family
+    (every FAA airport — the string "radio altimeter" does not occur in
+    AC 150/5300-13B, verified).
+
+    ``threshold_xy`` is the runway threshold; ``inward_axis`` the unit
+    vector pointing FROM the threshold INTO the runway, so the rectangle
+    is laid out on the APPROACH side (before the threshold), which is
+    where Annex 14 §3.8.2 puts it.  Geometry-library free, exactly like
+    ``runway_strip_wall_keepout_rings``, so the emitter and
+    ``tools/check_grade`` build the identical footprint.
+
+    Annex 14 §3.8.2/§3.8.3: at least 300 m before the threshold, 60 m
+    each side of the extended centreline.
+    """
+    rs = get_ruleset(ruleset)
+    if not rs.raoa_length_m or not rs.raoa_half_width_m:
+        return None
+    import math as _math
+    ux, uy = float(inward_axis[0]), float(inward_axis[1])
+    norm = _math.hypot(ux, uy)
+    if norm < 1e-12:
+        return None
+    ux, uy = ux / norm, uy / norm
+    px, py = -uy, ux
+    ax, ay = float(threshold_xy[0]), float(threshold_xy[1])
+    L = float(rs.raoa_length_m)
+    W = float(rs.raoa_half_width_m)
+    corners = ((0.0, -W), (-L, -W), (-L, W), (0.0, W))
+    ring = [(ax + ux * s + px * t, ay + uy * s + py * t)
+            for (s, t) in corners]
+    return ring + [ring[0]]
+
+
+def raoa_applies(approach_class, ruleset=None) -> bool:
+    """Whether the RAOA family binds for a runway END.
+
+    Annex 14 §3.8.1 scopes it to PRECISION APPROACH runways; CS
+    ADR-DSN.B.205 corroborates (Cat II/III mandatory-ish, Cat I where
+    practicable).  Bound here for ALL precision approaches — the
+    stricter CONTAINED reading, since the builder cannot know an end's
+    ILS category.  The approach class comes from the repo's ONE
+    classifier, ``config.runway_end_approach_class``; no second
+    classification is minted.
+    """
+    rs = get_ruleset(ruleset)
+    if not rs.raoa_length_m:
+        return False
+    return str(approach_class) == "precision"
+
+
+def raoa_rate_clamp(stations_s, alts, ruleset=None, pinned=None,
+                    max_passes=8):
+    """THE generation-binding half of §A4: return ``alts`` with the
+    RAOA's along-approach profile made rate-of-change compliant.
+
+    Annex 14 §3.8.4: "The rate of change between two consecutive slopes
+    should not exceed 2 per cent per 30 m."  This is exactly the §A3(b)
+    curvature machinery on a second footprint, which is why the two
+    families share a round and share ``_arc_rate_pass`` rather than
+    growing a second implementation.
+
+    COMPOSITION (pre-registered as a named twin): the RAOA clamp
+    COMPOSES with the end-corridor floors, never overrides them — on a
+    conflict the STRICTER bound governs, which is what running this
+    clamp on a profile the skirt law already bounded produces (the
+    clamp only reduces second differences; it never lifts a value out of
+    the skirt corridor by more than the excess it removes, and the
+    caller re-asserts the skirt floor afterwards).
+    """
+    rs = get_ruleset(ruleset)
+    rate = rs.raoa_max_grade_change_per_m
+    if not rate:
+        return list(alts)
+    idx = [i for i, a in enumerate(alts) if a is not None]
+    if len(idx) < 3:
+        return list(alts)
+    s = [float(stations_s[i]) for i in idx]
+    z = [float(alts[i]) for i in idx]
+    free = [not (pinned is not None and i < len(pinned) and pinned[i])
+            for i in idx]
+    for _ in range(int(max_passes)):
+        if not _arc_rate_pass(s, z, free, float(rate)):
+            break
+    out = list(alts)
+    for k, i in enumerate(idx):
+        if free[k]:
+            out[i] = z[k]
+    return out
+
+
+# ── §B1 — SHOULDER TRANSVERSE (crown) LAW ────────────────────────────
+
+def shoulder_transverse_envelope(distance_from_pavement_edge_m: float,
+                                 shoulder_width_m: float,
+                                 ruleset=None) -> tuple:
+    """The lawful ``(floor_offset, ceiling_offset)`` for a point on a
+    PAVED shoulder, relative to the pavement edge it abuts.
+
+    FAA Table 3-6 S-2 / §4.14.2 item 3: paved shoulders fall 1.5-5.0 %
+    away from the pavement — a mandatory-DOWN band, so a FLAT shoulder is
+    unlawful and the ceiling is strictly below 0.  ICAO §3.2.3: the
+    shoulder "should be flush with the surface of the runway and its
+    transverse slope should not exceed 2.5 per cent" — no mandated fall,
+    so the corridor is the symmetric ±2.5 % about flush.
+
+    Returns ``(None, None)`` where the ruleset states no shoulder
+    transverse law at all.
+    """
+    sh_min, sh_max = ruleset_shoulder_transverse_band(ruleset)
+    if not sh_max:
+        return (None, None)
+    d = min(max(0.0, float(distance_from_pavement_edge_m)),
+            max(0.0, float(shoulder_width_m)))
+    if sh_min is None:
+        return (-float(sh_max) * d, float(sh_max) * d)
+    return (-float(sh_max) * d, -float(sh_min) * d)
+
+
+def shoulder_edge_dropoff_allowance_m(ruleset=None) -> float:
+    """The MAXIMUM lawful vertical step at a paved→unpaved boundary.
+
+    FAA §4.14.2 item 2 (and §5.9.1.5 for aprons) MANDATES a 1.5 in ±
+    0.5 in (38 ± 13 mm) drop-off between paved and unpaved surfaces —
+    which means an emitted step of up to 51 mm there is the regulation
+    being obeyed, not a tear.  The step checks
+    (``_check_vertex_to_edge_step`` / ``_check_edge_midpoint_step``) and
+    the seam law take this as an exemption UNDER THE FAA RULESET ONLY and
+    ONLY at paved/unpaved boundaries.
+
+    Returns 0.0 where the authority mandates flush instead (ICAO
+    §3.2.3), so the exemption is a no-op at every ICAO airport.
+
+    PROSPECTIVE LAW, stated honestly: no emitter mints a 38 mm step
+    today, so this exemption changes zero rows at present.  It exists so
+    that when the shoulder band does emit one, the census does not call
+    the regulation a defect.
+    """
+    drop, tol = ruleset_shoulder_edge_dropoff(ruleset)
+    if not drop:
+        return 0.0
+    return float(drop) + float(tol or 0.0)
+
+
+def shoulder_edge_dropoff_exempt(step_m: float, paved_to_unpaved: bool,
+                                 ruleset=None) -> bool:
+    """Whether a vertical ``step_m`` at a boundary is the MANDATED
+    paved→unpaved drop-off rather than a defect.
+
+    The ruleset resolves the NUMBER here; the PREDICATE itself lives in
+    ``strip_seam_law.paved_unpaved_dropoff_exempt``, which the seam
+    healer, the step checks and the census all read (one text, per the
+    round's interaction fence).  That module is deliberately stdlib-only
+    — it sits on a hot solve path and is imported by the standalone
+    ``tools/check_grade.py`` — so the dependency runs THIS way and never
+    the other."""
+    if not paved_to_unpaved:
+        return False
+    from .strip_seam_law import paved_unpaved_dropoff_exempt
+    return paved_unpaved_dropoff_exempt(
+        step_m, shoulder_edge_dropoff_allowance_m(ruleset))
+
+
+# ── §B2 — TRANSVERSE SOLVER-BINDING COMPLETION ───────────────────────
+# The caps EXIST and the validator reads them (``check_transverse_grade``
+# at 10 m stations over the sidecar axes); what was missing is a
+# CONSTRAINT on the interpolated SURFACE between the constrained vertex
+# pairs.  The station generator below is imported by BOTH the solver's
+# constraint builder and the validator's transect reader, so the two are
+# in lockstep BY CONSTRUCTION rather than by matching numbers.
+
+TRANSVERSE_STATION_STEP_M = 10.0
+
+
+def transverse_transect_stations(axis_a, axis_b, half_width_m,
+                                 step_m: float = TRANSVERSE_STATION_STEP_M):
+    """THE transect stations of one corridor: a list of
+    ``(centre_xy, normal_xy, offsets)`` — for each along-axis station,
+    its centre point, the unit cross-axis direction, and the signed
+    lateral offsets sampled across the surface.
+
+    ONE generator, two consumers (solver constraint rows + validator
+    transect reader).  Deterministic and geometry-library free.
+    """
+    import math as _math
+    ax, ay = float(axis_a[0]), float(axis_a[1])
+    bx, by = float(axis_b[0]), float(axis_b[1])
+    dx, dy = bx - ax, by - ay
+    length = _math.hypot(dx, dy)
+    if length < 1e-6 or half_width_m <= 0.0:
+        return []
+    ux, uy = dx / length, dy / length
+    px, py = -uy, ux
+    half = float(half_width_m)
+    offsets = [-half, -0.5 * half, 0.0, 0.5 * half, half]
+    n = max(1, int(length // max(1e-6, float(step_m))))
+    out = []
+    for k in range(n + 1):
+        s = min(length, k * float(step_m))
+        out.append(((ax + ux * s, ay + uy * s), (px, py), tuple(offsets)))
+    return out
+
+
+def transverse_cap_for_role(role: str, code_letter=None, ruleset=None):
+    """The TRANSVERSE (cross-slope) cap a surface's role takes, or
+    ``None`` where the role carries no transverse law of its own.
+
+    Taxiway family: ICAO §3.9.11 1.5 % (C-F) / 2 % (A-B); FAA §4.14.2
+    item 1a 1.0-1.5 % — the ≤30,000 lb 2 % relaxation is NOT taken (the
+    builder does not know a taxiway's fleet; stricter contained
+    reading).  Runway: ICAO §3.1.19 / FAA Table 3-6 S-1.  Apron / stand:
+    the owner's 1 % cap, region-invariant, which contains both
+    authorities' apron numbers.
+    """
+    rs = get_ruleset(ruleset)
+    if role in _ADJACENT_RUNWAY_ROLES:
+        return rs.runway_transverse_max.value(None, code_letter)
+    if role in _ADJACENT_TAXIWAY_ROLES:
+        return ruleset_taxi_transverse_max(code_letter, rs)
+    if role in _ADJACENT_APRON_ROLES:
+        return APRON_MAX_GRADE
+    return None
+
+
+def transverse_minimum_for_role(role: str, ruleset=None):
+    """The transverse MINIMUM (the crown mandate) — RECORDED, NOT BOUND.
+
+    FAA Table 3-6 S-1 and §4.14.2 item 1a both put a 1.0 % floor on the
+    cross-slope, and ICAO §3.1.19 says the runway transverse should
+    "[not] be less than 1 per cent except at runway or taxiway
+    intersections".  Binding it models a real crown on EVERY runway and
+    taxiway — a visible cross-section change at every airport (~22 cm of
+    rise on a 45 m runway).  That is an owner-intent question (owner
+    question 5), so this value is READ by the validator as an
+    informational class and asserted by no constraint;
+    ``config.CROWN_MINIMUM_BOUND`` is the one-line flip.
+    """
+    rs = get_ruleset(ruleset)
+    if role in _ADJACENT_RUNWAY_ROLES:
+        return rs.runway_transverse_min
+    if role in _ADJACENT_TAXIWAY_ROLES:
+        return rs.taxi_transverse_min
+    return None
+
+
+def transverse_surface_bounds(role, code_letter, offset_m, ruleset=None):
+    """The lawful ``(min_dz, max_dz)`` of a transect sample at signed
+    lateral ``offset_m`` relative to the corridor centreline — the
+    CONSTRAINT ROW the solver adds, and the same bound the validator's
+    transect reader judges against.
+
+    With the crown minimum unbound (the default) this is the symmetric
+    ``±cap·|offset|`` band; with ``CROWN_MINIMUM_BOUND`` on it becomes
+    the mandatory-down crown band ``[-cap·|t|, -min·|t|]``.
+    """
+    cap = transverse_cap_for_role(role, code_letter, ruleset)
+    if cap is None:
+        return (None, None)
+    t = abs(float(offset_m))
+    if not CROWN_MINIMUM_BOUND:
+        return (-float(cap) * t, float(cap) * t)
+    low = transverse_minimum_for_role(role, ruleset)
+    if low is None:
+        return (-float(cap) * t, float(cap) * t)
+    return (-float(cap) * t, -float(low) * t)
+
+
+# ── §B3 — DRAINAGE MINIMUM (apron + groundside) ──────────────────────
+
+_DRAINAGE_MIN_GROUNDSIDE_ROLES = frozenset({
+    "groundside", "groundside_pavement", "parking", "lot", "curbside",
+})
+
+
+def drainage_minimum_grade(role: str, ruleset=None,
+                           terrace_panel: bool = False,
+                           building_pad: bool = False):
+    """The MINIMUM fall a surface must carry toward its drainage edge, or
+    ``None`` where none binds.
+
+    * APRON family — FAA §5.9.1.1 Standards: "Provide a minimum 0.5
+      percent apron gradient".  ICAO §3.13.5 is qualitative and states NO
+      number, so the ICAO-side constant is ``None`` and this law is a
+      no-op at every ICAO airport (jurisdictional fidelity; a numeric
+      ICAO minimum would be MINTED, not cited).
+    * GROUNDSIDE (lots, curbside) — region-invariant: no aviation
+      authority regulates a landside grade (the lot 5 % / service 8 %
+      precedent, docs/RULINGS.md 2026-08-03).  Every civil source carries
+      a minimum in the 0.6-2 % range;
+      ``config.GROUNDSIDE_MIN_DRAINAGE_GRADE`` is the PROVISIONAL 1.0 %
+      awaiting the owner's approval exactly as lot/service were approved
+      (owner question 3).
+
+    EXCLUSIONS, named and twin-tested:
+    * ``building_pad`` — building-pad seats stay FLAT
+      (``TERMINAL_PADS_SLOPE=False`` is owner law).
+    * ``terrace_panel`` — the apron terrace law (owner 2026-08-04) makes
+      "level panels" lawful; whether a level panel must nevertheless
+      carry the 0.5 % drainage fall is OWNER QUESTION 4.  Until it is
+      answered the minimum does NOT bind inside a declared terrace panel.
+    """
+    if building_pad or terrace_panel:
+        return None
+    if role in _ADJACENT_APRON_ROLES:
+        return ruleset_apron_min_drainage_grade(ruleset)
+    if role in _DRAINAGE_MIN_GROUNDSIDE_ROLES:
+        return GROUNDSIDE_MIN_DRAINAGE_GRADE
+    return None
+
+
+def drainage_minimum_band(role: str, ruleset=None, **kw):
+    """``(min_grade, max_grade)`` — the full drainage BAND of a surface.
+
+    The upper bound is the surface's own within-shape cap
+    (``ROLE_GRADE_LIMITS``), so a stand under the FAA ruleset reads
+    ``[0.005, 0.010]`` — the §B3 pre-registration's "no stand exceeds
+    1.0 %" upper twin and the 0.5 % lower twin are ONE band, never two
+    laws that could disagree.
+    """
+    low = drainage_minimum_grade(role, ruleset, **kw)
+    high = ROLE_GRADE_LIMITS.get(role)
+    if high is None and role == "stand":
+        # ``stand`` is an apron sub-role with no ROLE_GRADE_LIMITS row of
+        # its own; its cap is the aircraft-stand maximum (ICAO §3.13.6 /
+        # FAA §5.9.2.1.1, both 1 %).
+        high = ruleset_stand_max_grade(ruleset)
+    if low is not None and high is not None and low > high:
+        # A minimum above the surface's own cap is a genuine
+        # contradiction — LOUD, never silently softened (feasibility is
+        # guaranteed; a real airport admits a lawful surface).
+        raise ValueError(
+            f"drainage minimum {low} exceeds the {role!r} cap {high} "
+            f"under ruleset {get_ruleset(ruleset).key!r}")
+    return (low, high)
+
+
+def apron_max_grade_change(ruleset=None):
+    """FAA §5.9.1.3: maximum apron grade change 2 %.  ``None`` under
+    ICAO, which states no number."""
+    return ruleset_apron_max_grade_change(ruleset)
+
+
+def drainage_minimum_shortfall(grade: float, role: str, ruleset=None, **kw):
+    """How far below its drainage minimum a measured ``grade`` sits (0.0
+    when compliant or when no minimum binds) — the validator twin's one
+    reading, so emitter and census cannot disagree about what "too flat"
+    means."""
+    low = drainage_minimum_grade(role, ruleset, **kw)
+    if low is None:
+        return 0.0
+    return max(0.0, float(low) - abs(float(grade)))

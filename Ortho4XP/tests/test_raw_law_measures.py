@@ -158,31 +158,31 @@ def test_raw_budget_column_absent_is_the_old_behaviour():
 
 # ── (c) the surface gate ─────────────────────────────────────────────────
 
-def test_raw_law_sweeps_gate_defaults_off(monkeypatch):
+def test_raw_law_sweeps_is_standing_law(monkeypatch):
+    """docs/RULINGS.md 2026-08-05, build-complete-then-debug: "NO GATES.
+    Every believed-in law becomes standing law; O4_ law gates and their
+    env overrides are DELETED as their territory is touched."  The sweeps
+    run on RAW law and ``emit_snap`` carries the quantization guarantee;
+    a stale ``O4_RAW_LAW_SWEEPS=0`` must not resurrect the margin."""
     monkeypatch.delenv("O4_RAW_LAW_SWEEPS", raising=False)
-    assert OS.raw_law_sweeps_enabled() is False
-    monkeypatch.setenv("O4_RAW_LAW_SWEEPS", "1")
+    assert OS.raw_law_sweeps_enabled() is True
+    monkeypatch.setenv("O4_RAW_LAW_SWEEPS", "0")
     assert OS.raw_law_sweeps_enabled() is True
 
 
-def test_raw_law_sweeps_makes_the_sweeps_enforce_raw_budgets(monkeypatch):
-    """Gate ON ⇒ the sweep budget IS the raw budget (no margin term), so a
-    pair solved exactly AT cap is no longer pushed a margin inside it."""
+def test_the_sweeps_enforce_raw_budgets(monkeypatch):
+    """Standing law ⇒ the sweep budget IS the raw budget (no margin
+    term), so a pair solved exactly AT cap is not pushed a margin inside
+    it and an N-hop route no longer loses N x margin of envelope."""
     monkeypatch.setenv("O4_QUANT_MARGIN", "0.01")
     monkeypatch.delenv("O4_RAW_LAW_SWEEPS", raising=False)
     elev = [0.0, 5.0]
     OS.feasibility_project(elev, [{"edges": [(0, 1, 1.0)]}], {0})
-    margined_result = elev[1]
+    assert elev[1] == pytest.approx(1.00, abs=1e-9), (
+        "the sweep enforces the RAW law budget")
 
-    monkeypatch.setenv("O4_RAW_LAW_SWEEPS", "1")
-    elev = [0.0, 5.0]
-    OS.feasibility_project(elev, [{"edges": [(0, 1, 1.0)]}], {0})
-    raw_result = elev[1]
-
-    assert margined_result == pytest.approx(0.99, abs=1e-9), (
-        "default: the sweep enforces budget - margin")
-    assert raw_result == pytest.approx(1.00, abs=1e-9), (
-        "gate ON: the sweep enforces the RAW law budget")
+    # …and the margin accessor every consumer reaches it through is 0.
+    assert OS._emit_quantization_margin() == 0.0
 
 
 # ── (d) §1b LEAD AMENDMENT — the emit snap is LAW-AWARE per pair ─────────

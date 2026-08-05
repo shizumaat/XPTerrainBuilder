@@ -97,6 +97,7 @@ __all__ = [
     "STRIP_SEAM_GUARD_MARGIN_M",
     "seam_pair_is_tear",
     "seam_guard_allowance_m",
+    "paved_unpaved_dropoff_exempt",
     "point_in_ring",
     "GradedDomain",
     "point_segment_distance",
@@ -224,6 +225,27 @@ def seam_pair_is_tear(de_m: float, planar_m: float,
     if de_m <= min_step_m:
         return False
     return (de_m / max(planar_m, min_distance_m)) >= min_grade
+
+
+def paved_unpaved_dropoff_exempt(de_m: float, allowance_m: float) -> bool:
+    """§B1 — is a step at a PAVED→UNPAVED boundary the MANDATED edge
+    drop-off (FAA AC 150/5300-13B §4.14.2 item 2, repeated for aprons at
+    §5.9.1.5: 1.5 in ± 1/2 in = 38 ± 13 mm) rather than a defect?
+
+    THE SHARED PREDICATE HOME (round-B interaction fence): seam v4, the
+    step checks and the census all call THIS, so there is one text.  The
+    NUMBER is the caller's — ``grade_law.shoulder_edge_dropoff_exempt``
+    resolves it from the ruleset and calls straight through, which keeps
+    this module stdlib-only (it is imported on a hot solve path and by
+    the standalone ``tools/check_grade.py``).  ``allowance_m`` is 0 under
+    an authority that mandates FLUSH instead (ICAO §3.2.3), so the
+    exemption is a no-op at every ICAO airport.
+
+    PROSPECTIVE: no emitter mints a 38 mm step today, so this exempts
+    zero rows at present.  It exists so that when the §B1 shoulder band
+    does emit one, the census does not call the regulation a defect.
+    """
+    return allowance_m > 0.0 and abs(float(de_m)) <= float(allowance_m) + 1e-9
 
 
 def seam_guard_allowance_m(planar_m: float,

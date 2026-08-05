@@ -81,9 +81,13 @@ def band_seed_complete_enabled() -> bool:
     consumer that clamps a target INTO the band (the apron-contact seats,
     §3) inherits the defect.
 
-    Default "0" — no new default-on gate without a battery."""
-    import os as _os_gate
-    return _os_gate.environ.get("O4_BAND_SEED_COMPLETE", "0") == "1"
+    STANDING LAW (docs/RULINGS.md 2026-08-05, build-complete-then-debug:
+    "NO GATES.  Every believed-in law becomes standing law; O4_ law gates
+    and their env overrides are DELETED as their territory is touched").
+    ``O4_BAND_SEED_COMPLETE`` is GONE — a band whose own seeds are the
+    runway anchors may not floor a runway node above its own runway
+    value, so the completeness is the law, not an option."""
+    return True
 
 # ── THE LOUD ERROR (spec ``docs/specs/kill-half-spec.md`` §3) ────────────
 # The band quarantine is deleted (§2), and what replaces it is not a

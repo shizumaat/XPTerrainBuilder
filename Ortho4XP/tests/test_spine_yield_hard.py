@@ -153,7 +153,12 @@ def test_a_lawful_spine_value_is_held_exactly():
     elev = [_RWY_Z, _RWY_Z - 0.5, lawful]
     feasibility_project(elev, _SC, {0}, node_refs={2: lawful})
     assert elev[2] == lawful
-    assert _worst_excess(elev) <= 0.0
+    # RAW LAW (standing raw-law sweeps, docs/RULINGS.md 2026-08-05): the
+    # retired emit margin used to leave 0.01 m of slack that hid IEEE
+    # round-off; against the raw budget a value sitting exactly AT cap
+    # reads a few ULPs over.  The floor is float noise, not a law breach
+    # (emit quantizes at 0.01 m — twelve orders of magnitude above it).
+    assert _worst_excess(elev) <= 1e-12
 
 
 def test_reference_rods_are_dropped_on_hard_nodes():

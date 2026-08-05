@@ -70,27 +70,19 @@ def _heca_shape():
     return _G(runway_anchor, spine_adj, pos), {2: 60.790}
 
 
-# ── (a) the gate ─────────────────────────────────────────────────────────
+# ── (a) STANDING LAW (the gate is retired) ───────────────────────────────
 
-def test_gate_defaults_off(monkeypatch):
+def test_band_seed_completeness_is_standing_law(monkeypatch):
+    """docs/RULINGS.md 2026-08-05, build-complete-then-debug: "NO GATES.
+    Every believed-in law becomes standing law; O4_ law gates and their
+    env overrides are DELETED as their territory is touched."  A band
+    whose own seeds are the runway anchors may not floor a runway node
+    above its own runway value, so the completeness is the law — a stale
+    ``O4_BAND_SEED_COMPLETE=0`` must not resurrect the defect."""
     monkeypatch.delenv("O4_BAND_SEED_COMPLETE", raising=False)
-    assert band_seed_complete_enabled() is False
-    monkeypatch.setenv("O4_BAND_SEED_COMPLETE", "1")
     assert band_seed_complete_enabled() is True
-
-
-def test_gate_off_leaves_the_fields_and_the_law_untouched(monkeypatch):
-    monkeypatch.delenv("O4_BAND_SEED_COMPLETE", raising=False)
-    G, hard = _heca_shape()
-    layout = _Layout()
-    layout._seed_hard_truth_values = hard
-    ceiling, floor = spine_value_fields(layout, G)
-    # the missing hard node contributes nothing: its own value is not a
-    # source, so the ceiling at node 2 still comes from node 0.
-    assert floor[2] == pytest.approx(115.242 - 48.928, abs=1e-9)
-    assert ceiling[2] == pytest.approx(115.242 + 48.928, abs=1e-9)
-    # and the old law is silent — the band reads perfectly ordered.
-    assert assert_no_final_band_inversion(layout, "TEST") == 0
+    monkeypatch.setenv("O4_BAND_SEED_COMPLETE", "0")
+    assert band_seed_complete_enabled() is True
 
 
 # ── (b) RED BEFORE / (c) GREEN AFTER ─────────────────────────────────────

@@ -47,7 +47,6 @@ own grid neighbourhood and never changes which pairs exist.
 """
 from __future__ import annotations
 
-import os as _os
 from typing import Dict, Iterable, List, Sequence, Tuple
 
 __all__ = ["snap_grid_m", "emit_snap_enabled", "law_aware_snap",
@@ -69,13 +68,16 @@ def snap_grid_m() -> float:
 
 
 def emit_snap_enabled() -> bool:
-    """The guard rides the SAME gate as the raw-law sweeps: the margin and
-    the snap are two halves of ONE guarantee and must never be off (or on)
-    together.  ``O4_EMIT_SNAP_GUARD`` overrides for the twins."""
-    explicit = _os.environ.get("O4_EMIT_SNAP_GUARD")
-    if explicit is not None:
-        return explicit == "1"
-    return _os.environ.get("O4_RAW_LAW_SWEEPS", "0") == "1"
+    """STANDING LAW (docs/RULINGS.md 2026-08-05, build-complete-then-
+    debug: "NO GATES.  Every believed-in law becomes standing law; O4_
+    law gates and their env overrides are DELETED as their territory is
+    touched").
+
+    The law-aware emit snap IS the 0.01 m emit-quantization guarantee,
+    and the raw-law sweeps are its other half — the margin and the snap
+    must never be off (or on) separately, so retiring one gate retires
+    both.  ``O4_EMIT_SNAP_GUARD`` and ``O4_RAW_LAW_SWEEPS`` are GONE."""
+    return True
 
 
 def _grid_neighbours(value: float) -> Tuple[float, float]:

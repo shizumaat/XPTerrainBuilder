@@ -90,6 +90,7 @@ from .grade_law import (
     runway_end_skirt_floor_profile_beyond_pavement,
     runway_end_skirt_profile_breakpoints,
     runway_end_skirt_profile_breakpoints_beyond_pavement,
+    ruleset_of as _grade_law_ruleset_of,
 )
 from .layout import (
     BuiltShape,
@@ -1718,6 +1719,14 @@ def emit_runway_end_skirts(layout: PavementLayout, dem,
             "half_width_m": float(runway_width) / 2.0,
         })
 
+    # REGION RULESET (phase B): the end-skirt law is the AUTHORITY's.
+    # FAA AC §3.16.5 gives a 61 m near zone at 0..-3 % then -5 %; ICAO
+    # Annex 14 §3.5.10 gives a single <=5 % down cap with no near zone,
+    # so an ICAO skirt descends faster near the end.  Resolved ONCE per
+    # build and passed to every law call below — the emitter and
+    # ``verification.check_runway_end_skirt`` read one law.
+    _skirt_ruleset = _grade_law_ruleset_of(layout)
+
     def _floor_depth_for(entry_grade: float,
                          pavement_beyond_end_m: float = 0.0):
         depth_cache: dict[float, float] = {}
@@ -1726,7 +1735,8 @@ def emit_runway_end_skirts(layout: PavementLayout, dem,
             depth = depth_cache.get(distance_m)
             if depth is None:
                 depth = runway_end_skirt_floor_profile_beyond_pavement(
-                    [distance_m], entry_grade, pavement_beyond_end_m)[0]
+                    [distance_m], entry_grade, pavement_beyond_end_m,
+                    _skirt_ruleset)[0]
                 depth_cache[distance_m] = depth
             return depth
         return _floor_depth
@@ -1789,14 +1799,16 @@ def emit_runway_end_skirts(layout: PavementLayout, dem,
         # reader cannot drift.  Numerically identical to the inline
         # ``max(runway_width, runway_strip_half_width_m(full_len))`` it
         # replaces.
-        half = runway_end_corridor_half_width_m(runway_width, full_len)
+        half = runway_end_corridor_half_width_m(
+            runway_width, full_len,
+            runway_code_letter(runway_width), _skirt_ruleset)
         perp = (-ny, nx)
         ea = (p0[0] - perp[0] * half, p0[1] - perp[1] * half)
         eb = (p0[0] + perp[0] * half, p0[1] + perp[1] * half)
         stations = _stations(ea, eb, step)
         m = len(stations)
         band_edges = runway_end_skirt_profile_breakpoints_beyond_pavement(
-            entry_grade, pavement_beyond_end)
+            entry_grade, pavement_beyond_end, _skirt_ruleset)
 
         # PER-STATION LATERAL REFERENCE across the exit row (KCLT skirt
         # #845, 2026-07-26): where the abutting pavement varies
@@ -1998,7 +2010,8 @@ def emit_runway_end_skirts(layout: PavementLayout, dem,
         if start < 2.0 * step:
             return   # no meaningful overrun pavement — nothing to wrap
         flank_floor_depth = _floor_depth_for(0.0)
-        flank_band_edges = runway_end_skirt_profile_breakpoints(0.0)
+        flank_band_edges = runway_end_skirt_profile_breakpoints(
+            0.0, _skirt_ruleset)
         n_axis = max(2, int(math.floor(start / step)) + 1)
         axis_distances = [min(start, float(k) * step)
                           for k in range(n_axis)]

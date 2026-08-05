@@ -212,3 +212,39 @@ sites beyond attribution; consensus retirement; emit decimation.
    bounds-attribution round's verdict (coupling the emitter's cliff
    test to the census is a design decision that belongs with the
    healer's law, not a mechanical move).
+
+## BOUNDS-ATTRIBUTION VERDICT (lead, 2026-08-04 night; evidence
+## scratchpad bounds/; the suspended owner question is WITHDRAWN)
+
+The probe closed every bound arithmetically against the hash-verified
+tip patches. THE INVERTED BOUNDS HAVE NO TWO-LAW TENSION: both sides
+are the SAME constant (STRIP_SEAM_TEAR_MIN_STEP_M − 0.05) quoted
+against two different excluded neighbours — inverted iff two outside
+neighbours differ by >1.90 m. Defect class, three mechanisms:
+1. The guard OMITS the MIN_GRADE conjunct its own pairing test and
+   the census apply (over-strict up to 3x at the measured 2.2-6.0 m
+   distances); the inversion-creating neighbours are drapes the
+   healer's own cliff test declared lawful. A lawful assignment is
+   computable at every inverted site — feasibility-is-guaranteed
+   holds; the empty polytope is the guard's, not the law's. The guard
+   also actively MINTED rows (dragged a lawful node 1.9 m down onto a
+   tear). Fix: the guard's allowance becomes identical to the census
+   predicate (max(MIN_STEP, MIN_GRADE·planar) − 0.05), absorbing the
+   FOURTH constants copy. Static: CYXY 6→0, HECA 28→~11.
+2. TARGET defect: the healer AVERAGES disagreeing weld authorities
+   (benches 5.58 m apart in level → an unlawful middle; the CLAMPED
+   nodes were the lawful ones) — the emit-consensus minting pattern
+   reproduced inside the healer. RULED BY STANDING LAW, no owner
+   question: single-authority doctrine + emit-consensus precedent +
+   the owner's 2026-07-19 ruling (a genuine level change is
+   horizontal WALL geometry, and the wall machinery exists). The
+   healer must never average across disagreeing anchors or a stacked
+   wall; those joints belong to the wall passes. Wall-pass ordering
+   vs wall-aware healer is a DESIGN decision (v4).
+3. Residuals: the hard 6.0 m radius splits clusters (a 4.26 m cliff
+   between mates 1.5 m apart); two sites are minted post-healer (wall
+   emitters + late writers run after with no reconciliation).
+V4 (final seam design): grade-aware guard + authority-split clusters
++ radius fix + post-healer ordering/declaration + the kill sequencing;
+both v3 §3 branches DIE UNBUILT. Static predictions must be verified
+for second-order effects before landing.

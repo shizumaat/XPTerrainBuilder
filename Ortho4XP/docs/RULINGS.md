@@ -507,3 +507,31 @@ Binding consequences:
 4. Flat-world zero is therefore: zero adjudicated rows EXCLUDING the
    version-deferred classes, which appear in every report under their
    own heading.
+
+## 2026-08-05 — CIFP thresholds absolute for v1 (owner)
+
+Thresholds stay AT CIFP values for the first release of the cleaned-up
+model and engine — the DEM-credibility threshold lift
+(pavement/runway_segments.py generate_patch_osm, sweep finding #20) is
+DELETED. Datum harmonization may be re-introduced later if needed.
+
+## 2026-08-05 — The HECA central-U apron model (owner, ENCODING PENDING
+## three clarifications)
+
+Owner: HECA is feasible and gradable along the taxi route spines, for
+certain. The large central U apron wrapping the terminals between
+05C/23C and 05L/23R follows the building grading rules — straight
+chords from building frontage out to the spine — and BETWEEN buildings
+along the BACK apron edge, STEEPER RAMPS may support a sort of
+terracing, FAN-like, never creating grade violations where aircraft
+move.
+
+Already in law: frontage chords building→spine
+(building_requires_full_frontage + the frontage band); joints/steps
+never crossing spines (terrace law, structural); movement-area cap
+protection (corridor cover). NOT yet in law: the steeper-ramp class —
+current law offers only LEVEL panels with STEP joints (walls) as
+over-cap relief; a continuous fan-shaped ramp zone at the back edge
+between buildings has no legal form and would today read as apron-cap
+violations or be answered with walls. Encoding awaits the owner's
+three answers (asked in-session).

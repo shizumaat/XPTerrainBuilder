@@ -134,6 +134,19 @@ from .emit_decimate import (
     _key as _vertex_key,
     decimate_shape_group,
 )
+# THE one home for the graded-strip seam law (spec seam-continuity-v2 §1,
+# v3 §1 "third-copy absorption").  ``blend_cross_strip_seam_steps`` — the
+# EMITTER half of this law — used to carry its own equal-valued copies
+# under the banned bare-"seam" spelling (a local radius and step-floor
+# pair, the THIRD copy of these numbers); the healer and the census
+# (``check_grade._check_strip_seam_tears``) now read ONE definition, so
+# the emitter provably sees exactly the pair population the validator
+# reports (docs/RULINGS.md, grade-law completeness: emitter and validator
+# lockstep, never two copies).  Import-light by construction (stdlib only).
+from .strip_seam_law import (
+    STRIP_SEAM_TEAR_MIN_STEP_M,
+    STRIP_SEAM_TEAR_RADIUS_M,
+)
 
 # An adjacent-ground band is a SHALLOW corridor surface (a code-4 runway
 # fill falls ≈2.3 m over 75 m, monotonically across many vertices), so a
@@ -1648,8 +1661,19 @@ def _heal_emitted_band_tears(emitted_shapes, layout):
 # pinch class ``_heal_emitted_band_tears`` collapses, and invisible to
 # it because each tear spans TWO rings.  Legitimate terracing steps are
 # ~0.3 m, so a 1.0 m step floor cleanly separates the classes.
-SEAM_STEP_RADIUS_M = 6.0
-SEAM_STEP_MIN_DELTA_M = 1.0
+#
+# THE RADIUS AND STEP FLOOR ARE THE LAW MODULE'S (v3 §1, third-copy
+# absorption): this pass used to declare 6.0 m and 1.0 m locally under
+# bare-"seam" names — equal values, third copy.  They are now
+# ``strip_seam_law.STRIP_SEAM_TEAR_RADIUS_M`` /
+# ``STRIP_SEAM_TEAR_MIN_STEP_M`` (imported above), so healer and census
+# cannot drift apart.  Byte-inert: the values are identical.
+#
+# NOT ABSORBED (deliberate, outside v3 §1's named list): the grade floor
+# below still equals ``strip_seam_law.STRIP_SEAM_TEAR_MIN_GRADE`` (0.5)
+# and is a FOURTH copy of a law number.  Absorbing it would couple the
+# healer's cliff test to the census's, which is a design decision this
+# round has no authority to make — flagged, not taken.
 # Grade floor: on steep relief (CYXY) neighbour strips LEGITIMATELY
 # differ by >1 m at 4-6 m spacing — real hillside drape tops out around
 # 30-40 %, while genuine seam cliffs run 100-350 %.  Requiring the step
@@ -1657,6 +1681,161 @@ SEAM_STEP_MIN_DELTA_M = 1.0
 # CYXY without the floor: 1404 vertices moved, 5 new sub-metre pinches
 # minted; with it the blend touches only true cliffs).
 SEAM_STEP_MIN_GRADE = 0.5
+
+# ── DECLINE LOUDNESS (spec seam-continuity-v3 §2, adjudication item 3) ──
+# The healer's every-node-anchored ⇒ genuine-step rule is CORRECT
+# non-authority behaviour — a healer must never silently regrade fabric
+# whose every node is welded to a pavement authority or is a cross-tile
+# seam contract.  Its SILENCE was the defect: those clusters are exactly
+# the census rows that survive to ``check_grade``'s ``seam::seam`` class,
+# and until now nothing in the build said so.  Every declined cluster
+# therefore emits ONE named forensics row — site, step height, anchored
+# sides — UNCONDITIONALLY (no gate, no verbosity trick beyond the
+# pipeline's own level-1 channel).  Pre-registered invariant: report rows
+# == declined clusters, zero silent declines.
+#
+# MEASURED, v3 lane 2026-08-04 (CYXY + HECA, tip anchors, in-healer
+# instrumentation): the all-anchored population is EMPTY at both airports
+# (0 declined clusters) while the census reports 34 surviving
+# ``seam::seam`` rows — so the spec's assumed decline path is NOT the one
+# that leaves those steps standing.  The one that does is the
+# NON-WORSENING GUARD below, which has two silent exits of its own:
+#
+#   * BLOCKED  — the outside-neighbour bounds invert (``lo > hi``) and the
+#     free node is left exactly where it was (CYXY's only seam site; HECA
+#     (-135,88));
+#   * CLAMPED  — the node moves, but to a bound instead of the cluster
+#     target, so a step above the floor survives (HECA (-102,30):
+#     target 100.53, clamped to 96.27, residual 4.26 m = the census row).
+#
+# Both are "left alone" outcomes under a different rule, and band 5 is
+# "ZERO silent declines".  They are therefore reported too, as their own
+# row kinds.  DEVIATION FLAG (v3 §2 names only the all-anchored decline):
+# the extension is measurement-driven and awaits Fable ratification; it
+# moves no value and is byte-inert like the rest of §2.
+_STRIP_SEAM_DECLINE_TAG = "[strip-seam]"
+
+
+def _strip_seam_decline_record(members, anchor_reason, node_xy, node_value,
+                               node_strips, entries, shape_index):
+    """Forensics record for ONE cluster the cross-strip healer declined.
+
+    Pure/read-only: it inspects the healer's own tables and returns a
+    dict.  ``anchor_reason`` maps every member node to a NON-EMPTY reason
+    (a declined cluster has no free node by definition)."""
+    lo = min(members, key=lambda m: (node_value[m], m))
+    hi = max(members, key=lambda m: (node_value[m], m))
+    reasons: dict = {}
+    for m in members:
+        reasons[anchor_reason[m]] = reasons.get(anchor_reason[m], 0) + 1
+    shape_ids = set()
+    for m in members:
+        for entry_index in node_strips[m]:
+            shape = entries[entry_index][0]
+            sid = shape_index.get(id(shape))
+            shape_ids.add(sid if sid is not None else -1)
+    return {
+        "x": round(float(node_xy[hi][0]), 2),
+        "y": round(float(node_xy[hi][1]), 2),
+        "step_m": round(float(node_value[hi] - node_value[lo]), 3),
+        "nodes": len(members),
+        "strips": len({e for m in members for e in node_strips[m]}),
+        "shape_ids": sorted(shape_ids),
+        "anchors": dict(sorted(reasons.items())),
+        "lo": (round(float(node_xy[lo][0]), 2),
+               round(float(node_xy[lo][1]), 2),
+               round(float(node_value[lo]), 3)),
+        "hi": (round(float(node_xy[hi][0]), 2),
+               round(float(node_xy[hi][1]), 2),
+               round(float(node_value[hi]), 3)),
+    }
+
+
+def _strip_seam_guard_record(kind, node_index, node_xy, node_value,
+                             target, tgt, lo, hi):
+    """Forensics record for ONE non-worsening-guard outcome that leaves a
+    step standing: ``blocked`` (bounds inverted, the node does not move at
+    all) or ``clamped`` (the node moves to a bound, not to the cluster's
+    law target).  Pure/read-only."""
+    return {
+        "kind": kind,
+        "x": round(float(node_xy[node_index][0]), 2),
+        "y": round(float(node_xy[node_index][1]), 2),
+        "z": round(float(node_value[node_index]), 3),
+        "target_m": round(float(target), 3),
+        "applied_m": None if tgt is None else round(float(tgt), 3),
+        "residual_m": round(float(
+            target - (node_value[node_index] if tgt is None else tgt)), 3),
+        "bound_lo": None if lo is None else round(float(lo), 3),
+        "bound_hi": None if hi is None else round(float(hi), 3),
+    }
+
+
+def report_strip_seam_declines(declined, layout, guarded=()) -> int:
+    """Emit the v3 §2 decline report — ONE row per LEFT-ALONE outcome,
+    plus a count line so "nothing declined" is distinguishable from "the
+    pass did not run".
+
+    Three row kinds, all unconditional (the whole point of the section):
+
+    * ``DECLINED``       — the spec's all-anchored cluster;
+    * ``GUARD-DECLINED`` — a free node the non-worsening guard left
+      exactly where it was (measured: the ONLY path that fires at CYXY);
+    * ``GUARD-CLAMPED``  — a free node moved to a guard bound instead of
+      the cluster's law target, so a step survives.
+
+    Returns the total number of report ROWS, which is the pre-registered
+    equality: rows == left-alone outcomes."""
+    icao = str(getattr(layout, "icao", "?") or "?")
+    m_to_ll = getattr(layout, "m_to_ll", None)
+    guarded = list(guarded)
+    blocked = [g for g in guarded if g["kind"] == "blocked"]
+    clamped = [g for g in guarded if g["kind"] == "clamped"]
+
+    def _ll(x, y):
+        if m_to_ll is None:
+            return "?"
+        try:
+            lat, lon = m_to_ll(x, y)
+        except Exception:                           # noqa: BLE001
+            return "?"
+        return f"{lat:.8f},{lon:.8f}"
+
+    UI.vprint(1, f"  {_STRIP_SEAM_DECLINE_TAG} {icao}: cross-strip seam "
+                 f"healer left {len(declined) + len(guarded)} step(s) "
+                 f"standing — DECLINED {len(declined)} cluster(s) "
+                 f"(every node anchored), GUARD-DECLINED {len(blocked)} "
+                 f"node(s) (bounds inverted), GUARD-CLAMPED "
+                 f"{len(clamped)} node(s) (moved to a bound).")
+    for position, row in enumerate(declined, start=1):
+        anchors = ",".join(f"{k or 'free'}:{v}"
+                           for k, v in row["anchors"].items())
+        UI.vprint(1,
+                  f"  {_STRIP_SEAM_DECLINE_TAG} DECLINED {icao} "
+                  f"{position}/{len(declined)}: "
+                  f"site=({row['x']:.2f},{row['y']:.2f}) "
+                  f"ll={_ll(row['x'], row['y'])} "
+                  f"step={row['step_m']:.3f}m nodes={row['nodes']} "
+                  f"strips={row['strips']} anchored={anchors} "
+                  f"shapeIDs={row['shape_ids']} "
+                  f"lo=({row['lo'][0]:.2f},{row['lo'][1]:.2f},"
+                  f"z={row['lo'][2]:.3f}) "
+                  f"hi=({row['hi'][0]:.2f},{row['hi'][1]:.2f},"
+                  f"z={row['hi'][2]:.3f})")
+    for position, row in enumerate(guarded, start=1):
+        label = ("GUARD-DECLINED" if row["kind"] == "blocked"
+                 else "GUARD-CLAMPED")
+        UI.vprint(1,
+                  f"  {_STRIP_SEAM_DECLINE_TAG} {label} {icao} "
+                  f"{position}/{len(guarded)}: "
+                  f"site=({row['x']:.2f},{row['y']:.2f}) "
+                  f"ll={_ll(row['x'], row['y'])} z={row['z']:.3f} "
+                  f"target={row['target_m']:.3f} "
+                  f"applied={'-' if row['applied_m'] is None else format(row['applied_m'], '.3f')} "
+                  f"residual={row['residual_m']:.3f}m "
+                  f"bounds=[{'-' if row['bound_lo'] is None else format(row['bound_lo'], '.3f')},"
+                  f"{'-' if row['bound_hi'] is None else format(row['bound_hi'], '.3f')}]")
+    return len(declined) + len(guarded)
 
 
 def blend_cross_strip_seam_steps(strip_shapes, layout):
@@ -1670,14 +1849,18 @@ def blend_cross_strip_seam_steps(strip_shapes, layout):
     whose spread EXCEEDS the tolerance emit as stacked separate nodes (a
     bare vertical terrain wall, the SPJC 3.8 m class) and are separate
     logical nodes that may blend against each other.  Qualifying pairs —
-    planar distance under ``SEAM_STEP_RADIUS_M`` (zero included: the
-    stacked-wall case), altitude delta over ``SEAM_STEP_MIN_DELTA_M``,
+    planar distance under ``STRIP_SEAM_TEAR_RADIUS_M`` (zero included: the
+    stacked-wall case), altitude delta over ``STRIP_SEAM_TEAR_MIN_STEP_M``,
     not both exclusively owned by the same single strip — are clustered
     by union-find.  Donor-pavement-welded logical nodes are immovable
     ANCHORS; free logical nodes snap to the anchors\' mean, or to the
     cluster mean when no anchor exists.  A cluster whose every node is
     anchored is left alone (a genuine step — retaining-wall territory,
-    never silently flattened).  ``strip_shapes`` must be the COMPLETE
+    never silently flattened) — and since spec seam-continuity-v3 §2 every
+    LEFT-ALONE outcome is LOUD: the all-anchored decline, and (measured
+    addition, see the section note above) the two non-worsening-guard
+    exits, each emit one named forensics row through ``UI.vprint``,
+    unconditionally.  ``strip_shapes`` must be the COMPLETE
     final strip population (every emitter: adjacent-ground bands,
     gap-fill spines) — running per emitter group misses exactly the
     cross-family seams that tear.  Returns the number of ring vertices
@@ -1743,7 +1926,17 @@ def blend_cross_strip_seam_steps(strip_shapes, layout):
         node_value.append(sum(m[2] for m in group) / float(len(group)))
         node_strips.append({m[0] for m in group})
 
-    def _anchored(node_index):
+    # Shape index = the ``shapeID`` tag ``layout.to_osm`` emits (index in
+    # ``layout.shapes``), so a decline row joins EXACTLY to the emitted
+    # patch instead of by proximity.
+    shape_index = {
+        id(sh): idx
+        for idx, sh in enumerate(getattr(layout, "shapes", ()) or ())}
+
+    def _anchor_reason(node_index):
+        """Anchor REASON ("" when free) — the boolean this used to return
+        is ``bool(reason)``; the reason itself is what the v3 §2 decline
+        report names as the anchored side.  Call order unchanged."""
         (vx, vy) = node_xy[node_index]
         # TILE-SEAM protection (2026-07-18 SPLP regression): seam-band
         # vertices are cross-tile terrain contracts — each tile builds
@@ -1753,20 +1946,20 @@ def blend_cross_strip_seam_steps(strip_shapes, layout):
         # +2.00 m against the immutable seam DEM).  Same predicate the
         # crown and tile_cut use.
         if _point_in_seam_band(layout, vx, vy):
-            return True
+            return "tile_seam"
         if donor_tree is None:
-            return False
+            return ""
         try:
             hit = donor_tree.query_nearest(Point(vx, vy), max_distance=0.05)
         except _GEOM_EXC:
-            return False
-        return len(hit) > 0
+            return ""
+        return "weld" if len(hit) > 0 else ""
 
     points = [Point(vx, vy) for (vx, vy) in node_xy]
     try:
         vertex_tree = STRtree(points)
         left, right = vertex_tree.query(points, predicate="dwithin",
-                                        distance=SEAM_STEP_RADIUS_M)
+                                        distance=STRIP_SEAM_TEAR_RADIUS_M)
     except _GEOM_EXC:
         return 0
     parent = list(range(len(points)))
@@ -1790,7 +1983,7 @@ def blend_cross_strip_seam_steps(strip_shapes, layout):
         if a >= b:
             continue
         delta = abs(node_value[a] - node_value[b])
-        if delta < SEAM_STEP_MIN_DELTA_M:
+        if delta < STRIP_SEAM_TEAR_MIN_STEP_M:
             continue
         (ax, ay), (bx, by) = node_xy[a], node_xy[b]
         planar = math.hypot(ax - bx, ay - by)
@@ -1811,14 +2004,22 @@ def blend_cross_strip_seam_steps(strip_shapes, layout):
 
     moved = 0
     changed_entries: set = set()
+    declined: list = []
+    guarded: list = []
     for root in sorted(clusters):
         members = clusters[root]
         if len(members) < 2:
             continue                # never paired: not a seam cluster
-        anchors = [m for m in members if _anchored(m)]
-        free_nodes = [m for m in members if m not in set(anchors)]
+        anchor_reason = {m: _anchor_reason(m) for m in members}
+        anchors = [m for m in members if anchor_reason[m]]
+        free_nodes = [m for m in members if not anchor_reason[m]]
         if not free_nodes:
-            continue                # all anchored: genuine step, leave it
+            # ALL ANCHORED: a genuine step, left alone — correct
+            # non-authority behaviour, but v3 §2 forbids it being SILENT.
+            declined.append(_strip_seam_decline_record(
+                members, anchor_reason, node_xy, node_value, node_strips,
+                entries, shape_index))
+            continue
         source = anchors if anchors else members
         target = round(
             sum(node_value[m] for m in source) / float(len(source)), 2)
@@ -1840,19 +2041,28 @@ def blend_cross_strip_seam_steps(strip_shapes, layout):
             for n in nbrs.get(m, ()):
                 if n in member_set:
                     continue
-                hi_n = node_value[n] + SEAM_STEP_MIN_DELTA_M - 0.05
-                lo_n = node_value[n] - SEAM_STEP_MIN_DELTA_M + 0.05
+                hi_n = node_value[n] + STRIP_SEAM_TEAR_MIN_STEP_M - 0.05
+                lo_n = node_value[n] - STRIP_SEAM_TEAR_MIN_STEP_M + 0.05
                 if hi is None or hi_n < hi:
                     hi = hi_n
                 if lo is None or lo_n > lo:
                     lo = lo_n
             if lo is not None and hi is not None and lo > hi:
+                # LEFT ALONE by the guard, not by the anchor rule — the
+                # measured cause of every surviving census row at CYXY.
+                guarded.append(_strip_seam_guard_record(
+                    "blocked", m, node_xy, node_value, target, None, lo, hi))
                 continue
             if hi is not None and tgt > hi:
                 tgt = hi
             if lo is not None and tgt < lo:
                 tgt = lo
             tgt = round(tgt, 2)
+            if abs(tgt - target) > 1e-9:
+                # Moved, but to a BOUND — the law target was not reached,
+                # so a step above the floor can survive (HECA (-102,30)).
+                guarded.append(_strip_seam_guard_record(
+                    "clamped", m, node_xy, node_value, target, tgt, lo, hi))
             if abs(node_value[m] - tgt) < 1e-9:
                 continue
             node_value[m] = tgt
@@ -1860,6 +2070,9 @@ def blend_cross_strip_seam_steps(strip_shapes, layout):
                 entries[entry_index][2][position] = tgt
                 changed_entries.add(entry_index)
                 moved += 1
+    # v3 §2: the declines are reported BEFORE the writeback, so a
+    # writeback failure cannot swallow them.  Read-only w.r.t. geometry.
+    report_strip_seam_declines(declined, layout, guarded)
     # Write back ONLY the touched strips — untouched shapes keep their
     # exact original altitude lists (byte-identity everywhere no seam
     # cluster exists).

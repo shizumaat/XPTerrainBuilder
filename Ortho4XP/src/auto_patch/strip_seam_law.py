@@ -23,25 +23,34 @@ here verbatim from ``tools/check_grade.py`` so that the validator
 definition (docs/RULINGS.md, grade-law completeness standard: emitter and
 validator must be lockstep, never two copies).
 
-KNOWN PENDING ABSORPTION (lead ruling, 2026-08-04 — do NOT migrate here
-yet).  A THIRD copy of these numbers exists in the EMITTER:
-``adjacent_ground.blend_cross_strip_seam_steps`` (adjacent_ground.py, run
-unconditionally from ``pipeline._strip_reconcile_passes``) carries
+THIRD COPY ABSORBED (seam-continuity v3 §1, 2026-08-04).  The EMITTER
+half of this law — ``adjacent_ground.blend_cross_strip_seam_steps``, run
+unconditionally from ``pipeline._strip_reconcile_passes`` — used to
+declare its own 6.0 m radius and 1.0 m step floor locally, under
+bare-"seam" names.  It now imports ``STRIP_SEAM_TEAR_RADIUS_M`` and
+``STRIP_SEAM_TEAR_MIN_STEP_M`` from here.  The absorption was byte-inert
+(the values were already identical) and it makes structural what was
+previously only a coincidence: **the healer sees EXACTLY the pair
+population this law's census reports**.
 
-    SEAM_STEP_RADIUS_M    = 6.0    # == STRIP_SEAM_TEAR_RADIUS_M
-    SEAM_STEP_MIN_DELTA_M = 1.0    # == STRIP_SEAM_TEAR_MIN_STEP_M
+What that population turns out to be was MEASURED in the same round
+(CYXY + HECA at the tip anchors, in-healer instrumentation) and it is NOT
+what v2 inferred.  The "a cluster whose every node is anchored is left
+alone" rule fires on NOTHING at either airport (0 declined clusters
+against 34 census rows).  The rows that survive are the healer's
+NON-WORSENING GUARD residuals: a free node it cannot move without minting
+a fresh step against a neighbour it deliberately excluded (5 of HECA's 7
+sites and CYXY's only site join a guard row exactly; the other 2 HECA
+sites are not a healer pair at all, i.e. minted after this pass).  Since
+v3 §2 all three left-alone outcomes are LOUD — one ``[strip-seam]``
+forensics row each, unconditionally.  The decline itself is correct
+non-authority behaviour; the SILENCE was the defect.
 
-under the banned bare-"seam" spelling.  Identical values mean that healer
-sees EXACTLY the pair population this law's census reports — which is why
-the surviving rows are pairs it SAW and declined (its "a cluster whose
-every node is anchored is left alone" rule).  That healer is the likely
-binding site for the strip-seam law (seam-continuity v2 §0 pre-flight
-falsified the solve-side box: the zone writeback re-derives every
-edge-owning zone node from raw DEM, so a projection box never reaches an
-emitted band value).  The migration therefore belongs to the round that
-makes the healer law-binding — moving the constants first would leave the
-emitter importing a law it does not yet obey.  Until then: THREE copies,
-one of them knowingly outside this module.
+STILL OUTSIDE THIS MODULE (flagged, deliberately not migrated): the
+healer's own cliff-grade floor equals ``STRIP_SEAM_TEAR_MIN_GRADE``
+(0.5).  Absorbing it would couple the emitter's cliff test to the
+census's — a design decision, not a de-duplication, and v3 §1's list
+does not name it.
 
 Deliberately dependency-free (stdlib only): ``tools/check_grade.py`` runs
 standalone, and a law module that can fail to import is not a law.

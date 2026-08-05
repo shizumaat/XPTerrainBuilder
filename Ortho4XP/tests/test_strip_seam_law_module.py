@@ -26,6 +26,15 @@ Properties, one test each:
   agree in value (the two-site-agreement idiom);
 * a bare ``_SEAM_LL_TOL_DEG`` / ``_SEAM_ZONE_M`` survives nowhere (the
   banned bare-"seam" spelling for the tile corridor).
+
+THIRD-COPY ABSORPTION (spec seam-continuity-v3 §1) extends the same three
+properties to the EMITTER half of the law,
+``adjacent_ground.blend_cross_strip_seam_steps``, which carried a third
+equal-valued copy of the radius and step floor under bare-"seam" names:
+
+* the healer's thresholds ARE the law module's objects (identity);
+* ``adjacent_ground`` declares no strip-seam constant of its own (AST);
+* the retired bare spellings survive nowhere (regex, both sites).
 """
 from __future__ import annotations
 
@@ -45,6 +54,21 @@ for _p in (os.path.join(_ROOT, "tools"), os.path.join(_ROOT, "src")):
 import check_grade  # noqa: E402
 from auto_patch import strip_seam_law  # noqa: E402
 from auto_patch import grade_graph_validate  # noqa: E402
+from auto_patch import adjacent_ground  # noqa: E402
+
+# The two thresholds the EMITTER (v3 §1 third-copy absorption) shares with
+# the census.  The grade floor is deliberately NOT in this list: the
+# healer still declares its own, and coupling the two is a design decision
+# no round has taken.
+HEALER_ABSORBED_CONSTANTS = (
+    "STRIP_SEAM_TEAR_RADIUS_M",
+    "STRIP_SEAM_TEAR_MIN_STEP_M",
+)
+# The bare-"seam" names the healer used to declare locally.
+RETIRED_HEALER_SPELLINGS = (
+    r"(?<![A-Z_])SEAM_STEP_RADIUS_M\b",
+    r"(?<![A-Z_])SEAM_STEP_MIN_DELTA_M\b",
+)
 
 STRIP_CONSTANTS = (
     "STRIP_SEAM_TEAR_RADIUS_M",
@@ -119,6 +143,53 @@ def test_the_tile_seam_constants_agree_at_both_sites():
             == grade_graph_validate.TILE_SEAM_LL_TOL_DEG)
     assert (check_grade.TILE_SEAM_ZONE_M
             == grade_graph_validate.TILE_SEAM_ZONE_M)
+
+
+def test_the_healer_reads_every_absorbed_constant_from_the_law_module():
+    """v3 §1 THIRD-COPY ABSORPTION, identity not equality.
+
+    ``blend_cross_strip_seam_steps`` is the EMITTER half of the strip-seam
+    law; the census (``check_grade._check_strip_seam_tears``) is the
+    validator half.  Their radius and step floor being the SAME OBJECT is
+    what makes "the healer sees exactly the pair population the census
+    reports" a structural fact rather than a coincidence — and therefore
+    what makes every surviving census row provably a decline."""
+    for name in HEALER_ABSORBED_CONSTANTS:
+        assert (getattr(adjacent_ground, name)
+                is getattr(strip_seam_law, name)), (
+            f"adjacent_ground.{name} is not the law module's object: the "
+            f"third copy of a rule value has been re-introduced")
+        assert (getattr(check_grade, name)
+                is getattr(adjacent_ground, name)), (
+            f"emitter and validator disagree on the object behind {name}")
+
+
+def test_adjacent_ground_defines_no_strip_seam_constant_of_its_own():
+    src = Path(inspect.getsourcefile(adjacent_ground)).read_text()
+    tree = ast.parse(src)
+    assigned = {
+        t.id
+        for node in tree.body if isinstance(node, ast.Assign)
+        for t in node.targets if isinstance(t, ast.Name)
+    }
+    strayed = sorted(n for n in assigned if n.startswith("STRIP_SEAM"))
+    assert not strayed, (
+        f"adjacent_ground re-declares strip-seam constant(s) {strayed} — "
+        f"they belong to auto_patch.strip_seam_law and must only be "
+        f"imported")
+
+
+def test_no_bare_seam_step_spelling_survives_in_the_emitter():
+    """The retired bare-"seam" names must not come back — including inside
+    a comment or docstring, which is how a "temporary" second copy is
+    normally reintroduced."""
+    for mod in (adjacent_ground, strip_seam_law):
+        src = Path(inspect.getsourcefile(mod)).read_text()
+        for banned in RETIRED_HEALER_SPELLINGS:
+            assert not re.search(banned, src), (
+                f"{mod.__name__} still spells a strip-seam threshold with "
+                f"a retired bare-'seam' name ({banned}) — use "
+                f"STRIP_SEAM_TEAR_*")
 
 
 def test_no_bare_seam_spelling_survives_for_the_tile_corridor():

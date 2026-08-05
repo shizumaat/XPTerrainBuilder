@@ -147,6 +147,32 @@ def test_the_worlds_come_as_an_ordered_pair():
     assert worlds[0][1].elevation_m < worlds[1][1].elevation_m
 
 
+def test_the_oracle_measures_at_DEFAULT_env(tmp_path, monkeypatch):
+    """ITEM 6 — the oracle's read.
+
+    The airport layer is the standing build oracle, so it must measure
+    whatever env it is launched in.  It could not: ``_write_axes_sidecar``
+    was gated on ``config.LOG_VERBOSITY > 0``, and the shipped default is
+    0, so at default env the oracle read NO sidecar and quietly ran the
+    context-free check — a different law, on a different population, with
+    the same green tick.
+
+    This is the unit half (it must not build): one emitted layout at the
+    shipped default, read by the oracle's OWN helper.
+    """
+    monkeypatch.chdir(tmp_path)
+    from auto_patch import config as _cfg
+    monkeypatch.setattr(_cfg, "LOG_VERBOSITY", 0, raising=False)
+    lay = _layout_with([10.0, 10.5, 11.0])
+    lay.icao = "ORACLE"
+    within, cross, steps = _law_true_rows(lay, tmp_path, "default_env")
+    # The assertion under test is that the helper did not RAISE: it found
+    # a sidecar and a ruleset.  The row counts of a 5-vertex synthetic
+    # apron are not the point and are not asserted.
+    assert isinstance(within, list) and isinstance(cross, list)
+    assert isinstance(steps, list)
+
+
 def test_the_artifact_writes(tmp_path):
     lo = _layout_with([10.0, 10.0])
     hi = _layout_with([12.0, 10.0])
@@ -221,14 +247,34 @@ def _law_true_rows(layout, tmp_path, tag):
     """Emit the layout and count law-true rows with the patch's OWN frame
     and the build's OWN ruleset — the census discipline
     (``check_grade.run_checks(ruleset=...)``; the kwarg is not optional,
-    a missing one silently judges an FAA build under ICAO)."""
+    a missing one silently judges an FAA build under ICAO).
+
+    A MISSING SIDECAR IS A FAILURE, NOT A FALLBACK (item 6, 2026-08-05).
+    This used to read ``… if side.exists() else {}``, and with the write
+    gated on ``LOG_VERBOSITY`` — or killed outright by one terrace
+    joint's ``TypeError`` — the oracle silently ran the CONTEXT-FREE
+    check at default env: no axes, no anchor, no pair caps, no ruleset.
+    It then asserted zero rows against a law it was not reading, which
+    over-flags by multiples (HEAZ 959 context-free vs 144 law-true) and
+    would just as happily have passed on a frame that never applied.
+    The sidecar is the contract; without it there is no measurement to
+    report, so this raises instead of degrading.
+    """
     import importlib.util
     import json
     repo = Path(__file__).resolve().parents[1]
     osm = tmp_path / f"{tag}.osm"
     layout.to_osm(str(osm))
     side = Path(str(osm) + ".axes.json")
-    d = json.loads(side.read_text()) if side.exists() else {}
+    assert side.exists(), (
+        f"{tag}: the patch shipped with NO axes sidecar, so this census "
+        f"would silently run the context-free check — the oracle would "
+        f"be judging a law it never read")
+    d = json.loads(side.read_text())
+    assert d.get("ruleset"), (
+        f"{tag}: the sidecar carries no ruleset key, so check_grade "
+        f"would re-resolve the authority instead of judging in the "
+        f"frame the build actually ran under")
     spec = importlib.util.spec_from_file_location(
         f"cg_oracle_{tag}", repo / "tools" / "check_grade.py")
     cg = importlib.util.module_from_spec(spec)

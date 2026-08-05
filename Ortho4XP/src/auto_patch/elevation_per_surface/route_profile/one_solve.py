@@ -367,11 +367,27 @@ def _node_ref_arrays(node_ref, np):
 def _ref_pull_weight():
     """Proximal-pull weight for the reference term — SMALL vs the cap
     projections so the law always wins locally (spec §7); each sweep pulls
-    BEFORE its projections, so the exit state is always cap-projected."""
+    BEFORE its projections, so the exit state is always cap-projected.
+
+    DEFAULT 0.02 (spec ``ref-pull-interim-spec.md`` §1, 2026-08-04).  The
+    former 0.2 entered in a sweep commit with NO measurement behind it; the
+    weight sweep in ``s7_attrib/`` measured the Pareto point instead.  What
+    0.2 actually bought was an early exit: the pull is strong enough to
+    reach the pull-vs-projection steady state within a few dozen sweeps, so
+    the ``ref_prev`` break below fires at sweep ~36 of 2400 and ABANDONS the
+    projection budget with the residual still live.  At 0.02 the pull is
+    weak enough that the projections keep making progress and the call
+    spends its full budget, while the displacement objective the owner's
+    2026-07-29 #2 ruling asks for is still substantially served (HEAZ fp#8
+    reference displacement sum 626 m at w=0.02 vs 1656 m at w=0 and 568 m
+    at w=0.2).  Measured census effect (three-airport battery, law-true
+    ``within``): HEAZ 118→95, CYXY 171→154, HECA 9952→9140.  Retiring the
+    pull outright (w=0) is NOT the answer: it regresses the strip-seam
+    class by +88 rows battery-wide, against +11 at 0.02."""
     try:
-        return float(_os.environ.get("O4_YIELD_REF_WEIGHT", "0.2"))
+        return float(_os.environ.get("O4_YIELD_REF_WEIGHT", "0.02"))
     except ValueError:                                    # pragma: no cover
-        return 0.2
+        return 0.02
 
 
 def _project_vectorized(elev, iter_edges, n, max_iters, tol,
@@ -977,6 +993,134 @@ def _stall_guard_report(np, sweeps, max_iters, detect_sweep, detect_active,
               f"  (stalled residual {worst:.6f})")
 
 
+def _exit_residual_census(np, tol, endpoint_i, endpoint_j, budget_column,
+                          slab_low_column, slab_high_column, interval_mask,
+                          weight_i, weight_j, z):
+    """``(active_edge_count, worst_residual, carrier)`` for the state ``z``
+    the call is about to return.
+
+    Recomputed from the flat edge columns rather than read off the sweep
+    loop's own counters, so the numbers are the WHOLE system's exit
+    residual and are available whether or not the stall-forensics gate
+    happened to be on.  Read-only; the carrier tuple is the same shape
+    ``_carrier_line`` already prints."""
+    active = 0
+    worst = 0.0
+    carrier = None
+    symmetric = ~interval_mask
+    if symmetric.any():
+        i = endpoint_i[symmetric]
+        j = endpoint_j[symmetric]
+        b = budget_column[symmetric]
+        wi = weight_i[symmetric]
+        wj = weight_j[symmetric]
+        d = z[i] - z[j]
+        over = np.abs(d) - b
+        active += int((over > tol).sum())
+        k = int(over.argmax())
+        if float(over[k]) > worst:
+            worst = float(over[k])
+            carrier = ("sym", int(i[k]), int(j[k]), float(b[k]),
+                       float(d[k]), float(wi[k]), float(wj[k]))
+    if interval_mask.any():
+        i = endpoint_i[interval_mask]
+        j = endpoint_j[interval_mask]
+        lo = slab_low_column[interval_mask]
+        hi = slab_high_column[interval_mask]
+        d = z[i] - z[j]
+        excess = np.maximum(d - hi, lo - d)
+        active += int((excess > tol).sum())
+        k = int(excess.argmax())
+        if float(excess[k]) > worst:
+            worst = float(excess[k])
+            carrier = ("int", int(i[k]), int(j[k]), float(lo[k]),
+                       float(hi[k]), float(d[k]), 0.0)
+    return active, worst, carrier
+
+
+def _ref_equilibrium_report(np, tol, sweeps, max_iters, ref_idx, ref_val,
+                            endpoint_i, endpoint_j, budget_column,
+                            raw_budget_column, slab_low_column,
+                            slab_high_column, interval_mask,
+                            weight_i, weight_j, z, n):
+    """LOUD report for a REFERENCE-ROD EQUILIBRIUM exit (spec
+    ``docs/specs/ref-pull-interim-spec.md`` §2).
+
+    The ``ref_prev`` steady-state break terminates the sweep loop when a
+    whole sweep leaves ``z`` unchanged: the proximal pull and the cap
+    projections have reached a fixpoint, so further sweeps cannot move the
+    surface and STOPPING IS CORRECT.  What was wrong is that it stopped
+    SILENTLY — the call returned ``certified=False`` with an over-cap
+    residual still live, abandoning most of its sweep budget, and nothing
+    said so.  Downstream that is indistinguishable from a clean exit, which
+    is how HECA shipped finals that quit at 38 sweeps of 2400 with a 6.74 m
+    residual.  This makes the exit loud.
+
+    REPORT-ONLY, by construction: the call site is AFTER the writeback, every
+    argument is read-only, and the only effects are ``print`` and the
+    returned dict.  The surface is byte-identical with and without it.
+
+    The named carrier is a drain-list VALUE defect, exactly as in
+    ``_stall_guard_report``: under the standing ``feasibility-is-guaranteed``
+    principle a live residual at a fixpoint means two anchor values (or a
+    cap) that cannot both hold — never a legitimate answer.  The reference
+    columns say how far the equilibrium is holding the surface off its own
+    reference field, which is the other half of the adjudication.
+
+    TWO BUDGET FRAMES, deliberately (seed-fix round §1a, landed 3e0d554):
+    ``budget_column`` is the MARGINED sweep budget and stays the frame for
+    the exit residual and the carrier line — those describe the sweep that
+    stalled.  ``raw_budget_column`` is the RAW law budget and is the ONLY
+    thing handed to :func:`_stall_envelope_gap`, because the L−U verdict is
+    a LAW measure and a PATH quantity: the emit-quantization margin is
+    correct per pair but compounds per path, which is how HEAZ read "593 of
+    2032 INFEASIBLE" against a system whose raw envelope is 0/2032.  Mixing
+    the frames here would re-mint exactly that falsified verdict."""
+    active, worst, carrier = _exit_residual_census(
+        np, tol, endpoint_i, endpoint_j, budget_column, slab_low_column,
+        slab_high_column, interval_mask, weight_i, weight_j, z)
+    off = np.abs(z[ref_idx] - ref_val)
+    print(f"    [stall-report] edges={len(interval_mask)} n={n}: "
+          f"REFERENCE-ROD EQUILIBRIUM at sweep {sweeps}/{max_iters} "
+          f"({max(0, max_iters - sweeps)} sweep(s) abandoned), UNCERTIFIED; "
+          f"active violating edges {active}; worst residual {worst:.6f}")
+    print(f"    [stall-report]   references {int(off.size)}: off-reference "
+          f"max {float(off.max()):.4f} m, {int((off > 0.01).sum())} beyond "
+          f"the 0.01 m materiality floor, sum {float(off.sum()):.2f} m")
+    print(_carrier_line("exit  ", carrier))
+    verdict = None
+    if (worst > tol and carrier is not None
+            and carrier[0] in ("sym", "int")
+            and (_os.environ.get("O4_BREAK_FORENSICS")
+                 or _os.environ.get("O4_STALL_GUARD_ADJUDICATE") == "1")):
+        pair = (carrier[1], carrier[2])
+        try:
+            verdict = _stall_envelope_gap(np, endpoint_i, endpoint_j,
+                                          raw_budget_column, interval_mask,
+                                          weight_i, weight_j, z, n, [pair])
+        except Exception as exc:                           # pragma: no cover
+            print(f"    [stall-report]   adjudication failed: {exc}")
+            verdict = None
+        if verdict is None:
+            print("    [stall-report]   adjudication unavailable "
+                  "(no scipy / no pinned endpoint)")
+        else:
+            print(f"    [stall-report]   envelope: INFEASIBLE nodes (L>U) "
+                  f"{verdict['infeasible']} of {verdict['reachable']} "
+                  f"reachable, max gap {verdict['max_gap']:.6f} m "
+                  f"[RAW-LAW budgets]")
+            for (pa, pb, ga, gb) in verdict["pairs"]:
+                klass = "INFEASIBLE" if max(ga, gb) > 1e-9 else "feasible"
+                print(f"    [stall-report]   carrier ({pa},{pb}) L-U = "
+                      f"{ga:.6f} / {gb:.6f} -> {klass}"
+                      f"  (equilibrium residual {worst:.6f})")
+    return {"sweep": sweeps, "max_iters": max_iters,
+            "sweeps_abandoned": max(0, max_iters - sweeps),
+            "active_edges": active, "worst": worst, "carrier": carrier,
+            "refs": int(off.size), "off_ref_max": float(off.max()),
+            "off_ref_material": int((off > 0.01).sum())}
+
+
 def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                        interval_bounds_by_index=None, *, stats=None,
                        coloring_state=None, run_feasibility_precheck=True,
@@ -1245,6 +1389,9 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
     stall_detect_active = 0
     stall_detect_worst = 0.0
     stall_detect_carrier = None
+    # REFERENCE-ROD EQUILIBRIUM exit (spec ref-pull-interim §2): the sweep
+    # the ``ref_prev`` steady-state break fired on, 0 when it never did.
+    ref_equilibrium_sweep = 0
     for _sweep in range(max_iters):
         sweeps += 1
         any_active = False
@@ -1351,7 +1498,16 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
             # equilibrium = the least-displacement fixpoint; the exit
             # state is cap-projected + clamped, and the caller's polish
             # settles slack nodes exactly onto their references).
+            #
+            # THE BREAK STANDS, BUT IT IS NOT A SUCCESS (spec
+            # ``ref-pull-interim-spec.md`` §2): the loop cannot make
+            # further progress, so terminating is right — but the state it
+            # returns is UNCERTIFIED and may still carry an over-cap
+            # residual, with most of the sweep budget abandoned.  It never
+            # sets ``certified``; it now also says so out loud, after the
+            # writeback, in the report block below.
             if float(np.abs(z - ref_prev).max()) <= tol:
+                ref_equilibrium_sweep = sweeps
                 break
             np.copyto(ref_prev, z)
         if stall_on and not stall_detect_sweep:
@@ -1376,6 +1532,15 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                     stall_detect_worst = worst
                     stall_detect_carrier = stall_carrier
     elev[:] = z.tolist()
+    ref_equilibrium = None
+    if ref_equilibrium_sweep:
+        # WRITE-ONLY (after the writeback): nothing here feeds the solve,
+        # which is why the loud exit is byte-inert on the surface.
+        ref_equilibrium = _ref_equilibrium_report(
+            np, tol, ref_equilibrium_sweep, max_iters, ref_idx, ref_val,
+            endpoint_i, endpoint_j, budget_column, raw_budget_column,
+            slab_low_column, slab_high_column, interval_mask,
+            weight_i, weight_j, z, n)
     if stall_detect_sweep:
         # WRITE-ONLY (after the writeback): nothing below feeds the solve.
         _stall_guard_report(np, sweeps, max_iters, stall_detect_sweep,
@@ -1391,6 +1556,10 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
         stats["sweeps_avoided"] = max(0, max_iters - sweeps) if certified else 0
         stats["certified"] = certified
         stats["worst"] = worst
+        if ref_equilibrium is not None:
+            # Present ONLY on an equilibrium exit, so every other call's
+            # stats dict is unchanged (the stall-guard tests assert absence).
+            stats["ref_equilibrium"] = ref_equilibrium
         if stall_on:
             stats["stalled"] = bool(stall_detect_sweep)
             stats["stall_detect_sweep"] = stall_detect_sweep

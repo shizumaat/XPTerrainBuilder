@@ -237,8 +237,21 @@ def test_pad_face_contact_ends_at_the_seat(_sweep_path):
         # CHROMATIC sweeps (production default): the proximal pull carries
         # THROUGH the fabric, so the contact reaches the seat and the
         # transition emits as a cap-rate ramp outward.
-        assert seat_arm[1] == pytest.approx(100.0, abs=0.02)
-        assert seat_arm[2] == pytest.approx(95.0, abs=0.02)
+        #
+        # The RESIDUAL is proximal-weight calibrated and moved with the
+        # measured default (spec docs/specs/ref-pull-interim-spec.md §1,
+        # 2026-08-04: ``O4_YIELD_REF_WEIGHT`` 0.2 → 0.02).  A weaker pull
+        # reaches its fixpoint against the projections further from the
+        # reference, and the ``ref_prev`` equilibrium break then exits
+        # there: measured 99.9016 at w=0.02 vs 99.9910 at w=0.2 — 0.098 m
+        # short of the seat instead of 0.009 m.  The SHAPE is unchanged
+        # (the tighter, weight-independent invariant is asserted below),
+        # so this tolerance is the number moving, not the semantics.
+        assert seat_arm[1] == pytest.approx(100.0, abs=0.1)
+        assert seat_arm[2] == pytest.approx(95.0, abs=0.1)
+        # Weight-independent: wherever the contact lands, the fabric
+        # strings outward at EXACTLY cap from it.
+        assert seat_arm[1] - seat_arm[2] == pytest.approx(5.0, abs=1e-6)
     else:
         # LEGACY SCALAR worklist: no sweep structure, so the reference
         # semantics come from the exact-return polish alone — the contact
@@ -261,7 +274,15 @@ def test_pad_face_contact_least_displacement_against_fabric_refs(
     assert rem == 0
     assert entry_arm[1] < seat_arm[1] < 100.0        # toward the seat, not to it
     assert abs(seat_arm[1] - seat_arm[2]) <= 5.0 + 1e-9
-    expected = 97.996 if _sweep_path else 96.0
+    # The sweep-path number is proximal-weight calibrated: it is the
+    # pull-vs-competing-reference fixpoint, so it moved with the measured
+    # default (spec docs/specs/ref-pull-interim-spec.md §1, 2026-08-04:
+    # ``O4_YIELD_REF_WEIGHT`` 0.2 → 0.02).  Measured 97.9511 at w=0.02 vs
+    # 97.9960 at w=0.2 — the least-displacement SEMANTICS above (strictly
+    # between the entry state and the seat, outward grade lawful) are what
+    # this test pins; the scalar path has no sweep structure and is
+    # weight-independent at 96.0.
+    expected = 97.951 if _sweep_path else 96.0
     assert seat_arm[1] == pytest.approx(expected, abs=1e-3)
 
 

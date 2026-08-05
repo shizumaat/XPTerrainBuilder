@@ -2698,9 +2698,23 @@ def solve_route_profile(layout, icao: str,
                 if (_os.environ.get("O4_DUMP_SOLVE_STATE")
                     or _os.environ.get("O4_REFERENCE_FIELD", "0") == "1")
                 else None)
+            # ``O4_CORRIDOR_REF_STRING`` default "1" → "0" (owner ruling
+            # 2026-08-04, docs/RULINGS.md "No degradation-shield interims;
+            # retire the string back door": «There is no need for interim
+            # solutions that are scheduled for deletion to try and keep
+            # airports from degrading temporarily.»)  BOTH read sites carry
+            # the same default deliberately — a knob whose default differs
+            # per site is the silent-drift hazard ``tools/blast.py`` warns
+            # about.  Only the second site (below) gates the promotion;
+            # ``_ref_honest`` still resolves True through
+            # ``O4_APRON_R_LAW_TRUE``, so the rod string is still BUILT —
+            # it just stops being written into ``z_ref``.  The ``=1``
+            # override stays live until the seam-continuity round DELETES
+            # this path outright, together with the proximal pull and the
+            # refs channel (docs/specs/seam-continuity-constraint-spec.md).
             _ref_honest = (
                 _os.environ.get("O4_APRON_R_LAW_TRUE", "1") == "1"
-                or _os.environ.get("O4_CORRIDOR_REF_STRING", "1") == "1")
+                or _os.environ.get("O4_CORRIDOR_REF_STRING", "0") == "1")
             _yield_broken: set = set()
             _bo = _yield_broken if _ref_honest else None
             # ── FIX ARM §2: THE DECLARED-CONFLICT CHANNEL ─────────────
@@ -2966,8 +2980,22 @@ def solve_route_profile(layout, icao: str,
                 if _ref_honest and _rod_edges:
                     _string_ref = _rod_string_values(
                         _rod_edges, elev, _yield_broken, n)
+                # RETIRED FROM PRODUCTION 2026-08-04 (default "1" → "0";
+                # owner ruling, docs/RULINGS.md "No degradation-shield
+                # interims").  This is THE back door: it promoted rod-held
+                # string values to ``z_ref`` on 2 020 HEAZ / 7 501 HECA /
+                # 852 CYXY / 252 SPLP nodes, i.e. the PAUSED string acting
+                # as a surface authority — which contradicts the string
+                # purpose statement (RULINGS.md 2026-08-01: strings are a
+                # smoothing refinement, NEVER a surface authority).
+                # The measured A/B at the new weight is a TRANSITIONAL COST
+                # accepted by the ruling, not a regression to fix here:
+                # law-true within KCLT +95, HEAZ +5, CYXY +1, SPLP +1,
+                # HECA −196 (battery −94), seam +3 (HECA only).  The
+                # correct solution is the seam-continuity constraint law,
+                # which deletes this branch along with the pull.
                 if (_string_ref
-                        and _os.environ.get("O4_CORRIDOR_REF_STRING", "1")
+                        and _os.environ.get("O4_CORRIDOR_REF_STRING", "0")
                         == "1"):
                     _svc_ref_skip: set = set()
                     _cps_sv = layout.canonical_points

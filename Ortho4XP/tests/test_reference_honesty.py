@@ -325,3 +325,59 @@ def test_branch_rigid_gate_off_is_the_landed_pointwise_behaviour():
     # anchors 0.5 m-reachable from each: hi + (lo − hi)·t.
     assert off[3] == pytest.approx(off[2]), \
         "an unstrung broken node and the junction share the blend"
+
+
+# ── THE STRING BACK DOOR IS RETIRED FROM PRODUCTION ──────────────────────
+# Owner ruling 2026-08-04 (docs/RULINGS.md, "No degradation-shield
+# interims; retire the string back door"): «There is no need for interim
+# solutions that are scheduled for deletion to try and keep airports from
+# degrading temporarily.»  ``O4_CORRIDOR_REF_STRING`` default "1" -> "0".
+#
+# Pinned by SOURCE INSPECTION on purpose.  The knob is read at two sites
+# deep inside ``solve_route_profile``, neither reachable without a full
+# airport build, and ``tools/blast.py`` reports it as "read in no test
+# file" — precisely the silent-drift shape that has bitten this repo
+# before (it also warns when one knob carries DIFFERENT defaults at
+# different read sites).  These twins cost nothing and fail loudly if
+# either site drifts back or the sites disagree.  They die with the code
+# path in the seam-continuity round's kill.
+
+def test_the_corridor_ref_string_default_is_retired_at_every_read_site():
+    import inspect
+    import re
+
+    from auto_patch.elevation_per_surface.route_profile import solve
+
+    src = inspect.getsource(solve)
+    defaults = re.findall(
+        r'environ\.get\(\s*"O4_CORRIDOR_REF_STRING"\s*,\s*"([^"]*)"\s*\)', src)
+    assert defaults, (
+        "no O4_CORRIDOR_REF_STRING read site found — if the seam-continuity "
+        "round deleted the path, delete these twins with it")
+    assert len(defaults) == 2, (
+        f"expected the two known read sites, found {len(defaults)}: "
+        f"{defaults} — a new site needs the same default")
+    assert set(defaults) == {"0"}, (
+        f"the string back door is RETIRED (owner 2026-08-04): every read "
+        f"site must default to \"0\", found {defaults}")
+
+
+def test_the_corridor_ref_string_override_path_survives_until_the_kill():
+    """The ruling retires the DEFAULT, not the knob: ``=1`` must still be
+    honoured so the back door can be re-entered for attribution until the
+    seam-continuity round deletes the branch."""
+    import inspect
+    import re
+
+    from auto_patch.elevation_per_surface.route_profile import solve
+
+    src = inspect.getsource(solve)
+    # every read site must still COMPARE the knob to "1" — that comparison
+    # is the whole override path.
+    compared = re.findall(
+        r'environ\.get\(\s*"O4_CORRIDOR_REF_STRING"\s*,\s*"0"\s*\)\s*'
+        r'==\s*"1"', src)
+    assert len(compared) == 2, (
+        f"expected both read sites to keep the ``== \"1\"`` override "
+        f"comparison, found {len(compared)} — the back door was removed "
+        f"before the seam-continuity kill that owns its deletion")

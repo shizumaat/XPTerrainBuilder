@@ -298,15 +298,16 @@ def test_pavement_grade(tmp_path, icao):
 
 
 @pytest.mark.xdist_group("CYXY")   # reuse CYXY's already-built layout
-@pytest.mark.xfail(strict=True, reason=(
-    "DRAIN LEDGER (spec kill-half §4b, 2026-08-04): the CYXY apron pair "
-    "at (-291,343) grades 1.9 % against a 1.5 % cap.  It is a real, "
-    "ADJUDICATED defect that the pre-flip world did not show: green in the "
-    "flip battery's OFF arm, red in its CAND arm, i.e. EXPOSED by the §1 "
-    "defaults flip (and by §2 deleting the break-region split that used to "
-    "carry rows like it out of the actionable count).  xfail(strict) so it "
-    "stays visible and cannot silently start passing — it is on the drain "
-    "list, not hidden."))
+# DRAIN LEDGER ITEM CLOSED 2026-08-04 (spec ref-pull-interim §1).  This
+# carried ``xfail(strict=True)`` for the CYXY apron pair at (-291,343),
+# which graded 1.9 % against a 1.5 % cap — a real ADJUDICATED defect
+# exposed by the kill-half §4b defaults flip.  Lowering the reference-rod
+# proximal weight (``O4_YIELD_REF_WEIGHT`` 0.2 -> 0.02) restores the
+# projection budget the pull was truncating, and the pair grades in
+# bounds: the test XPASSed on the very first battery run of the new
+# default and again on a targeted re-run.  The strict marker existed
+# precisely so this could not "silently start passing", so it is REMOVED
+# rather than relaxed — the invariant is now a live guard.
 def test_cyxy_spine_zero_no_bowl():
     """THE single-graph invariant (user 2026-06-24): the taxi SPINE must be
     grade-compliant (0 within-shape spine violations on the unified grade graph)

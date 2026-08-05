@@ -43,7 +43,6 @@ must be the pavement chain as it stands AT emission
 """
 from __future__ import annotations
 
-import bisect
 import math
 import os
 

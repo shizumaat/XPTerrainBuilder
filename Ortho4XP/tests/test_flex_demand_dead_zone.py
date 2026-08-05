@@ -16,7 +16,7 @@ them (priced at exactly 1.5 %, so a 4.38 m route budget).  The flex
 declined to move and the FINAL band inverted on all 47 route nodes of
 that taxiway — a build abort with no lawful demand ever presented.
 
-THE FIX (gate ``O4_FLEX_DEMAND_TOL_FINE``, default "0"): align the two
+THE FIX (STANDING LAW; the gate was retired): align the two
 floors — 0.05 m → 0.01 m — so demands in the zone are presented at all.
 
 MECHANISM CORRECTION (measured here, against the spec's own text): the
@@ -27,7 +27,7 @@ split deficit is just over 0.02 m.  ``TestMoveKillStillBinds`` pins that
 boundary.  What the tolerance actually buys at HEAZ is extra demands
 that keep the convergence loop running: measured as a 2x2 over one tree,
 DEM-follow SOLO aborts at both tolerances (19 demands, 3 rounds, the
-same 47 nodes); composed with ``O4_FLEX_SELF_UNLOCK`` aborts coarse (20
+same 47 nodes); composed with the self-unlock law aborts coarse (20
 demands, 4 rounds) and BUILDS fine (23 demands, 5 rounds, final band 2
 sub-materiality inversions = the gate-off control's exactly).
 
@@ -39,7 +39,7 @@ IDENTITY, not lawfulness.  Separately measured in-lane and NOT pinned
 here because it is a build-level result: with the gate on, HEAZ still
 aborts under DEM-follow ALONE (the 3-round cap stops the loop before the
 geometric tail is drained) and builds clean only in the composed world
-(``O4_FLEX_SELF_UNLOCK`` as well, 5 rounds, "no further demand").  The
+(the self-unlock law as well, 5 rounds, "no further demand").  The
 tolerance is necessary, not sufficient — these twins pin exactly that
 necessity and nothing more.
 
@@ -62,8 +62,14 @@ for _p in (os.path.join(_ROOT, "src"), _THIS_DIR):
 
 import test_flex_convergence as HARNESS                      # noqa: E402
 from auto_patch.config import (                              # noqa: E402
-    RUNWAY_FLEX_DEMAND_TOL_FINE_M, RUNWAY_FLEX_DEMAND_TOL_M,
+    RUNWAY_FLEX_DEMAND_TOL_M, RUNWAY_FLEX_ROUND_DRAIN_FLOOR_M,
     runway_flex_demand_tol_m)
+
+#: The tolerance the retired ``O4_FLEX_DEMAND_TOL_FINE`` gate's OFF arm
+#: used to impose.  It is no longer reachable in production; the twins
+#: below build the comparison arm by patching the accessor directly, so
+#: the DEAD ZONE the fix closed stays pinned and non-vacuous.
+_COARSE_TOL_M = 0.05
 from auto_patch.elevation_per_surface.building_feasibility import (  # noqa
     FINAL_BAND_INVERSION_TOL_M)
 
@@ -81,8 +87,16 @@ def _run(monkeypatch, *, fine, deficit_m, budget_m):
     runways separated by exactly ``budget_m + deficit_m`` — so the
     envelope deficit each runway sees is ``deficit_m`` and nothing else.
 
+    ``fine=True`` is PRODUCTION (the tolerance is standing law now);
+    ``fine=False`` reconstructs the retired coarse arm by patching the
+    config accessor, which is the only way left to show the dead zone
+    was real.
+
     Returns (n_demands, apply, log, final_gap_m)."""
-    monkeypatch.setenv("O4_FLEX_DEMAND_TOL_FINE", "1" if fine else "0")
+    if not fine:
+        import auto_patch.config as _CFG
+        monkeypatch.setattr(_CFG, "runway_flex_demand_tol_m",
+                            lambda: _COARSE_TOL_M)
     monkeypatch.setattr(HARNESS, "LINK_BUDGET_M", float(budget_m))
     monkeypatch.setattr(HARNESS, "ELEV_LO",
                         HARNESS.ELEV_HI - float(budget_m) - float(deficit_m))
@@ -96,35 +110,29 @@ def _run(monkeypatch, *, fine, deficit_m, budget_m):
 
 # ════════════ the constant itself: the gate is honest ════════════════
 
-class TestTheGate:
+class TestTheTolerance:
 
-    def test_default_is_the_pre_spec_tolerance(self, monkeypatch):
-        monkeypatch.delenv("O4_FLEX_DEMAND_TOL_FINE", raising=False)
-        assert runway_flex_demand_tol_m() == RUNWAY_FLEX_DEMAND_TOL_M
-        assert RUNWAY_FLEX_DEMAND_TOL_M == 0.05
-
-    def test_gate_on_selects_the_fine_tolerance(self, monkeypatch):
-        monkeypatch.setenv("O4_FLEX_DEMAND_TOL_FINE", "1")
-        assert runway_flex_demand_tol_m() == RUNWAY_FLEX_DEMAND_TOL_FINE_M
-
-    def test_gate_is_read_at_call_time(self, monkeypatch):
-        """No import-time capture: the same process must see both values
-        (the gate has to be honest in a long-lived Ortho4XP process and
-        testable without a module reload)."""
-        monkeypatch.setenv("O4_FLEX_DEMAND_TOL_FINE", "0")
-        coarse = runway_flex_demand_tol_m()
-        monkeypatch.setenv("O4_FLEX_DEMAND_TOL_FINE", "1")
-        assert runway_flex_demand_tol_m() != coarse
-
-    def test_anything_but_1_is_off(self, monkeypatch):
-        for value in ("", "0", "true", "yes", "01"):
-            monkeypatch.setenv("O4_FLEX_DEMAND_TOL_FINE", value)
-            assert runway_flex_demand_tol_m() == RUNWAY_FLEX_DEMAND_TOL_M
-
-    def test_the_fine_tolerance_IS_the_band_materiality(self):
+    def test_there_is_one_tolerance_and_it_is_the_materiality_floor(self):
         """The whole claim of the spec: one floor, not two.  If these
         ever diverge the dead zone re-opens silently."""
-        assert RUNWAY_FLEX_DEMAND_TOL_FINE_M == FINAL_BAND_INVERSION_TOL_M
+        assert runway_flex_demand_tol_m() == RUNWAY_FLEX_DEMAND_TOL_M
+        assert RUNWAY_FLEX_DEMAND_TOL_M == FINAL_BAND_INVERSION_TOL_M
+        assert RUNWAY_FLEX_DEMAND_TOL_M == RUNWAY_FLEX_ROUND_DRAIN_FLOOR_M
+
+    def test_no_env_value_reopens_the_dead_zone(self, monkeypatch):
+        """The ``O4_FLEX_DEMAND_TOL_FINE`` gate is retired: no setting of
+        it may restore the coarse tolerance."""
+        for value in ("", "0", "1", "true", "yes"):
+            monkeypatch.setenv("O4_FLEX_DEMAND_TOL_FINE", value)
+            assert runway_flex_demand_tol_m() == RUNWAY_FLEX_DEMAND_TOL_M
+        import auto_patch.config as CFG
+        assert 'environ.get("O4_FLEX_DEMAND_TOL_FINE"' not in open(
+            CFG.__file__).read()
+
+    def test_the_coarse_arm_is_five_times_the_materiality(self):
+        """NON-VACUITY for every ``fine=False`` twin below: the retired
+        arm really did sit above the floor the band adjudicates on."""
+        assert _COARSE_TOL_M == 5 * FINAL_BAND_INVERSION_TOL_M
 
 
 # ═════════ TWIN 1 — the dead-zone synthetic: 0.02 m drains ═══════════
@@ -147,7 +155,7 @@ class TestDeadZoneSynthetic:
         """NON-VACUITY: 0.02 m must be below the coarse tolerance and at
         or above the band materiality — otherwise this twin proves
         nothing about the zone it is named for."""
-        assert self.DEFICIT < RUNWAY_FLEX_DEMAND_TOL_M
+        assert self.DEFICIT < _COARSE_TOL_M
         assert self.DEFICIT >= FINAL_BAND_INVERSION_TOL_M
 
     def test_coarse_tolerance_presents_no_demand_at_all(self, monkeypatch):
@@ -202,10 +210,10 @@ class TestHeazRegression:
         to the flex."""
         assert HEAZ_DEFICIT_M > FINAL_BAND_INVERSION_TOL_M, \
             "the band adjudicates it"
-        assert HEAZ_DEFICIT_M < RUNWAY_FLEX_DEMAND_TOL_M, \
-            "the flex never sees it"
-        assert HEAZ_DEFICIT_M >= RUNWAY_FLEX_DEMAND_TOL_FINE_M, \
-            "and the fine tolerance closes exactly that gap"
+        assert HEAZ_DEFICIT_M < _COARSE_TOL_M, \
+            "the flex never saw it"
+        assert HEAZ_DEFICIT_M >= RUNWAY_FLEX_DEMAND_TOL_M, \
+            "and the standing tolerance closes exactly that gap"
 
     def test_coarse_tolerance_reproduces_the_abort_precondition(
             self, monkeypatch):
@@ -223,14 +231,14 @@ class TestHeazRegression:
     def test_the_bare_split_does_NOT_drain_it(self, monkeypatch):
         """MEASURED, and the spec's stated mechanism corrected: 0.0174 m
         split across the two pulling runways is 0.0087 m each, which the
-        pre-existing ``move <= 0.01`` kill drops.  So the tolerance alone
+        pre-existing move kill (materiality floor) drops.  So the tolerance alone
         does not move this deficit — pinned here so nobody re-derives the
         spec's "the origin split drains ~9 mm from each runway" and
         believes it.
 
         The real HEAZ result, measured in-lane as a 2x2 over one tree:
         DEM-follow SOLO aborts at BOTH tolerances (19 demands, 3 rounds,
-        the same 47 nodes); composed with ``O4_FLEX_SELF_UNLOCK`` aborts
+        the same 47 nodes); composed with the self-unlock law aborts
         at the coarse tolerance (20 demands, 4 rounds) and BUILDS at the
         fine one (23 demands, 5 rounds, final band 2 sub-materiality
         inversions = the gate-off control's exactly).  Both gates are
@@ -250,7 +258,8 @@ class TestHeazRegression:
 class TestMoveKillStillBinds:
     """Where the tolerance stops and the pre-existing clamp takes over.
 
-    The hook kills a candidate whose requested move is <= 0.01 m.  With
+    The hook kills a candidate whose requested move is at or below the
+    materiality floor.  With
     the origin split halving every cross-runway pull, that puts the
     smallest DRAINABLE split deficit at just over 0.02 m — inside the
     dead zone the tolerance opens, so opening the zone is necessary but

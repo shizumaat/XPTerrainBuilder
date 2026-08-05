@@ -297,6 +297,13 @@ class TestFlexThresholdBandClamp:
         }
 
     def test_near_threshold_downslack_uses_strict_cap(self):
+        """The end-zone law binds the last metres before a pinned
+        threshold.  Since the flex-completion round this is priced by
+        ``_lawful_ramp_budget`` per SEGMENT (the 0.8 % end-zone cap at
+        every bounding anchor), which SUBSUMES the old
+        ``threshold_strict_fraction`` tiering — so the two profiles now
+        clamp identically, and what is pinned here is the LAW: a flex to
+        (current − slack) stays within 0.8 % of the B threshold."""
         from auto_patch.runway_redistribute import (
             flex_slack_at, RUNWAY_END_GRADE, MAX_RUNWAY_GRADE)
         strict_frac = 90.0 / self.AXIS
@@ -306,11 +313,8 @@ class TestFlexThresholdBandClamp:
         prof_untiered = self._profile(0.0)
         slack_tiered = flex_slack_at(prof_tiered, t, -1.0)
         slack_untiered = flex_slack_at(prof_untiered, t, -1.0)
-        # The tiered down-slack is much smaller (0.8% vs 1.5% × 13 m from
-        # the pinned threshold), so the flex cannot steepen the last 13 m.
-        assert slack_tiered < slack_untiered
-        # The absolute cap: a flex to (current − slack) sits within 0.8% of
-        # the B threshold.
+        assert abs(slack_tiered - slack_untiered) < 1e-9, \
+            "the per-segment law applies the end-zone cap either way"
         from auto_patch.runway_redistribute import _interp_profile
         current = _interp_profile(prof_tiered['fractions'],
                                   prof_tiered['elevs'], t)

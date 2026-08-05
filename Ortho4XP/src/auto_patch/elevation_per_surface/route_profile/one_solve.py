@@ -354,45 +354,21 @@ def _node_box_arrays(node_box, np):
     return box_idx, box_lo, box_hi
 
 
-def _node_ref_arrays(node_ref, np):
-    """``(idx, z_ref)`` numpy columns for the REFERENCE-ROD proximal pull
-    (owner ruling 2026-07-29 #2, spec §7: the yield minimizes displacement
-    from the reference field).  Caller guarantees non-empty."""
-    count = len(node_ref)
-    ref_idx = np.fromiter(node_ref.keys(), dtype=np.intp, count=count)
-    ref_val = np.fromiter(node_ref.values(), dtype=np.float64, count=count)
-    return ref_idx, ref_val
-
-
-def _ref_pull_weight():
-    """Proximal-pull weight for the reference term — SMALL vs the cap
-    projections so the law always wins locally (spec §7); each sweep pulls
-    BEFORE its projections, so the exit state is always cap-projected.
-
-    DEFAULT 0.02 (spec ``ref-pull-interim-spec.md`` §1, 2026-08-04).  The
-    former 0.2 entered in a sweep commit with NO measurement behind it; the
-    weight sweep in ``s7_attrib/`` measured the Pareto point instead.  What
-    0.2 actually bought was an early exit: the pull is strong enough to
-    reach the pull-vs-projection steady state within a few dozen sweeps, so
-    the ``ref_prev`` break below fires at sweep ~36 of 2400 and ABANDONS the
-    projection budget with the residual still live.  At 0.02 the pull is
-    weak enough that the projections keep making progress and the call
-    spends its full budget, while the displacement objective the owner's
-    2026-07-29 #2 ruling asks for is still substantially served (HEAZ fp#8
-    reference displacement sum 626 m at w=0.02 vs 1656 m at w=0 and 568 m
-    at w=0.2).  Measured census effect (three-airport battery, law-true
-    ``within``): HEAZ 118→95, CYXY 171→154, HECA 9952→9140.  Retiring the
-    pull outright (w=0) is NOT the answer: it regresses the strip-seam
-    class by +88 rows battery-wide, against +11 at 0.02."""
-    try:
-        return float(_os.environ.get("O4_YIELD_REF_WEIGHT", "0.02"))
-    except ValueError:                                    # pragma: no cover
-        return 0.02
+# THE §7 REFERENCE PULL IS RETIRED (build-complete-then-debug round,
+# docs/RULINGS.md 2026-08-05).  ``_node_ref_arrays`` / ``_ref_pull_weight``
+# (``O4_YIELD_REF_WEIGHT``) and the whole reference-rod channel they fed —
+# the proximal pull, the ``ref_prev`` equilibrium break and the
+# exact-return polish — are DELETED here and at every call site.  The
+# least-displacement metric is not a law: a projection now solves "any
+# point the caps and the boxes admit", and a node that used to be held at
+# a reference is plain free.  What SURVIVES is the forensics half: the
+# stall report (below) still names the carrier of any exit that could not
+# certify, and ``solve._spine_yield_movement_report`` still reports every
+# yielded spine node's movement.
 
 
 def _project_vectorized(elev, iter_edges, n, max_iters, tol,
-                        interval_bounds_by_index=None, node_box=None,
-                        node_ref=None):
+                        interval_bounds_by_index=None, node_box=None):
     """Vectorised DEGREE-NORMALISED JACOBI variant of the feasibility projection
     (gated by ``_FP_VECTORIZE``).  Mutates ``elev`` (a list) in place.
 
@@ -455,20 +431,7 @@ def _project_vectorized(elev, iter_edges, n, max_iters, tol,
     if node_box:
         box_idx, box_lo, box_hi = _node_box_arrays(node_box, np)
         z[box_idx] = np.minimum(np.maximum(z[box_idx], box_lo), box_hi)
-    # REFERENCE RODS (owner ruling 2026-07-29 #2, spec §7): a small
-    # proximal pull toward ``z_ref`` BEFORE each iteration's projections
-    # (the law wins — the step ends cap-projected); iteration stays active
-    # while any pull exceeds tol.  ``node_ref=None`` ⇒ byte-identical.
-    ref_idx = ref_val = None
-    ref_w = _ref_pull_weight() if node_ref else 0.0
-    if node_ref:
-        ref_idx, ref_val = _node_ref_arrays(node_ref, np)
     for _it in range(max_iters):
-        ref_active = False
-        if ref_idx is not None:
-            pull = ref_w * (ref_val - z[ref_idx])
-            z[ref_idx] += pull
-            ref_active = bool((np.abs(pull) > tol).any())
         if m:
             d = z[I] - z[J]
             over = np.abs(d) - B
@@ -509,7 +472,7 @@ def _project_vectorized(elev, iter_edges, n, max_iters, tol,
             afi = active_int.astype(np.float64)
             cnt += (np.bincount(Ii, weights=afi, minlength=n)
                     + np.bincount(Ji, weights=afi, minlength=n))
-        if not any_active and not ref_active:
+        if not any_active:
             break
         nz = cnt > 0.0
         z[nz] += acc[nz] / cnt[nz]                          # degree-normalised step
@@ -1038,34 +1001,33 @@ def _exit_residual_census(np, tol, endpoint_i, endpoint_j, budget_column,
     return active, worst, carrier
 
 
-def _ref_equilibrium_report(np, tol, sweeps, max_iters, ref_idx, ref_val,
-                            endpoint_i, endpoint_j, budget_column,
-                            raw_budget_column, slab_low_column,
-                            slab_high_column, interval_mask,
-                            weight_i, weight_j, z, n):
-    """LOUD report for a REFERENCE-ROD EQUILIBRIUM exit (spec
-    ``docs/specs/ref-pull-interim-spec.md`` §2).
+def _uncertified_exit_report(np, tol, sweeps, max_iters,
+                             endpoint_i, endpoint_j, budget_column,
+                             raw_budget_column, slab_low_column,
+                             slab_high_column, interval_mask,
+                             weight_i, weight_j, z, n):
+    """LOUD report for ANY sweep loop that exits WITHOUT a certificate.
 
-    The ``ref_prev`` steady-state break terminates the sweep loop when a
-    whole sweep leaves ``z`` unchanged: the proximal pull and the cap
-    projections have reached a fixpoint, so further sweeps cannot move the
-    surface and STOPPING IS CORRECT.  What was wrong is that it stopped
-    SILENTLY — the call returned ``certified=False`` with an over-cap
-    residual still live, abandoning most of its sweep budget, and nothing
-    said so.  Downstream that is indistinguishable from a clean exit, which
-    is how HECA shipped finals that quit at 38 sweeps of 2400 with a 6.74 m
-    residual.  This makes the exit loud.
+    THE CONTRACT (build-complete-then-debug round): every exit of the
+    chromatic POCS either CERTIFIES — a full sweep that applied no
+    correction and no clamp, which proves every cap and every box
+    satisfied — or SAYS SO OUT LOUD.  Silence used to be the failure
+    mode: the reference-pull equilibrium break returned
+    ``certified=False`` with an over-cap residual still live and most of
+    the sweep budget abandoned, which downstream was indistinguishable
+    from a clean exit (HECA shipped finals that quit at 38 sweeps of
+    2400 with a 6.74 m residual).  The pull and its break are gone; the
+    remaining uncertified exit is budget exhaustion, and it is reported
+    here on exactly the same channel.
 
-    REPORT-ONLY, by construction: the call site is AFTER the writeback, every
-    argument is read-only, and the only effects are ``print`` and the
-    returned dict.  The surface is byte-identical with and without it.
+    REPORT-ONLY, by construction: the call site is AFTER the writeback,
+    every argument is read-only, and the only effects are ``print`` and
+    the returned dict.  The surface is identical with and without it.
 
     The named carrier is a drain-list VALUE defect, exactly as in
-    ``_stall_guard_report``: under the standing ``feasibility-is-guaranteed``
-    principle a live residual at a fixpoint means two anchor values (or a
-    cap) that cannot both hold — never a legitimate answer.  The reference
-    columns say how far the equilibrium is holding the surface off its own
-    reference field, which is the other half of the adjudication.
+    ``_stall_guard_report``: under the standing ``feasibility-is-
+    guaranteed`` principle a live residual means two anchor values (or a
+    cap) that cannot both hold — never a legitimate answer.
 
     TWO BUDGET FRAMES, deliberately (seed-fix round §1a, landed 3e0d554):
     ``budget_column`` is the MARGINED sweep budget and stays the frame for
@@ -1079,14 +1041,10 @@ def _ref_equilibrium_report(np, tol, sweeps, max_iters, ref_idx, ref_val,
     active, worst, carrier = _exit_residual_census(
         np, tol, endpoint_i, endpoint_j, budget_column, slab_low_column,
         slab_high_column, interval_mask, weight_i, weight_j, z)
-    off = np.abs(z[ref_idx] - ref_val)
     print(f"    [stall-report] edges={len(interval_mask)} n={n}: "
-          f"REFERENCE-ROD EQUILIBRIUM at sweep {sweeps}/{max_iters} "
-          f"({max(0, max_iters - sweeps)} sweep(s) abandoned), UNCERTIFIED; "
+          f"UNCERTIFIED EXIT at sweep {sweeps}/{max_iters} "
+          f"({max(0, max_iters - sweeps)} sweep(s) abandoned); "
           f"active violating edges {active}; worst residual {worst:.6f}")
-    print(f"    [stall-report]   references {int(off.size)}: off-reference "
-          f"max {float(off.max()):.4f} m, {int((off > 0.01).sum())} beyond "
-          f"the 0.01 m materiality floor, sum {float(off.sum()):.2f} m")
     print(_carrier_line("exit  ", carrier))
     verdict = None
     if (worst > tol and carrier is not None
@@ -1113,18 +1071,16 @@ def _ref_equilibrium_report(np, tol, sweeps, max_iters, ref_idx, ref_val,
                 klass = "INFEASIBLE" if max(ga, gb) > 1e-9 else "feasible"
                 print(f"    [stall-report]   carrier ({pa},{pb}) L-U = "
                       f"{ga:.6f} / {gb:.6f} -> {klass}"
-                      f"  (equilibrium residual {worst:.6f})")
+                      f"  (exit residual {worst:.6f})")
     return {"sweep": sweeps, "max_iters": max_iters,
             "sweeps_abandoned": max(0, max_iters - sweeps),
-            "active_edges": active, "worst": worst, "carrier": carrier,
-            "refs": int(off.size), "off_ref_max": float(off.max()),
-            "off_ref_material": int((off > 0.01).sum())}
+            "active_edges": active, "worst": worst, "carrier": carrier}
 
 
 def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                        interval_bounds_by_index=None, *, stats=None,
                        coloring_state=None, run_feasibility_precheck=True,
-                       node_box=None, node_ref=None,
+                       node_box=None,
                        raw_budget_by_index=None):
     """Colored Gauss-Seidel POCS (survey candidate 1) — the vectorized
     replacement for BOTH legacy inner sweeps.  Mutates ``elev`` in place.
@@ -1165,19 +1121,11 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
     ``[s_low, s_high]`` in ``interval_bounds_by_index`` (keyed by ``iter_edges``
     position); they relax in the same color classes as the symmetric edges.
 
-    ``node_ref`` — REFERENCE RODS (owner ruling 2026-07-29 #2, spec §7):
-    ``{node: z_ref}``.  Each sweep starts with a small proximal pull of
-    every referenced node toward its reference, THEN runs the cap
-    projections and the box clamp — the law always wins locally and the
-    exit state is always cap-projected.  Convergence: certified when a
-    sweep applies no cap correction, no clamp move AND every pull is
-    ≤ tol; a conflicted region instead reaches a pull↔projection
-    EQUILIBRIUM, detected as a whole-sweep state change ≤ tol (the
-    steady-state exit) — the caller's exact-return polish then settles
-    slack nodes onto their references exactly.  ``None`` ⇒ byte-identical
-    (and the feasibility pre-check shortcut stays available; with refs it
-    is skipped — an all-satisfied system may still owe reference
-    pulls).
+    CERTIFY OR SAY SO: the loop exits either on the KKT certificate above
+    or on the ``max_iters`` cap, and the cap exit is reported LOUDLY by
+    :func:`_uncertified_exit_report` (write-only, after the writeback).
+    There is no third, silent exit — the §7 reference pull and its
+    equilibrium break, which used to supply one, are retired.
 
     ``raw_budget_by_index`` — INSTRUMENT-ONLY (seed-fix round §1a): a list
     parallel to ``iter_edges`` carrying each symmetric edge's RAW law
@@ -1258,14 +1206,6 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
     if node_box:
         box_idx, box_lo, box_hi = _node_box_arrays(node_box, np)
         z[box_idx] = np.minimum(np.maximum(z[box_idx], box_lo), box_hi)
-    # REFERENCE RODS arrays (spec §7; see docstring).  The pre-check
-    # shortcut is skipped with refs present: an all-satisfied edge system
-    # may still owe reference pulls.
-    ref_idx = ref_val = None
-    ref_w = _ref_pull_weight() if node_ref else 0.0
-    if node_ref:
-        ref_idx, ref_val = _node_ref_arrays(node_ref, np)
-        run_feasibility_precheck = False
     # ── feasibility pre-check (see docstring): certified without coloring ──
     if run_feasibility_precheck and max_iters >= 1:
         feasible = True
@@ -1362,7 +1302,6 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
     sweeps = 0
     certified = False
     worst = 0.0
-    ref_prev = z.copy() if ref_idx is not None else None
     # ``worst`` shortcut (value-identical, see the sweep body): with a
     # non-negative tolerance the largest residual is itself active, so
     # ``np.where(active, over, 0.0).max()`` equals ``over.max()`` — which the
@@ -1389,22 +1328,12 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
     stall_detect_active = 0
     stall_detect_worst = 0.0
     stall_detect_carrier = None
-    # REFERENCE-ROD EQUILIBRIUM exit (spec ref-pull-interim §2): the sweep
-    # the ``ref_prev`` steady-state break fired on, 0 when it never did.
-    ref_equilibrium_sweep = 0
     for _sweep in range(max_iters):
         sweeps += 1
         any_active = False
         worst = 0.0
-        ref_active = False
         stall_active = 0
         stall_carrier = None
-        if ref_idx is not None:
-            # REFERENCE RODS: pull BEFORE the projections (the law wins —
-            # the sweep ends cap-projected + box-clamped).
-            pull = ref_w * (ref_val - z[ref_idx])
-            z[ref_idx] += pull
-            ref_active = bool((np.abs(pull) > tol).any())
         for symmetric_block, interval_block in blocks:
             if symmetric_block is not None:
                 I, J, IJ, disjoint, B, WI, WJ = symmetric_block
@@ -1487,29 +1416,9 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                                          float(box_lo[_k]), float(box_hi[_k]),
                                          float(clamp_move[_k]), 0.0)
             z[box_idx] = clamped
-        if not any_active and not ref_active:
+        if not any_active:
             certified = True
             break
-        if ref_prev is not None:
-            # REFERENCE-ROD steady state (spec §7): a conflicted node's
-            # pull is cancelled by the projections every sweep, so
-            # ``ref_active`` alone never quiets there — exit when the
-            # whole sweep left the state unchanged (pull ↔ projection
-            # equilibrium = the least-displacement fixpoint; the exit
-            # state is cap-projected + clamped, and the caller's polish
-            # settles slack nodes exactly onto their references).
-            #
-            # THE BREAK STANDS, BUT IT IS NOT A SUCCESS (spec
-            # ``ref-pull-interim-spec.md`` §2): the loop cannot make
-            # further progress, so terminating is right — but the state it
-            # returns is UNCERTIFIED and may still carry an over-cap
-            # residual, with most of the sweep budget abandoned.  It never
-            # sets ``certified``; it now also says so out loud, after the
-            # writeback, in the report block below.
-            if float(np.abs(z - ref_prev).max()) <= tol:
-                ref_equilibrium_sweep = sweeps
-                break
-            np.copyto(ref_prev, z)
         if stall_on and not stall_detect_sweep:
             # STALL DETECTION — REPORT ONLY.  There is deliberately no
             # ``break`` here: the early-termination family was closed
@@ -1532,12 +1441,13 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                     stall_detect_worst = worst
                     stall_detect_carrier = stall_carrier
     elev[:] = z.tolist()
-    ref_equilibrium = None
-    if ref_equilibrium_sweep:
-        # WRITE-ONLY (after the writeback): nothing here feeds the solve,
-        # which is why the loud exit is byte-inert on the surface.
-        ref_equilibrium = _ref_equilibrium_report(
-            np, tol, ref_equilibrium_sweep, max_iters, ref_idx, ref_val,
+    uncertified = None
+    if not certified:
+        # CERTIFY OR SAY SO.  WRITE-ONLY (after the writeback): nothing
+        # here feeds the solve, which is why the loud exit is inert on
+        # the surface.
+        uncertified = _uncertified_exit_report(
+            np, tol, sweeps, max_iters,
             endpoint_i, endpoint_j, budget_column, raw_budget_column,
             slab_low_column, slab_high_column, interval_mask,
             weight_i, weight_j, z, n)
@@ -1556,10 +1466,10 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
         stats["sweeps_avoided"] = max(0, max_iters - sweeps) if certified else 0
         stats["certified"] = certified
         stats["worst"] = worst
-        if ref_equilibrium is not None:
-            # Present ONLY on an equilibrium exit, so every other call's
-            # stats dict is unchanged (the stall-guard tests assert absence).
-            stats["ref_equilibrium"] = ref_equilibrium
+        if uncertified is not None:
+            # Present ONLY on an uncertified exit, so a certified call's
+            # stats dict is unchanged.
+            stats["uncertified_exit"] = uncertified
         if stall_on:
             stats["stalled"] = bool(stall_detect_sweep)
             stats["stall_detect_sweep"] = stall_detect_sweep
@@ -1700,7 +1610,7 @@ def feasibility_project(elev, shape_constraints, hard, *,
                         flat_groups=None, broken_out=None, pre_broken=None,
                         edge_couple_nodes=None, interval_yield_from=None,
                         group_bounds=None, node_bounds=None,
-                        group_refs=None, node_refs=None, forensics=None,
+                        forensics=None,
                         witness_limited=None, witness_excluded=None,
                         env_band=None,
                         probe_out=None, declared_out=None):
@@ -1791,24 +1701,14 @@ def feasibility_project(elev, shape_constraints, hard, *,
     (``lo > hi``) boxes are dropped.  ``None`` for both = today's behavior,
     byte-identical.
 
-    ``group_refs`` / ``node_refs`` — REFERENCE RODS (owner ruling
-    2026-07-29 #2, spec §7): the yield solves "minimum displacement from
-    the reference field, subject to the caps and the boxes", never "any
-    feasible point".  ``group_refs`` is a list parallel to
-    ``flat_groups`` (a merged rigid unit takes the size-weighted mean of
-    its constituent references — the least-total-displacement level);
-    ``node_refs`` is ``{node: z_ref}``.  Mechanically: the chromatic /
-    Jacobi sweeps add a small proximal pull toward ``z_ref`` before each
-    sweep's projections (the law always wins — see ``_project_chromatic``),
-    and an EXACT-RETURN POLISH after the sweeps projects each reference
-    onto the interval the node's own (current-neighbour) constraints and
-    box admit — a node with no binding pair ends AT its reference
-    exactly (owner clarification 2026-07-29: cap-lawful sag below the
-    string is a forbidden answer; the surface leaves its reference only
-    where a constraint forces it, minimally, in-box).  The legacy scalar
-    worklist has no sweep structure, so with refs it enforces caps+boxes
-    only and the polish supplies the reference semantics.  ``None`` for
-    both = today's behavior, byte-identical.
+    NO REFERENCE RODS.  The §7 reference channel (``group_refs`` /
+    ``node_refs``, the proximal pull and the exact-return polish) was
+    RETIRED in the build-complete-then-debug round: least displacement
+    from a reference field is not a law, and the field was a second
+    surface authority next to the caps.  A movable node is plain free —
+    it settles wherever the caps, the boxes and the envelope admit — and
+    the forensics that used to price displacement live on as
+    ``solve._spine_yield_movement_report``.
 
     ``env_band`` — THE REACH BAND, one entry per node (``(floor, ceiling)``
     or ``None``), in THIS call's elevation space (owner ruling 2026-07-30,
@@ -1877,46 +1777,29 @@ def feasibility_project(elev, shape_constraints, hard, *,
     gmap: dict = {}
     groups_eff: list = []
     rep_bounds: dict = {}       # representative -> group feasibility box
-    rep_refs: dict = {}         # representative -> group reference level
     if flat_groups:
         # merge overlapping groups (two touching pads sharing a ring node act
         # as one rigid unit), then map member → representative.  BOUNDED
         # YIELD: each group's box rides the merge (intersection — the merged
         # unit must satisfy every constituent box; a group without a box
-        # bounds nothing).  REFERENCE RODS: each group's reference rides it
-        # too, as a size-weighted running mean — the least-total-
-        # displacement level for the merged rigid unit.
+        # bounds nothing).
         pool = [set(g) for g in flat_groups if g]
         pool_bounds = ([b for g, b in zip(flat_groups, group_bounds) if g]
                        if group_bounds else [None] * len(pool))
-        pool_refs = ([r for g, r in zip(flat_groups, group_refs) if g]
-                     if group_refs else [None] * len(pool))
         merged: list = []
         merged_bounds: list = []
-        merged_refs: list = []       # [weighted_ref_sum, weight] or None
         for pool_index, g in enumerate(pool):
-            g_ref = pool_refs[pool_index]
-            g_ref_acc = ([float(g_ref) * len(g), float(len(g))]
-                         if g_ref is not None else None)
             attached = None
             for merged_index, mg in enumerate(merged):
                 if mg & g:
                     mg |= g
                     merged_bounds[merged_index] = _box_isect(
                         merged_bounds[merged_index], pool_bounds[pool_index])
-                    if g_ref_acc is not None:
-                        prev_ref = merged_refs[merged_index]
-                        if prev_ref is None:
-                            merged_refs[merged_index] = g_ref_acc
-                        else:
-                            prev_ref[0] += g_ref_acc[0]
-                            prev_ref[1] += g_ref_acc[1]
                     attached = mg
                     break
             if attached is None:
                 merged.append(set(g))
                 merged_bounds.append(pool_bounds[pool_index])
-                merged_refs.append(g_ref_acc)
         for merged_index, g in enumerate(merged):
             g = {i for i in g if 0 <= i < n}
             if len(g) < 2:
@@ -1928,9 +1811,6 @@ def feasibility_project(elev, shape_constraints, hard, *,
             mb = merged_bounds[merged_index]
             if mb is not None and mb[0] <= mb[1]:
                 rep_bounds[rep] = (float(mb[0]), float(mb[1]))
-            mr = merged_refs[merged_index]
-            if mr is not None and mr[1] > 0.0:
-                rep_refs[rep] = mr[0] / mr[1]
             for m in g:
                 if m != rep:
                     gmap[m] = rep
@@ -2430,23 +2310,6 @@ def feasibility_project(elev, shape_constraints, hard, *,
                     if bn not in hard and bn not in gmap
                     and bb[0] <= bb[1]}
 
-    # ── REFERENCE RODS → one per-node reference map ──────────────────────
-    # (owner ruling 2026-07-29 #2, spec §7; see the docstring.)  Built
-    # BEFORE the reach envelope, like the boxes: the broken branch below
-    # must know a node's reference to keep it there instead of at the
-    # anchor blend.  Group references attach to the representative;
-    # hard nodes and aliased members drop out.
-    ref_of: dict = {}
-    if node_refs:
-        for rn, rv in node_refs.items():
-            if rv is not None and 0 <= rn < n:
-                ref_of[rn] = float(rv)
-    if rep_refs:
-        ref_of.update(rep_refs)
-    if ref_of:
-        ref_of = {rn: rv for rn, rv in ref_of.items()
-                  if rn not in hard and rn not in gmap}
-
     # ── GROUNDSIDE FEASIBILITY-WITNESS CLAUSE (owner ruling 2026-07-30,
     # memory ``groundside-terrace-law``; gate ``O4_GS_NO_AIRSIDE_WITNESS``
     # is evaluated by the CALLER, which passes ``witness_limited`` or not) ─
@@ -2651,8 +2514,8 @@ def feasibility_project(elev, shape_constraints, hard, *,
                 forensics.get("nodes_ll"),
                 limited=_wl_nodes, horizon=_wl_horizon)
 
-    # ── CHAIN-RIGID BROKEN BLEND (spec apron-string-and-scheduling §D.2.1,
-    # gate ``O4_CHAIN_RIGID_BLEND``) ─────────────────────────────────────
+    # ── CHAIN-RIGID BROKEN BLEND (spec apron-string-and-scheduling §D.2.1;
+    # STANDING LAW) ──────────────────────────────────────────────────────
     # ATTRIBUTED 2026-07-30: the HECA corridor sag is the break-region
     # blend, not the string.  At the spine-yield projection EVERY corridor
     # node is broken (envelope floor > ceiling by 13-18 m), so the law
@@ -2676,8 +2539,7 @@ def feasibility_project(elev, shape_constraints, hard, *,
     # slabs, the only entry that carries that flag — so nothing is
     # re-derived or re-strung (single-pass principle).  No rod ⇒ no chain
     # ⇒ this block is inert and the solve is byte-identical.
-    if (broken and envelope_skip_pairs
-            and _os.environ.get("O4_CHAIN_RIGID_BLEND", "1") == "1"):
+    if broken and envelope_skip_pairs:
         rod_adj: dict = {}
         _rp_both = _rp_one = _rp_none = 0
         for (_ra, _rb) in envelope_skip_pairs:
@@ -2799,8 +2661,8 @@ def feasibility_project(elev, shape_constraints, hard, *,
                     elev[_e] = min(max(elev[_e], _elo), _ehi)
             _n_chains += 1
             _n_rigid_nodes += len(_order)
-        # ── RIGID BRANCH VERTICES (spec reference-honesty Track 1 step 3,
-        # gate ``O4_BRANCH_RIGID_BLEND``) ────────────────────────────────
+        # ── RIGID BRANCH VERTICES (spec reference-honesty Track 1 step 3;
+        # STANDING LAW) ──────────────────────────────────────────────────
         # The chain split above leaves every BRANCH vertex (rod degree ≥ 3
         # — the junctions corridors share) on its POINTWISE blend value,
         # while the chains around it have been placed rigidly.  That is
@@ -2817,8 +2679,7 @@ def feasibility_project(elev, shape_constraints, hard, *,
         # has a rigid authority, so using one to place the other would only
         # make the result order-dependent.
         _n_branch_placed = 0
-        if (_branch
-                and _os.environ.get("O4_BRANCH_RIGID_BLEND", "1") == "1"):
+        if _branch:
             for _bv in _branch:
                 if _bv in hard:
                     continue
@@ -2923,14 +2784,6 @@ def feasibility_project(elev, shape_constraints, hard, *,
                 elev[bn] = blo
             elif elev[bn] > bhi:
                 elev[bn] = bhi
-
-    # REFERENCE RODS, sweep side: broken referenced nodes were parked at
-    # their reference above and stay quarantined; the sweeps and the
-    # exact-return polish only ever move the remaining (movable)
-    # referenced nodes.
-    if ref_of:
-        ref_of = {rn: rv for rn, rv in ref_of.items()
-                  if rn not in immovable}
 
     # Pre-split the edges ONCE by hard-membership.  The inner loop otherwise ran
     # two ``in hard`` set lookups PER edge PER iteration (up to ~0.5 B lookups on
@@ -3104,7 +2957,6 @@ def feasibility_project(elev, shape_constraints, hard, *,
                            interval_bounds_by_index, stats=_chroma_stats,
                            coloring_state=_coloring_state,
                            node_box=bound_of or None,
-                           node_ref=ref_of or None,
                            raw_budget_by_index=iter_raw_budget)
         # Lazy shapes: as for the Jacobi path, only the FINAL state matters for
         # a certificate, so re-warm + re-sweep on the grown edge set until no
@@ -3129,8 +2981,7 @@ def feasibility_project(elev, shape_constraints, hard, *,
                                interval_bounds_by_index, stats=_chroma_stats,
                                coloring_state=_coloring_state,
                                node_box=bound_of or None,
-                               node_ref=ref_of or None,
-                               raw_budget_by_index=iter_raw_budget)
+                                   raw_budget_by_index=iter_raw_budget)
         _sweeps_run = _chroma_stats.get("sweeps", 0)
         _last_worst = _chroma_stats.get("worst", 0.0)
         if _os.environ.get("O4_STEP_DEBUG") == "1":
@@ -3143,8 +2994,7 @@ def feasibility_project(elev, shape_constraints, hard, *,
     elif _vec and iter_edges:
         _project_vectorized(elev, iter_edges, n, max_iters, tol,
                             interval_bounds_by_index,
-                            node_box=bound_of or None,
-                            node_ref=ref_of or None)
+                            node_box=bound_of or None)
         # Lazy shapes under the vectorised Jacobi: only the FINAL state
         # matters for the certificate (a shape whose nodes END at their seed
         # has its body pairs satisfied at that seed, transient wiggles
@@ -3169,8 +3019,7 @@ def feasibility_project(elev, shape_constraints, hard, *,
                 break
             _project_vectorized(elev, iter_edges, n, max_iters, tol,
                                 interval_bounds_by_index,
-                                node_box=bound_of or None,
-                                node_ref=ref_of or None)
+                                node_box=bound_of or None)
     else:
         # WORKLIST Gauss-Seidel (perf 2026-07-04): the cyclic sweep
         # re-examined EVERY edge up to ``max_iters`` times even when
@@ -3404,73 +3253,6 @@ def feasibility_project(elev, shape_constraints, hard, *,
                                and _edge_pops[_e] > 2)
             print(f"    [fp-reentry] edges popped >2x: "
                   f"interval={_int_reenter} symmetric={_sym_reenter}")
-    # ── REFERENCE RODS: exact-return polish (owner clarification
-    # 2026-07-29: cap-lawful sag below the string is a FORBIDDEN answer —
-    # a node with no binding pair must end AT its reference, not near
-    # it).  Sequential per-node projection of ``z_ref`` onto the interval
-    # the node's own incident constraints (at current neighbour values)
-    # and box admit: slack nodes land exactly on their reference,
-    # binding nodes at the nearest lawful point (least local
-    # displacement), and no pass ever violates a constraint it can see
-    # (the value stays inside every incident interval).  Runs to a small
-    # fixpoint; nodes still watched by an unexpanded lazy certificate
-    # are skipped (moving them off the certified seed would uncover
-    # unenforced body pairs).  Enforces the MARGINED sweep budgets, like
-    # the sweeps — the raw-law tally below is unaffected.
-    if ref_of:
-        lazy_watch: set = set()
-        for lazy_entry in lazy_entries_pending:
-            if "lazy_expand" in lazy_entry:
-                for lazy_node in lazy_entry.get("lazy_nodes", ()):
-                    lazy_watch.add(_r(lazy_node))
-        ref_adj: dict = {}
-        for (ai, aj, _rb, sweep_b) in edges:
-            if ai in ref_of:
-                ref_adj.setdefault(ai, []).append((aj, -sweep_b, sweep_b))
-            if aj in ref_of:
-                ref_adj.setdefault(aj, []).append((ai, -sweep_b, sweep_b))
-        for (ii, jj, _rl, _rh, s_lo, s_hi) in interval_edges:
-            # slab s_lo ≤ z_ii − z_jj ≤ s_hi (None = open side):
-            #   z_ii ∈ [z_jj + s_lo, z_jj + s_hi]
-            #   z_jj ∈ [z_ii − s_hi, z_ii − s_lo]
-            if ii in ref_of:
-                ref_adj.setdefault(ii, []).append((jj, s_lo, s_hi))
-            if jj in ref_of:
-                ref_adj.setdefault(jj, []).append(
-                    (ii, None if s_hi is None else -s_hi,
-                     None if s_lo is None else -s_lo))
-        # Pass cap: each pass walks the return one neighbour layer up a
-        # chain, so deep drift needs many (measured HECA: 8 left 3.9k
-        # slack nodes ≤0.25 m off reference; the loop exits early at the
-        # fixpoint and each pass is O(ref nodes · degree)).
-        for _polish_pass in range(64):
-            polish_moved = False
-            for rn, rv in ref_of.items():
-                if rn in lazy_watch:
-                    continue
-                allow_lo, allow_hi = -_INF, _INF
-                for (nb, lo_off, hi_off) in ref_adj.get(rn, ()):
-                    znb = elev[nb]
-                    if lo_off is not None and znb + lo_off > allow_lo:
-                        allow_lo = znb + lo_off
-                    if hi_off is not None and znb + hi_off < allow_hi:
-                        allow_hi = znb + hi_off
-                bb = bound_of.get(rn)
-                if bb is not None:
-                    if bb[0] > allow_lo:
-                        allow_lo = bb[0]
-                    if bb[1] < allow_hi:
-                        allow_hi = bb[1]
-                if allow_lo > allow_hi:
-                    continue          # contradictory: keep the swept value
-                target = min(max(rv, allow_lo), allow_hi)
-                if target != elev[rn]:
-                    if abs(target - elev[rn]) > 1e-12:
-                        polish_moved = True
-                    elev[rn] = target
-            if not polish_moved:
-                break
-
     # broadcast each flat group's representative level back to its members.
     for rep, g in (groups_eff if flat_groups else ()):
         for m in g:

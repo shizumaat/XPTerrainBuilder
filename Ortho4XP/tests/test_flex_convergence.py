@@ -16,9 +16,9 @@ load-bearing:
   shortfall +3.499 m every round);
 * because the round drain was requested, it never fell under the 0.01 m
   floor, so the loop always ran to the 12-round cap — 441 demands over the
-  same 12 rounds against the gate-off arm's 285.
+  same 12 rounds against the pre-spec arm's 285.
 
-THE FIX (spec §2/§3, riding ``O4_FLEX_SELF_UNLOCK``):
+THE FIX (spec §2/§3; STANDING LAW since the gate was retired):
 
 1. accounting, the round-drain floor and demand re-derivation all read
    ACHIEVED state;
@@ -246,8 +246,11 @@ def _make_apply(accept, gain=1.0):
 
 
 def _run_hook(monkeypatch, accept, *, gate="1", gain=1.0):
-    """Drive the real hook once and return (n_demands, apply, log)."""
-    monkeypatch.setenv("O4_FLEX_SELF_UNLOCK", gate)
+    """Drive the real hook once and return (n_demands, apply, log).
+
+    ``gate`` is accepted and IGNORED: the self-unlock + convergence law is
+    standing (``O4_FLEX_SELF_UNLOCK`` was deleted in the
+    build-complete-then-debug round), so there is only one arm."""
     layout, nodes, bucket_to_idx, elev, base_hard, G = _airport()
     apply = _make_apply(accept, gain=gain)
     monkeypatch.setattr(RR, "apply_runway_flex", apply)
@@ -321,13 +324,15 @@ class TestAchievedStateIteration:
         assert req > 10 * RUNWAY_FLEX_ROUND_DRAIN_FLOOR_M
         assert ach == pytest.approx(0.0, abs=1e-9)
 
-    def test_gate_off_is_the_three_round_loop(self, monkeypatch):
-        """With the gate off nothing retires and the loop is the fixed
-        three rounds — the achieved-state booking is report-only there."""
-        _n, apply, log, _lay = _run_hook(monkeypatch, self._half, gate="0")
+    def test_there_is_no_fixed_three_round_arm(self, monkeypatch):
+        """The fixed-3-round loop was the gate-off arm and is GONE: the
+        loop now always runs to the drain floor or ``RUNWAY_FLEX_MAX_ROUNDS``."""
+        _n, apply, log, _lay = _run_hook(monkeypatch, self._half)
         line = _summary(log)
-        assert "round cap 3" in line, line
-        assert "; 0 bin(s) retired after" in line, line
+        # The loop stops on a REASON — drained, no further demand, or the
+        # 12-round cap — never on a hard-coded 3.
+        assert "round cap 3" not in line, line
+        assert "; 0 bin(s) retired after" not in line, line
 
 
 # ═════════════ TWIN 2 — twice-rejected retirement ════════════════════
@@ -414,22 +419,10 @@ class TestTwiceRejectedRetirement:
         assert moved > 0.0, "the later rounds must land something"
         assert n_ret <= 3, line
 
-    def test_gate_off_never_retires(self, monkeypatch):
-        _n, apply, log, _lay = _run_hook(monkeypatch, self._stuck_bin,
-                                         gate="0", gain=self.GAIN)
-        line = _summary(log)
-        assert "; 0 bin(s) retired after" in line, line
-        assert not [ln for ln in log if "RETIRED" in ln]
-        # …and it still runs its three fixed rounds, re-presenting the
-        # refused bin every one of them (the pre-spec behaviour).
-        assert "round cap 3" in line, line
-        stuck = round(self.STUCK_T, 9)
-        per_ref = {}
-        for (ref, ts) in apply.calls:
-            per_ref.setdefault(ref, []).append(
-                set(round(t, 9) for t in ts))
-        assert any(all(stuck in r for r in rounds)
-                   for rounds in per_ref.values())
+    # (``test_gate_off_never_retires`` lived here.  It pinned the
+    # gate-off arm — no retirement ledger, three fixed rounds, the
+    # refused bin re-presented every round.  That arm was DELETED with
+    # ``O4_FLEX_SELF_UNLOCK`` in the build-complete-then-debug round.)
 
 
 # ═════════════ TWIN 3 — the honest per-round line ════════════════════

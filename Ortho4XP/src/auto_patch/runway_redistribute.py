@@ -67,7 +67,6 @@ from .config import (
     RUNWAY_END_FRACTION, RUNWAY_SEAM_CONTACT_ANCHORS,
     RUNWAY_SEAM_CONTACT_STEP_M, RUNWAY_THRESHOLD_STRICT_M,
     TILE_CUT_HALF_WIDTH_M, RUNWAY_FLEX_ENDZONE_MATERIALITY,
-    runway_flex_apply_segment_cap_enabled, runway_flex_self_unlock_enabled,
 )
 from .layout import ROLE_RUNWAY, SHARED_VERTEX_TOL_M
 from .pavement.runway_segments import (
@@ -1018,25 +1017,24 @@ def redistribute_runway_profile(
         # anchoring is exactly what the ruling forbids.
         seam_rejects: List[Tuple[float, float, float]] = []
         seam_samples: List[Tuple[float, float]] = []
-        if os.environ.get("O4_RUNWAY_SEAM_EDGE_ANCHORS", "1") == "1":
-            from .config import RUNWAY_SEAM_PROFILE_COLLAPSE
-            edge_samples = _find_edge_boundary_crossings(
-                layout, shapes,
-                state['phys_end_a_ll'], state['phys_end_b_ll'],
-                dem, tile_lat, tile_lon,
-                step_m=(RUNWAY_SEAM_CONTACT_STEP_M
-                        if RUNWAY_SEAM_CONTACT_ANCHORS else 0.0),
-                cutback_m=(TILE_CUT_HALF_WIDTH_M
-                           if RUNWAY_SEAM_CONTACT_ANCHORS else 0.0),
-                collapse_per_line=RUNWAY_SEAM_PROFILE_COLLAPSE)
-            if RUNWAY_SEAM_CONTACT_ANCHORS:
-                seam_samples, seam_rejects = _select_feasible_seam_anchors(
-                    edge_samples, phys_dist)
-            else:
-                seam_samples = [
-                    (t, v) for (t, v) in edge_samples
-                    if v > _interp_profile(state['fractions'],
-                                           state['elevs'], t) + 0.05]
+        from .config import RUNWAY_SEAM_PROFILE_COLLAPSE
+        edge_samples = _find_edge_boundary_crossings(
+            layout, shapes,
+            state['phys_end_a_ll'], state['phys_end_b_ll'],
+            dem, tile_lat, tile_lon,
+            step_m=(RUNWAY_SEAM_CONTACT_STEP_M
+                    if RUNWAY_SEAM_CONTACT_ANCHORS else 0.0),
+            cutback_m=(TILE_CUT_HALF_WIDTH_M
+                       if RUNWAY_SEAM_CONTACT_ANCHORS else 0.0),
+            collapse_per_line=RUNWAY_SEAM_PROFILE_COLLAPSE)
+        if RUNWAY_SEAM_CONTACT_ANCHORS:
+            seam_samples, seam_rejects = _select_feasible_seam_anchors(
+                edge_samples, phys_dist)
+        else:
+            seam_samples = [
+                (t, v) for (t, v) in edge_samples
+                if v > _interp_profile(state['fractions'],
+                                       state['elevs'], t) + 0.05]
         if not seam_samples:
             seam_samples = _find_centerline_boundary_crossings(
                 state['phys_end_a_ll'], state['phys_end_b_ll'],
@@ -1109,11 +1107,8 @@ def redistribute_runway_profile(
         # it unsatisfiable alongside the main-cap LAW — see
         # ``solve_profile_with_minimal_end_zone_cap``.
         end_zone_report: dict = {}
-        # TIERED end-zone relaxation (defect G) — O4_RUNWAY_TIERED_END=0
-        # reverts to the historical single-end-zone-cap escalation.
-        _strict_m = (RUNWAY_THRESHOLD_STRICT_M
-                     if os.environ.get("O4_RUNWAY_TIERED_END", "1") == "1"
-                     else 0.0)
+        # TIERED end-zone relaxation (defect G) — STANDING LAW.
+        _strict_m = RUNWAY_THRESHOLD_STRICT_M
         end_zone_cap = solve_profile_with_minimal_end_zone_cap(
             fractions, elevs, anchored, phys_dist,
             blast_a=state['blast_a_m'],
@@ -1404,8 +1399,7 @@ def flex_slack_at(profile: dict, t: float, direction: float) -> float:
     bounding: List[int] = [k for k, a in enumerate(anchored) if a]
 
     # ── FIX 1: FLEX-MINTED ANCHORS DO NOT BOUND (spec
-    # ``docs/specs/runway-flex-completion-spec.md``; gate
-    # ``O4_FLEX_SELF_UNLOCK``, default "0") ─────────────────────────────
+    # ``docs/specs/runway-flex-completion-spec.md``; STANDING LAW) ──────
     # THE SELF-ANCHOR LOCK.  ``apply_runway_flex`` inserts every applied
     # target as ``anchored=True``; the sentence above then bounds the NEXT
     # round against it, and since the bound is ``cap·|s_t − s_i|`` a
@@ -1416,8 +1410,8 @@ def flex_slack_at(profile: dict, t: float, direction: float) -> float:
     #
     # That is the flex bounding itself, not law bounding it: the sample
     # carries no CIFP, seam or crossing authority — it is this very
-    # mechanism's own output from one round ago.  Under the gate a
-    # flex-minted sample stays ANCHORED for the re-solve (the FAA gates
+    # mechanism's own output from one round ago.  A flex-minted sample
+    # stays ANCHORED for the re-solve (the FAA gates
     # must still smooth the free samples around it, and it must not be
     # stomped) but is withdrawn from the bounding set here.  Everything
     # with real authority — CIFP thresholds, physical ends, tile-seam
@@ -1428,46 +1422,27 @@ def flex_slack_at(profile: dict, t: float, direction: float) -> float:
     # Belt and braces: if a profile somehow carried NOTHING but minted
     # anchors, fall back to the unfiltered set rather than return an
     # unbounded slack.
-    if runway_flex_self_unlock_enabled():
-        minted = profile.get('flex_minted') or ()
-        unlocked = [k for k in bounding
-                    if not (k < len(minted) and minted[k])]
-        if unlocked:
-            bounding = unlocked
+    minted = profile.get('flex_minted') or ()
+    unlocked = [k for k in bounding
+                if not (k < len(minted) and minted[k])]
+    if unlocked:
+        bounding = unlocked
 
-    # TIERED THRESHOLD BAND (user 2026-07-16, KBNA 13/31 defect G): the flex
-    # drags the runway toward a taxiway contact, but within the last
-    # ``threshold_strict_fraction`` before a pinned CIFP threshold the ramp
-    # must stay gentle (≤0.8%) — the threshold is standing law, so a contact
-    # in that band cannot pull the profile down at the 1.5% main cap.  Bound
-    # a contact against the NEAR threshold anchor at ``RUNWAY_END_GRADE``
-    # instead of ``MAX_RUNWAY_GRADE``; the deficit stays a small residual at
-    # the taxi join (the taxi yields to the threshold), not a steep runway
-    # end.  ``threshold_strict_fraction`` == 0 (untiered) keeps the old bound.
-    tsf = float(profile.get('threshold_strict_fraction') or 0.0)
-    thr_first = bounding[0] if bounding else None
-    thr_last = bounding[-1] if bounding else None
+    # (The TIERED THRESHOLD BAND that lived here — bounding only the
+    # first/last bounding anchor at ``RUNWAY_END_GRADE`` — is SUBSUMED by
+    # the per-segment pricing below: ``threshold_strict_cap`` applies the
+    # 0.8 % end-zone law at BOTH ends and at EVERY bounding anchor.)
 
     # LEAD COMPLETION (a): price the bound with the PER-SEGMENT law, not
-    # ``MAX_RUNWAY_GRADE``.  Rides the same gate as fixes 1+2, so the
-    # gate-off clamp is byte-for-byte the pre-spec one (the tiered
-    # threshold band below is subsumed by ``threshold_strict_cap`` in the
-    # priced form, which applies it at BOTH ends and at every bounding
-    # anchor rather than only the first/last of the bounding set).
-    _seg_priced = runway_flex_self_unlock_enabled()
-    _cap_kw = _flex_segment_cap_kw(profile) if _seg_priced else None
+    # ``MAX_RUNWAY_GRADE`` (the tiered threshold band above is subsumed by
+    # ``threshold_strict_cap`` in the priced form, which applies it at
+    # BOTH ends and at every bounding anchor rather than only the
+    # first/last of the bounding set).
+    _cap_kw = _flex_segment_cap_kw(profile)
 
     slack = float("inf")
     for k in set(bounding):
-        if _seg_priced:
-            budget = _lawful_ramp_budget(t, fractions[k], axis_len, _cap_kw)
-        else:
-            cap = MAX_RUNWAY_GRADE
-            if (tsf > 0.0 and k in (thr_first, thr_last)
-                    and abs(t - fractions[k]) < tsf):
-                cap = RUNWAY_END_GRADE
-            distance = abs(t - fractions[k]) * axis_len
-            budget = cap * distance
+        budget = _lawful_ramp_budget(t, fractions[k], axis_len, _cap_kw)
         current_diff = (current - elevs[k]) * direction
         slack = min(slack, budget - current_diff)
     return max(0.0, slack if slack != float("inf") else 0.0)
@@ -1511,10 +1486,7 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
         # anchored because a previous flex round put a target there" —
         # this mechanism's own output, carrying no CIFP / seam / crossing
         # authority.  ``flex_slack_at`` withdraws these from its bounding
-        # set under ``O4_FLEX_SELF_UNLOCK``; the array is maintained
-        # UNGATED so the tag can never disagree with the anchors it
-        # describes (and so a gate flip mid-build is impossible to
-        # mis-read).  Nothing reads it with the gate off.
+        # set.
         original_minted = list(profile.get('flex_minted')
                                or [False] * len(original_fractions))
         if len(original_minted) < len(original_fractions):
@@ -1694,13 +1666,11 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
                     worst = (delta, 0.5 * (t0 + t1))
             return worst
 
-        _seg_cap_on = runway_flex_apply_segment_cap_enabled()
-
         def _worst_violation(fractions, elevs):
-            """The main cap first (the harder law, and the pre-existing
-            behaviour), then §2a's no-new-regression per-segment test."""
+            """The main cap first (the harder law), then §2a's
+            no-new-regression per-segment test."""
             worst = _worst_over_cap(fractions, elevs)
-            if worst is None and _seg_cap_on:
+            if worst is None:
                 worst = _new_or_worsened(fractions, elevs)
             return worst
 
@@ -1743,7 +1713,7 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
             _excess, midpoint = worst
             drop_index = min(range(len(pending)),
                              key=lambda k: abs(pending[k][0] - midpoint))
-            if _seg_cap_on and drop_index not in _relaxed:
+            if drop_index not in _relaxed:
                 _t_r, _v_r = pending[drop_index]
                 _base_r = _interp_profile(original_fractions,
                                           original_elevs, _t_r)

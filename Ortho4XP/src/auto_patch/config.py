@@ -183,17 +183,13 @@ __all__ = [
     "GROUNDSIDE_MAX_GRADE",
     "RUNWAY_VERTICAL_CURVE_K_M",
     "RUNWAY_MAX_GRADE_CHANGE_PER_M",
-    "RUNWAY_DEM_FOLLOW_BAND_M",
     "RUNWAY_DEM_FOLLOW_LAW_BAND_M",
     "runway_dem_follow_band_m",
     "RUNWAY_FLEX_MAX_ROUNDS",
     "RUNWAY_FLEX_ROUND_DRAIN_FLOOR_M",
-    "runway_flex_self_unlock_enabled",
     "RUNWAY_FLEX_DEMAND_TOL_M",
-    "RUNWAY_FLEX_DEMAND_TOL_FINE_M",
     "runway_flex_demand_tol_m",
     "RUNWAY_FLEX_ENDZONE_MATERIALITY",
-    "runway_flex_apply_segment_cap_enabled",
     "GRADE_VISIBILITY_BUFFER_M",
     "ELEV_ROUNDING_NOISE_M",
     "SLOPED_QUAD_ROUNDING_NOISE_M",
@@ -1286,19 +1282,17 @@ GROUNDSIDE_MAX_GRADE = 0.050
 # i.e. ~1/30000 grade change per metre of pavement.
 RUNWAY_VERTICAL_CURVE_K_M = 305.0
 RUNWAY_MAX_GRADE_CHANGE_PER_M = 1.0 / 30000.0
-# How far the runway profile may follow the raw DEM away from the linear
-# baseline through its true anchors (CIFP thresholds, seams, runway crossings).
-# 0 = "flat": the runway is the flattest profile its anchors permit and the DEM
-# is ignored for the interior (user 2026-06-06).  The original "max DEM
-# following" value was 5.0 m, which let mid-runway sections free-float up to 5 m
-# off the baseline — e.g. CYXY 14R/32L dipping 4.5 m into a valley between the
-# 14R threshold and the 02/20 crossing, which pulled the connecting junction low
-# and made stub A 7.4%.  ``faa_joint_solve`` still enforces every grade/curvature
-# cap regardless of this value.
-RUNWAY_DEM_FOLLOW_BAND_M = 0.0
+# (The 2026-06-06 "0 = flat" band ``RUNWAY_DEM_FOLLOW_BAND_M`` was the
+# gate-off arm of the DEM-follow seeding below; it was deleted with the
+# gate.  History it must not lose: the ORIGINAL 5.0 m band was UNBOUNDED
+# and let mid-runway free-float 4.5 m into a valley at CYXY 14R/32L,
+# pulling stub A to 7.4 %.  The band below is bounded by the FAA
+# vertical-curve term instead, and ``faa_joint_solve`` still enforces
+# every grade/curvature cap regardless.)
 
 # ── DEM-FOLLOW SEEDING (spec docs/specs/runway-flex-completion-spec.md
-# fix 3; gate ``O4_RUNWAY_DEM_FOLLOW``, default "0") ──────────────────
+# fix 3).  STANDING LAW — the ``O4_RUNWAY_DEM_FOLLOW`` gate and its
+# band-0 arm were retired in the build-complete-then-debug round. ─────
 # The band above being 0 makes every runway seed the STRAIGHT CIFP chord,
 # and the flex is then asked to re-derive from taxi feasibility a shape
 # the seeder threw away.  Measured on the stress runway (HECA 05R/23L,
@@ -1322,35 +1316,38 @@ RUNWAY_DEM_FOLLOW_BAND_M = 0.0
 # K-factor) runs afterwards regardless and is the enforcement.
 #
 # The 2026-06-06 "0 = flat" ruling and the 5.0 m regression it replaced
-# (CYXY 14R/32L free-floating 4.5 m into a valley, stub A at 7.4%) both
-# still stand for the UNGATED path: gate off ⇒ band 0.0 ⇒ byte-identical.
+# (CYXY 14R/32L free-floating 4.5 m into a valley, stub A at 7.4%) were
+# both about an UNBOUNDED band; this one is bounded by the FAA
+# vertical-curve term at every station near an anchor.
 RUNWAY_DEM_FOLLOW_LAW_BAND_M = 10.0
 
 
 def runway_dem_follow_band_m() -> float:
     """The DEM-follow band in force for this build (metres).
 
-    Read at CALL time, not import time, so the gate is honest in a
-    long-lived process and testable without a module reload.
+    ONE value, no arm: the seeder follows the corridor DEM inside the
+    law-bounded band.  (Kept as a function rather than a bare constant
+    read so ``pavement/runway_segments.py`` keeps its single source of
+    truth for the number.)
     """
-    if _os.environ.get("O4_RUNWAY_DEM_FOLLOW", "0") == "1":
-        return RUNWAY_DEM_FOLLOW_LAW_BAND_M
-    return RUNWAY_DEM_FOLLOW_BAND_M
+    return RUNWAY_DEM_FOLLOW_LAW_BAND_M
 
 
 # ── RUNWAY FLEX: SELF-ANCHOR UNLOCK + CONVERGENCE (same spec, fixes 1
-# and 2; gate ``O4_FLEX_SELF_UNLOCK``, default "0") ───────────────────
+# and 2).  STANDING LAW — the ``O4_FLEX_SELF_UNLOCK`` gate and its
+# "flex-minted anchors bound, 3 fixed rounds" arm were retired in the
+# build-complete-then-debug round. ────────────────────────────────────
 # Fix 1: ``apply_runway_flex`` inserts every applied target as
 # ``anchored=True``, and ``flex_slack_at`` bounds against ALL anchored
-# samples — so a station the flex touched in round 0 has slack ≡ 0
-# (cap·0) in every later round and can never move again.  Measured at
+# samples — so a station the flex touched in round 0 had slack ≡ 0
+# (cap·0) in every later round and could never move again.  Measured at
 # HECA: 05R/23L's anchored count grows 4 → 9 → 14 and 05C/23C 4 → 48 →
 # 54, every new one flex-minted, and rounds 1-2 at the deepest bin read
-# slack 0.000 / move 0.000.  Under the gate a flex-MINTED sample stays
-# anchored for the re-solve (so the FAA gates still smooth around it)
-# but is withdrawn from ``flex_slack_at``'s bounding set.  CIFP
-# thresholds, physical ends, tile-seam samples and crossing-
-# reconciliation anchors are never minted, so they keep bounding.
+# slack 0.000 / move 0.000.  A flex-MINTED sample now stays anchored for
+# the re-solve (so the FAA gates still smooth around it) but is
+# withdrawn from ``flex_slack_at``'s bounding set.  CIFP thresholds,
+# physical ends, tile-seam samples and crossing-reconciliation anchors
+# are never minted, so they keep bounding.
 #
 # Fix 2: every HECA demand's binding seed is another flexible runway, so
 # the origin split halves every pull; 3 rounds of geometric halving
@@ -1360,14 +1357,9 @@ RUNWAY_FLEX_MAX_ROUNDS = 12
 RUNWAY_FLEX_ROUND_DRAIN_FLOOR_M = 0.01
 
 
-def runway_flex_self_unlock_enabled() -> bool:
-    """Gate for fixes 1+2 (read at call time).  Off ⇒ the pre-spec
-    behaviour exactly: flex-minted anchors bound, 3 fixed rounds."""
-    return _os.environ.get("O4_FLEX_SELF_UNLOCK", "0") == "1"
-
-
-# ── THE FLEX DEAD ZONE (spec ``docs/specs/demfollow-joint-spec.md``;
-# gate ``O4_FLEX_DEMAND_TOL_FINE``, default "0") ──────────────────────
+# ── THE FLEX DEAD ZONE (spec ``docs/specs/demfollow-joint-spec.md``).
+# STANDING LAW — the ``O4_FLEX_DEMAND_TOL_FINE`` gate and its 0.05 m arm
+# were retired in the build-complete-then-debug round. ────────────────
 # The envelope demand tolerance decides which deficits the flex is even
 # ALLOWED to see.  At 0.05 m it sits five times above the band's own
 # materiality floor (0.01 m — CLAUDE.md item 3(a), the floor the final
@@ -1382,26 +1374,23 @@ def runway_flex_self_unlock_enabled() -> bool:
 # that deficit enters round 0 and the origin split drains ~9 mm from
 # each runway, inside every clamp.
 #
-# WHY GATED (lead ruling 2026-08-05, on this lane's pre-registered
-# identity STOP): the tolerance is LIVE at defaults, and the fine value
-# MOVES the default surface at HECA (release anchor a1ade8bd →
+# The flip was measured (lead ruling 2026-08-05) and is census-NEUTRAL:
+# it MOVES the default surface at HECA (release anchor a1ade8bd →
 # 675fc645, deterministic over 3 reps; HEAZ/CYXY/SPJC/SPLP/KCLT all
-# byte-identical).  The move is census-NEUTRAL — full law-true census
-# 8865/0/126 class-for-class identical on both arms, worst |de|
-# identical per check, over-cap counts identical — and is one discrete
-# flip: 126 of 32,225 nodes (0.39 %), one apron cluster at the 05R/23L
-# end, max |dz| 0.70 m, geometry unchanged.  The gate therefore protects
-# IDENTITY, not lawfulness; it flips at the next anchor-minting tip.
-RUNWAY_FLEX_DEMAND_TOL_M = 0.05             # today's default
-RUNWAY_FLEX_DEMAND_TOL_FINE_M = 0.01        # aligned with the materiality
+# byte-identical) by one discrete step — 126 of 32,225 nodes (0.39 %),
+# one apron cluster at the 05R/23L end, max |dz| 0.70 m, geometry
+# unchanged — with the full law-true census 8865/0/126 class-for-class
+# identical on both arms.  The gate protected IDENTITY, never
+# lawfulness, so it dies with the rest of them.
+RUNWAY_FLEX_DEMAND_TOL_M = 0.01     # aligned with the materiality floor
 
 
 def runway_flex_demand_tol_m() -> float:
-    """The envelope demand tolerance in force (read at CALL time, so the
-    gate is honest in a long-lived process and testable without a module
-    reload).  Off ⇒ 0.05 m exactly, the pre-spec behaviour."""
-    if _os.environ.get("O4_FLEX_DEMAND_TOL_FINE", "0") == "1":
-        return RUNWAY_FLEX_DEMAND_TOL_FINE_M
+    """The envelope demand tolerance in force (metres).
+
+    ONE value, aligned with the 0.01 m materiality floor the final
+    band-inversion check adjudicates on: every deficit the band would
+    call a violation is a deficit the flex is allowed to see."""
     return RUNWAY_FLEX_DEMAND_TOL_M
 
 
@@ -1431,23 +1420,10 @@ def runway_flex_demand_tol_m() -> float:
 # apply calls cannot ratchet the floor into a real violation.  The
 # pre-existing gate-off segments are a standing defect recorded for
 # their own round, not this round's responsibility.
+# UNGATED, as the gate's own docstring said it should become at flip
+# time: the amendment is a correctness precondition of both flex fixes,
+# and both are standing law now.
 RUNWAY_FLEX_ENDZONE_MATERIALITY = 0.0001    # 0.01 percentage points
-
-
-def runway_flex_apply_segment_cap_enabled() -> bool:
-    """Gate for §2a.  Active whenever EITHER flex-completion gate is on.
-
-    Why not ungated: with the gates off the flex mints all 17 of HECA's
-    end-zone violations, so an ungated check would reject those targets
-    and move the default surface — the round's gate-off arms must stay
-    byte-identical (anchor a785f170).  Why not its own third gate: the
-    amendment is a correctness precondition of BOTH fixes, and the
-    pre-registered arms are the two named ones.  At flip time this
-    should become ungated, together with the standing-defect round that
-    owns the 17.
-    """
-    return (runway_flex_self_unlock_enabled()
-            or _os.environ.get("O4_RUNWAY_DEM_FOLLOW", "0") == "1")
 
 # Within-shape grade-audit geometry — the SINGLE SOURCE OF TRUTH shared by the
 # runtime audit (``elevation._report_within_shape_violations``, the WARN shown

@@ -160,154 +160,28 @@ def test_contradictory_box_is_dropped(_sweep_path):
     assert elev == base
 
 
-# ── (f) REFERENCE RODS (owner ruling 2026-07-29 #2, spec §7) ─────────────
-
-def test_reference_returns_slack_nodes_exactly(_sweep_path):
-    # References are jointly feasible: both displaced nodes must end AT
-    # their references EXACTLY (owner clarification 2026-07-29 — cap-lawful
-    # sag below the string is a forbidden answer).
-    elev = [100.0, 90.0, 92.0]
-    edges = [(0, 1, 5.0), (1, 2, 5.0)]
-    rem, _ = feasibility_project(elev, [{"edges": edges}], {0},
-                                 force_scalar=True,
-                                 node_refs={1: 99.0, 2: 100.0})
-    assert rem == 0
-    assert elev[1] == 99.0 and elev[2] == 100.0
-
-
-def test_reference_conflicted_node_least_displacement(_sweep_path):
-    # hard@80 through a 5 m budget: the reference 100 is unreachable; the
-    # node must settle at the NEAREST lawful point (85), not anywhere else.
-    elev = [80.0, 90.0]
-    rem, _ = feasibility_project(elev, [{"edges": [(0, 1, 5.0)]}], {0},
-                                 force_scalar=True, node_refs={1: 100.0})
-    assert rem == 0
-    assert elev[1] == pytest.approx(85.0, abs=1e-9)
+# ── (f) THE REFERENCE-ROD SECTION IS GONE ────────────────────────────
+#
+# The §7 reference channel (``group_refs`` / ``node_refs``, the proximal
+# pull, the ``ref_prev`` equilibrium break and the exact-return polish)
+# was DELETED in the build-complete-then-debug round: least displacement
+# from a reference field is not a law, and the field was a second surface
+# authority next to the caps.  The eleven tests that lived here pinned
+# that channel's semantics — "a slack node ends AT its reference
+# exactly", "a conflicted node takes the least-displacement lawful
+# point", "a pad-face contact ends at the seat" — and there is nothing
+# left for them to assert.  They are deleted rather than rewritten: the
+# post-kill contract for a movable node is simply "inside every box, and
+# no incident cap violated", which sections (a)-(e) above already own.
 
 
-def test_reference_with_binding_box(_sweep_path):
-    # Box (99, 101) and a hard@80 5 m edge contradict; the box wins the
-    # value (the clamp is law), the edge stays reported.
-    elev = [80.0, 100.0]
-    rem, _ = feasibility_project(elev, [{"edges": [(0, 1, 5.0)]}], {0},
-                                 force_scalar=True,
-                                 node_bounds={1: (99.0, 101.0)},
-                                 node_refs={1: 100.5})
-    assert elev[1] == pytest.approx(99.0, abs=1e-9)
-    assert rem == 1
-
-
-# ── (g) PAD ROD COUPLING (docs/specs/pad-rod-coupling-spec.md §2) ────────
-# The reference of a soft-fabric vertex welded to a pad FACE is the pad's
-# SEAT, not the fabric's yield-entry state.  These pin the projection-side
-# semantics the coupling relies on; the contact-set side (which vertices
-# are pad-face contacts, and which seat a two-pad contact takes) is pinned
-# in tests/test_building_frontage_near_miss.py.
-
-def _pad_face_arm(contact_ref, outward_refs):
-    """One fp#8-shaped arm: rigid pad {0} at seat 100 welded to fabric
-    node 1 (entry 92, the phase-A/B-shaped apron edge), which strings
-    outward through node 2 to a hard anchor at 90.  ``contact_ref`` is
-    node 1's reference — the entry state (pre-coupling) or the seat."""
-    elev = [100.0, 92.0, 91.0, 90.0]
-    edges = [(1, 2, 5.0), (2, 3, 5.0)]
-    refs = {1: contact_ref}
-    refs.update(outward_refs)
-    rem, _ = feasibility_project(
-        elev, [{"edges": edges}], {3}, force_scalar=True,
-        flat_groups=[{0}], group_refs=[100.0], node_refs=refs)
-    return elev, rem
-
-
-def test_pad_face_contact_ends_at_the_seat(_sweep_path):
-    """With nothing else referencing the outward fabric, the welded
-    contact ends AT the seat (weld-tolerance class) and the fabric
-    strings out at its own cap — graded, not stepped."""
-    entry_arm, rem_entry = _pad_face_arm(92.0, {})
-    assert rem_entry == 0
-    assert entry_arm[1] == pytest.approx(92.0)          # 8 m wall at the face
-    seat_arm, rem_seat = _pad_face_arm(100.0, {})
-    assert rem_seat == 0
-    assert seat_arm[0] == pytest.approx(100.0, abs=1e-9)   # pad never moved
-    assert seat_arm[3] == 90.0                             # anchor never moved
-    assert seat_arm[1] > entry_arm[1]                      # the step closes
-    assert abs(seat_arm[1] - seat_arm[2]) <= 5.0 + 1e-9    # outward grade lawful
-    assert abs(seat_arm[2] - seat_arm[3]) <= 5.0 + 1e-9
-    if _sweep_path:
-        # CHROMATIC sweeps (production default): the proximal pull carries
-        # THROUGH the fabric, so the contact reaches the seat and the
-        # transition emits as a cap-rate ramp outward.
-        #
-        # The RESIDUAL is proximal-weight calibrated and moved with the
-        # measured default (spec docs/specs/ref-pull-interim-spec.md §1,
-        # 2026-08-04: ``O4_YIELD_REF_WEIGHT`` 0.2 → 0.02).  A weaker pull
-        # reaches its fixpoint against the projections further from the
-        # reference, and the ``ref_prev`` equilibrium break then exits
-        # there: measured 99.9016 at w=0.02 vs 99.9910 at w=0.2 — 0.098 m
-        # short of the seat instead of 0.009 m.  The SHAPE is unchanged
-        # (the tighter, weight-independent invariant is asserted below),
-        # so this tolerance is the number moving, not the semantics.
-        assert seat_arm[1] == pytest.approx(100.0, abs=0.1)
-        assert seat_arm[2] == pytest.approx(95.0, abs=0.1)
-        # Weight-independent: wherever the contact lands, the fabric
-        # strings outward at EXACTLY cap from it.
-        assert seat_arm[1] - seat_arm[2] == pytest.approx(5.0, abs=1e-6)
-    else:
-        # LEGACY SCALAR worklist: no sweep structure, so the reference
-        # semantics come from the exact-return polish alone — the contact
-        # rises to the most its caps admit against the fabric's CURRENT
-        # values (one cap hop above node 2), not to the seat.
-        assert seat_arm[1] == pytest.approx(96.0, abs=1e-9)
-
-
-def test_pad_face_contact_least_displacement_against_fabric_refs(
-        _sweep_path):
-    """MEASURED SEMANTICS (do not "fix" this to 100): the outward fabric
-    carries its OWN §7 reference (its yield-entry state), so the coupled
-    contact rises only as far as the cap web against those competing
-    references admits — least displacement from the seat, not a hold at
-    it.  The face step shrinks and the remainder emits as lawful outward
-    grade; a frontage needing more than the caps allow stays a reported
-    conflict rather than a silent lift."""
-    entry_arm, _ = _pad_face_arm(92.0, {2: 91.0})
-    seat_arm, rem = _pad_face_arm(100.0, {2: 91.0})
-    assert rem == 0
-    assert entry_arm[1] < seat_arm[1] < 100.0        # toward the seat, not to it
-    assert abs(seat_arm[1] - seat_arm[2]) <= 5.0 + 1e-9
-    # The sweep-path number is proximal-weight calibrated: it is the
-    # pull-vs-competing-reference fixpoint, so it moved with the measured
-    # default (spec docs/specs/ref-pull-interim-spec.md §1, 2026-08-04:
-    # ``O4_YIELD_REF_WEIGHT`` 0.2 → 0.02).  Measured 97.9511 at w=0.02 vs
-    # 97.9960 at w=0.2 — the least-displacement SEMANTICS above (strictly
-    # between the entry state and the seat, outward grade lawful) are what
-    # this test pins; the scalar path has no sweep structure and is
-    # weight-independent at 96.0.
-    expected = 97.951 if _sweep_path else 96.0
-    assert seat_arm[1] == pytest.approx(expected, abs=1e-3)
-
-
-def test_pad_face_contact_takes_least_displacement_when_capped(_sweep_path):
-    """The seat reference is a REFERENCE, not a hold: where the caps
-    cannot reach it the contact settles at the nearest lawful value
-    (minimum displacement), never past it."""
-    elev = [100.0, 92.0, 90.0]
-    edges = [(1, 2, 1.0)]
-    rem, _ = feasibility_project(
-        elev, [{"edges": edges}], {2}, force_scalar=True,
-        flat_groups=[{0}], group_refs=[100.0],
-        node_refs={1: 100.0})
-    assert rem == 0
-    assert elev[1] == pytest.approx(91.0, abs=1e-9)      # 90 + cap, not 100
-
-
-def test_group_reference_returns_exactly(_sweep_path):
-    # Flat pad {1, 2} displaced to 95 with slack edges: the rigid group
-    # must return to its reference level exactly and stay flat.
-    elev = [90.0, 95.0, 95.0, 90.0]
-    edges = [(0, 1, 10.0), (2, 3, 10.0)]
-    rem, _ = feasibility_project(elev, [{"edges": edges}], {0, 3},
-                                 force_scalar=True,
-                                 flat_groups=[{1, 2}],
-                                 group_refs=[98.0])
-    assert rem == 0
-    assert elev[1] == elev[2] == 98.0
+def test_reference_kwargs_are_gone(_sweep_path):
+    """``feasibility_project`` must not silently accept a reference
+    argument again — a caller that still passes one is a live reference
+    channel, which is exactly what the kill removed."""
+    import inspect
+    from auto_patch.elevation_per_surface.route_profile.one_solve import (
+        feasibility_project)
+    params = inspect.signature(feasibility_project).parameters
+    assert "node_refs" not in params
+    assert "group_refs" not in params

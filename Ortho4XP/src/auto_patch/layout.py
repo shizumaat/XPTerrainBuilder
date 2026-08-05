@@ -2515,10 +2515,10 @@ class PavementLayout:
         # by ONE step, so it cannot compound — with the rounding
         # DIRECTION chosen per pair against that pair's own raw cap, so a
         # naive nearest-snap cannot re-mint an over-cap census row.
-        # Gate off ⇒ not imported, not called, byte-identical.
-        if (os.environ.get("O4_EMIT_SNAP_GUARD",
-                           os.environ.get("O4_RAW_LAW_SWEEPS", "0")) == "1"):
-            from . import emit_snap as _emit_snap
+        # STANDING LAW (docs/RULINGS.md 2026-08-05): the gates are gone;
+        # ``emit_snap.emit_snap_enabled`` is the one predicate.
+        from . import emit_snap as _emit_snap
+        if _emit_snap.emit_snap_enabled():
             _snap_pairs = _emit_snap.snap_pairs_from_axes_ll(
                 getattr(self, "_lockstep_pair_caps_ll", None) or [],
                 node_id_to_ll, referenced_nids)
@@ -2666,6 +2666,7 @@ class PavementLayout:
             from .elevation_per_surface.route_profile.apron_terrace import (
                 terrace_certificates_sidecar as _terrace_certs_sidecar,
                 terrace_joints_sidecar as _terrace_joints_sidecar)
+            from .grade_law import ruleset_of as _grade_law_ruleset_of
             _axes_exact, _routes_exact = taxi_axes_exact_ll(self)
             data = {
                 # legacy per-size-split axes (older tools); entries may carry
@@ -2766,6 +2767,15 @@ class PavementLayout:
                 # and the twin audits "certificate-free
                 # panelization = 0" from the patch alone.
                 "terrace_certificates": _terrace_certs_sidecar(self),
+                # REGION RULESET (phase B, docs/RULINGS.md
+                # "Region-specific rulesets").  The key the build
+                # actually ran under — the validator judges in THIS
+                # frame and never re-resolves from the ICAO code, which
+                # is the two-instruments law applied to authority:
+                # production emits what it did, and the census judges
+                # the same law.  A sidecar without the key predates the
+                # split and reads as the default ruleset with a warning.
+                "ruleset": _grade_law_ruleset_of(self),
             }
             Path(str(path) + ".axes.json").write_text(_json.dumps(data))
         except Exception:

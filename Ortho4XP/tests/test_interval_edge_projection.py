@@ -205,24 +205,32 @@ def test_scalar_and_vectorised_agree_on_an_interval_graph(monkeypatch):
 
 
 # ── 7. quantization-margin behaviour on interval edges ───────────────────
-def test_interval_margin_shrinks_finite_sides_inward(monkeypatch):
+def test_interval_finite_sides_are_enforced_at_RAW_law(monkeypatch):
+    """RAW LAW SWEEPS ARE STANDING LAW (docs/RULINGS.md 2026-08-05,
+    build-complete-then-debug).  The emit-quantization margin used to
+    shrink every finite side inward by 0.01 m — correct per pair and
+    COMPOUNDING per path — and is now 0: the sweeps enforce the raw
+    interval and ``auto_patch.emit_snap`` carries the 0.01 m guarantee at
+    emit, bounded by one grid step per node.  A stale
+    ``EMIT_QUANTIZATION_MARGIN_M`` in config must no longer reach the
+    projection."""
     import auto_patch.config as cfg
     monkeypatch.setattr(cfg, "EMIT_QUANTIZATION_MARGIN_M", 0.1)
-    # Ceiling 3.0 with a 0.1 margin is enforced at 2.9, so a high free node
-    # settles at 2.9 — yet the RAW tally (against 3.0) reports no violation.
     elev = [0.0, 11.0]
     rem, _bh = _project(elev, [(1, 0, None, 3.0)], hard={0})
     assert rem == 0
-    assert elev[1] == pytest.approx(2.9, abs=1e-3)
+    assert elev[1] == pytest.approx(3.0, abs=1e-3)
 
 
-def test_interval_margin_leaves_open_side_alone(monkeypatch):
+def test_interval_open_side_is_still_left_alone(monkeypatch):
+    """The one-sided slab's OPEN side stays open (that was never the
+    margin's business), and its finite side now settles on the RAW law
+    value — see the standing-law note above."""
     import auto_patch.config as cfg
     monkeypatch.setattr(cfg, "EMIT_QUANTIZATION_MARGIN_M", 0.1)
-    # Floor 2.0 (finite) shrinks inward to 2.1; the open ceiling is untouched.
     elev = [0.0, -5.0]
     _project(elev, [(1, 0, 2.0, None)], hard={0})
-    assert elev[1] == pytest.approx(2.1, abs=1e-3)
+    assert elev[1] == pytest.approx(2.0, abs=1e-3)
 
 
 def test_margined_interval_helper_matches_margined_budget_symmetric():

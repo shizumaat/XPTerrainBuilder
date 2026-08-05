@@ -641,10 +641,22 @@ def check_runway_profile(layout, end_grade_cap="default",
     grade-change-per-metre (curvature)."""
     import math
     from .config import (
-        RUNWAY_MAX_GRADE, RUNWAY_END_GRADE, RUNWAY_END_FRACTION,
-        RUNWAY_MAX_GRADE_CHANGE_PER_M)
+        RUNWAY_END_FRACTION, runway_code_letter as _rw_letter,
+        runway_code_number as _rw_code)
+    from .grade_law import runway_profile_law as _rw_law_of, ruleset_of
+    # REGION RULESETS, phase B: the runway is judged under ITS OWN
+    # authority — the same ``grade_law.runway_profile_law`` call the
+    # solver's ``faa_joint_solve`` site makes, in the ruleset the LAYOUT
+    # carries (never re-resolved from the identifier here).  The caps are
+    # per-runway, so they are resolved inside the per-ref loop below and
+    # these module-level names are only the fallbacks for a layout with
+    # no runway geometry to key on.
+    _rs = ruleset_of(layout)
+    _default_law = _rw_law_of(4, "E", ruleset=_rs)
+    RUNWAY_MAX_GRADE = _default_law["max_grade"]
+    RUNWAY_MAX_GRADE_CHANGE_PER_M = _default_law["max_grade_change_per_m"]
     if end_grade_cap == "default":
-        end_grade_cap = RUNWAY_END_GRADE
+        end_grade_cap = _default_law["end_grade"]
 
     by_ref: dict = {}
     for s in layout.shapes:
@@ -730,6 +742,20 @@ def check_runway_profile(layout, end_grade_cap="default",
         ox, oy, ux, uy, L = ax
         if L <= 0:
             continue
+        # PHASE B: THIS runway's own authority-keyed caps.  The class
+        # comes from the runway's own length and width, exactly as the
+        # solver's ``faa_joint_solve`` site keys them, so the profile we
+        # built and the profile we judge are bounded by one law.
+        _rw_w = max((max(p[1] * -ux + p[0] * uy for p in cs)
+                     - min(p[1] * -ux + p[0] * uy for p in cs))
+                    for _s, cs in items if cs) if items else 0.0
+        _law = _rw_law_of(_rw_code(L), _rw_letter(_rw_w),
+                          runway_length_m=L, ruleset=_rs)
+        RUNWAY_MAX_GRADE = _law["max_grade"]
+        RUNWAY_MAX_GRADE_CHANGE_PER_M = _law["max_grade_change_per_m"]
+        # The caller may DISABLE the end-zone check (``end_grade_cap=
+        # None``); when it is enabled the value is this runway's own.
+        _end_cap = None if end_grade_cap is None else _law["end_grade"]
         # Crossing-influence exclusion (de-segmented single-poly rings only —
         # a gate-off runway carries no ``from_single_poly`` shape, so
         # ``crossing_zones`` stays empty and the legacy path below is
@@ -805,8 +831,8 @@ def check_runway_profile(layout, end_grade_cap="default",
                     fi, fj = d0 / L, d1 / L
                     in_end = (min(fi, fj) < RUNWAY_END_FRACTION
                               or max(fi, fj) > 1.0 - RUNWAY_END_FRACTION)
-                    cap = (end_grade_cap
-                           if (in_end and end_grade_cap is not None)
+                    cap = (_end_cap
+                           if (in_end and _end_cap is not None)
                            else RUNWAY_MAX_GRADE)
                     if _seam_segment(x0, y0, x1, y1):
                         # Two DEM anchors on the cut-back line: report the
@@ -877,7 +903,7 @@ def check_runway_profile(layout, end_grade_cap="default",
             fi, fj = d0 / L, d1 / L
             in_end = (min(fi, fj) < RUNWAY_END_FRACTION
                       or max(fi, fj) > 1.0 - RUNWAY_END_FRACTION)
-            cap = (end_grade_cap if (in_end and end_grade_cap is not None)
+            cap = (_end_cap if (in_end and _end_cap is not None)
                    else RUNWAY_MAX_GRADE)
             if _seam_segment(x0, y0, x1, y1):     # ruling 2026-07-26
                 if abs(e1 - e0) - RUNWAY_MAX_GRADE * seg > noise_m:
@@ -977,8 +1003,25 @@ def check_runway_end_skirt(layout, dem, tile_lat, tile_lon,
         runway_end_governed_length_beyond_pavement_m,
         runway_end_governed_length_m,
         runway_end_skirt_floor_profile,
-        runway_end_skirt_floor_profile_beyond_pavement)
+        runway_end_skirt_floor_profile_beyond_pavement,
+        ruleset_of as _grade_law_ruleset_of)
+    from .config import runway_code_letter as _rw_letter
     from .layout import R_EARTH
+
+    # REGION RULESET (phase B): the reader judges the skirt under the
+    # SAME authority the emitter built it under — resolved from the
+    # layout, never re-derived from the ICAO identifier here.
+    _skirt_ruleset = _grade_law_ruleset_of(layout)
+
+    def _floor_profile_ruleset(distances_m, start_grade=0.0):
+        return runway_end_skirt_floor_profile(
+            distances_m, start_grade, _skirt_ruleset)
+
+    def _floor_beyond_pavement_ruleset(distances_m, start_grade=0.0,
+                                       pavement_beyond_end_m=0.0):
+        return runway_end_skirt_floor_profile_beyond_pavement(
+            distances_m, start_grade, pavement_beyond_end_m,
+            _skirt_ruleset)
 
     if dem is None:
         return []
@@ -1277,7 +1320,7 @@ def check_runway_end_skirt(layout, dem, tile_lat, tile_lon,
                 (governed - 0.5 * step_m) / step_m)))
             distances = [float(k) * step_m
                          for k in range(1, n_stations + 1)]
-            depths = runway_end_skirt_floor_profile_beyond_pavement(
+            depths = _floor_beyond_pavement_ruleset(
                 distances, entry_grade, pavement_beyond_end)
             worst = None
             for d, depth in zip(distances, depths):
@@ -1298,7 +1341,9 @@ def check_runway_end_skirt(layout, dem, tile_lat, tile_lon,
 
         # The end corridor's lateral extent — ONE law helper, shared with
         # the emitter and reused by the flank march below.
-        half = runway_end_corridor_half_width_m(runway_width, full_len)
+        half = runway_end_corridor_half_width_m(
+            runway_width, full_len, _rw_letter(runway_width),
+            _skirt_ruleset)
         perp = (-ny, nx)
 
         # ── RISING terrain: the RESA ceiling (arc A1, 2026-07-24) ──
@@ -1325,7 +1370,7 @@ def check_runway_end_skirt(layout, dem, tile_lat, tile_lon,
                 d, governed_length_beyond_pavement_m=governed,
                 entry_grade=entry_grade,
                 pavement_beyond_end_m=pavement_beyond_end,
-                resa_reach_m=resa_reach)
+                resa_reach_m=resa_reach, ruleset=_skirt_ruleset)
             if ceiling_off is None:
                 break
             limit = float(ref) + ceiling_off
@@ -1383,7 +1428,7 @@ def check_runway_end_skirt(layout, dem, tile_lat, tile_lon,
                     (room - 0.5 * step_m) / step_m)))
                 lateral_distances = [float(k) * step_m
                                      for k in range(1, lateral_stations + 1)]
-                lateral_depths = runway_end_skirt_floor_profile(
+                lateral_depths = _floor_profile_ruleset(
                     lateral_distances, 0.0)
                 for dl, depth in zip(lateral_distances, lateral_depths):
                     qx = edge_x + sxn * dl

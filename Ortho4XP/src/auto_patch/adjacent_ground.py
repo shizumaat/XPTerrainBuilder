@@ -71,6 +71,7 @@ from .config import (
     CLEARANCE_OBSTRUCTION_THRESHOLD_M,
     CLEARANCE_STATION_STEP_M,
     RUNWAY_STRIP_HALF_WIDTH_BY_CODE,
+    ruleset_strip_half_width_m as _ruleset_strip_half_width_m,
     RUNWAY_STRIP_WALL_LAW_ENABLED,
     STRIP_PRECEDENCE_ENABLED,
     STRIP_WIDTH_FROM_CENTERLINE_ENABLED,
@@ -88,8 +89,9 @@ from .grade_law import (
     runway_strip_band_width_m,
     runway_strip_lateral_footprint_ring,
     runway_strip_longitudinal_clamp,
-    runway_strip_max_longitudinal_slope,
     runway_strip_wall_keepout_rings,
+    ruleset_of as grade_law_ruleset_of,
+    strip_longitudinal_law,
 )
 from .layout import (
     BuiltShape,
@@ -4345,7 +4347,9 @@ def _family_params(layout, shape, rw_axes):
         except (_GEOM_EXC + (ValueError,)):
             return None
         code_number = runway_code_number(axis[2])
-        width = RUNWAY_STRIP_HALF_WIDTH_BY_CODE[code_number]
+        # PHASE B: ruleset-keyed graded half-width (§4 row 6).
+        width = _ruleset_strip_half_width_m(
+            code_number, None, grade_law_ruleset_of(layout))
         # Slot 4 (optional, "one S"): the runway's two END approach
         # classes.  Absent on legacy 3-tuple axes records — the march
         # falls back to the conservative instrument geometry then.
@@ -4495,7 +4499,11 @@ def _strip_law_params(layout, shape, rw_axes, trigger_by_family,
     except (_GEOM_EXC + (ValueError, AttributeError)):
         return None
     code = runway_code_number(near[2])
-    width = float(RUNWAY_STRIP_HALF_WIDTH_BY_CODE[code])
+    # PHASE B: the graded half-width is RULESET-KEYED (§4 row 6 — FAA
+    # Appendix G 76.2 m vs ICAO 75 m at code 4), never a bare constant
+    # read at a law site.
+    width = float(_ruleset_strip_half_width_m(
+        code, None, grade_law_ruleset_of(layout)))
     ceil_off, envelope_at, floor_depth = _band_family_closures(
         "runway", code, None, width)
     params = (floor_depth, ceil_off, width,
@@ -6809,11 +6817,18 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                 _near = None
             if _near is not None:
                 _long_axis = _near[1]
-                _long_slope = runway_strip_max_longitudinal_slope(
-                    runway_code_number(_near[2]))
+                # PHASE B + §A3(b): the cap is RULESET-KEYED and the
+                # strip's own CURVATURE law (ICAO §3.4.14 / FAA §3.16.5
+                # item 5) rides the same clamp — one law resolver
+                # (``grade_law.strip_longitudinal_law``) for the trigger,
+                # the clamp and the validator.
+                _long_slope, _long_arc = strip_longitudinal_law(
+                    runway_code_number(_near[2]),
+                    ruleset=grade_law_ruleset_of(layout))
 
                 def _strip_long(ring, ring_alts_in, weld_flags,
                                 _axis=_long_axis, _slope=_long_slope,
+                                _arc=_long_arc,
                                 _zone=strip_lateral_prep):
                     global _STRIP_LONGITUDINAL_MAX_DELTA_M
                     inside = [_zone.contains(Point(px, py))
@@ -6822,7 +6837,8 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                         return ring_alts_in
                     out = runway_strip_longitudinal_clamp(
                         ring, ring_alts_in, _axis, _slope,
-                        pinned=weld_flags, inside=inside)
+                        pinned=weld_flags, inside=inside,
+                        arc_rate_per_m=_arc)
                     for _a, _b in zip(ring_alts_in, out):
                         if _a is None or _b is None:
                             continue

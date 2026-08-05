@@ -135,23 +135,29 @@ def test_clamp_only_touches_ground_inside_the_footprint():
     assert out == alts
 
 
-# ── §1/§2 gating: OFF must be structurally inert ────────────────────
+# ── §1/§2: STANDING LAW (the gate is retired) ───────────────────────
+# docs/RULINGS.md 2026-08-05, build-complete-then-debug: "NO GATES.
+# Every believed-in law becomes standing law; O4_ law gates and their env
+# overrides are DELETED as their territory is touched."  The former
+# gate-OFF twins below become STANDING-LAW twins: the law is always on,
+# and a layout with no runway geometry still yields no zone.
 
-def test_gate_defaults_off_and_zone_is_none():
-    assert CFG.STRIP_PRECEDENCE_ENABLED is False
+def test_strip_precedence_is_standing_law():
+    assert CFG.STRIP_PRECEDENCE_ENABLED is True
     from auto_patch import adjacent_ground as AG
-    assert AG.runway_strip_lateral_zone(object()) is None
+    # …and a layout with nothing to key on still has no zone (the honest
+    # fallback, which is what the old gate-off assertion really tested).
+    empty = type("_L", (), {"shapes": []})()
+    assert AG.runway_strip_lateral_zone(empty) is None
 
 
 def test_gate_on_builds_the_lateral_half_of_the_wall_footprint():
     """§1 must not mint a second geometry: the law-swap zone is the
     LATERAL rectangle of the wall keepout footprint (between the ends;
     the end corridors keep the runway-END regime's own law)."""
-    os.environ["O4_STRIP_PRECEDENCE"] = "1"
     try:
-        cfg = importlib.reload(CFG)
-        ag = importlib.reload(
-            importlib.import_module("auto_patch.adjacent_ground"))
+        cfg = CFG
+        ag = importlib.import_module("auto_patch.adjacent_ground")
         assert cfg.STRIP_PRECEDENCE_ENABLED is True
 
         class _Shape:
@@ -175,10 +181,7 @@ def test_gate_on_builds_the_lateral_half_of_the_wall_footprint():
         assert zone.context.difference(wall).area == pytest.approx(0.0)
         assert wall.area > zone.context.area
     finally:
-        os.environ.pop("O4_STRIP_PRECEDENCE", None)
-        importlib.reload(CFG)
-        importlib.reload(importlib.import_module("auto_patch.adjacent_ground"))
-        importlib.reload(importlib.import_module("auto_patch.verification"))
+        pass
 
 
 # ── §1 lockstep: emitter march and validator mirror defer together ──
@@ -321,20 +324,19 @@ def _read_rows(path):
     return CG._check_strip_longitudinal_grade(ways, nodes, ll_to_m)
 
 
-def test_reader_is_silent_with_the_gate_off(tmp_path):
+def test_reader_reads_the_strip_under_standing_law(tmp_path):
+    """The former gate-off silence twin, inverted by the retirement: the
+    reader now always reads, so a 40 % along-axis step inside the strip
+    flags without any environment set-up."""
     patch = _write_patch(tmp_path, [100.0, 100.0, 110.0, 100.0])
     rows, pairs, _ways = _read_rows(patch)
-    assert rows == [] and pairs == 0
+    assert pairs > 0
+    assert rows, "a 40 % along-axis step inside the strip must flag"
 
 
 def test_reader_flags_an_over_cap_along_axis_pair(tmp_path):
-    os.environ["O4_STRIP_PRECEDENCE"] = "1"
     try:
-        # config carries the gate; check_grade snapshots it at import, so
-        # BOTH modules must be reloaded (reloading only the reader picks up
-        # the cached, gate-off config).
-        importlib.reload(CFG)
-        cg = importlib.reload(CG)
+        cg = CG
         patch = _write_patch(tmp_path, [100.0, 100.0, 110.0, 100.0])
         nodes, ways = cg._parse_osm(patch, feature_out={})
         ll_to_m = cg._ll_to_m_factory(nodes)
@@ -345,18 +347,14 @@ def test_reader_flags_an_over_cap_along_axis_pair(tmp_path):
         assert rows[0].grade_pct > 1.5
         assert n_ways == 1
     finally:
-        os.environ.pop("O4_STRIP_PRECEDENCE", None)
-        importlib.reload(CFG)
-        importlib.reload(CG)
+        pass
 
 
 def test_clamped_ground_passes_its_own_reader(tmp_path):
     """LOCKSTEP, the point of the round: run the EMITTER's law over the
     unlawful profile, emit that, and the VALIDATOR must find nothing."""
-    os.environ["O4_STRIP_PRECEDENCE"] = "1"
     try:
-        importlib.reload(CFG)
-        cg = importlib.reload(CG)
+        cg = CG
         raw = [100.0, 100.0, 110.0, 100.0]
         pts = [(500.0 + i * 25.0, 40.0) for i in range(len(raw))]
         fixed = GL.runway_strip_longitudinal_clamp(
@@ -369,9 +367,7 @@ def test_clamped_ground_passes_its_own_reader(tmp_path):
         assert pairs > 0
         assert rows == [], [(r.grade_pct, r.distance_m) for r in rows]
     finally:
-        os.environ.pop("O4_STRIP_PRECEDENCE", None)
-        importlib.reload(CFG)
-        importlib.reload(CG)
+        pass
 
 
 # ── §2 completeness: the RESULTING surface, not only emitted pairs ──
@@ -411,9 +407,10 @@ def test_resulting_surface_reader_covers_unemitted_ground():
     assert VF._strip_longitudinal_scan(groups, _pavement) == []
 
 
-def test_resulting_surface_reader_is_silent_with_the_gate_off():
-    """The whole family is one gate: gate off, the reader returns [] before
-    it touches geometry (so it cannot cost a default build anything)."""
+def test_resulting_surface_reader_needs_geometry_not_a_gate():
+    """The gate is retired (standing law), so the reader's early exit is
+    now the honest one: no DEM and no runway ⇒ nothing to read."""
     from auto_patch import verification as VF
-    assert CFG.STRIP_PRECEDENCE_ENABLED is False
-    assert VF.check_strip_longitudinal(object(), None, 0, 0) == []
+    assert CFG.STRIP_PRECEDENCE_ENABLED is True
+    empty = type("_L", (), {"shapes": [], "anchor": (0.0, 0.0)})()
+    assert VF.check_strip_longitudinal(empty, None, 0, 0) == []

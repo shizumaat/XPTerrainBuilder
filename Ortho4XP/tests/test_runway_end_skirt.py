@@ -101,31 +101,48 @@ def _grades_between_stations(depths, stations):
 
 class TestFloorProfile:
     def test_depths_start_at_zero_and_never_recover(self):
-        depths = runway_end_skirt_floor_profile(_STATIONS)
+        depths = runway_end_skirt_floor_profile(_STATIONS, 0.0, _FAA)
         assert depths[0] == 0.0
         assert all(b >= a for a, b in zip(depths, depths[1:]))
 
     def test_near_zone_respects_three_percent(self):
-        depths = runway_end_skirt_floor_profile(_STATIONS)
+        """FAA AC §3.16.5 item 2: the first 200 ft (61 m) beyond the end
+        falls between 0 and 3.0 %."""
+        depths = runway_end_skirt_floor_profile(_STATIONS, 0.0, _FAA)
         for i, grade in enumerate(_grades_between_stations(depths, _STATIONS)):
             if _STATIONS[i + 1] <= RUNWAY_END_SKIRT_NEAR_ZONE_M:
                 assert grade <= RUNWAY_END_SKIRT_NEAR_MAX_DOWN_GRADE + 1e-9
 
+    def test_icao_has_no_near_zone(self):
+        """Annex 14 §3.5.10 is a single "should not exceed a downward
+        slope of 5 per cent" with NO near zone, so an ICAO skirt is
+        steeper close to the end than an FAA one — jurisdictional
+        fidelity, and the row-10 delta phase B predicted."""
+        icao = runway_end_skirt_floor_profile(_STATIONS, 0.0, "icao")
+        faa = runway_end_skirt_floor_profile(_STATIONS, 0.0, _FAA)
+        near = [i for i, d in enumerate(_STATIONS)
+                if 0 < d <= RUNWAY_END_SKIRT_NEAR_ZONE_M]
+        assert near
+        assert all(icao[i] >= faa[i] for i in near)
+        assert any(icao[i] > faa[i] + 1e-9 for i in near)
+        for grade in _grades_between_stations(icao, _STATIONS):
+            assert grade <= RUNWAY_END_SKIRT_MAX_DOWN_GRADE + 1e-9
+
     def test_far_zone_respects_five_percent(self):
-        depths = runway_end_skirt_floor_profile(_STATIONS)
+        depths = runway_end_skirt_floor_profile(_STATIONS, 0.0, _FAA)
         for grade in _grades_between_stations(depths, _STATIONS):
             assert grade <= RUNWAY_END_SKIRT_MAX_DOWN_GRADE + 1e-9
 
     def test_far_zone_reaches_five_percent(self):
         """The floor is the LOWEST lawful surface — far out it must
         actually descend at the full 5 %, not something shallower."""
-        depths = runway_end_skirt_floor_profile(_STATIONS)
+        depths = runway_end_skirt_floor_profile(_STATIONS, 0.0, _FAA)
         grades = _grades_between_stations(depths, _STATIONS)
         assert grades[-1] == pytest.approx(
             RUNWAY_END_SKIRT_MAX_DOWN_GRADE, abs=1e-9)
 
     def test_grade_change_rate_limited_everywhere(self):
-        depths = runway_end_skirt_floor_profile(_STATIONS)
+        depths = runway_end_skirt_floor_profile(_STATIONS, 0.0, _FAA)
         grades = _grades_between_stations(depths, _STATIONS)
         step = _STATIONS[1] - _STATIONS[0]
         for a, b in zip(grades, grades[1:]):
@@ -251,8 +268,17 @@ def _edge(n_stations=9):
     return stations, alts, outwards, caps
 
 
+# REGION RULESETS, phase B: the ``RUNWAY_END_SKIRT_*`` module constants
+# ARE the FAA ruleset's values (AC 150/5300-13B §3.16.5), so every test
+# below that asserts against them names ``"faa"`` explicitly.  ICAO
+# Annex 14 §3.5.10 has NO 61 m near zone — its own behaviour has its own
+# twins.  Passing no ruleset resolves to the module default, which is
+# ICAO ("everywhere else" is the owner's default).
+_FAA = "faa"
+
+
 def _law_floor_depth(distance_m):
-    return runway_end_skirt_floor_profile([distance_m])[0]
+    return runway_end_skirt_floor_profile([distance_m], 0.0, _FAA)[0]
 
 
 class TestBuildFilledSkirts:
@@ -263,7 +289,8 @@ class TestBuildFilledSkirts:
         stations, alts, outwards, _caps = _edge()
         return _build_filled_skirts(
             stations, alts, outwards, [cap] * len(stations),
-            _law_floor_depth, runway_end_skirt_profile_breakpoints(),
+            _law_floor_depth,
+            runway_end_skirt_profile_breakpoints(0.0, _FAA),
             1.0, _STEP, sample_dem)
 
     def test_flat_terrain_leaves_no_skirt(self):

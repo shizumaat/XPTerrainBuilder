@@ -72,6 +72,17 @@ def snap_grid_m() -> float:
     return _SNAP_GRID_M
 
 
+def emit_snap_enabled() -> bool:
+    """STANDING LAW (docs/RULINGS.md 2026-08-05, build-complete-then-
+    debug: "NO GATES.  Every believed-in law becomes standing law; O4_
+    law gates and their env overrides are DELETED as their territory is
+    touched").
+
+    The law-aware emit snap IS the 0.01 m emit-quantization guarantee,
+    and the raw-law sweeps are its other half — the margin and the snap
+    must never be off (or on) separately, so retiring one gate retires
+    both.  ``O4_EMIT_SNAP_GUARD`` and ``O4_RAW_LAW_SWEEPS`` are GONE."""
+    return True
 #: A ring vertex whose incident edges turn by more than this is a REAL
 #: grade break on that ring, not a point on a straight run.  Same value and
 #: same test as ``route_profile.solve._fair_ring_edges``' ``max_bend_deg``

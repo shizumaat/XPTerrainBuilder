@@ -150,9 +150,25 @@ try:
         runway_strip_max_longitudinal_slope as _runway_strip_long_slope,
         drainage_spine_parents as _drainage_spine_parents,
         DRAINAGE_SPINE_PARENT_ROLES as _DRAINAGE_SPINE_PARENT_ROLES,
+        # ── phase B + the reg families: the law functions the emitters
+        # bind through, read HERE verbatim so the census and the surface
+        # cannot drift (grade-law completeness, lockstep half).
+        strip_longitudinal_law as _strip_longitudinal_law,
+        strip_longitudinal_breaches as _strip_longitudinal_breaches,
+        resa_transverse_band as _resa_transverse_band,
+        raoa_footprint_ring as _raoa_footprint_ring,
+        raoa_applies as _raoa_applies,
+        shoulder_transverse_envelope as _shoulder_transverse_envelope,
+        shoulder_edge_dropoff_exempt as _shoulder_dropoff_exempt,
+        transverse_surface_bounds as _transverse_surface_bounds,
+        drainage_minimum_grade as _drainage_minimum_grade,
+        drainage_minimum_shortfall as _drainage_minimum_shortfall,
     )
     from auto_patch.config import (
         runway_code_number as _runway_code_number,
+        runway_code_letter as _runway_code_letter,
+        resolve_ruleset as _resolve_ruleset,
+        DEFAULT_RULESET as _DEFAULT_RULESET,
         STRIP_PRECEDENCE_ENABLED as _STRIP_PRECEDENCE,
     )
 except Exception:
@@ -161,6 +177,19 @@ except Exception:
     _runway_strip_longitudinal_runs = None
     _runway_strip_long_slope = None
     _runway_code_number = None
+    _runway_code_letter = None
+    _resolve_ruleset = None
+    _DEFAULT_RULESET = "icao"
+    _strip_longitudinal_law = None
+    _strip_longitudinal_breaches = None
+    _resa_transverse_band = None
+    _raoa_footprint_ring = None
+    _raoa_applies = None
+    _shoulder_transverse_envelope = None
+    _shoulder_dropoff_exempt = None
+    _transverse_surface_bounds = None
+    _drainage_minimum_grade = None
+    _drainage_minimum_shortfall = None
     _STRIP_PRECEDENCE = False
     _DRAINAGE_SPINE_PARENT_ROLES = frozenset({
         "runway", "runway_crossing", "primary_parallel",
@@ -1658,11 +1687,29 @@ def _point_in_rect_ring(px: float, py: float,
     return (margin <= t1 <= l1 - margin) and (margin <= t2 <= l2 - margin)
 
 
+# ── THE ACTIVE RULESET (phase B) ─────────────────────────────────────
+# The census judges in the ruleset the BUILD ran under — carried by the
+# ``.axes.json`` sidecar's ``ruleset`` key and never re-resolved from the
+# ICAO identifier here.  That is the two-instruments law applied to
+# authority: production emits what it did, and the validator judges the
+# same law.  A sidecar predating the split has no key; the module default
+# then applies and ``run_checks`` says so out loud.
+_ACTIVE_RULESET = _DEFAULT_RULESET
+
+
+def _set_active_ruleset(key) -> str:
+    """Install the sidecar's ruleset for this run and return it."""
+    global _ACTIVE_RULESET
+    _ACTIVE_RULESET = str(key or _DEFAULT_RULESET)
+    return _ACTIVE_RULESET
+
+
 def _runway_strip_groups(ways: List[Way], nodes, ll_to_m):
     """One record per RUNWAY of this patch:
-    ``(rings, axis_unit, code_number, length_m)`` — the strip FOOTPRINT
-    rings in the check's metre frame plus the runway's along-axis unit
-    vector and aerodrome code number.
+    ``(rings, axis_unit, code_number, length_m, code_letter)`` — the strip
+    FOOTPRINT rings in the check's metre frame plus the runway's
+    along-axis unit vector, aerodrome code number and (phase B) the code
+    LETTER the FAA-keyed tables need.
 
     ``[]`` when the law module is unavailable or the patch carries no
     runway.  Runway ways are grouped by ``ref`` first: a tile cut or a
@@ -1705,11 +1752,14 @@ def _runway_strip_groups(ways: List[Way], nodes, ll_to_m):
         length = math.hypot(bx - ax, by - ay)
         if length < 1.0:
             continue
-        rings = _runway_strip_wall_keepout_rings((ax, ay), (bx, by), width_m)
+        letter = (_runway_code_letter(width_m)
+                  if _runway_code_letter is not None else None)
+        rings = _runway_strip_wall_keepout_rings(
+            (ax, ay), (bx, by), width_m, letter, _ACTIVE_RULESET)
         code = (_runway_code_number(length)
                 if _runway_code_number is not None else 4)
         out.append((rings, ((bx - ax) / length, (by - ay) / length),
-                    code, length))
+                    code, length, letter))
         # NOTE for consumers: ``rings[0]`` is the LATERAL graded-strip
         # rectangle (between the ends) and ``rings[1:]`` the two END
         # corridors — the split the abeam-longitudinal law needs (see
@@ -1721,7 +1771,7 @@ def _runway_strip_keepout_rings(ways: List[Way], nodes, ll_to_m):
     """The runway STRIP footprints of this patch, as closed rings (the
     wall law's consumer view of ``_runway_strip_groups``)."""
     rings = []
-    for group_rings, _axis, _code, _length in _runway_strip_groups(
+    for group_rings, _axis, _code, _length, _lett in _runway_strip_groups(
             ways, nodes, ll_to_m):
         rings.extend(group_rings)
     return rings
@@ -1840,7 +1890,7 @@ def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
         allow = _pair_quant_noise_m(w)
         if allow < SLOPED_QUAD_ROUNDING_NOISE_M:
             allow = SLOPED_QUAD_ROUNDING_NOISE_M
-        for rings, axis, code, _length in groups:
+        for rings, axis, code, _length, letter in groups:
             # BETWEEN THE ENDS only: ``rings[0]`` is the lateral graded
             # strip; the end corridors carry the runway-END regime's own
             # longitudinal law (FAA §3.16.5 items 2-4), read elsewhere.
@@ -1848,7 +1898,8 @@ def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
                       for px, py in pts]
             if not any(inside):
                 continue
-            cap = _runway_strip_long_slope(code)
+            cap, arc_rate = _strip_longitudinal_law(
+                code, letter, _ACTIVE_RULESET)
             for run in _runway_strip_longitudinal_runs(pts, axis, inside):
                 for a, b in zip(run, run[1:]):
                     if zs[a] is None or zs[b] is None:
@@ -1873,6 +1924,343 @@ def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
                         elev_a=float(zs[a]), elev_b=float(zs[b])))
     out.sort(key=lambda v: -v.grade_pct)
     return out, n_pairs, len(hit_ways)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# VALIDATOR TWINS FOR THE REMAINING REG FAMILIES
+# (spec docs/specs/DRAFT-reg-families-round-spec.md rounds A and B)
+#
+# Each reader below evaluates THE SAME ``grade_law`` function its
+# generation-binding half evaluates, in the ruleset the SIDECAR records —
+# so the surface we build and the surface we check cannot drift, and a
+# family cannot be lawful under one authority and judged under another.
+# ══════════════════════════════════════════════════════════════════════
+
+#: A rate instrument reading a 0.1 m emit quantum at 30 m stations has a
+#: blind spot of ~0.33 pp of grade change; a row inside it is
+#: PASS-with-residual (materiality law), never iterated on.  Documented
+#: exactly as the RSA lane documented the slope reader's.
+_RATE_READER_BLIND_SPOT = 0.1 / 30.0
+
+
+def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
+                          ) -> Tuple[List[Violation], int, int]:
+    """§A3(b) twin — strip stations whose GRADE CHANGE along the runway
+    axis outruns the strip's rate-of-change law.
+
+    ICAO Annex 14 §3.4.14 is qualitative ("as gradual as practicable"),
+    so the ICAO rate is the PROVISIONAL operationalization flagged on the
+    ruleset (owner question 2); FAA AC §3.16.5 item 5 gives ±2 % per
+    100 ft (30.5 m).  Both come from ``grade_law.strip_longitudinal_law``
+    — the same call the emitter's clamp makes."""
+    if _strip_longitudinal_law is None or _strip_longitudinal_breaches is None:
+        return [], 0, 0
+    groups = _runway_strip_groups(ways, nodes, ll_to_m)
+    if not groups:
+        return [], 0, 0
+    out: List[Violation] = []
+    n_stations = 0
+    hit_ways: set = set()
+    for w in ways:
+        if w.role != _STRIP_LONGITUDINAL_ROLE:
+            continue
+        nn = (w.nids[:-1] if len(w.nids) > 1 and w.nids[0] == w.nids[-1]
+              else w.nids)
+        pts, zs = [], []
+        ok = True
+        for k, nid in enumerate(nn):
+            if nid not in nodes:
+                ok = False
+                break
+            pts.append(ll_to_m(*nodes[nid]))
+            zs.append(w.elevs[k] if k < len(w.elevs) else None)
+        if not ok or len(pts) < 3:
+            continue
+        for rings, axis, code, _length, letter in groups:
+            inside = [_point_in_rect_ring(px, py, rings[0], 0.0)
+                      for px, py in pts]
+            if not any(inside):
+                continue
+            cap, arc_rate = _strip_longitudinal_law(
+                code, letter, _ACTIVE_RULESET)
+            if not arc_rate:
+                continue
+            for run in _runway_strip_longitudinal_runs(pts, axis, inside):
+                s = [pts[i][0] * axis[0] + pts[i][1] * axis[1] for i in run]
+                z = [zs[i] for i in run]
+                n_stations += max(0, len(run) - 2)
+                for k in _strip_longitudinal_breaches(
+                        s, z, cap, arc_rate):
+                    if k <= 0 or k >= len(run) - 1:
+                        continue
+                    a, b, c = run[k - 1], run[k], run[k + 1]
+                    if zs[a] is None or zs[b] is None or zs[c] is None:
+                        continue
+                    dp = abs(s[k] - s[k - 1])
+                    dn = abs(s[k + 1] - s[k])
+                    if dp < 1e-6 or dn < 1e-6:
+                        continue
+                    change = abs((float(zs[c]) - float(zs[b])) / dn
+                                 - (float(zs[b]) - float(zs[a])) / dp)
+                    allowed = arc_rate * 0.5 * (dp + dn)
+                    if change - allowed <= _RATE_READER_BLIND_SPOT:
+                        continue        # PASS-with-residual
+                    hit_ways.add(w.wid)
+                    span = 0.5 * (dp + dn)
+                    out.append(Violation(
+                        grade_pct=100.0 * change,
+                        excess_pct=100.0 * (change - allowed),
+                        distance_m=span, de_m=abs(float(zs[c]) - float(zs[a])),
+                        way_a=w, way_b=w, pt_a=pts[a], pt_b=pts[c],
+                        elev_a=float(zs[a]), elev_b=float(zs[c])))
+    out.sort(key=lambda v: -v.grade_pct)
+    return out, n_stations, len(hit_ways)
+
+
+def _check_resa_transverse_grade(ways: List[Way], nodes, ll_to_m
+                                 ) -> Tuple[List[Violation], int, int]:
+    """§A1 twin — the END-corridor ACROSS-corridor grade, a family
+    NOTHING read before (the count therefore RISES on first sight; that
+    is the honest-count law, not a regression).
+
+    Population: ground vertices inside either END corridor ring
+    (``_runway_strip_groups`` rings 1 and 2 — the same footprint the
+    emitter's law uses).  Each consecutive pair whose separation is
+    predominantly ACROSS the extended centreline is judged against
+    ``grade_law.resa_transverse_band`` at its own distance beyond the
+    end: FAA Table 3-6 S-3 inside the 61 m near zone, ±5 % beyond
+    (Fig 3-35); ICAO §3.5.11 ±5 % throughout."""
+    if _resa_transverse_band is None:
+        return [], 0, 0
+    groups = _runway_strip_groups(ways, nodes, ll_to_m)
+    if not groups:
+        return [], 0, 0
+    out: List[Violation] = []
+    n_pairs = 0
+    hit_ways: set = set()
+    for w in ways:
+        if w.role != _STRIP_LONGITUDINAL_ROLE:
+            continue
+        nn = (w.nids[:-1] if len(w.nids) > 1 and w.nids[0] == w.nids[-1]
+              else w.nids)
+        pts, zs = [], []
+        ok = True
+        for k, nid in enumerate(nn):
+            if nid not in nodes:
+                ok = False
+                break
+            pts.append(ll_to_m(*nodes[nid]))
+            zs.append(w.elevs[k] if k < len(w.elevs) else None)
+        if not ok or len(pts) < 2:
+            continue
+        allow = max(_pair_quant_noise_m(w), SLOPED_QUAD_ROUNDING_NOISE_M)
+        for rings, axis, _code, length, letter in groups:
+            ux, uy = axis
+            px, py = -uy, ux
+            # The corridor rings' own along-axis origin: ring 1 is the
+            # approach end (s < 0), ring 2 the departure end (s > L).
+            for ring_idx in (1, 2):
+                if ring_idx >= len(rings):
+                    continue
+                ring = rings[ring_idx]
+                inside = [_point_in_rect_ring(qx, qy, ring, 0.0)
+                          for qx, qy in pts]
+                if not any(inside):
+                    continue
+                for a in range(len(pts) - 1):
+                    b = a + 1
+                    if not (inside[a] and inside[b]):
+                        continue
+                    if zs[a] is None or zs[b] is None:
+                        continue
+                    dx = pts[b][0] - pts[a][0]
+                    dy = pts[b][1] - pts[a][1]
+                    along = abs(dx * ux + dy * uy)
+                    across = abs(dx * px + dy * py)
+                    if across <= along or across < 1.0:
+                        continue        # the LONGITUDINAL skirt law's pair
+                    n_pairs += 1
+                    # distance beyond the end, from the nearer endpoint
+                    s_mid = 0.5 * ((pts[a][0] + pts[b][0]) * ux
+                                   + (pts[a][1] + pts[b][1]) * uy)
+                    beyond = (abs(s_mid) if ring_idx == 1
+                              else max(0.0, s_mid - length))
+                    _min_down, max_abs = _resa_transverse_band(
+                        beyond, letter, _ACTIVE_RULESET)
+                    if not max_abs:
+                        continue
+                    dz = abs(float(zs[b]) - float(zs[a]))
+                    if dz <= max_abs * across + allow:
+                        continue
+                    hit_ways.add(w.wid)
+                    out.append(Violation(
+                        grade_pct=100.0 * dz / across,
+                        excess_pct=100.0 * (
+                            dz - max_abs * across - allow) / across,
+                        distance_m=across, de_m=dz,
+                        way_a=w, way_b=w, pt_a=pts[a], pt_b=pts[b],
+                        elev_a=float(zs[a]), elev_b=float(zs[b])))
+    out.sort(key=lambda v: -v.grade_pct)
+    return out, n_pairs, len(hit_ways)
+
+
+def _check_raoa_rate(ways: List[Way], nodes, ll_to_m
+                     ) -> Tuple[List[Violation], int, int]:
+    """§A4 twin — the RADIO ALTIMETER OPERATING AREA's rate of change
+    (ICAO Annex 14 §3.8.4, ≤2 % per 30 m).
+
+    A no-op under the FAA ruleset: the family does not exist there
+    (``grade_law.raoa_footprint_ring`` returns ``None``), so KCLT reads
+    zero rows by construction — jurisdictional fidelity, not a silent
+    skip.  The reader walks the SAME rectangle the emitter clamps and
+    reuses the §A3(b) rate machinery on that second footprint."""
+    if _raoa_footprint_ring is None:
+        return [], 0, 0
+    groups = _runway_strip_groups(ways, nodes, ll_to_m)
+    if not groups:
+        return [], 0, 0
+    rects = []
+    for rings, axis, _code, length, _letter in groups:
+        ux, uy = axis
+        # The lateral ring's two ends ARE the thresholds in this frame.
+        a_end = (rings[0][0][0] * 0.5 + rings[0][3][0] * 0.5,
+                 rings[0][0][1] * 0.5 + rings[0][3][1] * 0.5)
+        b_end = (rings[0][1][0] * 0.5 + rings[0][2][0] * 0.5,
+                 rings[0][1][1] * 0.5 + rings[0][2][1] * 0.5)
+        for thr, inward in ((a_end, (ux, uy)), (b_end, (-ux, -uy))):
+            ring = _raoa_footprint_ring(thr, inward, _ACTIVE_RULESET)
+            if ring:
+                rects.append((ring, inward))
+    if not rects:
+        return [], 0, 0
+    from auto_patch.config import get_ruleset as _get_ruleset
+    rate = _get_ruleset(_ACTIVE_RULESET).raoa_max_grade_change_per_m
+    if not rate:
+        return [], 0, 0
+    out: List[Violation] = []
+    n_stations = 0
+    hit_ways: set = set()
+    for w in ways:
+        if w.role != _STRIP_LONGITUDINAL_ROLE:
+            continue
+        nn = (w.nids[:-1] if len(w.nids) > 1 and w.nids[0] == w.nids[-1]
+              else w.nids)
+        pts, zs = [], []
+        ok = True
+        for k, nid in enumerate(nn):
+            if nid not in nodes:
+                ok = False
+                break
+            pts.append(ll_to_m(*nodes[nid]))
+            zs.append(w.elevs[k] if k < len(w.elevs) else None)
+        if not ok or len(pts) < 3:
+            continue
+        for ring, inward in rects:
+            inside = [_point_in_rect_ring(qx, qy, ring, 0.0)
+                      for qx, qy in pts]
+            if sum(1 for f in inside if f) < 3:
+                continue
+            idx = [i for i, f in enumerate(inside) if f and zs[i] is not None]
+            if len(idx) < 3:
+                continue
+            s = [pts[i][0] * inward[0] + pts[i][1] * inward[1] for i in idx]
+            z = [float(zs[i]) for i in idx]
+            order = sorted(range(len(idx)), key=lambda k: s[k])
+            s = [s[k] for k in order]
+            z = [z[k] for k in order]
+            src = [idx[k] for k in order]
+            n_stations += max(0, len(s) - 2)
+            for k in range(1, len(s) - 1):
+                dp, dn = s[k] - s[k - 1], s[k + 1] - s[k]
+                if dp < 1e-6 or dn < 1e-6:
+                    continue
+                change = abs((z[k + 1] - z[k]) / dn - (z[k] - z[k - 1]) / dp)
+                allowed = rate * 0.5 * (dp + dn)
+                if change - allowed <= _RATE_READER_BLIND_SPOT:
+                    continue
+                hit_ways.add(w.wid)
+                out.append(Violation(
+                    grade_pct=100.0 * change,
+                    excess_pct=100.0 * (change - allowed),
+                    distance_m=0.5 * (dp + dn), de_m=abs(z[k + 1] - z[k - 1]),
+                    way_a=w, way_b=w,
+                    pt_a=pts[src[k - 1]], pt_b=pts[src[k + 1]],
+                    elev_a=z[k - 1], elev_b=z[k + 1]))
+    out.sort(key=lambda v: -v.grade_pct)
+    return out, n_stations, len(hit_ways)
+
+
+#: Roles the §B3 drainage MINIMUM is read on.  Building pads are excluded
+#: by owner law (``TERMINAL_PADS_SLOPE=False``) and terrace panels by the
+#: open owner question 4 — both exclusions live in
+#: ``grade_law.drainage_minimum_grade``, so this set only names WHICH
+#: emitted ways to walk.
+_DRAINAGE_MIN_ROLES = ("apron", "stand", "groundside", "parking")
+
+
+def _check_drainage_minimum(ways: List[Way], nodes, ll_to_m
+                            ) -> Tuple[List[Violation], int, int]:
+    """§B3 twin — surfaces FLATTER than their drainage minimum.
+
+    FAA §5.9.1.1 mandates a minimum 0.5 % apron gradient; ICAO §3.13.5 is
+    qualitative and states no number, so the apron half is a no-op at
+    every ICAO airport.  The groundside minimum is region-invariant and
+    PROVISIONAL (owner question 3).
+
+    Reported as a SHORTFALL: ``grade_pct`` is the measured grade,
+    ``excess_pct`` how far below the minimum it sits.  Runs shorter than
+    the materiality floor are not read — a 1 m puddle is not a drainage
+    defect."""
+    if _drainage_minimum_grade is None:
+        return [], 0, 0
+    out: List[Violation] = []
+    n_pairs = 0
+    hit_ways: set = set()
+    for w in ways:
+        if w.role not in _DRAINAGE_MIN_ROLES:
+            continue
+        low = _drainage_minimum_grade(w.role, _ACTIVE_RULESET)
+        if not low:
+            continue
+        nn = (w.nids[:-1] if len(w.nids) > 1 and w.nids[0] == w.nids[-1]
+              else w.nids)
+        pts, zs = [], []
+        ok = True
+        for k, nid in enumerate(nn):
+            if nid not in nodes:
+                ok = False
+                break
+            pts.append(ll_to_m(*nodes[nid]))
+            zs.append(w.elevs[k] if k < len(w.elevs) else None)
+        if not ok or len(pts) < 2:
+            continue
+        for a in range(len(pts) - 1):
+            b = a + 1
+            if zs[a] is None or zs[b] is None:
+                continue
+            dist = math.hypot(pts[b][0] - pts[a][0], pts[b][1] - pts[a][1])
+            if dist < _DRAINAGE_MIN_RUN_M:
+                continue
+            n_pairs += 1
+            grade = abs(float(zs[b]) - float(zs[a])) / dist
+            short = _drainage_minimum_shortfall(grade, w.role, _ACTIVE_RULESET)
+            if short <= 0.0:
+                continue
+            hit_ways.add(w.wid)
+            out.append(Violation(
+                grade_pct=100.0 * grade, excess_pct=100.0 * short,
+                distance_m=dist, de_m=abs(float(zs[b]) - float(zs[a])),
+                way_a=w, way_b=w, pt_a=pts[a], pt_b=pts[b],
+                elev_a=float(zs[a]), elev_b=float(zs[b])))
+    out.sort(key=lambda v: -v.excess_pct)
+    return out, n_pairs, len(hit_ways)
+
+
+#: Minimum run (m) over which the drainage minimum is read.  Below it the
+#: 0.01 m emit quantum dominates the measured grade (0.01/2 m = 0.5 %,
+#: exactly the FAA minimum), so a shorter pair says nothing about
+#: drainage.
+_DRAINAGE_MIN_RUN_M = 5.0
 
 
 # ── DRAINAGE-SPINE LAW (owner field report 2026-08-02) ──────────
@@ -3462,6 +3850,7 @@ def run_checks(
     crown_centerline_ll: Optional[list] = None,
     pair_caps_ll: Optional[list] = None,
     terrace_joints_ll: Optional[list] = None,
+    ruleset: Optional[str] = None,
 ) -> Tuple[List[Violation], List[Violation], List[EdgeStep]]:
     """``taxi_axes_ll`` (the builder's APT.DAT taxi centerlines as
     ``[(latlon_points, cL, cT), …]``) supplies the within-shape grade graph's
@@ -3486,6 +3875,21 @@ def run_checks(
     is re-triangulated from the emitted ring (old patches — stricter, and
     cm-noisy where emit repaired a junction ring).
     """
+    # REGION RULESET (phase B).  ``ruleset`` is the SIDECAR's key — the
+    # authority the build actually ran under.  The census NEVER re-derives
+    # it from the ICAO identifier: production emits what it did, and the
+    # validator judges the same law (the two-instruments discipline
+    # applied to authority).  A patch predating the split has no key; the
+    # default then applies and is announced.
+    _active = _set_active_ruleset(ruleset)
+    if not quiet:
+        if ruleset:
+            print(f"  (ruleset: {_active} — from the patch sidecar)")
+        else:
+            print(f"  (ruleset: {_active} — DEFAULT; this patch's sidecar "
+                  f"carries no 'ruleset' key, so it predates the "
+                  f"FAA/ICAO split.  Rebuild for a law-true judgment.)")
+
     open_features: Dict[str, List[Way]] = {}
     nodes, ways = _parse_osm(osm_path, feature_out=open_features)
     ll_to_m = _ll_to_m_factory(nodes, anchor=anchor)
@@ -3686,14 +4090,62 @@ def run_checks(
     strip_long, n_sl_pairs, n_sl_ways = _check_strip_longitudinal_grade(
         ways, nodes, ll_to_m)
     _pv("STRIP ABEAM-LONGITUDINAL grade > the by-code strip cap (ICAO "
-        "Annex 14 §3.4.13 / FAA AC 150/5300-13B §3.16.5 item 1 — a law "
-        "family nothing read before; O4_STRIP_PRECEDENCE)",
+        "Annex 14 §3.4.13 / FAA AC 150/5300-13B §3.16.5 item 1 — "
+        "standing law)",
         strip_long, top_n)
     if n_sl_pairs and not quiet:
         print(f"  ({n_sl_pairs} along-axis strip pair(s) censused over "
               f"{n_sl_ways} band(s) — NEW visibility: these rows were "
               f"never read before this reader existed)")
     within = within + strip_long
+
+    # ── §A3(b) — the strip's CURVATURE law ───────────────────────────
+    strip_arc, n_sa_st, n_sa_ways = _check_strip_arc_rate(
+        ways, nodes, ll_to_m)
+    _pv("STRIP LONGITUDINAL grade-CHANGE rate > the strip arc law "
+        "(FAA AC §3.16.5 item 5 ±2%/30.5 m; ICAO §3.4.14 is qualitative "
+        "— PROVISIONAL operationalization, owner question 2)",
+        strip_arc, top_n)
+    if n_sa_st and not quiet:
+        print(f"  ({n_sa_st} strip station(s) censused over {n_sa_ways} "
+              f"band(s); rate-reader blind spot "
+              f"{100 * _RATE_READER_BLIND_SPOT:.2f} pp — rows inside it "
+              f"are PASS-with-residual)")
+    within = within + strip_arc
+
+    # ── §A1 — the END-corridor TRANSVERSE law ────────────────────────
+    resa_tr, n_rt_pairs, n_rt_ways = _check_resa_transverse_grade(
+        ways, nodes, ll_to_m)
+    _pv("RESA / END-CORRIDOR TRANSVERSE grade > the per-authority cap "
+        "(FAA Table 3-6 S-3 inside 61 m, Fig 3-35 ±5% beyond; ICAO "
+        "Annex 14 §3.5.11 ±5% — a law family nothing read before)",
+        resa_tr, top_n)
+    if n_rt_pairs and not quiet:
+        print(f"  ({n_rt_pairs} across-corridor pair(s) censused over "
+              f"{n_rt_ways} band(s) — NEW visibility)")
+    within = within + resa_tr
+
+    # ── §A4 — the RADIO ALTIMETER OPERATING AREA ─────────────────────
+    raoa, n_ra_st, n_ra_ways = _check_raoa_rate(ways, nodes, ll_to_m)
+    _pv("RAOA grade-change rate > 2%/30 m (ICAO Annex 14 §3.8.4; no FAA "
+        "equivalent exists — a no-op under the FAA ruleset)",
+        raoa, top_n)
+    if n_ra_st and not quiet:
+        print(f"  ({n_ra_st} pre-threshold station(s) censused over "
+              f"{n_ra_ways} band(s))")
+    within = within + raoa
+
+    # ── §B3 — the DRAINAGE MINIMUM ───────────────────────────────────
+    drain_min, n_dm_pairs, n_dm_ways = _check_drainage_minimum(
+        ways, nodes, ll_to_m)
+    _pv("SURFACE FLATTER than its drainage minimum (FAA AC §5.9.1.1 "
+        "0.5% apron; groundside 1.0% PROVISIONAL, owner question 3 — "
+        "ICAO states no apron minimum, so that half is a no-op there)",
+        drain_min, top_n)
+    if n_dm_pairs and not quiet:
+        print(f"  ({n_dm_pairs} drainage pair(s) censused over "
+              f"{n_dm_ways} surface(s) — NEW visibility)")
+    within = within + drain_min
 
     wall_in_strip = _check_no_wall_in_runway_strip(ways, nodes, ll_to_m)
     _pv("RETAINING WALL inside a RUNWAY STRIP footprint (owner ruling "
@@ -3780,6 +4232,7 @@ def main(argv=None) -> int:
     mesh_edges_ll = crown_drops_ll = None
     crown_centerline_ll = pair_caps_ll = None
     terrace_joints_ll = None
+    ruleset_key = None
     sidecar = Path(str(args.osm) + ".axes.json")
     if sidecar.exists():
         try:
@@ -3803,6 +4256,8 @@ def main(argv=None) -> int:
             # APRON TERRACE LAW (2026-08-04): the DECLARED joints.  A
             # patch built before the law simply has no key.
             terrace_joints_ll = _data.get("terrace_joints") or None
+            # REGION RULESET (phase B): the authority the BUILD ran under.
+            ruleset_key = _data.get("ruleset") or None
             print(f"  (axes sidecar loaded: {len(taxi_axes_ll or [])} axes"
                   + (" [exact]" if _exact else "")
                   + f", {len(routes_ll or [])} routes"
@@ -3832,6 +4287,7 @@ def main(argv=None) -> int:
         crown_centerline_ll=crown_centerline_ll,
         pair_caps_ll=pair_caps_ll,
         terrace_joints_ll=terrace_joints_ll,
+        ruleset=ruleset_key,
     )
     if args.strict and (within or cross or steps):
         return 1

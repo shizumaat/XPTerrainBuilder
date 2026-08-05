@@ -70,7 +70,25 @@ def _heca_shape():
     return _G(runway_anchor, spine_adj, pos), {2: 60.790}
 
 
-# ── (a) the PRE-SOLVE context ────────────────────────────────────────────
+# ── (a) STANDING LAW (the gate AND its predicate are retired) ────────────
+
+def test_band_seed_completeness_is_standing_law():
+    """docs/RULINGS.md 2026-08-05, build-complete-then-debug: "NO GATES.
+    Every believed-in law becomes standing law; O4_ law gates and their
+    env overrides are DELETED as their territory is touched."  A band
+    whose own seeds are the runway anchors may not floor a runway node
+    above its own runway value, so the completeness is the law.
+
+    The SEATS lane removed the predicate itself, not just its env read: a
+    constant-true ``band_seed_complete_enabled()`` would be a gate-shaped
+    hole a future edit could re-open.  Both must be gone."""
+    import auto_patch.elevation_per_surface.building_feasibility as BF
+
+    assert not hasattr(BF, "band_seed_complete_enabled")
+    assert 'O4_BAND_SEED_COMPLETE"' not in open(BF.__file__).read()
+
+
+# ── (a2) the PRE-SOLVE context ───────────────────────────────────────────
 
 def test_the_presolve_band_keeps_the_runway_anchor_only_field():
     """The construct band runs BEFORE ``_seed_elevations`` hardens

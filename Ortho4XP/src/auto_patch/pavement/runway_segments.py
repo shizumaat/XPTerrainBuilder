@@ -74,7 +74,12 @@ from ..config import (
     # honest at CALL time, and a from-import would snapshot the ungated
     # 0.0 at module import.  ``config`` remains the single source.
     runway_dem_follow_band_m,
+    # ── region rulesets, phase B ──
+    resolve_ruleset as _resolve_ruleset,
+    runway_code_letter as _runway_code_letter,
+    runway_code_number as _runway_code_number,
 )
+from ..grade_law import runway_profile_law as _runway_profile_law
 DEFAULT_CELL_SIZE = float(RUNWAY_CELL_SIZE_M)  # meters between interp points
 DEFAULT_PROFILE = PATCH_SLOPE_PROFILE
 # How far beyond the physical runway end to extend as a flat apron.
@@ -1623,12 +1628,27 @@ def generate_patch_osm(icao, runway_pairs, runway_widths=None, tile=None,
             # ``faa_rate_of_change_pass`` so the same logic is
             # reusable by ``runway_redistribute.redistribute_runway_profile``
             # when seam DEM altitudes fold back into the profile.
+            # REGION RULESETS, phase B (§4 rows 1-4).  The runway's
+            # longitudinal cap, end-zone cap and vertical-curve rate are
+            # its own AUTHORITY's, resolved once per runway through the
+            # ONE law resolver ``grade_law.runway_profile_law`` — the
+            # same call the validator makes.  ICAO code 4 tightens
+            # 1.5 % → 1.25 % (Annex 14 §3.1.14) and its curve rate to
+            # 0.1 %/30 m (§3.1.16); FAA C/D/E keeps 1.5 % / 305 m per 1 %
+            # (AC §3.16.1).  ``end_grade_cap`` may be ``None`` where the
+            # authority states none for the class (ICAO code 1-2), which
+            # ``faa_joint_solve`` already reads as "uniform cap".
+            _rw_law = _runway_profile_law(
+                _runway_code_number(phys_dist),
+                _runway_code_letter(rwy_width),
+                runway_length_m=phys_dist,
+                ruleset=_resolve_ruleset(icao))
             faa_joint_solve(
                 fractions, elevs, anchored, phys_dist,
                 blast_a=blast_a, blast_b=blast_b,
-                grade_cap=MAX_RUNWAY_GRADE,
-                end_grade_cap=RUNWAY_END_GRADE,
-                max_dg_per_m=MAX_RUNWAY_GRADE_CHANGE_PER_M)
+                grade_cap=_rw_law["max_grade"],
+                end_grade_cap=_rw_law["end_grade"],
+                max_dg_per_m=_rw_law["max_grade_change_per_m"])
 
             # Capture the per-pair FAA-compliant profile state so a
             # downstream redistribute step can fold seam DEM altitudes

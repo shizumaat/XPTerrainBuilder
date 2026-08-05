@@ -340,6 +340,42 @@ __all__ = [
     "taxiway_code_letter",
     "taxiway_clearance_half_width_m",
     "taxiway_clearance_half_width_for_letter",
+    # ── region rulesets (phase B) ──
+    "CodeTable",
+    "Ruleset",
+    "RULESETS",
+    "DEFAULT_RULESET",
+    "ICAO_RULESET",
+    "FAA_RULESET",
+    "ADG_BY_CODE_LETTER",
+    "FAA_RSA_HALF_WIDTH_M_BY_LETTER",
+    "FAA_ROFA_HALF_WIDTH_M_BY_LETTER",
+    "FAA_RULESET_FIRST_LETTERS",
+    "FAA_RULESET_TWO_LETTER_PREFIXES",
+    "RULESET_SPLIT_FAMILIES",
+    "GROUNDSIDE_MIN_DRAINAGE_GRADE",
+    "GROUNDSIDE_MIN_DRAINAGE_GRADE_PROVISIONAL",
+    "CROWN_MINIMUM_BOUND",
+    "resolve_ruleset",
+    "get_ruleset",
+    "ruleset_runway_max_grade",
+    "ruleset_runway_end_grade",
+    "ruleset_runway_end_zone_length_m",
+    "ruleset_runway_max_grade_change",
+    "ruleset_runway_vertical_curve_k_m",
+    "ruleset_runway_max_grade_change_per_m",
+    "ruleset_runway_vertical_curve_min_change",
+    "ruleset_strip_max_longitudinal_slope",
+    "ruleset_strip_arc_rate_per_m",
+    "ruleset_strip_half_width_m",
+    "ruleset_strip_band_max_down_slope",
+    "ruleset_taxi_max_grade",
+    "ruleset_taxi_transverse_max",
+    "ruleset_stand_max_grade",
+    "ruleset_apron_min_drainage_grade",
+    "ruleset_apron_max_grade_change",
+    "ruleset_shoulder_transverse_band",
+    "ruleset_shoulder_edge_dropoff",
 ]
 
 
@@ -5465,10 +5501,15 @@ RUNWAY_STRIP_WALL_LAW_ENABLED = True
 RUNWAY_STRIP_MAX_LONGITUDINAL_SLOPE_BY_CODE = {
     1: 0.020, 2: 0.020, 3: 0.0175, 4: 0.015}
 RUNWAY_STRIP_MAX_LONGITUDINAL_SLOPE_FAA = RUNWAY_MAX_GRADE
-# Gate for BOTH halves.  OFF ⇒ byte-identical (no station deferral, no
-# longitudinal clamp, no new validator rows).
-STRIP_PRECEDENCE_ENABLED = (
-    _os.environ.get("O4_STRIP_PRECEDENCE", "0") == "1")
+# STANDING LAW as of the build-complete-then-debug ruling (docs/RULINGS.md
+# 2026-08-05: "NO GATES.  Every believed-in law becomes standing law; O4_
+# law gates and their env overrides are DELETED as their territory is
+# touched").  ``O4_STRIP_PRECEDENCE`` is GONE — the strip footprint is
+# supreme and the abeam-longitudinal law binds, always.  The name is kept
+# as a True constant so the march / validator call sites read one text;
+# their now-dead gate-off branches are dead code for their owning lane to
+# remove.
+STRIP_PRECEDENCE_ENABLED = True
 
 # ── SOLVED-BAND EMIT-SIDE CORRIDOR CLAMP (diagnosed 2026-07-25, SPJC) ──
 # The GATE-ON band valuation (``adjacent_ground._make_solved_band_resampler``)
@@ -5872,28 +5913,41 @@ PAD_HOST_LEVEL_LIFT_M = 6.0
 PAD_HOST_LEVEL_TRIGGER_M = 0.5
 
 
-def taxi_grade_cap_for_letter(letter, *, enabled: bool = None) -> float:
+def taxi_grade_cap_for_letter(letter, *, enabled: bool = None,
+                              ruleset=None) -> float:
     """Max longitudinal grade (rise/run) for a taxiway of ICAO code
     ``letter``.  Code A/B (narrow, <15 m) → ``TAXI_MAX_GRADE_NARROW``
-    (3 %, ICAO Annex 14 §3.9.3); code C–F (and any unknown/None letter) →
+    (3 %, ICAO Annex 14 §3.9.8); code C-F (and any unknown/None letter) →
     ``TAXI_MAX_GRADE`` (1.5 %).  When the ``TAXI_GRADE_BY_WIDTH`` gate is
     off, always returns ``TAXI_MAX_GRADE`` so the build is byte-identical
     to the uniform-cap baseline.  Pass ``enabled`` to override the gate
-    (used by the validator to honour the same flag the build ran under)."""
+    (used by the validator to honour the same flag the build ran under).
+
+    ``ruleset`` (phase B, §4 row 13) keys the value to the airport's own
+    authority.  The A/B relaxation is ICAO's: FAA AC 150/5300-13B
+    §4.14.1.1.1 gives 1.5 % for EVERY taxiway (its ≤30,000 lb 2 %
+    relaxation is not taken — the builder does not know a taxiway's
+    fleet), so an FAA-ruleset narrow taxiway TIGHTENS 3.0 % → 1.5 %.
+    ``None`` keeps the legacy blended reading."""
     on = TAXI_GRADE_BY_WIDTH if enabled is None else enabled
+    if ruleset is not None:
+        cap = ruleset_taxi_max_grade(letter if on else None, ruleset)
+        return TAXI_MAX_GRADE if cap is None else float(cap)
     if on and letter and str(letter).upper() in NARROW_TAXI_CODE_LETTERS:
         return TAXI_MAX_GRADE_NARROW
     return TAXI_MAX_GRADE
 
 
-def taxi_grade_cap_for_width(width_m: float, *, enabled: bool = None) -> float:
+def taxi_grade_cap_for_width(width_m: float, *, enabled: bool = None,
+                             ruleset=None) -> float:
     """Convenience wrapper: resolve the code letter from a pavement width
     (m) via :func:`taxiway_code_letter`, then the grade cap."""
     return taxi_grade_cap_for_letter(
-        taxiway_code_letter(width_m), enabled=enabled)
+        taxiway_code_letter(width_m), enabled=enabled, ruleset=ruleset)
 
 
-def taxi_transverse_cap_for_letter(letter, *, enabled: bool = None) -> float:
+def taxi_transverse_cap_for_letter(letter, *, enabled: bool = None,
+                                   ruleset=None) -> float:
     """Max TRANSVERSE (cross) grade for a taxiway of ICAO code ``letter`` — the
     ``cT`` in the anisotropic within-shape allowance ``cL·Δs∥ + cT·Δs⊥``.
 
@@ -5905,6 +5959,11 @@ def taxi_transverse_cap_for_letter(letter, *, enabled: bool = None) -> float:
     allowance is the legacy isotropic ``cap·dist``.  ``enabled`` overrides the gate
     (the validator passes the flag the build ran under, for lockstep)."""
     on = TAXI_GRADE_BY_WIDTH if enabled is None else enabled
+    if ruleset is not None:
+        cap = ruleset_taxi_transverse_max(letter if on else None, ruleset)
+        return (taxi_grade_cap_for_letter(letter, enabled=enabled,
+                                          ruleset=ruleset)
+                if cap is None else float(cap))
     if on and letter and str(letter).upper() in NARROW_TAXI_CODE_LETTERS:
         return TAXI_MAX_TRANSVERSE_NARROW
     return taxi_grade_cap_for_letter(letter, enabled=enabled)
@@ -5925,3 +5984,895 @@ def taxiway_clearance_half_width_m(width_m: float) -> float:
     prefer :func:`taxiway_clearance_half_width_for_letter`."""
     return taxiway_clearance_half_width_for_letter(
         taxiway_code_letter(width_m))
+
+
+# ══════════════════════════════════════════════════════════════════════
+# REGION RULESETS — the FAA / ICAO split, phase B
+# (spec docs/specs/DRAFT-rulesets-phase-b-spec.md; owner ruling
+#  docs/RULINGS.md "Region-specific rulesets", 2026-08-02: "FAA applies
+#  within the USA, and ICAO everywhere else.  So we should support
+#  region specific regulations and provide the code structure to allow
+#  the possibility to choose and/or support multiple rulesets in the
+#  future.")
+# ══════════════════════════════════════════════════════════════════════
+#
+# THE STRUCTURE (spec §1, first-class — never `if icao.startswith("K")`
+# at a law site).  ``RULESETS`` maps an open-ended ruleset KEY to a
+# frozen ``Ruleset`` record holding that authority's own PRIMARY-VERIFIED
+# values.  A law site never reads a bare module constant for a split
+# family: it calls the family's accessor with the layout's resolved key,
+# and emitter + validator call the SAME accessor (lockstep, grade-law
+# completeness standard).
+#
+# WHY A DATACLASS AND NOT A DICT (spec §1 asks the implementer to say
+# why): the field list IS the family inventory.  A new authority that
+# forgets a column fails at construction, and a typo at a law site is an
+# AttributeError on the first call instead of a silent ``.get()``
+# default that quietly ships the wrong regulation.  ``dataclasses.
+# fields`` also lets the lockstep twin enumerate every split family
+# without a hand-maintained list.
+#
+# JURISDICTIONAL FIDELITY (owner 2026-08-02) supersedes "take the
+# stricter": each ruleset carries its OWN authority's number even when
+# that is the more permissive one.  Where a family exists in only one
+# authority the other's field is ``None`` and the law is a no-op there
+# (ICAO has no ROFA; FAA has no radio-altimeter operating area).
+#
+# BUILD-COMPLETE-THEN-DEBUG (docs/RULINGS.md 2026-08-05): this lands
+# UNGATED.  The draft spec's ``O4_RULESET_SPLIT`` gate is NOT
+# implemented — the split is standing law from the moment it lands, and
+# the airports the spec predicted would move (ICAO code-4 runways under
+# the 1.25 % cap) re-solve.  ``O4_RULESET`` survives ONLY as a testing
+# override, because the resolver twin and the cross-authority twins need
+# to force a key on a fixture airport; it is not a law gate (empty =
+# resolve, which is the production path).
+
+import dataclasses as _dc  # noqa: E402
+from typing import Mapping as _Mapping, Optional as _Optional  # noqa: E402
+
+
+@_dc.dataclass(frozen=True)
+class CodeTable:
+    """A regulatory value that an authority keys by aerodrome reference
+    CODE NUMBER (ICAO's runway keying) or by code LETTER (the repo's
+    proxy for FAA's AAC / ADG columns — see ``runway_code_letter`` and
+    the Table 1-1 note on ``TAIL_HEIGHT_BY_CODE_LETTER``).
+
+    Exactly one of ``by_code`` / ``by_letter`` is populated per
+    authority, so the branch is on DATA PRESENCE, never on the
+    authority's identity.  ``default`` is used when the caller has no
+    key at all (an unclassified OSM taxiway, a runway with no length).
+
+    A value may be ``None``: that means the authority states no number
+    for that class (ICAO code 1-2 runways have no end-zone rule), and
+    the law is a no-op there.
+    """
+
+    by_code: _Optional[_Mapping[int, _Optional[float]]] = None
+    by_letter: _Optional[_Mapping[str, _Optional[float]]] = None
+    default: _Optional[float] = None
+
+    def value(self, code_number=None, code_letter=None):
+        """The authority's value for this class, or ``None``."""
+        if self.by_code is not None:
+            if code_number is None:
+                return self.default
+            return self.by_code.get(int(code_number), self.default)
+        if self.by_letter is not None:
+            if not code_letter:
+                return self.default
+            return self.by_letter.get(str(code_letter).upper(), self.default)
+        return self.default
+
+
+def _letters(*, narrow: _Optional[float], wide: _Optional[float]) -> dict:
+    """Code-letter table split at the ICAO A/B ("narrow", light-aircraft)
+    vs C-F ("wide") boundary the FAA columns follow."""
+    return {"A": narrow, "B": narrow,
+            "C": wide, "D": wide, "E": wide, "F": wide}
+
+
+@_dc.dataclass(frozen=True)
+class Ruleset:
+    """One authority's grade-law constants.  Every field carries its
+    citation in the ``RULESETS`` construction below."""
+
+    key: str
+    name: str
+    authority: str
+
+    # ── §4 row 1 — runway longitudinal maximum ───────────────────────
+    runway_max_grade: CodeTable = _dc.field(default_factory=CodeTable)
+    # ── §4 row 2 — runway end-zone longitudinal cap ──────────────────
+    runway_end_grade: CodeTable = _dc.field(default_factory=CodeTable)
+    runway_end_zone_fraction: float = 0.25
+    #: FAA bounds the end zone at the LESSER of the quarter and this
+    #: length; ICAO states the quarter with no absolute bound.
+    runway_end_zone_max_length_m: _Optional[float] = None
+    #: Code numbers whose end-zone cap applies ONLY to precision
+    #: approach Cat II/III runways (ICAO code 3).
+    runway_end_grade_precision_only_codes: frozenset = frozenset()
+    # ── §4 row 3 — runway maximum grade CHANGE ───────────────────────
+    runway_max_grade_change: CodeTable = _dc.field(default_factory=CodeTable)
+    # ── §4 row 4 — runway vertical curve ─────────────────────────────
+    #: Metres of vertical curve per 1 % of grade change (the repo's
+    #: ``RUNWAY_VERTICAL_CURVE_K_M`` unit).
+    runway_vertical_curve_k_m: CodeTable = _dc.field(default_factory=CodeTable)
+    #: Grade change below which no vertical curve is required
+    #: (FAA §3.16.1.1 "0.40 percent", stated for AAC A/B only); a
+    #: ``None`` value means the authority grants no such relief and the
+    #: curve rule binds at every grade change.
+    runway_vertical_curve_min_change: CodeTable = _dc.field(
+        default_factory=CodeTable)
+    # ── §4 row 5 — runway-strip longitudinal ─────────────────────────
+    strip_max_longitudinal_slope: CodeTable = _dc.field(
+        default_factory=CodeTable)
+    #: §A3(b) — rate of longitudinal slope change on the graded strip,
+    #: as grade change per metre.
+    strip_arc_rate_per_m: _Optional[float] = None
+    strip_arc_rate_provisional: bool = False
+    # ── §4 row 6 — graded-strip half-width ───────────────────────────
+    strip_half_width_m: CodeTable = _dc.field(default_factory=CodeTable)
+    # ── §4 rows 7/8 — strip transverse zones (DEFERRED, see below) ───
+    strip_lip_width_m: float = 3.0
+    strip_lip_min_down_slope: float = 0.03
+    strip_lip_max_down_slope: float = 0.05
+    strip_band_min_down_slope: float = 0.015
+    strip_band_max_down_slope: CodeTable = _dc.field(
+        default_factory=CodeTable)
+    # ── §4 row 9 — rising ground beyond the graded strip ─────────────
+    ungraded_strip_max_up_slope: float = 0.05
+    # ── §4 row 10 — RESA / end-skirt LONGITUDINAL ────────────────────
+    #: Length of the FAA near zone beyond the end (``None`` = the
+    #: authority states no near zone).
+    end_skirt_near_zone_m: _Optional[float] = None
+    end_skirt_near_max_down_grade: _Optional[float] = None
+    end_skirt_max_down_grade: float = 0.05
+    #: Grade change per metre along the end skirt.
+    end_skirt_max_grade_change_per_m: _Optional[float] = None
+    end_skirt_rate_provisional: bool = False
+    # ── §4 row 11 / §A1 — RESA / end-corridor TRANSVERSE ─────────────
+    #: ``(min_down, max_down)`` inside the near zone, keyed like the
+    #: FAA Table 3-6 S-3 columns; ``None`` = no near-zone distinction.
+    resa_transverse_near: _Optional[CodeTable] = None
+    resa_transverse_near_max: _Optional[CodeTable] = None
+    #: Symmetric ±cap beyond the near zone (and everywhere, for ICAO).
+    resa_transverse_max: float = 0.05
+    # ── §4 row 13 — taxiway longitudinal ─────────────────────────────
+    taxi_max_grade: CodeTable = _dc.field(default_factory=CodeTable)
+    # ── §4 row 14 — taxiway transverse ───────────────────────────────
+    taxi_transverse_max: CodeTable = _dc.field(default_factory=CodeTable)
+    #: RECORDED, NOT BOUND (owner question 5) — the crown minimum.
+    taxi_transverse_min: _Optional[float] = None
+    runway_transverse_min: _Optional[float] = None
+    runway_transverse_max: CodeTable = _dc.field(default_factory=CodeTable)
+    # ── §4 row 15/16 — stand + apron ─────────────────────────────────
+    stand_max_grade: float = 0.01
+    apron_min_drainage_grade: _Optional[float] = None
+    apron_max_grade_change: _Optional[float] = None
+    # ── §4 row 17 — taxiway strip ────────────────────────────────────
+    taxiway_strip_band_min_down_slope: float = 0.015
+    taxiway_strip_band_max_down_slope: float = 0.05
+    taxiway_strip_graded_half_width_m: _Optional[_Mapping[str, float]] = None
+    # ── §4 row 18 / §B1 — shoulders ──────────────────────────────────
+    #: ``(min, max)`` transverse for a PAVED runway/taxiway shoulder.
+    shoulder_transverse_min: _Optional[float] = None
+    shoulder_transverse_max: _Optional[float] = None
+    #: Mandated paved→unpaved edge drop-off (m) and its tolerance;
+    #: ``None`` where the authority mandates flush instead.
+    shoulder_edge_dropoff_m: _Optional[float] = None
+    shoulder_edge_dropoff_tol_m: _Optional[float] = None
+    # ── §4 row 19 / §A4 — radio altimeter operating area ─────────────
+    raoa_length_m: _Optional[float] = None
+    raoa_half_width_m: _Optional[float] = None
+    raoa_max_grade_change_per_m: _Optional[float] = None
+    # ── §A2 — ROFA back slope (FAA only) ─────────────────────────────
+    #: ADG → run:rise ratio (8 means 8:1, i.e. a 12.5 % maximum rise).
+    rofa_back_slope_ratio_by_adg: _Optional[_Mapping[str, float]] = None
+    #: ADG → the run (m) over which the back slope is measured.
+    rofa_back_slope_run_m_by_adg: _Optional[_Mapping[str, float]] = None
+    #: ADG → ROFA half-width (m) from the runway centreline.
+    rofa_half_width_m_by_adg: _Optional[_Mapping[str, float]] = None
+
+
+# ── ADG ↔ ICAO code-letter proxy ──────────────────────────────────────
+# FAA keys its object-free-area and design-group tables by Airplane
+# Design Group (I..VI); the repo carries the ICAO code LETTER.  The
+# mapping A↔I, B↔II, C↔III, D↔IV, E↔V, F↔VI is already the repo's own
+# (``TAIL_HEIGHT_BY_CODE_LETTER`` Table 1-1 note); the ADG tables below
+# are therefore stored RE-KEYED BY LETTER so no law site has to convert.
+ADG_BY_CODE_LETTER = {
+    "A": "I", "B": "II", "C": "III", "D": "IV", "E": "V", "F": "VI",
+}
+
+
+def _by_adg(**kw) -> dict:
+    """ADG-keyed table written in letter space (A..F) so it can be read
+    with the repo's own code letter — see ``ADG_BY_CODE_LETTER``."""
+    return {letter: kw[ADG_BY_CODE_LETTER[letter]]
+            for letter in ADG_BY_CODE_LETTER}
+
+
+# ══════════════════════════════════════════════════════════════════════
+# ICAO / EASA — Annex 14 Volume I (incl. Amdt 18) + CS-ADR-DSN Issue 7
+# ══════════════════════════════════════════════════════════════════════
+ICAO_RULESET = Ruleset(
+    key="icao",
+    name="ICAO Annex 14 Vol I / EASA CS-ADR-DSN",
+    authority="ICAO",
+
+    # §3.1.14: "1.25 per cent where the code number is 4 … 1.5 per cent
+    # where the code number is 3 … 2 per cent where the code number is
+    # 1 or 2".  PRIMARY-VERIFIED (annex14_bazl.txt §3.1.14).  This is
+    # the largest surface change phase B lands: code-4 runways at
+    # HECA / SPJC / CYXY tighten 1.5 % → 1.25 % and their profiles
+    # re-solve within the runway-flex law (CIFP thresholds immovable).
+    runway_max_grade=CodeTable(
+        by_code={1: 0.020, 2: 0.020, 3: 0.015, 4: 0.0125},
+        default=0.0125),
+
+    # §3.1.14 same paragraph: the 0.8 % first/last-quarter limit applies
+    # at code 4 unconditionally, and at code 3 ONLY "for the first and
+    # last quarter of the length of a precision approach runway category
+    # II or III".  Code 1-2: no end-zone rule at all (None).
+    runway_end_grade=CodeTable(
+        by_code={1: None, 2: None, 3: 0.008, 4: 0.008}),
+    runway_end_zone_max_length_m=None,          # ICAO states no cap
+    runway_end_grade_precision_only_codes=frozenset({3}),
+
+    # §3.1.15: slope change ≤1.5 % (code 3-4) / 2 % (code 1-2).
+    runway_max_grade_change=CodeTable(
+        by_code={1: 0.020, 2: 0.020, 3: 0.015, 4: 0.015},
+        default=0.015),
+
+    # §3.1.16: rate of change ≤0.1 %/30 m (code 4), 0.2 %/30 m (code 3),
+    # 0.4 %/30 m (code 1-2) → metres of curve per 1 % = 30/0.1 = 300,
+    # 30/0.2 = 150, 30/0.4 = 75.  ICAO gives no "below X % no curve"
+    # relief, so ``runway_vertical_curve_min_change`` stays None.
+    runway_vertical_curve_k_m=CodeTable(
+        by_code={1: 75.0, 2: 75.0, 3: 150.0, 4: 300.0}, default=300.0),
+    runway_vertical_curve_min_change=CodeTable(default=None),
+
+    # §3.4.13: strip longitudinal ≤1.5 % (code 4), 1.75 % (code 3),
+    # 2 % (code 1-2).  This is the repo's live blended table.
+    strip_max_longitudinal_slope=CodeTable(
+        by_code=dict(RUNWAY_STRIP_MAX_LONGITUDINAL_SLOPE_BY_CODE),
+        default=0.015),
+    # §3.4.14 is QUALITATIVE ("Slope changes … should be as gradual as
+    # practicable and abrupt changes or sudden reversals of slopes
+    # avoided") — no number.  DECIDE-AND-NOTE (owner question 2, spec
+    # §10.2): operationalized at the FAA beyond-ends rate ±2 % per
+    # 30.5 m (AC §3.16.5 item 5).  Flagged provisional so the report and
+    # the twin can both see it is a repo choice, not a citation.
+    strip_arc_rate_per_m=0.02 / 30.5,
+    strip_arc_rate_provisional=True,
+
+    # §3.4.17 frame (and the repo's live table): graded strip half-width
+    # 30 / 40 / 75 / 75 m by code number.
+    strip_half_width_m=CodeTable(
+        by_code=dict(RUNWAY_STRIP_HALF_WIDTH_BY_CODE), default=75.0),
+
+    # ROWS 7/8 — DEFERRED BY OWNER QUESTION (spec §5 last bullet, §10.1).
+    # ICAO §3.4.15 caps the graded-strip transverse at 2.5 % (code 3-4) /
+    # 3 % (code 1-2) and MANDATES nothing downward except the first 3 m
+    # ("should be negative … and may be as great as 5 per cent").  The
+    # owner's 2026-07-08 ruling 1 (enforce the FAA mandatory-DOWN band
+    # globally) was premised on ONE blended ruleset; under jurisdictional
+    # fidelity it may or may not survive.  UNTIL THE OWNER ANSWERS, BOTH
+    # RULESETS KEEP THE BLENDED MANDATORY-DOWN VALUES — the deferral is
+    # visible law here, not silent drift.
+    strip_lip_width_m=ADJACENT_GROUND_LIP_WIDTH_M,
+    strip_lip_min_down_slope=ADJACENT_GROUND_LIP_MIN_DOWN_SLOPE,
+    strip_lip_max_down_slope=ADJACENT_GROUND_LIP_MAX_DOWN_SLOPE,
+    strip_band_min_down_slope=RUNWAY_STRIP_BAND_MIN_DOWN_SLOPE,
+    strip_band_max_down_slope=CodeTable(
+        by_code=dict(RUNWAY_STRIP_BAND_MAX_DOWN_SLOPE_BY_CODE),
+        default=0.03),
+
+    # §3.4.16 / §3.11.6: beyond the graded portion, rising ground ≤5 %.
+    ungraded_strip_max_up_slope=ADJACENT_GROUND_UNGRADED_STRIP_MAX_UP_SLOPE,
+
+    # §3.5.10: RESA longitudinal "should not exceed a downward slope of
+    # 5 per cent"; slope changes "as gradual as practicable" — NO near
+    # zone, NO numeric rate.  The rate is the same provisional
+    # operationalization as the strip arc (owner question 2).
+    end_skirt_near_zone_m=None,
+    end_skirt_near_max_down_grade=None,
+    end_skirt_max_down_grade=0.05,
+    end_skirt_max_grade_change_per_m=0.02 / 30.5,
+    end_skirt_rate_provisional=True,
+
+    # §3.5.11: RESA transverse "should not exceed an upward or downward
+    # slope of 5 per cent" — one symmetric cap, no near-zone column.
+    resa_transverse_near=None,
+    resa_transverse_near_max=None,
+    resa_transverse_max=0.05,
+
+    # §3.9.8: taxiway longitudinal 1.5 % (C-F) / 3 % (A-B).
+    taxi_max_grade=CodeTable(
+        by_letter=_letters(narrow=TAXI_MAX_GRADE_NARROW,
+                           wide=TAXI_MAX_GRADE),
+        default=TAXI_MAX_GRADE),
+    # §3.9.11: taxiway transverse 1.5 % (C-F) / 2 % (A-B).
+    taxi_transverse_max=CodeTable(
+        by_letter=_letters(narrow=TAXI_MAX_TRANSVERSE_NARROW,
+                           wide=TAXI_MAX_GRADE),
+        default=TAXI_MAX_GRADE),
+    # RECORDED, NOT BOUND (owner question 5).  §3.9.11 states no taxiway
+    # minimum; §3.1.19 states the RUNWAY transverse "should not exceed
+    # 1.5 per cent or 2 per cent, as applicable, nor be less than 1 per
+    # cent except at runway or taxiway intersections".
+    taxi_transverse_min=None,
+    runway_transverse_min=0.010,
+    runway_transverse_max=CodeTable(
+        by_letter=_letters(narrow=0.020, wide=0.015), default=0.015),
+
+    # §3.13.6: "On an aircraft stand the maximum slope should not exceed
+    # 1 per cent."
+    stand_max_grade=0.01,
+    # §3.13.5 is QUALITATIVE ("sufficient to prevent accumulation of
+    # water … kept as level as drainage requirements permit") — there is
+    # NO numeric ICAO apron minimum.  A number here would be MINTED, not
+    # cited, so the field stays None and the §B3 apron law is a no-op at
+    # ICAO airports (jurisdictional fidelity).
+    apron_min_drainage_grade=None,
+    apron_max_grade_change=None,
+
+    # §3.11.5: taxiway strip graded portion, upward transverse ≤2.5 %
+    # (C-F) / 3 % (A-B), downward ≤5 %.  Live blended values (the
+    # mandatory-down minimum rides owner question 1 with rows 7/8).
+    taxiway_strip_band_min_down_slope=TAXIWAY_STRIP_BAND_MIN_DOWN_SLOPE,
+    taxiway_strip_band_max_down_slope=TAXIWAY_STRIP_BAND_MAX_DOWN_SLOPE,
+    taxiway_strip_graded_half_width_m=dict(
+        TAXIWAY_STRIP_GRADED_HALF_WIDTH_BY_LETTER),
+
+    # §3.2.3: "The surface of the shoulder that abuts the runway should
+    # be flush with the surface of the runway and its transverse slope
+    # should not exceed 2.5 per cent."  FLUSH ⇒ no mandated drop-off and
+    # no minimum; §3.10 gives taxiway shoulders width/strength only, so
+    # a taxiway shoulder rides the same flush + strip-band law.
+    shoulder_transverse_min=None,
+    shoulder_transverse_max=0.025,
+    shoulder_edge_dropoff_m=None,
+    shoulder_edge_dropoff_tol_m=None,
+
+    # §3.8 — RADIO ALTIMETER OPERATING AREA.  §3.8.2 "at least 300 m"
+    # before the threshold; §3.8.3 "60 m" each side of the extended
+    # centre line (the 30 m aeronautical-study reduction is NOT taken —
+    # it requires a study this builder cannot perform); §3.8.4 "The rate
+    # of change between two consecutive slopes should not exceed 2 per
+    # cent per 30 m".  CS ADR-DSN.B.205 corroborates verbatim.
+    raoa_length_m=300.0,
+    raoa_half_width_m=60.0,
+    raoa_max_grade_change_per_m=0.02 / 30.0,
+
+    # ICAO has no runway object free area; the analogous rising-ground
+    # limit is §3.4.16, already ``ungraded_strip_max_up_slope`` above.
+    rofa_back_slope_ratio_by_adg=None,
+    rofa_back_slope_run_m_by_adg=None,
+    rofa_half_width_m_by_adg=None,
+)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# FAA — AC 150/5300-13B chg 1
+# ══════════════════════════════════════════════════════════════════════
+#
+# APPENDIX G WIDTHS (primary-verified, tables G-1 … G-12).  The AC keys
+# its runway design standards by RUNWAY DESIGN CODE = AAC letter +
+# ADG numeral; the repo carries only a SIZE proxy (``runway_code_letter``
+# from declared runway width).  The faithful mapping, and the one used
+# here: a narrow runway (code letter A/B, i.e. ADG I/II) is a
+# light-aircraft runway and takes the A/B-I / A/B-II column; letters C-F
+# take the C/D/E column, which is 500 ft RSA / 800 ft ROFA for EVERY ADG
+# from I to VI (tables G-7 … G-12 are identical in these two columns).
+# Visibility-minimum sub-columns: the ≥3/4-mile column is taken (the
+# builder has no per-end visibility minimum); the <3/4-mile column is
+# wider at A/B-I…III and is NOT taken — recorded, not silently applied.
+#
+#   G-1/G-2  A/B-I    RSA width 120 ft (36.6 m)  ROFA width 400 ft
+#   G-3/G-4  A/B-II   RSA width 150 ft (45.7 m)  ROFA width 500 ft
+#   G-5      A/B-III  RSA width 300 ft (91.4 m)  ROFA width 800 ft
+#   G-6      A/B-IV   RSA width 500 ft (152.4 m) ROFA width 800 ft
+#   G-7..12  C/D/E-*  RSA width 500 ft (152.4 m) ROFA width 800 ft
+#
+# HALF-widths (from the runway centreline) are half of the above.  Note
+# the C/D/E half-width 76.2 m vs the live ICAO 75 m: the strip footprint
+# widens ~1.2 m at FAA airports, which is the predicted KCLT row-6 delta.
+FAA_RSA_HALF_WIDTH_M_BY_LETTER = {
+    "A": 18.3,     # A/B-I,   120 ft
+    "B": 22.9,     # A/B-II,  150 ft
+    "C": 76.2,     # C/D/E-III, 500 ft
+    "D": 76.2,     # C/D/E-IV,  500 ft
+    "E": 76.2,     # C/D/E-V,   500 ft
+    "F": 76.2,     # C/D/E-VI,  500 ft
+}
+FAA_ROFA_HALF_WIDTH_M_BY_LETTER = {
+    "A": 61.0,     # A/B-I,   400 ft
+    "B": 76.2,     # A/B-II,  500 ft
+    "C": 121.9,    # 800 ft
+    "D": 121.9,
+    "E": 121.9,
+    "F": 121.9,
+}
+
+FAA_RULESET = Ruleset(
+    key="faa",
+    name="FAA AC 150/5300-13B",
+    authority="FAA",
+
+    # §3.16.1: maximum longitudinal grade 2.0 % for AAC A/B, 1.5 % for
+    # AAC C/D/E.  Keyed here by the repo's runway CODE LETTER (the AAC
+    # proxy — see ADG_BY_CODE_LETTER); at code letter C and above this
+    # equals the live blended ``RUNWAY_MAX_GRADE``, which is why KCLT
+    # (ADG V) sees no row-1 change.
+    runway_max_grade=CodeTable(
+        by_letter=_letters(narrow=0.020, wide=RUNWAY_MAX_GRADE),
+        default=RUNWAY_MAX_GRADE),
+
+    # §3.16.1: grades exceeding 0.8 % are not acceptable within the
+    # LESSER of the first/last quarter and 2,500 ft (762 m), AAC C/D/E.
+    # A/B carries no end-zone rule.
+    runway_end_grade=CodeTable(
+        by_letter=_letters(narrow=None, wide=RUNWAY_END_GRADE),
+        default=RUNWAY_END_GRADE),
+    runway_end_zone_max_length_m=762.0,
+    runway_end_grade_precision_only_codes=frozenset(),
+
+    # §3.16.1: maximum grade CHANGE ±2.0 % (A/B), ±1.5 % (C/D/E).
+    runway_max_grade_change=CodeTable(
+        by_letter=_letters(narrow=0.020, wide=0.015), default=0.015),
+
+    # §3.16.1: vertical curve length 1,000 ft (305 m) per 1 % of grade
+    # change for C/D/E, 300 ft (91.4 m) per 1 % for A/B; no vertical
+    # curve is required where the grade change is less than 0.4 %.
+    runway_vertical_curve_k_m=CodeTable(
+        by_letter=_letters(narrow=91.4, wide=RUNWAY_VERTICAL_CURVE_K_M),
+        default=RUNWAY_VERTICAL_CURVE_K_M),
+    # §3.16.1.1 (AAC A/B) states "a vertical curve is not necessary when
+    # the grade change is less than 0.40 percent"; §3.16.1.2 (C/D/E)
+    # states NO such relief.  Jurisdictional fidelity ⇒ the relief is
+    # granted only where the AC grants it; C-F get None (stricter
+    # contained reading, same discipline as the ≤30,000 lb taxiway
+    # relaxation below).
+    runway_vertical_curve_min_change=CodeTable(
+        by_letter=_letters(narrow=0.004, wide=None), default=None),
+
+    # §3.16.5 Standards item 1: between the runway ends the RSA's
+    # longitudinal grades, grade changes, vertical curves and distance
+    # between changes "are the same as the comparable standards for the
+    # runway and stopway" — i.e. the runway's own cap, code-invariant in
+    # number but AAC-keyed exactly as row 1 is.
+    strip_max_longitudinal_slope=CodeTable(
+        by_letter=_letters(narrow=0.020,
+                           wide=RUNWAY_STRIP_MAX_LONGITUDINAL_SLOPE_FAA),
+        default=RUNWAY_STRIP_MAX_LONGITUDINAL_SLOPE_FAA),
+    # §3.16.5 item 5: "Limitations on longitudinal grade changes are
+    # ±2.0 percent per 100 feet (30.5 m)."  Cited, not provisional.
+    strip_arc_rate_per_m=0.02 / 30.5,
+    strip_arc_rate_provisional=False,
+
+    # RSA half-width from AC Appendix G — see
+    # ``FAA_RSA_HALF_WIDTH_M_BY_LETTER`` below for the per-table pull and
+    # the AAC-column reasoning.
+    strip_half_width_m=CodeTable(
+        by_letter=FAA_RSA_HALF_WIDTH_M_BY_LETTER, default=76.2),
+
+    # ROWS 7/8 — DEFERRED (owner question 1), blended values retained on
+    # BOTH rulesets.  The FAA numbers these fields hold are also the
+    # blend's source: Fig 3-33 Detail A (3-5 % for the first 10 ft) and
+    # Table 3-6 S-3 (RSA side slope 1.5-5 % A/B, 1.5-3 % C/D/E).
+    strip_lip_width_m=ADJACENT_GROUND_LIP_WIDTH_M,
+    strip_lip_min_down_slope=ADJACENT_GROUND_LIP_MIN_DOWN_SLOPE,
+    strip_lip_max_down_slope=ADJACENT_GROUND_LIP_MAX_DOWN_SLOPE,
+    strip_band_min_down_slope=RUNWAY_STRIP_BAND_MIN_DOWN_SLOPE,
+    strip_band_max_down_slope=CodeTable(
+        by_code=dict(RUNWAY_STRIP_BAND_MAX_DOWN_SLOPE_BY_CODE),
+        default=0.03),
+
+    # Rising ground beyond the graded strip: the FAA form of this limit
+    # is the ROFA BACK SLOPE (Table 3-7 S-5), bound per-ADG below; the
+    # 5 % here remains the fallback outside the ROFA band.
+    ungraded_strip_max_up_slope=ADJACENT_GROUND_UNGRADED_STRIP_MAX_UP_SLOPE,
+
+    # §3.16.5 items 2-5: the first 200 ft (61 m) beyond the runway end
+    # falls 0 to −3 %; beyond that −5 %; grade changes ±2 % per 100 ft
+    # (30.5 m).  These are the repo's LIVE end-skirt constants.
+    # These four numbers are the repo's LIVE end-skirt law; ``grade_law``
+    # re-exports them from HERE under its existing
+    # ``RUNWAY_END_SKIRT_*`` names, so there is exactly one copy.
+    end_skirt_near_zone_m=61.0,
+    end_skirt_near_max_down_grade=0.03,
+    end_skirt_max_down_grade=0.05,
+    end_skirt_max_grade_change_per_m=0.02 / 30.5,
+    end_skirt_rate_provisional=False,
+
+    # §3.16.5 item 6 + Table 3-6 S-3: within the first 200 ft (61 m)
+    # beyond the end the RSA transverse takes the S-3 band —
+    # 1.5-5 % (A/B), 1.5-3 % (C/D/E).  Beyond 61 ft the AC states no
+    # transverse number in text; Figure 3-35 shows ±5.0 % across the RSA
+    # width, which is what ``resa_transverse_max`` binds.
+    resa_transverse_near=CodeTable(
+        by_letter=_letters(narrow=0.015, wide=0.015), default=0.015),
+    resa_transverse_near_max=CodeTable(
+        by_letter=_letters(narrow=0.05, wide=0.03), default=0.03),
+    resa_transverse_max=0.05,
+
+    # §4.14.1: taxiway longitudinal grade 1.5 %.  The AC permits 2 % on
+    # pavement serving exclusively airplanes ≤30,000 lb; that relaxation
+    # is NOT taken — the builder does not know a taxiway's fleet, so the
+    # stricter contained reading applies (noted, not silent).
+    taxi_max_grade=CodeTable(
+        by_letter=_letters(narrow=TAXI_MAX_GRADE, wide=TAXI_MAX_GRADE),
+        default=TAXI_MAX_GRADE),
+    # §4.14.2 item 1a: taxiway transverse grade 1.0-1.5 %.
+    taxi_transverse_max=CodeTable(
+        by_letter=_letters(narrow=TAXI_MAX_GRADE, wide=TAXI_MAX_GRADE),
+        default=TAXI_MAX_GRADE),
+    # RECORDED, NOT BOUND (owner question 5): the 1.0 % lower bound of
+    # §4.14.2 item 1a, and Table 3-6 S-1's runway transverse minimum.
+    taxi_transverse_min=0.010,
+    runway_transverse_min=0.010,
+    runway_transverse_max=CodeTable(
+        by_letter=_letters(narrow=0.020, wide=0.015), default=0.015),
+
+    # §5.9.2 (recommendation): aircraft parking positions ≤1 %.
+    stand_max_grade=0.01,
+    # §5.9.1 Standards: "Provide a minimum 0.5 percent apron gradient"
+    # and a maximum apron grade change of 2 %.
+    apron_min_drainage_grade=0.005,
+    apron_max_grade_change=0.02,
+
+    # §4.14.2 item 5: TSA transverse 1.5-5 %.  The graded half-width
+    # comes from the AC's TSA width tables; until those columns are
+    # pulled per group the ICAO/EASA OMGWS widths stand (they are the
+    # repo's live geometry and are the narrower, contained reading).
+    taxiway_strip_band_min_down_slope=0.015,
+    taxiway_strip_band_max_down_slope=0.05,
+    taxiway_strip_graded_half_width_m=dict(
+        TAXIWAY_STRIP_GRADED_HALF_WIDTH_BY_LETTER),
+
+    # Table 3-6 S-2 / §4.14.2 item 3: paved shoulders 1.5-5.0 % down.
+    # §4.14.2 item 2 (repeated for aprons at §5.9.1): the paved-to-
+    # unpaved edge drop-off is 1.5 in ± 0.5 in = 38 ± 13 mm — a MANDATED
+    # small step, which is why the step checks carry an FAA-only
+    # exemption for it (§B1).
+    shoulder_transverse_min=0.015,
+    shoulder_transverse_max=0.05,
+    shoulder_edge_dropoff_m=0.038,
+    shoulder_edge_dropoff_tol_m=0.013,
+
+    # NO FAA EQUIVALENT of the radio altimeter operating area: the
+    # string "radio altimeter" does not appear in AC 150/5300-13B.  The
+    # §A4 family is therefore a no-op under this ruleset — KCLT is
+    # unaffected by it (jurisdictional fidelity).
+    raoa_length_m=None,
+    raoa_half_width_m=None,
+    raoa_max_grade_change_per_m=None,
+
+    # Table 3-7 — RUNWAY OBJECT FREE AREA.  The owner APPROVED the
+    # existing-runway exemption (docs/RULINGS.md 2026-08-02): S-4, the
+    # ≤0 % side-slope rule, does NOT bind.  S-5, the BACK SLOPE, does:
+    # 8:1 (ADG I-II), 10:1 (III-IV), 16:1 (V-VI) — run:rise, so 8:1 is a
+    # 12.5 % maximum rise.  D-1 is the run over which it is measured.
+    rofa_back_slope_ratio_by_adg=_by_adg(
+        I=8.0, II=8.0, III=10.0, IV=10.0, V=16.0, VI=16.0),
+    rofa_back_slope_run_m_by_adg=_by_adg(
+        I=7.6, II=12.2, III=18.0, IV=26.2, V=32.6, VI=39.9),
+    rofa_half_width_m_by_adg=FAA_ROFA_HALF_WIDTH_M_BY_LETTER,
+)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE REGISTRY + REGION RESOLUTION (spec §1, §2)
+# ══════════════════════════════════════════════════════════════════════
+#: Ruleset key → constants record.  Open-ended by construction: "tp312"
+#: (Canada), "casa" (Australia) etc. are added by appending a
+#: ``Ruleset(...)`` here, with no structural change and no new branch at
+#: any law site (the owner's "multiple rulesets in the future" clause).
+RULESETS = {
+    ICAO_RULESET.key: ICAO_RULESET,
+    FAA_RULESET.key: FAA_RULESET,
+}
+
+#: The fail-safe key.  The owner's own words are "FAA applies within the
+#: USA, and ICAO everywhere else", so "everywhere else" is also what an
+#: unparseable identifier gets.
+DEFAULT_RULESET = "icao"
+
+#: ICAO location-indicator prefixes that select the FAA ruleset.
+#: "K" = the contiguous United States.  The two-letter P-prefixes are the
+#: US territories that keep FAA jurisdiction: PA (Alaska), PH (Hawaii),
+#: PG (Guam / Northern Marianas), PJ (Johnston Atoll), PM (Midway),
+#: PW (Wake).  Other P… indicators (PK Marshall Is., PT Micronesia/
+#: Palau, PL Kiribati) are sovereign states and stay ICAO.
+FAA_RULESET_FIRST_LETTERS = frozenset({"K"})
+FAA_RULESET_TWO_LETTER_PREFIXES = frozenset({
+    "PA", "PH", "PG", "PJ", "PM", "PW"})
+
+#: TESTING OVERRIDE ONLY — not a law gate.  The resolver twin and the
+#: cross-authority twins force a key on a fixture airport with this; an
+#: empty/unset value is the production path (resolve from the ICAO
+#: identifier).  Read at call time, never cached, so a monkeypatched
+#: environment takes effect inside one process.
+_RULESET_ENV = "O4_RULESET"
+
+
+def resolve_ruleset(icao) -> str:
+    """The RULESET KEY that governs airport ``icao`` — owner ruling
+    2026-08-02, "FAA applies within the USA, and ICAO everywhere else".
+
+    USA = the contiguous states (K…) plus the FAA-jurisdiction Pacific
+    and Alaskan territories (PA/PH/PG/PJ/PM/PW).  Everything else —
+    including Canada (C…) and Mexico (M…) — is ICAO under the owner's
+    own text; an empty or unparseable identifier is ICAO too, which is
+    the owner's stated default rather than a stricter-of guess.
+
+    NOT the same resolver as ``eat_surface_slope_and_setback`` /
+    ``EAT_FAA_ICAO_PREFIXES`` ({K, C, P, M}).  That set implements a
+    DIFFERENT and earlier owner ruling — "FAA for North America" —
+    scoped to the end-around-taxiway departure surface, and it is
+    deliberately untouched here.  The two coexist, each citing its own
+    ruling; harmonizing them is an owner question, not an assumption.
+    """
+    forced = _os.environ.get(_RULESET_ENV, "").strip().lower()
+    if forced:
+        if forced not in RULESETS:
+            raise ValueError(
+                f"{_RULESET_ENV}={forced!r} is not a known ruleset "
+                f"({sorted(RULESETS)})")
+        return forced
+    code = str(icao or "").strip().upper()
+    if not code:
+        return DEFAULT_RULESET
+    if code[0] in FAA_RULESET_FIRST_LETTERS:
+        return "faa"
+    if code[:2] in FAA_RULESET_TWO_LETTER_PREFIXES:
+        return "faa"
+    return DEFAULT_RULESET
+
+
+def get_ruleset(ruleset=None) -> Ruleset:
+    """Coerce ``ruleset`` — a key, a :class:`Ruleset`, or ``None`` — to
+    the record.  ``None`` means the default ruleset; callers that have an
+    ICAO identifier should pass ``resolve_ruleset(icao)`` instead so the
+    law they read is the law the airport is governed by.
+
+    An unknown key raises: a law must never silently fall back to
+    another authority's numbers.
+    """
+    if ruleset is None:
+        return RULESETS[DEFAULT_RULESET]
+    if isinstance(ruleset, Ruleset):
+        return ruleset
+    key = str(ruleset).strip().lower()
+    try:
+        return RULESETS[key]
+    except KeyError:
+        raise ValueError(
+            f"unknown ruleset {ruleset!r} (known: {sorted(RULESETS)})")
+
+
+#: Every SPLIT family, as ``(accessor name, keying)``.  The lockstep twin
+#: iterates this so a family added to :class:`Ruleset` without an
+#: accessor — or an accessor that reads a bare module constant instead of
+#: the ruleset — is caught by a test rather than by an airport.
+RULESET_SPLIT_FAMILIES = (
+    ("runway_max_grade", "code_number|code_letter"),
+    ("runway_end_grade", "code_number|code_letter"),
+    ("runway_max_grade_change", "code_number|code_letter"),
+    ("runway_vertical_curve_k_m", "code_number|code_letter"),
+    ("runway_vertical_curve_min_change", "code_number|code_letter"),
+    ("strip_max_longitudinal_slope", "code_number|code_letter"),
+    ("strip_half_width_m", "code_number|code_letter"),
+    ("strip_band_max_down_slope", "code_number"),
+    ("resa_transverse_near", "code_letter"),
+    ("resa_transverse_near_max", "code_letter"),
+    ("taxi_max_grade", "code_letter"),
+    ("taxi_transverse_max", "code_letter"),
+    ("runway_transverse_max", "code_letter"),
+)
+
+
+# ── Family accessors — the ONLY way a law site reads a split constant ──
+# Each takes the class keys it needs plus ``ruleset`` (a key or record),
+# and both the emitter and the validator call the same one.
+
+def ruleset_runway_max_grade(code_number=None, code_letter=None,
+                             ruleset=None) -> float:
+    """§4 row 1 — runway longitudinal grade cap."""
+    return get_ruleset(ruleset).runway_max_grade.value(
+        code_number, code_letter)
+
+
+def ruleset_runway_end_grade(code_number=None, code_letter=None,
+                             approach_class=None, ruleset=None):
+    """§4 row 2 — the first/last-quarter longitudinal cap, or ``None``
+    where this authority states none for the class.
+
+    ICAO applies the 0.8 % limit unconditionally at code 4 but at code 3
+    only on a PRECISION APPROACH CATEGORY II OR III runway (§3.1.14);
+    ``approach_class`` is the per-end class from
+    :func:`runway_end_approach_class`.  Passing ``None`` for it means
+    "unknown", which resolves to the CAP APPLYING — missing data must
+    never buy the permissive reading.
+    """
+    rs = get_ruleset(ruleset)
+    cap = rs.runway_end_grade.value(code_number, code_letter)
+    if cap is None:
+        return None
+    if (code_number is not None
+            and int(code_number) in rs.runway_end_grade_precision_only_codes
+            and approach_class is not None
+            and str(approach_class) != "precision"):
+        return None
+    return cap
+
+
+def ruleset_runway_end_zone_length_m(runway_length_m: float,
+                                     ruleset=None) -> float:
+    """§4 row 2 — the LENGTH of one end zone.  ICAO says "the first and
+    last quarter of the length"; FAA §3.16.1.2 says the LESSER of that
+    quarter and 2,500 ft (762 m)."""
+    rs = get_ruleset(ruleset)
+    quarter = rs.runway_end_zone_fraction * float(runway_length_m or 0.0)
+    if rs.runway_end_zone_max_length_m is None:
+        return quarter
+    return min(quarter, rs.runway_end_zone_max_length_m)
+
+
+def ruleset_runway_max_grade_change(code_number=None, code_letter=None,
+                                    ruleset=None) -> float:
+    """§4 row 3 — maximum change between two consecutive runway slopes."""
+    return get_ruleset(ruleset).runway_max_grade_change.value(
+        code_number, code_letter)
+
+
+def ruleset_runway_vertical_curve_k_m(code_number=None, code_letter=None,
+                                      ruleset=None) -> float:
+    """§4 row 4 — metres of vertical curve per 1 % of grade change."""
+    return get_ruleset(ruleset).runway_vertical_curve_k_m.value(
+        code_number, code_letter)
+
+
+def ruleset_runway_max_grade_change_per_m(code_number=None, code_letter=None,
+                                          ruleset=None) -> float:
+    """§4 row 4, in the segment-smoother's unit: grade change (as a
+    fraction, not a percent) per metre of pavement — the ruleset-keyed
+    replacement for ``RUNWAY_MAX_GRADE_CHANGE_PER_M``.
+
+    ``K`` metres per 1 % ⇒ 0.01 grade per K metres ⇒ 0.01/K per metre.
+    (ICAO code 4: K = 300 ⇒ 1/30000, which is the live blended value.)
+    """
+    k = ruleset_runway_vertical_curve_k_m(code_number, code_letter, ruleset)
+    if not k:
+        return RUNWAY_MAX_GRADE_CHANGE_PER_M
+    return 0.01 / float(k)
+
+
+def ruleset_runway_vertical_curve_min_change(code_number=None,
+                                             code_letter=None, ruleset=None):
+    """§4 row 4 — grade change below which the authority requires no
+    vertical curve, or ``None`` where it grants no such relief."""
+    return get_ruleset(ruleset).runway_vertical_curve_min_change.value(
+        code_number, code_letter)
+
+
+def ruleset_strip_max_longitudinal_slope(code_number=None, code_letter=None,
+                                         ruleset=None) -> float:
+    """§4 row 5 — the graded strip's along-runway slope cap."""
+    return get_ruleset(ruleset).strip_max_longitudinal_slope.value(
+        code_number, code_letter)
+
+
+def ruleset_strip_arc_rate_per_m(ruleset=None):
+    """§A3(b) — rate of longitudinal slope change on the graded strip
+    (grade change per metre).  PROVISIONAL under ICAO: see
+    ``Ruleset.strip_arc_rate_provisional`` and owner question 2."""
+    return get_ruleset(ruleset).strip_arc_rate_per_m
+
+
+def ruleset_strip_half_width_m(code_number=None, code_letter=None,
+                               ruleset=None) -> float:
+    """§4 row 6 — graded runway-strip / RSA half-width from the
+    centreline."""
+    return get_ruleset(ruleset).strip_half_width_m.value(
+        code_number, code_letter)
+
+
+def ruleset_strip_band_max_down_slope(code_number=None, ruleset=None) -> float:
+    """§4 row 7 — zone-2 maximum down slope.  BOTH rulesets currently
+    carry the blended value; owner question 1 gates the split."""
+    return get_ruleset(ruleset).strip_band_max_down_slope.value(code_number)
+
+
+def ruleset_taxi_max_grade(code_letter=None, ruleset=None) -> float:
+    """§4 row 13 — taxiway longitudinal grade cap."""
+    return get_ruleset(ruleset).taxi_max_grade.value(None, code_letter)
+
+
+def ruleset_taxi_transverse_max(code_letter=None, ruleset=None) -> float:
+    """§4 row 14 — taxiway transverse (cross-slope) cap."""
+    return get_ruleset(ruleset).taxi_transverse_max.value(None, code_letter)
+
+
+def ruleset_stand_max_grade(ruleset=None) -> float:
+    """§4 row 15 — aircraft-stand maximum slope (IDENT across
+    authorities; the accessor exists so a future ruleset can differ)."""
+    return get_ruleset(ruleset).stand_max_grade
+
+
+def ruleset_apron_min_drainage_grade(ruleset=None):
+    """§B3 — minimum apron gradient, or ``None`` where the authority
+    states no number (ICAO §3.13.5 is qualitative)."""
+    return get_ruleset(ruleset).apron_min_drainage_grade
+
+
+def ruleset_apron_max_grade_change(ruleset=None):
+    """§B3 — maximum apron grade change (FAA §5.9.1.3, 2 %)."""
+    return get_ruleset(ruleset).apron_max_grade_change
+
+
+def ruleset_shoulder_transverse_band(ruleset=None):
+    """§B1 — ``(min, max)`` transverse for a PAVED shoulder.  ``min`` is
+    ``None`` where the authority mandates flush instead of a fall."""
+    rs = get_ruleset(ruleset)
+    return (rs.shoulder_transverse_min, rs.shoulder_transverse_max)
+
+
+def ruleset_shoulder_edge_dropoff(ruleset=None):
+    """§B1 — ``(drop_m, tolerance_m)`` of the MANDATED paved→unpaved edge
+    step, or ``(None, None)`` where the authority mandates flush."""
+    rs = get_ruleset(ruleset)
+    return (rs.shoulder_edge_dropoff_m, rs.shoulder_edge_dropoff_tol_m)
+
+
+# ── GROUNDSIDE DRAINAGE MINIMUM (§B3, region-invariant) ───────────────
+# The lot/service-road precedent (docs/RULINGS.md 2026-08-03): no
+# aviation authority regulates a landside grade, so there is no FAA/ICAO
+# split to apply and the constant stays out of the registry.  Every
+# civil source carries a minimum in the 0.6-2 % range (the constants
+# round's research trail cites Iowa SUDAS §8B-1 among others); 1.0 % is
+# the PROVISIONAL mid-range value.  OWNER QUESTION 3 — the owner
+# approves the number exactly as he approved lot 5 % / service 8 %.
+GROUNDSIDE_MIN_DRAINAGE_GRADE = 0.010
+GROUNDSIDE_MIN_DRAINAGE_GRADE_PROVISIONAL = True
+
+# ── RECORDED, NOT BOUND — the crown minimum (owner question 5) ────────
+# FAA Table 3-6 S-1 puts a 1.0 % MINIMUM on the runway transverse grade
+# (1.0-2.0 % AAC A/B, 1.0-1.5 % AAC C/D/E) and §4.14.2 item 1a puts the
+# same 1.0 % minimum on taxiways; ICAO §3.1.19 says the runway transverse
+# "should not exceed 1.5 per cent or 2 per cent, as applicable, nor be
+# less than 1 per cent except at runway or taxiway intersections".
+# BINDING IT MODELS A REAL CROWN ON EVERY RUNWAY AND TAXIWAY — a visible
+# cross-section change at every airport (~22 cm of rise on a 45 m runway
+# at 1 %).  That is an owner-intent question, not an implementation
+# choice, so the values are CARRIED on the rulesets
+# (``runway_transverse_min`` / ``taxi_transverse_min``) and READ by the
+# validator as an informational class, but no generation-binding
+# constraint asserts them.  Flip = give the transverse solver rows a
+# lower bound as well as an upper one (§B2 machinery, one line).
+CROWN_MINIMUM_BOUND = False
+
+# ── RECORDED, NOT BOUND — the honest inventory tail (spec §"Recorded") ─
+# Each has its citation so the gap census stays complete; none is
+# silently dropped.
+#   * ICAO effective slope ≤1 %/2 % (§3.1.13).
+#   * Runway sight distance (ICAO §3.1.17) and taxiway sight distance
+#     (§3.9.10).
+#   * PVI spacing: ICAO §3.1.18 max(K·Σ|Δg|, 45 m) with K =
+#     30 000/15 000/5 000 by code number; FAA §3.16.1 250 ft × Σ|Δg%|
+#     (AAC A/B) and 1 000 ft × Σ|Δg%| (AAC C/D/E).
+#   * Taxiway vertical curves: ICAO §3.9.9 1 %/30 m (C-F), 1 %/25 m
+#     (A/B); FAA §4.14.1.1.3 100 ft (30.5 m) per 1 %, max change 3.0 %,
+#     none below 0.40 %.
+#   * Stopway arc relaxation: ICAO §3.7.2(b) 0.3 % per 30 m.
+#   * Runway/runway intersections: FAA §3.16.4 — 3 in (76 mm) maximum
+#     crown-to-edge difference on the higher-category runway, 150 ft
+#     (46 m) minimum transition, 0.5 % minimum transverse for positive
+#     drainage.
+#   * TOFA back slope max 4:1 (FAA §4.14.2 item 6).
+#   * Apron taxilane recommended maxima 1.5 % / 2.0 % by weight
+#     (FAA §5.9.2.1.2-.3) — the repo binds the stricter 1 % apron cap
+#     (owner constant), which contains them.
+#   * NFPA 415 fuelling-pavement slope (FAA §5.9.1.2 cross-reference).

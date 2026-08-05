@@ -30,6 +30,7 @@ from auto_patch.canonical_points import CanonicalPointRegistry
 from auto_patch.elevation_per_surface import solver_primitives as SP
 from auto_patch.elevation_per_surface.route_profile.one_solve import (
     feasibility_project)
+from auto_patch.elevation_per_surface.route_profile import one_solve as OS
 from auto_patch.grade_law import runway_end_envelope
 from auto_patch.layout import (
     REF_RUNWAY_END_RESA, REF_RUNWAY_END_SKIRT, ROLE_APRON, ROLE_RUNWAY,
@@ -368,14 +369,14 @@ def test_converged_value_is_the_analytic_clamp(monkeypatch):
     feasibility_project(elev, scs, hard, force_scalar=True,
                         interval_yield_from=first_free)
 
-    # The sweep enforces the law shrunk inward by the emit-quantization
-    # margin (``one_solve._margined_interval``, so a 0.01 m-rounded
-    # emitted difference still fits the RAW law) — the same margin every
-    # symmetric budget already carries.  Parity is therefore exact
-    # against the margined ceiling, and within that margin of the raw
-    # one; the R2 writeback restores the raw law exactly (see
-    # ``test_runway_end_resa_cut``'s writeback-parity assertions).
-    q = cfg.EMIT_QUANTIZATION_MARGIN_M
+    # RAW LAW SWEEPS ARE STANDING LAW (docs/RULINGS.md 2026-08-05,
+    # build-complete-then-debug).  The sweep used to enforce the law
+    # shrunk inward by the emit-quantization margin
+    # (``one_solve._margined_interval``); that margin is now 0 — the
+    # 0.01 m guarantee lives at emit (``auto_patch.emit_snap``), bounded
+    # by one grid step per node so it cannot compound along a path.
+    # Parity is therefore exact against the RAW analytic ceiling.
+    q = OS._emit_quantization_margin()
     checked = 0
     for i in sorted(cut_idx):
         if i < first_free:

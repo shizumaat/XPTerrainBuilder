@@ -117,3 +117,40 @@ def test_a_real_degeneration_still_withdraws():
                                   top, spread, None)
     assert not walls
     assert len(shape.polygon.exterior.coords) - 1 == len(thin)
+
+
+# ── the face is the VACATED BAND, never a lap ─────────────────────────
+
+def test_a_concave_ring_face_stays_inside_the_shapes_own_footprint():
+    """ZERO-TOLERANCE SELF-OVERLAP (verification.check_self_overlap scores
+    every emitted polygon, retaining walls included).
+
+    The wall ring is pinched shut with the run's two ring NEIGHBOURS.  On a
+    concave ring the triangle they close can leave the parent altogether
+    and lap whatever stands there — a self-overlap with no owner.  The face
+    is now stated as the band the shape VACATED
+    (``ring ∩ before − after``), so it is contained in the parent's former
+    footprint by construction.
+    """
+    # an L-shaped (concave) parent
+    ring = [(0.0, 0.0), (40.0, 0.0), (40.0, 12.0), (14.0, 12.0),
+            (14.0, 40.0), (0.0, 40.0)]
+    own = [100.0] * len(ring)
+    shape = BuiltShape(polygon=Polygon(ring + [ring[0]]),
+                       role=ROLE_TUNNEL_RAMP, ref="tunnel_ramp",
+                       node_altitudes=list(own) + [own[0]])
+    before = Polygon(ring + [ring[0]])
+    top = [None] * len(ring)
+    spread = [0.0] * len(ring)
+    for i in (2, 3, 4):
+        top[i] = 115.0
+        spread[i] = 15.0
+    walls = AG._retreat_run_walls(shape, list(ring), list(own),
+                                  top, spread, None)
+    for w in walls:
+        assert w.polygon.difference(before).area <= 1e-9, (
+            f"retreat face escapes the parent's former footprint by "
+            f"{w.polygon.difference(before).area:.4f} m² — that area laps "
+            f"whatever shape occupies it")
+        assert w.polygon.intersection(shape.polygon).area <= 1e-9, (
+            "retreat face laps the area the retreat KEPT")

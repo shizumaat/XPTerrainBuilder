@@ -2938,6 +2938,10 @@ def _retreat_run_walls(shape, coords, alts, coincident_top, spread,
     new_coords = list(coords)
     new_alts = list(alts)
     shape_walls: list = []
+    # The parent's footprint BEFORE the retreat.  A retreat face is, by
+    # construction, exactly the band the shape VACATED — see the clip
+    # below, which is stated against this.
+    before_poly = shape.polygon
     for run in runs:
         top_pts = [coords[i] for i in run]
         top_alts_run = [round(float(conflict_top[i]), 1) for i in run]
@@ -3040,15 +3044,35 @@ def _retreat_run_walls(shape, coords, alts, coincident_top, spread,
             + [round(new_alts[0], 2)])
     except _GEOM_EXC:
         return []
-    # Clip each wall out of the RETREATED strip's footprint (same
-    # discipline as ``_emit_apron_walls``): on a concave boundary
-    # the wedge between the old and new edges can lap onto strip
-    # area the retreat kept — the zero-tolerance self-overlap
-    # invariant forbids any lap.
+    # A RETREAT FACE IS EXACTLY THE BAND THE SHAPE VACATED:
+    #
+    #       face = wall_ring  ∩  footprint_BEFORE  −  footprint_AFTER
+    #
+    # The subtraction alone was the old rule ("clip out of the RETREATED
+    # footprint", the ``_emit_apron_walls`` discipline): it removes the
+    # concave-boundary wedge that laps area the retreat KEPT.  It does not
+    # remove the wedge that lands OUTSIDE the parent entirely — the wall
+    # ring is pinched shut with the run's two ring NEIGHBOURS, and on a
+    # concave ring (or a run ending at a corner) the triangle they close
+    # can leave the shape altogether and lap whatever stands there.  That
+    # is a zero-tolerance self-overlap (``verification.check_self_overlap``
+    # scores every emitted polygon, walls included) and it is exactly the
+    # class the composed world made reachable: the §2 retreat is standing
+    # law now, three wall passes run per build, and the sub-tolerance-weld
+    # fix earlier in this session makes retreats FIRE where they used to be
+    # withdrawn.
+    #
+    # Intersecting with the BEFORE footprint states the invariant directly
+    # instead of patching its symptoms: the face is the vacated band, so it
+    # is contained in the parent's own former footprint and cannot lap any
+    # other shape (the parents themselves do not overlap — that is the same
+    # invariant one level up).
     clipped_walls: list = []
     for wall in shape_walls:
         try:
             clipped = wall.polygon.difference(shape.polygon)
+            if before_poly is not None and not before_poly.is_empty:
+                clipped = clipped.intersection(before_poly)
             if clipped.is_empty:
                 continue
             if clipped.geom_type == "MultiPolygon":
@@ -4831,6 +4855,7 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
                                      collar_zone_prep=None,
                                      strip_zone_prep=None,
                                      strip_law=None,
+                                     strip_longitudinal=None,
                                      strip_bands_out=None,
                                      axis_line=None,
                                      axis_classes=None,

@@ -325,3 +325,188 @@ def test_a_patch_predating_the_law_is_judged_exactly_as_before():
     import check_grade as CG
     assert CG._fan_ramp_zones_to_m(None, lambda a, b: (a, b)) == []
     assert CG._fan_ramp_pair_cap([], 0.0, 0.0, 1.0, 1.0) is None
+
+
+# ── 5. ACTIVATION — the zone is a SHAPE, not a region in one ────────
+#
+# The law above is correct and was INERT.  Measured on HECA's plateau
+# build: 808 declared zones, 295 526 m² of movement-clear apron, and 170
+# within-apron edges raised.  The cause is structural — the chord
+# predicate can only raise a pair that EXISTS, an apron's solve variables
+# are its RING vertices, and a fan-ramp zone is interior ground.  Of
+# 10 255 within-apron census rows, 9 739 had neither endpoint in any zone
+# and 9 were blocked by the whole-chord test.
+#
+# These twins bind the fix: the zone is CUT OUT before the solve, so it
+# has ring vertices of its own and its interior pairs are its own
+# all-pairs at 5 %.
+
+def _split_fixture():
+    layout, apron = _terminal_apron()
+    plan = AT.plan_fan_ramp_zones(layout, icao="TEST")
+    n = AT.split_aprons_at_fan_zones(layout, plan, icao="TEST")
+    return layout, apron, plan, n
+
+
+def test_the_zone_becomes_its_own_shape():
+    """THE ACTIVATION.  Before the split the zone is interior ground with
+    no variables; after it, it is a piece with a ring."""
+    layout, apron, plan, n = _split_fixture()
+    assert n >= 1, "no fan-ramp zone became a shape"
+    ramps = [s for s in layout.shapes if getattr(s, "fan_ramp_zone", False)]
+    assert len(ramps) == n
+    original = _terminal_apron()[1].polygon
+    for s in ramps:
+        assert s.role == "apron", "a ramp piece is still apron ground"
+        assert s.polygon.area >= 200.0
+        assert not s.polygon.interiors
+        # it came out of the apron it was declared on …
+        assert original.buffer(1e-6).contains(
+            s.polygon.representative_point())
+        # … and out of it: the apron kept its identity as the largest
+        # REMAINDER panel, so the ramp is no longer part of it.
+        assert not apron.polygon.buffer(-1e-6).intersects(s.polygon)
+
+
+def test_the_ramp_pieces_own_pairs_are_priced_at_the_zone_cap():
+    """The point of the whole exercise: the ONE solve now has a surface
+    it can fan.  The cap comes from the SAME function the census reads
+    (``grade_graph._body_cap_unbounded``)."""
+    from auto_patch import grade_graph as GG
+    layout, _apron, _plan, _n = _split_fixture()
+    ramp = next(s for s in layout.shapes
+                if getattr(s, "fan_ramp_zone", False))
+    ring = list(ramp.polygon.exterior.coords)[:-1]
+    gs = GG.GradeShape(role="apron", ring=ring,
+                       keys=list(range(len(ring))), fan_ramp_zone=True)
+    plain = GG.GradeShape(role="apron", ring=ring,
+                          keys=list(range(len(ring))))
+    ctx = GG.GradeContext(centerlines=[], routes=[])
+    assert GG._body_cap(gs, ctx, {}) == pytest.approx(GROUNDSIDE_MAX_GRADE)
+    assert GG._body_cap(plain, ctx, {}) == pytest.approx(APRON_MAX_GRADE)
+    # …and the pairs it actually generates carry it.
+    sc = GG.shape_constraints(gs, ctx)
+    assert sc.edges, "a ramp piece generated no within-shape pairs"
+    assert max(c.flat_cap() for (_a, _b, c) in sc.edges) == pytest.approx(
+        GROUNDSIDE_MAX_GRADE)
+
+
+def test_no_pavement_is_lost_to_the_cut():
+    """Losing pavement to a geometry op is never the lawful answer —
+    every piece, ramp and remainder alike, is kept."""
+    layout, apron, _plan, _n = _split_fixture()
+    before = _terminal_apron()[1].polygon.area
+    after = sum(s.polygon.area for s in layout.shapes
+                if s.role == "apron")
+    assert after == pytest.approx(before, rel=1e-9)
+
+
+def test_a_ramp_piece_never_touches_a_movement_surface():
+    """The composition clause, asserted on the SHAPES that ship — the
+    structural guarantee has to survive the cut, not merely the plan."""
+    layout, _apron, _plan, _n = _split_fixture()
+    cover = AT.corridor_cover(layout)
+    for s in layout.shapes:
+        if not getattr(s, "fan_ramp_zone", False):
+            continue
+        assert not s.polygon.intersects(cover.buffer(-1e-9)), (
+            "a shipped fan-ramp piece overlaps an aircraft-movement "
+            "surface")
+
+
+def test_a_zone_that_could_only_be_a_HOLE_is_stillborn_and_DROPPED():
+    """Every shape in this system is simply connected, so a zone island
+    in the middle of an apron cannot be cut out.  It is stillborn — and
+    it must leave the DECLARATION too, or the census would keep granting
+    5 % on ground the solver was never given at 5 %."""
+    apron = _rect(0.0, 0.0, 400.0, 300.0, "apron", "a")
+    layout = _Layout([apron])
+    plan = AT.FanRampPlan()
+    island = Polygon([(150.0, 120.0), (250.0, 120.0),
+                      (250.0, 180.0), (150.0, 180.0)])
+    plan.add(id(apron), {"shape_id": id(apron), "polygon": island,
+                         "cap": GROUNDSIDE_MAX_GRADE, "buildings": 2,
+                         "area_m2": island.area})
+    n = AT.split_aprons_at_fan_zones(layout, plan, icao="TEST")
+    assert n == 0
+    assert plan.zones == [], "a stillborn zone still declares 5 %"
+    assert plan.stats["zones_stillborn_hole"] == 1
+    assert not any(getattr(s, "fan_ramp_zone", False) for s in layout.shapes)
+    assert apron.polygon.area == pytest.approx(400.0 * 300.0)
+
+
+def test_the_declaration_is_what_was_BUILT():
+    """One declaration, and it names the pieces that exist: every zone
+    the sidecar publishes has a shape, and every ramp shape a zone."""
+    layout, _apron, plan, n = _split_fixture()
+    ramps = [s for s in layout.shapes if getattr(s, "fan_ramp_zone", False)]
+    assert len(plan.zones) == len(ramps) == n
+    by_id = {id(s): s for s in ramps}
+    for z in plan.zones:
+        assert z["shape_id"] in by_id
+        assert z["polygon"].equals(by_id[z["shape_id"]].polygon)
+        assert z["cap"] == GROUNDSIDE_MAX_GRADE
+
+
+def test_the_emitted_tag_and_the_solver_read_ONE_law():
+    """THE LOCKSTEP, in its shipped form.  The build stamps
+    ``o4_grade_law='fan_ramp'``; the census turns that tag back into the
+    same ``GradeShape`` field the solver set, so both sides reach the cap
+    through ``config.fan_ramp_law_cap`` and cannot drift."""
+    import check_grade as CG
+    from auto_patch.config import FAN_RAMP_LAW, fan_ramp_law_cap
+
+    assert fan_ramp_law_cap(FAN_RAMP_LAW) == pytest.approx(
+        GROUNDSIDE_MAX_GRADE)
+    assert fan_ramp_law_cap("apron") is None
+    assert fan_ramp_law_cap(None) is None
+
+    class _W:
+        tags = {"role": "apron", "o4_grade_law": FAN_RAMP_LAW}
+
+    class _P:
+        tags = {"role": "apron"}
+
+    assert CG._role_grade_limit(_W(), APRON_MAX_GRADE) == pytest.approx(
+        GROUNDSIDE_MAX_GRADE)
+    assert CG._role_grade_limit(_P(), APRON_MAX_GRADE) == pytest.approx(
+        APRON_MAX_GRADE)
+
+
+def test_the_tag_is_actually_stamped_on_the_emitted_piece():
+    """The half of the lockstep a unit test of the reader cannot see: the
+    emitter has to write the tag, or the census silently judges a 5 %
+    ramp at 1 %."""
+    from auto_patch.layout import BuiltShape as _BS
+    from auto_patch.config import FAN_RAMP_LAW
+    import inspect
+    from auto_patch import layout as _L
+
+    src = inspect.getsource(_L.PavementLayout.to_osm)
+    assert "fan_ramp_zone" in src and "FAN_RAMP_LAW" in src, (
+        "to_osm no longer stamps the fan-ramp law tag")
+    assert _BS.__dataclass_fields__["fan_ramp_zone"].default is False
+
+
+def test_a_ramp_sibling_is_not_its_own_facing_NEIGHBOUR():
+    """The cut runs the whole length of the ramp.  If the pieces faced
+    each other, the joint clearance would fence the apron off from itself
+    and the terrace law would be suppressed on exactly the aprons the
+    ramp law just declared."""
+    layout, apron, _plan, _n = _split_fixture()
+    ramp = next(s for s in layout.shapes
+                if getattr(s, "fan_ramp_zone", False))
+    assert ramp not in AT._pavement_neighbours(layout, apron)
+    assert apron not in AT._pavement_neighbours(layout, ramp)
+
+
+def test_a_ramp_piece_is_not_a_TERRACE_candidate():
+    """Owner answer 2: the wall is the fallback for what 5 % could not
+    span, and 5 % is what this piece already holds.  A wall inside a ramp
+    is not the law."""
+    import inspect
+    src = inspect.getsource(AT._construct_from_envelope)
+    assert "fan_ramp_zone" in src, (
+        "the terrace candidate list no longer excludes ramp pieces")
+    assert src.index("split_aprons_at_fan_zones") < src.index(
+        "aprons = ["), "the zones must be cut BEFORE the terrace lines"

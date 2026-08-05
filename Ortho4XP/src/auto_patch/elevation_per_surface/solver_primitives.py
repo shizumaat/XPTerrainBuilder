@@ -351,7 +351,14 @@ def _shape_grade(layout, s) -> float:
     APRON-EDGE ADOPTION (USER RULING 2026-07-06): a service road /
     service junction sharing an edge with an apron follows the APRON
     grading rules — the flag is set by the pipeline's adoption pass and
-    overrides the role cap."""
+    overrides the role cap.
+
+    THE FAN-RAMP LAW (owner RULINGS 21f0980): a declared fan-ramp zone
+    piece keeps ``role == apron`` and holds the ZONE cap.  Checked first
+    for that reason — it is the only override here that RELAXES."""
+    if getattr(s, "fan_ramp_zone", False):
+        from auto_patch.config import FAN_RAMP_CAP
+        return float(FAN_RAMP_CAP)
     if getattr(s, "adopts_apron_grade", False):
         from auto_patch.config import APRON_MAX_GRADE
         return float(APRON_MAX_GRADE)
@@ -723,7 +730,15 @@ def _grade_graph_edges(s, coords, idx, ctx, ring_only=False):
     # (The older ``adopts_apron_grade`` / ``adopts_taxi_grade`` flags have
     # exactly this gap today and are NOT changed here: closing it moves
     # gate-off output.  Reported, not fixed in this round.)
+    #
+    # ``fan_ramp_zone`` IS passed, and must be: the flag is new, so there
+    # is no gate-off output to move, and the shared memo above is exactly
+    # the trap the paragraph names — a fan-ramp piece whose constraints
+    # this consumer generated first would hand the 1 % apron edges to
+    # ``build_unified_graph`` too, and the ramp would be inert in the very
+    # place the law was written for.
     gs = GG.GradeShape(role=s.role, ring=list(coords), keys=keys,
+                       fan_ramp_zone=getattr(s, "fan_ramp_zone", False),
                        lateral_cap=getattr(s, "lateral_cap", None))
     sc = GG.shape_constraints_cached(id(s.polygon), gs, ctx,
                                      ring_only=ring_only)

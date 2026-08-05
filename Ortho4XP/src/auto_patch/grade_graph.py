@@ -50,6 +50,7 @@ from .config import (
     APRON_MAX_GRADE,
     APRON_TAXI_BLEND,
     APRON_TAXI_TRANSITION_M,
+    FAN_RAMP_CAP,
     GRADE_VISIBILITY_BUFFER_M as _VIS_BUF,
     JUNCTION_MESH_CONSTRAINTS,
     SERVICE_ROAD_MAX_GRADE,
@@ -273,11 +274,22 @@ class GradeShape:
     reader: ``BuiltShape.lateral_cap``; OSM reader: the ``o4_grade_law_cap``
     way tag.  It is a MINIMUM over the other resolutions — never a
     relaxation.
+
+    ``fan_ramp_zone``  THE FAN-RAMP LAW (owner RULINGS 21f0980): this
+    piece IS a declared fan-ramp zone — apron ground between two adjacent
+    building frontages, clear of every aircraft-movement surface — and
+    holds ``FAN_RAMP_CAP`` (5 %) instead of the apron's 1 %.  Layout
+    reader: ``BuiltShape.fan_ramp_zone``; OSM reader: the
+    ``o4_grade_law='fan_ramp'`` way tag, both resolved through the ONE
+    function ``config.fan_ramp_law_cap``.  The piece is cut out pre-solve
+    (``apron_terrace.split_aprons_at_fan_zones``), so this is a whole
+    shape's law and not a region-inside-a-shape predicate.
     """
     role: str
     ring: list[tuple[float, float]]
     keys: list[Hashable]
     adopts_apron_grade: bool = False
+    fan_ramp_zone: bool = False
     adopts_taxi_grade: bool = False
     adopted_taxi_letter: str | None = None
     lateral_cap: float | None = None
@@ -923,6 +935,15 @@ def _body_cap(shape: GradeShape, ctx: GradeContext, membership: dict) -> float:
 
 def _body_cap_unbounded(shape: GradeShape, ctx: GradeContext,
                         membership: dict) -> float:
+    # THE FAN-RAMP LAW (owner RULINGS 21f0980), FIRST because a fan-ramp
+    # piece keeps ``role == apron`` — every apron machine still owns it,
+    # only its CAP is the zone's.  The piece was cut out of its apron
+    # before the solve, so this cap governs its OWN all-pairs: the ramp
+    # fanning between two building seat levels is the surface the ONE
+    # solve is now free to reach, and no movement surface is inside it
+    # (the zone is ``apron − corridor_cover`` by construction).
+    if getattr(shape, "fan_ramp_zone", False):
+        return FAN_RAMP_CAP
     if shape.role == APRON_ROLE:
         return APRON_MAX_GRADE
     # USER RULING 2026-07-06: a service road / junction sharing an edge
@@ -2019,6 +2040,7 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
         if skip_edge_shape_ids is not None and id(s) in skip_edge_shape_ids:
             continue    # scoped projection: pairs live in the caller's lazy entry
         gs = GradeShape(role=s.role, ring=list(ring), keys=keys,
+                        fan_ramp_zone=getattr(s, "fan_ramp_zone", False),
                         adopts_apron_grade=getattr(
                             s, "adopts_apron_grade", False),
                         adopts_taxi_grade=getattr(

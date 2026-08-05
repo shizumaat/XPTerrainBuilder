@@ -44,6 +44,7 @@ from .geom_safe import min_rotated_rect
 from .pavement import strips as PS
 
 from .config import (
+    FAN_RAMP_LAW,
     SLIVER_ANGLE_THRESHOLD_DEG,
     TAXI_GRADE_BY_WIDTH,
     TAXI_GRADE_WIDTH_ROLES,
@@ -645,6 +646,26 @@ class BuiltShape:
     # segmented form (crossing resolution, cross-edge crown tenting,
     # apron-merge whole-piece drops) key off this flag.
     from_single_poly: bool = False
+    # THE FAN-RAMP LAW (owner RULINGS 21f0980): this apron piece IS a
+    # declared fan-ramp zone — the ground between two adjacent building
+    # frontages, clear of every aircraft-movement surface, which carries
+    # up to 5 % continuous grade fanning between the two seat levels.
+    #
+    # It is a PIECE, not a region-inside-a-piece, and that is the whole
+    # architecture: ``apron_terrace.split_aprons_at_fan_zones`` cuts the
+    # zone out of its apron BEFORE the solve (the terrace pattern), so
+    # the zone's boundary is a set of solve variables and its interior
+    # pairs are its OWN all-pairs at the zone cap.  The chord-predicate
+    # form of the law could only raise pairs that already existed, and
+    # apron ring vertices are on the RING — measured at HECA, that was
+    # 170 edges out of 808 declared zones.
+    #
+    # Role stays ``apron`` (every apron machine still owns it); the CAP
+    # comes from this flag, exactly as ``adopts_apron_grade`` works.
+    # Consumed by ``grade_graph._body_cap_unbounded`` and emitted as
+    # ``o4_grade_law='fan_ramp'`` for ``tools/check_grade`` — one law,
+    # two readers, resolved by ``config.fan_ramp_law_cap``.
+    fan_ramp_zone: bool = False
 
 
 
@@ -2201,11 +2222,19 @@ class PavementLayout:
             # stay byte-identical.
             if getattr(s, "from_single_poly", False):
                 tags["o4_single_poly"] = "1"
+            # THE FAN-RAMP LAW (owner RULINGS 21f0980): a declared
+            # fan-ramp zone piece holds the ZONE cap (5 %), not the
+            # apron's 1 %.  Stamped FIRST — it is the only one of these
+            # that RELAXES, so a piece that is somehow both is judged at
+            # the law that actually built it.  ``config.fan_ramp_law_cap``
+            # resolves the same tag on the validator's side.
+            if getattr(s, "fan_ramp_zone", False):
+                tags["o4_grade_law"] = FAN_RAMP_LAW
             # APRON-EDGE GRADE ADOPTION (USER RULING 2026-07-06): a
             # service road/junction sharing an apron edge follows the
             # apron grading rules — stamp the law override so the
             # validator applies the same cap the solver used.
-            if getattr(s, "adopts_apron_grade", False):
+            elif getattr(s, "adopts_apron_grade", False):
                 tags["o4_grade_law"] = "apron"
             # TAXIWAY-EDGE GRADE ADOPTION (USER RULING 2026-07-07): a
             # service-road portion inside or alongside a taxiway follows

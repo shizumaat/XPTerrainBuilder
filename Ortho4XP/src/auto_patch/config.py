@@ -174,6 +174,9 @@ __all__ = [
     "TUNNEL_MOUTH_WINDOW_M",
     "TUNNEL_ROOF_PLATE_MAX_LENGTH_M",
     "GROUNDSIDE_MAX_GRADE",
+    "FAN_RAMP_CAP",
+    "FAN_RAMP_LAW",
+    "fan_ramp_law_cap",
     "RUNWAY_VERTICAL_CURVE_K_M",
     "RUNWAY_MAX_GRADE_CHANGE_PER_M",
     "RUNWAY_DEM_FOLLOW_LAW_BAND_M",
@@ -1285,6 +1288,36 @@ TUNNEL_LOW_CONNECTOR_MAX_OPEN_GAP_M = 100.0
 # ICAO Annex 14 / Doc 9157, EASA CS-ADR-DSN and ACRP 25 verified SILENT), so
 # the value is region-invariant — there is no FAA/ICAO split to apply.
 GROUNDSIDE_MAX_GRADE = 0.050
+# ── THE FAN-RAMP LAW's cap and law name (owner RULINGS 21f0980) ──────
+# "between frontages at the back edge, the fan-ramp zone carries up to
+# 5 % continuous grade fanning between building seat levels".  The VALUE
+# is the groundside class's, named once here so the solver
+# (``grade_graph._body_cap_unbounded``) and the validator
+# (``tools/check_grade``) cannot each carry their own copy — the same
+# single-source rule every other grade constant in this file follows.
+#
+# ``FAN_RAMP_LAW`` is the ``o4_grade_law`` way-tag VALUE that carries the
+# declaration across the emit boundary, exactly as ``'apron'`` carries
+# ``adopts_apron_grade``.  ONE FUNCTION resolves it on both sides
+# (:func:`fan_ramp_law_cap`) so a tag rename cannot desync the readers.
+FAN_RAMP_CAP = GROUNDSIDE_MAX_GRADE
+FAN_RAMP_LAW = "fan_ramp"
+
+
+def fan_ramp_law_cap(law_value):
+    """THE fan-ramp resolver — ``FAN_RAMP_CAP`` for the declared law
+    value, ``None`` for anything else.
+
+    Both readers call THIS: the solver through
+    ``grade_graph.GradeShape.fan_ramp_zone`` (set from
+    ``BuiltShape.fan_ramp_zone`` on the layout side and from this tag on
+    the OSM side), the census through ``check_grade._role_grade_limit``.
+    A patch predating the law carries no tag, reads ``None``, and is
+    judged exactly as before.
+    """
+    return FAN_RAMP_CAP if law_value == FAN_RAMP_LAW else None
+
+
 # FAA vertical-curve rule L = K × |Δg|.  K = 305 m for ARC C/D (lighter
 # A/B ≈ 76 m, heavy E ≈ 610 m).  ``RUNWAY_MAX_GRADE_CHANGE_PER_M`` is the
 # segment-smoother's equivalent: a 1% grade change needs ~305 m of curve,

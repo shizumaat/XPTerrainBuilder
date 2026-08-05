@@ -218,6 +218,7 @@ except ImportError:                                        # pragma: no cover
     _BAND_INVERSION_TOL_M = 0.01
 _INF_POS = float("inf")
 _INF_NEG = float("-inf")
+_UNSET_ZONE = object()
 # The demand-margin histogram's upper edges (metres).  Everything at or
 # above ``APRON_TERRACE_MIN_EXCESS_M`` fired; the negative bins are what
 # says whether an apron that did not fire was NEAR firing (the trigger is
@@ -1299,20 +1300,27 @@ def _envelope_demand(polygon, envelope, cap: float, fan=None):
     D = _np.hypot(X[:, None] - X[None, :], Y[:, None] - Y[None, :])
     M = (L[:, None] - U[None, :]) - float(cap) * D
     if fan is not None and getattr(fan, "zones", None):
-        # RAMPS FIRST (owner answer 2).  A pair that lies wholly inside a
+        # RAMPS FIRST (owner answer 2).  A pair whose two ends lie in ONE
         # fan-ramp zone is allowed the ZONE's cap, so what survives this
         # scan is exactly the relief 5 % could not span — which is what
         # the wall/step fallback is FOR.  Precedence lives here, in the
         # one trigger reading, rather than in a second pass that could
         # disagree with it.
-        for _a in range(n):
-            for _b in range(n):
-                if _a == _b:
-                    continue
-                pc = fan.endpoints_cap(X[_a], Y[_a],
-                                       X[_b], Y[_b], float(cap))
-                if pc != float(cap):
-                    M[_a, _b] = (L[_a] - U[_b]) - pc * D[_a, _b]
+        #
+        # ONE polygon test PER SAMPLE, then the pair rule is an array
+        # comparison: the per-pair form was n² prepared-geometry calls
+        # per apron and it cost HECA's plateau build minutes.
+        zid = _np.asarray([fan.zone_of(px, py) for (px, py) in zip(xs, ys)],
+                          dtype=int)
+        if (zid >= 0).any():
+            caps = _np.asarray(fan.zone_caps(), dtype=float)
+            same = (zid[:, None] == zid[None, :]) & (zid[:, None] >= 0)
+            if same.any():
+                zc = _np.where(zid >= 0, caps[_np.clip(zid, 0, None)],
+                               float(cap))
+                M = _np.where(same,
+                              (L[:, None] - U[None, :])
+                              - zc[:, None] * D, M)
     _np.fill_diagonal(M, -_np.inf)
     M[D < _ENVELOPE_MIN_CHORD_M] = -_np.inf
     k, m = _np.unravel_index(int(_np.argmax(M)), M.shape)
@@ -2399,21 +2407,45 @@ class FanRampPlan:
         }
 
     def add(self, shape_id: int, zone: dict) -> None:
+        self._prepared = None
         self.zones.append(zone)
         self.by_shape.setdefault(shape_id, []).append(zone)
         self.stats["zones"] += 1
         self.stats["zone_area_m2"] += zone["area_m2"]
 
+    # ── THE INDEX ────────────────────────────────────────────────
+    # Every consumer asks "which zone is this point / chord in", over
+    # tens of thousands of pairs.  Shapely predicates on a raw polygon
+    # are ~10 us each, so the naive scan is minutes at a real airport
+    # (measured: HECA's plateau build went from 8 min to past 10).  The
+    # index is a bbox prefilter plus a PREPARED geometry per zone, built
+    # once and cached on the plan.
+    def _index(self):
+        idx = getattr(self, "_prepared", None)
+        if idx is None:
+            from shapely.prepared import prep
+            idx = []
+            for z in self.zones:
+                poly = z["polygon"]
+                idx.append((poly.bounds, prep(poly), float(z["cap"])))
+            self._prepared = idx
+        return idx
+
+    def zone_of(self, x, y) -> int:
+        """The index of the zone containing ``(x, y)``, or ``-1``."""
+        for k, (bb, pre, _cap) in enumerate(self._index()):
+            if not (bb[0] <= x <= bb[2] and bb[1] <= y <= bb[3]):
+                continue
+            if pre.intersects(_Point(x, y)):
+                return k
+        return -1
+
+    def zone_caps(self) -> list:
+        return [float(z["cap"]) for z in self.zones]
+
     def covers(self, x, y) -> bool:
         """Is ``(x, y)`` inside a declared zone?"""
-        p = _Point(x, y)
-        for z in self.zones:
-            try:
-                if z["polygon"].intersects(p):
-                    return True
-            except _GEOM_EXC:                              # pragma: no cover
-                continue
-        return False
+        return self.zone_of(x, y) >= 0
 
     def pair_cap(self, ax, ay, bx, by, default: float) -> float:
         """THE SOLVER's and the VALIDATOR's predicate: the cap a
@@ -2428,16 +2460,22 @@ class FanRampPlan:
         """
         if not self.zones:
             return default
+        # BOTH ENDS IN THE SAME ZONE IS NECESSARY, and it is the cheap
+        # test — so it runs first and the chord predicate only ever sees
+        # the handful of pairs that could pass it.
+        ka = self.zone_of(ax, ay)
+        if ka < 0 or self.zone_of(bx, by) != ka:
+            return default
         try:
             chord = LineString([(ax, ay), (bx, by)])
         except _GEOM_EXC:                                  # pragma: no cover
             return default
-        for z in self.zones:
-            try:
-                if z["polygon"].covers(chord):
-                    return float(z["cap"])
-            except _GEOM_EXC:                              # pragma: no cover
-                continue
+        bb, pre, cap = self._index()[ka]
+        try:
+            if pre.covers(chord):
+                return cap
+        except _GEOM_EXC:                                  # pragma: no cover
+            pass
         return default
 
     def endpoints_cap(self, ax, ay, bx, by, default: float) -> float:
@@ -2458,15 +2496,10 @@ class FanRampPlan:
         """
         if not self.zones:
             return default
-        pa, pb = _Point(ax, ay), _Point(bx, by)
-        for z in self.zones:
-            try:
-                poly = z["polygon"]
-                if poly.intersects(pa) and poly.intersects(pb):
-                    return float(z["cap"])
-            except _GEOM_EXC:                              # pragma: no cover
-                continue
-        return default
+        ka = self.zone_of(ax, ay)
+        if ka < 0 or self.zone_of(bx, by) != ka:
+            return default
+        return self._index()[ka][2]
 
 
 def plan_fan_ramp_zones(layout, cover=None, icao: str = "") -> FanRampPlan:
@@ -2683,7 +2716,25 @@ def apply_fan_ramp_caps_to_edges(plan: Optional[FanRampPlan], edges,
 
 
 def _rewrite_fan_edges(edges, zones, node_xy):
-    """``cap·d`` → ``ramp cap·d`` for edges wholly inside one zone."""
+    """``cap·d`` → ``ramp cap·d`` for edges wholly inside one zone.
+
+    Indexed: each NODE's zone is resolved once (memoised), and the
+    chord predicate runs only for the edges whose two ends already agree
+    on a zone.  The flat scan was one prepared-geometry call per edge per
+    zone and did not finish inside the build budget at HECA.
+    """
+    sub = FanRampPlan()
+    for z in zones:
+        sub.add(z["shape_id"], z)
+    zone_of: dict = {}
+
+    def _zone(i, p):
+        k = zone_of.get(i, _UNSET_ZONE)
+        if k is _UNSET_ZONE:
+            k = sub.zone_of(p[0], p[1])
+            zone_of[i] = k
+        return k
+
     out = []
     touched = 0
     for e in edges:
@@ -2695,27 +2746,23 @@ def _rewrite_fan_edges(edges, zones, node_xy):
         if pa is None or pb is None:
             out.append(e)
             continue
-        try:
-            chord = LineString([pa, pb])
-        except _GEOM_EXC:                                  # pragma: no cover
-            out.append(e)
-            continue
         d = math.hypot(pb[0] - pa[0], pb[1] - pa[1])
         if d < 1e-9:
             out.append(e)
             continue
-        hit = None
-        for z in zones:
-            try:
-                if z["polygon"].covers(chord):
-                    hit = z
-                    break
-            except _GEOM_EXC:                              # pragma: no cover
-                continue
-        if hit is None:
+        ka = _zone(a, pa)
+        if ka < 0 or _zone(b, pb) != ka:
             out.append(e)
             continue
-        relaxed = float(hit["cap"]) * d
+        _bb, pre, cap_z = sub._index()[ka]
+        try:
+            if not pre.covers(LineString([pa, pb])):
+                out.append(e)
+                continue
+        except _GEOM_EXC:                                  # pragma: no cover
+            out.append(e)
+            continue
+        relaxed = float(cap_z) * d
         if relaxed <= float(budget):
             # NEVER TIGHTEN.  The zone cap is an upper bound the ruling
             # GRANTS; an edge already carrying a looser budget (a

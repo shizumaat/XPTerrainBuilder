@@ -3134,7 +3134,11 @@ def _terrace_step_allowance(terrace_joints_m, xa, ya, xb, yb) -> float:
 # no key, reads ``None``, and is judged exactly as before.
 
 def _fan_ramp_zones_to_m(fan_ramp_zones_ll, ll_to_m):
-    """``[(shapely ring in metres, cap)]`` from the sidecar rows."""
+    """``[(polygon, cap, bounds, prepared)]`` from the sidecar rows.
+
+    Prepared + bbox-indexed for the same reason the solver's side is:
+    the within-shape check asks per PAIR, and a raw shapely predicate
+    per pair per zone does not finish at a real airport."""
     out = []
     for row in (fan_ramp_zones_ll or []):
         ring = row.get("ring_ll") if isinstance(row, dict) else None
@@ -3150,7 +3154,12 @@ def _fan_ramp_zones_to_m(fan_ramp_zones_ll, ll_to_m):
                 continue
         except Exception:
             continue
-        out.append((poly, float(row.get("cap") or 0.0)))
+        try:
+            from shapely.prepared import prep
+            pre = prep(poly)
+        except Exception:
+            pre = None
+        out.append((poly, float(row.get("cap") or 0.0), poly.bounds, pre))
     return out
 
 
@@ -3169,10 +3178,19 @@ def _fan_ramp_pair_cap(fan_ramp_zones_m, xa, ya, xb, yb):
         chord = _LS([(xa, ya), (xb, yb)])
     except Exception:
         return None
+    lo_x, hi_x = (xa, xb) if xa <= xb else (xb, xa)
+    lo_y, hi_y = (ya, yb) if ya <= yb else (yb, ya)
     best = None
-    for (poly, cap) in fan_ramp_zones_m:
+    for (poly, cap, bb, pre) in fan_ramp_zones_m:
+        # bbox prefilter: a chord whose own box leaves the zone's box
+        # cannot be covered by it, and that rejects almost every pair
+        # for the cost of four comparisons.
+        if lo_x < bb[0] or hi_x > bb[2] or lo_y < bb[1] or hi_y > bb[3]:
+            continue
+        if best is not None and cap <= best:
+            continue
         try:
-            if poly.covers(chord) and (best is None or cap > best):
+            if (pre or poly).covers(chord):
                 best = cap
         except Exception:
             continue

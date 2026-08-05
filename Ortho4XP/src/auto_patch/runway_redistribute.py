@@ -72,9 +72,65 @@ from .config import (
 from .layout import ROLE_RUNWAY, SHARED_VERTEX_TOL_M
 from .pavement.runway_segments import (
     MAX_RUNWAY_GRADE, MAX_RUNWAY_GRADE_CHANGE_PER_M, RUNWAY_END_GRADE,
-    faa_joint_solve, runway_segment_grade_cap,
+    faa_joint_solve, runway_grade_cap_at, runway_segment_grade_cap,
 )
 from .runway_regrade import regrade_runway, DEFAULT_ARC_K_M
+
+
+# ── THE PER-SEGMENT LAW, PRICED ALONG A SPAN (spec
+# ``docs/specs/flex-convergence-spec.md``, lead completion (a)+(b)) ────
+# §2a ruled that testing only ``MAX_RUNWAY_GRADE`` on the APPLY side was
+# a bug: the per-segment cap — the FAA 0.8 % end zone and the tiered
+# threshold band — is equally law.  The IDENTICAL defect survived on the
+# DEMAND side, inside ``flex_slack_at``, which priced every bound at
+# ``MAX_RUNWAY_GRADE``.  Measured at HECA (composed arm): at 05L/23R
+# t=0.8990 — 346 m short of the 23R threshold, inside the end zone — the
+# clamp granted 4.537 m of slack where the law allows 2.531 m, the hook
+# asked for +4.000 m, apply refused the whole target, and the station
+# landed +0.486 m instead of the lawful +2.531 m.  That 2.0 m shortfall
+# is what the band then read as the uniform 2.8917 m inversion.
+#
+# The budget is INTEGRATED along the span, never ``min(cap)·distance``:
+# the cap is piecewise constant in the fraction, so a ramp that crosses a
+# zone boundary is worth ``0.8 %·(end-zone part) + 1.5 %·(rest)``.  The
+# min-cap product would under-grant every mid-runway bound held against a
+# threshold anchor — a regression the no-new-regression discipline
+# forbids.  Never wider than the old ``MAX_RUNWAY_GRADE`` product, so
+# this can only ever tighten a bound the law tightens.
+
+def _flex_segment_cap_kw(profile: dict) -> dict:
+    """The per-segment cap parameters for one profile — ONE spelling,
+    shared by the demand-side clamp and the apply-side relax."""
+    return dict(
+        grade_cap=MAX_RUNWAY_GRADE,
+        end_grade_cap=float(profile.get('end_zone_cap')
+                            or RUNWAY_END_GRADE),
+        end_fraction=RUNWAY_END_FRACTION,
+        threshold_strict_cap=(float(profile['threshold_cap'])
+                              if profile.get('threshold_cap') is not None
+                              else None),
+        threshold_strict_fraction=float(
+            profile.get('threshold_strict_fraction') or 0.0))
+
+
+def _lawful_ramp_budget(t_a: float, t_b: float, axis_len: float,
+                        cap_kw: dict) -> float:
+    """Metres a ramp between two stations may climb under the per-segment
+    law, integrating the piecewise-constant cap over the span."""
+    lo, hi = (t_a, t_b) if t_a <= t_b else (t_b, t_a)
+    if hi <= lo:
+        return 0.0
+    ef = float(cap_kw.get('end_fraction') or 0.0)
+    tf = float(cap_kw.get('threshold_strict_fraction') or 0.0)
+    cuts = {lo, hi}
+    for bound in (tf, 1.0 - tf, ef, 1.0 - ef):
+        if lo < bound < hi:
+            cuts.add(bound)
+    xs = sorted(cuts)
+    total = 0.0
+    for u, v in zip(xs, xs[1:]):
+        total += runway_grade_cap_at(0.5 * (u + v), **cap_kw) * (v - u)
+    return total * axis_len
 
 
 __all__ = ["redistribute_runway_profile", "apply_runway_flex",
@@ -1392,14 +1448,26 @@ def flex_slack_at(profile: dict, t: float, direction: float) -> float:
     thr_first = bounding[0] if bounding else None
     thr_last = bounding[-1] if bounding else None
 
+    # LEAD COMPLETION (a): price the bound with the PER-SEGMENT law, not
+    # ``MAX_RUNWAY_GRADE``.  Rides the same gate as fixes 1+2, so the
+    # gate-off clamp is byte-for-byte the pre-spec one (the tiered
+    # threshold band below is subsumed by ``threshold_strict_cap`` in the
+    # priced form, which applies it at BOTH ends and at every bounding
+    # anchor rather than only the first/last of the bounding set).
+    _seg_priced = runway_flex_self_unlock_enabled()
+    _cap_kw = _flex_segment_cap_kw(profile) if _seg_priced else None
+
     slack = float("inf")
     for k in set(bounding):
-        cap = MAX_RUNWAY_GRADE
-        if (tsf > 0.0 and k in (thr_first, thr_last)
-                and abs(t - fractions[k]) < tsf):
-            cap = RUNWAY_END_GRADE
-        distance = abs(t - fractions[k]) * axis_len
-        budget = cap * distance
+        if _seg_priced:
+            budget = _lawful_ramp_budget(t, fractions[k], axis_len, _cap_kw)
+        else:
+            cap = MAX_RUNWAY_GRADE
+            if (tsf > 0.0 and k in (thr_first, thr_last)
+                    and abs(t - fractions[k]) < tsf):
+                cap = RUNWAY_END_GRADE
+            distance = abs(t - fractions[k]) * axis_len
+            budget = cap * distance
         current_diff = (current - elevs[k]) * direction
         slack = min(slack, budget - current_diff)
     return max(0.0, slack if slack != float("inf") else 0.0)
@@ -1568,16 +1636,10 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
         # starts from has ZERO over-cap segments on every runway, so all
         # 17 gate-off end-zone violations — and the +9 / +15 the fix arms
         # added — are minted right here.
-        _seg_cap_kw = dict(
-            grade_cap=MAX_RUNWAY_GRADE,
-            end_grade_cap=float(profile.get('end_zone_cap')
-                                or RUNWAY_END_GRADE),
-            end_fraction=RUNWAY_END_FRACTION,
-            threshold_strict_cap=(
-                float(profile['threshold_cap'])
-                if profile.get('threshold_cap') is not None else None),
-            threshold_strict_fraction=float(
-                profile.get('threshold_strict_fraction') or 0.0))
+        # ONE spelling of the per-segment cap parameters, shared with the
+        # demand-side clamp (``flex_slack_at``) — the two sides of the
+        # same law must not be able to drift apart again.
+        _seg_cap_kw = _flex_segment_cap_kw(profile)
 
         def _segment_excesses(fractions, elevs):
             """``[(t0, t1, excess)]`` for every segment over its OWN
@@ -1649,6 +1711,30 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
         # for runway law: while the re-solved profile has any over-cap
         # segment, drop the target nearest the worst violation and
         # re-solve from the ORIGINAL arrays.  Worst case = no flex.
+        # ── LEAD COMPLETION (b): RELAX, don't only DROP ───────────────
+        # The loop is named verify-and-RELAX and only ever dropped.  A
+        # target that asks for more than its station's per-segment law
+        # allows is not a target to discard — its LAWFUL part is still
+        # owed to the airport.  Measured at HECA: dropping 05L/23R's
+        # t=0.8990 target left the station +0.486 m when +2.531 m was
+        # lawful, and that 2.0 m is the uniform 2.8917 m band inversion.
+        # Each target may be relaxed ONCE (to its largest lawful value
+        # against the ORIGINAL anchored samples); if the relaxed target
+        # still offends, it is dropped exactly as before — so the loop is
+        # bounded by 2·len(pending) and the worst case is still "no flex".
+        def _largest_lawful_move(t_r, direction):
+            base = _interp_profile(original_fractions, original_elevs, t_r)
+            slack = float("inf")
+            for k, is_anchor in enumerate(original_anchored):
+                if not is_anchor:
+                    continue
+                budget = _lawful_ramp_budget(t_r, original_fractions[k],
+                                             axis_len, _seg_cap_kw)
+                slack = min(slack, budget
+                            - (base - original_elevs[k]) * direction)
+            return max(0.0, slack if slack != float("inf") else 0.0)
+
+        _relaxed: set = set()
         while True:
             fractions, elevs, anchored, minted = _solve_with(pending)
             worst = _worst_violation(fractions, elevs)
@@ -1657,7 +1743,20 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
             _excess, midpoint = worst
             drop_index = min(range(len(pending)),
                              key=lambda k: abs(pending[k][0] - midpoint))
+            if _seg_cap_on and drop_index not in _relaxed:
+                _t_r, _v_r = pending[drop_index]
+                _base_r = _interp_profile(original_fractions,
+                                          original_elevs, _t_r)
+                _dir_r = 1.0 if _v_r >= _base_r else -1.0
+                _lim_r = _base_r + _dir_r * _largest_lawful_move(_t_r,
+                                                                _dir_r)
+                if abs(_lim_r - _base_r) + 1e-9 < abs(_v_r - _base_r):
+                    _relaxed.add(drop_index)
+                    pending[drop_index] = (_t_r, _lim_r)
+                    continue
             pending.pop(drop_index)
+            _relaxed = {(k - 1 if k > drop_index else k)
+                        for k in _relaxed if k != drop_index}
         if _worst_over_cap(fractions, elevs) is not None:
             continue        # even target-free re-solve over cap: keep as-was
         profile['fractions'] = list(fractions)

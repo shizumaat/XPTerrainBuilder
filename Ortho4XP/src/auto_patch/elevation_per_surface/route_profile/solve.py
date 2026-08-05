@@ -226,7 +226,42 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
             "true_deficit": 0.0, "drained": 0.0, "killed_n": 0,
             "killed_deficit": 0.0, "dropped_n": 0, "requested": 0.0,
             "achieved": 0.0, "last_deficit": 0.0, "last_drain": 0.0,
-            "rounds": 0})
+            "rounds": 0, "retired_n": 0, "retired_deficit": 0.0})
+
+    # ── THE ACHIEVED-STATE LOOP (spec
+    # ``docs/specs/flex-convergence-spec.md``) ────────────────────────
+    # The loop used to iterate on REQUESTED state.  ``move`` — what the
+    # clamp chain decided to ask for — was booked as "drained" the moment
+    # a candidate survived the greedy keep, before ``apply_runway_flex``
+    # had been called at all; the round-drain convergence test then read
+    # that same fiction.  With §2a closing the unlawful end-zone release
+    # valve, apply's verify-and-relax refuses ~52 % of the requests, and
+    # the fiction became load-bearing: measured at HECA (composed arm),
+    # the hook booked 312.76 m drained on 05L/23R where apply landed
+    # 116.52 m, and rounds 1-11 re-presented a BIT-IDENTICAL rejected
+    # target set (05L/23R t=0.8990: requested 64.417 m twelve times,
+    # achieved 60.903→60.918, shortfall +3.499 m every round).  Because
+    # the round drain was requested, it never fell under the floor, so
+    # the loop always ran to the 12-round cap: 441 demands over the same
+    # 12 rounds against the gate-off arm's 285.
+    #
+    # Three consequences, all fixed here:
+    #   * ``total_drained`` / ``_row["drained"]`` / ``_row["last_drain"]``
+    #     accumulate what apply ACHIEVED (report-only, so the gate-off
+    #     surface is untouched — only the honest line changes);
+    #   * the round-drain floor tests achieved drain, so a round that
+    #     achieves nothing STOPS the loop instead of spinning;
+    #   * a bin whose target apply refuses TWICE is RETIRED for the run
+    #     and never re-presented (loud record below).
+    # Demand re-derivation already read achieved state and must keep
+    # doing so: ``current`` interpolates the LIVE profile arrays (apply
+    # rewrites them) and ``elev`` is re-stamped by
+    # ``_reseed_runway_values`` from the flexed shapes after every apply.
+    _RETIRE_AFTER = 2                   # spec: "rejected … TWICE"
+    _reject_count: dict = {}            # (ref, bin_key) -> consecutive
+    _retired: dict = {}                 # (ref, bin_key) -> record
+    _retired_deficit = 0.0
+    _round_rows: list = []              # per-round requested/achieved/retired
 
     # ── FIX 2: CONVERGE TO MUTUAL FEASIBILITY (same spec; gate
     # ``O4_FLEX_SELF_UNLOCK``) ────────────────────────────────────────
@@ -249,7 +284,10 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
     _rounds_run = 0
     _stop_reason = "no further demand"
     for _round in range(_max_rounds):
-        _round_drain = 0.0
+        _round_drain = 0.0          # ACHIEVED drain, booked after apply
+        _round_requested = 0.0
+        _round_retired = 0
+        _bin_of_t: dict = {}        # (ref, t) -> bin key, this round only
         _rounds_run = _round + 1
         # SNAPSHOT-SIMULTANEOUS round (user 2026-07-06): demands for ALL
         # runways are computed against the SAME pre-round state, then
@@ -317,7 +355,21 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
             _row["rounds"] = _round + 1
             _row["last_deficit"] = sum(b[0] for b in bins.values())
             _row["last_drain"] = 0.0
-            for (deficit, t, target, origin) in bins.values():
+            for (bin_key, (deficit, t, target, origin)) in bins.items():
+                # RETIREMENT (spec ``flex-convergence``): a bin whose
+                # target apply has already refused ``_RETIRE_AFTER``
+                # times is not re-presented — the refusal is a law
+                # verdict, not a transient.  The demand is still counted
+                # as TRUE demand (it is real, and the airport still has
+                # it); it moves into its own bucket so the honest line
+                # names what the flex gave up on rather than hiding it
+                # inside "drained".
+                if _flex_unlock and (ref, bin_key) in _retired:
+                    _true_deficit += deficit
+                    _row["true_deficit"] += deficit
+                    _retired_deficit += deficit
+                    _row["retired_deficit"] += deficit
+                    continue
                 current = _interp_profile(profile['fractions'],
                                           profile['elevs'], t)
                 # ORIGIN SPLIT (user 2026-07-06): when the binding
@@ -354,6 +406,10 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
                     continue
                 candidates.append((deficit, t,
                                    current + direction * move, move))
+                # bin identity for the retirement ledger, carried OUTSIDE
+                # the candidate tuple so its sort key is byte-for-byte
+                # what it was (``t`` is unique per bin by construction).
+                _bin_of_t[(ref, t)] = bin_key
             if not candidates:
                 continue
             # Mutual consistency by GREEDY KEEP, largest deficit first:
@@ -373,10 +429,10 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
                     continue
                 kept.append((t, value))
                 total_deficit += deficit
-                total_drained += move
-                _round_drain += move
-                _row["drained"] += move
-                _row["last_drain"] += move
+                # NOTE (spec ``flex-convergence``): ``move`` — the
+                # REQUESTED move — is deliberately NOT booked as drain
+                # here any more.  The drain is booked against what
+                # ``apply_runway_flex`` returns, in the apply loop below.
             # FIX 4: the greedy-keep's drops, counted OUTSIDE its loop so
             # the loop body stays byte-for-byte what it was.
             _n_drop = len(candidates) - len(kept)
@@ -418,12 +474,54 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
                     _achieved_total += _ach
                     _r["requested"] += _req
                     _r["achieved"] += _ach
+                    # ── THE ACHIEVED-STATE BOOKING (spec
+                    # ``flex-convergence``) ───────────────────────────
+                    # The drain the loop converges on and the drain the
+                    # line quotes are now the SAME number apply landed.
+                    total_drained += _ach
+                    _round_drain += _ach
+                    _round_requested += _req
+                    _r["drained"] += _ach
+                    _r["last_drain"] += _ach
+                    # RETIREMENT LEDGER: a request apply did not deliver
+                    # to within the materiality floor is a REJECTION.
+                    # Two at the same bin and the bin is retired for the
+                    # run — the third identical re-presentation is the
+                    # fictional-state loop, not convergence.
+                    _bk = _bin_of_t.get((ref, _t))
+                    if _bk is None or not _flex_unlock:
+                        # Gate off: no ledger, so the line can never claim
+                        # a retirement the loop did not make.
+                        continue
+                    _key = (ref, _bk)
+                    if (_req > RUNWAY_FLEX_ROUND_DRAIN_FLOOR_M
+                            and _ach <= RUNWAY_FLEX_ROUND_DRAIN_FLOOR_M):
+                        _n_rej = _reject_count.get(_key, 0) + 1
+                        _reject_count[_key] = _n_rej
+                        if _n_rej >= _RETIRE_AFTER and _key not in _retired:
+                            _retired[_key] = {
+                                "ref": ref, "bin": _bk, "t": _t,
+                                "station_m": _t * _math.sqrt(
+                                    profiles[ref]['axis_len2']),
+                                "round": _round + 1,
+                                "requested_m": _req}
+                            _round_retired += 1
+                            _r["retired_n"] += 1
+                    else:
+                        # progress at this bin — the ledger resets, so a
+                        # bin that moves is never retired for two stale
+                        # refusals earlier in the run.
+                        _reject_count.pop(_key, None)
             _reseed_runway_values(ref)
             flexed_refs.add(ref)
+        _round_rows.append((_round + 1, _round_requested, _round_drain,
+                            _round_retired))
         # FIX 2's convergence test (gate-off ⇒ never reached before the
-        # range(3) bound, so identical).
+        # range(3) bound, so identical).  It now reads the ACHIEVED drain:
+        # a round whose every target apply refused drains 0.0 and STOPS
+        # the loop, where the requested-state test spun to the cap.
         if _flex_unlock and _round_drain < RUNWAY_FLEX_ROUND_DRAIN_FLOOR_M:
-            _stop_reason = (f"round drain {_round_drain:.4f} m < "
+            _stop_reason = (f"round achieved-drain {_round_drain:.4f} m < "
                             f"{RUNWAY_FLEX_ROUND_DRAIN_FLOOR_M} m floor")
             break
     else:
@@ -534,7 +632,20 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
                        f"{_requested_total:.2f} m achieved "
                        f"{_achieved_total:.2f} m "
                        f"(discarded {_disc:.2f} m by verify-and-relax); "
+                       f"{len(_retired)} bin(s) retired after "
+                       f"{_RETIRE_AFTER} refusal(s) carrying "
+                       f"{_retired_deficit:.2f} m; "
                        f"residual {_resid_total:.2f} m.")
+        # ── THE PER-ROUND LINE (spec ``flex-convergence`` item 3) ─────
+        # requested vs achieved vs retired, per round: the shape of the
+        # convergence, which the single summary line could not show (a
+        # 12-round arm whose rounds 2-12 achieve nothing reads exactly
+        # like a 12-round arm that converges slowly).
+        for (_rn, _rq, _ra, _rt) in _round_rows:
+            _UIf.vprint(1,
+                        f"  [pav-builder]   round {_rn}: requested "
+                        f"{_rq:.2f} m, achieved {_ra:.2f} m, retired "
+                        f"{_rt} bin(s).")
         for _ref in sorted(_by_ref):
             _r = _by_ref[_ref]
             _UIf.vprint(1,
@@ -544,9 +655,23 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
                         f"{_r['killed_deficit']:.2f} m ({_r['killed_n']}), "
                         f"greedy-dropped {_r['dropped_n']} bin(s), "
                         f"apply {_r['achieved']:.2f}/{_r['requested']:.2f} m, "
-                        f"residual "
+                        f"retired {_r['retired_n']} bin(s) carrying "
+                        f"{_r['retired_deficit']:.2f} m, residual "
                         f"{max(0.0, _r['last_deficit'] - _r['last_drain']):.2f}"
                         f" m after {_r['rounds']} round(s).")
+        # THE LOUD RECORD: every retired bin, named.  A retirement is the
+        # flex conceding a demand it cannot lawfully serve — it must never
+        # be a silent give-up (docs/RULINGS.md, feasibility-is-guaranteed:
+        # the residual is a law defect to attribute, not a region to hide).
+        for _key in sorted(_retired, key=lambda k: (k[0], k[1])):
+            _rec = _retired[_key]
+            _UIf.vprint(1,
+                        f"  [pav-builder]   RETIRED {_rec['ref']} bin "
+                        f"{_rec['bin']} @ station {_rec['station_m']:.0f} m "
+                        f"(t={_rec['t']:.4f}): apply refused "
+                        f"{_rec['requested_m']:.3f} m {_RETIRE_AFTER}x — "
+                        f"not re-presented (retired in round "
+                        f"{_rec['round']}).")
     except Exception:
         pass
     return n_demands

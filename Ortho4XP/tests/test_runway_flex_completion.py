@@ -54,6 +54,7 @@ from auto_patch.config import (                             # noqa: E402
     runway_flex_apply_segment_cap_enabled, runway_flex_self_unlock_enabled)
 from auto_patch.layout import ROLE_RUNWAY                    # noqa: E402
 from auto_patch.pavement.runway_segments import (            # noqa: E402
+    RUNWAY_END_FRACTION,
     MAX_RUNWAY_GRADE, RUNWAY_END_GRADE as RUNWAY_END_GRADE_PP)
 
 AXIS = 4130.0           # HECA 05R/23L's length, the stress case
@@ -116,7 +117,11 @@ class TestFlexMintedAnchorsDoNotBound:
     def test_gate_on_unlocks_the_station(self, unlock_on):
         """With the gate on the same profile is bounded only by the CIFP
         thresholds, so the station can move again — and by exactly the
-        pairwise-envelope budget of the NEARER threshold."""
+        pairwise-envelope budget of the NEARER threshold, priced with the
+        PER-SEGMENT law (lead completion (a), 2026-08-04 night): the ramp
+        from threshold A crosses the 0.8 % end zone before reaching the
+        1.5 % main body, so its budget is the INTEGRAL of the cap, not
+        ``MAX_RUNWAY_GRADE × distance``."""
         prof = self._profile(True)
         slack = RR.flex_slack_at(prof, self.MINTED_T, -1.0)
         assert slack > 1.0
@@ -124,8 +129,17 @@ class TestFlexMintedAnchorsDoNotBound:
                                      self.MINTED_T)
         # the binding threshold is A (0.45 of 4130 m away vs 0.55)
         d_a = self.MINTED_T * AXIS
-        expected = MAX_RUNWAY_GRADE * d_a - (E_A - current)
+        budget = ((RUNWAY_END_GRADE_PP * RUNWAY_END_FRACTION
+                   + MAX_RUNWAY_GRADE * (self.MINTED_T
+                                         - RUNWAY_END_FRACTION)) * AXIS)
+        expected = budget - (E_A - current)
         assert slack == pytest.approx(expected, abs=1e-6)
+        # THE DEFECT (a) repairs: the old all-main-cap pricing over-granted
+        # this bound, and never under-grants — the completion can only ever
+        # tighten where the law tightens.
+        old = MAX_RUNWAY_GRADE * d_a - (E_A - current)
+        assert slack < old
+        assert budget >= min(RUNWAY_END_GRADE_PP, MAX_RUNWAY_GRADE) * d_a
 
     def test_a_real_anchor_at_the_same_station_still_freezes_it(
             self, unlock_on):
@@ -418,21 +432,44 @@ class TestApplySideSegmentCap:
         assert grade > RUNWAY_END_GRADE_PP
         assert grade < MAX_RUNWAY_GRADE          # the main cap never saw it
 
-    def test_gate_on_rejects_it(self, segcap_on):
-        """§2a: the target is relaxed out, the profile keeps the value it
-        arrived with, and the end zone stays lawful."""
-        _prof, before, after, _got = self._run()
-        assert after == pytest.approx(before, abs=1e-6)
-        assert abs(after - E_A) / (_EZ_T * AXIS) <= RUNWAY_END_GRADE_PP + 1e-9
+    def test_gate_on_relaxes_it_to_the_largest_lawful_value(self,
+                                                            segcap_on):
+        """§2a as COMPLETED by lead ruling (b), 2026-08-04 night: the
+        over-cap target is not discarded — it is relaxed to the largest
+        value its station's per-segment law allows.  The end zone stays
+        lawful (that is §2a, unchanged) and the airport keeps the LAWFUL
+        part of a demand it is owed (that is the completion).
 
-    def test_the_discard_is_visible_to_the_caller(self, segcap_on):
-        """The honest instrument (fix 4) must be able to see it: the
-        achieved value comes back short of the request, which is what the
-        B2 line's 'discarded by verify-and-relax' term reports."""
-        _prof, before, _after, got = self._run()
+        The measured failure this repairs: at HECA, dropping 05L/23R's
+        t=0.8990 target left the station +0.486 m where +2.531 m was
+        lawful, and the 2.0 m shortfall WAS the uniform 2.8917 m final-
+        band inversion."""
+        _prof, before, after, _got = self._run()
+        grade = abs(after - E_A) / (_EZ_T * AXIS)
+        assert grade <= RUNWAY_END_GRADE_PP + 1e-9, "the end zone is law"
+        # it MOVED (the completion) …
+        assert after < before - 1.0
+        # … but never past the request, and never past the law.
+        assert after > before - _EZ_DROP
+        assert grade == pytest.approx(RUNWAY_END_GRADE_PP, abs=1e-6), (
+            "a relaxed target lands ON its cap, not short of it")
+
+    def test_the_shortfall_is_visible_to_the_caller(self, segcap_on):
+        """The honest instrument (fix 4) must still see it: the achieved
+        value comes back SHORT of the request, which is what the B2
+        line's 'discarded by verify-and-relax' term reports — now a
+        partial discard (the unlawful part) rather than the whole
+        target."""
+        _prof, before, after, got = self._run()
         assert _EZ_T in got
-        assert got[_EZ_T] == pytest.approx(before, abs=1e-6)
-        assert abs(got[_EZ_T] - (before - _EZ_DROP)) > 1.0
+        assert got[_EZ_T] == pytest.approx(after, abs=1e-6)
+        assert got[_EZ_T] > (before - _EZ_DROP), "short of the request"
+        # material, i.e. above the convergence materiality floor — this
+        # request was very nearly lawful (3.901 of the 4.0 m it asked for),
+        # so only the last 0.099 m is discarded.  Under the pre-completion
+        # DROP the whole 4.0 m was.
+        assert (abs(got[_EZ_T] - (before - _EZ_DROP))
+                > RUNWAY_FLEX_ROUND_DRAIN_FLOOR_M)
 
     def test_a_mid_runway_target_still_applies(self, segcap_on):
         """§2a bounds the END ZONE, not the flex.  A mid-runway target —

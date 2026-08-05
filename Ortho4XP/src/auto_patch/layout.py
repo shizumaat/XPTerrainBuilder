@@ -313,6 +313,47 @@ SOFT_RECEIVER_ROLES = frozenset({
     ROLE_OLS_CUT,
 })
 
+# AUTHORITY PRECEDENCE (single-solve architecture, RULINGS 2026-08-03:
+# "EMITTERS EMIT, NEVER GRADE").  A TOTAL order over the value-carrying
+# roles, used by ``to_osm`` under ``O4_SINGLE_AUTHORITY_EMIT`` to pick the
+# ONE author of a shared node instead of averaging the tier's claims.
+#
+# Averaging is a second grading pass at emit: it mints a value no law
+# produced and no solver computed.  The measured case is a HECA runway
+# vertex moved 0.06 m by a four-authority mean (runway 05L/23R + apron +
+# junction + gap_fill_spine) with the solver-side preserved set PROVEN
+# held; the campaign precedent is HECA's 1 497 groundside violations,
+# minted by averaging two authorities.
+#
+# Order is AIRSIDE-FIRST — airside-is-king (RULINGS, standing) expressed
+# as constraint DIRECTION: at a shared vertex the airside value stands and
+# the lower party conforms (retreat + retaining wall) rather than dragging
+# the airside surface to a compromise elevation.  Runway-first is
+# load-bearing; the groundside tail order is the lead's review point.
+AUTHORITY_PRECEDENCE: tuple[str, ...] = (
+    # runway family
+    ROLE_RUNWAY, ROLE_RUNWAY_CROSSING,
+    # taxi family
+    ROLE_PRIMARY_PARALLEL, ROLE_SECONDARY_PARALLEL, ROLE_STUB,
+    ROLE_CROSS_CONNECTOR, ROLE_JUNCTION, ROLE_TUNNEL_RAMP,
+    # apron, then landside occupants
+    ROLE_APRON, ROLE_BUILDING,
+    ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION,
+    ROLE_GROUNDSIDE_PAVEMENT,
+)
+# Rank lookup; any role absent from the tuple ranks AFTER every named one
+# (terrain tail), preserving a total order without a KeyError surface.
+AUTHORITY_RANK: dict[str, int] = {
+    _r: _i for _i, _r in enumerate(AUTHORITY_PRECEDENCE)
+}
+_AUTHORITY_RANK_UNNAMED = len(AUTHORITY_PRECEDENCE)
+
+
+def authority_rank(role: str) -> int:
+    """Precedence rank of ``role`` (lower wins).  Unnamed roles tail."""
+    return AUTHORITY_RANK.get(role, _AUTHORITY_RANK_UNNAMED)
+
+
 AEROWAY_FOR_ROLE = {
     ROLE_RUNWAY: "runway",
     ROLE_PRIMARY_PARALLEL: "taxiway",
@@ -790,6 +831,47 @@ class PavementLayout:
         return x, y
 
     # ---- serialization -----------------------------------------------
+    def _write_divergence_census(self, path: str, rows: list,
+                                 unauthored: list,
+                                 emitting: bool) -> None:
+        """WRITE-ONLY forensics for single-authority emission.
+
+        One row per node whose AUTHOR value differs from the tier mean
+        the legacy consensus emits: ``nid``, ``ll``, ``tier``, the
+        claimant ``roles``, ``mean``, ``author`` and ``abs_delta``.  In
+        report mode (``O4_SINGLE_AUTHORITY_EMIT`` unset/"0") the patch
+        itself is byte-identical to the legacy build — this file is the
+        only observable difference, which is what makes the report arm
+        provable against the campaign anchors.
+        """
+        import json as _json
+        from collections import Counter as _Counter
+        material = [r for r in rows if r["abs_delta"] >= 0.01]
+        by_roles: _Counter = _Counter()
+        by_author_role: _Counter = _Counter()
+        for r in rows:
+            by_roles["+".join(r["roles"])] += 1
+            by_author_role[r["author_role"]] += 1
+        payload = {
+            "mode": "emit" if emitting else "report",
+            "n_divergent": len(rows),
+            "n_material_ge_1cm": len(material),
+            "n_unauthored": len(unauthored),
+            "unauthored_sample": unauthored[:50],
+            "max_abs_delta": (max((r["abs_delta"] for r in rows),
+                                  default=0.0)),
+            "sum_abs_delta": sum(r["abs_delta"] for r in rows),
+            "by_role_set": dict(by_roles.most_common()),
+            "by_author_role": dict(by_author_role.most_common()),
+            "rows": sorted(rows, key=lambda r: -r["abs_delta"]),
+        }
+        try:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            Path(path).write_text(_json.dumps(payload, indent=1))
+        except OSError as exc:      # forensics must never break a build
+            UI.vprint(1, f"  [single-authority] census write failed: "
+                         f"{exc}")
+
     def to_osm(self, path: str) -> None:
         """Emit to a JOSM-readable OSM file with shared node IDs.
 
@@ -883,6 +965,47 @@ class PavementLayout:
         current_shape_is_law = [False]
         current_shape_is_skirt = [False]
         next_nid = [-1]
+        # ── SINGLE-AUTHORITY EMISSION (O4_SINGLE_AUTHORITY_EMIT) ───────
+        # "1"  → the tier's single AUTHOR supplies the emitted value.
+        # else → legacy tier MEAN (byte-inert), with the author computed
+        #        alongside for the divergence census when the forensics
+        #        channel is open (``O4_EMIT_DIVERGENCE_CENSUS=<path>``).
+        # When neither is set NOTHING extra is computed: the default
+        # build walks the legacy path at zero added cost.
+        _single_auth = os.environ.get(
+            "O4_SINGLE_AUTHORITY_EMIT", "0") == "1"
+        _divergence_path = os.environ.get("O4_EMIT_DIVERGENCE_CENSUS")
+        _authorship_on = bool(_single_auth or _divergence_path)
+        # PURE-SOFT TIER sub-gate.  The spec says "the mean dies
+        # everywhere" (default "1"), but it also lists soft receivers as
+        # "unchanged" — and a node claimed ONLY by soft receivers has no
+        # authority to adopt from, so authoring it picks one terrain
+        # strip over its neighbours on shape order alone, with no law
+        # behind the choice.  Measured as its own arm; "0" keeps the
+        # legacy all-soft mean for pure-soft nodes only.
+        _soft_authored = os.environ.get(
+            "O4_SINGLE_AUTHORITY_SOFT", "1") == "1"
+        # nid → list of (rank, shape_index, alt, role), one per claim, per
+        # tier.  Populated only when authorship is on.
+        node_id_to_law_claims: dict[int, list] = {}
+        node_id_to_authority_claims: dict[int, list] = {}
+        node_id_to_skirt_claims: dict[int, list] = {}
+        node_id_to_all_claims: dict[int, list] = {}
+        current_shape_role = [""]
+        current_shape_index = [-1]
+
+        def _record_authorship(nid: int, alt: float) -> None:
+            """Tag this claim with its author (rank, shape order, role)."""
+            claim = (authority_rank(current_shape_role[0]),
+                     current_shape_index[0], alt, current_shape_role[0])
+            node_id_to_all_claims.setdefault(nid, []).append(claim)
+            if not current_shape_is_soft[0]:
+                node_id_to_authority_claims.setdefault(
+                    nid, []).append(claim)
+            if current_shape_is_law[0]:
+                node_id_to_law_claims.setdefault(nid, []).append(claim)
+            if current_shape_is_skirt[0]:
+                node_id_to_skirt_claims.setdefault(nid, []).append(claim)
 
         def _record_claim(nid: int, alt: float) -> None:
             node_id_to_alts.setdefault(nid, []).append(alt)
@@ -893,6 +1016,8 @@ class PavementLayout:
                 node_id_to_law_alts.setdefault(nid, []).append(alt)
             if current_shape_is_skirt[0]:
                 node_id_to_skirt_alts.setdefault(nid, []).append(alt)
+            if _authorship_on:
+                _record_authorship(nid, alt)
 
         def _intern(x: float, y: float,
                     alt: float | None = None) -> int:
@@ -930,6 +1055,8 @@ class PavementLayout:
                     node_id_to_law_alts[nid] = [alt]
                 if current_shape_is_skirt[0]:
                     node_id_to_skirt_alts[nid] = [alt]
+                if _authorship_on:
+                    _record_authorship(nid, alt)
             return nid
 
         def _ring_to_nids(ring_coords, ring_elevs=None):
@@ -1071,6 +1198,11 @@ class PavementLayout:
             current_shape_is_skirt[0] = (
                 s.role == ROLE_RUNWAY_CLEARANCE
                 and s.ref in RUNWAY_END_REGIME_REFS)
+            # Author identity for single-authority emission: the role
+            # supplies precedence, the shape index breaks ties inside a
+            # role deterministically (first claimant in shape order).
+            current_shape_role[0] = s.role
+            current_shape_index[0] = s_idx
             # Validate the polygon's geometry before emission.
             # Upstream pipeline stages (decomposition, seam-point
             # injection, shared-vertex enforcement) can occasionally
@@ -1524,6 +1656,23 @@ class PavementLayout:
                         if nid in node_id_to_skirt_alts:
                             node_id_to_skirt_alts[twin] = list(
                                 node_id_to_skirt_alts[nid])
+                        if _authorship_on:
+                            # AUTHORSHIP travels with the claims: a twin
+                            # that inherited values but no author would
+                            # trip the unauthored-node error while being
+                            # a pure coordinate alias of an authored
+                            # node (measured: 3 such nodes at HECA).
+                            for _src, _dst in (
+                                    (node_id_to_all_claims,
+                                     node_id_to_all_claims),
+                                    (node_id_to_authority_claims,
+                                     node_id_to_authority_claims),
+                                    (node_id_to_law_claims,
+                                     node_id_to_law_claims),
+                                    (node_id_to_skirt_claims,
+                                     node_id_to_skirt_claims)):
+                                if nid in _src:
+                                    _dst[twin] = list(_src[nid])
                         _nid_xy[twin] = _nid_xy[nid]
                         out.append(twin)
                         member.add(twin)
@@ -1560,6 +1709,10 @@ class PavementLayout:
         # skirt-vs-PAVEMENT nodes never reach this tier (the pavement
         # authority claims them).  Published on the layout for the report.
         _skirt_tier_hits = 0
+        # Single-authority bookkeeping: one row per node whose AUTHOR
+        # value differs from the tier mean the legacy path emits.
+        _divergence_rows: list = []
+        _unauthored: list = []
         for nid, alts in node_id_to_alts.items():
             law = node_id_to_law_alts.get(nid)
             authority = node_id_to_authority_alts.get(nid)
@@ -1579,11 +1732,74 @@ class PavementLayout:
                       else authority if authority
                       else skirt if skirt
                       else alts)
-            if chosen:
-                node_id_to_consensus[nid] = (
-                    sum(chosen) / float(len(chosen)))
+            if not chosen:
+                continue
+            _mean = sum(chosen) / float(len(chosen))
+            if not _authorship_on:
+                node_id_to_consensus[nid] = _mean
+                continue
+            # ── ONE AUTHOR PER NODE ───────────────────────────────────
+            # Pick the SAME tier the legacy precedence picked, then let
+            # that tier's precedence winner supply the value verbatim
+            # instead of averaging the tier.  Ties inside a role resolve
+            # by shape order, so the choice is deterministic.
+            _claims = (node_id_to_law_claims.get(nid) if law
+                       else node_id_to_authority_claims.get(nid)
+                       if authority
+                       else node_id_to_skirt_claims.get(nid) if skirt
+                       else node_id_to_all_claims.get(nid))
+            if not _claims:
+                # A valued node with no author: never a silent fallback
+                # (spec §3).  Named here, adjudicated after the loop.
+                _unauthored.append((nid, node_id_to_ll.get(nid)))
+                node_id_to_consensus[nid] = _mean
+                continue
+            _rank, _sidx, _author_alt, _author_role = min(
+                _claims, key=lambda c: (c[0], c[1]))
+            if abs(_author_alt - _mean) > 1e-9:
+                _divergence_rows.append({
+                    "nid": nid,
+                    "ll": node_id_to_ll.get(nid),
+                    "tier": ("law" if law else "authority" if authority
+                             else "skirt" if skirt else "soft"),
+                    "roles": sorted({c[3] for c in _claims}),
+                    "n_claims": len(_claims),
+                    "mean": _mean,
+                    "author": _author_alt,
+                    "author_role": _author_role,
+                    "abs_delta": abs(_author_alt - _mean),
+                })
+            _is_soft_tier = not (law or authority or skirt)
+            _use_author = _single_auth and (
+                _soft_authored or not _is_soft_tier)
+            node_id_to_consensus[nid] = (
+                _author_alt if _use_author else _mean)
         self._skirt_consensus_tier_hits = (  # type: ignore[attr-defined]
             _skirt_tier_hits)
+        if _authorship_on:
+            self._emit_divergence_rows = (  # type: ignore[attr-defined]
+                _divergence_rows)
+            _material = [r for r in _divergence_rows
+                         if r["abs_delta"] >= 0.01]
+            UI.vprint(1,
+                f"  [single-authority] mode="
+                f"{'EMIT' if _single_auth else 'REPORT'}: "
+                f"{len(_divergence_rows)} node(s) where the author "
+                f"differs from the tier mean "
+                f"({len(_material)} at or above the 0.01 m materiality "
+                f"floor); {len(_unauthored)} valued node(s) with NO "
+                f"author.")
+            if _unauthored:
+                # STOP-class signal (spec §3 / STOP rules): report it
+                # loudly and name the nodes; never patch it inline.
+                UI.vprint(0,
+                    f"  [single-authority] ERROR: {len(_unauthored)} "
+                    f"emitted valued node(s) have no author — "
+                    f"first: {_unauthored[:5]}")
+            if _divergence_path:
+                self._write_divergence_census(  # type: ignore[attr-defined]
+                    _divergence_path, _divergence_rows, _unauthored,
+                    _single_auth)
 
         # ── Unclaimed-node backfill (per-vertex preservation,
         # 2026-07-18) ────────────────────────────────────────────────

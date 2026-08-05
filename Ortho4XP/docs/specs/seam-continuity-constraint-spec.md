@@ -180,3 +180,41 @@ dispatching); the held spine-seed/band attribution (assignment 4 —
 nothing here validates seeds against bands; seam boxes read the seam
 DEM, not `reach_band_unified`); emit decimation; the other scheduled
 post-solve writers; string gates beyond the corridor-ref deletion.
+
+## ROUND VERDICT (lead, 2026-08-04 night): PREMISE FALSIFIED — spec
+## WITHDRAWN for v2 redesign (evidence scratchpad seam_lane/RESULTS.md)
+
+The implementer proved, offline on the anchor-verified patches, that
+this spec conflates TWO seam vocabularies: the census class band 1
+targets (`seam::seam` = check_grade._check_strip_seam_tears) is
+STRIP-seam fabric — adjacent-ground strip|strip rows 11-14 km from any
+graticule line — while §1's box family binds TILE-CUT vertices, which
+exist only at SPLP (36 nodes; its seam class is 0 both arms). The box
+family as specced binds ZERO nodes at the airports whose regression it
+was written to hold; A/B would no-op and phase C would ship the w=0
+regression unmitigated. The §2a amendment's own content (the
+wall-straddle exemption living inside _check_strip_seam_tears) was the
+unread clue.
+
+What the pull ACTUALLY holds (measured): solve.py:5869 seeds
+_fp_node_refs with EVERY non-hard node — the §7 pull at the final pass
+is a GLOBAL ANTI-RE-DRAG MEMORY over the whole surface, and the class
+that regresses at w=0 is the adjacent-ground strip fabric.
+
+Standing gains from the stopped round: PHASE 0 IS ALREADY LANDED and
+verified effective (compose_rod_chains @ 53e1156, default "1";
+dropped-by-decimation 1313→0, ledger closes exactly; census cost 14
+law-true rows at HEAZ against worst transverse 2.246→1.302 m —
+recorded); the phase-C deletion inventory re-anchored to 47d7904
+(RESULTS.md §6); identity spot-proofs of the tip anchors.
+
+V2 DESIGN (owner authorization for the endgame STANDS): re-express the
+re-drag protection as LAW on the population that actually regresses —
+candidate shape per RESULTS.md §7: box the adjacent-ground strip
+fabric against the raw-DEM datum with tol = the strip-seam-tear
+threshold — with the open architecture question (solve-side box vs the
+adjacent-ground band writer's scheduled single-solve ingestion) ruled
+in design, plus ONE shared home for the strip-seam constants/predicate
+(today they live only in tools/check_grade.py; grade_graph_validate
+carries a second, graticule-based seam notion — the vocabulary split
+must end).

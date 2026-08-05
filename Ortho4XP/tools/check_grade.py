@@ -4013,7 +4013,15 @@ def sidecar_evidence(osm_path) -> dict:
         return {}
     data = _json.loads(side.read_text())
     known = set(SIDECAR_LAW_KEYS) | set(SIDECAR_EVIDENCE_KEYS)
-    out = {k: data.get(k) for k in SIDECAR_EVIDENCE_KEYS if k in data}
+    out = {}
+    for k in SIDECAR_EVIDENCE_KEYS:
+        if k not in data:
+            continue
+        v = data[k]
+        # SUMMARISE, never embed: the legacy ``axes``/``routes`` arrays are
+        # megabytes of geometry, and a report that inlines them is a report
+        # nobody reads.  Scalars pass through.
+        out[k] = f"<{len(v)} entries>" if isinstance(v, (list, dict)) else v
     out["unknown_keys"] = sorted(set(data) - known)
     out["seam_pin_count"] = len(data.get("seam_pins") or [])
     out["terrace_joint_count"] = len(data.get("terrace_joints") or [])

@@ -137,20 +137,22 @@ def test_gate_on_reports_the_pair(monkeypatch, capsys):
         f"got:\n{output}")
 
 
-def test_gate_default_is_on():
-    """FLIPPED 2026-08-04 (spec ``docs/specs/kill-half-spec.md`` §1).
+def test_the_retirement_is_standing_law():
+    """FLIPPED 2026-08-04 (spec ``docs/specs/kill-half-spec.md`` §1) and
+    UNGATED in the build-complete-then-debug round.
 
     Evidence: quarantine-retirement round 1 ``ceef13f`` — the export minted
     94.2 % of HECA's residual break nodes and froze 165 free nodes out of
     the LATE airside projection.  The owner law it enforces (quarantine is
-    UNAUTHORIZED) is not optional, so the default is "1"; the env override
-    still restores the pre-flip read."""
+    UNAUTHORIZED) is not optional, so there is no arm that restores the
+    export — not even an env override."""
     import os
     saved = os.environ.pop("O4_RETIRE_TERRAIN_PIN_QUARANTINE", None)
     try:
         assert RP._retire_terrain_pin_quarantine_enabled() is True
         os.environ["O4_RETIRE_TERRAIN_PIN_QUARANTINE"] = "0"
-        assert RP._retire_terrain_pin_quarantine_enabled() is False
+        assert RP._retire_terrain_pin_quarantine_enabled() is True, \
+            "the gate is retired — no env value may re-enable the export"
     finally:
         os.environ.pop("O4_RETIRE_TERRAIN_PIN_QUARANTINE", None)
         if saved is not None:

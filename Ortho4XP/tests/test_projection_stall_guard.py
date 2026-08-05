@@ -313,63 +313,42 @@ def test_raising_the_threshold_never_delays_detection(monkeypatch, rel):
     assert stats["stall_detect_sweep"] <= OS.STALL_PATIENCE_SWEEPS + 5
 
 
-# ── (g) THE REFERENCE-ROD EQUILIBRIUM EXIT IS LOUD ───────────────────────
-# Spec docs/specs/ref-pull-interim-spec.md §2.  The ``ref_prev``
-# steady-state break is CORRECT to terminate — the pull and the
-# projections have reached a fixpoint, so more sweeps cannot move the
-# surface — but it exited UNCERTIFIED and SILENT, which downstream reads
-# exactly like a clean exit.  These pin the loudness, the certificate, and
-# the inertness; they are ungated because a law-relevant uncertified exit
-# is not an opt-in.
+# ── (g) EVERY EXIT CERTIFIES OR SAYS SO ─────────────────────────────────
+# The chromatic POCS has exactly two exits: the KKT certificate (a full
+# sweep applying no correction and no clamp) and the ``max_iters`` cap.
+# The cap exit is UNCERTIFIED and used to be SILENT, which downstream
+# reads exactly like a clean one — that is how HECA shipped finals with a
+# live 6.74 m residual.  (The third, silent exit — the §7 reference
+# pull's ``ref_prev`` equilibrium break — is gone with the pull.)  These
+# pin the loudness, the certificate and the inertness; they are ungated
+# because a law-relevant uncertified exit is not an opt-in.
 
-def _ref_equilibrium_over_cap():
-    """Node 1 must sit within 1.0 of node 0 (pinned 0.0) AND within 1.0 of
-    node 2 (pinned 10.0), and additionally carries a reference at 5.0 —
-    the anchors already contradict, and the pull holds node 1 at a fixpoint
-    that satisfies NEITHER cap.  The HECA finals shape in miniature: the
-    loop quits almost immediately with a large residual still live."""
-    return [0.0, 0.0, 10.0], [(0, 1, 1.0, 1), (1, 2, 1.0, 2)], 3, {1: 5.0}
-
-
-def _ref_equilibrium_cap_feasible():
-    """Node 1 is capped 1.0 from a pinned 0.0 but referenced at 10.0.  The
-    exit state is fully cap-lawful; what stalls is the REFERENCE, 9 m out
-    of reach.  Distinguishing this from the case above is the whole reason
-    the report prints both censuses."""
-    return [0.0, 0.0], [(0, 1, 1.0, 1)], 2, {1: 10.0}
-
-
-@pytest.mark.parametrize("build", [_ref_equilibrium_over_cap,
-                                   _ref_equilibrium_cap_feasible])
-def test_the_equilibrium_exit_reports_and_never_certifies(capsys, build):
-    elev, iter_edges, n, refs = build()
+def test_the_budget_exit_reports_and_never_certifies(capsys):
+    elev, iter_edges, n = _infeasible_system()
     stats: dict = {}
     sweeps, certified = OS._project_chromatic(
-        elev, iter_edges, n, 4000, 1e-3, stats=stats, node_ref=refs)
+        elev, iter_edges, n, 120, 1e-3, stats=stats)
     text = capsys.readouterr().out
-    assert certified is False, "an equilibrium exit is never a certificate"
-    assert sweeps < 4000, "the break stands — it must still terminate early"
-    assert "REFERENCE-ROD EQUILIBRIUM" in text
-    assert "UNCERTIFIED" in text
-    assert f"{4000 - sweeps} sweep(s) abandoned" in text
-    record = stats["ref_equilibrium"]
+    assert certified is False, "a budget exit is never a certificate"
+    assert sweeps == 120, "an uncertified call spends its whole budget"
+    assert "UNCERTIFIED EXIT" in text
+    assert "0 sweep(s) abandoned" in text
+    record = stats["uncertified_exit"]
     assert record["sweep"] == sweeps
-    assert record["sweeps_abandoned"] == 4000 - sweeps
-    assert record["off_ref_max"] > 0.01          # the reference is not met
-    assert record["off_ref_material"] >= 1
+    assert record["max_iters"] == 120
+    assert record["sweeps_abandoned"] == 0
 
 
 def test_the_report_names_the_carrier_of_a_live_over_cap_residual(capsys):
-    """The over-cap case must NAME the pair, exactly as the stall guard
+    """The uncertified exit must NAME the pair, exactly as the stall guard
     does — that pair is the drain-list value defect (``feasibility-is-
     guaranteed``: a live residual at a fixpoint is two anchor values that
     cannot both hold)."""
-    elev, iter_edges, n, refs = _ref_equilibrium_over_cap()
+    elev, iter_edges, n = _infeasible_system()
     stats: dict = {}
-    OS._project_chromatic(elev, iter_edges, n, 4000, 1e-3, stats=stats,
-                          node_ref=refs)
+    OS._project_chromatic(elev, iter_edges, n, 120, 1e-3, stats=stats)
     text = capsys.readouterr().out
-    record = stats["ref_equilibrium"]
+    record = stats["uncertified_exit"]
     assert record["active_edges"] >= 1
     assert record["worst"] > 1e-3
     assert record["carrier"][0] == "sym"
@@ -377,51 +356,45 @@ def test_the_report_names_the_carrier_of_a_live_over_cap_residual(capsys):
     assert "exit   carrier symmetric pair" in text
 
 
-def test_a_cap_feasible_equilibrium_reports_no_carrier(capsys):
-    """Honest censuses: when the caps are all satisfied the report says so
-    (0 active edges, 0.0 residual, no carrier) and the REFERENCE column is
-    what carries the finding."""
-    elev, iter_edges, n, refs = _ref_equilibrium_cap_feasible()
+def test_a_certified_call_records_no_uncertified_exit(capsys):
+    """The complement: a system the sweeps CAN satisfy exits on the
+    certificate, prints no stall report and adds no record."""
+    elev, iter_edges, n = _feasible_chain()
     stats: dict = {}
-    OS._project_chromatic(elev, iter_edges, n, 4000, 1e-3, stats=stats,
-                          node_ref=refs)
-    record = stats["ref_equilibrium"]
-    assert record["active_edges"] == 0
-    assert record["worst"] == 0.0
-    assert record["carrier"] is None
-    assert record["off_ref_max"] == pytest.approx(9.0, abs=1e-9)
-    assert "exit   carrier: none" in capsys.readouterr().out
+    sweeps, certified = OS._project_chromatic(
+        elev, iter_edges, n, 4000, 1e-3, stats=stats)
+    assert certified is True
+    assert sweeps < 4000
+    assert "uncertified_exit" not in stats
+    assert "UNCERTIFIED EXIT" not in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("build", [_ref_equilibrium_over_cap,
-                                   _ref_equilibrium_cap_feasible])
-def test_the_equilibrium_report_cannot_touch_the_surface(monkeypatch, build):
-    """VALUE IDENTITY — the property §2 exists to preserve.  The report
-    runs after the writeback and every argument is read-only, so replacing
-    it with a no-op must not move a single vertex, sweep or certificate."""
-    elev_on, iter_edges, n, refs = build()
+def test_the_uncertified_report_cannot_touch_the_surface(monkeypatch):
+    """VALUE IDENTITY — the property the loud exit exists to preserve.
+    The report runs after the writeback and every argument is read-only,
+    so replacing it with a no-op must not move a single vertex, sweep or
+    certificate."""
+    elev_on, iter_edges, n = _infeasible_system()
     stats_on: dict = {}
-    got_on = OS._project_chromatic(elev_on, iter_edges, n, 4000, 1e-3,
-                                   stats=stats_on, node_ref=dict(refs))
+    got_on = OS._project_chromatic(elev_on, iter_edges, n, 120, 1e-3,
+                                   stats=stats_on)
 
-    monkeypatch.setattr(OS, "_ref_equilibrium_report",
-                        lambda *a, **k: None)
-    elev_off, iter_edges, n, refs = build()
+    monkeypatch.setattr(OS, "_uncertified_exit_report", lambda *a, **k: None)
+    elev_off, iter_edges, n = _infeasible_system()
     stats_off: dict = {}
-    got_off = OS._project_chromatic(elev_off, iter_edges, n, 4000, 1e-3,
-                                    stats=stats_off, node_ref=dict(refs))
+    got_off = OS._project_chromatic(elev_off, iter_edges, n, 120, 1e-3,
+                                    stats=stats_off)
 
     assert elev_on == elev_off
     assert got_on == got_off
     assert stats_on["worst"] == stats_off["worst"]
     assert stats_on["sweeps"] == stats_off["sweeps"]
-    assert "ref_equilibrium" not in stats_off       # the no-op returned None
+    assert "uncertified_exit" not in stats_off   # the no-op returned None
 
 
-def test_a_call_without_references_never_records_an_equilibrium():
-    """No refs ⇒ no ``ref_prev`` ⇒ the break cannot fire and the stats dict
-    is exactly what it was before §2."""
-    elev, iter_edges, n = _infeasible_system()
-    stats: dict = {}
-    OS._project_chromatic(elev, iter_edges, n, 200, 1e-3, stats=stats)
-    assert "ref_equilibrium" not in stats
+def test_the_projection_takes_no_reference_argument():
+    """The §7 reference channel is gone from the sweep signature — a
+    ``node_ref`` kwarg reappearing IS the retired pull coming back."""
+    import inspect
+    assert "node_ref" not in inspect.signature(
+        OS._project_chromatic).parameters

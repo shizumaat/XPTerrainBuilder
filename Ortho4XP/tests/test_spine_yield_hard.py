@@ -1,17 +1,20 @@
 """Headless tests for the spine-freeze round.
 
-Spec: ``docs/specs/spine-freeze-round-spec.md``.  Gate
-``O4_SPINE_YIELD_HARD``, default ``"0"``.
+Spec: ``docs/specs/spine-freeze-round-spec.md``.  STANDING LAW — the
+``O4_SPINE_YIELD_HARD`` gate was deleted in the build-complete-then-debug
+round.
 
-The phase-A spine certifies on its own 1.5-4.8 k-edge graph and is then
+The phase-A spine certifies on its own 1.5-4.8 k-edge graph and was then
 frozen ``base_hard`` into 64-272 k-edge projections whose law its values
 violate — 84-85 % of ALL violated anchors at HEAZ and HECA
-(``carrier_attrib/DOSSIER.md`` §9).  Under the gate those nodes enter the
-downstream projections as YIELD-HARD members instead: NOT in ``hard``, but
-carrying a REFERENCE ROD at their phase-A value, which the existing
-exact-return polish returns them to wherever the full graph's law permits.
-Runway/CIFP values, runway joins, seats and seam pins stay ``base_hard`` —
-the preserved set, enumerated and tested here.
+(``carrier_attrib/DOSSIER.md`` §9).  Those nodes now enter the downstream
+projections as YIELD-HARD members: simply NOT in ``hard``, so they settle
+wherever the full graph's law admits.  (Until the kill they were
+additionally held by a §7 reference rod at the phase-A value; that
+channel is retired — a phase-A ESTIMATE is not an authority the full-graph
+law has to be talked out of.)  Runway/CIFP values, runway joins, seats and
+seam pins stay ``base_hard`` — the preserved set, enumerated and tested
+here.
 
 No network, no X-Plane install, no DEM: pure arithmetic + ``monkeypatch``.
 """
@@ -23,30 +26,28 @@ from auto_patch.elevation_per_surface.route_profile.one_solve import (
     feasibility_project)
 from auto_patch.elevation_per_surface.route_profile.solve import (
     _spine_yield_binding, _spine_yield_membership,
-    _spine_yield_movement_report, spine_yield_hard_enabled)
+    _spine_yield_movement_report)
 
 
 @pytest.fixture(autouse=True)
 def _pinned_env(monkeypatch):
     """Pin every knob these tests read so a stray shell export cannot
-    move an assertion (the reference-rod pull weight included)."""
-    monkeypatch.delenv("O4_SPINE_YIELD_HARD", raising=False)
-    monkeypatch.delenv("O4_YIELD_REF_WEIGHT", raising=False)
+    move an assertion."""
     monkeypatch.delenv("O4_HARD_NEIGHBOUR_BOUND", raising=False)
     monkeypatch.delenv("O4_BREAK_FORENSICS", raising=False)
     monkeypatch.delenv("O4_STEP_DEBUG", raising=False)
 
 
 # ══════════════════════════════════════════════════════════════════════
-# the gate
+# the gate is GONE
 # ══════════════════════════════════════════════════════════════════════
-def test_gate_defaults_off(monkeypatch):
-    """No new default-on gate: unset and "0" are both OFF."""
-    assert spine_yield_hard_enabled() is False
-    monkeypatch.setenv("O4_SPINE_YIELD_HARD", "0")
-    assert spine_yield_hard_enabled() is False
-    monkeypatch.setenv("O4_SPINE_YIELD_HARD", "1")
-    assert spine_yield_hard_enabled() is True
+def test_the_gate_no_longer_exists():
+    """The membership is standing law: no env read may resurrect the
+    freeze arm."""
+    import auto_patch.elevation_per_surface.route_profile.solve as SV
+    assert not hasattr(SV, "spine_yield_hard_enabled")
+    src = open(SV.__file__).read()
+    assert 'environ.get("O4_SPINE_YIELD_HARD"' not in src
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -132,49 +133,37 @@ def test_frozen_spine_ships_its_unlawful_value_today():
 
 
 def test_yield_hard_membership_moves_the_spine_toward_its_lawful_value():
-    """YIELD-HARD: out of ``hard``, into ``node_refs`` at the phase-A
-    value.  The node now yields to the law it violated — and the worst
-    residual on the chain collapses."""
+    """YIELD-HARD: out of ``hard``, and that is the whole mechanism.  The
+    node yields to the law it violated and the worst residual on the
+    chain collapses."""
     hard_arm = [_RWY_Z, 76.037, _SPINE_Z]
     feasibility_project(hard_arm, _SC, {0, 2})
     yield_arm = [_RWY_Z, 76.037, _SPINE_Z]
-    feasibility_project(yield_arm, _SC, {0}, node_refs={2: _SPINE_Z})
+    feasibility_project(yield_arm, _SC, {0})
     assert yield_arm[2] > _SPINE_Z + 1.4, yield_arm
     assert _worst_excess(hard_arm) - _worst_excess(yield_arm) > 1.0
     # the preserved runway anchor is untouched in BOTH arms, bit for bit
     assert hard_arm[0] == yield_arm[0] == _RWY_Z
 
 
-def test_a_lawful_spine_value_is_held_exactly():
-    """"Held wherever the law permits": a frozen value the full graph
-    already admits comes back EXACTLY, to the bit — the exact-return
-    polish, not an approximation."""
+def test_a_lawful_spine_value_is_left_where_it_is():
+    """A frozen value the full graph already admits is not moved: the
+    projection only corrects VIOLATED pairs, so a lawful entry state
+    comes back untouched."""
     lawful = _RWY_Z - 1.0                     # inside the chain's budget
     elev = [_RWY_Z, _RWY_Z - 0.5, lawful]
-    feasibility_project(elev, _SC, {0}, node_refs={2: lawful})
+    feasibility_project(elev, _SC, {0})
     assert elev[2] == lawful
     assert _worst_excess(elev) <= 0.0
 
 
-def test_reference_rods_are_dropped_on_hard_nodes():
-    """A reference on a node that IS hard is inert — so the preserved set
-    behaves identically whether or not a rod is offered for it."""
-    a = [_RWY_Z, 76.037, _SPINE_Z]
-    feasibility_project(a, _SC, {0, 2})
-    b = [_RWY_Z, 76.037, _SPINE_Z]
-    feasibility_project(b, _SC, {0, 2},
-                        node_refs={0: _RWY_Z, 2: _SPINE_Z})
-    assert a == b
-
-
-def test_gate_off_argument_is_inert():
-    """``node_refs=None`` — what the solve passes with the gate off — is
-    the pre-round call, verbatim."""
-    a = [_RWY_Z, 76.037, _SPINE_Z]
-    feasibility_project(a, _SC, {0})
-    b = [_RWY_Z, 76.037, _SPINE_Z]
-    feasibility_project(b, _SC, {0}, node_refs=None)
-    assert a == b
+def test_the_yield_is_a_membership_not_a_value_channel():
+    """The ONLY difference between preserved and yielded is set
+    membership in ``hard`` — there is no second argument that carries a
+    phase-A value into the projection."""
+    import inspect
+    params = inspect.signature(feasibility_project).parameters
+    assert "node_refs" not in params and "group_refs" not in params
 
 
 # ══════════════════════════════════════════════════════════════════════

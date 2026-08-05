@@ -1,9 +1,12 @@
 """Runway flex completion — the twins for
 ``docs/specs/runway-flex-completion-spec.md``.
 
-Four defects, four fixes, gated:
+Four defects, four fixes.  All STANDING LAW since the
+build-complete-then-debug round retired ``O4_FLEX_SELF_UNLOCK`` and
+``O4_RUNWAY_DEM_FOLLOW``; the twins that pinned the gate-OFF arms are
+deleted, not rewritten — that behaviour no longer exists.
 
-1. **The self-anchor lock** (``O4_FLEX_SELF_UNLOCK``).
+1. **The self-anchor lock.**
    ``apply_runway_flex`` inserts every applied target as
    ``anchored=True``; ``flex_slack_at`` bounds against ALL anchored
    samples, and its bound is ``cap·|s_t − s_i|`` — so at the station of
@@ -13,14 +16,13 @@ Four defects, four fixes, gated:
    1-2 at the deepest bin read slack 0.000 / move 0.000 against a 4.37 m
    deficit).  The fix tags flex-inserted samples ``flex_minted`` and
    withdraws only those from the bounding set.
-2. **Non-convergence** (same gate).  Every HECA demand's binding seed is
+2. **Non-convergence.**  Every HECA demand's binding seed is
    another flexible runway, so the origin split halves every pull; three
    fixed rounds of geometric halving leave 1/8 of the demand standing by
    construction.  The fix iterates to the 0.01 m materiality floor.
-3. **DEM-follow seeding** (``O4_RUNWAY_DEM_FOLLOW``).
-   ``RUNWAY_DEM_FOLLOW_BAND_M = 0`` seeds every profile as the straight
-   CIFP chord, discarding a real, law-feasible ground sag the flex is
-   then asked to re-derive from taxi feasibility.
+3. **DEM-follow seeding.**  A zero band seeded every profile as the
+   straight CIFP chord, discarding a real, law-feasible ground sag the
+   flex was then asked to re-derive from taxi feasibility.
 4. The honest B2 instrument is report-only and is verified on the
    measured arm (the log line must reproduce the flex probe's
    independently computed demand accounting), not here.
@@ -48,10 +50,9 @@ from auto_patch import runway_redistribute as RR            # noqa: E402
 from auto_patch.canonical_points import (                   # noqa: E402
     CanonicalPointRegistry)
 from auto_patch.config import (                             # noqa: E402
-    RUNWAY_DEM_FOLLOW_BAND_M, RUNWAY_DEM_FOLLOW_LAW_BAND_M,
+    RUNWAY_DEM_FOLLOW_LAW_BAND_M,
     RUNWAY_FLEX_ENDZONE_MATERIALITY, RUNWAY_FLEX_MAX_ROUNDS,
-    RUNWAY_FLEX_ROUND_DRAIN_FLOOR_M, runway_dem_follow_band_m,
-    runway_flex_apply_segment_cap_enabled, runway_flex_self_unlock_enabled)
+    RUNWAY_FLEX_ROUND_DRAIN_FLOOR_M, runway_dem_follow_band_m)
 from auto_patch.layout import ROLE_RUNWAY                    # noqa: E402
 from auto_patch.pavement.runway_segments import (            # noqa: E402
     RUNWAY_END_FRACTION,
@@ -63,13 +64,17 @@ E_B = 142.43
 
 
 @pytest.fixture
-def unlock_on(monkeypatch):
-    monkeypatch.setenv("O4_FLEX_SELF_UNLOCK", "1")
+def unlock_on():
+    """No-op: the self-unlock + convergence law is STANDING (the
+    ``O4_FLEX_SELF_UNLOCK`` gate is retired).  Kept so the twins that
+    assert that behaviour keep reading as "with the law in force"."""
 
 
 @pytest.fixture
-def unlock_off(monkeypatch):
-    monkeypatch.setenv("O4_FLEX_SELF_UNLOCK", "0")
+def unlock_off():
+    """No-op, retained only for the twins below that are arm-INDEPENDENT
+    (the ``flex_minted`` provenance array is maintained unconditionally,
+    and always was)."""
 
 
 def _chord_profile(extra=()):
@@ -106,13 +111,6 @@ class TestFlexMintedAnchorsDoNotBound:
     def _profile(self, minted: bool):
         return _chord_profile(
             extra=[(self.MINTED_T, self.MINTED_E, True, minted)])
-
-    def test_gate_off_freezes_the_station_the_flex_already_moved(
-            self, unlock_off):
-        """THE DEFECT, pinned.  With the gate off the minted anchor
-        bounds, and at its own station the bound is cap·0 = 0."""
-        slack = RR.flex_slack_at(self._profile(True), self.MINTED_T, -1.0)
-        assert slack == pytest.approx(0.0, abs=1e-9)
 
     def test_gate_on_unlocks_the_station(self, unlock_on):
         """With the gate on the same profile is bounded only by the CIFP
@@ -333,14 +331,6 @@ def _drive_rounds(n_rounds, *, split=2.0, target_t=0.45,
 class TestConvergence:
     """The ÷2 split is the law; three rounds is not."""
 
-    def test_gate_off_freezes_after_round_zero(self, unlock_off):
-        """THE DEFECT.  Round 0 moves; every later round is slack-bound
-        to zero because round 0's own target now anchors the station."""
-        moves, residual = _drive_rounds(3)
-        assert moves[0] > 0.5
-        assert moves[1] == 0.0 and moves[2] == 0.0
-        assert residual > 1.0
-
     def test_gate_on_round_one_moves_a_station_round_zero_touched(
             self, unlock_on):
         """The spec's twin: a synthetic two-round flex where round 1
@@ -384,11 +374,6 @@ class TestConvergence:
         assert RUNWAY_FLEX_MAX_ROUNDS == 12
         assert RUNWAY_FLEX_ROUND_DRAIN_FLOOR_M == 0.01
 
-    def test_the_gate_defaults_off(self, monkeypatch):
-        monkeypatch.delenv("O4_FLEX_SELF_UNLOCK", raising=False)
-        assert runway_flex_self_unlock_enabled() is False
-
-
 # ══════ §2a AMENDMENT — the apply-side per-segment cap ═══════════════
 # Lead adjudication 2026-08-04: ``apply_runway_flex``'s verify-and-relax
 # tested MAX_RUNWAY_GRADE only, so the flex was free to bake FAA END-ZONE
@@ -406,8 +391,8 @@ _EZ_DROP = 4.0
 
 
 @pytest.fixture
-def segcap_on(monkeypatch):
-    monkeypatch.setenv("O4_FLEX_SELF_UNLOCK", "1")
+def segcap_on():
+    """No-op: §2a's apply-side per-segment cap is STANDING LAW."""
 
 
 class TestApplySideSegmentCap:
@@ -420,17 +405,6 @@ class TestApplySideSegmentCap:
             layout, {"05R/23L": [(_EZ_T, before - _EZ_DROP)]})
         after = RR._interp_profile(prof['fractions'], prof['elevs'], _EZ_T)
         return prof, before, after, dict(got.get("05R/23L") or ())
-
-    def test_gate_off_bakes_the_end_zone_violation(self, unlock_off,
-                                                   monkeypatch):
-        """THE DEFECT, pinned.  The old check sees 0.97 % < 1.5 % and
-        accepts a target that puts the end zone 21 % over its cap."""
-        monkeypatch.delenv("O4_RUNWAY_DEM_FOLLOW", raising=False)
-        _prof, before, after, _got = self._run()
-        assert after == pytest.approx(before - _EZ_DROP, abs=1e-6)
-        grade = abs(after - E_A) / (_EZ_T * AXIS)
-        assert grade > RUNWAY_END_GRADE_PP
-        assert grade < MAX_RUNWAY_GRADE          # the main cap never saw it
 
     def test_gate_on_relaxes_it_to_the_largest_lawful_value(self,
                                                             segcap_on):
@@ -520,13 +494,6 @@ class TestApplySideSegmentCap:
                 continue
             assert abs(el[k] - el[k - 1]) / seg <= RUNWAY_END_GRADE_PP + 1e-9
 
-    def test_the_gate_rides_either_round_gate(self, monkeypatch):
-        for a, b, want in (("0", "0", False), ("1", "0", True),
-                           ("0", "1", True), ("1", "1", True)):
-            monkeypatch.setenv("O4_FLEX_SELF_UNLOCK", a)
-            monkeypatch.setenv("O4_RUNWAY_DEM_FOLLOW", b)
-            assert runway_flex_apply_segment_cap_enabled() is want
-
     def test_materiality_floor_is_a_hundredth_of_a_point(self):
         assert RUNWAY_FLEX_ENDZONE_MATERIALITY == pytest.approx(0.0001)
 
@@ -599,29 +566,16 @@ def _max_segment_grade(fractions, elevs, phys):
 
 class TestDemFollowSeeding:
 
-    def test_the_band_is_gated(self, monkeypatch):
+    def test_the_band_is_one_law_bounded_value(self, monkeypatch):
+        """ONE band, no arm: the gate and its zero-band arm are gone, and
+        no env value may resurrect the straight-chord seeding."""
         monkeypatch.delenv("O4_RUNWAY_DEM_FOLLOW", raising=False)
-        assert runway_dem_follow_band_m() == RUNWAY_DEM_FOLLOW_BAND_M == 0.0
-        monkeypatch.setenv("O4_RUNWAY_DEM_FOLLOW", "1")
+        assert runway_dem_follow_band_m() == RUNWAY_DEM_FOLLOW_LAW_BAND_M
+        monkeypatch.setenv("O4_RUNWAY_DEM_FOLLOW", "0")
         assert runway_dem_follow_band_m() == RUNWAY_DEM_FOLLOW_LAW_BAND_M
         assert RUNWAY_DEM_FOLLOW_LAW_BAND_M >= _SAG_M
 
-    def test_gate_off_seeds_the_straight_chord(self, monkeypatch):
-        """THE DEFECT.  A 9 m law-feasible sag is thrown away: the
-        seeded interior IS the chord (HECA 05R/23L measured 0.031 m
-        worst deviation)."""
-        monkeypatch.setenv("O4_RUNWAY_DEM_FOLLOW", "0")
-        st = _seed_profile()
-        phys = st['phys_dist_m']
-        worst = max(
-            abs(e - (st['elevs'][0] + (st['elevs'][-1] - st['elevs'][0]) * f))
-            for f, e in zip(st['fractions'], st['elevs']))
-        assert worst < 0.10, "gate off must stay on the chord"
-        assert _max_segment_grade(st['fractions'], st['elevs'],
-                                  phys) <= MAX_RUNWAY_GRADE + 1e-9
-
-    def test_gate_on_follows_the_sag_within_law(self, monkeypatch):
-        monkeypatch.setenv("O4_RUNWAY_DEM_FOLLOW", "1")
+    def test_the_seeding_follows_the_sag_within_law(self):
         st = _seed_profile()
         phys = st['phys_dist_m']
         e0, e1 = st['elevs'][0], st['elevs'][-1]
@@ -635,18 +589,23 @@ class TestDemFollowSeeding:
         assert _max_segment_grade(st['fractions'], st['elevs'],
                                   phys) <= MAX_RUNWAY_GRADE + 1e-9
 
-    def test_gate_on_never_moves_a_cifp_threshold(self, monkeypatch):
+    def test_the_seeding_never_moves_a_cifp_threshold(self, monkeypatch):
         """STOP condition of the fix-3 arm, pinned as a twin: CIFP
-        threshold values are immovable truth (RULINGS 2026-08-04)."""
-        monkeypatch.setenv("O4_RUNWAY_DEM_FOLLOW", "0")
-        off = _seed_profile()
-        monkeypatch.setenv("O4_RUNWAY_DEM_FOLLOW", "1")
+        threshold values are immovable truth (RULINGS 2026-08-04) — the
+        band shapes the INTERIOR only.
+
+        The comparison arm is built by zeroing the BAND CONSTANT, not by
+        an env gate (there is none any more): a zero band IS the straight
+        chord, so every ANCHORED sample must be bit-identical between the
+        two and only free interior samples may move."""
+        from auto_patch.pavement import runway_segments as RS
         on = _seed_profile()
+        monkeypatch.setattr(RS, "runway_dem_follow_band_m", lambda: 0.0)
+        off = _seed_profile()
         for st in (off, on):
             assert st['anchored'][0] and st['anchored'][-1]
         assert on['elevs'][0] == pytest.approx(off['elevs'][0], abs=1e-9)
         assert on['elevs'][-1] == pytest.approx(off['elevs'][-1], abs=1e-9)
-        # every ANCHORED sample is identical between the arms
         off_anch = {round(f, 9): e for f, e, a
                     in zip(off['fractions'], off['elevs'], off['anchored'])
                     if a}

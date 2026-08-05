@@ -97,6 +97,7 @@ from .layout import (
     BuiltShape,
     PavementLayout,
     R_EARTH,
+    SHARED_VERTEX_TOL_M,
     ROLE_APRON,
     ROLE_BUILDING,
     ROLE_CROSS_CONNECTOR,
@@ -2830,8 +2831,17 @@ def _retreat_run_walls(shape, coords, alts, coincident_top, spread,
     (consensus-retirement §2: any LOSING claimant beyond tol retreats).
     """
     n = len(coords)
+    _dbg = (os.environ.get("O4_RETREAT_DIAG")
+            and (shape.role or "") in os.environ.get("O4_RETREAT_DIAG", "")
+            and any(s > VERTEX_ALT_MERGE_TOL_M for s in spread))
+
+    def _d(msg):
+        if _dbg:
+            print(f"  [retreat-run] {msg}", flush=True)
     primary = [i for i in range(n)
                if spread[i] > VERTEX_ALT_MERGE_TOL_M]
+    _d(f"coords={[(round(x, 2), round(y, 2)) for x, y in coords]} "
+       f"primary={primary} keepout={'yes' if keepout is not None else 'no'}")
     if not primary:
         return []
     _strip_keepout = keepout
@@ -2874,6 +2884,7 @@ def _retreat_run_walls(shape, coords, alts, coincident_top, spread,
             except _GEOM_EXC:
                 continue
     run_indices = [i for i in range(n) if moved_pos[i] is not None]
+    _d(f"moved_pos set at {run_indices}")
     if not run_indices:
         return []
     # Group into consecutive ring runs (wrap-aware).
@@ -2918,8 +2929,11 @@ def _retreat_run_walls(shape, coords, alts, coincident_top, spread,
                 wall_poly = wall_poly.buffer(0)
             if (wall_poly.is_empty
                     or wall_poly.geom_type != "Polygon"):
+                _d(f"run={run} FACE DROPPED: geom={wall_poly.geom_type} "
+                   f"empty={wall_poly.is_empty}")
                 continue
-        except _GEOM_EXC:
+        except _GEOM_EXC as _e:
+            _d(f"run={run} FACE EXC {_e!r}")
             continue
         rebuilt = _open_coords(wall_poly)
         if len(rebuilt) < 3:
@@ -2932,6 +2946,7 @@ def _retreat_run_walls(shape, coords, alts, coincident_top, spread,
                 for (vx, vy) in rebuilt]
         if (_strip_keepout is not None
                 and wall_poly.intersects(_strip_keepout)):
+            _d(f"run={run} FACE DROPPED: runway-strip keepout")
             continue            # runway-strip wall law (see above)
         shape_walls.append(BuiltShape(
             polygon=wall_poly, role=ROLE_RETAINING_WALL,
@@ -2940,6 +2955,7 @@ def _retreat_run_walls(shape, coords, alts, coincident_top, spread,
         for i in run:
             new_coords[i] = moved_pos[i]
     if not shape_walls:
+        _d("NO FACES BUILT -> retreat withdrawn")
         return []
     try:
         # Interior rings ride along (exterior-only fills the holes).
@@ -2948,9 +2964,38 @@ def _retreat_run_walls(shape, coords, alts, coincident_top, spread,
                               for h in shape.polygon.interiors])
         if not moved_poly.is_valid:
             moved_poly = moved_poly.buffer(0)
+        # DEGENERACY TEST.  The retreat must not deform the shape — but
+        # "vertex count unchanged" is the WRONG test for that, and it was
+        # measured wrong: a ring may carry two vertices closer together
+        # than ``SHARED_VERTEX_TOL_M``, which the EMITTER interns to one
+        # node regardless.  Retreating both welds them, the count drops by
+        # one, and the old test withdrew an otherwise perfect retreat —
+        # dropping the shape back onto the emit-consensus adopt.  Measured:
+        # KCLT tunnel_ramp #1658 at the taxiway-bridge portal, ring
+        # vertices 0.10 m apart, a 12.02 m authority conflict against
+        # junction #650 correctly detected at three vertices, three faces
+        # correctly built, and the whole retreat withdrawn here — the ramp
+        # then adopted the deck's 215.00 m and emitted an 80.5 % / 12.02 m
+        # within-shape row (plus its five siblings and the step rows).
+        #
+        # The law-shaped test: a retreat may weld together only vertices
+        # the emitter would already have welded; ANY other vertex loss is a
+        # real degeneration and withdraws the retreat.
+        _weldable = sum(
+            1 for _k in range(n)
+            if math.hypot(coords[_k][0] - coords[(_k + 1) % n][0],
+                          coords[_k][1] - coords[(_k + 1) % n][1])
+            < SHARED_VERTEX_TOL_M)
+        _rebuilt_n = (len(_open_coords(moved_poly))
+                      if moved_poly.geom_type == "Polygon" else -1)
         if (moved_poly.is_empty
                 or moved_poly.geom_type != "Polygon"
-                or len(_open_coords(moved_poly)) != n):
+                or _rebuilt_n < 3
+                or _rebuilt_n > n
+                or (n - _rebuilt_n) > _weldable):
+            _d(f"RING DEGENERATED: geom={moved_poly.geom_type} "
+               f"n_after={_rebuilt_n} vs {n} "
+               f"(weldable pairs {_weldable}) -> retreat withdrawn")
             return []  # retreat degenerated the ring — fall back
         shape.polygon = moved_poly
         rebuilt_open = _open_coords(moved_poly)
@@ -2991,8 +3036,11 @@ def _retreat_run_walls(shape, coords, alts, coincident_top, spread,
             wall.polygon = clipped
             wall.node_altitudes = walts + [walts[0]]
             clipped_walls.append(wall)
-        except _GEOM_EXC:
+        except _GEOM_EXC as _ce:
+            _d(f"CLIP EXC {_ce!r}")
             continue
+    _d(f"returned {len(clipped_walls)} clipped face(s) of "
+       f"{len(shape_walls)} built")
     return clipped_walls
 
 
@@ -3106,11 +3154,21 @@ def emit_authority_retreat_walls(layout) -> int:
 
     emitted = 0
     new_walls: list = []
+    _diag = os.environ.get("O4_RETREAT_DIAG") or ""
     for shape in list(getattr(layout, "shapes", ()) or ()):
         role = shape.role or ""
         if role in SOFT_RECEIVER_ROLES or role == ROLE_GRADED_STRIP:
             continue
         rv = _ring_values_for_walls(shape)
+        if _diag and role in _diag:
+            print(f"  [retreat-diag] role={role} ref={getattr(shape,'ref','')} "
+                  f"rv={'None' if rv is None else len(rv[0])} "
+                  f"node_alts={'None' if shape.node_altitudes is None else len(shape.node_altitudes)} "
+                  f"hi={shape.altitude_high} lo={shape.altitude_low} "
+                  f"alt={shape.altitude} "
+                  f"nring={0 if shape.polygon is None else len(shape.polygon.exterior.coords)-1} "
+                  f"c=({shape.polygon.centroid.x:.1f},{shape.polygon.centroid.y:.1f})",
+                  flush=True)
         if rv is None or shape.node_altitudes is None:
             continue
         coords, alts = rv
@@ -3145,6 +3203,11 @@ def emit_authority_retreat_walls(layout) -> int:
             spread[i] = sp
         walls = _retreat_run_walls(shape, coords, alts, coincident_top,
                                    spread, keepout)
+        if _diag and role in _diag:
+            print(f"  [retreat-diag]   own={[round(a, 2) for a in alts]} "
+                  f"top={[None if t is None else round(t, 2) for t in coincident_top]} "
+                  f"spread={[round(s, 2) for s in spread]} "
+                  f"walls={len(walls)}", flush=True)
         for w in walls:
             w.ref = "authority_retreat_wall"
         new_walls.extend(walls)

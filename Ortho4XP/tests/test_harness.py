@@ -632,6 +632,106 @@ def test_the_audit_runs_even_when_the_build_raises(build_mod):
 
 
 # ══════════════════════════════════════════════════════════════════════
+# §5b THE CORPUS CONSOLIDATION (one-off, ruling e9daef5's migration step)
+# ══════════════════════════════════════════════════════════════════════
+
+@pytest.fixture(scope="module")
+def consolidate_mod():
+    return _load("harness_twin_consolidate", HARNESS / "consolidate_data.py")
+
+
+def test_the_consolidation_borrows_the_shared_repo_primitives(
+        consolidate_mod, build_mod):
+    """A consolidation that wrote to the shared repo through its own private
+    lock/ledger/hash helpers would be the exact defect the harness exists to
+    end."""
+    assert consolidate_mod.DATA_REPO == build_mod.DATA_REPO
+    src = Path(inspect.getfile(consolidate_mod)).read_text()
+    assert "HB.RefreshLock" in src and "HB.record_refresh" in src
+    assert "class RefreshLock" not in src, "a second lock implementation"
+
+
+def test_the_conflict_policy_never_guesses_at_a_raster(consolidate_mod):
+    """DEM/source rasters are public source data and must be byte-identical.
+    A difference is a FINDING — the consolidation reports it and keeps the
+    shared copy rather than resolving by mtime, because two different
+    elevation rasters for one tile explain a class of terrain discrepancy
+    on their own."""
+    c = {"path": "+40+000/N44E006.hgt", "kind": "raster",
+         "private": {"size": 2884802, "mtime_ns": 2},
+         "shared": {"size": 25934402, "mtime_ns": 1}, "reason": "size differs"}
+    r = consolidate_mod.resolve(c)
+    assert r["resolution"] == "KEEP_SHARED_REPORT_FINDING", (
+        "a raster conflict must never be auto-resolved by mtime — the "
+        "PRIVATE copy here is NEWER and 9x COARSER (3 arc-second vs "
+        "1 arc-second), so newest-wins would have downgraded the corpus")
+
+
+def test_cache_state_conflicts_resolve_to_the_newer(consolidate_mod):
+    older = {"path": "x/KCLT_road_feed.cache", "kind": "cache_state",
+             "private": {"size": 1, "mtime_ns": 5},
+             "shared": {"size": 1, "mtime_ns": 9}, "reason": "r"}
+    assert consolidate_mod.resolve(older)["resolution"] == "KEEP_SHARED"
+    newer = dict(older, private={"size": 1, "mtime_ns": 9},
+                 shared={"size": 1, "mtime_ns": 5})
+    assert consolidate_mod.resolve(newer)["resolution"] == "TAKE_PRIVATE"
+
+
+def test_an_unrecognised_class_keeps_shared_and_is_reversible(
+        consolidate_mod):
+    r = consolidate_mod.resolve({"path": "a/b.text", "kind": "other",
+                                 "private": {"size": 1, "mtime_ns": 9},
+                                 "shared": {"size": 2, "mtime_ns": 1},
+                                 "reason": "r"})
+    assert r["resolution"] == "KEEP_SHARED"
+    assert "reversible" in r["rule"]
+
+
+def test_the_resolved_record_keeps_its_dir_qualified_path(consolidate_mod):
+    """The first consolidation run logged modified=0 for every scope: the
+    resolved record spread ``resolve()``'s output AFTER setting ``path``,
+    and ``resolve`` carries the conflict's own bare ``path``, so the
+    dir-qualified one was overwritten and the per-dir filter matched
+    nothing.  Disk state was right; the LEDGER was blind."""
+    src = Path(inspect.getfile(consolidate_mod)).read_text()
+    assert '{"path": f"{d}/{rel}", **res' not in src, (
+        "the dict spread must come BEFORE the path key, or the "
+        "dir-qualified path is silently overwritten")
+    assert '{**res, "path": f"{d}/{rel}"' in src
+
+
+def test_a_symlinked_data_dir_indexes_as_empty(consolidate_mod, tmp_path):
+    """A mount is not a private corpus: indexing through it would offer to
+    merge the shared repo into itself."""
+    repo = tmp_path / "repo"
+    (repo / "OSM_data").mkdir(parents=True)
+    (repo / "OSM_data" / "f").write_text("x")
+    lane = tmp_path / "lane"
+    lane.mkdir()
+    (lane / "OSM_data").symlink_to(repo / "OSM_data")
+    assert consolidate_mod._index(lane, "OSM_data") == {}
+    assert len(consolidate_mod._index(repo, "OSM_data")) == 1
+
+
+def test_migration_refuses_while_a_dependent_lane_is_live(consolidate_mod):
+    """Live lanes symlink their data INTO the main tree, so migrating it
+    would move their corpus mid-A/B — and move 15 GB out from under a
+    running build."""
+    src = inspect.getsource(consolidate_mod.do_migrate)
+    assert "busy_deps" in src and "REFUSING to migrate" in src
+    assert "finish on their current corpora" in src
+    assert "dependents_of" in Path(inspect.getfile(consolidate_mod)).read_text()
+
+
+def test_nothing_is_ever_deleted(consolidate_mod):
+    src = Path(inspect.getfile(consolidate_mod)).read_text()
+    for banned in ("os.remove(", "os.unlink(", "shutil.rmtree(", ".unlink()"):
+        assert banned not in src, (
+            f"the consolidation must never delete ({banned}) — a superseded "
+            f"file is MOVED to the archive so the operation is reversible")
+
+
+# ══════════════════════════════════════════════════════════════════════
 # §6 THE INDEX IS THE CONSULTATION SURFACE
 # ══════════════════════════════════════════════════════════════════════
 

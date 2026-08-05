@@ -1657,6 +1657,17 @@ def generate_patch_osm(icao, runway_pairs, runway_widths=None, tile=None,
                 'fractions': list(fractions),
                 'elevs': list(elevs),
                 'anchored': list(anchored),
+                # THE RUNWAY'S OWN LONGITUDINAL LAW, CARRIED (debug lane
+                # A 2026-08-05).  ``runway_redistribute`` folds the seam
+                # DEM anchors back in and the flex re-solves; both used
+                # the module-level FAA constants, so an ICAO code-4
+                # runway solved at 1.25 % here was RE-SOLVED at 1.5 %
+                # downstream (SPJC 16L/34R emitted 1.4996 % against its
+                # own 1.25 % cap).  Publishing the resolved law is the
+                # single-pass fix — no second resolver, no re-derivation.
+                'max_grade': _rw_law["max_grade"],
+                'max_grade_change_per_m': _rw_law["max_grade_change_per_m"],
+                'law_end_grade': _rw_law["end_grade"],
             }
 
             # Identify which sample indices correspond to pav_inter-

@@ -100,10 +100,11 @@ from .runway_regrade import regrade_runway, DEFAULT_ARC_K_M
 def _flex_segment_cap_kw(profile: dict) -> dict:
     """The per-segment cap parameters for one profile — ONE spelling,
     shared by the demand-side clamp and the apply-side relax."""
+    _law = _profile_law(profile)
     return dict(
-        grade_cap=MAX_RUNWAY_GRADE,
+        grade_cap=_law["max_grade"],
         end_grade_cap=float(profile.get('end_zone_cap')
-                            or RUNWAY_END_GRADE),
+                            or _law["end_grade"]),
         end_fraction=RUNWAY_END_FRACTION,
         threshold_strict_cap=(float(profile['threshold_cap'])
                               if profile.get('threshold_cap') is not None
@@ -130,6 +131,43 @@ def _lawful_ramp_budget(t_a: float, t_b: float, axis_len: float,
     for u, v in zip(xs, xs[1:]):
         total += runway_grade_cap_at(0.5 * (u + v), **cap_kw) * (v - u)
     return total * axis_len
+
+
+# ── THE RUNWAY'S OWN LAW, CARRIED (debug lane A 2026-08-05) ──────────
+# ``runway_segments`` resolves each runway's longitudinal law ONCE, per
+# runway, through ``grade_law.runway_profile_law`` — the same resolver
+# ``verification.check_runway_profile`` judges with, whose own docstring
+# says "a second copy would let the surface we build and the surface we
+# check disagree about which authority governs".  This module WAS that
+# second copy: every pass here priced the law at the module-level FAA
+# constants, so an ICAO code-4 runway was solved at 1.25 % by
+# ``runway_segments`` and then RE-SOLVED at 1.5 % by the seam
+# redistribute and the flex.  Measured at SPJC on the composed tree:
+# 16L/34R emitted a 1.4996 % segment against its own 1.25 % cap.  The
+# law now travels ON the profile dict (no re-derivation, no second
+# resolver); a synthetic profile without the keys keeps the module
+# defaults, which is exactly the FAA C-E law those constants encode.
+
+def _profile_law(profile) -> dict:
+    """``{max_grade, max_dg_per_m, end_grade}`` — the runway's own
+    longitudinal law as carried on its profile/state dict.
+
+    ``law_end_grade`` PRESENT and ``None`` is not a missing value: it is
+    the authority stating NO first/last-quarter cap for this class (ICAO
+    code 1-2), so the end zone is governed by the main cap.  Coercing it
+    to the FAA 0.8 % would invent a rule."""
+    d = profile or {}
+    main = (MAX_RUNWAY_GRADE if d.get("max_grade") is None
+            else float(d["max_grade"]))
+    dg = (MAX_RUNWAY_GRADE_CHANGE_PER_M
+          if d.get("max_grade_change_per_m") is None
+          else float(d["max_grade_change_per_m"]))
+    if "law_end_grade" in d:
+        end = d["law_end_grade"]
+        end = main if end is None else float(end)
+    else:
+        end = RUNWAY_END_GRADE
+    return {"max_grade": main, "max_dg_per_m": dg, "end_grade": end}
 
 
 __all__ = ["redistribute_runway_profile", "apply_runway_flex",
@@ -187,7 +225,9 @@ def _shift_thresholds_for_seams(
         fractions: List[float], elevs: List[float],
         anchored: List[bool],
         seam_samples: List[Tuple[float, float]],
-        phys_dist: float) -> None:
+        phys_dist: float, *,
+        grade_cap: float = MAX_RUNWAY_GRADE,
+        end_grade_cap: float = RUNWAY_END_GRADE) -> None:
     """Shift the first/last anchored samples (the runway's two
     threshold ends) via ``regrade_runway`` so they're reachable from
     every interior anchor (existing extras + new seams) within FAA
@@ -238,8 +278,8 @@ def _shift_thresholds_for_seams(
     cifp_b = elevs[last_i]
     result = regrade_runway(
         cifp_a, cifp_b, axis_len, interior,
-        grade_cap=MAX_RUNWAY_GRADE,
-        end_grade_cap=RUNWAY_END_GRADE,
+        grade_cap=grade_cap,
+        end_grade_cap=end_grade_cap,
         arc_K_m=DEFAULT_ARC_K_M)
     elevs[first_i] = result.threshold_A
     elevs[last_i] = result.threshold_B
@@ -709,7 +749,9 @@ def _worst_segment_over_main_cap(fractions: List[float],
     return worst
 
 
-def _strict_budget_between(s_lo: float, s_hi: float, phys_dist: float) -> float:
+def _strict_budget_between(s_lo: float, s_hi: float, phys_dist: float, *,
+                           grade_cap: float = MAX_RUNWAY_GRADE,
+                           end_grade: float = RUNWAY_END_GRADE) -> float:
     """Max grade-compliant height change between two stations (metres from
     threshold A) under the STRICT end-zone preference: 0.8% within the
     first/last ``RUNWAY_END_FRACTION`` of the length, 1.5% in the interior.
@@ -718,9 +760,9 @@ def _strict_budget_between(s_lo: float, s_hi: float, phys_dist: float) -> float:
     lo_b, hi_b = end_len, phys_dist - end_len   # cap breakpoints
     budget = 0.0
     cursor = s_lo
-    for edge, cap in ((lo_b, RUNWAY_END_GRADE),
-                      (hi_b, MAX_RUNWAY_GRADE),
-                      (phys_dist, RUNWAY_END_GRADE)):
+    for edge, cap in ((lo_b, end_grade),
+                      (hi_b, grade_cap),
+                      (phys_dist, end_grade)):
         if cursor >= s_hi:
             break
         seg_hi = min(edge, s_hi)
@@ -731,7 +773,9 @@ def _strict_budget_between(s_lo: float, s_hi: float, phys_dist: float) -> float:
 
 
 def _end_zone_binding_report(fractions: List[float], elevs: List[float],
-                             anchored: List[bool], phys_dist: float
+                             anchored: List[bool], phys_dist: float, *,
+                             grade_cap: float = MAX_RUNWAY_GRADE,
+                             end_grade: float = RUNWAY_END_GRADE
                              ) -> List[str]:
     """INSTRUMENT-FIRST (user 2026-07-16, KBNA 13/31 defect G): explain
     WHY the strict 0.8% end-zone preference is infeasible — which HARD
@@ -761,7 +805,9 @@ def _end_zone_binding_report(fractions: List[float], elevs: List[float],
             if dist_m < 0.5:
                 continue
             required = abs(elevs[i] - elevs[j])
-            budget = _strict_budget_between(s_lo, s_hi, phys_dist)
+            budget = _strict_budget_between(
+                s_lo, s_hi, phys_dist,
+                grade_cap=grade_cap, end_grade=end_grade)
             deficit = required - budget
             if deficit > 1e-3:
                 binders.append((deficit, i, j, s_lo, s_hi, dist_m, required,
@@ -779,7 +825,8 @@ def _end_zone_binding_report(fractions: List[float], elevs: List[float],
         lines.append(
             f"hard anchors {elevs[i]:.2f} m @ {s_lo:.0f} m and "
             f"{elevs[j]:.2f} m @ {s_hi:.0f} m: need {required:.2f} m over "
-            f"{dist_m:.0f} m (avg {avg * 100:.2f}%) but the strict 0.8%/1.5% "
+            f"{dist_m:.0f} m (avg {avg * 100:.2f}%) but the strict "
+            f"{end_grade * 100:.2f}%/{grade_cap * 100:.2f}% "
             f"tiered budget allows only {budget:.2f} m — deficit "
             f"{deficit:.2f} m{end_note}.")
     return lines
@@ -790,6 +837,9 @@ def solve_profile_with_minimal_end_zone_cap(
         anchored: List[bool], phys_dist: float, *,
         blast_a: float = 0.0, blast_b: float = 0.0,
         threshold_strict_m: float = 0.0,
+        grade_cap: float = MAX_RUNWAY_GRADE,
+        max_dg_per_m: float = MAX_RUNWAY_GRADE_CHANGE_PER_M,
+        end_grade: float = RUNWAY_END_GRADE,
         report: "dict | None" = None) -> float:
     """Run ``faa_joint_solve`` with the end-zone cap escalated MINIMALLY.
 
@@ -848,13 +898,13 @@ def solve_profile_with_minimal_end_zone_cap(
         faa_joint_solve(
             fractions, candidate, anchored, phys_dist,
             blast_a=blast_a, blast_b=blast_b,
-            grade_cap=MAX_RUNWAY_GRADE,
+            grade_cap=grade_cap,
             end_grade_cap=end_zone_cap,
-            max_dg_per_m=MAX_RUNWAY_GRADE_CHANGE_PER_M,
+            max_dg_per_m=max_dg_per_m,
             threshold_strict_cap=threshold_cap,
             threshold_strict_fraction=tsf)
         compliant = _worst_segment_over_main_cap(
-            fractions, candidate, phys_dist) is None
+            fractions, candidate, phys_dist, grade_cap=grade_cap) is None
         return candidate, compliant
 
     def _record(end_cap: float, thr_cap: "float | None",
@@ -870,24 +920,26 @@ def solve_profile_with_minimal_end_zone_cap(
     # The strict band cap the escalation holds fixed (None when not tiered
     # so the grade-cap machinery keeps the historical single-end-zone-cap
     # behaviour verbatim).
-    strict = RUNWAY_END_GRADE if tiered else None
+    strict = end_grade if tiered else None
 
     # 1. The preference first: keep 0.8% verbatim whenever feasible.
-    candidate, compliant = _attempt(RUNWAY_END_GRADE, strict)
+    candidate, compliant = _attempt(end_grade, strict)
     if compliant:
         elevs[:] = candidate
-        _record(RUNWAY_END_GRADE, RUNWAY_END_GRADE, [])
-        return RUNWAY_END_GRADE
+        _record(end_grade, end_grade, [])
+        return end_grade
 
     # Preference infeasible — record WHY (which anchors bind).
     binding = _end_zone_binding_report(fractions, initial_elevs,
-                                       anchored, phys_dist)
+                                       anchored, phys_dist,
+                                       grade_cap=grade_cap,
+                                       end_grade=end_grade)
 
     # 2. Escalate the OUTER end zone only, threshold band held strict.
-    infeasible_cap = RUNWAY_END_GRADE
-    accepted, compliant = _attempt(MAX_RUNWAY_GRADE, strict)
+    infeasible_cap = end_grade
+    accepted, compliant = _attempt(grade_cap, strict)
     if compliant:
-        accepted_cap = MAX_RUNWAY_GRADE
+        accepted_cap = grade_cap
         while accepted_cap - infeasible_cap > 1e-4:
             midpoint_cap = 0.5 * (accepted_cap + infeasible_cap)
             cand, ok = _attempt(midpoint_cap, strict)
@@ -896,7 +948,7 @@ def solve_profile_with_minimal_end_zone_cap(
             else:
                 infeasible_cap = midpoint_cap
         elevs[:] = accepted
-        _record(accepted_cap, RUNWAY_END_GRADE if tiered else accepted_cap,
+        _record(accepted_cap, end_grade if tiered else accepted_cap,
                 binding)
         return accepted_cap
 
@@ -905,31 +957,30 @@ def solve_profile_with_minimal_end_zone_cap(
     #    threshold band too — minimally — so the deficit resolves; the
     #    caller WARNs loudly with the achieved threshold-band cap.
     if tiered:
-        uniform_solve, uniform_ok = _attempt(MAX_RUNWAY_GRADE,
-                                              MAX_RUNWAY_GRADE)
+        uniform_solve, uniform_ok = _attempt(grade_cap, grade_cap)
         if uniform_ok:
-            thr_infeasible = RUNWAY_END_GRADE
-            thr_cap, acc = MAX_RUNWAY_GRADE, uniform_solve
+            thr_infeasible = end_grade
+            thr_cap, acc = grade_cap, uniform_solve
             while thr_cap - thr_infeasible > 1e-4:
                 mid = 0.5 * (thr_cap + thr_infeasible)
-                cand, ok = _attempt(MAX_RUNWAY_GRADE, mid)
+                cand, ok = _attempt(grade_cap, mid)
                 if ok:
                     thr_cap, acc = mid, cand
                 else:
                     thr_infeasible = mid
             elevs[:] = acc
-            _record(MAX_RUNWAY_GRADE, thr_cap, binding)
-            return MAX_RUNWAY_GRADE
+            _record(grade_cap, thr_cap, binding)
+            return grade_cap
         # Infeasible even at the uniform law — keep it (least-bad).
         elevs[:] = uniform_solve
-        _record(MAX_RUNWAY_GRADE, MAX_RUNWAY_GRADE, binding)
-        return MAX_RUNWAY_GRADE
+        _record(grade_cap, grade_cap, binding)
+        return grade_cap
 
     # tsf == 0 (legacy): anchors infeasible even at the uniform LAW cap —
     # keep the main-cap solve.
     elevs[:] = accepted
-    _record(MAX_RUNWAY_GRADE, None, binding)
-    return MAX_RUNWAY_GRADE
+    _record(grade_cap, None, binding)
+    return grade_cap
 
 
 def redistribute_runway_profile(
@@ -996,6 +1047,14 @@ def redistribute_runway_profile(
         elevs = list(state['elevs'])
         anchored = list(state['anchored'])
         phys_dist = state['phys_dist_m']
+        # THE RUNWAY'S OWN LAW (debug lane A 2026-08-05) — resolved once
+        # by ``runway_segments`` through ``grade_law.runway_profile_law``
+        # and carried on the state; every pass below prices with it, so
+        # the redistribute can no longer re-solve an ICAO code-4 runway
+        # at the FAA 1.5 % after ``runway_segments`` solved it at 1.25 %.
+        _law = _profile_law(state)
+        _MAIN_CAP = _law["max_grade"]
+        _END_CAP = _law["end_grade"]
 
         # ── SEAM = ANOTHER RUNWAY-GRADING ANCHOR (owner ruling 2026-07-24)
         # "We are not giving up the CIFP thresholds, it's just that a tile
@@ -1029,7 +1088,7 @@ def redistribute_runway_profile(
             collapse_per_line=RUNWAY_SEAM_PROFILE_COLLAPSE)
         if RUNWAY_SEAM_CONTACT_ANCHORS:
             seam_samples, seam_rejects = _select_feasible_seam_anchors(
-                edge_samples, phys_dist)
+                edge_samples, phys_dist, grade_cap=_MAIN_CAP)
         else:
             seam_samples = [
                 (t, v) for (t, v) in edge_samples
@@ -1070,7 +1129,7 @@ def redistribute_runway_profile(
             for _t, _v, _g in seam_rejects:
                 _reports.append({
                     'ref': ref, 'fraction': _t, 'dem_m': _v,
-                    'grade_needed': _g, 'grade_cap': MAX_RUNWAY_GRADE,
+                    'grade_needed': _g, 'grade_cap': _MAIN_CAP,
                     'station_m': _t * phys_dist,
                 })
 
@@ -1092,7 +1151,8 @@ def redistribute_runway_profile(
         if seam_samples:
             _shift_thresholds_for_seams(
                 fractions, elevs, anchored,
-                seam_samples, phys_dist)
+                seam_samples, phys_dist,
+                grade_cap=_MAIN_CAP, end_grade_cap=_law["end_grade"])
             _insert_seam_anchors(fractions, elevs, anchored,
                                   seam_samples)
 
@@ -1114,6 +1174,9 @@ def redistribute_runway_profile(
             blast_a=state['blast_a_m'],
             blast_b=state['blast_b_m'],
             threshold_strict_m=_strict_m,
+            grade_cap=_MAIN_CAP,
+            max_dg_per_m=_law["max_dg_per_m"],
+            end_grade=_law["end_grade"],
             report=end_zone_report)
         threshold_cap = end_zone_report.get('threshold_cap', end_zone_cap)
         threshold_strict_fraction = end_zone_report.get(
@@ -1175,7 +1238,7 @@ def redistribute_runway_profile(
                            f"anchored at the DEM at {len(seam_samples)} "
                            f"point(s); {len(_conf)} adjacent seam pair(s) "
                            f"step through more than the "
-                           f"{MAX_RUNWAY_GRADE * 100:.1f}% runway grade law "
+                           f"{_MAIN_CAP * 100:.2f}% runway grade law "
                            f"(owner ruling 2026-07-26 — the DEM anchor wins, "
                            f"the grade is reported) — steepest "
                            f"{_steepest['grade_needed'] * 100:.2f}% at station "
@@ -1188,7 +1251,7 @@ def redistribute_runway_profile(
                            f"  [pav-builder] runway {ref}: tile-seam contact "
                            f"anchored at the DEM at {len(seam_samples)} point(s); "
                            f"{len(_conf)} further sample(s) could not be reached "
-                           f"within the {MAX_RUNWAY_GRADE * 100:.1f}% runway "
+                           f"within the {_MAIN_CAP * 100:.2f}% runway "
                            f"grade law — worst residual "
                            f"{_worst['residual_m']:+.2f} m at station "
                            f"{_worst['fraction'] * phys_dist:.0f} m (DEM "
@@ -1196,8 +1259,8 @@ def redistribute_runway_profile(
                            f"{_worst['grade_needed'] * 100:.2f}%).")
             except ImportError:
                 pass
-        escalated = end_zone_cap > RUNWAY_END_GRADE + 1e-9
-        threshold_relaxed = threshold_cap > RUNWAY_END_GRADE + 1e-9
+        escalated = end_zone_cap > _END_CAP + 1e-9
+        threshold_relaxed = threshold_cap > _END_CAP + 1e-9
         if escalated or threshold_relaxed:
             try:
                 from O4_UI_Utils import vprint
@@ -1207,20 +1270,20 @@ def redistribute_runway_profile(
                     vprint(1, f"  [pav-builder] runway {ref}: WARNING — the "
                               f"threshold vicinity ({RUNWAY_THRESHOLD_STRICT_M:.0f} m) "
                               f"could not hold the strict "
-                              f"{RUNWAY_END_GRADE * 100:.1f}% cap even with "
+                              f"{_END_CAP * 100:.2f}% cap even with "
                               f"the outer end zone at the "
-                              f"{MAX_RUNWAY_GRADE * 100:.1f}% law — threshold "
+                              f"{_MAIN_CAP * 100:.2f}% law — threshold "
                               f"band escalated to {threshold_cap * 100:.2f}%.")
                 else:
                     vprint(1, f"  [pav-builder] runway {ref}: end-zone "
                               f"grade preference "
-                              f"{RUNWAY_END_GRADE * 100:.1f}% infeasible "
+                              f"{_END_CAP * 100:.2f}% infeasible "
                               f"with hard anchors — outer end zone escalated "
                               f"to {end_zone_cap * 100:.2f}%; the last "
                               f"{RUNWAY_THRESHOLD_STRICT_M:.0f} m before each "
                               f"threshold held at "
-                              f"{RUNWAY_END_GRADE * 100:.1f}% (main "
-                              f"{MAX_RUNWAY_GRADE * 100:.1f}% cap is law).")
+                              f"{_END_CAP * 100:.2f}% (main "
+                              f"{_MAIN_CAP * 100:.2f}% cap is law).")
                 for _line in binding_lines:
                     vprint(1, f"  [pav-builder] runway {ref}: {_line}")
             except ImportError:
@@ -1296,6 +1359,11 @@ def redistribute_runway_profile(
             # re-solve must gate identically or its re-stamp diverges.
             'threshold_cap': threshold_cap,
             'threshold_strict_fraction': threshold_strict_fraction,
+            # THE RUNWAY'S OWN LAW travels with the profile so the flex
+            # re-solve prices with the same authority (debug lane A).
+            'max_grade': _MAIN_CAP,
+            'max_grade_change_per_m': _law["max_dg_per_m"],
+            'law_end_grade': _law["end_grade"],
         }
 
         # Evaluate the new profile at every runway sub-rect's vertex.
@@ -1477,6 +1545,7 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
         shapes = shapes_by_ref.get(ref)
         if profile is None or not shapes or not contact_list:
             continue
+        _flex_law = _profile_law(profile)
         original_fractions = list(profile['fractions'])
         original_elevs = list(profile['elevs'])
         original_anchored = list(profile.get('anchored')
@@ -1585,10 +1654,10 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
                 fractions, elevs, anchored, axis_len,
                 blast_a=float(profile.get('blast_a_m') or 0.0),
                 blast_b=float(profile.get('blast_b_m') or 0.0),
-                grade_cap=MAX_RUNWAY_GRADE,
+                grade_cap=_flex_law["max_grade"],
                 end_grade_cap=float(profile.get('end_zone_cap')
-                                    or RUNWAY_END_GRADE),
-                max_dg_per_m=MAX_RUNWAY_GRADE_CHANGE_PER_M,
+                                    or _flex_law["end_grade"]),
+                max_dg_per_m=_flex_law["max_dg_per_m"],
                 threshold_strict_cap=(
                     float(profile['threshold_cap'])
                     if profile.get('threshold_cap') is not None else None),
@@ -1597,7 +1666,9 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
             return fractions, elevs, anchored, minted
 
         def _worst_over_cap(fractions, elevs):
-            return _worst_segment_over_main_cap(fractions, elevs, axis_len)
+            return _worst_segment_over_main_cap(
+                fractions, elevs, axis_len,
+                grade_cap=_flex_law["max_grade"])
 
         # ── §2a AMENDMENT: the APPLY-side PER-SEGMENT cap ─────────────
         # (lead adjudication 2026-08-04, appended to the round's spec.)

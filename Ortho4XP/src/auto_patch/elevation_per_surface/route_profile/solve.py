@@ -17,6 +17,13 @@ import math as _math
 import os as _os
 import time as _time
 
+# PROJECTION SELF-LIMITS — the derivation lives beside the constants in
+# config.py (debug lane A 2026-08-05).  Module-level because they are
+# default arguments, which Python binds at def time.
+from auto_patch.config import (
+    FAIRING_MAX_SWEEPS_APRON, FAIRING_MAX_SWEEPS_CHAIN,
+    FAIRING_MAX_SWEEPS_GAP_SPINE, FAIRING_MAX_SWEEPS_SPINE,
+    PROJECTION_MAX_SWEEPS_FINAL, PROJECTION_MAX_SWEEPS_MOUTH_RELAX)
 from ..node_space import store_of as _store_of
 from .anchors import (
     apron_body_nodes,
@@ -1412,12 +1419,21 @@ def _zone_foot_boxes(layout, bucket_to_idx, elev, n, first_zone):
     owner: dict = {}
     n_foot = n_host = n_adopted = n_isect = n_conflict = 0
 
-    def _idx(xy):
-        k = bucket_to_idx.get(cps.get_or_add(float(xy[0]), float(xy[1])))
+    from ..solver_primitives import zone_node_index as _zone_idx
+
+    def _idx(xy, shape_id=None):
+        """``shape_id`` set ⇒ the ZONE-node join (bucket, host); unset ⇒
+        the plain bucket lookup, which is what a pavement FOOT vertex
+        has always used."""
+        k = _zone_idx(layout, bucket_to_idx, xy, shape_id)
         return None if (k is None or k >= n) else k
 
     for row in rows:
-        i = _idx(row["xy"])
+        # ZONE-NODE IDENTITY: this row's box belongs to ``shape_id``'s own
+        # variable.  Resolving by bucket alone put two hosts' boxes on one
+        # variable, which is what the intersect/conflict branch below was
+        # absorbing.
+        i = _idx(row["xy"], row.get("shape_id"))
         if i is None:
             continue
         if i < first_zone:
@@ -1917,9 +1933,36 @@ def solve_route_profile(layout, icao: str,
     # runway node above its own runway value.  Published write-only, so
     # the consumer (``building_feasibility.spine_value_fields``, whose
     # BAND-SEED COMPLETENESS law is standing) never re-derives it.
-    layout._seed_hard_truth_values = {
-        i: float(elev[i])
-        for i in range(min(len(base_hard), len(elev))) if base_hard[i]}
+    #
+    # CANONICAL-IDENTITY KEYS (debug lane A 2026-08-05).  The map is keyed
+    # by the CANONICAL POINT, never by the solve's node INDEX.  A node
+    # index is only meaningful inside ONE ``_build_node_list`` call: the
+    # index space is assigned by walking ``layout.shapes``, and every
+    # post-solve consumer (``grade_graph_validate.route_band_violations``,
+    # the tools, the tests) rebuilds it on a layout that has GROWN —
+    # terrain-feature, terrace and clearance shapes are emitted after this
+    # point — so index ``i`` no longer names the node it named here.
+    # Measured at SPJC: 448 of 455 resolvable seeds landed on the WRONG
+    # node under index keys (|published − emitted| p50 7.15 m, max 16.96
+    # m), which inverted 795 nodes of the value fields (worst 20.197 m)
+    # and minted 1,208 of SPJC's 1,326 route-band violations.  The
+    # canonical point is the lossless join (memory: canonical-identity-
+    # join — never proximity-join, never index-join across a rebuild).
+    _cps_truth = getattr(layout, "canonical_points", None)
+    _truth_by_point: dict = {}
+    for _i in range(min(len(base_hard), len(elev), len(nodes))):
+        if not base_hard[_i]:
+            continue
+        _nx, _ny = float(nodes[_i][0]), float(nodes[_i][1])
+        _key = None
+        if _cps_truth is not None:
+            try:
+                _key = _cps_truth.get(_nx, _ny)
+            except Exception:                              # pragma: no cover
+                _key = None
+        _truth_by_point[_key if _key is not None else (_nx, _ny)] = \
+            float(elev[_i])
+    layout._seed_hard_truth_values = _truth_by_point
     band, dem_fn, runway_pts, _G = reach_band_for(
         layout, elev, bucket_to_idx, dem, tile_lat, tile_lon, unified_graph=G)
     # ZONE-NODE REACH-BAND SKIP (Slice B stage B3 performance lever,
@@ -2194,6 +2237,22 @@ def solve_route_profile(layout, icao: str,
     # around them.  ``layout._detached_pad_node_idx`` keeps them
     # out of every movable-pad relaxation downstream (the final
     # scoped projection's rigid flat groups included).
+    # ⚠ DEM AUDIT (debug lane A 2026-08-05, RULINGS 1095a3f).  These are
+    # HARD pins (``base_hard[i] = True`` below) whose VALUE is a raw DEM
+    # sample and which are not a law anchor (not CIFP, not the ruled
+    # tile-seam contract) — DEM as a constraint, by the ruling's own
+    # definition.  The comment above records WHY they were hardened: left
+    # free, the route-profile blend paints a detached pad 6-11 m above
+    # both its ground and the abutting groundside.  That is a defect in
+    # the BLEND, and the hard pin is masking it.  REPORTED, not changed:
+    # freeing them without fixing the blend re-opens the measured 6-11 m
+    # plateaus, and the no-builds phase forbids the measurement.
+    #
+    # They do NOT contaminate the reach band: the band's seed set is
+    # published ~300 lines above this point, when ``base_hard`` is still
+    # exactly the ``seed_rwy_seam`` class (runway/CIFP profile values plus
+    # the owner-ruled seam DEM contract), so no DEM convenience pin ever
+    # becomes a band anchor.  Keep the publication ABOVE this block.
     _detached_pad_pins = build_detached_pad_dem_pins(
         layout, bucket_to_idx, dem_fn, building_seats)
     _detached_pad_node_idx: set = set()
@@ -3469,7 +3528,8 @@ def solve_route_profile(layout, icao: str,
     rem, bh = feasibility_project(elev, joint, yield_hard,
                                   forensics=_fp8_forensics,
                                   witness_limited=_gs_witness,
-                                  force_scalar=True, max_iters=2400,
+                                  force_scalar=True,
+                                  max_iters=PROJECTION_MAX_SWEEPS_FINAL,
                                   flat_groups=pad_groups or None,
                                   interval_yield_from=_iyf,
                                   broken_out=(_solve_broken_idx
@@ -3571,7 +3631,8 @@ def solve_route_profile(layout, icao: str,
             # and must not un-do the clamp.
             rem, bh = feasibility_project(
                 elev, joint, yield_hard, force_scalar=True,
-                max_iters=1200, flat_groups=pad_groups or None,
+                max_iters=PROJECTION_MAX_SWEEPS_MOUTH_RELAX,
+                flat_groups=pad_groups or None,
                 interval_yield_from=_iyf,
                 witness_limited=_gs_witness,
                 group_bounds=_yield_group_bounds,
@@ -3968,14 +4029,20 @@ def solve_route_profile(layout, icao: str,
     if _zone_idx:
         from auto_patch.emit_decimate import _key as _mm_key
         _cps_zone = layout.canonical_points
+        from ..solver_primitives import zone_node_index as _zone_idx_wb
         for _zone_entry in (getattr(layout,
                                     "adjacent_ground_presolve", None)
                             or ()):
             _zone_vals: dict = {}
+            # ZONE-NODE IDENTITY: read back THIS host's own variable.
+            # ``zone_values`` is per-entry, so two hosts sharing a bucket
+            # now carry their own solved value to emit instead of both
+            # reading the first claimant's.
+            _zone_host_id = id(_zone_entry.get("shape"))
             for _zn in _zone_entry.get("zone_nodes", ()):
                 _zx, _zy = _zn["xy"]
-                _zi = bucket_to_idx.get(
-                    _cps_zone.get_or_add(float(_zx), float(_zy)))
+                _zi = _zone_idx_wb(layout, bucket_to_idx, (_zx, _zy),
+                                   _zone_host_id)
                 if _zi is None or _zi >= n:
                     continue
                 _zone_vals[_mm_key(float(_zx), float(_zy))] = float(
@@ -4696,7 +4763,24 @@ def _project_triangle_planes(layout, bucket_to_idx, elev, immovable,
     (margined like the projection).  Returns ``(n_fixed, anchored_idx,
     broken_idx)`` — anchored vertices must not be re-perturbed by later
     passes; broken = no free vertex could lawfully fix the plane (the
-    caller quarantines them)."""
+    caller quarantines them).
+
+    SHARED-VERTEX SURGERY (debug lane A 2026-08-05, owner directive
+    "prefer a ring-private vertex as the free lever, shared only as last
+    resort and reported").  A triangle's vertices are CANONICAL solver
+    variables: the same node can be a vertex of several shapes' rings, so
+    moving it to flatten THIS triangle's plane silently re-shapes every
+    other shape that shares it — a plane fix that leaks into a neighbour's
+    surface.  A vertex claimed by this ring ALONE is a free lever: moving
+    it changes exactly the plane it was chosen for.  The lever is
+    therefore chosen in two tiers — least-move among RING-PRIVATE
+    candidates first, and only when no private vertex can lawfully fix the
+    plane does a shared one move, which is COUNTED and reported
+    (``layout._triangle_plane_shared_surgery``) rather than done silently.
+
+    Ownership is read through the registry's READ-ONLY ``get`` (never
+    ``get_or_add``): an instrument that interns moves the emitted surface
+    (memory: two-decimators / registry-insertion round 6)."""
     import math as _math
     from auto_patch.config import ROLE_GRADE_LIMITS
     from .one_solve import (_build_adjacency, _emit_quantization_margin,
@@ -4708,6 +4792,32 @@ def _project_triangle_planes(layout, bucket_to_idx, elev, immovable,
     n_fixed = 0
     anchored: set = set()
     broken: set = set()
+
+    # ── ring ownership: node index -> how many shape rings claim it ──
+    # One read-only pass over every ring in the layout.  A count of 1
+    # means "this triangle is the only shape holding that variable".
+    owners: dict = {}
+    for _s in layout.shapes:
+        _p = getattr(_s, "polygon", None)
+        if _p is None or _p.is_empty or _p.geom_type != "Polygon":
+            continue
+        try:
+            _ring = list(_p.exterior.coords)
+        except Exception:                                  # pragma: no cover
+            continue
+        if _ring and _ring[0] == _ring[-1]:
+            _ring = _ring[:-1]
+        _seen: set = set()
+        for (_x, _y) in _ring:
+            _k = cps.get(float(_x), float(_y))
+            if _k is None:
+                continue
+            _i = bucket_to_idx.get(_k)
+            if _i is None or _i in _seen:
+                continue
+            _seen.add(_i)
+            owners[_i] = owners.get(_i, 0) + 1
+    n_shared_surgery = 0
 
     def _gradient(pts, zs):
         (x1, y1), (x2, y2), (x3, y3) = pts
@@ -4744,8 +4854,9 @@ def _project_triangle_planes(layout, bucket_to_idx, elev, immovable,
             continue
         if _math.hypot(*g) <= cap:
             continue
-        # Try each free vertex; pick the smallest lawful move.
-        best = None                    # (move_size, vertex_pos, new_value)
+        # Try each free vertex; pick the smallest lawful move, RING-
+        # PRIVATE levers first (see the shared-vertex surgery note above).
+        best = None                    # (private?, move_size, pos, value)
         for k in range(3):
             i_move = idxs[k]
             if i_move in immovable:
@@ -4783,15 +4894,35 @@ def _project_triangle_planes(layout, bucket_to_idx, elev, immovable,
             cur = zs[k]
             new_val = min(max(cur, lo), hi)
             move = abs(new_val - cur)
-            if best is None or move < best[0]:
-                best = (move, k, new_val)
+            # rank: ring-private beats shared, then least move.  ``0`` for
+            # private sorts ahead of ``1`` for shared in the tuple compare,
+            # so no shared vertex is ever chosen while a private one can
+            # lawfully do the job.
+            shared_rank = 0 if owners.get(i_move, 0) <= 1 else 1
+            cand = (shared_rank, move, k, new_val)
+            if best is None or cand[:2] < best[:2]:
+                best = cand
         if best is None:
             broken.update(i for i in idxs if i is not None)
             continue
-        _move, k, new_val = best
+        shared_rank, _move, k, new_val = best
+        if shared_rank:
+            n_shared_surgery += 1
         elev[idxs[k]] = new_val
         anchored.update(i for i in idxs if i is not None)
         n_fixed += 1
+    layout._triangle_plane_shared_surgery = int(n_shared_surgery)
+    if n_shared_surgery:
+        try:
+            import O4_UI_Utils as _UI_TPS
+            _UI_TPS.vprint(
+                1, f"  [pav-builder] triangle-plane law: {n_shared_surgery} "
+                   f"of {n_fixed} plane fix(es) had to move a SHARED vertex "
+                   f"(no ring-private lever could lawfully flatten the "
+                   f"plane) — that move re-shapes every shape holding the "
+                   f"same canonical node.")
+        except Exception:                                  # pragma: no cover
+            pass
     return n_fixed, anchored, broken
 
 
@@ -5639,7 +5770,9 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # edges still over cap, 0 both-hard — pure non-convergence, whose
     # worst survivors emitted as the within-shape building/apron
     # violation class.  The loop exits early at tol, so converged
-    # airports pay nothing.  O4_FINAL_PROJECTION_MAX_ITERS overrides.
+    # airports pay nothing.  The cap is
+    # ``config.PROJECTION_MAX_SWEEPS_FINAL`` (its derivation, and the
+    # measured fact that it BINDS at n=72k, are documented there).
     # THE BROKEN-QUARANTINE CARRY IS DELETED (spec ``docs/specs/kill-half-
     # spec.md`` §2, 2026-08-04).  It re-read the previous projection's
     # declared-broken keys and froze them here as ``pre_broken`` so the
@@ -5935,9 +6068,12 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                                   forensics=_fp_forensics,
                                   witness_limited=_fp_witness_limited,
                                   witness_excluded=_fp_witness_excluded,
-                                  max_iters=int(_os.environ.get(
-                                      "O4_FINAL_PROJECTION_MAX_ITERS",
-                                      "2400")),
+                                  # NO GATES (RULINGS 2026-08-05): the
+                                  # O4_FINAL_PROJECTION_MAX_ITERS env
+                                  # override is deleted with the rest of
+                                  # this territory's; the self-limit and
+                                  # its derivation live in config.
+                                  max_iters=PROJECTION_MAX_SWEEPS_FINAL,
                                   flat_groups=pad_groups or None,
                                   pre_broken=(pre_broken or None),
                                   broken_out=_projection_broken_idx,
@@ -6813,7 +6949,8 @@ def _string_spine_corridors(elev, corridors, nodes_xy, node_band,
 
 
 def _fair_spine_chains(elev, spine_adj, anchors, node_band, nodes_xy,
-                       k_rate, *, max_sweeps=400, tol=1e-4):
+                       k_rate, *, max_sweeps=FAIRING_MAX_SWEEPS_SPINE,
+                       tol=1e-4):
     """FAIRING (user 2026-07-04, task 3): bound the grade CHANGE between
     consecutive spine segments along every chain —
     ``|g2 − g1| ≤ k_rate·(L1 + L2)/2`` — the taxiway vertical-curve
@@ -6928,7 +7065,8 @@ def _fair_spine_chains(elev, spine_adj, anchors, node_band, nodes_xy,
     return n_over
 
 
-def _fair_gap_spine_chains(elev, chains, k_rate, *, max_sweeps=200,
+def _fair_gap_spine_chains(elev, chains, k_rate, *,
+                           max_sweeps=FAIRING_MAX_SWEEPS_GAP_SPINE,
                            tol=1e-4, frozen=None):
     """GAP-SPINE longitudinal fairing (Slice B stage B2, ratified
     2026-07-10): the ``_fair_spine_chains`` second-difference law —
@@ -7050,7 +7188,8 @@ def _fair_gap_spine_chains(elev, chains, k_rate, *, max_sweeps=200,
 
 def _fair_ring_edges(layout, elev, bucket_to_idx, anchors, node_band,
                      k_rate, *, max_bend_deg=25.0, min_seg_m=3.0,
-                     max_sweeps=200, tol=1e-4, law_adjacency=None,
+                     max_sweeps=FAIRING_MAX_SWEEPS_CHAIN, tol=1e-4,
+                     law_adjacency=None,
                      skip_nodes=None):
     """Second-difference fairing on STRAIGHT airside boundary runs (user
     2026-07-04, CYXY taxiway E edge): the ``_fair_spine_chains`` law
@@ -7229,7 +7368,8 @@ def _fair_ring_edges(layout, elev, bucket_to_idx, anchors, node_band,
 
 def _solve_spine_profile(elev, base_hard, spine_adj, spine_floor,
                          node_band=None, nodes_xy=None,
-                         *, max_sweeps=5000, tol=1e-3, curvature=0.25,
+                         *, max_sweeps=FAIRING_MAX_SWEEPS_APRON, tol=1e-3,
+                         curvature=0.25,
                          graph=None, probe_out=None, string_pins=None):
     """Dedicated SMOOTH spine solve on the unified graph's geometry nodes.
 

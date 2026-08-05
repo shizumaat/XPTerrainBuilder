@@ -1,0 +1,24 @@
+# LOCKSTEP CENSUS FIX (terrace flip-readiness v2 §4, 2026-08-05).
+#
+# scratchpad/flipadj/census.py drove tools/check_grade.run_checks WITHOUT
+# terrace_joints_ll, so every terrace-arm row was judged by the bare cap
+# while production law-true (tests/test_pavement_grade.py:291) consumes the
+# sidecar.  That ONE missing keyword produced the whole withdrawn-v1 premise
+# set: HECA read -771 airside instead of -2246, KCLT read +52 instead of
+# -139.  Apply this before quoting ANY census number from a terrace-bearing
+# arm.  Model: scratchpad/terrace2/census_lockstep.py.
+#
+#   apply with:  git apply -p0 tools/patches/flipadj-census-lockstep.patch
+#   (paths are relative to the flipadj scratch directory)
+--- census.py
++++ census.py
+@@ -95,7 +95,8 @@
+         mesh_edges_ll=d.get("mesh_edges") or None,
+         crown_drops_ll=d.get("crown_drops") or None,
+         crown_centerline_ll=d.get("crown_centerline") or None,
+-        pair_caps_ll=d.get("pair_caps") or None)
++        pair_caps_ll=d.get("pair_caps") or None,
++        terrace_joints_ll=d.get("terrace_joints") or None)
+ 
+     def _both_buildings(st):
+         return (st.way_v.tags.get("role") == "building"

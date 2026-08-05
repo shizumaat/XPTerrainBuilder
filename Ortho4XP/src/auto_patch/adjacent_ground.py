@@ -1692,18 +1692,17 @@ def _heal_emitted_band_tears(emitted_shapes, layout):
 # pinches minted; with it the blend touches only true cliffs).
 
 
-# ── THE v4 LAW GATE ───────────────────────────────────────────────────
-# ONE read site for ``O4_STRIP_HEAL_LAW`` (blast reports per-site default
-# disagreement as a hazard, and this gate is read from two passes).
-# Default "0": with the gate off every path below is the pre-v4 code and
-# the emitted patch is byte-identical.
+# ── THE v4 HEALER LAW — STANDING ──────────────────────────────────────
+# ``O4_STRIP_HEAL_LAW`` is DELETED (owner 2026-08-05, no gates).  The v4
+# healer law (§1 grade-aware guard, §2 authority-split clusters, §3
+# cluster-level guard) has been default-ON since the 06:00 release train
+# (lead verdict 31a87b0: HECA seam 28→4, CYXY 6→0, pavement
+# byte-identical); there is no pre-v4 arm to restore.  The function
+# survives as the single predicate the two passes read, so the branches
+# below stay legible until they are folded out.
 def _strip_heal_law_enabled() -> bool:
-    """Is the seam-continuity v4 healer law (§1 grade-aware guard, §2
-    authority-split clusters, §3 cluster-level guard) enabled?"""
-    # DEFAULT ON since the 06:00 release train (lead verdict 31a87b0:
-    # band 1 exceeded — HECA seam 28->4, CYXY 6->0, pavement
-    # byte-identical; O4_STRIP_HEAL_LAW=0 restores the pre-v4 healer).
-    return os.environ.get("O4_STRIP_HEAL_LAW", "1") == "1"
+    """STANDING LAW — always True."""
+    return True
 
 # ── DECLINE LOUDNESS (spec seam-continuity-v3 §2, adjudication item 3) ──
 # The healer's every-node-anchored ⇒ genuine-step rule is CORRECT
@@ -2125,7 +2124,7 @@ def blend_cross_strip_seam_steps(strip_shapes, layout):
     cross-family seams that tear.  Returns the number of ring vertices
     re-levelled.
 
-    THE v4 LAW (gate ``O4_STRIP_HEAL_LAW``, default "0"; spec
+    THE v4 LAW (STANDING since 2026-08-05, ungated; spec
     ``docs/specs/seam-continuity-v4-spec.md`` §1-§3, ONE interlocking
     law).  With the gate on, three things change and nothing else:
 
@@ -2590,7 +2589,7 @@ def emit_stacked_conflict_walls(layout) -> int:
     conflicts fall back to the emit consensus merge).  Returns the
     number of wall faces emitted.
 
-    v4 §2 (gate ``O4_STRIP_HEAL_LAW``): the AUTHORITY half of the site
+    v4 §2 (STANDING, ungated): the AUTHORITY half of the site
     table is not rebuilt here — it is the SHARED index the cross-strip
     healer already consulted (``strip_wall_site_index``), evaluated once
     and passed forward on the layout.  The pass ORDER is unchanged (the
@@ -2799,174 +2798,200 @@ def emit_stacked_conflict_walls(layout) -> int:
                 continue  # cross-tile contract — consensus merge only
             coincident_top[i] = top
             spread[i] = sp
-        primary = [i for i in range(n)
-                   if spread[i] > VERTEX_ALT_MERGE_TOL_M]
-        if not primary:
-            continue
-        selected: set = set(primary)
-        for i in primary:
-            for step in (1, -1):
-                j = i
-                while True:
-                    j = (j + step) % n
-                    if (j in selected
-                            or coincident_top[j] is None
-                            or spread[j] <= STACKED_WALL_TAPER_MIN_M):
-                        break
-                    selected.add(j)
-        conflict_top = [coincident_top[i] if i in selected else None
-                        for i in range(n)]
-        # Inward retreat per conflict vertex: candidate normals are the
-        # ±perpendicular of the adjacent-edge mean direction; keep the
-        # one whose probe point lands inside the strip.
-        poly = shape.polygon
-        moved_pos: list = [None] * n
-        for i in range(n):
-            if conflict_top[i] is None:
-                continue
-            ax, ay = coords[(i - 1) % n]
-            bx, by = coords[i]
-            cx, cy = coords[(i + 1) % n]
-            tx, ty = (cx - ax), (cy - ay)
-            norm = math.hypot(tx, ty)
-            if norm < 1e-9:
-                continue
-            tx, ty = tx / norm, ty / norm
-            for (nx_, ny_) in ((-ty, tx), (ty, -tx)):
-                px = bx + nx_ * STACKED_WALL_RETREAT_M
-                py = by + ny_ * STACKED_WALL_RETREAT_M
-                try:
-                    if poly.contains(Point(px, py)):
-                        moved_pos[i] = (px, py)
-                        break
-                except _GEOM_EXC:
-                    continue
-        run_indices = [i for i in range(n) if moved_pos[i] is not None]
-        if not run_indices:
-            continue
-        # Group into consecutive ring runs (wrap-aware).
-        runs: list[list[int]] = []
-        current = [run_indices[0]]
-        for i in run_indices[1:]:
-            if (i - current[-1]) % n == 1:
-                current.append(i)
-            else:
-                runs.append(current)
-                current = [i]
-        runs.append(current)
-        if (len(runs) > 1 and runs[0][0] == 0
-                and (runs[-1][-1] + 1) % n == 0):
-            runs[0] = runs[-1] + runs[0]
-            runs.pop()
-        # Build one wall face per run; commit the retreat only for the
-        # runs whose face built cleanly, and only if the retreated ring
-        # stays a valid simple polygon (else the whole shape falls back
-        # to the emit consensus merge, walls withdrawn).
-        new_coords = list(coords)
-        new_alts = list(alts)
-        shape_walls: list = []
-        for run in runs:
-            top_pts = [coords[i] for i in run]
-            top_alts_run = [round(float(conflict_top[i]), 1) for i in run]
-            bot_pts = [moved_pos[i] for i in run]
-            bot_alts_run = [round(float(alts[i]), 1) for i in run]
-            # Pinch the wall closed with the ring neighbours on the TOP
-            # row (unmoved, at the strip's own value — zero face height
-            # at the taper stations).
-            prev_i = (run[0] - 1) % n
-            next_i = (run[-1] + 1) % n
-            ring_pts = ([coords[prev_i]] + top_pts + [coords[next_i]]
-                        + bot_pts[::-1])
-            ring_alts = ([round(float(alts[prev_i]), 1)] + top_alts_run
-                         + [round(float(alts[next_i]), 1)]
-                         + bot_alts_run[::-1])
-            try:
-                wall_poly = Polygon(ring_pts)
-                if not wall_poly.is_valid:
-                    wall_poly = wall_poly.buffer(0)
-                if (wall_poly.is_empty
-                        or wall_poly.geom_type != "Polygon"):
-                    continue
-            except _GEOM_EXC:
-                continue
-            rebuilt = _open_coords(wall_poly)
-            if len(rebuilt) < 3:
-                continue
-            if len(rebuilt) == len(ring_pts):
-                wall_alts = ring_alts
-            else:
-                wall_alts = [round(float(_nearest_alt(
-                    ring_pts, ring_alts, vx, vy)), 1)
-                    for (vx, vy) in rebuilt]
-            if (_strip_keepout is not None
-                    and wall_poly.intersects(_strip_keepout)):
-                continue            # runway-strip wall law (see above)
-            shape_walls.append(BuiltShape(
-                polygon=wall_poly, role=ROLE_RETAINING_WALL,
-                ref="stacked_conflict_wall",
-                node_altitudes=wall_alts + [wall_alts[0]]))
-            for i in run:
-                new_coords[i] = moved_pos[i]
-        if not shape_walls:
-            continue
-        try:
-            # Interior rings ride along (exterior-only fills the holes).
-            moved_poly = Polygon(new_coords + [new_coords[0]],
-                                 [list(h.coords)
-                                  for h in shape.polygon.interiors])
-            if not moved_poly.is_valid:
-                moved_poly = moved_poly.buffer(0)
-            if (moved_poly.is_empty
-                    or moved_poly.geom_type != "Polygon"
-                    or len(_open_coords(moved_poly)) != n):
-                continue  # retreat degenerated the ring — fall back
-            shape.polygon = moved_poly
-            rebuilt_open = _open_coords(moved_poly)
-            if rebuilt_open != new_coords:
-                # buffer(0) may rotate the ring start; re-map the
-                # altitude list to the rebuilt vertex order.
-                new_alts = [float(_nearest_alt(
-                    new_coords, new_alts, vx, vy))
-                    for (vx, vy) in rebuilt_open]
-            shape.node_altitudes = (
-                [round(a, 2) for a in new_alts]
-                + [round(new_alts[0], 2)])
-        except _GEOM_EXC:
-            continue
-        # Clip each wall out of the RETREATED strip's footprint (same
-        # discipline as ``_emit_apron_walls``): on a concave boundary
-        # the wedge between the old and new edges can lap onto strip
-        # area the retreat kept — the zero-tolerance self-overlap
-        # invariant forbids any lap.
-        clipped_walls: list = []
-        for wall in shape_walls:
-            try:
-                clipped = wall.polygon.difference(shape.polygon)
-                if clipped.is_empty:
-                    continue
-                if clipped.geom_type == "MultiPolygon":
-                    clipped = max(clipped.geoms, key=lambda g: g.area)
-                if (clipped.geom_type != "Polygon"
-                        or clipped.is_empty or clipped.area < 1e-6):
-                    continue
-                pr = _open_coords(clipped)
-                if len(pr) < 3:
-                    continue
-                src_ring = list(wall.polygon.exterior.coords)[:-1]
-                src_alts = wall.node_altitudes[:len(src_ring)]
-                walts = [round(float(_nearest_alt(
-                    src_ring, src_alts, vx, vy)), 1) for (vx, vy) in pr]
-                wall.polygon = clipped
-                wall.node_altitudes = walts + [walts[0]]
-                clipped_walls.append(wall)
-            except _GEOM_EXC:
-                continue
+        clipped_walls = _retreat_run_walls(shape, coords, alts,
+                                           coincident_top, spread,
+                                           _strip_keepout)
         new_walls.extend(clipped_walls)
         emitted += len(clipped_walls)
     layout.shapes.extend(new_walls)
     if law:
         report_strip_seam_joint_pickup(layout, new_walls)
     return emitted
+
+
+def _retreat_run_walls(shape, coords, alts, coincident_top, spread,
+                       keepout):
+    """THE RETREAT MACHINE — one derivation, two callers.
+
+    Given a shape's open ring (``coords``/``alts``), the value a HIGHER
+    authority holds at each vertex (``coincident_top[i]`` or ``None``)
+    and that vertex's spread, retreat every conflicting vertex
+    ``STACKED_WALL_RETREAT_M`` into this shape's own interior and return
+    the ``retaining_wall`` faces that cover the vacated band.  Mutates
+    ``shape.polygon`` / ``shape.node_altitudes`` only when at least one
+    face built cleanly and the retreated ring is still a valid simple
+    polygon; otherwise the shape is left untouched and no wall is
+    returned (the conflict falls back to the emitter's own adopt).
+
+    Callers: ``emit_stacked_conflict_walls`` (strip vs authority, owner
+    ruling 2026-07-19) and ``emit_authority_retreat_walls``
+    (consensus-retirement §2: any LOSING claimant beyond tol retreats).
+    """
+    n = len(coords)
+    primary = [i for i in range(n)
+               if spread[i] > VERTEX_ALT_MERGE_TOL_M]
+    if not primary:
+        return []
+    _strip_keepout = keepout
+    selected: set = set(primary)
+    for i in primary:
+        for step in (1, -1):
+            j = i
+            while True:
+                j = (j + step) % n
+                if (j in selected
+                        or coincident_top[j] is None
+                        or spread[j] <= STACKED_WALL_TAPER_MIN_M):
+                    break
+                selected.add(j)
+    conflict_top = [coincident_top[i] if i in selected else None
+                    for i in range(n)]
+    # Inward retreat per conflict vertex: candidate normals are the
+    # ±perpendicular of the adjacent-edge mean direction; keep the
+    # one whose probe point lands inside the strip.
+    poly = shape.polygon
+    moved_pos: list = [None] * n
+    for i in range(n):
+        if conflict_top[i] is None:
+            continue
+        ax, ay = coords[(i - 1) % n]
+        bx, by = coords[i]
+        cx, cy = coords[(i + 1) % n]
+        tx, ty = (cx - ax), (cy - ay)
+        norm = math.hypot(tx, ty)
+        if norm < 1e-9:
+            continue
+        tx, ty = tx / norm, ty / norm
+        for (nx_, ny_) in ((-ty, tx), (ty, -tx)):
+            px = bx + nx_ * STACKED_WALL_RETREAT_M
+            py = by + ny_ * STACKED_WALL_RETREAT_M
+            try:
+                if poly.contains(Point(px, py)):
+                    moved_pos[i] = (px, py)
+                    break
+            except _GEOM_EXC:
+                continue
+    run_indices = [i for i in range(n) if moved_pos[i] is not None]
+    if not run_indices:
+        return []
+    # Group into consecutive ring runs (wrap-aware).
+    runs: list[list[int]] = []
+    current = [run_indices[0]]
+    for i in run_indices[1:]:
+        if (i - current[-1]) % n == 1:
+            current.append(i)
+        else:
+            runs.append(current)
+            current = [i]
+    runs.append(current)
+    if (len(runs) > 1 and runs[0][0] == 0
+            and (runs[-1][-1] + 1) % n == 0):
+        runs[0] = runs[-1] + runs[0]
+        runs.pop()
+    # Build one wall face per run; commit the retreat only for the
+    # runs whose face built cleanly, and only if the retreated ring
+    # stays a valid simple polygon (else the whole shape falls back
+    # to the emit consensus merge, walls withdrawn).
+    new_coords = list(coords)
+    new_alts = list(alts)
+    shape_walls: list = []
+    for run in runs:
+        top_pts = [coords[i] for i in run]
+        top_alts_run = [round(float(conflict_top[i]), 1) for i in run]
+        bot_pts = [moved_pos[i] for i in run]
+        bot_alts_run = [round(float(alts[i]), 1) for i in run]
+        # Pinch the wall closed with the ring neighbours on the TOP
+        # row (unmoved, at the strip's own value — zero face height
+        # at the taper stations).
+        prev_i = (run[0] - 1) % n
+        next_i = (run[-1] + 1) % n
+        ring_pts = ([coords[prev_i]] + top_pts + [coords[next_i]]
+                    + bot_pts[::-1])
+        ring_alts = ([round(float(alts[prev_i]), 1)] + top_alts_run
+                     + [round(float(alts[next_i]), 1)]
+                     + bot_alts_run[::-1])
+        try:
+            wall_poly = Polygon(ring_pts)
+            if not wall_poly.is_valid:
+                wall_poly = wall_poly.buffer(0)
+            if (wall_poly.is_empty
+                    or wall_poly.geom_type != "Polygon"):
+                continue
+        except _GEOM_EXC:
+            continue
+        rebuilt = _open_coords(wall_poly)
+        if len(rebuilt) < 3:
+            continue
+        if len(rebuilt) == len(ring_pts):
+            wall_alts = ring_alts
+        else:
+            wall_alts = [round(float(_nearest_alt(
+                ring_pts, ring_alts, vx, vy)), 1)
+                for (vx, vy) in rebuilt]
+        if (_strip_keepout is not None
+                and wall_poly.intersects(_strip_keepout)):
+            continue            # runway-strip wall law (see above)
+        shape_walls.append(BuiltShape(
+            polygon=wall_poly, role=ROLE_RETAINING_WALL,
+            ref="stacked_conflict_wall",
+            node_altitudes=wall_alts + [wall_alts[0]]))
+        for i in run:
+            new_coords[i] = moved_pos[i]
+    if not shape_walls:
+        return []
+    try:
+        # Interior rings ride along (exterior-only fills the holes).
+        moved_poly = Polygon(new_coords + [new_coords[0]],
+                             [list(h.coords)
+                              for h in shape.polygon.interiors])
+        if not moved_poly.is_valid:
+            moved_poly = moved_poly.buffer(0)
+        if (moved_poly.is_empty
+                or moved_poly.geom_type != "Polygon"
+                or len(_open_coords(moved_poly)) != n):
+            return []  # retreat degenerated the ring — fall back
+        shape.polygon = moved_poly
+        rebuilt_open = _open_coords(moved_poly)
+        if rebuilt_open != new_coords:
+            # buffer(0) may rotate the ring start; re-map the
+            # altitude list to the rebuilt vertex order.
+            new_alts = [float(_nearest_alt(
+                new_coords, new_alts, vx, vy))
+                for (vx, vy) in rebuilt_open]
+        shape.node_altitudes = (
+            [round(a, 2) for a in new_alts]
+            + [round(new_alts[0], 2)])
+    except _GEOM_EXC:
+        return []
+    # Clip each wall out of the RETREATED strip's footprint (same
+    # discipline as ``_emit_apron_walls``): on a concave boundary
+    # the wedge between the old and new edges can lap onto strip
+    # area the retreat kept — the zero-tolerance self-overlap
+    # invariant forbids any lap.
+    clipped_walls: list = []
+    for wall in shape_walls:
+        try:
+            clipped = wall.polygon.difference(shape.polygon)
+            if clipped.is_empty:
+                continue
+            if clipped.geom_type == "MultiPolygon":
+                clipped = max(clipped.geoms, key=lambda g: g.area)
+            if (clipped.geom_type != "Polygon"
+                    or clipped.is_empty or clipped.area < 1e-6):
+                continue
+            pr = _open_coords(clipped)
+            if len(pr) < 3:
+                continue
+            src_ring = list(wall.polygon.exterior.coords)[:-1]
+            src_alts = wall.node_altitudes[:len(src_ring)]
+            walts = [round(float(_nearest_alt(
+                src_ring, src_alts, vx, vy)), 1) for (vx, vy) in pr]
+            wall.polygon = clipped
+            wall.node_altitudes = walts + [walts[0]]
+            clipped_walls.append(wall)
+        except _GEOM_EXC:
+            continue
+    return clipped_walls
 
 
 # ── DEFERRED-JOINT PICKUP (spec seam-continuity-v4 §2 (iii)) ──────────
@@ -2984,6 +3009,147 @@ def emit_stacked_conflict_walls(layout) -> int:
 # never a third constant.
 _STRIP_SEAM_JOINT_PICKUP_M = (
     STACKED_WALL_RETREAT_M + STRIP_SEAM_WALL_STRADDLE_TOL_M)
+
+
+def emit_authority_retreat_walls(layout) -> int:
+    """CONSENSUS RETIREMENT §2 — the losing claimant RETREATS.
+
+    ``docs/specs/consensus-retirement-spec.md`` §2, standing law since
+    2026-08-05 (the ``O4_SINGLE_AUTHORITY_EMIT`` gate is deleted): at a
+    node claimed by several value authorities, ``layout.to_osm`` now
+    emits the PRECEDENCE WINNER's value verbatim instead of the tier
+    mean.  That is only half the law.  Without the other half a losing
+    claimant beyond the merge tolerance is silently DRAGGED to the
+    winner's value — the same defect the mean had, minus the averaging;
+    it is the measured cause of the groundside tear family.
+
+    THE OTHER HALF, and it already exists: a loser differing by more
+    than ``VERTEX_ALT_MERGE_TOL_M`` retreats ``STACKED_WALL_RETREAT_M``
+    into its OWN interior and ships the difference as a
+    ``retaining_wall`` face (the machine that took HECA's 1 497
+    groundside violations to 419).  A loser WITHIN tol adopts, exactly
+    as before.  One derivation: the retreat is
+    ``_retreat_run_walls``, shared with
+    ``emit_stacked_conflict_walls``; the authority half of the site
+    table is seam v4's SHARED ``strip_wall_site_index``, extended here
+    with the weld-donor (pavement / solver-owned) claims the strip
+    index deliberately omits.
+
+    SCOPE, and why it cannot pull airside (airside-is-king).  Only the
+    LOSER moves, and the loser is by construction the lower-precedence
+    claimant — the runway family outranks everything, so a runway vertex
+    is never the retreating party.  Where two solver-owned pavement
+    shapes meet they hold the SAME solved value (the canonical identity
+    join), so the spread is ~0 and nothing fires: the population this
+    reaches is the non-solve collisions §2 names (lot vs ribbon, plate
+    lip, pad vs road).
+
+    EXCLUSIONS (each a law of its own, not a tuning knob):
+      * tile-seam band vertices — cross-tile contract, consensus merge
+        only (``crown._point_in_seam_band``);
+      * anything inside a runway-strip footprint — walls at runway edges
+        are NEVER lawful (owner 2026-08-01), so the run is skipped and
+        the conflict falls back to adoption;
+      * soft receivers — they adopt by design and own no value to
+        defend;
+      * ``graded_strip`` — owned by ``emit_stacked_conflict_walls``,
+        which runs first and must see its own population.
+
+    Returns the number of faces emitted.
+    """
+    from .crown import _point_in_seam_band
+    from .layout import (SOFT_RECEIVER_ROLES, WELD_DONOR_ROLES,
+                         authority_rank)
+
+    registry = getattr(layout, "canonical_points", None)
+    if registry is None:
+        return 0
+    keepout = runway_strip_wall_keepout(layout)
+    # ── THE SITE TABLE ───────────────────────────────────────────────
+    # Non-donor authorities come from the SHARED index (built once per
+    # layout, already consulted by the cross-strip healer and the
+    # stacked-wall pass).  Its ``claims`` are values only, so the ranked
+    # table is rebuilt here from the same predicate — but the shared
+    # index's EDGE tree is reused verbatim for the edge-coincident case.
+    wall_index = strip_wall_site_index(layout)
+    ranked: dict = {}
+    order_of: dict = {}
+    for order, shape in enumerate(getattr(layout, "shapes", ()) or ()):
+        role = shape.role or ""
+        if role in SOFT_RECEIVER_ROLES or role == ROLE_GRADED_STRIP:
+            continue
+        rv = _ring_values_for_walls(shape)
+        if rv is None:
+            continue
+        order_of[id(shape)] = order
+        coords, alts = rv
+        rank = authority_rank(role)
+        for (vx, vy), value in zip(coords, alts):
+            key = registry.get_or_add(float(vx), float(vy))
+            ranked.setdefault(key, []).append(
+                (rank, order, float(value), id(shape)))
+    if not ranked:
+        return 0
+
+    def _winner_over(key, rank, order):
+        """The claim that OUTRANKS ``(rank, order)`` at ``key``, or
+        ``None`` when this shape is itself the winner."""
+        claims = ranked.get(key)
+        if not claims or len(claims) < 2:
+            return None
+        best = min(claims, key=lambda c: (c[0], c[1]))
+        if (best[0], best[1]) >= (rank, order):
+            return None
+        return best[2]
+
+    emitted = 0
+    new_walls: list = []
+    for shape in list(getattr(layout, "shapes", ()) or ()):
+        role = shape.role or ""
+        if role in SOFT_RECEIVER_ROLES or role == ROLE_GRADED_STRIP:
+            continue
+        rv = _ring_values_for_walls(shape)
+        if rv is None or shape.node_altitudes is None:
+            continue
+        coords, alts = rv
+        n = len(coords)
+        if n < 4:
+            continue
+        rank = authority_rank(role)
+        order = order_of.get(id(shape))
+        if order is None:
+            continue
+        coincident_top: list = [None] * n
+        spread: list = [0.0] * n
+        for i, ((vx, vy), own) in enumerate(zip(coords, alts)):
+            key = registry.get_or_add(float(vx), float(vy))
+            top = _winner_over(key, rank, order)
+            if top is None and role not in WELD_DONOR_ROLES:
+                # EDGE-COINCIDENT: this vertex lies ON a designed-split
+                # authority's chain rather than on one of its vertices.
+                # The shared index's own reader — one derivation.
+                top = wall_index.value_at(vx, vy)
+                if top is not None and abs(top - own) <= \
+                        VERTEX_ALT_MERGE_TOL_M:
+                    top = None
+            if top is None:
+                continue
+            sp = abs(top - own)
+            if sp <= 0.05:
+                continue
+            if _point_in_seam_band(layout, vx, vy):
+                continue        # cross-tile contract — adopt, no wall
+            coincident_top[i] = top
+            spread[i] = sp
+        walls = _retreat_run_walls(shape, coords, alts, coincident_top,
+                                   spread, keepout)
+        for w in walls:
+            w.ref = "authority_retreat_wall"
+        new_walls.extend(walls)
+        emitted += len(walls)
+    if new_walls:
+        layout.shapes.extend(new_walls)
+    return emitted
 
 
 def report_strip_seam_joint_pickup(layout, new_walls) -> int:
@@ -3072,7 +3238,11 @@ def report_strip_seam_joint_pickup(layout, new_walls) -> int:
 #
 # Gate ``O4_GROUNDSIDE_TERRACE`` (default on).  OFF ⇒ the pass returns 0
 # before reading anything ⇒ byte-identical to the pre-ruling emit.
-_GROUNDSIDE_TERRACE = os.environ.get("O4_GROUNDSIDE_TERRACE", "1") == "1"
+# STANDING LAW (owner 2026-08-05, no gates): the groundside terrace
+# ruling (owner 2026-07-30) — only pavement and roads inside groundside
+# are graded; the ground between them terraces freely behind retaining
+# walls.  The ``O4_GROUNDSIDE_TERRACE`` gate is DELETED.
+_GROUNDSIDE_TERRACE = True
 
 
 def _shape_ring_values(shape):
@@ -3631,7 +3801,7 @@ def _make_solved_band_resampler(entry, coords, ring_alts,
          vertex and the case is COUNTED loudly
          (``solved_analytic_fallback`` — the B2 degrade convention).
 
-    EMIT-SIDE CORRIDOR CLAMP (``O4_BAND_CORRIDOR_CLAMP``, 2026-07-25 —
+    EMIT-SIDE CORRIDOR READER (2026-07-25, ungated 2026-08-05 —
     full rationale in the config block ``BAND_CORRIDOR_CLAMP_ENABLED``).
     Rules 2-4 above take their value from the SOLVED field, which the
     canonical-point registry interns ACROSS SHAPES: a foreign shape's zone
@@ -3714,16 +3884,25 @@ def _make_solved_band_resampler(entry, coords, ring_alts,
     _clamp_on = bool(_BAND_CORRIDOR_CLAMP) and envelope_at is not None
 
     def _clamp(p, d, kind, value):
-        """``value`` forced into THIS shape's law corridor at depth ``d``.
+        """THE LOCKSTEP READER of the zone-law box at depth ``d``.
 
-        Mirrors ``_make_edge_projection_resampler``'s bound handling
-        exactly — ``kind == "fill"`` clamps ``d`` to the band cap so an
-        outer-row vertex whose projection jitters past W stays on the
-        shelf, ``kind == "cut"`` drops the floor (below-floor terrain
-        inside a cut piece belongs to the fill machinery) — so the two
-        valuation paths agree on what "lawful" means.  No snap-to-bound:
-        a value already inside the corridor is returned untouched, so the
-        clamp only ever bites on the collision population it targets.
+        Since the ingestion this is NOT a second valuation: the SAME box
+        (``zone_corridor_box``, one derivation) is supplied to the solve
+        as a directed constraint through
+        ``layout.adjacent_ground_zone_boxes``, so a solved value already
+        lies inside it and this reader returns it untouched.  Every
+        metre it still has to move is an INGESTION RESIDUAL — counted
+        (``band_corridor_clamped_vertices``), and a number that goes to
+        zero when the solve consumes the table.  Until then it is also
+        the only guard on the measured cross-shape collision (SPJC: the
+        canonical registry interns two shapes' zone nodes 0.19 m apart
+        into ONE variable, and this shape's band then emits a value its
+        OWN corridor forbids — a 1.56 m notch).  The at-source fix is
+        the ``shape_id`` the box table carries.
+
+        No snap-to-bound: a value already inside the corridor is
+        returned untouched, so the reader only ever bites on the
+        population it targets.
         """
         global _BAND_CLAMP_MAX_DELTA_M
         if not _clamp_on:
@@ -3731,12 +3910,8 @@ def _make_solved_band_resampler(entry, coords, ring_alts,
         edge_alt = _edge_alt_at(line.project(p))
         if edge_alt is None:
             return value
-        dd = d
-        if kind == "fill" and graded_width_m is not None:
-            dd = min(dd, graded_width_m)
-        floor_offset, ceiling_offset = envelope_at(dd)
-        if kind == "cut":
-            floor_offset = None
+        floor_offset, ceiling_offset = zone_corridor_box(
+            envelope_at, graded_width_m, kind, d)
         out = value
         if floor_offset is not None:
             out = max(out, float(edge_alt) + floor_offset)
@@ -4226,6 +4401,71 @@ def _band_family_closures(family, code_number, code_letter, width):
         return None if f is None else -f
 
     return ceil_off, envelope_at, floor_depth
+
+
+def zone_corridor_box(envelope_at, graded_width_m, kind: str, d: float):
+    """THE ZONE-LAW BOX at lateral depth ``d`` — ONE derivation.
+
+    Returns ``(floor_off, ceil_off)`` relative to the band node's DATUM
+    (the pavement-edge elevation at its foot).  ``kind == "fill"`` clamps
+    ``d`` to the graded width so an outer-row vertex whose projection
+    jitters past W stays on the shelf; ``kind == "cut"`` drops the floor
+    (below-floor terrain inside a cut piece belongs to the fill
+    machinery).
+
+    THREE CONSUMERS, ONE FUNCTION — this is the point of it:
+      1. ``build_zone_constraint_table`` — the SOLVE-TIME constraint
+         supply (``layout.adjacent_ground_zone_boxes``);
+      2. the pre-solve zone-node envelope offsets;
+      3. ``_make_solved_band_resampler``'s emit-side reader, which since
+         the ingestion is a LOCKSTEP check of the same numbers rather
+         than a second valuation.
+    A fourth copy of these bounds is how the cross-shape corridor
+    collision (SPJC, 1.56 m notch) was argued about for a week.
+    """
+    dd = float(d)
+    if kind == "fill" and graded_width_m is not None:
+        dd = min(dd, float(graded_width_m))
+    floor_off, ceil_off = envelope_at(dd)
+    if kind == "cut":
+        floor_off = None
+    return floor_off, ceil_off
+
+
+def _ring_foot_reference(coords, x: float, y: float):
+    """The FOOT of a band node on its host shape's ring, as an IDENTITY
+    rather than a value: ``(i, t)`` such that the foot is
+    ``(1-t)·coords[i] + t·coords[i+1]``.
+
+    This is the datum the zone law is actually written against
+    (``grade_law.adjacent_ground_envelope`` references the pavement-EDGE
+    elevation at the node's foot).  The solve currently approximates it
+    with the frozen-nearest host VERTEX, which on a long steep edge sits
+    metres off the local foot lerp (measured 12 m at the CYXY trench
+    wall) — and the B3 writeback then patched that up POST-solve by
+    re-deriving the value from raw DEM.  Carrying the foot as two ring
+    vertices and a parameter lets the constraint be stated exactly, in
+    the solve, against variables the solve already owns.
+    """
+    best = None
+    n = len(coords)
+    if n < 2:
+        return None
+    for i in range(n - 1):
+        (ax, ay), (bx, by) = coords[i], coords[i + 1]
+        dx, dy = bx - ax, by - ay
+        L2 = dx * dx + dy * dy
+        if L2 < 1e-12:
+            continue
+        t = ((x - ax) * dx + (y - ay) * dy) / L2
+        t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+        px, py = ax + dx * t, ay + dy * t
+        d = math.hypot(x - px, y - py)
+        if best is None or d < best[0]:
+            best = (d, i, t)
+    if best is None:
+        return None
+    return (best[1], best[2], best[0])
 
 
 def _strip_law_params(layout, shape, rw_axes, trigger_by_family,
@@ -5512,6 +5752,14 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
         #   * "fill" rows: both bounds at depth clamped to the graded
         #     width (zones 1-2 by construction — same rule).
         zone_nodes: list[dict] = []
+        # ── THE CONSTRAINT SUPPLY (single-solve ingestion) ───────────
+        # Built in THIS loop, from THIS row's own depth/kind/law — the
+        # single-pass place, because everything the constraint needs is
+        # already in hand here and nothing has to be re-derived from
+        # geometry later.  Consumed by the solve (KILL lane) and by the
+        # seat coupler (SEATS lane); see ``build_zone_constraint_table``
+        # for the record shape and the contract.
+        zone_boxes: list[dict] = []
         seen_zone_keys: set[tuple[int, int]] = set()
         for row in zone_rows:
             # Seam-prolongation host shift (see the repair block above):
@@ -5525,6 +5773,7 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
                 if zkey in seen_zone_keys:
                     continue
                 seen_zone_keys.add(zkey)
+                _dem_seed = sample_dem(zx, zy)
                 # STRIP PRECEDENCE §1 (law swap): a row the march built
                 # under the STRIP family is bounded by the STRIP envelope,
                 # so the solver variable and the emitter's corridor clamp
@@ -5533,11 +5782,8 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
                 _row_env, _row_width = envelope_at, width
                 if row.get("strip_law") and _strip_env is not None:
                     _row_env, _row_width = _strip_env, _strip_width
-                if row["kind"] == "cut":
-                    zone_floor = None
-                    zone_ceil = _row_env(zd)[1]
-                else:
-                    zone_floor, zone_ceil = _row_env(min(zd, _row_width))
+                zone_floor, zone_ceil = zone_corridor_box(
+                    _row_env, _row_width, row["kind"], zd)
                 if zdelta:
                     if zone_floor is not None:
                         zone_floor += zdelta
@@ -5550,11 +5796,43 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
                                   else float(zone_floor)),
                     "ceil_off": (None if zone_ceil is None
                                  else float(zone_ceil))})
+                # THE BOX, stated against the LAW's own datum.
+                _foot = _ring_foot_reference(coords, zx, zy)
+                zone_boxes.append({
+                    "shape_id": id(s),
+                    "ref": getattr(s, "ref", "") or "",
+                    "key": zkey,
+                    "xy": (float(zx), float(zy)),
+                    "kind": row["kind"],
+                    "depth_m": float(zd),
+                    "floor_off": (None if zone_floor is None
+                                  else float(zone_floor)),
+                    "ceil_off": (None if zone_ceil is None
+                                 else float(zone_ceil)),
+                    "snap_tol_m": float(_CORRIDOR_SNAP_TOL_M),
+                    # DATUM, as an identity the solve can bind:
+                    # (1-t)·ring[i] + t·ring[i+1] on the host shape's
+                    # own exterior.  ``host`` is the legacy
+                    # frozen-nearest vertex, kept as the degrade path.
+                    "foot": (None if _foot is None else {
+                        "a": (float(coords[_foot[0]][0]),
+                              float(coords[_foot[0]][1])),
+                        "b": (float(coords[_foot[0] + 1][0]),
+                              float(coords[_foot[0] + 1][1])),
+                        "t": float(_foot[1]),
+                        "gap_m": round(float(_foot[2]), 4)}),
+                    "host": (float(zhost[0]), float(zhost[1])),
+                    "host_delta": float(zdelta or 0.0),
+                    "dem_seed": (None if _dem_seed is None
+                                 else float(_dem_seed)),
+                })
         entries.append({"shape": s, "fill": fill_bands, "cut": cut_bands,
                         "zone_rows": zone_rows,
                         "zone_nodes": zone_nodes,
+                        "zone_boxes": zone_boxes,
                         "zone_values": None})
     layout.adjacent_ground_presolve = entries
+    build_zone_constraint_table(layout)
     if _n_prolonged:
         UI.vprint(1, f"  [adjacent-ground] tile-seam prolongation: "
                      f"{_n_prolonged} cut-back run(s) marched off the "
@@ -5565,6 +5843,89 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
                      f"for {len(entries)} shape(s), {n_bands} raw band(s) "
                      f"(one-solve terrain absorption, stage B3 order 1).")
     return len(entries)
+
+
+def build_zone_constraint_table(layout) -> int:
+    """ADJACENT-GROUND INGESTION — the CONSTRAINT SUPPLY.
+
+    Publishes ``layout.adjacent_ground_zone_boxes``: one record per
+    graded band node, carrying the zone law as a SOLVE-TIME constraint
+    instead of a post-solve valuation.  This is the supply half of the
+    single-solve ruling's "adjacent-ground band values" ingestion (owner
+    2026-08-03: *ingest → refine geometry → ONE solve carrying ALL grade
+    law → emit verbatim*).  The consumption half is the solve's
+    (KILL lane) and the coupler's (SEATS lane); this side owns the
+    numbers and their derivation.
+
+    RECORD SHAPE — the contract, same family as the strip-fabric boxes
+    (``one_solve._node_box_arrays`` consumes ``{index: (lo, hi)}``; these
+    are keyed positionally because the pre-solve construct runs before
+    the node list exists, exactly as ``zone_nodes`` already does)::
+
+        {"shape_id": int,          # the OWNING pavement shape (identity)
+         "ref":      str,
+         "key":      (int, int),   # millimetre vertex key — the join
+         "xy":       (x, y),       # layout metre frame
+         "kind":     "cut" | "fill",
+         "depth_m":  float,        # lateral depth the law was read at
+         "floor_off": float|None,  # box, RELATIVE TO THE DATUM
+         "ceil_off":  float|None,  #   (cut rows are ceiling-only)
+         "snap_tol_m": float,      # quantization, not valuation
+         "foot": {"a": (x, y), "b": (x, y), "t": float, "gap_m": float}
+                  | None,          # THE DATUM, as an identity
+         "host": (x, y),           # legacy frozen-nearest vertex
+         "host_delta": float,      # seam-prolongation reference shift
+         "dem_seed": float|None}   # the node's own DEM sample
+
+    HOW THE SOLVE BINDS IT (the interface the KILL lane implements)::
+
+        z[node] − ((1−t)·z[foot.a] + t·z[foot.b]) ∈ [floor_off, ceil_off]
+
+    seeded at ``dem_seed``.  ``foot.a`` / ``foot.b`` are ring vertices of
+    ``shape_id`` — variables the solve already owns — so the constraint
+    is stated exactly in the law's own frame, with no post-solve
+    re-reference.  Where ``foot`` is ``None`` the legacy pairwise slab
+    against ``host`` is the degrade path.
+
+    WHY THIS EXISTS — the v2 box was VACUOUS and the reason was measured
+    (``seamv2/RESULTS.md`` §1 part 2), three independent causes, each
+    sufficient:
+      1. THE WRITEBACK RE-DERIVED.  ``solve.py``'s B3 zone writeback
+         discards the solved value for every edge-owning zone node and
+         recomputes ``clamp(raw DEM, ref + offsets)``.  A box around a
+         value that IS the datum has no slack to remove.
+      2. DATUM IDENTITY.  The spec's datum was "the writer's lawful
+         value", i.e. the writeback's own expression — so the constraint
+         and the value it constrained were the same formula.
+      3. ORDERING + CHANNEL.  ``zone_values`` are written inside
+         ``solve_route_profile``; the final projections that carried the
+         box run strictly later, and no projection can write band values
+         at all (``_writeback`` skips non-pavement roles).
+    This table fixes (2) and (3) by construction: the datum is the FOOT
+    (a pair of solved pavement variables, not a value the band writer
+    produced), and the constraint is supplied BEFORE the solve rather
+    than to a post-solve projection.  (1) is the KILL lane's handoff —
+    the writeback's ``_zv = float(_dem_z)`` re-derivation must go, and
+    the emitted band value must be the solved one.
+
+    Returns the number of boxes published.
+    """
+    boxes: list = []
+    for entry in (getattr(layout, "adjacent_ground_presolve", None) or ()):
+        boxes.extend(entry.get("zone_boxes") or ())
+    try:
+        layout.adjacent_ground_zone_boxes = boxes
+    except Exception:                                   # noqa: BLE001
+        return 0
+    if boxes:
+        _footed = sum(1 for b in boxes if b.get("foot") is not None)
+        UI.vprint(1,
+            f"  [adjacent-ground] zone-law constraint SUPPLY: "
+            f"{len(boxes)} band node box(es) "
+            f"({_footed} with an exact foot datum, "
+            f"{len(boxes) - _footed} on the frozen-nearest degrade "
+            f"path) published on layout.adjacent_ground_zone_boxes.")
+    return len(boxes)
 
 
 def emit_adjacent_ground_bands(layout: PavementLayout, dem,
@@ -6371,11 +6732,19 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                     # emit a value the analytic path would have refused.
                     envelope_at=envelope_at, graded_width_m=width)
             else:
+                # LOUD COMPLETENESS (single-solve architecture): a graded
+                # band whose values the solve never produced is a hole in
+                # the ingestion, not a degrade mode to live with.  Every
+                # vertex of this shape will be valued ANALYTICALLY — a
+                # second grading authority at emit — so it is named at
+                # vprint(0), with its shape, and counted.  Pre-registered
+                # zero once the solve consumes the box table.
                 _APPARATUS_HITS["solved_store_missing_shape"] += 1
-                UI.vprint(1, f"  [adjacent-ground] WARN: no solved "
-                             f"zone values for shape role={s.role} "
-                             f"ref={s.ref} — analytic valuation kept "
-                             f"for this shape (degrade, counted).")
+                UI.vprint(0, f"  [adjacent-ground] INGESTION HOLE: no "
+                             f"solved zone values for shape role={s.role} "
+                             f"ref={s.ref} — its whole band is valued "
+                             f"analytically at emit (a second grading "
+                             f"authority; must read 0).")
         # STATIC-EDGE VALUE WELD (B4 flip defect 2): a band vertex ON any
         # static shape's edge takes THAT surface's solved edge value
         # (weld precedence), with the host-corridor/zone valuation above
@@ -7081,12 +7450,27 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
     UI.vprint(1, "  [adjacent-ground] apparatus hits: "
                  + " ".join(f"{k}={_APPARATUS_HITS[k]}"
                             for k in _APPARATUS_KEYS))
+    # ── INGESTION RESIDUALS — both of these are pre-registered ZEROS ──
+    # once the solve consumes ``layout.adjacent_ground_zone_boxes``.
+    # They are reported LOUDLY rather than absorbed, because each names
+    # a place where the emitted band value is NOT the solved value —
+    # which is exactly what the single-solve architecture forbids
+    # (EMITTERS EMIT, NEVER GRADE).
     if _APPARATUS_HITS["band_corridor_clamped_vertices"]:
-        UI.vprint(1, f"  [adjacent-ground] emit-side corridor clamp: "
+        UI.vprint(1, f"  [adjacent-ground] INGESTION RESIDUAL — corridor "
+                     f"box read at emit: "
                      f"{_APPARATUS_HITS['band_corridor_clamped_vertices']} "
-                     f"solved band vertex(es) forced back into their own "
-                     f"law corridor (worst "
-                     f"{_BAND_CLAMP_MAX_DELTA_M:.2f} m).")
+                     f"solved band vertex(es) still outside their own law "
+                     f"box (worst {_BAND_CLAMP_MAX_DELTA_M:.2f} m).  Goes "
+                     f"to 0 when the solve binds the supplied boxes.")
+    if _APPARATUS_HITS["solved_analytic_fallback"]:
+        UI.vprint(0, f"  [adjacent-ground] INGESTION RESIDUAL — "
+                     f"COMPLETENESS: "
+                     f"{_APPARATUS_HITS['solved_analytic_fallback']} "
+                     f"emitted band vertex(es) had NO solved row in range "
+                     f"and were valued analytically.  Every emitted value "
+                     f"must be a solved value; these name the band nodes "
+                     f"the pre-solve construct did not cover.")
     return emitted
 
 

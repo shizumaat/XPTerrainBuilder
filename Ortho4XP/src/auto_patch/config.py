@@ -139,7 +139,8 @@ __all__ = [
     "APRON_TERRACE_JOINT_CLEARANCE_M",
     "APRON_TERRACE_CORRIDOR_HALF_WIDTH_M",
     "APRON_TERRACE_MIN_JOINT_LEN_M",
-    "APRON_TERRACE_OVERFIRE_AREA_FRAC",
+    "APRON_TERRACE_FACING_STEP_M",
+    "APRON_TERRACE_FACING_PROXIMITY_M",
     "BUILDING_FRONTAGE_MAX_GRADE",
     "TERMINAL_MAX_GRADE",
     "TERMINAL_PADS_SLOPE",
@@ -2200,8 +2201,9 @@ SCORER_SERVICE_ADJ = _os.environ.get("O4_SCORER_SERVICE_ADJ", "0") == "1"
 # tears 8 → 0).  The law is the owner's FINAL 2026-08-02 ruling; a default
 # of "0" left the ruling unenforced.  ``O4_LATERAL_CONTIGUITY_LAW=0``
 # restores the two legacy proximity-band adoption passes.
-LATERAL_CONTIGUITY_LAW_ENABLED = _os.environ.get(
-    "O4_LATERAL_CONTIGUITY_LAW", "1") == "1"
+# STANDING LAW (owner 2026-08-05, no gates): Lateral-contiguity grade law (owner FINAL 2026-08-02).
+# The ``O4_LATERAL_CONTIGUITY_LAW`` gate and its env override are DELETED.
+LATERAL_CONTIGUITY_LAW_ENABLED = True
 # SERVICE↔LOT ABSORPTION (owner 2026-08-03, docs/RULINGS.md
 # "lateral-contiguity absorption is class-universal"; spec
 # docs/specs/kill-prep-round-spec.md §1).  The absorption of clause (4)
@@ -2231,8 +2233,9 @@ LATERAL_CONTIGUITY_LAW_ENABLED = _os.environ.get(
 # quarantined, CYXY break nodes 52 → 22 — and the membership-v2 round
 # ``5a94c57``, which made the absorption context-conservative).
 # ``O4_SERVICE_LOT_ABSORPTION=0`` restores the apron-only class set.
-SERVICE_LOT_ABSORPTION = _os.environ.get(
-    "O4_SERVICE_LOT_ABSORPTION", "1") == "1"
+# STANDING LAW (owner 2026-08-05, no gates): Lateral-contiguity absorption is class-universal (owner 2026-08-03).
+# The ``O4_SERVICE_LOT_ABSORPTION`` gate and its env override are DELETED.
+SERVICE_LOT_ABSORPTION = True
 # TRIANGLE-PLANE DEMOTION (spec docs/specs/kill-prep-round-spec.md §2).
 # ``route_profile.solve._project_triangle_planes`` clamps a 3-vertex shape
 # whose PLANE tilts past its role cap by moving its freest vertex; where no
@@ -2261,10 +2264,14 @@ TRIANGLE_PLANE_REPORTS = _os.environ.get(
 # joint NEVER crosses a taxi spine/route.  The joint geometry is
 # DIFFERENCED against the corridor cover before it exists, so a joint
 # that would cross a route is not shortened after the fact — it is
-# never minted.  Gate OFF ⇒ no trigger, no panel, no joint, no budget
-# change and no sidecar key: byte-identical.
-APRON_TERRACE_LAW_ENABLED = _os.environ.get(
-    "O4_APRON_TERRACE_LAW", "0") == "1"
+# never minted.
+#
+# STANDING LAW (owner 2026-08-05, BUILD-COMPLETE-THEN-DEBUG): the
+# ``O4_APRON_TERRACE_LAW`` gate and its env override are DELETED.  There
+# is no "terrace off" arm any more — a panelized apron is what the law
+# produces on genuinely steep ground, and the census reports its
+# declared joints as declared structures, not as defects.
+APRON_TERRACE_LAW_ENABLED = True
 # Trigger floor (spec §1): an apron constraint component only panelizes
 # when its anchor/DEM/cap envelope excess reaches this.  25x the 0.01 m
 # elevation materiality floor, so centimetre noise can never panelize.
@@ -2287,10 +2294,21 @@ APRON_TERRACE_CORRIDOR_HALF_WIDTH_M = 11.5
 # A joint piece shorter than this is not a terrace line — it is a
 # sliver between two corridors.  Dropped (and counted).
 APRON_TERRACE_MIN_JOINT_LEN_M = 8.0
-# Over-fire STOP instrument (spec band 6): panelization touching more
-# than this fraction of an airport's apron area is reported as
-# OVER-FIRE.  Report-only — the law adjudicates, the instrument counts.
-APRON_TERRACE_OVERFIRE_AREA_FRAC = 0.20
+# FACING-BOUNDARY STEP BUDGET (flip-readiness v2 §3(c)).  A panelized
+# apron's OUTER ring against a non-panelized neighbour keeps FULL law:
+# the terrace budget is never rewritten there, and those nodes gain a
+# generation-side cross-shape step constraint at THIS budget — the step
+# READERS' own budget, so emitter and validator judge the identical
+# number (``tools/check_grade`` ``--edge-step`` default; the lockstep is
+# asserted by ``tests/test_apron_terrace_law.py``).
+APRON_TERRACE_FACING_STEP_M = 0.5
+# How close another pavement shape must come for a stretch of the
+# panelized apron's exterior ring to count as a FACING BOUNDARY RUN.
+# The step checks' own contact tolerance (``check_grade``
+# ``_STEP_CONTACT_TOL_M``): beyond it the two shapes are gapped and a
+# height difference is lawful by design, so there is nothing to conform
+# to.  The HECA ``-10519``/``-10520`` pair sits 0.72-0.89 m apart.
+APRON_TERRACE_FACING_PROXIMITY_M = 1.0
 # Points each feature contributes toward each class, BEFORE the
 # per-airport source-reliability scaling (spec §6).  Feature values are
 # fractions in [0,1]; negative points are allowed.  Override individual
@@ -4036,8 +4054,9 @@ RUNWAY_END_RESA_ENABLED = (
 # at-DEM ribbon path included — the terrain transition beside pavement
 # is the per-role lateral law everywhere).  Set
 # O4_ADJACENT_GROUND_LAW=0 to restore the ribbon/bridge model.
-ADJACENT_GROUND_LAW_ENABLED = (
-    _os.environ.get("O4_ADJACENT_GROUND_LAW", "1") == "1")
+# STANDING LAW (owner 2026-08-05, no gates): Adjacent-ground zone law (owner 2026-08-01, PROVISIONAL but live).
+# The ``O4_ADJACENT_GROUND_LAW`` gate and its env override are DELETED.
+ADJACENT_GROUND_LAW_ENABLED = True
 
 # Gap-fill + drainage spine: the authoritative gate + constants live in
 # the "GAP-FILL + DRAINAGE SPINE" block further down (search
@@ -4913,8 +4932,9 @@ GAP_FILL_INTERIOR_FLOOR_DEPTH_M = float(
 # halves in lockstep — the solver-side minimum fall and the
 # ``check_grade`` twin — against the owner's flown drainage report).
 # ``O4_DRAINAGE_SPINE_LAW=0`` restores the un-clamped gap spines.
-DRAINAGE_SPINE_LAW_ENABLED = (
-    _os.environ.get("O4_DRAINAGE_SPINE_LAW", "1") == "1")
+# STANDING LAW (owner 2026-08-05, no gates): Drainage-spine law.
+# The ``O4_DRAINAGE_SPINE_LAW`` gate and its env override are DELETED.
+DRAINAGE_SPINE_LAW_ENABLED = True
 
 # ── SOURCE-COVERAGE INVARIANT, WIRED (owner field report 2026-08-02) ──
 # ``verification.check_source_coverage`` — emitted pavement must COVER the
@@ -5315,8 +5335,9 @@ APRON_EDGE_WALL_MIN_DROP_M = 1.5
 # The gate covers both fixes (they interlock: hysteresis merges runs, and
 # a merged run is exactly the long run most likely to be nicked into a
 # MultiPolygon).  Gate OFF ⇒ byte-identical to the pre-fix emitter.
-APRON_WALL_CONTINUITY_ENABLED = (
-    _os.environ.get("O4_APRON_WALL_CONTINUITY", "1") == "1")
+# STANDING LAW (owner 2026-08-05, no gates): Apron wall continuity (owner 2026-07-25).
+# The ``O4_APRON_WALL_CONTINUITY`` gate and its env override are DELETED.
+APRON_WALL_CONTINUITY_ENABLED = True
 # CONFETTI GATE (fix 1's companion).  Decomposing the clip residue also
 # surfaces the genuinely tiny pieces the whole-run drop used to hide — at
 # SPJC three surviving walls were 2.8–3.9 m² slivers.  A wall part shorter
@@ -5364,8 +5385,9 @@ APRON_WALL_RUN_HYSTERESIS_M = 0.3
 # helper (``adjacent_ground.apron_wall_frontage_qualifier``), so the
 # validator never mints a ``should_fill`` against apron frontage this ruling
 # leaves ungoverned.  Gate OFF ⇒ byte-identical to the pre-ruling scope.
-APRON_WALL_SCOPE_ENABLED = (
-    _os.environ.get("O4_APRON_WALL_SCOPE", "1") == "1")
+# STANDING LAW (owner 2026-08-05, no gates): Apron wall scope — apron frontage only (owner 2026-07-25).
+# The ``O4_APRON_WALL_SCOPE`` gate and its env override are DELETED.
+APRON_WALL_SCOPE_ENABLED = True
 APRON_WALL_PAVEMENT_ADJACENCY_M = 5.0
 
 # ── RUNWAY-STRIP WALL INADMISSIBILITY (owner ruling 2026-08-01) ───────
@@ -5395,8 +5417,9 @@ APRON_WALL_PAVEMENT_ADJACENCY_M = 5.0
 # ``check_grade._check_no_wall_in_runway_strip`` twin in lockstep.  A law
 # this categorical cannot ship behind a default-off gate.
 # ``O4_RUNWAY_STRIP_WALL_LAW=0`` restores wall admission inside strips.
-RUNWAY_STRIP_WALL_LAW_ENABLED = (
-    _os.environ.get("O4_RUNWAY_STRIP_WALL_LAW", "1") == "1")
+# STANDING LAW (owner 2026-08-05, no gates): Runway-edge terrain law: walls are never lawful in a strip (owner 2026-08-01).
+# The ``O4_RUNWAY_STRIP_WALL_LAW`` gate and its env override are DELETED.
+RUNWAY_STRIP_WALL_LAW_ENABLED = True
 
 # ── RUNWAY-STRIP LAW: PRECEDENCE + ABEAM LONGITUDINAL ─────────────────
 # (standards-gap review 2026-08-02 items G-1 general and G-2; spec
@@ -5465,12 +5488,20 @@ STRIP_PRECEDENCE_ENABLED = (
 # lateral depth before it is emitted.  A clamp can make two shapes emit
 # different values at one canonical point — that is the emitter's supported
 # "deliberate wall of two separate nodes" convention (adjacent_ground
-# ~:4890), not a tear.  Fixed here at the EMIT side only; the at-source
-# variant (per-shape canonical variables in the solver writeback) is
-# recorded as future work.  Gate OFF ⇒ byte-identical to the pre-fix
-# valuation.
-BAND_CORRIDOR_CLAMP_ENABLED = (
-    _os.environ.get("O4_BAND_CORRIDOR_CLAMP", "1") == "1")
+# ~:4890), not a tear.
+#
+# STANDING LAW + INGESTION (owner 2026-08-05): the gate is DELETED.  The
+# SAME corridor box this clamp evaluates is now supplied to the ONE
+# solve as a directed constraint per band node
+# (``adjacent_ground.build_zone_constraint_table`` →
+# ``layout.adjacent_ground_zone_boxes``), so the solved value already
+# lies inside it.  The emit-side evaluation therefore stops being a
+# second valuation and becomes the LOCKSTEP reader of the same law: one
+# derivation (``adjacent_ground.zone_corridor_box``), and every metre it
+# still has to move is counted as an ingestion residual
+# (``band_corridor_clamped_vertices``) — a number that goes to zero when
+# the solve consumes the table.
+BAND_CORRIDOR_CLAMP_ENABLED = True
 
 
 def runway_code_number(length_m: float) -> int:

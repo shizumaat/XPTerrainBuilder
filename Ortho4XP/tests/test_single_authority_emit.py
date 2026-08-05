@@ -1,4 +1,4 @@
-"""Single-authority emission (``O4_SINGLE_AUTHORITY_EMIT``).
+"""Single-authority emission — STANDING LAW (ungated 2026-08-05).
 
 The emit consensus averages every claim inside the winning precedence
 tier, so any shape carrying a slightly different post-solve value at a
@@ -14,8 +14,12 @@ junction + a strip averaged a runway vertex the solver never moved.  The
 acceptance is identity to the AUTHORITY, deliberately not to the old
 bytes.
 
-The gate defaults OFF and the OFF path must stay byte-inert: the report
-arm reproduced all five campaign anchors exactly.
+The ``O4_SINGLE_AUTHORITY_EMIT`` / ``O4_SINGLE_AUTHORITY_SOFT`` gates
+are DELETED (owner 2026-08-05, no gates); the ``O4_EMIT_DIVERGENCE_
+CENSUS`` forensics channel survives as a write-only debug path.  The
+other half of the law — a losing claimant beyond tol RETREATS behind a
+retaining wall instead of being dragged to the winner's value — is
+twinned in ``tests/test_authority_retreat_walls.py``.
 """
 import json
 import re
@@ -131,14 +135,18 @@ def test_precedence_is_airside_first_and_total():
 
 # ── the four-authority runway vertex ────────────────────────────────────
 
-def test_gate_off_emits_the_tier_mean(tmp_path, monkeypatch):
-    """DEFAULT path unchanged: the shared vertex is the mean of the three
-    AUTHORITY claims (the strip is a soft receiver and is excluded)."""
-    got = _emit_origin(tmp_path, monkeypatch)
-    expected = (RUNWAY_Z + JUNCTION_Z + APRON_Z) / 3.0
-    assert got == pytest.approx(expected, abs=1e-6)
-    # ...and that mean is NOT any shape's own value — the minted value.
-    assert got != pytest.approx(RUNWAY_Z, abs=1e-6)
+def test_the_mean_is_gone_from_every_tier():
+    """STANDING LAW (2026-08-05): ``to_osm`` has no gate and no mean.
+    Structural twin — the two retired env names must not be read
+    anywhere in the emitter."""
+    import ast
+    import inspect
+    from auto_patch import layout as _L
+    tree = ast.parse(inspect.getsource(_L).lstrip())
+    read = {n.value for n in ast.walk(tree)
+            if isinstance(n, ast.Constant) and isinstance(n.value, str)
+            and n.value.startswith("O4_SINGLE_AUTHORITY")}
+    assert not read, f"retired gate still read: {read}"
 
 
 def test_gate_on_runway_vertex_is_the_runway_value_exactly(
@@ -146,8 +154,7 @@ def test_gate_on_runway_vertex_is_the_runway_value_exactly(
     """THE ACCEPTANCE: identity to the AUTHORITY.  With four claimants the
     runway supplies the value verbatim — the consensus class is 0, not a
     0.06 m compromise."""
-    got = _emit_origin(tmp_path, monkeypatch,
-                       O4_SINGLE_AUTHORITY_EMIT="1")
+    got = _emit_origin(tmp_path, monkeypatch)
     assert got == pytest.approx(RUNWAY_Z, abs=1e-9)
 
 
@@ -155,7 +162,6 @@ def test_gate_on_does_not_average_when_runway_absent(
         tmp_path, monkeypatch):
     """Precedence, not position: drop the runway and the JUNCTION (next
     airside rank) authors — still no mean."""
-    monkeypatch.setenv("O4_SINGLE_AUTHORITY_EMIT", "1")
     layout = _four_authority_layout()
     layout.shapes = [s for s in layout.shapes if s.ref != "rwy"]
     out = str(tmp_path / "p.osm")
@@ -165,13 +171,12 @@ def test_gate_on_does_not_average_when_runway_absent(
 
 # ── the divergence census ───────────────────────────────────────────────
 
-def test_report_mode_is_write_only(tmp_path, monkeypatch):
-    """Report mode computes the author but emits the legacy mean: the
-    patch is byte-identical to a plain build and the census is the ONLY
-    observable difference.  This is what made the report arm provable
-    against the campaign anchors."""
+def test_divergence_census_is_write_only(tmp_path, monkeypatch):
+    """The census is a DEBUG channel: opening it changes no value, so the
+    patch is byte-identical to a build without it.  It still names every
+    node where the author differs from the mean the retired consensus
+    would have emitted."""
     plain = str(tmp_path / "plain.osm")
-    monkeypatch.delenv("O4_SINGLE_AUTHORITY_EMIT", raising=False)
     monkeypatch.delenv("O4_EMIT_DIVERGENCE_CENSUS", raising=False)
     _emit(_four_authority_layout(), plain)
 
@@ -183,7 +188,7 @@ def test_report_mode_is_write_only(tmp_path, monkeypatch):
     assert Path(reported).read_bytes() == Path(plain).read_bytes()
     assert census.exists()
     payload = json.loads(census.read_text())
-    assert payload["mode"] == "report"
+    assert payload["mode"] == "emit"
     assert payload["n_unauthored"] == 0
     row = next(r for r in payload["rows"]
                if r["author_role"] == ROLE_RUNWAY)
@@ -195,7 +200,6 @@ def test_report_mode_is_write_only(tmp_path, monkeypatch):
 
 def test_emit_mode_census_records_applied_mode(tmp_path, monkeypatch):
     census = tmp_path / "div.json"
-    monkeypatch.setenv("O4_SINGLE_AUTHORITY_EMIT", "1")
     monkeypatch.setenv("O4_EMIT_DIVERGENCE_CENSUS", str(census))
     _emit(_four_authority_layout(), str(tmp_path / "p.osm"))
     assert json.loads(census.read_text())["mode"] == "emit"
@@ -215,19 +219,16 @@ def _two_strip_layout():
     return layout
 
 
-@pytest.mark.parametrize("soft,expected", [("1", 20.0), ("0", 20.5)])
-def test_pure_soft_tier_subgate(tmp_path, monkeypatch, soft, expected):
+def test_pure_soft_tier_is_authored_too(tmp_path, monkeypatch):
     """A node claimed ONLY by soft receivers has no authority to adopt
-    from.  ``O4_SINGLE_AUTHORITY_SOFT=1`` (spec-literal, "the mean dies
-    everywhere") authors it by shape order; "0" keeps the all-soft mean.
-    Measured consequence at CYXY: authoring the pure-soft tier minted 6
-    extra seam rows, so the choice is load-bearing and is the lead's."""
-    monkeypatch.setenv("O4_SINGLE_AUTHORITY_EMIT", "1")
-    monkeypatch.setenv("O4_SINGLE_AUTHORITY_SOFT", soft)
+    from — and the mean is gone there as well (standing law: "the mean
+    dies everywhere").  Shape order decides, deterministically, and the
+    LOSER is not dragged: it retreats behind a wall in
+    ``adjacent_ground.emit_authority_retreat_walls``."""
     monkeypatch.delenv("O4_EMIT_DIVERGENCE_CENSUS", raising=False)
     out = str(tmp_path / "p.osm")
     got = _node_alt_at_origin(_emit(_two_strip_layout(), out))
-    assert got == pytest.approx(expected, abs=1e-6)
+    assert got == pytest.approx(20.0, abs=1e-6)
 
 
 def test_authority_beats_soft_regardless_of_subgate(
@@ -235,9 +236,6 @@ def test_authority_beats_soft_regardless_of_subgate(
     """The soft sub-gate must never let a strip outrank pavement: the
     strip ADOPTS the authority value in both settings (weld ruling
     2026-07-09, unchanged by this round)."""
-    for soft in ("0", "1"):
-        got = _emit_origin(tmp_path, monkeypatch,
-                           O4_SINGLE_AUTHORITY_EMIT="1",
-                           O4_SINGLE_AUTHORITY_SOFT=soft)
-        assert got == pytest.approx(RUNWAY_Z, abs=1e-9)
-        assert got != pytest.approx(STRIP_Z, abs=1e-6)
+    got = _emit_origin(tmp_path, monkeypatch)
+    assert got == pytest.approx(RUNWAY_Z, abs=1e-9)
+    assert got != pytest.approx(STRIP_Z, abs=1e-6)

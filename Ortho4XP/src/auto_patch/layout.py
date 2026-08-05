@@ -315,8 +315,10 @@ SOFT_RECEIVER_ROLES = frozenset({
 
 # AUTHORITY PRECEDENCE (single-solve architecture, RULINGS 2026-08-03:
 # "EMITTERS EMIT, NEVER GRADE").  A TOTAL order over the value-carrying
-# roles, used by ``to_osm`` under ``O4_SINGLE_AUTHORITY_EMIT`` to pick the
-# ONE author of a shared node instead of averaging the tier's claims.
+# roles, used by ``to_osm`` (STANDING, ungated since 2026-08-05) to pick
+# the ONE author of a shared node instead of averaging the tier's claims,
+# and by ``adjacent_ground.emit_authority_retreat_walls`` to decide which
+# claimant keeps a contested node and which retreats behind a wall.
 #
 # Averaging is a second grading pass at emit: it mints a value no law
 # produced and no solver computed.  The measured case is a HECA runway
@@ -837,12 +839,10 @@ class PavementLayout:
         """WRITE-ONLY forensics for single-authority emission.
 
         One row per node whose AUTHOR value differs from the tier mean
-        the legacy consensus emits: ``nid``, ``ll``, ``tier``, the
-        claimant ``roles``, ``mean``, ``author`` and ``abs_delta``.  In
-        report mode (``O4_SINGLE_AUTHORITY_EMIT`` unset/"0") the patch
-        itself is byte-identical to the legacy build — this file is the
-        only observable difference, which is what makes the report arm
-        provable against the campaign anchors.
+        the retired consensus would have emitted: ``nid``, ``ll``,
+        ``tier``, the claimant ``roles``, ``mean``, ``author`` and
+        ``abs_delta``.  DEBUG channel only (``O4_EMIT_DIVERGENCE_CENSUS``
+        names the path); the author value is emitted either way.
         """
         import json as _json
         from collections import Counter as _Counter
@@ -965,26 +965,24 @@ class PavementLayout:
         current_shape_is_law = [False]
         current_shape_is_skirt = [False]
         next_nid = [-1]
-        # ── SINGLE-AUTHORITY EMISSION (O4_SINGLE_AUTHORITY_EMIT) ───────
-        # "1"  → the tier's single AUTHOR supplies the emitted value.
-        # else → legacy tier MEAN (byte-inert), with the author computed
-        #        alongside for the divergence census when the forensics
-        #        channel is open (``O4_EMIT_DIVERGENCE_CENSUS=<path>``).
-        # When neither is set NOTHING extra is computed: the default
-        # build walks the legacy path at zero added cost.
-        _single_auth = os.environ.get(
-            "O4_SINGLE_AUTHORITY_EMIT", "0") == "1"
+        # ── SINGLE-AUTHORITY EMISSION — STANDING LAW ──────────────────
+        # (owner 2026-08-05, BUILD-COMPLETE-THEN-DEBUG: the
+        # ``O4_SINGLE_AUTHORITY_EMIT`` / ``O4_SINGLE_AUTHORITY_SOFT``
+        # gates are DELETED.)  EMITTERS EMIT, NEVER GRADE: at every
+        # shared node the tier's precedence WINNER supplies the emitted
+        # value verbatim.  The mean is gone from every tier including the
+        # pure-soft one — averaging two terrain strips mints a value
+        # neither law produced just as surely as averaging two
+        # authorities did, and the loser now has somewhere to go (the §2
+        # retreat + retaining wall in
+        # ``adjacent_ground.emit_authority_retreat_walls``) instead of
+        # being blended away.
+        # ``O4_EMIT_DIVERGENCE_CENSUS=<path>`` remains as a DEBUG
+        # forensics channel (write-only) — it changes no value.
+        _single_auth = True
         _divergence_path = os.environ.get("O4_EMIT_DIVERGENCE_CENSUS")
-        _authorship_on = bool(_single_auth or _divergence_path)
-        # PURE-SOFT TIER sub-gate.  The spec says "the mean dies
-        # everywhere" (default "1"), but it also lists soft receivers as
-        # "unchanged" — and a node claimed ONLY by soft receivers has no
-        # authority to adopt from, so authoring it picks one terrain
-        # strip over its neighbours on shape order alone, with no law
-        # behind the choice.  Measured as its own arm; "0" keeps the
-        # legacy all-soft mean for pure-soft nodes only.
-        _soft_authored = os.environ.get(
-            "O4_SINGLE_AUTHORITY_SOFT", "1") == "1"
+        _authorship_on = True
+        _soft_authored = True
         # nid → list of (rank, shape_index, alt, role), one per claim, per
         # tier.  Populated only when authorship is on.
         node_id_to_law_claims: dict[int, list] = {}
@@ -2666,6 +2664,7 @@ class PavementLayout:
                                        taxi_axes_exact_ll,
                                        junction_mesh_edges_ll)
             from .elevation_per_surface.route_profile.apron_terrace import (
+                terrace_certificates_sidecar as _terrace_certs_sidecar,
                 terrace_joints_sidecar as _terrace_joints_sidecar)
             _axes_exact, _routes_exact = taxi_axes_exact_ll(self)
             data = {
@@ -2761,6 +2760,12 @@ class PavementLayout:
                 # written unconditionally so a reader can tell "no
                 # joints" from "patch predates the law".
                 "terrace_joints": _terrace_joints_sidecar(self),
+                # §2(a) THE CERTIFICATE: the recorded evidence
+                # chain that authorised each PANELIZED apron.
+                # An apron panelizes only with the full chain,
+                # and the twin audits "certificate-free
+                # panelization = 0" from the patch alone.
+                "terrace_certificates": _terrace_certs_sidecar(self),
             }
             Path(str(path) + ".axes.json").write_text(_json.dumps(data))
         except Exception:

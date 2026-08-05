@@ -2555,9 +2555,17 @@ def solve_route_profile(layout, icao: str,
                 f"{_terrace_plan.stats['triggered']} apron(s) "
                 f"panelized, {_terrace_plan.stats['joints']} "
                 f"declared joint(s), {_n_relaxed} law edge(s) "
-                f"bound to a joint step"
-                + ("  OVER-FIRE"
-                   if _terrace_plan.is_overfire() else ""))
+                f"bound to a joint step; "
+                f"{_terrace_plan.stats['joint_step_pairs']} "
+                f"joint-step pair constraint(s), "
+                f"{_terrace_plan.stats['facing_edges_excluded']} "
+                f"facing-boundary edge(s) held at full law, "
+                f"{_terrace_plan.stats['facing_conformance_pairs']}"
+                f" conformance pair(s), "
+                f"{_terrace_plan.stats['joints_stillborn_keepout']}"
+                f" stillborn; apron area "
+                f"{_terrace_plan.area_fraction() * 100:.1f} % "
+                f"(REPORT ONLY)")
     except Exception as _terr_exc:
         # A production build must never die on an optional law
         # pass — but a MEASUREMENT arm that silently produces the
@@ -5894,6 +5902,48 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                                   group_bounds=_fp_group_bounds,
                                   node_bounds=_fp_node_bounds,
                                   declared_out=_fp_declared)
+    # ── §4 BAND-3 AUDIT (write-only, env ``O4_TERRACE_FP_AUDIT``) ───────
+    # The band-3 instrument is this pass's ``rem`` tally.  It already
+    # consumes the terrace-relaxed budgets (both edge sets are rewritten
+    # above), so it does NOT share the census frame error — but the spec
+    # asks HOW MUCH of the residue crosses a declared joint before the
+    # 730 may be treated as a target.  Recompute the over-cap set from
+    # the SAME edge lists the tally used and classify it.  No production
+    # value is read or written here.
+    if _os.environ.get("O4_TERRACE_FP_AUDIT") == "1":
+        try:
+            from .apron_terrace import _crossed_joints as _xj
+            _aj = list(getattr(_terrace_plan_fp, "joints", ())
+                       or ()) if _terrace_plan_fp is not None else []
+            _n_over = _n_cross = _n_apron = 0
+            _worst = []
+            for _entry in joint:
+                for _e in (_entry.get("edges") or ()):
+                    if len(_e) != 3:
+                        continue
+                    _i, _j, _bud = _e
+                    if _i >= n or _j >= n:
+                        continue
+                    _ex = abs(elev[_i] - elev[_j]) - float(_bud)
+                    if _ex <= 1e-3:
+                        continue
+                    _n_over += 1
+                    _pa = nodes[_i] if _i < len(nodes) else None
+                    _pb = nodes[_j] if _j < len(nodes) else None
+                    if _pa is None or _pb is None or not _aj:
+                        continue
+                    if _xj(_aj, _pa[0], _pa[1], _pb[0], _pb[1]):
+                        _n_cross += 1
+                        _worst.append(round(_ex, 3))
+            for _sid, _mem in (getattr(_terrace_plan_fp, "node_sets", {})
+                               or {}).items():
+                _n_apron += len(_mem)
+            print(f"    [terrace-fp-audit] over-cap edges={_n_over} "
+                  f"joint-crossing={_n_cross} joints={len(_aj)} "
+                  f"panelized-nodes={_n_apron} "
+                  f"worst-crossing-excess={sorted(_worst, reverse=True)[:8]}")
+        except Exception as _aexc:                       # pragma: no cover
+            print(f"    [terrace-fp-audit] FAILED: {_aexc}")
     # Deliver into the string sidecar when the mover ledger is carrying it
     # (the summary is shared by reference; ``_mover_publish`` below rewrites
     # the file, last call wins).  ``_ml_pass`` names which pass declared.

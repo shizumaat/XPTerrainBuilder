@@ -6249,8 +6249,11 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # unit MOVES to after the late projection so it reconciles the FINAL
     # pavement.  Gate ``O4_STRIP_RESOLVE_LAST`` (default on); OFF restores
     # the pre-spec position exactly, so gate-off is byte-identical.
-    _strip_resolve_last = (
-        os.environ.get("O4_STRIP_RESOLVE_LAST", "1") == "1")
+    # STANDING (owner 2026-08-05, no gates): the strip reconcile unit
+    # runs LAST.  Its internal order — heal, then tear-heal, then
+    # retreat+wall — is measured law (``test_strip_heal_law_v4``), and
+    # the ``O4_STRIP_RESOLVE_LAST`` gate is DELETED.
+    _strip_resolve_last = True
 
     def _strip_reconcile_passes():
         if not compute_elevations:
@@ -6295,6 +6298,28 @@ def build_airport_pavement(icao: str, xplane_root: str,
             UI.vprint(1, f"  [pav-builder] WARN {icao}: stacked-conflict "
                          f"wall emission failed "
                          f"({_conflict_wall_exc!r}).")
+        # ★ SINGLE-AUTHORITY EMISSION, §2 — THE LOSER RETREATS.
+        # ``layout.to_osm`` now emits the precedence WINNER's value at a
+        # contested node (standing law, the consensus mean is retired).
+        # That alone would DRAG every losing claimant to the winner's
+        # value — the measured groundside-tear cause.  This pass is the
+        # other half: a loser beyond ``VERTEX_ALT_MERGE_TOL_M`` retreats
+        # into its own interior and the difference ships as a
+        # retaining_wall face; a loser within tol adopts.  Runs AFTER
+        # the strip pass (which owns the graded_strip population and
+        # must see it unretreated) and before the groundside terrace
+        # faces, so all three see one committed geometry.
+        try:
+            from .adjacent_ground import emit_authority_retreat_walls
+            _n_auth_walls = emit_authority_retreat_walls(layout)
+            if _n_auth_walls:
+                UI.vprint(1, f"  [pav-builder] {icao}: single-authority "
+                             f"§2 — {_n_auth_walls} retaining face(s) "
+                             f"where a losing claimant retreated instead "
+                             f"of adopting a value beyond tolerance.")
+        except _GEOM_EXC as _auth_wall_exc:
+            UI.vprint(1, f"  [pav-builder] WARN {icao}: authority-retreat "
+                         f"wall emission failed ({_auth_wall_exc!r}).")
         # ★ GROUNDSIDE TERRACE FACES (owner ruling 2026-07-30, spec §2a).
         # Same doctrine as the stacked-conflict walls above, applied to the
         # groundside lots: where a GRADED RIBBON (pavement or road) meets a
@@ -6324,11 +6349,25 @@ def build_airport_pavement(icao: str, xplane_root: str,
         try:
             from .elevation_per_surface.route_profile.apron_terrace import (
                 emit_terrace_joint_faces)
-            _n_joint_faces = emit_terrace_joint_faces(
-                layout, getattr(layout, "_apron_terrace_plan", None))
-            if _n_joint_faces:
+            _apron_plan = getattr(layout, "_apron_terrace_plan", None)
+            _n_joint_faces = emit_terrace_joint_faces(layout, _apron_plan)
+            if _n_joint_faces and _apron_plan is not None:
+                _ts = _apron_plan.stats
                 UI.vprint(1, f"  [pav-builder] {icao}: apron terraces — "
-                             f"{_n_joint_faces} declared joint face(s).")
+                             f"{_n_joint_faces} declared joint face(s); "
+                             f"{_ts['joints_demoted_level']} joint(s) "
+                             f"demoted (flanks settled level); "
+                             f"{_ts['station_readings']} station reading(s) "
+                             f"on the densified panel boundary, "
+                             f"{_ts['stations_over_bound']} over their own "
+                             f"declared bound (D2 residue — reported, "
+                             f"never clamped), "
+                             f"{_ts['joints_sign_flipped']} joint(s) whose "
+                             f"low side flips along the run; KEEPOUT FACE "
+                             f"DROPS {_ts['faces_dropped_keepout']} "
+                             f"(must be 0 — a nonzero count means the "
+                             f"plan-time and emit-time predicates "
+                             f"diverged: FRAME BUG).")
         except _GEOM_EXC as _apron_terr_exc:
             UI.vprint(1, f"  [pav-builder] WARN {icao}: apron terrace "
                          f"joint emission failed ({_apron_terr_exc!r}).")

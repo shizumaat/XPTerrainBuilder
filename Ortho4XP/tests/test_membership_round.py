@@ -194,25 +194,6 @@ class TestRetainedContextFootprint:
 
 class TestContextConservationInertness:
 
-    def test_law_off_records_nothing(self, law_off):
-        lot = _dem_lot(0, 0, 100, 60)
-        road = BuiltShape(polygon=_rect(0, 60, 100, 70), role="service_road")
-        layout = _layout([lot, road])
-        summary = law_off.apply_lateral_contiguity_law(layout, "TEST")
-        assert summary["context_retained"] == 0
-        assert absorbed_road_context_polys(layout) == []
-
-    def test_capped_not_absorbed_records_nothing(self, lateral_on):
-        """Gate off, a DEM-followed lot is not a legal host: the road stays
-        a road and carries the cap.  Nothing was deleted, nothing is
-        retained."""
-        lot = _dem_lot(0, 0, 100, 60)
-        road = BuiltShape(polygon=_rect(0, 60, 100, 70), role="service_road")
-        layout = _layout([lot, road])
-        summary = lateral_on.apply_lateral_contiguity_law(layout, "TEST")
-        assert summary["absorbed"] == 0
-        assert summary["context_retained"] == 0
-
     def test_readers_tolerate_a_layout_without_the_field(self):
         """The validator reaches ``build_context`` with a shape bag, and
         old pickles have no such field."""

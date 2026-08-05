@@ -432,3 +432,20 @@ Binding form:
    definition and die with the lane — never copied forward.
 4. Every new standard tool lands WITH its index entry in the same
    commit.
+
+## 2026-08-05 — One shared data repo across lanes (owner)
+
+Owner: a shared data repo across lanes is MANDATORY — no lane
+redownloads or regenerates caches.
+
+Binding form:
+1. /Users/noah/XPTerrainBuilderData is THE data repo: DEM + insets,
+   OSM extracts + road feeds, airport mod cache, geotiffs, masks, DSF
+   cache, orthophotos. Every lane MOUNTS it (symlinks via the harness
+   ritual) — never copies, never creates a private cache.
+2. Downloads and cache regenerations write into the shared repo,
+   EXACTLY ONCE, as EXPLICIT logged events (harness flag), never as a
+   build side effect — the KCLT road-feed refresh that silently
+   changed campaign hashes mid-night is the precedent this forbids.
+3. Concurrent lanes never race a regeneration: the harness guards
+   cache writes (lock or refuse-and-report).

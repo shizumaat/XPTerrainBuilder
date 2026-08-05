@@ -349,3 +349,28 @@ Binding consequences:
 4. Testing begins when the complete system builds: composed HECA+KCLT
    per debug cycle, airside census strictly decreasing to
    zero-plus-declared.
+
+## 2026-08-05 — There is no lawful-infeasible ground (owner)
+
+Owner, verbatim: "There is no 'lawful-infeasible ground'. DEM is a
+seed, nothing more. We are grading pavement to the law. If we ever hit
+something that says it's infeasible, it's either an incomplete, or
+incorrect law, or a bug in the measurement or test."
+
+Binding consequences:
+1. DEM is a SEED — never a constraint, never an authority, never an
+   excuse. Pavement (and everything the law governs) grades to the
+   LAW.
+2. The verdict vocabulary for any infeasibility/violation is CLOSED:
+   (a) BUG — fix it; (b) INCOMPLETE LAW — the law lacks the machinery
+   the situation needs (terrace, wall, flex freedom, RESA shaping…):
+   complete it; (c) INCORRECT LAW — wrong constant/shape: correct it;
+   (d) BROKEN INSTRUMENT — the measurement or test is wrong: fix it.
+3. "Genuine terrain-vs-law tension", "named tension", "lawful-
+   infeasible", "accepted residue" are RETIRED as terminal states.
+   Anything previously so labeled (the HECA inter-runway family, the
+   break-region "immovable" residue, deep-pocket fractions) is an open
+   work item under vocabulary (a)-(d).
+4. An "infeasible" report from any solver stage is itself a defect
+   report about the law or the instrument — never a property of the
+   ground.

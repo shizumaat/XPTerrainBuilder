@@ -106,6 +106,38 @@ except Exception:
             return 0.030
         return 0.015
 
+# ── THE GRADED-STRIP SEAM LAW (spec seam-continuity-v2 §1) ──────
+# ONE home for the STRIP-seam constants and predicates:
+# ``auto_patch.strip_seam_law``.  They used to live in this file only,
+# so nothing in ``src/`` could read them and any generation-binding law
+# would have had to copy them (docs/RULINGS.md, grade-law completeness:
+# emitter and validator must be lockstep, never two copies).  The module
+# is stdlib-only and cannot fail to import, so this one is NOT wrapped in
+# the standalone fallback above — a law module that silently degrades to a
+# second copy of its own numbers is the defect this move exists to end.
+#
+# VOCABULARY (binding for this lane): "strip seam" = the fabric tear
+# between two ``graded_strip`` shapes; "TILE seam" = the graticule
+# tile-cut corridor (``TILE_SEAM_*`` below).  A bare ``seam`` identifier
+# is banned in new code.  The census row key ``seam::seam`` is
+# deliberately NOT renamed (baseline continuity) and means STRIP seam.
+from auto_patch.strip_seam_law import (      # noqa: E402
+    STRIP_SEAM_TEAR_RADIUS_M,
+    STRIP_SEAM_TEAR_MIN_STEP_M,
+    STRIP_SEAM_TEAR_MIN_GRADE,
+    STRIP_SEAM_TEAR_MIN_DISTANCE_M,
+    STRIP_SEAM_WALL_STRADDLE_TOL_M,
+    STRIP_SEAM_ROLE,
+    STRIP_SEAM_OPEN_GROUND_MIN_M,
+    STRIP_SEAM_OPEN_GROUND_SAMPLES,
+    STRIP_SEAM_GRADED_ROLES,
+    STRIP_SEAM_OPEN_BOUNDARY_FLOOR_M,
+    GradedDomain as _GradedDomain,
+    WallFaces as _WallFaces,
+    open_ground_between as _open_ground_between_law,
+    point_in_ring as _point_in_ring,
+)
+
 # LAW GEOMETRY shared with the emitters (single source — never a second
 # copy of a rule number here).  ``None`` when the package is unavailable:
 # the checks that consume them then report nothing rather than guessing.
@@ -476,10 +508,10 @@ class EdgeStep:
 # shapes.
 #
 # Detection is geometric: a vertex is on the tile seam iff its lat
-# OR its lon is within ``_SEAM_LL_TOL_DEG`` of an integer value.
+# OR its lon is within ``TILE_SEAM_LL_TOL_DEG`` of an integer value.
 # The tolerance (1e-4 °, ~11 m) covers the 5-m offset of post-cut
 # boundary vertices plus slack for projection round-trip drift.
-_SEAM_LL_TOL_DEG = 1e-4
+TILE_SEAM_LL_TOL_DEG = 1e-4
 
 # SEAM TERRAIN-MATCHING ZONE (user 2026-06-20): at a tile boundary the
 # pavement must MATCH the neighbour tile's terrain mesh (so X-Plane bridges the
@@ -490,7 +522,7 @@ _SEAM_LL_TOL_DEG = 1e-4
 # crossing) get the zone; single-tile airports are unaffected.  The width
 # covers the cross-seam sliver where terrain controls (SPLP descends ~4 m to
 # the seam over a few hundred metres).  NOT special-cased per airport.
-_SEAM_ZONE_M = 400.0
+TILE_SEAM_ZONE_M = 400.0
 _M_PER_DEG_LAT = 110540.0
 
 
@@ -501,9 +533,9 @@ def _seam_lines(nodes: Dict[str, Tuple[float, float]]) -> Tuple[set, set]:
     seam_lats: set = set()
     seam_lons: set = set()
     for (lat, lon) in nodes.values():
-        if abs(lat - round(lat)) <= _SEAM_LL_TOL_DEG:
+        if abs(lat - round(lat)) <= TILE_SEAM_LL_TOL_DEG:
             seam_lats.add(round(lat))
-        if abs(lon - round(lon)) <= _SEAM_LL_TOL_DEG:
+        if abs(lon - round(lon)) <= TILE_SEAM_LL_TOL_DEG:
             seam_lons.add(round(lon))
     return seam_lats, seam_lons
 
@@ -604,7 +636,7 @@ def _crown_centerline_nids(nodes: Dict[str, Tuple[float, float]],
 
 
 def _seam_nids(nodes: Dict[str, Tuple[float, float]]) -> set:
-    """Set of nids in the seam terrain-matching zone: within ``_SEAM_ZONE_M``
+    """Set of nids in the seam terrain-matching zone: within ``TILE_SEAM_ZONE_M``
     of a tile boundary the airport CROSSES (lat/lon line carrying an exact seam
     vertex).  Empty for single-tile airports → no exemption (byte-identical)."""
     seam_lats, seam_lons = _seam_lines(nodes)
@@ -619,7 +651,7 @@ def _seam_nids(nodes: Dict[str, Tuple[float, float]]) -> set:
             mlon = _M_PER_DEG_LAT * max(0.05, math.cos(math.radians(lat)))
             for sl in seam_lons:
                 d = min(d, abs(lon - sl) * mlon)
-        if d <= _SEAM_ZONE_M:
+        if d <= TILE_SEAM_ZONE_M:
             out.add(nid)
     return out
 
@@ -1577,108 +1609,13 @@ def _check_adjacent_ground_edges(ways: List[Way],
 
 
 # ── Cross-shape graded-strip SEAM tear thresholds ───────────────
-# A ``graded_strip`` drapes raw terrain and legitimately has NO
-# within-shape grade cap (``_check_adjacent_ground_edges`` above only
-# proves the SUB-METRE within-shape tear).  The one DEM-free-provable
-# defect that class misses is a large vertical STEP between the nodes of
-# two DIFFERENT strips: a clip / weld seam the in-sim renderer draws as a
-# sharp cliff.  Thresholds chosen from the SPJC inventory, where real
-# seam tears are Δalt 1.8-4.4 m at 1-6 m node spacing — safely above the
-# ~0.3 m steps lawful terracing between adjacent strips produces.
-STRIP_SEAM_TEAR_RADIUS_M = 6.0         # only NEAR-adjacent strip nodes pair
-STRIP_SEAM_TEAR_MIN_STEP_M = 1.0       # Δalt at/under this = lawful terrace / noise
-# Grade floor: steep-relief airports (CYXY) hold LAWFUL >1 m deltas between
-# strips 4-6 m apart (hillside drape, ~30-40 % max); genuine seam cliffs and
-# stacked same-coordinate walls run 100-350 %.  Only steps implying >50 %
-# are tears.  Exactly-interned shared nodes carry ONE value (Δ = 0), so no
-# planar-distance floor is needed — a same-coordinate pair with Δalt > the
-# step floor is a stacked bare wall and MUST be flagged.
-STRIP_SEAM_TEAR_MIN_GRADE = 0.5
-STRIP_SEAM_TEAR_MIN_DISTANCE_M = 0.01  # grade denominator clamp (stacked walls)
-# Planar slack for "the wall face passes BETWEEN the two nodes": the wall
-# row and the strip chain it welds are separate emissions, so a crossing
-# is not exact to the millimetre.
-STRIP_SEAM_WALL_STRADDLE_TOL_M = 0.5
-STRIP_SEAM_ROLE = "graded_strip"
-
-# ── OPEN-GROUND clause for the straddle exemption (2026-08-01) ──
-# The owner's law exempts terraces at the graded→DEM boundary in OPEN
-# ground: only zones 1-2 of the adjacent-ground corridor are graded, and
-# where grading ENDS the surface may lawfully step down to raw terrain
-# behind an emitted wall face.  A pair whose connecting segment never
-# leaves the graded domain is NOT at that boundary — it is an interior
-# tear of the graded corridor (zones 1-2) or of a filled pocket, both of
-# which stay defects however many wall faces cross them.  Round-5
-# measurement (438 tear rows, four airports, both arms): 9 of the
-# exemption's 21 firings dissolved zone-1/2 tears, worst Δalt 10.33 m.
-#
-# The ungraded-gap distribution over that population is BIMODAL — 6e-15…
-# 3e-7 m (polygon-boundary floating point: no ungraded ground at all) vs
-# ≥ 0.02 m — with nothing in between, so any threshold in [1 µm, 1 cm]
-# gives the same split; 1 cm is the conservative end.
-STRIP_SEAM_OPEN_GROUND_MIN_M = 0.01
-# Interior samples along the pair's connecting segment (the two endpoints
-# are strip vertices and therefore lie ON the graded domain's boundary —
-# sampling them would read every pair as open).
-STRIP_SEAM_OPEN_GROUND_SAMPLES = 21    # ⇒ 19 interior samples
-# The GRADED DOMAIN: graded_strip ∪ the pavement polygons.  This is the
-# round-5 instrument's set verbatim (scratchpad round5/geom.py), kept
-# identical so the v1-vs-v2 quantification is one instrument.  The three
-# further areal roles the battery patches carry — ``runway_crossing``,
-# ``ols_cut``, ``runway_clearance`` — are NOT in it; adding all three
-# changes the graded/open verdict on 0 of the 438 measured tear rows
-# (round-6 pre-flight), so the choice is not load-bearing on this
-# population.  NOTE (blast role-literal hazard): renaming any role value
-# in auto_patch/layout.py silently empties this set.
-STRIP_SEAM_GRADED_ROLES = frozenset({
-    "graded_strip",
-    "runway", "primary_parallel", "secondary_parallel", "stub",
-    "junction", "cross_connector", "apron", "terminal", "building",
-    "service_road", "service_junction", "groundside_pavement",
-    "tunnel_ramp", "bridge_trench", "bridge_causeway", "hangar_pad",
-})
-
-# ── PROVISIONAL open-boundary floor (owner 2026-08-01) ──────────
-# OWNER RULING, PROVISIONAL, PENDING IN-SIM REVIEW: "I want to see it
-# with no wall, raise it to 15 m until I can view some test cases in the
-# sim".  A tear pair at the OPEN BOUNDARY — ungraded ground lies in the
-# pair's interior, i.e. the same clause the straddle exemption uses — is
-# the graded→DEM terrace, and the owner is deciding in the simulator how
-# large an unwalled terrace is acceptable there.  Until that review, such
-# pairs are flagged only past this floor instead of past
-# ``STRIP_SEAM_TEAR_MIN_STEP_M`` (1.0 m, the pre-ruling value and still
-# the floor for every OTHER pair).
-#
-# SCOPE, exactly: this floor applies ONLY where the open-ground test
-# fires.  Tears INTERIOR to the graded domain — corridor zones 1-2 and
-# filled pockets — keep the 1.0 m floor; they are real defects and the
-# owner's ruling does not touch them.  Every other rule is unchanged, in
-# particular the wall-straddle exemption still runs (it is what will
-# dissolve zone-boundary rows once the owner lowers this floor again).
-#
-# Measured at the ruling (round-6 population, 438 tear rows, 4 airports,
-# both arms): the open-boundary class tops out at Δalt 10.48 m, so 15.0
-# clears all of it — the number is the owner's, not a fitted threshold.
-STRIP_SEAM_OPEN_BOUNDARY_FLOOR_M = 15.0
-
-
-def _point_in_ring(px: float, py: float,
-                   pts: List[Tuple[float, float]]) -> bool:
-    """Even-odd crossing test: is (px, py) inside the closed ring
-    ``pts`` (given WITHOUT the closing repeat)?  Degenerate (zero-area)
-    rings never contain a point, which is the honest answer for them."""
-    inside = False
-    n = len(pts)
-    j = n - 1
-    for i in range(n):
-        xi, yi = pts[i]
-        xj, yj = pts[j]
-        if (yi > py) != (yj > py):
-            x_cross = xi + (py - yi) * (xj - xi) / (yj - yi)
-            if px < x_cross:
-                inside = not inside
-        j = i
-    return inside
+# MOVED (spec seam-continuity-v2 §1) to ``src/auto_patch/
+# strip_seam_law.py`` — the constants, the graded-domain index, the
+# open-ground predicate and the wall-straddle predicate now have ONE
+# home that ``src/`` can read, so a generation-binding strip-seam law
+# and this validator are lockstep by construction instead of by
+# comment.  Imported at the top of this file; nothing here is a
+# second copy.
 
 
 # ── RUNWAY-STRIP WALL LAW (owner ruling 2026-08-01) ─────────────
@@ -2343,63 +2280,6 @@ def _check_transverse_grade(ways: List[Way], nodes, ll_to_m, taxi_axes
     return out, n_stations, n_rows, len(hit_shapes)
 
 
-class _GradedDomain:
-    """Point membership in the union of the graded rings, with a planar
-    slack: a point counts as GRADED when it is inside any ring OR within
-    ``tol`` of any ring's boundary (rings meet along shared edges, and a
-    sample landing on such an edge is graded ground, not a gap).
-
-    Indexed by a uniform grid over each ring's inflated bounding box, so
-    a query is O(local rings), never O(all rings)."""
-
-    CELL_M = 32.0
-
-    def __init__(self, rings: List[List[Tuple[float, float]]],
-                 tol: float) -> None:
-        self._rings = rings
-        self._tol = tol
-        self._bbox: List[Tuple[float, float, float, float]] = []
-        self._grid: Dict[Tuple[int, int], List[int]] = defaultdict(list)
-        c = self.CELL_M
-        for ri, pts in enumerate(rings):
-            xs = [p[0] for p in pts]
-            ys = [p[1] for p in pts]
-            bb = (min(xs) - tol, min(ys) - tol,
-                  max(xs) + tol, max(ys) + tol)
-            self._bbox.append(bb)
-            for cx in range(int(math.floor(bb[0] / c)),
-                            int(math.floor(bb[2] / c)) + 1):
-                for cy in range(int(math.floor(bb[1] / c)),
-                                int(math.floor(bb[3] / c)) + 1):
-                    self._grid[(cx, cy)].append(ri)
-
-    def covers(self, px: float, py: float) -> bool:
-        if not self._rings:
-            return False
-        c = self.CELL_M
-        tol = self._tol
-        for ri in self._grid.get((int(math.floor(px / c)),
-                                  int(math.floor(py / c))), ()):
-            x0, y0, x1, y1 = self._bbox[ri]
-            if px < x0 or px > x1 or py < y0 or py > y1:
-                continue
-            pts = self._rings[ri]
-            if _point_in_ring(px, py, pts):
-                return True
-            n = len(pts)
-            for i in range(n):
-                ax, ay = pts[i]
-                bx, by = pts[(i + 1) % n]
-                vx, vy = bx - ax, by - ay
-                l2 = vx * vx + vy * vy
-                t = 0.0 if l2 <= 0.0 else max(0.0, min(
-                    1.0, ((px - ax) * vx + (py - ay) * vy) / l2))
-                if math.hypot(px - (ax + t * vx),
-                              py - (ay + t * vy)) <= tol:
-                    return True
-        return False
-
-
 def _check_strip_seam_tears(
     vertices: List[Vertex],
     ways: List[Way],
@@ -2524,49 +2404,10 @@ def _check_strip_seam_tears(
             if len(pts) > 2 and pts[-1] != pts[0]:
                 wall_segs.append((pts[-1][0], pts[-1][1],
                                   pts[0][0], pts[0][1], w_idx))
-    wall_grid: Dict[Tuple[int, int], List[int]] = defaultdict(list)
-    for i, (x1, y1, x2, y2, _wi) in enumerate(wall_segs):
-        for cx in range(int(math.floor(min(x1, x2) / cell)),
-                        int(math.floor(max(x1, x2) / cell)) + 1):
-            for cy in range(int(math.floor(min(y1, y2) / cell)),
-                            int(math.floor(max(y1, y2) / cell)) + 1):
-                wall_grid[(cx, cy)].append(i)
-
-    def _pt_seg(px: float, py: float, ax: float, ay: float,
-                bx: float, by: float) -> Tuple[float, float]:
-        """Distance from P to segment A–B, and the clamped parameter of
-        the achieving point along A–B."""
-        vx, vy = bx - ax, by - ay
-        L2 = vx * vx + vy * vy
-        t = 0.0 if L2 <= 0.0 else max(0.0, min(
-            1.0, ((px - ax) * vx + (py - ay) * vy) / L2))
-        return (math.hypot(px - (ax + t * vx), py - (ay + t * vy)), t)
-
-    def _seg_seg(px: float, py: float, qx: float, qy: float,
-                 ax: float, ay: float, bx: float, by: float
-                 ) -> Tuple[float, float]:
-        """Closest approach between segments P–Q and A–B: the distance
-        and the parameter along P–Q of the achieving point.  Disjoint
-        segments always achieve it at an endpoint of one of the two, so
-        the crossing test plus the four point-segment cases is exact."""
-        ux, uy = qx - px, qy - py
-        vx, vy = bx - ax, by - ay
-        den = vx * uy - ux * vy
-        if abs(den) > 1e-12:
-            rx, ry = ax - px, ay - py
-            s = (vx * ry - rx * vy) / den
-            t = (ux * ry - rx * uy) / den
-            if 0.0 <= s <= 1.0 and 0.0 <= t <= 1.0:
-                return (0.0, s)
-        best = _pt_seg(px, py, ax, ay, bx, by)[0], 0.0
-        cand = _pt_seg(qx, qy, ax, ay, bx, by)[0], 1.0
-        if cand[0] < best[0]:
-            best = cand
-        for wx, wy in ((ax, ay), (bx, by)):
-            d_w, t_w = _pt_seg(wx, wy, px, py, qx, qy)
-            if d_w < best[0]:
-                best = (d_w, t_w)
-        return best
+    # The wall-face index and the straddle predicate now live in the ONE
+    # strip-seam law module (spec seam-continuity-v2 §1) — same grid, same
+    # cell, same tolerance; imported, never re-derived.
+    wall_faces = _WallFaces(wall_segs, wall_elev_range, cell)
 
     # The graded domain, for the open-ground clause.  Ring points come
     # from the vertex table (closing repeat already dropped), so each
@@ -2588,54 +2429,19 @@ def _check_strip_seam_tears(
         STRIP_SEAM_OPEN_GROUND_MIN_M)
 
     def _open_ground_between(a: Vertex, b: Vertex) -> bool:
-        """Does UNGRADED ground lie between the two nodes?  True when any
-        INTERIOR sample of the pair's connecting segment is outside the
-        graded domain by more than ``STRIP_SEAM_OPEN_GROUND_MIN_M``."""
-        n = STRIP_SEAM_OPEN_GROUND_SAMPLES
-        for k in range(1, n - 1):
-            f = k / (n - 1)
-            if not graded_domain.covers(a.x + (b.x - a.x) * f,
-                                        a.y + (b.y - a.y) * f):
-                return True
-        return False
+        """Does UNGRADED ground lie between the two nodes?  The shared
+        law's predicate (``strip_seam_law.open_ground_between``), bound to
+        this instrument's vertex type."""
+        return _open_ground_between_law(graded_domain, a.x, a.y, b.x, b.y)
 
     def _wall_straddles(a: Vertex, b: Vertex, open_ground: bool) -> bool:
-        if not wall_segs:
-            return False
-        if not open_ground:
-            return False  # interior to graded ground: zones 1-2 / pocket
-        e_lo = min(a.elev, b.elev)
-        e_hi = max(a.elev, b.elev)
-        length = math.hypot(b.x - a.x, b.y - a.y)
-        if length <= 2 * min_distance_m:
-            return False  # no interior to straddle (stacked pair)
-        tol = STRIP_SEAM_WALL_STRADDLE_TOL_M
-        seen: set = set()
-        for cx in range(int(math.floor((min(a.x, b.x) - tol) / cell)),
-                        int(math.floor((max(a.x, b.x) + tol) / cell)) + 1):
-            for cy in range(
-                    int(math.floor((min(a.y, b.y) - tol) / cell)),
-                    int(math.floor((max(a.y, b.y) + tol) / cell)) + 1):
-                for i in wall_grid.get((cx, cy), ()):
-                    if i in seen:
-                        continue
-                    seen.add(i)
-                    x1, y1, x2, y2, w_idx = wall_segs[i]
-                    rng = wall_elev_range.get(w_idx)
-                    if rng is None:
-                        continue
-                    if (e_lo < rng[0] - min_step_m
-                            or e_hi > rng[1] + min_step_m):
-                        continue  # face cannot account for the level change
-                    d_w, t_w = _seg_seg(a.x, a.y, b.x, b.y,
-                                        x1, y1, x2, y2)
-                    if d_w > tol:
-                        continue
-                    along = t_w * length
-                    if (along >= min_distance_m
-                            and (length - along) >= min_distance_m):
-                        return True
-        return False
+        """The shared law's STRADDLE predicate
+        (``strip_seam_law.WallFaces.straddles``), bound to this
+        instrument's vertex type and step floors."""
+        return wall_faces.straddles(
+            a.x, a.y, a.elev, b.x, b.y, b.elev,
+            open_ground=open_ground, min_step_m=min_step_m,
+            min_distance_m=min_distance_m)
 
     grid = _bucket_vertices(strip_vertices, cell)
     out: List[Violation] = []

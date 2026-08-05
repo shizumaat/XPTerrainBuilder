@@ -277,12 +277,16 @@ def test_seam_ceiling_excess_does_not_excuse_a_floor(monkeypatch):
 
 
 def test_seam_yield_stops_at_the_terrain_matching_corridor(monkeypatch):
-    """CORRIDOR SCOPE: the yield only reaches ``_SEAM_ZONE_M`` (400 m, the
-    owner-ruled seam terrain-matching zone — the same scope
+    """CORRIDOR SCOPE: the yield only reaches ``TILE_SEAM_ZONE_M`` (400 m, the
+    owner-ruled TILE-seam terrain-matching zone — the same scope
     ``tools/check_grade`` and ``tools/grade_feasibility_audit`` use).  A vertex
-    beyond it flags even when its excess is under the line's bound."""
-    from auto_patch.grade_graph_validate import _SEAM_ZONE_M
-    assert _SEAM_ZONE_M == 400.0
+    beyond it flags even when its excess is under the line's bound.
+
+    Renamed from the bare ``_SEAM_ZONE_M`` by the seam-continuity-v2 §1
+    vocabulary split: this is the GRATICULE corridor, unrelated to the
+    graded-strip seam law in ``auto_patch.strip_seam_law``."""
+    from auto_patch.grade_graph_validate import TILE_SEAM_ZONE_M
+    assert TILE_SEAM_ZONE_M == 400.0
     layout, band = _seam_layout(
         [(0.0, 0.0, 100.00, 100.20, 130.0),     # pin: 0.20 m deficit
          (300.0, 0.0, 99.90, 100.00, 130.0),    # 300 m out — inside the zone
@@ -293,7 +297,7 @@ def test_seam_yield_stops_at_the_terrain_matching_corridor(monkeypatch):
     far = _at(v, 600.0, 0.0)
     assert far is not None and far[1] == "floor", (
         "a violation 600 m from the seam was excused — the yield must stop at "
-        f"{_SEAM_ZONE_M:.0f} m")
+        f"{TILE_SEAM_ZONE_M:.0f} m")
 
 
 def test_no_seam_pins_leaves_every_verdict_untouched(monkeypatch):

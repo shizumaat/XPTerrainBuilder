@@ -411,16 +411,24 @@ def route_reach_violations(layout, noise=ELEV_ROUNDING_NOISE_M):
     return out
 
 
-# ── Tile-seam terrain-matching corridor ─────────────────────────────────────
-# Mirrors ``tools/check_grade.py``'s ``_SEAM_LL_TOL_DEG`` / ``_SEAM_ZONE_M``
-# (owner ruling 2026-06-20) — the SAME scope ``tools/grade_feasibility_audit``
-# already uses to exclude seam nids from its route-band intervals.  Duplicated
-# rather than imported because ``tools/`` is a script directory, not an
-# importable package, and ``src/`` must not depend on it (same precedent as
-# ``crown.py``'s ``_XEDGE_SEAM_TOL_M == tile_cut._SEAM_LINE_TOL_M``).  Keep the
-# two copies in sync.
-_SEAM_LL_TOL_DEG = 1e-4        # == check_grade._SEAM_LL_TOL_DEG (~11 m)
-_SEAM_ZONE_M = 400.0           # == check_grade._SEAM_ZONE_M
+# ── TILE-seam terrain-matching corridor ─────────────────────────────────────
+# THE TILE SEAM, not the STRIP seam (spec seam-continuity-v2 §1 — the v1 round
+# died of exactly this conflation).  This is the GRATICULE corridor: where the
+# patch is cut by an integer lat/lon tile boundary and must match the
+# neighbouring tile's terrain.  The unrelated GRADED-STRIP seam law (tears
+# between two ``graded_strip`` shapes, typically kilometres from any graticule
+# line) lives in ``auto_patch.strip_seam_law`` — never mix the two
+# vocabularies, and never name a new identifier a bare ``seam``.
+#
+# Mirrors ``tools/check_grade.py``'s ``TILE_SEAM_LL_TOL_DEG`` /
+# ``TILE_SEAM_ZONE_M`` (owner ruling 2026-06-20) — the SAME scope
+# ``tools/grade_feasibility_audit`` already uses to exclude tile-seam nids from
+# its route-band intervals.  Duplicated rather than imported because ``tools/``
+# is a script directory, not an importable package, and ``src/`` must not
+# depend on it (same precedent as ``crown.py``'s ``_XEDGE_SEAM_TOL_M ==
+# tile_cut._SEAM_LINE_TOL_M``).  Keep the two copies in sync.
+TILE_SEAM_LL_TOL_DEG = 1e-4        # == check_grade.TILE_SEAM_LL_TOL_DEG (~11 m)
+TILE_SEAM_ZONE_M = 400.0           # == check_grade.TILE_SEAM_ZONE_M
 
 
 def _crossed_seam_lines(layout, lat, lon):
@@ -432,11 +440,11 @@ def _crossed_seam_lines(layout, lat, lon):
     only on lat), so an integer lat/lon line is a constant y / x and the
     corridor test downstream is a plain metre distance in the frame the rest of
     this check already works in.  Line MEMBERSHIP is decided in lat/lon with
-    ``_SEAM_LL_TOL_DEG``, exactly as ``check_grade._seam_lines`` does."""
+    ``TILE_SEAM_LL_TOL_DEG``, exactly as ``check_grade._seam_lines`` does."""
     out = []
-    if abs(lat - round(lat)) <= _SEAM_LL_TOL_DEG:
+    if abs(lat - round(lat)) <= TILE_SEAM_LL_TOL_DEG:
         out.append(("y", layout.ll_to_m(float(round(lat)), lon)[1]))
-    if abs(lon - round(lon)) <= _SEAM_LL_TOL_DEG:
+    if abs(lon - round(lon)) <= TILE_SEAM_LL_TOL_DEG:
         out.append(("x", layout.ll_to_m(lat, float(round(lon)))[0]))
     return out
 
@@ -542,7 +550,7 @@ def _seam_contract_yield(layout, viol, band, noise, crown_at):
         if side in ("floor", "ceil"):
             for (axis, coord, d_floor, d_ceil) in slack:
                 # (a) inside THIS line's terrain-matching corridor …
-                if abs((x if axis == "x" else y) - coord) > _SEAM_ZONE_M:
+                if abs((x if axis == "x" else y) - coord) > TILE_SEAM_ZONE_M:
                     continue
                 # … and (b) no deeper out of band than that line's own pins.
                 # SIDE-SPECIFIC: a floor deficit at the pins never excuses a
@@ -800,7 +808,7 @@ def route_band_violations(layout, noise=ELEV_ROUNDING_NOISE_M, G=None):
     # ── TILE-SEAM TERRAIN CONTRACT — the route band YIELDS here (owner
     #    rulings 2026-06-20 and 2026-07-24) ────────────────────────────────
     # 2026-06-20 (the seam terrain-matching zone, ``tools/check_grade.py``
-    # ``_SEAM_ZONE_M``): where pavement crosses a tile boundary it must MATCH
+    # ``TILE_SEAM_ZONE_M``): where pavement crosses a tile boundary it must MATCH
     # the neighbour tile's terrain mesh — so it follows the DEM inward from the
     # seam instead of the designed surface — and the ruling names BOTH the
     # within-shape cap and the runway-anchored route-band law as yielding inside

@@ -250,3 +250,27 @@ depends on it); groundside lots; the cut-piece floor.
    severity; it lands either way)
 3. Step scale: do ~1.5–2 m terrace steps at apron edges read
    acceptably? (ratifies provisional `APRON_TERRACE_MAX_STEP_M` = 2.0)
+
+## PREFLIGHT VERDICT (lead, 2026-08-05 03:45): SPEC WITHDRAWN FOR V2
+## (evidence scratchpad terrace2/FLIP-EVIDENCE.md — zero builds spent)
+
+The §3(d)/(e) offline preflight REFUTED both attributions (0/35 riser
+rows joint-adjacent; the 378.1 m carrier crosses 1 declared joint and
+is LAWFUL in the law-true frame) and exposed THE FRAME ERROR: the
+flip lane's census.py never passed terrace_joints_ll — every S3
+premise number was non-law-true. Lockstep frame: HECA terrace airside
+−2,246 (not −771), KCLT −139 (not +52) — bands 1/2 are met BEFORE any
+of this round's work, and the composed-world numbers are likely
+under-counted improvements for every terrace-bearing arm. TWO REAL
+law defects found offline: (1) UNFACED DECLARED JOINTS grant unbacked
+step allowance (HECA 17/118, KCLT 5/17 — the S1 in-strip joint is
+one); (2) 10 HECA faces exceed APRON_TERRACE_MAX_STEP_M (2.14-5.52 m
+actual vs ≤1.994 declared; the validator reads declared — blind).
+V2 re-aim: S1 strip fence + §2 certificate re-expression STAND
+unchanged; §3 becomes (a) faced-or-no-relief lockstep
+(declaration↔face↔allowance), (b) actual-step-bounded-by-declared
+(generation-binding + validator reads actual), (c) the undeclared
+panel-boundary step class — panel outer boundaries against
+non-panelized neighbours keep FULL law (joints are interior-only; the
+lateral-contiguity family governs the outer ring); bands restated in
+the lockstep frame.

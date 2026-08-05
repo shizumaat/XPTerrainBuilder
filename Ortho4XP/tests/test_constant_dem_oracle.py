@@ -89,26 +89,66 @@ def test_the_all_zero_refusal_is_untouched_by_the_oracle():
     assert _load_airport_dem(0.5, 0.5, override_dem=d) is d
 
 
-def _layout_with(values):
-    """One apron ring carrying ``values`` at unit-spaced vertices."""
+def _layout_with(values, role=ROLE_APRON, ref=""):
+    """One ring carrying ``values`` at unit-spaced vertices."""
     ring = [(float(i), 0.0) for i in range(len(values))]
     ring = ring + [(float(len(values)) - 1.0, 10.0), (0.0, 10.0)]
     vals = list(values) + [values[-1], values[0]]
     lay = PavementLayout(icao="ORACLE", anchor=(0.0, 0.0))
     lay.shapes.append(BuiltShape(
-        polygon=Polygon(ring + [ring[0]]), role=ROLE_APRON,
+        polygon=Polygon(ring + [ring[0]]), role=role, ref=ref,
         node_altitudes=vals + [vals[0]]))
     return lay
+
+
+#: the author key ``_layout_with`` produces by default
+_A = "apron/"
 
 
 def test_band_width_field_is_the_difference_of_the_two_worlds():
     lo = _layout_with([10.0, 10.0, 10.0])
     hi = _layout_with([12.0, 13.5, 10.0])
     field = band_width_field(lo, hi)
-    assert field[(0.0, 0.0)] == pytest.approx(2.0)
-    assert field[(1.0, 0.0)] == pytest.approx(3.5)
-    assert field[(2.0, 0.0)] == pytest.approx(0.0), (
+    assert field[(_A, 0.0, 0.0)] == pytest.approx(2.0)
+    assert field[(_A, 1.0, 0.0)] == pytest.approx(3.5)
+    assert field[(_A, 2.0, 0.0)] == pytest.approx(0.0), (
         "a node with equal values in both worlds is PINNED — band width 0")
+
+
+def test_the_band_width_join_never_crosses_AUTHORS():
+    """A coordinate two surfaces share must yield one row PER SURFACE.
+
+    ``_node_values`` used to key on ``(x, y)`` alone, so at any shared
+    coordinate the LAST shape iterated won — and shape order and shape
+    COUNT differ between the two worlds.  The "band width" reported there
+    was the difference between two DIFFERENT surfaces: measured by fix
+    lane 2 (``scratchpad/fix2/who/``), 9 of the 95 negative widths were
+    exactly this — a ``runway_end_skirt`` differenced against
+    ``adjacent_ground`` / ``resa`` / ``apron`` vertices at coordinates
+    they weld on.  A negative width is supposed to be evidence of a
+    non-monotone seating; nine of them were the instrument reading two
+    populations at once.
+    """
+    def _two_authors(apron_vals, skirt_vals):
+        lay = _layout_with(apron_vals)
+        skirt = _layout_with(skirt_vals, role="graded_strip",
+                             ref="runway_end_skirt")
+        lay.shapes.append(skirt.shapes[0])
+        return lay
+
+    # SAME geometry, SAME coordinates, two authors — and the two worlds
+    # carry them in OPPOSITE order, exactly as differing shape counts do.
+    lo = _two_authors([10.0, 10.0, 10.0], [50.0, 50.0, 50.0])
+    hi = _two_authors([11.0, 11.0, 11.0], [51.0, 51.0, 51.0])
+    hi.shapes.reverse()
+    field = band_width_field(lo, hi)
+    authors = {a for (a, _x, _y) in field}
+    assert authors == {_A, "graded_strip/runway_end_skirt"}, (
+        f"the join collapsed two authors into one: {authors}")
+    for (a, _x, _y), w in field.items():
+        assert w == pytest.approx(1.0), (
+            f"author {a!r} was differenced against the other surface "
+            f"(width {w}, not 1.0) — a cross-family join")
 
 
 def test_a_negative_band_width_is_a_defect_on_its_face():
@@ -185,6 +225,9 @@ def test_the_artifact_writes(tmp_path):
     assert doc["summary"]["nodes"] >= 2
     assert any(n["band_width_m"] == pytest.approx(2.0)
                for n in doc["nodes"])
+    # the author travels with every row — it is part of the identity that
+    # makes the row a difference of one surface against itself
+    assert all(n.get("author") for n in doc["nodes"])
 
 
 # ══════════════════════════════════════════════════════════════════════

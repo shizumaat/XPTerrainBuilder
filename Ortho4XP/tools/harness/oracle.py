@@ -124,7 +124,9 @@ def main(argv=None) -> int:
         write_band_width_artifact(
             field, out / f"{args.icao}_band_width.json",
             extra={"icao": args.icao, "plateau_m": lo, "canyon_m": hi,
-                   "join": "11-decimal lat/lon canonical identity"})
+                   "join": "author (role/ref) + millimetre metre-frame "
+                           "coordinate — same author on both sides, so a "
+                           "shared coordinate yields one row per surface"})
         verdicts["band_width"] = {
             "pass": summary.get("negative", 0) == 0,
             "summary": summary,

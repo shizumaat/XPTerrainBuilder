@@ -984,3 +984,32 @@ def test_the_detector_SURVIVES_the_preventer(build_mod):
     assert "def report_unauthorised_writes(" in src
     assert "shared_repo_snapshot()" in src
     assert "frame[\"contaminated\"]" in src
+
+
+def test_the_write_guard_is_armed_by_the_BUILD_ENTRY_not_only_the_cli(
+        build_mod):
+    """``oracle.py`` and ``who_wrote.py`` call ``build_patch`` DIRECTLY.
+
+    Arming the guard in ``main`` only would have left every oracle run and
+    every authorship trace free to regenerate the shared corpus — and those
+    are the entries a lane actually runs most.  ``build_patch`` therefore
+    arms its own (defaulting to "nothing authorised") and ``main`` hands
+    its own guard down rather than wrapping the call.
+    """
+    import inspect
+    sig = inspect.signature(build_mod.build_patch)
+    assert "write_guard" in sig.parameters
+    src = inspect.getsource(build_mod.build_patch)
+    assert "SharedRepoWriteGuard(" in src, (
+        "build_patch must arm a guard when its caller passes none")
+    assert "with guard:" in src
+
+
+def test_every_build_result_carries_the_frame_and_guard_state(build_mod):
+    """The frame record has to be IN the artifact: "which corpus cut the
+    insets" is a question asked of numbers that are already in a report."""
+    import inspect
+    src = inspect.getsource(build_mod.build_patch)
+    for key in ("write_guard_armed", "write_guard_blocked",
+                "dem_frame_effective"):
+        assert f'"{key}"' in src, f"build_patch result omits {key}"

@@ -1035,8 +1035,19 @@ def diagnose_missing_sidecar(layout) -> str:
 
 def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
                 prog: Progress, const_dem=None,
-                allow_no_sidecar: bool = False) -> dict:
-    """One airport → ``<out>/<tag>.osm`` + its ``.axes.json`` sidecar."""
+                allow_no_sidecar: bool = False,
+                write_guard=None) -> dict:
+    """One airport → ``<out>/<tag>.osm`` + its ``.axes.json`` sidecar.
+
+    ``write_guard`` — a :class:`SharedRepoWriteGuard` (or ``None`` for the
+    default: nothing authorised, guard ARMED).  It is armed HERE, not in
+    ``main``, because ``main`` is not the only entry that builds:
+    ``tools/harness/oracle.py`` and ``tools/harness/who_wrote.py`` both
+    call this function directly, and those are the entries a lane actually
+    runs most.  Arming in the CLI only would have left every oracle and
+    every authorship trace free to regenerate the shared corpus — the
+    precise hole the road-feed precedent went through.
+    """
     for p in (root / "src", root, root / "tests", root / "tools"):
         if str(p) not in sys.path:
             sys.path.insert(0, str(p))
@@ -1054,8 +1065,11 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
         prog.note(f"CONSTANT-DEM world: {const_dem} m (oracle build — this "
                   f"is a DEM SOURCE substitution, not a law gate)")
 
+    guard = write_guard if write_guard is not None else SharedRepoWriteGuard(
+        set(), root)
     t0 = time.time()
-    layout = build_airport_pavement(icao, xplane_root(), **kw)
+    with guard:
+        layout = build_airport_pavement(icao, xplane_root(), **kw)
     dt = time.time() - t0
     out_dir.mkdir(parents=True, exist_ok=True)
     osm = out_dir / f"{tag}.osm"
@@ -1088,6 +1102,9 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
         "build_seconds": round(dt, 1), "shapes": len(layout.shapes),
         "body_sha256": body_sha256(osm),
         "sidecar_present": side.exists(),
+        "write_guard_armed": guard.enabled,
+        "write_guard_blocked": list(guard.blocked),
+        "dem_frame_effective": frame_surface_keys(root),
         "dem_inset_provenance": getattr(layout, "dem_inset_provenance", None),
         "anchor": (list(layout.anchor) if layout.anchor is not None else None),
     }
@@ -1348,15 +1365,16 @@ def main(argv=None) -> int:
 
     t0 = time.time()
     try:
-        with guard:
-            if args.tile:
+        if args.tile:
+            with guard:                    # build_patch arms its own
                 result = build_tile(
                     lat, lon,
                     args.build_dir or str(out_dir / f"tile_{tag}"), prog)
-            else:
-                result = build_patch(args.icao, root, out_dir, tag, prog,
-                                     const_dem=args.dem,
-                                     allow_no_sidecar=args.allow_no_sidecar)
+        else:
+            result = build_patch(args.icao, root, out_dir, tag, prog,
+                                 const_dem=args.dem,
+                                 allow_no_sidecar=args.allow_no_sidecar,
+                                 write_guard=guard)
         result["wall_seconds"] = round(time.time() - t0, 1)
     finally:
         # The audit runs even when the build raised: a build that died

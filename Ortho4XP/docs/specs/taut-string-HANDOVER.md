@@ -16,6 +16,12 @@ pre-flip -> new default): SPJC 1698->1366, SPLP 50->27, CYXY 171->155,
 HECA 9649->9125, KCLT 2908->2643; BATTERY 14,476->13,316 (-1,160),
 seam +15 (ruled accepted). Every prior anchor list below is HISTORY.
 
+**KCLT RE-BASELINE (04:20): the P4 tile build refreshed the road
+feed — KCLT law-true 2,643→2,514 / steps 54→24 at current data
+(control 1cc33da3; release anchor 307c3fcc is STALE). Dead-zone fix
+flip-gated (O4_FLEX_DEMAND_TOL_FINE — HECA default moves
+census-neutrally, 675fc645); its ladder runs gated.**
+
 **RELEASE DELIVERED 2026-08-05 01:40 PDT — 4h20m early.** App
 dist.nosync/XPTerrainBuilder.app 1.0.219 (engine 1.50.1665, JSONL
 smoke-tested; DEVELOPER_DIR=Xcode-beta workaround — xcode-select had

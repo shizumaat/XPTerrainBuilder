@@ -133,7 +133,6 @@ __all__ = [
     "BUILDING_SEAT_FLATNESS_TOLERANCE_M",
     "TAXI_MAX_GRADE",
     "APRON_MAX_GRADE",
-    "APRON_TERRACE_LAW_ENABLED",
     "APRON_TERRACE_MIN_EXCESS_M",
     "APRON_TERRACE_MAX_STEP_M",
     "APRON_TERRACE_JOINT_CLEARANCE_M",
@@ -1947,8 +1946,9 @@ ENABLE_SERVICE_ROADS = False
 # medial-axis discovery of unreferenced taxiway centerlines, whose only two
 # consumers — ``_build_taxi_rects`` and ``junction_spine`` — were retired by
 # d4f61d6 on 2026-07-29; from then on the gate switched nothing.  Retired
-# with the branch (pipeline.py).  The extractor survives, unwired, in
-# pavement/discovered_taxiways.py — its header records the re-wiring cost.
+# with the branch (pipeline.py).  The extractor itself was deleted in the
+# dead-code round; pavement/discovered_taxiways.py keeps the retirement
+# record (and the rebuild cost) in its header.
 
 # When apt.dat has NO 1201/1202 taxi-route network, synthesize the taxi
 # centerline set from its row-120 PAINTED lines (paint codes 1/7/51/57 =
@@ -2306,7 +2306,6 @@ TRIANGLE_PLANE_REPORTS = True
 # is no "terrace off" arm any more — a panelized apron is what the law
 # produces on genuinely steep ground, and the census reports its
 # declared joints as declared structures, not as defects.
-APRON_TERRACE_LAW_ENABLED = True
 # Trigger floor (spec §1): an apron constraint component only panelizes
 # when its anchor/DEM/cap envelope excess reaches this.  25x the 0.01 m
 # elevation materiality floor, so centimetre noise can never panelize.

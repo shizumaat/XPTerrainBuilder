@@ -149,10 +149,22 @@ REFRESH_SCOPES = (
     ("geotiffs", "Geotiffs", "user-supplied geotiff sources"),
 )
 
-#: The X-Plane INSTALL paths a whole-tile build needs.  These are
-#: install-location settings, never law gates.
+#: The X-Plane INSTALL paths a whole-tile build needs.
 XPLANE_PATH_KEYS = ("cifp_data_path", "custom_scenery_dir",
                     "custom_overlay_src")
+
+#: THE FRAME-SHAPING SUBSET of the install paths (fix cycle 2 item 4).
+#:
+#: These were commented "install-location settings, never law gates", and
+#: that is exactly backwards.  They select WHICH apt.dat/CIFP corpus the
+#: build reads, and the airport ELEVATION INSET is cut against the airport
+#: FOOTPRINT MASK derived from that corpus — so two lanes pointed at
+#: different scenery installs do not merely find their files in different
+#: places, they grade against DIFFERENT INSET SURFACES.  That is the
+#: definition of a DEM frame key, and it is the mechanism the re-baseline
+#: identified.  ``custom_overlay_src`` stays out: overlays are consumed
+#: after the patch and touch no inset.
+XPLANE_FRAME_PATH_KEYS = ("cifp_data_path", "custom_scenery_dir")
 
 #: Every cfg key that shapes the DEM/inset SURFACE a build grades against.
 #: A divergence between the dev tree's config and the owner's app config
@@ -164,7 +176,7 @@ DEM_FRAME_KEYS = (
     "airport_elevation_insets", "airport_elevation_level",
     "airport_elevation_providers", "airport_elevation_inset_margin_m",
     "airport_elevation_inset_feather_m", "airport_inset_water",
-)
+) + XPLANE_FRAME_PATH_KEYS
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -200,21 +212,67 @@ def read_cfg(path) -> dict:
     return out
 
 
+def effective_frame_value(key: str, ours: dict, theirs: dict):
+    """The value that will ACTUALLY shape this build's surface for ``key``.
+
+    For most frame keys that is simply the lane's own cfg value.  The two
+    X-Plane install paths are different, and the difference is the whole
+    reason adding them was not a one-line change:
+
+        The dev tree and every lane worktree ship ``cifp_data_path`` and
+        ``custom_scenery_dir`` EMPTY.  Empty does not mean "a different
+        corpus" — it means UNSET, and the harness then supplies the
+        owner's: ``build_tile`` copies them in through
+        ``apply_xplane_install_paths``, and ``build_patch`` passes the
+        resolved X-Plane root to ``build_airport_pavement`` directly.
+
+    So an empty lane value is NOT a frame divergence, and refusing on it
+    would refuse every lane build in the repo for a difference that does
+    not exist at run time.  A NON-EMPTY value that disagrees with the
+    owner's IS a divergence, and a serious one: it points the build at a
+    different apt.dat/CIFP corpus, which cuts a different airport footprint
+    mask, which bakes a DIFFERENT ELEVATION INSET.  That build grades a
+    surface production never renders — silently, with no log line.
+    """
+    mine = ours.get(key)
+    if key in XPLANE_FRAME_PATH_KEYS and not (mine or "").strip():
+        return theirs.get(key)           # unset ⇒ the harness supplies it
+    return mine
+
+
 def cfg_frame_diff(root, owner_cfg=OWNER_APP_CFG) -> dict:
     """Compare the DEM-surface keys of this tree's config with the owner's.
 
-    Returns ``{key: (ours, theirs)}`` for every key that disagrees.  An
-    absent owner config yields ``{}`` with ``owner_cfg_present`` False — a
-    machine without the app installed cannot be held to it, and the env
-    snapshot records that fact rather than pretending the frames matched.
+    Returns ``{key: (ours, theirs)}`` for every key whose EFFECTIVE value
+    (see :func:`effective_frame_value`) disagrees.  An absent owner config
+    yields ``{}`` with ``owner_cfg_present`` False — a machine without the
+    app installed cannot be held to it, and the env snapshot records that
+    fact rather than pretending the frames matched.
     """
     ours = read_cfg(Path(root) / "Ortho4XP.cfg")
     theirs = read_cfg(owner_cfg)
     if not theirs:
         return {}
-    return {k: (ours.get(k), theirs.get(k))
-            for k in DEM_FRAME_KEYS
-            if k in theirs and ours.get(k) != theirs.get(k)}
+    out = {}
+    for k in DEM_FRAME_KEYS:
+        if k not in theirs:
+            continue
+        mine = effective_frame_value(k, ours, theirs)
+        if mine != theirs.get(k):
+            out[k] = (mine, theirs.get(k))
+    return out
+
+
+def frame_surface_keys(root, owner_cfg=OWNER_APP_CFG) -> dict:
+    """The EFFECTIVE value of every DEM-frame key, for the frame record.
+
+    Recorded whether or not it diverges: "which corpus cut the insets this
+    build graded against" is a question later readers ask about numbers
+    that are already in a report, and the answer has to be IN the artifact.
+    """
+    ours = read_cfg(Path(root) / "Ortho4XP.cfg")
+    theirs = read_cfg(owner_cfg)
+    return {k: effective_frame_value(k, ours, theirs) for k in DEM_FRAME_KEYS}
 
 
 def require_cfg_frame(root, *, allow_degraded: bool = False,
@@ -622,15 +680,190 @@ def require_no_implicit_refresh(missing: list, requested: set) -> None:
         f"    --refresh-data {','.join(scopes)}")
 
 
+class SharedRepoWriteBlocked(RuntimeError):
+    """A build tried to write the shared data repo outside an authorised
+    ``--refresh-data`` scope, and the guard stopped it."""
+
+
+class SharedRepoWriteGuard:
+    """THE PREVENTER (fix cycle 2 item 4).
+
+    The detector below is the backstop; this is the lock.  It refuses the
+    write AT THE CALL, from inside the build process, naming the path, the
+    scope, and the flag that would authorise it — so the offending write
+    surfaces with a traceback pointing at the code that made it, instead of
+    as a filename in an after-the-fact diff.
+
+    WHY A PREVENTER WAS NEEDED.  ``report_unauthorised_writes`` used to
+    carry the line "the harness cannot PREVENT a write inside the engine
+    without touching ``src/``".  That was true of a *filesystem* lock and
+    false of the interpreter: the harness calls ``build_airport_pavement``
+    IN PROCESS, so it owns the same ``builtins.open`` and ``os`` the engine
+    will use.  The re-baseline settled the question by catching two LIVE
+    instances — ``OSM_data/_airport_road_feed/CYXY_road_feed.cache`` and
+    ``SPLP_road_feed.cache``, written by the CYXY and SPLP builds — after
+    the fact, from six concurrent runs whose before/after snapshots each
+    saw BOTH writes.  Detection alone therefore produced a
+    ``contaminated=True`` flag that was CROSS-ATTRIBUTED across lanes and a
+    corpus that had already changed under everyone.  Only refusing at the
+    call site attributes the write to its author and leaves the corpus
+    intact.
+
+    SCOPE, stated honestly.  This intercepts writes issued through the
+    Python level: ``builtins.open`` in a writing mode, ``os.open`` with a
+    writing flag, and the rename/replace/unlink/mkdir family.  A write
+    performed inside a C extension's own file handling (GDAL, a bare
+    ``numpy.memmap``) does not pass through these, which is exactly why the
+    before/after snapshot audit STAYS: prevent what can be prevented,
+    detect the remainder.  Defence in depth, not one mechanism claimed to
+    be complete.
+
+    ALWAYS-ALLOWED: the harness's own state directory (``.harness/`` — the
+    refresh ledger and the lock files), and every path under an authorised
+    scope.  Reads are never touched.
+    """
+
+    #: ``os.open`` flags that mean "this call can modify the file".
+    _WRITE_FLAGS = (os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT
+                    | os.O_TRUNC)
+
+    def __init__(self, requested, root, repo=None, enabled: bool = True):
+        self.requested = set(requested or ())
+        self.repo = Path(repo or DATA_REPO)
+        self.enabled = bool(enabled)
+        self.blocked: list = []
+        # Cheap textual prefixes: the shared repo itself, and this lane's
+        # mount points (which are SYMLINKS into it, so a relative
+        # ``OSM_data/...`` write never mentions the repo path at all).
+        # ABSOLUTE on both sides — the candidate path is abspath'd before
+        # the compare, so a relative prefix would never match and the guard
+        # would pass everything while looking installed.
+        lane = Path(root).resolve()
+        self._prefixes = tuple(
+            str(p) for p in
+            [self.repo.resolve() / d for d in SHARED_DATA_DIRS]
+            + [lane / d for d in SHARED_DATA_DIRS])
+        self._saved: dict = {}
+
+    # ── the predicate ────────────────────────────────────────────────
+    def _violation(self, path):
+        """``(rel, scope)`` if writing ``path`` is forbidden, else None."""
+        try:
+            s = os.fspath(path)
+        except TypeError:
+            return None                        # an fd, not a path
+        if not isinstance(s, (str, bytes)):
+            return None
+        if isinstance(s, bytes):
+            s = s.decode("utf-8", "replace")
+        ap = s if os.path.isabs(s) else os.path.abspath(s)
+        if not ap.startswith(self._prefixes):
+            return None                        # cheap reject: the hot path
+        try:                                   # follow the lane's symlinks
+            real = Path(ap).resolve()
+            rel = str(real.relative_to(self.repo.resolve()))
+        except (OSError, ValueError):
+            return None                        # not in the shared repo
+        if rel.startswith(".harness"):
+            return None                        # the harness's own state
+        scope = scope_of(rel)
+        if scope in self.requested:
+            return None
+        return rel, scope
+
+    def _refuse(self, rel, scope, how):
+        self.blocked.append({"path": rel, "scope": scope, "via": how})
+        raise SharedRepoWriteBlocked(
+            f"BLOCKED: this build tried to {how} '{rel}' in the SHARED data "
+            f"repo ({self.repo}), which no --refresh-data scope authorises.\n"
+            f"  scope: {scope or '<outside every named scope>'}"
+            + (f"\n  {scope_description(scope)}" if scope else "")
+            + f"\nOwner ruling e9daef5: a cache regeneration is an EXPLICIT, "
+              f"locked, hash-stamped event — never a build side effect. Every "
+              f"other lane reads this corpus.\n"
+              f"To do it deliberately, re-run with: --refresh-data "
+              f"{scope or ','.join(sorted(s for s, _p, _w in REFRESH_SCOPES))}")
+
+    # ── installation ─────────────────────────────────────────────────
+    def __enter__(self):
+        if not self.enabled:
+            return self
+        import builtins
+        import shutil
+        guard = self
+
+        real_open, real_os_open = builtins.open, os.open
+        self._saved = {"open": real_open, "os_open": real_os_open}
+
+        def _open(file, mode="r", *a, **kw):
+            if any(c in mode for c in "wxa+"):
+                hit = guard._violation(file)
+                if hit:
+                    guard._refuse(hit[0], hit[1], "open for writing")
+            return real_open(file, mode, *a, **kw)
+
+        def _os_open(path, flags, *a, **kw):
+            if flags & guard._WRITE_FLAGS:
+                hit = guard._violation(path)
+                if hit:
+                    guard._refuse(hit[0], hit[1], "os.open for writing")
+            return real_os_open(path, flags, *a, **kw)
+
+        builtins.open, os.open = _open, _os_open
+
+        # The mutating path operations.  ``src``-side arguments are checked
+        # too for the two-path calls: a rename OUT of the repo destroys the
+        # cached artifact just as surely as one into it.
+        for name, n_paths in (("rename", 2), ("replace", 2), ("remove", 1),
+                              ("unlink", 1), ("rmdir", 1), ("mkdir", 1),
+                              ("makedirs", 1), ("truncate", 1)):
+            real = getattr(os, name, None)
+            if real is None:
+                continue
+            self._saved[name] = real
+
+            def _wrap(*a, _real=real, _n=n_paths, _nm=name, **kw):
+                for p in a[:_n]:
+                    hit = guard._violation(p)
+                    if hit:
+                        guard._refuse(hit[0], hit[1], f"os.{_nm}")
+                return _real(*a, **kw)
+
+            setattr(os, name, _wrap)
+
+        # shutil's copy family opens through ``builtins.open`` on CPython,
+        # but ``move`` can fall through to ``os.rename`` on the same device
+        # and ``copytree`` builds directories first — both already covered
+        # above.  Nothing further to patch; recorded so the next reader does
+        # not re-derive it.
+        del shutil
+        return self
+
+    def __exit__(self, *exc):
+        if not self.enabled:
+            return False
+        import builtins
+        if "open" in self._saved:
+            builtins.open = self._saved.pop("open")
+        if "os_open" in self._saved:
+            os.open = self._saved.pop("os_open")
+        for name, real in self._saved.items():
+            setattr(os, name, real)
+        self._saved = {}
+        return False
+
+
 def report_unauthorised_writes(changes: dict, requested: set,
                                prog) -> list:
     """Every shared-repo write this build made outside an authorised scope.
 
-    The harness cannot PREVENT a write inside the engine without touching
-    ``src/`` — so it makes one impossible to miss: named path, scope, and a
-    CONTAMINATED marker on the run, because a corpus that changed mid-build
-    is not the corpus the run started on and its numbers are not comparable
-    with the ones before it.
+    THE BACKSTOP.  :class:`SharedRepoWriteGuard` refuses these at the call
+    site now; this still runs, because the guard covers the Python level
+    and a C extension's own file handling does not pass through it.  A
+    write that reaches here got past the lock, so it is named with its
+    path, its scope, and a CONTAMINATED marker on the run — a corpus that
+    changed mid-build is not the corpus the run started on, and its numbers
+    are not comparable with the ones before it.
     """
     offenders = []
     for kind in ("added", "modified", "removed"):
@@ -802,8 +1035,19 @@ def diagnose_missing_sidecar(layout) -> str:
 
 def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
                 prog: Progress, const_dem=None,
-                allow_no_sidecar: bool = False) -> dict:
-    """One airport → ``<out>/<tag>.osm`` + its ``.axes.json`` sidecar."""
+                allow_no_sidecar: bool = False,
+                write_guard=None) -> dict:
+    """One airport → ``<out>/<tag>.osm`` + its ``.axes.json`` sidecar.
+
+    ``write_guard`` — a :class:`SharedRepoWriteGuard` (or ``None`` for the
+    default: nothing authorised, guard ARMED).  It is armed HERE, not in
+    ``main``, because ``main`` is not the only entry that builds:
+    ``tools/harness/oracle.py`` and ``tools/harness/who_wrote.py`` both
+    call this function directly, and those are the entries a lane actually
+    runs most.  Arming in the CLI only would have left every oracle and
+    every authorship trace free to regenerate the shared corpus — the
+    precise hole the road-feed precedent went through.
+    """
     for p in (root / "src", root, root / "tests", root / "tools"):
         if str(p) not in sys.path:
             sys.path.insert(0, str(p))
@@ -821,8 +1065,11 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
         prog.note(f"CONSTANT-DEM world: {const_dem} m (oracle build — this "
                   f"is a DEM SOURCE substitution, not a law gate)")
 
+    guard = write_guard if write_guard is not None else SharedRepoWriteGuard(
+        set(), root)
     t0 = time.time()
-    layout = build_airport_pavement(icao, xplane_root(), **kw)
+    with guard:
+        layout = build_airport_pavement(icao, xplane_root(), **kw)
     dt = time.time() - t0
     out_dir.mkdir(parents=True, exist_ok=True)
     osm = out_dir / f"{tag}.osm"
@@ -855,6 +1102,9 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
         "build_seconds": round(dt, 1), "shapes": len(layout.shapes),
         "body_sha256": body_sha256(osm),
         "sidecar_present": side.exists(),
+        "write_guard_armed": guard.enabled,
+        "write_guard_blocked": list(guard.blocked),
+        "dem_frame_effective": frame_surface_keys(root),
         "dem_inset_provenance": getattr(layout, "dem_inset_provenance", None),
         "anchor": (list(layout.anchor) if layout.anchor is not None else None),
     }
@@ -983,6 +1233,12 @@ def main(argv=None) -> int:
                     help="break a refresh lock whose holder process is gone "
                          "— a dead pid does NOT mean the write completed, "
                          "so inspect the cache first")
+    ap.add_argument("--allow-shared-repo-writes", action="store_true",
+                    help="DISARM the shared-repo write guard: let the build "
+                         "write unauthorised scopes and only report it "
+                         "afterwards.  For diagnosing what a build wants to "
+                         "write; the corpus every other lane reads changes "
+                         "under them if you use it.")
     ap.add_argument("--allow-private-data", action="store_true",
                     help="build against a PRIVATE data corpus instead of "
                          "the shared repo, KNOWINGLY (recorded); its "
@@ -1097,16 +1353,28 @@ def main(argv=None) -> int:
     prog.note(f"shared-repo snapshot: {len(before)} file(s) across "
               f"{len(SHARED_DATA_DIRS)} data dir(s)")
 
+    guard = SharedRepoWriteGuard(requested, root,
+                                 enabled=not args.allow_shared_repo_writes)
+    if guard.enabled:
+        prog.note(f"shared-repo write GUARD armed: writes outside "
+                  f"{sorted(requested) or 'any authorised scope'} are "
+                  f"REFUSED at the call, not merely reported afterwards")
+    else:
+        prog.note("shared-repo write guard DISARMED by flag — writes are "
+                  "detected after the fact only (the pre-fix behaviour)")
+
     t0 = time.time()
     try:
         if args.tile:
-            result = build_tile(lat, lon,
-                                args.build_dir or str(out_dir / f"tile_{tag}"),
-                                prog)
+            with guard:                    # build_patch arms its own
+                result = build_tile(
+                    lat, lon,
+                    args.build_dir or str(out_dir / f"tile_{tag}"), prog)
         else:
             result = build_patch(args.icao, root, out_dir, tag, prog,
                                  const_dem=args.dem,
-                                 allow_no_sidecar=args.allow_no_sidecar)
+                                 allow_no_sidecar=args.allow_no_sidecar,
+                                 write_guard=guard)
         result["wall_seconds"] = round(time.time() - t0, 1)
     finally:
         # The audit runs even when the build raised: a build that died
@@ -1134,6 +1402,9 @@ def main(argv=None) -> int:
     frame["shared_repo_writes"] = changes
     frame["unauthorised_writes"] = offenders
     frame["contaminated"] = bool(offenders)
+    frame["write_guard_armed"] = guard.enabled
+    frame["write_guard_blocked"] = guard.blocked
+    frame["dem_frame_effective"] = frame_surface_keys(root)
     frame["dem_inset_provenance"] = result.get("dem_inset_provenance")
     frame["dem_cache_after"] = (dem_cache_state(root, lat, lon)
                                 if lat is not None else None)

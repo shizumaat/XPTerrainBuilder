@@ -116,7 +116,6 @@ __all__ = [
     "ROLE_GRADE_LIMITS",
     "FLATNESS_CERTIFICATE_RATE_FACTOR",
     "FLAT_CERTIFICATE_COVERAGE",
-    "FLAT_AIRPORT_FAST_PATH",
     "REACH_BAND_CLUSTERS",
     "RASTER_REACH_BAND_CELL_M",
     "RASTER_REACH_BAND_CONNECTIVITY",
@@ -1699,17 +1698,25 @@ FLATNESS_CERTIFICATE_RATE_FACTOR = 0.6
 FLAT_CERTIFICATE_COVERAGE = (
     _os_early.environ.get("O4_FLAT_CERTIFICATE_COVERAGE", "1") == "1")
 
-# Whole-airport fast path (spec §3.3 ``O4_FLAT_AIRPORT_FAST_PATH``, Tier 2).
-# When a ``FlatAirportCertificate`` holds — every soft shape certifies under
-# the Tier-0/1 machinery, every runway's along-axis DEM relief fits the runway
-# profile budgets at ``FLATNESS_CERTIFICATE_RATE_FACTOR`` margin, and no
-# bridge / tunnel / crossing-terrain / object-pad subsystem claimed geometry —
-# the solve's reach bands, spine profile, body fill and feasibility iteration
-# collapse: every soft node takes its DEM seed value.  Default ON;
-# ``O4_FLAT_AIRPORT_FAST_PATH=0`` forces the normal solve for every airport
-# (the env-gate A/B inertness harness, spec §4.1).
-FLAT_AIRPORT_FAST_PATH = (
-    _os_early.environ.get("O4_FLAT_AIRPORT_FAST_PATH", "1") == "1")
+# WHOLE-AIRPORT FAST PATH: DELETED 2026-08-05 (fix cycle 2, item 1, verdict
+# (a) BROKEN LAW — a SEMANTIC BYPASS).  ``FLAT_AIRPORT_FAST_PATH`` /
+# ``O4_FLAT_AIRPORT_FAST_PATH`` / ``flat_airport_fast_path.py`` /
+# ``certify_flat_airport`` / ``apply_flat_airport_fast_path`` are gone.
+#
+# The Tier-2 path seeded every soft node at its DEM VALUE and skipped the reach
+# bands, the spine profile, the body fill and the feasibility iteration.  Under
+# the owner's DEM ruling (RULINGS 2026-08-05, "DEM is a SEED, nothing more")
+# that is not an optimisation with a provable precondition, it is a second
+# grading authority whose precondition is measured ON THE DEM: the certificate
+# asked "is the terrain flat enough that DEM ≈ law?" and, when it said yes,
+# emitted the TERRAIN instead of the law.  A genuinely slack constraint system
+# solves fast on its own; there is nothing to buy.
+#
+# The Tier-0/1 per-shape machinery it reused is a DIFFERENT thing and stays:
+# ``FLAT_CERTIFICATE_COVERAGE`` / ``FLATNESS_CERTIFICATE_RATE_FACTOR`` /
+# ``lazy_certified`` defer building a shape's eager edge SET, they never write
+# an elevation.  Deferring constraint construction is an optimisation;
+# substituting the seed for the solve is a bypass.
 
 # Reach-band cluster amortization (Tier 3 wave 1, ``O4_REACH_BAND_CLUSTERS``).
 # The dominant per-node reach-band cost (``building_feasibility.

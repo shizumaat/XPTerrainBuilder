@@ -833,3 +833,183 @@ def test_the_faa_fixture_is_in_the_acceptance_battery():
         f"the FAA fixture is not in the default battery: "
         f"{gate._GRADE_TEST_AIRPORTS}")
     assert "HECA" in gate._GRADE_TEST_AIRPORTS
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §6 THE FRAME KEYS AND THE WRITE GUARD (fix cycle 2, item 4)
+# ══════════════════════════════════════════════════════════════════════
+# Two halves of one property: a run's numbers are only comparable with
+# another run's if (a) both graded the SAME surface and (b) neither
+# CHANGED the corpus underneath the other.
+
+def test_the_install_paths_are_dem_frame_keys(build_mod):
+    """``cifp_data_path`` / ``custom_scenery_dir`` shape the SURFACE.
+
+    They were classified as "install-location settings, never law gates".
+    They select which apt.dat/CIFP corpus is read, and the airport
+    elevation INSET is cut against the footprint mask derived from it — so
+    two lanes on two installs grade two different inset surfaces while
+    every frame check reports agreement.
+    """
+    for key in ("cifp_data_path", "custom_scenery_dir"):
+        assert key in build_mod.DEM_FRAME_KEYS, (
+            f"{key} shapes the inset surface via the airport footprint "
+            f"mask; it is a DEM frame key, not a file location")
+    assert "custom_overlay_src" not in build_mod.DEM_FRAME_KEYS, (
+        "overlays are consumed after the patch and touch no inset — "
+        "widening the frame beyond its mechanism makes it noise")
+
+
+def test_an_UNSET_install_path_is_not_a_frame_divergence(build_mod, tmp_path):
+    """Empty means "the harness supplies the owner's", not "a different
+    corpus".  Every lane worktree ships these empty, so treating empty as
+    a divergence would refuse every build in the repo for a difference
+    that does not exist at run time."""
+    owner = tmp_path / "owner.cfg"
+    owner.write_text("cifp_data_path=/X/CIFP\ncustom_scenery_dir=/X/CS\n"
+                     "apt_smoothing_pix=8\n")
+    lane = tmp_path / "lane"
+    lane.mkdir()
+    (lane / "Ortho4XP.cfg").write_text(
+        "cifp_data_path=\ncustom_scenery_dir=\napt_smoothing_pix=8\n")
+    assert build_mod.cfg_frame_diff(lane, owner_cfg=owner) == {}
+    eff = build_mod.frame_surface_keys(lane, owner_cfg=owner)
+    assert eff["cifp_data_path"] == "/X/CIFP", (
+        "the frame record must carry the EFFECTIVE value — which corpus "
+        "cut the insets is a question asked of numbers already in a report")
+
+
+def test_a_DIFFERENT_install_path_IS_a_frame_divergence(build_mod, tmp_path):
+    owner = tmp_path / "owner.cfg"
+    owner.write_text("cifp_data_path=/X/CIFP\ncustom_scenery_dir=/X/CS\n")
+    lane = tmp_path / "lane"
+    lane.mkdir()
+    (lane / "Ortho4XP.cfg").write_text(
+        "cifp_data_path=/OTHER/CIFP\ncustom_scenery_dir=/X/CS\n")
+    diff = build_mod.cfg_frame_diff(lane, owner_cfg=owner)
+    assert set(diff) == {"cifp_data_path"}
+    assert diff["cifp_data_path"] == ("/OTHER/CIFP", "/X/CIFP")
+
+
+def test_the_write_guard_BLOCKS_an_unauthorised_shared_repo_write(
+        build_mod, tmp_path):
+    """THE PREVENTER, on the named precedent's own path.
+
+    The re-baseline caught ``OSM_data/_airport_road_feed/*_road_feed.cache``
+    written by two live builds and could only report it afterwards — from
+    six concurrent runs whose snapshots each saw both writes, so the
+    contamination flag was cross-attributed and the corpus had already
+    changed under every lane.  Refusing at the call attributes the write to
+    its author and leaves the corpus intact.
+    """
+    repo = tmp_path / "repo"
+    (repo / "OSM_data" / "_airport_road_feed").mkdir(parents=True)
+    lane = tmp_path / "lane"
+    lane.mkdir()
+    target = repo / "OSM_data" / "_airport_road_feed" / "CYXY_road_feed.cache"
+
+    with pytest.raises(build_mod.SharedRepoWriteBlocked) as exc:
+        with build_mod.SharedRepoWriteGuard(set(), lane, repo=repo):
+            open(target, "w").write("regenerated mid-build")
+    assert "CYXY_road_feed.cache" in str(exc.value)
+    assert "osm_roadfeed" in str(exc.value)
+    assert "--refresh-data" in str(exc.value), (
+        "the refusal must name the flag that would authorise it")
+    assert not target.exists(), "the guard must prevent, not just report"
+
+
+def test_the_write_guard_ALLOWS_an_authorised_scope(build_mod, tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "OSM_data" / "_airport_road_feed").mkdir(parents=True)
+    lane = tmp_path / "lane"
+    lane.mkdir()
+    target = repo / "OSM_data" / "_airport_road_feed" / "CYXY_road_feed.cache"
+    with build_mod.SharedRepoWriteGuard({"osm_roadfeed"}, lane, repo=repo):
+        open(target, "w").write("explicitly authorised")
+    assert target.read_text() == "explicitly authorised"
+
+
+def test_the_write_guard_leaves_reads_and_lane_products_alone(
+        build_mod, tmp_path):
+    """Reads are never touched, and ``Patches``/``Tiles`` are lane OUTPUT —
+    guarding them would break every build."""
+    repo = tmp_path / "repo"
+    (repo / "OSM_data").mkdir(parents=True)
+    (repo / "OSM_data" / "layer.osm").write_text("cached")
+    lane = tmp_path / "lane"
+    (lane / "Patches").mkdir(parents=True)
+    with build_mod.SharedRepoWriteGuard(set(), lane, repo=repo):
+        assert open(repo / "OSM_data" / "layer.osm").read() == "cached"
+        open(lane / "Patches" / "out.osm", "w").write("lane product")
+    assert (lane / "Patches" / "out.osm").exists()
+
+
+def test_the_write_guard_follows_the_lane_mount_symlinks(build_mod, tmp_path):
+    """A lane writes ``OSM_data/...`` RELATIVE, through a symlink into the
+    shared repo — the path string never mentions the repo at all, which is
+    exactly how a textual check would miss every real case."""
+    repo = tmp_path / "repo"
+    (repo / "OSM_data" / "_airport_road_feed").mkdir(parents=True)
+    lane = tmp_path / "lane"
+    lane.mkdir()
+    (lane / "OSM_data").symlink_to(repo / "OSM_data")
+    guard = build_mod.SharedRepoWriteGuard(set(), lane, repo=repo)
+    hit = guard._violation(
+        str(lane / "OSM_data" / "_airport_road_feed" / "X_road_feed.cache"))
+    assert hit == ("OSM_data/_airport_road_feed/X_road_feed.cache",
+                   "osm_roadfeed")
+
+
+def test_the_write_guard_restores_every_hook_it_installed(build_mod, tmp_path):
+    """An instrument that leaks its own monkeypatches poisons the process
+    it was supposed to observe."""
+    import builtins
+    before = (builtins.open, os.open, os.rename, os.replace, os.remove,
+              os.makedirs)
+    lane = tmp_path / "lane"
+    lane.mkdir()
+    with build_mod.SharedRepoWriteGuard(set(), lane, repo=tmp_path / "repo"):
+        assert builtins.open is not before[0]
+    after = (builtins.open, os.open, os.rename, os.replace, os.remove,
+             os.makedirs)
+    assert before == after
+
+
+def test_the_detector_SURVIVES_the_preventer(build_mod):
+    """Defence in depth: the guard covers the Python level, and a C
+    extension's own file handling does not pass through it.  Deleting the
+    after-the-fact snapshot audit because a lock exists would trade a
+    complete-but-late instrument for an early-but-partial one."""
+    src = (HARNESS / "build_airport.py").read_text()
+    assert "def report_unauthorised_writes(" in src
+    assert "shared_repo_snapshot()" in src
+    assert "frame[\"contaminated\"]" in src
+
+
+def test_the_write_guard_is_armed_by_the_BUILD_ENTRY_not_only_the_cli(
+        build_mod):
+    """``oracle.py`` and ``who_wrote.py`` call ``build_patch`` DIRECTLY.
+
+    Arming the guard in ``main`` only would have left every oracle run and
+    every authorship trace free to regenerate the shared corpus — and those
+    are the entries a lane actually runs most.  ``build_patch`` therefore
+    arms its own (defaulting to "nothing authorised") and ``main`` hands
+    its own guard down rather than wrapping the call.
+    """
+    import inspect
+    sig = inspect.signature(build_mod.build_patch)
+    assert "write_guard" in sig.parameters
+    src = inspect.getsource(build_mod.build_patch)
+    assert "SharedRepoWriteGuard(" in src, (
+        "build_patch must arm a guard when its caller passes none")
+    assert "with guard:" in src
+
+
+def test_every_build_result_carries_the_frame_and_guard_state(build_mod):
+    """The frame record has to be IN the artifact: "which corpus cut the
+    insets" is a question asked of numbers that are already in a report."""
+    import inspect
+    src = inspect.getsource(build_mod.build_patch)
+    for key in ("write_guard_armed", "write_guard_blocked",
+                "dem_frame_effective"):
+        assert f'"{key}"' in src, f"build_patch result omits {key}"

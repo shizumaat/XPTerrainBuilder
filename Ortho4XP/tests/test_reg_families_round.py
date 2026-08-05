@@ -509,6 +509,65 @@ def test_b3_validator_twin():
     assert "drain_min, n_dm_pairs, n_dm_ways = _check_drainage_minimum(" in src
 
 
+def test_b3_the_walk_set_names_only_roles_the_ENGINE_EMITS():
+    """The §B3 walk set must be reachable — fix cycle 2 item 5, verdict (d).
+
+    It was ``("apron", "stand", "groundside", "parking")``, hand-typed.
+    Exactly ONE of those four ("apron") is a role this engine emits: the
+    landside role literal is ``groundside_pavement``, and ``stand`` /
+    ``groundside`` / ``parking`` appear in no ``layout.ROLE_*`` constant at
+    all.  So ``_check_drainage_minimum`` walked past every groundside way
+    and the groundside half of §B3 never ran — while ``grade_law`` carried
+    a live 1.0 % minimum for it.
+
+    The failure was SILENT by construction: an unreachable role filter and
+    a fully compliant airport both report zero rows.  Only the emitted-role
+    join can tell them apart, so that join is the test.
+    """
+    import tools.check_grade as CG
+    import auto_patch.layout as LAY
+
+    emitted = {getattr(LAY, n) for n in dir(LAY) if n.startswith("ROLE_")}
+    reachable = set(CG._DRAINAGE_MIN_ROLES) & emitted
+    assert "groundside_pavement" in reachable, (
+        "the groundside half of the drainage minimum is unreachable: "
+        f"walk set {sorted(CG._DRAINAGE_MIN_ROLES)} does not admit the "
+        f"emitted landside role 'groundside_pavement'")
+    assert "apron" in reachable, "the apron half is unreachable"
+
+
+def test_b3_the_walk_set_is_DERIVED_from_the_law_not_typed():
+    """Emitter and validator read ONE role set.
+
+    ``_DRAINAGE_MIN_ROLES`` is built from ``grade_law``'s own frozensets,
+    so a role added to the law is walked by the census in the same commit.
+    A hand-typed copy is what produced the unreachable set above, and a
+    second copy would just re-arm it.
+    """
+    import tools.check_grade as CG
+
+    assert set(CG._DRAINAGE_MIN_ROLES) == (
+        set(GL._ADJACENT_APRON_ROLES) | set(GL._DRAINAGE_MIN_GROUNDSIDE_ROLES))
+    # and every role the law grants a minimum to is in fact walked
+    for role in set(CG._DRAINAGE_MIN_ROLES):
+        assert GL.drainage_minimum_grade(role, "faa") is not None, (
+            f"{role!r} is walked but the law grants it no minimum under FAA "
+            f"— the walk set drifted above the law")
+
+
+def test_b3_groundside_pavement_carries_the_groundside_minimum():
+    """The EMITTED role literal, not the abstract family name.
+
+    ``grade_law._DRAINAGE_MIN_GROUNDSIDE_ROLES`` already listed
+    ``groundside_pavement`` — the law was right and the instrument was
+    wrong, which is why the census read zero for months.
+    """
+    for key in ("faa", "icao"):
+        assert GL.drainage_minimum_grade("groundside_pavement", key) == 0.010
+        assert GL.drainage_minimum_shortfall(
+            0.0, "groundside_pavement", key) == pytest.approx(0.010)
+
+
 # ══════════════════════════════════════════════════════════════════════
 # THE GATE SWEEP (docs/RULINGS.md 2026-08-05, build-complete-then-debug)
 # ══════════════════════════════════════════════════════════════════════

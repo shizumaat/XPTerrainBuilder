@@ -52,3 +52,32 @@ Suite: same reds vs matched control; twins: the dead-zone synthetic
 STOP: default-surface change (report, do not land ungated); any new
 over-cap; composed HEAZ still aborts (the joint-follow design (b)
 returns to the designer); second miss.
+
+## LEAD AMENDMENTS + VERDICT (2026-08-05 05:00, spec author; evidence
+## scratchpad deadzone/)
+
+Two spec statements corrected by measurement (the twins forced both):
+1. The "÷2 split drains ~9 mm each" sentence is FALSE — an 8.7 mm
+   split dies at the hook's pre-existing move<=0.01 kill; the
+   smallest drainable split deficit is just over 0.02 m. What the
+   tolerance buys at HEAZ is the extra demands that keep convergence
+   running (4→5 rounds). The move-kill constant stands (a second
+   constant is a design call deferred to the flip adjudication).
+2. The HEAZ-solo stress item is unmeetable by this change and is
+   REPLACED by the measured 2x2: solo aborts in both gate states;
+   composed (DEM-follow + SELF_UNLOCK + fine tolerance) builds rc=0
+   at the control's 2 sub-materiality inversions. Solo was never a
+   flip candidate (the pairing law binds SELF_UNLOCK to DEM-follow).
+
+VERDICT: LANDED GATED (O4_FLEX_DEMAND_TOL_FINE default "0";
+byte-inert proven — a1ade8bd reproduces). THE COMPOSED-WORLD ABORT IS
+CLEARED. Composed-world census at the gated arms: HECA 8865→8229
+(−636, flexconv (ii) B2 line reproduced verbatim), KCLT DEM-follow
+2514→2020 (−494 vs the refreshed-data control 1cc33da3), CYXY no
+regression, HEAZ +13 report-only in the gated world. The tolerance is
+a no-op in the composed worlds (byte-identical between gate states)
+— its only surface effect anywhere is HECA's default-world
+census-neutral 126-node flip, which the gate holds for the next tip.
+Flip-batch composition for the next tip: DEM-follow + SELF_UNLOCK +
+TOL_FINE travel TOGETHER (+ terrace v2's verdict + the corner-class
+fix owed first).

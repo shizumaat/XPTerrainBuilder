@@ -319,3 +319,33 @@ groundside if time allows." Binding for the 06:00 train and after:
    airside).
 3. The release bar is ZERO ADJUDICATED AIRSIDE DEFECTS on the battery
    airports; groundside residue ships named in the release notes.
+
+## 2026-08-05 ~05:50 — BUILD-COMPLETE-THEN-DEBUG (owner; supersedes the
+## gating/train discipline for development)
+
+Owner: the last months were prototyping/experimenting/learning — done.
+We have the target architecture. Until the FULL system is implemented
+and there ARE NO gates, errors are expected — so no intermediate
+testing ceremony. Write ALL the grade laws and the systems to build
+and verify, THEN start testing and bug fixing.
+
+Binding consequences:
+1. NO GATES. Every believed-in law becomes standing law; O4_ law gates
+   and their env overrides are DELETED as their territory is touched.
+   Byte-identity proofs, A/B arms, per-change batteries, flip trains,
+   anchor-minting ceremony: RETIRED for development. Kept: determinism,
+   the unit suite, the lockstep census as the one instrument, and
+   certify-or-fail-loud in the solve.
+2. Implementers DECIDE-AND-NOTE deviations toward the target
+   architecture instead of STOP-and-wait; only a genuine architecture
+   ambiguity escalates.
+3. The target architecture (owner-ruled, unchanged): ingest all data →
+   refine all geometry → ONE elevation solve carrying ALL grade law →
+   emitters emit, never grade; single authority everywhere; airside
+   solves first, groundside conforms; zero airside errors BY
+   CONSTRUCTION — the census's only nonzero content is declared
+   structures + terrain-vs-law tensions surfaced as named owner
+   rulings.
+4. Testing begins when the complete system builds: composed HECA+KCLT
+   per debug cycle, airside census strictly decreasing to
+   zero-plus-declared.

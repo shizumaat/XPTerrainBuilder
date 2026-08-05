@@ -108,6 +108,37 @@ def _split(decision):
 
 
 class TestSkippedSupporterTakesItsInheritorsWithIt:
+    """PRECONDITION RE-PINNED 2026-08-04 (landing commit 66a0a67,
+    "Object seating: per-cluster law default ON").
+
+    The supporter-FATE law itself is unchanged and still default-on
+    (``object_anchor.py`` ~line 2425 runs in both worlds).  What 66a0a67
+    changed is how a supporter comes to be SKIPPED: the rigid-seat span
+    limit no longer refuses an over-span structure outright — it
+    partitions it into clusters and bakes-and-pads each
+    (``_seat_clustered_structure``, spec section 4.3), and a structure
+    only inherits a ``skip_reason`` when EVERY one of its clusters is
+    refused.  ``_WIDE_CHAIN`` therefore stops being a skipped supporter
+    under the default gate, and these three tests died on
+    ``skip_reason is None`` — a stale PRECONDITION, not a broken law.
+
+    Interventional check: with ``O4_OBJECT_CLUSTER_SEATING=0`` (or the
+    monkeypatch below) all three pass unchanged at this HEAD; the fixture
+    below is the pre-66a0a67 arm of a live gate, so the fate law keeps a
+    hermetic witness.
+
+    KNOWN COVERAGE GAP, deliberately reported rather than papered over:
+    no test in this repo constructs a skipped supporter under the DEFAULT
+    (cluster-seating ON) world, where the only surviving refusal path is
+    the per-cluster amendment-A3 robust gate.  Closing that needs an A3
+    fixture, which is a solver-side design question, not test
+    maintenance.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _pre_cluster_span_skip(self, monkeypatch):
+        monkeypatch.setattr(config, "DSF_OBJECT_CLUSTER_SEATING", False)
+
     def test_inheritor_of_a_skipped_supporter_is_skipped_and_counted(
         self, plane_sampler
     ):

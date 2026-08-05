@@ -71,14 +71,41 @@ def _single_resource_decision(geometry, sampler, resource="chain.obj"):
 
 
 class TestGroundSpanBakeLimit:
-    def test_high_span_chained_structure_is_left_at_authored_elevations(
+    def test_high_span_chained_structure_is_seated_per_cluster(
         self, plane_sampler
     ):
+        """RE-PINNED 2026-08-04 (landing commit 66a0a67, "Object seating:
+        per-cluster law default ON (HECA skips 6386->41)"; design
+        ``docs/specs/per-cluster-object-seating-spec.md`` section 4.3).
+
+        This test was named
+        ``test_high_span_chained_structure_is_left_at_authored_elevations``
+        and asserted the STRUCTURE-wide span skip.  66a0a67 deliberately
+        reversed that outcome — ``object_anchor._seat_clustered_structure``
+        states it in the code: "a cluster over
+        ``DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M`` is no longer refused
+        outright... refusing a real terminal zone and leaving it at
+        authored elevations is the failure this whole spec exists to
+        fix."  The rigid-seat span limit survives as a per-CLUSTER
+        accumulation guard, so the same geometry now partitions into two
+        clusters, each seated at its own median, with the elevated beam's
+        residual REPORTED as a bridge seam rather than averaged across.
+
+        Interventional check that the flip (and nothing else) is the
+        cause: with ``O4_OBJECT_CLUSTER_SEATING=0`` the pre-66a0a67
+        structure-wide skip reappears and the original assertions all
+        hold — that arm is pinned in ``TestGroundSpanBakeLimitGateOff``
+        below.
+
+        Measured at this HEAD (default gate ON): skip_reason None,
+        ground_span 13.98 m (still over the 3.0 m limit — the STRUCTURE
+        statistic is still reported), 2 clusters, 24 vertex deltas in
+        two distinct values (1.398 / 15.373 m), 1 bridge seam, nothing
+        in ``decision.skipped``."""
         # One structure of three parts chained by sub-epsilon gaps: two
         # ground slabs 50 m apart on the plane's slope (an EGGW-style
         # connector chain in miniature) plus an elevated beam bridging
-        # them.  The ground span (~14 m) far exceeds the 3.0 m rigid-seat
-        # limit, so the whole structure is skipped and carries no delta.
+        # them.
         geometry = compound_geometry(
             (0.0, 10.0, 0.0, 1.0, 0.0, 10.0),        # west ground slab
             (10.1, 49.9, 0.6, 1.0, 0.0, 10.0),       # elevated beam
@@ -89,22 +116,26 @@ class TestGroundSpanBakeLimit:
         )
         updated = decision.structures[0]
 
-        assert updated.skip_reason is not None
-        assert GROUND_SPAN_SKIP_PHRASE in updated.skip_reason
-        assert "left at authored elevations" in updated.skip_reason
-        # The reason quotes the measured span to one decimal.
-        assert (
-            f"ground span {updated.ground_span_metres:.1f} m"
-            in updated.skip_reason
-        )
+        # The structure is NOT skipped: each cluster is a rigid body the
+        # seat can actually satisfy.
+        assert updated.skip_reason is None
+        assert decision.skipped == []
+        # The structure-wide span statistic is still measured and still
+        # over the rigid-seat limit — it is the ACTION that changed, not
+        # the measurement.
         assert (
             updated.ground_span_metres
             > config.DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M
         )
-        # Skipped structures carry NO delta — nothing is baked for them,
-        # so the byte-idempotent rewrite (and the reversion pass) leave
-        # every vertex at its authored y.
-        assert "chain.obj" not in decision.delta_by_resource_and_vertex
+        # Both ground slabs bake, each at its OWN cluster's median, so
+        # the resource carries deltas and they are not all one value.
+        deltas = decision.delta_by_resource_and_vertex["chain.obj"]
+        assert len({round(v, 3) for v in deltas.values()}) == 2, (
+            "the two ground slabs must seat independently — one shared "
+            f"delta means the clusters merged: {sorted(set(deltas.values()))}")
+        # The elevated beam spans both clusters; its residual toward the
+        # cluster it did not join is REPORTED, never averaged (spec 4.5).
+        assert [s for s in decision.cluster_seams if s.kind == "bridge"]
 
     def test_span_at_or_under_the_limit_bakes_exactly_as_before(
         self, plane_sampler
@@ -176,6 +207,50 @@ class TestGroundSpanBakeLimit:
             assert GROUND_SPAN_SKIP_PHRASE not in updated.skip_reason
         # The feet path still bakes a rigid offset for the object.
         assert "gantry.obj" in decision.delta_by_resource_and_vertex
+
+
+class TestGroundSpanBakeLimitGateOff:
+    """The pre-66a0a67 structure-wide span skip, on the arm that still
+    reaches it.
+
+    ADDED 2026-08-04 alongside the re-pin above.  ``DSF_OBJECT_CLUSTER_SEATING``
+    (config.py, ``O4_OBJECT_CLUSTER_SEATING``) is a LIVE gate whose OFF arm
+    is the pre-per-cluster world, and this class is the assertions the old
+    ``test_high_span_chained_structure_is_left_at_authored_elevations``
+    made — kept rather than deleted, so the flip stays a measured
+    difference and not a story about one.
+    """
+
+    def test_high_span_chain_is_left_at_authored_elevations(
+        self, plane_sampler, monkeypatch
+    ):
+        monkeypatch.setattr(config, "DSF_OBJECT_CLUSTER_SEATING", False)
+        geometry = compound_geometry(
+            (0.0, 10.0, 0.0, 1.0, 0.0, 10.0),        # west ground slab
+            (10.1, 49.9, 0.6, 1.0, 0.0, 10.0),       # elevated beam
+            (50.0, 60.0, 0.0, 1.0, 0.0, 10.0),       # east ground slab
+        )
+        _structures, decision = _single_resource_decision(
+            geometry, plane_sampler
+        )
+        updated = decision.structures[0]
+
+        assert updated.skip_reason is not None
+        assert GROUND_SPAN_SKIP_PHRASE in updated.skip_reason
+        assert "left at authored elevations" in updated.skip_reason
+        # The reason quotes the measured span to one decimal.
+        assert (
+            f"ground span {updated.ground_span_metres:.1f} m"
+            in updated.skip_reason
+        )
+        assert (
+            updated.ground_span_metres
+            > config.DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M
+        )
+        # Skipped structures carry NO delta — nothing is baked for them,
+        # so the byte-idempotent rewrite (and the reversion pass) leave
+        # every vertex at its authored y.
+        assert "chain.obj" not in decision.delta_by_resource_and_vertex
 
 
 class TestStaleBakeRestoreOnSkip:

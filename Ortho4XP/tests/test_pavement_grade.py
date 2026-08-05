@@ -63,6 +63,41 @@ WITHIN_SHAPE_CAP = 0
 MID_EDGE_CAP = 0
 
 
+# ══════════════════════════════════════════════════════════════════════
+# ADJUDICATED RED, 2026-08-04 (test-maintenance lane) — REAL DEFECT
+# WITNESSES, DELIBERATELY NOT MARKED.
+#
+# Five of the suite's standing reds live in this module:
+# ``test_pavement_grade`` for SPJC / SPLP / CYXY / HECA, and
+# ``test_runway_longitudinal_grade[HECA]``.  Measured at HEAD (e07a3f6),
+# full battery, law-true frame:
+#   CYXY   cross=0  steps=0    within=155
+#   SPLP   cross=0  steps=26   within=44    (worst step 5.79 m)
+#   SPJC   cross=0  steps=0    within=1361
+#   HECA   cross=0  steps=131  within=9125
+#   HECA runway 05C/23C longitudinal 2.45% against the 1.50% cap
+#     @ 30.10458,31.40419
+# These reconcile with the campaign census minted at the c48ce36 tip
+# (SPJC 1366, SPLP 27, CYXY 155, HECA 9125), i.e. this gate and the
+# census are measuring the same population.
+#
+# They are NOT stale expectations and NOT broken tests: the caps above
+# are the universal zero the owner set (2026-05-31), and this module is
+# the campaign's own acceptance instrument for the five-airport
+# law-compliance goal.
+#
+# WHY NO ``xfail(strict=True)`` DRAIN-LEDGER MARKER.  The drain ledger
+# exists to keep a known defect VISIBLE while the suite goes green
+# around it.  These five are already maximally visible — they are the
+# number the campaign is driving to zero.  Marking them would (a)
+# manufacture a green suite that asserts nothing about the goal, and
+# (b) break the instrument, since a strict xfail turns every partial
+# win into a suite failure.  A smaller honest red set beats a fake
+# green: these stay RED until the surface is lawful, which is the
+# definition of done.
+# ══════════════════════════════════════════════════════════════════════
+
+
 def _airport_tiles(icao: str, root: str):
     """Integer ``(lat, lon)`` tiles the airport's pavement occupies.
 

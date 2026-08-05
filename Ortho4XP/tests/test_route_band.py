@@ -49,7 +49,30 @@ from conftest import cached_airport_layout
 # raw-DEM seam pins (2026-07-24 ruling) impose on the neighbouring junctions is
 # covered by that yield — never by a widened constant — and the yield goes inert
 # the moment the runway profile lands those pins back inside the band.
-_KNOWN_RED = {"CYXY", "HECA"}
+# DRAIN LEDGER ITEM CLOSED 2026-08-04 (test-maintenance lane) — CYXY
+# REMOVED from this set, so its zero-outcome is now a LIVE GUARD.
+#
+# The marker's own contract was "flips to XPASS the moment the
+# solver/rule lands every airside vertex in its band".  That happened
+# and has held: ``test_route_band_zero[CYXY]`` is recorded as XPASS in
+# 17 separate ledgered full-suite runs spanning 15 distinct code trees
+# (``constants_absorb`` 2026-08-03 through ``seedfix-suite-lane``
+# 2026-08-04), plus the 2026-08-04 baseline run at e07a3f6 — 18 in a
+# row, never once xfailing.  It was ``strict=False``, so it could and
+# did start passing silently; leaving it would have kept a solved
+# infeasibility indefinitely invisible, which is the exact hole the
+# drain ledger exists to close.  Same disposition as c48ce36's two.
+#
+# What actually closed it: CYXY's remaining raw route-band violations
+# are all junction-role and inside the documented grid-discretization
+# bound ``RASTER_REACH_BAND_GRID_RESIDUAL_M``, which
+# ``test_route_band_zero`` filters unconditionally (2026-07-29, one band
+# engine).  The raw check still finds them — that is what keeps
+# ``test_route_band_flags_cyxy_apron_ceiling`` above honest — so the two
+# tests measure different populations ON PURPOSE and do not contradict.
+#
+# HECA stays: it xfailed in the same runs, still a real infeasibility.
+_KNOWN_RED = {"HECA"}
 _FIXTURES = ["SPJC", "CYXY", "SPLP", "HECA"]
 
 

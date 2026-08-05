@@ -236,9 +236,23 @@ def _seam_runway_layout():
     s = _Shape(ROLE_RUNWAY, Polygon(ring), ref="09/27")
     seam_keys = {vertex_bucket(HALF, -HW), vertex_bucket(HALF, HW)}
     L = _Layout([s], seam_keys=seam_keys)
+    # FIXTURE COMPLETED 2026-08-04 (landing commit d371e68, "Working-tree
+    # snapshot: remaining uncommitted engine work", which added
+    # ``crown._rail_continuous_drops``).  ``axis_len2`` — the squared
+    # length of the axis displacement — is part of the record
+    # ``redistribute_runway_profile`` writes
+    # (runway_redistribute.py:1216-1218) and
+    # ``sample_redistributed_profile`` indexes it unconditionally
+    # (runway_redistribute.py:246).  Before d371e68 nothing in
+    # ``build_crown_drop_field`` sampled the profile, so this hand-built
+    # stub could omit the key; after it, every test in this module died on
+    # ``KeyError: 'axis_len2'`` inside production code — a stale FIXTURE,
+    # not a law failure.  ``axis_d`` is the raw displacement (b - a), so
+    # ``axis_len2`` is its squared norm.
     L._runway_redistributed_profiles = {
         "09/27": {"crown_drop_m": UNIFORM, "half_width_m": HW,
                   "axis_a": (HALF, 0.0), "axis_d": (1000.0 - HALF, 0.0),
+                  "axis_len2": (1000.0 - HALF) ** 2,
                   "fractions": [0.0, 1.0], "elevs": [10.0, 20.0]}}
     return L, ring
 
@@ -283,18 +297,45 @@ def test_field_ramps_monotonically_and_within_the_rate():
 
 def test_field_never_exceeds_the_ramp_rule():
     """The ramp is the OUTERMOST min, so it is a hard ceiling on every
-    node — the other crown terms may only push a node further DOWN."""
+    node — the other crown terms may only push a node further DOWN.
+
+    RE-PINNED 2026-08-04 (landing commit d371e68, which added
+    ``crown._rail_continuous_drops``).  The CEILING half above is the law
+    and is unchanged.  The old second half additionally claimed "nothing
+    else should bind in this geometry — the ramp is the only active cap
+    inside its zone"; that was a statement about the FIXTURE, and d371e68
+    made it false by adding RAIL CONTINUITY, a later cap that RELEASES
+    the crown at ring vertices where holding it would break the runway
+    profile's own grade budget (the build prints "[crown] rail
+    continuity: released the crown at 4 runway ring vertex(es)").
+
+    Measured at this HEAD on this fixture: 14 of the 18 ring nodes sit
+    exactly on the rule; the 4 releases are the x=20 and x=40 nodes on
+    both edges, at 0.0740 vs rule 0.0750 and 0.1730 vs rule 0.1750 —
+    i.e. 1-2 mm BELOW it.  A release is a push DOWN, so it obeys the
+    docstring's own rule; what it refutes is only the exclusivity
+    claim."""
     L, ring = _seam_runway_layout()
     by_pt, _ = _build_field(L, ring)
-    n_on_rule = 0
+    n_on_rule, released = 0, []
     for p in ring:
         d_cut = max(0.0, CR._seam_line_dist_m(L, p[0], p[1]) - HALF)
         rule = round(min(UNIFORM, RATE * d_cut), 3)
         assert by_pt[p] <= rule + 1e-9, f"{p}: {by_pt[p]} over rule {rule}"
-        n_on_rule += abs(by_pt[p] - rule) <= 1e-9
-    assert n_on_rule == len(ring), (
-        "nothing else should bind in this geometry — the ramp is the "
-        "only active cap inside its zone")
+        if abs(by_pt[p] - rule) <= 1e-9:
+            n_on_rule += 1
+        else:
+            released.append((p, rule - by_pt[p]))
+    # The ramp is still the SHAPING authority: it binds on the large
+    # majority of the ring, and every node off it is a rail-continuity
+    # release sitting a sub-centimetre distance BELOW it (never above).
+    assert n_on_rule >= len(ring) - 4, (
+        f"the ramp stopped binding: only {n_on_rule}/{len(ring)} nodes "
+        f"sit on the rule (off-rule: {released})")
+    for p, slack in released:
+        assert 0.0 < slack <= 0.01, (
+            f"{p}: off-rule by {slack:.4f} m — not the sub-centimetre "
+            "rail-continuity push-down d371e68 introduced")
 
 
 def test_gate_off_restores_the_pre_ruling_crown_at_the_cut_edge(monkeypatch):

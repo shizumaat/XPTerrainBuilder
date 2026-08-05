@@ -703,8 +703,27 @@ class TestResaCrownFrontier:
             polygon=rect, role="runway", ref="09-27",
             altitude_high=_RUNWAY_ALT, altitude_low=_RUNWAY_ALT))
         layout.shapes.extend(extra_shapes)
+        # FIXTURE COMPLETED 2026-08-04 (landing commit d371e68, which
+        # added ``crown._rail_continuous_drops``).  This stub carried only
+        # ``crown_drop_m`` because nothing in ``build_crown_drop_field``
+        # sampled the redistributed profile before d371e68; after it, all
+        # three tests in this class died on ``KeyError: 'axis_a'`` inside
+        # ``runway_redistribute.sample_redistributed_profile`` — a stale
+        # FIXTURE, not a law failure.  The remaining keys are the record
+        # ``redistribute_runway_profile`` actually writes
+        # (runway_redistribute.py:1216-1222).  The profile is FLAT at
+        # ``_RUNWAY_ALT``, which is this fixture's own declared world
+        # (the runway shape is built with altitude_high == altitude_low
+        # == _RUNWAY_ALT), so completing it adds no slope the test never
+        # asked for.
         layout._runway_redistributed_profiles = {
-            "09-27": {"crown_drop_m": crown_drop}}
+            "09-27": {"crown_drop_m": crown_drop,
+                      "axis_a": (0.0, 0.0),
+                      "axis_d": (_RUNWAY_LEN, 0.0),
+                      "axis_len2": _RUNWAY_LEN ** 2,
+                      "half_width_m": _HALF_WIDTH,
+                      "fractions": [0.0, 1.0],
+                      "elevs": [_RUNWAY_ALT, _RUNWAY_ALT]}}
         cps = layout.canonical_points
         nodes, b2i = [], {}
         for s in layout.shapes:

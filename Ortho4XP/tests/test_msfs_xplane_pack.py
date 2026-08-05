@@ -345,6 +345,56 @@ requires_dsftool = pytest.mark.skipif(
 )
 
 
+# DRAIN LEDGER ITEM OPENED 2026-08-04 (test-maintenance lane).  This is a
+# REAL, ATTRIBUTED src defect, not a stale expectation — it is marked
+# ``xfail(strict=True)`` so it stays visible, cannot silently start
+# passing, and flips to a LOUD XPASS the moment the one-line fix lands.
+#
+# DEFECT.  ``src/O4_MSFS_XPlane_Pack.py`` (``_build_tile_dsf_text``,
+# the ``else`` branch around line 582) emits elevated placement rows as
+#
+#     OBJECT_AGL/OBJECT_MSL <def> <lon> <lat> <heading> <altitude>
+#
+# but DSFTool's text grammar for those two row types is
+#
+#     OBJECT_AGL/OBJECT_MSL <def> <lon> <lat> <elevation> <rotation>
+#
+# i.e. the last two fields are SWAPPED.  DSFTool then validates the
+# altitude as a rotation and rejects anything outside [0, 360]:
+# ``ERROR: could not place object`` (DSFLibWrite.cpp:1730).
+#
+# INTERVENTIONAL MEASUREMENT (2026-08-04, bundled Utils/mac/DSFTool).
+# Feeding DSFTool hand-written rows for the same placement:
+#   * production order  ``... 45.000000 938.000``  -> exit 1, "could not
+#     place object";
+#   * swapped order     ``... 938.000 45.000000``  -> exit 0, and
+#     ``--dsf2text`` round-trips it back as
+#     ``OBJECT_MSL 0 -121.158001450 44.256998169 938.000000000 44.995193``.
+# Bisecting the altitude on the production order puts the accepted range
+# at exactly [0.0, 360.0005] and rejects negatives — the rotation
+# domain, which is the mechanism, not a coincidence.  The same failure
+# reproduces on OBJECT_AGL (16.25 m passes only because it happens to
+# fall inside the rotation range; 938 m AGL fails identically).
+#
+# WHY IT SURVIVED.  The headless unit test
+# ``test_dsf_text_places_altitude_as_agl_msl_or_draped`` above is GREEN
+# and pins the SAME wrong order (``endswith("16.250")`` /
+# ``endswith("-2.500")``).  Only this real-DSFTool round-trip can see it.
+# The src fix must therefore flip BOTH: swap the two format fields in
+# ``_build_tile_dsf_text`` and re-pin that unit test's expected rows.
+#
+# NOT FIXED HERE: src/ is outside the test-maintenance lane's territory.
+@pytest.mark.xfail(strict=True, reason=(
+    "src defect (attributed 2026-08-04): _build_tile_dsf_text emits "
+    "OBJECT_AGL/OBJECT_MSL as <def> <lon> <lat> <heading> <altitude>, but "
+    "DSFTool's grammar is <def> <lon> <lat> <elevation> <rotation> — the "
+    "last two fields are swapped, so DSFTool validates the altitude as a "
+    "rotation and refuses anything outside [0, 360] with 'could not place "
+    "object' (DSFLibWrite.cpp:1730).  Measured: swapping the two fields "
+    "makes the same row text2dsf/dsf2text round-trip cleanly.  Flips to "
+    "XPASS when src/O4_MSFS_XPlane_Pack.py is fixed (which must also "
+    "re-pin test_dsf_text_places_altitude_as_agl_msl_or_draped above, "
+    "which co-pins the wrong order)."))
 @requires_dsftool
 def test_write_overlay_dsf_round_trips_through_dsftool(tmp_path):
     pack_directory = tmp_path / "MSFS Convert - TEST"

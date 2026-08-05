@@ -43,6 +43,51 @@ import pytest
 from conftest import xplane_available, xplane_root
 
 
+# ══════════════════════════════════════════════════════════════════════
+# ADJUDICATED RED, 2026-08-04 (test-maintenance lane) — STALE FIXTURES.
+# All three gates in this module (SPJC + both SPLP tiles) are RED at
+# HEAD and have been for the whole campaign.  The cause is NOT a
+# regression in the builder; it is that the target fixtures are stale.
+# Recorded here so the next session does not re-derive it.
+#
+# EVIDENCE.
+# 1. The fixtures have never been re-cut since the engine was vendored:
+#    ``git log -1 -- tests/fixtures/SPJC_target.osm`` is 38b3eaf
+#    (2026-07-20), and 73 commits have touched ``src/auto_patch/`` since.
+#    The notes below stop at the 2026-07-17b cut.
+# 2. A whole ROLE that did not exist at cut time is now emitted:
+#    ``ols_cut`` (``layout.ROLE_OLS_CUT``, introduced by 3cdc8a3
+#    "Runway-end + pocket + OLS round") shows target=0 against out=17
+#    (SPJC), out=6 (SPLP -77) and out=3 (SPLP -78).  A role can only
+#    read target=0 / out>0 if the emitter landed after the fixture.
+#    ``service_junction`` (SPLP target=0, out=9 / out=18) and
+#    ``tunnel_ramp`` (SPLP -78 target=0, out=7) are the same shape.
+# 3. The fixture and the floors below are DESYNCED from each other:
+#    the SPJC floor comment records retaining_wall as "9 of 9 current",
+#    but the fixture it is compared against carries target=40 (out=6).
+#    The two inputs to this gate disagree about what "current" was.
+#
+# CONSEQUENCE: the gate currently fires unconditionally, so it can no
+# longer do its job — detect a NEW regression against a known-good
+# partition.  Its measured state at HEAD (e07a3f6), for the re-cut:
+#   SPJC       matched 525 / floor 736
+#   SPLP -77   matched  51 / floor 121
+#   SPLP -78   matched  80 / floor 165
+#
+# ACTION DELIBERATELY NOT TAKEN HERE: re-cutting
+# (``tools/build_target_osm.py`` + floors = int(0.95 x new), the
+# convention every prior cut used).  Two reasons.  (a) Every previous
+# re-cut in this file's history carries an owner sign-off and an
+# attribution of the reshape it absorbs; re-baselining inside a
+# test-maintenance pass would absorb whatever is in the tree by
+# narrative rather than by attribution.  (b) A cut taken at e07a3f6
+# would be stale again within hours — several lanes still to land
+# (seam v4, the flip batch, the terrace default) reshape this exact
+# partition.  The re-cut belongs AFTER feature freeze, at the release
+# tip, where it is both valid and attributable.
+# ══════════════════════════════════════════════════════════════════════
+
+
 _HERE = Path(__file__).resolve().parent
 _TOOLS = _HERE.parent / "tools"
 if str(_TOOLS) not in sys.path:

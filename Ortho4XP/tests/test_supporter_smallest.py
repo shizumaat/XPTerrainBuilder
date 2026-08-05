@@ -157,7 +157,25 @@ class TestReHomingChangesTheInheritorsFate:
     """The HECA outcome: an inheritor stranded on a span-skipped
     mega-structure moves to the small supporter it actually rests on and
     bakes with it (``DSF_OBJECT_SUPPORTER_FATE`` decides the fate; this
-    gate decides WHOSE)."""
+    gate decides WHOSE).
+
+    PRECONDITION RE-PINNED 2026-08-04 (landing commit 66a0a67, "Object
+    seating: per-cluster law default ON").  Both tests here need a
+    span-SKIPPED mega-structure; 66a0a67 made the rigid-seat span limit
+    bake-and-pad per cluster instead of refusing the structure
+    (``object_anchor._seat_clustered_structure``, spec section 4.3), so
+    ``_MEGA_CHAIN`` no longer skips under the default gate and both died
+    on ``skip_reason is None``.  The SELECTION law under test
+    (``DSF_OBJECT_SUPPORTER_SMALLEST``) is unchanged — the sibling class
+    ``TestTheSmallestContainingSupporterIsChosen`` exercises it on the
+    default gate and stayed green throughout.  The fixture below pins the
+    OFF arm of a live gate; see the same-dated note in
+    ``test_supporter_fate.py`` for the coverage gap this leaves open.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _pre_cluster_span_skip(self, monkeypatch):
+        monkeypatch.setattr(config, "DSF_OBJECT_CLUSTER_SEATING", False)
 
     def test_the_inheritor_bakes_with_its_new_smaller_supporter(
         self, plane_sampler

@@ -8,6 +8,14 @@
 its exemptions and floors — instruments report, the law adjudicates),
 quarantine machinery GONE, every reg generation-binding with test twins.
 
+**CAMPAIGN ANCHORS as of the 2026-08-04 TIP (commit c48ce36; new
+defaults w=0.02 + corridor-ref retired + seat-band ON; minted 2x):**
+SPJC `7cc21d87` SPLP `0d967737` CYXY `d89b73a8` HECA `122708ac`
+KCLT `4c331a46` HEAZ(fixture) `9679dd1e`. Tip census (law-true,
+pre-flip -> new default): SPJC 1698->1366, SPLP 50->27, CYXY 171->155,
+HECA 9649->9125, KCLT 2908->2643; BATTERY 14,476->13,316 (-1,160),
+seam +15 (ruled accepted). Every prior anchor list below is HISTORY.
+
 **BOARD AS OF 2026-08-04 EVENING (HEAD `9d7eea0`).** Landed today:
 seat-gates variant A (`58e2f99` — SEAT_BAND_CONSISTENT ON, coupler HELD,
 new HECA anchor `a785f170`, others unchanged); the APRON TERRACE LAW

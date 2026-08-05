@@ -2102,7 +2102,19 @@ def emit_terrace_joint_faces(layout, plan: Optional[TerracePlan]) -> int:
         # upper panel's own value, bottom row at the lower panel's.
         alts = ([round(z_hi, 1) for (_k, _s, z_hi, _zl) in rows]
                 + [round(z_lo, 1) for (_k, _s, _zh, z_lo) in rows][::-1])
-        if len(alts) != len(ring):
+        # ALIGNMENT IS CHECKED AGAINST THE POLYGON, not against the list
+        # it was built from: ``buffer(0)`` may have repaired the ring and
+        # changed its vertex count, and a misaligned ``node_altitudes``
+        # ships vertices with no ``alt_abs`` at all (the EGGW
+        # tunnel-plate collapse).  A face that cannot align is dropped
+        # and counted, never shipped half-valued.
+        try:
+            _n_ring = len(list(wall_poly.exterior.coords)) - 1
+        except _GEOM_EXC:
+            continue
+        if len(alts) != len(ring) or _n_ring != len(ring):
+            plan.stats["faces_dropped_unaligned"] = (
+                plan.stats.get("faces_dropped_unaligned", 0) + 1)
             continue
         new_walls.append(BuiltShape(
             polygon=wall_poly, role=ROLE_RETAINING_WALL,

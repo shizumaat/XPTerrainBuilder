@@ -16,7 +16,24 @@ pre-flip -> new default): SPJC 1698->1366, SPLP 50->27, CYXY 171->155,
 HECA 9649->9125, KCLT 2908->2643; BATTERY 14,476->13,316 (-1,160),
 seam +15 (ruled accepted). Every prior anchor list below is HISTORY.
 
-**THE COMPLETE SYSTEM (2026-08-05 ~08:00; MODE: build-complete-then-
+**FRAME OF RECORD (2026-08-05 ~14:30, re-baseline @ be84766, one
+harness + one corpus; BASELINES.md in scratchpad rebaseline/).**
+FLAT-WORLD TARGETS (drive to zero, version-deferred excluded): HEAZ
+1,258/894 · SPJC 2,644/6,719 · KCLT 5,362/3,109 · HECA 17,806 /
+CANYON HARD-FAILS (BandInversionError, 3,169 nodes @ constant
+12.8394 m — the anchor-relief class, terraces dead by DEM-keyed
+trigger). REAL-DEM REFERENCE (recorded, not ranked): SPJC 783 · SPLP
+59 · CYXY 127 · HECA 6,544 · KCLT 2,487(faa, +1,042 deferred) · HEAZ
+260. Flex nondeterminism NOT manifest (byte-identical builds). Fix
+cycle 2 (ranked): fast-path deletion; trigger re-keying to
+anchor-envelope (owns HECA canyon + the 16k plateau within_shape);
+groundside raw-DEM authority completion; assertion-2 saturation
+reader; inset frame keys + harness side-effect BLOCKING; drainage_min
+role literals; crown-minimum BINDING (the scoped work — generation
+exists); compare-target matched control. Owner Q pending: the CIFP
+threshold datum-lift (keep as alignment vs delete).
+
+**THE COMPLETE SYSTEM (2026-08-05 ~08:00, HISTORY; MODE: build-complete-then-
 debug, RULINGS 12320bd — gates dead, testing = composed builds).**
 Landed: KILL 954d6e8, SEATS b0c7df5, INGEST 01006a6, LAW 894aebf,
 sweep 0c2c768, test fixes 5743885. First composed build SUCCEEDED all

@@ -189,6 +189,9 @@ __all__ = [
     "RUNWAY_FLEX_MAX_ROUNDS",
     "RUNWAY_FLEX_ROUND_DRAIN_FLOOR_M",
     "runway_flex_self_unlock_enabled",
+    "RUNWAY_FLEX_DEMAND_TOL_M",
+    "RUNWAY_FLEX_DEMAND_TOL_FINE_M",
+    "runway_flex_demand_tol_m",
     "RUNWAY_FLEX_ENDZONE_MATERIALITY",
     "runway_flex_apply_segment_cap_enabled",
     "GRADE_VISIBILITY_BUFFER_M",
@@ -1361,6 +1364,45 @@ def runway_flex_self_unlock_enabled() -> bool:
     """Gate for fixes 1+2 (read at call time).  Off ⇒ the pre-spec
     behaviour exactly: flex-minted anchors bound, 3 fixed rounds."""
     return _os.environ.get("O4_FLEX_SELF_UNLOCK", "0") == "1"
+
+
+# ── THE FLEX DEAD ZONE (spec ``docs/specs/demfollow-joint-spec.md``;
+# gate ``O4_FLEX_DEMAND_TOL_FINE``, default "0") ──────────────────────
+# The envelope demand tolerance decides which deficits the flex is even
+# ALLOWED to see.  At 0.05 m it sits five times above the band's own
+# materiality floor (0.01 m — CLAUDE.md item 3(a), the floor the final
+# band-inversion check adjudicates on), so every demand in [0.01, 0.05)
+# is invisible to the machinery that exists to drain exactly that
+# tension: the flex declines to move, and the band then calls the same
+# deficit a law violation.  Measured at HEAZ under O4_RUNWAY_DEM_FOLLOW:
+# a 0.0174 m cross-runway differential (18/36 sinks −0.12 at its join
+# anchor, 05/23 −0.14 at its threshold-join) inverts the final band on
+# all 47 route nodes of the 292 m taxiway between them — a build abort
+# with no lawful demand ever presented.  Aligned with the materiality,
+# that deficit enters round 0 and the origin split drains ~9 mm from
+# each runway, inside every clamp.
+#
+# WHY GATED (lead ruling 2026-08-05, on this lane's pre-registered
+# identity STOP): the tolerance is LIVE at defaults, and the fine value
+# MOVES the default surface at HECA (release anchor a1ade8bd →
+# 675fc645, deterministic over 3 reps; HEAZ/CYXY/SPJC/SPLP/KCLT all
+# byte-identical).  The move is census-NEUTRAL — full law-true census
+# 8865/0/126 class-for-class identical on both arms, worst |de|
+# identical per check, over-cap counts identical — and is one discrete
+# flip: 126 of 32,225 nodes (0.39 %), one apron cluster at the 05R/23L
+# end, max |dz| 0.70 m, geometry unchanged.  The gate therefore protects
+# IDENTITY, not lawfulness; it flips at the next anchor-minting tip.
+RUNWAY_FLEX_DEMAND_TOL_M = 0.05             # today's default
+RUNWAY_FLEX_DEMAND_TOL_FINE_M = 0.01        # aligned with the materiality
+
+
+def runway_flex_demand_tol_m() -> float:
+    """The envelope demand tolerance in force (read at CALL time, so the
+    gate is honest in a long-lived process and testable without a module
+    reload).  Off ⇒ 0.05 m exactly, the pre-spec behaviour."""
+    if _os.environ.get("O4_FLEX_DEMAND_TOL_FINE", "0") == "1":
+        return RUNWAY_FLEX_DEMAND_TOL_FINE_M
+    return RUNWAY_FLEX_DEMAND_TOL_M
 
 
 # ── §2a AMENDMENT: THE APPLY-SIDE PER-SEGMENT CAP (lead adjudication

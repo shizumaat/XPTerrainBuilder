@@ -183,7 +183,21 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
         return best
 
     _BIN_M = 80.0
-    _DEMAND_TOL_M = 0.05
+    # ── THE DEAD ZONE (spec ``docs/specs/demfollow-joint-spec.md``;
+    # gate ``O4_FLEX_DEMAND_TOL_FINE``, default "0" = 0.05 m) ──────────
+    # This tolerance decides which envelope deficits the flex is even
+    # ALLOWED to see.  At 0.05 m it sits five times above the band's own
+    # materiality floor (0.01 m), so every demand in [0.01, 0.05) is
+    # invisible to the machinery that exists to drain exactly that
+    # tension — the flex declines to move and the band then adjudicates
+    # the same deficit as a law violation (HEAZ under DEM-follow: a
+    # 0.0174 m cross-runway differential inverts the final band on all
+    # 47 route nodes of the taxiway between the two runways).  The gate
+    # aligns the two floors; it is gated because the fine value moves
+    # HECA's default surface (census-neutral — see config.py for the
+    # identity evidence), so it protects IDENTITY, not lawfulness.
+    from auto_patch.config import runway_flex_demand_tol_m
+    _DEMAND_TOL_M = runway_flex_demand_tol_m()
     # HARD DISPLACEMENT BUDGET (user 2026-07-06: the flex was moving
     # HECA 05C by 17.8 m — far past the minimum): each profile may move
     # at most this far from its ORIGINAL (pre-flex) elevation, summed

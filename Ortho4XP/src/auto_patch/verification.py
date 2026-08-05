@@ -1062,6 +1062,30 @@ def check_runway_end_skirt(layout, dem, tile_lat, tile_lon,
     _CLEARANCE_ROLES = frozenset(
         {"runway_clearance", "taxiway_clearance"})
 
+    # DEM-AS-SEED AUDIT (RULINGS 2026-08-05).  The end-rise reader below
+    # pre-filters corridor stations on the raw DEM to avoid resolving the
+    # rendered surface everywhere.  Its premise — "a station can only
+    # breach if the raw DEM does" — holds for a CUT surface and FAILS for
+    # a FILL one: the runway-end SKIRT is fill-only
+    # (``conformance._FILL_ONLY_REFS``), so a skirt over-filling above the
+    # RESA ceiling on ground the DEM leaves below it was invisible to the
+    # reader built to catch it.  Under a CONSTANT low DEM the filter makes
+    # the whole check vacuous, which is exactly the confound the oracle
+    # exists to remove.
+    #
+    # The fast path is kept where it is sound (no governed surface covers
+    # the station) and disabled where it is not, with ONE prepared
+    # covers() instead of the full per-shape sweep.
+    from shapely.geometry import Point as _Point
+    _clearance_cover = None
+    try:
+        _cl_polys = [s.polygon for s in covering
+                     if (s.role or "") in _CLEARANCE_ROLES]
+        if _cl_polys:
+            _clearance_cover = prep(unary_union(_cl_polys))
+    except CL._GEOM_EXC:                             # pragma: no cover
+        _clearance_cover = None
+
     def _surface_alt(x, y, direction):
         """Rendered surface at ``(x, y)`` as ``(altitude, source)``:
         the covering shape's ruled interior along ``direction`` (linear
@@ -1357,11 +1381,17 @@ def check_runway_end_skirt(layout, dem, tile_lat, tile_lon,
         #
         # DEM PRE-FILTER: ``_surface_alt`` is a shapely sweep over every
         # covering shape, so resolving the rendered surface at every corridor
-        # station would be ~30x the drop march's cost.  A station can only
-        # breach if the raw DEM does, and the DEM read is a raster
-        # interpolation — so filter on it first and resolve the rendered
-        # surface only for candidates.  Identical verdicts, a fraction of the
-        # work (a lawful corridor short-circuits at the raster read).
+        # station would be ~30x the drop march's cost.  Filter on the raster
+        # read first and resolve the rendered surface only for candidates.
+        #
+        # ITS PREMISE IS NOT UNIVERSAL (fixed 2026-08-05, DEM-as-seed
+        # audit): "a station can only breach if the raw DEM does" is true
+        # of a CUT surface and false of a FILL one, and the runway-end
+        # skirt this law's own subject includes IS fill-only.  So the
+        # short-circuit is taken only where NO clearance-role surface
+        # covers the station; where one does, the rendered surface is
+        # resolved whatever the DEM says.  Same verdicts as before on cut
+        # ground, plus the fill defects the filter used to hide.
         resa_reach = CLEARANCE_MAX_REACH_M["runway"]
         rise_worst = None
         d = step_m
@@ -1381,7 +1411,16 @@ def check_runway_end_skirt(layout, dem, tile_lat, tile_lon,
                 c += step_m
                 dem_alt = _sample(qx, qy)
                 if dem_alt is None or dem_alt <= limit + tolerance_m:
-                    continue
+                    # Sound short-circuit ONLY off governed surface (see
+                    # the pre-filter note above).
+                    if _clearance_cover is None:
+                        continue
+                    try:
+                        if not _clearance_cover.covers(
+                                _Point(qx, qy)):
+                            continue
+                    except CL._GEOM_EXC:             # pragma: no cover
+                        continue
                 if _station_exempt(qx, qy):
                     continue
                 surface, source = _surface_alt(qx, qy, (nx, ny))

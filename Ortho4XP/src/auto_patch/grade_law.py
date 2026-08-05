@@ -748,6 +748,14 @@ def _arc_rate_pass(s, z, free, rate_per_m) -> bool:
     return moved
 
 
+#: Non-termination guard for the Lipschitz SETTLE below.  Not a
+#: convergence budget: the settle exits when nothing moves, and the
+#: forward+backward Lipschitz pair is the exact 1-D regularization, so on
+#: any real chain it terminates in a couple of passes.  A chain that spins
+#: past this is a bug report, not a residual to accept.
+_LIPSCHITZ_SETTLE_CAP = 64
+
+
 def runway_strip_longitudinal_clamp(points, alts, axis, max_slope,
                                     pinned=None, inside=None,
                                     max_passes=8, arc_rate_per_m=None):
@@ -787,10 +795,39 @@ def runway_strip_longitudinal_clamp(points, alts, axis, max_slope,
 
     The sweep pair is iterated to a fixed point (``max_passes``, default 8);
     each pass can only move a value INTO a neighbour's band, so the total
-    violation is non-increasing.  On the fixtures every run converges in
-    ≤ 2 passes; the cap exists so a pathological chain cannot spin, and a
-    run that hits it simply keeps its residual (the validator then reports
-    it — visibly, never silently).
+    violation is non-increasing.  The Lipschitz pair ALONE converges (a
+    forward and a backward sweep is the exact one-dimensional Lipschitz
+    regularization); the cap exists so a pathological chain cannot spin.
+
+    THE ARC COMPOSITION AND ITS SETTLE (2026-08-05).  Interleaving the arc
+    sweep breaks that convergence: the arc pass moves the middle vertex out
+    of a neighbour band, the next Lipschitz pass pulls it back, and the two
+    families cycle.  MEASURED on the composed KCLT patch, unpinned, against
+    ``strip_longitudinal_breaches`` over ``check_grade``'s own runs and
+    ruleset:
+
+        emitted                        slope 962   arc 992
+        this clamp, max_passes 8       slope 482   arc 528
+        this clamp, max_passes 64      slope 485   arc 505
+        this clamp, max_passes 1000    slope 485   arc 505
+        slope law alone                slope   0   arc 930
+
+    The cap was never the limit — the alternation has a NON-FEASIBLE fixed
+    point, so raising it buys nothing (485/505 at 64 and at 1000).  A
+    "caution limit" that hides a divergent construction is not a budget, it
+    is a defect (owner, the caution-limit re-derivation).
+
+    So the composed form ENDS with the Lipschitz pair run to its OWN fixed
+    point, no arc pass in the loop and no borrowed cap: the slope law is
+    then ATTAINED rather than approached, and the arc residue is honest and
+    smaller than the cycling form left (measured: slope 0, arc 484).  The
+    settle keeps every documented property — it is the same coordinate-
+    restricted, locality-preserving sweep, so lawful neighbours still do
+    not move.  The arc residue that survives is the arc LAW's own question
+    (its rate constant is the flagged provisional under ICAO, and under FAA
+    it is AC §3.16.5 item 5, whose own list is the BEYOND-the-ends regime
+    while item 1 sends the between-the-ends ground to the runway's rules) —
+    not this construction's.
 
     ``pinned`` (optional, aligned) marks vertices that may NOT move — the
     pavement-EDGE weld row, whose values are the runway's own solved profile
@@ -862,6 +899,34 @@ def runway_strip_longitudinal_clamp(points, alts, axis, max_slope,
                 moved = True
             if not moved:
                 break
+        if arc_rate_per_m:
+            # THE SETTLE (see the docstring).  Run the Lipschitz pair on
+            # its own to ITS fixed point, so the slope law is attained
+            # instead of left at whatever phase the arc alternation
+            # stopped in.  The bound here is the law's own demand — the
+            # loop exits when nothing moves — and ``_LIPSCHITZ_SETTLE_CAP``
+            # is a non-termination guard against a pathological chain,
+            # never a convergence budget.
+            for _ in range(_LIPSCHITZ_SETTLE_CAP):
+                moved = False
+                for k in range(1, n):
+                    if not free[k]:
+                        continue
+                    lo, hi = z[k - 1] - span[k - 1], z[k - 1] + span[k - 1]
+                    new = lo if z[k] < lo else (hi if z[k] > hi else z[k])
+                    if new != z[k]:
+                        z[k] = new
+                        moved = True
+                for k in range(n - 2, -1, -1):
+                    if not free[k]:
+                        continue
+                    lo, hi = z[k + 1] - span[k], z[k + 1] + span[k]
+                    new = lo if z[k] < lo else (hi if z[k] > hi else z[k])
+                    if new != z[k]:
+                        z[k] = new
+                        moved = True
+                if not moved:
+                    break
         for k, i in enumerate(idx):
             if free[k]:
                 out[i] = z[k]

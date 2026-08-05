@@ -40,8 +40,10 @@ from test_object_anchor import (  # noqa: F401 (plane_sampler is a fixture)
     CONTACT_EPSILON_METRES,
     PLANE_ANCHOR_LATITUDE,
     PLANE_ANCHOR_LONGITUDE,
+    PLANE_ELEVATION_PER_DEGREE_LONGITUDE,
     compound_geometry,
     make_placement,
+    metres_per_degree_longitude_at,
     plane_sampler,
 )
 
@@ -69,6 +71,40 @@ _NARROW_CHAIN = (
     (6.0, 8.0, 0.0, 1.0, 0.0, 4.0),
 )
 _NARROW_CLUTTER_BOX = (3.0, 4.0, 5.0, 6.0, 1.0, 3.0)
+
+# The DEFAULT-world fixture: a three-foot chain the author already
+# DRAPED onto this plane.  The plane rises east by
+# _DRAPE_SLOPE_PER_METRE (~0.2795 m per metre), and each foot's authored
+# base y is exactly that rise at the foot's own plan centre — so every
+# foot's UNCORRECTED ground residual is 0.000 m, the author-baked drape
+# signature the per-cluster A3 gate exists to protect.
+_DRAPE_SLOPE_PER_METRE = PLANE_ELEVATION_PER_DEGREE_LONGITUDE / (
+    metres_per_degree_longitude_at(PLANE_ANCHOR_LATITUDE)
+)
+# Feet 0.4 m wide with 0.1 m gaps — inside the 0.25 m contact epsilon,
+# and 1.2 m tall so neighbours also overlap in y: one welded structure of
+# three parts.  Every base y (0.056 / 0.196 / 0.335) stays under
+# DSF_OBJECT_ELEVATED_BASE_M (0.5), so all three are GROUND parts and the
+# structure is ground-touching — which is also what keeps it out of the
+# foot-anchor pre-pass, that pass wanting NOT-ground-touching structures.
+# Centring the feet on z = 0 puts every part's latitude at the anchor's,
+# so the drape arithmetic survives the frame conversion exactly.
+_DRAPED_CHAIN = tuple(
+    (
+        x_minimum,
+        x_minimum + 0.4,
+        _DRAPE_SLOPE_PER_METRE * (x_minimum + 0.2),
+        _DRAPE_SLOPE_PER_METRE * (x_minimum + 0.2) + 1.2,
+        -0.75,
+        0.75,
+    )
+    for x_minimum in (0.0, 0.5, 1.0)
+)
+# Floating clutter over that chain: 3.5 m of clear air above the tallest
+# foot, so it welds to nothing, and a minimum y of 5 m makes it elevated.
+# Its plan centroid (0.7, 0) lies inside the chain's bounding box, so
+# pass 2 hands it the chain as its supporter.
+_CLUTTER_OVER_DRAPED_CHAIN = (0.4, 1.0, 5.0, 6.0, -0.3, 0.3)
 
 
 def _decision(boxes, sampler, resource="chain.obj"):
@@ -127,12 +163,9 @@ class TestSkippedSupporterTakesItsInheritorsWithIt:
     below is the pre-66a0a67 arm of a live gate, so the fate law keeps a
     hermetic witness.
 
-    KNOWN COVERAGE GAP, deliberately reported rather than papered over:
-    no test in this repo constructs a skipped supporter under the DEFAULT
-    (cluster-seating ON) world, where the only surviving refusal path is
-    the per-cluster amendment-A3 robust gate.  Closing that needs an A3
-    fixture, which is a solver-side design question, not test
-    maintenance.
+    The DEFAULT-world witness — a supporter refused by the per-cluster
+    amendment-A3 gate with cluster seating ON — is
+    TestA3RefusedSupporterTakesItsInheritorsWithIt below.
     """
 
     @pytest.fixture(autouse=True)
@@ -243,6 +276,105 @@ class TestSkippedSupporterTakesItsInheritorsWithIt:
         # NOT re-routed to the per-foot path.
         assert index not in decision.foot_clusters_by_structure_index
         assert decision.delta_by_resource_and_vertex == {}
+
+
+class TestA3RefusedSupporterTakesItsInheritorsWithIt:
+    """THE DEFAULT-WORLD WITNESS the fate law lacked (added 2026-08-05).
+
+    With cluster seating ON — the shipped default since 66a0a67 — the
+    rigid-seat span limit no longer refuses anything: it partitions and
+    bakes-and-pads.  The ONLY surviving way a structure earns a
+    ``skip_reason`` is for EVERY one of its clusters to be refused by the
+    per-cluster amendment-A3 robust gate (``_seat_clusters``), whose
+    refusal is then promoted to the structure.  These tests build such a
+    supporter, so the fate law is pinned under the gates production
+    actually runs and not only in the pre-66a0a67 arm above.
+
+    The fixture is an author-PRE-DRAPED chain: every foot already sits
+    exactly on the plane, so the uncorrected mean ground residual is
+    0.000 m, while the single-offset median seat would lift the whole
+    chain by 0.196 m — the plane's rise from the anchor to the cluster's
+    median foot at x = 0.7 — and worsen all three feet.  A3 therefore
+    refuses, and refusing is CORRECT: the object is already seated and
+    moving it would BE the defect.  Measured 2026-08-05 under all
+    defaults, the sole cluster is refused and the structure keeps its
+    reason verbatim ("… mean ground-part residual 0.196 m corrected vs
+    0.000 m uncorrected over 3 ground-touching part(s) — left unbaked
+    (amendment A3, per cluster 0)"), so the floating box that inherits
+    its ground must share that fate.
+
+    Deliberately NO autouse monkeypatch: running under the shipped
+    defaults is the whole point of this class.
+    """
+
+    def test_inheritor_of_an_a3_refused_supporter_is_skipped(
+        self, plane_sampler
+    ):
+        # The default-world guard, asserted first: this witness is worth
+        # nothing if the seating default ever flips back, so it must
+        # break loudly rather than quietly retest the arm above.
+        assert config.DSF_OBJECT_CLUSTER_SEATING is True
+
+        decision = _decision(
+            _DRAPED_CHAIN + (_CLUTTER_OVER_DRAPED_CHAIN,),
+            plane_sampler,
+            resource="draped.obj",
+        )
+        (supporter_index, supporter), (_index, inheritor) = _split(decision)
+
+        # Refused by the per-cluster A3 gate — and NOT by the span
+        # outcome, which under this gate pads instead of refusing.  The
+        # absence of that phrase is what proves which path ran.
+        assert supporter.skip_reason is not None
+        assert "amendment A3, per cluster" in supporter.skip_reason
+        assert GROUND_SPAN_SKIP_PHRASE not in supporter.skip_reason
+
+        # Same fate law, same stable phrase, same audit trail as the
+        # pre-66a0a67 arm — the law does not care WHY the parent was
+        # skipped, only that it was.
+        assert inheritor.skip_reason is not None
+        assert inheritor.skip_reason.startswith(SUPPORTER_FATE_PHRASE)
+        assert supporter.skip_reason in inheritor.skip_reason
+        assert inheritor.inherited_from_structure_index == supporter_index
+
+        # Nothing baked anywhere: a refused cluster leaves no deltas of
+        # its own, and the inheritor's are withheld by the fate law, so
+        # the whole resource is reported unbaked.
+        assert decision.delta_by_resource_and_vertex == {}
+        assert [resource for resource, _reason in decision.skipped] == [
+            "draped.obj"
+        ]
+
+    def test_the_fate_gate_off_bakes_the_inheritor(
+        self, plane_sampler, monkeypatch
+    ):
+        # O4_SUPPORTER_FATE=0 in the default world: the supporter is
+        # still refused and still standing where the author drew it,
+        # while its inheritor bakes away from it — the HECA tear,
+        # reproduced through the surviving refusal path.
+        monkeypatch.setattr(config, "DSF_OBJECT_SUPPORTER_FATE", False)
+        decision = _decision(
+            _DRAPED_CHAIN + (_CLUTTER_OVER_DRAPED_CHAIN,),
+            plane_sampler,
+            resource="draped.obj",
+        )
+        (_supporter_index, supporter), (_index, inheritor) = _split(decision)
+
+        assert "amendment A3, per cluster" in supporter.skip_reason
+        assert inheritor.skip_reason is None
+
+        # Every delta on the resource belongs to the box's 8 vertices and
+        # is the plane's rise from the anchor to the ground it inherited
+        # at x = 0.7; the supporter's own parts carry none, a refused
+        # cluster having left nothing behind.
+        assert "draped.obj" in decision.delta_by_resource_and_vertex
+        for delta in decision.delta_by_resource_and_vertex[
+            "draped.obj"
+        ].values():
+            assert delta == pytest.approx(
+                0.7 * _DRAPE_SLOPE_PER_METRE, abs=1e-6
+            )
+        assert decision.skipped == []
 
 
 class TestBakedSupporterStillCarriesItsInheritors:

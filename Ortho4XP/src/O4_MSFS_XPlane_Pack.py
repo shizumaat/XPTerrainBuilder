@@ -579,14 +579,16 @@ def _build_tile_dsf_text(
             )
         else:
             row_type = "OBJECT_AGL" if placement.is_above_ground else "OBJECT_MSL"
+            # DSFTool grammar: <def> <lon> <lat> <elevation> <rotation> --
+            # elevation precedes rotation, unlike the plain OBJECT row.
             lines.append(
-                "{} {:d} {:.9f} {:.9f} {:.6f} {:.3f}".format(
+                "{} {:d} {:.9f} {:.9f} {:.3f} {:.6f}".format(
                     row_type,
                     definition_index,
                     placement.longitude,
                     placement.latitude,
-                    placement.heading_degrees_true,
                     placement.altitude_meters,
+                    placement.heading_degrees_true,
                 )
             )
 

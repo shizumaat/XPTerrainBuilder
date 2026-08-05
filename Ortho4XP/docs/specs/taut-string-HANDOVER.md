@@ -30,7 +30,10 @@ composed world: HECA airside 8540→6402, KCLT 2297→1167), terrace
 in-strip joint + over-fire, SPJC +16 attribution, consensus wall-half
 integration, seam wall-site redesign, kill re-attribution, reg
 families + rulesets B (drafts committed), lab-instrument inset fix,
-compare_target re-cut (owner-signed), 5 owner questions pending.
+compare_target re-cut (owner-signed), 5 owner questions pending,
+**emit-amplification corner class (SPJC node 10625, 4x at a free
+triple-shape corner, 50.67% spike — attributed, fix OWED BEFORE the
+next flip round; release notes corrected)**.
 
 **RELEASE TRAIN (owner 2026-08-04 22:30 PDT): Mac app built and ready
 for in-sim testing at 06:00 PDT Aug 5. HARD DEADLINE.** Agile phases,

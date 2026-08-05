@@ -206,11 +206,6 @@ def _guid_to_string(raw: bytes) -> str:
     return f"{data1:08x}{data2:04x}{data3:04x}{raw[8:16].hex()}"
 
 
-def _synthetic_guid(blob: bytes) -> str:
-    """Fallback identifier when a blob's GUID cannot be recovered."""
-    return "noguid" + hashlib.sha1(blob).hexdigest()[:24]
-
-
 def _read_bgl_sections(data: bytes) -> List[Tuple[int, int, int, int, int]]:
     """Return ``(type, flags, sub_count, sub_offset, sub_size)`` per section.
 

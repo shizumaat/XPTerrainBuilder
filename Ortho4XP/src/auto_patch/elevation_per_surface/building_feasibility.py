@@ -215,7 +215,6 @@ def _cl_by_distance(c, cls, tree=None, max_r=None):
         r *= 4.0
 
 
-
 def _paved_frac(chord, vis) -> float:
     """Fraction of ``chord`` on pavement, by VECTORIZED point sampling
     (``shapely.contains_xy`` on the prepared pavement — one C call) instead
@@ -246,55 +245,6 @@ def _paved_frac(chord, vis) -> float:
                   if vis.contains(_P(ax + (bx - ax) * t[k],
                                      ay + (by - ay) * t[k])))
         return hit / n
-
-
-def _paved_fracs(chords, vis):
-    """Vectorised :func:`_paved_frac` over a LIST of chord LineStrings — the
-    seam-gap paved fraction for each, returned as a ``list[float]`` in input
-    order.  Every chord's sample points (the SAME ``(arange(n)+0.5)/n`` mid-cell
-    sampling, same ``n = min(96, max(8, int(L)))``) are concatenated into ONE
-    ``shapely.contains_xy`` call, then the per-chord mean is sliced back out —
-    bit-identical to calling :func:`_paved_frac` on each chord, but paying the
-    numpy/GEOS call overhead ONCE per batch instead of once per candidate (the
-    phantom reach-band tail ran this ~2 M times, one candidate at a time)."""
-    import numpy as _np
-    import shapely as _sh
-    geom = getattr(vis, "context", vis)
-    _sh.prepare(geom)
-    m = len(chords)
-    fracs = [1.0] * m
-    if m == 0:
-        return fracs
-    chords_arr = (chords if isinstance(chords, _np.ndarray)
-                  else _np.asarray(chords, dtype=object))
-    # Endpoints + lengths in ONE vectorised call each (each chord is a 2-point
-    # LineString ``[foot, c]``): coords rows are [foot0, c, foot1, c, ...].
-    cc = _sh.get_coordinates(chords_arr)
-    a = cc[0::2]                    # feet  (chord start)
-    b = cc[1::2]                    # c     (chord end)
-    Ls = _sh.length(chords_arr)
-    segs = []                      # (out_index, start, n)
-    xs_parts = []
-    ys_parts = []
-    total = 0
-    for idx in range(m):
-        L = float(Ls[idx])
-        if L < 1e-9:
-            continue               # frac stays 1.0 (matches _paved_frac)
-        n = min(96, max(8, int(L)))
-        t = (_np.arange(n) + 0.5) / n
-        ax, ay = a[idx, 0], a[idx, 1]
-        bx, by = b[idx, 0], b[idx, 1]
-        xs_parts.append(ax + (bx - ax) * t)
-        ys_parts.append(ay + (by - ay) * t)
-        segs.append((idx, total, n))
-        total += n
-    if total:
-        hits = _sh.contains_xy(geom, _np.concatenate(xs_parts),
-                               _np.concatenate(ys_parts))
-        for (idx, start, n) in segs:
-            fracs[idx] = float(hits[start:start + n].mean())
-    return fracs
 
 
 def _nearest_visible_centerline(c, cls, vis, tree=None, cache=None,

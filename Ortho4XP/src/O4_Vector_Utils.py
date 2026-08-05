@@ -614,48 +614,6 @@ class Vector_Map:
 
 
 ################################################################################
-def split_polygon(input_pol, max_size, count=0):
-    (xmin, ymin, xmax, ymax) = input_pol.bounds
-    if xmax - xmin <= max_size and ymax - ymin <= max_size:
-        return [input_pol]
-    ret_val = []
-    if xmax - xmin >= ymax - ymin:
-        xcut = numpy.round((xmin + xmax) / 2, 6)
-        subpols1 = input_pol.intersection(geometry.box(xmin, ymin, xcut, ymax))
-        subpols2 = input_pol.difference(subpols1)
-        # subpols2 = input_pol.intersection(geometry.box(xcut,ymin,xmax,ymax))
-    else:
-        ycut = numpy.round((ymin + ymax) / 2, 6)
-        subpols1 = input_pol.intersection(geometry.box(xmin, ymin, xmax, ycut))
-        subpols2 = input_pol.difference(subpols1)
-        # subpols2 = input_pol.intersection(geometry.box(xmin,ycut,xmax,ymax))
-    tmp_val = []
-    for subpol in (
-        subpols1
-        if isinstance(subpols1, geometry.GeometryCollection)
-        else [subpols1]
-    ):
-        if isinstance(subpol, (geometry.Polygon, geometry.MultiPolygon)):
-            tmp_val.extend(split_polygon(subpol, max_size, count + 1))
-    for subpol in (
-        subpols2
-        if isinstance(subpols2, geometry.GeometryCollection)
-        else [subpols2]
-    ):
-        if isinstance(subpol, (geometry.Polygon, geometry.MultiPolygon)):
-            tmp_val.extend(split_polygon(subpol, max_size, count + 1))
-    if count > 0:
-        return tmp_val
-    ret_val = []
-    for geom in tmp_val:
-        if isinstance(geom, geometry.MultiPolygon):
-            ret_val.extend(geom)
-        else:
-            ret_val.append(geom)
-    return ret_val
-
-
-################################################################################
 def MultiPolygon_to_Indexed_Polygons(multipol, merge_overlappings=True):
     def merge_pol(pol, id_pol):
         ids_to_merge = []
@@ -805,22 +763,6 @@ def ensure_MultiLineString(input_geometry):
         return geometry.MultiLineString(valid_lines or [])
     else:
         return geometry.MultiLineString()
-
-
-################################################################################
-def ensure_ccw(input_geometry):
-    if input_geometry.is_empty:
-        return geometry.MultiLineString()
-    geometries = []
-    for line in (
-        input_geometry.geoms
-        if "Multi" in input_geometry.geom_type
-        else [input_geometry]
-    ):
-        if line.is_ring and not geometry.LinearRing(line).is_ccw:
-            line.coords = list(line.coords)[::-1]
-        geometries.append(line)
-    return geometry.MultiLineString(geometries)
 
 
 ################################################################################
@@ -1136,45 +1078,6 @@ def refine_way(way, max_length):  # max_length assumed in meter
 
 
 ################################################################################
-def projcoords(way, A, B):
-    return numpy.sum(
-        (way - A) * (B - A) * numpy.array([scalx ** 2, 1]), axis=1
-    ) / numpy.sum((B - A) * (B - A) * numpy.array([scalx ** 2, 1]))
-
-
-################################################################################
-def point_to_segment_distance(way, A, B):
-    # distance of each point of way to the segment joining A and B
-    # tmp = numpy.maximum(numpy.minimum(0,projcoords(way,A,B)),1)
-    # tmp = way - (A+numpy.outer(tmp,(B-A))
-    # tmp = numpy.sum(tmp**2*numpy.array([scalx**2,1]),axis=1)
-    # return numpy.sqrt(tmp)*GEO.lat_to_m
-    # In short :
-    return (
-        numpy.sqrt(
-            numpy.sum(
-                (
-                    way
-                    - (
-                        A
-                        + numpy.outer(
-                            numpy.maximum(
-                                numpy.minimum(1, projcoords(way, A, B)), 0
-                            ),
-                            (B - A),
-                        )
-                    )
-                )
-                ** 2
-                * numpy.array([scalx ** 2, 1]),
-                axis=1,
-            )
-        )
-        * GEO.lat_to_m
-    )
-
-
-################################################################################
 def least_square_fit_altitude_along_way(way, steps, dem, weights=False):
     linestring = affinity.affine_transform(
         geometry.LineString(way), [scalx, 0, 0, 1, 0, 0]
@@ -1273,18 +1176,6 @@ def weighted_alt(node, alt_idx, alt_dico, dem):
 
 
 ################################################################################
-def convolve_periodic(way, kernel):
-    # way is expected to be closed, and way[0]==way[-1], the convolution is
-    # meant with respect to periodic variables
-    k = len(kernel) // 2
-    return numpy.convolve(
-        numpy.concatenate((way[-k - 1 : -1], way, way[1 : k + 1])),
-        kernel,
-        "valid",
-    )
-
-
-################################################################################
 def min_bounding_rectangle(pol):
     pol = affinity.affine_transform(pol, [scalx, 0, 0, 1, 0, 0]).convex_hull
     way = numpy.array(pol.exterior.coords)
@@ -1309,63 +1200,6 @@ def min_bounding_rectangle(pol):
         ),
         [1 / scalx, 0, 0, 1, 0, 0],
     )
-
-
-################################################################################
-def point_in_polygon(point, polygon):
-    """
-    This procedures determines wether the input point belongs to the
-    polygon. The algorithm is based on the computation of the index
-    of the boundary of the polygon with respect to the point.
-    A point is a list of 2 floats and a polygon is a list of 2N floats, N>=3,
-    and the first two floats equal the last two ones.
-    """
-    total_winding_nbr = 0
-    quadrants = []
-    for j in range(0, len(polygon) // 2):
-        if polygon[2 * j] >= point[0]:
-            if polygon[2 * j + 1] >= point[1]:
-                quadrants.append(1)
-            else:
-                quadrants.append(4)
-        else:
-            if polygon[2 * j + 1] >= point[1]:
-                quadrants.append(2)
-            else:
-                quadrants.append(3)
-    winding_nbr = 0
-    for k in range(0, len(quadrants) - 1):
-        change = quadrants[k + 1] - quadrants[k]
-        if change in [1, -1, 0]:
-            winding_nbr += change
-        elif change in [-3, 3]:
-            winding_nbr += (-1) * change / 3
-        elif change in [-2, 2]:
-            if (polygon[2 * k] - point[0]) * (polygon[2 * k + 3] - point[1]) - (
-                polygon[2 * k + 1] - point[1]
-            ) * (polygon[2 * k + 2] - point[0]) >= 0:
-                winding_nbr += 2
-            else:
-                winding_nbr += -2
-    change = quadrants[0] - quadrants[len(quadrants) - 1]
-    if change in [1, -1, 0]:
-        winding_nbr += change
-    elif change in [-3, 3]:
-        winding_nbr += (-1) * change / 3
-    elif change in [-2, 2]:
-        if (polygon[2 * len(quadrants) - 2] - point[0]) * (
-            polygon[1] - point[1]
-        ) - (polygon[2 * len(quadrants) - 1] - point[1]) * (
-            polygon[0] - point[0]
-        ) >= 0:
-            winding_nbr += 2
-        else:
-            winding_nbr += -2
-    total_winding_nbr += winding_nbr / 4
-    if total_winding_nbr == 0:
-        return False
-    else:
-        return True
 
 
 ################################################################################

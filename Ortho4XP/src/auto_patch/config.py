@@ -57,8 +57,6 @@ __all__ = [
     "TERM_BRIDGE_GROUPING",
     "TERMINAL_SIMPLIFY_TOL_M",
     "SLOPING_EDGE_SNAP_M",
-    "EMIT_JUNCTIONS",
-    "EMIT_APRONS",
     "ENABLE_SERVICE_ROADS",
     "AIRPORT_ROAD_FEED",
     "AIRPORT_ROAD_FEED_CACHE",
@@ -111,7 +109,6 @@ __all__ = [
     "HOLE_ROUTER_V2",
     "EMIT_BRIDGES_AND_TUNNELS",
     "JUNCTION_CLUSTER_DIST_M",
-    "MAX_BOUNDARY_EDGE_M",
     "MIN_SEGMENT_LEN_M",
     "NECK_ABSOLUTE_M",
     "NECK_ABSORB_FRAC",
@@ -121,7 +118,6 @@ __all__ = [
     "FLAT_CERTIFICATE_COVERAGE",
     "FLAT_AIRPORT_FAST_PATH",
     "REACH_BAND_CLUSTERS",
-    "REACH_BAND_CLUSTER_SIZE_M",
     "RASTER_REACH_BAND_CELL_M",
     "RASTER_REACH_BAND_CONNECTIVITY",
     "RASTER_REACH_BAND_OFFNET_RADIUS_M",
@@ -146,7 +142,6 @@ __all__ = [
     "TAXI_CORRIDOR_PROFILE",
     "TAXIWAY_CURVE_RUN_M",
     "TAXIWAY_MAX_GRADE_CHANGE_PER_M",
-    "CORRIDOR_DAMP_ALPHA",
     "SERVICE_ROAD_MAX_GRADE",
     "SERVICE_ROAD_MAX_TRANSVERSE",
     "SERVICE_ROAD_CROWN_TRANSVERSE",
@@ -214,7 +209,6 @@ __all__ = [
     "RUNWAY_INSIDE_APRON_FRAC",
     "RUNWAY_APRON_AREA_RATIO",
     "SLIVER_ANGLE_THRESHOLD_DEG",
-    "PATCH_SLOPE_CELL_SIZE_M",
     "RUNWAY_CELL_SIZE_M",
     "PATCH_SLOPE_PROFILE",
     "CLEARANCE_OBSTRUCTION_THRESHOLD_M",
@@ -260,7 +254,6 @@ __all__ = [
     "GAP_FILL_MIN_AREA_M2",
     "GAP_FILL_INTERIOR_FLOOR_ENABLED",
     "GAP_FILL_INTERIOR_RINGS_ENABLED",
-    "OPEN_FRONTAGE_SPINE_ENABLED",
     "OPEN_FRONTAGE_CLOSE_M",
     "ONE_SOLVE_TERRAIN",
     "ONE_SOLVE_TERRAIN_RUNWAY_END_SKIRT",
@@ -274,7 +267,6 @@ __all__ = [
     "APRON_SHOULDER_WIDTH_M",
     "APRON_SHOULDER_MIN_DOWN_SLOPE",
     "APRON_SHOULDER_MAX_DOWN_SLOPE",
-    "APRON_BEYOND_SHOULDER_MIN_DOWN_SLOPE",
     "APRON_BEYOND_SHOULDER_MAX_DOWN_SLOPE",
     "APRON_EDGE_WALL_MIN_DROP_M",
     "runway_code_number",
@@ -314,7 +306,6 @@ __all__ = [
     "BRIDGE_CORRIDOR_DEPRESSED_LENGTH_M",
     "BRIDGE_ABUTMENT_PIN_CAPTURE_BAND_M",
     "BRIDGE_CAUSEWAY_MAX_LENGTH_M",
-    "BRIDGE_ROAD_CARRIED_PAVEMENT_PROXIMITY_M",
     "TUNNEL_PORTAL_PAIR_MIN_SPACING_M",
     "TUNNEL_PORTAL_PAIR_MAX_SPACING_M",
     "TUNNEL_PORTAL_PAIR_HEADING_TOLERANCE_DEGREES",
@@ -445,15 +436,6 @@ RUNWAY_ADJACENCY_TOL_M = 20.0
 # must run parallel or perpendicular to the longest runway axis
 # within this many degrees.
 AXIS_ALIGN_TOL_DEG = 2.0
-
-
-# Max length of any junction-polygon ring segment.  Long edges get
-# subdivided to anchor Triangle4XP's interior triangulation; without
-# this the elevation solver leaves the interior un-anchored on long
-# straight runs and produces visible cliffs.  Shared between the
-# junction-decomposition pass (densification) and the elevation
-# layer (vertex-aware grade clamp).
-MAX_BOUNDARY_EDGE_M = 50.0
 
 
 # Drop emitted line/segment fragments shorter than this length.
@@ -1141,21 +1123,6 @@ TAUT_STRING_HEADING_WINDOW_M = float(
 # restores the pre-ruling band byte-identically.
 REACH_NO_SERVICE_SPINES = (
     _os_early.environ.get("O4_REACH_NO_SERVICE_SPINES", "1") == "1")
-# ── Corridor-profile DAMPING (user 2026-06-14) ──────────────────
-# The taxi-corridor field SEEDS at the DEM and projects onto the legal
-# band, so wherever the DEM is locally legal the profile sits ON the
-# terrain — following its noise too closely.  Real airports grade
-# taxiways/aprons "as flat as the terrain allows": the DEM is a noisy
-# GUIDE, not a target; max grade is RARE (used only where no flatter
-# routing satisfies the constraints), and the only HARD anchors are the
-# CIFP runway thresholds + tile seams.  This adds a Laplacian (harmonic)
-# smoothing term to the corridor Gauss-Seidel: each soft node diffuses
-# toward its neighbours' inverse-distance-weighted mean (minimising
-# Σ grade² → the smoothest profile), clamped to its legal band, with the
-# 1.5 % caps + hard anchors still binding.  ``CORRIDOR_DAMP_ALPHA`` =
-# per-sweep relaxation toward that mean (1.0 = full harmonic; lower =
-# gentler / more DEM-near).
-CORRIDOR_DAMP_ALPHA = 0.5
 # GROUND-VEHICLE SERVICE ROAD longitudinal grade — OWNER CONSTANT, approved
 # 2026-08-03 (docs/RULINGS.md "Owner constants: lot 5%, service road 8%";
 # docs/STANDARDS.md row "Ground-vehicle service road").  History: 4 % →
@@ -1761,12 +1728,6 @@ FLAT_AIRPORT_FAST_PATH = (
 REACH_BAND_CLUSTERS = (
     _os_early.environ.get("O4_REACH_BAND_CLUSTERS", "0") == "1")
 
-# Grid bucket side (m) for the reach-band cluster amortization.  ~24 m keeps a
-# bucket small enough that its members share one serving centerline in the
-# common case (so the shared-line reuse fires often) while still amortizing the
-# scan over the tens of apron/taxiway body nodes a bucket holds.
-REACH_BAND_CLUSTER_SIZE_M = 24.0
-
 # ── THE reach band's grid lookup (one engine, no selector) ──────────────────
 # The band is ROUTE-METRIC and SERVICE-EXCLUDED: value is propagated on the
 # unified spine graph minus ``UnifiedGraph.service_spine_pairs``
@@ -1930,11 +1891,6 @@ RECT_CROSS_FLATNESS_TOLERANCE_M = 0.10
 # every footprint point, so seating flat at the mean introduces no step the
 # host arbitration would flag.  NOT a grade rate (spec §2.4).
 BUILDING_SEAT_FLATNESS_TOLERANCE_M = 0.30
-
-# Phase-1 emit-suppression toggles (kept from the pre-refactor
-# baseline; iteration aids that remain useful).
-EMIT_JUNCTIONS = True
-EMIT_APRONS = False
 
 # Ground-vehicle service-road network — gated OFF (deferred feature).  The
 # service_roads.py machinery stays in place, but the OSM small-road lookup
@@ -3723,24 +3679,6 @@ RUNWAY_BORDER_SHOULDER_MIN_STRIP_COVER_M = 40.0
 # and the runway must not eat them).
 RUNWAY_BORDER_SHOULDER_MIN_SIDE_COVER_M = 300.0
 
-# (2026-06-17) RUNWAY-SHOULDER SEGMENTATION REACH — docs/runway_
-# shoulder_detection.md.  The runway-segmentation breakpoint collector
-# splits the runway where adjacent pavement / taxiway polygon edges
-# CONTACT it, but its proximity budget is a FIXED generic ~7.6 m FAA
-# shoulder allowance.  When apt.dat row-100 declares an EXPLICIT
-# shoulder width (``shoulder_code // 100`` ≥ 1, e.g. OMAA's 20 m), the
-# real paved edge a taxiway connects to sits at runway-half + that
-# shoulder (50 m from a 60 m runway's centerline), well past the 42 m
-# the fixed budget reaches — so the exit's contact never becomes a
-# seam and the runway segment boundary lands at the wrong longitudinal
-# position (the OMAA 13R/31L gap).  ON ⇒ the contact budget for a
-# shouldered runway is its apt.dat-coded shoulder + chart tolerance, so
-# seams land where pavement meets the shoulder edge as defined in
-# apt.dat.  Runways with NO coded shoulder (code < 100) keep the 7.6 m
-# budget ⇒ byte-identical.  Env override ``O4_SHOULDER_SEGMENT``.
-RUNWAY_SHOULDER_SEGMENT = (
-    _os.environ.get("O4_SHOULDER_SEGMENT", "1") == "1")
-
 # (2026-06-27) RUNWAY-CROSSING PHYSICAL-EXTENT RECONCILIATION.
 # Two passes handle a runway crossing: the geometric junction builder
 # (pavement/runways.py ``_resolve_runway_crossings``) detects crossings
@@ -3783,14 +3721,6 @@ SPINE_STEP_M = float(_os.environ.get("O4_JCT_SPINE_STEP_M", "12.0"))
 # to restore the legacy field-anchored bands.
 W2_CLEAN_BANDS = _os.environ.get("O4_W2_BANDS", "1") == "1"
 
-
-# SHORT-RECT → JUNCTION (user 2026-06-30): a taxi rect shorter than this along
-# its axis is a rigid sloping PLANE where the spine wants to CURVE through
-# smoothly (HECA's curved taxiways).  Such rects are NOT emitted — the pavement
-# stays junction residue (pav_union.difference(rects)) so the centerline grades
-# through it continuously instead of as a chain of planar facets.  ``0`` disables
-# (restore the prior behaviour where any-length rects are emitted).
-MIN_RECT_LENGTH_M = float(_os.environ.get("O4_MIN_RECT_LENGTH_M", "100.0"))
 
 # (s79) ON-PAVEMENT service-road carve — docs/service_road_carve.md.
 # ★ USER RULINGS 2026-06-11: roads = apt.dat 1206 routes ONLY (no
@@ -3938,13 +3868,14 @@ ROAD_LOT_AREA_RATIO = 0.0
 # way length yields ZERO internal cuts and renders the identical surface
 # with a fraction of the triangles.  Runways differ: they carry a real
 # FAA vertical profile (crests/sags), so coarsening them too far flattens
-# that curve — hence a separate knob.
+# that curve — hence the runway knob below.  (The companion taxiway /
+# apron / boundary knob ``PATCH_SLOPE_CELL_SIZE_M`` had no reader left and
+# was deleted in the dead-code round.)
 #
-# To find the optimal compromise, sweep these and measure each build with
+# To find the optimal compromise, sweep this and measure each build with
 # ``tools/mesh_region_tris.py`` (triangle count) + the X-Plane load time.
 # Historical default 2 m carried a "KBNA finding" note (smooth runway
 # vertical transitions) — raise the runway value cautiously.
-PATCH_SLOPE_CELL_SIZE_M = 10      # taxiway / apron / boundary sloped rects
 RUNWAY_CELL_SIZE_M = 10           # runway segments (real vertical profile)
 # Longitudinal interpolation curve for altitude_high/low rects in the
 # X-Plane mesh builder.  "plane" = constant grade (linear); "spline" =
@@ -4203,18 +4134,6 @@ BRIDGE_ABUTMENT_PIN_CAPTURE_BAND_M = 12.0
 # covers every measured gap; the plate is clipped at the first pavement
 # edge it meets (weld, ruling R2).
 BRIDGE_CAUSEWAY_MAX_LENGTH_M = 65.0
-
-# Audit-tool proxy for the road-carried-overpass discriminator (the
-# audit has no layout to read taxi/truck routes from): a bridge with no
-# draped-pavement polygon within this distance of its deck footprint
-# carries a ROAD on its deck, not a taxi/truck route.  MEASURED
-# separation (KBNA 2026-07-09): the largest pavement gap at a TRUE
-# taxi/truck bridge is 60.9 m (Murfreesboro Oeste; taxiway-L 9.6-9.7 m),
-# while the road overpass (Crossing_Bridge) sits 176.2 m from any
-# pavement — 100 m splits the families with ~40 % margin both ways.
-# The in-pipeline discriminator reads layout taxi/truck shapes instead
-# and does not use this constant.
-BRIDGE_ROAD_CARRIED_PAVEMENT_PROXIMITY_M = 100.0
 
 # ── Tunnel portal pairs (the KBNA runway-02C class, user 2026-07-10) ──
 # RESTORED 2026-07-14: the gap_fill round-8 config revision (05bf09f)
@@ -5081,9 +5000,10 @@ ADJACENT_GROUND_CUT_HALF_CORRIDOR_ENABLED = (
 # corridor-band march there (which tears at band-vs-band clip seams once
 # the legacy strips vacate the open frontage).  DEFAULT OFF — this is a
 # pilot Noah has not reviewed in-sim; every emission must be a no-op with
-# the gate off.
-OPEN_FRONTAGE_SPINE_ENABLED = (
-    _os.environ.get("O4_OPEN_FRONTAGE_SPINE", "0") == "1")
+# the gate off.  The gate ``O4_OPEN_FRONTAGE_SPINE`` is read at its call
+# site (``gap_fill.py``); the config mirror constant had no reader and was
+# deleted in the dead-code round.
+#
 # Morphological-closing radius used to DETECT open corridors: a closing
 # of the airside union (buffer out then back in) bridges any open channel
 # up to 2*radius wide.  Half the gap-fill max width, so a corridor up to
@@ -5281,7 +5201,6 @@ APRON_SHOULDER_MAX_DOWN_SLOPE = 0.03
 # free-floor region where the DEM has fallen away — analogous to the
 # zone-1 mid-band render target, NOT a mandatory corridor (the law's
 # zone-3 ceiling is the ≤5 % UP cap above; the floor stays free).
-APRON_BEYOND_SHOULDER_MIN_DOWN_SLOPE = 0.03
 APRON_BEYOND_SHOULDER_MAX_DOWN_SLOPE = 0.05
 # Retaining-WALL threshold (ruling 3): a vertical wall face replaces
 # graded fill where the DEM sits more than this many metres below the
@@ -5581,12 +5500,6 @@ NARROW_TAXI_CODE_LETTERS = frozenset({"A", "B"})
 SYNTH_TAXI_NAME_PREFIX = "~U"
 
 
-def is_unnamed_taxi_ref(ref) -> bool:
-    """True iff ``ref`` carries no real apt.dat taxiway designator — an empty
-    ref OR a synthetic ``~U`` serial we assigned to an unnamed route."""
-    return (not ref) or str(ref).startswith(SYNTH_TAXI_NAME_PREFIX)
-
-
 def taxi_ref_is_sub_index(ref) -> bool:
     """True iff ``ref`` is a numeric SUB-reference (``A1``, ``B2`` — a diagonal
     connector / rapid-exit off a main taxiway), which several geometry passes
@@ -5737,14 +5650,6 @@ def taxi_grade_cap_for_letter(letter, *, enabled: bool = None,
     if on and letter and str(letter).upper() in NARROW_TAXI_CODE_LETTERS:
         return TAXI_MAX_GRADE_NARROW
     return TAXI_MAX_GRADE
-
-
-def taxi_grade_cap_for_width(width_m: float, *, enabled: bool = None,
-                             ruleset=None) -> float:
-    """Convenience wrapper: resolve the code letter from a pavement width
-    (m) via :func:`taxiway_code_letter`, then the grade cap."""
-    return taxi_grade_cap_for_letter(
-        taxiway_code_letter(width_m), enabled=enabled, ruleset=ruleset)
 
 
 def taxi_transverse_cap_for_letter(letter, *, enabled: bool = None,

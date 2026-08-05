@@ -451,14 +451,6 @@ def probe_signed_in(session, definition):
     return response.status_code not in _SIGNED_OUT_STATUSES
 
 
-def signed_in(definition):
-    """Probe the persisted session without side effects (GUI status)."""
-    session_name = definition.get("session_name")
-    if not session_name:
-        return False
-    return probe_signed_in(build_session(session_name), definition)
-
-
 def run_login_flow(session, definition, username, password):
     """Execute the definition's registered login flow on a session."""
     flow_name = definition.get("login_flow")

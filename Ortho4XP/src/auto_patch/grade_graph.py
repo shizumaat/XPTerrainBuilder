@@ -899,13 +899,6 @@ def _spine_crossing_predicate(shape: GradeShape, ctx: GradeContext,
     return _crosses
 
 
-def _shared_centerline(mi, mj) -> bool:
-    """True iff ring indices i,j lie on a COMMON centerline (a spine pair)."""
-    ci = {c for (c, _a) in mi}
-    cj = {c for (c, _a) in mj}
-    return bool(ci & cj)
-
-
 # ── caps ────────────────────────────────────────────────────────────────────
 
 def _spine_cap(membership: dict, ctx: GradeContext) -> float:
@@ -1795,16 +1788,6 @@ def _build_spine_chains(shape: GradeShape, ctx: GradeContext,
         if len(chain) >= 2:
             chains.append(chain)
     return chains
-
-
-def build_grade_constraints(shapes: Sequence[GradeShape], ctx: GradeContext
-                            ) -> list[ShapeConstraints]:
-    """Constraints for every soft airside shape (apron / junction)."""
-    out = []
-    for s in shapes:
-        if s.role in SOFT_VISIBILITY_ROLES:
-            out.append(shape_constraints(s, ctx))
-    return out
 
 
 def plane_constraints(shape: GradeShape, ctx: GradeContext,

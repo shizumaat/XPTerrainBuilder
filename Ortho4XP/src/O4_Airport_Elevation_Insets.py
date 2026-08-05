@@ -8284,37 +8284,6 @@ def _open_inset_array(inset_path):
     return (array, geotransform, nodata)
 
 
-def _bilinear_sample_raster(array, geotransform, longitudes, latitudes):
-    """Bilinearly sample a north-up GeoTIFF at arrays of lon/lat points.
-
-    ``geotransform`` is the standard GDAL 6-tuple; pixel (0, 0) covers the
-    top-left corner and its CENTRE sits at ``(west + 0.5 dx, north + 0.5
-    dy)``.  Samples are clamped to the valid interior so edge points read
-    the nearest in-bounds bilinear cell rather than raising.
-    """
-    west = geotransform[0]
-    north = geotransform[3]
-    pixel_width = geotransform[1]
-    pixel_height = geotransform[5]  # negative for north-up
-    rows, columns = array.shape
-    fractional_x = (numpy.asarray(longitudes) - (west + 0.5 * pixel_width)) / pixel_width
-    fractional_y = (numpy.asarray(latitudes) - (north + 0.5 * pixel_height)) / pixel_height
-    column0 = numpy.clip(numpy.floor(fractional_x).astype(int), 0, columns - 2)
-    row0 = numpy.clip(numpy.floor(fractional_y).astype(int), 0, rows - 2)
-    tx = numpy.clip(fractional_x - column0, 0.0, 1.0)
-    ty = numpy.clip(fractional_y - row0, 0.0, 1.0)
-    top_left = array[row0, column0]
-    top_right = array[row0, column0 + 1]
-    bottom_left = array[row0 + 1, column0]
-    bottom_right = array[row0 + 1, column0 + 1]
-    return (
-        top_left * (1 - tx) * (1 - ty)
-        + top_right * tx * (1 - ty)
-        + bottom_left * (1 - tx) * ty
-        + bottom_right * tx * ty
-    )
-
-
 def _windowed_bilinear_samples(
     band, geotransform, rows, columns, longitudes, latitudes, nodata=None
 ):

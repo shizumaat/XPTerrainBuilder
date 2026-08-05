@@ -431,34 +431,6 @@ def _mrr_axes(mrr):
     return (l1, long_dir, l2)
 
 
-def _boundary_intersection(p_from, direction, gap_poly, reach):
-    """First point where a ray from ``p_from`` along ``direction`` meets
-    the gap ring — the exact boundary coordinate the spine endpoint takes
-    (a T-vertex the conformance weld inserts)."""
-    fx, fy = p_from
-    dx, dy = direction
-    ray = LineString([(fx, fy),
-                      (fx + dx * reach, fy + dy * reach)])
-    try:
-        inter = ray.intersection(gap_poly.exterior)
-    except _GEOM_EXC:
-        return None
-    if inter.is_empty:
-        return None
-    pts = ([inter] if inter.geom_type == "Point"
-           else [g for g in getattr(inter, "geoms", [])
-                 if g.geom_type == "Point"])
-    best = None
-    best_d = None
-    for p in pts:
-        d = math.hypot(p.x - fx, p.y - fy)
-        if d < 1e-6:
-            continue
-        if best_d is None or d < best_d:
-            best_d, best = d, (p.x, p.y)
-    return best
-
-
 def _build_spine(gap_poly, long_dir, long_len, step):
     """March cross-sections along the long axis, take each widest
     section's midpoint, then extend both ends exactly onto the gap ring.
@@ -815,16 +787,6 @@ def _smooth_spine(vals, intervals, sweeps):
                 cand = min(cand, hi)
             v[i] = cand
     return v
-
-
-def _interp_along_spine(spine_line, cum, vals, px, py):
-    """Value at a spine-collinear point by arc-length interpolation."""
-    s = spine_line.project(Point(px, py))
-    k = bisect.bisect_right(cum, s) - 1
-    k = max(0, min(k, len(vals) - 2))
-    seg = cum[k + 1] - cum[k]
-    t = 0.0 if seg <= 0 else (s - cum[k]) / seg
-    return vals[k] + t * (vals[k + 1] - vals[k])
 
 
 # ══════════════════════════════════════════════════════════════════════

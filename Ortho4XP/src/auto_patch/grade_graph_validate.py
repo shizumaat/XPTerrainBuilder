@@ -50,11 +50,9 @@ def _iter_checked_pairs(layout):
 
       * apron / junction within-shape edges (body + spine, ``grade_graph``).
 
-    The single source both ``within_violations`` (applies the cap check) and
-    ``checked_spine_geometry`` (extracts the spine node/edge set for the
-    structural test) consume, so the checker and the structural gate cannot
-    drift from each other.  Runway joins are handled separately (one side is a
-    runway-surface sample, not a node)."""
+    The single source ``within_violations`` (which applies the cap check)
+    consumes, so the checker cannot drift from the law.  Runway joins are
+    handled separately (one side is a runway-surface sample, not a node)."""
     ctx = GG.build_context(layout)
 
     # apron / junction within-shape (body + spine).
@@ -172,43 +170,6 @@ def within_violations(layout, noise=ELEV_ROUNDING_NOISE_M):
     viol.extend(_spine_runway_join_violations(layout, noise))
     viol.sort(reverse=True)
     return viol
-
-
-def checked_spine_geometry(layout):
-    """Return ``(nodes, edges)`` — the coord-space SPINE node set and undirected
-    spine edge set the validator checks (``is_spine`` pairs only).  ``nodes`` is
-    ``{(round(x,2), round(y,2)), ...}``; ``edges`` is ``{(node_a, node_b)}`` with
-    ``node_a <= node_b``.  Used by ``test_solver_and_validator_same_nodes`` to
-    assert the SOLVER's unified graph (``grade_graph.build_unified_graph``) and
-    the VALIDATOR check the exact same spine — one graph in effect.
-
-    Node identity is resolved through ``layout.canonical_points`` — the SAME
-    registry the solver keys its nodes on (``_build_node_list``).  The solver
-    welds vertices within ``SHARED_VERTEX_TOL_M`` into ONE node; keying the
-    validator's raw ring coords through that registry (instead of a bare
-    ``round(x, 2)`` bucket) makes a sub-weld-tolerance vertex pair the SAME node
-    to both — no false node-set divergence from a conformance-inserted sliver."""
-    reg = getattr(layout, "canonical_points", None)
-
-    def _k(x, y):
-        if reg is not None:
-            cp = reg.find_nearest(x, y, reg.tol_m)
-            if cp is not None:
-                x, y = cp
-        return (round(x, 2), round(y, 2))
-    nodes = set()
-    edges = set()
-    for (_role, is_spine, (xa, ya), _za, (xb, yb), _zb, _cap) in \
-            _iter_checked_pairs(layout):
-        if not is_spine:
-            continue
-        a, b = _k(xa, ya), _k(xb, yb)
-        if a == b:
-            continue
-        nodes.add(a)
-        nodes.add(b)
-        edges.add((a, b) if a <= b else (b, a))
-    return nodes, edges
 
 
 def _spine_runway_join_violations(layout, noise):

@@ -446,8 +446,6 @@ def _extract_osm_taxi_centerlines(
     return out
 
 
-
-
 def _insert_points_on_ring(
     ring_coords: list[tuple[float, float]],
     pts: list[tuple[float, float]],
@@ -496,8 +494,6 @@ def _insert_points_on_ring(
     return new_coords
 
 
-
-
 def _insert_points_on_boundary(
     poly: Polygon,
     pts: list[tuple[float, float]],
@@ -528,8 +524,6 @@ def _insert_points_on_boundary(
     except _GEOM_EXC:
         pass
     return poly
-
-
 
 
 def _split_by_width_profile(
@@ -606,8 +600,6 @@ def _split_by_width_profile(
                     and seg.length >= min_rect_len_m):
                 result.append((seg, ref))
     return result
-
-
 
 
 def _sub_ref_narrow_corridor(
@@ -759,8 +751,6 @@ def _sub_ref_narrow_corridor(
     return result
 
 
-
-
 def _find_width_transition_breakpoints(
     centerlines: list[tuple[LineString, str]],
     pav_union: Polygon,
@@ -886,140 +876,6 @@ _BEND_HOOK_DEG = 12.0       # bend angle that marks a non-straight piece
 _BEND_HOOK_MAX_FRAC = 0.45  # only drop the shorter side if it's < this
                             # fraction of the piece (a short hook, not a
                             # genuine L-bend whose two arms are both real)
-
-
-def _trim_short_bend_hooks(
-    centerlines: list[tuple[LineString, str]],
-) -> list[tuple[LineString, str]]:
-    """The target represents taxiways as STRAIGHT pieces — a bend is never a
-    single segment, it is a break at the corner into two straights.  So at
-    each bend (>= ``_BEND_HOOK_DEG``) we SPLIT the centerline at the corner:
-      * if one arm is a short hook (< ``_BEND_HOOK_MAX_FRAC`` of the piece) —
-        a stub into a junction/apron the target omits — drop it and keep the
-        long straight run;
-      * otherwise both arms are real taxiway, so keep BOTH straight pieces.
-    Recurse so every emitted piece is straight; no bent piece survives."""
-    def _sharpest(coords):
-        worst = 0.0
-        wi = -1
-        for i in range(1, len(coords) - 1):
-            a, b, c = coords[i - 1], coords[i], coords[i + 1]
-            b1 = math.atan2(b[0] - a[0], b[1] - a[1])
-            b2 = math.atan2(c[0] - b[0], c[1] - b[1])
-            d = abs(math.degrees(b1 - b2)) % 360.0
-            d = min(d, 360.0 - d)
-            if d > worst:
-                worst, wi = d, i
-        return worst, wi
-
-    def _straighten(ls):
-        """Return a list of straight pieces for ``ls`` (hooks dropped)."""
-        coords = list(ls.coords)
-        if len(coords) < 3:
-            return [ls]
-        ba, bi = _sharpest(coords)
-        if ba < _BEND_HOOK_DEG or bi <= 0:
-            return [ls]  # already straight
-        try:
-            p1 = LineString(coords[:bi + 1])
-            p2 = LineString(coords[bi:])
-        except _GEOM_EXC:
-            return [ls]
-        short, lng = (p1, p2) if p1.length < p2.length else (p2, p1)
-        if ls.length > 0 and short.length < _BEND_HOOK_MAX_FRAC * ls.length:
-            return _straighten(lng)              # short hook — drop it
-        return _straighten(p1) + _straighten(p2)  # real L — keep both straights
-
-    out: list[tuple[LineString, str]] = []
-    for ls, ref in centerlines:
-        for p in _straighten(ls):
-            out.append((p, ref))
-    return out
-
-
-def _median_perp_halfwidth(ls: LineString, pav: Polygon,
-                           n: int = 10, cap_m: float = 70.0) -> float:
-    """Median, along ``ls``, of the NEARER pavement edge (min of the left
-    and right perpendicular ray distances, capped at ``cap_m``).
-
-    Using the nearer edge (not the average) is what distinguishes a
-    centerline BURIED in a wide junction/apron — wide on BOTH sides, so a
-    large min — from a taxiway running ALONG the edge of a wide apron —
-    one narrow (taxi-edge) side, so a small min.  An average would flag the
-    edge taxiway as buried (SPJC R1/R2/L)."""
-    if pav is None or pav.is_empty or ls.length < 1.0:
-        return 0.0
-    STEP = 1.0
-    vals: list[float] = []
-    for i in range(n + 1):
-        t = i / n * ls.length
-        dt = min(2.0, ls.length * 0.05)
-        a = ls.interpolate(max(0.0, t - dt))
-        b = ls.interpolate(min(ls.length, t + dt))
-        dx, dy = b.x - a.x, b.y - a.y
-        mag = math.hypot(dx, dy)
-        if mag < 1e-6:
-            continue
-        nx, ny = -dy / mag, dx / mag
-        p = ls.interpolate(t)
-        sides = []
-        for sign in (-1, 1):
-            d = 0.0
-            hit = cap_m
-            while d <= cap_m:
-                if not pav.contains(Point(p.x + sign * nx * d,
-                                          p.y + sign * ny * d)):
-                    hit = d
-                    break
-                d += STEP
-            sides.append(hit)
-        vals.append(min(sides))
-    if not vals:
-        return 0.0
-    vals.sort()
-    return vals[len(vals) // 2]
-
-
-def _drop_offcorridor_centerlines(
-    centerlines: list[tuple[LineString, str]],
-    pav_union: Polygon | None,
-    rwy_union: Polygon | None,
-) -> tuple[list[tuple[LineString, str]], int, int]:
-    """Drop centerlines that do not correspond to a taxiway rect:
-      * runway-crossing — > ``_RWY_CROSS_DROP_M`` of the line lies inside
-        the runway (the runway emit covers that surface); and
-      * junction/apron-buried — the line's median perpendicular pavement
-        half-width is >= ``_BURIED_HALFWIDTH_M`` (it runs through the
-        middle of a wide junction/apron, not a narrow taxi corridor).
-    Returns (kept, n_runway_dropped, n_buried_dropped)."""
-    import os as _osm
-    _dbg = _osm.environ.get("O4_RECT_DROP_DEBUG") == "1"
-    kept: list = []
-    n_rwy = n_buried = 0
-    for _cl in centerlines:
-        ls = _cl.line if hasattr(_cl, "line") else _cl[0]
-        ref = _cl.name if hasattr(_cl, "name") else (_cl[1] if len(_cl) > 1 else "")
-        if rwy_union is not None and not rwy_union.is_empty:
-            try:
-                inter = ls.intersection(rwy_union)
-                if getattr(inter, "length", 0.0) > _RWY_CROSS_DROP_M:
-                    n_rwy += 1
-                    if _dbg:
-                        print(f"[cl-drop] RWY ref={ref} len={ls.length:.0f} "
-                              f"bounds={tuple(round(v,1) for v in ls.bounds)}")
-                    continue
-            except _GEOM_EXC:
-                pass
-        if (pav_union is not None and not pav_union.is_empty
-                and _median_perp_halfwidth(ls, pav_union)
-                >= _BURIED_HALFWIDTH_M):
-            n_buried += 1
-            if _dbg:
-                print(f"[cl-drop] BURIED ref={ref} len={ls.length:.0f} "
-                      f"bounds={tuple(round(v,1) for v in ls.bounds)}")
-            continue
-        kept.append(_cl)
-    return kept, n_rwy, n_buried
 
 
 def _split_centerlines_at_points(

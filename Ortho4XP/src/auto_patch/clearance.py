@@ -320,66 +320,6 @@ def _stations(a: tuple[float, float], b: tuple[float, float],
              a[1] + (b[1] - a[1]) * k / n) for k in range(n + 1)]
 
 
-def _merge_coincident_ring_vertices(
-        coords: list[tuple[float, float]],
-        alts: list[float],
-        tol_m: float = _COINCIDENT_MERGE_TOL_M,
-        frozen_predicate=None):
-    """Collapse consecutive near-coincident ring vertices into one.
-
-    ``_decimate`` keeps a vertex sitting a few mm from its neighbour
-    whenever their altitudes differ (it preserves altitude features), so
-    a zero-length edge across an altitude step survives into the emitted
-    polygon — two nodes at one XY metres apart vertically, which X-Plane
-    renders as a torn vertical micro-cliff.  Below ``tol_m`` the edge has
-    no real length, so merge each coincident run to a single vertex at the
-    GROUP-MEAN altitude (open-form ``(coords, alts)`` in, same out).
-
-    ``frozen_predicate(x, y)`` marks welded chain vertices sitting on a
-    shared (pavement) boundary; the merge must never move such a vertex.
-    When supplied: a coincident pair with BOTH ends frozen is left intact
-    (distinct chain nodes); with exactly ONE end frozen the pair collapses
-    onto the frozen vertex VERBATIM (its coordinates and altitude win,
-    never the mean); with NEITHER end frozen the group-mean merge applies.
-    """
-    coords = [(float(x), float(y)) for x, y in coords]
-    alts = [float(a) for a in alts]
-    tol2 = tol_m * tol_m
-    changed = True
-    while changed and len(coords) > 3:
-        changed = False
-        n = len(coords)
-        for i in range(n):
-            j = (i + 1) % n
-            dx = coords[i][0] - coords[j][0]
-            dy = coords[i][1] - coords[j][1]
-            if dx * dx + dy * dy > tol2:
-                continue
-            if frozen_predicate is not None:
-                fi = frozen_predicate(coords[i][0], coords[i][1])
-                fj = frozen_predicate(coords[j][0], coords[j][1])
-                if fi and fj:
-                    continue     # both welded: distinct chain vertices
-                if fi:
-                    pass         # survivor coords[i]/alts[i] are frozen
-                elif fj:
-                    coords[i] = coords[j]     # frozen coords win verbatim
-                    alts[i] = alts[j]         # frozen altitude wins
-                else:
-                    coords[i] = ((coords[i][0] + coords[j][0]) / 2.0,
-                                 (coords[i][1] + coords[j][1]) / 2.0)
-                    alts[i] = round((alts[i] + alts[j]) / 2.0, 1)
-            else:
-                coords[i] = ((coords[i][0] + coords[j][0]) / 2.0,
-                             (coords[i][1] + coords[j][1]) / 2.0)
-                alts[i] = round((alts[i] + alts[j]) / 2.0, 1)
-            del coords[j]
-            del alts[j]
-            changed = True
-            break
-    return coords, alts
-
-
 def _declaw_alt_needles(alts_open: list[float],
                         tol: float = _NEEDLE_ALT_TOL_M) -> list[float]:
     """Clamp isolated single-vertex altitude spikes to the neighbour mean.

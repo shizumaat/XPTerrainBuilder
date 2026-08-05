@@ -1610,38 +1610,6 @@ def _find_circular_runs(flags: Sequence[bool], n: int) -> list[list[int]]:
 # ── Rule 4: split narrow necks ───────────────────────────────────
 
 
-def _polygon_neck_metrics(
-    poly: Polygon,
-) -> tuple[float, float, tuple[float, float, float, float]]:
-    """Return ``(min_thickness_m, mrr_long_m, (long_a_x, long_a_y,
-    long_b_x, long_b_y))`` for the polygon's minimum-rotated-rectangle.
-
-    ``min_thickness_m`` is the shorter MRR side; ``mrr_long_m`` the
-    longer; the tuple gives the endpoints of one long-side segment of
-    the MRR (used to set cut direction perpendicular to the MRR's
-    long axis when a neck split fires).
-    """
-    try:
-        mrr = min_rotated_rect(poly)
-    except _GEOM_EXC:
-        return 0.0, 0.0, (0.0, 0.0, 0.0, 0.0)
-    if mrr.is_empty or mrr.geom_type != "Polygon":
-        return 0.0, 0.0, (0.0, 0.0, 0.0, 0.0)
-    coords = list(mrr.exterior.coords)
-    if len(coords) < 5:
-        return 0.0, 0.0, (0.0, 0.0, 0.0, 0.0)
-    sides: list[tuple[float, tuple[float, float], tuple[float, float]]] = []
-    for i in range(4):
-        ax, ay = coords[i]
-        bx, by = coords[i + 1]
-        sides.append((math.hypot(bx - ax, by - ay), (ax, ay), (bx, by)))
-    sides.sort(key=lambda x: x[0])
-    short_side, _, _ = sides[0]
-    long_side, la, lb = sides[-1]
-    return (short_side, long_side,
-            (la[0], la[1], lb[0], lb[1]))
-
-
 # Junction-vertex-outside-pavement thresholds.  Used by the
 # regression-tracking test in ``tests/test_junction_rules.py``
 # (``test_junction_vertices_outside_pavement``).  No active
@@ -2396,26 +2364,3 @@ def stitch_pavement_polygons(
     return n_inserts
 
 
-def _vertex_on_any_anchor_edge(
-    vx: float, vy: float,
-    anchor_edges: Sequence[tuple[float, float, float, float]],
-    tol: float,
-) -> bool:
-    tol2 = tol * tol
-    for ax, ay, bx, by in anchor_edges:
-        dx = bx - ax
-        dy = by - ay
-        seg2 = dx * dx + dy * dy
-        if seg2 < 1e-9:
-            continue
-        t = ((vx - ax) * dx + (vy - ay) * dy) / seg2
-        if t < 0.0:
-            t = 0.0
-        elif t > 1.0:
-            t = 1.0
-        cx = ax + t * dx
-        cy = ay + t * dy
-        d2 = (vx - cx) * (vx - cx) + (vy - cy) * (vy - cy)
-        if d2 <= tol2:
-            return True
-    return False

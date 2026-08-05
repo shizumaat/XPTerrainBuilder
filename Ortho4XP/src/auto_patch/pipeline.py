@@ -2754,9 +2754,10 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # for it: HECA 16.71 → 6.02 s, SPJC 4.78/4.69 → 3.08 s (the medial
     # Voronoi itself, plus the ~590 extra lines every downstream trim then
     # walked).
-    # The extractor itself is KEPT — see ``pavement/discovered_taxiways.py``,
-    # whose helpers still serve the 1206 road strip-extension, and whose
-    # header records what re-wiring it into the slice would require.
+    # The extractor itself was DELETED in the dead-code round — see
+    # ``pavement/discovered_taxiways.py``, whose medial-axis helpers still
+    # serve the 1206 road strip-extension and whose header keeps the
+    # retirement record (including what rebuilding it would require).
 
     # ── (line, name) projection + parallel SPINE / CORRIDOR model:
     #    RETIRED 2026-07-31 ──────────────────────────────────────────

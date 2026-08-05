@@ -64,65 +64,6 @@ def _bucket_key(x: float, y: float) -> tuple[int, int]:
     return vertex_bucket(x, y)
 
 
-def _split_ring_at_seam(ring, seam_line):
-    """Split a 4-corner ring at one seam line into 2 4-corner rings.
-
-    Returns ``[ring_a, ring_b]`` when the seam cleanly intersects 2
-    non-adjacent edges, ``None`` otherwise (no crossing, single
-    crossing, or seam clips a corner — fall back to insert-in-place
-    in those cases since a clean 4-corner split isn't available).
-    """
-    n = len(ring)
-    if n != 4:
-        return None
-    intersections: list[tuple[int, float, tuple[float, float]]] = []
-    for i in range(n):
-        ax, ay = ring[i]
-        bx, by = ring[(i + 1) % n]
-        edge = LineString([(ax, ay), (bx, by)])
-        try:
-            inter = edge.intersection(seam_line)
-        except _GEOM_EXC:
-            continue
-        if inter.is_empty or inter.geom_type != "Point":
-            continue
-        dx = bx - ax
-        dy = by - ay
-        L2 = dx * dx + dy * dy
-        if L2 < 1e-9:
-            continue
-        t = ((inter.x - ax) * dx + (inter.y - ay) * dy) / L2
-        if t <= _EDGE_T_TOL or t >= 1.0 - _EDGE_T_TOL:
-            continue
-        intersections.append((i, t, (inter.x, inter.y)))
-    if len(intersections) != 2:
-        return None
-    intersections.sort(key=lambda r: r[0])
-    (ea, _ta, pa), (eb, _tb, pb) = intersections
-    # The seam must cross 2 NON-ADJACENT edges (opposite sides of
-    # the rect) for a clean 2 × 4-corner split.  Adjacent-edge
-    # crossings clip a corner off and produce a triangle + pentagon
-    # — not the canonical 4-corner form.
-    if (eb - ea) % n != 2:
-        return None
-    # Build sub-rect A: ring[0..ea], pa, pb, ring[eb+1..n-1]
-    ring_a: list[tuple[float, float]] = []
-    for i in range(ea + 1):
-        ring_a.append(ring[i])
-    ring_a.append(pa)
-    ring_a.append(pb)
-    for i in range(eb + 1, n):
-        ring_a.append(ring[i])
-    # Build sub-rect B: pa, ring[ea+1..eb], pb
-    ring_b: list[tuple[float, float]] = [pa]
-    for i in range(ea + 1, eb + 1):
-        ring_b.append(ring[i])
-    ring_b.append(pb)
-    if len(ring_a) != 4 or len(ring_b) != 4:
-        return None
-    return [ring_a, ring_b]
-
-
 def split_pavement_at_seams(layout: PavementLayout) -> int:
     """Insert seam vertices and convert sloped rects to ``node_altitudes``.
 

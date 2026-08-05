@@ -50,13 +50,6 @@ def _flatten_lines(geom) -> list[LineString]:
     return out
 
 
-def _boundary_verts(P: Polygon) -> list[tuple[float, float]]:
-    pts = list(P.exterior.coords)
-    for h in P.interiors:
-        pts += list(h.coords)
-    return pts
-
-
 def _polys(geom) -> list[Polygon]:
     if geom is None or geom.is_empty:
         return []
@@ -142,43 +135,6 @@ def _cut_at_mouth(poly: Polygon, A, B,
     except _GEOM_EXC:
         pass
     return None
-
-
-def _waist_chord(center, flow, P: Polygon, hw_max: float,
-                 verts: "MultiPoint | None") -> LineString | None:
-    """Cross-cut at a waist: a line through ``center`` PERPENDICULAR to the
-    ``flow`` direction (the line connecting the two pad cores), clipped to the
-    sub-segment of ``P`` that straddles ``center``, snapped to boundary
-    vertices and extended slightly so ``shapely.split`` cleaves cleanly."""
-    fm = math.hypot(flow[0], flow[1])
-    if fm < 1e-6:
-        return None
-    px, py = -flow[1] / fm, flow[0] / fm          # perpendicular = waist dir
-    cx, cy = center
-    probe = LineString([(cx - px * 6 * hw_max, cy - py * 6 * hw_max),
-                        (cx + px * 6 * hw_max, cy + py * 6 * hw_max)])
-    try:
-        inter = probe.intersection(P)
-    except _GEOM_EXC:
-        return None
-    cpt = Point(cx, cy)
-    best = None
-    for seg in _flatten_lines(inter):
-        if seg.distance(cpt) < 1.0:
-            best = seg
-            break
-    if best is None or best.length < 1.0:
-        return None
-    a, b = best.coords[0], best.coords[-1]
-    if verts is not None:
-        a = _snap(a, verts)
-        b = _snap(b, verts)
-    dx, dy = b[0] - a[0], b[1] - a[1]
-    dm = math.hypot(dx, dy)
-    if dm < 1e-6:
-        return None
-    ux, uy = dx / dm, dy / dm
-    return LineString([(a[0] - ux, a[1] - uy), (b[0] + ux, b[1] + uy)])
 
 
 def _snap(pt, verts: "MultiPoint") -> tuple[float, float]:

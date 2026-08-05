@@ -38,7 +38,7 @@ from shapely.geometry import LineString, Point
 from shapely.ops import unary_union
 
 from .spine_synthesis import (
-    R90_BY_SIZE, SpineWay, _Graph, _add_junction_arcs, _add_runway_turns,
+    R90_BY_SIZE, _Graph, _add_junction_arcs, _add_runway_turns,
     _angle_deg, _fillet, _unit,
 )
 
@@ -312,63 +312,6 @@ def _weld_touching_tips(g: _Graph, reach: float = 1.5):
         print(f"[routearc] T-stem tips welded: {welded}", flush=True)
 
 
-def _smooth_connector_edges(g: _Graph, pav_ok):
-    """The chord-connector variant of a segmented turn: a short LANE
-    edge between two junction nodes whose interior is all chords.  It
-    is smoothed IN PLACE — same endpoints, same nodes, the interior
-    chords replaced by one fillet between the edge's end tangents.
-    CONNECTIVITY IS NEVER TOUCHED (user: routes must not disconnect;
-    the earlier absorb-and-reweld variant broke through lines)."""
-    n_sm = 0
-    for e in g.edges:
-        if not e["alive"] or e["kind"] != "lane":
-            continue
-        cs = e["cs"]
-        ln = LineString(cs)
-        if len(cs) < 3 or ln.length > 120.0:
-            continue
-        u_in = _unit(*(cs[1] - cs[0]))
-        u_out = _unit(*(cs[-1] - cs[-2]))
-        total = _angle_deg(u_in, u_out)
-        if total < 15.0:
-            continue
-        A, B = cs[0], cs[-1]
-        den = u_in[0] * u_out[1] - u_in[1] * u_out[0]
-        if abs(den) < 1e-9:
-            continue
-        dp = B - A
-        s1 = (dp[0] * u_out[1] - dp[1] * u_out[0]) / den
-        P = A + np.asarray(u_in) * s1
-        leg_in = float(np.hypot(*(P - A)))
-        leg_out = float(np.hypot(*(B - P)))
-        if s1 <= 1.0 or leg_in < 1.0 or leg_out < 1.0:
-            continue
-        r_fit = ln.length / math.radians(max(total, 1.0))
-        placed = None
-        rr = min(max(r_fit, 4.0), 400.0)
-        while rr >= 3.0:
-            arc, t = _fillet(tuple(P), u_in, u_out, rr)
-            if arc is not None and t <= leg_in - 0.25 \
-                    and t <= leg_out - 0.25:
-                cand_cs = np.vstack([[A], np.asarray(arc), [B]])
-                cand = LineString(cand_cs)
-                if pav_ok(cand) and max(
-                        cand.distance(Point(tuple(q)))
-                        for q in cs) <= 4.0:
-                    placed = cand_cs
-                    break
-            rr *= 0.8
-        if placed is None:
-            continue
-        placed[0] = g.nodes[e["a"]]
-        placed[-1] = g.nodes[e["b"]]
-        e["cs"] = placed
-        n_sm += 1
-    if os.environ.get("O4_ET_DEBUG"):
-        print(f"[routearc] connector edges smoothed in place: {n_sm}",
-              flush=True)
-
-
 def _drop_duplicate_arcs(g: _Graph, gap: float = 3.0):
     """ADDED arcs that duplicate existing route geometry die — the
     route is authoritative for distance, the arc was only ever a
@@ -463,35 +406,6 @@ def _build_route_arc_graph(routes, pav_all, runway_union, dbg=False):
               f"{len_after/1000:.2f} km (corner rounding only)",
               flush=True)
     return g
-
-
-def synthesize_spine_v13(
-    pav, runway_union=None, buildings=None, routes=None, *,
-    terminal_setback: float = 100.0, recognized=None, ramps=None,
-    rwy_full=None,
-) -> list[SpineWay]:
-    del recognized, ramps, terminal_setback
-    buildings = [(b, r) for (b, r) in (buildings or [])
-                 if b is not None and not b.is_empty]
-    building_union = unary_union([b for b, _ in buildings]) \
-        if buildings else None
-    pav_nav = pav
-    if building_union is not None:
-        try:
-            pav_nav = pav.difference(shapely.buffer(building_union, 0.5))
-        except Exception:
-            pav_nav = pav
-    # thru-runway pavement (user ruling): arcs may live anywhere on the
-    # continuous footprint, runway included
-    parts = [pav_nav]
-    if rwy_full is not None and not rwy_full.is_empty:
-        parts.append(rwy_full)
-    elif runway_union is not None and not runway_union.is_empty:
-        parts.append(runway_union)
-    pav_all = unary_union(parts)
-    g = _build_route_arc_graph(routes, pav_all, runway_union,
-                               dbg=bool(os.environ.get("O4_ET_DEBUG")))
-    return g.ways()
 
 
 def apply_route_arc_spine(layout, icao: str = "") -> int:

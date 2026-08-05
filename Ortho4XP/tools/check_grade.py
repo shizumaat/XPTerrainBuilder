@@ -803,7 +803,6 @@ def _check_plane_gradient(ways: List[Way],
 # _check_within_shape.)
 
 
-
 def _lateral_cap_tag(way: "Way") -> Optional[float]:
     """The LATERAL-CONTIGUITY cap the build stamped on this way
     (``o4_grade_law_cap``, owner FINAL 2026-08-02 clause 2), or ``None``.
@@ -951,37 +950,6 @@ _STEP_CONTACT_TOL_M = 1.0
 
 # _GRADE_VISIBILITY_BUFFER_M now imported from auto_patch.config (single source
 # of truth) — see the import block above.
-
-
-def _polygon_visibility(pts):
-    """Return a ``vis(xa, ya, xb, yb) -> bool`` predicate: True iff the chord
-    stays inside the polygon defined by ``pts`` (ring order, [(x, y, ...), ...])
-    grown by ``_GRADE_VISIBILITY_BUFFER_M``.  Returns ``None`` if shapely is
-    unavailable or the polygon is degenerate, so callers fall back to plain
-    all-pair (the prior behaviour)."""
-    try:
-        from shapely.geometry import LineString, Polygon
-        from shapely.prepared import prep
-    except ImportError:
-        return None
-    try:
-        poly = Polygon([(p[0], p[1]) for p in pts])
-        if not poly.is_valid:
-            poly = poly.buffer(0)
-        poly = poly.buffer(_GRADE_VISIBILITY_BUFFER_M)
-        if poly.is_empty:
-            return None
-        pg = prep(poly)
-    except Exception:
-        return None
-
-    def _vis(xa, ya, xb, yb):
-        try:
-            return pg.contains(LineString(((xa, ya), (xb, yb))))
-        except Exception:
-            return True
-
-    return _vis
 
 
 @dataclass

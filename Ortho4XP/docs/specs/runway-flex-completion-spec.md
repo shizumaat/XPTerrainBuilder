@@ -93,3 +93,48 @@ diff, clamp table re-run (the probe's instrument is reusable),
 composed verdict, file list. Do NOT commit. STOP: sentinel identity
 mismatch; any FAA gate regression; fix-3 arm moves any CIFP threshold
 value; second miss.
+
+## LEAD ADJUDICATION + §2a AMENDMENT (2026-08-04 night; evidence
+## scratchpad flexfix/out/)
+
+Bands 1-4 PASS (several exceeded): self-anchor lock measurably gone
+(zero-slack bins 153/277 → 0/1008); 05R/23L residual 25.06 → 1.18 m;
+DEM-follow puts the center within 0.945 m of the real sag and 05R/23L
+emits ZERO flex demands (the 6907 tension dissolves at the source;
+node 6907's 2.672 m inversion row is eliminated); airport earthwork
+−38.5%; the honest instrument reproduces the probe's JSON exactly.
+DECISIVE extra arm: fix 3 + O4_BAND_SEED_COMPLETE=1 completes the
+build with 1 sub-materiality inversion (vs the 1302-node abort) — the
+named precondition for that gate's flip is MET.
+
+**§2a AMENDMENT (the STOP's resolution — specified completion of an
+attributed mechanism, not a new guess):** the spec's "slack clamp,
+displacement budget ... all stand" froze the DEMAND-side clamps;
+apply_runway_flex's verify-and-relax is the APPLY-side safety check
+and testing only MAX_RUNWAY_GRADE there is a bug — the per-segment
+end-zone cap (runway_segment_grade_cap, FAA 0.8% in the end
+fractions) is law. Extend verify-and-relax to the per-segment cap in
+NO-NEW-REGRESSION form: a target that would create a new
+over-end-zone-cap segment (or worsen an existing one beyond the
+0.01 pp materiality floor) is relaxed/rejected; the 17 PRE-EXISTING
+over-cap segments at gate-off (05C/23C end zones — a standing defect
+now visible, recorded for its own round) are not this round's
+responsibility. Pre-registered: fix arms' end-zone table returns to
+<= gate-off (17 segments / 728.0 m); the +9/+15 regressions gone;
+05R/23L's marginal 4 clear or sit below materiality. This is the
+lane's second and final attempt on the FAA band.
+
+Other deviations RULED: the §2-combination census arms were the right
+instrument (approved); EAT-pin identity is vacuous at HECA — the
+claim moves to the next tip battery on KCLT (recorded); fix-2's
+12-round plateau is ATTRIBUTED to displacement-budget saturation at
+05C/23C and 05L/23R (815/1008 budget-bound) — accepted, the 4.0 m
+budget is standing law and its adequacy is a flip-round question
+along with 05C/23C's +77% fix-3 earthwork rise (both recorded as
+flip-gating open items); the CYXY dedicated anchor probe + twins in
+lieu of an inert build arm is approved practice for a
+demand-free airport.
+
+SEQUENCING: this lane lands AFTER the ref-pull tip (the lane is
+default-inert — identity proven at both anchors — so the tip's minted
+anchors survive its landing unchanged).

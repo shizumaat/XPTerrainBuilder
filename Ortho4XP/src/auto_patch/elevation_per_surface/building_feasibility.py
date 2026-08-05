@@ -617,15 +617,28 @@ def spine_value_fields(layout, G):
         # them instead of a second pass re-deriving them).  No value is
         # read from it here; ``best`` is byte-identical either way.
         dist: dict = {}
-        pq = [((ae if sign > 0 else -ae), 0.0, ae, k)
+        # WHICH ANCHOR WON, write-only (fix-2 lane A): the field already
+        # carries the anchor's VALUE through the frontier, so the anchor's
+        # own node costs one tuple slot to carry with it.  Nothing here
+        # reads it; it is the provenance the loud band error and the
+        # apron-terrace CERTIFICATE quote, so neither has to re-run a
+        # Dijkstra to name the anchor pair it is talking about
+        # (``single-pass-principle``).  ``src`` sits between ``ae`` and
+        # ``u`` in the heap key: two entries that tie through ``ae``
+        # necessarily tie through ``dd`` too (``key = ae ± dd``), so they
+        # write identical values and the extra tie-break cannot move a
+        # number.
+        via: dict = {}
+        pq = [((ae if sign > 0 else -ae), 0.0, ae, k, k)
               for (k, ae) in anchor_seeds.items()]
         heapq.heapify(pq)
         while pq:
-            _key, dd, ae, u = heapq.heappop(pq)
+            _key, dd, ae, src, u = heapq.heappop(pq)
             if u in best:
                 continue
             best[u] = (ae + dd) if sign > 0 else (ae - dd)
             dist[u] = dd
+            via[u] = src
             for (v, budget) in G.spine_adj.get(u, ()):
                 if v in best:
                     continue
@@ -634,14 +647,47 @@ def spine_value_fields(layout, G):
                 nd = dd + budget
                 heapq.heappush(
                     pq, (((ae + nd) if sign > 0 else -(ae - nd)),
-                         nd, ae, v))
-        return best, dist
+                         nd, ae, src, v))
+        return best, dist, via
 
-    ceiling, ceil_dist = _field(+1)
-    floor, floor_dist = _field(-1)
+    ceiling, ceil_dist, ceil_via = _field(+1)
+    floor, floor_dist, floor_via = _field(-1)
+    _record_anchor_provenance(layout, anchor_seeds, ceil_via, ceil_dist,
+                              floor_via, floor_dist)
     _record_band_inversions(layout, G, ceiling, floor, ceil_dist, floor_dist,
-                            hard_truth=_hard_truth_spine_seeds(layout, G))
+                            hard_truth=_hard_truth_spine_seeds(layout, G),
+                            ceil_via=ceil_via, floor_via=floor_via,
+                            anchor_seeds=anchor_seeds)
     return ceiling, floor
+
+
+def _record_anchor_provenance(layout, anchor_seeds, ceil_via, ceil_dist,
+                              floor_via, floor_dist):
+    """Stash WHICH ANCHOR authored each node's ceiling and floor.
+
+    Write-only, last call wins — the same discipline as
+    :func:`_record_band_inversions`.  ``layout._band_anchor_provenance``:
+
+        {"anchor_value": {anchor_node: seed_elev},
+         "ceiling": {node: (anchor_node, route_budget_m)},
+         "floor":   {node: (anchor_node, route_budget_m)}}
+
+    THE POINT.  An envelope shortfall is always a statement about an
+    ANCHOR PAIR and the route between them — ``v_a − v_b > d(a,b)`` — and
+    without this map every consumer that wants to name that pair has to
+    re-run the two Dijkstras it was just handed the answer of.  Both the
+    loud band error and the apron-terrace certificate read it."""
+    try:
+        layout._band_anchor_provenance = {
+            "anchor_value": {int(k): float(v)
+                             for (k, v) in anchor_seeds.items()},
+            "ceiling": {int(u): (int(a), float(ceil_dist.get(u, 0.0)))
+                        for (u, a) in ceil_via.items()},
+            "floor": {int(u): (int(a), float(floor_dist.get(u, 0.0)))
+                      for (u, a) in floor_via.items()},
+        }
+    except (AttributeError, TypeError, ValueError):         # pragma: no cover
+        pass
 
 
 def _hard_truth_spine_seeds(layout, G):
@@ -696,7 +742,8 @@ def _hard_truth_spine_seeds(layout, G):
 
 
 def _record_band_inversions(layout, G, ceiling, floor, ceil_dist,
-                            floor_dist, hard_truth=None):
+                            floor_dist, hard_truth=None, ceil_via=None,
+                            floor_via=None, anchor_seeds=None):
     """Stash THIS call's INVERTED rows on the layout (spec kill-half §3,
     extended by the seed-fix round §2).
 
@@ -720,6 +767,9 @@ def _record_band_inversions(layout, G, ceiling, floor, ceil_dist,
     rows = []
     if ceiling and floor:
         pos = getattr(G, "pos", None) or {}
+        seeds = anchor_seeds or {}
+        cvia = ceil_via or {}
+        fvia = floor_via or {}
         for node, lo in floor.items():
             hi = ceiling.get(node)
             if hi is None:
@@ -728,6 +778,14 @@ def _record_band_inversions(layout, G, ceiling, floor, ceil_dist,
             if deficit <= 0.0:
                 continue
             xy = pos.get(node)
+            # THE CONTRADICTORY ANCHOR PAIR.  ``floor > ceiling`` at a node
+            # is never a property OF the node: it says the floor's author
+            # ``a`` and the ceiling's author ``b`` are further apart in
+            # VALUE than the route between them can carry, and the deficit
+            # IS that shortfall.  Naming a/b turns "3 169 nodes inverted"
+            # into one sentence about two anchors and one route.
+            fa = fvia.get(node)
+            ca = cvia.get(node)
             rows.append({
                 "node": node,
                 "klass": "floor_above_ceiling",
@@ -736,6 +794,12 @@ def _record_band_inversions(layout, G, ceiling, floor, ceil_dist,
                 "deficit_m": float(deficit),
                 "floor_route_m": float(floor_dist.get(node, 0.0)),
                 "ceil_route_m": float(ceil_dist.get(node, 0.0)),
+                "floor_anchor": (None if fa is None else int(fa)),
+                "ceil_anchor": (None if ca is None else int(ca)),
+                "floor_anchor_value": (None if fa is None
+                                       else float(seeds.get(fa, float("nan")))),
+                "ceil_anchor_value": (None if ca is None
+                                      else float(seeds.get(ca, float("nan")))),
                 "x": (None if xy is None else float(xy[0])),
                 "y": (None if xy is None else float(xy[1])),
             })
@@ -792,6 +856,37 @@ def assert_no_final_band_inversion(layout, icao="",
         f"a wrong metric, a wrong anchor value, a wrong role/cap or a "
         f"false topology — never a region to quarantine.",
     ]
+    # THE ANCHOR PAIRS, FIRST.  Every inverted node is downstream of ONE
+    # anchor pair whose values are further apart than the route between
+    # them can carry; rolling the nodes up by that pair turns a wall of
+    # coordinates into the two anchors and the one route budget that
+    # actually have to be attributed.
+    pairs: dict = {}
+    for r in over:
+        fa, ca = r.get("floor_anchor"), r.get("ceil_anchor")
+        if fa is None or ca is None:
+            continue
+        key = (int(fa), int(ca))
+        row = pairs.setdefault(key, {"n": 0, "worst": 0.0, "r": r})
+        row["n"] += 1
+        if r["deficit_m"] > row["worst"]:
+            row["worst"] = r["deficit_m"]
+            row["r"] = r
+    if pairs:
+        lines.append(f"  contradictory ANCHOR PAIR(S): {len(pairs)}")
+        for (fa, ca), row in sorted(pairs.items(),
+                                    key=lambda kv: -kv[1]["worst"])[:6]:
+            r = row["r"]
+            fv = r.get("floor_anchor_value")
+            cv = r.get("ceil_anchor_value")
+            spread = (None if (fv is None or cv is None) else abs(fv - cv))
+            budget = r["floor_route_m"] + r["ceil_route_m"]
+            lines.append(
+                f"    anchors {fa} ({'?' if fv is None else f'{fv:.3f}'} m) "
+                f"vs {ca} ({'?' if cv is None else f'{cv:.3f}'} m): value "
+                f"spread {'?' if spread is None else f'{spread:.3f}'} m "
+                f"over a route budget of {budget:.3f} m ⇒ shortfall "
+                f"{row['worst']:.4f} m at {row['n']} node(s)")
     for r in over[:20]:
         where = ("" if r["x"] is None
                  else f" @({r['x']:.1f},{r['y']:.1f})")

@@ -119,6 +119,25 @@ def _steep_case(**kw):
 _DEM_FNS: dict = {}
 
 
+def _pinned_envelope(z_fn):
+    """A PINNED anchor envelope tracking ``z_fn`` — ``floor == ceiling``.
+
+    The trigger is the anchor envelope (RULINGS 4cbed92), so the twins
+    hand the real panelizer an envelope rather than a DEM.  Pinning it to
+    a plane is the strictest possible anchor tension — every point's
+    value is fully determined — and the pair scan then reduces to
+    ``(slope − cap)·extent`` exactly, which is the number the retired
+    DEM-plane trigger produced.  So these fixtures keep their arithmetic
+    while exercising the law that actually decides.
+    """
+    def _env(x, y):
+        z = z_fn(x, y)
+        if z is None:
+            return None
+        return (float(z), float(z))
+    return _env
+
+
 def _abutting_panel(layout, x, group=None):
     """The apron panel whose right edge sits nearest ``x``.
 
@@ -157,7 +176,8 @@ def _panelize(layout, dem_fn=None):
     if dem_fn is None:
         def dem_fn(x, y):
             return 100.0 + 0.02 * x
-    AT._construct_from_sampler(layout, dem_fn, icao="TEST")
+    AT._construct_from_envelope(layout, _pinned_envelope(dem_fn),
+                                sample_dem=dem_fn, icao="TEST")
     nodes_xy: dict = {}
     node_dem: list = []
     entries: list = []
@@ -314,6 +334,103 @@ def test_declared_step_is_bounded():
 
 
 # ── 3. THE TRIGGER ──────────────────────────────────────────────────
+
+def _two_anchor_envelope(v_lo=100.0, v_hi=108.0, span=600.0, cap=0.015):
+    """The band two hard anchors ``span`` metres apart impose.
+
+    ``floor(p) = max over anchors (v − route budget)``,
+    ``ceiling(p) = min over anchors (v + route budget)`` — the two fields
+    ``building_feasibility.spine_value_fields`` computes, written out
+    analytically for a straight two-anchor route at ``cap``.  This is the
+    tension a CIFP threshold pair puts on the apron between them, and it
+    is IDENTICAL in a flat world and a real one, which is the whole
+    content of RULINGS 4cbed92.
+    """
+    def _env(x, y):
+        d_lo, d_hi = cap * abs(x), cap * abs(span - x)
+        return (max(v_lo - d_lo, v_hi - d_hi),
+                min(v_lo + d_lo, v_hi + d_hi))
+    return _env
+
+
+def test_a_flat_world_still_carries_its_anchor_terrace_demand():
+    """RULINGS 4cbed92, the correction this whole re-keying serves.
+
+    The DEM here is DEAD FLAT — the retired steep-truth trigger sees an
+    apron plane at 0 % and refuses — while two anchors 8 m apart in value
+    sit at either end of a 600 m apron.  Their envelope demands 2 m of
+    relief no single 1 %-capped panel can absorb, so the law must fire.
+    A trigger keyed on DEM steepness is blind here, and the flat-DEM
+    oracle worlds are made of exactly this case.
+    """
+    shape, nodes_xy, node_dem, edges, idx = _grid_apron(
+        width=600.0, slope=0.0)          # dead-flat ground
+    layout = _FakeLayout([shape])
+    n = AT._construct_from_envelope(
+        layout, _two_anchor_envelope(),
+        sample_dem=lambda x, y: 100.0, icao="TEST")
+    stats = layout.apron_terrace_presolve_stats
+    assert stats["candidates_demanded"] == 1, (
+        "the anchor envelope demanded no relief on flat ground — the "
+        "trigger is still reading the DEM")
+    assert stats["demand_worst_m"] == pytest.approx(2.0, abs=1e-6)
+    assert n >= 1 and stats["joints"] == n
+    cert = layout.apron_terrace_presolve[0]["certificate"]
+    assert cert["trigger"] == "anchor_envelope"
+    # The provenance says, honestly, that the ground was flat.
+    assert cert["dem_plane_slope"] in (None, 0.0)
+
+
+def test_dem_steepness_alone_never_licenses_a_terrace():
+    """The other half of the ruling: steep GROUND under an envelope that
+    permits a lawful 1 % surface is not a terrace.
+
+    2 % ground over 600 m — the exact fixture the retired trigger fired
+    on — under a band wide enough to hold a compliant panel.  Terracing
+    it would step a surface the anchors never asked to be stepped.
+    """
+    shape, nodes_xy, node_dem, edges, idx = _grid_apron(
+        width=600.0, slope=0.02)
+    layout = _FakeLayout([shape])
+    n = AT._construct_from_envelope(
+        layout, lambda x, y: (90.0, 130.0),      # 40 m of slack
+        sample_dem=lambda x, y: 100.0 + 0.02 * x, icao="TEST")
+    assert n == 0
+    assert layout.apron_terrace_presolve == []
+    stats = layout.apron_terrace_presolve_stats
+    assert stats["candidates"] == 1
+    assert stats["candidates_demanded"] == 0
+
+
+def test_the_demand_census_separates_none_demanded_from_none_fired():
+    """Item 3, fix cycle 2: ``joints == 0`` is TWO different worlds.
+
+    A validator family reading 0/0 is a PASS only when nobody asked.
+    With a demand standing and no joint minted it is a DEFECT, and the
+    counters have to make a reader able to tell — before the re-keying
+    every flat-world build read 0/0 and looked clean.
+    """
+    # (a) nobody asked — a slack envelope over flat ground.
+    quiet = _FakeLayout([_grid_apron(width=600.0, slope=0.0)[0]])
+    AT._construct_from_envelope(quiet, lambda x, y: (90.0, 130.0),
+                                icao="TEST")
+    qs = quiet.apron_terrace_presolve_stats
+    assert (qs["joints"], qs["candidates_demanded"]) == (0, 0)
+
+    # (b) asked, and geometry answered nothing — the SAME demand, on an
+    # apron whose every terrace line is swallowed by the corridor cover.
+    shape = _grid_apron(width=600.0, slope=0.0)[0]
+    blocked = _FakeLayout([shape], centerlines=[
+        [(x, -400.0), (x, 400.0)] for x in range(0, 601, 10)])
+    AT._construct_from_envelope(blocked, _two_anchor_envelope(),
+                                icao="TEST")
+    bs = blocked.apron_terrace_presolve_stats
+    assert bs["joints"] == 0
+    assert bs["candidates_demanded"] == 1, (
+        "a demand that geometry could not answer must still be counted "
+        "— otherwise it reads exactly like nobody asking")
+    assert bs["demand_worst_m"] > 0.0
+
 
 def test_trigger_floor_blocks_centimetre_noise():
     """Excess below ``APRON_TERRACE_MIN_EXCESS_M`` never panelizes."""
@@ -646,12 +763,26 @@ def test_T3_every_panelized_apron_carries_its_certificate():
     assert panelized <= set(plan.certificates), (
         "an apron panelized without a recorded certificate")
     for cert in plan.certificates.values():
-        # The evidence chain is now DEM + geometry end to end: the
-        # apron's own plane, steeper than the cap, over its own extent.
-        assert cert["plane_slope"] > APRON_MAX_GRADE
-        assert cert["extent_m"] > 0.0
-        assert cert["geom_excess_m"] >= APRON_TERRACE_MIN_EXCESS_M
+        # THE EVIDENCE CHAIN IS THE ANCHOR ENVELOPE (RULINGS 4cbed92):
+        # the pair of points whose admissible intervals no single
+        # 1 %-capped panel can span, the chord between them, the
+        # allowance that chord buys and the shortfall that remains.
+        assert cert["trigger"] == "anchor_envelope"
+        assert cert["envelope_excess_m"] >= APRON_TERRACE_MIN_EXCESS_M
         assert cert["relief_m"] > 0.0
+        assert cert["pair_chord_m"] > 0.0
+        assert cert["extent_m"] > 0.0
+        # The shortfall IS floor(hi) − ceiling(lo) − cap·chord: the
+        # certificate has to be arithmetic anyone can re-check, not a
+        # number only the panelizer knows how to reproduce.
+        assert cert["pair_allowance_m"] == pytest.approx(
+            APRON_MAX_GRADE * cert["pair_chord_m"], abs=1e-3)
+        assert (cert["floor_hi_m"] - cert["ceiling_lo_m"]
+                - cert["pair_allowance_m"]) == pytest.approx(
+                    cert["envelope_excess_m"], abs=1e-3)
+        # DEM steepness is PROVENANCE now, never the licence: it is
+        # recorded, and it is not what any of the above is keyed on.
+        assert "dem_plane_slope" in cert
         assert cert["panels"] >= 2
     layout._apron_terrace_plan = plan
     rows = AT.terrace_certificates_sidecar(layout)
@@ -1123,7 +1254,9 @@ def test_T8_sidecar_carries_certificates_and_the_actual_step():
         if r["faced"]:
             assert r["step_m"] == pytest.approx(r["declared_step_m"])
     for c in certs:
-        for key in ("plane_slope", "extent_m", "geom_excess_m",
+        for key in ("trigger", "envelope_excess_m", "floor_hi_m",
+                    "ceiling_lo_m", "pair_chord_m", "pair_allowance_m",
+                    "extent_m", "dem_plane_slope",
                     "relief_m", "line_budget", "joints", "panels"):
             assert key in c
 
@@ -1253,8 +1386,9 @@ def test_a_joint_that_would_punch_a_hole_is_stillborn():
     layout = _FakeLayout([shape])
     # A cover that boxes the apron's whole rim forces every terrace
     # line's ends into the cover, so no band can reach a ring.
-    n = AT._construct_from_sampler(
-        layout, lambda x, y: 100.0 + 0.02 * x, icao="TEST")
+    n = AT._construct_from_envelope(
+        layout, _pinned_envelope(lambda x, y: 100.0 + 0.02 * x),
+        icao="TEST")
     stats = layout.apron_terrace_presolve_stats
     assert stats["joints_stillborn_hole"] >= 0
     # …and whatever survived did so by splitting or notching, never by

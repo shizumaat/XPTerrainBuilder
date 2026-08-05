@@ -28,14 +28,21 @@ is the law under which it exists).
 
 WHAT THIS MODULE DOES, in the order the solve calls it:
 
-1. ``plan_apron_terraces`` — the TRIGGER + the PANELIZATION.  For every
-   apron constraint component: the two-sided envelope ``L − U`` on its own
-   cap graph with its hard anchors pinned (the same adjudication
-   ``one_solve._stall_envelope_gap`` runs, on one component instead of the
-   whole system), the steep-truth signature (the binding witness pair's
-   DEM chord grade exceeds the cap that pair is held to), and the excess
-   floor.  Components that pass get terrace lines perpendicular to the
-   apron's own DEM gradient, cut out of the corridor cover.
+0. ``construct_apron_terrace_presolve`` — the TRIGGER + the
+   PANELIZATION, before the solve.  THE TRIGGER IS THE ANCHOR ENVELOPE
+   (owner, RULINGS 4cbed92 — see ``_envelope_demand``): for every apron,
+   the interval ``[floor, ceiling]`` the anchors + caps + route geometry
+   confine each point to, and the worst pair whose intervals no single
+   1 %-capped panel can span.  The shortfall IS the relief the declared
+   steps discharge.  Terrace lines run along the ENVELOPE contour (the
+   perpendicular to that pair's axis), cut out of the corridor cover.
+   The steep-truth DEM signature that used to be the trigger is DEMOTED
+   to report-only certificate provenance: the owner ruled DEM steepness
+   the wrong quantity, and the measured consequence was that a flat-DEM
+   world — which carries the SAME CIFP threshold spread and therefore
+   the same terrace demand — fired zero terraces.
+1. ``plan_apron_terraces`` — the BINDER.  Resolves that declaration into
+   the solve's index space; it decides nothing.
 2. ``apply_terrace_budgets`` — the SOLVER BINDING.  Panels are constraint
    GROUPS inside the ONE solve (no second solve, ``single-solve
    architecture``).  A within-apron law edge whose chord crosses ``k``
@@ -182,6 +189,20 @@ _FACING_WELD_TOL_M = 0.55
 # 25 m is the apron ring's own coarse spacing — finer buys nothing
 # because the station has to find a settled row on each side.
 _JOINT_STATION_SPACING_M = 25.0
+
+# ── THE ANCHOR-ENVELOPE TRIGGER (RULINGS 4cbed92) ───────────────────
+# The pair scan is quadratic in the sample count, so the sample count is
+# bounded.  240 samples = 28 800 ordered pairs per apron, one numpy
+# outer difference — sub-millisecond, and dense enough that a thinned
+# ring moves the worst pair by well under the 0.01 m materiality floor.
+_ENVELOPE_SAMPLE_MAX = 240
+# A pair closer together than this cannot license a terrace: the joint
+# and its wall band would not fit between them, so an "excess" read at
+# that separation is instrument noise, not relief a panel boundary can
+# discharge.  Sized at the minimum joint length.
+_ENVELOPE_MIN_CHORD_M = 8.0
+_INF_POS = float("inf")
+_INF_NEG = float("-inf")
 
 
 def _station_grid(length: float) -> list:
@@ -429,6 +450,13 @@ class TerracePlan:
         self.facing_nodes: dict[int, set] = {}
         self.stats: dict = {
             "candidates": 0, "triggered": 0, "joints": 0,
+            # ── THE DEMAND CENSUS (fix cycle 2, item 3) ─────────────
+            # Mirrored from the pre-solve construction.  "0 joints" is
+            # only a PASS when ``candidates_demanded`` is also 0; with a
+            # demand standing and nothing fired it is a defect, and no
+            # reader can tell those apart without these counters.
+            "candidates_demanded": 0, "candidates_under_floor": 0,
+            "demand_total_m": 0.0, "demand_worst_m": 0.0,
             "joint_pieces_dropped_short": 0,
             "joint_lines_lost_to_corridor": 0,
             "apron_area_total": 0.0, "apron_area_panelized": 0.0,
@@ -970,20 +998,20 @@ def _cut_joint_pieces(line, polygon, cover):
 # kind of value in the system any more.
 #
 # DECIDED AND NOTED (12320bd allows this; the owner should see it):
-#   1. THE TRIGGER IS NOW DEM + GEOMETRY ONLY.  The old trigger ran the
-#      component ENVELOPE over the solve's current values, which is
-#      unavailable pre-solve — and under RULINGS 5578b6a ("there is no
-#      lawful-infeasible ground") an envelope excess is a DEFECT REPORT
-#      about the law or the instrument, never a licence to terrace.  What
-#      licenses a terrace is the GROUND: an apron whose own DEM plane is
-#      steeper than the apron cap over its own extent cannot be one
-#      panel.  That reading (``geom_excess``) was already in the law and
-#      already preferred whenever it was the larger of the two
-#      (``relief = max(worst_gap, geom_excess)``), and the flip evidence
-#      measured the envelope UNDER-firing against it (HEAZ 1.55 m vs
-#      3.06 m: one joint minted where the ground asked for two).  The
-#      envelope machinery (``_component_envelope``, ``_cap_distance``)
-#      is retained: it is the certificate's cross-check, not its trigger.
+#   1. THE TRIGGER IS THE ANCHOR ENVELOPE (owner, RULINGS 4cbed92 —
+#      SUPERSEDES the DEM + geometry reading this slot used to describe).
+#      The distinction that matters is WHOSE envelope.  The retired
+#      mid-solve trigger ran the envelope over THE SOLVE'S CURRENT
+#      VALUES, and under RULINGS 5578b6a an excess there is a defect
+#      report about the law or the instrument, never a licence — a
+#      terrace bought with a wrong value buries the defect.  What is read
+#      here is the PRE-SOLVE ANCHOR envelope: hard anchor values, per-edge
+#      caps and route geometry, no solved value anywhere, so there is no
+#      value defect available for it to launder.  The DEM-plane reading
+#      that briefly replaced it is demoted to certificate provenance; its
+#      measured cost was total blindness in the flat-DEM oracle worlds,
+#      which carry the full CIFP anchor tension and therefore the full
+#      terrace demand.
 #   2. A JOINT THAT CANNOT SPLIT ITS APRON IS STILLBORN.  Every shape in
 #      this system is simply connected and ~17 ring iterations in the
 #      solver assume it.  A wall band that would punch an interior ring
@@ -1085,20 +1113,23 @@ def _low_side_sign(line_pts, gdir) -> float:
     return -1.0 if (nx * gdir[0] + ny * gdir[1]) > 0.0 else 1.0
 
 
-def _apron_dem_plane(polygon, sample_dem):
-    """``((gx, gy), slope)`` for one apron polygon, from the DEM alone.
+def _apron_sample_points(polygon):
+    """The apron's own sample set: ring vertices plus a coarse interior
+    grid, decimated to :data:`_ENVELOPE_SAMPLE_MAX`.
 
-    Samples the ring vertices plus a coarse interior grid (the ring
-    alone can be degenerate — a long thin apron's vertices are nearly
-    collinear) and fits the same least-squares plane
-    :func:`_dem_gradient` fits, through the same code.
+    The ring ALONE can be degenerate (a long thin apron's vertices are
+    nearly collinear), and the interior is where a route crossing the
+    apron puts its own envelope — so both are sampled.  ONE sampler for
+    the envelope trigger and the report-only DEM plane, so the
+    certificate's two readings can never be talking about different
+    ground.
     """
     try:
         ring = _open_ring_xy(polygon)
     except _GEOM_EXC:
-        return None
+        return []
     if len(ring) < 3:
-        return None
+        return []
     pts = list(ring)
     try:
         (minx, miny, maxx, maxy) = polygon.bounds
@@ -1113,6 +1144,32 @@ def _apron_dem_plane(polygon, sample_dem):
             gy += step
     except _GEOM_EXC:
         pass
+    if len(pts) > _ENVELOPE_SAMPLE_MAX:
+        # Uniform stride, endpoints kept.  The envelope is a ROUTE metric
+        # and the DEM plane is a least-squares fit; neither reads a single
+        # vertex, so thinning a dense ring changes the answer by less than
+        # the materiality floor while keeping the pair scan quadratic in a
+        # bounded number.
+        stride = int(math.ceil(len(pts) / float(_ENVELOPE_SAMPLE_MAX)))
+        pts = pts[::stride]
+    return [(float(x), float(y)) for (x, y) in pts]
+
+
+def _apron_dem_plane(polygon, sample_dem):
+    """``((gx, gy), slope)`` for one apron polygon, from the DEM alone.
+
+    REPORT-ONLY PROVENANCE (RULINGS 4cbed92).  This reading used to BE
+    the trigger; the owner ruled DEM steepness the wrong quantity, so it
+    now only travels in the certificate beside the envelope evidence that
+    does the deciding.  Kept because it is the honest answer to "what did
+    the ground under this apron look like", which is worth having next to
+    "and this is why the law terraced it".
+    """
+    if sample_dem is None:
+        return None
+    pts = _apron_sample_points(polygon)
+    if len(pts) < 3:
+        return None
     xy = {}
     dem = []
     idx = []
@@ -1127,6 +1184,101 @@ def _apron_dem_plane(polygon, sample_dem):
     if len(idx) < 3:
         return None
     return _dem_gradient(_as_xy(xy), dem, idx)
+
+
+def _envelope_demand(polygon, envelope, cap: float):
+    """THE TRIGGER READING — the worst ANCHOR-ENVELOPE INFEASIBILITY
+    inside one apron, or ``None`` where the apron is feasible as one
+    panel.
+
+    THE LAW (owner, RULINGS 4cbed92).  A terrace is licensed by what the
+    ANCHORS demand, not by what the DEM does: "triggers derive from
+    ANCHOR-ENVELOPE INFEASIBILITY (hard values + caps + geometry),
+    identical in flat and real worlds".  The envelope IS the interval the
+    projection enforces at every point — ``floor(p) = max over anchors
+    (v_a − route budget a→p)``, ``ceiling(p) = min over anchors (v_a +
+    route budget a→p)`` — the same two fields
+    ``building_feasibility.spine_value_fields`` computes and the FINAL
+    band assert judges.
+
+    One capped surface can hold two points ``k`` and ``m`` iff some pair
+    of admissible values is within the cap's own allowance over the chord
+    between them::
+
+        min |z_k − z_m|  =  max(0, L_k − U_m, L_m − U_k)   ≤   cap · d_km
+
+    so the SHORTFALL — the relief no single lawful panel can absorb, and
+    exactly the relief a declared joint step exists to discharge — is
+
+        excess = max over pairs ( L_k − U_m − cap·d_km )
+
+    Returns ``{"excess_m", "hi", "lo", "floor_hi", "ceiling_lo",
+    "chord_m", "allowance_m", "gdir", "samples"}``.  ``gdir`` is the unit
+    direction of steepest ENVELOPE ascent (low point → high point): the
+    contour perpendicular to it is where a joint belongs, the same role
+    the DEM gradient used to play.
+
+    NOTE the asymmetry of the scan: ``L_k − U_m`` is evaluated over ALL
+    ORDERED pairs, so ``L_m − U_k`` is the same scan with ``k`` and ``m``
+    swapped and needs no separate term.
+    """
+    try:
+        import numpy as _np
+    except ImportError:                                    # pragma: no cover
+        return None
+    pts = _apron_sample_points(polygon)
+    if len(pts) < 2:
+        return None
+    xs, ys, los, his = [], [], [], []
+    for (x, y) in pts:
+        try:
+            b = envelope(x, y)
+        except _GEOM_EXC:                                  # pragma: no cover
+            b = None
+        if b is None:
+            continue
+        try:
+            lo_v, hi_v = float(b[0]), float(b[1])
+        except (TypeError, ValueError, IndexError):        # pragma: no cover
+            continue
+        if lo_v != lo_v or hi_v != hi_v:
+            continue
+        if lo_v in (_INF_NEG, _INF_POS) or hi_v in (_INF_NEG, _INF_POS):
+            continue
+        xs.append(x)
+        ys.append(y)
+        los.append(lo_v)
+        his.append(hi_v)
+    n = len(xs)
+    if n < 2:
+        return None
+    X = _np.asarray(xs, dtype=float)
+    Y = _np.asarray(ys, dtype=float)
+    L = _np.asarray(los, dtype=float)
+    U = _np.asarray(his, dtype=float)
+    D = _np.hypot(X[:, None] - X[None, :], Y[:, None] - Y[None, :])
+    M = (L[:, None] - U[None, :]) - float(cap) * D
+    _np.fill_diagonal(M, -_np.inf)
+    k, m = _np.unravel_index(int(_np.argmax(M)), M.shape)
+    excess = float(M[k, m])
+    chord = float(D[k, m])
+    if not (excess > 0.0) or chord < _ENVELOPE_MIN_CHORD_M:
+        return None
+    dx, dy = X[k] - X[m], Y[k] - Y[m]
+    norm = math.hypot(dx, dy)
+    if norm < 1e-9:                                        # pragma: no cover
+        return None
+    return {
+        "excess_m": excess,
+        "hi": (float(X[k]), float(Y[k])),
+        "lo": (float(X[m]), float(Y[m])),
+        "floor_hi": float(L[k]),
+        "ceiling_lo": float(U[m]),
+        "chord_m": chord,
+        "allowance_m": float(cap) * chord,
+        "gdir": (dx / norm, dy / norm),
+        "samples": n,
+    }
 
 
 def _open_ring_xy(polygon):
@@ -1175,22 +1327,124 @@ def construct_apron_terrace_presolve(layout, dem, tile_lat: int,
         except (*_GEOM_EXC, ZeroDivisionError):
             return None
 
-    return _construct_from_sampler(layout, sample_dem, icao=icao)
+    envelope, anchors = presolve_anchor_envelope(layout, icao=icao)
+    if envelope is None:
+        layout.apron_terrace_presolve_stats = {
+            "candidates": 0, "triggered": 0, "joints": 0,
+            "no_envelope": 1}
+        return 0
+    return _construct_from_envelope(layout, envelope, sample_dem=sample_dem,
+                                    icao=icao, anchors=anchors)
 
 
-def _construct_from_sampler(layout, sample_dem, icao: str = "") -> int:
-    """:func:`construct_apron_terrace_presolve` with the DEM already
-    resolved to a ``(x, y) -> z | None`` callable.
+def presolve_anchor_envelope(layout, icao: str = ""):
+    """``(envelope, anchors)`` — THE anchor envelope, computed PRE-SOLVE,
+    exactly as the FINAL band assert computes it.
+
+    ``envelope(x, y) -> (floor, ceiling) | None`` is
+    ``building_feasibility.reach_band_unified`` on the unified grade
+    graph: the interval the projection confines every solved pavement
+    node to, from the hard anchor values, the per-edge caps and the route
+    geometry — and nothing else.  It is a pure function of geometry +
+    CIFP anchors, none of which the solve has moved yet (the same
+    argument ``adjacent_ground._build_construct_reach_band`` makes for
+    its own pre-solve band), so it is computable here.
+
+    ``anchors(x, y, side) -> (anchor_node, anchor_value, route_budget) |
+    None`` resolves a point to the anchor that authored its ``"floor"``
+    or its ``"ceiling"``, via the nearest SPINE node — the certificate's
+    evidence, read off the provenance the band build already published.
+
+    Returns ``(None, None)`` on any failure: no envelope means no
+    licensed terrace, which is the conservative answer (a build that
+    cannot compute the demand must not invent one).
+
+    COST, stated honestly: one extra ``_build_node_list`` +
+    ``build_unified_graph`` + band build before the solve.  It is not
+    shared with the construct band in ``adjacent_ground`` because THIS
+    pass changes ``layout.shapes`` (it splits aprons into panels), so
+    that one is built on different geometry by construction.
+    """
+    try:
+        from auto_patch import grade_graph as _GG
+        from auto_patch.elevation_per_surface.building_feasibility import (
+            reach_band_unified)
+        from auto_patch.elevation_per_surface.solver_primitives import (
+            _build_node_list)
+        _nodes, bucket_to_idx = _build_node_list(layout)
+        ctx = _GG.build_context(layout, bucket_to_idx)
+        G = _GG.build_unified_graph(layout, bucket_to_idx, ctx=ctx)
+        band = reach_band_unified(layout, G)
+    except Exception as _env_exc:                          # pragma: no cover
+        try:
+            import O4_UI_Utils as _UI
+            _UI.vprint(1, f"  [apron-terrace] {icao}: the pre-solve ANCHOR "
+                          f"ENVELOPE could not be built ({_env_exc!r}) — no "
+                          f"terrace is licensed this build (the trigger is "
+                          f"the envelope; there is no DEM fallback).")
+        except Exception:                                  # pragma: no cover
+            pass
+        return None, None
+    return band, _anchor_resolver(layout, G)
+
+
+def _anchor_resolver(layout, G):
+    """``(x, y, side) -> (anchor_node, anchor_value, route_budget)`` via
+    the nearest spine node, or ``None`` when no provenance was published.
+    """
+    prov = getattr(layout, "_band_anchor_provenance", None)
+    if not prov:
+        return None
+    pos = getattr(G, "pos", None) or {}
+    spine = getattr(G, "spine_adj", None) or {}
+    keys = [i for i in spine if i in pos]
+    if not keys:
+        return None
+    try:
+        import numpy as _np
+        P = _np.asarray([pos[i] for i in keys], dtype=float)
+    except Exception:                                      # pragma: no cover
+        return None
+    idx = _np.asarray(keys, dtype=int)
+    values = prov.get("anchor_value") or {}
+
+    def _resolve(x, y, side):
+        d2 = (P[:, 0] - float(x)) ** 2 + (P[:, 1] - float(y)) ** 2
+        node = int(idx[int(_np.argmin(d2))])
+        row = (prov.get(side) or {}).get(node)
+        if row is None:
+            return None
+        anchor, budget = int(row[0]), float(row[1])
+        return (anchor, float(values.get(anchor, float("nan"))), budget)
+
+    return _resolve
+
+
+def _construct_from_envelope(layout, envelope, sample_dem=None,
+                             icao: str = "", anchors=None) -> int:
+    """:func:`construct_apron_terrace_presolve` with the ANCHOR ENVELOPE
+    already resolved to an ``(x, y) -> (floor, ceiling) | None`` callable.
 
     Split out so the twins drive the REAL panelizer against an analytic
-    ground instead of a second implementation — one panelizer, one
+    envelope instead of a second implementation — one panelizer, one
     population, which is the whole reason the mid-solve one was retired.
+    A PINNED envelope (``floor == ceiling`` tracking a plane) reduces the
+    pair scan to ``(slope − cap)·extent`` exactly, so a twin written
+    against the retired DEM-plane trigger keeps its numbers.
     """
     from auto_patch.adjacent_ground import (STACKED_WALL_RETREAT_M,
                                             runway_strip_wall_keepout)
     from auto_patch.layout import BuiltShape
     layout.apron_terrace_presolve = []
     stats = {"candidates": 0, "triggered": 0, "joints": 0,
+             # ── THE DEMAND CENSUS (item 3, fix cycle 2) ─────────────
+             # "0 joints" is two different worlds and the twins have to
+             # be able to tell them apart: NOBODY ASKED (no apron's
+             # envelope is infeasible — the surface is lawful as one
+             # panel) versus ASKED AND NOTHING FIRED (the demand exists
+             # and the panelizer answered none of it, which is a defect).
+             "candidates_demanded": 0, "candidates_under_floor": 0,
+             "demand_total_m": 0.0, "demand_worst_m": 0.0,
              "joints_stillborn_keepout": 0, "joints_stillborn_hole": 0,
              "joint_pieces_dropped_short": 0,
              "joint_lines_lost_to_corridor": 0,
@@ -1209,8 +1463,9 @@ def _construct_from_sampler(layout, sample_dem, icao: str = "") -> int:
         stats["candidates"] += 1
         try:
             entry = _panelize_apron(layout, shape, cover, keepout,
-                                    sample_dem, STACKED_WALL_RETREAT_M,
-                                    stats)
+                                    envelope, STACKED_WALL_RETREAT_M,
+                                    stats, sample_dem=sample_dem,
+                                    anchors=anchors)
         except _GEOM_EXC:
             continue
         if entry is None:
@@ -1255,11 +1510,17 @@ def _construct_from_sampler(layout, sample_dem, icao: str = "") -> int:
     layout.apron_terrace_wall_bands = [
         b for e in layout.apron_terrace_presolve
         for b in (e.pop("_bands", None) or ())]
-    if stats["joints"] or _os.environ.get("O4_STEP_DEBUG") == "1":
+    if (stats["joints"] or stats["candidates_demanded"]
+            or _os.environ.get("O4_STEP_DEBUG") == "1"):
         import O4_UI_Utils as _UI
         _UI.vprint(1,
             f"  [apron-terrace] {icao}: PRE-SOLVE panelization — "
             f"{stats['candidates']} apron candidate(s), "
+            f"{stats['candidates_demanded']} with an ANCHOR-ENVELOPE "
+            f"demand (worst {stats['demand_worst_m']:.3f} m, total "
+            f"{stats['demand_total_m']:.2f} m; "
+            f"{stats['candidates_under_floor']} under the "
+            f"{APRON_TERRACE_MIN_EXCESS_M:g} m floor), "
             f"{stats['triggered']} panelized into "
             f"{stats['triggered'] + stats['split_pieces_added']} panel(s), "
             f"{stats['joints']} declared joint(s); stillborn "
@@ -1271,33 +1532,51 @@ def _construct_from_sampler(layout, sample_dem, icao: str = "") -> int:
     return stats["joints"]
 
 
-def _panelize_apron(layout, shape, cover, keepout, sample_dem,
-                    retreat: float, stats):
+def _panelize_apron(layout, shape, cover, keepout, envelope,
+                    retreat: float, stats, sample_dem=None,
+                    anchors=None):
     """One apron: trigger, cut, split.  ``None`` when it does not fire.
 
     Returns the presolve entry with an extra ``_panels`` key (the panel
     polygons, largest first) that the caller pops.
     """
     poly = shape.polygon
-    plane = _apron_dem_plane(poly, sample_dem)
-    if plane is None:
+    # ── THE TRIGGER: the ANCHORS' demand (RULINGS 4cbed92) ───────────
+    # An apron whose own anchor envelope is infeasible under the apron
+    # cap cannot be one panel, and the shortfall IS the relief the
+    # declared steps discharge.  Identical in a flat world and a real one
+    # — which is the whole reason the DEM-steepness reading it replaces
+    # was ruled the wrong quantity: the flat worlds carry the same CIFP
+    # threshold spread, so they carry the same terrace demand, and a
+    # DEM-keyed trigger went blind in exactly the world the oracle
+    # measures in.
+    demand = _envelope_demand(poly, envelope, APRON_MAX_GRADE)
+    if demand is None:
         return None
-    (gdir, plane_slope) = plane
-    # ── THE TRIGGER: the GROUND's own demand, DEM + geometry only ────
-    # An apron whose DEM plane is steeper than the apron cap cannot be
-    # one panel: over its own extent along the gradient it demands
-    # ``(slope − cap)·extent`` metres of relief that no single lawful
-    # surface can absorb.  Instrument-independent, and it is the reading
-    # the old law already preferred whenever it was the larger.
-    if plane_slope <= APRON_MAX_GRADE:
+    envelope_excess = demand["excess_m"]
+    if envelope_excess < APRON_TERRACE_MIN_EXCESS_M:
+        stats["candidates_under_floor"] += 1
         return None
+    # COUNTED HERE, BEFORE ANY GEOMETRY CAN DROP IT: an apron the anchors
+    # demanded relief on stays in the demand census even if every joint
+    # it would have carried turns out stillborn.  That difference —
+    # demanded minus triggered — is the only thing that distinguishes "no
+    # apron asked" from "the panelizer answered nothing".
+    stats["candidates_demanded"] += 1
+    stats["demand_total_m"] += envelope_excess
+    stats["demand_worst_m"] = max(stats["demand_worst_m"], envelope_excess)
+    gdir = demand["gdir"]
     extent = _extent_along(poly, gdir)
-    geom_excess = max(0.0, (plane_slope - APRON_MAX_GRADE) * extent)
-    if geom_excess < APRON_TERRACE_MIN_EXCESS_M:
-        return None
-    joint_count = max(1, int(math.ceil(geom_excess
+    # REPORT-ONLY PROVENANCE: what the ground did, recorded beside what
+    # the anchors demanded.  It decides nothing (§ the ruling).
+    plane = _apron_dem_plane(poly, sample_dem)
+    plane_slope = (None if plane is None else float(plane[1]))
+    dem_geom_excess = (None if plane is None else
+                       max(0.0, (plane_slope - APRON_MAX_GRADE)
+                           * _extent_along(poly, plane[0])))
+    joint_count = max(1, int(math.ceil(envelope_excess
                                        / APRON_TERRACE_MAX_STEP_M)))
-    step_m = min(APRON_TERRACE_MAX_STEP_M, geom_excess / joint_count)
+    step_m = min(APRON_TERRACE_MAX_STEP_M, envelope_excess / joint_count)
     # §3(c): joint lines keep the joint clearance from FACING boundary
     # runs, so no joint discharges its step at a neighbour's face.
     facing, _nb = _facing_boundary(layout, shape)
@@ -1391,20 +1670,78 @@ def _panelize_apron(layout, shape, cover, keepout, sample_dem,
         "joints": joints,
         "_panels": panels,
         "_bands": bands,
-        "certificate": {
-            "ref": getattr(shape, "ref", ""),
-            "plane_slope": round(float(plane_slope), 5),
-            "extent_m": round(float(extent), 1),
-            "geom_excess_m": round(float(geom_excess), 4),
-            "relief_m": round(float(geom_excess), 4),
-            "max_step_m": APRON_TERRACE_MAX_STEP_M,
-            "line_budget": joint_count,
-            "lines_used": len({j["line_ordinal"] for j in joints}),
-            "declared_step_m": round(float(step_m), 4),
-            "joints": len(joints),
-            "panels": len(panels),
-        },
+        "certificate": _certificate(shape, demand, extent, plane_slope,
+                                    dem_geom_excess, joint_count, step_m,
+                                    joints, panels, anchors),
     }
+
+
+def _certificate(shape, demand, extent, plane_slope, dem_geom_excess,
+                 joint_count, step_m, joints, panels, anchors):
+    """§2(a) THE CERTIFICATE — the evidence chain that authorised ONE
+    apron to panelize, written into ``<patch>.axes.json`` so the twin can
+    audit "certificate-free panelization = 0" from the patch alone.
+
+    Re-keyed with the trigger (RULINGS 4cbed92): what is recorded is the
+    ENVELOPE evidence — the anchor pair whose values contradict, the
+    route budget between them and the resulting shortfall — because that
+    is now what licenses the terrace.  The steep-truth DEM signature is
+    still here, DEMOTED to ``dem_*`` provenance keys: read it to see what
+    the ground did, never to see why the law fired.
+    """
+    (hx, hy) = demand["hi"]
+    (lx, ly) = demand["lo"]
+    cert = {
+        "ref": getattr(shape, "ref", ""),
+        "trigger": "anchor_envelope",
+        # ── the ENVELOPE evidence (what licensed the terrace) ────────
+        "envelope_excess_m": round(float(demand["excess_m"]), 4),
+        "relief_m": round(float(demand["excess_m"]), 4),
+        "floor_hi_m": round(float(demand["floor_hi"]), 4),
+        "ceiling_lo_m": round(float(demand["ceiling_lo"]), 4),
+        "pair_chord_m": round(float(demand["chord_m"]), 2),
+        "pair_allowance_m": round(float(demand["allowance_m"]), 4),
+        "pair_hi_xy": [round(hx, 2), round(hy, 2)],
+        "pair_lo_xy": [round(lx, 2), round(ly, 2)],
+        "envelope_samples": int(demand["samples"]),
+        "cap": APRON_MAX_GRADE,
+        "extent_m": round(float(extent), 1),
+        # ── the PANELIZATION it bought ───────────────────────────────
+        "max_step_m": APRON_TERRACE_MAX_STEP_M,
+        "line_budget": joint_count,
+        "lines_used": len({j["line_ordinal"] for j in joints}),
+        "declared_step_m": round(float(step_m), 4),
+        "joints": len(joints),
+        "panels": len(panels),
+        # ── DEMOTED: report-only DEM provenance ──────────────────────
+        "dem_plane_slope": (None if plane_slope is None
+                            else round(float(plane_slope), 5)),
+        "dem_geom_excess_m": (None if dem_geom_excess is None
+                              else round(float(dem_geom_excess), 4)),
+    }
+    if anchors is not None:
+        # THE ANCHOR PAIR, named.  ``anchors`` resolves a point to the
+        # (anchor node, anchor value, route budget) that authored its
+        # floor / its ceiling — the provenance
+        # ``building_feasibility.spine_value_fields`` already carried and
+        # now publishes, so the certificate quotes it instead of running
+        # a second Dijkstra to re-derive it.
+        hi_a = anchors(hx, hy, "floor")
+        lo_a = anchors(lx, ly, "ceiling")
+        if hi_a is not None:
+            cert["floor_anchor"] = hi_a[0]
+            cert["floor_anchor_value_m"] = round(float(hi_a[1]), 3)
+            cert["floor_route_budget_m"] = round(float(hi_a[2]), 3)
+        if lo_a is not None:
+            cert["ceiling_anchor"] = lo_a[0]
+            cert["ceiling_anchor_value_m"] = round(float(lo_a[1]), 3)
+            cert["ceiling_route_budget_m"] = round(float(lo_a[2]), 3)
+        if hi_a is not None and lo_a is not None:
+            cert["anchor_value_spread_m"] = round(
+                abs(float(hi_a[1]) - float(lo_a[1])), 3)
+            cert["anchor_route_budget_m"] = round(
+                float(hi_a[2]) + float(lo_a[2]), 3)
+    return cert
 
 
 def _band_polygon(hi, lo):
@@ -1514,7 +1851,11 @@ def plan_apron_terraces(layout, shape_constraints, node_xy, node_dem,
     for _k in ("joints_stillborn_keepout", "joints_stillborn_hole",
                "joint_pieces_dropped_short",
                "joint_lines_lost_to_corridor",
-               "polygons_split", "split_pieces_added"):
+               "polygons_split", "split_pieces_added",
+               # The demand census travels with the rest so a plan read
+               # from a patch can answer "was any relief even asked for".
+               "candidates_demanded", "candidates_under_floor",
+               "demand_total_m", "demand_worst_m", "no_envelope"):
         if _k in _pre:
             plan.stats[_k] = _pre[_k]
     resolve = _station_resolver(layout, shape_constraints, node_xy,
@@ -1717,7 +2058,10 @@ def terrace_station_edges(plan: Optional[TerracePlan]):
 def _report_plan(plan: TerracePlan, icao: str) -> None:
     st = plan.stats
     print(f"    [apron-terrace] {icao}: {st['candidates']} apron "
-          f"candidate(s), {st['triggered']} panelized, {st['joints']} "
+          f"candidate(s), {st.get('candidates_demanded', 0)} with an "
+          f"anchor-envelope demand (worst "
+          f"{st.get('demand_worst_m', 0.0):.3f} m), "
+          f"{st['triggered']} panelized, {st['joints']} "
           f"declared joint(s); pieces dropped short "
           f"{st['joint_pieces_dropped_short']}, terrace lines lost to "
           f"the corridor cover {st['joint_lines_lost_to_corridor']}; "
@@ -1731,11 +2075,16 @@ def _report_plan(plan: TerracePlan, icao: str) -> None:
               f"joints={row.get('joints', 0)} "
               f"panels={row.get('panels', 0)} "
               f"declared step={row.get('declared_step_m', 0.0):.3f} m "
-              f"| GEOM relief demand={row.get('geom_excess_m', 0.0):.3f} m "
-              f"(plane {row.get('plane_slope', 0.0) * 100:.2f} % over "
-              f"{row.get('extent_m', 0.0):.0f} m), line budget "
+              f"| ENVELOPE relief demand="
+              f"{row.get('envelope_excess_m', 0.0):.3f} m (floor "
+              f"{row.get('floor_hi_m', 0.0):.2f} vs ceiling "
+              f"{row.get('ceiling_lo_m', 0.0):.2f} over a "
+              f"{row.get('pair_chord_m', 0.0):.0f} m chord allowing "
+              f"{row.get('pair_allowance_m', 0.0):.2f} m), line budget "
               f"{row.get('line_budget', 0)} used "
-              f"{row.get('lines_used', 0)}")
+              f"{row.get('lines_used', 0)} "
+              f"[DEM provenance: plane "
+              f"{(row.get('dem_plane_slope') or 0.0) * 100:.2f} %]")
 
 
 # ────────────────────────────────────────────────────────────────────

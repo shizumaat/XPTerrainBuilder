@@ -1,5 +1,30 @@
 # Apron terrace law: level panels, joints never cross a spine
 
+> **PARTIALLY SUPERSEDED — read this first (fix cycle 2, lane A, 2026-08-05).**
+> Two owner rulings landed after this spec was written and neither is
+> reflected in the text below. The spec's BINDING CONSTRAINT, its
+> panelization, its certificate discipline and its validator lockstep all
+> stand; what changed is WHAT FIRES the law and WHICH FORM the relief takes.
+>
+> 1. **THE TRIGGER (RULINGS `4cbed92`).** Every passage below that keys the
+>    trigger on DEM steepness — the "genuinely-steep truth" / steep-truth
+>    signature, §"the envelope remains the trigger" with its plane fit — is
+>    **incorrect law**, owner verdict (c). Triggers derive from
+>    **ANCHOR-ENVELOPE INFEASIBILITY** (hard values + caps + geometry),
+>    identical in flat and real worlds. The DEM plane reading survives only
+>    as report-only certificate provenance (`dem_plane_slope`,
+>    `dem_geom_excess_m`). Implementation: `apron_terrace._envelope_demand`.
+> 2. **THE RELIEF FORM (RULINGS `21f0980`).** The terrace panel/wall is no
+>    longer the only answer, and no longer the first one. In a
+>    frontage-backed apron zone the **fan ramp** (5 %, the groundside class)
+>    is the first-choice answer and the declared wall/step is the ruled
+>    FALLBACK, for the relief 5 % cannot span within the zone. This spec
+>    describes the fallback form only. Implementation: `apron_terrace`
+>    §4b + the `fan_ramp_zones` sidecar key.
+>
+> A Fable spec revision is owed for both (implementers do not author specs);
+> this note exists so the next reader is not misled by the text as it stands.
+
 Fable spec, 2026-08-04 (lead-reviewed, approved). Implements the owner's apron terrace law
 (RULINGS, landed 170d4e3): long aprons on genuinely steep ground MAY
 terrace into level panels with declared joint steps — "but it has to be

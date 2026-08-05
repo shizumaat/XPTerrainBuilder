@@ -99,6 +99,10 @@ _SERVICE_FAMILY = frozenset({ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION})
 _TAXI_HALFW_CAP_M = 12.0
 _SERVICE_HALFW_CAP_M = 4.0
 _RUNWAY_HALFW_CAP_M = 30.0
+# Float slack for the 1 cm emit grid: a drop that IS an exact
+# centimetre must not be pushed to the next one by 1e-16 of
+# representation error.  Well under any law tolerance.
+_CROWN_GRID_EPS = 1e-9
 
 # On-spine tolerance: a node within this of its governing centerline IS a
 # spine node (grade_graph.SPINE_PERP_TOL_M) — it carries the solved profile
@@ -212,11 +216,28 @@ def _seam_ramp_cap(layout, x: float, y: float) -> float:
     return RUNWAY_CROWN_SEAM_TAPER * _seam_cut_dist_m(layout, x, y)
 
 
-def runway_crown_drop_m(half_width_m: float) -> float:
-    """THE runway edge drop: ``RUNWAY_CROWN_TRANSVERSE × half_width``,
-    half-width capped (a shoulder-widened runway crowns its runway
-    cross-section, not the shoulder span).  Rounded to the emit grid so
-    the stamped values and the exported drop agree exactly.
+def runway_crown_drop_m(half_width_m: float, ruleset=None) -> float:
+    """THE runway edge drop: ``crown rate × half_width``, half-width
+    capped (a shoulder-widened runway crowns its runway cross-section,
+    not the shoulder span).  Quantized to the emit grid so the stamped
+    values and the exported drop agree exactly.
+
+    THE MINIMUM BINDS HERE (owner ruling d48bc0a; the answer to open
+    question Q5 for runways).  Two changes, both small and both load-
+    bearing:
+
+    * THE RATE COMES FROM THE LAW.  ``grade_law.runway_crown_rate``
+      derives it from the ruleset's own transverse minimum and maximum,
+      instead of the free-standing tuning constant that merely happened
+      to equal the minimum.  Nothing asserted those two were the same
+      number, so either could have moved and left every runway crowned
+      below its own mandated floor with no instrument saying so.
+    * THE QUANTIZATION ROUNDS **UP**.  ``round`` to the 1 cm emit grid is
+      a coin flip about the floor: a 22.4 m half-width crowns to 0.224 m,
+      rounds to 0.22, and the realised rate is 0.98 % — under the 1 %
+      minimum the law now binds.  ``ceil`` to the grid cannot go under;
+      the cost is at most 1 cm of extra crown, which is inside the
+      campaign's 0.01 m materiality floor and always on the lawful side.
 
     Gated by ``CROWN_RUNWAYS`` (part 30c family scoping): when runways are
     de-scoped this returns 0 and the persisted ``crown_drop_m`` is 0, so
@@ -224,8 +245,10 @@ def runway_crown_drop_m(half_width_m: float) -> float:
     if (not ENABLE_SPINE_CROWN or not CROWN_RUNWAYS
             or not half_width_m or half_width_m <= 0.0):
         return 0.0
-    return round(RUNWAY_CROWN_TRANSVERSE
-                 * min(float(half_width_m), _RUNWAY_HALFW_CAP_M), 2)
+    from auto_patch.grade_law import runway_crown_rate
+    t = min(float(half_width_m), _RUNWAY_HALFW_CAP_M)
+    exact = runway_crown_rate(ruleset) * t
+    return math.ceil(exact * 100.0 - _CROWN_GRID_EPS) / 100.0
 
 
 def _rail_continuous_drops(layout, cps, bucket_to_idx, nodes,

@@ -729,100 +729,30 @@ def generate_patch_osm(icao, runway_pairs, runway_widths=None, tile=None,
         except (IndexError, ValueError, ZeroDivisionError):
             return None
 
-    def _threshold_dem_elev(lat, lon, radius_m):
-        """Mean DEM elevation within ``radius_m`` of (lat, lon).
-
-        Samples the centre plus two concentric rings of 8 compass
-        points (at radius_m/2 and radius_m) and averages the valid
-        samples, so a single noisy pixel doesn't dominate.  Returns
-        None when no DEM sample is available.
-        """
-        cl = cos(lat * pi / 180.0)
-        if cl < 1e-6:
-            cl = 1e-6
-        offsets = [(0.0, 0.0)]
-        for r in (radius_m * 0.5, radius_m):
-            for k in range(8):
-                ang = k * pi / 4.0
-                offsets.append((r * cos(ang), r * sin(ang)))
-        vals = []
-        for d_north, d_east in offsets:
-            s = _sample_dem_ll(lat + d_north / DEG_TO_M,
-                            lon + d_east / (DEG_TO_M * cl))
-            if s is not None:
-                vals.append(s)
-        if not vals:
-            return None
-        return sum(vals) / len(vals)
-
-    # ── Threshold elevation DEM reconciliation ─────────────────
-    # Per user 2026-05-20/-21: cross-check each CIFP threshold
-    # elevation against the local DEM in a 75 m radius around the
-    # threshold centreline endpoint.  Per threshold the difference
-    # ``dem - cifp`` is classified:
-    #   < 0           → DEM lower than CIFP: keep CIFP (don't bury the
-    #                   end); excluded from the offset.
-    #   0 .. MAX_RISE → in-band: the published end sits below the
-    #                   surrounding terrain by a plausible amount
-    #                   (real ground, not an obstacle).
-    #   >= MAX_RISE   → treat as obstacle / DEM noise; excluded.
+    # ── CIFP THRESHOLD ELEVATIONS ARE ABSOLUTE (owner, RULINGS
+    # 739de5c, v1) ──────────────────────────────────────────────
+    # DELETED HERE: the DEM-credibility THRESHOLD LIFT.  It sampled the
+    # DEM in a 75 m radius around every CIFP threshold, took the mean
+    # ``dem − cifp`` over the "credible" ones (|diff| < 10 m) and, when
+    # that mean was positive, ADDED it to ``elevation_m`` on EVERY
+    # threshold — mutating the published datum of the whole airport in
+    # place, before any consumer read it.
     #
-    # UNIFORM-LIFT rule (user 2026-05-21): do NOT snap each end to its
-    # own DEM value — that distorts the runway's longitudinal grade
-    # (at CYXY raising RW02 alone to DEM pushed the RW02/RW20 profile
-    # to 1.8% > 1.5%).  Instead take the MEAN ``dem - cifp`` difference
-    # across the airport's CREDIBLE thresholds and add that single
-    # offset to EVERY threshold, so each inter-threshold grade is
-    # preserved exactly while the whole airport is lifted onto the
-    # terrain.
-    #   * "credible" = |dem - cifp| < MAX_RISE.  This drops BOTH
-    #     obstacle-high DEM (a building/tree over the threshold) AND
-    #     valley-low DEM (a runway end perched on an embankment over a
-    #     cliff/water) — both are DEM noise, not the runway surface.
-    #   * Only lift when the credible mean is POSITIVE: a net-positive
-    #     mean means the airport genuinely sits below the surrounding
-    #     terrain (MMOX: {+6.7, +3.9} → +5.3, lift both ends; RW01
-    #     un-buried, grade unchanged).  A net-zero/negative mean means
-    #     the field is at or above terrain and must NOT be raised
-    #     (CYXY: {+6.18, -8.70, +1.06} → -0.49, no lift — only RW02 is
-    #     below terrain; lifting the whole airport would step the
-    #     terminal/apron interfaces).
-    # Mutates ``elevation_m`` in place once per unique threshold so
-    # every downstream consumer (cross-runway anchors, centerline-
-    # crossing reconciliation, per-segment elevation seeds) reads the
-    # reconciled value from the same field.
-    THRESHOLD_DEM_RADIUS_M = 75.0
-    THRESHOLD_DEM_MAX_RISE_M = 10.0
-    # Unique thresholds (dedup by identity across pairs).
-    _seen_thresh = set()
-    _unique_thresh = []
-    for _da, _data_a, _db, _data_b in runway_pairs:
-        for _data in (_data_a, _data_b):
-            if _data is None or id(_data) in _seen_thresh:
-                continue
-            _seen_thresh.add(id(_data))
-            _unique_thresh.append(_data)
-    # Pass 1: collect credible (|dem-cifp| < MAX_RISE) differences.
-    _credible_diffs = []
-    for _data in _unique_thresh:
-        cifp_e = _data.get("elevation_m")
-        if cifp_e is None:
-            continue
-        dem_e = _threshold_dem_elev(
-            _data["lat"], _data["lon"], THRESHOLD_DEM_RADIUS_M)
-        if dem_e is None:
-            continue
-        diff = dem_e - cifp_e
-        if abs(diff) < THRESHOLD_DEM_MAX_RISE_M:
-            _credible_diffs.append(diff)
-    # Pass 2: lift EVERY threshold by the mean credible offset, but
-    # only when that mean is positive (airport sits below terrain).
-    if _credible_diffs:
-        _offset = sum(_credible_diffs) / len(_credible_diffs)
-        if _offset > 0.0:
-            for _data in _unique_thresh:
-                if _data.get("elevation_m") is not None:
-                    _data["elevation_m"] += _offset
+    # The owner's v1 ruling is that thresholds stay AT their CIFP
+    # values.  A published threshold elevation is survey truth; the DEM
+    # is a raster that disagrees with it for a dozen reasons the builder
+    # cannot tell apart.  Letting the raster move the datum makes every
+    # downstream anchor — cross-runway anchors, centreline-crossing
+    # reconciliation, per-segment seeds, and the reach band's own anchor
+    # values — a function of DEM warmth rather than of the airport, which
+    # is the same class of defect the DEM-steepness terrace trigger was
+    # (RULINGS 4cbed92): a law keyed on the wrong quantity.
+    #
+    # The lift's own rationale (a field genuinely below terrain reads as
+    # buried) is answered elsewhere and correctly — by the terrain the
+    # law grades AROUND the pavement, not by moving the pavement.
+    #
+    # ``_threshold_dem_elev`` went with it: it had no other caller.
 
     # ── Auto cross-runway anchor pre-pass ──────────────────────
     # Per user 2026-04-28: project every paired runway's threshold

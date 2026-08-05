@@ -73,7 +73,8 @@ from .config import (
 # resolved key, which is the lockstep half of the grade-law completeness
 # standard.
 from .config import (                                          # noqa: E402
-    CROWN_MINIMUM_BOUND, DEFAULT_RULESET, FAA_RULESET,
+    CROWN_MINIMUM_BOUND_RUNWAYS, CROWN_MINIMUM_BOUND_TAXIWAYS,
+    DEFAULT_RULESET, FAA_RULESET,
     GROUNDSIDE_MIN_DRAINAGE_GRADE, get_ruleset, resolve_ruleset,
     ruleset_apron_max_grade_change, ruleset_apron_min_drainage_grade,
     ruleset_runway_end_grade, ruleset_runway_end_zone_length_m,
@@ -2766,17 +2767,21 @@ def transverse_cap_for_role(role: str, code_letter=None, ruleset=None):
 
 
 def transverse_minimum_for_role(role: str, ruleset=None):
-    """The transverse MINIMUM (the crown mandate) — RECORDED, NOT BOUND.
+    """The transverse MINIMUM (the crown mandate) — BOUND ON RUNWAYS,
+    recorded-only on taxiways (owner ruling d48bc0a).
 
     FAA Table 3-6 S-1 and §4.14.2 item 1a both put a 1.0 % floor on the
     cross-slope, and ICAO §3.1.19 says the runway transverse should
     "[not] be less than 1 per cent except at runway or taxiway
-    intersections".  Binding it models a real crown on EVERY runway and
-    taxiway — a visible cross-section change at every airport (~22 cm of
-    rise on a 45 m runway).  That is an owner-intent question (owner
-    question 5), so this value is READ by the validator as an
-    informational class and asserted by no constraint;
-    ``config.CROWN_MINIMUM_BOUND`` is the one-line flip.
+    intersections".  Owner question 5 is ANSWERED for runways: this
+    version implements runway crowns and BINDS their minimum.  The
+    taxiway floor stays an informational class with its citation — the
+    owner scoped this version's drainage work to runway crowns and
+    pavement-edge shaping only.
+
+    This returns the ruleset value for BOTH families, because a
+    recorded-unbound law is still a law that reports; whether it BINDS is
+    :func:`transverse_minimum_binds`.
     """
     rs = get_ruleset(ruleset)
     if role in _ADJACENT_RUNWAY_ROLES:
@@ -2786,21 +2791,66 @@ def transverse_minimum_for_role(role: str, ruleset=None):
     return None
 
 
+def transverse_minimum_binds(role: str) -> bool:
+    """Whether the crown minimum is a CONSTRAINT for ``role`` (owner
+    d48bc0a) — runways yes, taxiways recorded-only.
+
+    ONE reader for the scope, so the generator's bound, the validator's
+    band and the twins cannot each carry their own idea of which families
+    the owner actually turned on."""
+    if role in _ADJACENT_RUNWAY_ROLES:
+        return bool(CROWN_MINIMUM_BOUND_RUNWAYS)
+    if role in _ADJACENT_TAXIWAY_ROLES:
+        return bool(CROWN_MINIMUM_BOUND_TAXIWAYS)
+    return False
+
+
+def runway_crown_rate(ruleset=None, code_letter=None) -> float:
+    """THE runway crown rate generation must build to, from the LAW.
+
+    The generated crown used to be a free-standing tuning constant
+    (``config.RUNWAY_CROWN_TRANSVERSE``) that happened to equal the
+    ruleset minimum; nothing asserted the two, so a change to either
+    silently produced a runway crown below its own mandated floor.  With
+    the minimum BOUND (owner d48bc0a) the rate is derived: at least the
+    ruleset's transverse MINIMUM, never above its transverse MAX.
+
+    Raises ``ValueError`` when a ruleset's own minimum exceeds its own
+    maximum — a genuine contradiction, LOUD, never silently softened
+    (``feasibility-is-guaranteed``; the same discipline
+    :func:`drainage_minimum_band` applies)."""
+    from auto_patch.config import RUNWAY_CROWN_TRANSVERSE
+    rate = float(RUNWAY_CROWN_TRANSVERSE)
+    low = transverse_minimum_for_role("runway", ruleset)
+    high = transverse_cap_for_role("runway", code_letter, ruleset)
+    if low is not None and high is not None and float(low) > float(high):
+        raise ValueError(
+            f"runway transverse minimum {low} exceeds the maximum {high} "
+            f"under ruleset {get_ruleset(ruleset).key!r}")
+    if low is not None and transverse_minimum_binds("runway"):
+        rate = max(rate, float(low))
+    if high is not None:
+        rate = min(rate, float(high))
+    return rate
+
+
 def transverse_surface_bounds(role, code_letter, offset_m, ruleset=None):
     """The lawful ``(min_dz, max_dz)`` of a transect sample at signed
     lateral ``offset_m`` relative to the corridor centreline — the
     CONSTRAINT ROW the solver adds, and the same bound the validator's
     transect reader judges against.
 
-    With the crown minimum unbound (the default) this is the symmetric
-    ``±cap·|offset|`` band; with ``CROWN_MINIMUM_BOUND`` on it becomes
-    the mandatory-down crown band ``[-cap·|t|, -min·|t|]``.
+    Where the crown minimum does NOT bind (taxiways, this version) this
+    is the symmetric ``±cap·|offset|`` band; where it BINDS (runways,
+    owner d48bc0a) it is the mandatory-down crown band
+    ``[-cap·|t|, -min·|t|]`` — the surface must FALL away from the
+    centreline at between the minimum and the maximum rate.
     """
     cap = transverse_cap_for_role(role, code_letter, ruleset)
     if cap is None:
         return (None, None)
     t = abs(float(offset_m))
-    if not CROWN_MINIMUM_BOUND:
+    if not transverse_minimum_binds(role):
         return (-float(cap) * t, float(cap) * t)
     low = transverse_minimum_for_role(role, ruleset)
     if low is None:

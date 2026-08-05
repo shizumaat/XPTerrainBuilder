@@ -2610,6 +2610,22 @@ def solve_route_profile(layout, icao: str,
         _n_relaxed = apply_terrace_budgets(
             _terrace_plan, shape_constraints, nodes)
         layout._apron_terrace_plan = _terrace_plan
+        # ── THE FAN-RAMP LAW joins the SAME shape_constraints object
+        # (owner RULINGS 21f0980).  The zones were built pre-solve with
+        # the panelization; here their interior pairs enter the ONE solve
+        # at the 5 % zone cap as ordinary law edges, and a surface
+        # fanning between the two building seat levels is what the system
+        # solves to.  Movement surfaces are untouched — a pair only
+        # relaxes when its whole chord is inside one zone.
+        from .apron_terrace import apply_fan_ramp_caps as _apply_fan
+        _fan_plan = getattr(layout, "_fan_ramp_plan", None)
+        _n_fan = _apply_fan(_fan_plan, shape_constraints, nodes)
+        if _n_fan:
+            import O4_UI_Utils as _UI_fan
+            _UI_fan.vprint(1,
+                f"  [fan-ramp] {icao}: {_n_fan} within-apron law edge(s) "
+                f"raised to the {_fan_plan.zones[0]['cap'] * 100:.0f} % "
+                f"zone cap across {_fan_plan.stats['zones']} zone(s)")
         if _terrace_plan is not None:
             import O4_UI_Utils as _UI_terr
             _UI_terr.vprint(1,
@@ -2700,6 +2716,15 @@ def solve_route_profile(layout, icao: str,
         if _n_u_relaxed and _os.environ.get("O4_STEP_DEBUG") == "1":
             print(f"    [apron-terrace] {_n_u_relaxed} unified-graph "
                   f"edge(s) bound to a joint step")
+    # BOTH EDGE SETS OR NEITHER: relief granted only in
+    # ``shape_constraints`` is taken straight back by the unified-graph
+    # projection.  Same law, same call shape as the terrace budget.
+    from .apron_terrace import apply_fan_ramp_caps_to_edges as _apply_fan_u
+    u_edges, _n_u_fan = _apply_fan_u(
+        getattr(layout, "_fan_ramp_plan", None), u_edges, nodes)
+    if _n_u_fan and _os.environ.get("O4_STEP_DEBUG") == "1":
+        print(f"    [fan-ramp] {_n_u_fan} unified-graph edge(s) at the "
+              f"zone cap")
     rem, bh = feasibility_project(elev, [{"edges": u_edges}], hard,
                                   witness_excluded=_route_excluded,
                                   env_band=_env_band)
@@ -5287,6 +5312,12 @@ def final_grade_projection(layout, icao: str = "", dem=None,
             _apply_terr_fp(_terrace_plan_fp, shape_constraints, nodes)
         except Exception:
             _terrace_plan_fp = None
+    try:
+        from .apron_terrace import apply_fan_ramp_caps as _apply_fan_fp
+        _apply_fan_fp(getattr(layout, "_fan_ramp_plan", None),
+                      shape_constraints, nodes)
+    except Exception:
+        pass
     u_edges = [(a, b, cap.at(_GG._dist(G.pos.get(a), G.pos.get(b)), 0.0))
                for (a, b, cap, _sp) in G.edges
                if a in G.pos and b in G.pos]
@@ -5297,6 +5328,13 @@ def final_grade_projection(layout, icao: str = "", dem=None,
             u_edges, _ = _apply_terr_u_fp(_terrace_plan_fp, u_edges, nodes)
         except Exception:
             pass
+    try:
+        from .apron_terrace import (
+            apply_fan_ramp_caps_to_edges as _apply_fan_u_fp)
+        u_edges, _ = _apply_fan_u_fp(
+            getattr(layout, "_fan_ramp_plan", None), u_edges, nodes)
+    except Exception:
+        pass
     joint = list(shape_constraints) + [{"edges": u_edges}]
     _stage("graph")
 

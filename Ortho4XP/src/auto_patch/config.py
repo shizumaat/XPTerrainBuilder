@@ -342,7 +342,8 @@ __all__ = [
     "RULESET_SPLIT_FAMILIES",
     "GROUNDSIDE_MIN_DRAINAGE_GRADE",
     "GROUNDSIDE_MIN_DRAINAGE_GRADE_PROVISIONAL",
-    "CROWN_MINIMUM_BOUND",
+    "CROWN_MINIMUM_BOUND_RUNWAYS",
+    "CROWN_MINIMUM_BOUND_TAXIWAYS",
     "resolve_ruleset",
     "get_ruleset",
     "ruleset_runway_max_grade",
@@ -6568,7 +6569,16 @@ GROUNDSIDE_MIN_DRAINAGE_GRADE_PROVISIONAL = True
 # validator as an informational class, but no generation-binding
 # constraint asserts them.  Flip = give the transverse solver rows a
 # lower bound as well as an upper one (§B2 machinery, one line).
-CROWN_MINIMUM_BOUND = False
+# BOUND ON RUNWAYS (owner ruling d48bc0a, 2026-08-05): "this version
+# implements ONLY (1) runway crowns and (2) pavement-edge (unpaved areas)
+# drainage… RUNWAY CROWNS: generated and bound (this answers open question
+# Q5 for runways — the crown minimum BINDS on runways; taxiway/apron
+# crowns stay recorded-unbound with citations)."  So the answer is
+# PER-FAMILY, not one global flag: generation may not emit a runway crown
+# flatter than the ruleset minimum, while the taxiway minimum stays an
+# informational class with its citation intact.
+CROWN_MINIMUM_BOUND_RUNWAYS = True
+CROWN_MINIMUM_BOUND_TAXIWAYS = False
 
 # ── RECORDED, NOT BOUND — the honest inventory tail (spec §"Recorded") ─
 # Each has its citation so the gap census stays complete; none is

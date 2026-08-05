@@ -419,10 +419,15 @@ def test_b2_surface_bounds_are_what_the_solver_constrains():
     assert hi == pytest.approx(0.18)
 
 
-def test_b2_crown_minimum_recorded_not_bound_but_flippable():
-    """Owner question 5.  The values are carried and the flip is ONE
-    line; nothing asserts them until the owner rules."""
-    assert CFG.CROWN_MINIMUM_BOUND is False
+def test_b2_crown_minimum_binds_on_runways_only():
+    """Owner question 5 is ANSWERED for runways (RULINGS d48bc0a): this
+    version implements runway crowns and BINDS their minimum; the
+    taxiway floor stays recorded-unbound with its citation.  Full twin:
+    ``tests/test_crown_minimum_bound.py``."""
+    assert CFG.CROWN_MINIMUM_BOUND_RUNWAYS is True
+    assert CFG.CROWN_MINIMUM_BOUND_TAXIWAYS is False
+    assert GL.transverse_minimum_binds("runway") is True
+    assert GL.transverse_minimum_binds("taxiway") is False
     assert GL.transverse_minimum_for_role("runway", "faa") == 0.010
     assert GL.transverse_minimum_for_role("taxiway", "faa") == 0.010
     assert GL.transverse_minimum_for_role("apron", "faa") is None

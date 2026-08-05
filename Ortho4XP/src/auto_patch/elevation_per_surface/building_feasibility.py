@@ -703,12 +703,46 @@ def _hard_truth_spine_seeds(layout, G):
 
     The publisher is ``route_profile.solve`` — the ONE place that knows
     which nodes ``_seed_elevations`` hardened; nothing is re-derived here
-    (``single-pass-principle``)."""
+    (``single-pass-principle``).
+
+    CANONICAL-IDENTITY JOIN (debug lane A 2026-08-05).  The published map
+    is keyed by CANONICAL POINT, and this resolves it against ``G.pos``
+    through the SAME registry, so the value lands on the node it was
+    measured at no matter how many times the node list has been rebuilt
+    since.  It used to be keyed by the solve's node INDEX, which is valid
+    only inside the one ``_build_node_list`` call that assigned it: every
+    post-solve consumer rebuilds that list on a layout that has since
+    grown, and the seeds then landed on unrelated nodes (SPJC: 448 of 455,
+    |Δ| up to 16.96 m — 795 inverted band nodes and 1,208 spurious
+    route-band violations).  A registry-less caller (the hermetic tests)
+    joins on the raw position tuple, which is exact there by
+    construction."""
     truth = getattr(layout, "_seed_hard_truth_values", None) or {}
     spine = getattr(G, "spine_adj", None) or {}
     if not truth or not spine:
         return {}
-    return {int(i): float(v) for i, v in truth.items() if int(i) in spine}
+    cps = getattr(layout, "canonical_points", None)
+    pos = getattr(G, "pos", None) or {}
+    out: dict = {}
+    for i in spine:
+        p = pos.get(i)
+        if p is None:
+            continue
+        px, py = float(p[0]), float(p[1])
+        v = None
+        if cps is not None:
+            try:
+                k = cps.get(px, py)
+            except Exception:                              # pragma: no cover
+                k = None
+            if k is not None:
+                v = truth.get(k)
+        if v is None:
+            v = truth.get((px, py))
+        if v is None:
+            continue
+        out[int(i)] = float(v)
+    return out
 
 
 def _record_band_inversions(layout, G, ceiling, floor, ceil_dist,

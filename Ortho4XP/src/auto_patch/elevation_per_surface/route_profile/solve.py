@@ -1917,9 +1917,36 @@ def solve_route_profile(layout, icao: str,
     # runway node above its own runway value.  Published write-only, so
     # the consumer (``building_feasibility.spine_value_fields``, whose
     # BAND-SEED COMPLETENESS law is standing) never re-derives it.
-    layout._seed_hard_truth_values = {
-        i: float(elev[i])
-        for i in range(min(len(base_hard), len(elev))) if base_hard[i]}
+    #
+    # CANONICAL-IDENTITY KEYS (debug lane A 2026-08-05).  The map is keyed
+    # by the CANONICAL POINT, never by the solve's node INDEX.  A node
+    # index is only meaningful inside ONE ``_build_node_list`` call: the
+    # index space is assigned by walking ``layout.shapes``, and every
+    # post-solve consumer (``grade_graph_validate.route_band_violations``,
+    # the tools, the tests) rebuilds it on a layout that has GROWN —
+    # terrain-feature, terrace and clearance shapes are emitted after this
+    # point — so index ``i`` no longer names the node it named here.
+    # Measured at SPJC: 448 of 455 resolvable seeds landed on the WRONG
+    # node under index keys (|published − emitted| p50 7.15 m, max 16.96
+    # m), which inverted 795 nodes of the value fields (worst 20.197 m)
+    # and minted 1,208 of SPJC's 1,326 route-band violations.  The
+    # canonical point is the lossless join (memory: canonical-identity-
+    # join — never proximity-join, never index-join across a rebuild).
+    _cps_truth = getattr(layout, "canonical_points", None)
+    _truth_by_point: dict = {}
+    for _i in range(min(len(base_hard), len(elev), len(nodes))):
+        if not base_hard[_i]:
+            continue
+        _nx, _ny = float(nodes[_i][0]), float(nodes[_i][1])
+        _key = None
+        if _cps_truth is not None:
+            try:
+                _key = _cps_truth.get(_nx, _ny)
+            except Exception:                              # pragma: no cover
+                _key = None
+        _truth_by_point[_key if _key is not None else (_nx, _ny)] = \
+            float(elev[_i])
+    layout._seed_hard_truth_values = _truth_by_point
     band, dem_fn, runway_pts, _G = reach_band_for(
         layout, elev, bucket_to_idx, dem, tile_lat, tile_lon, unified_graph=G)
     # ZONE-NODE REACH-BAND SKIP (Slice B stage B3 performance lever,

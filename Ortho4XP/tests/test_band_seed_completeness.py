@@ -67,7 +67,11 @@ def _heca_shape():
     spine_adj = {0: [(1, 40.0)], 1: [(0, 40.0), (2, 8.928)],
                  2: [(1, 8.928)]}
     pos = {0: (0.0, 0.0), 1: (100.0, 0.0), 2: (120.0, 0.0)}
-    return _G(runway_anchor, spine_adj, pos), {2: 60.790}
+    # CANONICAL-IDENTITY KEYS (debug lane A 2026-08-05): the published
+    # hard-truth map is keyed by the node's canonical POINT, never by a
+    # node index — see ``test_the_hard_truth_join_survives_a_node_list_
+    # rebuild`` for why an index key is not a valid identity.
+    return _G(runway_anchor, spine_adj, pos), {pos[2]: 60.790}
 
 
 # ── (a) STANDING LAW (the gate AND its predicate are retired) ────────────
@@ -158,7 +162,7 @@ def test_a_consistent_pair_of_anchors_stays_silent():
     G, _ = _heca_shape()
     layout = _Layout()
     # node 2's hard value is now within the 48.928 m budget of node 0.
-    layout._seed_hard_truth_values = {2: 115.242 - 10.0}
+    layout._seed_hard_truth_values = {G.pos[2]: 115.242 - 10.0}
     spine_value_fields(layout, G)
     assert assert_no_final_band_inversion(layout, "TEST") == 0
     assert layout._final_band_inversions == []
@@ -171,7 +175,7 @@ def test_a_sub_materiality_overshoot_is_pass_with_residual():
     layout = _Layout()
     floor_at_2 = 115.242 - 48.928
     layout._seed_hard_truth_values = {
-        2: floor_at_2 - 0.5 * FINAL_BAND_INVERSION_TOL_M}
+        G.pos[2]: floor_at_2 - 0.5 * FINAL_BAND_INVERSION_TOL_M}
     spine_value_fields(layout, G)
     residual = assert_no_final_band_inversion(layout, "TEST")
     assert residual >= 1
@@ -182,3 +186,67 @@ def test_a_sub_materiality_overshoot_is_pass_with_residual():
     # once seeded, the node's own value IS its ceiling, so the same
     # overshoot is visible to BOTH classes; each is recorded once.
     assert klasses == {"floor_above_own_hard_value", "floor_above_ceiling"}
+
+
+# ── (e) THE IDENTITY LAW — canonical point, never node index ─────────────
+
+def test_the_hard_truth_join_survives_a_node_list_rebuild():
+    """REGRESSION TWIN (debug lane A 2026-08-05).
+
+    THE DEFECT.  ``layout._seed_hard_truth_values`` was keyed by the
+    SOLVE's node index.  A node index is meaningful only inside the one
+    ``_build_node_list`` call that assigned it: the space is handed out by
+    walking ``layout.shapes``, and every post-solve consumer
+    (``route_band_violations``, the tools) rebuilds it on a layout that has
+    since GROWN.  Index ``i`` then names a different node, so a runway's
+    hard elevation was seeded at an unrelated point and the value fields
+    inverted around it.  Measured at SPJC on the composed tree: 448 of 455
+    resolvable seeds landed on the wrong node (|published − emitted| p50
+    7.15 m, max 16.96 m), inverting 795 field nodes (worst 20.197 m) and
+    minting 1,208 of its 1,326 route-band violations.
+
+    THE LAW.  The join is by CANONICAL IDENTITY.  Here the SAME published
+    map is consumed against a graph whose indices have been shifted (a
+    rebuild that admitted one extra node ahead of the others) — the value
+    must still land on the node at the published POSITION.  An index-keyed
+    map cannot pass this: it would put 60.790 on whatever now holds index
+    2.
+    """
+    G, hard = _heca_shape()
+    layout = _Layout()
+    layout._seed_hard_truth_values = hard
+    from auto_patch.elevation_per_surface.building_feasibility import (
+        _hard_truth_spine_seeds)
+
+    # BEFORE the rebuild: node 2 carries the hard value.
+    assert _hard_truth_spine_seeds(layout, G) == {2: 60.790}
+
+    # A REBUILD shifts every index by one (an extra node was admitted
+    # ahead of them) — the geometry is untouched, only the numbering.
+    shifted = _G({k + 1: v for k, v in G.runway_anchor.items()},
+                 {k + 1: [(v + 1, b) for (v, b) in adj]
+                  for k, adj in G.spine_adj.items()},
+                 {k + 1: p for k, p in G.pos.items()})
+    seeds = _hard_truth_spine_seeds(layout, shifted)
+    assert seeds == {3: 60.790}, (
+        "the hard value must follow its POSITION through a node-list "
+        f"rebuild, not its old index; got {seeds}")
+
+    # and the fields it seeds are the same field, just renumbered.
+    ceiling, _floor = spine_value_fields(layout, shifted)
+    assert ceiling[3] == pytest.approx(60.790, abs=1e-9)
+    assert ceiling[2] == pytest.approx(60.790 + 8.928, abs=1e-9)
+
+
+def test_the_published_map_is_not_index_keyed():
+    """ANTI-REGRESSION: an integer-keyed map must NOT resolve.  Without
+    this, re-introducing the index key would silently pass every other
+    twin in this file (they would just look up ``truth[2]`` again)."""
+    G, _ = _heca_shape()
+    layout = _Layout()
+    layout._seed_hard_truth_values = {2: 60.790}      # the retired schema
+    from auto_patch.elevation_per_surface.building_feasibility import (
+        _hard_truth_spine_seeds)
+    assert _hard_truth_spine_seeds(layout, G) == {}, (
+        "an index-keyed hard-truth map must resolve to NOTHING — it is "
+        "the schema whose ambiguity minted 1,208 SPJC route-band rows")

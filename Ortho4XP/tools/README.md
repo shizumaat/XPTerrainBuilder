@@ -1,5 +1,16 @@
 # Ortho4XP/tools
 
+> **Start at [`../../tools/INDEX.md`](../../tools/INDEX.md)** — the repo-wide tool
+> index and the consultation surface the owner ruling requires (consult before
+> creating, extend a near-fit rather than forking, promote a twice-used scratchpad
+> script). It spans both trees and answers "which tool do I reach for"; this file
+> is the long-form catalog of what each engine tool does. A tool absent from
+> `INDEX.md` is treated as absent.
+>
+> To BUILD or MEASURE an airport, the answer is always
+> [`harness/`](harness/): `build_airport.py`, `census.py`, `lane_worktree.sh`,
+> `oracle.py`. A lane-private build or census wrapper is a defect.
+
 Command-line tooling for the auto-patch engine. Everything here is live: each file
 below is reachable from `src/`, `tests/`, a `CLAUDE.md`, `scripts/`, CI, the Swift
 `Sources/`, or `tools/artifact_contracts.json` — or is a data file those tools own.

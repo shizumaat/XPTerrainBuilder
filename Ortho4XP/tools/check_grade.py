@@ -3863,6 +3863,243 @@ def _check_spine_curvature(ways, nodes, ll_to_m, taxi_axes,
 
 # ── Main ────────────────────────────────────────────────────────
 
+# ══════════════════════════════════════════════════════════════════════
+# THE LAW FAMILY REGISTER — the census contract
+# ══════════════════════════════════════════════════════════════════════
+# Every violation family ``run_checks`` produces, in the exact order it
+# concatenates them.  This register exists because per-lane census
+# wrappers kept enumerating families BY HAND and kept missing some (one
+# lane's private wrapper counted 12 of them and reported 9; another
+# omitted ``terrace_joints_ll`` outright).  A hand-written family list is
+# a frame error waiting to happen, so ``run_checks`` now fills
+# ``family_out`` itself and ``tests/test_harness.py`` asserts that the
+# register, the signature and the returned rows agree.
+#
+# Each entry: (key, human title, bucket) where bucket names which of the
+# three returned lists the rows land in ("within" / "cross" / "steps").
+# A NEW check added to ``run_checks`` MUST be added here in its emission
+# position — the twin fails otherwise.
+LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
+    ("within_shape", "WITHIN-SHAPE vertex-pair grade", "within"),
+    ("plane_gradient", "PLANE GRADIENT (triangle surface)", "within"),
+    ("runway_end_skirt", "RUNWAY-END SKIRT edge grade", "within"),
+    ("terrace_joint_route", "APRON TERRACE JOINT crossing a taxi ROUTE",
+     "within"),
+    ("terrace_joint_strip", "APRON TERRACE JOINT inside a RUNWAY STRIP",
+     "within"),
+    ("terrace_actual_step", "APRON TERRACE ACTUAL step past its DECLARED step",
+     "within"),
+    ("adjacent_ground_tear", "ADJACENT-GROUND graded-strip TEAR", "within"),
+    ("strip_seam_tear", "ADJACENT-GROUND strip SEAM tear", "within"),
+    ("transverse", "TRANSVERSE (cross-corridor) grade", "within"),
+    ("drainage_spine", "DRAINAGE SPINE at or above its LOWER pavement",
+     "within"),
+    ("lateral_contiguity", "LATERAL CONTIGUITY (road vs strictest class)",
+     "within"),
+    ("strip_longitudinal", "STRIP ABEAM-LONGITUDINAL grade", "within"),
+    ("strip_arc", "STRIP LONGITUDINAL grade-CHANGE rate", "within"),
+    ("resa_transverse", "RESA / END-CORRIDOR TRANSVERSE grade", "within"),
+    ("raoa", "RAOA grade-change rate (ICAO only)", "within"),
+    ("drainage_minimum", "SURFACE FLATTER than its drainage minimum",
+     "within"),
+    ("wall_in_runway_strip", "RETAINING WALL inside a RUNWAY STRIP", "within"),
+    ("stacked_nodes", "STACKED NODES (one coordinate, values disagree)",
+     "within"),
+    ("cross_shape", "CROSS-SHAPE proximity grade", "cross"),
+    ("vertex_to_edge_step", "VERTEX-TO-EDGE step", "steps"),
+    ("mid_edge_step", "MID-EDGE step", "steps"),
+)
+
+#: Sidecar key -> ``run_checks`` keyword.  THE contract between an emitted
+#: patch and every reader of it.  ``law_context_from_sidecar`` is the only
+#: implementation; the CLI, ``tools/harness/census.py`` and the pytest
+#: fixtures all go through it, so a new sidecar key is wired in ONE place.
+#: (``axes``/``routes`` are the legacy pre-exact spelling and are used only
+#: when ``axes_exact`` is absent — see ``law_context_from_sidecar``.)
+SIDECAR_LAW_KEYS: Dict[str, str] = {
+    "axes_exact": "taxi_axes_ll",
+    "routes_exact": "routes_ll",
+    "anchor": "anchor",
+    "seam_pins": "seam_pins_ll",
+    "mesh_edges": "mesh_edges_ll",
+    "crown_drops": "crown_drops_ll",
+    "crown_centerline": "crown_centerline_ll",
+    "pair_caps": "pair_caps_ll",
+    "terrace_joints": "terrace_joints_ll",
+    "ruleset": "ruleset",
+}
+
+#: Sidecar keys that are EVIDENCE, not law input: they are reported by the
+#: census but never passed to ``run_checks``.  Every key an emitted sidecar
+#: carries must appear here or in ``SIDECAR_LAW_KEYS`` (twin-asserted), so a
+#: newly emitted key can never be silently ignored by every reader.
+SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
+    "axes",                       # legacy per-size-split axes
+    "routes",                     # legacy chained routes
+    "triangle_plane_unresolved",  # count of unresolved triangle vertices
+    "terrace_certificates",       # the panelization evidence chain
+)
+
+
+def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
+    """Read the patch's ``.axes.json`` sidecar and return the ``run_checks``
+    law keywords it declares — THE single sidecar reader.
+
+    The sidecar is the CONTRACT: it carries the axes/routes the solver
+    graded to, the projection anchor, the seam pins, the solver's junction
+    mesh, the crown field, the baked pair caps, the declared apron-terrace
+    joints and the REGION RULESET the build actually ran under.  A reader
+    that drops any one of them silently judges a different law than the
+    build ran (both known frame errors in this repo were exactly that).
+
+    Raises ``FileNotFoundError`` when there is no sidecar: a context-free
+    check overcounts by construction and must never be mistaken for a
+    census (memory ``check-grade-needs-law-true-frame``).  Callers that
+    genuinely want the bare frame call ``run_checks`` with no law kwargs.
+    """
+    import json as _json
+    side = Path(str(osm_path) + ".axes.json")
+    if not side.exists():
+        raise FileNotFoundError(
+            f"no axes sidecar for {osm_path} — refusing a context-free run. "
+            f"The sidecar is written only when config.LOG_VERBOSITY > 0; "
+            f"build through tools/harness/build_airport.py, which sets it.")
+    data = _json.loads(side.read_text())
+    ctx: dict = {}
+    exact = data.get("axes_exact") or None
+    if exact:
+        # exact build_context mirror: (pts, seg_caps, route_ordinal)
+        ctx["taxi_axes_ll"] = [(pts, caps, None, ridx)
+                               for (pts, caps, ridx) in exact]
+        ctx["routes_ll"] = data.get("routes_exact") or None
+    else:
+        ctx["taxi_axes_ll"] = data.get("axes") or None
+        ctx["routes_ll"] = data.get("routes") or None
+    anchor = data.get("anchor") or None
+    ctx["anchor"] = tuple(anchor) if anchor else None
+    ctx["seam_pins_ll"] = data.get("seam_pins")
+    ctx["mesh_edges_ll"] = data.get("mesh_edges") or None
+    ctx["crown_drops_ll"] = data.get("crown_drops") or None
+    ctx["crown_centerline_ll"] = data.get("crown_centerline") or None
+    ctx["pair_caps_ll"] = data.get("pair_caps") or None
+    ctx["terrace_joints_ll"] = data.get("terrace_joints") or None
+    ctx["ruleset"] = data.get("ruleset") or None
+    if announce:
+        print(f"  (axes sidecar loaded: {len(ctx['taxi_axes_ll'] or [])} axes"
+              + (" [exact]" if exact else "")
+              + f", {len(ctx['routes_ll'] or [])} routes"
+              + (", builder anchor frame" if ctx["anchor"] else "")
+              + (f", {len(ctx['seam_pins_ll'])} seam pins"
+                 if ctx["seam_pins_ll"] is not None else "")
+              + (f", {len(ctx['mesh_edges_ll'])} solver mesh edges"
+                 if ctx["mesh_edges_ll"] else "")
+              + (f", {len(ctx['crown_drops_ll'])} crown drops"
+                 if ctx["crown_drops_ll"] else "")
+              + (f", {len(ctx['terrace_joints_ll'])} terrace joints"
+                 if ctx["terrace_joints_ll"] else "")
+              + f", ruleset={ctx['ruleset']!r}"
+              + " — law-true check)")
+    return ctx
+
+
+def sidecar_evidence(osm_path) -> dict:
+    """The sidecar's non-law EVIDENCE fields (see ``SIDECAR_EVIDENCE_KEYS``)
+    plus ``unknown_keys`` — any key this build of the reader does not know.
+    A non-empty ``unknown_keys`` means the emitter grew a field no reader
+    consumes: report it, never ignore it."""
+    import json as _json
+    side = Path(str(osm_path) + ".axes.json")
+    if not side.exists():
+        return {}
+    data = _json.loads(side.read_text())
+    known = set(SIDECAR_LAW_KEYS) | set(SIDECAR_EVIDENCE_KEYS)
+    out = {}
+    for k in SIDECAR_EVIDENCE_KEYS:
+        if k not in data:
+            continue
+        v = data[k]
+        # SUMMARISE, never embed: the legacy ``axes``/``routes`` arrays are
+        # megabytes of geometry, and a report that inlines them is a report
+        # nobody reads.  Scalars pass through.
+        out[k] = f"<{len(v)} entries>" if isinstance(v, (list, dict)) else v
+    out["unknown_keys"] = sorted(set(data) - known)
+    out["seam_pin_count"] = len(data.get("seam_pins") or [])
+    out["terrace_joint_count"] = len(data.get("terrace_joints") or [])
+    out["terrace_certificate_count"] = len(data.get("terrace_certificates")
+                                           or [])
+    return out
+
+
+def run_checks_law_true(osm_path, *, family_out: Optional[dict] = None,
+                        quiet: bool = True, top_n: int = 0,
+                        announce: bool = False, **overrides):
+    """``run_checks`` in the patch's OWN law frame — the law-true census.
+
+    Reads every law keyword from the sidecar (``law_context_from_sidecar``)
+    and applies the same numeric knobs the suite uses (proximity =
+    the solver's weld tolerance, 5 m edge search, 0.5 m step).  This is
+    THE entry point: the CLI, ``tools/harness/census.py`` and any test that
+    wants a law-true count must call it rather than assembling kwargs.
+    """
+    ctx = law_context_from_sidecar(osm_path, announce=announce)
+    ctx.update(overrides)
+    return run_checks(
+        Path(osm_path), max_grade_pct=1.5, proximity_m=SHARED_VERTEX_TOL_M,
+        edge_search_m=5.0, edge_step_m=0.5, top_n=top_n, quiet=quiet,
+        family_out=family_out, **ctx)
+
+
+def row_side(row) -> str:
+    """AIRSIDE / GROUNDSIDE / MIXED for one violation or step row.
+
+    Uses THIS module's ``_is_groundside`` — the law's own partition, the one
+    that decides whether a designed retaining wall exempts a step.  It is
+    NOT ``auto_patch.geom_guard._AIRSIDE_ROLES``, which is a different
+    partition built for the geometry guard and disagrees on
+    ``service_junction`` and ``building``; censuses that used it were
+    measuring a different population than the law was.
+
+    MIXED is reported separately rather than folded into AIRSIDE.  Owner
+    law ("airside is king") means a mixed row counts AGAINST airside for
+    acceptance — the split is reported so the reader can see the pull, not
+    so it can be discounted.
+    """
+    a = getattr(row, "way_a", None) or getattr(row, "way_v", None)
+    b = getattr(row, "way_b", None) or getattr(row, "way_e", None)
+    if a is None:
+        return "unknown"
+    if b is None:
+        return "groundside" if _is_groundside(a) else "airside"
+    ga, gb = _is_groundside(a), _is_groundside(b)
+    if ga and gb:
+        return "groundside"
+    if ga or gb:
+        return "mixed"
+    return "airside"
+
+
+def row_roles(row) -> Tuple[str, str]:
+    """The (role_a, role_b) pair of a row, '?' where a way is absent."""
+    def _r(w):
+        if w is None:
+            return "?"
+        return (dict(getattr(w, "tags", {}) or {}).get("role") or "?")
+    a = getattr(row, "way_a", None) or getattr(row, "way_v", None)
+    b = getattr(row, "way_b", None) or getattr(row, "way_e", None)
+    return (_r(a), _r(b))
+
+
+def row_magnitude(row) -> float:
+    """The row's own severity in metres: |de| for a grade violation, the
+    step height for an edge step.  One accessor so worst-row tables from
+    different lanes are the same number."""
+    for attr in ("de_m", "step_m"):
+        v = getattr(row, attr, None)
+        if v is not None:
+            return abs(float(v))
+    return 0.0
+
+
 def run_checks(
     osm_path: Path,
     max_grade_pct: float = 1.5,
@@ -3881,6 +4118,7 @@ def run_checks(
     pair_caps_ll: Optional[list] = None,
     terrace_joints_ll: Optional[list] = None,
     ruleset: Optional[str] = None,
+    family_out: Optional[dict] = None,
 ) -> Tuple[List[Violation], List[Violation], List[EdgeStep]]:
     """``taxi_axes_ll`` (the builder's APT.DAT taxi centerlines as
     ``[(latlon_points, cL, cT), …]``) supplies the within-shape grade graph's
@@ -3912,6 +4150,27 @@ def run_checks(
     # applied to authority).  A patch predating the split has no key; the
     # default then applies and is announced.
     _active = _set_active_ruleset(ruleset)
+
+    # PER-FAMILY CENSUS (see ``LAW_FAMILIES``).  When ``family_out`` is a
+    # dict, every family records its OWN rows here as it is produced — so a
+    # census never has to re-derive the split by monkeypatching private
+    # functions or by slicing the printed report, which is how per-lane
+    # wrappers lost families.  ``family_out is None`` (the default) is a
+    # no-op: the returned lists are byte-identical either way.
+    def _fam(key: str, rows):
+        if family_out is not None:
+            family_out[key] = list(rows)
+        return rows
+
+    if family_out is not None:
+        # BOTH, never one: ``_ruleset_declared`` is what the patch's sidecar
+        # says the BUILD ran under (None ⇒ the patch predates the FAA/ICAO
+        # split), ``_ruleset_active`` is what this run judged in.  Reporting
+        # only the active key would silently present the default as a
+        # declaration — the same authority-frame error the sidecar exists
+        # to prevent.
+        family_out["_ruleset_declared"] = ruleset
+        family_out["_ruleset_active"] = _active
     if not quiet:
         if ruleset:
             print(f"  (ruleset: {_active} — from the patch sidecar)")
@@ -3990,12 +4249,12 @@ def run_checks(
               f"joint(s) (within-pairs crossing one are judged by the "
               f"step law)")
 
-    within = _check_within_shape(
+    within = _fam("within_shape", _check_within_shape(
         ways, nodes, ll_to_m, max_grade, seam_nids=seam_nids,
         taxi_axes=taxi_axes, routes_ll=routes_ll,
         mesh_edges_m=mesh_edges_m, crown_by_nid=crown_by_nid,
         crown_centerline_nids=crown_centerline_nids,
-        pair_caps_ll=pair_caps_ll, terrace_joints_m=terrace_joints_m)
+        pair_caps_ll=pair_caps_ll, terrace_joints_m=terrace_joints_m))
     # THE BREAK-REGION SPLIT IS DELETED (spec ``docs/specs/kill-half-
     # spec.md`` §2, 2026-08-04).  Pairs touching a solver-declared broken
     # node used to be moved out of the actionable within-shape count into
@@ -4006,9 +4265,9 @@ def run_checks(
     _pv(f"WITHIN-SHAPE vertex-pair grade > {max_grade_pct}%",
         within, top_n)
 
-    plane = _check_plane_gradient(
+    plane = _fam("plane_gradient", _check_plane_gradient(
         ways, nodes, ll_to_m, max_grade, seam_nids=seam_nids,
-        crown_by_nid=crown_by_nid)
+        crown_by_nid=crown_by_nid))
     # The triangle-plane split went with it (§2): an unresolved triangle
     # is REPORTED (``solve.triangle_plane_disposition``) and its plane
     # violation stays visible here.
@@ -4035,7 +4294,8 @@ def run_checks(
     # docs/grade_law_consolidation_handover.md).  Reconstructing G from the
     # shipped OSM to confirm it here is the remaining "purist OSM-path" follow-up.
 
-    skirt_edges = _check_runway_end_skirt_edges(ways, nodes, ll_to_m)
+    skirt_edges = _fam("runway_end_skirt",
+                       _check_runway_end_skirt_edges(ways, nodes, ll_to_m))
     _pv("RUNWAY-END SKIRT edge grade > law max down-grade",
         skirt_edges, top_n)
     within = within + skirt_edges
@@ -4043,34 +4303,40 @@ def run_checks(
     # APRON TERRACE LAW — the BINDING CONSTRAINT's twin (spec §5b/c/d).
     # A hit on either of these means the emitter's structural guarantee
     # was broken: the round's STOP rule, not a tuning signal.
-    joint_route = _check_terrace_joint_crosses_route(
-        terrace_joints_m, routes_ll, taxi_axes)
+    joint_route = _fam("terrace_joint_route",
+                       _check_terrace_joint_crosses_route(
+                           terrace_joints_m, routes_ll, taxi_axes))
     _pv("APRON TERRACE JOINT crossing a taxi ROUTE (owner 2026-08-04 "
         "binding constraint — a joint may NEVER interrupt a spine "
         "aircraft travel on)", joint_route, top_n)
     within = within + joint_route
 
-    joint_strip = _check_terrace_joint_in_runway_strip(
-        terrace_joints_m, ways, nodes, ll_to_m)
+    joint_strip = _fam("terrace_joint_strip",
+                       _check_terrace_joint_in_runway_strip(
+                           terrace_joints_m, ways, nodes, ll_to_m))
     _pv("APRON TERRACE JOINT inside a RUNWAY STRIP footprint (owner "
         "2026-08-01 — walls at runway edges are NEVER lawful)",
         joint_strip, top_n)
     within = within + joint_strip
 
-    joint_actual = _check_terrace_actual_step(
-        terrace_joints_m, ways, nodes, ll_to_m, max_grade)
+    joint_actual = _fam("terrace_actual_step",
+                        _check_terrace_actual_step(
+                            terrace_joints_m, ways, nodes, ll_to_m,
+                            max_grade))
     _pv("APRON TERRACE ACTUAL step past its DECLARED step (recomputed "
         "from the patch: nearest straddling vertex pairs + the emitted "
         "joint face — never the sidecar's own report fields)",
         joint_actual, top_n)
     within = within + joint_actual
 
-    adjacent_edges = _check_adjacent_ground_edges(ways, nodes, ll_to_m)
+    adjacent_edges = _fam("adjacent_ground_tear",
+                          _check_adjacent_ground_edges(ways, nodes, ll_to_m))
     _pv("ADJACENT-GROUND graded-strip TEAR (sub-metre near-vertical edge)",
         adjacent_edges, top_n)
     within = within + adjacent_edges
 
-    strip_seam_tears = _check_strip_seam_tears(vertices, ways)
+    strip_seam_tears = _fam("strip_seam_tear",
+                            _check_strip_seam_tears(vertices, ways))
     _pv(f"ADJACENT-GROUND strip SEAM tear (cross-shape step, "
         f"> {STRIP_SEAM_TEAR_MIN_STEP_M:.1f}m at "
         f"> {STRIP_SEAM_TEAR_MIN_GRADE * 100:.0f}% within "
@@ -4083,6 +4349,7 @@ def run_checks(
     transverse, n_tr_st, n_tr_rows, n_tr_shapes = _check_transverse_grade(
         ways, nodes, ll_to_m, taxi_axes,
         terrace_joints_m=terrace_joints_m)
+    _fam("transverse", transverse)
     _pv("TRANSVERSE (cross-corridor) grade > the role/letter transverse "
         "cap (ICAO Annex 14 Table 3-2 — the law existed, nothing read it)",
         transverse, top_n)
@@ -4097,6 +4364,7 @@ def run_checks(
         _check_drainage_spine_below_pavement(
             open_features.get("gap_drainage_spine", []),
             ways, nodes, ll_to_m))
+    _fam("drainage_spine", spine_dams)
     _pv("DRAINAGE SPINE at or above its LOWER adjacent pavement (owner "
         "field report 2026-08-02 — cap 0)", spine_dams, top_n)
     if n_spine_checked and not quiet:
@@ -4108,6 +4376,7 @@ def run_checks(
 
     lateral, n_lat_stations, n_lat_shapes = _check_lateral_contiguity(
         ways, nodes, ll_to_m)
+    _fam("lateral_contiguity", lateral)
     _pv("LATERAL CONTIGUITY: road graded looser than the STRICTEST class in "
         "its laterally-contiguous cross-section (owner FINAL 2026-08-02)",
         lateral, top_n)
@@ -4119,6 +4388,7 @@ def run_checks(
 
     strip_long, n_sl_pairs, n_sl_ways = _check_strip_longitudinal_grade(
         ways, nodes, ll_to_m)
+    _fam("strip_longitudinal", strip_long)
     _pv("STRIP ABEAM-LONGITUDINAL grade > the by-code strip cap (ICAO "
         "Annex 14 §3.4.13 / FAA AC 150/5300-13B §3.16.5 item 1 — "
         "standing law)",
@@ -4132,6 +4402,7 @@ def run_checks(
     # ── §A3(b) — the strip's CURVATURE law ───────────────────────────
     strip_arc, n_sa_st, n_sa_ways = _check_strip_arc_rate(
         ways, nodes, ll_to_m)
+    _fam("strip_arc", strip_arc)
     _pv("STRIP LONGITUDINAL grade-CHANGE rate > the strip arc law "
         "(FAA AC §3.16.5 item 5 ±2%/30.5 m; ICAO §3.4.14 is qualitative "
         "— PROVISIONAL operationalization, owner question 2)",
@@ -4147,6 +4418,7 @@ def run_checks(
     # ── §A1 — the END-corridor TRANSVERSE law ────────────────────────
     resa_tr, n_rt_pairs, n_rt_ways = _check_resa_transverse_grade(
         ways, nodes, ll_to_m)
+    _fam("resa_transverse", resa_tr)
     _pv("RESA / END-CORRIDOR TRANSVERSE grade > the per-authority cap "
         "(FAA Table 3-6 S-3 inside 61 m, Fig 3-35 ±5% beyond; ICAO "
         "Annex 14 §3.5.11 ±5% — a law family nothing read before)",
@@ -4158,6 +4430,7 @@ def run_checks(
 
     # ── §A4 — the RADIO ALTIMETER OPERATING AREA ─────────────────────
     raoa, n_ra_st, n_ra_ways = _check_raoa_rate(ways, nodes, ll_to_m)
+    _fam("raoa", raoa)
     _pv("RAOA grade-change rate > 2%/30 m (ICAO Annex 14 §3.8.4; no FAA "
         "equivalent exists — a no-op under the FAA ruleset)",
         raoa, top_n)
@@ -4169,6 +4442,7 @@ def run_checks(
     # ── §B3 — the DRAINAGE MINIMUM ───────────────────────────────────
     drain_min, n_dm_pairs, n_dm_ways = _check_drainage_minimum(
         ways, nodes, ll_to_m)
+    _fam("drainage_minimum", drain_min)
     _pv("SURFACE FLATTER than its drainage minimum (FAA AC §5.9.1.1 "
         "0.5% apron; groundside 1.0% PROVISIONAL, owner question 3 — "
         "ICAO states no apron minimum, so that half is a no-op there)",
@@ -4178,30 +4452,32 @@ def run_checks(
               f"{n_dm_ways} surface(s) — NEW visibility)")
     within = within + drain_min
 
-    wall_in_strip = _check_no_wall_in_runway_strip(ways, nodes, ll_to_m)
+    wall_in_strip = _fam(
+        "wall_in_runway_strip",
+        _check_no_wall_in_runway_strip(ways, nodes, ll_to_m))
     _pv("RETAINING WALL inside a RUNWAY STRIP footprint (owner ruling "
         "2026-08-01: walls are never lawful at a runway edge — cap 0)",
         wall_in_strip, top_n)
     within = within + wall_in_strip
 
-    stacked = _check_stacked_nodes(vertices, ways)
+    stacked = _fam("stacked_nodes", _check_stacked_nodes(vertices, ways))
     _pv("STACKED NODES (distinct node ids at one coordinate, values "
         "disagree — owner invariant 2026-07-19, cap 0)",
         stacked, top_n)
     within = within + stacked
 
-    cross = _check_cross_shape_proximity(
-        vertices, ways, proximity_m, max_grade)
+    cross = _fam("cross_shape", _check_cross_shape_proximity(
+        vertices, ways, proximity_m, max_grade))
     _pv(f"CROSS-SHAPE proximity (≤ {proximity_m}m) "
         f"grade > {max_grade_pct}%",
         cross, top_n)
 
-    steps = _check_vertex_to_edge_step(
+    steps = _fam("vertex_to_edge_step", _check_vertex_to_edge_step(
         vertices, edges, ways, edge_search_m, edge_step_m,
-        terrace_joints_m=terrace_joints_m)
-    mid_steps = _check_edge_midpoint_step(
+        terrace_joints_m=terrace_joints_m))
+    mid_steps = _fam("mid_edge_step", _check_edge_midpoint_step(
         edges, ways, edge_search_m, edge_step_m,
-        terrace_joints_m=terrace_joints_m)
+        terrace_joints_m=terrace_joints_m))
     # The step split went with the rest of the break machinery (§2): a
     # step near a solver-declared break node used to be dropped from both
     # step checks (at a 2.0 m tolerance, wider than the vertex-pair
@@ -4259,49 +4535,23 @@ def main(argv=None) -> int:
     # membership, per-letter caps, anisotropic Δs∥ credit).  Auto-loaded
     # when present; without it the check is context-free and over-flags
     # every spine/blend-relaxed pair.
-    taxi_axes_ll = routes_ll = anchor = seam_pins_ll = None
-    mesh_edges_ll = crown_drops_ll = None
-    crown_centerline_ll = pair_caps_ll = None
-    terrace_joints_ll = None
-    ruleset_key = None
-    sidecar = Path(str(args.osm) + ".axes.json")
-    if sidecar.exists():
-        try:
-            import json as _json
-            _data = _json.loads(sidecar.read_text())
-            _exact = _data.get("axes_exact") or None
-            if _exact:
-                # exact build_context mirror: (pts, seg_caps, route_ordinal)
-                taxi_axes_ll = [(pts, caps, None, ridx)
-                                for (pts, caps, ridx) in _exact]
-                routes_ll = _data.get("routes_exact") or None
-            else:
-                taxi_axes_ll = _data.get("axes") or None
-                routes_ll = _data.get("routes") or None
-            anchor = _data.get("anchor") or None
-            seam_pins_ll = _data.get("seam_pins")
-            mesh_edges_ll = _data.get("mesh_edges") or None
-            crown_drops_ll = _data.get("crown_drops") or None
-            crown_centerline_ll = _data.get("crown_centerline") or None
-            pair_caps_ll = _data.get("pair_caps") or None
-            # APRON TERRACE LAW (2026-08-04): the DECLARED joints.  A
-            # patch built before the law simply has no key.
-            terrace_joints_ll = _data.get("terrace_joints") or None
-            # REGION RULESET (phase B): the authority the BUILD ran under.
-            ruleset_key = _data.get("ruleset") or None
-            print(f"  (axes sidecar loaded: {len(taxi_axes_ll or [])} axes"
-                  + (" [exact]" if _exact else "")
-                  + f", {len(routes_ll or [])} routes"
-                  + (", builder anchor frame" if anchor else "")
-                  + (f", {len(seam_pins_ll)} seam pins" if seam_pins_ll
-                     is not None else "")
-                  + (f", {len(mesh_edges_ll)} solver mesh edges"
-                     if mesh_edges_ll else "")
-                  + (f", {len(crown_drops_ll)} crown drops"
-                     if crown_drops_ll else "")
-                  + " — law-true check)")
-        except Exception as ex:
-            print(f"  (axes sidecar unreadable, context-free check: {ex})")
+    #
+    # ONE READER: ``law_context_from_sidecar`` (above) is the only place a
+    # sidecar key is turned into a law keyword.  This CLI, the harness
+    # census and the test fixtures all go through it, so a new key is
+    # wired in exactly once (both historical frame errors — a lane wrapper
+    # that dropped ``terrace_joints`` and one that dropped ``ruleset`` —
+    # came from a second, hand-written copy of this block).
+    try:
+        ctx = law_context_from_sidecar(args.osm, announce=True)
+    except FileNotFoundError:
+        print("  (no axes sidecar — CONTEXT-FREE check.  These counts "
+              "OVERCOUNT by construction and are not defect counts; see "
+              "CLAUDE.md 'The standard test harness'.)")  # noqa: F541
+        ctx = {}
+    except Exception as ex:
+        print(f"  (axes sidecar unreadable, context-free check: {ex})")
+        ctx = {}
     within, cross, steps = run_checks(
         args.osm,
         max_grade_pct=args.max_grade,
@@ -4309,16 +4559,7 @@ def main(argv=None) -> int:
         edge_search_m=args.edge_search_m,
         edge_step_m=args.edge_step_m,
         top_n=args.top_n,
-        taxi_axes_ll=taxi_axes_ll,
-        routes_ll=routes_ll,
-        anchor=tuple(anchor) if anchor else None,
-        seam_pins_ll=seam_pins_ll,
-        mesh_edges_ll=mesh_edges_ll,
-        crown_drops_ll=crown_drops_ll,
-        crown_centerline_ll=crown_centerline_ll,
-        pair_caps_ll=pair_caps_ll,
-        terrace_joints_ll=terrace_joints_ll,
-        ruleset=ruleset_key,
+        **ctx,
     )
     if args.strict and (within or cross or steps):
         return 1

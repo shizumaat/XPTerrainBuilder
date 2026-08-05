@@ -35,13 +35,59 @@ the string never appears in Python source. `blast.py` reports drift.
 - `Ortho4XP/STATUS.md`: only the TOP dated block is current; the rest is
   history. Never load it whole (~90k tokens).
 
-## Measurement traps (each of these has actually bitten)
+## The standard test harness (build and measure ONLY through this)
 
-- auto_patch builds run only from `Ortho4XP/` cwd with `venv/` AND
-  `OSM_data/` present — wrong cwd or a fresh worktree exits 0 with a
-  silently smaller layout that reads as a fake speedup.
-- Single-run wall times swing ±25%: never A/B one run per side
-  (`tools/check_build_time.py --runs N`).
-- Before quoting any DEM elevation or phase timing, check the inset-cache
-  and sidecar STALE/rebuild log lines — warm-vs-cold cache state has moved
-  terrain 12 m and faked an 8 s regression.
+Four entries, run from `Ortho4XP/`. They are THE way to build and measure;
+a lane-private build or census wrapper is a **defect**, not a shortcut.
+
+    venv/bin/python tools/harness/build_airport.py ICAO [--tile LAT LON] [--dem M]
+    venv/bin/python tools/harness/census.py PATCH.osm [PATCH.osm ...]
+    venv/bin/python tools/harness/oracle.py ICAO
+    tools/harness/lane_worktree.sh {up|check|down} NAME [REF]
+
+Why: two lanes each wrote their own census wrapper. One dropped
+`terrace_joints_ll` (lawful declared terraces reported as violations); the
+other dropped `ruleset` (an FAA airport judged under ICAO law) and
+hand-enumerated 12 of the 21 law families, reporting 9 — HEAZ came out 100
+where the harness censuses 110. Both wrappers looked right.
+
+`check_grade.py` is the harness library — `LAW_FAMILIES`,
+`law_context_from_sidecar`, `run_checks(family_out=...)`,
+`run_checks_law_true`, `row_side`. Its CLI, the census and the pytest
+fixtures share one code path; `Ortho4XP/tests/test_harness.py` twin-asserts
+that they do. Adding a check to `run_checks` without registering it in
+`LAW_FAMILIES` fails there.
+
+**Tool discipline (owner ruling, RULINGS `7e90032`).** Consult
+`tools/INDEX.md` BEFORE writing any script that builds, measures or audits —
+a tool absent from the index is treated as absent, and every new tool lands
+with its index entry in the same commit. Extend a near-fit (a parameter, a
+subcommand); never fork it. The second use of a lane scratchpad script is
+the signal to promote it into `tools/` with an index entry and a twin. A
+slightly-different duplicate is a defect: the census-wrapper precedent above
+is what that costs.
+
+### Traps the harness now makes impossible (stop hand-checking these)
+
+- Wrong build cwd — silently smaller layout, fake speedup: the build entry
+  refuses.
+- Cold DEM/inset cache, or a config frame diverging from production's
+  (warm-vs-cold has moved terrain 12 m): the build entry refuses;
+  `--allow-degraded-dem` is the explicit, recorded override.
+- A patch emitted with no `.axes.json` sidecar, after which every census
+  silently degrades to the context-free frame that overcounts: refused.
+- A tile built with an empty `cifp_data_path`, which skips auto_patch
+  entirely and still exits 0: `--tile` refuses.
+- A lane worktree missing `OSM_data`, or with a COPIED `Elevation_data` (a
+  second inset cache that warms on its own): `lane_worktree.sh` builds and
+  audits it.
+- A census that omits a law family, a sidecar key, or the ruleset:
+  structurally impossible — the twins fail.
+
+### Traps still on you
+
+- Single-run wall times swing ±25%: never A/B one run per side (use the
+  build-time checker's `--runs N`), and never let a timing run through the
+  ledger (`build_airport.py --no-ledger`).
+- Background / `nohup` builds inherit nice 5 and land on efficiency cores:
+  foreground only for anything timed.

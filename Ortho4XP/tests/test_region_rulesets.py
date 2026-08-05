@@ -105,19 +105,45 @@ def test_sidecar_carries_the_ruleset_key():
     identifier (the two-instruments law applied to authority).
 
     Source-inspection twin (the ref-pull precedent): reaching the write
-    site needs a full build, which this suite does not run."""
+    site needs a full build, which this suite does not run.
+
+    The CONSUME half used to be asserted as three literal lines inside
+    ``check_grade.main``.  That inline parse is gone: there is now ONE
+    sidecar reader, ``check_grade.law_context_from_sidecar``, which the
+    CLI, ``tools/harness/census.py`` and the test fixtures all call (a
+    private per-lane copy of it is exactly how ``ruleset`` went missing
+    from one lane's census in the first place).  The assertion follows the
+    key rather than the old call site, and now exercises the reader for
+    real instead of grepping for it."""
     import inspect
+    import json
+    import sys
+    import tempfile
+    from pathlib import Path
     from auto_patch import layout as LAY
     src = inspect.getsource(LAY.PavementLayout._write_axes_sidecar)
     assert '"ruleset": _grade_law_ruleset_of(self)' in src
 
-    check = os.path.join(os.path.dirname(os.path.dirname(
-        os.path.abspath(LAY.__file__))), "..", "tools", "check_grade.py")
-    with open(os.path.normpath(check)) as fh:
-        text = fh.read()
-    assert 'ruleset_key = _data.get("ruleset")' in text
-    assert "ruleset=ruleset_key," in text
-    assert "_set_active_ruleset(ruleset)" in text
+    check = os.path.normpath(os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(LAY.__file__))), "..", "tools", "check_grade.py"))
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("cg_ruleset_twin", check)
+    cg = importlib.util.module_from_spec(spec)
+    # Registered BEFORE exec: @dataclass resolves its own module by name.
+    sys.modules[spec.name] = cg
+    spec.loader.exec_module(cg)
+
+    assert cg.SIDECAR_LAW_KEYS["ruleset"] == "ruleset", (
+        "the sidecar's ruleset key must map to run_checks' ruleset kwarg")
+    with tempfile.TemporaryDirectory() as td:
+        osm = Path(td) / "p.osm"
+        osm.write_text("<osm version='0.6'></osm>")
+        Path(str(osm) + ".axes.json").write_text(json.dumps(
+            {"anchor": None, "ruleset": "faa"}))
+        assert cg.law_context_from_sidecar(osm)["ruleset"] == "faa", (
+            "the one sidecar reader must carry the BUILD's ruleset through "
+            "to run_checks — never re-resolved from the ICAO identifier")
+    assert "_set_active_ruleset(ruleset)" in open(check).read()
 
 
 def test_ruleset_of_prefers_the_carried_key_over_re_resolution():

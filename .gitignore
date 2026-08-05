@@ -11,3 +11,11 @@ Ortho4XP/.venv*/
 dist.nosync/
 .blast_index/
 sim_review/
+Ortho4XP/venv
+Ortho4XP/OSM_data
+Ortho4XP/Elevation_data
+Ortho4XP/Airport_mod_cache
+Ortho4XP/Geotiffs
+Ortho4XP/Masks
+Ortho4XP/Default_DSF_cache
+Ortho4XP/Orthophotos

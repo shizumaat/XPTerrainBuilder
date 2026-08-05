@@ -108,20 +108,6 @@ class TestClassUniversalAbsorption:
         assert all(a is not None and math.isfinite(a)
                    for a in lot.node_altitudes)
 
-    def test_gate_off_keeps_the_lot_out_of_the_class_set(self, lateral_on):
-        """The landed behaviour (classification round): the road carries the
-        LOT's cap instead of merging.  Unchanged when this gate is off."""
-        from auto_patch import config as _cfg
-        lot = _dem_lot(0, 0, 100, 60)
-        road = BuiltShape(polygon=_rect(0, 60, 100, 70), role="service_road")
-        layout = _layout([lot, road])
-        summary = lateral_on.apply_lateral_contiguity_law(layout, "TEST")
-        assert summary["absorbed"] == 0
-        assert summary["capped"] == 1
-        assert summary["absorbed_dem_host"] == 0
-        roads = [s for s in layout.shapes if s.role == "service_road"]
-        assert roads[0].lateral_cap == pytest.approx(_cfg.GROUNDSIDE_MAX_GRADE)
-
     def test_the_strictest_cap_still_decides_the_host(self, absorption_on):
         """A road between an apron (1 %) and a lot takes the STRICTEST
         cap of its cross-section and can only be absorbed by the surface
@@ -278,12 +264,6 @@ class TestServiceEnvelopeConsumesTheOneLaw:
     grading authority — it prices its legs with the lateral-contiguity
     law's cap, and it no longer quarantines nodes that law owns."""
 
-    def test_gate_off_uses_the_service_cap(self, monkeypatch):
-        z, broken, _ = _run_svc(monkeypatch, False, lateral_cap=0.04)
-        # 5 % from the west weld over 50 m, DEM-clamped to the ceiling
-        assert z == pytest.approx(2.5, abs=1e-6)
-        assert broken == set()
-
     def test_a_free_road_still_grades_at_the_service_cap(self, monkeypatch):
         z, broken, _ = _run_svc(monkeypatch, True, lateral_cap=None)
         assert z == pytest.approx(2.5, abs=1e-6)
@@ -297,19 +277,6 @@ class TestServiceEnvelopeConsumesTheOneLaw:
         z, _broken, _ = _run_svc(monkeypatch, True, lateral_cap=0.04)
         assert z == pytest.approx(2.25, abs=1e-6)
 
-    def test_a_laterally_bound_contradiction_is_not_quarantined(
-            self, monkeypatch):
-        z_on, broken_on, mid = _run_svc(monkeypatch, True, anchor_east=6.0,
-                                        lateral_cap=0.04)
-        z_off, broken_off, _ = _run_svc(monkeypatch, False, anchor_east=6.0,
-                                        lateral_cap=0.04)
-        # gate OFF: the envelope declares its own break pocket
-        assert mid in broken_off
-        # gate ON: the contiguous surface's law owns the node; the blend is
-        # still applied (the surface does not change shape) but nothing is
-        # quarantined — a residual is a VISIBLE violation
-        assert broken_on == set()
-        assert math.isfinite(z_on) and math.isfinite(z_off)
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -439,10 +406,14 @@ class TestSeedCellExactness:
         assert cfg.BAND_SEED_EXACT is True
         assert cfg.SERVICE_LOT_ABSORPTION is True
         assert cfg.TRIANGLE_PLANE_REPORTS is True
+        # ``O4_SERVICE_LOT_ABSORPTION`` is DELETED (owner 2026-08-05,
+        # no gates): class-universal absorption is standing law and the
+        # retired env name can no longer restore the pre-flip default.
+        # The other two still carry their override.
         for name in ("O4_BAND_SEED_EXACT", "O4_SERVICE_LOT_ABSORPTION",
                      "O4_TRIANGLE_PLANE_REPORTS"):
             monkeypatch.setenv(name, "0")
         importlib.reload(cfg)
         assert cfg.BAND_SEED_EXACT is False
-        assert cfg.SERVICE_LOT_ABSORPTION is False
+        assert cfg.SERVICE_LOT_ABSORPTION is True
         assert cfg.TRIANGLE_PLANE_REPORTS is False

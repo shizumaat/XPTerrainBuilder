@@ -1678,7 +1678,21 @@ def _runway_strip_groups(ways: List[Way], nodes, ll_to_m):
     for w in ways:
         if w.role != "runway":
             continue
-        pts = [ll_to_m(*nodes[n]) for n in w.nids if n in nodes]
+        # FRAME CONGRUENCE (rsa-law amendment 4, landed with the terrace
+        # flip-readiness round §1).  ``w.nids`` is a CLOSED ring — the
+        # first vertex repeats at the end — and feeding the duplicate
+        # into the principal-axis fit weights that corner twice.  The
+        # emitter derives the same footprint from ``_open_coords``, so
+        # the two frames disagreed: endpoints shifted 0.27-0.98 m and
+        # ring width by up to 1.19 m, which is exactly the drift class
+        # that lets a wall or joint sit inside one footprint and outside
+        # the other.  Dedupe the closing vertex (the transverse
+        # checker's own ``nids[:-1]`` pattern) so emitter and validator
+        # read ONE strip.
+        nids = w.nids
+        if len(nids) > 1 and nids[0] == nids[-1]:
+            nids = nids[:-1]
+        pts = [ll_to_m(*nodes[n]) for n in nids if n in nodes]
         if len(pts) < 3:
             continue
         groups.setdefault(w.ref or w.wid, []).extend(pts)
@@ -2142,7 +2156,8 @@ def _transverse_cap_for_seg_cap(cap_l: float) -> float:
     return cap_l
 
 
-def _check_transverse_grade(ways: List[Way], nodes, ll_to_m, taxi_axes
+def _check_transverse_grade(ways: List[Way], nodes, ll_to_m, taxi_axes,
+                            terrace_joints_m: Optional[list] = None
                             ) -> Tuple[List[Violation], int, int, int]:
     """``(violations, n_stations, n_rows, n_shapes)`` — every censused
     corridor cross-section steeper than its transverse cap.
@@ -2267,6 +2282,21 @@ def _check_transverse_grade(ways: List[Way], nodes, ll_to_m, taxi_axes
                     width = u_hi - u_lo
                     dz = abs(z_hi - z_lo)
                     allow = cap_t * width + _pair_quant_noise_m(way)
+                    # APRON TERRACE LOCKSTEP.  A cross-section whose two
+                    # hits sit on OPPOSITE sides of a declared joint has
+                    # a DECLARED step between them — the same fact the
+                    # within-pair reader already forgives, read by a
+                    # different instrument.  Leaving it out left the
+                    # transverse check as the last joint-blind reader:
+                    # KCLT and HEAZ each returned cross-sections whose
+                    # own |dz| was BELOW the declared step of the joint
+                    # they span, reported as defects.  One declared
+                    # population, one number, every reader.
+                    if terrace_joints_m:
+                        allow += _terrace_step_allowance(
+                            terrace_joints_m,
+                            px + nx * u_lo, py + ny * u_lo,
+                            px + nx * u_hi, py + ny * u_hi)
                     if dz <= allow:
                         continue
                     out.append(Violation(
@@ -2736,6 +2766,171 @@ def _check_terrace_joint_in_runway_strip(terrace_joints_m, ways, nodes,
     return out
 
 
+_TERRACE_ACTUAL_WAY = Way("terrace_step", "retaining_wall",
+                          "apron_terrace_actual_step", "", [], [], {})
+# The straddling-pair window (flip-readiness v2 §3(b)).  A pair speaks
+# for the joint's own step only when both vertices sit close to the joint
+# line AND close to each other: a LONG window folds lawful cap-graded
+# relief into the number, which is how the emitter's flank MEANS declared
+# ≤1.994 m while shipping 5.52 m faces (defect D2).
+_TERRACE_STRADDLE_PERP_M = 5.0
+_TERRACE_STRADDLE_PAIR_M = 5.0
+_TERRACE_STEP_QUANT_M = 0.11        # 2 x emit rounding + weld noise
+# The joint FACE's own width — the band the lower panel retreats by.
+# Read from the emitter's constant so the two never drift.
+try:
+    from auto_patch.adjacent_ground import (
+        STACKED_WALL_RETREAT_M as _WALL_RETREAT_M)
+except Exception:                                    # pragma: no cover
+    _WALL_RETREAT_M = 0.6
+
+
+def _seg_point_distance(px: float, py: float, a, b) -> float:
+    """Point-to-segment distance in the check's metre frame."""
+    (ax, ay), (bx, by) = a, b
+    dx, dy = bx - ax, by - ay
+    L2 = dx * dx + dy * dy
+    if L2 < 1e-12:
+        return math.hypot(px - ax, py - ay)
+    t = ((px - ax) * dx + (py - ay) * dy) / L2
+    t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+    return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+
+
+def _check_terrace_actual_step(terrace_joints_m, ways, nodes, ll_to_m,
+                               max_grade: float) -> List[Violation]:
+    """§3(b) THE HONEST INSTRUMENT: the ACTUAL emitted step per declared
+    joint, recomputed from the PATCH — never read out of the sidecar.
+
+    Two readings, both from emitted geometry:
+
+    1. NEAREST STRADDLING VERTEX PAIRS.  For emitted pavement vertices
+       ``m``, ``n`` on OPPOSITE sides of the joint line, both within
+       ``_TERRACE_STRADDLE_PERP_M`` of it and within
+       ``_TERRACE_STRADDLE_PAIR_M`` of each other in plan, the law allows
+       ``|Δz| ≤ step_m + cap·planar(m, n) + quant``.  Each vertex is
+       paired with its NEAREST opposite-side partner only — a long
+       window would fold lawful cap-graded relief into the reading, which
+       is the exact error the emitter's flank means made.
+    2. THE EMITTED JOINT FACE.  An ``apron_terrace_joint`` retaining wall
+       IS the vertical step the simulator draws, so its own altitude
+       delta is the actual step at its joint, with no window at all.
+
+    ``panel_lo``/``panel_hi``/``actual_step_m`` in the sidecar are REPORT
+    fields; this check trusts none of them.
+    """
+    if not terrace_joints_m:
+        return []
+    out: List[Violation] = []
+    # ── reading 2: the emitted faces ────────────────────────────────
+    for w in ways:
+        if (w.tags.get("ref") or "") != "apron_terrace_joint":
+            continue
+        zs = [z for z in (w.elevs or []) if z is not None]
+        if len(zs) < 2:
+            continue
+        pts = [ll_to_m(*nodes[n]) for n in w.nids if n in nodes]
+        if not pts:
+            continue
+        # ── ACROSS the band, not along it (D2 lockstep) ─────────────
+        # The face is minted PER STATION now, so its two long edges
+        # follow the panels and ``max(zs) − min(zs)`` over the whole
+        # polygon would fold LAWFUL along-joint relief into the reading
+        # — the same error the emitter's whole-joint flank means made.
+        # The step a face expresses is the delta between vertices that
+        # face each other ACROSS the retreat band: each vertex is paired
+        # with its nearest partner at a planar distance in
+        # ``[0.3·retreat, 3·retreat]``, and the allowance is the law's
+        # own ``step + cap·d``.
+        _zl = list(w.elevs or [])
+        _pairs: List[Tuple[float, float]] = []       # (|dz|, planar)
+        for _i, (_pi, _zi) in enumerate(zip(pts, _zl)):
+            if _zi is None:
+                continue
+            _best = None
+            for _j, (_pj, _zj) in enumerate(zip(pts, _zl)):
+                if _j == _i or _zj is None:
+                    continue
+                _d = math.hypot(_pj[0] - _pi[0], _pj[1] - _pi[1])
+                if _d < 0.3 * _WALL_RETREAT_M or _d > 3.0 * _WALL_RETREAT_M:
+                    continue
+                if _best is None or _d < _best[1]:
+                    _best = (abs(float(_zi) - float(_zj)), _d)
+            if _best is not None:
+                _pairs.append(_best)
+        if not _pairs:
+            continue
+        delta, _pair_d = max(_pairs, key=lambda r: r[0] - r[1])
+        # the joint this face belongs to = the nearest declared line
+        best = None
+        cx = sum(p[0] for p in pts) / len(pts)
+        cy = sum(p[1] for p in pts) / len(pts)
+        for (jpts, step) in terrace_joints_m:
+            d = min(_seg_point_distance(cx, cy, jpts[k], jpts[k + 1])
+                    for k in range(len(jpts) - 1))
+            if best is None or d < best[0]:
+                best = (d, step)
+        if best is None:
+            continue
+        allow = best[1] + max_grade * _pair_d + _TERRACE_STEP_QUANT_M
+        if delta <= allow:
+            continue
+        out.append(Violation(
+            grade_pct=100.0, excess_pct=100.0,
+            distance_m=_pair_d, de_m=delta,
+            way_a=w, way_b=_TERRACE_ACTUAL_WAY,
+            pt_a=pts[0], pt_b=pts[-1],
+            elev_a=max(zs), elev_b=min(zs)))
+    # ── reading 1: nearest straddling pairs ─────────────────────────
+    verts: List[Tuple[float, float, float, Way]] = []
+    for w in ways:
+        if _role_grade_limit(w, 1.0) is None:
+            continue                       # skip-list roles (walls etc.)
+        for nid, z in zip(w.nids, w.elevs or []):
+            if z is None or nid not in nodes:
+                continue
+            x, y = ll_to_m(*nodes[nid])
+            verts.append((x, y, float(z), w))
+    for (jpts, step) in terrace_joints_m:
+        pos: List[Tuple[float, float, float, Way]] = []
+        neg: List[Tuple[float, float, float, Way]] = []
+        for (x, y, z, w) in verts:
+            best_d = None
+            best_k = 0
+            for k in range(len(jpts) - 1):
+                d = _seg_point_distance(x, y, jpts[k], jpts[k + 1])
+                if best_d is None or d < best_d:
+                    best_d, best_k = d, k
+            if best_d is None or best_d > _TERRACE_STRADDLE_PERP_M:
+                continue
+            (ax, ay), (bx, by) = jpts[best_k], jpts[best_k + 1]
+            s = (bx - ax) * (y - ay) - (by - ay) * (x - ax)
+            if abs(s) < 1e-12:
+                continue
+            (pos if s > 0 else neg).append((x, y, z, w))
+        if not pos or not neg:
+            continue
+        for (x1, y1, z1, w1) in pos:
+            best = None
+            for (x2, y2, z2, w2) in neg:
+                d = math.hypot(x2 - x1, y2 - y1)
+                if d > _TERRACE_STRADDLE_PAIR_M:
+                    continue
+                if best is None or d < best[0]:
+                    best = (d, x2, y2, z2, w2)
+            if best is None:
+                continue
+            (d, x2, y2, z2, w2) = best
+            if abs(z1 - z2) <= step + max_grade * d + _TERRACE_STEP_QUANT_M:
+                continue
+            out.append(Violation(
+                grade_pct=(abs(z1 - z2) / d * 100.0) if d > 1e-6 else 100.0,
+                excess_pct=100.0, distance_m=d, de_m=abs(z1 - z2),
+                way_a=w1, way_b=w2, pt_a=(x1, y1), pt_b=(x2, y2),
+                elev_a=z1, elev_b=z2))
+    return out
+
+
 def _check_within_shape(ways: List[Way],
                         nodes: Dict[str, Tuple[float, float]],
                         ll_to_m,
@@ -2892,6 +3087,7 @@ def _check_vertex_to_edge_step(
     edge_step_m: float,
     contact_tol_m: Optional[float] = None,
     pair_ok=None,
+    terrace_joints_m: Optional[list] = None,
 ) -> List[EdgeStep]:
     """For each vertex, find the closest edge of ANY OTHER way
     within ``edge_search_m``.  Project the vertex onto the edge,
@@ -2961,7 +3157,18 @@ def _check_vertex_to_edge_step(
         e, t, px, py = best
         e_proj = e.ea + t * (e.eb - e.ea)
         step = abs(v.elev - e_proj)
-        if step > edge_step_m + 1e-5:
+        # APRON TERRACE LOCKSTEP.  §3(d) retreats the lower panel's apron
+        # polygon by the settled wall band, so a declared joint now shows
+        # up here as a CROSS-SHAPE pair 0.6 m apart — lawful declared
+        # geometry, not a defect.  The allowance is the DECLARED step of
+        # the joint the pair straddles: the identical population, and the
+        # identical number, the solver was bound to.  A pair crossing no
+        # joint is untouched, so a gate-off patch reads exactly as before.
+        allow_step = edge_step_m
+        if terrace_joints_m:
+            allow_step += _terrace_step_allowance(
+                terrace_joints_m, v.x, v.y, px, py)
+        if step > allow_step + 1e-5:
             out.append(EdgeStep(
                 step_m=step,
                 distance_m=math.sqrt(best_d2),
@@ -2982,6 +3189,7 @@ def _check_edge_midpoint_step(
     samples_per_edge: int = 5,
     contact_tol_m: Optional[float] = None,
     pair_ok=None,
+    terrace_joints_m: Optional[list] = None,
 ) -> List[EdgeStep]:
     """For every edge, sample at ``samples_per_edge`` points
     (including the midpoint), compute the edge's interpolated
@@ -3070,7 +3278,14 @@ def _check_edge_midpoint_step(
             e2, tt, px, py = best
             e2_elev = e2.ea + tt * (e2.eb - e2.ea)
             step = abs(s_elev - e2_elev)
-            if step > edge_step_m + 1e-5:
+            # APRON TERRACE LOCKSTEP (see ``_check_vertex_to_edge_step``):
+            # after §3(d)'s retreat a declared joint is a cross-shape pair
+            # 0.6 m apart, and its DECLARED step is the allowance.
+            allow_step = edge_step_m
+            if terrace_joints_m:
+                allow_step += _terrace_step_allowance(
+                    terrace_joints_m, sx, sy, px, py)
+            if step > allow_step + 1e-5:
                 out.append(EdgeStep(
                     step_m=step,
                     distance_m=math.sqrt(best_d2),
@@ -3408,6 +3623,14 @@ def run_checks(
         joint_strip, top_n)
     within = within + joint_strip
 
+    joint_actual = _check_terrace_actual_step(
+        terrace_joints_m, ways, nodes, ll_to_m, max_grade)
+    _pv("APRON TERRACE ACTUAL step past its DECLARED step (recomputed "
+        "from the patch: nearest straddling vertex pairs + the emitted "
+        "joint face — never the sidecar's own report fields)",
+        joint_actual, top_n)
+    within = within + joint_actual
+
     adjacent_edges = _check_adjacent_ground_edges(ways, nodes, ll_to_m)
     _pv("ADJACENT-GROUND graded-strip TEAR (sub-metre near-vertical edge)",
         adjacent_edges, top_n)
@@ -3424,7 +3647,8 @@ def run_checks(
     within = within + strip_seam_tears
 
     transverse, n_tr_st, n_tr_rows, n_tr_shapes = _check_transverse_grade(
-        ways, nodes, ll_to_m, taxi_axes)
+        ways, nodes, ll_to_m, taxi_axes,
+        terrace_joints_m=terrace_joints_m)
     _pv("TRANSVERSE (cross-corridor) grade > the role/letter transverse "
         "cap (ICAO Annex 14 Table 3-2 — the law existed, nothing read it)",
         transverse, top_n)
@@ -3490,9 +3714,11 @@ def run_checks(
         cross, top_n)
 
     steps = _check_vertex_to_edge_step(
-        vertices, edges, ways, edge_search_m, edge_step_m)
+        vertices, edges, ways, edge_search_m, edge_step_m,
+        terrace_joints_m=terrace_joints_m)
     mid_steps = _check_edge_midpoint_step(
-        edges, ways, edge_search_m, edge_step_m)
+        edges, ways, edge_search_m, edge_step_m,
+        terrace_joints_m=terrace_joints_m)
     # The step split went with the rest of the break machinery (§2): a
     # step near a solver-declared break node used to be dropped from both
     # step checks (at a 2.0 m tolerance, wider than the vertex-pair

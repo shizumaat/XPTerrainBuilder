@@ -186,16 +186,6 @@ class TestMergedSurfaceIsOneSurface:
         assert summary["host_regraded"] == 0
         assert all(a == pytest.approx(before[0]) for a in lot.node_altitudes)
 
-    def test_gate_off_never_regrades(self, absorption_off):
-        lot = _dem_lot(0, 0, 100, 60)
-        road = BuiltShape(polygon=_rect(0, 60, 100, 70), role="service_road")
-        layout = _layout([lot, road])
-        summary = absorption_off.apply_lateral_contiguity_law(
-            layout, "TEST", dem_at=_ramp_dem())
-        assert summary["absorbed"] == 0
-        assert summary["host_regraded"] == 0
-        assert all(a == pytest.approx(10.0) for a in lot.node_altitudes)
-
     def test_a_steeper_dem_still_lands_under_the_cap(self, absorption_on):
         """The ramp limit is what makes the surface lawful, not the DEM —
         so a 200 % DEM must produce the same verdict as a 50 % one."""

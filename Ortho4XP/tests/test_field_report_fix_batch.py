@@ -78,24 +78,27 @@ def test_beyond_the_end_corridor_is_out_of_scope():
                    for r in rings)
 
 
-def test_wall_scope_drops_the_runway_roles_under_the_gate():
-    """A runway must never QUALIFY an apron wall with the gate on."""
-    for value, runway_in_scope in (("0", True), ("1", False)):
-        os.environ["O4_RUNWAY_STRIP_WALL_LAW"] = value
-        try:
-            cfg = importlib.reload(CFG)
-            ag = importlib.reload(
-                importlib.import_module("auto_patch.adjacent_ground"))
-            assert cfg.RUNWAY_STRIP_WALL_LAW_ENABLED == (value == "1")
-            assert ("runway" in ag._WALL_SCOPE_PAVEMENT_ROLES) \
-                is runway_in_scope
-            # the non-runway scope is untouched either way
-            assert {"apron", "junction", "groundside_pavement",
-                    "service_road"} <= ag._WALL_SCOPE_PAVEMENT_ROLES
-        finally:
-            os.environ.pop("O4_RUNWAY_STRIP_WALL_LAW", None)
-    importlib.reload(CFG)
-    importlib.reload(importlib.import_module("auto_patch.adjacent_ground"))
+def test_wall_scope_never_admits_the_runway_roles():
+    """STANDING LAW (owner 2026-08-01, ungated 2026-08-05): a runway must
+    never QUALIFY an apron wall — walls at runway edges are not lawful.
+    The former gate-off half of this twin retired with the gate."""
+    cfg = importlib.reload(CFG)
+    ag = importlib.reload(
+        importlib.import_module("auto_patch.adjacent_ground"))
+    assert cfg.RUNWAY_STRIP_WALL_LAW_ENABLED is True
+    assert "runway" not in ag._WALL_SCOPE_PAVEMENT_ROLES
+    assert {"apron", "junction", "groundside_pavement",
+            "service_road"} <= ag._WALL_SCOPE_PAVEMENT_ROLES
+    # ...and the retired env name can no longer move it.
+    os.environ["O4_RUNWAY_STRIP_WALL_LAW"] = "0"
+    try:
+        cfg = importlib.reload(CFG)
+        assert cfg.RUNWAY_STRIP_WALL_LAW_ENABLED is True
+    finally:
+        os.environ.pop("O4_RUNWAY_STRIP_WALL_LAW", None)
+        importlib.reload(CFG)
+        importlib.reload(
+            importlib.import_module("auto_patch.adjacent_ground"))
 
 
 # ── §B drainage-spine law ───────────────────────────────────────────
@@ -140,19 +143,23 @@ def test_spine_floor_never_exceeds_its_ceiling():
     assert floor is not None and floor <= ceil + 1e-12
 
 
-def test_gap_fill_binds_one_envelope_for_both_readers():
-    for value, expected in (("0", "adjacent_ground_envelope"),
-                            ("1", "drainage_spine_envelope")):
-        os.environ["O4_DRAINAGE_SPINE_LAW"] = value
-        try:
-            importlib.reload(CFG)
-            gf = importlib.reload(
-                importlib.import_module("auto_patch.gap_fill"))
-            assert gf._spine_envelope.__name__ == expected
-        finally:
-            os.environ.pop("O4_DRAINAGE_SPINE_LAW", None)
+def test_gap_fill_binds_the_drainage_spine_envelope():
+    """STANDING LAW (ungated 2026-08-05): gap-fill spines read the
+    drainage-spine envelope, and the retired env name cannot restore the
+    un-clamped one."""
     importlib.reload(CFG)
-    importlib.reload(importlib.import_module("auto_patch.gap_fill"))
+    gf = importlib.reload(importlib.import_module("auto_patch.gap_fill"))
+    assert gf._spine_envelope.__name__ == "drainage_spine_envelope"
+    os.environ["O4_DRAINAGE_SPINE_LAW"] = "0"
+    try:
+        importlib.reload(CFG)
+        gf = importlib.reload(
+            importlib.import_module("auto_patch.gap_fill"))
+        assert gf._spine_envelope.__name__ == "drainage_spine_envelope"
+    finally:
+        os.environ.pop("O4_DRAINAGE_SPINE_LAW", None)
+        importlib.reload(CFG)
+        importlib.reload(importlib.import_module("auto_patch.gap_fill"))
 
 
 # ── §C exact route legs + the chord gate ────────────────────────────

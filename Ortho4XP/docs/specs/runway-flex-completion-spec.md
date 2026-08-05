@@ -138,3 +138,30 @@ demand-free airport.
 SEQUENCING: this lane lands AFTER the ref-pull tip (the lane is
 default-inert — identity proven at both anchors — so the tip's minted
 anchors survive its landing unchanged).
+
+## FINAL LANE VERDICT (lead, 2026-08-04 night, after §2a re-verify)
+
+**LAND the lane as-is** (all four fixes in code, every gate default
+"0", identity proven 2x at both anchors in bytes AND in ledger
+behaviour): fix 3 + §2a is a CLEAN PASS — end-zone table 17→6
+segments, −591.6 m, landing BELOW gate-off, survivors all
+sub-materiality or the ruled seeder rows; band 3 IMPROVED by §2a
+(earthwork 2.361 m, 05C/23C steepening stopped); the §2-flip
+precondition stands met.
+
+**The composed configuration (O4_FLEX_SELF_UNLOCK at 12 rounds +
+§2a) is a recorded STOP, not landed behavior**: it fails loudly at
+build (final-band inversion, 1629 nodes, uniform 2.8917 m class) —
+correctly, per feasibility-is-guaranteed, §2a having turned a
+silently-baked FAA violation into a loud located one. Attribution
+banked for the NEXT round (flex-convergence attribution): end-zone
+steepening was the composed arm's release valve; with it closed, the
+÷2-split re-presents unmet demand every round (441 vs 285 demands
+over the same 12), verify-and-relax rejects 52%, and — the prime
+suspect — THE HOOK'S ACCOUNTING DIVERGES FROM APPLY (hook counts
+312.76 m drained on 05L/23R where apply lands 116.52 m: the envelope
+iterates on requested state, not achieved state — a fictional-state
+loop). Localizer: §2a x 3 rounds passes; §2a x 12 breaks. The
+convergence round must attribute the uniform 2.89 m class and make
+the hook iterate on ACHIEVED values before O4_FLEX_SELF_UNLOCK can
+flip. 05R/23L's own drain need is moot under fix 3 (zero demands).

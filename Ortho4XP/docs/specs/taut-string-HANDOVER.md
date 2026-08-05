@@ -16,7 +16,24 @@ pre-flip -> new default): SPJC 1698->1366, SPLP 50->27, CYXY 171->155,
 HECA 9649->9125, KCLT 2908->2643; BATTERY 14,476->13,316 (-1,160),
 seam +15 (ruled accepted). Every prior anchor list below is HISTORY.
 
-**BOARD AS OF 2026-08-04 EVENING (HEAD `9d7eea0`).** Landed today:
+**BOARD AS OF 2026-08-04 NIGHT (HEAD `ebe34c1`+).** Post-tip landings:
+flex completion `9324cad` (self-anchor unlock/DEM-follow/honest B2/§2a,
+all gated; composed 12-round STOP recorded — hook-vs-apply divergence
+is the flex-convergence round's mechanism); one-seam-vocabulary
+`ac1c689` (strip_seam_law.py, −276 dup lines); seam v3
+owner-independent `bd1c8a7` (third-copy absorption, guard-exit
+loudness, kill-control MEASURED: 34→109 battery-2, no new class, +74
+four-class kill-gating item). Seam premise chain v1→v4 (each falsified
+by pre-flight, all in the v2/v3 spec tails + bounds/ scratchpad):
+final verdict = FOUR HEALER DEFECTS, owner question dissolved; v4
+(`ebe34c1`, O4_STRIP_HEAL_LAW) IN FLIGHT. Also in flight: nothing
+else. QUEUED: flip adjudication (band-seed-complete + DEM-follow +
+strip-heal + terrace default-ON), coupling round (oracle landed),
+consensus retirement, flex-convergence attribution, the kill
+(anchor-minting, owner/lead), apply-minted end-zone round,
+ring-asymmetry, baseline re-record → final-design profiling round.
+
+**BOARD AS OF 2026-08-04 EVENING (HEAD `9d7eea0`, HISTORY).** Landed today:
 seat-gates variant A (`58e2f99` — SEAT_BAND_CONSISTENT ON, coupler HELD,
 new HECA anchor `a785f170`, others unchanged); the APRON TERRACE LAW
 gated default "0" (`5eaf1e2`, adjudication `768cded` — gate-on at HECA:

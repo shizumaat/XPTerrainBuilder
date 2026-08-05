@@ -167,8 +167,41 @@ def zone_split(osm: Path, cg, families: dict) -> dict:
         by_role["|".join(sorted(cg.row_roles(r)))] += 1
         if cap and getattr(r, "grade_pct", 0.0) / 100.0 > cap:
             steeper_than_cap += 1
+    # HOW MANY PAIRS THE ZONE CAP ACTUALLY BINDS.  The count that says
+    # whether a declared-ground grade law is INERT: a law can declare
+    # square kilometres and price nothing, which is exactly what the
+    # fan-ramp law did before its zones became shapes (808 zones, 170
+    # edges).  Built from the ways the patch carries, through the law's
+    # own ``shape_constraints`` — not estimated from vertex counts.
+    ramp_pairs = ramp_ways = ramp_vertices = 0
+    try:
+        import auto_patch.grade_graph as _GG
+        nodes, ways = cg._parse_osm(Path(osm))
+        law_ctx = _GG.GradeContext(centerlines=[], routes=[])
+        for w in ways:
+            if (w.tags or {}).get("o4_grade_law") != "fan_ramp":
+                continue
+            ring = [ll_to_m(*nodes[n]) for n in w.nids if n in nodes]
+            if len(ring) > 1 and ring[0] == ring[-1]:
+                ring = ring[:-1]
+            if len(ring) < 3:
+                continue
+            ramp_ways += 1
+            ramp_vertices += len(ring)
+            gs = _GG.GradeShape(role=(w.tags or {}).get("role", "apron"),
+                                ring=ring, keys=list(range(len(ring))),
+                                fan_ramp_zone=True)
+            ramp_pairs += len(_GG.shape_constraints(gs, law_ctx).edges)
+    except Exception as exc:                                # pragma: no cover
+        ramp_pairs = -1
+        ramp_ways = ramp_vertices = 0
+        buckets["_pair_count_failed"] = repr(exc)[:80]
+
     return {
         "zones": len(zones),
+        "ramp_ways": ramp_ways,
+        "ramp_vertices": ramp_vertices,
+        "ramp_law_pairs": ramp_pairs,
         "zone_area_m2": (round(float(union.area), 1) if union is not None
                          else 0.0),
         "zone_parts_area_m2": round(
@@ -351,6 +384,10 @@ def print_report(rep: dict, top: int) -> None:
                   f"{zs['zone_area_m2']:,.0f} m² (parts sum "
                   f"{zs['zone_parts_area_m2']:,.0f} m² — zones OVERLAP, one "
                   f"per adjacent building pair), caps {zs['caps']}")
+            print(f"    ramp PIECES {zs['ramp_ways']} "
+                  f"({zs['ramp_vertices']} ring vertices) binding "
+                  f"{zs['ramp_law_pairs']} law pair(s) at the zone cap "
+                  f"— the number that says whether the law is INERT")
             b = zs["buckets"]
             print(f"    within-shape rows {zs['within_rows']}:")
             for k, label in (

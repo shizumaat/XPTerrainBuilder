@@ -1290,6 +1290,95 @@ def _report_witness_admission(icao, label, rep):
               f"{dict(rep['unmatched_classes'].most_common(10))}")
 
 
+def _rod_pair_budgets(rod_pieces, shape_constraints, spine_adj):
+    """Tightest symmetric law budget per rod pair, keyed ``(min, max)``.
+
+    Sources, TIGHTEST-WINS: (a) symmetric (3-tuple) edges in
+    ``shape_constraints`` — the historical lookup; (b) the unified spine
+    graph ``spine_adj`` (``{i: [(j, budget), ...]}``), gated by
+    ``O4_ROD_SPINE_BUDGET_CLAMP`` (default "1"; "0" restores the
+    shape-constraints-only lookup byte-identically).
+
+    WHY (b) EXISTS (SPJC 50.67 %, 2026-08-05).  A rod pair is a
+    CONSECUTIVE STRUNG-SPINE pair, and some spine pairs carry NO symmetric
+    edge in ``shape_constraints`` at all — their only cap budget lives in
+    the unified spine graph, the same graph/frame ``_solve_spine_profile``
+    's exact cap projection uses.  Scanning only ``shape_constraints``
+    therefore UNDER-SCOPED the §10.1 clamp's budget lookup and minted such
+    pairs RAW, against the spec's own premise that every rod slab is at
+    most cap-grade.  Measured at SPJC (guard arm): pair (10625, 9623) has
+    ``spine_adj`` budget 0.0087 m and no symmetric law edge anywhere in the
+    joint list; the string chorded OVER a §4 guard-yielded seat, the slab
+    was minted at raw Δ = +0.356 m ± 0.02 over a 0.58 m pair (62 % grade),
+    and every downstream projection (fp#8 and both
+    ``final_grade_projection`` passes) then enforced that step AS LAW — the
+    corner emitted +0.31 m above its neighbourhood, SPJC's worst
+    within-shape grade row (50.67 %)."""
+    pair_keys = {(min(a, b), max(a, b))
+                 for piece in rod_pieces for a, b in zip(piece, piece[1:])}
+    # Rod-pairs-first: the rod pair set is tiny, so the one pass over
+    # ``shape_constraints`` pays a set-membership test per edge, not a
+    # dict insert.
+    budgets: dict = {}
+    for ent in shape_constraints:
+        for e in ent.get("edges", ()):
+            if len(e) >= 4:              # interval edge: not a symmetric cap
+                continue
+            pk = (e[0], e[1]) if e[0] <= e[1] else (e[1], e[0])
+            if pk not in pair_keys:
+                continue
+            pb = float(e[2])
+            cur = budgets.get(pk)
+            if cur is None or pb < cur:
+                budgets[pk] = pb
+    if _os.environ.get("O4_ROD_SPINE_BUDGET_CLAMP", "1") != "1":
+        return budgets
+    # The graph is symmetric, but a pair is looked up from BOTH sides —
+    # a one-sided walk would inherit any asymmetry the builder leaves.
+    for pk in pair_keys:
+        a, b = pk
+        pb = None
+        for (j, budget) in (spine_adj.get(a) or ()):
+            if j == b:
+                pb = float(budget)
+                break
+        if pb is None:
+            for (j, budget) in (spine_adj.get(b) or ()):
+                if j == a:
+                    pb = float(budget)
+                    break
+        if pb is None:                   # not a spine pair here: skip
+            continue
+        cur = budgets.get(pk)
+        if cur is None or pb < cur:
+            budgets[pk] = pb
+    return budgets
+
+
+def _clamp_rod_slab(rd, eps, budget):
+    """Clamp one rod slab ``[rd − ε, rd + ε]`` into ``±budget``.
+
+    Returns ``(lo, hi, clamped)``.  ``budget is None`` ⇒ the raw slab and
+    ``False`` — nothing in the law to contradict.  A slab entirely beyond
+    the law RIDES THE CAP on ``rd``'s side, ``(budget − 2ε, budget)`` for
+    ``rd ≥ 0`` and ``(−budget, −budget + 2ε)`` otherwise, which is exactly
+    the spec's infeasible-tube rule.  Pure extraction of the inline
+    arithmetic: behaviour for the shape-constraints-sourced budgets is
+    unchanged."""
+    lo = rd - eps
+    hi = rd + eps
+    if budget is None:
+        return lo, hi, False
+    clo = max(lo, -budget)
+    chi = min(hi, budget)
+    if clo > chi:                        # step beyond the law: ride the cap
+        if rd >= 0.0:
+            clo, chi = budget - 2.0 * eps, budget
+        else:
+            clo, chi = -budget, -budget + 2.0 * eps
+    return clo, chi, (clo, chi) != (lo, hi)
+
+
 # ══ SPINE-FREEZE ROUND — YIELD-HARD MEMBERSHIP FOR PHASE-A SPINE VALUES ══
 # (``docs/specs/spine-freeze-round-spec.md``; gate ``O4_SPINE_YIELD_HARD``,
 # default "0".)
@@ -2743,27 +2832,23 @@ def solve_route_profile(layout, icao: str,
             # the law edge; 24 000 sweeps change nothing).  Clamp each
             # slab into the pair's own symmetric law budget; a snapshot
             # step beyond the law rides the ceiling at cap, exactly the
-            # spec's infeasible-tube rule.  Pairs without a symmetric
-            # law edge keep the raw slab (nothing to contradict).
-            # Budgets are looked up rod-pairs-first (the rod pair set is
-            # tiny) so the one pass over ``shape_constraints`` pays a
-            # set-membership test per edge, not a dict insert.
-            _rod_pair_keys = {
-                (min(_ra, _rb), max(_ra, _rb))
-                for _rp in _rod_pieces for _ra, _rb in zip(_rp, _rp[1:])}
-            _rod_pair_budget: dict = {}
-            for _sc_ent in shape_constraints:
-                for _e in _sc_ent.get("edges", ()):
-                    if len(_e) >= 4:
-                        continue
-                    _pk = (_e[0], _e[1]) if _e[0] <= _e[1] \
-                        else (_e[1], _e[0])
-                    if _pk not in _rod_pair_keys:
-                        continue
-                    _pb = float(_e[2])
-                    _cur = _rod_pair_budget.get(_pk)
-                    if _cur is None or _pb < _cur:
-                        _rod_pair_budget[_pk] = _pb
+            # spec's infeasible-tube rule.
+            # BOTH BUDGET SOURCES, TIGHTEST WINS (2026-08-05, SPJC
+            # 50.67 %).  A rod pair is a consecutive STRUNG-SPINE pair, and
+            # some spine pairs carry no symmetric edge in
+            # ``shape_constraints`` at all — their only budget lives in
+            # ``u_spine_adj``, the frame ``_solve_spine_profile``'s exact
+            # cap projection already uses.  SPJC pair (10625, 9623): spine
+            # budget 0.0087 m, no symmetric law edge, slab minted RAW at
+            # Δ = +0.356 m over 0.58 m (62 %) where the string chorded over
+            # a §4 guard-yielded seat — fp#8 and both
+            # ``final_grade_projection`` passes then enforced it AS LAW and
+            # the corner emitted +0.31 m above its neighbourhood.  Pairs
+            # with NEITHER source keep the raw slab (nothing to
+            # contradict); ``O4_ROD_SPINE_BUDGET_CLAMP=0`` restores the
+            # shape-constraints-only lookup byte-identically.
+            _rod_pair_budget = _rod_pair_budgets(
+                _rod_pieces, shape_constraints, u_spine_adj)
             _rod_clamped = 0
             # Half-open [start, stop) spans of ``_rod_edges`` per STRUNG
             # PIECE — the chain structure the composition export below
@@ -2774,21 +2859,11 @@ def solve_route_profile(layout, icao: str,
                 _p0 = len(_rod_edges)
                 for _ra, _rb in zip(_rp, _rp[1:]):
                     _rd = elev[_ra] - elev[_rb]
-                    _rlo = _rd - _ROD_EPS
-                    _rhi = _rd + _ROD_EPS
-                    _pb = _rod_pair_budget.get(
-                        (min(_ra, _rb), max(_ra, _rb)))
-                    if _pb is not None:
-                        _clo = max(_rlo, -_pb)
-                        _chi = min(_rhi, _pb)
-                        if _clo > _chi:      # step beyond the law: ride cap
-                            if _rd >= 0.0:
-                                _clo, _chi = _pb - 2.0 * _ROD_EPS, _pb
-                            else:
-                                _clo, _chi = -_pb, -_pb + 2.0 * _ROD_EPS
-                        if (_clo, _chi) != (_rlo, _rhi):
-                            _rod_clamped += 1
-                        _rlo, _rhi = _clo, _chi
+                    _rlo, _rhi, _rwas = _clamp_rod_slab(
+                        _rd, _ROD_EPS, _rod_pair_budget.get(
+                            (min(_ra, _rb), max(_ra, _rb))))
+                    if _rwas:
+                        _rod_clamped += 1
                     _rod_edges.append((_ra, _rb, _rlo, _rhi))
                 if len(_rod_edges) > _p0:
                     _rod_piece_spans.append((_p0, len(_rod_edges)))

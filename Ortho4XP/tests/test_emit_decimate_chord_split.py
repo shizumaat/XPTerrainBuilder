@@ -176,3 +176,54 @@ class TestRemovedVerticesStayWithinBand:
             t = (x - xa) / (xb - xa) if xb > xa else 0.0
             assert abs(z - (za * (1.0 - t) + zb * t)) <= \
                 Z_TOL_BOUNDARY_M + 1e-9
+
+
+# ── TERRACE PANEL-BOUNDARY STATIONS ARE FORCE-KEPT ──────────────────
+
+def test_terrace_stations_survive_decimation():
+    """A declared joint's station rows are invisible anchors.
+
+    The apron is split into PANELS before the solve, so the joint's two
+    station rows are the vertices the panels and the retaining-wall face
+    share — but the face is minted AFTER this pass, so no ring in the
+    decimator's vote can see that dropping a station re-opens the 0.6 m
+    band as a tear.  Same class as the crown weld and the string ends.
+    """
+    from shapely.geometry import Polygon
+
+    from auto_patch.emit_decimate import decimate_emit_nodes
+    from auto_patch.layout import BuiltShape, PavementLayout
+
+    def _panel(y0, y1, stations):
+        # a flat panel whose long edge carries the station row: every
+        # station is 3D-collinear, so the decimator would remove them all
+        ring = ([(0.0, y0), (200.0, y0)]
+                + [(x, y1) for x in reversed(stations)])
+        s = BuiltShape(polygon=Polygon(ring + [ring[0]]), role="apron",
+                       ref="panel")
+        s.node_altitudes = [100.0] * len(ring) + [100.0]
+        return s
+
+    stations = [0.0, 25.0, 50.0, 75.0, 100.0, 125.0, 150.0, 175.0, 200.0]
+    layout = PavementLayout(icao="KFAKE", anchor=(40.0, -100.0))
+    layout.shapes = [_panel(0.0, 100.0, stations)]
+
+    bare = PavementLayout(icao="KFAKE", anchor=(40.0, -100.0))
+    bare.shapes = [_panel(0.0, 100.0, stations)]
+    decimate_emit_nodes(bare, "KFAKE")
+    n_bare = len(list(bare.shapes[0].polygon.exterior.coords)) - 1
+    assert n_bare < len(stations) + 2, (
+        "the fixture is not decimatable — the twin would prove nothing")
+
+    layout.apron_terrace_presolve = [{
+        "shape_id": id(layout.shapes[0]), "ref": "panel",
+        "joints": [{"hi": [(x, 100.0) for x in stations],
+                    "lo": [(x, 99.4) for x in stations]}],
+    }]
+    decimate_emit_nodes(layout, "KFAKE")
+    kept = {(round(x, 3), round(y, 3))
+            for (x, y) in list(layout.shapes[0].polygon.exterior.coords)}
+    for x in stations:
+        assert (round(x, 3), 100.0) in kept, (
+            f"station x={x} was decimated away — the panel and its wall "
+            f"no longer share a vertex")

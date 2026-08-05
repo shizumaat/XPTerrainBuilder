@@ -594,7 +594,30 @@ def decimate_emit_nodes(layout, icao: str = "") -> int:
                     _chain_end_keys.add(_key(float(_pt[0]), float(_pt[1])))
                 except (TypeError, ValueError, IndexError):
                     continue
-    _forced_keys = _weld_keys | _chain_end_keys
+    # TERRACE PANEL-BOUNDARY STATIONS MUST NOT BE DELETED (completion
+    # round 2026-08-05).  The apron is split into PANELS before the solve
+    # and a declared joint's two station rows are the vertices the two
+    # panels and the retaining-wall face share — that shared identity is
+    # the whole reason the step is one step and not two disagreeing ones.
+    # But the face is minted AFTER this pass (pipeline ~0.96 vs ~0.90),
+    # so no ring in this vote can see that dropping a station re-opens
+    # the 0.6 m band as a tear, and the face's own ring would stop being
+    # panel vertices at all.  Exactly the crown-weld / string-end class:
+    # an invisible anchor, force-kept.  The keys come from the plan-time
+    # declaration, so they exist whether or not a face is eventually
+    # minted (an unfaced joint's panels still meet there).
+    _terrace_keys: set = set()
+    for _tj_entry in (getattr(layout, "apron_terrace_presolve", None)
+                      or ()):
+        for _tj in (_tj_entry.get("joints") or ()):
+            for _row in ("hi", "lo"):
+                for _pt in (_tj.get(_row) or ()):
+                    try:
+                        _terrace_keys.add(_key(float(_pt[0]),
+                                               float(_pt[1])))
+                    except (TypeError, ValueError, IndexError):
+                        continue
+    _forced_keys = _weld_keys | _chain_end_keys | _terrace_keys
     _chain_end_seen: set = set()
     _cps = getattr(layout, "canonical_points", None) if _chain_end_keys \
         else None

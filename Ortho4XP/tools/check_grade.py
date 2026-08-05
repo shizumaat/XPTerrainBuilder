@@ -1871,6 +1871,7 @@ def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
     out: List[Violation] = []
     n_pairs = 0
     hit_ways: set = set()
+    seen_sites: set = set()     # one row per physical site (see _site_key)
     for w in ways:
         if w.role != _STRIP_LONGITUDINAL_ROLE:
             continue
@@ -1910,6 +1911,10 @@ def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
                              + (pts[b][1] - pts[a][1]) * axis[1])
                     if ds < _STRIP_LONGITUDINAL_MIN_RUN_M:
                         continue
+                    _site = _site_key(pts[a], pts[b])
+                    if _site in seen_sites:
+                        continue    # same physical pair, another band
+                    seen_sites.add(_site)
                     n_pairs += 1
                     dz = abs(float(zs[b]) - float(zs[a]))
                     if dz <= cap * ds + allow:
@@ -1936,11 +1941,56 @@ def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
 # family cannot be lawful under one authority and judged under another.
 # ══════════════════════════════════════════════════════════════════════
 
-#: A rate instrument reading a 0.1 m emit quantum at 30 m stations has a
-#: blind spot of ~0.33 pp of grade change; a row inside it is
-#: PASS-with-residual (materiality law), never iterated on.  Documented
-#: exactly as the RSA lane documented the slope reader's.
-_RATE_READER_BLIND_SPOT = 0.1 / 30.0
+#: A rate instrument reading an emit quantum at a station spacing has a
+#: BLIND SPOT — a grade-change reading it cannot distinguish from pure
+#: rounding.  A row inside it is PASS-with-residual (materiality law),
+#: never iterated on.  Documented exactly as the RSA lane documented the
+#: slope reader's.
+#:
+#: BROKEN-INSTRUMENT FIX (2026-08-05, verdict (d)): the old constant was
+#: ``0.1 / 30.0`` — the quantum divided by an ASSUMED 30 m spacing, hard
+#: coded, while the emitted graded-strip rings actually station 2-5 m
+#: apart (measured KCLT: 585 of 985 arc rows at a 2-5 m span, only 16
+#: beyond 20 m).  At 3 m the true blind spot is twenty times the constant,
+#: so the reader was judging pure emit rounding as a curvature violation.
+#:
+#: THE DERIVATION.  With ``change = (z_c - z_b)/dn - (z_b - z_a)/dp`` and
+#: each node value carrying at most ``q/2`` of rounding, the worst-case
+#: rounding contribution to ``change`` is
+#:     q/2 * (1/dp + 1/dn + 1/dp + 1/dn) = q * (1/dp + 1/dn).
+#: ``q`` is the way's OWN emit quantum — ``_pair_quant_noise_m``, the same
+#: envelope the abeam reader grants — so there is one derivation and no
+#: second constant.
+def _rate_reader_blind_spot(way: "Way", dp: float, dn: float) -> float:
+    """Grade-change reading below which a rate row is pure emit rounding."""
+    q = _pair_quant_noise_m(way)
+    if q < SLOPED_QUAD_ROUNDING_NOISE_M:
+        q = SLOPED_QUAD_ROUNDING_NOISE_M
+    if dp < 1e-9 or dn < 1e-9:
+        return float("inf")
+    return q * (1.0 / dp + 1.0 / dn)
+
+
+#: Rounding for the physical-site key the strip readers dedupe on (mm).
+_SITE_KEY_DP = 3
+
+
+def _site_key(*pts) -> tuple:
+    """Identity of a physical STATION SITE, order-independent.
+
+    THE DOUBLE-COUNT (2026-08-05, verdict (d)).  Adjacent graded-strip
+    band pieces share their whole common boundary chain, so every
+    consecutive vertex pair on that chain belongs to BOTH rings and the
+    per-way readers below counted the SAME physical site once per way.
+    Measured KCLT: strip_abeam 847 rows over 433 distinct sites (414 of
+    them carried by more than one way) = x1.96; strip_arc 985 over 517 =
+    x1.91.  The law is about the SURFACE, and the surface has one station
+    there — the no-stacked-nodes invariant guarantees the shared vertices
+    are ONE node with ONE value, so the second reading is arithmetically
+    identical, never independent evidence.
+    """
+    return tuple(sorted((round(x, _SITE_KEY_DP), round(y, _SITE_KEY_DP))
+                        for (x, y) in pts))
 
 
 def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
@@ -1961,6 +2011,7 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
     out: List[Violation] = []
     n_stations = 0
     hit_ways: set = set()
+    seen_sites: set = set()     # one row per physical site (see _site_key)
     for w in ways:
         if w.role != _STRIP_LONGITUDINAL_ROLE:
             continue
@@ -2003,8 +2054,13 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
                     change = abs((float(zs[c]) - float(zs[b])) / dn
                                  - (float(zs[b]) - float(zs[a])) / dp)
                     allowed = arc_rate * 0.5 * (dp + dn)
-                    if change - allowed <= _RATE_READER_BLIND_SPOT:
+                    if change - allowed <= _rate_reader_blind_spot(
+                            w, dp, dn):
                         continue        # PASS-with-residual
+                    _site = _site_key(pts[a], pts[b], pts[c])
+                    if _site in seen_sites:
+                        continue    # same physical station, another band
+                    seen_sites.add(_site)
                     hit_ways.add(w.wid)
                     span = 0.5 * (dp + dn)
                     out.append(Violation(
@@ -2140,6 +2196,7 @@ def _check_raoa_rate(ways: List[Way], nodes, ll_to_m
     out: List[Violation] = []
     n_stations = 0
     hit_ways: set = set()
+    seen_sites: set = set()     # one row per physical site (see _site_key)
     for w in ways:
         if w.role != _STRIP_LONGITUDINAL_ROLE:
             continue
@@ -2176,8 +2233,13 @@ def _check_raoa_rate(ways: List[Way], nodes, ll_to_m
                     continue
                 change = abs((z[k + 1] - z[k]) / dn - (z[k] - z[k - 1]) / dp)
                 allowed = rate * 0.5 * (dp + dn)
-                if change - allowed <= _RATE_READER_BLIND_SPOT:
+                if change - allowed <= _rate_reader_blind_spot(w, dp, dn):
                     continue
+                _site = _site_key(pts[src[k - 1]], pts[src[k]],
+                                  pts[src[k + 1]])
+                if _site in seen_sites:
+                    continue    # same physical station, another band
+                seen_sites.add(_site)
                 hit_ways.add(w.wid)
                 out.append(Violation(
                     grade_pct=100.0 * change,
@@ -4108,9 +4170,10 @@ def run_checks(
         strip_arc, top_n)
     if n_sa_st and not quiet:
         print(f"  ({n_sa_st} strip station(s) censused over {n_sa_ways} "
-              f"band(s); rate-reader blind spot "
-              f"{100 * _RATE_READER_BLIND_SPOT:.2f} pp — rows inside it "
-              f"are PASS-with-residual)")
+              f"band(s); rate-reader blind spot is derived per row at its "
+              f"OWN station spacing — q·(1/dp + 1/dn), see "
+              f"_rate_reader_blind_spot — and rows inside it are "
+              f"PASS-with-residual)")
     within = within + strip_arc
 
     # ── §A1 — the END-corridor TRANSVERSE law ────────────────────────

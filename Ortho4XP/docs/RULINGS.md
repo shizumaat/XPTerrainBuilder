@@ -407,3 +407,28 @@ The oracle therefore asserts three things: zero violations in both
 worlds, extreme-seating saturation (every free value at the band edge
 nearest its seed), and — as the bonus diagnostic — the per-node
 difference field between the two worlds IS the feasible band width.
+
+## 2026-08-05 — Consult-before-create; promote-on-reuse (owner)
+
+Owner: before creating any tool, script, or skill, an agent MUST first
+consult existing resources; if the exact tool is not available, prefer
+updating or expanding an existing one; anything used more than once is
+encoded as a standard, re-usable tool that enforces consistency across
+time, agents, and sessions. Creating something that already exists —
+or worse, something slightly different — wastes time and causes
+regressions and confusion.
+
+Binding form:
+1. CONSULT FIRST: tools/INDEX.md (the tool catalog) + tools/harness/
+   are the first stop for any build/measure/setup need. The index is
+   the consultation surface; a tool absent from the index is treated
+   as absent.
+2. EXTEND, DON'T FORK: a near-fit gets a parameter or a subcommand,
+   never a copy. A slightly-different duplicate is a DEFECT (the
+   census-wrapper frame errors are the precedent).
+3. PROMOTE ON REUSE: the second use of any lane-local script is the
+   signal to promote it into tools/ with an index entry (and a twin
+   where it measures anything). Lane scratchpad scripts are one-off by
+   definition and die with the lane — never copied forward.
+4. Every new standard tool lands WITH its index entry in the same
+   commit.

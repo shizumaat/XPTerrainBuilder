@@ -1655,19 +1655,87 @@ def _build_node_list(layout, *, readonly: bool = False):
     # gap-spine node (identity adoption — no band edge may constrain a
     # pavement variable; pavement value always wins as an identity).
     # Gate OFF (or no store): the loop body never runs — byte-inert.
+    #
+    # ZONE-NODE IDENTITY (owner decision relayed 2026-08-05, debug lane
+    # A).  Two DIFFERENT host shapes' zone rows can march to within the
+    # registry's 0.5 m tolerance of each other.  Interning them together
+    # made one solve VARIABLE serve both hosts — and the adjacent-ground
+    # zone law is stated per host, against that host's own foot datum, so
+    # a single variable forces two independent laws onto one elevation.
+    # What actually happened downstream: ``_build_zone_row_constraints``
+    # DROPPED the second host's edge (its ``n_cross_claimed`` counter is
+    # the tally) and ``_zone_foot_boxes`` INTERSECTED the two boxes; an
+    # empty intersection then read as a declared conflict that the ground
+    # never had.  Zones of different hosts are now SEPARATE VARIABLES.
+    #
+    # What is NOT split, because it is the standing identity law: a zone
+    # node whose bucket was already claimed by a PAVEMENT / gap-spine /
+    # RESA node ADOPTS that variable (pavement value always wins as an
+    # identity — no band edge may constrain a pavement variable), and two
+    # zone nodes of the SAME host at one bucket are one point.
+    #
+    # The join to emit is ``(canonical bucket, host shape id)``, published
+    # on ``layout._zone_node_variable``; :func:`zone_node_index` is its
+    # ONE reader.  ``bucket_to_idx`` keeps pointing at the FIRST claimant,
+    # so every non-zone lookup is byte-identical to before.
     layout._adjacent_ground_first_zone_index = len(nodes)
+    _zone_var: dict = {}          # (bucket, host shape id) -> node index
+    _zone_owner: dict = {}        # node index -> host shape id
+    _n_zone_split = 0
     if (ROLE_GRADED_STRIP, "adjacent_ground") in _admitted_refs:
         for _band_entry in (getattr(layout, "adjacent_ground_presolve",
                                     None) or ()):
+            _host_id = id(_band_entry.get("shape"))
             for _zone_node in _band_entry.get("zone_nodes", ()):
                 x, y = _zone_node["xy"]
                 k = _intern(float(x), float(y))
                 if k is None:                 # readonly: unclaimed bucket
                     continue
-                if k not in bucket_to_idx:
+                _existing = bucket_to_idx.get(k)
+                if _existing is None:
                     bucket_to_idx[k] = len(nodes)
+                    _zone_owner[len(nodes)] = _host_id
+                    _zone_var[(k, _host_id)] = len(nodes)
                     nodes.append((float(x), float(y)))
+                    continue
+                if (_existing < layout._adjacent_ground_first_zone_index
+                        or _zone_owner.get(_existing) == _host_id):
+                    _zone_var[(k, _host_id)] = _existing
+                    continue
+                if (k, _host_id) in _zone_var:
+                    continue
+                _zone_var[(k, _host_id)] = len(nodes)
+                _zone_owner[len(nodes)] = _host_id
+                nodes.append((float(x), float(y)))
+                _n_zone_split += 1
+    layout._zone_node_variable = _zone_var
+    layout._zone_node_owner = _zone_owner
+    layout._zone_node_split_count = _n_zone_split
     return nodes, bucket_to_idx
+
+
+def zone_node_index(layout, bucket_to_idx, xy, shape_id=None):
+    """THE join for an adjacent-ground ZONE node → its solve variable.
+
+    Zone variables are keyed by ``(canonical bucket, host shape id)``
+    because two hosts' zone rows may share a bucket and must NOT share a
+    variable (see the ZONE-NODE IDENTITY note in :func:`_build_node_list`).
+    Every consumer — the constraint builder, the foot-box supply, the
+    writeback — resolves through here so there is ONE spelling of the
+    identity and no consumer can silently fall back to the shared bucket.
+
+    ``shape_id`` ``None`` (or a layout built before the split, or a
+    PAVEMENT vertex such as a foot datum) resolves to the plain bucket
+    lookup, which is what those callers have always used."""
+    cps = layout.canonical_points
+    k = cps.get_or_add(float(xy[0]), float(xy[1]))
+    if shape_id is not None:
+        var = getattr(layout, "_zone_node_variable", None)
+        if var:
+            i = var.get((k, shape_id))
+            if i is not None:
+                return i
+    return bucket_to_idx.get(k)
 
 
 def _build_gap_spine_constraints(layout, bucket_to_idx, seed_elev=None):
@@ -2270,12 +2338,20 @@ def _build_adjacent_ground_zone_constraints(layout, bucket_to_idx):
     (pavement value always wins at a pavement node — an identity, not
     an arbitration; a band law edge must never constrain a pavement
     variable).  A zone node whose bucket was already claimed by an
-    EARLIER zone node (cross-row or cross-shape interning inside the
+    EARLIER zone node of the SAME HOST (cross-row interning inside the
     0.5 m registry tolerance) also gets no second edge — the first
-    claimant's corridor governs; attaching both could hand the POCS
+    claimant's corridor governs; attaching both would hand the POCS
     sweep two disjoint slabs on one variable (the measured B2
     empty-intersection ping-pong).  Both collision classes are counted
     and reported (the design doc's open-question-2 assertion).
+
+    CROSS-HOST collisions no longer reach this rule: as of the 2026-08-05
+    ZONE-NODE IDENTITY decision, two hosts' zone rows that intern to one
+    bucket are SEPARATE solve variables (see :func:`_build_node_list`),
+    resolved here through :func:`zone_node_index`.  Dropping the second
+    host's edge was the old cost of sharing a variable — one variable
+    cannot carry two per-host zone laws — so ``n_cross_claimed`` should
+    now stay at 0 and a non-zero value means a host key failed to join.
 
     Returns ``(sc_entries, zone_idx_set, collision_counts)`` where
     ``collision_counts`` is ``(n_pavement_adopted, n_cross_claimed)``."""
@@ -2290,9 +2366,14 @@ def _build_adjacent_ground_zone_constraints(layout, bucket_to_idx):
     for entry in entries:
         edges: list[tuple] = []
         node_list: list[int] = []
+        # ZONE-NODE IDENTITY: resolve through the (bucket, host) join, so
+        # a bucket shared with ANOTHER host resolves to THIS host's own
+        # variable instead of dropping this host's law (the
+        # ``n_cross_claimed`` tally below is what that used to cost).
+        host_id = id(entry.get("shape"))
         for zone_node in entry.get("zone_nodes", ()):
             x, y = zone_node["xy"]
-            i = bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
+            i = zone_node_index(layout, bucket_to_idx, (x, y), host_id)
             if i is None:
                 continue
             node_list.append(i)

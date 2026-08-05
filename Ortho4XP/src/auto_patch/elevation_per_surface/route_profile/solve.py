@@ -1412,12 +1412,21 @@ def _zone_foot_boxes(layout, bucket_to_idx, elev, n, first_zone):
     owner: dict = {}
     n_foot = n_host = n_adopted = n_isect = n_conflict = 0
 
-    def _idx(xy):
-        k = bucket_to_idx.get(cps.get_or_add(float(xy[0]), float(xy[1])))
+    from ..solver_primitives import zone_node_index as _zone_idx
+
+    def _idx(xy, shape_id=None):
+        """``shape_id`` set ⇒ the ZONE-node join (bucket, host); unset ⇒
+        the plain bucket lookup, which is what a pavement FOOT vertex
+        has always used."""
+        k = _zone_idx(layout, bucket_to_idx, xy, shape_id)
         return None if (k is None or k >= n) else k
 
     for row in rows:
-        i = _idx(row["xy"])
+        # ZONE-NODE IDENTITY: this row's box belongs to ``shape_id``'s own
+        # variable.  Resolving by bucket alone put two hosts' boxes on one
+        # variable, which is what the intersect/conflict branch below was
+        # absorbing.
+        i = _idx(row["xy"], row.get("shape_id"))
         if i is None:
             continue
         if i < first_zone:
@@ -3995,14 +4004,20 @@ def solve_route_profile(layout, icao: str,
     if _zone_idx:
         from auto_patch.emit_decimate import _key as _mm_key
         _cps_zone = layout.canonical_points
+        from ..solver_primitives import zone_node_index as _zone_idx_wb
         for _zone_entry in (getattr(layout,
                                     "adjacent_ground_presolve", None)
                             or ()):
             _zone_vals: dict = {}
+            # ZONE-NODE IDENTITY: read back THIS host's own variable.
+            # ``zone_values`` is per-entry, so two hosts sharing a bucket
+            # now carry their own solved value to emit instead of both
+            # reading the first claimant's.
+            _zone_host_id = id(_zone_entry.get("shape"))
             for _zn in _zone_entry.get("zone_nodes", ()):
                 _zx, _zy = _zn["xy"]
-                _zi = bucket_to_idx.get(
-                    _cps_zone.get_or_add(float(_zx), float(_zy)))
+                _zi = _zone_idx_wb(layout, bucket_to_idx, (_zx, _zy),
+                                   _zone_host_id)
                 if _zi is None or _zi >= n:
                     continue
                 _zone_vals[_mm_key(float(_zx), float(_zy))] = float(

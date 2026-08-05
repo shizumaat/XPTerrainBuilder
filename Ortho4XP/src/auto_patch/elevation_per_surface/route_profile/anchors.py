@@ -16,6 +16,7 @@ construction.  This module never builds a second graph.
 """
 from __future__ import annotations
 
+import math
 import os as _os
 
 from auto_patch.layout import (
@@ -36,8 +37,10 @@ _INF = float("inf")
 # uses); 15 m is one throat-width, rounded.
 #
 # It bounds groundside twice, and the two bounds must never drift apart:
-#   * Part C bounds the pin's VALUE — a pin may not exceed its own DEM by
-#     more than ``cap · MOUTH_ALLOWANCE_M`` (``gs_pin_float_cap``);
+#   * Part C bounds the pin's VALUE — a pin may not sit more than
+#     ``cap · MOUTH_ALLOWANCE_M`` above the WELD DATUM it serves
+#     (``gs_pin_float_cap``; the datum is a SOLVED pavement variable —
+#     see :func:`gs_pin_law_ceiling`);
 #   * the groundside FEASIBILITY-WITNESS CLAUSE (owner ruling 2026-07-30,
 #     memory ``groundside-terrace-law``) bounds the pin's ROLE — it may
 #     witness an airside node's ``[floor, ceiling]`` only inside the same
@@ -51,32 +54,59 @@ def gs_mouth_allowance_m() -> float:
 
 
 def gs_pin_float_cap(cap: float) -> float:
-    """Part C's VALUE bound: how far above its own DEM a groundside pin may
-    float (metres of elevation).
+    """Part C's ALLOWANCE: how far above its WELD DATUM a groundside pin
+    may float (metres of elevation) — one connector throat of reach at
+    ``cap``.
 
-    ⚠ DEM AUDIT (debug lane A 2026-08-05, RULINGS 1095a3f "DEM is a SEED,
-    nothing more; a bound derived from DEM in a law path is a defect").
-    This is the ONE surviving DEM-as-CONSTRAINT in the route_profile /
-    runway_redistribute / building_feasibility territory: the ceiling
-    ``own DEM + cap·MOUTH_ALLOWANCE_M`` is applied as a real solver bound
-    (``layout._gs_pin_dem_ceiling_idx`` → ``feasibility_project``'s
-    ``node_bounds``, solve.py mouth-relax), so raw ground DECIDES how high
-    a lawful groundside surface may sit.
+    THE DATUM IS NOT THE DEM (item 3(a), 2026-08-05, RULINGS "DEM's role,
+    and the constant-DEM invariant": *"DEM chooses WHERE in the lawful
+    band a thing seats.  It never shapes the band, never constrains,
+    never blocks."*).  This scalar used to be added to the pin's OWN DEM
+    SAMPLE and published as a real solver bound, so raw ground decided
+    how high a lawful groundside surface could sit.  The allowance is
+    unchanged; the datum is now :func:`gs_pin_law_ceiling`'s solved
+    host-pavement variable.
 
-    IT FAILS THE CONSTANT-DEM ORACLE BY INSPECTION: on a DEM ≡ 0 build the
-    ceiling is a flat ``cap·15 m`` (≈0.75 m at the groundside cap) for
-    every pin, so any lot that must weld to pavement higher than that is
-    clamped below its lawful level and emits a violation on ground that is
-    perfectly flat.  Under the ruling the datum must be the surface the
-    pin WELDS TO (a solved variable), not the DEM sample under it.
-
-    NOT changed here.  It is a landed §C.2 spec bound with a measured
-    reason (two later writers push mouth rings up), the replacement datum
-    has to be defined, and the no-builds phase forbids the measurement
-    that would price it — so it is REPORTED to the owner rather than
-    silently deleted or silently kept.  Same disposition, same reason, for
-    ``solve.build_detached_pad_dem_pins``' hard pins (see there)."""
+    WHY THE OLD DATUM FAILED THE CONSTANT-DEM ORACLE (the inspection
+    argument, kept because it is the reason this function's contract
+    changed): on a DEM ≡ c build the ceiling collapsed to the flat
+    ``c + cap·15 m`` for every pin — ≈0.75 m above the constant at the
+    service-road cap — so any lot that must weld to pavement higher than
+    that was clamped below its lawful level and emitted a violation on
+    ground with no relief at all.  The replacement contains no DEM term
+    whatsoever, so it is IDENTICAL in the plateau and canyon worlds."""
     return cap * gs_mouth_allowance_m()
+
+
+def gs_pin_law_ceiling(host_datum: float, route_len_m: float,
+                       cap: float) -> float:
+    """THE groundside mouth ceiling, from a LAW datum only.
+
+    ``host_datum`` — the SOLVED elevation of the pavement the mouth welds
+    toward (the apron at the deep end of the truck route, or the
+    connector's own apron-ward mouth when no centerline serves it).  A
+    solver variable, never a DEM sample.
+    ``route_len_m`` — the truck-route length the reach law budgets over.
+    ``cap`` — the governing (service-road) grade cap.
+
+    ``host_datum + cap · (route_len + MOUTH_ALLOWANCE_M)`` — the reach law
+    from the weld datum, plus exactly one throat of reach
+    (:func:`gs_pin_float_cap`) because the weld point is not the datum
+    point.  This is the LAW's own statement of how high the mouth may sit
+    and contains no terrain term, so:
+
+    CONSTANT-DEM ORACLE, BY INSPECTION.  Every input is either a solved
+    pavement variable or a law constant.  With DEM ≡ 1 m and with
+    DEM ≡ 10 000 m the ceiling is computed by the same expression from the
+    same law, so it cannot differ between the two worlds by anything the
+    DEM did; it can only move with the host pavement the airside solve
+    placed.  It therefore never clamps a lawful mouth in either world, and
+    the seat inside ``[base − cap·route_len, base + cap·route_len]``
+    lands on the interval end nearest the seed — the FLOOR in the plateau
+    world, the CEILING in the canyon world, which is the ADDENDUM's
+    extreme-seating assertion."""
+    return float(host_datum) + float(cap) * (
+        float(route_len_m) + gs_mouth_allowance_m())
 
 
 def gs_witness_horizon(cap: float) -> float:
@@ -299,18 +329,14 @@ def _pad_route_budgets(law_graph, pad_nodes, n_nodes=None):
         touching pads sharing a ring vertex are ONE rigid unit), exactly
         the collapse the projection performs on ``flat_groups``.
       * TIGHTEST-BUDGET-WINS per canonical pair after the remap.
-      * the per-edge budget is ``_margined_budget(raw, quant_margin)`` — the
-        SWEEP frame, read through ``one_solve._emit_quantization_margin``
-        (the ONE accessor every consumer of the margin uses, so
-        ``O4_RAW_LAW_SWEEPS`` moves the coupler and the projection
-        together).  The dossier's certificate (0.0578 over 6.78 m, 0.1015
-        over 11.15 m, budget 0.1593) is that frame; pricing the raw law
-        instead would disagree with the projection by one margin per hop,
-        which is the two-instrument defect this round removes.  That the
-        margin COMPOUNDS along a route is a known cost of the margined
-        frame (``raw_law_sweeps_enabled``'s own §1b docstring) — a defect
-        of the frame, not of pricing the coupler in it: the coupler's job
-        is to agree with what the projection enforces.
+      * the per-edge budget is the RAW law budget — exactly what the
+        projection sweeps.  The emit-quantization margin that used to
+        split these into two frames is RETIRED (docs/RULINGS.md
+        2026-08-05; see the ``one_solve`` module head): there is one law
+        frame, so the coupler and the projection agree by construction
+        rather than by keeping a subtraction in sync.  The dossier's
+        certificate (0.0578 over 6.78 m, 0.1015 over 11.15 m, budget
+        0.1593) is that frame.
 
     The Dijkstra itself is NOT written here: it is
     ``law_graph_budget.build_anchor_envelope``, the seed-fix round's oracle,
@@ -323,7 +349,6 @@ def _pad_route_budgets(law_graph, pad_nodes, n_nodes=None):
     measurement (§4): every pair is priced from BOTH endpoints and the
     disagreement reported; >1 % is the spec's STOP."""
     from .law_graph_budget import build_anchor_envelope
-    from .one_solve import _margined_budget, _emit_quantization_margin
 
     horizon, dial = route_coupling_horizon_m()
     # ── flat-group contraction (mirrors one_solve's merge exactly) ──────
@@ -353,8 +378,7 @@ def _pad_route_budgets(law_graph, pad_nodes, n_nodes=None):
             gmap[m] = rep
     rep_of_pad = [rep_of_group[owner[k]] for k in range(len(pad_nodes))]
 
-    # ── the projection's edge set, deduped and margined ─────────────────
-    margin = _emit_quantization_margin()
+    # ── the projection's edge set, deduped, at RAW law budgets ──────────
     edge_lim: dict = {}
     lazy_entries = 0
     interval_edges = 0
@@ -378,32 +402,23 @@ def _pad_route_budgets(law_graph, pad_nodes, n_nodes=None):
             prev = edge_lim.get(e)
             if prev is None or lim < prev:
                 edge_lim[e] = lim
+    # ONE FRAME.  The margin that once split this into an enforced
+    # (margined) graph and a report-only RAW twin is retired, so the
+    # second Dijkstra field is DELETED rather than recomputed to the same
+    # answer (single-pass-principle).  ``diag["raw_budgets"]`` is still
+    # published — it is now literally the law route price.
     adj: dict = {}
-    raw_adj: dict = {}
     for (i, j), lim in edge_lim.items():
-        w = _margined_budget(lim, margin)
-        adj.setdefault(i, []).append((j, w))
-        adj.setdefault(j, []).append((i, w))
-        # REPORT-ONLY twin of the same graph at the RAW law budgets.  The
-        # enforced frame is the margined one above and nothing here is
-        # consumed — but the margin is subtracted PER EDGE, so a long route
-        # loses one margin per hop (``raw_law_sweeps_enabled``'s §1b: "a
-        # 69-hop witness route steals 0.63 m").  Quoting both frames is what
-        # turns "the coupler tightened this pair" into an attribution:
-        # tightening the LAW took vs tightening the margin took.
-        raw_adj.setdefault(i, []).append((j, lim))
-        raw_adj.setdefault(j, []).append((i, lim))
+        adj.setdefault(i, []).append((j, lim))
+        adj.setdefault(j, []).append((i, lim))
 
     # ── one oracle field per pad; the pair budget is read off it ────────
     fields: dict = {}
-    raw_fields: dict = {}
     for rep in rep_of_pad:
         if rep is None or rep in fields or rep not in adj:
             continue
         fields[rep] = build_anchor_envelope(adj, {rep: 0.0},
                                             horizon_m=horizon)
-        raw_fields[rep] = build_anchor_envelope(raw_adj, {rep: 0.0},
-                                                horizon_m=horizon)
     budgets: dict = {}
     raw_budgets: dict = {}
     merged_pairs = 0
@@ -449,13 +464,9 @@ def _pad_route_budgets(law_graph, pad_nodes, n_nodes=None):
                     ident_over.append((a, b, dab, dba))
             d = min(x for x in (dab, dba) if x is not None)
             budgets[(a, b)] = float(d)
-            fra, frb = raw_fields.get(ra), raw_fields.get(rb)
-            rab = None if fra is None else fra.ceil_route_m.get(rb)
-            rba = None if frb is None else frb.ceil_route_m.get(ra)
-            _raw = [x for x in (rab, rba) if x is not None]
-            if _raw:
-                raw_budgets[(a, b)] = float(min(_raw))
-    diag = {"horizon_m": horizon, "dial_m": dial, "margin_m": margin,
+            # ONE FRAME: the route price IS the raw law price.
+            raw_budgets[(a, b)] = float(d)
+    diag = {"horizon_m": horizon, "dial_m": dial,
             "raw_budgets": raw_budgets, "merged_pairs": merged_pairs,
             "merged_groups": sum(1 for gi in set(owner)
                                  if owner.count(gi) > 1),
@@ -897,8 +908,7 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                 f"{_npairs_all} (horizon {_rdiag['horizon_m']:.2f} m of "
                 f"budget = {_rdiag['dial_m']:.0f} m at the apron cap; law "
                 f"graph {_rdiag['graph_nodes']} node(s) / "
-                f"{_rdiag['graph_edges']} edge(s), margin "
-                f"{_rdiag['margin_m']:.3f} m)")
+                f"{_rdiag['graph_edges']} edge(s), RAW law budgets)")
             _report(
                 f"  [seat-couple]   rejection census: route-unreachable "
                 f"{_rdiag['unreachable']}, unit off the law graph "
@@ -933,39 +943,22 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                 f"{_rdiag['lazy_entries']} certified-lazy entry(ies) "
                 f"contribute ring edges only, {_rdiag['interval_edges']} "
                 f"interval edge(s) excluded (one-sided slabs)")
-            # THE FRAME SPLIT (attribution, never consumed): how much of a
-            # tightening is the LAW's route and how much is the margin
-            # compounding along it (one margin per hop).
-            _rawb = _rdiag["raw_budgets"]
-            _margin_share = 0.0
-            _by_law = 0
-            for (k, rb, cb) in _tight:
-                _rw = _rawb.get(k)
-                if _rw is None:
-                    continue
-                _margin_share += max(0.0, _rw - rb)
-                if _rw < cb - 1e-9:
-                    _by_law += 1
+            # TIGHTENING, ATTRIBUTED (never consumed).  The margin frame is
+            # retired, so there is nothing left to split: every metre of
+            # tightening below is the LAW's route being shorter than the
+            # chord.  The line stays because the magnitude is the evidence
+            # that the route metric — not the chord — is what binds.
             _tot_tight = sum(cb - rb for (_k, rb, cb) in _tight)
             _report(
                 f"  [seat-couple]   tightening attribution: "
-                f"{_tot_tight:.3f} m total, {_margin_share:.3f} m of it is "
-                f"the emit margin compounding along the route "
-                f"({_rdiag['margin_m']:.3f} m per hop); {_by_law} of "
-                f"{len(_tight)} tightened pair(s) are tighter than the chord "
-                f"in the RAW law frame too")
+                f"{_tot_tight:.3f} m total across {len(_tight)} pair(s), "
+                f"ALL of it the RAW law route (no margin frame exists)")
             for ((i, j), rb, cb) in sorted(_tight,
                                            key=lambda r: r[1] - r[2])[:12]:
-                _rw = _rawb.get((i, j))
-                _rws = "n/a" if _rw is None else f"{_rw:.4f}"
-                _mg = _rdiag["margin_m"]
-                _hops = ("?" if _rw is None or _mg <= 0.0
-                         else f"{(_rw - rb) / _mg:.0f}")
                 _report(f"  [seat-couple]     tightened "
                         f"{units[i]['ref']} <-> {units[j]['ref']}"
                         f" route {rb:.4f} m vs chord {cb:.4f} m "
-                        f"({rb - cb:+.4f}); raw-law route {_rws} m "
-                        f"(~{_hops} hop(s) of margin)")
+                        f"({rb - cb:+.4f})")
             # ── BUDGET IDENTITY — the coupler's own certificate ─────────
             if _rdiag["ident_over"]:
                 _report(f"  [seat-couple]   BUDGET-IDENTITY VIOLATION: "
@@ -1099,55 +1092,322 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
     return seats
 
 
-def build_detached_pad_dem_pins(layout, bucket_to_idx, dem_fn,
-                                building_seats):
-    """``{node_idx: flat_dem_level}`` for every ROLE_BUILDING pad that
-    is NOT airside-served (no ring node in ``building_seats``).
+# ══════════════════════════════════════════════════════════════════════
+# DETACHED (NON-AIRSIDE-SERVED) BUILDING PADS — THE GROUNDSIDE LAW
+# ══════════════════════════════════════════════════════════════════════
+# Item 3(b), 2026-08-05.  ``build_detached_pad_dem_pins`` lived here: it
+# HARD-pinned every non-airside-served ROLE_BUILDING pad at the MEDIAN of
+# its raw DEM samples for the whole solve.  That is DEM as a constraint by
+# the ruling's own definition ("DEM chooses WHERE in the lawful band a
+# thing seats.  It never shapes the band, never constrains, never
+# blocks."), and it fails the constant-DEM oracle head-on: with DEM ≡ c
+# every detached pad is frozen at ``c`` while the groundside pavement it
+# is welded into sits wherever the airside solve put it — an arbitrarily
+# large step at a shared node, on ground with no relief.
+#
+# ── THE DEFECT THE PIN WAS MASKING, ATTRIBUTED ───────────────────────
+# The pin's justification was measured and real: unpinned, "the
+# route-profile blend paints them with the surrounding airside level"
+# (KBNA: pads emitted flat at 170-172 over 158-167 ground).  The writer
+# is NOT the blend.  Read in order:
+#
+#   1. ``raster_reach_band._domain_geom`` puts ROLE_BUILDING in the reach
+#      band's PROPAGATION DOMAIN unconditionally — with no airside-service
+#      test of any kind — and the propagation is a GRID walk over the
+#      paved mask (plus a bounded off-mask radius,
+#      ``RASTER_REACH_BAND_OFFNET_RADIUS_M``).
+#   2. ``building_feasibility.spine_value_fields`` gives that grid its
+#      values: ``floor[i] = max over runway anchors (value_a − route
+#      budget)`` — the level a node must be AT LEAST for the runway to be
+#      reachable within grade.  An airside law, about airside pavement.
+#   3. So a pad that ``building_feasible_levels`` REFUSED to seat (its
+#      airside-touch test: distance to a ≥``BUILDING_AIRSIDE_CONTACT_MIN_
+#      COMPONENT_M2`` airside component ≤ ``_TOUCH_TOL_M``) still receives
+#      a ``node_band`` whose FLOOR is that airside floor.  Two instruments,
+#      one assumed population — the seat's notion of "served" is a route /
+#      component test, the band's is grid connectivity over a mask the pad
+#      is itself a member of.
+#   4. ``one_solve.one_profile_solve`` then WRITES it, twice: the warm
+#      start ``elev[i] = _dem_target(i) = clamp(DEM, floor, ceil)`` lifts
+#      the pad's DEM straight to that airside floor, and every sweep
+#      re-clamps into ``lo_e = max(n_lo, floor[i])`` so it stays there.
+#      The pad emits FLAT at the airside level because all its ring nodes
+#      share (nearly) the same floor.
+#
+# The harmonic/mean blend has no altitude preference of its own (solve.py
+# says so where it owns 67.1 % of the corridor's DEM departure); the BAND
+# FLOOR is the writer.  Fixing it at source therefore means: a pad the
+# airside law does not serve does not get the airside band.
+#
+# ── THE LAW THAT REPLACES THE PIN ────────────────────────────────────
+# A detached pad is a GROUNDSIDE object (owner: groundside terrace law +
+# adjacent-ground zone law).  Its datum is the surface it actually abuts —
+# the groundside pavement / service road / apron ring it welds into — read
+# as SOLVED VARIABLES, the same datum family as the groundside mouth
+# ceiling (item 3(a)) and the same resolution pattern as
+# ``solve._zone_foot_boxes`` (foot on the host ring, interpolated between
+# two solved ring variables; identity when the pad shares the host's
+# vertex).  Buildings are FLAT, so the pad's lawful levels are the
+# INTERSECTION over its contacts of ``[datum − cap·d, datum + cap·d]``,
+# and the DEM seed picks the point inside it.
+#
+# CONSTANT-DEM ORACLE, BY INSPECTION.  Every term of the box is a solved
+# pavement variable or a law constant — no DEM appears in it, so the box
+# is whatever the law grants in BOTH worlds.  The only DEM-dependent step
+# is which point of the box the pad seats at, which is precisely the role
+# the ruling assigns the DEM: with DEM ≡ 1 m the seed is below the box and
+# the pad seats at ``lo`` (its FLOOR); with DEM ≡ 10 000 m it seats at
+# ``hi`` (its CEILING) — the ADDENDUM's extreme-seating assertion, and the
+# band-width field at those nodes reads exactly ``hi − lo``.  A pad with NO
+# resolvable host has an unbounded box and simply keeps its seed: no law
+# binds it, and a missing datum never becomes a terrain bound.
 
-    User ruling 2026-07-17 (KBNA SE lot): a detached pad follows LOCAL
-    GROUND.  Without a pin its ring nodes are free field nodes and the
-    route-profile blend paints them with the surrounding airside level
-    (KBNA: pads emitted flat at 170-172 over 158-167 ground — plateaus
-    6-11 m above the DEM and the abutting groundside pavement).  The
-    flat level is the MEDIAN of the DEM sampled at the ring vertices
-    plus the centroid — a flat building pad on sloping ground cuts at
-    the high end and fills at the low end.
+#: Solved pavement roles a DETACHED pad may take its datum from.  Wider
+#: than ``_PAD_HOST_ROLES`` (which serves the post-solve airside re-level)
+#: by exactly the groundside classes — a detached pad's host is normally a
+#: lot or a service road, which is why that pass never found one for it.
+_DETACHED_PAD_HOST_ROLES = None       # bound lazily (import cycle-free)
 
-    The caller applies these as HARD solver pins and keeps them out of
-    every movable-pad relaxation (``layout._detached_pad_node_idx``).
-    Gate: ``config.DETACHED_PAD_DEM_PIN``.
-    """
-    from auto_patch.config import DETACHED_PAD_DEM_PIN
+
+def _detached_pad_host_roles():
+    from auto_patch.layout import (
+        ROLE_APRON, ROLE_CROSS_CONNECTOR, ROLE_GROUNDSIDE_PAVEMENT,
+        ROLE_JUNCTION, ROLE_PRIMARY_PARALLEL, ROLE_SECONDARY_PARALLEL,
+        ROLE_SERVICE_JUNCTION, ROLE_SERVICE_ROAD, ROLE_STUB)
+    global _DETACHED_PAD_HOST_ROLES
+    if _DETACHED_PAD_HOST_ROLES is None:
+        _DETACHED_PAD_HOST_ROLES = frozenset({
+            ROLE_GROUNDSIDE_PAVEMENT, ROLE_SERVICE_ROAD,
+            ROLE_SERVICE_JUNCTION, ROLE_APRON, ROLE_JUNCTION,
+            ROLE_PRIMARY_PARALLEL, ROLE_SECONDARY_PARALLEL,
+            ROLE_STUB, ROLE_CROSS_CONNECTOR})
+    return _DETACHED_PAD_HOST_ROLES
+
+
+#: Contact radius (m) for the pad→host datum march.  The pad and its host
+#: normally share ring geometry outright (d = 0); this only has to bridge
+#: the slice's weld tolerance, so it is the same 2.5 m the landed
+#: ``PAD_HOST_LEVEL_CONTACT_M`` uses for the airside twin.
+DETACHED_PAD_HOST_CONTACT_M = 2.5
+
+
+def detached_pad_nodes(layout, bucket_to_idx, building_seats):
+    """``[(shape, [node_idx, ...])]`` — every ROLE_BUILDING pad that is NOT
+    airside-served (no ring node in ``building_seats``).
+
+    The membership test is unchanged from the deleted DEM-pin builder: the
+    seat producer (``building_feasible_levels``) owns the airside-service
+    decision, and this reads its verdict rather than re-deriving it (one
+    instrument, one population)."""
     from auto_patch.layout import ROLE_BUILDING
-    if not DETACHED_PAD_DEM_PIN:
-        return {}
     cps = layout.canonical_points
-    pins: dict = {}
+    out: list = []
     for s in layout.shapes:
         if (s.role != ROLE_BUILDING or s.polygon is None
                 or s.polygon.is_empty):
             continue
         ring = _open_ring(list(s.polygon.exterior.coords))
-        node_indices = [
-            bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
-            for (x, y) in ring]
-        node_indices = [i for i in node_indices if i is not None]
-        if not node_indices:
+        idx = [bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
+               for (x, y) in ring]
+        idx = [i for i in idx if i is not None]
+        if not idx:
             continue
-        if any(i in building_seats for i in node_indices):
+        if any(i in building_seats for i in idx):
             continue                        # airside-served → seated
-        centroid = s.polygon.centroid
-        samples = [dem_fn(x, y) for (x, y) in ring]
-        samples.append(dem_fn(centroid.x, centroid.y))
-        samples = sorted(float(v) for v in samples if v is not None)
-        if not samples:
+        out.append((s, sorted(set(idx))))
+    return out
+
+
+def withhold_airside_band_from_detached_pads(node_band, pads, n=None):
+    """Hand every detached-pad node ``None`` in ``node_band`` — the AIRSIDE
+    reach band is not its law.  Returns the withheld node index set.
+
+    This is the source fix for the plateau defect attributed above: the
+    band floor is what wrote the surrounding airside level onto a pad no
+    airside route serves.  ``None`` is the band's own established value
+    for "this node's law is elsewhere" — the identical treatment
+    ``node_bands(skip_from=...)`` gives adjacent-ground zone vertices.
+    Removing a bound can never manufacture one, so this direction is safe
+    under the constant-DEM oracle by construction."""
+    limit = len(node_band) if n is None else min(n, len(node_band))
+    withheld: set = set()
+    for (_s, idx) in pads:
+        for i in idx:
+            if 0 <= i < limit:
+                node_band[i] = None
+                withheld.add(i)
+    return withheld
+
+
+def _foot_on_ring(px, py, coords):
+    """``(t, ia, ib, d)`` — the nearest point on a closed ring polyline to
+    ``(px, py)``: the bracketing vertex INDEXES into ``coords`` (open
+    ring), the segment parameter, and the distance.  ``None`` for a
+    degenerate ring."""
+    n = len(coords)
+    if n < 2:
+        return None
+    best = None
+    for a in range(n):
+        b = (a + 1) % n
+        ax, ay = coords[a]
+        bx, by = coords[b]
+        vx, vy = bx - ax, by - ay
+        vv = vx * vx + vy * vy
+        if vv <= 1e-12:
+            t = 0.0
+            fx, fy = ax, ay
+        else:
+            t = ((px - ax) * vx + (py - ay) * vy) / vv
+            t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+            fx, fy = ax + t * vx, ay + t * vy
+        d = math.hypot(px - fx, py - fy)
+        if best is None or d < best[3]:
+            best = (t, a, b, d)
+    return best
+
+
+def detached_pad_law_box(layout, bucket_to_idx, elev, pad_shape, pad_idx,
+                         cap, contact_m=None):
+    """``(lo, hi, n_contacts, n_conflict)`` — the lawful FLAT levels of one
+    detached pad, from SOLVED host-pavement variables only.
+
+    For every pad ring vertex the march finds the nearest point on a
+    neighbouring non-building pavement ring within ``contact_m`` and reads
+    the datum as ``(1−t)·elev[a] + t·elev[b]`` — two solved ring variables,
+    exactly ``solve._zone_foot_boxes``' foot rule (and its identity case
+    when the pad shares the host's vertex, where ``t`` lands on an end and
+    ``d`` is 0).  Each contact contributes ``[datum − cap·d, datum + cap·d]``
+    and the box is their INTERSECTION.
+
+    An EMPTY intersection is a DECLARED CONFLICT, never silently resolved:
+    it is the split-level-seat law's trigger (RULINGS 2026-08-04 — a pad
+    whose contacts cannot all be met by one flat level needs sectioning).
+    Following ``_zone_foot_boxes``, the first claimant's box is kept and
+    the conflict is counted for the caller to report.
+
+    ``(None, None, 0, 0)`` when no host resolves — NO BOX, not a DEM
+    fallback."""
+    cps = layout.canonical_points
+    contact = (DETACHED_PAD_HOST_CONTACT_M if contact_m is None
+               else float(contact_m))
+    poly = pad_shape.polygon
+    # BBOX PREFILTER before the shapely distance: a big airport carries
+    # thousands of candidate-role shapes and this runs per pad, so the
+    # exact test is only paid by the handful that could possibly touch.
+    p_minx, p_miny, p_maxx, p_maxy = poly.bounds
+    p_minx -= contact
+    p_miny -= contact
+    p_maxx += contact
+    p_maxy += contact
+    hosts = []
+    for h in layout.shapes:
+        if h.role not in _detached_pad_host_roles():
             continue
-        mid = len(samples) // 2
-        level = (samples[mid] if len(samples) % 2
-                 else 0.5 * (samples[mid - 1] + samples[mid]))
-        for i in node_indices:
-            pins[i] = float(level)
-    return pins
+        if h.polygon is None or h.polygon.is_empty or h is pad_shape:
+            continue
+        h_minx, h_miny, h_maxx, h_maxy = h.polygon.bounds
+        if (h_minx > p_maxx or h_maxx < p_minx
+                or h_miny > p_maxy or h_maxy < p_miny):
+            continue
+        try:
+            if poly.distance(h.polygon) > contact:
+                continue
+        except Exception:                              # pragma: no cover
+            continue
+        hcoords = _open_ring(list(h.polygon.exterior.coords))
+        if len(hcoords) < 2:
+            continue
+        hidx = [bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
+                for (x, y) in hcoords]
+        hosts.append((hcoords, hidx))
+    if not hosts:
+        return None, None, 0, 0
+
+    n_elev = len(elev)
+    lo = hi = None
+    n_contacts = n_conflict = 0
+    ring = _open_ring(list(poly.exterior.coords))
+    for (px, py) in ring:
+        best = None
+        for (hcoords, hidx) in hosts:
+            foot = _foot_on_ring(px, py, hcoords)
+            if foot is None:
+                continue
+            t, ia, ib, d = foot
+            if d > contact:
+                continue
+            i_a, i_b = hidx[ia], hidx[ib]
+            if i_a is None or i_b is None or i_a >= n_elev or i_b >= n_elev:
+                continue
+            datum = (1.0 - t) * elev[i_a] + t * elev[i_b]
+            if best is None or d < best[1]:
+                best = (float(datum), float(d))
+        if best is None:
+            continue
+        datum, d = best
+        n_contacts += 1
+        c_lo, c_hi = datum - cap * d, datum + cap * d
+        if lo is None:
+            lo, hi = c_lo, c_hi
+            continue
+        n_lo, n_hi = max(lo, c_lo), min(hi, c_hi)
+        if n_lo > n_hi:
+            n_conflict += 1                 # declared, first claimant kept
+            continue
+        lo, hi = n_lo, n_hi
+    if lo is None:
+        return None, None, 0, 0
+    return lo, hi, n_contacts, n_conflict
+
+
+def seat_detached_pads_by_law(layout, bucket_to_idx, elev, pads, cap):
+    """Seat every detached pad FLAT at the law level nearest its seed.
+
+    Runs AFTER the groundside passes (``apply_groundside_reach`` /
+    ``apply_service_road_dem_follow``), because a groundside object's datum
+    is a SOLVED groundside variable and groundside conforms to airside —
+    the pad is therefore the last thing seated, which is the architectural
+    order, not a convenience.
+
+    Writes ``elev`` for the pad's ring nodes, registers the lawful box in
+    the ``seat_boxes`` node-space store (the ratified bounded-yield channel
+    — the pad then rides fp#8's and the final projection's group bounds
+    with no new machinery), and returns
+    ``({node_idx: level}, stats)`` with ``stats = (n_seated, n_unhosted,
+    n_conflict)``.
+
+    NOT HARD.  The pad joins the ordinary movable FLAT pad groups — it is a
+    building, flatness is its law, and its box is what keeps it lawful.
+    The deleted DEM pin's ``layout._detached_pad_node_idx`` exclusion
+    existed only to protect a value the law did not choose."""
+    seats: dict = {}
+    boxes = _store_of(layout).open_map("seat_boxes", "interval")
+    cps = layout.canonical_points
+    n_seated = n_unhosted = n_conflict = 0
+    for (s, idx) in pads:
+        lo, hi, n_c, n_x = detached_pad_law_box(
+            layout, bucket_to_idx, elev, s, idx, cap)
+        n_conflict += n_x
+        if lo is None:
+            n_unhosted += 1                 # no datum → no box, no write
+            continue
+        vals = [elev[i] for i in idx if i < len(elev)]
+        if not vals:
+            continue
+        seed = sum(vals) / len(vals)        # the DEM-seeded free value
+        level = min(max(seed, lo), hi)      # DEM picks WHERE in the box
+        for i in idx:
+            if i < len(elev):
+                elev[i] = level
+                seats[i] = level
+        for (x, y) in _open_ring(list(s.polygon.exterior.coords)):
+            k = cps.get_or_add(float(x), float(y))
+            prev = boxes.get(k)
+            boxes[k] = ((lo, hi) if prev is None
+                        else (max(prev[0], lo), min(prev[1], hi)))
+        n_seated += 1
+    return seats, (n_seated, n_unhosted, n_conflict)
 
 
 def _pocs_project_levels(targets, boxes, pairs, max_iter=300, tol=1e-4):
@@ -1997,28 +2257,32 @@ def apply_groundside_reach(layout, bucket_to_idx, elev, cap):
     MAX_ROUTE = 90.0           # cap the route distance budgeted (m)
     RAISE_W = 14.0             # half-width of the truck-route corridor to raise
 
-    # ── GROUNDSIDE PIN DEM BOUND (spec apron-string-and-scheduling §C) ────
+    # ── GROUNDSIDE PIN LAW BOUND (item 3(a); was the §C DEM bound) ───────
     # Measured defect 2026-07-30: ``gs_pin`` anchors sit +7.76 m MEDIAN
-    # above their own DEM (max +9.88) while detached building pads sit at
-    # +0.06, and they are independently the floor witness for 4,213 broken
-    # nodes.  Mechanism: ``lo = base_elev − cap·route_len − dem_gs`` below
-    # caps ``route_len`` at ``MAX_ROUTE`` but leaves the LIFT ITSELF
-    # unbounded — a high apron launders its own error into a HARD pin that
-    # then locks the error in.
+    # above their own DEM (max +9.88), and they are independently the floor
+    # witness for 4,213 broken nodes.  Mechanism: ``lo = base_elev −
+    # cap·route_len − dem_gs`` below caps ``route_len`` at ``MAX_ROUTE``
+    # but leaves the LIFT ITSELF unbounded — a high apron launders its own
+    # error into a HARD pin that then locks the error in.
     #
-    # THE BOUND IS ON THE VALUE (owner semantics): a groundside pin may not
-    # exceed its own DEM by more than ``cap · MOUTH_ALLOWANCE_M``.  Where
-    # the connector cannot reach the apron mouth inside that bound the
-    # deficit surfaces AIRSIDE (an over-cap connector chord / mouth step)
-    # and is never resolved by lifting groundside.
+    # THE BOUND IS ON THE VALUE, AND ITS DATUM IS THE WELD.  §C answered
+    # the defect with "a pin may not exceed its OWN DEM by more than
+    # ``cap · MOUTH_ALLOWANCE_M``".  That made raw ground a solver bound,
+    # which the 2026-08-05 ruling forbids and which the constant-DEM oracle
+    # fails by inspection (DEM ≡ c ⇒ every pin ceilinged at c + 0.75 m, so
+    # a lot welding to pavement above that is clamped BELOW its lawful
+    # level and emits a violation on ground with no relief).  The datum is
+    # now the surface the pin welds to — ``base_elev``, the SOLVED apron /
+    # connector variable at the deep end of the truck route — carrying the
+    # reach law plus the SAME one-throat allowance
+    # (:func:`gs_pin_law_ceiling`).  Where the connector cannot reach the
+    # apron mouth inside that bound the deficit still surfaces AIRSIDE (an
+    # over-cap connector chord / mouth step) and is never resolved by
+    # lifting groundside.
     #
     # ``MOUTH_ALLOWANCE_M`` is defined ONCE at module level
     # (:func:`gs_mouth_allowance_m`) because the groundside FEASIBILITY-
-    # WITNESS CLAUSE reads the same scalar — see the module header.  At the
-    # service-road cap (5 %) that is 0.75 m of permitted float — an order
-    # of magnitude below the measured +7.76 m median, and above both the
-    # 0.5 m sag class and the 0.2 m weld class used elsewhere in the
-    # acceptance battery, so a lawful mouth is never clipped by it.
+    # WITNESS CLAUSE reads the same scalar — see the module header.
     _gs_float_cap = gs_pin_float_cap(cap)
 
     # Apron nodes (x, y, idx) — for the route ANCHOR elevation (apron at the deep
@@ -2061,6 +2325,13 @@ def apply_groundside_reach(layout, bucket_to_idx, elev, cap):
     # (with its groundside-mouth arc + direction) for the RAISE pass.
     bounds: dict = {}          # id(g) -> [g, lo, hi]
     routes = []                # (id(g), ln, gm_s, apron_dir, route_len, dem_mouth)
+    # THE LAW CEILING per piece (item 3(a)): ``min`` over the serving
+    # routes of :func:`gs_pin_law_ceiling` — an ABSOLUTE elevation built
+    # from ``base_elev`` (a SOLVED apron / connector variable) and the
+    # reach law.  A piece with no serving route never gets an entry, and a
+    # missing entry means NO CEILING (see the enforcement pass below) —
+    # never a fall back to the DEM sample.
+    law_ceiling: dict = {}     # id(g) -> absolute ceiling (m)
     for si in reachable:
         c, _ks = svc[si]
         cnodes = [(x, y, bucket_to_idx.get(_key(x, y)))
@@ -2112,6 +2383,14 @@ def apply_groundside_reach(layout, bucket_to_idx, elev, cap):
             else:
                 b[1] = max(b[1], lo)
                 b[2] = min(b[2], hi)
+            # LAW CEILING (item 3(a)): the weld datum is ``base_elev`` — a
+            # SOLVED pavement variable — never ``dem_gs``.  Several routes
+            # serve one piece; the ceiling is the tightest of them (the
+            # same INTERSECTION rule the shift bounds use one line above).
+            _lc = gs_pin_law_ceiling(base_elev, route_len, cap)
+            _prev_lc = law_ceiling.get(id(g))
+            law_ceiling[id(g)] = (_lc if _prev_lc is None
+                                  else min(_prev_lc, _lc))
             routes.append((id(g), ln, gm_s, apron_dir, route_len, dem_gs,
                            (gmx, gmy)))
 
@@ -2129,14 +2408,25 @@ def apply_groundside_reach(layout, bucket_to_idx, elev, cap):
         # reaches don't overlap (no uniform shift keeps them all <=cap) fall back
         # to the band midpoint, which minimises the worst residual.
         delta = (min(max(0.0, lo), hi) if lo <= hi else 0.5 * (lo + hi))
-        # DEM BOUND (spec §C.2): the shift may never lift the piece more
-        # than ``cap·MOUTH_ALLOWANCE_M`` above its own DEM.  ``min`` only —
-        # a LOWERING shift (the apron sits below the lot's DEM) is honest
-        # and stays.  The mid-point fallback for contradictory connector
-        # reaches (``lo > hi``) is bounded here too; unbounded it was the
-        # widest float in the measured set.
-        if delta > _gs_float_cap:
-            delta = _gs_float_cap
+        # LAW BOUND (item 3(a), replacing the §C.2 DEM bound): the shift
+        # may never lift the piece past the REACH CEILING its connectors
+        # justify, plus one throat of allowance.  ``hi`` is already that
+        # ceiling expressed in shift space (``min`` over the serving
+        # routes of ``base_elev + cap·route_len − dem_mouth``), so the
+        # bound is ``hi + cap·MOUTH_ALLOWANCE_M`` — the same allowance,
+        # measured from the SOLVED weld datum instead of the ground.
+        # ``min`` only: a LOWERING shift (the apron sits below the lot's
+        # seed) is honest and stays.
+        #
+        # WHAT ACTUALLY BINDS.  For a consistent piece (``lo <= hi``) the
+        # shift is already ``<= hi``, so this is inert — the reach law is
+        # the bound, as it should be.  It binds exactly the contradictory
+        # case (``lo > hi``, connectors that cannot all be satisfied),
+        # whose mid-point fallback was the widest float in the measured
+        # set; that case is now capped by law rather than by terrain.
+        _shift_ceiling = hi + _gs_float_cap
+        if delta > _shift_ceiling:
+            delta = _shift_ceiling
         deltas[gid] = delta
         if abs(delta) < 1e-6:
             continue
@@ -2285,19 +2575,39 @@ def apply_groundside_reach(layout, bucket_to_idx, elev, cap):
         print(f"  [groundside-reach] mouth reconciliation adjusted "
               f"{n_reconciled} lot ring(s).")
 
-    # ── ENFORCE THE DEM BOUND ON THE FINAL RING (spec §C.2) ──────────────
+    # ── ENFORCE THE LAW CEILING ON THE FINAL RING (item 3(a)) ────────────
     # The shift clamp above bounds the RELEVEL; two later writers can still
     # push a ring vertex up — the lot↔lot mouth reconciliation (a smaller
     # lot adopts a larger lot's band) and the absolute-Lipschitz support it
     # paints.  The bound is a VALUE bound, so enforce it on the value that
-    # is actually welded: every re-levelled ring vertex is ceiled at its own
-    # DEM + ``cap·MOUTH_ALLOWANCE_M``, then re-chord-limited (the limiter is
-    # downward-only and idempotent, so it cannot re-introduce the lift).
-    # ``dem_ceiling`` is stashed per canonical key for the post-yield
-    # mouth-relax, whose re-projection would otherwise re-open the same door
-    # (spec §C.2 ★).
-    dem_ceiling: dict = {}
-    for (g, kalt) in gs_pieces:
+    # is actually welded.
+    #
+    # THE DATUM IS THE WELD, NOT THE GROUND.  The ceiling at a ring vertex
+    # is ``law_ceiling[piece] + GROUNDSIDE_MAX_GRADE · d`` where ``d`` is
+    # the distance to the piece's nearest MOUTH — the tightest field that
+    # contains the lawful mouth value and grades away from it at the lot's
+    # own cap (the same absolute-Lipschitz support the lot↔lot
+    # reconciliation above paints, so the two agree by construction).  A
+    # vertex above that field is over-cap from its own mouth and would be
+    # cut by ``chord_limit_ring_altitudes`` anyway; the lot INTERIOR, which
+    # the terrace law leaves free, is never clamped by a distant mouth.
+    #
+    # NO DATUM ⇒ NO CEILING (owner-directed disposition, item 3(a)): a
+    # piece with no serving route has no weld datum, so nothing bounds it
+    # from above.  It must NEVER fall back to its DEM sample — that is the
+    # exact defect this replaces.  Such a piece is also never re-levelled
+    # (it is not in ``bounds``), so it simply stays at its seed.
+    #
+    # ``law_ceiling_key`` is stashed per canonical key for the post-yield
+    # mouth-relax, whose re-projection would otherwise re-open the same
+    # door (spec §C.2 ★).
+    law_ceiling_key: dict = {}
+    for (g, _kalt) in gs_pieces:            # the piece's DEM map is not read
+        gid = id(g)
+        base_ceil = law_ceiling.get(gid)
+        mpts = mouth_pts.get(gid) or []
+        if base_ceil is None or not mpts:
+            continue                       # no weld datum → unbounded above
         gcoords = list(g.polygon.exterior.coords)
         galts = list(g.node_altitudes or [])
         new_alts = list(galts)
@@ -2305,20 +2615,18 @@ def apply_groundside_reach(layout, bucket_to_idx, elev, cap):
         for k in range(min(len(gcoords), len(galts))):
             if galts[k] is None:
                 continue
-            kk = _key(*gcoords[k])
-            dem_k = kalt.get(kk)
-            if dem_k is None:
-                continue
-            ceil_k = dem_k + _gs_float_cap
-            if kk not in dem_ceiling or ceil_k < dem_ceiling[kk]:
-                dem_ceiling[kk] = ceil_k
+            gx, gy = gcoords[k]
+            d = min(math.hypot(gx - mx, gy - my) for (mx, my) in mpts)
+            ceil_k = base_ceil + GROUNDSIDE_MAX_GRADE * d
+            kk = _key(gx, gy)
+            if kk not in law_ceiling_key or ceil_k < law_ceiling_key[kk]:
+                law_ceiling_key[kk] = ceil_k
             if galts[k] > ceil_k:
                 new_alts[k] = ceil_k
                 touched = True
         if touched:
             g.node_altitudes = chord_limit_ring_altitudes(
                 gcoords, new_alts, cap=GROUNDSIDE_MAX_GRADE)
-    layout._gs_pin_dem_ceiling_key = dem_ceiling
 
     # (now-shifted) groundside altitude per key, for the weld.  LARGEST
     # piece first: where a big lot and a sliver connector piece share a
@@ -2441,22 +2749,23 @@ def apply_groundside_reach(layout, bucket_to_idx, elev, cap):
             hard.add(pi)
             weld_coord_keys.add((round(px, 2), round(py, 2)))
     layout._groundside_weld_keys = weld_coord_keys
-    # Per-PIN DEM ceiling in solver-index space — consumed by the post-yield
-    # mouth verify-and-relax (spec §C.2 ★: a DEM-bounded pin's ADOPTED
-    # profile must be bounded the same way or the lift returns through that
-    # door).  Also the measurement handle for the §C acceptance gate.
+    # Per-PIN LAW ceiling in solver-index space — consumed by the post-yield
+    # mouth verify-and-relax (spec §C.2 ★: a bounded pin's ADOPTED profile
+    # must be bounded the same way or the lift returns through that door).
+    # Also the measurement handle for the §C acceptance gate.
+    #
+    # RENAMED from ``_gs_pin_dem_ceiling_idx`` (item 3(a)): the datum is no
+    # longer the DEM, so the name may not say so.  A pin whose piece has no
+    # weld datum carries NO entry — the consumer leaves it unbounded above
+    # rather than inventing a terrain bound.
     _pin_ceiling_idx: dict = {}
-    _pin_dem_idx: dict = {}
-    for (g, kalt) in gs_pieces:
-        for kk, dem_k in kalt.items():
-            i = bucket_to_idx.get(kk)
-            if i is None or i not in hard:
-                continue
-            if i not in _pin_dem_idx or dem_k < _pin_dem_idx[i]:
-                _pin_dem_idx[i] = float(dem_k)
-    for i, dem_k in _pin_dem_idx.items():
-        _pin_ceiling_idx[i] = dem_k + _gs_float_cap
-    layout._gs_pin_dem_ceiling_idx = _pin_ceiling_idx
+    for kk, ceil_k in law_ceiling_key.items():
+        i = bucket_to_idx.get(kk)
+        if i is None or i not in hard:
+            continue
+        if i not in _pin_ceiling_idx or ceil_k < _pin_ceiling_idx[i]:
+            _pin_ceiling_idx[i] = float(ceil_k)
+    layout._gs_pin_law_ceiling_idx = _pin_ceiling_idx
     # GROUNDSIDE FEASIBILITY-WITNESS CLAUSE (owner ruling 2026-07-30) — the
     # pinned mouth/weld nodes by CANONICAL KEY, so the later passes that
     # rebuild the node space (``final_grade_projection``) can still name the
@@ -2464,17 +2773,19 @@ def apply_groundside_reach(layout, bucket_to_idx, elev, cap):
     # asserts nothing on its own.
     _key_of = {i: k for k, i in bucket_to_idx.items()}
     layout._gs_pin_keys = {_key_of[i] for i in hard if i in _key_of}
-    if _os.environ.get("O4_STEP_DEBUG") == "1" and _pin_dem_idx:
-        floats = sorted(elev[i] - d for i, d in _pin_dem_idx.items()
+    if _os.environ.get("O4_STEP_DEBUG") == "1" and _pin_ceiling_idx:
+        # SLACK against the LAW ceiling (item 3(a)): the old line reported
+        # float above DEM, a number the law no longer has an opinion about.
+        floats = sorted(elev[i] - c for i, c in _pin_ceiling_idx.items()
                         if i < len(elev))
         if floats:
             _m50 = floats[len(floats) // 2]
-            _nover = sum(1 for f in floats if f > _gs_float_cap + 1e-6)
-            print(f"  [gs-pin-dem] {len(floats)} pin(s) with DEM: "
-                  f"float median={_m50:+.2f} max={floats[-1]:+.2f} "
-                  f"min={floats[0]:+.2f}; bound={_gs_float_cap:.2f} "
-                  f"over-bound={_nover} (gate="
-                  "on)")
+            _nover = sum(1 for f in floats if f > 1e-6)
+            print(f"  [gs-pin-law] {len(floats)} pin(s) with a law "
+                  f"ceiling: value−ceiling median={_m50:+.2f} "
+                  f"max={floats[-1]:+.2f} "
+                  f"min={floats[0]:+.2f}; allowance="
+                  f"{_gs_float_cap:.2f} over-ceiling={_nover}")
     return n, hard
 
 

@@ -162,6 +162,49 @@ def test_the_artifact_writes(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
+# THE LAW DATUMS — paths converted from a DEM datum, asserted HERE
+# ══════════════════════════════════════════════════════════════════════
+# The airport layer BUILDS, so it cannot gate a no-builds round.  These
+# rows are the by-inspection form of the same assertion for the two
+# solver bounds that used to read the DEM directly (item 3(a)/3(b),
+# 2026-08-05): a bound whose inputs are solved variables and law
+# constants is IDENTICAL in the plateau and canyon worlds, which is
+# exactly what "DEM never shapes the band" means operationally.
+# Their behavioural twins live in ``test_gs_no_airside_witness.py``
+# (the groundside mouth ceiling) and ``test_detached_pad_law_seat.py``
+# (the detached-pad seat).
+
+def test_the_groundside_mouth_ceiling_carries_no_dem_term():
+    """3(a): the ceiling was ``own DEM sample + cap·15 m`` and was applied
+    as a real solver bound, so on DEM ≡ c every pin collapsed to
+    ``c + 0.75 m`` and any lot welding to pavement above that was clamped
+    BELOW its lawful level — a violation on ground with no relief.  The
+    datum is now the SOLVED weld surface."""
+    from auto_patch.elevation_per_surface.route_profile.anchors import (
+        gs_pin_law_ceiling)
+    # the two worlds differ only in the seed; the host datum is solved.
+    host, route_len, cap = 207.5, 40.0, 0.08
+    assert (gs_pin_law_ceiling(host, route_len, cap)
+            == gs_pin_law_ceiling(host, route_len, cap))
+    assert gs_pin_law_ceiling(host, route_len, cap) > host
+    import inspect
+    assert "dem" not in inspect.getsource(
+        gs_pin_law_ceiling).split('"""')[-1].lower()
+
+
+def test_the_detached_pad_dem_pin_is_gone():
+    """3(b): a hard pin at the raw-DEM footprint median froze every
+    non-airside-served pad at the constant while the groundside pavement
+    it welds into sat wherever the airside solve put it — an arbitrary
+    step at a shared node, in BOTH worlds."""
+    from auto_patch import config
+    from auto_patch.elevation_per_surface.route_profile import anchors
+    assert not hasattr(anchors, "build_detached_pad_dem_pins")
+    assert not hasattr(config, "DETACHED_PAD_DEM_PIN")
+    assert hasattr(anchors, "seat_detached_pads_by_law")
+
+
+# ══════════════════════════════════════════════════════════════════════
 # AIRPORT LAYER — the oracle proper (builds; opt-in by ICAO selection)
 # ══════════════════════════════════════════════════════════════════════
 

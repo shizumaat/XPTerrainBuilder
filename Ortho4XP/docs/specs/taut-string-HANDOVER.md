@@ -16,6 +16,27 @@ pre-flip -> new default): SPJC 1698->1366, SPLP 50->27, CYXY 171->155,
 HECA 9649->9125, KCLT 2908->2643; BATTERY 14,476->13,316 (-1,160),
 seam +15 (ruled accepted). Every prior anchor list below is HISTORY.
 
+**RELEASE TRAIN (owner 2026-08-04 22:30 PDT): Mac app built and ready
+for in-sim testing at 06:00 PDT Aug 5. HARD DEADLINE.** Agile phases,
+review + re-prioritize at each boundary; a lane not merge-ready at its
+cut line PARKS for the next train (never rushed in):
+- P1 now→01:00 — seven lanes land (seam v4, flip-adjudication,
+  coupling, consensus, flex-convergence, test-maint, designer);
+  serial merge as each reports.
+- P2 01:00→03:00 — flip batch lands; stragglers merge; FEATURE
+  FREEZE 03:00 (hard — after it only test/doc/verdict commits).
+- P3 03:00→04:30 — THE TIP: identity + census battery mints release
+  anchors, one full suite vs control; merge-to-main decision.
+- P4 04:30→06:00 — release build: make_engine (verify freeze
+  freshness — the iCloud silent-death trap), make_app (expect TCC
+  re-prompt + LaunchServices first-open; direct-exec smoke test),
+  fresh test tiles at release defaults (priority: +30+031 HECA/HEAZ,
+  then KCLT +35-081; symlink pack textures, never reconvert; check
+  .hgt present — the zero-DEM trap), RELEASE NOTES with the honest
+  known-remaining list. Deliver 06:00.
+Phase clock: agent notifications + the 20-min heartbeat cron; at
+every wake, check this schedule and enforce cut lines.
+
 **BOARD AS OF 2026-08-04 NIGHT (HEAD `ebe34c1`+).** Post-tip landings:
 flex completion `9324cad` (self-anchor unlock/DEM-follow/honest B2/§2a,
 all gated; composed 12-round STOP recorded — hook-vs-apply divergence

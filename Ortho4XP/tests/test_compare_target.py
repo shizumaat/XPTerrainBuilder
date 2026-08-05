@@ -376,6 +376,10 @@ def _run_compare(tmp_path: Path, icao: str,
 
 
 @pytest.mark.xdist_group("SPJC")
+@pytest.mark.skip(reason="PARKED by owner ruling (RULINGS 2026-08-05 "
+    "'Compare-target fixtures PARKED'): no fixture comparison until fully "
+    "green + sim-verified; fixtures re-cut before new features. Fixtures "
+    "vendored 2026-07-20 are (d)-verdicted structurally stale.")
 def test_compare_target_spjc(tmp_path):
     """SPJC structural fidelity vs ``tests/fixtures/SPJC_target.osm``.
 
@@ -390,6 +394,10 @@ def test_compare_target_spjc(tmp_path):
     (-13, -77, SPLP_BASELINE_TILE_M77, SPLP_BASELINE_TILE_M77_TOTAL),
     (-13, -78, SPLP_BASELINE_TILE_M78, SPLP_BASELINE_TILE_M78_TOTAL),
 ])
+@pytest.mark.skip(reason="PARKED by owner ruling (RULINGS 2026-08-05 "
+    "'Compare-target fixtures PARKED'): no fixture comparison until fully "
+    "green + sim-verified; fixtures re-cut before new features. Fixtures "
+    "vendored 2026-07-20 are (d)-verdicted structurally stale.")
 def test_compare_target_splp(tmp_path, tile_lat, tile_lon,
                               baseline, baseline_total):
     """SPLP structural fidelity, validated per tile half.

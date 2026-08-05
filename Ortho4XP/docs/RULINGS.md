@@ -562,3 +562,13 @@ TRIGGER is anchor-envelope infeasibility (4cbed92); the fan ramp is
 the first-choice relief ANSWER in frontage-backed apron zones, ahead
 of the terrace panel/wall answer which remains the form for
 non-frontage aprons.
+
+## 2026-08-05 — Compare-target fixtures PARKED until sim-verified green
+## (owner)
+
+Owner: no fixture comparison until builds are fully green AND
+sim-verified; the fixtures are then RE-CUT before any new features.
+The three standing compare-target reds ((d)-verdicted: vendored
+2026-07-20, structurally stale) become explicit skips citing this
+ruling — not red noise, not silently deleted. The re-cut is the
+FIRST act of the next feature cycle, after the owner's sim pass.

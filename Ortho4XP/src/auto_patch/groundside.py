@@ -1872,54 +1872,40 @@ def _grade_limit_groundside_chords(layout) -> int:
         if closed != list(s.node_altitudes):
             s.node_altitudes = closed
             n_changed += 1
-    # ADOPT the limited values onto coincident SERVICE nodes AT THE SOLVE-
-    # TIME WELD KEYS (the road↔lot shared geometry): the roads were welded
-    # to the lot's SOLVE-time ring, and re-limiting only the lot re-splits
-    # the two writers — the emit consensus then averages them and the lot
-    # reads over-cap chords again (CYXY #207: 8 % over 7.8 m from
-    # 0.3-0.4 m road-vs-lot disagreements).  The lot is senior at its own
-    # ring (the mouth serves the LOT).  Scoped STRICTLY to the keys
-    # ``apply_groundside_reach`` welded — a road passing a DEM-stay lot
-    # merely shares geometry and keeps its by-design road-vs-lot seam
-    # (blanket adoption measured 5 m road yanks, 125 % chords).
-    weld_keys = getattr(layout, "_groundside_weld_keys", None) or ()
-    # Weld keys whose re-adoption MOVED the road value materially: the
-    # limiter re-levelled the lot around a weld the road's own law had
-    # placed elsewhere — residual multi-authority tension neither side
-    # may fully absorb (the projection cannot see lot rings or road
-    # diagonal chords).  Recorded so the caller can quarantine them
-    # (CYXY #26: a 4 cm re-adoption tore three road diagonals over cap).
-    moved_weld_xy: list = getattr(layout, "_weld_relimit_moved_xy", None)
-    if moved_weld_xy is None:
-        moved_weld_xy = []
-        layout._weld_relimit_moved_xy = moved_weld_xy
-    _MOVED_TOL_M = 0.02
-    for s in layout.shapes:
-        if s.role not in (ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION):
-            continue
-        if (s.polygon is None or s.polygon.is_empty
-                or s.polygon.geom_type != "Polygon"
-                or not s.node_altitudes):
-            continue
-        try:
-            ring = list(s.polygon.exterior.coords)
-        except _GEOM_EXC:
-            continue
-        alts = list(s.node_altitudes)
-        changed = False
-        for k in range(min(len(ring), len(alts))):
-            kxy = (round(ring[k][0], 2), round(ring[k][1], 2))
-            if kxy not in weld_keys:
-                continue
-            v = node_alt.get(kxy)
-            if v is not None and alts[k] is not None \
-                    and abs(alts[k] - v) > 1e-6:
-                if abs(alts[k] - v) > _MOVED_TOL_M:
-                    moved_weld_xy.append((ring[k][0], ring[k][1]))
-                alts[k] = round(v, 2)
-                changed = True
-        if changed:
-            s.node_altitudes = alts
+    # THE SERVICE-NODE WELD RE-ADOPTION — DELETED 2026-08-05 (constant-DEM
+    # oracle, fix lane 2 item 2).  It ADOPTED this pass's limited GROUNDSIDE
+    # values onto coincident ``service_road`` / ``service_junction`` nodes at
+    # ``layout._groundside_weld_keys``, on the reasoning that "the lot is
+    # senior at its own ring" and that leaving the two writers split would
+    # let the emit consensus AVERAGE them (CYXY #207).
+    #
+    # Both halves of that reasoning are dead law now:
+    #   * SENIORITY runs the other way.  ``layout.AUTHORITY_PRECEDENCE`` is a
+    #     TOTAL order and it is AIRSIDE-FIRST (airside-is-king, standing):
+    #     ``service_road`` and ``service_junction`` both outrank
+    #     ``groundside_pavement``.  A lot may not dictate a road's value.
+    #   * The emit consensus no longer averages anything.  Single-authority
+    #     emission is STANDING and ungated since 2026-08-05 ("EMITTERS EMIT,
+    #     NEVER GRADE"): at a shared node the precedence winner's value is
+    #     emitted verbatim and the losing claimant retreats behind a
+    #     retaining wall (``adjacent_ground.emit_authority_retreat_walls``)
+    #     instead of being blended away.
+    #
+    # MEASURED (HEAZ, constant-DEM oracle, both worlds).  This loop was the
+    # author of 24 of service_junction #28's 167 vertices, writing the raw
+    # DEM constant onto a face the solve had graded 0/167 on-DEM: a 50.47 m
+    # internal cliff, the worst within-shape row in the plateau census
+    # (1410.89 %), and a 450.56 m step in the canyon world.  Deleting it
+    # took the airport's law-true rows from 836/4040 (plateau/canyon) to
+    # 1258/894 — service_junction within-shape rows 113→13 and 361→0,
+    # junction 169→160 and 2152→35, strip-seam tears 143→0.  That is DEM
+    # used as a hard authority over a law-solved surface, which RULINGS
+    # 5578b6a ("DEM is a SEED, never an authority") forbids outright.
+    #
+    # The lot keeps the limited values written above on its OWN ring; the
+    # shared node emits the road's law value.  ``_groundside_weld_keys``
+    # (anchors.py) and ``_weld_relimit_moved_xy`` (pipeline.py) both survive
+    # as bookkeeping with no reader here.
     return n_changed
 
 

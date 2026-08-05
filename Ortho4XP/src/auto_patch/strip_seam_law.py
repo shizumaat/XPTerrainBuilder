@@ -46,11 +46,24 @@ v3 §2 all three left-alone outcomes are LOUD — one ``[strip-seam]``
 forensics row each, unconditionally.  The decline itself is correct
 non-authority behaviour; the SILENCE was the defect.
 
-STILL OUTSIDE THIS MODULE (flagged, deliberately not migrated): the
-healer's own cliff-grade floor equals ``STRIP_SEAM_TEAR_MIN_GRADE``
-(0.5).  Absorbing it would couple the emitter's cliff test to the
-census's — a design decision, not a de-duplication, and v3 §1's list
-does not name it.
+FOURTH COPY ABSORBED (seam-continuity v4 §1, 2026-08-04).  The design
+decision v3 §1 flagged and deferred is now RULED: the healer's own
+locally-declared cliff-grade floor (0.5, in ``adjacent_ground``) IS
+``STRIP_SEAM_TEAR_MIN_GRADE`` and is imported from here.  With it, the
+healer's non-worsening guard stops quoting a bare 1.0 m allowance
+against excluded neighbours and quotes the CENSUS PAIR PREDICATE
+instead (``seam_guard_allowance_m`` below) — the bounds-attribution
+verdict's mechanism 1: both inverted bounds came from ONE constant
+quoted against two different neighbours, over-strict by up to 3x at the
+measured 2.2-6.0 m distances, and the inversion-creating neighbours are
+drapes this law's own grade conjunct already declares lawful.
+
+``seam_pair_is_tear`` is the ONE arithmetic both halves now run:
+``check_grade._check_strip_seam_tears`` calls it for its verdict, and
+``seam_guard_allowance_m`` is its exact inverse — the largest |Δalt| at
+a given planar distance that CANNOT be a tear, less a fixed margin.
+Test twin: ``tests/test_strip_seam_law_module.py`` sweeps the pair space
+and asserts the two never disagree.
 
 Deliberately dependency-free (stdlib only): ``tools/check_grade.py`` runs
 standalone, and a law module that can fail to import is not a law.
@@ -81,6 +94,9 @@ __all__ = [
     "STRIP_SEAM_OPEN_GROUND_SAMPLES",
     "STRIP_SEAM_GRADED_ROLES",
     "STRIP_SEAM_OPEN_BOUNDARY_FLOOR_M",
+    "STRIP_SEAM_GUARD_MARGIN_M",
+    "seam_pair_is_tear",
+    "seam_guard_allowance_m",
     "point_in_ring",
     "GradedDomain",
     "point_segment_distance",
@@ -173,6 +189,55 @@ STRIP_SEAM_GRADED_ROLES = frozenset({
 # both arms): the open-boundary class tops out at Δalt 10.48 m, so 15.0
 # clears all of it — the number is the owner's, not a fitted threshold.
 STRIP_SEAM_OPEN_BOUNDARY_FLOOR_M = 15.0
+
+# ── THE PAIR PREDICATE, and the emitter's allowance derived from it ──
+# (seam-continuity v4 §1; bounds-attribution verdict mechanism 1.)
+#
+# ``seam_pair_is_tear`` is the census verdict for ONE pair, extracted
+# verbatim from ``check_grade._check_strip_seam_tears`` so the emitter
+# and the validator cannot drift: over the step floor AND over the grade
+# floor.  ``seam_guard_allowance_m`` is its inverse, the number the
+# healer's NON-WORSENING GUARD needs: the largest |Δalt| that provably
+# CANNOT be a tear at a given planar distance.  Since the predicate is
+#
+#     tear  <=>  de > min_step  AND  de >= min_grade * max(d, min_dist)
+#
+# a pair is safe as soon as EITHER conjunct fails, i.e. whenever
+#
+#     de <= max(min_step, min_grade * max(d, min_dist)) - margin
+#
+# with a strictly positive margin to keep the inequality strict under
+# the emitter's 0.01 m value rounding.  The margin is the guard's own
+# historical 0.05 m, kept so the change is the GRADE conjunct alone.
+STRIP_SEAM_GUARD_MARGIN_M = 0.05
+
+
+def seam_pair_is_tear(de_m: float, planar_m: float,
+                      min_step_m: float = STRIP_SEAM_TEAR_MIN_STEP_M,
+                      min_grade: float = STRIP_SEAM_TEAR_MIN_GRADE,
+                      min_distance_m: float = STRIP_SEAM_TEAR_MIN_DISTANCE_M
+                      ) -> bool:
+    """Is a strip-seam pair with |Δalt| ``de_m`` at planar distance
+    ``planar_m`` a TEAR?  The census's own two conjuncts, nothing else
+    (the wall / open-ground exemptions are the instrument's, applied
+    around this call)."""
+    if de_m <= min_step_m:
+        return False
+    return (de_m / max(planar_m, min_distance_m)) >= min_grade
+
+
+def seam_guard_allowance_m(planar_m: float,
+                           min_step_m: float = STRIP_SEAM_TEAR_MIN_STEP_M,
+                           min_grade: float = STRIP_SEAM_TEAR_MIN_GRADE,
+                           min_distance_m: float
+                           = STRIP_SEAM_TEAR_MIN_DISTANCE_M,
+                           margin_m: float = STRIP_SEAM_GUARD_MARGIN_M
+                           ) -> float:
+    """The largest |Δalt| at ``planar_m`` that ``seam_pair_is_tear``
+    provably rejects, less ``margin_m``.  The healer's non-worsening
+    guard quotes THIS against every excluded neighbour."""
+    return max(min_step_m,
+               min_grade * max(planar_m, min_distance_m)) - margin_m
 
 
 def point_in_ring(px: float, py: float,

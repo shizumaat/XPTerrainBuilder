@@ -143,9 +143,19 @@ from .emit_decimate import (
 # the emitter provably sees exactly the pair population the validator
 # reports (docs/RULINGS.md, grade-law completeness: emitter and validator
 # lockstep, never two copies).  Import-light by construction (stdlib only).
+#
+# v4 §1 absorbs the FOURTH copy — the healer's own cliff-grade floor —
+# and takes the census PAIR PREDICATE itself
+# (``seam_guard_allowance_m`` / ``seam_pair_is_tear``), so the
+# non-worsening guard's per-neighbour allowance and
+# ``check_grade._check_strip_seam_tears`` are computed by ONE function.
 from .strip_seam_law import (
+    STRIP_SEAM_TEAR_MIN_GRADE,
     STRIP_SEAM_TEAR_MIN_STEP_M,
     STRIP_SEAM_TEAR_RADIUS_M,
+    STRIP_SEAM_WALL_STRADDLE_TOL_M,
+    seam_guard_allowance_m,
+    seam_pair_is_tear,
 )
 
 # An adjacent-ground band is a SHALLOW corridor surface (a code-4 runway
@@ -1669,18 +1679,28 @@ def _heal_emitted_band_tears(emitted_shapes, layout):
 # ``STRIP_SEAM_TEAR_MIN_STEP_M`` (imported above), so healer and census
 # cannot drift apart.  Byte-inert: the values are identical.
 #
-# NOT ABSORBED (deliberate, outside v3 §1's named list): the grade floor
-# below still equals ``strip_seam_law.STRIP_SEAM_TEAR_MIN_GRADE`` (0.5)
-# and is a FOURTH copy of a law number.  Absorbing it would couple the
-# healer's cliff test to the census's, which is a design decision this
-# round has no authority to make — flagged, not taken.
-# Grade floor: on steep relief (CYXY) neighbour strips LEGITIMATELY
-# differ by >1 m at 4-6 m spacing — real hillside drape tops out around
-# 30-40 %, while genuine seam cliffs run 100-350 %.  Requiring the step
-# to ALSO imply >50 % keeps lawful terrain-following untouched (measured
-# CYXY without the floor: 1404 vertices moved, 5 new sub-metre pinches
-# minted; with it the blend touches only true cliffs).
-SEAM_STEP_MIN_GRADE = 0.5
+# FOURTH COPY ABSORBED (spec seam-continuity-v4 §1): the cliff-grade
+# floor this pass used to declare locally as its own 0.5 IS
+# ``strip_seam_law.STRIP_SEAM_TEAR_MIN_GRADE``, imported above.  v3 §1
+# flagged it and deferred the coupling to "the round that owns the
+# healer's law"; that is this one, and the ruling is to couple.
+# Grade floor, for the record: on steep relief (CYXY) neighbour strips
+# LEGITIMATELY differ by >1 m at 4-6 m spacing — real hillside drape tops
+# out around 30-40 %, while genuine seam cliffs run 100-350 %.  Requiring
+# the step to ALSO imply >50 % keeps lawful terrain-following untouched
+# (measured CYXY without the floor: 1404 vertices moved, 5 new sub-metre
+# pinches minted; with it the blend touches only true cliffs).
+
+
+# ── THE v4 LAW GATE ───────────────────────────────────────────────────
+# ONE read site for ``O4_STRIP_HEAL_LAW`` (blast reports per-site default
+# disagreement as a hazard, and this gate is read from two passes).
+# Default "0": with the gate off every path below is the pre-v4 code and
+# the emitted patch is byte-identical.
+def _strip_heal_law_enabled() -> bool:
+    """Is the seam-continuity v4 healer law (§1 grade-aware guard, §2
+    authority-split clusters, §3 cluster-level guard) enabled?"""
+    return os.environ.get("O4_STRIP_HEAL_LAW", "0") == "1"
 
 # ── DECLINE LOUDNESS (spec seam-continuity-v3 §2, adjudication item 3) ──
 # The healer's every-node-anchored ⇒ genuine-step rule is CORRECT
@@ -1710,10 +1730,218 @@ SEAM_STEP_MIN_GRADE = 0.5
 #
 # Both are "left alone" outcomes under a different rule, and band 5 is
 # "ZERO silent declines".  They are therefore reported too, as their own
-# row kinds.  DEVIATION FLAG (v3 §2 names only the all-anchored decline):
-# the extension is measurement-driven and awaits Fable ratification; it
-# moves no value and is byte-inert like the rest of §2.
+# row kinds.  The guard-exit extension was RATIFIED by the v3 lead
+# adjudication (spec seam-continuity-v3, item 1).
+#
+# v4 adds a FOURTH left-alone kind, the DEFERRED AUTHORITY JOINT (§2): a
+# pair the healer refuses to blend across because the two sides are
+# disagreeing weld authorities or a declared/stacked wall SITE.  It is
+# not a failure — it is the healer handing the level change to the wall
+# machinery — but it is still a step this pass did not close, so it is
+# loud on the same channel.  Band 4's invariant becomes
+# ``report rows == declined + guarded + deferred joints``.
 _STRIP_SEAM_DECLINE_TAG = "[strip-seam]"
+
+
+# ── THE SHARED WALL-SITE PREDICATE (spec seam-continuity-v4 §2) ───────
+# THE ORDERING RULING, verbatim: "wall-AWARE healer via one shared
+# predicate — NOT wall passes reordered before the healer."  The existing
+# ORDER CONTRACT (heal → pinch-heal → walls) is measured law
+# (pipeline.py, the CYXY 2.16 m² strip∩wall overlap), so nothing moves.
+# What is hoisted is the SITE PREDICATE: which strip vertices coincide
+# with a designed-split AUTHORITY corner or chain, and by how much.  That
+# is derivable from layout state before any wall is emitted, and it is
+# INVARIANT across the reconcile unit — the three passes between the
+# healer and ``emit_stacked_conflict_walls`` touch ``graded_strip``
+# shapes only, never the non-donor authority shapes this index reads.
+#
+# Single-pass: built ONCE (by whichever of the two consumers runs first,
+# i.e. the healer under the v4 gate), cached on the layout, consumed by
+# ``emit_stacked_conflict_walls`` when it runs after.  One code path, no
+# second derivation.
+#
+# INTERNING SAFETY (measured, v4 band-0 instrumented arm, HECA + CYXY):
+# building this table inserts ZERO canonical points at both airports
+# (``registry.size`` unchanged across ``emit_stacked_conflict_walls``),
+# so hoisting the ``get_or_add`` calls earlier cannot change which later
+# points intern together.  With the gate OFF nothing is hoisted at all.
+class _StripWallSiteIndex:
+    """Authority claims over canonical points + authority exteriors.
+
+    ``value_at(vx, vy)`` is the authority level at a point: the mean of
+    the vertex claims interned at its canonical point, else the
+    edge-interpolated value where the point lies ON a non-donor
+    authority exterior, else ``None``.  ``is_site(vx, vy, own)`` is the
+    v4 §2 predicate: does a designed-split authority hold a level here
+    that differs from the strip's own by more than the emit merge
+    tolerance (i.e. will this vertex become WALL geometry)?"""
+
+    __slots__ = ("claims", "edges", "edge_tree", "registry", "tol_m")
+
+    def __init__(self, claims, edges, edge_tree, registry, tol_m):
+        self.claims = claims
+        self.edges = edges
+        self.edge_tree = edge_tree
+        self.registry = registry
+        self.tol_m = tol_m
+
+    def value_at(self, vx, vy):
+        if self.registry is not None:
+            key = self.registry.get_or_add(float(vx), float(vy))
+            claims = self.claims.get(key)
+            if claims:
+                return sum(claims) / len(claims)
+        return self._edge_value(vx, vy)
+
+    def _edge_value(self, vx, vy):
+        if self.edge_tree is None:
+            return None
+        try:
+            idxs = self.edge_tree.query_nearest(
+                Point(vx, vy), max_distance=self.tol_m)
+        except _GEOM_EXC:
+            return None
+        if idxs is None or len(idxs) == 0:
+            return None
+        _exterior, coords_a, alts_a = self.edges[int(idxs[0])]
+        return _interp_on_ring_law(coords_a, alts_a, vx, vy, self.tol_m)
+
+    def is_site(self, vx, vy, own):
+        """v4 §2 boundary (b): a stacked-wall SITE."""
+        top = self.value_at(vx, vy)
+        if top is None:
+            return False
+        return abs(float(top) - float(own)) > VERTEX_ALT_MERGE_TOL_M
+
+
+def _interp_on_ring_law(coords_a, alts_a, vx, vy, tol_m):
+    """Edge-interpolated ring value at (vx, vy), or None past ``tol_m``.
+    Shared by the index and ``emit_stacked_conflict_walls`` — one
+    derivation."""
+    best = None
+    na = len(coords_a)
+    for i in range(na):
+        ax, ay = coords_a[i]
+        bx, by = coords_a[(i + 1) % na]
+        dx, dy = bx - ax, by - ay
+        L2 = dx * dx + dy * dy
+        if L2 < 1e-12:
+            continue
+        t = ((vx - ax) * dx + (vy - ay) * dy) / L2
+        t = min(1.0, max(0.0, t))
+        px, py = ax + dx * t, ay + dy * t
+        d = math.hypot(vx - px, vy - py)
+        if best is None or d < best[0]:
+            best = (d, (1.0 - t) * alts_a[i] + t * alts_a[(i + 1) % na])
+    if best is None or best[0] > tol_m:
+        return None
+    return best[1]
+
+
+_EDGE_COINCIDE_TOL_M = 0.01
+
+
+def strip_wall_site_index(layout, tol_m: float = _EDGE_COINCIDE_TOL_M):
+    """Build — or return the cached — shared wall-SITE index for
+    ``layout``.  Read-only w.r.t. shape values; the only mutation is the
+    canonical-point interning ``emit_stacked_conflict_walls`` already
+    performed at this same point in the pipeline (measured: zero
+    insertions)."""
+    cached = getattr(layout, "_strip_wall_site_index", None)
+    if cached is not None:
+        return cached
+    from shapely.strtree import STRtree
+    from .layout import SOFT_RECEIVER_ROLES, WELD_DONOR_ROLES
+    registry = getattr(layout, "canonical_points", None)
+    claims: dict = {}
+    edges: list = []
+    for shape in getattr(layout, "shapes", ()) or ():
+        role = shape.role or ""
+        if (role == ROLE_GRADED_STRIP or role in SOFT_RECEIVER_ROLES
+                or role in WELD_DONOR_ROLES):
+            continue
+        rv = _ring_values_for_walls(shape)
+        if rv is None:
+            continue
+        coords, alts = rv
+        if registry is not None:
+            for (vx, vy), value in zip(coords, alts):
+                key = registry.get_or_add(float(vx), float(vy))
+                claims.setdefault(key, []).append(value)
+        try:
+            edges.append((shape.polygon.exterior, coords, alts))
+        except _GEOM_EXC:
+            pass
+    edge_tree = None
+    if edges:
+        try:
+            edge_tree = STRtree([e[0] for e in edges])
+        except _GEOM_EXC:
+            edge_tree = None
+    index = _StripWallSiteIndex(claims, edges, edge_tree, registry, tol_m)
+    try:
+        layout._strip_wall_site_index = index
+    except Exception:                                   # noqa: BLE001
+        pass
+    return index
+
+
+def _ring_values_for_walls(shape):
+    """Open exterior ring + aligned per-vertex values, mirroring
+    ``to_osm``'s derivation (node_altitudes > flat altitude broadcast >
+    sloped-rect high/low corners).  ``None`` when the shape carries no
+    elevation or the lists misalign.  ONE derivation, shared by the
+    wall-site index and ``emit_stacked_conflict_walls``."""
+    from .layout import corner_alts_from_high_low
+    poly = shape.polygon
+    if poly is None or poly.is_empty or poly.geom_type != "Polygon":
+        return None
+    try:
+        coords = list(poly.exterior.coords)
+    except _GEOM_EXC:
+        return None
+    if len(coords) > 1 and coords[0] == coords[-1]:
+        coords = coords[:-1]
+    if len(coords) < 3:
+        return None
+    if shape.node_altitudes is not None:
+        alts = list(shape.node_altitudes)
+        if len(alts) == len(coords) + 1:
+            alts = alts[:-1]
+        if len(alts) != len(coords):
+            return None
+        return coords, [float(a) for a in alts]
+    if shape.altitude is not None:
+        return coords, [float(shape.altitude)] * len(coords)
+    if (shape.altitude_high is not None
+            and shape.altitude_low is not None
+            and len(coords) == 4):
+        return coords, corner_alts_from_high_low(
+            float(shape.altitude_high), float(shape.altitude_low))
+    return None
+
+
+def _strip_seam_joint_record(kind, a, b, node_xy, node_value, planar,
+                             allowance, reasons=("", "")):
+    """Forensics record for ONE DEFERRED AUTHORITY JOINT (v4 §2): a pair
+    the healer refused to blend across.  ``kind`` is ``anchor_split``
+    (two disagreeing weld authorities) or ``wall_site`` (a strip vertex
+    coincident with a designed-split authority corner beyond
+    ``VERTEX_ALT_MERGE_TOL_M``).  Pure/read-only."""
+    (ax, ay), (bx, by) = node_xy[a], node_xy[b]
+    return {
+        "kind": kind,
+        "x": round(float((ax + bx) / 2.0), 2),
+        "y": round(float((ay + by) / 2.0), 2),
+        "a": (round(float(ax), 2), round(float(ay), 2),
+              round(float(node_value[a]), 3)),
+        "b": (round(float(bx), 2), round(float(by), 2),
+              round(float(node_value[b]), 3)),
+        "step_m": round(abs(float(node_value[a] - node_value[b])), 3),
+        "planar_m": round(float(planar), 3),
+        "allowance_m": round(float(allowance), 3),
+        "anchors": (reasons[0] or "free", reasons[1] or "free"),
+    }
 
 
 def _strip_seam_decline_record(members, anchor_reason, node_xy, node_value,
@@ -1771,25 +1999,29 @@ def _strip_seam_guard_record(kind, node_index, node_xy, node_value,
     }
 
 
-def report_strip_seam_declines(declined, layout, guarded=()) -> int:
-    """Emit the v3 §2 decline report — ONE row per LEFT-ALONE outcome,
-    plus a count line so "nothing declined" is distinguishable from "the
-    pass did not run".
+def report_strip_seam_declines(declined, layout, guarded=(),
+                               joints=()) -> int:
+    """Emit the v3 §2 / v4 §2 decline report — ONE row per LEFT-ALONE
+    outcome, plus a count line so "nothing declined" is distinguishable
+    from "the pass did not run".
 
-    Three row kinds, all unconditional (the whole point of the section):
+    Four row kinds, all unconditional (the whole point of the section):
 
     * ``DECLINED``       — the spec's all-anchored cluster;
-    * ``GUARD-DECLINED`` — a free node the non-worsening guard left
-      exactly where it was (measured: the ONLY path that fires at CYXY);
-    * ``GUARD-CLAMPED``  — a free node moved to a guard bound instead of
-      the cluster's law target, so a step survives.
+    * ``GUARD-DECLINED`` — a free node (v4: a whole sub-cluster) the
+      non-worsening guard left exactly where it was;
+    * ``GUARD-CLAMPED``  — moved to a guard bound instead of the law
+      target, so a step survives;
+    * ``DEFERRED-JOINT`` — v4 §2: an authority joint the healer refuses
+      to average across, handed to the wall machinery.
 
     Returns the total number of report ROWS, which is the pre-registered
     equality: rows == left-alone outcomes."""
     icao = str(getattr(layout, "icao", "?") or "?")
     m_to_ll = getattr(layout, "m_to_ll", None)
     guarded = list(guarded)
-    blocked = [g for g in guarded if g["kind"] == "blocked"]
+    joints = list(joints)
+    blocked = [g for g in guarded if g["kind"].endswith("blocked")]
     clamped = [g for g in guarded if g["kind"] == "clamped"]
 
     def _ll(x, y):
@@ -1802,11 +2034,13 @@ def report_strip_seam_declines(declined, layout, guarded=()) -> int:
         return f"{lat:.8f},{lon:.8f}"
 
     UI.vprint(1, f"  {_STRIP_SEAM_DECLINE_TAG} {icao}: cross-strip seam "
-                 f"healer left {len(declined) + len(guarded)} step(s) "
-                 f"standing — DECLINED {len(declined)} cluster(s) "
+                 f"healer left {len(declined) + len(guarded) + len(joints)} "
+                 f"step(s) standing — DECLINED {len(declined)} cluster(s) "
                  f"(every node anchored), GUARD-DECLINED {len(blocked)} "
                  f"node(s) (bounds inverted), GUARD-CLAMPED "
-                 f"{len(clamped)} node(s) (moved to a bound).")
+                 f"{len(clamped)} node(s) (moved to a bound), "
+                 f"DEFERRED-JOINT {len(joints)} authority joint(s) "
+                 f"(handed to the wall machinery).")
     for position, row in enumerate(declined, start=1):
         anchors = ",".join(f"{k or 'free'}:{v}"
                            for k, v in row["anchors"].items())
@@ -1823,8 +2057,17 @@ def report_strip_seam_declines(declined, layout, guarded=()) -> int:
                   f"hi=({row['hi'][0]:.2f},{row['hi'][1]:.2f},"
                   f"z={row['hi'][2]:.3f})")
     for position, row in enumerate(guarded, start=1):
-        label = ("GUARD-DECLINED" if row["kind"] == "blocked"
+        label = ("GUARD-DECLINED" if row["kind"].endswith("blocked")
                  else "GUARD-CLAMPED")
+        extra = ""
+        if row.get("lawful") is not None:
+            # v4 §3: an empty CLUSTER interval carries its
+            # lawful-assignment attribution (feasibility-is-guaranteed —
+            # a survivor is attribution, never tolerance).
+            extra = (f" nodes={row.get('nodes')} "
+                     f"lawful={row['lawful']} "
+                     f"binding_lo={row.get('binding_lo')} "
+                     f"binding_hi={row.get('binding_hi')}")
         UI.vprint(1,
                   f"  {_STRIP_SEAM_DECLINE_TAG} {label} {icao} "
                   f"{position}/{len(guarded)}: "
@@ -1834,8 +2077,21 @@ def report_strip_seam_declines(declined, layout, guarded=()) -> int:
                   f"applied={'-' if row['applied_m'] is None else format(row['applied_m'], '.3f')} "
                   f"residual={row['residual_m']:.3f}m "
                   f"bounds=[{'-' if row['bound_lo'] is None else format(row['bound_lo'], '.3f')},"
-                  f"{'-' if row['bound_hi'] is None else format(row['bound_hi'], '.3f')}]")
-    return len(declined) + len(guarded)
+                  f"{'-' if row['bound_hi'] is None else format(row['bound_hi'], '.3f')}]"
+                  f"{extra}")
+    for position, row in enumerate(joints, start=1):
+        UI.vprint(1,
+                  f"  {_STRIP_SEAM_DECLINE_TAG} DEFERRED-JOINT {icao} "
+                  f"{position}/{len(joints)}: kind={row['kind']} "
+                  f"site=({row['x']:.2f},{row['y']:.2f}) "
+                  f"ll={_ll(row['x'], row['y'])} "
+                  f"step={row['step_m']:.3f}m "
+                  f"planar={row['planar_m']:.3f}m "
+                  f"allowance={row['allowance_m']:.3f}m "
+                  f"a=({row['a'][0]:.2f},{row['a'][1]:.2f},z={row['a'][2]:.3f}) "
+                  f"b=({row['b'][0]:.2f},{row['b'][1]:.2f},z={row['b'][2]:.3f}) "
+                  f"anchored={row['anchors'][0]}/{row['anchors'][1]}")
+    return len(declined) + len(guarded) + len(joints)
 
 
 def blend_cross_strip_seam_steps(strip_shapes, layout):
@@ -1864,11 +2120,49 @@ def blend_cross_strip_seam_steps(strip_shapes, layout):
     final strip population (every emitter: adjacent-ground bands,
     gap-fill spines) — running per emitter group misses exactly the
     cross-family seams that tear.  Returns the number of ring vertices
-    re-levelled."""
+    re-levelled.
+
+    THE v4 LAW (gate ``O4_STRIP_HEAL_LAW``, default "0"; spec
+    ``docs/specs/seam-continuity-v4-spec.md`` §1-§3, ONE interlocking
+    law).  With the gate on, three things change and nothing else:
+
+    §1 GRADE-AWARE GUARD.  The non-worsening guard's per-neighbour
+    allowance stops being a bare ``STRIP_SEAM_TEAR_MIN_STEP_M - 0.05``
+    and becomes the CENSUS PAIR PREDICATE
+    (``strip_seam_law.seam_guard_allowance_m``).  The bounds-attribution
+    verdict measured both inverted bounds coming from that one constant
+    quoted against two different excluded neighbours — over-strict by up
+    to 3x at the measured 2.2-6.0 m distances, and the
+    inversion-creating neighbours are drapes this law's own grade
+    conjunct already calls lawful.
+
+    §2 AUTHORITY-SPLIT CLUSTERS.  The healer must NEVER average across
+    disagreeing weld authorities or a declared/stacked wall.  Cluster
+    membership SPLITS at authority boundaries: (a) a pair of anchored
+    nodes whose values disagree beyond the §1 allowance, (b) a pair
+    touching a stacked-wall SITE (the shared predicate
+    ``strip_wall_site_index``, which ``emit_stacked_conflict_walls``
+    consumes when it runs after — one evaluation, two consumers).  Each
+    sub-cluster then takes a single lawful target: the mean of its own
+    anchors, which is only computed once that population is verified to
+    agree PAIRWISE under the census predicate — the only condition under
+    which the healer may average at all.  A joint is DEFERRED to the
+    wall machinery with a named forensics record.
+
+    §3 CLUSTER-LEVEL GUARD.  Per-node clamping dies.  ONE feasible
+    interval is computed for the whole sub-cluster — the intersection of
+    every mover's per-neighbour §1 allowances against every non-member
+    within ``STRIP_SEAM_TEAR_RADIUS_M`` — and the movers take ONE level
+    inside it, so the 4.26 m cliff-between-mates-1.5 m-apart class is
+    impossible by construction.  An empty interval is a loud guarded
+    record carrying its lawful-assignment attribution."""
     from collections import defaultdict
     from shapely.strtree import STRtree
     from .crown import _point_in_seam_band
     from .layout import WELD_DONOR_ROLES
+
+    law = _strip_heal_law_enabled()
+    wall_index = strip_wall_site_index(layout) if law else None
 
     donor_ext = [s.polygon.exterior for s in layout.shapes
                  if (s.role or "") in WELD_DONOR_ROLES
@@ -1970,7 +2264,32 @@ def blend_cross_strip_seam_steps(strip_shapes, layout):
             a = parent[a]
         return a
 
+    _anchor_memo: dict = {}
+
+    def _reason(node_index):
+        """Memoised ``_anchor_reason`` — same population, same values, one
+        evaluation per node instead of one per cluster membership."""
+        reason = _anchor_memo.get(node_index)
+        if reason is None:
+            reason = _anchor_reason(node_index)
+            _anchor_memo[node_index] = reason
+        return reason
+
+    _wall_site_memo: dict = {}
+
+    def _is_wall_site(node_index):
+        """v4 §2 boundary (b), through the SHARED predicate."""
+        if wall_index is None:
+            return False
+        hit = _wall_site_memo.get(node_index)
+        if hit is None:
+            (vx, vy) = node_xy[node_index]
+            hit = bool(wall_index.is_site(vx, vy, node_value[node_index]))
+            _wall_site_memo[node_index] = hit
+        return hit
+
     paired = False
+    joints: list = []
     # Radius adjacency over ALL pairs (BEFORE the Δ/grade filter) — the
     # NON-WORSENING guard below needs every near neighbour, including
     # the ones excluded from clustering precisely because they already
@@ -1983,24 +2302,41 @@ def blend_cross_strip_seam_steps(strip_shapes, layout):
         if a >= b:
             continue
         delta = abs(node_value[a] - node_value[b])
-        if delta < STRIP_SEAM_TEAR_MIN_STEP_M:
-            continue
         (ax, ay), (bx, by) = node_xy[a], node_xy[b]
         planar = math.hypot(ax - bx, ay - by)
-        if delta < SEAM_STEP_MIN_GRADE * max(planar, 0.01):
-            continue        # steep-terrain drape, not a cliff
+        if law:
+            # §1: the healer's pairing test IS the census predicate.
+            if not seam_pair_is_tear(delta, planar):
+                continue
+        else:
+            if delta < STRIP_SEAM_TEAR_MIN_STEP_M:
+                continue
+            if delta < STRIP_SEAM_TEAR_MIN_GRADE * max(planar, 0.01):
+                continue    # steep-terrain drape, not a cliff
         if (len(node_strips[a]) == 1 and node_strips[a] == node_strips[b]):
             continue        # within one ring: the pinch healer\'s domain
+        if law:
+            # §2: cluster membership SPLITS at an authority boundary.
+            allowance = seam_guard_allowance_m(planar)
+            reason_a, reason_b = _reason(a), _reason(b)
+            if reason_a and reason_b and delta > allowance:
+                joints.append(_strip_seam_joint_record(
+                    "anchor_split", a, b, node_xy, node_value, planar,
+                    allowance, (reason_a, reason_b)))
+                continue
+            if _is_wall_site(a) or _is_wall_site(b):
+                joints.append(_strip_seam_joint_record(
+                    "wall_site", a, b, node_xy, node_value, planar,
+                    allowance, (reason_a, reason_b)))
+                continue
         ra, rb = _find(a), _find(b)
         if ra != rb:
             parent[max(ra, rb)] = min(ra, rb)
         paired = True
-    if not paired:
-        return 0
-
     clusters: "defaultdict[int, list]" = defaultdict(list)
-    for node_index in range(len(points)):
-        clusters[_find(node_index)].append(node_index)
+    if paired:
+        for node_index in range(len(points)):
+            clusters[_find(node_index)].append(node_index)
 
     moved = 0
     changed_entries: set = set()
@@ -2010,7 +2346,7 @@ def blend_cross_strip_seam_steps(strip_shapes, layout):
         members = clusters[root]
         if len(members) < 2:
             continue                # never paired: not a seam cluster
-        anchor_reason = {m: _anchor_reason(m) for m in members}
+        anchor_reason = {m: _reason(m) for m in members}
         anchors = [m for m in members if anchor_reason[m]]
         free_nodes = [m for m in members if not anchor_reason[m]]
         if not free_nodes:
@@ -2021,9 +2357,126 @@ def blend_cross_strip_seam_steps(strip_shapes, layout):
                 entries, shape_index))
             continue
         source = anchors if anchors else members
+        member_set = set(members)
+        if law and anchors:
+            # §2, STATED AS LAW: the healer may average ONLY over a
+            # population that agrees PAIRWISE under the census predicate
+            # — such a mean cannot mint a row.  The pairing loop already
+            # refused to union across a disagreeing anchor pair; this
+            # catches the TRANSITIVE case (two disagreeing anchors joined
+            # through free nodes), where the whole sub-cluster is a
+            # deferred authority joint rather than an averaging site.
+            split = None
+            for i in range(len(anchors)):
+                for j in range(i + 1, len(anchors)):
+                    a_i, a_j = anchors[i], anchors[j]
+                    (ax, ay), (bx, by) = node_xy[a_i], node_xy[a_j]
+                    planar = math.hypot(ax - bx, ay - by)
+                    if planar >= STRIP_SEAM_TEAR_RADIUS_M:
+                        continue    # cannot be a census pair at all
+                    delta = abs(node_value[a_i] - node_value[a_j])
+                    if delta > seam_guard_allowance_m(planar):
+                        split = (a_i, a_j, planar,
+                                 seam_guard_allowance_m(planar))
+                        break
+                if split is not None:
+                    break
+            if split is not None:
+                a_i, a_j, planar, allowance = split
+                joints.append(_strip_seam_joint_record(
+                    "target_split", a_i, a_j, node_xy, node_value, planar,
+                    allowance,
+                    (anchor_reason[a_i], anchor_reason[a_j])))
+                continue
         target = round(
             sum(node_value[m] for m in source) / float(len(source)), 2)
-        member_set = set(members)
+        if law:
+            # ── §3 CLUSTER-LEVEL GUARD (the radius fix) ───────────────
+            # ONE feasible interval for the whole sub-cluster: the
+            # intersection of every MOVER's per-neighbour §1 allowances
+            # against every non-member within the tear radius.  A bound
+            # found through one mover binds the CLUSTER, because every
+            # mover takes the SAME level — which is what makes the
+            # 4.26 m cliff-between-mates class impossible.
+            lo = hi = None
+            binding_lo = binding_hi = None
+            per_node: dict = {}
+            for m in free_nodes:
+                m_lo = m_hi = None
+                (mx, my) = node_xy[m]
+                for n in nbrs.get(m, ()):
+                    if n in member_set:
+                        continue
+                    (nx, ny) = node_xy[n]
+                    planar = math.hypot(mx - nx, my - ny)
+                    allowance = seam_guard_allowance_m(planar)
+                    hi_n = node_value[n] + allowance
+                    lo_n = node_value[n] - allowance
+                    if m_hi is None or hi_n < m_hi:
+                        m_hi = hi_n
+                    if m_lo is None or lo_n > m_lo:
+                        m_lo = lo_n
+                    if hi is None or hi_n < hi:
+                        hi = hi_n
+                        binding_hi = (round(float(nx), 2),
+                                      round(float(ny), 2),
+                                      round(float(node_value[n]), 3),
+                                      round(float(planar), 2))
+                    if lo is None or lo_n > lo:
+                        lo = lo_n
+                        binding_lo = (round(float(nx), 2),
+                                      round(float(ny), 2),
+                                      round(float(node_value[n]), 3),
+                                      round(float(planar), 2))
+                per_node[m] = (m_lo, m_hi)
+            worst = max(free_nodes,
+                        key=lambda m: (abs(node_value[m] - target), m))
+            if lo is not None and hi is not None and lo > hi:
+                # EMPTY CLUSTER INTERVAL after §1+§2 — a loud guarded
+                # record carrying its LAWFUL-ASSIGNMENT check
+                # (feasibility-is-guaranteed: a survivor is attribution,
+                # never tolerance).  ``per_node_feasible`` means a lawful
+                # assignment exists but only by letting the mates take
+                # DIFFERENT levels — which is exactly what §3 forbids, so
+                # the record names the trade rather than hiding it.
+                node_feasible = all(
+                    not (a is not None and b is not None and a > b)
+                    for (a, b) in per_node.values())
+                record = _strip_seam_guard_record(
+                    "cluster_blocked", worst, node_xy, node_value, target,
+                    None, lo, hi)
+                record["nodes"] = len(free_nodes)
+                record["lawful"] = ("per_node_feasible" if node_feasible
+                                    else "node_empty")
+                record["binding_lo"] = binding_lo
+                record["binding_hi"] = binding_hi
+                guarded.append(record)
+                continue
+            tgt = target
+            if hi is not None and tgt > hi:
+                tgt = hi
+            if lo is not None and tgt < lo:
+                tgt = lo
+            tgt = round(tgt, 2)
+            if abs(tgt - target) > 1e-9:
+                record = _strip_seam_guard_record(
+                    "clamped", worst, node_xy, node_value, target, tgt,
+                    lo, hi)
+                record["nodes"] = len(free_nodes)
+                record["lawful"] = "cluster_clamped"
+                record["binding_lo"] = binding_lo
+                record["binding_hi"] = binding_hi
+                guarded.append(record)
+            # RIGID MOVE: every mover takes the one clamped level.
+            for m in free_nodes:
+                if abs(node_value[m] - tgt) < 1e-9:
+                    continue
+                node_value[m] = tgt
+                for (entry_index, position, _a, _x, _y) in logical[m]:
+                    entries[entry_index][2][position] = tgt
+                    changed_entries.add(entry_index)
+                    moved += 1
+            continue
         for m in free_nodes:
             # NON-WORSENING GUARD (CYXY tear diagnosis 2026-07-26): the
             # cluster mean can hoist a node away from a near neighbour
@@ -2072,7 +2525,14 @@ def blend_cross_strip_seam_steps(strip_shapes, layout):
                 moved += 1
     # v3 §2: the declines are reported BEFORE the writeback, so a
     # writeback failure cannot swallow them.  Read-only w.r.t. geometry.
-    report_strip_seam_declines(declined, layout, guarded)
+    report_strip_seam_declines(declined, layout, guarded, joints)
+    if law:
+        # v4 §2: the deferred joints travel to the wall pass, which
+        # reports (pre-registered ZERO) any it does not pick up.
+        try:
+            layout._strip_seam_deferred_joints = joints
+        except Exception:                               # noqa: BLE001
+            pass
     # Write back ONLY the touched strips — untouched shapes keep their
     # exact original altitude lists (byte-identity everywhere no seam
     # cluster exists).
@@ -2126,14 +2586,24 @@ def emit_stacked_conflict_walls(layout) -> int:
     vertices are cross-tile contracts and are never moved (their
     conflicts fall back to the emit consensus merge).  Returns the
     number of wall faces emitted.
+
+    v4 §2 (gate ``O4_STRIP_HEAL_LAW``): the AUTHORITY half of the site
+    table is not rebuilt here — it is the SHARED index the cross-strip
+    healer already consulted (``strip_wall_site_index``), evaluated once
+    and passed forward on the layout.  The pass ORDER is unchanged (the
+    ordering ruling: the heal-before-retreat contract is measured law);
+    only the derivation is single-pass.  The STRIP half is still read
+    here, because the healer moved strip values after the index was
+    built — that is the point of running after it.
     """
     from .crown import _point_in_seam_band
-    from .layout import (
-        SOFT_RECEIVER_ROLES, WELD_DONOR_ROLES, corner_alts_from_high_low)
+    from .layout import SOFT_RECEIVER_ROLES, WELD_DONOR_ROLES
 
     registry = getattr(layout, "canonical_points", None)
     if registry is None:
         return 0
+    law = _strip_heal_law_enabled()
+    wall_index = strip_wall_site_index(layout) if law else None
     # RUNWAY-STRIP WALL LAW (owner ruling 2026-08-01): a face inside a
     # runway strip footprint is inadmissible.  Skipping the RUN also
     # cancels its vertex retreat, i.e. the conflict falls back to the emit
@@ -2141,38 +2611,9 @@ def emit_stacked_conflict_walls(layout) -> int:
     # path.  ``None`` with the gate off (byte-identical).
     _strip_keepout = runway_strip_wall_keepout(layout)
 
-    def _ring_values(shape):
-        """Open exterior ring + aligned per-vertex values, mirroring
-        ``to_osm``'s derivation (node_altitudes > flat altitude
-        broadcast > sloped-rect high/low corners).  None when the
-        shape carries no elevation or the lists misalign."""
-        poly = shape.polygon
-        if (poly is None or poly.is_empty
-                or poly.geom_type != "Polygon"):
-            return None
-        try:
-            coords = list(poly.exterior.coords)
-        except _GEOM_EXC:
-            return None
-        if len(coords) > 1 and coords[0] == coords[-1]:
-            coords = coords[:-1]
-        if len(coords) < 3:
-            return None
-        if shape.node_altitudes is not None:
-            alts = list(shape.node_altitudes)
-            if len(alts) == len(coords) + 1:
-                alts = alts[:-1]
-            if len(alts) != len(coords):
-                return None
-            return coords, [float(a) for a in alts]
-        if shape.altitude is not None:
-            return coords, [float(shape.altitude)] * len(coords)
-        if (shape.altitude_high is not None
-                and shape.altitude_low is not None
-                and len(coords) == 4):
-            return coords, corner_alts_from_high_low(
-                float(shape.altitude_high), float(shape.altitude_low))
-        return None
+    # ONE derivation of "the ring and its aligned values", shared with
+    # the wall-site index (module-level ``_ring_values_for_walls``).
+    _ring_values = _ring_values_for_walls
 
     # Authority claim table over canonical points: value claims from
     # NON-donor, non-soft shapes (the designed-split classes whose
@@ -2214,6 +2655,8 @@ def emit_stacked_conflict_walls(layout) -> int:
             continue
         if role in SOFT_RECEIVER_ROLES or role in WELD_DONOR_ROLES:
             continue
+        if law:
+            continue            # v4 §2: the SHARED index already holds it
         rv = _ring_values(shape)
         if rv is None:
             continue
@@ -2226,22 +2669,27 @@ def emit_stacked_conflict_walls(layout) -> int:
                 (shape.polygon.exterior, coords, alts))
         except _GEOM_EXC:
             pass
+    if law:
+        authority_claims = wall_index.claims
+        authority_edges = wall_index.edges
 
     if (not authority_claims and not authority_edges
             and not strip_claims):
         return 0
     edge_tree = None
-    if authority_edges:
+    if law:
+        edge_tree = wall_index.edge_tree
+    elif authority_edges:
         try:
             edge_tree = STRtree([e[0] for e in authority_edges])
         except _GEOM_EXC:
             edge_tree = None
-    _EDGE_COINCIDE_TOL_M = 0.01
 
     def _edge_conflict_value(vx, vy):
         """Authority value at (vx, vy) when the point lies ON a
         non-donor authority exterior (edge-interpolated); None when no
-        edge passes through the point."""
+        edge passes through the point.  Same arithmetic the shared
+        wall-site index runs (``_interp_on_ring_law``)."""
         if edge_tree is None:
             return None
         try:
@@ -2251,28 +2699,9 @@ def emit_stacked_conflict_walls(layout) -> int:
             return None
         if idxs is None or len(idxs) == 0:
             return None
-        exterior, coords_a, alts_a = authority_edges[int(idxs[0])]
-        # Walk the ring segments for the projection and interpolate
-        # the two segment-end values.
-        best = None
-        na = len(coords_a)
-        for i in range(na):
-            ax, ay = coords_a[i]
-            bx, by = coords_a[(i + 1) % na]
-            dx, dy = bx - ax, by - ay
-            L2 = dx * dx + dy * dy
-            if L2 < 1e-12:
-                continue
-            t = ((vx - ax) * dx + (vy - ay) * dy) / L2
-            t = min(1.0, max(0.0, t))
-            px, py = ax + dx * t, ay + dy * t
-            d = math.hypot(vx - px, vy - py)
-            if best is None or d < best[0]:
-                best = (d, (1.0 - t) * alts_a[i]
-                        + t * alts_a[(i + 1) % na])
-        if best is None or best[0] > _EDGE_COINCIDE_TOL_M:
-            return None
-        return best[1]
+        _exterior, coords_a, alts_a = authority_edges[int(idxs[0])]
+        return _interp_on_ring_law(coords_a, alts_a, vx, vy,
+                                   _EDGE_COINCIDE_TOL_M)
 
     strip_edge_tree = None
     if strip_edges:
@@ -2283,26 +2712,10 @@ def emit_stacked_conflict_walls(layout) -> int:
 
     def _interp_on_ring(coords_a, alts_a, vx, vy):
         """Edge-interpolated value of a ring at (vx, vy), or None when
-        the point is farther than the coincidence tolerance."""
-        best = None
-        na = len(coords_a)
-        for i in range(na):
-            ax, ay = coords_a[i]
-            bx, by = coords_a[(i + 1) % na]
-            dx, dy = bx - ax, by - ay
-            L2 = dx * dx + dy * dy
-            if L2 < 1e-12:
-                continue
-            t = ((vx - ax) * dx + (vy - ay) * dy) / L2
-            t = min(1.0, max(0.0, t))
-            px, py = ax + dx * t, ay + dy * t
-            d = math.hypot(vx - px, vy - py)
-            if best is None or d < best[0]:
-                best = (d, (1.0 - t) * alts_a[i]
-                        + t * alts_a[(i + 1) % na])
-        if best is None or best[0] > _EDGE_COINCIDE_TOL_M:
-            return None
-        return best[1]
+        the point is farther than the coincidence tolerance.  ONE
+        derivation (``_interp_on_ring_law``)."""
+        return _interp_on_ring_law(coords_a, alts_a, vx, vy,
+                                   _EDGE_COINCIDE_TOL_M)
 
     def _strip_edge_conflict_value(vx, vy, own_id):
         """Highest OTHER-strip chain value at (vx, vy) when the point
@@ -2548,7 +2961,66 @@ def emit_stacked_conflict_walls(layout) -> int:
         new_walls.extend(clipped_walls)
         emitted += len(clipped_walls)
     layout.shapes.extend(new_walls)
+    if law:
+        report_strip_seam_joint_pickup(layout, new_walls)
     return emitted
+
+
+# ── DEFERRED-JOINT PICKUP (spec seam-continuity-v4 §2 (iii)) ──────────
+# "The deferred joints then get their declared wall in the existing pass
+#  order ... A joint the wall pass does NOT pick up is a loud record and
+#  a pre-registered zero."
+#
+# PICKUP PREDICATE (pre-registered in the lane's PRE_REG, one number, no
+# fitting): a joint is picked up when a face this pass emitted lies
+# within ``STACKED_WALL_RETREAT_M + STRIP_SEAM_WALL_STRADDLE_TOL_M`` of
+# the joint site — the retreat distance plus the census's own straddle
+# slack, i.e. exactly the reach over which the census's straddle
+# exemption will recognise the face as spanning the joint.  Lockstep by
+# construction: both numbers are the shared law module's / this module's,
+# never a third constant.
+_STRIP_SEAM_JOINT_PICKUP_M = (
+    STACKED_WALL_RETREAT_M + STRIP_SEAM_WALL_STRADDLE_TOL_M)
+
+
+def report_strip_seam_joint_pickup(layout, new_walls) -> int:
+    """Report every DEFERRED AUTHORITY JOINT the wall pass did not pick
+    up.  Returns the number of UNPICKED joints (pre-registered zero).
+    Read-only."""
+    joints = list(getattr(layout, "_strip_seam_deferred_joints", ()) or ())
+    if not joints:
+        return 0
+    icao = str(getattr(layout, "icao", "?") or "?")
+    faces = [w.polygon for w in new_walls
+             if getattr(w, "polygon", None) is not None
+             and not w.polygon.is_empty]
+    unpicked = []
+    for row in joints:
+        point = Point(float(row["x"]), float(row["y"]))
+        hit = False
+        for face in faces:
+            try:
+                if face.distance(point) <= _STRIP_SEAM_JOINT_PICKUP_M:
+                    hit = True
+                    break
+            except _GEOM_EXC:
+                continue
+        if not hit:
+            unpicked.append(row)
+    UI.vprint(1, f"  {_STRIP_SEAM_DECLINE_TAG} {icao}: deferred authority "
+                 f"joints — {len(joints) - len(unpicked)} of {len(joints)} "
+                 f"picked up by {len(faces)} stacked-conflict face(s) "
+                 f"within {_STRIP_SEAM_JOINT_PICKUP_M:.2f} m; "
+                 f"{len(unpicked)} UNPICKED.")
+    for position, row in enumerate(unpicked, start=1):
+        UI.vprint(1,
+                  f"  {_STRIP_SEAM_DECLINE_TAG} JOINT-UNPICKED {icao} "
+                  f"{position}/{len(unpicked)}: kind={row['kind']} "
+                  f"site=({row['x']:.2f},{row['y']:.2f}) "
+                  f"step={row['step_m']:.3f}m "
+                  f"planar={row['planar_m']:.3f}m "
+                  f"anchored={row['anchors'][0]}/{row['anchors'][1]}")
+    return len(unpicked)
 
 
 # ── GROUNDSIDE TERRACE FACES (owner ruling 2026-07-30) ──────────────────

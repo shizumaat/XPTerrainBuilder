@@ -56,18 +56,21 @@ from auto_patch import strip_seam_law  # noqa: E402
 from auto_patch import grade_graph_validate  # noqa: E402
 from auto_patch import adjacent_ground  # noqa: E402
 
-# The two thresholds the EMITTER (v3 §1 third-copy absorption) shares with
-# the census.  The grade floor is deliberately NOT in this list: the
-# healer still declares its own, and coupling the two is a design decision
-# no round has taken.
+# The thresholds the EMITTER shares with the census: the radius and step
+# floor (v3 §1, third copy) and — since spec seam-continuity-v4 §1 ruled
+# the coupling v3 flagged and deferred — the cliff-GRADE floor (fourth
+# copy).  The healer's pairing test and its non-worsening guard now both
+# quote the census predicate itself.
 HEALER_ABSORBED_CONSTANTS = (
     "STRIP_SEAM_TEAR_RADIUS_M",
     "STRIP_SEAM_TEAR_MIN_STEP_M",
+    "STRIP_SEAM_TEAR_MIN_GRADE",
 )
 # The bare-"seam" names the healer used to declare locally.
 RETIRED_HEALER_SPELLINGS = (
     r"(?<![A-Z_])SEAM_STEP_RADIUS_M\b",
     r"(?<![A-Z_])SEAM_STEP_MIN_DELTA_M\b",
+    r"(?<![A-Z_])SEAM_STEP_MIN_GRADE\b",
 )
 
 STRIP_CONSTANTS = (
@@ -162,6 +165,52 @@ def test_the_healer_reads_every_absorbed_constant_from_the_law_module():
         assert (getattr(check_grade, name)
                 is getattr(adjacent_ground, name)), (
             f"emitter and validator disagree on the object behind {name}")
+
+
+def test_the_census_predicate_is_one_function_for_both_halves():
+    """v4 §1: the guard allowance and ``_check_strip_seam_tears`` are
+    computed from ONE function.
+
+    IDENTITY half — the validator's verdict call IS the law module's
+    ``seam_pair_is_tear``, and the emitter imports the same object."""
+    assert check_grade._seam_pair_is_tear is strip_seam_law.seam_pair_is_tear
+    assert (adjacent_ground.seam_pair_is_tear
+            is strip_seam_law.seam_pair_is_tear)
+    assert (adjacent_ground.seam_guard_allowance_m
+            is strip_seam_law.seam_guard_allowance_m)
+
+
+def test_the_guard_allowance_never_permits_a_census_tear():
+    """ARITHMETIC half of the same twin, swept over the pair space: any
+    |Δalt| the guard allows at a distance must be a Δ the census does NOT
+    call a tear.  A drift in either function breaks this immediately."""
+    for step in range(0, 121):
+        planar = step * 0.05                    # 0 .. 6 m, the tear radius
+        allowance = strip_seam_law.seam_guard_allowance_m(planar)
+        for frac in (0.0, 0.25, 0.5, 0.75, 0.999, 1.0):
+            de = allowance * frac
+            assert not strip_seam_law.seam_pair_is_tear(de, planar), (
+                f"the guard allows Δ={de:.4f} m at {planar:.2f} m, which "
+                f"the census reports as a tear")
+        # And the allowance is TIGHT: a Δ one margin above it is a tear
+        # (otherwise the guard is silently over-strict again — the exact
+        # defect the bounds-attribution verdict attributed).
+        over = allowance + 2 * strip_seam_law.STRIP_SEAM_GUARD_MARGIN_M
+        assert strip_seam_law.seam_pair_is_tear(over, planar), (
+            f"Δ={over:.4f} m at {planar:.2f} m is not a tear — the "
+            f"allowance is looser than the census predicate")
+
+
+def test_the_guard_allowance_is_grade_aware_past_the_step_floor():
+    """The bounds-attribution verdict's mechanism 1, as a number: at the
+    MEASURED site distances (2.2-6.0 m) the census-identical allowance is
+    strictly larger than the retired bare step-floor allowance, and by up
+    to 3x at the radius."""
+    flat = (strip_seam_law.STRIP_SEAM_TEAR_MIN_STEP_M
+            - strip_seam_law.STRIP_SEAM_GUARD_MARGIN_M)
+    for planar in (2.2, 2.84, 3.41, 5.98, 6.0):
+        assert strip_seam_law.seam_guard_allowance_m(planar) > flat
+    assert (strip_seam_law.seam_guard_allowance_m(6.0) / flat) > 2.9
 
 
 def test_adjacent_ground_defines_no_strip_seam_constant_of_its_own():

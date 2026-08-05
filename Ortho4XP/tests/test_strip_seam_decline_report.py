@@ -123,9 +123,9 @@ def test_report_rows_equal_declined_clusters_and_only_declined_clusters(
     seen: list = []
     real = adjacent_ground.report_strip_seam_declines
 
-    def _spy(declined, layout, guarded=()):
+    def _spy(declined, layout, guarded=(), joints=()):
         seen.append(list(declined))
-        return real(declined, layout, guarded)
+        return real(declined, layout, guarded, joints)
 
     monkeypatch.setattr(adjacent_ground, "report_strip_seam_declines", _spy)
 
@@ -288,25 +288,32 @@ def test_a_guard_clamped_node_is_reported_with_its_residual(capsys):
 
 
 def test_both_guard_exits_record_before_they_leave_a_step(capsys):
-    """STRUCTURAL: the guard has exactly two exits that leave a step
-    standing, and each records one row.  A third silent exit added later
-    fails this twin instead of quietly re-creating the v3 §2 defect."""
+    """STRUCTURAL: every guard exit that leaves a step standing records
+    one row.  A silent exit added later fails this twin instead of
+    quietly re-creating the v3 §2 defect."""
     fn = ast.parse(textwrap.dedent(
         inspect.getsource(blend_cross_strip_seam_steps))).body[0]
     kinds = [n.args[0].value for n in ast.walk(fn)
              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
              and n.func.id == "_strip_seam_guard_record"
              and n.args and isinstance(n.args[0], ast.Constant)]
-    assert sorted(kinds) == ["blocked", "clamped"], kinds
+    # v3: the per-node guard's two exits.  v4 §3 adds the CLUSTER-level
+    # pair (the guard now clamps a whole sub-cluster to ONE level), so the
+    # SET is the invariant — an exit kind that does not record still fails.
+    assert set(kinds) == {"blocked", "clamped", "cluster_blocked"}, kinds
 
     # The inverted-bounds branch is the one that must never be silent.
+    # v4 §3 gives it a CLUSTER-level twin, so BOTH inverted-bounds
+    # branches (per-node, gate off; per-cluster, gate on) must record
+    # before they leave.
     inverted = [node for node in ast.walk(fn)
                 if isinstance(node, ast.If)
                 and "lo > hi" in ast.unparse(node.test)]
-    assert len(inverted) == 1, ast.unparse(fn)
-    body = ast.unparse(inverted[0])
-    assert "_strip_seam_guard_record" in body, body
-    assert body.index("_strip_seam_guard_record") < body.index("continue")
+    assert len(inverted) == 2, ast.unparse(fn)
+    for node in inverted:
+        body = ast.unparse(node)
+        assert "_strip_seam_guard_record" in body, body
+        assert body.index("_strip_seam_guard_record") < body.index("continue")
 
 
 def test_the_report_returns_one_row_per_left_alone_outcome(capsys):
@@ -350,8 +357,9 @@ def test_the_record_names_the_anchored_sides_and_the_step_height():
     captured: list = []
     real = adjacent_ground.report_strip_seam_declines
     adjacent_ground.report_strip_seam_declines = (
-        lambda declined, lay, guarded=(): (
-            captured.extend(declined), real(declined, lay, guarded))[1])
+        lambda declined, lay, guarded=(), joints=(): (
+            captured.extend(declined),
+            real(declined, lay, guarded, joints))[1])
     try:
         blend_cross_strip_seam_steps(layout.shapes, layout)
     finally:

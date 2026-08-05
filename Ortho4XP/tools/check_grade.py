@@ -136,6 +136,7 @@ from auto_patch.strip_seam_law import (      # noqa: E402
     WallFaces as _WallFaces,
     open_ground_between as _open_ground_between_law,
     point_in_ring as _point_in_ring,
+    seam_pair_is_tear as _seam_pair_is_tear,
 )
 
 # LAW GEOMETRY shared with the emitters (single source — never a second
@@ -2469,11 +2470,18 @@ def _check_strip_seam_tears(
                     if d >= radius_m:
                         continue  # too far apart to be a seam
                     de = abs(v.elev - u.elev)
-                    if de <= min_step_m:
-                        continue  # lawful terrace step / rounding noise
+                    # THE PAIR PREDICATE — one arithmetic, shared with the
+                    # healer's guard allowance (v4 §1,
+                    # ``strip_seam_law.seam_pair_is_tear`` /
+                    # ``seam_guard_allowance_m``).  Value-identical to the
+                    # two inline conjuncts it replaces.
+                    if not _seam_pair_is_tear(
+                            de, d, min_step_m=min_step_m,
+                            min_grade=STRIP_SEAM_TEAR_MIN_GRADE,
+                            min_distance_m=min_distance_m):
+                        continue  # lawful terrace step / noise, or a
+                        # steep-terrain drape rather than a cliff
                     grade = de / max(d, min_distance_m)
-                    if grade < STRIP_SEAM_TEAR_MIN_GRADE:
-                        continue  # steep-terrain drape, not a cliff
                     if _wall_spans(v, u):
                         continue  # deliberate retaining_wall face
                     # The open-ground test is now BOTH the straddle

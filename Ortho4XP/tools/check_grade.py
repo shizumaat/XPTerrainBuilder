@@ -113,12 +113,22 @@ try:
     from auto_patch.grade_law import (
         runway_axis_and_width as _runway_axis_and_width,
         runway_strip_wall_keepout_rings as _runway_strip_wall_keepout_rings,
+        runway_strip_longitudinal_runs as _runway_strip_longitudinal_runs,
+        runway_strip_max_longitudinal_slope as _runway_strip_long_slope,
         drainage_spine_parents as _drainage_spine_parents,
         DRAINAGE_SPINE_PARENT_ROLES as _DRAINAGE_SPINE_PARENT_ROLES,
+    )
+    from auto_patch.config import (
+        runway_code_number as _runway_code_number,
+        STRIP_PRECEDENCE_ENABLED as _STRIP_PRECEDENCE,
     )
 except Exception:
     _runway_axis_and_width = None
     _runway_strip_wall_keepout_rings = None
+    _runway_strip_longitudinal_runs = None
+    _runway_strip_long_slope = None
+    _runway_code_number = None
+    _STRIP_PRECEDENCE = False
     _DRAINAGE_SPINE_PARENT_ROLES = frozenset({
         "runway", "runway_crossing", "primary_parallel",
         "secondary_parallel", "stub", "cross_connector", "junction",
@@ -1710,12 +1720,20 @@ def _point_in_rect_ring(px: float, py: float,
     return (margin <= t1 <= l1 - margin) and (margin <= t2 <= l2 - margin)
 
 
-def _runway_strip_keepout_rings(ways: List[Way], nodes, ll_to_m):
-    """The runway STRIP footprints of this patch, as closed rings in the
-    check's metre frame — ``[]`` when the law module is unavailable or the
-    patch carries no runway.  Runway ways are grouped by ``ref`` first: a
-    tile cut or a runway crossing leaves one runway as several ways, and a
-    fragment's own principal axis is not the runway's."""
+def _runway_strip_groups(ways: List[Way], nodes, ll_to_m):
+    """One record per RUNWAY of this patch:
+    ``(rings, axis_unit, code_number, length_m)`` — the strip FOOTPRINT
+    rings in the check's metre frame plus the runway's along-axis unit
+    vector and aerodrome code number.
+
+    ``[]`` when the law module is unavailable or the patch carries no
+    runway.  Runway ways are grouped by ``ref`` first: a tile cut or a
+    runway crossing leaves one runway as several ways, and a fragment's own
+    principal axis is not the runway's.
+
+    THE one place the check derives strip geometry; both the wall law's
+    footprint (``_runway_strip_keepout_rings``) and the abeam-longitudinal
+    reader read it, so they cannot disagree about where a strip is."""
     if _runway_axis_and_width is None:
         return []
     groups: Dict[str, List[Tuple[float, float]]] = {}
@@ -1726,13 +1744,34 @@ def _runway_strip_keepout_rings(ways: List[Way], nodes, ll_to_m):
         if len(pts) < 3:
             continue
         groups.setdefault(w.ref or w.wid, []).extend(pts)
-    rings = []
+    out = []
     for pts in groups.values():
         axis = _runway_axis_and_width(pts)
         if axis is None:
             continue
-        rings.extend(_runway_strip_wall_keepout_rings(
-            axis[0], axis[1], axis[2]))
+        (ax, ay), (bx, by), width_m = axis
+        length = math.hypot(bx - ax, by - ay)
+        if length < 1.0:
+            continue
+        rings = _runway_strip_wall_keepout_rings((ax, ay), (bx, by), width_m)
+        code = (_runway_code_number(length)
+                if _runway_code_number is not None else 4)
+        out.append((rings, ((bx - ax) / length, (by - ay) / length),
+                    code, length))
+        # NOTE for consumers: ``rings[0]`` is the LATERAL graded-strip
+        # rectangle (between the ends) and ``rings[1:]`` the two END
+        # corridors — the split the abeam-longitudinal law needs (see
+        # ``grade_law.runway_strip_lateral_footprint_ring``).
+    return out
+
+
+def _runway_strip_keepout_rings(ways: List[Way], nodes, ll_to_m):
+    """The runway STRIP footprints of this patch, as closed rings (the
+    wall law's consumer view of ``_runway_strip_groups``)."""
+    rings = []
+    for group_rings, _axis, _code, _length in _runway_strip_groups(
+            ways, nodes, ll_to_m):
+        rings.extend(group_rings)
     return rings
 
 
@@ -1765,6 +1804,123 @@ def _check_no_wall_in_runway_strip(ways: List[Way], nodes, ll_to_m
                 elev_a=z, elev_b=z))
             break        # one violation per WAY (the face is the defect)
     return out
+
+
+# ── ABEAM-LONGITUDINAL STRIP LAW (§2, standards gap G-2) ────────
+# The VALIDATOR TWIN of ``grade_law.runway_strip_longitudinal_clamp``.
+# ICAO Annex 14 §3.4.13 caps the graded strip's ALONG-RUNWAY slope by code
+# number (1.5 % code 4 / 1.75 % code 3 / 2 % code 1-2); FAA AC 150/5300-13B
+# §3.16.5 item 1 says the same ground carries the RUNWAY's own longitudinal
+# standard between the ends.  Nothing in this repo read that axis before —
+# the lateral corridor law bounds a band vertex against the pavement edge at
+# its own depth and never couples two stations along the runway — so this
+# reader's rows are NEW VISIBILITY, and the honest expectation is that the
+# count RISES when it is switched on: it sees ground that was never read.
+#
+# Lockstep is structural: the emitter and this reader call the SAME
+# ``runway_strip_longitudinal_runs`` over the SAME footprint geometry, so
+# they agree pair-for-pair about which pairs the longitudinal law binds.
+#
+# The band emitter rounds every band vertex to 0.1 m, so a PAIR carries a
+# full decimetre of quantization; that is the allowance granted (the same
+# constant the sloped-quad / weld-hub classes take).
+_STRIP_LONGITUDINAL_ROLE = "graded_strip"
+# The PAVEMENT roles whose nodes a band welds to (the weld-row skip above).
+# NOTE (blast role-literal hazard): renaming a role VALUE in
+# auto_patch/layout.py silently empties this set.
+_STRIP_PAVEMENT_ROLES = frozenset({
+    "runway", "runway_crossing", "primary_parallel", "secondary_parallel",
+    "stub", "cross_connector", "junction", "apron", "terminal", "building",
+    "service_road", "service_junction", "groundside_pavement",
+    "tunnel_ramp", "hangar_pad",
+})
+# Pairs shorter than this along-axis carry more rounding than signal (a
+# 0.1 m quantum over 0.2 m of run is 50 % of phantom grade); the allowance
+# alone does not separate them, so they are not censused.  One station step
+# is the emitter's own along-frontage granularity.
+_STRIP_LONGITUDINAL_MIN_RUN_M = 1.0
+
+
+def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
+                                    ) -> Tuple[List[Violation], int, int]:
+    """``(violations, n_pairs, n_ways)`` — every strip-band pair whose
+    ALONG-RUNWAY slope exceeds the strip's by-code longitudinal cap.
+
+    Only vertices INSIDE a runway strip footprint are read (that is where
+    the law applies), and only pairs whose separation is predominantly
+    along-axis: a transverse step is the graded strip's own mandatory
+    cross-fall (Annex 14 §3.4.15), whose law is the lateral corridor's, and
+    reading it here would demand that the drainage fall be flat.
+
+    A pair whose BOTH endpoints are pavement nodes is skipped: that edge is
+    the band's weld row, i.e. the pavement's own edge, and its longitudinal
+    profile is the RUNWAY's law (``RUNWAY_MAX_GRADE`` + the vertical-curve
+    rules), already read by the runway checks.  Skipping it here keeps this
+    reader's population "strip GROUND", which is what G-2 is about."""
+    if _runway_strip_longitudinal_runs is None or not _STRIP_PRECEDENCE:
+        return [], 0, 0
+    groups = _runway_strip_groups(ways, nodes, ll_to_m)
+    if not groups:
+        return [], 0, 0
+    pavement_nids: set = set()
+    for w in ways:
+        if w.role in _STRIP_PAVEMENT_ROLES:
+            pavement_nids.update(w.nids)
+    out: List[Violation] = []
+    n_pairs = 0
+    hit_ways: set = set()
+    for w in ways:
+        if w.role != _STRIP_LONGITUDINAL_ROLE:
+            continue
+        nn = (w.nids[:-1] if len(w.nids) > 1 and w.nids[0] == w.nids[-1]
+              else w.nids)
+        pts: List[Tuple[float, float]] = []
+        zs: List[Optional[float]] = []
+        for k, nid in enumerate(nn):
+            if nid not in nodes:
+                pts, zs = [], []
+                break
+            x, y = ll_to_m(*nodes[nid])
+            pts.append((x, y))
+            zs.append(w.elevs[k] if k < len(w.elevs) else None)
+        if len(pts) < 2:
+            continue
+        allow = _pair_quant_noise_m(w)
+        if allow < SLOPED_QUAD_ROUNDING_NOISE_M:
+            allow = SLOPED_QUAD_ROUNDING_NOISE_M
+        for rings, axis, code, _length in groups:
+            # BETWEEN THE ENDS only: ``rings[0]`` is the lateral graded
+            # strip; the end corridors carry the runway-END regime's own
+            # longitudinal law (FAA §3.16.5 items 2-4), read elsewhere.
+            inside = [_point_in_rect_ring(px, py, rings[0], 0.0)
+                      for px, py in pts]
+            if not any(inside):
+                continue
+            cap = _runway_strip_long_slope(code)
+            for run in _runway_strip_longitudinal_runs(pts, axis, inside):
+                for a, b in zip(run, run[1:]):
+                    if zs[a] is None or zs[b] is None:
+                        continue
+                    if nn[a] in pavement_nids and nn[b] in pavement_nids:
+                        continue
+                    ds = abs((pts[b][0] - pts[a][0]) * axis[0]
+                             + (pts[b][1] - pts[a][1]) * axis[1])
+                    if ds < _STRIP_LONGITUDINAL_MIN_RUN_M:
+                        continue
+                    n_pairs += 1
+                    dz = abs(float(zs[b]) - float(zs[a]))
+                    if dz <= cap * ds + allow:
+                        continue
+                    hit_ways.add(w.wid)
+                    out.append(Violation(
+                        grade_pct=100.0 * dz / ds,
+                        excess_pct=100.0 * (dz - cap * ds - allow) / ds,
+                        distance_m=ds, de_m=dz,
+                        way_a=w, way_b=w,
+                        pt_a=pts[a], pt_b=pts[b],
+                        elev_a=float(zs[a]), elev_b=float(zs[b])))
+    out.sort(key=lambda v: -v.grade_pct)
+    return out, n_pairs, len(hit_ways)
 
 
 # ── DRAINAGE-SPINE LAW (owner field report 2026-08-02) ──────────
@@ -3488,6 +3644,18 @@ def run_checks(
               f"{n_lat_shapes} road shape(s) flagged — stations "
               f"{_LATERAL_STEP_M:g} m apart on one shape are correlated)")
     within = within + lateral
+
+    strip_long, n_sl_pairs, n_sl_ways = _check_strip_longitudinal_grade(
+        ways, nodes, ll_to_m)
+    _pv("STRIP ABEAM-LONGITUDINAL grade > the by-code strip cap (ICAO "
+        "Annex 14 §3.4.13 / FAA AC 150/5300-13B §3.16.5 item 1 — a law "
+        "family nothing read before; O4_STRIP_PRECEDENCE)",
+        strip_long, top_n)
+    if n_sl_pairs and not quiet:
+        print(f"  ({n_sl_pairs} along-axis strip pair(s) censused over "
+              f"{n_sl_ways} band(s) — NEW visibility: these rows were "
+              f"never read before this reader existed)")
+    within = within + strip_long
 
     wall_in_strip = _check_no_wall_in_runway_strip(ways, nodes, ll_to_m)
     _pv("RETAINING WALL inside a RUNWAY STRIP footprint (owner ruling "

@@ -72,6 +72,7 @@ from .config import (
     CLEARANCE_STATION_STEP_M,
     RUNWAY_STRIP_HALF_WIDTH_BY_CODE,
     RUNWAY_STRIP_WALL_LAW_ENABLED,
+    STRIP_PRECEDENCE_ENABLED,
     STRIP_WIDTH_FROM_CENTERLINE_ENABLED,
     TILE_CUT_HALF_WIDTH_M,
     runway_code_number,
@@ -85,6 +86,9 @@ from .grade_law import (
     ols_lateral_handover_distance_m,
     runway_axis_and_width,
     runway_strip_band_width_m,
+    runway_strip_lateral_footprint_ring,
+    runway_strip_longitudinal_clamp,
+    runway_strip_max_longitudinal_slope,
     runway_strip_wall_keepout_rings,
 )
 from .layout import (
@@ -337,6 +341,16 @@ _APPARATUS_KEYS = (
     # leaves ungoverned — no wall, no shoulder band, raw DEM up to the
     # apron edge.  0 with O4_APRON_WALL_SCOPE off, by construction.
     "apron_open_frontage_stations",
+    # STRIP PRECEDENCE §1 (O4_STRIP_PRECEDENCE): non-runway-family
+    # stations whose GOVERNING LAW was swapped to the strip family
+    # because they fall inside the lateral runway strip — the strip
+    # corridor law governs that ground, whatever shape's frontage the
+    # march started from.  0 with the gate off.
+    "strip_law_governed_stations",
+    # ABEAM LONGITUDINAL §2 (same gate): emitted band vertices the
+    # along-axis Lipschitz clamp actually MOVED (> 1 mm).  0 with the
+    # gate off, and 0 on a strip whose ground already complies.
+    "strip_longitudinal_clamped_vertices",
 )
 _APPARATUS_HITS: dict[str, int] = {}
 # Largest single clamp magnitude (m) applied by the emit-side corridor
@@ -344,11 +358,15 @@ _APPARATUS_HITS: dict[str, int] = {}
 # ``_APPARATUS_HITS`` so that table stays integer-valued (the OFF-vs-ON
 # retirement report parses it).
 _BAND_CLAMP_MAX_DELTA_M = 0.0
+# Largest single along-axis longitudinal clamp magnitude (m) applied this
+# emission (§2).  Same convention as ``_BAND_CLAMP_MAX_DELTA_M``.
+_STRIP_LONGITUDINAL_MAX_DELTA_M = 0.0
 
 
 def _reset_apparatus_hits():
-    global _BAND_CLAMP_MAX_DELTA_M
+    global _BAND_CLAMP_MAX_DELTA_M, _STRIP_LONGITUDINAL_MAX_DELTA_M
     _BAND_CLAMP_MAX_DELTA_M = 0.0
+    _STRIP_LONGITUDINAL_MAX_DELTA_M = 0.0
     for _hit_key in _APPARATUS_KEYS:
         _APPARATUS_HITS[_hit_key] = 0
 
@@ -441,6 +459,50 @@ def runway_strip_wall_keepout(layout, *, require_gate: bool = True):
     if block.is_empty:
         return None
     return block
+
+
+def runway_strip_lateral_zone(layout):
+    """The PREPARED LATERAL graded-strip rectangles — the §2
+    abeam-longitudinal law's domain (BETWEEN the ends; see
+    ``grade_law.runway_strip_lateral_footprint_ring`` for why the end
+    corridors are excluded from the CAP while §1's precedence keeps them).
+    ``None`` with the gate off or with no runway.
+
+    Same runway grouping and the same law function as
+    ``runway_strip_wall_keepout``; only the ring selection differs."""
+    if not STRIP_PRECEDENCE_ENABLED:
+        return None
+    groups: dict = {}
+    for s in layout.shapes:
+        if s.role != ROLE_RUNWAY:
+            continue
+        if s.polygon is None or s.polygon.is_empty:
+            continue
+        try:
+            coords = _open_coords(s.polygon)
+        except _GEOM_EXC:
+            continue
+        if len(coords) < 3:
+            continue
+        groups.setdefault(getattr(s, "ref", "") or id(s), []).extend(coords)
+    rings = []
+    for pts in groups.values():
+        axis = runway_axis_and_width(pts)
+        if axis is None:
+            continue
+        ring = runway_strip_lateral_footprint_ring(
+            axis[0], axis[1], axis[2])
+        if ring:
+            rings.append(ring)
+    if not rings:
+        return None
+    try:
+        block = unary_union([Polygon(r) for r in rings])
+        if block.is_empty:
+            return None
+        return prep(block)
+    except _GEOM_EXC:
+        return None
 
 
 def apron_wall_pavement_adjacency_index(layout):
@@ -3478,6 +3540,42 @@ def _band_family_closures(family, code_number, code_letter, width):
     return ceil_off, envelope_at, floor_depth
 
 
+def _strip_law_params(layout, shape, rw_axes, trigger_by_family,
+                      with_envelope=False):
+    """The STRIP family's corridor parameters for a NON-runway ``shape``
+    whose frontage reaches into a lateral runway strip (§1 law swap).
+
+    ``(floor_depth, ceil_off, width, reach, trigger, axis_line)`` — the same
+    six values ``_family_params`` + ``_band_family_closures`` give the
+    runway family, keyed on the NEAREST runway (its code number sets the
+    graded half-width, its axis line is what the per-station width clamp
+    measures from).  ``with_envelope=True`` appends the family's
+    ``envelope_at`` closure, which the EMITTER needs to value the strip-law
+    bands through the strip corridor rather than the shape's own.
+
+    ``None`` when there is no runway to key on — the caller then leaves the
+    shape's own law in charge, which is the honest fallback.
+
+    ONE resolver for the pre-solve constructor, the emitter and (through
+    the same numbers) the validator: a second copy would let the three
+    disagree about which law owns a station."""
+    if not rw_axes:
+        return None
+    try:
+        cen = shape.polygon.centroid
+        near = min(rw_axes, key=lambda a: a[0].distance(cen))
+    except (_GEOM_EXC + (ValueError, AttributeError)):
+        return None
+    code = runway_code_number(near[2])
+    width = float(RUNWAY_STRIP_HALF_WIDTH_BY_CODE[code])
+    ceil_off, envelope_at, floor_depth = _band_family_closures(
+        "runway", code, None, width)
+    params = (floor_depth, ceil_off, width,
+              CLEARANCE_MAX_REACH_M["runway"],
+              trigger_by_family["runway"], near[0])
+    return params + (envelope_at,) if with_envelope else params
+
+
 def _shape_ring_alts(s, coords, sample_dem=None, seed=False):
     """Per-CLOSED-ring node altitudes aligned with ``coords`` (the
     ``node_altitudes`` contract), else the shape's plane sampler.
@@ -3621,6 +3719,9 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
                                      coverage_grid=False,
                                      crossing_zone_prep=None,
                                      collar_zone_prep=None,
+                                     strip_zone_prep=None,
+                                     strip_law=None,
+                                     strip_bands_out=None,
                                      axis_line=None,
                                      axis_classes=None,
                                      prolonged_keys=None,
@@ -3692,6 +3793,21 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
     apron edges all face the same hole), so the collar and the bands
     never govern the same ground.  ``None`` (default; nothing collared):
     no zone test — byte-identical.
+
+    ``strip_zone_prep`` / ``strip_law`` / ``strip_bands_out`` (STRIP
+    PRECEDENCE §1, ``O4_STRIP_PRECEDENCE``; passed only for NON-RUNWAY
+    families — see ``runway_strip_lateral_zone``).  ``strip_zone_prep`` is
+    the prepared LATERAL strip footprint; a station whose seed OR outward
+    probe falls inside it is governed by the STRIP family instead of this
+    shape's own — the station is KEPT, its law is swapped.  ``strip_law``
+    carries that family's ``(floor_depth, ceil_off, width, reach, trigger,
+    axis_line)``; ``strip_bands_out``, when given, receives the strip-law
+    bands as ``(kind, band)`` pairs instead of merging them into the
+    returned lists, so the emitter can value them through the STRIP
+    corridor (the pre-solve constructor passes ``None`` and takes them
+    merged — its consumer is the tagged zone-row store).  ``None``
+    (default; runway family, gate off): no zone test, single build —
+    byte-identical.
 
     ``fill_station_filter`` (APRON WALL SCOPE, owner ruling 2026-07-25 —
     passed only for APRON shapes with ``O4_APRON_WALL_SCOPE`` ON; see
@@ -3776,6 +3892,12 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
                      or collar_zone_prep.contains(probe))):
             _APPARATUS_HITS["collar_zone_excluded_stations"] += 1
             return (None, "collared_pocket")
+        # RUNWAY-STRIP PRECEDENCE (§1) is NOT a station skip — see the
+        # ``strip_law`` block below.  The station is KEPT and its
+        # GOVERNING LAW is swapped to the strip family (lead ruling
+        # 2026-08-04: "no other role's law may govern" was never "no law
+        # governs"; deferring left ground inside a strip Annex 14
+        # §3.4.11-13 says must be prepared at raw DEM).
         if prep_static.contains(probe):
             # WRAP (scope A): a taxiway station whose outward probe lands
             # ONLY on a runway-END skirt is the JOIN target, not an
@@ -4125,16 +4247,128 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
     if coverage_grid:
         fill_edges = _coverage_grid_edges(fill_edges, width)
         cut_edges = _coverage_grid_edges(cut_edges, reach)
+    # ── STRIP PRECEDENCE §1: THE LAW SWAP (lead ruling 2026-08-04) ──
+    # Inside the LATERAL strip the strip's OWN corridor law governs the
+    # ground, whatever frontage the march started from.  The station is
+    # kept (an earlier draft DEFERRED it, which left that ground at raw
+    # DEM — measured: HECA −2.98 ha of graded strip, HEAZ −14.6 %); what
+    # changes is WHICH law values it.
+    #
+    # Implemented as a SPLIT BUILD over the same station sequence: the
+    # station's reference is nulled in the pass that does not own it, which
+    # is the one input ``_build_*_bands`` skips a station on (the apron
+    # wall scope's idiom verbatim).  No builder changes, no second march,
+    # one occlusion computation shared by both passes — and the two passes
+    # cannot double-govern a station because the masks are complementary.
+    strip_mask = None
+    if strip_law is not None and strip_zone_prep is not None:
+        strip_mask = []
+        for (sx, sy), out in zip(stations, outs):
+            probe = Point(sx + out[0] * _RING_PROBE_M,
+                          sy + out[1] * _RING_PROBE_M)
+            strip_mask.append(
+                bool(strip_zone_prep.contains(Point(sx, sy))
+                     or strip_zone_prep.contains(probe)))
+        if not any(strip_mask):
+            strip_mask = None
+    if strip_mask is None:
+        fill_bands = _build_fill_bands(
+            stations, fill_refs, outs, fill_caps, floor_depth,
+            fill_edges, trigger, step, sample_dem,
+            is_ring_vertex, at_seam, zone_collect=_collect_fill,
+            force_full_reach=coverage_grid, occlusion=occlusion)
+        cut_bands = _build_cut_bands(
+            stations, st_alts, outs, cut_caps, ceil_off,
+            cut_edges, trigger, step, sample_dem,
+            is_ring_vertex, at_seam, zone_collect=_collect_cut,
+            force_full_reach=coverage_grid, occlusion=cut_occ)
+        return fill_bands, cut_bands, stations, st_alts, outs
+
+    (s_floor_depth, s_ceil_off, s_width, s_reach, s_trigger,
+     s_axis_line) = strip_law
+    _APPARATUS_HITS["strip_law_governed_stations"] += sum(
+        1 for m in strip_mask if m)
+    own_fill_refs = [None if m else a
+                     for m, a in zip(strip_mask, fill_refs)]
+    own_cut_refs = [None if m else a for m, a in zip(strip_mask, st_alts)]
+    str_fill_refs = [a if m else None
+                     for m, a in zip(strip_mask, fill_refs)]
+    str_cut_refs = [a if m else None for m, a in zip(strip_mask, st_alts)]
+    # Strip-family caps: the FILL cap is the graded strip width REMAINING
+    # outward of the station (``runway_strip_band_width_m`` — the same A4
+    # clamp the runway family's own march spends), the CUT cap the runway
+    # family's reach.  Both per station, exactly as the own-law caps are.
+    s_fill_caps = [s_width] * m
+    s_cut_caps = [s_reach] * m
+    if s_axis_line is not None:
+        for _i, (_sx, _sy) in enumerate(stations):
+            if not strip_mask[_i]:
+                continue
+            try:
+                _d_axis = s_axis_line.distance(Point(_sx, _sy))
+            except _GEOM_EXC:
+                continue
+            s_fill_caps[_i] = runway_strip_band_width_m(
+                s_width, _d_axis, s_width)
+    s_occlusion = _station_occlusion_limits(
+        stations, outs,
+        [f if f > c else c for f, c in zip(s_fill_caps, s_cut_caps)],
+        step, prep_static, wrap_skirt_prep)
+    s_cut_occ = s_occlusion
+    if _CUT_HALF_CORRIDOR and s_occlusion:
+        s_cut_occ = [o if (o is None or o == float("inf")) else o * 0.5
+                     for o in s_occlusion]
+    s_fill_edges = {ADJACENT_GROUND_LIP_WIDTH_M}
+    s_cut_edges = {ADJACENT_GROUND_LIP_WIDTH_M, s_width}
+    if coverage_grid:
+        s_fill_edges = _coverage_grid_edges(s_fill_edges, s_width)
+        s_cut_edges = _coverage_grid_edges(s_cut_edges, s_reach)
+
+    def _strip_collector(base):
+        # Zone rows built under the strip law are TAGGED, so the pre-solve
+        # constructor bounds them with the strip envelope instead of this
+        # shape's own (the two halves must agree on which law owns a row).
+        if base is None:
+            return None
+
+        def _collect(d0, inner_entries, outer_entries):
+            before = len(zone_rows_out)
+            base(d0, inner_entries, outer_entries)
+            for row in zone_rows_out[before:]:
+                row["strip_law"] = True
+        return _collect
+
     fill_bands = _build_fill_bands(
-        stations, fill_refs, outs, fill_caps, floor_depth,
+        stations, own_fill_refs, outs, fill_caps, floor_depth,
         fill_edges, trigger, step, sample_dem,
         is_ring_vertex, at_seam, zone_collect=_collect_fill,
         force_full_reach=coverage_grid, occlusion=occlusion)
     cut_bands = _build_cut_bands(
-        stations, st_alts, outs, cut_caps, ceil_off,
+        stations, own_cut_refs, outs, cut_caps, ceil_off,
         cut_edges, trigger, step, sample_dem,
         is_ring_vertex, at_seam, zone_collect=_collect_cut,
         force_full_reach=coverage_grid, occlusion=cut_occ)
+    s_fill = _build_fill_bands(
+        stations, str_fill_refs, outs, s_fill_caps, s_floor_depth,
+        s_fill_edges, s_trigger, step, sample_dem,
+        is_ring_vertex, at_seam,
+        zone_collect=_strip_collector(_collect_fill),
+        force_full_reach=coverage_grid, occlusion=s_occlusion)
+    s_cut = _build_cut_bands(
+        stations, str_cut_refs, outs, s_cut_caps, s_ceil_off,
+        s_cut_edges, s_trigger, step, sample_dem,
+        is_ring_vertex, at_seam,
+        zone_collect=_strip_collector(_collect_cut),
+        force_full_reach=coverage_grid, occlusion=s_cut_occ)
+    if strip_bands_out is not None:
+        strip_bands_out.extend([("fill", b) for b in s_fill])
+        strip_bands_out.extend([("cut", b) for b in s_cut])
+    else:
+        # No separate valuation channel (the pre-solve constructor, whose
+        # consumer is the zone-row store): the footprints still belong to
+        # this shape's band lists.
+        fill_bands = fill_bands + s_fill
+        cut_bands = cut_bands + s_cut
     return fill_bands, cut_bands, stations, st_alts, outs
 
 
@@ -4335,6 +4569,11 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
     # Crossing-zone exclusion (Phase 1): the published zone, prepared
     # once, passed for taxiway shapes (byte-inert when nothing published).
     crossing_zone_prep = _crossing_zone_prep(layout)
+    # STRIP PRECEDENCE §1 (``O4_STRIP_PRECEDENCE``): the LATERAL strip,
+    # built once, passed for NON-runway shapes; ``None`` with the gate off
+    # (byte-inert).  Between the ends only — the end corridors keep the
+    # runway-END regime's own law (see runway_strip_lateral_footprint_ring).
+    strip_lateral_prep = runway_strip_lateral_zone(layout)
 
     # ── ORDER 3 WORST-CASE COVERAGE (coverage-gap closure) ──────────────
     # The pre-solve march seeds unsolved pavement edges from the DEM, which
@@ -4418,6 +4657,17 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
             _real_keys = {_vertex_key(px, py) for px, py in _pre_coords}
             _pro_keys = {_vertex_key(px, py)
                          for px, py in coords} - _real_keys
+        # STRIP PRECEDENCE §1: the strip family this shape's
+        # strip-interior stations are governed by (``None`` for runway
+        # shapes and with the gate off — then nothing below fires).
+        _strip_full = (
+            _strip_law_params(layout, s, rw_axes, trigger_by_family,
+                              with_envelope=True)
+            if (strip_lateral_prep is not None and family != "runway")
+            else None)
+        _strip_law = _strip_full[:6] if _strip_full else None
+        _strip_env = _strip_full[6] if _strip_full else None
+        _strip_width = _strip_full[2] if _strip_full else None
         zone_rows: list[dict] = []
         fill_bands, cut_bands, _st, _sa, _ou = \
             _derive_shape_stations_and_bands(
@@ -4430,6 +4680,15 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
                 coverage_grid=_coverage_grid,
                 crossing_zone_prep=(crossing_zone_prep
                                     if family == "taxiway" else None),
+                # STRIP PRECEDENCE §1: inside the lateral strip a
+                # NON-runway family's stations are governed by the STRIP
+                # law.  Passed in the PRE-SOLVE construct as well as at
+                # emit so both marches build the same rows under the same
+                # law (a construct-only or emit-only swap would bound a
+                # solver variable by a law the emitter does not use).
+                strip_zone_prep=(strip_lateral_prep
+                                 if family != "runway" else None),
+                strip_law=_strip_law,
                 axis_line=axis_line,
                 axis_classes=axis_classes,
                 prolonged_keys=_pro_keys,
@@ -4578,11 +4837,19 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
                 if zkey in seen_zone_keys:
                     continue
                 seen_zone_keys.add(zkey)
+                # STRIP PRECEDENCE §1 (law swap): a row the march built
+                # under the STRIP family is bounded by the STRIP envelope,
+                # so the solver variable and the emitter's corridor clamp
+                # are the same law.  Tagged by the march itself, never
+                # re-derived here from geometry (one owner per row).
+                _row_env, _row_width = envelope_at, width
+                if row.get("strip_law") and _strip_env is not None:
+                    _row_env, _row_width = _strip_env, _strip_width
                 if row["kind"] == "cut":
                     zone_floor = None
-                    zone_ceil = envelope_at(zd)[1]
+                    zone_ceil = _row_env(zd)[1]
                 else:
-                    zone_floor, zone_ceil = envelope_at(min(zd, width))
+                    zone_floor, zone_ceil = _row_env(min(zd, _row_width))
                 if zdelta:
                     if zone_floor is not None:
                         zone_floor += zdelta
@@ -4797,6 +5064,11 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
     collar_zone_prep = (_collar_zone_prep(layout)
                         if collar_zone_union is not None else None)
     collar_zone_clip_block = collar_zone_union
+    # STRIP PRECEDENCE §1 + §2 (``O4_STRIP_PRECEDENCE``): the prepared
+    # LATERAL strip, built once per emission; ``None`` with the gate off.
+    # Between the ends only — the end corridors keep the runway-END
+    # regime's own law, both for the §1 swap and the §2 cap.
+    strip_lateral_prep = runway_strip_lateral_zone(layout)
 
     # CONFORM-TO-STATIC (chain identity, 2026-07-09): a band row that
     # runs just OUTSIDE a foreign shape's edge (10-15 cm — daylight
@@ -5344,6 +5616,16 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
         # so the STRtree query is paid once per station per airport.
         _apron_q = (apron_wall_frontage_qualifier(s, _wall_scope_index)
                     if family == "apron" else None)
+        # STRIP PRECEDENCE §1 (law swap): this shape's governing strip
+        # parameters, and the channel the march returns strip-law bands on
+        # so they can be VALUED through the strip corridor below.
+        _strip_full = (
+            _strip_law_params(layout, s, rw_axes, trigger_by_family,
+                              with_envelope=True)
+            if (strip_lateral_prep is not None and family != "runway")
+            else None)
+        _strip_law = _strip_full[:6] if _strip_full else None
+        _strip_bands: list = [] if _strip_law else None
         _pre = _presolve_bands.get(id(s)) if _presolve_bands else None
         if _pre is not None:
             fill_bands, cut_bands = _pre["fill"], _pre["cut"]
@@ -5362,6 +5644,12 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                 # width-skipped pocket is ringed by MIXED roles, so runway
                 # and apron frontage face it just as taxiway frontage does.
                 collar_zone_prep=collar_zone_prep,
+                # STRIP PRECEDENCE §1 — NON-runway families only (see the
+                # construct-side call and ``runway_strip_lateral_zone``).
+                strip_zone_prep=(strip_lateral_prep
+                                 if family != "runway" else None),
+                strip_law=_strip_law,
+                strip_bands_out=_strip_bands,
                 axis_line=axis_line,
                 axis_classes=axis_classes,
                 # APRON WALL SCOPE — apron frontage only (owner ruling
@@ -5412,6 +5700,82 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                 _APPARATUS_HITS["static_edge_weld_vertices"] += 1
                 return (weld_alt, True)
             return _base(vx, vy, kind)
+
+        # STRIP-LAW VALUATION (§1 law swap).  The bands the march built
+        # under the strip family must be VALUED by that family too — the
+        # corridor clamp is what actually writes the law into the surface,
+        # so valuing them through this shape's own (e.g. 3 m apron
+        # shoulder) envelope would put strip-law FOOTPRINT under
+        # apron-law VALUES.  Same resampler construction, same weld
+        # precedence; only the envelope and the graded width differ.
+        strip_resample_alt = None
+        if _strip_bands and _strip_full is not None:
+            _strip_env = _strip_full[6]
+            _strip_width = _strip_full[2]
+            _strip_corridor = _make_edge_projection_resampler(
+                coords, ring_alts, _strip_env, _strip_width, sample_dem)
+
+            def strip_resample_alt(vx, vy, kind, _base=_strip_corridor):
+                weld_alt = _static_edge_weld_alt(vx, vy)
+                if weld_alt is not None:
+                    _APPARATUS_HITS["static_edge_weld_vertices"] += 1
+                    return (weld_alt, True)
+                return _base(vx, vy, kind)
+
+        # ── ABEAM-LONGITUDINAL LAW (§2, ``O4_STRIP_PRECEDENCE``) ────────
+        # The lateral corridor bounds a band vertex against the pavement
+        # EDGE at its own lateral depth; nothing in that law couples two
+        # stations ALONG the runway, so the DEM is free to ride up and down
+        # the strip inside the corridor.  ICAO Annex 14 §3.4.13 (and FAA AC
+        # 150/5300-13B §3.16.5 item 1) say it may not: the graded strip has
+        # a longitudinal cap of its own.  This closure is the
+        # generation-binding half — every band piece of a shape whose
+        # ground lies in a strip footprint has its emitted values made
+        # along-axis Lipschitz by ``grade_law.runway_strip_longitudinal_
+        # clamp`` before they are rounded and registered.
+        #
+        # SCOPE: any family, keyed on the NEAREST runway axis, but only for
+        # vertices actually INSIDE the footprint (the ``inside`` mask) —
+        # §1 defers most non-runway stations out of the strip, and the
+        # residue that clips in is still the strip's ground and takes the
+        # strip's law.  WELD vertices are pinned: they carry the runway's
+        # own solved profile, which is lawful under the runway's own
+        # longitudinal law, and the emitter re-asserts them a few lines
+        # later regardless.
+        _strip_long = None
+        if STRIP_PRECEDENCE_ENABLED and strip_lateral_prep is not None \
+                and rw_axes:
+            try:
+                _cen = s.polygon.centroid
+                _near = min(rw_axes, key=lambda a: a[0].distance(_cen))
+            except (_GEOM_EXC + (ValueError,)):
+                _near = None
+            if _near is not None:
+                _long_axis = _near[1]
+                _long_slope = runway_strip_max_longitudinal_slope(
+                    runway_code_number(_near[2]))
+
+                def _strip_long(ring, ring_alts_in, weld_flags,
+                                _axis=_long_axis, _slope=_long_slope,
+                                _zone=strip_lateral_prep):
+                    global _STRIP_LONGITUDINAL_MAX_DELTA_M
+                    inside = [_zone.contains(Point(px, py))
+                              for px, py in ring]
+                    if not any(inside):
+                        return ring_alts_in
+                    out = runway_strip_longitudinal_clamp(
+                        ring, ring_alts_in, _axis, _slope,
+                        pinned=weld_flags, inside=inside)
+                    for _a, _b in zip(ring_alts_in, out):
+                        if _a is None or _b is None:
+                            continue
+                        _d = abs(float(_b) - float(_a))
+                        if _d > 1e-3:
+                            _APPARATUS_HITS[
+                                "strip_longitudinal_clamped_vertices"] += 1
+                            if _d > _STRIP_LONGITUDINAL_MAX_DELTA_M:
+                                _STRIP_LONGITUDINAL_MAX_DELTA_M = _d
+                    return out
 
         if _ADJACENT_DEBUG and (fill_bands or cut_bands):
             UI.vprint(1, f"  [adjacent-debug] shape role={s.role} "
@@ -5472,7 +5836,18 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                 f"station_ref={st_alts[nearest]} dem={dem_q} "
                 f"floor={fl} ceiling={ce} raw_band_dist={raw_dist}"
                 f"{scan}")
-        for kind, band_list in (("fill", fill_bands), ("cut", cut_bands)):
+        _emit_groups = [("fill", fill_bands, resample_alt),
+                        ("cut", cut_bands, resample_alt)]
+        if _strip_bands and strip_resample_alt is not None:
+            _emit_groups += [
+                ("fill", [b for k, b in _strip_bands if k == "fill"],
+                 strip_resample_alt),
+                ("cut", [b for k, b in _strip_bands if k == "cut"],
+                 strip_resample_alt)]
+        for kind, band_list, _group_resample in _emit_groups:
+            # The group's own valuation (the strip-law groups read the
+            # strip corridor); the body below calls ``resample_alt``.
+            resample_alt = _group_resample
             for ring, _ralts in band_list:
                 try:
                     ring = _snap_ring_to_static(ring)
@@ -5720,6 +6095,16 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                         # short-run reversal is always the foot-flip class.
                         alts = _declaw_short_needle_runs(
                             piece_ring, alts, tol=trigger)
+                        # ABEAM-LONGITUDINAL LAW (§2): the along-axis
+                        # Lipschitz clamp, applied AFTER the declaw passes
+                        # (so it works on the values that will actually be
+                        # emitted) and BEFORE the 0.1 m rounding and the
+                        # weld/adoption re-assertion (so the pinned
+                        # pavement values still win and the registry sees
+                        # the lawful number).  ``None`` gate-off — the
+                        # statement is then a single name test.
+                        if _strip_long is not None:
+                            alts = _strip_long(piece_ring, alts, weld)
                         alts = [round(a, 1) for a in alts]
                         # Re-assert adopted AND pavement-weld values
                         # (declaw/rounding must not move a shared-

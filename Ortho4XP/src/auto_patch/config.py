@@ -220,6 +220,9 @@ __all__ = [
     "RUNWAY_END_RESA_MAX_SLOPE",
     "CLEARANCE_LATERAL_MAX_SLOPE",
     "RUNWAY_STRIP_HALF_WIDTH_BY_CODE",
+    "RUNWAY_STRIP_MAX_LONGITUDINAL_SLOPE_BY_CODE",
+    "RUNWAY_STRIP_MAX_LONGITUDINAL_SLOPE_FAA",
+    "STRIP_PRECEDENCE_ENABLED",
     "WINGSPAN_BY_CODE_LETTER",
     "TAIL_HEIGHT_BY_CODE_LETTER",
     "TAXIWAY_WINGTIP_MARGIN_M",
@@ -5256,6 +5259,55 @@ APRON_WALL_PAVEMENT_ADJACENCY_M = 5.0
 # ``O4_RUNWAY_STRIP_WALL_LAW=0`` restores wall admission inside strips.
 RUNWAY_STRIP_WALL_LAW_ENABLED = (
     _os.environ.get("O4_RUNWAY_STRIP_WALL_LAW", "1") == "1")
+
+# ── RUNWAY-STRIP LAW: PRECEDENCE + ABEAM LONGITUDINAL ─────────────────
+# (standards-gap review 2026-08-02 items G-1 general and G-2; spec
+# docs/specs/rsa-law-round-spec.md.  ONE gate for both halves — they are
+# one law family: the strip's OWN law, on both axes.)
+#
+# §1 PRECEDENCE (the general form of the wall ruling above).  The runway
+# STRIP FOOTPRINT — the same geometry the wall law already owns,
+# ``grade_law.runway_strip_wall_keepout_rings`` — is SUPREME: inside it no
+# other role's corridor/envelope law may govern ground.  The wall ruling
+# was the special case ("no retaining wall face here"); the general law is
+# that the STRIP CORRIDOR governs any station in the footprint regardless
+# of which shape's frontage the march started from.  The class it kills is
+# an APRON corridor whose (much shallower, 3 m-shoulder) envelope reached
+# into the strip and stood a 9.7 m wall inside it.  Emitter half: the
+# adjacent-ground march DEFERS — a non-runway family's station inside the
+# footprint is dropped exactly as the crossing / collared-pocket zones are
+# dropped, and the runway family's own march governs that ground.
+# Validator half: ``check_grade`` judges ground inside the footprint by the
+# STRIP law (zones / transverse / longitudinal), never by the local role's.
+#
+# §2 ABEAM LONGITUDINAL (the MISSING family).  Between the runway ends the
+# strip's ground has a LONGITUDINAL standard of its own, which this repo
+# never read or bound:
+#   * ICAO Annex 14 Vol I §3.4.13 — "A longitudinal slope along that
+#     portion of a strip to be graded should not exceed: 1.5 per cent
+#     where the code number is 4; 1.75 per cent where the code number is
+#     3; and 2 per cent where the code number is 1 or 2."  (the by-code
+#     table below, and the LIVE value: the ICAO shape is by-code.)
+#   * FAA AC 150/5300-13B §3.16.5 Standards item 1 — "Longitudinal
+#     grades, longitudinal grade changes, vertical curves, and distance
+#     between changes in grades for that part of the RSA between the
+#     runway ends are the same as the comparable standards for the runway
+#     and stopway" — i.e. the runway's own longitudinal cap,
+#     ``RUNWAY_MAX_GRADE``, code-invariant.  NAMED here so the phase-B
+#     ruleset split (docs/RULINGS.md "Region-specific rulesets") has the
+#     FAA constant to key without re-deriving it.
+#   * ICAO Annex 14 §3.4.14 — slope CHANGES on the graded strip "should be
+#     as gradual as practicable and abrupt changes or sudden reversals of
+#     slopes avoided".  Recorded; the rate-of-change half is not bound
+#     this round (it needs the vertical-curve machinery the runway
+#     profile already owns, and it is a separate gap entry).
+RUNWAY_STRIP_MAX_LONGITUDINAL_SLOPE_BY_CODE = {
+    1: 0.020, 2: 0.020, 3: 0.0175, 4: 0.015}
+RUNWAY_STRIP_MAX_LONGITUDINAL_SLOPE_FAA = RUNWAY_MAX_GRADE
+# Gate for BOTH halves.  OFF ⇒ byte-identical (no station deferral, no
+# longitudinal clamp, no new validator rows).
+STRIP_PRECEDENCE_ENABLED = (
+    _os.environ.get("O4_STRIP_PRECEDENCE", "0") == "1")
 
 # ── SOLVED-BAND EMIT-SIDE CORRIDOR CLAMP (diagnosed 2026-07-25, SPJC) ──
 # The GATE-ON band valuation (``adjacent_ground._make_solved_band_resampler``)

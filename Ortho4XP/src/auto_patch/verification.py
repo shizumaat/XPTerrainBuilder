@@ -1474,7 +1474,9 @@ def check_runway_end_skirt(layout, dem, tile_lat, tile_lon,
 
 def _adjacent_ground_stations(coords, ccw, ring_alts, axis, step_m,
                               seam_keys, probe_covered,
-                              collar_zone_prep=None):
+                              collar_zone_prep=None,
+                              strip_zone_prep=None,
+                              in_strip_out=None):
     """The validator's per-shape STATION MARCH — the mirror of the emitter's
     ``adjacent_ground._derive_shape_stations_and_bands`` station loop.
 
@@ -1522,6 +1524,10 @@ def _adjacent_ground_stations(coords, ccw, ring_alts, axis, step_m,
 
     st_x, st_y, st_outn, st_ref, st_flag = [], [], [], [], []
     st_seam, st_end_skip = [], []
+    # MIRROR 7 — per-station "inside the lateral runway strip", i.e. the
+    # stations the emitter governs by the STRIP family instead of this
+    # shape's own.  All False with the gate off / for the runway family.
+    st_in_strip: list = []
     # Bounding-box guard on the MIRROR 4 test — the emitter's, verbatim
     # (see its rationale): the zone test runs over every airside station
     # of the airport, so the seed is rejected against each zone PART's box
@@ -1584,6 +1590,16 @@ def _adjacent_ground_stations(coords, ccw, ring_alts, axis, step_m,
                                      in collar_boxes))
                          and (collar_zone_prep.contains(Point(sx, sy))
                               or collar_zone_prep.contains(Point(px, py))))
+            # MIRROR 7 — STRIP PRECEDENCE (§1, ``O4_STRIP_PRECEDENCE``):
+            # a NON-RUNWAY family station whose seed or outward probe lands
+            # inside the LATERAL runway strip is KEPT and judged by the
+            # STRIP family's corridor (the emitter's law swap — it builds
+            # that station's band from the strip closures).  Recorded per
+            # station here; the corridor evaluation below reads the flag.
+            # ``None`` (runway family / gate off) leaves every flag False.
+            in_strip = (strip_zone_prep is not None
+                        and (strip_zone_prep.contains(Point(sx, sy))
+                             or strip_zone_prep.contains(Point(px, py))))
             # Terrain-facing, non-END, alts known → a scanned/flagged
             # station; otherwise a depth-0 coupling node (the emitter's
             # own probe: an outward point covered by a shape owns its band).
@@ -1596,6 +1612,7 @@ def _adjacent_ground_stations(coords, ccw, ring_alts, axis, step_m,
             st_outn.append(outn)
             st_ref.append(ref)
             st_flag.append(flag)
+            st_in_strip.append(bool(in_strip))
             st_seam.append((k == 0 and edge_a_seam)
                            or (k == nseg - 1 and edge_b_seam))
             # MIRROR 2 — the emitter's ORDER: "end" wins over the static
@@ -1610,6 +1627,8 @@ def _adjacent_ground_stations(coords, ccw, ring_alts, axis, step_m,
     if ADJACENT_GROUND_END_PIN_ENABLED:
         _pin = adjacent_ground_end_pin_flags(st_end_skip, st_flag)
         st_seam = [bool(_s) or bool(_p) for _s, _p in zip(st_seam, _pin)]
+    if in_strip_out is not None:
+        in_strip_out.extend(st_in_strip)
     return (st_x, st_y, st_outn, st_ref, st_flag, st_seam, st_end_skip)
 
 
@@ -2090,6 +2109,14 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
     # gate off / nothing collared, so the march is byte-identical then.
     collar_zone_prep = _collared_pocket_zone_prep(layout)
 
+    # MIRROR 7 — STRIP PRECEDENCE (§1).  The SAME prepared LATERAL strip
+    # the emitter swaps law on, built by the SAME function (no second
+    # geometry): ``None`` with ``O4_STRIP_PRECEDENCE`` off, so the reader
+    # is unchanged.
+    from .adjacent_ground import (
+        runway_strip_lateral_zone as _strip_lateral_zone)
+    strip_zone_prep = _strip_lateral_zone(layout)
+
     # MIRROR 5 — RAY OCCLUSION.  The PREPARED static union the emitter
     # marched through, published by ``adjacent_ground`` at emit entry (it
     # cannot be rebuilt here: by verify time ``layout.shapes`` also holds
@@ -2176,10 +2203,17 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
         # emitter's own clamp already benched away (lockstep).  Corner FANS are
         # omitted: they share the corner coordinate (dist 0), so they never
         # change a non-fan station's supported depth (see grade_law).
+        st_in_strip: list = []
         (st_x, st_y, st_outn, st_ref, st_flag, st_seam,
          _st_end_skip) = _adjacent_ground_stations(
             coords, ccw, ring_alts, axis, step_m, seam_keys, _inside_shape,
-            collar_zone_prep=collar_zone_prep)
+            collar_zone_prep=collar_zone_prep,
+            # MIRROR 7 — STRIP PRECEDENCE, NON-runway families only (the
+            # runway family's own march is what governs the footprint).
+            strip_zone_prep=(strip_zone_prep
+                             if env_role not in _ADJACENT_RUNWAY_ROLES
+                             else None),
+            in_strip_out=st_in_strip)
         n_st = len(st_x)
 
         # MIRROR 1 — per-station band caps, the emitter's ``fill_caps`` /
@@ -2188,6 +2222,29 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
         # implied, so they bind nothing until a gate flips.
         fill_caps, cut_caps = _adjacent_ground_station_caps(
             list(zip(st_x, st_y)), width, reach, axis_line, axis_classes)
+
+        # MIRROR 7 — STRIP PRECEDENCE (§1 law swap): the STRIP family's
+        # role/code and its per-station caps, for the stations inside the
+        # lateral strip.  Keyed on the NEAREST runway exactly as the
+        # emitter's ``adjacent_ground._strip_law_params`` keys it, and the
+        # caps come from the SAME ``_adjacent_ground_station_caps`` mirror
+        # the own-law caps do — one code path, two parameter sets.
+        strip_law = None
+        if (strip_zone_prep is not None
+                and env_role not in _ADJACENT_RUNWAY_ROLES and rw_axes):
+            try:
+                _near = min(rw_axes,
+                            key=lambda a: a[0].distance(s.polygon.centroid))
+            except (CL._GEOM_EXC + (ValueError, AttributeError)):
+                _near = None
+            if _near is not None:
+                _s_code = runway_code_number(_near[2])
+                _s_width = RUNWAY_STRIP_HALF_WIDTH_BY_CODE[_s_code]
+                _s_fill, _s_cut = _adjacent_ground_station_caps(
+                    list(zip(st_x, st_y)), _s_width,
+                    CLEARANCE_MAX_REACH_M["runway"], _near[0],
+                    _near[3] if len(_near) > 3 else None)
+                strip_law = ("runway", _s_code, None, _s_fill, _s_cut)
 
         # MIRROR 6 — APRON WALL SCOPE (owner ruling 2026-07-25).  An apron
         # station with no built pavement within
@@ -2248,6 +2305,15 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
                                  st_outn[idx], st_ref[idx])
             fill_cap = fill_caps[idx]
             cut_cap = cut_caps[idx]
+            # MIRROR 7 — STRIP PRECEDENCE (§1 law swap): inside the lateral
+            # strip the STRIP family's corridor and caps govern this
+            # station, whatever role's frontage it sits on.  Same six
+            # numbers the emitter's ``_strip_law_params`` hands its march.
+            s_role, s_code, s_letter = env_role, code_number, code_letter
+            if strip_law is not None and st_in_strip[idx]:
+                s_role, s_code, s_letter, s_fills, s_cuts = strip_law
+                fill_cap = s_fills[idx]
+                cut_cap = s_cuts[idx]
             # March only as far as EITHER direction is still capped to
             # govern.  Gates off this is the family ``reach`` (the cut cap),
             # i.e. the pre-mirror march verbatim; with the OLS cut cap on
@@ -2279,7 +2345,7 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
                     # Never appended to ``samples`` ⇒ never flagged.
                     break
                 floor_off, ceil_off = adjacent_ground_envelope(
-                    env_role, code_number, code_letter, d)
+                    s_role, s_code, s_letter, d)
                 if floor_off is None and ceil_off is None:
                     break              # at/beyond the reach — ungoverned
                 qx = sx + outn[0] * d
@@ -2371,6 +2437,219 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
 
 
 # Linear noise floor for the collar↔band overlap invariant (m).  The band
+# ── §2 ABEAM-LONGITUDINAL, ON THE RESULTING SURFACE ─────────────────
+# The patch-side reader (``check_grade._check_strip_longitudinal_grade``)
+# judges EMITTED band pairs.  That is not the whole law: the breach-trigger
+# corridor deliberately emits NOTHING where the DEM already conforms (lead
+# ruling 2026-08-04 — lawful ground stays raw DEM), so "no band here" must
+# be a VERIFIED-LAWFUL state, not an unchecked one.  This reader closes
+# that: it walks the strip ALONG the runway axis and reads the RESULTING
+# surface — the emitted shape where one covers the station, the smoothed
+# DEM where none does — against the same by-code cap and the same run
+# splitting the emitter's clamp uses.
+#
+# (Its LATERAL twin needs no such addition: ``check_adjacent_ground``
+# already marches open ground and flags DEM columns that breach the
+# corridor — see its docstring — and MIRROR 7 now hands those stations the
+# STRIP family inside the strip.)
+_STRIP_LONGITUDINAL_TOLERANCE_M = 0.10   # emit/DEM quantum, as the patch reader
+_STRIP_LONGITUDINAL_TRANSECT_SPACING_M = 15.0
+# STATION SPACING, and why it is not the emitter's 5 m: band values are
+# emitted at 0.1 m, so over a 5 m baseline the quantum alone spends 2 % of
+# grade — more than the 1.5 % cap — and the check would be unable to
+# separate a real slope from rounding.  At the repo's existing 30 m grade
+# baseline (``BOUNDARY_SEG_LENGTH``, itself the FAA rate-of-change length)
+# the cap allows 0.45 m against a 0.10 m quantum, so the reader's true
+# sensitivity is ~1.83 % against a 1.5 % cap.  That 0.33 pp is a DOCUMENTED
+# blind spot of this instrument, not a loosened law: the emitter's clamp
+# binds at the cap, and the patch-side reader checks the emitted geometry
+# at its own (finer) spacing.
+
+
+def _strip_longitudinal_scan(groups, surface, step_m=30.0,
+                             tolerance_m=_STRIP_LONGITUDINAL_TOLERANCE_M,
+                             spacing_m=_STRIP_LONGITUDINAL_TRANSECT_SPACING_M):
+    """PURE core: ``[(pt_a, pt_b, dz, ds, grade, cap, src_a, src_b)]`` for
+    every
+    along-axis station pair of every strip whose rendered surface exceeds
+    the by-code longitudinal cap.
+
+    Each row carries the PROVENANCE of its two ends (``"shape"`` where an
+    emitted polygon covered the station, ``"dem"`` where none did), because
+    the two mean different things: a shape-to-shape row is emitted work to
+    fix, a dem-to-dem row is ground the breach-trigger corridor deliberately
+    left alone and which the LONGITUDINAL law says it should not have.
+
+    ``groups`` — ``[(origin, axis_unit, length_m, half_width_m, cap)]`` per
+    runway.  ``surface(x, y) -> (elev, is_pavement, source) | None`` is the
+    RESULTING surface: an emitted shape's value where one covers the point
+    (with ``is_pavement`` true for the pavement roles, whose own laws
+    govern them), the DEM where none does, ``None`` where nothing can be
+    read.  Pairs whose BOTH ends are pavement are skipped — that surface is
+    the runway/taxiway's own longitudinal law, read by its own checks.
+
+    Split out from the DEM plumbing so it can be tested against a synthetic
+    surface (its twin), and so the walk is one obvious loop."""
+    out = []
+    for (ox, oy), (ux, uy), length_m, half_w, cap in groups:
+        px, py = -uy, ux
+        n_t = max(1, int(half_w // spacing_m))
+        offsets = [spacing_m * k for k in range(-n_t, n_t + 1)]
+        n_s = max(2, int(length_m // step_m) + 1)
+        for t in offsets:
+            prev = None
+            for i in range(n_s):
+                s = min(length_m, i * step_m)
+                qx = ox + ux * s + px * t
+                qy = oy + uy * s + py * t
+                read = surface(qx, qy)
+                if read is None:
+                    prev = None
+                    continue
+                z, is_pav, src = read
+
+                if z is None:
+                    prev = None
+                    continue
+                if prev is not None:
+                    (ps, pz, ppav, ppt, psrc) = prev
+                    ds = abs(s - ps)
+                    if ds >= 1.0 and not (is_pav and ppav):
+                        dz = abs(float(z) - float(pz))
+                        if dz > cap * ds + tolerance_m:
+                            out.append((ppt, (qx, qy), dz, ds,
+                                        dz / ds, cap, psrc, src))
+                prev = (s, z, is_pav, (qx, qy), src)
+    out.sort(key=lambda r: -r[4])
+    return out
+
+
+def check_strip_longitudinal(layout, dem, tile_lat, tile_lon,
+                             step_m: float = 30.0):
+    """Invariant (§2 on the RESULTING surface, ``O4_STRIP_PRECEDENCE``):
+    between the runway ends, the strip's rendered surface obeys the by-code
+    longitudinal cap (ICAO Annex 14 §3.4.13 / FAA AC 150/5300-13B §3.16.5
+    item 1) — whether that surface is an emitted band or the raw DEM the
+    corridor left alone.
+
+    Returns the ``_strip_longitudinal_scan`` rows; ``[]`` with the gate off
+    or with no runway.  The strip geometry is the SAME law function the
+    emitter's zone is built from (``grade_law.runway_strip_lateral_
+    footprint_ring``'s own axis + half-width), so the two cannot drift."""
+    from .config import STRIP_PRECEDENCE_ENABLED as _STRIP_GATE
+    if not _STRIP_GATE:
+        return []
+    from .grade_law import (runway_axis_and_width,
+                            runway_strip_max_longitudinal_slope)
+    from .config import (RUNWAY_STRIP_HALF_WIDTH_BY_CODE,
+                         runway_code_number)
+    import math
+    from .pavement.runways import _sample_runway_segment_elev
+    from .grade_law import _ADJACENT_RUNWAY_ROLES as _RW_ROLES
+    from shapely.geometry import Point
+    from shapely.strtree import STRtree
+    from .layout import R_EARTH
+    from .grade_law import (_ADJACENT_APRON_ROLES, _ADJACENT_TAXIWAY_ROLES)
+    from shapely.errors import GEOSException, TopologicalError
+    _GEOM = (GEOSException, TopologicalError, ValueError)
+    _PAVEMENT_ROLES = (frozenset(_RW_ROLES) | frozenset(_ADJACENT_APRON_ROLES)
+                       | frozenset(_ADJACENT_TAXIWAY_ROLES))
+
+    rw_by_ref: dict = {}
+    for s in layout.shapes:
+        if s.role not in _RW_ROLES:
+            continue
+        if s.polygon is None or s.polygon.is_empty:
+            continue
+        try:
+            coords = list(s.polygon.exterior.coords)[:-1]
+        except _GEOM:
+            continue
+        rw_by_ref.setdefault(getattr(s, "ref", "") or id(s), []).extend(
+            coords)
+    groups = []
+    for pts in rw_by_ref.values():
+        axis = runway_axis_and_width(pts)
+        if axis is None:
+            continue
+        (ax, ay), (bx, by), _w = axis
+        length = math.hypot(bx - ax, by - ay)
+        if length < 1.0:
+            continue
+        code = runway_code_number(length)
+        groups.append(((ax, ay), ((bx - ax) / length, (by - ay) / length),
+                       length, float(RUNWAY_STRIP_HALF_WIDTH_BY_CODE[code]),
+                       runway_strip_max_longitudinal_slope(code)))
+    if not groups:
+        return []
+
+    shapes = [s for s in layout.shapes
+              if s.polygon is not None and not s.polygon.is_empty]
+    geoms = [s.polygon for s in shapes]
+    try:
+        tree = STRtree(geoms)
+    except _GEOM:
+        return []
+    lat0, lon0 = layout.anchor
+    cos0 = math.cos(math.radians(lat0))
+
+    def _dem_at(x, y):
+        from .elevation import _sample_dem
+        try:
+            lat = lat0 + math.degrees(y / R_EARTH)
+            lon = lon0 + math.degrees(x / (R_EARTH * cos0))
+            return _sample_dem(dem, tile_lat, tile_lon, lat, lon)
+        except (ValueError, ArithmeticError):
+            return None
+
+    def _surface(x, y):
+        """The RESULTING surface: covering shape's value, else the DEM."""
+        p = Point(x, y)
+        try:
+            cand = tree.query(p)
+        except _GEOM:
+            cand = ()
+        for gi in cand:
+            shape = shapes[gi]
+            try:
+                if not geoms[gi].covers(p):
+                    continue
+            except _GEOM:
+                continue
+            is_pav = shape.role in _PAVEMENT_ROLES
+            if shape.altitude is not None:
+                return (float(shape.altitude), is_pav, "shape")
+            na = getattr(shape, "node_altitudes", None)
+            if na:
+                # NEAREST ring vertex: the bands carry per-vertex values and
+                # a full in-polygon interpolation would be a second surface
+                # model.  Documented approximation — it can only read a
+                # neighbouring vertex's value, which for a 5 m-stationed band
+                # is within the corridor's own change over one station.
+                best = None
+                try:
+                    ring = list(shape.polygon.exterior.coords)
+                except _GEOM:
+                    ring = []
+                for k, (rx, ry) in enumerate(ring):
+                    if k >= len(na) or na[k] is None:
+                        continue
+                    d2 = (rx - x) ** 2 + (ry - y) ** 2
+                    if best is None or d2 < best[0]:
+                        best = (d2, float(na[k]))
+                if best is not None:
+                    return (best[1], is_pav, "shape")
+            try:
+                return (_sample_runway_segment_elev(shape, x, y), is_pav,
+                        "shape")
+            except (_GEOM + (TypeError,)):
+                continue
+        dd = _dem_at(x, y)
+        return None if dd is None else (float(dd), False, "dem")
+
+    return _strip_longitudinal_scan(groups, _surface, step_m=step_m)
+
+
 # is clipped by the EXACT pocket, so a genuine stand-down leaves ZERO
 # overlap; anything above this floor is a real double-cover, not clip
 # residue.
@@ -3808,6 +4087,10 @@ def verify_and_log(layout, icao: str, debug_log_path: str | None = None,
     # Adjacent-ground LATERAL grade law — DEM-based, gate-guarded so a
     # law-off build has ZERO overhead and byte-identical verify output.
     adjacent = []
+    # Bound before the gate so the §2 surface reader below can see them:
+    # with the adjacent-ground law off there is no DEM to read and that
+    # reader skips, exactly as it does with its own gate off.
+    _dem, _tlat, _tlon = None, None, None
     from .config import ADJACENT_GROUND_LAW_ENABLED
     if ADJACENT_GROUND_LAW_ENABLED:
         import math as _math
@@ -3828,6 +4111,29 @@ def verify_and_log(layout, icao: str, debug_log_path: str | None = None,
                 layout, _dem, _tlat, _tlon, source_runways=source_runways)
         except _shapely_domain_exceptions:         # pragma: no cover
             adjacent = []
+
+    # §2 ABEAM-LONGITUDINAL on the RESULTING surface (gate
+    # O4_STRIP_PRECEDENCE): the completeness half of the breach-trigger
+    # corridor — ground the corridor left un-emitted because it already
+    # conforms LATERALLY still has to obey the strip's LONGITUDINAL cap,
+    # and only a DEM-aware reader can say so.  ``[]`` gate-off.
+    strip_long = []
+    if _dem is not None and _tlat is not None and _tlon is not None:
+        try:
+            strip_long = check_strip_longitudinal(
+                layout, _dem, _tlat, _tlon)
+        except _shapely_domain_exceptions:         # pragma: no cover
+            strip_long = []
+        if strip_long:
+            _dem_only = sum(1 for r in strip_long
+                            if r[6] == "dem" and r[7] == "dem")
+            UI.vprint(1, f"  [verify] {icao}: {len(strip_long)} strip "
+                         f"ABEAM-LONGITUDINAL row(s) on the resulting "
+                         f"surface (worst "
+                         f"{strip_long[0][4] * 100:.2f}% vs cap "
+                         f"{strip_long[0][5] * 100:.2f}%; {_dem_only} of "
+                         f"them raw DEM at both ends — ground the corridor "
+                         f"left un-emitted)")
 
     # SOURCE COVERAGE (owner field report 2026-08-02, gate
     # O4_SOURCE_COVERAGE_CHECK).  ``check_source_coverage`` is the DUAL of
@@ -4010,6 +4316,8 @@ def verify_and_log(layout, icao: str, debug_log_path: str | None = None,
         getattr(layout, "airside_weld_drops", []) or [])
     if ADJACENT_GROUND_LAW_ENABLED:
         counts["adjacent_ground"] = len(adjacent)
+    if strip_long:
+        counts["strip_longitudinal_surface"] = len(strip_long)
     if EAT_SURFACE_CEILING_ENABLED:
         counts["eat_ceiling"] = len(eat_findings)
     if collar_band:

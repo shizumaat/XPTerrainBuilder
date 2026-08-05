@@ -60,6 +60,8 @@ from .config import (
     ROLE_GRADE_LIMITS,
     RUNWAY_STRIP_BAND_MIN_DOWN_SLOPE,
     RUNWAY_STRIP_BAND_MAX_DOWN_SLOPE_BY_CODE, RUNWAY_STRIP_HALF_WIDTH_BY_CODE,
+    RUNWAY_STRIP_MAX_LONGITUDINAL_SLOPE_BY_CODE,
+    RUNWAY_STRIP_MAX_LONGITUDINAL_SLOPE_FAA,
     SERVICE_ROAD_MAX_GRADE, TAXI_MAX_GRADE, TAXIWAY_STRIP_BAND_MAX_DOWN_SLOPE,
     TAXIWAY_STRIP_BAND_MIN_DOWN_SLOPE, runway_code_number,
     taxiway_strip_graded_half_width_for_letter)
@@ -482,6 +484,242 @@ def runway_strip_wall_keepout_rings(
     return [_rect(0.0, length, strip_half),
             _rect(-end_len, 0.0, end_half),
             _rect(length, length + end_len, end_half)]
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# RUNWAY-STRIP LAW: PRECEDENCE (G-1 general) + ABEAM LONGITUDINAL (G-2)
+# ═══════════════════════════════════════════════════════════════════════
+# ``runway_strip_wall_keepout_rings`` above is THE strip footprint — the
+# wall ruling was its first (special-case) consumer, and the general law is
+# that the footprint is SUPREME: inside it no other role's corridor law may
+# govern ground — the station stays, its GOVERNING LAW becomes the strip's
+# (lead ruling 2026-08-04; "no other role's law may govern" was never "no
+# law governs").  The geometry is deliberately NOT re-minted here: the law
+# swap's emitter (``adjacent_ground.runway_strip_lateral_zone``) and its
+# validator twin both build from the function above, exactly as the wall
+# pair already does.  What IS new is the strip's own LONGITUDINAL bound.
+
+
+def runway_strip_lateral_footprint_ring(
+        axis_a: tuple[float, float], axis_b: tuple[float, float],
+        runway_width_m: float) -> "Optional[list]":
+    """JUST the LATERAL graded-strip rectangle of the strip footprint —
+    centreline ± ``RUNWAY_STRIP_HALF_WIDTH_BY_CODE`` over the runway's own
+    length, WITHOUT the two end corridors.
+
+    This is the "BETWEEN THE ENDS" domain, and it is the domain of the
+    abeam-longitudinal law specifically: FAA AC 150/5300-13B §3.16.5 gives
+    the RSA THREE different longitudinal rules — item 1 (between the ends:
+    the runway's own standard) and items 2-4 (beyond an end: 0 to −3 % for
+    the first 61 m, −5 % past it).  The end corridors are the runway-END
+    regime's ground, already governed by ``runway_end_envelope`` and read by
+    ``verification.check_runway_end_skirt``; applying the between-the-ends
+    cap there would double-govern it AND over-constrain it (a lawful 3 %
+    fall off the end would read as a 1.5 % violation).
+
+    The §1 PRECEDENCE law is different and keeps the FULL footprint (ends
+    included) — inside the whole strip footprint no foreign corridor may
+    govern; it is only the longitudinal CAP that stops at the ends.
+
+    Derived from ``runway_strip_wall_keepout_rings`` (index 0 is the
+    lateral rectangle by that function's own construction) so there is one
+    strip geometry, never two."""
+    rings = runway_strip_wall_keepout_rings(axis_a, axis_b, runway_width_m)
+    return rings[0] if rings else None
+
+
+def runway_strip_max_longitudinal_slope(code_number: int,
+                                        ruleset: str = "icao") -> float:
+    """The strip's ALONG-RUNWAY slope cap for aerodrome code ``code_number``
+    — the G-2 family the repo never bound (spec ``docs/specs/
+    rsa-law-round-spec.md`` §2).
+
+    ``ruleset``:
+
+      * ``"icao"`` (live default) — Annex 14 Vol I §3.4.13: a longitudinal
+        slope on the GRADED portion of the strip may not exceed 1.5 % at
+        code 4, 1.75 % at code 3, 2 % at code 1-2.  The by-code shape is
+        ICAO's, so the by-code table is the live constant.
+      * ``"faa"`` — AC 150/5300-13B §3.16.5 Standards item 1: between the
+        runway ends the RSA's longitudinal grades are "the same as the
+        comparable standards for the runway", i.e. ``RUNWAY_MAX_GRADE``
+        (1.5 %), code-invariant.  Present so the phase-B ruleset split
+        (docs/RULINGS.md "Region-specific rulesets") keys an EXISTING
+        constant instead of re-deriving one; nothing selects it yet.
+
+    Note that at code 4 the two authorities agree (1.5 %), which is why the
+    FAA fixture (KCLT, six precision code-4 ends) is exercised by the ICAO
+    value this round without prejudging the split.
+    """
+    if str(ruleset).lower() == "faa":
+        return float(RUNWAY_STRIP_MAX_LONGITUDINAL_SLOPE_FAA)
+    return float(RUNWAY_STRIP_MAX_LONGITUDINAL_SLOPE_BY_CODE[
+        int(code_number)])
+
+
+def runway_strip_longitudinal_runs(points, axis, inside=None):
+    """Split an ordered chain of strip-band vertices into the LONGITUDINAL
+    runs the along-axis law applies to.
+
+    ``points`` are ``(x, y)`` in any planar metre frame; ``axis`` is the
+    runway's unit along-axis vector in that same frame; ``inside`` (optional,
+    aligned) marks the vertices that lie inside the strip FOOTPRINT.  Returns
+    a list of index lists.
+
+    A consecutive pair BREAKS the run when
+
+      * either vertex is outside the footprint (the strip law governs only
+        its own ground — outside it the local role's corridor is back in
+        charge, which is §1 read from the other side), or
+      * the step is predominantly TRANSVERSE (``|Δp·axis| < |Δp·normal|``)
+        — a band ring runs "inner row forward, outer row back", so the two
+        turn corners are transverse steps.  A transverse step is the
+        TRANSVERSE law's business (the graded-strip cross-fall, Annex 14
+        §3.4.15); reading it as a longitudinal step would demand the lateral
+        corridor's own mandatory drainage fall be flat, which is the
+        opposite of the law.
+
+    Shared by the emitter (which clamps) and the validator (which reads), so
+    the two can never disagree about WHICH pairs the longitudinal law binds
+    — the lockstep pattern ``adjacent_ground_supported_depths`` established.
+    """
+    ux, uy = float(axis[0]), float(axis[1])
+    norm = (ux * ux + uy * uy) ** 0.5
+    if norm < 1e-12:
+        return []
+    ux, uy = ux / norm, uy / norm
+    px, py = -uy, ux
+    runs: list[list[int]] = []
+    cur: list[int] = []
+    n = len(points)
+    for i in range(n):
+        if inside is not None and not inside[i]:
+            if len(cur) >= 2:
+                runs.append(cur)
+            cur = []
+            continue
+        if not cur:
+            cur = [i]
+            continue
+        ax, ay = points[cur[-1]]
+        bx, by = points[i]
+        dx, dy = bx - ax, by - ay
+        along = abs(dx * ux + dy * uy)
+        across = abs(dx * px + dy * py)
+        if along <= 1e-9 or along < across:
+            if len(cur) >= 2:
+                runs.append(cur)
+            cur = [i]
+            continue
+        cur.append(i)
+    if len(cur) >= 2:
+        runs.append(cur)
+    return runs
+
+
+def runway_strip_longitudinal_clamp(points, alts, axis, max_slope,
+                                    pinned=None, inside=None,
+                                    max_passes=8):
+    """THE generation-binding half of the abeam-longitudinal law: return
+    ``alts`` with every strip-band run made ``max_slope``-Lipschitz along
+    the runway axis.
+
+    THE LAW (Annex 14 §3.4.13 / AC 150/5300-13B §3.16.5 item 1): between the
+    ends, two points of the graded strip at along-axis separation ``Δs`` may
+    differ in elevation by at most ``max_slope · Δs``.
+
+    THE CONSTRUCTION — the two-sided neighbour clamp, swept forward and
+    backward over each run until it stops moving:
+
+        forward   z[i] = clamp( z[i], z[i-1] − L·ds , z[i-1] + L·ds )
+        backward  z[i] = clamp( z[i], z[i+1] − L·ds , z[i+1] + L·ds )
+
+    ``ds`` is the ALONG-AXIS separation of the consecutive pair, so the
+    metric is the chain's own along-axis path length — exactly the
+    separation the validator's consecutive-pair reader measures, which is
+    what lets the two halves agree pair by pair even where a frontage
+    doubles back.  Three properties matter:
+
+      * IDENTITY ON LAWFUL GROUND.  A run that already satisfies the law is
+        inside every clamp band, so nothing is written — the law moves only
+        ground that is actually unlawful and never "smooths" a compliant
+        profile.
+      * LOCALITY.  A single unlawful spike is brought down (a pit brought
+        up) to what its neighbours support; the compliant neighbours do NOT
+        move.  This is the same physical model — and the same shape of
+        sweep — as ``adjacent_ground_supported_depths``' daylight bench,
+        and it is why the L∞-minimal mid-envelope form was rejected: that
+        one splits the difference, lifting lawful flat ground halfway to an
+        isolated spike.
+      * SYMMETRY.  Humps are cut and pits filled by the SAME rule; the law
+        has no built-in bias toward cut or fill.
+
+    The sweep pair is iterated to a fixed point (``max_passes``, default 8);
+    each pass can only move a value INTO a neighbour's band, so the total
+    violation is non-increasing.  On the fixtures every run converges in
+    ≤ 2 passes; the cap exists so a pathological chain cannot spin, and a
+    run that hits it simply keeps its residual (the validator then reports
+    it — visibly, never silently).
+
+    ``pinned`` (optional, aligned) marks vertices that may NOT move — the
+    pavement-EDGE weld row, whose values are the runway's own solved profile
+    and are lawful by that profile's own law (``RUNWAY_MAX_GRADE`` and the
+    vertical-curve rules).  A pinned vertex still participates as a SOURCE
+    in both envelopes, so free ground is pulled toward the lawful pavement
+    line rather than toward the DEM; it is simply written back unchanged.
+    (The emitter re-asserts weld and adopted values immediately after this
+    call in any case — pinning here is what makes the clamp AGREE with that
+    re-assertion instead of fighting it.)
+
+    ``inside`` and the run splitting are ``runway_strip_longitudinal_runs``
+    verbatim.  Pure, deterministic, no geometry dependencies; the validator
+    twin (``check_grade._check_strip_longitudinal_grade``) reads the SAME
+    runs with the SAME slope, so emitted ground and checked ground cannot
+    drift.
+    """
+    out = [None if a is None else float(a) for a in alts]
+    ux, uy = float(axis[0]), float(axis[1])
+    norm = (ux * ux + uy * uy) ** 0.5
+    if norm < 1e-12:
+        return out
+    ux, uy = ux / norm, uy / norm
+    limit = float(max_slope)
+    if limit <= 0.0:
+        return out
+    for run in runway_strip_longitudinal_runs(points, axis, inside):
+        idx = [i for i in run if out[i] is not None]
+        if len(idx) < 2:
+            continue
+        s = [points[i][0] * ux + points[i][1] * uy for i in idx]
+        z = [float(out[i]) for i in idx]
+        n = len(idx)
+        free = [not (pinned is not None and i < len(pinned) and pinned[i])
+                for i in idx]
+        span = [limit * abs(s[k] - s[k - 1]) for k in range(1, n)]
+        for _ in range(int(max_passes)):
+            moved = False
+            for k in range(1, n):
+                if not free[k]:
+                    continue
+                lo, hi = z[k - 1] - span[k - 1], z[k - 1] + span[k - 1]
+                new = lo if z[k] < lo else (hi if z[k] > hi else z[k])
+                if new != z[k]:
+                    z[k] = new
+                    moved = True
+            for k in range(n - 2, -1, -1):
+                if not free[k]:
+                    continue
+                lo, hi = z[k + 1] - span[k], z[k + 1] + span[k]
+                new = lo if z[k] < lo else (hi if z[k] > hi else z[k])
+                if new != z[k]:
+                    z[k] = new
+                    moved = True
+            if not moved:
+                break
+        for k, i in enumerate(idx):
+            if free[k]:
+                out[i] = z[k]
+    return out
 
 
 def runway_end_envelope(

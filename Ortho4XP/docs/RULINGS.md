@@ -470,3 +470,17 @@ Named consequence, priced in: flat-zero REQUIRES the drainage-minimum
 shaping law (a dead-flat apron violates the FAA 0.5% floor everywhere
 — the generator must CREATE minimum drainage slopes regardless of
 DEM). This is the largest known remaining generation project.
+
+CORRECTION (owner, same conversation): the flat-DEM worlds are NOT
+flat environments — CIFP threshold anchors keep their real spread
+(HECA ~85 m), so the route graph connecting them carries the FULL
+inter-anchor tension: flex, taxi-cap reconciliation, and
+terrace/wall demand all exercise in the flat worlds. The lead's
+"terraces never fire at zero relief" was a defect report, not a plan
+gap: any trigger keyed on DEM STEEPNESS (the terrace/certificate
+steep-truth signature foremost) is keyed on the WRONG QUANTITY —
+verdict (c), incorrect law. Triggers derive from ANCHOR-ENVELOPE
+INFEASIBILITY (hard values + caps + geometry), identical in flat and
+real worlds. Audit every DEM-steepness-keyed trigger. The gradient
+rung demotes to optional (covers only mixed cut/fill transitions and
+DEM-follow seed-tracking).

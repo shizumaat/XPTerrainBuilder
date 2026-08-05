@@ -4,30 +4,41 @@
 #   tools/harness/lane_worktree.sh up   NAME [REF]
 #   tools/harness/lane_worktree.sh down NAME
 #   tools/harness/lane_worktree.sh check NAME
+#   tools/harness/lane_worktree.sh data          (report the shared repo)
 #
 # Run from anywhere.  Every lane sets its tree up with THIS script; a
 # hand-typed ritual is a defect (see CLAUDE.md, "The standard test harness").
 # A worktree missing any one of these pieces does not fail — it builds a
 # silently different thing and exits 0.
 #
+# ── ONE SHARED DATA REPO (owner ruling e9daef5, MANDATORY) ───────────
+#
+# /Users/noah/XPTerrainBuilderData is THE data repo: DEM + insets, OSM
+# extracts + road feeds, airport mod cache, geotiffs, masks, DSF cache,
+# orthophotos.  Every lane MOUNTS it — never copies, never creates a
+# private cache.  Two lanes on two corpora do not measure the same thing:
+# warm-vs-cold inset state alone has moved measured terrain by 12 m here,
+# and a private cache is a second corpus that warms on its own schedule.
+#
 # WHAT `up` DOES, AND WHY EACH PIECE IS THE SHAPE IT IS:
 #
-#   venv/              SYMLINK.  One interpreter and one set of installed
-#                      packages for every lane; a per-lane venv is 2 GB and
-#                      a chance for the trees to diverge on a dependency.
-#   OSM_data/          SYMLINK.  A fresh worktree has none, and the road /
-#                      corridor code paths then silently NO-OP: the build
-#                      exits 0 with a smaller layout that reads as a
-#                      speedup and a defect drop.
-#   Airport_mod_cache/ SYMLINK.  Shared third-party apt.dat packs.
-#   Elevation_data/    SYMLINK, never a copy.  A copied inset cache is a
-#                      SECOND cache that warms independently, and warm-vs-
-#                      cold cache state has moved measured terrain by 12 m
-#                      and faked an 8 s regression in this repo.  One cache
-#                      is the only way two lanes measure one surface.
-#   Patches/           CLONED (cp -R), never symlinked.  Lanes WRITE here;
-#                      a shared Patches dir means one lane's emitted patch
-#                      lands in another lane's tile build.
+#   the DATA DIRS      SYMLINKED into $DATA_REPO, all of them, whatever
+#                      that repo actually holds (enumerated at run time,
+#                      never a hard-coded subset — a data dir the ritual
+#                      forgets is a private cache by omission).
+#   venv/              SYMLINK to the MAIN ENGINE tree.  Not data: one
+#                      interpreter and one set of installed packages for
+#                      every lane.  A per-lane venv is 2 GB and a chance
+#                      for the trees to diverge on a dependency.
+#   Patches/           CLONED (cp -R), and this one is deliberate: every
+#                      tile build WRITES {ICAO}_auto.patch.osm into
+#                      Patches/<tile>/ (auto_patch.driver), so it is a
+#                      lane's OUTPUT, not a cache.  Sharing it would let
+#                      one lane's emitted patch enter another lane's tile
+#                      build — the two lanes would then be grading each
+#                      other's geometry.  Same reasoning keeps Tiles/,
+#                      Previews/ and tmp/ lane-local; they are products,
+#                      and the ruling's enumeration lists neither.
 #   Ortho4XP.cfg       CLONED.  It is NOT tracked, so a fresh worktree has
 #                      none at all — and then `Tile.read_from_config()`
 #                      finds no config, the DEM prep runs on constructor
@@ -37,8 +48,8 @@
 # The symlinks are deliberately NOT git-added (the repo's .gitignore uses
 # directory patterns, which do not match symlinks — so `git status` shows
 # them as untracked and a careless `git add -A` would commit them).  `up`
-# ends by REFUSING if anything but those four paths is untracked, and
-# `check` re-runs that audit at any time.
+# ends by REFUSING if anything but those paths is untracked, and `check`
+# re-runs that audit at any time.
 #
 # `down` refuses while a child process still holds the tree — tearing a
 # worktree out from under a live build produces a half-written patch and a
@@ -48,77 +59,168 @@ set -u
 MAIN_REPO="${O4_MAIN_REPO:-/Users/noah/XPTerrainBuilder}"
 MAIN_ENGINE="$MAIN_REPO/Ortho4XP"
 WT_ROOT="$MAIN_REPO/.claude/worktrees"
+DATA_REPO="${O4_DATA_REPO:-/Users/noah/XPTerrainBuilderData}"
 
-LINK_DIRS="venv OSM_data Airport_mod_cache Elevation_data"
+# Mounted from the MAIN ENGINE tree (code-adjacent, not data).
+ENGINE_LINKS="venv"
+# Mounted from the SHARED DATA REPO.  Enumerated from the repo itself at
+# run time; this list is the REQUIRED floor — a missing one is a refusal,
+# because its absence is what silently turns road/corridor/DEM code paths
+# into no-ops.
+REQUIRED_DATA_DIRS="OSM_data Elevation_data Airport_mod_cache"
+# Products, never shared.  See the header for why Patches is the exception.
 CLONE_DIRS="Patches"
 CLONE_FILES="Ortho4XP.cfg"
+# Lane-local products that must NOT be mounted even if the data repo has
+# them — two lanes writing one of these would overwrite each other's work.
+NEVER_MOUNT="Patches Tiles Previews tmp"
 
 die() { echo "REFUSING: $*" >&2; exit 2; }
 
 usage() {
     echo "usage: $0 {up|down|check} NAME [REF]" >&2
+    echo "       $0 data" >&2
     exit 64
 }
 
-[ $# -ge 2 ] || usage
+# ── which data dirs does the shared repo actually hold? ──────────────
+# Enumerated, never hard-coded: the ruling says every lane mounts THE data
+# repo, so whatever data it grows is mounted too.  Products are excluded.
+data_dirs() {
+    [ -d "$DATA_REPO" ] || die "the shared data repo $DATA_REPO does not
+    exist.  Owner ruling e9daef5: it is THE data repo and every lane mounts
+    it.  Set O4_DATA_REPO if it lives elsewhere on this machine."
+    for entry in "$DATA_REPO"/*/; do
+        [ -d "$entry" ] || continue
+        base=$(basename "$entry")
+        skip=0
+        for n in $NEVER_MOUNT; do
+            [ "$base" = "$n" ] && skip=1
+        done
+        [ $skip -eq 1 ] && continue
+        echo "$base"
+    done
+}
+
+[ $# -ge 1 ] || usage
 ACTION="$1"
+
+if [ "$ACTION" = "data" ]; then
+    echo "  [ritual] shared data repo: $DATA_REPO"
+    for d in $(data_dirs); do
+        printf "  [ritual]   %-20s %s entries, %s\n" "$d" \
+            "$(ls -1 "$DATA_REPO/$d" 2>/dev/null | wc -l | tr -d ' ')" \
+            "$(du -sh "$DATA_REPO/$d" 2>/dev/null | cut -f1)"
+    done
+    echo "  [ritual] NOT mounted (lane-local products): $NEVER_MOUNT"
+    echo "  [ritual] trees and their corpus:"
+    for tree in "$MAIN_ENGINE" "$WT_ROOT"/*/Ortho4XP; do
+        [ -d "$tree" ] || continue
+        on_shared=0; private=0
+        for d in $(data_dirs); do
+            [ -e "$tree/$d" ] || continue
+            case "$(cd "$tree" 2>/dev/null && readlink -f "$d" 2>/dev/null)" in
+                "$DATA_REPO"/*) on_shared=$((on_shared+1)) ;;
+                *) private=$((private+1)) ;;
+            esac
+        done
+        if [ $private -gt 0 ]; then
+            printf "  [ritual]   PRIVATE  %s (%s shared, %s private)\n" \
+                "$tree" "$on_shared" "$private"
+        elif [ $on_shared -gt 0 ]; then
+            printf "  [ritual]   shared   %s (%s dirs)\n" "$tree" "$on_shared"
+        fi
+    done
+    echo "  [ritual] a PRIVATE tree is on a DIFFERENT CORPUS — never A/B a"
+    echo "           build from one against a build from a shared tree."
+    exit 0
+fi
+
+[ $# -ge 2 ] || usage
 NAME="$2"
 REF="${3:-HEAD}"
 WT="$WT_ROOT/$NAME"
 ENGINE="$WT/Ortho4XP"
 
 # ── the untracked-path audit ─────────────────────────────────────────
-# Only the four symlinks may be untracked.  Anything else is either a
+# Only the mounted symlinks may be untracked.  Anything else is either a
 # lane artifact that belongs in the scratchpad or an edit about to be
 # swept into someone else's "Round N" omnibus commit.
 audit_untracked() {
+    _allow="venv"
+    for d in $(data_dirs); do
+        _allow="$_allow|$d"
+    done
     _bad=$(git -C "$WT" status --porcelain 2>/dev/null \
            | sed -n 's/^?? //p' \
-           | grep -v -E "^Ortho4XP/(venv|OSM_data|Airport_mod_cache|Elevation_data)/?$")
+           | grep -v -E "^Ortho4XP/($_allow)/?$")
     if [ -n "$_bad" ]; then
-        echo "  [ritual] UNTRACKED paths beyond the four shared symlinks:"
+        echo "  [ritual] UNTRACKED paths beyond the mounted symlinks:"
         echo "$_bad" | sed 's/^/    /'
         echo "  [ritual] NEVER 'git add -A' in a lane tree — the symlinks"
         echo "           would be committed (the .gitignore dir patterns do"
         echo "           not match symlinks).  Add files by explicit path."
         return 1
     fi
-    echo "  [ritual] untracked audit clean (only the four shared symlinks)."
+    echo "  [ritual] untracked audit clean (only the mounted symlinks)."
     return 0
+}
+
+# One symlink, reported.  $1 = name, $2 = target.
+mount_link() {
+    _name="$1"; _target="$2"
+    if [ -L "$ENGINE/$_name" ]; then
+        _cur=$(readlink "$ENGINE/$_name")
+        if [ "$_cur" != "$_target" ]; then
+            rm "$ENGINE/$_name"
+            ln -s "$_target" "$ENGINE/$_name" || die "could not relink $_name"
+            echo "  [ritual] RE-MOUNTED $_name -> $_target"
+            echo "             (was $_cur — this lane's CORPUS CHANGED;"
+            echo "              do not compare its builds against earlier ones)"
+            return 0
+        fi
+    elif [ -e "$ENGINE/$_name" ]; then
+        die "$ENGINE/$_name exists and is NOT a symlink.  A real
+    $_name in a lane tree is a PRIVATE CACHE — the one thing owner ruling
+    e9daef5 forbids.  Move its contents into $DATA_REPO/$_name, remove it,
+    and re-run."
+    else
+        ln -s "$_target" "$ENGINE/$_name" || die "could not link $_name"
+    fi
+    echo "  [ritual] mount $_name -> $_target"
 }
 
 case "$ACTION" in
 up)
     [ -d "$MAIN_ENGINE" ] || die "no engine tree at $MAIN_ENGINE"
-    for d in $LINK_DIRS; do
-        [ -e "$MAIN_ENGINE/$d" ] || die "the MAIN tree has no $d — a lane
-    worktree cannot be given what the main tree lacks."
+    DATA_LIST=$(data_dirs)
+    for d in $REQUIRED_DATA_DIRS; do
+        [ -d "$DATA_REPO/$d" ] || die "the shared data repo has no $d.
+    Without it the road / corridor / DEM code paths silently NO-OP and the
+    build exits 0 with a smaller layout that reads as a speedup."
     done
     if [ -d "$WT" ]; then
         echo "  [ritual] worktree $WT already exists — completing the ritual."
     else
         git -C "$MAIN_REPO" worktree add "$WT" "$REF" || die "worktree add failed"
     fi
-    for d in $LINK_DIRS; do
-        if [ -L "$ENGINE/$d" ]; then
-            :
-        elif [ -e "$ENGINE/$d" ]; then
-            die "$ENGINE/$d exists and is NOT a symlink.  A real
-    $d in a lane tree is a second cache / second venv — remove it and re-run."
-        else
-            ln -s "$MAIN_ENGINE/$d" "$ENGINE/$d" || die "could not link $d"
-        fi
-        echo "  [ritual] symlink $d -> $MAIN_ENGINE/$d"
+    for d in $ENGINE_LINKS; do
+        mount_link "$d" "$MAIN_ENGINE/$d"
+    done
+    for d in $DATA_LIST; do
+        mount_link "$d" "$DATA_REPO/$d"
     done
     for d in $CLONE_DIRS; do
         mkdir -p "$ENGINE/$d"
-        [ -L "$ENGINE/$d" ] && die "$d must be a real directory, not a symlink"
+        [ -L "$ENGINE/$d" ] && die "$d must be a real directory, not a symlink:
+    every tile build WRITES its emitted patches there, so sharing it would
+    put one lane's geometry into another lane's build."
         for src in "$MAIN_ENGINE/$d"/*/; do
             [ -d "$src" ] || continue
             base=$(basename "$src")
             [ -e "$ENGINE/$d/$base" ] || cp -R "$src" "$ENGINE/$d/$base"
         done
-        echo "  [ritual] cloned $d ($(ls -1 "$ENGINE/$d" 2>/dev/null | wc -l | tr -d ' ') entries) — lane-private, writes stay here"
+        echo "  [ritual] cloned $d ($(ls -1 "$ENGINE/$d" 2>/dev/null | wc -l | tr -d ' ') entries) — lane-private OUTPUT, writes stay here"
     done
     for f in $CLONE_FILES; do
         [ -e "$MAIN_ENGINE/$f" ] || die "the MAIN tree has no $f — without
@@ -129,7 +231,19 @@ up)
     # Prove the ritual took: the build entry's own refusal, run here.
     ( cd "$ENGINE" && [ -d venv ] && [ -d OSM_data ] ) \
         || die "post-ritual check failed: $ENGINE still lacks venv/OSM_data"
-    echo "  [ritual] $ENGINE is build-ready."
+    echo "  [ritual] $ENGINE is build-ready on the SHARED corpus."
+    # The main tree may still hold private caches; a lane that A/Bs against
+    # it would be comparing two corpora.  Say so rather than assume.
+    for d in $REQUIRED_DATA_DIRS; do
+        if [ -d "$MAIN_ENGINE/$d" ] && [ ! -L "$MAIN_ENGINE/$d" ]; then
+            echo "  [ritual] NOTE: $MAIN_ENGINE/$d is a PRIVATE directory,"
+            echo "           not a mount of $DATA_REPO/$d.  The main tree is"
+            echo "           on a DIFFERENT CORPUS from this lane — never A/B"
+            echo "           a build here against one from there.  ('$0 data'"
+            echo "           lists every tree and its corpus.)"
+            break
+        fi
+    done
     audit_untracked
     echo "  [ritual] next: cd $ENGINE && venv/bin/python tools/harness/build_airport.py ICAO"
     ;;
@@ -137,26 +251,45 @@ up)
 check)
     [ -d "$WT" ] || die "no worktree at $WT"
     rc=0
-    for d in $LINK_DIRS; do
+    for d in $ENGINE_LINKS; do
         if [ -L "$ENGINE/$d" ]; then
-            echo "  [ritual] OK    $d -> $(readlink "$ENGINE/$d")"
+            echo "  [ritual] OK      $d -> $(readlink "$ENGINE/$d")"
         else
-            echo "  [ritual] BROKEN $d is not a symlink"; rc=1
+            echo "  [ritual] BROKEN  $d is not a symlink"; rc=1
+        fi
+    done
+    for d in $(data_dirs); do
+        if [ ! -e "$ENGINE/$d" ]; then
+            echo "  [ritual] MISSING $d — not mounted from the shared repo"
+            rc=1
+        elif [ ! -L "$ENGINE/$d" ]; then
+            echo "  [ritual] PRIVATE $d is a REAL directory — a private cache,"
+            echo "                   which owner ruling e9daef5 forbids"; rc=1
+        else
+            _real=$(cd "$ENGINE" && readlink -f "$d" 2>/dev/null)
+            case "$_real" in
+                "$DATA_REPO"/*) echo "  [ritual] OK      $d -> $_real" ;;
+                *) echo "  [ritual] OFF-REPO $d resolves to $_real, not under"
+                   echo "                   $DATA_REPO — a DIFFERENT CORPUS"
+                   rc=1 ;;
+            esac
         fi
     done
     for d in $CLONE_DIRS; do
         if [ -L "$ENGINE/$d" ]; then
-            echo "  [ritual] BROKEN $d is a SYMLINK (must be a clone)"; rc=1
+            echo "  [ritual] BROKEN  $d is a SYMLINK (must be a lane-local clone:"
+            echo "                   every tile build writes its patches there)"
+            rc=1
         else
-            echo "  [ritual] OK    $d cloned"
+            echo "  [ritual] OK      $d cloned (lane-local output)"
         fi
     done
     for f in $CLONE_FILES; do
         if [ -f "$ENGINE/$f" ]; then
-            echo "  [ritual] OK    $f present"
+            echo "  [ritual] OK      $f present"
         else
-            echo "  [ritual] BROKEN $f missing — builds would run on"
-            echo "                  constructor defaults, not production's"; rc=1
+            echo "  [ritual] BROKEN  $f missing — builds would run on"
+            echo "                   constructor defaults, not production's"; rc=1
         fi
     done
     audit_untracked || rc=1
@@ -180,14 +313,27 @@ down)
             die "open file handles under $WT — see above."
         fi
     fi
-    dirty=$(git -C "$WT" status --porcelain 2>/dev/null \
-            | grep -v -E "^\?\? Ortho4XP/(venv|OSM_data|Airport_mod_cache|Elevation_data)/?$")
+    # A lock this lane still holds in the SHARED repo would strand every
+    # other lane behind a worktree that no longer exists.
+    lockdir="$DATA_REPO/.harness/locks"
+    if [ -d "$lockdir" ]; then
+        held=$(grep -l "$WT" "$lockdir"/*.lock 2>/dev/null)
+        if [ -n "$held" ]; then
+            echo "$held" | sed 's/^/    /'
+            die "this lane still holds shared-repo refresh lock(s) above.
+    Let the refresh finish, or release them, before removing the tree —
+    a stale lock blocks every other lane's explicit refresh."
+        fi
+    fi
+    dirty=$(git -C "$WT" status --porcelain 2>/dev/null | sed -n 's/^?? //p' \
+            | grep -v -E "^Ortho4XP/(venv|$(data_dirs | tr '\n' '|' | sed 's/|$//'))/?$")
+    dirty="$dirty$(git -C "$WT" status --porcelain 2>/dev/null | grep -v '^??')"
     if [ -n "$dirty" ]; then
         echo "$dirty" | sed 's/^/    /'
         die "uncommitted changes in $WT (above).  Commit or record them
     first — a removed worktree takes them with it."
     fi
-    for d in $LINK_DIRS; do
+    for d in $ENGINE_LINKS $(data_dirs); do
         [ -L "$ENGINE/$d" ] && rm "$ENGINE/$d"
     done
     for d in $CLONE_DIRS; do

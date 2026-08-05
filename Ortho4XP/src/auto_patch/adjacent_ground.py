@@ -89,8 +89,10 @@ from .grade_law import (
     runway_strip_band_width_m,
     runway_strip_lateral_footprint_ring,
     runway_strip_longitudinal_clamp,
+    runway_strip_longitudinal_runs,
     runway_strip_wall_keepout_rings,
     ruleset_of as grade_law_ruleset_of,
+    strip_longitudinal_breaches,
     strip_longitudinal_law,
 )
 from .layout import (
@@ -377,6 +379,11 @@ _APPARATUS_KEYS = (
     # along-axis Lipschitz clamp actually MOVED (> 1 mm).  0 with the
     # gate off, and 0 on a strip whose ground already complies.
     "strip_longitudinal_clamped_vertices",
+    # ABEAM/ARC §A3(a): strip stations the march emitted a band at because
+    # the ground breached the strip's LONGITUDINAL law, not the lateral
+    # corridor — the trigger term that had no production caller until
+    # 2026-08-05.  0 on a strip whose ground is already along-axis lawful.
+    "strip_longitudinal_demanded_stations",
 )
 _APPARATUS_HITS: dict[str, int] = {}
 # Largest single clamp magnitude (m) applied by the emit-side corridor
@@ -829,7 +836,8 @@ def _build_cut_bands(edge_stations, edge_alts, outwards, band_caps,
                      ceiling_offset, band_edges, trigger, step,
                      sample_dem, is_ring_vertex=None,
                      at_continuation_seam=None, zone_collect=None,
-                     force_full_reach=False, occlusion=None):
+                     force_full_reach=False, occlusion=None,
+                     longitudinal_demand=None):
     """CUT-direction mirror of ``clearance._build_filled_skirts``.
 
     At each station a CEILING sits at ``edge_alt + ceiling_offset(d)``
@@ -864,6 +872,17 @@ def _build_cut_bands(edge_stations, edge_alts, outwards, band_caps,
     The scan STOPS there, the daylight depth is clamped to it, and so is
     the widened taper neighbour's row — no band vertex ever lands beyond an
     occluding pavement (owner ruling 2026-07-25; CYXY shapeID 395).
+
+    ``longitudinal_demand`` (per station, aligned; None = off,
+    byte-identical) — §A3(a) THE OTHER TRIGGER TERM.  The scan above is
+    LATERAL only: it asks whether the ground at depth ``d`` leaves the
+    corridor at THIS station.  Ground that sits inside the corridor at
+    every depth but breaches the strip's own LONGITUDINAL slope / arc law
+    against its NEIGHBOURING stations was therefore never emitted, so the
+    §2 clamp never saw it and the validator read it on raw DEM.  A station
+    the longitudinal predicate demands is obstructed to its full cap, so
+    the band exists and the clamp shapes it.  See
+    ``_strip_longitudinal_demand``.
     """
     n = len(edge_stations)
     outer: list[float] = [0.0] * n
@@ -902,7 +921,8 @@ def _build_cut_bands(edge_stations, edge_alts, outwards, band_caps,
             dd = sample_dem(sx + nx * d, sy + ny * d)
             if dd is not None and dd > ceil + trigger:
                 last = d
-        if force_full_reach:
+        if force_full_reach or (longitudinal_demand is not None
+                                and longitudinal_demand[i]):
             # Full-extent coverage grid (ADJACENT_GROUND_FULL_EXTENT_
             # COVERAGE): obstruct every stationed edge to the whole family
             # reach regardless of the worst-case terrain trigger, so the
@@ -910,6 +930,9 @@ def _build_cut_bands(edge_stations, edge_alts, outwards, band_caps,
             # re-march produces (over-coverage = unused solved variables).
             # Occlusion binds the staged grid too, so the pre-solve
             # construct and the emit re-march bound the SAME ground.
+            # §A3(a): a longitudinally-demanded station takes the same
+            # full-cap obstruction — the abeam/arc law governs the whole
+            # graded cross-section at that station, not a sliver of it.
             last = min(cap - 1e-3, occ)
         if last > 0.0:
             obstructed[i] = True
@@ -1125,7 +1148,7 @@ def _build_fill_bands(edge_stations, edge_alts, outwards, band_caps,
                       floor_depth, band_edges, trigger, step, sample_dem,
                       is_ring_vertex=None, at_continuation_seam=None,
                       zone_collect=None, force_full_reach=False,
-                      occlusion=None):
+                      occlusion=None, longitudinal_demand=None):
     """FILL-direction band geometry — clearance._build_filled_skirts,
     inline-duplicated MINIMALLY (flagged for the cleanup slice) with two
     lateral-law differences the shared skirt builder must not inherit:
@@ -1149,6 +1172,11 @@ def _build_fill_bands(edge_stations, edge_alts, outwards, band_caps,
     the march terminates at the first pavement hit and the depth (and the
     widened taper neighbour's row) is clamped to the last free-ground
     sample.  None = off, byte-identical.
+
+    ``longitudinal_demand`` — §A3(a), the cut twin's verbatim (see there):
+    a station whose ground conforms LATERALLY but breaches the strip's own
+    longitudinal slope / arc law against its neighbours is obstructed to
+    its full cap, so the band exists and the §2 clamp can shape it.
     """
     n = len(edge_stations)
     outer: list[float] = [0.0] * n
@@ -1174,10 +1202,12 @@ def _build_fill_bands(edge_stations, edge_alts, outwards, band_caps,
             dd = sample_dem(sx + nx * d, sy + ny * d)
             if dd is not None and dd < floor - trigger:
                 last = d
-        if force_full_reach:
+        if force_full_reach or (longitudinal_demand is not None
+                                and longitudinal_demand[i]):
             # Full-extent coverage grid (see _build_cut_bands): drop the
             # whole reach so the fill zone-row grid bounds any solved-edge
-            # fill the emit re-march produces.
+            # fill the emit re-march produces.  §A3(a) demanded stations
+            # take the same full-cap treatment (see the cut twin).
             last = min(cap, occ)
         if last > 0.0:
             dropped[i] = True
@@ -4575,6 +4605,87 @@ def _strip_law_params(layout, shape, rw_axes, trigger_by_family,
     return params + (envelope_at,) if with_envelope else params
 
 
+def _strip_longitudinal_law_for(layout, shape, rw_axes):
+    """``(max_slope, arc_rate_per_m)`` of the NEAREST runway's strip, or
+    ``None``.  Same nearest-runway resolution as ``_strip_law_params`` —
+    one law resolver for the march trigger, the clamp and the validator."""
+    if not rw_axes:
+        return None
+    try:
+        cen = shape.polygon.centroid
+        near = min(rw_axes, key=lambda a: a[0].distance(cen))
+    except (_GEOM_EXC + (ValueError, AttributeError)):
+        return None
+    return strip_longitudinal_law(runway_code_number(near[2]),
+                                  ruleset=grade_law_ruleset_of(layout))
+
+
+def _strip_longitudinal_demand(stations, strip_mask, axis_line, sample_dem,
+                               law):
+    """§A3(a) — THE MISSING TRIGGER TERM, as a per-station boolean.
+
+    THE GAP THIS CLOSES.  The adjacent-ground march emits a band where the
+    ground leaves the corridor LATERALLY — that is the only question its
+    per-station ray scan asks.  Ground that sits inside the corridor at
+    every depth but breaches the strip's OWN longitudinal law
+    (Annex 14 §3.4.13/§3.4.14, AC §3.16.5) against its neighbouring
+    stations was therefore never emitted at all: no band, so no vertex,
+    so the §2 clamp (``runway_strip_longitudinal_clamp``) never saw it,
+    and ``check_grade`` read raw DEM.  ``strip_longitudinal_breaches``
+    was written for exactly this trigger and had no production caller.
+
+    ONE DERIVATION.  The run splitting is
+    ``grade_law.runway_strip_longitudinal_runs`` and the predicate is
+    ``grade_law.strip_longitudinal_breaches`` — the same two functions the
+    clamp and ``check_grade._check_strip_longitudinal_grade`` /
+    ``_check_strip_arc_rate`` use, so the trigger, the shaping and the
+    judgment cannot disagree about which stations the law governs.
+
+    A breach at station ``k`` implicates the PAIR (and, for the arc term,
+    the triple) it is read on, so ``k-1``, ``k`` and ``k+1`` are all
+    demanded: shaping one end of an unlawful pair without the other just
+    moves the step.
+
+    ``None`` when there is no strip law, no axis, or nothing breaches —
+    the callers then pass ``None`` through and the builders are
+    byte-identical.
+    """
+    if law is None or axis_line is None or not stations:
+        return None
+    max_slope, arc_rate = law
+    if not max_slope:
+        return None
+    try:
+        (ax, ay) = axis_line.coords[0]
+        (bx, by) = axis_line.coords[-1]
+    except (_GEOM_EXC + (IndexError, AttributeError)):
+        return None
+    length = math.hypot(bx - ax, by - ay)
+    if length < 1e-9:
+        return None
+    ux, uy = (bx - ax) / length, (by - ay) / length
+    inside = [bool(m) for m in strip_mask]
+    if not any(inside):
+        return None
+    zs = [sample_dem(sx, sy) for (sx, sy) in stations]
+    demand = [False] * len(stations)
+    hit = False
+    for run in runway_strip_longitudinal_runs(stations, (ux, uy), inside):
+        s_axis = [stations[i][0] * ux + stations[i][1] * uy for i in run]
+        z_run = [zs[i] for i in run]
+        for k in strip_longitudinal_breaches(
+                s_axis, z_run, max_slope, arc_rate):
+            for j in (k - 1, k, k + 1):
+                if 0 <= j < len(run):
+                    demand[run[j]] = True
+                    hit = True
+    if not hit:
+        return None
+    _APPARATUS_HITS["strip_longitudinal_demanded_stations"] += sum(
+        1 for d in demand if d)
+    return demand
+
+
 def _shape_ring_alts(s, coords, sample_dem=None, seed=False):
     """Per-CLOSED-ring node altitudes aligned with ``coords`` (the
     ``node_altitudes`` contract), else the shape's plane sampler.
@@ -4806,6 +4917,16 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
     corridor (the pre-solve constructor passes ``None`` and takes them
     merged — its consumer is the tagged zone-row store).  ``None``
     (default; runway family, gate off): no zone test, single build —
+    byte-identical.
+
+    ``strip_longitudinal`` (§A3(a), ``(max_slope, arc_rate_per_m)`` from
+    ``_strip_longitudinal_law_for``): completes the march's emission
+    TRIGGER.  The lateral scan alone never emitted a band over ground that
+    stays inside the corridor at every depth but breaches the strip's own
+    along-axis slope / arc law, so that ground reached the validator
+    unshaped — the §A3(a) gap.  With this the strip arm additionally
+    obstructs every station ``_strip_longitudinal_demand`` names, and the
+    §2 clamp then shapes it.  ``None`` (default): no second term —
     byte-identical.
 
     ``fill_station_filter`` (APRON WALL SCOPE, owner ruling 2026-07-25 —
@@ -5322,6 +5443,12 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
     if coverage_grid:
         s_fill_edges = _coverage_grid_edges(s_fill_edges, s_width)
         s_cut_edges = _coverage_grid_edges(s_cut_edges, s_reach)
+    # §A3(a) — the trigger's LONGITUDINAL term (see
+    # ``_strip_longitudinal_demand``).  Computed ONCE for both strip
+    # passes off the same stations, the same axis and the same DEM the
+    # lateral scan reads.
+    s_long_demand = _strip_longitudinal_demand(
+        stations, strip_mask, s_axis_line, sample_dem, strip_longitudinal)
 
     def _strip_collector(base):
         # Zone rows built under the strip law are TAGGED, so the pre-solve
@@ -5352,13 +5479,15 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
         s_fill_edges, s_trigger, step, sample_dem,
         is_ring_vertex, at_seam,
         zone_collect=_strip_collector(_collect_fill),
-        force_full_reach=coverage_grid, occlusion=s_occlusion)
+        force_full_reach=coverage_grid, occlusion=s_occlusion,
+        longitudinal_demand=s_long_demand)
     s_cut = _build_cut_bands(
         stations, str_cut_refs, outs, s_cut_caps, s_ceil_off,
         s_cut_edges, s_trigger, step, sample_dem,
         is_ring_vertex, at_seam,
         zone_collect=_strip_collector(_collect_cut),
-        force_full_reach=coverage_grid, occlusion=s_cut_occ)
+        force_full_reach=coverage_grid, occlusion=s_cut_occ,
+        longitudinal_demand=s_long_demand)
     if strip_bands_out is not None:
         strip_bands_out.extend([("fill", b) for b in s_fill])
         strip_bands_out.extend([("cut", b) for b in s_cut])
@@ -5688,6 +5817,14 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
                 strip_zone_prep=(strip_lateral_prep
                                  if family != "runway" else None),
                 strip_law=_strip_law,
+                # §A3(a): the trigger's LONGITUDINAL term, so the
+                # PRE-SOLVE construct stages rows for the stations the
+                # strip's own along-axis law demands (a construct-only or
+                # emit-only term would stage variables one march builds
+                # and the other does not).
+                strip_longitudinal=(
+                    _strip_longitudinal_law_for(layout, s, rw_axes)
+                    if _strip_law else None),
                 axis_line=axis_line,
                 axis_classes=axis_classes,
                 prolonged_keys=_pro_keys,
@@ -6769,6 +6906,10 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                 strip_zone_prep=(strip_lateral_prep
                                  if family != "runway" else None),
                 strip_law=_strip_law,
+                # §A3(a) — same term at emit (see the construct call).
+                strip_longitudinal=(
+                    _strip_longitudinal_law_for(layout, s, rw_axes)
+                    if _strip_law else None),
                 strip_bands_out=_strip_bands,
                 axis_line=axis_line,
                 axis_classes=axis_classes,

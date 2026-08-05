@@ -16,7 +16,24 @@ pre-flip -> new default): SPJC 1698->1366, SPLP 50->27, CYXY 171->155,
 HECA 9649->9125, KCLT 2908->2643; BATTERY 14,476->13,316 (-1,160),
 seam +15 (ruled accepted). Every prior anchor list below is HISTORY.
 
-**KCLT RE-BASELINE (04:20): the P4 tile build refreshed the road
+**THE COMPLETE SYSTEM (2026-08-05 ~08:00; MODE: build-complete-then-
+debug, RULINGS 12320bd — gates dead, testing = composed builds).**
+Landed: KILL 954d6e8, SEATS b0c7df5, INGEST 01006a6, LAW 894aebf,
+sweep 0c2c768, test fixes 5743885. First composed build SUCCEEDED all
+three: HEAZ 177 (airside 89), HECA 7,129 (airside 4,975 — was 8,268),
+KCLT 2,670 (airside 425 — was 2,297; strip_arc 985 + strip_abeam 847
+are NEW laws binding for the first time). Hard zeros hold. DEBUG
+BACKLOG (ranked): KCLT tunnel_ramp 12.02 m/80.5% single row;
+route_band_zero pinned-dominated (SPJC 1,227/CYXY 501/SPLP 289); SPJC
+runway 1.50% vs ICAO 1.25% (flex should drain); HECA worst apron pair
+9.84 m; CYXY spine 3 rows (§7-kill residue); SPLP self-overlap 8.48
+m²; 11 composed-law test reds recorded in integrate/ evidence.
+HYGIENE BACKLOG deferred: 3,786-line dead code, O4_DEBUG
+consolidation, 110 move-to-config, provenance stamp, ~200 Tier-4
+gates. Owner Qs pending: the 5 rulesets provisionals + split-level
+pair question + strings verdict (parked feature).
+
+**KCLT RE-BASELINE (04:20, HISTORY): the P4 tile build refreshed the road
 feed — KCLT law-true 2,643→2,514 / steps 54→24 at current data
 (control 1cc33da3; release anchor 307c3fcc is STALE). Dead-zone fix
 flip-gated (O4_FLEX_DEMAND_TOL_FINE — HECA default moves

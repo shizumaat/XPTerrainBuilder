@@ -3124,6 +3124,61 @@ def _terrace_step_allowance(terrace_joints_m, xa, ya, xb, yb) -> float:
     return total
 
 
+# ── THE FAN-RAMP LAW, VALIDATOR HALF (owner RULINGS 21f0980) ────────
+# THE ONE READER: the zones arrive through the ``fan_ramp_zones`` sidecar
+# key, exactly as the joints arrive through ``terrace_joints`` — so the
+# solve and the census read ONE declaration of where the ramp is.  The
+# named precedent for why this matters is in this repo's own CLAUDE.md:
+# a private census wrapper that dropped ``terrace_joints_ll`` reported
+# lawful declared terraces as violations.  A patch predating the law has
+# no key, reads ``None``, and is judged exactly as before.
+
+def _fan_ramp_zones_to_m(fan_ramp_zones_ll, ll_to_m):
+    """``[(shapely ring in metres, cap)]`` from the sidecar rows."""
+    out = []
+    for row in (fan_ramp_zones_ll or []):
+        ring = row.get("ring_ll") if isinstance(row, dict) else None
+        if not ring or len(ring) < 3:
+            continue
+        pts = [ll_to_m(la, lo) for (la, lo) in ring]
+        try:
+            from shapely.geometry import Polygon as _Poly
+            poly = _Poly(pts)
+            if not poly.is_valid:
+                poly = poly.buffer(0)
+            if poly.is_empty:
+                continue
+        except Exception:
+            continue
+        out.append((poly, float(row.get("cap") or 0.0)))
+    return out
+
+
+def _fan_ramp_pair_cap(fan_ramp_zones_m, xa, ya, xb, yb):
+    """The zone cap for a pair wholly inside ONE zone, else ``None``.
+
+    BOTH ends AND the chord: a pair that leaves the zone touches an
+    aircraft-movement surface, and those hold the strict apron cap
+    always.  This is ``FanRampPlan.pair_cap``'s predicate verbatim — the
+    lockstep is that the two ask the same question of the same geometry.
+    """
+    if not fan_ramp_zones_m:
+        return None
+    try:
+        from shapely.geometry import LineString as _LS
+        chord = _LS([(xa, ya), (xb, yb)])
+    except Exception:
+        return None
+    best = None
+    for (poly, cap) in fan_ramp_zones_m:
+        try:
+            if poly.covers(chord) and (best is None or cap > best):
+                best = cap
+        except Exception:
+            continue
+    return best
+
+
 def _check_terrace_joint_crosses_route(terrace_joints_m, routes_ll,
                                        taxi_axes) -> List[Violation]:
     """§5(b)/(c): a declared joint intersecting a taxi ROUTE is an ERROR.
@@ -3361,6 +3416,7 @@ def _check_within_shape(ways: List[Way],
                         crown_centerline_nids: Optional[set] = None,
                         pair_caps_ll: Optional[list] = None,
                         terrace_joints_m: Optional[list] = None,
+                        fan_ramp_zones_m: Optional[list] = None,
                         ) -> List[Violation]:
     """Grade check between vertex pairs on the same way.  Consumes
     ``iter_shape_grade_constraints`` (the single source of constrained pairs)
@@ -3387,6 +3443,16 @@ def _check_within_shape(ways: List[Way],
             # so an old patch (or the gate off) reads exactly as before.
             allowance += _terrace_step_allowance(
                 terrace_joints_m, c.xa, c.ya, c.xb, c.yb)
+        if fan_ramp_zones_m:
+            # FAN-RAMP LAW: a within-apron pair lying wholly inside a
+            # declared zone is judged at the ZONE's cap — the identical
+            # rule ``apron_terrace._rewrite_fan_edges`` bound the solver
+            # to.  RELAXING ONLY: ``max`` never tightens an allowance
+            # some other law already widened.
+            _zc = _fan_ramp_pair_cap(fan_ramp_zones_m,
+                                     c.xa, c.ya, c.xb, c.yb)
+            if _zc is not None:
+                allowance = max(allowance, _zc * c.dist)
         if de <= allowance:
             continue
         grade = de / c.dist
@@ -3926,6 +3992,7 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     "crown_centerline": "crown_centerline_ll",
     "pair_caps": "pair_caps_ll",
     "terrace_joints": "terrace_joints_ll",
+    "fan_ramp_zones": "fan_ramp_zones_ll",
     "ruleset": "ruleset",
 }
 
@@ -3985,6 +4052,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["crown_centerline_ll"] = data.get("crown_centerline") or None
     ctx["pair_caps_ll"] = data.get("pair_caps") or None
     ctx["terrace_joints_ll"] = data.get("terrace_joints") or None
+    ctx["fan_ramp_zones_ll"] = data.get("fan_ramp_zones") or None
     ctx["ruleset"] = data.get("ruleset") or None
     if announce:
         print(f"  (axes sidecar loaded: {len(ctx['taxi_axes_ll'] or [])} axes"
@@ -3999,6 +4067,8 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
                  if ctx["crown_drops_ll"] else "")
               + (f", {len(ctx['terrace_joints_ll'])} terrace joints"
                  if ctx["terrace_joints_ll"] else "")
+              + (f", {len(ctx['fan_ramp_zones_ll'])} fan-ramp zones"
+                 if ctx["fan_ramp_zones_ll"] else "")
               + f", ruleset={ctx['ruleset']!r}"
               + " — law-true check)")
     return ctx
@@ -4119,6 +4189,7 @@ def run_checks(
     crown_centerline_ll: Optional[list] = None,
     pair_caps_ll: Optional[list] = None,
     terrace_joints_ll: Optional[list] = None,
+    fan_ramp_zones_ll: Optional[list] = None,
     ruleset: Optional[str] = None,
     family_out: Optional[dict] = None,
 ) -> Tuple[List[Violation], List[Violation], List[EdgeStep]]:
@@ -4251,12 +4322,23 @@ def run_checks(
               f"joint(s) (within-pairs crossing one are judged by the "
               f"step law)")
 
+    # THE FAN-RAMP LAW (owner RULINGS 21f0980), in this audit's metre
+    # frame.  Empty for every patch built without the law.
+    fan_ramp_zones_m = _fan_ramp_zones_to_m(fan_ramp_zones_ll, ll_to_m)
+    if fan_ramp_zones_m and not quiet:
+        _caps = sorted({c for (_p, c) in fan_ramp_zones_m})
+        print(f"  fan ramps: {len(fan_ramp_zones_m)} declared zone(s) at "
+              f"{', '.join(f'{c * 100:.0f} %' for c in _caps)} "
+              f"(within-apron pairs inside one are judged at the zone cap; "
+              f"every movement surface keeps the strict apron cap)")
+
     within = _fam("within_shape", _check_within_shape(
         ways, nodes, ll_to_m, max_grade, seam_nids=seam_nids,
         taxi_axes=taxi_axes, routes_ll=routes_ll,
         mesh_edges_m=mesh_edges_m, crown_by_nid=crown_by_nid,
         crown_centerline_nids=crown_centerline_nids,
-        pair_caps_ll=pair_caps_ll, terrace_joints_m=terrace_joints_m))
+        pair_caps_ll=pair_caps_ll, terrace_joints_m=terrace_joints_m,
+        fan_ramp_zones_m=fan_ramp_zones_m))
     # THE BREAK-REGION SPLIT IS DELETED (spec ``docs/specs/kill-half-
     # spec.md`` §2, 2026-08-04).  Pairs touching a solver-declared broken
     # node used to be moved out of the actionable within-shape count into

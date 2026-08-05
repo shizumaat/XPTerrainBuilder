@@ -111,6 +111,7 @@ from shapely.ops import unary_union
 
 from auto_patch.config import (
     APRON_MAX_GRADE,
+    GROUNDSIDE_MAX_GRADE,
     APRON_TERRACE_CORRIDOR_HALF_WIDTH_M,
     APRON_TERRACE_FACING_PROXIMITY_M,
     APRON_TERRACE_FACING_STEP_M,
@@ -130,6 +131,11 @@ __all__ = [
     "emit_terrace_joint_faces",
     "terrace_joints_sidecar",
     "terrace_certificates_sidecar",
+    "FanRampPlan",
+    "plan_fan_ramp_zones",
+    "apply_fan_ramp_caps",
+    "apply_fan_ramp_caps_to_edges",
+    "fan_ramp_zones_sidecar",
     "rebind_terrace_stations",
     "runway_strip_keepout_geometry",
     "TerraceJoint",
@@ -1202,7 +1208,7 @@ def _apron_dem_plane(polygon, sample_dem):
     return _dem_gradient(_as_xy(xy), dem, idx)
 
 
-def _envelope_demand(polygon, envelope, cap: float):
+def _envelope_demand(polygon, envelope, cap: float, fan=None):
     """THE TRIGGER READING — the worst ANCHOR-ENVELOPE INFEASIBILITY
     inside one apron, or ``None`` where the apron is feasible as one
     panel.
@@ -1292,6 +1298,21 @@ def _envelope_demand(polygon, envelope, cap: float):
     U = _np.asarray(his, dtype=float)
     D = _np.hypot(X[:, None] - X[None, :], Y[:, None] - Y[None, :])
     M = (L[:, None] - U[None, :]) - float(cap) * D
+    if fan is not None and getattr(fan, "zones", None):
+        # RAMPS FIRST (owner answer 2).  A pair that lies wholly inside a
+        # fan-ramp zone is allowed the ZONE's cap, so what survives this
+        # scan is exactly the relief 5 % could not span — which is what
+        # the wall/step fallback is FOR.  Precedence lives here, in the
+        # one trigger reading, rather than in a second pass that could
+        # disagree with it.
+        for _a in range(n):
+            for _b in range(n):
+                if _a == _b:
+                    continue
+                pc = fan.endpoints_cap(X[_a], Y[_a],
+                                       X[_b], Y[_b], float(cap))
+                if pc != float(cap):
+                    M[_a, _b] = (L[_a] - U[_b]) - pc * D[_a, _b]
     _np.fill_diagonal(M, -_np.inf)
     M[D < _ENVELOPE_MIN_CHORD_M] = -_np.inf
     k, m = _np.unravel_index(int(_np.argmax(M)), M.shape)
@@ -1463,8 +1484,26 @@ def _anchor_resolver(layout, G):
     return _resolve
 
 
+def _fan_for(fan, shape):
+    """The fan plan restricted to ONE apron, or ``None``.
+
+    The trigger asks about one apron at a time, and a zone belonging to a
+    different apron must never license a pair here — the ground between
+    two aprons is not inside either one's zone."""
+    if fan is None or not getattr(fan, "zones", None):
+        return None
+    zones = fan.by_shape.get(id(shape))
+    if not zones:
+        return None
+    sub = FanRampPlan()
+    for z in zones:
+        sub.add(id(shape), z)
+    return sub
+
+
 def _construct_from_envelope(layout, envelope, sample_dem=None,
-                             icao: str = "", anchors=None) -> int:
+                             icao: str = "", anchors=None,
+                             fan=None) -> int:
     """:func:`construct_apron_terrace_presolve` with the ANCHOR ENVELOPE
     already resolved to an ``(x, y) -> (floor, ceiling) | None`` callable.
 
@@ -1497,6 +1536,12 @@ def _construct_from_envelope(layout, envelope, sample_dem=None,
              "joint_lines_lost_to_corridor": 0,
              "polygons_split": 0, "split_pieces_added": 0}
     cover = corridor_cover(layout)
+    # ── THE FAN-RAMP ZONES, BEFORE THE TERRACES (owner 21f0980) ──────
+    # Precedence, structurally: the zones exist before a single terrace
+    # line is cut, so the trigger's allowance already carries the 5 %
+    # the ramp grants and the wall answers only what is left.
+    fan = plan_fan_ramp_zones(layout, cover, icao=icao)
+    layout._fan_ramp_plan = fan
     try:
         keepout = runway_strip_wall_keepout(layout, require_gate=False)
     except (ImportError, AttributeError, *_GEOM_EXC):
@@ -1512,7 +1557,7 @@ def _construct_from_envelope(layout, envelope, sample_dem=None,
             entry = _panelize_apron(layout, shape, cover, keepout,
                                     envelope, STACKED_WALL_RETREAT_M,
                                     stats, sample_dem=sample_dem,
-                                    anchors=anchors)
+                                    anchors=anchors, fan=fan)
         except _GEOM_EXC:
             continue
         if entry is None:
@@ -1636,7 +1681,7 @@ def _census_demand(stats, poly, demand) -> None:
 
 def _panelize_apron(layout, shape, cover, keepout, envelope,
                     retreat: float, stats, sample_dem=None,
-                    anchors=None):
+                    anchors=None, fan=None):
     """One apron: trigger, cut, split.  ``None`` when it does not fire.
 
     Returns the presolve entry with an extra ``_panels`` key (the panel
@@ -1652,7 +1697,8 @@ def _panelize_apron(layout, shape, cover, keepout, envelope,
     # threshold spread, so they carry the same terrace demand, and a
     # DEM-keyed trigger went blind in exactly the world the oracle
     # measures in.
-    demand = _envelope_demand(poly, envelope, APRON_MAX_GRADE)
+    demand = _envelope_demand(poly, envelope, APRON_MAX_GRADE,
+                              fan=_fan_for(fan, shape))
     if demand is None:
         stats["candidates_no_band"] += 1
         return None
@@ -2267,6 +2313,452 @@ def _rewrite_edges(edges, joints, node_xy, facing_nodes=None,
     return out, touched
 
 
+
+
+# ════════════════════════════════════════════════════════════════════
+# 4b.  THE FAN-RAMP LAW  (owner ruling, RULINGS 21f0980)
+# ════════════════════════════════════════════════════════════════════
+#
+# THE LAW, in the owner's own composition:
+#
+#   "aircraft-movement surfaces (spine corridors + frontage chords +
+#    stand entries) hold the strict apron cap, always; frontage chords
+#    run straight building→spine; between frontages at the back edge,
+#    the fan-ramp zone carries up to 5% continuous grade fanning between
+#    building seat levels; walls only as the ruled fallback; no ramp,
+#    joint, or wall may touch any movement surface."
+#
+# WHAT IT IS FOR.  Between two adjacent terminal stands the apron has to
+# get from one building's seat level to the next.  Held to the 1 % apron
+# cap that transition is often infeasible, and the only relief the law
+# had was a WALL — a step across ground nothing drives on, where a
+# continuous ramp is both buildable and what real aprons do.  The owner
+# ruled the ramp FIRST and the wall a fallback (precedence, answer 2).
+#
+# THE ZONE IS THE COMPLEMENT OF THE MOVEMENT SURFACES, and that is the
+# whole trick: ``corridor_cover`` ALREADY carries every spine corridor,
+# every building frontage chord, every stand entry and every pad, each
+# buffered by the standard clearance — it is the set the terrace law is
+# forbidden to cross.  So ``apron − cover`` is, by construction, "clear
+# of every movement surface by standard clearance"; the frontage chords
+# cut it into the wedges between adjacent buildings, and each wedge runs
+# from the back apron edge out to the corridor clearance.  That is the
+# ruling's zone, derived rather than re-specified — and it inherits the
+# no-touch guarantee structurally instead of by a later check.
+#
+# THE FAN ITSELF IS NOT DRAWN.  The zone's interior edges enter the ONE
+# solve at the zone cap as ordinary law edges; a surface fanning between
+# the two seat levels is what that system solves to.  Nothing here
+# builds a fan shape, which is the point — EMITTERS EMIT, NEVER GRADE.
+#
+# PRECEDENCE IS IN THE TRIGGER, NOT IN A SECOND PASS.  The zone cap
+# enters ``_envelope_demand`` as the pair allowance, so the shortfall the
+# terrace law then sees is exactly the relief 5 % could NOT span inside
+# the zone.  Ramps first, wall fallback, one computation.
+
+FAN_RAMP_CAP = GROUNDSIDE_MAX_GRADE
+# A zone smaller than this is a sliver of the difference operation, not
+# ground anybody ramps: it would grant 5 % across a few square metres
+# between two buffers that nearly meet.
+_FAN_MIN_AREA_M2 = 200.0
+# The ruling's "between ADJACENT buildings": a zone needs two.
+_FAN_MIN_BUILDINGS = 2
+# Two pads are ADJACENT when their footprints come within this of each
+# other.  Past it they are not neighbouring stands and the ground
+# between them is ordinary apron, not a transition between two seats.
+_FAN_PAIR_MAX_GAP_M = 250.0
+# How far into the apron a pair's zone reaches, as a multiple of the gap
+# it has to fan across, hard-capped.  SELF-SCALING because that is what
+# the geometry says: a fan spanning a 40 m gap needs 40 m of apron to do
+# it in, and one spanning 200 m needs more.  The cap keeps a distant pair
+# from claiming half an apron.
+#
+# WHY A BOUND AT ALL — measured, not assumed.  The first cut of this law
+# took "``apron − corridor_cover``, adjacent to two pads" as the zone.
+# On the twins' own two-terminal fixture that came out as 77 142 m² of a
+# 120 000 m² apron: the region between the two frontage chords is joined
+# to the apron's far corners by the 5 m strip behind the pads, so ONE
+# component wrapped the whole surface and 5 % would have been granted
+# across all of it.  The ruling's zone is bounded BY the two buildings.
+_FAN_ZONE_DEPTH_GAP_MULT = 1.0
+_FAN_ZONE_MAX_DEPTH_M = 120.0
+
+
+class FanRampPlan:
+    """The airport's declared fan-ramp zones + the round's census."""
+
+    def __init__(self):
+        # [{"shape_id", "polygon", "cap", "buildings", "area_m2"}]
+        self.zones: list[dict] = []
+        self.by_shape: dict[int, list[dict]] = {}
+        self.stats: dict = {
+            "apron_candidates": 0, "zones": 0, "zone_area_m2": 0.0,
+            "pairs_considered": 0,
+            "components_seen": 0, "dropped_small": 0,
+            "dropped_one_building": 0, "edges_at_ramp_cap": 0,
+        }
+
+    def add(self, shape_id: int, zone: dict) -> None:
+        self.zones.append(zone)
+        self.by_shape.setdefault(shape_id, []).append(zone)
+        self.stats["zones"] += 1
+        self.stats["zone_area_m2"] += zone["area_m2"]
+
+    def covers(self, x, y) -> bool:
+        """Is ``(x, y)`` inside a declared zone?"""
+        p = _Point(x, y)
+        for z in self.zones:
+            try:
+                if z["polygon"].intersects(p):
+                    return True
+            except _GEOM_EXC:                              # pragma: no cover
+                continue
+        return False
+
+    def pair_cap(self, ax, ay, bx, by, default: float) -> float:
+        """THE SOLVER's and the VALIDATOR's predicate: the cap a
+        within-apron PAIR is held to.
+
+        BOTH endpoints inside ONE zone, and the CHORD between them inside
+        it too.  A chord that leaves the zone crosses an aircraft-
+        movement surface, and those hold the strict apron cap ALWAYS
+        (the ruling's composition clause).  A pair with its two ends in
+        two DIFFERENT zones is not in a zone: the ground between them is
+        a corridor.
+        """
+        if not self.zones:
+            return default
+        try:
+            chord = LineString([(ax, ay), (bx, by)])
+        except _GEOM_EXC:                                  # pragma: no cover
+            return default
+        for z in self.zones:
+            try:
+                if z["polygon"].covers(chord):
+                    return float(z["cap"])
+            except _GEOM_EXC:                              # pragma: no cover
+                continue
+        return default
+
+    def endpoints_cap(self, ax, ay, bx, by, default: float) -> float:
+        """THE TRIGGER's predicate: both ENDPOINTS in one zone.
+
+        Deliberately weaker than :meth:`pair_cap`, and the difference is
+        the point.  The solver prices one straight EDGE, so a chord
+        leaving the zone must keep the strict cap.  The trigger asks a
+        different question — "can a ramp inside this zone discharge this
+        relief, or is a wall the only answer?" — and relief travels along
+        the ground, not along the chord.  A zone polygon is connected, so
+        two points inside it are joined by an in-zone PATH at least as
+        long as their chord; ``cap_zone · chord`` is therefore a lower
+        bound on what the ramp can carry between them.
+
+        This is what makes precedence (owner answer 2) real: the wall law
+        is left only the relief 5 % genuinely cannot span.
+        """
+        if not self.zones:
+            return default
+        pa, pb = _Point(ax, ay), _Point(bx, by)
+        for z in self.zones:
+            try:
+                poly = z["polygon"]
+                if poly.intersects(pa) and poly.intersects(pb):
+                    return float(z["cap"])
+            except _GEOM_EXC:                              # pragma: no cover
+                continue
+        return default
+
+
+def plan_fan_ramp_zones(layout, cover=None, icao: str = "") -> FanRampPlan:
+    """Build the airport's fan-ramp zones.  GENERAL law — every apron
+    with building frontage (owner answer 4); no gate, no airport list.
+
+    ONE ZONE PER ADJACENT PAIR OF BUILDINGS, which is what the ruling
+    says in as many words.  For pads ``A`` and ``B`` within
+    ``_FAN_PAIR_MAX_GAP_M`` of each other, the pair's reach is
+    ``hull(A ∪ B)`` grown by the gap it has to fan across (capped), and
+    the zone is that reach ∩ apron − corridor cover:
+
+      * ∩ APRON — the law grades apron, nothing else;
+      * − COVER — the cover already carries every spine corridor, every
+        frontage chord, every stand entry and every pad, each buffered by
+        the standard clearance, so "clear of every aircraft-movement
+        surface" is inherited STRUCTURALLY rather than checked after;
+      * ∩ REACH — bounded by the two buildings it fans between, so the
+        zone is the back-edge wedge and not the whole apron.
+
+    A third pad standing between A and B is in the cover, so it splits
+    the pair's zone by construction — "adjacent" needs no separate test.
+    """
+    from auto_patch.elevation_per_surface.solver_primitives import (
+        _corridor_segments)
+    plan = FanRampPlan()
+    segs = _corridor_segments(layout, include_roads=True)
+    if not segs:
+        # No movement network ⇒ no frontage chords ⇒ nothing for a zone
+        # to be BETWEEN, and nothing for it to be clear OF.  (The cover
+        # is non-empty even here — it carries the pads — so this test
+        # cannot be folded into an emptiness check on it.)
+        return plan
+    if cover is None:
+        cover = corridor_cover(layout)
+    if cover is None or cover.is_empty:
+        return plan
+    pads = []
+    for s in getattr(layout, "shapes", ()):
+        if (s.role or "") != "building":
+            continue
+        poly = getattr(s, "polygon", None)
+        if poly is None or poly.is_empty:
+            continue
+        pads.append(poly)
+    if len(pads) < _FAN_MIN_BUILDINGS:
+        return plan
+    reaches = []
+    for i in range(len(pads)):
+        for j in range(i + 1, len(pads)):
+            try:
+                gap = float(pads[i].distance(pads[j]))
+            except _GEOM_EXC:                              # pragma: no cover
+                continue
+            if gap > _FAN_PAIR_MAX_GAP_M:
+                continue
+            plan.stats["pairs_considered"] += 1
+            depth = min(_FAN_ZONE_MAX_DEPTH_M,
+                        max(1.0, gap * _FAN_ZONE_DEPTH_GAP_MULT))
+            try:
+                reach = _fan_pair_reach(pads[i], pads[j], depth)
+            except _GEOM_EXC:                              # pragma: no cover
+                continue
+            if reach is not None and not reach.is_empty:
+                reaches.append(reach)
+    if not reaches:
+        return plan
+    for shape in list(getattr(layout, "shapes", ())):
+        if (shape.role != ROLE_APRON or shape.polygon is None
+                or shape.polygon.is_empty
+                or shape.polygon.geom_type != "Polygon"):
+            continue
+        plan.stats["apron_candidates"] += 1
+        for reach in reaches:
+            try:
+                zone = shape.polygon.intersection(reach).difference(cover)
+            except _GEOM_EXC:
+                continue
+            if zone.is_empty:
+                continue
+            parts = ([zone] if zone.geom_type == "Polygon"
+                     else [g for g in getattr(zone, "geoms", ())
+                           if g.geom_type == "Polygon" and not g.is_empty])
+            for g in parts:
+                plan.stats["components_seen"] += 1
+                try:
+                    area = float(g.area)
+                except _GEOM_EXC:                          # pragma: no cover
+                    continue
+                if area < _FAN_MIN_AREA_M2:
+                    plan.stats["dropped_small"] += 1
+                    continue
+                near = 0
+                for pad in pads:
+                    try:
+                        if g.intersects(pad.buffer(
+                                APRON_TERRACE_JOINT_CLEARANCE_M * 1.5)):
+                            near += 1
+                    except _GEOM_EXC:                      # pragma: no cover
+                        continue
+                    if near >= _FAN_MIN_BUILDINGS:
+                        break
+                if near < _FAN_MIN_BUILDINGS:
+                    plan.stats["dropped_one_building"] += 1
+                    continue
+                plan.add(id(shape), {
+                    "shape_id": id(shape),
+                    "polygon": g,
+                    "cap": FAN_RAMP_CAP,
+                    "buildings": near,
+                    "area_m2": area,
+                })
+    if plan.zones or _os.environ.get("O4_STEP_DEBUG") == "1":
+        import O4_UI_Utils as _UI
+        st = plan.stats
+        _UI.vprint(1,
+            f"  [fan-ramp] {icao}: {st['zones']} zone(s) over "
+            f"{st['zone_area_m2']:,.0f} m² on {st['apron_candidates']} apron "
+            f"candidate(s) at {FAN_RAMP_CAP * 100:.0f} % "
+            f"(RULINGS 21f0980, the groundside class); "
+            f"{st['pairs_considered']} adjacent building pair(s), "
+            f"{st['components_seen']} movement-clear component(s), "
+            f"{st['dropped_small']} under {_FAN_MIN_AREA_M2:g} m², "
+            f"{st['dropped_one_building']} not between two buildings")
+    return plan
+
+
+def _fan_pair_reach(pad_a, pad_b, depth: float):
+    """How far a pair of adjacent buildings' fan reaches into the apron.
+
+    ``hull(A ∪ B)`` grown by ``depth``, then CUT BACK to the pair's own
+    extent along the axis joining them.  The cut is what makes this
+    "between adjacent buildings" rather than "near them": a plain buffer
+    also spills sideways PAST each building, and that ground is beside a
+    stand, not between two of them — measured on the twins' fixture, a
+    plain buffer handed 5 % to the apron's outer corners as well as to
+    the gap.
+
+    Depth is perpendicular to the axis, which is the direction the fan
+    actually runs: from the back edge out toward the spine.
+    """
+    hull = unary_union([pad_a, pad_b]).convex_hull
+    ca, cb = pad_a.centroid, pad_b.centroid
+    ux, uy = cb.x - ca.x, cb.y - ca.y
+    norm = math.hypot(ux, uy)
+    grown = hull.buffer(depth)
+    if norm < 1e-9:                                        # pragma: no cover
+        return grown
+    ux, uy = ux / norm, uy / norm
+    ts = [x * ux + y * uy
+          for pad in (pad_a, pad_b)
+          for (x, y) in _open_ring_xy(pad)]
+    if not ts:                                             # pragma: no cover
+        return grown
+    t_lo, t_hi = min(ts), max(ts)
+    # The slab ``t_lo ≤ p·u ≤ t_hi``, as a polygon big enough to cover
+    # the grown hull in the perpendicular direction.
+    px, py = -uy, ux
+    span = depth + hull.length + 1.0
+    corners = [
+        (ux * t_lo + px * -span, uy * t_lo + py * -span),
+        (ux * t_hi + px * -span, uy * t_hi + py * -span),
+        (ux * t_hi + px * span, uy * t_hi + py * span),
+        (ux * t_lo + px * span, uy * t_lo + py * span),
+    ]
+    return grown.intersection(Polygon(corners))
+
+
+def apply_fan_ramp_caps(plan: Optional[FanRampPlan], shape_constraints,
+                        node_xy) -> int:
+    """Raise the cap on every within-apron law edge that lies wholly
+    inside a declared fan-ramp zone.  Returns the edge count.
+
+    RELAXING ONLY, exactly like the terrace budget: an edge that is not
+    wholly inside a zone is returned byte-identical, so every movement
+    surface keeps the strict apron cap.
+    """
+    if plan is None or not plan.zones:
+        return 0
+    node_xy = _as_xy(node_xy)
+    total = 0
+    for entry in shape_constraints:
+        zones = plan.by_shape.get(entry.get("shape_id", -1))
+        if not zones:
+            continue
+        edges, touched = _rewrite_fan_edges(entry.get("edges") or [],
+                                            zones, node_xy)
+        entry["edges"] = edges
+        total += touched
+        thunk = entry.get("lazy_expand")
+        if thunk is not None:
+            def _bound(_t=thunk, _z=zones, _xy=node_xy):
+                return _rewrite_fan_edges(list(_t()), _z, _xy)[0]
+            entry["lazy_expand"] = _bound
+    plan.stats["edges_at_ramp_cap"] = total
+    return total
+
+
+def apply_fan_ramp_caps_to_edges(plan: Optional[FanRampPlan], edges,
+                                 node_xy):
+    """The same law on the unified graph's own ``u_edges``.
+
+    Both edge sets or neither: ``solve``/``final_grade_projection``
+    project the unified all-pair edges SEPARATELY from
+    ``shape_constraints``, so relief granted only in one is taken
+    straight back by the other — the two-instruments trap in its
+    edge-set costume (the terrace budget learned this the hard way).
+    """
+    if plan is None or not plan.zones:
+        return edges, 0
+    node_xy = _as_xy(node_xy)
+    zones = plan.zones
+    return _rewrite_fan_edges(edges, zones, node_xy)
+
+
+def _rewrite_fan_edges(edges, zones, node_xy):
+    """``cap·d`` → ``ramp cap·d`` for edges wholly inside one zone."""
+    out = []
+    touched = 0
+    for e in edges:
+        if len(e) != 3:
+            out.append(e)
+            continue
+        a, b, budget = e
+        pa, pb = node_xy.get(a), node_xy.get(b)
+        if pa is None or pb is None:
+            out.append(e)
+            continue
+        try:
+            chord = LineString([pa, pb])
+        except _GEOM_EXC:                                  # pragma: no cover
+            out.append(e)
+            continue
+        d = math.hypot(pb[0] - pa[0], pb[1] - pa[1])
+        if d < 1e-9:
+            out.append(e)
+            continue
+        hit = None
+        for z in zones:
+            try:
+                if z["polygon"].covers(chord):
+                    hit = z
+                    break
+            except _GEOM_EXC:                              # pragma: no cover
+                continue
+        if hit is None:
+            out.append(e)
+            continue
+        relaxed = float(hit["cap"]) * d
+        if relaxed <= float(budget):
+            # NEVER TIGHTEN.  The zone cap is an upper bound the ruling
+            # GRANTS; an edge already carrying a looser budget (a
+            # neighbour role's own law reaching in) keeps it.
+            out.append(e)
+            continue
+        out.append((a, b, relaxed))
+        touched += 1
+    return out, touched
+
+
+def fan_ramp_zones_sidecar(layout) -> list:
+    """``fan_ramp_zones`` for ``<patch>.axes.json`` — THE ONE READER's
+    source.
+
+    The census judges a within-apron pair at the zone cap when the pair
+    lies inside a declared zone and at the strict apron cap otherwise,
+    reading THIS key — the same one-reader pattern ``terrace_joints``
+    established, so the solver and the validator cannot each carry their
+    own idea of where the ramp is.
+    """
+    plan = getattr(layout, "_fan_ramp_plan", None)
+    if plan is None or not getattr(plan, "zones", None):
+        return []
+    out = []
+    for z in plan.zones:
+        try:
+            ring = _open_ring_xy(z["polygon"])
+        except _GEOM_EXC:                                  # pragma: no cover
+            continue
+        if len(ring) < 3:
+            continue
+        try:
+            ll = [list(layout.m_to_ll(x, y)) for (x, y) in ring]
+        except _GEOM_EXC:                                  # pragma: no cover
+            continue
+        out.append({
+            "ring_ll": ll,
+            "cap": float(z["cap"]),
+            "buildings": int(z["buildings"]),
+            "area_m2": round(float(z["area_m2"]), 1),
+        })
+    return out
 
 
 def _facing_conformance_edges(facing_nodes, own_nodes, node_xy, others):

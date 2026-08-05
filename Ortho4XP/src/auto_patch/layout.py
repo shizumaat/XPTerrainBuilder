@@ -2714,6 +2714,7 @@ class PavementLayout:
                                    taxi_axes_exact_ll,
                                    junction_mesh_edges_ll)
         from .elevation_per_surface.route_profile.apron_terrace import (
+            fan_ramp_zones_sidecar as _fan_ramp_zones_sidecar,
             terrace_certificates_sidecar as _terrace_certs_sidecar,
             terrace_joints_sidecar as _terrace_joints_sidecar)
         from .grade_law import ruleset_of as _grade_law_ruleset_of
@@ -2817,6 +2818,18 @@ class PavementLayout:
             # and the twin audits "certificate-free
             # panelization = 0" from the patch alone.
             "terrace_certificates": _terrace_certs_sidecar(self),
+            # THE FAN-RAMP ZONES (owner RULINGS 21f0980) — the ONE
+            # READER's source.  Each ring is apron ground clear of
+            # every aircraft-movement surface, between two adjacent
+            # buildings' frontages at the back apron edge, and it
+            # carries the 5 % groundside cap the solve graded it at.
+            # The census judges a within-apron pair at the zone cap
+            # when the pair lies inside a zone and at the strict
+            # apron cap otherwise, from THIS key — so the solver and
+            # the validator cannot each carry their own idea of
+            # where the ramp is.  Written unconditionally, so a
+            # reader can tell "no zones" from "predates the law".
+            "fan_ramp_zones": _fan_ramp_zones_sidecar(self),
             # REGION RULESET (phase B, docs/RULINGS.md
             # "Region-specific rulesets").  The key the build
             # actually ran under — the validator judges in THIS

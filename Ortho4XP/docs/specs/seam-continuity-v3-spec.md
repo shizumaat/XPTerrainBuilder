@@ -178,3 +178,37 @@ single-solve ingestion (Branch D is minting-local continuity, not the
 ingestion — the ingestion round inherits both branches' constraints);
 strip precedence / RSA machinery (measured out); the 2 non-conforming
 sites beyond attribution; consensus retirement; emit decimation.
+
+## LEAD ADJUDICATION (2026-08-04 late; owner-independent parts landed
+## bd1c8a7; evidence scratchpad seamv3lane/)
+
+1. §2's premise FALSIFIED by the loudness work itself: the
+   all-anchored decline population is EMPTY at both airports. Every
+   census row traces to the healer's NON-WORSENING GUARD exiting
+   silently — BLOCKED (bounds inverted, lo > hi: CYXY's site has
+   bounds [695.960, 695.750]) or CLAMPED (moved to a bound, residual
+   4.26 m = the census row); 2 of 8 sites are not healer pairs at all.
+   The guard-exit loudness extension is RATIFIED (band 5's intent was
+   zero silent leave-alones; the guard exits ARE the silent channel).
+2. **THE OWNER QUESTION IS SUSPENDED** — its framing ("declined
+   genuine steps") is materially wrong: 6 of 8 sites are steps the
+   healer WANTS to close and cannot. The BLOCKED case is an inverted
+   interval — the empty-polytope shape feasibility-is-guaranteed
+   forbids — so MECHANISM-BEFORE-FIX applies: attribute WHERE the
+   inverted bounds come from (which law supplies lo, which hi, and
+   whether the inversion is a defect or genuine law tension) BEFORE
+   any intent question. If the bounds are defective, the healer closes
+   the steps and both §3 branches die unbuilt; only if the inversion
+   is genuine law tension does the terrace-vs-floor question return to
+   the owner, reframed.
+3. Kill-control adjudication (v2 Ruling B): NO new casualty class
+   under the strict reading — no STOP. The substantive +74 rows across
+   four existing classes at HECA (junction +48, building +26,
+   transverse +5, step_mid +2) against net −672 is recorded as a
+   KILL-GATING ATTRIBUTION ITEM: those rows are adjudicated, never
+   netted, before the kill lands.
+4. The FOURTH constants copy (SEAM_STEP_MIN_GRADE ==
+   STRIP_SEAM_TEAR_MIN_GRADE) is QUEUED for absorption WITH the
+   bounds-attribution round's verdict (coupling the emitter's cliff
+   test to the census is a design decision that belongs with the
+   healer's law, not a mechanical move).

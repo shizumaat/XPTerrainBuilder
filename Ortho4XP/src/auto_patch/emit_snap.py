@@ -44,14 +44,18 @@ The pair set is the emitted patch's own law pairs (the same
 ``(i, j, cap·length)`` budgets the validator reads), so this is a guard on
 the law, not a second grading authority: it never moves a value off its
 own grid neighbourhood and never changes which pairs exist.
+
+THE MODULE OWNS TWO EMIT-SIDE DISCIPLINES.  The second is
+:func:`shared_corner_authority_nodes` — the SHARED-CORNER AUTHORITY law
+(see its docstring).  Both answer the same question: which authority owns
+a value once the global solve has converged.
 """
 from __future__ import annotations
 
-import os as _os
-from typing import Dict, Iterable, List, Sequence, Tuple
+from typing import Dict, Iterable, List, Sequence, Set, Tuple
 
-__all__ = ["snap_grid_m", "emit_snap_enabled", "law_aware_snap",
-           "snap_pairs_from_axes_ll"]
+__all__ = ["snap_grid_m", "law_aware_snap", "snap_pairs_from_axes_ll",
+           "shared_corner_authority_nodes", "SHARED_CORNER_MAX_BEND_DEG"]
 
 #: The emitted elevation grid (``to_osm`` writes ``f"{v:.2f}"``).
 _SNAP_GRID_M = 0.01
@@ -68,14 +72,130 @@ def snap_grid_m() -> float:
     return _SNAP_GRID_M
 
 
-def emit_snap_enabled() -> bool:
-    """The guard rides the SAME gate as the raw-law sweeps: the margin and
-    the snap are two halves of ONE guarantee and must never be off (or on)
-    together.  ``O4_EMIT_SNAP_GUARD`` overrides for the twins."""
-    explicit = _os.environ.get("O4_EMIT_SNAP_GUARD")
-    if explicit is not None:
-        return explicit == "1"
-    return _os.environ.get("O4_RAW_LAW_SWEEPS", "0") == "1"
+#: A ring vertex whose incident edges turn by more than this is a REAL
+#: grade break on that ring, not a point on a straight run.  Same value and
+#: same test as ``route_profile.solve._fair_ring_edges``' ``max_bend_deg``
+#: — one number, one meaning; a second threshold here would be a second
+#: instrument over one population.
+SHARED_CORNER_MAX_BEND_DEG = 25.0
+
+
+def shared_corner_authority_nodes(layout, bucket_to_idx,
+                                  max_bend_deg: float =
+                                  SHARED_CORNER_MAX_BEND_DEG) -> Set[int]:
+    """THE SHARED-CORNER AUTHORITY LAW — the node indices a RING-LOCAL pass
+    may read but must never write.
+
+    THE LAW.  A vertex owned by ONE shape ring is that ring's own variable:
+    a ring-local pass (edge fairing, triangle-plane repair) has full
+    authority over it.  A vertex owned by TWO OR MORE rings does not belong
+    to any one of them.  Where every owner agrees the vertex sits on a
+    STRAIGHT run, the owners cannot disagree and a ring-local move is
+    harmless.  Where even ONE owner sees a CORNER — a real grade break —
+    the vertex is a break for the surface, and any other owner that fairs
+    it "smooth" is exercising an authority it does not have.  Such a vertex
+    keeps the value the GLOBAL projection converged to, which is the same
+    discipline a weld-shared vertex follows: one node, one value, never a
+    second writer.
+
+    THE DEFECT IT CLOSES (SPJC node 10625, ``spjc16/``).  A FREE node
+    (``hard_cat`` None) at the corner of apron 551 + junction 444 +
+    junction 568.  Between two arms its value in SOLVE SPACE — the input to
+    ``final_grade_projection`` — moved **+0.078 m** (22.101 → 22.179).  Its
+    EMITTED value moved **+0.310 m** (22.490 → 22.800): a **4.0x**
+    amplification at this ONE node while every neighbour within 12 m
+    emitted +0.04..+0.11.  It minted a **50.67 %** grade row — rank 1 in
+    the whole airport, against a both-off worst of 13.0 % — and 10 of the
+    28 new census rows in that arm trace to it alone (census +16 → +7 once
+    the single vertex is neutralised).  The amplifier is the ring-local
+    tail of the projection: the node is the CENTRE of up to three different
+    fairing triples, one per owning ring, each with different flanks and a
+    length-scaled lever, all mutating one shared slot in sequence.
+
+    NOT A CLAMP.  Nothing here changes a value; it names the nodes whose
+    value is already decided.  Passing this set as a pass's ANCHOR set
+    (never as ``skip_nodes``) keeps such a node READABLE as a flank — its
+    neighbours still fair against it — and only removes the write.
+
+    ``bucket_to_idx`` — the solve's canonical-key → node-index map, so the
+    set is returned in the caller's own index space.  Ownership is read
+    through ``canonical_points.get`` (the MEASUREMENT query, never
+    ``get_or_add``: interning a new point changes which LATER points intern
+    together and would move the emitted surface), so a ring vertex the
+    registry has never seen is simply not counted.
+
+    Ownership counts EVERY shape with a polygon, buildings and runways
+    included: a junction that shares a vertex with a building ring is
+    exactly the cross-authority case, and excluding the roles a given pass
+    happens to skip would make the answer pass-specific — which is how one
+    population comes to have two instruments.
+    """
+    import math as _math
+
+    cps = getattr(layout, "canonical_points", None)
+    if cps is None or not bucket_to_idx:
+        return set()
+    # ONE SCAN PER GEOMETRY STATE.  ``final_grade_projection`` runs twice
+    # (MID and LATE) and the ownership relation is a pure function of the
+    # ring geometry + the registry, so the answer is cached against both.
+    # ``len(bucket_to_idx)`` is in the key because the set is returned in
+    # the CALLER's index space — a different node list is a different
+    # answer even over identical geometry.
+    stamp = (len(getattr(layout, "shapes", ()) or ()), cps.size,
+             len(bucket_to_idx), float(max_bend_deg))
+    cached = getattr(layout, "_shared_corner_authority_cache", None)
+    if cached is not None and cached[0] == stamp:
+        return set(cached[1])
+    cos_lim = _math.cos(_math.radians(float(max_bend_deg)))
+    owners: Dict[object, int] = {}
+    corner: Set[object] = set()
+    for s in getattr(layout, "shapes", ()) or ():
+        poly = getattr(s, "polygon", None)
+        if poly is None or poly.is_empty:
+            continue
+        try:
+            ring = list(poly.exterior.coords)
+        except Exception:                            # pragma: no cover
+            continue
+        if len(ring) > 1 and ring[0] == ring[-1]:
+            ring = ring[:-1]
+        m = len(ring)
+        if m < 3:
+            continue
+        keys = [cps.get(float(x), float(y)) for (x, y) in ring[:m]]
+        seen_here: Set[object] = set()
+        for t in range(m):
+            k = keys[t]
+            if k is None:
+                continue
+            if k not in seen_here:
+                seen_here.add(k)
+                owners[k] = owners.get(k, 0) + 1
+            if k in corner:
+                continue
+            ax, ay = ring[(t - 1) % m][0], ring[(t - 1) % m][1]
+            bx, by = ring[t][0], ring[t][1]
+            dx, dy = ring[(t + 1) % m][0], ring[(t + 1) % m][1]
+            ux, uy = bx - ax, by - ay
+            vx, vy = dx - bx, dy - by
+            lu = _math.hypot(ux, uy)
+            lv = _math.hypot(vx, vy)
+            if lu <= 1e-9 or lv <= 1e-9:
+                continue        # degenerate segment: no direction to turn
+            if (ux * vx + uy * vy) / (lu * lv) < cos_lim:
+                corner.add(k)
+    out: Set[int] = set()
+    for k, n_owners in owners.items():
+        if n_owners < 2 or k not in corner:
+            continue
+        i = bucket_to_idx.get(k)
+        if i is not None:
+            out.add(int(i))
+    try:
+        layout._shared_corner_authority_cache = (stamp, frozenset(out))
+    except Exception:                                    # pragma: no cover
+        pass                                             # read-only layout
+    return out
 
 
 def _grid_neighbours(value: float) -> Tuple[float, float]:

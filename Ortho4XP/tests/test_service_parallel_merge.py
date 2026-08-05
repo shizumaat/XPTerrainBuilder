@@ -93,14 +93,15 @@ def test_gate_defaults_off():
     assert anchors.PARALLEL_SERVICE_STATION_MERGE is False
 
 
-def test_gate_env_enables_merge(monkeypatch):
-    """O4_SVC_PARALLEL_STATION_MERGE=1 turns the experiment on."""
+def test_the_retired_env_var_cannot_re_arm_the_experiment(monkeypatch):
+    """The gate died 2026-08-05 ("BUILD-COMPLETE-THEN-DEBUG"): the module
+    constant is the switch, and a stale script setting the old var must not
+    turn an unbelieved branch back on."""
     monkeypatch.setenv("O4_SVC_PARALLEL_STATION_MERGE", "1")
     reloaded = importlib.reload(anchors)
     try:
-        assert reloaded.PARALLEL_SERVICE_STATION_MERGE is True
+        assert reloaded.PARALLEL_SERVICE_STATION_MERGE is False
     finally:
-        monkeypatch.delenv("O4_SVC_PARALLEL_STATION_MERGE", raising=False)
         importlib.reload(anchors)
 
 
@@ -121,11 +122,9 @@ def _ls(coords):
 
 def _seed_targets_with_gate(gate_on, line_coords, node_pos, dem,
                             monkeypatch):
-    if gate_on:
-        monkeypatch.setenv("O4_SVC_PARALLEL_STATION_MERGE", "1")
-    else:
-        monkeypatch.setenv("O4_SVC_PARALLEL_STATION_MERGE", "0")
     reloaded = importlib.reload(anchors)
+    monkeypatch.setattr(reloaded, "PARALLEL_SERVICE_STATION_MERGE",
+                        bool(gate_on))
     try:
         layout = types.SimpleNamespace(apt_taxi_centerlines=[
             types.SimpleNamespace(is_service=True, line=_ls(c))
@@ -135,7 +134,6 @@ def _seed_targets_with_gate(gate_on, line_coords, node_pos, dem,
             layout, set(node_pos), node_pos, {}, dem, 0.04,
             empty, empty, empty, empty, prox_pairs=())
     finally:
-        monkeypatch.delenv("O4_SVC_PARALLEL_STATION_MERGE", raising=False)
         importlib.reload(anchors)
 
 

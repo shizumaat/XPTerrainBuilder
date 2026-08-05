@@ -208,16 +208,28 @@ def test_seat_refuses_when_band_too_tight(monkeypatch):
     assert counts["refused"] == 1
 
 
-def test_seat_gate_off_uses_band(monkeypatch):
+def test_the_config_constant_is_the_only_switch(monkeypatch):
+    """The env override died 2026-08-05 ("BUILD-COMPLETE-THEN-DEBUG");
+    ``config.FLAT_CERTIFICATE_COVERAGE`` is the law's own switch and the
+    retired var is inert."""
+    from auto_patch.elevation_per_surface import building_feasibility as BF
     monkeypatch.setenv("O4_FLAT_CERTIFICATE_COVERAGE", "0")
     layout, building = _seat_layout()
-    out = building_feasible_levels(layout, [], _flat_footprint_sampler(),
-                                   band=_wide_band)
-    # Gate OFF: normal band clamp records the centroid-derived level, NOT the
-    # footprint mean, and nothing is certified.
-    assert abs(out[id(building)] - 100.0) < 1e-9
+    building_feasible_levels(layout, [], _flat_footprint_sampler(),
+                             band=_wide_band)
     counts = getattr(layout, "_flat_certificate_counts", None)
-    assert counts is None or counts["seat"]["certified"] == 0
+    assert counts is not None and counts["seat"]["certified"] >= 1, (
+        "the retired env var must not disarm the certificate")
+
+    monkeypatch.setattr(BF, "FLAT_CERTIFICATE_COVERAGE", False)
+    layout2, building2 = _seat_layout()
+    out2 = building_feasible_levels(layout2, [], _flat_footprint_sampler(),
+                                    band=_wide_band)
+    # Constant off: normal band clamp records the centroid-derived level,
+    # NOT the footprint mean, and nothing is certified.
+    assert abs(out2[id(building2)] - 100.0) < 1e-9
+    counts2 = getattr(layout2, "_flat_certificate_counts", None)
+    assert counts2 is None or counts2["seat"]["certified"] == 0
 
 
 def test_seat_tolerance_boundary():

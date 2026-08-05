@@ -16,11 +16,10 @@ Hermetic — no airport build, no fixtures.  Every twin drives
 sampler and LAW GRAPH, so a coupler that reads the geometry instead of the
 graph fails them.  Covers:
 
-  * the route budget REPLACES the chord limit (the 35/1295/37 geometry);
-  * gate default OFF is the chord frame, unchanged;
-  * admission SUPERSEDES ``O4_SEAT_COUPLE_SHARED_SURFACE`` (subsumed,
-    bypassed, never fought) — and turning that gate on inside the route
-    gate changes nothing;
+  * the route budget IS the limit (the 35/1295/37 geometry) — there is no
+    chord frame left to fall back to;
+  * admission SUBSUMES the retired ``O4_SEAT_COUPLE_SHARED_SURFACE``
+    predicate;
   * a route-unreachable pad is NOT admitted (no law binds it);
   * the BUDGET-IDENTITY property (spec §4): the coupler's pair budget IS
     the budget a real ``feasibility_project`` run settles at, within 1 %;
@@ -144,18 +143,19 @@ def test_the_geometry_is_a_real_divergence():
     assert _ROUTE < _CHORD
 
 
-def test_route_gate_defaults_off_and_prices_on_the_chord(monkeypatch, capsys):
-    """Default "0" — a user build is unchanged, chord frame and all."""
-    monkeypatch.delenv("O4_SEAT_COUPLE_ROUTE_METRIC", raising=False)
+def test_there_is_no_chord_frame_to_fall_back_to(monkeypatch, capsys):
+    """STANDING LAW: with NO ``O4_`` var set — what a user build does — the
+    pair is priced on the ROUTE, and the chord limit appears only as the
+    census figure the report names."""
     lv_a, lv_b = _divergence_case(monkeypatch)
-    assert abs(lv_b - lv_a) == pytest.approx(_CHORD, abs=1e-3)
-    assert "ROUTE METRIC" not in capsys.readouterr().out
+    assert abs(lv_b - lv_a) == pytest.approx(_ROUTE, abs=1e-3)
+    assert abs(lv_b - lv_a) != pytest.approx(_CHORD, abs=1e-3)
+    assert "ROUTE METRIC" in capsys.readouterr().out
 
 
 def test_route_budget_replaces_the_chord_limit(monkeypatch, capsys):
     """THE ROUND: the pair is priced at the budget the projection enforces
     along the law graph (0.1593 m), not at ``APRON_MAX_GRADE·chord``."""
-    monkeypatch.setenv("O4_SEAT_COUPLE_ROUTE_METRIC", "1")
     lv_a, lv_b = _divergence_case(monkeypatch)
     assert abs(lv_b - lv_a) == pytest.approx(_ROUTE, abs=1e-3)
     text = capsys.readouterr().out
@@ -169,7 +169,6 @@ def test_route_budget_replaces_the_chord_limit(monkeypatch, capsys):
 def test_the_law_graph_is_read_not_the_geometry(monkeypatch):
     """Same geometry, different GRAPH ⇒ different limit.  A coupler that
     priced the chord could not tell these two runs apart."""
-    monkeypatch.setenv("O4_SEAT_COUPLE_ROUTE_METRIC", "1")
     layout, apron, a, b = _divergence_layout()
     b2i = _register(layout, [apron, a, b])
     lg = _law_graph(layout, b2i, [((20.0, 40.0), (28.8, 0.0), 0.30),
@@ -216,7 +215,6 @@ def test_the_frame_split_is_reported_law_route_vs_margin(monkeypatch,
     dossier's own pair is the specimen — 0.1593 margined is TIGHTER than the
     0.176 chord, while its RAW-law route (0.1793) is LOOSER: the tightening
     is the margin's, not the law's, and the report must say so."""
-    monkeypatch.setenv("O4_SEAT_COUPLE_ROUTE_METRIC", "1")
     _divergence_case(monkeypatch)
     text = capsys.readouterr().out
     assert "tightening attribution" in text
@@ -335,8 +333,6 @@ def test_route_admission_subsumes_the_shared_surface_predicate(
         monkeypatch, capsys):
     """The pair the visibility fraction rejected as "separated by grass" is
     offered to the solver — with NO shared-surface gate set."""
-    monkeypatch.setenv("O4_SEAT_COUPLE_ROUTE_METRIC", "1")
-    monkeypatch.delenv("O4_SEAT_COUPLE_SHARED_SURFACE", raising=False)
     lv_l, lv_r, _lv_f = _u_case(monkeypatch)
     limit = sum(OS._margined_budget(w, EMIT_QUANTIZATION_MARGIN_M)
                 for w in (0.20, 0.60, 0.20))
@@ -346,11 +342,9 @@ def test_route_admission_subsumes_the_shared_surface_predicate(
     assert "shared-surface adjacency admitted" not in text
 
 
-def test_the_shared_surface_gate_is_bypassed_not_fought(monkeypatch, capsys):
-    """Spec §2: inside the route gate ``O4_SEAT_COUPLE_SHARED_SURFACE``
-    becomes redundant.  Setting it must change NOTHING."""
-    monkeypatch.setenv("O4_SEAT_COUPLE_ROUTE_METRIC", "1")
-    monkeypatch.delenv("O4_SEAT_COUPLE_SHARED_SURFACE", raising=False)
+def test_the_retired_shared_surface_var_has_no_effect(monkeypatch, capsys):
+    """The predicate is GONE, not merged: setting its old env var is inert
+    (a stale script must never quietly re-arm a retired instrument)."""
     off = _u_case(monkeypatch)
     capsys.readouterr()
     monkeypatch.setenv("O4_SEAT_COUPLE_SHARED_SURFACE", "1")
@@ -362,16 +356,14 @@ def test_the_shared_surface_gate_is_bypassed_not_fought(monkeypatch, capsys):
 def test_a_pad_off_the_law_graph_is_not_admitted(monkeypatch, capsys):
     """Route-unreachable pads do not couple — no law binds them, and
     coupling them was never meaningful (spec §2)."""
-    monkeypatch.setenv("O4_SEAT_COUPLE_ROUTE_METRIC", "1")
     _lv_l, _lv_r, lv_f = _u_case(monkeypatch)
     assert lv_f == pytest.approx(105.0)
-    assert "pad off the law graph 2" in capsys.readouterr().out
+    assert "unit off the law graph 2" in capsys.readouterr().out
 
 
 def test_a_route_beyond_the_horizon_is_not_admitted(monkeypatch, capsys):
     """Admission is the corridor dial expressed in the metric the law
     enforces: 200 m at the apron cap = 2.0 m of route budget."""
-    monkeypatch.setenv("O4_SEAT_COUPLE_ROUTE_METRIC", "1")
     horizon, dial = AN.route_coupling_horizon_m()
     assert (horizon, dial) == (pytest.approx(2.0), pytest.approx(200.0))
     # the U's through-route now costs 3.0 m of budget — beyond the horizon
@@ -387,10 +379,9 @@ def test_a_route_beyond_the_horizon_is_not_admitted(monkeypatch, capsys):
     assert "route-unreachable 1" in capsys.readouterr().out
 
 
-def test_the_gate_says_so_when_the_solve_passes_no_law_graph(monkeypatch,
-                                                             capsys):
+def test_the_coupler_says_so_when_the_solve_passes_no_law_graph(monkeypatch,
+                                                                capsys):
     """A wiring defect is never a silent fallback to the chord."""
-    monkeypatch.setenv("O4_SEAT_COUPLE_ROUTE_METRIC", "1")
     layout, apron, a, b = _divergence_layout()
     b2i = _register(layout, [apron, a, b])
     _seats(layout, b2i, _divergence_band, lambda x, y: 200.0,
@@ -400,11 +391,12 @@ def test_the_gate_says_so_when_the_solve_passes_no_law_graph(monkeypatch,
 
 # ── the loud empty polytope is unchanged ─────────────────────────────────
 
-def test_empty_polytope_stays_loud_under_route_pricing(monkeypatch, capsys):
-    """RULINGS 2026-08-04 (split-level building seats): an empty coupling
-    polytope is LOUD attribution, never a silent ship — and the round
-    changes none of that."""
-    monkeypatch.setenv("O4_SEAT_COUPLE_ROUTE_METRIC", "1")
+def test_touching_pads_are_seated_as_one_unit_not_as_a_zero_budget_pair(
+        monkeypatch, capsys):
+    """MERGED RIGID UNITS (standing law).  padD and padE share two ring
+    vertices, so they are ONE unit — there is no |L_D − L_E| ≤ 0 pair for
+    the POCS to approximate and no group mean for the projection to mint.
+    Their boxes are disjoint, which is a LAW DEFECT and is named."""
     apron = _shape([(0.0, 0.0), (100.0, 0.0), (100.0, 60.0), (40.0, 60.0),
                     (20.0, 60.0), (0.0, 60.0)], ROLE_APRON, "apron1")
     d = _shape([(0.0, 60.0), (20.0, 60.0), (20.0, 80.0), (0.0, 80.0)],
@@ -416,6 +408,34 @@ def test_empty_polytope_stays_loud_under_route_pricing(monkeypatch, capsys):
     lg = _law_graph(layout, b2i, [((0.0, 0.0), (100.0, 0.0), 0.5)])
     seats = _seats(layout, b2i,
                    lambda x, y: (95.0, 100.0) if x < 20.0 else (104.0, 106.0),
+                   lambda x, y: 105.0 + 0.05 * y, {id(d): 100.0, id(e): 106.0},
+                   monkeypatch, law_graph=lg)
+    cps = layout.canonical_points
+    assert _level_of(seats, b2i, cps, d) == _level_of(seats, b2i, cps, e)
+    text = capsys.readouterr().out
+    assert "MERGED RIGID unit(s) covering 2 pad(s)" in text
+    assert "EMPTY member-box intersection" in text
+
+
+# ── the loud empty polytope is unchanged ─────────────────────────────────
+
+def test_empty_polytope_stays_loud_under_route_pricing(monkeypatch, capsys):
+    """RULINGS 2026-08-04 (split-level building seats): an empty coupling
+    polytope is LOUD attribution, never a silent ship.
+
+    Two pads that do NOT touch (0.5 m apart, so two separate units) bound
+    by a 0.01 m route budget, with disjoint boxes: no joint level exists."""
+    apron = _shape([(0.0, 0.0), (100.0, 0.0), (100.0, 60.0), (0.0, 60.0)],
+                   ROLE_APRON, "apron1")
+    d = _shape([(0.0, 60.0), (20.0, 60.0), (20.0, 80.0), (0.0, 80.0)],
+               ROLE_BUILDING, "padD")
+    e = _shape([(20.5, 60.0), (40.0, 60.0), (40.0, 80.0), (20.5, 80.0)],
+               ROLE_BUILDING, "padE")
+    layout = _FakeLayout([apron, d, e])
+    b2i = _register(layout, [apron, d, e])
+    lg = _law_graph(layout, b2i, [((20.0, 60.0), (20.5, 60.0), 0.02)])
+    seats = _seats(layout, b2i,
+                   lambda x, y: (95.0, 100.0) if x <= 20.0 else (104.0, 106.0),
                    lambda x, y: 105.0 + 0.05 * y, {id(d): 100.0, id(e): 106.0},
                    monkeypatch, law_graph=lg)
     cps = layout.canonical_points

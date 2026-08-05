@@ -1331,15 +1331,24 @@ def _report_witness_admission(icao, label, rep):
 # projection: it keeps the freeze, so the body still twists to meet the
 # spine.  Every PROJECTION downstream of the freeze runs the yield.
 #
-# SEAT HARD-STAMP GUARD (seed-fix round §4) is the same membership,
-# standing law too: a ``seat_on_spine`` value that CAP-CONTRADICTS a hard
+# ── SEAT HARD-STAMP GUARD — STANDING LAW ─────────────────────────────
+# (seed-fix round §4; former gate ``O4_SEAT_STAMP_GUARD``, retired
+# 2026-08-05 under RULINGS "BUILD-COMPLETE-THEN-DEBUG".)
+#
+# THE LAW.  A ``seat_on_spine`` value that CAP-CONTRADICTS a hard
 # runway/seam anchor within its own route budget does not become
-# ``base_hard``.  ``feasibility-is-guaranteed`` says a real airport has a
-# lawful surface, so two IMMOVABLE values that cannot both hold are a law
-# defect to attribute, never an answer; stamping a seat immovable against
-# a runway truth 0.19 m of budget away manufactures exactly that pair,
-# and no downstream pass can undo it (measured at HECA: 3983 sweeps
-# burned, residual 4.766 m, never certified).
+# ``base_hard``: it enters YIELD-HARD, the same Ruling-54 membership the
+# spine-freeze fix uses — held at its value wherever the full graph's law
+# permits, movable only where the law demands, every movement reported.
+#
+# THE DEFECT IT CLOSES.  ``feasibility-is-guaranteed`` says a real airport
+# has a lawful surface, so two IMMOVABLE values that cannot both hold are a
+# law defect to attribute, never an answer.  Stamping a seat immovable
+# against a runway truth 0.19 m of budget away manufactures exactly that
+# pair, and nothing downstream can undo it (the projection can only report
+# it — measured at HECA: 3983 sweeps burned, residual 4.766 m, never
+# certified).  The guard needs the hard-anchor envelope to adjudicate
+# against; where no envelope exists there is no anchor to contradict.
 
 
 # ══ ADJACENT-GROUND INGESTION — THE CONSUMPTION SIDE ═══════════════════
@@ -1906,9 +1915,8 @@ def solve_route_profile(layout, icao: str,
     # is the runway-JOIN anchor map, and at HECA it misses 8 of the 31
     # on-spine hard-truth nodes, which is how the band came to floor a
     # runway node above its own runway value.  Published write-only, so
-    # the consumer (``building_feasibility.spine_value_fields``, gated by
-    # ``O4_BAND_SEED_COMPLETE``) never re-derives it and the gate-off
-    # build is unaffected.
+    # the consumer (``building_feasibility.spine_value_fields``, whose
+    # BAND-SEED COMPLETENESS law is standing) never re-derives it.
     layout._seed_hard_truth_values = {
         i: float(elev[i])
         for i in range(min(len(base_hard), len(elev))) if base_hard[i]}
@@ -1977,13 +1985,12 @@ def solve_route_profile(layout, icao: str,
     _env_band = node_band if _ENV_FROM_BAND else None
     _psub(0.55, "Solving elevations — reach bands computed")
     # ``law_graph`` — THE constraints object this solve projects on, handed
-    # to the seat coupler so its pair admission and limits can be priced on
-    # the graph the projection enforces instead of a straight chord (spec
-    # ``route-distance-seat-coupling-spec.md``; gate
-    # ``O4_SEAT_COUPLE_ROUTE_METRIC``, default OFF ⇒ the argument is never
-    # read and this is byte-inert).  Passing the SAME list object is the
-    # point: a re-derived edge set would be the second instrument the round
-    # exists to remove.
+    # to the seat coupler, which prices pair admission and limits on the
+    # graph the projection enforces — the coupler's ONLY metric (spec
+    # ``route-distance-seat-coupling-spec.md``, standing law).  Passing the
+    # SAME list object is the point: a re-derived edge set would be the
+    # second instrument that law exists to remove.  ``None`` here is a
+    # WIRING DEFECT and the coupler says so rather than pricing a chord.
     building_seats = build_building_seats(
         layout, bucket_to_idx, band, dem_fn, runway_pts,
         law_graph=shape_constraints, n_nodes=len(elev))
@@ -2004,8 +2011,10 @@ def solve_route_profile(layout, icao: str,
     # unified ``spine_adj`` with its per-edge budgets, service edges
     # included, anchor values in the solve's own (crowned) space — the
     # graph and the frame ``_solve_spine_profile``'s final exact cap
-    # projection uses.  Both consumers (the apron-contact anchor cap and
-    # the seat hard-stamp guard) are standing law, so it is always built.
+    # projection uses.  Two STANDING laws consume it — the apron-contact
+    # anchor cap and the seat hard-stamp guard — so it is always built;
+    # ``build_anchor_envelope`` returns None when the graph carries no
+    # hard anchors, which is the honest "nothing to bound against".
     from .law_graph_budget import build_anchor_envelope
     _n_hard = min(len(base_hard), len(elev))
     _anchor_envelope = build_anchor_envelope(
@@ -2127,8 +2136,7 @@ def solve_route_profile(layout, icao: str,
     # to the neighbour (the 5.4% junction).  The seat and the spine now agree.
     # (Seam pins were already removed from ``building_seats`` above —
     # the extra guard here is belt-and-braces.)
-    # ── §4 HARD-STAMP GUARD (seed-fix round, gate
-    # ``O4_SEAT_STAMP_GUARD``) ────────────────────────────────────
+    # ── §4 HARD-STAMP GUARD (seed-fix round, STANDING LAW) ───────
     # A seat value that CAP-CONTRADICTS a hard runway/seam anchor
     # within its own route budget must not become ``base_hard``.
     # Stamped, it is a second immovable authority against a runway
@@ -6138,8 +6146,19 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # would drag the pavement vertices their weld rows share.  Gate
     # off ⇒ the cut resolves to no node and the set is empty anyway,
     # but the exemption is stated explicitly at BOTH call sites.
+    # SHARED-CORNER AUTHORITY (standing law,
+    # ``emit_snap.shared_corner_authority_nodes``): a vertex owned by
+    # 2+ rings that ANY owner sees as a corner is not a ring-local
+    # variable.  It joins the ANCHOR set, never ``skip_nodes`` — its
+    # neighbours still fair AGAINST it, only the write is removed.
+    # SPJC node 10625 was the centre of three different triples and
+    # amplified a +0.078 m solve move into +0.310 m emitted (4.0x,
+    # a 50.67 % grade row, rank 1 at that airport).
+    from auto_patch.emit_snap import shared_corner_authority_nodes
+    _corner_authority_idx = shared_corner_authority_nodes(layout, b2i)
     _fair_ring_edges(layout, elev, b2i,
-                     hard | _lazy_guard_nodes | _tri_anchor_idx, None,
+                     hard | _lazy_guard_nodes | _tri_anchor_idx
+                     | _corner_authority_idx, None,
                      TAXIWAY_MAX_GRADE_CHANGE_PER_M,
                      law_adjacency=_law_adjacency,
                      skip_nodes=_fp_resa_free_idx)

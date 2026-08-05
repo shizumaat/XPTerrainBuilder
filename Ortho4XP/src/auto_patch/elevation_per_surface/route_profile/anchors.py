@@ -716,7 +716,32 @@ def _project_apron_contacts(targets, boxes, positions, cap,
 _NOBUILD_APRON_SEAT_MIN_AREA_M2 = 2000.0
 
 
-def build_nobuilding_apron_seats(layout, bucket_to_idx, band, dem_fn):
+def apron_contact_anchor_cap_enabled() -> bool:
+    """APRON-CONTACT ANCHOR CAP (seed-fix round §3; gate
+    ``O4_APRON_CONTACT_ANCHOR_CAP``, default "0").
+
+    ON, :func:`build_nobuilding_apron_seats` prices every feeder contact
+    against the HARD RUNWAY/SEAM ANCHORS on the SAME spine graph phase A
+    projects on (``law_graph_budget.build_anchor_envelope``), and the
+    silent clamp-up dies: a DEM target clamped into the band by more than
+    the materiality floor is REPORTED.
+
+    THE DEFECT (HECA, measured from the phase-A npz).  Feeder 2861's DEM
+    is 60.200; it is clamped UP into a band floor of 62.119 and then
+    PROJECTED to 65.749 by a polytope whose only cap constraints are
+    feeder↔feeder at straight gap — with NO constraint against hard
+    runway anchor 2863, which sits at 60.790 only 0.1928 m of route
+    budget away.  The seat is then stamped immovable, and the phase-A
+    projection burns 3983 sweeps on an anchor pair that cannot both hold
+    (residual 4.766 m).  An anchor 0.19 m of budget away is not a distant
+    consideration; it is the binding constraint.
+
+    Default "0" — no new default-on gate without a battery."""
+    return _os.environ.get("O4_APRON_CONTACT_ANCHOR_CAP", "0") == "1"
+
+
+def build_nobuilding_apron_seats(layout, bucket_to_idx, band, dem_fn,
+                                 anchor_envelope=None, icao=""):
     """``{feeder_contact_node_idx: feasible_level}`` for every NO-BUILDING apron —
     the FEEDER-CONVERGENCE rule (user 2026-06-26 directive #3; tilt model
     2026-06-28).
@@ -746,10 +771,30 @@ def build_nobuilding_apron_seats(layout, bucket_to_idx, band, dem_fn):
     are anchored — at their OWN reachable level — so the apron body still flexes and
     the feeder reaches L_i without an over-cap step (the earlier FLAT whole-ring seat
     forced unreachable levels → regressed ``cyxy_spine_zero`` + HECA runway).  Gate
-    ``O4_NOBUILD_APRON_SEAT=0`` disables (no apron seats, byte-identical)."""
+    ``O4_NOBUILD_APRON_SEAT=0`` disables (no apron seats, byte-identical).
+
+    ``anchor_envelope`` (seed-fix round §3, gate
+    ``O4_APRON_CONTACT_ANCHOR_CAP``) — a
+    ``law_graph_budget.AnchorEnvelope`` over the HARD runway/seam anchors
+    on the SAME spine graph phase A projects on.  Each feeder's box is
+    intersected with its envelope, which is the EXACT intersection of the
+    cap constraints ``|L_i − v_a| ≤ d(a, i)`` over every hard anchor
+    within reach (the anchor values are FIXED, so each such constraint is
+    an interval on ``L_i``).  Two things follow, both required by the
+    spec: a feeder can no longer be projected metres away from a runway
+    truth it is centimetres of budget from; and the DEM target's clamp
+    into the band stops being SILENT — a clamp beyond the materiality
+    floor is reported with the bound that demanded it, and an EMPTY box
+    (band ∩ envelope) is reported as the contradiction it is instead of
+    being skipped without a word.  ``None`` / gate off ⇒ nothing is
+    intersected and nothing is reported — byte-identical."""
     import os as _os
     if _os.environ.get("O4_NOBUILD_APRON_SEAT", "1") != "1":
         return {}
+    _cap_on = (anchor_envelope is not None
+               and apron_contact_anchor_cap_enabled())
+    _clamp_rows: list = []
+    _empty_rows: list = []
     from shapely.geometry import Point
     from auto_patch.layout import ROLE_APRON, ROLE_BUILDING, ROLE_JUNCTION
     from auto_patch.config import APRON_MAX_GRADE
@@ -796,8 +841,30 @@ def build_nobuilding_apron_seats(layout, bucket_to_idx, band, dem_fn):
                 continue
             de = dem_fn(px, py)
             tgt = de if de is not None else 0.5 * (b[0] + b[1])
+            # ── §3: the anchor-cap box + the LOUD clamp ────────────────
+            if _cap_on:
+                env = anchor_envelope.box(i)
+                if env is not None:
+                    lo_b = max(float(b[0]), float(env[0]))
+                    hi_b = min(float(b[1]), float(env[1]))
+                    if lo_b > hi_b:
+                        # band ∩ hard-anchor envelope is EMPTY.  Report it
+                        # (feasibility-is-guaranteed: a contradiction is a
+                        # law defect to attribute), and take the ANCHOR
+                        # envelope — it is the constraint the phase-A
+                        # projection will actually enforce, and seating
+                        # inside the band instead is precisely what mints
+                        # the immovable-vs-runway pair.
+                        _empty_rows.append((i, float(b[0]), float(b[1]),
+                                            float(env[0]), float(env[1])))
+                        lo_b, hi_b = float(env[0]), float(env[1])
+                    b = (lo_b, hi_b)
+            clamped = min(max(tgt, b[0]), b[1])
+            if _cap_on and abs(clamped - tgt) > 0.01:
+                _clamp_rows.append((i, float(tgt), float(clamped),
+                                    float(b[0]), float(b[1])))
             idxs.append(i)
-            tgts.append(min(max(tgt, b[0]), b[1]))
+            tgts.append(clamped)
             boxes.append(b)
             poss.append((px, py))
             keys.append(k)
@@ -820,6 +887,24 @@ def build_nobuilding_apron_seats(layout, bucket_to_idx, band, dem_fn):
             prev = seat_boxes.get(k)
             seat_boxes[k] = ((blo, bhi) if prev is None
                              else (max(prev[0], blo), min(prev[1], bhi)))
+    if _cap_on:
+        _report(f"  [apron-contact] {icao or 'airport'}: hard-anchor cap ON "
+                f"({anchor_envelope.anchor_count} anchor(s) over "
+                f"{anchor_envelope.node_count} spine node(s)); "
+                f"{len(_clamp_rows)} DEM target(s) clamped by >0.01 m, "
+                f"{len(_empty_rows)} feeder box(es) EMPTY "
+                f"(band vs hard-anchor envelope).")
+        for (i, lo_band, hi_band, lo_env, hi_env) in _empty_rows[:10]:
+            _report(f"  [apron-contact]   node {i}: band "
+                    f"[{lo_band:.3f}, {hi_band:.3f}] does not meet the "
+                    f"hard-anchor envelope [{lo_env:.3f}, {hi_env:.3f}] — "
+                    f"seated against the ENVELOPE (the constraint phase A "
+                    f"enforces); attribute the band.")
+        for (i, tgt, clamped, lo_b, hi_b) in sorted(
+                _clamp_rows, key=lambda r: -abs(r[2] - r[1]))[:10]:
+            _report(f"  [apron-contact]   node {i}: DEM target {tgt:.3f} "
+                    f"clamped to {clamped:.3f} ({clamped - tgt:+.3f} m) by "
+                    f"box [{lo_b:.3f}, {hi_b:.3f}].")
     return seats
 
 

@@ -20,7 +20,8 @@ import time as _time
 from ..node_space import store_of as _store_of
 from .apron_terrace import apron_terrace_law_enabled
 from .anchors import (
-    apron_body_nodes, build_building_seats, build_detached_pad_dem_pins,
+    apron_body_nodes, apron_contact_anchor_cap_enabled,
+    build_building_seats, build_detached_pad_dem_pins,
     build_nobuilding_apron_seats,
     build_apron_contact_floors, building_spine_floor, node_bands, reach_band_for)
 from .one_solve import (envelope_from_band_enabled, one_profile_solve,
@@ -1053,6 +1054,28 @@ def _report_witness_admission(icao, label, rep):
 #
 # Gate OFF ⇒ the yield set is never built ⇒ every ``hard`` set and every
 # ``node_refs`` argument is exactly what it is today ⇒ byte-identical.
+def seat_stamp_guard_enabled() -> bool:
+    """SEAT HARD-STAMP GUARD (seed-fix round §4; gate
+    ``O4_SEAT_STAMP_GUARD``, default "0").
+
+    ON, a ``seat_on_spine`` value that CAP-CONTRADICTS a hard runway/seam
+    anchor within its own route budget does not become ``base_hard``: it
+    enters YIELD-HARD, the same Ruling-54 membership the spine-freeze fix
+    uses — held at its value wherever the full graph's law permits,
+    movable only where the law demands, and every movement reported.
+
+    THE DEFECT.  ``feasibility-is-guaranteed`` says a real airport has a
+    lawful surface, so two IMMOVABLE values that cannot both hold are a
+    law defect to attribute, never an answer.  Stamping a seat immovable
+    against a runway truth 0.19 m of budget away manufactures exactly
+    that pair, and no downstream gate can undo it (the projection can
+    only report it — measured at HECA: 3983 sweeps burned, residual
+    4.766 m, never certified).
+
+    Default "0" — no new default-on gate without a battery."""
+    return _os.environ.get("O4_SEAT_STAMP_GUARD", "0") == "1"
+
+
 def spine_yield_hard_enabled() -> bool:
     """True when phase-A spine values enter the downstream projections as
     YIELD-HARD members (reference-rod held) instead of frozen ``base_hard``.
@@ -1062,7 +1085,8 @@ def spine_yield_hard_enabled() -> bool:
 
 
 def _spine_yield_membership(frozen, n, *, truth_hard, runway_nodes,
-                            building_seats, runway_anchor, seam_pins):
+                            building_seats, runway_anchor, seam_pins,
+                            seat_stamp_yield=None):
     """Split the phase-A frozen spine into ``(preserved, yield_hard)``.
 
     THE PRESERVED SET, ENUMERATED (the spec requires the enumeration, not
@@ -1082,6 +1106,16 @@ def _spine_yield_membership(frozen, n, *, truth_hard, runway_nodes,
     YIELD-HARD = ``{i in frozen : 0 <= i < n}`` minus that union.  The two
     are disjoint and together exhaust the in-range frozen set, so no spine
     node can fall out of both (the silent-loss shape).
+
+    ``seat_stamp_yield`` (seed-fix round §4) — seats the hard-stamp guard
+    refused to stamp because they CAP-CONTRADICT a hard runway/seam
+    anchor within route budget.  ``building_seats`` is preserved
+    UNCONDITIONALLY above, which would hand exactly those values back the
+    immovability §4 took away; they are subtracted here.  ``truth_hard``
+    cannot re-admit them — the guard never wrote their ``_hard_cat``
+    class — but the subtraction is applied to the whole union so no other
+    member can smuggle them back either.  Empty / ``None`` ⇒ the
+    membership is byte-identical.
     """
     def _in(s):
         return {int(i) for i in (s or ()) if 0 <= int(i) < n}
@@ -1089,6 +1123,7 @@ def _spine_yield_membership(frozen, n, *, truth_hard, runway_nodes,
     frozen_in = _in(frozen)
     preserved = (_in(truth_hard) | _in(runway_nodes) | _in(building_seats)
                  | _in(runway_anchor) | _in(seam_pins))
+    preserved -= _in(seat_stamp_yield)
     return preserved, (frozen_in - preserved)
 
 
@@ -1469,6 +1504,21 @@ def solve_route_profile(layout, icao: str,
                 layout, icao,
                 f"refused("
                 f"{getattr(layout, '_flat_airport_fast_path_reason', '?')})")
+    # ── HARD TRUTH PUBLICATION (seed-fix round §2) ───────────────────
+    # ``base_hard`` here is exactly the ``seed_rwy_seam`` class (the
+    # ``_seed_elevations`` runway/CIFP profile values and tile-seam DEM
+    # pins, plus whatever the runway-flex pass hardened) — the SAME set
+    # ``_hard_cat`` is derived from a few hundred lines below.  The reach
+    # band's value fields need it to seed COMPLETELY: ``G.runway_anchor``
+    # is the runway-JOIN anchor map, and at HECA it misses 8 of the 31
+    # on-spine hard-truth nodes, which is how the band came to floor a
+    # runway node above its own runway value.  Published write-only, so
+    # the consumer (``building_feasibility.spine_value_fields``, gated by
+    # ``O4_BAND_SEED_COMPLETE``) never re-derives it and the gate-off
+    # build is unaffected.
+    layout._seed_hard_truth_values = {
+        i: float(elev[i])
+        for i in range(min(len(base_hard), len(elev))) if base_hard[i]}
     band, dem_fn, runway_pts, _G = reach_band_for(
         layout, elev, bucket_to_idx, dem, tile_lat, tile_lon, unified_graph=G)
     # ZONE-NODE REACH-BAND SKIP (Slice B stage B3 performance lever,
@@ -1544,7 +1594,29 @@ def solve_route_profile(layout, icao: str,
     # below into ``building_seats`` AFTER ``building_spine_floor`` (which is a
     # building-pad chord model) so apron seats ride the same heaviest-anchor
     # machinery without perturbing the building-frontage spine floor.
-    apron_seats = build_nobuilding_apron_seats(layout, bucket_to_idx, band, dem_fn)
+    # ── THE LAW-GRAPH BUDGET ORACLE (seed-fix round §3/§4 + the spec's
+    # RECONCILIATION clause) ──────────────────────────────────────────
+    # ONE build, here, consumed by BOTH the apron-contact polytope (§3)
+    # and the seat hard-stamp guard (§4) — and by the route-distance
+    # seat-coupling round, which cites this object rather than deriving
+    # a second metric (``single-pass-principle``; a polytope priced on a
+    # metric the projection does not enforce is the defect family both
+    # rounds are fixing).  Priced EXACTLY as phase A projects: the
+    # unified ``spine_adj`` with its per-edge budgets, service edges
+    # included, anchor values in the solve's own (crowned) space — the
+    # graph and the frame ``_solve_spine_profile``'s final exact cap
+    # projection uses.  Both gates off ⇒ never built.
+    _anchor_envelope = None
+    if (apron_contact_anchor_cap_enabled() or seat_stamp_guard_enabled()):
+        from .law_graph_budget import build_anchor_envelope
+        _n_hard = min(len(base_hard), len(elev))
+        _anchor_envelope = build_anchor_envelope(
+            u_spine_adj,
+            {i: float(elev[i]) for i in u_spine_adj
+             if i < _n_hard and base_hard[i]})
+    apron_seats = build_nobuilding_apron_seats(
+        layout, bucket_to_idx, band, dem_fn,
+        anchor_envelope=_anchor_envelope, icao=icao)
     apron_body = apron_body_nodes(layout, bucket_to_idx)
 
     # NO-BUILDING APRON FILL (user 2026-06-26): a no-building apron has no pad to
@@ -1658,12 +1730,56 @@ def solve_route_profile(layout, icao: str,
         # to the neighbour (the 5.4% junction).  The seat and the spine now agree.
         # (Seam pins were already removed from ``building_seats`` above —
         # the extra guard here is belt-and-braces.)
+        # ── §4 HARD-STAMP GUARD (seed-fix round, gate
+        # ``O4_SEAT_STAMP_GUARD``) ────────────────────────────────────
+        # A seat value that CAP-CONTRADICTS a hard runway/seam anchor
+        # within its own route budget must not become ``base_hard``.
+        # Stamped, it is a second immovable authority against a runway
+        # truth the projection cannot reconcile — HECA's 2861 (seat
+        # 65.749) sits 0.1928 m of budget from runway anchor 2863
+        # (60.790), a 4.766 m contradiction that the phase-A projection
+        # then burns 3983 sweeps on and can never certify.  The seat
+        # KEEPS its value as the node's starting elevation (it is still
+        # the best estimate of where that apron wants to be) but enters
+        # YIELD-HARD: movable by the projection where the law demands,
+        # excluded from the spine-yield PRESERVED set (which today
+        # preserves ``building_seats`` unconditionally), and every
+        # contradiction reported with the anchor that binds it.
+        _seat_yield_idx: set = set()
+        _seat_guard_rows: list = []
+        _seat_guard_on = (seat_stamp_guard_enabled()
+                          and _anchor_envelope is not None)
         for i, lv in building_seats.items():
             if i < n and lv is not None and i in u_spine_adj \
                     and i not in _seam_pin_idx:
+                if _seat_guard_on:
+                    _v = _anchor_envelope.violation(i, float(lv), tol=0.01)
+                    if _v is not None:
+                        elev[i] = float(lv)
+                        _seat_yield_idx.add(i)
+                        _seat_guard_rows.append((i, float(lv), _v))
+                        continue
                 elev[i] = float(lv)
                 base_hard[i] = True
                 _hard_cat.setdefault(i, "seat_on_spine")
+        layout._seat_stamp_yield_idx = _seat_yield_idx
+        if _seat_guard_on:
+            import O4_UI_Utils as _UI_sg
+            _UI_sg.vprint(
+                1,
+                f"  [seat-guard] {icao}: {len(_seat_guard_rows)} of "
+                f"{len(building_seats)} seat(s) cap-contradict a hard "
+                f"runway/seam anchor within route budget — NOT stamped "
+                f"base_hard, entering yield-hard.")
+            for (i, lv, _v) in sorted(
+                    _seat_guard_rows,
+                    key=lambda r: -r[2]["excess_m"])[:10]:
+                _UI_sg.vprint(
+                    1,
+                    f"  [seat-guard]   node {i}: seat {lv:.3f} is "
+                    f"{_v['excess_m']:.3f} m past its {_v['side']} "
+                    f"{_v['bound']:.3f} (witness anchor {_v['witness']}, "
+                    f"route budget {_v['route_budget_m']:.4f} m).")
 
         # DETACHED building pads → HARD flat DEM pins (user 2026-07-17,
         # KBNA SE lot): a pad with NO airside-served seat follows local
@@ -1951,9 +2067,16 @@ def solve_route_profile(layout, icao: str,
                 runway_nodes=runway_nodes,
                 building_seats=building_seats,
                 runway_anchor=G.runway_anchor,
-                seam_pins=_seam_pin_idx)
+                seam_pins=_seam_pin_idx,
+                seat_stamp_yield=_seat_yield_idx)
         for i in frozen:
             if i < n:
+                # §4: a seat the hard-stamp guard refused is not
+                # re-frozen by the phase-A freeze either — it was never
+                # phase-A TRUTH, only a phase-A estimate the projection
+                # was free to move.
+                if i in _seat_yield_idx:
+                    continue
                 base_hard[i] = True
         if _spine_yield_idx:
             # THE phase-A values the rods reference.  Taken here, one
@@ -7351,6 +7474,36 @@ def _solve_spine_profile(elev, base_hard, spine_adj, spine_floor,
         lo, hi = b
         return (lo, hi) if lo <= hi else (0.5 * (lo + hi), 0.5 * (lo + hi))
 
+    # ── §5 LOUD MIDPOINT (seed-fix round; ungated, write-only) ────────
+    # ``tgt = 0.5*(lo+hi)`` on an EMPTY interval (``lo > hi``) is the
+    # silent shape ``feasibility-is-guaranteed`` forbids: the harmonic
+    # cannot satisfy the constraints, so it splits the difference and
+    # ships a value no law admits, with nothing said.  It becomes a NAMED
+    # report — node, the empty interval, and the arg-max constraints that
+    # produced each side.  The re-derivation runs ONLY on the empty-
+    # interval branch (a rare event), so the hot sweep pays nothing; the
+    # value written is unchanged, so this is byte-inert by construction.
+    # Escalation to a build error waits until §2/§3 retire the known
+    # minters (spec §5).
+    _empty_interval: dict = {}
+
+    def _empty_interval_sources(k, lo, hi):
+        """Which constraint set each side of the empty interval — the
+        band, a neighbour cap slab (with the neighbour), or the spine
+        floor.  Re-derived from the same terms the sweep used."""
+        b_lo, b_hi = _band(k)
+        lo_src, lo_val = ("band_floor", b_lo)
+        hi_src, hi_val = ("band_ceiling", b_hi)
+        for (j, w) in spine_adj.get(k, ()):
+            if elev[j] - w > lo_val:
+                lo_src, lo_val = (f"cap_slab_from_{j}", elev[j] - w)
+            if elev[j] + w < hi_val:
+                hi_src, hi_val = (f"cap_slab_from_{j}", elev[j] + w)
+        f = spine_floor.get(k)
+        if f is not None and f > lo_val:
+            lo_src, lo_val = ("spine_floor", f)
+        return lo_src, hi_src
+
     # warm start free nodes onto their reach-band floor / serving floor (fill UP
     # out of a wrong-low DEM; the serving arm climbs to its pads).
     for k in free:
@@ -7359,7 +7512,7 @@ def _solve_spine_profile(elev, base_hard, spine_adj, spine_floor,
         target = max(bf, f)
         if target > -INF and target > elev[k]:
             elev[k] = target
-    for _ in range(max_sweeps):
+    for _sweep_no in range(max_sweeps):
         moved = 0.0
         for k in free:
             nb = spine_adj.get(k, ())
@@ -7382,7 +7535,26 @@ def _solve_spine_profile(elev, base_hard, spine_adj, spine_floor,
             f = spine_floor.get(k)
             if f is not None and f > lo:
                 lo = f
-            tgt = (min(max(tgt, lo), hi) if lo <= hi else 0.5 * (lo + hi))
+            if lo <= hi:
+                tgt = min(max(tgt, lo), hi)
+            else:
+                # §5: EMPTY polytope — record before splitting it.
+                row = _empty_interval.get(k)
+                if row is None:
+                    lo_src, hi_src = _empty_interval_sources(k, lo, hi)
+                    _empty_interval[k] = {
+                        "node": k, "first_sweep": _sweep_no, "hits": 1,
+                        "lo": float(lo), "hi": float(hi),
+                        "deficit_m": float(lo - hi),
+                        "lo_source": lo_src, "hi_source": hi_src}
+                else:
+                    row["hits"] += 1
+                    if lo - hi > row["deficit_m"]:
+                        lo_src, hi_src = _empty_interval_sources(k, lo, hi)
+                        row.update(lo=float(lo), hi=float(hi),
+                                   deficit_m=float(lo - hi),
+                                   lo_source=lo_src, hi_source=hi_src)
+                tgt = 0.5 * (lo + hi)
             d = tgt - elev[k]
             if d:
                 elev[k] = tgt
@@ -7390,6 +7562,36 @@ def _solve_spine_profile(elev, base_hard, spine_adj, spine_floor,
                     moved = abs(d)
         if moved < tol:
             break
+    if _empty_interval:
+        # §5 report.  ``feasibility-is-guaranteed``: an empty polytope at a
+        # free corridor node is a LAW DEFECT to attribute — a wrong metric,
+        # a wrong anchor value, a wrong role/cap or a false topology — and
+        # the midpoint it ships is a value no constraint admits.
+        _rows = sorted(_empty_interval.values(),
+                       key=lambda r: -r["deficit_m"])
+        _material = [r for r in _rows if r["deficit_m"] > 0.01]
+        try:
+            import O4_UI_Utils as _UI_ei
+            _UI_ei.vprint(
+                1,
+                f"  [empty-interval] phase-A harmonic split an EMPTY "
+                f"polytope at {len(_rows)} node(s) "
+                f"({len(_material)} by >0.01 m) — the midpoint of an "
+                f"empty interval satisfies NOTHING; attribute the "
+                f"binding pair.")
+            for r in _rows[:10]:
+                _UI_ei.vprint(
+                    1,
+                    f"  [empty-interval]   node {r['node']}: "
+                    f"lo {r['lo']:.3f} ({r['lo_source']}) > hi "
+                    f"{r['hi']:.3f} ({r['hi_source']}) by "
+                    f"{r['deficit_m']:.4f} m, first at sweep "
+                    f"{r['first_sweep']}, {r['hits']} hit(s).")
+        except Exception:                                  # pragma: no cover
+            pass
+    if probe_out is not None:
+        probe_out["empty_intervals"] = sorted(
+            _empty_interval.values(), key=lambda r: -r["deficit_m"])
     _probe("2_after_harmonic_min_curvature")
     # ── PHASE-A TAUT-STRING PASS (docs/specs/taut-string-spine-profile-
     # spec.md §5 step 2 + §6, owner ruling 2026-07-28) ───────────────

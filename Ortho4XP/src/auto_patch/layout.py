@@ -2288,6 +2288,43 @@ class PavementLayout:
                     if w_id == _mwid:
                         referenced_nids.update(n_list)
                         break
+        # ── LAW-AWARE EMIT SNAP (seed-fix round §1b + LEAD AMENDMENT) ──
+        # ``alt_abs`` is written at 0.01 m, so each endpoint moves up to
+        # ±0.005 m and a pair solved AT its cap can read over the law in
+        # the emitted file.  That guarantee used to be bought in the
+        # solver by sweeping every edge to ``budget − 0.01``, which is
+        # correct per pair and COMPOUNDING per path (the envelope, the
+        # break detection and the stall adjudication are all path
+        # quantities).  Under ``O4_RAW_LAW_SWEEPS`` the sweeps run on RAW
+        # budgets and the guarantee lives HERE instead: each node is
+        # snapped to a grid point ADJACENT to its solved value — bounded
+        # by ONE step, so it cannot compound — with the rounding
+        # DIRECTION chosen per pair against that pair's own raw cap, so a
+        # naive nearest-snap cannot re-mint an over-cap census row.
+        # Gate off ⇒ not imported, not called, byte-identical.
+        if (os.environ.get("O4_EMIT_SNAP_GUARD",
+                           os.environ.get("O4_RAW_LAW_SWEEPS", "0")) == "1"):
+            from . import emit_snap as _emit_snap
+            _snap_pairs = _emit_snap.snap_pairs_from_axes_ll(
+                getattr(self, "_lockstep_pair_caps_ll", None) or [],
+                node_id_to_ll, referenced_nids)
+            _snap_values = {
+                _nid: float(_v) for _nid, _v in node_id_to_consensus.items()
+                if _v is not None and _nid in node_alt_abs_nids
+                and _nid in referenced_nids}
+            if _snap_pairs and _snap_values:
+                _snapped, _snap_report = _emit_snap.law_aware_snap(
+                    _snap_values, _snap_pairs)
+                for _nid, _v in _snapped.items():
+                    node_id_to_consensus[_nid] = _v
+                UI.vprint(
+                    1,
+                    f"  [pav-builder] law-aware emit snap: "
+                    f"{_snap_report['pairs']} law pair(s), "
+                    f"{_snap_report['over_cap_before']} over cap from a "
+                    f"naive snap -> {_snap_report['over_cap_after']} after "
+                    f"({_snap_report['flips']} direction flip(s), worst "
+                    f"residual {_snap_report['worst_residual_m']:.4f} m).")
         # Stamp apt.dat provenance on the <osm> root so a later build
         # can tell whether this patch is still current (the driver's
         # freshness check, ``read_patch_source``).  The path is

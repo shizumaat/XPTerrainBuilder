@@ -164,9 +164,38 @@ _FP_VECTORIZE = _os.environ.get("O4_FP_VECTORIZE", "0") == "1"
 _QUANT_MARGIN_FLOOR_M = 0.005
 
 
+def raw_law_sweeps_enabled() -> bool:
+    """RAW LAW SWEEPS (seed-fix round §1b; gate ``O4_RAW_LAW_SWEEPS``,
+    default "0").
+
+    ON, the sweeps — and with them the reach envelope and the break
+    detection, which must stay self-consistent with what is enforced —
+    run on the RAW law budgets.  The 0.01 m emit-quantization guarantee
+    does not disappear: it MOVES to emit as a per-pair, law-aware grid-snap
+    guard (:mod:`auto_patch.emit_snap`), which is bounded by ONE grid step
+    per node BY CONSTRUCTION and therefore cannot compound along a path.
+    The margined budget could: it is subtracted from EVERY edge, so an
+    N-hop route loses ``N × margin`` of envelope no law ever took (HEAZ,
+    measured: a 69-hop witness route steals 0.63 m, and the projection
+    burns 3983 sweeps chasing the deficit).
+
+    Default "0" — no new default-on gate without a battery."""
+    return _os.environ.get("O4_RAW_LAW_SWEEPS", "0") == "1"
+
+
 def _emit_quantization_margin():
     """The solver-side emit-quantization margin (metres) — lazy config read
-    (one_solve keeps config imports call-time, matching the module style)."""
+    (one_solve keeps config imports call-time, matching the module style).
+
+    Returns 0.0 under ``O4_RAW_LAW_SWEEPS`` (§1b): every consumer of the
+    margin reaches it through this ONE function (``feasibility_project``'s
+    sweep/envelope budgets, ``solve.py``'s plane-fix and edge-fairing law
+    adjacencies), so the gate is honoured in one place rather than five —
+    and ``_margined_budget`` / ``_margined_interval`` already pass a
+    ``≤ 0`` margin straight through, which is the byte-identical
+    pre-margin path."""
+    if raw_law_sweeps_enabled():
+        return 0.0
     try:
         from auto_patch.config import EMIT_QUANTIZATION_MARGIN_M
         return EMIT_QUANTIZATION_MARGIN_M
@@ -767,10 +796,20 @@ def _project_chain_prepass(elev, iter_edges, n, immovable):
     return n_chains
 
 
-def _stall_envelope_gap(np, endpoint_i, endpoint_j, budget_column,
+def _stall_envelope_gap(np, endpoint_i, endpoint_j, raw_budget_column,
                         interval_mask, weight_i, weight_j, z, n, pairs):
     """``L − U`` at ``pairs`` on the CAP graph — the adjudication that says
     whether a stalled carrier pair is genuinely INFEASIBLE.
+
+    RAW LAW FRAME (seed-fix round §1a).  ``raw_budget_column`` carries the
+    RAW per-edge budgets, never the margined SWEEP budgets.  The
+    emit-quantization margin (``_margined_budget``) is correct PER PAIR at
+    emit and compounding PER PATH, and this adjudication is a path
+    quantity: a 69-hop witness route through margined edges steals 0.69 m
+    of envelope that no law ever took, which is how HEAZ read "593 of 2032
+    INFEASIBLE, max gap 0.7275" against a system whose RAW envelope is
+    0/2032 with gap 0.000000 (measured, ``seed_attrib/`` arms).  The margin
+    is an EMIT concern; a law measure judges the law.
 
     For the difference system ``|z_i − z_j| ≤ b_ij`` with the immovable
     endpoints pinned at their current values ``v_a``, feasibility is decided
@@ -794,7 +833,7 @@ def _stall_envelope_gap(np, endpoint_i, endpoint_j, budget_column,
     symmetric = ~interval_mask
     ei = endpoint_i[symmetric]
     ej = endpoint_j[symmetric]
-    eb = budget_column[symmetric]
+    eb = raw_budget_column[symmetric]
     # IMMOVABLE = a node that NEVER carries positive weight on ANY incident
     # edge (interval edges included).  The earlier "zero weight on SOME
     # edge" reading was wrong and it mattered: a node is routinely the HELD
@@ -864,7 +903,7 @@ def _carrier_line(tag, carrier):
 
 def _stall_guard_report(np, sweeps, max_iters, detect_sweep, detect_active,
                         detect_worst, detect_carrier, active_count, worst,
-                        carrier, endpoint_i, endpoint_j, budget_column,
+                        carrier, endpoint_i, endpoint_j, raw_budget_column,
                         interval_mask, weight_i, weight_j, z, n):
     """WRITE-ONLY forensics for one DECLARED-STALLED projection (spec
     ``projection-stall-guard``, report-only mode): the sweep the stall was
@@ -887,7 +926,13 @@ def _stall_guard_report(np, sweeps, max_iters, detect_sweep, detect_active,
     The ``L − U`` adjudication costs two whole-graph Dijkstras, so it runs
     only when the existing forensics channel is open
     (``O4_BREAK_FORENSICS`` set, or ``O4_STALL_GUARD_ADJUDICATE=1``); the
-    pairs themselves are always named."""
+    pairs themselves are always named.
+
+    ``raw_budget_column`` is the RAW law budget per edge (seed-fix round
+    §1a) — the adjudication is a LAW measure and never reads the margined
+    sweep budgets; see :func:`_stall_envelope_gap`.  The per-carrier
+    ``budget=``/``residual=`` figures in the carrier lines stay in the
+    SWEEP frame: they describe the sweep that stalled, not the law."""
     print(f"    [stall-report] edges={len(interval_mask)} n={n}: STALLED "
           f"at sweep {detect_sweep}/{max_iters}, ran to {sweeps} "
           f"({max(0, sweeps - detect_sweep)} sweep(s) burned after "
@@ -913,7 +958,7 @@ def _stall_guard_report(np, sweeps, max_iters, detect_sweep, detect_active,
         return
     try:
         verdict = _stall_envelope_gap(np, endpoint_i, endpoint_j,
-                                      budget_column, interval_mask,
+                                      raw_budget_column, interval_mask,
                                       weight_i, weight_j, z, n, pairs)
     except Exception as exc:                               # pragma: no cover
         print(f"    [stall-report]   adjudication failed: {exc}")
@@ -924,7 +969,7 @@ def _stall_guard_report(np, sweeps, max_iters, detect_sweep, detect_active,
         return
     print(f"    [stall-report]   envelope: INFEASIBLE nodes (L>U) "
           f"{verdict['infeasible']} of {verdict['reachable']} reachable, "
-          f"max gap {verdict['max_gap']:.6f} m")
+          f"max gap {verdict['max_gap']:.6f} m [RAW-LAW budgets]")
     for (pa, pb, ga, gb) in verdict["pairs"]:
         klass = ("INFEASIBLE" if max(ga, gb) > 1e-9 else "feasible")
         print(f"    [stall-report]   carrier ({pa},{pb}) L-U = "
@@ -935,7 +980,8 @@ def _stall_guard_report(np, sweeps, max_iters, detect_sweep, detect_active,
 def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                        interval_bounds_by_index=None, *, stats=None,
                        coloring_state=None, run_feasibility_precheck=True,
-                       node_box=None, node_ref=None):
+                       node_box=None, node_ref=None,
+                       raw_budget_by_index=None):
     """Colored Gauss-Seidel POCS (survey candidate 1) — the vectorized
     replacement for BOTH legacy inner sweeps.  Mutates ``elev`` in place.
 
@@ -987,7 +1033,17 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
     slack nodes onto their references exactly.  ``None`` ⇒ byte-identical
     (and the feasibility pre-check shortcut stays available; with refs it
     is skipped — an all-satisfied system may still owe reference
-    pulls)."""
+    pulls).
+
+    ``raw_budget_by_index`` — INSTRUMENT-ONLY (seed-fix round §1a): a list
+    parallel to ``iter_edges`` carrying each symmetric edge's RAW law
+    budget where it differs from the swept (margined) one, ``None``
+    elsewhere.  NOTHING in the projection reads it — it is handed to the
+    write-only stall report so the ``L − U`` adjudication judges the LAW
+    rather than the margined sweep system (the margin is per-pair at emit
+    but compounds per PATH, and the envelope is a path quantity).
+    ``None`` ⇒ the adjudication sees the sweep budgets exactly as
+    before."""
     import numpy as np
     bounds = interval_bounds_by_index or {}
     _NEG_INF = float("-inf")
@@ -1028,6 +1084,21 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
     weight_i = np.asarray(flat_weight_i, dtype=np.float64)
     weight_j = np.asarray(flat_weight_j, dtype=np.float64)
     budget_column = np.asarray(flat_budget, dtype=np.float64)
+    # RAW-LAW instrument column (§1a): the sweep budgets with every
+    # margined entry restored to its raw law budget.  Write-only — it
+    # reaches ``_stall_guard_report`` and nothing else.  Absent (or all
+    # ``None``) it IS ``budget_column``, so no array is built.
+    raw_budget_column = budget_column
+    if raw_budget_by_index:
+        _flat_raw = list(flat_budget)
+        _any_raw = False
+        for _ei in range(min(edge_count, len(raw_budget_by_index))):
+            _rb = raw_budget_by_index[_ei]
+            if _rb is not None and _rb != _flat_raw[_ei]:
+                _flat_raw[_ei] = _rb
+                _any_raw = True
+        if _any_raw:
+            raw_budget_column = np.asarray(_flat_raw, dtype=np.float64)
     slab_low_column = np.asarray(flat_slab_low, dtype=np.float64)
     slab_high_column = np.asarray(flat_slab_high, dtype=np.float64)
     interval_mask = np.asarray(flat_is_interval, dtype=bool)
@@ -1311,8 +1382,8 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                             stall_detect_active, stall_detect_worst,
                             stall_detect_carrier, stall_active, worst,
                             stall_carrier, endpoint_i, endpoint_j,
-                            budget_column, interval_mask, weight_i, weight_j,
-                            z, n)
+                            raw_budget_column, interval_mask,
+                            weight_i, weight_j, z, n)
     if stats is not None:
         stats["colors"] = color_count
         stats["edges"] = len(iter_edges)
@@ -2698,13 +2769,20 @@ def feasibility_project(elev, shape_constraints, hard, *,
     # iteration entirely (they are only counted in the final tally below).
     # ``kind``: 0 = both free (split the excess), 1 = i fixed (move j), 2 = j fixed.
     # The iteration enforces the MARGINED (sweep) budget — see above.
+    # ``iter_raw_budget`` is the INSTRUMENT-ONLY parallel column (seed-fix
+    # round §1a): entry ``k`` is ``iter_edges[k]``'s RAW law budget (``None``
+    # at interval slots).  Nothing in the projection reads it; it reaches
+    # only the write-only stall report, whose ``L − U`` adjudication is a
+    # LAW measure and must not be priced on margined budgets.
     iter_edges = []
+    iter_raw_budget = []
     for (i, j, _raw_budget, sweep_budget) in edges:
         hi = i in immovable
         hj = j in immovable
         if hi and hj:
             continue
         iter_edges.append((i, j, sweep_budget, 1 if hi else (2 if hj else 0)))
+        iter_raw_budget.append(_raw_budget)
     # INTERVAL EDGES (Stage B0) share the SAME worklist/Jacobi machinery as the
     # symmetric edges so a node moved by one re-triggers the other in lockstep.
     # They enter ``iter_edges`` with the SENTINEL ``budget=None`` in slot 2 and
@@ -2749,6 +2827,7 @@ def feasibility_project(elev, shape_constraints, hard, *,
                 kind = 1                 # host i fixed, move zone j
         interval_bounds_by_index[len(iter_edges)] = (sweep_low, sweep_high)
         iter_edges.append((i, j, None, kind))
+        iter_raw_budget.append(None)        # interval slot — see §1a note
 
     # ── lazy expansion plumbing for the projection loops ─────────────────
     # node → still-lazy entries, REPRESENTATIVE-keyed (a pad-group member's
@@ -2794,6 +2873,7 @@ def feasibility_project(elev, shape_constraints, hard, *,
                 continue
             iter_edges.append((pair[0], pair[1], sweep_budget,
                                1 if a_immovable else (2 if b_immovable else 0)))
+            iter_raw_budget.append(raw_budget)
             new_edge_indices.append(len(iter_edges) - 1)
         return new_edge_indices
 
@@ -2855,7 +2935,8 @@ def feasibility_project(elev, shape_constraints, hard, *,
                            interval_bounds_by_index, stats=_chroma_stats,
                            coloring_state=_coloring_state,
                            node_box=bound_of or None,
-                           node_ref=ref_of or None)
+                           node_ref=ref_of or None,
+                           raw_budget_by_index=iter_raw_budget)
         # Lazy shapes: as for the Jacobi path, only the FINAL state matters for
         # a certificate, so re-warm + re-sweep on the grown edge set until no
         # further shape expands (bounded: each round expands ≥1 entry).
@@ -2879,7 +2960,8 @@ def feasibility_project(elev, shape_constraints, hard, *,
                                interval_bounds_by_index, stats=_chroma_stats,
                                coloring_state=_coloring_state,
                                node_box=bound_of or None,
-                               node_ref=ref_of or None)
+                               node_ref=ref_of or None,
+                               raw_budget_by_index=iter_raw_budget)
         _sweeps_run = _chroma_stats.get("sweeps", 0)
         _last_worst = _chroma_stats.get("worst", 0.0)
         if _os.environ.get("O4_STEP_DEBUG") == "1":

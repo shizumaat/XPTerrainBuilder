@@ -56,7 +56,34 @@ from auto_patch.layout import (
 __all__ = ["building_feasible_levels", "reach_band_unified",
            "runway_edge_anchors", "spine_value_fields",
            "BandInversionError", "assert_no_final_band_inversion",
-           "FINAL_BAND_INVERSION_TOL_M"]
+           "FINAL_BAND_INVERSION_TOL_M", "band_seed_complete_enabled"]
+
+
+def band_seed_complete_enabled() -> bool:
+    """BAND-SEED COMPLETENESS (seed-fix round §2; gate
+    ``O4_BAND_SEED_COMPLETE``, default "0").
+
+    ON, :func:`spine_value_fields` seeds from ``G.runway_anchor`` UNION the
+    on-spine ``seed_rwy_seam`` HARD TRUTH — the runway/CIFP profile values
+    and tile-seam DEM pins the solve already holds immovable — instead of
+    ``G.runway_anchor`` alone, and the post-solve band law additionally
+    adjudicates the FLOOR-ABOVE-OWN-HARD-VALUE class.
+
+    THE DEFECT.  A node can be HARD runway truth and still be absent from
+    the value fields' seed set, because ``G.runway_anchor`` is the
+    runway-JOIN anchor map, not the hard-truth set.  Measured at HECA
+    (``seed_attrib/``): 8 of the 31 on-spine ``seed_rwy_seam`` nodes are
+    missing (2863, 3610, 3631, 4818, 6907, 7236, 7298, 7493), and the band
+    floor then sits ABOVE a node's own hard runway value at 2 of them
+    (4818 by +2.344 m, 2863 by +1.522 m).  A band whose own seeds are the
+    runway anchors cannot lawfully floor a runway node above its own
+    runway value — that is one instrument contradicting itself, and every
+    consumer that clamps a target INTO the band (the apron-contact seats,
+    §3) inherits the defect.
+
+    Default "0" — no new default-on gate without a battery."""
+    import os as _os_gate
+    return _os_gate.environ.get("O4_BAND_SEED_COMPLETE", "0") == "1"
 
 # ── THE LOUD ERROR (spec ``docs/specs/kill-half-spec.md`` §3) ────────────
 # The band quarantine is deleted (§2), and what replaces it is not a
@@ -620,7 +647,17 @@ def spine_value_fields(layout, G):
                                                             None):
         return {}, {}
     from auto_patch.config import REACH_NO_SERVICE_SPINES
-    anchor_seeds = _decrowned_anchor_seeds(layout, G, G.runway_anchor)
+    # SEED COMPLETENESS (§2, gate ``O4_BAND_SEED_COMPLETE``): the field's
+    # seed set is ``G.runway_anchor`` UNION the on-spine ``seed_rwy_seam``
+    # hard truth the solve publishes.  ``setdefault`` — a genuine
+    # runway-JOIN anchor at a shared node keeps datum authority (the same
+    # precedence the EAT anchor-rect registration uses).  Gate off ⇒ the
+    # extra map is empty ⇒ ``anchor_elev`` is ``G.runway_anchor`` with its
+    # insertion order intact ⇒ the field is byte-identical.
+    anchor_elev = dict(G.runway_anchor)
+    for _hi, _hv in _hard_truth_spine_seeds(layout, G).items():
+        anchor_elev.setdefault(_hi, float(_hv))
+    anchor_seeds = _decrowned_anchor_seeds(layout, G, anchor_elev)
     svc_pairs = (getattr(G, "service_spine_pairs", None) or set()
                  if REACH_NO_SERVICE_SPINES else set())
 
@@ -654,14 +691,48 @@ def spine_value_fields(layout, G):
 
     ceiling, ceil_dist = _field(+1)
     floor, floor_dist = _field(-1)
-    _record_band_inversions(layout, G, ceiling, floor, ceil_dist, floor_dist)
+    _record_band_inversions(layout, G, ceiling, floor, ceil_dist, floor_dist,
+                            hard_truth=_hard_truth_spine_seeds(layout, G))
     return ceiling, floor
 
 
+def _hard_truth_spine_seeds(layout, G):
+    """``{node: hard_elev}`` — the on-spine ``seed_rwy_seam`` HARD TRUTH
+    (seed-fix round §2).  ``{}`` with the gate off, and ``{}`` in any
+    context that has not published the map (the pre-solve construct band
+    runs BEFORE the solve seeds elevations, so it honestly keeps the
+    runway-anchor-only field it has always had).
+
+    The publisher is ``route_profile.solve`` — the ONE place that knows
+    which nodes ``_seed_elevations`` hardened; nothing is re-derived here
+    (``single-pass-principle``)."""
+    if not band_seed_complete_enabled():
+        return {}
+    truth = getattr(layout, "_seed_hard_truth_values", None) or {}
+    spine = getattr(G, "spine_adj", None) or {}
+    if not truth or not spine:
+        return {}
+    return {int(i): float(v) for i, v in truth.items() if int(i) in spine}
+
+
 def _record_band_inversions(layout, G, ceiling, floor, ceil_dist,
-                            floor_dist):
-    """Stash THIS call's ``floor > ceiling`` rows on the layout (spec
-    kill-half §3).
+                            floor_dist, hard_truth=None):
+    """Stash THIS call's INVERTED rows on the layout (spec kill-half §3,
+    extended by the seed-fix round §2).
+
+    Two classes, one law:
+
+    * ``floor_above_ceiling`` — the original: the two value fields cross,
+      so no elevation satisfies both.
+    * ``floor_above_own_hard_value`` (§2) — the band FLOORS a node above
+      its OWN hard truth.  A band seeded from the runway anchors cannot
+      lawfully demand that a runway/seam node sit above the runway value
+      it is pinned at; that is one instrument contradicting itself, and
+      it is invisible to the first class whenever the ceiling happens to
+      sit higher still (HECA today: 4818 +2.344 m and 2863 +1.522 m read
+      as perfectly ordered bands).  ``hard_truth`` empty (gate off, or a
+      caller with no published hard set) ⇒ the class is never recorded ⇒
+      behaviour identical.
 
     Last call wins — ``assert_no_final_band_inversion`` reads the FINAL
     build's field.  Write-only: nothing in the solve reads it back, so a
@@ -679,8 +750,29 @@ def _record_band_inversions(layout, G, ceiling, floor, ceil_dist,
             xy = pos.get(node)
             rows.append({
                 "node": node,
+                "klass": "floor_above_ceiling",
                 "floor": float(lo),
                 "ceiling": float(hi),
+                "deficit_m": float(deficit),
+                "floor_route_m": float(floor_dist.get(node, 0.0)),
+                "ceil_route_m": float(ceil_dist.get(node, 0.0)),
+                "x": (None if xy is None else float(xy[0])),
+                "y": (None if xy is None else float(xy[1])),
+            })
+        for node, own in (hard_truth or {}).items():
+            lo = floor.get(node)
+            if lo is None:
+                continue
+            deficit = lo - float(own)
+            if deficit <= 0.0:
+                continue
+            xy = pos.get(node)
+            rows.append({
+                "node": node,
+                "klass": "floor_above_own_hard_value",
+                "floor": float(lo),
+                "ceiling": float(ceiling.get(node, float(own))),
+                "own_hard_value": float(own),
                 "deficit_m": float(deficit),
                 "floor_route_m": float(floor_dist.get(node, 0.0)),
                 "ceil_route_m": float(ceil_dist.get(node, 0.0)),
@@ -723,6 +815,15 @@ def assert_no_final_band_inversion(layout, icao="",
     for r in over[:20]:
         where = ("" if r["x"] is None
                  else f" @({r['x']:.1f},{r['y']:.1f})")
+        if r.get("klass") == "floor_above_own_hard_value":
+            lines.append(
+                f"  node {r['node']}{where}: floor {r['floor']:.3f} > its "
+                f"OWN hard runway/seam value "
+                f"{r.get('own_hard_value', float('nan')):.3f} by "
+                f"{r['deficit_m']:.4f} m "
+                f"(route: floor {r['floor_route_m']:.2f} m of budget, "
+                f"ceiling {r['ceil_route_m']:.2f} m)")
+            continue
         lines.append(
             f"  node {r['node']}{where}: floor {r['floor']:.3f} > ceiling "
             f"{r['ceiling']:.3f} by {r['deficit_m']:.4f} m "

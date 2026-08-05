@@ -4,8 +4,7 @@ import os
 import pickle
 import subprocess
 import numpy
-import requests
-from math import sqrt, cos, pi
+from math import cos, pi
 import O4_DEM_Utils as DEM
 import O4_Airport_Elevation_Insets as INSETS
 import O4_Elevation_Level as ELEVATION_LEVEL

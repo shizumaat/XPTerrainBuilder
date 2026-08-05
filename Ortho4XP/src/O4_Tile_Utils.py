@@ -12,7 +12,6 @@ import O4_Vector_Map as VMAP
 import O4_Mesh_Utils as MESH
 import O4_Mask_Utils as MASK
 import O4_DSF_Utils as DSF
-import O4_Overlay_Utils as OVL
 from O4_Parallel_Utils import (
     effective_convert_slots,
     effective_download_slots,

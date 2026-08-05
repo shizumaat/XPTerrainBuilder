@@ -16,6 +16,22 @@ pre-flip -> new default): SPJC 1698->1366, SPLP 50->27, CYXY 171->155,
 HECA 9649->9125, KCLT 2908->2643; BATTERY 14,476->13,316 (-1,160),
 seam +15 (ruled accepted). Every prior anchor list below is HISTORY.
 
+**RELEASE DELIVERED 2026-08-05 01:40 PDT — 4h20m early.** App
+dist.nosync/XPTerrainBuilder.app 1.0.219 (engine 1.50.1665, JSONL
+smoke-tested; DEVELOPER_DIR=Xcode-beta workaround — xcode-select had
+reset to CLT). Tiles sim_review/release_0605/: HECA +30+031 embeds
+release anchor a1ade8bd BYTE-IDENTICAL; KCLT +35-081 = ebf7b107
+(production insets 100%/1m vs the lab frame 0%/31m the census
+measured — instrument fix queued). RELEASE_NOTES.md in the same dir
+is the owner's brief. Release anchors: SPJC f50f488d SPLP 0d967737
+CYXY fd43f616 HECA a1ade8bd KCLT 307c3fcc HEAZ 9679dd1e @ 9863a7e.
+NEXT TRAIN queue: DEM-follow HEAZ 47-node abort fix (unlocks the
+composed world: HECA airside 8540→6402, KCLT 2297→1167), terrace
+in-strip joint + over-fire, SPJC +16 attribution, consensus wall-half
+integration, seam wall-site redesign, kill re-attribution, reg
+families + rulesets B (drafts committed), lab-instrument inset fix,
+compare_target re-cut (owner-signed), 5 owner questions pending.
+
 **RELEASE TRAIN (owner 2026-08-04 22:30 PDT): Mac app built and ready
 for in-sim testing at 06:00 PDT Aug 5. HARD DEADLINE.** Agile phases,
 review + re-prioritize at each boundary; a lane not merge-ready at its

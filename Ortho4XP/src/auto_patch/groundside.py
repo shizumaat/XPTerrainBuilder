@@ -171,7 +171,7 @@ def _open_polygon_holes(p, _depth: int = 0):
     return pieces or [p]
 
 
-def _grade_limit_ring(coords, alts, max_grade, iters=None):
+def _grade_limit_ring(coords, alts, max_grade, iters=None, pinned=None):
     """Relax per-vertex altitudes so no adjacent ring edge exceeds
     ``max_grade`` (rise/run).  Each pass pulls the steeper end of a
     violating edge toward the other by half the excess; iterates to a
@@ -179,12 +179,23 @@ def _grade_limit_ring(coords, alts, max_grade, iters=None):
 
     A perturbation propagates ~one vertex per pass in each direction, so
     convergence needs O(n) passes — iters defaults to ``4*n`` so large
-    curbside rings fully flatten to the cap."""
+    curbside rings fully flatten to the cap.
+
+    ``pinned`` — indices whose value is LAW and may not move (a weld to a
+    higher-authority surface, see :func:`law_anchor_values`).  A violating
+    edge with one pinned end moves the FREE end by the whole excess
+    instead of splitting it; an edge with BOTH ends pinned cannot be
+    relaxed here at all and is left standing — two law values that
+    disagree across a short chord is a law/anchor defect to attribute, not
+    something a groundside relaxation may quietly average away (RULINGS:
+    emitters emit, never grade).
+    """
     n = len(coords)
     if n < 2 or len(alts) != n:
         return alts
     if iters is None:
         iters = max(300, 4 * n)
+    pinned = pinned or frozenset()
     for _ in range(iters):
         worst = 0.0
         for i in range(n):
@@ -195,9 +206,19 @@ def _grade_limit_ring(coords, alts, max_grade, iters=None):
                 continue
             maxd = max_grade * d
             diff = alts[j] - alts[i]
-            if abs(diff) > maxd:
-                half = (abs(diff) - maxd) / 2.0
-                worst = max(worst, abs(diff) - maxd)
+            if abs(diff) <= maxd:
+                continue
+            excess = abs(diff) - maxd
+            i_fixed, j_fixed = i in pinned, j in pinned
+            if i_fixed and j_fixed:
+                continue                    # law vs law — report, never mix
+            worst = max(worst, excess)
+            if i_fixed:
+                alts[j] += -excess if diff > 0 else excess
+            elif j_fixed:
+                alts[i] += excess if diff > 0 else -excess
+            else:
+                half = excess / 2.0
                 if diff > 0:
                     alts[j] -= half
                     alts[i] += half
@@ -209,16 +230,141 @@ def _grade_limit_ring(coords, alts, max_grade, iters=None):
     return alts
 
 
+def law_anchor_values(layout, for_role=None) -> dict:
+    """``{(x, y) rounded to mm: elevation}`` — the LAW values this role's
+    surfaces must grade to, taken from every shape that OUTRANKS it.
+
+    THE SAME ORDER THE EMITTER USES.  ``layout.authority_rank`` is the
+    total precedence order ``to_osm`` resolves a shared node with (airside
+    first; groundside_pavement last among the named roles).  Reading it
+    here is what makes the groundside SURFACE and the emitted NODE agree:
+    the lot grades to exactly the value the emit consensus is going to
+    write at that weld, so the two cannot disagree.  Soft receivers
+    (graded_strip, runway_clearance, retaining_wall, …) are unnamed in the
+    order and therefore tail — correctly, since they ADOPT values rather
+    than carry them, and anchoring a lot to an adopter would be circular.
+
+    Only shapes carrying an explicit per-vertex ``node_altitudes`` or a
+    single ``altitude`` contribute.  A rect that carries only
+    ``altitude_high``/``altitude_low`` is skipped rather than guessed at:
+    inventing a per-vertex value from an end pair is minting, and the
+    measured weld population here (HEAZ way -10281: 17 service_junction
+    nodes) carries explicit node altitudes.
+    """
+    from .layout import ROLE_GROUNDSIDE_PAVEMENT, authority_rank
+    my_rank = authority_rank(for_role or ROLE_GROUNDSIDE_PAVEMENT)
+    best: dict = {}
+    for idx, s in enumerate(getattr(layout, "shapes", ()) or ()):
+        rank = authority_rank(getattr(s, "role", "") or "")
+        if rank >= my_rank:
+            continue
+        poly = getattr(s, "polygon", None)
+        if poly is None or poly.is_empty or poly.geom_type != "Polygon":
+            continue
+        try:
+            ring = list(poly.exterior.coords)
+        except _GEOM_EXC:
+            continue
+        if len(ring) > 1 and ring[0] == ring[-1]:
+            ring = ring[:-1]
+        alts = getattr(s, "node_altitudes", None)
+        if alts is not None:
+            vals = [None if a is None else float(a) for a in alts]
+        elif getattr(s, "altitude", None) is not None:
+            vals = [float(s.altitude)] * len(ring)
+        else:
+            continue
+        for (x, y), v in zip(ring, vals):
+            if v is None:
+                continue
+            key = (round(float(x), 3), round(float(y), 3))
+            prior = best.get(key)
+            if prior is None or (rank, idx) < (prior[0], prior[1]):
+                best[key] = (rank, idx, float(v))
+    return {k: v for k, (_r, _i, v) in best.items()}
+
+
+def _seat_ring_on_law_anchors(coords, dem_alts, anchors, max_grade):
+    """Seat a groundside ring on the LAW datum its welds carry, keeping
+    only the DEM's RELIEF — the owner's "DEM is a SEED, nothing more".
+
+    Returns ``(alts, pinned_indices)``.  With no anchor on the ring the
+    DEM values are returned unchanged and ``pinned`` is empty: an island
+    with nothing to grade to is a LAW-ISLAND defect to attribute, not a
+    licence to invent a datum.
+
+    THE DEFECT THIS REPLACES (fix cycle 2 item 2, measured).  The lot
+    emitter sampled the DEM at every vertex and ring-limited the result —
+    a DEM DRAPE with a smoother, in which the terrain is the authority and
+    the law is a post-filter.  The welds were then overwritten at emit by
+    the higher-authority claimant, so a single lot shipped with its weld
+    vertices on the law and its interior on the terrain.  Measured at HEAZ
+    in the canyon world (way -10281): 17 weld nodes at 85.56-91.70 m and
+    47 interior nodes at 10 000.00 m — one shape, 9 914.44 m of step, and
+    the campaign's worst within_shape row in both flat worlds.
+
+    A ring limiter alone CANNOT fix that, and the arithmetic says why: at
+    the 5 % lot cap over a 15 m densify step an edge may fall 0.75 m, so
+    closing 9 914 m would need ~13 000 edges and the ring has 63.  Capping
+    the SLOPE of a surface whose DATUM is wrong just distributes the error.
+    The datum has to come from the law:
+
+        z(v) = z_law(nearest anchor) + clamp(dem(v) - dem(anchor), ±cap·d)
+
+    Under a constant DEM the relief term is exactly zero, so the lot lands
+    flat on its weld datum and emits zero rows — which is the oracle's
+    whole point.  Under real terrain the lot still FOLLOWS the ground, but
+    only as far from its welds as the lot's own grade law allows.
+    """
+    n = len(coords)
+    anchor_idx = []
+    out = [float(a) for a in dem_alts]
+    if not anchors:
+        return out, frozenset()
+    law_at = {}
+    for k in range(n):
+        key = (round(float(coords[k][0]), 3), round(float(coords[k][1]), 3))
+        v = anchors.get(key)
+        if v is not None:
+            law_at[k] = float(v)
+            anchor_idx.append(k)
+    if not anchor_idx:
+        return out, frozenset()
+    for k in anchor_idx:
+        out[k] = law_at[k]
+    for k in range(n):
+        if k in law_at:
+            continue
+        x, y = coords[k]
+        ai = min(anchor_idx,
+                 key=lambda a: (coords[a][0] - x) ** 2
+                 + (coords[a][1] - y) ** 2)
+        d = math.hypot(x - coords[ai][0], y - coords[ai][1])
+        allowed = max_grade * d
+        relief = float(dem_alts[k]) - float(dem_alts[ai])
+        out[k] = law_at[ai] + max(-allowed, min(allowed, relief))
+    return out, frozenset(anchor_idx)
+
+
 def _dem_follow_polygon(p, _dem_at, densify_step_m: float = 15.0,
-                        simplify_tol: float = GROUNDSIDE_SIMPLIFY_TOL_M):
-    """Densify ``p`` and sample the DEM at every vertex, returning
-    ``(densified_polygon, node_altitudes)`` (node_altitudes closed with a
-    repeated first value, matching the OSM emitter's convention) or
-    ``None`` if it can't be built.
+                        simplify_tol: float = GROUNDSIDE_SIMPLIFY_TOL_M,
+                        law_anchors=None):
+    """Densify ``p``, SEED it from the DEM, and grade it to the groundside
+    law — returning ``(densified_polygon, node_altitudes)`` (node_altitudes
+    closed with a repeated first value, matching the OSM emitter's
+    convention) or ``None`` if it can't be built.
 
     Shared by ``_emit_groundside_pavement_dem`` and the groundside-orphan
-    reclassify so both follow the DEM identically — a polygon that abuts
-    DEM-following groundside stays flush with it (no cliff).
+    reclassify so both grade identically — a polygon that abuts graded
+    groundside stays flush with it (no cliff).
+
+    ``law_anchors`` — ``{(x, y): elevation}`` from :func:`law_anchor_values`:
+    the values the higher-authority surfaces this shape WELDS TO already
+    carry.  With them the ring is seated on its law datum and the DEM
+    supplies relief only (:func:`_seat_ring_on_law_anchors`); without them
+    (a legacy caller, or a genuine law island with no weld) the behaviour
+    is the historical DEM follow, and the shape is a law-island to
+    attribute rather than a surface to invent a datum for.
     """
     if p is None or p.is_empty or p.geom_type != "Polygon":
         return None
@@ -325,11 +471,22 @@ def _dem_follow_polygon(p, _dem_at, densify_step_m: float = 15.0,
         alts = [(_dem_at(x, y) or 0.0) for x, y in rebuilt]
     else:
         alts = [float(a) for a in alts]
-    # Grade-limit the DEM profile to GROUNDSIDE_MAX_GRADE (ramp-graded,
-    # user 2026-05-22) before rounding.  2 decimals, matching the emit
-    # resolution — 0.1 m quantization on sub-metre groundside chords
-    # reads as 10-15 % stairs (the V15 waviness class).
-    alts = _grade_limit_ring(rebuilt, alts, GROUNDSIDE_MAX_GRADE)
+    # ── SEAT ON THE LAW, THEN GRADE-LIMIT ────────────────────────────
+    # The DEM values above are the SEED.  Where this ring welds to a
+    # higher-authority surface, that surface's value is the DATUM and the
+    # seed contributes only relief within the lot cap; the ring limiter
+    # then closes any residual adjacent-pair excess, holding the welds
+    # fixed.  (Previously the DEM values went straight into the limiter,
+    # so the terrain was the authority and the welds were overwritten at
+    # emit — the 9 914 m HEAZ canyon row.)
+    alts, _pinned = _seat_ring_on_law_anchors(
+        rebuilt, alts, law_anchors, GROUNDSIDE_MAX_GRADE)
+    # Grade-limit to GROUNDSIDE_MAX_GRADE (ramp-graded, user 2026-05-22)
+    # before rounding.  2 decimals, matching the emit resolution — 0.1 m
+    # quantization on sub-metre groundside chords reads as 10-15 % stairs
+    # (the V15 waviness class).
+    alts = _grade_limit_ring(rebuilt, alts, GROUNDSIDE_MAX_GRADE,
+                             pinned=_pinned)
     alts = [round(float(a), 2) for a in alts]
     return new_poly, alts + [alts[0]]
 
@@ -2594,9 +2751,14 @@ def _emit_groundside_pavement_dem(
     if not polys:
         return 0
     _dem_at = _dem_sampler(layout, dem, tile_lat, tile_lon)
+    # THE LAW DATUM this pass grades to — computed ONCE per pass
+    # (single-pass principle), read from the SAME authority order
+    # the emitter resolves a shared node with.
+    _law_anchors = law_anchor_values(layout)
     n_emitted = 0
     for p in polys:
-        built = _dem_follow_polygon(p, _dem_at, densify_step_m)
+        built = _dem_follow_polygon(p, _dem_at, densify_step_m,
+                                    law_anchors=_law_anchors)
         if built is None:
             continue
         new_poly, node_alts = built
@@ -2766,6 +2928,10 @@ def _reclassify_groundside_orphan_junctions(
     # DEM-follow can't be built, LEAVE the shape unchanged (never erase
     # real pavement).
     _dem_at = _dem_sampler(layout, dem, tile_lat, tile_lon)
+    # THE LAW DATUM this pass grades to — computed ONCE per pass
+    # (single-pass principle), read from the SAME authority order
+    # the emitter resolves a shared node with.
+    _law_anchors = law_anchor_values(layout)
     n = 0
     new_shapes: List["BuiltShape"] = []
     for ji in orphan_set:
@@ -2786,7 +2952,8 @@ def _reclassify_groundside_orphan_junctions(
                                    and g.area >= _GROUNDSIDE_MIN_AREA_M2])
         builts = []
         for sp in src_polys:
-            b = _dem_follow_polygon(sp, _dem_at)
+            b = _dem_follow_polygon(sp, _dem_at,
+                                    law_anchors=_law_anchors)
             if b is not None:
                 builts.append(b)
         if not builts:
@@ -2884,6 +3051,10 @@ def _merge_touching_groundside(
         groups.setdefault(_find(i), []).append(i)
 
     _dem_at = _dem_sampler(layout, dem, tile_lat, tile_lon)
+    # THE LAW DATUM this pass grades to — computed ONCE per pass
+    # (single-pass principle), read from the SAME authority order
+    # the emitter resolves a shared node with.
+    _law_anchors = law_anchor_values(layout)
     merged_objs: set = set()
     new_shapes: list = []
     n_merged = 0
@@ -2911,7 +3082,8 @@ def _merge_touching_groundside(
         for k in idxs:
             merged_objs.add(id(gs[k]))
         for p in pieces:
-            built = _dem_follow_polygon(p, _dem_at, simplify_tol=0.0)
+            built = _dem_follow_polygon(p, _dem_at, simplify_tol=0.0,
+                                        law_anchors=_law_anchors)
             if built is None:
                 continue
             np_, na = built
@@ -3037,6 +3209,10 @@ def _separate_groundside_from_airside(
     if clip is None or clip.is_empty:
         return 0
     _dem_at = _dem_sampler(layout, dem, tile_lat, tile_lon)
+    # THE LAW DATUM this pass grades to — computed ONCE per pass
+    # (single-pass principle), read from the SAME authority order
+    # the emitter resolves a shared node with.
+    _law_anchors = law_anchor_values(layout)
     out_shapes = []
     n_clipped = 0
     for s in layout.shapes:
@@ -3081,7 +3257,8 @@ def _separate_groundside_from_airside(
             # simplified at emit, and re-simplifying would move the
             # boundary back across the clearance gap.  The mitre-buffered
             # clip above already yields clean straight edges.
-            built = _dem_follow_polygon(part, _dem_at, simplify_tol=0.0)
+            built = _dem_follow_polygon(part, _dem_at, simplify_tol=0.0,
+                                        law_anchors=_law_anchors)
             if built is None:
                 continue
             np_, na = built
@@ -3420,6 +3597,10 @@ def _deconflict_groundside_overlaps(
     # Largest-first, deterministic index tie-break.
     order = sorted(gs, key=lambda t: (-t[1].polygon.area, t[0]))
     _dem_at = _dem_sampler(layout, dem, tile_lat, tile_lon)
+    # THE LAW DATUM this pass grades to — computed ONCE per pass
+    # (single-pass principle), read from the SAME authority order
+    # the emitter resolves a shared node with.
+    _law_anchors = law_anchor_values(layout)
     kept_union = None
     replace: Dict[int, list] = {}   # original idx → [BuiltShape, …] ([] = drop)
     n_mod = 0
@@ -3443,8 +3624,9 @@ def _deconflict_groundside_overlaps(
                     if (part.geom_type != "Polygon" or part.is_empty
                             or part.area < _GROUNDSIDE_MIN_AREA_M2):
                         continue
-                    built = _dem_follow_polygon(part, _dem_at,
-                                                simplify_tol=0.0)
+                    built = _dem_follow_polygon(
+                        part, _dem_at, simplify_tol=0.0,
+                        law_anchors=_law_anchors)
                     if built is None:
                         continue
                     np_, na = built

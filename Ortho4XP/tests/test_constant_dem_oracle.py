@@ -44,7 +44,7 @@ from auto_patch.constant_dem import (                    # noqa: E402
     CANYON_ELEVATION_M, ConstantDEM, PLATEAU_ELEVATION_M,
     band_width_field, band_width_summary, canyon_dem,
     constant_dem_worlds, plateau_dem, saturation_report,
-    write_band_width_artifact)
+    saturation_summary, write_band_width_artifact)
 from auto_patch.layout import (                          # noqa: E402
     BuiltShape, PavementLayout, ROLE_APRON)
 
@@ -179,6 +179,71 @@ def test_saturation_reader_names_the_unsaturated_node():
 def test_saturation_reader_rejects_an_unknown_world():
     with pytest.raises(ValueError):
         saturation_report(_layout_with([1.0]), "sideways", lambda xy: None)
+
+
+def test_the_saturation_reader_ASKS_THE_SUPPLIER_IN_COORDINATES():
+    """The key-shape bug that made assertion 2 return ``[]`` forever.
+
+    ``_node_values`` is keyed ``(author, x, y)`` — it had to be, so the
+    band-width join stops differencing two surfaces at a shared coordinate.
+    This reader kept handing that 3-tuple straight to ``band_of``, and
+    every supplier is coordinate-keyed: the engine's own contract is
+    literally ``reach_band_unified(...) -> band(x, y)``.  So every lookup
+    missed, every node was skipped as "no band here", and the reader
+    returned an empty list — which is ALSO what a pass looks like.  The
+    campaign read that empty list as a clean assertion 2 while nothing was
+    being evaluated at all.
+    """
+    seen = []
+
+    def _supplier(xy):
+        seen.append(xy)
+        return (10.0, 20.0)
+
+    saturation_report(_layout_with([10.0, 10.0, 11.0]), "plateau", _supplier)
+    assert seen, "the supplier was never called — the reader skipped every node"
+    for xy in seen:
+        assert len(xy) == 2 and all(isinstance(v, float) for v in xy), (
+            f"the supplier was asked for {xy!r}; the band contract is "
+            f"band(x, y), so the author must be split out of the key")
+
+
+def test_the_saturation_reader_NAMES_THE_AUTHOR():
+    """Assertion 2's whole purpose is naming what holds an unsaturated
+    node.  A bare coordinate names nothing — and two welded surfaces share
+    coordinates by construction."""
+    lay = _layout_with([10.0, 10.0, 11.0])
+    skirt = _layout_with([10.0, 10.0, 13.0], role="graded_strip",
+                         ref="runway_end_skirt")
+    lay.shapes.append(skirt.shapes[0])
+    rows = saturation_report(lay, "plateau", lambda xy: (10.0, 20.0))
+    assert {r.author for r in rows} == {_A, "graded_strip/runway_end_skirt"}
+    # ranked worst-first: the 3 m skirt outranks the 1 m apron
+    assert rows[0].author == "graded_strip/runway_end_skirt"
+    assert rows[0].off_edge_m == pytest.approx(3.0)
+
+
+def test_the_saturation_summary_groups_by_author_and_ranks_by_worst():
+    """Ranked by worst |off_edge|, never by count: one node 9 900 m off its
+    ceiling is the finding; a thousand nodes 0.02 m off is floor noise."""
+    lay = _layout_with([10.0, 10.0, 10.02])
+    loud = _layout_with([10.0, 10.0, 9910.0], role="groundside_pavement")
+    lay.shapes.append(loud.shapes[0])
+    rows = saturation_report(lay, "plateau", lambda xy: (10.0, 20000.0))
+    summary = saturation_summary(rows)
+    assert summary["unsaturated"] == len(rows)
+    assert summary["by_author"][0]["author"] == "groundside_pavement/"
+    assert summary["by_author"][0]["worst_off_edge_m"] == pytest.approx(9900.0)
+    assert summary["worst_rows"][0]["author"] == "groundside_pavement/"
+
+
+def test_a_node_with_no_band_is_not_a_defect():
+    """``band_of`` returning ``None`` means "off the network, no band
+    here" — the within-shape law governs it.  Reporting those as
+    unsaturated would drown the real rows in coverage holes."""
+    rows = saturation_report(_layout_with([10.0, 11.0, 12.0]),
+                             "plateau", lambda xy: None)
+    assert rows == []
 
 
 def test_the_worlds_come_as_an_ordered_pair():

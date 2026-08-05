@@ -60,7 +60,7 @@ from typing import Iterable, Optional
 __all__ = [
     "ConstantDEM", "PLATEAU_ELEVATION_M", "CANYON_ELEVATION_M",
     "plateau_dem", "canyon_dem", "band_width_field",
-    "saturation_report", "SaturationRow",
+    "saturation_report", "saturation_summary", "SaturationRow",
 ]
 
 #: The two worlds.  PLATEAU is deliberately NOT 0.0: a literal zero is
@@ -229,24 +229,46 @@ def band_width_field(plateau_layout, canyon_layout) -> dict:
 
 
 class SaturationRow:
-    """One node's seating verdict in one world."""
+    """One node's seating verdict in one world.
 
-    __slots__ = ("xy", "value", "floor", "ceil", "world", "saturated")
+    ``xy`` is the metre-frame coordinate; ``author`` is the ``role/ref``
+    that wrote it.  THE AUTHOR IS THE POINT — assertion 2 exists to name
+    what is holding an unsaturated node, and a bare coordinate names
+    nothing.  Two surfaces welded at one coordinate are two rows.
+    """
 
-    def __init__(self, xy, value, floor, ceil, world):
+    __slots__ = ("xy", "author", "value", "floor", "ceil", "world",
+                 "saturated", "off_edge_m")
+
+    def __init__(self, xy, value, floor, ceil, world, author=""):
         self.xy = xy
+        self.author = author
         self.value = float(value)
         self.floor = floor
         self.ceil = ceil
         self.world = world
         edge = floor if world == "plateau" else ceil
-        self.saturated = (edge is None
-                          or abs(self.value - float(edge)) <= 1e-6)
+        if edge is None:
+            self.off_edge_m = 0.0
+            self.saturated = True
+        else:
+            self.off_edge_m = self.value - float(edge)
+            self.saturated = abs(self.off_edge_m) <= 1e-6
+
+    def as_dict(self) -> dict:
+        return {"author": self.author, "x": self.xy[0], "y": self.xy[1],
+                "value_m": round(self.value, 4),
+                "floor": (None if self.floor is None
+                          else round(float(self.floor), 4)),
+                "ceil": (None if self.ceil is None
+                         else round(float(self.ceil), 4)),
+                "world": self.world,
+                "off_edge_m": round(self.off_edge_m, 4)}
 
     def __repr__(self) -> str:                       # pragma: no cover
-        return (f"SaturationRow({self.xy}, v={self.value:.3f}, "
-                f"[{self.floor}, {self.ceil}], {self.world}, "
-                f"sat={self.saturated})")
+        return (f"SaturationRow({self.author}@{self.xy}, "
+                f"v={self.value:.3f}, [{self.floor}, {self.ceil}], "
+                f"{self.world}, sat={self.saturated})")
 
 
 def saturation_report(layout, world: str, band_of,
@@ -254,26 +276,72 @@ def saturation_report(layout, world: str, band_of,
     """ASSERTION 2: every free node must sit at the band edge nearest its
     seed.
 
-    ``band_of(xy) -> (floor, ceil)`` supplies the analytic band at a node
-    (``None`` on either side = unbounded there).  Returns the rows that
-    are NOT saturated — i.e. the nodes something other than the seed is
-    holding.  An empty list is the pass.
+    ``band_of((x, y)) -> (floor, ceil) | None`` supplies the ANALYTIC band
+    at a node — ``None`` for "no band here" (the node is off the network
+    and only its within-shape law governs it), and ``None`` on either side
+    for "unbounded in that direction".  Returns the rows that are NOT
+    saturated: the nodes something other than the seed is holding, each
+    naming its AUTHOR.  An empty list is the pass.
 
     ``world`` is ``"plateau"`` (seed below ⇒ expect the FLOOR) or
     ``"canyon"`` (seed above ⇒ expect the CEILING).
+
+    THE KEY BUG THIS FIXES (fix cycle 2 item 3, verdict (d) BROKEN
+    INSTRUMENT).  ``_node_values`` was re-keyed from ``(x, y)`` to
+    ``(author, x, y)`` when the band-width join was fixed to stop crossing
+    authors — and this reader kept passing its key STRAIGHT to
+    ``band_of``.  Every supplier is coordinate-keyed (the engine's own
+    ``reach_band_unified`` contract is literally ``band(x, y)``), so every
+    lookup missed, every node was skipped as "no band", and the reader
+    returned ``[]``.
+
+    ``[]`` is also what a PASS looks like.  So assertion 2 read as a clean
+    pass on every airport in the campaign while evaluating nothing at all —
+    which is why the re-baseline had to record it as NOT EVALUATED rather
+    than as a result.  The reader now splits the key: the coordinate goes
+    to the supplier, the author goes into the row.
     """
     if world not in ("plateau", "canyon"):
         raise ValueError(f"world must be plateau|canyon, got {world!r}")
     unsaturated = []
-    for xy, value in _node_values(layout).items():
+    for key, value in _node_values(layout).items():
+        author, x, y = key
+        xy = (x, y)
         band = band_of(xy)
         if band is None:
             continue
         floor, ceil = band
-        row = SaturationRow(xy, value, floor, ceil, world)
+        row = SaturationRow(xy, value, floor, ceil, world, author)
         if not row.saturated:
             unsaturated.append(row)
+    unsaturated.sort(key=lambda r: -abs(r.off_edge_m))
     return unsaturated
+
+
+def saturation_summary(rows, top: int = 10) -> dict:
+    """Group an unsaturated-row list BY AUTHOR — assertion 2's verdict.
+
+    "Every unsaturated free node's author named" is the contract; a count
+    without authors says a hidden authority exists but not whose it is,
+    which is the shape of every attribution round this campaign has had to
+    repeat.  Authors are ranked by worst |off_edge_m|, not by count: one
+    node 9 900 m off its ceiling is the finding, a thousand at 0.02 m is
+    the floor noise.
+    """
+    by_author: dict = {}
+    for r in rows:
+        slot = by_author.setdefault(r.author, {"author": r.author, "n": 0,
+                                               "worst_off_edge_m": 0.0,
+                                               "worst_xy": None})
+        slot["n"] += 1
+        if abs(r.off_edge_m) > abs(slot["worst_off_edge_m"]):
+            slot["worst_off_edge_m"] = round(r.off_edge_m, 4)
+            slot["worst_xy"] = [round(r.xy[0], 2), round(r.xy[1], 2)]
+    ranked = sorted(by_author.values(),
+                    key=lambda a: -abs(a["worst_off_edge_m"]))
+    return {"unsaturated": len(rows), "authors": len(ranked),
+            "by_author": ranked[:top],
+            "worst_rows": [r.as_dict() for r in rows[:top]]}
 
 
 def band_width_summary(field: dict) -> dict:

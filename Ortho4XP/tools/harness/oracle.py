@@ -45,6 +45,52 @@ import build_airport as HB            # noqa: E402  (the one build entry)
 import census as HC                   # noqa: E402  (the one census)
 
 
+def _analytic_band(layout):
+    """The ANALYTIC reach band for ``layout``, or ``None``.
+
+    ``building_feasibility.reach_band_unified`` — the cap-Dijkstra from the
+    runway anchors over the unified grade graph.  This is the band the
+    SOLVER bound nodes with and the band ``grade_graph_validate.
+    route_band_violations`` confirms against, so assertion 2 reads one law
+    rather than minting a second opinion about it.
+
+    Why it is the right supplier and the pair is not: the band-width field
+    is the two worlds differenced, so testing "is the node at the pair's
+    edge" is circular — it is true by construction.  This band is derived
+    from anchors, caps and geometry ALONE, none of which the DEM touches,
+    so it is identical in both worlds and genuinely independent of the seed.
+
+    Returns a callable ``band_of((x, y)) -> (floor, ceiling) | None``, or
+    ``None`` when no band exists at all (no anchors / no pavement / the
+    raster grid refused).  ``None`` is reported as NOT EVALUATED — never as
+    a pass, which is the failure mode this whole item is repairing.
+
+    THE ADAPTER IS DELIBERATE.  The engine's contract is ``band(x, y)``
+    (two positional arguments); the reader's is ``band_of(xy)`` (one point,
+    because ``_node_values`` hands it a coordinate).  Adapting HERE, at the
+    single place the two meet, is the whole of the impedance mismatch — the
+    alternative, teaching the reader to try both call shapes, is a
+    dual-contract that would hide the next supplier's signature error the
+    same way the key-shape bug hid this assertion for the whole campaign.
+    """
+    try:
+        from auto_patch import grade_graph as GG
+        from auto_patch.elevation_per_surface.solver_primitives import (
+            _build_node_list)
+        from auto_patch.elevation_per_surface.building_feasibility import (
+            reach_band_unified)
+        nodes, b2i = _build_node_list(layout)
+        if not nodes:
+            return None
+        band = reach_band_unified(layout, GG.build_unified_graph(layout, b2i))
+        if band is None:
+            return None
+        return lambda xy: band(xy[0], xy[1])
+    except Exception as exc:                              # pragma: no cover
+        print(f"  [harness] analytic band unavailable: {exc!r}")
+        return None
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__,
@@ -65,7 +111,8 @@ def main(argv=None) -> int:
             sys.path.insert(0, str(p))
     from auto_patch.constant_dem import (                 # noqa: E402
         CANYON_ELEVATION_M, PLATEAU_ELEVATION_M, band_width_field,
-        band_width_summary, write_band_width_artifact)
+        band_width_summary, saturation_report, saturation_summary,
+        write_band_width_artifact)
 
     worlds = args.worlds or [PLATEAU_ELEVATION_M, CANYON_ELEVATION_M]
     out = Path(args.out)
@@ -135,18 +182,62 @@ def main(argv=None) -> int:
                     "(the ceiling world seated BELOW the floor world)",
         }
         pinned = sum(1 for v in field.values() if abs(v) <= 1e-6)
-        verdicts["saturation"] = {
-            "shared_nodes": len(keys),
-            "pinned_nodes": pinned,
-            "free_nodes": len(keys) - pinned,
-            "pinned_pct": round(100.0 * pinned / max(1, len(keys)), 1),
-            "note": "a FREE node whose two worlds agree is saturated at a "
-                    "band edge; a node that moves without a band to move "
-                    "in is held by a hidden authority — read the "
-                    "band-width artifact's per-node rows",
-        }
         prog.note(f"  band width: {json.dumps(summary)}  "
                   f"pinned={pinned}/{len(keys)}")
+
+        # ── ASSERTION 2: EXTREME-SEATING SATURATION ──────────────────
+        # NOW ACTUALLY EVALUATED (fix cycle 2 item 3).  This block used to
+        # report pinned/free COUNTS off the band-width field and call that
+        # saturation.  It is not: the band-width field IS the pair, so
+        # "seated at the pair's own edge" is true by construction and says
+        # nothing.  The assertion needs an INDEPENDENT band, and the engine
+        # already publishes one — ``reach_band_unified``, the cap-Dijkstra
+        # from the runway anchors, whose contract is coordinate-keyed
+        # (``band(x, y) -> (floor, ceiling) | None``) and joins the reader
+        # without any index or proximity hazard.  It is the SAME band the
+        # solver bound the nodes with and the validator confirms against,
+        # so a node off its edge is a disagreement inside one law, not
+        # between two instruments.
+        sat: dict = {"shared_nodes": len(keys), "pinned_nodes": pinned,
+                     "free_nodes": len(keys) - pinned,
+                     "pinned_pct": round(100.0 * pinned / max(1, len(keys)),
+                                         1)}
+        for world_name, w in (("plateau", lo), ("canyon", hi)):
+            layout = layouts[w]["_layout"]
+            band = _analytic_band(layout)
+            if band is None:
+                sat[world_name] = {"evaluated": False,
+                                   "why": "no reach band could be built for "
+                                          "this layout (no anchors, no "
+                                          "pavement, or the grid refused) — "
+                                          "assertion 2 is NOT EVALUATED, "
+                                          "which is not a pass"}
+                prog.note(f"  saturation {world_name}: NOT EVALUATED "
+                          f"(no analytic band)")
+                continue
+            rows = saturation_report(layout, world_name, band)
+            rep = saturation_summary(rows)
+            rep["evaluated"] = True
+            sat[world_name] = rep
+            (out / f"{args.icao}_{world_name}_saturation.json").write_text(
+                json.dumps({"world": world_name,
+                            "rows": [r.as_dict() for r in rows]}, indent=1))
+            top = ", ".join(f"{a['author']}={a['n']}"
+                            f"(worst {a['worst_off_edge_m']:+.2f} m)"
+                            for a in rep["by_author"][:5]) or "none"
+            prog.note(f"  saturation {world_name}: {rep['unsaturated']} "
+                      f"unsaturated node(s) across {rep['authors']} "
+                      f"author(s) — {top}")
+        evaluated = [v for k, v in sat.items()
+                     if k in ("plateau", "canyon") and isinstance(v, dict)]
+        sat["pass"] = bool(evaluated) and all(
+            v.get("evaluated") and v.get("unsaturated", 1) == 0
+            for v in evaluated)
+        sat["note"] = ("every free node must sit at the band edge nearest "
+                       "its seed; an unsaturated node is held by something "
+                       "that is not the seed, and its AUTHOR is named in "
+                       "<ICAO>_<world>_saturation.json")
+        verdicts["saturation"] = sat
 
     (out / f"{args.icao}_oracle.json").write_text(json.dumps(
         {"icao": args.icao, "worlds": worlds, "verdicts": verdicts,

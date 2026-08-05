@@ -1890,41 +1890,36 @@ def solve_route_profile(layout, icao: str,
     for _pi, _pv in _eat_anchor_pins.items():
         if _pi < len(elev):
             G.runway_anchor.setdefault(_pi, float(_pv))
-    # ── FLAT-AIRPORT FAST PATH (spec §3.3, Tier 2, O4_FLAT_AIRPORT_FAST_PATH) ──
-    # The runway profiles are now final (birth-datum law + flex).  BEFORE any
-    # reach-band / spine / body-fill / feasibility work, test a whole-airport
-    # flat certificate: when it holds, every soft node is already feasible and
-    # in grade at its DEM seed, so those stages do nothing.  Seed every soft
-    # node at DEM, write back, and let the scoped final projection defer every
-    # certified shape.  Any refusal falls straight through to the normal solve
-    # (the fast path is an optimisation with a provable precondition, never a
-    # behavioural mode).
-    from .flat_airport_fast_path import (
-        apply_flat_airport_fast_path, certify_flat_airport,
-        report_flat_certificate_fast_path)
-    # An EAT anchor-rect pin forces pavement a whole tail height
-    # below its runway end — definitionally not a flat airport, and
-    # the certificate's DEM-seed premise cannot hold the ramp law.
-    if _eat_anchor_pins:
-        layout._flat_airport_fast_path_reason = "eat_anchor_rect"
-        report_flat_certificate_fast_path(
-            layout, icao, "refused(eat_anchor_rect)")
-    else:
-        _flat_cert = certify_flat_airport(
-            layout, dem, tile_lat, tile_lon,
-            nodes=nodes, bucket_to_idx=bucket_to_idx, elev=elev,
-            base_hard=base_hard, dem_elev=dem_elev,
-            runway_nodes=runway_nodes,
-            shape_constraints=shape_constraints, unified_graph=G)
-        if _flat_cert is not None:
-            apply_flat_airport_fast_path(
-                layout, icao, nodes, bucket_to_idx, elev, base_hard,
-                _flat_cert, t0)
-            return
-        report_flat_certificate_fast_path(
-            layout, icao,
-            f"refused("
-            f"{getattr(layout, '_flat_airport_fast_path_reason', '?')})")
+    # ── (THE FLAT-AIRPORT FAST PATH STOOD HERE — DELETED 2026-08-05) ──
+    # Fix cycle 2 item 1, verdict (a).  The Tier-2 whole-airport fast path
+    # tested a ``FlatAirportCertificate`` at this point and, when it held,
+    # seeded every soft node at its DEM VALUE, wrote back and RETURNED —
+    # skipping the reach bands, the spine profile, the body fill and the
+    # feasibility iteration entirely.
+    #
+    # That is a SEMANTIC BYPASS, not an optimisation.  Its precondition was
+    # measured on the DEM ("is the terrain flat enough that DEM ≈ law?") and
+    # its action was to emit the TERRAIN in place of the law — the exact
+    # inversion of the owner's ruling that DEM is a seed and never an
+    # authority.  A genuinely slack constraint system solves fast through
+    # the normal path, so the bypass bought nothing that the solve does not
+    # already give: it only removed the law from the airports where it was
+    # cheapest to apply.
+    #
+    # EVIDENCE BASE for deleting rather than repairing it (re-baseline
+    # 2026-08-05, BASELINES §1.2): all four flat-world battery airports
+    # REFUSED the certificate, each for a different reason — HEAZ and HECA
+    # "gap-fill spine present", SPJC "crossing-terrain zone present", KCLT
+    # "eat_anchor_rect".  Four airports, three distinct refusal causes, and
+    # the outcome was PRINTED ONLY (never written to patch, sidecar, env or
+    # frame), so establishing even that much cost a re-run of every build.
+    # A path that never fires on the battery, whose only observable is a
+    # log line, and whose firing would be a law violation, has no arm that
+    # is worth keeping.
+    #
+    # ``_eat_anchor_pins`` above is NOT part of this: it registers the
+    # crossing-rect pins as runway-class anchors and is read by the reach
+    # band below.  Only its use as a fast-path refusal test is gone.
     # ── HARD TRUTH PUBLICATION (seed-fix round §2) ───────────────────
     # ``base_hard`` here is exactly the ``seed_rwy_seam`` class (the
     # ``_seed_elevations`` runway/CIFP profile values and tile-seam DEM

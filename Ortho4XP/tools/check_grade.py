@@ -163,6 +163,8 @@ try:
         transverse_surface_bounds as _transverse_surface_bounds,
         drainage_minimum_grade as _drainage_minimum_grade,
         drainage_minimum_shortfall as _drainage_minimum_shortfall,
+        _ADJACENT_APRON_ROLES as _LAW_DRAIN_MIN_APRON_ROLES,
+        _DRAINAGE_MIN_GROUNDSIDE_ROLES as _LAW_DRAIN_MIN_GS_ROLES,
     )
     from auto_patch.config import (
         runway_code_number as _runway_code_number,
@@ -190,6 +192,8 @@ except Exception:
     _transverse_surface_bounds = None
     _drainage_minimum_grade = None
     _drainage_minimum_shortfall = None
+    _LAW_DRAIN_MIN_APRON_ROLES = frozenset()
+    _LAW_DRAIN_MIN_GS_ROLES = frozenset()
     _STRIP_PRECEDENCE = False
     _DRAINAGE_SPINE_PARENT_ROLES = frozenset({
         "runway", "runway_crossing", "primary_parallel",
@@ -2220,12 +2224,31 @@ def _check_raoa_rate(ways: List[Way], nodes, ll_to_m
     return out, n_stations, len(hit_ways)
 
 
-#: Roles the §B3 drainage MINIMUM is read on.  Building pads are excluded
-#: by owner law (``TERMINAL_PADS_SLOPE=False``) and terrace panels by the
-#: open owner question 4 — both exclusions live in
-#: ``grade_law.drainage_minimum_grade``, so this set only names WHICH
-#: emitted ways to walk.
-_DRAINAGE_MIN_ROLES = ("apron", "stand", "groundside", "parking")
+#: Roles the §B3 drainage MINIMUM is read on — DERIVED FROM THE LAW, never
+#: typed here.  Building pads are excluded by owner law
+#: (``TERMINAL_PADS_SLOPE=False``) and terrace panels by the open owner
+#: question 4; both exclusions live in ``grade_law.drainage_minimum_grade``,
+#: so this set only chooses WHICH emitted ways to walk.
+#:
+#: IT USED TO BE A HAND-TYPED TUPLE, and it was wrong (fix cycle 2 item 5,
+#: verdict (d) BROKEN INSTRUMENT): ``("apron", "stand", "groundside",
+#: "parking")``.  Of those four literals exactly ONE — ``apron`` — is a role
+#: this engine ever emits.  ``stand``, ``groundside`` and ``parking`` are not
+#: in ``layout.ROLE_*`` at all; the emitted landside role is
+#: ``groundside_pavement``.  So the walk skipped every groundside way and the
+#: GROUNDSIDE HALF OF §B3 NEVER FIRED — the law had a 1.0 % minimum
+#: (``GROUNDSIDE_MIN_DRAINAGE_GRADE``) and its twin was reading a role set
+#: that could not match it.  Structurally silent: an empty walk and a
+#: compliant walk report the same zero.
+#:
+#: The law already owns the answer in two frozensets, and
+#: ``_DRAINAGE_MIN_GROUNDSIDE_ROLES`` names ``groundside_pavement``
+#: correctly.  Deriving from them is the single-source fix: emitter and
+#: validator now cannot disagree about WHICH surfaces the minimum is read
+#: on, the same way ``drainage_minimum_shortfall`` already makes them agree
+#: about HOW FLAT is too flat.
+_DRAINAGE_MIN_ROLES = frozenset(
+    _LAW_DRAIN_MIN_APRON_ROLES) | frozenset(_LAW_DRAIN_MIN_GS_ROLES)
 
 
 def _check_drainage_minimum(ways: List[Way], nodes, ll_to_m

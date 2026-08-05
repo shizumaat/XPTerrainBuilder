@@ -68,8 +68,12 @@ from ..config import (
     RUNWAY_END_GRADE,
     RUNWAY_MAX_GRADE as MAX_RUNWAY_GRADE,
     RUNWAY_MAX_GRADE_CHANGE_PER_M as MAX_RUNWAY_GRADE_CHANGE_PER_M,
-    RUNWAY_DEM_FOLLOW_BAND_M,
     RUNWAY_CROSSING_PHYSICAL_EXTENT,
+    # The DEM-follow band is read through its accessor, not as a
+    # constant: the fix-3 gate (``O4_RUNWAY_DEM_FOLLOW``) has to be
+    # honest at CALL time, and a from-import would snapshot the ungated
+    # 0.0 at module import.  ``config`` remains the single source.
+    runway_dem_follow_band_m,
 )
 DEFAULT_CELL_SIZE = float(RUNWAY_CELL_SIZE_M)  # meters between interp points
 DEFAULT_PROFILE = PATCH_SLOPE_PROFILE
@@ -1567,7 +1571,24 @@ def generate_patch_osm(icao, runway_pairs, runway_widths=None, tile=None,
             # flattest profile its anchors permit, and only the per-surface
             # solver's minimum flex (toward another-runway / seam pins) moves it
             # off that.  The old "max DEM following" value was 5.0 m.
-            DEM_BAND_M_MAX = RUNWAY_DEM_FOLLOW_BAND_M
+            #
+            # ── FIX 3, DEM-FOLLOW SEEDING (spec
+            # ``docs/specs/runway-flex-completion-spec.md``; gate
+            # ``O4_RUNWAY_DEM_FOLLOW``, default "0") ──────────────────
+            # The seed is the ONLY place the real ground shape can enter
+            # the profile: with the band at 0 the interior IS the straight
+            # CIFP chord (05R/23L measured 0.031 m worst deviation from
+            # it), and the flex downstream is asked to re-derive from taxi
+            # feasibility a law-feasible sag the seeder discarded.  Under
+            # the gate the band becomes ``RUNWAY_DEM_FOLLOW_LAW_BAND_M``
+            # (10.0 m — justified against the probe's dip data at the
+            # constant's definition).  Everything else on this path is
+            # unchanged: the CIFP-pinned anchors still fix the baseline,
+            # ``fa_cap`` below still bounds the band by the vertical-curve
+            # absorption capacity of the nearest anchor, and
+            # ``faa_joint_solve`` still gates grade / end zone / K-factor.
+            # Gate off ⇒ 0.0 ⇒ byte-identical.
+            DEM_BAND_M_MAX = runway_dem_follow_band_m()
             for i in range(n_samples):
                 if anchored[i]:
                     continue

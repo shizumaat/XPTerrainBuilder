@@ -184,6 +184,13 @@ __all__ = [
     "RUNWAY_VERTICAL_CURVE_K_M",
     "RUNWAY_MAX_GRADE_CHANGE_PER_M",
     "RUNWAY_DEM_FOLLOW_BAND_M",
+    "RUNWAY_DEM_FOLLOW_LAW_BAND_M",
+    "runway_dem_follow_band_m",
+    "RUNWAY_FLEX_MAX_ROUNDS",
+    "RUNWAY_FLEX_ROUND_DRAIN_FLOOR_M",
+    "runway_flex_self_unlock_enabled",
+    "RUNWAY_FLEX_ENDZONE_MATERIALITY",
+    "runway_flex_apply_segment_cap_enabled",
     "GRADE_VISIBILITY_BUFFER_M",
     "ELEV_ROUNDING_NOISE_M",
     "SLOPED_QUAD_ROUNDING_NOISE_M",
@@ -1286,6 +1293,119 @@ RUNWAY_MAX_GRADE_CHANGE_PER_M = 1.0 / 30000.0
 # and made stub A 7.4%.  ``faa_joint_solve`` still enforces every grade/curvature
 # cap regardless of this value.
 RUNWAY_DEM_FOLLOW_BAND_M = 0.0
+
+# ── DEM-FOLLOW SEEDING (spec docs/specs/runway-flex-completion-spec.md
+# fix 3; gate ``O4_RUNWAY_DEM_FOLLOW``, default "0") ──────────────────
+# The band above being 0 makes every runway seed the STRAIGHT CIFP chord,
+# and the flex is then asked to re-derive from taxi feasibility a shape
+# the seeder threw away.  Measured on the stress runway (HECA 05R/23L,
+# flex-probe 2026-08-04): the profile rides +9.13 m above the ground at
+# mid-length while the real ground holds a broad, LAW-FEASIBLE sag.
+#
+# THE VALUE, from the probe's dip data.  The 40 m-median corridor DEM of
+# 05R/23L runs 10.02 m below the CIFP chord at its deepest (s = 2220 m of
+# 4130 m; the spec's centreline read of the same dip is 8.64 m).  A band
+# below that truncates the real sag — the exact defect this fix exists to
+# remove — so the smallest round value that admits the measured sag in
+# full is 10.0 m.
+#
+# WHY THAT IS STILL LAW-BOUNDED, not "free-float 10 m": the band the
+# seeder applies is ``min(this, ½·d²/K)`` — the FAA vertical-curve
+# deviation a PVI at the nearest anchor can absorb.  That term binds
+# everywhere near an anchor (0.17 m at 100 m out, 4.2 m at 500 m) and
+# this constant only starts to bind past ~775 m from the nearest CIFP /
+# seam / crossing anchor, i.e. only in the deep interior where a real
+# sag can live.  ``faa_joint_solve`` (grade cap, end-zone cap,
+# K-factor) runs afterwards regardless and is the enforcement.
+#
+# The 2026-06-06 "0 = flat" ruling and the 5.0 m regression it replaced
+# (CYXY 14R/32L free-floating 4.5 m into a valley, stub A at 7.4%) both
+# still stand for the UNGATED path: gate off ⇒ band 0.0 ⇒ byte-identical.
+RUNWAY_DEM_FOLLOW_LAW_BAND_M = 10.0
+
+
+def runway_dem_follow_band_m() -> float:
+    """The DEM-follow band in force for this build (metres).
+
+    Read at CALL time, not import time, so the gate is honest in a
+    long-lived process and testable without a module reload.
+    """
+    if _os.environ.get("O4_RUNWAY_DEM_FOLLOW", "0") == "1":
+        return RUNWAY_DEM_FOLLOW_LAW_BAND_M
+    return RUNWAY_DEM_FOLLOW_BAND_M
+
+
+# ── RUNWAY FLEX: SELF-ANCHOR UNLOCK + CONVERGENCE (same spec, fixes 1
+# and 2; gate ``O4_FLEX_SELF_UNLOCK``, default "0") ───────────────────
+# Fix 1: ``apply_runway_flex`` inserts every applied target as
+# ``anchored=True``, and ``flex_slack_at`` bounds against ALL anchored
+# samples — so a station the flex touched in round 0 has slack ≡ 0
+# (cap·0) in every later round and can never move again.  Measured at
+# HECA: 05R/23L's anchored count grows 4 → 9 → 14 and 05C/23C 4 → 48 →
+# 54, every new one flex-minted, and rounds 1-2 at the deepest bin read
+# slack 0.000 / move 0.000.  Under the gate a flex-MINTED sample stays
+# anchored for the re-solve (so the FAA gates still smooth around it)
+# but is withdrawn from ``flex_slack_at``'s bounding set.  CIFP
+# thresholds, physical ends, tile-seam samples and crossing-
+# reconciliation anchors are never minted, so they keep bounding.
+#
+# Fix 2: every HECA demand's binding seed is another flexible runway, so
+# the origin split halves every pull; 3 rounds of geometric halving
+# leave 25 % of the demand unmet by construction.  Iterate until a round
+# drains less than the materiality floor, or the hard cap below.
+RUNWAY_FLEX_MAX_ROUNDS = 12
+RUNWAY_FLEX_ROUND_DRAIN_FLOOR_M = 0.01
+
+
+def runway_flex_self_unlock_enabled() -> bool:
+    """Gate for fixes 1+2 (read at call time).  Off ⇒ the pre-spec
+    behaviour exactly: flex-minted anchors bound, 3 fixed rounds."""
+    return _os.environ.get("O4_FLEX_SELF_UNLOCK", "0") == "1"
+
+
+# ── §2a AMENDMENT: THE APPLY-SIDE PER-SEGMENT CAP (lead adjudication
+# 2026-08-04 night, appended to the round's spec) ─────────────────────
+# ``apply_runway_flex``'s verify-and-relax loop is the APPLY-side safety
+# check, and it tested ``MAX_RUNWAY_GRADE`` only.  The per-segment cap —
+# ``runway_segment_grade_cap``, i.e. the FAA 0.8 % END-ZONE cap inside
+# the first/last ``RUNWAY_END_FRACTION`` and the tiered threshold band —
+# is equally law, so testing only the main cap there was a bug.  (The
+# spec's "slack clamp, displacement budget … all stand" froze the
+# DEMAND-side clamps; it never froze this check.)
+#
+# MEASURED, and the reason this is a completion rather than a guess: the
+# profile the flex STARTS from has ZERO over-cap segments on every HECA
+# runway in every arm — all 17 gate-off end-zone violations, and all of
+# the +9 / +15 the fix arms added, are minted by the flex itself.
+#
+# NO-NEW-REGRESSION FORM: each ref's over-cap segment list is snapshotted
+# ONCE, from the profile the first flex call sees, and every later
+# candidate solve is compared against that fixed reference by STATION
+# (targets insert samples, so segment indices do not correspond).  A
+# candidate that creates a new over-cap segment, or worsens an existing
+# one by more than the materiality floor below, has its nearest target
+# dropped and the solve retried — exactly the machinery the main-cap
+# check already used.  An absolute reference, not a per-call one, so 35
+# apply calls cannot ratchet the floor into a real violation.  The
+# pre-existing gate-off segments are a standing defect recorded for
+# their own round, not this round's responsibility.
+RUNWAY_FLEX_ENDZONE_MATERIALITY = 0.0001    # 0.01 percentage points
+
+
+def runway_flex_apply_segment_cap_enabled() -> bool:
+    """Gate for §2a.  Active whenever EITHER flex-completion gate is on.
+
+    Why not ungated: with the gates off the flex mints all 17 of HECA's
+    end-zone violations, so an ungated check would reject those targets
+    and move the default surface — the round's gate-off arms must stay
+    byte-identical (anchor a785f170).  Why not its own third gate: the
+    amendment is a correctness precondition of BOTH fixes, and the
+    pre-registered arms are the two named ones.  At flip time this
+    should become ungated, together with the standing-defect round that
+    owns the 17.
+    """
+    return (runway_flex_self_unlock_enabled()
+            or _os.environ.get("O4_RUNWAY_DEM_FOLLOW", "0") == "1")
 
 # Within-shape grade-audit geometry — the SINGLE SOURCE OF TRUTH shared by the
 # runtime audit (``elevation._report_within_shape_violations``, the WARN shown

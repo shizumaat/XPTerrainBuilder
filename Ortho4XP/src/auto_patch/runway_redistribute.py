@@ -66,12 +66,13 @@ from typing import Dict, List, Tuple
 from .config import (
     RUNWAY_END_FRACTION, RUNWAY_SEAM_CONTACT_ANCHORS,
     RUNWAY_SEAM_CONTACT_STEP_M, RUNWAY_THRESHOLD_STRICT_M,
-    TILE_CUT_HALF_WIDTH_M,
+    TILE_CUT_HALF_WIDTH_M, RUNWAY_FLEX_ENDZONE_MATERIALITY,
+    runway_flex_apply_segment_cap_enabled, runway_flex_self_unlock_enabled,
 )
 from .layout import ROLE_RUNWAY, SHARED_VERTEX_TOL_M
 from .pavement.runway_segments import (
     MAX_RUNWAY_GRADE, MAX_RUNWAY_GRADE_CHANGE_PER_M, RUNWAY_END_GRADE,
-    faa_joint_solve,
+    faa_joint_solve, runway_segment_grade_cap,
 )
 from .runway_regrade import regrade_runway, DEFAULT_ARC_K_M
 
@@ -1224,6 +1225,12 @@ def redistribute_runway_profile(
             # CERTAIN anchors (thresholds + seams) while treating the
             # rest as negotiable.
             'anchored': list(anchored),
+            # FIX 1 (spec ``runway-flex-completion``): parallel to
+            # ``anchored``.  Nothing here is flex-minted — every anchor at
+            # redistribute time is a CIFP threshold, a physical end, a
+            # tile-seam sample or a crossing reconciliation, i.e. real
+            # authority.  ``apply_runway_flex`` is the only minter.
+            'flex_minted': [False] * len(fractions),
             'seam_t': [t for (t, _e) in seam_samples],
             'blast_a_m': state['blast_a_m'],
             'blast_b_m': state['blast_b_m'],
@@ -1340,6 +1347,38 @@ def flex_slack_at(profile: dict, t: float, direction: float) -> float:
     del seam_t  # certain/intermediate distinction returns in Stage C
     bounding: List[int] = [k for k, a in enumerate(anchored) if a]
 
+    # ── FIX 1: FLEX-MINTED ANCHORS DO NOT BOUND (spec
+    # ``docs/specs/runway-flex-completion-spec.md``; gate
+    # ``O4_FLEX_SELF_UNLOCK``, default "0") ─────────────────────────────
+    # THE SELF-ANCHOR LOCK.  ``apply_runway_flex`` inserts every applied
+    # target as ``anchored=True``; the sentence above then bounds the NEXT
+    # round against it, and since the bound is ``cap·|s_t − s_i|`` a
+    # station the flex itself touched has slack ≡ 0 at its own position.
+    # A station is therefore movable exactly once, no matter how much
+    # demand remains (measured at HECA: 05R/23L rounds 1-2 at the deepest
+    # bin, slack 0.000 / move 0.000, against a 4.37 m deficit).
+    #
+    # That is the flex bounding itself, not law bounding it: the sample
+    # carries no CIFP, seam or crossing authority — it is this very
+    # mechanism's own output from one round ago.  Under the gate a
+    # flex-minted sample stays ANCHORED for the re-solve (the FAA gates
+    # must still smooth the free samples around it, and it must not be
+    # stomped) but is withdrawn from the bounding set here.  Everything
+    # with real authority — CIFP thresholds, physical ends, tile-seam
+    # samples, crossing-reconciliation anchors — is never minted, so it
+    # keeps bounding, including at CYXY where the crossing anchors are
+    # the only intermediate authority.
+    #
+    # Belt and braces: if a profile somehow carried NOTHING but minted
+    # anchors, fall back to the unfiltered set rather than return an
+    # unbounded slack.
+    if runway_flex_self_unlock_enabled():
+        minted = profile.get('flex_minted') or ()
+        unlocked = [k for k in bounding
+                    if not (k < len(minted) and minted[k])]
+        if unlocked:
+            bounding = unlocked
+
     # TIERED THRESHOLD BAND (user 2026-07-16, KBNA 13/31 defect G): the flex
     # drags the runway toward a taxiway contact, but within the last
     # ``threshold_strict_fraction`` before a pinned CIFP threshold the ramp
@@ -1399,6 +1438,21 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
         original_elevs = list(profile['elevs'])
         original_anchored = list(profile.get('anchored')
                                  or [False] * len(original_fractions))
+        # FIX 1 (spec ``runway-flex-completion``): the parallel
+        # PROVENANCE array.  ``flex_minted[k]`` means "sample k is
+        # anchored because a previous flex round put a target there" —
+        # this mechanism's own output, carrying no CIFP / seam / crossing
+        # authority.  ``flex_slack_at`` withdraws these from its bounding
+        # set under ``O4_FLEX_SELF_UNLOCK``; the array is maintained
+        # UNGATED so the tag can never disagree with the anchors it
+        # describes (and so a gate flip mid-build is impossible to
+        # mis-read).  Nothing reads it with the gate off.
+        original_minted = list(profile.get('flex_minted')
+                               or [False] * len(original_fractions))
+        if len(original_minted) < len(original_fractions):
+            original_minted += [False] * (len(original_fractions)
+                                          - len(original_minted))
+        del original_minted[len(original_fractions):]
         axis_len = math.sqrt(profile['axis_len2'])
         ax_a_x, ax_a_y = profile['axis_a']
         ax_dx, ax_dy = profile['axis_d']
@@ -1431,6 +1485,14 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
                     if abs(frac - t) < 1e-3:
                         original_elevs[j] = value
                         original_anchored[j] = True
+                        # A CROSSING-RECONCILED value is real geometric
+                        # authority (the partner runway's surface), so it
+                        # is NOT flex-minted even where it lands on a
+                        # sample an earlier round minted — it upgrades the
+                        # provenance and keeps bounding.  This is the
+                        # clause that holds CYXY's 02/20 crossing anchors
+                        # under fix 1.
+                        original_minted[j] = False
                         matched = True
                         break
                 if not matched:
@@ -1440,6 +1502,7 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
                     original_fractions.insert(insert_at, t)
                     original_elevs.insert(insert_at, value)
                     original_anchored.insert(insert_at, True)
+                    original_minted.insert(insert_at, False)
         pending = sorted((t, v) for (t, v) in contact_list
                          if 0.0 < t < 1.0)
 
@@ -1447,11 +1510,21 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
             fractions = list(original_fractions)
             elevs = list(original_elevs)
             anchored = list(original_anchored)
+            minted = list(original_minted)
             for t, v in target_list:
                 placed = False
                 for k, frac in enumerate(fractions):
                     if abs(frac - t) < 1e-3:
                         elevs[k] = v
+                        # FIX 1: mint ONLY where the flex is what makes
+                        # this sample anchored.  Landing a target on a
+                        # sample that already had authority (a CIFP
+                        # threshold, a seam sample, a crossing anchor)
+                        # must never launder that authority away, so the
+                        # tag is set before the anchor flag and only for
+                        # a previously-FREE sample.
+                        if not anchored[k]:
+                            minted[k] = True
                         anchored[k] = True
                         placed = True
                         break
@@ -1462,6 +1535,7 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
                     fractions.insert(insert_at, t)
                     elevs.insert(insert_at, v)
                     anchored.insert(insert_at, True)
+                    minted.insert(insert_at, True)
             # Same end-zone cap the redistribute solve used for this
             # ref (possibly escalated above 0.8% — see
             # ``solve_profile_with_minimal_end_zone_cap``): the flexed
@@ -1480,10 +1554,93 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
                     if profile.get('threshold_cap') is not None else None),
                 threshold_strict_fraction=float(
                     profile.get('threshold_strict_fraction') or 0.0))
-            return fractions, elevs, anchored
+            return fractions, elevs, anchored, minted
 
         def _worst_over_cap(fractions, elevs):
             return _worst_segment_over_main_cap(fractions, elevs, axis_len)
+
+        # ── §2a AMENDMENT: the APPLY-side PER-SEGMENT cap ─────────────
+        # (lead adjudication 2026-08-04, appended to the round's spec.)
+        # ``_worst_over_cap`` above is the MAIN cap only; the FAA
+        # END-ZONE cap (0.8 % inside the first/last RUNWAY_END_FRACTION)
+        # and the tiered threshold band are equally law, and the flex
+        # was free to bake them.  Measured at HECA: the profile the flex
+        # starts from has ZERO over-cap segments on every runway, so all
+        # 17 gate-off end-zone violations — and the +9 / +15 the fix arms
+        # added — are minted right here.
+        _seg_cap_kw = dict(
+            grade_cap=MAX_RUNWAY_GRADE,
+            end_grade_cap=float(profile.get('end_zone_cap')
+                                or RUNWAY_END_GRADE),
+            end_fraction=RUNWAY_END_FRACTION,
+            threshold_strict_cap=(
+                float(profile['threshold_cap'])
+                if profile.get('threshold_cap') is not None else None),
+            threshold_strict_fraction=float(
+                profile.get('threshold_strict_fraction') or 0.0))
+
+        def _segment_excesses(fractions, elevs):
+            """``[(t0, t1, excess)]`` for every segment over its OWN
+            per-segment cap — the same cap function ``faa_hard_cap_pass``
+            enforces with, so this reads the law rather than a copy."""
+            out = []
+            for k in range(1, len(fractions)):
+                seg = (fractions[k] - fractions[k - 1]) * axis_len
+                if seg <= 0.1:
+                    continue
+                cap = runway_segment_grade_cap(
+                    fractions[k - 1], fractions[k], **_seg_cap_kw)
+                grade = abs(elevs[k] - elevs[k - 1]) / seg
+                if grade > cap + 1e-12:
+                    out.append((fractions[k - 1], fractions[k], grade - cap))
+            return out
+
+        # THE REFERENCE, snapshotted ONCE per ref from the profile the
+        # FIRST flex call sees.  Absolute, not per-call: 35 apply calls
+        # against a moving reference could each add one materiality floor
+        # and ratchet a real violation into existence.  The pre-existing
+        # over-cap segments a runway arrives with are a standing defect
+        # recorded for its own round — this check only forbids MINTING.
+        if 'flex_endzone_ref' not in profile:
+            # The TARGET-FREE re-solve, not the raw arrays: the candidate
+            # it is compared against has been through ``faa_joint_solve``
+            # too, so this compares like with like and isolates what the
+            # TARGETS did from what the gates did.
+            _rf, _re, _ra, _rm = _solve_with([])
+            profile['flex_endzone_ref'] = _segment_excesses(_rf, _re)
+        _endzone_ref = profile['flex_endzone_ref']
+
+        def _new_or_worsened(fractions, elevs):
+            """``(delta, midpoint_t)`` for the worst segment this
+            candidate creates or worsens beyond the materiality floor,
+            else ``None``.
+
+            Compared by STATION, never by index: a target INSERTS a
+            sample, so the candidate's segment list is a refinement of
+            the reference's and the two do not correspond positionally.
+            A candidate segment is judged against the worst reference
+            excess overlapping its own station span."""
+            worst = None
+            for (t0, t1, excess) in _segment_excesses(fractions, elevs):
+                ref_excess = 0.0
+                for (r0, r1, r_excess) in _endzone_ref:
+                    if r1 > t0 and r0 < t1:          # station overlap
+                        ref_excess = max(ref_excess, r_excess)
+                delta = excess - ref_excess
+                if delta > RUNWAY_FLEX_ENDZONE_MATERIALITY and (
+                        worst is None or delta > worst[0]):
+                    worst = (delta, 0.5 * (t0 + t1))
+            return worst
+
+        _seg_cap_on = runway_flex_apply_segment_cap_enabled()
+
+        def _worst_violation(fractions, elevs):
+            """The main cap first (the harder law, and the pre-existing
+            behaviour), then §2a's no-new-regression per-segment test."""
+            worst = _worst_over_cap(fractions, elevs)
+            if worst is None and _seg_cap_on:
+                worst = _new_or_worsened(fractions, elevs)
+            return worst
 
         # VERIFY-AND-RELAX (2026-07-06): a jointly-infeasible target set
         # leaves faa_hard_cap_pass midpointing squeezed free samples —
@@ -1493,8 +1650,8 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
         # segment, drop the target nearest the worst violation and
         # re-solve from the ORIGINAL arrays.  Worst case = no flex.
         while True:
-            fractions, elevs, anchored = _solve_with(pending)
-            worst = _worst_over_cap(fractions, elevs)
+            fractions, elevs, anchored, minted = _solve_with(pending)
+            worst = _worst_violation(fractions, elevs)
             if worst is None or not pending:
                 break
             _excess, midpoint = worst
@@ -1506,6 +1663,7 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
         profile['fractions'] = list(fractions)
         profile['elevs'] = list(elevs)
         profile['anchored'] = list(anchored)
+        profile['flex_minted'] = list(minted)
         ax_a_x, ax_a_y = profile['axis_a']
         ax_dx, ax_dy = profile['axis_d']
         _apply_profile_to_shapes(

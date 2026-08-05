@@ -41,8 +41,10 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
     bins, clamp to the profile's certain-anchor slack
     (``flex_slack_at``), stay runway-law-consistent between bins, and
     apply through ``apply_runway_flex`` (FAA gates re-run).  Profiles
-    iterate toward mutual feasibility (≤3 rounds); runway node seeds +
-    the runway-join anchor map re-derive from the flexed shapes.
+    iterate toward mutual feasibility — 3 fixed rounds by default, or
+    (gate ``O4_FLEX_SELF_UNLOCK``) until a round drains under the 0.01 m
+    materiality floor, capped at ``RUNWAY_FLEX_MAX_ROUNDS``; runway node
+    seeds + the runway-join anchor map re-derive from the flexed shapes.
     """
     import heapq as _heapq
     from auto_patch import grade_graph as _GGf
@@ -199,7 +201,56 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
     total_deficit = total_drained = 0.0
     n_demands = 0
     flexed_refs: set = set()
-    for _round in range(3):
+    # ── FIX 4: THE HONEST INSTRUMENT (spec
+    # ``docs/specs/runway-flex-completion-spec.md``; UNGATED, report-only)
+    # ─────────────────────────────────────────────────────────────────
+    # The B2 line above under-reported demand by 45 % and over-reported
+    # achievement.  ``total_deficit`` only ever accrued for candidates
+    # that SURVIVED the ``move <= 0.01`` kill and the greedy-keep, so the
+    # demand the flex could not touch was invisible (HECA measured: true
+    # 2380.07 m, logged 1310.60 m); and nothing compared what
+    # ``apply_runway_flex`` was asked for against what it returned, so
+    # its verify-and-relax silently discarded 9.90 of 333.17 m.  These
+    # accumulators are WRITE-ONLY — nothing below reads them to decide
+    # anything, so the surface is unchanged.
+    _true_deficit = 0.0                 # every bin, killed ones included
+    _killed_n = 0
+    _killed_deficit = 0.0               # killed at move <= 0.01
+    _dropped_n = 0
+    _dropped_deficit = 0.0              # dropped by the greedy-keep
+    _requested_total = _achieved_total = 0.0
+    _by_ref: dict = {}                  # ref -> per-runway accounting
+
+    def _ref_row(ref):
+        return _by_ref.setdefault(ref, {
+            "true_deficit": 0.0, "drained": 0.0, "killed_n": 0,
+            "killed_deficit": 0.0, "dropped_n": 0, "requested": 0.0,
+            "achieved": 0.0, "last_deficit": 0.0, "last_drain": 0.0,
+            "rounds": 0})
+
+    # ── FIX 2: CONVERGE TO MUTUAL FEASIBILITY (same spec; gate
+    # ``O4_FLEX_SELF_UNLOCK``) ────────────────────────────────────────
+    # Every HECA demand's binding seed is another flexible runway
+    # (277/277 candidates), so the ORIGIN SPLIT halves every pull by
+    # design — the two profiles are supposed to meet in the middle.  With
+    # a fixed 3 rounds the geometric tail is truncated at 1/8 of the
+    # demand still outstanding, which is not a law, just a loop bound;
+    # the Stage-C counterfactual measured 2.004 of 2.672 m drained.
+    # Under the gate, keep the snapshot-simultaneous rounds and the split
+    # exactly as they are and simply iterate until a round drains less
+    # than the materiality floor (0.01 m — CLAUDE.md item 3(a)) or the
+    # hard cap trips.  Everything else — greedy keep, slack clamp, the
+    # 4.0 m displacement budget, the tiered threshold band — stands.
+    from auto_patch.config import (RUNWAY_FLEX_MAX_ROUNDS,
+                                   RUNWAY_FLEX_ROUND_DRAIN_FLOOR_M,
+                                   runway_flex_self_unlock_enabled)
+    _flex_unlock = runway_flex_self_unlock_enabled()
+    _max_rounds = RUNWAY_FLEX_MAX_ROUNDS if _flex_unlock else 3
+    _rounds_run = 0
+    _stop_reason = "no further demand"
+    for _round in range(_max_rounds):
+        _round_drain = 0.0
+        _rounds_run = _round + 1
         # SNAPSHOT-SIMULTANEOUS round (user 2026-07-06): demands for ALL
         # runways are computed against the SAME pre-round state, then
         # applied together.  The previous sequential loop re-seeded after
@@ -262,6 +313,10 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
             # runway-law-consistent (anchoring mutually-infeasible
             # targets would bake an over-cap profile).
             candidates = []
+            _row = _ref_row(ref)
+            _row["rounds"] = _round + 1
+            _row["last_deficit"] = sum(b[0] for b in bins.values())
+            _row["last_drain"] = 0.0
             for (deficit, t, target, origin) in bins.values():
                 current = _interp_profile(profile['fractions'],
                                           profile['elevs'], t)
@@ -287,7 +342,15 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
                 budget_left = max(
                     0.0, RUNWAY_FLEX_MAX_DISPLACEMENT_M - moved_already)
                 move = min(pull, slack, budget_left)
+                # FIX 4: count the demand BEFORE the kill, so the line
+                # quotes what the airport actually asked for.
+                _true_deficit += deficit
+                _row["true_deficit"] += deficit
                 if move <= 0.01:
+                    _killed_n += 1
+                    _killed_deficit += deficit
+                    _row["killed_n"] += 1
+                    _row["killed_deficit"] += deficit
                     continue
                 candidates.append((deficit, t,
                                    current + direction * move, move))
@@ -311,15 +374,60 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
                 kept.append((t, value))
                 total_deficit += deficit
                 total_drained += move
+                _round_drain += move
+                _row["drained"] += move
+                _row["last_drain"] += move
+            # FIX 4: the greedy-keep's drops, counted OUTSIDE its loop so
+            # the loop body stays byte-for-byte what it was.
+            _n_drop = len(candidates) - len(kept)
+            if _n_drop:
+                _kept_t = {t for (t, _v) in kept}
+                _dropped_n += _n_drop
+                _row["dropped_n"] += _n_drop
+                _dropped_deficit += sum(c[0] for c in candidates
+                                        if c[1] not in _kept_t)
             if kept:
                 round_targets[ref] = sorted(kept)
         if not round_targets:
             break
         for ref, targets in round_targets.items():
             n_demands += len(targets)
-            apply_runway_flex(layout, {ref: targets})
+            # FIX 4: REQUESTED vs ACHIEVED.  ``apply_runway_flex`` runs a
+            # verify-and-relax loop that DROPS targets whose joint
+            # re-solve puts a segment over the runway cap — a legitimate
+            # law refusal, but until now an invisible one.  Snapshot the
+            # profile the targets are measured against, then compare the
+            # returned achieved values.  Read-only.
+            _pr = profiles.get(ref) or {}
+            _pre_fr = list(_pr.get('fractions') or ())
+            _pre_el = list(_pr.get('elevs') or ())
+            _got = dict(apply_runway_flex(layout, {ref: targets}).get(ref)
+                        or ())
+            if _pre_fr and _pre_el:
+                _r = _ref_row(ref)
+                for (_t, _v) in targets:
+                    _before = _interp_profile(_pre_fr, _pre_el, _t)
+                    _req = abs(_v - _before)
+                    _ach = (abs(_got[_t] - _before) if _t in _got
+                            else 0.0)
+                    # An apply may only ever fall SHORT of the request;
+                    # clamp so a re-solve that overshoots one target
+                    # cannot mask a discard at another.
+                    _ach = min(_ach, _req)
+                    _requested_total += _req
+                    _achieved_total += _ach
+                    _r["requested"] += _req
+                    _r["achieved"] += _ach
             _reseed_runway_values(ref)
             flexed_refs.add(ref)
+        # FIX 2's convergence test (gate-off ⇒ never reached before the
+        # range(3) bound, so identical).
+        if _flex_unlock and _round_drain < RUNWAY_FLEX_ROUND_DRAIN_FLOOR_M:
+            _stop_reason = (f"round drain {_round_drain:.4f} m < "
+                            f"{RUNWAY_FLEX_ROUND_DRAIN_FLOOR_M} m floor")
+            break
+    else:
+        _stop_reason = f"round cap {_max_rounds}"
 
     if not flexed_refs:
         return 0
@@ -397,12 +505,48 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
     G.runway_anchor_sample.clear()
     _GGf._runway_anchors(layout, G, bucket_to_idx)
 
+    # ── FIX 4: THE HONEST B2 LINE ────────────────────────────────────
+    # What it now says, and why each term is there:
+    #   * TRUE demand — every bin's deficit, including the ones killed at
+    #     ``move <= 0.01`` (the old line's "of X m" was survivors only,
+    #     45 % low at HECA).
+    #   * where the demand went — killed by clamp, dropped by greedy
+    #     keep, drained.
+    #   * requested vs achieved at ``apply_runway_flex``, naming the
+    #     discard its verify-and-relax made.
+    #   * per-runway residual: the LAST round's outstanding demand minus
+    #     what that round drained — i.e. what the flex is leaving on the
+    #     table when it stops, per runway, with the stop reason.
     try:
         import O4_UI_Utils as _UIf
+        _disc = _requested_total - _achieved_total
+        _resid_total = sum(max(0.0, r["last_deficit"] - r["last_drain"])
+                           for r in _by_ref.values())
         _UIf.vprint(1, f"  [pav-builder] {icao}: runway flex (B2) — "
-                       f"{n_demands} envelope demand(s), "
-                       f"{total_drained:.2f} of {total_deficit:.2f} m "
-                       f"drained on {', '.join(sorted(flexed_refs))}.")
+                       f"{n_demands} envelope demand(s) applied over "
+                       f"{_rounds_run} round(s) ({_stop_reason}) on "
+                       f"{', '.join(sorted(flexed_refs))}; TRUE demand "
+                       f"{_true_deficit:.2f} m = {total_drained:.2f} "
+                       f"drained + {_killed_deficit:.2f} killed at the "
+                       f"clamp ({_killed_n} bin(s)) + "
+                       f"{_dropped_deficit:.2f} dropped by greedy-keep "
+                       f"({_dropped_n} bin(s)); apply requested "
+                       f"{_requested_total:.2f} m achieved "
+                       f"{_achieved_total:.2f} m "
+                       f"(discarded {_disc:.2f} m by verify-and-relax); "
+                       f"residual {_resid_total:.2f} m.")
+        for _ref in sorted(_by_ref):
+            _r = _by_ref[_ref]
+            _UIf.vprint(1,
+                        f"  [pav-builder]   {_ref}: demand "
+                        f"{_r['true_deficit']:.2f} m, drained "
+                        f"{_r['drained']:.2f} m, killed "
+                        f"{_r['killed_deficit']:.2f} m ({_r['killed_n']}), "
+                        f"greedy-dropped {_r['dropped_n']} bin(s), "
+                        f"apply {_r['achieved']:.2f}/{_r['requested']:.2f} m, "
+                        f"residual "
+                        f"{max(0.0, _r['last_deficit'] - _r['last_drain']):.2f}"
+                        f" m after {_r['rounds']} round(s).")
     except Exception:
         pass
     return n_demands

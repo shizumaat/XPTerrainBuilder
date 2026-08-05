@@ -484,3 +484,26 @@ INFEASIBILITY (hard values + caps + geometry), identical in flat and
 real worlds. Audit every DEM-steepness-keyed trigger. The gradient
 rung demotes to optional (covers only mixed cut/fill transitions and
 DEM-follow seed-tracking).
+
+## 2026-08-05 — Drainage scope for this version (owner)
+
+Owner: this version implements ONLY (1) runway crowns and (2)
+pavement-edge (unpaved areas) drainage. No other pavement drainage
+grading.
+
+Binding consequences:
+1. RUNWAY CROWNS: generated and bound (this answers open question Q5
+   for runways — the crown minimum BINDS on runways; taxiway/apron
+   crowns stay recorded-unbound with citations).
+2. PAVEMENT-EDGE DRAINAGE: the unpaved-area down-slope shaping at
+   pavement edges (the adjacent-ground mandatory-down family) is IN —
+   completed and verified.
+3. INTERIOR PAVEMENT DRAINAGE GRADING (the FAA apron drainage-minimum
+   shaping — KCLT's 1,099-row family and its siblings) is
+   VERSION-DEFERRED: the census still REPORTS the family (instruments
+   report), but the acceptance gate adjudicates it VERSION-DEFERRED
+   with this ruling as the citation — it does not block the
+   drive-to-zero and is never silently dropped.
+4. Flat-world zero is therefore: zero adjudicated rows EXCLUDING the
+   version-deferred classes, which appear in every report under their
+   own heading.

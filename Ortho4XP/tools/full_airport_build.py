@@ -1,5 +1,25 @@
 """Full airport build → patch OSM + axes sidecar → law-true check_grade run.
 
+SUPERSEDED by ``tools/harness/build_airport.py`` (see ``tools/INDEX.md``
+and the repo CLAUDE.md's harness section).  Kept only for older scripts
+that still call it.  Do not use it in new work — it makes NONE of the
+harness's refusals, and three of them are silent degradations it cannot
+see:
+
+* it never checks the DEM/inset cache, so on a cold cache the standalone
+  DEM prep falls back to the BASE surface (no insets, no airport
+  smoothing) with one log line — the unstated INSET-COVERAGE FRAME GAP
+  against production tile builds, which grade on the inset-baked DEM;
+* it never checks that this tree's ``Ortho4XP.cfg`` DEM-frame keys match
+  the owner's production app config, and a lane worktree has no
+  ``Ortho4XP.cfg`` at all (it is untracked), so the DEM prep silently
+  runs on constructor defaults;
+* it does not verify the sidecar was actually written, so a patch with no
+  sidecar flows straight into a context-free ``check_grade`` run whose
+  counts overcount by construction.
+
+It also has no ledger wrap, no env/frame snapshot and no ``.progress``.
+
 The standard lab loop: build one airport exactly the way the pipeline
 ships it, emit ``/tmp/<ICAO>_<suffix>.osm`` (with the axes sidecar the
 law-true validator needs), then run ``tools/check_grade.py`` on it.

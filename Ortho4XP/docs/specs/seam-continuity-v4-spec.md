@@ -169,3 +169,22 @@ The kill's landing and the +74 kill-gating adjudication (lead/owner);
 the to_osm donor-weld consensus if §4 attributes there (consensus
 round); the pinch healer `_heal_emitted_band_tears` (untouched); tile
 seams; both dead v3 branches; the band-writer single-solve ingestion.
+
+## LEAD VERDICT (2026-08-04 23:30, landed 80a1ec9)
+
+Bands 0/1/2/4/5 PASS (band 1 exceeded: HECA 28→4, CYXY 6→0; zero
+unadjudicated minted rows; pavement byte-identical; 10/10 identity).
+**O4_STRIP_HEAL_LAW is FLIP-ELIGIBLE for the 06:00 train on this
+lane's own evidence** (its stress+sentinel arms ARE the flip arms;
+KCLT/SPJC/SPLP ride the tip) — the lead folds it into the P2 flip
+batch directly; the flip lane's composed arm predates it. Residue
+accepted-with-attribution: the 4 surviving HECA rows are the two
+post-healer sites (consensus territory, fenced) + the 1.58 m
+unpicked-joint row. STOP 1 (wall pass cannot see 2.1-2.5 m authority
+joints — coincidence predicates only) is the NEXT-TRAIN wall-site
+redesign item. STOP 2 (kill-hold: a new 48-row region at w=0 — the
+guard interval no longer contains the target in the rougher pull-dead
+field) keeps THE KILL BLOCKED pending re-attribution; not a release
+item. Sixth seam-vocabulary observation: the healer/census predicate
+is now ONE function — the lockstep end state the v1 spec wanted,
+reached three premises later.

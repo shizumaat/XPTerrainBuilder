@@ -4723,7 +4723,24 @@ def _project_triangle_planes(layout, bucket_to_idx, elev, immovable,
     (margined like the projection).  Returns ``(n_fixed, anchored_idx,
     broken_idx)`` — anchored vertices must not be re-perturbed by later
     passes; broken = no free vertex could lawfully fix the plane (the
-    caller quarantines them)."""
+    caller quarantines them).
+
+    SHARED-VERTEX SURGERY (debug lane A 2026-08-05, owner directive
+    "prefer a ring-private vertex as the free lever, shared only as last
+    resort and reported").  A triangle's vertices are CANONICAL solver
+    variables: the same node can be a vertex of several shapes' rings, so
+    moving it to flatten THIS triangle's plane silently re-shapes every
+    other shape that shares it — a plane fix that leaks into a neighbour's
+    surface.  A vertex claimed by this ring ALONE is a free lever: moving
+    it changes exactly the plane it was chosen for.  The lever is
+    therefore chosen in two tiers — least-move among RING-PRIVATE
+    candidates first, and only when no private vertex can lawfully fix the
+    plane does a shared one move, which is COUNTED and reported
+    (``layout._triangle_plane_shared_surgery``) rather than done silently.
+
+    Ownership is read through the registry's READ-ONLY ``get`` (never
+    ``get_or_add``): an instrument that interns moves the emitted surface
+    (memory: two-decimators / registry-insertion round 6)."""
     import math as _math
     from auto_patch.config import ROLE_GRADE_LIMITS
     from .one_solve import (_build_adjacency, _emit_quantization_margin,
@@ -4735,6 +4752,32 @@ def _project_triangle_planes(layout, bucket_to_idx, elev, immovable,
     n_fixed = 0
     anchored: set = set()
     broken: set = set()
+
+    # ── ring ownership: node index -> how many shape rings claim it ──
+    # One read-only pass over every ring in the layout.  A count of 1
+    # means "this triangle is the only shape holding that variable".
+    owners: dict = {}
+    for _s in layout.shapes:
+        _p = getattr(_s, "polygon", None)
+        if _p is None or _p.is_empty or _p.geom_type != "Polygon":
+            continue
+        try:
+            _ring = list(_p.exterior.coords)
+        except Exception:                                  # pragma: no cover
+            continue
+        if _ring and _ring[0] == _ring[-1]:
+            _ring = _ring[:-1]
+        _seen: set = set()
+        for (_x, _y) in _ring:
+            _k = cps.get(float(_x), float(_y))
+            if _k is None:
+                continue
+            _i = bucket_to_idx.get(_k)
+            if _i is None or _i in _seen:
+                continue
+            _seen.add(_i)
+            owners[_i] = owners.get(_i, 0) + 1
+    n_shared_surgery = 0
 
     def _gradient(pts, zs):
         (x1, y1), (x2, y2), (x3, y3) = pts
@@ -4771,8 +4814,9 @@ def _project_triangle_planes(layout, bucket_to_idx, elev, immovable,
             continue
         if _math.hypot(*g) <= cap:
             continue
-        # Try each free vertex; pick the smallest lawful move.
-        best = None                    # (move_size, vertex_pos, new_value)
+        # Try each free vertex; pick the smallest lawful move, RING-
+        # PRIVATE levers first (see the shared-vertex surgery note above).
+        best = None                    # (private?, move_size, pos, value)
         for k in range(3):
             i_move = idxs[k]
             if i_move in immovable:
@@ -4810,15 +4854,35 @@ def _project_triangle_planes(layout, bucket_to_idx, elev, immovable,
             cur = zs[k]
             new_val = min(max(cur, lo), hi)
             move = abs(new_val - cur)
-            if best is None or move < best[0]:
-                best = (move, k, new_val)
+            # rank: ring-private beats shared, then least move.  ``0`` for
+            # private sorts ahead of ``1`` for shared in the tuple compare,
+            # so no shared vertex is ever chosen while a private one can
+            # lawfully do the job.
+            shared_rank = 0 if owners.get(i_move, 0) <= 1 else 1
+            cand = (shared_rank, move, k, new_val)
+            if best is None or cand[:2] < best[:2]:
+                best = cand
         if best is None:
             broken.update(i for i in idxs if i is not None)
             continue
-        _move, k, new_val = best
+        shared_rank, _move, k, new_val = best
+        if shared_rank:
+            n_shared_surgery += 1
         elev[idxs[k]] = new_val
         anchored.update(i for i in idxs if i is not None)
         n_fixed += 1
+    layout._triangle_plane_shared_surgery = int(n_shared_surgery)
+    if n_shared_surgery:
+        try:
+            import O4_UI_Utils as _UI_TPS
+            _UI_TPS.vprint(
+                1, f"  [pav-builder] triangle-plane law: {n_shared_surgery} "
+                   f"of {n_fixed} plane fix(es) had to move a SHARED vertex "
+                   f"(no ring-private lever could lawfully flatten the "
+                   f"plane) — that move re-shapes every shape holding the "
+                   f"same canonical node.")
+        except Exception:                                  # pragma: no cover
+            pass
     return n_fixed, anchored, broken
 
 

@@ -398,3 +398,12 @@ Binding consequences:
    oracle — the guard catches absent data, not constant data.
 4. Any violation whose explanation requires terrain roughness is a
    defect: something is reading DEM as a constraint.
+
+ADDENDUM (owner, same conversation): the two synthetic extremes have
+PREDICTABLE SEATING, not just compliance — DEM ≡ 10,000 m (airport in
+an impossibly deep canyon) seats everything at its CEILING; DEM ≡ 0
+(airport on a giant artificial plateau) seats everything at its FLOOR.
+The oracle therefore asserts three things: zero violations in both
+worlds, extreme-seating saturation (every free value at the band edge
+nearest its seed), and — as the bonus diagnostic — the per-node
+difference field between the two worlds IS the feasible band width.

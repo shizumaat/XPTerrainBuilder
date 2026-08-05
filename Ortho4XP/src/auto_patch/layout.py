@@ -1159,18 +1159,28 @@ class PavementLayout:
                 return deduped_nids, deduped_elevs
             return deduped_nids, None
 
-        # Emit one simple way per shape (exterior ring only, with
-        # all tags on that way).  Interior rings — which appear
-        # on junction polygons that wrap around rect-shaped holes
-        # — are dropped for X-Plane patch compatibility: the
+        # Emit one simple way per shape (exterior ring, with all tags
+        # on that way) PLUS one closed constrained way per interior
+        # ring.  A hole cannot be a multipolygon relation here — the
         # Ortho4XP patch parser ([O4_Vector_Map.include_patches])
-        # iterates ways only, so tags on an OSM multipolygon
-        # relation never reach the outer way.  A junction ring
-        # emitted without its holes will slightly overlap the
-        # rects that used to punch those holes — X-Plane
-        # triangulator handles the overlap by seed-region
-        # processing; the rects' altitude_high/low tags prevail
-        # where they cover.
+        # iterates ways only, so tags on a relation never reach the
+        # outer way — but it CAN be a breakline: the same
+        # open-constrained-way mechanism the gap-fill interior rings
+        # already ship on (``o4_feature=gap_interior_ring``, ratified
+        # 2026-07-11).  The hole's boundary therefore reaches the
+        # triangulation as a constrained edge carrying its own
+        # per-vertex altitudes, interned through the SAME node registry
+        # as the exterior — so a shape standing in the hole (a terrace
+        # joint's retaining wall) shares those vertices byte-for-byte
+        # and the two surfaces spell one step instead of two.
+        # HONEST LIMIT, recorded rather than papered over: the outer
+        # way still COVERS the hole's area, so the hole is expressed as
+        # a breakline plus the covering shape's own precedence, not as
+        # absent surface.  X-Plane's triangulator resolves the overlap
+        # by seed-region processing and the covering shape's altitude
+        # tags prevail where it covers.  A true multipolygon hole needs
+        # a patch-parser change and is named as such.
+        _interior_rings: list = []
         way_blocks: list[tuple[int, list[int], dict[str, str]]] = []
         # Pass-1 holding pen: each entry survives validation +
         # interning and waits for the consensus pass to write its
@@ -1471,6 +1481,20 @@ class PavementLayout:
                 continue
             pending.append((s_idx, s, ext_nids,
                             shape_altitude, shape_node_altitudes))
+            # INTERIOR RINGS.  Interned UNVALUED: an interior vertex is
+            # shared with whatever shape stands in the hole, and THAT
+            # shape's claim is the value.  The emitter must never author
+            # a boundary value (emitters emit, never grade), so a
+            # vertex no authority claimed ships without ``alt_abs`` and
+            # is dropped onto the DEM by the mesh — which is loud, and
+            # correct, rather than a number this pass invented.
+            for _hole in (getattr(poly, "interiors", None) or ()):
+                try:
+                    _h_nids, _ = _ring_to_nids(_hole.coords, None)
+                except _GEOM_EXC:
+                    continue
+                if _h_nids and len(_h_nids) >= 4:
+                    _interior_rings.append(_h_nids)
 
         # ── Chain-consistent needle removal (weld ruling 2026-07-09) ──
         # A vertex the sliver-corner repair removed from one way must
@@ -2481,6 +2505,23 @@ class PavementLayout:
                          {"o4_feature": "gap_interior_ring"}))
                     next_wid[0] -= 1
 
+        # Shape INTERIOR RINGS as closed constrained ways (see the
+        # emit-model note above the shape loop).  Same mechanism as the
+        # gap interior rings, and deliberately AFTER them so a ring that
+        # is both keeps the first block's identity.  The nids are the
+        # already-interned exterior/wall vertices, so nothing new is
+        # created here and no value is authored.
+        _seen_hole: set = set()
+        for _h_nids in _interior_rings:
+            _key = tuple(_h_nids)
+            if _key in _seen_hole:
+                continue
+            _seen_hole.add(_key)
+            way_blocks.append(
+                (next_wid[0], list(_h_nids),
+                 {"o4_feature": "shape_interior_ring"}))
+            next_wid[0] -= 1
+
         # Determine which interned nodes are actually referenced by
         # any emitted way (via ``way_blocks`` or ``rel_blocks``
         # member ways).  Per user 2026-04-29: discarded ring builds
@@ -2509,7 +2550,7 @@ class PavementLayout:
         # solver by sweeping every edge to ``budget − 0.01``, which is
         # correct per pair and COMPOUNDING per path (the envelope, the
         # break detection and the stall adjudication are all path
-        # quantities).  Under ``O4_RAW_LAW_SWEEPS`` the sweeps run on RAW
+        # quantities).  That margin is DELETED: the sweeps run on RAW law
         # budgets and the guarantee lives HERE instead: each node is
         # snapped to a grid point ADJACENT to its solved value — bounded
         # by ONE step, so it cannot compound — with the rounding

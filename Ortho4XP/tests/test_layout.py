@@ -649,3 +649,61 @@ def test_aeroway_for_role_covers_all_roles():
     }
     for role in expected_roles:
         assert role in AEROWAY_FOR_ROLE
+
+
+# ──────────────────────────────────────────────────────────────────────
+# INTERIOR-RING EMIT (completion round 2026-08-05)
+# ──────────────────────────────────────────────────────────────────────
+def test_to_osm_emits_interior_rings_as_constrained_ways(tmp_path):
+    """A polygon hole reaches the patch as a CLOSED CONSTRAINED WAY.
+
+    A hole cannot be a multipolygon relation here (the Ortho4XP patch
+    parser iterates ways only, so relation tags never reach the outer
+    way) — but it can be a breakline, which is the mechanism the
+    gap-fill interior rings already ship on.  Before this the interiors
+    were dropped silently, so a shape standing in the hole had no shared
+    boundary to spell a step against.
+    """
+    layout = _make_layout()
+    outer = Polygon(
+        [(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)],
+        [[(40.0, 40.0), (60.0, 40.0), (60.0, 60.0), (40.0, 60.0)]])
+    layout.shapes.append(
+        BuiltShape(polygon=outer, role=ROLE_APRON, ref="holed",
+                   altitude=100.0))
+    out = tmp_path / "holed.osm"
+    layout.to_osm(str(out))
+    text = out.read_text()
+    assert "shape_interior_ring" in text, (
+        "the polygon's interior ring was dropped from the patch")
+
+
+def test_interior_ring_shares_the_hole_occupant_s_vertices(tmp_path):
+    """The hole boundary and the shape standing in it are ONE set of
+    node ids — canonical identity, so the two surfaces spell one step
+    instead of two disagreeing ones."""
+    layout = _make_layout()
+    hole = [(40.0, 40.0), (60.0, 40.0), (60.0, 60.0), (40.0, 60.0)]
+    outer = Polygon(
+        [(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)], [hole])
+    layout.shapes.append(
+        BuiltShape(polygon=outer, role=ROLE_APRON, ref="holed",
+                   altitude=100.0))
+    layout.shapes.append(
+        BuiltShape(polygon=Polygon(hole), role=ROLE_JUNCTION,
+                   ref="occupant", altitude=97.0))
+    out = tmp_path / "shared.osm"
+    layout.to_osm(str(out))
+    text = out.read_text()
+    ways = re.findall(r"<way[^>]*>.*?</way>", text, re.S)
+    ring_way = [w for w in ways if "shape_interior_ring" in w]
+    others = [w for w in ways if "shape_interior_ring" not in w]
+    assert ring_way and others
+    nd = re.compile(r"<nd ref=['\"](-?\d+)['\"]")
+    ring_nids = set(nd.findall(ring_way[0]))
+    occ_nids = set()
+    for w in others:
+        occ_nids |= set(nd.findall(w))
+    assert ring_nids and ring_nids <= occ_nids, (
+        "the interior ring minted its own nodes instead of adopting the "
+        "hole occupant's — a proximity join, not an identity one")

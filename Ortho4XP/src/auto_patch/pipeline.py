@@ -3949,8 +3949,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
                     # ``service_junction`` (user 2026-06-27).  A piece that links a
                     # road to a GROUNDSIDE lot is also a connector, but groundside is
                     # not emitted yet here — caught by the post-emit pass below.
-                    if (os.environ.get("O4_SVC_CONNECTOR_AS_ROAD", "1") == "1"
-                            and _road_neighbors == 1):
+                    if _road_neighbors == 1:
                         _js.role = ROLE_SERVICE_ROAD
                         _n_svc_r += 1
                     else:
@@ -4493,10 +4492,8 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # that links a service road to a groundside lot is a CONNECTOR corridor, not
         # an intersection — re-role it ``service_road`` so it grades AXIALLY (a ramp
         # toward DEM).  Runs HERE, after groundside is emitted, because the earlier
-        # service-junction re-role cannot see groundside (not emitted yet).  Gate
-        # off → no change.
-        if (os.environ.get("O4_SVC_CONNECTOR_AS_ROAD", "1") == "1"
-                and not _scorer_owns_roles):
+        # service-junction re-role cannot see groundside (not emitted yet).
+        if not _scorer_owns_roles:
             from .layout import (ROLE_SERVICE_JUNCTION, ROLE_SERVICE_ROAD,
                                  ROLE_GROUNDSIDE_PAVEMENT)
             _gs_polys = [g.polygon for g in layout.shapes
@@ -5021,9 +5018,8 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # SVC4's 109×0.8 m piece).  The earlier road-only re-role ran before the
         # slice and the sliver-merge only folds junction→junction, so these survive.
         # Aircraft adjacency (apron/runway/taxi rect) or an aircraft taxi-line
-        # through it VETOES the re-role; boundary adjacency does not.  Gate → no-op.
-        if (os.environ.get("O4_SVC_CONNECTOR_AS_ROAD", "1") == "1"
-                and not _scorer_owns_roles):
+        # through it VETOES the re-role; boundary adjacency does not.
+        if not _scorer_owns_roles:
             from .layout import (ROLE_SERVICE_ROAD, ROLE_JUNCTION)
             _cps = layout.canonical_points
 
@@ -5273,6 +5269,35 @@ def build_airport_pavement(icao: str, xplane_root: str,
             except _GEOM_EXC as _skpre_exc:
                 UI.vprint(1, f"  [pav-builder] {icao}: pre-solve runway-end "
                              f"skirt emission FAILED: {_skpre_exc!r}")
+
+        # ── APRON TERRACE PRE-SOLVE PANELIZATION (owner ruling
+        # 2026-08-04; completion round 2026-08-05) ────────────────────
+        # THE PANEL BOUNDARY MUST EXIST BEFORE THE SOLVE.  Every residue
+        # the terrace law carried — the D2 face height, the defects the
+        # post-solve split minted, the 2 479 m² face lap — had one root:
+        # the panel boundary was created AFTER the surface settled, so
+        # its vertices took values the solve never produced.  Terracing
+        # is geometry refinement, so it runs here, with the other
+        # pre-solve constructions: each triggered apron is split into
+        # panels and the joint's two station rows become ordinary apron
+        # RING vertices, i.e. solve variables.  Everything downstream
+        # (node list, grade graph, projections, writeback, emit) then
+        # treats them as what they are, with no special case anywhere.
+        # Runs FIRST among the pre-solve constructions: it is the only
+        # one that changes ``layout.shapes``, and the gap-fill /
+        # adjacent-ground stores capture shape references.
+        if layout.anchor is not None:
+            try:
+                from .elevation_per_surface.route_profile.apron_terrace \
+                    import construct_apron_terrace_presolve
+                construct_apron_terrace_presolve(
+                    layout, dem, tile_lat, tile_lon, icao=icao)
+            except _GEOM_EXC as _terrpre_exc:
+                UI.vprint(1, f"  [pav-builder] {icao}: pre-solve apron "
+                             f"terrace panelization FAILED: "
+                             f"{_terrpre_exc!r} — no panelization this "
+                             f"build.")
+                layout.apron_terrace_presolve = []
 
         # ── Gap-fill spine PRE-SOLVE construction (Slice B stage B2,
         # gate O4_ONE_SOLVE_TERRAIN + O4_ONE_SOLVE_TERRAIN_GAP_FILL_
@@ -5764,21 +5789,17 @@ def build_airport_pavement(icao: str, xplane_root: str,
                     _projection_tile_lon = int(math.floor(layout.anchor[1]))
             except _GEOM_EXC:
                 _projection_dem = None
-        # T1b (board): OWNER RULING 2026-07-18 late — default stays ON.
-        # The in-sim comparison showed no visual difference either way,
-        # and the owner chose the historic double projection over the
+        # T1b (board): OWNER RULING 2026-07-18 late — the MID projection
+        # RUNS.  The in-sim comparison showed no visual difference either
+        # way, and the owner chose the historic double projection over the
         # measured wall saving (mid-off quiet A/B: OTHH 299.2 s vs
         # 363.3, CYXY 39.8 s (−22), SPJC 87.7 s (−13); real law classes
         # identical; by-design break-region pairs grow, CYXY 239→400).
-        # O4_FINAL_PROJECTION_MID=0 re-enables the experiment; the
-        # conformance passes below then defer past the LATE projection
-        # via the reorder machinery, which stays in place.
-        _mid_projection_on = (
-            os.environ.get("O4_FINAL_PROJECTION_MID", "1") == "1")
-        if _mid_projection_on:
-            final_grade_projection(layout, icao, dem=_projection_dem,
-                                   tile_lat=_projection_tile_lat,
-                                   tile_lon=_projection_tile_lon)
+        # The gate that selected the mid-off experiment is deleted with
+        # its arm (owner 2026-08-05, no gates).
+        final_grade_projection(layout, icao, dem=_projection_dem,
+                               tile_lat=_projection_tile_lat,
+                               tile_lon=_projection_tile_lon)
 
         def _post_projection_conformance_passes():
             # PAD-IN-SOLVED-PAVEMENT HOST LEVEL (user 2026-07-10, round 6
@@ -5844,15 +5865,12 @@ def build_airport_pavement(icao: str, xplane_root: str,
             except _GEOM_EXC:
                 pass
 
-        # T1b reorder (board): with the mid projection ON these passes run
-        # here, reading mid-projected values (historic behavior).  With it
-        # OFF they are DEFERRED until after the LATE projection — running
-        # them here would seat pads / re-adopt ribbon values against
-        # unprojected solver values, which the late projection then moves
-        # again (measured OTHH: break-region pairs 42 → 61 without the
-        # reorder).
-        if _mid_projection_on:
-            _post_projection_conformance_passes()
+        # T1b reorder (board): these passes run HERE, reading mid-projected
+        # values (historic behavior).  Running them before a projection would
+        # seat pads / re-adopt ribbon values against unprojected solver
+        # values, which a later projection then moves again (measured OTHH:
+        # break-region pairs 42 → 61 without the reorder).
+        _post_projection_conformance_passes()
 
         # SPINE CROWN v2 (user ruling 2026-07-07, part 30): the crown is
         # built INSIDE the solve now — runway rings (uniform per-ref
@@ -6431,19 +6449,6 @@ def build_airport_pavement(icao: str, xplane_root: str,
     if _strip_resolve_last:
         _strip_reconcile_passes()
 
-    # T1b reorder second half: with the MID projection gated off, the
-    # pad-host / ribbon-re-adoption / groundside-re-limit passes were
-    # deferred to run against LATE-projected values (see the closure at
-    # the mid site).  Runs whether or not the late gate fired — with
-    # both projections off this is simply their original semantic
-    # position relative to the last projection that ran (none).
-    if compute_elevations and not _mid_projection_on:
-        try:
-            _post_projection_conformance_passes()
-        except _GEOM_EXC as _deferred_conformance_exc:
-            UI.vprint(1, f"  [pav-builder] WARN {icao}: deferred "
-                         f"post-projection conformance passes failed "
-                         f"({_deferred_conformance_exc!r}).")
 
     # ★ THE LOUD ERROR (spec ``docs/specs/kill-half-spec.md`` §3) — the
     # POST-SOLVE law, ungated.  Every pass that could move a value has run;

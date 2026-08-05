@@ -3607,10 +3607,10 @@ def _check_vertex_to_edge_step(
         e, t, px, py = best
         e_proj = e.ea + t * (e.eb - e.ea)
         step = abs(v.elev - e_proj)
-        # APRON TERRACE LOCKSTEP.  §3(d) retreats the lower panel's apron
-        # polygon by the settled wall band, so a declared joint now shows
-        # up here as a CROSS-SHAPE pair 0.6 m apart — lawful declared
-        # geometry, not a defect.  The allowance is the DECLARED step of
+        # APRON TERRACE LOCKSTEP.  The apron is split into PANELS before
+        # the solve, so a declared joint shows up here as a CROSS-SHAPE
+        # pair 0.6 m apart (the two panels' edges, with the wall band
+        # between them) — lawful declared geometry, not a defect.  The allowance is the DECLARED step of
         # the joint the pair straddles: the identical population, and the
         # identical number, the solver was bound to.  A pair crossing no
         # joint is untouched, so a gate-off patch reads exactly as before.
@@ -3729,8 +3729,8 @@ def _check_edge_midpoint_step(
             e2_elev = e2.ea + tt * (e2.eb - e2.ea)
             step = abs(s_elev - e2_elev)
             # APRON TERRACE LOCKSTEP (see ``_check_vertex_to_edge_step``):
-            # after §3(d)'s retreat a declared joint is a cross-shape pair
-            # 0.6 m apart, and its DECLARED step is the allowance.
+            # after the pre-solve split a declared joint is a cross-shape
+            # pair 0.6 m apart, and its DECLARED step is the allowance.
             allow_step = edge_step_m
             if terrace_joints_m:
                 allow_step += _terrace_step_allowance(

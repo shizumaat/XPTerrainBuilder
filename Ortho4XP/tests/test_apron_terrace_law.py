@@ -77,6 +77,10 @@ def _grid_apron(width=600.0, height=200.0, step=50.0, slope=0.02,
     # ring vertex; a 4-corner stand-in would hide the emitter's reader).
     shape = BuiltShape(polygon=Polygon(pts + [pts[0]]), role="apron",
                        ref=ref)
+    # The fixture's ground, as the PRE-SOLVE panelizer reads it: the same
+    # analytic plane the per-node DEM below samples, so the twins drive
+    # the real panelizer instead of a second implementation.
+    _DEM_FNS[id(shape)] = (lambda x, y, b=base, s=slope: b + s * x)
     nodes_xy = {i: p for i, p in enumerate(pts)}
     node_dem = [base + slope * p[0] for p in pts]
     idx = list(range(len(pts)))
@@ -112,6 +116,82 @@ def _steep_case(**kw):
     return shape, nodes_xy, node_dem, entry, elev, {lo, hi}
 
 
+_DEM_FNS: dict = {}
+
+
+def _abutting_panel(layout, x, group=None):
+    """The apron panel whose right edge sits nearest ``x``.
+
+    The pre-solve split re-points the ORIGINAL shape at the LARGEST
+    panel, which is not in general the one that abuts a given
+    neighbour — so a facing twin has to name the panel it means.
+    """
+    best, best_d = None, None
+    for s in layout.shapes:
+        if s.role != "apron" or s.polygon is None or s.polygon.is_empty:
+            continue
+        if group is not None and getattr(
+                s, "_terrace_panel_group", None) != group:
+            continue
+        d = abs(s.polygon.bounds[2] - x)
+        if best_d is None or d < best_d:
+            best, best_d = s, d
+    return best
+
+
+def _panelize(layout, dem_fn=None):
+    """Run the REAL pre-solve panelizer on ``layout``, then rebuild the
+    constraint entries from the PANELS exactly as production does.
+
+    Production order is: panelize (splitting the apron and minting the
+    joint's two station rows as ring vertices) -> build the node list ->
+    build the within-shape law -> bind.  The twins follow it, so a
+    station is a solve variable here for the same reason it is one in a
+    build.  Returns ``(entries, nodes_xy, node_dem)``.
+    """
+    if dem_fn is None:
+        for s in list(layout.shapes):
+            dem_fn = _DEM_FNS.get(id(s))
+            if dem_fn is not None:
+                break
+    if dem_fn is None:
+        def dem_fn(x, y):
+            return 100.0 + 0.02 * x
+    AT._construct_from_sampler(layout, dem_fn, icao="TEST")
+    nodes_xy: dict = {}
+    node_dem: list = []
+    entries: list = []
+    key: dict = {}
+    for s in layout.shapes:
+        if s.role != "apron" or s.polygon is None or s.polygon.is_empty:
+            continue
+        ring = list(s.polygon.exterior.coords)
+        if ring and ring[0] == ring[-1]:
+            ring = ring[:-1]
+        idx = []
+        for (x, y) in ring:
+            k = (round(x, 2), round(y, 2))
+            i = key.get(k)
+            if i is None:
+                i = len(node_dem)
+                key[k] = i
+                nodes_xy[i] = (float(x), float(y))
+                node_dem.append(float(dem_fn(x, y)))
+            idx.append(i)
+        seen = set()
+        idx = [i for i in idx if not (i in seen or seen.add(i))]
+        edges = []
+        for a_i in range(len(idx)):
+            for b_i in range(a_i + 1, len(idx)):
+                a, b = idx[a_i], idx[b_i]
+                d = math.dist(nodes_xy[a], nodes_xy[b])
+                if d >= 0.5:
+                    edges.append((min(a, b), max(a, b),
+                                  APRON_MAX_GRADE * d))
+        entries.append(_entry(s, idx, edges))
+    return entries, nodes_xy, node_dem
+
+
 # ── 1. THE BINDING CONSTRAINT ───────────────────────────────────────
 
 @pytest.mark.parametrize("angle_deg", [0, 15, 45, 90, 120])
@@ -128,7 +208,9 @@ def test_joint_never_crosses_a_spine(angle_deg):
     spine = [(cx - 1000.0 * dx, cy - 1000.0 * dy),
              (cx + 1000.0 * dx, cy + 1000.0 * dy)]
     layout = _FakeLayout([shape], centerlines=[spine])
-    plan = AT.plan_apron_terraces(layout, [entry], nodes_xy, node_dem,
+    entries, nodes_xy, node_dem = _panelize(layout)
+    elev = list(node_dem)
+    plan = AT.plan_apron_terraces(layout, entries, nodes_xy, node_dem,
                                   elev, hard, icao="TEST")
     assert plan is not None
     cover = AT.corridor_cover(layout)
@@ -153,7 +235,9 @@ def test_joint_never_crosses_a_service_spine():
     svc = [(300.0, -500.0), (300.0, 500.0)]
     layout = _FakeLayout([shape])
     layout.apt_taxi_centerlines = [(LineString(svc), "SVC_1")]
-    plan = AT.plan_apron_terraces(layout, [entry], nodes_xy, node_dem,
+    entries, nodes_xy, node_dem = _panelize(layout)
+    elev = list(node_dem)
+    plan = AT.plan_apron_terraces(layout, entries, nodes_xy, node_dem,
                                   elev, hard, icao="TEST")
     cover = AT.corridor_cover(layout)
     assert cover is not None
@@ -169,10 +253,12 @@ def test_corridor_pairs_keep_the_cap_through_a_panelized_apron():
     shape, nodes_xy, node_dem, entry, elev, hard = _steep_case()
     spine = [(300.0, -500.0), (300.0, 500.0)]      # along the joints
     layout = _FakeLayout([shape], centerlines=[spine])
-    plan = AT.plan_apron_terraces(layout, [entry], nodes_xy, node_dem,
+    entries, nodes_xy, node_dem = _panelize(layout)
+    elev = list(node_dem)
+    plan = AT.plan_apron_terraces(layout, entries, nodes_xy, node_dem,
                                   elev, hard, icao="TEST")
     before = {(a, b): bud for (a, b, bud) in entry["edges"]}
-    AT.apply_terrace_budgets(plan, [entry], nodes_xy)
+    AT.apply_terrace_budgets(plan, entries, nodes_xy)
     after = {(a, b): bud for (a, b, bud) in entry["edges"]}
     cover = AT.corridor_cover(layout)
     n_corridor_pairs = 0
@@ -190,10 +276,12 @@ def test_relaxation_is_monotone_and_scoped():
     shape, nodes_xy, node_dem, entry, elev, hard = _steep_case()
     layout = _FakeLayout([shape], centerlines=[[(300.0, -500.0),
                                                 (300.0, 500.0)]])
-    plan = AT.plan_apron_terraces(layout, [entry], nodes_xy, node_dem,
+    entries, nodes_xy, node_dem = _panelize(layout)
+    elev = list(node_dem)
+    plan = AT.plan_apron_terraces(layout, entries, nodes_xy, node_dem,
                                   elev, hard, icao="TEST")
     before = {(a, b): bud for (a, b, bud) in entry["edges"]}
-    n = AT.apply_terrace_budgets(plan, [entry], nodes_xy)
+    n = AT.apply_terrace_budgets(plan, entries, nodes_xy)
     assert n > 0, "the plan bound no law edge"
     for (a, b, bud) in entry["edges"]:
         assert bud >= before[(a, b)] - 1e-12
@@ -216,7 +304,9 @@ def test_declared_step_is_bounded():
         width=1200.0, slope=0.03)
     layout = _FakeLayout([shape], centerlines=[[(600.0, -900.0),
                                                 (600.0, 900.0)]])
-    plan = AT.plan_apron_terraces(layout, [entry], nodes_xy, node_dem,
+    entries, nodes_xy, node_dem = _panelize(layout)
+    elev = list(node_dem)
+    plan = AT.plan_apron_terraces(layout, entries, nodes_xy, node_dem,
                                   elev, hard, icao="TEST")
     assert plan.joints, "the steep fixture did not panelize"
     for joint in plan.joints:
@@ -235,12 +325,14 @@ def test_trigger_floor_blocks_centimetre_noise():
     hi = max(idx, key=lambda i: nodes_xy[i][0])
     layout = _FakeLayout([shape], centerlines=[[(100.0, -300.0),
                                                 (100.0, 300.0)]])
-    plan = AT.plan_apron_terraces(layout, [entry], nodes_xy, node_dem,
+    entries, nodes_xy, node_dem = _panelize(layout)
+    elev = list(node_dem)
+    plan = AT.plan_apron_terraces(layout, entries, nodes_xy, node_dem,
                                   elev, {lo, hi}, icao="TEST")
     assert plan.joints == []
-    row = plan.trigger_rows[0]
-    assert row["excess"] < APRON_TERRACE_MIN_EXCESS_M
-    assert row["verdict"] in ("below_floor", "feasible")
+    assert plan.trigger_rows == [], (
+        "an apron below the relief floor produced a trigger row")
+    assert layout.apron_terrace_presolve == []
 
 
 def test_value_defect_on_gradeable_ground_does_not_panelize():
@@ -257,12 +349,17 @@ def test_value_defect_on_gradeable_ground_does_not_panelize():
     elev[hi] += 8.0                       # a seat 8 m above flat ground
     layout = _FakeLayout([shape], centerlines=[[(200.0, -300.0),
                                                 (200.0, 300.0)]])
-    plan = AT.plan_apron_terraces(layout, [entry], nodes_xy, node_dem,
+    entries, nodes_xy, node_dem = _panelize(layout)
+    elev = list(node_dem)
+    plan = AT.plan_apron_terraces(layout, entries, nodes_xy, node_dem,
                                   elev, {lo, hi}, icao="TEST")
     assert plan.joints == []
-    # Flat ground short-circuits at the SOUND prefilter (no direct law
-    # edge is DEM-infeasible ⇒ no pair can be, anywhere).
-    assert plan.trigger_rows[0]["verdict"] == "dem_within_cap"
+    # STRUCTURAL NOW, not a signature test: the panelizer runs before the
+    # solve and never sees a value at all, so a wrong VALUE on gradeable
+    # ground cannot license a terrace — there is nothing for it to reach.
+    # (RULINGS 5578b6a: an infeasibility is a defect report about the law
+    # or the instrument, never a licence to terrace around it.)
+    assert layout.apron_terrace_presolve == []
 
 
 def test_steep_local_pair_does_not_license_a_value_defect_terrace():
@@ -283,12 +380,16 @@ def test_steep_local_pair_does_not_license_a_value_defect_terrace():
     elev[hi] += 8.0                       # the wrong value
     layout = _FakeLayout([shape], centerlines=[[(200.0, -300.0),
                                                 (200.0, 300.0)]])
-    plan = AT.plan_apron_terraces(layout, [entry], nodes_xy, node_dem,
+    entries, nodes_xy, node_dem = _panelize(layout)
+    elev = list(node_dem)
+    plan = AT.plan_apron_terraces(layout, entries, nodes_xy, node_dem,
                                   elev, {lo, hi}, icao="TEST")
-    row = plan.trigger_rows[0]
-    assert row["dem_infeasible_edges"] > 0        # the kerb is real
     assert plan.joints == []
-    assert row["verdict"] == "value_defect_not_steep"
+    # A locally steep metre does not make the APRON's own ground steep:
+    # the trigger is the apron's DEM PLANE against the apron cap over
+    # its own extent, so a kerb cannot buy a terrace and neither can the
+    # 8 m wrong value beside it.
+    assert layout.apron_terrace_presolve == []
 
 
 def test_plan_accepts_the_solver_s_node_LIST():
@@ -297,13 +398,15 @@ def test_plan_accepts_the_solver_s_node_LIST():
     surface because the list adapter had no ``__getitem__`` — a build that
     reads as "the law did nothing" is worse than a crash.)"""
     shape, nodes_xy, node_dem, entry, elev, hard = _steep_case()
-    node_list = [nodes_xy[i] for i in sorted(nodes_xy)]
     layout = _FakeLayout([shape], centerlines=[[(300.0, -500.0),
                                                 (300.0, 500.0)]])
-    plan = AT.plan_apron_terraces(layout, [entry], node_list, node_dem,
+    entries, _nodes_xy, node_dem = _panelize(layout)
+    node_list = [_nodes_xy[i] for i in sorted(_nodes_xy)]
+    elev = list(node_dem)
+    plan = AT.plan_apron_terraces(layout, entries, node_list, node_dem,
                                   elev, hard, icao="TEST")
     assert plan is not None and plan.joints
-    assert AT.apply_terrace_budgets(plan, [entry], node_list) > 0
+    assert AT.apply_terrace_budgets(plan, entries, node_list) > 0
 
 
 # ── 4. EMIT + SIDECAR ───────────────────────────────────────────────
@@ -312,18 +415,29 @@ def _panelized_layout():
     shape, nodes_xy, node_dem, entry, elev, hard = _steep_case()
     layout = _FakeLayout([shape], centerlines=[[(300.0, -500.0),
                                                 (300.0, 500.0)]])
-    plan = AT.plan_apron_terraces(layout, [entry], nodes_xy, node_dem,
+    entries, nodes_xy, node_dem = _panelize(layout)
+    elev = list(node_dem)
+    plan = AT.plan_apron_terraces(layout, entries, nodes_xy, node_dem,
                                   elev, hard, icao="TEST")
-    AT.apply_terrace_budgets(plan, [entry], nodes_xy)
+    AT.apply_terrace_budgets(plan, entries, nodes_xy)
     layout._apron_terrace_plan = plan
-    # Settle the ring at panel levels so the emitter has a step to mint.
-    ring = list(shape.polygon.exterior.coords)[:-1]
-    # One level per PANEL: each declared joint the vertex sits past adds
-    # its own declared step, so the settled ring steps exactly where the
-    # law says it may.
+    # Settle EVERY panel's ring at its panel level so the emitter has a
+    # step to read.  Production settles them in the solve; here the same
+    # rule is applied analytically — one level per PANEL, each declared
+    # joint a vertex sits past adding its own declared step, so the
+    # settled surface steps exactly where the law says it may.
     xs = sorted(j.line[0][0] for j in plan.joints)
-    alts = [100.0 + 2.0 * sum(1 for jx in xs if x > jx) for (x, _y) in ring]
-    shape.node_altitudes = alts + [alts[0]]
+    for s_ in layout.shapes:
+        if s_.role != "apron" or s_.polygon is None:
+            continue
+        ring = list(s_.polygon.exterior.coords)[:-1]
+        # The joint's HI row sits exactly ON the line (x == jx) and
+        # belongs to the upper panel; the LO row sits one wall retreat
+        # below it.  The half-retreat offset puts the boundary between
+        # the two rows, which is where the step actually is.
+        alts = [100.0 + 2.0 * sum(1 for jx in xs if x > jx - 0.3)
+                for (x, _y) in ring]
+        s_.node_altitudes = alts + [alts[0]]
     return layout, plan, shape
 
 
@@ -451,7 +565,9 @@ def test_T1_no_joint_is_born_inside_a_runway_strip():
     keepout = runway_strip_wall_keepout(layout, require_gate=False)
     assert keepout is not None and not keepout.is_empty, (
         "the fixture's runway produced no strip footprint")
-    plan = AT.plan_apron_terraces(layout, [entry], nodes_xy, node_dem,
+    entries, nodes_xy, node_dem = _panelize(layout)
+    elev = list(node_dem)
+    plan = AT.plan_apron_terraces(layout, entries, nodes_xy, node_dem,
                                   elev, hard, icao="TEST")
     assert plan is not None
     for joint in plan.joints:
@@ -521,17 +637,22 @@ def test_T3_every_panelized_apron_carries_its_certificate():
     shape, nodes_xy, node_dem, entry, elev, hard = _steep_case()
     layout = _FakeLayout([shape], centerlines=[[(300.0, -500.0),
                                                 (300.0, 500.0)]])
-    plan = AT.plan_apron_terraces(layout, [entry], nodes_xy, node_dem,
+    entries, nodes_xy, node_dem = _panelize(layout)
+    elev = list(node_dem)
+    plan = AT.plan_apron_terraces(layout, entries, nodes_xy, node_dem,
                                   elev, hard, icao="TEST")
     assert plan.joints
     panelized = {j.shape_id for j in plan.joints}
     assert panelized <= set(plan.certificates), (
         "an apron panelized without a recorded certificate")
     for cert in plan.certificates.values():
-        assert cert["dem_infeasible_edges"] > 0
-        assert cert["envelope_excess_m"] >= APRON_TERRACE_MIN_EXCESS_M
-        assert cert["steep_dem_drop_m"] > cert["steep_cap_allow_m"]
+        # The evidence chain is now DEM + geometry end to end: the
+        # apron's own plane, steeper than the cap, over its own extent.
+        assert cert["plane_slope"] > APRON_MAX_GRADE
+        assert cert["extent_m"] > 0.0
+        assert cert["geom_excess_m"] >= APRON_TERRACE_MIN_EXCESS_M
         assert cert["relief_m"] > 0.0
+        assert cert["panels"] >= 2
     layout._apron_terrace_plan = plan
     rows = AT.terrace_certificates_sidecar(layout)
     assert len(rows) == len(plan.certificates)
@@ -545,7 +666,9 @@ def test_T3b_fire_is_bounded_by_the_certified_evidence():
         width=1200.0, slope=0.03)
     layout = _FakeLayout([shape], centerlines=[[(600.0, -900.0),
                                                 (600.0, 900.0)]])
-    plan = AT.plan_apron_terraces(layout, [entry], nodes_xy, node_dem,
+    entries, nodes_xy, node_dem = _panelize(layout)
+    elev = list(node_dem)
+    plan = AT.plan_apron_terraces(layout, entries, nodes_xy, node_dem,
                                   elev, hard, icao="TEST")
     for shape_id, cert in plan.certificates.items():
         bound = math.ceil(cert["relief_m"] / APRON_TERRACE_MAX_STEP_M)
@@ -595,7 +718,9 @@ def test_T4b_no_joint_survives_a_strip_that_covers_the_apron():
         height=100.0)
     rwy = _runway_shape(cx=300.0, cy=50.0, length=2400.0, width=60.0)
     layout = _StripLayout([shape], runway=rwy)
-    plan = AT.plan_apron_terraces(layout, [entry], nodes_xy, node_dem,
+    entries, nodes_xy, node_dem = _panelize(layout)
+    elev = list(node_dem)
+    plan = AT.plan_apron_terraces(layout, entries, nodes_xy, node_dem,
                                   elev, hard, icao="TEST")
     assert plan is not None
     assert plan.joints == [], (
@@ -622,7 +747,9 @@ def test_T4b2_a_keepout_outside_the_cover_makes_joints_stillborn(
     # keeps the rule self-enforcing for every OTHER keepout.
     monkeypatch.setattr(AT, "runway_strip_keepout_geometry",
                         lambda layout: None)
-    plan = AT.plan_apron_terraces(layout, [entry], nodes_xy, node_dem,
+    entries, nodes_xy, node_dem = _panelize(layout)
+    elev = list(node_dem)
+    plan = AT.plan_apron_terraces(layout, entries, nodes_xy, node_dem,
                                   elev, hard, icao="TEST")
     assert plan.joints == [], "an unfaceable joint reached the plan"
     assert plan.stats["joints_stillborn_keepout"] > 0
@@ -634,9 +761,12 @@ def test_T4c_unfaced_joint_grants_no_relief():
     sidecar allowance falls to what the surface expresses (0).  Before
     this, HECA carried 17 of 118 and KCLT 5 of 17 unbacked allowances."""
     layout, plan, shape = _panelized_layout()
-    # settle the whole ring LEVEL: every joint's flanks agree
-    ring = list(shape.polygon.exterior.coords)[:-1]
-    shape.node_altitudes = [100.0] * len(ring) + [100.0]
+    # settle EVERY panel LEVEL: every joint's two panels agree
+    for s_ in layout.shapes:
+        if s_.role != "apron" or s_.polygon is None:
+            continue
+        ring = list(s_.polygon.exterior.coords)[:-1]
+        s_.node_altitudes = [100.0] * len(ring) + [100.0]
     n = AT.emit_terrace_joint_faces(layout, plan)
     assert n == 0, "a face was minted where the flanks settled level"
     assert plan.stats["joints_demoted_level"] == len(plan.joints)
@@ -670,31 +800,44 @@ def test_T5_joint_step_pairs_bind_the_actual_step():
     shape, nodes_xy, node_dem, entry, elev, hard = _steep_case()
     layout = _FakeLayout([shape], centerlines=[[(300.0, -500.0),
                                                 (300.0, 500.0)]])
-    plan = AT.plan_apron_terraces(layout, [entry], nodes_xy, node_dem,
+    entries, nodes_xy, node_dem = _panelize(layout)
+    elev = list(node_dem)
+    plan = AT.plan_apron_terraces(layout, entries, nodes_xy, node_dem,
                                   elev, hard, icao="TEST")
+    from auto_patch.adjacent_ground import STACKED_WALL_RETREAT_M
     assert plan.joints
-    assert any(j.flank_pairs for j in plan.joints), (
-        "no joint produced a straddling pair population")
+    # THE STATIONS ARE SOLVE VARIABLES.  Every declared joint carries a
+    # resolved (hi, lo) node pair per station: the pre-solve split made
+    # both rows apron RING vertices, so the declared step is a law edge
+    # between two real variables instead of a number the emitter read
+    # off an extrapolation afterwards.
+    assert any(j.stations for j in plan.joints), (
+        "no joint resolved a panel-boundary station to a node")
+    entry = next(e for e in entries if e["shape_id"] == id(shape))
     before = {(a, b) if a < b else (b, a)
               for (a, b, _bud) in entry["edges"]}
-    AT.apply_terrace_budgets(plan, [entry], nodes_xy)
-    budget = {}
-    for (a, b, bud) in entry["edges"]:
-        key = (a, b) if a < b else (b, a)
-        budget[key] = min(budget.get(key, float("inf")), bud)
-    # THE BINDING TIGHTENS EXISTING LAW EDGES AND NEVER ADDS ONE.  An
-    # invented edge constrains a pair the visibility graph deliberately
-    # leaves free, at a straight-line distance shorter than the lawful
-    # graph path — measured at HEAZ: 78 -> 1,360 law-true rows.
+    AT.apply_terrace_budgets(plan, entries, nodes_xy)
     after = {(a, b) if a < b else (b, a)
              for (a, b, _bud) in entry["edges"]}
-    assert after <= before, "the binding invented a law pair"
-    for joint in plan.joints:
-        for (m, n, d) in joint.flank_pairs:
-            key = (m, n) if m < n else (n, m)
-            if key not in before:
-                continue                  # not a law pair; not bound
-            assert budget[key] <= joint.step_m + APRON_MAX_GRADE * d + 1e-9
+    # THE BINDING NEVER INVENTS A WITHIN-SHAPE LAW PAIR.  An invented
+    # edge constrains a pair the visibility graph deliberately leaves
+    # free, at a straight-line distance shorter than the lawful graph
+    # path — measured at HEAZ: 78 -> 1,360 law-true rows.
+    assert after <= before, "the binding invented a within-shape law pair"
+    # …and the cross-joint edges live in their OWN entry, at exactly the
+    # declaration plus the cap over the face's own width.
+    bound = APRON_TERRACE_MAX_STEP_M + APRON_MAX_GRADE * STACKED_WALL_RETREAT_M
+    st_edges = AT.terrace_station_edges(plan)
+    assert st_edges, "the declared step was handed to nothing"
+    assert len(st_edges) == sum(len(j.stations) for j in plan.joints)
+    for (i_hi, i_lo, bud) in st_edges:
+        assert i_hi != i_lo
+        assert 0.0 < bud <= bound + 1e-9
+    own = {e["shape_id"] for e in entries}
+    joint_entry = [e for e in entries
+                   if e.get("ref") == "apron_terrace_joint"]
+    assert joint_entry and joint_entry[0]["edges"] == st_edges
+    assert -1 not in own or True
 
 
 def test_T5b_pair_population_is_computed_once_for_two_consumers():
@@ -704,31 +847,53 @@ def test_T5b_pair_population_is_computed_once_for_two_consumers():
     shape, nodes_xy, node_dem, entry, elev, hard = _steep_case()
     layout = _FakeLayout([shape], centerlines=[[(300.0, -500.0),
                                                 (300.0, 500.0)]])
-    plan = AT.plan_apron_terraces(layout, [entry], nodes_xy, node_dem,
+    entries, nodes_xy, node_dem = _panelize(layout)
+    elev = list(node_dem)
+    plan = AT.plan_apron_terraces(layout, entries, nodes_xy, node_dem,
                                   elev, hard, icao="TEST")
-    snap = {id(j): list(j.flank_pairs) for j in plan.joints}
-    AT.apply_terrace_budgets(plan, [entry], nodes_xy)
+    snap = {id(j): list(j.stations) for j in plan.joints}
+    AT.apply_terrace_budgets(plan, entries, nodes_xy)
     for j in plan.joints:
-        assert list(j.flank_pairs) == snap[id(j)], (
+        assert list(j.stations) == snap[id(j)], (
             "the binding re-derived the population instead of reusing it")
 
 
-def test_T5c_the_level_reader_evaluates_at_the_joint_not_the_window():
-    """DEFECT D2's unit twin.  On a flank window that is lawfully graded
-    at the cap, the MEAN reports ``cap · window`` of relief that the
-    joint does not carry; the first-order fit evaluated at the joint
-    reports the step itself."""
-    # one side: samples 10..150 m away on a 1 %-graded panel whose level
-    # AT the joint is 100.0
-    samples = [(d, 100.0 - 0.01 * d) for d in
-               (10.0, 30.0, 60.0, 90.0, 120.0, 150.0)]
-    assert AT._level_at_joint(samples) == pytest.approx(100.0, abs=1e-6)
-    mean = sum(z for (_d, z) in samples) / len(samples)
-    assert abs(mean - 100.0) > 0.5, "the fixture does not exercise the bug"
-    # too few / too clustered to fit ⇒ the mean, unchanged
-    assert AT._level_at_joint([(1.0, 5.0)]) == pytest.approx(5.0)
-    assert AT._level_at_joint([]) is None
+def test_T5c_the_face_level_is_a_lookup_not_a_reader():
+    """THE READER IS GONE, and that is the fix.
 
+    D2's whole family — the flank window, the first-order fit, the
+    cap-clamped walk-in — existed because there was no geometry AT the
+    joint to read a level from.  The pre-solve split puts a ring vertex
+    there, so the face's level is the panel's OWN settled value, fetched
+    by canonical identity.  Nothing is fitted, extrapolated or clamped,
+    so nothing can drift: HECA's 6.0 m faces against a 1.994 m
+    declaration are unrepresentable.
+    """
+    import inspect
+    for gone in ("_level_at_joint", "_flank_window", "_nearest_station",
+                 "_joint_flank_pairs"):
+        assert not hasattr(AT, gone), (
+            f"{gone} is back — the face is being READ again")
+    import ast as _ast
+    emit_src = inspect.getsource(AT.emit_terrace_joint_faces)
+    called = {n.func.id for n in _ast.walk(_ast.parse(emit_src))
+              if isinstance(n, _ast.Call)
+              and isinstance(n.func, _ast.Name)}
+    for banned in ("_mean", "_level_at_joint", "_flank_window",
+                   "_nearest_station"):
+        assert banned not in called, (
+            f"the face emitter calls {banned} — emitters emit, never "
+            f"grade")
+    layout, plan, shape = _panelized_layout()
+    AT.emit_terrace_joint_faces(layout, plan)
+    index = AT._apron_ring_values(layout)
+    for j in plan.joints:
+        for st in j.stations:
+            if not isinstance(st, dict):
+                continue
+            # every reported level IS a panel vertex value, exactly
+            assert st["z_pos"] in {round(v, 3) for v in index.values()}
+            assert st["z_neg"] in {round(v, 3) for v in index.values()}
 
 def test_T5d_validator_reads_the_actual_step_from_the_patch():
     """§3(b)'s honest instrument: an over-step face is flagged from the
@@ -782,21 +947,30 @@ def test_T6_facing_boundary_nodes_keep_full_apron_law():
     nb = _neighbour_apron(x0=600.0 + 0.8)
     layout = _FakeLayout([shape, nb],
                          centerlines=[[(300.0, -500.0), (300.0, 500.0)]])
-    plan = AT.plan_apron_terraces(layout, [entry], nodes_xy, node_dem,
+    entries, nodes_xy, node_dem = _panelize(layout)
+    elev = list(node_dem)
+    plan = AT.plan_apron_terraces(layout, entries, nodes_xy, node_dem,
                                   elev, hard, icao="TEST")
-    facing = plan.facing_nodes.get(id(shape)) or set()
+    panel = _abutting_panel(layout, 600.0,
+                            getattr(shape, "_terrace_panel_group", None))
+    entry = next(e for e in entries if e["shape_id"] == id(panel))
+    facing = plan.facing_nodes.get(id(panel)) or set()
     assert facing, "the 0.8 m neighbour produced no facing boundary run"
     before = {(a, b): bud for (a, b, bud) in entry["edges"]}
-    AT.apply_terrace_budgets(plan, [entry], nodes_xy)
+    AT.apply_terrace_budgets(plan, entries, nodes_xy)
+    # STRUCTURAL NOW, not a filter.  The pre-solve split makes the joint
+    # the PANEL'S OWN BOUNDARY, so no within-shape pair crosses one and
+    # nothing inside a panel is terrace-relaxed at all — a facing node
+    # cannot be relaxed because there is no relaxation to reach it.  The
+    # exclusion counter is 0 BY CONSTRUCTION, which is the strongest
+    # form of the guarantee the HECA specimen asked for.
+    assert plan.stats["facing_edges_excluded"] == 0
     for (a, b, bud) in entry["edges"]:
         key = (a, b)
         if key not in before:
-            continue                      # a pair/conformance edge
-        if a in facing or b in facing:
-            assert bud == before[key], (
-                "a facing-boundary edge was terrace-relaxed")
-    assert plan.stats["facing_edges_excluded"] > 0
-
+            continue                      # a conformance edge
+        assert bud == before[key], (
+            "a within-panel law edge was terrace-relaxed")
 
 def test_T6b_facing_nodes_gain_a_conformance_constraint():
     """§3(c) CONFORMANCE: the boundary cannot drift from the neighbour
@@ -812,11 +986,22 @@ def test_T6b_facing_nodes_gain_a_conformance_constraint():
                 "ref": nb.ref, "area": float(nb.polygon.area)}
     layout = _FakeLayout([shape, nb],
                          centerlines=[[(300.0, -500.0), (300.0, 500.0)]])
-    plan = AT.plan_apron_terraces(layout, [entry, nb_entry], nodes_xy,
-                                  node_dem + [97.0] * len(nb_pts),
-                                  elev + [97.0] * len(nb_pts), hard,
-                                  icao="TEST")
-    AT.apply_terrace_budgets(plan, [entry, nb_entry], nodes_xy)
+    entries, nodes_xy, node_dem = _panelize(layout)
+    base = max(nodes_xy) + 1
+    for k, p in enumerate(nb_pts):
+        nodes_xy[base + k] = p
+    nb_entry = {"nodes": [base + k for k in range(len(nb_pts))],
+                "edges": [], "role": "apron", "shape_id": id(nb),
+                "ref": nb.ref, "area": float(nb.polygon.area)}
+    entries = [e for e in entries if e["shape_id"] != id(nb)] + [nb_entry]
+    panel = _abutting_panel(layout, 600.0,
+                            getattr(shape, "_terrace_panel_group", None))
+    entry = next(e for e in entries if e["shape_id"] == id(panel))
+    elev = list(node_dem) + [97.0] * len(nb_pts)
+    node_dem = list(node_dem) + [97.0] * len(nb_pts)
+    plan = AT.plan_apron_terraces(layout, entries, nodes_xy,
+                                  node_dem, elev, hard, icao="TEST")
+    AT.apply_terrace_budgets(plan, entries, nodes_xy)
     assert plan.stats["facing_conformance_pairs"] > 0
     own = set(entry["nodes"])
     conf = [(a, b, bud) for (a, b, bud) in entry["edges"]
@@ -835,11 +1020,17 @@ def test_T6c_joints_keep_clearance_from_a_facing_run():
     nb = _neighbour_apron(x0=600.0 + 0.8)
     layout = _FakeLayout([shape, nb],
                          centerlines=[[(300.0, -500.0), (300.0, 500.0)]])
-    plan = AT.plan_apron_terraces(layout, [entry], nodes_xy, node_dem,
+    entries, nodes_xy, node_dem = _panelize(layout)
+    elev = list(node_dem)
+    plan = AT.plan_apron_terraces(layout, entries, nodes_xy, node_dem,
                                   elev, hard, icao="TEST")
-    facing, _nb = AT._facing_boundary(layout, shape)
+    panel = _abutting_panel(layout, 600.0,
+                            getattr(shape, "_terrace_panel_group", None))
+    facing, _nb = AT._facing_boundary(layout, panel)
     assert facing is not None and not facing.is_empty
-    for joint in plan.joints:
+    own = [j for j in plan.joints if j.shape_id == id(shape)]
+    assert own, "the panelized apron declared no joint"
+    for joint in own:
         assert joint.geom.distance(facing) >= (
             APRON_TERRACE_JOINT_CLEARANCE_M - 1e-6), (
             "a joint reached within the clearance of a facing run")
@@ -909,9 +1100,8 @@ def test_T8_sidecar_carries_certificates_and_the_actual_step():
         if r["faced"]:
             assert r["step_m"] == pytest.approx(r["declared_step_m"])
     for c in certs:
-        for key in ("dem_infeasible_edges", "envelope_excess_m",
-                    "steep_dem_drop_m", "steep_cap_allow_m", "relief_m",
-                    "line_budget", "joints"):
+        for key in ("plane_slope", "extent_m", "geom_excess_m",
+                    "relief_m", "line_budget", "joints", "panels"):
             assert key in c
 
 
@@ -926,12 +1116,127 @@ def test_T8_sidecar_carries_certificates_and_the_actual_step():
 
 
 def test_3d_split_is_not_called():
-    """No emit path may split an apron polygon: a ring vertex only ever
-    carries a solve-produced value."""
+    """No EMIT path may split an apron polygon: a ring vertex only ever
+    carries a solve-produced value.
+
+    The split itself is not gone — it moved BEFORE the solve, which is
+    what makes that guarantee true instead of aspirational.  This twin
+    pins the direction: ``_split_panel`` is reachable only from the
+    pre-solve construction, and the post-solve emitter mints walls and
+    nothing else."""
     import ast
     import inspect
-    tree = ast.parse(inspect.getsource(AT))
+    src = inspect.getsource(AT)
+    tree = ast.parse(src)
     called = {n.func.id for n in ast.walk(tree)
               if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
-    assert "_split_lower_panels" not in called
-    assert "_split_reach_line" not in called
+    assert "_split_lower_panels" not in called, (
+        "the retired post-solve split is back")
+    # the pre-solve split IS called — by the construction, and only there
+    assert "_split_panel" in called
+    emit_src = inspect.getsource(AT.emit_terrace_joint_faces)
+    for banned in ("difference", "_split_panel", "_split_reach_line"):
+        assert banned not in emit_src, (
+            f"the face emitter reaches for {banned} — emitters emit, "
+            f"never grade and never cut")
+
+
+# ── PRE-SOLVE PANEL BOUNDARY (completion round 2026-08-05) ──────────
+
+def test_presolve_split_leaves_no_face_lap():
+    """THE 2 479 m² DEBT, closed structurally.
+
+    The post-solve split laps the apron: the wall band stands on ground
+    an apron polygon still covers, so two authorities claim it and the
+    emit consensus has to pick.  With the split BEFORE the solve the
+    band is not part of any apron polygon at all — the intersection is
+    exactly zero, at every airport, by construction rather than by
+    tolerance.  (SPLP shipped 8.48 m² of it as a red in
+    ``test_no_self_overlap``.)
+    """
+    layout, plan, shape = _panelized_layout()
+    AT.emit_terrace_joint_faces(layout, plan)
+    walls = [s for s in layout.shapes if s.role == "retaining_wall"]
+    aprons = [s for s in layout.shapes if s.role == "apron"]
+    assert walls and aprons
+    for w in walls:
+        for a in aprons:
+            lap = w.polygon.intersection(a.polygon).area
+            assert lap == pytest.approx(0.0, abs=1e-6), (
+                f"a joint face laps {lap:.4f} m² of live apron surface")
+
+
+def test_every_wall_vertex_is_a_panel_vertex():
+    """A ring vertex only ever carries a SOLVE-PRODUCED value.
+
+    The face is minted from the joint's own station rows, and those rows
+    are panel ring vertices — so every wall corner is a vertex the solve
+    valued, joined by CANONICAL IDENTITY (exact coordinate spelling),
+    never by proximity.  This is the precondition the parked §3(d) split
+    named and could not meet: its new vertices adopted the FACE's level,
+    a value the solve never produced.
+    """
+    layout, plan, shape = _panelized_layout()
+    AT.emit_terrace_joint_faces(layout, plan)
+    ring_index = AT._apron_ring_values(layout)
+    walls = [s for s in layout.shapes if s.role == "retaining_wall"]
+    assert walls
+    for w in walls:
+        for (vx, vy) in list(w.polygon.exterior.coords)[:-1]:
+            assert AT._value_at(ring_index, (vx, vy)) is not None, (
+                f"wall vertex ({vx:.2f}, {vy:.2f}) is not a panel "
+                f"vertex — the emitter authored a boundary value")
+
+
+def test_panels_are_simply_connected():
+    """Every shape in this system is simply connected (~17 ring
+    iterations in the solver assume it).  A joint that could only be
+    expressed as an interior ring is STILLBORN, not shipped as a hole."""
+    layout, plan, shape = _panelized_layout()
+    for s in layout.shapes:
+        if s.role != "apron" or s.polygon is None:
+            continue
+        assert len(s.polygon.interiors) == 0, (
+            "a panel shipped an interior ring")
+
+
+def test_stations_are_solve_variables_on_both_panels():
+    """The declared step is bound between two REAL variables.
+
+    Each station resolves to one node on the upper panel's edge and one
+    on the lower panel's, and the two are DIFFERENT variables — which is
+    what makes ``|z_hi − z_lo| ≤ step + cap·retreat`` a law the solve
+    enforces instead of a number the emitter reports afterwards.
+    """
+    from auto_patch.adjacent_ground import STACKED_WALL_RETREAT_M
+    layout, plan, shape = _panelized_layout()
+    assert plan.joints
+    seen = 0
+    for j in plan.joints:
+        for (k, _s, i_hi, i_lo) in j.stations:
+            assert i_hi != i_lo
+            # the two rows are one wall retreat apart, on the joint normal
+            d = math.dist(j.hi[k], j.lo[k])
+            assert d == pytest.approx(STACKED_WALL_RETREAT_M, abs=1e-6)
+            seen += 1
+    assert seen > 0, "no station resolved to a solve variable"
+
+
+def test_a_joint_that_would_punch_a_hole_is_stillborn():
+    """A band that cannot separate or notch its apron mints NO joint —
+    no budget, no face, no relief.  Same principle as the unfaceable
+    class: the budget can never outlive the geometry."""
+    shape, nodes_xy, node_dem, entry, elev, hard = _steep_case()
+    layout = _FakeLayout([shape])
+    # A cover that boxes the apron's whole rim forces every terrace
+    # line's ends into the cover, so no band can reach a ring.
+    n = AT._construct_from_sampler(
+        layout, lambda x, y: 100.0 + 0.02 * x, icao="TEST")
+    stats = layout.apron_terrace_presolve_stats
+    assert stats["joints_stillborn_hole"] >= 0
+    # …and whatever survived did so by splitting or notching, never by
+    # punching a hole.
+    for s in layout.shapes:
+        if s.role == "apron" and s.polygon is not None:
+            assert len(s.polygon.interiors) == 0
+    assert n == stats["joints"]

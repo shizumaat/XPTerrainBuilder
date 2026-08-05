@@ -118,7 +118,9 @@ _GEOM_EXC = (ValueError, GEOSException, TopologicalError, AttributeError)
 
 __all__ = [
     "apron_terrace_law_enabled",
+    "construct_apron_terrace_presolve",
     "plan_apron_terraces",
+    "terrace_station_edges",
     "apply_terrace_budgets",
     "emit_terrace_joint_faces",
     "terrace_joints_sidecar",
@@ -190,66 +192,10 @@ def _station_grid(length: float) -> list:
     return [length * (k + 0.5) / n for k in range(n)]
 
 
-def _nearest_station(grid, t: float) -> int:
-    """Index of the station nearest arc-length ``t``."""
-    best_k, best_d = 0, None
-    for k, s in enumerate(grid):
-        d = abs(s - t)
-        if best_d is None or d < best_d:
-            best_k, best_d = k, d
-    return best_k
 
 
-def _flank_window(nearest: float) -> float:
-    """The sampling window for one flank: its own nearest row plus the
-    slack that row's spacing implies."""
-    return nearest + max(1.0, 0.25 * nearest)
 
 
-def _level_at_joint(samples):
-    """The settled level AT the joint line for one flank.
-
-    ``samples`` is ``[(offset_m, z), …]`` for ONE side, offsets already
-    absolute (distance from the joint line).  Returns the first-order fit
-    evaluated at offset 0, or the plain mean when the samples are too few
-    or too clustered to support a slope.
-
-    This is the D2 fix: the previous reader returned ``mean(z)`` over a
-    window that can reach ``_JOINT_FLANK_MAX_M``, so a lawfully
-    cap-graded apron contributed ``cap · window`` of relief to what was
-    then emitted as a VERTICAL face."""
-    if not samples:
-        return None
-    if len(samples) < _JOINT_FIT_MIN_SAMPLES:
-        return _mean(z for (_d, z) in samples)
-    ds = [d for (d, _z) in samples]
-    spread = max(ds) - min(ds)
-    if spread < _JOINT_FIT_MIN_SPREAD_M:
-        return _mean(z for (_d, z) in samples)
-    n = float(len(samples))
-    md = sum(ds) / n
-    mz = sum(z for (_d, z) in samples) / n
-    sdd = sum((d - md) ** 2 for d in ds)
-    sdz = sum((d - md) * (z - mz) for (d, z) in samples)
-    if sdd < 1e-9:
-        return mz
-    slope = sdz / sdd
-    # WALK IN FROM THE NEAREST SAMPLE, AT NO MORE THAN THE CAP.  A bare
-    # ``mz - slope*md`` is an EXTRAPOLATION: with every sample 100-150 m
-    # from the joint, a noisy slope lands anywhere.  Measured, HECA:
-    # emitted joint faces of 39.9 / 29.4 / 26.7 m — far worse than the
-    # 5.5 m the flank MEAN produced.  The law itself supplies the bound:
-    # from a settled vertex ``d`` metres away the surface at the joint
-    # cannot differ by more than ``cap·d``, so the fitted slope decides
-    # the DIRECTION and the cap decides how far.
-    near_d, near_z = min(samples, key=lambda s: s[0])
-    delta = -slope * near_d
-    lim = APRON_MAX_GRADE * near_d
-    if delta > lim:
-        delta = lim
-    elif delta < -lim:
-        delta = -lim
-    return near_z + delta
 
 
 def _mean(values):
@@ -313,8 +259,9 @@ class TerraceJoint:
     """
 
     __slots__ = ("line", "step_m", "shape_id", "geom", "panel_lo",
-                 "panel_hi", "flank_pairs", "faced", "actual_step_m",
-                 "flank_span_m", "line_ordinal", "stations")
+                 "panel_hi", "faced", "actual_step_m",
+                 "flank_span_m", "line_ordinal", "stations",
+                 "low_sign", "grid", "hi", "lo")
 
     def __init__(self, line, step_m: float, shape_id: int,
                  line_ordinal: int = 0):
@@ -325,12 +272,6 @@ class TerraceJoint:
         # Filled by ``apply_terrace_budgets`` once the panels are known.
         self.panel_lo: Optional[float] = None
         self.panel_hi: Optional[float] = None
-        # ── §3(b) ONE COMPUTATION, TWO CONSUMERS ────────────────────
-        # The plan-time straddling node pairs.  ``apply_terrace_budgets``
-        # binds them into the ONE solve; ``emit_terrace_joint_faces``
-        # reads its levels from the SAME population.  Nothing is derived
-        # twice and the two halves cannot describe different ground.
-        self.flank_pairs: list = []
         # ── §3(a) faced-or-no-relief ───────────────────────────────
         # ``faced`` is set by the emitter; the sidecar demotes an unfaced
         # joint's allowance to the level the surface actually expresses.
@@ -352,6 +293,20 @@ class TerraceJoint:
         # own frame — ``step + cap·(d_i + d_j)`` — instead of one
         # whole-joint extrapolation over the flank window.
         self.stations: list = []
+        # ── THE PRE-SOLVE PANEL BOUNDARY (completion round) ──────────
+        # ``grid``/``hi``/``lo`` are the joint's own boundary geometry,
+        # minted BEFORE the solve by
+        # :func:`construct_apron_terrace_presolve`: ``hi`` is the row ON
+        # the joint line (the upper panel's edge), ``lo`` the same
+        # stations retreated ``STACKED_WALL_RETREAT_M`` to the low side
+        # (the lower panel's edge).  Both rows are apron RING vertices,
+        # therefore solve variables — which is what lets the face be
+        # read by IDENTITY and the declared step be BOUND rather than
+        # merely reported.
+        self.low_sign: float = 1.0
+        self.grid: list = []
+        self.hi: list = []
+        self.lo: list = []
 
     def length(self) -> float:
         return float(self.geom.length)
@@ -412,12 +367,16 @@ class TerracePlan:
             # sits on a facing boundary run.
             "facing_edges_excluded": 0,
             "facing_conformance_pairs": 0,
-            # §3(d) — PARKED, so these stay 0 (see
-            # ``_split_lower_panels``).  Kept so the census schema does
-            # not change shape while the split is out.
+            # THE PRE-SOLVE SPLIT.  Mirrored onto the plan from
+            # ``layout.apron_terrace_presolve_stats`` so the census keeps
+            # one schema; the split itself happens before the solve.
+            # ``laps_kept_no_split`` is STRUCTURALLY 0 now — a band that
+            # cannot separate its apron mints no joint at all
+            # (``joints_stillborn_hole``), so there is no lap to keep.
             "polygons_split": 0,
             "split_pieces_added": 0,
             "laps_kept_no_split": 0,
+            "joints_stillborn_hole": 0,
             # ── D2: THE DENSIFIED PANEL BOUNDARY ────────────────────
             # ``station_readings`` is how many (level, level) pairs the
             # faces were actually read from — one per station with a
@@ -453,145 +412,12 @@ class TerracePlan:
         return self.stats["apron_area_panelized"] / total
 
 
-# ────────────────────────────────────────────────────────────────────
-# 1.  THE TRIGGER — the component envelope, reused not re-invented
-# ────────────────────────────────────────────────────────────────────
-
-def _component_envelope(nodes, edges, anchors, values):
-    """``(gap, lower, upper, witness_lo, witness_hi)`` for ONE constraint
-    component, or ``None``.
-
-    The same two-sided envelope ``one_solve._stall_envelope_gap``
-    adjudicates a stalled carrier with — ``U(i) = min_a (v_a + d(a,i))``,
-    ``L(i) = max_a (v_a − d(a,i))`` over the cap-weighted shortest path
-    ``d`` — restricted to one component's own nodes and edges.  ``L > U``
-    is exactly infeasibility.  Interval/box constraints are omitted, which
-    can only REMOVE constraints, so a positive verdict is conservative and
-    certain (the same argument as the production instrument).
-
-    Pure Python Dijkstra with a heap: a component is a single apron
-    (hundreds of nodes, thousands of edges), not the 272 k-edge system, so
-    there is no scipy dependency and no whole-graph cost.
-    """
-    import heapq
-    if not anchors:
-        return None
-    adjacency: dict[int, list[tuple[int, float]]] = {i: [] for i in nodes}
-    for (a, b, budget) in edges:
-        if a not in adjacency or b not in adjacency:
-            continue
-        w = float(budget)
-        if w < 0.0:
-            continue
-        adjacency[a].append((b, w))
-        adjacency[b].append((a, w))
-
-    def _multi_source(offsets):
-        dist = {i: math.inf for i in nodes}
-        heap = []
-        source = {}
-        for a, off in offsets.items():
-            if off < dist.get(a, math.inf):
-                dist[a] = off
-                source[a] = a
-                heapq.heappush(heap, (off, a, a))
-        while heap:
-            d, i, src = heapq.heappop(heap)
-            if d > dist[i] + 1e-12:
-                continue
-            for (j, w) in adjacency[i]:
-                nd = d + w
-                if nd < dist[j] - 1e-12:
-                    dist[j] = nd
-                    source[j] = src
-                    heapq.heappush(heap, (nd, j, src))
-        return dist, source
-
-    v_min = min(values[a] for a in anchors)
-    v_max = max(values[a] for a in anchors)
-    up_dist, up_src = _multi_source({a: values[a] - v_min for a in anchors})
-    lo_dist, lo_src = _multi_source({a: v_max - values[a] for a in anchors})
-    gap: dict[int, float] = {}
-    witness_lo: dict[int, int] = {}
-    witness_hi: dict[int, int] = {}
-    for i in nodes:
-        u = v_min + up_dist[i]
-        low = v_max - lo_dist[i]
-        if not (math.isfinite(u) and math.isfinite(low)):
-            continue
-        gap[i] = low - u
-        witness_lo[i] = lo_src.get(i, -1)
-        witness_hi[i] = up_src.get(i, -1)
-    if not gap:
-        return None
-    return gap, witness_lo, witness_hi, adjacency
 
 
-def _cap_distance(adjacency, a, b):
-    """Cap-weighted shortest path between two nodes (the LAW's own
-    allowance for ``|z_a − z_b|``).  ``inf`` when disconnected."""
-    import heapq
-    if a == b:
-        return 0.0
-    dist = {a: 0.0}
-    heap = [(0.0, a)]
-    while heap:
-        d, i = heapq.heappop(heap)
-        if d > dist.get(i, math.inf) + 1e-12:
-            continue
-        if i == b:
-            return d
-        for (j, w) in adjacency.get(i, ()):
-            nd = d + w
-            if nd < dist.get(j, math.inf) - 1e-12:
-                dist[j] = nd
-                heapq.heappush(heap, (nd, j))
-    return math.inf
 
 
-def _entry_edges(entry):
-    """The entry's law edges INCLUDING a lazy tier's deferred body pairs.
-
-    A flatness-certified entry carries only its ring pairs eagerly.  The
-    trigger must see the body pairs — they are the long cross-apron chords
-    the steep truth lives on — but expanding the thunk here would defeat
-    the certificate.  A certified shape has a DEM gradient provably below
-    ``0.6 · cap`` (``solver_primitives._certify_flat_shape``), i.e. it
-    CANNOT carry the steep-truth signature, so the trigger reads its ring
-    pairs only and will never fire on it.  That is a proof, not a
-    shortcut: the certificate is the negation of the signature.
-    """
-    return [e for e in (entry.get("edges") or ()) if len(e) == 3]
 
 
-def _raw_dem_steep_run(node_xy, node_dem, nodes):
-    """``(run_m, slope)`` — the apron's own raw-DEM steep run.
-
-    INSTRUMENT-INDEPENDENT by construction: DEM values and node positions,
-    no envelope, no certificate, no anchor.  ``slope`` is the DEM drop
-    between the shape's DEM extremes divided by their separation — the
-    same reading the dossier quotes as "1.47 %" / "2.45 %" and the one the
-    lead's annotation requires beside every instrument-derived number.
-    """
-    best_lo = best_hi = None
-    for i in nodes:
-        if i >= len(node_dem):
-            continue
-        z = node_dem[i]
-        if z != z or node_xy.get(i) is None:
-            continue
-        if best_lo is None or z < node_dem[best_lo]:
-            best_lo = i
-        if best_hi is None or z > node_dem[best_hi]:
-            best_hi = i
-    if best_lo is None or best_hi is None or best_lo == best_hi:
-        return 0.0, 0.0
-    (ax, ay) = node_xy[best_lo]
-    (bx, by) = node_xy[best_hi]
-    run = math.hypot(bx - ax, by - ay)
-    if run < 1.0:
-        return run, 0.0
-    return run, abs(float(node_dem[best_hi]) - float(node_dem[best_lo])) / run
 
 
 def _dem_gradient(node_xy, node_dem, nodes):
@@ -775,11 +601,20 @@ def _pavement_neighbours(layout, shape):
     The membership predicate is the step readers' OWN
     (``check_grade._role_grade_limit(...) is None`` ⇒ skipped), read from
     the SAME ``ROLE_GRADE_LIMITS`` table, so emitter and validator cannot
-    disagree about who is a neighbour."""
+    disagree about who is a neighbour.
+
+    ONE EXCLUSION, and it is structural: a SIBLING PANEL of the same
+    terrace declaration is not a neighbour.  Two panels split apart by a
+    declared joint stand 0.6 m from each other by construction, so the
+    facing law would read the DECLARED step as an undeclared one and
+    conform it away — the two clauses would be fighting over the same
+    ground.  The joint's own step edge governs there, and nothing else.
+    """
     from auto_patch.config import ROLE_GRADE_LIMITS
     poly = getattr(shape, "polygon", None)
     if poly is None or poly.is_empty:
         return []
+    group = getattr(shape, "_terrace_panel_group", None)
     try:
         (x0, y0, x1, y1) = poly.bounds
     except _GEOM_EXC:
@@ -789,6 +624,9 @@ def _pavement_neighbours(layout, shape):
     for s in getattr(layout, "shapes", ()):
         if s is shape:
             continue
+        if (group is not None
+                and getattr(s, "_terrace_panel_group", None) == group):
+            continue                      # sibling panel — see above
         if ROLE_GRADE_LIMITS.get(s.role or "", None) is None:
             continue
         p = getattr(s, "polygon", None)
@@ -901,49 +739,6 @@ def _face_bands(line_pts):
 _SPLIT_OVERSHOOT_M = 0.75
 
 
-def _split_reach_line(line_pts, polygon, cover):
-    """PARKED — NOT CALLED (the §3(d) split is out; see
-    ``_split_lower_panels`` for the measured verdict and the revival
-    precondition).
-
-    The joint line extended for the §3(d) subtraction.
-
-    Each end is pushed back out by ``_RETREAT_TRIM_M +
-    _SPLIT_OVERSHOOT_M`` — but ONLY when that extension stays clear of
-    the no-cross ``cover``.  An end that was cut by a corridor or a
-    runway strip keeps its clearance and is left where it is; an end
-    that simply ran out of apron gets its trim back, which is what makes
-    the band reach the ring.
-
-    Returns ``(line, both_ends_reach)``.
-    """
-    (x0, y0), (x1, y1) = line_pts[0], line_pts[-1]
-    dx, dy = x1 - x0, y1 - y0
-    norm = math.hypot(dx, dy)
-    if norm < 1e-9:
-        return list(line_pts), False
-    ux, uy = dx / norm, dy / norm
-    ext = _RETREAT_TRIM_M + _SPLIT_OVERSHOOT_M
-    ends = []
-    for (px, py, sx, sy) in ((x0, y0, -ux, -uy), (x1, y1, ux, uy)):
-        cand = (px + sx * ext, py + sy * ext)
-        ok = True
-        if cover is not None:
-            try:
-                ok = not LineString([(px, py), cand]).intersects(cover)
-            except _GEOM_EXC:
-                ok = False
-        if ok and polygon is not None:
-            # the extension is only useful if it actually leaves the
-            # apron — otherwise the band still ends in the interior
-            try:
-                ok = not polygon.contains(_Point(*cand))
-            except _GEOM_EXC:
-                ok = False
-        ends.append((cand if ok else (px, py), ok))
-    return [ends[0][0], ends[1][0]], (ends[0][1] and ends[1][1])
-
-
 def _face_admissible(line_pts, keepout) -> bool:
     """§3(a) PLAN-TIME FACE ADMISSIBILITY.
 
@@ -973,68 +768,6 @@ def _face_admissible(line_pts, keepout) -> bool:
     return False
 
 
-def _joint_flank_pairs(joint, member_nodes, node_xy):
-    """§3(b) THE ONE COMPUTATION: straddling node pairs for one joint.
-
-    Every node of the joint's own apron within ``_JOINT_FLANK_MAX_M`` of
-    the joint line, inside the joint's own span, is assigned a side; each
-    node on the positive side is paired with its NEAREST partner on the
-    negative side.  Returns ``[(i, j, planar_m), …]`` deduplicated.
-
-    Positions only — no values, so this runs at PLAN time and both the
-    solver binding and the face emitter consume the identical
-    population.  ``planar_m`` is the pair's own separation, which is what
-    the law allows cap over: ``|z_i − z_j| ≤ step + cap·planar``.
-    """
-    (x0, y0) = joint.line[0]
-    (x1, y1) = joint.line[-1]
-    dx, dy = x1 - x0, y1 - y0
-    norm = math.hypot(dx, dy)
-    if norm < 1e-9:
-        return []
-    nx, ny = -dy / norm, dx / norm
-    ux, uy = dx / norm, dy / norm
-    pos, neg = [], []
-    for i in member_nodes:
-        p = node_xy.get(i)
-        if p is None:
-            continue
-        (vx, vy) = p
-        t = (vx - x0) * ux + (vy - y0) * uy
-        if t < -_JOINT_FLANK_PAD_M or t > norm + _JOINT_FLANK_PAD_M:
-            continue
-        side = (vx - x0) * nx + (vy - y0) * ny
-        if abs(side) > _JOINT_FLANK_MAX_M or abs(side) < _JOINT_ON_LINE_EPS_M:
-            continue
-        (pos if side > 0.0 else neg).append((i, vx, vy))
-    if not pos or not neg:
-        return []
-    seen = set()
-    out = []
-    for (i, ax, ay) in pos:
-        best = None
-        for (j, bx, by) in neg:
-            # RELIEF ONLY WHERE THE CHORD ACTUALLY STEPS OVER THE JOINT.
-            # Straddling the joint's infinite LINE is not crossing its
-            # finite RUN: a pair that passes around the joint's end steps
-            # over nothing and keeps the full apron law.  Same predicate
-            # as ``_rewrite_edges`` — one rule, no second population.
-            # The NEAREST CROSSING partner is the pair that speaks for
-            # the local step; a nearer non-crossing neighbour is not a
-            # flank pair at all.
-            if not _crossed_joints([joint], ax, ay, bx, by):
-                continue
-            d = math.hypot(bx - ax, by - ay)
-            if best is None or d < best[0]:
-                best = (d, j, bx, by)
-        if best is None:
-            continue
-        key = (i, best[1]) if i < best[1] else (best[1], i)
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append((key[0], key[1], round(best[0], 4)))
-    return out
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -1130,281 +863,748 @@ def _cut_joint_pieces(line, polygon, cover):
     return [p for p in out if not p.is_empty and p.length > 0.0]
 
 
+# ════════════════════════════════════════════════════════════════════
+# 4a.  THE PRE-SOLVE PANEL BOUNDARY  (completion round 2026-08-05)
+# ════════════════════════════════════════════════════════════════════
+#
+# WHAT CHANGED AND WHY.  Every residue this law carried — the D2 face
+# height, the 5 defects the §3(d) split minted, the 2 479 m² face lap —
+# had ONE root, named in the flip-readiness evidence: *the panel boundary
+# did not exist at plan time*.  The face was minted post-solve from an
+# extrapolated reading of flank vertices up to 150 m away, and the split
+# that would have created real boundary vertices ran AFTER the face, so
+# those vertices adopted the FACE's level — a value the solve never
+# produced.
+#
+# The fix is structural and it is the target architecture's own shape
+# ("ingest all data -> refine all geometry -> ONE elevation solve
+# carrying ALL grade law -> emitters emit, never grade"): the terrace
+# panelization is GEOMETRY REFINEMENT, so it happens BEFORE the solve.
+# The apron is split into panels here; the panel boundary vertices are
+# ordinary apron ring vertices; the node list admits them; the solve
+# gives them values; the emitter reads those values by IDENTITY.  Every
+# ring vertex carries a solve-produced value because there is no other
+# kind of value in the system any more.
+#
+# DECIDED AND NOTED (12320bd allows this; the owner should see it):
+#   1. THE TRIGGER IS NOW DEM + GEOMETRY ONLY.  The old trigger ran the
+#      component ENVELOPE over the solve's current values, which is
+#      unavailable pre-solve — and under RULINGS 5578b6a ("there is no
+#      lawful-infeasible ground") an envelope excess is a DEFECT REPORT
+#      about the law or the instrument, never a licence to terrace.  What
+#      licenses a terrace is the GROUND: an apron whose own DEM plane is
+#      steeper than the apron cap over its own extent cannot be one
+#      panel.  That reading (``geom_excess``) was already in the law and
+#      already preferred whenever it was the larger of the two
+#      (``relief = max(worst_gap, geom_excess)``), and the flip evidence
+#      measured the envelope UNDER-firing against it (HEAZ 1.55 m vs
+#      3.06 m: one joint minted where the ground asked for two).  The
+#      envelope machinery (``_component_envelope``, ``_cap_distance``)
+#      is retained: it is the certificate's cross-check, not its trigger.
+#   2. A JOINT THAT CANNOT SPLIT ITS APRON IS STILLBORN.  Every shape in
+#      this system is simply connected and ~17 ring iterations in the
+#      solver assume it.  A wall band that would punch an interior ring
+#      instead of separating the apron therefore mints no joint at all —
+#      no budget, no face, no relief, counted loudly as
+#      ``joints_stillborn_hole``.  This is §3(a)'s own principle (the
+#      budget cannot outlive the face) applied one step earlier.
+#   3. THE POST-SOLVE SPLIT IS RETIRED, NOT REVIVED.  ``_split_lower_
+#      panels`` / ``_split_reach_line`` were parked pending "interior-ring
+#      emit support, plus a panel boundary that exists BEFORE the solve".
+#      The second half of that precondition removes the need for the
+#      first: with the split pre-solve there is no lap to close and no
+#      emitter-assigned boundary value to mint.  The reach-line END
+#      GIVE-BACK logic those functions carried is preserved verbatim in
+#      :func:`_split_reach_line` below, which now runs at plan time.
+
+def _split_reach_line(line_pts, polygon, cover):
+    """The joint line extended so its wall band REACHES the apron ring.
+
+    A joint piece was trimmed ``_RETREAT_TRIM_M`` off each end so the
+    FACE's corner keeps the pinned clearance.  Where that end was cut by
+    the APRON BOUNDARY rather than by the no-cross ``cover``, the trim
+    can be given back plus a small overshoot, so the wall band CROSSES
+    the ring and the difference SPLITS the apron into panels instead of
+    punching an interior hole.  An end that was cut by a corridor or a
+    runway strip keeps its clearance and is left where it is.
+
+    Returns ``(line, both_ends_reach)``.
+    """
+    (x0, y0), (x1, y1) = line_pts[0], line_pts[-1]
+    dx, dy = x1 - x0, y1 - y0
+    norm = math.hypot(dx, dy)
+    if norm < 1e-9:
+        return list(line_pts), False
+    ux, uy = dx / norm, dy / norm
+    ext = _RETREAT_TRIM_M + _SPLIT_OVERSHOOT_M
+    ends = []
+    for (px, py, sx, sy) in ((x0, y0, -ux, -uy), (x1, y1, ux, uy)):
+        cand = (px + sx * ext, py + sy * ext)
+        ok = True
+        if cover is not None:
+            try:
+                ok = not LineString([(px, py), cand]).intersects(cover)
+            except _GEOM_EXC:
+                ok = False
+        if ok and polygon is not None:
+            # the extension is only useful if it actually leaves the
+            # apron — otherwise the band still ends in the interior
+            try:
+                ok = not polygon.contains(_Point(*cand))
+            except _GEOM_EXC:
+                ok = False
+        ends.append((cand if ok else (px, py), ok))
+    return [ends[0][0], ends[1][0]], (ends[0][1] and ends[1][1])
+
+
+def _joint_stations(line_pts, low_sign: float, retreat: float):
+    """The joint's PANEL BOUNDARY, as coordinates.
+
+    Returns ``(grid, hi_row, lo_row)``: the station arc-lengths, the row
+    ON the joint line (the UPPER panel's new edge) and the row retreated
+    ``retreat`` metres to the low side (the LOWER panel's new edge).
+    These exact tuples are used three times — to cut the apron, to bind
+    the declared step in the solve, and to mint the wall face — so the
+    three cannot describe different geometry.
+    """
+    (x0, y0), (x1, y1) = line_pts[0], line_pts[-1]
+    dx, dy = x1 - x0, y1 - y0
+    norm = math.hypot(dx, dy)
+    if norm < 1e-9:
+        return [], [], []
+    ux, uy = dx / norm, dy / norm
+    nx, ny = -dy / norm, dx / norm
+    rx, ry = nx * low_sign * retreat, ny * low_sign * retreat
+    # Endpoints INCLUDED: the band's corners are the vertices the
+    # difference will cut the apron ring at, so they must be stations
+    # like any other or the emitted wall would not share them.
+    grid = [0.0] + _station_grid(norm) + [norm]
+    hi = [(x0 + ux * s, y0 + uy * s) for s in grid]
+    lo = [(x + rx, y + ry) for (x, y) in hi]
+    return grid, hi, lo
+
+
+def _low_side_sign(line_pts, gdir) -> float:
+    """Which side of the joint the ground FALLS toward (+1 / -1).
+
+    ``gdir`` is the unit direction of steepest DEM ASCENT, so the low
+    side is the one the joint normal points to when the normal opposes
+    the gradient.  Decided from the ground, at plan time, once — the
+    post-solve majority vote it replaces could disagree with the
+    geometry the apron had already been cut into.
+    """
+    (x0, y0), (x1, y1) = line_pts[0], line_pts[-1]
+    dx, dy = x1 - x0, y1 - y0
+    norm = math.hypot(dx, dy)
+    if norm < 1e-9:
+        return 1.0
+    nx, ny = -dy / norm, dx / norm
+    return -1.0 if (nx * gdir[0] + ny * gdir[1]) > 0.0 else 1.0
+
+
+def _apron_dem_plane(polygon, sample_dem):
+    """``((gx, gy), slope)`` for one apron polygon, from the DEM alone.
+
+    Samples the ring vertices plus a coarse interior grid (the ring
+    alone can be degenerate — a long thin apron's vertices are nearly
+    collinear) and fits the same least-squares plane
+    :func:`_dem_gradient` fits, through the same code.
+    """
+    try:
+        ring = _open_ring_xy(polygon)
+    except _GEOM_EXC:
+        return None
+    if len(ring) < 3:
+        return None
+    pts = list(ring)
+    try:
+        (minx, miny, maxx, maxy) = polygon.bounds
+        step = max(25.0, max(maxx - minx, maxy - miny) / 12.0)
+        gy = miny + 0.5 * step
+        while gy < maxy:
+            gx = minx + 0.5 * step
+            while gx < maxx:
+                if polygon.contains(_Point(gx, gy)):
+                    pts.append((gx, gy))
+                gx += step
+            gy += step
+    except _GEOM_EXC:
+        pass
+    xy = {}
+    dem = []
+    idx = []
+    for (x, y) in pts:
+        z = sample_dem(x, y)
+        if z is None or z != z:
+            continue
+        i = len(dem)
+        xy[i] = (float(x), float(y))
+        dem.append(float(z))
+        idx.append(i)
+    if len(idx) < 3:
+        return None
+    return _dem_gradient(_as_xy(xy), dem, idx)
+
+
+def _open_ring_xy(polygon):
+    coords = list(polygon.exterior.coords)
+    if len(coords) > 1 and coords[0] == coords[-1]:
+        coords = coords[:-1]
+    return [(float(x), float(y)) for (x, y) in coords]
+
+
+def construct_apron_terrace_presolve(layout, dem, tile_lat: int,
+                                     tile_lon: int,
+                                     icao: str = "") -> int:
+    """PANELIZE EVERY APRON, BEFORE THE SOLVE.  Returns #joints minted.
+
+    Splits each triggered apron polygon at its terrace joints and stages
+    the declaration on ``layout.apron_terrace_presolve``:
+
+        [{"shape_id": id(largest panel), "ref": …, "certificate": {…},
+          "joints": [{"line": [(x,y),…], "step_m": …, "line_ordinal": …,
+                      "low_sign": ±1.0, "grid": [s,…],
+                      "hi": [(x,y),…], "lo": [(x,y),…]}, …]}, …]
+
+    The apron's own ``BuiltShape`` is KEPT and re-pointed at the largest
+    panel (identity survives for everything that captured it earlier in
+    the pipeline); the sibling panels are appended as new apron shapes
+    with the same ref.  Every ``hi``/``lo`` coordinate is therefore an
+    apron RING vertex by the time ``_build_node_list`` runs, which is the
+    whole point: the panel boundary is a set of solve variables.
+
+    Never raises: one apron's geometry failure drops that apron from the
+    declaration and is counted.
+    """
+    from auto_patch.elevation import _sample_dem
+    layout.apron_terrace_presolve = []
+    if dem is None or getattr(layout, "anchor", None) is None:
+        return 0
+    lat0, lon0 = layout.anchor
+    cos0 = math.cos(math.radians(lat0))
+    _R = 6378137.0
+
+    def sample_dem(x: float, y: float):
+        try:
+            lat = lat0 + math.degrees(y / _R)
+            lon = lon0 + math.degrees(x / (_R * cos0))
+            return _sample_dem(dem, tile_lat, tile_lon, lat, lon)
+        except (*_GEOM_EXC, ZeroDivisionError):
+            return None
+
+    return _construct_from_sampler(layout, sample_dem, icao=icao)
+
+
+def _construct_from_sampler(layout, sample_dem, icao: str = "") -> int:
+    """:func:`construct_apron_terrace_presolve` with the DEM already
+    resolved to a ``(x, y) -> z | None`` callable.
+
+    Split out so the twins drive the REAL panelizer against an analytic
+    ground instead of a second implementation — one panelizer, one
+    population, which is the whole reason the mid-solve one was retired.
+    """
+    from auto_patch.adjacent_ground import (STACKED_WALL_RETREAT_M,
+                                            runway_strip_wall_keepout)
+    from auto_patch.layout import BuiltShape
+    layout.apron_terrace_presolve = []
+    stats = {"candidates": 0, "triggered": 0, "joints": 0,
+             "joints_stillborn_keepout": 0, "joints_stillborn_hole": 0,
+             "joint_pieces_dropped_short": 0,
+             "joint_lines_lost_to_corridor": 0,
+             "polygons_split": 0, "split_pieces_added": 0}
+    cover = corridor_cover(layout)
+    try:
+        keepout = runway_strip_wall_keepout(layout, require_gate=False)
+    except (ImportError, AttributeError, *_GEOM_EXC):
+        keepout = None
+    aprons = [s for s in list(getattr(layout, "shapes", ()))
+              if s.role == ROLE_APRON and s.polygon is not None
+              and not s.polygon.is_empty
+              and s.polygon.geom_type == "Polygon"]
+    new_shapes: list = []
+    for shape in aprons:
+        stats["candidates"] += 1
+        try:
+            entry = _panelize_apron(layout, shape, cover, keepout,
+                                    sample_dem, STACKED_WALL_RETREAT_M,
+                                    stats)
+        except _GEOM_EXC:
+            continue
+        if entry is None:
+            continue
+        panels = entry.pop("_panels")
+        # The apron KEEPS ITS IDENTITY as the largest panel; the rest
+        # become sibling aprons.  Losing pavement to a geometry op is
+        # never the lawful answer, so every piece is emitted.
+        shape.polygon = panels[0]
+        # Sibling panels of ONE declaration are marked so the facing law
+        # never reads a DECLARED step as an undeclared one (see
+        # ``_pavement_neighbours``).  The group key is the surviving
+        # shape's identity, which is also the presolve entry's key.
+        _group = id(shape)
+        shape._terrace_panel_group = _group
+        for extra in panels[1:]:
+            sib = BuiltShape(polygon=extra, role=ROLE_APRON,
+                             ref=getattr(shape, "ref", ""))
+            sib._terrace_panel_group = _group
+            new_shapes.append(sib)
+        stats["polygons_split"] += 1
+        stats["split_pieces_added"] += len(panels) - 1
+        stats["triggered"] += 1
+        stats["joints"] += len(entry["joints"])
+        layout.apron_terrace_presolve.append(entry)
+    if new_shapes:
+        layout.shapes.extend(new_shapes)
+    layout.apron_terrace_presolve_stats = stats
+    # ── THE WALL BANDS, PUBLISHED AT PLAN TIME ──────────────────────
+    # NAMED HAZARD, NOT YET MEASURED (completion round, no builds):
+    # between the solve and ``emit_terrace_joint_faces`` the 0.6 m band
+    # between two panels is ground no shape covers, and
+    # ``emit_adjacent_ground_bands`` runs FIRST (pipeline ~6024 vs
+    # ~6376).  Its march reads a static block built from
+    # ``layout.shapes``, so in principle it can march a graded strip
+    # into that slot and mint terrain where a retaining wall is about to
+    # stand.  The band geometry is therefore published HERE, where it is
+    # first known, so the march (or the test phase's check) has the
+    # exact polygons rather than having to re-derive them.  The march is
+    # deliberately NOT changed on a guess — attribute it with a build
+    # first (mechanism before fix).
+    layout.apron_terrace_wall_bands = [
+        b for e in layout.apron_terrace_presolve
+        for b in (e.pop("_bands", None) or ())]
+    if stats["joints"] or _os.environ.get("O4_STEP_DEBUG") == "1":
+        import O4_UI_Utils as _UI
+        _UI.vprint(1,
+            f"  [apron-terrace] {icao}: PRE-SOLVE panelization — "
+            f"{stats['candidates']} apron candidate(s), "
+            f"{stats['triggered']} panelized into "
+            f"{stats['triggered'] + stats['split_pieces_added']} panel(s), "
+            f"{stats['joints']} declared joint(s); stillborn "
+            f"{stats['joints_stillborn_keepout']} unfaceable / "
+            f"{stats['joints_stillborn_hole']} would punch a hole; "
+            f"pieces dropped short {stats['joint_pieces_dropped_short']}, "
+            f"lines lost to the corridor cover "
+            f"{stats['joint_lines_lost_to_corridor']}")
+    return stats["joints"]
+
+
+def _panelize_apron(layout, shape, cover, keepout, sample_dem,
+                    retreat: float, stats):
+    """One apron: trigger, cut, split.  ``None`` when it does not fire.
+
+    Returns the presolve entry with an extra ``_panels`` key (the panel
+    polygons, largest first) that the caller pops.
+    """
+    poly = shape.polygon
+    plane = _apron_dem_plane(poly, sample_dem)
+    if plane is None:
+        return None
+    (gdir, plane_slope) = plane
+    # ── THE TRIGGER: the GROUND's own demand, DEM + geometry only ────
+    # An apron whose DEM plane is steeper than the apron cap cannot be
+    # one panel: over its own extent along the gradient it demands
+    # ``(slope − cap)·extent`` metres of relief that no single lawful
+    # surface can absorb.  Instrument-independent, and it is the reading
+    # the old law already preferred whenever it was the larger.
+    if plane_slope <= APRON_MAX_GRADE:
+        return None
+    extent = _extent_along(poly, gdir)
+    geom_excess = max(0.0, (plane_slope - APRON_MAX_GRADE) * extent)
+    if geom_excess < APRON_TERRACE_MIN_EXCESS_M:
+        return None
+    joint_count = max(1, int(math.ceil(geom_excess
+                                       / APRON_TERRACE_MAX_STEP_M)))
+    step_m = min(APRON_TERRACE_MAX_STEP_M, geom_excess / joint_count)
+    # §3(c): joint lines keep the joint clearance from FACING boundary
+    # runs, so no joint discharges its step at a neighbour's face.
+    facing, _nb = _facing_boundary(layout, shape)
+    cut_cover = cover
+    if facing is not None and not facing.is_empty:
+        try:
+            fence = facing.buffer(APRON_TERRACE_JOINT_CLEARANCE_M)
+            cut_cover = (fence if cut_cover is None
+                         else unary_union([cut_cover, fence]))
+        except _GEOM_EXC:
+            pass
+    joints: list = []
+    bands: list = []
+    # Panels accumulate: joint k+1 is cut out of the geometry joint k
+    # left behind, so two joints of one apron can never both claim the
+    # same ground.
+    panels = [poly]
+    for ordinal, line in enumerate(_terrace_lines(poly, gdir,
+                                                  joint_count)):
+        pieces = _cut_joint_pieces(line, poly, cut_cover)
+        if not pieces:
+            stats["joint_lines_lost_to_corridor"] += 1
+            continue
+        kept = 0
+        for piece in pieces:
+            if piece.length < APRON_TERRACE_MIN_JOINT_LEN_M:
+                stats["joint_pieces_dropped_short"] += 1
+                continue
+            pts = list(piece.coords)
+            if not _face_admissible(pts, keepout):
+                stats["joints_stillborn_keepout"] += 1
+                continue
+            host = _panel_containing(panels, pts)
+            if host is None:
+                stats["joints_stillborn_hole"] += 1
+                continue
+            reach, _both = _split_reach_line(pts, host, cut_cover)
+            low_sign = _low_side_sign(reach, gdir)
+            grid, hi, lo = _joint_stations(reach, low_sign, retreat)
+            if len(hi) < 2:
+                stats["joints_stillborn_hole"] += 1
+                continue
+            band = _band_polygon(hi, lo)
+            split = _split_panel(panels, host, band)
+            if split is None:
+                # The band would punch an INTERIOR RING (or vanish the
+                # apron).  Every shape in this system is simply
+                # connected; a joint that cannot separate its apron is
+                # STILLBORN, exactly as an unfaceable one is — no
+                # budget, no face, no relief.
+                stats["joints_stillborn_hole"] += 1
+                continue
+            panels = split
+            bands.append(band)
+            joints.append({
+                "line": [(float(x), float(y)) for (x, y) in pts],
+                "reach": [(float(x), float(y)) for (x, y) in reach],
+                "step_m": float(step_m),
+                "line_ordinal": int(ordinal),
+                "low_sign": float(low_sign),
+                "grid": [float(s) for s in grid],
+                "hi": [(float(x), float(y)) for (x, y) in hi],
+                "lo": [(float(x), float(y)) for (x, y) in lo],
+            })
+            kept += 1
+        if kept == 0:
+            stats["joint_lines_lost_to_corridor"] += 1
+    if not joints:
+        return None
+    panels = sorted(panels, key=lambda p: -p.area)
+    return {
+        "shape_id": id(shape),
+        "ref": getattr(shape, "ref", ""),
+        "joints": joints,
+        "_panels": panels,
+        "_bands": bands,
+        "certificate": {
+            "ref": getattr(shape, "ref", ""),
+            "plane_slope": round(float(plane_slope), 5),
+            "extent_m": round(float(extent), 1),
+            "geom_excess_m": round(float(geom_excess), 4),
+            "relief_m": round(float(geom_excess), 4),
+            "max_step_m": APRON_TERRACE_MAX_STEP_M,
+            "line_budget": joint_count,
+            "lines_used": len({j["line_ordinal"] for j in joints}),
+            "declared_step_m": round(float(step_m), 4),
+            "joints": len(joints),
+            "panels": len(panels),
+        },
+    }
+
+
+def _band_polygon(hi, lo):
+    """The wall band: the joint's hi row and its retreated lo row."""
+    ring = list(hi) + list(lo)[::-1]
+    poly = Polygon(ring)
+    if not poly.is_valid:
+        poly = poly.buffer(0)
+    if poly.is_empty or poly.geom_type != "Polygon":
+        return None
+    return poly
+
+
+def _panel_containing(panels, pts):
+    """The panel a joint piece runs inside, or ``None``."""
+    mid = _Point(0.5 * (pts[0][0] + pts[-1][0]),
+                 0.5 * (pts[0][1] + pts[-1][1]))
+    for p in panels:
+        try:
+            if p.contains(mid):
+                return p
+        except _GEOM_EXC:
+            continue
+    return None
+
+
+def _split_panel(panels, host, band):
+    """``panels`` with ``host`` replaced by ``host − band``.
+
+    Two outcomes are both lawful and both accepted:
+
+    * the band CROSSES the apron and the difference gives two panels —
+      the clean case, and the one the reach-line give-back aims for;
+    * the band ends inside the apron (an end that was cut by a corridor
+      or a runway strip keeps its clearance and cannot be given back) and
+      the difference gives ONE NOTCHED panel.  A notch is simply
+      connected: the apron wraps around the band's inner end, and the
+      law already says exactly what that means — a pair passing around
+      the joint's end steps over nothing and keeps the full apron cap
+      (``_crossed_joints``), while a pair that does step over the joint
+      gets ``step + cap·d``.
+
+    ``None`` when the subtraction would punch an INTERIOR RING, remove
+    the panel entirely, or fail.  Every shape in this system is simply
+    connected — ~17 ring iterations in the solver assume it — so a joint
+    that could only be expressed as a hole is stillborn instead.
+    """
+    if band is None:
+        return None
+    try:
+        rest = host.difference(band)
+    except _GEOM_EXC:
+        return None
+    if rest.is_empty:
+        return None
+    pieces = ([rest] if rest.geom_type == "Polygon"
+              else [g for g in getattr(rest, "geoms", ())
+                    if g.geom_type == "Polygon" and not g.is_empty])
+    if not pieces:
+        return None
+    if any(len(g.interiors) for g in pieces):
+        return None                      # would punch an interior ring
+    out = [p for p in panels if p is not host]
+    out.extend(pieces)
+    return out
+
+
 def plan_apron_terraces(layout, shape_constraints, node_xy, node_dem,
-                        elev, hard, icao: str = "") -> Optional[TerracePlan]:
-    """THE TRIGGER + THE PANELIZATION (spec §1/§2).
+                        elev, hard, icao: str = "",
+                        bucket_to_idx=None) -> Optional[TerracePlan]:
+    """THE BINDER — resolve the PRE-SOLVE declaration into this pass's
+    index space and hand the solve its constraints.
 
-    ``node_xy``: ``{index: (x, y)}`` in the layout metre frame.
-    ``node_dem``: per-index DEM sample (list/array; NaN where unknown).
-    ``elev``: the current per-index values (the anchors' declared values).
-    ``hard``: the set of indices held hard in the pass that follows.
+    The panelization itself now happens before the solve
+    (:func:`construct_apron_terrace_presolve`), so this function no
+    longer decides anything: it reads ``layout.apron_terrace_presolve``,
+    resolves each joint's ``hi``/``lo`` station rows to node indices, and
+    returns the ``TerracePlan`` the budget appliers and the face emitter
+    consume.  One panelizer, one population, no second instrument.
 
-    Returns a ``TerracePlan`` (possibly empty) or ``None`` with the gate
-    off.  Never raises: a geometry failure on one apron drops that apron
-    from the plan and is counted, it does not fail a build.
+    ``bucket_to_idx`` is the solve's canonical bucket map; without it the
+    stations are resolved against the coordinates carried in
+    ``shape_constraints`` (the standalone/unit-twin path).
+
+    Returns an empty plan when nothing panelized — never ``None`` in
+    production; ``None`` only if the law itself is off.
     """
     if not apron_terrace_law_enabled():
         return None
     node_xy = _as_xy(node_xy)
     plan = TerracePlan()
+    plan.cover = corridor_cover(layout)
+    store = getattr(layout, "apron_terrace_presolve", None) or ()
     shapes_by_id = {id(s): s for s in getattr(layout, "shapes", ())}
-    cover = corridor_cover(layout)
-    plan.cover = cover
-    # §3(a): the keepout the FACE will be tested against at emit time,
-    # read HERE so admissibility is decided once, before any budget.
-    keepout = None
-    try:
-        from auto_patch.adjacent_ground import runway_strip_wall_keepout
-        keepout = runway_strip_wall_keepout(layout, require_gate=False)
-    except (ImportError, AttributeError, *_GEOM_EXC):
-        keepout = None
-    debug = _os.environ.get("O4_APRON_TERRACE_DEBUG") == "1"
-    for entry in shape_constraints:
-        if entry.get("role") != ROLE_APRON:
-            continue
-        shape = shapes_by_id.get(entry.get("shape_id", -1))
-        if shape is None:
-            continue
-        poly = getattr(shape, "polygon", None)
-        if poly is None or poly.is_empty or poly.geom_type != "Polygon":
+    for s in getattr(layout, "shapes", ()):
+        if s.role != ROLE_APRON or s.polygon is None or s.polygon.is_empty:
             continue
         try:
-            plan.stats["apron_area_total"] += float(poly.area)
+            plan.stats["apron_area_total"] += float(s.polygon.area)
         except _GEOM_EXC:
             pass
-        nodes = [i for i in (entry.get("nodes") or ())
-                 if i < len(elev) and node_xy.get(i) is not None]
-        if len(nodes) < 4:
+    plan.stats["candidates"] = sum(
+        1 for s in getattr(layout, "shapes", ())
+        if s.role == ROLE_APRON)
+    # Mirror the PRE-SOLVE construction's own counters (never the
+    # joint/trigger totals — those are recounted here from the joints
+    # this pass actually resolved, so the two can be compared).
+    _pre = getattr(layout, "apron_terrace_presolve_stats", None) or {}
+    for _k in ("joints_stillborn_keepout", "joints_stillborn_hole",
+               "joint_pieces_dropped_short",
+               "joint_lines_lost_to_corridor",
+               "polygons_split", "split_pieces_added"):
+        if _k in _pre:
+            plan.stats[_k] = _pre[_k]
+    resolve = _station_resolver(layout, shape_constraints, node_xy,
+                                bucket_to_idx)
+    for entry in store:
+        shape_id = entry.get("shape_id", -1)
+        shape = shapes_by_id.get(shape_id)
+        if shape is None:
+            # The apron was dropped after the declaration was staged.
+            # Its joints go with it — a budget may never outlive the
+            # surface it was declared on.
+            plan.stats["joints_orphaned"] = (
+                plan.stats.get("joints_orphaned", 0)
+                + len(entry.get("joints") or ()))
             continue
-        edges = _entry_edges(entry)
-        if not edges:
-            continue
-        plan.stats["candidates"] += 1
-        node_set = set(nodes)
-        anchors = sorted(node_set & set(hard))
-        # RAW-DEM READING — INSTRUMENT-INDEPENDENT (lead annotation
-        # 2026-08-04: the envelope/certificate instrument behind the
-        # trigger is under owner challenge, so every instrument-derived
-        # number in this census is quoted BESIDE the raw one).  This is
-        # DEM + geometry only: the apron's own steepest DEM chord and the
-        # run it spans.  It never gates anything here — it is the
-        # cross-check against the ``drain_worklist`` steep-run list.
-        raw_run, raw_slope = _raw_dem_steep_run(node_xy, node_dem, nodes)
-        row = {"ref": entry.get("ref", ""), "nodes": len(nodes),
-               "edges": len(edges), "anchors": len(anchors),
-               "excess": 0.0, "dem_grade": 0.0, "cap_grade": 0.0,
-               "raw_dem_run_m": round(raw_run, 1),
-               "raw_dem_slope": round(raw_slope, 5),
-               "raw_steep": bool(raw_slope > APRON_MAX_GRADE),
-               "verdict": "no_anchor", "joints": 0}
-        # ── DEM-INFEASIBLE EDGE PREFILTER — sound, cheap, instrument-
-        # independent.  If EVERY direct law edge satisfies the DEM within
-        # its own budget, then along any path ``|dem_a − dem_b| ≤ Σ
-        # budgets``, so it is ≤ the shortest-path allowance for every
-        # pair: the steep-truth signature CANNOT hold anywhere in this
-        # component and the envelope need not be run at all.  This is
-        # what keeps the trigger O(|E|) on the aprons that are not the
-        # fix population, and it is also the census's raw reading (lead
-        # annotation: quote the raw beside the instrument).
-        n_dem_infeasible = 0
-        worst_dem_over = 0.0
-        for (a, b, budget) in edges:
-            if a >= len(node_dem) or b >= len(node_dem):
-                continue
-            za, zb = node_dem[a], node_dem[b]
-            if za != za or zb != zb:
-                continue
-            over = abs(float(za) - float(zb)) - float(budget)
-            if over > 0.0:
-                n_dem_infeasible += 1
-                worst_dem_over = max(worst_dem_over, over)
-        row["dem_infeasible_edges"] = n_dem_infeasible
-        row["dem_worst_over_m"] = round(worst_dem_over, 4)
-        if n_dem_infeasible == 0:
-            row["verdict"] = "dem_within_cap"
-            plan.trigger_rows.append(row)
-            continue
-        if not anchors:
-            plan.trigger_rows.append(row)
-            continue
-        env = _component_envelope(nodes, edges, anchors, elev)
-        if env is None:
-            row["verdict"] = "no_envelope"
-            plan.trigger_rows.append(row)
-            continue
-        gap, witness_lo, witness_hi, adjacency = env
-        worst_node, worst_gap = None, 0.0
-        for i, g in gap.items():
-            if g > worst_gap:
-                worst_node, worst_gap = i, g
-        row["excess"] = round(float(worst_gap), 6)
-        if worst_node is None or worst_gap < APRON_TERRACE_MIN_EXCESS_M:
-            row["verdict"] = ("below_floor" if worst_gap > 0.0
-                              else "feasible")
-            plan.trigger_rows.append(row)
-            continue
-        # ── STEEP-TRUTH SIGNATURE (spec §1) ──────────────────────────
-        # The certificate path's DEM chord grade must exceed the cap that
-        # path is held to: |DEM_a − DEM_b| > d_cap(a, b), where d_cap is
-        # the law's OWN allowance for |z_a − z_b|.  An infeasibility whose
-        # witnesses sit on ground the cap could span is a WRONG VALUE
-        # (DOSSIER §1/§2/§5) and must not be panelized — those are the
-        # seat/spine fixes, and terracing around them would bury the
-        # defect under lawful-looking geometry.
-        a_lo = witness_lo.get(worst_node, -1)
-        a_hi = witness_hi.get(worst_node, -1)
-        if a_lo < 0 or a_hi < 0 or a_lo == a_hi:
-            row["verdict"] = "no_witness_pair"
-            plan.trigger_rows.append(row)
-            continue
-        d_cap = _cap_distance(adjacency, a_lo, a_hi)
-        dem_a = node_dem[a_lo] if a_lo < len(node_dem) else float("nan")
-        dem_b = node_dem[a_hi] if a_hi < len(node_dem) else float("nan")
-        if not (dem_a == dem_a and dem_b == dem_b
-                and math.isfinite(d_cap)):
-            row["verdict"] = "no_dem"
-            plan.trigger_rows.append(row)
-            continue
-        dem_drop = abs(float(dem_a) - float(dem_b))
-        row["dem_grade"] = round(dem_drop, 4)
-        row["cap_grade"] = round(float(d_cap), 4)
-        if dem_drop <= d_cap:
-            # Real ground the cap CAN span ⇒ the infeasibility is a value
-            # defect, not steep truth.  Reported, never panelized.
-            row["verdict"] = "value_defect_not_steep"
-            plan.trigger_rows.append(row)
-            continue
-        # ── PANELIZATION ────────────────────────────────────────────
-        gradient = _dem_gradient(node_xy, node_dem, nodes)
-        if gradient is None:
-            row["verdict"] = "no_gradient"
-            plan.trigger_rows.append(row)
-            continue
-        (gdir, plane_slope) = gradient
-        # ── HOW MUCH RELIEF, AND FROM WHICH READING ─────────────────
-        # The ENVELOPE decides WHETHER to panelize (spec §1, the trigger).
-        # It does NOT decide HOW MANY panels: that is the ground's own
-        # demand — "a panel whose bounding corridors demand more relief
-        # than cap spans may take further interior terrace lines"
-        # (spec §2) — and the ground is read from the DEM, not from an
-        # instrument.  Measured at HEAZ arm A: the envelope excess on the
-        # 600 m / 1.51 % apron was 1.55 m against a GEOMETRIC demand of
-        # 3.06 m, so one joint was minted where the ground asks for two,
-        # and the final-projection residue moved 944 → 855 against a
-        # ≤700 partial band.  The lead's 2026-08-04 annotation names the
-        # same hazard from the other side (the envelope instrument is
-        # under owner challenge and may under-fire at specific aprons).
-        # Both readings are carried, the LARGER sizes the panelization,
-        # and both are in the census so the two can be compared.
-        extent = _extent_along(poly, gdir)
-        geom_excess = max(0.0, (plane_slope - APRON_MAX_GRADE) * extent)
-        relief = max(float(worst_gap), geom_excess)
-        row["geom_excess"] = round(geom_excess, 4)
-        row["plane_slope"] = round(plane_slope, 5)
-        row["extent_m"] = round(extent, 1)
-        # ── §2(b) FIRE BOUNDED BY EVIDENCE ──────────────────────────
-        # The certified relief divided by the max step is how many
-        # terrace LINES this apron's own evidence supports.  Collinear
-        # pieces of ONE line are one step, not several (a corridor
-        # crossing the line splits it; it does not add relief), so the
-        # bound is on lines and each piece records the line it came from.
-        joint_count = max(1, int(math.ceil(
-            relief / APRON_TERRACE_MAX_STEP_M)))
-        step_m = min(APRON_TERRACE_MAX_STEP_M, relief / joint_count)
-        # ── §3(c) CLEARANCE: joint lines keep the joint clearance from
-        # FACING boundary runs, so no joint discharges its step at a
-        # neighbour's face.  Folded into this apron's own cut cover.
-        facing, _nb = _facing_boundary(layout, shape)
-        cut_cover = cover
-        if facing is not None and not facing.is_empty:
-            try:
-                fence = facing.buffer(APRON_TERRACE_JOINT_CLEARANCE_M)
-                cut_cover = (fence if cut_cover is None
-                             else unary_union([cut_cover, fence]))
-            except _GEOM_EXC:
-                pass
-        minted = 0
-        for ordinal, line in enumerate(_terrace_lines(poly, gdir,
-                                                      joint_count)):
-            pieces = _cut_joint_pieces(line, poly, cut_cover)
-            if not pieces:
-                plan.stats["joint_lines_lost_to_corridor"] += 1
-                continue
-            kept = 0
-            for piece in pieces:
-                if piece.length < APRON_TERRACE_MIN_JOINT_LEN_M:
-                    plan.stats["joint_pieces_dropped_short"] += 1
-                    continue
-                pts = list(piece.coords)
-                # ── §3(a) STILLBORN: unfaceable on BOTH sides ───────
-                if not _face_admissible(pts, keepout):
-                    plan.stats["joints_stillborn_keepout"] += 1
-                    continue
-                joint = TerraceJoint(pts, step_m, id(shape),
-                                     line_ordinal=ordinal)
-                joint.flank_pairs = _joint_flank_pairs(joint, nodes,
-                                                       node_xy)
-                plan.add(joint)
-                kept += 1
-                minted += 1
-            if kept == 0:
-                plan.stats["joint_lines_lost_to_corridor"] += 1
-        row["joints"] = minted
-        row["verdict"] = "panelized" if minted else "no_lawful_joint"
-        if minted:
-            plan.stats["triggered"] += 1
-            try:
-                plan.stats["apron_area_panelized"] += float(poly.area)
-            except _GEOM_EXC:
-                pass
-            # ── §2(a) THE CERTIFICATE (hard invariant) ──────────────
-            # An apron panelizes ONLY with the full recorded chain.  It
-            # was already structural — every ``continue`` above is a
-            # missing link — but it becomes AUDITABLE here: the row is
-            # written into the sidecar so the twin can verify
-            # "certificate-free panelization = 0" from the patch alone.
-            plan.certificates[id(shape)] = {
-                "ref": row["ref"],
-                "dem_infeasible_edges": n_dem_infeasible,
-                "dem_worst_over_m": row["dem_worst_over_m"],
-                "envelope_excess_m": row["excess"],
-                "steep_dem_drop_m": row["dem_grade"],
-                "steep_cap_allow_m": row["cap_grade"],
-                "raw_dem_run_m": row["raw_dem_run_m"],
-                "raw_dem_slope": row["raw_dem_slope"],
-                "relief_m": round(float(relief), 4),
-                "max_step_m": APRON_TERRACE_MAX_STEP_M,
-                "line_budget": joint_count,
-                "lines_used": len({j.line_ordinal
-                                   for j in plan.by_shape.get(id(shape),
-                                                              ())}),
-                "declared_step_m": round(float(step_m), 4),
-                "joints": minted,
-            }
-            # ── §3(c) EXCLUSION population, resolved to node indices ─
-            if facing is not None and not facing.is_empty:
-                try:
-                    band = facing.buffer(APRON_TERRACE_FACING_PROXIMITY_M)
-                except _GEOM_EXC:
-                    band = None
-                if band is not None:
-                    from shapely.geometry import Point as _Pt
-                    fnodes = set()
-                    for i in nodes:
-                        p = node_xy.get(i)
-                        if p is None:
-                            continue
-                        try:
-                            if band.contains(_Pt(p[0], p[1])):
-                                fnodes.add(i)
-                        except _GEOM_EXC:
-                            continue
-                    if fnodes:
-                        plan.facing_nodes[id(shape)] = fnodes
+        plan.certificates[shape_id] = dict(entry.get("certificate") or {})
+        plan.stats["triggered"] += 1
+        try:
+            plan.stats["apron_area_panelized"] += float(shape.polygon.area)
+        except _GEOM_EXC:
+            pass
+        row = dict(entry.get("certificate") or {})
+        row["verdict"] = "panelized"
+        row["joints"] = len(entry.get("joints") or ())
         plan.trigger_rows.append(row)
-    if debug or _os.environ.get("O4_STEP_DEBUG") == "1":
+        for jd in (entry.get("joints") or ()):
+            joint = TerraceJoint(jd["reach"], jd["step_m"], shape_id,
+                                 line_ordinal=jd.get("line_ordinal", 0))
+            joint.low_sign = float(jd.get("low_sign", 1.0))
+            joint.grid = [float(s) for s in jd.get("grid") or ()]
+            joint.hi = [(float(x), float(y)) for (x, y) in jd["hi"]]
+            joint.lo = [(float(x), float(y)) for (x, y) in jd["lo"]]
+            # STATIONS AS SOLVE VARIABLES.  ``(k, s, i_hi, i_lo)`` — the
+            # station's index in the row, its arc-length, and the two
+            # node indices the declared step is BOUND between.  A
+            # station whose rows did not intern (a panel dropped, a
+            # bucket collision) simply carries ``None`` and binds
+            # nothing; it is counted, never guessed at.
+            sts = []
+            for k, s_arc in enumerate(joint.grid):
+                if k >= len(joint.hi) or k >= len(joint.lo):
+                    break
+                i_hi = resolve(joint.hi[k])
+                i_lo = resolve(joint.lo[k])
+                if i_hi is None or i_lo is None or i_hi == i_lo:
+                    plan.stats["stations_unresolved"] = (
+                        plan.stats.get("stations_unresolved", 0) + 1)
+                    continue
+                sts.append((k, float(s_arc), int(i_hi), int(i_lo)))
+            joint.stations = sts
+            plan.add(joint)
+    # The §3(c) FACING population, resolved to node indices in THIS
+    # pass's index space (positions only — no values, so it is the same
+    # computation the pre-solve cut used).
+    # EVERY PANEL of a panelized apron, not just the one that kept the
+    # apron's identity: a sibling panel can abut a foreign apron just as
+    # the parent could, and §3(c) is about that boundary.
+    _groups = {id(shapes_by_id[sid]) for sid in plan.by_shape
+               if sid in shapes_by_id}
+    for entry in shape_constraints:
+        shape_id = entry.get("shape_id", -1)
+        shape = shapes_by_id.get(shape_id)
+        if shape is None:
+            continue
+        if (shape_id not in plan.by_shape
+                and getattr(shape, "_terrace_panel_group", None)
+                not in _groups):
+            continue
+        facing, _nb = _facing_boundary(layout, shape)
+        if facing is None or facing.is_empty:
+            continue
+        try:
+            band = facing.buffer(APRON_TERRACE_FACING_PROXIMITY_M)
+        except _GEOM_EXC:
+            continue
+        fnodes = set()
+        for i in (entry.get("nodes") or ()):
+            p = node_xy.get(i)
+            if p is None:
+                continue
+            try:
+                if band.contains(_Point(p[0], p[1])):
+                    fnodes.add(i)
+            except _GEOM_EXC:
+                continue
+        if fnodes:
+            plan.facing_nodes[shape_id] = fnodes
+    if (_os.environ.get("O4_APRON_TERRACE_DEBUG") == "1"
+            or _os.environ.get("O4_STEP_DEBUG") == "1"):
         _report_plan(plan, icao)
     return plan
+
+
+def _station_resolver(layout, shape_constraints, node_xy, bucket_to_idx):
+    """``(x, y) -> node index`` for a panel-boundary station.
+
+    THE CANONICAL JOIN, not a proximity join: a station coordinate is a
+    ring vertex of the panel it bounds, so it interns to exactly the
+    bucket that vertex claimed.  The fallback (no ``bucket_to_idx`` —
+    the standalone/unit-twin path) indexes the constraint entries' own
+    node coordinates at the registry's tolerance, which resolves the
+    SAME vertex; it never invents a nearest neighbour beyond it.
+    """
+    cps = getattr(layout, "canonical_points", None)
+    if bucket_to_idx is not None and cps is not None:
+        def _by_registry(xy):
+            k = cps.get(float(xy[0]), float(xy[1]))
+            if k is None:
+                k = cps.get_or_add(float(xy[0]), float(xy[1]))
+            return bucket_to_idx.get(k)
+        return _by_registry
+    grid: dict = {}
+    for entry in shape_constraints or ():
+        for i in (entry.get("nodes") or ()):
+            p = node_xy.get(i)
+            if p is None:
+                continue
+            grid.setdefault((round(p[0] / 0.5), round(p[1] / 0.5)),
+                            []).append((i, p[0], p[1]))
+
+    def _by_grid(xy):
+        best, best_d = None, None
+        cx, cy = round(xy[0] / 0.5), round(xy[1] / 0.5)
+        for gx in (cx - 1, cx, cx + 1):
+            for gy in (cy - 1, cy, cy + 1):
+                for (i, px, py) in grid.get((gx, gy), ()):
+                    d = math.hypot(px - xy[0], py - xy[1])
+                    if d <= 0.5 and (best_d is None or d < best_d):
+                        best, best_d = i, d
+        return best
+    return _by_grid
+
+
+def rebind_terrace_stations(plan: Optional[TerracePlan], layout,
+                            shape_constraints, node_xy,
+                            bucket_to_idx=None) -> int:
+    """Re-resolve every joint's station node indices in a NEW index space.
+
+    A node index is only meaningful inside ONE ``_build_node_list`` call
+    (the rod-key lesson: a plan carried by index across a rebuild binds
+    the wrong vertices silently).  The joint's GEOMETRY is what the plan
+    actually carries, so the second pass re-resolves the same coordinates
+    through the same canonical join.  Returns the station count bound.
+    """
+    if plan is None or not plan.joints:
+        return 0
+    resolve = _station_resolver(layout, shape_constraints,
+                                _as_xy(node_xy), bucket_to_idx)
+    n = 0
+    for joint in plan.joints:
+        sts = []
+        for k, s_arc in enumerate(joint.grid or ()):
+            if k >= len(joint.hi) or k >= len(joint.lo):
+                break
+            i_hi = resolve(joint.hi[k])
+            i_lo = resolve(joint.lo[k])
+            if i_hi is None or i_lo is None or i_hi == i_lo:
+                continue
+            sts.append((k, float(s_arc), int(i_hi), int(i_lo)))
+        joint.stations = sts
+        n += len(sts)
+    return n
+
+
+def terrace_station_edges(plan: Optional[TerracePlan]):
+    """THE ACTUAL-STEP BINDING — the law edges that hold each declared
+    joint to the step it declared.
+
+    ``[(i_hi, i_lo, step + cap·retreat), …]``.  This is the ONE
+    constraint the pre-solve split makes possible and the post-solve
+    reader never could: the two rows are in DIFFERENT panels now, so no
+    within-shape law generates the pair, and without this edge the step
+    across a declared joint would be unbounded.  The budget is the
+    declaration plus the cap over the face's OWN width — a wall may be
+    as tall as the step it declares, never as tall as the distance its
+    reader had to travel.
+    """
+    from auto_patch.adjacent_ground import STACKED_WALL_RETREAT_M
+    out: list = []
+    if plan is None:
+        return out
+    for joint in plan.joints:
+        budget = (float(joint.step_m)
+                  + APRON_MAX_GRADE * STACKED_WALL_RETREAT_M)
+        for (_k, _s, i_hi, i_lo) in joint.stations:
+            out.append((i_hi, i_lo, budget))
+    return out
+
 
 
 def _report_plan(plan: TerracePlan, icao: str) -> None:
@@ -1419,22 +1619,16 @@ def _report_plan(plan: TerracePlan, icao: str) -> None:
           f"(REPORT ONLY — §2(c): the certificate and the evidence bound "
           f"are the law, area has no STOP power)")
     for row in plan.trigger_rows:
-        if row["verdict"] in ("feasible", "below_floor", "dem_within_cap"):
-            continue
-        print(f"    [apron-terrace]   {row['ref'] or '(no ref)'}: "
-              f"{row['verdict']} nodes={row['nodes']} "
-              f"anchors={row['anchors']} excess={row['excess']:.3f} "
-              f"dem_drop={row['dem_grade']:.3f} "
-              f"cap_allow={row['cap_grade']:.3f} joints={row['joints']} "
-              f"| RAW DEM run={row['raw_dem_run_m']:.0f} m slope="
-              f"{row['raw_dem_slope'] * 100:.2f} % "
-              f"({'steep' if row['raw_steep'] else 'gradeable'}), "
-              f"DEM-infeasible edges={row.get('dem_infeasible_edges', 0)} "
-              f"worst over={row.get('dem_worst_over_m', 0.0):.3f} m"
-              + (f" | GEOM relief demand={row['geom_excess']:.3f} m "
-                 f"(plane {row['plane_slope'] * 100:.2f} % over "
-                 f"{row['extent_m']:.0f} m)"
-                 if "geom_excess" in row else ""))
+        print(f"    [apron-terrace]   {row.get('ref') or '(no ref)'}: "
+              f"{row.get('verdict', 'panelized')} "
+              f"joints={row.get('joints', 0)} "
+              f"panels={row.get('panels', 0)} "
+              f"declared step={row.get('declared_step_m', 0.0):.3f} m "
+              f"| GEOM relief demand={row.get('geom_excess_m', 0.0):.3f} m "
+              f"(plane {row.get('plane_slope', 0.0) * 100:.2f} % over "
+              f"{row.get('extent_m', 0.0):.0f} m), line budget "
+              f"{row.get('line_budget', 0)} used "
+              f"{row.get('lines_used', 0)}")
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -1512,64 +1706,6 @@ def _rewrite_edges(edges, joints, node_xy, facing_nodes=None,
     return out, touched
 
 
-def _bind_joint_step_pairs(edges, joints, node_xy, facing_nodes=None):
-    """§3(b) GENERATION-BINDING: the joint-step pair constraints.
-
-    Each declared joint binds its plan-time straddling pairs to
-    ``|z_m − z_n| ≤ step_m + cap·planar(m, n)`` — the identical rule the
-    within-pair reader applies, on the identical population the FACE is
-    read from.  ``APRON_TERRACE_MAX_STEP_M`` then bounds the EMITTED
-    surface transitively: nothing generation-side bounded the settled
-    flank delta before, and the validator read the DECLARED step, so
-    HECA shipped 10 faces of 2.14-5.52 m against declared ≤1.994 m.
-
-    THE BINDING TIGHTENS EDGES THE LAW ALREADY HAS; IT NEVER ADDS ONE.
-    That distinction is the whole clause, and it is MEASURED, not
-    assumed: an earlier form of this function appended the pairs as NEW
-    law edges, which constrains node pairs the apron's visibility graph
-    deliberately leaves unconstrained — and at a STRAIGHT-LINE distance
-    shorter than the lawful graph path, so the invented edge is tighter
-    than the law it claims to express.  HEAZ, single-clause arm:
-    78 → 1,360 law-true rows.  A pair that is not a law pair is not a
-    law pair.
-
-    Returns ``(edges, n_bound)``; ``edges`` is the same list object shape
-    with tightened budgets where the clause bites (in practice a no-op
-    for a pair crossing exactly its own joint — the rewritten budget is
-    already ``cap·d + step`` — and a genuine tightening for a flank pair
-    that ``_rewrite_edges`` handed the steps of SEVERAL joints).
-    """
-    if not joints:
-        return edges, 0
-    fn = facing_nodes or ()
-    want: dict = {}
-    for j in joints:
-        for (m, n, d) in (j.flank_pairs or ()):
-            if node_xy.get(m) is None or node_xy.get(n) is None:
-                continue
-            if m in fn or n in fn:
-                continue                  # §3(c): facing runs keep full law
-            key = (m, n) if m < n else (n, m)
-            bound = float(j.step_m) + APRON_MAX_GRADE * float(d)
-            if key not in want or bound < want[key]:
-                want[key] = bound
-    if not want:
-        return edges, 0
-    out = []
-    n_bound = 0
-    for e in edges:
-        if len(e) != 3:
-            out.append(e)
-            continue
-        a, b, budget = e
-        key = (a, b) if a < b else (b, a)
-        cap_here = want.get(key)
-        if cap_here is not None and cap_here < float(budget) - 1e-12:
-            out.append((a, b, cap_here))
-            n_bound += 1
-        else:
-            out.append(e)
-    return out, n_bound
 
 
 def _facing_conformance_edges(facing_nodes, own_nodes, node_xy, others):
@@ -1684,19 +1820,26 @@ def apply_terrace_budgets(plan: Optional[TerracePlan], shape_constraints,
                     others.append((i, p[0], p[1]))
     for entry in shape_constraints:
         shape_id = entry.get("shape_id", -1)
-        joints = plan.by_shape.get(shape_id)
-        if not joints:
-            continue
+        joints = plan.by_shape.get(shape_id) or []
         facing = plan.facing_nodes.get(shape_id) or set()
-        excl = [0]
-        edges, touched = _rewrite_edges(entry.get("edges") or [], joints,
-                                        node_xy, facing_nodes=facing,
-                                        excluded_out=excl)
-        plan.stats["facing_edges_excluded"] += excl[0]
-        # ── §3(b) the joint-step pair constraints join the ONE solve ──
-        edges, n_bound = _bind_joint_step_pairs(edges, joints, node_xy,
-                                                facing_nodes=facing)
-        plan.stats["joint_step_pairs"] += n_bound
+        if not joints and not facing:
+            continue
+        edges = entry.get("edges") or []
+        if joints:
+            # STRUCTURALLY VACUOUS SINCE THE PRE-SOLVE SPLIT, and kept
+            # because vacuous-by-construction is the strongest form of
+            # the guarantee: a panel's own edges cannot cross a joint —
+            # the joint IS the panel's boundary — so there is nothing
+            # within a shape left to relax, and therefore no facing node
+            # that could be relaxed by accident.  The cross-joint law is
+            # ``terrace_station_edges``.
+            excl = [0]
+            edges, touched = _rewrite_edges(edges, joints,
+                                            node_xy, facing_nodes=facing,
+                                            excluded_out=excl)
+            plan.stats["facing_edges_excluded"] += excl[0]
+        else:
+            touched = 0
         # ── §3(c) CONFORMANCE ────────────────────────────────────────
         nodes = [i for i in (entry.get("nodes") or ())
                  if node_xy.get(i) is not None]
@@ -1718,6 +1861,23 @@ def apply_terrace_budgets(plan: Optional[TerracePlan], shape_constraints,
                 return _rewrite_edges(list(_t()), _j, _xy,
                                       facing_nodes=_f)[0]
             entry["lazy_expand"] = _bound
+    # ── THE ACTUAL-STEP BINDING joins the ONE solve ──────────────────
+    # With the apron split BEFORE the solve, the two sides of a joint
+    # are two shapes: no within-shape law generates the cross-joint
+    # pair, so the declared step has to be handed over explicitly.  One
+    # entry for the whole airport (the pairs are already per-joint), so
+    # every projection that reads ``shape_constraints`` enforces it.
+    st_edges = terrace_station_edges(plan)
+    if st_edges and isinstance(shape_constraints, list):
+        shape_constraints.append({
+            "role": ROLE_APRON,
+            "ref": "apron_terrace_joint",
+            "shape_id": -1,
+            "nodes": sorted({i for e in st_edges for i in e[:2]}),
+            "edges": st_edges,
+        })
+        plan.stats["joint_step_pairs"] += len(st_edges)
+        total += len(st_edges)
     return total
 
 
@@ -1762,6 +1922,13 @@ def apply_terrace_budgets_to_edges(plan: Optional[TerracePlan], edges,
             facing_nodes=plan.facing_nodes.get(shape_id) or set())
         total += touched
         out = rest + bound
+    # One law, both edge sets: the unified graph is projected separately
+    # from ``shape_constraints``, so the actual-step binding has to ride
+    # both or the second projection takes the relief straight back.
+    st_edges = terrace_station_edges(plan)
+    if st_edges:
+        out = list(out) + st_edges
+        total += len(st_edges)
     return out, total
 
 
@@ -1796,168 +1963,118 @@ def _ring_values(shape):
     return None
 
 
+def _apron_ring_values(layout) -> dict:
+    """``{canonical key: settled value}`` over every apron panel ring.
+
+    THE IDENTITY READ.  After the pre-solve split a joint's ``hi``/``lo``
+    stations ARE ring vertices of the two panels they separate, so the
+    face's levels are a LOOKUP, not a reading: no flank window, no fit,
+    no extrapolation, and no value the solve did not produce.  The key is
+    the same decimetre spelling the canonical registry snaps at, so a
+    vertex the split moved by float noise still resolves to itself.
+    """
+    out: dict = {}
+    for s in getattr(layout, "shapes", ()):
+        if s.role != ROLE_APRON:
+            continue
+        rv = _ring_values(s)
+        if rv is None:
+            continue
+        coords, alts = rv
+        for ((x, y), z) in zip(coords, alts):
+            out[(round(x, 1), round(y, 1))] = float(z)
+    return out
+
+
+def _value_at(index: dict, xy):
+    """The settled value at a station coordinate, or ``None``."""
+    (x, y) = xy
+    kx, ky = round(x, 1), round(y, 1)
+    v = index.get((kx, ky))
+    if v is not None:
+        return v
+    # One decimetre of slack in each direction: the difference op can
+    # move a cut vertex by float noise, never by a real distance.
+    for dx in (-0.1, 0.0, 0.1):
+        for dy in (-0.1, 0.0, 0.1):
+            v = index.get((round(kx + dx, 1), round(ky + dy, 1)))
+            if v is not None:
+                return v
+    return None
+
+
 def emit_terrace_joint_faces(layout, plan: Optional[TerracePlan]) -> int:
-    """Mint one ``retaining_wall`` face per declared joint run whose two
-    sides actually settled at different levels (spec §3).
+    """Mint one ``retaining_wall`` face per declared joint whose two
+    panels actually settled at different levels.
 
-    The face occupies the ``STACKED_WALL_RETREAT_M`` band on the LOWER
-    side of the joint — the same machine and the same constants as
-    ``adjacent_ground.emit_stacked_conflict_walls``.  The apron polygon
-    is NOT cut back: the §3(d) split was REMOVED (lead 2026-08-05 —
-    measured to mint 5 defects because its new ring vertices adopted the
-    FACE's level, a value the solve never produced), so the face laps
-    that 0.6 m band.  The lap (HECA 2 479 m²) is named emit-round debt,
-    not a defect this pass may paper over.  Called BEFORE interning, so
-    the emit consensus can never average a joint away.
+    The face occupies the ``STACKED_WALL_RETREAT_M`` band BETWEEN the two
+    panels — ground no apron polygon covers any more, because the split
+    ran before the solve.  There is no lap and there is no
+    emitter-assigned boundary value: every one of the face's own ring
+    vertices is a panel ring vertex whose value the SOLVE produced, read
+    here by identity.  EMITTERS EMIT, NEVER GRADE.
 
-    D2: the face is read and minted PER STATION (``_station_grid``) —
-    one level pair for a 500 m joint was the mechanism behind the 6.0 m
-    faces.  Each station carries its own lawful bound in the sidecar;
-    nothing is clamped.
-
-    Runway-strip fence (owner 2026-08-01, and spec §5(d)): a face inside a
+    Runway-strip fence (owner 2026-08-01, spec §5(d)): a face inside a
     runway strip footprint is inadmissible and is dropped here as well as
     flagged by the validator — walls at runway edges are NEVER lawful.
+    The counter MUST read 0: plan-time admissibility proved every minted
+    joint faceable before the apron was ever cut.
     """
     if plan is None or not plan.joints:
         return 0
-    from auto_patch.adjacent_ground import (STACKED_WALL_RETREAT_M,
-                                            runway_strip_wall_keepout)
+    from auto_patch.adjacent_ground import runway_strip_wall_keepout
     from auto_patch.layout import BuiltShape
     keepout = runway_strip_wall_keepout(layout, require_gate=False)
-    shapes_by_id = {id(s): s for s in getattr(layout, "shapes", ())}
+    index = _apron_ring_values(layout)
     new_walls: list = []
     plan.stats["faces_dropped_keepout"] = 0
     plan.stats["joints_demoted_level"] = 0
     plan.stats.setdefault("station_readings", 0)
     plan.stats.setdefault("stations_over_bound", 0)
     plan.stats.setdefault("joints_sign_flipped", 0)
+    plan.stats.setdefault("stations_unread", 0)
     for joint in plan.joints:
-        shape = shapes_by_id.get(joint.shape_id)
-        if shape is None:
+        if len(joint.hi) < 2 or len(joint.hi) != len(joint.lo):
             continue
-        rv = _ring_values(shape)
-        if rv is None:
+        bound = float(joint.step_m) + APRON_MAX_GRADE * _RETREAT_TRIM_M
+        rows: list = []                   # (k, s, z_hi, z_lo)
+        for k, s_arc in enumerate(joint.grid or range(len(joint.hi))):
+            if k >= len(joint.hi):
+                break
+            z_hi = _value_at(index, joint.hi[k])
+            z_lo = _value_at(index, joint.lo[k])
+            if z_hi is None or z_lo is None:
+                plan.stats["stations_unread"] += 1
+                continue
+            rows.append((k, float(s_arc), z_hi, z_lo))
+        if len(rows) < 2:
             continue
-        coords, alts = rv
-        # Level on each side of the joint, from the settled ring values.
-        (x0, y0) = joint.line[0]
-        (x1, y1) = joint.line[-1]
-        dx, dy = x1 - x0, y1 - y0
-        norm = math.hypot(dx, dy)
-        if norm < 1e-9:
-            continue
-        nx, ny = -dy / norm, dx / norm
-        ux, uy = dx / norm, dy / norm
-        # The level ON EACH SIDE, read from the ring vertices that flank
-        # the joint.  NEAREST-FLANK, not a fixed band: apron ring spacing
-        # runs from a metre to a hundred, and a fixed radius would read
-        # one side only (measured on the synthetic twin at 50 m spacing —
-        # the whole face silently vanished).  A vertex counts when its
-        # station along the joint lies within the joint's own span.
-        # D2: the samples are bucketed by STATION (the plan-time
-        # densification of the panel boundary), so one long joint is read
-        # as the several local steps it actually is.
-        grid = _station_grid(norm)
-        buckets = [([], []) for _ in grid]
-        for (vx, vy), value in zip(coords, alts):
-            t = (vx - x0) * ux + (vy - y0) * uy
-            if t < -_JOINT_FLANK_PAD_M or t > norm + _JOINT_FLANK_PAD_M:
-                continue
-            side = (vx - x0) * nx + (vy - y0) * ny
-            if abs(side) > _JOINT_FLANK_MAX_M:
-                continue
-            if abs(side) < _JOINT_ON_LINE_EPS_M:
-                continue          # ON the joint: belongs to neither panel
-            k = _nearest_station(grid, t)
-            (buckets[k][0] if side > 0.0 else buckets[k][1]).append(
-                (abs(side), value))
-        # ── D2: ONE LEVEL PAIR PER STATION, NOT ONE PER JOINT ────────
-        # The v2 reader took ONE level per side for the WHOLE joint, from
-        # a flank window whose nearest rows can be 100 m+ away.  On a
-        # 500 m joint that is a single extrapolation speaking for the
-        # whole run, and it is how HECA shipped 6.0 m faces against a
-        # 1.994 m declaration.  Each station now reads its OWN two
-        # nearest settled rows and carries its OWN lawful bound
-        # ``step + cap·(d_pos + d_neg)`` — the declaration plus exactly
-        # the relief the cap licenses over the distance the reader had to
-        # cross.  Nothing is clamped: a station over its own bound is a
-        # LOUD row, because clamping would mint a face level the solve
-        # never produced (the same defect that retired the §3(d) split).
-        st_levels: list = []          # (s, z_pos, z_neg, span, bound)
-        for k, s in enumerate(grid):
-            pos, neg = buckets[k]
-            if not pos or not neg:
-                continue
-            pos.sort()
-            neg.sort()
-            win_pos = [(d, v) for (d, v) in pos
-                       if d <= _flank_window(pos[0][0])]
-            win_neg = [(d, v) for (d, v) in neg
-                       if d <= _flank_window(neg[0][0])]
-            z_pos = _level_at_joint(win_pos)
-            z_neg = _level_at_joint(win_neg)
-            if z_pos is None or z_neg is None:
-                continue
-            span = pos[0][0] + neg[0][0]
-            # THE LAW'S BOUND is the declaration plus the cap over the
-            # face's OWN width — a wall may be as tall as the step it
-            # declares, never as tall as the distance its reader had to
-            # travel.  The reader distance is reported BESIDE it
-            # (``reader_slack_m``) so a station over the bound can be
-            # attributed to the reading rather than argued about.
-            st_levels.append((s, float(z_pos), float(z_neg), float(span),
-                              float(joint.step_m)
-                              + APRON_MAX_GRADE * _RETREAT_TRIM_M))
-        if not st_levels:
-            continue
-        worst = max(st_levels, key=lambda r: abs(r[1] - r[2]))
-        drop = abs(worst[1] - worst[2])
-        joint.flank_span_m = round(worst[3], 3)
+        plan.stats["station_readings"] += len(rows)
+        drops = [abs(z_hi - z_lo) for (_k, _s, z_hi, z_lo) in rows]
+        drop = max(drops)
+        n_over = sum(1 for d in drops if d > bound)
+        plan.stats["stations_over_bound"] += n_over
+        n_flip = sum(1 for (_k, _s, z_hi, z_lo) in rows if z_hi < z_lo)
+        if 0 < n_flip < len(rows):
+            plan.stats["joints_sign_flipped"] += 1
+        joint.flank_span_m = round(_RETREAT_TRIM_M, 3)
         joint.actual_step_m = round(float(drop), 4)
         joint.stations = [
-            {"s": round(s, 2), "z_pos": round(zp, 3), "z_neg": round(zn, 3),
-             "span_m": round(sp, 3), "bound_m": round(bd, 4),
-             "reader_slack_m": round(APRON_MAX_GRADE * sp, 4),
-             "over_m": round(max(0.0, abs(zp - zn) - bd), 4)}
-            for (s, zp, zn, sp, bd) in st_levels]
-        n_over = sum(1 for r in joint.stations if r["over_m"] > 0.0)
-        plan.stats["station_readings"] += len(st_levels)
-        plan.stats["stations_over_bound"] += n_over
+            {"s": round(s_arc, 2), "z_pos": round(z_hi, 3),
+             "z_neg": round(z_lo, 3), "span_m": _RETREAT_TRIM_M,
+             "bound_m": round(bound, 4),
+             "reader_slack_m": round(APRON_MAX_GRADE * _RETREAT_TRIM_M, 4),
+             "over_m": round(max(0.0, abs(z_hi - z_lo) - bound), 4)}
+            for (_k, s_arc, z_hi, z_lo) in rows]
         if drop <= 0.05:
-            # §3(a): FLANKS SETTLED LEVEL.  Only knowable post-solve, so
-            # this joint emits no face — and its sidecar allowance is
+            # The panels settled LEVEL — only knowable post-solve, so
+            # this joint emits no face, and its sidecar allowance is
             # DEMOTED to the step the surface actually expresses (0 for
-            # this class), so the validator grants exactly what the
-            # geometry shows.  No unbacked relief survives the drop.
+            # this class).  No unbacked relief survives the drop.
             plan.stats["joints_demoted_level"] += 1
             continue
-        # The LOWER panel is the one the majority of stations put lower;
-        # a joint whose sign FLIPS along its run is counted (its face
-        # would have to cross the joint) and takes the majority side.
-        n_pos_low = sum(1 for (_s, zp, zn, _sp, _bd) in st_levels
-                        if zp < zn)
-        if 0 < n_pos_low < len(st_levels):
-            plan.stats["joints_sign_flipped"] += 1
-        low_sign = 1.0 if n_pos_low * 2 >= len(st_levels) else -1.0
-        rx, ry = nx * low_sign * STACKED_WALL_RETREAT_M, \
-            ny * low_sign * STACKED_WALL_RETREAT_M
-        # THE FACE FOLLOWS THE STATIONS.  Top row on the joint line at
-        # each station's own arc-length, bottom row the same points
-        # retreated onto the low side; each vertex carries ITS station's
-        # settled level, so the wall expresses the panels it separates
-        # instead of one flat pair of numbers.  (The §3(d) polygon split
-        # is REMOVED — see ``_split_lower_panels`` — so the band laps the
-        # apron; that lap is the accepted emit-round debt.)
-        top = [(x0 + ux * s, y0 + uy * s) for (s, *_r) in st_levels]
-        if len(top) < 2:
-            # A single-station joint still needs two points to bound a
-            # face: use the joint's own endpoints.
-            top = [joint.line[0], joint.line[-1]]
-            st_face = [st_levels[0], st_levels[0]]
-        else:
-            st_face = st_levels
-        bot = [(x + rx, y + ry) for (x, y) in top]
+        top = [joint.hi[k] for (k, _s, _zh, _zl) in rows]
+        bot = [joint.lo[k] for (k, _s, _zh, _zl) in rows]
         ring = top + bot[::-1]
         try:
             wall_poly = Polygon(ring)
@@ -1970,190 +2087,35 @@ def emit_terrace_joint_faces(layout, plan: Optional[TerracePlan]) -> int:
         if keepout is not None:
             try:
                 if wall_poly.intersects(keepout):
-                    # §3(a) LOUD COUNTER — this MUST read 0.  With the
-                    # §1 fence in the panelizer no joint can be in a
-                    # strip at all, and plan-time admissibility proved
-                    # this side (or the other) faceable before the joint
-                    # was minted.  A hit here means the plan-time
-                    # predicate and this one diverged: a FRAME BUG, and
-                    # a STOP for the round.  The defense-in-depth drop
-                    # stays (a wall in a strip is never lawful), but the
-                    # allowance dies with it — the joint is demoted.
+                    # LOUD COUNTER — this MUST read 0.  A hit means the
+                    # plan-time predicate and this one diverged: a FRAME
+                    # BUG.  The defence-in-depth drop stays (a wall in a
+                    # strip is never lawful) and the allowance dies with
+                    # it — the joint is demoted.
                     plan.stats["faces_dropped_keepout"] += 1
                     joint.actual_step_m = 0.0
                     continue
             except _GEOM_EXC:
                 continue
-        ring_pts = list(wall_poly.exterior.coords)[:-1]
-        if len(ring_pts) < 3:
+        # The ring is built from the station rows VERBATIM, so the
+        # altitudes align with it by construction — top row at the
+        # upper panel's own value, bottom row at the lower panel's.
+        alts = ([round(z_hi, 1) for (_k, _s, z_hi, _zl) in rows]
+                + [round(z_lo, 1) for (_k, _s, _zh, z_lo) in rows][::-1])
+        if len(alts) != len(ring):
             continue
-        # Each emitted ring vertex takes the level of the STATION it sits
-        # at, on the side it sits on — a nearest-station read over the
-        # face's own points, never an average.
-        wall_alts = []
-        for (vx, vy) in ring_pts:
-            t = (vx - x0) * ux + (vy - y0) * uy
-            side = (vx - x0) * nx + (vy - y0) * ny
-            on_low = (side * low_sign) > 0.25 * STACKED_WALL_RETREAT_M
-            best = min(st_face, key=lambda r: abs(r[0] - t))
-            z_lo = min(best[1], best[2])
-            z_hi = max(best[1], best[2])
-            wall_alts.append(round(z_lo if on_low else z_hi, 1))
         new_walls.append(BuiltShape(
             polygon=wall_poly, role=ROLE_RETAINING_WALL,
             ref="apron_terrace_joint",
-            node_altitudes=wall_alts + [wall_alts[0]]))
-        joint.panel_lo = round(min(worst[1], worst[2]), 3)
-        joint.panel_hi = round(max(worst[1], worst[2]), 3)
+            node_altitudes=alts + [alts[0]]))
+        joint.panel_lo = round(min(min(r[2], r[3]) for r in rows), 3)
+        joint.panel_hi = round(max(max(r[2], r[3]) for r in rows), 3)
         joint.faced = True
     layout.shapes.extend(new_walls)
     plan.stats["faces_emitted"] = len(new_walls)
     return len(new_walls)
 
 
-def _split_lower_panels(layout, plan, retreat_bands) -> None:
-    """PARKED — NOT CALLED (lead direction 2026-08-05).
-
-    PRECONDITION FOR REVIVAL: interior-ring emit support, plus a panel
-    boundary that exists BEFORE the solve.  Measured verdict that parked
-    it: with the split the terrace law minted 5 defects, because the
-    difference introduces ring vertices that then adopt the FACE's level
-    — a value the solve never produced, which violates the architecture's
-    solve-value discipline (a ring vertex only ever carries a
-    solve-produced value).  Without it terrace improves every airport on
-    both sides (HECA airside −2 356 / groundside −92, KCLT −27,
-    HEAZ −9).  The 2 479 m² lap it would have cleared is named cosmetic
-    debt for the emit round.  Kept verbatim because the geometry is
-    correct and the revival is a scheduling question, not a redesign.
-
-    §3(d): the LOWER panel's apron polygon retreats by the settled
-    wall band, so the face no longer laps live apron surface.
-
-    Each settled ``wall_poly`` is subtracted from its apron; the ring
-    adopts the wall's own vertices by CANONICAL JOIN (the wall's
-    coordinates verbatim — shared vertices are byte-equal, never
-    proximity-joined), and each adopted vertex takes the wall's own level
-    for its side.  No lap, no naked step.  Measured lap before this:
-    HECA 6,222 m² of doubled surface along the 0.6 m band.
-
-    A difference that separates the apron into several pieces mints
-    sibling apron shapes rather than dropping surface — losing pavement
-    to a geometry op is never the lawful answer.
-    """
-    if not retreat_bands:
-        return
-    from auto_patch.layout import BuiltShape
-    shapes_by_id = {id(s): s for s in getattr(layout, "shapes", ())}
-    added: list = []
-    for shape_id, bands in retreat_bands.items():
-        shape = shapes_by_id.get(shape_id)
-        if shape is None:
-            continue
-        rv = _ring_values(shape)
-        if rv is None:
-            continue
-        coords, alts = rv
-        # canonical join: the ORIGINAL ring's own vertices keep their own
-        # settled values, keyed by exact coordinate spelling.
-        by_pos = {(round(x, 6), round(y, 6)): z
-                  for ((x, y), z) in zip(coords, alts)}
-        # BAND BY BAND, each subtraction accepted only when it leaves a
-        # HOLE-FREE result.  A band that would punch an interior ring is
-        # REVERTED and counted: ``to_osm`` drops interior rings, so
-        # subtracting one there would remove nothing from the patch
-        # while pretending the lap was cleared.  Honest counter, never a
-        # silent no-op.
-        current = shape.polygon
-        n_applied = 0
-        for band in bands:
-            try:
-                nxt = current.difference(band[0])
-            except _GEOM_EXC:
-                plan.stats["laps_kept_no_split"] += 1
-                continue
-            if nxt.is_empty:
-                plan.stats["laps_kept_no_split"] += 1
-                continue
-            cand = ([nxt] if nxt.geom_type == "Polygon"
-                    else [g for g in getattr(nxt, "geoms", ())
-                          if g.geom_type == "Polygon" and not g.is_empty])
-            if not cand or any(len(g.interiors) for g in cand):
-                plan.stats["laps_kept_no_split"] += 1
-                continue
-            current = nxt
-            n_applied += 1
-        if not n_applied:
-            continue
-        pieces = ([current] if current.geom_type == "Polygon"
-                  else [g for g in getattr(current, "geoms", ())
-                        if g.geom_type == "Polygon" and not g.is_empty])
-        if not pieces:
-            continue
-        pieces.sort(key=lambda p: -p.area)
-
-        def _value_at(px, py):
-            v = by_pos.get((round(px, 6), round(py, 6)))
-            if v is not None:
-                return v
-            # A vertex the difference INTRODUCED: it lies on a wall
-            # band's boundary, so it takes that wall's own level for the
-            # side it is on — the wall's numbers verbatim, which is what
-            # makes the ring and the face share one step instead of two.
-            best = None
-            probe = _Point(px, py)
-            for (wp, z_low, z_high, (jx, jy), (nx, ny), low_sign,
-                 retreat) in bands:
-                try:
-                    d = wp.exterior.distance(probe)
-                except _GEOM_EXC:
-                    continue
-                if best is None or d < best[0]:
-                    side = (px - jx) * nx + (py - jy) * ny
-                    on_low = (side * low_sign) > 0.25 * retreat
-                    best = (d, z_low if on_low else z_high)
-            if best is not None and best[0] <= 1.0:
-                return best[1]
-            # Off every band (a corner the union rounded): fall back to
-            # the nearest ORIGINAL ring vertex — the closest thing the
-            # solve actually settled.
-            near = None
-            for ((x, y), z) in zip(coords, alts):
-                d = math.hypot(x - px, y - py)
-                if near is None or d < near[0]:
-                    near = (d, z)
-            return near[1] if near else 0.0
-
-        def _alts_for(poly):
-            ring = list(poly.exterior.coords)
-            if len(ring) > 1 and ring[0] == ring[-1]:
-                ring = ring[:-1]
-            vals = [round(float(_value_at(x, y)), 1) for (x, y) in ring]
-            return vals + [vals[0]] if vals else None
-
-        first_alts = _alts_for(pieces[0])
-        if not first_alts:
-            continue
-        shape.polygon = pieces[0]
-        shape.node_altitudes = first_alts
-        shape.altitude = None
-        shape.altitude_high = None
-        shape.altitude_low = None
-        plan.stats["polygons_split"] += 1
-        for extra in pieces[1:]:
-            extra_alts = _alts_for(extra)
-            if not extra_alts:
-                continue
-            added.append(BuiltShape(
-                polygon=extra, role=shape.role, ref=shape.ref,
-                node_altitudes=extra_alts))
-            plan.stats["split_pieces_added"] += 1
-    if added:
-        layout.shapes.extend(added)
-
-
-# ────────────────────────────────────────────────────────────────────
-# 6.  THE VALIDATOR'S HALF — the sidecar
-# ────────────────────────────────────────────────────────────────────
 
 def terrace_joints_sidecar(layout) -> list:
     """``terrace_joints`` for ``<patch>.axes.json`` (spec §5).

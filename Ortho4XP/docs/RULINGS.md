@@ -449,3 +449,24 @@ Binding form:
    changed campaign hashes mid-night is the precedent this forbids.
 3. Concurrent lanes never race a regeneration: the harness guards
    cache writes (lock or refuse-and-report).
+
+## 2026-08-05 — Flat worlds first (owner); the synthetic ladder (lead)
+
+Owner: focus on driving to ZERO on the two synthetic DEMs (all 0 and
+all 10,000 m — the extreme low and high seating of the pavement
+network) BEFORE reintroducing real DEM.
+
+Working plan (lead, from the owner's question "am I missing
+something"): the LADDER — (1) the two flat extremes to zero; (2)
+analytic GRADIENT worlds (constant-slope synthetic DEMs at 0.5% /
+2% / 10%) to zero — these cover what flat worlds structurally cannot
+(terrace/certificate machinery never fires at zero relief; mixed
+cut/fill transitions never occur), still with exact analytic ground
+truth; (3) real DEM reintroduced — at which point any new failure is
+seed-handling by construction, never law. Real-DEM batteries stay
+RECORDED as reference frames throughout, not chased.
+
+Named consequence, priced in: flat-zero REQUIRES the drainage-minimum
+shaping law (a dead-flat apron violates the FAA 0.5% floor everywhere
+— the generator must CREATE minimum drainage slopes regardless of
+DEM). This is the largest known remaining generation project.

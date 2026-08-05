@@ -178,3 +178,109 @@ def test_no_layout_attribute_is_required():
     ceiling, floor = spine_value_fields(_Slotted(), G)
     assert ceiling[2] == pytest.approx(104.0)
     assert floor[2] == pytest.approx(106.0)
+
+
+# ── (f) THE LAW / RIDE SPLIT (fix-3 lane A) ──────────────────────────────
+#
+# A runway-join anchor value is sampled off the EMITTED runway surface, and
+# that surface's interior is a DEM-FOLLOW SEED (``runway_segments``:
+# ``clamp(DEM, base ± min(RUNWAY_DEM_FOLLOW_LAW_BAND_M, ½·K·d²))``).  So an
+# anchor value is LAW plus a ride of up to ±10 m, and two constant-DEM
+# worlds read the same station up to 20 m apart (HECA measured: exactly
+# +20.000 m on 71 of 75 stations of 05C/23C, plateau vs canyon).
+#
+# The error therefore has to answer the ONE question its reader has: does
+# this shortfall survive with the ride removed?  If yes it is a real
+# metric / cap / topology defect and needs an owner ruling; if no, nothing
+# is wrong with the law and the anchor is simply carrying a seed
+# (docs/RULINGS.md: the DEM is a SEED, never an authority).  HECA canyon
+# reads 12.84 m of shortfall of which 6.00 m is ride — one number until
+# this line existed.
+
+def _profiled_case(budget_a, budget_b, ride_a=0.0, ride_b=0.0):
+    """The two-anchor case with both anchors sitting on RUNWAY PROFILES,
+    each anchored only at its two ends, so ``_anchor_law_values`` has a
+    law baseline to interpolate.  ``ride_*`` is the DEM-follow ride the
+    emitted surface carries above that baseline at the anchor's station."""
+    layout, G = _two_anchor_case(budget_a, budget_b)
+    G.runway_anchor = {0: 100.0 + ride_a, 1: 110.0 + ride_b}
+    layout._runway_redistributed_profiles = {
+        "A": {"axis_a": (0.0, 0.0), "axis_d": (0.0, 10.0),
+              "axis_len2": 100.0, "half_width_m": 20.0,
+              "fractions": [0.0, 0.5, 1.0],
+              "elevs": [100.0, 100.0 + ride_a, 100.0],
+              "anchored": [True, True, True],
+              "flex_minted": [False, True, False]},
+        "B": {"axis_a": (100.0, 0.0), "axis_d": (0.0, 10.0),
+              "axis_len2": 100.0, "half_width_m": 20.0,
+              "fractions": [0.0, 0.5, 1.0],
+              "elevs": [110.0, 110.0 + ride_b, 110.0],
+              "anchored": [True, True, True],
+              "flex_minted": [False, True, False]},
+    }
+    return layout, G
+
+
+def test_law_baseline_excludes_the_flex_minted_anchors():
+    """``apply_runway_flex`` inserts its applied targets as
+    ``anchored=True``, so anchored-ness alone stops meaning "authority"
+    the moment the flex has run.  The law baseline must read
+    ``flex_minted`` and drop them, or it reports the flex's own output
+    back as law."""
+    from auto_patch.elevation_per_surface.building_feasibility import (
+        _anchor_law_values)
+    layout, G = _profiled_case(4.0, 4.0, ride_a=6.0, ride_b=0.0)
+    laws = _anchor_law_values(layout, G, {0: 106.0, 1: 110.0})
+    # station t=0 for both anchors (pos 0,0 and 100,0) → the END value,
+    # which the ride never touched.
+    assert laws[0] == pytest.approx(100.0)
+    assert laws[1] == pytest.approx(110.0)
+
+
+def test_a_shortfall_the_ride_created_is_named_as_ride():
+    """LAW alone is feasible (10 m spread, 8 m + margin of budget); the
+    ride is what inverts the band.  The message must say so."""
+    layout, G = _profiled_case(6.0, 6.0, ride_a=-6.0)   # 12 m of budget
+    spine_value_fields(layout, G)
+    message = str(pytest.raises(
+        BandInversionError,
+        assert_no_final_band_inversion, layout, "TEST").value)
+    assert "LAW half" in message
+    assert "LAW ALONE IS FEASIBLE" in message
+    assert "SEED, never an" in message
+    assert "METRIC / CAP / TOPOLOGY" not in message
+
+
+def test_a_shortfall_that_survives_the_ride_is_named_as_law():
+    """Zero ride, and the anchors still contradict through the route: this
+    is the class that needs a ruling, and the message must not let it be
+    read as a DEM artefact."""
+    layout, G = _profiled_case(4.0, 4.0)
+    spine_value_fields(layout, G)
+    message = str(pytest.raises(
+        BandInversionError,
+        assert_no_final_band_inversion, layout, "TEST").value)
+    assert "LAW half" in message
+    assert "METRIC / CAP / TOPOLOGY" in message
+    assert "law shortfall +2.0000 m" in message
+
+
+def test_the_split_is_report_only():
+    """The law values are a REPORT: adding them must not move either
+    field, or the diagnostic has become an authority itself."""
+    plain, G_p = _two_anchor_case(4.0, 4.0)
+    ceil_p, floor_p = spine_value_fields(plain, G_p)
+    profiled, G_q = _profiled_case(4.0, 4.0)
+    ceil_q, floor_q = spine_value_fields(profiled, G_q)
+    assert ceil_p == ceil_q and floor_p == floor_q
+
+
+def test_no_profiles_means_no_law_line_and_no_crash():
+    """The pre-solve band runs before any profile exists; it must keep the
+    behaviour it has always had."""
+    layout, G = _two_anchor_case(4.0, 4.0)
+    spine_value_fields(layout, G)
+    message = str(pytest.raises(
+        BandInversionError,
+        assert_no_final_band_inversion, layout, "TEST").value)
+    assert "LAW half" not in message

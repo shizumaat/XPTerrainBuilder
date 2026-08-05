@@ -657,7 +657,9 @@ def spine_value_fields(layout, G):
     _record_band_inversions(layout, G, ceiling, floor, ceil_dist, floor_dist,
                             hard_truth=_hard_truth_spine_seeds(layout, G),
                             ceil_via=ceil_via, floor_via=floor_via,
-                            anchor_seeds=anchor_seeds)
+                            anchor_seeds=anchor_seeds,
+                            anchor_law=_anchor_law_values(layout, G,
+                                                          anchor_seeds))
     return ceiling, floor
 
 
@@ -741,9 +743,105 @@ def _hard_truth_spine_seeds(layout, G):
     return out
 
 
+def _anchor_law_values(layout, G, anchor_seeds):
+    """``{anchor_node: law_baseline_value}`` — what LAW alone puts at each
+    runway anchor's own station, with the DEM-follow ride removed.
+
+    WHY THIS EXISTS (fix-3 lane A, measured at HECA).  A runway-join
+    anchor value is sampled off the EMITTED runway surface, and that
+    surface's interior is a DEM-FOLLOW SEED: every station that is not a
+    CIFP threshold / seam / crossing anchor is set to ``clamp(DEM, base ±
+    min(RUNWAY_DEM_FOLLOW_LAW_BAND_M, ½·K·d²))`` in
+    ``runway_segments.generate_patch_osm``.  So the same station reads up
+    to ``2 × 10 m`` apart in two constant-DEM worlds (HECA measured:
+    exactly +20.000 m on 71 of 75 stations of 05C/23C), and the band
+    seeded from it inherits every one of those metres as if it were law.
+
+    The band error is the ONE place that difference has to be legible: a
+    shortfall that is law (the CIFP thresholds genuinely do not reach each
+    other within the route budget) needs a metric / cap / topology ruling,
+    while a shortfall the DEM ride ADDED needs neither.  Without this the
+    two are one number and the reader cannot tell them apart — HECA's
+    canyon failure reads as 12.84 m of law defect when 6.00 m of it is
+    ride.
+
+    The baseline is the profile interpolated over its ANCHORED stations
+    ONLY, and ``flex_minted`` stations are excluded from that set —
+    ``apply_runway_flex`` inserts its applied targets as ``anchored=True``
+    (they are hard for later passes), so anchored-ness alone stops being
+    "authority" the moment the flex has run.  ``{}`` whenever the profiles
+    are absent, so a caller without them is unchanged.
+    """
+    profiles = getattr(layout, "_runway_redistributed_profiles", None) or {}
+    pos = getattr(G, "pos", None) or {}
+    if not profiles or not pos:
+        return {}
+    lawful: dict = {}
+    for ref, p in profiles.items():
+        if not p:
+            continue
+        fr = p.get("fractions") or ()
+        el = p.get("elevs") or ()
+        an = p.get("anchored") or ()
+        minted = p.get("flex_minted") or ()
+        pairs = [(float(fr[i]), float(el[i])) for i in range(len(fr))
+                 if i < len(an) and an[i]
+                 and not (i < len(minted) and minted[i])]
+        if len(pairs) >= 2:
+            lawful[ref] = sorted(pairs)
+    if not lawful:
+        return {}
+
+    def _interp(pairs, t):
+        if t <= pairs[0][0]:
+            return pairs[0][1]
+        if t >= pairs[-1][0]:
+            return pairs[-1][1]
+        for k in range(len(pairs) - 1):
+            t0, e0 = pairs[k]
+            t1, e1 = pairs[k + 1]
+            if t0 <= t <= t1:
+                if t1 - t0 < 1e-12:
+                    return e0
+                return e0 + (t - t0) / (t1 - t0) * (e1 - e0)
+        return pairs[-1][1]
+
+    out: dict = {}
+    for k in anchor_seeds:
+        pt = pos.get(k)
+        if pt is None:
+            continue
+        px, py = float(pt[0]), float(pt[1])
+        best = None                       # (lateral, value)
+        for ref, pairs in lawful.items():
+            p = profiles[ref]
+            ax, ay = p["axis_a"]
+            dx, dy = p["axis_d"]
+            len2 = float(p["axis_len2"])
+            if len2 <= 0.0:
+                continue
+            t = ((px - ax) * dx + (py - ay) * dy) / len2
+            if not (-0.02 <= t <= 1.02):
+                continue
+            axis_len = math.sqrt(len2)
+            lateral = abs(-(px - ax) * (dy / axis_len)
+                          + (py - ay) * (dx / axis_len))
+            # A JOIN anchor sits at the runway EDGE, so allow the ring's
+            # own half-width plus a contact margin; the nearest runway in
+            # LATERAL distance owns the station.
+            if lateral > float(p.get("half_width_m") or 0.0) + 40.0:
+                continue
+            if best is None or lateral < best[0]:
+                best = (lateral, _interp(pairs, min(1.0, max(0.0, t))))
+        if best is not None:
+            out[int(k)] = float(best[1])
+    return out
+
+
 def _record_band_inversions(layout, G, ceiling, floor, ceil_dist,
                             floor_dist, hard_truth=None, ceil_via=None,
-                            floor_via=None, anchor_seeds=None):
+                            floor_via=None, anchor_seeds=None,
+                            anchor_law=None):
     """Stash THIS call's INVERTED rows on the layout (spec kill-half §3,
     extended by the seed-fix round §2).
 
@@ -768,6 +866,7 @@ def _record_band_inversions(layout, G, ceiling, floor, ceil_dist,
     if ceiling and floor:
         pos = getattr(G, "pos", None) or {}
         seeds = anchor_seeds or {}
+        laws = anchor_law or {}
         cvia = ceil_via or {}
         fvia = floor_via or {}
         for node, lo in floor.items():
@@ -800,6 +899,13 @@ def _record_band_inversions(layout, G, ceiling, floor, ceil_dist,
                                        else float(seeds.get(fa, float("nan")))),
                 "ceil_anchor_value": (None if ca is None
                                       else float(seeds.get(ca, float("nan")))),
+                # THE LAW HALF of each anchor value (``_anchor_law_values``):
+                # the same station with the DEM-follow ride removed.  None
+                # for an anchor no runway profile owns (seam pin, seat).
+                "floor_anchor_law": (None if fa is None
+                                     else laws.get(int(fa))),
+                "ceil_anchor_law": (None if ca is None
+                                    else laws.get(int(ca))),
                 "x": (None if xy is None else float(xy[0])),
                 "y": (None if xy is None else float(xy[1])),
             })
@@ -887,6 +993,37 @@ def assert_no_final_band_inversion(layout, icao="",
                 f"spread {'?' if spread is None else f'{spread:.3f}'} m "
                 f"over a route budget of {budget:.3f} m ⇒ shortfall "
                 f"{row['worst']:.4f} m at {row['n']} node(s)")
+            # THE LAW / RIDE SPLIT.  What of this shortfall survives with
+            # the runway profiles' DEM-FOLLOW SEED removed (see
+            # ``_anchor_law_values``)?  A law remainder is a real
+            # metric / cap / topology defect and needs a ruling; the ride
+            # remainder is the seed leaking into an anchor and needs none.
+            fl = r.get("floor_anchor_law")
+            cl = r.get("ceil_anchor_law")
+            if fl is not None or cl is not None:
+                fl_v = fv if fl is None else fl
+                cl_v = cv if cl is None else cl
+                if fl_v is not None and cl_v is not None:
+                    law_spread = abs(fl_v - cl_v)
+                    law_short = law_spread - budget
+                    lines.append(
+                        f"      LAW half: anchors "
+                        f"{'?' if fl is None else f'{fl:.3f}'} m vs "
+                        f"{'?' if cl is None else f'{cl:.3f}'} m "
+                        f"(DEM-follow ride "
+                        f"{0.0 if fl is None else fv - fl:+.3f} / "
+                        f"{0.0 if cl is None else cv - cl:+.3f} m) ⇒ law "
+                        f"spread {law_spread:.3f} m, law shortfall "
+                        f"{law_short:+.4f} m — "
+                        + ("the CIFP thresholds themselves do not reach "
+                           "each other within this route budget (a METRIC / "
+                           "CAP / TOPOLOGY defect: rule on it, the DEM "
+                           "cannot be blamed)"
+                           if law_short > tol else
+                           "LAW ALONE IS FEASIBLE here; the whole shortfall "
+                           "is the DEM-follow ride entering an ANCHOR "
+                           "(RULINGS: the DEM is a SEED, never an "
+                           "authority)"))
     for r in over[:20]:
         where = ("" if r["x"] is None
                  else f" @({r['x']:.1f},{r['y']:.1f})")

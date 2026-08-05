@@ -29,6 +29,7 @@ import re
 import textwrap
 from pathlib import Path
 
+import pytest
 from shapely.geometry import Polygon
 
 from auto_patch import adjacent_ground
@@ -36,6 +37,29 @@ from auto_patch.adjacent_ground import (
     blend_cross_strip_seam_steps,
     report_strip_seam_declines,
 )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# ARM PIN, 2026-08-05 (P3 release tip, lead ruling).
+#
+# This module is the v3 §2 decline-loudness contract of the PRE-v4
+# healer.  f607018 (the P2 flip batch) made ``O4_STRIP_HEAL_LAW``
+# default ON, so from that commit the module's scenes ran under the v4
+# law, which HEALS several of the sites whose decline rows these twins
+# assert — six of the ten went red for that reason alone, with no
+# assertion about the pre-v4 contract having become untrue.
+#
+# The arm is therefore pinned EXPLICITLY rather than inherited from the
+# default: this is the LEGACY arm, and it stays valuable as legacy-path
+# coverage.  Not one assertion is weakened or removed.
+#
+# The NEW world's equivalent invariant — report rows == deferred +
+# guarded + declined, zero silent — is twinned in
+# ``tests/test_strip_heal_law_v4.py`` and is unaffected by this pin.
+# ══════════════════════════════════════════════════════════════════════
+@pytest.fixture(autouse=True)
+def _legacy_pre_v4_healer_arm(monkeypatch):
+    monkeypatch.setenv("O4_STRIP_HEAL_LAW", "0")
 
 _DECLINE_ROW = re.compile(r"\[strip-seam\] DECLINED ")
 _GUARD_DECLINED_ROW = re.compile(r"\[strip-seam\] GUARD-DECLINED ")

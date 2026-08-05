@@ -69,17 +69,33 @@ MID_EDGE_CAP = 0
 #
 # Five of the suite's standing reds live in this module:
 # ``test_pavement_grade`` for SPJC / SPLP / CYXY / HECA, and
-# ``test_runway_longitudinal_grade[HECA]``.  Measured at HEAD (e07a3f6),
-# full battery, law-true frame:
-#   CYXY   cross=0  steps=0    within=155
+# ``test_runway_longitudinal_grade[HECA]``.
+#
+# RE-PINNED 2026-08-05 to the RELEASE TIP (f607018, the P2 flip batch:
+# O4_SEAT_STAMP_GUARD + O4_STRIP_HEAL_LAW default ON).  Measured at
+# f607018, full battery, law-true frame — these numbers ARE the
+# instrument's current reading, not an expectation:
+#   CYXY   cross=0  steps=0    within=149
 #   SPLP   cross=0  steps=26   within=44    (worst step 5.79 m)
-#   SPJC   cross=0  steps=0    within=1361
-#   HECA   cross=0  steps=131  within=9125
+#   SPJC   cross=0  steps=0    within=1377
+#   HECA   cross=0  steps=126  within=8865  (worst step 3.47 m)
 #   HECA runway 05C/23C longitudinal 2.45% against the 1.50% cap
 #     @ 30.10458,31.40419
-# These reconcile with the campaign census minted at the c48ce36 tip
-# (SPJC 1366, SPLP 27, CYXY 155, HECA 9125), i.e. this gate and the
-# census are measuring the same population.
+# These reconcile with the RELEASE census minted at the f607018 tip
+# (SPJC 1382, SPLP 27, CYXY 149, HECA 8865, KCLT 2643), i.e. this gate
+# and the census are measuring the same population.  The SPJC / SPLP
+# offsets (1377 vs 1382, 44 vs 27) are the standing frame difference:
+# this gate grades the PER-TILE cut geometry the way Ortho4XP ships it
+# (``_airport_tiles`` above), the census grades the whole-airport patch.
+#
+# PREVIOUS PIN, for the delta (c48ce36 tip, 2026-08-04): CYXY 155,
+# SPLP 44/26, SPJC 1361, HECA 9125/131; census SPJC 1366, SPLP 27,
+# CYXY 155, HECA 9125, KCLT 2643.  The movement is attributed
+# interventionally at the P3 tip, one gate at a time, same tree:
+# the seat-stamp guard owns HECA -236 within / -5 steps and SPJC +16
+# (an AIRSIDE regression, lead-ratification item); the strip-heal law
+# owns HECA seam 28->4 (-24 within) and CYXY seam 6->0 (-6 within),
+# and is census-inert at SPJC / KCLT / SPLP / HEAZ.
 #
 # They are NOT stale expectations and NOT broken tests: the caps above
 # are the universal zero the owner set (2026-05-31), and this module is

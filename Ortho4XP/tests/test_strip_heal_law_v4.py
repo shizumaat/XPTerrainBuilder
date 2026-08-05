@@ -105,10 +105,15 @@ def _welded(cx, cy, value, size=0.1):
 
 
 def _run(shapes_factory, *, law, monkeypatch):
+    # BOTH arms are set EXPLICITLY.  Before f607018 the off-arm deleted
+    # the variable and relied on the "0" source default; that flipped to
+    # "1" with the P2 flip batch, which silently turned every off-arm ON
+    # and collapsed the A/B (caught at the P3 tip, 2026-08-05).  An arm
+    # must never depend on which way the default happens to point.
     if law:
         monkeypatch.setenv("O4_STRIP_HEAL_LAW", "1")
     else:
-        monkeypatch.delenv("O4_STRIP_HEAL_LAW", raising=False)
+        monkeypatch.setenv("O4_STRIP_HEAL_LAW", "0")
     shapes = shapes_factory()
     layout = _StubLayout(shapes)
     moved = blend_cross_strip_seam_steps(layout.shapes, layout)
@@ -341,13 +346,29 @@ def test_an_empty_cluster_interval_carries_its_attribution(capsys):
     assert "binding_lo=" in out and "binding_hi=" in out
 
 
-def test_the_gate_defaults_off_at_its_one_read_site():
-    """ONE read site, default "0" — the per-site default disagreement
-    blast reports as a hazard cannot happen with a single reader."""
+def test_the_gate_defaults_on_at_its_one_read_site(monkeypatch):
+    """ONE read site — the per-site default disagreement blast reports as
+    a hazard cannot happen with a single reader.  That invariant is the
+    point of this twin and is unchanged.
+
+    RE-PINNED 2026-08-05 at the P3 release tip for f607018 (the P2 flip
+    batch, ``O4_STRIP_HEAL_LAW`` default "0" -> "1").  Tip-battery
+    evidence: HECA seam 28 -> 4 (-24 within), CYXY seam 6 -> 0 (-6
+    within); byte-changing but census-identical at SPJC and KCLT;
+    byte-inert at SPLP and HEAZ.  Read from the SOURCE line, not the
+    imported value, so a developer's shell override cannot move it."""
     src = inspect.getsource(adjacent_ground)
     reads = re.findall(r'environ\.get\(\s*"O4_STRIP_HEAL_LAW"\s*,\s*"(\d)"',
                        src)
-    assert reads == ["0"], reads
+    assert reads == ["1"], reads
     callers = re.findall(r"_strip_heal_law_enabled\(\)", src)
     # one definition + the healer + the wall pass
     assert len(callers) >= 3, callers
+    # Both explicit arms still switch; "0" is the LEGACY pre-v4 healer
+    # and is the escape hatch.
+    monkeypatch.delenv("O4_STRIP_HEAL_LAW", raising=False)
+    assert adjacent_ground._strip_heal_law_enabled() is True
+    monkeypatch.setenv("O4_STRIP_HEAL_LAW", "1")
+    assert adjacent_ground._strip_heal_law_enabled() is True
+    monkeypatch.setenv("O4_STRIP_HEAL_LAW", "0")        # legacy arm
+    assert adjacent_ground._strip_heal_law_enabled() is False

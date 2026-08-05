@@ -119,11 +119,25 @@ def test_without_the_cap_the_polytope_can_seat_metres_away():
 
 # ── §4 ───────────────────────────────────────────────────────────────────
 
-def test_seat_stamp_guard_gate_defaults_off(monkeypatch):
+def test_seat_stamp_guard_gate_defaults_on_since_the_release_flip(monkeypatch):
+    """RE-PINNED 2026-08-05 at the P3 release tip for f607018 (the P2 flip
+    batch, ``O4_SEAT_STAMP_GUARD`` default "0" -> "1").
+
+    Tip-battery evidence, interventional, one gate at a time on one tree:
+    HECA -236 within / -5 steps with severity DOWN (transverse worst
+    3.4344 -> 3.2004 m); SPJC +16 within, all airside, severity flat
+    (within_pair worst 3.86 -> 3.87 m, inside the 0.01 m materiality
+    floor) — a NAMED release item with a queued next-train attribution;
+    byte-inert at KCLT, CYXY, SPLP, HEAZ.  Lead adjudication: KEEP.
+
+    All three arms stay covered.  The "0" arm is the LEGACY pre-flip
+    behaviour and is the escape hatch — it must keep working."""
     monkeypatch.delenv("O4_SEAT_STAMP_GUARD", raising=False)
-    assert SV.seat_stamp_guard_enabled() is False
+    assert SV.seat_stamp_guard_enabled() is True
     monkeypatch.setenv("O4_SEAT_STAMP_GUARD", "1")
     assert SV.seat_stamp_guard_enabled() is True
+    monkeypatch.setenv("O4_SEAT_STAMP_GUARD", "0")      # legacy arm
+    assert SV.seat_stamp_guard_enabled() is False
 
 
 def test_a_contradicting_seat_is_detected_and_a_lawful_one_is_not():

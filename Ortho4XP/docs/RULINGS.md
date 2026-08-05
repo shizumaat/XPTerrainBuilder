@@ -572,3 +572,14 @@ The three standing compare-target reds ((d)-verdicted: vendored
 2026-07-20, structurally stale) become explicit skips citing this
 ruling — not red noise, not silently deleted. The re-cut is the
 FIRST act of the next feature cycle, after the owner's sim pass.
+
+## 2026-08-05 — Real DEM gated on flat-green (owner)
+
+Owner: real-DEM builds happen ONLY when the high and low flat extremes
+are FULLY GREEN — zero defects (version-deferred classes excluded per
+d48bc0a). Any flat-world issue is addressed first; a real-DEM build
+before that has no value. Consequences: no lane runs real-DEM
+confirmation/regression builds as acceptance until flat-zero; the
+recorded real-DEM reference frame stands as-is, un-refreshed, until
+the gate opens; the FIRST real-DEM build after flat-green is the
+reintroduction event, run deliberately through the harness.

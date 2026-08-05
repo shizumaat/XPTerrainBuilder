@@ -288,7 +288,16 @@ def main(argv=None) -> int:
     for osm in args.patches:
         if not osm.exists():
             raise SystemExit(f"REFUSING: no such patch {osm}")
-        rep = census_one(osm, cg, want_bare=args.bare, top=args.top)
+        try:
+            rep = census_one(osm, cg, want_bare=args.bare, top=args.top)
+        except FileNotFoundError as exc:
+            raise SystemExit(
+                f"REFUSING: {exc}\n"
+                f"  A census without the sidecar is the CONTEXT-FREE frame, "
+                f"which overcounts by construction (588 rows vs 0 actionable "
+                f"at KCLT).  If you only want that number for the record, "
+                f"run tools/check_grade.py directly — it says so in its own "
+                f"output.") from None
         reports.append(rep)
         if not args.quiet:
             print_report(rep, args.top)

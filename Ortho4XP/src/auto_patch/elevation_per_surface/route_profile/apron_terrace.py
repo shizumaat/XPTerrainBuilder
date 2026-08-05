@@ -116,7 +116,6 @@ from auto_patch.config import (
 _GEOM_EXC = (ValueError, GEOSException, TopologicalError, AttributeError)
 
 __all__ = [
-    "apron_terrace_law_enabled",
     "construct_apron_terrace_presolve",
     "plan_apron_terraces",
     "terrace_station_edges",
@@ -237,15 +236,6 @@ def _as_xy(node_xy):
         return node_xy
     return _XY(node_xy)
 
-
-def apron_terrace_law_enabled() -> bool:
-    """STANDING LAW — always True (owner 2026-08-05, no gates).
-
-    Retained ONLY as the call-site handle the solve still branches on
-    (``solve.py``, KILL-lane territory: the ``if`` there is now
-    unconditional-in-effect and is listed as a handoff deletion).  There
-    is no env override and no "off" arm."""
-    return True
 
 
 class TerraceJoint:
@@ -1391,8 +1381,6 @@ def plan_apron_terraces(layout, shape_constraints, node_xy, node_dem,
     Returns an empty plan when nothing panelized — never ``None`` in
     production; ``None`` only if the law itself is off.
     """
-    if not apron_terrace_law_enabled():
-        return None
     node_xy = _as_xy(node_xy)
     plan = TerracePlan()
     plan.cover = corridor_cover(layout)

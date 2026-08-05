@@ -1726,16 +1726,12 @@ def _heal_emitted_band_tears(emitted_shapes, layout):
 
 
 # ── THE v4 HEALER LAW — STANDING ──────────────────────────────────────
-# ``O4_STRIP_HEAL_LAW`` is DELETED (owner 2026-08-05, no gates).  The v4
-# healer law (§1 grade-aware guard, §2 authority-split clusters, §3
-# cluster-level guard) has been default-ON since the 06:00 release train
-# (lead verdict 31a87b0: HECA seam 28→4, CYXY 6→0, pavement
-# byte-identical); there is no pre-v4 arm to restore.  The function
-# survives as the single predicate the two passes read, so the branches
-# below stay legible until they are folded out.
-def _strip_heal_law_enabled() -> bool:
-    """STANDING LAW — always True."""
-    return True
+# The v4 healer law (§1 grade-aware guard, §2 authority-split clusters,
+# §3 cluster-level guard) is UNCONDITIONAL (owner 2026-08-05, no gates):
+# ``O4_STRIP_HEAL_LAW`` and its predicate are deleted, and the pre-v4
+# arms below them are gone with them.  For the record, measured when the
+# law landed at the 06:00 release train (lead verdict 31a87b0): HECA
+# seam 28→4, CYXY 6→0, pavement byte-identical.
 
 # ── DECLINE LOUDNESS (spec seam-continuity-v3 §2, adjudication item 3) ──
 # The healer's every-node-anchored ⇒ genuine-step rule is CORRECT
@@ -1791,7 +1787,7 @@ _STRIP_SEAM_DECLINE_TAG = "[strip-seam]"
 # shapes only, never the non-donor authority shapes this index reads.
 #
 # Single-pass: built ONCE (by whichever of the two consumers runs first,
-# i.e. the healer under the v4 gate), cached on the layout, consumed by
+# i.e. the healer), cached on the layout, consumed by
 # ``emit_stacked_conflict_walls`` when it runs after.  One code path, no
 # second derivation.
 #
@@ -1799,7 +1795,7 @@ _STRIP_SEAM_DECLINE_TAG = "[strip-seam]"
 # building this table inserts ZERO canonical points at both airports
 # (``registry.size`` unchanged across ``emit_stacked_conflict_walls``),
 # so hoisting the ``get_or_add`` calls earlier cannot change which later
-# points intern together.  With the gate OFF nothing is hoisted at all.
+# points intern together.
 class _StripWallSiteIndex:
     """Authority claims over canonical points + authority exteriors.
 
@@ -2157,9 +2153,9 @@ def blend_cross_strip_seam_steps(strip_shapes, layout):
     cross-family seams that tear.  Returns the number of ring vertices
     re-levelled.
 
-    THE v4 LAW (STANDING since 2026-08-05, ungated; spec
+    THE v4 LAW (STANDING since 2026-08-05, unconditional; spec
     ``docs/specs/seam-continuity-v4-spec.md`` §1-§3, ONE interlocking
-    law).  With the gate on, three things change and nothing else:
+    law), in three clauses:
 
     §1 GRADE-AWARE GUARD.  The non-worsening guard's per-neighbour
     allowance stops being a bare ``STRIP_SEAM_TEAR_MIN_STEP_M - 0.05``
@@ -2196,8 +2192,7 @@ def blend_cross_strip_seam_steps(strip_shapes, layout):
     from .crown import _point_in_seam_band
     from .layout import WELD_DONOR_ROLES
 
-    law = _strip_heal_law_enabled()
-    wall_index = strip_wall_site_index(layout) if law else None
+    wall_index = strip_wall_site_index(layout)
 
     donor_ext = [s.polygon.exterior for s in layout.shapes
                  if (s.role or "") in WELD_DONOR_ROLES
@@ -2314,8 +2309,6 @@ def blend_cross_strip_seam_steps(strip_shapes, layout):
 
     def _is_wall_site(node_index):
         """v4 §2 boundary (b), through the SHARED predicate."""
-        if wall_index is None:
-            return False
         hit = _wall_site_memo.get(node_index)
         if hit is None:
             (vx, vy) = node_xy[node_index]
@@ -2339,31 +2332,24 @@ def blend_cross_strip_seam_steps(strip_shapes, layout):
         delta = abs(node_value[a] - node_value[b])
         (ax, ay), (bx, by) = node_xy[a], node_xy[b]
         planar = math.hypot(ax - bx, ay - by)
-        if law:
-            # §1: the healer's pairing test IS the census predicate.
-            if not seam_pair_is_tear(delta, planar):
-                continue
-        else:
-            if delta < STRIP_SEAM_TEAR_MIN_STEP_M:
-                continue
-            if delta < STRIP_SEAM_TEAR_MIN_GRADE * max(planar, 0.01):
-                continue    # steep-terrain drape, not a cliff
+        # §1: the healer's pairing test IS the census predicate.
+        if not seam_pair_is_tear(delta, planar):
+            continue
         if (len(node_strips[a]) == 1 and node_strips[a] == node_strips[b]):
             continue        # within one ring: the pinch healer\'s domain
-        if law:
-            # §2: cluster membership SPLITS at an authority boundary.
-            allowance = seam_guard_allowance_m(planar)
-            reason_a, reason_b = _reason(a), _reason(b)
-            if reason_a and reason_b and delta > allowance:
-                joints.append(_strip_seam_joint_record(
-                    "anchor_split", a, b, node_xy, node_value, planar,
-                    allowance, (reason_a, reason_b)))
-                continue
-            if _is_wall_site(a) or _is_wall_site(b):
-                joints.append(_strip_seam_joint_record(
-                    "wall_site", a, b, node_xy, node_value, planar,
-                    allowance, (reason_a, reason_b)))
-                continue
+        # §2: cluster membership SPLITS at an authority boundary.
+        allowance = seam_guard_allowance_m(planar)
+        reason_a, reason_b = _reason(a), _reason(b)
+        if reason_a and reason_b and delta > allowance:
+            joints.append(_strip_seam_joint_record(
+                "anchor_split", a, b, node_xy, node_value, planar,
+                allowance, (reason_a, reason_b)))
+            continue
+        if _is_wall_site(a) or _is_wall_site(b):
+            joints.append(_strip_seam_joint_record(
+                "wall_site", a, b, node_xy, node_value, planar,
+                allowance, (reason_a, reason_b)))
+            continue
         ra, rb = _find(a), _find(b)
         if ra != rb:
             parent[max(ra, rb)] = min(ra, rb)
@@ -2393,7 +2379,7 @@ def blend_cross_strip_seam_steps(strip_shapes, layout):
             continue
         source = anchors if anchors else members
         member_set = set(members)
-        if law and anchors:
+        if anchors:
             # §2, STATED AS LAW: the healer may average ONLY over a
             # population that agrees PAIRWISE under the census predicate
             # — such a mean cannot mint a row.  The pairing loop already
@@ -2425,132 +2411,96 @@ def blend_cross_strip_seam_steps(strip_shapes, layout):
                 continue
         target = round(
             sum(node_value[m] for m in source) / float(len(source)), 2)
-        if law:
-            # ── §3 CLUSTER-LEVEL GUARD (the radius fix) ───────────────
-            # ONE feasible interval for the whole sub-cluster: the
-            # intersection of every MOVER's per-neighbour §1 allowances
-            # against every non-member within the tear radius.  A bound
-            # found through one mover binds the CLUSTER, because every
-            # mover takes the SAME level — which is what makes the
-            # 4.26 m cliff-between-mates class impossible.
-            lo = hi = None
-            binding_lo = binding_hi = None
-            per_node: dict = {}
-            for m in free_nodes:
-                m_lo = m_hi = None
-                (mx, my) = node_xy[m]
-                for n in nbrs.get(m, ()):
-                    if n in member_set:
-                        continue
-                    (nx, ny) = node_xy[n]
-                    planar = math.hypot(mx - nx, my - ny)
-                    allowance = seam_guard_allowance_m(planar)
-                    hi_n = node_value[n] + allowance
-                    lo_n = node_value[n] - allowance
-                    if m_hi is None or hi_n < m_hi:
-                        m_hi = hi_n
-                    if m_lo is None or lo_n > m_lo:
-                        m_lo = lo_n
-                    if hi is None or hi_n < hi:
-                        hi = hi_n
-                        binding_hi = (round(float(nx), 2),
-                                      round(float(ny), 2),
-                                      round(float(node_value[n]), 3),
-                                      round(float(planar), 2))
-                    if lo is None or lo_n > lo:
-                        lo = lo_n
-                        binding_lo = (round(float(nx), 2),
-                                      round(float(ny), 2),
-                                      round(float(node_value[n]), 3),
-                                      round(float(planar), 2))
-                per_node[m] = (m_lo, m_hi)
-            worst = max(free_nodes,
-                        key=lambda m: (abs(node_value[m] - target), m))
-            if lo is not None and hi is not None and lo > hi:
-                # EMPTY CLUSTER INTERVAL after §1+§2 — a loud guarded
-                # record carrying its LAWFUL-ASSIGNMENT check
-                # (feasibility-is-guaranteed: a survivor is attribution,
-                # never tolerance).  ``per_node_feasible`` means a lawful
-                # assignment exists but only by letting the mates take
-                # DIFFERENT levels — which is exactly what §3 forbids, so
-                # the record names the trade rather than hiding it.
-                node_feasible = all(
-                    not (a is not None and b is not None and a > b)
-                    for (a, b) in per_node.values())
-                record = _strip_seam_guard_record(
-                    "cluster_blocked", worst, node_xy, node_value, target,
-                    None, lo, hi)
-                record["nodes"] = len(free_nodes)
-                record["lawful"] = ("per_node_feasible" if node_feasible
-                                    else "node_empty")
-                record["binding_lo"] = binding_lo
-                record["binding_hi"] = binding_hi
-                guarded.append(record)
-                continue
-            tgt = target
-            if hi is not None and tgt > hi:
-                tgt = hi
-            if lo is not None and tgt < lo:
-                tgt = lo
-            tgt = round(tgt, 2)
-            if abs(tgt - target) > 1e-9:
-                record = _strip_seam_guard_record(
-                    "clamped", worst, node_xy, node_value, target, tgt,
-                    lo, hi)
-                record["nodes"] = len(free_nodes)
-                record["lawful"] = "cluster_clamped"
-                record["binding_lo"] = binding_lo
-                record["binding_hi"] = binding_hi
-                guarded.append(record)
-            # RIGID MOVE: every mover takes the one clamped level.
-            for m in free_nodes:
-                if abs(node_value[m] - tgt) < 1e-9:
-                    continue
-                node_value[m] = tgt
-                for (entry_index, position, _a, _x, _y) in logical[m]:
-                    entries[entry_index][2][position] = tgt
-                    changed_entries.add(entry_index)
-                    moved += 1
-            continue
+        # ── §3 CLUSTER-LEVEL GUARD (the radius fix) ───────────────────
+        # WHY A GUARD AT ALL (CYXY tear diagnosis 2026-07-26): the
+        # cluster mean can hoist a mover away from a near neighbour that
+        # was EXCLUDED from the cluster because it already AGREED (Δ
+        # below the step floor) — the re-level then MINTS a fresh step
+        # under this pass's own law (measured: a daylight-line node
+        # lifted +1.15 m to the bench mean, its 2.2 m neighbour
+        # untouched → 1.25 m tear).  Hence: no move may open a new
+        # over-floor step against a radius neighbour left outside the
+        # cluster.
+        #
+        # ONE feasible interval for the whole sub-cluster: the
+        # intersection of every MOVER's per-neighbour §1 allowances
+        # against every non-member within the tear radius.  A bound
+        # found through one mover binds the CLUSTER, because every
+        # mover takes the SAME level — which is what makes the
+        # 4.26 m cliff-between-mates class impossible.
+        lo = hi = None
+        binding_lo = binding_hi = None
+        per_node: dict = {}
         for m in free_nodes:
-            # NON-WORSENING GUARD (CYXY tear diagnosis 2026-07-26): the
-            # cluster mean can hoist a node away from a near neighbour
-            # that was EXCLUDED from the cluster because it already
-            # agreed (Δ below the step floor) — the re-level then MINTS
-            # a fresh step under this pass's own law (measured: a
-            # daylight-line node lifted +1.15 m to the bench mean, its
-            # 2.2 m neighbour untouched → 1.25 m tear).  Clamp each move
-            # so it cannot open a new over-floor step against any
-            # radius neighbour left outside the cluster; when the
-            # outside neighbours disagree in both directions, leave the
-            # node where it was.
-            tgt = target
-            lo = hi = None
+            m_lo = m_hi = None
+            (mx, my) = node_xy[m]
             for n in nbrs.get(m, ()):
                 if n in member_set:
                     continue
-                hi_n = node_value[n] + STRIP_SEAM_TEAR_MIN_STEP_M - 0.05
-                lo_n = node_value[n] - STRIP_SEAM_TEAR_MIN_STEP_M + 0.05
+                (nx, ny) = node_xy[n]
+                planar = math.hypot(mx - nx, my - ny)
+                allowance = seam_guard_allowance_m(planar)
+                hi_n = node_value[n] + allowance
+                lo_n = node_value[n] - allowance
+                if m_hi is None or hi_n < m_hi:
+                    m_hi = hi_n
+                if m_lo is None or lo_n > m_lo:
+                    m_lo = lo_n
                 if hi is None or hi_n < hi:
                     hi = hi_n
+                    binding_hi = (round(float(nx), 2),
+                                  round(float(ny), 2),
+                                  round(float(node_value[n]), 3),
+                                  round(float(planar), 2))
                 if lo is None or lo_n > lo:
                     lo = lo_n
-            if lo is not None and hi is not None and lo > hi:
-                # LEFT ALONE by the guard, not by the anchor rule — the
-                # measured cause of every surviving census row at CYXY.
-                guarded.append(_strip_seam_guard_record(
-                    "blocked", m, node_xy, node_value, target, None, lo, hi))
-                continue
-            if hi is not None and tgt > hi:
-                tgt = hi
-            if lo is not None and tgt < lo:
-                tgt = lo
-            tgt = round(tgt, 2)
-            if abs(tgt - target) > 1e-9:
-                # Moved, but to a BOUND — the law target was not reached,
-                # so a step above the floor can survive (HECA (-102,30)).
-                guarded.append(_strip_seam_guard_record(
-                    "clamped", m, node_xy, node_value, target, tgt, lo, hi))
+                    binding_lo = (round(float(nx), 2),
+                                  round(float(ny), 2),
+                                  round(float(node_value[n]), 3),
+                                  round(float(planar), 2))
+            per_node[m] = (m_lo, m_hi)
+        worst = max(free_nodes,
+                    key=lambda m: (abs(node_value[m] - target), m))
+        if lo is not None and hi is not None and lo > hi:
+            # EMPTY CLUSTER INTERVAL after §1+§2 — a loud guarded
+            # record carrying its LAWFUL-ASSIGNMENT check
+            # (feasibility-is-guaranteed: a survivor is attribution,
+            # never tolerance).  ``per_node_feasible`` means a lawful
+            # assignment exists but only by letting the mates take
+            # DIFFERENT levels — which is exactly what §3 forbids, so
+            # the record names the trade rather than hiding it.
+            node_feasible = all(
+                not (a is not None and b is not None and a > b)
+                for (a, b) in per_node.values())
+            record = _strip_seam_guard_record(
+                "cluster_blocked", worst, node_xy, node_value, target,
+                None, lo, hi)
+            record["nodes"] = len(free_nodes)
+            record["lawful"] = ("per_node_feasible" if node_feasible
+                                else "node_empty")
+            record["binding_lo"] = binding_lo
+            record["binding_hi"] = binding_hi
+            guarded.append(record)
+            continue
+        tgt = target
+        if hi is not None and tgt > hi:
+            tgt = hi
+        if lo is not None and tgt < lo:
+            tgt = lo
+        tgt = round(tgt, 2)
+        if abs(tgt - target) > 1e-9:
+            # Moved, but to a BOUND — the law target was not reached,
+            # so a step above the floor can survive (HECA (-102,30)).
+            record = _strip_seam_guard_record(
+                "clamped", worst, node_xy, node_value, target, tgt,
+                lo, hi)
+            record["nodes"] = len(free_nodes)
+            record["lawful"] = "cluster_clamped"
+            record["binding_lo"] = binding_lo
+            record["binding_hi"] = binding_hi
+            guarded.append(record)
+        # RIGID MOVE: every mover takes the one clamped level.
+        for m in free_nodes:
             if abs(node_value[m] - tgt) < 1e-9:
                 continue
             node_value[m] = tgt
@@ -2561,13 +2511,12 @@ def blend_cross_strip_seam_steps(strip_shapes, layout):
     # v3 §2: the declines are reported BEFORE the writeback, so a
     # writeback failure cannot swallow them.  Read-only w.r.t. geometry.
     report_strip_seam_declines(declined, layout, guarded, joints)
-    if law:
-        # v4 §2: the deferred joints travel to the wall pass, which
-        # reports (pre-registered ZERO) any it does not pick up.
-        try:
-            layout._strip_seam_deferred_joints = joints
-        except Exception:                               # noqa: BLE001
-            pass
+    # v4 §2: the deferred joints travel to the wall pass, which
+    # reports (pre-registered ZERO) any it does not pick up.
+    try:
+        layout._strip_seam_deferred_joints = joints
+    except Exception:                                   # noqa: BLE001
+        pass
     # Write back ONLY the touched strips — untouched shapes keep their
     # exact original altitude lists (byte-identity everywhere no seam
     # cluster exists).
@@ -2622,7 +2571,7 @@ def emit_stacked_conflict_walls(layout) -> int:
     conflicts fall back to the emit consensus merge).  Returns the
     number of wall faces emitted.
 
-    v4 §2 (STANDING, ungated): the AUTHORITY half of the site
+    v4 §2 (STANDING, unconditional): the AUTHORITY half of the site
     table is not rebuilt here — it is the SHARED index the cross-strip
     healer already consulted (``strip_wall_site_index``), evaluated once
     and passed forward on the layout.  The pass ORDER is unchanged (the
@@ -2632,18 +2581,16 @@ def emit_stacked_conflict_walls(layout) -> int:
     built — that is the point of running after it.
     """
     from .crown import _point_in_seam_band
-    from .layout import SOFT_RECEIVER_ROLES, WELD_DONOR_ROLES
 
     registry = getattr(layout, "canonical_points", None)
     if registry is None:
         return 0
-    law = _strip_heal_law_enabled()
-    wall_index = strip_wall_site_index(layout) if law else None
+    wall_index = strip_wall_site_index(layout)
     # RUNWAY-STRIP WALL LAW (owner ruling 2026-08-01): a face inside a
     # runway strip footprint is inadmissible.  Skipping the RUN also
     # cancels its vertex retreat, i.e. the conflict falls back to the emit
     # consensus merge — the emitter's own documented fallback, not a new
-    # path.  ``None`` with the gate off (byte-identical).
+    # path.
     _strip_keepout = runway_strip_wall_keepout(layout)
 
     # ONE derivation of "the ring and its aligned values", shared with
@@ -2654,15 +2601,16 @@ def emit_stacked_conflict_walls(layout) -> int:
     # NON-donor, non-soft shapes (the designed-split classes whose
     # corners the strip adoption never welded to).  Donor-pavement and
     # soft claims merge fine through the emit consensus and need no
-    # wall.  Alongside the vertex table, keep each shape's exterior +
-    # aligned values for the EDGE-coincident case: a strip boundary
+    # wall.  Alongside the vertex table, each shape's exterior +
+    # aligned values serve the EDGE-coincident case: a strip boundary
     # clipped along a designed shape shares the CHAIN, not necessarily
     # the vertices — its vertices lie ON the foreign edge, the weld
     # pass splices them into it, and the consensus then bends the
-    # strip mid-edge (the CYXY #392 service-road class).
+    # strip mid-edge (the CYXY #392 service-road class).  BOTH halves
+    # come from the shared v4 §2 index; nothing is re-derived here.
     from shapely.strtree import STRtree
-    authority_claims: dict = {}
-    authority_edges: list = []      # (LineString exterior, coords, alts)
+    authority_claims: dict = wall_index.claims
+    authority_edges: list = wall_index.edges  # (exterior, coords, alts)
     # Soft strip-vs-strip claims (the ALL-ANCHORED residue): the seam
     # blend levels every FREE vertex first, so a coincident strip-strip
     # spread still exceeding the merge tolerance afterwards is two
@@ -2671,54 +2619,30 @@ def emit_stacked_conflict_walls(layout) -> int:
     # LOWER strip retreats; the top holder keeps the point.
     strip_claims: dict = {}
     strip_edges: list = []   # (exterior, coords, alts, id(shape))
+    # STRIP claims only: every non-strip role is either already in the
+    # shared index (authority) or excluded from walling by role
+    # (soft / weld-donor), so this loop reads the strip half alone.
     for shape in layout.shapes:
-        role = shape.role or ""
-        if role == ROLE_GRADED_STRIP:
-            rv = _ring_values(shape)
-            if rv is None:
-                continue
-            coords, alts = rv
-            for (vx, vy), value in zip(coords, alts):
-                key = registry.get_or_add(float(vx), float(vy))
-                strip_claims.setdefault(key, []).append(
-                    (value, id(shape)))
-            try:
-                strip_edges.append(
-                    (shape.polygon.exterior, coords, alts, id(shape)))
-            except _GEOM_EXC:
-                pass
+        if (shape.role or "") != ROLE_GRADED_STRIP:
             continue
-        if role in SOFT_RECEIVER_ROLES or role in WELD_DONOR_ROLES:
-            continue
-        if law:
-            continue            # v4 §2: the SHARED index already holds it
         rv = _ring_values(shape)
         if rv is None:
             continue
         coords, alts = rv
         for (vx, vy), value in zip(coords, alts):
             key = registry.get_or_add(float(vx), float(vy))
-            authority_claims.setdefault(key, []).append(value)
+            strip_claims.setdefault(key, []).append(
+                (value, id(shape)))
         try:
-            authority_edges.append(
-                (shape.polygon.exterior, coords, alts))
+            strip_edges.append(
+                (shape.polygon.exterior, coords, alts, id(shape)))
         except _GEOM_EXC:
             pass
-    if law:
-        authority_claims = wall_index.claims
-        authority_edges = wall_index.edges
 
     if (not authority_claims and not authority_edges
             and not strip_claims):
         return 0
-    edge_tree = None
-    if law:
-        edge_tree = wall_index.edge_tree
-    elif authority_edges:
-        try:
-            edge_tree = STRtree([e[0] for e in authority_edges])
-        except _GEOM_EXC:
-            edge_tree = None
+    edge_tree = wall_index.edge_tree
 
     def _edge_conflict_value(vx, vy):
         """Authority value at (vx, vy) when the point lies ON a
@@ -2837,8 +2761,7 @@ def emit_stacked_conflict_walls(layout) -> int:
         new_walls.extend(clipped_walls)
         emitted += len(clipped_walls)
     layout.shapes.extend(new_walls)
-    if law:
-        report_strip_seam_joint_pickup(layout, new_walls)
+    report_strip_seam_joint_pickup(layout, new_walls)
     return emitted
 
 

@@ -61,7 +61,7 @@ class TaxiRouteGraph:
         # taxiway segment, from its ICAO code letter (narrow A/B = 3 %,
         # C–F = 1.5 %).  Empty/absent edge → caller's uniform fallback cap.
         # Used by ``_runway_reach_bands`` to compute width-aware band
-        # ceilings (config ``TAXI_REACH_BAND_BY_WIDTH``).
+        # ceilings.
         self.edge_cap = edge_cap if edge_cap is not None else {}
 
     @staticmethod

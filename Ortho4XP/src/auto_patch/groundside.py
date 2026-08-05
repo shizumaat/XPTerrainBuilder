@@ -2968,14 +2968,12 @@ def _separate_groundside_from_airside(
         ROLE_BUILDING, ROLE_TUNNEL_RAMP, ROLE_RETAINING_WALL,
     }
     # Groundside MAY share an edge with a SERVICE ROAD / junction (user
-    # 2026-06-26): a parking lot is SERVED by its service road, so they touch —
-    # opening the 1 m clearance gap there DISCONNECTS the road from the lot it
-    # feeds (CYXY SVC1 ↔ lot @(-472,404): a cliff across the gap).  Groundside is
-    # still cut back from BUILDINGS (kept above) and aircraft pavement.  Off =
-    # legacy (clearance from roads too).
-    _share_svc = _os.environ.get("O4_GROUNDSIDE_SHARE_SVC", "1") == "1"
-    if not _share_svc:
-        AIRSIDE_ROLES |= {ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION}
+    # 2026-06-26, STANDING LAW): a parking lot is SERVED by its service road,
+    # so they touch — opening the 1 m clearance gap there DISCONNECTS the road
+    # from the lot it feeds (CYXY SVC1 ↔ lot @(-472,404): a cliff across the
+    # gap).  ``ROLE_SERVICE_ROAD`` / ``ROLE_SERVICE_JUNCTION`` are therefore
+    # deliberately absent from ``AIRSIDE_ROLES`` above.  Groundside is still
+    # cut back from BUILDINGS and aircraft pavement.
     # Truck-route END mouths (user ruling 2026-07-04, CYXY P4): a lot is
     # groundside BECAUSE its connection is a service road — the connection
     # is identified EARLY and the clearance gap is never cut across it.
@@ -3040,11 +3038,10 @@ def _separate_groundside_from_airside(
     # SVC connector emitted as service_junction that straddles the lot it feeds).
     # Add the service polys at ZERO clearance so an overlap is trimmed while the
     # touching edge survives (no disconnecting gap).
-    if _share_svc:
-        for s in layout.shapes:
-            if s.role in (ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION) \
-                    and s.polygon is not None and not s.polygon.is_empty:
-                clip_polys.append(s.polygon)
+    for s in layout.shapes:
+        if s.role in (ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION) \
+                and s.polygon is not None and not s.polygon.is_empty:
+            clip_polys.append(s.polygon)
     if not clip_polys:
         return 0
     try:

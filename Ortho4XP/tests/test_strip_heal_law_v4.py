@@ -1,6 +1,6 @@
 """Twins for the seam-continuity v4 healer law (spec
-``docs/specs/seam-continuity-v4-spec.md`` §1-§3, gate
-STANDING since 2026-08-05, ungated).
+``docs/specs/seam-continuity-v4-spec.md`` §1-§3, STANDING since
+2026-08-05, unconditional).
 
 The v4 law is ONE interlocking rule with three halves:
 
@@ -22,9 +22,10 @@ Anchors are minted the way production does: a strip dot laid ON a
 weld-donor pavement exterior (``_welded``) is a ``weld`` anchor; the stub
 layout is also anchored so ``x ≈ 0`` falls in the tile-seam band.
 
-Gate discipline: every behavioural twin runs the SAME scene twice, gate
-off and gate on, and asserts the gate-off arm is unchanged.  That is the
-unit-level half of the pre-registered gate-off byte identity.
+ONE ARM: ``O4_STRIP_HEAL_LAW`` and its predicate are deleted (owner
+2026-08-05, no gates), so every twin below runs the standing law and
+there is no second arm to compare against.  ``test_the_gate_is_deleted``
+is the standing guard against either coming back.
 """
 from __future__ import annotations
 
@@ -104,12 +105,10 @@ def _welded(cx, cy, value, size=0.1):
             _StubShape(ring, [value] * 4, role="apron", ref="apron")]
 
 
-def _run(shapes_factory, *, law=True, monkeypatch=None):
+def _run(shapes_factory):
     # ONE ARM.  ``O4_STRIP_HEAL_LAW`` is DELETED (owner 2026-08-05, no
-    # gates): the v4 healer law is standing and there is no pre-v4 arm
-    # to compare against.  ``law`` is kept so the call sites read
-    # unchanged; a ``law=False`` caller is a bug, not an arm.
-    assert law, "there is no gate-off arm — the v4 healer law is standing"
+    # gates): the v4 healer law is standing, its predicate is folded out
+    # and there is no pre-v4 arm to select.
     shapes = shapes_factory()
     layout = _StubLayout(shapes)
     moved = blend_cross_strip_seam_steps(layout.shapes, layout)
@@ -152,13 +151,12 @@ def test_the_bare_allowance_inverts_where_the_census_one_does_not():
     assert lo_law <= hi_law, "the census-identical bounds still invert"
 
 
-def test_the_grade_aware_guard_heals_the_inverted_site(monkeypatch, capsys):
+def test_the_grade_aware_guard_heals_the_inverted_site(capsys):
     """END TO END: the cluster moves, to ONE level, and the result is
     lawful against BOTH excluded neighbours.  (This twin's former
     gate-off half — GUARD-DECLINED, nothing moves — retired with the
     gate; there is no pre-v4 arm.)"""
-    _, on_shapes, on_moved = _run(_grade_aware_scene, law=True,
-                                  monkeypatch=monkeypatch)
+    _, on_shapes, on_moved = _run(_grade_aware_scene)
     capsys.readouterr()
     assert on_moved > 0, "the v4 guard still refuses the measured site"
 
@@ -184,9 +182,8 @@ def _anchor_split_scene():
             + [_StubShape(_dot(301.25, 302.00), [98.00] * 4)])   # free
 
 
-def test_membership_splits_at_a_disagreeing_anchor_pair(monkeypatch, capsys):
-    layout, _on, _ = _run(_anchor_split_scene, law=True,
-                          monkeypatch=monkeypatch)
+def test_membership_splits_at_a_disagreeing_anchor_pair(capsys):
+    layout, _on, _ = _run(_anchor_split_scene)
     out = capsys.readouterr().out
     rows = [ln for ln in out.splitlines() if _JOINT_ROW.search(ln)]
     assert rows, out
@@ -201,13 +198,11 @@ def test_membership_splits_at_a_disagreeing_anchor_pair(monkeypatch, capsys):
     assert top["allowance_m"] < top["step_m"]
 
 
-def test_the_healer_never_averages_a_disagreeing_anchor_population(
-        monkeypatch, capsys):
+def test_the_healer_never_averages_a_disagreeing_anchor_population(capsys):
     """The §2 LAW, stated as a property: after the v4 pass, no strip
     value equals the mean of a disagreeing anchor pair (the unlawful
     middle the emit-consensus precedent forbids)."""
-    _, shapes, _ = _run(_anchor_split_scene, law=True,
-                        monkeypatch=monkeypatch)
+    _, shapes, _ = _run(_anchor_split_scene)
     capsys.readouterr()
     middle = round((100.89 + 95.31) / 2.0, 2)
     for sh in shapes:
@@ -217,7 +212,7 @@ def test_the_healer_never_averages_a_disagreeing_anchor_population(
                 f"({middle}) — the v4 §2 law forbids exactly this")
 
 
-def test_the_shared_wall_site_predicate_is_evaluated_once(monkeypatch):
+def test_the_shared_wall_site_predicate_is_evaluated_once():
     """SINGLE PASS: the index is built once and cached on the layout, and
     ``emit_stacked_conflict_walls`` consumes the SAME object (source twin
     — a second derivation is what the ruling forbids)."""
@@ -296,10 +291,9 @@ def _divergent_mates_scene():
     ]
 
 
-def test_the_cluster_moves_as_one_level(monkeypatch, capsys):
+def test_the_cluster_moves_as_one_level(capsys):
     """§3: no intra-cluster divergence, by construction."""
-    _, shapes, _ = _run(_divergent_mates_scene, law=True,
-                        monkeypatch=monkeypatch)
+    _, shapes, _ = _run(_divergent_mates_scene)
     capsys.readouterr()
     levels = {round(float(a), 2)
               for sh in shapes[:2] for a in sh.node_altitudes}
@@ -333,14 +327,27 @@ def test_an_empty_cluster_interval_carries_its_attribution(capsys):
 
 
 def test_the_gate_is_deleted(monkeypatch):
-    """``O4_STRIP_HEAL_LAW`` is gone (owner 2026-08-05, no gates): no
-    read site anywhere, and the predicate is unconditionally True even
-    with the retired name exported in the environment."""
+    """``O4_STRIP_HEAL_LAW`` is gone AND folded out (owner 2026-08-05, no
+    gates): no read site, no surviving predicate, no branch reading one.
+
+    The predicate check is the load-bearing half.  A constant
+    ``return True`` predicate leaves both arms of every ``if law:`` alive
+    as code, so the pre-v4 arm keeps compiling and can be resurrected by
+    one edit; the branches are gone only when the name is."""
     src = inspect.getsource(adjacent_ground)
     assert not re.findall(r'environ\.get\(\s*"O4_STRIP_HEAL_LAW"', src)
-    callers = re.findall(r"_strip_heal_law_enabled\(\)", src)
-    assert len(callers) >= 3, callers
+    assert "O4_STRIP_HEAL_LAW" not in src.replace(
+        "``O4_STRIP_HEAL_LAW``", ""), (
+        "the retired gate name is read somewhere in adjacent_ground")
+    assert not hasattr(adjacent_ground, "_strip_heal_law_enabled"), (
+        "the gate predicate survives — its branches are still two-armed")
+    assert "_strip_heal_law_enabled" not in src
+
+    # And the standing law runs with the retired name exported: nothing
+    # anywhere reads it.
     monkeypatch.setenv("O4_STRIP_HEAL_LAW", "0")
-    assert adjacent_ground._strip_heal_law_enabled() is True
-    monkeypatch.delenv("O4_STRIP_HEAL_LAW", raising=False)
-    assert adjacent_ground._strip_heal_law_enabled() is True
+    _, shapes, moved = _run(_divergent_mates_scene)
+    assert moved > 0, "the standing v4 law did not run"
+    levels = {round(float(a), 2)
+              for sh in shapes[:2] for a in sh.node_altitudes}
+    assert len(levels) == 1, levels

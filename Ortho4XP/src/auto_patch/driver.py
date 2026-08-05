@@ -60,26 +60,6 @@ DEFAULT_STEEPNESS = 2
 # Maximum number of runway chunks for a single patch polygon
 MAX_NODE_ID = -1  # will be decremented for each new node
 
-# Debug toggle: when set to "1" via O4_DEBUG_TAXI_ONLY env var, the surface
-# generator skips every non-taxi emission phase (apron, buildings, coverage
-# fill, transition strips, junction triangles, boundary band, tunnel portals,
-# drainage).  Runway segments still come out via generate_patch_osm.  This
-# isolates the Phase C0 taxi rect output for visual debugging without the
-# rest of the pipeline obscuring it.
-DEBUG_TAXI_ONLY = os.environ.get("O4_DEBUG_TAXI_ONLY", "0") == "1"
-
-# Phase C0 source toggle: when "1" (the default), Phase C0 emits taxi rects
-# from OSM centerlines clipped against the apt.dat pavement union.
-DEBUG_OSM_CENTERLINES = os.environ.get("O4_OSM_CENTERLINES", "1") == "1"
-
-# New pavement model toggle.
-DEBUG_NEW_MODEL = os.environ.get("O4_NEW_MODEL", "0") == "1"
-
-# Strip-model toggle.
-DEBUG_STRIP_MODEL = os.environ.get("O4_STRIP_MODEL", "0") == "1"
-
-# True when ANY of the replacement pavement models is active.
-DEBUG_REPLACE_LEGACY_PAVEMENT = DEBUG_NEW_MODEL or DEBUG_STRIP_MODEL
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -98,8 +78,6 @@ from .pavement.runway_segments import (
     RUNWAY_SEGMENT_LENGTH,
     generate_patch_osm,
 )
-
-
 
 
 # ──────────────────────────────────────────────────────────────────────────────

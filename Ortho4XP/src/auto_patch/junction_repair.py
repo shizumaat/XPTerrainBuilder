@@ -2375,12 +2375,9 @@ def _reclassify_runway_disconnected_to_groundside(
     # and is NEVER separated from the service network it belongs to).  User
     # 2026-06-27: groundside 188, a 186 m corridor with 186 m of 1206 through it, was
     # wrongly demoted to groundside and walled off from the road it continues.
-    import os as _os
-    _svc_skip = _os.environ.get("O4_SVC_CONNECTOR_AS_ROAD", "1") == "1"
-    _svc_lines = ([cl.line for cl
-                   in (getattr(layout, "apt_service_centerlines", None) or [])
-                   if cl.line is not None and not cl.line.is_empty]
-                  if _svc_skip else [])
+    _svc_lines = [cl.line for cl
+                  in (getattr(layout, "apt_service_centerlines", None) or [])
+                  if cl.line is not None and not cl.line.is_empty]
     # Service-adjacency scoping (second pass, post truck-route re-role):
     # demote only an unreachable apron/junction COMPONENT that touches a
     # service road — the exact orphan the bridge junction→service_road re-role
@@ -2635,12 +2632,9 @@ def _reclassify_road_only_lots_to_groundside(
     # keep it ``service_road`` even though it overlaps the lot core.  A lot FRAME is
     # distinguished by its rim-looping route being far longer than the frame's
     # straight extent.  ``apt_service_centerlines`` are the truck routes.
-    import os as _os
-    _svc_lines = ([cl.line for cl
-                   in (getattr(layout, "apt_service_centerlines", None) or [])
-                   if cl.line is not None and not cl.line.is_empty]
-                  if _os.environ.get("O4_SVC_CONNECTOR_AS_ROAD", "1") == "1"
-                  else [])
+    _svc_lines = [cl.line for cl
+                  in (getattr(layout, "apt_service_centerlines", None) or [])
+                  if cl.line is not None and not cl.line.is_empty]
 
     def _is_through_road(s):
         try:

@@ -150,11 +150,6 @@ _PAVEMENT_GAP_M = 1.0
 # treated as a pavement-LEVEL discontinuity the fill must not bridge.
 # Matches the emitted-patch reader's ``skirt_edge_noise_m``.
 _SKIRT_REF_STEP_NOISE_M = 0.15
-# Enclosed-pocket wingtip clearance (Pass A2, user 2026-06-30): ring the full
-# perimeter of a small NON-pavement pocket fully enclosed by taxi pavement, so
-# sharp terrain a wingtip overhangs is cut even where no centerline reaches it.
-# O4_POCKET_CLEARANCE=0 disables it (revert to centerline-only junction clearance).
-_POCKET_CLEARANCE = os.environ.get("O4_POCKET_CLEARANCE", "1") == "1"
 # LEGACY CLEARANCE CHARTER (Noah ruling 2026-07-10, in-sim round 6):
 # surface_clearance is WINGTIP clearance along TAXIWAYS and RUNWAYS ONLY —
 # never aprons, never service roads/groundside, never large terminal-area
@@ -418,8 +413,6 @@ def _declaw_alt_needles(alts_open: list[float],
         if not changed:
             break
     return a
-
-
 
 
 def _rect_long_short_edges(coords: list[tuple[float, float]]):

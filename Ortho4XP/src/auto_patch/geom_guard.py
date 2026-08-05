@@ -63,7 +63,12 @@ _AIRSIDE_ROLES = frozenset({
 # genuine weld/snap (≥ 1 mm) or vertex insert does.
 _HASH_ROUND_M = 3
 
-_ENABLED = os.environ.get("O4_GEOM_GUARD", "0") == "1"
+# UNCONDITIONAL 2026-08-05 (``O4_GEOM_GUARD`` deleted).  RULINGS
+# "BUILD-COMPLETE-THEN-DEBUG" keeps "certify-or-fail-loud in the solve",
+# and the airside post-solve invariant this guard reports is the metric the
+# campaign drives to zero — a verification either runs always or does not
+# exist.
+_ENABLED = True
 
 
 def _canonical_ring(coords) -> tuple:

@@ -188,17 +188,14 @@ _POCKET_CLEARANCE = os.environ.get("O4_POCKET_CLEARANCE", "1") == "1"
 # (adjacent-ground clip-seam coordination / solver absorption), not a
 # fix-now (pre-slice-B policy, Noah ruling 4).
 #
-# The gate exists so slice-B can A/B against the charter target.  It is
-# scope FILTERING at source-edge collection — no code path is deleted;
-# O4_CLEARANCE_CHARTER=1 enables the (currently regressing) filter.
-# The ONE B4 review switch (config.B4_FLIP_DEFAULTS) flips this default ON
-# under the flip bundle; an explicit O4_CLEARANCE_CHARTER always wins.
-# Applied as a post-assignment override so the gate keeps a plain "0"
-# literal (see config.ADJACENT_GROUND_FULL_EXTENT_COVERAGE for the rationale).
-from .config import B4_FLIP_DEFAULTS as _B4_FLIP_DEFAULTS
-_CLEARANCE_CHARTER = os.environ.get("O4_CLEARANCE_CHARTER", "0") == "1"
-if _B4_FLIP_DEFAULTS and "O4_CLEARANCE_CHARTER" not in os.environ:
-    _CLEARANCE_CHARTER = True
+# STANDING LAW (``O4_CLEARANCE_CHARTER`` and the ``O4_B4_FLIP``
+# gate-of-gates that used to rewrite its default both retired 2026-08-05
+# under RULINGS "BUILD-COMPLETE-THEN-DEBUG").  The charter scoping IS the
+# owner's 2026-07-10 ruling — wingtip clearance along taxiways and
+# runways ONLY — and the default build has been running it since the B4
+# bundle landed, while the source literal said "0".  Resolved to the arm
+# that actually shipped; there is no A/B to preserve.
+_CLEARANCE_CHARTER = True
 # CHARTER EXTENSION (Slice B stage B4, Noah ruling 2026-07-10 verbatim:
 # "surface_clearance = WINGTIP clearance along taxiways and runways ONLY
 # — never aprons, never LARGE-AREA PIECES, never near groundside").  The

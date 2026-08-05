@@ -492,7 +492,7 @@ def build_raster_reach_band(layout, G) -> Optional[Callable[
         seed_ceil[cid] = cv
         seed_floor[cid] = fv
         n_collapsed_cells += int(collapsed)
-    if _SEED_EXACT and os.environ.get("O4_RASTER_REACH_BAND_QUIET") != "1":
+    if _SEED_EXACT:   # loud is law (O4_RASTER_REACH_BAND_QUIET deleted)
         try:
             import O4_UI_Utils as _UIseed
             _UIseed.vprint(1,
@@ -573,7 +573,7 @@ def build_raster_reach_band(layout, G) -> Optional[Callable[
         "grid_bytes": int((ceiling.nbytes + floor.nbytes + paved.nbytes
                            + cap.nbytes + cell_id.nbytes)),
     }
-    if os.environ.get("O4_RASTER_REACH_BAND_QUIET") != "1":
+    if True:       # loud is law (O4_RASTER_REACH_BAND_QUIET deleted)
         try:
             import O4_UI_Utils as _UI
             m = band.raster_meta

@@ -723,6 +723,13 @@ def _capture_string_substrate(layout, icao: str, apt_centerlines,
     reads: ``{"apt": [(coords, is_service)], "osm": [(way_id, coords)],
     "fingerprint": str}``.
     """
+    # PARKED FEATURE — NOT A LAW GATE (integration sweep 2026-08-05).
+    # The taut-string machinery is the owner's PAUSED feature: the strings
+    # verdict is pending (memory ``string-purpose-statement``: strings are a
+    # smoothing refinement for otherwise-correctly-graded taxiways, NOT a
+    # surface authority), so this switch is deliberately NOT deleted with
+    # the law gates.  It selects whether a PARKED feature runs at all, not
+    # which law the build obeys.  Retire or adopt it when the owner rules.
     if os.environ.get("O4_TAUT_STRING_CONSTRUCTION", "0") != "1":
         return
     from .layout import (AptSubstratePiece, set_string_substrate_src,
@@ -3592,9 +3599,11 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # at the very end"): the pass now SPARES spine cut/contact nodes
         # (ring vertices ON a taxi centerline) — blanket retirement under
         # the slice was measured WORSE (SPLP junction↔runway seam needs the
-        # corner sharing: 4 new >0.5 m steps without it).  Debug gate only.
-        if os.environ.get("O4_RWY_1TO1", "1") == "1":
-            _enforce_runway_1to1_sharing(layout)
+        # corner sharing: 4 new >0.5 m steps without it).
+        # (``O4_RWY_1TO1`` DELETED 2026-08-05: the comment called it a
+        # debug gate, but the pass MUTATES runway node sharing — emitted
+        # geometry.  Resolved to the shipped "1" arm.)
+        _enforce_runway_1to1_sharing(layout)
         _covp(layout, "post-rwy-1to1")
         # Rule 1 v6 widening (user 2026-05-02): runs ONLY here,
         # post-elevation, after the runway is segmented.  Inserts
@@ -3603,9 +3612,11 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # because the cascade with Rule 4 + segmentation re-run
         # over-grew junctions past the 4-node cap.
         # (measured innocent in the veer investigation — it only ADDS
-        # adjacent runway corners next to shared vertices; debug gate kept)
-        if os.environ.get("O4_WIDEN_RWY_CORNERS", "1") == "1":
-            widen_junctions_to_runway_corners(layout)
+        # adjacent runway corners next to shared vertices)
+        # (``O4_WIDEN_RWY_CORNERS`` DELETED 2026-08-05: same mislabel —
+        # it inserts junction vertices at runway corners, which is emitted
+        # geometry.  Resolved to the shipped "1" arm.)
+        widen_junctions_to_runway_corners(layout)
         _covp(layout, "post-widen-to-rwy-corners")
         # Stitch pavement to flat runway shapes (user 2026-05-09):
         # for blast pads / flat-interior runway segments, insert a
@@ -3628,8 +3639,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # rule with respect to neighbouring (terrain-following)
         # vertices; the solver pass cap-projects them into
         # compliance.
-        from .elevation import USE_PER_SURFACE_SOLVER
-        if USE_PER_SURFACE_SOLVER and layout.anchor is not None:
+        if layout.anchor is not None:
             from .elevation import _load_airport_dem
             from .elevation_per_surface import solve as per_surface_solve
             # Per user 2026-05-12: keep DEM-tile and indexing-coords
@@ -5231,11 +5241,9 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 "docs/slice_b_solver_absorption_design.md).")
         _skirt_presolve = (ONE_SOLVE_TERRAIN
                            and ONE_SOLVE_TERRAIN_RUNWAY_END_SKIRT
-                           and USE_PER_SURFACE_SOLVER
                            and layout.anchor is not None)
         _gap_presolve = (ONE_SOLVE_TERRAIN
                          and ONE_SOLVE_TERRAIN_GAP_FILL_SPINE
-                         and USE_PER_SURFACE_SOLVER
                          and layout.anchor is not None)
         if _skirt_presolve:
             try:
@@ -5313,7 +5321,6 @@ def build_airport_pavement(icao: str, xplane_root: str,
         _band_construct = (ONE_SOLVE_TERRAIN
                            and ONE_SOLVE_TERRAIN_GRADED_STRIP_CONSTRUCT
                            and _AGL_ENABLED
-                           and USE_PER_SURFACE_SOLVER
                            and layout.anchor is not None)
         if _band_construct:
             try:
@@ -5341,7 +5348,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
                              f"lateral-contiguity re-bind failed "
                              f"({_lat_exc2!r}).")
 
-        if USE_PER_SURFACE_SOLVER and layout.anchor is not None:
+        if layout.anchor is not None:
             # Runway CIFP thresholds are LOCKED — the solver never moves them.
             # The old runway-threshold-relief passes (step 3
             # ``relieve_grade_via_runway_thresholds`` and step 5
@@ -6178,15 +6185,13 @@ def build_airport_pavement(icao: str, xplane_root: str,
             UI.vprint(1, f"  [pav-builder] {icao}: interior runway "
                          f"cross-edge crown FAILED: {exc!r}")
 
-    # Diagnostic probe nodes (user 2026-07-07): O4_PROBE_NODES inserts
-    # elevation-neutral ring vertices near given lat,lon points so
-    # node-free straightaways carry inspectable altitudes in the patch.
-    # ABSOLUTE LAST geometry touch: a lerped on-edge vertex is exactly
-    # what emit decimation removes, so it must come after everything.
-    _probe_spec = os.environ.get("O4_PROBE_NODES")
-    if _probe_spec:
-        from .geom_guard import insert_probe_nodes
-        insert_probe_nodes(layout, _probe_spec)
+    # (``O4_PROBE_NODES`` DELETED 2026-08-05.  It was named a diagnostic
+    # but INSERTED ring vertices into the emitted layout — an env var that
+    # changes emitted bytes is a law gate whatever its name, and the
+    # audit's mechanical test ("two builds of the same airport at the same
+    # commit must not differ in one emitted byte because of an env var")
+    # is what caught it.  ``geom_guard.insert_probe_nodes`` survives as a
+    # tool entry point for offline probing of a saved layout.)
 
     # ABSOLUTE-LAST EDGE DENSIFY (user in-sim finding 2026-07-09): a
     # post-solve pass after the mid-pipeline densifies still mints

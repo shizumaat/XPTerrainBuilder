@@ -2287,10 +2287,12 @@ SERVICE_LOT_ABSORPTION = True
 # with this gate alone and only +3 visible within-shape rows, every runway
 # vertex byte-identical at every airport).  With §2 deleting the break
 # quarantine outright, "export the unresolved triangle" has no sink left:
-# the report IS the disposition.  ``O4_TRIANGLE_PLANE_REPORTS=0`` restores
-# the export call, which now lands in a report-only set.
-TRIANGLE_PLANE_REPORTS = _os.environ.get(
-    "O4_TRIANGLE_PLANE_REPORTS", "1") == "1"
+# the report IS the disposition.
+# GATE DELETED 2026-08-05 (audit Tier 2): despite the REPORTS name this
+# decided whether unresolved triangle vertices became BREAK REGIONS —
+# emitted values, not a report.  Resolved to the "1" arm the default
+# build already ran.
+TRIANGLE_PLANE_REPORTS = True
 # ── APRON TERRACE LAW (owner ruling 2026-08-04; spec
 # ``docs/specs/apron-terrace-law-spec.md``) ─────────────────────────
 # "Long aprons on genuinely steep ground MAY terrace into level panels
@@ -5294,17 +5296,17 @@ ONE_SOLVE_TERRAIN_GRADED_STRIP_CONSTRUCT = (
 # With both mechanisms fixed the flip battery (test_pavement_grade,
 # test_single_graph_acceptance, test_route_reach at SPJC/CYXY/HECA/SPLP)
 # matches the pre-flip baseline failure set.
-B4_FLIP_DEFAULTS = (_os.environ.get("O4_B4_FLIP", "1") == "1")
-ADJACENT_GROUND_FULL_EXTENT_COVERAGE = (
-    _os.environ.get("O4_ADJACENT_GROUND_FULL_EXTENT_COVERAGE", "0") == "1")
-# B4 review switch flips this default ON under the bundle.  Applied as a
-# post-assignment override (not an inline conditional default) so the
-# gate keeps a plain "0" literal — the provenance source-parser reads
-# that literal, so the delivery stamp stays accurate — while an explicit
-# O4_ADJACENT_GROUND_FULL_EXTENT_COVERAGE always wins over the switch.
-if (B4_FLIP_DEFAULTS
-        and "O4_ADJACENT_GROUND_FULL_EXTENT_COVERAGE" not in _os.environ):
-    ADJACENT_GROUND_FULL_EXTENT_COVERAGE = True
+# THE B4 GATE-OF-GATES IS GONE (``O4_B4_FLIP``, retired 2026-08-05 under
+# RULINGS "BUILD-COMPLETE-THEN-DEBUG").  It was the audit's worst
+# provenance defect: a meta-gate that rewrote OTHER gates' defaults as a
+# POST-ASSIGNMENT override, deliberately structured to leave a plain "0"
+# literal in the source "so the delivery stamp stays accurate" — with the
+# effect that every default build REPORTED these laws off in
+# ``o4_provenance_gates_on`` while RUNNING them on.  Its two live targets
+# are resolved here to the state the default build already ran:
+# full-extent coverage ON, and the extended clearance charter ON (see
+# ``clearance.py``).  Nothing selects the other arm any more.
+ADJACENT_GROUND_FULL_EXTENT_COVERAGE = True
 # Depth-direction spacing (m) of the full-extent coverage grid's zone
 # rows.  Must be <= the resampler's ``_ROW_RANGE_M`` (30 m) so every
 # emit-time band vertex, at any lateral depth, finds a solved row of its

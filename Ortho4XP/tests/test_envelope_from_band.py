@@ -79,13 +79,9 @@ def test_the_clamp_is_re_sourced_from_the_band(monkeypatch):
     assert on[1] == pytest.approx(10.0), on
     assert on[2] == pytest.approx(30.0), on
 
-    monkeypatch.setenv("O4_ENVELOPE_FROM_BAND", "0")
-    monkeypatch.setenv("O4_ROUTE_METRIC_ENVELOPE", "0")   # kill-half flip
-    off = [0.0, 0.0, 0.0, 50.0]
-    feasibility_project(off, loose, {0, 3}, force_scalar=True, max_iters=400,
-                        env_band=band)
-    assert off[1] == pytest.approx(0.0), "the closure admits 0.0 and clamps"
-    assert off[2] == pytest.approx(0.0), off
+    # (The "gate off ⇒ the closure admits 0.0" half is GONE with the gate,
+    # integration sweep 2026-08-05: the band IS the clamp's source and no
+    # environment selects the pavement-PAIR closure any more.)
 
 
 def test_off_net_is_not_envelope_clamped(monkeypatch):
@@ -129,33 +125,34 @@ def test_pair_constraints_still_enforce_and_still_tally(monkeypatch):
     assert abs(elev[2] - elev[1]) <= 30.0 + 1e-6
 
 
-def test_gate_off_is_the_pair_closure(monkeypatch):
+def test_the_pair_closure_arm_cannot_be_selected(monkeypatch):
+    """OBITUARY for the OFF arm (integration sweep 2026-08-05).
+
+    The pavement-PAIR closure is one of the audit's three superseded
+    SECOND AUTHORITIES; the route-metric band replaced it and the gates
+    that could still reach it are deleted.  A stale ``=0`` in an
+    environment must produce the BAND result, not the closure's — the
+    silent-no-op hazard the sweep exists to close."""
     band = [None, (10.0, 20.0), (30.0, 40.0), None]
+
+    def _run():
+        e = [0.0, 0.0, 0.0, 50.0]
+        br = set()
+        feasibility_project(e, _chain(), {0, 3}, force_scalar=True,
+                            max_iters=200, broken_out=br, env_band=band)
+        return e, br
+
+    monkeypatch.delenv("O4_ENVELOPE_FROM_BAND", raising=False)
+    monkeypatch.delenv("O4_ROUTE_METRIC_ENVELOPE", raising=False)
+    clean_elev, clean_broken = _run()
     monkeypatch.setenv("O4_ENVELOPE_FROM_BAND", "0")
-    # KILL-HALF FLIP (2026-08-04, spec kill-half §1): the route-metric
-    # gate is DEFAULT ON and implies this one, so "gate off" now means
-    # both the flag and its implicant off.  The property under test is
-    # unchanged.
     monkeypatch.setenv("O4_ROUTE_METRIC_ENVELOPE", "0")
-    elev = [0.0, 0.0, 0.0, 50.0]
-    broken = set()
-    feasibility_project(elev, _chain(), {0, 3}, force_scalar=True,
-                        max_iters=200, broken_out=broken, env_band=band)
-    assert broken == {1, 2}, "gate off must ignore the band entirely"
-
-
-def test_gate_off_is_byte_identical_to_no_band(monkeypatch):
-    monkeypatch.setenv("O4_ENVELOPE_FROM_BAND", "0")
-    monkeypatch.setenv("O4_ROUTE_METRIC_ENVELOPE", "0")   # kill-half flip
-    band = [None, (10.0, 20.0), (30.0, 40.0), None]
-    a = [0.0, 0.0, 0.0, 50.0]
-    b = [0.0, 0.0, 0.0, 50.0]
-    ra = feasibility_project(a, _chain(), {0, 3}, force_scalar=True,
-                             max_iters=200, env_band=band)
-    rb = feasibility_project(b, _chain(), {0, 3}, force_scalar=True,
-                             max_iters=200)
-    assert ra == rb
-    assert a == b
+    stale_elev, stale_broken = _run()
+    assert stale_broken != {1, 2}, (
+        "an env value must not restore the pair closure — that is the "
+        "arm the sweep deleted")
+    assert (stale_elev, stale_broken) == (clean_elev, clean_broken), (
+        "the retired env names must make NO difference to the answer")
 
 
 def test_flat_group_members_ride_their_representative(monkeypatch):
@@ -197,15 +194,13 @@ def test_one_documented_default(monkeypatch):
                         env_band=[None, (10.0, 20.0), (30.0, 40.0), None])
     assert broken == set(), "unset ⇒ THE band, and this band is feasible"
 
-    # Both flags still resolve through the one function, and the implicant
-    # still implies: forcing the route metric off restores the closure.
+    # STANDING LAW 2026-08-05 (integration sweep): both gates are DELETED
+    # — the route-metric band IS the envelope law, and the pavement-PAIR
+    # closure it replaced is one of the audit's three superseded second
+    # authorities.  A stale ``=0`` in an environment must not restore the
+    # closure; that is what the rest of this test now pins.
     monkeypatch.setenv("O4_ROUTE_METRIC_ENVELOPE", "0")
-    assert route_metric_envelope_enabled() is False
-    assert envelope_from_band_enabled() is False
-    monkeypatch.setenv("O4_ENVELOPE_FROM_BAND", "1")
-    assert envelope_from_band_enabled() is True
-    monkeypatch.delenv("O4_ENVELOPE_FROM_BAND")
-    monkeypatch.setenv("O4_ROUTE_METRIC_ENVELOPE", "1")
+    monkeypatch.setenv("O4_ENVELOPE_FROM_BAND", "0")
     assert route_metric_envelope_enabled() is True
     assert envelope_from_band_enabled() is True, (
-        "the route-metric gate IS the band envelope (spec §1)")
+        "the route-metric band IS the envelope; no env selects the closure")

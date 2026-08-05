@@ -5623,11 +5623,13 @@ def package_object_footprints(bounding_box_wgs84, definition):
     Defensive throughout: no configured root, no candidate pack, an
     unreadable DSF, or any exception all degrade to ``[]`` -- the mask then
     falls back to OpenStreetMap alone, and an uncorrected inset still beats
-    a failed fetch.  ``O4_INSET_PACKAGE_FOOTPRINTS=0`` disables the source
-    (debug: attribute a bad mask to one side of the union).
+    a failed fetch.
+
+    (``O4_INSET_PACKAGE_FOOTPRINTS`` DELETED 2026-08-05, audit Tier 2:
+    "debug" in name only — dropping a footprint source changes the inset
+    MASK, i.e. the terrain the patch is graded against.  The union of both
+    sources is the law.)
     """
-    if os.environ.get("O4_INSET_PACKAGE_FOOTPRINTS", "1") != "1":
-        return []
     try:
         from shapely.geometry import Polygon
         from shapely.geometry import box as shapely_box

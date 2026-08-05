@@ -101,6 +101,9 @@ class TestAllowanceIsOneScalar:
         """The env override died 2026-08-05
         ("BUILD-COMPLETE-THEN-DEBUG"): the allowance is ONE constant, and
         both bounds move together only when that constant moves."""
+    # (Retired env name, kept only as an inert no-op row until the
+    # hygiene backlog rewrites this file: the gate is DELETED in src/,
+    # so this line selects nothing.  Integration sweep 2026-08-05.)
         os.environ["O4_GS_PIN_MOUTH_ALLOWANCE_M"] = "22.5"
         try:
             assert gs_mouth_allowance_m() == 15.0

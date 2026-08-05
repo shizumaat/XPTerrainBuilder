@@ -4108,9 +4108,10 @@ def verify_and_log(layout, icao: str, debug_log_path: str | None = None,
     # it with tools/check_grade) is DEBUG-ONLY: once the solver is proven there is
     # no reason to re-validate the shipped patch on every build — the grade test
     # (test_pavement_grade) still runs check_grade on the emitted patches in CI.
-    # Enable with O4_VERIFY_OSM_GRADE=1 to log within/cross/step findings to the
-    # verify debug log.  The cheap in-memory geometry checks above always run.
-    if os.environ.get("O4_VERIFY_OSM_GRADE", "0") == "1":
+    # UNCONDITIONAL 2026-08-05 (``O4_VERIFY_OSM_GRADE`` deleted): under
+    # certify-or-fail-loud a verification either runs always or does not
+    # exist, and this is the cheapest instrument the debug phase has.
+    if True:
         try:
             within, cross, steps = run_grade_checks(layout)
         except Exception as exc:                   # pragma: no cover

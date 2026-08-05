@@ -2270,6 +2270,13 @@ def solve_route_profile(layout, icao: str,
     # name bound only inside a branch is the UnboundLocalError class
     # the SPLP/CYXY identity build caught in this very function.
     _summary: dict = {}
+    # PARKED FEATURE — NOT A LAW GATE (integration sweep 2026-08-05).
+    # The taut-string machinery is the owner's PAUSED feature: the strings
+    # verdict is pending (memory ``string-purpose-statement``: strings are a
+    # smoothing refinement for otherwise-correctly-graded taxiways, NOT a
+    # surface authority), so this switch is deliberately NOT deleted with
+    # the law gates.  It selects whether a PARKED feature runs at all, not
+    # which law the build obeys.  Retire or adopt it when the owner rules.
     if _os.environ.get("O4_TAUT_STRING_CONSTRUCTION", "0") == "1":
         from auto_patch.config import TAXI_MAX_GRADE as _TAUT_CAP_DEF
         from .taut_string import construct_taut_strings as _cts
@@ -3019,6 +3026,13 @@ def solve_route_profile(layout, icao: str,
     # still no third map).  The value rides along for the ledger;
     # the HOLD itself is set membership, exactly as Ruling 54
     # joined the pins to the solve's ``yield_hard``.
+    # PARKED FEATURE — NOT A LAW GATE (integration sweep 2026-08-05).
+    # The taut-string machinery is the owner's PAUSED feature: the strings
+    # verdict is pending (memory ``string-purpose-statement``: strings are a
+    # smoothing refinement for otherwise-correctly-graded taxiways, NOT a
+    # surface authority), so this switch is deliberately NOT deleted with
+    # the law gates.  It selects whether a PARKED feature runs at all, not
+    # which law the build obeys.  Retire or adopt it when the owner rules.
     if (_string_pins and _os.environ.get(
             "O4_STRING_PINS_FINAL_HOLD", "0") == "1"):
         if not _rod_key_of:
@@ -3073,6 +3087,13 @@ def solve_route_profile(layout, icao: str,
     # ── FIX ARM §2: THE DECLARED-CONFLICT CHANNEL ─────────────
     # Write-only, allocated only under the gate, one list per
     # call so each row can name the projection that declared it.
+    # PARKED FEATURE — NOT A LAW GATE (integration sweep 2026-08-05).
+    # The taut-string machinery is the owner's PAUSED feature: the strings
+    # verdict is pending (memory ``string-purpose-statement``: strings are a
+    # smoothing refinement for otherwise-correctly-graded taxiways, NOT a
+    # surface authority), so this switch is deliberately NOT deleted with
+    # the law gates.  It selects whether a PARKED feature runs at all, not
+    # which law the build obeys.  Retire or adopt it when the owner rules.
     _hnb_on = _os.environ.get("O4_HARD_NEIGHBOUR_BOUND",
                               "0") == "1"
     _hnb_decl: list = []
@@ -4268,12 +4289,27 @@ def solve_route_profile(layout, icao: str,
 # byte-identical).  Deferral engaged (OTHH late: 124 deferred) but deferred
 # shapes were cheap — the constraints stage barely moved — while capture
 # rivals the seed stage per call (HECA: 14.4 s for ONE deferred shape).
-# O4_SCOPED_FINAL_PROJECTION=1 re-enables the machinery; it is retained
-# for post-solve-churn regimes where deferral might pay again.
+# GATE DELETED 2026-08-05 (RULINGS "BUILD-COMPLETE-THEN-DEBUG").  The two
+# sites disagreed — ``flat_airport_fast_path`` defaulted "1" and captured a
+# snapshot on every flat-airport build that this consumer, defaulting "0",
+# never read.  Resolved to ONE state, and it is the state production has
+# actually run since the T1a verdict: NOT scoped.  This is a DEVIATION from
+# the integration brief's "resolve to the 1 arm" — noted rather than
+# decided silently (RULINGS 12320bd §2) — because the 1 arm is not a law,
+# it is an optimisation the board retired ON MEASUREMENT (OTHH 363.3 s
+# scoped vs 325.2 s full, identical grade counts bar 2 by-design rows), so
+# adopting it would re-introduce a measured build-time regression and two
+# surface rows for no law.
+#
+# PARKED-FEATURE: the scoping machinery (capture / defer-ids / lazy stubs /
+# recapture) is RETAINED, unreferenced by production, for the post-solve-
+# churn regime where deferral might pay again.  It is not a gate: nothing
+# in the environment can turn it on.
+SCOPED_FINAL_PROJECTION = False
 
 
 def _scoped_projection_enabled() -> bool:
-    return _os.environ.get("O4_SCOPED_FINAL_PROJECTION", "0") == "1"
+    return SCOPED_FINAL_PROJECTION
 
 
 # ── TERRAIN-PIN QUARANTINE RETIREMENT (spec ``docs/specs/quarantine-
@@ -5556,6 +5592,13 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # conflict path, which this pass's projection inherits when
     # ``O4_HARD_NEIGHBOUR_BOUND`` is on too.
     _string_pin_hold: set = set()
+    # PARKED FEATURE — NOT A LAW GATE (integration sweep 2026-08-05).
+    # The taut-string machinery is the owner's PAUSED feature: the strings
+    # verdict is pending (memory ``string-purpose-statement``: strings are a
+    # smoothing refinement for otherwise-correctly-graded taxiways, NOT a
+    # surface authority), so this switch is deliberately NOT deleted with
+    # the law gates.  It selects whether a PARKED feature runs at all, not
+    # which law the build obeys.  Retire or adopt it when the owner rules.
     if _os.environ.get("O4_STRING_PINS_FINAL_HOLD", "0") == "1":
         _string_pin_hold = _string_pin_hold_indexes(layout, b2i, n)
         hard |= _string_pin_hold

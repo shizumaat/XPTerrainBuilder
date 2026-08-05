@@ -56,23 +56,20 @@ def _run(elev, iter_edges, n, max_iters=4000):
 
 # ── (a) the gate ─────────────────────────────────────────────────────────
 
-def test_gate_defaults_off_and_is_implied_by_the_route_metric(monkeypatch):
-    """KILL-HALF FLIP (2026-08-04, spec kill-half §1): the REPORT's own
-    default is still "0" (the spec flips 11 gates and this is not one of
-    them) — but its implicant ``O4_ROUTE_METRIC_ENVELOPE`` is default ON,
-    so an unset environment now REPORTS.  Both halves are asserted."""
+def test_the_report_is_implied_on_unconditionally(monkeypatch):
+    """``O4_ROUTE_METRIC_ENVELOPE`` — this report's implicant — was
+    DELETED by the integration sweep 2026-08-05 (the route-metric band is
+    standing law).  The implication therefore holds ALWAYS: an unset
+    environment reports, and no env value can withdraw the implication.
+    Only the report's own explicit ``=0`` still silences it (asserted by
+    ``test_an_explicit_zero_wins_over_the_implication``)."""
     monkeypatch.delenv("O4_PROJECTION_STALL_REPORT", raising=False)
     monkeypatch.delenv("O4_ROUTE_METRIC_ENVELOPE", raising=False)
     assert OS.PROJECTION_STALL_REPORT_DEFAULT == "0"
-    assert OS.projection_stall_report_enabled() is True, (
-        "the flipped route-metric default implies the report on")
+    assert OS.projection_stall_report_enabled() is True
     monkeypatch.setenv("O4_ROUTE_METRIC_ENVELOPE", "0")
-    assert OS.projection_stall_report_enabled() is False
-    monkeypatch.setenv("O4_PROJECTION_STALL_REPORT", "1")
-    assert OS.projection_stall_report_enabled() is True
-    monkeypatch.delenv("O4_PROJECTION_STALL_REPORT")
-    monkeypatch.setenv("O4_ROUTE_METRIC_ENVELOPE", "1")
-    assert OS.projection_stall_report_enabled() is True
+    assert OS.projection_stall_report_enabled() is True, (
+        "the implicant is standing law; a stale =0 cannot withdraw it")
 
 
 def test_an_explicit_zero_wins_over_the_implication(monkeypatch):

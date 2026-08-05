@@ -58,6 +58,9 @@ def _branch_case(env_value):
                  (8, 3, -1.02, -0.98)]
     constraints = [{"edges": edges},
                    {"edges": rod_edges, "envelope_skip": True}]
+    # (Retired env name, kept only as an inert no-op row until the
+    # hygiene backlog rewrites this file: the gate is DELETED in src/,
+    # so this line selects nothing.  Integration sweep 2026-08-05.)
     old = os.environ.get("O4_BRANCH_RIGID_BLEND")
     os.environ["O4_BRANCH_RIGID_BLEND"] = env_value
     try:

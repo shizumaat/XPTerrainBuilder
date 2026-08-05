@@ -474,17 +474,10 @@ def apply_flat_airport_fast_path(layout, icao, nodes, bucket_to_idx, elev,
 
     n_terms, n_rects, n_juncs = _writeback(layout, elev, bucket_to_idx)
 
-    # Scoped final projection: capture the post-write-back state so the
-    # pipeline's ``final_grade_projection`` proves every unchanged apron/junction
-    # shape deferrable (Tier-0 machinery) and visits approximately nothing.  The
-    # snapshot is only consulted under the global-slice spine + scoped gate — the
-    # same guard the projection itself applies.
-    if os.environ.get("O4_SCOPED_FINAL_PROJECTION", "1") == "1":
-        from .solve import _capture_projection_snapshot
-        try:
-            _capture_projection_snapshot(layout)
-        except Exception:                                  # pragma: no cover
-            pass
+    # (The scoped-final-projection snapshot that was captured here is GONE
+    # with its gate, 2026-08-05.  It was the audit's per-site default drift
+    # specimen: this site defaulted "1" while the only consumer defaulted
+    # "0", so every flat-airport build paid for a snapshot nothing read.)
 
     report_flat_certificate_fast_path(layout, icao, "TAKEN", own_tally=True)
     _report(icao, 0, 0, time.time() - t0, n_terms, n_rects, n_juncs)

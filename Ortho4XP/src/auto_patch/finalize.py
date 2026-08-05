@@ -276,39 +276,12 @@ def compute_elevations_and_repair_geometry(layout: PavementLayout, icao: str, xp
     # equalised to flat.  Skip the chain when the flag is on; the
     # solver's writeback already gives every shared bucket one
     # value, so the snaps are redundant and harmful.
-    from .elevation import USE_PER_SURFACE_SOLVER
-    if not USE_PER_SURFACE_SOLVER:
-        # Per user 2026-04-28: junction polygon vertices that
-        # coincide with a runway / sloping-rect / terminal corner
-        # MUST emit that shape's altitude tag value.  Run this
-        # AFTER all the shared-vertex / overlap-clip passes since
-        # they can rearrange polygon coords and put node_altitudes
-        # out of sync with the rect's emitted altitude tags.
-        _snap_junction_altitudes_to_rect_corners(layout)
-        # Per user 2026-04-28: junctions sharing a boundary vertex
-        # MUST agree on its altitude.  Subdivide / clamp passes can
-        # leave sub-metre disagreement at shared buckets — average
-        # them so X-Plane doesn't render a tear at the seam.
-        _enforce_shared_vertex_altitudes(layout)
-        # Re-run the rect-corner snap after the shared-vertex
-        # average, since averaging can pull a shared-with-rect
-        # bucket away from the rect's tag value.
-        _snap_junction_altitudes_to_rect_corners(layout)
-        # Per user 2026-04-28: smooth adjacent-vertex pair grade
-        # WITHIN each junction.  Above passes enforce shared-
-        # vertex agreement (across polygons) and rect-corner
-        # alignment (junction ↔ sloping rect), but interior
-        # junction vertices can still violate 1.5 % grade against
-        # their immediate ring neighbours.  Iterate adjacent-pair
-        # smoothing with hard-vertex anchoring to converge those.
-        _smooth_within_junction_adjacent_pair_grade(layout)
-        # Re-run shared-vertex + rect-corner snaps so any seam
-        # vertex the smoother nudged off-target is restored.
-        _enforce_shared_vertex_altitudes(layout)
-        _snap_junction_altitudes_to_rect_corners(layout)
-        # Junction ring curvature smoothing (user 2026-06-15) runs in the
-        # PER-SURFACE path from pipeline (after per_surface_solve), since
-        # this legacy chain is skipped under USE_PER_SURFACE_SOLVER.
+    # (The legacy junction snap/average/smooth chain that used to run
+    # here when ``USE_PER_SURFACE_SOLVER`` was off is DELETED with its
+    # gate, 2026-08-05: it re-introduced the within-junction grade
+    # violations the solve had just fixed, and the solver's writeback
+    # already gives every shared bucket one value.  Junction ring
+    # curvature smoothing runs in the per-surface path from pipeline.)
     # Per user 2026-04-29: merge small junction slivers into
     # adjacent larger junctions.  Polygon-with-holes
     # decomposition + post-elevation subdivisions can carve

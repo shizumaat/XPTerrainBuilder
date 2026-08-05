@@ -95,6 +95,9 @@ def _junction_alt_at(layout, junction, xy):
 @pytest.fixture(autouse=True)
 def _projection_env(monkeypatch):
     monkeypatch.delenv("O4_FINAL_GRADE_PROJECTION", raising=False)
+    # (Retired env name, kept only as an inert no-op row until the
+    # hygiene backlog rewrites this file: the gate is DELETED in src/,
+    # so this line selects nothing.  Integration sweep 2026-08-05.)
     monkeypatch.delenv("O4_TORN_DATUM_PIN_RELEASE", raising=False)
     # The projection is active only under the spine gates; force the arc
     # gate on so the test never silently no-ops on a gate flip.

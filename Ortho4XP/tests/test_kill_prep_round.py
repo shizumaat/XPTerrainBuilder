@@ -284,40 +284,43 @@ class TestServiceEnvelopeConsumesTheOneLaw:
 # ═════════════════════════════════════════════════════════════════════
 
 class TestTrianglePlaneDemotion:
-    def _disposition(self, monkeypatch, gate, tri_broken):
-        monkeypatch.setenv("O4_TRIANGLE_PLANE_REPORTS", "1" if gate else "0")
-        import auto_patch.config as cfg
-        importlib.reload(cfg)
+    def _disposition(self, tri_broken):
         from auto_patch.elevation_per_surface.route_profile import solve
         layout = types.SimpleNamespace()
         out = solve.triangle_plane_disposition(layout, tri_broken, 3)
-        importlib.reload(cfg)
         return out, layout
 
-    def test_gate_off_quarantines_as_before(self, monkeypatch):
-        out, layout = self._disposition(monkeypatch, False, {4, 7, 9})
-        assert out == {4, 7, 9}
-        assert not hasattr(layout, "_triangle_plane_unresolved")
+    def test_the_export_arm_is_gone_with_its_gate(self, monkeypatch):
+        """``O4_TRIANGLE_PLANE_REPORTS`` was DELETED by the integration
+        sweep 2026-08-05 (audit Tier 2: named REPORTS, but it decided
+        whether unresolved triangle vertices became BREAK REGIONS — an
+        emitted value).  A stale ``=0`` must not restore the export."""
+        import auto_patch.config as cfg
+        monkeypatch.setenv("O4_TRIANGLE_PLANE_REPORTS", "0")
+        importlib.reload(cfg)
+        try:
+            assert cfg.TRIANGLE_PLANE_REPORTS is True
+            out, layout = self._disposition({4, 7, 9})
+            assert out == set()
+            assert layout._triangle_plane_unresolved == 3
+        finally:
+            monkeypatch.delenv("O4_TRIANGLE_PLANE_REPORTS", raising=False)
+            importlib.reload(cfg)
 
-    def test_gate_on_reports_and_never_mints_break_membership(self,
-                                                             monkeypatch):
-        out, layout = self._disposition(monkeypatch, True, {4, 7, 9})
+    def test_it_reports_and_never_mints_break_membership(self):
+        out, layout = self._disposition({4, 7, 9})
         assert out == set()
         assert layout._triangle_plane_unresolved == 3
 
-    def test_the_report_accumulates_over_the_passes(self, monkeypatch):
-        monkeypatch.setenv("O4_TRIANGLE_PLANE_REPORTS", "1")
-        import auto_patch.config as cfg
-        importlib.reload(cfg)
+    def test_the_report_accumulates_over_the_passes(self):
         from auto_patch.elevation_per_surface.route_profile import solve
         layout = types.SimpleNamespace()
         solve.triangle_plane_disposition(layout, {1, 2})
         solve.triangle_plane_disposition(layout, {5})
         assert layout._triangle_plane_unresolved == 3
-        importlib.reload(cfg)
 
-    def test_an_empty_unresolved_set_reports_nothing(self, monkeypatch):
-        out, layout = self._disposition(monkeypatch, True, set())
+    def test_an_empty_unresolved_set_reports_nothing(self):
+        out, layout = self._disposition(set())
         assert out == set()
         assert layout._triangle_plane_unresolved == 0
 
@@ -406,14 +409,15 @@ class TestSeedCellExactness:
         assert cfg.BAND_SEED_EXACT is True
         assert cfg.SERVICE_LOT_ABSORPTION is True
         assert cfg.TRIANGLE_PLANE_REPORTS is True
-        # ``O4_SERVICE_LOT_ABSORPTION`` is DELETED (owner 2026-08-05,
-        # no gates): class-universal absorption is standing law and the
-        # retired env name can no longer restore the pre-flip default.
-        # The other two still carry their override.
+        # ``O4_SERVICE_LOT_ABSORPTION`` is DELETED (owner 2026-08-05, no
+        # gates), and ``O4_TRIANGLE_PLANE_REPORTS`` followed it in the
+        # integration sweep the same day: neither retired env name can
+        # restore its pre-flip default any more.  Only BAND_SEED_EXACT
+        # still carries an override.
         for name in ("O4_BAND_SEED_EXACT", "O4_SERVICE_LOT_ABSORPTION",
                      "O4_TRIANGLE_PLANE_REPORTS"):
             monkeypatch.setenv(name, "0")
         importlib.reload(cfg)
         assert cfg.BAND_SEED_EXACT is False
         assert cfg.SERVICE_LOT_ABSORPTION is True
-        assert cfg.TRIANGLE_PLANE_REPORTS is False
+        assert cfg.TRIANGLE_PLANE_REPORTS is True

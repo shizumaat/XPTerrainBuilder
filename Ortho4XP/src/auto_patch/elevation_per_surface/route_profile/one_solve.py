@@ -53,29 +53,27 @@ _INF = float("inf")
 # adopts this envelope's two-sided tightening as the baseline surface
 # character).  ``O4_ENVELOPE_FROM_BAND``'s own default stays "0" — the
 # route-metric gate implies it, so there is still ONE default to flip.
-ENVELOPE_FROM_BAND_DEFAULT = "0"
-ROUTE_METRIC_ENVELOPE_DEFAULT = "1"
+# STANDING LAW 2026-08-05 (``O4_ROUTE_METRIC_ENVELOPE`` and
+# ``O4_ENVELOPE_FROM_BAND`` both retired under RULINGS
+# "BUILD-COMPLETE-THEN-DEBUG").  THE ROUTE-METRIC BAND IS THE LAW: the
+# kill-half flip already made it the shipped default, and the losing arm —
+# the pavement-PAIR closure envelope — is one of the three superseded
+# second authorities the audit names (REMNANTS part B).  The defaults
+# lived in named CONSTANTS, which made them invisible to the provenance
+# stamp; both the constants and their env reads are gone.
 
 
 def route_metric_envelope_enabled() -> bool:
-    """True when ``O4_ROUTE_METRIC_ENVELOPE`` is on (default ``"1"`` since
-    the 2026-08-04 kill-half flip; ``O4_ROUTE_METRIC_ENVELOPE=0`` restores
-    the pair-closure envelope).
-
-    THE one reader of this flag's default."""
-    return (_os.environ.get("O4_ROUTE_METRIC_ENVELOPE",
-                            ROUTE_METRIC_ENVELOPE_DEFAULT) == "1")
+    """The route-metric envelope IS the envelope.  Kept as a predicate
+    only because several call sites read it as a condition; it has no
+    other arm to select."""
+    return True
 
 
 def envelope_from_band_enabled() -> bool:
-    """True when the feasibility envelope reads THE reach band.
-
-    THE one reader of ``O4_ENVELOPE_FROM_BAND``'s default (``"0"``).  The
-    route-metric gate implies it: that spec's §1 fix is precisely "every
-    pass, including the final, runs its envelope on the band"."""
-    return (route_metric_envelope_enabled()
-            or _os.environ.get("O4_ENVELOPE_FROM_BAND",
-                               ENVELOPE_FROM_BAND_DEFAULT) == "1")
+    """The feasibility envelope reads THE reach band — every pass,
+    including the final.  Implied by the route metric, which is the law."""
+    return True
 
 
 # ── THE PROJECTION STALL REPORT (spec
@@ -153,7 +151,6 @@ def projection_stall_report_enabled() -> bool:
 # grade-compliant) feasible surface, so NOT byte-identical.  Default OFF; the
 # scalar path stays the byte-identical default until this is validated (elevation
 # delta small, residual violations equivalent-or-better) and re-baselined.
-_FP_VECTORIZE = _os.environ.get("O4_FP_VECTORIZE", "0") == "1"
 
 # Floor for the emit-quantization margin (see ``_margined_budget``): a budget
 # at or below this is NEVER reduced.  Rect flat-cross edges are budget 0 BY
@@ -375,7 +372,9 @@ def _node_box_arrays(node_box, np):
 def _project_vectorized(elev, iter_edges, n, max_iters, tol,
                         interval_bounds_by_index=None, node_box=None):
     """Vectorised DEGREE-NORMALISED JACOBI variant of the feasibility projection
-    (gated by ``_FP_VECTORIZE``).  Mutates ``elev`` (a list) in place.
+    (selected by the ``force_scalar`` argument — ``O4_FP_VECTORIZE`` was
+    a DEAD gate, never read, deleted 2026-08-05).  Mutates ``elev`` (a
+    list) in place.
 
     Every iteration updates ALL nodes from the same snapshot (Jacobi, not
     Gauss-Seidel), so it vectorises with numpy — but a node touched by many
@@ -2260,6 +2259,13 @@ def feasibility_project(elev, shape_constraints, hard, *,
     # (node, low author, high author) is emitted write-only through
     # ``declared_out``.  Suppressing it would be the one thing the ruling
     # forbids.
+    # PARKED FEATURE — NOT A LAW GATE (integration sweep 2026-08-05).
+    # The taut-string machinery is the owner's PAUSED feature: the strings
+    # verdict is pending (memory ``string-purpose-statement``: strings are a
+    # smoothing refinement for otherwise-correctly-graded taxiways, NOT a
+    # surface authority), so this switch is deliberately NOT deleted with
+    # the law gates.  It selects whether a PARKED feature runs at all, not
+    # which law the build obeys.  Retire or adopt it when the owner rules.
     _hnb_on = _os.environ.get("O4_HARD_NEIGHBOUR_BOUND", "0") == "1"
     _hnb_declared: list = []
 
@@ -3319,8 +3325,10 @@ def one_profile_solve(
     # Apron body target: closest-to-DEM (default) vs SMOOTH (grade between the
     # apron's anchored edges + spine — user model "aprons grade building→edge/
     # spine, NOT DEM").
-    _apron_smooth = (apron_smooth if apron_smooth is not None
-                     else _os.environ.get("O4_RP_APRON_SMOOTH", "0") == "1")
+    # (``O4_RP_APRON_SMOOTH`` deleted 2026-08-05 — the fallback was
+    # unreachable: the sole production caller passes ``apron_smooth=True``,
+    # which is the owner model "aprons grade building->edge/spine, NOT DEM".)
+    _apron_smooth = True if apron_smooth is None else bool(apron_smooth)
     adj = _build_adjacency(shape_constraints, n)
     if not adj:
         return 0

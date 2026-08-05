@@ -32,6 +32,9 @@ from auto_patch.elevation_per_surface.route_profile import anchors
 @pytest.fixture(autouse=True)
 def _quiet_summary(monkeypatch):
     """Silence the per-call cluster summary line during the unit tests."""
+    # (Retired env name, kept only as an inert no-op row until the
+    # hygiene backlog rewrites this file: the gate is DELETED in src/,
+    # so this line selects nothing.  Integration sweep 2026-08-05.)
     monkeypatch.setenv("O4_REACH_BAND_CLUSTER_QUIET", "1")
 
 

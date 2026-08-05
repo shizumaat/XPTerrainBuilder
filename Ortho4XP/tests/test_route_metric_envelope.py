@@ -84,23 +84,30 @@ def test_route_absorbable_tension_is_feasible_under_the_gate(monkeypatch):
     assert rem > 0
 
 
-def test_gate_off_is_the_pair_closure(monkeypatch):
-    """Gate-off byte identity: the band is ignored even when handed in.
+def test_the_band_is_never_inert(monkeypatch):
+    """The former "gate off ⇒ the band is ignored" property, inverted.
 
-    KILL-HALF FLIP (2026-08-04, spec kill-half §1): the gate's DEFAULT is
-    now "1", so gate-off must be asked for explicitly.  The property under
-    test — with the envelope off the band is inert — is unchanged."""
-    monkeypatch.setenv("O4_ROUTE_METRIC_ENVELOPE", "0")
-    monkeypatch.delenv("O4_ENVELOPE_FROM_BAND", raising=False)
+    ``O4_ROUTE_METRIC_ENVELOPE`` was DELETED by the integration sweep
+    2026-08-05 (the route-metric band IS the law), so a handed-in band
+    must always govern: a stale ``=0`` cannot make it inert."""
     chord, hard, elev, band = _two_runway_tension()
-    a = list(elev)
-    broken = set()
-    ra = feasibility_project(a, chord, hard, force_scalar=True, max_iters=400,
-                             broken_out=broken, env_band=band)
-    b = list(elev)
-    rb = feasibility_project(b, chord, hard, force_scalar=True, max_iters=400)
-    assert broken == {1, 2}
-    assert ra == rb and a == b
+
+    def _run():
+        a = list(elev)
+        br = set()
+        feasibility_project(a, chord, hard, force_scalar=True, max_iters=400,
+                            broken_out=br, env_band=band)
+        return a, br
+
+    monkeypatch.delenv("O4_ROUTE_METRIC_ENVELOPE", raising=False)
+    monkeypatch.delenv("O4_ENVELOPE_FROM_BAND", raising=False)
+    clean = _run()
+    monkeypatch.setenv("O4_ROUTE_METRIC_ENVELOPE", "0")
+    monkeypatch.setenv("O4_ENVELOPE_FROM_BAND", "0")
+    stale = _run()
+    assert stale[1] != {1, 2}, "the closure arm is deleted, not selectable"
+    assert stale == clean, (
+        "the retired env names must make NO difference to the answer")
 
 
 # ── §4.1 (2) — a non-route anchor cannot witness ─────────────────────────

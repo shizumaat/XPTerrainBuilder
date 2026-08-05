@@ -56,34 +56,31 @@ from auto_patch.layout import (
 __all__ = ["building_feasible_levels", "reach_band_unified",
            "runway_edge_anchors", "spine_value_fields",
            "BandInversionError", "assert_no_final_band_inversion",
-           "FINAL_BAND_INVERSION_TOL_M", "band_seed_complete_enabled"]
+           "FINAL_BAND_INVERSION_TOL_M"]
 
-
-def band_seed_complete_enabled() -> bool:
-    """BAND-SEED COMPLETENESS (seed-fix round §2; gate
-    ``O4_BAND_SEED_COMPLETE``, default "0").
-
-    ON, :func:`spine_value_fields` seeds from ``G.runway_anchor`` UNION the
-    on-spine ``seed_rwy_seam`` HARD TRUTH — the runway/CIFP profile values
-    and tile-seam DEM pins the solve already holds immovable — instead of
-    ``G.runway_anchor`` alone, and the post-solve band law additionally
-    adjudicates the FLOOR-ABOVE-OWN-HARD-VALUE class.
-
-    THE DEFECT.  A node can be HARD runway truth and still be absent from
-    the value fields' seed set, because ``G.runway_anchor`` is the
-    runway-JOIN anchor map, not the hard-truth set.  Measured at HECA
-    (``seed_attrib/``): 8 of the 31 on-spine ``seed_rwy_seam`` nodes are
-    missing (2863, 3610, 3631, 4818, 6907, 7236, 7298, 7493), and the band
-    floor then sits ABOVE a node's own hard runway value at 2 of them
-    (4818 by +2.344 m, 2863 by +1.522 m).  A band whose own seeds are the
-    runway anchors cannot lawfully floor a runway node above its own
-    runway value — that is one instrument contradicting itself, and every
-    consumer that clamps a target INTO the band (the apron-contact seats,
-    §3) inherits the defect.
-
-    Default "0" — no new default-on gate without a battery."""
-    import os as _os_gate
-    return _os_gate.environ.get("O4_BAND_SEED_COMPLETE", "0") == "1"
+# ── BAND-SEED COMPLETENESS — STANDING LAW ────────────────────────────────
+# (seed-fix round §2; formerly gate ``O4_BAND_SEED_COMPLETE``, retired
+# 2026-08-05 under RULINGS "BUILD-COMPLETE-THEN-DEBUG": every believed-in
+# law becomes standing law and its env override is deleted.)
+#
+# THE LAW.  :func:`spine_value_fields` seeds from ``G.runway_anchor`` UNION
+# the on-spine ``seed_rwy_seam`` HARD TRUTH — the runway/CIFP profile
+# values and tile-seam DEM pins the solve already holds immovable — and
+# the post-solve band law adjudicates the FLOOR-ABOVE-OWN-HARD-VALUE class.
+#
+# THE DEFECT IT CLOSES.  A node can be HARD runway truth and still be
+# absent from the value fields' seed set, because ``G.runway_anchor`` is
+# the runway-JOIN anchor map, not the hard-truth set.  Measured at HECA
+# (``seed_attrib/``): 8 of the 31 on-spine ``seed_rwy_seam`` nodes are
+# missing (2863, 3610, 3631, 4818, 6907, 7236, 7298, 7493), and the band
+# floor then sits ABOVE a node's own hard runway value at 2 of them (4818
+# by +2.344 m, 2863 by +1.522 m).  A band whose own seeds are the runway
+# anchors cannot lawfully floor a runway node above its own runway value —
+# that is one instrument contradicting itself, and every consumer that
+# clamps a target INTO the band (the apron-contact seats) inherits it.
+#
+# The inversion assert stays LOUD: certify-or-fail is the architecture
+# (RULINGS 2026-08-05 §1 keeps "certify-or-fail-loud in the solve").
 
 # ── THE LOUD ERROR (spec ``docs/specs/kill-half-spec.md`` §3) ────────────
 # The band quarantine is deleted (§2), and what replaces it is not a
@@ -647,13 +644,14 @@ def spine_value_fields(layout, G):
                                                             None):
         return {}, {}
     from auto_patch.config import REACH_NO_SERVICE_SPINES
-    # SEED COMPLETENESS (§2, gate ``O4_BAND_SEED_COMPLETE``): the field's
-    # seed set is ``G.runway_anchor`` UNION the on-spine ``seed_rwy_seam``
-    # hard truth the solve publishes.  ``setdefault`` — a genuine
-    # runway-JOIN anchor at a shared node keeps datum authority (the same
-    # precedence the EAT anchor-rect registration uses).  Gate off ⇒ the
-    # extra map is empty ⇒ ``anchor_elev`` is ``G.runway_anchor`` with its
-    # insertion order intact ⇒ the field is byte-identical.
+    # SEED COMPLETENESS (standing law): the field's seed set is
+    # ``G.runway_anchor`` UNION the on-spine ``seed_rwy_seam`` hard truth
+    # the solve publishes.  ``setdefault`` — a genuine runway-JOIN anchor
+    # at a shared node keeps datum authority (the same precedence the EAT
+    # anchor-rect registration uses).  A context that has not published the
+    # hard-truth map yet (the pre-solve construct band) contributes an
+    # empty extra map, so ``anchor_elev`` is ``G.runway_anchor`` with its
+    # insertion order intact there.
     anchor_elev = dict(G.runway_anchor)
     for _hi, _hv in _hard_truth_spine_seeds(layout, G).items():
         anchor_elev.setdefault(_hi, float(_hv))
@@ -698,16 +696,14 @@ def spine_value_fields(layout, G):
 
 def _hard_truth_spine_seeds(layout, G):
     """``{node: hard_elev}`` — the on-spine ``seed_rwy_seam`` HARD TRUTH
-    (seed-fix round §2).  ``{}`` with the gate off, and ``{}`` in any
-    context that has not published the map (the pre-solve construct band
-    runs BEFORE the solve seeds elevations, so it honestly keeps the
+    (standing law; see the BAND-SEED COMPLETENESS block above).  ``{}`` in
+    any context that has not published the map (the pre-solve construct
+    band runs BEFORE the solve seeds elevations, so it honestly keeps the
     runway-anchor-only field it has always had).
 
     The publisher is ``route_profile.solve`` — the ONE place that knows
     which nodes ``_seed_elevations`` hardened; nothing is re-derived here
     (``single-pass-principle``)."""
-    if not band_seed_complete_enabled():
-        return {}
     truth = getattr(layout, "_seed_hard_truth_values", None) or {}
     spine = getattr(G, "spine_adj", None) or {}
     if not truth or not spine:
@@ -1051,9 +1047,8 @@ def building_feasible_levels(
 
     # Buildings ≥ this footprint must clear their ENTIRE frontage, not just a
     # single central chord (user 2026-06-27); small buildings keep the centroid
-    # chord.  Gate off → central chord for every building (legacy, byte-identical).
-    full_frontage = (BUILDING_FULL_FRONTAGE
-                     and os.environ.get("O4_BUILDING_FULL_FRONTAGE", "1") == "1")
+    # chord.  ``config.BUILDING_FULL_FRONTAGE`` is the law's own switch.
+    full_frontage = BUILDING_FULL_FRONTAGE
     # Taxi corridors + pavement-visibility for the frontage qualifier (a side
     # grades at 1 % only when a corridor is within range AND visibly chord-reachable).
     cls = vis = None
@@ -1071,11 +1066,9 @@ def building_feasible_levels(
     # seated level.  Sound guard: the DEM mean must also sit inside the central
     # reach band with a margin ≥ ``footprint_radius · APRON_MAX_GRADE`` (so the
     # whole flat footprint stays reachable — a building near a constraining, and
-    # thus tight, route band refuses and takes the normal clamp).  Gated by
-    # ``O4_FLAT_CERTIFICATE_COVERAGE`` (read at call time); OFF → byte-identical.
-    seat_certificate_enabled = (
-        FLAT_CERTIFICATE_COVERAGE
-        and os.environ.get("O4_FLAT_CERTIFICATE_COVERAGE", "1") != "0")
+    # thus tight, route band refuses and takes the normal clamp).  Switched by
+    # ``config.FLAT_CERTIFICATE_COVERAGE``.
+    seat_certificate_enabled = FLAT_CERTIFICATE_COVERAGE
     try:
         from auto_patch.elevation_per_surface.solver_primitives import (
             _record_flat_certificate, _report_flat_certificate_counts)

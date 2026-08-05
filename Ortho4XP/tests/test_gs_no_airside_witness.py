@@ -97,10 +97,13 @@ class TestAllowanceIsOneScalar:
     def test_default_allowance_is_one_connector_throat(self):
         assert gs_mouth_allowance_m() == 15.0
 
-    def test_allowance_is_env_overridable(self):
+    def test_the_allowance_is_not_env_overridable(self):
+        """The env override died 2026-08-05
+        ("BUILD-COMPLETE-THEN-DEBUG"): the allowance is ONE constant, and
+        both bounds move together only when that constant moves."""
         os.environ["O4_GS_PIN_MOUTH_ALLOWANCE_M"] = "22.5"
         try:
-            assert gs_mouth_allowance_m() == 22.5
-            assert gs_witness_horizon(0.05) == 22.5 * 0.05
+            assert gs_mouth_allowance_m() == 15.0
+            assert gs_witness_horizon(0.05) == 15.0 * 0.05
         finally:
             del os.environ["O4_GS_PIN_MOUTH_ALLOWANCE_M"]

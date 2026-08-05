@@ -5,30 +5,21 @@ Hermetic — no airport build, no fixtures.  One synthetic layout per
 section, driving ``anchors.build_building_seats`` directly with a hand-made
 band and DEM sampler.  Covers:
 
-  §2 ``O4_SEAT_BAND_CONSISTENT`` — a large pad's seat clamps into the
-     intersection of its selection interval and the NODE band at its
-     contact nodes (the band the projection actually enforces); an EMPTY
-     intersection keeps today's value and is REPORTED, never silent.
-  §3 ``O4_SEAT_COUPLE_SHARED_SURFACE`` — two pads whose rings share a
-     paved shape couple even when the straight chord between them is off
-     pavement (the false-negative visibility predicate); pads that share
-     no surface stay uncoupled; default OFF is byte-inert.
-  §4 empty coupling polytope — LOUD attribution on every run (RULINGS
-     2026-08-04 split-level building seats), with NO change to the shipped
-     values.
+  §2 SEAT-vs-BAND CONSISTENCY (standing law) — a large pad's seat clamps
+     into the intersection of its selection interval and the NODE band at
+     its contact nodes (the band the projection actually enforces); an
+     EMPTY intersection keeps today's value and is REPORTED, never silent.
+  MERGED RIGID UNITS (standing law) — pads sharing a ring vertex are ONE
+     flat group at ONE level, transitively; a rigid unit whose members'
+     boxes do not intersect is reported LOUD.
 
-THE SEAT-FLIP BATTERY (2026-08-04, lead ruling variant A) separated the
-two gates and adopted §2 ONLY:
-
-  * §2 is DEFAULT ON — measured alone it is HECA −303 law-true within with
-    every other battery airport byte-identical.  Its pins below follow the
-    kill-half pattern: the ON behaviour is pinned as the DEFAULT (unset
-    env) and the legacy path survives as the explicit ``=0`` arm.
-  * §3 is HELD DEFAULT OFF — measured alone it is KCLT **+145** law-true
-    within (defects migrating from buildings into airside pavement).  It
-    re-arms after ``docs/specs/route-distance-seat-coupling-spec.md``
-    re-prices admission on a route-distance metric, so its pin below still
-    reads "defaults off".
+RETIRED HERE, 2026-08-05 ("BUILD-COMPLETE-THEN-DEBUG"): the §3
+``O4_SEAT_COUPLE_SHARED_SURFACE`` twins.  Route admission SUBSUMES that
+predicate — the surviving coverage is
+``test_route_metric_seat_coupling.test_route_admission_subsumes_the_shared_surface_predicate``,
+which drives the same U-shaped geometry through the law graph.  Coupling
+twins live in that file: the coupler prices on the law graph only, and a
+synthetic with no ``law_graph`` couples nothing by design.
 """
 import pytest
 from shapely.geometry import Polygon
@@ -110,35 +101,21 @@ def _big_band(ring_ceiling=104.0):
     return band
 
 
-def test_seat_band_gate_defaults_on_and_clamps_the_seat(monkeypatch):
-    """Seat-flip battery, 2026-08-04: with NO ``O4_`` var set — what a user
-    build now does — the clamp binds."""
-    monkeypatch.delenv("O4_SEAT_BAND_CONSISTENT", raising=False)
+def test_the_seat_clamps_into_its_node_band_by_law(monkeypatch):
+    """Standing law: no env can turn the clamp off, so an unset
+    environment must clamp."""
     layout, apron, pad = _big_pad_layout()
     b2i = _register(layout, [apron, pad])
     seats = _seats(layout, b2i, _big_band(), lambda x, y: 120.0,
                    {id(pad): 108.0}, monkeypatch)
     got = _level_of(seats, b2i, layout.canonical_points, pad)
     assert got == pytest.approx(104.0), (
-        "the gate is DEFAULT ON — an unset env must clamp into the node band")
-
-
-def test_seat_band_gate_off_leaves_the_seat_alone(monkeypatch):
-    """The legacy path survives as the explicit ``=0`` arm."""
-    monkeypatch.setenv("O4_SEAT_BAND_CONSISTENT", "0")
-    layout, apron, pad = _big_pad_layout()
-    b2i = _register(layout, [apron, pad])
-    seats = _seats(layout, b2i, _big_band(), lambda x, y: 120.0,
-                   {id(pad): 108.0}, monkeypatch)
-    got = _level_of(seats, b2i, layout.canonical_points, pad)
-    assert got == pytest.approx(108.0), (
-        "gate OFF must ship the legacy frontage-band seat unchanged")
+        "the seat must clamp into the band the projection enforces")
 
 
 def test_seat_clamps_into_its_own_node_band(monkeypatch, capsys):
     """The whole §2 fix: the seat may not exceed the ceiling the band the
     solve enforces gives the pad's own contact nodes."""
-    monkeypatch.setenv("O4_SEAT_BAND_CONSISTENT", "1")
     layout, apron, pad = _big_pad_layout()
     b2i = _register(layout, [apron, pad])
     seats = _seats(layout, b2i, _big_band(), lambda x, y: 120.0,
@@ -151,7 +128,6 @@ def test_seat_clamps_into_its_own_node_band(monkeypatch, capsys):
 
 
 def test_a_seat_already_inside_its_node_band_never_moves(monkeypatch):
-    monkeypatch.setenv("O4_SEAT_BAND_CONSISTENT", "1")
     layout, apron, pad = _big_pad_layout()
     b2i = _register(layout, [apron, pad])
     # ring ceiling ABOVE the selected level → intersection contains it
@@ -165,7 +141,6 @@ def test_an_empty_intersection_is_reported_and_ships_todays_value(
         monkeypatch, capsys):
     """The split-level-seat trigger (RULINGS 2026-08-04): no common level
     ⇒ the value is UNCHANGED this round, but it is never silent."""
-    monkeypatch.setenv("O4_SEAT_BAND_CONSISTENT", "1")
     layout, apron, pad = _big_pad_layout()
     b2i = _register(layout, [apron, pad])
 
@@ -184,88 +159,12 @@ def test_an_empty_intersection_is_reported_and_ships_todays_value(
 
 # ── §3 the seat-coupler visibility predicate ─────────────────────────────
 
-def _u_apron_layout():
-    """A U-shaped apron with a pad on each arm.
-
-    The two pads sit 60 m apart across the U's MOUTH, so the straight chord
-    between their nearest points is entirely off pavement (the visibility
-    fraction rejects them) — while both pads' rings share vertices with the
-    SAME apron ring.  That is the dossier's HEAZ building4/building5 pair
-    (17.6 m apart, dv 1.108 m, rejected at frac 0.057).
-    """
-    apron = _shape([(0.0, 0.0), (100.0, 0.0), (100.0, 60.0), (80.0, 60.0),
-                    (80.0, 20.0), (20.0, 20.0), (20.0, 60.0), (0.0, 60.0)],
-                   ROLE_APRON, "apronU")
-    left = _shape([(0.0, 60.0), (20.0, 60.0), (20.0, 80.0), (0.0, 80.0)],
-                  ROLE_BUILDING, "padL")
-    right = _shape([(80.0, 60.0), (100.0, 60.0), (100.0, 80.0),
-                    (80.0, 80.0)], ROLE_BUILDING, "padR")
-    # a pad that shares NO paved surface (the control): inside the corridor
-    # and equally invisible, but standing on its own.
-    far = _shape([(150.0, 150.0), (170.0, 150.0), (170.0, 170.0),
-                  (150.0, 170.0)], ROLE_BUILDING, "padF")
-    return _FakeLayout([apron, left, right, far]), apron, left, right, far
-
-
-def _u_band(x, y):
-    if x < 50.0:
-        return (95.0, 100.0)
-    if x < 120.0:
-        return (95.0, 102.0)
-    return (95.0, 110.0)
-
-
-def _u_seats(monkeypatch):
-    layout, apron, left, right, far = _u_apron_layout()
-    b2i = _register(layout, [apron, left, right, far])
-    levels = {id(left): 100.0, id(right): 102.0, id(far): 105.0}
-    seats = _seats(layout, b2i, _u_band, lambda x, y: 105.0, levels,
-                   monkeypatch)
-    cps = layout.canonical_points
-    return (_level_of(seats, b2i, cps, left),
-            _level_of(seats, b2i, cps, right),
-            _level_of(seats, b2i, cps, far))
-
-
-def test_shared_surface_gate_defaults_off(monkeypatch, capsys):
-    """Today: the pair is 60 m apart with a 0.6 m coupling limit and ships
-    2.0 m apart, because the chord between them crosses the U's mouth.
-
-    HELD default OFF by the seat-flip battery (2026-08-04, lead ruling
-    variant A) — see the gate comment in ``anchors.py``: measured alone it
-    is KCLT +145 law-true within, and it re-arms only after the
-    route-distance coupling round re-prices admission."""
-    monkeypatch.delenv("O4_SEAT_COUPLE_SHARED_SURFACE", raising=False)
-    lv_l, lv_r, lv_f = _u_seats(monkeypatch)
-    assert abs(lv_l - lv_r) == pytest.approx(2.0)
-    assert "[seat-couple]" not in capsys.readouterr().out
-
-
-def test_pads_sharing_a_paved_surface_couple(monkeypatch, capsys):
-    monkeypatch.setenv("O4_SEAT_COUPLE_SHARED_SURFACE", "1")
-    lv_l, lv_r, lv_f = _u_seats(monkeypatch)
-    limit = APRON_MAX_GRADE * 60.0
-    assert abs(lv_l - lv_r) <= limit + 1e-3, (
-        "the pair the law binds must be offered to the coupler")
-    text = capsys.readouterr().out
-    assert "shared-surface adjacency admitted 1 pair(s)" in text
-    assert "padL <-> padR" in text
-
-
-def test_a_pad_sharing_no_surface_stays_uncoupled(monkeypatch):
-    """Adjacency is the literal shared boundary in the sliced arrangement,
-    never proximity (RULINGS lateral-contiguity, 2026-08-02)."""
-    monkeypatch.setenv("O4_SEAT_COUPLE_SHARED_SURFACE", "1")
-    lv_l, lv_r, lv_f = _u_seats(monkeypatch)
-    assert lv_f == pytest.approx(105.0), (
-        "a pad standing on its own pavement-free ground must not be pulled")
-
-
-# ── §4 empty-polytope loudness ───────────────────────────────────────────
+# ── MERGED RIGID UNITS: the touching-pad law ─────────────────────────────
 
 def _touching_pads_layout():
-    """Two TOUCHING pads (gap 0.0 ⇒ coupling limit 0.0) whose feasible
-    boxes are disjoint — the HECA building197↔building201 shape."""
+    """Two TOUCHING pads whose feasible boxes are disjoint — the HECA
+    building197↔building201 shape.  Sharing a ring vertex makes them ONE
+    rigid unit; disjoint boxes make that unit's box EMPTY."""
     apron = _shape([(0.0, 0.0), (100.0, 0.0), (100.0, 60.0), (40.0, 60.0),
                     (20.0, 60.0), (0.0, 60.0)], ROLE_APRON, "apron1")
     d = _shape([(0.0, 60.0), (20.0, 60.0), (20.0, 80.0), (0.0, 80.0)],
@@ -279,7 +178,11 @@ def _touching_band(x, y):
     return (95.0, 100.0) if x < 20.0 else (104.0, 106.0)
 
 
-def test_empty_polytope_is_loud_and_changes_nothing(monkeypatch, capsys):
+def test_touching_pads_are_one_rigid_unit_at_one_level(monkeypatch, capsys):
+    """THE LAW.  The projection makes a ring-sharing pad chain one flat
+    group and broadcasts a single level over it; the seat law therefore
+    seats it at one level UP FRONT rather than choosing two values the
+    projection would overwrite."""
     monkeypatch.delenv("O4_SEAT_DEBUG", raising=False)
     layout, apron, d, e = _touching_pads_layout()
     b2i = _register(layout, [apron, d, e])
@@ -289,20 +192,57 @@ def test_empty_polytope_is_loud_and_changes_nothing(monkeypatch, capsys):
     cps = layout.canonical_points
     lv_d = _level_of(seats, b2i, cps, d)
     lv_e = _level_of(seats, b2i, cps, e)
-    # values UNCHANGED — this round lands the loudness only
-    assert lv_d == pytest.approx(100.0)
-    assert lv_e == pytest.approx(106.0)
+    assert lv_d == lv_e, "a rigid unit has exactly one level"
     text = capsys.readouterr().out
-    assert "EMPTY POLYTOPE" in text
+    assert "MERGED RIGID unit(s) covering 2 pad(s)" in text
     assert "padD" in text and "padE" in text
-    assert "gap=0.0 m" in text
-    assert "ring relief" in text
 
 
-def test_a_feasible_polytope_reports_no_emptiness(monkeypatch, capsys):
+def test_an_empty_rigid_unit_box_is_loud_and_takes_the_lowest_ceiling(
+        monkeypatch, capsys):
+    """``feasibility-is-guaranteed``: two touching pads whose reachable
+    levels do not overlap is a LAW DEFECT to attribute, never a silence.
+    The unit degenerates to the lowest member CEILING — the highest level
+    every member's own frontage can actually grade to."""
     layout, apron, d, e = _touching_pads_layout()
     b2i = _register(layout, [apron, d, e])
-    levels = {id(d): 100.0, id(e): 100.0}
+    seats = _seats(layout, b2i, _touching_band,
+                   lambda x, y: 105.0 + 0.05 * y,
+                   {id(d): 100.0, id(e): 106.0}, monkeypatch)
+    cps = layout.canonical_points
+    assert _level_of(seats, b2i, cps, d) == pytest.approx(100.0), (
+        "padD's ceiling is 100.0 and padE's is 106.0 — the unit takes 100.0")
+    assert "EMPTY member-box intersection" in capsys.readouterr().out
+
+
+def test_a_rigid_unit_with_a_common_level_is_not_reported_empty(
+        monkeypatch, capsys):
+    """The falsifier: overlapping member boxes make an ordinary unit, and
+    the EMPTY wording must not fire on it."""
+    layout, apron, d, e = _touching_pads_layout()
+    b2i = _register(layout, [apron, d, e])
     _seats(layout, b2i, lambda x, y: (95.0, 100.0),
-           lambda x, y: 105.0, levels, monkeypatch)
-    assert "EMPTY POLYTOPE" not in capsys.readouterr().out
+           lambda x, y: 105.0, {id(d): 100.0, id(e): 100.0}, monkeypatch)
+    text = capsys.readouterr().out
+    assert "MERGED RIGID unit(s)" in text
+    assert "EMPTY member-box intersection" not in text
+
+
+def test_pads_that_only_come_close_are_not_merged(monkeypatch, capsys):
+    """Adjacency is the literal SHARED VERTEX in the sliced arrangement,
+    never proximity (RULINGS lateral-contiguity 2026-08-02).  Two pads
+    0.5 m apart share nothing and stay two units."""
+    apron = _shape([(0.0, 0.0), (100.0, 0.0), (100.0, 60.0), (0.0, 60.0)],
+                   ROLE_APRON, "apron1")
+    d = _shape([(0.0, 60.0), (20.0, 60.0), (20.0, 80.0), (0.0, 80.0)],
+               ROLE_BUILDING, "padD")
+    e = _shape([(20.5, 60.0), (40.0, 60.0), (40.0, 80.0), (20.5, 80.0)],
+               ROLE_BUILDING, "padE")
+    layout = _FakeLayout([apron, d, e])
+    b2i = _register(layout, [apron, d, e])
+    seats = _seats(layout, b2i, _touching_band,
+                   lambda x, y: 105.0 + 0.05 * y,
+                   {id(d): 100.0, id(e): 106.0}, monkeypatch)
+    cps = layout.canonical_points
+    assert _level_of(seats, b2i, cps, d) != _level_of(seats, b2i, cps, e)
+    assert "MERGED RIGID unit(s)" not in capsys.readouterr().out

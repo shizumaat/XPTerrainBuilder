@@ -15,7 +15,8 @@ The synthetic below encodes HECA's shape: a hard runway node reachable
 from a HIGHER runway anchor across too little budget, so the floor
 overshoots it.
 
-  (a) the gate is default OFF and byte-inert;
+  (a) the PRE-SOLVE context (no hard-truth map published yet) honestly
+      keeps the runway-anchor-only field;
   (b) RED BEFORE — the extended law sees the class the old law missed;
   (c) GREEN AFTER — completing the seed set puts the missing hard node's
       own value into the fields;
@@ -26,8 +27,7 @@ import pytest
 
 from auto_patch.elevation_per_surface.building_feasibility import (
     BandInversionError, FINAL_BAND_INVERSION_TOL_M,
-    assert_no_final_band_inversion, band_seed_complete_enabled,
-    spine_value_fields)
+    assert_no_final_band_inversion, spine_value_fields)
 
 
 class _G:
@@ -70,20 +70,16 @@ def _heca_shape():
     return _G(runway_anchor, spine_adj, pos), {2: 60.790}
 
 
-# ── (a) the gate ─────────────────────────────────────────────────────────
+# ── (a) the PRE-SOLVE context ────────────────────────────────────────────
 
-def test_gate_defaults_off(monkeypatch):
-    monkeypatch.delenv("O4_BAND_SEED_COMPLETE", raising=False)
-    assert band_seed_complete_enabled() is False
-    monkeypatch.setenv("O4_BAND_SEED_COMPLETE", "1")
-    assert band_seed_complete_enabled() is True
-
-
-def test_gate_off_leaves_the_fields_and_the_law_untouched(monkeypatch):
-    monkeypatch.delenv("O4_BAND_SEED_COMPLETE", raising=False)
-    G, hard = _heca_shape()
-    layout = _Layout()
-    layout._seed_hard_truth_values = hard
+def test_the_presolve_band_keeps_the_runway_anchor_only_field():
+    """The construct band runs BEFORE ``_seed_elevations`` hardens
+    anything, so there is no hard-truth map to union in.  Standing law or
+    not, that context must keep the field it has always had — the law
+    completes a seed set, it never invents one."""
+    G, _hard = _heca_shape()
+    layout = _Layout()                       # nothing published
+    assert not hasattr(layout, "_seed_hard_truth_values")
     ceiling, floor = spine_value_fields(layout, G)
     # the missing hard node contributes nothing: its own value is not a
     # source, so the ceiling at node 2 still comes from node 0.
@@ -95,10 +91,9 @@ def test_gate_off_leaves_the_fields_and_the_law_untouched(monkeypatch):
 
 # ── (b) RED BEFORE / (c) GREEN AFTER ─────────────────────────────────────
 
-def test_the_extended_law_sees_the_floor_above_own_hard_value(monkeypatch):
+def test_the_extended_law_sees_the_floor_above_own_hard_value():
     """RED: with the class recorded, HECA's shape is a LAW VIOLATION the
     old ``floor > ceiling`` test could never have caught."""
-    monkeypatch.setenv("O4_BAND_SEED_COMPLETE", "1")
     G, hard = _heca_shape()
     layout = _Layout()
     # the hard node is published but DELIBERATELY still absent from
@@ -122,14 +117,12 @@ def test_the_extended_law_sees_the_floor_above_own_hard_value(monkeypatch):
         "sends the reader to the wrong fix")
 
 
-def test_completing_the_seed_set_puts_the_hard_value_in_the_fields(
-        monkeypatch):
+def test_completing_the_seed_set_puts_the_hard_value_in_the_fields():
     """GREEN: seeded, the node's own hard value bounds its own ceiling —
     the field can no longer claim the node is unreachably high, and the
     contradiction is now VISIBLE as a plain ``floor > ceiling`` (the two
     runway values genuinely disagree over that budget, which is the
     attribution the law is supposed to hand back)."""
-    monkeypatch.setenv("O4_BAND_SEED_COMPLETE", "1")
     G, hard = _heca_shape()
     layout = _Layout()
     layout._seed_hard_truth_values = hard
@@ -140,11 +133,10 @@ def test_completing_the_seed_set_puts_the_hard_value_in_the_fields(
     assert ceiling[1] == pytest.approx(60.790 + 8.928, abs=1e-9)
 
 
-def test_a_consistent_pair_of_anchors_stays_silent(monkeypatch):
+def test_a_consistent_pair_of_anchors_stays_silent():
     """The falsifier: when the two runway values DO reconcile over the
     route budget, seeding completely changes nothing and no class fires.
     Without this the twin would pass for a detector that always fires."""
-    monkeypatch.setenv("O4_BAND_SEED_COMPLETE", "1")
     G, _ = _heca_shape()
     layout = _Layout()
     # node 2's hard value is now within the 48.928 m budget of node 0.
@@ -154,10 +146,9 @@ def test_a_consistent_pair_of_anchors_stays_silent(monkeypatch):
     assert layout._final_band_inversions == []
 
 
-def test_a_sub_materiality_overshoot_is_pass_with_residual(monkeypatch):
+def test_a_sub_materiality_overshoot_is_pass_with_residual():
     """Convergence guards: a deficit under the 0.01 m materiality floor is
     reported, never raised."""
-    monkeypatch.setenv("O4_BAND_SEED_COMPLETE", "1")
     G, _ = _heca_shape()
     layout = _Layout()
     floor_at_2 = 115.242 - 48.928

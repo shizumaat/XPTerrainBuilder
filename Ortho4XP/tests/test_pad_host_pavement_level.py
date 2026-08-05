@@ -129,7 +129,10 @@ def test_pad_far_from_pavement_is_untouched(monkeypatch):
 
 
 def test_gate_off_is_noop(monkeypatch):
-    monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "0")
+    # The env override died 2026-08-05; ``config.PAD_HOST_PAVEMENT_LEVEL``
+    # is the law's own switch and the function reads it at call time.
+    import auto_patch.config as _cfg
+    monkeypatch.setattr(_cfg, "PAD_HOST_PAVEMENT_LEVEL", False)
     apron = _apron_with_lip()
     pad = _pad(20.0, 10.0, 30.0, 18.0, PIT)
     layout = _FakeLayout([apron, pad])

@@ -47,7 +47,7 @@ _INF = float("inf")
 # both bounds together.
 def gs_mouth_allowance_m() -> float:
     """The Part-C mouth allowance, in metres of route length."""
-    return float(_os.environ.get("O4_GS_PIN_MOUTH_ALLOWANCE_M", "15.0"))
+    return 15.0
 
 
 def gs_pin_float_cap(cap: float) -> float:
@@ -91,8 +91,10 @@ def gs_witness_horizon(cap: float) -> float:
 # the pair SHOULD be co-level).  ``O4_SVC_PARALLEL_STATION_MERGE=1`` enables it;
 # default (unset / 0) ⇒ byte-identical to the 2 m window.  Standalone tuning
 # knobs (not aerodrome standards; anchors.py owns them per the part-32 split).
-PARALLEL_SERVICE_STATION_MERGE = (
-    _os.environ.get("O4_SVC_PARALLEL_STATION_MERGE", "0") == "1")
+# BELIEVED-IN STATE: OFF (2026-08-05).  The experiment above never found
+# the missing signal, and a gate is no longer how an unbelieved branch is
+# carried — this constant is the switch, and it is False.
+PARALLEL_SERVICE_STATION_MERGE = False
 # Max XY gap between the two lines' stations to couple them (m).
 PARALLEL_SERVICE_STATION_MERGE_MAX_GAP_M = 7.0
 # Near-parallel guard: |cos(angle between the host-line tangents)| must be at
@@ -198,29 +200,39 @@ def _report(line):
 # :func:`route_coupling_horizon_m`).
 ROUTE_COUPLING_MAX_DIST_M: float | None = None      # None ⇒ the corridor
 
-
-def seat_couple_route_metric_enabled() -> bool:
-    """ROUTE-DISTANCE SEAT COUPLING (spec
-    ``docs/specs/route-distance-seat-coupling-spec.md``; gate
-    ``O4_SEAT_COUPLE_ROUTE_METRIC``, default "0").
-
-    ON, the seat coupler admits and prices pairs on the WITHIN-SHAPE LAW
-    GRAPH the projection enforces instead of on a straight chord: pair
-    budget = the per-edge budget sum along the minimum-budget path, priced
-    exactly as ``feasibility_project`` prices its edges.  The chord corridor
-    cutoff and the pavement-visibility fraction are never consulted inside
-    the gate, and ``O4_SEAT_COUPLE_SHARED_SURFACE`` is SUBSUMED (ring-sharing
-    pads have a through-surface path) — bypassed, never fought.
-
-    THE DEFECT (dossier §2, HEAZ).  Pads building4↔building5 are 17.6 m
-    apart by chord (limit 0.176 m) but bound by the 2-hop chain
-    ``35 —0.0578— 1295 —0.1015— 37``: the REAL budget is 0.1593 m, and the
-    pair stalled 8 000 sweeps.  At HECA the shared-surface predicate admits
-    152 pairs of which 130 ship violating their own limit — more admission
-    under the wrong metric only finds more empty polytopes.
-
-    Default "0" — no new default-on gate without a battery."""
-    return _os.environ.get("O4_SEAT_COUPLE_ROUTE_METRIC", "0") == "1"
+# ── THE COUPLER IS ROUTE-PRICED — STANDING LAW ───────────────────────────
+# (spec ``docs/specs/route-distance-seat-coupling-spec.md``; formerly gates
+# ``O4_SEAT_COUPLE_ROUTE_METRIC`` + ``O4_SEAT_COUPLE_SHARED_SURFACE``, both
+# retired 2026-08-05 under RULINGS "BUILD-COMPLETE-THEN-DEBUG".)
+#
+# THE LAW.  The seat coupler admits and prices pairs on the WITHIN-SHAPE
+# LAW GRAPH the projection enforces, never on a straight chord: a pair's
+# budget is the per-edge budget sum along the minimum-budget path, priced
+# exactly as ``feasibility_project`` prices its edges.  There is ONE
+# metric.  The chord corridor cutoff and the pavement-visibility fraction
+# are RETIRED as admission predicates — the chord is still MEASURED, purely
+# as the census that makes each pair's tightening adjudicable.
+#
+# THE DEFECT IT CLOSES (dossier §2, HEAZ).  Pads building4↔building5 are
+# 17.6 m apart by chord (limit 0.176 m) but bound by the 2-hop chain
+# ``35 —0.0578— 1295 —0.1015— 37``: the REAL budget is 0.1593 m, and the
+# pair stalled 8 000 sweeps.  The visibility fraction is a FALSE-NEGATIVE
+# pair predicate on top of that — those two pads' ring nodes sit on ONE
+# apron ring and the projection enforces the chain between them regardless,
+# yet the coupler rejected the pair as "separated by grass" at frac=0.057.
+# Two instruments over one population: the coupler's adjacency was a
+# visible straight chord, the projection's is the within-shape law graph.
+# ``O4_SEAT_COUPLE_SHARED_SURFACE`` is SUBSUMED, not merged: ring-sharing
+# pads have a through-surface path, so route admission already offers every
+# pair that predicate was invented to rescue (measured: byte-identical
+# route arms with and without it at CYXY and HEAZ).
+#
+# MEASURED SURFACE COST IN THE OLD (GATED, PRE-COMPOSED) WORLD: KCLT +121
+# law-true ``within`` at the 2026-08-04 tip, breadth not depth — the
+# corridor faces around the 63-of-69 pads that moved could not grade to
+# their new law-true joint levels.  That number was taken against a
+# chord-priced surface that no longer exists; it is a DEBUG-PHASE target,
+# not a reason to keep two metrics.  Full arm table: coupling/RESULTS.md.
 
 
 def route_coupling_horizon_m() -> tuple:
@@ -238,8 +250,7 @@ def route_coupling_horizon_m() -> tuple:
     from auto_patch.config import APRON_MAX_GRADE, BUILDING_REACH_CORRIDOR_M
     dial = ROUTE_COUPLING_MAX_DIST_M
     if dial is None:
-        dial = float(_os.environ.get("O4_ROUTE_COUPLING_MAX_DIST_M",
-                                     BUILDING_REACH_CORRIDOR_M))
+        dial = float(BUILDING_REACH_CORRIDOR_M)
     return float(APRON_MAX_GRADE) * float(dial), float(dial)
 
 
@@ -435,6 +446,134 @@ def _pad_route_budgets(law_graph, pad_nodes, n_nodes=None):
     return budgets, diag
 
 
+def _merge_rigid_units(pads, cps):
+    """MERGED RIGID UNITS (owner law) — collapse ``pads`` into the flat
+    groups the projection will enforce, TRANSITIVELY.
+
+    ``pads`` — the coupler's ``(shape, ring, level, lo, hi)`` rows.
+    Returns ``(units, unit_of, rows)``:
+
+      * ``units`` — one dict per rigid unit, in ascending order of its
+        lowest member index (deterministic): ``members`` (pad indices),
+        ``refs``, ``ref`` (the report label), ``polygon`` (the union of the
+        member footprints), ``level``, ``lo``, ``hi``;
+      * ``unit_of[pad_index]`` — the unit that pad belongs to;
+      * ``rows`` — one report row per MULTI-member unit (single pads are
+        not news).
+
+    THE RELATION is "shares a ring vertex", read through the CANONICAL
+    REGISTRY (``cps.get_or_add``) — the same interning ``build_building_seats``
+    uses to stamp seats and the same one ``bucket_to_idx`` is keyed on, so
+    two ring vertices that weld to one canonical point count as shared even
+    when their raw coordinates differ.  That makes this relation identical
+    to the node-set overlap ``_pad_route_budgets`` contracts on for every
+    pad whose ring vertices are registered solve nodes, and STRICTLY WIDER
+    for pads that touch only at an OFF-NET vertex — which is the owner's
+    law as stated ("pads sharing a ring vertex"), not the projection's
+    node-graph accident.
+
+    THE UNIT'S BOX is the INTERSECTION of its members' boxes: a rigid body
+    may not yield outside a level any member's own frontage can reach.  An
+    EMPTY intersection is a genuine law defect (``feasibility-is-guaranteed``
+    — two touching pads whose reachable levels do not overlap), so it is
+    REPORTED and the unit degenerates to the most-constrained CEILING: the
+    lowest member ceiling is the highest level every member's frontage can
+    actually grade to, and seating above it is unreachable by construction.
+
+    THE UNIT'S TARGET is the AREA-WEIGHTED mean of its members' independent
+    targets, clamped into the unit box.  The projection broadcasts an
+    unweighted mean over NODES (i.e. perimeter-weighted); area weighting is
+    the deliberate deviation — a shed welded to a terminal must not drag
+    the terminal's level — and it is the value the projection then finds
+    already satisfied instead of minting one.
+    """
+    n = len(pads)
+    parent = list(range(n))
+
+    def _find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    def _union(a, b):
+        ra, rb = _find(a), _find(b)
+        if ra != rb:                       # smallest index wins -> stable
+            parent[max(ra, rb)] = min(ra, rb)
+
+    owner_of_key: dict = {}
+    for k, (_s, ring, *_r) in enumerate(pads):
+        for (x, y) in ring:
+            key = cps.get_or_add(float(x), float(y))
+            prev = owner_of_key.get(key)
+            if prev is None:
+                owner_of_key[key] = k
+            elif prev != k:
+                _union(prev, k)
+
+    groups: dict = {}
+    for k in range(n):
+        groups.setdefault(_find(k), []).append(k)
+
+    units: list = []
+    unit_of = [0] * n
+    rows: list = []
+    for root in sorted(groups):
+        members = groups[root]
+        for k in members:
+            unit_of[k] = len(units)
+        if len(members) == 1:
+            (s, _ring, level, lo, hi) = pads[members[0]]
+            units.append({"members": members,
+                          "refs": [s.ref or "?"],
+                          "ref": s.ref or "?",
+                          "polygon": s.polygon,
+                          "level": float(level),
+                          "lo": float(lo), "hi": float(hi)})
+            continue
+        refs = [pads[k][0].ref or "?" for k in members]
+        lo = max(float(pads[k][3]) for k in members)
+        hi = min(float(pads[k][4]) for k in members)
+        empty = lo > hi
+        if empty:
+            hi = min(float(pads[k][4]) for k in members)
+            lo = hi
+        wsum = 0.0
+        vsum = 0.0
+        for k in members:
+            w = float(pads[k][0].polygon.area) if pads[k][0].polygon else 0.0
+            w = max(w, 1e-9)
+            wsum += w
+            vsum += w * float(pads[k][2])
+        level = min(max(vsum / wsum, lo), hi)
+        # The unit's footprint is the UNION of its members — but only when
+        # that union is a single Polygon: every consumer here
+        # (``polygon.distance``, ``_footprint_dem_relief``) reads
+        # ``.exterior``, and pads that touch at a single point can union to
+        # a MultiPolygon.  Fall back to the LARGEST member, which is the
+        # footprint whose relief the split-level law would threshold on.
+        poly = max((pads[k][0].polygon for k in members
+                    if pads[k][0].polygon is not None),
+                   key=lambda g: g.area, default=None)
+        try:
+            from shapely.ops import unary_union
+            u = unary_union([pads[k][0].polygon for k in members
+                             if pads[k][0].polygon is not None])
+            if (u is not None and not u.is_empty
+                    and getattr(u, "geom_type", "") == "Polygon"):
+                poly = u
+        except Exception:                            # pragma: no cover
+            pass
+        units.append({"members": members, "refs": refs,
+                      "ref": "{" + "+".join(refs[:3])
+                             + ("+…" if len(refs) > 3 else "") + "}",
+                      "polygon": poly, "level": float(level),
+                      "lo": float(lo), "hi": float(hi)})
+        rows.append({"members": members, "refs": refs, "level": float(level),
+                     "lo": float(lo), "hi": float(hi), "empty": bool(empty)})
+    return units, unit_of, rows
+
+
 def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                          *, law_graph=None, n_nodes=None):
     """``{pad_node_idx: flat_level}`` for every airside-touching building, seated
@@ -479,10 +618,12 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
     # frontage corner by averaging in the far high corners — CYXY building15 was
     # seated 709.4 (median over 707.6..712.5) while its A2 frontage centre reaches
     # only 708.4, pinning the A2-end apron 1.8 m high → the 20 % apron cliff.
-    # Gate off → whole-ring median (legacy, byte-identical).
-    _frontage = _os.environ.get("O4_BUILDING_FRONTAGE_SEAT", "1") == "1"
-    # ── SEAT-vs-BAND CONSISTENCY (spec dossier-fixes §2, gate
-    # ``O4_SEAT_BAND_CONSISTENT``, DEFAULT ON) ───────────────────────────
+    # STANDING LAW (owner 2026-06-27; former gate O4_BUILDING_FRONTAGE_SEAT
+    # retired 2026-08-05): the whole-ring MEDIAN fallback survives only for
+    # a pad with NO apron-shared edge, where there is no frontage to read.
+    # ── SEAT-vs-BAND CONSISTENCY — STANDING LAW ─────────────────────────
+    # (spec dossier-fixes §2; former gate ``O4_SEAT_BAND_CONSISTENT``,
+    # retired 2026-08-05.)
     # Two band instruments over one population: a large pad's seat is
     # chosen inside ``_frontage_band`` (a corridor band sampled along the
     # frontage), but the projection bounds the pad's ring nodes by
@@ -496,19 +637,10 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
     # node-band interval at its contact nodes.  An EMPTY intersection is
     # not silently resolved — it is the split-level-seat law's trigger
     # (RULINGS 2026-08-04) and is reported, with today's value kept.
-    # DEFAULT ON since the seat-flip battery (2026-08-04, lead ruling
-    # variant A): the spec's "flip with the next battery" condition is met.
-    # Measured ALONE (this gate only, ``O4_SEAT_COUPLE_SHARED_SURFACE=0``):
-    # HECA 9 952 → 9 649 law-true within (−303; ``building|building``
-    # 440→393 AND the surrounding ``apron`` 6822→6665 / ``junction``
-    # 1856→1781 follow it down), and every other battery airport
-    # BYTE-IDENTICAL to its old default — SPLP/CYXY/HEAZ/SPJC/KCLT all
-    # reproduced their pre-flip body hashes with this gate on.  No new
-    # over-cap class, no chromatic-sweep cost (HECA 31 676 sweeps, byte-
-    # equal to the pre-flip default arm), no build-time cost resolvable
-    # above the noise floor.  ``O4_SEAT_BAND_CONSISTENT=0`` restores the
-    # unclamped frontage-band seat.
-    _seat_band = _os.environ.get("O4_SEAT_BAND_CONSISTENT", "1") == "1"
+    # Measured when it flipped ON (2026-08-04): HECA 9 952 → 9 649 law-true
+    # within (−303; ``building|building`` 440→393 AND the surrounding
+    # ``apron`` 6822→6665 / ``junction`` 1856→1781 follow it down), every
+    # other battery airport byte-identical.
     _sb_moved: list = []
     _sb_empty: list = []
     # Large buildings (≥ area) seat at the FULL-FRONTAGE feasible level (user
@@ -517,21 +649,20 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
     # ``building_feasible_levels``), not the single lowest-ceiling frontage edge.
     from auto_patch.grade_law import building_requires_full_frontage
     apron_keys: set = set()
-    if _frontage:
-        # Frontage = a building edge shared with any SOFT pavement ring.
-        # Under the route-arc GLOBAL SLICE the face a building fronts onto
-        # is usually ROLE_JUNCTION (a corridor face), not ROLE_APRON —
-        # apron-only keys silently dropped every such frontage back to the
-        # legacy whole-ring MEDIAN seat, re-creating the over-pinned
-        # frontage conflicts the frontage seat was built to fix (CYXY
-        # pads seated 1-2 m apart at close quarters).
-        from auto_patch.layout import (
-            ROLE_JUNCTION as _RJ, ROLE_SERVICE_JUNCTION as _RSJ)
-        for a in layout.shapes:
-            if (a.role in (ROLE_APRON, _RJ, _RSJ) and a.polygon is not None
-                    and not a.polygon.is_empty):
-                for (x, y) in _open_ring(list(a.polygon.exterior.coords)):
-                    apron_keys.add((round(x, 2), round(y, 2)))
+    # Frontage = a building edge shared with any SOFT pavement ring.
+    # Under the route-arc GLOBAL SLICE the face a building fronts onto is
+    # usually ROLE_JUNCTION (a corridor face), not ROLE_APRON — apron-only
+    # keys silently dropped every such frontage back to the legacy
+    # whole-ring MEDIAN seat, re-creating the over-pinned frontage
+    # conflicts the frontage seat was built to fix (CYXY pads seated
+    # 1-2 m apart at close quarters).
+    from auto_patch.layout import (
+        ROLE_JUNCTION as _RJ, ROLE_SERVICE_JUNCTION as _RSJ)
+    for a in layout.shapes:
+        if (a.role in (ROLE_APRON, _RJ, _RSJ) and a.polygon is not None
+                and not a.polygon.is_empty):
+            for (x, y) in _open_ring(list(a.polygon.exterior.coords)):
+                apron_keys.add((round(x, 2), round(y, 2)))
 
     def _median(ring, de):
         ceils = sorted(b[1] for (x, y) in ring if (b := band(x, y)) is not None)
@@ -593,29 +724,27 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
             if fb is None:
                 fb = band(s.polygon.centroid.x, s.polygon.centroid.y)
             lo, hi = (min(*fb), max(*fb)) if fb is not None else (level, level)
-            if _seat_band:
-                nlo, nhi, _nc = _seat_node_band(ring, band, cps,
-                                                bucket_to_idx)
-                if _nc:
-                    ilo, ihi = max(lo, nlo), min(hi, nhi)
-                    if ilo > ihi:
-                        # LOUD, never silently shipped: the frontage band
-                        # and the node band have no common level, which is
-                        # precisely the split-level-seat trigger.
-                        _sb_empty.append((s.ref or "?", lo, hi, nlo, nhi,
-                                          level, _nc))
-                    else:
-                        new = min(max(level, ilo), ihi)
-                        if new != level:
-                            _sb_moved.append((s.ref or "?", level, new,
-                                              nlo, nhi, _nc))
-                        # The box is documented as "the interval the seat
-                        # was chosen from"; narrowing it with the level is
-                        # what stops the coupler putting the seat straight
-                        # back above the node ceiling.
-                        level, lo, hi = new, ilo, ihi
+            nlo, nhi, _nc = _seat_node_band(ring, band, cps, bucket_to_idx)
+            if _nc:
+                ilo, ihi = max(lo, nlo), min(hi, nhi)
+                if ilo > ihi:
+                    # LOUD, never silently shipped: the frontage band and
+                    # the node band have no common level, which is
+                    # precisely the split-level-seat trigger.
+                    _sb_empty.append((s.ref or "?", lo, hi, nlo, nhi,
+                                      level, _nc))
+                else:
+                    new = min(max(level, ilo), ihi)
+                    if new != level:
+                        _sb_moved.append((s.ref or "?", level, new,
+                                          nlo, nhi, _nc))
+                    # The box is documented as "the interval the seat was
+                    # chosen from"; narrowing it with the level is what
+                    # stops the coupler putting the seat straight back
+                    # above the node ceiling.
+                    level, lo, hi = new, ilo, ihi
         else:
-            box = _frontage_box(ring) if _frontage else None
+            box = _frontage_box(ring)
             if box is not None:
                 lo, hi = box
                 level = min(de, hi) if de is not None else hi
@@ -637,7 +766,7 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                     lo = hi = level                  # off-network: immovable
         pads.append((s, ring, float(level), lo, hi))
 
-    if _seat_band and (_sb_moved or _sb_empty):
+    if _sb_moved or _sb_empty:
         _report(f"  [seat-band] clamped {len(_sb_moved)} full-frontage seat(s)"
                 f" into their own node band; {len(_sb_empty)} pad(s) have NO "
                 f"common level (split-level-seat trigger)")
@@ -652,126 +781,81 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                     f"{nc} contact node(s); seat kept at {lvl:.3f} "
                     f"— NOT a lawful level, needs sectioned seats")
 
-    # ── SEAT COUPLING (user 2026-07-03): jointly-feasible pad levels ─────────
+    # ── MERGED RIGID UNITS — STANDING LAW (owner; the coupling lane's
+    # recorded defect class) ────────────────────────────────────────────
+    # Pads that share a ring vertex are ONE flat group in the projection,
+    # and the relation is TRANSITIVE — a chain of touching buildings is a
+    # single rigid body.  The projection seats such a body at ONE level (it
+    # broadcasts the group's mean), so a coupler that let its members take
+    # different levels was choosing values the projection would overwrite.
+    # KCLT: one 6-pad chain, 15 pairs at budget 0.  HECA: more.
+    #
+    # The law is enforced STRUCTURALLY here, not as an inequality the POCS
+    # has to converge to: the members collapse into ONE seat variable with
+    # ONE box, so there is no |L_i − L_j| ≤ 0 pair left to approximate and
+    # no group mean for the projection to mint afterwards.
+    units, unit_of, _u_rows = _merge_rigid_units(pads, cps)
+    if _u_rows:
+        _report(f"  [seat-rigid] {len(_u_rows)} MERGED RIGID unit(s) "
+                f"covering {sum(len(r['members']) for r in _u_rows)} pad(s) "
+                f"seated at ONE level each (pads sharing a ring vertex, "
+                f"transitively)")
+        for r in sorted(_u_rows, key=lambda r: -len(r["members"]))[:12]:
+            _report(f"  [seat-rigid]   {{{', '.join(r['refs'])}}} target "
+                    f"{r['level']:.3f} m, box [{r['lo']:.3f},{r['hi']:.3f}]"
+                    f"{'  EMPTY member-box intersection' if r['empty'] else ''}")
+
+    # ── SEAT COUPLING (user 2026-07-03): jointly-feasible unit levels ────────
     # Each pad pins nearby spine/apron nodes to ``seat ± 1%·d`` (the building↔
-    # spine law, never blended/relaxed), so two pads across shared pavement must
-    # satisfy ``|L_i − L_j| ≤ APRON_MAX_GRADE · gap`` — independent seats left
+    # spine law, never blended/relaxed), so two units across shared pavement
+    # must satisfy ``|L_i − L_j| ≤ budget`` — independent seats left
     # neighbouring pads ≤2.6 m apart and made the surrounding faces infeasible
     # (the SPJC >3% class; the feasibility audit proves joint levels exist).
     # Project the independent targets onto the coupled polytope (POCS, same
-    # solver as the no-building apron seats).  Straight-line gap is a LOWER
-    # bound on the in-pavement route, so the coupling is conservative; pairs
-    # couple only within the reach corridor and over a pavement-visible chord
-    # (pads separated by grass/roads never constrain each other).
-    _couple = _os.environ.get("O4_BUILDING_SEAT_COUPLING", "1") == "1"
-    if _couple and len(pads) >= 2:
-        from shapely.geometry import LineString
-        from shapely.ops import nearest_points
-        from auto_patch.config import APRON_MAX_GRADE, VISIBLE_CHORD_CONNECT
+    # solver as the no-building apron seats).
+    #
+    # THE BUDGET IS THE ROUTE BUDGET — the min-budget path on the
+    # within-shape law graph ``feasibility_project`` enforces (see the
+    # ROUTE-PRICED banner at the top of this module).  Admission is route
+    # reachability inside the horizon; the chord corridor and the
+    # pavement-visibility fraction are RETIRED as predicates and survive
+    # only as the census that makes each pair's tightening adjudicable.
+    if len(units) >= 2:
+        from auto_patch.config import APRON_MAX_GRADE
         from auto_patch.grade_law import BUILDING_REACH_CORRIDOR_M
-        from auto_patch.elevation_per_surface.building_feasibility import (
-            _pavement_visibility, _VIS_ON_PAV_FRAC)
-        # ── ROUTE-DISTANCE PRICING (spec
-        # ``route-distance-seat-coupling-spec.md``; gate
-        # ``O4_SEAT_COUPLE_ROUTE_METRIC``, default OFF) ─────────────────
-        # ONE METRIC: admission AND budget come from the within-shape law
-        # graph the projection enforces, so the polytope stops being priced
-        # on a distance the solver never walks.  The visibility fraction is
-        # not consulted (it is a false-negative pair predicate) and the
-        # chord corridor cutoff is replaced by route reachability — the
-        # chord numbers below are still MEASURED, purely as the census the
-        # round reports.
-        _route = seat_couple_route_metric_enabled()
-        if _route and law_graph is None:
-            _report("  [seat-couple] route-metric gate ON but the solve "
-                    "passed no law graph — pricing stays on the chord "
-                    "(this is a wiring defect, not a fallback)")
-            _route = False
-        vis = (_pavement_visibility(layout)
-               if (VISIBLE_CHORD_CONNECT and not _route) else None)
-        # ── SHARED-SURFACE COUPLING (spec dossier-fixes §3, gate
-        # ``O4_SEAT_COUPLE_SHARED_SURFACE``, DEFAULT OFF) ────────────────
-        # The visibility fraction is a FALSE-NEGATIVE pair predicate: two
-        # HEAZ pad seats 17.6 m apart and 1.108 m apart in value were
-        # rejected as "separated by grass" at frac=0.057 while their ring
-        # nodes 35 and 37 sit on ONE apron ring and the projection enforces
-        # the 2-hop chain between them regardless — the pair the law binds
-        # was never offered to the solver that could have made it feasible
-        # (DOSSIER §2).  Two instruments over one population: the coupler's
-        # adjacency is a visible straight chord, the projection's is the
-        # within-shape law graph.
-        # The admitted case is the LATERAL-CONTIGUITY definition of
-        # adjacency (RULINGS 2026-08-02: "literal shared boundary in the
-        # sliced arrangement, never proximity"): both pads' rings share a
-        # vertex with the SAME paved shape.  The reach corridor still
-        # bounds the pair set — this only replaces the visibility veto.
-        # HELD at DEFAULT OFF by the seat-flip battery (2026-08-04, lead
-        # ruling variant A).  The battery SEPARATED this gate from §2 and
-        # measured it alone: HEAZ −1, CYXY −4, SPJC −7, but KCLT **+145**
-        # law-true within, with a new ``adj_edge::graded_strip`` over-cap
-        # class at 1.15 m.  At KCLT it clamps NO seats (§2 is a KCLT no-op)
-        # and admits 36 pairs the visibility fraction rejected, migrating
-        # defects out of buildings (``building|building`` 46→28) into
-        # AIRSIDE pavement (``apron`` +75, ``junction`` +49) — the
-        # airside-is-king failure mode (owner law).
-        # Root cause is the CHORD-priced metric: at HECA this gate admits
-        # 152 coupled pairs that have NO jointly-feasible seat set, and 130
-        # of them ship violating their own coupling limit.  That is exactly
-        # what ``docs/specs/route-distance-seat-coupling-spec.md`` (a5e96a9)
-        # exists to fix.  This flip is SEQUENCED, not rejected: it re-arms
-        # after the seed-fix round lands the law-graph budget oracle and the
-        # coupling round re-prices admission/limits on it.
-        # SUBSUMED inside the route gate (spec §2): ring-sharing pads have a
-        # through-surface path, so route admission already offers every pair
-        # this predicate was invented to rescue.  Bypassed, never fought.
-        _shared = (_os.environ.get("O4_SEAT_COUPLE_SHARED_SURFACE",
-                                   "0") == "1") and not _route
-        pad_surfaces: list = []
-        if _shared:
-            from auto_patch.layout import (
-                ROLE_JUNCTION as _RJ2, ROLE_SERVICE_JUNCTION as _RSJ2)
-            _key_shapes: dict = {}
-            for a in layout.shapes:
-                if (a.role in (ROLE_APRON, _RJ2, _RSJ2)
-                        and a.polygon is not None
-                        and not a.polygon.is_empty):
-                    for (x, y) in _open_ring(
-                            list(a.polygon.exterior.coords)):
-                        _key_shapes.setdefault(
-                            (round(x, 2), round(y, 2)), set()).add(id(a))
-            for p in pads:
-                own: set = set()
-                for (x, y) in p[1]:
-                    own.update(_key_shapes.get((round(x, 2), round(y, 2)),
-                                               ()))
-                pad_surfaces.append(own)
-        pairs: dict = {}
-        _shared_admitted: list = []
-        _chord_lim: dict = {}
-        if _route:
-            _pad_nodes = []
-            for (_s, _ring, *_r) in pads:
-                _g = set()
+        if law_graph is None:
+            # NOT a fallback.  The coupler has exactly one metric; without
+            # the law graph it cannot price at all, and pricing on a chord
+            # instead is the two-instrument defect this law removed.
+            _report("  [seat-couple] WIRING DEFECT: the solve passed no law "
+                    "graph — the coupler cannot price on the metric the "
+                    "projection enforces, so NO pair is coupled this build")
+            pairs: dict = {}
+            _rdiag = None
+        else:
+            _unit_nodes = [set() for _ in units]
+            for k, (_s, _ring, *_r) in enumerate(pads):
+                _g = _unit_nodes[unit_of[k]]
                 for (x, y) in _ring:
-                    _k = cps.get_or_add(float(x), float(y))
-                    _i = bucket_to_idx.get(_k)
+                    _i = bucket_to_idx.get(
+                        cps.get_or_add(float(x), float(y)))
                     if _i is not None:
                         _g.add(_i)
-                _pad_nodes.append(_g)
-            pairs, _rdiag = _pad_route_budgets(law_graph, _pad_nodes,
+            pairs, _rdiag = _pad_route_budgets(law_graph, _unit_nodes,
                                                n_nodes=n_nodes)
+        _chord_lim: dict = {}
+        if _rdiag is not None:
             # THE CHORD CENSUS (report only — it admits nothing).  The
             # rejection frame the dossier quoted (HECA 2 613 `gap>corridor`,
             # HEAZ 7) is re-quoted here against route admission, and
-            # `not_visible` is 0 BY CONSTRUCTION: the predicate is gone
-            # inside the gate.
+            # `not_visible` is 0 BY CONSTRUCTION: the predicate is gone.
             _chord_far = 0
             _far_admitted = 0
             _far_worst = 0.0
-            for i in range(len(pads)):
-                pi = pads[i][0].polygon
-                for j in range(i + 1, len(pads)):
-                    gap = pi.distance(pads[j][0].polygon)
+            for i in range(len(units)):
+                pi = units[i]["polygon"]
+                for j in range(i + 1, len(units)):
+                    gap = pi.distance(units[j]["polygon"])
                     if gap > BUILDING_REACH_CORRIDOR_M:
                         _chord_far += 1
                     if (i, j) in pairs:
@@ -783,20 +867,32 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                       if k in _chord_lim and pairs[k] < _chord_lim[k] - 1e-9]
             _loose = [k for k in pairs
                       if k in _chord_lim and pairs[k] > _chord_lim[k] + 1e-9]
-            _npairs_all = len(pads) * (len(pads) - 1) // 2
+            _npairs_all = len(units) * (len(units) - 1) // 2
             _report(
-                f"  [seat-couple] ROUTE METRIC: {len(pads)} pad(s), "
-                f"{len(pairs)} coupled pair(s) of {_npairs_all} "
-                f"(horizon {_rdiag['horizon_m']:.2f} m of budget = "
-                f"{_rdiag['dial_m']:.0f} m at the apron cap; law graph "
-                f"{_rdiag['graph_nodes']} node(s) / {_rdiag['graph_edges']} "
-                f"edge(s), margin {_rdiag['margin_m']:.3f} m)")
+                f"  [seat-couple] ROUTE METRIC: {len(units)} unit(s) over "
+                f"{len(pads)} pad(s), {len(pairs)} coupled pair(s) of "
+                f"{_npairs_all} (horizon {_rdiag['horizon_m']:.2f} m of "
+                f"budget = {_rdiag['dial_m']:.0f} m at the apron cap; law "
+                f"graph {_rdiag['graph_nodes']} node(s) / "
+                f"{_rdiag['graph_edges']} edge(s), margin "
+                f"{_rdiag['margin_m']:.3f} m)")
             _report(
                 f"  [seat-couple]   rejection census: route-unreachable "
-                f"{_rdiag['unreachable']}, pad off the law graph "
-                f"{_rdiag['off_graph']}, not_visible 0 (predicate retired "
-                f"inside the gate); the chord frame would have rejected "
-                f"{_chord_far} as gap>corridor")
+                f"{_rdiag['unreachable']}, unit off the law graph "
+                f"{_rdiag['off_graph']}, not_visible 0 (predicate retired); "
+                f"the chord frame would have rejected {_chord_far} as "
+                f"gap>corridor")
+            if _rdiag["merged_pairs"]:
+                # The rigid-unit collapse above already merged every pad
+                # pair that shares a ring vertex, so the projection's own
+                # node-set contraction must find nothing left to merge.
+                # If it does, the two relations disagree — name it.
+                _report(
+                    f"  [seat-couple]   WIRING DEFECT: the law graph's "
+                    f"flat-group contraction merged {_rdiag['merged_pairs']} "
+                    f"further pair(s) across {_rdiag['merged_groups']} "
+                    f"group(s) that the rigid-unit law did not — the two "
+                    f"share-relations disagree")
             # THE DIAL'S UNITS, MEASURED (never assumed).  Admission is the
             # 200 m corridor expressed in the BUDGET metric, so a route over
             # cheap pavement — flat-cross edges, and the FLAT shapes and
@@ -806,10 +902,7 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
             _report(
                 f"  [seat-couple]   reach: {_far_admitted} admitted pair(s) "
                 f"lie beyond the {BUILDING_REACH_CORRIDOR_M:.0f} m chord "
-                f"corridor (worst {_far_worst:.0f} m apart); "
-                f"{_rdiag['merged_pairs']} pair(s) are MERGED RIGID units "
-                f"(budget 0 by law) across {_rdiag['merged_groups']} group(s) "
-                f"covering {_rdiag['merged_pads']} pad(s)")
+                f"corridor (worst {_far_worst:.0f} m apart)")
             _report(
                 f"  [seat-couple]   budget vs chord: {len(_tight)} "
                 f"TIGHTENED, {len(_loose)} loosened, "
@@ -846,102 +939,64 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                 _hops = ("?" if _rw is None or _mg <= 0.0
                          else f"{(_rw - rb) / _mg:.0f}")
                 _report(f"  [seat-couple]     tightened "
-                        f"{pads[i][0].ref or '?'} <-> {pads[j][0].ref or '?'}"
+                        f"{units[i]['ref']} <-> {units[j]['ref']}"
                         f" route {rb:.4f} m vs chord {cb:.4f} m "
                         f"({rb - cb:+.4f}); raw-law route {_rws} m "
                         f"(~{_hops} hop(s) of margin)")
-            # ── §4 BUDGET IDENTITY — the point of the round ─────────────
+            # ── BUDGET IDENTITY — the coupler's own certificate ─────────
             if _rdiag["ident_over"]:
                 _report(f"  [seat-couple]   BUDGET-IDENTITY VIOLATION: "
                         f"{len(_rdiag['ident_over'])} pair(s) disagree by "
                         f">1 % between their two endpoints — this is a STOP, "
                         f"not a tolerance to widen")
                 for (i, j, dab, dba) in _rdiag["ident_over"][:12]:
-                    _report(f"  [seat-couple]     {pads[i][0].ref or '?'} "
-                            f"<-> {pads[j][0].ref or '?'}: {dab:.6f} vs "
+                    _report(f"  [seat-couple]     {units[i]['ref']} "
+                            f"<-> {units[j]['ref']}: {dab:.6f} vs "
                             f"{dba:.6f} m")
             else:
                 _report(f"  [seat-couple]   budget identity OK: worst "
                         f"disagreement {100.0 * _rdiag['ident_worst']:.4f} % "
                         f"over {len(pairs)} pair(s) (limit 1 %)")
-        for i in (() if _route else range(len(pads))):
-            pi = pads[i][0].polygon
-            for j in range(i + 1, len(pads)):
-                pj = pads[j][0].polygon
-                gap = pi.distance(pj)
-                if gap > BUILDING_REACH_CORRIDOR_M:
-                    continue
-                if vis is not None and gap > 1e-6:
-                    a, b = nearest_points(pi, pj)
-                    chord = LineString([(a.x, a.y), (b.x, b.y)])
-                    if not vis.contains(chord):
-                        try:    # tolerate tiny weld-seam gaps
-                            frac = (chord.intersection(vis.context).length
-                                    / chord.length)
-                        except Exception:           # pragma: no cover
-                            frac = 0.0
-                        if frac < _VIS_ON_PAV_FRAC:
-                            if not (_shared and pad_surfaces[i]
-                                    & pad_surfaces[j]):
-                                continue            # across grass → uncoupled
-                            _shared_admitted.append(
-                                (pads[i][0].ref or "?", pads[j][0].ref or "?",
-                                 gap, frac))
-                pairs[(i, j)] = APRON_MAX_GRADE * gap
-        if _shared and _shared_admitted:
-            _report(f"  [seat-couple] shared-surface adjacency admitted "
-                    f"{len(_shared_admitted)} pair(s) the visibility "
-                    f"fraction rejected")
-            for (ra, rb, g, fr) in sorted(_shared_admitted,
-                                          key=lambda r: r[2])[:12]:
-                _report(f"  [seat-couple]   {ra} <-> {rb} gap={g:.1f} m "
-                        f"vis_frac={fr:.3f}")
         if pairs:
-            targets = [p[2] for p in pads]
-            boxes = [(p[3], p[4]) for p in pads]
+            targets = [u["level"] for u in units]
+            boxes = [(u["lo"], u["hi"]) for u in units]
             L = _pocs_project_levels(targets, boxes, pairs)
             _dbg = _os.environ.get("O4_SEAT_DEBUG") == "1"
             if _dbg:
                 pre = sorted(
                     ((abs(targets[i] - targets[j]) - lim, i, j, lim)
                      for (i, j), lim in pairs.items()), reverse=True)
-                print(f"  [seats] {len(pads)} pads, {len(pairs)} coupled "
+                print(f"  [seats] {len(units)} units, {len(pairs)} coupled "
                       f"pairs, polytope "
                       f"{'FEASIBLE' if L is not None else 'EMPTY'}")
                 for ex, i, j, lim in pre[:8]:
                     if ex <= 0:
                         break
                     print(f"    pre-conflict {ex:+.2f}m over lim {lim:.2f}: "
-                          f"{pads[i][0].ref or '?'} t={targets[i]:.2f} "
-                          f"box=({pads[i][3]:.2f},{pads[i][4]:.2f})  vs  "
-                          f"{pads[j][0].ref or '?'} t={targets[j]:.2f} "
-                          f"box=({pads[j][3]:.2f},{pads[j][4]:.2f})")
+                          f"{units[i]['ref']} t={targets[i]:.2f} "
+                          f"box=({units[i]['lo']:.2f},{units[i]['hi']:.2f})"
+                          f"  vs  {units[j]['ref']} t={targets[j]:.2f} "
+                          f"box=({units[j]['lo']:.2f},{units[j]['hi']:.2f})")
             if L is not None:
-                moved = sum(1 for k in range(len(pads))
+                moved = sum(1 for k in range(len(units))
                             if abs(L[k] - targets[k]) > 0.01)
                 if moved:
-                    try:
-                        import O4_UI_Utils as _UI
-                        _UI.vprint(1, f"  [seats] coupled {len(pads)} pads / "
-                                      f"{len(pairs)} pairs: moved {moved}, max "
-                                      f"{max(abs(L[k] - targets[k]) for k in range(len(pads))):.2f} m")
-                    except Exception:
-                        pass
-                pads = [(s, ring, L[k], lo, hi)
-                        for k, (s, ring, _t, lo, hi) in enumerate(pads)]
+                    _report(f"  [seats] coupled {len(units)} unit(s) / "
+                            f"{len(pairs)} pairs: moved {moved}, max "
+                            f"{max(abs(L[k] - targets[k]) for k in range(len(units))):.2f} m")
+                for k in range(len(units)):
+                    units[k]["level"] = float(L[k])
             else:
                 # ── EMPTY POLYTOPE → LOUD ATTRIBUTION (spec dossier-fixes
                 # §4; RULINGS 2026-08-04 split-level building seats: "an
                 # empty coupling polytope is LOUD attribution, never a
                 # silent ship") ────────────────────────────────────────
-                # The values are UNCHANGED this round — the fix is the
-                # sectioned seat, its own spec.  What changes is that the
-                # ship is no longer silent: ``feasibility-is-guaranteed``
-                # forbids infeasibility as an ANSWER, so the pads, the gap
-                # and the footprint RELIEF (the quantity the split-level
-                # law thresholds on) are named.  HECA shipped building197
-                # and building201 TOUCHING at gap 0.0 m and 5.9 m apart in
-                # level under the old silent fallback.
+                # The values are UNCHANGED — the fix is the sectioned seat,
+                # its own spec.  What changes is that the ship is no longer
+                # silent: ``feasibility-is-guaranteed`` forbids
+                # infeasibility as an ANSWER, so the units, the gap and the
+                # footprint RELIEF (the quantity the split-level law
+                # thresholds on) are named.
                 if _dbg:
                     print("  [seats] EMPTY polytope -> independent seats kept")
                 from auto_patch.elevation_per_surface.building_feasibility \
@@ -950,7 +1005,7 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
 
                 def _rel(k):
                     if k not in _relief:
-                        r = _footprint_dem_relief(pads[k][0].polygon, dem_fn)
+                        r = _footprint_dem_relief(units[k]["polygon"], dem_fn)
                         _relief[k] = None if r is None else float(r[1])
                     return _relief[k]
 
@@ -959,20 +1014,18 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                      for (i, j), lim in pairs.items()
                      if abs(targets[i] - targets[j]) - lim > 0.0),
                     reverse=True)
-                _report(f"  [seat-couple] EMPTY POLYTOPE: {len(pads)} pad(s) "
-                        f"/ {len(pairs)} coupled pair(s) admit NO jointly-"
-                        f"feasible seat set; independent seats kept, so "
-                        f"{len(conflicts)} pair(s) SHIP violating their own "
-                        f"coupling limit")
-                # Under route pricing every conflict row also carries the
-                # CHORD limit it would have had, so a rise in
-                # shipping-in-violation can be accounted pair by pair as
-                # honestly-tightened budget rather than waved through (spec
-                # pre-registered band 2).  The row cap lifts inside the gate
-                # because that accounting IS the round's evidence.
-                for (ex, i, j, lim) in conflicts[:(200 if _route else 12)]:
+                _report(f"  [seat-couple] EMPTY POLYTOPE: {len(units)} "
+                        f"unit(s) / {len(pairs)} coupled pair(s) admit NO "
+                        f"jointly-feasible seat set; independent seats kept, "
+                        f"so {len(conflicts)} pair(s) SHIP violating their "
+                        f"own coupling limit")
+                # Every conflict row also carries the CHORD limit it would
+                # have had, so a rise in shipping-in-violation is accounted
+                # pair by pair as honestly-tightened budget rather than
+                # waved through.
+                for (ex, i, j, lim) in conflicts[:200]:
                     ri, rj = _rel(i), _rel(j)
-                    gap_ij = pads[i][0].polygon.distance(pads[j][0].polygon)
+                    gap_ij = units[i]["polygon"].distance(units[j]["polygon"])
                     cb = _chord_lim.get((i, j))
                     if cb is None:
                         split = ""
@@ -985,13 +1038,21 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                             _tag = "equal"
                         split = f" chord_lim={cb:.3f} ({_tag})"
                     _report(
-                        f"  [seat-couple]   {pads[i][0].ref or '?'} "
-                        f"{targets[i]:.3f} <-> {pads[j][0].ref or '?'} "
+                        f"  [seat-couple]   {units[i]['ref']} "
+                        f"{targets[i]:.3f} <-> {units[j]['ref']} "
                         f"{targets[j]:.3f}  gap={gap_ij:.1f} m "
                         f"|dL|={abs(targets[i] - targets[j]):.3f} "
                         f"lim={lim:.3f}{split} excess={ex:+.3f} m  ring relief"
                         f" {'n/a' if ri is None else format(ri, '.2f')} / "
                         f"{'n/a' if rj is None else format(rj, '.2f')} m")
+
+    # THE UNIT'S LEVEL IS THE PAD'S LEVEL.  A merged rigid unit broadcasts
+    # ONE value to every member pad — that IS the law; the box narrows to
+    # the unit's box for the same reason (a member may not yield outside
+    # the interval the unit was seated from).
+    pads = [(s, ring, float(units[unit_of[k]]["level"]),
+             units[unit_of[k]]["lo"], units[unit_of[k]]["hi"])
+            for k, (s, ring, _t, _lo, _hi) in enumerate(pads)]
 
     seats: dict = {}
     seat_boxes = _store_of(layout).raw("seat_boxes")
@@ -1123,28 +1184,34 @@ def _project_apron_contacts(targets, boxes, positions, cap,
 _NOBUILD_APRON_SEAT_MIN_AREA_M2 = 2000.0
 
 
-def apron_contact_anchor_cap_enabled() -> bool:
-    """APRON-CONTACT ANCHOR CAP (seed-fix round §3; gate
-    ``O4_APRON_CONTACT_ANCHOR_CAP``, default "0").
-
-    ON, :func:`build_nobuilding_apron_seats` prices every feeder contact
-    against the HARD RUNWAY/SEAM ANCHORS on the SAME spine graph phase A
-    projects on (``law_graph_budget.build_anchor_envelope``), and the
-    silent clamp-up dies: a DEM target clamped into the band by more than
-    the materiality floor is REPORTED.
-
-    THE DEFECT (HECA, measured from the phase-A npz).  Feeder 2861's DEM
-    is 60.200; it is clamped UP into a band floor of 62.119 and then
-    PROJECTED to 65.749 by a polytope whose only cap constraints are
-    feeder↔feeder at straight gap — with NO constraint against hard
-    runway anchor 2863, which sits at 60.790 only 0.1928 m of route
-    budget away.  The seat is then stamped immovable, and the phase-A
-    projection burns 3983 sweeps on an anchor pair that cannot both hold
-    (residual 4.766 m).  An anchor 0.19 m of budget away is not a distant
-    consideration; it is the binding constraint.
-
-    Default "0" — no new default-on gate without a battery."""
-    return _os.environ.get("O4_APRON_CONTACT_ANCHOR_CAP", "0") == "1"
+# ── APRON-CONTACT ANCHOR CAP — STANDING LAW ───────────────────────
+# (seed-fix round §3; former gate ``O4_APRON_CONTACT_ANCHOR_CAP``, retired
+# 2026-08-05 under RULINGS "BUILD-COMPLETE-THEN-DEBUG".)
+#
+# THE LAW.  :func:`build_nobuilding_apron_seats` prices every feeder
+# contact against the HARD RUNWAY/SEAM ANCHORS on the SAME spine graph
+# phase A projects on (``law_graph_budget.build_anchor_envelope``), and the
+# silent clamp-up is gone: a DEM target clamped into the band by more than
+# the materiality floor is REPORTED, and an EMPTY band ∩ envelope is
+# reported as the contradiction it is.
+#
+# THE DEFECT IT CLOSES (HECA, measured from the phase-A npz).  Feeder
+# 2861's DEM is 60.200; it is clamped UP into a band floor of 62.119 and
+# then PROJECTED to 65.749 by a polytope whose only cap constraints are
+# feeder↔feeder at straight gap — with NO constraint against hard runway
+# anchor 2863, which sits at 60.790 only 0.1928 m of route budget away.
+# The seat is then stamped immovable, and the phase-A projection burns
+# 3983 sweeps on an anchor pair that cannot both hold (residual 4.766 m).
+# An anchor 0.19 m of budget away is not a distant consideration; it is
+# the binding constraint.
+#
+# OLD-WORLD MEASURED COST: one severity item at +1.27 (recorded when the
+# gate was flipped in the pre-composed world).  DEBUG-PHASE TARGET — noted,
+# not a reason to keep the gate.
+#
+# The law is INACTIVE only where it has no input: ``anchor_envelope=None``
+# means the caller holds no hard anchors on the spine graph, and an
+# envelope that does not exist cannot bound anything.
 
 
 def build_nobuilding_apron_seats(layout, bucket_to_idx, band, dem_fn,
@@ -1178,10 +1245,8 @@ def build_nobuilding_apron_seats(layout, bucket_to_idx, band, dem_fn,
     are anchored — at their OWN reachable level — so the apron body still flexes and
     the feeder reaches L_i without an over-cap step (the earlier FLAT whole-ring seat
     forced unreachable levels → regressed ``cyxy_spine_zero`` + HECA runway).  Gate
-    ``O4_NOBUILD_APRON_SEAT=0`` disables (no apron seats, byte-identical).
 
-    ``anchor_envelope`` (seed-fix round §3, gate
-    ``O4_APRON_CONTACT_ANCHOR_CAP``) — a
+    ``anchor_envelope`` (seed-fix round §3, STANDING LAW) — a
     ``law_graph_budget.AnchorEnvelope`` over the HARD runway/seam anchors
     on the SAME spine graph phase A projects on.  Each feeder's box is
     intersected with its envelope, which is the EXACT intersection of the
@@ -1193,13 +1258,10 @@ def build_nobuilding_apron_seats(layout, bucket_to_idx, band, dem_fn,
     into the band stops being SILENT — a clamp beyond the materiality
     floor is reported with the bound that demanded it, and an EMPTY box
     (band ∩ envelope) is reported as the contradiction it is instead of
-    being skipped without a word.  ``None`` / gate off ⇒ nothing is
-    intersected and nothing is reported — byte-identical."""
+    being skipped without a word.  ``None`` ⇒ the caller holds no hard
+    anchors on the spine graph, so there is no envelope to intersect."""
     import os as _os
-    if _os.environ.get("O4_NOBUILD_APRON_SEAT", "1") != "1":
-        return {}
-    _cap_on = (anchor_envelope is not None
-               and apron_contact_anchor_cap_enabled())
+    _cap_on = anchor_envelope is not None
     _clamp_rows: list = []
     _empty_rows: list = []
     from shapely.geometry import Point
@@ -1377,7 +1439,8 @@ def near_miss_building_frontage_floors(layout, bucket_to_idx, band,
     at risk: floors are ≤ seat by construction (cap·d ≥ 0), decay at the
     apron-law rate, and are band-ceiling-clamped.
 
-    Gate ``O4_BUILDING_FRONTAGE_NEAR_MISS=0`` disables (no floors,
+    STANDING LAW (former gate ``O4_BUILDING_FRONTAGE_NEAR_MISS``, retired
+    2026-08-05); recognition is unconditional (was: no floors,
     byte-identical)."""
     from auto_patch.config import APRON_MAX_GRADE
     floors: dict = {}
@@ -1413,7 +1476,7 @@ def near_miss_building_frontage_edges(layout, bucket_to_idx, building_seats,
     displacement, pad stays flat) instead of un-doing the floor.
 
     Same recognition and gate as :func:`near_miss_building_frontage_floors`
-    (``O4_BUILDING_FRONTAGE_NEAR_MISS=0`` → no edges, byte-identical).
+    (STANDING LAW; the former ``O4_BUILDING_FRONTAGE_NEAR_MISS`` gate is gone.)
 
     ``weld_refs_out`` — PAD ROD COUPLING (owner approval 2026-07-29,
     ``docs/specs/pad-rod-coupling-spec.md``; completes bounded-yield-spec §7.3
@@ -1462,9 +1525,6 @@ def _near_miss_frontage_contacts(layout, bucket_to_idx, building_seats,
     pad_seat_level, endpoint_x, endpoint_y)``.  ``log_firings`` prints the
     per-pad firing line (the EDGES consumer passes True — it runs once per
     solve, so each recognized pad↔pavement pair logs once)."""
-    import os as _os
-    if _os.environ.get("O4_BUILDING_FRONTAGE_NEAR_MISS", "1") != "1":
-        return
     from shapely.geometry import LineString, Point
     cps = layout.canonical_points
     near_miss_m = BUILDING_FRONTAGE_NEAR_MISS_M
@@ -1576,16 +1636,13 @@ def build_apron_contact_floors(layout, bucket_to_idx, band, dem_fn, building_sea
     runway-reachable; never below the band floor).  A FLOOR (not a hard seat) so the
     feeder spine still grades smoothly up from its runway anchor and the apron body
     flexes — the taxi yields UP, the apron keeps its cap.  Gate
-    ``O4_APRON_CONTACT_FLOOR=0`` disables (no floors, byte-identical).
+    STANDING LAW: the former ``O4_APRON_CONTACT_FLOOR`` gate is gone.
 
     Also carries the NEAR-MISS building-frontage floors
     (:func:`near_miss_building_frontage_floors`, its own gate) — the same soft
     ``spine_floor`` channel, merged max-wise like every floor."""
-    import os as _os
     near_miss_floors = near_miss_building_frontage_floors(
         layout, bucket_to_idx, band, building_seats)
-    if _os.environ.get("O4_APRON_CONTACT_FLOOR", "1") != "1":
-        return near_miss_floors
     from shapely.geometry import Point
     from auto_patch.layout import ROLE_APRON, ROLE_BUILDING, ROLE_JUNCTION
     from auto_patch.config import APRON_MAX_GRADE
@@ -1676,12 +1733,12 @@ def node_bands(nodes, band, skip_from=None):
     reuses it, computing an EXACT, bit-identical band without its own scan (see
     ``reach_band_unified._batch``).  The result is identical to the per-node
     scan below; only the scan work is shared.  Gate OFF
-    (``O4_REACH_BAND_CLUSTERS=0``) or a band without ``.batch`` → the exact
-    per-node scan, byte-identical."""
+    (``config.REACH_BAND_CLUSTERS`` off) or a band without ``.batch`` → the
+    exact per-node scan, byte-identical.  The env override died 2026-08-05;
+    the config constant is the switch."""
     from auto_patch.config import REACH_BAND_CLUSTERS
     batch = getattr(band, "batch", None)
-    if (batch is not None and REACH_BAND_CLUSTERS
-            and _os.environ.get("O4_REACH_BAND_CLUSTERS", "1") == "1"):
+    if batch is not None and REACH_BAND_CLUSTERS:
         return batch(nodes, skip_from)
     if skip_from is None:
         return [band(x, y) for (x, y) in nodes]
@@ -1783,7 +1840,8 @@ def building_spine_floor(layout, nodes, bucket_to_idx, building_seats,
     spine node floored directly from its own visible chord to the spine-facing
     building edge (the centroid foot under-covered large terminals).  The legacy
     centroid/full-frontage-foot path below is kept for A/B
-    (``O4_SPINE_FLOOR_PER_NODE=0``).
+    (the former ``O4_SPINE_FLOOR_PER_NODE`` gate is retired; the per-node
+    floor is the standing law and the legacy body is deleted).
 
     For each airside building, the serving centerline is the one the reach band
     used (``_nearest_visible_centerline`` across the continuous apron — NOT the
@@ -1802,143 +1860,12 @@ def building_spine_floor(layout, nodes, bucket_to_idx, building_seats,
     whenever the foot's flat runway-side neighbour capped it low → the arm stayed
     flat (CYXY ~U12 694.5 vs building19 700.2, 106 m away).  Each floor is clamped
     to the node's band ceiling (never above what the runway route reaches)."""
-    import os as _os0
-    if _os0.environ.get("O4_SPINE_FLOOR_PER_NODE", "1") == "1":
-        return _spine_floor_per_node(
-            layout, nodes, bucket_to_idx, building_seats, node_band, spine_adj)
+    return _spine_floor_per_node(
+        layout, nodes, bucket_to_idx, building_seats, node_band, spine_adj)
 
-    import heapq
-    from shapely.geometry import Point
-    from shapely.strtree import STRtree
-    from auto_patch.config import APRON_MAX_GRADE, VISIBLE_CHORD_CONNECT
-    from auto_patch.grade_graph import SPINE_PERP_TOL_M
-    from auto_patch.layout import ROLE_BUILDING
-    from auto_patch.elevation_per_surface.building_feasibility import (
-        _nearest_visible_centerline, _pavement_visibility)
-
-    cps = layout.canonical_points
-    cl_items = [(cl.line, cl.name) for cl
-                in (getattr(layout, "apt_taxi_centerlines", None) or [])
-                if cl.line is not None and not cl.line.is_empty
-                and not cl.is_service]
-    clines = [ln for (ln, _n) in cl_items]
-    if not clines:
-        return {}
-    vis = _pavement_visibility(layout) if VISIBLE_CHORD_CONNECT else None
-    cl_index = {id(ln): k for k, ln in enumerate(clines)}
-    # spine nodes on each centerline, with arc position.
-    pts = [Point(x, y) for (x, y) in nodes]
-    tree = STRtree(pts)
-    on_cl: list = []                       # per centerline: [(arc, node_idx), ...]
-    for ln in clines:
-        members = []
-        try:
-            cand = tree.query(ln.buffer(SPINE_PERP_TOL_M))
-        except Exception:                                     # pragma: no cover
-            cand = []
-        for qi in cand:
-            i = int(qi)
-            if ln.distance(pts[i]) <= SPINE_PERP_TOL_M:
-                members.append((ln.project(pts[i]), i))
-        on_cl.append(members)
-
-    # FOOT ANCHORS: lift the spine to serve each building's frontage.  For a LARGE
-    # building (full-frontage gate) anchor EVERY qualifying frontage foot — the same
-    # sides that set its seat (a taxi corridor within range + a visible chord) — so
-    # the spine rises to ``seat − 1%·perp`` along the WHOLE frontage, not only the
-    # centroid's foot (user 2026-06-27, the dual of the full-frontage seating rule:
-    # the pad is seated to clear the whole frontage, so the serving spine must rise
-    # to it everywhere).  A small building (or one with no qualifying side) anchors
-    # the single centroid foot, as before.
-    import os as _os
-    from auto_patch.config import (
-        BUILDING_FULL_FRONTAGE, BUILDING_FULL_FRONTAGE_AREA_M2)
-    from auto_patch.grade_law import BUILDING_REACH_CORRIDOR_M
-    from auto_patch.elevation_per_surface.building_feasibility import (
-        _has_visible_corridor)
-    # ⚠ BANKED DEFAULT OFF: raising the spine to the WHOLE frontage regresses OEMA
-    # (423→635 within-grade violations) — the pad sits at the route-reachable
-    # CEILING (DEM-clamped), higher than the LOCAL spine can climb to from its
-    # runway connection within grade, so lifting the spine to it breaks the
-    # spine↔runway grade instead of fixing the apron.  Kept for A/B; needs the
-    # seat reconciled with the local spine before it can default on.
-    _full = (BUILDING_FULL_FRONTAGE
-             and _os.environ.get("O4_BUILDING_FULL_FRONTAGE", "1") == "1"
-             and _os.environ.get("O4_FRONTAGE_SPINE_RISE", "0") == "1")
-
-    src: dict = {}
-
-    def _anchor(px, py, lv, dist_geom):
-        """Raise the spine node nearest ``(px, py)``'s perpendicular foot to
-        ``lv − 1%·(dist_geom → that node)`` — the elevation the apron needs so it
-        grades ≤1 % up to the flat pad."""
-        c = Point(px, py)
-        ln = (_nearest_visible_centerline(c, clines, vis) if vis is not None
-              else min(clines, key=lambda L: L.distance(c)))
-        members = on_cl[cl_index[id(ln)]]
-        if not members:
-            return
-        foot = ln.interpolate(ln.project(c))
-        _, i = min((foot.distance(pts[k]), k) for (_arc, k) in members)
-        t = lv - APRON_MAX_GRADE * dist_geom.distance(pts[i])  # 1% spine→pad
-        if t > src.get(i, -float("inf")):
-            src[i] = t
-
-    for s in layout.shapes:
-        if (s.role != ROLE_BUILDING or s.polygon is None
-                or s.polygon.is_empty):
-            continue
-        lv = None
-        for (x, y) in _open_ring(list(s.polygon.exterior.coords)):
-            i = bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
-            if i in building_seats:
-                lv = building_seats[i]
-                break
-        if lv is None:
-            continue
-        anchored = False
-        if _full and s.polygon.area >= BUILDING_FULL_FRONTAGE_AREA_M2:
-            ring = list(s.polygon.exterior.coords)
-            for k in range(len(ring) - 1):
-                ax, ay = ring[k]
-                bx, by = ring[k + 1]
-                mx, my = 0.5 * (ax + bx), 0.5 * (ay + by)
-                for (px, py) in ((ax, ay), (mx, my), (bx, by)):
-                    if _has_visible_corridor(px, py, clines, vis,
-                                             BUILDING_REACH_CORRIDOR_M):
-                        _anchor(px, py, lv, Point(px, py))
-                        anchored = True
-        if not anchored:                     # small / no qualifying frontage side
-            c = s.polygon.centroid
-            _anchor(c.x, c.y, lv, s.polygon)
-
-    if not src:
-        return {}
-
-    # Propagate the anchors along the consecutive spine chain as a cap-Lipschitz
-    # floor (Dijkstra on a MAX value: floor_j = max_src(target − capdist)).  budget
-    # is ``cap·dist`` so the floor declines at exactly the per-letter cap — the
-    # smooth ramp that serves the pad.
-    floor: dict = {}
-    pq = [(-t, i) for i, t in src.items()]
-    heapq.heapify(pq)
-    while pq:
-        negt, i = heapq.heappop(pq)
-        t = -negt
-        if t <= floor.get(i, -float("inf")):
-            continue
-        floor[i] = t
-        for (j, budget) in spine_adj.get(i, ()):     # budget = cap·dist
-            nt = t - budget
-            if nt > floor.get(j, -float("inf")):
-                heapq.heappush(pq, (-nt, j))
-
-    # clamp every floor to its node's band ceiling (never above the reachable).
-    for i in list(floor):
-        nb = node_band[i] if i < len(node_band) else None
-        if nb is not None and floor[i] > nb[1]:
-            floor[i] = nb[1]
-    return floor
+    # THE LEGACY WHOLE-GRAPH SPINE FLOOR was deleted 2026-08-05: the
+    # per-node floor is the standing law and the old body was unreachable
+    # dead code behind the retired ``O4_SPINE_FLOOR_PER_NODE`` gate.
 
 
 def apply_groundside_reach(layout, bucket_to_idx, elev, cap):
@@ -2069,7 +1996,6 @@ def apply_groundside_reach(layout, bucket_to_idx, elev, cap):
     # of magnitude below the measured +7.76 m median, and above both the
     # 0.5 m sag class and the 0.2 m weld class used elsewhere in the
     # acceptance battery, so a lawful mouth is never clipped by it.
-    _gs_dem_bound = _os.environ.get("O4_GS_PIN_DEM_BOUND", "1") == "1"
     _gs_float_cap = gs_pin_float_cap(cap)
 
     # Apron nodes (x, y, idx) — for the route ANCHOR elevation (apron at the deep
@@ -2186,7 +2112,7 @@ def apply_groundside_reach(layout, bucket_to_idx, elev, cap):
         # and stays.  The mid-point fallback for contradictory connector
         # reaches (``lo > hi``) is bounded here too; unbounded it was the
         # widest float in the measured set.
-        if _gs_dem_bound and delta > _gs_float_cap:
+        if delta > _gs_float_cap:
             delta = _gs_float_cap
         deltas[gid] = delta
         if abs(delta) < 1e-6:
@@ -2254,88 +2180,87 @@ def apply_groundside_reach(layout, bucket_to_idx, elev, cap):
     # NOT handled here — those move later in the movable-pad yield
     # projection, so they are verified and relaxed post-yield instead
     # (``solve.py`` mouth verify-and-relax).
-    if _os.environ.get("O4_GS_MOUTH_RECONCILE", "1") == "1":
-        _BAND_MARGIN_M = 0.01      # stay inside the band after emit rounding
-        svc_ring_pts = []          # per service shape: [(key, (x, y)), ...]
-        for (_c, _ks) in svc:
-            _pts = [(_key(x, y), (x, y))
-                    for (x, y) in _open_ring(list(_c.polygon.exterior.coords))]
-            svc_ring_pts.append(_pts)
-        # Current (post-decay, post-limit) lot value per key; largest lot
-        # owns a shared key, mirroring the gs_key_alt precedence below.
-        lot_key_val: dict = {}     # key -> (area, lot shape, current value)
-        for (g, _kalt) in sorted(gs_pieces,
-                                 key=lambda t: -t[0].polygon.area):
-            gcoords = list(g.polygon.exterior.coords)
-            galts = list(g.node_altitudes or [])
-            for kidx in range(min(len(gcoords), len(galts))):
-                if galts[kidx] is None:
-                    continue
-                kk = _key(*gcoords[kidx])
-                if kk not in lot_key_val:
-                    lot_key_val[kk] = (g.polygon.area, g, float(galts[kidx]))
-        # Collect per-lot clamp deltas from lot↔lot pairs that share a
-        # service ring (the pair the within-shape law measures).
-        adjustments: dict = {}     # id(lot) -> [lot, [((x, y), delta)]]
-
-        def _clamp_into(target_list, pt, cur, lo_b, hi_b):
-            tgt = min(max(cur, lo_b), hi_b)
-            if abs(tgt - cur) > 1e-4:
-                target_list.append((pt, tgt, tgt - cur))
-
-        for _pts in svc_ring_pts:
-            lots = [(k, p, lot_key_val[k]) for (k, p) in _pts
-                    if k in lot_key_val]
-            if len({id(v[1]) for (_k, _p, v) in lots}) < 2:
+    _BAND_MARGIN_M = 0.01      # stay inside the band after emit rounding
+    svc_ring_pts = []          # per service shape: [(key, (x, y)), ...]
+    for (_c, _ks) in svc:
+        _pts = [(_key(x, y), (x, y))
+                for (x, y) in _open_ring(list(_c.polygon.exterior.coords))]
+        svc_ring_pts.append(_pts)
+    # Current (post-decay, post-limit) lot value per key; largest lot
+    # owns a shared key, mirroring the gs_key_alt precedence below.
+    lot_key_val: dict = {}     # key -> (area, lot shape, current value)
+    for (g, _kalt) in sorted(gs_pieces,
+                             key=lambda t: -t[0].polygon.area):
+        gcoords = list(g.polygon.exterior.coords)
+        galts = list(g.node_altitudes or [])
+        for kidx in range(min(len(gcoords), len(galts))):
+            if galts[kidx] is None:
                 continue
-            for ai in range(len(lots)):
-                for bi in range(ai + 1, len(lots)):
-                    (_ka, pa, (aa, ga, va)) = lots[ai]
-                    (_kb, pb, (ab, gb, vb)) = lots[bi]
-                    if ga is gb:
-                        continue   # same ring: its own chord limit governs
-                    d = math.hypot(pa[0] - pb[0], pa[1] - pb[1])
-                    band = max(0.0, cap * d - _BAND_MARGIN_M)
-                    if abs(va - vb) <= band:
-                        continue
-                    if aa >= ab:   # smaller lot adopts the larger's band
-                        entry = adjustments.setdefault(id(gb), [gb, []])
-                        _clamp_into(entry[1], pb, vb, va - band, va + band)
-                    else:
-                        entry = adjustments.setdefault(id(ga), [ga, []])
-                        _clamp_into(entry[1], pa, va, vb - band, vb + band)
-        n_reconciled = 0
-        for (g, adjs) in adjustments.values():
-            if not adjs:
-                continue
-            gcoords = list(g.polygon.exterior.coords)
-            new_alts = list(g.node_altitudes)
-            # ABSOLUTE Lipschitz support around each moved mouth (not a
-            # relative delta cone): the ring near a mouth typically sits
-            # exactly at the cap already, so ``old + (delta − cap·d)``
-            # under-raises neighbours by the pre-existing slope and leaves
-            # the mouth pair over cap (CYXY #184: an at-cap 4.00 % pair
-            # re-emitted at 4.64 %).  Support = the new mouth value minus
-            # (plus) cap·distance — the tightest field containing the
-            # adopted mouth.
-            for j in range(min(len(gcoords), len(new_alts))):
-                if new_alts[j] is None:
+            kk = _key(*gcoords[kidx])
+            if kk not in lot_key_val:
+                lot_key_val[kk] = (g.polygon.area, g, float(galts[kidx]))
+    # Collect per-lot clamp deltas from lot↔lot pairs that share a
+    # service ring (the pair the within-shape law measures).
+    adjustments: dict = {}     # id(lot) -> [lot, [((x, y), delta)]]
+
+    def _clamp_into(target_list, pt, cur, lo_b, hi_b):
+        tgt = min(max(cur, lo_b), hi_b)
+        if abs(tgt - cur) > 1e-4:
+            target_list.append((pt, tgt, tgt - cur))
+
+    for _pts in svc_ring_pts:
+        lots = [(k, p, lot_key_val[k]) for (k, p) in _pts
+                if k in lot_key_val]
+        if len({id(v[1]) for (_k, _p, v) in lots}) < 2:
+            continue
+        for ai in range(len(lots)):
+            for bi in range(ai + 1, len(lots)):
+                (_ka, pa, (aa, ga, va)) = lots[ai]
+                (_kb, pb, (ab, gb, vb)) = lots[bi]
+                if ga is gb:
+                    continue   # same ring: its own chord limit governs
+                d = math.hypot(pa[0] - pb[0], pa[1] - pb[1])
+                band = max(0.0, cap * d - _BAND_MARGIN_M)
+                if abs(va - vb) <= band:
                     continue
-                xj, yj = gcoords[j]
-                val = new_alts[j]
-                for ((ax, ay), tgt, dv) in adjs:
-                    dd = math.hypot(xj - ax, yj - ay)
-                    if dv > 0.0:
-                        val = max(val, tgt - GROUNDSIDE_MAX_GRADE * dd)
-                    else:
-                        val = min(val, tgt + GROUNDSIDE_MAX_GRADE * dd)
-                new_alts[j] = val
-            g.node_altitudes = chord_limit_ring_altitudes(
-                gcoords, new_alts, cap=GROUNDSIDE_MAX_GRADE)
-            n_reconciled += 1
-        if n_reconciled and _os.environ.get("O4_STEP_DEBUG") == "1":
-            print(f"  [groundside-reach] mouth reconciliation adjusted "
-                  f"{n_reconciled} lot ring(s).")
+                if aa >= ab:   # smaller lot adopts the larger's band
+                    entry = adjustments.setdefault(id(gb), [gb, []])
+                    _clamp_into(entry[1], pb, vb, va - band, va + band)
+                else:
+                    entry = adjustments.setdefault(id(ga), [ga, []])
+                    _clamp_into(entry[1], pa, va, vb - band, vb + band)
+    n_reconciled = 0
+    for (g, adjs) in adjustments.values():
+        if not adjs:
+            continue
+        gcoords = list(g.polygon.exterior.coords)
+        new_alts = list(g.node_altitudes)
+        # ABSOLUTE Lipschitz support around each moved mouth (not a
+        # relative delta cone): the ring near a mouth typically sits
+        # exactly at the cap already, so ``old + (delta − cap·d)``
+        # under-raises neighbours by the pre-existing slope and leaves
+        # the mouth pair over cap (CYXY #184: an at-cap 4.00 % pair
+        # re-emitted at 4.64 %).  Support = the new mouth value minus
+        # (plus) cap·distance — the tightest field containing the
+        # adopted mouth.
+        for j in range(min(len(gcoords), len(new_alts))):
+            if new_alts[j] is None:
+                continue
+            xj, yj = gcoords[j]
+            val = new_alts[j]
+            for ((ax, ay), tgt, dv) in adjs:
+                dd = math.hypot(xj - ax, yj - ay)
+                if dv > 0.0:
+                    val = max(val, tgt - GROUNDSIDE_MAX_GRADE * dd)
+                else:
+                    val = min(val, tgt + GROUNDSIDE_MAX_GRADE * dd)
+            new_alts[j] = val
+        g.node_altitudes = chord_limit_ring_altitudes(
+            gcoords, new_alts, cap=GROUNDSIDE_MAX_GRADE)
+        n_reconciled += 1
+    if n_reconciled and _os.environ.get("O4_STEP_DEBUG") == "1":
+        print(f"  [groundside-reach] mouth reconciliation adjusted "
+              f"{n_reconciled} lot ring(s).")
 
     # ── ENFORCE THE DEM BOUND ON THE FINAL RING (spec §C.2) ──────────────
     # The shift clamp above bounds the RELEVEL; two later writers can still
@@ -2349,28 +2274,27 @@ def apply_groundside_reach(layout, bucket_to_idx, elev, cap):
     # mouth-relax, whose re-projection would otherwise re-open the same door
     # (spec §C.2 ★).
     dem_ceiling: dict = {}
-    if _gs_dem_bound:
-        for (g, kalt) in gs_pieces:
-            gcoords = list(g.polygon.exterior.coords)
-            galts = list(g.node_altitudes or [])
-            new_alts = list(galts)
-            touched = False
-            for k in range(min(len(gcoords), len(galts))):
-                if galts[k] is None:
-                    continue
-                kk = _key(*gcoords[k])
-                dem_k = kalt.get(kk)
-                if dem_k is None:
-                    continue
-                ceil_k = dem_k + _gs_float_cap
-                if kk not in dem_ceiling or ceil_k < dem_ceiling[kk]:
-                    dem_ceiling[kk] = ceil_k
-                if galts[k] > ceil_k:
-                    new_alts[k] = ceil_k
-                    touched = True
-            if touched:
-                g.node_altitudes = chord_limit_ring_altitudes(
-                    gcoords, new_alts, cap=GROUNDSIDE_MAX_GRADE)
+    for (g, kalt) in gs_pieces:
+        gcoords = list(g.polygon.exterior.coords)
+        galts = list(g.node_altitudes or [])
+        new_alts = list(galts)
+        touched = False
+        for k in range(min(len(gcoords), len(galts))):
+            if galts[k] is None:
+                continue
+            kk = _key(*gcoords[k])
+            dem_k = kalt.get(kk)
+            if dem_k is None:
+                continue
+            ceil_k = dem_k + _gs_float_cap
+            if kk not in dem_ceiling or ceil_k < dem_ceiling[kk]:
+                dem_ceiling[kk] = ceil_k
+            if galts[k] > ceil_k:
+                new_alts[k] = ceil_k
+                touched = True
+        if touched:
+            g.node_altitudes = chord_limit_ring_altitudes(
+                gcoords, new_alts, cap=GROUNDSIDE_MAX_GRADE)
     layout._gs_pin_dem_ceiling_key = dem_ceiling
 
     # (now-shifted) groundside altitude per key, for the weld.  LARGEST
@@ -2431,8 +2355,6 @@ def apply_groundside_reach(layout, bucket_to_idx, elev, cap):
             tgt = gs_level - cap * straight
             if tgt > elev[pi] + 1e-3:
                 elev[pi] = tgt
-                if _os.environ.get("O4_GS_RAISE_HARD", "0") == "1":
-                    hard.add(pi)      # legacy: raised taper values pinned
 
     # ── WELD each connector's groundside mouth to the shifted groundside ─────
     # Reachable connectors weld as before.  An UNREACHABLE connector still
@@ -2486,16 +2408,15 @@ def apply_groundside_reach(layout, bucket_to_idx, elev, cap):
     # reachable connector stay DEM and pin nothing (the blanket-weld
     # regression class, +215).
     relevelled_gids = {gid for gid in bounds}
-    if _os.environ.get("O4_GS_PAV_WELD", "1") == "1":
-        for (px, py, pi) in pav_pts:
-            k = _key(px, py)
-            a = gs_key_alt.get(k)
-            if a is None or gs_key_owner.get(k) not in relevelled_gids:
-                continue
-            if pi < len(elev):
-                elev[pi] = a
-                hard.add(pi)
-                weld_coord_keys.add((round(px, 2), round(py, 2)))
+    for (px, py, pi) in pav_pts:
+        k = _key(px, py)
+        a = gs_key_alt.get(k)
+        if a is None or gs_key_owner.get(k) not in relevelled_gids:
+            continue
+        if pi < len(elev):
+            elev[pi] = a
+            hard.add(pi)
+            weld_coord_keys.add((round(px, 2), round(py, 2)))
     layout._groundside_weld_keys = weld_coord_keys
     # Per-PIN DEM ceiling in solver-index space — consumed by the post-yield
     # mouth verify-and-relax (spec §C.2 ★: a DEM-bounded pin's ADOPTED
@@ -2530,7 +2451,7 @@ def apply_groundside_reach(layout, bucket_to_idx, elev, cap):
                   f"float median={_m50:+.2f} max={floats[-1]:+.2f} "
                   f"min={floats[0]:+.2f}; bound={_gs_float_cap:.2f} "
                   f"over-bound={_nover} (gate="
-                  f"{'on' if _gs_dem_bound else 'OFF'})")
+                  "on)")
     return n, hard
 
 
@@ -2971,31 +2892,30 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
     # and genuinely contradictory anchors resolve through the same
     # break blend as any interior node.
     prox_pairs: list = []       # (i, j) couples — also merges spine stations
-    if _os.environ.get("O4_SVC_PROXIMITY_COUPLE", "1") == "1":
-        import math as _m
-        _PROX_M = 2.0
-        _cell = _PROX_M
-        _grid: dict = {}
-        for i, (px, py) in node_pos.items():
-            _grid.setdefault((int(px // _cell), int(py // _cell)),
-                             []).append(i)
-        for (cx, cy), members in _grid.items():
-            neighbors = []
-            for ox in (-1, 0, 1):
-                for oy in (-1, 0, 1):
-                    neighbors.extend(_grid.get((cx + ox, cy + oy), ()))
-            for i in members:
-                (ix, iy) = node_pos[i]
-                for j in neighbors:
-                    if (j <= i
-                            or node_shape.get(j) == node_shape.get(i)):
-                        continue
-                    (jx, jy) = node_pos[j]
-                    dd = _m.hypot(ix - jx, iy - jy)
-                    if 1e-6 < dd <= _PROX_M:
-                        adj[i].append((j, dd))
-                        adj[j].append((i, dd))
-                        prox_pairs.append((i, j))
+    import math as _m
+    _PROX_M = 2.0
+    _cell = _PROX_M
+    _grid: dict = {}
+    for i, (px, py) in node_pos.items():
+        _grid.setdefault((int(px // _cell), int(py // _cell)),
+                         []).append(i)
+    for (cx, cy), members in _grid.items():
+        neighbors = []
+        for ox in (-1, 0, 1):
+            for oy in (-1, 0, 1):
+                neighbors.extend(_grid.get((cx + ox, cy + oy), ()))
+        for i in members:
+            (ix, iy) = node_pos[i]
+            for j in neighbors:
+                if (j <= i
+                        or node_shape.get(j) == node_shape.get(i)):
+                    continue
+                (jx, jy) = node_pos[j]
+                dd = _m.hypot(ix - jx, iy - jy)
+                if 1e-6 < dd <= _PROX_M:
+                    adj[i].append((j, dd))
+                    adj[j].append((i, dd))
+                    prox_pairs.append((i, j))
 
     # Anchors = service nodes that are ALSO a corner of a NON-service pavement shape
     # (the road welds to the airside there), held at their solved elevation; plus
@@ -3338,14 +3258,14 @@ def relevel_pads_to_host_pavement(layout):
     the same level so pad and host weld at one flat level (no emit cliff).  The
     pad adopts FROM the host, never the reverse; the host BODY is untouched.
 
-    Gate ``O4_PAD_HOST_PAVEMENT_LEVEL`` off → no-op (byte-identical).  Returns
+    ``config.PAD_HOST_PAVEMENT_LEVEL`` off → no-op (byte-identical; the env
+    override died 2026-08-05).  Returns
     the count of pads re-levelled."""
     from auto_patch.config import (
         PAD_HOST_PAVEMENT_LEVEL, PAD_HOST_LEVEL_CONTACT_M,
         PAD_HOST_LEVEL_LIFT_M, PAD_HOST_LEVEL_TRIGGER_M,
     )
-    if not (PAD_HOST_PAVEMENT_LEVEL
-            and _os.environ.get("O4_PAD_HOST_PAVEMENT_LEVEL", "1") == "1"):
+    if not PAD_HOST_PAVEMENT_LEVEL:
         return 0
 
     # Host pavement vertices with a solved altitude: (x, y, alt).

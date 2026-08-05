@@ -49,11 +49,15 @@ _BAND_2861 = (62.1192, 73.5375)
 
 # ── §3 ───────────────────────────────────────────────────────────────────
 
-def test_gate_defaults_off(monkeypatch):
-    monkeypatch.delenv("O4_APRON_CONTACT_ANCHOR_CAP", raising=False)
-    assert AN.apron_contact_anchor_cap_enabled() is False
-    monkeypatch.setenv("O4_APRON_CONTACT_ANCHOR_CAP", "1")
-    assert AN.apron_contact_anchor_cap_enabled() is True
+def test_the_anchor_cap_is_unconditional_law():
+    """STANDING LAW (2026-08-05): there is no gate function and no env
+    override left — the only thing that can switch the cap off is the
+    absence of an envelope to cap against, which is the honest "no hard
+    anchor on this graph"."""
+    assert not hasattr(AN, "apron_contact_anchor_cap_enabled")
+    import os
+    assert not any(k.startswith("O4_APRON_CONTACT_ANCHOR_CAP")
+                   for k in os.environ)
 
 
 def test_the_oracle_prices_2861_against_the_runway_truth():
@@ -119,25 +123,17 @@ def test_without_the_cap_the_polytope_can_seat_metres_away():
 
 # ── §4 ───────────────────────────────────────────────────────────────────
 
-def test_seat_stamp_guard_gate_defaults_on_since_the_release_flip(monkeypatch):
-    """RE-PINNED 2026-08-05 at the P3 release tip for f607018 (the P2 flip
-    batch, ``O4_SEAT_STAMP_GUARD`` default "0" -> "1").
+def test_the_seat_stamp_guard_is_unconditional_law():
+    """STANDING LAW (2026-08-05, "BUILD-COMPLETE-THEN-DEBUG"): the guard
+    has no gate function and no legacy arm.
 
-    Tip-battery evidence, interventional, one gate at a time on one tree:
-    HECA -236 within / -5 steps with severity DOWN (transverse worst
-    3.4344 -> 3.2004 m); SPJC +16 within, all airside, severity flat
-    (within_pair worst 3.86 -> 3.87 m, inside the 0.01 m materiality
-    floor) — a NAMED release item with a queued next-train attribution;
-    byte-inert at KCLT, CYXY, SPLP, HEAZ.  Lead adjudication: KEEP.
-
-    All three arms stay covered.  The "0" arm is the LEGACY pre-flip
-    behaviour and is the escape hatch — it must keep working."""
-    monkeypatch.delenv("O4_SEAT_STAMP_GUARD", raising=False)
-    assert SV.seat_stamp_guard_enabled() is True
-    monkeypatch.setenv("O4_SEAT_STAMP_GUARD", "1")
-    assert SV.seat_stamp_guard_enabled() is True
-    monkeypatch.setenv("O4_SEAT_STAMP_GUARD", "0")      # legacy arm
-    assert SV.seat_stamp_guard_enabled() is False
+    Tip-battery evidence that carried it, interventional, one gate at a
+    time on one tree: HECA -236 within / -5 steps with severity DOWN
+    (transverse worst 3.4344 -> 3.2004 m); byte-inert at KCLT, CYXY,
+    SPLP, HEAZ.  SPJC was +16 within — attributed since to the
+    emit-amplification corner class (node 10625), not to the guard, and
+    fixed by ``emit_snap.shared_corner_authority_nodes``."""
+    assert not hasattr(SV, "seat_stamp_guard_enabled")
 
 
 def test_a_contradicting_seat_is_detected_and_a_lawful_one_is_not():

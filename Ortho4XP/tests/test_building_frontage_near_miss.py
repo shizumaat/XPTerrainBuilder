@@ -19,7 +19,8 @@ These tests pin the recognition contract:
   never feeds the pad's seat);
 * a genuinely SHARED (vertex-welded) frontage is not a near miss — identity
   already reconciles it, so no anchors are emitted;
-* the ``O4_BUILDING_FRONTAGE_NEAR_MISS=0`` gate disables recognition.
+* the retired ``O4_BUILDING_FRONTAGE_NEAR_MISS`` var cannot disable
+  recognition (standing law, 2026-08-05).
 """
 from __future__ import annotations
 
@@ -244,18 +245,11 @@ def test_weld_refs_out_takes_the_nearer_pad():
                                  for (x, y) in _open_ring(far_pad.polygon)}
 
 
-def test_weld_refs_out_empty_when_recognition_is_off(monkeypatch):
-    monkeypatch.setenv("O4_BUILDING_FRONTAGE_NEAR_MISS", "0")
-    (layout, bucket_to_idx, building_seats,
-     _pad_nodes, _apron_nodes) = _build_fixture(0.7)
-    weld_refs = {}
-    assert near_miss_building_frontage_edges(
-        layout, bucket_to_idx, building_seats,
-        weld_refs_out=weld_refs) == []
-    assert weld_refs == {}
-
-
-def test_gate_off_disables_recognition(monkeypatch):
+def test_recognition_is_unconditional_law(monkeypatch):
+    """STANDING LAW (2026-08-05, "BUILD-COMPLETE-THEN-DEBUG"): the former
+    ``O4_BUILDING_FRONTAGE_NEAR_MISS`` gate is gone.  Setting the retired
+    var must not switch recognition off — a stale script may never quietly
+    disarm a law."""
     monkeypatch.setenv("O4_BUILDING_FRONTAGE_NEAR_MISS", "0")
     (layout, bucket_to_idx, building_seats,
      _pad_nodes, _apron_nodes) = _build_fixture(0.7)
@@ -265,5 +259,5 @@ def test_gate_off_disables_recognition(monkeypatch):
     edges = near_miss_building_frontage_edges(
         layout, bucket_to_idx, building_seats)
 
-    assert floors == {}
-    assert edges == []
+    assert floors != {}
+    assert edges != []

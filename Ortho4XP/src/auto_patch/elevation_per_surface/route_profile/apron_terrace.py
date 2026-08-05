@@ -2016,7 +2016,8 @@ def emit_terrace_joint_faces(layout, plan: Optional[TerracePlan]) -> int:
     """
     if plan is None or not plan.joints:
         return 0
-    from auto_patch.adjacent_ground import runway_strip_wall_keepout
+    from auto_patch.adjacent_ground import (STACKED_WALL_RETREAT_M,
+                                            runway_strip_wall_keepout)
     from auto_patch.layout import BuiltShape
     keepout = runway_strip_wall_keepout(layout, require_gate=False)
     index = _apron_ring_values(layout)
@@ -2030,7 +2031,12 @@ def emit_terrace_joint_faces(layout, plan: Optional[TerracePlan]) -> int:
     for joint in plan.joints:
         if len(joint.hi) < 2 or len(joint.hi) != len(joint.lo):
             continue
-        bound = float(joint.step_m) + APRON_MAX_GRADE * _RETREAT_TRIM_M
+        # THE SAME NUMBER ``terrace_station_edges`` bound the solve to.
+        # ``_RETREAT_TRIM_M`` is the joint LINE's end trim and happens to
+        # equal the band width today; reading the band's own constant is
+        # what keeps the binding and the report one quantity.
+        bound = (float(joint.step_m)
+                 + APRON_MAX_GRADE * STACKED_WALL_RETREAT_M)
         rows: list = []                   # (k, s, z_hi, z_lo)
         for k, s_arc in enumerate(joint.grid or range(len(joint.hi))):
             if k >= len(joint.hi):
@@ -2051,13 +2057,14 @@ def emit_terrace_joint_faces(layout, plan: Optional[TerracePlan]) -> int:
         n_flip = sum(1 for (_k, _s, z_hi, z_lo) in rows if z_hi < z_lo)
         if 0 < n_flip < len(rows):
             plan.stats["joints_sign_flipped"] += 1
-        joint.flank_span_m = round(_RETREAT_TRIM_M, 3)
+        joint.flank_span_m = round(STACKED_WALL_RETREAT_M, 3)
         joint.actual_step_m = round(float(drop), 4)
         joint.stations = [
             {"s": round(s_arc, 2), "z_pos": round(z_hi, 3),
-             "z_neg": round(z_lo, 3), "span_m": _RETREAT_TRIM_M,
+             "z_neg": round(z_lo, 3), "span_m": STACKED_WALL_RETREAT_M,
              "bound_m": round(bound, 4),
-             "reader_slack_m": round(APRON_MAX_GRADE * _RETREAT_TRIM_M, 4),
+             "reader_slack_m": round(
+                 APRON_MAX_GRADE * STACKED_WALL_RETREAT_M, 4),
              "over_m": round(max(0.0, abs(z_hi - z_lo) - bound), 4)}
             for (_k, s_arc, z_hi, z_lo) in rows]
         if drop <= 0.05:

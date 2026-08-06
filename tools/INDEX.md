@@ -107,7 +107,7 @@ them anywhere.
 | `Ortho4XP/tools/object_seating_report.py` | "That building floats" → a row with lat/lon. |
 | `Ortho4XP/tools/decode_dsf_terrain_table.py` | Verifying an emitted DSF's terrain table / per-patch attributes. |
 | `Ortho4XP/tools/spine_coverage.py` | Fraction of aircraft centerline carrying a real spine node. |
-| `Ortho4XP/tools/trace_reach_route.py` | Which runway and spine bind a point's ceiling/floor (emits KML). |
+| `Ortho4XP/tools/trace_reach_route.py` | Which runway ANCHOR and which route bind a point's ceiling and floor, and what the local off-route leg costs (emits KML). Reads the LIVE band — `reach_band_unified` for the band, `band.attachment_at` for the lookup's serving attachment, and the anchor provenance `spine_value_fields` recorded — so its numbers are the build's, not a replay. An off-net point is an ANSWER (the within-shape law governs it), not a refusal. Revived 2026-08-06: it used to replay the nearest-visible-centerline engine deleted on 2026-07-29 and refused coordinates the live band serves. |
 | `Ortho4XP/tools/trace_building_frontage.py` | Why a building's flat seat landed where it did. |
 | `Ortho4XP/tools/mesh_region_tris.py` | Built-mesh triangle count inside the airport bbox — the number load time tracks. |
 | `Ortho4XP/tools/mesh_elevation_sampler.py` | Sampling the terrain the sim actually renders, after grading. |

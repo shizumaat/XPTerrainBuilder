@@ -457,6 +457,14 @@ def build_raster_reach_band(layout, G) -> Optional[Callable[
     # deterministic node order the loop walks.
     from auto_patch.config import BAND_SEED_EXACT as _SEED_EXACT
     pending: dict = {}
+    # WHICH ROUTE NODES SEED WHICH CELL — write-only provenance for the
+    # ``band.attachment_at`` diagnostic below (cycle-5 instrument-fix item 4:
+    # ``tools/trace_reach_route.py`` must answer "which attachment serves this
+    # point" FROM the band, not by re-deriving the lookup).  Nothing in the
+    # field reads it; ``seed_ceil`` / ``seed_floor`` / ``leg`` / ``source`` are
+    # byte-identical with or without it.
+    cell_nodes: dict = {}
+    cell_rc: dict = {}
     for k in sorted(ceil_val):                     # sorted() for determinism
         p = G.pos.get(k)
         if p is None:
@@ -478,6 +486,8 @@ def build_raster_reach_band(layout, G) -> Optional[Callable[
         cid = int(cell_id[ri, ci])
         if cid < 0:
             continue
+        cell_nodes.setdefault(cid, []).append(int(k))
+        cell_rc[cid] = (ri, ci)
         if _SEED_EXACT:
             pending.setdefault(cid, []).append(
                 (float(p[0]), float(p[1]), cv, fv, ri, ci))
@@ -550,6 +560,54 @@ def build_raster_reach_band(layout, G) -> Optional[Callable[
             return None
         slack = apron_cap * off
         return (float(floor[nr, nc]) - slack, float(c) + slack)
+
+    def attachment_at(x, y):
+        """THE LOOKUP's own answer at ``(x, y)`` — read-only provenance.
+
+        ``{"cell", "off_mask_m", "leg_m", "attachment_cell", "attachment_cid",
+        "attachment_nodes", "ceiling_at_attachment", "floor_at_attachment"}``
+        or ``None`` where :func:`band` itself answers ``None``.
+
+        WHY IT IS HERE AND NOT IN THE TOOL (cycle-5 instrument-fix item 4).
+        ``tools/trace_reach_route.py`` answers "which runway and spine bind
+        this point" — and for a year it answered it by REPLAYING a retired
+        nearest-visible-centerline engine, so it refused coordinates this band
+        serves perfectly well (measured: it exits "point is not taxi-reachable
+        from any runway contact" at a vertex whose band is (8.8941, 16.3459)).
+        A tool that re-derives a lookup is a second engine; this hands out the
+        one that ran.  It reads the closure's own arrays and mutates nothing.
+        """
+        ci0 = int(round((x - x0) / cell - 0.5))
+        ri0 = int(round((y - y0) / cell - 0.5))
+        if not (0 <= ri0 < nrows and 0 <= ci0 < ncols):
+            return None
+        off = 0.0
+        ri, ci = ri0, ci0
+        if not paved[ri, ci]:
+            if edt_idx is None:
+                return None
+            off = float(edt_cells[ri, ci]) * cell
+            if off > off_radius:
+                return None
+            ri = int(edt_idx[0, ri0, ci0])
+            ci = int(edt_idx[1, ri0, ci0])
+        cid = int(source[ri, ci])
+        if cid < 0:
+            return None
+        return {
+            "cell": (ri0, ci0),
+            "query_cell_paved": bool(paved[ri0, ci0]),
+            "off_mask_m": off,
+            "leg_m": float(leg[ri, ci]),
+            "attachment_cid": cid,
+            "attachment_cell": cell_rc.get(cid),
+            "attachment_nodes": list(cell_nodes.get(cid, ())),
+            "ceiling_at_attachment": float(sc[cid]),
+            "floor_at_attachment": float(sf[cid]),
+            "cell_m": float(cell),
+        }
+
+    band.attachment_at = attachment_at              # type: ignore[attr-defined]
 
     # Diagnostics on the closure (opt-in probes; also read by the profile A/B).
     # The OFF-ROUTE LEG distribution is the honest measure of how much of the

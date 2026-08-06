@@ -67,6 +67,46 @@ ONE mechanism, 89.4≈87.9); HECA envelope 13,259/17,955 @ 16.856 m;
 canyon unchanged (flex territory). NOTE: c5solve censuses are in the
 PRE-c5inst frame — the merged tip unifies both; the reconciliation
 battery re-reads the matrix there.
+
+**RECONCILED TIP MATRIX (frame of record, tip d6fa96a, c5tip
+tmp/c5tip_report.md):** ADJUDICATED/airside — HEAZ 1,100/423 ·
+212/203 · SPJC 2,127/2,051 · 3,801/3,701 · KCLT 3,421/2,249 ·
+3,638/2,049 · HECA 6,517/5,811 · canyon FAILS (see below). c5inst
+PROVEN surface-neutral (five cells, five exact fnm-only deltas).
+SPJC SPLITS: plateau −30.9% (gentle prior holds), canyon +1.9% and
+band excess flips CEILING-side worst 1.5007 m (named, not chased).
+SOLVE EXIT still UNCERTIFIED all 8; who_wrote untouched class
+UNCHANGED (HECA 1,634 @ 87.930 m — target #14).
+
+**CANYON VERDICT REVERSED (c5tip Job 2): (a)+(d), NOT law.** Budgets
+are exactly cap×length (1.5000% — not under-priced; no unpriced
+relief on a spine); PLATEAU achieves pair 2's spread at 22.66 m with
+3.13 m slack on IDENTICAL CIFP pins; canyon anchor values are
+DEM-driven (+5.31/+6.24 m vs plateau); the flex retired 8 bins
+carrying 168.62 m after 'apply refused 1.898 m 2x' and hit round cap
+12 (same runway demands 0.05 m in plateau); `_anchor_law_values`'
+"CIFP cannot reach" sentence is FALSE all three pairs (reports ride
+0.04 m for a 5.31 m DEM-driven value). Fix lane c5flex IN FLIGHT
+(cycle5-canyon-flex-spec: instrument world-invariance split first,
+then the refusal/retirement bug). My earlier "metric/cap/topology"
+framing above is SUPERSEDED by this verdict.
+
+**NEAR-ZERO CANYON NODES (c5tip Job 3): (a).** SPJC 55 / KCLT 186
+(+259 partial lerps) / HEAZ 7 vertices stranded AT raw DEM by FIVE
+geometry-time ring writers seeding new vertices from DEM —
+groundside separate/merge, bridges portals, adjacent-ground walls
+(all already scheduled for ingestion, RULINGS 2026-08-03) + solve
+seats landing on constant DEM. Folds into the single-solve ingestion
+program (with target #14's second-author class).
+
+**NODE-IDENTITY ROUND (from the §12 STOP): premise falsified**
+(0.0012 m² overlap) — the 193 CYXY budget mismatches are ONE-NODE-
+TWO-COORDINATES defects (pre-solve fan cut mints near-twins after the
+settle, 99; planarize inserts within the 0.5 m weld tol vs 0.05 m
+dedup, 94). RULED: cycle5-node-identity-spec (cut on the settled
+lattice; planarize snaps, never twins; weld-after-cut FORBIDDEN —
+tears 0.1384 m²). Lane c5nodeid IN FLIGHT. SPJC's pre-existing
+1.5289 m² self-overlap red is plausibly the same family.
 INSTRUMENT ROUND MERGED (lane/c5inst): radius law-derived (F2 exempt),
 grid-residual excuse deleted (SPJC honest 48 — population now FLOOR
 side at this tree, the ceil quartet was be2009f-era), CYXY fixture red

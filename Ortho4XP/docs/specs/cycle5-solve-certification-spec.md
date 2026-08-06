@@ -1,5 +1,55 @@
 # Cycle 5 — Solve certification round (the three (a) bugs)
 
+**Status: LANDED (lane/c5solve, 2026-08-05) — all four fixes implemented
+and measured; CERTIFIED exit NOT reached; the honest residual is
+quantified below.**
+
+Identity control first: the lane tree reproduced the dossier VERBATIM
+before any fix (fp#8 68,672 / 91.617185 m; envelope 14,246 of 18,113 /
+74.685667 m; zone consumption 124,183; census 28,059 → adjudicated
+21,404 = the tip matrix). Every delta below is therefore attributable to
+these diffs. Frame note: this lane does NOT carry `lane/c5inst`.
+
+| fix | verdict | outcome |
+|---|---|---|
+| 4 certificate | (d) | LANDED. Catch-all split by minting constructor; violating-family count; a SOLVE EXIT reader in the solve's own node space. Surface-neutral (census byte-identical). |
+| 1 zone box | (a) | LANDED. Box deleted; relative edge is the one authority; coverage audit proves it lossless (**0 UNCARRIED**, 3 airports). |
+| 2 band per sweep | (a) | LANDED. Biggest single win: adjudicated −69%. |
+| 3 gs_pin | (a) | LANDED. Hard gs_pin 156→0, on-DEM 25→0, out-of-band hard nodes 70→**0**. |
+
+HECA plateau, round total: adjudicated **21,404 → 6,442 (−69.9 %)**,
+airside **20,629 → 5,759 (−72.1 %)**. KCLT plateau **7,477 → 3,404
+(−54.5 %)**; its fp#8 raw-law envelope reaches **0 of 22,298 INFEASIBLE,
+max gap 0.000000 m** — the spec's stall-guard target, met at KCLT.
+HEAZ dem1 1,160 → 1,100; HEAZ dem10000 216 → 212; KCLT dem10000
+3,807 → 3,620.
+
+THE STRUCTURAL RESULT. The solve's over-cap population changed CLASS.
+Before: `free:below-band ↔ free:below-band` 75.6 %, worst 97.499 m
+(the fix-2 defect) with a live `HARD:gs_pin` class. After: that class
+and the gs_pin class are both GONE from the table, and the dominant
+class is `free:in-band ↔ free:in-band` — 82.66 %, worst 15.950 m. That
+is the class the dossier named as the next round's population. (Frame:
+both read at the fp#8 dump; the dossier's 3.9 % / 5.620 m was at fp#8
+EXIT over a different edge set — the two are NOT the same number and are
+not equated here.)
+
+NOT MET, reported rather than chased (attempt cap):
+* No airport reaches a CERTIFIED exit. HECA plateau's fp#8 worst
+  residual is unchanged at 89.430942 m, carrier `(1013,7022)` — now
+  `free/free`, its raw-law envelope gap fallen 74.686 → 16.856 m.
+* HECA `--dem 10000` still HARD-FAILS `BandInversionError` identically
+  to the tip (384 nodes, worst 1.9521 m, the same 3 anchor pairs). The
+  error attributes itself: the CIFP thresholds do not reach each other
+  within the route budget — a METRIC/CAP/TOPOLOGY defect, i.e. the
+  runway-flex round's territory, not this one's.
+* `who_wrote --author` still reports **1,634** untouched-node moves
+  (worst 87.930 m) — the second-author class is NOT collapsed. The hold
+  ledger's distributional halves did move: final#1 max |dz| 37.319 →
+  4.486 m, final#2 p90 6.820 → 1.540 m.
+
+**Original spec text follows unchanged.**
+
 **Status: BINDING.** Evidence: the attribution dossier
 (c4tip worktree, `tmp/c5attr_dossier.md`; tip `97838ce`; one
 instrumented build, byte-identical body — instrument surface-neutral).

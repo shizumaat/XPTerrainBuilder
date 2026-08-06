@@ -202,20 +202,13 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
     # runways).
     from auto_patch.config import runway_flex_demand_tol_m
     _DEMAND_TOL_M = runway_flex_demand_tol_m()
-    # HARD DISPLACEMENT BUDGET (user 2026-07-06: the flex was moving
-    # HECA 05C by 17.8 m — far past the minimum): each profile may move
-    # at most this far from its ORIGINAL (pre-flex) elevation, summed
-    # over all rounds.  The origin-split below is the real law (the
-    # deficit divides across the runways pulling on it); this is the
-    # safety net against pathological envelope chains.
-    from auto_patch.config import RUNWAY_FLEX_MAX_DISPLACEMENT_M
-    # matched (fractions, elevs) SNAPSHOT — apply_runway_flex INSERTS
-    # samples into the live profile arrays, so interpolating the old
-    # elevs against the new fractions indexes out of range.
-    original_profiles = {
-        ref: (list(profiles[ref]['fractions']),
-              list(profiles[ref]['elevs']))
-        for ref in profiles if profiles.get(ref)}
+    # NO DISPLACEMENT BUDGET (owner ruling 2026-08-05, RULINGS.md "Runway
+    # flex: the LAW is the only bound").  The 4.0 m cumulative cap and its
+    # pre-flex profile snapshot are DELETED: the lawful bounds are the CIFP
+    # pins (absolute), the per-segment runway grade caps priced below as
+    # ``slack``, and ``apply_runway_flex``'s verify-and-relax.  Minimum
+    # displacement stays the objective through the origin ÷2 split and the
+    # drain-what-is-demanded loop, never through an arbitrary bound.
     total_deficit = total_drained = 0.0
     n_demands = 0
     flexed_refs: set = set()
@@ -293,8 +286,9 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
     # So: keep the snapshot-simultaneous rounds and the split exactly as
     # they are and iterate until a round drains less than the materiality
     # floor (0.01 m — CLAUDE.md item 3(a)) or the hard cap trips.
-    # Everything else — greedy keep, slack clamp, the 4.0 m displacement
-    # budget, the per-segment threshold law — stands.
+    # Everything else — greedy keep, slack clamp, the per-segment
+    # threshold law — stands.  (The 4.0 m displacement budget that used to
+    # be listed here is DELETED, owner 2026-08-05.)
     from auto_patch.config import (RUNWAY_FLEX_MAX_ROUNDS,
                                    RUNWAY_FLEX_ROUND_DRAIN_FLOOR_M)
     _max_rounds = RUNWAY_FLEX_MAX_ROUNDS
@@ -403,14 +397,10 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
                     pull = pull / 2.0
                 direction = 1.0 if target > current else -1.0
                 slack = flex_slack_at(profile, t, direction)
-                # cumulative displacement budget vs the ORIGINAL profile
-                orig_fr, orig_el = original_profiles.get(
-                    ref, (profile['fractions'], profile['elevs']))
-                original = _interp_profile(orig_fr, orig_el, t)
-                moved_already = abs(current - original)
-                budget_left = max(
-                    0.0, RUNWAY_FLEX_MAX_DISPLACEMENT_M - moved_already)
-                move = min(pull, slack, budget_left)
+                # THE LAW IS THE ONLY BOUND (owner 2026-08-05): the move is
+                # what is demanded, clamped only by the grade-law slack the
+                # segment prices.  No cumulative displacement budget.
+                move = min(pull, slack)
                 # FIX 4: count the demand BEFORE the kill, so the line
                 # quotes what the airport actually asked for.
                 _true_deficit += deficit
@@ -4125,8 +4115,8 @@ def solve_route_profile(layout, icao: str,
     # inside the exit — and THAT is the read the whole arc exists
     # for, because pre-solve it is stale by a measured median 0.110 m
     # (p90 0.150 m, max 0.164 m at CYXY; the mode is the crown, plus
-    # ~0.4 m at overrun-pavement ends and up to
-    # ``RUNWAY_FLEX_MAX_DISPLACEMENT_M`` under runway flex).  Here it
+    # ~0.4 m at overrun-pavement ends, plus whatever the runway grade
+    # caps price as lawful slack under runway flex).  Here it
     # is re-read on the pavement shapes ``_writeback`` has just
     # written — solved AND crowned — and the one-slab projection is
     # re-evaluated against it.  ``clearance._resa_alt_at`` therefore

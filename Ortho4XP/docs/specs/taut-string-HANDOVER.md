@@ -285,9 +285,30 @@ nodes), phase-A freeze classless hardening (solve.py:2816 — the real
 remaining unattributed channel; the blanket's own residual is
 structurally 0), gs_pin no-op in the crown-freeze tuple, tree-sha
 stamp wiring, band_excess dual-instrument owner Q. OPEN OWNER AUTH:
-delete the 529 junk DSF-cache dirs. IN FLIGHT: the frame-of-record
-battery at −500/10,000 (lane c8base — the cycle-8 baseline). NEXT:
-cycle-8 one-graph spec against it.
+delete the 529 junk DSF-cache dirs. **FRAME OF RECORD MINTED
+(c8base tmp/c8base_record.md, tip 6f59c5e, worlds −500/10,000):**
+BATTERY both worlds **18,933 adjudicated** (−500: 8,193 / 10k:
+10,740) + 12,320 deferred. Per −500/10k ADJ (airside): HEAZ
+1,032/165 (390/162) · SPJC 442/746 (428/706) · KCLT 1,426/2,441
+(502/886) · HECA 5,293/7,388 (4,707/4,228). **AIRSIDE IS
+WORLD-INVARIANT to 0.8%** (6,027 vs 5,982) — the whole world swing
+is groundside D′. Ranked: 74.5% = converged-but-uncertified solve
+residual (93.7% of airside rows in 0.1–10 m); **D′ 4,607 rows
+(24.3%) = the ENTIRE groundside mass**, mechanism in one line
+([groundside-law-seat]: HECA 2,646/2,725 rings reach the ladder with
+no law source, keep the seed); ≥10 m band 96% groundside, worst
+KCLT 719.91 / canyon 9,935. 100% of on-DEM emitted nodes STRANDED.
+Suite: 11 standing + 1 NEW = cycle 7.5's OWN DSF guard firing on its
+unfinished redirect (chored into cycle 8). TWO cycle-8 pre-findings:
+the analytic band is NOT world-invariant (HECA 12,657 width
+disagreements, max 71 m, zero coverage mismatch — attribute BEFORE
+extending it groundside; spec pre-requirement) and env_band carry
+30–38% short everywhere (world-invariant, named). **CYCLE 8 IN
+FLIGHT** (lane c8graph; cycle8-one-graph-spec: mouths seat like
+apron-edge frontage, bands flow mouth→outward, LAW ISLAND branch
+dies for connected rings, disconnected mints nothing via the SAME
+predicate in solve and census, HARD Q4 gate: per-cell airside may
+not rise).
 
 NEXT TARGETS (ranked):
 1. **The solve's UNCERTIFIED exit is the real plateau author** —

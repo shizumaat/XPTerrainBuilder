@@ -808,15 +808,16 @@ SERVICE_ROAD_MAX_TRANSVERSE = 0.020
 # JUNCTIONS stay at the TAXI rate (1.5%): they are part of the moving network
 # where 1.5% taxiways flow through, not parking surface (decoupled below).
 APRON_MAX_GRADE = 0.01          # apron + building pad, all directions
-# RUNWAY FLEX displacement budget (user 2026-07-06): the total distance a
-# flexed runway profile may move from its FAA-redistributed original,
-# summed over all flex rounds.  The flex law is minimum-displacement with
-# the deficit SPLIT across the runways pulling on it (envelope-origin
-# split in ``_apply_runway_flex_hook``); this cap is the safety net —
-# HECA 05C measured a 17.8 m one-sided drop before the split landed
-# (Stage A's whole-airport inter-runway deficit was only 7.67 m, so a
-# lawful per-runway share stays well under this).
-RUNWAY_FLEX_MAX_DISPLACEMENT_M = 4.0
+# RUNWAY FLEX displacement budget: DELETED (owner ruling 2026-08-05,
+# RULINGS.md "Runway flex: the LAW is the only bound").  The 4.0 m cap was
+# a prototype-era safety net of unclear origin; anything within the law is
+# legal by definition, so the arbitrary cumulative bound is gone.  The
+# lawful bounds are what they always were: CIFP pins (absolute, v1), the
+# runway grade caps per segment incl. end zones (the priced slack, via
+# ``flex_slack_at``), and ``apply_runway_flex``'s verify-and-relax check.
+# Minimization stays the OBJECTIVE through the flex's minimum-move demand
+# design (envelope-origin ÷2 split, drain-what-is-demanded), never through
+# a cap.
 # USER RULING 2026-07-06: pavement within this distance of a taxi
 # centerline or a runway is NOT apron (it is maneuvering surface —
 # junction law); only the portion of a shape farther than this may carry
@@ -5064,7 +5065,8 @@ ONE_SOLVE_TERRAIN_RUNWAY_END_SKIRT = (
 # the other 106 returned None pre-solve and resolve to real solved values
 # post-solve.  The 0.15 m mode is the CROWN (the solve runs uncrowned and
 # writeback emits z = z' - c).  Overrun-pavement ends add ~0.4 m (KCLT
-# 18L); runway flex can add up to RUNWAY_FLEX_MAX_DISPLACEMENT_M.
+# 18L); runway flex adds whatever the runway grade caps price as slack
+# (no displacement budget — owner ruling 2026-08-05).
 #
 # So a pre-solve stamp bakes a stale reference at essentially every
 # airport.  Admitting the cut B3-style (free variable + a ONE-SIDED

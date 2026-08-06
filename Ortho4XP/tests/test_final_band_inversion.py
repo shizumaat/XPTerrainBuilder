@@ -204,37 +204,78 @@ def _profiled_case(budget_a, budget_b, ride_a=0.0, ride_b=0.0):
     emitted surface carries above that baseline at the anchor's station."""
     layout, G = _two_anchor_case(budget_a, budget_b)
     G.runway_anchor = {0: 100.0 + ride_a, 1: 110.0 + ride_b}
+    # The ride sits on a FREE (un-anchored) interior station — that is what
+    # a DEM-follow seed IS.  Nothing here is flex-minted: a flexed station
+    # is law (see ``test_law_baseline_includes_the_flex_applied_station``).
     layout._runway_redistributed_profiles = {
         "A": {"axis_a": (0.0, 0.0), "axis_d": (0.0, 10.0),
               "axis_len2": 100.0, "half_width_m": 20.0,
               "fractions": [0.0, 0.5, 1.0],
               "elevs": [100.0, 100.0 + ride_a, 100.0],
-              "anchored": [True, True, True],
-              "flex_minted": [False, True, False]},
+              "anchored": [True, False, True],
+              "flex_minted": [False, False, False]},
         "B": {"axis_a": (100.0, 0.0), "axis_d": (0.0, 10.0),
               "axis_len2": 100.0, "half_width_m": 20.0,
               "fractions": [0.0, 0.5, 1.0],
               "elevs": [110.0, 110.0 + ride_b, 110.0],
-              "anchored": [True, True, True],
-              "flex_minted": [False, True, False]},
+              "anchored": [True, False, True],
+              "flex_minted": [False, False, False]},
     }
     return layout, G
 
 
-def test_law_baseline_excludes_the_flex_minted_anchors():
-    """``apply_runway_flex`` inserts its applied targets as
-    ``anchored=True``, so anchored-ness alone stops meaning "authority"
-    the moment the flex has run.  The law baseline must read
-    ``flex_minted`` and drop them, or it reports the flex's own output
-    back as law."""
+def _flexed_station_case(flexed_value, minted=True):
+    """One runway profile whose MIDDLE station was moved by the flex —
+    inserted ``anchored=True`` and tagged ``flex_minted``, exactly as
+    ``apply_runway_flex`` does — with an anchor node sitting AT that
+    station (pos (0, 5) ⇒ t = 0.5 on the axis below)."""
+    layout = _FakeLayout()
+    G = _FakeG({0: flexed_value}, {}, {0: (0.0, 5.0)})
+    layout._runway_redistributed_profiles = {
+        "A": {"axis_a": (0.0, 0.0), "axis_d": (0.0, 10.0),
+              "axis_len2": 100.0, "half_width_m": 20.0,
+              "fractions": [0.0, 0.5, 1.0],
+              "elevs": [100.0, flexed_value, 100.0],
+              "anchored": [True, True, True],
+              "flex_minted": [False, bool(minted), False]},
+    }
+    return layout, G
+
+
+def test_law_baseline_includes_the_flex_applied_station():
+    """A flex-applied target is a LAWFUL HARD MOVE — owner ruling
+    2026-08-05 ("Runway flex: the LAW is the only bound": anything within
+    the law is legal by definition) and ``cycle4-anchor-law-spec.md``
+    requirement 1, which names flex-applied targets as part of the law
+    line.  The baseline must therefore READ the flexed station instead of
+    the chord the flex started from.
+
+    Excluding it (the ``e5c8443`` cut) books lawful flex displacement as
+    "DEM-follow ride": measured at HECA canyon, −1.461 m and −2.735 m of
+    "ride" in a world whose DEM is 10 000 m and can only push a value UP,
+    which mis-classified two anchor pairs as LAW-ALONE-IS-FEASIBLE."""
     from auto_patch.elevation_per_surface.building_feasibility import (
         _anchor_law_values)
-    layout, G = _profiled_case(4.0, 4.0, ride_a=6.0, ride_b=0.0)
-    laws = _anchor_law_values(layout, G, {0: 106.0, 1: 110.0})
-    # station t=0 for both anchors (pos 0,0 and 100,0) → the END value,
-    # which the ride never touched.
-    assert laws[0] == pytest.approx(100.0)
-    assert laws[1] == pytest.approx(110.0)
+    layout, G = _flexed_station_case(94.0)
+    laws = _anchor_law_values(layout, G, {0: 94.0})
+    assert laws[0] == pytest.approx(94.0), (
+        "the flexed station IS the law line at its own station; 100.0 "
+        "would be the pre-flex chord, i.e. 6 m of lawful flex reported "
+        "back as DEM-follow ride")
+
+
+def test_the_flex_provenance_no_longer_changes_the_law_line():
+    """Same station, same value, with and without the ``flex_minted``
+    tag: the law line is anchored ∪ flex-applied, so the provenance array
+    cannot move it.  (It still governs ``flex_slack_at``'s bounding set —
+    that is a different question, and the self-anchor lock it exists for
+    is untouched.)"""
+    from auto_patch.elevation_per_surface.building_feasibility import (
+        _anchor_law_values)
+    minted, G_m = _flexed_station_case(94.0, minted=True)
+    plain, G_p = _flexed_station_case(94.0, minted=False)
+    assert (_anchor_law_values(minted, G_m, {0: 94.0})
+            == _anchor_law_values(plain, G_p, {0: 94.0}))
 
 
 def test_a_shortfall_the_ride_created_is_named_as_ride():

@@ -2200,12 +2200,13 @@ def _runway_anchors(layout, G, bucket_to_idx):
 
     import os
     cps = layout.canonical_points
-    _CONTACT_M = GL.RUNWAY_CONTACT_M
+    # (``RUNWAY_CONTACT_M`` is applied inside ``GL.runway_join_contacts``.)
     _NEAR_M = GL.RUNWAY_JOIN_NEAR_M
     _spine_edge_anchor = (
         os.environ.get("O4_RUNWAY_CONTACT_ANCHOR", "1") == "1")
-    _edge_contact = (
-        os.environ.get("O4_RUNWAY_EDGE_CONTACT", "1") == "1")
+    # (``O4_RUNWAY_EDGE_CONTACT`` is read inside ``GL.runway_join_contacts``,
+    # so every consumer of the join set — this one and the runway profile
+    # seeder — agrees on where the contact is.)
     # ANCHOR TARGET SET (user 2026-07-16, KBNA 13/31 defect H): include the
     # ROLE_RUNWAY_CROSSING slab pieces alongside the true runways.  A taxi /
     # junction join that TERMINATES on the crossing slab (which replaced the
@@ -2244,78 +2245,65 @@ def _runway_anchors(layout, G, bucket_to_idx):
     if not nx:
         return
     contact_endpoints = []   # centerline endpoints that TERMINATE at a runway
-    for entry in (getattr(layout, "apt_taxi_centerlines", []) or []):
-        ln = (entry.line if hasattr(entry, "line")
-              else (entry[0] if isinstance(entry, (tuple, list)) else entry))
-        ref = entry[1] if (isinstance(entry, (tuple, list))
-                           and len(entry) > 1) else None
-        if ln is None or ln.is_empty or str(ref or "").upper().startswith("SVC"):
+    # WHERE A JOIN IS — resolved by the ONE shared authority
+    # (``grade_law.runway_join_contacts``), which the runway PROFILE SEEDER also
+    # calls so the station it anchors at the law line and the node anchored here
+    # are the same join (docs/specs/cycle4-anchor-law-spec.md).  The contact NODE
+    # sits where the centerline meets the runway EDGE, not at the deep-interior
+    # centerline endpoint (a taxi route joins the runway CENTERLINE, ~half-width
+    # inside on a wide runway), so the nearest-node search reaches the emitted
+    # taxiway↔runway node.  O4_RUNWAY_EDGE_CONTACT=0 reverts to the endpoint.
+    for (rwy, (cx, cy), _endpoint) in GL.runway_join_contacts(
+            getattr(layout, "apt_taxi_centerlines", []) or [], runways):
+        re = _sample_runway_segment_elev(rwy, cx, cy)
+        if re is None:
             continue
-        cs = list(ln.coords)
-        for (ex, ey) in (cs[0], cs[-1]):
-            P = Point(ex, ey)
-            rwy = min(runways, key=lambda r: r.polygon.distance(P))
-            if rwy.polygon.distance(P) > _CONTACT_M:
-                continue
-            # The contact NODE sits where the centerline meets the runway EDGE, not
-            # at the deep-interior centerline endpoint (a taxi route joins the
-            # runway CENTERLINE, ~half-width inside on a wide runway).  Resolve it
-            # through the shared law so the nearest-node search reaches the emitted
-            # taxiway↔runway node.  O4_RUNWAY_EDGE_CONTACT=0 reverts to the endpoint.
-            if _edge_contact:
-                c = GL.runway_join_contact(ln, (ex, ey), rwy.polygon)
-                cx, cy = c if c is not None else (ex, ey)
-            else:
-                cx, cy = ex, ey
-            re = _sample_runway_segment_elev(rwy, cx, cy)
-            if re is None:
-                continue
-            sample_x, sample_y = cx, cy
-            contact_endpoints.append((cx, cy))
-            # nearest graph node to the contact = the spine node that anchors
-            best_i, best_d2 = None, _NEAR_M * _NEAR_M
-            for (i, (x, y)) in nx:
-                d2 = (x - cx) ** 2 + (y - cy) ** 2
-                if d2 < best_d2:
-                    best_d2, best_i = d2, i
-            if best_i is not None:
-                # Runway DE-SEGMENTATION (O4_RUNWAY_SINGLE_POLY): on a
-                # single-poly ring, sample the runway surface at the
-                # ANCHORED NODE's own boundary projection instead of the
-                # contact's station.  The legacy per-piece sampler
-                # effectively quantised the anchor onto the local piece's
-                # corner values, keeping a near-edge anchor consistent
-                # with the welded edge vertex beside it; the ring's
-                # whole-profile interpolation returns the value 5-15 m
-                # up-axis at the contact, and pinning THAT on a node
-                # 2.5 m from the weld is unlawful over the junction's
-                # within-shape budget (HECA 05R: 9 cm over 2.51 m =
-                # 3.57 %).  The node-projection value satisfies both
-                # readers by construction: it differs from the contact
-                # sample by ≤ profile-grade × d(contact, node) — inside
-                # the validator's join budget — and from any welded edge
-                # vertex by ≤ profile-grade × their separation.
-                if getattr(rwy, "from_single_poly", False):
-                    node_x, node_y = G.pos.get(best_i, (cx, cy))
-                    try:
-                        boundary = rwy.polygon.exterior
-                        q = boundary.interpolate(
-                            boundary.project(Point(node_x, node_y)))
-                        re_node = _sample_runway_segment_elev(
-                            rwy, q.x, q.y)
-                    except _GEOM_EXC:
-                        re_node = None
-                    if re_node is not None:
-                        re = re_node
-                        sample_x, sample_y = q.x, q.y
-                if os.environ.get("O4_DESEG_DEBUG") == "1":
-                    _la, _lo = layout.m_to_ll(*G.pos.get(best_i, (cx, cy)))
-                    print(f"  [deseg-dbg] runway_anchor node@{_la:.7f},"
-                          f"{_lo:.7f} = {float(re):.3f} "
-                          f"(contact {cx:.1f},{cy:.1f})")
-                G.runway_anchor[best_i] = float(re)
-                G.runway_anchor_sample[best_i] = (
-                    float(sample_x), float(sample_y), rwy)
+        sample_x, sample_y = cx, cy
+        contact_endpoints.append((cx, cy))
+        # nearest graph node to the contact = the spine node that anchors
+        best_i, best_d2 = None, _NEAR_M * _NEAR_M
+        for (i, (x, y)) in nx:
+            d2 = (x - cx) ** 2 + (y - cy) ** 2
+            if d2 < best_d2:
+                best_d2, best_i = d2, i
+        if best_i is not None:
+            # Runway DE-SEGMENTATION (O4_RUNWAY_SINGLE_POLY): on a
+            # single-poly ring, sample the runway surface at the
+            # ANCHORED NODE's own boundary projection instead of the
+            # contact's station.  The legacy per-piece sampler
+            # effectively quantised the anchor onto the local piece's
+            # corner values, keeping a near-edge anchor consistent
+            # with the welded edge vertex beside it; the ring's
+            # whole-profile interpolation returns the value 5-15 m
+            # up-axis at the contact, and pinning THAT on a node
+            # 2.5 m from the weld is unlawful over the junction's
+            # within-shape budget (HECA 05R: 9 cm over 2.51 m =
+            # 3.57 %).  The node-projection value satisfies both
+            # readers by construction: it differs from the contact
+            # sample by ≤ profile-grade × d(contact, node) — inside
+            # the validator's join budget — and from any welded edge
+            # vertex by ≤ profile-grade × their separation.
+            if getattr(rwy, "from_single_poly", False):
+                node_x, node_y = G.pos.get(best_i, (cx, cy))
+                try:
+                    boundary = rwy.polygon.exterior
+                    q = boundary.interpolate(
+                        boundary.project(Point(node_x, node_y)))
+                    re_node = _sample_runway_segment_elev(
+                        rwy, q.x, q.y)
+                except _GEOM_EXC:
+                    re_node = None
+                if re_node is not None:
+                    re = re_node
+                    sample_x, sample_y = q.x, q.y
+            if os.environ.get("O4_DESEG_DEBUG") == "1":
+                _la, _lo = layout.m_to_ll(*G.pos.get(best_i, (cx, cy)))
+                print(f"  [deseg-dbg] runway_anchor node@{_la:.7f},"
+                      f"{_lo:.7f} = {float(re):.3f} "
+                      f"(contact {cx:.1f},{cy:.1f})")
+            G.runway_anchor[best_i] = float(re)
+            G.runway_anchor_sample[best_i] = (
+                float(sample_x), float(sample_y), rwy)
 
     # ── SPINE nodes ON a runway edge where a route TERMINATES (user 2026-06-28) ─
     # A taxiway that ENDS at the runway already has its contact materialised as a

@@ -176,6 +176,76 @@ def runway_join_contact(ln, endpoint, rwy_polygon):
     return (best.x, best.y)
 
 
+def taxi_centerline_line_and_ref(entry):
+    """Unwrap ONE ``layout.apt_taxi_centerlines`` entry into ``(line, ref)``.
+
+    The collection is heterogeneous by history: ``TaxiCenterline`` objects (with
+    ``.line``), ``(line, ref)`` tuples, and bare ``LineString``s all appear.
+    Every reader of the collection must unwrap it the SAME way, so this is the
+    one place that knows the shapes."""
+    ln = (entry.line if hasattr(entry, "line")
+          else (entry[0] if isinstance(entry, (tuple, list)) else entry))
+    ref = (entry[1] if (isinstance(entry, (tuple, list)) and len(entry) > 1)
+           else None)
+    return ln, ref
+
+
+def runway_join_contacts(centerlines, runways, *, edge_contact=None):
+    """THE enumeration of taxi-route↔runway JOIN CONTACTS — one authority for
+    *where a join is*.
+
+    A taxi route that TERMINATES on a runway (either endpoint within
+    ``RUNWAY_CONTACT_M`` of the runway polygon) joins it; the contact point is
+    resolved through ``runway_join_contact`` (the runway-EDGE crossing on a wide
+    runway, the endpoint itself otherwise).
+
+    Two consumers share this, and they must not drift apart:
+      * ``grade_graph._runway_anchors`` — anchors the nearest EMITTED node to
+        the runway surface value sampled at the contact;
+      * ``pavement.runway_segments.generate_patch_osm`` — anchors the runway
+        PROFILE STATION at the contact to the LAW LINE, so the value the first
+        consumer later samples is law and never DEM-follow ride
+        (``docs/specs/cycle4-anchor-law-spec.md``).
+
+    ``runways`` is any sequence of objects carrying a shapely ``.polygon``
+    (layout shapes).  Returns ``[(runway, (cx, cy), (ex, ey)), ...]`` in
+    centerline order, each entry naming the runway joined, the contact point and
+    the centerline endpoint it came from.  ``edge_contact`` defaults to the
+    ``O4_RUNWAY_EDGE_CONTACT`` reading (default on) so every caller agrees with
+    the validator's own read of the same flag; ``False`` reverts to the raw
+    endpoint."""
+    import os as _os
+    from shapely.geometry import Point
+    if edge_contact is None:
+        edge_contact = _os.environ.get("O4_RUNWAY_EDGE_CONTACT", "1") == "1"
+    out = []
+    polys = [r for r in (runways or [])
+             if getattr(r, "polygon", None) is not None
+             and not r.polygon.is_empty]
+    if not polys:
+        return out
+    for entry in (centerlines or []):
+        ln, ref = taxi_centerline_line_and_ref(entry)
+        if (ln is None or ln.is_empty
+                or str(ref or "").upper().startswith("SVC")):
+            continue
+        cs = list(ln.coords)
+        if len(cs) < 2:
+            continue
+        for (ex, ey) in (cs[0], cs[-1]):
+            P = Point(ex, ey)
+            rwy = min(polys, key=lambda r: r.polygon.distance(P))
+            if rwy.polygon.distance(P) > RUNWAY_CONTACT_M:
+                continue
+            if edge_contact:
+                c = runway_join_contact(ln, (ex, ey), rwy.polygon)
+                cx, cy = c if c is not None else (ex, ey)
+            else:
+                cx, cy = ex, ey
+            out.append((rwy, (float(cx), float(cy)), (float(ex), float(ey))))
+    return out
+
+
 def building_requires_full_frontage(area_m2: float) -> bool:
     """THE canonical building-size reach rule (single source for seater AND
     checker).  A building at/above ``BUILDING_FULL_FRONTAGE_AREA_M2`` must have

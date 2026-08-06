@@ -765,12 +765,31 @@ def _anchor_law_values(layout, G, anchor_seeds):
     canyon failure reads as 12.84 m of law defect when 6.00 m of it is
     ride.
 
-    The baseline is the profile interpolated over its ANCHORED stations
-    ONLY, and ``flex_minted`` stations are excluded from that set —
-    ``apply_runway_flex`` inserts its applied targets as ``anchored=True``
-    (they are hard for later passes), so anchored-ness alone stops being
-    "authority" the moment the flex has run.  ``{}`` whenever the profiles
-    are absent, so a caller without them is unchanged.
+    THE LAW LINE IS ANCHORED ∪ FLEX-APPLIED (spec-author ruling, cycle 4;
+    owner ruling 2026-08-05 "Runway flex: the LAW is the only bound" —
+    "anything within the law is legal by definition", and
+    ``docs/specs/cycle4-anchor-law-spec.md`` requirement 1 names
+    "flex-applied targets, which are lawful hard moves" as part of the law
+    line).  So the baseline is the profile interpolated over its ANCHORED
+    stations, flex-minted ones INCLUDED: a flexed station is law that has
+    moved, not authority that has evaporated, and the ride this function
+    reports is ONLY the DEM-follow decoration between the anchors.
+
+    WHAT THIS REPLACES, and why it was a (d) BROKEN INSTRUMENT.  The
+    original cut (``e5c8443``) EXCLUDED ``flex_minted`` stations, which was
+    right for its diagnostic purpose — isolating the PRE-FLEX law to prove
+    the ride mechanism existed — and wrong as a standing reader: it books
+    lawful flex displacement as "DEM-follow ride".  Measured at HECA canyon
+    (cycle-4 lane, after the join stations became zero-band): two anchors
+    read −1.461 m and −2.735 m of "ride" in a world where the DEM is
+    10 000 m and can therefore only push a value UP — the deviations are
+    NEGATIVE, so they cannot be DEM-follow at all; they are the flex's own
+    lawful move (551.22 m drained across 05C/23C, 05L/23R, 05R/23L in that
+    build), and two anchor pairs were consequently mis-classified as
+    "LAW ALONE IS FEASIBLE".
+
+    ``{}`` whenever the profiles are absent, so a caller without them is
+    unchanged.
     """
     profiles = getattr(layout, "_runway_redistributed_profiles", None) or {}
     pos = getattr(G, "pos", None) or {}
@@ -783,10 +802,8 @@ def _anchor_law_values(layout, G, anchor_seeds):
         fr = p.get("fractions") or ()
         el = p.get("elevs") or ()
         an = p.get("anchored") or ()
-        minted = p.get("flex_minted") or ()
         pairs = [(float(fr[i]), float(el[i])) for i in range(len(fr))
-                 if i < len(an) and an[i]
-                 and not (i < len(minted) and minted[i])]
+                 if i < len(an) and an[i]]
         if len(pairs) >= 2:
             lawful[ref] = sorted(pairs)
     if not lawful:

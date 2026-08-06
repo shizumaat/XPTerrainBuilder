@@ -1,8 +1,29 @@
 # Cycle 4 — Ride never enters an anchor (the anchor-law spec)
 
-**Status: BINDING** (cycle-4 target #2, checkpoint ab00777; fix-3A
-interventionally attributed). Mode: BUILD-COMPLETE-THEN-DEBUG — no gates;
-decide-and-note deviations toward the target architecture.
+**Status: LANDED** (lane/c4law `516e8bc` + `033c3d5`, merged 2026-08-05).
+Cycle-4 target #2, checkpoint ab00777; fix-3A interventionally attributed.
+Mode: BUILD-COMPLETE-THEN-DEBUG — no gates; decide-and-note deviations
+toward the target architecture.
+
+**Deviation RATIFIED (spec author, 2026-08-05):** the preferred mechanism
+below (§Mechanism, joins in the ANCHORED set) was measured to re-mint the
+self-anchor lock — anchored joins bound `flex_slack_at`, HEAZ went
+green→BandInversionError. The landed mechanism is ZERO-BAND-BUT-FREE:
+joins are zero-band stations of the DEM-follow blend (they seat exactly
+on the law line, ride tapers to zero into them) but carry NO authority —
+they do not bound the flex and follow the law line through later lawful
+moves. Every frozen requirement holds. Companion instrument ruling: the
+law/ride reader's law line is anchored ∪ flex-applied stations (owner
+flex ruling: anything within the law is legal); the e5c8443 flex_minted
+exclusion was a (d) instrument defect, fixed in `033c3d5`.
+
+**Acceptance read (post-landing):** HECA canyon 3,169 nodes @ constant
+12.8394 m → 382 nodes worst 1.6421 m; ride at anchors ≤0.019 m (five of
+six readings <0.01 m floor); the whole residual is LAW-half — three
+anchor pairs, law spreads 26.29/26.30/27.56 m over route budgets
+24.658/25.793/27.084 m (shortfalls +1.6358/+0.5083/+0.4729 m). That
+residual is the next cycle's metric/cap/topology attribution target
+under the (a)-(d) vocabulary.
 
 ## The defect (attributed, fix-3A)
 

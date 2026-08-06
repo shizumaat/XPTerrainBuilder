@@ -75,6 +75,10 @@ _SITE_DEPTH = 5
 _SOLVE_SITE = "solve_route_profile"
 #: How many worst rows the displacement census keeps.
 _WORST_KEEP = 40
+#: Emitted altitudes are rounded (2 dp on nodes, 2 dp on flat ways), so
+#: "exactly on the constant DEM" is decided with a rounding-scale epsilon,
+#: not the in-memory 1e-6.
+_EMIT_TOL = 5e-3
 
 
 def call_site(skip: int = 2, depth: int = _SITE_DEPTH) -> str:
@@ -101,6 +105,145 @@ def introducing_write(history):
         if hist[k][0] == 0:
             return hist[k + 1] if k + 1 < len(hist) else None
     return hist[0]
+
+
+def emitted_on_dem(patch, dem_m, tol=_EMIT_TOL, authorship=None):
+    """EMITTED vertices sitting exactly on the constant DEM, by way role.
+
+    THE FRAME TRAP THIS CLOSES.  The DEM-authorship census counts the
+    IN-MEMORY layout (HECA read 16,019 at ``--dem 1``); the shipped patch
+    carried 938 of them, because two decimators sit between the two
+    frames.  Quoting one number for the other has already happened once
+    (c5auth dossier, "FRAME WARNING"), so both frames now come out of one
+    instrument and are labelled.
+
+    Reports, for a patch written by the harness build entry:
+
+    * ``total`` — distinct emitted nodes whose ``alt_abs`` is the DEM.
+    * ``by_role`` — the same nodes attributed to the role of every way
+      that references them (a shared vertex is counted once per way, so
+      this sums to ≥ ``total``).
+    * ``stranded`` — the subset that shares a way with a vertex the law
+      DID value.  That is the class a within-shape law row is minted in:
+      a vertex at the raw DEM beside its own ring's neighbour at 90 m.
+      A whole shape flat on the DEM is NOT stranded (it has no internal
+      step) and is reported separately as ``flat_ways``.
+    * ``mixed_ways`` — the ways carrying both, i.e. the shapes to fix.
+
+    Roles whose DEM value is lawful authority (a retaining wall's FOOT on
+    raw ground, an adjacent-ground band at daylight — RULINGS 2026-08-01
+    adjacent-ground zone law) are reported like any other: the instrument
+    REPORTS, the law adjudicates.
+
+    ``authorship`` — the ``dem_authorship`` rows of the same build.  The
+    emitted way's ``shapeID`` tag IS the index into ``layout.shapes``
+    (``layout.py:2210``), which is the key those rows carry, so the join
+    is exact and the emitted count comes out ATTRIBUTED to the writer
+    that introduced each vertex.  Without it the emitted frame can say
+    how many survived decimation but not who wrote them.
+    """
+    import xml.etree.ElementTree as ET
+    dem_m = float(dem_m)
+    intro_of = {}
+    for r in (authorship or ()):
+        if r.get("shape") is not None:
+            intro_of[str(r["shape"])] = r.get("introduced_by") or "?"
+    node_alt = {}
+    ways = []
+    for _ev, el in ET.iterparse(str(patch), events=("end",)):
+        if el.tag == "node":
+            alt = None
+            for t in el.findall("tag"):
+                if t.get("k") == "alt_abs":
+                    try:
+                        alt = float(t.get("v"))
+                    except (TypeError, ValueError):
+                        alt = None
+            node_alt[el.get("id")] = alt
+            el.clear()
+        elif el.tag == "way":
+            refs = [nd.get("ref") for nd in el.findall("nd")]
+            role = ref = sid = None
+            walt = None
+            for t in el.findall("tag"):
+                k = t.get("k")
+                if k == "role":
+                    role = t.get("v")
+                elif k == "ref":
+                    ref = t.get("v")
+                elif k == "shapeID":
+                    sid = t.get("v")
+                elif k == "altitude":
+                    try:
+                        walt = float(t.get("v"))
+                    except (TypeError, ValueError):
+                        walt = None
+            ways.append((role or "?", ref or "", refs, walt, sid))
+            el.clear()
+
+    def _on(nid):
+        a = node_alt.get(nid)
+        return a is not None and abs(a - dem_m) <= tol
+
+    on_dem = {nid for nid in node_alt if _on(nid)}
+    by_role, stranded_by_role = Counter(), Counter()
+    by_writer, flat_ways, mixed_ways, stranded = Counter(), Counter(), [], set()
+    for (role, ref, refs, walt, sid) in ways:
+        uniq = {r for r in refs if r is not None}
+        hits = {r for r in uniq if r in on_dem}
+        if walt is not None and abs(walt - dem_m) <= tol:
+            flat_ways[role] += 1
+        if not hits:
+            continue
+        by_role[role] += len(hits)
+        if intro_of:
+            by_writer[(role, intro_of.get(sid, "?NOT-IN-AUTHORSHIP?"))] \
+                += len(hits)
+        off = [r for r in uniq
+               if node_alt.get(r) is not None and r not in on_dem]
+        if off:
+            stranded |= hits
+            stranded_by_role[role] += len(hits)
+            mixed_ways.append({"role": role, "ref": ref, "shape": sid,
+                               "on_dem": len(hits), "valued": len(off),
+                               "n": len(uniq),
+                               "introduced_by": intro_of.get(sid)})
+    mixed_ways.sort(key=lambda r: -r["on_dem"])
+    return {"patch": str(patch), "dem_m": dem_m,
+            "nodes": len(node_alt), "ways": len(ways),
+            "total": len(on_dem), "by_role": dict(by_role.most_common()),
+            "stranded": len(stranded),
+            "stranded_by_role": dict(stranded_by_role.most_common()),
+            "by_writer": [{"role": r, "introduced_by": w, "n": n}
+                          for (r, w), n in by_writer.most_common()],
+            "flat_ways": dict(flat_ways.most_common()),
+            "mixed_ways": mixed_ways[:40],
+            "n_mixed_ways": len(mixed_ways)}
+
+
+def print_emitted_on_dem(rep):
+    """The emitted-frame report, labelled so it cannot be misquoted."""
+    print(f"\n  === EMITTED vertices exactly on the {rep['dem_m']:g} m "
+          f"constant DEM: {rep['total']} of {rep['nodes']} node(s)"
+          f"   [EMITTED frame — not the in-memory count]")
+    for role, n in rep["by_role"].items():
+        print(f"      {n:6d}  {role}")
+    print(f"    STRANDED (shares a way with a law-valued vertex): "
+          f"{rep['stranded']} in {rep['n_mixed_ways']} way(s)")
+    for role, n in rep["stranded_by_role"].items():
+        print(f"      {n:6d}  {role}")
+    if rep.get("by_writer"):
+        print("    by INTRODUCING writer (joined on shapeID — the emitted "
+              "half of the DEM-authorship census):")
+        for r in rep["by_writer"]:
+            print(f"      {r['n']:6d}  {r['role']}")
+            print(f"              {r['introduced_by']}")
+    if rep["flat_ways"]:
+        print("    whole ways flat ON the DEM (no internal step): "
+              + ", ".join(f"{r}={n}" for r, n in rep["flat_ways"].items()))
+    for r in rep["mixed_ways"][:10]:
+        print(f"      way {r['role']:<22}{r['ref']:<20}"
+              f"{r['on_dem']:5d} on DEM / {r['valued']:5d} valued")
 
 
 class AuthorshipProbe:
@@ -446,7 +589,26 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("icao")
+    ap.add_argument("icao", nargs="?", default=None)
+    ap.add_argument("--emitted-patch", action="append", default=[],
+                    metavar="PATCH.osm",
+                    help="NO BUILD: report the EMITTED-frame count of "
+                         "vertices sitting exactly on the constant DEM in "
+                         "an already-built patch (needs --dem), by way "
+                         "role, with the STRANDED subset — the on-DEM "
+                         "vertices sharing a way with a law-valued one, "
+                         "which is the class a within-shape law row is "
+                         "minted in.  Repeatable.  The in-memory census "
+                         "and this one are two FRAMES of one question "
+                         "(HECA: 16,019 in memory, 938 emitted); both "
+                         "come out of this tool so neither can be quoted "
+                         "for the other.")
+    ap.add_argument("--who-json", default=None, metavar="PATH",
+                    help="with --emitted-patch: an earlier run's "
+                         "``ICAO_who_wrote.json``, so the emitted count "
+                         "comes out ATTRIBUTED to the writer that "
+                         "introduced each vertex (joined on the way's "
+                         "shapeID tag, which IS the layout.shapes index)")
     ap.add_argument("--dem", type=float, default=None,
                     help="constant-DEM elevation; required for the "
                          "DEM-authorship census (the predicate needs it)")
@@ -481,6 +643,25 @@ def main(argv=None) -> int:
                          "SUBSTITUTES the DEM, so real-DEM cache warmth "
                          "cannot confound it")
     args = ap.parse_args(argv)
+    if args.emitted_patch:
+        # A pure FILE read: no build, no layout, so no build cwd and no
+        # ICAO.  It answers the emitted half of the frame question on a
+        # patch some earlier build already wrote.
+        if args.dem is None:
+            ap.error("--emitted-patch needs --dem (the predicate is "
+                     "'sits exactly on the constant DEM')")
+        rows = None
+        if args.who_json:
+            rows = json.loads(Path(args.who_json).read_text()).get(
+                "dem_authorship")
+        for p in args.emitted_patch:
+            rep = emitted_on_dem(p, args.dem, authorship=rows)
+            print(f"\n  [harness] {p}")
+            print_emitted_on_dem(rep)
+        return 0
+    if args.icao is None:
+        ap.error("give an ICAO (to build) or --emitted-patch (to read a "
+                 "patch an earlier build wrote)")
     if args.dem is None and not args.at and not args.author:
         ap.error("give --dem (authorship census), --at X,Y (node history), "
                  "--author SITE (displacement census), or any combination")
@@ -525,6 +706,15 @@ def main(argv=None) -> int:
             print(f"    #{r['shape']:<5}{r['role']:<22}"
                   f"{r['on_dem']:5d}/{r['n']:<5d} writes={r['writes']}")
             print(f"          introduced by: {r['introduced_by']}")
+        # The EMITTED frame of the same question, from this build's own
+        # patch — so the two counts are never separated.
+        try:
+            emitted = emitted_on_dem(result["patch"], args.dem,
+                                     authorship=rows)
+            report["emitted_on_dem"] = emitted
+            print_emitted_on_dem(emitted)
+        except Exception as exc:                        # pragma: no cover
+            print(f"  [harness] emitted-frame count unavailable: {exc}")
     if args.author:
         rows, totals = probe.author_report()
         report["author_displacement"] = rows

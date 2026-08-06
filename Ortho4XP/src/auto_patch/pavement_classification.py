@@ -827,22 +827,38 @@ def _is_road_corridor(geometry, sources: EvidenceSources) -> bool:
 # The pass
 # ═════════════════════════════════════════════════════════════════════
 
-def _demote(shape, role, dem_at):
+def _demote(shape, role, dem_at, law_anchors=None, anchor_key=None,
+            stats=None):
     """Move ``shape`` to a landside ``role`` the way the established
     demotions do (``_reclassify_runway_disconnected_to_groundside`` for
     groundside, ``groundside.reclassify_groundside_route_corridors`` for
     service roads): a groundside piece is re-elevated onto the DEM, a
     service road drops its airside altitudes and is solved axially.
     Returns True when the shape actually moved.
+
+    The DEM here is a PRE-SOLVE SEED (this runs in the classification
+    slot, long before the one solve) — but it must not be the shape's
+    only source: where the piece already carries a field, or welds to a
+    surface that already carries one, those are law and the ladder in
+    ``groundside._seat_ring_on_law_anchors`` takes them first.  A piece
+    with neither is counted as a LAW ISLAND rather than shipped silently.
     """
-    from .groundside import _dem_follow_polygon
+    from .groundside import (_dem_follow_polygon, _shape_prior,
+                             _LAW_SEATED_ATTR)
     if role == ROLE_GROUNDSIDE_PAVEMENT:
         if dem_at is not None:
+            seat_out: dict = {}
             built = _dem_follow_polygon(shape.polygon, dem_at,
-                                        simplify_tol=0.0)
+                                        simplify_tol=0.0,
+                                        law_anchors=law_anchors,
+                                        anchor_key=anchor_key,
+                                        prior=_shape_prior(shape),
+                                        stats=stats, seat_out=seat_out)
             if built is None:
                 return False          # never half-convert real pavement
             shape.polygon, shape.node_altitudes = built
+            setattr(shape, _LAW_SEATED_ATTR,
+                    bool(seat_out.get("law_seated")))
         else:
             shape.node_altitudes = None
         shape.ref = "groundside"
@@ -856,12 +872,22 @@ def _demote(shape, role, dem_at):
     return True
 
 
-def _new_landside_shape(polygon, role, dem_at):
-    """A fresh landside ``BuiltShape`` for one split-off tail."""
-    from .groundside import _dem_follow_polygon
+def _new_landside_shape(polygon, role, dem_at, law_anchors=None,
+                        anchor_key=None, prior=None, stats=None):
+    """A fresh landside ``BuiltShape`` for one split-off tail.
+
+    ``prior`` is the PARENT shape's ring+values: a tail split off a
+    valued pavement piece is the same surface, so it inherits the
+    parent's field along the shared edge rather than re-following DEM.
+    """
+    from .groundside import _dem_follow_polygon, _LAW_SEATED_ATTR
     node_altitudes = None
+    seat_out: dict = {}
     if role == ROLE_GROUNDSIDE_PAVEMENT and dem_at is not None:
-        built = _dem_follow_polygon(polygon, dem_at, simplify_tol=0.0)
+        built = _dem_follow_polygon(polygon, dem_at, simplify_tol=0.0,
+                                    law_anchors=law_anchors,
+                                    anchor_key=anchor_key, prior=prior,
+                                    stats=stats, seat_out=seat_out)
         if built is None:
             return None
         polygon, node_altitudes = built
@@ -869,6 +895,7 @@ def _new_landside_shape(polygon, role, dem_at):
         polygon=polygon, role=role,
         ref=("groundside" if role == ROLE_GROUNDSIDE_PAVEMENT else ""))
     shape.node_altitudes = node_altitudes
+    setattr(shape, _LAW_SEATED_ATTR, bool(seat_out.get("law_seated")))
     return shape
 
 
@@ -913,9 +940,16 @@ def classify_pavement_v1(layout, icao: str = "", dem=None,
         layout.pavement_class_summary = summary
         return summary
 
-    from .groundside import _dem_sampler
+    from .groundside import (_dem_sampler, law_anchor_values,
+                             law_anchor_key, _law_seat_stats, _shape_prior)
     dem_at = (_dem_sampler(layout, dem, tile_lat, tile_lon)
               if dem is not None else None)
+    # ONCE per pass (single-pass principle) — the law datum and the
+    # emitter's own vertex identity, so a demoted piece seats on the law
+    # it welds to instead of on raw terrain.
+    _law_anchors = law_anchor_values(layout)
+    _anchor_key = law_anchor_key(layout, _law_anchors)
+    _stats = _law_seat_stats(layout, "classify_pavement_v1")
 
     decisions: list[dict] = []
     new_shapes: list = []
@@ -995,7 +1029,11 @@ def classify_pavement_v1(layout, icao: str = "", dem=None,
                             role = (ROLE_SERVICE_ROAD
                                     if _is_road_corridor(tail, sources)
                                     else ROLE_GROUNDSIDE_PAVEMENT)
-                            made = _new_landside_shape(tail, role, dem_at)
+                            made = _new_landside_shape(
+                                tail, role, dem_at,
+                                law_anchors=_law_anchors,
+                                anchor_key=_anchor_key,
+                                prior=_shape_prior(shape), stats=_stats)
                             if made is None:
                                 continue
                             new_shapes.append(made)
@@ -1029,7 +1067,8 @@ def classify_pavement_v1(layout, icao: str = "", dem=None,
         # semantics, applied at classification time.
         role = (ROLE_SERVICE_ROAD if _is_road_corridor(polygon, sources)
                 else ROLE_GROUNDSIDE_PAVEMENT)
-        if not _demote(shape, role, dem_at):
+        if not _demote(shape, role, dem_at, law_anchors=_law_anchors,
+                       anchor_key=_anchor_key, stats=_stats):
             record["verdict"] = "airside"
             record["reason"] = "DEM follow failed — kept"
             continue

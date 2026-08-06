@@ -1170,3 +1170,76 @@ def test_every_build_result_carries_the_frame_and_guard_state(build_mod):
     for key in ("write_guard_armed", "write_guard_blocked",
                 "dem_frame_effective"):
         assert f'"{key}"' in src, f"build_patch result omits {key}"
+
+
+class TestEmittedOnDem:
+    """The EMITTED frame of "sits exactly on the constant DEM".
+
+    The in-memory DEM-authorship census and the emitted patch are two
+    FRAMES of one question — HECA read 16,019 in memory and shipped 938,
+    the two decimators sitting between them — and the c5auth dossier had
+    to carry a hand-written FRAME WARNING because only one frame had an
+    instrument.  Both now come out of ``who_wrote``, so a number always
+    arrives with its frame; and the STRANDED subset (an on-DEM vertex
+    sharing a way with a law-valued one) is separated from a shape lying
+    wholly flat on the DEM, because only the former can mint a
+    within-shape law row.
+    """
+
+    PATCH = """<?xml version='1.0' encoding='UTF-8'?>
+<osm version='0.6' generator='t'>
+  <node id='-1' lat='1.0' lon='1.0'><tag k='alt_abs' v='1.00' /></node>
+  <node id='-2' lat='1.0' lon='1.0'><tag k='alt_abs' v='90.00' /></node>
+  <node id='-3' lat='1.0' lon='1.0'><tag k='alt_abs' v='1.00' /></node>
+  <node id='-4' lat='1.0' lon='1.0'><tag k='alt_abs' v='1.00' /></node>
+  <node id='-5' lat='1.0' lon='1.0' />
+  <way id='-10001'>
+    <nd ref='-1' /><nd ref='-2' /><nd ref='-1' />
+    <tag k='role' v='groundside_pavement' />
+    <tag k='ref' v='groundside' />
+  </way>
+  <way id='-10002'>
+    <nd ref='-3' /><nd ref='-4' /><nd ref='-3' />
+    <tag k='role' v='groundside_pavement' />
+  </way>
+  <way id='-10003'>
+    <nd ref='-5' /><nd ref='-5' />
+    <tag k='role' v='building' />
+    <tag k='altitude' v='1.00' />
+  </way>
+</osm>
+"""
+
+    def _rep(self, tmp_path):
+        p = tmp_path / "patch.osm"
+        p.write_text(self.PATCH)
+        return WHO.emitted_on_dem(p, 1.0)
+
+    def test_counts_distinct_nodes_and_attributes_them_to_way_roles(
+            self, tmp_path):
+        rep = self._rep(tmp_path)
+        assert rep["total"] == 3, "-1, -3 and -4 sit on the DEM; -2 does not"
+        assert rep["by_role"]["groundside_pavement"] == 3
+
+    def test_stranded_excludes_a_shape_lying_wholly_on_the_dem(
+            self, tmp_path):
+        rep = self._rep(tmp_path)
+        assert rep["stranded"] == 1, (
+            "only way -10001 mixes a DEM vertex with a law-valued one; "
+            "way -10002 is flat on the DEM and has no internal step")
+        assert rep["stranded_by_role"]["groundside_pavement"] == 1
+        assert rep["n_mixed_ways"] == 1
+        assert rep["mixed_ways"][0]["ref"] == "groundside"
+
+    def test_a_flat_way_at_the_dem_is_reported_on_its_own_axis(
+            self, tmp_path):
+        rep = self._rep(tmp_path)
+        assert rep["flat_ways"].get("building") == 1, (
+            "a way-level altitude on the DEM is the flat-shape frame, "
+            "never mixed into the per-vertex count")
+
+    def test_the_emitted_frame_is_reachable_without_a_build(self, tmp_path):
+        """``--emitted-patch`` is a pure file read: no ICAO, no build cwd."""
+        p = tmp_path / "patch.osm"
+        p.write_text(self.PATCH)
+        assert WHO.main(["--emitted-patch", str(p), "--dem", "1"]) == 0

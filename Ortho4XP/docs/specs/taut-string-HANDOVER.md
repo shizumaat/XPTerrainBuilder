@@ -272,13 +272,22 @@ horizon 2.5 m < the 6.46 m law edge; building172 now floor-seats
 at ONE pricing site (certificate −6,233 = the pre-registered class;
 HECA dem1 adjudicated 5,969 → **5,033**, dem10k 9,629 → **7,388**;
 HEAZ 1,033/165; seam counter-read FLAT-OR-BETTER all four worlds).
-IN FLIGHT: instrument sweep (headline find: reach-band renders a
-TOTAL band failure as universal PASS — NOT-MEASURED fix + twin;
-grade_feasibility_audit RETIRED on the closed vocabulary;
-seed_rwy_seam rename already landed 092af7f). OPEN OWNER AUTH: delete
-the 529 junk DSF-cache dirs (~2.6 MB, provably unreadable). NEXT:
-sweep merge → dual-purpose battery at −500/10,000 (frame of record +
-cycle-8 baseline) → cycle-8 one-graph spec.
+SWEEP MERGED (6f59c5e; two-implementation
+−500 conflicts resolved as unions, c75dem library authoritative;
+285 twins green + one fix-forward). **CYCLE 7.5 COMPLETE.** Sweep
+highlights: reach-band zero-of-zero → NOT MEASURED with discriminated
+cause (HEAZ real cause: G.runway_anchor EMPTY); flex honest line was
+arithmetically FALSE → true 4-term partition; certificates stamp
+node+crown space, CERTIFIED word removed (world-dependent) →
+over_cap=N; 15 FIXED / 1 RETIRED. Follow-ups tasked (#25): _hard_cat
+decouple (instrument AND law input — 092af7f flipped crown at 22
+nodes), phase-A freeze classless hardening (solve.py:2816 — the real
+remaining unattributed channel; the blanket's own residual is
+structurally 0), gs_pin no-op in the crown-freeze tuple, tree-sha
+stamp wiring, band_excess dual-instrument owner Q. OPEN OWNER AUTH:
+delete the 529 junk DSF-cache dirs. IN FLIGHT: the frame-of-record
+battery at −500/10,000 (lane c8base — the cycle-8 baseline). NEXT:
+cycle-8 one-graph spec against it.
 
 NEXT TARGETS (ranked):
 1. **The solve's UNCERTIFIED exit is the real plateau author** —

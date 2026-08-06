@@ -86,10 +86,22 @@ DEM-driven (+5.31/+6.24 m vs plateau); the flex retired 8 bins
 carrying 168.62 m after 'apply refused 1.898 m 2x' and hit round cap
 12 (same runway demands 0.05 m in plateau); `_anchor_law_values`'
 "CIFP cannot reach" sentence is FALSE all three pairs (reports ride
-0.04 m for a 5.31 m DEM-driven value). Fix lane c5flex IN FLIGHT
-(cycle5-canyon-flex-spec: instrument world-invariance split first,
-then the refusal/retirement bug). My earlier "metric/cap/topology"
-framing above is SUPERSEDED by this verdict.
+0.04 m for a 5.31 m DEM-driven value). **c5flex LANDED AND MERGED — HECA
+CANYON BUILDS** (the last flat-world hard-fail is gone; ALL EIGHT flat
+builds now succeed). Mechanism: the self-anchor lock class a THIRD
+time, on the APPLY side — apply_runway_flex re-anchored flex-minted
+stations that flex_slack_at lawfully withdraws; 178/178 main-cap
+refusals bound by self-minted anchors (asked 1.789 m, relax 0.000,
+unminted 18.406); FALSE refusals minted retirement. Fixed instrument:
+CIFP-forced spreads 4.81/4.82/3.02 m vs budgets 24.7-27.1 — all three
+verdicts reverse to (a); world-invariance twinned byte-identical.
+Canyon adjudicated 10,463 (first-ever number; band residual 110 @
+2.76 m). Spec deviation RATIFIED: plateau moves BY CONSTRUCTION
+(604+661 m suppressed demand on the other runways) — 6,517 → 6,597;
+runway families improve, within_shape +110 (network-absorption
+question, tasked); HEAZ plateau +90 (groundside +88). Named, open:
+both worlds stop on the 12-round flex cap, not convergence. My
+earlier "metric/cap/topology" framing above is SUPERSEDED.
 
 **NEAR-ZERO CANYON NODES (c5tip Job 3): (a).** SPJC 55 / KCLT 186
 (+259 partial lerps) / HEAZ 7 vertices stranded AT raw DEM by FIVE

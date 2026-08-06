@@ -264,6 +264,159 @@ def _discover_airports_in_tile(lat: int, lon: int) -> List[str]:
     return sorted(found)
 
 
+# ══════════════════════════════════════════════════════════════════════
+# THE SHARED DATA REPO IS NOT A TEST SCRATCH DIR (owner ruling e9daef5)
+# ══════════════════════════════════════════════════════════════════════
+# /Users/noah/XPTerrainBuilderData is THE corpus every lane MOUNTS.  A test
+# that writes into it changes what every other lane measures, and nothing
+# in a pytest report says so.
+#
+# THE MEASURED LEAK (2026-08-06).  ``tests/test_dsf_texture_modes.py``
+# decodes the DSF it emits into ``tmp_path`` with
+# ``tools/decode_dsf_terrain_table.decode_dsf``, which caches DSFTool's
+# text dump under ``FNAMES.Default_dsf_cache_dir`` — the SHARED repo — in a
+# directory keyed by the sha1 of the DSF's ABSOLUTE path.  Under
+# ``tmp_path`` that path is different every run, so every run of those four
+# tests minted a new cache directory that nothing would ever read again:
+# 529 of the 530 directories in the shared ``Default_DSF_cache`` were this
+# leak, one tile (``+50+010``, the synthetic fixture) over three weeks.
+#
+# Two fixes, because they close different holes:
+#   1. THE REDIRECT (below) — the dump cache points at the worker's own
+#      tmp dir for the whole session, so no test can author that cache at
+#      all, whether or not it remembers to monkeypatch.
+#   2. THE DETECTOR (below) — a session-scoped before/after snapshot of the
+#      shared repo, so the NEXT unknown leak class is loud instead of
+#      silent.  It reuses ``tools/harness/build_airport.py``'s own snapshot
+#      and scope register (one implementation — the harness already answers
+#      "which artifact class is this path" for builds).
+
+def _harness_build_module():
+    """``tools/harness/build_airport.py``, loaded by path.
+
+    The harness owns the shared-repo snapshot, the scope register and the
+    scope→description text.  A second copy here is the census-wrapper
+    defect in a different costume."""
+    import importlib.util
+    path = os.path.normpath(os.path.join(
+        _HERE, "..", "tools", "harness", "build_airport.py"))
+    spec = importlib.util.spec_from_file_location(
+        "conftest_harness_build_airport", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+#: Refresh scopes the SUITE legitimately warms today, with the reason.
+#: Everything else is a defect the detector fails on.  This register is
+#: deliberately short and explicit: "the suite writes there sometimes" is
+#: only an excuse when it is written down.
+_SUITE_MAY_WARM = {
+    "airport_mod_cache":
+        "real airport builds in the suite index third-party apt.dat packs "
+        "(o4_object_*/o4_dsf_road_network sidecars) — pre-existing, "
+        "accepted, and read-only-derived from the packs themselves",
+    "dem":
+        "airport elevation INSETS are cut and cached by the same builds; "
+        "warm-vs-cold inset state is a measurement frame question "
+        "(memory dem-inset-cache-shifts-measurements), not a corpus edit",
+}
+
+
+def unauthorised_shared_writes(changes: dict, scope_of) -> list:
+    """The pure half of the detector: ``[(relpath, scope)]`` for every
+    shared-repo path the suite is NOT allowed to have touched.
+
+    Split out from the fixture so it has a known-answer twin
+    (``tests/test_harness.py`` §8) — an instrument without one is not an
+    instrument (RULINGS 2026-08-06, "Instrument truth is law").
+    """
+    touched = sorted(set(changes.get("added", ()))
+                     | set(changes.get("modified", ()))
+                     | set(changes.get("removed", ())))
+    return [(p, scope_of(p)) for p in touched
+            if scope_of(p) not in _SUITE_MAY_WARM]
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _dsf_dump_cache_is_lane_local(tmp_path_factory):
+    """THE REDIRECT: no test may author the shared DSFTool dump cache."""
+    try:
+        import O4_File_Names as FNAMES
+    except Exception:                                   # pragma: no cover
+        yield
+        return
+    previous = FNAMES.Default_dsf_cache_dir
+    FNAMES.Default_dsf_cache_dir = str(
+        tmp_path_factory.mktemp("default_dsf_cache"))
+    try:
+        yield
+    finally:
+        FNAMES.Default_dsf_cache_dir = previous
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _the_shared_data_repo_survives_the_suite():
+    """THE DETECTOR: fail the session if a test wrote into the shared repo.
+
+    Cheap by measurement: the full walk is 3,430 files in ~11 ms, twice per
+    worker.  Attribution is per-session, not per-test — under ``-n auto``
+    every worker sees every worker's writes — so the failure names the
+    PATHS and says how to attribute them (re-run the suspect module with
+    ``-n0``).  Its one blind spot, stated rather than discovered: a write
+    from a LATER session-teardown finalizer than this one lands after the
+    closing snapshot.  Verified end-to-end 2026-08-06 — a write during a
+    test errors the session (exit 1) naming path and scope.  ``O4_ALLOW_SHARED_REPO_WRITES=1`` downgrades it to a printed
+    report for the rare deliberate case (a corpus refresh under the
+    harness's own ``--refresh-data``, which records its own ledger entry).
+    """
+    try:
+        harness = _harness_build_module()
+    except Exception as exc:                            # pragma: no cover
+        print(f"[conftest] shared-repo detector unavailable: {exc!r}")
+        yield
+        return
+    repo = harness.DATA_REPO
+    if not os.path.isdir(repo):
+        yield
+        return
+    before = harness.shared_repo_snapshot(repo)
+    try:
+        yield
+    finally:
+        changes = harness.snapshot_diff(
+            before, harness.shared_repo_snapshot(repo))
+        unlawful = unauthorised_shared_writes(changes, harness.scope_of)
+        if unlawful:
+            lines = [
+                f"THE TEST SUITE WROTE INTO THE SHARED DATA REPO {repo}.",
+                "Owner ruling e9daef5: it is THE corpus every lane mounts; "
+                "a test that writes there changes what every other lane "
+                "measures, and no pytest report says so.",
+                f"{len(unlawful)} unauthorised path(s):",
+            ]
+            for path, scope in unlawful[:20]:
+                lines.append(f"  [{scope or 'unscoped'}] {path}")
+            if len(unlawful) > 20:
+                lines.append(f"  … and {len(unlawful) - 20} more")
+            lines += [
+                "FIX: point the writer at tmp_path (the DSFTool dump cache "
+                "is already redirected session-wide above).",
+                "ATTRIBUTION: this snapshot is per-SESSION, and under "
+                "-n auto every worker sees every worker's writes — re-run "
+                "the suspect module with -n0 to attribute it.",
+                "Deliberate refresh? Do it through "
+                "tools/harness/build_airport.py --refresh-data <scope>, "
+                "which locks, snapshots and ledgers it "
+                "(O4_ALLOW_SHARED_REPO_WRITES=1 silences this detector).",
+            ]
+            message = "\n".join(lines)
+            if os.environ.get("O4_ALLOW_SHARED_REPO_WRITES", "0") == "1":
+                print("\n[conftest] " + message)
+            else:
+                pytest.fail(message, pytrace=False)
+
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items):
     """Per-airport xdist grouping + optional ship-mode skip.

@@ -44,12 +44,42 @@
 #                      finds no config, the DEM prep runs on constructor
 #                      defaults, and the lane grades against a surface
 #                      production never builds.  Silent: one log line.
+#   tools/INDEX.md     REACHABLE, always — see below.
+#
+# ── THE CONSULTATION SURFACE (owner ruling 7e90032) ──────────────────
+#
+# "Consult tools/INDEX.md BEFORE writing any script that builds, measures
+# or audits; a tool absent from the index is treated as absent."  A lane
+# that cannot READ the index consults nothing and forks a near-fit — the
+# census-wrapper defect, which is what that ruling costs when it lapses.
+#
+# The index is a TRACKED file at the repo root, so a worktree checked out
+# at a ref that already carries it has it.  Two ways a lane loses it, both
+# silent:
+#
+#   * `up NAME <OLD-REF>` — the ref predates the index commit, so the
+#     checkout has no tools/ at all.  Measured 2026-08-06: 30 of the 58
+#     worktrees on this machine had NO tools/INDEX.md, and
+#     tests/test_harness.py's own index twin fails in every one of them.
+#   * the lane's tracked copy is a SNAPSHOT of its ref: a tool promoted
+#     into the index after that point is invisible here, and "absent from
+#     the index" then reads as "does not exist" — the fork again, from the
+#     other direction.
+#
+# So `up` makes the index reachable and says which case it is: a TRACKED
+# copy is reported and diffed against the main tree's live one (never
+# overwritten — a lane promoting a tool EDITS its tracked index, and that
+# is the same file); a missing one is MIRRORED read-only from the main
+# tree so `Ortho4XP/tools/README.md`'s `../../tools/INDEX.md` pointer
+# resolves here too.  `check` re-audits: MISSING is a failure with the
+# one-command fix, STALE is reported and never a refusal (a lane adding
+# its own index row is legitimately different from main).
 #
 # The symlinks are deliberately NOT git-added (the repo's .gitignore uses
 # directory patterns, which do not match symlinks — so `git status` shows
 # them as untracked and a careless `git add -A` would commit them).  `up`
-# ends by REFUSING if anything but those paths is untracked, and `check`
-# re-runs that audit at any time.
+# ends by REFUSING if anything but those paths — and an untracked index
+# MIRROR — is untracked, and `check` re-runs that audit at any time.
 #
 # `down` refuses while a child process still holds the tree — tearing a
 # worktree out from under a live build produces a half-written patch and a
@@ -74,6 +104,10 @@ CLONE_FILES="Ortho4XP.cfg"
 # Lane-local products that must NOT be mounted even if the data repo has
 # them — two lanes writing one of these would overwrite each other's work.
 NEVER_MOUNT="Patches Tiles Previews tmp"
+# The consultation surface (owner ruling 7e90032), relative to the REPO
+# ROOT of both the main tree and the worktree.  Mirrored read-only into a
+# lane whose checkout does not carry it; never overwritten when it does.
+INDEX_REL="tools/INDEX.md"
 
 die() { echo "REFUSING: $*" >&2; exit 2; }
 
@@ -143,9 +177,11 @@ WT="$WT_ROOT/$NAME"
 ENGINE="$WT/Ortho4XP"
 
 # ── the untracked-path audit ─────────────────────────────────────────
-# Only the mounted symlinks may be untracked.  Anything else is either a
-# lane artifact that belongs in the scratchpad or an edit about to be
-# swept into someone else's "Round N" omnibus commit.
+# Only the mounted symlinks — and an index MIRROR in a worktree whose ref
+# predates the tracked index — may be untracked.  Anything else is either
+# a lane artifact that belongs in the scratchpad or an edit about to be
+# swept into someone else's "Round N" omnibus commit.  (git collapses a
+# wholly-untracked directory to `tools/`, so both spellings are allowed.)
 audit_untracked() {
     _allow="venv"
     for d in $(data_dirs); do
@@ -153,7 +189,8 @@ audit_untracked() {
     done
     _bad=$(git -C "$WT" status --porcelain 2>/dev/null \
            | sed -n 's/^?? //p' \
-           | grep -v -E "^Ortho4XP/($_allow)/?$")
+           | grep -v -E "^Ortho4XP/($_allow)/?$" \
+           | grep -v -E "^tools/(INDEX\.md)?$")
     if [ -n "$_bad" ]; then
         echo "  [ritual] UNTRACKED paths beyond the mounted symlinks:"
         echo "$_bad" | sed 's/^/    /'
@@ -188,6 +225,68 @@ mount_link() {
         ln -s "$_target" "$ENGINE/$_name" || die "could not link $_name"
     fi
     echo "  [ritual] mount $_name -> $_target"
+}
+
+# Is $WT/$INDEX_REL a TRACKED file in this worktree's checkout?
+index_is_tracked() {
+    git -C "$WT" ls-files --error-unmatch "$INDEX_REL" >/dev/null 2>&1
+}
+
+# ── the consultation surface, made reachable ─────────────────────────
+# $1 = "up" (mirror what is missing, refresh a mirror) or "check" (audit
+# only, never write).  Echoes one [ritual] line per state and returns
+# non-zero ONLY for MISSING — a stale or lane-edited index is reported,
+# because a lane that is ADDING its index row differs from main by design.
+index_state() {
+    _mode="$1"
+    _src="$MAIN_REPO/$INDEX_REL"
+    _dst="$WT/$INDEX_REL"
+    if [ ! -f "$_src" ]; then
+        echo "  [ritual] NO INDEX  the MAIN tree has no $INDEX_REL —"
+        echo "                   owner ruling 7e90032's consultation surface"
+        echo "                   is gone from the source of truth itself"
+        return 1
+    fi
+    if index_is_tracked; then
+        if cmp -s "$_src" "$_dst"; then
+            echo "  [ritual] OK      $INDEX_REL tracked here and identical to the main tree"
+        else
+            echo "  [ritual] DIFFERS $INDEX_REL is tracked here but differs from"
+            echo "                   $_src — expected while this lane is adding its"
+            echo "                   own index row; otherwise this checkout's ref"
+            echo "                   PREDATES a promotion and a tool that exists"
+            echo "                   will read as absent.  Not overwritten: the"
+            echo "                   tracked file is the one a promotion edits."
+        fi
+        return 0
+    fi
+    # Untracked: either an existing MIRROR or nothing at all.
+    if [ "$_mode" = "up" ]; then
+        mkdir -p "$(dirname "$_dst")" || die "could not create $(dirname "$_dst")"
+        [ -f "$_dst" ] && chmod u+w "$_dst" 2>/dev/null
+        cp "$_src" "$_dst" || die "could not mirror $INDEX_REL into $WT"
+        chmod 444 "$_dst"
+        echo "  [ritual] MIRRORED $INDEX_REL (read-only) from the main tree —"
+        echo "                   this checkout's ref predates the tracked index;"
+        echo "                   consult it, do not edit it here"
+        return 0
+    fi
+    if [ -f "$_dst" ]; then
+        if cmp -s "$_src" "$_dst"; then
+            echo "  [ritual] OK      $INDEX_REL mirrored (read-only) and current"
+        else
+            echo "  [ritual] STALE   $INDEX_REL mirror differs from the main tree's."
+            echo "                   Re-run 'up $NAME' to refresh it — a stale index"
+            echo "                   hides a promoted tool, and an absent tool is"
+            echo "                   forked (owner ruling 7e90032)."
+        fi
+        return 0
+    fi
+    echo "  [ritual] MISSING $INDEX_REL — this lane cannot consult the tool"
+    echo "                   index at all, so every 'does this tool exist?'"
+    echo "                   answers NO and the near-fit gets forked"
+    echo "                   (owner ruling 7e90032).  Fix: $0 up $NAME"
+    return 1
 }
 
 case "$ACTION" in
@@ -228,6 +327,10 @@ up)
         [ -e "$ENGINE/$f" ] || cp "$MAIN_ENGINE/$f" "$ENGINE/$f"
         echo "  [ritual] cloned $f (untracked in git: a fresh worktree has none)"
     done
+    # The consultation surface, before anything is built here.
+    index_state up || die "the tool index is unreachable from $WT and could
+    not be mirrored.  Owner ruling 7e90032 makes it the consultation
+    surface; a lane without it forks near-fits by construction."
     # Prove the ritual took: the build entry's own refusal, run here.
     ( cd "$ENGINE" && [ -d venv ] && [ -d OSM_data ] ) \
         || die "post-ritual check failed: $ENGINE still lacks venv/OSM_data"
@@ -292,6 +395,7 @@ check)
             echo "                   constructor defaults, not production's"; rc=1
         fi
     done
+    index_state check || rc=1
     audit_untracked || rc=1
     exit $rc
     ;;
@@ -325,6 +429,15 @@ down)
     a stale lock blocks every other lane's explicit refresh."
         fi
     fi
+    # The index MIRROR is ritual scaffolding, not lane work: drop it before
+    # the dirty audit so it can never read as "uncommitted changes" and
+    # strand a finished lane.  A TRACKED index is never touched — if the
+    # lane edited it, that IS lane work and the audit below must see it.
+    if [ -f "$WT/$INDEX_REL" ] && ! index_is_tracked; then
+        chmod u+w "$WT/$INDEX_REL" 2>/dev/null
+        rm -f "$WT/$INDEX_REL"
+        rmdir "$WT/$(dirname "$INDEX_REL")" 2>/dev/null
+    fi
     dirty=$(git -C "$WT" status --porcelain 2>/dev/null | sed -n 's/^?? //p' \
             | grep -v -E "^Ortho4XP/(venv|$(data_dirs | tr '\n' '|' | sed 's/|$//'))/?$")
     dirty="$dirty$(git -C "$WT" status --porcelain 2>/dev/null | grep -v '^??')"
@@ -338,9 +451,21 @@ down)
     done
     for d in $CLONE_DIRS; do
         [ -d "$ENGINE/$d" ] && [ ! -L "$ENGINE/$d" ] && rm -rf "$ENGINE/$d"
+        # …and PUT BACK whatever git tracks under it.  `Patches/` is
+        # gitignored as a whole, but one shipped patch inside it
+        # (Ortho4XP/Patches/+39-078/2W2_runways.patch.osm) is tracked, so
+        # the clone removal above deletes a TRACKED file and
+        # `git worktree remove` then refuses "contains modified or
+        # untracked files" — teardown fails at the last step, after the
+        # mounts are already gone.  Measured 2026-08-06 on a real lane;
+        # 58 worktrees were lingering on this machine.  The dirty audit
+        # above has already refused any real lane work, so the only
+        # deletions here are the ritual's own.
+        git -C "$WT" checkout -- "Ortho4XP/$d" 2>/dev/null || true
     done
     for f in $CLONE_FILES; do
         [ -f "$ENGINE/$f" ] && rm -f "$ENGINE/$f"
+        git -C "$WT" checkout -- "Ortho4XP/$f" 2>/dev/null || true
     done
     git -C "$MAIN_REPO" worktree remove "$WT" || die "worktree remove failed"
     echo "  [ritual] $WT removed."

@@ -583,3 +583,20 @@ confirmation/regression builds as acceptance until flat-zero; the
 recorded real-DEM reference frame stands as-is, un-refreshed, until
 the gate opens; the FIRST real-DEM build after flat-green is the
 reintroduction event, run deliberately through the harness.
+
+## 2026-08-05 — Runway flex: the LAW is the only bound (owner)
+
+Owner: follow the law regarding runway flex. The 4.0 m displacement
+budget's origin is unclear (it was a prototype-era safety net); we
+want to MINIMIZE flex, but anything within the law is legal by
+definition — so ELIMINATE the budget.
+
+Binding: RUNWAY_FLEX_MAX_DISPLACEMENT_M is DELETED (and budget_left
+leaves the clamp chain — min(pull, slack) remains). The lawful bounds
+are what they always were: CIFP pins (absolute, v1), runway grade caps
+per segment incl. end zones (the priced slack), and the verify-relax
+apply check. Minimization stays the OBJECTIVE via the flex's
+minimum-move demand design (÷2 splits, drain-what's-demanded), never
+via an arbitrary cap. Expected: closes the +7.011 m 05C/23C↔23R law
+shortfall within lawful profile room. Lands in cycle 4 with the flat
+oracle as acceptance.

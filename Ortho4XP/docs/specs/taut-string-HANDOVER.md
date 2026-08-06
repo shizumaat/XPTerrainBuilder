@@ -35,10 +35,12 @@ CYCLE-4 TARGETS, converged from both fix-3 lanes:
    at taxi joins (fix-3A, interventionally proven; flex EXONERATED).
    Fix: ride never enters an anchor; the law/ride split instrument
    (landed, 7ea3e6e) is the acceptance reader.
-3. **+7.011 m law shortfall (OWNER RULING PENDING)**: pure-CIFP
-   05C/23C↔23R tension over the route budget; options (a) raise
-   RUNWAY_FLEX_MAX_DISPLACEMENT_M 4.0 (recommended; lawful room
-   likely ~12 m) / (b) connector cap/role adjudication.
+3. **+7.011 m law shortfall — RULED**: the flex displacement budget
+   is ELIMINATED (owner: the law is the only bound; minimize via
+   minimum-move design, never an arbitrary cap — RULINGS tail).
+   Implement in cycle 4: delete RUNWAY_FLEX_MAX_DISPLACEMENT_M +
+   budget_left from the clamp chain; flat oracle is acceptance;
+   expected to close the +7.011 within lawful profile room.
 4. **lane/fix3b PARKED UNMERGED** (fan activation, works but
    acceptance-failed on #1; + its own split-overlap downstream defect
    at attempt-cap; control worktree fix3bctl is the matched baseline

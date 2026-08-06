@@ -16,7 +16,41 @@ pre-flip -> new default): SPJC 1698->1366, SPLP 50->27, CYXY 171->155,
 HECA 9649->9125, KCLT 2908->2643; BATTERY 14,476->13,316 (-1,160),
 seam +15 (ruled accepted). Every prior anchor list below is HISTORY.
 
-**FRAME OF RECORD (2026-08-05 ~14:30, re-baseline @ be84766, one
+**SESSION CHECKPOINT — 2026-08-05 ~17:30, HEAD 7ea3e6e (+ docs
+6e7e0ea). FRESH SESSION BOOTS HERE.** Read: RULINGS.md end-to-end
+(the law, incl. flat-first e56d40c, real-DEM gated, drainage scope
+d48bc0a, fan-ramp 21f0980, no-lawful-infeasible 5578b6a, closed
+verdicts), tools/INDEX.md (the harness is THE way), BASELINES.md
+(scratchpad rebaseline/), memory/.
+
+CYCLE-4 TARGETS, converged from both fix-3 lanes:
+1. **final_grade_projection is THE author** — overwrites the route
+   solve ±22 m (fix-3A who_wrote evidence, 12 vertices) and overrides
+   handed 5% fan budgets into median-10.24% surfaces (fix-3B's clean
+   flat-world specimen). Owns HECA plateau's ~10k rows AND the fan
+   acceptance failure. Fix its constraint set to BE the solve's law
+   (the ingestion pattern).
+2. **DEM-follow ride enters anchors** — runway profile stations ride
+   the world (+20 m canyon) and are republished as hard band anchors
+   at taxi joins (fix-3A, interventionally proven; flex EXONERATED).
+   Fix: ride never enters an anchor; the law/ride split instrument
+   (landed, 7ea3e6e) is the acceptance reader.
+3. **+7.011 m law shortfall (OWNER RULING PENDING)**: pure-CIFP
+   05C/23C↔23R tension over the route budget; options (a) raise
+   RUNWAY_FLEX_MAX_DISPLACEMENT_M 4.0 (recommended; lawful room
+   likely ~12 m) / (b) connector cap/role adjudication.
+4. **lane/fix3b PARKED UNMERGED** (fan activation, works but
+   acceptance-failed on #1; + its own split-overlap downstream defect
+   at attempt-cap; control worktree fix3bctl is the matched baseline
+   — do not tear down). Merge after #1 lands.
+5. Debts: Fable spec revision (terrace: 4cbed92 + 21f0980 +
+   pre-solve fan panelization); SPJC verdicts fail at pristine HEAD
+   (all three, fix-3A control); suite deadlock under xdist observed
+   once (control, 35 min) — watch.
+FLAT TARGETS stand (HEAZ 1250/892 · HECA 17,557/FAIL · SPJC
+2762/6722); real DEM stays gated on flat-green.
+
+**FRAME OF RECORD (2026-08-05 ~14:30, HISTORY, re-baseline @ be84766, one
 harness + one corpus; BASELINES.md in scratchpad rebaseline/).**
 FLAT-WORLD TARGETS (drive to zero, version-deferred excluded): HEAZ
 1,258/894 · SPJC 2,644/6,719 · KCLT 5,362/3,109 · HECA 17,806 /

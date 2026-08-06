@@ -11,7 +11,7 @@ excluded from every movable-pad relaxation.  Both are DELETED.  These
 twins pin the replacement:
 
 * the pad is a GROUNDSIDE object, so its datum is the SOLVED groundside
-  pavement it abuts, resolved by the ``_zone_foot_boxes`` foot rule
+  pavement it abuts, resolved by the adjacent-ground foot rule
   (interpolate two solved host ring variables);
 * buildings are FLAT, so the lawful levels are the INTERSECTION over the
   pad's contacts of ``[datum − cap·d, datum + cap·d]``;
@@ -186,7 +186,7 @@ class TestLawBox:
         """A SLOPED host (2 %, inside the lot's own cap): the pad's near
         vertices foot at x = 5 and x = 9 on the lot's top edge, whose ends
         are solved 100.0 and 100.4.  The datum is the INTERPOLATION of two
-        solved variables — the ``_zone_foot_boxes`` rule — and the box is
+        solved variables — the adjacent-ground foot rule — and the box is
         the intersection of the two contacts' intervals.  No DEM term
         appears anywhere in it."""
         lay = _layout()
@@ -210,7 +210,7 @@ class TestLawBox:
         """Two hosts a flat pad cannot both meet is the split-level-seat
         law's trigger (RULINGS 2026-08-04) — counted and reported, never
         silently resolved; the first claimant's box is kept, exactly as
-        ``solve._zone_foot_boxes`` does."""
+        the adjacent-ground foot rule does."""
         lay = _layout(with_road=True)
         lo, hi, n_c, n_x = A.detached_pad_law_box(
             lay, _B2I, _elev(1.0), _pad_shape(lay), _PAD_IDX, CAP)

@@ -183,3 +183,71 @@ class TestTheCeilingDatumIsTheWeldNotTheDem:
         import inspect
         src = inspect.getsource(_anchors.apply_groundside_reach)
         assert "no weld datum → unbounded above" in src
+
+
+# ── NO GROUNDSIDE HARD PIN AT RAW DEM (cycle-5 spec fix 3) ─────────────
+
+def test_the_groundside_pin_is_not_in_the_solves_immovable_sets():
+    """THE fix-3 twin, asserted at the SITE.
+
+    ``gs_pin`` has exactly ONE source: ``anchors.apply_groundside_reach``
+    returns a weld set (two ``hard.add`` sites) that the solve bound as
+    ``_gs_hard`` and tagged ``gs_pin``.  Its value is the piece's
+    closest-to-DEM REACHABLE level, which on a constant-DEM world IS the
+    raw DEM — so the anchor was DEM acting as a constraint (RULINGS
+    2026-08-05: "DEM is a SEED, never a constraint, never an authority")
+    and groundside pulling airside ("airside is king").
+
+    Measured at HECA plateau: all 70 out-of-band hard nodes were
+    ``gs_pin``; 25 sat exactly on the constant DEM; the single worst
+    over-cap row in the solve (93.125 m) was one of them dragging an
+    in-band building seat.
+
+    The failure mode if this regresses is silent — the pin would simply
+    re-anchor and every count would still look plausible — so the twin
+    reads the source at both immovable sites rather than a value.
+    """
+    import inspect
+    from auto_patch.elevation_per_surface.route_profile import solve as SV
+    src = inspect.getsource(SV.solve_route_profile)
+
+    # the early groundside re-projection's hard set
+    blk = src[src.index("_ghard = hard | {i for i in runway_nodes"):]
+    blk = blk[:blk.index("feasibility_project")]
+    assert "_gs_hard" not in blk, "gs_pin must not re-enter _ghard"
+
+    # fp#8's immovable set
+    y = src[src.index("yield_hard = (truth_hard"):]
+    y = y[:y.index(")\n") + 1]
+    assert "_gs_hard" not in y, "gs_pin must not re-enter yield_hard"
+
+
+def test_the_freed_groundside_pin_is_bounded_by_its_law_ceiling():
+    """Demoted is not unbounded.  A freed pin carries the LAW ceiling the
+    reach already computed — the weld datum plus one throat of reach, with
+    NO DEM term — through the ratified bounded-yield channel."""
+    import inspect
+    from auto_patch.elevation_per_surface.route_profile import solve as SV
+    src = inspect.getsource(SV.solve_route_profile)
+    blk = src[src.index("THE FREED GROUNDSIDE PINS ARE BOUNDED"):]
+    blk = blk[:blk.index("ADJACENT-GROUND: ONE AUTHORITY")]
+    body = "\n".join(ln for ln in blk.splitlines()
+                     if not ln.lstrip().startswith("#"))
+    assert "_gs_pin_law_ceiling_idx" in body
+    assert "_yield_node_bounds" in body
+    # the ceiling is a LAW quantity: no terrain source may reach it.
+    for terrain in ("dem_elev", "dem[", "dem_seed", "_dem_z"):
+        assert terrain not in body, f"a law ceiling carries no {terrain}"
+
+
+def test_the_kept_hard_classes_are_still_hard():
+    """Fix 3 demotes ONE class.  Boundary/seam and CIFP truth keep their
+    own law and must not be swept in with it."""
+    import inspect
+    from auto_patch.elevation_per_surface.route_profile import solve as SV
+    src = inspect.getsource(SV.solve_route_profile)
+    y = src[src.index("yield_hard = (truth_hard"):]
+    y = y[:y.index(")\n") + 1]
+    assert "truth_hard" in y          # seed_rwy_seam (CIFP + tile seam),
+    assert "runway_nodes" in y        # rwy_join / rwy_flexed
+    assert "building_seats" in y      # seat_on_spine

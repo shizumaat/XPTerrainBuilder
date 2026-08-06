@@ -1949,10 +1949,43 @@ class UnifiedGraph:
     spine_no_string: int = 0          # ... that yielded < 2 on-line nodes
     spine_no_string_zero: int = 0     # ... of those, with NO on-line node
 
+    # ── EDGE PROVENANCE (cycle-5 certificate family axis, spec fix 4) ───
+    # Parallel to ``edges``: the CONSTRUCTOR that minted each edge, as
+    # ``"unified:<role>"`` / ``"unified:<role>:spine"``.  The shipped
+    # ``[proj-law-certificate]`` dumped 80.6 % of its mass into one
+    # ``unified_graph`` catch-all because this graph's whole ``edges``
+    # list entered the joint as ONE entry with a single literal tag — a
+    # construction site, not a law.  Recorded at mint time (the only
+    # place the owning shape's role is in hand) and read ONLY by the
+    # certificate: nothing in the solve consumes it, the edge tuples are
+    # unchanged, and the edge ORDER is untouched — the certificate splits
+    # the bucket by LOOKUP, never by regrouping the constraint set.
+    edge_family: list = field(default_factory=list)
+
     def spine_edge_set(self):
         """The undirected spine pairs ``{(min(a,b), max(a,b))}`` (is_spine)."""
         return {(min(a, b), max(a, b))
                 for (a, b, _c, sp) in self.edges if sp}
+
+    def family_by_pair(self) -> dict:
+        """``{(min(a,b), max(a,b)): family}`` from :attr:`edge_family`.
+
+        The certificate's per-edge family resolver.  Keyed by NODE PAIR,
+        not by list position, so it survives every rewrite the callers
+        apply to their ``u_edges`` copy (the terrace and fan-ramp
+        appliers rewrite BUDGETS on the same pairs; the near-miss
+        frontage law APPENDS pairs this graph never minted — those
+        resolve to no entry and keep their caller's own family).
+        Duplicate pairs from two shapes keep the FIRST minted family;
+        the certificate is a report, and a pair that two constructors
+        both claim is named by one of them either way.
+        """
+        out: dict = {}
+        for (a, b, _c, _sp), fam in zip(self.edges, self.edge_family):
+            key = (a, b) if a <= b else (b, a)
+            if key not in out:
+                out[key] = fam
+        return out
 
     def spine_nodes(self):
         s = set()
@@ -2059,6 +2092,10 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
                 continue
             is_spine = (min(a, b), max(a, b)) in spine_pairs
             G.edges.append((a, b, cap, is_spine))
+            # Mint-time provenance for the certificate (see ``edge_family``).
+            G.edge_family.append(
+                f"unified:{s.role}:spine" if is_spine
+                else f"unified:{s.role}")
         # LOCKSTEP BAKE EXPORT (2026-07-17): persist THIS shape's baked
         # decomposition in RING-POSITION space so the validator
         # (``grade_graph_validate._iter_checked_pairs``) consumes the

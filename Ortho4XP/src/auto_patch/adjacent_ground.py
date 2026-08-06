@@ -7653,8 +7653,17 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                      f"box read at emit: "
                      f"{_APPARATUS_HITS['band_corridor_clamped_vertices']} "
                      f"solved band vertex(es) still outside their own law "
-                     f"box (worst {_BAND_CLAMP_MAX_DELTA_M:.2f} m).  Goes "
-                     f"to 0 when the solve binds the supplied boxes.")
+                     f"box (worst {_BAND_CLAMP_MAX_DELTA_M:.2f} m).  "
+                     f"MEASURED AGAINST A THIRD DATUM — the pavement value "
+                     f"at EMIT, after both final_grade_projection passes "
+                     f"have moved it again — so this is a valid ALARM but "
+                     f"its magnitude mixes the solve's residual with "
+                     f"post-solve pavement motion; split per vertex before "
+                     f"attributing it.  (The old claim that it 'goes to 0 "
+                     f"when the solve binds the supplied boxes' is "
+                     f"FALSIFIED: the boxes were bound, per sweep, harder "
+                     f"than the relative law — that is what produced the "
+                     f"residual.  Cycle-5 fix 1 deleted them.)")
     if _APPARATUS_HITS["solved_analytic_fallback"]:
         UI.vprint(0, f"  [adjacent-ground] INGESTION RESIDUAL — "
                      f"COMPLETENESS: "

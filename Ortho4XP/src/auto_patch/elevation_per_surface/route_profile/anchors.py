@@ -1145,7 +1145,7 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
 # the groundside pavement / service road / apron ring it welds into — read
 # as SOLVED VARIABLES, the same datum family as the groundside mouth
 # ceiling (item 3(a)) and the same resolution pattern as
-# ``solve._zone_foot_boxes`` (foot on the host ring, interpolated between
+# the adjacent-ground FOOT rule (foot on the host ring, interpolated between
 # two solved ring variables; identity when the pad shares the host's
 # vertex).  Buildings are FLAT, so the pad's lawful levels are the
 # INTERSECTION over its contacts of ``[datum − cap·d, datum + cap·d]``,
@@ -1275,7 +1275,7 @@ def detached_pad_law_box(layout, bucket_to_idx, elev, pad_shape, pad_idx,
     For every pad ring vertex the march finds the nearest point on a
     neighbouring non-building pavement ring within ``contact_m`` and reads
     the datum as ``(1−t)·elev[a] + t·elev[b]`` — two solved ring variables,
-    exactly ``solve._zone_foot_boxes``' foot rule (and its identity case
+    exactly the adjacent-ground foot rule (and its identity case
     when the pad shares the host's vertex, where ``t`` lands on an end and
     ``d`` is 0).  Each contact contributes ``[datum − cap·d, datum + cap·d]``
     and the box is their INTERSECTION.
@@ -1283,7 +1283,7 @@ def detached_pad_law_box(layout, bucket_to_idx, elev, pad_shape, pad_idx,
     An EMPTY intersection is a DECLARED CONFLICT, never silently resolved:
     it is the split-level-seat law's trigger (RULINGS 2026-08-04 — a pad
     whose contacts cannot all be met by one flat level needs sectioning).
-    Following ``_zone_foot_boxes``, the first claimant's box is kept and
+    As the retired zone box did, the first claimant's box is kept and
     the conflict is counted for the caller to report.
 
     ``(None, None, 0, 0)`` when no host resolves — NO BOX, not a DEM

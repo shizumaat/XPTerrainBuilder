@@ -1361,113 +1361,90 @@ def _report_witness_admission(icao, label, rep):
 # seeded at ``dem_seed``; ``foot.a``/``foot.b`` are ring vertices of
 # ``shape_id`` — variables the solve already owns.)
 #
-# WHY A BOX AND NOT A THREE-TERM EDGE.  The datum is a LERP of two
-# variables, which the pairwise projection cannot state exactly.  It does
-# not have to: the constraint is DIRECTED — pavement gives, zone conforms
-# (``airside-is-king`` generalized, and already the declared contract of
-# ``interval_yield_from``, which makes a terrain slab move only its
-# terrain endpoint).  With the datum's endpoints owned by pavement, the
-# constraint collapses EXACTLY to an absolute interval on the zone
-# variable alone::
+# ── THE BOX WAS A SECOND AUTHORITY, AND IT IS DELETED ─────────────────
+# (cycle-5 solve-certification spec, fix 1.  The attribution dossier's
+# decisive measurement is quoted at the call site.)
+#
+# The argument this block used to make: the datum is a LERP of two
+# variables, which the pairwise projection cannot state exactly, so state
+# the law as an ABSOLUTE per-node interval instead —
 #
 #     z[node] in [D + floor_off, D + ceil_off],  D = (1-t)*z[a] + t*z[b]
 #
-# which is the STRIP-FABRIC BOX family the supply docstring names —
-# ``one_solve._node_box_arrays`` consumes ``{index: (lo, hi)}``, clamps at
-# seed and after every sweep, and (being per-node) can never pull the
-# pavement.  Directed by construction rather than by convention.
+# — bound through ``one_solve._node_box_arrays``, clamped at seed and
+# after every sweep.
 #
-# ONE DERIVATION: the offsets are the supply's own ``floor_off`` /
-# ``ceil_off``, carried verbatim.  Nothing here re-reads the law, re-reads
-# the DEM, or re-spells the corridor — a second copy of these numbers is
-# the failure the supply lane spent a week arguing about.
-def _zone_foot_boxes(layout, bucket_to_idx, elev, n, first_zone):
-    """``({zone_index: (lo, hi)}, stats)`` for the published zone table.
+# WHY IT WAS WRONG.  ``D`` is computed ONCE, from ``elev`` as it stands at
+# fp#8's ENTRY, and then fp#8 MOVES the pavement that defines it (measured
+# on the same rows: p50 2.340 m, p90 24.949 m, max 88.905 m).  A constraint
+# derived from a variable, frozen as a constant, and then enforced every
+# sweep — harder than the live relative law it duplicates — is not the same
+# law written twice.  It is a second authority, and the frozen one wins:
+# 65.6 % of over-cap zone rows sat inside the box implied by the STALE
+# entry datum versus 6.7 % inside the live one.
+#
+# THE ONE AUTHORITY is the RELATIVE interval edge that already exists and
+# is already correct: ``solver_primitives.zone_constraint_entries`` builds
+# ``edges.append((i, j, floor_off, ceil_off))`` — ground ``i`` against its
+# host pavement ring vertex ``j``, TWO VARIABLES, so it moves with ``j``.
+# That is the ratified B2 frozen-nearest encoding (the design doc's "ONE
+# two-sided envelope interval edge per zone node"), and the dossier's
+# verdict on it is explicit: correct as written, nothing about the
+# adjacent-ground law needs changing.  Directedness — the property the box
+# was reached for — is already carried by ``interval_yield_from``, which
+# makes a terrain slab move only its terrain endpoint.
+#
+# What survives here is the AUDIT: the identity join that used to resolve
+# the box rows now only checks that every published zone row is carried by
+# a relative edge, so the deletion is proven at every build instead of
+# assumed.
+def _zone_law_coverage(layout, bucket_to_idx, n, first_zone, edge_nodes):
+    """``(stats)`` — is the RELATIVE zone law carrying every published row?
 
-    ``stats`` — ``(n_bound, n_foot, n_host_degrade, n_adopted,
-    n_intersected, n_conflict)``.
+    ``edge_nodes`` — the zone-node indices that actually received a
+    relative interval edge (``solver_primitives.zone_constraint_entries``).
 
-    IDENTITY RULES, unchanged from the legacy builder and re-stated here
-    because they are law, not implementation:
+    ``stats`` — ``(n_rows, n_resolved, n_carried, n_adopted, n_uncarried)``.
+    ``n_uncarried`` is the number that MUST be zero for the box deletion to
+    be lossless: a published row with no relative edge would be a zone node
+    whose law nothing enforces.  It is reported, never absorbed.
 
-    * a zone node whose canonical bucket resolved to a PRE-EXISTING
-      pavement / gap-spine variable (index < ``first_zone``) gets NO box.
-      Pavement value always wins at a pavement node — an identity, not an
-      arbitration; a band law may never constrain a pavement variable.
-    * two shapes' zone nodes that interned into ONE variable get the
-      INTERSECTION of their boxes, not the first claimant's.  ``shape_id``
-      makes the collision visible; intersecting is the honest resolution
-      (the same rule ``_box_isect`` applies to merged pad groups).  An
-      EMPTY intersection is a declared conflict — reported, never
-      silently resolved, because under ``feasibility-is-guaranteed`` two
-      corridor laws that cannot both hold at one vertex is a defect to
-      attribute at source.
+    THE IDENTITY RULE the audit still has to honour, because it is law and
+    not implementation: a zone node whose canonical bucket resolved to a
+    PRE-EXISTING pavement / gap-spine variable (index < ``first_zone``)
+    carries NO band law at all — the pavement value wins at a pavement
+    node by identity, and a band law may never constrain a pavement
+    variable.  Those rows are counted as ADOPTED, not as uncarried.
+
+    (The cross-shape intersect/conflict arithmetic the box builder did
+    here is gone with the box.  Two hosts' zone rows are SEPARATE solve
+    variables since the 2026-08-05 zone-node identity decision, and each
+    carries its own relative edge, so there is no longer a single
+    variable for two corridor laws to collide on.)
     """
     rows = getattr(layout, "adjacent_ground_zone_boxes", None)
     if not rows:
-        return {}, (0, 0, 0, 0, 0, 0)
-    cps = layout.canonical_points
-    boxes: dict = {}
-    owner: dict = {}
-    n_foot = n_host = n_adopted = n_isect = n_conflict = 0
+        return (0, 0, 0, 0, 0)
+    n_resolved = n_carried = n_adopted = n_uncarried = 0
 
     from ..solver_primitives import zone_node_index as _zone_idx
 
-    def _idx(xy, shape_id=None):
-        """``shape_id`` set ⇒ the ZONE-node join (bucket, host); unset ⇒
-        the plain bucket lookup, which is what a pavement FOOT vertex
-        has always used."""
-        k = _zone_idx(layout, bucket_to_idx, xy, shape_id)
-        return None if (k is None or k >= n) else k
-
     for row in rows:
-        # ZONE-NODE IDENTITY: this row's box belongs to ``shape_id``'s own
-        # variable.  Resolving by bucket alone put two hosts' boxes on one
-        # variable, which is what the intersect/conflict branch below was
-        # absorbing.
-        i = _idx(row["xy"], row.get("shape_id"))
-        if i is None:
+        # ZONE-NODE IDENTITY: this row belongs to ``shape_id``'s own
+        # variable.  Resolving by bucket alone put two hosts' rows on one
+        # variable.
+        k = _zone_idx(layout, bucket_to_idx, row["xy"], row.get("shape_id"))
+        if k is None or k >= n:
             continue
-        if i < first_zone:
+        n_resolved += 1
+        if k < first_zone:
             n_adopted += 1
             continue
-        datum = None
-        foot = row.get("foot")
-        if foot is not None:
-            ia, ib = _idx(foot["a"]), _idx(foot["b"])
-            if ia is not None and ib is not None:
-                t = float(foot["t"])
-                datum = (1.0 - t) * elev[ia] + t * elev[ib]
-                n_foot += 1
-        if datum is None:
-            # The contract's named degrade path: the legacy
-            # frozen-nearest host VERTEX.  Kept because a shape whose
-            # ring the march could not foot still owes its band a law.
-            ih = _idx(row["host"])
-            if ih is None:
-                continue
-            datum = float(elev[ih])
-            n_host += 1
-        shift = float(row.get("host_delta") or 0.0)
-        f_off = row.get("floor_off")
-        c_off = row.get("ceil_off")
-        lo = (float("-inf") if f_off is None
-              else datum + float(f_off) + shift)
-        hi = (float("inf") if c_off is None
-              else datum + float(c_off) + shift)
-        prev = boxes.get(i)
-        if prev is None:
-            boxes[i] = (lo, hi)
-            owner[i] = row.get("shape_id")
+        if k in edge_nodes:
+            n_carried += 1
         else:
-            n_isect += 1
-            lo, hi = max(prev[0], lo), min(prev[1], hi)
-            if lo > hi:
-                n_conflict += 1
-                continue                # keep the first claimant's box
-            boxes[i] = (lo, hi)
-    return boxes, (len(boxes), n_foot, n_host, n_adopted, n_isect,
-                   n_conflict)
+            n_uncarried += 1
+    return (len(rows), n_resolved, n_carried, n_adopted, n_uncarried)
 
 
 def _spine_yield_membership(frozen, n, *, truth_hard, runway_nodes,
@@ -1664,7 +1641,7 @@ def solve_route_profile(layout, icao: str,
     if not any(base_hard):
         return
 
-    # ── ADJACENT-GROUND INGESTION, the SEED (see ``_zone_foot_boxes``) ──
+    # ── ADJACENT-GROUND INGESTION, the SEED ─────────────────────────
     # The published table carries each band node's own DEM sample as
     # ``dem_seed``, and the contract says the variable is seeded there.
     # Done HERE, one statement after the seeder, so no later pass has to
@@ -2808,10 +2785,30 @@ def solve_route_profile(layout, icao: str,
         _gs_witness = (frozenset(_gs_hard),
                        gs_witness_horizon(SERVICE_ROAD_MAX_GRADE))
     if _gs_hard:
-        # The truck route (apron arm + connector + groundside mouth) is now
-        # pinned on its rising <=cap profile; re-project so the apron BODY
-        # grades into the raised arm and nothing else exceeds its cap.
-        _ghard = hard | {i for i in runway_nodes if i < n} | _gs_hard
+        # The truck route (apron arm + connector + groundside mouth) now
+        # carries its re-levelled value as a SEED; re-project so the apron
+        # BODY grades into the arm and nothing else exceeds its cap.
+        #
+        # THE PINS ARE NOT HARD HERE (cycle-5 spec fix 3).  ``_gs_hard``
+        # used to join this projection's immovable set, which made the
+        # groundside weld value an ANCHOR.  On a constant-DEM world that
+        # value IS the raw DEM (the reach law re-levels a piece to its
+        # closest-to-DEM reachable level), so the anchor was DEM acting as
+        # a constraint — forbidden outright by RULINGS 2026-08-05 ("DEM is
+        # a SEED, never a constraint, never an authority") — and it was
+        # groundside pulling airside, forbidden by "airside is king".
+        #
+        # Measured at HECA plateau: all 70 out-of-band hard nodes were
+        # ``gs_pin``; 25 sat exactly on the constant DEM; 21 of those were
+        # below their own band floor, worst deficit 89.369 m.  The single
+        # worst over-cap row in the whole solve (93.125 m) was one of them
+        # dragging an in-band building seat.
+        #
+        # What still holds the weld together: every mouth-weld LAW EDGE is
+        # in the joint and enforced by the sweeps, and the pin's own law
+        # ceiling bounds it from above (below).  Losing the anchor loses
+        # no law — it loses an assertion.
+        _ghard = hard | {i for i in runway_nodes if i < n}
         feasibility_project(elev, shape_constraints, _ghard,
                             interval_yield_from=_iyf,
                             witness_limited=_gs_witness,
@@ -3050,10 +3047,24 @@ def solve_route_profile(layout, icao: str,
     # spines stay smooth wherever they were already feasible.
     # (2026-07-29) the legacy rect-model gate was retired — the
     # global slice is the only path, so this always runs.
+    # THE KEPT-HARD SOURCES, each with its law (cycle-5 fix 3 enumerated
+    # them and demoted exactly one):
+    #   truth_hard      — ``seed_rwy_seam`` (CIFP runway profile values,
+    #                     absolute for v1 per RULINGS 2026-08-05, and the
+    #                     TILE-SEAM DEM pins, which are cross-tile
+    #                     continuity law), ``rwy_join`` / ``rwy_flexed``
+    #                     (runway anchors), ``seat_on_spine`` (building
+    #                     seat law), ``seam_spine_anchor``;
+    #   runway_nodes    — the runway ring/vertex set (CIFP truth);
+    #   building_seats  — every seated pad / no-building-apron level
+    #                     (the building law: flat seats).
+    # DEMOTED: ``_gs_hard`` (``gs_pin``).  A groundside weld is not truth
+    # — it is a value groundside ASSERTS onto the route, at raw DEM on a
+    # constant-DEM world.  It is now a SEED bounded by its own law
+    # ceiling; see the groundside-reach block above and the box below.
     yield_hard = (truth_hard
                   | {i for i in runway_nodes if i < n}
-                  | {i for i in building_seats if i < n}
-                  | {i for i in _gs_hard if i < n})
+                  | {i for i in building_seats if i < n})
     # ── RULING 54: THE KEPT PIN SET JOINS ``yield_hard`` ───────
     # ★ A BLEND IS NOT GRADE LAW.  Under the owner's invariant a
     # string may be overruled only by LAW; the measured 4.87 m at
@@ -3398,36 +3409,83 @@ def solve_route_profile(layout, icao: str,
         for _i in building_seats
         if _i < n and _i not in yield_hard and _i not in _pn
         and _i in _seat_box_idx}
-    # ── ADJACENT-GROUND INGESTION, THE BINDING ────────────────────
-    # The zone law rides the SAME bounded-yield box channel as the seat
-    # boxes (``one_solve._node_box_arrays``): clamped at seed and after
-    # every sweep, so the exit state honours it, and per-node so it can
-    # never pull the pavement.  Evaluated HERE, at fp#8's entry, against
-    # the pavement values phases A/B and the earlier projections have
-    # already settled — the datum is two SOLVED ring variables, never a
-    # value the band writer produced (the v2 box was vacuous for exactly
-    # that reason).
-    _zone_boxes, _zone_bstats = _zone_foot_boxes(
-        layout, bucket_to_idx, elev, n,
-        getattr(layout, "_adjacent_ground_first_zone_index", 0))
-    if _zone_boxes:
-        _merged_zone = dict(_yield_node_bounds or {})
-        for _zi, _zb in _zone_boxes.items():
-            _prev = _merged_zone.get(_zi)
-            _merged_zone[_zi] = (
-                _zb if _prev is None
-                else (max(_prev[0], _zb[0]), min(_prev[1], _zb[1])))
-        _yield_node_bounds = _merged_zone
+    # ── THE FREED GROUNDSIDE PINS ARE BOUNDED BY THEIR OWN LAW ────────
+    # (cycle-5 fix 3, the other half of the demotion.)  A pin is no longer
+    # an anchor, so it must not be unbounded either: it carries the LAW
+    # ceiling the reach already computed — the weld datum plus one throat
+    # of reach, with NO DEM term (``anchors.apply_groundside_reach`` builds
+    # it, and the mouth verify-and-relax below has always used exactly this
+    # bound for the pins it frees).  Fix 3 simply frees ALL of them
+    # instead of only the ones that already contradicted, so the same
+    # bound applies to the same class.
+    #
+    # Upper side only, matching the existing relax door's contract: a
+    # mouth may always settle DOWN toward its seed.  The FLOOR comes from
+    # the reach band, which binds per sweep as of fix 2.  A pin with no
+    # weld datum has no entry and stays unbounded above — a missing datum
+    # never becomes a terrain bound.
+    if _gs_hard:
+        _pin_ceil_fp8 = getattr(layout, "_gs_pin_law_ceiling_idx", None) or {}
+        if _pin_ceil_fp8:
+            _yield_node_bounds = dict(_yield_node_bounds or {})
+            _n_pin_bound = 0
+            for _gi in _gs_hard:
+                _c = _pin_ceil_fp8.get(_gi)
+                if _c is None or _gi >= n:
+                    continue
+                _pb = _yield_node_bounds.get(_gi)
+                _yield_node_bounds[_gi] = (
+                    (-1e18, float(_c)) if _pb is None
+                    else (_pb[0], min(_pb[1], float(_c))))
+                _n_pin_bound += 1
+            if _os.environ.get("O4_STEP_DEBUG") == "1":
+                print(f"    [groundside-reach] {_n_pin_bound} freed "
+                      f"groundside pin(s) bounded by their LAW ceiling "
+                      f"(weld datum + one throat of reach, no DEM term)")
+
+    # ── ADJACENT-GROUND: ONE AUTHORITY, AND IT IS THE RELATIVE EDGE ───
+    # (cycle-5 spec fix 1.)  This used to ALSO bind the zone law as an
+    # absolute per-node box on the bounded-yield channel, snapshotting the
+    # pavement foot datum from ``elev`` right here — and then fp#8 moved
+    # that foot by p50 2.340 m / p90 24.949 m / max 88.905 m while the
+    # frozen box went on clamping at seed and after every sweep.
+    #
+    # THE DECISIVE MEASUREMENT (attribution dossier §3, over all 20,135
+    # over-cap ``graded_strip:adjacent_ground`` rows at fp#8 EXIT):
+    #
+    #     ground value inside the box implied by the fp#8-ENTRY datum
+    #                                                  13,208   65.6 %
+    #     ground value inside the box implied by the fp#8-EXIT datum
+    #     (what the law actually asks)                  1,346    6.7 %
+    #
+    # The residual therefore could not go to zero by binding HARDER;
+    # binding harder is what produced it.  So the box is DELETED and the
+    # RELATIVE interval edge — already built, already correct, and already
+    # in this joint — is the only authority.  What remains here is the
+    # AUDIT that the deletion lost nothing.
+    _zone_edge_nodes = {
+        _e[0] for _sc in shape_constraints
+        if _sc.get("ref") == "adjacent_ground"
+        for _e in (_sc.get("edges") or ())}
+    _zone_cov = _zone_law_coverage(
+        layout, bucket_to_idx, n,
+        getattr(layout, "_adjacent_ground_first_zone_index", 0),
+        _zone_edge_nodes)
+    if _zone_cov[0]:
         import O4_UI_Utils as _UI_zone
         _UI_zone.vprint(1,
-            f"  [adjacent-ground] zone-law CONSUMPTION: "
-            f"{_zone_bstats[0]} band node(s) bound as directed boxes "
-            f"({_zone_bstats[1]} on an exact foot datum, "
-            f"{_zone_bstats[2]} on the frozen-nearest degrade path, "
-            f"{_zone_bstats[3]} adopted a pavement variable by "
-            f"identity); {_zone_bstats[4]} cross-shape collision(s) "
-            f"intersected, {_zone_bstats[5]} DECLARED CONFLICT(S) "
-            f"(empty intersection).")
+            f"  [adjacent-ground] zone-law COVERAGE: {_zone_cov[2]} of "
+            f"{_zone_cov[1]} resolved band node(s) carried by the "
+            f"RELATIVE interval edge (the one authority); "
+            f"{_zone_cov[3]} adopted a pavement variable by identity; "
+            f"{_zone_cov[4]} UNCARRIED"
+            + ("" if not _zone_cov[4] else
+               " — a published zone row whose law NOTHING enforces; "
+               "this must be 0")
+            + f".  ({_zone_cov[0]} row(s) published.)  The absolute "
+            f"foot-datum box is RETIRED (cycle-5 fix 1): it froze a "
+            f"constraint derived from variables this same projection "
+            f"then moved.")
     # NO REFERENCE RODS (build-complete-then-debug round).  The
     # §7 reference channel this block built — the pre-yield
     # snapshot, the rod-held corridor string, the pad-rod
@@ -4015,6 +4073,29 @@ def solve_route_profile(layout, icao: str,
             list(shape_constraints) + [{"edges": u_edges}],
             _spine_preserved, _spine_yield_idx,
             latlon_of=lambda i: layout.m_to_ll(*nodes[i]))
+    # ── THE SOLVE'S OWN EXIT CERTIFICATE (cycle-5 spec fix 4) ─────────
+    # Until now the ONLY ``[proj-law-certificate]`` in the build ran
+    # inside ``final_grade_projection``, on that pass's REBUILT
+    # constraint set in a DIFFERENT node space (142,635 / 144,056 vs the
+    # solve's 146,743 at HECA).  Its own docstring says what it measures:
+    # "the solve's values under the projection's law" — which is not the
+    # solve's exit state, so the one number the single-solve architecture
+    # is judged on had no reader at all.
+    #
+    # This is that reader: the SOLVE's joint, the SOLVE's ``elev``, the
+    # SOLVE's node space, taken one statement before the writeback
+    # publishes the field — in the uncrowned z′ frame the law lives in
+    # (before the crown drop below, which is an EMIT transform, not a law
+    # move).  ``yield_hard`` is the immovable set the last projection ran
+    # with, so the both-hard column names genuine anchor↔anchor
+    # contradictions.  Pure measurement, no gate: certify-or-fail-loud is
+    # kept explicitly by RULINGS 2026-08-05 (BUILD-COMPLETE-THEN-DEBUG
+    # item 1) while byte-identity ceremony is retired.
+    _solve_exit_joint = list(shape_constraints) + [{"edges": u_edges}]
+    _report_law_certificate(
+        icao, "SOLVE EXIT",
+        projection_law_certificate(_solve_exit_joint, elev, n, yield_hard,
+                                   family_of=G.family_by_pair()))
     if _crown_drop_idx:
         _elev_emit = list(elev)
         for _i, _c in _crown_drop_idx.items():
@@ -4124,13 +4205,23 @@ def solve_route_profile(layout, icao: str,
             _gap_entry["values"] = _gap_vals
     # ── ADJACENT-GROUND ZONE-ROW writeback (Slice B stage B3 order 2)
     # THE EMITTED BAND VALUE IS THE SOLVED VALUE.  Nothing is
-    # re-derived here: the zone law was INGESTED as a directed box on
-    # each band variable (``_zone_foot_boxes``, bound at fp#8), the
-    # variable was seeded at its published ``dem_seed``, and the
-    # projection clamped it into that box at seed and after every
-    # sweep.  So the solved value already satisfies the corridor and
-    # this block's only job is to CARRY it, keyed by the millimetre
-    # vertex key, into the construct store the emitter reads.
+    # re-derived here: the zone law is carried by the RELATIVE interval
+    # edge (``solver_primitives.zone_constraint_entries`` — ground
+    # against its host pavement ring vertex, two variables), the
+    # variable was seeded at its published ``dem_seed``, and every
+    # projection enforces that edge in its sweeps.  This block's only
+    # job is to CARRY the solved value, keyed by the millimetre vertex
+    # key, into the construct store the emitter reads.
+    #
+    # THE OLD CLAIM HERE WAS FALSE and is recorded so it is not
+    # re-derived: it said the projection "clamped it into that box at
+    # seed and after every sweep.  So the solved value already
+    # satisfies the corridor."  It did clamp — into a box frozen from a
+    # datum the SAME projection then moved up to 88.905 m, which is
+    # what manufactured the corridor residual rather than closing it
+    # (cycle-5 fix 1; the box is deleted).  A solved value satisfies
+    # the corridor when the RELATIVE edge is satisfied, and the
+    # certificate is what says whether it is.
     #
     # WHAT WAS DELETED, and why it had to go (INGEST lane report §3,
     # ``seamv2/RESULTS.md`` §1 part 2 — the three independent causes of
@@ -5145,7 +5236,8 @@ def post_solve_mutation_set(carried, elev, n, tol):
     return untouched, n_new, moved
 
 
-def projection_law_certificate(joint, elev, n, hard, tol=1e-3):
+def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
+                               family_of=None):
     """Over-cap law edges of ``joint`` at the current ``elev``, BY FAMILY.
 
     The ingestion round's own reader (spec
@@ -5161,15 +5253,29 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3):
     ``family`` tag (the unified-graph and rod edge sets).  Interval edges
     (4-tuples) are counted against their own interval, not a cap.
 
-    Pure measurement: reads ``elev``, writes nothing.  Returns
-    ``{family: (n_over, worst_excess_m, n_both_hard)}``.
+    ``family_of`` — cycle-5 fix 4, THE FAMILY AXIS.  A ``{(min(a,b),
+    max(a,b)): family}`` map (``grade_graph.UnifiedGraph.family_by_pair``)
+    consulted PER EDGE for entries whose own tag is a construction site
+    rather than a law.  Without it the unified-graph entry is one
+    catch-all that took 80.6 % of the mass (63,635 of 78,912 at HECA
+    final#1) and named nothing; with it every edge is attributed to the
+    CONSTRUCTOR that minted it.  A pair the map does not carry keeps the
+    entry's own tag, so an unmapped caller reads exactly as before.
+
+    Pure measurement: reads ``elev``, writes nothing — the map is a
+    LOOKUP, so the constraint set and its edge order are untouched.
+    Returns ``{family: (n_over, worst_excess_m, n_both_hard)}``.
     """
     out: dict = {}
     for entry in joint:
-        fam = entry.get("family")
-        if fam is None:
-            fam = f"{entry.get('role') or '?'}:{entry.get('ref') or '-'}"
-        row = out.setdefault(fam, [0, 0.0, 0])
+        fam_entry = entry.get("family")
+        if fam_entry is None:
+            fam_entry = f"{entry.get('role') or '?'}:{entry.get('ref') or '-'}"
+        # Per-edge resolution only where the entry tag is the catch-all;
+        # a real shape entry (``apron:-``, ``graded_strip:adjacent_ground``)
+        # already names its law and is never re-keyed.
+        per_edge = family_of if fam_entry in _CATCH_ALL_FAMILIES else None
+        row = None if per_edge else out.setdefault(fam_entry, [0, 0.0, 0])
         for e in entry.get("edges") or ():
             a, b = e[0], e[1]
             if a >= n or b >= n:
@@ -5186,6 +5292,10 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3):
                 excess = abs(d) - float(e[2])
             if excess <= tol:
                 continue
+            if per_edge is not None:
+                key = (a, b) if a <= b else (b, a)
+                row = out.setdefault(per_edge.get(key, fam_entry),
+                                     [0, 0.0, 0])
             row[0] += 1
             if excess > row[1]:
                 row[1] = excess
@@ -5194,18 +5304,32 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3):
     return {k: tuple(v) for k, v in out.items()}
 
 
+# Entry tags that name a CONSTRUCTION SITE, not a law — the certificate
+# resolves these per edge through ``family_of`` when it is given one.
+# ``"?:-"`` is what an untagged entry (the SOLVE's own joint, which never
+# tagged its unified entry at all) degrades to.
+_CATCH_ALL_FAMILIES = frozenset(("unified_graph", "?:-"))
+
+
 def _report_law_certificate(icao, label, cert, top=8):
     """Print a :func:`projection_law_certificate` result, worst first."""
     rows = sorted(cert.items(), key=lambda kv: -kv[1][0])
     total = sum(v[0] for v in cert.values())
     both = sum(v[2] for v in cert.values())
+    # VIOLATING families, not families PRESENT (cycle-5 fix 4): the old
+    # ``len(rows)`` counted every family the constraint set CONTAINS —
+    # "across 425 family(ies)" when only 7 of the 425 had a nonzero
+    # count, which read as breadth of failure and was breadth of law.
+    n_viol = sum(1 for v in cert.values() if v[0])
     try:
         import O4_UI_Utils as _UI_cert
         say = lambda m: _UI_cert.vprint(1, m)          # noqa: E731
     except Exception:                                  # pragma: no cover
         say = print
-    say(f"  [proj-law-certificate] {icao} {label}: {total} law edge(s) "
-        f"over cap ({both} both-hard) across {len(rows)} family(ies)")
+    verdict = "CERTIFIED" if not total else "UNCERTIFIED"
+    say(f"  [proj-law-certificate] {icao} {label}: {verdict} — {total} law "
+        f"edge(s) over cap ({both} both-hard) in {n_viol} violating "
+        f"family(ies) of {len(rows)} present")
     for fam, (n_over, worst, n_bh) in rows[:top]:
         if not n_over:
             continue
@@ -6445,8 +6569,13 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # the solve produced, BY FAMILY.  A family over cap here is either a
     # genuine post-solve mutation or a law input the two constraint builds
     # disagree on — and naming which is the whole round.  Report-only.
+    # ``family_of``: this pass's OWN graph, so the catch-all splits by the
+    # constructor that minted each edge (cycle-5 fix 4).
+    _fp_family_of = G.family_by_pair()
     _report_law_certificate(icao, f"final#{_ml_pass or 1} ENTRY",
-                            projection_law_certificate(joint, elev, n, hard))
+                            projection_law_certificate(
+                                joint, elev, n, hard,
+                                family_of=_fp_family_of))
     rem, bh = feasibility_project(elev, joint, hard, force_scalar=True,
                                   env_band=_fp_env_band,
                                   forensics=_fp_forensics,
@@ -6785,7 +6914,9 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # family.  Paired with the ENTRY reading above it separates "the
     # projection minted this" from "the projection inherited this".
     _report_law_certificate(icao, f"final#{_ml_pass or 1} EXIT",
-                            projection_law_certificate(joint, elev, n, hard))
+                            projection_law_certificate(
+                                joint, elev, n, hard,
+                                family_of=_fp_family_of))
     # ── PROBE A, FINAL-PROJECTION TAIL: THIS PASS'S EXIT BOUNDARY ───────
     # (spec amendment 2026-08-01.)  Taken BEFORE the crown transform back,
     # so it is in the SAME uncrowned z′ frame as every other boundary in

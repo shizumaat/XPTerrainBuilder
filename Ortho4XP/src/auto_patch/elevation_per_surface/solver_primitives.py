@@ -1678,7 +1678,8 @@ def _build_node_list(layout, *, readonly: bool = False):
     # a single variable forces two independent laws onto one elevation.
     # What actually happened downstream: ``_build_zone_row_constraints``
     # DROPPED the second host's edge (its ``n_cross_claimed`` counter is
-    # the tally) and ``_zone_foot_boxes`` INTERSECTED the two boxes; an
+    # the tally) and the (since-deleted) absolute zone box INTERSECTED
+    # the two boxes; an
     # empty intersection then read as a declared conflict that the ground
     # never had.  Zones of different hosts are now SEPARATE VARIABLES.
     #

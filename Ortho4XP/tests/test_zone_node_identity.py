@@ -11,7 +11,7 @@ variable — while the zone law is stated PER HOST against that host's own
 foot datum.  One variable cannot satisfy two independent laws, and the
 downstream code absorbed the collision instead of reporting it:
 ``_build_zone_row_constraints`` DROPPED the second host's edge (its
-``n_cross_claimed`` counter is the tally) and ``_zone_foot_boxes``
+``n_cross_claimed`` counter is the tally) and the retired zone box
 INTERSECTED the two boxes, so a disjoint pair read as a declared conflict
 the ground never had.
 

@@ -204,3 +204,62 @@ def test_one_documented_default(monkeypatch):
     assert route_metric_envelope_enabled() is True
     assert envelope_from_band_enabled() is True, (
         "the route-metric band IS the envelope; no env selects the closure")
+
+
+# ── THE BAND BINDS PER SWEEP (cycle-5 solve-certification spec, fix 2) ──
+
+def test_the_band_floor_survives_the_sweeps(monkeypatch):
+    """THE fix-2 twin, and the whole round in one assertion.
+
+    The band clamp used to be ONE-SHOT: applied once before the sweeps and
+    then relaxed away by them, while caps and node boxes bound every
+    sweep.  Measured at HECA plateau fp#8 EXIT: 11,144 banded nodes BELOW
+    their own floor (worst 89.637 m) against 112 above their ceiling
+    (worst 0.187 m) — 99.5 : 1.  A two-sided band producing a one-sided
+    error at that ratio is a mechanism, not noise.
+
+    The graph here reproduces it in miniature: node 1 carries a band floor
+    of 10 m, and a TIGHT cap edge to hard node 0 at 0.0 pulls it back down
+    to 0.  One-shot ⇒ the clamp lifts it to 10 and the sweeps drag it to
+    ~0.  Per-sweep ⇒ the floor is re-applied after every step and the
+    node CANNOT be dragged below it; the unsatisfiable cap edge then
+    surfaces as a remaining over-cap edge, which is the honest outcome.
+    """
+    monkeypatch.setenv("O4_ENVELOPE_FROM_BAND", "1")
+    tight = [{"edges": [(0, 1, 0.01)]}]        # hard 0 at 0.0 pulls 1 down
+    band = [None, (10.0, 20.0)]
+    elev = [0.0, 0.0]
+    feasibility_project(elev, tight, {0}, force_scalar=True, max_iters=400,
+                        env_band=band)
+    assert elev[0] == pytest.approx(0.0), "hard node never moves"
+    assert elev[1] >= 10.0 - 1e-9, (
+        f"the band FLOOR must survive the sweeps, got {elev[1]}")
+
+
+def test_an_inverted_band_still_gets_no_box(monkeypatch):
+    """An inverted band must NOT become an empty per-sweep box: that would
+    clamp to ``hi`` every sweep and freeze a node the kill-half ruling
+    requires to stay MOVABLE (quarantine is unauthorized)."""
+    monkeypatch.setenv("O4_ENVELOPE_FROM_BAND", "1")
+    loose = [{"edges": [(0, 1, 100.0), (1, 2, 100.0)]}]
+    band = [None, (25.0, 5.0), None]           # node 1 inverted
+    elev = [0.0, 0.0, 40.0]
+    broken = set()
+    feasibility_project(elev, loose, {0, 2}, force_scalar=True,
+                        max_iters=400, broken_out=broken, env_band=band)
+    assert broken == {1}
+    assert 5.0 - 1e-9 <= elev[1] <= 25.0 + 1e-9, elev
+
+
+def test_the_band_ceiling_binds_per_sweep_too(monkeypatch):
+    """Two-sided: the ceiling was already effectively binding (112 vs
+    11,144), so this twin exists to keep it that way after the floor is
+    fixed rather than to change anything."""
+    monkeypatch.setenv("O4_ENVELOPE_FROM_BAND", "1")
+    tight = [{"edges": [(0, 1, 0.01)]}]
+    band = [None, (-20.0, -10.0)]
+    elev = [0.0, 0.0]
+    feasibility_project(elev, tight, {0}, force_scalar=True, max_iters=400,
+                        env_band=band)
+    assert elev[1] <= -10.0 + 1e-9, (
+        f"the band CEILING must survive the sweeps, got {elev[1]}")

@@ -2485,6 +2485,11 @@ def feasibility_project(elev, shape_constraints, hard, *,
     # (spec §3, ``building_feasibility.assert_no_final_band_inversion``).
     band_inverted: set = set()
     broken: set = set()
+    # THE BAND BINDS PER SWEEP (cycle-5 fix 2): per-node reach-band
+    # intervals collected in the envelope loop below and merged into
+    # ``bound_of`` after it.  Empty ⇒ nothing merged ⇒ the one-shot
+    # behaviour this replaces.
+    _band_box: dict = {}
     if hard:
         # BYTE-INERTNESS: build the seed set with the SAME expression the
         # pre-clause code used whenever nothing is withdrawn — an extra
@@ -2564,6 +2569,71 @@ def feasibility_project(elev, shape_constraints, hard, *,
             if _hnb_on:
                 lo, hi = _hnb_isect(i, lo, hi, "envelope_clamp")
             elev[i] = min(max(elev[i], lo), hi)  # clamp into the envelope
+            # ── THE BAND BINDS PER SWEEP (cycle-5 spec fix 2) ──────
+            # The clamp above is ONE-SHOT: applied here, before any
+            # sweep, and then the sweeps relax it away.  Caps bind per
+            # sweep, node boxes bind per sweep, and the reach band —
+            # the law that decides WHERE on the plateau a pavement
+            # seats — bound once.  The tree already said so at
+            # ``solve.py``: "the phase-A/B floors alone don't survive
+            # the projections (min-displacement POCS knows caps, not
+            # floors, and projects the lift away)".
+            #
+            # DECISIVE MEASUREMENT (attribution dossier §3, fp#8 EXIT,
+            # 19,067 banded nodes): 11,144 BELOW their own floor (worst
+            # 89.637 m) versus 112 above their ceiling (worst 0.187 m)
+            # — 99.5 : 1.  A two-sided band producing a one-sided error
+            # at that ratio is a mechanism, not noise: the ceiling
+            # binds and the floor does not.  Across all 8 recorded
+            # stages the below-floor count never improves; it ends
+            # WORSE than it started.
+            #
+            # So the interval joins the SAME per-node channel the
+            # boxes use (``bound_of`` → ``_node_box_arrays``), which
+            # clamps at seed and after every sweep in all three
+            # kernels.  Per-node by construction, so it can no more
+            # pull a neighbour than a seat box can.
+            #
+            # An INVERTED band (``lo > hi``) gets NO box: an empty box
+            # would clamp to ``hi`` silently every sweep and freeze the
+            # node.  It keeps the recorded-and-movable handling above.
+            if lo <= hi and (lo > -INF or hi < INF):
+                _band_box[i] = (lo, hi)
+        # ── MERGE THE BAND INTO THE PER-SWEEP BOX CHANNEL (fix 2) ────
+        # After the loop so every band interval is known, and with the
+        # same guards ``bound_of`` was built under: hard nodes are held
+        # not yielded, flat-group members are carried by their
+        # representative, and an EMPTY intersection is never written as
+        # a box (it would clamp to ``hi`` every sweep and silently
+        # freeze the node).  Where a node already carries a box — a
+        # building seat — the two laws INTERSECT, and a genuinely empty
+        # intersection is a DECLARED CONFLICT: reported, with the
+        # tighter pre-existing box kept, because under
+        # ``feasibility-is-guaranteed`` two laws that cannot both hold
+        # at one vertex is a defect to attribute at source, never a
+        # silent resolution.
+        if _band_box:
+            _bb_added = _bb_isect = _bb_conflict = 0
+            for _bi, (_blo, _bhi) in _band_box.items():
+                if _bi in hard or (gmap and _bi in gmap):
+                    continue
+                _prev = bound_of.get(_bi)
+                if _prev is None:
+                    bound_of[_bi] = (_blo, _bhi)
+                    _bb_added += 1
+                    continue
+                _nlo, _nhi = max(_prev[0], _blo), min(_prev[1], _bhi)
+                if _nlo > _nhi:
+                    _bb_conflict += 1
+                    continue                  # keep the existing box
+                bound_of[_bi] = (_nlo, _nhi)
+                _bb_isect += 1
+            if _os.environ.get("O4_STEP_DEBUG") == "1":
+                print(f"    [env-band] band bound PER SWEEP: {_bb_added} "
+                      f"node box(es) added, {_bb_isect} intersected with "
+                      f"an existing box, {_bb_conflict} DECLARED "
+                      f"CONFLICT(S) (empty intersection — existing box "
+                      f"kept)")
         if _band_env is not None and _os.environ.get("O4_STEP_DEBUG") == "1":
             _bn_none = _bn_ok = 0
             for i in range(n):

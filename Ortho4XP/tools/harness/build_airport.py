@@ -74,6 +74,22 @@ measurement in this repo, and every one of them exits 0 without the check:
    appends a hash-stamped record to
    ``<data repo>/.harness/refresh_ledger.jsonl``.
 
+THE SYNTHETIC WORLDS (``--dem CONST_M``).  ``--dem`` substitutes an
+``auto_patch.constant_dem.ConstantDEM`` for the tile surface — the same
+seam Ortho4XP's own ``tile.dem`` uses.  It is a DEM SOURCE substitution and
+never a law gate: no rule changes, only which surface answers ``alt()``.
+The ruled pair is ``--dem -500`` (low: everything seats at its band FLOOR)
+and ``--dem 10000`` (high: everything seats at its CEILING); NEGATIVES ARE
+LEGAL AND RULED (RULINGS 2026-08-06, "The low extreme is −500 m" — below
+every CIFP value, so floor-seating is guaranteed and below-sea-level
+handling is exercised for free).  The loader's all-zero refusal is
+untouched by this and is never reached: it guards the DISK-COMPOSE branch,
+where zero means the base raster is ABSENT, while a synthetic DEM arrives
+as ``override_dem`` and is returned before it.  The world is recorded in
+``<tag>.result.json`` and ``<tag>.frame.json`` under ``synthetic_dem`` —
+a census row from a −500 m world is not comparable with a real-DEM one,
+so which world it was must be IN the artifact.
+
 WHAT IT RECORDS, always, next to the patch:
 
 * ``<tag>.env.json`` — the environment snapshot: every ``O4_*`` variable,
@@ -1059,11 +1075,37 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
     ap_cfg.LOG_VERBOSITY = max(1, getattr(ap_cfg, "LOG_VERBOSITY", 0))
 
     kw = {"compute_elevations": True}
+    synthetic = None
     if const_dem is not None:
-        from auto_patch.constant_dem import ConstantDEM   # noqa: E402
-        kw["tile_dem"] = ConstantDEM(float(const_dem))
-        prog.note(f"CONSTANT-DEM world: {const_dem} m (oracle build — this "
-                  f"is a DEM SOURCE substitution, not a law gate)")
+        # THE SYNTHETIC PATH, EXPLICIT (owner ruling 2026-08-05 §3: the
+        # loader's all-zero refusal stays for PRODUCTION data and gains an
+        # explicit synthetic path for the oracle — "the guard catches
+        # absent data, not constant data").  Nothing here is a law gate and
+        # no rule changes: the ONLY difference from a production build is
+        # which surface answers ``alt()``.  The constant is whatever the
+        # caller asked for, NEGATIVES INCLUDED — the ruled low world is
+        # −500 m (RULINGS 2026-08-06) and the DEM ≡ 1 m interim it
+        # supersedes was a dodge around a guard this path never reaches.
+        from auto_patch.constant_dem import (              # noqa: E402
+            ConstantDEM, PLATEAU_ELEVATION_M, CANYON_ELEVATION_M)
+        synthetic = ConstantDEM(float(const_dem))
+        kw["tile_dem"] = synthetic
+        ruled = {PLATEAU_ELEVATION_M: "the ruled LOW world (plateau: every "
+                                      "free value seats at its band FLOOR)",
+                 CANYON_ELEVATION_M: "the ruled HIGH world (canyon: every "
+                                     "free value seats at its band CEILING)"}
+        prog.note(f"SYNTHETIC CONSTANT-DEM world: {synthetic.elevation_m:g} m "
+                  f"[{synthetic.world_label}] — "
+                  f"{ruled.get(synthetic.elevation_m, 'a custom constant')}.  "
+                  f"This is an EXPLICIT DEM SOURCE SUBSTITUTION, not a law "
+                  f"gate: no rule changes, only which surface answers alt().")
+        if synthetic.elevation_m < 0:
+            prog.note(f"  below sea level by {-synthetic.elevation_m:g} m — "
+                      f"exercised deliberately (RULINGS 2026-08-06, 'The low "
+                      f"extreme is −500 m').  The real DEM frame's cache "
+                      f"warmth is irrelevant here; the loader's all-zero "
+                      f"guard is never reached, because an oracle DEM "
+                      f"arrives as override_dem.")
 
     guard = write_guard if write_guard is not None else SharedRepoWriteGuard(
         set(), root)
@@ -1099,6 +1141,15 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
         # ``_``-prefixed keys are stripped before any JSON dump.
         "_layout": layout,
         "icao": icao, "tag": tag, "patch": str(osm), "sidecar": str(side),
+        # The synthetic world, recorded ON THE BUILD.  A census row from a
+        # −500 m world and one from a real-DEM build are not comparable,
+        # and "which world" must be IN the artifact, not in the tag string
+        # a later reader has to parse (frame stamps, RULINGS 2026-08-06).
+        "synthetic_dem": (None if synthetic is None else
+                          {"elevation_m": synthetic.elevation_m,
+                           "world": synthetic.world_label,
+                           "is_synthetic": True,
+                           "source": synthetic.source_path}),
         "build_seconds": round(dt, 1), "shapes": len(layout.shapes),
         "body_sha256": body_sha256(osm),
         "sidecar_present": side.exists(),
@@ -1210,9 +1261,17 @@ def main(argv=None) -> int:
                     help="--tile only: the scenery pack directory")
     ap.add_argument("--out", type=Path, default=Path("/tmp/harness"),
                     help="output directory (default /tmp/harness)")
-    ap.add_argument("--dem", type=float, default=None,
-                    help="build against a CONSTANT DEM of this elevation "
-                         "(the oracle world — see tools/harness/oracle.py)")
+    ap.add_argument("--dem", type=float, default=None, metavar="CONST_M",
+                    help="build against a SYNTHETIC CONSTANT DEM of this "
+                         "elevation — the oracle world (see "
+                         "tools/harness/oracle.py).  An explicit DEM SOURCE "
+                         "substitution, never a law gate.  NEGATIVES ARE "
+                         "LEGAL and are the point: the ruled low world is "
+                         "-500 (RULINGS 2026-08-06, 'The low extreme is "
+                         "-500 m'), below every CIFP value, so floor-seating "
+                         "is guaranteed and below-sea-level handling is "
+                         "exercised.  The high world is 10000.  The only "
+                         "refused value is the no-data sentinel -32768.")
     ap.add_argument("--allow-degraded-dem", action="store_true",
                     help="proceed with a cold cache / divergent cfg frame, "
                          "KNOWINGLY (recorded in the env snapshot)")
@@ -1405,6 +1464,7 @@ def main(argv=None) -> int:
     frame["write_guard_armed"] = guard.enabled
     frame["write_guard_blocked"] = guard.blocked
     frame["dem_frame_effective"] = frame_surface_keys(root)
+    frame["synthetic_dem"] = result.get("synthetic_dem")
     frame["dem_inset_provenance"] = result.get("dem_inset_provenance")
     frame["dem_cache_after"] = (dem_cache_state(root, lat, lon)
                                 if lat is not None else None)

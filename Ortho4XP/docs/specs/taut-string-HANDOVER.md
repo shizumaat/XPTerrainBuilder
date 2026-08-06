@@ -214,6 +214,23 @@ certificate +8,234 — same underpricing suspected. Q4 (P∘D +219)
 unresolved, chored. Tool debt: interval_reach_replay unfaithful to
 fp#8 (missing dump keys) — extension chored.
 
+**THE PLAN (owner-reviewed 2026-08-06; rulings of the day: instrument
+truth · low world −500 m · frontage ⇒ band seating · ONE graph):**
+(1) land+merge c7cert (in flight: convergence exit, band seating,
+honest certificate, slab attribution); (2) OWNER KML review of the
+seam-pin route (phantom coupling vs real — his verdict); (3) cycle
+7.5 consolidation: synthetic −500 path (+0.66 m provenance),
+standing-instrument sweep (#21), harness hygiene (#20/#23), ONE
+battery re-minting the frame of record at −500 (dual purpose);
+(4) CYCLE 8 = the one-graph round (spec lead-owed): groundside joins
+the route graph, D′ + KCLT svc dissolve by construction — the last
+architecture item; (5) endgame: per-row (a)-(d) on the −500/10,000
+pair to zero-plus-declared; (6) flat-green ⇒ the real-DEM
+reintroduction event (deliberate, harness); (7) sim pass →
+compare-target re-cut → final-design profiling round. RISK REGISTER:
+fix-4 slab attribution (last unnamed mass), the seam-pin verdict
+(owner's), below-sea-level handling at −500 (never exercised).
+
 NEXT TARGETS (ranked):
 1. **The solve's UNCERTIFIED exit is the real plateau author** —
    attribute the empty polytope per family (ENTRY/EXIT certificate +

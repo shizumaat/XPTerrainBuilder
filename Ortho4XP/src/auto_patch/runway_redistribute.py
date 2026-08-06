@@ -1374,29 +1374,14 @@ def redistribute_runway_profile(
         }
 
         # ── THE WORLD-INVARIANT LINE (cycle-5 canyon-flex spec, fix 1) ──
-        # The band-inversion reader's CIFP verdict is a function of
-        # exactly these numbers: the CIFP pins, the station geometry and
-        # the runway's OWN law caps.  Printing them makes the invariance
-        # MEASURABLE — the same line in a DEM≡0 and a DEM≡10,000 m build
-        # is the proof that the verdict cannot move with the world, and a
-        # line that DOES move names the leak.  One line per runway.
-        try:
-            from O4_UI_Utils import vprint as _vp_inv
-            _pins = profiles[ref].get('cifp_pins') or ()
-            _pin_txt = [(round(float(t), 6), round(float(e), 4))
-                        for (t, e) in _pins]
-            _end_law = _law["end_grade"]
-            _end_txt = ("none" if _end_law is None
-                        else f"{_end_law * 100:.4f}%")
-            _vp_inv(1,
-                    f"  [pav-builder] runway {ref}: CIFP pins "
-                    f"(WORLD-INVARIANT) {_pin_txt}; law caps main "
-                    f"{_MAIN_CAP * 100:.4f}% end {_end_txt}; axis "
-                    f"{axis_len:.3f} m (as-solved end zone "
-                    f"{end_zone_cap * 100:.4f}%, threshold "
-                    f"{threshold_cap * 100:.4f}%).")
-        except ImportError:
-            pass
+        # Extracted into :func:`report_cifp_world_invariant` so it has a
+        # known-answer twin (RULINGS 2026-08-06 binding point 1) and so
+        # the twin can assert AGREEMENT with the second reader of the
+        # same quantities, ``building_feasibility._anchor_cifp_envelopes``
+        # (binding point 4).  Pure print; the extraction moves no state.
+        report_cifp_world_invariant(
+            ref, profiles[ref].get('cifp_pins') or (), _MAIN_CAP,
+            _law["end_grade"], axis_len, end_zone_cap, threshold_cap)
 
         # Evaluate the new profile at every runway sub-rect's vertex.
         n_touched += _apply_profile_to_shapes(
@@ -1404,6 +1389,57 @@ def redistribute_runway_profile(
             fractions, elevs)
 
     return n_touched
+
+
+def report_cifp_world_invariant(ref, cifp_pins, main_cap, end_grade_law,
+                                axis_len, end_zone_cap, threshold_cap):
+    """Print — and RETURN — the world-invariant CIFP inputs for ``ref``.
+
+    THE INSTRUMENT (cycle-5 canyon-flex spec, fix 1).  The band-inversion
+    reader's CIFP verdict is a function of exactly these numbers: the
+    CIFP pins, the station geometry (axis length) and the runway's OWN
+    law caps.  Printing them makes the invariance MEASURABLE — the same
+    line in a DEM ≡ −500 m and a DEM ≡ 10,000 m build is the proof that
+    the verdict cannot move with the world (RULINGS 2026-08-06 "The low
+    extreme is −500 m"), and a line that DOES move names the leak.  This
+    is also the one printed verdict-shaped claim in the flex stack that
+    binding point 2 explicitly ALLOWS, because "WORLD-INVARIANT" is a
+    property of the computation, not an interpretation of the result.
+
+    THE SECOND READER (binding point 4).  These same three inputs are
+    what ``building_feasibility._anchor_cifp_envelopes`` prices its
+    envelope ``lo = max_p(e_p − budget(t, t_p))``, ``hi = min_p(e_p +
+    budget(t, t_p))`` from.  The returned dict is that reader's input
+    set, so a twin can reconstruct the envelope from THIS line's numbers
+    and assert the two agree — see
+    ``tests/test_solve_certificate_instrument.py``.
+
+    Returns the reported values (pins as printed — i.e. ROUNDED to the
+    printed precision, which is the materiality this instrument can be
+    held to: 1e-6 in ``t``, 1e-4 m in elevation)."""
+    _pin_txt = [(round(float(t), 6), round(float(e), 4))
+                for (t, e) in (cifp_pins or ())]
+    _end_txt = ("none" if end_grade_law is None
+                else f"{end_grade_law * 100:.4f}%")
+    out = {"ref": ref, "cifp_pins": _pin_txt,
+           "main_cap": float(main_cap),
+           "end_grade_law": (None if end_grade_law is None
+                             else float(end_grade_law)),
+           "axis_len_m": float(axis_len),
+           "end_zone_cap": float(end_zone_cap),
+           "threshold_cap": float(threshold_cap)}
+    msg = (f"  [pav-builder] runway {ref}: CIFP pins "
+           f"(WORLD-INVARIANT) {_pin_txt}; law caps main "
+           f"{main_cap * 100:.4f}% end {_end_txt}; axis "
+           f"{axis_len:.3f} m (as-solved end zone "
+           f"{end_zone_cap * 100:.4f}%, threshold "
+           f"{threshold_cap * 100:.4f}%).")
+    try:
+        from O4_UI_Utils import vprint as _vp_inv
+        _vp_inv(1, msg)
+    except ImportError:                                # pragma: no cover
+        print(msg)
+    return out
 
 
 def _apply_profile_to_shapes(shapes, ax_a_x, ax_a_y, ax_dx, ax_dy,
@@ -1967,14 +2003,28 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
             _relaxed = {(k - 1 if k > drop_index else k)
                         for k in _relaxed if k != drop_index}
         if _refusals:
+            # LOUD, never silent (RULINGS 2026-08-06 "Instrument truth is
+            # law"): a layout that refuses the attribute drops the WHOLE
+            # refusal ledger, and the solve's flex report then prints no
+            # REFUSALS block at all — indistinguishable from "there were
+            # no refusals".  Say so instead of swallowing it.
             try:
                 _led = getattr(layout, "_flex_refusal_ledger", None)
                 if _led is None:
                     _led = []
                     layout._flex_refusal_ledger = _led
                 _led.extend(_refusals)
-            except AttributeError:                         # pragma: no cover
-                pass
+            except AttributeError as _led_exc:              # pragma: no cover
+                _msg = (f"  [pav-builder] runway {ref}: refusal ledger "
+                        f"DROPPED — {len(_refusals)} event(s) could not "
+                        f"be published on the layout "
+                        f"({type(_led_exc).__name__}: {_led_exc}); the "
+                        f"flex REFUSALS report will be missing them.")
+                try:
+                    from O4_UI_Utils import vprint as _vp_led
+                    _vp_led(1, _msg)
+                except ImportError:
+                    print(_msg)
         if _worst_over_cap(fractions, elevs) is not None:
             continue        # even target-free re-solve over cap: keep as-was
         profile['fractions'] = list(fractions)

@@ -48,6 +48,11 @@ _INF = float("inf")
 # ``solve`` imports ``one_solve`` and not the reverse.
 _CATCH_ALL_FAMILY_TAGS = frozenset(("unified_graph", "?:-"))
 
+# The label for an over-cap pair the projection's own ``family_by_pair``
+# does not carry AT ALL.  Named so the report's unresolved accounting and
+# the row label read the same constant (they used to be two literals).
+_UNMAPPED_FAMILY_TAG = "<unmapped>"
+
 
 def _entry_family_tag(entry) -> str:
     """The family tag of one ``shape_constraints`` entry.
@@ -60,6 +65,37 @@ def _entry_family_tag(entry) -> str:
     if tag is None:
         tag = f"{entry.get('role') or '?'}:{entry.get('ref') or '-'}"
     return tag
+
+
+# ── FRAME STAMPS (RULINGS 2026-08-06 "Instrument truth is law", §3) ──────
+# "Every reported number carries its frame (tree sha, node space, world,
+# crown space).  Equating two numbers without matching stamps is the
+# two-instruments trap by construction."
+#
+# THE STAMP THIS MODULE OWES.  Every node index printed from inside
+# ``feasibility_project`` — the env-band conflict rows, the uncertified
+# exit's carrier, the family table — is an index into ``elev`` AFTER every
+# flat group has been collapsed onto ``min(group)``.  That is NOT the
+# solve's original node space, and the difference is measured, not
+# hypothetical: the c6attr dossier's two certificate readers ran on
+# 142,635 / 144,056 nodes here against ``UnifiedGraph``'s 146,743, and the
+# worst residual of the whole HECA solve (60.772738 m, carrier
+# ``(962,5037)``) resolves in NEITHER authority (see
+# :func:`_exit_residual_by_family`).  An index printed without this stamp
+# cannot be joined to either reader, so the disagreement stays invisible.
+_NODE_SPACE_FP_REMAPPED = "fp-remapped"
+
+
+def _node_space_stamp(n, n_edges=None, label=_NODE_SPACE_FP_REMAPPED):
+    """The node-space frame stamp for a report line.  Pure string.
+
+    ``fp-remapped`` = ``feasibility_project``'s own index space: an index
+    into ``elev`` with every flat-group member aliased onto its
+    representative ``min(group)``.  ``n`` is that space's SIZE, which is
+    the number a reader joins against.
+    """
+    tail = "" if n_edges is None else f", edges={n_edges}"
+    return f"[node-space {label}: n={n}{tail}]"
 
 # ── THE ENVELOPE GATES — ONE default per flag, DEFINED ONCE ──────────────
 # (spec ``docs/specs/route-metric-envelope-spec.md`` §1: "Resolve the
@@ -1009,6 +1045,30 @@ def _carrier_line(tag, carrier):
     return f"    [stall-report]   {tag} carrier: unknown kind {kind!r}"
 
 
+def _lu_class(ga, gb):
+    """The ``L − U`` class label for one carrier pair — ONE authority for
+    both report sites, so the two can never drift.
+
+    THE POSITIVE BRANCH IS A PROOF, AND ONLY THE POSITIVE BRANCH.
+    ``L > U`` on RAW-LAW budgets is world-invariant: for the difference
+    system ``|z_i − z_j| ≤ b_ij`` with pinned anchors, ``L > U`` at a node
+    means no assignment satisfies it, whatever else is true.
+
+    The negative branch used to print the word ``feasible``, which INVERTS
+    the guarantee.  :func:`_stall_envelope_gap` OMITS interval (slab)
+    edges and node boxes, and its own two route rules (no zero-budget hop,
+    never through a pad interior) drop routes as well — every one of those
+    omissions only ever REMOVES constraints, which is exactly what makes
+    the POSITIVE verdict conservative-and-certain and leaves the negative
+    one proving nothing at all.  ``L ≤ U`` here is the ABSENCE of a proof.
+    The label now says that and nothing more.
+    """
+    if max(ga, gb) > 1e-9:
+        return "INFEASIBLE (L>U proved)"
+    return ("not-proved-infeasible (L<=U; slab edges + node boxes omitted "
+            "from this envelope)")
+
+
 def _stall_guard_report(np, sweeps, max_iters, detect_sweep, detect_active,
                         detect_worst, detect_carrier, active_count, worst,
                         carrier, endpoint_i, endpoint_j, raw_budget_column,
@@ -1042,7 +1102,8 @@ def _stall_guard_report(np, sweeps, max_iters, detect_sweep, detect_active,
     sweep budgets; see :func:`_stall_envelope_gap`.  The per-carrier
     ``budget=``/``residual=`` figures in the carrier lines stay in the
     SWEEP frame: they describe the sweep that stalled, not the law."""
-    print(f"    [stall-report] edges={len(interval_mask)} n={n}: STALLED "
+    print(f"    [stall-report] "
+          f"{_node_space_stamp(n, len(interval_mask))}: STALLED "
           f"at sweep {detect_sweep}/{max_iters}, ran to {sweeps} "
           f"({max(0, sweeps - detect_sweep)} sweep(s) burned after "
           f"detection); active violating edges {detect_active} -> "
@@ -1081,10 +1142,10 @@ def _stall_guard_report(np, sweeps, max_iters, detect_sweep, detect_active,
           f"{verdict['infeasible']} of {verdict['reachable']} reachable, "
           f"max gap {verdict['max_gap']:.6f} m [RAW-LAW budgets]")
     for (pa, pb, ga, gb) in verdict["pairs"]:
-        klass = ("INFEASIBLE" if max(ga, gb) > 1e-9 else "feasible")
         print(f"    [stall-report]   carrier ({pa},{pb}) L-U = "
-              f"{ga:.6f} / {gb:.6f} -> {klass}"
-              f"  (stalled residual {worst:.6f})")
+              f"{ga:.6f} / {gb:.6f} -> {_lu_class(ga, gb)}"
+              f"  (stalled residual {worst:.6f}) [RAW-LAW budgets] "
+              f"{_node_space_stamp(n)}")
 
 
 def _exit_residual_census(np, tol, endpoint_i, endpoint_j, budget_column,
@@ -1214,7 +1275,7 @@ def _exit_residual_by_family(np, tol, endpoint_i, endpoint_j, budget_column,
         a = int(ei[k])
         b = int(ej[k])
         key = ((a, b) if a <= b else (b, a)) + (bool(iv[k]),)
-        fam = family_by_pair.get(key, "<unmapped>")
+        fam = family_by_pair.get(key, _UNMAPPED_FAMILY_TAG)
         row = out.get(fam)
         if row is None:
             row = out[fam] = [0, 0, 0.0, 0]
@@ -1229,12 +1290,30 @@ def _exit_residual_by_family(np, tol, endpoint_i, endpoint_j, budget_column,
     return {k: tuple(v) for k, v in out.items()}
 
 
-def _report_exit_families(families, top=10):
-    """Print an :func:`_exit_residual_by_family` result, worst count first."""
+def _report_exit_families(families, top=10, n=None, n_edges=None):
+    """Print an :func:`_exit_residual_by_family` result, worst count first.
+
+    ``n`` / ``n_edges`` are the FRAME (RULINGS 2026-08-06 §3): every index
+    and every count in this table lives in the ``fp-remapped`` node space,
+    and the size of that space is the number a reader joins against.
+
+    THE UNRESOLVED SHARE IS ITS OWN NUMBER (standing-instrument sweep,
+    2026-08-06).  Two disjoint things used to disappear into the table's
+    rows: a pair the projection's ``family_by_pair`` does not carry at all
+    (``_UNMAPPED_FAMILY_TAG``), and a pair whose entry named only a
+    CONSTRUCTION SITE (``_CATCH_ALL_FAMILY_TAGS``) that the original-space
+    ``family_of`` map did not resolve either — i.e. an edge no law-family
+    authority names.  The owner's ruling cites "the certificate's 80.6 %
+    catch-all" as one of the falsified premises, so that share is printed
+    as a counted number every time the table prints, zero included.  This
+    function reports the counts and the membership rule; it draws no
+    conclusion from them.
+    """
     if not families:
         return
     rows = sorted(families.items(), key=lambda kv: -kv[1][0])
     print(f"    [stall-report]   residual BY FAMILY "
+          f"{_node_space_stamp(n, n_edges)} "
           f"({len(rows)} violating family(ies); "
           f"n_over / n≥{PROJECTION_MATERIALITY_M:g} m / worst / interval):")
     for fam, (n_over, n_mat, worst, n_int) in rows[:top]:
@@ -1244,6 +1323,21 @@ def _report_exit_families(families, top=10):
         rest = sum(v[0] for _, v in rows[top:])
         print(f"    [stall-report]     ... {len(rows) - top} more "
               f"family(ies), {rest} edge(s)")
+    total = sum(v[0] for v in families.values())
+    n_unmapped = families.get(_UNMAPPED_FAMILY_TAG, (0,))[0]
+    n_catch_all = sum(v[0] for k, v in families.items()
+                      if k in _CATCH_ALL_FAMILY_TAGS)
+    unresolved = n_unmapped + n_catch_all
+    share = (100.0 * unresolved / total) if total else 0.0
+    # The two tag SETS are named by their constants rather than spelled
+    # out: a tag literal in this report's output must mean an actual
+    # family ROW, or every negative assertion about a bucket label goes
+    # non-specific.
+    print(f"    [stall-report]     NAMED BY NEITHER AUTHORITY: "
+          f"{unresolved} of {total} over-cap edge(s) ({share:.1f}%) = "
+          f"{n_unmapped} absent from family_by_pair + {n_catch_all} left "
+          f"on a construction-site tag (_CATCH_ALL_FAMILY_TAGS) that the "
+          f"original-space family_of map did not resolve")
 
 
 def _uncertified_exit_report(np, tol, sweeps, max_iters,
@@ -1284,23 +1378,36 @@ def _uncertified_exit_report(np, tol, sweeps, max_iters,
     ``exit_reason`` says which of four events fired, and the report leads
     with it:
 
-      * ``"material"`` — MATERIALLY CERTIFIED: no edge is at or above
-        ``config.PROJECTION_MATERIALITY_M``.  Every residual left is
-        PASS-with-residual by ruling; this is a clean exit wearing an
-        honest floor, not a failure.
-      * ``"converged"`` — the ≥-material count STOPPED FALLING.  The
-        sweeps are not the problem: this projection has converged to a
-        point that violates N constraints, so the law + anchor system
-        handed to it has no solution near here.  Under docs/RULINGS.md
-        2026-08-05 ("there is no lawful-infeasible ground") that is a
-        BUG, INCOMPLETE LAW, INCORRECT LAW or BROKEN INSTRUMENT — never
-        an answer, and never a property of the terrain.
-      * ``"cap"`` — the absolute anti-hang ceiling
-        (``config.SWEEP_BUDGET_MAX``) fired while the count was still
-        falling.  THE GUARD DECIDED THIS SURFACE; the report says so in
-        those words and prints the last block's drop, so nobody has to
-        infer it.
+      * ``"material"`` — the block-boundary count of edges at or above
+        ``config.PROJECTION_MATERIALITY_M`` reached 0.
+      * ``"converged"`` — ``SWEEP_CONVERGENCE_PATIENCE`` consecutive
+        blocks each bought less than ``max(1, SWEEP_CONVERGENCE_MIN_DROP
+        × previous n_material)`` edges.
+      * ``"cap"`` — ``sweeps`` reached ``hard_cap``
+        (``config.SWEEP_BUDGET_MAX`` in production).
       * ``"certified"`` never reaches this report.
+
+    WHAT THIS REPORT MAY SAY ABOUT THEM: the numbers, the predicate that
+    fired, and the constants by name and value — nothing else (RULINGS
+    2026-08-06 "Instrument truth is law" §2).  Two claims used to be
+    printed here and BOTH are deleted as unlicensed:
+
+      * on ``"converged"``, that the exit "is NOT budget exhaustion" and
+        that "the polytope is EMPTY".  The premise is a STOPPING
+        HEURISTIC on a diffusive relaxation; slow convergence and an
+        empty intersection produce the IDENTICAL trace, and the c6attr
+        sweep ladders measured exactly that (100x/400x budgets closed a
+        third of HECA's and over half of HEAZ's residual on a system the
+        line had already called empty).  This is the sentence the owner's
+        own ruling preamble names as the falsified premise.
+      * on ``"cap"``, that "THE GUARD DECIDED THIS SURFACE" and an
+        instruction on how to read it.  ``sweeps >= hard_cap`` is the
+        fact; it is printed, and the reader adjudicates.
+
+    An infeasibility finding is still governed by docs/RULINGS.md
+    2026-08-05 (BUG / INCOMPLETE LAW / INCORRECT LAW / BROKEN
+    INSTRUMENT) — but that verdict belongs to the law layer reading these
+    numbers, not to the print statement producing them.
 
     ``block_trace`` — one row per block ``(sweeps, n_over, n_material,
     worst, drop)``.  The last three rows are printed: they are the
@@ -1356,7 +1463,7 @@ def _uncertified_exit_report(np, tol, sweeps, max_iters,
     }.get(exit_reason,
           "UNCERTIFIED EXIT [imposed budget]" if imposed
           else "UNCERTIFIED EXIT [hard cap]")
-    print(f"    [stall-report] edges={len(interval_mask)} n={n}: "
+    print(f"    [stall-report] {_node_space_stamp(n, len(interval_mask))}: "
           f"{headline} at sweep {sweeps}/{hard_cap} "
           f"({max(0, hard_cap - sweeps)} sweep(s) abandoned; "
           f"{len(block_trace or ())} block(s) of {block}); "
@@ -1366,34 +1473,65 @@ def _uncertified_exit_report(np, tol, sweeps, max_iters,
     drop_txt = ("n/a (first block)" if last_block_drop is None
                 else f"{last_block_drop:+d} edge(s) >= "
                      f"{PROJECTION_MATERIALITY_M:g} m")
+    # ── THE CRITERION PARAGRAPH IS NUMBERS AND CONSTANTS ─────────────────
+    # (standing-instrument sweep 2026-08-06, RULINGS "Instrument truth is
+    # law" §2: an instrument reports NUMBERS AND FRAMES; a verdict sentence
+    # may be printed only by the law layer or from a WORLD-INVARIANT
+    # computation.)  Each branch prints the PREDICATE THAT FIRED with its
+    # constants by name and value, and the measured trajectory — so a
+    # reader applies the criterion themselves rather than being handed a
+    # conclusion this code cannot check.
     if exit_reason == "material":
-        print(f"    [stall-report]   {basis}; CRITERION: materiality — no "
-              f"edge is at or above {PROJECTION_MATERIALITY_M:g} m, so "
-              f"every remaining residual is PASS-with-residual by ruling. "
-              f"Last block drop {drop_txt}.")
+        # The floor itself is a named owner ruling (convergence guard (a),
+        # 2026-08-02, ``config.PROJECTION_MATERIALITY_M``); the ADJUDICATION
+        # of a sub-floor residual belongs to the law layer, so the report
+        # states the count and cites where the constant comes from.
+        print(f"    [stall-report]   {basis}; criterion=materiality: "
+              f"n_material=0 (materiality {PROJECTION_MATERIALITY_M:g} m = "
+              f"config.PROJECTION_MATERIALITY_M, owner convergence guard "
+              f"(a) 2026-08-02); n_over={active}; "
+              f"worst residual {worst:.6f} m; last block drop {drop_txt}")
     elif exit_reason == "converged":
-        print(f"    [stall-report]   {basis}; CRITERION: convergence — the "
-              f">= {PROJECTION_MATERIALITY_M:g} m count stopped falling "
-              f"({SWEEP_CONVERGENCE_PATIENCE} consecutive block(s) below "
-              f"{SWEEP_CONVERGENCE_MIN_DROP:.1%} relative improvement; last "
-              f"block drop {drop_txt}). This is NOT budget exhaustion: the "
-              f"projection has converged to a point that violates {active} "
-              f"constraint(s), so the polytope is EMPTY (a law / anchor / "
-              f"instrument defect — RULINGS 2026-08-05, there is no "
-              f"lawful-infeasible ground)")
+        # THE MEASURED STOPPING RULE, VERBATIM (one_solve, block boundary):
+        #     flat_blocks += 1 when last_block_drop <
+        #         max(1, int(SWEEP_CONVERGENCE_MIN_DROP * prev_material))
+        #     exit when flat_blocks >= SWEEP_CONVERGENCE_PATIENCE
+        # Nothing about the feasible set follows from it: slow diffusive
+        # POCS convergence and an empty intersection produce the identical
+        # trace (measured — c6attr, 100x/400x sweep ladders).  The old
+        # sentence asserted "NOT budget exhaustion … the polytope is EMPTY"
+        # from this premise; it is DELETED, and the trajectory that would
+        # have to be read to reach any such verdict is printed instead.
+        _tr = list(block_trace or ())
+        _traj = " -> ".join(str(_row[2]) for _row in
+                            _tr[-(SWEEP_CONVERGENCE_PATIENCE + 2):]) or "n/a"
+        _prev_material = _tr[-2][2] if len(_tr) >= 2 else None
+        _floor_txt = ("n/a" if _prev_material is None else
+                      str(max(1, int(SWEEP_CONVERGENCE_MIN_DROP
+                                     * _prev_material))))
+        print(f"    [stall-report]   {basis}; criterion=convergence: "
+              f"flat_blocks >= SWEEP_CONVERGENCE_PATIENCE="
+              f"{SWEEP_CONVERGENCE_PATIENCE}, a block counting as flat when "
+              f"its drop < max(1, SWEEP_CONVERGENCE_MIN_DROP="
+              f"{SWEEP_CONVERGENCE_MIN_DROP:.1%} x previous n_material) = "
+              f"{_floor_txt} edge(s); n_material trajectory over the last "
+              f"{len(_tr[-(SWEEP_CONVERGENCE_PATIENCE + 2):])} block(s) "
+              f"{_traj}; last block drop {drop_txt}; at exit n_material="
+              f"{n_material}, n_over={active}, worst residual {worst:.6f} m")
     elif imposed:
-        print(f"    [stall-report]   {basis}; CRITERION: the IMPOSED "
-              f"budget {hard_cap} ran out (last block drop {drop_txt}) — "
-              f"the CALLER'S BOUND decided this surface, not convergence. "
-              f"This exit says nothing about the polytope.")
+        print(f"    [stall-report]   {basis}; criterion=imposed-budget: "
+              f"sweeps {sweeps} reached the caller's bound {hard_cap} "
+              f"(sweep_budget_basis=None); last block drop {drop_txt}; at "
+              f"exit n_material={n_material}, n_over={active}, worst "
+              f"residual {worst:.6f} m. This exit reports no property of "
+              f"the feasible set.")
     else:
-        print(f"    [stall-report]   {basis}; CRITERION: HARD CAP "
-              f"{hard_cap} — the anti-hang ceiling "
-              f"(config.SWEEP_BUDGET_MAX in production) fired BEFORE the "
-              f"convergence criterion could (last block drop {drop_txt}). "
-              f"THE GUARD DECIDED THIS SURFACE, not convergence: attribute "
-              f"the graph or raise the ceiling, and do NOT read this as an "
-              f"empty polytope.")
+        print(f"    [stall-report]   {basis}; criterion=cap: sweeps "
+              f"{sweeps} reached hard_cap {hard_cap} "
+              f"(config.SWEEP_BUDGET_MAX in production) with "
+              f"last_block_drop {drop_txt}; at exit n_material="
+              f"{n_material}, n_over={active}, worst residual "
+              f"{worst:.6f} m")
     # The last three blocks are the EVIDENCE for whichever criterion
     # fired.  Under the existing step-debug channel the WHOLE trajectory
     # prints — that is the convergence curve, and it is the difference
@@ -1417,7 +1555,7 @@ def _uncertified_exit_report(np, tol, sweeps, max_iters,
             np, tol, endpoint_i, endpoint_j, budget_column,
             slab_low_column, slab_high_column, interval_mask, z,
             family_by_pair)
-        _report_exit_families(families)
+        _report_exit_families(families, n=n, n_edges=len(interval_mask))
     verdict = None
     if (worst > tol and carrier is not None
             and carrier[0] in ("sym", "int")
@@ -1441,10 +1579,10 @@ def _uncertified_exit_report(np, tol, sweeps, max_iters,
                   f"reachable, max gap {verdict['max_gap']:.6f} m "
                   f"[RAW-LAW budgets]")
             for (pa, pb, ga, gb) in verdict["pairs"]:
-                klass = "INFEASIBLE" if max(ga, gb) > 1e-9 else "feasible"
                 print(f"    [stall-report]   carrier ({pa},{pb}) L-U = "
-                      f"{ga:.6f} / {gb:.6f} -> {klass}"
-                      f"  (exit residual {worst:.6f})")
+                      f"{ga:.6f} / {gb:.6f} -> {_lu_class(ga, gb)}"
+                      f"  (exit residual {worst:.6f}) [RAW-LAW budgets] "
+                      f"{_node_space_stamp(n)}")
     return {"sweep": sweeps, "max_iters": max_iters,
             "exit_reason": exit_reason, "block": block, "hard_cap": hard_cap,
             "block_trace": block_trace, "n_material": n_material,
@@ -3152,13 +3290,27 @@ def feasibility_project(elev, shape_constraints, hard, *,
                 _bb_isect += 1
             if _bb_rows:
                 import O4_UI_Utils as _UI_band
+                # THE RULE CITATION STAYS; THE PREDICTION GOES.  "the lot
+                # conforms via the terrace/wall machinery" was a
+                # forward-looking claim about ANOTHER subsystem
+                # (groundside terraces/retaining walls) that nothing here
+                # computes or checks — deleted from the report under
+                # RULINGS 2026-08-06 §2 and kept only as this comment,
+                # which is the design intent, not a measurement.  The
+                # UNRESOLVED half is likewise reduced to its MEMBERSHIP
+                # FACT (``_bi not in gs_pin_nodes``): it was a catch-all
+                # bucket labelled with a cause plus an instruction to the
+                # reader, and the box class it actually holds is whatever
+                # was there — the per-node rows below print both
+                # intervals so the reader attributes it themselves.
                 _UI_band.vprint(1,
                     f"    [env-band] {_bb_conflict} DECLARED CONFLICT(S) "
-                    f"band vs pre-existing box: {_bb_yield} resolved "
-                    f"BAND WINS (groundside pin box withdrawn — airside "
-                    f"is king; the lot conforms via the terrace/wall "
-                    f"machinery), {_bb_conflict - _bb_yield} UNRESOLVED "
-                    f"(not a groundside pin box — attribute at source)")
+                    f"band vs pre-existing box "
+                    f"{_node_space_stamp(n)}: {_bb_yield} resolved "
+                    f"BAND WINS (node in gs_pin_nodes; groundside pin box "
+                    f"withdrawn — airside is king, RULINGS 2026-07-30), "
+                    f"{_bb_conflict - _bb_yield} UNRESOLVED (node not in "
+                    f"gs_pin_nodes; pre-existing box kept)")
                 for _ri, (_bi, _pv, _bd, _won) in enumerate(_bb_rows):
                     if _ri >= 20:
                         _UI_band.vprint(1,
@@ -3166,14 +3318,16 @@ def feasibility_project(elev, shape_constraints, hard, *,
                             f"declared conflict(s)")
                         break
                     _UI_band.vprint(1,
-                        f"      node {_bi}: GROUNDSIDE box "
+                        f"      node {_bi} [{_NODE_SPACE_FP_REMAPPED}]: "
+                        f"GROUNDSIDE box "
                         f"[{_pv[0]:.3f}, {_pv[1]:.3f}] vs AIRSIDE band "
                         f"[{_bd[0]:.3f}, {_bd[1]:.3f}] -> "
                         + ("BAND WINS (box withdrawn, ceiling re-derived "
                            "from the band)" if _won else
                            "UNRESOLVED (box kept)"))
             if _os.environ.get("O4_STEP_DEBUG") == "1":
-                print(f"    [env-band] band bound PER SWEEP: {_bb_added} "
+                print(f"    [env-band] band bound PER SWEEP "
+                      f"{_node_space_stamp(n)}: {_bb_added} "
                       f"node box(es) added, {_bb_isect} intersected with "
                       f"an existing box, {_bb_conflict} DECLARED "
                       f"CONFLICT(S) ({_bb_yield} resolved BAND WINS, "
@@ -3189,10 +3343,18 @@ def feasibility_project(elev, shape_constraints, hard, *,
                     _bn_none += 1
                 elif _b[0] <= _b[1]:
                     _bn_ok += 1
-            print(f"    [env-band] envelope from THE graph: "
-                  f"band-inverted={len(_band_broken)} feasible={_bn_ok} "
-                  f"off-net={_bn_none} (pair closure skipped — the band "
-                  f"answers)")
+            # ``non-inverted`` is the whole predicate: ``_b[0] <= _b[1]``,
+            # a NON-EMPTY interval on one node.  It was printed as
+            # ``feasible=``, which claims a property of the whole system
+            # this loop never evaluates (the same over-claiming word the
+            # L−U carrier line carried — see :func:`_lu_class`).
+            # ``pair closure skipped`` is a fact about the branch above;
+            # "the band answers" was an interpretation of these counts.
+            print(f"    [env-band] envelope from THE graph "
+                  f"{_node_space_stamp(n)}: "
+                  f"band-inverted={len(_band_broken)} "
+                  f"non-inverted={_bn_ok} off-net={_bn_none} "
+                  f"(pair-closure envelope not computed: env_band supplied)")
         # ── BREAK FORENSICS (spec reference-honesty Track 1 step 4, gate
         # ``O4_BREAK_FORENSICS=<path>``) ─────────────────────────────────
         # Name every inverted node's floor>ceiling WITNESS PAIR by ANCHOR
@@ -4057,13 +4219,14 @@ def feasibility_project(elev, shape_constraints, hard, *,
         _bw_below.sort(reverse=True)
         import O4_UI_Utils as _UI_bw
         _UI_bw.vprint(1,
-            f"    [env-band] conflict resolution EXIT: "
+            f"    [env-band] conflict resolution EXIT "
+            f"{_node_space_stamp(n)}: "
             f"{len(_band_wins)} band-bound node(s), "
             f"{len(_band_wins) - len(_bw_below)} at or above their band "
             f"floor, {len(_bw_below)} BELOW"
             + ("" if not _bw_below else
                f" (worst {_bw_below[0][0]:.3f} m at node "
-               f"{_bw_below[0][1]})"))
+               f"{_bw_below[0][1]} [{_NODE_SPACE_FP_REMAPPED}])"))
     if _os.environ.get("O4_STEP_DEBUG") == "1" and force_scalar:
         print(f"    [fp-scalar] sweeps={_sweeps_run} last_worst={_last_worst:.4f} "
               f"rem={rem} worst_ex={worst_ex:.3f} groups={len(groups_eff)} "

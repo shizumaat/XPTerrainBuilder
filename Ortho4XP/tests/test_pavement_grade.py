@@ -265,10 +265,13 @@ def test_pavement_grade(tmp_path, icao):
     # sit at different floor levels with a facade/wall between them (SPJC
     # building16 @30.9 abuts building30 @29.5 = a 1.4 m terminal-to-terminal
     # step, correct in X-Plane).  A pad-vs-pavement step is still gated.
-    def _both_buildings(s):
-        return (s.way_v.tags.get("role") == "building"
-                and s.way_e.tags.get("role") == "building")
-    steps = [s for s in steps if not _both_buildings(s)]
+    #
+    # ONE AUTHORITY (cycle-7.5 instrument sweep): this exemption used to be
+    # hand-copied here AND in the harness census — two copies of one law,
+    # the census-wrapper defect class.  Both now call the single registered
+    # reader ``check_grade.step_exempt``; ``tests/test_harness.py`` guards
+    # against a third copy growing back.
+    steps = [s for s in steps if not check_grade.step_exempt(s)]
     step_cap = MID_EDGE_CAP
     if len(steps) > step_cap:
         failures.append(

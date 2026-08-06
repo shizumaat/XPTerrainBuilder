@@ -986,8 +986,10 @@ _STEP_CONTACT_TOL_M = 1.0
 @dataclass
 class ShapePairConstraint:
     """One within-shape grade constraint on a vertex pair (the SINGLE source
-    of truth for the constrained pair set — consumed by the validator AND the
-    feasibility oracle ``tools/grade_feasibility_audit.py``).  The grade law
+    of truth for the constrained pair set — consumed by the validator; the
+    feasibility oracle that was its other consumer,
+    ``tools/attic/grade_feasibility_audit.py``, was retired by the cycle-7.5
+    instrument sweep).  The grade law
     is ``|elev_a - elev_b| <= cap * dist`` plus the emit/weld quantization
     envelope, folded into ``allowance`` by :func:`_pair_grade_allowance`
     (``max(route-baked budget, cap*dist)`` — never TIGHTER than the flat cap —
@@ -4241,6 +4243,58 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
 
 
 # ══════════════════════════════════════════════════════════════════════
+# THE STEP EXEMPTION REGISTER — one authority, every reader
+# ══════════════════════════════════════════════════════════════════════
+# A LAW EXEMPTION that lived as a hand-written closure in TWO report/gate
+# files at once (``tools/harness/census.py`` and
+# ``tests/test_pavement_grade.py``) — the census-wrapper defect class
+# exactly: one law, two copies, and nothing asserting they agree.  It is
+# registered here so both readers call ONE implementation and a change to
+# the exemption cannot move one acceptance number without moving the
+# other.
+#
+#: Exemption name -> the ruling that grants it.  A step row matching a
+#: registered exemption is LAWFUL geometry, not a defect.
+STEP_EXEMPTIONS: Dict[str, str] = {
+    "building_to_building":
+        "owner 2026-06-20: two adjacent terminal/hangar pads are "
+        "independent FLAT surfaces and may legitimately sit at different "
+        "floor levels with a facade/wall between them (SPJC building16 "
+        "@30.9 abuts building30 @29.5 = a 1.4 m terminal-to-terminal step, "
+        "correct in X-Plane).  A pad-vs-pavement step is still gated.",
+}
+
+#: The families ``step_exempt`` is defined over (the ``steps`` bucket).
+STEP_EXEMPT_FAMILIES: Tuple[str, ...] = tuple(
+    key for key, _title, bucket in LAW_FAMILIES if bucket == "steps")
+
+
+def step_exempt(row) -> Optional[str]:
+    """The NAME of the registered exemption this step row holds, else None.
+
+    ``bool(step_exempt(row))`` is the predicate both the harness census and
+    the acceptance gate filter with.  Returns the name rather than a bare
+    bool so a report can say WHICH exemption applied without a second
+    lookup table.
+
+    Total where the two hand-written copies were partial: a row missing
+    ``way_v``/``way_e`` returns None instead of raising.  Every ``EdgeStep``
+    ``run_checks`` emits carries both, so the answer is identical on the
+    measured population — see ``tests/test_census_instrument.py``.
+    """
+    way_v = getattr(row, "way_v", None)
+    way_e = getattr(row, "way_e", None)
+    if way_v is None or way_e is None:
+        return None
+    tags_v = getattr(way_v, "tags", None) or {}
+    tags_e = getattr(way_e, "tags", None) or {}
+    if (tags_v.get("role") == "building"
+            and tags_e.get("role") == "building"):
+        return "building_to_building"
+    return None
+
+
+# ══════════════════════════════════════════════════════════════════════
 # VERSION-DEFERRED ADJUDICATION (owner ruling RULINGS d48bc0a)
 # ══════════════════════════════════════════════════════════════════════
 # INSTRUMENTS REPORT, THE LAW ADJUDICATES.  The owner deferred a named
@@ -4459,23 +4513,39 @@ def sidecar_evidence(osm_path) -> dict:
     return out
 
 
+#: THE LAW-TRUE NUMERIC FRAME.  The knobs ``run_checks_law_true`` binds —
+#: named here rather than written as call literals so a report can SERIALISE
+#: the frame its numbers were taken in (RULINGS 2026-08-06 "Instrument truth
+#: is law", binding point 3: every reported number carries its frame).  Two
+#: census JSONs are comparable only if these agree; before they were in the
+#: report they were knowable only by reading this function's source at the
+#: tree the census ran from.  Values unchanged from the call literals they
+#: replace.
+LAW_TRUE_KNOBS: Dict[str, float] = {
+    "max_grade_pct": 1.5,
+    "proximity_m": SHARED_VERTEX_TOL_M,   # the solver's weld tolerance
+    "edge_search_m": 5.0,
+    "edge_step_m": 0.5,
+}
+
+
 def run_checks_law_true(osm_path, *, family_out: Optional[dict] = None,
                         quiet: bool = True, top_n: int = 0,
                         announce: bool = False, **overrides):
     """``run_checks`` in the patch's OWN law frame — the law-true census.
 
     Reads every law keyword from the sidecar (``law_context_from_sidecar``)
-    and applies the same numeric knobs the suite uses (proximity =
-    the solver's weld tolerance, 5 m edge search, 0.5 m step).  This is
-    THE entry point: the CLI, ``tools/harness/census.py`` and any test that
-    wants a law-true count must call it rather than assembling kwargs.
+    and applies the same numeric knobs the suite uses (``LAW_TRUE_KNOBS``:
+    proximity = the solver's weld tolerance, 5 m edge search, 0.5 m step).
+    This is THE entry point: the CLI, ``tools/harness/census.py`` and any
+    test that wants a law-true count must call it rather than assembling
+    kwargs.
     """
     ctx = law_context_from_sidecar(osm_path, announce=announce)
     ctx.update(overrides)
     return run_checks(
-        Path(osm_path), max_grade_pct=1.5, proximity_m=SHARED_VERTEX_TOL_M,
-        edge_search_m=5.0, edge_step_m=0.5, top_n=top_n, quiet=quiet,
-        family_out=family_out, **ctx)
+        Path(osm_path), top_n=top_n, quiet=quiet,
+        family_out=family_out, **LAW_TRUE_KNOBS, **ctx)
 
 
 def row_side(row) -> str:
@@ -4602,12 +4672,18 @@ def run_checks(
         family_out["_ruleset_declared"] = ruleset
         family_out["_ruleset_active"] = _active
     if not quiet:
+        # NUMBERS AND FRAMES, never a cause.  The old line said the patch
+        # "predates the FAA/ICAO split" and told the reader to rebuild —
+        # a cause this code never verifies (an emitter bug or a truncated
+        # write produce the same absent key) plus an instruction.  What is
+        # verified: what the sidecar declared, what this run judged in,
+        # and where the active value came from.
         if ruleset:
-            print(f"  (ruleset: {_active} — from the patch sidecar)")
+            print(f"  (ruleset declared={ruleset!r} active={_active!r} "
+                  f"source=SIDECAR)")
         else:
-            print(f"  (ruleset: {_active} — DEFAULT; this patch's sidecar "
-                  f"carries no 'ruleset' key, so it predates the "
-                  f"FAA/ICAO split.  Rebuild for a law-true judgment.)")
+            print(f"  (ruleset declared=None active={_active!r} "
+                  f"source=DEFAULT — no 'ruleset' key in the sidecar)")
 
     open_features: Dict[str, List[Way]] = {}
     nodes, ways = _parse_osm(osm_path, feature_out=open_features)
@@ -4721,10 +4797,20 @@ def run_checks(
     # (``config.TAXIWAY_MAX_GRADE_CHANGE_PER_M``), validated on the
     # emitted profile along each sidecar axis.  Reporter-only (not part
     # of the returned violation lists yet — counts calibrate first).
+    #
+    # THE LABEL IS LOAD-BEARING (RULINGS 2026-08-06, binding point 1).
+    # This count is law-SHAPED but is not a law family: it is not in
+    # ``LAW_FAMILIES``, never enters ``family_out``, never reaches
+    # ``adjudication``, and is printed only when ``not quiet`` — so the
+    # harness census (quiet=True) never sees it and no acceptance gate
+    # can act on it.  Printed unlabelled it read exactly like a defect
+    # count.  Its known-answer twin is
+    # ``tests/test_census_instrument.py::TestSpineCurvatureIsReporterOnly``.
     if taxi_axes and not quiet:
         n_kinks, worst_kink = _check_spine_curvature(
             ways, nodes, ll_to_m, taxi_axes)
-        print(f"\nSPINE PROFILE grade-change (vertical curve, "
+        print(f"\n[reporter-only, not a law family, not censused] "
+              f"SPINE PROFILE grade-change (vertical curve, "
               f"noise-aware): {n_kinks} kink(s)"
               + (f", worst excess {worst_kink:.4f}/m" if n_kinks else ""))
 
@@ -4792,7 +4878,7 @@ def run_checks(
         terrace_joints_m=terrace_joints_m)
     _fam("transverse", transverse)
     _pv("TRANSVERSE (cross-corridor) grade > the role/letter transverse "
-        "cap (ICAO Annex 14 Table 3-2 — the law existed, nothing read it)",
+        "cap (ICAO Annex 14 Table 3-2)",
         transverse, top_n)
     if n_tr_rows and not quiet:
         print(f"  ({n_tr_st} transect station(s); {n_tr_rows} censused "
@@ -4836,8 +4922,7 @@ def run_checks(
         strip_long, top_n)
     if n_sl_pairs and not quiet:
         print(f"  ({n_sl_pairs} along-axis strip pair(s) censused over "
-              f"{n_sl_ways} band(s) — NEW visibility: these rows were "
-              f"never read before this reader existed)")
+              f"{n_sl_ways} band(s))")
     within = within + strip_long
 
     # ── §A3(b) — the strip's CURVATURE law ───────────────────────────
@@ -4862,11 +4947,11 @@ def run_checks(
     _fam("resa_transverse", resa_tr)
     _pv("RESA / END-CORRIDOR TRANSVERSE grade > the per-authority cap "
         "(FAA Table 3-6 S-3 inside 61 m, Fig 3-35 ±5% beyond; ICAO "
-        "Annex 14 §3.5.11 ±5% — a law family nothing read before)",
+        "Annex 14 §3.5.11 ±5%)",
         resa_tr, top_n)
     if n_rt_pairs and not quiet:
         print(f"  ({n_rt_pairs} across-corridor pair(s) censused over "
-              f"{n_rt_ways} band(s) — NEW visibility)")
+              f"{n_rt_ways} band(s))")
     within = within + resa_tr
 
     # ── §A4 — the RADIO ALTIMETER OPERATING AREA ─────────────────────
@@ -4890,7 +4975,7 @@ def run_checks(
         drain_min, top_n)
     if n_dm_pairs and not quiet:
         print(f"  ({n_dm_pairs} drainage pair(s) censused over "
-              f"{n_dm_ways} surface(s) — NEW visibility)")
+              f"{n_dm_ways} surface(s))")
     within = within + drain_min
 
     wall_in_strip = _fam(

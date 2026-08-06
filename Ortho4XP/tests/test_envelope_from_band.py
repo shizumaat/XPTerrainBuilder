@@ -335,6 +335,108 @@ def test_the_conflict_is_reported_loud_and_certified_at_exit(
     assert "1 band-bound node(s), 1 at or above their band floor" in out, out
 
 
+# ── THE CONFLICT LINES REPORT FACTS, AND STAMP THEIR NODE SPACE ─────────
+# Standing-instrument sweep 2026-08-06.  Two claims rode these lines that
+# nothing here computes:
+#   * "the lot conforms via the terrace/wall machinery" — a forward-looking
+#     prediction about the groundside terrace/retaining-wall subsystem;
+#   * "attribute at source" on the UNRESOLVED half — a catch-all bucket
+#     labelled with a cause, plus an instruction to the reader.
+# The RULE CITATION stays (this clause does implement airside-is-king) and
+# the membership fact — in ``gs_pin_nodes`` or not — is world-invariant and
+# printable.  Every node index is stamped with the space it lives in.
+
+def test_the_conflict_line_states_membership_not_a_prediction(
+        monkeypatch, capsys):
+    """KNOWN ANSWER: one node, one conflict, resolved because node 1 IS in
+    ``gs_pin_nodes`` — and the report says exactly that."""
+    monkeypatch.delenv("O4_STEP_DEBUG", raising=False)
+    _pin_box_vs_band(monkeypatch, {1})
+    out = capsys.readouterr().out
+    assert ("1 DECLARED CONFLICT(S) band vs pre-existing box "
+            "[node-space fp-remapped: n=2]: 1 resolved BAND WINS "
+            "(node in gs_pin_nodes; groundside pin box withdrawn — "
+            "airside is king, RULINGS 2026-07-30), 0 UNRESOLVED "
+            "(node not in gs_pin_nodes; pre-existing box kept)") in out
+    # the per-node row carries both intervals AND its node space
+    assert ("node 1 [fp-remapped]: GROUNDSIDE box [-1000000000000000000.000, "
+            "4.000] vs AIRSIDE band [90.000, 104.000]") in out
+    assert "conflict resolution EXIT [node-space fp-remapped: n=2]" in out
+    for banned in ("terrace/wall machinery", "attribute at source",
+                   "the lot conforms"):
+        assert banned not in out, f"report code printed {banned!r}"
+
+
+def test_an_unresolved_conflict_is_named_by_its_membership(
+        monkeypatch, capsys):
+    """The complement, KNOWN ANSWER: node 1 is NOT in ``gs_pin_nodes``, so
+    the conflict is 0 resolved / 1 UNRESOLVED — and "UNRESOLVED" is
+    defined by that membership, not by a guessed cause."""
+    monkeypatch.delenv("O4_STEP_DEBUG", raising=False)
+    _pin_box_vs_band(monkeypatch, set())
+    out = capsys.readouterr().out
+    assert ("1 DECLARED CONFLICT(S) band vs pre-existing box "
+            "[node-space fp-remapped: n=2]: 0 resolved BAND WINS") in out
+    assert ("1 UNRESOLVED (node not in gs_pin_nodes; pre-existing box "
+            "kept)") in out
+    assert "UNRESOLVED (box kept)" in out          # the per-node row
+    assert "attribute at source" not in out
+
+
+def test_the_per_sweep_band_box_line_is_a_known_answer(monkeypatch, capsys):
+    """TWIN FOR AN UNTWINNED LINE (the ``O4_STEP_DEBUG`` band-box trace).
+
+    KNOWN ANSWER on the pin-box fixture: node 0 is hard, so the ONLY
+    candidate is node 1, which already carries a groundside box disjoint
+    from its band — 0 added, 0 intersected, 1 declared conflict, 1 of them
+    resolved BAND WINS.  Every count is a partition of the same one node.
+    """
+    monkeypatch.setenv("O4_STEP_DEBUG", "1")
+    _pin_box_vs_band(monkeypatch, {1})
+    out = capsys.readouterr().out
+    assert ("band bound PER SWEEP [node-space fp-remapped: n=2]: 0 node "
+            "box(es) added, 0 intersected with an existing box, 1 DECLARED "
+            "CONFLICT(S) (1 resolved BAND WINS, 0 unresolved — existing "
+            "box kept)") in out
+
+
+def test_the_graph_envelope_line_counts_intervals_not_feasibility(
+        monkeypatch, capsys):
+    """TWIN FOR AN UNTWINNED LINE (the ``O4_STEP_DEBUG`` envelope-from-graph
+    trace), and the calibration that fixes its vocabulary.
+
+    KNOWN ANSWER, one node of each kind among the free nodes: node 1 has
+    no band (off-net), node 2's band INVERTS (25 > 5), node 3's band is a
+    non-empty interval.  Nodes 0 and 4 are hard and never counted.  So the
+    three counters are exactly 1 / 1 / 1.
+
+    ``non-inverted`` is the whole predicate — ``_b[0] <= _b[1]`` on ONE
+    node.  It was printed as ``feasible=``, which names a property of the
+    system that this loop never evaluates (the same over-claim the L−U
+    carrier line carried).  ``the band answers`` was likewise an
+    interpretation of these counters; what is a fact is that the
+    pair-closure envelope was not computed, and why.
+    """
+    monkeypatch.setenv("O4_ENVELOPE_FROM_BAND", "1")
+    monkeypatch.setenv("O4_STEP_DEBUG", "1")
+    loose = [{"edges": [(0, 1, 100.0), (1, 2, 100.0),
+                        (2, 3, 100.0), (3, 4, 100.0)]}]
+    elev = [0.0, 0.0, 0.0, 0.0, 50.0]
+    broken = set()
+    feasibility_project(elev, loose, {0, 4}, force_scalar=True, max_iters=50,
+                        broken_out=broken,
+                        env_band=[None, None, (25.0, 5.0), (30.0, 40.0),
+                                  None])
+    out = capsys.readouterr().out
+    assert broken == {2}, "only the INVERTED band declares a break"
+    assert ("envelope from THE graph [node-space fp-remapped: n=5]: "
+            "band-inverted=1 non-inverted=1 off-net=1 "
+            "(pair-closure envelope not computed: env_band supplied)") in out
+    assert "feasible=" not in out, (
+        "a non-empty interval on one node is not a feasibility verdict")
+    assert "the band answers" not in out
+
+
 def test_no_pin_conflict_prints_nothing(monkeypatch, capsys):
     """Cost and noise: a build with no declared conflict is silent on
     this channel (the ungated report is a conflict report, not a trace)."""

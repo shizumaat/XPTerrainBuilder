@@ -3685,6 +3685,20 @@ def build_airport_pavement(icao: str, xplane_root: str,
             layout.dem_inset_provenance = (
                 _provenance.dem_provenance_from_dem(dem, icao=layout.icao)
                 if dem is not None else None)
+            # WORLD STAMP for the instruments (RULINGS 2026-08-06 binding
+            # point 3).  The inset record alone cannot tell a real raw DEM
+            # from an oracle world: both render "base RAW (no inset
+            # baked)".  The DEM object's own class + ``source_path`` can —
+            # a ``ConstantDEM`` announces itself as
+            # ``<constant-dem 10000 m>``.  Report-only; nothing reads it
+            # but the frame stamps.
+            try:
+                layout._dem_world_label = (
+                    "None (no DEM object)" if dem is None else
+                    f"{type(dem).__name__}"
+                    f"{':' + str(getattr(dem, 'source_path', '') or '?')}")
+            except AttributeError:                    # pragma: no cover
+                pass
 
             # ── Seam-anchor pipeline (user 2026-05-13) ────────────
             # 1) Insert ring vertices at integer lat/lon line crossings
@@ -6500,12 +6514,23 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # ship a patch.
     if compute_elevations:
         from .elevation_per_surface.building_feasibility import (
-            assert_no_final_band_inversion as _assert_band)
+            assert_no_final_band_inversion as _assert_band,
+            instrument_frame as _band_frame_stamp,
+            BAND_NODE_SPACE as _band_node_space,
+            FINAL_BAND_INVERSION_TOL_M as _band_tol)
         _n_residual = _assert_band(layout, icao)
         if _n_residual:
+            # THE TOLERANCE IS INTERPOLATED, never spelled in the message:
+            # a literal here can drift from the constant it claims to
+            # report (cycle-7.5 instrument sweep).  ``PASS-with-residual``
+            # stays — the LAW layer returned instead of raising, so that
+            # verdict is the law's, not this line's.
             UI.vprint(1, f"  [pav-builder] {icao}: final reach band — "
                          f"{_n_residual} sub-materiality inversion(s) "
-                         f"(≤ 0.01 m), PASS-with-residual.")
+                         f"(≤ {_band_tol:g} m, "
+                         f"FINAL_BAND_INVERSION_TOL_M), "
+                         f"PASS-with-residual.  "
+                         f"{_band_frame_stamp(layout, _band_node_space)}")
 
         # ★ BAND MEMBERSHIP — the REPORT half (cycle-5 instrument-fix spec
         # item 7).  The assertion above is INVERSION-ONLY: it fails a build

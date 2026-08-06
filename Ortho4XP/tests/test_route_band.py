@@ -351,7 +351,7 @@ def test_seam_ceiling_excess_does_not_excuse_a_floor(monkeypatch):
 def test_seam_yield_stops_at_the_terrain_matching_corridor(monkeypatch):
     """CORRIDOR SCOPE: the yield only reaches ``TILE_SEAM_ZONE_M`` (400 m, the
     owner-ruled TILE-seam terrain-matching zone — the same scope
-    ``tools/check_grade`` and ``tools/grade_feasibility_audit`` use).  A vertex
+    ``tools/check_grade`` uses).  A vertex
     beyond it flags even when its excess is under the line's bound.
 
     Renamed from the bare ``_SEAM_ZONE_M`` by the seam-continuity-v2 §1
@@ -481,10 +481,19 @@ def test_the_band_excess_report_counts_what_the_checker_returns(monkeypatch):
     # "sub_materiality: 0" as evidence about the surface.
     assert ELEV_ROUNDING_NOISE_M > GGV.FINAL_BAND_EXCESS_MATERIALITY_M
     assert rep["sub_materiality"] == 0
+    # …and that inertness is now CARRIED, not just known here: the report
+    # states it, the log line says it, and the census can read it, so
+    # "sub_materiality: 0" cannot be quoted as evidence about the surface
+    # (cycle-7.5 instrument sweep, RULINGS 2026-08-06 binding point 2).
+    assert rep["sub_materiality_structurally_zero"] is True
+    assert rep["noise_floor_m"] == pytest.approx(ELEV_ROUNDING_NOISE_M)
+    assert "STRUCTURALLY ZERO at these constants" in \
+        GGV.format_final_band_excess(rep, "TEST")
     # …and the split mechanism itself works when the floor is raised above
     # the rows (which is how a caller asks "anything worse than X?").
     coarse = GGV.final_band_excess_report(layout, "TEST", tol=0.6, G=object())
     assert coarse["material"] == 0 and coarse["sub_materiality"] == 1
+    assert coarse["sub_materiality_structurally_zero"] is False
 
 
 def test_the_band_excess_report_lands_on_the_layout_for_the_sidecar(
@@ -534,8 +543,20 @@ def test_the_band_excess_log_line_names_itself_a_report(monkeypatch):
         "the build log must say what this line is; a bare violation count "
         "reads as a failed gate and will be chased as one")
     # a clean airport says so positively — an ABSENT line is indistinguishable
-    # from a report that never ran, which is the failure mode being repaired
+    # from a report that never ran, which is the failure mode being repaired.
+    #
+    # RE-PINNED (cycle-7.5 instrument sweep): the universal "every airside
+    # vertex INSIDE its band" was FALSE whenever the band field could not
+    # be built — measured live at HEAZ, where every vertex reads off-net
+    # and this branch rendered a clean pass over a population of ZERO.  The
+    # clean verdict now quantifies its own denominator, and the twin pins
+    # the NUMBER: this fixture has exactly 4 examined vertices, all inside.
     clean, cband = _seam_layout([(0.0, 0.0, 95.0, 90.0, 100.0)])
     monkeypatch.setattr(BF, "reach_band_unified", lambda _l, _g: cband)
-    assert "INSIDE its band" in GGV.format_final_band_excess(
-        GGV.final_band_excess_report(clean, "TEST", G=object()), "TEST")
+    clean_rep = GGV.final_band_excess_report(clean, "TEST", G=object())
+    assert clean_rep["material"] == 0
+    assert clean_rep["examined"] == clean_rep["in_band"] > 0
+    clean_line = GGV.format_final_band_excess(clean_rep, "TEST")
+    assert (f"0 of {clean_rep['examined']} EXAMINED vertex(es) outside "
+            f"their band") in clean_line
+    assert "NOT MEASURED" not in clean_line

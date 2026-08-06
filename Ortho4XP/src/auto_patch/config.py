@@ -6742,15 +6742,32 @@ CROWN_MINIMUM_BOUND_TAXIWAYS = False
 # graph including a disconnected one.
 #
 # CONSEQUENCE, and the point of the change: an UNCERTIFIED EXIT no longer
-# means "we ran out of the number someone typed".  With the budget provably
-# above the graph's propagation distance, it means the polytope is EMPTY
-# (an anchor/law contradiction — under docs/RULINGS.md 2026-08-05 "there is
-# no lawful-infeasible ground" that is a BUG / INCOMPLETE LAW / INCORRECT
-# LAW / BROKEN INSTRUMENT, never an answer) or the graph is pathological
-# enough to have hit ``SWEEP_BUDGET_MAX``.
-# ``one_solve._uncertified_exit_report`` says exactly that, out loud, and
-# names the derived budget and the eccentricity bound it came from so the
-# debug phase can attribute it without re-deriving anything.
+# means "we ran out of the number someone typed" — the budget is derived
+# rather than typed.
+#
+# ⚠ THE INFERENCE THAT USED TO STAND HERE IS FALSE, AND THIS FILE ALREADY
+# RECORDS ITS FALSIFICATION ~70 LINES BELOW.  The old text read: "With the
+# budget provably above the graph's propagation distance, it means the
+# polytope is EMPTY."  The sweeps ladder measured otherwise — ~33 % of
+# HECA's and ~57 % of HEAZ's fp#8 residual closes with sweeps ALONE — and
+# the derivation's SHAPE is why: a hop-diameter bound prices BALLISTIC
+# propagation while cyclic Gauss-Seidel POCS propagates DIFFUSIVELY
+# (distance ~ √sweeps), so the bound is quadratic in the diameter, not
+# linear.  Being above a ballistic bound therefore says nothing about the
+# polytope.  Keeping the claim here while the measurement sat below it is
+# the shape of defect the cycle-7.5 instrument sweep exists to remove
+# (RULINGS 2026-08-06, "Instrument truth is law", binding point 2).
+#
+# WHAT AN UNCERTIFIED EXIT ACTUALLY MEANS: the sweep loop stopped without
+# a KKT certificate, by one of four MEASURED criteria (materiality,
+# convergence-patience, caller's bound, hard cap).
+# ``one_solve._uncertified_exit_report`` now prints that criterion, the
+# constants that define it, the n_material trajectory and the derived
+# budget with the eccentricity bound it came from — numbers the debug
+# phase can attribute without re-deriving anything, and WITHOUT a claim
+# about the feasible set.  The one licensed infeasibility statement in
+# that module is the ``L > U`` envelope gap on raw-law budgets, which is a
+# proof and is frame-stamped as one.
 #
 # COST is deliberately NOT priced here.  The sweep loop exits on its KKT
 # certificate, so a converging graph pays for convergence and not for the

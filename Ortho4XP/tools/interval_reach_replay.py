@@ -24,6 +24,24 @@ of the two it got, and refuses to call the degraded one faithful.  A lazy
 cannot be pickled: those entries are counted and named in the header, not
 silently dropped.
 
+THE HARD-ANCHOR CLASS AXIS carries its OWN vocabulary stamp, because the
+dump format and the classifier moved independently.  Before ``092af7f``
+the ``hard_cat`` map was a BLANKET CONSTANT ``seed_rwy_seam`` over every
+base-hard node — a misnomer for 607 of its 610 HECA members — so on a
+pre-``092af7f`` dump that label names NO population and is never equated
+with the current ``seam_pin``.  Since ``092af7f`` the classes are
+``rwy_flexed`` / ``seam_pin`` / ``rwy_join`` / ``rwy_profile`` /
+``base_hard:unattributed`` (+ ``seat_on_spine``, ``seam_spine_anchor``
+assigned later in the solve).  Every run prints ``hard_cat`` vocabulary =
+CURRENT / LEGACY / ABSENT beside the class census.
+
+EVERY SELECTOR REFUSES ON A ZERO MATCH.  An ``--arm`` or ``--drop-family``
+that selects nothing is not "no difference" — it is the arm not running.
+A zero-match selector raises, naming the classes (or family tags) the dump
+actually carries and their counts.  ``--arm free-seams`` on a
+pre-``092af7f`` dump refuses outright: freeing the blanket class there
+would silently be ``free-hard`` wearing the seam arm's name.
+
 Usage (run from ``Ortho4XP/``):
 
     # 1. Capture the snapshot once (one build):
@@ -53,7 +71,13 @@ Arms (``--arm``), each a NAMED INTERVENTION on the same input set:
 
     production      everything as production passed it (default)
     free-hard       every hard anchor freed (immovability dropped)
-    free-seams      only the ``seed_rwy_seam`` anchors freed
+    free-seams      only the TILE-SEAM pins freed — the ``hard_cat`` classes
+                    ``seam_pin`` (``layout._seam_pin_idx``, the DEM-pinned
+                    seam vertices) and ``seam_spine_anchor``
+                    (``solve._seam_spine_anchors``, the spine node pinned at
+                    each taxi-centerline × tile-seam crossing).  Both are
+                    pinned TO THE SEAM DEM by construction, which is what
+                    this arm frees
     no-boxes        bounded-yield boxes dropped + hard freed; intervals kept
     no-intervals    signed interval/slab edges dropped; boxes kept
     pure-symmetric  symmetric law edges only, all nodes free, no boxes
@@ -80,6 +104,71 @@ for _p in (os.path.join(ROOT, "src"), ROOT, os.path.join(ROOT, "tests"),
 
 ARMS = ("production", "free-hard", "free-seams", "no-boxes", "no-intervals",
         "pure-symmetric")
+
+# ── THE HARD-ANCHOR CLASS VOCABULARY ────────────────────────────────────
+# Produced by ``route_profile/solve.py``: the 5-way classifier (~:2181-2194)
+# plus ``seat_on_spine`` (~:2298) and ``seam_spine_anchor`` (~:2400).
+HARD_CLASSES_CURRENT = ("rwy_flexed", "seam_pin", "rwy_join", "rwy_profile",
+                        "base_hard:unattributed", "seat_on_spine",
+                        "seam_spine_anchor")
+#: The pre-``092af7f`` BLANKET CONSTANT: every base-hard node carried it
+#: whatever made it hard, so it names no population at all.  It is NOT the
+#: predecessor of ``seam_pin`` and is never treated as one.
+HARD_CLASS_LEGACY_BLANKET = "seed_rwy_seam"
+#: What ``--arm free-seams`` frees.  Both classes are pinned to the SEAM DEM
+#: by construction: ``seam_pin`` is ``layout._seam_pin_idx`` (the tile-seam
+#: DEM pin vertices) and ``seam_spine_anchor`` is the spine node
+#: ``solve._seam_spine_anchors`` pins at each taxi-centerline × tile-seam
+#: crossing.  CAVEAT, stated because the report prints the split: solve.py
+#: assigns ``seam_spine_anchor`` by a ``setdefault`` over the whole
+#: ``truth_hard`` set, so any node hardened after the 5-way classifier and
+#: not claimed by ``seat_on_spine`` lands in it too — the per-class counts
+#: this arm prints are what makes that residue visible.
+SEAM_CLASSES = ("seam_pin", "seam_spine_anchor")
+
+
+def _census(values):
+    """``{label: count}`` over an iterable of labels."""
+    out: dict = {}
+    for v in values:
+        out[v] = out.get(v, 0) + 1
+    return out
+
+
+def _census_str(census):
+    if not census:
+        return "(none)"
+    return ", ".join(f"{k}={v}" for k, v in
+                     sorted(census.items(), key=lambda kv: (-kv[1], kv[0])))
+
+
+def _hard_cat_axis(state):
+    """``(cat, census, vocabulary)`` — the dump's hard-anchor class axis.
+
+    ``vocabulary`` is CURRENT (the ``092af7f`` classifier), LEGACY (the
+    pre-``092af7f`` blanket constant) or ABSENT.  The stamp is a FACT about
+    the dump, read off the labels present; nothing here translates one
+    vocabulary into the other.
+    """
+    cat = {int(i): c for i, c in (state.get("hard_cat") or {}).items()}
+    census = _census(cat.values())
+    if not cat:
+        vocab = "ABSENT"
+    elif HARD_CLASS_LEGACY_BLANKET in census:
+        vocab = "LEGACY(pre-092af7f blanket constant)"
+    else:
+        vocab = "CURRENT(092af7f+)"
+    return cat, census, vocab
+
+
+def _refuse(selector, matched_what, census_label, census):
+    """A selector that matched nothing is the arm NOT RUNNING — never a
+    result.  Raises, naming what the dump actually carries."""
+    raise SystemExit(
+        f"REFUSING {selector}: it selected ZERO {matched_what}.  The run "
+        f"would be byte-identical to --arm production and would report "
+        f"'no difference' for an intervention that never happened.\n"
+        f"  {census_label}: {_census_str(census)}")
 
 
 def snapshot_path(icao):
@@ -138,25 +227,96 @@ def _entries_from(state):
 
 
 def _apply_arm(arm, entries, hard, node_bounds, group_bounds, state):
-    """Return ``(entries, hard, node_bounds, group_bounds)`` for one arm."""
+    """Return ``(entries, hard, node_bounds, group_bounds)`` for one arm.
+
+    EVERY arm that selects a subset checks its selection is non-empty and
+    REFUSES otherwise (RULINGS 2026-08-06 binding point 2): a no-op arm
+    reported as "no difference" is a silently degrading instrument, and
+    that is exactly what ``free-seams`` became when the ``seed_rwy_seam``
+    blanket constant was replaced by the real classifier in ``092af7f``.
+    """
     if arm == "production":
         return entries, hard, node_bounds, group_bounds
+
+    cat, cat_census, vocab = _hard_cat_axis(state)
+    n_int = sum(1 for e in entries for x in e["edges"] if len(x) >= 4)
+    n_box = (len(node_bounds or ()) + len(group_bounds or ()))
+
     if arm == "free-seams":
-        cat = state.get("hard_cat") or {}
-        seams = {int(i) for i, c in cat.items() if c == "seed_rwy_seam"}
-        return entries, {i for i in hard if i not in seams}, \
+        if vocab.startswith("LEGACY"):
+            raise SystemExit(
+                "REFUSING --arm free-seams on a LEGACY dump: its hard_cat "
+                f"axis is the pre-092af7f BLANKET CONSTANT "
+                f"{HARD_CLASS_LEGACY_BLANKET!r}, carried by every base-hard "
+                "node whatever made it hard.  Freeing that class is "
+                "--arm free-hard wearing this arm's name, not the tile-seam "
+                "intervention.  Re-capture with `snapshot` on a 092af7f+ "
+                f"tree.\n  hard_cat census: {_census_str(cat_census)}")
+        if vocab == "ABSENT":
+            raise SystemExit(
+                "REFUSING --arm free-seams: this dump carries NO hard_cat "
+                "axis, so the seam classes cannot be selected at all.  "
+                "Re-capture with `snapshot` on a 092af7f+ tree.")
+        seams = {i for i, c in cat.items() if c in SEAM_CLASSES}
+        freed = {i for i in hard if i in seams}
+        if not freed:
+            _refuse("--arm free-seams",
+                    f"hard anchors in the seam classes {list(SEAM_CLASSES)}",
+                    "hard_cat census", cat_census)
+        split = _census(cat[i] for i in freed)
+        print(f"[arm] free-seams: freeing {len(freed)} of {len(hard)} hard "
+              f"anchor(s) ({_census_str(split)})")
+        return entries, {i for i in hard if i not in freed}, \
             node_bounds, group_bounds
+
     if arm == "free-hard":
+        if not hard:
+            _refuse("--arm free-hard", "hard anchors (the dump has none)",
+                    "hard_cat census", cat_census)
+        print(f"[arm] free-hard: freeing all {len(hard)} hard anchor(s) "
+              f"({_census_str(_census(cat.get(i, '<unclassified>') for i in hard))})")
         return entries, set(), node_bounds, group_bounds
+
     if arm == "no-boxes":
+        if not hard and not n_box:
+            _refuse("--arm no-boxes",
+                    "hard anchors AND bounded-yield boxes (the dump has "
+                    "neither)", "hard_cat census", cat_census)
+        print(f"[arm] no-boxes: freeing {len(hard)} hard anchor(s) and "
+              f"dropping {len(node_bounds or ())} node / "
+              f"{len(group_bounds or ())} group bound(s)")
         return entries, set(), None, None
+
     if arm == "no-intervals":
+        if not n_int:
+            _refuse("--arm no-intervals",
+                    "signed interval/slab edges (no edge in this dump has "
+                    "arity >= 4)", "joint entry family census",
+                    _family_census(entries))
+        print(f"[arm] no-intervals: dropping {n_int} interval/slab edge(s)")
         return ([{**e, "edges": [x for x in e["edges"] if len(x) < 4]}
                  for e in entries], hard, node_bounds, group_bounds)
+
     if arm == "pure-symmetric":
+        if not n_int and not hard and not n_box:
+            _refuse("--arm pure-symmetric",
+                    "interval edges, hard anchors or boxes (the dump "
+                    "already IS the symmetric-only case)",
+                    "hard_cat census", cat_census)
+        print(f"[arm] pure-symmetric: dropping {n_int} interval edge(s), "
+              f"freeing {len(hard)} hard anchor(s), dropping {n_box} bound(s)")
         return ([{**e, "edges": [x for x in e["edges"] if len(x) < 4]}
                  for e in entries], set(), None, None)
+
     raise SystemExit(f"unknown arm {arm!r} (choose from {', '.join(ARMS)})")
+
+
+def _family_census(entries):
+    """``{family tag: entry count}`` over the joint — the axis
+    ``--drop-family`` selects on, named by the projection's OWN tag rule."""
+    from auto_patch.elevation_per_surface.route_profile.one_solve import (
+        _entry_family_tag)
+    return _census(_entry_family_tag(e) for e in entries)
 
 
 def _drop_families(entries, families):
@@ -184,6 +344,9 @@ def _drop_families(entries, families):
             dropped_edges += len(e["edges"])
             continue
         kept.append(e)
+    if not dropped:
+        _refuse(f"--drop-family {sorted(want)}", "joint entries",
+                "family tags present in this dump", _family_census(entries))
     print(f"[arm] --drop-family {sorted(want)}: removed {dropped} entry(ies) "
           f"/ {dropped_edges} edge(s)")
     return kept
@@ -207,6 +370,10 @@ def _drop_interval_families(entries, families):
             dropped += len(e["edges"]) - len(keep)
             e = {**e, "edges": keep}
         kept.append(e)
+    if not dropped:
+        _refuse(f"--drop-interval-family {sorted(want)}",
+                "interval/slab edges", "family tags present in this dump",
+                _family_census(entries))
     print(f"[arm] --drop-interval-family {sorted(want)}: removed {dropped} "
           f"slab edge(s)")
     return kept
@@ -239,6 +406,9 @@ def do_replay(icao, path, *, arm, sweeps, hard_cap, drop_family,
     if not faithful:
         print("[replay] re-capture with `snapshot` on a 2026-08-06+ tree "
               "before quoting this as fp#8.")
+    _cat, _cat_census, _vocab = _hard_cat_axis(state)
+    print(f"[replay] hard_cat vocabulary={_vocab}; class census: "
+          f"{_census_str(_cat_census)}")
     if drop_family:
         entries = _drop_families(entries, drop_family)
     if drop_interval_family:

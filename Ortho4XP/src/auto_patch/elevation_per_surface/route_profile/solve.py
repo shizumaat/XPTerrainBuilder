@@ -5109,6 +5109,52 @@ def _runway_boundary_freeze_indexes(
         if int(_index) not in already_hard}
 
 
+def post_solve_mutation_set(carried, elev, n, tol):
+    """Partition a projection's node space against the CARRIED solved field.
+
+    The cycle-4 ingestion spec's requirement 2 in one function
+    (``docs/specs/cycle4-projection-ingestion-spec.md``): "a node whose
+    ring geometry and law context did not change after the solve exits
+    this pass within materiality of its solved value.  The projection's
+    job is the post-solve mutation set, not a re-solve."
+
+    ``carried`` is ``{index: solved value}`` in the CALLER'S frame (the
+    store view already lifted it by the pass's crown map), ``elev`` the
+    pass's seed in the same frame.  Returns
+    ``(untouched, n_new, moved)`` where
+
+    * a node ABSENT from ``carried`` is NEW — the solve never had this
+      canonical key: a planarize insert, a T-weld adoption, a merge, a
+      clip rebuild.  Its law pairs are the projection's legitimate job.
+    * a node whose seed differs by more than ``tol`` was MOVED by some
+      other post-solve pass (band adoption, weld, groundside re-level,
+      service DEM-follow), and is in play too.  ``moved`` carries
+      ``(|dz|, solved, seed)`` per node so a caller can report the
+      distribution rather than a count.
+    * everything else is UNTOUCHED.
+
+    No carried field (a layout that never ran the solve — probes, unit
+    tests) ⇒ nothing untouched, nothing new: the partition is empty and
+    the caller behaves exactly as it did before the carry existed.
+    """
+    untouched: set = set()
+    moved: list = []
+    n_new = 0
+    if not carried:
+        return untouched, n_new, moved
+    for i in range(n):
+        sv = carried.get(i)
+        if sv is None:
+            n_new += 1
+            continue
+        dv = abs(elev[i] - sv)
+        if dv > tol:
+            moved.append((dv, sv, elev[i]))
+        else:
+            untouched.add(i)
+    return untouched, n_new, moved
+
+
 def projection_law_certificate(joint, elev, n, hard, tol=1e-3):
     """Over-cap law edges of ``joint`` at the current ``elev``, BY FAMILY.
 
@@ -5397,47 +5443,13 @@ def final_grade_projection(layout, icao: str = "", dem=None,
             if _v:
                 _crown_of[_i] = _v
                 elev[_i] = elev[_i] + _v
-    # ── THE POST-SOLVE MUTATION SET (cycle-4 ingestion spec requirement
-    # 2: idempotence on untouched geometry) ────────────────────────────
-    # "A node whose ring geometry and law context did not change after
-    # the solve exits this pass within materiality of its solved value.
-    # The projection's job is the post-solve mutation set, not a
-    # re-solve."  That is decidable HERE, from the carried law context
-    # alone, and in ONE frame (both sides in z′: the seed was crowned in
-    # just above and the carried field is lifted by the same map):
-    #
-    #   * the key is not in ``solved_values``  → a node the solve never
-    #     had: a planarize insert, a T-weld adoption, a merge or a clip
-    #     rebuild.  ITS law pairs are this pass's legitimate job.
-    #   * the seed differs from the solved value → some other post-solve
-    #     pass authored it (band adoption, weld, groundside re-level,
-    #     service DEM-follow).  It is in play too.
-    #   * otherwise → UNTOUCHED.  The solve produced this value under the
-    #     whole law and nothing has moved it since, so this pass HOLDS
-    #     it.  Holding is the structural form of the requirement: not a
-    #     tolerance checked afterwards, but a membership in ``hard`` that
-    #     makes a second-author move impossible.  The mutation set yields
-    #     to the solved surface — new geometry conforms, never the
-    #     reverse (airside-is-king, one node space later).
-    #
-    # No carried field (a layout that never ran the solve — probes,
-    # tests) ⇒ empty hold ⇒ exactly the pre-ingestion behaviour.
+    # THE POST-SOLVE MUTATION SET (see :func:`post_solve_mutation_set`),
+    # read in ONE frame: the seed was crowned in just above and the
+    # carried field is lifted by the same map.
     _carried_solved = _store_of(layout).view_scalar(
         "solved_values", b2i, n, crown_of=_crown_of)
-    _untouched_hold: set = set()
-    _mut_new = 0
-    _mut_deltas: list = []
-    if _carried_solved:
-        for _i in range(n):
-            _sv = _carried_solved.get(_i)
-            if _sv is None:
-                _mut_new += 1
-                continue
-            _dv = abs(elev[_i] - _sv)
-            if _dv > _IDEMPOTENCE_TOL_M:
-                _mut_deltas.append((_dv, _sv, elev[_i]))
-            else:
-                _untouched_hold.add(_i)
+    _untouched_hold, _mut_new, _mut_deltas = post_solve_mutation_set(
+        _carried_solved, elev, n, tol=_IDEMPOTENCE_TOL_M)
     _mut_moved = len(_mut_deltas)
     # ── PROBE A, FINAL-PROJECTION TAIL: THIS PASS'S ENTRY BOUNDARY ──────
     # (spec amendment 2026-08-01.)  Placed AFTER the crown transform in,
@@ -5567,12 +5579,40 @@ def final_grade_projection(layout, icao: str = "", dem=None,
 
     hard = {i for i in range(n) if base_hard[i]}
     hard |= {i for i in runway_idx if i < n}
-    # THE HOLD (ingestion spec requirement 2, computed above): everything
-    # the solve valued and nothing has moved since.  Joined here, with the
-    # other structural pins, so every consumer of ``hard`` below — the
-    # witness-admission scan, the break classification, the bounded-yield
-    # boxes, the fairing anchors — sees ONE hard set.
-    hard |= _untouched_hold
+    # ── REQUIREMENT 2 (IDEMPOTENCE) IS **NOT ENFORCED HERE** — STOPPED
+    # ON MEASUREMENT, cycle-4 ingestion round, attempt cap reached ─────
+    # The spec's structural answer is to JOIN ``_untouched_hold`` to this
+    # set: a node the solve valued and nothing moved since would then be
+    # immovable, and a second-author move would be impossible rather than
+    # merely unlikely.  It was built, measured on the harness, and it
+    # does not hold up.  Matched in-tree controls, HECA constant-DEM
+    # plateau, law-true census (harness ``census.py``):
+    #
+    #   control (this pass re-solving the field)      24,258  airside 16,832
+    #   hold every untouched node                     48,432  airside 40,902
+    #   hold every untouched LAWFUL node              38,681  airside 31,244
+    #
+    # and HEAZ 1,276 -> 1,360 / 1,312 on the same two arms.  The premise
+    # the round was ranked on — that this pass MINTS ~10k of HECA
+    # plateau's rows — is not what the instrument says.  It ABSORBS
+    # them: the one solve does not yet publish a lawful plateau surface
+    # (its own last projection exits UNCERTIFIED, 63,898 active violating
+    # edges, worst residual 96.79 m, "the polytope is EMPTY"), and this
+    # pass's whole-field re-projection is currently what takes that
+    # surface from ~48k adjudicated rows to ~24k.  Freezing the solved
+    # values ships the solve's residual verbatim.
+    #
+    # So the second authorship is REAL (the displacement census below
+    # names it: 938-2,055 untouched vertices moved, worst 83 m) but it
+    # cannot be closed HERE.  It closes when the solve publishes a
+    # lawful surface — RULINGS 2026-08-05, "there is no lawful-infeasible
+    # ground": an infeasible solve exit is a law or instrument defect to
+    # fix at the solve.  Until then this pass keeps its repair role and
+    # the ledger below REPORTS the mutation set and the hold that would
+    # apply, so the next attempt starts from a number rather than a
+    # premise.  What DID land is the rest of the ingestion: one law, one
+    # source, for every input the two constraint builds used to disagree
+    # on.
     # EMITTED TERRAIN-BAND FREEZE (2026-07-17, for the LATE
     # pipeline-end re-projection): graded_strip / gap-fill terrain
     # surfaces are emit-derived (per-vertex DEM-into-corridor clamps,
@@ -5883,15 +5923,7 @@ def final_grade_projection(layout, icao: str = "", dem=None,
         if len(g) >= 2:
             pad_groups.append(g)
             pad_nodes |= g
-    # A pad is freed to be a movable flat group ONLY where it is in the
-    # post-solve mutation set.  An UNTOUCHED pad node was seated by the
-    # solve under the whole seat law (band, coupler, frontage) and the
-    # idempotence requirement holds it — re-freeing it here is precisely
-    # the second-author move this round closes.  ``feasibility_project``
-    # keeps a group containing a hard node entirely hard, so a held pad
-    # stays flat at its solved seat while a genuinely mutated pad still
-    # settles as a rigid group.
-    hard -= (pad_nodes - _untouched_hold)
+    hard -= pad_nodes
 
     # ── TORN DATUM-PIN RELEASE (2026-07-26, KCLT junction micro-steps).
     # A post-solve feature weld can put a NON-runway hard pin — a runway-
@@ -6296,30 +6328,33 @@ def final_grade_projection(layout, icao: str = "", dem=None,
         _gs_weld_idx = {_i for _i in terrain_hard
                         if _i < n and _i not in _tile_seam_idx
                         and _is_gs_weld(_i)}
-    # ── THE WITNESS SET IS CARRIED, NOT RE-DERIVED (ingestion spec
-    # requirement 1) ──────────────────────────────────────────────────
-    # The owner's clause bounds what a GROUNDSIDE PIN may witness, and
-    # the pins are the ones ``anchors.apply_groundside_reach`` actually
-    # set — a solve-phase fact.  The proximity scan above is a
-    # re-derivation of that population from raw groundside ring geometry
-    # in a rebuilt node space, and a re-derivation that can disagree with
-    # what the solve was handed is exactly what this round removes.  The
-    # carried keyset is the authority; the re-derived set is kept for ONE
-    # build's worth of measurement, reported as a divergence count and
-    # read by nothing.
+    # ── EXAMINED AND RULED **NOT** A DIVERGENCE (ingestion round,
+    # requirement 4) ──────────────────────────────────────────────────
+    # The obvious ingestion move here is to replace the scan above with
+    # the solve's own ``_gs_hard`` pins, carried by canonical identity
+    # (they ARE minted, as ``gs_witness``).  It is the wrong move, and
+    # the difference is stated two paragraphs up: at the solve a
+    # ``gs_pin`` is a value groundside ASSERTS onto the route, while
+    # HERE the pavement node was hardened BECAUSE THE TWO SIDES AGREE.
+    # These are two populations of the same law one node space apart,
+    # not one population derived twice — so this is not a re-derivation
+    # the round is entitled to collapse.
+    #
+    # MEASURED, so the ruling rests on a number: at HECA plateau the two
+    # sets are carried 147 vs re-derived 154 with only ~61 in common
+    # (+93/-86), and swapping in the carried set moved the law-true
+    # census 24,258 -> 24,756 (airside +495).  Reverted; the divergence
+    # is reported at every build so a later round can revisit it with
+    # the numbers in hand rather than the premise.
     _carried_gs = _store_of(layout).view_keyset("gs_witness", b2i, n)
-    _gs_divergence = (len(_gs_weld_idx - _carried_gs),
-                      len(_carried_gs - _gs_weld_idx))
     if _carried_gs or _gs_weld_idx:
         import O4_UI_Utils as _UI_gsw
         _UI_gsw.vprint(1,
-            f"    [gs-witness] {icao} final projection: carried "
-            f"{len(_carried_gs)} groundside pin(s) withdrawn from the "
-            f"airside envelope; the retired proximity re-derivation "
-            f"found {len(_gs_weld_idx)} "
-            f"(+{_gs_divergence[0]} it added, "
-            f"-{_gs_divergence[1]} it missed)")
-    _gs_weld_idx = _carried_gs
+            f"    [gs-witness] {icao} final projection: {len(_gs_weld_idx)} "
+            f"groundside weld(s) withdrawn from the airside envelope; the "
+            f"solve's own {len(_carried_gs)} carried pin(s) overlap "
+            f"{len(_carried_gs & _gs_weld_idx)} of them (two populations "
+            f"of one law, one node space apart — see the note above)")
     _fp_witness_limited = None
     if _gs_weld_idx:
         from .anchors import gs_witness_horizon as _gs_wh
@@ -6852,8 +6887,9 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                    f"  [final-projection-ingestion] {icao}: post-solve "
                    f"mutation set {_mut_new} new + {_mut_moved} moved "
                    f"node(s){_mut_note}; {len(_untouched_hold)} untouched "
-                   f"node(s) HELD at their solved value; carried law "
-                   f"{_law_note}")
+                   f"node(s) the idempotence requirement would HOLD "
+                   f"(REPORT ONLY — see the STOP note at the hard set); "
+                   f"carried law {_law_note}")
         if _os.environ.get("O4_PROJ_TIMING") == "1":
             _UI.vprint(1, "  [final-projection-timing] " + " ".join(
                 f"{name}={_stage_t.get(name, 0.0):.1f}s"

@@ -155,8 +155,20 @@ adjudicated 7,165 → 6,481 (airside −691, gs +8 — the lot conforms);
 who_wrote untouched worst 89.65 → 14.73 m (>10 m: 14 → 2, survivors
 pre-existing); frontage_near_miss worst 90.89 → 2.95; HEAZ
 byte-identical (inert without conflicts); non-pin conflicts stay
-UNRESOLVED-and-loud. Part D (ring vertices never take raw DEM; exemptions
-cited under adjacent-ground law) lane c6ingest IN FLIGHT.
+UNRESOLVED-and-loud. Part D **LANDED AND MERGED**
+(lane/c6ingest): the groundside half was ONE mechanism — millimetre-key
+weld identity vs the emitter's 0.5 m rule — fixed as one value ladder
+(weld anchor → prior field → law interp → counted LAW ISLAND) with
+provenance; canyon stranded SPJC 55→8 / KCLT 186→134 / HEAZ 7→7;
+exemptions cited (wall feet + bands under zone law; solve seats under
+the constant-DEM invariant); dossier misattributions corrected (walls
+NOT DEM writers; finalize:294 not a defect). Cluster D 2,252→2,066
+only (−8.3%) — residual RE-ATTRIBUTED: service-junction flat-world
+seating spread (HEAZ 630 rows, 12 svc ways flat at 1.00 m, two
+disagreeing LAW values left standing — solve/band floor-seating,
+tasked #18 with the KCLT canyon +180 trade, ~281 non-exempt HECA
+attributions, and the pipeline:5721 chord limiter). Battery
+adjudicated 12,753→12,265; matched controls: zero introduced reds.
 who_wrote --author-dump landed on the tip (c5auth instrument work).
 
 NEXT TARGETS (ranked):

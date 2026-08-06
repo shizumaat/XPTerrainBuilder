@@ -42,9 +42,15 @@ WHAT IT REPORTS
   joints, terrace certificates, triangle-plane unresolved count, and any
   ``unknown_keys`` the emitter has grown that no reader consumes yet.
 
+* ``--zone-split`` — the WITHIN-SHAPE rows bucketed by FAN-RAMP ZONE
+  membership (on a declared ramp piece / inside a zone / crossing one /
+  unrelated).  A total cannot tell "the ramp law is granting relief where
+  the defects are" from "…somewhere else"; this can.
+
 Consolidated from (and replacing): ``scratchpad/*/census_lockstep.py``,
 ``scratchpad/refpull_interim/census.py``, ``scratchpad/testphase/census.py``,
-``scratchpad/integrate/worst.py``, ``scratchpad/integrate/side.py``.
+``scratchpad/integrate/worst.py``, ``scratchpad/integrate/side.py``,
+``scratchpad/fix2a/zone_split.py``.
 """
 from __future__ import annotations
 
@@ -85,8 +91,132 @@ def _both_buildings(step) -> bool:
             and step.way_e.tags.get("role") == "building")
 
 
+def zone_split(osm: Path, cg, families: dict) -> dict:
+    """``--zone-split``: bucket the WITHIN-SHAPE rows by FAN-RAMP ZONE
+    membership.  Returns the section dict, or ``{}`` with a reason.
+
+    WHY IT LIVES HERE.  It was a lane scratchpad script
+    (``scratchpad/fix2a/zone_split.py``) and reached its second use, which
+    is the promotion signal (CLAUDE.md, "Tool discipline" — owner ruling
+    7e90032).  It is a FLAG on this tool and not a tool of its own for
+    the reason that ruling exists: it needs the census's own law-true
+    frame, and a copy of that frame is exactly the defect the census
+    wrapper precedent cost (a wrapper that dropped ``terrace_joints_ll``
+    reported lawful declared terraces as violations).  Nothing here
+    re-runs a check — it reads the rows ``census_one`` already has.
+
+    THE QUESTION IT ANSWERS.  The fan-ramp law declares ground that may
+    carry 5 %.  Two things can be true and look identical in a total:
+    the law is granting relief where the defects are, or it is granting
+    relief somewhere else.  The buckets separate them:
+
+      ramp_piece   the row is ON a declared ramp piece — it is judged at
+                   the zone cap, so it is the LAW's own population
+      in_zone      chord wholly inside a declared zone polygon
+      crosses      chord enters and leaves a zone
+      outside      no relation to any zone
+
+    Measured with this, HECA's landed-but-inert law read: 808 zones,
+    9 739 of 10 255 apron rows with neither end in one, 9 blocked by the
+    whole-chord test.  That is the number that named the fix.
+    """
+    import json
+    import math
+
+    side_path = Path(str(osm) + ".axes.json")
+    try:
+        side = json.loads(side_path.read_text())
+    except (OSError, ValueError):
+        return {"reason": f"no readable sidecar at {side_path.name}"}
+    anchor = side.get("anchor")
+    if not anchor:
+        return {"reason": "sidecar carries no anchor — no metre frame"}
+    ll_to_m = cg._ll_to_m_factory({}, anchor=tuple(anchor))
+    zones = cg._fan_ramp_zones_to_m(side.get("fan_ramp_zones"), ll_to_m)
+
+    try:
+        from shapely.geometry import LineString
+        from shapely.ops import unary_union
+    except ImportError:                                    # pragma: no cover
+        return {"reason": "shapely unavailable"}
+
+    union = (unary_union([p for (p, _c, _b, _pr) in zones])
+             if zones else None)
+    rows = families.get("within_shape") or []
+    buckets = Counter()
+    by_role = Counter()
+    steeper_than_cap = 0
+    cap = max((c for (_p, c, _b, _pr) in zones), default=0.0)
+    for r in rows:
+        tags = getattr(getattr(r, "way_a", None), "tags", {}) or {}
+        if tags.get("o4_grade_law") == "fan_ramp":
+            buckets["ramp_piece"] += 1
+        elif union is None:
+            buckets["outside"] += 1
+        else:
+            try:
+                chord = LineString([r.pt_a, r.pt_b])
+                if union.covers(chord):
+                    buckets["in_zone"] += 1
+                elif union.intersects(chord):
+                    buckets["crosses"] += 1
+                else:
+                    buckets["outside"] += 1
+            except Exception:                              # pragma: no cover
+                buckets["outside"] += 1
+        by_role["|".join(sorted(cg.row_roles(r)))] += 1
+        if cap and getattr(r, "grade_pct", 0.0) / 100.0 > cap:
+            steeper_than_cap += 1
+    # HOW MANY PAIRS THE ZONE CAP ACTUALLY BINDS.  The count that says
+    # whether a declared-ground grade law is INERT: a law can declare
+    # square kilometres and price nothing, which is exactly what the
+    # fan-ramp law did before its zones became shapes (808 zones, 170
+    # edges).  Built from the ways the patch carries, through the law's
+    # own ``shape_constraints`` — not estimated from vertex counts.
+    ramp_pairs = ramp_ways = ramp_vertices = 0
+    try:
+        import auto_patch.grade_graph as _GG
+        nodes, ways = cg._parse_osm(Path(osm))
+        law_ctx = _GG.GradeContext(centerlines=[], routes=[])
+        for w in ways:
+            if (w.tags or {}).get("o4_grade_law") != "fan_ramp":
+                continue
+            ring = [ll_to_m(*nodes[n]) for n in w.nids if n in nodes]
+            if len(ring) > 1 and ring[0] == ring[-1]:
+                ring = ring[:-1]
+            if len(ring) < 3:
+                continue
+            ramp_ways += 1
+            ramp_vertices += len(ring)
+            gs = _GG.GradeShape(role=(w.tags or {}).get("role", "apron"),
+                                ring=ring, keys=list(range(len(ring))),
+                                fan_ramp_zone=True)
+            ramp_pairs += len(_GG.shape_constraints(gs, law_ctx).edges)
+    except Exception as exc:                                # pragma: no cover
+        ramp_pairs = -1
+        ramp_ways = ramp_vertices = 0
+        buckets["_pair_count_failed"] = repr(exc)[:80]
+
+    return {
+        "zones": len(zones),
+        "ramp_ways": ramp_ways,
+        "ramp_vertices": ramp_vertices,
+        "ramp_law_pairs": ramp_pairs,
+        "zone_area_m2": (round(float(union.area), 1) if union is not None
+                         else 0.0),
+        "zone_parts_area_m2": round(
+            sum(float(p.area) for (p, _c, _b, _pr) in zones), 1),
+        "caps": sorted({c for (_p, c, _b, _pr) in zones}),
+        "within_rows": len(rows),
+        "buckets": dict(buckets),
+        # The rows a ramp cap CANNOT rescue however the zones are drawn.
+        "steeper_than_zone_cap": steeper_than_cap,
+        "top_role_pairs": dict(by_role.most_common(6)),
+    }
+
+
 def census_one(osm: Path, cg, *, want_bare: bool = False,
-               top: int = 10) -> dict:
+               top: int = 10, want_zone_split: bool = False) -> dict:
     """The census of ONE patch.  Returns the report dict; prints nothing."""
     families: dict = {}
     within, cross, steps = cg.run_checks_law_true(
@@ -178,6 +308,8 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
         report["bare"] = {"within": len(bw), "cross": len(bc),
                           "steps": len(bs),
                           "total": len(bw) + len(bc) + len(bs)}
+    if want_zone_split:
+        report["zone_split"] = zone_split(osm, cg, families)
     return report
 
 
@@ -242,6 +374,35 @@ def print_report(rep: dict, top: int) -> None:
                   f"{r['side']:<11}|de|={r['magnitude_m']:7.3f} m"
                   f"{extra}{site}")
 
+    zs = rep.get("zone_split")
+    if zs is not None:
+        print("\n  === FAN-RAMP ZONE SPLIT (--zone-split) ===")
+        if zs.get("reason"):
+            print(f"    not available: {zs['reason']}")
+        else:
+            print(f"    zones {zs['zones']} declared, union "
+                  f"{zs['zone_area_m2']:,.0f} m² (parts sum "
+                  f"{zs['zone_parts_area_m2']:,.0f} m² — zones OVERLAP, one "
+                  f"per adjacent building pair), caps {zs['caps']}")
+            print(f"    ramp PIECES {zs['ramp_ways']} "
+                  f"({zs['ramp_vertices']} ring vertices) binding "
+                  f"{zs['ramp_law_pairs']} law pair(s) at the zone cap "
+                  f"— the number that says whether the law is INERT")
+            b = zs["buckets"]
+            print(f"    within-shape rows {zs['within_rows']}:")
+            for k, label in (
+                    ("ramp_piece", "ON a declared ramp piece (judged at "
+                                   "the zone cap — the LAW's population)"),
+                    ("in_zone", "chord wholly inside a zone polygon"),
+                    ("crosses", "chord enters and leaves a zone"),
+                    ("outside", "no relation to any zone")):
+                print(f"      {k:<12}{b.get(k, 0):>8}  {label}")
+            print(f"    rows already steeper than the zone cap: "
+                  f"{zs['steeper_than_zone_cap']} — no ramp cap rescues "
+                  f"these however the zones are drawn")
+            print("    top role pairs: " + ", ".join(
+                f"{k}={v}" for k, v in zs["top_role_pairs"].items()))
+
 
 def print_compare(reports: list) -> None:
     """Side-by-side family table across patches — the A/B reading."""
@@ -281,6 +442,12 @@ def main(argv=None) -> int:
                          "for the record only)")
     ap.add_argument("--quiet", action="store_true",
                     help="JSON only, no table")
+    ap.add_argument("--zone-split", action="store_true",
+                    help="also bucket the WITHIN-SHAPE rows by FAN-RAMP "
+                         "ZONE membership (on a declared ramp piece / "
+                         "inside a zone / crossing one / unrelated) — the "
+                         "reading that says whether the ramp law is "
+                         "granting relief where the defects actually are")
     args = ap.parse_args(argv)
 
     cg = load_check_grade()
@@ -289,7 +456,8 @@ def main(argv=None) -> int:
         if not osm.exists():
             raise SystemExit(f"REFUSING: no such patch {osm}")
         try:
-            rep = census_one(osm, cg, want_bare=args.bare, top=args.top)
+            rep = census_one(osm, cg, want_bare=args.bare, top=args.top,
+                             want_zone_split=args.zone_split)
         except FileNotFoundError as exc:
             raise SystemExit(
                 f"REFUSING: {exc}\n"

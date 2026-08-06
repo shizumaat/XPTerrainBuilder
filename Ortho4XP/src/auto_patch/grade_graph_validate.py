@@ -89,7 +89,8 @@ def _iter_checked_pairs(layout):
                                ring[b], elevs[b], cap)
                 continue
         gs = GG.GradeShape(role=s.role, ring=[(x, y) for (x, y) in ring],
-                           keys=list(range(nlen)))
+                           keys=list(range(nlen)),
+                           fan_ramp_zone=getattr(s, "fan_ramp_zone", False))
         # Activate the building-step exemption in INDEX key-space: ctx.building_keys
         # are rounded coords (validator mode) but this shape's keys are ring
         # indices, so resolve which ring vertices sit on a building pad and pass a

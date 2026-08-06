@@ -111,6 +111,7 @@ from shapely.ops import unary_union
 
 from auto_patch.config import (
     APRON_MAX_GRADE,
+    FAN_RAMP_CAP,
     GROUNDSIDE_MAX_GRADE,
     APRON_TERRACE_CORRIDOR_HALF_WIDTH_M,
     APRON_TERRACE_FACING_PROXIMITY_M,
@@ -132,7 +133,9 @@ __all__ = [
     "terrace_joints_sidecar",
     "terrace_certificates_sidecar",
     "FanRampPlan",
+    "FAN_RAMP_CAP",
     "plan_fan_ramp_zones",
+    "split_aprons_at_fan_zones",
     "apply_fan_ramp_caps",
     "apply_fan_ramp_caps_to_edges",
     "fan_ramp_zones_sidecar",
@@ -737,18 +740,29 @@ def _pavement_neighbours(layout, shape):
     the SAME ``ROLE_GRADE_LIMITS`` table, so emitter and validator cannot
     disagree about who is a neighbour.
 
-    ONE EXCLUSION, and it is structural: a SIBLING PANEL of the same
+    TWO EXCLUSIONS, and both are structural: a SIBLING PANEL of the same
     terrace declaration is not a neighbour.  Two panels split apart by a
     declared joint stand 0.6 m from each other by construction, so the
     facing law would read the DECLARED step as an undeclared one and
     conform it away — the two clauses would be fighting over the same
     ground.  The joint's own step edge governs there, and nothing else.
+
+    The FAN-RAMP split (``split_aprons_at_fan_zones``) makes the same
+    claim for a different reason.  Its pieces are FLUSH — they share the
+    cut's vertices, so they share solver nodes and cannot step — but the
+    cut runs the whole length of the ramp, so without this every
+    remainder panel would "face" its own ramp along that entire line, the
+    joint clearance would fence the apron off from itself, and the
+    terrace law would be suppressed on exactly the aprons the ramp law
+    just declared.  A piece of one declaration is not the neighbour of
+    another piece of it.
     """
     from auto_patch.config import ROLE_GRADE_LIMITS
     poly = getattr(shape, "polygon", None)
     if poly is None or poly.is_empty:
         return []
     group = getattr(shape, "_terrace_panel_group", None)
+    fan_group = getattr(shape, "_fan_panel_group", None)
     try:
         (x0, y0, x1, y1) = poly.bounds
     except _GEOM_EXC:
@@ -761,6 +775,9 @@ def _pavement_neighbours(layout, shape):
         if (group is not None
                 and getattr(s, "_terrace_panel_group", None) == group):
             continue                      # sibling panel — see above
+        if (fan_group is not None
+                and getattr(s, "_fan_panel_group", None) == fan_group):
+            continue                      # fan-ramp sibling — see above
         if ROLE_GRADE_LIMITS.get(s.role or "", None) is None:
             continue
         p = getattr(s, "polygon", None)
@@ -1549,15 +1566,27 @@ def _construct_from_envelope(layout, envelope, sample_dem=None,
     # line is cut, so the trigger's allowance already carries the 5 %
     # the ramp grants and the wall answers only what is left.
     fan = plan_fan_ramp_zones(layout, cover, icao=icao)
+    # ── AND THE ZONES BECOME SHAPES, BEFORE ANY TERRACE LINE IS CUT ──
+    # Precedence is now geometric as well as arithmetic: the ramp ground
+    # has left the apron by the time the terrace trigger reads the
+    # apron's envelope demand, so the shortfall a wall is asked to
+    # discharge is the shortfall over the ground that is STILL held to
+    # 1 % — the ruled "ramps first, wall fallback", with no second pass.
+    split_aprons_at_fan_zones(layout, fan, icao=icao)
     layout._fan_ramp_plan = fan
     try:
         keepout = runway_strip_wall_keepout(layout, require_gate=False)
     except (ImportError, AttributeError, *_GEOM_EXC):
         keepout = None
+    # A declared RAMP piece is not a terrace candidate: the relief on
+    # that ground is the ramp, and a wall inside a ramp is not the law
+    # (owner answer 2 — the wall is the FALLBACK for what 5 % could not
+    # span, and 5 % is what this piece already holds).
     aprons = [s for s in list(getattr(layout, "shapes", ()))
               if s.role == ROLE_APRON and s.polygon is not None
               and not s.polygon.is_empty
-              and s.polygon.geom_type == "Polygon"]
+              and s.polygon.geom_type == "Polygon"
+              and not getattr(s, "fan_ramp_zone", False)]
     new_shapes: list = []
     for shape in aprons:
         stats["candidates"] += 1
@@ -2364,7 +2393,10 @@ def _rewrite_edges(edges, joints, node_xy, facing_nodes=None,
 # terrace law then sees is exactly the relief 5 % could NOT span inside
 # the zone.  Ramps first, wall fallback, one computation.
 
-FAN_RAMP_CAP = GROUNDSIDE_MAX_GRADE
+# ``FAN_RAMP_CAP`` is imported from ``config`` (the repo's rule: every
+# grade value is defined once there and re-exported under the existing
+# local name).  It has to be readable from ``tools/check_grade`` and from
+# ``grade_graph`` without either importing this solve-side module.
 # A zone smaller than this is a sliver of the difference operation, not
 # ground anybody ramps: it would grant 5 % across a few square metres
 # between two buffers that nearly meet.
@@ -2666,6 +2698,255 @@ def _fan_pair_reach(pad_a, pad_b, depth: float):
         (ux * t_lo + px * span, uy * t_lo + py * span),
     ]
     return grown.intersection(Polygon(corners))
+
+
+class _FanHole(Exception):
+    """A fan-zone cut that could only be expressed as an interior ring."""
+
+
+def split_aprons_at_fan_zones(layout, plan: Optional[FanRampPlan],
+                              icao: str = "") -> int:
+    """PRE-SOLVE PANELIZATION AT THE FAN-ZONE BOUNDARY.  Returns the
+    number of zone PIECES that became shapes.
+
+    WHY THIS EXISTS — the law was landed, correct, and INERT.  Measured
+    on HECA's plateau build: 808 declared zones over 295 526 m² of
+    movement-clear apron, and **170** within-apron law edges raised to
+    the zone cap.  The reason is structural, not a tuning miss: the
+    chord-predicate form of the law can only RAISE A PAIR THAT ALREADY
+    EXISTS, an apron's solve variables are its RING vertices, and a
+    fan-ramp zone is by construction INTERIOR ground — the back-edge
+    wedge between two frontages.  Of 10 255 within-apron census rows at
+    HECA, 9 739 had neither endpoint in any zone and exactly **9** were
+    blocked by the whole-chord test.  Relaxing the predicate would have
+    bought nine rows; the zone had no variables of its own to solve.
+
+    SO THE ZONE BECOMES A SHAPE, which is the terrace law's own answer to
+    the same problem (``construct_apron_terrace_presolve``: "the panel
+    boundary is a set of solve variables").  Cut out before the solve,
+    the zone's boundary is minted as ring vertices and its interior pairs
+    are ITS OWN ALL-PAIRS at the zone cap — the ONE solve then has a
+    surface it can actually fan, and the census reads the same law off
+    the emitted piece's ``o4_grade_law`` tag.
+
+    THE CUT IS THE TERRACE CUT, COMPONENT BY COMPONENT.  Zones overlap
+    heavily (HECA: 3 232 335 m² of parts over a 295 526 m² union — one
+    per adjacent building PAIR, and a stand has several neighbours), so
+    the apron is split at the UNION's components, largest first, each out
+    of the geometry the last one left behind.  A component that could
+    only be expressed as an INTERIOR RING is STILLBORN and dropped,
+    exactly as an unfaceable joint is: every shape in this system is
+    simply connected.  Measured, that costs 3 of 30 zone-bearing aprons
+    at HECA and keeps the central U-apron, whose six components include
+    one island.
+
+    A STILLBORN ZONE IS DROPPED FROM THE PLAN, not merely from the
+    layout.  The declaration the sidecar publishes is then exactly the
+    ground that became a 5 % shape — the solver's edge rewrite, the
+    terrace trigger's ramp allowance and the census all read one set, and
+    the wall law is left the relief the ramp genuinely could not take
+    (owner answer 2, precedence).
+
+    Losing pavement to a geometry op is never the lawful answer: every
+    piece — zone and remainder alike — is kept and emitted.
+    """
+    if plan is None or not plan.zones:
+        return 0
+    from auto_patch.layout import BuiltShape
+    st = plan.stats
+    st.setdefault("zones_split_in", 0)
+    st.setdefault("zones_stillborn_hole", 0)
+    st.setdefault("aprons_split", 0)
+    st.setdefault("remainder_pieces_added", 0)
+    kept_zones: list = []
+    new_shapes: list = []
+    for shape in list(getattr(layout, "shapes", ())):
+        zones = plan.by_shape.get(id(shape))
+        if not zones:
+            continue
+        poly = getattr(shape, "polygon", None)
+        if (poly is None or poly.is_empty or poly.geom_type != "Polygon"):
+            continue
+        # ── the zones of THIS apron, unioned into components ─────────
+        parts = []
+        for z in zones:
+            try:
+                g = poly.intersection(z["polygon"])
+            except _GEOM_EXC:                              # pragma: no cover
+                continue
+            if g.is_empty:
+                continue
+            parts.extend([g] if g.geom_type == "Polygon"
+                         else [q for q in getattr(g, "geoms", ())
+                               if q.geom_type == "Polygon" and not q.is_empty])
+        if not parts:
+            continue
+        try:
+            merged = unary_union(parts)
+        except _GEOM_EXC:                                  # pragma: no cover
+            continue
+        comps = ([merged] if merged.geom_type == "Polygon"
+                 else [g for g in getattr(merged, "geoms", ())
+                       if g.geom_type == "Polygon" and not g.is_empty])
+        comps = sorted((g for g in comps if g.area >= _FAN_MIN_AREA_M2),
+                       key=lambda g: -g.area)
+        if not comps:
+            continue
+        # ── the terrace cut, one component at a time ─────────────────
+        panels = [poly]
+        survivors = []
+        for comp in comps:
+            st["zones_split_in"] += 1
+            if len(comp.interiors):
+                st["zones_stillborn_hole"] += 1
+                continue
+            # SUBTRACT FROM EVERY PANEL, NOT FROM A "HOST".  The panels
+            # PARTITION the apron, and a component need not sit inside
+            # any one of them — an earlier cut can have divided the
+            # ground this one spans.  Taking a single host by
+            # representative point and differencing only that leaves the
+            # component's other part inside a sibling panel WHILE the
+            # component is also emitted as a ramp piece: the two shapes
+            # then OVERLAP, which is a zero-tolerance defect
+            # (``test_no_self_overlap``) and puts one coordinate pair
+            # under two different caps — measured, SPJC 0.9477 m² of
+            # apron∩apron and 190/12 877 CYXY edges where the solver
+            # priced 1 % and the validator 5 %.  Differencing every panel
+            # cannot do that: the ramp's ground leaves the remainder
+            # wherever it was.
+            try:
+                trial = []
+                touched = False
+                for p in panels:
+                    if not p.intersects(comp):
+                        trial.append(p)
+                        continue
+                    d = p.difference(comp)
+                    if d.is_empty:
+                        touched = True
+                        continue
+                    parts = ([d] if d.geom_type == "Polygon"
+                             else [g for g in getattr(d, "geoms", ())
+                                   if g.geom_type == "Polygon"
+                                   and not g.is_empty])
+                    if any(len(g.interiors) for g in parts):
+                        raise _FanHole()
+                    touched = True
+                    trial.extend(parts)
+            except _FanHole:
+                # Would punch an interior ring: stillborn, exactly like
+                # an unfaceable terrace joint.  Every shape here is
+                # simply connected.
+                st["zones_stillborn_hole"] += 1
+                continue
+            except _GEOM_EXC:                              # pragma: no cover
+                st["zones_stillborn_hole"] += 1
+                continue
+            if not trial or not touched:
+                st["zones_stillborn_hole"] += 1
+                continue
+            panels = trial
+            survivors.append(comp)
+        if not survivors:
+            continue
+        # ── THE RAMP IS THE GROUND THE CUT ACTUALLY REMOVED ─────────
+        # Not the component that asked for it.  Same reasoning the wall
+        # band already carries here ("THE RESERVATION IS THE GROUND THE
+        # SPLIT ACTUALLY REMOVED"), and it is not bookkeeping: the
+        # component came out of a union of overlapping per-pair zones,
+        # and shapely's union/difference do not round-trip exactly, so
+        # ``comp`` and ``apron − panels`` differ by slivers.  Emitting
+        # ``comp`` put those slivers in the ramp piece AND in a
+        # remainder panel — measured at SPJC as 0.9477 / 0.1181 /
+        # 0.0001 m² of apron∩apron, a zero-tolerance defect, and as 190
+        # CYXY edges priced 1 % by the solver and 5 % by the validator.
+        # Defined as the difference, ``ramp ∪ panels == apron`` and
+        # ``ramp ∩ panels == ∅`` BY CONSTRUCTION, whatever shapely did.
+        try:
+            removed = poly.difference(unary_union(panels))
+        except _GEOM_EXC:                                  # pragma: no cover
+            continue
+        ramp_pieces = ([removed] if removed.geom_type == "Polygon"
+                       else [g for g in getattr(removed, "geoms", ())
+                             if g.geom_type == "Polygon" and not g.is_empty])
+        ramp_pieces = [g for g in ramp_pieces
+                       if g.area >= _FAN_MIN_AREA_M2 and not g.interiors]
+        if not ramp_pieces:
+            # Nothing survived as real ground: put the apron back rather
+            # than ship a cut that removed only slivers.
+            st["zones_stillborn_hole"] += len(survivors)
+            continue
+        # Whatever the sliver filter dropped stays with the REMAINDER,
+        # so no pavement is lost: re-derive the panels from the pieces
+        # that will actually ship.
+        try:
+            rest = poly.difference(unary_union(ramp_pieces))
+        except _GEOM_EXC:                                  # pragma: no cover
+            continue
+        panels = ([rest] if rest.geom_type == "Polygon"
+                  else [g for g in getattr(rest, "geoms", ())
+                        if g.geom_type == "Polygon" and not g.is_empty])
+        if not panels:
+            st["zones_stillborn_hole"] += len(survivors)
+            continue
+        survivors = ramp_pieces
+        panels.sort(key=lambda p: -p.area)
+        # THE APRON KEEPS ITS IDENTITY as the largest remainder panel —
+        # everything that captured this shape earlier in the pipeline
+        # still points at an apron.  Siblings and zones are appended.
+        group = id(shape)
+        shape.polygon = panels[0]
+        shape._fan_panel_group = group
+        for extra in panels[1:]:
+            sib = BuiltShape(polygon=extra, role=ROLE_APRON,
+                             ref=getattr(shape, "ref", ""))
+            sib._fan_panel_group = group
+            new_shapes.append(sib)
+            st["remainder_pieces_added"] += 1
+        for comp in survivors:
+            zs = BuiltShape(polygon=comp, role=ROLE_APRON,
+                            ref=getattr(shape, "ref", ""),
+                            fan_ramp_zone=True)
+            zs._fan_panel_group = group
+            new_shapes.append(zs)
+            kept_zones.append((zs, comp))
+        st["aprons_split"] += 1
+    if new_shapes:
+        layout.shapes.extend(new_shapes)
+    # ── RE-DECLARE THE PLAN AS WHAT WAS ACTUALLY BUILT ───────────────
+    # One declaration, and it names the pieces that exist.  A zone the
+    # cut could not express is gone from every reader at once — the
+    # solver's edge rewrite, the terrace trigger's ramp allowance and
+    # the census sidecar.  UNCONDITIONAL, including the all-stillborn
+    # case: a plan that kept its old zones there would go on granting
+    # 5 % on ground no shape was ever given at 5 %, which is precisely
+    # the solver/census divergence this law exists to make impossible.
+    plan.zones = []
+    plan.by_shape = {}
+    plan._prepared = None
+    plan.stats["zones"] = 0
+    plan.stats["zone_area_m2"] = 0.0
+    for (zs, comp) in kept_zones:
+        plan.add(id(zs), {
+            "shape_id": id(zs),
+            "polygon": comp,
+            "cap": FAN_RAMP_CAP,
+            "buildings": _FAN_MIN_BUILDINGS,
+            "area_m2": float(comp.area),
+        })
+    if not (kept_zones or st["zones_split_in"]):
+        return 0
+    import O4_UI_Utils as _UI
+    _UI.vprint(1,
+        f"  [fan-ramp] {icao}: PRE-SOLVE panelization — "
+        f"{st['aprons_split']} apron(s) cut at the zone boundary into "
+        f"{len(kept_zones)} RAMP piece(s) over "
+        f"{plan.stats['zone_area_m2']:,.0f} m² at "
+        f"{FAN_RAMP_CAP * 100:.0f} % + {st['remainder_pieces_added']} "
+        f"remainder sibling(s); {st['zones_stillborn_hole']} of "
+        f"{st['zones_split_in']} component(s) STILLBORN (would punch an "
+        f"interior ring) and dropped from the declaration")
+    return len(kept_zones)
 
 
 def apply_fan_ramp_caps(plan: Optional[FanRampPlan], shape_constraints,

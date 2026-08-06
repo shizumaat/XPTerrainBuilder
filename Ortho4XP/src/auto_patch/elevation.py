@@ -3070,6 +3070,10 @@ def _drop_overlap_against_fixed_shapes(
                     source_shape, "adopts_taxi_grade", False),
                 adopted_taxi_letter=getattr(
                     source_shape, "adopted_taxi_letter", None),
+                # A fragment of a declared fan-ramp zone is still that
+                # zone's ground: the flag travels or the piece silently
+                # falls back to the 1 % apron cap it was cut out of.
+                fan_ramp_zone=getattr(source_shape, "fan_ramp_zone", False),
                 lateral_cap=getattr(source_shape, "lateral_cap", None)))
 
     n_dropped = 0

@@ -77,6 +77,8 @@ try:
         TAXI_MAX_TRANSVERSE_NARROW,
         SERVICE_ROAD_MAX_TRANSVERSE,
         taxi_grade_cap_for_letter,
+        FAN_RAMP_LAW as _FAN_RAMP_LAW,
+        fan_ramp_law_cap as _fan_ramp_law_cap,
     )
     from auto_patch.layout import SHARED_VERTEX_TOL_M
 except Exception:
@@ -105,6 +107,11 @@ except Exception:
         if on and letter and str(letter).upper() in ("A", "B"):
             return 0.030
         return 0.015
+
+    _FAN_RAMP_LAW = "fan_ramp"
+
+    def _fan_ramp_law_cap(law_value):
+        return 0.050 if law_value == _FAN_RAMP_LAW else None
 
 # ── THE GRADED-STRIP SEAM LAW (spec seam-continuity-v2 §1) ──────
 # ONE home for the STRIP-seam constants and predicates:
@@ -845,6 +852,17 @@ def _role_grade_limit(way: "Way",
     # on exactly those pieces; validate them at that role's cap so both
     # readers apply the same law.
     _law_override = way.tags.get("o4_grade_law")
+    # THE FAN-RAMP LAW (owner RULINGS 21f0980): a declared fan-ramp zone
+    # piece is apron ground between two adjacent building frontages,
+    # clear of every aircraft-movement surface, and holds the ZONE cap.
+    # Resolved by the ONE function the solver's cap resolvers read
+    # (``config.fan_ramp_law_cap``); it RELAXES, so it is answered before
+    # the strict role table below.  Returned WITHOUT the lateral minimum:
+    # the lateral-contiguity law binds ROADS (its own role set), never an
+    # apron piece, so there is no cap for it to compose with here.
+    _fan_cap = _fan_ramp_law_cap(_law_override)
+    if _fan_cap is not None:
+        return _fan_cap
     # TAXIWAY-EDGE ADOPTION (USER RULING 2026-07-07): a service-road
     # portion inside/alongside a taxiway follows the taxiway grade law
     # (1.5 %, letter-aware).  The build stamps ``o4_grade_law='taxi'`` +
@@ -1326,6 +1344,15 @@ def iter_shape_grade_constraints(
             ring = [(p[0], p[1]) for p in pts]
             gs = _GG.GradeShape(
                 role=role0, ring=ring, keys=list(pnids),
+                # THE FAN-RAMP LAW (owner RULINGS 21f0980), the census
+                # half.  This is the whole lockstep: the flag goes into
+                # the SAME ``GradeShape`` the solver builds, so both
+                # sides reach the zone cap through ONE function
+                # (``grade_graph._body_cap_unbounded``) rather than each
+                # carrying its own idea of where the ramp is.  A patch
+                # predating the law has no tag and is judged as before.
+                fan_ramp_zone=(
+                    w.tags.get("o4_grade_law") == _FAN_RAMP_LAW),
                 adopts_apron_grade=(
                     w.tags.get("o4_grade_law") == "apron"),
                 adopts_taxi_grade=(

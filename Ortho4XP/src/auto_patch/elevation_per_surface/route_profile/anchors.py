@@ -1218,25 +1218,129 @@ def detached_pad_nodes(layout, bucket_to_idx, building_seats):
     return out
 
 
-def withhold_airside_band_from_detached_pads(node_band, pads, n=None):
-    """Hand every detached-pad node ``None`` in ``node_band`` — the AIRSIDE
-    reach band is not its law.  Returns the withheld node index set.
+#: Shape roles whose law edges constitute AIRSIDE FRONTAGE for a building
+#: (owner ruling 2026-08-06, "Frontage coupling ⇒ band seating").  A
+#: building chord to one of these is the frontage relationship the apron
+#: has to grade smoothly to; groundside lots and service roads are NOT —
+#: a building that only abuts those is the pure groundside citizen the
+#: ruling exempts.
+_FRONTAGE_AIRSIDE_FAMILY_PREFIXES = (
+    "unified:apron", "unified:junction", "unified:runway",
+    "unified:primary_parallel", "unified:secondary_parallel",
+    "unified:stub", "unified:cross_connector", "unified:taxiway",
+    "unified:graded_strip",
+)
 
-    This is the source fix for the plateau defect attributed above: the
+
+def detached_pad_frontage_coupling(pads, unified_graph, near_miss_edges=None):
+    """``{pad_ordinal: ((partner_node, budget_m), ...)}`` — each detached
+    pad's FRONTAGE COUPLING to airside, or an absent entry when it has
+    none.
+
+    OWNER RULING 2026-08-06 ("Frontage coupling ⇒ band seating"): *"A
+    building close enough to have frontage and be coupled with the apron
+    has to be seated based on the route graph that allows the apron to
+    grade smoothly to its frontage within the apron's grade law."*  The
+    ruling also re-keys the band withholding itself: it keys on FRONTAGE
+    COUPLING, not on touch.
+
+    Two couplings count, and the ruling names both:
+
+    * TOUCHING — the pad's ring node carries a law chord owned by an
+      airside pavement shape (``_FRONTAGE_AIRSIDE_FAMILY_PREFIXES``).
+      That chord IS the frontage chord: the unified graph mints it from
+      the owning shape's own all-pair law.
+    * NEAR-MISS — the pad↔apron edge the near-miss frontage law mints
+      across a sub-metre unpaved sliver
+      (:func:`near_miss_building_frontage_edges`).  Ruling item 3 names
+      this as the half-landed law: the EDGE was minted without extending
+      the SEAT derivation.  This function is that missing half's input.
+
+    The budget carried back is the edge's own — the apron cap over the
+    chord — so the caller can price exactly how far off the partner's
+    band the pad may lawfully sit.  Tightest budget wins on a duplicate
+    pair, the same rule the projection applies.
+
+    Pure lookup over edge lists already built; no geometry pass.
+    """
+    pad_of: dict = {}
+    for ordinal, (_s, idx) in enumerate(pads):
+        for i in idx:
+            pad_of[i] = ordinal
+    if not pad_of:
+        return {}
+    out: dict = {}
+
+    def _note(ordinal, partner, budget):
+        if budget is None or budget < 0:
+            return
+        row = out.setdefault(ordinal, {})
+        prev = row.get(partner)
+        if prev is None or budget < prev:
+            row[partner] = float(budget)
+
+    edges = getattr(unified_graph, "edges", None) or ()
+    families = getattr(unified_graph, "edge_family", None) or ()
+    for (a, b, cap, _sp), fam in zip(edges, families):
+        if not str(fam).startswith(_FRONTAGE_AIRSIDE_FAMILY_PREFIXES):
+            continue
+        pa, pb = pad_of.get(a), pad_of.get(b)
+        if (pa is None) == (pb is None):
+            continue                    # both pad nodes, or neither
+        pos = getattr(unified_graph, "pos", {})
+        if a not in pos or b not in pos:
+            continue
+        from auto_patch import grade_graph as _GGf
+        budget = cap.at(_GGf._dist(pos[a], pos[b]), 0.0)
+        if pa is not None:
+            _note(pa, b, budget)
+        else:
+            _note(pb, a, budget)
+    for (apron_node, pad_node, budget) in (near_miss_edges or ()):
+        ordinal = pad_of.get(pad_node)
+        if ordinal is not None:
+            _note(ordinal, apron_node, budget)
+    return {k: tuple(v.items()) for k, v in out.items()}
+
+
+def withhold_airside_band_from_detached_pads(node_band, pads, n=None,
+                                             frontage_coupled=None):
+    """Hand every detached-pad node ``None`` in ``node_band`` — the AIRSIDE
+    reach band is not its law.  Returns ``(withheld_nodes, n_kept_pads)``.
+
+    This was the source fix for the plateau defect attributed above: the
     band floor is what wrote the surrounding airside level onto a pad no
     airside route serves.  ``None`` is the band's own established value
     for "this node's law is elsewhere" — the identical treatment
     ``node_bands(skip_from=...)`` gives adjacent-ground zone vertices.
-    Removing a bound can never manufacture one, so this direction is safe
-    under the constant-DEM oracle by construction."""
+
+    CYCLE-7 FIX 2, OWNER RULING 2026-08-06: the withholding KEYS ON
+    FRONTAGE COUPLING, NOT ON TOUCH.  The unconditional form was
+    over-broad — HECA's ``building172`` carries an ordinary 1 %-cap apron
+    chord (budget 0.0646 m over 6.46 m) and still had its band withheld,
+    which left it seated on a groundside/DEM datum at 1.6576 m against an
+    apron banded from 62.495 m: a permanent clamp/sweep 2-cycle worth
+    60.772738 m, the worst residual in the whole solve.  A pad WITH
+    frontage coupling keeps its band and is seated from it
+    (:func:`seat_detached_pads_by_law`); only a pad with NO frontage
+    coupling is the pure groundside citizen the ruling exempts — it seats
+    at DEM, terraces freely and affects nothing airside.
+
+    ``frontage_coupled=None`` restores the unconditional pre-ruling
+    behaviour (no coupling information ⇒ nothing can be exempted).
+    """
     limit = len(node_band) if n is None else min(n, len(node_band))
     withheld: set = set()
-    for (_s, idx) in pads:
+    kept = 0
+    for ordinal, (_s, idx) in enumerate(pads):
+        if frontage_coupled and frontage_coupled.get(ordinal):
+            kept += 1
+            continue                    # frontage-coupled: the band IS its law
         for i in idx:
             if 0 <= i < limit:
                 node_band[i] = None
                 withheld.add(i)
-    return withheld
+    return withheld, kept
 
 
 def _foot_on_ring(px, py, coords):
@@ -1361,7 +1465,73 @@ def detached_pad_law_box(layout, bucket_to_idx, elev, pad_shape, pad_idx,
     return lo, hi, n_contacts, n_conflict
 
 
-def seat_detached_pads_by_law(layout, bucket_to_idx, elev, pads, cap):
+def frontage_band_seat_interval(pad_idx, coupling, node_band):
+    """``(lo, hi, n_couplings)`` — the flat levels the FRONTAGE BAND admits
+    for one detached pad, or ``(None, None, 0)`` when nothing resolves.
+
+    CYCLE-7 FIX 2, and the measurement that forced it.  A detached pad's
+    seat box is built by ``detached_pad_law_box``'s CONTACT MARCH, whose
+    horizon is ``DETACHED_PAD_HOST_CONTACT_M`` = 2.5 m.  The LAW GRAPH has
+    no such horizon: HECA's ``building172`` sits 6.46 m from apron node
+    5037 and carries an ordinary 1 %-cap law edge to it (budget 0.0646 m)
+    — outside the march, inside the law.  The march therefore saw only
+    groundside pieces at d ≈ 0, minted the box ``[datum, datum]`` (ZERO
+    WIDTH, at 1.6576 m in a DEM ≡ 1 world), and the projection then had a
+    groundside/DEM datum installed as a HARD bound on an airside apron
+    edge whose own band floors at 62.495 m.  Every sweep moved both ends
+    by ±30.4 m and the clamps restored them exactly: a permanent 2-cycle,
+    residual 60.772738 m, bit-identical at sweep 1 and at sweep 49,600 —
+    100 % of the worst residual in the whole HECA solve, and invisible to
+    any amount of convergence work.
+
+    That box violates two standing rulings at once — "DEM is a seed,
+    never a constraint" and "groundside must never pull airside" — and
+    cycle-6 Part P's band-wins door does not cover it, because the pad
+    has no band AT ALL (``withhold_airside_band_from_detached_pads``
+    hands every detached pad ``None``).
+
+    THE LAW THIS FUNCTION STATES (owner ruling 2026-08-06, "Frontage
+    coupling ⇒ band seating"): *"A building close enough to have frontage
+    and be coupled with the apron has to be seated based on the route
+    graph that allows the apron to grade smoothly to its frontage within
+    the apron's grade law."*  Read forward, that is arithmetic: a pad
+    coupled to a banded partner by a frontage chord of budget ``B`` may
+    lawfully sit anywhere in ``[band_lo − B, band_hi + B]`` — any level
+    in there lets the chord grade within the apron's own law to some
+    in-band partner value — and the pad's seat is the INTERSECTION of
+    that over all its frontage couplings.
+
+    ONE band (``reach_band_unified``) is the authority for a partner's
+    lawful range — never its current VALUE, which is a solve state and
+    not a law.  ``coupling`` is the pad's frontage set from
+    :func:`detached_pad_frontage_coupling`, which has already excluded
+    intra-pad pairs (a rigid flat group cannot constrain its own level).
+
+    An EMPTY intersection (``lo > hi``) means two frontage couplings no
+    single flat level can meet — the SPLIT-LEVEL SEAT law's trigger
+    (RULINGS 2026-08-04), reported LOUD by the caller, never silently
+    resolved.  ``n_couplings == 0`` with a non-empty ``coupling`` means
+    the frontage band could not be DERIVED (no banded partner): also
+    loud, and never a fallback to the DEM datum pin.
+    """
+    lo = hi = None
+    n_couplings = 0
+    for (j, budget) in coupling or ():
+        band = node_band[j] if 0 <= j < len(node_band) else None
+        if band is None or band[0] is None or band[1] is None:
+            continue
+        n_couplings += 1
+        b_lo = float(band[0]) - float(budget)
+        b_hi = float(band[1]) + float(budget)
+        lo = b_lo if lo is None else max(lo, b_lo)
+        hi = b_hi if hi is None else min(hi, b_hi)
+    if not n_couplings:
+        return None, None, 0
+    return lo, hi, n_couplings
+
+
+def seat_detached_pads_by_law(layout, bucket_to_idx, elev, pads, cap,
+                              frontage_coupled=None, node_band=None):
     """Seat every detached pad FLAT at the law level nearest its seed.
 
     Runs AFTER the groundside passes (``apply_groundside_reach`` /
@@ -1380,18 +1550,58 @@ def seat_detached_pads_by_law(layout, bucket_to_idx, elev, pads, cap):
     NOT HARD.  The pad joins the ordinary movable FLAT pad groups — it is a
     building, flatness is its law, and its box is what keeps it lawful.
     The deleted DEM pin's ``layout._detached_pad_node_idx`` exclusion
-    existed only to protect a value the law did not choose."""
+    existed only to protect a value the law did not choose.
+
+    ``frontage_coupled`` / ``node_band`` — CYCLE-7 FIX 2, OWNER RULING
+    2026-08-06 ("Frontage coupling ⇒ band seating").  A pad that carries
+    a FRONTAGE COUPLING (touching or near-miss) is not a groundside
+    citizen at all: it is seated FROM THE ROUTE-GRAPH BAND through its
+    frontage chord (:func:`frontage_band_seat_interval`), and **no
+    DEM-datum value may be a bound on it** — the contact box is not
+    intersected in, it is not consulted, it is simply not its law.  DEM
+    still chooses WHERE inside the derived range, which is the standing
+    seed-not-bound rule.
+
+    A frontage-coupled pad whose band interval cannot be DERIVED (no
+    banded partner) or is EMPTY (two couplings no single flat level
+    meets) is a LOUD DEFECT REPORT, and the pad is left UNBOUNDED on its
+    seed — never falling back to the datum pin, which is the failure this
+    fix exists to delete.  An empty interval is additionally the
+    split-level sectioned-seat law's trigger (RULINGS 2026-08-04), which
+    remains the relief for large intra-footprint relief.
+
+    Omit either argument and no pad is treated as frontage-coupled, which
+    is exactly the pre-ruling behaviour.
+
+    Returns ``stats = (n_seated, n_unhosted, n_conflict, n_frontage_seated,
+    n_frontage_underivable, n_split_level)``."""
     seats: dict = {}
     boxes = _store_of(layout).open_map("seat_boxes", "interval")
     cps = layout.canonical_points
     n_seated = n_unhosted = n_conflict = 0
-    for (s, idx) in pads:
-        lo, hi, n_c, n_x = detached_pad_law_box(
-            layout, bucket_to_idx, elev, s, idx, cap)
-        n_conflict += n_x
-        if lo is None:
-            n_unhosted += 1                 # no datum → no box, no write
-            continue
+    n_frontage = n_underivable = n_split = 0
+    reconcile = frontage_coupled is not None and node_band is not None
+    for ordinal, (s, idx) in enumerate(pads):
+        coupling = (frontage_coupled or {}).get(ordinal) if reconcile else None
+        if coupling:
+            # ── THE FRONTAGE-COUPLED PATH: the band is its law ────────
+            f_lo, f_hi, n_cpl = frontage_band_seat_interval(
+                idx, coupling, node_band)
+            if not n_cpl:
+                n_underivable += 1      # LOUD; unbounded on its seed
+                continue
+            if f_lo > f_hi:
+                n_split += 1            # LOUD; unbounded on its seed
+                continue
+            lo, hi = f_lo, f_hi
+            n_frontage += 1
+        else:
+            lo, hi, n_c, n_x = detached_pad_law_box(
+                layout, bucket_to_idx, elev, s, idx, cap)
+            n_conflict += n_x
+            if lo is None:
+                n_unhosted += 1             # no datum → no box, no write
+                continue
         vals = [elev[i] for i in idx if i < len(elev)]
         if not vals:
             continue
@@ -1407,7 +1617,8 @@ def seat_detached_pads_by_law(layout, bucket_to_idx, elev, pads, cap):
             boxes[k] = ((lo, hi) if prev is None
                         else (max(prev[0], lo), min(prev[1], hi)))
         n_seated += 1
-    return seats, (n_seated, n_unhosted, n_conflict)
+    return seats, (n_seated, n_unhosted, n_conflict,
+                   n_frontage, n_underivable, n_split)
 
 
 def _pocs_project_levels(targets, boxes, pairs, max_iter=300, tol=1e-4):

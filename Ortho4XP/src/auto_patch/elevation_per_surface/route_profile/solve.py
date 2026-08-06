@@ -2299,17 +2299,34 @@ def solve_route_profile(layout, icao: str,
     # so it is necessarily the last thing seated).
     _detached_pads = detached_pad_nodes(
         layout, bucket_to_idx, building_seats)
-    _detached_pad_node_idx = withhold_airside_band_from_detached_pads(
-        node_band, _detached_pads, n)
-    if _detached_pad_node_idx:
+    # ── FRONTAGE COUPLING ⇒ BAND SEATING (owner 2026-08-06) ───────────
+    # The withholding keys on FRONTAGE COUPLING, not on touch.  The near-
+    # miss frontage edges are computed HERE, once, and carried to the
+    # ``u_edges`` build below: they are the near-miss half of the
+    # coupling test AND the law edges themselves, and the ruling's own
+    # finding is that the two halves were separated (the edge minted, the
+    # seat derivation not extended).  One geometry pass, two consumers —
+    # the single-pass principle, and it also stops the recognition log
+    # firing twice.
+    from .anchors import near_miss_building_frontage_edges as _nmfe
+    from .anchors import detached_pad_frontage_coupling as _dpfc
+    _near_miss_edges = _nmfe(layout, bucket_to_idx, building_seats)
+    _pad_frontage = _dpfc(_detached_pads, G, _near_miss_edges)
+    _detached_pad_node_idx, _n_frontage_pads = (
+        withhold_airside_band_from_detached_pads(
+            node_band, _detached_pads, n, frontage_coupled=_pad_frontage))
+    if _detached_pads:
         try:
             import O4_UI_Utils as _UI_dp
             _UI_dp.vprint(1,
                 f"  [seats] {len(_detached_pads)} detached building "
-                f"pad(s) / {len(_detached_pad_node_idx)} node(s): "
-                f"airside reach band WITHHELD (not airside-served); "
-                f"seated on their groundside datum after the "
-                f"groundside passes.")
+                f"pad(s): {_n_frontage_pads} FRONTAGE-COUPLED (band "
+                f"KEPT — seated from the route-graph band through the "
+                f"frontage chord, owner 2026-08-06), "
+                f"{len(_detached_pads) - _n_frontage_pads} with no "
+                f"frontage coupling / {len(_detached_pad_node_idx)} "
+                f"node(s): airside reach band WITHHELD, seated on their "
+                f"groundside datum after the groundside passes.")
         except Exception:
             pass
 
@@ -2751,8 +2768,11 @@ def solve_route_profile(layout, icao: str,
     # ``pad_weld_refs`` store carry — was DELETED with the §7
     # reference channel it fed.  The near-miss frontage LAW EDGES
     # stay: they are ordinary law, enforced by every projection.)
-    u_edges.extend(near_miss_building_frontage_edges(
-        layout, bucket_to_idx, building_seats))
+    # ONE PASS (2026-08-06): the near-miss recognition already ran at the
+    # band-withhold site above, where the frontage-coupling test needs
+    # it; these ARE those edges.  ``near_miss_building_frontage_edges``
+    # stays imported there for the one call.
+    u_edges.extend(_near_miss_edges)
     # APRON TERRACE LAW: the unified graph carries its OWN copy of the
     # apron's all-pair law, so the joint budgets have to be bound onto
     # it too — one law, both edge sets (see
@@ -2928,11 +2948,24 @@ def solve_route_profile(layout, icao: str,
     # retro-preserve anything — keep the call below that read.
     if _detached_pads:
         from auto_patch.config import GROUNDSIDE_MAX_GRADE
+        # ── CYCLE-7 FIX 2 (owner ruling 2026-08-06) ───────────────────
+        # A FRONTAGE-COUPLED pad is seated from the route-graph band
+        # through its frontage chord; the groundside contact datum is not
+        # its law and may not bound it.  ``detached_pad_law_box``'s
+        # contact march stops at 2.5 m while the LAW GRAPH has no
+        # horizon: HECA's building172 sits 6.46 m from an apron node with
+        # an ordinary 1 %-cap chord to it, so the march saw only
+        # groundside pieces at d = 0 and minted a ZERO-WIDTH box at the
+        # groundside/DEM datum — which then held that airside apron edge
+        # in a permanent clamp/sweep 2-cycle worth 60.772738 m, the worst
+        # residual in the whole solve.  Only a pad with NO frontage
+        # coupling keeps the contact-box path.
         _dp_seats, _dp_stats = seat_detached_pads_by_law(
             layout, bucket_to_idx, elev, _detached_pads,
-            GROUNDSIDE_MAX_GRADE)
+            GROUNDSIDE_MAX_GRADE,
+            frontage_coupled=_pad_frontage, node_band=node_band)
         building_seats.update(_dp_seats)
-        if _dp_stats[0] or _dp_stats[1] or _dp_stats[2]:
+        if any(_dp_stats):
             import O4_UI_Utils as _UI_dl
             _UI_dl.vprint(1,
                 f"  [detached-pad] {_dp_stats[0]} pad(s) seated on a "
@@ -2942,6 +2975,16 @@ def solve_route_profile(layout, icao: str,
                 f"{_dp_stats[2]} DECLARED CONTACT CONFLICT(S) (an empty "
                 f"box is the split-level-seat law's trigger, RULINGS "
                 f"2026-08-04).")
+            _UI_dl.vprint(1,
+                f"  [detached-pad] frontage-band seating (owner "
+                f"2026-08-06): {_dp_stats[3]} pad(s) seated FROM THE "
+                f"ROUTE-GRAPH BAND through their frontage chord (no "
+                f"DEM-datum bound), {_dp_stats[4]} frontage-coupled with "
+                f"NO DERIVABLE BAND (left unbounded on their seed and "
+                f"reported — never a fallback to the datum pin), "
+                f"{_dp_stats[5]} SPLIT-LEVEL CANDIDATE(S) whose frontage "
+                f"couplings no single flat level meets (RULINGS "
+                f"2026-08-04 — reported, never silently resolved).")
     _psub(0.88, "Solving elevations — feasibility projection")
     # ── S1b: THE POST-PHASE-A OVERWRITE IS RETIRED ────────────────
     # It applied the chord values here, AFTER phase A returned, which

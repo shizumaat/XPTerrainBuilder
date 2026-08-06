@@ -665,3 +665,34 @@ Binding:
    authority land TOGETHER henceforth (lockstep extends to seating).
 4. The split-level sectioned-seat form remains the relief for large
    intra-footprint relief (unchanged).
+
+## 2026-08-06 — ONE graph: groundside joins the route graph (owner)
+
+Owner, verbatim intent: groundside pavement that is NOT a road grades
+exactly like aprons, just with the higher cap; service roads are built
+the same as taxiways with a higher cap; roads connect groundside
+"aprons" (lots) and buildings at even higher caps than the smallest
+taxiway — "it can all just be part of the one system." And: "Anything
+truly disconnected, we don't really have to do anything at all — it
+just gets left at DEM and doesn't need to be solved."
+
+Binding:
+1. ONE ROUTE GRAPH — no second groundside graph. Service roads are
+   route edges (their 8% budgets), lots are groundside aprons (5%
+   within-shape law), groundside buildings seat by frontage on the
+   SAME band mechanism — identical machinery to size-dependent
+   taxiway caps on airside. Every connected groundside node's
+   feasible band derives from what its service-road routes can reach.
+2. Constraint direction unchanged (airside-is-king; single-solve):
+   the band flows airside → groundside through the connections;
+   groundside is receiver-only, zero pull back.
+3. TRULY DISCONNECTED geometry — no route, frontage, or weld coupling
+   to the solved network — is NOT SOLVED: it stays at raw DEM by
+   construction and mints nothing.
+4. Supersedes: the "lot law enters the solve" item's open mechanism
+   (this IS the mechanism); the lead's terrace-declaration candidate
+   for D′ (REJECTED — one mechanism beats a parallel declaration
+   form); and the KCLT canyon service-way spread class dissolves by
+   construction (far ends seat in-band from their junction reach, not
+   at raw DEM). Ground BETWEEN pavements still terraces freely
+   (groundside terrace law unchanged).

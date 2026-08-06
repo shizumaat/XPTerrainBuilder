@@ -171,6 +171,31 @@ attributions, and the pipeline:5721 chord limiter). Battery
 adjudicated 12,753→12,265; matched controls: zero introduced reds.
 who_wrote --author-dump landed on the tip (c5auth instrument work).
 
+**FRAME OF RECORD — POST-CYCLE-6 (c6tip tmp/c6tip_record.md; a fresh
+session boots on THIS matrix).** ALL EIGHT flat builds succeed.
+ADJUDICATED/airside: HEAZ 1,103/460 · 202/199 · SPJC 2,289/2,268 ·
+3,814/3,780 · KCLT 1,818/878 · 3,384/1,824 · HECA 6,700/6,093 ·
+11,092/8,026. BATTERY 30,402 (plateau 11,910 · canyon 18,492) +
+12,250 deferred (all drainage_minimum). Solve UNCERTIFIED all eight.
+TRUE cycle-6 delta (matched control 4e9008c — both lane dossiers were
+cross-tree; the control reproduces HECA 7,165 / fp#8 91.150942
+exactly): battery −653; KCLT canyon +180; P∘D interaction +219 (not
+additive). Suite FAILED-diff EMPTY (+18 passing twins; 11 standing
+reds). RANKED OWNERSHIP: **82% is in-band airside solver residual** —
+C-BAND 0.1-1 m 13,711 (45.1%) + C-DECAMETRE 1-10 m 11,143 (36.7%),
+one authority (POCS settles apron/junction interiors just over cap);
+D′ DEM-stranded groundside rings 4,276 (14.1% — the ladder's LAW
+ISLAND branch keeps the DEM seed; fix = lot law enters the solve);
+X-STEP 474; C-EPS 792; P′ 21 rows. NEW second author:
+_post_projection_conformance_passes moves untouched building seats up
+to 9,902 m (HECA canyon). CORRECTIONS: task-18 premise was an
+instrument mislabel (flat_ways counts way-level tags) — HEAZ 630 rows
+are D′; the real svc-junction spread is KCLT canyon 131 rows (two
+disagreeing LAW values, no vertex on DEM). Debts: census
+--magnitude-bands promotion owed; who-json by-writer silently empty;
+tools/INDEX.md UNREACHABLE from lane worktrees (lane_worktree.sh
+doesn't mount repo-root tools/).
+
 NEXT TARGETS (ranked):
 1. **The solve's UNCERTIFIED exit is the real plateau author** —
    attribute the empty polytope per family (ENTRY/EXIT certificate +

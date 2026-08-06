@@ -31,7 +31,8 @@ from .anchors import (
     build_nobuilding_apron_seats,
     build_apron_contact_floors, building_spine_floor, node_bands, reach_band_for)
 from .one_solve import (envelope_from_band_enabled, one_profile_solve,
-                        route_metric_envelope_enabled)
+                        route_metric_envelope_enabled,
+                        _CATCH_ALL_FAMILY_TAGS as _CATCH_ALL_FAMILIES)
 
 
 def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
@@ -2143,15 +2144,62 @@ def solve_route_profile(layout, icao: str,
     # that contacts ONE of them must meet THAT runway's surface (695.3).  ``re``
     # is the runway profile, so this is a no-op for a true runway-end node and
     # only corrects the intersection-compromised crossing node.
-    # hard-anchor CATEGORY map (debug: names each hard node's origin in the
-    # O4_DUMP_SOLVE_STATE snapshot — the phantom-anchor forensics).
-    _hard_cat = {i for i in range(n) if base_hard[i]}
-    _hard_cat = {i: "seed_rwy_seam" for i in _hard_cat}
+    # ── hard-anchor CATEGORY map — NAMES THE ACTUAL PROVENANCE ────────
+    # (debug: read only by the ``O4_DUMP_SOLVE_STATE`` snapshot — the
+    # phantom-anchor forensics; nothing in the solve consumes it.)
+    #
+    # CYCLE-7 FIX 3, verdict (d) BROKEN INSTRUMENT.  This map used to be
+    # ``{i: "seed_rwy_seam" for i in base_hard}`` — a BLANKET CONSTANT.
+    # Every base-hard node came out with the same class name whatever
+    # made it hard, and the two ``setdefault`` calls immediately below
+    # (``rwy_join``, ``rwy_flexed``) were consequently DEAD for exactly
+    # the nodes they describe, because those nodes were already in the
+    # map.  The cost was measured: the c6attr dossier's finding "610
+    # strictly-immovable anchors, and 100 % of them are class
+    # ``seed_rwy_seam``" is an artefact of this line — the classifier
+    # could not have said anything else — and it is why the seam-depth
+    # question ("do the pin VALUES carry ride, or is a relief form
+    # missing between two TRUE pins?") could not be answered off the
+    # class axis at all.  Under RULINGS 2026-08-06 ("Instrument truth is
+    # law") a report that cannot distinguish its own populations is a
+    # defect, not a convenience.
+    #
+    # THE ANSWER the fixed axis makes checkable, recorded here because it
+    # is what the fix was for: at HECA ``--dem 1`` all 1,077 of these
+    # nodes hold 48.50-142.43 m against a DEM of 1.000 and ZERO sit at
+    # the DEM value — the pins carry NO ride, so the depth is the second
+    # branch (a lawful relief form missing between two true pins), and
+    # the law already names that form: RUNWAY FLEX, which this same build
+    # reports stopping on its ROUND CAP rather than on convergence.
+    #
+    # Each class is a set this scope already owns; a node no source
+    # claims is named ``base_hard:unattributed`` rather than folded into
+    # a neighbouring class, so the residue is visible and countable
+    # instead of silently inflating a real population.
+    _flexed_idx = getattr(layout, "_flexed_runway_node_idx", None) or ()
+    _seam_pin_pre = getattr(layout, "_seam_pin_idx", None) or set()
+    _hard_cat: dict = {}
+    for i in range(n):
+        if not base_hard[i]:
+            continue
+        if i in _flexed_idx:
+            _hard_cat[i] = "rwy_flexed"
+        elif i in _seam_pin_pre:
+            _hard_cat[i] = "seam_pin"
+        elif i in G.runway_anchor:
+            _hard_cat[i] = "rwy_join"
+        elif i in runway_nodes:
+            _hard_cat[i] = "rwy_profile"
+        else:
+            _hard_cat[i] = "base_hard:unattributed"
     # FLEXED runway nodes keep the flexed profile value: the join
     # anchor is SAMPLED from piece geometry and disagrees with the
     # flexed profile at piece ends (user 2026-07-06 root-cause —
     # 58.30 stamped over the flexed 61.21 → 24 % inside 05L).
-    _flexed_idx = getattr(layout, "_flexed_runway_node_idx", None) or ()
+    # The class map above already named every node that was base-hard on
+    # entry, so these assignments cover the nodes this loop HARDENS —
+    # which is what the two labels were always meant to describe and
+    # what the blanket constant used to swallow.
     for i, re in G.runway_anchor.items():
         if i < n:
             if i in _flexed_idx and base_hard[i]:
@@ -2298,17 +2346,34 @@ def solve_route_profile(layout, icao: str,
     # so it is necessarily the last thing seated).
     _detached_pads = detached_pad_nodes(
         layout, bucket_to_idx, building_seats)
-    _detached_pad_node_idx = withhold_airside_band_from_detached_pads(
-        node_band, _detached_pads, n)
-    if _detached_pad_node_idx:
+    # ── FRONTAGE COUPLING ⇒ BAND SEATING (owner 2026-08-06) ───────────
+    # The withholding keys on FRONTAGE COUPLING, not on touch.  The near-
+    # miss frontage edges are computed HERE, once, and carried to the
+    # ``u_edges`` build below: they are the near-miss half of the
+    # coupling test AND the law edges themselves, and the ruling's own
+    # finding is that the two halves were separated (the edge minted, the
+    # seat derivation not extended).  One geometry pass, two consumers —
+    # the single-pass principle, and it also stops the recognition log
+    # firing twice.
+    from .anchors import near_miss_building_frontage_edges as _nmfe
+    from .anchors import detached_pad_frontage_coupling as _dpfc
+    _near_miss_edges = _nmfe(layout, bucket_to_idx, building_seats)
+    _pad_frontage = _dpfc(_detached_pads, G, _near_miss_edges)
+    _detached_pad_node_idx, _n_frontage_pads = (
+        withhold_airside_band_from_detached_pads(
+            node_band, _detached_pads, n, frontage_coupled=_pad_frontage))
+    if _detached_pads:
         try:
             import O4_UI_Utils as _UI_dp
             _UI_dp.vprint(1,
                 f"  [seats] {len(_detached_pads)} detached building "
-                f"pad(s) / {len(_detached_pad_node_idx)} node(s): "
-                f"airside reach band WITHHELD (not airside-served); "
-                f"seated on their groundside datum after the "
-                f"groundside passes.")
+                f"pad(s): {_n_frontage_pads} FRONTAGE-COUPLED (band "
+                f"KEPT — seated from the route-graph band through the "
+                f"frontage chord, owner 2026-08-06), "
+                f"{len(_detached_pads) - _n_frontage_pads} with no "
+                f"frontage coupling / {len(_detached_pad_node_idx)} "
+                f"node(s): airside reach band WITHHELD, seated on their "
+                f"groundside datum after the groundside passes.")
         except Exception:
             pass
 
@@ -2727,6 +2792,14 @@ def solve_route_profile(layout, icao: str,
     u_edges = [(a, b, cap.at(_GG._dist(G.pos.get(a), G.pos.get(b)), 0.0))
                for (a, b, cap, _sp) in G.edges
                if a in G.pos and b in G.pos]
+    # THE FAMILY AXIS, TAKEN ONCE (cycle-7 fix 5; single-pass principle).
+    # ``family_by_pair`` walks the whole unified edge list, and THREE
+    # readers want it now: the SOLVE EXIT certificate below, the fp#8
+    # projection's own uncertified-exit family table, and the final
+    # projection's ENTRY/EXIT certificates (which rebuild their own graph
+    # and take their own map).  Taken here, beside the edge list it is
+    # derived from, and handed to both consumers in this scope.
+    _u_family_of = G.family_by_pair()
     # NEAR-MISS BUILDING-FRONTAGE LAW EDGES (2026-07-08): pad ↔ apron
     # near-miss edge endpoints, budget = APRON_MAX_GRADE·d — the value-
     # agreement law across a sub-metre unpaved source-offset sliver (SPJC
@@ -2742,8 +2815,11 @@ def solve_route_profile(layout, icao: str,
     # ``pad_weld_refs`` store carry — was DELETED with the §7
     # reference channel it fed.  The near-miss frontage LAW EDGES
     # stay: they are ordinary law, enforced by every projection.)
-    u_edges.extend(near_miss_building_frontage_edges(
-        layout, bucket_to_idx, building_seats))
+    # ONE PASS (2026-08-06): the near-miss recognition already ran at the
+    # band-withhold site above, where the frontage-coupling test needs
+    # it; these ARE those edges.  ``near_miss_building_frontage_edges``
+    # stays imported there for the one call.
+    u_edges.extend(_near_miss_edges)
     # APRON TERRACE LAW: the unified graph carries its OWN copy of the
     # apron's all-pair law, so the joint budgets have to be bound onto
     # it too — one law, both edge sets (see
@@ -2919,11 +2995,24 @@ def solve_route_profile(layout, icao: str,
     # retro-preserve anything — keep the call below that read.
     if _detached_pads:
         from auto_patch.config import GROUNDSIDE_MAX_GRADE
+        # ── CYCLE-7 FIX 2 (owner ruling 2026-08-06) ───────────────────
+        # A FRONTAGE-COUPLED pad is seated from the route-graph band
+        # through its frontage chord; the groundside contact datum is not
+        # its law and may not bound it.  ``detached_pad_law_box``'s
+        # contact march stops at 2.5 m while the LAW GRAPH has no
+        # horizon: HECA's building172 sits 6.46 m from an apron node with
+        # an ordinary 1 %-cap chord to it, so the march saw only
+        # groundside pieces at d = 0 and minted a ZERO-WIDTH box at the
+        # groundside/DEM datum — which then held that airside apron edge
+        # in a permanent clamp/sweep 2-cycle worth 60.772738 m, the worst
+        # residual in the whole solve.  Only a pad with NO frontage
+        # coupling keeps the contact-box path.
         _dp_seats, _dp_stats = seat_detached_pads_by_law(
             layout, bucket_to_idx, elev, _detached_pads,
-            GROUNDSIDE_MAX_GRADE)
+            GROUNDSIDE_MAX_GRADE,
+            frontage_coupled=_pad_frontage, node_band=node_band)
         building_seats.update(_dp_seats)
-        if _dp_stats[0] or _dp_stats[1] or _dp_stats[2]:
+        if any(_dp_stats):
             import O4_UI_Utils as _UI_dl
             _UI_dl.vprint(1,
                 f"  [detached-pad] {_dp_stats[0]} pad(s) seated on a "
@@ -2933,6 +3022,16 @@ def solve_route_profile(layout, icao: str,
                 f"{_dp_stats[2]} DECLARED CONTACT CONFLICT(S) (an empty "
                 f"box is the split-level-seat law's trigger, RULINGS "
                 f"2026-08-04).")
+            _UI_dl.vprint(1,
+                f"  [detached-pad] frontage-band seating (owner "
+                f"2026-08-06): {_dp_stats[3]} pad(s) seated FROM THE "
+                f"ROUTE-GRAPH BAND through their frontage chord (no "
+                f"DEM-datum bound), {_dp_stats[4]} frontage-coupled with "
+                f"NO DERIVABLE BAND (left unbounded on their seed and "
+                f"reported — never a fallback to the datum pin), "
+                f"{_dp_stats[5]} SPLIT-LEVEL CANDIDATE(S) whose frontage "
+                f"couplings no single flat level meets (RULINGS "
+                f"2026-08-04 — reported, never silently resolved).")
     _psub(0.88, "Solving elevations — feasibility projection")
     # ── S1b: THE POST-PHASE-A OVERWRITE IS RETIRED ────────────────
     # It applied the chord values here, AFTER phase A returned, which
@@ -3659,6 +3758,56 @@ def solve_route_profile(layout, icao: str,
                 # solve + the cross-corridor coupling adjacency,
                 # collected via its ``probe_out`` out-parameter.
                 "spine_stages": _spine_probe,
+                # ── fp#8 REPLAY FIDELITY (cycle-7 chore, 2026-08-06) ──
+                # ``joint_edges`` above is FLATTENED, and the flat list
+                # loses the three things the projection reads off the
+                # ENTRY: its law family, its ``envelope_skip`` flag, and
+                # whether it is still a lazy certificate.  A replay built
+                # from the flat list therefore judges a DIFFERENT
+                # constraint set from production's fp#8 — the exact
+                # instrument gap the c6attr dossier's tool-debt note
+                # names (``interval_reach_replay.py`` "is now
+                # unfaithful").  These keys close it; the flat list stays
+                # for the callers that already read it.
+                "joint_entries": [
+                    {"family": _sc.get("family"),
+                     "role": _sc.get("role"), "ref": _sc.get("ref"),
+                     "envelope_skip": bool(_sc.get("envelope_skip")),
+                     # A thunk is not picklable and its body pairs are
+                     # not generated yet: the flag is recorded so a
+                     # replay can SAY how many entries it could not
+                     # carry rather than silently dropping law.
+                     "lazy": _sc.get("lazy_expand") is not None,
+                     "edges": [tuple(_e) for _e in (_sc.get("edges")
+                                                    or ())]}
+                    for _sc in joint],
+                # The certificate's family axis, in ORIGINAL node space —
+                # what ``feasibility_project(family_of=...)`` re-keys.
+                "family_by_pair": {(int(_a), int(_b)): _f
+                                   for (_a, _b), _f
+                                   in _u_family_of.items()},
+                # THE fp#8 KWARGS.  Every argument the production call
+                # passes that is not already a top-level key, so a replay
+                # reconstructs the call verbatim instead of guessing.
+                # ``env_band`` is ``node_band`` itself when the gate is
+                # on (``solve.py`` ``_env_band = node_band if
+                # _ENV_FROM_BAND else None``), so the flag plus the
+                # existing ``node_band`` key carries it losslessly.
+                "fp8_kwargs": {
+                    "group_bounds": _yield_group_bounds,
+                    "node_bounds": _yield_node_bounds,
+                    "gs_pin_nodes": (sorted(int(_i)
+                                            for _i in _gs_pin_bound_idx)
+                                     if _gs_pin_bound_idx else None),
+                    "witness_excluded": (sorted(int(_i) for _i
+                                                in _route_excluded)
+                                         if _route_excluded else None),
+                    "gs_witness": ((sorted(int(_i)
+                                           for _i in _gs_witness[0]),
+                                    _gs_witness[1])
+                                   if _gs_witness else None),
+                    "env_band_is_node_band": _env_band is not None,
+                },
             }, _fh)
         print(f"    [dump] solve state -> {_dump} "
               f"(+A-copy, {len(_rod_edges)} rod slab(s))")
@@ -3729,7 +3878,8 @@ def solve_route_profile(layout, icao: str,
                                   gs_pin_nodes=(_gs_pin_bound_idx
                                                 or None),
                                   witness_excluded=_route_excluded,
-                                  env_band=_env_band)
+                                  env_band=_env_band,
+                                  family_of=_u_family_of)
     _t_fp8_end = _time.perf_counter()
     # ── PROBE A, TAIL BOUNDARY 1: fp#8 (spec §1 extension) ────
     # STAMPED OUTSIDE THE ``_t_fp8`` WINDOW (spec §0.3 — the
@@ -4187,7 +4337,7 @@ def solve_route_profile(layout, icao: str,
     _report_law_certificate(
         icao, "SOLVE EXIT",
         projection_law_certificate(_solve_exit_joint, elev, n, yield_hard,
-                                   family_of=G.family_by_pair()))
+                                   family_of=_u_family_of))
     if _crown_drop_idx:
         _elev_emit = list(elev)
         for _i, _c in _crown_drop_idx.items():
@@ -5400,7 +5550,10 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
 # resolves these per edge through ``family_of`` when it is given one.
 # ``"?:-"`` is what an untagged entry (the SOLVE's own joint, which never
 # tagged its unified entry at all) degrades to.
-_CATCH_ALL_FAMILIES = frozenset(("unified_graph", "?:-"))
+# ONE AUTHORITY (cycle-7 fix 5): the projection's own family axis applies
+# the identical rule inside ``feasibility_project``, so the set and the
+# tag rule live in ``one_solve`` (which ``solve`` imports, never the
+# reverse) and the module-head import aliases it here — not a second copy.
 
 
 def _report_law_certificate(icao, label, cert, top=8):
@@ -6670,6 +6823,7 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                                 family_of=_fp_family_of))
     rem, bh = feasibility_project(elev, joint, hard, force_scalar=True,
                                   env_band=_fp_env_band,
+                                  family_of=_fp_family_of,
                                   forensics=_fp_forensics,
                                   witness_limited=_fp_witness_limited,
                                   witness_excluded=_fp_witness_excluded,

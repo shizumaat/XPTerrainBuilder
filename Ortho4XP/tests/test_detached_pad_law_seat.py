@@ -153,8 +153,8 @@ class TestBandWithholding:
         lay = _layout()
         pads = A.detached_pad_nodes(lay, _B2I, {})
         band = [(170.0, 175.0)] * 12
-        withheld = A.withhold_airside_band_from_detached_pads(band, pads)
-        assert withheld == set(_PAD_IDX)
+        withheld, kept = A.withhold_airside_band_from_detached_pads(band, pads)
+        assert withheld == set(_PAD_IDX) and kept == 0
         assert all(band[i] is None for i in _PAD_IDX)
         assert all(band[i] == (170.0, 175.0)
                    for i in range(12) if i not in _PAD_IDX)
@@ -234,7 +234,8 @@ class TestSeat:
 
     def test_the_pad_seats_flat_inside_its_box(self):
         _lay, elev, seats, stats = self._seat(100.02)
-        assert stats == (1, 0, 0)
+        # (seated, unhosted, contact-conflicts, band-wins, narrowed, split)
+        assert stats == (1, 0, 0, 0, 0, 0)
         assert len({round(v, 9) for v in seats.values()}) == 1
         assert seats[4] == pytest.approx(100.02)
         assert all(elev[i] == pytest.approx(100.02) for i in _PAD_IDX)
@@ -285,5 +286,228 @@ class TestSeat:
         pads = A.detached_pad_nodes(lay, _B2I, {})
         seats, stats = A.seat_detached_pads_by_law(
             lay, _B2I, elev, pads, CAP)
-        assert seats == {} and stats == (0, 1, 0)
+        assert seats == {} and stats == (0, 1, 0, 0, 0, 0)
         assert elev == before
+
+
+# ══════════════════════════════════════════════════════════════════════
+# CYCLE-7 FIX 2 — FRONTAGE COUPLING ⇒ BAND SEATING (owner 2026-08-06)
+# ══════════════════════════════════════════════════════════════════════
+# Owner, verbatim intent: "A building close enough to have frontage and
+# be coupled with the apron has to be seated based on the route graph
+# that allows the apron to grade smoothly to its frontage within the
+# apron's grade law."  Band-withholding keys on FRONTAGE COUPLING, not
+# on touch; no DEM-datum value may bound a frontage-coupled node; a pad
+# whose frontage band cannot be derived is a LOUD defect report, never a
+# fallback to the datum pin.
+#
+# THE KNOWN ANSWER these twins are calibrated against (RULINGS 2026-08-06
+# "Instrument truth is law", item 1) is the measured HECA carrier:
+# building172, band WITHHELD, contact box [1.6576, 1.6576] at the
+# groundside datum, an apron partner banded from 62.495 m across a
+# 0.0646 m chord budget — a permanent clamp/sweep 2-cycle whose residual
+# is 60.772738 m at sweep 1 and at sweep 49,600 alike.  Every case below
+# is that arithmetic in eleven nodes.
+
+_APRON_BAND = (162.0, 172.0)          # the coupled airside node's band
+_APRON_NODE = 2                       # a lot vertex, standing in as the
+#                                       banded airside partner
+_BUDGET = 0.0646                      # 1 % apron cap over a 6.46 m chord
+
+
+def _bands(apron=_APRON_BAND):
+    """``node_band`` with the pad's own entries WITHHELD (``None``) —
+    what the pre-ruling withhold left on every detached pad."""
+    band = [None] * 12
+    band[_APRON_NODE] = apron
+    return band
+
+
+def _coupled(partner=_APRON_NODE, budget=_BUDGET):
+    """One pad (ordinal 0) with one frontage coupling."""
+    return {0: ((partner, budget),)}
+
+
+def _seat_with(frontage, node_band, pad_seed=100.02):
+    lay = _layout()
+    elev = _elev(pad_seed)
+    pads = A.detached_pad_nodes(lay, _B2I, {})
+    seats, stats = A.seat_detached_pads_by_law(
+        lay, _B2I, elev, pads, CAP,
+        frontage_coupled=frontage, node_band=node_band)
+    return lay, elev, seats, stats
+
+
+class TestFrontageBandSeating:
+    def test_a_frontage_coupled_pad_seats_FROM_THE_BAND_not_the_datum(self):
+        """The carrier class, resolved.
+
+        The groundside contact datum admits ~100 m; the pad's frontage
+        chord to a partner banded [162, 172] admits [161.94, 172.06].
+        The ruling is not "reconcile" — the datum is NOT ITS LAW: the
+        seat comes from the band, and DEM only chooses inside it.
+        """
+        _lay, elev, seats, stats = _seat_with(_coupled(), _bands())
+        assert stats[3] == 1, "one pad seated from its frontage band"
+        assert stats[4] == 0 and stats[5] == 0
+        # The DEM seed (100.02) is below the lawful range, so the seat
+        # takes its nearest lawful point — seed, never bound.
+        assert seats[4] == pytest.approx(_APRON_BAND[0] - _BUDGET)
+        assert all(elev[i] == pytest.approx(_APRON_BAND[0] - _BUDGET)
+                   for i in _PAD_IDX)
+
+    def test_the_contact_datum_never_bounds_a_frontage_coupled_pad(self):
+        """"No DEM-datum value may be a bound on any frontage-coupled
+        node" — so a seed INSIDE the band's range is honoured even
+        though the contact box would have forbidden it."""
+        _lay, _elev_, seats, stats = _seat_with(
+            _coupled(), _bands(), pad_seed=165.0)
+        assert stats[3] == 1
+        assert seats[4] == pytest.approx(165.0), (
+            "DEM chooses WHERE inside the lawful range; the 100 m "
+            "contact box has no say")
+
+    def test_a_pad_with_no_frontage_coupling_stays_a_groundside_citizen(self):
+        """Ruling item 2: only a building with NO frontage coupling is a
+        pure groundside citizen — it seats at DEM inside its contact box
+        and affects nothing airside."""
+        _lay, _elev_, seats, stats = _seat_with({}, _bands())
+        assert stats[3] == 0 and stats[4] == 0 and stats[5] == 0
+        assert seats[4] == pytest.approx(100.02)
+
+    def test_an_underivable_frontage_band_is_LOUD_and_never_falls_back(self):
+        """A frontage-coupled pad whose partner carries no band cannot be
+        seated by this law.  The ruling forbids the fallback outright, so
+        the pad is left unbounded on its seed and COUNTED."""
+        lay = _layout()
+        elev = _elev(100.02)
+        before = list(elev)
+        pads = A.detached_pad_nodes(lay, _B2I, {})
+        seats, stats = A.seat_detached_pads_by_law(
+            lay, _B2I, elev, pads, CAP,
+            frontage_coupled=_coupled(), node_band=[None] * 12)
+        assert stats[4] == 1, "counted as underivable"
+        assert stats[3] == 0 and stats[0] == 0
+        assert seats == {} and elev == before, "no write, no datum pin"
+
+    def test_contradictory_frontage_couplings_are_a_LOUD_split_level(self):
+        """Two couplings no single flat level meets is the split-level
+        sectioned-seat law's trigger (RULINGS 2026-08-04) — reported,
+        never silently resolved, and never resolved to the datum."""
+        band = [None] * 12
+        band[2] = (162.0, 172.0)
+        band[3] = (100.0, 100.0)
+        lay = _layout()
+        elev = _elev(100.02)
+        before = list(elev)
+        pads = A.detached_pad_nodes(lay, _B2I, {})
+        seats, stats = A.seat_detached_pads_by_law(
+            lay, _B2I, elev, pads, CAP,
+            frontage_coupled={0: ((2, _BUDGET), (3, _BUDGET))},
+            node_band=band)
+        assert stats[5] == 1 and stats[3] == 0
+        assert seats == {} and elev == before
+
+    def test_omitting_the_coupling_leaves_the_pre_ruling_behaviour(self):
+        """Absent instrument ⇒ absent law: no pad is frontage-coupled."""
+        lay = _layout()
+        elev = _elev(100.02)
+        pads = A.detached_pad_nodes(lay, _B2I, {})
+        seats, stats = A.seat_detached_pads_by_law(lay, _B2I, elev, pads, CAP)
+        assert stats == (1, 0, 0, 0, 0, 0)
+        assert seats[4] == pytest.approx(100.02)
+
+    def test_the_seat_interval_is_the_band_widened_by_the_chord_budget(self):
+        """A pad coupled by a frontage chord of budget B to a node banded
+        [lo, hi] may sit anywhere in [lo - B, hi + B]: from any such
+        level the chord grades within the apron's law to some in-band
+        partner value.  That IS the owner's sentence, read forward."""
+        lo, hi, n = A.frontage_band_seat_interval(
+            _PAD_IDX, ((_APRON_NODE, _BUDGET),), _bands())
+        assert n == 1
+        assert lo == pytest.approx(_APRON_BAND[0] - _BUDGET)
+        assert hi == pytest.approx(_APRON_BAND[1] + _BUDGET)
+
+
+class TestFrontageWithholding:
+    """Ruling item 2 — the withholding keys on COUPLING, not on touch."""
+
+    def test_a_frontage_coupled_pad_KEEPS_its_band(self):
+        band = [(1.0, 2.0)] * 12
+        pads = A.detached_pad_nodes(_layout(), _B2I, {})
+        withheld, kept = A.withhold_airside_band_from_detached_pads(
+            band, pads, 12, frontage_coupled=_coupled())
+        assert kept == 1 and withheld == set()
+        assert all(b is not None for b in band)
+
+    def test_an_uncoupled_pad_still_has_its_band_withheld(self):
+        band = [(1.0, 2.0)] * 12
+        pads = A.detached_pad_nodes(_layout(), _B2I, {})
+        withheld, kept = A.withhold_airside_band_from_detached_pads(
+            band, pads, 12, frontage_coupled={})
+        assert kept == 0 and withheld == set(_PAD_IDX)
+        assert all(band[i] is None for i in _PAD_IDX)
+
+    def test_no_coupling_map_is_the_unconditional_pre_ruling_form(self):
+        band = [(1.0, 2.0)] * 12
+        pads = A.detached_pad_nodes(_layout(), _B2I, {})
+        withheld, kept = A.withhold_airside_band_from_detached_pads(
+            band, pads, 12)
+        assert kept == 0 and withheld == set(_PAD_IDX)
+
+
+class TestFrontageCouplingRecognition:
+    """The coupling test itself — touching AND near-miss, ruling item 1."""
+
+    class _Cap:
+        def at(self, d, _z):
+            return 0.01 * d           # the apron's 1 % law
+
+    class _G:
+        def __init__(self, edges, families, pos):
+            self.edges = edges
+            self.edge_family = families
+            self.pos = pos
+
+    def _graph(self, family):
+        # pad node 4 <-> node 2 (an apron vertex) at 6.46 m
+        pos = {2: (5.0, 4.54), 4: (5.0, 11.0)}
+        return self._G([(2, 4, self._Cap(), False)], [family], pos)
+
+    def test_a_touching_apron_chord_IS_frontage(self):
+        pads = A.detached_pad_nodes(_layout(), _B2I, {})
+        out = A.detached_pad_frontage_coupling(
+            pads, self._graph("unified:apron"))
+        assert 0 in out
+        (partner, budget), = out[0]
+        assert partner == 2 and budget == pytest.approx(0.0646)
+
+    def test_a_groundside_chord_is_NOT_frontage(self):
+        """A building that only abuts a lot or a service road is the pure
+        groundside citizen the ruling exempts."""
+        pads = A.detached_pad_nodes(_layout(), _B2I, {})
+        assert A.detached_pad_frontage_coupling(
+            pads, self._graph("unified:groundside_pavement")) == {}
+
+    def test_a_near_miss_edge_IS_frontage(self):
+        """Ruling item 3: the near-miss law minted the EDGE without the
+        SEAT derivation.  This is the missing half's input."""
+        pads = A.detached_pad_nodes(_layout(), _B2I, {})
+        out = A.detached_pad_frontage_coupling(
+            pads, self._graph("unified:groundside_pavement"),
+            near_miss_edges=[(9, 5, 0.02)])
+        assert out == {0: ((9, 0.02),)}
+
+    def test_an_intra_pad_chord_is_not_a_coupling(self):
+        """A rigid flat group cannot constrain its own level."""
+        pads = A.detached_pad_nodes(_layout(), _B2I, {})
+        g = self._G([(4, 5, self._Cap(), False)], ["unified:apron"],
+                    {4: (5.0, 11.0), 5: (9.0, 11.0)})
+        assert A.detached_pad_frontage_coupling(pads, g) == {}
+
+    def test_the_tightest_budget_wins_on_a_duplicate_pair(self):
+        pads = A.detached_pad_nodes(_layout(), _B2I, {})
+        out = A.detached_pad_frontage_coupling(
+            pads, self._graph("unified:apron"),
+            near_miss_edges=[(2, 4, 0.001)])
+        assert out == {0: ((2, 0.001),)}

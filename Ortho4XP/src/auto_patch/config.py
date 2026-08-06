@@ -6791,6 +6791,63 @@ SWEEP_BUDGET_MAX = 250000
 # says the budget was IMPOSED rather than derived.  Adding an unused
 # fallback here would just be a magic number waiting to be picked up.
 
+# ── MATERIALITY (campaign convergence guard (a), owner 2026-08-02) ─────
+# The elevation materiality floor: a residual below it is PASS-with-
+# residual, never a defect and never a thing to iterate on.  ONE
+# authority for the projection side of that floor — the exit report
+# counts over-cap edges BOTH ways (raw, and ≥ this), and the convergence
+# criterion below is priced on the ≥-material count so that sub-
+# millimetre churn can never keep a projection sweeping.
+PROJECTION_MATERIALITY_M = 0.01
+
+# ── THE CONVERGENCE-CRITERION EXIT (cycle-7 fix 1, 2026-08-06) ─────────
+# MEASURED FALSIFICATION of the derivation above.  The c6attr attribution
+# dossier drove the identical ``_project_chromatic`` on the identical fp#8
+# inputs at 1x / 10x / 100x / 400x the derived budget.  On a subsystem
+# that is FEASIBLE BY CONSTRUCTION (pure symmetric difference
+# constraints, every node free, no boxes — ``z ≡ const`` satisfies it, so
+# any residual is convergence by construction):
+#
+#     HEAZ  320 = derived  ->  1,245 edges over cap
+#     HEAZ  32,000 (100x)  ->      0  — CERTIFIED
+#     HECA  496 = derived  -> 11,513 edges over cap
+#     HECA  198,400 (400x) ->    401, ZERO ≥ 0.01 m — materially certified
+#
+# So ``SWEEP_BUDGET_SLACK × hop-diameter`` is ~2 ORDERS OF MAGNITUDE
+# below what this relaxation needs, and the uncertified-exit report's
+# sentence "this exit is NOT budget exhaustion" was FALSE in every build:
+# ~33 % of HECA's and ~57 % of HEAZ's fp#8 residual closes with sweeps
+# alone.  The error is in the SHAPE of the derivation, not its slack: a
+# hop-diameter bound prices BALLISTIC propagation (one correction, one
+# edge, one sweep) while a cyclic Gauss-Seidel POCS propagates
+# DIFFUSIVELY — the distance a correction travels grows like √sweeps, so
+# the honest bound is quadratic in the diameter, not linear.  No constant
+# multiplier fixes a wrong exponent.
+#
+# WHAT REPLACES IT.  The law demands a CERTIFIED surface and says nothing
+# about sweeps, so the loop now exits on the only two honest events:
+#   * CERTIFIED — a full sweep applying no correction and no clamp; or
+#   * CONVERGED — the ≥-materiality over-cap count has stopped falling.
+# The derived budget survives as the BLOCK size: the loop sweeps a block,
+# measures the exact whole-graph residual, and compares.  A block that
+# fails to buy ``SWEEP_CONVERGENCE_MIN_DROP`` relative improvement counts
+# against ``SWEEP_CONVERGENCE_PATIENCE``; when patience runs out the
+# projection has converged to a point that violates N constraints, which
+# is a LAW/ANCHOR defect report under RULINGS 2026-08-05, not a budget
+# story.  ``SWEEP_BUDGET_MAX`` remains the absolute anti-hang ceiling and
+# is now the ONLY hard cap; an exit there says so.
+#
+# THE THREE CONSTANTS ARE GUARDS, NOT LAW.  MIN_DROP is a relative floor
+# on "still improving" — 0.5 % of the standing count per block, the same
+# magnitude the stall detector already uses (``STALL_REL_IMPROVEMENT``),
+# chosen so that the measured HECA tail (net drift +27 over 10,000 sweeps
+# on a standing set of ~19,000 — 0.14 % per 496-sweep block) reads as
+# converged and the measured HEAZ approach to zero does not.  PATIENCE
+# absorbs the POCS churn (~24 edges per 100 sweeps turn over at 100x, so
+# a single flat block is noise and two in a row is a trend).
+SWEEP_CONVERGENCE_MIN_DROP = 0.005
+SWEEP_CONVERGENCE_PATIENCE = 2
+
 # The FAIRING family is UNCHANGED and is a different problem: a
 # second-difference smoother run PER CHAIN, so its propagation distance is
 # one chain's station count (tens), not the graph's.  These caps are

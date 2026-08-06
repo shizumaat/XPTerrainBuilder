@@ -1,19 +1,24 @@
-"""APRON TERRACE LAW — level panels, joints that never cross a spine.
+"""APRON RELIEF LAW — fan ramps first, terrace panels as the fallback;
+no ramp, joint or wall touches an aircraft-movement surface.
 
-Owner ruling 2026-08-04 (``docs/RULINGS.md``, "Apron terrace law"); spec
-``docs/specs/apron-terrace-law-spec.md``:
+Owner ruling 2026-08-04 (``docs/RULINGS.md``, "Apron terrace law"; the
+fan-ramp precedence is RULINGS 21f0980); spec
+``docs/specs/apron-terrace-law-spec.md`` (r2):
 
     "long aprons on genuinely steep ground MAY terrace into level panels
      with declared joint steps — but it has to be done in a way that does
      not interrupt any spine where aircraft have to travel."
 
 BINDING CONSTRAINT, and it is STRUCTURAL here rather than checked-after:
-a terrace joint is born as ``(terrace line ∩ apron) − corridor cover``.
-The corridor cover is every taxi/route centerline crossing the apron,
-buffered by its corridor half-width PLUS
-``APRON_TERRACE_JOINT_CLEARANCE_M``.  A joint that would cross a route is
-therefore never minted — there is no later pass that shortens it, and no
-ordering in which a joint and a route can coexist on the same ground.
+a terrace joint is born as ``(terrace line ∩ apron) − corridor cover``,
+and a fan zone is born minus the SAME cover.  The cover
+(:func:`corridor_cover`) is every taxi/route centerline crossing the
+apron — service spines included — buffered by its corridor half-width
+PLUS ``APRON_TERRACE_JOINT_CLEARANCE_M``, plus every building frontage
+chord, every building footprint, and every runway-strip footprint.  A
+joint that would cross a route is therefore never minted — there is no
+later pass that shortens it, and no ordering in which a joint and a
+route can coexist on the same ground.
 ``tools/check_grade`` carries the validator twin (joint ∩ ``routes_exact``
 ⇒ ERROR) as the lockstep instrument, not as the enforcement.
 
@@ -29,37 +34,88 @@ is the law under which it exists).
 WHAT THIS MODULE DOES, in the order the solve calls it:
 
 0. ``construct_apron_terrace_presolve`` — the TRIGGER + the
-   PANELIZATION, before the solve.  THE TRIGGER IS THE ANCHOR ENVELOPE
-   (owner, RULINGS 4cbed92 — see ``_envelope_demand``): for every apron,
-   the interval ``[floor, ceiling]`` the anchors + caps + route geometry
-   confine each point to, and the worst pair whose intervals no single
-   1 %-capped panel can span.  The shortfall IS the relief the declared
-   steps discharge.  Terrace lines run along the ENVELOPE contour (the
-   perpendicular to that pair's axis), cut out of the corridor cover.
-   The steep-truth DEM signature that used to be the trigger is DEMOTED
-   to report-only certificate provenance: the owner ruled DEM steepness
-   the wrong quantity, and the measured consequence was that a flat-DEM
-   world — which carries the SAME CIFP threshold spread and therefore
-   the same terrace demand — fired zero terraces.
-1. ``plan_apron_terraces`` — the BINDER.  Resolves that declaration into
-   the solve's index space; it decides nothing.
-2. ``apply_terrace_budgets`` — the SOLVER BINDING.  Panels are constraint
-   GROUPS inside the ONE solve (no second solve, ``single-solve
-   architecture``).  A within-apron law edge whose chord crosses ``k``
-   declared joints gets ``cap·d + Σ step`` instead of ``cap·d``; every
-   other edge — every edge inside a panel, and every edge on or through a
-   corridor — keeps the full apron law untouched.  Panels fall out as the
-   connected components of the joint-free edge subgraph.
+   PANELIZATION, before the solve, in the ruled precedence order
+   (RULINGS 21f0980: ramps FIRST, the wall is the fallback).  The fan
+   half runs first: ``plan_fan_ramp_zones`` builds one zone per
+   ADJACENT PAIR of frontage buildings (reach ∩ apron − corridor
+   cover, at ``FAN_RAMP_CAP`` = ``GROUNDSIDE_MAX_GRADE``, 5 %), and
+   ``split_aprons_at_fan_zones`` cuts each zone out of its apron as a
+   SHAPE of its own (``role == apron``, flag ``fan_ramp_zone``), so
+   the ramp ground has left the apron before a single terrace line
+   exists; a ramp piece is not a terrace candidate — its relief IS
+   the ramp.  THE TERRACE TRIGGER IS THE ANCHOR ENVELOPE (owner,
+   RULINGS 4cbed92 — see ``_envelope_demand``): for every remaining
+   apron, the interval ``[floor, ceiling]`` the anchors + caps +
+   route geometry confine each point to
+   (``presolve_anchor_envelope`` — the same band the FINAL assert
+   judges, computable pre-solve because it is a pure function of
+   geometry + CIFP anchors), and the worst pair whose intervals no
+   single 1 %-capped panel can span; in-zone pairs get the zone cap
+   as their allowance, so the wall law sees only the shortfall 5 %
+   could not discharge.  The shortfall IS the relief the declared
+   steps discharge.  Terrace lines run along the ENVELOPE contour
+   (the perpendicular to that pair's axis), cut out of the corridor
+   cover.  The steep-truth DEM signature that used to be the trigger
+   is DEMOTED to report-only certificate provenance: the owner ruled
+   DEM steepness the wrong quantity, and the measured consequence was
+   that a flat-DEM world — which carries the SAME CIFP threshold
+   spread and therefore the same terrace demand — fired zero
+   terraces.  Each triggered apron's polygon is then SPLIT at its
+   joints (8c6e047): the joint's two station rows — the line itself,
+   and the same stations retreated one ``STACKED_WALL_RETREAT_M`` to
+   the low side — become ordinary apron RING vertices, therefore
+   solve VARIABLES, with no special case anywhere downstream.  The
+   apron's own ``BuiltShape`` is kept and re-pointed at the largest
+   panel (identity survives for earlier captors); sibling panels
+   append as new apron shapes; a joint expressible only as an
+   interior hole is STILLBORN (every shape stays simply connected).
+   The cut band is published here as
+   ``layout.apron_terrace_wall_bands`` = band ∩ host — the ground the
+   split ACTUALLY removed (fe06dbf) — and
+   ``emit_adjacent_ground_bands`` unions that reservation into its
+   static block: ground that is spoken for is not marchable.
+1. ``plan_apron_terraces`` — the BINDER.  Resolves that declaration
+   into the solve's index space (canonical join, re-resolved after
+   any node-list rebuild — the rod-key lesson,
+   ``rebind_terrace_stations``); it decides nothing.
+   ``terrace_station_edges`` then hands the solve the ACTUAL-STEP
+   BINDING, ``|z_hi − z_lo| ≤ step + cap·retreat`` per station: the
+   two rows sit in DIFFERENT panels, so no within-shape law generates
+   the pair, and without this edge the step across a declared joint
+   would be unbounded.  The bound is ONE formula with three readers
+   (``_joint_bound_m``: this binding, the emit-time residue counter,
+   the sidecar's ``reader_bound_m``), so the number the solve
+   enforced and the number the validator judges against cannot drift.
+2. ``apply_terrace_budgets`` — the SOLVER BINDING.  Panels are
+   constraint GROUPS inside the ONE solve (no second solve,
+   ``single-solve architecture``).  A within-apron law edge whose
+   chord crosses ``k`` declared joints gets ``cap·d + Σ step``
+   instead of ``cap·d``, and ``apply_fan_ramp_caps`` raises an edge
+   lying wholly inside a declared zone to the zone cap — both
+   RELAXING ONLY; every other edge, and every edge on or through a
+   corridor, keeps the full apron law untouched.
 3. ``emit_terrace_joint_faces`` — the JOINT GEOMETRY.  One
-   ``retaining_wall`` face per settled joint, placed in the
-   ``STACKED_WALL_RETREAT_M`` band on the lower side — the same machine
-   and constants as ``adjacent_ground.emit_stacked_conflict_walls``.
-   NOTE (approved deviation, spec adjudication 768cded): the apron
-   polygon itself is NOT cut back, so the face laps that band of apron
-   surface; the polygon split is queued for the default-ON round.
-   Minted BEFORE interning so no emit-time consensus can average a
-   joint away.
-4. ``terrace_joints_sidecar`` — the validator's half of the lockstep.
+   ``retaining_wall`` face per settled joint, minted PER STATION in
+   the retreat band BETWEEN the two panels — ground no apron polygon
+   covers any more, because the split ran before the solve.  There is
+   no lap and no emitter-assigned boundary value (the r1 face-lap
+   deviation, adjudication 768cded, is RESOLVED; the parked
+   ``_split_lower_panels`` is RETIRED, its reach-line give-back
+   surviving at plan time): every face ring vertex is a panel ring
+   vertex whose value the SOLVE produced, read back BY IDENTITY after
+   the late final grade projection.  EMITTERS EMIT, NEVER GRADE — the
+   old post-solve reader's flank window, first-order fit and
+   cap-clamped walk-in are DELETED.  A joint whose flanks settled
+   LEVEL emits a COVER (fe06dbf, ratified): ``faced`` stays False and
+   the step stays 0 — no relief — but the cut band is closed, because
+   a hole is not the absence of relief.  Joints the emitter cannot
+   read are counted loudly (``slots_uncovered``).  Faces are minted
+   BEFORE interning so no emit-time consensus can average a joint
+   away.
+4. ``terrace_joints_sidecar`` / ``terrace_certificates_sidecar`` /
+   ``fan_ramp_zones_sidecar`` — the validator's half of the lockstep
+   (ONE READER: ``check_grade``, the harness census and the pytest
+   fixtures share one code path).
 
 Frame: the layout's local metre frame throughout (the solver's frame);
 only the sidecar converts to lat/lon.
@@ -68,35 +124,30 @@ STANDING LAW (owner 2026-08-05, BUILD-COMPLETE-THEN-DEBUG): there is no
 ``O4_APRON_TERRACE_LAW`` gate any more and no "terrace off" arm.
 
 D2 — THE FACE'S ACTUAL STEP IS READABLE AND BOUNDED BY ITS DECLARATION.
-The v2 round left one residue: 12 HECA faces emitted over
-``APRON_TERRACE_MAX_STEP_M`` (worst 6.0 m) while declaring ≤1.994 m.
-Mechanism (attributed, not guessed): ONE level per side was read for the
-WHOLE joint, from a flank window whose nearest rows can sit 100 m+ away,
-so a single extrapolation spoke for a joint hundreds of metres long.
+The residue that forced the pre-solve form: 12 HECA faces emitted over
+``APRON_TERRACE_MAX_STEP_M`` (worst 6.0 m) while declaring ≤1.994 m,
+because ONE level per side was read for the WHOLE joint, from a flank
+window whose nearest rows could sit 100 m+ away.  The close is
+STRUCTURAL: the station table (``_joint_stations``,
+``_JOINT_STATION_SPACING_M``) is minted ONCE and used three times — to
+CUT the apron, to BIND the declared step in the solve, and to MINT the
+wall face — so the boundary the solver shaped and the ground the
+emitter reads cannot be different geometry, and a station's settled
+step is held by the solve itself to its own declared bound.
 
-The fix here is PLAN-TIME PANEL-BOUNDARY DENSIFICATION.  At plan time the
-joint's boundary is densified into STATIONS (``_joint_stations``,
-``_JOINT_STATION_SPACING_M``); each station carries the NEAREST apron
-node on each side and that node's perpendicular offset.  The face is then
-minted PER STATION from that station's own two nearest settled nodes, and
-each station's height is held to the law's OWN allowance for its reader
-distance, ``step + cap·(d_pos + d_neg)`` — the declaration, plus exactly
-the relief the cap licenses over the distance the reader had to cross.
-The same station table is the population ``_bind_joint_step_pairs`` binds
-into the solve, so the emitter and the solver speak about identical
-ground (one computation, two consumers).
-
-WHAT THIS DOES NOT DO, and why (lead direction 2026-08-05).  An INTERIOR
-joint has no emitted geometry at it, so a station's reader distance is
-whatever the apron ring offers.  Manufacturing that geometry — splitting
-the apron at the joint — is out: the emit-time §3(d) split was measured
-to MINT defects (its new ring vertices adopted the FACE's level, a value
-the solve never produced) and is removed.  The structural close is a
-PRE-SOLVE panel boundary, born before the solver builds its node list so
-its vertices are solve VARIABLES; that is named as the follow-up, and its
-precondition is that the boundary exist pre-solve rather than at emit.
-Until then the residue is DECLARED (each station's bound is in the
-sidecar) rather than silent.
+WHAT THIS DOES NOT DO, and why.  Joint END stations sit on the joint
+LINE's endpoints, which stand off the apron boundary, so the two end
+corners are not ring vertices, the identity lookup correctly returns
+nothing, and the face stops at the first interior station — at HEAZ a
+measured 67.93 m² of cut band left uncovered, plus 28.84 m² of joints
+with too few readings (counted as ``slots_uncovered``).  The remedy —
+end stations placed where the joint line MEETS the apron boundary — is
+NORMATIVE in the spec (§6c) but deliberately NOT built here: station
+positions feed the band cut, so the change moves panel rings, node
+counts and the solve at every panelized airport — its own debug-cycle
+change, never a fix-forward edit.  Until it lands the residue is
+DECLARED (each station's bound and reading are in the sidecar) rather
+than silent.
 """
 from __future__ import annotations
 
@@ -1624,18 +1675,18 @@ def _construct_from_envelope(layout, envelope, sample_dem=None,
         layout.shapes.extend(new_shapes)
     layout.apron_terrace_presolve_stats = stats
     # ── THE WALL BANDS, PUBLISHED AT PLAN TIME ──────────────────────
-    # NAMED HAZARD, NOT YET MEASURED (completion round, no builds):
-    # between the solve and ``emit_terrace_joint_faces`` the 0.6 m band
+    # Between the solve and ``emit_terrace_joint_faces`` the 0.6 m band
     # between two panels is ground no shape covers, and
     # ``emit_adjacent_ground_bands`` runs FIRST (pipeline ~6024 vs
     # ~6376).  Its march reads a static block built from
-    # ``layout.shapes``, so in principle it can march a graded strip
+    # ``layout.shapes``, so left alone it would march a graded strip
     # into that slot and mint terrain where a retaining wall is about to
-    # stand.  The band geometry is therefore published HERE, where it is
-    # first known, so the march (or the test phase's check) has the
-    # exact polygons rather than having to re-derive them.  The march is
-    # deliberately NOT changed on a guess — attribute it with a build
-    # first (mechanism before fix).
+    # stand.  The band geometry is published HERE, where it is first
+    # known, and the march READS it (fe06dbf, spec §6c):
+    # ``emit_adjacent_ground_bands`` unions this reservation into its
+    # static block — ground that is spoken for is not marchable
+    # (measured, then verified at HEAZ: graded-strip march into the
+    # slot 1.9 % → 0.0 %).
     layout.apron_terrace_wall_bands = [
         b for e in layout.apron_terrace_presolve
         for b in (e.pop("_bands", None) or ())]

@@ -183,6 +183,61 @@ def test_law_certificate_ignores_edges_outside_the_node_space():
     assert cert["u"] == (0, 0.0, 0)
 
 
+# ── 3b.  the family axis (cycle-5 spec fix 4) ───────────────────────────
+def test_family_of_splits_the_catch_all_by_minting_constructor():
+    """The catch-all entry is resolved PER EDGE, so ``unified_graph``
+    stops being one bucket that names a construction site."""
+    joint = [{"family": "unified_graph",
+              "edges": [(0, 1, 0.10), (1, 2, 0.10), (2, 3, 0.10)]}]
+    family_of = {(0, 1): "unified:apron",
+                 (1, 2): "unified:junction:spine"}
+    cert = RP.projection_law_certificate(
+        joint, [0.0, 1.0, 2.0, 3.0], 4, set(), family_of=family_of)
+    assert cert["unified:apron"][0] == 1
+    assert cert["unified:junction:spine"][0] == 1
+    # (2,3) is in no map entry: it keeps the entry's own tag rather than
+    # being dropped or silently merged into a neighbour's family.
+    assert cert["unified_graph"][0] == 1
+    assert "unified_graph" not in {"unified:apron", "unified:junction:spine"}
+
+
+def test_family_of_never_re_keys_a_real_shape_entry():
+    """A shape entry already names its law; only the catch-all resolves."""
+    joint = [{"role": "graded_strip", "ref": "adjacent_ground",
+              "edges": [(0, 1, 0.10)]}]
+    cert = RP.projection_law_certificate(
+        joint, [0.0, 1.0], 2, set(), family_of={(0, 1): "unified:apron"})
+    assert cert["graded_strip:adjacent_ground"][0] == 1
+    assert "unified:apron" not in cert
+
+
+def test_family_of_is_inert_when_absent():
+    """No map ⇒ byte-identical to the pre-fix reader."""
+    joint = [{"family": "unified_graph", "edges": [(0, 1, 0.10)]}]
+    assert (RP.projection_law_certificate(joint, [0.0, 1.0], 2, set())
+            == RP.projection_law_certificate(joint, [0.0, 1.0], 2, set(),
+                                             family_of=None))
+
+
+def test_untagged_solve_joint_entry_resolves_through_the_map():
+    """The SOLVE's own joint never tagged its unified entry at all — it
+    degrades to ``?:-``, which is a catch-all too."""
+    joint = [{"edges": [(0, 1, 0.10)]}]
+    cert = RP.projection_law_certificate(
+        joint, [0.0, 1.0], 2, set(), family_of={(0, 1): "unified:apron"})
+    assert cert["unified:apron"][0] == 1
+
+
+def test_unified_graph_records_a_family_per_edge():
+    """``edge_family`` is parallel to ``edges`` and keyed by node pair."""
+    from auto_patch.grade_graph import UnifiedGraph
+    G = UnifiedGraph()
+    G.edges = [(3, 1, None, False), (1, 2, None, True)]
+    G.edge_family = ["unified:apron", "unified:junction:spine"]
+    assert G.family_by_pair() == {(1, 3): "unified:apron",
+                                  (1, 2): "unified:junction:spine"}
+
+
 # ── 4.  the harness reader (who_wrote --author) ─────────────────────────
 def _who_wrote_module():
     import importlib.util

@@ -4015,6 +4015,29 @@ def solve_route_profile(layout, icao: str,
             list(shape_constraints) + [{"edges": u_edges}],
             _spine_preserved, _spine_yield_idx,
             latlon_of=lambda i: layout.m_to_ll(*nodes[i]))
+    # ── THE SOLVE'S OWN EXIT CERTIFICATE (cycle-5 spec fix 4) ─────────
+    # Until now the ONLY ``[proj-law-certificate]`` in the build ran
+    # inside ``final_grade_projection``, on that pass's REBUILT
+    # constraint set in a DIFFERENT node space (142,635 / 144,056 vs the
+    # solve's 146,743 at HECA).  Its own docstring says what it measures:
+    # "the solve's values under the projection's law" — which is not the
+    # solve's exit state, so the one number the single-solve architecture
+    # is judged on had no reader at all.
+    #
+    # This is that reader: the SOLVE's joint, the SOLVE's ``elev``, the
+    # SOLVE's node space, taken one statement before the writeback
+    # publishes the field — in the uncrowned z′ frame the law lives in
+    # (before the crown drop below, which is an EMIT transform, not a law
+    # move).  ``yield_hard`` is the immovable set the last projection ran
+    # with, so the both-hard column names genuine anchor↔anchor
+    # contradictions.  Pure measurement, no gate: certify-or-fail-loud is
+    # kept explicitly by RULINGS 2026-08-05 (BUILD-COMPLETE-THEN-DEBUG
+    # item 1) while byte-identity ceremony is retired.
+    _solve_exit_joint = list(shape_constraints) + [{"edges": u_edges}]
+    _report_law_certificate(
+        icao, "SOLVE EXIT",
+        projection_law_certificate(_solve_exit_joint, elev, n, yield_hard,
+                                   family_of=G.family_by_pair()))
     if _crown_drop_idx:
         _elev_emit = list(elev)
         for _i, _c in _crown_drop_idx.items():
@@ -5145,7 +5168,8 @@ def post_solve_mutation_set(carried, elev, n, tol):
     return untouched, n_new, moved
 
 
-def projection_law_certificate(joint, elev, n, hard, tol=1e-3):
+def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
+                               family_of=None):
     """Over-cap law edges of ``joint`` at the current ``elev``, BY FAMILY.
 
     The ingestion round's own reader (spec
@@ -5161,15 +5185,29 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3):
     ``family`` tag (the unified-graph and rod edge sets).  Interval edges
     (4-tuples) are counted against their own interval, not a cap.
 
-    Pure measurement: reads ``elev``, writes nothing.  Returns
-    ``{family: (n_over, worst_excess_m, n_both_hard)}``.
+    ``family_of`` — cycle-5 fix 4, THE FAMILY AXIS.  A ``{(min(a,b),
+    max(a,b)): family}`` map (``grade_graph.UnifiedGraph.family_by_pair``)
+    consulted PER EDGE for entries whose own tag is a construction site
+    rather than a law.  Without it the unified-graph entry is one
+    catch-all that took 80.6 % of the mass (63,635 of 78,912 at HECA
+    final#1) and named nothing; with it every edge is attributed to the
+    CONSTRUCTOR that minted it.  A pair the map does not carry keeps the
+    entry's own tag, so an unmapped caller reads exactly as before.
+
+    Pure measurement: reads ``elev``, writes nothing — the map is a
+    LOOKUP, so the constraint set and its edge order are untouched.
+    Returns ``{family: (n_over, worst_excess_m, n_both_hard)}``.
     """
     out: dict = {}
     for entry in joint:
-        fam = entry.get("family")
-        if fam is None:
-            fam = f"{entry.get('role') or '?'}:{entry.get('ref') or '-'}"
-        row = out.setdefault(fam, [0, 0.0, 0])
+        fam_entry = entry.get("family")
+        if fam_entry is None:
+            fam_entry = f"{entry.get('role') or '?'}:{entry.get('ref') or '-'}"
+        # Per-edge resolution only where the entry tag is the catch-all;
+        # a real shape entry (``apron:-``, ``graded_strip:adjacent_ground``)
+        # already names its law and is never re-keyed.
+        per_edge = family_of if fam_entry in _CATCH_ALL_FAMILIES else None
+        row = None if per_edge else out.setdefault(fam_entry, [0, 0.0, 0])
         for e in entry.get("edges") or ():
             a, b = e[0], e[1]
             if a >= n or b >= n:
@@ -5186,6 +5224,10 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3):
                 excess = abs(d) - float(e[2])
             if excess <= tol:
                 continue
+            if per_edge is not None:
+                key = (a, b) if a <= b else (b, a)
+                row = out.setdefault(per_edge.get(key, fam_entry),
+                                     [0, 0.0, 0])
             row[0] += 1
             if excess > row[1]:
                 row[1] = excess
@@ -5194,18 +5236,32 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3):
     return {k: tuple(v) for k, v in out.items()}
 
 
+# Entry tags that name a CONSTRUCTION SITE, not a law — the certificate
+# resolves these per edge through ``family_of`` when it is given one.
+# ``"?:-"`` is what an untagged entry (the SOLVE's own joint, which never
+# tagged its unified entry at all) degrades to.
+_CATCH_ALL_FAMILIES = frozenset(("unified_graph", "?:-"))
+
+
 def _report_law_certificate(icao, label, cert, top=8):
     """Print a :func:`projection_law_certificate` result, worst first."""
     rows = sorted(cert.items(), key=lambda kv: -kv[1][0])
     total = sum(v[0] for v in cert.values())
     both = sum(v[2] for v in cert.values())
+    # VIOLATING families, not families PRESENT (cycle-5 fix 4): the old
+    # ``len(rows)`` counted every family the constraint set CONTAINS —
+    # "across 425 family(ies)" when only 7 of the 425 had a nonzero
+    # count, which read as breadth of failure and was breadth of law.
+    n_viol = sum(1 for v in cert.values() if v[0])
     try:
         import O4_UI_Utils as _UI_cert
         say = lambda m: _UI_cert.vprint(1, m)          # noqa: E731
     except Exception:                                  # pragma: no cover
         say = print
-    say(f"  [proj-law-certificate] {icao} {label}: {total} law edge(s) "
-        f"over cap ({both} both-hard) across {len(rows)} family(ies)")
+    verdict = "CERTIFIED" if not total else "UNCERTIFIED"
+    say(f"  [proj-law-certificate] {icao} {label}: {verdict} — {total} law "
+        f"edge(s) over cap ({both} both-hard) in {n_viol} violating "
+        f"family(ies) of {len(rows)} present")
     for fam, (n_over, worst, n_bh) in rows[:top]:
         if not n_over:
             continue
@@ -6445,8 +6501,13 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # the solve produced, BY FAMILY.  A family over cap here is either a
     # genuine post-solve mutation or a law input the two constraint builds
     # disagree on — and naming which is the whole round.  Report-only.
+    # ``family_of``: this pass's OWN graph, so the catch-all splits by the
+    # constructor that minted each edge (cycle-5 fix 4).
+    _fp_family_of = G.family_by_pair()
     _report_law_certificate(icao, f"final#{_ml_pass or 1} ENTRY",
-                            projection_law_certificate(joint, elev, n, hard))
+                            projection_law_certificate(
+                                joint, elev, n, hard,
+                                family_of=_fp_family_of))
     rem, bh = feasibility_project(elev, joint, hard, force_scalar=True,
                                   env_band=_fp_env_band,
                                   forensics=_fp_forensics,
@@ -6785,7 +6846,9 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # family.  Paired with the ENTRY reading above it separates "the
     # projection minted this" from "the projection inherited this".
     _report_law_certificate(icao, f"final#{_ml_pass or 1} EXIT",
-                            projection_law_certificate(joint, elev, n, hard))
+                            projection_law_certificate(
+                                joint, elev, n, hard,
+                                family_of=_fp_family_of))
     # ── PROBE A, FINAL-PROJECTION TAIL: THIS PASS'S EXIT BOUNDARY ───────
     # (spec amendment 2026-08-01.)  Taken BEFORE the crown transform back,
     # so it is in the SAME uncrowned z′ frame as every other boundary in

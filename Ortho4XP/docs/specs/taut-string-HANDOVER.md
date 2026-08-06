@@ -74,11 +74,32 @@ value-neutral; pytest reds: F1 = fgp tail of target 1 (a); F2/F3 =
 NOT REPRODUCE at HEAD** (SPJC 55 raw/0 filtered, CYXY 2) — same
 instrument name, different population; re-derive before acting.
 
-IN FLIGHT: lane/fix3b merge + composed flat battery (integration
-agent; tip acceptance matrix vs BOTH frames — be84766 BASELINES and
-the be2009f-era in-tree controls; frames differ because trees differ,
-never average). Owner-started side sessions: apron_terrace docstring
-fix, lane_worktree.sh down fix.
+TIP RECORD — fix3b MERGED at `97838ce`, battery run (worktree c4tip,
+artifacts tmp/battery/). Zero textual conflicts; composition verified
+semantically (ramp priced 5% in solve AND projection via the shape path
+— the median-10.24% recurrence is structurally closed). Suite vs
+matched control (FAILED-list diff): fixed none, NEW exactly one —
+`test_solver_validator_same_edge_budgets@CYXY`, 193/12,706 edges at
+ratio exactly 5.0 = the PARKED §12 split-overlap defect now visible;
+validator is the PERMISSIVE side (census under-reports there). FLAT
+MATRIX (adjudicated excl. deferred / airside): HEAZ 1160/486 ·
+268-52=216/211 · SPJC 3075/3004 · 3723/3640 · KCLT 7477/6236 ·
+3807/2230 · HECA plateau 21404/20629 · canyon FAIL (384/7618, three
+pairs ALL LAW-half, +1.9921/+0.8521/+0.3564 m, budgets byte-identical
+to pre-merge, ride ≤0.045). Counts ROSE vs frames on SPJC/KCLT/HECA:
+attributed to DENOMINATOR GROWTH (fan cut mints ring vertices = new
+censusable pairs; HECA 26 aprons → 39 ramp pieces, 10,064 pairs bound
+at 5%; SPJC 7,301; KCLT 6,828) — "more law bound" and "fewer rows" are
+different quantities; only the first moved. HEAZ fell on both frames.
+Near-miss frontage lockstep gap CONFIRMED structurally (cross_shape=0
+everywhere while frontage_near_miss binds 4/12-38/78-86/118-138
+edges). Adjacent-ground ingestion residual at HECA canyon: 54,063
+band vertices outside their law box, worst 20.77 m (self-declared
+"goes to 0 when the solve binds the supplied boxes" — folds into the
+solve-uncertified attribution). SPJC/KCLT canyon worst rows ≈9,970 m
+in a 10,000 m world = nodes the constant DEM never reached
+(instrument/seed question, tasked). Owner-started side sessions:
+apron_terrace docstring fix, lane_worktree.sh down fix.
 
 **SESSION CHECKPOINT — 2026-08-05 ~17:30, HEAD 7ea3e6e (+ docs
 6e7e0ea). HISTORY — superseded above.** Read: RULINGS.md end-to-end

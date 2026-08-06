@@ -34,12 +34,13 @@ from typing import List, Optional, Tuple
 
 from shapely.errors import GEOSException, TopologicalError
 from shapely.geometry import Point, Polygon
+from shapely.ops import unary_union
 
 
 __all__ = ["CanonicalPointRegistry", "snap_polygon_through_registry",
            "snap_polygon_parts_through_registry", "weld_layout_vertices",
            "settled_vertex_lattice", "snap_polygon_to_lattice",
-           "add_polygon_to_lattice"]
+           "add_polygon_to_lattice", "coarsen_to_lattice_spacing"]
 
 
 _GEOM_EXC = (ValueError, TypeError,
@@ -315,6 +316,77 @@ def add_polygon_to_lattice(poly, lattice) -> None:
     for ring in rings:
         for (x, y) in ring.coords:
             lattice.add_exact(float(x), float(y))
+
+
+def coarsen_to_lattice_spacing(geom, tol_m: float = 0.5):
+    """Rebuild ``geom`` so that NO TWO of its boundary vertices are closer
+    together than ``tol_m``.  Returns the rebuilt geometry, or ``None``
+    if it degenerates.
+
+    The guarantee is structural, not statistical: every vertex is
+    interned through ONE :class:`CanonicalPointRegistry` at ``tol_m``,
+    and that registry never stores two entries within ``tol_m`` of each
+    other — so the retained vertex set is ``tol_m``-separated by
+    construction, whatever the input looked like.  One registry for all
+    rings and all parts, so a boundary two parts share is coarsened the
+    same way on both sides.
+
+    THIS IS THE FIX FOR GEOMETRY THAT IS USED AS A CUTTER (cycle-5 node
+    identity, ``docs/specs/cycle5-node-identity-spec.md``): a cutter
+    whose own boundary carries vertex pairs closer than the weld
+    tolerance hands every one of them to BOTH sides of the cut, and the
+    canonical registry then interns each pair onto ONE node with two
+    ring coordinates.  A ``buffer()`` is exactly such a cutter — its arc
+    vertices are spaced at roughly the weld tolerance.
+
+    NOTE the direction of movement is unconstrained: a vertex may move
+    up to ``tol_m`` either way, so a caller that needs the result to
+    CONTAIN the input must grow it first and then verify (see
+    ``apron_terrace.lattice_coarse_cover``).
+    """
+    if geom is None or geom.is_empty:
+        return geom
+    reg = CanonicalPointRegistry(tol_m=tol_m)
+
+    def _ring(coords):
+        out: list = []
+        for (x, y) in coords:
+            p = reg.get_or_add(float(x), float(y))
+            if out and out[-1] == p:
+                continue
+            out.append(p)
+        while len(out) > 1 and out[0] == out[-1]:
+            out.pop()
+        return out
+
+    parts = ([geom] if geom.geom_type == "Polygon"
+             else [g for g in getattr(geom, "geoms", ())
+                   if g.geom_type == "Polygon" and not g.is_empty])
+    if not parts:
+        return None
+    rebuilt = []
+    try:
+        for p in parts:
+            ext = _ring(p.exterior.coords)
+            if len(ext) < 3:
+                continue
+            holes = []
+            for r in p.interiors:
+                ri = _ring(r.coords)
+                if len(ri) >= 3:
+                    holes.append(ri)
+            q = Polygon(ext, holes)
+            if not q.is_valid:
+                q = q.buffer(0)
+            if q.is_empty:
+                continue
+            rebuilt.append(q)
+        if not rebuilt:
+            return None
+        out = rebuilt[0] if len(rebuilt) == 1 else unary_union(rebuilt)
+        return None if out.is_empty else out
+    except _GEOM_EXC:
+        return None
 
 
 def snap_polygon_to_lattice(poly, lattice, tol_m: float = 0.5, avoid=None):

@@ -1798,6 +1798,10 @@ def _panelize_apron(layout, shape, cover, keepout, envelope,
     # §3(c): joint lines keep the joint clearance from FACING boundary
     # runs, so no joint discharges its step at a neighbour's face.
     facing, _nb = _facing_boundary(layout, shape)
+    # SAME RULING as the fan zone: the geometry a CUT is taken against
+    # must be lattice-coarse, or the joint pieces are born carrying the
+    # cover's buffer-arc vertex pairs.  The fence is a buffer too, so
+    # the coarsening is applied to the UNION, once, after it is built.
     cut_cover = cover
     if facing is not None and not facing.is_empty:
         try:
@@ -1806,6 +1810,9 @@ def _panelize_apron(layout, shape, cover, keepout, envelope,
                          else unary_union([cut_cover, fence]))
         except _GEOM_EXC:
             pass
+    true_cut_cover = cut_cover
+    if cut_cover is not None and not cut_cover.is_empty:
+        cut_cover = lattice_coarse_cover(cut_cover)
     joints: list = []
     bands: list = []
     # Panels accumulate: joint k+1 is cut out of the geometry joint k
@@ -1844,10 +1851,14 @@ def _panelize_apron(layout, shape, cover, keepout, envelope,
             # point are one node, and ``_band_polygon``'s validity
             # repair handles the zero-length edge that leaves.
             if lattice is not None:
+                # The keep-out guard binds against the TRUE cover — the
+                # zero-tolerance structural law (ruling §1); the coarse
+                # superset is only what the cut is SHAPED by.
                 _ko = None
                 try:
-                    if cut_cover is not None and not cut_cover.is_empty:
-                        _ko = cut_cover.buffer(-1e-9)
+                    if (true_cut_cover is not None
+                            and not true_cut_cover.is_empty):
+                        _ko = true_cut_cover.buffer(-1e-9)
                 except _GEOM_EXC:                          # pragma: no cover
                     _ko = None
                 hi = _snap_stations(hi, lattice, stats, avoid=_ko)
@@ -2652,6 +2663,12 @@ def plan_fan_ramp_zones(layout, cover=None, icao: str = "") -> FanRampPlan:
         cover = corridor_cover(layout)
     if cover is None or cover.is_empty:
         return plan
+    # THE ZONE IS CUT AGAINST A LATTICE-COARSE SUPERSET of the cover
+    # (RULING 2026-08-06) — see :func:`lattice_coarse_cover`.  Only the
+    # SHAPING difference below uses it; every other reader (the
+    # pad-proximity test, the trigger, the joint keepout) keeps the true
+    # cover, because they ask about the real movement surfaces.
+    zone_cover = lattice_coarse_cover(cover, icao=icao)
     pads = []
     for s in getattr(layout, "shapes", ()):
         if (s.role or "") != "building":
@@ -2690,7 +2707,8 @@ def plan_fan_ramp_zones(layout, cover=None, icao: str = "") -> FanRampPlan:
         plan.stats["apron_candidates"] += 1
         for reach in reaches:
             try:
-                zone = shape.polygon.intersection(reach).difference(cover)
+                zone = (shape.polygon.intersection(reach)
+                        .difference(zone_cover))
             except _GEOM_EXC:
                 continue
             if zone.is_empty:
@@ -2781,6 +2799,71 @@ def _fan_pair_reach(pad_a, pad_b, depth: float):
         (ux * t_lo + px * span, uy * t_lo + py * span),
     ]
     return grown.intersection(Polygon(corners))
+
+
+def lattice_coarse_cover(cover, tol_m=None, icao: str = ""):
+    """THE KEEP-OUT THE ZONE IS CUT AGAINST: a lattice-coarse SUPERSET of
+    the true movement cover (RULING 2026-08-06, cycle-5 node-identity
+    spec).
+
+    The true cover is a ``buffer()`` — its arc vertices are spaced at
+    roughly the canonical weld tolerance.  Cutting the fan/terrace zone
+    against it therefore BORNS the zone with vertex pairs the canonical
+    registry interns onto one node, and the ramp piece and the remainder
+    panel then price that node's pairs under two different caps
+    (measured at CYXY: aprons carry 0 such pairs before the cut and 884
+    after; 193 solver↔validator budget mismatches).  Collapsing them
+    after the fact is not available — the collapse chords across the
+    cover's convex arcs and pushes 1.289 m² of ramp INSIDE the movement
+    corridor, which the owner's fan-ramp ruling forbids outright.
+
+    So the contradiction is resolved by CONSTRUCTION, with two
+    properties this function guarantees and ``tests/test_fan_ramp_law``
+    twins:
+
+    (a) IT CONTAINS THE TRUE COVER.  The keep-out therefore still binds
+        at ZERO tolerance against the true cover — a superset only ever
+        protects more ground, never less.  Verified here, per call, not
+        merely argued: the grow-and-coarsen is retried with a doubled
+        margin until ``covers`` holds.
+    (b) ITS BOUNDARY VERTICES ARE ``tol_m``-SEPARATED, so the cut is born
+        satisfying the node-identity law and there is nothing to collapse
+        afterwards (``canonical_points.coarsen_to_lattice_spacing``
+        guarantees this structurally).
+
+    Accepted consequence (ruling §3): the declared 5 % zone area shrinks
+    slightly.  That is lawful — the wall/step fallback covers whatever
+    the smaller zone cannot span (fan-ramp precedence, RULINGS 21f0980).
+
+    Falls back to the TRUE cover, loudly, if no margin produces a
+    verified superset — a smaller-but-correct keep-out is never the
+    answer, and the node-identity defect is the lesser of the two.
+    """
+    from auto_patch.canonical_points import coarsen_to_lattice_spacing
+    from auto_patch.layout import SHARED_VERTEX_TOL_M
+    if cover is None or cover.is_empty:
+        return cover
+    t = SHARED_VERTEX_TOL_M if tol_m is None else float(tol_m)
+    margin = t * 1.01
+    for _ in range(4):
+        try:
+            coarse = coarsen_to_lattice_spacing(cover.buffer(margin), t)
+            if (coarse is not None and not coarse.is_empty
+                    and coarse.covers(cover)):
+                return coarse
+        except _GEOM_EXC:                                  # pragma: no cover
+            pass
+        margin *= 2.0
+    try:
+        import O4_UI_Utils as _UI
+        _UI.vprint(1,
+            f"  [fan-ramp] {icao}: WARN — no verified lattice-coarse "
+            f"SUPERSET of the movement cover (tried up to "
+            f"{margin / 2:.2f} m); cutting against the TRUE cover, so "
+            f"the cut is born with sub-tolerance vertex pairs.")
+    except Exception:                                      # pragma: no cover
+        pass
+    return cover
 
 
 class _FanHole(Exception):

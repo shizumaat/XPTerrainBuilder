@@ -228,8 +228,14 @@ architecture item; (5) endgame: per-row (a)-(d) on the −500/10,000
 pair to zero-plus-declared; (6) flat-green ⇒ the real-DEM
 reintroduction event (deliberate, harness); (7) sim pass →
 compare-target re-cut → final-design profiling round. RISK REGISTER:
-fix-4 slab attribution (last unnamed mass), the seam-pin verdict
-(owner's), below-sea-level handling at −500 (never exercised).
+fix-4 slab attribution (last unnamed mass), below-sea-level handling
+at −500 (never exercised). SEAM-PIN VERDICT RULED (owner, from the
+KML): the route was INVALID — certificate routes follow the reach law
+(no pad-interior traversal, no zero-budget hops); class = (d), pins
+are law, the 610-pin population re-adjudicates after the certificate
+reprices (ruling relayed to c7cert for fix 3). Sweep riders: the
+seed_rwy_seam label is a misnomer 607/610; 444/1,077 hardened with no
+seeder record (unattributed channel).
 
 NEXT TARGETS (ranked):
 1. **The solve's UNCERTIFIED exit is the real plateau author** —

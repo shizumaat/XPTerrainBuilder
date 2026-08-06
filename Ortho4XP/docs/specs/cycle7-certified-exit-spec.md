@@ -33,13 +33,17 @@ datum — against an apron node AT its band floor 62.495, chord budget
 clamps restore them (drop boxes ⇒ worst 60.77 → 2.47). 343 detached
 pads carry the class. The law: a detached pad's SEAT stays a seat
 (movable-pads + §7 is production), but its box on an AIRSIDE-COUPLED
-node may not be a zero-width DEM-datum pin — the box carries the
-seat's LAWFUL width (the seat/coupler law's own band; the frontage/
-band machinery already prices it) or the coupling edge is priced as
-the declared step it lawfully is (split-level seats law: a sectioned
-seat with a declared joint is the legal form for large relief).
-Attribute per the seat machinery which form each pad takes
-(decide-and-note); loud on any pad where neither form resolves.
+node may not be a zero-width DEM-datum pin. **RULED (owner 2026-08-06, RULINGS "Frontage coupling ⇒
+band seating" — supersedes this spec's original two-form choice):**
+a frontage-coupled building (touching or near-miss) is seated FROM
+the route-graph band via its frontage chord — the seat is an in-band
+value such that the chord grades within the apron's law, DEM choosing
+where within that range; band-withholding keys on frontage coupling,
+not touch. Only a pad with NO frontage coupling stays a DEM-seated
+groundside citizen. The split-level sectioned form remains the relief
+for large intra-footprint relief only. Loud on any pad where the
+frontage band cannot be derived — that is a defect report, not a
+fallback to the datum pin.
 
 ## Fix 3 (b) — seed_rwy_seam depth (attribute-then-fix)
 

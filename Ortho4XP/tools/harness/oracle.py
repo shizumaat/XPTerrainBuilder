@@ -32,7 +32,7 @@ the gate; this is the instrument you drive an investigation with, and it
 emits the artifacts a report is written from.
 
 Consolidated from ``scratchpad/testphase/oracle.py``, with the harness's
-census (all 21 families, sidecar-true) replacing that script's private
+census (every law family, sidecar-true) replacing that script's private
 ``run_checks`` call.
 """
 from __future__ import annotations

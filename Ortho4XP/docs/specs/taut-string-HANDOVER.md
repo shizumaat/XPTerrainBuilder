@@ -105,8 +105,13 @@ TWO-COORDINATES defects (pre-solve fan cut mints near-twins after the
 settle, 99; planarize inserts within the 0.5 m weld tol vs 0.05 m
 dedup, 94). RULED: cycle5-node-identity-spec (cut on the settled
 lattice; planarize snaps, never twins; weld-after-cut FORBIDDEN —
-tears 0.1384 m²). Lane c5nodeid IN FLIGHT. SPJC's pre-existing
-1.5289 m² self-overlap red is plausibly the same family.
+tears 0.1384 m²). **c5nodeid LANDED AND MERGED** (superset-cover
+ruling): budget mismatches 193 → 2 (residual = a different inter-shape
+class, node 830, 0.438 m apart, ratio ~1.04 — named); divergence
+instrument reads 0 on minted pieces and final rings; keep-out
+zero-tolerance with runtime-verified superset; SPJC's fan-signature
+self-overlap pair GONE (1.5289 → 0.5812 m², survivor is a junction
+mechanism); zone area −1.5% (ruled accepted).
 INSTRUMENT ROUND MERGED (lane/c5inst): radius law-derived (F2 exempt),
 grid-residual excuse deleted (SPJC honest 48 — population now FLOOR
 side at this tree, the ceil quartet was be2009f-era), CYXY fixture red

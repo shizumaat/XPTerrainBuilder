@@ -1680,6 +1680,7 @@ def feasibility_project(elev, shape_constraints, hard, *,
                         flat_groups=None, broken_out=None, pre_broken=None,
                         edge_couple_nodes=None, interval_yield_from=None,
                         group_bounds=None, node_bounds=None,
+                        gs_pin_nodes=None,
                         forensics=None,
                         witness_limited=None, witness_excluded=None,
                         env_band=None,
@@ -1778,6 +1779,17 @@ def feasibility_project(elev, shape_constraints, hard, *,
     group members (the representative carries the value) and contradictory
     (``lo > hi``) boxes are dropped.  ``None`` for both = today's behavior,
     byte-identical.
+
+    ``gs_pin_nodes`` — the node indices whose ``node_bounds`` entry carries
+    a freed GROUNDSIDE PIN's LAW ceiling (weld datum + one throat of reach).
+    Read at ONE site: the band/box merge, where a DECLARED CONFLICT between
+    the airside reach band and a groundside pin box is resolved BAND WINS —
+    the pin box yields, its ceiling re-derived from the airside-conformed
+    datum (cycle-6 Part P; standing law "airside is king", the lot conforms
+    via the terrace/wall machinery).  A conflict on any other box class is
+    reported UNRESOLVED and keeps today's behaviour.  ``None``/empty ⇒ every
+    conflict is UNRESOLVED, i.e. byte-identical to the pre-clause code apart
+    from the (ungated) report.
 
     NO REFERENCE RODS.  The §7 reference channel (``group_refs`` /
     ``node_refs``, the proximal pull and the exact-return polish) was
@@ -2490,6 +2502,12 @@ def feasibility_project(elev, shape_constraints, hard, *,
     # ``bound_of`` after it.  Empty ⇒ nothing merged ⇒ the one-shot
     # behaviour this replaces.
     _band_box: dict = {}
+    # THE BAND WINS A DECLARED GROUNDSIDE CONFLICT (cycle-6 Part P):
+    # ``{node: (floor, ceiling)}`` for every node whose groundside pin box
+    # YIELDED to the band below.  Read once at EXIT to certify that the
+    # resolution held (the acceptance instrument), never read back into
+    # the projection.
+    _band_wins: dict = {}
     if hard:
         # BYTE-INERTNESS: build the seed set with the SAME expression the
         # pre-clause code used whenever nothing is withdrawn — an extra
@@ -2612,8 +2630,43 @@ def feasibility_project(elev, shape_constraints, hard, *,
         # ``feasibility-is-guaranteed`` two laws that cannot both hold
         # at one vertex is a defect to attribute at source, never a
         # silent resolution.
+        #
+        # ── AIRSIDE IS KING: THE BAND WINS (cycle-6 Part P) ──────────
+        # Attribution (c5auth dossier, HECA plateau): the pre-existing
+        # box at every one of the 14 declared conflicts was a freed
+        # GROUNDSIDE PIN's per-sweep LAW ceiling — the lot's weld datum
+        # plus one throat of reach, ~1 m on a plateau world — and
+        # keeping it discarded the airside reach band, parking 14 apron
+        # / service_junction nodes up to 87 m BELOW their own band
+        # floor.  ``final_grade_projection``, which carries no such box,
+        # then lifted them back: the whole second-author extreme class,
+        # and the carrier of the stuck ~89 m fp#8 residual.
+        #
+        # Standing law (docs/RULINGS.md): "Groundside must have ZERO
+        # effect or pull on airside; airside solves first, groundside
+        # conforms."  A groundside ceiling that cannot be met is
+        # therefore not a constraint on the airside band — it is a
+        # demand on the LOT, which conforms through the terrace /
+        # retaining-wall machinery (groundside terrace law) and, for a
+        # freed mouth cluster, through ``adopt_projected_mouths``.
+        #
+        # So at a declared conflict on a groundside pin box the BAND
+        # BINDS and the pin box YIELDS: its ceiling is withdrawn and
+        # re-derived from the airside-conformed datum, which IS the band
+        # at that node.  (The conflict is always one-sided — a box with
+        # ``lo <= hi`` cannot straddle a band with ``lo <= hi`` on both
+        # sides — so the surviving half of the pin box is never binding
+        # and the resolved box is exactly the band.)  Nothing is
+        # discarded silently: every conflict prints a LOUD report line
+        # naming both halves and the resolution, ungated, and the
+        # resolution is certified again at EXIT.  A conflict on any
+        # OTHER box class (a building seat box) is NOT ruled by this
+        # clause: it keeps today's behaviour and is reported UNRESOLVED,
+        # to be attributed at source rather than resolved here.
         if _band_box:
-            _bb_added = _bb_isect = _bb_conflict = 0
+            _bb_added = _bb_isect = _bb_conflict = _bb_yield = 0
+            _bb_rows: list = []
+            _gs_pin = gs_pin_nodes or ()
             for _bi, (_blo, _bhi) in _band_box.items():
                 if _bi in hard or (gmap and _bi in gmap):
                     continue
@@ -2625,15 +2678,47 @@ def feasibility_project(elev, shape_constraints, hard, *,
                 _nlo, _nhi = max(_prev[0], _blo), min(_prev[1], _bhi)
                 if _nlo > _nhi:
                     _bb_conflict += 1
-                    continue                  # keep the existing box
+                    if _bi in _gs_pin:
+                        bound_of[_bi] = (_blo, _bhi)
+                        _band_wins[_bi] = (_blo, _bhi)
+                        _bb_yield += 1
+                        _bb_rows.append(
+                            (_bi, _prev, (_blo, _bhi), True))
+                    else:
+                        _bb_rows.append(
+                            (_bi, _prev, (_blo, _bhi), False))
+                    continue
                 bound_of[_bi] = (_nlo, _nhi)
                 _bb_isect += 1
+            if _bb_rows:
+                import O4_UI_Utils as _UI_band
+                _UI_band.vprint(1,
+                    f"    [env-band] {_bb_conflict} DECLARED CONFLICT(S) "
+                    f"band vs pre-existing box: {_bb_yield} resolved "
+                    f"BAND WINS (groundside pin box withdrawn — airside "
+                    f"is king; the lot conforms via the terrace/wall "
+                    f"machinery), {_bb_conflict - _bb_yield} UNRESOLVED "
+                    f"(not a groundside pin box — attribute at source)")
+                for _ri, (_bi, _pv, _bd, _won) in enumerate(_bb_rows):
+                    if _ri >= 20:
+                        _UI_band.vprint(1,
+                            f"      … and {len(_bb_rows) - 20} more "
+                            f"declared conflict(s)")
+                        break
+                    _UI_band.vprint(1,
+                        f"      node {_bi}: GROUNDSIDE box "
+                        f"[{_pv[0]:.3f}, {_pv[1]:.3f}] vs AIRSIDE band "
+                        f"[{_bd[0]:.3f}, {_bd[1]:.3f}] -> "
+                        + ("BAND WINS (box withdrawn, ceiling re-derived "
+                           "from the band)" if _won else
+                           "UNRESOLVED (box kept)"))
             if _os.environ.get("O4_STEP_DEBUG") == "1":
                 print(f"    [env-band] band bound PER SWEEP: {_bb_added} "
                       f"node box(es) added, {_bb_isect} intersected with "
                       f"an existing box, {_bb_conflict} DECLARED "
-                      f"CONFLICT(S) (empty intersection — existing box "
-                      f"kept)")
+                      f"CONFLICT(S) ({_bb_yield} resolved BAND WINS, "
+                      f"{_bb_conflict - _bb_yield} unresolved — existing "
+                      f"box kept)")
         if _band_env is not None and _os.environ.get("O4_STEP_DEBUG") == "1":
             _bn_none = _bn_ok = 0
             for i in range(n):
@@ -3464,6 +3549,28 @@ def feasibility_project(elev, shape_constraints, hard, *,
         worst_ex = max(worst_ex, ex)
         if i in hard and j in hard:
             bh += 1
+    # ── THE RESOLUTION IS CERTIFIED AT EXIT (cycle-6 Part P) ─────────
+    # A conflict resolved BAND WINS is only resolved if the node LEAVES
+    # this projection inside the band it was given.  Reported ungated,
+    # with the worst deficit named: the whole defect this clause fixes
+    # was 14 nodes exiting 82–88 m below their own band floor, so a
+    # silent re-appearance must be impossible to miss.  Read-only.
+    if _band_wins:
+        _bw_below = []
+        for _bi, (_blo, _bhi) in _band_wins.items():
+            _bd = _blo - elev[_bi]
+            if _bd > tol:
+                _bw_below.append((_bd, _bi))
+        _bw_below.sort(reverse=True)
+        import O4_UI_Utils as _UI_bw
+        _UI_bw.vprint(1,
+            f"    [env-band] conflict resolution EXIT: "
+            f"{len(_band_wins)} band-bound node(s), "
+            f"{len(_band_wins) - len(_bw_below)} at or above their band "
+            f"floor, {len(_bw_below)} BELOW"
+            + ("" if not _bw_below else
+               f" (worst {_bw_below[0][0]:.3f} m at node "
+               f"{_bw_below[0][1]})"))
     if _os.environ.get("O4_STEP_DEBUG") == "1" and force_scalar:
         print(f"    [fp-scalar] sweeps={_sweeps_run} last_worst={_last_worst:.4f} "
               f"rem={rem} worst_ex={worst_ex:.3f} groups={len(groups_eff)} "

@@ -3498,6 +3498,14 @@ def solve_route_profile(layout, icao: str,
     # the reach band, which binds per sweep as of fix 2.  A pin with no
     # weld datum has no entry and stays unbounded above — a missing datum
     # never becomes a terrain bound.
+    #
+    # The bounded pins are also CARRIED (``_gs_pin_bound_idx``) into the
+    # projection: where this ceiling and the airside reach band cannot
+    # both hold, the merge resolves the declared conflict BAND WINS and
+    # the pin box yields (cycle-6 Part P; "airside is king" — the lot
+    # conforms via the terrace/wall machinery).  Without the carry the
+    # merge cannot tell a groundside ceiling from a building seat box.
+    _gs_pin_bound_idx: set = set()
     if _gs_hard:
         _pin_ceil_fp8 = getattr(layout, "_gs_pin_law_ceiling_idx", None) or {}
         if _pin_ceil_fp8:
@@ -3511,6 +3519,7 @@ def solve_route_profile(layout, icao: str,
                 _yield_node_bounds[_gi] = (
                     (-1e18, float(_c)) if _pb is None
                     else (_pb[0], min(_pb[1], float(_c))))
+                _gs_pin_bound_idx.add(_gi)
                 _n_pin_bound += 1
             if _os.environ.get("O4_STEP_DEBUG") == "1":
                 print(f"    [groundside-reach] {_n_pin_bound} freed "
@@ -3717,6 +3726,8 @@ def solve_route_profile(layout, icao: str,
                                               else None),
                                   group_bounds=_yield_group_bounds,
                                   node_bounds=_yield_node_bounds,
+                                  gs_pin_nodes=(_gs_pin_bound_idx
+                                                or None),
                                   witness_excluded=_route_excluded,
                                   env_band=_env_band)
     _t_fp8_end = _time.perf_counter()
@@ -3797,6 +3808,7 @@ def solve_route_profile(layout, icao: str,
             # with no weld datum has no entry and stays unbounded
             # above: a missing datum never becomes a terrain bound.
             _relax_node_bounds = _yield_node_bounds
+            _relax_pin_idx = set(_gs_pin_bound_idx)
             _pin_ceil = getattr(
                 layout, "_gs_pin_law_ceiling_idx", None) or {}
             if _pin_ceil:
@@ -3809,6 +3821,11 @@ def solve_route_profile(layout, icao: str,
                     _relax_node_bounds[_fi] = (
                         (-1e18, float(_c)) if _pb is None
                         else (_pb[0], min(_pb[1], float(_c))))
+                    # Same carry as fp#8: a pin ceiling installed through
+                    # the relax door yields to the band on conflict too,
+                    # or the lift returns through exactly that door
+                    # (cycle-6 Part P).
+                    _relax_pin_idx.add(_fi)
             # Same BOUNDED YIELD boxes as fp#8 above: the
             # mouth-relax re-projection moves the same freed seats
             # and must not un-do the clamp.
@@ -3823,6 +3840,7 @@ def solve_route_profile(layout, icao: str,
                 witness_limited=_gs_witness,
                 group_bounds=_yield_group_bounds,
                 node_bounds=_relax_node_bounds,
+                gs_pin_nodes=_relax_pin_idx or None,
                 witness_excluded=_route_excluded,
                 env_band=_env_band)
             _n_adopted = adopt_projected_mouths(

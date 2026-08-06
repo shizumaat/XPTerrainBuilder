@@ -17,6 +17,29 @@ two-coordinate node, which is the defect (one node, two ring positions
 the same pair). Geometry that relies on sub-tolerance distinctions is
 already identity-merged by the registry and cannot be load-bearing.
 
+## RULING (2026-08-06, spec author — resolves the lane's STOP)
+
+The lane falsified Fix P's literal premise (2 pairs near settled
+vertices; 884 pairs minted by the cut itself against the corridor
+cover's `buffer()` arc, whose vertices are spaced ≈ the weld
+tolerance) and proved the direct collapse (193→5) pushes 1.289 m² of
+ramp inside the movement corridor. The keep-out vs node-identity
+contradiction resolves by construction:
+
+1. **The movement-surface keep-out binds at ZERO tolerance against the
+   TRUE cover, always** — no ramp inside it, the structural law is
+   untouched, and the existing twin stays as-is.
+2. **The fan/terrace zone is CONSTRUCTED against a lattice-coarse
+   SUPERSET of the true cover** — e.g. `cover.buffer(t·1.01).simplify(t)`
+   (implementer picks the exact coarsening) with two proven
+   properties: (a) it CONTAINS the true cover (keep-out strictly
+   holds — a superset only protects more), (b) its boundary vertex
+   spacing exceeds the weld tolerance (the cut is born satisfying the
+   node-identity law). Twin both properties.
+3. Consequence, accepted: the declared 5% zone area shrinks slightly.
+   Lawful — the wall/step fallback covers whatever the smaller zone
+   cannot span (fan-ramp law precedence, RULINGS 21f0980).
+
 ## Fix P — pre-solve half (99 of 193): cut on the settled lattice
 
 `split_aprons_at_fan_zones` (and the terrace panel cut) runs AFTER

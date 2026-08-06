@@ -53,10 +53,20 @@ WHAT IT REPORTS
   unrelated).  A total cannot tell "the ramp law is granting relief where
   the defects are" from "…somewhere else"; this can.
 
+* ``--magnitude-bands`` — every law-true row bucketed by SEVERITY
+  (|de| / step height), default edges 0.01 / 0.1 / 1 / 10 m, configurable.
+  A total says how many rows; the bands say what KIND of population they
+  are, which is the reading that ranks ownership (the post-cycle-6 frame
+  of record is stated in exactly these terms: 0.1-1 m 13,711 rows =
+  45.1 %, 1-10 m 11,143 = 36.7 %, "82 % is in-band airside solver
+  residual").  The first edge is also the materiality floor, so the
+  below-floor rows are reported as their own band rather than mixed in.
+
 Consolidated from (and replacing): ``scratchpad/*/census_lockstep.py``,
 ``scratchpad/refpull_interim/census.py``, ``scratchpad/testphase/census.py``,
 ``scratchpad/integrate/worst.py``, ``scratchpad/integrate/side.py``,
-``scratchpad/fix2a/zone_split.py``.
+``scratchpad/fix2a/zone_split.py``, and the magnitude-band bucketing two
+lanes wrote by hand (c6attr / c6tip — promote-on-reuse, RULINGS 7e90032).
 """
 from __future__ import annotations
 
@@ -86,6 +96,137 @@ def load_check_grade():
     sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
     return mod
+
+
+#: DEFAULT MAGNITUDE BAND EDGES, metres.  The first edge is the campaign's
+#: materiality floor (0.01 m, CLAUDE.md "convergence guards"): rows below it
+#: are reported as their own band and never adjudicated away silently.  The
+#: rest are the decades the frame-of-record readings are already stated in.
+DEFAULT_BAND_EDGES = (0.01, 0.1, 1.0, 10.0)
+
+
+def parse_band_edges(spec) -> tuple:
+    """``"0.01,0.1,1,10"`` -> ``(0.01, 0.1, 1.0, 10.0)``.
+
+    Edges must be positive and strictly ascending: a band table built on
+    unsorted edges silently drops rows into the wrong bucket, and a report
+    whose buckets do not partition its own population is the two-instruments
+    trap in one table.
+    """
+    if spec is None or str(spec).strip() == "":
+        return tuple(DEFAULT_BAND_EDGES)
+    try:
+        edges = tuple(float(p) for p in str(spec).replace(" ", "").split(",")
+                      if p != "")
+    except ValueError:
+        raise SystemExit(
+            f"REFUSING: --magnitude-bands {spec!r} is not a comma-separated "
+            f"list of metre values (e.g. 0.01,0.1,1,10)") from None
+    if not edges:
+        raise SystemExit("REFUSING: --magnitude-bands needs at least one edge")
+    if any(e <= 0 for e in edges):
+        raise SystemExit(
+            f"REFUSING: --magnitude-bands {spec!r} has a non-positive edge; "
+            f"magnitudes are absolute values")
+    if list(edges) != sorted(edges) or len(set(edges)) != len(edges):
+        raise SystemExit(
+            f"REFUSING: --magnitude-bands {spec!r} is not strictly ascending "
+            f"— rows would land in the wrong band")
+    return edges
+
+
+def band_labels(edges) -> list:
+    """The band labels for ``edges``, low to high.  ``len(edges) + 1`` of
+    them: below the first edge, one per interval, and the open top."""
+    def _n(v):
+        return f"{v:g}"
+    out = [f"<{_n(edges[0])}"]
+    for lo, hi in zip(edges, edges[1:]):
+        out.append(f"{_n(lo)}-{_n(hi)}")
+    out.append(f">={_n(edges[-1])}")
+    return out
+
+
+def magnitude_bands(all_rows, cg, edges=DEFAULT_BAND_EDGES) -> dict:
+    """``--magnitude-bands``: bucket the law-true rows by SEVERITY.
+
+    WHY IT LIVES HERE.  Two lanes bucketed rows by magnitude by hand (the
+    c6attr ownership ranking and the c6tip frame of record), which is the
+    promotion signal — owner ruling 7e90032, promote-on-reuse.  It is a
+    FLAG on the census and not a tool of its own for the reason the census
+    exists: the population it buckets must be the law-true one, and a
+    private copy of that frame is the census-wrapper defect.  Nothing here
+    re-runs a check — it reads the rows ``census_one`` already has.
+
+    THE QUESTION IT ANSWERS.  A total ranks nothing.  "30,402 rows" and
+    "30,402 rows, 82 % of them between 0.1 m and 10 m" send work to
+    different places: the first reads as a catastrophe, the second names
+    an in-band solver residual with one owner.  Bands also separate the
+    sub-materiality tail (below the first edge — the floor a convergence
+    guard is entitled to stop at) from rows that are real.
+
+    ``all_rows`` is the ``(family_key, row)`` sequence ``census_one``
+    builds, so the bands PARTITION exactly the population the census
+    reports: ``sum(band["n"]) == len(all_rows)``, twin-asserted.  Each
+    band also carries the adjudicated/version-deferred split on the law's
+    own register (``check_grade.VERSION_DEFERRED_FAMILIES``) — instruments
+    report, the law adjudicates.
+    """
+    edges = tuple(edges)
+    labels = band_labels(edges)
+
+    def _index(mag: float) -> int:
+        for i, e in enumerate(edges):
+            if mag < e:
+                return i
+        return len(edges)
+
+    n_bands = len(labels)
+    counts = [Counter() for _ in range(n_bands)]
+    worst = [0.0] * n_bands
+    deferred = [0] * n_bands
+    by_family: dict = {}
+    for key, row in all_rows:
+        mag = cg.row_magnitude(row)
+        i = _index(mag)
+        counts[i][cg.row_side(row)] += 1
+        counts[i]["_n"] += 1
+        worst[i] = max(worst[i], mag)
+        if key in cg.VERSION_DEFERRED_FAMILIES:
+            deferred[i] += 1
+        row_counts = by_family.setdefault(key, [0] * n_bands)
+        row_counts[i] += 1
+
+    total = sum(c["_n"] for c in counts)
+    bands = []
+    for i, label in enumerate(labels):
+        lo = 0.0 if i == 0 else edges[i - 1]
+        hi = edges[i] if i < len(edges) else None
+        bands.append({
+            "label": label,
+            "lo_m": lo,
+            "hi_m": hi,
+            "n": counts[i]["_n"],
+            "pct": (round(100.0 * counts[i]["_n"] / total, 1)
+                    if total else 0.0),
+            "airside": counts[i].get("airside", 0),
+            "groundside": counts[i].get("groundside", 0),
+            "mixed": counts[i].get("mixed", 0),
+            "unknown": counts[i].get("unknown", 0),
+            "deferred": deferred[i],
+            "adjudicated": counts[i]["_n"] - deferred[i],
+            "worst_m": round(worst[i], 4),
+            # The floor band is the one a convergence guard may stop at
+            # (CLAUDE.md: "a residual below it is PASS-with-residual").
+            "below_materiality": i == 0,
+        })
+    return {
+        "edges_m": list(edges),
+        "total": total,
+        "bands": bands,
+        "by_family": {k: dict(zip(labels, v))
+                      for k, v in sorted(by_family.items()) if any(v)},
+    }
 
 
 def _both_buildings(step) -> bool:
@@ -222,7 +363,8 @@ def zone_split(osm: Path, cg, families: dict) -> dict:
 
 
 def census_one(osm: Path, cg, *, want_bare: bool = False,
-               top: int = 10, want_zone_split: bool = False) -> dict:
+               top: int = 10, want_zone_split: bool = False,
+               band_edges=None) -> dict:
     """The census of ONE patch.  Returns the report dict; prints nothing."""
     families: dict = {}
     within, cross, steps = cg.run_checks_law_true(
@@ -325,6 +467,8 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
                           "total": len(bw) + len(bc) + len(bs)}
     if want_zone_split:
         report["zone_split"] = zone_split(osm, cg, families)
+    if band_edges is not None:
+        report["magnitude_bands"] = magnitude_bands(all_rows, cg, band_edges)
     return report
 
 
@@ -414,6 +558,27 @@ def print_report(rep: dict, top: int) -> None:
                   f"{r['side']:<11}|de|={r['magnitude_m']:7.3f} m"
                   f"{extra}{site}")
 
+    mb = rep.get("magnitude_bands")
+    if mb is not None:
+        print("\n  === MAGNITUDE BANDS (--magnitude-bands) ===")
+        print(f"    edges {mb['edges_m']} m; bands PARTITION the "
+              f"{mb['total']} law-true row(s)")
+        print(f"    {'BAND (m)':<12}{'n':>8}{'%':>7}{'airside':>9}{'gs':>7}"
+              f"{'mixed':>7}{'adjud':>8}{'defer':>7}{'worst m':>10}")
+        print("    " + "-" * 75)
+        for b in mb["bands"]:
+            tail = "  (below materiality floor)" if b["below_materiality"] \
+                else ""
+            print(f"    {b['label']:<12}{b['n']:>8}{b['pct']:>7.1f}"
+                  f"{b['airside']:>9}{b['groundside']:>7}{b['mixed']:>7}"
+                  f"{b['adjudicated']:>8}{b['deferred']:>7}"
+                  f"{b['worst_m']:>10.3f}{tail}")
+        if mb["by_family"]:
+            print("    by family (nonzero only):")
+            for key, row in mb["by_family"].items():
+                cells = "  ".join(f"{lab}={n}" for lab, n in row.items() if n)
+                print(f"      {key:<24}{cells}")
+
     zs = rep.get("zone_split")
     if zs is not None:
         print("\n  === FAN-RAMP ZONE SPLIT (--zone-split) ===")
@@ -490,6 +655,17 @@ def main(argv=None) -> int:
                          "for the record only)")
     ap.add_argument("--quiet", action="store_true",
                     help="JSON only, no table")
+    ap.add_argument("--magnitude-bands", nargs="?", const="", default=None,
+                    metavar="EDGES",
+                    help="also bucket every law-true row by SEVERITY "
+                         "(|de| / step height) into magnitude bands — "
+                         "default edges 0.01,0.1,1,10 m, or pass your own "
+                         "ascending comma-separated metre list.  The bands "
+                         "PARTITION the census's own population (below the "
+                         "first edge is the materiality floor's own band) "
+                         "and each carries the airside/groundside/mixed and "
+                         "adjudicated/version-deferred splits — the reading "
+                         "that ranks ownership rather than counting rows")
     ap.add_argument("--zone-split", action="store_true",
                     help="also bucket the WITHIN-SHAPE rows by FAN-RAMP "
                          "ZONE membership (on a declared ramp piece / "
@@ -498,6 +674,9 @@ def main(argv=None) -> int:
                          "granting relief where the defects actually are")
     args = ap.parse_args(argv)
 
+    band_edges = (parse_band_edges(args.magnitude_bands)
+                  if args.magnitude_bands is not None else None)
+
     cg = load_check_grade()
     reports = []
     for osm in args.patches:
@@ -505,7 +684,8 @@ def main(argv=None) -> int:
             raise SystemExit(f"REFUSING: no such patch {osm}")
         try:
             rep = census_one(osm, cg, want_bare=args.bare, top=args.top,
-                             want_zone_split=args.zone_split)
+                             want_zone_split=args.zone_split,
+                             band_edges=band_edges)
         except FileNotFoundError as exc:
             raise SystemExit(
                 f"REFUSING: {exc}\n"

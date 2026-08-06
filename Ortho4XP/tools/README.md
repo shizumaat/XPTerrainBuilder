@@ -7,6 +7,12 @@
 > is the long-form catalog of what each engine tool does. A tool absent from
 > `INDEX.md` is treated as absent.
 >
+> That link is relative to the REPO ROOT, so in a lane worktree it resolves to
+> the worktree's own tracked copy. A worktree checked out at a ref that predates
+> the index has none — `tools/harness/lane_worktree.sh up NAME` mirrors the main
+> tree's in read-only (and `check NAME` says MISSING / STALE / DIFFERS). Consult
+> the mirror; a lane's own promotion edits the TRACKED file, never the mirror.
+>
 > To BUILD or MEASURE an airport, the answer is always
 > [`harness/`](harness/): `build_airport.py`, `census.py`, `lane_worktree.sh`,
 > `oracle.py`. A lane-private build or census wrapper is a defect.

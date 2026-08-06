@@ -495,6 +495,155 @@ def test_the_ritual_shell_is_syntactically_valid():
     assert r.returncode == 0, r.stderr
 
 
+def test_the_ritual_makes_the_tool_index_reachable():
+    """Owner ruling 7e90032: the index is THE consultation surface, and a
+    tool absent from it is treated as absent.  A lane that cannot READ it
+    consults nothing and forks the near-fit — measured 2026-08-06: 30 of
+    58 worktrees on this machine had no ``tools/INDEX.md`` at all (their
+    refs predate it), and this file's own index twin fails in every one."""
+    src = RITUAL.read_text()
+    assert re.search(r'^INDEX_REL="tools/INDEX\.md"', src, re.M), (
+        "the ritual must name the index it makes reachable")
+    assert "index_state up" in src and "index_state check" in src, (
+        "`up` must materialise the index and `check` must audit it")
+    assert "chmod 444" in src, (
+        "a mirrored index is READ-ONLY: the tracked file at the repo root "
+        "is the one a promotion edits, and two writable copies would "
+        "diverge silently")
+    assert "7e90032" in src, "the refusal must cite the ruling it enforces"
+    assert re.search(r'grep -v -E "\^tools/\(INDEX\\\.md\)\?\$"', src), (
+        "the untracked audit must allow the index mirror — otherwise `up` "
+        "refuses the tree it just prepared")
+
+
+def _tiny_repo(tmp_path):
+    """A miniature main repo + shared data repo the ritual can run on.
+
+    Returns ``(main, data, env, ref_without_index)`` where the repo's FIRST
+    commit has no ``tools/INDEX.md`` — the old-worktree case the fix has to
+    degrade gracefully into."""
+    main = tmp_path / "main"
+    (main / "Ortho4XP" / "venv").mkdir(parents=True)
+    (main / "Ortho4XP" / "keep").write_text("engine\n")
+    (main / "Ortho4XP" / "Ortho4XP.cfg").write_text("apt_smoothing_pix=8\n")
+    # The real repo ignores the cloned config and the lane's Patches
+    # output; without that the ritual's own untracked audit would flag the
+    # tree it just prepared, and this twin would be testing the fixture.
+    (main / ".gitignore").write_text(
+        "Ortho4XP/Ortho4XP.cfg\nOrtho4XP/Patches/\nOrtho4XP/venv\n")
+    data = tmp_path / "data"
+    for d in ("OSM_data", "Elevation_data", "Airport_mod_cache"):
+        (data / d).mkdir(parents=True)
+    env = dict(os.environ,
+               O4_MAIN_REPO=str(main), O4_DATA_REPO=str(data),
+               GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
+               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+
+    def git(*args):
+        r = subprocess.run(("git", "-C", str(main)) + args, env=env,
+                           capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        return r.stdout.strip()
+
+    # The real repo's shape, exactly: Patches/ is gitignored as a whole,
+    # and ONE shipped patch inside it is force-added and TRACKED.
+    (main / "Ortho4XP" / "Patches" / "+39-078").mkdir(parents=True)
+    (main / "Ortho4XP" / "Patches" / "+39-078" / "2W2_runways.patch.osm"
+     ).write_text("<osm version='0.6'></osm>\n")
+
+    git("init", "-q")
+    git("add", "-A")
+    git("add", "-f", "Ortho4XP/Patches/+39-078/2W2_runways.patch.osm")
+    git("commit", "-qm", "engine only, no tool index")
+    old_ref = git("rev-parse", "HEAD")
+    (main / "tools").mkdir()
+    (main / "tools" / "INDEX.md").write_text("# Tool index\n\ncensus.py\n")
+    git("add", "-A")
+    git("commit", "-qm", "the tool index lands")
+    return main, data, env, old_ref
+
+
+def _ritual(env, *args):
+    return subprocess.run([str(RITUAL), *args], env=env,
+                          capture_output=True, text=True)
+
+
+def test_the_ritual_mirrors_the_index_into_a_worktree_that_predates_it(
+        tmp_path):
+    """THE KNOWN-ANSWER TWIN for the fix: a lane checked out at a ref
+    without the index gets a READ-ONLY mirror of the main tree's, `check`
+    agrees, a drifted mirror reads STALE (never a refusal — a lane adding
+    its own index row differs from main by design), and `down` takes the
+    mirror away rather than reporting it as uncommitted lane work."""
+    main, _data, env, old_ref = _tiny_repo(tmp_path)
+    index = main / "tools" / "INDEX.md"
+
+    up = _ritual(env, "up", "lane1", old_ref)
+    assert up.returncode == 0, up.stdout + up.stderr
+    mirror = main / ".claude" / "worktrees" / "lane1" / "tools" / "INDEX.md"
+    assert mirror.is_file(), (
+        f"no index mirrored into the lane:\n{up.stdout}\n{up.stderr}")
+    assert mirror.read_text() == index.read_text()
+    assert not os.access(mirror, os.W_OK), "the mirror must be read-only"
+    assert "MIRRORED" in up.stdout
+
+    ok = _ritual(env, "check", "lane1")
+    assert ok.returncode == 0, ok.stdout + ok.stderr
+    assert "mirrored" in ok.stdout and "STALE" not in ok.stdout
+
+    index.write_text("# Tool index\n\ncensus.py\nA_NEWLY_PROMOTED_TOOL.py\n")
+    stale = _ritual(env, "check", "lane1")
+    assert "STALE" in stale.stdout, (
+        "a mirror that no longer matches the main tree hides a promoted "
+        "tool, and an absent tool gets forked")
+    assert stale.returncode == 0, "stale is REPORTED, never a refusal"
+
+    down = _ritual(env, "down", "lane1")
+    assert down.returncode == 0, down.stdout + down.stderr
+    assert not (main / ".claude" / "worktrees" / "lane1").exists()
+
+
+def test_teardown_puts_back_the_tracked_shipped_patch(tmp_path):
+    """`down` removes the lane-local ``Patches`` CLONE — and that clone
+    contains a TRACKED file (``Patches/`` is gitignored as a whole, but
+    ``Ortho4XP/Patches/+39-078/2W2_runways.patch.osm`` is force-added).
+    Deleting it leaves a tracked deletion, ``git worktree remove`` then
+    refuses "contains modified or untracked files", and the lane is left
+    HALF torn down: mounts gone, worktree still registered.  Measured on a
+    real lane 2026-08-06 (58 worktrees were lingering on this machine)."""
+    main, _data, env, _old = _tiny_repo(tmp_path)
+    shipped = ("Ortho4XP/Patches/+39-078/2W2_runways.patch.osm")
+    up = _ritual(env, "up", "lane3", "HEAD")
+    assert up.returncode == 0, up.stdout + up.stderr
+    wt = main / ".claude" / "worktrees" / "lane3"
+    assert (wt / shipped).is_file(), "the clone must carry the shipped patch"
+
+    down = _ritual(env, "down", "lane3")
+    assert down.returncode == 0, (
+        f"teardown refused:\n{down.stdout}\n{down.stderr}")
+    assert not wt.exists(), "the worktree is still registered after down"
+
+
+def test_the_ritual_never_overwrites_a_tracked_index(tmp_path):
+    """A lane PROMOTING a tool edits the tracked ``tools/INDEX.md`` in its
+    own worktree — that edit is the deliverable.  The ritual must report
+    the difference and leave the file alone."""
+    main, _data, env, _old = _tiny_repo(tmp_path)
+    up = _ritual(env, "up", "lane2", "HEAD")
+    assert up.returncode == 0, up.stdout + up.stderr
+    tracked = main / ".claude" / "worktrees" / "lane2" / "tools" / "INDEX.md"
+    assert os.access(tracked, os.W_OK), (
+        "a tracked index must stay writable — the lane's own promotion "
+        "edits it")
+    tracked.write_text("# Tool index\n\ncensus.py\nmy_new_tool.py\n")
+    again = _ritual(env, "up", "lane2", "HEAD")
+    assert again.returncode == 0, again.stdout + again.stderr
+    assert "my_new_tool.py" in tracked.read_text(), (
+        "the ritual overwrote a TRACKED index — that is a lane's promotion "
+        "commit destroyed by its own setup script")
+    assert "DIFFERS" in again.stdout
+
+
 # ══════════════════════════════════════════════════════════════════════
 # §5 THE SHARED DATA REPO (owner ruling e9daef5)
 # ══════════════════════════════════════════════════════════════════════
@@ -1170,6 +1319,214 @@ def test_every_build_result_carries_the_frame_and_guard_state(build_mod):
     for key in ("write_guard_armed", "write_guard_blocked",
                 "dem_frame_effective"):
         assert f'"{key}"' in src, f"build_patch result omits {key}"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §7 THE MAGNITUDE BANDS (census --magnitude-bands)
+# ══════════════════════════════════════════════════════════════════════
+# Promoted 2026-08-06 (RULINGS 7e90032, promote-on-reuse): two lanes had
+# bucketed census rows by |de| by hand — the c6attr ownership ranking and
+# the c6tip frame of record ("0.1-1 m 13,711 = 45.1 %, 1-10 m 11,143 =
+# 36.7 %, 82 % is in-band airside solver residual").  A hand copy of that
+# bucketing is the census-wrapper defect at one remove: it re-states the
+# population's shape, so a band that silently drops rows misroutes the
+# work the ranking is FOR.
+
+
+class _BandRow:
+    """A census row with a known magnitude and an airside role pair."""
+
+    class _W:
+        def __init__(self, role):
+            self.tags = {"role": role}
+
+    def __init__(self, de, role="apron"):
+        self.de_m = de
+        self.way_a = self._W(role)
+        self.way_b = self._W(role)
+
+
+def test_the_magnitude_bands_partition_the_population(census_mod, cg):
+    """KNOWN-ANSWER TWIN.  Ten rows straddling every default edge, two per
+    band by construction — and the bands must sum to the census total, or
+    the table is describing a different population than the number above
+    it (the two-instruments trap inside one report)."""
+    mags = [0.0, 0.005, 0.01, 0.099, 0.1, 0.9, 1.0, 9.99, 10.0, 250.0]
+    rows = [("within_shape", _BandRow(m)) for m in mags]
+    rep = census_mod.magnitude_bands(rows, cg)
+    assert [b["label"] for b in rep["bands"]] == [
+        "<0.01", "0.01-0.1", "0.1-1", "1-10", ">=10"]
+    assert [b["n"] for b in rep["bands"]] == [2, 2, 2, 2, 2]
+    assert sum(b["n"] for b in rep["bands"]) == rep["total"] == len(rows)
+    assert rep["bands"][-1]["worst_m"] == 250.0
+    assert rep["bands"][0]["below_materiality"] is True, (
+        "the sub-0.01 m tail is the convergence guard's floor and must be "
+        "its own band, never mixed into a real one")
+    assert rep["bands"][2]["airside"] == 2
+    assert rep["by_family"]["within_shape"]["0.1-1"] == 2
+
+
+def test_a_row_lands_in_exactly_one_band_at_every_edge(census_mod, cg):
+    """Edge semantics, pinned: a row ON an edge belongs to the band ABOVE
+    it (``lo <= x < hi``), and the top band is open."""
+    for mag, expected in ((0.01, "0.01-0.1"), (0.1, "0.1-1"),
+                          (1.0, "1-10"), (10.0, ">=10"),
+                          (0.009999, "<0.01")):
+        rep = census_mod.magnitude_bands(
+            [("within_shape", _BandRow(mag))], cg)
+        hit = [b["label"] for b in rep["bands"] if b["n"]]
+        assert hit == [expected], f"{mag} m landed in {hit}, not {expected}"
+
+
+def test_the_band_edges_are_configurable_and_validated(census_mod, cg):
+    assert census_mod.parse_band_edges(None) == (0.01, 0.1, 1.0, 10.0)
+    assert census_mod.parse_band_edges("") == (0.01, 0.1, 1.0, 10.0)
+    assert census_mod.parse_band_edges("0.5, 5") == (0.5, 5.0)
+    assert census_mod.band_labels((0.5, 5.0)) == ["<0.5", "0.5-5", ">=5"]
+    rep = census_mod.magnitude_bands(
+        [("within_shape", _BandRow(m)) for m in (0.4, 0.6, 6.0)],
+        cg, edges=(0.5, 5.0))
+    assert [b["n"] for b in rep["bands"]] == [1, 1, 1]
+    for bad in ("1,0.5", "0.1,0.1", "-1", "0", "1,x"):
+        with pytest.raises(SystemExit):
+            census_mod.parse_band_edges(bad)
+
+
+def test_the_bands_carry_the_laws_own_deferred_split(census_mod, cg):
+    """Instruments report, the law adjudicates (RULINGS d48bc0a).  A band
+    table that folded the version-deferred rows into its counts would
+    re-adjudicate them in a footnote."""
+    deferred_key = sorted(cg.VERSION_DEFERRED_FAMILIES)[0]
+    other = next(k for k, _t, _b in cg.LAW_FAMILIES
+                 if k not in cg.VERSION_DEFERRED_FAMILIES)
+    rows = [(deferred_key, _BandRow(0.5)), (other, _BandRow(0.5)),
+            (other, _BandRow(5.0))]
+    rep = census_mod.magnitude_bands(rows, cg)
+    band = next(b for b in rep["bands"] if b["label"] == "0.1-1")
+    assert (band["n"], band["deferred"], band["adjudicated"]) == (2, 1, 1)
+    assert sum(b["deferred"] for b in rep["bands"]) == \
+        cg.adjudication(rows)["deferred_total"], (
+        "the band table and the adjudication split must agree on the "
+        "deferred population — two readers, one population")
+
+
+def test_the_bands_never_re_run_a_check(census_mod):
+    """The bands are a second READER of the rows the census already has.
+    A band section that re-ran the law would be a second instrument, and
+    two instruments on one assumed population is this repo's dominant
+    analysis failure."""
+    src = inspect.getsource(census_mod.magnitude_bands)
+    for forbidden in ("run_checks", "load_check_grade", "_parse_osm"):
+        assert forbidden not in src, (
+            f"magnitude_bands calls {forbidden} — it must only read the "
+            f"rows census_one already produced")
+
+
+def test_the_band_flag_runs_through_the_census_cli(census_mod, tmp_path):
+    """END TO END through the one code path: the CLI flag, the law-true
+    frame, the JSON report.  A flag that only works when called as a
+    function is a flag no lane will use."""
+    osm = tmp_path / "p.osm"
+    osm.write_text("<osm version='0.6'></osm>")
+    (tmp_path / "p.osm.axes.json").write_text(json.dumps({"anchor": None}))
+    out = tmp_path / "census.json"
+    assert census_mod.main([str(osm), "--magnitude-bands",
+                            "--json", str(out), "--quiet"]) == 0
+    rep = json.loads(out.read_text())
+    mb = rep["magnitude_bands"]
+    assert mb["edges_m"] == [0.01, 0.1, 1.0, 10.0]
+    assert len(mb["bands"]) == 5 and mb["total"] == rep["lawtrue"]["total"]
+    # ...and custom edges arrive intact.
+    assert census_mod.main([str(osm), "--magnitude-bands", "0.05,5",
+                            "--json", str(out), "--quiet"]) == 0
+    assert json.loads(out.read_text())["magnitude_bands"]["edges_m"] == \
+        [0.05, 5.0]
+    # ...and without the flag the section is absent, not empty.
+    assert census_mod.main([str(osm), "--json", str(out), "--quiet"]) == 0
+    assert "magnitude_bands" not in json.loads(out.read_text())
+
+
+def test_the_census_flag_is_in_the_tool_index():
+    """Every promotion lands WITH its index row, in the same commit."""
+    text = INDEX.read_text()
+    assert "--magnitude-bands" in text, (
+        "the promoted flag is not in tools/INDEX.md — a tool (or a flag "
+        "that replaces a lane script) absent from the index is treated as "
+        "absent, and gets written by hand again")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §8 THE SUITE DOES NOT WRITE INTO THE SHARED DATA REPO (ruling e9daef5)
+# ══════════════════════════════════════════════════════════════════════
+# Measured 2026-08-06: 529 of the 530 directories in the shared
+# ``Default_DSF_cache`` were minted by ``tests/test_dsf_texture_modes.py``
+# — ``decode_dsf`` caches DSFTool's dump under a key derived from the
+# DSF's absolute path, and those tests emit into ``tmp_path``, so every
+# run created a directory nothing would ever read again.  It never failed
+# anything: the corpus every lane mounts just grew.
+
+def _conftest():
+    sys.path.insert(0, str(Path(__file__).parent))
+    import conftest
+    return conftest
+
+
+def test_the_dsf_dump_cache_is_not_the_shared_repo_during_tests(build_mod):
+    """THE REDIRECT, asserted live inside a running test."""
+    import O4_File_Names as FNAMES
+    cache = Path(FNAMES.Default_dsf_cache_dir).resolve()
+    repo = Path(build_mod.DATA_REPO).resolve()
+    assert repo not in cache.parents and cache != repo, (
+        f"the DSFTool dump cache points into the shared data repo "
+        f"({cache}) while tests run — this is the leak that minted 529 "
+        f"junk directories there")
+
+
+def test_the_shared_repo_detector_flags_a_test_written_cache(build_mod):
+    """KNOWN-ANSWER TWIN for the detector's pure half, on the real path
+    the leak took."""
+    conftest = _conftest()
+    changes = {
+        "added": ["Default_DSF_cache/322b7f2a/+50+010.dsf.tmp.text",
+                  "Airport_mod_cache/somepack/o4_object_footprints.cache"],
+        "modified": ["Elevation_data/N30E031.hgt"],
+        "removed": [],
+    }
+    hits = conftest.unauthorised_shared_writes(changes, build_mod.scope_of)
+    assert hits == [("Default_DSF_cache/322b7f2a/+50+010.dsf.tmp.text",
+                     "dsf_cache")], (
+        "the DSF dump cache is the one the suite must never author; the "
+        "mod-cache and inset writes are the registered, explained "
+        "exceptions")
+    assert conftest.unauthorised_shared_writes(
+        {"added": [], "modified": [], "removed": []},
+        build_mod.scope_of) == []
+
+
+def test_every_suite_warm_scope_is_a_real_scope_with_a_reason(build_mod):
+    """An allowance that names no real scope allows nothing (and hides
+    what it meant to allow); one without a reason is a shrug."""
+    conftest = _conftest()
+    scopes = {s for s, _p, _w in build_mod.REFRESH_SCOPES}
+    for scope, why in conftest._SUITE_MAY_WARM.items():
+        assert scope in scopes, (
+            f"{scope!r} is not a harness refresh scope — the detector "
+            f"would never see a path classified as it")
+        assert len(why.split()) >= 6, f"{scope!r} allowance has no reason"
+    assert "dsf_cache" not in conftest._SUITE_MAY_WARM, (
+        "the DSFTool dump cache is the measured leak; allowing it would "
+        "re-open exactly the hole this section closes")
+
+
+def test_the_detector_uses_the_harness_snapshot_not_a_copy():
+    conftest_src = (Path(__file__).parent / "conftest.py").read_text()
+    assert "shared_repo_snapshot" in conftest_src and \
+        "snapshot_diff" in conftest_src and "scope_of" in conftest_src, (
+        "the detector must use the harness's own snapshot and scope "
+        "register — a private copy is the census-wrapper defect")
+    assert "os.walk" not in conftest_src, (
+        "conftest walks the shared repo itself — that is the private copy")
+    assert "e9daef5" in conftest_src, "the failure must cite its ruling"
 
 
 class TestEmittedOnDem:

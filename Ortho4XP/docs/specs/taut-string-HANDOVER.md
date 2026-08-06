@@ -148,8 +148,14 @@ emit_terrain_transition_features is ALSO a live second author 89/
 violation. FRAME NOTE: the dossier tree lacked c5flex; its baselines
 (HECA 7,036 etc.) supersede c5tip's but the tip has BOTH — lanes
 establish their own baselines. SPEC cycle6-band-wins-and-ingestion:
-Part P (band WINS, groundside yields, loud resolution) lane c6band
-IN FLIGHT; Part D (ring vertices never take raw DEM; exemptions
+Part P **LANDED AND MERGED** (lane/c6band):
+14/14 conflicts BAND WINS, 0 below floor; fp#8 worst 91.15 → 60.77 m
+(next class: apron carrier (962,5037), different population); HECA
+adjudicated 7,165 → 6,481 (airside −691, gs +8 — the lot conforms);
+who_wrote untouched worst 89.65 → 14.73 m (>10 m: 14 → 2, survivors
+pre-existing); frontage_near_miss worst 90.89 → 2.95; HEAZ
+byte-identical (inert without conflicts); non-pin conflicts stay
+UNRESOLVED-and-loud. Part D (ring vertices never take raw DEM; exemptions
 cited under adjacent-ground law) lane c6ingest IN FLIGHT.
 who_wrote --author-dump landed on the tip (c5auth instrument work).
 

@@ -14,10 +14,19 @@ Compares a flex-ON patch against a flex-OFF patch of the same airport:
    network was exhausted (a FLEX-LAST violation).
 
 Usage:
-    venv/bin/python tools/flex_audit.py FLEX_ON.osm FLEX_OFF.osm
+    venv/bin/python tools/flex_audit.py A.osm B.osm
+        [--roles runway|all] [--tol M] [--map-only]
 
-The ON patch needs its ``.axes.json`` sidecar (every emit writes one
-since 2026-08-05; it used to require O4_LOG_VERBOSITY=1).
+``--roles all`` widens step 1's displacement map from the runway family
+to EVERY emitted role, and ``--map-only`` stops after it — that is the
+"did this change move the surface, and by how much" reading (cycle-5
+canyon-flex round: the plateau-unchanged acceptance), reported as the
+count over ``--tol`` (default 0.10 m; pass the 0.01 m materiality floor
+for an acceptance read), the worst displacement and the p50/p95.
+
+Step 2 needs the ON patch's ``.axes.json`` sidecar (every emit writes one
+since 2026-08-05; it used to require O4_LOG_VERBOSITY=1); ``--map-only``
+does not read it, so two patches without sidecars still compare.
 
 Found the 2026-07-06 HECA over-flex: 17.8 m one-sided profile drops
 (sequential rounds let the first runway absorb the whole inter-runway
@@ -33,8 +42,11 @@ RUNWAY_ROLES = {"runway", "runway_crossing"}
 METERS_PER_DEG_LAT = 111320.0
 
 
-def load(path):
-    """(runway node values keyed by rounded lat/lon, all nodes)."""
+def load(path, roles=RUNWAY_ROLES):
+    """(node values keyed by rounded lat/lon for ``roles``, all nodes).
+
+    ``roles=None`` takes every way regardless of role — the whole-surface
+    displacement map."""
     nodes = {}
     current_node = None
     node_re = re.compile(
@@ -59,7 +71,7 @@ def load(path):
     runway_values = {}
     for m in re.finditer(r"<way id='([-\d]+)'.*?</way>", text, re.S):
         tags = dict(re.findall(r"<tag k='([^']*)' v='([^']*)'", m.group(0)))
-        if tags.get("role") not in RUNWAY_ROLES:
+        if roles is not None and tags.get("role") not in roles:
             continue
         for nid in re.findall(r"<nd ref='([-\d]+)'", m.group(0)):
             lat, lon, alt = nodes.get(nid, (None, None, None))
@@ -70,24 +82,51 @@ def load(path):
 
 
 def main() -> int:
-    if len(sys.argv) < 3:
+    argv = [a for a in sys.argv[1:]]
+    roles = RUNWAY_ROLES
+    tol = 0.10
+    map_only = False
+    positional = []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--roles":
+            i += 1
+            roles = None if argv[i] == "all" else RUNWAY_ROLES
+        elif a == "--tol":
+            i += 1
+            tol = float(argv[i])
+        elif a == "--map-only":
+            map_only = True
+        else:
+            positional.append(a)
+        i += 1
+    if len(positional) < 2:
         print(__doc__)
         return 2
-    on_path, off_path = sys.argv[1], sys.argv[2]
-    on_values, on_nodes = load(on_path)
-    off_values, _ = load(off_path)
+    on_path, off_path = positional[0], positional[1]
+    on_values, on_nodes = load(on_path, roles)
+    off_values, _ = load(off_path, roles)
 
+    what = "runway node(s)" if roles is not None else "node(s), ALL roles"
     moved = []
     for key, value in on_values.items():
         baseline = off_values.get(key)
-        if baseline is not None and abs(value - baseline) >= 0.10:
+        if baseline is not None and abs(value - baseline) >= tol:
             moved.append((key[0], key[1], value - baseline))
-    print(f"flex displacement: {len(moved)} runway node(s) moved "
-          f">= 0.10 m (of {len(on_values)} matched)")
+    matched = sum(1 for k in on_values if k in off_values)
+    print(f"displacement: {len(moved)} {what} moved >= {tol:g} m "
+          f"(of {matched} matched; {len(on_values)} on / "
+          f"{len(off_values)} off)")
     if moved:
         worst = max(moved, key=lambda t: abs(t[2]))
         print(f"worst displacement: {worst[2]:+.2f} m at "
               f"({worst[0]:.6f},{worst[1]:.6f})")
+        mags = sorted(abs(t[2]) for t in moved)
+        print(f"moved |d|: p50 {mags[len(mags) // 2]:.3f} m, p95 "
+              f"{mags[min(len(mags) - 1, int(0.95 * len(mags)))]:.3f} m")
+    if map_only:
+        return 0
 
     sidecar = json.load(open(on_path + ".axes.json"))
     axes = sidecar.get("axes") or sidecar.get("taxi_axes") or []

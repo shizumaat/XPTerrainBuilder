@@ -724,3 +724,36 @@ Binding:
    is a misnomer for 607/610 of its members (runway pass-2 values,
    not seam pins); and 444 of 1,077 nodes in the class were hardened
    with NO seeder record — an unattributed hardening channel.
+
+## 2026-08-06 — Slab budgets floor at the law (owner; ratifies the fix-4 proposal)
+
+Owner, verbatim: "smoothing beyond law as a constraint makes no
+sense, that's the point of the law. Smoothest, minimum grade is the
+target, but where needed, the budget is certainly the law."
+
+Binding: interval/slab (rod-channel) budgets FLOOR at their pair's
+grade-law budget — a slab may never price tighter than the law.
+Smoothness (smoothest, minimum grade) is the OBJECTIVE the solve
+optimizes toward, never a hard constraint beyond law. Context: the
+rod/slab channel is the seam-continuity constraint plumbing that
+SURVIVED the string parking (strings-the-feature remain parked; this
+is the relative-displacement machinery that prevents seam tears);
+c7cert measured 91.1% of its slabs tighter than law (median 5.26x,
+max 2,305x), owning 31.5% of the converged residual. Repricing lands
+with the seam-tear families as the counter-read.
+
+## 2026-08-06 — Service-road mouths seat like apron-edge buildings (owner)
+
+Owner, verbatim: "Airside always wins, and the one reachability graph
+has to follow service roads to connect to any groundside pavement, so
+the mouth of the service road has to function like an apron edge
+building, seated where it's feasible for the airside apron to meet
+it, then the road and everything else is graded per its law."
+
+Binding (extends the ONE-graph ruling): the service-road MOUTH is the
+airside↔groundside interface node — seated exactly like an apron-edge
+building frontage: at a value where the airside apron lawfully meets
+it within AIRSIDE law (airside wins the seat), after which the road
+and everything downstream grades per its OWN law (8% road, 5% lot,
+building frontage) from that seat. Reachability into groundside flows
+only through mouths; direction stays receiver-only.

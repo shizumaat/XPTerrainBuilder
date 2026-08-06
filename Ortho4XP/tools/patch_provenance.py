@@ -52,10 +52,38 @@ def _collect_patch_files(paths: list[str]) -> list[str]:
     return files
 
 
+def stamp_absence_reason(path: str) -> str:
+    """WHY ``parse_patch_provenance`` returned None — the DISCRIMINATED fact.
+
+    RULINGS 2026-08-06 "Instrument truth is law", binding point 2: a
+    catch-all bucket labelled with a cause is a defect.  The old line said
+    "(unstamped or unreadable)" for three genuinely different states, and
+    the tool already HELD the discriminator — ``main`` tests
+    ``os.path.isfile`` before ever calling the decoder, so by the time this
+    runs "unreadable" is already narrower than the text claimed.
+
+    Returns the condition this reader actually verified, never a guess.
+    """
+    if not os.path.exists(path):
+        return "no such file"
+    if os.path.isdir(path):
+        return "path is a directory, not a patch file"
+    try:
+        with open(path, "rb") as handle:
+            head = handle.read(4096)
+    except OSError as exc:
+        return f"unreadable: {exc.strerror or exc}"
+    if not head.strip():
+        return "file is empty"
+    if b"<osm" not in head:
+        return "no <osm> root element in the first 4096 bytes"
+    return "an <osm> root with no o4_provenance_* attributes"
+
+
 def _print_human(path: str, prov: dict | None) -> None:
     name = os.path.basename(path)
     if prov is None:
-        print(f"{name}: NO PROVENANCE STAMP (unstamped or unreadable)")
+        print(f"{name}: NO PROVENANCE STAMP ({stamp_absence_reason(path)})")
         return
     sha = prov["sha"] or "absent"
     dirty = prov["dirty"]
@@ -76,8 +104,13 @@ def _print_human(path: str, prov: dict | None) -> None:
         print(f"    gate drift : {', '.join(nondefault)}")
     else:
         print("    gate drift : none (all gates at default)")
+    # The stamp's own boolean, stated as the fact it is.  "WARNING" was the
+    # report deciding SEVERITY, and ``main`` then decided it a second time
+    # and differently (``any_raw`` only reaches the exit code under
+    # ``--strict-raw``).  One decision, in the exit code; the line reports.
     if prov["dem_raw"]:
-        print(f"    elevation  : {prov['dem']}  <-- WARNING: raw base DEM")
+        print(f"    elevation  : {prov['dem']}  (raw base DEM, no inset "
+              f"baked; --strict-raw makes this exit 1)")
     else:
         print(f"    elevation  : {prov['dem']}")
 

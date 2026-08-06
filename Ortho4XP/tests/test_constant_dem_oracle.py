@@ -9,9 +9,9 @@ solver or instrument defect with nothing to blame it on.
 THREE ASSERTIONS, in ascending power (owner's sharpening):
 
 1. COMPLIANCE — zero law-true rows in BOTH worlds.
-2. EXTREME-SEATING SATURATION — DEM ≡ −500 m (plateau; owner ruling
-   2026-08-06, below every CIFP value) seats every free value at its
-   band FLOOR; DEM ≡ 10 000 m (canyon) at its CEILING.  A node NOT
+2. EXTREME-SEATING SATURATION — DEM ≡ −500 m (plateau; RULINGS
+   2026-08-06, "The low extreme is −500 m") seats every free value at
+   its band FLOOR; DEM ≡ 10 000 m (canyon) at its CEILING.  A node NOT
    saturated is held by something that is not the seed: a HIDDEN
    AUTHORITY.  This is what mere compliance cannot see.
 3. THE BAND-WIDTH FIELD — ``canyon(node) - plateau(node)`` IS the width
@@ -45,7 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from auto_patch.constant_dem import (                    # noqa: E402
     CANYON_ELEVATION_M, ConstantDEM, PLATEAU_ELEVATION_M,
-    band_width_field, band_width_summary, canyon_dem,
+    band_agreement_report, band_width_field, band_width_summary, canyon_dem,
     constant_dem_worlds, plateau_dem, saturation_report,
     saturation_summary, write_band_width_artifact)
 from auto_patch.layout import (                          # noqa: E402
@@ -98,6 +98,50 @@ def test_the_low_extreme_is_the_ruled_minus_500():
         "the ruled low world is NEGATIVE — an implementation that clamps "
         "the synthetic seed at 0 has re-introduced the DEM ≥ 0 assumption")
     assert PLATEAU_ELEVATION_M < CANYON_ELEVATION_M
+    assert CANYON_ELEVATION_M == 10000.0, "the high world stands at 10 000 m"
+
+
+def test_the_plateau_is_the_RULED_low_world():
+    """KNOWN ANSWER: the low world is −500 m, and it is ruled, not tuned.
+
+    RULINGS 2026-08-06, "The low extreme is −500 m": *"the low synthetic
+    world is DEM ≡ −500 m — no particular need for zero, negative is
+    better … Below every CIFP value, so floor-seating is guaranteed
+    everywhere, and below-sea-level handling is exercised for free.  The
+    DEM≡1 m interim was an unruled loader-guard dodge and is RETIRED."*
+
+    This test used to assert only ``!= 0.0``, under the superseded
+    rationale that "a literal 0.0 looks like no data to every defensive
+    check" — which the 1.0 m interim was invented to dodge and which the
+    ruling retires.  ``!= 0.0`` is satisfied by −500 too, so the
+    assertion could not have caught an unlanded ruling; it now pins the
+    ruled NUMBER, and the two properties the owner's reasoning rests on:
+    the low world is BELOW SEA LEVEL, and it is below the high one.
+    """
+    assert PLATEAU_ELEVATION_M == -500.0, (
+        "the low synthetic world is owner-RULED at −500 m (RULINGS "
+        "2026-08-06); a different constant is an unlanded ruling")
+    assert PLATEAU_ELEVATION_M < 0.0, (
+        "below sea level BY CONSTRUCTION — that is what exercises the "
+        "below-sea-level handling for free")
+    assert PLATEAU_ELEVATION_M < CANYON_ELEVATION_M
+    assert CANYON_ELEVATION_M == 10000.0, "the high world stands at 10 000 m"
+
+
+def test_the_constant_dem_carries_a_negative_elevation_intact():
+    """−500 m must survive the DEM object unmangled — no ``abs``, no
+    ``max(0, …)``, no unsigned clamp anywhere on the sampling surface.
+    The whole point of the ruled low world is that it is NEGATIVE."""
+    d = plateau_dem()
+    assert d.elevation_m == -500.0
+    assert d.alt((0.3, 0.7)) == -500.0
+    assert d.alt_strict((0.3, 0.7)) == -500.0
+    assert d.get() == -500.0
+    assert float(d.alt_vec([(0.1, 0.2)])[0]) == -500.0
+    assert float(d.alt_dem.min()) == -500.0
+    assert d.nodata != PLATEAU_ELEVATION_M, (
+        "the low world must not collide with the no-data sentinel, or "
+        "every defensive nodata check would discard the whole surface")
 
 
 def test_the_dem_answers_a_NEGATIVE_elevation_everywhere():
@@ -340,6 +384,85 @@ def test_a_node_with_no_band_is_not_a_defect():
     assert rows == []
 
 
+def test_the_saturation_reader_REPORTS_ITS_DENOMINATOR():
+    """KNOWN ANSWER: 5 nodes, 2 of them with a band, 1 unsaturated.
+
+    ``[]`` from a reader that checked nothing and ``[]`` from a reader
+    that checked everything and found everything saturated are the same
+    value — the exact ambiguity that let assertion 2 read as a clean pass
+    for a whole campaign, one supplier further out.  ``coverage_out`` is
+    the denominator that separates them, so the caller can say NOT
+    EVALUATED instead of PASS.
+    """
+    lay = _layout_with([10.0, 10.0, 11.0])       # ring -> 5 vertices
+    banded = {(0.0, 0.0): (10.0, 20.0), (2.0, 0.0): (10.0, 20.0)}
+    cov = {}
+    rows = saturation_report(lay, "plateau", banded.get, coverage_out=cov)
+    assert cov == {"nodes": 5, "with_band": 2, "no_band": 3,
+                   "unsaturated": 1}
+    assert [r.xy for r in rows] == [(2.0, 0.0)]
+
+    # ZERO COVERAGE: the same [] a clean pass produces, and the counts say so
+    cov0 = {}
+    assert saturation_report(lay, "plateau", lambda xy: None,
+                             coverage_out=cov0) == []
+    assert cov0 == {"nodes": 5, "with_band": 0, "no_band": 5,
+                    "unsaturated": 0}
+
+
+def test_band_agreement_compares_the_two_suppliers_within_materiality():
+    """KNOWN ANSWER, hand-computed.
+
+    MEASURED widths (canyon − plateau): node0 2.0, node1 3.5, node2 0.0
+    (plus the two closing vertices, both 0.0 by construction).
+    ANALYTIC widths (ceiling − floor) supplied per node: node0 2.0 (agrees
+    exactly), node1 1.0 (disagrees by +2.5), node2 0.005 (disagrees by
+    −0.005, BELOW the 0.01 m materiality ⇒ agreement-with-residual, not a
+    row).  The closing vertices get no band and a half-open band, so they
+    are counted in their own buckets and NOT in ``disagreements`` — a
+    catch-all bucket is the defect this whole sweep removes.
+    """
+    lo = _layout_with([10.0, 10.0, 10.0])
+    hi = _layout_with([12.0, 13.5, 10.0])
+    field = band_width_field(lo, hi)
+    analytic = {
+        (0.0, 0.0): (100.0, 102.0),      # width 2.0   vs measured 2.0
+        (1.0, 0.0): (100.0, 101.0),      # width 1.0   vs measured 3.5
+        (2.0, 0.0): (100.0, 100.005),    # width 0.005 vs measured 0.0
+        (2.0, 10.0): None,               # no band
+        (0.0, 10.0): (100.0, None),      # half-open
+    }
+    rep = band_agreement_report(field, analytic.get)
+    assert rep["materiality_m"] == 0.01
+    assert rep["nodes"] == 5
+    assert rep["compared"] == 3
+    assert rep["no_analytic_band"] == 1
+    assert rep["analytic_band_half_open"] == 1
+    assert rep["disagreements"] == 1, (
+        "only the 2.5 m gap clears materiality; the 0.005 m residual is "
+        "agreement-with-residual and the two uncomparable nodes are not "
+        "disagreements at all")
+    assert rep["max_abs_delta_m"] == pytest.approx(2.5)
+    worst = rep["worst"][0]
+    assert (worst["author"], worst["x"], worst["y"]) == (_A, 1.0, 0.0), (
+        "a disagreement must carry its ADDRESS — author and coordinate")
+    assert worst["measured_width_m"] == pytest.approx(3.5)
+    assert worst["analytic_width_m"] == pytest.approx(1.0)
+    assert worst["delta_m"] == pytest.approx(2.5)
+
+
+def test_band_agreement_never_folds_uncomparable_nodes_into_the_count():
+    """Every node uncomparable ⇒ ZERO disagreements and ZERO compared.
+    The caller reads ``compared == 0`` as NOT EVALUATED; a report that
+    said "0 disagreements" alone would be a false clean bill."""
+    lo = _layout_with([10.0, 10.0])
+    hi = _layout_with([12.0, 13.0])
+    rep = band_agreement_report(band_width_field(lo, hi), lambda xy: None)
+    assert rep["compared"] == 0
+    assert rep["disagreements"] == 0
+    assert rep["no_analytic_band"] == rep["nodes"] > 0
+
+
 def test_the_worlds_come_as_an_ordered_pair():
     worlds = list(constant_dem_worlds())
     assert [w for w, _ in worlds] == ["plateau", "canyon"]
@@ -358,6 +481,15 @@ def test_the_oracle_measures_at_DEFAULT_env(tmp_path, monkeypatch):
 
     This is the unit half (it must not build): one emitted layout at the
     shipped default, read by the oracle's OWN helper.
+
+    UPGRADED FROM SMOKE (cycle-7.5 sweep).  It used to assert only that
+    the helper "did not RAISE" and that three lists came back — which is
+    the "the function runs" form the instrument-truth ruling names as NOT
+    a known-answer twin.  It now asserts the REPORTED FRAME: every law
+    keyword the sidecar contract declares arrived, the ruleset arrived,
+    and the row lists are the law-true ones rather than context-free.
+    Row COUNTS for a 5-vertex synthetic apron are still not the point and
+    are still not asserted — the frame is.
     """
     monkeypatch.chdir(tmp_path)
     from auto_patch import config as _cfg
@@ -365,11 +497,17 @@ def test_the_oracle_measures_at_DEFAULT_env(tmp_path, monkeypatch):
     lay = _layout_with([10.0, 10.5, 11.0])
     lay.icao = "ORACLE"
     within, cross, steps = _law_true_rows(lay, tmp_path, "default_env")
-    # The assertion under test is that the helper did not RAISE: it found
-    # a sidecar and a ruleset.  The row counts of a 5-vertex synthetic
-    # apron are not the point and are not asserted.
     assert isinstance(within, list) and isinstance(cross, list)
     assert isinstance(steps, list)
+    # THE FRAME the helper measured in, asserted at the SHIPPED default env
+    cg = _check_grade()
+    ctx = cg.law_context_from_sidecar(tmp_path / "default_env.osm")
+    assert set(ctx) == set(cg.SIDECAR_LAW_KEYS.values()), (
+        "at the shipped default env the oracle read a PARTIAL law frame — "
+        "a census in a frame the build did not run under")
+    assert ctx["ruleset"], (
+        "no ruleset at default env: check_grade would re-resolve the "
+        "authority, which is how an FAA airport gets judged under ICAO")
 
 
 def test_the_artifact_writes(tmp_path):
@@ -445,61 +583,62 @@ def _build_world(icao: str, dem):
                                   compute_elevations=True, tile_dem=dem)
 
 
-def _law_true_rows(layout, tmp_path, tag):
-    """Emit the layout and count law-true rows with the patch's OWN frame
-    and the build's OWN ruleset — the census discipline
-    (``check_grade.run_checks(ruleset=...)``; the kwarg is not optional,
-    a missing one silently judges an FAA build under ICAO).
+def _check_grade():
+    """THE law reader, loaded from THIS tree — one loader, the harness's."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]
+                           / "tools" / "harness"))
+    import census as HC                                   # noqa: E402
+    return HC.load_check_grade()
 
-    A MISSING SIDECAR IS A FAILURE, NOT A FALLBACK (item 6, 2026-08-05).
-    This used to read ``… if side.exists() else {}``, and with the write
-    gated on ``LOG_VERBOSITY`` — or killed outright by one terrace
-    joint's ``TypeError`` — the oracle silently ran the CONTEXT-FREE
-    check at default env: no axes, no anchor, no pair caps, no ruleset.
-    It then asserted zero rows against a law it was not reading, which
-    over-flags by multiples (HEAZ 959 context-free vs 144 law-true) and
-    would just as happily have passed on a frame that never applied.
-    The sidecar is the contract; without it there is no measurement to
-    report, so this raises instead of degrading.
+
+def _law_true_rows(layout, tmp_path, tag):
+    """Emit the layout and count law-true rows through
+    ``check_grade.run_checks_law_true`` — THE law-true census entry.
+
+    A SECOND PRIVATE SIDECAR READER IS THE CENSUS-WRAPPER DEFECT, AND THIS
+    WAS ONE (cycle-7.5 sweep, Task 2).  This helper used to open the
+    sidecar itself and hand-assemble the ``run_checks`` law kwargs — and it
+    enumerated ten of the eleven keys in ``check_grade.SIDECAR_LAW_KEYS``,
+    dropping ``fan_ramp_zones`` → ``fan_ramp_zones_ll``.  The fan-ramp
+    law's DECLARED relief was therefore not applied here, so this pytest
+    OVER-COUNTED against ``tools/harness/oracle.py``, which goes through
+    ``census_one`` → ``run_checks_law_true`` and does pass it: two
+    instruments, one assumed population, and the oracle's own two halves
+    disagreeing about how many rows an airport has.
+
+    It is exactly the precedent ``tools/INDEX.md`` records — one lane's
+    census wrapper dropped ``terrace_joints_ll`` and reported lawful
+    declared terraces as violations; another dropped ``ruleset`` and judged
+    an FAA airport under ICAO law.  Both wrappers looked right.  There is
+    ONE reader now (``law_context_from_sidecar``), and it is wired in one
+    place, so the next sidecar key cannot be dropped here at all.
+
+    A MISSING SIDECAR IS STILL A FAILURE, NOT A FALLBACK (item 6,
+    2026-08-05): ``law_context_from_sidecar`` raises ``FileNotFoundError``
+    rather than degrading to the context-free frame, which over-flags by
+    multiples (HEAZ 959 context-free vs 144 law-true).  The assertions
+    below only make that refusal legible at this call site.
     """
-    import importlib.util
-    import json
-    repo = Path(__file__).resolve().parents[1]
     osm = tmp_path / f"{tag}.osm"
     layout.to_osm(str(osm))
-    side = Path(str(osm) + ".axes.json")
-    assert side.exists(), (
+    assert Path(str(osm) + ".axes.json").exists(), (
         f"{tag}: the patch shipped with NO axes sidecar, so this census "
         f"would silently run the context-free check — the oracle would "
         f"be judging a law it never read")
-    d = json.loads(side.read_text())
-    assert d.get("ruleset"), (
+    cg = _check_grade()
+    ctx = cg.law_context_from_sidecar(osm)
+    # THE REGISTER, not a list of our own: every law keyword the contract
+    # declares must have arrived.  Derived from ``SIDECAR_LAW_KEYS``, so
+    # this assertion strengthens automatically when the contract grows —
+    # which is precisely what the hand-written enumeration could not do.
+    assert set(ctx) == set(cg.SIDECAR_LAW_KEYS.values()), (
+        f"{tag}: the law frame is {sorted(ctx)} but the sidecar contract "
+        f"declares {sorted(cg.SIDECAR_LAW_KEYS.values())}")
+    assert ctx.get("ruleset"), (
         f"{tag}: the sidecar carries no ruleset key, so check_grade "
         f"would re-resolve the authority instead of judging in the "
         f"frame the build actually ran under")
-    spec = importlib.util.spec_from_file_location(
-        f"cg_oracle_{tag}", repo / "tools" / "check_grade.py")
-    cg = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = cg
-    spec.loader.exec_module(cg)
-    exact = d.get("axes_exact") or None
-    if exact:
-        axes = [(p, c, None, r) for (p, c, r) in exact]
-        routes = d.get("routes_exact") or None
-    else:
-        axes, routes = d.get("axes") or None, d.get("routes") or None
-    within, cross, steps = cg.run_checks(
-        osm, max_grade_pct=1.5, proximity_m=cg.SHARED_VERTEX_TOL_M,
-        edge_search_m=5.0, edge_step_m=0.5, top_n=0, quiet=True,
-        taxi_axes_ll=axes, routes_ll=routes,
-        anchor=tuple(d["anchor"]) if d.get("anchor") else None,
-        seam_pins_ll=d.get("seam_pins"),
-        mesh_edges_ll=d.get("mesh_edges") or None,
-        crown_drops_ll=d.get("crown_drops") or None,
-        crown_centerline_ll=d.get("crown_centerline") or None,
-        pair_caps_ll=d.get("pair_caps") or None,
-        terrace_joints_ll=d.get("terrace_joints") or None,
-        ruleset=d.get("ruleset") or None)
+    within, cross, steps = cg.run_checks_law_true(osm, quiet=True, top_n=0)
     return within, cross, steps
 
 
@@ -564,9 +703,11 @@ def test_constant_dem_band_width_field(icao, tmp_path):
     # MOVED; a node that moved nowhere while its neighbours moved metres
     # is either genuinely pinned or hiding an authority.  The empirical
     # form of assertion 2, needing no analytic band table: with a
-    # 10.5 km seed swing, an unpinned node cannot sit still.
+    # 10 500 m seed swing (−500 m to 10 000 m), an unpinned node cannot
+    # sit still.
     moved = sum(1 for w in field.values() if abs(w) > 1e-6)
     assert moved, (
         f"{icao}: NOT ONE node moved between a {PLATEAU_ELEVATION_M:g} m "
-        f"and a {CANYON_ELEVATION_M:g} m seed.  The seed is not seating "
-        f"anything — the surface is authored entirely by something else.")
+        f"and a {CANYON_ELEVATION_M:g} m seed. "
+        f"The seed is not seating anything — the surface is authored "
+        f"entirely by something else.")

@@ -69,6 +69,44 @@ sys.path[:0] = [os.path.join(os.path.dirname(__file__), "..", "src"),
 
 _EPS = 1e-6
 
+#: THE TWO-INSTRUMENT AGREEMENT CONTRACT for one route budget (RULINGS
+#: 2026-08-06 binding point 4).  Two independent readings of the SAME
+#: quantity: the walk re-reads it hop by hop out of the recorded field
+#: (``_route_sides`` → ``_walk_to_anchor``), and
+#: ``assert_no_final_band_inversion`` recorded its own at the node.  They
+#: must agree to within this many metres.  This is a RECONCILIATION
+#: tolerance, not a law materiality floor — both numbers are the same float
+#: additions in a different order, so the only slack it may absorb is
+#: accumulation.
+ROUTE_BUDGET_AGREEMENT_M = 1e-4
+
+#: The CROWN SPACE every band / budget / anchor value printed by this tool
+#: lives in.  Stated because the repo's standing trap is exactly this: an
+#: emitted step can be level in projection space and look like a defect.
+CROWN_SPACE_NOTE = (
+    "crown space: the ONE UNCROWNED profile space — "
+    "building_feasibility._decrowned_anchor_seeds lifts each runway-edge "
+    "anchor by its own crown drop before seeding, so bands, route budgets "
+    "and anchor values below are UNCROWNED.  EMITTED vertex altitudes are "
+    "crown-LIFTED: subtract crown.crown_drop_at(layout, x, y) before "
+    "comparing an emitted altitude with any number here.")
+
+
+def _nodespace(G):
+    """A token identifying the NODE SPACE of ``G``.
+
+    Solver node ids are valid only inside the one ``_build_node_list`` call
+    that assigned them, so a node id is meaningless without the graph it was
+    assigned in.  Object identity plus node count is the strongest
+    identifier available WITHOUT re-deriving anything — and not re-deriving
+    is the whole point of this tool.  Two reports carrying the same token
+    are in one node space; two carrying different tokens are not, and that
+    is a fact, not an interpretation.
+    """
+    if G is None:
+        return "none"
+    return f"G@{id(G):x}/n={len(getattr(G, 'pos', None) or ())}"
+
 
 def _edge_budget(G, a, b):
     """The spine edge's own budget (metres of value it may carry), or None."""
@@ -183,22 +221,55 @@ def _route_sides(G, prov, node):
     return out
 
 
+def _why_band_none(band, att):
+    """WHY the band answered ``None`` — discriminated by ASKING THE BAND,
+    never asserted as a disjunction the code did not test.
+
+    ``band`` answers None on five distinct paths
+    (``raster_reach_band.py`` ~:541-561): the query cell is outside the
+    grid; the cell is paved but its ceiling is not finite; the cell is
+    off-mask with no distance transform; it is off-mask beyond
+    ``RASTER_REACH_BAND_OFFNET_RADIUS_M``; or the nearest paved cell's
+    ceiling is not finite.  ``attachment_at`` answers None on the first,
+    third and fourth and a dict otherwise, which splits the five into one
+    MEASURED case and an undiscriminated group of three — reported as such.
+    """
+    tail = ("The LOCAL within-shape law governs such a point — this is the "
+            "band's answer, not a refusal.")
+    if not hasattr(band, "attachment_at"):
+        return ("the band answers None here; cause NOT DISCRIMINATED — this "
+                "band exposes no attachment_at lookup to ask.  " + tail)
+    if att is None:
+        return ("the band answers None here and the lookup serves NO "
+                "attachment; cause NOT DISCRIMINATED among: the query cell "
+                "is outside the band grid / the point is off the paved mask "
+                "beyond RASTER_REACH_BAND_OFFNET_RADIUS_M / its cell carries "
+                "no route attachment (source cid < 0).  " + tail)
+    c = att.get("ceiling_at_attachment")
+    where = ("paved" if att.get("query_cell_paved")
+             else f"off-mask by {att.get('off_mask_m', float('nan')):.2f} m")
+    if c is None or not math.isfinite(c):
+        return (f"the band answers None while the lookup DOES serve "
+                f"attachment cid {att.get('attachment_cid')} (query cell "
+                f"{where}): that attachment's own ceiling is not finite "
+                f"(measured) — the route attachment serving this cell is not "
+                f"anchor-reachable.  " + tail)
+    return (f"the band answers None while the lookup DOES serve attachment "
+            f"cid {att.get('attachment_cid')} (query cell {where}) with a "
+            f"FINITE ceiling {c:.4f}; the cell's own ceiling is not finite. "
+            f"Cause not discriminated further.  " + tail)
+
+
 def _binding_route(layout, x, y):
     """Everything the report needs at ``(x, y)``, read from the LIVE band."""
     G, band, prov = _live_band(layout)
     if G is None:
         return {"error": "layout has no solver nodes"}
-    out: dict = {"G": G, "band": band(x, y)}
+    att = band.attachment_at(x, y) if hasattr(band, "attachment_at") else None
+    out: dict = {"G": G, "band": band(x, y), "attachment": att,
+                 "nodespace": _nodespace(G)}
     if out["band"] is None:
-        out["why_none"] = (
-            "the band answers None here: the point is off the paved mask "
-            "beyond RASTER_REACH_BAND_OFFNET_RADIUS_M, or its cell carries no "
-            "route attachment (off-net).  The LOCAL within-shape law governs "
-            "such a point — this is the band's answer, not a refusal.")
-    att = None
-    if hasattr(band, "attachment_at"):
-        att = band.attachment_at(x, y)
-    out["attachment"] = att
+        out["why_none"] = _why_band_none(band, att)
     prov = getattr(layout, "_band_anchor_provenance", None) or {}
     out["provenance_present"] = bool(prov)
     if not att or not prov:
@@ -260,6 +331,7 @@ def _report(r, x, y):
     if r.get("error"):
         print(f"  ERROR: {r['error']}")
         return
+    print(f"  node space: {r.get('nodespace', 'none')}")
     band = r.get("band")
     if band is None:
         print("  reach band: None (OFF-NET)")
@@ -269,9 +341,11 @@ def _report(r, x, y):
               f"  (width {band[1] - band[0]:+.4f} m)")
     att = r.get("attachment")
     if att is None:
-        print("  attachment: none — the grid lookup serves no attachment "
-              "here (off-net).  Nothing binds this point; the local "
-              "within-shape law governs it.")
+        print("  attachment: None — the grid lookup serves no attachment at "
+              "this cell (off-net)")
+        print("  frame note: the route band does not reach a point with no "
+              "attachment; the LOCAL within-shape law (grade_law's "
+              "within-shape family) is the frame to read it in")
         return
     where = ("paved" if att["query_cell_paved"]
              else f"OFF-MASK, snapped {att['off_mask_m']:.2f} m")
@@ -283,8 +357,9 @@ def _report(r, x, y):
           f"[{att['floor_at_attachment']:.4f}, "
           f"{att['ceiling_at_attachment']:.4f}]")
     if not r.get("provenance_present"):
-        print("  !! the band recorded no anchor provenance — cannot name the "
-              "binding anchor (spine_value_fields did not run on this layout)")
+        print("  !! no anchor provenance recorded on this layout "
+              "(layout._band_anchor_provenance absent or empty) — the "
+              "binding anchor cannot be named from it")
         return
     node = r.get("attachment_node")
     if node is None:
@@ -348,19 +423,42 @@ def _report_inverted_pairs(layout, captured=None):
     So the graph and the provenance are CAPTURED from the build's own
     recording call and read here; ``captured`` empty is reported, never
     silently papered over with a rebuild."""
-    rows = list((captured or {}).get("rows")
+    cap = captured or {}
+    rows_from_capture = bool(cap.get("rows"))
+    rows = list(cap.get("rows")
                 or getattr(layout, "_final_band_inversions", None) or [])
     if not rows:
         print("no recorded band inversions on this layout")
         return
-    G = (captured or {}).get("G")
-    prov = (captured or {}).get("prov")
+    G = cap.get("G")
+    prov = cap.get("prov")
     if G is None or not prov:
         print("!! the build's own band graph/provenance was not captured — "
               "refusing to rebuild it, because a rebuilt field is a "
               "different node space and the inversion rows do not resolve "
               "in it.  Run this on a build (not a stale layout).")
         return
+    # ── NODE-SPACE STAMP ON BOTH SIDES, then a MEASURED verdict ────────
+    # The walk reads ``G``/``prov``; the recorded budgets come from the
+    # inversion rows.  Whether those are the same node space is a FACT the
+    # capture can answer (G, prov and rows are all taken inside ONE
+    # ``_record_band_inversions`` call), so it is measured here and stated,
+    # not asserted as a cause of any number below.
+    walk_ns = _nodespace(G)
+    rows_ns = cap.get("nodespace") if rows_from_capture else None
+    if rows_ns is None:
+        frames = ("frames NOT COMPARED (the rows came from the layout "
+                  "attribute and carry no node-space stamp)")
+        frames_short = "frames not compared"
+    elif rows_ns == walk_ns:
+        frames = f"frames match ({walk_ns})"
+        frames_short = "frames match"
+    else:
+        frames = (f"frames differ (walk {walk_ns} vs recorded rows {rows_ns})")
+        frames_short = "frames differ"
+    print(f"node space: walk {walk_ns}; recorded rows "
+          f"{rows_ns or 'unstamped'} — {frames}")
+    print(f"budget agreement contract: {ROUTE_BUDGET_AGREEMENT_M:g} m")
     pairs: dict = {}
     for r in rows:
         fa, ca = r.get("floor_anchor"), r.get("ceil_anchor")
@@ -395,9 +493,10 @@ def _report_inverted_pairs(layout, captured=None):
         for side in ("floor", "ceiling"):
             s = sides.get(side)
             if not s:
-                print(f"    {side.upper():<8} !! the rebuilt field records no "
-                      f"{side} route for node {node} — the trace and the "
-                      f"build's own field disagree; do not equate them")
+                print(f"    {side.upper():<8} !! the recorded field holds no "
+                      f"{side} route for node {node}, which the inversion "
+                      f"rows do name — the two readings disagree "
+                      f"({frames_short})")
                 continue
             recorded = (r["floor_route_m"] if side == "floor"
                         else r["ceil_route_m"])
@@ -410,9 +509,10 @@ def _report_inverted_pairs(layout, captured=None):
                     f"{s['route_budget_m']:.4f} m over "
                     f"{len(s['path_nodes'])} node(s)"
                   + ("" if s["path_complete"] else "  [PATH INCOMPLETE]")
-                  + ("" if abs(drift) <= 1e-4 else
+                  + ("" if abs(drift) <= ROUTE_BUDGET_AGREEMENT_M else
                      f"  [BUDGET DRIFT vs the build's own field "
-                     f"{drift:+.4f} m — different frames, do not equate]"))
+                     f"{drift:+.4f} m > contract "
+                     f"{ROUTE_BUDGET_AGREEMENT_M:g} m; {frames_short}]"))
             _print_caps(s, indent="             ")
 
 
@@ -511,10 +611,19 @@ def _build(icao, const_dem=None):
     from auto_patch.elevation_per_surface import building_feasibility as BF
 
     kw = {"compute_elevations": True}
+    # WORLD/DEM FRAME — printed on EVERY run.  It used to print only under
+    # ``--dem``, so a real-DEM trace carried no world stamp at all and its
+    # numbers were indistinguishable from an oracle world's in a transcript.
     if const_dem is not None:
         from auto_patch.constant_dem import ConstantDEM
         kw["tile_dem"] = ConstantDEM(float(const_dem))
-        print(f"[trace] CONSTANT-DEM world: {float(const_dem):g} m")
+        print(f"[trace] world: CONSTANT-DEM oracle, DEM = "
+              f"{float(const_dem):g} m everywhere "
+              f"(auto_patch.constant_dem.ConstantDEM)")
+    else:
+        print("[trace] world: REAL DEM — the production tile DEM for this "
+              "airport (no --dem override)")
+    print(f"[trace] {CROWN_SPACE_NOTE}")
 
     seen: dict = {}
     real_assert = BF.assert_no_final_band_inversion
@@ -534,6 +643,10 @@ def _build(icao, const_dem=None):
                         "floor": dict(prov.get("floor") or {})}
         seen["rows"] = list(getattr(layout, "_final_band_inversions", None)
                             or [])
+        # G, prov and rows are all taken INSIDE this one call, so they share
+        # one node space by construction; stamping it here is what lets the
+        # report say "frames match" as a measured fact instead of assuming it.
+        seen["nodespace"] = _nodespace(G)
         return out
 
     BF.assert_no_final_band_inversion = _capturing_assert

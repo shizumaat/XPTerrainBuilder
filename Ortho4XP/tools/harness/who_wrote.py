@@ -39,10 +39,12 @@ THREE REPORTS, one build:
   job), ``moved_post_solve`` (some other pass had already moved the value,
   so the author is not the one disagreeing with the solve), and
   ``untouched`` — a vertex the solve produced that nothing else touched.
-  A move in the ``untouched`` class is a SECOND AUTHOR, which the
-  single-solve architecture forbids (RULINGS 2026-08-03; the ingestion
-  spec's requirement 2 sets the materiality floor at 0.01 m).  This is the
-  reader for ``docs/specs/cycle4-projection-ingestion-spec.md``.
+  The tool REPORTS the three counts and the class definitions; whether a
+  move in the ``untouched`` class is the second author the single-solve
+  architecture forbids is adjudicated by the law layer (RULINGS
+  2026-08-03; the ingestion spec's requirement 2 sets the materiality
+  floor at 0.01 m).  This is the reader for
+  ``docs/specs/cycle4-projection-ingestion-spec.md``.
 
 The hooks are READ-ONLY: they record and delegate, so the build is the same
 build ``tools/harness/build_airport.py`` would have produced (same refusals,
@@ -79,6 +81,10 @@ _WORST_KEEP = 40
 #: "exactly on the constant DEM" is decided with a rounding-scale epsilon,
 #: not the in-memory 1e-6.
 _EMIT_TOL = 5e-3
+#: The IN-MEMORY frame's epsilon — full float precision, so "exactly on
+#: the constant DEM" really is exact there.  Named so every printed
+#: in-memory number can carry it (RULINGS 2026-08-06 point 3).
+_MEM_TOL = 1e-6
 
 
 def call_site(skip: int = 2, depth: int = _SITE_DEPTH) -> str:
@@ -107,7 +113,77 @@ def introducing_write(history):
     return hist[0]
 
 
-def emitted_on_dem(patch, dem_m, tol=_EMIT_TOL, authorship=None):
+#: The keys a ``dem_authorship``-shaped row may carry the layout.shapes
+#: index under.  ``shape`` is what :meth:`AuthorshipProbe.dem_authorship`
+#: writes; ``shape_index`` is what the ``--author-dump`` shape records
+#: write; ``shapeID`` is the emitted way tag's own name.  Which one was
+#: used is REPORTED, never guessed silently.
+_SHAPE_KEYS = ("shape", "shape_index", "shapeID")
+
+#: Top-level key of the authorship rows in a ``who_wrote`` report JSON.
+_AUTHORSHIP_KEY = "dem_authorship"
+
+
+def _is_authorship_rows(value) -> bool:
+    """A list of mappings carrying a shape key — the shape of the rows."""
+    if not isinstance(value, list) or not value:
+        return False
+    head = value[0]
+    return (isinstance(head, dict)
+            and any(head.get(k) is not None for k in _SHAPE_KEYS))
+
+
+def authorship_rows_from_report(obj):
+    """``(rows, source, top_keys)`` — the authorship rows in a who-json.
+
+    Returns the rows as a LIST (never ``None``) plus the SOURCE they were
+    read from, so a caller can report which key it joined on instead of
+    degrading to silence.  ``source`` is ``None`` when nothing of the
+    right shape is present — the state that must read differently from
+    "attribution was not requested".
+
+    Three accepted layouts, in order:
+
+    * the report dict's top-level ``dem_authorship`` (what
+      ``who_wrote.py`` writes) — ``source="dem_authorship"``;
+    * a bare list of rows — ``source="<list>"``;
+    * rows NESTED one level under some other top-level key (a report
+      wrapped by a dossier or a lane's own envelope) — ``source`` names
+      that key.  Without this the loader returned ``None`` and every
+      downstream count silently vanished.
+    """
+    if _is_authorship_rows(obj):
+        return list(obj), "<list>", []
+    if not isinstance(obj, dict):
+        return [], None, []
+    top = sorted(obj.keys())
+    rows = obj.get(_AUTHORSHIP_KEY)
+    if _is_authorship_rows(rows):
+        return list(rows), _AUTHORSHIP_KEY, top
+    for k, v in obj.items():
+        if _is_authorship_rows(v):
+            return list(v), k, top
+        if isinstance(v, dict):
+            inner = v.get(_AUTHORSHIP_KEY)
+            if _is_authorship_rows(inner):
+                return list(inner), f"{k}.{_AUTHORSHIP_KEY}", top
+    return [], None, top
+
+
+def _shape_key_of(row):
+    """The layout.shapes index this row carries, as the emitted tag spells
+    it (a string), or ``None``."""
+    if not isinstance(row, dict):
+        return None
+    for k in _SHAPE_KEYS:
+        v = row.get(k)
+        if v is not None:
+            return str(v)
+    return None
+
+
+def emitted_on_dem(patch, dem_m, tol=_EMIT_TOL, authorship=None,
+                   authorship_source=None):
     """EMITTED vertices sitting exactly on the constant DEM, by way role.
 
     THE FRAME TRAP THIS CLOSES.  The DEM-authorship census counts the
@@ -119,15 +195,26 @@ def emitted_on_dem(patch, dem_m, tol=_EMIT_TOL, authorship=None):
 
     Reports, for a patch written by the harness build entry:
 
-    * ``total`` — distinct emitted nodes whose ``alt_abs`` is the DEM.
+    * ``total`` — distinct emitted nodes whose ``alt_abs`` is within
+      ``tol`` of the DEM.
     * ``by_role`` — the same nodes attributed to the role of every way
       that references them (a shared vertex is counted once per way, so
       this sums to ≥ ``total``).
-    * ``stranded`` — the subset that shares a way with a vertex the law
-      DID value.  That is the class a within-shape law row is minted in:
-      a vertex at the raw DEM beside its own ring's neighbour at 90 m.
-      A whole shape flat on the DEM is NOT stranded (it has no internal
-      step) and is reported separately as ``flat_ways``.
+    * ``stranded`` — the subset sharing a way with a vertex whose
+      ``alt_abs`` is OFF the DEM.  That is the class a within-shape law
+      row is minted in: a vertex at the raw DEM beside its own ring's
+      neighbour at 90 m.  Whether the off-DEM neighbour's value is a LAW
+      value is the law layer's finding, not this instrument's — all this
+      code checks is the emitted ``alt_abs``.
+    * ``flat_ways`` — ways whose VERTICES all sit on the DEM: every ref
+      carrying an ``alt_abs`` is on it and at least one ref does.  Such a
+      way has no internal step, so it mints no within-shape row.
+    * ``flat_way_tag`` — ways whose way-level ``altitude`` TAG equals the
+      DEM, vertices NOT examined.  A different population: a way can
+      carry the tag while its nodes carry no ``alt_abs`` at all, and a
+      vertex-flat way need carry no tag.  The two were reported as one
+      number under the name ``flat_ways`` and that mislabel was read as a
+      per-vertex finding (HEAZ task-18 premise, cycle-6 corrections).
     * ``mixed_ways`` — the ways carrying both, i.e. the shapes to fix.
 
     Roles whose DEM value is lawful authority (a retaining wall's FOOT on
@@ -135,19 +222,28 @@ def emitted_on_dem(patch, dem_m, tol=_EMIT_TOL, authorship=None):
     adjacent-ground zone law) are reported like any other: the instrument
     REPORTS, the law adjudicates.
 
-    ``authorship`` — the ``dem_authorship`` rows of the same build.  The
-    emitted way's ``shapeID`` tag IS the index into ``layout.shapes``
-    (``layout.py:2210``), which is the key those rows carry, so the join
-    is exact and the emitted count comes out ATTRIBUTED to the writer
-    that introduced each vertex.  Without it the emitted frame can say
-    how many survived decimation but not who wrote them.
+    ``authorship`` — the ``dem_authorship`` rows of the same build, or
+    ``None`` for "attribution not requested".  The emitted way's
+    ``shapeID`` tag IS the index into ``layout.shapes``
+    (``layout.py:2210``), which is the key those rows carry.  The join is
+    MEASURED, never assumed: ``by_writer_join`` reports how many rows
+    were supplied, how many ways carried a ``shapeID``, and how many
+    joined — so a join that finds nothing says so with numbers instead of
+    printing an empty section.  ``None`` (not requested) and ``[]``
+    (requested, nothing to join with) are distinct states.
     """
     import xml.etree.ElementTree as ET
     dem_m = float(dem_m)
+    tol = float(tol)
+    requested = authorship is not None
     intro_of = {}
+    n_rows = 0
     for r in (authorship or ()):
-        if r.get("shape") is not None:
-            intro_of[str(r["shape"])] = r.get("introduced_by") or "?"
+        n_rows += 1
+        key = _shape_key_of(r)
+        if key is not None:
+            intro_of[key] = (r.get("introduced_by") if isinstance(r, dict)
+                             else None) or "?"
     node_alt = {}
     ways = []
     for _ev, el in ET.iterparse(str(patch), events=("end",)):
@@ -187,63 +283,140 @@ def emitted_on_dem(patch, dem_m, tol=_EMIT_TOL, authorship=None):
 
     on_dem = {nid for nid in node_alt if _on(nid)}
     by_role, stranded_by_role = Counter(), Counter()
-    by_writer, flat_ways, mixed_ways, stranded = Counter(), Counter(), [], set()
+    by_writer, mixed_ways, stranded = Counter(), [], set()
+    flat_ways, flat_way_tag = Counter(), Counter()
+    n_shapeid = sum(1 for w in ways if w[4] is not None)
+    j_ways = j_verts = u_ways = u_verts = 0
+    n_on_dem_ways = 0
     for (role, ref, refs, walt, sid) in ways:
         uniq = {r for r in refs if r is not None}
         hits = {r for r in uniq if r in on_dem}
+        # TWO POPULATIONS, TWO NAMES.  The way-level ``altitude`` tag and
+        # the way's own vertices are different evidence; one number for
+        # both read as a per-vertex finding it never was.
         if walt is not None and abs(walt - dem_m) <= tol:
+            flat_way_tag[role] += 1
+        valued = [r for r in uniq if node_alt.get(r) is not None]
+        if valued and len(hits) == len(valued):
             flat_ways[role] += 1
         if not hits:
             continue
+        n_on_dem_ways += 1
         by_role[role] += len(hits)
-        if intro_of:
+        if requested:
+            joined = sid is not None and sid in intro_of
+            if joined:
+                j_ways += 1
+                j_verts += len(hits)
+            else:
+                u_ways += 1
+                u_verts += len(hits)
             by_writer[(role, intro_of.get(sid, "?NOT-IN-AUTHORSHIP?"))] \
                 += len(hits)
-        off = [r for r in uniq
-               if node_alt.get(r) is not None and r not in on_dem]
+        off = [r for r in valued if r not in on_dem]
         if off:
             stranded |= hits
             stranded_by_role[role] += len(hits)
             mixed_ways.append({"role": role, "ref": ref, "shape": sid,
                                "on_dem": len(hits), "valued": len(off),
                                "n": len(uniq),
-                               "introduced_by": intro_of.get(sid)})
+                               "joined": (None if not requested
+                                          else (sid is not None
+                                                and sid in intro_of)),
+                               "introduced_by": (intro_of.get(sid)
+                                                 if requested else None)})
     mixed_ways.sort(key=lambda r: -r["on_dem"])
+    join = {"requested": requested,
+            "source": authorship_source,
+            "authorship_rows": n_rows,
+            "authorship_keyed": len(intro_of),
+            "ways": len(ways), "ways_with_shapeid": n_shapeid,
+            "on_dem_ways": n_on_dem_ways,
+            "joined_ways": j_ways, "joined_vertices": j_verts,
+            "unjoined_ways": u_ways, "unjoined_vertices": u_verts}
     return {"patch": str(patch), "dem_m": dem_m,
+            # FRAME STAMP (RULINGS 2026-08-06 point 3): every number below
+            # is read from the EMITTED patch, decided at ``tol_m`` against
+            # this world — never the in-memory layout's count.
+            "frame": "EMITTED", "tol_m": tol,
+            "world": f"constant DEM {dem_m:g} m",
             "nodes": len(node_alt), "ways": len(ways),
             "total": len(on_dem), "by_role": dict(by_role.most_common()),
             "stranded": len(stranded),
             "stranded_by_role": dict(stranded_by_role.most_common()),
+            "by_writer_join": join,
             "by_writer": [{"role": r, "introduced_by": w, "n": n}
                           for (r, w), n in by_writer.most_common()],
             "flat_ways": dict(flat_ways.most_common()),
+            "flat_way_tag": dict(flat_way_tag.most_common()),
             "mixed_ways": mixed_ways[:40],
             "n_mixed_ways": len(mixed_ways)}
 
 
 def print_emitted_on_dem(rep):
-    """The emitted-frame report, labelled so it cannot be misquoted."""
-    print(f"\n  === EMITTED vertices exactly on the {rep['dem_m']:g} m "
-          f"constant DEM: {rep['total']} of {rep['nodes']} node(s)"
-          f"   [EMITTED frame — not the in-memory count]")
+    """The emitted-frame report, labelled so it cannot be misquoted.
+
+    Every line names the population it counts and carries the frame it
+    was measured in.  The by-writer block prints in ALL THREE states —
+    joined, requested-but-empty, not requested — because an instrument
+    that omits a section on failure is indistinguishable from one that
+    was never asked (RULINGS 2026-08-06 point 2).
+    """
+    print(f"\n  === EMITTED nodes whose alt_abs is within "
+          f"{rep.get('tol_m', _EMIT_TOL):g} m of the {rep['dem_m']:g} m "
+          f"constant DEM: {rep['total']} of {rep['nodes']} node(s)")
+    print(f"      [frame: {rep.get('frame', 'EMITTED')} patch"
+          f"  |  world: {rep.get('world', '?')}"
+          f"  |  NOT the in-memory layout count]")
     for role, n in rep["by_role"].items():
-        print(f"      {n:6d}  {role}")
-    print(f"    STRANDED (shares a way with a law-valued vertex): "
+        print(f"      {n:6d}  {role}   (counted once per referencing way)")
+    print(f"    STRANDED — on-DEM nodes in a way that also references a "
+          f"node whose alt_abs is OFF the DEM: "
           f"{rep['stranded']} in {rep['n_mixed_ways']} way(s)")
     for role, n in rep["stranded_by_role"].items():
         print(f"      {n:6d}  {role}")
-    if rep.get("by_writer"):
-        print("    by INTRODUCING writer (joined on shapeID — the emitted "
-              "half of the DEM-authorship census):")
-        for r in rep["by_writer"]:
-            print(f"      {r['n']:6d}  {r['role']}")
-            print(f"              {r['introduced_by']}")
-    if rep["flat_ways"]:
-        print("    whole ways flat ON the DEM (no internal step): "
-              + ", ".join(f"{r}={n}" for r, n in rep["flat_ways"].items()))
+    _print_by_writer(rep)
+    print("    ways whose VERTICES all sit on the DEM (every ref carrying "
+          "an alt_abs is on it, at least one does): "
+          + (", ".join(f"{r}={n}" for r, n in rep["flat_ways"].items())
+             or "none"))
+    print("    ways whose way-level ALTITUDE TAG is on the DEM (tag only; "
+          "vertices not examined): "
+          + (", ".join(f"{r}={n}"
+                       for r, n in rep.get("flat_way_tag", {}).items())
+             or "none"))
     for r in rep["mixed_ways"][:10]:
         print(f"      way {r['role']:<22}{r['ref']:<20}"
-              f"{r['on_dem']:5d} on DEM / {r['valued']:5d} valued")
+              f"{r['on_dem']:5d} on DEM / {r['valued']:5d} off DEM")
+
+
+def _print_by_writer(rep):
+    """The by-INTRODUCING-writer block and its join diagnostics."""
+    join = rep.get("by_writer_join") or {}
+    if not join.get("requested"):
+        print("    by INTRODUCING writer: NOT REQUESTED "
+              "(no authorship rows passed; the emitted count stands "
+              "unattributed)")
+        return
+    print("    by INTRODUCING writer — joined on the way's shapeID tag "
+          "(= the layout.shapes index):")
+    print(f"      join: source={join.get('source')!r} "
+          f"authorship_rows={join.get('authorship_rows')} "
+          f"keyed={join.get('authorship_keyed')} "
+          f"ways_with_shapeid={join.get('ways_with_shapeid')}"
+          f"/{join.get('ways')}")
+    print(f"            on_dem_ways={join.get('on_dem_ways')} "
+          f"joined={join.get('joined_ways')} "
+          f"({join.get('joined_vertices')} vertex hits) "
+          f"unjoined={join.get('unjoined_ways')} "
+          f"({join.get('unjoined_vertices')} vertex hits)")
+    if not join.get("joined_ways"):
+        print(f"      JOIN EMPTY: 0 of {join.get('on_dem_ways')} on-DEM "
+              f"way(s) matched an authorship row; every count below is in "
+              f"the ?NOT-IN-AUTHORSHIP? bucket")
+    for r in rep.get("by_writer") or ():
+        print(f"      {r['n']:6d}  {r['role']}")
+        print(f"              {r['introduced_by']}")
 
 
 class AuthorshipProbe:
@@ -303,7 +476,7 @@ class AuthorshipProbe:
             if self.dem_m is not None:
                 hit = sum(1 for a in values
                           if a is not None
-                          and abs(float(a) - self.dem_m) <= 1e-6)
+                          and abs(float(a) - self.dem_m) <= _MEM_TOL)
             self.by_shape.setdefault(id(shape), []).append(
                 (hit, len(values), site))
         if self.dump_moves and values is not None and site is not None:
@@ -316,7 +489,7 @@ class AuthorshipProbe:
                 if k not in org:
                     org[k] = site
                 if (dorg is not None and k not in dorg
-                        and abs(float(v) - self.dem_m) <= 1e-6):
+                        and abs(float(v) - self.dem_m) <= _MEM_TOL):
                     dorg[k] = site
         if self.authors:
             self._record_author(shape, role, values, site)
@@ -482,7 +655,7 @@ class AuthorshipProbe:
             if not values or (self.roles and s.role not in self.roles):
                 continue
             hit = sum(1 for a in values
-                      if a is not None and abs(float(a) - self.dem_m) <= 1e-6)
+                      if a is not None and abs(float(a) - self.dem_m) <= _MEM_TOL)
             if not hit:
                 continue
             history = self.by_shape.get(id(s)) or []
@@ -530,7 +703,7 @@ class AuthorshipProbe:
             vals = s.node_altitudes or ()
             dem_of[id(s)] = (sum(1 for a in vals
                                  if a is not None and self.dem_m is not None
-                                 and abs(float(a) - self.dem_m) <= 1e-6),
+                                 and abs(float(a) - self.dem_m) <= _MEM_TOL),
                              len(vals), s.role, getattr(s, "ref", "") or "")
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -608,7 +781,12 @@ def main(argv=None) -> int:
                          "``ICAO_who_wrote.json``, so the emitted count "
                          "comes out ATTRIBUTED to the writer that "
                          "introduced each vertex (joined on the way's "
-                         "shapeID tag, which IS the layout.shapes index)")
+                         "shapeID tag, which IS the layout.shapes index).  "
+                         "The rows are found at the top-level "
+                         "``dem_authorship`` key, as a bare list, or "
+                         "nested one level under another key; the key "
+                         "actually read and the join counts are printed, "
+                         "so a join that matches nothing says so")
     ap.add_argument("--dem", type=float, default=None,
                     help="constant-DEM elevation; required for the "
                          "DEM-authorship census (the predicate needs it)")
@@ -639,9 +817,13 @@ def main(argv=None) -> int:
                          "writer seeded.")
     ap.add_argument("--out", type=Path, default=Path("/tmp/harness/who"))
     ap.add_argument("--allow-degraded-dem", action="store_true",
-                    help="accepted and recorded; a constant-DEM run "
-                         "SUBSTITUTES the DEM, so real-DEM cache warmth "
-                         "cannot confound it")
+                    help="RECORDED IN THE REPORT ONLY "
+                         "(allow_degraded_dem_requested).  who_wrote "
+                         "builds by calling build_airport.build_patch "
+                         "directly; the cfg-frame and DEM-frame gates this "
+                         "flag relaxes are armed in build_airport's own "
+                         "main(), which this entry never enters, so the "
+                         "flag has nothing here to override")
     args = ap.parse_args(argv)
     if args.emitted_patch:
         # A pure FILE read: no build, no layout, so no build cwd and no
@@ -650,12 +832,26 @@ def main(argv=None) -> int:
         if args.dem is None:
             ap.error("--emitted-patch needs --dem (the predicate is "
                      "'sits exactly on the constant DEM')")
-        rows = None
+        rows, src = None, None
         if args.who_json:
-            rows = json.loads(Path(args.who_json).read_text()).get(
-                "dem_authorship")
+            # LOUD, not silent: a who-json that carries no authorship rows
+            # is a DIFFERENT state from "attribution not requested", and
+            # the loader names the key it read them from.  The old form
+            # (`.get("dem_authorship")` → None) collapsed both to the same
+            # empty section.
+            obj = json.loads(Path(args.who_json).read_text())
+            rows, src, top = authorship_rows_from_report(obj)
+            if src is None:
+                print(f"  [harness] --who-json {args.who_json}: no "
+                      f"{_AUTHORSHIP_KEY!r}-shaped rows found "
+                      f"(top-level keys: {top}); attribution will report "
+                      f"an EMPTY join, not silence")
+            else:
+                print(f"  [harness] --who-json {args.who_json}: "
+                      f"{len(rows)} authorship row(s) from {src!r}")
         for p in args.emitted_patch:
-            rep = emitted_on_dem(p, args.dem, authorship=rows)
+            rep = emitted_on_dem(p, args.dem, authorship=rows,
+                                 authorship_source=src)
             print(f"\n  [harness] {p}")
             print_emitted_on_dem(rep)
         return 0
@@ -691,17 +887,37 @@ def main(argv=None) -> int:
         probe.uninstall()
 
     report: dict = {"icao": args.icao, "dem_m": args.dem,
-                    "patch": result["patch"]}
+                    "patch": result["patch"],
+                    # FRAME STAMP for the whole run (RULINGS 2026-08-06
+                    # point 3).  ``--allow-degraded-dem`` is recorded as
+                    # REQUESTED, not as applied: who_wrote builds through
+                    # ``HB.build_patch`` directly, and the cfg/DEM-frame
+                    # gates the flag relaxes live in build_airport's own
+                    # ``main``, which this path never enters.
+                    "roles_filter": roles or None,
+                    "at_tol_m": args.tol,
+                    "allow_degraded_dem_requested": bool(
+                        args.allow_degraded_dem)}
     if args.dem is not None:
         rows, by_author = probe.dem_authorship(layout)
         report["dem_authorship"] = rows
+        report["dem_authorship_frame"] = {
+            "frame": "IN-MEMORY layout",
+            "tol_m": _MEM_TOL,
+            "world": f"constant DEM {args.dem:g} m",
+            "shapes": len(getattr(layout, "shapes", ()) or ()),
+            "roles_filter": roles or None}
         total = sum(by_author.values())
-        print(f"\n  === VERTICES SITTING EXACTLY ON THE {args.dem:g} m "
-              f"CONSTANT DEM: {total}, by INTRODUCING writer\n")
+        print(f"\n  === IN-MEMORY layout values within {_MEM_TOL:g} m of "
+              f"the {args.dem:g} m constant DEM: {total}, "
+              f"by INTRODUCING writer")
+        print(f"      [frame: IN-MEMORY layout.shapes"
+              f"  |  world: constant DEM {args.dem:g} m"
+              f"  |  NOT the emitted-patch count]\n")
         for (role, site), n in by_author.most_common():
             print(f"    {n:6d}  {role}")
             print(f"            {site}")
-        print(f"\n  === per shape (top 15)")
+        print(f"\n  === per shape (top 15, IN-MEMORY frame)")
         for r in rows[:15]:
             print(f"    #{r['shape']:<5}{r['role']:<22}"
                   f"{r['on_dem']:5d}/{r['n']:<5d} writes={r['writes']}")
@@ -710,11 +926,14 @@ def main(argv=None) -> int:
         # patch — so the two counts are never separated.
         try:
             emitted = emitted_on_dem(result["patch"], args.dem,
-                                     authorship=rows)
+                                     authorship=rows,
+                                     authorship_source="probe.dem_authorship")
             report["emitted_on_dem"] = emitted
             print_emitted_on_dem(emitted)
         except Exception as exc:                        # pragma: no cover
-            print(f"  [harness] emitted-frame count unavailable: {exc}")
+            print(f"  [harness] EMITTED-frame count unavailable "
+                  f"({type(exc).__name__}: {exc}); the IN-MEMORY count "
+                  f"above stands alone")
     if args.author:
         rows, totals = probe.author_report()
         report["author_displacement"] = rows
@@ -722,8 +941,23 @@ def main(argv=None) -> int:
             {"delta_m": round(d, 3), "author": a, "class": c, "role": r,
              "ref": ref, "before": before, "after": after, "x": x, "y": y}
             for (d, a, c, r, ref, before, after, x, y) in probe.author_worst]
-        print(f"\n  === VALUES MOVED AWAY FROM THE SOLVE, by author "
-              f"(materiality {args.author_tol:g} m)\n")
+        report["author_frame"] = {
+            "frame": "IN-MEMORY write stream",
+            "materiality_m": args.author_tol,
+            "solve_site": probe.solve_site,
+            "authors": list(args.author),
+            "classes": {
+                "new_geometry": "the shape's ring length differs from the "
+                                "solve's, or the solve wrote None there",
+                "moved_post_solve": "the overwritten value was already "
+                                    "further than materiality from the "
+                                    "solve's",
+                "untouched": "the overwritten value was within materiality "
+                             "of this shape's last solve write"}}
+        print("\n  === VALUES MOVED AWAY FROM THE SOLVE, by author")
+        print(f"      [frame: IN-MEMORY write stream  |  materiality "
+              f"{args.author_tol:g} m  |  solve reference: writes whose "
+              f"site contains {probe.solve_site!r}]\n")
         print(f"    {'author':<26}{'class':<18}{'role':<22}"
               f"{'n_moved':>9}{'max|d| m':>11}{'p50|d| m':>10}")
         for r in rows:
@@ -731,11 +965,21 @@ def main(argv=None) -> int:
                   f"{r['n_moved']:>9}{r['max_m']:>11.3f}{r['p50_m']:>10.3f}")
         print()
         for (author, cls), t in sorted(totals.items()):
-            flag = ("   <-- SECOND AUTHOR (spec requirement 2)"
-                    if cls == "untouched" and t["n_moved"] else "")
             print(f"    TOTAL  {author:<26}{cls:<18}"
-                  f"{t['n_moved']:>9}{t['max_m']:>11.3f}{flag}")
-        print(f"\n  === worst {len(probe.author_worst)} displaced vertices")
+                  f"{t['n_moved']:>9}{t['max_m']:>11.3f}")
+        # The class DEFINITIONS, not a finding about them: whether a move
+        # in the ``untouched`` class is a second author is the law layer's
+        # call (docs/specs/cycle4-projection-ingestion-spec.md §req 2),
+        # and this tool's own docstring records that the ring-index join
+        # behind the classes is exact only while the ring is unchanged.
+        print(f"\n    class 'untouched'      = the overwritten value was "
+              f"within {args.author_tol:g} m of this shape's last "
+              f"{probe.solve_site!r} write")
+        print("    class 'moved_post_solve' = it was further than that")
+        print(f"    class 'new_geometry'   = ring length differs from the "
+              f"solve's, or the solve wrote None at that index")
+        print(f"\n  === worst {len(probe.author_worst)} displaced vertices "
+              f"(|d| > 0.05 m; IN-MEMORY write stream)")
         for (d, a, c, r, ref, before, after, x, y) in probe.author_worst[:20]:
             print(f"    {d:9.3f} m  {c:<16}{r:<20}{ref:<16}"
                   f"{before} -> {after}   at ({x},{y})")
@@ -747,6 +991,16 @@ def main(argv=None) -> int:
     if at:
         history = probe.node_history()
         report["node_history"] = history
+        report["node_history_frame"] = {
+            "frame": "IN-MEMORY write stream",
+            "coordinate_space": "layout METRE frame (shape exterior ring)",
+            "match_tol_m": args.tol,
+            "value_dp": 3,
+            "compressed": "consecutive equal values per (role, ref) dropped"}
+        print(f"\n  === NODE HISTORY  [frame: IN-MEMORY write stream  |  "
+              f"coordinates: layout METRE frame  |  matched within "
+              f"{args.tol:g} m  |  values rounded to 3 dp  |  consecutive "
+              f"equal values per (role, ref) dropped]")
         for point, changes in history.items():
             print(f"\n  === ({point})  {len(changes)} change(s)")
             for c in changes:

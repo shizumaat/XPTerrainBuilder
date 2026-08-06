@@ -68,9 +68,37 @@ __all__ = [
 ]
 
 
+def dem_world_label(dem) -> str:
+    """The WORLD stamp for a DEM object: class + its own ``source_path``.
+
+    The instruments in this module are ENTIRELY about whether a value is
+    DEM-derived, which makes the DEM world their most load-bearing frame
+    (RULINGS 2026-08-06 binding point 3).  ``provenance.dem_label`` cannot
+    supply it on its own — a ``ConstantDEM`` oracle world and a real
+    inset-less DEM both render ``base RAW (no inset baked)``; the class
+    name plus ``<constant-dem 10000 m>`` tells them apart."""
+    if dem is None:
+        return "None (no DEM object)"
+    src = getattr(dem, "source_path", None)
+    return f"{type(dem).__name__}:{src if src else '?'}"
+
+
 def _dem_sampler(layout, dem, tile_lat, tile_lon):
     """Return ``_dem_at(x, y) -> Optional[float]`` sampling ``dem`` in
-    layout-metre space (anchored at ``layout.anchor``)."""
+    layout-metre space (anchored at ``layout.anchor``).
+
+    THE ONE SEAM every groundside DEM read goes through, so it is also
+    where the world gets stamped for ``report_groundside_law_seat`` —
+    report-only, a ``set`` so a build that sampled two different DEMs says
+    so instead of quietly reporting the last one."""
+    try:
+        seen = getattr(layout, "_gs_dem_worlds", None)
+        if seen is None:
+            seen = set()
+            layout._gs_dem_worlds = seen
+        seen.add(dem_world_label(dem))
+    except (AttributeError, TypeError):                # pragma: no cover
+        pass
     lat0, lon0 = layout.anchor
     cos0 = math.cos(math.radians(lat0))
     R = R_EARTH
@@ -488,6 +516,16 @@ def _seat_ring_on_law_anchors(coords, dem_alts, anchors, max_grade,
         if stats is not None:
             stats["islands"] = stats.get("islands", 0) + 1
             stats["island_vertices"] = (stats.get("island_vertices", 0) + n)
+            # VERTEX IDENTITY (RULINGS 2026-08-06 binding point 3): a bare
+            # total cannot be attributed, which defeats the report's own
+            # "a nonzero count is a defect to attribute" claim.  One
+            # locator per island ring — its first vertex in layout-local
+            # metres — capped so a pathological build cannot grow the
+            # book without bound.
+            where = stats.setdefault("island_xy", [])
+            if len(where) < _ISLAND_XY_CAP:
+                where.append((round(float(coords[0][0]), 2),
+                              round(float(coords[0][1]), 2)))
         return out, frozenset()
     for k, v in law_at.items():
         out[k] = v
@@ -569,6 +607,11 @@ def _prior_field_reader(prior, tol_m=None):
         return best
 
     return _read
+
+
+#: Per-pass cap on the island LOCATORS kept for attribution.  The counts
+#: are never capped; only the coordinate list is.
+_ISLAND_XY_CAP = 20
 
 
 def _law_seat_stats(layout, where):
@@ -661,22 +704,41 @@ def seat_groundside_on_law(layout, dem, tile_lat: int = 0,
     key = law_anchor_key(layout, anchors)
     stats = _law_seat_stats(layout, "post_solve_groundside_law_seat")
     n = 0
+    # SKIP BUCKETS, one per BRANCH, named by the CONDITION the branch
+    # tests (cycle-7.5 instrument sweep, RULINGS 2026-08-06 binding point
+    # 2).  Every one of these rings keeps whatever field it arrived with —
+    # which for most of them is the pre-solve DEM seed — but they leave by
+    # DIFFERENT doors, and a single count labelled "had no law source" is
+    # the catch-all-bucket-with-a-cause pattern: a ring skipped at the
+    # seed reader never reached the law ladder at all, so nothing was
+    # learned about whether law reaches it.  Counted where the condition
+    # is known, never inferred later.
+    skips = stats.setdefault("skipped", {})
+
+    def _skip(bucket):
+        skips[bucket] = skips.get(bucket, 0) + 1
+
     for s in layout.shapes:
         if s.role != ROLE_GROUNDSIDE_PAVEMENT:
             continue
+        stats["candidates"] = stats.get("candidates", 0) + 1
         if getattr(s, _LAW_SEATED_ATTR, False):
+            _skip("already_law_seated")
             continue                    # already carries law, leave it
         poly = getattr(s, "polygon", None)
         if poly is None or poly.is_empty or poly.geom_type != "Polygon":
+            _skip("no_usable_polygon")
             continue
         try:
             ring = list(poly.exterior.coords)
         except _GEOM_EXC:
+            _skip("ring_coords_raised")
             continue
         closed = len(ring) > 1 and ring[0] == ring[-1]
         if closed:
             ring = ring[:-1]
         if len(ring) < 3:
+            _skip("ring_under_3_vertices")
             continue
         dem_alts = []
         for (x, y) in ring:
@@ -689,6 +751,12 @@ def seat_groundside_on_law(layout, dem, tile_lat: int = 0,
             if len(cur) == len(ring) + 1:
                 cur = cur[:-1]
             if len(cur) != len(ring) or any(v is None for v in cur):
+                # SEED UNREADABLE — the DEM returned None somewhere AND
+                # the ring's own field is the wrong length or carries a
+                # None.  This ring never reaches the law ladder, so it is
+                # NOT an observation about law reach; the old report
+                # counted it nowhere and described it as an island.
+                _skip("seed_altitudes_unreadable")
                 continue
             dem_alts = [float(v) for v in cur]
         seat_out: dict = {}
@@ -696,6 +764,10 @@ def seat_groundside_on_law(layout, dem, tile_lat: int = 0,
             ring, dem_alts, anchors, GROUNDSIDE_MAX_GRADE, key_fn=key,
             stats=stats, seat_out=seat_out)
         if not seat_out.get("law_seated"):
+            # The ladder ran and found NO law source (``law_at`` empty) —
+            # ``_seat_ring_on_law_anchors`` already counted it under
+            # ``islands``/``island_vertices`` with a locator.
+            _skip("no_law_source_at_ladder")
             continue                    # a TRUE island — counted, not moved
         alts = _grade_limit_ring(ring, alts, GROUNDSIDE_MAX_GRADE,
                                  pinned=pinned)
@@ -704,6 +776,7 @@ def seat_groundside_on_law(layout, dem, tile_lat: int = 0,
         s.altitude = None
         setattr(s, _LAW_SEATED_ATTR, True)
         n += 1
+    stats["reseated"] = stats.get("reseated", 0) + n
     return n
 
 
@@ -716,21 +789,81 @@ def report_groundside_law_seat(layout, icao: str = "") -> dict:
     nonzero count is a defect to attribute under RULINGS 2026-08-05
     (a)-(d), not a tolerated residue, and it is printed even when zero so
     an absent line means the pass did not run.
+
+    WHAT CHANGED IN THE CYCLE-7.5 SWEEP (RULINGS 2026-08-06):
+
+    * the island line said the rings *"had no law source and kept their
+      DEM seed"* — one causal label over several distinct exit
+      conditions.  ``islands`` counts exactly one of them (the ladder ran
+      and ``law_at`` came back empty); a ring whose seed altitudes could
+      not be READ leaves ``seat_groundside_on_law`` before the ladder and
+      was described by that sentence while being counted by nothing.
+      Each condition is now counted at its own branch and printed under
+      its own NAME, and the line states the ladder condition instead of
+      inferring a cause;
+    * the line carried ``icao`` and no frame at all, on an instrument
+      whose entire subject is whether a value is DEM-derived.  The DEM
+      world, the tree sha and the node space are stamped;
+    * ``island_vertices`` was a bare total with no way to locate a single
+      one of them, which defeats this docstring's own "attribute it"
+      claim.  Up to ``_ISLAND_XY_CAP`` per-ring locators are reported.
     """
     import O4_UI_Utils as UI
     book = getattr(layout, "_gs_law_seat", None) or {}
     tot = {"rings": 0, "anchored": 0, "from_prior": 0, "interpolated": 0,
-           "islands": 0, "island_vertices": 0}
+           "islands": 0, "island_vertices": 0, "candidates": 0,
+           "reseated": 0}
+    skipped: dict = {}
+    island_xy: list = []
     for st in book.values():
         for k in tot:
             tot[k] += int(st.get(k, 0) or 0)
+        for bucket, cnt in (st.get("skipped") or {}).items():
+            skipped[bucket] = skipped.get(bucket, 0) + int(cnt or 0)
+        for xy in (st.get("island_xy") or ()):
+            if len(island_xy) < _ISLAND_XY_CAP:
+                island_xy.append(tuple(xy))
+    tot["skipped"] = skipped
+    tot["island_xy"] = island_xy
+    # FRAME STAMP.  The world comes from the DEM objects this module
+    # actually sampled (``_dem_sampler``), not from a second reading.
+    worlds = sorted(getattr(layout, "_gs_dem_worlds", None) or ())
+    tot["dem_worlds"] = list(worlds)
+    try:
+        from .elevation_per_surface.building_feasibility import (
+            instrument_tree_sha)
+        _tree = instrument_tree_sha()
+    except Exception:                                  # pragma: no cover
+        _tree = "?"
+    frame = (f"[frame tree={_tree} "
+             f"dem_world={'+'.join(worlds) if worlds else '?'} "
+             f"nodes=groundside ring vertices, layout-local metres about "
+             f"layout.anchor (NOT solver node ids) "
+             f"values=emitted groundside altitudes (uncrowned; groundside "
+             f"carries no crown drop)]")
+    tot["frame"] = frame
     UI.vprint(1, f"  [groundside-law-seat] {icao}: {tot['rings']} ring(s) "
                  f"seated — {tot['anchored']} weld anchor(s), "
                  f"{tot['from_prior']} vertex(es) from the piece's own "
                  f"prior field, {tot['interpolated']} law-interpolated "
-                 f"along the ring; {tot['islands']} LAW ISLAND ring(s) "
-                 f"({tot['island_vertices']} vertex(es)) had no law source "
-                 f"and kept their DEM seed")
+                 f"along the ring; {tot['islands']} ring(s) "
+                 f"({tot['island_vertices']} vertex(es)) reached the law "
+                 f"ladder with NO weld anchor and NO prior field "
+                 f"(condition: law_at empty) and kept the field they "
+                 f"arrived with.  {frame}")
+    if island_xy:
+        UI.vprint(1, f"  [groundside-law-seat]   island ring locator(s), "
+                     f"first vertex, up to {_ISLAND_XY_CAP}: "
+                     + ", ".join(f"({x:.2f},{y:.2f})" for (x, y) in island_xy))
+    if skipped:
+        # NAMED CONDITIONS, not a cause.  Each bucket is the branch that
+        # returned the ring, spelled as the test that branch performs.
+        UI.vprint(1, f"  [groundside-law-seat]   post-solve seat pass: "
+                     f"{tot['reseated']} of {tot['candidates']} groundside "
+                     f"ring(s) re-seated; skipped by condition — "
+                     + ", ".join(f"{k}={v}" for k, v in
+                                 sorted(skipped.items(),
+                                        key=lambda kv: -kv[1])))
     for where, st in sorted(book.items(),
                             key=lambda kv: -int(kv[1].get("islands", 0) or 0)):
         if st.get("islands"):

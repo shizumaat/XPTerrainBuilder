@@ -32,10 +32,12 @@ THREE ASSERTIONS the oracle makes, in ascending power:
 3. **THE BAND-WIDTH FIELD** — the per-node difference
    ``canyon(node) - plateau(node)`` IS the width of the feasible band the
    law grants at that node.  Emitted as a diagnostic artifact, it is the
-   direct empirical map of the corridor, per node, checkable against the
-   analytic bands.  A node whose measured width is 0 is PINNED; one whose
-   width disagrees with the analytic band is a law/solver disagreement
-   with an exact address.
+   direct empirical map of the corridor, per node, and it is CHECKED
+   against the analytic band by :func:`band_agreement_report` (the two
+   independent suppliers of one quantity, agreement reported within
+   materiality — RULINGS 2026-08-06 binding point 4).  A node whose
+   measured width is 0 is PINNED; one whose width disagrees with the
+   analytic band is a law/solver disagreement with an exact address.
 
 WHY A SUBSTITUTED SOURCE AND NOT A LAW GATE.  This is an explicit
 DEM-source substitution handed to ``build_airport_pavement(tile_dem=...)``
@@ -75,6 +77,7 @@ __all__ = [
     "SEED_SPAN_M", "NODATA_SENTINEL", "seed_span_m",
     "plateau_dem", "canyon_dem", "band_width_field",
     "saturation_report", "saturation_summary", "SaturationRow",
+    "band_agreement_report", "BAND_AGREEMENT_MATERIALITY_M",
 ]
 
 #: The DEM no-data sentinel every reader in the tree compares against
@@ -380,7 +383,8 @@ class SaturationRow:
 
 
 def saturation_report(layout, world: str, band_of,
-                      tol_m: float = 1e-6) -> list:
+                      tol_m: float = 1e-6,
+                      coverage_out: Optional[dict] = None) -> list:
     """ASSERTION 2: every free node must sit at the band edge nearest its
     seed.
 
@@ -408,21 +412,37 @@ def saturation_report(layout, world: str, band_of,
     which is why the re-baseline had to record it as NOT EVALUATED rather
     than as a result.  The reader now splits the key: the coordinate goes
     to the supplier, the author goes into the row.
+
+    ``coverage_out`` — an out-dict that receives ``{"nodes", "with_band",
+    "no_band", "unsaturated"}``, the DENOMINATOR of this report.  Without
+    it the return value alone cannot tell "every node was checked and all
+    were saturated" from "the supplier answered ``None`` at every node and
+    nothing was checked", and those two look identical (``[]``) — the same
+    shape as the key-shape bug above, one supplier further out.  The
+    reader does not adjudicate the difference; it reports the counts and
+    lets the caller (``tools/harness/oracle.py``) decide.
     """
     if world not in ("plateau", "canyon"):
         raise ValueError(f"world must be plateau|canyon, got {world!r}")
     unsaturated = []
+    n_nodes = n_band = 0
     for key, value in _node_values(layout).items():
         author, x, y = key
         xy = (x, y)
+        n_nodes += 1
         band = band_of(xy)
         if band is None:
             continue
+        n_band += 1
         floor, ceil = band
         row = SaturationRow(xy, value, floor, ceil, world, author)
         if not row.saturated:
             unsaturated.append(row)
     unsaturated.sort(key=lambda r: -abs(r.off_edge_m))
+    if coverage_out is not None:
+        coverage_out.update({"nodes": n_nodes, "with_band": n_band,
+                             "no_band": n_nodes - n_band,
+                             "unsaturated": len(unsaturated)})
     return unsaturated
 
 
@@ -494,6 +514,84 @@ def band_width_summary(field: dict, span_m: Optional[float] = None) -> dict:
         "p50": widths[n // 2],
         "max": widths[-1],
         "mean": math.fsum(widths) / n,
+    }
+
+
+#: Materiality for the band-width agreement (Task 5 / binding point 4).
+#: The campaign's standing elevation-class materiality floor (Ortho4XP/
+#: CLAUDE.md convergence guards: "default 0.01 m for elevation classes"); a
+#: residual below it is reported as agreement-with-residual, never chased.
+BAND_AGREEMENT_MATERIALITY_M = 0.01
+
+
+def band_agreement_report(field: dict, band_of,
+                          materiality_m: float = BAND_AGREEMENT_MATERIALITY_M,
+                          top: int = 10) -> dict:
+    """ASSERTION 3's second half: the TWO SUPPLIERS of one quantity, compared.
+
+    Owner law binding point 4 (RULINGS 2026-08-06, "Instrument truth is
+    law"): *two independent instruments per load-bearing quantity,
+    agreement asserted within materiality*.  The band width at a node has
+    exactly two suppliers in this tree and they share no code:
+
+      * MEASURED — ``band_width_field``: ``canyon(node) − plateau(node)``,
+        the two builds differenced.  Empirical; it knows only what the
+        solver did.
+      * ANALYTIC — ``building_feasibility.reach_band_unified``:
+        ``ceiling − floor`` from the cap-Dijkstra over the unified grade
+        graph.  Derived from anchors, caps and geometry alone; it knows
+        only what the law grants.
+
+    ``constant_dem``'s own module docstring has stated the comparison as
+    the design since the module was written ("one whose width disagrees
+    with the analytic band is a law/solver disagreement with an exact
+    address") and nothing implemented it.  This is that function.
+
+    IT IS A REPORT, NOT A GATE.  A disagreement is an ADDRESS to go read,
+    not a verdict about who is wrong: the measured width can fall short of
+    the analytic one for lawful reasons (a node pinned by a within-shape
+    rule the route band does not carry), and the analytic band can be
+    ``None`` or half-open where the reader has no coverage.  Those cases
+    are COUNTED SEPARATELY and never folded into the disagreement count —
+    a catch-all bucket labelled with a cause is the defect this sweep
+    exists to remove.
+
+    ``field`` is a :func:`band_width_field` result (keys ``(author, x,
+    y)``); ``band_of((x, y)) -> (floor, ceiling) | None`` is the analytic
+    supplier, the same adapter :func:`saturation_report` takes.  Returns
+    counts + the worst ``top`` disagreements, each carrying its AUTHOR and
+    coordinate — the exact address.
+    """
+    rows = []
+    n_cmp = n_no_band = n_unbounded = 0
+    for (author, x, y), measured in field.items():
+        band = band_of((x, y))
+        if band is None:
+            n_no_band += 1
+            continue
+        floor, ceil = band
+        if floor is None or ceil is None:
+            n_unbounded += 1
+            continue
+        analytic = float(ceil) - float(floor)
+        n_cmp += 1
+        delta = float(measured) - analytic
+        if abs(delta) > materiality_m:
+            rows.append({"author": author, "x": x, "y": y,
+                         "measured_width_m": round(float(measured), 4),
+                         "analytic_width_m": round(analytic, 4),
+                         "delta_m": round(delta, 4)})
+    rows.sort(key=lambda r: -abs(r["delta_m"]))
+    return {
+        "materiality_m": float(materiality_m),
+        "nodes": len(field),
+        "compared": n_cmp,
+        "no_analytic_band": n_no_band,
+        "analytic_band_half_open": n_unbounded,
+        "disagreements": len(rows),
+        "max_abs_delta_m": (round(abs(rows[0]["delta_m"]), 4) if rows
+                            else 0.0),
+        "worst": rows[:top],
     }
 
 

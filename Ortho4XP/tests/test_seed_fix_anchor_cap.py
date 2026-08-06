@@ -8,7 +8,10 @@ from the phase-A npz (``seed_attrib/``):
     [62.119, 73.538], projected by the apron polytope to a seat of
     65.7485 and then stamped IMMOVABLE;
   * node 2862 — a free apron/junction node between them;
-  * node 2863 — HARD ``seed_rwy_seam`` runway truth at 60.790, only
+  * node 2863 — HARD runway-surface truth at 60.790 (recorded under the
+    retired blanket label ``seed_rwy_seam``; the live class for this
+    node is ``rwy_profile`` — see the classifier in
+    ``route_profile/solve.py``), only
     ~0.19 m of route BUDGET from 2861 (0.1928 m on the real graph;
     0.1828 m on the two-hop synthetic below, which carries only the two
     budgets the stall report named).

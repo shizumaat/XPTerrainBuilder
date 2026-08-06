@@ -150,6 +150,31 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
                 if i is not None and i < n and base_hard[i]:
                     elev[i] = float(value)
 
+    # ── THE WORLD STAMP (RULINGS 2026-08-06, binding point 3) ─────────
+    # Flex numbers were compared ACROSS ARMS by earlier lanes (canyon vs
+    # plateau), and a canyon line and a plateau line are identically
+    # SHAPED — nothing on them says which world produced them.  The
+    # world enters the flex through the SEED VALUES: every demand is a
+    # deficit against ``_value_envelope(seeds, ±1)``, and ``seeds`` is
+    # ``elev`` at the base-hard nodes, which is where the DEM lands.  So
+    # the seed population's extent IS the world, at hook entry, before
+    # the flex has moved anything.  One O(n) pass, against the O(n) seed
+    # comprehension this hook already runs once per ref per round.
+    _w_lo = _w_hi = None
+    _w_n = 0
+    for _i in range(n):
+        if not base_hard[_i]:
+            continue
+        _v = elev[_i]
+        _w_n += 1
+        if _w_lo is None or _v < _w_lo:
+            _w_lo = _v
+        if _w_hi is None or _v > _w_hi:
+            _w_hi = _v
+    _world_stamp = (
+        f"world: {_w_n} seed(s) z∈[{_w_lo:.2f}, {_w_hi:.2f}] m"
+        if _w_n else "world: 0 seed(s)")
+
     # node index → owning runway ref, for envelope-origin attribution
     # (which runway's value is PULLING a demand).
     node_owner_ref = {}
@@ -227,6 +252,29 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
     # its verify-and-relax silently discarded 9.90 of 333.17 m.  These
     # accumulators are WRITE-ONLY — nothing below reads them to decide
     # anything, so the surface is unchanged.
+    # ── THE PARTITION (cycle-7.5 instrument sweep) ────────────────────
+    # The B2 line used to print
+    #   "TRUE demand X m = <drained> + <killed> + <dropped>"
+    # and that "=" was FALSE two independent ways:
+    #   (i)  MIXED QUANTITIES.  ``_true_deficit`` accrues ``deficit`` —
+    #        the band-envelope deficit at a node.  ``total_drained``
+    #        accrues ``_ach`` — the ACHIEVED profile move at the target
+    #        station, i.e. the deficit AFTER the origin ÷2 split, AFTER
+    #        the slack clamp ``move = min(pull, slack)`` and AFTER
+    #        apply's verify-and-relax.  ``_ach ≤ _req ≤ deficit``, so the
+    #        left side systematically exceeds the right by construction.
+    #   (ii) A MISSING BUCKET.  Retired bins add to ``_true_deficit`` but
+    #        appeared only in a later, "+"-less clause, so whenever
+    #        anything retired the "=" could not balance even in
+    #        principle.
+    # THE REAL PARTITION, exhaustive by construction — every presented
+    # bin lands in EXACTLY one of these four, all of them ``deficit``:
+    #     _true_deficit == total_deficit      (kept by the greedy keep)
+    #                    + _killed_deficit    (move <= materiality floor)
+    #                    + _dropped_deficit   (dropped by the greedy keep)
+    #                    + _retired_deficit   (not re-presented)
+    # ``total_drained`` is reported BESIDE it as an ACHIEVEMENT against
+    # the kept bucket, never as a member of the partition.
     _true_deficit = 0.0                 # every bin, killed ones included
     _killed_n = 0
     _killed_deficit = 0.0               # killed at move <= materiality
@@ -240,7 +288,15 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
             "true_deficit": 0.0, "drained": 0.0, "killed_n": 0,
             "killed_deficit": 0.0, "dropped_n": 0, "requested": 0.0,
             "achieved": 0.0, "last_deficit": 0.0, "last_drain": 0.0,
-            "rounds": 0, "retired_n": 0, "retired_deficit": 0.0})
+            "rounds": 0, "retired_n": 0, "retired_deficit": 0.0,
+            # the partition's remaining two members, per runway, so the
+            # per-ref rows sum to the summary the same way the per-ROUND
+            # rows already do (the one place binding point 4's pattern
+            # was already implemented).
+            "kept_deficit": 0.0, "dropped_deficit": 0.0,
+            # this round's retired share of ``last_deficit`` — the
+            # residual must not double-count it (see the residual note).
+            "last_retired": 0.0})
 
     # ── THE ACHIEVED-STATE LOOP (spec
     # ``docs/specs/flex-convergence-spec.md``) ────────────────────────
@@ -368,6 +424,14 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
             _row["rounds"] = _round + 1
             _row["last_deficit"] = sum(b[0] for b in bins.values())
             _row["last_drain"] = 0.0
+            # ``last_deficit`` is taken over ALL bins — it is computed
+            # BEFORE the retirement filter below, so retired demand is
+            # inside it and can never appear in ``last_drain``.  Left
+            # alone, the residual ``last_deficit − last_drain`` silently
+            # RE-COUNTS the retired bucket the same sentence prints
+            # separately.  Book the retired share so it can be
+            # subtracted rather than stamped.
+            _row["last_retired"] = 0.0
             for (bin_key, (deficit, t, target, origin)) in bins.items():
                 # RETIREMENT (spec ``flex-convergence``): a bin whose
                 # target apply has already refused ``_RETIRE_AFTER``
@@ -382,6 +446,7 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
                     _row["true_deficit"] += deficit
                     _retired_deficit += deficit
                     _row["retired_deficit"] += deficit
+                    _row["last_retired"] += deficit
                     continue
                 current = _interp_profile(profile['fractions'],
                                           profile['elevs'], t)
@@ -450,13 +515,18 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
                 # ``apply_runway_flex`` returns, in the apply loop below.
             # FIX 4: the greedy-keep's drops, counted OUTSIDE its loop so
             # the loop body stays byte-for-byte what it was.
+            _kept_t = {t for (t, _v) in kept}
+            # The KEPT member of the partition, per runway (the global
+            # one is ``total_deficit``, booked inside the keep loop).
+            _row["kept_deficit"] += sum(c[0] for c in candidates
+                                        if c[1] in _kept_t)
             _n_drop = len(candidates) - len(kept)
             if _n_drop:
-                _kept_t = {t for (t, _v) in kept}
                 _dropped_n += _n_drop
                 _row["dropped_n"] += _n_drop
-                _dropped_deficit += sum(c[0] for c in candidates
-                                        if c[1] not in _kept_t)
+                _dd = sum(c[0] for c in candidates if c[1] not in _kept_t)
+                _dropped_deficit += _dd
+                _row["dropped_deficit"] += _dd
             if kept:
                 round_targets[ref] = sorted(kept)
         if not round_targets:
@@ -623,63 +693,101 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
     G.runway_anchor_sample.clear()
     _GGf._runway_anchors(layout, G, bucket_to_idx)
 
-    # ── FIX 4: THE HONEST B2 LINE ────────────────────────────────────
-    # What it now says, and why each term is there:
-    #   * TRUE demand — every bin's deficit, including the ones killed at
-    #     the move kill at the materiality floor (the old line's "of
-    #     X m" was survivors only,
-    #     45 % low at HECA).
-    #   * where the demand went — killed by clamp, dropped by greedy
-    #     keep, drained.
+    # ── THE HONEST B2 LINE ───────────────────────────────────────────
+    # What it says, and why each term is there:
+    #   * demand PRESENTED — every bin's deficit, including the ones
+    #     killed at the materiality floor (the pre-fix-4 line's "of X m"
+    #     was survivors only, 45 % low at HECA).  It is SUMMED OVER
+    #     ROUNDS by construction (a bin re-presented in five rounds
+    #     contributes five deficits), which is why the line says
+    #     "presented", not "TRUE demand": the old wording read as a
+    #     single physical quantity the airport has, and it is not one.
+    #   * THE PARTITION — kept / killed at the clamp / dropped by
+    #     greedy-keep / retired.  These four are exhaustive and are all
+    #     the same quantity, so their "=" is a real identity (see the
+    #     accumulator block for the proof and for what the old, false
+    #     "=" was).
+    #   * DRAINED, beside the partition and never inside it: the
+    #     ACHIEVED profile move, which is a different quantity from a
+    #     deficit and can only ever be ≤ the kept bucket.
     #   * requested vs achieved at ``apply_runway_flex``, naming the
     #     discard its verify-and-relax made.
-    #   * per-runway residual: the LAST round's outstanding demand minus
-    #     what that round drained — i.e. what the flex is leaving on the
-    #     table when it stops, per runway, with the stop reason.
+    #   * per-runway residual: the LAST round's presented demand, MINUS
+    #     that round's retired share (which the same sentence reports
+    #     separately — leaving it in double-counted it), minus what that
+    #     round drained.
+    #   * the frame: node space, world (seed extent at hook entry) and
+    #     crown space, so two arms' lines are never silently equated.
+    #
+    # ★ NO SILENT TRUNCATION.  This block used to be one
+    # ``try: … except Exception: pass``, so any error mid-report dropped
+    # every remaining line with no indication at all — a partial honest
+    # line that reads complete.  The stage marker below is advanced as
+    # the report proceeds and the handler NAMES where it stopped.
+    _flex_stage = "summary"
     try:
         import O4_UI_Utils as _UIf
         _disc = _requested_total - _achieved_total
-        _resid_total = sum(max(0.0, r["last_deficit"] - r["last_drain"])
-                           for r in _by_ref.values())
+        _resid_total = sum(
+            max(0.0, r["last_deficit"] - r["last_retired"]
+                - r["last_drain"])
+            for r in _by_ref.values())
+        _part = (total_deficit + _killed_deficit + _dropped_deficit
+                 + _retired_deficit)
         _UIf.vprint(1, f"  [pav-builder] {icao}: runway flex (B2) — "
                        f"{n_demands} envelope demand(s) applied over "
                        f"{_rounds_run} round(s) ({_stop_reason}) on "
-                       f"{', '.join(sorted(flexed_refs))}; TRUE demand "
-                       f"{_true_deficit:.2f} m = {total_drained:.2f} "
-                       f"drained + {_killed_deficit:.2f} killed at the "
-                       f"clamp ({_killed_n} bin(s)) + "
-                       f"{_dropped_deficit:.2f} dropped by greedy-keep "
-                       f"({_dropped_n} bin(s)); apply requested "
+                       f"{', '.join(sorted(flexed_refs))}; demand "
+                       f"PRESENTED (summed over rounds) "
+                       f"{_true_deficit:.2f} m = {total_deficit:.2f} kept "
+                       f"+ {_killed_deficit:.2f} killed at the clamp "
+                       f"({_killed_n} bin(s)) + {_dropped_deficit:.2f} "
+                       f"dropped by greedy-keep ({_dropped_n} bin(s)) + "
+                       f"{_retired_deficit:.2f} retired "
+                       f"({len(_retired)} bin(s) after {_RETIRE_AFTER} "
+                       f"refusal(s)) [partition sum {_part:.2f} m]; "
+                       f"drained (ACHIEVED profile move, not a partition "
+                       f"member) {total_drained:.2f} m; apply requested "
                        f"{_requested_total:.2f} m achieved "
                        f"{_achieved_total:.2f} m "
                        f"(discarded {_disc:.2f} m by verify-and-relax); "
-                       f"{len(_retired)} bin(s) retired after "
-                       f"{_RETIRE_AFTER} refusal(s) carrying "
-                       f"{_retired_deficit:.2f} m; "
-                       f"residual {_resid_total:.2f} m.")
+                       f"residual (last round, retired demand excluded) "
+                       f"{_resid_total:.2f} m "
+                       f"[node space n={n}; {_world_stamp}; crown space "
+                       f"uncrowned profile z′].")
         # ── THE PER-ROUND LINE (spec ``flex-convergence`` item 3) ─────
         # requested vs achieved vs retired, per round: the shape of the
         # convergence, which the single summary line could not show (a
         # 12-round arm whose rounds 2-12 achieve nothing reads exactly
         # like a 12-round arm that converges slowly).
+        _flex_stage = "per-round rows"
         for (_rn, _rq, _ra, _rt) in _round_rows:
             _UIf.vprint(1,
                         f"  [pav-builder]   round {_rn}: requested "
                         f"{_rq:.2f} m, achieved {_ra:.2f} m, retired "
                         f"{_rt} bin(s).")
+        _flex_stage = "per-runway rows"
         for _ref in sorted(_by_ref):
             _r = _by_ref[_ref]
+            _rpart = (_r['kept_deficit'] + _r['killed_deficit']
+                      + _r['dropped_deficit'] + _r['retired_deficit'])
             _UIf.vprint(1,
-                        f"  [pav-builder]   {_ref}: demand "
-                        f"{_r['true_deficit']:.2f} m, drained "
-                        f"{_r['drained']:.2f} m, killed "
-                        f"{_r['killed_deficit']:.2f} m ({_r['killed_n']}), "
-                        f"greedy-dropped {_r['dropped_n']} bin(s), "
+                        f"  [pav-builder]   {_ref}: demand presented "
+                        f"{_r['true_deficit']:.2f} m = "
+                        f"{_r['kept_deficit']:.2f} kept + "
+                        f"{_r['killed_deficit']:.2f} killed "
+                        f"({_r['killed_n']}) + "
+                        f"{_r['dropped_deficit']:.2f} greedy-dropped "
+                        f"({_r['dropped_n']} bin(s)) + "
+                        f"{_r['retired_deficit']:.2f} retired "
+                        f"({_r['retired_n']} bin(s)) "
+                        f"[partition sum {_rpart:.2f} m]; drained "
+                        f"{_r['drained']:.2f} m, "
                         f"apply {_r['achieved']:.2f}/{_r['requested']:.2f} m, "
-                        f"retired {_r['retired_n']} bin(s) carrying "
-                        f"{_r['retired_deficit']:.2f} m, residual "
-                        f"{max(0.0, _r['last_deficit'] - _r['last_drain']):.2f}"
+                        f"residual (retired excluded) "
+                        f"{max(0.0, _r['last_deficit'] - _r['last_retired'] - _r['last_drain']):.2f}"
                         f" m after {_r['rounds']} round(s).")
+        _flex_stage = "retired records"
         # THE LOUD RECORD: every retired bin, named.  A retirement is the
         # flex conceding a demand it cannot lawfully serve — it must never
         # be a silent give-up (docs/RULINGS.md, feasibility-is-guaranteed:
@@ -701,8 +809,20 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
         # regression), what the relax believed was lawful at that
         # station, and — decisively — whether the station that BOUND the
         # relax was one the flex itself minted a round earlier (the
-        # self-anchor lock; both sides now withdraw those, and this line
-        # reports how much move the withdrawal recovered).
+        # self-anchor lock; both sides now withdraw those).
+        #
+        # ★ NO COUNTERFACTUAL.  This block used to end "…{minted} would
+        # have been bound by a FLEX-MINTED station, {gain} m of lawful
+        # move recovered by the withdrawal."  Both halves overclaimed:
+        # ``gain`` is the difference between TWO BOUNDS computed in the
+        # same call (``_largest_lawful_move``'s ``slack`` vs
+        # ``slack_all``), so "recovered" asserts an outcome no run ever
+        # produced; and ``binding_was_minted`` is computed off the
+        # minted-INCLUSIVE binder while ``gain`` is a difference of
+        # bounds, so the two terms do not describe the same population.
+        # Reduced to the three measured numbers, each named for what it
+        # is.
+        _flex_stage = "apply refusals"
         _refusals = list(getattr(layout, "_flex_refusal_ledger", None) or ())
         if _refusals:
             _by_kind: dict = {}
@@ -728,10 +848,11 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
                 _UIf.vprint(1,
                             f"  [pav-builder]     {_k[0]} {_k[1]}/{_k[2]}: "
                             f"{_row['n']} event(s), {_row['req']:.2f} m "
-                            f"requested; {_row['minted']} would have been "
-                            f"bound by a FLEX-MINTED station, "
-                            f"{_row['gain']:.2f} m of lawful move recovered "
-                            f"by the withdrawal.")
+                            f"requested; binder_minted={_row['minted']} "
+                            f"event(s); Σ(lawful_move − "
+                            f"lawful_move_minted_included) = "
+                            f"{_row['gain']:.2f} m (a difference of two "
+                            f"BOUNDS, not an observed move).")
             # The retired bins, joined to the refusal that retired them.
             for _key in sorted(_retired, key=lambda k: (k[0], k[1])):
                 _rec = _retired[_key]
@@ -752,15 +873,25 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
                             f"asked {float(_h.get('requested_move') or 0.0):.3f} m, "
                             f"relax allowed "
                             f"{float(_h.get('lawful_move') or 0.0):.3f} m "
-                            f"(the pre-fix minted-inclusive bound "
-                            f"allowed "
+                            f"(minted-inclusive bound "
                             f"{float(_h.get('lawful_move_minted_included') or 0.0):.3f} m; "
                             f"binder minted="
                             f"{bool(_h.get('binding_was_minted'))}, "
                             f"{int(_h.get('n_minted_anchors') or 0)} minted "
                             f"anchor(s) on the profile).")
-    except Exception:
-        pass
+        _flex_stage = "complete"
+    except Exception as _flex_exc:                     # pragma: no cover
+        # LOUD, never silent: the reader must be able to tell a report
+        # that ENDED from a report that was CUT OFF.
+        _msg = (f"  [pav-builder] {icao}: runway flex report TRUNCATED "
+                f"after stage '{_flex_stage}' "
+                f"({type(_flex_exc).__name__}: {_flex_exc}) — the "
+                f"remaining flex numbers were NOT printed.")
+        try:
+            import O4_UI_Utils as _UIt
+            _UIt.vprint(1, _msg)
+        except Exception:
+            print(_msg)
     return n_demands
 
 
@@ -2146,8 +2277,30 @@ def solve_route_profile(layout, icao: str,
     # is the runway profile, so this is a no-op for a true runway-end node and
     # only corrects the intersection-compromised crossing node.
     # ── hard-anchor CATEGORY map — NAMES THE ACTUAL PROVENANCE ────────
-    # (debug: read only by the ``O4_DUMP_SOLVE_STATE`` snapshot — the
-    # phantom-anchor forensics; nothing in the solve consumes it.)
+    # ⚠ NOT REPORT-ONLY.  The comment that used to stand here — "nothing
+    # in the solve consumes it" — was FALSE and is corrected in the
+    # cycle-7.5 instrument sweep.  ``_hard_cat`` VALUES are read by
+    # equality at TWO production sites, both under ``ENABLE_SPINE_CROWN``
+    # (``config.py`` ``O4_SPINE_CROWN``, default "1" — ON), and both feed
+    # ``crown.build_crown_drop_field``, whose output is the writeback
+    # transform applied to EMITTED elevations:
+    #
+    #   * the CROWN-FREEZE set (see the ``_crown_freeze`` build below):
+    #     ``{i for i, _cat in _hard_cat.items() if _cat in
+    #     ("seam_spine_anchor", "seat_on_spine", "gs_pin")}`` — a frozen
+    #     node emits at crown drop 0 instead of its family's drop;
+    #   * the RUNWAY-JOIN samples: ``{i: s for i, s in
+    #     G.runway_anchor_sample.items() if i < n and
+    #     _hard_cat.get(i) == "rwy_join"}`` — a join in this map gets a
+    #     VALUE-DERIVED drop that lands it on the crowned runway edge.
+    #
+    # CONSEQUENCE, and the standing constraint on anyone editing this
+    # block: changing WHICH NODES CARRY a given class value MOVES THE
+    # SURFACE.  Report work here must be membership-identical
+    # (``setdefault``, never ``=``, over an already-classified node).
+    # The map is ALSO read by the ``O4_DUMP_SOLVE_STATE`` snapshot, the
+    # ``O4_BREAK_FORENSICS`` class map and the route-metric witness
+    # withdrawal — those three are genuinely report-only.
     #
     # CYCLE-7 FIX 3, verdict (d) BROKEN INSTRUMENT.  This map used to be
     # ``{i: "seed_rwy_seam" for i in base_hard}`` — a BLANKET CONSTANT.
@@ -2179,20 +2332,12 @@ def solve_route_profile(layout, icao: str,
     # instead of silently inflating a real population.
     _flexed_idx = getattr(layout, "_flexed_runway_node_idx", None) or ()
     _seam_pin_pre = getattr(layout, "_seam_pin_idx", None) or set()
-    _hard_cat: dict = {}
-    for i in range(n):
-        if not base_hard[i]:
-            continue
-        if i in _flexed_idx:
-            _hard_cat[i] = "rwy_flexed"
-        elif i in _seam_pin_pre:
-            _hard_cat[i] = "seam_pin"
-        elif i in G.runway_anchor:
-            _hard_cat[i] = "rwy_join"
-        elif i in runway_nodes:
-            _hard_cat[i] = "rwy_profile"
-        else:
-            _hard_cat[i] = "base_hard:unattributed"
+    # THE RULE lives in ``classify_hard_anchors`` (module level) so the
+    # twin drives the classifier the solve actually runs, not a local
+    # re-implementation of its precedence.  Body extracted verbatim.
+    _hard_cat: dict = classify_hard_anchors(
+        n, base_hard, _flexed_idx, _seam_pin_pre, G.runway_anchor,
+        runway_nodes)
     # FLEXED runway nodes keep the flexed profile value: the join
     # anchor is SAMPLED from piece geometry and disagrees with the
     # flexed profile at piece ends (user 2026-07-06 root-cause —
@@ -2388,17 +2533,46 @@ def solve_route_profile(layout, icao: str,
     # otherwise-dead ``SEAM_FIELD_ANCHORS`` concept onto the unified graph.
     from auto_patch.config import SEAM_FIELD_ANCHORS
     _cut_lines = getattr(layout, "_seam_cut_lines", None) or []
+    # PUBLISHED, not discarded (cycle-7.5 instrument sweep): the set this
+    # pass actually pinned is what attributes the hardening below.  The
+    # return value used to be thrown away at this very statement.
+    _seam_anchor_idx: set = set()
     if SEAM_FIELD_ANCHORS and dem is not None and _cut_lines:
-        _seam_spine_anchors(layout, G, u_spine_adj, elev, base_hard,
-                            dem, tile_lat, tile_lon, _cut_lines)
+        _seam_anchor_idx = _seam_spine_anchors(
+            layout, G, u_spine_adj, elev, base_hard,
+            dem, tile_lat, tile_lon, _cut_lines)
 
     # TRUTH anchors — everything hard BEFORE the phase-A spine freeze
     # (runway/CIFP + tile-seam DEM pins + runway joins + building spine
     # seats).  The spine-yield projection below may move any node NOT in
     # this set.
     truth_hard = {i for i in range(n) if base_hard[i]}
-    for i in truth_hard:
-        _hard_cat.setdefault(i, "seam_spine_anchor")
+    # ── THE UNATTRIBUTED HARDENING CHANNEL, MADE COUNTABLE ────────────
+    # The published seam set is labelled from its PUBLISHER; the blanket
+    # stays exactly as it was (same label, same ``setdefault`` semantics,
+    # so crown-freeze membership is byte-identical) and whatever it still
+    # absorbs is reported as ``unattributed_hardening`` — the number the
+    # campaign rider asked for.
+    _hardening = attribute_seam_spine_hardening(
+        _hard_cat, truth_hard, _seam_anchor_idx)
+    # No ``except: pass`` around this report — a report that cannot print
+    # must fail loudly, not vanish (the same defect this sweep is fixing
+    # in the flex block).  ``O4_UI_Utils`` is imported unguarded exactly
+    # as the seat-guard report above imports it.
+    import O4_UI_Utils as _UI_hh
+    _n_resid_cls = sum(1 for _c in _hard_cat.values()
+                       if _c == "base_hard:unattributed")
+    _UI_hh.vprint(
+        1,
+        f"  [hard-anchor-attribution] {icao}: seam-spine pass pinned "
+        f"{_hardening['pinned']} node(s) "
+        f"({_hardening['attributed']} newly labelled seam_spine_anchor, "
+        f"{_hardening['pre_classified']} already carried another class); "
+        f"blanket absorbed {_hardening['unattributed']} more — "
+        f"unattributed_hardening={_hardening['unattributed']}; "
+        f"classifier residue base_hard:unattributed={_n_resid_cls}; "
+        f"truth_hard={len(truth_hard)} of node space n={n} "
+        f"(SOLVE node space, pre-freeze, uncrowned z′).")
     # PHASE A — dedicated SMOOTH spine solve on the unified graph (geometry
     # nodes), runway/seam HARD at their LOCAL value, building floors honoured.
     # The spine is min-curvature and ≤cap by construction, then FROZEN so the
@@ -4330,7 +4504,14 @@ def solve_route_profile(layout, icao: str,
     _report_law_certificate(
         icao, "SOLVE EXIT",
         projection_law_certificate(_solve_exit_joint, elev, n, yield_hard,
-                                   family_of=_u_family_of))
+                                   family_of=_u_family_of),
+        # THE FRAME (binding point 3): the SOLVE's node space, and the
+        # uncrowned z′ frame the law lives in — this reading is taken
+        # before the crown drop below, which is an EMIT transform.  The
+        # final passes' ENTRY/EXIT readings stamp their OWN (rebuilt,
+        # smaller) node space, so the reader can see at a glance that
+        # the three numbers are not comparable.
+        n_nodes=n, crown_space="uncrowned z'")
     if _crown_drop_idx:
         _elev_emit = list(elev)
         for _i, _c in _crown_drop_idx.items():
@@ -5549,8 +5730,38 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
 # reverse) and the module-head import aliases it here — not a second copy.
 
 
-def _report_law_certificate(icao, label, cert, top=8):
-    """Print a :func:`projection_law_certificate` result, worst first."""
+def _report_law_certificate(icao, label, cert, top=8, n_nodes=None,
+                            crown_space="uncrowned z'"):
+    """Print a :func:`projection_law_certificate` result, worst first.
+
+    FRAME STAMPS (RULINGS 2026-08-06 "Instrument truth is law", binding
+    point 3).  ``n_nodes`` is the NODE SPACE the reading was taken in and
+    ``crown_space`` the vertical frame.  They are not decoration: three
+    readers print a line of this shape — the SOLVE EXIT certificate, the
+    final pass's ENTRY and its EXIT — and they run in DIFFERENT node
+    spaces (measured at HECA: 146,743 for the solve against 142,635 /
+    144,056 for the final passes, which rebuild their own graph).  Two
+    labels that read as ENTRY/EXIT of one thing were therefore silently
+    two populations, and the numbers are NOT comparable across differing
+    ``n``.  Stamping the space is what makes that visible at the line
+    instead of in a comment 2,000 lines away.
+
+    ``crown_space`` matters for the same reason: every current caller
+    reads in UNCROWNED z′ (the law's own frame — the solve takes its
+    certificate one statement before the crown drop, and the final
+    passes lift into z′ = z + c on entry and drop back on exit).  A
+    reader comparing a certificate number to an emitted .osm value is
+    off by ``_crown_of`` at every crowned node, with nothing on the line
+    to warn them.
+
+    VERDICT WORD, REMOVED (binding point 2).  This line used to print
+    ``CERTIFIED`` / ``UNCERTIFIED``, a world-DEPENDENT interpretation
+    (``total`` is a function of ``elev``, hence of the DEM) emitted by a
+    report function whose own call-site comment says "Pure measurement,
+    no gate".  It read as a gate result and gated nothing.  It is
+    replaced by the measurement it restated, ``over_cap=N`` — equally
+    greppable, so the fail-loud property RULINGS 2026-08-05 asks for is
+    kept, without asserting a verdict the law layer never made."""
     rows = sorted(cert.items(), key=lambda kv: -kv[1][0])
     total = sum(v[0] for v in cert.values())
     both = sum(v[2] for v in cert.values())
@@ -5564,10 +5775,11 @@ def _report_law_certificate(icao, label, cert, top=8):
         say = lambda m: _UI_cert.vprint(1, m)          # noqa: E731
     except Exception:                                  # pragma: no cover
         say = print
-    verdict = "CERTIFIED" if not total else "UNCERTIFIED"
-    say(f"  [proj-law-certificate] {icao} {label}: {verdict} — {total} law "
-        f"edge(s) over cap ({both} both-hard) in {n_viol} violating "
-        f"family(ies) of {len(rows)} present")
+    _space = "?" if n_nodes is None else str(int(n_nodes))
+    say(f"  [proj-law-certificate] {icao} {label}: over_cap={total} law "
+        f"edge(s) ({both} both-hard) in {n_viol} violating "
+        f"family(ies) of {len(rows)} present "
+        f"[node space n={_space}; crown space {crown_space}]")
     for fam, (n_over, worst, n_bh) in rows[:top]:
         if not n_over:
             continue
@@ -6813,7 +7025,11 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     _report_law_certificate(icao, f"final#{_ml_pass or 1} ENTRY",
                             projection_law_certificate(
                                 joint, elev, n, hard,
-                                family_of=_fp_family_of))
+                                family_of=_fp_family_of),
+                            # THIS pass's REBUILT node space (not the
+                            # solve's), read in the z′ = z + crown frame
+                            # lifted at entry above.
+                            n_nodes=n, crown_space="uncrowned z'")
     rem, bh = feasibility_project(elev, joint, hard, force_scalar=True,
                                   env_band=_fp_env_band,
                                   family_of=_fp_family_of,
@@ -7155,7 +7371,11 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     _report_law_certificate(icao, f"final#{_ml_pass or 1} EXIT",
                             projection_law_certificate(
                                 joint, elev, n, hard,
-                                family_of=_fp_family_of))
+                                family_of=_fp_family_of),
+                            # Same pass, same node space as its ENTRY
+                            # reading above — still BEFORE the crown
+                            # transform back, so still uncrowned z′.
+                            n_nodes=n, crown_space="uncrowned z'")
     # ── PROBE A, FINAL-PROJECTION TAIL: THIS PASS'S EXIT BOUNDARY ───────
     # (spec amendment 2026-08-01.)  Taken BEFORE the crown transform back,
     # so it is in the SAME uncrowned z′ frame as every other boundary in
@@ -7265,21 +7485,114 @@ def _open4(poly):
     return c[:-1] if c and c[0] == c[-1] else c
 
 
+def classify_hard_anchors(n, base_hard, flexed_idx, seam_pins,
+                          runway_anchor, runway_nodes):
+    """THE hard-anchor classifier — ``{node: class}`` for every node that
+    is ``base_hard`` at the classification point, named by the source that
+    actually hardened it.
+
+    EXTRACTED (cycle-7.5 instrument sweep) from ``solve_route_profile``'s
+    inline loop so the twin drives THE RULE the solve applies instead of a
+    second transcription of it — ``tests/test_hard_anchor_class_axis.py``
+    used to re-implement this precedence locally, so a change here could
+    not fail it.  The body is verbatim: same iteration order (ascending
+    index), same predicates, same order of tests, same names — so the
+    returned dict is identical key-for-key and value-for-value to what the
+    inline loop built.
+
+    Precedence is MOST-SPECIFIC FIRST, and a node no source claims is
+    NAMED ``base_hard:unattributed`` rather than folded into a
+    neighbouring class, so the residue is countable instead of silently
+    inflating a real population (the ``seed_rwy_seam`` blanket's cost:
+    "610 anchors, 100 % class seed_rwy_seam", an artefact of the label).
+    """
+    out: dict = {}
+    for i in range(n):
+        if not base_hard[i]:
+            continue
+        if i in flexed_idx:
+            out[i] = "rwy_flexed"
+        elif i in seam_pins:
+            out[i] = "seam_pin"
+        elif i in runway_anchor:
+            out[i] = "rwy_join"
+        elif i in runway_nodes:
+            out[i] = "rwy_profile"
+        else:
+            out[i] = "base_hard:unattributed"
+    return out
+
+
+def attribute_seam_spine_hardening(hard_cat, truth_hard, pinned_idx):
+    """Label the late hardening between the classifier and the phase-A
+    truth snapshot, and COUNT what no source claims.
+
+    THE DEFECT this replaces (cycle-7.5 instrument sweep; the same shape
+    commit ``092af7f`` removed one layer up).  ``_seam_spine_anchors``
+    hardened nodes, kept its ``seen`` set purely local and had its return
+    value DISCARDED at the call site; the only trace was a blanket
+    ``for i in truth_hard: hard_cat.setdefault(i, "seam_spine_anchor")``
+    that labelled EVERY node hardened since the classifier
+    ``seam_spine_anchor`` whatever had actually hardened it — including
+    when the seam machinery never ran at all.  The campaign record's
+    rider ("444 of 1,077 nodes in the class were hardened with NO seeder
+    record — an unattributed hardening channel") is that blanket.
+
+    ``pinned_idx`` is the set ``_seam_spine_anchors`` ACTUALLY pinned, so
+    those nodes are attributed from the publisher.  Whatever the blanket
+    still absorbs after that is the UNATTRIBUTED RESIDUAL — counted and
+    returned, never hidden.
+
+    ★ SURFACE NEUTRALITY.  Both loops use ``setdefault``, never ``=``.
+    A node ``_seam_spine_anchors`` pins may ALREADY carry a class (it
+    picks the nearest spine node within 30 m of a seam crossing without
+    testing hardness, and that node is often already ``rwy_profile`` /
+    ``seam_pin`` / ``seat_on_spine``).  The blanket never relabelled such
+    a node, and neither may this: ``seam_spine_anchor`` sits in the
+    solve's CROWN-FREEZE set, so an overwrite would move nodes into or
+    out of that set and MOVE EMITTED ELEVATIONS.  ``setdefault`` makes
+    the membership byte-identical to the blanket's.
+
+    Returns ``{"pinned": …, "attributed": …, "pre_classified": …,
+    "unattributed": …}`` — counts only, no verdict.
+    """
+    n_attributed = 0
+    for i in pinned_idx:
+        if i not in hard_cat:
+            hard_cat[i] = "seam_spine_anchor"
+            n_attributed += 1
+    n_unattributed = 0
+    for i in truth_hard:
+        if i not in hard_cat:
+            hard_cat[i] = "seam_spine_anchor"
+            n_unattributed += 1
+    return {"pinned": len(pinned_idx),
+            "attributed": n_attributed,
+            "pre_classified": len(pinned_idx) - n_attributed,
+            "unattributed": n_unattributed}
+
+
 def _seam_spine_anchors(layout, G, spine_adj, elev, base_hard,
                         dem, tile_lat, tile_lon, cut_lines):
     """Pin the nearest SPINE node to each taxi-centerline × tile-seam crossing at
     the SMOOTHED seam DEM (HARD), so ``_solve_spine_profile`` grades the route
     DOWN to the seam over the centerline length instead of leaving the spine at
     the plateau level (the SPLP tile-77 seam: spine stuck ~74.6, seam 72.2 → the
-    apron body cliffed).  Returns the count pinned."""
+    apron body cliffed).
+
+    PUBLISHES what it pinned (cycle-7.5 instrument sweep): returns the SET
+    of node indices and stashes it on ``layout._seam_spine_anchor_idx``.
+    It used to return a COUNT that the call site discarded, so the only
+    record that this channel had hardened anything was the downstream
+    blanket label — see :func:`attribute_seam_spine_hardening`."""
     from shapely.geometry import Point          # noqa: F401  (geom predicates)
     from auto_patch.elevation import _sample_dem
     n = len(elev)
+    seen: set = set()
+    layout._seam_spine_anchor_idx = seen
     spine_pts = [(i, G.pos[i]) for i in spine_adj if i in G.pos and i < n]
     if not spine_pts:
-        return 0
-    pinned = 0
-    seen: set = set()
+        return seen
     for entry in (getattr(layout, "apt_taxi_centerlines", []) or []):
         ln = entry.line if hasattr(entry, "line") else (entry[0] if isinstance(entry, (tuple, list)) else entry)
         if ln is None or ln.is_empty:
@@ -7307,8 +7620,7 @@ def _seam_spine_anchors(layout, G, spine_adj, elev, base_hard,
                 elev[bi] = float(v)
                 base_hard[bi] = True
                 seen.add(bi)
-                pinned += 1
-    return pinned
+    return seen
 
 
 def _build_spine_corridors(spine_adj, nodes_xy):

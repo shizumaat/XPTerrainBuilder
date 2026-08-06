@@ -1061,6 +1061,144 @@ class TestAuthorMoveDump:
             "the per-vertex dump is a second READER of one population, "
             "never a second instrument")
 
+    def test_the_aggregate_reports_the_hand_computed_displacement(self):
+        """The PRINTED displacement census had no known-answer twin at
+        all — only the dump did.  Known answer for the three writes
+        above: the mover changes index 1 from 20.0 to 25.0, |d| = 5.0 m,
+        and index 0 does not move (0.0 < the 0.01 m materiality)."""
+        probe, _ = self._run(False)
+        rows, totals = probe.author_report()
+        assert rows == [{"author": "mover", "class": "untouched",
+                         "role": "apron", "n_moved": 1,
+                         "max_m": 5.0, "p50_m": 5.0}]
+        assert totals == {("mover", "untouched"):
+                          {"n_moved": 1, "max_m": 5.0}}
+
+
+class TestDemAuthorshipCensus:
+    """The IN-MEMORY half of the DEM census — ``dem_authorship``.
+
+    It had no known-answer twin: only ``introducing_write`` (the pure
+    function it calls) did, so the per-shape row assembly around it — the
+    role, the counts, the filter that drops shapes with no on-DEM vertex —
+    was untested.
+    """
+
+    class _Shape:
+        node_altitudes = None
+
+        def __init__(self, role="apron", ref=""):
+            self.role = role
+            self.ref = ref
+            self.polygon = None
+            self.node_altitudes = None
+
+    SITES = ["seed.py:1:THE_SEEDER",
+             "solve.py:2:cleaned_it",
+             "ground.py:3:THE_AUTHOR",
+             "final.py:4:carrier"]
+
+    def _probe(self):
+        real = WHO.call_site
+        seq = iter(self.SITES)
+        WHO.call_site = lambda *a, **k: next(seq, self.SITES[-1])
+        try:
+            probe = WHO.AuthorshipProbe(self._Shape, dem_m=1.0).install()
+            try:
+                on = self._Shape("service_junction", "SJ")
+                on.node_altitudes = [1.0, 9.0]     # seeded: 1 on the DEM
+                on.node_altitudes = [8.0, 9.0]     # cleaned: 0 on the DEM
+                on.node_altitudes = [1.0, 1.0]     # THE AUTHOR: 2 back on
+                on.node_altitudes = [1.0, 1.0]     # a carrier
+                off = self._Shape("apron", "AP")
+                off.node_altitudes = [7.0, 7.0]    # never on the DEM
+            finally:
+                probe.uninstall()
+        finally:
+            WHO.call_site = real
+        return probe, on, off
+
+    def test_rows_name_the_author_and_drop_shapes_with_no_on_dem_vertex(self):
+        probe, on, off = self._probe()
+        layout = types.SimpleNamespace(shapes=[on, off])
+        rows, by_author = probe.dem_authorship(layout)
+        assert len(rows) == 1, "the apron never sits on the DEM"
+        r = rows[0]
+        assert (r["shape"], r["role"], r["ref"]) == (0, "service_junction",
+                                                     "SJ")
+        assert (r["on_dem"], r["n"], r["writes"]) == (2, 2, 4)
+        assert r["introduced_by"] == self.SITES[2], (
+            "the first write after the last write with a zero count — not "
+            "the carrier that wrote the same values afterwards")
+        assert by_author == {("service_junction", self.SITES[2]): 2}
+
+    def test_the_shape_key_is_the_layout_index_the_emitted_tag_carries(self):
+        """``shape`` is the index in ``layout.shapes``, which is what
+        ``layout.to_osm`` writes as the way's ``shapeID`` — the emitted
+        join key.  A row keyed on anything else joins to nothing."""
+        probe, on, off = self._probe()
+        layout = types.SimpleNamespace(shapes=[off, on])
+        rows, _ = probe.dem_authorship(layout)
+        assert rows[0]["shape"] == 1
+
+
+class TestNodeHistory:
+    """``--at X,Y`` — the mode with no twin at all.
+
+    It is the instrument that diffs two constant-DEM worlds write by
+    write, so a compression bug there silently deletes the very step the
+    two worlds first disagree at.
+    """
+
+    class _Shape:
+        node_altitudes = None
+
+        def __init__(self, ring, role="apron", ref="R"):
+            from shapely.geometry import Polygon
+            self.role = role
+            self.ref = ref
+            self.polygon = Polygon(ring)
+            self.node_altitudes = None
+
+    def _history(self):
+        probe = WHO.AuthorshipProbe(self._Shape, dem_m=None,
+                                    at=[(10.0, 0.0)], tol=0.05).install()
+        try:
+            s = self._Shape([(0, 0), (10, 0), (10, 10)])
+            # ring = [(0,0), (10,0), (10,10), (0,0)] — the traced point is
+            # ring index 1, so the history is that index's value stream.
+            s.node_altitudes = [1.0, 2.0, 3.0, 1.0]
+            s.node_altitudes = [1.0, 2.0, 4.0, 1.0]   # index 1 UNCHANGED
+            s.node_altitudes = [1.0, 9.0, 4.0, 1.0]
+        finally:
+            probe.uninstall()
+        return probe.node_history()
+
+    def test_it_reports_only_the_changes_at_the_traced_coordinate(self):
+        hist = self._history()
+        assert list(hist) == ["10.0,0.0"]
+        changes = hist["10.0,0.0"]
+        assert [c["value"] for c in changes] == [2.0, 9.0], (
+            "the middle write left ring index 1 at 2.0 and must compress "
+            "out; only the two CHANGES are the history")
+        assert [c["step"] for c in changes] == [2, 4], (
+            "``step`` is the ordinal of EVERY assignment the probe saw, "
+            "the dataclass field's own ``= None`` included (step 1 here) "
+            "— so a gap in the printed steps is a compressed-out write OR "
+            "a None write, and the number is not an index into the values")
+        assert all(c["role"] == "apron" and c["ref"] == "R"
+                   for c in changes)
+
+    def test_a_coordinate_outside_the_tolerance_records_nothing(self):
+        probe = WHO.AuthorshipProbe(self._Shape, dem_m=None,
+                                    at=[(10.0, 1.0)], tol=0.05).install()
+        try:
+            s = self._Shape([(0, 0), (10, 0), (10, 10)])
+            s.node_altitudes = [1.0, 2.0, 3.0, 1.0]
+        finally:
+            probe.uninstall()
+        assert probe.node_history() == {"10.0,1.0": []}
+
 
 def test_who_wrote_builds_through_the_harness_entry_only():
     """It must not grow a private build: the whole point of a lane tool
@@ -1101,26 +1239,58 @@ def test_the_probe_values_survive_uninstall():
 # frame is the census-wrapper defect wearing a different hat — and it had
 # already drifted exactly the same way.
 
-def _grade_gate_src() -> str:
-    return (Path(__file__).parent / "test_pavement_grade.py").read_text()
+#: EVERY test module that counts law violations against a built patch.
+#: Each must reach the law through ``check_grade``'s single reader; a
+#: private assembler in ANY of them is the census-wrapper defect, and the
+#: guard was armed on only the first one while the second carried a live
+#: instance of it (``_law_true_rows`` hand-built the kwargs and dropped
+#: ``fan_ramp_zones_ll``, so declared fan-ramp zones were judged as
+#: violations).
+GUARDED_LAW_READERS = ("test_pavement_grade.py", "test_constant_dem_oracle.py")
 
 
-def test_the_acceptance_gate_reads_the_one_law_frame():
+def _grade_gate_src(name: str = "test_pavement_grade.py") -> str:
+    return (Path(__file__).parent / name).read_text()
+
+
+def _sidecar_law_kwargs() -> tuple:
+    """The law keywords ``law_context_from_sidecar`` assembles, read from
+    its source — so a NEW sidecar law key enrols in this guard the moment
+    the single reader learns it, with no second list to maintain here."""
+    src = inspect.getsource(
+        _load("harness_twin_check_grade",
+              ROOT / "tools" / "check_grade.py").law_context_from_sidecar)
+    keys = set(re.findall(r'ctx\["(\w+_ll)"\]', src))
+    assert "terrace_joints_ll" in keys and "fan_ramp_zones_ll" in keys, (
+        f"the sidecar law-keyword scrape found {sorted(keys)} — "
+        f"law_context_from_sidecar no longer assigns ctx[...] by literal, "
+        f"so this guard is reading nothing")
+    return tuple(sorted(keys))
+
+
+@pytest.mark.parametrize("module", GUARDED_LAW_READERS)
+def test_the_acceptance_gate_reads_the_one_law_frame(module):
     """The gate hand-mirrored ``_write_axes_sidecar``'s payload out of the
     layout — sixty lines of axes, anchor, seam pins, mesh, crown field,
     pair caps and terrace joints.  It never passed ``ruleset``, so KCLT
-    built under FAA law was judged under ICAO.  One reader now."""
-    src = _grade_gate_src()
+    built under FAA law was judged under ICAO.  One reader now.
+
+    ``test_constant_dem_oracle.py`` grew the SAME defect independently
+    (``_law_true_rows``, which dropped ``fan_ramp_zones_ll``), which is
+    why the guard is a list rather than one file.
+    """
+    src = _grade_gate_src(module)
     assert "run_checks_law_true(" in src, (
-        "the acceptance gate must take its law frame from "
-        "check_grade.run_checks_law_true, not assemble kwargs")
+        f"{module} must take its law frame from "
+        f"check_grade.run_checks_law_true, not assemble kwargs")
     code = _code_only(src)
-    for key in ("taxi_axes_exact_ll", "junction_mesh_edges_ll",
-                "seam_pins_ll", "crown_drops_ll", "crown_centerline_ll",
-                "pair_caps_ll", "terrace_joints_ll"):
+    # The historical spellings of the hand-built payload, kept so a revert
+    # to the old gate code is caught by name.
+    legacy = ("taxi_axes_exact_ll", "junction_mesh_edges_ll")
+    for key in _sidecar_law_kwargs() + legacy:
         assert key not in code, (
-            f"the acceptance gate still assembles {key!r} itself — that is "
-            f"a second instrument describing the same population")
+            f"{module} still assembles {key!r} itself — that is a second "
+            f"instrument describing the same population")
 
 
 def test_the_faa_fixture_is_in_the_acceptance_battery():
@@ -1543,6 +1713,20 @@ class TestEmittedOnDem:
     within-shape law row.
     """
 
+    #: THE KNOWN ANSWER, computed by hand from this file (DEM = 1 m,
+    #: emitted tolerance 0.005 m):
+    #:
+    #:   nodes  -1 -3 -4 -7 ON the DEM;  -2 (90) and -6 (42) OFF it;
+    #:          -5 carries NO ``alt_abs`` at all  →  total = 4 of 7
+    #:   -10001 gp   sid 11  hits -1        , also holds -2 OFF  → STRANDED
+    #:   -10002 gp   no sid  hits -3 -4     , nothing OFF        → vertex-flat
+    #:   -10003 bldg no sid  NO valued ref  , altitude TAG = 1   → tag-only
+    #:   -10004 bldg sid 12  hits -7        , also holds -6 OFF  → STRANDED,
+    #:                                        altitude TAG = 1   → tag-only
+    #:                       (TAG on the DEM, vertices NOT — discriminating)
+    #:   -10005 apron sid 13 hits -7 -4     , nothing OFF        → vertex-flat,
+    #:                       altitude TAG = 90 (OFF the DEM — the other
+    #:                       discriminating direction)
     PATCH = """<?xml version='1.0' encoding='UTF-8'?>
 <osm version='0.6' generator='t'>
   <node id='-1' lat='1.0' lon='1.0'><tag k='alt_abs' v='1.00' /></node>
@@ -1550,10 +1734,13 @@ class TestEmittedOnDem:
   <node id='-3' lat='1.0' lon='1.0'><tag k='alt_abs' v='1.00' /></node>
   <node id='-4' lat='1.0' lon='1.0'><tag k='alt_abs' v='1.00' /></node>
   <node id='-5' lat='1.0' lon='1.0' />
+  <node id='-6' lat='1.0' lon='1.0'><tag k='alt_abs' v='42.00' /></node>
+  <node id='-7' lat='1.0' lon='1.0'><tag k='alt_abs' v='1.00' /></node>
   <way id='-10001'>
     <nd ref='-1' /><nd ref='-2' /><nd ref='-1' />
     <tag k='role' v='groundside_pavement' />
     <tag k='ref' v='groundside' />
+    <tag k='shapeID' v='11' />
   </way>
   <way id='-10002'>
     <nd ref='-3' /><nd ref='-4' /><nd ref='-3' />
@@ -1564,39 +1751,289 @@ class TestEmittedOnDem:
     <tag k='role' v='building' />
     <tag k='altitude' v='1.00' />
   </way>
+  <way id='-10004'>
+    <nd ref='-6' /><nd ref='-7' /><nd ref='-6' />
+    <tag k='role' v='building' />
+    <tag k='altitude' v='1.00' />
+    <tag k='shapeID' v='12' />
+  </way>
+  <way id='-10005'>
+    <nd ref='-7' /><nd ref='-4' /><nd ref='-7' />
+    <tag k='role' v='apron' />
+    <tag k='altitude' v='90.00' />
+    <tag k='shapeID' v='13' />
+  </way>
 </osm>
 """
 
-    def _rep(self, tmp_path):
+    #: shape 11 and shape 13 are in the census; shape 12 deliberately is
+    #: NOT, and way -10002 carries no ``shapeID`` at all — the two ways a
+    #: join can miss.
+    AUTHORSHIP = [
+        {"shape": 11, "role": "groundside_pavement", "on_dem": 1, "n": 2,
+         "introduced_by": "seeder.py:1:THE_SEEDER"},
+        {"shape": 13, "role": "apron", "on_dem": 2, "n": 2,
+         "introduced_by": "solve.py:2:THE_SOLVE"},
+    ]
+
+    def _patch(self, tmp_path):
         p = tmp_path / "patch.osm"
         p.write_text(self.PATCH)
-        return WHO.emitted_on_dem(p, 1.0)
+        return p
 
+    def _rep(self, tmp_path, **kw):
+        return WHO.emitted_on_dem(self._patch(tmp_path), 1.0, **kw)
+
+    # ── the counts ───────────────────────────────────────────────────
     def test_counts_distinct_nodes_and_attributes_them_to_way_roles(
             self, tmp_path):
         rep = self._rep(tmp_path)
-        assert rep["total"] == 3, "-1, -3 and -4 sit on the DEM; -2 does not"
-        assert rep["by_role"]["groundside_pavement"] == 3
+        assert rep["nodes"] == 7 and rep["ways"] == 5
+        assert rep["total"] == 4, (
+            "-1, -3, -4 and -7 sit on the DEM; -2 (90) and -6 (42) do not; "
+            "-5 carries no alt_abs")
+        assert rep["by_role"] == {"groundside_pavement": 3, "apron": 2,
+                                  "building": 1}, (
+            "a shared vertex is counted once per referencing way: -7 is in "
+            "both -10004 and -10005")
 
-    def test_stranded_excludes_a_shape_lying_wholly_on_the_dem(
+    def test_stranded_is_the_on_dem_vertex_beside_an_off_dem_one(
             self, tmp_path):
         rep = self._rep(tmp_path)
-        assert rep["stranded"] == 1, (
-            "only way -10001 mixes a DEM vertex with a law-valued one; "
-            "way -10002 is flat on the DEM and has no internal step")
-        assert rep["stranded_by_role"]["groundside_pavement"] == 1
-        assert rep["n_mixed_ways"] == 1
+        assert rep["stranded"] == 2, (
+            "-1 (beside -2 in way -10001) and -7 (beside -6 in -10004); "
+            "-10002 and -10005 carry no off-DEM vertex at all")
+        assert rep["stranded_by_role"] == {"groundside_pavement": 1,
+                                           "building": 1}
+        assert rep["n_mixed_ways"] == 2
         assert rep["mixed_ways"][0]["ref"] == "groundside"
 
-    def test_a_flat_way_at_the_dem_is_reported_on_its_own_axis(
+    # ── flat_ways vs flat_way_tag (the mislabel this fixture pins) ────
+    def test_flat_ways_counts_vertices_not_the_way_tag(self, tmp_path):
+        """``flat_ways`` promised "a whole shape flat on the DEM" and
+        counted the way-level ``altitude`` TAG instead — a per-vertex
+        claim the code never checked (HEAZ read 19 such ways where only
+        2 are vertex-flat).  Both populations are now reported, each
+        under a name that says what it counts."""
+        rep = self._rep(tmp_path)
+        assert rep["flat_ways"] == {"groundside_pavement": 1, "apron": 1}, (
+            "-10002 (refs -3,-4) and -10005 (refs -7,-4) have every "
+            "alt_abs-carrying ref on the DEM; -10005 does so while its "
+            "way TAG says 90 m")
+        assert rep["flat_way_tag"] == {"building": 2}, (
+            "-10003 and -10004 carry altitude=1.00; -10004's vertices are "
+            "NOT all on the DEM (-6 is at 42 m) and -10003 has no valued "
+            "vertex at all")
+        assert "building" not in rep["flat_ways"]
+        assert "apron" not in rep["flat_way_tag"]
+
+    def test_a_way_with_no_valued_vertex_is_not_vertex_flat(self, tmp_path):
+        """Way -10003's only ref carries no ``alt_abs``.  "All of nothing
+        is on the DEM" is vacuously true and would have made every
+        unvalued way flat — the count requires at least one valued ref."""
+        rep = self._rep(tmp_path)
+        assert rep["flat_ways"].get("building") is None
+
+    # ── the by-writer join: three states, all of them LOUD ────────────
+    def test_the_join_reports_its_numbers_and_attributes_the_hits(
+            self, tmp_path):
+        rep = self._rep(tmp_path, authorship=self.AUTHORSHIP,
+                        authorship_source="dem_authorship")
+        j = rep["by_writer_join"]
+        assert j["requested"] is True and j["source"] == "dem_authorship"
+        assert j["authorship_rows"] == 2 and j["authorship_keyed"] == 2
+        assert j["ways_with_shapeid"] == 3 and j["ways"] == 5
+        assert j["on_dem_ways"] == 4, "-10003 has no on-DEM vertex"
+        assert (j["joined_ways"], j["joined_vertices"]) == (2, 3), (
+            "-10001 (shape 11, 1 hit) and -10005 (shape 13, 2 hits)")
+        assert (j["unjoined_ways"], j["unjoined_vertices"]) == (2, 3), (
+            "-10002 carries no shapeID (2 hits); -10004's shape 12 is not "
+            "in the census (1 hit)")
+        got = {(r["role"], r["introduced_by"]): r["n"]
+               for r in rep["by_writer"]}
+        assert got == {
+            ("groundside_pavement", "seeder.py:1:THE_SEEDER"): 1,
+            ("apron", "solve.py:2:THE_SOLVE"): 2,
+            ("groundside_pavement", "?NOT-IN-AUTHORSHIP?"): 2,
+            ("building", "?NOT-IN-AUTHORSHIP?"): 1}
+        assert sum(got.values()) == sum(rep["by_role"].values()), (
+            "every on-DEM vertex hit is attributed to exactly one bucket")
+
+    def test_a_join_that_matches_nothing_says_so_with_numbers(
+            self, tmp_path):
+        """The named defect: rows supplied, ZERO shapeIDs matched, and the
+        report printed nothing — indistinguishable from not asking."""
+        rep = self._rep(tmp_path,
+                        authorship=[{"shape": 999,
+                                     "introduced_by": "nowhere.py:1:x"}],
+                        authorship_source="dem_authorship")
+        j = rep["by_writer_join"]
+        assert j["requested"] is True
+        assert j["authorship_rows"] == 1 and j["joined_ways"] == 0
+        assert j["on_dem_ways"] == 4 and j["unjoined_vertices"] == 6
+        assert rep["by_writer"], (
+            "a failed join must still report the counts, in the "
+            "?NOT-IN-AUTHORSHIP? bucket — never an empty section")
+        assert all(r["introduced_by"] == "?NOT-IN-AUTHORSHIP?"
+                   for r in rep["by_writer"])
+
+    def test_not_requested_is_a_different_state_from_a_failed_join(
             self, tmp_path):
         rep = self._rep(tmp_path)
-        assert rep["flat_ways"].get("building") == 1, (
-            "a way-level altitude on the DEM is the flat-shape frame, "
-            "never mixed into the per-vertex count")
+        assert rep["by_writer_join"]["requested"] is False
+        assert rep["by_writer"] == []
+        empty = self._rep(tmp_path, authorship=[])
+        assert empty["by_writer_join"]["requested"] is True, (
+            "an EMPTY row list is 'asked and found nothing', which must "
+            "not read the same as 'never asked'")
+        assert empty["by_writer_join"]["authorship_rows"] == 0
+
+    # ── the frame stamp ──────────────────────────────────────────────
+    def test_every_number_carries_its_frame(self, tmp_path):
+        rep = self._rep(tmp_path)
+        assert rep["frame"] == "EMITTED"
+        assert rep["tol_m"] == WHO._EMIT_TOL
+        assert rep["world"] == "constant DEM 1 m"
+
+    def test_the_printed_report_carries_the_frame_and_both_flat_counts(
+            self, tmp_path, capsys):
+        WHO.print_emitted_on_dem(self._rep(tmp_path,
+                                           authorship=self.AUTHORSHIP))
+        out = capsys.readouterr().out
+        assert "frame: EMITTED patch" in out
+        assert "world: constant DEM 1 m" in out
+        assert "NOT the in-memory layout count" in out
+        assert "VERTICES all sit on the DEM" in out
+        assert "ALTITUDE TAG is on the DEM" in out
+        assert "joined=2" in out and "unjoined=2" in out
+        assert "law-valued" not in out, (
+            "the code checks alt_abs, not the law — the label may not "
+            "claim a finding the law layer owns")
+
+    def test_a_failed_join_prints_loudly(self, tmp_path, capsys):
+        WHO.print_emitted_on_dem(
+            self._rep(tmp_path, authorship=[{"shape": 999}]))
+        out = capsys.readouterr().out
+        assert "JOIN EMPTY" in out and "0 of 4 on-DEM way(s)" in out
+
+    def test_no_authorship_prints_not_requested(self, tmp_path, capsys):
+        WHO.print_emitted_on_dem(self._rep(tmp_path))
+        out = capsys.readouterr().out
+        assert "NOT REQUESTED" in out and "JOIN EMPTY" not in out
+
+    # ── the SECOND instrument (RULINGS 2026-08-06 point 4) ────────────
+    def test_an_independent_reader_agrees_on_every_count(self, tmp_path):
+        """A second reader over the same file, written against a different
+        XML API (DOM, not iterparse) and a different loop shape.  The
+        load-bearing quantities are integers, so materiality is exact
+        equality — one instrument's arithmetic cannot be checked by
+        itself."""
+        from xml.dom import minidom
+        doc = minidom.parse(str(self._patch(tmp_path)))
+        alt = {}
+        for nd in doc.getElementsByTagName("node"):
+            v = [t for t in nd.getElementsByTagName("tag")
+                 if t.getAttribute("k") == "alt_abs"]
+            alt[nd.getAttribute("id")] = (float(v[0].getAttribute("v"))
+                                          if v else None)
+        on = {i for i, a in alt.items() if a is not None and abs(a - 1.0) <= 5e-3}
+        by_role, stranded, flat, flat_tag = {}, set(), {}, {}
+        for w in doc.getElementsByTagName("way"):
+            refs = {nd.getAttribute("ref")
+                    for nd in w.getElementsByTagName("nd")}
+            tags = {t.getAttribute("k"): t.getAttribute("v")
+                    for t in w.getElementsByTagName("tag")}
+            role = tags.get("role", "?")
+            hits = refs & on
+            valued = {r for r in refs if alt.get(r) is not None}
+            if "altitude" in tags and abs(float(tags["altitude"]) - 1.0) <= 5e-3:
+                flat_tag[role] = flat_tag.get(role, 0) + 1
+            if valued and valued == hits:
+                flat[role] = flat.get(role, 0) + 1
+            if hits:
+                by_role[role] = by_role.get(role, 0) + len(hits)
+                if valued - hits:
+                    stranded |= hits
+        rep = self._rep(tmp_path)
+        assert len(on) == rep["total"]
+        assert by_role == rep["by_role"]
+        assert len(stranded) == rep["stranded"]
+        assert flat == rep["flat_ways"]
+        assert flat_tag == rep["flat_way_tag"]
 
     def test_the_emitted_frame_is_reachable_without_a_build(self, tmp_path):
         """``--emitted-patch`` is a pure file read: no ICAO, no build cwd."""
-        p = tmp_path / "patch.osm"
-        p.write_text(self.PATCH)
+        p = self._patch(tmp_path)
         assert WHO.main(["--emitted-patch", str(p), "--dem", "1"]) == 0
+
+
+class TestWhoJsonAuthorshipLoader:
+    """``--who-json`` must never degrade to silence.
+
+    THE DEFECT: the loader was ``json.loads(...).get("dem_authorship")``.
+    Any report whose rows were not at exactly that TOP-LEVEL key returned
+    ``None``; ``emitted_on_dem`` then built ``by_writer`` only ``if
+    intro_of`` and the printer emitted the section only ``if by_writer``,
+    so a whole attribution vanished with no line of output — the same
+    output as never asking for it.
+    """
+
+    ROWS = [{"shape": 4, "introduced_by": "a.py:1:writer"}]
+
+    def test_the_top_level_key_is_read(self):
+        rows, src, top = WHO.authorship_rows_from_report(
+            {"icao": "X", "dem_authorship": self.ROWS})
+        assert rows == self.ROWS and src == "dem_authorship"
+        assert top == ["dem_authorship", "icao"]
+
+    def test_a_bare_list_of_rows_is_read(self):
+        rows, src, _ = WHO.authorship_rows_from_report(self.ROWS)
+        assert rows == self.ROWS and src == "<list>"
+
+    def test_rows_nested_one_level_are_found_and_the_key_named(self):
+        rows, src, _ = WHO.authorship_rows_from_report(
+            {"meta": {"icao": "X"}, "report": {"dem_authorship": self.ROWS}})
+        assert rows == self.ROWS and src == "report.dem_authorship", (
+            "the nested case returned None and every downstream count "
+            "silently vanished")
+
+    def test_no_rows_is_reported_as_such_not_as_none(self):
+        rows, src, top = WHO.authorship_rows_from_report(
+            {"icao": "X", "author_displacement": []})
+        assert rows == [] and src is None, (
+            "an empty LIST plus a None source is 'asked, found nothing' — "
+            "the caller can say so; None rows could not be told from "
+            "'never asked'")
+        assert top == ["author_displacement", "icao"]
+
+    def test_the_shape_key_may_be_spelled_three_ways(self):
+        for key in ("shape", "shape_index", "shapeID"):
+            rows, src, _ = WHO.authorship_rows_from_report(
+                [{key: 7, "introduced_by": "w"}])
+            assert src == "<list>", key
+            assert WHO._shape_key_of(rows[0]) == "7", key
+
+    def test_the_cli_names_the_source_and_the_row_count(self, tmp_path,
+                                                        capsys):
+        patch = tmp_path / "p.osm"
+        patch.write_text(TestEmittedOnDem.PATCH)
+        who = tmp_path / "who.json"
+        who.write_text(json.dumps(
+            {"wrapper": {"dem_authorship": TestEmittedOnDem.AUTHORSHIP}}))
+        assert WHO.main(["--emitted-patch", str(patch), "--dem", "1",
+                         "--who-json", str(who)]) == 0
+        out = capsys.readouterr().out
+        assert "2 authorship row(s) from 'wrapper.dem_authorship'" in out
+        assert "joined=2" in out
+
+    def test_the_cli_says_so_when_the_who_json_carries_no_rows(
+            self, tmp_path, capsys):
+        patch = tmp_path / "p.osm"
+        patch.write_text(TestEmittedOnDem.PATCH)
+        who = tmp_path / "who.json"
+        who.write_text(json.dumps({"icao": "X", "author_worst": []}))
+        assert WHO.main(["--emitted-patch", str(patch), "--dem", "1",
+                         "--who-json", str(who)]) == 0
+        out = capsys.readouterr().out
+        assert "no 'dem_authorship'-shaped rows found" in out
+        assert "JOIN EMPTY" in out

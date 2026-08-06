@@ -726,7 +726,24 @@ class TestApplySideSelfAnchorLock:
     def test_the_refusal_ledger_names_the_reason(self):
         """The attribution instrument is standing, not a one-off probe:
         a refusal records which law it was made under and what the relax
-        believed lawful, so the next reader never has to re-derive it."""
+        believed lawful, so the next reader never has to re-derive it.
+
+        ── CYCLE-7.5 INSTRUMENT SWEEP, upgraded ──────────────────────
+        This assertion used to end ``assert "lawful_move" in ev and
+        "binding_was_minted" in ev`` — KEY-EXISTENCE, the exact pattern
+        RULINGS 2026-08-06 binding point 1 rejects ("the function runs" /
+        "a key exists" does NOT count).  Every value is now asserted
+        against a KNOWN ANSWER derived from the law, not from the code:
+
+          base at t = 0.10 on the straight CIFP chord
+              = E_A + 0.10·(E_B − E_A)                  = +0.597 m
+          the end zone is the first RUNWAY_END_FRACTION (0.25) of the
+          length, so a ramp from threshold A to t = 0.10 may fall
+              = RUNWAY_END_GRADE · 0.10 · AXIS          = +3.304 m
+          lawful_move (downward, bound by threshold A) = 3.901 m
+        which is exactly the 3.901 of the 4.0 m asked for that
+        ``test_the_shortfall_is_visible_to_the_caller`` above quotes.
+        """
         layout, _s = _flex_layout(_chord_profile())
         prof = layout._runway_redistributed_profiles["05R/23L"]
         before = RR._interp_profile(prof['fractions'], prof['elevs'], _EZ_T)
@@ -734,9 +751,72 @@ class TestApplySideSelfAnchorLock:
                                                    before - _EZ_DROP)]})
         led = getattr(layout, "_flex_refusal_ledger", None) or []
         assert led, "a refused/relaxed target must leave a record"
+        # ONE event: the target is relaxed to its cap, and the re-solve
+        # of the relaxed set is lawful, so the loop ends.
+        assert len(led) == 1, led
         ev = led[0]
         assert ev["ref"] == "05R/23L"
-        assert ev["kind"] in ("main_cap", "endzone_new")
-        assert ev["action"] in ("relax", "drop")
+        # the MAIN cap is not violated (0.97 % against 1.5 %); §2a's
+        # no-new-end-zone-regression is.
+        assert ev["kind"] == "endzone_new"
+        assert ev["action"] == "relax"
+        assert ev["n_pending"] == 1
+        assert ev["target_t"] == pytest.approx(_EZ_T, abs=1e-12)
+        assert ev["base"] == pytest.approx(before, abs=1e-9)
+        assert ev["target_v"] == pytest.approx(before - _EZ_DROP, abs=1e-9)
         assert ev["requested_move"] == pytest.approx(_EZ_DROP, abs=1e-6)
-        assert "lawful_move" in ev and "binding_was_minted" in ev
+        # THE KNOWN ANSWER, computed from the law and the geometry only.
+        expected_lawful = (_EZ_T * (E_B - E_A)
+                           + RUNWAY_END_GRADE_PP * _EZ_T * AXIS)
+        assert expected_lawful == pytest.approx(3.901, abs=1e-3)
+        assert ev["lawful_move"] == pytest.approx(expected_lawful,
+                                                  abs=1e-6)
+        # this profile carries NO flex-minted station, so the withdrawal
+        # has nothing to withdraw: the two bounds must coincide exactly,
+        # and neither the binder nor the count may claim otherwise.
+        assert ev["lawful_move_minted_included"] == pytest.approx(
+            ev["lawful_move"], abs=1e-12)
+        assert ev["binding_was_minted"] is False
+        assert ev["n_minted_anchors"] == 0
+        # threshold A is what binds (0.10 of the length away, against
+        # 0.90 to threshold B).
+        assert ev["binding_station_t"] == pytest.approx(0.0, abs=1e-12)
+        # and the relax landed the station ON that bound.
+        after = RR._interp_profile(prof['fractions'], prof['elevs'], _EZ_T)
+        assert (before - after) == pytest.approx(ev["lawful_move"],
+                                                 abs=1e-6)
+
+    def test_a_minted_station_makes_the_two_bounds_disagree(self):
+        """The other half of the ledger's contract, also untwinned: with
+        a FLEX-MINTED station on the profile the withdrawal has
+        something to withdraw, so ``lawful_move`` (minted stations
+        removed) and ``lawful_move_minted_included`` are DIFFERENT
+        numbers and ``n_minted_anchors`` counts the stations.  The
+        difference between them is a difference of two BOUNDS — which is
+        exactly why the flex report may not call it "lawful move
+        recovered"."""
+        # a station the flex minted 1.0 m below the chord at t = 0.08,
+        # two hundredths of the length inside the demand at t = 0.10:
+        # near enough that its own ramp budget is small, so it BINDS the
+        # minted-inclusive bound while the CIFP thresholds do not.
+        minted_e = E_A + (E_B - E_A) * 0.08 - 1.0
+        layout, _s = _flex_layout(_chord_profile(
+            extra=[(0.08, minted_e, True, True)]))
+        prof = layout._runway_redistributed_profiles["05R/23L"]
+        before = RR._interp_profile(prof['fractions'], prof['elevs'], _EZ_T)
+        RR.apply_runway_flex(layout, {"05R/23L": [(_EZ_T,
+                                                   before - _EZ_DROP)]})
+        led = getattr(layout, "_flex_refusal_ledger", None) or []
+        assert led, "the over-cap request must still leave a record"
+        ev = led[0]
+        assert ev["n_minted_anchors"] == 1
+        assert ev["lawful_move"] != pytest.approx(
+            ev["lawful_move_minted_included"], abs=1e-6), (
+            "a minted station one bin away must bind the "
+            "minted-INCLUSIVE bound and not the withdrawn one")
+        assert ev["lawful_move"] > ev["lawful_move_minted_included"]
+        assert ev["binding_was_minted"] is True
+        # the measured pair, so a change to either bound fails here.
+        assert ev["lawful_move"] == pytest.approx(2.9486, abs=1e-3)
+        assert ev["lawful_move_minted_included"] == pytest.approx(
+            0.8278, abs=1e-3)

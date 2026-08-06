@@ -508,7 +508,7 @@ def test_state_dump_without_probe_b_carries_neither_field(tmp_path,
 def test_state_dump_with_probe_b_carries_both_fields(tmp_path, monkeypatch):
     """Supplied ⇒ both ride the pickle verbatim, and nothing else in the
     payload changes."""
-    hard_cat = {0: "seed_rwy_seam", 11: "rwy_join", 4: "seat_on_spine"}
+    hard_cat = {0: "rwy_profile", 11: "rwy_join", 4: "seat_on_spine"}
     have_initial = [i % 2 == 0 for i in range(12)]
     base = _construct(tmp_path / "off.pkl", monkeypatch)
     payload = _construct(tmp_path / "on.pkl", monkeypatch,
@@ -522,7 +522,7 @@ def test_state_dump_with_probe_b_carries_both_fields(tmp_path, monkeypatch):
 def test_probe_b_payload_is_a_copy_not_an_alias(tmp_path, monkeypatch):
     """The dump must not alias the caller's objects (the probe may never
     hand the solver's own containers to a consumer)."""
-    hard_cat = {0: "seed_rwy_seam"}
+    hard_cat = {0: "rwy_profile"}
     have_initial = [True, False]
     payload = _construct(tmp_path / "copy.pkl", monkeypatch,
                          hard_cat=hard_cat, have_initial=have_initial)

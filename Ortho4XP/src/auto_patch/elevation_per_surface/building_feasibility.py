@@ -107,6 +107,93 @@ class BandInversionError(RuntimeError):
     geometry guards (``_GEOM_EXC``) swallow those to keep a build alive,
     and this one must never be swallowed."""
 
+
+# ── FRAME STAMPS (RULINGS 2026-08-06 "Instrument truth is law", binding
+#    point 3: every reported NUMBER carries its FRAME — tree sha, node
+#    space, world, crown space) ────────────────────────────────────────
+#
+# ONE stamp for the band / seat instruments, because two stamps that
+# spell the same frame differently are the two-instruments trap with
+# extra steps.  Absent facets are stamped EXPLICITLY (``?``) rather than
+# omitted — the rule ``provenance.provenance_tags`` already follows, so a
+# reader can tell "not determinable" from "nobody stamped it".
+_TREE_SHA_CACHE: list = []
+
+
+def instrument_tree_sha() -> str:
+    """``<short sha>`` (``*`` = dirty working tree), or ``?``.
+
+    Memoised per PROCESS: the source tree cannot change mid-build, and a
+    tile build reports many airports.  Measured cost of the two git calls
+    on this checkout: 0.008 s + 0.013 s, paid once."""
+    if not _TREE_SHA_CACHE:
+        stamp = "?"
+        try:
+            from auto_patch.provenance import git_provenance
+            g = git_provenance() or {}
+            sha = g.get("sha")
+            if sha:
+                stamp = str(sha) + ("*" if g.get("dirty") else "")
+        except Exception:                                  # pragma: no cover
+            stamp = "?"
+        _TREE_SHA_CACHE.append(stamp)
+    return _TREE_SHA_CACHE[0]
+
+
+def instrument_world(layout) -> str:
+    """The DEM WORLD the reported values were seeded from.
+
+    Read from what the build recorded on the layout, never re-derived: a
+    second reading of the DEM is a second instrument.  ``pipeline`` stamps
+    ``_dem_world_label`` (the DEM object's own ``source_path``, which is
+    how a ``ConstantDEM`` oracle world announces itself — ``base RAW``
+    alone cannot tell a real raw DEM from ``<constant-dem 10000 m>``); the
+    baked-inset record is the second half."""
+    label = getattr(layout, "_dem_world_label", None)
+    if not label:
+        label = "?"
+    inset = getattr(layout, "dem_inset_provenance", None)
+    if inset is not None:
+        try:
+            from auto_patch.provenance import dem_label
+            label = f"{label} [{dem_label(inset)}]"
+        except Exception:                                  # pragma: no cover
+            pass
+    return str(label)
+
+
+def instrument_crown(layout) -> str:
+    """The CROWN SPACE stamp: how many crown-drop keys the layout carries.
+
+    A number, not an adjective — ``crown_keys=0`` means crowned and
+    uncrowned space coincide, and any nonzero count means the reader must
+    know which of the two a value is quoted in (memory: an emitted step
+    can be z'-level; scans that skip ``_crown_of`` chase ghosts)."""
+    field = getattr(layout, "_crown_drop_key", None) or {}
+    try:
+        return f"crown_keys={len(field)}"
+    except Exception:                                      # pragma: no cover
+        return "crown_keys=?"
+
+
+def instrument_frame(layout, node_space: str = "?", crown: str = "") -> str:
+    """One-line frame stamp: tree sha, world, node space, crown space."""
+    return (f"[frame tree={instrument_tree_sha()} "
+            f"world={instrument_world(layout)} "
+            f"nodes={node_space} "
+            f"{crown or instrument_crown(layout)}]")
+
+
+#: THE node space every ``_final_band_*`` number is expressed in.  The
+#: ids are the indices ``_build_node_list`` assigned inside the ONE call
+#: that built this field; a rebuilt field is a DIFFERENT space in which
+#: they resolve to nothing (measured: all three HECA canyon pairs, "records
+#: no route" — ``tools/trace_reach_route.py``, which documents the hazard
+#: on the CONSUMER side).  This is the producer side of that stamp.
+BAND_NODE_SPACE = ("solve _build_node_list ids as recorded by "
+                   "spine_value_fields; a REBUILT field is a different "
+                   "space (tools/trace_reach_route.py)")
+
 # Pavement a building must touch to count as airside-served (else → DEM).
 _AIRSIDE_ROLES = frozenset({
     ROLE_APRON, ROLE_JUNCTION, ROLE_RUNWAY, ROLE_PRIMARY_PARALLEL,
@@ -1094,11 +1181,16 @@ def assert_no_final_band_inversion(layout, icao="",
         f"{icao or 'airport'}: the FINAL reach band is INVERTED at "
         f"{len(over)} node(s) of "
         f"{int(getattr(layout, '_final_band_node_count', 0) or 0)} "
+        f"band-covered node(s) "
         f"(floor − ceiling > {tol:g} m).  A real airport with real "
         f"thresholds has a lawful surface (docs/RULINGS.md, "
         f"feasibility-is-guaranteed): this is a law defect to attribute — "
         f"a wrong metric, a wrong anchor value, a wrong role/cap or a "
         f"false topology — never a region to quarantine.",
+        # FRAME STAMP (RULINGS 2026-08-06 binding point 3).  Both counts
+        # above and every node id below are in ONE node space; the
+        # values are in the band's own de-crowned profile space.
+        f"  {instrument_frame(layout, BAND_NODE_SPACE)}",
     ]
     # THE ANCHOR PAIRS, FIRST.  Every inverted node is downstream of ONE
     # anchor pair whose values are further apart than the route between
@@ -1158,17 +1250,24 @@ def assert_no_final_band_inversion(layout, icao="",
                         f"{law_short:+.4f} m")
             # ── THE CIFP-FORCED HALF — THE ONLY CIFP VERDICT (cycle-5
             # canyon-flex spec, fix 1) ────────────────────────────────
-            # WORLD-INVARIANT by construction: the CIFP threshold
-            # elevations, the station geometry and the runway's own law
-            # caps.  ``lo_f − hi_c`` is the SMALLEST value spread the CIFP
-            # pins can be made to hold at these two stations under runway
-            # grade law; if that fits the route budget, then a lawful pair
-            # of profiles closes this route and CIFP forces nothing —
-            # whatever the emitted values did is world-dependent content
-            # (seating, flex-applied targets, seam / crossing anchors),
-            # i.e. verdict (a) BUG, never "the thresholds do not reach".
-            # This replaces a sentence that blamed CIFP for a spread
-            # measured 5.31 m DEM-driven (c5tip Job 2).
+            # ``forced`` is WORLD-INVARIANT by construction: the CIFP
+            # threshold elevations, the station geometry and the runway's
+            # own law caps.  ``lo_f − hi_c`` is the SMALLEST value spread
+            # the CIFP pins can be made to hold at these two stations
+            # under runway grade law.  The BUDGET it is compared against
+            # is not: it is a route metric on the solved graph, so the
+            # SHORTFALL is a mixed quantity and the line says so
+            # (cycle-7.5 sweep, RULINGS 2026-08-06 binding point 3).
+            # When the forced spread FITS the budget, a lawful pair of
+            # profiles closes this route and CIFP forces nothing — the
+            # remainder is world-dependent content (seating, flex-applied
+            # targets, seam / crossing anchors).  THE REPORT STOPS AT
+            # THAT NUMBER: naming which verdict class the remainder falls
+            # in is the law layer's call, not report code's (binding
+            # point 2; the "verdict (a) BUG" clause that stood here was
+            # exactly such an interpretation).  This whole half replaces
+            # a sentence that blamed CIFP for a spread measured 5.31 m
+            # DEM-driven (c5tip Job 2).
             fc = r.get("floor_anchor_cifp")
             cc = r.get("ceil_anchor_cifp")
             if fc is not None and cc is not None:
@@ -1177,27 +1276,53 @@ def assert_no_final_band_inversion(layout, icao="",
                 forced = max(0.0, f_lo - c_hi)
                 cifp_short = forced - budget
                 lines.append(
-                    f"      CIFP-FORCED half (WORLD-INVARIANT): floor "
+                    f"      CIFP-FORCED half (MIXED FRAME — the forced "
+                    f"spread below is WORLD-INVARIANT, the route budget "
+                    f"it is compared against is WORLD-DEPENDENT): floor "
                     f"anchor {fa} on {f_ref} may lawfully seat in "
                     f"[{f_lo:.3f}, {f_hi:.3f}] m (emitted "
                     f"{'?' if fv is None else f'{fv:.3f}'}); ceiling anchor "
                     f"{ca} on {c_ref} in [{c_lo:.3f}, {c_hi:.3f}] m "
                     f"(emitted {'?' if cv is None else f'{cv:.3f}'})")
+                # THE TWO HALVES CARRY DIFFERENT FRAMES, and the label has
+                # to say so (RULINGS 2026-08-06 binding point 3).
+                # ``forced = max(0, f_lo − c_hi)`` is WORLD-INVARIANT: CIFP
+                # threshold elevations + station geometry + the runway's
+                # own law caps, and the two-world twin
+                # (``test_the_cifp_forced_envelope_is_IDENTICAL_IN_BOTH_
+                # WORLDS``) asserts it.  ``budget = floor_route_m +
+                # ceil_route_m`` is a ROUTE metric measured on the SOLVED
+                # graph — WORLD-DEPENDENT.  Their difference is therefore
+                # a MIXED quantity, and the old bare "(WORLD-INVARIANT)"
+                # label over-claimed the comparison.
+                _rest = (None if spread is None
+                         else max(0.0, spread - forced))
                 lines.append(
                     f"      ⇒ CIFP-forced minimum spread {forced:.4f} m "
-                    f"over a route budget of {budget:.3f} m ⇒ CIFP "
-                    f"shortfall {cifp_short:+.4f} m — "
+                    f"(WORLD-INVARIANT) over a route budget of "
+                    f"{budget:.3f} m (WORLD-DEPENDENT: a route metric on "
+                    f"the solved graph) ⇒ CIFP shortfall "
+                    f"{cifp_short:+.4f} m (MIXED) — "
                     + ("the CIFP thresholds themselves do not reach each "
                        "other within this route budget (a METRIC / CAP / "
                        "TOPOLOGY defect: rule on it, the DEM cannot be "
                        "blamed)"
                        if cifp_short > tol else
-                       "CIFP DOES NOT FORCE THIS: a lawful pair of "
-                       "profiles closes this route, so the whole spread "
-                       "is WORLD-DEPENDENT content — seating, "
-                       "flex-applied targets, seam / crossing anchors "
-                       "(RULINGS: the DEM is a SEED, never an authority; "
-                       "verdict (a) BUG, never a law shortfall)"))
+                       # NUMBERS ONLY.  ``forced ≤ budget`` is derivable
+                       # and stays; the closed-vocabulary verdict this
+                       # clause used to assign ("verdict (a) BUG, never a
+                       # law shortfall") was an INTERPRETATION printed by
+                       # report code, which RULINGS 2026-08-06 binding
+                       # point 2 reserves for the law layer.
+                       f"CIFP-forced spread FITS the budget "
+                       f"({forced:.4f} ≤ {budget:.3f} m), so a lawful "
+                       f"pair of profiles closes this route; of the "
+                       f"emitted spread "
+                       f"{'?' if spread is None else f'{spread:.3f}'} m, "
+                       f"{'?' if _rest is None else f'{_rest:.3f}'} m is "
+                       f"not CIFP-forced (WORLD-DEPENDENT content: "
+                       f"seating, flex-applied targets, seam / crossing "
+                       f"anchors)"))
             elif fc is not None or cc is not None:
                 lines.append(
                     f"      CIFP-FORCED half: anchor "
@@ -1205,6 +1330,14 @@ def assert_no_final_band_inversion(layout, icao="",
                     f"profile station, so no CIFP-forced spread exists "
                     f"for this pair — CIFP is NOT blamable here; classify "
                     f"from the world-dependent half")
+    # NODE-SPACE STAMP for the per-node rows below.  The ids were BARE
+    # here while the consumer (``tools/trace_reach_route.py``) carried the
+    # whole hazard in its own docstring — an unstamped producer feeding a
+    # stamped consumer is binding point 3's failure mode.  ``@(x, y)`` is
+    # in layout-local metres relative to ``layout.anchor``.
+    lines.append(
+        f"  node ids: {BAND_NODE_SPACE}; @(x,y) in layout-local metres "
+        f"about layout.anchor")
     for r in over[:20]:
         where = ("" if r["x"] is None
                  else f" @({r['x']:.1f},{r['y']:.1f})")
@@ -1264,20 +1397,70 @@ def reach_band_unified(layout, G):
     from auto_patch.elevation_per_surface.raster_reach_band import (
         build_raster_reach_band)
     band = None
+    band_exc = None
     try:
         band = build_raster_reach_band(layout, G)
-    except Exception:                                      # pragma: no cover
+    except Exception as _exc:
+        band_exc = _exc
         band = None
     if band is None:
-        # No anchors / no pavement / no scipy / grid over the cell cap.
         # With one engine there is nothing to fall back TO — every query
         # reads off-net and the within-shape law governs.  Loud, because a
         # silently band-less airport used to be masked by the fallbacks.
+        #
+        # THE LINE THAT STOOD HERE WAS A CATCH-ALL BUCKET LABELLED WITH
+        # THREE CANDIDATE CAUSES ("no anchors / no pavement / grid over
+        # cap"), none of them distinguished and the ``except Exception``
+        # above swallowing everything on top — RULINGS 2026-08-06 binding
+        # point 2's named defect pattern.  Two conditions are being fused
+        # and they have opposite dispositions:
+        #
+        #   * the builder RAISED — a DEFECT (the exception is named);
+        #   * the builder RETURNED None — a layout for which no band
+        #     exists, which is a legitimate answer.
+        #
+        # What we can NAME is what this frame can observe: the graph-side
+        # preconditions ``build_raster_reach_band`` documents.  Anything
+        # left is inside the builder (pavement domain empty, paved mask
+        # empty, grid over ``RASTER_REACH_BAND_MAX_CELLS`` — that last one
+        # logs its own ``[raster-reach-band]`` line), and the report says
+        # so instead of guessing between them.  Measured live at HEAZ,
+        # which ships this line on every build.
         try:
             import O4_UI_Utils as _UI
-            _UI.vprint(1, "  [reach-band] no field could be built "
-                          "(no anchors / no pavement / grid over cap) — "
-                          "every query reads off-net (band None).")
+            n_pos = len(getattr(G, "pos", None) or {})
+            n_anchor = len(getattr(G, "runway_anchor", None) or {})
+            n_adj = len(getattr(G, "spine_adj", None) or {})
+            if band_exc is not None:
+                _why = (f"the band BUILDER RAISED "
+                        f"{type(band_exc).__name__}: {band_exc}")
+            else:
+                failed = []
+                if not n_pos:
+                    failed.append("G.pos is empty (no node positions)")
+                if not n_anchor:
+                    failed.append("G.runway_anchor is empty "
+                                  "(no runway anchor to seed from)")
+                if not n_adj:
+                    failed.append("G.spine_adj is empty "
+                                  "(no spine adjacency)")
+                if failed:
+                    _why = ("the builder RETURNED None; failing "
+                            "precondition(s): " + "; ".join(failed))
+                else:
+                    _why = ("the builder RETURNED None and no graph-side "
+                            "precondition is falsified — the remaining "
+                            "ones are internal to build_raster_reach_band "
+                            "(empty pavement domain, empty paved mask, or "
+                            "grid over RASTER_REACH_BAND_MAX_CELLS, which "
+                            "logs its own [raster-reach-band] line)")
+            _UI.vprint(1,
+                       f"  [reach-band] NO FIELD — {_why}.  "
+                       f"G: nodes={n_pos}, runway anchors={n_anchor}, "
+                       f"spine-adjacent nodes={n_adj}.  Every query reads "
+                       f"off-net (band None), so every band-scoped "
+                       f"instrument examines ZERO vertices this build.  "
+                       f"{instrument_frame(layout, BAND_NODE_SPACE)}")
         except Exception:                                  # pragma: no cover
             pass
         return lambda x, y: None

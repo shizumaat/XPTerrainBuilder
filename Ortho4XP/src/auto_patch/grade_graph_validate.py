@@ -383,9 +383,11 @@ def route_reach_violations(layout, noise=ELEV_ROUNDING_NOISE_M):
 # vocabularies, and never name a new identifier a bare ``seam``.
 #
 # Mirrors ``tools/check_grade.py``'s ``TILE_SEAM_LL_TOL_DEG`` /
-# ``TILE_SEAM_ZONE_M`` (owner ruling 2026-06-20) — the SAME scope
-# ``tools/grade_feasibility_audit`` already uses to exclude tile-seam nids from
-# its route-band intervals.  Duplicated rather than imported because ``tools/``
+# ``TILE_SEAM_ZONE_M`` (owner ruling 2026-06-20) — the SAME scope the
+# retired ``tools/attic/grade_feasibility_audit`` used to exclude tile-seam
+# nids from its route-band intervals (atticked by the cycle-7.5 instrument
+# sweep; the live reader of that scope is ``check_grade``).
+# Duplicated rather than imported because ``tools/``
 # is a script directory, not an importable package, and ``src/`` must not
 # depend on it (same precedent as ``crown.py``'s ``_XEDGE_SEAM_TOL_M ==
 # tile_cut._SEAM_LINE_TOL_M``).  Keep the two copies in sync.
@@ -539,7 +541,8 @@ def _band_roles():
         ROLE_CROSS_CONNECTOR, ROLE_APRON, ROLE_JUNCTION, ROLE_BUILDING})
 
 
-def route_band_violations(layout, noise=ELEV_ROUNDING_NOISE_M, G=None):
+def route_band_violations(layout, noise=ELEV_ROUNDING_NOISE_M, G=None,
+                          stats=None):
     """Confirm the runway-reach ROUTE BAND on THE unified grade graph ``G``.
 
     The solver bounds every airside node by the reach band
@@ -571,8 +574,7 @@ def route_band_violations(layout, noise=ELEV_ROUNDING_NOISE_M, G=None):
         violates the reach law from some anchor.  ``excess_m`` is the band
         deficit ``floor - ceiling`` (how over-constrained the point is); the
         FIX is upstream (a transition/relaxation rule, a yielded anchor, or a
-        geometry bug), tracked alongside ``route_reach_violations`` /
-        ``grade_feasibility_audit``.
+        geometry bug), tracked alongside ``route_reach_violations``.
 
     TILE-SEAM YIELD (owner rulings 2026-06-20 / 2026-07-24): inside the seam
     terrain-matching corridor the band yields to the DEM-anchored seam pins by
@@ -585,6 +587,21 @@ def route_band_violations(layout, noise=ELEV_ROUNDING_NOISE_M, G=None):
     (``within_violations``) still applies.  This is the in-memory home of the
     check (the layout carries the global spine ``G`` reach_band needs); rebuilding
     ``G`` from the shipped OSM is a documented follow-up (handover item 1).
+
+    ``stats`` — an optional dict this fills with the POPULATION the verdict
+    is about (cycle-7.5 instrument sweep; RULINGS 2026-08-06 binding points
+    1-3).  It is a pure OUT parameter: nothing here reads it, no decision
+    depends on it, and with ``stats=None`` (the default) not one branch
+    changes.  It exists because "no violations" and "no vertices examined"
+    render identically without it — measured live at HEAZ, where the band
+    field cannot be built at all, EVERY vertex reads off-net, and the
+    membership line still printed "every airside vertex INSIDE its band".
+    Keys: ``candidates`` (airside ring vertices reached), ``deduped``
+    (welded corners already counted at a shared coordinate), ``off_net``
+    (``band`` returned None — NOT constrained here), ``examined``
+    (``band`` returned an interval, i.e. the population the verdict is
+    about), ``in_band``, ``exempt_small_pad``, ``exempt_runway_datum``,
+    ``flagged_before_seam_yield``, ``seam_yielded``, ``noise_m``.
 
     Returns ``[(excess_m, side, role, x, y, elev, lo, hi), ...]`` worst (largest
     ``excess_m``) first."""
@@ -747,6 +764,11 @@ def route_band_violations(layout, noise=ELEV_ROUNDING_NOISE_M, G=None):
 
     out = []
     seen = set()
+    # POPULATION COUNTERS — write-only (see the ``stats`` note in the
+    # docstring).  Kept in locals and published once at the end so the
+    # per-vertex loop is unchanged in cost when nobody asked for them.
+    _n_candidates = _n_dedupe = _n_offnet = _n_examined = 0
+    _n_in_band = _n_small_pad = _n_rwy_datum = 0
     for s in layout.shapes:
         if (s.role not in roles or s.polygon is None or s.polygon.is_empty):
             continue
@@ -756,27 +778,37 @@ def route_band_violations(layout, noise=ELEV_ROUNDING_NOISE_M, G=None):
             continue
         for (x, y), e in zip(ring, elevs):
             e = e + _crown_at(layout, x, y)
+            _n_candidates += 1
             # dedupe by shared canonical node — the band is positional, so a
             # welded corner shared by N shapes is ONE band check, not N.
             key = (round(x, 2), round(y, 2))
             if key in seen:
+                _n_dedupe += 1
                 continue
             seen.add(key)
             b = band(x, y)
             if b is None:
+                # OFF-NET: this vertex is NOT constrained here, and it is
+                # NOT evidence of compliance.  Counted so the report can
+                # say how large the examined population actually was.
+                _n_offnet += 1
                 continue
+            _n_examined += 1
             lo, hi = b
             # within a feasible runway-reach band → fine.
             if lo <= hi + noise and (lo - noise) <= e <= (hi + noise):
+                _n_in_band += 1
                 continue
             # else reachable from a local SMALL-building pad → fine (the apron
             # grades from the pad at the apron cap; the small-building rule).
             if _reached_from_small_pad(x, y, e):
+                _n_small_pad += 1
                 continue
             # runway-datum reach (see the exemption note above): the
             # vertex grades at cap from a local runway contact — the
             # runway is the datum there, never band-judged.
             if _grades_from_runway_datum(x, y, e):
+                _n_rwy_datum += 1
                 continue
             if lo > hi + noise:
                 # EMPTY band — no compliant elevation exists at this vertex
@@ -819,9 +851,10 @@ def route_band_violations(layout, noise=ELEV_ROUNDING_NOISE_M, G=None):
     # runways.  A seam pin is a SECOND, owner-recognised anchor class the band's
     # construction simply omits, so at a seam it is the BAND that is incomplete,
     # not the surface.  Every other reader already yields to that class:
-    # ``check_grade`` (the 2026-06-20 zone), ``grade_law.classify_pair`` (both-
-    # pinned pairs SKIP), and ``tools/grade_feasibility_audit`` (seam nids
-    # excluded from its route-band intervals and treated as HARD anchors).  This
+    # ``check_grade`` (the 2026-06-20 zone) and ``grade_law.classify_pair``
+    # (both-pinned pairs SKIP); so did the now-retired
+    # ``tools/attic/grade_feasibility_audit`` (seam nids excluded from its
+    # route-band intervals and treated as HARD anchors).  This
     # in-memory frame is the one that had no such yield; this is it catching up.
     #
     # The allowance is a MEASURED PHYSICAL QUANTITY, never a constant: per
@@ -833,8 +866,22 @@ def route_band_violations(layout, noise=ELEV_ROUNDING_NOISE_M, G=None):
     # with was DELETED (cycle-5 instrument-fix item 2 — its grid-error
     # mechanism was falsified under a cell sweep).  A vertex further out of
     # band than the seam contract can explain STILL flags.
+    _n_flagged = len(out)
     out = _seam_contract_yield(layout, out, band, noise, _crown_at)
     out.sort(reverse=True, key=lambda t: t[0])
+    if stats is not None:
+        stats.update({
+            "candidates": _n_candidates,
+            "deduped": _n_dedupe,
+            "off_net": _n_offnet,
+            "examined": _n_examined,
+            "in_band": _n_in_band,
+            "exempt_small_pad": _n_small_pad,
+            "exempt_runway_datum": _n_rwy_datum,
+            "flagged_before_seam_yield": _n_flagged,
+            "seam_yielded": _n_flagged - len(out),
+            "noise_m": float(noise),
+        })
     return out
 
 
@@ -870,14 +917,35 @@ def final_band_excess_report(layout, icao="",
     same checker the suite runs, on the same graph, with the same exemptions
     (runway datum, small pads, tile-seam yield).  Nothing is re-derived.
 
+    THE POPULATION IS PART OF THE REPORT (cycle-7.5 instrument sweep,
+    RULINGS 2026-08-06 binding points 1-3).  ``material`` on its own cannot
+    distinguish "nothing is out of band" from "nothing was examined": at
+    HEAZ the band field cannot be built at all, so every vertex reads
+    off-net and this report rendered a clean universal pass over a
+    population of ZERO.  ``examined`` / ``off_net`` / the two exemption
+    counts come straight out of the checker's own ``stats`` out-dict — a
+    count, not a second opinion.
+
+    TWO FLOORS GOVERN, and both are stamped.  ``materiality_m`` (0.01 m,
+    the convergence guards') is the one this report quotes; the checker's
+    own ``ELEV_ROUNDING_NOISE_M`` (0.03 m) is the one that actually decides
+    which vertices become rows.  The larger wins, so with the shipped
+    constants ``sub_materiality`` is STRUCTURALLY ZERO — no row the checker
+    can return lands under 0.01 m.  ``sub_materiality_structurally_zero``
+    carries that fact to every consumer rather than leaving each to
+    rediscover it (``tests/test_route_band.py`` proves the inequality).
+
     Returns the summary dict (also stashed on ``layout._final_band_excess``
     for the sidecar), or ``None`` when the check could not run.
     """
+    stats: dict = {}
     try:
-        rows = route_band_violations(layout, G=G)
+        rows = route_band_violations(layout, G=G, stats=stats)
     except Exception as exc:                                   # pragma: no cover
         summary = {"error": f"{type(exc).__name__}: {exc}",
-                   "materiality_m": float(tol)}
+                   "materiality_m": float(tol),
+                   "noise_floor_m": float(ELEV_ROUNDING_NOISE_M),
+                   "frame": _band_frame(layout)}
         try:
             layout._final_band_excess = summary
         except AttributeError:
@@ -892,9 +960,23 @@ def final_band_excess_report(layout, icao="",
     summary = {
         "icao": str(icao or ""),
         "materiality_m": float(tol),
+        # The floor that actually governs which vertices become rows.
+        "noise_floor_m": float(ELEV_ROUNDING_NOISE_M),
+        "sub_materiality_structurally_zero": bool(
+            ELEV_ROUNDING_NOISE_M > tol),
         "rows": len(rows),
         "material": len(over),
         "sub_materiality": len(rows) - len(over),
+        # THE POPULATION the verdict is about, from the checker itself.
+        "examined": int(stats.get("examined", 0) or 0),
+        "off_net": int(stats.get("off_net", 0) or 0),
+        "candidates": int(stats.get("candidates", 0) or 0),
+        "deduped": int(stats.get("deduped", 0) or 0),
+        "in_band": int(stats.get("in_band", 0) or 0),
+        "exempt_small_pad": int(stats.get("exempt_small_pad", 0) or 0),
+        "exempt_runway_datum": int(stats.get("exempt_runway_datum", 0) or 0),
+        "seam_yielded": int(stats.get("seam_yielded", 0) or 0),
+        "frame": _band_frame(layout),
         "by_side": by_side,
         "by_role": dict(sorted(by_role.items(), key=lambda kv: -kv[1])),
         "worst_m": (round(float(over[0][0]), 4) if over else 0.0),
@@ -911,6 +993,25 @@ def final_band_excess_report(layout, icao="",
     return summary
 
 
+def _band_frame(layout) -> str:
+    """The frame stamp for the band-membership numbers (binding point 3).
+
+    ONE stamp, borrowed from ``building_feasibility`` rather than spelled a
+    second time here — two spellings of one frame is the two-instruments
+    trap by construction.  The node space is POSITIONAL: this checker
+    dedupes by rounded ``(x, y)`` and never touches a solver node id."""
+    try:
+        from .elevation_per_surface.building_feasibility import (
+            instrument_frame)
+        return instrument_frame(
+            layout,
+            node_space=("positional (x,y) rounded to 0.01 m in "
+                        "layout-local metres — NOT solver node ids"),
+        )
+    except Exception:                                          # pragma: no cover
+        return "[frame unavailable]"
+
+
 def format_final_band_excess(summary, icao="") -> str:
     """The one-line (plus worst-rows) build-log rendering of
     :func:`final_band_excess_report`.  Formatting lives with the report so the
@@ -920,19 +1021,54 @@ def format_final_band_excess(summary, icao="") -> str:
     if summary.get("error"):
         return (f"  [pav-builder] {icao}: final band EXCESS report failed "
                 f"({summary['error']}) — membership NOT measured this build.")
+    # THE POPULATION LINE — printed in every case, because the counts are
+    # what tell a "0 material" line apart from a line about nothing.
+    _pop = (f"examined {summary.get('examined', 0)} of "
+            f"{summary.get('candidates', 0)} airside ring vertex(es) "
+            f"[{summary.get('deduped', 0)} welded duplicate(s), "
+            f"{summary.get('off_net', 0)} off-net (band None — NOT "
+            f"constrained here)]; exempt: "
+            f"{summary.get('exempt_small_pad', 0)} small-pad reach, "
+            f"{summary.get('exempt_runway_datum', 0)} runway datum, "
+            f"{summary.get('seam_yielded', 0)} tile-seam yield")
+    # BOTH FLOORS (binding point 3): the one quoted, and the one that
+    # actually decides which vertices become rows.
+    _floors = (f"floors: materiality {summary.get('materiality_m', 0):g} m, "
+               f"checker rounding noise "
+               f"{summary.get('noise_floor_m', 0):g} m")
+    _sub = (f"{summary.get('sub_materiality', 0)} sub-materiality row(s)"
+            + (" — STRUCTURALLY ZERO at these constants: the checker's "
+               "rounding noise already exceeds the materiality floor, so no "
+               "row it returns can land under it (this number is not "
+               "evidence about the surface)"
+               if summary.get("sub_materiality_structurally_zero") else ""))
+    _frame = summary.get("frame") or ""
+    if not summary.get("examined", 0):
+        # ZERO-OF-ZERO IS NOT A PASS.  Measured live at HEAZ: the band
+        # field could not be built, every query read off-net, and this
+        # branch used to print "every airside vertex INSIDE its band"
+        # immediately under the ``[reach-band] NO FIELD`` line.
+        return (f"  [pav-builder] {icao}: final reach band — NOT MEASURED: "
+                f"ZERO vertices were examined ({_pop}).  Band membership is "
+                f"unknown for this build; a zero violation count here is "
+                f"the size of the population, not a property of the "
+                f"surface.  {_floors}.  {_frame}")
     if not summary["material"]:
-        return (f"  [pav-builder] {icao}: final reach band — every airside "
-                f"vertex INSIDE its band "
-                f"(> {summary['materiality_m']:g} m); "
-                f"{summary['sub_materiality']} sub-materiality row(s).")
+        return (f"  [pav-builder] {icao}: final reach band — 0 of "
+                f"{summary['examined']} EXAMINED vertex(es) outside their "
+                f"band by > {summary['materiality_m']:g} m "
+                f"({summary.get('in_band', 0)} inside).  {_pop}.  "
+                f"{_sub}.  {_floors}.  {_frame}")
     s = summary["by_side"]
     lines = [
         f"  [pav-builder] {icao}: final reach band — {summary['material']} "
-        f"vertex(es) OUTSIDE their band by > "
-        f"{summary['materiality_m']:g} m (ceil={s.get('ceil', 0)}, "
+        f"of {summary['examined']} EXAMINED vertex(es) OUTSIDE their band "
+        f"by > {summary['materiality_m']:g} m (ceil={s.get('ceil', 0)}, "
         f"floor={s.get('floor', 0)}, pinned={s.get('pinned', 0)}; worst "
         f"{summary['worst_m']:.4f} m).  REPORT, not a gate — the census and "
         f"tests/test_route_band.py adjudicate.",
+        f"      {_pop}.  {_sub}.  {_floors}.",
+        f"      {_frame}",
     ]
     for r in summary["worst"][:5]:
         lines.append(

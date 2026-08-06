@@ -369,8 +369,18 @@ def test_cifp_is_not_blamed_when_the_pins_do_not_force_the_spread():
     """THE REVERSED VERDICT.  The emitted anchors are 10 m apart over 8 m
     of route budget — inverted — but each sits mid-runway where its CIFP
     pins allow ±5.75 m, so a lawful pair of profiles closes this route
-    with room to spare.  The message must say CIFP does NOT force it and
-    must NOT print the metric/cap/topology sentence."""
+    with room to spare.  The message must report that the forced spread
+    FITS the budget and must NOT print the metric/cap/topology sentence.
+
+    RE-PINNED TO NUMBERS (cycle-7.5 instrument sweep, RULINGS 2026-08-06
+    binding point 2).  This test used to pin ``verdict (a) BUG`` — a
+    closed-vocabulary verdict that REPORT CODE was assigning.  The
+    derivable FACT stays and is now asserted as arithmetic: both profiles
+    are flat at 100 m and both anchors sit at t = 0.5, so each CIFP
+    envelope is symmetric about 100 m, the forced spread
+    ``max(0, f_lo − c_hi)`` is exactly ZERO, the route budget is
+    4 + 4 = 8.000 m, and the emitted 10 m spread is therefore entirely
+    NOT CIFP-forced."""
     layout, G = _cifp_case(100.0, 110.0, 4.0, 4.0,
                            pins_a=[(0.0, 100.0), (1.0, 100.0)],
                            pins_b=[(0.0, 100.0), (1.0, 100.0)])
@@ -378,10 +388,19 @@ def test_cifp_is_not_blamed_when_the_pins_do_not_force_the_spread():
     message = str(pytest.raises(
         BandInversionError,
         assert_no_final_band_inversion, layout, "TEST").value)
-    assert "CIFP-FORCED half (WORLD-INVARIANT)" in message
-    assert "CIFP DOES NOT FORCE THIS" in message
-    assert "verdict (a) BUG" in message
+    assert "CIFP-FORCED half (MIXED FRAME" in message
+    assert "CIFP-forced minimum spread 0.0000 m (WORLD-INVARIANT)" in message
+    assert ("over a route budget of 8.000 m (WORLD-DEPENDENT: a route "
+            "metric on the solved graph)") in message
+    assert "CIFP shortfall -8.0000 m (MIXED)" in message
+    assert "CIFP-forced spread FITS the budget (0.0000 ≤ 8.000 m)" in message
+    assert ("of the emitted spread 10.000 m, 10.000 m is not CIFP-forced"
+            in message)
     assert "METRIC / CAP / TOPOLOGY" not in message
+    # the interpretation report code used to assign is GONE; the LAW-LINE
+    # half's explicit WITHHOLDING of a verdict is the model that stays.
+    assert "verdict (a) BUG" not in message
+    assert "WORLD-DEPENDENT, no verdict" in message
 
 
 def test_cifp_is_blamed_only_when_the_pins_alone_exceed_the_budget():
@@ -397,9 +416,12 @@ def test_cifp_is_blamed_only_when_the_pins_alone_exceed_the_budget():
     message = str(pytest.raises(
         BandInversionError,
         assert_no_final_band_inversion, layout, "TEST").value)
-    assert "CIFP-FORCED half (WORLD-INVARIANT)" in message
+    assert "CIFP-FORCED half (MIXED FRAME" in message
     assert "METRIC / CAP / TOPOLOGY" in message
-    assert "CIFP shortfall +22.0000 m" in message
+    # KNOWN ANSWER: both anchors sit at t = 0, so each envelope collapses
+    # onto its own pin — forced = 130 − 100 = 30.0000 m against 8.000 m.
+    assert "CIFP-forced minimum spread 30.0000 m (WORLD-INVARIANT)" in message
+    assert "CIFP shortfall +22.0000 m (MIXED)" in message
 
 
 def test_the_cifp_forced_envelope_is_IDENTICAL_IN_BOTH_WORLDS():

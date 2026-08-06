@@ -26,6 +26,8 @@ for _p in (os.path.join(ROOT, "src"), ROOT):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+from auto_patch.elevation_per_surface.route_profile import (  # noqa: E402
+    one_solve as OS)
 from auto_patch.elevation_per_surface.route_profile.one_solve import (  # noqa: E402
     feasibility_project)
 
@@ -93,6 +95,89 @@ def test_unmapped_pair_is_labelled_honestly_not_folded(capsys):
     """
     out = _run(capsys, family_of={})
     assert "unified_graph" in out
+
+
+# ── THE FRAME, AND THE SIZE OF THE CATCH-ALL (2026-08-06 sweep) ──────────
+# RULINGS 2026-08-06 §3-4.  The disagreement this axis exists to expose is
+# a NODE-SPACE disagreement — the certificate's two readers ran on
+# 142,635 / 144,056 nodes here against ``UnifiedGraph``'s 146,743 — so a
+# table printed without its node space cannot be joined to the reader it
+# disagrees with, and the disagreement stays invisible.  The owner's
+# ruling names "the certificate's 80.6 % catch-all" as a falsified
+# premise: the catch-all's SIZE and SHARE are therefore numbers, printed
+# every time the table prints.
+
+def test_the_family_table_carries_its_node_space(capsys):
+    """KNOWN ANSWER: the fixture is 3 nodes and 1 law edge, and the pad
+    group collapses node 1 onto representative 0 — so the table's own
+    frame is ``fp-remapped, n=3, edges=1``, not the caller's space."""
+    out = _run(capsys, family_of={(1, 2): "unified:apron"})
+    assert "residual BY FAMILY [node-space fp-remapped: n=3, edges=1]" in out
+    # the uncertified exit that carries it is stamped the same way
+    assert "[stall-report] [node-space fp-remapped: n=3, edges=1]" in out
+
+
+def test_a_resolved_family_counts_zero_unresolved(capsys):
+    """KNOWN ANSWER: one over-cap edge, named by ``family_of`` ⇒ 0 of 1."""
+    out = _run(capsys, family_of={(1, 2): "unified:apron"})
+    assert ("NAMED BY NEITHER AUTHORITY: 0 of 1 over-cap edge(s) (0.0%) "
+            "= 0 absent from family_by_pair + 0 left on a "
+            "construction-site tag (_CATCH_ALL_FAMILY_TAGS)") in out
+
+
+def test_the_catch_all_share_is_printed_as_its_own_number(capsys):
+    """KNOWN ANSWER: the entry tag is a CONSTRUCTION SITE
+    (``unified_graph``) and ``family_of`` is empty, so the one over-cap
+    edge is named by NEITHER authority — 1 of 1, 100.0 %.
+
+    Before this it appeared as an ordinary table row and the share had to
+    be computed by hand from a truncated top-10 listing, which is how an
+    80.6 % catch-all shipped as a family attribution.
+    """
+    out = _run(capsys, family_of={})
+    assert ("NAMED BY NEITHER AUTHORITY: 1 of 1 over-cap edge(s) (100.0%) "
+            "= 0 absent from family_by_pair + 1 left on a "
+            "construction-site tag (_CATCH_ALL_FAMILY_TAGS)") in out
+    assert "unified_graph" in out, "the row keeps its own honest tag"
+
+
+def test_the_unresolved_accounting_splits_its_two_causes(capsys):
+    """KNOWN-ANSWER CALIBRATION of the accounting itself, on a table whose
+    answer is arithmetic: 4 unmapped + 3 + 2 catch-all = 9 of 20 = 45.0 %,
+    and the named family is never counted.
+
+    The two components are DIFFERENT findings — a pair the projection's
+    own ``family_by_pair`` never carried, versus one whose entry named a
+    construction site that the original-space map did not resolve — so
+    they are reported as two numbers, not one bucket.
+    """
+    families = {
+        "apron:x": (11, 5, 4.0, 0),          # named: never unresolved
+        "<unmapped>": (4, 4, 9.5, 1),
+        "unified_graph": (3, 1, 2.0, 0),
+        "?:-": (2, 0, 0.5, 2),
+    }
+    OS._report_exit_families(families, n=7, n_edges=20)
+    out = capsys.readouterr().out
+    assert "[node-space fp-remapped: n=7, edges=20]" in out
+    assert ("NAMED BY NEITHER AUTHORITY: 9 of 20 over-cap edge(s) (45.0%) "
+            "= 4 absent from family_by_pair + 5 left on a "
+            "construction-site tag (_CATCH_ALL_FAMILY_TAGS)") in out
+
+
+def test_the_accounting_survives_a_truncated_table(capsys):
+    """The share is over the WHOLE table, not the printed top-``top``.  A
+    catch-all pushed past the cut-off is exactly the case where the number
+    matters most.  KNOWN ANSWER: rows of 10 + 9 + 8 + 1 = 28 over-cap
+    edges, of which the truncated-away ``unified_graph`` row is 1 —
+    1 / 28 = 3.6 %."""
+    families = {f"fam{k}": (10 - k, 0, 1.0, 0) for k in range(3)}
+    families["unified_graph"] = (1, 1, 0.5, 0)
+    OS._report_exit_families(families, top=3, n=5, n_edges=5)
+    out = capsys.readouterr().out
+    assert "... 1 more family(ies), 1 edge(s)" in out
+    assert "NAMED BY NEITHER AUTHORITY: 1 of 28 over-cap edge(s) (3.6%)" \
+        in out
 
 
 def test_certified_exit_prints_no_family_table(capsys):

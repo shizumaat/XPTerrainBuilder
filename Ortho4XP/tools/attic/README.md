@@ -113,3 +113,15 @@ it, so that pair stays self-contained.
 > `docs/object_terrain_features_spec.md`, which is a design-and-build-order
 > document, not a completed one. They qualified mechanically (docs-only mention,
 > zero code references) but they are the group most likely to be wanted back.
+
+## Retired by owner law — the verdict they print is a closed question
+
+Added by the **cycle-7.5 standing-instrument sweep** (RULINGS 2026-08-06,
+"Instrument truth is law", binding point 5: *every existing instrument is
+audited once; an instrument that cannot be calibrated is retired, not
+trusted*).
+
+| File | What it printed | Why it is retired |
+|---|---|---|
+| `grade_feasibility_audit.py` | Classified every within-shape grade violation as `FUNDAMENTAL (no compliant field exists → W3/W5)` vs `FEASIBLE-but-unenforced (→ W2/W4)`, by treating the grade law as a difference-constraint system and running two multi-source Dijkstras for a per-node `[lo, hi]` band | Three independent grounds. **(1) Its headline verdict is a terminal state the owner CLOSED.** RULINGS 2026-08-05, "There is no lawful-infeasible ground": *"An 'infeasible' report from any solver stage is itself a defect report about the law or the instrument — never a property of the ground"*, and `lawful-infeasible` / `accepted residue` are named as RETIRED terminal states. `FUNDAMENTAL — no compliant field exists` asserts exactly the property the ruling says cannot exist. **(2) No twin, and never had one** — zero test references (the single grep hit, `tests/test_route_band.py:354`, is prose in a docstring), so it fails binding point 1 outright. **(3) It is an unsanctioned build driver** — `main()` calls `auto_patch.pipeline.build_airport_pavement` directly, bypassing `harness/build_airport.py` and every refusal it makes (build cwd, cold DEM/inset frame, private corpus, implicit refresh). Its one still-useful half, the per-node reach interval, is not lost: `building_feasibility.reach_band_unified` is the single authority for that quantity and `tools/trace_reach_route.py` is its live front end. Cited only in `docs/` plan documents (`grade_enforcement_plan.md`, `cleanup_consolidation_plan.md`, `anisotropic_edge_handling_plan.md`, the two `grade_law_consolidation_handover*.md`) and in `STATUS.md` history. |
+| `flipadj-census-lockstep.patch` | Not a tool — a one-off `git apply` patch that fixed a **lane scratchpad's private census wrapper** (`scratchpad/flipadj/census.py`) which drove `check_grade.run_checks` WITHOUT `terrace_joints_ll`. That one missing keyword produced a whole withdrawn premise set (HECA read −771 airside instead of −2246; KCLT read +52 instead of −139) | Moved by the same sweep. Its target scratchpad no longer exists, its own apply instruction names a path that does not exist (`tools/patches/…`), it was never in `tools/INDEX.md`, and it carries a **third hand-written copy of the building↔building step exemption** that this sweep unified into `check_grade.step_exempt`. Kept as attic because it is the primary written evidence behind the census-wrapper precedent that `tools/INDEX.md` and the harness cite. |

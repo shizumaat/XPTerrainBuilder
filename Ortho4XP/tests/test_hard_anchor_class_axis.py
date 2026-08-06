@@ -16,9 +16,29 @@ At HECA ``--dem 1`` the same population holds 48.50-142.43 m against a
 DEM of 1.000 with ZERO nodes at the DEM value — no ride in any pin — so
 the class name pointed the depth question at the wrong branch.
 
-These twins pin the contract on the classification RULE itself, in
-isolation from the 8,000-line solve: precedence, coverage, and the
-honest residue bucket.
+── CYCLE-7.5 INSTRUMENT SWEEP, TWO REPAIRS TO THIS FILE ──────────────
+
+1. THESE TWINS RE-IMPLEMENTED THE THING UNDER TEST.  They ran a local
+   ``classify()`` that transcribed the solve's precedence, so a change
+   to the real precedence order could NOT fail them — a second
+   implementation of the classifier, which is the same defect shape the
+   file exists to guard against.  The rule now lives in ONE place,
+   ``solve.classify_hard_anchors``, and both the solve and these twins
+   call it.
+2. THE SOURCE-TEXT SCAN IS GONE.  ``assert '{i: "seed_rwy_seam" for i in
+   _hard_cat}' not in src`` was trivially satisfied and would stay
+   satisfied under any rename, so it guarded nothing.  Its replacement is
+   BEHAVIOURAL: no class may be assigned by a blanket — proven by
+   feeding differently-sourced nodes and asserting they come out
+   different, and by asserting the blanket's own residual counter reads
+   zero when every hardened node has a publisher.
+
+⚠ ``_hard_cat`` IS NOT REPORT-ONLY.  Two production consumers read its
+VALUES by equality (the crown-freeze set and the runway-join sample set,
+both feeding ``crown.build_crown_drop_field``, the writeback transform on
+emitted elevations), so a change to WHICH NODES CARRY a class MOVES THE
+SURFACE.  ``tests/test_solve_certificate_instrument.py`` carries the
+membership-identity twins for both consumers.
 """
 from __future__ import annotations
 
@@ -27,36 +47,18 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+import auto_patch.pipeline  # noqa: F401,E402  (import-cycle order)
+from auto_patch.elevation_per_surface.route_profile import (  # noqa: E402
+    solve as SOLVE)
 
-def classify(n, base_hard, flexed, seam_pins, runway_anchor, runway_nodes):
-    """The rule as ``solve_route_profile`` applies it.
-
-    Kept as an executable statement of the precedence so the twin tests a
-    RULE rather than a transcription: highest-specificity source first,
-    and an unclaimed node is NAMED unattributed rather than folded into a
-    neighbouring class.
-    """
-    out = {}
-    for i in range(n):
-        if not base_hard[i]:
-            continue
-        if i in flexed:
-            out[i] = "rwy_flexed"
-        elif i in seam_pins:
-            out[i] = "seam_pin"
-        elif i in runway_anchor:
-            out[i] = "rwy_join"
-        elif i in runway_nodes:
-            out[i] = "rwy_profile"
-        else:
-            out[i] = "base_hard:unattributed"
-    return out
+# THE CLASSIFIER THE SOLVE RUNS — not a transcription of it.
+classify = SOLVE.classify_hard_anchors
 
 
 def test_the_map_is_not_a_constant():
     """THE DEFECT, stated as a test: five differently-sourced hard nodes
     must come out as five classes, not one."""
-    cat = classify(5, [True] * 5, flexed={0}, seam_pins={1},
+    cat = classify(5, [True] * 5, flexed_idx={0}, seam_pins={1},
                    runway_anchor={2: 10.0}, runway_nodes={3})
     assert cat == {0: "rwy_flexed", 1: "seam_pin", 2: "rwy_join",
                    3: "rwy_profile", 4: "base_hard:unattributed"}
@@ -66,17 +68,20 @@ def test_the_map_is_not_a_constant():
 def test_precedence_is_most_specific_first():
     """A flexed runway-join node is FLEXED: the flex is what chose its
     value, and the join anchor is the value it disagrees with."""
-    cat = classify(1, [True], flexed={0}, seam_pins={0},
+    cat = classify(1, [True], flexed_idx={0}, seam_pins={0},
                    runway_anchor={0: 1.0}, runway_nodes={0})
     assert cat[0] == "rwy_flexed"
-    cat = classify(1, [True], flexed=set(), seam_pins={0},
+    cat = classify(1, [True], flexed_idx=set(), seam_pins={0},
                    runway_anchor={0: 1.0}, runway_nodes={0})
     assert cat[0] == "seam_pin"
+    cat = classify(1, [True], flexed_idx=set(), seam_pins=set(),
+                   runway_anchor={0: 1.0}, runway_nodes={0})
+    assert cat[0] == "rwy_join"
 
 
 def test_a_soft_node_is_never_classified():
-    cat = classify(3, [True, False, True], flexed=set(), seam_pins=set(),
-                   runway_anchor={}, runway_nodes=set())
+    cat = classify(3, [True, False, True], flexed_idx=set(),
+                   seam_pins=set(), runway_anchor={}, runway_nodes=set())
     assert set(cat) == {0, 2}
 
 
@@ -84,15 +89,39 @@ def test_an_unclaimed_node_is_named_not_folded():
     """The residue is the whole point: a node no source claims must be
     COUNTABLE, not silently inflating a real population.  That inflation
     is what turned 1,077 mixed-provenance anchors into "100 % seam"."""
-    cat = classify(2, [True, True], flexed=set(), seam_pins=set(),
+    cat = classify(2, [True, True], flexed_idx=set(), seam_pins=set(),
                    runway_anchor={}, runway_nodes=set())
     assert set(cat.values()) == {"base_hard:unattributed"}
 
 
-def test_the_blanket_constant_is_gone_from_the_source():
-    """The literal that produced the artefact must not come back."""
+def test_the_solve_calls_this_classifier_and_no_other():
+    """The twin and the solve must share ONE implementation — the repair
+    that replaced the old local ``classify()``.  A second copy is how a
+    precedence change lands without failing this file."""
     import inspect
-    from auto_patch.elevation_per_surface.route_profile import solve
-    src = inspect.getsource(solve.solve_route_profile)
-    assert '{i: "seed_rwy_seam" for i in _hard_cat}' not in src
-    assert 'base_hard:unattributed' in src
+    src = inspect.getsource(SOLVE.solve_route_profile)
+    assert "_hard_cat: dict = classify_hard_anchors(" in src
+    assert classify is SOLVE.classify_hard_anchors
+
+
+def test_no_class_is_assigned_by_blanket():
+    """THE BEHAVIOURAL REPLACEMENT for the source-text scan.
+
+    Every hard node here has a real publisher — the classifier claims
+    all four, and the seam pass pinned two it had already claimed — so
+    the downstream blanket must label NOTHING.  Its residual counter is
+    the instrument: a nonzero ``unattributed`` IS an unattributed
+    hardening channel, by definition, and this assertion is what makes
+    a new one visible instead of silently named ``seam_spine_anchor``."""
+    cat = classify(4, [True] * 4, flexed_idx={0}, seam_pins={1},
+                   runway_anchor={2: 1.0}, runway_nodes={3})
+    rep = SOLVE.attribute_seam_spine_hardening(cat, set(range(4)), {1, 2})
+    assert rep["unattributed"] == 0
+    assert rep["attributed"] == 0
+    assert set(cat.values()) == {"rwy_flexed", "seam_pin", "rwy_join",
+                                 "rwy_profile"}
+    # and a node with no publisher at all is COUNTED, not absorbed.
+    cat2 = classify(2, [True, False], flexed_idx={0}, seam_pins=set(),
+                    runway_anchor={}, runway_nodes=set())
+    rep2 = SOLVE.attribute_seam_spine_hardening(cat2, {0, 1}, set())
+    assert rep2["unattributed"] == 1

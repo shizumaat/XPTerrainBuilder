@@ -28,9 +28,21 @@ WHAT IT REPORTS
   (patch's own sidecar: axes/routes, anchor, seam pins, solver mesh,
   crown field, baked pair caps, declared terrace joints, region ruleset).
   These are the only numbers that may be quoted as defect counts.
-* BARE counts (``--bare``) — ``run_checks`` with no context at all.
-  Overcounts by construction (memory ``check-grade-needs-law-true-frame``);
-  reported for the record, never as a defect count.
+* BARE counts (``--bare``) — ``run_checks`` with no context at all, and
+  with no registered step exemption applied.  Reported alongside the
+  law-true total AND their difference, so the size of the gap between the
+  two frames is a number in the report rather than an adjective
+  (memory ``check-grade-needs-law-true-frame``).  Never a defect count.
+* THE FRAME every number was taken in (RULINGS 2026-08-06 "Instrument
+  truth is law"): the patch's own build provenance decoded from its
+  ``<osm>`` root (sha, dirty flag, gate config, build time —
+  ``auto_patch.provenance.parse_patch_provenance``, one decoder) and the
+  law-true numeric knobs (``check_grade.LAW_TRUE_KNOBS``).  Without these
+  two census JSONs from two trees are indistinguishable.
+* The registered STEP EXEMPTIONS applied, by name and count
+  (``check_grade.step_exempt`` / ``STEP_EXEMPTIONS`` — ONE authority, also
+  read by the acceptance gate; it used to be a hand-written closure in
+  both files at once).
 * All law families, always, including the empty ones — an absent family
   line means the tool did not run, not that the family was clean.
 * The ADJUDICATION section (owner ruling RULINGS ``d48bc0a``): the verdict
@@ -40,8 +52,10 @@ WHAT IT REPORTS
   and the split is ``check_grade.adjudication`` (one implementation; the
   tip battery used to subtract the deferred family by hand).
 * AIRSIDE / GROUNDSIDE / MIXED per family, by the LAW's own role partition
-  (``check_grade._is_groundside``).  MIXED is shown separately and counts
-  against airside for acceptance ("airside is king").
+  (``check_grade._is_groundside``).  MIXED is shown separately, and the
+  ruling that a mixed row counts against airside ("airside is king") is
+  APPLIED, not merely stated: ``airside_for_acceptance = airside + mixed``
+  is reported for both the law-true and the adjudicated populations.
 * The worst-N rows with family, role pair, magnitude, grade/cap and site —
   absorbs the ``worst.py`` lane script.
 * The sidecar's EVIDENCE fields: ruleset, seam-pin count, declared terrace
@@ -229,13 +243,58 @@ def magnitude_bands(all_rows, cg, edges=DEFAULT_BAND_EDGES) -> dict:
     }
 
 
-def _both_buildings(step) -> bool:
-    """The suite's step exemption (user 2026-06-20): two adjacent terminal
-    pads are independent FLAT surfaces and may legitimately sit at different
-    floor levels with a facade between them.  Applied here so the harness's
-    step count is the same number ``test_pavement_grade`` caps."""
-    return (step.way_v.tags.get("role") == "building"
-            and step.way_e.tags.get("role") == "building")
+def load_provenance_reader():
+    """``auto_patch.provenance.parse_patch_provenance``, or ``None``.
+
+    Imported defensively and by name so a tree without the module (or a
+    reader whose import raises) degrades to an explicit ``provenance:
+    null`` with a stated reason rather than crashing a census.  ``ROOT/src``
+    is already on ``sys.path`` after ``load_check_grade``; this adds it
+    itself so the order of calls does not matter.
+    """
+    src = str(ROOT / "src")
+    if src not in sys.path:
+        sys.path.insert(0, src)
+    try:
+        from auto_patch.provenance import parse_patch_provenance
+    except Exception:                                      # pragma: no cover
+        return None
+    return parse_patch_provenance
+
+
+def patch_provenance(osm: Path) -> dict:
+    """THE PATCH'S FRAME STAMP — ``{"provenance": …, "reason": …}``.
+
+    RULINGS 2026-08-06 "Instrument truth is law", binding point 3: every
+    reported number carries its frame.  A census JSON without this is
+    indistinguishable from a census JSON of the same airport taken in
+    another tree, at another sha, with another gate configuration — and
+    equating two such numbers is the two-instruments trap by construction.
+
+    The stamp is already ON the patch: ``PavementLayout.to_osm`` writes it
+    to the ``<osm>`` root and ``auto_patch.provenance.parse_patch_provenance``
+    is its ONE decoder (``tools/patch_provenance.py`` is the CLI over the
+    same function).  Nothing is re-derived here.
+
+    ``provenance`` is ``None`` — never absent, never a crash — whenever the
+    stamp cannot be read, and ``reason`` says which of the two verified
+    cases applies: the decoder is unavailable, or the decoder returned no
+    stamp for this file.
+    """
+    reader = load_provenance_reader()
+    if reader is None:                                     # pragma: no cover
+        return {"provenance": None,
+                "reason": "auto_patch.provenance not importable from "
+                          f"{ROOT / 'src'}"}
+    try:
+        prov = reader(str(osm))
+    except Exception as exc:                               # pragma: no cover
+        return {"provenance": None,
+                "reason": f"parse_patch_provenance raised {exc!r}"}
+    if not prov:
+        return {"provenance": None,
+                "reason": "no o4_provenance_* attributes on the <osm> root"}
+    return {"provenance": prov, "reason": None}
 
 
 def zone_split(osm: Path, cg, families: dict) -> dict:
@@ -320,7 +379,22 @@ def zone_split(osm: Path, cg, families: dict) -> dict:
     # fan-ramp law did before its zones became shapes (808 zones, 170
     # edges).  Built from the ways the patch carries, through the law's
     # own ``shape_constraints`` — not estimated from vertex counts.
+    #
+    # FRAME (RULINGS 2026-08-06, binding point 3).  This count is taken in
+    # a CONTEXT-FREE ``GradeContext`` — no centerlines, no routes — while
+    # the census's own rows above come from ``run_checks_law_true`` in the
+    # sidecar's real axes/routes frame.  Two frames in one report is the
+    # two-instruments trap, so the frame is STAMPED, in the dict
+    # (``law_ctx_frame``) and in the printed line, rather than left for the
+    # reader to infer.  It is stamped rather than switched because (a) the
+    # question is shape-local — how many pairs does THIS ring bind under
+    # the shape law — and the empty context answers it deterministically,
+    # and (b) switching would move a number that has no known-answer twin
+    # telling us what the new value should be, which is the untwinned-
+    # instrument defect this sweep exists to remove.  Feeding the sidecar's
+    # real context is a follow-up that must land WITH its twin.
     ramp_pairs = ramp_ways = ramp_vertices = 0
+    law_ctx_frame = "context-free GradeContext(centerlines=[], routes=[])"
     try:
         import auto_patch.grade_graph as _GG
         nodes, ways = cg._parse_osm(Path(osm))
@@ -344,20 +418,32 @@ def zone_split(osm: Path, cg, families: dict) -> dict:
         ramp_ways = ramp_vertices = 0
         buckets["_pair_count_failed"] = repr(exc)[:80]
 
+    union_area = round(float(union.area), 1) if union is not None else 0.0
+    parts_area = round(sum(float(p.area) for (p, _c, _b, _pr) in zones), 1)
     return {
         "zones": len(zones),
         "ramp_ways": ramp_ways,
         "ramp_vertices": ramp_vertices,
         "ramp_law_pairs": ramp_pairs,
-        "zone_area_m2": (round(float(union.area), 1) if union is not None
-                         else 0.0),
-        "zone_parts_area_m2": round(
-            sum(float(p.area) for (p, _c, _b, _pr) in zones), 1),
+        "ramp_law_pairs_frame": law_ctx_frame,
+        "zone_area_m2": union_area,
+        "zone_parts_area_m2": parts_area,
+        # parts − union.  The two areas were already both in the report and
+        # the printed line asserted a CAUSE for their difference ("zones
+        # OVERLAP, one per adjacent building pair") that nothing here
+        # measures.  The difference itself is arithmetic on two numbers the
+        # section already holds, so it is reported as a number.
+        "zone_overlap_m2": round(parts_area - union_area, 1),
         "caps": sorted({c for (_p, c, _b, _pr) in zones}),
         "within_rows": len(rows),
         "buckets": dict(buckets),
-        # The rows a ramp cap CANNOT rescue however the zones are drawn.
-        "steeper_than_zone_cap": steeper_than_cap,
+        # Rows whose measured grade exceeds ``cap_bound`` — the MAXIMUM over
+        # the caps THIS patch's sidecar declares.  Reported with the bound so
+        # the number carries the caps it was taken at; the bound is None (and
+        # so is the count) when the sidecar declares no cap, because "steeper
+        # than nothing" is not a question with an answer.
+        "steeper_than_zone_cap": steeper_than_cap if cap else None,
+        "steeper_than_zone_cap_bound": cap if cap else None,
         "top_role_pairs": dict(by_role.most_common(6)),
     }
 
@@ -370,7 +456,13 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
     within, cross, steps = cg.run_checks_law_true(
         osm, family_out=families, quiet=True, top_n=0)
 
-    steps_kept = [s for s in steps if not _both_buildings(s)]
+    # THE STEP EXEMPTION comes from the law register, not from a copy here
+    # (``check_grade.step_exempt`` / ``STEP_EXEMPTIONS``).  It used to be a
+    # closure in this file AND a second, hand-written closure in
+    # ``tests/test_pavement_grade.py`` — one law, two copies, the
+    # census-wrapper defect class.
+    steps_kept = [s for s in steps if not cg.step_exempt(s)]
+    exempt_by_rule = Counter()
     evidence = cg.sidecar_evidence(osm)
     declared = families.get("_ruleset_declared")
     active = families.get("_ruleset_active")
@@ -378,8 +470,15 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
     rows_by_family = {}
     for key, title, bucket in cg.LAW_FAMILIES:
         rows = families.get(key, [])
-        if key in ("vertex_to_edge_step", "mid_edge_step"):
-            rows = [s for s in rows if not _both_buildings(s)]
+        if key in cg.STEP_EXEMPT_FAMILIES:
+            kept = []
+            for s in rows:
+                rule = cg.step_exempt(s)
+                if rule:
+                    exempt_by_rule[rule] += 1
+                else:
+                    kept.append(s)
+            rows = kept
         rows_by_family[key] = (title, bucket, rows)
 
     fam_report = []
@@ -434,8 +533,19 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
     # split is ``check_grade.adjudication`` (one implementation; the
     # battery used to do this subtraction by hand).
     adj = cg.adjudication(all_rows)
+    prov = patch_provenance(osm)
     report = {
         "patch": str(osm),
+        # THE FRAME (RULINGS 2026-08-06, binding point 3).  Two census JSONs
+        # from two trees used to be indistinguishable: same keys, same
+        # shape, nothing saying which sha, which gates, or which numeric
+        # law knobs produced them.  Both halves are stamped here — the
+        # patch's own build provenance and the law-true knob frame the
+        # counts were taken in (``check_grade.LAW_TRUE_KNOBS``, read from
+        # the module, never re-typed).
+        "provenance": prov["provenance"],
+        "provenance_reason": prov["reason"],
+        "law_true_knobs": dict(cg.LAW_TRUE_KNOBS),
         "ruleset_declared": declared,
         "ruleset_active": active,
         "lawtrue": {
@@ -444,12 +554,22 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
             "cross": len(cross),
             "steps": len(steps_kept),
             "steps_raw": len(steps),
+            "steps_exempt_by_rule": dict(exempt_by_rule),
             "airside": sides_total.get("airside", 0),
             "groundside": sides_total.get("groundside", 0),
             "mixed": sides_total.get("mixed", 0),
             "unknown": sides_total.get("unknown", 0),
+            # "AIRSIDE IS KING" (RULINGS, owner standing): a MIXED row
+            # counts AGAINST airside for acceptance.  The rule was stated
+            # in the printed line and applied to no number; this is the
+            # number it names.
+            "airside_for_acceptance": (sides_total.get("airside", 0)
+                                       + sides_total.get("mixed", 0)),
         },
         "adjudication": adj,
+        "adjudicated_airside_for_acceptance": (
+            adj["adjudicated_by_side"]["airside"]
+            + adj["adjudicated_by_side"]["mixed"]),
         "families": fam_report,
         "worst": worst_rows,
         "classes": dict(classes.most_common()),
@@ -475,27 +595,52 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
 def print_report(rep: dict, top: int) -> None:
     lt = rep["lawtrue"]
     print(f"\n=== CENSUS {rep['patch']} ===")
-    if rep["ruleset_declared"]:
-        print(f"  ruleset: {rep['ruleset_declared']!r}   (DECLARED by the "
-              f"patch sidecar — the authority the BUILD ran under)")
+    # FRAME STAMP (RULINGS 2026-08-06, binding point 3) — the tree and gate
+    # configuration the patch was BUILT by, decoded from its own <osm> root
+    # by ``auto_patch.provenance.parse_patch_provenance``.
+    prov = rep.get("provenance")
+    if prov:
+        print(f"  frame: sha={prov.get('sha') or 'absent'} "
+              f"dirty={prov.get('dirty')} built={prov.get('built') or '?'} "
+              f"icao={prov.get('icao') or '?'} "
+              f"gates_nondefault={len(prov.get('gates_nondefault') or [])}"
+              f"/{prov.get('gates_total')} "
+              f"dem_raw={prov.get('dem_raw')}")
     else:
-        print(f"  ruleset: {rep['ruleset_active']!r}   !! NOT DECLARED — "
-              f"this patch's sidecar carries no 'ruleset' key, so it "
-              f"predates the FAA/ICAO split and was judged under the "
-              f"DEFAULT.  Rebuild for a law-true judgment.")
+        print(f"  frame: provenance=None "
+              f"({rep.get('provenance_reason') or 'not read'})")
+    knobs = rep.get("law_true_knobs") or {}
+    if knobs:
+        print("  law-true knobs: " + " ".join(f"{k}={v:g}"
+                                              for k, v in knobs.items()))
+    # RULESET: declared / active / source.  Three verified facts; the line
+    # used to add a CAUSE for a missing key ("predates the FAA/ICAO split")
+    # that nothing here establishes, plus an instruction to the reader.
+    if rep["ruleset_declared"]:
+        print(f"  ruleset: declared={rep['ruleset_declared']!r} "
+              f"active={rep['ruleset_active']!r} source=SIDECAR")
+    else:
+        print(f"  ruleset: declared=None "
+              f"active={rep['ruleset_active']!r} source=DEFAULT")
+    exempt = lt.get("steps_exempt_by_rule") or {}
+    exempt_txt = (", ".join(f"{k}={v}" for k, v in sorted(exempt.items()))
+                  or "none")
     print(f"  LAW-TRUE TOTAL {lt['total']}   within={lt['within']} "
           f"cross={lt['cross']} steps={lt['steps']} "
-          f"(raw {lt['steps_raw']}, building↔building exempt)")
+          f"(raw {lt['steps_raw']}, registered step exemptions: "
+          f"{exempt_txt})")
     print(f"  sides: airside={lt['airside']} groundside={lt['groundside']} "
           f"mixed={lt['mixed']} unknown={lt['unknown']}   "
-          f"(mixed counts AGAINST airside — airside is king)")
+          f"airside_for_acceptance={lt['airside_for_acceptance']} "
+          f"(=airside+mixed, RULINGS 'airside is king')")
     adj = rep.get("adjudication")
     if adj:
         a = adj["adjudicated_by_side"]
         print(f"\n  === ADJUDICATION (RULINGS {adj['ruling']}) ===")
         print(f"    ADJUDICATED {adj['adjudicated_total']}   "
               f"airside={a['airside']} groundside={a['groundside']} "
-              f"mixed={a['mixed']}   verdict: "
+              f"mixed={a['mixed']}   airside_for_acceptance="
+              f"{rep['adjudicated_airside_for_acceptance']}   verdict: "
               f"{'PASS' if adj['pass'] else 'FAIL'}")
         print(f"    VERSION-DEFERRED (reported, NOT adjudicated) "
               f"{adj['deferred_total']}:")
@@ -503,9 +648,14 @@ def print_report(rep: dict, top: int) -> None:
             print(f"      {key:<24}{d['n']:>7}  {d['why']}")
     if "bare" in rep:
         b = rep["bare"]
-        print(f"  BARE (context-free, OVERCOUNTS — never a defect count): "
-              f"total={b['total']} within={b['within']} cross={b['cross']} "
-              f"steps={b['steps']}")
+        # BOTH totals and their DIFFERENCE.  The line used to assert
+        # "OVERCOUNTS" while holding the two numbers that measure it; the
+        # difference is now the number the reader sees.
+        print(f"  BARE (context-free frame — no sidecar law context, no "
+              f"registered step exemption): total={b['total']} "
+              f"within={b['within']} cross={b['cross']} steps={b['steps']}")
+        print(f"    bare {b['total']} − law-true {lt['total']} = "
+              f"{b['total'] - lt['total']:+d} rows")
     ev = rep.get("evidence") or {}
     print(f"  sidecar evidence: seam_pins={ev.get('seam_pin_count')} "
           f"terrace_joints={ev.get('terrace_joint_count')} "
@@ -515,20 +665,52 @@ def print_report(rep: dict, top: int) -> None:
     be = ev.get("band_excess")
     if isinstance(be, dict) and not be.get("error"):
         s = be.get("by_side") or {}
-        print(f"  band membership (the BUILD's own report, evidence — "
-              f"route_band lives in-memory and is not a census family): "
-              f"{be.get('material', 0)} vertex(es) outside their band by > "
-              f"{be.get('materiality_m', 0.01):g} m "
-              f"(ceil={s.get('ceil', 0)} floor={s.get('floor', 0)} "
-              f"pinned={s.get('pinned', 0)}, worst "
-              f"{be.get('worst_m', 0.0)} m)")
+        # ZERO-OF-ZERO IS NOT A PASS (RULINGS 2026-08-06, binding point 2).
+        # ``route_band_violations`` does not constrain a vertex whose band
+        # reads ``None``, so a build whose band field could not be built at
+        # all returns ZERO rows — and this line used to render that as a
+        # clean membership report.  Measured live on HEAZ: the build logs
+        # ``[reach-band] NO FIELD`` and the census printed a clean band
+        # line in the same run.  The build's own report now publishes the
+        # EXAMINED denominator; a census that has it must never print a
+        # membership number without it.
+        examined = be.get("examined")
+        if examined == 0:
+            print(f"  band membership: NOT MEASURED this build — ZERO of "
+                  f"{be.get('candidates', 0)} candidate vertex(es) were "
+                  f"examined ({be.get('off_net', 0)} off-net: band None, "
+                  f"NOT constrained; {be.get('deduped', 0)} welded "
+                  f"duplicate(s)).  Zero rows here is the ABSENCE of a "
+                  f"measurement, not a clean surface.")
+        else:
+            denom = ("" if examined is None
+                     else f" of {examined} EXAMINED vertex(es)")
+            stale = (" [this build predates the EXAMINED denominator — the"
+                     " zero-of-zero case is indistinguishable here]"
+                     if examined is None else "")
+            print(f"  band membership (the BUILD's own report, evidence — "
+                  f"route_band lives in-memory and is not a census family): "
+                  f"{be.get('material', 0)}{denom} outside their band by > "
+                  f"{be.get('materiality_m', 0.01):g} m "
+                  f"(ceil={s.get('ceil', 0)} floor={s.get('floor', 0)} "
+                  f"pinned={s.get('pinned', 0)}, worst "
+                  f"{be.get('worst_m', 0.0)} m){stale}")
+        if be.get("sub_materiality_structurally_zero"):
+            print(f"    sub-materiality split is STRUCTURALLY ZERO at these "
+                  f"constants (noise floor "
+                  f"{be.get('noise_floor_m')} m >= materiality "
+                  f"{be.get('materiality_m')} m) — not evidence about the "
+                  f"surface")
     elif isinstance(be, dict):
         print(f"  band membership: NOT MEASURED this build "
               f"({be.get('error')})")
     if ev.get("unknown_keys"):
-        print(f"  !! sidecar carries key(s) NO reader consumes: "
-              f"{ev['unknown_keys']} — the emitter grew a field the law "
-              f"register does not know (fix check_grade.SIDECAR_*_KEYS)")
+        # The VERIFIED set difference, nothing more: the old line named a
+        # cause (the emitter grew a field) and instructed the reader which
+        # constant to edit.  What is computed is
+        # ``set(sidecar) − (SIDECAR_LAW_KEYS ∪ SIDECAR_EVIDENCE_KEYS)``.
+        print(f"  !! sidecar key(s) in neither SIDECAR_LAW_KEYS nor "
+              f"SIDECAR_EVIDENCE_KEYS: {ev['unknown_keys']}")
 
     print(f"\n  {'FAMILY':<24}{'n':>7}{'airside':>9}{'gs':>6}{'mixed':>7}"
           f"{'worst m':>10}  title")
@@ -586,13 +768,15 @@ def print_report(rep: dict, top: int) -> None:
             print(f"    not available: {zs['reason']}")
         else:
             print(f"    zones {zs['zones']} declared, union "
-                  f"{zs['zone_area_m2']:,.0f} m² (parts sum "
-                  f"{zs['zone_parts_area_m2']:,.0f} m² — zones OVERLAP, one "
-                  f"per adjacent building pair), caps {zs['caps']}")
+                  f"{zs['zone_area_m2']:,.0f} m², parts sum "
+                  f"{zs['zone_parts_area_m2']:,.0f} m², overlap "
+                  f"{zs['zone_overlap_m2']:,.0f} m² (= parts − union), "
+                  f"caps {zs['caps']}")
             print(f"    ramp PIECES {zs['ramp_ways']} "
                   f"({zs['ramp_vertices']} ring vertices) binding "
-                  f"{zs['ramp_law_pairs']} law pair(s) at the zone cap "
-                  f"— the number that says whether the law is INERT")
+                  f"{zs['ramp_law_pairs']} law pair(s) at the zone cap")
+            print(f"      [frame: {zs['ramp_law_pairs_frame']} — NOT the "
+                  f"census's law-true frame above]")
             b = zs["buckets"]
             print(f"    within-shape rows {zs['within_rows']}:")
             for k, label in (
@@ -602,9 +786,14 @@ def print_report(rep: dict, top: int) -> None:
                     ("crosses", "chord enters and leaves a zone"),
                     ("outside", "no relation to any zone")):
                 print(f"      {k:<12}{b.get(k, 0):>8}  {label}")
-            print(f"    rows already steeper than the zone cap: "
-                  f"{zs['steeper_than_zone_cap']} — no ramp cap rescues "
-                  f"these however the zones are drawn")
+            bound = zs["steeper_than_zone_cap_bound"]
+            if bound is None:
+                print("    rows steeper than the zone cap: not measured "
+                      "(this sidecar declares no cap)")
+            else:
+                print(f"    rows steeper than {bound * 100:g}% (the MAX "
+                      f"over the {len(zs['caps'])} cap(s) this sidecar "
+                      f"declares): {zs['steeper_than_zone_cap']}")
             print("    top role pairs: " + ", ".join(
                 f"{k}={v}" for k, v in zs["top_role_pairs"].items()))
 

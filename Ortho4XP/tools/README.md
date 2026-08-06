@@ -60,7 +60,6 @@ module-level work — they are libraries and are safe to import.
 |---|---|
 | `wedge_audit.py` | Counts near-zero-angle wedges (< 0.5°) where the short edge's far endpoint sits within 20 cm of the long edge — epsilon divergence. Named in `artifact_contracts.json` |
 | `flex_audit.py` | FLEX-LAST law: diffs a flex-ON against a flex-OFF patch and asks, at each flexed cluster, whether the feeding taxiways were really at max grade. Reads the axes sidecar **without** guarding for its absence |
-| `grade_feasibility_audit.py` | Classifies every within-shape violation as fundamentally infeasible vs feasible-but-unenforced, by treating the grade law as a difference-constraint system |
 | `clearance_spike_audit.py` | Terrain spikes beside pavement that no clearance cut covers — turns "several spots at HECA" into coordinates |
 | `clearance_conformance_audit.py` | Whether clearance cuts actually protect anything: a cut riding the DEM reads as "covered" to the spike audit while protecting nothing |
 | `patch_provenance.py` | Decodes a patch's provenance stamp — git sha + dirty flag, gate configuration, which elevation insets baked into its DEM, timestamp. Root-line only, so seconds-fast over any patch tree |

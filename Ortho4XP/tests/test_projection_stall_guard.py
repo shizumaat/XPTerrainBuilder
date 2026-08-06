@@ -190,8 +190,12 @@ def test_report_names_the_carrier_pair_and_its_adjudication(
     carrier = stats["detect_carrier"]
     assert carrier[0] == "sym"
     assert {carrier[1], carrier[2]} <= {0, 1, 2}
-    # the adjudication class: this system IS infeasible (L > U at node 1)
-    assert "INFEASIBLE" in text
+    # the adjudication class: this system IS infeasible (L > U at node 1),
+    # and L>U is the branch that PROVES something, so the word is licensed
+    assert "-> INFEASIBLE (L>U proved)" in text
+    # every reported number carries its frame (RULINGS 2026-08-06 §3)
+    assert "[RAW-LAW budgets]" in text
+    assert "[node-space fp-remapped: n=3]" in text
 
 
 def test_adjudication_stays_behind_the_forensics_channel(monkeypatch, capsys):
@@ -271,16 +275,20 @@ def test_only_never_moving_nodes_are_anchors():
 def test_a_held_but_moving_endpoint_no_longer_mints_infeasible(
         monkeypatch, capsys):
     """End-to-end through the report: the carrier of this stalled system
-    adjudicates FEASIBLE, because the value that made it look otherwise
-    was a movable node's post-solve ``z``."""
+    is NOT proved infeasible, because the value that made it look
+    otherwise was a movable node's post-solve ``z``."""
     monkeypatch.setenv("O4_PROJECTION_STALL_REPORT", "1")
     monkeypatch.setenv("O4_STALL_GUARD_ADJUDICATE", "1")
     elev, iter_edges, n = _held_but_moving_system()
     _run(elev, iter_edges, n, 400)
     text = capsys.readouterr().out
     assert "INFEASIBLE nodes (L>U) 0 of" in text
-    assert "-> feasible" in text
+    assert "-> not-proved-infeasible" in text
     assert "-> INFEASIBLE" not in text
+    # THE ONE-SIDEDNESS IS PART OF THE LABEL, not folklore in a docstring
+    assert "slab edges + node boxes omitted from this envelope" in text
+    # …and the word that inverted the guarantee is gone for good
+    assert "-> feasible" not in text
 
 
 def test_a_genuinely_pinned_pair_still_adjudicates_infeasible(
@@ -292,7 +300,53 @@ def test_a_genuinely_pinned_pair_still_adjudicates_infeasible(
     elev, iter_edges, n = _infeasible_system()
     _run(elev, iter_edges, n, 400)
     text = capsys.readouterr().out
-    assert "-> INFEASIBLE" in text
+    assert "-> INFEASIBLE (L>U proved)" in text
+
+
+# ── (g2) THE L−U LABEL IS ONE-SIDED, AND SAYS SO ────────────────────────
+# Standing-instrument sweep 2026-08-06.  ``_stall_envelope_gap`` OMITS
+# interval (slab) edges and node boxes and drops routes under its two
+# reach rules — every one of those only ever REMOVES constraints.  That is
+# what makes ``L > U`` conservative-and-certain, and it is exactly what
+# makes ``L ≤ U`` prove NOTHING.  The negative branch printed the word
+# "feasible", which states the opposite of what the instrument can show.
+
+def test_the_lu_label_proves_infeasibility_and_never_feasibility():
+    """KNOWN ANSWER, both branches, at the one place the label is minted.
+
+    ``max(ga, gb) > 1e-9`` ⇒ a gap was found ⇒ proof.  Anything else ⇒ no
+    proof was found, which is not a proof of the negation.  The tolerance
+    itself is calibrated here: 1e-9 is NOT a gap, 2e-9 is.
+    """
+    positive = OS._lu_class(0.5, 0.0)
+    assert positive == "INFEASIBLE (L>U proved)"
+
+    for ga, gb in ((0.0, 0.0), (-3.0, -0.25), (1e-9, 1e-9), (0.0, -1e300)):
+        negative = OS._lu_class(ga, gb)
+        assert negative.startswith("not-proved-infeasible"), (ga, gb)
+        # the word that inverted the guarantee may never come back …
+        assert "feasible" not in negative.replace("not-proved-infeasible",
+                                                  ""), (ga, gb)
+        # … and the omission that makes the branch one-sided is stated
+        assert "slab edges + node boxes omitted" in negative
+
+    # the tolerance is a threshold, not a rounding accident
+    assert OS._lu_class(1e-9, 0.0).startswith("not-proved-infeasible")
+    assert OS._lu_class(2e-9, 0.0) == "INFEASIBLE (L>U proved)"
+
+
+def test_the_lu_label_has_exactly_one_authority():
+    """Both report sites (``_stall_guard_report`` and the uncertified exit)
+    must mint the class through ``_lu_class``.  Two inline ternaries is how
+    the two carrier lines drifted apart in the first place — and a
+    re-introduced literal would be invisible to every value assertion."""
+    import inspect
+
+    source = inspect.getsource(OS)
+    assert 'else "feasible"' not in source, (
+        "a carrier line is classifying L<=U as 'feasible' again")
+    assert source.count("{_lu_class(ga, gb)}") == 2, (
+        "both carrier lines must read the single class authority")
 
 
 @pytest.mark.parametrize("rel", [0.0, 0.005, 0.05])

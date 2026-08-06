@@ -196,6 +196,24 @@ disagreeing LAW values, no vertex on DEM). Debts: census
 tools/INDEX.md UNREACHABLE from lane worktrees (lane_worktree.sh
 doesn't mount repo-root tools/).
 
+**CYCLE-7 IN FLIGHT (lane c7cert; spec cycle7-certified-exit).** The
+82% attributed (c6attr dossier, c6tip tmp/): CONVERGENCE ~33-57% —
+derive_sweep_budget prices a diffusive process with a linear bound,
+~100x short; pure symmetric law CERTIFIES when allowed to converge
+(HEAZ x100 = 0; HECA x400 = 0 rows >=0.01); the "NOT budget
+exhaustion" exit line is FALSIFIED — verdict (a). STRUCTURE: boxes+
+pins own 25.5% and 100% of the 60.77 m headline — a 2-CYCLE between a
+zero-width seat box (detached pad building172 at its groundside datum
+1.66, band WITHHELD, 343-pad class) and an apron at band floor 62.50
+— verdict (c); seed_rwy_seam depth 610 pins, 51.19 m |dz| vs 33.38 m
+budget — (b) attribute-first; the INTERVAL/SLAB layer is the largest
+structural owner, UNATTRIBUTED — the lane's first measurement;
+certificate blind to flat-group edges (1,184 UNATTRIBUTED) — (d);
+conformance-pass suspect FALSIFIED (corrective); fgp raises its own
+certificate +8,234 — same underpricing suspected. Q4 (P∘D +219)
+unresolved, chored. Tool debt: interval_reach_replay unfaithful to
+fp#8 (missing dump keys) — extension chored.
+
 NEXT TARGETS (ranked):
 1. **The solve's UNCERTIFIED exit is the real plateau author** —
    attribute the empty polytope per family (ENTRY/EXIT certificate +

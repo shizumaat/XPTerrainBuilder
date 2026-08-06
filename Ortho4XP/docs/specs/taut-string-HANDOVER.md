@@ -16,8 +16,72 @@ pre-flip -> new default): SPJC 1698->1366, SPLP 50->27, CYXY 171->155,
 HECA 9649->9125, KCLT 2908->2643; BATTERY 14,476->13,316 (-1,160),
 seam +15 (ruled accepted). Every prior anchor list below is HISTORY.
 
+**SESSION CHECKPOINT — 2026-08-06, HEAD 34088fe (+ the fix3b merge in
+flight). FRESH SESSION BOOTS HERE; the ~17:30 block below is HISTORY.**
+Read: RULINGS.md end-to-end, tools/INDEX.md, BASELINES.md (scratchpad
+rebaseline/), memory/.
+
+CYCLE-4 VERDICTS (all three targets closed this session):
+- Targets 2+3 LANDED (merge `7786ff0`, lane/c4law): flex budget DELETED
+  per owner ruling (clamp = min(pull, slack)); ride never enters an
+  anchor via ZERO-BAND-BUT-FREE join stations (anchored-set mechanism
+  measured re-minting the self-anchor lock — deviation ratified,
+  spec cycle4-anchor-law). Law/ride instrument's law line = anchored ∪
+  flex-applied (`033c3d5`). HECA canyon: 3,169 nodes @ constant
+  12.8394 m → **382 nodes worst 1.6421 m, ALL LAW-half** (ride ≤0.019 m);
+  three anchor pairs (6995/7326/3666/7595), law spreads 26.29/26.30/
+  27.56 m over budgets 24.658/25.793/27.084 m ⇒ +1.6358/+0.5083/
+  +0.4729 m. HECA plateau −771 law-true vs matched control.
+- Target 1 LANDED IN MODIFIED FORM, **PREMISE FALSIFIED** (merge
+  `389af44`, lane/c4proj): final_grade_projection ABSORBS the plateau
+  row mass (hold arms 48,432/38,681 vs 24,258 control) — THE ONE SOLVE
+  ITSELF EXITS UNCERTIFIED on HECA plateau (63,898 active violating
+  edges, worst residual 96.79 m, "the polytope is EMPTY"). Landed and
+  standing: carried law context (solved_values/building_seats/
+  gs_witness by canonical identity), near-miss frontage law (exposed a
+  LOCKSTEP GAP — generation-binding, NO census family, reads as HECA
+  +498), counted terrace/fan appliers (fan rail verified: handed 5%
+  cap reaches both edge sets), who_wrote --author, ENTRY/EXIT law
+  certificate. Idempotence hold is REPORT-ONLY.
+
+NEXT TARGETS (ranked):
+1. **The solve's UNCERTIFIED exit is the real plateau author** —
+   attribute the empty polytope per family (ENTRY/EXIT certificate +
+   hold ledger + who_wrote --author are the instruments), then spec
+   the fix. Feasibility-is-guaranteed: empty polytope = (a)-(d) defect.
+2. HECA canyon 382-node LAW-half residual (the three pairs above) —
+   metric/cap/topology attribution.
+3. Instrument-fix round (post-battery, spec owed): _RWD_RADIUS_M=15
+   misses lawful 1.24% at 19.45 m; RASTER_REACH_BAND_GRID_RESIDUAL_M
+   =0.25 calibration stale (~50-row continuum excused); CYXY
+   anti-gaming fixture asserts a gone defect; trace_reach_route.py
+   replays the RETIRED reach engine (INDEX row false); harness oracle
+   counts version-deferred drainage_minimum rows (no deferred
+   adjudication instrument); near-miss frontage census family (the
+   lockstep gap); production band law is inversion-only — sub-inversion
+   band excess ships silent.
+4. env_band carry: a new ring node inherits no band (13,937/17,862
+   keys resolve; shortfall = decimated vertices, not disagreement).
+
+DEBTS CLEARED THIS SESSION: apron-terrace-law-spec r2 (`d7c3072`,
+landed-vs-pending table; owner Q carried: may service-road routes relax
+out of the joint no-cross set?); SPJC-verdicts-at-pristine-HEAD
+attributed (the checkpoint's "all three" = the ORACLE's three verdicts
+— standing flat targets, byte-identical to fix-3A control, e5c8443
+value-neutral; pytest reds: F1 = fgp tail of target 1 (a); F2/F3 =
+(d) instrument/fixture). **CORRECTION: the backlog line
+"route_band_zero pinned-dominated (SPJC 1,227/CYXY 501/SPLP 289)" DOES
+NOT REPRODUCE at HEAD** (SPJC 55 raw/0 filtered, CYXY 2) — same
+instrument name, different population; re-derive before acting.
+
+IN FLIGHT: lane/fix3b merge + composed flat battery (integration
+agent; tip acceptance matrix vs BOTH frames — be84766 BASELINES and
+the be2009f-era in-tree controls; frames differ because trees differ,
+never average). Owner-started side sessions: apron_terrace docstring
+fix, lane_worktree.sh down fix.
+
 **SESSION CHECKPOINT — 2026-08-05 ~17:30, HEAD 7ea3e6e (+ docs
-6e7e0ea). FRESH SESSION BOOTS HERE.** Read: RULINGS.md end-to-end
+6e7e0ea). HISTORY — superseded above.** Read: RULINGS.md end-to-end
 (the law, incl. flat-first e56d40c, real-DEM gated, drainage scope
 d48bc0a, fan-ramp 21f0980, no-lawful-infeasible 5578b6a, closed
 verdicts), tools/INDEX.md (the harness is THE way), BASELINES.md

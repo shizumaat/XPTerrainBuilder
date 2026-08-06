@@ -91,8 +91,15 @@ BAND_STATUS = {
 }
 
 
-def _analytic_band(layout):
+def _analytic_band(layout, withhold_hard_truth: bool = False):
     """The ANALYTIC reach band for ``layout``, as ``(band_of, status)``.
+
+    ``withhold_hard_truth`` builds the SAME band with the solve's published
+    ``_seed_hard_truth_values`` map emptied for the duration of the call
+    (restored in ``finally``) — the interventional arm of the band's
+    world-invariance attribution.  It changes nothing about the layout it
+    is handed: the map is put back before returning, and the band closure
+    has already read it.
 
     ``building_feasibility.reach_band_unified`` — the cap-Dijkstra from the
     runway anchors over the unified grade graph.  This is the band the
@@ -103,8 +110,27 @@ def _analytic_band(layout):
     Why it is the right supplier and the pair is not: the band-width field
     is the two worlds differenced, so testing "is the node at the pair's
     edge" is circular — it is true by construction.  This band is derived
-    from anchors, caps and geometry ALONE, none of which the DEM touches,
-    so it is identical in both worlds and genuinely independent of the seed.
+    from anchors, caps and geometry, and no DEM VALUE is read anywhere in
+    it, so it is independent of the seed in the sense assertion 2 needs.
+
+    IT IS NOT WORLD-INVARIANT, AND THE OLD SENTENCE HERE SAID IT WAS
+    (cycle-8 pre-requirement; verdict (d) BROKEN INSTRUMENT).  The claim
+    used to read "derived from anchors, caps and geometry ALONE, none of
+    which the DEM touches, so it is identical in both worlds".  The third
+    input is the LAYOUT, and the layout is not the same object in the two
+    constant-DEM worlds: measured at HEAZ, the canyon layout carries 6 610
+    graph nodes against the plateau's 4 949 (+33.6 %), because the
+    adjacent-ground / retaining-wall / RESA machinery shapes CUT geometry
+    where the plateau world shapes FILL geometry
+    (``graded_strip/adjacent_ground`` 2 322 → 3 479,
+    ``retaining_wall/adjacent_ground_wall`` 186 → 0,
+    ``runway_clearance/runway_end_resa`` 0 → 91).  Two different layouts
+    make two different attachment fields, so the SAME coordinate reads a
+    different band — up to 8.47 m at HEAZ, 71.3 m at KCLT/HECA.  That is
+    a statement about the geometry the band is read over, NOT the DEM
+    entering the band's law: the interventional arm that withholds the
+    solve's hard-truth seeds leaves the disagreement bit-for-bit
+    unchanged (1 417 → 1 417, max 8.4734 m both ways).
 
     Returns ``(band_of, status)``.  ``band_of((x, y)) -> (floor, ceiling) |
     None`` is the adapted supplier, or ``None`` when no band could be
@@ -159,19 +185,42 @@ def _analytic_band(layout):
     _PROBE_ATTRS = ("_terrain_host_yield_first_index",
                     "_adjacent_ground_first_zone_index")
     saved = {a: getattr(layout, a, None) for a in _PROBE_ATTRS}
+    hard_truth_saved = getattr(layout, "_seed_hard_truth_values", None)
     try:
         from auto_patch import grade_graph as GG
         from auto_patch.elevation_per_surface.solver_primitives import (
             _build_node_list)
         from auto_patch.elevation_per_surface.building_feasibility import (
             reach_band_unified)
+        if withhold_hard_truth:
+            # THE INTERVENTION (cycle-8 pre-requirement).  The band's seed
+            # set is ``G.runway_anchor`` UNION the solve's published
+            # ``_seed_hard_truth_values`` (``building_feasibility.
+            # _hard_truth_spine_seeds``).  The first is law (CIFP-anchored
+            # runway values); the second is a POST-SOLVE map, and a
+            # post-solve value is world-dependent by construction.
+            # Withholding it is the interventional arm that separates
+            # "the seeds carry the DEM into the band" from "the graph
+            # geometry differs between the worlds" — reading the seed maps
+            # alone would be attribution-as-causal, which this campaign has
+            # been burned by nine times.
+            layout._seed_hard_truth_values = {}
         nodes, b2i = _build_node_list(layout, readonly=True)
         if not nodes:
             return None, _status("no_nodes")
         band = reach_band_unified(layout, GG.build_unified_graph(layout, b2i))
         if band is None:
             return None, _status("no_band")
-        return (lambda xy: band(xy[0], xy[1])), _status("ok")
+
+        def band_of(xy):
+            return band(xy[0], xy[1])
+
+        # The lookup's own provenance travels WITH the adapted supplier —
+        # the world-diff's carrier split reads it, and re-deriving an
+        # attachment in the reader would be a second engine (the very
+        # defect ``attachment_at`` was published to end).
+        band_of.attachment_at = getattr(band, "attachment_at", None)
+        return band_of, _status("ok")
     except Exception as exc:
         import traceback
         detail = traceback.format_exc().strip().splitlines()[-6:]
@@ -189,6 +238,123 @@ def _analytic_band(layout):
                         pass
             else:
                 setattr(layout, a, v)
+        if withhold_hard_truth:
+            if hard_truth_saved is None:
+                if hasattr(layout, "_seed_hard_truth_values"):
+                    try:
+                        delattr(layout, "_seed_hard_truth_values")
+                    except Exception:                     # pragma: no cover
+                        pass
+            else:
+                layout._seed_hard_truth_values = hard_truth_saved
+
+
+def _band_seed_inventory(layout) -> dict:
+    """The band's own SEED MAPS for one world, keyed by ROUNDED POSITION.
+
+    Counts and value maps for the two seed classes ``spine_value_fields``
+    unions: ``G.runway_anchor`` (law — CIFP-anchored runway joins) and the
+    solve's published hard-truth map (post-solve values).  Position-keyed
+    because node INDICES are valid only inside one ``_build_node_list``
+    call (the canonical-identity join lesson); a millimetre round is exact
+    for a join between two builds of the same geometry.
+
+    Reported as NUMBERS AND FRAMES — it names which inputs differ, never
+    why.  The interventional arm above is what carries the verdict.
+    """
+    inv = {"anchors": {}, "hard_truth": {}, "spine_edges": 0,
+           "nodes": 0, "read": False}
+    try:
+        from auto_patch import grade_graph as GG
+        from auto_patch.elevation_per_surface.solver_primitives import (
+            _build_node_list)
+        from auto_patch.elevation_per_surface.building_feasibility import (
+            _hard_truth_spine_seeds)
+        nodes, b2i = _build_node_list(layout, readonly=True)
+        if not nodes:
+            return inv
+        G = GG.build_unified_graph(layout, b2i)
+        pos = getattr(G, "pos", None) or {}
+
+        def _key(i):
+            p = pos.get(i)
+            return None if p is None else (round(float(p[0]), 3),
+                                           round(float(p[1]), 3))
+
+        for i, v in (getattr(G, "runway_anchor", None) or {}).items():
+            k = _key(i)
+            if k is not None:
+                inv["anchors"][k] = float(v)
+        for i, v in (_hard_truth_spine_seeds(layout, G) or {}).items():
+            k = _key(i)
+            if k is not None:
+                inv["hard_truth"][k] = float(v)
+        inv["spine_edges"] = sum(len(v) for v in
+                                 (getattr(G, "spine_adj", None) or {}).values())
+        inv["service_spine_pairs"] = len(getattr(G, "service_spine_pairs",
+                                                 None) or ())
+        inv["nodes"] = len(pos)
+        inv["read"] = True
+    except Exception as exc:                              # pragma: no cover
+        inv["error"] = repr(exc)
+    return inv
+
+
+def _seed_map_diff(lo: dict, hi: dict, materiality_m: float,
+                   top: int = 8) -> dict:
+    """Two worlds' seed maps differenced on the shared position key."""
+    ks_lo, ks_hi = set(lo), set(hi)
+    shared = ks_lo & ks_hi
+    rows = []
+    for k in shared:
+        d = float(hi[k]) - float(lo[k])
+        if abs(d) > materiality_m:
+            rows.append({"x": k[0], "y": k[1], "plateau_m": round(lo[k], 4),
+                         "canyon_m": round(hi[k], 4), "delta_m": round(d, 4)})
+    rows.sort(key=lambda r: -abs(r["delta_m"]))
+    return {"plateau_only": len(ks_lo - ks_hi),
+            "canyon_only": len(ks_hi - ks_lo),
+            "shared": len(shared),
+            "value_disagreements": len(rows),
+            "max_abs_delta_m": (round(abs(rows[0]["delta_m"]), 4)
+                                if rows else 0.0),
+            "worst": rows[:top]}
+
+
+def _width_carrier(at_lo, at_hi, x, y, materiality_m: float,
+                   tally: dict) -> str:
+    """Which band INPUT differs at ``(x, y)`` — the carrier of one width
+    disagreement, from the two worlds' ``attachment_at`` provenance.
+
+    Never a cause, always a fact: the attachment cell, the route interval
+    AT that attachment, and the off-route leg are the three things the
+    lookup composes a band out of, so naming which of them moved is a
+    partition of the difference and not an interpretation of it.
+    """
+    if at_lo is None or at_hi is None:
+        tally["provenance_unavailable"] += 1
+        return "provenance_unavailable"
+    pa, pb = at_lo(x, y), at_hi(x, y)
+    if pa is None or pb is None:
+        tally["provenance_unavailable"] += 1
+        return "provenance_unavailable"
+    if tuple(pa.get("attachment_cell") or ()) != tuple(
+            pb.get("attachment_cell") or ()):
+        tally["attachment_moved"] += 1
+        return "attachment_moved"
+    wa = (float(pa.get("ceiling_at_attachment", 0.0))
+          - float(pa.get("floor_at_attachment", 0.0)))
+    wb = (float(pb.get("ceiling_at_attachment", 0.0))
+          - float(pb.get("floor_at_attachment", 0.0)))
+    if abs(wa - wb) > materiality_m:
+        tally["route_interval_at_same_attachment"] += 1
+        return "route_interval_at_same_attachment"
+    if abs(float(pa.get("leg_m", 0.0)) - float(pb.get("leg_m", 0.0))) > \
+            materiality_m:
+        tally["off_route_leg_at_same_attachment"] += 1
+        return "off_route_leg_at_same_attachment"
+    tally["unattributed"] += 1
+    return "unattributed"
 
 
 def _analytic_band_world_diff(field, band_lo, band_hi,
@@ -204,14 +370,29 @@ def _analytic_band_world_diff(field, band_lo, band_hi,
     covers: per node, the floor, the ceiling and the width from each
     world's band.
 
-    Counts only — plus the worst ``top`` addresses.  A non-zero
-    ``width_disagreements`` (or a coverage mismatch) FALSIFIES the premise;
-    it does not say what the DEM is doing to the band, and this reports no
-    guess about that.
+    Counts only — plus the worst ``top`` addresses, and the CARRIER SPLIT
+    (cycle-8): for each disagreeing node the band's own ``attachment_at``
+    provenance is read in both worlds and the row is filed under the input
+    that moved — the serving ATTACHMENT CELL (the lookup's geometry: a
+    different layout puts the route somewhere else), the ROUTE INTERVAL at
+    an unmoved attachment (the value field: anchors, caps, routes), or the
+    off-route LEG at an unmoved attachment.  Reading the seed maps alone
+    and calling one of them the cause is attribution-as-causal; this reads
+    the lookup that actually answered.
+
+    A non-zero ``width_disagreements`` (or a coverage mismatch) FALSIFIES
+    the premise as it was written.  The split says WHICH INPUT differs; it
+    does not say whether that difference is lawful, which is the reading
+    round's job.
     """
     n = both = 0
     coverage_mismatch = []
     width_rows = []
+    at_lo = getattr(band_lo, "attachment_at", None)
+    at_hi = getattr(band_hi, "attachment_at", None)
+    carrier = {"attachment_moved": 0, "route_interval_at_same_attachment": 0,
+               "off_route_leg_at_same_attachment": 0,
+               "unattributed": 0, "provenance_unavailable": 0}
     for (author, x, y) in field:
         n += 1
         a, b = band_lo((x, y)), band_hi((x, y))
@@ -226,12 +407,28 @@ def _analytic_band_world_diff(field, band_lo, band_hi,
         both += 1
         wa, wb = float(a[1]) - float(a[0]), float(b[1]) - float(b[0])
         if abs(wa - wb) > materiality_m:
-            width_rows.append({"author": author, "x": x, "y": y,
-                               "plateau_width_m": round(wa, 4),
-                               "canyon_width_m": round(wb, 4),
-                               "delta_m": round(wb - wa, 4)})
+            row = {"author": author, "x": x, "y": y,
+                   "plateau_width_m": round(wa, 4),
+                   "canyon_width_m": round(wb, 4),
+                   "delta_m": round(wb - wa, 4)}
+            row["carrier"] = _width_carrier(at_lo, at_hi, x, y, materiality_m,
+                                            carrier)
+            # MAGNITUDE PER CARRIER: a count alone cannot say whether the
+            # class that owns the most rows also owns the metres.
+            mx = carrier.setdefault("max_abs_delta_m", {})
+            mx[row["carrier"]] = max(mx.get(row["carrier"], 0.0),
+                                     round(abs(row["delta_m"]), 4))
+            width_rows.append(row)
     width_rows.sort(key=lambda r: -abs(r["delta_m"]))
     return {
+        "carrier": carrier,
+        "carrier_note": "the input that DIFFERS at each disagreeing node, "
+                        "read from the band's own attachment_at provenance: "
+                        "'attachment_moved' means the two worlds' layouts "
+                        "put the serving route attachment in different "
+                        "cells (a geometry difference), the other two mean "
+                        "the attachment held still and the route interval "
+                        "or the off-route leg moved under it",
         "premise": "_analytic_band's docstring claims reach_band_unified is "
                    "identical in both worlds because the DEM touches none of "
                    "its inputs; these numbers test that claim",
@@ -245,6 +442,89 @@ def _analytic_band_world_diff(field, band_lo, band_hi,
         "worst": width_rows[:top],
         "worst_coverage_mismatches": coverage_mismatch[:top],
     }
+
+
+def _attribute_band_invariance(layouts, lo, hi, field, base_diff,
+                               materiality_m: float, prog) -> dict:
+    """ATTRIBUTE the analytic band's world-invariance failure.
+
+    The premise under test (``_analytic_band``'s docstring, and the
+    constant-DEM invariant itself — RULINGS 2026-08-05, "DEM never shapes
+    the band"): ``reach_band_unified`` is identical in both constant-DEM
+    worlds.  ``_analytic_band_world_diff`` FALSIFIES it; this says which
+    input carries the world in, with one INTERVENTION and two inventories:
+
+    * ARM ``production`` — the band as production builds it (the numbers
+      ``base_diff`` already holds);
+    * ARM ``no_hard_truth`` — the same band with the solve's published
+      ``_seed_hard_truth_values`` withheld from the seed union.  If the
+      width disagreements collapse here, the carrier is the POST-SOLVE
+      seed injection: a world-dependent value entering the band's own
+      inputs.  If they survive, the carrier is the GRAPH (geometry or
+      caps), which the inventories then size.
+    * INVENTORIES — the two seed maps and the graph size per world,
+      position-keyed, so "the anchors differ" is a join and not a guess.
+
+    Reports numbers and frames only; the verdict sentence belongs to the
+    round that reads it.
+    """
+    rep: dict = {
+        "premise": "reach_band_unified is world-invariant (the DEM touches "
+                   "none of its inputs) — falsified by "
+                   "analytic_band_world_disagreement; this attributes it",
+        "materiality_m": float(materiality_m),
+        "arms": {"production": {
+            "width_disagreements": base_diff["width_disagreements"],
+            "compared": base_diff["compared"],
+            "max_abs_delta_m": base_diff["max_abs_delta_m"]}},
+    }
+    bands2 = {}
+    for world_name, w in (("plateau", lo), ("canyon", hi)):
+        b, st = _analytic_band(layouts[w]["_layout"], withhold_hard_truth=True)
+        bands2[world_name] = b
+        if b is None:
+            rep["arms"]["no_hard_truth"] = {
+                "evaluated": False, "reason_code": st["code"],
+                "why": st["why"]}
+            break
+    if bands2.get("plateau") is not None and bands2.get("canyon") is not None:
+        d2 = _analytic_band_world_diff(field, bands2["plateau"],
+                                       bands2["canyon"], materiality_m)
+        rep["arms"]["no_hard_truth"] = {
+            "evaluated": True,
+            "width_disagreements": d2["width_disagreements"],
+            "compared": d2["compared"],
+            "coverage_mismatches": d2["coverage_mismatches"],
+            "max_abs_delta_m": d2["max_abs_delta_m"],
+            "worst": d2["worst"][:5]}
+    inv = {name: _band_seed_inventory(layouts[w]["_layout"])
+           for (name, w) in (("plateau", lo), ("canyon", hi))}
+    rep["inventory"] = {
+        name: {k: (len(v) if isinstance(v, dict) else v)
+               for k, v in i.items() if k != "error"}
+        for name, i in inv.items()}
+    rep["seed_maps"] = {
+        "runway_anchor": _seed_map_diff(inv["plateau"]["anchors"],
+                                        inv["canyon"]["anchors"],
+                                        materiality_m),
+        "hard_truth": _seed_map_diff(inv["plateau"]["hard_truth"],
+                                     inv["canyon"]["hard_truth"],
+                                     materiality_m),
+    }
+    a0 = rep["arms"]["production"]["width_disagreements"]
+    a1 = rep["arms"].get("no_hard_truth", {}).get("width_disagreements")
+    prog.note(f"  band invariance attribution: production={a0} "
+              f"disagreement(s), no_hard_truth={a1}; "
+              f"runway_anchor seed diff="
+              f"{rep['seed_maps']['runway_anchor']['value_disagreements']} "
+              f"(±{rep['seed_maps']['runway_anchor']['max_abs_delta_m']} m), "
+              f"hard_truth seed diff="
+              f"{rep['seed_maps']['hard_truth']['value_disagreements']} "
+              f"(±{rep['seed_maps']['hard_truth']['max_abs_delta_m']} m), "
+              f"hard_truth keys plateau/canyon="
+              f"{rep['inventory']['plateau']['hard_truth']}/"
+              f"{rep['inventory']['canyon']['hard_truth']}")
+    return rep
 
 
 def _frame_stamp(root, args, worlds) -> dict:
@@ -367,6 +647,13 @@ def main(argv=None) -> int:
                     help="constant elevations to build (default: the "
                          "plateau/canyon pair from auto_patch.constant_dem)")
     ap.add_argument("--out", type=Path, default=Path("/tmp/harness/oracle"))
+    ap.add_argument("--attribute-band-invariance", action="store_true",
+                    help="ATTRIBUTE assertion 4's world-invariance failure: "
+                         "rebuilds the analytic band in both worlds with the "
+                         "solve's published hard-truth seeds WITHHELD (the "
+                         "interventional arm) and inventories both seed maps "
+                         "position-keyed.  Off by default because it costs "
+                         "two extra band builds per airport.")
     ap.add_argument("--allow-degraded-dem", action="store_true",
                     help="accepted and RECORDED into <ICAO>_oracle.frame.json "
                          "('allow_degraded_dem'); it changes nothing about "
@@ -699,10 +986,15 @@ def main(argv=None) -> int:
                     f"is not a pass")
             # the cross-world check of the analytic band's own DEM-invariance
             if bands.get("canyon") is not None:
-                agree["analytic_band_world_disagreement"] = (
-                    _analytic_band_world_diff(
-                        field, bands["plateau"], bands["canyon"],
-                        BAND_AGREEMENT_MATERIALITY_M))
+                base_diff = _analytic_band_world_diff(
+                    field, bands["plateau"], bands["canyon"],
+                    BAND_AGREEMENT_MATERIALITY_M)
+                agree["analytic_band_world_disagreement"] = base_diff
+                if args.attribute_band_invariance:
+                    agree["analytic_band_world_attribution"] = (
+                        _attribute_band_invariance(
+                            layouts, lo, hi, field, base_diff,
+                            BAND_AGREEMENT_MATERIALITY_M, prog))
             prog.note(
                 f"  band agreement: {rep['disagreements']} node(s) differ by "
                 f"> {BAND_AGREEMENT_MATERIALITY_M} m of {rep['compared']} "

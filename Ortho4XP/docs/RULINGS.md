@@ -696,3 +696,31 @@ Binding:
    construction (far ends seat in-band from their junction reach, not
    at raw DEM). Ground BETWEEN pavements still terraces freely
    (groundside terrace law unchanged).
+
+## 2026-08-06 — Certificate routes follow the reach law (owner)
+
+Owner, verbatim: "certificate routes follow the same law as reach —
+centerlines and lawful surfaces, never through pad interiors, no
+zero-budget hops. The route in the KML is invalid."
+
+Context: the HECA specimen KML (anchors 2864↔7478, priced 33.377 m
+over 149 edges) showed the conservative certificate's cap-graph
+pricing a 586 m hop at budget 0 THROUGH a 40-node pad group, 24/149
+edges under 0.9% of their chord, and 29/150 route nodes >100 m from
+any taxi centerline. The owner adjudicated the route INVALID.
+
+Binding:
+1. ANY instrument or certificate that prices a route budget follows
+   the SAME reach law production reach follows (2026-07-30:
+   centerlines and lawful surfaces): never through a pad interior,
+   never a zero-budget hop. A flat group is a SEATED SURFACE, not a
+   free edge — entering and leaving it costs its lawful
+   frontage/chord budgets.
+2. The seam-pin "depth" class verdict is therefore (d) BROKEN
+   INSTRUMENT: the 610-pin population's shortfalls re-adjudicate
+   after the certificate reprices. The pins themselves are LAW
+   (runway-surface values, CIFP-anchored, flex-moved) — untouched.
+3. Riders for the instrument sweep: the class label `seed_rwy_seam`
+   is a misnomer for 607/610 of its members (runway pass-2 values,
+   not seam pins); and 444 of 1,077 nodes in the class were hardened
+   with NO seeder record — an unattributed hardening channel.

@@ -1361,113 +1361,90 @@ def _report_witness_admission(icao, label, rep):
 # seeded at ``dem_seed``; ``foot.a``/``foot.b`` are ring vertices of
 # ``shape_id`` — variables the solve already owns.)
 #
-# WHY A BOX AND NOT A THREE-TERM EDGE.  The datum is a LERP of two
-# variables, which the pairwise projection cannot state exactly.  It does
-# not have to: the constraint is DIRECTED — pavement gives, zone conforms
-# (``airside-is-king`` generalized, and already the declared contract of
-# ``interval_yield_from``, which makes a terrain slab move only its
-# terrain endpoint).  With the datum's endpoints owned by pavement, the
-# constraint collapses EXACTLY to an absolute interval on the zone
-# variable alone::
+# ── THE BOX WAS A SECOND AUTHORITY, AND IT IS DELETED ─────────────────
+# (cycle-5 solve-certification spec, fix 1.  The attribution dossier's
+# decisive measurement is quoted at the call site.)
+#
+# The argument this block used to make: the datum is a LERP of two
+# variables, which the pairwise projection cannot state exactly, so state
+# the law as an ABSOLUTE per-node interval instead —
 #
 #     z[node] in [D + floor_off, D + ceil_off],  D = (1-t)*z[a] + t*z[b]
 #
-# which is the STRIP-FABRIC BOX family the supply docstring names —
-# ``one_solve._node_box_arrays`` consumes ``{index: (lo, hi)}``, clamps at
-# seed and after every sweep, and (being per-node) can never pull the
-# pavement.  Directed by construction rather than by convention.
+# — bound through ``one_solve._node_box_arrays``, clamped at seed and
+# after every sweep.
 #
-# ONE DERIVATION: the offsets are the supply's own ``floor_off`` /
-# ``ceil_off``, carried verbatim.  Nothing here re-reads the law, re-reads
-# the DEM, or re-spells the corridor — a second copy of these numbers is
-# the failure the supply lane spent a week arguing about.
-def _zone_foot_boxes(layout, bucket_to_idx, elev, n, first_zone):
-    """``({zone_index: (lo, hi)}, stats)`` for the published zone table.
+# WHY IT WAS WRONG.  ``D`` is computed ONCE, from ``elev`` as it stands at
+# fp#8's ENTRY, and then fp#8 MOVES the pavement that defines it (measured
+# on the same rows: p50 2.340 m, p90 24.949 m, max 88.905 m).  A constraint
+# derived from a variable, frozen as a constant, and then enforced every
+# sweep — harder than the live relative law it duplicates — is not the same
+# law written twice.  It is a second authority, and the frozen one wins:
+# 65.6 % of over-cap zone rows sat inside the box implied by the STALE
+# entry datum versus 6.7 % inside the live one.
+#
+# THE ONE AUTHORITY is the RELATIVE interval edge that already exists and
+# is already correct: ``solver_primitives.zone_constraint_entries`` builds
+# ``edges.append((i, j, floor_off, ceil_off))`` — ground ``i`` against its
+# host pavement ring vertex ``j``, TWO VARIABLES, so it moves with ``j``.
+# That is the ratified B2 frozen-nearest encoding (the design doc's "ONE
+# two-sided envelope interval edge per zone node"), and the dossier's
+# verdict on it is explicit: correct as written, nothing about the
+# adjacent-ground law needs changing.  Directedness — the property the box
+# was reached for — is already carried by ``interval_yield_from``, which
+# makes a terrain slab move only its terrain endpoint.
+#
+# What survives here is the AUDIT: the identity join that used to resolve
+# the box rows now only checks that every published zone row is carried by
+# a relative edge, so the deletion is proven at every build instead of
+# assumed.
+def _zone_law_coverage(layout, bucket_to_idx, n, first_zone, edge_nodes):
+    """``(stats)`` — is the RELATIVE zone law carrying every published row?
 
-    ``stats`` — ``(n_bound, n_foot, n_host_degrade, n_adopted,
-    n_intersected, n_conflict)``.
+    ``edge_nodes`` — the zone-node indices that actually received a
+    relative interval edge (``solver_primitives.zone_constraint_entries``).
 
-    IDENTITY RULES, unchanged from the legacy builder and re-stated here
-    because they are law, not implementation:
+    ``stats`` — ``(n_rows, n_resolved, n_carried, n_adopted, n_uncarried)``.
+    ``n_uncarried`` is the number that MUST be zero for the box deletion to
+    be lossless: a published row with no relative edge would be a zone node
+    whose law nothing enforces.  It is reported, never absorbed.
 
-    * a zone node whose canonical bucket resolved to a PRE-EXISTING
-      pavement / gap-spine variable (index < ``first_zone``) gets NO box.
-      Pavement value always wins at a pavement node — an identity, not an
-      arbitration; a band law may never constrain a pavement variable.
-    * two shapes' zone nodes that interned into ONE variable get the
-      INTERSECTION of their boxes, not the first claimant's.  ``shape_id``
-      makes the collision visible; intersecting is the honest resolution
-      (the same rule ``_box_isect`` applies to merged pad groups).  An
-      EMPTY intersection is a declared conflict — reported, never
-      silently resolved, because under ``feasibility-is-guaranteed`` two
-      corridor laws that cannot both hold at one vertex is a defect to
-      attribute at source.
+    THE IDENTITY RULE the audit still has to honour, because it is law and
+    not implementation: a zone node whose canonical bucket resolved to a
+    PRE-EXISTING pavement / gap-spine variable (index < ``first_zone``)
+    carries NO band law at all — the pavement value wins at a pavement
+    node by identity, and a band law may never constrain a pavement
+    variable.  Those rows are counted as ADOPTED, not as uncarried.
+
+    (The cross-shape intersect/conflict arithmetic the box builder did
+    here is gone with the box.  Two hosts' zone rows are SEPARATE solve
+    variables since the 2026-08-05 zone-node identity decision, and each
+    carries its own relative edge, so there is no longer a single
+    variable for two corridor laws to collide on.)
     """
     rows = getattr(layout, "adjacent_ground_zone_boxes", None)
     if not rows:
-        return {}, (0, 0, 0, 0, 0, 0)
-    cps = layout.canonical_points
-    boxes: dict = {}
-    owner: dict = {}
-    n_foot = n_host = n_adopted = n_isect = n_conflict = 0
+        return (0, 0, 0, 0, 0)
+    n_resolved = n_carried = n_adopted = n_uncarried = 0
 
     from ..solver_primitives import zone_node_index as _zone_idx
 
-    def _idx(xy, shape_id=None):
-        """``shape_id`` set ⇒ the ZONE-node join (bucket, host); unset ⇒
-        the plain bucket lookup, which is what a pavement FOOT vertex
-        has always used."""
-        k = _zone_idx(layout, bucket_to_idx, xy, shape_id)
-        return None if (k is None or k >= n) else k
-
     for row in rows:
-        # ZONE-NODE IDENTITY: this row's box belongs to ``shape_id``'s own
-        # variable.  Resolving by bucket alone put two hosts' boxes on one
-        # variable, which is what the intersect/conflict branch below was
-        # absorbing.
-        i = _idx(row["xy"], row.get("shape_id"))
-        if i is None:
+        # ZONE-NODE IDENTITY: this row belongs to ``shape_id``'s own
+        # variable.  Resolving by bucket alone put two hosts' rows on one
+        # variable.
+        k = _zone_idx(layout, bucket_to_idx, row["xy"], row.get("shape_id"))
+        if k is None or k >= n:
             continue
-        if i < first_zone:
+        n_resolved += 1
+        if k < first_zone:
             n_adopted += 1
             continue
-        datum = None
-        foot = row.get("foot")
-        if foot is not None:
-            ia, ib = _idx(foot["a"]), _idx(foot["b"])
-            if ia is not None and ib is not None:
-                t = float(foot["t"])
-                datum = (1.0 - t) * elev[ia] + t * elev[ib]
-                n_foot += 1
-        if datum is None:
-            # The contract's named degrade path: the legacy
-            # frozen-nearest host VERTEX.  Kept because a shape whose
-            # ring the march could not foot still owes its band a law.
-            ih = _idx(row["host"])
-            if ih is None:
-                continue
-            datum = float(elev[ih])
-            n_host += 1
-        shift = float(row.get("host_delta") or 0.0)
-        f_off = row.get("floor_off")
-        c_off = row.get("ceil_off")
-        lo = (float("-inf") if f_off is None
-              else datum + float(f_off) + shift)
-        hi = (float("inf") if c_off is None
-              else datum + float(c_off) + shift)
-        prev = boxes.get(i)
-        if prev is None:
-            boxes[i] = (lo, hi)
-            owner[i] = row.get("shape_id")
+        if k in edge_nodes:
+            n_carried += 1
         else:
-            n_isect += 1
-            lo, hi = max(prev[0], lo), min(prev[1], hi)
-            if lo > hi:
-                n_conflict += 1
-                continue                # keep the first claimant's box
-            boxes[i] = (lo, hi)
-    return boxes, (len(boxes), n_foot, n_host, n_adopted, n_isect,
-                   n_conflict)
+            n_uncarried += 1
+    return (len(rows), n_resolved, n_carried, n_adopted, n_uncarried)
 
 
 def _spine_yield_membership(frozen, n, *, truth_hard, runway_nodes,
@@ -1664,7 +1641,7 @@ def solve_route_profile(layout, icao: str,
     if not any(base_hard):
         return
 
-    # ── ADJACENT-GROUND INGESTION, the SEED (see ``_zone_foot_boxes``) ──
+    # ── ADJACENT-GROUND INGESTION, the SEED ─────────────────────────
     # The published table carries each band node's own DEM sample as
     # ``dem_seed``, and the contract says the variable is seeded there.
     # Done HERE, one statement after the seeder, so no later pass has to
@@ -3398,36 +3375,49 @@ def solve_route_profile(layout, icao: str,
         for _i in building_seats
         if _i < n and _i not in yield_hard and _i not in _pn
         and _i in _seat_box_idx}
-    # ── ADJACENT-GROUND INGESTION, THE BINDING ────────────────────
-    # The zone law rides the SAME bounded-yield box channel as the seat
-    # boxes (``one_solve._node_box_arrays``): clamped at seed and after
-    # every sweep, so the exit state honours it, and per-node so it can
-    # never pull the pavement.  Evaluated HERE, at fp#8's entry, against
-    # the pavement values phases A/B and the earlier projections have
-    # already settled — the datum is two SOLVED ring variables, never a
-    # value the band writer produced (the v2 box was vacuous for exactly
-    # that reason).
-    _zone_boxes, _zone_bstats = _zone_foot_boxes(
-        layout, bucket_to_idx, elev, n,
-        getattr(layout, "_adjacent_ground_first_zone_index", 0))
-    if _zone_boxes:
-        _merged_zone = dict(_yield_node_bounds or {})
-        for _zi, _zb in _zone_boxes.items():
-            _prev = _merged_zone.get(_zi)
-            _merged_zone[_zi] = (
-                _zb if _prev is None
-                else (max(_prev[0], _zb[0]), min(_prev[1], _zb[1])))
-        _yield_node_bounds = _merged_zone
+    # ── ADJACENT-GROUND: ONE AUTHORITY, AND IT IS THE RELATIVE EDGE ───
+    # (cycle-5 spec fix 1.)  This used to ALSO bind the zone law as an
+    # absolute per-node box on the bounded-yield channel, snapshotting the
+    # pavement foot datum from ``elev`` right here — and then fp#8 moved
+    # that foot by p50 2.340 m / p90 24.949 m / max 88.905 m while the
+    # frozen box went on clamping at seed and after every sweep.
+    #
+    # THE DECISIVE MEASUREMENT (attribution dossier §3, over all 20,135
+    # over-cap ``graded_strip:adjacent_ground`` rows at fp#8 EXIT):
+    #
+    #     ground value inside the box implied by the fp#8-ENTRY datum
+    #                                                  13,208   65.6 %
+    #     ground value inside the box implied by the fp#8-EXIT datum
+    #     (what the law actually asks)                  1,346    6.7 %
+    #
+    # The residual therefore could not go to zero by binding HARDER;
+    # binding harder is what produced it.  So the box is DELETED and the
+    # RELATIVE interval edge — already built, already correct, and already
+    # in this joint — is the only authority.  What remains here is the
+    # AUDIT that the deletion lost nothing.
+    _zone_edge_nodes = {
+        _e[0] for _sc in shape_constraints
+        if _sc.get("ref") == "adjacent_ground"
+        for _e in (_sc.get("edges") or ())}
+    _zone_cov = _zone_law_coverage(
+        layout, bucket_to_idx, n,
+        getattr(layout, "_adjacent_ground_first_zone_index", 0),
+        _zone_edge_nodes)
+    if _zone_cov[0]:
         import O4_UI_Utils as _UI_zone
         _UI_zone.vprint(1,
-            f"  [adjacent-ground] zone-law CONSUMPTION: "
-            f"{_zone_bstats[0]} band node(s) bound as directed boxes "
-            f"({_zone_bstats[1]} on an exact foot datum, "
-            f"{_zone_bstats[2]} on the frozen-nearest degrade path, "
-            f"{_zone_bstats[3]} adopted a pavement variable by "
-            f"identity); {_zone_bstats[4]} cross-shape collision(s) "
-            f"intersected, {_zone_bstats[5]} DECLARED CONFLICT(S) "
-            f"(empty intersection).")
+            f"  [adjacent-ground] zone-law COVERAGE: {_zone_cov[2]} of "
+            f"{_zone_cov[1]} resolved band node(s) carried by the "
+            f"RELATIVE interval edge (the one authority); "
+            f"{_zone_cov[3]} adopted a pavement variable by identity; "
+            f"{_zone_cov[4]} UNCARRIED"
+            + ("" if not _zone_cov[4] else
+               " — a published zone row whose law NOTHING enforces; "
+               "this must be 0")
+            + f".  ({_zone_cov[0]} row(s) published.)  The absolute "
+            f"foot-datum box is RETIRED (cycle-5 fix 1): it froze a "
+            f"constraint derived from variables this same projection "
+            f"then moved.")
     # NO REFERENCE RODS (build-complete-then-debug round).  The
     # §7 reference channel this block built — the pre-yield
     # snapshot, the rod-held corridor string, the pad-rod
@@ -4147,13 +4137,23 @@ def solve_route_profile(layout, icao: str,
             _gap_entry["values"] = _gap_vals
     # ── ADJACENT-GROUND ZONE-ROW writeback (Slice B stage B3 order 2)
     # THE EMITTED BAND VALUE IS THE SOLVED VALUE.  Nothing is
-    # re-derived here: the zone law was INGESTED as a directed box on
-    # each band variable (``_zone_foot_boxes``, bound at fp#8), the
-    # variable was seeded at its published ``dem_seed``, and the
-    # projection clamped it into that box at seed and after every
-    # sweep.  So the solved value already satisfies the corridor and
-    # this block's only job is to CARRY it, keyed by the millimetre
-    # vertex key, into the construct store the emitter reads.
+    # re-derived here: the zone law is carried by the RELATIVE interval
+    # edge (``solver_primitives.zone_constraint_entries`` — ground
+    # against its host pavement ring vertex, two variables), the
+    # variable was seeded at its published ``dem_seed``, and every
+    # projection enforces that edge in its sweeps.  This block's only
+    # job is to CARRY the solved value, keyed by the millimetre vertex
+    # key, into the construct store the emitter reads.
+    #
+    # THE OLD CLAIM HERE WAS FALSE and is recorded so it is not
+    # re-derived: it said the projection "clamped it into that box at
+    # seed and after every sweep.  So the solved value already
+    # satisfies the corridor."  It did clamp — into a box frozen from a
+    # datum the SAME projection then moved up to 88.905 m, which is
+    # what manufactured the corridor residual rather than closing it
+    # (cycle-5 fix 1; the box is deleted).  A solved value satisfies
+    # the corridor when the RELATIVE edge is satisfied, and the
+    # certificate is what says whether it is.
     #
     # WHAT WAS DELETED, and why it had to go (INGEST lane report §3,
     # ``seamv2/RESULTS.md`` §1 part 2 — the three independent causes of

@@ -32,6 +32,7 @@ import json
 import os
 import re
 import subprocess
+import types
 import sys
 from pathlib import Path
 
@@ -833,6 +834,83 @@ class TestAuthorshipProbe:
             probe.uninstall()
         assert id(keep) in probe.by_shape
         assert id(drop) not in probe.by_shape
+
+
+class TestAuthorMoveDump:
+    """``--author-dump`` must carry the JOIN KEYS the aggregate cannot.
+
+    The printed displacement census keeps 40 worst rows.  The question
+    "are the vertices this pass re-authors the SAME vertices some other
+    writer seeded from the DEM" is a per-vertex join, so the dump must
+    carry the moving write's FULL site, the vertex's origin writer, and
+    its DEM-origin writer — and must never change the classification the
+    aggregate reports (one instrument, one population).
+    """
+
+    class _Shape:
+        node_altitudes = None
+
+        def __init__(self, role="apron"):
+            self.role = role
+            self.ref = ""
+            self.polygon = None
+            self.node_altitudes = None
+
+    #: the three writes' call sites, in order — the probe reads them
+    #: through ``call_site``, which filters to engine frames and so
+    #: reports "" under pytest.
+    SITES = ["seeder.py:1:the_dem_seeder",
+             "solve.py:2:the_solve",
+             "finalize.py:3:mover_writeback"]
+
+    def _run(self, dump):
+        real = WHO.call_site
+        seq = iter(self.SITES)
+        WHO.call_site = lambda *a, **k: next(seq, self.SITES[-1])
+        try:
+            probe = WHO.AuthorshipProbe(
+                self._Shape, dem_m=1.0, authors=("mover",),
+                solve_site="the_solve", dump_moves=dump).install()
+            try:
+                s = self._Shape()
+                # the DEM seeder, then the solve, then the second author
+                s.node_altitudes = [1.0, 1.0]      # seeded ON the DEM
+                s.node_altitudes = [10.0, 20.0]    # <- "the_solve" writes
+                s.node_altitudes = [10.0, 25.0]    # <- "mover" moves one
+            finally:
+                probe.uninstall()
+        finally:
+            WHO.call_site = real
+        return probe, s
+
+    def test_the_dump_records_the_moving_site_and_both_origins(self, tmp_path):
+        probe, s = self._run(True)
+        layout = types.SimpleNamespace(shapes=[s])
+        out = tmp_path / "moves.jsonl"
+        info = probe.write_move_dump(layout, out)
+        recs = [json.loads(l) for l in out.read_text().splitlines()]
+        moves = [r for r in recs if r["kind"] == "move"]
+        assert info["moves"] == len(moves) == 1
+        m = moves[0]
+        assert m["k"] == 1 and m["before"] == 20.0 and m["after"] == 25.0
+        assert m["class"] == "untouched", (
+            "the solve wrote it and nothing else touched it — this is the "
+            "second-author class")
+        assert m["site"] == self.SITES[2], "the FULL moving site is carried"
+        assert m["origin"] == self.SITES[0], "the vertex's origin writer"
+        assert m["dem_origin"] == self.SITES[0], (
+            "the vertex sat on the constant DEM at its first write — the "
+            "DEM-origin writer is the overlay's join key")
+        shapes = [r for r in recs if r["kind"] == "shape"]
+        assert len(shapes) == 1 and shapes[0]["shape_index"] == 0
+        assert shapes[0]["sites"] == self.SITES
+
+    def test_the_dump_does_not_change_the_aggregate(self):
+        off, _ = self._run(False)
+        on, _ = self._run(True)
+        assert off.author_report()[1] == on.author_report()[1] != {}, (
+            "the per-vertex dump is a second READER of one population, "
+            "never a second instrument")
 
 
 def test_who_wrote_builds_through_the_harness_entry_only():

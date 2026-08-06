@@ -3,7 +3,7 @@
     venv/bin/python tools/harness/who_wrote.py ICAO [--dem M]
         [--roles service_junction,groundside_pavement] [--at X,Y ...]
         [--author final_grade_projection] [--author-tol 0.01]
-        [--out DIR] [--tol 0.05]
+        [--author-dump moves.jsonl] [--out DIR] [--tol 0.05]
 
 Run it from ``Ortho4XP/``.
 
@@ -108,7 +108,8 @@ class AuthorshipProbe:
     dataclass field for a property; ``uninstall`` puts it back."""
 
     def __init__(self, shape_cls, dem_m=None, roles=None, at=(), tol=0.05,
-                 authors=(), author_tol=0.01, solve_site=_SOLVE_SITE):
+                 authors=(), author_tol=0.01, solve_site=_SOLVE_SITE,
+                 dump_moves=False):
         self.cls = shape_cls
         self.dem_m = dem_m
         self.roles = set(roles or ())
@@ -129,6 +130,20 @@ class AuthorshipProbe:
         #: the worst rows, kept small: (|Δ|, author, cls, role, ref, before,
         #: after, x, y)
         self.author_worst: list = []
+        #: ``--author-dump``: EVERY moved vertex, not just the worst 40.
+        #: The aggregate report answers "how much"; only a per-vertex dump
+        #: answers "are these the SAME vertices some other writer seeded",
+        #: which needs a join key (shape + ring index + plan coordinate).
+        self.dump_moves = bool(dump_moves)
+        self.move_rows: list = []
+        #: shape id → {ring index: site of the FIRST write that gave that
+        #: index a value} — the vertex's ORIGIN writer.  One entry per
+        #: vertex, so it is bounded by the layout, not by the write count.
+        self.origin_site: dict = {}
+        #: shape id → {ring index: site of the FIRST write at which that
+        #: index sat EXACTLY on the constant DEM} — the vertex-granular
+        #: version of the DEM-authorship census, which is per SHAPE.
+        self.dem_origin_site: dict = {}
         self._step = 0
         self._saved = None
 
@@ -148,6 +163,18 @@ class AuthorshipProbe:
                           and abs(float(a) - self.dem_m) <= 1e-6)
             self.by_shape.setdefault(id(shape), []).append(
                 (hit, len(values), site))
+        if self.dump_moves and values is not None and site is not None:
+            org = self.origin_site.setdefault(id(shape), {})
+            dorg = (self.dem_origin_site.setdefault(id(shape), {})
+                    if self.dem_m is not None else None)
+            for k, v in enumerate(values):
+                if v is None:
+                    continue
+                if k not in org:
+                    org[k] = site
+                if (dorg is not None and k not in dorg
+                        and abs(float(v) - self.dem_m) <= 1e-6):
+                    dorg[k] = site
         if self.authors:
             self._record_author(shape, role, values, site)
         if not self.at or not values:
@@ -222,16 +249,23 @@ class AuthorshipProbe:
                 cls = "untouched"
             self.author_moves.setdefault((author, cls, role),
                                          []).append(delta)
-            if delta > 0.05:
+            if delta > 0.05 or self.dump_moves:
                 if ring is None:
                     poly = getattr(shape, "polygon", None)
                     ring = (list(poly.exterior.coords)
                             if (poly is not None and not poly.is_empty
                                 and poly.geom_type == "Polygon") else ())
                 x, y = (ring[k] if k < len(ring) else (None, None))
+            if delta > 0.05:
                 self.author_worst.append(
                     (delta, author, cls, role, getattr(shape, "ref", "") or "",
                      round(a, 3), round(b, 3), x, y))
+            if self.dump_moves:
+                sv = (None if (solved is None or len(solved) != len(vals)
+                               or solved[k] is None) else round(solved[k], 4))
+                self.move_rows.append(
+                    (author, cls, role, getattr(shape, "ref", "") or "",
+                     site, sid, k, round(a, 4), round(b, 4), sv, x, y))
         if len(self.author_worst) > 8 * _WORST_KEEP:
             self.author_worst.sort(key=lambda r: -r[0])
             del self.author_worst[_WORST_KEEP:]
@@ -321,6 +355,77 @@ class AuthorshipProbe:
         rows.sort(key=lambda r: -r["on_dem"])
         return rows, by_author
 
+    def write_move_dump(self, layout, path):
+        """``--author-dump``: every moved vertex + its shape's write history.
+
+        JSONL, three record kinds:
+
+        * ``shape`` — one per shape the probe saw: its final index in
+          ``layout.shapes``, role, ref, ring size, how many of its values
+          end EXACTLY on the constant DEM, and the ORDERED list of write
+          sites (consecutive duplicates collapsed).
+        * ``move``  — one per vertex displacement above the materiality
+          floor: author, class, role, the FULL call site of the moving
+          write (the writing-pass axis the aggregate report collapses),
+          before / after / the solve's value, the plan coordinate, and
+          the vertex's ``origin`` writer + ``dem_origin`` writer.
+        * ``meta``  — the header.
+
+        ``origin``/``dem_origin`` are keyed by RING INDEX, which is stable
+        only while the ring is: for a vertex whose ring was rebuilt after
+        the solve (the ``new_geometry`` class) the index may name a
+        different point than it did before the rebuild.  For the
+        ``untouched`` class the ring is unchanged since the solve wrote
+        it, so the join is exact there — which is the class the
+        second-author question is about.
+        """
+        index_of = {}
+        for i, s in enumerate(getattr(layout, "shapes", ()) or ()):
+            index_of[id(s)] = i
+        dem_of = {}
+        for i, s in enumerate(getattr(layout, "shapes", ()) or ()):
+            vals = s.node_altitudes or ()
+            dem_of[id(s)] = (sum(1 for a in vals
+                                 if a is not None and self.dem_m is not None
+                                 and abs(float(a) - self.dem_m) <= 1e-6),
+                             len(vals), s.role, getattr(s, "ref", "") or "")
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        n_shape = 0
+        with path.open("w") as fh:
+            fh.write(json.dumps({
+                "kind": "meta", "dem_m": self.dem_m,
+                "authors": list(self.authors),
+                "author_tol": self.author_tol,
+                "solve_site": self.solve_site,
+                "n_moves": len(self.move_rows)}) + "\n")
+            for sid, hist in self.by_shape.items():
+                sites, last = [], None
+                for (_hit, _n, st) in hist:
+                    if st != last:
+                        sites.append(st)
+                        last = st
+                on_dem, n_v, role, ref = dem_of.get(sid, (0, 0, "", ""))
+                fh.write(json.dumps({
+                    "kind": "shape", "sid": sid,
+                    "shape_index": index_of.get(sid),
+                    "role": role, "ref": ref, "n": n_v,
+                    "on_dem": on_dem, "writes": len(hist),
+                    "sites": sites}) + "\n")
+                n_shape += 1
+            for (author, cls, role, ref, site, sid, k, a, b, sv,
+                 x, y) in self.move_rows:
+                fh.write(json.dumps({
+                    "kind": "move", "author": author, "class": cls,
+                    "role": role, "ref": ref, "site": site,
+                    "sid": sid, "shape_index": index_of.get(sid), "k": k,
+                    "before": a, "after": b, "solved": sv, "x": x, "y": y,
+                    "origin": self.origin_site.get(sid, {}).get(k),
+                    "dem_origin": self.dem_origin_site.get(sid, {}).get(k),
+                }) + "\n")
+        return {"shapes": n_shape, "moves": len(self.move_rows),
+                "path": str(path)}
+
     def node_history(self):
         """``{"x,y": [change, …]}`` — writes compressed to the changes."""
         out = {}
@@ -360,6 +465,16 @@ def main(argv=None) -> int:
                     metavar="M",
                     help="materiality floor for the displacement census "
                          "(default 0.01 m, the campaign floor)")
+    ap.add_argument("--author-dump", type=Path, default=None, metavar="PATH",
+                    help="displacement census: write EVERY moved vertex to "
+                         "PATH as JSONL (author, class, role, the full call "
+                         "site of the moving write, before/after/solved, the "
+                         "plan coordinate, and the vertex's origin and "
+                         "DEM-origin writers), plus one record per shape "
+                         "with its ordered write-site history.  The printed "
+                         "report keeps only the worst 40 rows, which cannot "
+                         "answer whether a moved vertex is one some other "
+                         "writer seeded.")
     ap.add_argument("--out", type=Path, default=Path("/tmp/harness/who"))
     ap.add_argument("--allow-degraded-dem", action="store_true",
                     help="accepted and recorded; a constant-DEM run "
@@ -384,7 +499,8 @@ def main(argv=None) -> int:
 
     probe = AuthorshipProbe(BuiltShape, args.dem, roles, at, args.tol,
                             authors=args.author,
-                            author_tol=args.author_tol).install()
+                            author_tol=args.author_tol,
+                            dump_moves=bool(args.author_dump)).install()
     try:
         tag = f"{args.icao}_who{'' if args.dem is None else f'_dem{args.dem:g}'}"
         result = HB.build_patch(args.icao, root, out, tag, prog,
@@ -433,6 +549,11 @@ def main(argv=None) -> int:
         for (d, a, c, r, ref, before, after, x, y) in probe.author_worst[:20]:
             print(f"    {d:9.3f} m  {c:<16}{r:<20}{ref:<16}"
                   f"{before} -> {after}   at ({x},{y})")
+    if args.author_dump:
+        info = probe.write_move_dump(layout, args.author_dump)
+        report["author_dump"] = info
+        print(f"\n  [harness] per-vertex move dump -> {info['path']} "
+              f"({info['moves']} move row(s), {info['shapes']} shape row(s))")
     if at:
         history = probe.node_history()
         report["node_history"] = history

@@ -121,11 +121,13 @@ __all__ = [
     "RASTER_REACH_BAND_CONNECTIVITY",
     "RASTER_REACH_BAND_OFFNET_RADIUS_M",
     "RASTER_REACH_BAND_MAX_CELLS",
-    "RASTER_REACH_BAND_GRID_RESIDUAL_M",
     "VECTORIZED_GEOMETRY",
     "HOLE_ROUTER_MID_EDGE_PRUNE",
     "RECT_CROSS_FLATNESS_TOLERANCE_M",
     "BUILDING_SEAT_FLATNESS_TOLERANCE_M",
+    "BUILDING_FRONTAGE_NEAR_MISS_M",
+    "NEAR_MISS_FRONTAGE_SOFT_ROLES",
+    "near_miss_frontage_budget",
     "TAXI_MAX_GRADE",
     "APRON_MAX_GRADE",
     "APRON_TERRACE_MIN_EXCESS_M",
@@ -1806,9 +1808,9 @@ REACH_BAND_CLUSTERS = (
 #
 # The tear classes the tighter, correct ceiling opens at adjacent ground are
 # reconciled unconditionally now (``adjacent_ground._heal_emitted_band_tears``
-# + the ``to_osm`` soft-strip twin).  The documented residual is sub-0.25 m
-# junction ``route_band`` grid-discretization noise
-# (``RASTER_REACH_BAND_GRID_RESIDUAL_M``, emitted surface unchanged).
+# + the ``to_osm`` soft-strip twin).  There is no longer a documented
+# "grid-discretization residual" excusing junction ``route_band`` rows — the
+# claim was falsified under a cell sweep and the constant is gone (see below).
 # Cell side (m).  Fine enough that the narrowest real taxiway corridor (≥15 m)
 # spans ≥3 cells and a ½-cell conservative erosion cannot close it; also the
 # nearest-cell query error is ≤ cell/√2.  3 m keeps the OTHH grid at a few
@@ -1826,20 +1828,23 @@ RASTER_REACH_BAND_OFFNET_RADIUS_M = 30.0
 # Safety ceiling on the grid cell count.  Above this the raster build refuses
 # and the legacy band runs (a pathological bounding box must never OOM a build).
 RASTER_REACH_BAND_MAX_CELLS = 60_000_000
-# Grid-discretization residual (Tier 3 wave 2b, 2026-07-18) — DOCUMENTED
-# TOLERANCE, not a validator relaxation.  At ``RASTER_REACH_BAND_CELL_M`` = 3 m
-# the grid-vs-continuous geodesic distance carries a bounded band-edge error
-# (≤ cell/√2 per the nearest-cell query plus the anchor-snap and ½-cell
-# erosion).  Measured worst case = 0.228 m at SPJC's one dense multi-anchor
-# junction complex (23 sub-0.25 m junction ``route_band`` deficits — ceil +
-# pinned — with the EMITTED SURFACE unchanged: 0 tears, 0 within-shape, 0
-# cross-shape).  ``test_route_band`` accepts junction ``route_band`` violations
-# up to this bound WHEN the raster band is active; anything larger, off a
-# junction, or any emitted-surface defect is still a real regression.  Finer
-# cells would erase the residual at a performance cost not warranted (no
-# emitted-surface check is affected, and the whole point of the raster field is
-# the OTHH band-machinery win, 74 s → 1.2 s).
-RASTER_REACH_BAND_GRID_RESIDUAL_M = 0.25
+# RASTER_REACH_BAND_GRID_RESIDUAL_M (0.25 m) was DELETED here — cycle-5
+# instrument-fix spec item 2.  It excused junction ``route_band`` rows as
+# "grid-vs-continuous discretization error", calibrated on a measured worst
+# case of 0.228 m over 23 rows.  Its MECHANISM CLAIM IS FALSIFIED: rebuilding
+# the band at 3.0 / 2.0 / 1.5 m cells on the SAME emitted layout leaves the
+# rows invariant (55 raw rows at every cell size; the ceiling at the worst
+# vertex moves 0.023 m while the excess stays ~0.31 m — spjcverd report §2
+# F1).  Halving the cell halves the documented bound and does not touch the
+# excess, so the excess is not discretization.  By HEAD the constant was
+# excusing a ~50-row 0.24-0.32 m continuum it was never calibrated for, and
+# the 0.25 m filter cut through the middle of one cluster (5 rows at cell
+# 3.0, 6 at 1.5) — an unstable count is the signature of an excuse, not of a
+# tolerance.  The rows now REPORT; the SPJC ceil quartet they contain is
+# solve/projection work (``final_grade_projection`` is the measured author),
+# and the instrument's job is to show it.  Nothing replaces the constant:
+# the seam contract's allowance was always a MEASURED per-line quantity and
+# never spent this budget (``grade_graph_validate._seam_contract_yield``).
 # SEED-CELL EXACTNESS (spec docs/specs/kill-prep-round-spec.md §3).  Two
 # route nodes 0.6–4 m apart can land in ONE 3 m cell; the cell then takes
 # the min ceiling of one and the max floor of the other, pricing the
@@ -1947,6 +1952,44 @@ RECT_CROSS_FLATNESS_TOLERANCE_M = 0.10
 # every footprint point, so seating flat at the mean introduces no step the
 # host arbitration would flag.  NOT a grade rate (spec §2.4).
 BUILDING_SEAT_FLATNESS_TOLERANCE_M = 0.30
+
+# NEAR-MISS BUILDING-FRONTAGE recognition radius (m).  A soft-pavement
+# (apron / junction / service_junction) ring EDGE that passes within this of a
+# building pad, with BOTH endpoints canonically unshared with the pad, faces
+# that pad across an unpaved SLIVER: the frontage law binds across the gap
+# (``|z(endpoint) − z(pad node)| ≤ APRON_MAX_GRADE·d``, ``d`` the endpoint's
+# distance to the pad polygon) even though no vertex is shared.
+#
+# MOVED HERE from ``elevation_per_surface/route_profile/anchors.py`` (cycle-5
+# instrument-fix item 6, taking up that constant's own standing TODO: "rule-
+# value constants belong in config.py … migrate it to config.py in a
+# follow-up").  It had to move because the law now has TWO readers — the
+# solve's law edges and the census's ``frontage_near_miss`` family — and a
+# rule value read from a solver-internal module is a second copy waiting to
+# happen (grade-law completeness: emitter and validator lockstep, never two
+# copies).  Value unchanged.
+#
+# It is greater than observed DSF-vs-apt.dat source offsets (~0.68 m measured
+# at SPJC) and well below any real landscaped setback.  It is a VALUE-side
+# recognition radius only: it moves no geometry and MINTS NO IDENTITY — the
+# canonical interning radius stays ``SHARED_VERTEX_TOL_M`` and is never
+# widened.
+BUILDING_FRONTAGE_NEAR_MISS_M = 1.0
+#: The soft-pavement roles the near-miss frontage law recognizes (the same set
+#: ``build_building_seats``' frontage recognition keys on).  One tuple, read by
+#: the solve's edge builder and the census twin alike.
+NEAR_MISS_FRONTAGE_SOFT_ROLES = ("apron", "junction", "service_junction")
+
+
+def near_miss_frontage_budget(distance_m: float) -> float:
+    """THE near-miss frontage budget: how far the soft-pavement endpoint's
+    value may sit from its pad node's, across a sliver ``distance_m`` wide.
+
+    The building↔apron law across the gap, at the apron cap.  ONE authority:
+    ``route_profile.anchors.near_miss_building_frontage_edges`` prices its law
+    edges with it and ``tools/check_grade._check_frontage_near_miss`` judges
+    the emitted patch with it."""
+    return APRON_MAX_GRADE * float(distance_m)
 
 # Ground-vehicle service-road network — gated OFF (deferred feature).  The
 # service_roads.py machinery stays in place, but the OSM small-road lookup

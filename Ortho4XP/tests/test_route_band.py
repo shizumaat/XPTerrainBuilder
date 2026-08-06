@@ -25,11 +25,22 @@ the seam approach.  The hermetic tests at the bottom of this file hold that
 yield to its bound: no pins ⇒ no allowance, a feasible pin ⇒ no allowance, and a
 vertex deeper out of band than the pins explain STILL flags.
 
-SPJC is clean (0) and gates hard — a regression guard.  CYXY (aprons seated
-above their reach ceiling — the A2-end apron / building over-pinning issue) and
-HECA (multi-runway empty bands) still carry violations; their zero-outcome is
-xfail-tracked (the check still RUNS and the count is surfaced — not ignored), and
-flips to XPASS the moment the solver/rule places every vertex in its band.
+CYXY's apron-ceiling defect (the A2-end apron / building over-pinning issue) is
+GONE — measured at HEAD, its raw population is empty (cycle-5 instrument-fix
+spec item 3; before item 1 it was 2 junction rows 17-26 m from a runway ring,
+grading to that runway's own value inside the taxi cap, which the runway-datum
+exemption now covers).  HECA (multi-runway empty bands) still carries
+violations; its zero-outcome is xfail-tracked (the check still RUNS and the
+count is surfaced — not ignored), and flips to XPASS the moment the solver/rule
+places every vertex in its band.
+
+NO DISCRETIZATION EXCUSE (cycle-5 item 2).  ``test_route_band_zero`` used to
+filter junction rows under ``RASTER_REACH_BAND_GRID_RESIDUAL_M`` (0.25 m) as
+grid-vs-continuous noise.  That constant is DELETED: the rows are invariant
+under a 3.0 → 1.5 m cell sweep, so they are not discretization.  Every row
+reports.  SPJC's ceil cluster (the ~0.3 m junction quartet, author
+``final_grade_projection``) is therefore RED here on purpose until the
+solve/projection round lands it — the instrument's job is to show it.
 """
 from __future__ import annotations
 
@@ -64,12 +75,14 @@ from conftest import cached_airport_layout
 # drain ledger exists to close.  Same disposition as c48ce36's two.
 #
 # What actually closed it: CYXY's remaining raw route-band violations
-# are all junction-role and inside the documented grid-discretization
-# bound ``RASTER_REACH_BAND_GRID_RESIDUAL_M``, which
-# ``test_route_band_zero`` filters unconditionally (2026-07-29, one band
-# engine).  The raw check still finds them — that is what keeps
-# ``test_route_band_flags_cyxy_apron_ceiling`` above honest — so the two
-# tests measure different populations ON PURPOSE and do not contradict.
+# were all junction-role rows 17-26 m from a runway ring, each grading to
+# that runway's own value INSIDE the taxi cap — the runway-datum class.
+# They were excused first by a filter (the deleted grid-residual constant)
+# and are now covered by the runway-datum exemption itself, scoped to the
+# join/contact law's reach (cycle-5 items 1 and 2).  CYXY's raw
+# population is EMPTY, which is why the ex-anti-gaming fixture below
+# asserts that emptiness plus an injected overshoot rather than a defect
+# that no longer exists.
 #
 # HECA stays: it xfailed in the same runs, still a real infeasibility.
 _KNOWN_RED = {"HECA"}
@@ -87,15 +100,52 @@ def _param(icao):
 
 
 @pytest.mark.xdist_group("CYXY")   # reuse CYXY's already-built layout
-def test_route_band_flags_cyxy_apron_ceiling():
-    """ANTI-GAMING: the checker MUST flag CYXY's aprons seated above their reach
-    ceiling, so the zero-gate cannot be faked by a no-op / over-weakened check."""
+def test_route_band_cyxy_is_empty_and_the_checker_still_bites():
+    """THE CURRENT POPULATION'S INVARIANT (cycle-5 instrument-fix spec item 3).
+
+    This test used to assert that CYXY still had APRON vertices above their
+    reach ceiling — the A2-end apron / building over-pinning defect.  That
+    defect is gone: measured at HEAD the raw population was 2 rows, both
+    ``floor``, both ``junction``-role, both 17-26 m from a 14R/32L ring vertex
+    and grading to that runway's own value at 1.11-1.15 % (inside
+    ``TAXI_MAX_GRADE``) — the runway-datum class, not an apron ceiling; and
+    with the exemption scoped to the join/contact law's reach (item 1) the
+    population is EMPTY.  Asserting a defect that no longer exists makes the
+    suite red for good news, which is a broken instrument, not a finding.
+
+    What replaces it is the invariant that actually needs guarding once a
+    population goes to zero: that the zero is REAL.  ``test_route_band_zero``
+    covers CYXY as a live gate, so the anti-gaming duty here is to prove the
+    checker is not a no-op ON THIS LAYOUT — the same +50 m injector duty
+    ``test_route_band_detects_injected_overshoot`` carries at SPJC, run here
+    on the layout whose zero it protects (same cached build, no extra cost).
+    """
+    import copy
     from auto_patch.grade_graph_validate import route_band_violations
-    v = route_band_violations(cached_airport_layout("CYXY"))
-    assert v, "route_band_violations found nothing at CYXY — the checker is a no-op"
-    assert any(t[1] == "ceil" for t in v), (
-        "expected ceil (above-reach) violations at CYXY's hillside aprons; got "
-        f"{[t[1] for t in v[:6]]}")
+    from auto_patch.layout import ROLE_JUNCTION
+    layout = cached_airport_layout("CYXY")
+    v = route_band_violations(layout)
+    assert not v, (
+        "CYXY's route-band population is no longer empty: "
+        + "; ".join(f"{t[1]} {t[0]:.3f}m {t[2]}@({t[3]:.0f},{t[4]:.0f})"
+                    for t in v[:6])
+        + " — re-read the population before adjusting this test; the previous "
+          "occupants were the runway-datum class (cycle-5 spec items 1/3)")
+    bumped_layout = copy.copy(layout)
+    bumped_layout.shapes = [copy.copy(s) for s in layout.shapes]
+    bumped = 0
+    for s in bumped_layout.shapes:
+        if (s.role == ROLE_JUNCTION and s.node_altitudes
+                and s.polygon is not None and not s.polygon.is_empty):
+            s.node_altitudes = [
+                float(a) + 50.0 if a is not None else a
+                for a in s.node_altitudes]
+            bumped += 1
+    assert bumped, "no junction with node_altitudes to perturb"
+    injected = route_band_violations(bumped_layout)
+    assert any(t[1] == "ceil" for t in injected), (
+        "a +50 m junction overshoot at CYXY was not flagged ceil — the empty "
+        "population above is a no-op checker, not a lawful surface")
 
 
 @pytest.mark.xdist_group("SPJC")   # reuse SPJC's already-built layout
@@ -127,30 +177,28 @@ def test_route_band_detects_injected_overshoot():
 @pytest.mark.parametrize("icao", [_param(a) for a in _FIXTURES])
 def test_route_band_zero(icao):
     """OUTCOME: zero route-band violations — every airside vertex sits inside the
-    runway-reach band on the ONE graph G.  SPJC GREEN (hard regression guard); the
-    others are xfail-tracked infeasibilities (the check runs, the count is
-    surfaced — NOT ignored).
+    runway-reach band on the ONE graph G.  SPJC and CYXY are live gates; HECA is
+    an xfail-tracked infeasibility (the check runs, the count is surfaced — NOT
+    ignored).
 
-    BAND GRID RESIDUAL: under the grid lookup the band uses, junction ``route_band`` violations up to the
-    documented grid-discretization bound (``RASTER_REACH_BAND_GRID_RESIDUAL_M``,
-    cited in config.py — SPJC's one dense multi-anchor junction complex, worst
-    0.228 m, EMITTED SURFACE unchanged) are the discretization residual, not a
-    regression.  Anything larger, off a junction, or any emitted-surface defect
-    still gates hard.  The anti-gaming injectors above (+50 m) exceed the bound
-    by two orders of magnitude, so the gate cannot be faked."""
+    NO EXCUSE FILTER (cycle-5 instrument-fix spec item 2).  This test used to
+    drop every junction row at or under ``RASTER_REACH_BAND_GRID_RESIDUAL_M``
+    (0.25 m) as grid-vs-continuous discretization noise.  The constant is
+    DELETED and the filter with it: rebuilding the band at 3.0 / 2.0 / 1.5 m
+    cells leaves the rows invariant (55 raw rows at every cell size, the
+    ceiling at the worst vertex moving 0.023 m while the excess stays
+    ~0.31 m), which falsifies the discretization mechanism outright.  The
+    rows are surface, and the surface reports.  SPJC's ~0.3 m junction ceil
+    cluster — measured author ``final_grade_projection`` — is consequently
+    RED here until the solve/projection round lands it; that is the
+    instrument working, not a regression to chase in a test."""
     from collections import Counter
     from auto_patch.grade_graph_validate import route_band_violations
-    from auto_patch.config import RASTER_REACH_BAND_GRID_RESIDUAL_M
     layout = cached_airport_layout(icao)
     if not layout.shapes:
         pytest.skip(f"{icao}: no shapes built")
+    # ``t = (excess_m, side, role, x, y, elev, lo, hi)``
     v = route_band_violations(layout)
-    # ``t = (excess_m, side, role, x, y, elev, lo, hi)``.  Unconditional
-    # since 2026-07-29: there is ONE band engine (the grid lookup), so its
-    # documented discretization residual always applies.
-    v = [t for t in v
-         if not (t[2] == "junction"
-                 and t[0] <= RASTER_REACH_BAND_GRID_RESIDUAL_M)]
     cls = Counter(t[1] for t in v)
     assert not v, (
         f"{icao}: {len(v)} route-band violation(s) "
@@ -251,22 +299,23 @@ def test_seam_yield_still_flags_a_vertex_deeper_than_the_contract(monkeypatch):
     assert _at(v, 0.0, 0.0) is None
 
 
-def test_seam_allowance_is_measured_not_the_grid_residual(monkeypatch):
+def test_seam_allowance_is_measured_never_a_constant(monkeypatch):
     """ANTI-GAMING.  The bound is the pin's OWN deficit, never a constant: a
-    0.20 m excess beside a pin that is only 0.05 m out of band still flags —
-    even though 0.20 m would fit inside ``RASTER_REACH_BAND_GRID_RESIDUAL_M``.
-    That 0.25 m budget stays reserved for grid-vs-continuous discretization; the
-    seam contract must not be charged to it (or vice versa)."""
-    from auto_patch.config import RASTER_REACH_BAND_GRID_RESIDUAL_M as _GRID
+    0.20 m excess beside a pin that is only 0.05 m out of band still flags.
+
+    Renamed from ``…_not_the_grid_residual`` with cycle-5 item 2: the constant
+    it named (``RASTER_REACH_BAND_GRID_RESIDUAL_M``, 0.25 m) is deleted, and
+    0.20 m is exactly the size of row that used to be swallowed by it.  The
+    property under test is unchanged and is now the ONLY allowance this check
+    grants — a measured, per-seam-line, side-specific quantity."""
     layout, band = _seam_layout(
         [(0.0, 0.0, 100.00, 100.05, 130.0),    # pin: 0.05 m deficit
-         (50.0, 0.0, 99.80, 100.00, 130.0)],   # 0.20 m — past 0.05, under 0.25
+         (50.0, 0.0, 99.80, 100.00, 130.0)],   # 0.20 m — well past the pin's
         pins=[(0.0, 0.0)])
-    assert 0.20 < _GRID, "fixture must sit INSIDE the discretization budget"
     t = _at(_run(monkeypatch, layout, band), 50.0, 0.0)
     assert t is not None and t[1] == "floor", (
         "a 0.20 m deficit was excused by a 0.05 m seam pin — the allowance has "
-        "become a constant (the grid residual?) instead of a measurement")
+        "become a constant instead of a measurement")
 
 
 def test_seam_floor_deficit_does_not_excuse_a_ceiling(monkeypatch):
@@ -387,3 +436,106 @@ def test_a_pin_the_airside_network_does_not_carry_is_ignored(monkeypatch):
     v = _run(monkeypatch, layout, band)
     assert _at(v, 50.0, 0.0) is not None
     assert _at(v, 0.0, 0.0) is not None
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# THE BUILD-TIME BAND-EXCESS REPORT (cycle-5 instrument-fix spec item 7)
+#
+# The build's post-solve band law is INVERSION-ONLY
+# (``assert_no_final_band_inversion``: it fails on floor > ceiling and is
+# silent about a value merely OUTSIDE its band).  SPJC shipped 0.3 m of
+# ceiling excess under a "2 sub-materiality inversion(s), PASS-with-residual"
+# line, invisible until pytest ran.  ``final_band_excess_report`` closes that:
+# it measures MEMBERSHIP with this same checker, logs it, and lands in the
+# patch sidecar as evidence — and it is a REPORT, so it must never raise and
+# never change a verdict.
+# ══════════════════════════════════════════════════════════════════════════
+
+def _excess_layout():
+    """One material row (0.50 m), one vertex whose 0.02 m excess is inside
+    the CHECKER's own rounding noise, one vertex comfortably in band."""
+    return _seam_layout(
+        [(0.0, 0.0, 100.50, 90.0, 100.00),      # ceil excess 0.500
+         (50.0, 0.0, 100.02, 90.0, 100.00),     # 0.020 — under the noise floor
+         (100.0, 0.0, 95.00, 90.0, 100.00)])    # in band
+
+
+def test_the_band_excess_report_counts_what_the_checker_returns(monkeypatch):
+    from auto_patch.config import ELEV_ROUNDING_NOISE_M
+    from auto_patch.elevation_per_surface import building_feasibility as BF
+    from auto_patch import grade_graph_validate as GGV
+    layout, band = _excess_layout()
+    monkeypatch.setattr(BF, "reach_band_unified", lambda _l, _g: band)
+    rep = GGV.final_band_excess_report(layout, "TEST", G=object())
+    assert rep["rows"] == 1 and rep["material"] == 1, (
+        "the report must count exactly the checker's rows — no second "
+        "opinion about which vertices are out of band")
+    assert rep["by_side"]["ceil"] == 1
+    assert rep["worst_m"] == pytest.approx(0.50, abs=1e-6)
+    assert rep["worst"][0]["role"] == "junction"
+    # THE FLOOR IS INERT BY CONSTRUCTION, and that is worth pinning: the
+    # checker's own rounding noise (0.03 m) is ALREADY coarser than the
+    # convergence guards' 0.01 m materiality floor, so no row it returns can
+    # land under the floor.  The split stays in the report because the floor
+    # is the contract the log line quotes — but nobody should read
+    # "sub_materiality: 0" as evidence about the surface.
+    assert ELEV_ROUNDING_NOISE_M > GGV.FINAL_BAND_EXCESS_MATERIALITY_M
+    assert rep["sub_materiality"] == 0
+    # …and the split mechanism itself works when the floor is raised above
+    # the rows (which is how a caller asks "anything worse than X?").
+    coarse = GGV.final_band_excess_report(layout, "TEST", tol=0.6, G=object())
+    assert coarse["material"] == 0 and coarse["sub_materiality"] == 1
+
+
+def test_the_band_excess_report_lands_on_the_layout_for_the_sidecar(
+        monkeypatch):
+    """The sidecar reads ``layout._final_band_excess``.  Without the stash
+    the evidence never reaches the artifact and the question is only
+    answerable by re-running pytest — which is the hole item 7 closes."""
+    from auto_patch.elevation_per_surface import building_feasibility as BF
+    from auto_patch import grade_graph_validate as GGV
+    layout, band = _excess_layout()
+    monkeypatch.setattr(BF, "reach_band_unified", lambda _l, _g: band)
+    rep = GGV.final_band_excess_report(layout, "TEST", G=object())
+    assert layout._final_band_excess is rep
+    import json
+    json.dumps(rep)          # the sidecar is JSON — no numpy/shapely leakage
+
+
+def test_the_band_excess_report_is_never_a_gate(monkeypatch):
+    """A REPORT that can fail a build is a gate.  Even a checker that raises
+    must come back as a summary naming the failure, never as an exception —
+    the pipeline calls this after the loud inversion error, and a patch must
+    not be lost to a diagnostic."""
+    from auto_patch import grade_graph_validate as GGV
+
+    def _boom(_layout, **_kw):
+        raise RuntimeError("the checker exploded")
+    monkeypatch.setattr(GGV, "route_band_violations", _boom)
+
+    class _L:
+        pass
+    layout = _L()
+    rep = GGV.final_band_excess_report(layout, "TEST")
+    assert "exploded" in rep["error"]
+    assert layout._final_band_excess is rep
+    assert "NOT measured" in GGV.format_final_band_excess(rep, "TEST")
+
+
+def test_the_band_excess_log_line_names_itself_a_report(monkeypatch):
+    from auto_patch.elevation_per_surface import building_feasibility as BF
+    from auto_patch import grade_graph_validate as GGV
+    layout, band = _excess_layout()
+    monkeypatch.setattr(BF, "reach_band_unified", lambda _l, _g: band)
+    line = GGV.format_final_band_excess(
+        GGV.final_band_excess_report(layout, "TEST", G=object()), "TEST")
+    assert "OUTSIDE their band" in line and "0.5000 m" in line
+    assert "REPORT, not a gate" in line, (
+        "the build log must say what this line is; a bare violation count "
+        "reads as a failed gate and will be chased as one")
+    # a clean airport says so positively — an ABSENT line is indistinguishable
+    # from a report that never ran, which is the failure mode being repaired
+    clean, cband = _seam_layout([(0.0, 0.0, 95.0, 90.0, 100.0)])
+    monkeypatch.setattr(BF, "reach_band_unified", lambda _l, _g: cband)
+    assert "INSIDE its band" in GGV.format_final_band_excess(
+        GGV.final_band_excess_report(clean, "TEST", G=object()), "TEST")

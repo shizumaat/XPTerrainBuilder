@@ -179,6 +179,12 @@ try:
         resolve_ruleset as _resolve_ruleset,
         DEFAULT_RULESET as _DEFAULT_RULESET,
         STRIP_PRECEDENCE_ENABLED as _STRIP_PRECEDENCE,
+        # NEAR-MISS BUILDING FRONTAGE (cycle-5 item 6): the radius, the role
+        # set and the budget the SOLVE prices its law edges with — read here
+        # verbatim so the census twin and the surface cannot drift.
+        BUILDING_FRONTAGE_NEAR_MISS_M as _BUILDING_FRONTAGE_NEAR_MISS_M,
+        NEAR_MISS_FRONTAGE_SOFT_ROLES as _NEAR_MISS_FRONTAGE_SOFT_ROLES,
+        near_miss_frontage_budget as _near_miss_frontage_budget,
     )
 except Exception:
     _runway_axis_and_width = None
@@ -202,6 +208,9 @@ except Exception:
     _LAW_DRAIN_MIN_APRON_ROLES = frozenset()
     _LAW_DRAIN_MIN_GS_ROLES = frozenset()
     _STRIP_PRECEDENCE = False
+    _BUILDING_FRONTAGE_NEAR_MISS_M = 0.0
+    _NEAR_MISS_FRONTAGE_SOFT_ROLES = ()
+    _near_miss_frontage_budget = None
     _DRAINAGE_SPINE_PARENT_ROLES = frozenset({
         "runway", "runway_crossing", "primary_parallel",
         "secondary_parallel", "stub", "cross_connector", "junction",
@@ -3631,6 +3640,189 @@ def _check_cross_shape_proximity(
     return out
 
 
+def _check_frontage_near_miss(ways: List[Way], nodes, ll_to_m
+                              ) -> List[Violation]:
+    """NEAR-MISS BUILDING FRONTAGE — the validator twin of the solve's
+    near-miss frontage LAW EDGES (cycle-5 instrument-fix spec item 6).
+
+    THE LAW (``route_profile.anchors.near_miss_building_frontage_edges``,
+    STANDING).  A DSF building-pad outline and the apt.dat apron edge it
+    fronts can be offset by a sub-metre source mismatch (SPJC building29 vs
+    its SW apron: 0.68 m), leaving a thin unpaved sliver that defeats every
+    exact-identity reconciler.  The frontage law binds ACROSS that sliver:
+    for a soft-pavement (apron / junction / service_junction) ring EDGE that
+    passes within ``BUILDING_FRONTAGE_NEAR_MISS_M`` of a pad, with BOTH
+    endpoints canonically unshared with the pad, each endpoint must satisfy
+    ``|z(endpoint) − z(pad node)| ≤ near_miss_frontage_budget(d)`` — the
+    apron cap over ``d``, the endpoint's own distance to the pad polygon —
+    against the pad's NEAREST ring node.
+
+    WHY THE FAMILY EXISTS.  The law BINDS in the solve (measured edge counts:
+    HEAZ 4 · SPJC 12-38 · KCLT 78-86 · HECA 118-138) but nothing measured it
+    on the emitted patch.  ``cross_shape`` cannot: it is scoped to
+    ``proximity_m`` = ``SHARED_VERTEX_TOL_M`` (0.5 m) and reads 0 rows
+    everywhere, and a near-miss pair beyond that radius could only ever show
+    up as unattributed ``within_shape`` noise, if at all.  A law with no
+    census row is a law nobody can prove is enforced.
+
+    LOCKSTEP, NOT A SECOND COPY.  The radius, the role set and the budget all
+    come from ``auto_patch.config`` — the same three objects the solve's edge
+    builder prices with (``BUILDING_FRONTAGE_NEAR_MISS_M``,
+    ``NEAR_MISS_FRONTAGE_SOFT_ROLES``, ``near_miss_frontage_budget``).
+
+    THE TWO SCOPE DIFFERENCES, both named rather than hidden:
+
+    * The solve skips an endpoint that already carries a building SEAT
+      (``i in building_seats``).  On the emitted patch that set is the union
+      of every pad's ring nodes — seats are assigned per pad ring node — so
+      that union is what is skipped here.  Conservative: a node identity has
+      already reconciled is never re-judged across a sliver.
+    * The solve only builds an edge for a pad that carries a CHOSEN seat
+      (``build_building_seats``' airside-touch test); this reads every
+      emitted ``building`` way.  A row on a pad the solve never seated is
+      therefore a report that the law did not REACH that frontage, which is
+      a finding about the law's scope and not a miscount — the row's own
+      distance, |de| and role pair say which case it is.
+
+    ``d`` is legitimately larger than the recognition radius on a long edge
+    that grazes a pad near its middle: the law is per-ENDPOINT and the budget
+    scales with each endpoint's own ``d`` (see the emitter's docstring — SPJC's
+    49 m frontage edge with endpoints 1.5 m and 10 m from the pad is the type
+    specimen).
+    """
+    if (_near_miss_frontage_budget is None
+            or not _NEAR_MISS_FRONTAGE_SOFT_ROLES):
+        return []                       # law unavailable → report nothing
+    try:
+        from shapely.geometry import LineString, Point, Polygon
+        from shapely.strtree import STRtree
+    except ImportError:                                    # pragma: no cover
+        return []
+    near_m = float(_BUILDING_FRONTAGE_NEAR_MISS_M)
+    cap = float(_near_miss_frontage_budget(1.0))           # the apron cap
+
+    def _rings(roles):
+        out = []
+        for idx, w in enumerate(ways):
+            if w.tags.get("role") not in roles:
+                continue
+            ring = (w.nids[:-1] if len(w.nids) > 1 and w.nids[0] == w.nids[-1]
+                    else w.nids)
+            pts, elevs, nids = [], [], []
+            for k, nid in enumerate(ring):
+                if nid not in nodes:
+                    continue
+                pts.append(ll_to_m(*nodes[nid]))
+                elevs.append(w.elevs[k] if k < len(w.elevs) else None)
+                nids.append(nid)
+            if len(pts) < 3:
+                continue
+            try:
+                poly = Polygon(pts)
+            except Exception:                              # pragma: no cover
+                continue
+            if poly.is_empty:
+                continue
+            out.append((idx, pts, elevs, nids, poly))
+        return out
+
+    pads = _rings({"building"})
+    soft = _rings(set(_NEAR_MISS_FRONTAGE_SOFT_ROLES))
+    if not pads or not soft:
+        return []
+    # CANONICAL IDENTITY, POSITIONALLY.  The emitter's "unshared with the pad"
+    # test is over ``layout.canonical_points``, which INTERNS within
+    # ``SHARED_VERTEX_TOL_M`` (0.5 m) — that radius IS the one canonical
+    # identity.  Matching on OSM node id alone would be wrong in exactly the
+    # dangerous direction: a welded corner can ship as two distinct ids at one
+    # coordinate (the whole reason a ``stacked_nodes`` family exists), and this
+    # check would then judge a reconciled corner as a near miss.  A 0.5 m grid
+    # of every pad ring node answers both scopes: shared with THIS pad (the
+    # edge test) and shared with ANY pad (the seated-node skip — on the emitted
+    # patch, "carries a building seat" is exactly "is a pad ring node").
+    # Note the SPJC type specimen survives by design: its 0.68 m source offset
+    # is outside 0.5 m, so no vertex is canonically shared and the law binds.
+    _tol = float(SHARED_VERTEX_TOL_M)
+    pad_grid: Dict[Tuple[int, int], List[Tuple[float, float, int]]] = \
+        defaultdict(list)
+    for (pi, (_i, p_pts, _e, _n, _poly)) in enumerate(pads):
+        for (px, py) in p_pts:
+            pad_grid[(int(math.floor(px / _tol)),
+                      int(math.floor(py / _tol)))].append((px, py, pi))
+
+    def _canonical_pads(x: float, y: float) -> set:
+        """Pad indices with a ring node canonically identical to ``(x, y)``."""
+        cx, cy = int(math.floor(x / _tol)), int(math.floor(y / _tol))
+        hit = set()
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for (px, py, pi) in pad_grid.get((cx + dx, cy + dy), ()):
+                    if math.hypot(px - x, py - y) <= _tol:
+                        hit.add(pi)
+        return hit
+
+    tree = STRtree([p[4] for p in pads])
+
+    out: List[Violation] = []
+    for (s_idx, s_pts, s_elevs, s_nids, s_poly) in soft:
+        try:
+            cand = tree.query(s_poly, predicate="dwithin", distance=near_m)
+        except Exception:                                  # pragma: no cover
+            continue
+        n = len(s_pts)
+        canon = [_canonical_pads(px, py) for (px, py) in s_pts]
+        for pi in cand:
+            (p_idx, p_pts, p_elevs, p_nids, p_poly) = pads[int(pi)]
+            fired: set = set()
+            for a in range(n):
+                b = (a + 1) % n
+                # A pad-SHARED endpoint means identity already reconciles that
+                # corner (weld / stitch / seat anchor) and the edge
+                # legitimately grades away from the seat — not a near miss.
+                if int(pi) in canon[a] or int(pi) in canon[b]:
+                    continue
+                try:
+                    if LineString([s_pts[a], s_pts[b]]).distance(p_poly) \
+                            > near_m:
+                        continue
+                except Exception:                          # pragma: no cover
+                    continue
+                for e in (a, b):
+                    if canon[e] or e in fired:
+                        continue        # a seated pad node / already judged
+                    fired.add(e)
+                    ez = s_elevs[e]
+                    if ez is None:
+                        continue
+                    x, y = s_pts[e]
+                    try:
+                        d = float(p_poly.distance(Point(x, y)))
+                    except Exception:                      # pragma: no cover
+                        continue
+                    j = min(range(len(p_pts)),
+                            key=lambda k: ((p_pts[k][0] - x) ** 2
+                                           + (p_pts[k][1] - y) ** 2))
+                    pz = p_elevs[j]
+                    if pz is None:
+                        continue
+                    de = abs(float(ez) - float(pz))
+                    if de <= _near_miss_frontage_budget(d) \
+                            + ELEV_ROUNDING_NOISE_M:
+                        continue
+                    grade = (de / d) if d > 1e-9 else float("inf")
+                    out.append(Violation(
+                        grade_pct=grade * 100,
+                        excess_pct=(grade - cap) * 100,
+                        distance_m=d,
+                        de_m=de,
+                        way_a=ways[s_idx],
+                        way_b=ways[p_idx],
+                        pt_a=(x, y), pt_b=p_pts[j],
+                        elev_a=float(ez), elev_b=float(pz)))
+    out.sort(key=lambda v: -v.de_m)
+    return out
+
+
 def _check_vertex_to_edge_step(
     vertices: List[Vertex],
     edges: List[Edge],
@@ -4040,9 +4232,92 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     ("stacked_nodes", "STACKED NODES (one coordinate, values disagree)",
      "within"),
     ("cross_shape", "CROSS-SHAPE proximity grade", "cross"),
+    ("frontage_near_miss",
+     "NEAR-MISS BUILDING FRONTAGE (pad ↔ soft pavement across a sliver)",
+     "cross"),
     ("vertex_to_edge_step", "VERTEX-TO-EDGE step", "steps"),
     ("mid_edge_step", "MID-EDGE step", "steps"),
 )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# VERSION-DEFERRED ADJUDICATION (owner ruling RULINGS d48bc0a)
+# ══════════════════════════════════════════════════════════════════════
+# INSTRUMENTS REPORT, THE LAW ADJUDICATES.  The owner deferred a named
+# grade-law family to a later version; the census must keep MEASURING it
+# (a silently dropped family is the census-wrapper defect) while the
+# acceptance verdict must not be blocked by it.  Both halves are law:
+#
+#   RULINGS d48bc0a (2026-08-05, "Drainage scope for this version"):
+#   runway crowns and pavement-edge (unpaved-area) drainage are IN;
+#   INTERIOR PAVEMENT DRAINAGE GRADING — the FAA apron drainage-minimum
+#   shaping, KCLT's 1,099-row family and its siblings — is
+#   VERSION-DEFERRED: "the census still REPORTS the family (instruments
+#   report), but the acceptance gate adjudicates it VERSION-DEFERRED with
+#   this ruling as the citation … Flat-world zero is therefore: zero
+#   adjudicated rows EXCLUDING the version-deferred classes, which appear
+#   in every report under their own heading."
+#
+# Until this register existed, NO harness instrument implemented it (the
+# c4tip battery subtracted the family BY HAND, and the oracle's
+# ``compliance`` verdict tested instrument-zero — which the owner
+# explicitly separated from law compliance on 2026-08-02).  This is the
+# one place the deferral is spelled; ``harness/census.py`` and
+# ``harness/oracle.py`` read it, and ``tests/test_harness.py`` asserts
+# every key here is a registered family.
+DEFERRED_ADJUDICATION_RULING = "d48bc0a"
+VERSION_DEFERRED_FAMILIES: Dict[str, str] = {
+    "drainage_minimum":
+        "interior pavement drainage-minimum shaping — VERSION-DEFERRED by "
+        "RULINGS d48bc0a (2026-08-05, 'Drainage scope for this version'); "
+        "reported always, never adjudicated, never silently dropped",
+}
+
+
+def adjudication(rows_by_family_key) -> dict:
+    """THE deferred-adjudication split for one census.
+
+    ``rows_by_family_key`` is any iterable of ``(family_key, row)`` pairs
+    (what ``harness/census.py`` already builds).  Returns
+
+        {"ruling", "deferred_families", "deferred_total",
+         "adjudicated_total", "adjudicated_by_side", "pass", "note"}
+
+    where ``pass`` is the LAW's verdict — zero ADJUDICATED rows — and the
+    deferred rows are carried alongside under their own heading rather
+    than folded into either number.  One implementation, so the census,
+    the oracle and any report quoting an "ADJ" number cannot drift (the
+    battery computed exactly this by hand).
+    """
+    from collections import Counter as _Counter
+    deferred = _Counter()
+    adjudicated = []
+    for key, row in rows_by_family_key:
+        if key in VERSION_DEFERRED_FAMILIES:
+            deferred[key] += 1
+        else:
+            adjudicated.append(row)
+    sides = _Counter(row_side(r) for r in adjudicated)
+    return {
+        "ruling": DEFERRED_ADJUDICATION_RULING,
+        "deferred_families": {k: {"n": deferred.get(k, 0), "why": why}
+                              for k, why in
+                              sorted(VERSION_DEFERRED_FAMILIES.items())},
+        "deferred_total": int(sum(deferred.values())),
+        "adjudicated_total": len(adjudicated),
+        "adjudicated_by_side": {
+            "airside": sides.get("airside", 0),
+            "groundside": sides.get("groundside", 0),
+            "mixed": sides.get("mixed", 0),
+            "unknown": sides.get("unknown", 0),
+        },
+        "pass": not adjudicated,
+        "note": (f"adjudicated = every law-true row EXCLUDING the "
+                 f"version-deferred classes (RULINGS "
+                 f"{DEFERRED_ADJUDICATION_RULING}); the deferred rows are "
+                 f"REPORTED under their own heading and are never dropped"),
+    }
+
 
 #: Sidecar key -> ``run_checks`` keyword.  THE contract between an emitted
 #: patch and every reader of it.  ``law_context_from_sidecar`` is the only
@@ -4073,6 +4348,12 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     "routes",                     # legacy chained routes
     "triangle_plane_unresolved",  # count of unresolved triangle vertices
     "terrace_certificates",       # the panelization evidence chain
+    # FINAL BAND EXCESS (cycle-5 item 7): the build's own post-solve band
+    # MEMBERSHIP report.  EVIDENCE, not law input — the census does not
+    # re-judge it (route_band lives in-memory, on the solver's graph); it is
+    # here so "did this patch ship with vertices outside their band?" is
+    # answerable from the artifacts instead of only from a pytest run.
+    "band_excess",
 )
 
 
@@ -4158,6 +4439,14 @@ def sidecar_evidence(osm_path) -> dict:
         if k not in data:
             continue
         v = data[k]
+        if k == "band_excess":
+            # ALREADY a summary (counts + the worst ten), and its whole point
+            # is to be readable from the artifact — collapsing it to
+            # "<N entries>" would re-hide exactly what item 7 surfaced.  The
+            # worst-row list is dropped; the numbers are kept.
+            out[k] = (None if not isinstance(v, dict) else
+                      {kk: vv for kk, vv in v.items() if kk != "worst"})
+            continue
         # SUMMARISE, never embed: the legacy ``axes``/``routes`` arrays are
         # megabytes of geometry, and a report that inlines them is a report
         # nobody reads.  Scalars pass through.
@@ -4623,6 +4912,19 @@ def run_checks(
     _pv(f"CROSS-SHAPE proximity (≤ {proximity_m}m) "
         f"grade > {max_grade_pct}%",
         cross, top_n)
+
+    # NEAR-MISS BUILDING FRONTAGE — the solve's frontage law edges, judged on
+    # the emitted patch.  A separate family from ``cross_shape`` because it is
+    # a different law with a different scope: cross-shape proximity is capped
+    # at SHARED_VERTEX_TOL_M (0.5 m) and reads 0 everywhere, while this binds
+    # out to BUILDING_FRONTAGE_NEAR_MISS_M against the pad's own node.
+    near_miss = _fam("frontage_near_miss",
+                     _check_frontage_near_miss(ways, nodes, ll_to_m))
+    _pv(f"NEAR-MISS BUILDING FRONTAGE (soft pavement within "
+        f"{_BUILDING_FRONTAGE_NEAR_MISS_M:g} m of a pad, across the sliver, "
+        f"vs the pad's own node at the apron cap)",
+        near_miss, top_n)
+    cross = cross + near_miss
 
     steps = _fam("vertex_to_edge_step", _check_vertex_to_edge_step(
         vertices, edges, ways, edge_search_m, edge_step_m,

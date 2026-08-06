@@ -1667,13 +1667,19 @@ def build_nobuilding_apron_seats(layout, bucket_to_idx, band, dem_fn,
 # (pre-solve weld, stitch_pavement_to_terminals, the 2-dp frontage-key match) —
 # all of which correctly key off ``SHARED_VERTEX_TOL_M`` (0.5 m, the ONE
 # canonical identity; never widened per the solver+validator single-registry
-# ruling).  This constant is a VALUE-side recognition radius only: greater than
-# observed DSF-vs-apt.dat source offsets (~0.68 m measured at SPJC), well below
-# any real landscaped setback, and it moves no geometry and mints no identity.
-# NOTE: rule-value constants belong in ``config.py`` (the standards single
-# source); it lives here only because config.py is owned by a concurrent change
-# this round — migrate it to config.py in a follow-up.
-BUILDING_FRONTAGE_NEAR_MISS_M = 1.0
+# ruling).
+#
+# THE VALUE NOW LIVES IN ``config.py`` — the standards single source — taking
+# this constant's own standing TODO (cycle-5 instrument-fix item 6).  It had to
+# move the moment the law grew a SECOND reader: ``tools/check_grade``'s
+# ``frontage_near_miss`` census family judges emitted patches against exactly
+# this radius and this budget, and a rule value read from a solver-internal
+# module is the two-copies defect the lockstep standard forbids.  Re-exported
+# here under its historical name so every existing reader (and
+# ``tests/test_building_frontage_near_miss.py``) is unaffected.
+from auto_patch.config import (                            # noqa: E402
+    BUILDING_FRONTAGE_NEAR_MISS_M,                         # noqa: F401
+    near_miss_frontage_budget as _near_miss_frontage_budget)
 
 
 def near_miss_building_frontage_floors(layout, bucket_to_idx, band,
@@ -1779,7 +1785,6 @@ def near_miss_building_frontage_edges(layout, bucket_to_idx, building_seats,
     the frontage it is supposed to weld).  Filled from the ONE recognition
     pass the edges already run — no second geometry sweep, no measurable
     build-time cost."""
-    from auto_patch.config import APRON_MAX_GRADE
     edges: list = []
     nearest: dict = {}          # apron node -> (distance_m, seat, pad_node)
     for contact in _near_miss_frontage_contacts(layout, bucket_to_idx,
@@ -1792,7 +1797,9 @@ def near_miss_building_frontage_edges(layout, bucket_to_idx, building_seats,
                 nearest[i] = (float(d), float(seat), pad_node)
         if pad_node is None:
             continue
-        edges.append((i, pad_node, float(APRON_MAX_GRADE * d)))
+        # THE BUDGET, from the law's one authority (config) — the same
+        # function ``check_grade._check_frontage_near_miss`` judges with.
+        edges.append((i, pad_node, float(_near_miss_frontage_budget(d))))
     if weld_refs_out is not None:
         for i, (_d, seat, pad_node) in nearest.items():
             weld_refs_out[i] = (seat, pad_node)
@@ -1831,8 +1838,13 @@ def _near_miss_frontage_contacts(layout, bucket_to_idx, building_seats,
         return
 
     # The frontage-bearing soft-pavement roles (the same set
-    # ``build_building_seats``' frontage recognition keys on).
-    soft_roles = (ROLE_APRON, ROLE_JUNCTION, ROLE_SERVICE_JUNCTION)
+    # ``build_building_seats``' frontage recognition keys on) — read from the
+    # law's one authority so the census twin
+    # (``check_grade._check_frontage_near_miss``) recognizes the same
+    # population.  ``tests/test_harness.py`` twin-asserts the tuple still
+    # equals ``(ROLE_APRON, ROLE_JUNCTION, ROLE_SERVICE_JUNCTION)``, which is
+    # what makes a ROLE_* rename loud instead of silent.
+    from auto_patch.config import NEAR_MISS_FRONTAGE_SOFT_ROLES as soft_roles
     for s in layout.shapes:
         if (s.role not in soft_roles or s.polygon is None
                 or s.polygon.is_empty):

@@ -6479,6 +6479,32 @@ def build_airport_pavement(icao: str, xplane_root: str,
                          f"{_n_residual} sub-materiality inversion(s) "
                          f"(≤ 0.01 m), PASS-with-residual.")
 
+        # ★ BAND MEMBERSHIP — the REPORT half (cycle-5 instrument-fix spec
+        # item 7).  The assertion above is INVERSION-ONLY: it fails a build
+        # on ``floor > ceiling`` and is silent about a value that simply sits
+        # OUTSIDE its band, so a 0.3 m ceiling excess shipped with a
+        # "PASS-with-residual" line and was invisible until pytest ran.  This
+        # measures membership with the SAME checker the suite uses and says
+        # so in the log; it also lands in the patch's sidecar as EVIDENCE, so
+        # the question is answerable from the artifacts a day later.
+        #
+        # NOT A GATE, on purpose: band membership is a derived
+        # self-consistency device rather than a citable standard, the census
+        # and tests/test_route_band.py hold the verdict, and gating here would
+        # stop every build on a population the solve round is still landing.
+        # It runs AFTER the assertion because rebuilding the band re-records
+        # the inversion rows on the layout — the assertion must read the
+        # solve's own field, not this report's rebuild.  Never fatal.
+        try:
+            from .grade_graph_validate import (
+                final_band_excess_report as _band_excess,
+                format_final_band_excess as _fmt_band_excess)
+            UI.vprint(1, _fmt_band_excess(_band_excess(layout, icao), icao))
+        except Exception as _band_excess_exc:
+            UI.vprint(1, f"  [pav-builder] WARN {icao}: final band EXCESS "
+                         f"report failed ({_band_excess_exc!r}) — membership "
+                         f"NOT measured this build.")
+
     # SHADOW pavement scoring classifier v2 (docs/specs/pavement-scoring-
     # classifier-spec.md): score every final pavement shape against all
     # evidence layers and log agreement with the chain's verdicts.

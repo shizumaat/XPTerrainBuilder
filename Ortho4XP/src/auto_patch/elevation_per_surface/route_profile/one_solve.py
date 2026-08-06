@@ -834,7 +834,8 @@ def _project_chain_prepass(elev, iter_edges, n, immovable):
 
 
 def _stall_envelope_gap(np, endpoint_i, endpoint_j, raw_budget_column,
-                        interval_mask, weight_i, weight_j, z, n, pairs):
+                        interval_mask, weight_i, weight_j, z, n, pairs,
+                        flat_group_reps=None):
     """``L − U`` at ``pairs`` on the CAP graph — the adjudication that says
     whether a stalled carrier pair is genuinely INFEASIBLE.
 
@@ -859,6 +860,39 @@ def _stall_envelope_gap(np, endpoint_i, endpoint_j, raw_budget_column,
     REMOVES constraints, so a positive verdict here is conservative and
     certain.
 
+    THE ROUTE FOLLOWS THE REACH LAW (owner ruling 2026-08-06,
+    "Certificate routes follow the reach law", verbatim: *"certificate
+    routes follow the same law as reach — centerlines and lawful
+    surfaces, never through pad interiors, no zero-budget hops"*).  The
+    owner reviewed a KML of this function's own specimen route
+    (HECA anchors 2864↔7478, 33.377 m priced over 149 edges) and
+    adjudicated it INVALID: it crossed a 40-node pad group as a 586 m hop
+    at budget 0, 24 of its 149 edges were priced under 0.9 % of their own
+    chord, and 29 of its 150 nodes sat more than 100 m from any taxi
+    centerline.  Two rules now bind the cap graph, and they are the
+    reason the seam-pin "depth" verdict was (d) BROKEN INSTRUMENT rather
+    than a law finding:
+
+    * NO ZERO-BUDGET HOP.  An edge whose raw law budget is 0 is not a
+      free traversal — it is a rigid coupling, and a route that walks it
+      buys unlimited distance for nothing.  Dropped from the cap graph.
+    * NEVER THROUGH A PAD INTERIOR.  ``flat_group_reps`` is the set of
+      flat-group REPRESENTATIVES: under the group collapse a whole pad is
+      ONE node, so a path that enters and leaves it crosses the pad's
+      entire footprint at the cost of two short frontage chords.  A pad
+      is a SEATED SURFACE, not a free edge (and reach follows centerlines
+      — RULINGS 2026-07-30: buildings are ENDPOINTS on frontage chords).
+      Each representative is therefore NODE-SPLIT: every edge INTO it
+      lands on the receiving half, every edge OUT of it leaves the
+      sending half, and the two halves are not joined — so the pad can
+      still be reached and bounded by its own frontage chord, and can
+      still anchor, but can never be transited.
+
+    Both rules only ever REMOVE routes, so they only ever SHRINK the
+    envelope's budget… which makes a positive ``L > U`` verdict MORE
+    conservative, not less: the verdict stays conservative-and-certain.
+    ``flat_group_reps=None`` restores the pre-ruling graph exactly.
+
     COST: two Dijkstras over the whole cap graph (HECA's largest system is
     272 k edges), which is why this runs only when the forensics channel is
     open — see ``_stall_guard_report``.  Returns ``None`` when it cannot
@@ -872,6 +906,11 @@ def _stall_envelope_gap(np, endpoint_i, endpoint_j, raw_budget_column,
     ei = endpoint_i[symmetric]
     ej = endpoint_j[symmetric]
     eb = raw_budget_column[symmetric]
+    # RULE 1 — no zero-budget hop (owner 2026-08-06).  A rigid coupling
+    # is not a road; walking it buys distance for free.
+    _positive = eb > 0.0
+    if not bool(_positive.all()):
+        ei, ej, eb = ei[_positive], ej[_positive], eb[_positive]
     # IMMOVABLE = a node that NEVER carries positive weight on ANY incident
     # edge (interval edges included).  The earlier "zero weight on SOME
     # edge" reading was wrong and it mattered: a node is routinely the HELD
@@ -895,12 +934,43 @@ def _stall_envelope_gap(np, endpoint_i, endpoint_j, raw_budget_column,
         return None
     v = z[anchors]
 
+    # RULE 2 — never through a pad interior (owner 2026-08-06).  Split
+    # every flat-group representative into a RECEIVING half (its own
+    # index, so its envelope value is still reported) and a SENDING half
+    # (a shadow index past ``n``), with no edge between them.  Directed
+    # arcs are rebuilt against the halves; the virtual source keeps
+    # sending to the SENDING half of a pad anchor so a pinned pad can
+    # still seed.
+    reps = ({int(r) for r in flat_group_reps if 0 <= int(r) < n}
+            if flat_group_reps else set())
+    shadow = {}
+    if reps:
+        rep_arr = np.zeros(n, dtype=bool)
+        rep_arr[sorted(reps)] = True
+        shadow = {r: n + 1 + k for k, r in enumerate(sorted(reps))}
+        shadow_of = np.arange(n + 1)
+        shadow_of = np.concatenate([shadow_of,
+                                    np.zeros(len(reps), dtype=shadow_of.dtype)])
+        for r, sidx in shadow.items():
+            shadow_of[r] = sidx
+        # a -> b  becomes  send(a) -> recv(b)
+        src_ij = shadow_of[ei]
+        dst_ij = ej
+        src_ji = shadow_of[ej]
+        dst_ji = ei
+        anchor_src = shadow_of[anchors]
+    else:
+        src_ij, dst_ij, src_ji, dst_ji = ei, ej, ej, ei
+        anchor_src = anchors
+    n_total = n + 1 + len(shadow)
+
     def _envelope(offsets):
-        rows = np.concatenate([ei, ej, np.full(len(anchors), n)])
-        cols = np.concatenate([ej, ei, anchors])
+        rows = np.concatenate([src_ij, src_ji,
+                               np.full(len(anchors), n)])
+        cols = np.concatenate([dst_ij, dst_ji, anchor_src])
         data = np.concatenate([eb, eb, offsets])
         graph = coo_matrix((data, (rows, cols)),
-                           shape=(n + 1, n + 1)).tocsr()
+                           shape=(n_total, n_total)).tocsr()
         return dijkstra(graph, directed=True, indices=n)[:n]
 
     upper = v.min() + _envelope(v - v.min())
@@ -942,7 +1012,8 @@ def _carrier_line(tag, carrier):
 def _stall_guard_report(np, sweeps, max_iters, detect_sweep, detect_active,
                         detect_worst, detect_carrier, active_count, worst,
                         carrier, endpoint_i, endpoint_j, raw_budget_column,
-                        interval_mask, weight_i, weight_j, z, n):
+                        interval_mask, weight_i, weight_j, z, n,
+                        flat_group_reps=None):
     """WRITE-ONLY forensics for one DECLARED-STALLED projection (spec
     ``projection-stall-guard``, report-only mode): the sweep the stall was
     detected on, the sweeps burned after it, the active violating-edge
@@ -997,7 +1068,8 @@ def _stall_guard_report(np, sweeps, max_iters, detect_sweep, detect_active,
     try:
         verdict = _stall_envelope_gap(np, endpoint_i, endpoint_j,
                                       raw_budget_column, interval_mask,
-                                      weight_i, weight_j, z, n, pairs)
+                                      weight_i, weight_j, z, n, pairs,
+                                      flat_group_reps=flat_group_reps)
     except Exception as exc:                               # pragma: no cover
         print(f"    [stall-report]   adjudication failed: {exc}")
         return
@@ -1182,7 +1254,8 @@ def _uncertified_exit_report(np, tol, sweeps, max_iters,
                              sweep_budget_basis=None,
                              family_by_pair=None,
                              exit_reason="cap", block=None, hard_cap=None,
-                             block_trace=None, last_block_drop=None):
+                             block_trace=None, last_block_drop=None,
+                             flat_group_reps=None):
     """LOUD report for ANY sweep loop that exits WITHOUT a certificate.
 
     THE CONTRACT (build-complete-then-debug round): every exit of the
@@ -1354,7 +1427,8 @@ def _uncertified_exit_report(np, tol, sweeps, max_iters,
         try:
             verdict = _stall_envelope_gap(np, endpoint_i, endpoint_j,
                                           raw_budget_column, interval_mask,
-                                          weight_i, weight_j, z, n, [pair])
+                                          weight_i, weight_j, z, n, [pair],
+                                          flat_group_reps=flat_group_reps)
         except Exception as exc:                           # pragma: no cover
             print(f"    [stall-report]   adjudication failed: {exc}")
             verdict = None
@@ -1398,7 +1472,8 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                        raw_budget_by_index=None,
                        sweep_budget_basis=None,
                        family_by_pair=None,
-                       sweep_hard_cap=None):
+                       sweep_hard_cap=None,
+                       flat_group_reps=None):
     """Colored Gauss-Seidel POCS (survey candidate 1) — the vectorized
     replacement for BOTH legacy inner sweeps.  Mutates ``elev`` in place.
 
@@ -1834,7 +1909,8 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
             weight_i, weight_j, z, n, sweep_budget_basis,
             family_by_pair=family_by_pair,
             exit_reason=exit_reason, block=block, hard_cap=hard_cap,
-            block_trace=block_trace, last_block_drop=last_block_drop)
+            block_trace=block_trace, last_block_drop=last_block_drop,
+            flat_group_reps=flat_group_reps)
     if stall_detect_sweep:
         # WRITE-ONLY (after the writeback): nothing below feeds the solve.
         # ``hard_cap``, not the block: the "ran to" figure must be the
@@ -1844,7 +1920,8 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                             stall_detect_carrier, stall_active, worst,
                             stall_carrier, endpoint_i, endpoint_j,
                             raw_budget_column, interval_mask,
-                            weight_i, weight_j, z, n)
+                            weight_i, weight_j, z, n,
+                            flat_group_reps=flat_group_reps)
     if stats is not None:
         stats["colors"] = color_count
         stats["edges"] = len(iter_edges)
@@ -3583,6 +3660,9 @@ def feasibility_project(elev, shape_constraints, hard, *,
     # report so.  Cost is O(V+E) once per projection, deliberately not
     # micro-optimised and deliberately not priced here (the wall-time arm
     # belongs to the test phase — RULINGS 2026-08-05).
+    # The flat-group representatives, for the certificate's route law
+    # (owner 2026-08-06): a pad is a SEATED SURFACE, never a free edge.
+    _fp_reps = {rep for (rep, _g) in groups_eff} or None
     _sweep_basis = None
     _sweep_hard_cap = sweep_hard_cap
     if max_iters is None:
@@ -3623,7 +3703,8 @@ def feasibility_project(elev, shape_constraints, hard, *,
                            raw_budget_by_index=iter_raw_budget,
                            sweep_budget_basis=_sweep_basis,
                            family_by_pair=fam_by_pair,
-                           sweep_hard_cap=_sweep_hard_cap)
+                           sweep_hard_cap=_sweep_hard_cap,
+                           flat_group_reps=_fp_reps)
         # Lazy shapes: as for the Jacobi path, only the FINAL state matters for
         # a certificate, so re-warm + re-sweep on the grown edge set until no
         # further shape expands (bounded: each round expands ≥1 entry).
@@ -3658,7 +3739,8 @@ def feasibility_project(elev, shape_constraints, hard, *,
                                raw_budget_by_index=iter_raw_budget,
                                sweep_budget_basis=_sweep_basis,
                                family_by_pair=fam_by_pair,
-                               sweep_hard_cap=_sweep_hard_cap)
+                               sweep_hard_cap=_sweep_hard_cap,
+                               flat_group_reps=_fp_reps)
         _sweeps_run = _chroma_stats.get("sweeps", 0)
         _last_worst = _chroma_stats.get("worst", 0.0)
         if _os.environ.get("O4_STEP_DEBUG") == "1":

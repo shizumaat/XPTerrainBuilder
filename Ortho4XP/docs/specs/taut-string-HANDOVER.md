@@ -237,6 +237,25 @@ reprices (ruling relayed to c7cert for fix 3). Sweep riders: the
 seed_rwy_seam label is a misnomer 607/610; 444/1,077 hardened with no
 seeder record (unattributed channel).
 
+**CYCLE 7 LANDED AND MERGED (lane/c7cert).** Fix 1 evidence-based
+exit (95.8% of the 100x gain at 12% of sweeps; wall +19.2% HECA /
++52.6% HEAZ — under tripwire, flagged for the final profiling round);
+fix 2 in the ruled frontage⇒band form (worst 60.77 → 53.71, 4
+underivable pads LOUD); fix 3 per the certificate-route ruling
+(witnesses 13,370 → 1,226, max gap 19.20 → 1.11 m; carrier feasible);
+fix 5 family axis complete. HECA dem1 6,700 → **5,969** (airside
+5,376); HEAZ 1,064 / canyon 185. Suite: FAILED lists identical to
+control. **FIX-4 STOP → proposed ruling pending owner:** rod slabs
+tighter than law on 91.1% of pairs (max 2,305×) = smoothing as
+surface authority; proposed: slab budgets FLOOR at the pair's
+grade-law budget (soft beyond law, never hard) — repriced with the
+seam-continuity design, seam families as the counter-read (6,300
+edges, 31.5% of converged residual). **Q4 DEBT → cycle-8 acceptance:**
+Part D's ladder trades +301 airside for −62 groundside
+(airside-negative, forbidden trade) — the one-graph round must clear
+it (acceptance: airside ≤ the P-only 5,792 frame). Worktrees c7q4 +
+c7ctl left mounted for teardown.
+
 NEXT TARGETS (ranked):
 1. **The solve's UNCERTIFIED exit is the real plateau author** —
    attribute the empty polytope per family (ENTRY/EXIT certificate +

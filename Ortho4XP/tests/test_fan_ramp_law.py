@@ -607,3 +607,94 @@ def test_a_ramp_piece_is_not_a_TERRACE_candidate():
         "the terrace candidate list no longer excludes ramp pieces")
     assert src.index("split_aprons_at_fan_zones") < src.index(
         "aprons = ["), "the zones must be cut BEFORE the terrace lines"
+
+
+# ── THE LATTICE-COARSE SUPERSET COVER (cycle-5 node-identity RULING
+#    2026-08-06) ────────────────────────────────────────────────────────
+# The zone is CUT against a coarsened SUPERSET of the true movement
+# cover, because the true cover is a ``buffer()`` whose arc vertices are
+# spaced at about the canonical weld tolerance — cutting against it borns
+# the zone with vertex pairs the canonical registry interns onto ONE
+# solve node, and the ramp piece and the remainder panel then price that
+# node's pairs under two different caps (CYXY: 0 such pairs on aprons
+# before the cut, 884 after; 193 solver/validator budget mismatches).
+# The ruling's two properties are twinned here.
+
+def test_the_zone_cover_is_a_superset_of_the_true_cover():
+    """PROPERTY (a) — the keep-out still binds at ZERO tolerance against
+    the TRUE cover.  A superset only ever protects MORE ground, so the
+    structural law ("no ramp inside a movement surface") is untouched by
+    the coarsening."""
+    layout, _apron = _terminal_apron()
+    cover = AT.corridor_cover(layout)
+    assert cover is not None and not cover.is_empty
+    coarse = AT.lattice_coarse_cover(cover, icao="TEST")
+    assert coarse.covers(cover), (
+        "the coarsened cover does not contain the true cover — the "
+        "movement-surface keep-out would bind on LESS ground than the law")
+    assert coarse.difference(cover).area > 0.0, (
+        "the coarsening did nothing; it is supposed to grow the keep-out")
+
+
+def test_the_zone_cover_boundary_is_weld_separated():
+    """PROPERTY (b) — the cut is born satisfying the node-identity law.
+    No two boundary vertices of the geometry the zone is cut against may
+    be closer than the canonical weld tolerance, or the cut hands a
+    sub-tolerance pair to both sides of every difference it takes."""
+    from auto_patch.layout import SHARED_VERTEX_TOL_M
+    layout, _apron = _terminal_apron()
+    cover = AT.corridor_cover(layout)
+    coarse = AT.lattice_coarse_cover(cover, icao="TEST")
+    parts = ([coarse] if coarse.geom_type == "Polygon"
+             else list(getattr(coarse, "geoms", ())))
+    worst = None
+    for p in parts:
+        for ring in [p.exterior] + list(p.interiors):
+            pts = list(ring.coords)[:-1]
+            for i in range(len(pts)):
+                for j in range(i + 1, len(pts)):
+                    d = math.hypot(pts[i][0] - pts[j][0],
+                                   pts[i][1] - pts[j][1])
+                    if worst is None or d < worst:
+                        worst = d
+    assert worst is not None
+    assert worst >= SHARED_VERTEX_TOL_M, (
+        f"the zone cover carries a {worst:.4f} m vertex pair, inside the "
+        f"{SHARED_VERTEX_TOL_M} m weld tolerance — every cut against it "
+        f"borns a node with two ring coordinates")
+    # …and the TRUE cover is exactly the geometry that fails this, which
+    # is why the coarsening has to exist at all.
+    tparts = ([cover] if cover.geom_type == "Polygon"
+              else list(getattr(cover, "geoms", ())))
+    tw = min(math.hypot(a[0] - b[0], a[1] - b[1])
+             for p in tparts
+             for ring in [p.exterior] + list(p.interiors)
+             for k, a in enumerate(list(ring.coords)[:-1])
+             for b in list(ring.coords)[:-1][k + 1:])
+    assert tw < SHARED_VERTEX_TOL_M, (
+        "the true cover no longer carries sub-tolerance vertex pairs — "
+        "re-derive whether this coarsening is still needed")
+
+
+def test_the_cut_pieces_carry_no_sub_tolerance_vertex_pair():
+    """THE OUTCOME the two properties buy: every piece the fan cut ships
+    satisfies the node-identity law — one coordinate per solve node — so
+    the solver and the coordinate-keyed validator read the same law on
+    the same pair."""
+    from auto_patch.layout import SHARED_VERTEX_TOL_M
+    layout, _apron, _plan, _n = _split_fixture()
+    bad = []
+    for s in layout.shapes:
+        if (getattr(s, "_fan_panel_group", None) is None
+                and getattr(s, "_terrace_panel_group", None) is None):
+            continue
+        pts = list(s.polygon.exterior.coords)[:-1]
+        for i in range(len(pts)):
+            for j in range(i + 1, len(pts)):
+                d = math.hypot(pts[i][0] - pts[j][0],
+                               pts[i][1] - pts[j][1])
+                if 1e-9 < d < SHARED_VERTEX_TOL_M:
+                    bad.append((round(d, 4), pts[i]))
+    assert not bad, (
+        f"{len(bad)} sub-tolerance vertex pair(s) on cut pieces, e.g. "
+        f"{sorted(bad)[:3]} — one solve node, two ring coordinates")

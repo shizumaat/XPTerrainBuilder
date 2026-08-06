@@ -1610,7 +1610,10 @@ def _construct_from_envelope(layout, envelope, sample_dem=None,
              "joints_stillborn_keepout": 0, "joints_stillborn_hole": 0,
              "joint_pieces_dropped_short": 0,
              "joint_lines_lost_to_corridor": 0,
-             "polygons_split": 0, "split_pieces_added": 0}
+             "polygons_split": 0, "split_pieces_added": 0,
+             # Cycle-5 node identity: joint stations moved onto the
+             # settled lattice before the band / the difference.
+             "cut_vertices_snapped": 0}
     cover = corridor_cover(layout)
     # ── THE FAN-RAMP ZONES, BEFORE THE TERRACES (owner 21f0980) ──────
     # Precedence, structurally: the zones exist before a single terrace
@@ -1623,7 +1626,7 @@ def _construct_from_envelope(layout, envelope, sample_dem=None,
     # apron's envelope demand, so the shortfall a wall is asked to
     # discharge is the shortfall over the ground that is STILL held to
     # 1 % — the ruled "ramps first, wall fallback", with no second pass.
-    split_aprons_at_fan_zones(layout, fan, icao=icao)
+    split_aprons_at_fan_zones(layout, fan, icao=icao, cover=cover)
     layout._fan_ramp_plan = fan
     try:
         keepout = runway_strip_wall_keepout(layout, require_gate=False)
@@ -1638,6 +1641,15 @@ def _construct_from_envelope(layout, envelope, sample_dem=None,
               and not s.polygon.is_empty
               and s.polygon.geom_type == "Polygon"
               and not getattr(s, "fan_ramp_zone", False)]
+    # THE SETTLED LATTICE, READ AFTER THE FAN SPLIT (cycle-5 node
+    # identity): the fan cut already ran, so its pieces are part of the
+    # settled set this cut must be born on.  One build for the whole
+    # pass; each panel cut adds what it minted (``_panelize_apron`` ->
+    # ``_snap_stations``).
+    from auto_patch.canonical_points import (
+        add_polygon_to_lattice as _add_to_lattice,
+        settled_vertex_lattice as _settled_lattice)
+    lattice = _settled_lattice(layout)
     new_shapes: list = []
     for shape in aprons:
         stats["candidates"] += 1
@@ -1645,7 +1657,8 @@ def _construct_from_envelope(layout, envelope, sample_dem=None,
             entry = _panelize_apron(layout, shape, cover, keepout,
                                     envelope, STACKED_WALL_RETREAT_M,
                                     stats, sample_dem=sample_dem,
-                                    anchors=anchors, fan=fan)
+                                    anchors=anchors, fan=fan,
+                                    lattice=lattice)
         except _GEOM_EXC:
             continue
         if entry is None:
@@ -1666,6 +1679,10 @@ def _construct_from_envelope(layout, envelope, sample_dem=None,
                              ref=getattr(shape, "ref", ""))
             sib._terrace_panel_group = _group
             new_shapes.append(sib)
+        # The panels this cut minted JOIN the lattice, so the NEXT
+        # apron's joint stations snap to them too.
+        for _p in panels:
+            _add_to_lattice(_p, lattice)
         stats["polygons_split"] += 1
         stats["split_pieces_added"] += len(panels) - 1
         stats["triggered"] += 1
@@ -1708,7 +1725,9 @@ def _construct_from_envelope(layout, envelope, sample_dem=None,
             f"{stats['joints_stillborn_hole']} would punch a hole; "
             f"pieces dropped short {stats['joint_pieces_dropped_short']}, "
             f"lines lost to the corridor cover "
-            f"{stats['joint_lines_lost_to_corridor']}")
+            f"{stats['joint_lines_lost_to_corridor']}; "
+            f"{stats['cut_vertices_snapped']} joint station(s) snapped "
+            f"onto the settled lattice before the cut")
         _UI.vprint(1,
             f"  [apron-terrace] {icao}: DEMAND CENSUS — envelope samples "
             f"{stats['env_samples']} ({stats['env_samples_offnet']} off-net, "
@@ -1769,11 +1788,22 @@ def _census_demand(stats, poly, demand) -> None:
 
 def _panelize_apron(layout, shape, cover, keepout, envelope,
                     retreat: float, stats, sample_dem=None,
-                    anchors=None, fan=None):
+                    anchors=None, fan=None, lattice=None):
     """One apron: trigger, cut, split.  ``None`` when it does not fire.
 
     Returns the presolve entry with an extra ``_panels`` key (the panel
     polygons, largest first) that the caller pops.
+
+    ``lattice`` — the SETTLED VERTEX LATTICE (cycle-5 node identity,
+    ``docs/specs/cycle5-node-identity-spec.md``).  Like the fan-ramp
+    split, this cut runs after ``pipeline._unify_airside_geometry``
+    settled the airside node set, so the joint's station rows are
+    snapped onto it BEFORE the band is built and the difference taken:
+    the band, the declaration's ``hi``/``lo`` rows and the panel
+    boundary are then one geometry on one node set.  Snapping the
+    STATIONS rather than the band polygon is what keeps them in
+    lockstep — a band snapped on its own would publish station rows the
+    cut no longer follows.
     """
     poly = shape.polygon
     # ── THE TRIGGER: the ANCHORS' demand (RULINGS 4cbed92) ───────────
@@ -1819,6 +1849,10 @@ def _panelize_apron(layout, shape, cover, keepout, envelope,
     # §3(c): joint lines keep the joint clearance from FACING boundary
     # runs, so no joint discharges its step at a neighbour's face.
     facing, _nb = _facing_boundary(layout, shape)
+    # SAME RULING as the fan zone: the geometry a CUT is taken against
+    # must be lattice-coarse, or the joint pieces are born carrying the
+    # cover's buffer-arc vertex pairs.  The fence is a buffer too, so
+    # the coarsening is applied to the UNION, once, after it is built.
     cut_cover = cover
     if facing is not None and not facing.is_empty:
         try:
@@ -1827,6 +1861,9 @@ def _panelize_apron(layout, shape, cover, keepout, envelope,
                          else unary_union([cut_cover, fence]))
         except _GEOM_EXC:
             pass
+    true_cut_cover = cut_cover
+    if cut_cover is not None and not cut_cover.is_empty:
+        cut_cover = lattice_coarse_cover(cut_cover)
     joints: list = []
     bands: list = []
     # Panels accumulate: joint k+1 is cut out of the geometry joint k
@@ -1858,6 +1895,28 @@ def _panelize_apron(layout, shape, cover, keepout, envelope,
             if len(hi) < 2:
                 stats["joints_stillborn_hole"] += 1
                 continue
+            # ── ONTO THE SETTLED LATTICE, BEFORE THE BAND ────────────
+            # A station within the canonical weld tolerance of a settled
+            # vertex IS that node.  Row LENGTHS are preserved (``grid``
+            # is index-aligned with them); two stations that snap to one
+            # point are one node, and ``_band_polygon``'s validity
+            # repair handles the zero-length edge that leaves.
+            if lattice is not None:
+                # The keep-out guard binds against the TRUE cover — the
+                # zero-tolerance structural law (ruling §1); the coarse
+                # superset is only what the cut is SHAPED by.
+                _ko = None
+                try:
+                    if (true_cut_cover is not None
+                            and not true_cut_cover.is_empty):
+                        _ko = true_cut_cover.buffer(-1e-9)
+                except _GEOM_EXC:                          # pragma: no cover
+                    _ko = None
+                hi = _snap_stations(hi, lattice, stats, avoid=_ko)
+                lo = _snap_stations(lo, lattice, stats, avoid=_ko)
+                # (the station rows keep their length, so there is no
+                #  re-clip here — a station that would land on a
+                #  corridor simply stays where it is)
             band = _band_polygon(hi, lo)
             split = _split_panel(panels, host, band)
             if split is None:
@@ -1981,6 +2040,41 @@ def _certificate(shape, demand, extent, plane_slope, dem_geom_excess,
             cert["anchor_route_budget_m"] = round(
                 float(hi_a[2]) + float(lo_a[2]), 3)
     return cert
+
+
+def _snap_stations(row, lattice, stats=None, avoid=None):
+    """A joint's station row, with every station that lies within the
+    canonical weld tolerance of a SETTLED vertex moved onto it.
+
+    Length-preserving on purpose: ``grid`` is index-aligned with the
+    row, and a pair of stations that collapse onto one lattice point
+    were already ONE solve node — the collapse is the law, not a loss.
+
+    ``avoid`` is the movement-surface keep-out; it outranks node
+    identity exactly as in the fan cut, so a station whose target lies
+    on a corridor keeps its own coordinate.
+    """
+    from auto_patch.layout import SHARED_VERTEX_TOL_M
+    out = []
+    moved = 0
+    for (x, y) in row:
+        fx, fy = float(x), float(y)
+        cp = lattice.find_nearest(fx, fy, SHARED_VERTEX_TOL_M)
+        if cp is not None and cp != (fx, fy):
+            blocked = False
+            if avoid is not None:
+                try:
+                    blocked = avoid.intersects(_Point(cp[0], cp[1]))
+                except _GEOM_EXC:                          # pragma: no cover
+                    blocked = False
+            if not blocked:
+                moved += 1
+                fx, fy = cp
+        out.append((fx, fy))
+    if stats is not None and moved:
+        stats["cut_vertices_snapped"] = (
+            stats.get("cut_vertices_snapped", 0) + moved)
+    return out
 
 
 def _band_polygon(hi, lo):
@@ -2620,6 +2714,12 @@ def plan_fan_ramp_zones(layout, cover=None, icao: str = "") -> FanRampPlan:
         cover = corridor_cover(layout)
     if cover is None or cover.is_empty:
         return plan
+    # THE ZONE IS CUT AGAINST A LATTICE-COARSE SUPERSET of the cover
+    # (RULING 2026-08-06) — see :func:`lattice_coarse_cover`.  Only the
+    # SHAPING difference below uses it; every other reader (the
+    # pad-proximity test, the trigger, the joint keepout) keeps the true
+    # cover, because they ask about the real movement surfaces.
+    zone_cover = lattice_coarse_cover(cover, icao=icao)
     pads = []
     for s in getattr(layout, "shapes", ()):
         if (s.role or "") != "building":
@@ -2658,7 +2758,8 @@ def plan_fan_ramp_zones(layout, cover=None, icao: str = "") -> FanRampPlan:
         plan.stats["apron_candidates"] += 1
         for reach in reaches:
             try:
-                zone = shape.polygon.intersection(reach).difference(cover)
+                zone = (shape.polygon.intersection(reach)
+                        .difference(zone_cover))
             except _GEOM_EXC:
                 continue
             if zone.is_empty:
@@ -2751,12 +2852,110 @@ def _fan_pair_reach(pad_a, pad_b, depth: float):
     return grown.intersection(Polygon(corners))
 
 
+def lattice_coarse_cover(cover, tol_m=None, icao: str = ""):
+    """THE KEEP-OUT THE ZONE IS CUT AGAINST: a lattice-coarse SUPERSET of
+    the true movement cover (RULING 2026-08-06, cycle-5 node-identity
+    spec).
+
+    The true cover is a ``buffer()`` — its arc vertices are spaced at
+    roughly the canonical weld tolerance.  Cutting the fan/terrace zone
+    against it therefore BORNS the zone with vertex pairs the canonical
+    registry interns onto one node, and the ramp piece and the remainder
+    panel then price that node's pairs under two different caps
+    (measured at CYXY: aprons carry 0 such pairs before the cut and 884
+    after; 193 solver↔validator budget mismatches).  Collapsing them
+    after the fact is not available — the collapse chords across the
+    cover's convex arcs and pushes 1.289 m² of ramp INSIDE the movement
+    corridor, which the owner's fan-ramp ruling forbids outright.
+
+    So the contradiction is resolved by CONSTRUCTION, with two
+    properties this function guarantees and ``tests/test_fan_ramp_law``
+    twins:
+
+    (a) IT CONTAINS THE TRUE COVER.  The keep-out therefore still binds
+        at ZERO tolerance against the true cover — a superset only ever
+        protects more ground, never less.  Verified here, per call, not
+        merely argued: the grow-and-coarsen is retried with a doubled
+        margin until ``covers`` holds.
+    (b) ITS BOUNDARY VERTICES ARE ``tol_m``-SEPARATED, so the cut is born
+        satisfying the node-identity law and there is nothing to collapse
+        afterwards (``canonical_points.coarsen_to_lattice_spacing``
+        guarantees this structurally).
+
+    Accepted consequence (ruling §3): the declared 5 % zone area shrinks
+    slightly.  That is lawful — the wall/step fallback covers whatever
+    the smaller zone cannot span (fan-ramp precedence, RULINGS 21f0980).
+
+    Falls back to the TRUE cover, loudly, if no margin produces a
+    verified superset — a smaller-but-correct keep-out is never the
+    answer, and the node-identity defect is the lesser of the two.
+    """
+    from auto_patch.canonical_points import coarsen_to_lattice_spacing
+    from auto_patch.layout import SHARED_VERTEX_TOL_M
+    if cover is None or cover.is_empty:
+        return cover
+    t = SHARED_VERTEX_TOL_M if tol_m is None else float(tol_m)
+    margin = t * 1.01
+    for _ in range(4):
+        try:
+            coarse = coarsen_to_lattice_spacing(cover.buffer(margin), t)
+            if (coarse is not None and not coarse.is_empty
+                    and coarse.covers(cover)):
+                return coarse
+        except _GEOM_EXC:                                  # pragma: no cover
+            pass
+        margin *= 2.0
+    try:
+        import O4_UI_Utils as _UI
+        _UI.vprint(1,
+            f"  [fan-ramp] {icao}: WARN — no verified lattice-coarse "
+            f"SUPERSET of the movement cover (tried up to "
+            f"{margin / 2:.2f} m); cutting against the TRUE cover, so "
+            f"the cut is born with sub-tolerance vertex pairs.")
+    except Exception:                                      # pragma: no cover
+        pass
+    return cover
+
+
 class _FanHole(Exception):
     """A fan-zone cut that could only be expressed as an interior ring."""
 
 
+def _cut_diag(tag, group_a, group_b) -> None:
+    """NODE-IDENTITY diagnostic for the fan cut (``O4_APRON_TERRACE_DEBUG``).
+
+    Reports how many vertices of ``group_a`` sit within the canonical weld
+    tolerance of a ``group_b`` vertex WITHOUT being identical to it — i.e.
+    how many welded-but-distinct pairs (one solve node, two ring
+    coordinates) exist between the ramp side and the remainder side at
+    this point in the construction.  Off by default; no behaviour.
+    """
+    if _os.environ.get("O4_APRON_TERRACE_DEBUG") != "1":
+        return
+    try:
+        import O4_UI_Utils as _UI
+        pa = [pt for g in group_a for pt in _open_ring_xy(g)]
+        pb = [pt for g in group_b for pt in _open_ring_xy(g)]
+        exact = twin = 0
+        worst = 0.0
+        for (x, y) in pa:
+            best = min((math.hypot(x - a, y - b) for (a, b) in pb),
+                       default=1e9)
+            if best <= 1e-9:
+                exact += 1
+            elif best <= 0.5:
+                twin += 1
+                worst = max(worst, best)
+        _UI.vprint(1,
+            f"  [fan-cut-diag] {tag}: {exact} exact-shared, {twin} "
+            f"welded-but-distinct (worst {worst:.4f} m) over "
+            f"{len(pa)} vs {len(pb)} vertices")
+    except Exception:                                      # pragma: no cover
+        pass
+
+
 def split_aprons_at_fan_zones(layout, plan: Optional[FanRampPlan],
-                              icao: str = "") -> int:
+                              icao: str = "", cover=None) -> int:
     """PRE-SOLVE PANELIZATION AT THE FAN-ZONE BOUNDARY.  Returns the
     number of zone PIECES that became shapes.
 
@@ -2800,15 +2999,43 @@ def split_aprons_at_fan_zones(layout, plan: Optional[FanRampPlan],
 
     Losing pavement to a geometry op is never the lawful answer: every
     piece — zone and remainder alike — is kept and emitted.
+
+    THE CUT IS BORN ON THE SETTLED LATTICE (cycle-5 node identity,
+    ``docs/specs/cycle5-node-identity-spec.md``).  This runs AFTER
+    ``pipeline._unify_airside_geometry`` settled the airside node set, so
+    every vertex it mints within the canonical weld tolerance of a
+    settled one is a node with TWO ring coordinates — measured at CYXY,
+    23 welded-but-distinct pairs at cut time (worst 0.4756 m), and the
+    ramp piece (5 %) and the remainder panel (1 %) then price the same
+    solve node under two different caps: the solver binds the strictest,
+    the coordinate-keyed validator reads 5 % off the ramp's own ring.
+    So each component is SNAPPED onto the settled vertices before the
+    difference; the boundary is then shared by construction.  Welding
+    the pieces AFTERWARDS is the falsified alternative — it moves them
+    independently and tears the partition (0.1384 m² of apron∩apron).
     """
     if plan is None or not plan.zones:
         return 0
-    from auto_patch.layout import BuiltShape
+    from auto_patch.canonical_points import (
+        add_polygon_to_lattice, settled_vertex_lattice,
+        snap_polygon_to_lattice)
+    from auto_patch.layout import BuiltShape, SHARED_VERTEX_TOL_M
     st = plan.stats
     st.setdefault("zones_split_in", 0)
     st.setdefault("zones_stillborn_hole", 0)
     st.setdefault("aprons_split", 0)
     st.setdefault("remainder_pieces_added", 0)
+    st.setdefault("cut_vertices_snapped", 0)
+    st.setdefault("cut_snap_declined", 0)
+    lattice = settled_vertex_lattice(layout, tol_m=SHARED_VERTEX_TOL_M)
+    # THE MOVEMENT-SURFACE KEEP-OUT OUTRANKS NODE IDENTITY (owner's
+    # fan-ramp ruling: no ramp may touch an aircraft-movement surface).
+    # Handed to the snap whole; it applies the law's own epsilon-shrunk
+    # predicate and re-clips against this geometry when needed.
+    try:
+        keep_out = cover if cover is not None else corridor_cover(layout)
+    except _GEOM_EXC:                                      # pragma: no cover
+        keep_out = None
     kept_zones: list = []
     new_shapes: list = []
     for shape in list(getattr(layout, "shapes", ())):
@@ -2841,6 +3068,26 @@ def split_aprons_at_fan_zones(layout, plan: Optional[FanRampPlan],
                        if g.geom_type == "Polygon" and not g.is_empty])
         comps = sorted((g for g in comps if g.area >= _FAN_MIN_AREA_M2),
                        key=lambda g: -g.area)
+        if not comps:
+            continue
+        # ── ONTO THE SETTLED LATTICE, BEFORE THE DIFFERENCE ──────────
+        # A component vertex within the canonical weld tolerance of a
+        # settled vertex IS that node; snapped here, the cut inherits
+        # the apron's own vertices and the ramp/panel boundary is
+        # shared exactly.  A snap that degenerates the component keeps
+        # the unsnapped one — losing the cut is worse than one twin,
+        # and the count is reported.
+        snapped_comps = []
+        for comp in comps:
+            g, n_moved = snap_polygon_to_lattice(
+                comp, lattice, SHARED_VERTEX_TOL_M, avoid=keep_out)
+            if g is None or g.is_empty or g.geom_type != "Polygon":
+                st["cut_snap_declined"] += 1
+                snapped_comps.append(comp)
+                continue
+            st["cut_vertices_snapped"] += n_moved
+            snapped_comps.append(g)
+        comps = [g for g in snapped_comps if g.area >= _FAN_MIN_AREA_M2]
         if not comps:
             continue
         # ── the terrace cut, one component at a time ─────────────────
@@ -2900,6 +3147,7 @@ def split_aprons_at_fan_zones(layout, plan: Optional[FanRampPlan],
             survivors.append(comp)
         if not survivors:
             continue
+        _cut_diag("step1 comps-vs-panels", survivors, panels)
         # ── THE RAMP IS THE GROUND THE CUT ACTUALLY REMOVED ─────────
         # Not the component that asked for it.  Same reasoning the wall
         # band already carries here ("THE RESERVATION IS THE GROUND THE
@@ -2941,6 +3189,7 @@ def split_aprons_at_fan_zones(layout, plan: Optional[FanRampPlan],
             st["zones_stillborn_hole"] += len(survivors)
             continue
         survivors = ramp_pieces
+        _cut_diag("step3 ramps-vs-panels", survivors, panels)
         panels.sort(key=lambda p: -p.area)
         # THE APRON KEEPS ITS IDENTITY as the largest remainder panel —
         # everything that captured this shape earlier in the pipeline
@@ -2961,6 +3210,13 @@ def split_aprons_at_fan_zones(layout, plan: Optional[FanRampPlan],
             zs._fan_panel_group = group
             new_shapes.append(zs)
             kept_zones.append((zs, comp))
+        # The pieces this apron's cut just minted JOIN the lattice, so a
+        # later apron's cut (and the terrace cut after this pass) snaps
+        # to them too — the settled set only ever grows.
+        for p in panels:
+            add_polygon_to_lattice(p, lattice)
+        for comp in survivors:
+            add_polygon_to_lattice(comp, lattice)
         st["aprons_split"] += 1
     if new_shapes:
         layout.shapes.extend(new_shapes)
@@ -2996,7 +3252,10 @@ def split_aprons_at_fan_zones(layout, plan: Optional[FanRampPlan],
         f"{FAN_RAMP_CAP * 100:.0f} % + {st['remainder_pieces_added']} "
         f"remainder sibling(s); {st['zones_stillborn_hole']} of "
         f"{st['zones_split_in']} component(s) STILLBORN (would punch an "
-        f"interior ring) and dropped from the declaration")
+        f"interior ring) and dropped from the declaration; "
+        f"{st['cut_vertices_snapped']} cut vertex(es) snapped onto the "
+        f"settled lattice before the difference "
+        f"({st['cut_snap_declined']} component(s) declined the snap)")
     return len(kept_zones)
 
 

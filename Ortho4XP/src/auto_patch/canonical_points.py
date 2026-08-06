@@ -33,15 +33,23 @@ import math
 from typing import List, Optional, Tuple
 
 from shapely.errors import GEOSException, TopologicalError
-from shapely.geometry import Polygon
+from shapely.geometry import Point, Polygon
+from shapely.ops import unary_union
 
 
 __all__ = ["CanonicalPointRegistry", "snap_polygon_through_registry",
-           "snap_polygon_parts_through_registry", "weld_layout_vertices"]
+           "snap_polygon_parts_through_registry", "weld_layout_vertices",
+           "settled_vertex_lattice", "snap_polygon_to_lattice",
+           "add_polygon_to_lattice", "coarsen_to_lattice_spacing"]
 
 
 _GEOM_EXC = (ValueError, TypeError,
              GEOSException, TopologicalError, IndexError)
+
+# A cut vertex this close to a keep-out boundary IS on it — it was
+# planted there by the ``.difference(cover)`` the cut was born with, and
+# it must stay put (see :func:`snap_polygon_to_lattice`).
+_KEEPOUT_EDGE_EPS_M = 1e-6
 
 
 class CanonicalPointRegistry:
@@ -89,6 +97,21 @@ class CanonicalPointRegistry:
         nearby = self._find_nearest(x, y, self.tol_m)
         if nearby is not None:
             return nearby
+        return self._add(x, y)
+
+    def add_exact(self, x: float, y: float) -> tuple[float, float]:
+        """Register (x, y) as its OWN entry, never merging it into a
+        neighbouring bucket.
+
+        ``get_or_add`` implements node IDENTITY (points within ``tol_m``
+        ARE one node, and the first one registered owns the coordinate).
+        This is the other job: recording the vertices that actually
+        EXIST, so a later query can snap a freshly-minted point onto the
+        nearest REAL one instead of onto a bucket representative that
+        may itself sit up to ``tol_m`` away in the other direction —
+        which would move the new point by up to ``2·tol_m`` and bend the
+        geometry it belongs to.  See :func:`settled_vertex_lattice`.
+        """
         return self._add(x, y)
 
     def get(self, x: float, y: float) -> tuple[float, float] | None:
@@ -234,6 +257,307 @@ def snap_polygon_parts_through_registry(
         return [snapped_poly]
     except _GEOM_EXC:
         return []
+
+
+def settled_vertex_lattice(layout, roles=None,
+                           tol_m: float = 0.5) -> "CanonicalPointRegistry":
+    """The SETTLED VERTEX LATTICE: every ring vertex the layout's shapes
+    currently carry, registered EXACTLY (no merging), for use as a snap
+    target by a pass that mints geometry afterwards.
+
+    THE LAW (cycle-5, ``docs/specs/cycle5-node-identity-spec.md``): a
+    canonical solve node has exactly ONE plan coordinate.  The pre-solve
+    settle (``pipeline._unify_airside_geometry``) fixes the airside node
+    set; a construction that runs after it and mints a vertex within the
+    canonical weld tolerance of a settled one has created a node with
+    two ring coordinates — the solver binds the strictest law at the
+    shared node while the coordinate-keyed validator reads each ring's
+    own law, and the two disagree on the same pair.
+
+    The answer is to cut ON the lattice, never to weld after cutting:
+    snapping the CUT GEOMETRY before the boolean difference makes the
+    resulting boundary shared by construction, where welding the pieces
+    afterwards moves them independently and tears the partition
+    (measured: 0.1384 m² of CYXY apron∩apron self-overlap).
+
+    ``roles`` restricts which shapes contribute (``None`` ⇒ every shape
+    with a simple polygon).  Vertices go in through
+    :meth:`CanonicalPointRegistry.add_exact`, so a query returns a
+    coordinate that a shape genuinely has.
+    """
+    reg = CanonicalPointRegistry(tol_m=tol_m)
+    for s in getattr(layout, "shapes", ()):
+        if roles is not None and getattr(s, "role", None) not in roles:
+            continue
+        poly = getattr(s, "polygon", None)
+        if (poly is None or poly.is_empty
+                or poly.geom_type != "Polygon"):
+            continue
+        try:
+            for (x, y) in poly.exterior.coords:
+                reg.add_exact(float(x), float(y))
+            for ring in poly.interiors:
+                for (x, y) in ring.coords:
+                    reg.add_exact(float(x), float(y))
+        except _GEOM_EXC:                                  # pragma: no cover
+            continue
+    return reg
+
+
+def add_polygon_to_lattice(poly, lattice) -> None:
+    """Register ``poly``'s vertices into ``lattice`` so a LATER cut in the
+    same pass snaps to the pieces this one already minted."""
+    if lattice is None or poly is None or poly.is_empty:
+        return
+    try:
+        rings = [poly.exterior] + list(poly.interiors)
+    except _GEOM_EXC:                                      # pragma: no cover
+        return
+    for ring in rings:
+        for (x, y) in ring.coords:
+            lattice.add_exact(float(x), float(y))
+
+
+def coarsen_to_lattice_spacing(geom, tol_m: float = 0.5):
+    """Rebuild ``geom`` so that NO TWO of its boundary vertices are closer
+    together than ``tol_m``.  Returns the rebuilt geometry, or ``None``
+    if it degenerates.
+
+    The guarantee is structural, not statistical: every vertex is
+    interned through ONE :class:`CanonicalPointRegistry` at ``tol_m``,
+    and that registry never stores two entries within ``tol_m`` of each
+    other — so the retained vertex set is ``tol_m``-separated by
+    construction, whatever the input looked like.  One registry for all
+    rings and all parts, so a boundary two parts share is coarsened the
+    same way on both sides.
+
+    THIS IS THE FIX FOR GEOMETRY THAT IS USED AS A CUTTER (cycle-5 node
+    identity, ``docs/specs/cycle5-node-identity-spec.md``): a cutter
+    whose own boundary carries vertex pairs closer than the weld
+    tolerance hands every one of them to BOTH sides of the cut, and the
+    canonical registry then interns each pair onto ONE node with two
+    ring coordinates.  A ``buffer()`` is exactly such a cutter — its arc
+    vertices are spaced at roughly the weld tolerance.
+
+    NOTE the direction of movement is unconstrained: a vertex may move
+    up to ``tol_m`` either way, so a caller that needs the result to
+    CONTAIN the input must grow it first and then verify (see
+    ``apron_terrace.lattice_coarse_cover``).
+    """
+    if geom is None or geom.is_empty:
+        return geom
+    reg = CanonicalPointRegistry(tol_m=tol_m)
+
+    def _ring(coords):
+        out: list = []
+        for (x, y) in coords:
+            p = reg.get_or_add(float(x), float(y))
+            if out and out[-1] == p:
+                continue
+            out.append(p)
+        while len(out) > 1 and out[0] == out[-1]:
+            out.pop()
+        return out
+
+    parts = ([geom] if geom.geom_type == "Polygon"
+             else [g for g in getattr(geom, "geoms", ())
+                   if g.geom_type == "Polygon" and not g.is_empty])
+    if not parts:
+        return None
+    rebuilt = []
+    try:
+        for p in parts:
+            ext = _ring(p.exterior.coords)
+            if len(ext) < 3:
+                continue
+            holes = []
+            for r in p.interiors:
+                ri = _ring(r.coords)
+                if len(ri) >= 3:
+                    holes.append(ri)
+            q = Polygon(ext, holes)
+            if not q.is_valid:
+                q = q.buffer(0)
+            if q.is_empty:
+                continue
+            rebuilt.append(q)
+        if not rebuilt:
+            return None
+        out = rebuilt[0] if len(rebuilt) == 1 else unary_union(rebuilt)
+        return None if out.is_empty else out
+    except _GEOM_EXC:
+        return None
+
+
+def snap_polygon_to_lattice(poly, lattice, tol_m: float = 0.5, avoid=None):
+    """Make ``poly`` LATTICE-CLEAN: every vertex is either a SETTLED
+    vertex or a fresh point no closer than ``tol_m`` to any other vertex
+    of the result.  Returns ``(cleaned_polygon_or_None, n_moved)``.
+
+    Used on CUT GEOMETRY before the boolean difference that applies it
+    (see :func:`settled_vertex_lattice` for why).  Two jobs, and BOTH are
+    required — measured at CYXY, the first alone leaves 884 of the 884:
+
+    1. SNAP TO THE SETTLED SET.  A cut vertex within ``tol_m`` of a
+       settled vertex IS that node; moved onto it, the cut inherits the
+       existing geometry's vertex instead of minting a second coordinate
+       for the same node.
+    2. COLLAPSE THE CUT'S OWN NEAR-TWINS.  A fan zone is a union of
+       overlapping buffered hulls and a terrace band a station row, so
+       the cut arrives carrying vertex pairs of its OWN that are closer
+       together than the weld tolerance.  The difference hands every one
+       of them to BOTH the ramp piece and the remainder panel, and the
+       canonical registry then interns each pair onto ONE node: the
+       solver prices the pair from the node (strictest cap wins — the
+       1 % panel) while the coordinate-keyed validator reads each ring's
+       own coordinates (5 % on the ramp's key).  That is the whole
+       193-edge lockstep failure.  Measured at CYXY: aprons carry ZERO
+       such pairs before the cut and 884 after it, so they are minted
+       here, not inherited.
+
+    Interning through a fresh registry is exactly the identity the
+    canonical registry would impose anyway — the cut is being born, has
+    no altitudes and no node identity yet, so collapsing costs nothing
+    and no sub-tolerance distinction was ever load-bearing.
+
+    ``avoid`` — a KEEP-OUT geometry (the aircraft-movement corridor
+    cover).  Node identity never outranks a structural law: the owner's
+    fan-ramp ruling forbids a ramp piece touching a movement surface
+    outright.  THE RULE IS TO FREEZE, NOT TO REPAIR: every vertex
+    already lying ON the keep-out boundary keeps its exact coordinate
+    and owns its bucket, so the linework the cut shares with the
+    corridor is reproduced identically and cannot move.  The two
+    repair-shaped alternatives were both measured and both fail — a
+    corridor cover is a BUFFER, its boundary arc vertices are spaced at
+    about the weld tolerance, and a collapse there chords across the
+    arc INTO the corridor:
+
+    * decline the component when the result overlaps — the pieces are
+      cut flush against the corridor, so any sub-millimetre move trips
+      it: 6 of 6 components declined, CYXY back to 198 mismatches;
+    * re-clip the result with ``.difference(cover)`` — the clip re-nodes
+      the whole corridor boundary and hands every arc vertex back:
+      830 of the 884 near-duplicate pairs returned, CYXY 203.
+
+    ``None`` when the result degenerates, is not a single simple
+    polygon, or still enters ``avoid``; the caller then keeps its
+    unsnapped input rather than losing the cut.
+    """
+    if lattice is None or poly is None or poly.is_empty:
+        return poly, 0
+    if poly.geom_type != "Polygon":
+        return None, 0
+    moved = 0
+    strict = None
+    edge = None
+    if avoid is not None:
+        try:
+            if avoid.is_empty:
+                avoid = None
+            else:
+                # An epsilon shrink so ABUTTING the corridor — which
+                # every zone does — is not read as entering it; the same
+                # predicate the fan-ramp law's twin uses.
+                strict = avoid.buffer(-1e-9)
+                edge = avoid.boundary
+                if poly.intersects(strict):
+                    # Already overlapping: this pass cannot tell "the
+                    # snap did it" from "it was already so".
+                    avoid = strict = edge = None
+        except _GEOM_EXC:                                  # pragma: no cover
+            avoid = strict = edge = None
+
+    def _frozen(px, py) -> bool:
+        """On the keep-out boundary ⇒ immovable."""
+        if edge is None:
+            return False
+        try:
+            return edge.distance(Point(px, py)) <= _KEEPOUT_EDGE_EPS_M
+        except _GEOM_EXC:                                  # pragma: no cover
+            return False
+
+    own = CanonicalPointRegistry(tol_m=tol_m)
+    try:
+        all_rings = [list(poly.exterior.coords)] + [
+            list(r.coords) for r in poly.interiors]
+    except _GEOM_EXC:                                      # pragma: no cover
+        return None, 0
+    # PASS 0 — the FROZEN vertices (on the keep-out boundary) claim
+    # their buckets before anything else: they cannot move, so nothing
+    # may take a bucket out from under them.
+    frozen = set()
+    if edge is not None:
+        for coords in all_rings:
+            for (x, y) in coords:
+                fx, fy = float(x), float(y)
+                if _frozen(fx, fy):
+                    frozen.add((fx, fy))
+        for pt in frozen:
+            own.get_or_add(*pt)
+
+    # PASS 1 — then the SETTLED points this cut touches, so a fresh cut
+    # vertex can never own a bucket a settled vertex belongs in (order
+    # would otherwise decide, and the cut would be born beside the
+    # lattice instead of on it).
+    for coords in all_rings:
+        for (x, y) in coords:
+            cp = lattice.find_nearest(float(x), float(y), tol_m)
+            if cp is not None:
+                own.get_or_add(*cp)
+
+    # PASS 2 — every vertex resolves to its bucket's owner.
+    def _snap_ring(coords):
+        nonlocal moved
+        out: list = []
+        for (x, y) in coords:
+            fx, fy = float(x), float(y)
+            if (fx, fy) in frozen:
+                if not out or out[-1] != (fx, fy):
+                    out.append((fx, fy))
+                continue
+            cp = lattice.find_nearest(fx, fy, tol_m)
+            nx, ny = own.get_or_add(*(cp if cp is not None else (fx, fy)))
+            if (nx, ny) != (fx, fy):
+                moved += 1
+            fx, fy = nx, ny
+            if out and out[-1] == (fx, fy):
+                continue          # collapsed onto its predecessor
+            out.append((fx, fy))
+        while len(out) > 1 and out[0] == out[-1]:
+            out.pop()
+        return out
+
+    try:
+        ext = _snap_ring(poly.exterior.coords)
+        if len(ext) < 3:
+            return None, moved
+        interiors = []
+        for ring in poly.interiors:
+            ri = _snap_ring(ring.coords)
+            if len(ri) >= 3:
+                interiors.append(ri)
+        snapped = Polygon(ext, interiors)
+        if not snapped.is_valid:
+            snapped = snapped.buffer(0)
+        if snapped.is_empty:
+            return None, moved
+        if snapped.geom_type == "MultiPolygon":
+            # The ring came back within ``tol_m`` of itself and the
+            # collapse pinched it in two.  DECLINE rather than keep the
+            # largest part: silently dropping the smaller one loses
+            # pavement, and the caller's fallback (the unsnapped cut) is
+            # strictly better than a shrunken one.
+            return None, moved
+        if snapped.geom_type != "Polygon" or snapped.is_empty:
+            return None, moved
+        if strict is not None and snapped.intersects(strict):
+            # The frozen boundary should make this unreachable; if some
+            # other edge still swept in, the unsnapped cut is lawful and
+            # this one is not.
+            return None, moved
+        return snapped, moved
+    except _GEOM_EXC:
+        return None, moved
 
 
 def weld_layout_vertices(layout, roles, tol_m: float = 0.5) -> int:

@@ -463,7 +463,18 @@ def _dedup_coincident_ring_vertices(layout, icao: str, tol_m: float = 0.05,
     is geometry-neutral (the kept vertex sits at the same spot, same
     altitude) so it cannot create a T-junction or move a seam — safe to run
     just before the final conformance check / emit.  Returns the count of
-    shapes cleaned."""
+    shapes cleaned.
+
+    ``tol_m`` STAYS AT 5 cm and is NOT the canonical weld radius
+    (0.5 m) — deliberately, per the cycle-5 node-identity spec
+    (``docs/specs/cycle5-node-identity-spec.md``).  This pass DELETES a
+    vertex, and at the weld radius it would delete legitimate short
+    edges.  The node-identity law is enforced where the twin would be
+    MINTED instead — ``conformance._NODE_IDENTITY_TOL_M`` (a
+    planarize insert reuses an existing ring vertex within the weld
+    radius) and ``canonical_points.snap_polygon_to_lattice`` (a
+    pre-solve cut is born on the settled lattice).  Cleaning up after a
+    twin was minted is not the same act as never minting one."""
     import math as _math
     from shapely.geometry import Polygon as _Poly
     from .clearance import _AIRSIDE_PAVEMENT_ROLES as _AIRSIDE_ROLES

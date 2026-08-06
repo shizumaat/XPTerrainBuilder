@@ -659,7 +659,15 @@ def enforce_conformance(layout: "PavementLayout",
             continue
         n = len(ring)
         ownset = set(ring)
-        near_own, own_add = _radius_index(ring, tol)
+        # NODE IDENTITY, not the insert tolerance (see
+        # ``_NODE_IDENTITY_TOL_M``): an insert within the canonical WELD
+        # radius of a vertex this ring already carries is that vertex —
+        # reuse it, never mint a twin.  With the full conformance
+        # tolerance the two radii coincide, so only the TIGHT
+        # (planarize) pass changes behaviour, which is where the
+        # post-solve near-duplicates were minted.
+        near_own, own_add = _radius_index(
+            ring, max(float(tol), _NODE_IDENTITY_TOL_M))
         alts = _vertex_alts(s, n)
         # A shape emitted with a SINGLE ``altitude`` (no high/low, no
         # node_altitudes) is flat: every corner sits at that level, so a
@@ -803,6 +811,27 @@ def _param_on_edge(ax, ay, bx, by, px, py) -> float:
 # narrow enough that no distinct crossing ever falls inside it.
 _CROSSING_DEDUPE_TOL_M = 1e-6
 
+# ── NODE IDENTITY (cycle-5, docs/specs/cycle5-node-identity-spec.md) ──
+# A canonical solve node has exactly ONE plan coordinate.  The canonical
+# registry interns every coordinate within ``SHARED_VERTEX_TOL_M`` onto a
+# single node, so a point landing inside that radius of an EXISTING ring
+# vertex already IS that node: inserting it mints a twin — one node with
+# two ring coordinates — and the solver (which binds the strictest law at
+# the shared node) and the coordinate-keyed validator (which reads the
+# law at each ring coordinate) then disagree on the same pair.  Measured
+# at CYXY: ``planarize_airside`` added +670 near-duplicate pairs at stage
+# 09 and 94 of the 193 solver↔validator budget mismatches.
+#
+# This is the IDENTITY radius, deliberately separate from the INSERT
+# tolerance (how far off an edge a vertex may sit and still count as
+# lying on it, ``_PLANARIZE_INSERT_TOL_M`` = 5 cm): a T-junction may only
+# be inserted when it is BOTH collinear enough to be shape-preserving AND
+# not already a node.  ``pipeline._dedup_coincident_ring_vertices`` keeps
+# its own, much tighter 5 cm — per this spec it deletes COINCIDENT
+# vertices, and widening it to the weld radius would delete legitimate
+# short edges instead.
+_NODE_IDENTITY_TOL_M = SHARED_VERTEX_TOL_M
+
 
 def _resolve_edge_crossings(layout: "PavementLayout") -> int:
     """Insert each edge–edge intersection point as a shared vertex in BOTH
@@ -901,6 +930,18 @@ def _resolve_edge_crossings(layout: "PavementLayout") -> int:
                 # on OPPOSITE edges microns apart and are both real, and
                 # a ring-wide radius would drop one and leave that
                 # crossing unresolvable.
+                # NODE IDENTITY DOES NOT REACH HERE, deliberately
+                # (cycle-5, measured): a T-junction insert within the
+                # weld radius of an existing vertex is a REDUNDANT node
+                # and skipping it costs nothing, but a CROSSING is a
+                # place where two shapes' edges genuinely cross — skip
+                # it and the crossing stays unresolved, which is an
+                # OVERLAP (``test_no_self_overlap``, zero tolerance),
+                # not a duplicate node.  Widening this radius to 0.5 m
+                # dropped exactly such a crossing 0.2 m from a receiver
+                # corner (``test_conformance.py::
+                # test_crossing_insert_skipped_on_top_of_its_own_corner``).
+                # The radius therefore stays float-noise-sized.
                 near_ins, ins_add = _radius_index(
                     [(ax, ay), (bx, by)], _CROSSING_DEDUPE_TOL_M)
                 for t, X in sorted(by_edge[i]):
@@ -992,7 +1033,12 @@ def _resolve_yielding_tjunctions(layout: "PavementLayout", tol: float) -> int:
         tb = _tier(shape.role)
         n = len(ring)
         ownset = set(ring)
-        near_own, own_add = _radius_index(ring, tol)
+        # NODE IDENTITY (``_NODE_IDENTITY_TOL_M``) — a no-op at the one
+        # call site (planarize passes the full conformance tolerance,
+        # which IS the weld radius), stated so the law is uniform across
+        # all three insert paths.
+        near_own, own_add = _radius_index(
+            ring, max(float(tol), _NODE_IDENTITY_TOL_M))
         alts = _vertex_alts(shape, n)
         flat_single_alt = (shape.node_altitudes is None
                            and shape.altitude_high is None
@@ -1064,7 +1110,16 @@ def planarize_airside(layout: "PavementLayout", icao: str = "",
         both edges (the point lies exactly on both, so zero bend).
     Both interpolate inserted-vertex altitudes from the edge, so running this
     AFTER the solve introduces no cliffs.  Returns the residual
-    ``(t_junctions, crossings)`` at the CHECK tolerance."""
+    ``(t_junctions, crossings)`` at the CHECK tolerance.
+
+    NODE IDENTITY (cycle-5, ``_NODE_IDENTITY_TOL_M``): an insert landing
+    within the canonical weld radius of a vertex the receiving ring
+    already carries REUSES that vertex — the point is already that solve
+    node, and minting a twin is what made the solver and the
+    coordinate-keyed validator read different laws on one pair.  Such a
+    reuse therefore stays in the residual counts this returns: the
+    residual is a REPORT at the check tolerance, and a T-junction /
+    crossing that is already a node needs no vertex."""
     tj_total = cr_total = 0
     for _ in range(max_iters):
         _, nv = enforce_conformance(layout, tol=_PLANARIZE_INSERT_TOL_M)

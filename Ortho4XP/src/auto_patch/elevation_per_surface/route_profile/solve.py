@@ -2785,10 +2785,30 @@ def solve_route_profile(layout, icao: str,
         _gs_witness = (frozenset(_gs_hard),
                        gs_witness_horizon(SERVICE_ROAD_MAX_GRADE))
     if _gs_hard:
-        # The truck route (apron arm + connector + groundside mouth) is now
-        # pinned on its rising <=cap profile; re-project so the apron BODY
-        # grades into the raised arm and nothing else exceeds its cap.
-        _ghard = hard | {i for i in runway_nodes if i < n} | _gs_hard
+        # The truck route (apron arm + connector + groundside mouth) now
+        # carries its re-levelled value as a SEED; re-project so the apron
+        # BODY grades into the arm and nothing else exceeds its cap.
+        #
+        # THE PINS ARE NOT HARD HERE (cycle-5 spec fix 3).  ``_gs_hard``
+        # used to join this projection's immovable set, which made the
+        # groundside weld value an ANCHOR.  On a constant-DEM world that
+        # value IS the raw DEM (the reach law re-levels a piece to its
+        # closest-to-DEM reachable level), so the anchor was DEM acting as
+        # a constraint — forbidden outright by RULINGS 2026-08-05 ("DEM is
+        # a SEED, never a constraint, never an authority") — and it was
+        # groundside pulling airside, forbidden by "airside is king".
+        #
+        # Measured at HECA plateau: all 70 out-of-band hard nodes were
+        # ``gs_pin``; 25 sat exactly on the constant DEM; 21 of those were
+        # below their own band floor, worst deficit 89.369 m.  The single
+        # worst over-cap row in the whole solve (93.125 m) was one of them
+        # dragging an in-band building seat.
+        #
+        # What still holds the weld together: every mouth-weld LAW EDGE is
+        # in the joint and enforced by the sweeps, and the pin's own law
+        # ceiling bounds it from above (below).  Losing the anchor loses
+        # no law — it loses an assertion.
+        _ghard = hard | {i for i in runway_nodes if i < n}
         feasibility_project(elev, shape_constraints, _ghard,
                             interval_yield_from=_iyf,
                             witness_limited=_gs_witness,
@@ -3027,10 +3047,24 @@ def solve_route_profile(layout, icao: str,
     # spines stay smooth wherever they were already feasible.
     # (2026-07-29) the legacy rect-model gate was retired — the
     # global slice is the only path, so this always runs.
+    # THE KEPT-HARD SOURCES, each with its law (cycle-5 fix 3 enumerated
+    # them and demoted exactly one):
+    #   truth_hard      — ``seed_rwy_seam`` (CIFP runway profile values,
+    #                     absolute for v1 per RULINGS 2026-08-05, and the
+    #                     TILE-SEAM DEM pins, which are cross-tile
+    #                     continuity law), ``rwy_join`` / ``rwy_flexed``
+    #                     (runway anchors), ``seat_on_spine`` (building
+    #                     seat law), ``seam_spine_anchor``;
+    #   runway_nodes    — the runway ring/vertex set (CIFP truth);
+    #   building_seats  — every seated pad / no-building-apron level
+    #                     (the building law: flat seats).
+    # DEMOTED: ``_gs_hard`` (``gs_pin``).  A groundside weld is not truth
+    # — it is a value groundside ASSERTS onto the route, at raw DEM on a
+    # constant-DEM world.  It is now a SEED bounded by its own law
+    # ceiling; see the groundside-reach block above and the box below.
     yield_hard = (truth_hard
                   | {i for i in runway_nodes if i < n}
-                  | {i for i in building_seats if i < n}
-                  | {i for i in _gs_hard if i < n})
+                  | {i for i in building_seats if i < n})
     # ── RULING 54: THE KEPT PIN SET JOINS ``yield_hard`` ───────
     # ★ A BLEND IS NOT GRADE LAW.  Under the owner's invariant a
     # string may be overruled only by LAW; the measured 4.87 m at
@@ -3375,6 +3409,40 @@ def solve_route_profile(layout, icao: str,
         for _i in building_seats
         if _i < n and _i not in yield_hard and _i not in _pn
         and _i in _seat_box_idx}
+    # ── THE FREED GROUNDSIDE PINS ARE BOUNDED BY THEIR OWN LAW ────────
+    # (cycle-5 fix 3, the other half of the demotion.)  A pin is no longer
+    # an anchor, so it must not be unbounded either: it carries the LAW
+    # ceiling the reach already computed — the weld datum plus one throat
+    # of reach, with NO DEM term (``anchors.apply_groundside_reach`` builds
+    # it, and the mouth verify-and-relax below has always used exactly this
+    # bound for the pins it frees).  Fix 3 simply frees ALL of them
+    # instead of only the ones that already contradicted, so the same
+    # bound applies to the same class.
+    #
+    # Upper side only, matching the existing relax door's contract: a
+    # mouth may always settle DOWN toward its seed.  The FLOOR comes from
+    # the reach band, which binds per sweep as of fix 2.  A pin with no
+    # weld datum has no entry and stays unbounded above — a missing datum
+    # never becomes a terrain bound.
+    if _gs_hard:
+        _pin_ceil_fp8 = getattr(layout, "_gs_pin_law_ceiling_idx", None) or {}
+        if _pin_ceil_fp8:
+            _yield_node_bounds = dict(_yield_node_bounds or {})
+            _n_pin_bound = 0
+            for _gi in _gs_hard:
+                _c = _pin_ceil_fp8.get(_gi)
+                if _c is None or _gi >= n:
+                    continue
+                _pb = _yield_node_bounds.get(_gi)
+                _yield_node_bounds[_gi] = (
+                    (-1e18, float(_c)) if _pb is None
+                    else (_pb[0], min(_pb[1], float(_c))))
+                _n_pin_bound += 1
+            if _os.environ.get("O4_STEP_DEBUG") == "1":
+                print(f"    [groundside-reach] {_n_pin_bound} freed "
+                      f"groundside pin(s) bounded by their LAW ceiling "
+                      f"(weld datum + one throat of reach, no DEM term)")
+
     # ── ADJACENT-GROUND: ONE AUTHORITY, AND IT IS THE RELATIVE EDGE ───
     # (cycle-5 spec fix 1.)  This used to ALSO bind the zone law as an
     # absolute per-node box on the bounded-yield channel, snapshotting the

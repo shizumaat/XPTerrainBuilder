@@ -16,9 +16,34 @@ import O4_File_Names as FNAMES
 
 @pytest.fixture(autouse=True)
 def restore_file_names_module():
-    """Every test may mutate module-level path state; reload to restore."""
+    """Every test may mutate module-level path state; reload to restore.
+
+    THE RELOAD UNDOES THE SESSION'S DSF-DUMP-CACHE REDIRECT (cycle-8
+    chore).  ``importlib.reload`` re-runs ``_apply_data_root()``, which
+    recomputes ``Default_dsf_cache_dir`` as ``<cwd>/Default_DSF_cache`` —
+    the SHARED data repo in a lane worktree.  That is how the suite kept
+    authoring junk directories in everyone's corpus while a session
+    fixture said it could not.  Whoever reloads the module owns putting
+    the redirect back."""
     yield
     importlib.reload(FNAMES)
+    import conftest
+    conftest.reapply_dsf_dump_cache_redirect()
+
+
+def test_reloading_the_module_does_not_re_point_the_dsf_dump_cache():
+    """KNOWN-ANSWER TWIN for the cycle-8 chore: after a reload — the exact
+    operation this file performs after every test — the DSFTool dump cache
+    must still be the session's lane-local directory and never the shared
+    data repo."""
+    import conftest
+    importlib.reload(FNAMES)
+    conftest.reapply_dsf_dump_cache_redirect()
+    lane = conftest._LANE_DSF_CACHE_DIR
+    if lane is None:                                    # pragma: no cover
+        pytest.skip("the session redirect is not installed in this run")
+    assert FNAMES.Default_dsf_cache_dir == lane
+    assert "XPTerrainBuilderData" not in FNAMES.Default_dsf_cache_dir
 
 
 def test_source_run_uses_checkout_directory():

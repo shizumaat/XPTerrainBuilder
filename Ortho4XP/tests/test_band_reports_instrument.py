@@ -663,9 +663,18 @@ def test_the_reseat_pass_counts_each_SKIP_at_its_own_branch(monkeypatch):
 
     Four candidates: one already law-seated, one with no usable polygon,
     one with a 2-vertex ring, and one genuine law island (no higher
-    authority anywhere).  Nothing is re-seated, and the four skips land in
-    four DIFFERENT named buckets instead of one count labelled "had no law
-    source" — the ruling's catch-all pattern."""
+    authority anywhere).  Nothing is re-seated, and the skips land in
+    DIFFERENT named buckets instead of one count labelled "had no law
+    source" — the ruling's catch-all pattern.
+
+    CYCLE 8 CHANGED ONE ANSWER HERE, deliberately: the
+    ``already_law_seated`` SKIP IS RETIRED.  The flag says a ring's field
+    came from the law at least once; it never said every VERTEX did, and
+    skipping on it shipped HEAZ way -10280 with welds at ~59.8 m beside
+    vertices still on the −500 m seed (559.84 m inside one shape).  Both
+    law-seated rings now go through the ladder, so with no higher
+    authority anywhere in this fixture BOTH land in
+    ``no_law_source_at_ladder``."""
     from auto_patch.groundside import (seat_groundside_on_law,
                                        ROLE_GROUNDSIDE_PAVEMENT as _GS)
     from shapely.geometry import Polygon
@@ -691,12 +700,14 @@ def test_the_reseat_pass_counts_each_SKIP_at_its_own_branch(monkeypatch):
     st = layout._gs_law_seat["post_solve_groundside_law_seat"]
     assert st["candidates"] == 4
     assert st["reseated"] == 0
-    assert st["skipped"]["already_law_seated"] == 1
+    assert "already_law_seated" not in st["skipped"], (
+        "the skip is retired — a law-seated ring is re-checked, because "
+        "the flag never covered the ring's individual vertices")
     assert st["skipped"]["no_usable_polygon"] == 1
     assert st["skipped"]["ring_under_3_vertices"] == 1
-    assert st["skipped"]["no_law_source_at_ladder"] == 1
-    # the ladder-level counter still counts the ONE ring that reached it
-    assert st["islands"] == 1 and st["island_vertices"] == 3
+    assert st["skipped"]["no_law_source_at_ladder"] == 2
+    # the ladder-level counter counts BOTH rings that reached it
+    assert st["islands"] == 2 and st["island_vertices"] == 6
 
 
 def test_a_ring_the_law_reaches_is_reseated_and_counted(monkeypatch):
@@ -779,9 +790,16 @@ def test_the_skip_buckets_reach_the_printed_line(monkeypatch):
     tot = report_groundside_law_seat(layout, "ZZZZ")
     blob = "\n".join(said)
     assert "post-solve seat pass: 0 of 2 groundside ring(s) re-seated" in blob
-    assert "no_law_source_at_ladder=1" in blob
-    assert "already_law_seated=1" in blob
-    assert tot["skipped"]["already_law_seated"] == 1
+    # BOTH rings reach the ladder now (the already_law_seated skip is
+    # retired, cycle 8) and both are islands in this authority-free
+    # fixture; the DISCONNECTED MARK the sidecar carries is reported on
+    # its own line, from the marks themselves rather than from this
+    # counter.
+    assert "no_law_source_at_ladder=2" in blob
+    assert "already_law_seated" not in blob
+    assert tot["skipped"].get("already_law_seated") is None
+    assert tot["disconnected_marked"] == 2
+    assert "2 groundside ring(s) MARKED disconnected" in blob
 
 
 def test_the_reseat_line_in_the_pipeline_reports_the_pass_return_value():

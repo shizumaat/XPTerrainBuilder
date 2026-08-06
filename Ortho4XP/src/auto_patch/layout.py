@@ -2747,6 +2747,8 @@ class PavementLayout:
             terrace_certificates_sidecar as _terrace_certs_sidecar,
             terrace_joints_sidecar as _terrace_joints_sidecar)
         from .grade_law import ruleset_of as _grade_law_ruleset_of
+        from .groundside import (
+            disconnected_rings_sidecar as _disconnected_rings_sidecar)
         _axes_exact, _routes_exact = taxi_axes_exact_ll(self)
         data = {
             # legacy per-size-split axes (older tools); entries may carry
@@ -2870,6 +2872,17 @@ class PavementLayout:
             # where the ramp is.  Written unconditionally, so a
             # reader can tell "no zones" from "predates the law".
             "fan_ramp_zones": _fan_ramp_zones_sidecar(self),
+            # THE DISCONNECTED GROUNDSIDE RINGS (owner RULINGS
+            # 2026-08-06, "ONE graph": *"Anything truly disconnected, we
+            # don't really have to do anything at all — it just gets left
+            # at DEM and doesn't need to be solved."*).  The SOLVE's own
+            # reachability answer, exported so the census adjudicates
+            # those rings OUT OF SCOPE with the same predicate instead of
+            # minting a second opinion about coupling — the coupling law
+            # and its census land together (the frontage-gap lesson).
+            # Written unconditionally: a reader can tell "none" from
+            # "predates the law".
+            "disconnected_rings": _disconnected_rings_sidecar(self),
             # REGION RULESET (phase B, docs/RULINGS.md
             # "Region-specific rulesets").  The key the build
             # actually ran under — the validator judges in THIS

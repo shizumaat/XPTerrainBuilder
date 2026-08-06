@@ -646,6 +646,16 @@ def print_report(rep: dict, top: int) -> None:
               f"{adj['deferred_total']}:")
         for key, d in adj["deferred_families"].items():
             print(f"      {key:<24}{d['n']:>7}  {d['why']}")
+        # OUT OF SCOPE — rows on geometry no law governs (the ONE-graph
+        # ruling's unsolved rings).  Printed even at zero, so an absent
+        # heading means the census predates the class and never a
+        # silently dropped population.
+        oos = adj.get("out_of_scope_classes") or {}
+        print(f"    OUT OF SCOPE (reported, NOT adjudicated) "
+              f"{adj.get('out_of_scope_total', 0)}"
+              + (":" if oos else "  [no class fired]"))
+        for key, d in oos.items():
+            print(f"      {key:<24}{d['n']:>7}  {d['why']}")
     if "bare" in rep:
         b = rep["bare"]
         # BOTH totals and their DIFFERENCE.  The line used to assert
@@ -826,6 +836,11 @@ def print_compare(reports: list) -> None:
         print(f"  {'(version-deferred)':<24}"
               + "".join(f"{c:>18}" for c in deft)
               + f"{deft[-1] - deft[0]:>+15d}")
+        oost = [r["adjudication"].get("out_of_scope_total", 0)
+                for r in reports]
+        print(f"  {'(out of scope)':<24}"
+              + "".join(f"{c:>18}" for c in oost)
+              + f"{oost[-1] - oost[0]:>+15d}")
 
 
 def main(argv=None) -> int:

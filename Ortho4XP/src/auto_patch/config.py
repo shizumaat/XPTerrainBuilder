@@ -176,6 +176,7 @@ __all__ = [
     "TUNNEL_MOUTH_WINDOW_M",
     "TUNNEL_ROOF_PLATE_MAX_LENGTH_M",
     "GROUNDSIDE_MAX_GRADE",
+    "GROUNDSIDE_BAND_OFFNET_RADIUS_M",
     "FAN_RAMP_CAP",
     "FAN_RAMP_LAW",
     "fan_ramp_law_cap",
@@ -1292,6 +1293,23 @@ TUNNEL_LOW_CONNECTOR_MAX_OPEN_GAP_M = 100.0
 # ICAO Annex 14 / Doc 9157, EASA CS-ADR-DSN and ACRP 25 verified SILENT), so
 # the value is region-invariant — there is no FAA/ICAO split to apply.
 GROUNDSIDE_MAX_GRADE = 0.050
+# ── THE GROUNDSIDE BAND's off-route radius (RULINGS 2026-08-06, "ONE
+# graph: groundside joins the route graph") ─────────────────────────────
+# ``building_feasibility.groundside_reach_band`` answers a groundside
+# point from the nearest node the route graph gave a band to, with the
+# local off-route leg priced at ``GROUNDSIDE_MAX_GRADE``.  BEYOND THIS
+# RADIUS THERE IS NO COUPLING: the ring is the ruling's "truly
+# disconnected" geometry — not solved, left at its DEM seed, minting
+# nothing — and the SAME answer is what the emitted sidecar carries for
+# the census to adjudicate with (lockstep).
+#
+# It is the groundside sibling of ``RASTER_REACH_BAND_OFFNET_RADIUS_M``
+# (30 m, the AIRSIDE band's off-mask radius), and it is larger because
+# the surfaces are: an airside query is a metre or two off a paved cell,
+# while a lot vertex is legitimately a lot's half-width from the nearest
+# graph node.  150 m at the 5 % lot cap is a +-7.5 m interval, which is
+# the same order as the lot laws it feeds.
+GROUNDSIDE_BAND_OFFNET_RADIUS_M = 150.0
 # ── THE FAN-RAMP LAW's cap and law name (owner RULINGS 21f0980) ──────
 # "between frontages at the back edge, the fan-ramp zone carries up to
 # 5 % continuous grade fanning between building seat levels".  The VALUE

@@ -61,6 +61,75 @@ def _entry_family_tag(entry) -> str:
         tag = f"{entry.get('role') or '?'}:{entry.get('ref') or '-'}"
     return tag
 
+
+# ── SLAB PRICING — THE ONE SITE (RULINGS 2026-08-06 "Slab budgets floor
+# at the law"; docs/specs/cycle75-slab-floor-spec.md) ────────────────────
+# A rod slab is a SIGNED difference constraint ``z_i − z_j ∈ [lo, hi]``
+# minted from a snapshot Δ with tolerance ε.  Its pair usually ALSO
+# carries the symmetric grade-law edge ``|z_i − z_j| ≤ budget``.  Two
+# owner rulings bound the slab against that budget, one on each side:
+#
+#   FLOOR (2026-08-06, owner verbatim: "smoothing beyond law as a
+#   constraint makes no sense, that's the point of the law.  Smoothest,
+#   minimum grade is the target, but where needed, the budget is
+#   certainly the law").  A slab may NEVER price tighter than the law on
+#   its own pair — it narrows freedom down TO the law and no further.
+#   The measurement that produced the ruling (c7cert fix 4, HECA dem1):
+#   7,218 of 7,920 rod slabs bound tighter than their own pair's cap —
+#   median 5.26x, p90 26.45x, max 2,305x, slab width p50 0.0233 m — and
+#   that 2.6 % of the edge set owned 6,300 over-cap edges, 31.5 % of the
+#   converged fp#8 residual.  Smoothness remains the solve's OBJECTIVE
+#   (the strung profile is still the seed every projection starts from);
+#   it stops being a hard constraint beyond law.
+#
+#   CLAMP (spec §10.1, 2026-07-29, CYXY service spine 6.2 %).  A slab may
+#   never price LOOSER than the law either: a Δ snapshotted beyond the
+#   pair's cap — the service corridor's post-``apply_service_road_dem_
+#   follow`` re-shape — pinned an over-cap step through every later
+#   projection (the worklist satisfies the slab and permanently violates
+#   the law edge; 24,000 sweeps change nothing).
+#
+# Composed, on a pair that carries law, the slab is priced AT the law:
+# ``[−budget, +budget]``.  That is written as the resulting interval
+# rather than as a ``max``/``min`` sandwich around a raw window both
+# bounds then discard — the algebra collapses, and spelling it out is
+# how the two rulings stay legible at the one site that applies them.
+# The RIDE-THE-CAP branch the clamp used to need (an empty intersection
+# when |Δ| − ε exceeded the budget) is gone by construction: the floor
+# guarantees the interval is the full law interval, never empty.
+#
+# A pair with NO symmetric law edge has no budget to floor at (33 of
+# HECA's 7,920): it keeps the raw rod window.  There is nothing to
+# contradict there, and widening to "unbounded" would DELETE the
+# constraint rather than floor it — the ruling reprices slabs, it does
+# not retire the channel.
+#
+# SCOPE is the rod channel, per the ruling's own words ("interval/slab
+# (rod-channel) budgets"): the adjacent-ground zone slabs are the zone
+# LAW itself, not a smoothing refinement riding on top of one, and
+# flooring a law at its own budget is a no-op by definition.
+def price_slab_against_law(delta: float, eps: float, law_budget):
+    """Price one rod slab against its pair's grade-law budget.
+
+    :param delta: the snapshot Δ = ``z_i − z_j`` the rod holds.
+    :param eps: the rod tolerance (``config.SPINE_ROD_EPSILON_M``).
+    :param law_budget: the pair's symmetric grade-law budget in metres,
+        or ``None`` when the pair carries no symmetric law edge.
+    :returns: ``(lo, hi, floored, clamped)`` — the priced slab plus the
+        two report flags: ``floored`` when the raw window was TIGHTER
+        than the law on either side (the ruling widened it), ``clamped``
+        when it reached BEYOND the law on either side (§10.1 narrowed
+        it).  Both can be true for one slab.
+    """
+    lo = delta - eps
+    hi = delta + eps
+    if law_budget is None:
+        return lo, hi, False, False
+    floored = (lo > -law_budget) or (hi < law_budget)
+    clamped = (lo < -law_budget) or (hi > law_budget)
+    return -law_budget, law_budget, floored, clamped
+
+
 # ── THE ENVELOPE GATES — ONE default per flag, DEFINED ONCE ──────────────
 # (spec ``docs/specs/route-metric-envelope-spec.md`` §1: "Resolve the
 # env-flag default drift while there: one default, defined once,

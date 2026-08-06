@@ -31,6 +31,7 @@ from .anchors import (
     build_nobuilding_apron_seats,
     build_apron_contact_floors, building_spine_floor, node_bands, reach_band_for)
 from .one_solve import (envelope_from_band_enabled, one_profile_solve,
+                        price_slab_against_law,
                         route_metric_envelope_enabled,
                         _CATCH_ALL_FAMILY_TAGS as _CATCH_ALL_FAMILIES)
 
@@ -3084,21 +3085,13 @@ def solve_route_profile(layout, icao: str,
     _rod_key_of: dict = {}
     if _rod_pieces:
         from auto_patch.config import SPINE_ROD_EPSILON_M as _ROD_EPS
-        # LAW CLAMP (2026-07-29, CYXY service spine 6.2 %): spec §10.1
-        # premises every rod slab on being at most cap-grade ("a
-        # cap-grade interval is consistent with the symmetric cap
-        # edge").  A SERVICE corridor's Δ is snapshotted AFTER the
-        # authoritative ``apply_service_road_dem_follow`` re-shape,
-        # which is cap-Lipschitz along the ROUTE metric but not in
-        # the ring-pair metric — one CYXY leg snapshotted at 6.03 %
-        # against the pair's 5 % symmetric budget, and the slab then
-        # pinned the over-cap step through every later projection
-        # (the worklist satisfies the slab, permanently violating
-        # the law edge; 24 000 sweeps change nothing).  Clamp each
-        # slab into the pair's own symmetric law budget; a snapshot
-        # step beyond the law rides the ceiling at cap, exactly the
-        # spec's infeasible-tube rule.  Pairs without a symmetric
-        # law edge keep the raw slab (nothing to contradict).
+        # SLAB PRICING AGAINST THE LAW — the FLOOR (RULINGS 2026-08-06
+        # "Slab budgets floor at the law") and the §10.1 CLAMP
+        # (2026-07-29, CYXY service spine 6.2 %) are BOTH applied by
+        # ``one_solve.price_slab_against_law``, which is the one site
+        # that prices a rod slab; read its header for the two rulings
+        # and why the composition lands the slab AT the law.  Here we
+        # only supply the per-pair law budget it floors and clamps to.
         # Budgets are looked up rod-pairs-first (the rod pair set is
         # tiny) so the one pass over ``shape_constraints`` pays a
         # set-membership test per edge, not a dict insert.
@@ -3119,6 +3112,8 @@ def solve_route_profile(layout, icao: str,
                 if _cur is None or _pb < _cur:
                     _rod_pair_budget[_pk] = _pb
         _rod_clamped = 0
+        _rod_floored = 0
+        _rod_lawless = 0
         # Half-open [start, stop) spans of ``_rod_edges`` per STRUNG
         # PIECE — the chain structure the composition export below
         # needs (consecutive entries within one span share a node, so
@@ -3128,21 +3123,16 @@ def solve_route_profile(layout, icao: str,
             _p0 = len(_rod_edges)
             for _ra, _rb in zip(_rp, _rp[1:]):
                 _rd = elev[_ra] - elev[_rb]
-                _rlo = _rd - _ROD_EPS
-                _rhi = _rd + _ROD_EPS
                 _pb = _rod_pair_budget.get(
                     (min(_ra, _rb), max(_ra, _rb)))
-                if _pb is not None:
-                    _clo = max(_rlo, -_pb)
-                    _chi = min(_rhi, _pb)
-                    if _clo > _chi:      # step beyond the law: ride cap
-                        if _rd >= 0.0:
-                            _clo, _chi = _pb - 2.0 * _ROD_EPS, _pb
-                        else:
-                            _clo, _chi = -_pb, -_pb + 2.0 * _ROD_EPS
-                    if (_clo, _chi) != (_rlo, _rhi):
-                        _rod_clamped += 1
-                    _rlo, _rhi = _clo, _chi
+                _rlo, _rhi, _rfl, _rcl = price_slab_against_law(
+                    _rd, _ROD_EPS, _pb)
+                if _pb is None:
+                    _rod_lawless += 1
+                if _rfl:
+                    _rod_floored += 1
+                if _rcl:
+                    _rod_clamped += 1
                 _rod_edges.append((_ra, _rb, _rlo, _rhi))
             if len(_rod_edges) > _p0:
                 _rod_piece_spans.append((_p0, len(_rod_edges)))
@@ -3194,9 +3184,12 @@ def solve_route_profile(layout, icao: str,
             layout._taut_rod_key_chains = _rod_chains
             if _os.environ.get("O4_STEP_DEBUG") == "1":
                 print(f"    [taut-string] rod edges="
-                      f"{len(_rod_edges)} ({_rod_clamped} "
-                      f"law-clamped; ε per edge, shape-as-law, "
-                      f"snapshot at yield entry)")
+                      f"{len(_rod_edges)} ({_rod_floored} law-FLOORED "
+                      f"— RULINGS 2026-08-06, a slab may not price "
+                      f"tighter than its pair's law; {_rod_clamped} "
+                      f"law-clamped §10.1; {_rod_lawless} on pairs "
+                      f"with no symmetric law edge, priced raw at "
+                      f"±ε; snapshot at yield entry)")
             # ROD CARRY AUDIT (phase-1 probe, gate O4_ROD_CARRY_AUDIT=1
             # — docs/specs/single-space-string-audit-spec.md §2).  Off
             # ⇒ not even imported ⇒ byte-identical.

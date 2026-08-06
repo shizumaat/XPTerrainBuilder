@@ -126,3 +126,38 @@ def test_materiality_column_splits_at_the_campaign_floor(capsys,
     n_over, n_material = row[0].split()[1:3]
     assert n_over == "1"
     assert n_material == ("1" if materiality_side == "over" else "0")
+
+
+def test_a_slab_and_a_cap_on_ONE_pair_keep_their_OWN_constructors(capsys):
+    """FIX-4 ATTRIBUTION PRECONDITION — the kind is part of the identity.
+
+    One remapped pair legitimately carries BOTH a symmetric cap (from the
+    junction/apron shape that owns the chord) and a signed SLAB (from the
+    zone law or a §10 rod), minted by DIFFERENT constructors and enforced
+    as two separate edges.  A pair-only key let whichever entry was read
+    first name both: at HECA that reported 2,038 adjacent-ground slabs as
+    ``junction:-`` and 742 as ``apron:-``, while the dump shows those two
+    families own ZERO interval edges — a slab-class decomposition that is
+    simply wrong, in the instrument the fix-4 attribution rests on.
+
+    KNOWN ANSWER: one slab, one cap, one pair, two families, one each.
+    """
+    elev = [0.0, 0.0, 10.0]
+    feasibility_project(
+        elev,
+        [{"family": "junction:-", "edges": [(1, 2, 0.05)]},
+         {"family": "graded_strip:adjacent_ground",
+          "edges": [(1, 2, -0.02, 0.02)]}],
+        set(), max_iters=4, force_scalar=True,
+        flat_groups=[{0, 1}], group_bounds=[(0.0, 0.0)],
+        node_bounds={2: (10.0, 10.0)},
+        family_of={})
+    out = capsys.readouterr().out
+    # row layout: [stall-report] n_over n_material worst m n_interval family
+    rows = {ln.split()[-1]: ln.split() for ln in out.splitlines()
+            if ln.rstrip().split()[-1] in ("junction:-",
+                                           "graded_strip:adjacent_ground")}
+    assert set(rows) == {"junction:-", "graded_strip:adjacent_ground"}
+    assert rows["junction:-"][5] == "0", "the cap is not a slab"
+    assert rows["graded_strip:adjacent_ground"][5] == "1", (
+        "the slab is not a cap")

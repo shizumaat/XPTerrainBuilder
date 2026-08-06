@@ -2144,15 +2144,62 @@ def solve_route_profile(layout, icao: str,
     # that contacts ONE of them must meet THAT runway's surface (695.3).  ``re``
     # is the runway profile, so this is a no-op for a true runway-end node and
     # only corrects the intersection-compromised crossing node.
-    # hard-anchor CATEGORY map (debug: names each hard node's origin in the
-    # O4_DUMP_SOLVE_STATE snapshot — the phantom-anchor forensics).
-    _hard_cat = {i for i in range(n) if base_hard[i]}
-    _hard_cat = {i: "seed_rwy_seam" for i in _hard_cat}
+    # ── hard-anchor CATEGORY map — NAMES THE ACTUAL PROVENANCE ────────
+    # (debug: read only by the ``O4_DUMP_SOLVE_STATE`` snapshot — the
+    # phantom-anchor forensics; nothing in the solve consumes it.)
+    #
+    # CYCLE-7 FIX 3, verdict (d) BROKEN INSTRUMENT.  This map used to be
+    # ``{i: "seed_rwy_seam" for i in base_hard}`` — a BLANKET CONSTANT.
+    # Every base-hard node came out with the same class name whatever
+    # made it hard, and the two ``setdefault`` calls immediately below
+    # (``rwy_join``, ``rwy_flexed``) were consequently DEAD for exactly
+    # the nodes they describe, because those nodes were already in the
+    # map.  The cost was measured: the c6attr dossier's finding "610
+    # strictly-immovable anchors, and 100 % of them are class
+    # ``seed_rwy_seam``" is an artefact of this line — the classifier
+    # could not have said anything else — and it is why the seam-depth
+    # question ("do the pin VALUES carry ride, or is a relief form
+    # missing between two TRUE pins?") could not be answered off the
+    # class axis at all.  Under RULINGS 2026-08-06 ("Instrument truth is
+    # law") a report that cannot distinguish its own populations is a
+    # defect, not a convenience.
+    #
+    # THE ANSWER the fixed axis makes checkable, recorded here because it
+    # is what the fix was for: at HECA ``--dem 1`` all 1,077 of these
+    # nodes hold 48.50-142.43 m against a DEM of 1.000 and ZERO sit at
+    # the DEM value — the pins carry NO ride, so the depth is the second
+    # branch (a lawful relief form missing between two true pins), and
+    # the law already names that form: RUNWAY FLEX, which this same build
+    # reports stopping on its ROUND CAP rather than on convergence.
+    #
+    # Each class is a set this scope already owns; a node no source
+    # claims is named ``base_hard:unattributed`` rather than folded into
+    # a neighbouring class, so the residue is visible and countable
+    # instead of silently inflating a real population.
+    _flexed_idx = getattr(layout, "_flexed_runway_node_idx", None) or ()
+    _seam_pin_pre = getattr(layout, "_seam_pin_idx", None) or set()
+    _hard_cat: dict = {}
+    for i in range(n):
+        if not base_hard[i]:
+            continue
+        if i in _flexed_idx:
+            _hard_cat[i] = "rwy_flexed"
+        elif i in _seam_pin_pre:
+            _hard_cat[i] = "seam_pin"
+        elif i in G.runway_anchor:
+            _hard_cat[i] = "rwy_join"
+        elif i in runway_nodes:
+            _hard_cat[i] = "rwy_profile"
+        else:
+            _hard_cat[i] = "base_hard:unattributed"
     # FLEXED runway nodes keep the flexed profile value: the join
     # anchor is SAMPLED from piece geometry and disagrees with the
     # flexed profile at piece ends (user 2026-07-06 root-cause —
     # 58.30 stamped over the flexed 61.21 → 24 % inside 05L).
-    _flexed_idx = getattr(layout, "_flexed_runway_node_idx", None) or ()
+    # The class map above already named every node that was base-hard on
+    # entry, so these assignments cover the nodes this loop HARDENS —
+    # which is what the two labels were always meant to describe and
+    # what the blanket constant used to swallow.
     for i, re in G.runway_anchor.items():
         if i < n:
             if i in _flexed_idx and base_hard[i]:

@@ -189,8 +189,31 @@ def _drop_families(entries, families):
     return kept
 
 
+def _drop_interval_families(entries, families):
+    """Strip only the INTERVAL edges of matching entries — the slab knife.
+
+    Safe where :func:`_drop_families` is not: removing an entry's signed
+    slabs never removes a symmetric cap, so a catch-all-tagged entry (the
+    solve's own joint, which is where the §10 rod slabs live) can be
+    knifed without deleting the unified graph's law along with it.
+    """
+    from auto_patch.elevation_per_surface.route_profile.one_solve import (
+        _entry_family_tag)
+    want = set(families)
+    kept, dropped = [], 0
+    for e in entries:
+        if _entry_family_tag(e) in want:
+            keep = [x for x in e["edges"] if len(x) < 4]
+            dropped += len(e["edges"]) - len(keep)
+            e = {**e, "edges": keep}
+        kept.append(e)
+    print(f"[arm] --drop-interval-family {sorted(want)}: removed {dropped} "
+          f"slab edge(s)")
+    return kept
+
+
 def do_replay(icao, path, *, arm, sweeps, hard_cap, drop_family,
-              quiet_families):
+              drop_interval_family, quiet_families):
     with open(path, "rb") as fh:
         state = pickle.load(fh)
     entries, faithful, note = _entries_from(state)
@@ -218,6 +241,8 @@ def do_replay(icao, path, *, arm, sweeps, hard_cap, drop_family,
               "before quoting this as fp#8.")
     if drop_family:
         entries = _drop_families(entries, drop_family)
+    if drop_interval_family:
+        entries = _drop_interval_families(entries, drop_interval_family)
     entries, hard, node_bounds, group_bounds = _apply_arm(
         arm, entries, hard, node_bounds, group_bounds, state)
     n_edges = sum(len(e["edges"]) for e in entries)
@@ -278,6 +303,11 @@ def main():
                     metavar="FAMILY",
                     help="drop every joint entry with this family tag "
                          "(repeatable) — the slab-class knife")
+    ap.add_argument("--drop-interval-family", action="append", default=[],
+                    metavar="FAMILY",
+                    help="drop only the INTERVAL/slab edges of entries with "
+                         "this family tag (repeatable) — the slab knife; "
+                         "safe on catch-all tags, where --drop-family is not")
     ap.add_argument("--no-families", action="store_true",
                     help="suppress the exit report's family axis")
     args = ap.parse_args()
@@ -289,6 +319,7 @@ def main():
     os.environ["O4_STEP_DEBUG"] = "1"
     do_replay(args.icao, path, arm=args.arm, sweeps=args.sweeps,
               hard_cap=args.hard_cap, drop_family=args.drop_family,
+              drop_interval_family=args.drop_interval_family,
               quiet_families=args.no_families)
 
 

@@ -1111,8 +1111,12 @@ def _exit_residual_by_family(np, tol, endpoint_i, endpoint_j, budget_column,
     was left violated.
 
     ``family_by_pair`` is the map built by ``feasibility_project`` in the
-    REMAPPED space — every physical pair keyed by ``(_r(a), _r(b))`` — so
-    the lookup here is exact, never a proximity or a guess.  Pairs the map
+    REMAPPED space — every physical pair keyed by ``(_r(a), _r(b),
+    is_interval)`` — so the lookup here is exact, never a proximity or a
+    guess.  The KIND is part of the key because one remapped pair
+    legitimately carries both a symmetric cap and a signed slab, minted
+    by different constructors: without it the slab-class decomposition
+    reports a zone slab as its neighbouring junction's law.  Pairs the map
     does not carry keep the honest ``"<unmapped>"`` label rather than
     being folded into a neighbour's bucket.
 
@@ -1137,7 +1141,7 @@ def _exit_residual_by_family(np, tol, endpoint_i, endpoint_j, budget_column,
     for k in range(over.size):
         a = int(ei[k])
         b = int(ej[k])
-        key = (a, b) if a <= b else (b, a)
+        key = ((a, b) if a <= b else (b, a)) + (bool(iv[k]),)
         fam = family_by_pair.get(key, "<unmapped>")
         row = out.get(fam)
         if row is None:
@@ -2385,7 +2389,16 @@ def feasibility_project(elev, shape_constraints, hard, *,
                 if i == j:
                     continue
                 if fam_by_pair is not None:
-                    _key = (i, j) if i < j else (j, i)
+                    # KEYED BY KIND (cycle-7, fix-4 attribution): the same
+                    # remapped pair legitimately carries BOTH a symmetric
+                    # cap (from a junction/apron shape) and a signed SLAB
+                    # (from the zone law or a rod), minted by DIFFERENT
+                    # constructors and enforced as two separate edges.  A
+                    # pair-only key let whichever entry was read first name
+                    # both, which reported 2,038 adjacent-ground slabs as
+                    # ``junction:-`` — a slab-class decomposition that is
+                    # simply wrong.  The kind is part of the identity.
+                    _key = ((i, j) if i < j else (j, i)) + (True,)
                     if _key not in fam_by_pair:
                         fam_by_pair[_key] = (
                             family_of.get((_oa, _ob), _sc_fam)
@@ -2427,9 +2440,10 @@ def feasibility_project(elev, shape_constraints, hard, *,
             if i == j:
                 continue
             e = (i, j) if i < j else (j, i)
-            if fam_by_pair is not None and e not in fam_by_pair:
-                fam_by_pair[e] = (family_of.get((_oa, _ob), _sc_fam)
-                                  if _sc_fam_per_edge else _sc_fam)
+            if fam_by_pair is not None and (e + (False,)) not in fam_by_pair:
+                fam_by_pair[e + (False,)] = (
+                    family_of.get((_oa, _ob), _sc_fam)
+                    if _sc_fam_per_edge else _sc_fam)
             prev = edge_lim.get(e)
             if prev is None or lim < prev:
                 edge_lim[e] = lim
@@ -3501,11 +3515,12 @@ def feasibility_project(elev, shape_constraints, hard, *,
             if node_a == node_b:
                 continue
             pair = (node_a, node_b) if node_a < node_b else (node_b, node_a)
-            if fam_by_pair is not None and pair not in fam_by_pair:
+            if fam_by_pair is not None and (pair + (False,)) not in fam_by_pair:
                 _oa, _ob = ((raw_a, raw_b) if raw_a <= raw_b
                             else (raw_b, raw_a))
-                fam_by_pair[pair] = (family_of.get((_oa, _ob), _lz_fam)
-                                     if _lz_per_edge else _lz_fam)
+                fam_by_pair[pair + (False,)] = (
+                    family_of.get((_oa, _ob), _lz_fam)
+                    if _lz_per_edge else _lz_fam)
             previous_budget = edge_lim.get(pair)
             if previous_budget is not None and previous_budget <= raw_budget:
                 continue

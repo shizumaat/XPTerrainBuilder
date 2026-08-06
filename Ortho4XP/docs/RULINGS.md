@@ -600,3 +600,33 @@ minimum-move demand design (÷2 splits, drain-what's-demanded), never
 via an arbitrary cap. Expected: closes the +7.011 m 05C/23C↔23R law
 shortfall within lawful profile room. Lands in cycle 4 with the flat
 oracle as acceptance.
+
+## 2026-08-06 — Instrument truth is law (owner)
+
+Approved after the falsified-premise chain (the law/ride classifier's
+false "CIFP cannot reach" sentence, the "NOT budget exhaustion" exit
+line falsified by the sweeps ladder, the stale 0.25 m grid-residual
+excuse, the flat_ways way-level-tag mislabel, the certificate's 80.6%
+catch-all): report-only code was exempt from the twin discipline, and
+a lying instrument misroutes more work than a lying emitter — it had
+the weaker law and the higher cost.
+
+Binding:
+1. KNOWN-ANSWER TWIN, or it is not an instrument. Every instrument
+   carries a calibration twin feeding it a case whose answer is known
+   and asserting the report (the models: the band-split fix verified
+   10/10 hand-checked; surface-inertness proven by byte-identical
+   body sha).
+2. Instruments report NUMBERS AND FRAMES. A verdict sentence may be
+   printed only by the law layer, or when it derives from a
+   WORLD-INVARIANT computation (the CIFP-envelope split is the model).
+   An interpretation embedded in report code is a defect.
+3. FRAME STAMPS: every reported number carries its frame (tree sha,
+   node space, world, crown space). Equating two numbers without
+   matching stamps is the two-instruments trap by construction.
+4. TWO INDEPENDENT INSTRUMENTS per load-bearing quantity, agreement
+   asserted within materiality — the emitter/validator lockstep
+   pattern extended to instruments.
+5. The STANDING-INSTRUMENT SWEEP: every existing instrument is
+   audited against 1-4 once, as its own round; an instrument that
+   cannot be calibrated is retired, not trusted.

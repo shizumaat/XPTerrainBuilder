@@ -1345,6 +1345,13 @@ def redistribute_runway_profile(
             # tile-seam sample or a crossing reconciliation, i.e. real
             # authority.  ``apply_runway_flex`` is the only minter.
             'flex_minted': [False] * len(fractions),
+            # THE WORLD-INVARIANT PINS, carried verbatim (cycle-5
+            # canyon-flex spec, fix 1).  Taken from the emit-time state,
+            # NOT re-read off ``elevs``: ``_shift_thresholds_for_seams``
+            # may have moved the threshold samples to hold a seam DEM
+            # anchor, and that shift is world-dependent by definition.
+            'cifp_pins': [(float(t), float(e))
+                          for (t, e) in (state.get('cifp_pins') or ())],
             'seam_t': [t for (t, _e) in seam_samples],
             'blast_a_m': state['blast_a_m'],
             'blast_b_m': state['blast_b_m'],
@@ -1365,6 +1372,31 @@ def redistribute_runway_profile(
             'max_grade_change_per_m': _law["max_dg_per_m"],
             'law_end_grade': _law["end_grade"],
         }
+
+        # ── THE WORLD-INVARIANT LINE (cycle-5 canyon-flex spec, fix 1) ──
+        # The band-inversion reader's CIFP verdict is a function of
+        # exactly these numbers: the CIFP pins, the station geometry and
+        # the runway's OWN law caps.  Printing them makes the invariance
+        # MEASURABLE — the same line in a DEM≡0 and a DEM≡10,000 m build
+        # is the proof that the verdict cannot move with the world, and a
+        # line that DOES move names the leak.  One line per runway.
+        try:
+            from O4_UI_Utils import vprint as _vp_inv
+            _pins = profiles[ref].get('cifp_pins') or ()
+            _pin_txt = [(round(float(t), 6), round(float(e), 4))
+                        for (t, e) in _pins]
+            _end_law = _law["end_grade"]
+            _end_txt = ("none" if _end_law is None
+                        else f"{_end_law * 100:.4f}%")
+            _vp_inv(1,
+                    f"  [pav-builder] runway {ref}: CIFP pins "
+                    f"(WORLD-INVARIANT) {_pin_txt}; law caps main "
+                    f"{_MAIN_CAP * 100:.4f}% end {_end_txt}; axis "
+                    f"{axis_len:.3f} m (as-solved end zone "
+                    f"{end_zone_cap * 100:.4f}%, threshold "
+                    f"{threshold_cap * 100:.4f}%).")
+        except ImportError:
+            pass
 
         # Evaluate the new profile at every runway sub-rect's vertex.
         n_touched += _apply_profile_to_shapes(
@@ -1615,10 +1647,50 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
         pending = sorted((t, v) for (t, v) in contact_list
                          if 0.0 < t < 1.0)
 
+        # ── FIX 2 (cycle-5 canyon-flex spec): THE SELF-ANCHOR LOCK, ON
+        # THE APPLY SIDE ─────────────────────────────────────────────────
+        # ATTRIBUTED, HECA canyon, one build: of the 178 refusals in this
+        # loop, EVERY main-cap relax (61 of 61 on 05C/23C, 14 of 14 on
+        # 05R/23L) was bound by a station THE FLEX ITSELF MINTED a round
+        # earlier — 05R/23L bin 26 asked 1.789 m, the relax allowed
+        # 0.000 m, and the same bound with minted stations withdrawn
+        # allows 18.406 m.  788 m of otherwise-lawful move was withheld
+        # that way, and two such refusals RETIRE the bin.
+        #
+        # THE CONTRADICTION.  ``flex_slack_at`` (the DEMAND side) treats a
+        # flex-minted sample as carrying NO authority — standing law since
+        # ``docs/specs/runway-flex-completion-spec.md`` fix 1, because it
+        # is this mechanism's own output, not a CIFP threshold, a seam or
+        # a crossing.  The APPLY side then re-solved with those very
+        # samples ANCHORED, i.e. immovable: so a target the demand side
+        # priced as lawful met a profile frozen by the flex's own memory,
+        # ``faa_joint_solve`` could not smooth around it, and the tiny
+        # over-cap remainder (excesses 0.0003-0.032) was booked as a law
+        # refusal.  Two spellings of one law, and the apply side's was the
+        # invented one.  A FALSE refusal may not mint retirement (spec).
+        #
+        # THE FIX, one bounding set on both sides: a flex-minted station
+        # is a SEED for the re-solve, never an anchor — its value stays in
+        # ``elevs`` (nothing is stomped, and the gates only move a free
+        # sample that the real anchors' law requires to move), but it does
+        # not freeze the profile and it does not bound the relax.  Real
+        # authority — CIFP thresholds, physical ends, tile seams, crossing
+        # reconciliations — is never minted, so it keeps every bit of the
+        # authority it had.  This round's own targets are inserted
+        # ANCHORED exactly as before: the request is still a request.
+        _solve_anchored = [
+            bool(a) and not (k < len(original_minted) and original_minted[k])
+            for k, a in enumerate(original_anchored)]
+        if not any(_solve_anchored):
+            # Belt and braces, the same fallback ``flex_slack_at`` keeps:
+            # a profile carrying NOTHING but minted anchors re-solves
+            # against the unfiltered set rather than unanchored.
+            _solve_anchored = [bool(a) for a in original_anchored]
+
         def _solve_with(target_list):
             fractions = list(original_fractions)
             elevs = list(original_elevs)
-            anchored = list(original_anchored)
+            anchored = list(_solve_anchored)
             minted = list(original_minted)
             for t, v in target_list:
                 placed = False
@@ -1663,6 +1735,16 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
                     if profile.get('threshold_cap') is not None else None),
                 threshold_strict_fraction=float(
                     profile.get('threshold_strict_fraction') or 0.0))
+            # THE PERSISTED PROVENANCE IS UNCHANGED (cycle-5 fix 2).  The
+            # withdrawal above is about what may FREEZE this re-solve; the
+            # profile that is persisted still carries every flex-applied
+            # station as ANCHORED, because the law line the band reader
+            # quotes is "anchored ∪ flex-applied" (cycle-4 ruling: a
+            # flexed station is law that has moved).  ``flex_slack_at``
+            # withdraws them again on the demand side, as it always has.
+            for k in range(len(anchored)):
+                if k < len(minted) and minted[k]:
+                    anchored[k] = True
             return fractions, elevs, anchored, minted
 
         def _worst_over_cap(fractions, elevs):
@@ -1745,6 +1827,16 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
                 worst = _new_or_worsened(fractions, elevs)
             return worst
 
+        def _worst_violation_kind(fractions, elevs):
+            """``(kind, worst)`` — which of the two laws the refusal is
+            made under.  REPORT-ONLY: it calls the same two functions
+            ``_worst_violation`` calls, in the same order, and decides
+            nothing."""
+            worst = _worst_over_cap(fractions, elevs)
+            if worst is not None:
+                return "main_cap", worst
+            return "endzone_new", _new_or_worsened(fractions, elevs)
+
         # VERIFY-AND-RELAX (2026-07-06): a jointly-infeasible target set
         # leaves faa_hard_cap_pass midpointing squeezed free samples —
         # over-cap segments INSIDE the runway (HECA B2: 05L +7.5 %/2.5 m,
@@ -1763,18 +1855,56 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
         # against the ORIGINAL anchored samples); if the relaxed target
         # still offends, it is dropped exactly as before — so the loop is
         # bounded by 2·len(pending) and the worst case is still "no flex".
-        def _largest_lawful_move(t_r, direction):
+        # THE RELAX BOUND, priced on the same law as everything else
+        # (cycle-5 fix 2): ``_solve_anchored`` — real authority only.  The
+        # ledger keeps reporting BOTH numbers, so the next reader can see
+        # at a glance whether the withdrawal is doing any work.
+        def _largest_lawful_move(t_r, direction, *, ledger=None):
             base = _interp_profile(original_fractions, original_elevs, t_r)
             slack = float("inf")
+            slack_all = float("inf")
+            bind_k = bind_all_k = None
             for k, is_anchor in enumerate(original_anchored):
                 if not is_anchor:
                     continue
                 budget = _lawful_ramp_budget(t_r, original_fractions[k],
                                              axis_len, _seg_cap_kw)
-                slack = min(slack, budget
-                            - (base - original_elevs[k]) * direction)
+                s = budget - (base - original_elevs[k]) * direction
+                if s < slack_all:
+                    slack_all, bind_all_k = s, k
+                if not _solve_anchored[k]:
+                    continue
+                if s < slack:
+                    slack, bind_k = s, k
+            if ledger is not None:
+                ledger.update({
+                    # what the law allows here, minted stations withdrawn
+                    "lawful_move": max(0.0, slack if slack != float("inf")
+                                       else 0.0),
+                    # what the pre-fix bound would have allowed
+                    "lawful_move_minted_included": max(
+                        0.0, slack_all if slack_all != float("inf") else 0.0),
+                    "binding_station_t": (None if bind_k is None
+                                          else original_fractions[bind_k]),
+                    # True ⇒ the withdrawal is what un-bound this station
+                    "binding_was_minted": bool(
+                        bind_all_k is not None
+                        and bind_all_k < len(original_minted)
+                        and original_minted[bind_all_k]),
+                    "n_minted_anchors": sum(
+                        1 for k, a in enumerate(original_anchored)
+                        if a and k < len(original_minted)
+                        and original_minted[k]),
+                })
             return max(0.0, slack if slack != float("inf") else 0.0)
 
+        # THE REFUSAL LEDGER (cycle-5 fix 2 attribution; report-only).
+        # A retirement is the flex conceding demand, and until now the
+        # reason was invisible: WHICH law the re-solve believed violated,
+        # which target was relaxed or dropped for it, and what the relax
+        # thought was lawful there.  Write-only — nothing reads it to
+        # decide anything; the solve's flex hook prints it.
+        _refusals: list = []
         _relaxed: set = set()
         while True:
             fractions, elevs, anchored, minted = _solve_with(pending)
@@ -1782,22 +1912,69 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
             if worst is None or not pending:
                 break
             _excess, midpoint = worst
+            _kind, _ = _worst_violation_kind(fractions, elevs)
             drop_index = min(range(len(pending)),
                              key=lambda k: abs(pending[k][0] - midpoint))
+            _t_r, _v_r = pending[drop_index]
+            _base_r = _interp_profile(original_fractions,
+                                      original_elevs, _t_r)
+            _ev = {"ref": ref, "kind": _kind, "excess": float(_excess),
+                   "midpoint_t": float(midpoint), "target_t": float(_t_r),
+                   "target_v": float(_v_r), "base": float(_base_r),
+                   "requested_move": abs(float(_v_r) - float(_base_r)),
+                   "n_pending": len(pending)}
             if drop_index not in _relaxed:
-                _t_r, _v_r = pending[drop_index]
-                _base_r = _interp_profile(original_fractions,
-                                          original_elevs, _t_r)
                 _dir_r = 1.0 if _v_r >= _base_r else -1.0
-                _lim_r = _base_r + _dir_r * _largest_lawful_move(_t_r,
-                                                                _dir_r)
+                _lim_r = _base_r + _dir_r * _largest_lawful_move(
+                    _t_r, _dir_r, ledger=_ev)
+                # ── RELAX, DON'T ONLY DROP — restored (cycle-5 fix 2,
+                # attempt 2) ──────────────────────────────────────────
+                # The bound above is this station's OWN pairwise-anchor
+                # law.  It answers "is the TARGET too big"; it cannot
+                # answer "is the target set JOINTLY too big", which is
+                # what a re-solve over-cap segment usually means.  With
+                # the minted stations withdrawn the own-law bound is
+                # wide, so it stopped binding altogether and every
+                # refusal became a whole-target DROP: measured at HECA
+                # canyon, 250 refusals, 250 drops, ZERO relaxes, 217.65
+                # of 619.59 m discarded — the completion the loop is
+                # named after had become dead code.
+                # So when the law is not what binds, halve the request
+                # and retry it once.  ÷2 is the flex's own idiom (the
+                # ORIGIN SPLIT halves every pull for exactly this
+                # reason: two authorities meet in the middle), it is a
+                # SEARCH step and not a cap — the law bound above still
+                # clamps it — and each target is still relaxed at most
+                # ONCE, so the loop stays bounded by 2·len(pending) and
+                # the worst case is still "no flex".
+                # The law bound WINS wherever it binds — a target that
+                # asks for more than its station's per-segment law allows
+                # still lands exactly ON its cap (§2a's completion,
+                # unchanged and twinned).  The halving applies only where
+                # the law does NOT bind, i.e. where the refusal cannot be
+                # about this target's own size.
+                if abs(_lim_r - _base_r) + 1e-9 >= abs(_v_r - _base_r):
+                    _lim_r = _base_r + _dir_r * 0.5 * abs(_v_r - _base_r)
                 if abs(_lim_r - _base_r) + 1e-9 < abs(_v_r - _base_r):
                     _relaxed.add(drop_index)
                     pending[drop_index] = (_t_r, _lim_r)
+                    _ev["action"] = "relax"
+                    _refusals.append(_ev)
                     continue
+            _ev["action"] = "drop"
+            _refusals.append(_ev)
             pending.pop(drop_index)
             _relaxed = {(k - 1 if k > drop_index else k)
                         for k in _relaxed if k != drop_index}
+        if _refusals:
+            try:
+                _led = getattr(layout, "_flex_refusal_ledger", None)
+                if _led is None:
+                    _led = []
+                    layout._flex_refusal_ledger = _led
+                _led.extend(_refusals)
+            except AttributeError:                         # pragma: no cover
+                pass
         if _worst_over_cap(fractions, elevs) is not None:
             continue        # even target-free re-solve over cap: keep as-was
         profile['fractions'] = list(fractions)

@@ -615,3 +615,128 @@ class TestDemFollowSeeding:
         assert set(off_anch) == set(on_anch)
         for f in off_anch:
             assert on_anch[f] == pytest.approx(off_anch[f], abs=1e-9)
+
+
+# ══ CYCLE 5 — THE SELF-ANCHOR LOCK ON THE APPLY SIDE (two worlds) ═════
+#
+# ``docs/specs/cycle5-canyon-flex-spec.md`` fix 2.  ATTRIBUTED at HECA
+# canyon (one build, the refusal ledger): every main-cap relax in
+# ``apply_runway_flex``'s verify-and-relax loop — 61 of 61 on 05C/23C,
+# 14 of 14 on 05R/23L — was bound by a station THE FLEX ITSELF MINTED a
+# round earlier.  05R/23L bin 26 asked 1.789 m, the relax allowed
+# 0.000 m, and the same bound with minted stations withdrawn allows
+# 18.406 m; two such refusals RETIRE the bin, so a FALSE refusal was
+# minting retirement.  Root cause: ``flex_slack_at`` (demand side)
+# withdraws flex-minted samples from its bounding set as standing law,
+# while apply re-solved with those same samples ANCHORED — one law, two
+# spellings, and the apply side's was invented.
+#
+# The two worlds below are the plateau/canyon pair in miniature: the same
+# CIFP thresholds, the same geometry, the same demand — but the canyon
+# has been through a flex round already and carries its minted station.
+
+_C5_MINTED_T = 0.51           # where round 0 left a minted station
+_C5_DEMAND_T = 0.52           # the demand one 41 m station along
+_C5_MOVE = 1.789              # the metres HECA 05R/23L bin 26 asked for
+
+
+def _c5_world(*, canyon):
+    """PLATEAU: the straight CIFP chord, nothing flexed yet.
+    CANYON: the identical profile after a round-0 flex left a minted
+    station 1.0 m below the chord at ``_C5_MINTED_T`` — the state HECA's
+    canyon build is in when bin 26 is presented."""
+    if not canyon:
+        return _flex_layout(_chord_profile())
+    minted_e = E_A + (E_B - E_A) * _C5_MINTED_T - 1.0
+    return _flex_layout(_chord_profile(
+        extra=[(_C5_MINTED_T, minted_e, True, True)]))
+
+
+def _c5_apply(layout, t, move_down):
+    prof = layout._runway_redistributed_profiles["05R/23L"]
+    before = RR._interp_profile(prof['fractions'], prof['elevs'], t)
+    got = dict(RR.apply_runway_flex(
+        layout, {"05R/23L": [(t, before - move_down)]}).get("05R/23L") or ())
+    after = RR._interp_profile(prof['fractions'], prof['elevs'], t)
+    return before, after, got
+
+
+class TestApplySideSelfAnchorLock:
+
+    def test_the_plateau_proves_the_move_lawful(self):
+        """The control: with no flex history, the same demand lands in
+        full.  This is what "the plateau proves the lawful room exists"
+        means — identical CIFP pins, identical geometry."""
+        layout, _s = _c5_world(canyon=False)
+        before, after, _got = _c5_apply(layout, _C5_DEMAND_T, _C5_MOVE)
+        assert after == pytest.approx(before - _C5_MOVE, abs=1e-6)
+
+    def test_the_canyon_drains_the_same_demand(self):
+        """THE FIX.  The canyon world carries a flex-minted station one
+        bin away.  It carries no CIFP / seam / crossing authority, so it
+        may not freeze the re-solve — the demand the plateau proves
+        lawful must land here too."""
+        layout, _s = _c5_world(canyon=True)
+        before, after, got = _c5_apply(layout, _C5_DEMAND_T, _C5_MOVE)
+        assert after == pytest.approx(before - _C5_MOVE, abs=1e-6), (
+            "a flex-minted station froze the apply-side re-solve: the "
+            "refusal is FALSE, and two of them retire the bin")
+        assert got[_C5_DEMAND_T] == pytest.approx(after, abs=1e-6)
+
+    def test_the_demand_side_agreed_all_along(self):
+        """The two sides now price ONE law: what ``flex_slack_at`` grants
+        on the demand side is what the apply side can deliver.  (Before
+        the fix the demand side granted this move and the apply side
+        refused it — that disagreement IS the defect.)"""
+        layout, _s = _c5_world(canyon=True)
+        prof = layout._runway_redistributed_profiles["05R/23L"]
+        slack = RR.flex_slack_at(prof, _C5_DEMAND_T, -1.0)
+        assert slack > _C5_MOVE
+        before, after, _got = _c5_apply(layout, _C5_DEMAND_T, _C5_MOVE)
+        assert (before - after) <= slack + 1e-9
+
+    def test_a_REAL_anchor_still_refuses_it(self):
+        """The other half of the law, and the guard against over-fixing:
+        the identical station marked NOT minted — a crossing
+        reconciliation, a seam sample, real geometric authority — still
+        binds, and the flex is still refused there.  A TRUE refusal is a
+        verdict and retirement stays (spec: retirement stays; only FALSE
+        refusals may not mint it)."""
+        minted_e = E_A + (E_B - E_A) * _C5_MINTED_T - 1.0
+        layout, _s = _flex_layout(_chord_profile(
+            extra=[(_C5_MINTED_T, minted_e, True, False)]))
+        before, after, _got = _c5_apply(layout, _C5_DEMAND_T, _C5_MOVE)
+        assert abs(after - (before - _C5_MOVE)) > 0.5, (
+            "a station with real authority must still bound the flex")
+
+    def test_the_persisted_profile_still_carries_the_flex_line(self):
+        """The withdrawal is about what may FREEZE the re-solve.  The
+        PERSISTED provenance is unchanged: a flex-applied station stays
+        ANCHORED and tagged, because the law line the band reader quotes
+        is "anchored ∪ flex-applied" (cycle-4 ruling)."""
+        layout, _s = _c5_world(canyon=True)
+        prof = layout._runway_redistributed_profiles["05R/23L"]
+        _c5_apply(layout, _C5_DEMAND_T, _C5_MOVE)
+        pairs = {round(f, 6): (a, m) for f, a, m
+                 in zip(prof['fractions'], prof['anchored'],
+                        prof['flex_minted'])}
+        assert pairs[round(_C5_MINTED_T, 6)] == (True, True)
+        assert pairs[round(_C5_DEMAND_T, 6)] == (True, True)
+
+    def test_the_refusal_ledger_names_the_reason(self):
+        """The attribution instrument is standing, not a one-off probe:
+        a refusal records which law it was made under and what the relax
+        believed lawful, so the next reader never has to re-derive it."""
+        layout, _s = _flex_layout(_chord_profile())
+        prof = layout._runway_redistributed_profiles["05R/23L"]
+        before = RR._interp_profile(prof['fractions'], prof['elevs'], _EZ_T)
+        RR.apply_runway_flex(layout, {"05R/23L": [(_EZ_T,
+                                                   before - _EZ_DROP)]})
+        led = getattr(layout, "_flex_refusal_ledger", None) or []
+        assert led, "a refused/relaxed target must leave a record"
+        ev = led[0]
+        assert ev["ref"] == "05R/23L"
+        assert ev["kind"] in ("main_cap", "endzone_new")
+        assert ev["action"] in ("relax", "drop")
+        assert ev["requested_move"] == pytest.approx(_EZ_DROP, abs=1e-6)
+        assert "lawful_move" in ev and "binding_was_minted" in ev

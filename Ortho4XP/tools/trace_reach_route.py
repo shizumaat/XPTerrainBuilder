@@ -37,8 +37,22 @@ how this tool became wrong in the first place:
 Usage:
     venv/bin/python tools/trace_reach_route.py SPJC --coord 536.64,-625.53
     venv/bin/python tools/trace_reach_route.py CYXY --ref building5
+    venv/bin/python tools/trace_reach_route.py HECA --dem 10000 \
+        --inverted-pairs
     # writes <out> (default /tmp/reach_route.kml) and prints the band, the
     # serving attachment, the binding anchor, and the per-cap route lengths.
+
+``--dem M`` traces inside a CONSTANT-DEM oracle world (the same
+``auto_patch.constant_dem.ConstantDEM`` ``harness/build_airport.py --dem``
+installs — one authority, not a second constant-DEM path).  It exists
+because real-DEM builds are gated on flat-green (RULINGS 2026-08-05), so the
+canyon/plateau attribution may not reach for one.
+
+``--inverted-pairs`` traces the routes behind every contradictory anchor
+pair ``assert_no_final_band_inversion`` named, INCLUDING on a build that
+died on that law: the error is the thing being attributed, so the layout is
+captured as the (real, unmodified) assertion runs.  ``--coord`` is
+repeatable so one build answers many points (single-pass principle).
 """
 from __future__ import annotations
 
@@ -97,8 +111,15 @@ def _walk_to_anchor(G, prov_side, node, anchor, limit=100000):
     return path, (u == anchor)
 
 
-def _binding_route(layout, x, y):
-    """Everything the report needs at ``(x, y)``, read from the LIVE band."""
+def _live_band(layout, _cache={}):
+    """``(G, band, prov)`` from the LIVE band — built ONCE per layout.
+
+    Every report below reads this one pass (single-pass principle): the
+    band build is what RECORDS ``layout._band_anchor_provenance``, so a
+    second build would be a second field as well as a second cost."""
+    key = id(layout)
+    if key in _cache:
+        return _cache[key]
     from auto_patch import grade_graph as GG
     from auto_patch.elevation_per_surface.solver_primitives import (
         _build_node_list)
@@ -107,11 +128,64 @@ def _binding_route(layout, x, y):
 
     nodes, b2i = _build_node_list(layout)
     if not nodes:
-        return {"error": "layout has no solver nodes"}
+        _cache[key] = (None, None, {})
+        return _cache[key]
     G = GG.build_unified_graph(layout, b2i)
     # THE band.  Building it also records the anchor provenance this report
     # reads (``spine_value_fields._record_anchor_provenance``) — one pass.
     band = reach_band_unified(layout, G)
+    prov = getattr(layout, "_band_anchor_provenance", None) or {}
+    _cache[key] = (G, band, prov)
+    return _cache[key]
+
+
+def _route_sides(G, prov, node):
+    """The recorded ceiling/floor routes from solver ``node`` to its anchors.
+
+    Shared by the coordinate report and ``--inverted-pairs``: the SAME
+    walk over the SAME recorded field, so the two modes can never disagree
+    about which route binds a node."""
+    anchor_value = prov.get("anchor_value") or {}
+    out = {}
+    for side in ("ceiling", "floor"):
+        prov_side = prov.get(side) or {}
+        rec = prov_side.get(node)
+        if rec is None:
+            continue
+        anchor, budget = int(rec[0]), float(rec[1])
+        path, complete = _walk_to_anchor(G, prov_side, node, anchor)
+        cap_len: dict = {}
+        plan_len = 0.0
+        for a, b in zip(path, path[1:]):
+            bud = _edge_budget(G, a, b)
+            pa, pb = G.pos.get(a), G.pos.get(b)
+            if bud is None or pa is None or pb is None:
+                continue
+            seg = math.hypot(pa[0] - pb[0], pa[1] - pb[1])
+            if seg <= _EPS:
+                continue
+            plan_len += seg
+            cap = round(bud / seg * 100, 2)
+            cap_len[cap] = cap_len.get(cap, 0.0) + seg
+        out[side] = {
+            "anchor": anchor,
+            "anchor_value": anchor_value.get(anchor),
+            "anchor_pos": G.pos.get(anchor),
+            "route_budget_m": budget,
+            "path": [G.pos[n] for n in path if n in G.pos],
+            "path_nodes": path,
+            "path_complete": complete,
+            "cap_len": cap_len,
+            "plan_len_m": plan_len,
+        }
+    return out
+
+
+def _binding_route(layout, x, y):
+    """Everything the report needs at ``(x, y)``, read from the LIVE band."""
+    G, band, prov = _live_band(layout)
+    if G is None:
+        return {"error": "layout has no solver nodes"}
     out: dict = {"G": G, "band": band(x, y)}
     if out["band"] is None:
         out["why_none"] = (
@@ -152,33 +226,9 @@ def _binding_route(layout, x, y):
     out["ceiling_at_node"] = _ceil_of(node)
     out["floor_at_node"] = _floor_of(node)
 
-    for side, prov_side in (("ceiling", ceil_side), ("floor", floor_side)):
-        rec = prov_side.get(node)
-        if rec is None:
-            continue
-        anchor, budget = int(rec[0]), float(rec[1])
-        path, complete = _walk_to_anchor(G, prov_side, node, anchor)
-        cap_len: dict = {}
-        for a, b in zip(path, path[1:]):
-            bud = _edge_budget(G, a, b)
-            pa, pb = G.pos.get(a), G.pos.get(b)
-            if bud is None or pa is None or pb is None:
-                continue
-            seg = math.hypot(pa[0] - pb[0], pa[1] - pb[1])
-            if seg <= _EPS:
-                continue
-            cap_len[round(bud / seg * 100, 2)] = \
-                cap_len.get(round(bud / seg * 100, 2), 0.0) + seg
-        out[side] = {
-            "anchor": anchor,
-            "anchor_value": anchor_value.get(anchor),
-            "anchor_pos": G.pos.get(anchor),
-            "route_budget_m": budget,
-            "path": [G.pos[n] for n in path if n in G.pos],
-            "path_complete": complete,
-            "cap_len": cap_len,
-            "runway": _runway_at(layout, G.pos.get(anchor)),
-        }
+    for side, s in _route_sides(G, prov, node).items():
+        s["runway"] = _runway_at(layout, s["anchor_pos"])
+        out[side] = s
     return out
 
 
@@ -256,10 +306,112 @@ def _report(r, x, y):
               + ("" if s["path_complete"] else "  [PATH INCOMPLETE — the "
                  "recorded budgets do not reconcile through the graph; the "
                  "anchor and budget above are still the field's own]"))
-        if s["cap_len"]:
-            print("           per-cap route length (m): {"
-                  + ", ".join(f"{k}%: {v:.0f}"
-                              for k, v in sorted(s["cap_len"].items())) + "}")
+        _print_caps(s)
+
+
+def _print_caps(s, indent="           "):
+    """The route's PHYSICAL length beside its priced budget.
+
+    A budget alone cannot say whether it is under-priced: 24.66 m over
+    1 600 m and 24.66 m over 400 m are different rulings.  The effective
+    grade (budget ÷ plan length) is the number to compare against the
+    caps the route actually crosses, so both are printed together."""
+    if not s.get("cap_len"):
+        return
+    plan = s.get("plan_len_m") or 0.0
+    eff = (s["route_budget_m"] / plan * 100.0) if plan > _EPS else float("nan")
+    print(f"{indent}route plan length {plan:.1f} m; budget "
+          f"{s['route_budget_m']:.4f} m ⇒ effective {eff:.4f}% of run")
+    print(f"{indent}per-cap route length (m): {{"
+          + ", ".join(f"{k}%: {v:.0f}"
+                      for k, v in sorted(s["cap_len"].items())) + "}")
+
+
+def _report_inverted_pairs(layout, captured=None):
+    """Trace the routes behind every CONTRADICTORY ANCHOR PAIR the final
+    band inversion named (``assert_no_final_band_inversion``).
+
+    The error rolls 384 nodes up into three anchor pairs and one route
+    budget each; this reads the SAME recorded field back out as the two
+    routes that priced that budget — which taxi run, how long, at which
+    per-edge caps — so the METRIC / CAP / TOPOLOGY ruling the error asks
+    for can be made on measurements instead of on the summary line.
+
+    IT MUST NOT REBUILD THE BAND.  Solver node ids are valid only inside
+    the ONE ``_build_node_list`` call that assigned them
+    (``_hard_truth_spine_seeds``' canonical-identity note), and the layout
+    keeps growing after the final band pass — a rebuilt provenance is a
+    DIFFERENT NODE SPACE, in which the inversion rows' node ids resolve to
+    nothing (measured: all three HECA canyon pairs, "records no route").
+    So the graph and the provenance are CAPTURED from the build's own
+    recording call and read here; ``captured`` empty is reported, never
+    silently papered over with a rebuild."""
+    rows = list((captured or {}).get("rows")
+                or getattr(layout, "_final_band_inversions", None) or [])
+    if not rows:
+        print("no recorded band inversions on this layout")
+        return
+    G = (captured or {}).get("G")
+    prov = (captured or {}).get("prov")
+    if G is None or not prov:
+        print("!! the build's own band graph/provenance was not captured — "
+              "refusing to rebuild it, because a rebuilt field is a "
+              "different node space and the inversion rows do not resolve "
+              "in it.  Run this on a build (not a stale layout).")
+        return
+    pairs: dict = {}
+    for r in rows:
+        fa, ca = r.get("floor_anchor"), r.get("ceil_anchor")
+        if fa is None or ca is None:
+            continue
+        key = (int(fa), int(ca))
+        cur = pairs.get(key)
+        if cur is None or r["deficit_m"] > cur["worst"]["deficit_m"]:
+            pairs[key] = {"n": pairs.get(key, {}).get("n", 0), "worst": r}
+        pairs[key]["n"] = pairs[key].get("n", 0) + 1
+    print(f"CONTRADICTORY ANCHOR PAIR(S): {len(pairs)} over "
+          f"{len(rows)} recorded inverted node(s)")
+    for (fa, ca), rec in sorted(pairs.items(),
+                                key=lambda kv: -kv[1]["worst"]["deficit_m"]):
+        r = rec["worst"]
+        node = r["node"]
+        fv, cv = r.get("floor_anchor_value"), r.get("ceil_anchor_value")
+        fl, cl = r.get("floor_anchor_law"), r.get("ceil_anchor_law")
+        print(f"\n=== pair floor-anchor {fa} vs ceiling-anchor {ca} — "
+              f"{rec['n']} node(s), worst {r['deficit_m']:.4f} m at node "
+              f"{node} @({r['x']:.1f},{r['y']:.1f})")
+        print(f"    values  floor {fv:.4f}  ceiling {cv:.4f}  spread "
+              f"{abs(fv - cv):.4f} m"
+              + ("" if (fl is None or cl is None) else
+                 f"   | LAW halves {fl:.4f} / {cl:.4f} spread "
+                 f"{abs(fl - cl):.4f} m"))
+        print(f"    recorded route split at the node: floor "
+              f"{r['floor_route_m']:.4f} m + ceiling "
+              f"{r['ceil_route_m']:.4f} m = "
+              f"{r['floor_route_m'] + r['ceil_route_m']:.4f} m of budget")
+        sides = _route_sides(G, prov, node)
+        for side in ("floor", "ceiling"):
+            s = sides.get(side)
+            if not s:
+                print(f"    {side.upper():<8} !! the rebuilt field records no "
+                      f"{side} route for node {node} — the trace and the "
+                      f"build's own field disagree; do not equate them")
+                continue
+            recorded = (r["floor_route_m"] if side == "floor"
+                        else r["ceil_route_m"])
+            drift = s["route_budget_m"] - recorded
+            ap = s["anchor_pos"]
+            print(f"    {side.upper():<8} anchor {s['anchor']} "
+                  f"({_runway_at(layout, ap)})"
+                  + (f" @({ap[0]:.0f},{ap[1]:.0f})" if ap else "")
+                  + f" value {s['anchor_value']:.4f}, budget "
+                    f"{s['route_budget_m']:.4f} m over "
+                    f"{len(s['path_nodes'])} node(s)"
+                  + ("" if s["path_complete"] else "  [PATH INCOMPLETE]")
+                  + ("" if abs(drift) <= 1e-4 else
+                     f"  [BUDGET DRIFT vs the build's own field "
+                     f"{drift:+.4f} m — different frames, do not equate]"))
+            _print_caps(s, indent="             ")
 
 
 def _kml(layout, r, x, y, label, out_path):
@@ -335,36 +487,120 @@ def _kml(layout, r, x, y, label, out_path):
     print(f"wrote {out_path}")
 
 
+def _build(icao, const_dem=None):
+    """The layout to trace — REAL DEM by default, a CONSTANT-DEM world with
+    ``--dem`` (RULINGS: the flat oracle worlds; real DEM is gated on
+    flat-green, so the canyon/plateau trace must not need a real-DEM build).
+
+    ``ConstantDEM`` is imported from ``auto_patch.constant_dem`` — the SAME
+    object ``harness/build_airport.py --dem`` installs, never a second
+    constant-DEM implementation.
+
+    Returns ``(layout, band_error, captured)``.  A ``BandInversionError`` is
+    the very thing this tool exists to attribute, so the build's own layout
+    is CAPTURED as the assertion runs and handed back with the error rather
+    than lost with the traceback.  ``captured`` additionally holds the band
+    graph, the anchor provenance and the inversion rows AS THE BUILD
+    RECORDED THEM — one node space, the assert's own — because rebuilding
+    any of the three post-build lands in a different one.  Production is
+    untouched: both shims call straight through and only read."""
+    from conftest import xplane_root
+    from auto_patch.pipeline import build_airport_pavement
+    from auto_patch.elevation_per_surface import building_feasibility as BF
+
+    kw = {"compute_elevations": True}
+    if const_dem is not None:
+        from auto_patch.constant_dem import ConstantDEM
+        kw["tile_dem"] = ConstantDEM(float(const_dem))
+        print(f"[trace] CONSTANT-DEM world: {float(const_dem):g} m")
+
+    seen: dict = {}
+    real_assert = BF.assert_no_final_band_inversion
+    real_record = BF._record_band_inversions
+
+    def _capturing_assert(layout, icao="", *a, **k):
+        seen["layout"] = layout
+        return real_assert(layout, icao, *a, **k)
+
+    def _capturing_record(layout, G, *a, **k):
+        # LAST CALL WINS — exactly the rule the assertion reads by.
+        out = real_record(layout, G, *a, **k)
+        prov = getattr(layout, "_band_anchor_provenance", None) or {}
+        seen["G"] = G
+        seen["prov"] = {"anchor_value": dict(prov.get("anchor_value") or {}),
+                        "ceiling": dict(prov.get("ceiling") or {}),
+                        "floor": dict(prov.get("floor") or {})}
+        seen["rows"] = list(getattr(layout, "_final_band_inversions", None)
+                            or [])
+        return out
+
+    BF.assert_no_final_band_inversion = _capturing_assert
+    BF._record_band_inversions = _capturing_record
+    try:
+        layout = build_airport_pavement(icao, xplane_root(), **kw)
+        return layout, None, seen
+    except BF.BandInversionError as exc:
+        if "layout" not in seen:
+            raise
+        print("[trace] the build FAILED its final band-inversion law; "
+              "tracing the layout it failed on.\n")
+        return seen["layout"], exc, seen
+    finally:
+        BF.assert_no_final_band_inversion = real_assert
+        BF._record_band_inversions = real_record
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("icao")
     ap.add_argument("--ref", help="shape ref (e.g. building5)")
-    ap.add_argument("--coord", help="local meters 'x,y'")
+    ap.add_argument("--coord", action="append", default=[],
+                    help="local meters 'x,y' (repeatable — one build, many "
+                         "traces)")
+    ap.add_argument("--dem", type=float,
+                    help="trace in a CONSTANT-DEM world of this elevation "
+                         "(the oracle worlds; same ConstantDEM the harness "
+                         "build entry installs)")
+    ap.add_argument("--inverted-pairs", action="store_true",
+                    help="trace the routes behind every contradictory anchor "
+                         "pair the FINAL BAND INVERSION named (works on a "
+                         "build that failed that law)")
     ap.add_argument("--out", default="/tmp/reach_route.kml")
     args = ap.parse_args()
 
-    from conftest import xplane_root
-    from auto_patch.pipeline import build_airport_pavement
-    layout = build_airport_pavement(args.icao, xplane_root(),
-                                    compute_elevations=True)
+    layout, band_err, captured = _build(args.icao, args.dem)
 
-    if args.coord:
-        x, y = (float(v) for v in args.coord.split(","))
-    elif args.ref:
+    if args.inverted_pairs:
+        _report_inverted_pairs(layout, captured)
+        if not args.coord and not args.ref:
+            return 0
+
+    targets = []
+    for c in args.coord:
+        x, y = (float(v) for v in c.split(","))
+        targets.append((x, y, c))
+    if args.ref:
         s = next((s for s in layout.shapes if str(s.ref) == args.ref), None)
         if s is None or s.polygon is None:
             sys.exit(f"ref {args.ref} not found / no polygon")
-        x, y = s.polygon.centroid.x, s.polygon.centroid.y
-    else:
-        sys.exit("give --ref or --coord")
+        targets.append((s.polygon.centroid.x, s.polygon.centroid.y, args.ref))
+    if not targets and not args.inverted_pairs:
+        sys.exit("give --ref, --coord or --inverted-pairs")
 
-    r = _binding_route(layout, x, y)
-    _report(r, x, y)
-    _kml(layout, r, x, y, args.ref or args.coord, args.out)
+    rc = 0
+    for i, (x, y, label) in enumerate(targets):
+        r = _binding_route(layout, x, y)
+        _report(r, x, y)
+        out = (args.out if len(targets) == 1
+               else args.out.replace(".kml", f".{i}.kml"))
+        _kml(layout, r, x, y, label, out)
+        if r.get("error"):
+            rc = 1
     # EXIT CODE IS ABOUT THE TOOL, NOT THE POINT.  An off-net point is an
     # ANSWER ("the local within-shape law governs it"), not a failure — the
     # old tool exited 1 on it and that is what made it read as a refusal.
-    return 0 if not r.get("error") else 1
+    # A build that failed the band law is likewise an ANSWER here.
+    return rc
 
 
 if __name__ == "__main__":

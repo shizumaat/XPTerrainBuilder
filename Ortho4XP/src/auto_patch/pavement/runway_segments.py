@@ -1384,6 +1384,21 @@ def generate_patch_osm(icao, runway_pairs, runway_widths=None, tile=None,
 
             # For each sample point, compute lat/lon and seed elevation
             sample_pts = []  # [(lat, lon, seeded_elev, is_anchored), ...]
+            # ── THE WORLD-INVARIANT PINS (cycle-5 canyon-flex spec, fix 1)
+            # ``cifp_pins`` = [(fraction, elev)] for the stations whose
+            # value is the CIFP threshold elevation itself (or the
+            # physical end derived from it through the threshold grade).
+            # These are the ONLY stations on a runway profile whose value
+            # is world-invariant by construction: they come from
+            # apt.dat / CIFP and never from the DEM, a seam sample, a
+            # crossing partner's surface or a flex move.  Everything else
+            # anchored on the profile is world-DEPENDENT content, which is
+            # exactly how "the CIFP thresholds themselves do not reach
+            # each other" came to be printed for a spread measured 5.31 m
+            # DEM-driven (c5tip report, Job 2).  The band-inversion
+            # reader consumes these to compute the CIFP-FORCED spread and
+            # may blame CIFP only when that alone exceeds the budget.
+            cifp_pins: list = []
             for frac in fractions:
                 s_lat = phys_end_a[0] + frac * (phys_end_b[0] - phys_end_a[0])
                 s_lon = phys_end_a[1] + frac * (phys_end_b[1] - phys_end_a[1])
@@ -1394,27 +1409,33 @@ def generate_patch_osm(icao, runway_pairs, runway_widths=None, tile=None,
                 if displaced_a > 0:
                     if abs(dist_from_a - displaced_a) < 1.0:
                         sample_pts.append((s_lat, s_lon, elev_a, True))
+                        cifp_pins.append((float(frac), float(elev_a)))
                         continue
                 else:
                     if frac < 0.001:
                         sample_pts.append((s_lat, s_lon, elev_phys_a, True))
+                        cifp_pins.append((float(frac), float(elev_phys_a)))
                         continue
 
                 if displaced_b > 0:
                     if abs(dist_from_a - (phys_dist - displaced_b)) < 1.0:
                         sample_pts.append((s_lat, s_lon, elev_b, True))
+                        cifp_pins.append((float(frac), float(elev_b)))
                         continue
                 else:
                     if frac > 0.999:
                         sample_pts.append((s_lat, s_lon, elev_phys_b, True))
+                        cifp_pins.append((float(frac), float(elev_phys_b)))
                         continue
 
                 # Physical ends are anchored
                 if frac < 0.001:
                     sample_pts.append((s_lat, s_lon, elev_phys_a, True))
+                    cifp_pins.append((float(frac), float(elev_phys_a)))
                     continue
                 if frac > 0.999:
                     sample_pts.append((s_lat, s_lon, elev_phys_b, True))
+                    cifp_pins.append((float(frac), float(elev_phys_b)))
                     continue
 
                 # Interior point: use DEM if available, else interpolate
@@ -1744,6 +1765,13 @@ def generate_patch_osm(icao, runway_pairs, runway_widths=None, tile=None,
                 'fractions': list(fractions),
                 'elevs': list(elevs),
                 'anchored': list(anchored),
+                # THE WORLD-INVARIANT PINS (cycle-5 fix 1): CIFP threshold
+                # elevations and the physical ends derived from them.  A
+                # seam shift may later MOVE the threshold samples in
+                # ``elevs`` (owner seam ruling) — that shift is DEM-driven,
+                # so these keep the pre-shift CIFP truth and stay the
+                # world-invariant half.
+                'cifp_pins': list(cifp_pins),
                 # THE RUNWAY'S OWN LONGITUDINAL LAW, CARRIED (debug lane
                 # A 2026-08-05).  ``runway_redistribute`` folds the seam
                 # DEM anchors back in and the flex re-solves; both used

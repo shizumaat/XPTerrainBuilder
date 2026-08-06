@@ -278,32 +278,24 @@ def test_the_flex_provenance_no_longer_changes_the_law_line():
             == _anchor_law_values(plain, G_p, {0: 94.0}))
 
 
-def test_a_shortfall_the_ride_created_is_named_as_ride():
-    """LAW alone is feasible (10 m spread, 8 m + margin of budget); the
-    ride is what inverts the band.  The message must say so."""
-    layout, G = _profiled_case(6.0, 6.0, ride_a=-6.0)   # 12 m of budget
-    spine_value_fields(layout, G)
-    message = str(pytest.raises(
-        BandInversionError,
-        assert_no_final_band_inversion, layout, "TEST").value)
-    assert "LAW half" in message
-    assert "LAW ALONE IS FEASIBLE" in message
-    assert "SEED, never an" in message
-    assert "METRIC / CAP / TOPOLOGY" not in message
-
-
-def test_a_shortfall_that_survives_the_ride_is_named_as_law():
-    """Zero ride, and the anchors still contradict through the route: this
-    is the class that needs a ruling, and the message must not let it be
-    read as a DEM artefact."""
+def test_the_law_line_half_is_reported_without_a_verdict():
+    """The LAW-LINE half (anchored ∪ flex-applied) is still REPORTED — it
+    is what the cycle-4 ruling defines — but it is world-DEPENDENT, so it
+    may no longer carry the CIFP verdict.  Cycle-5 fix 1: the sentence
+    "the CIFP thresholds themselves do not reach each other" is reserved
+    for the world-INVARIANT half, and a profile carrying no CIFP pins
+    makes no CIFP claim at all."""
     layout, G = _profiled_case(4.0, 4.0)
     spine_value_fields(layout, G)
     message = str(pytest.raises(
         BandInversionError,
         assert_no_final_band_inversion, layout, "TEST").value)
-    assert "LAW half" in message
-    assert "METRIC / CAP / TOPOLOGY" in message
-    assert "law shortfall +2.0000 m" in message
+    assert "LAW-LINE half" in message
+    assert "WORLD-DEPENDENT, no verdict" in message
+    assert "remainder +2.0000 m" in message
+    # no cifp_pins on these synthetic profiles ⇒ no CIFP sentence at all
+    assert "METRIC / CAP / TOPOLOGY" not in message
+    assert "CIFP-FORCED half" not in message
 
 
 def test_the_split_is_report_only():
@@ -324,4 +316,126 @@ def test_no_profiles_means_no_law_line_and_no_crash():
     message = str(pytest.raises(
         BandInversionError,
         assert_no_final_band_inversion, layout, "TEST").value)
-    assert "LAW half" not in message
+    assert "LAW-LINE half" not in message
+    assert "CIFP-FORCED half" not in message
+
+
+# ── (g) THE WORLD-INVARIANT HALF (cycle-5 canyon-flex spec, fix 1) ───────
+#
+# The (d) defect this pins: the band error blamed the CIFP thresholds —
+# "the CIFP thresholds themselves do not reach each other within this
+# route budget … the DEM cannot be blamed" — for a HECA anchor pair whose
+# floor anchor is measurably 5.31 m higher in the DEM ≡ 10,000 m world
+# than at the identical plan station in the DEM ≡ 1 m world, where the
+# same pair carries 3.13 m of SLACK on IDENTICAL CIFP thresholds (c5tip
+# report, Job 2).  The leak channel: the "law line" that verdict was
+# computed on is anchored ∪ flex-applied, and flex-applied targets, seam
+# anchors and crossing anchors are all world-dependent.
+#
+# The fix separates the two halves.  Only the CIFP-FORCED spread — CIFP
+# threshold elevations + station geometry + the runway's own law caps,
+# every term world-invariant — may carry a CIFP verdict.
+
+def _cifp_case(anchor_a, anchor_b, budget_a, budget_b, pins_a, pins_b,
+               *, axis_len=1000.0, station=0.5):
+    """Two anchors, each a station on its own runway profile, with CIFP
+    pins on both.  ``station`` is the axis fraction both anchors sit at;
+    the profiles' emitted arrays are deliberately DIFFERENT from the pins
+    (that is what world-dependent seating IS)."""
+    anchors = {0: anchor_a, 1: anchor_b}
+    adj = {0: [(2, budget_a)], 1: [(2, budget_b)],
+           2: [(0, budget_a), (1, budget_b)]}
+    y = station * axis_len
+    pos = {0: (0.0, y), 1: (500.0, y), 2: (250.0, y)}
+    layout = _FakeLayout()
+    G = _FakeG(anchors, adj, pos)
+
+    def _p(x0, pins, value):
+        return {"axis_a": (x0, 0.0), "axis_d": (0.0, axis_len),
+                "axis_len2": axis_len * axis_len, "half_width_m": 25.0,
+                "fractions": [0.0, station, 1.0],
+                "elevs": [pins[0][1], value, pins[-1][1]],
+                "anchored": [True, True, True],
+                "flex_minted": [False, True, False],
+                "cifp_pins": list(pins)}
+    layout._runway_redistributed_profiles = {
+        "A": _p(0.0, pins_a, anchor_a),
+        "B": _p(500.0, pins_b, anchor_b),
+    }
+    return layout, G
+
+
+def test_cifp_is_not_blamed_when_the_pins_do_not_force_the_spread():
+    """THE REVERSED VERDICT.  The emitted anchors are 10 m apart over 8 m
+    of route budget — inverted — but each sits mid-runway where its CIFP
+    pins allow ±5.75 m, so a lawful pair of profiles closes this route
+    with room to spare.  The message must say CIFP does NOT force it and
+    must NOT print the metric/cap/topology sentence."""
+    layout, G = _cifp_case(100.0, 110.0, 4.0, 4.0,
+                           pins_a=[(0.0, 100.0), (1.0, 100.0)],
+                           pins_b=[(0.0, 100.0), (1.0, 100.0)])
+    spine_value_fields(layout, G)
+    message = str(pytest.raises(
+        BandInversionError,
+        assert_no_final_band_inversion, layout, "TEST").value)
+    assert "CIFP-FORCED half (WORLD-INVARIANT)" in message
+    assert "CIFP DOES NOT FORCE THIS" in message
+    assert "verdict (a) BUG" in message
+    assert "METRIC / CAP / TOPOLOGY" not in message
+
+
+def test_cifp_is_blamed_only_when_the_pins_alone_exceed_the_budget():
+    """The other side of the same law: pins 30 m apart at the very
+    stations the anchors sit on (the anchors are AT t=0, so the envelope
+    is the pin itself) over 8 m of budget.  Now the thresholds really do
+    not reach each other and the sentence is owed."""
+    layout, G = _cifp_case(100.0, 130.0, 4.0, 4.0,
+                           pins_a=[(0.0, 100.0), (1.0, 100.0)],
+                           pins_b=[(0.0, 130.0), (1.0, 130.0)],
+                           station=0.0)
+    spine_value_fields(layout, G)
+    message = str(pytest.raises(
+        BandInversionError,
+        assert_no_final_band_inversion, layout, "TEST").value)
+    assert "CIFP-FORCED half (WORLD-INVARIANT)" in message
+    assert "METRIC / CAP / TOPOLOGY" in message
+    assert "CIFP shortfall +22.0000 m" in message
+
+
+def test_the_cifp_forced_envelope_is_IDENTICAL_IN_BOTH_WORLDS():
+    """THE TWO-WORLD TWIN.  Same geometry, same CIFP pins, two worlds:
+    the plateau seats the anchors low and leaves the profile un-flexed;
+    the canyon seats them 5.31 m / 1.37 m higher (the measured HECA
+    differential) and carries flex-applied stations.  Everything the
+    world touches moves — the anchor values, the emitted arrays, the
+    law line — and the CIFP-forced envelope must not move at all."""
+    from auto_patch.elevation_per_surface.building_feasibility import (
+        _anchor_cifp_envelopes, _anchor_law_values)
+    pins_a = [(0.0, 100.0), (1.0, 100.0)]
+    pins_b = [(0.0, 100.0), (1.0, 100.0)]
+    plateau, G_p = _cifp_case(100.0, 110.0, 4.0, 4.0, pins_a, pins_b)
+    canyon, G_c = _cifp_case(105.31, 111.37, 4.0, 4.0, pins_a, pins_b)
+    env_p = _anchor_cifp_envelopes(plateau, G_p, {0: 100.0, 1: 110.0})
+    env_c = _anchor_cifp_envelopes(canyon, G_c, {0: 105.31, 1: 111.37})
+    assert env_p and env_c
+    assert env_p == env_c, (
+        "the CIFP-forced envelope is a function of the CIFP pins, the "
+        "station geometry and the runway's own law caps — none of which "
+        "the DEM world can touch")
+    # …and the control: the LAW LINE, which the cycle-4 ruling defines as
+    # anchored ∪ flex-applied, DOES move between the two worlds.  That is
+    # exactly why it may not carry the CIFP verdict.
+    law_p = _anchor_law_values(plateau, G_p, {0: 100.0, 1: 110.0})
+    law_c = _anchor_law_values(canyon, G_c, {0: 105.31, 1: 111.37})
+    assert law_p != law_c
+    assert law_c[0] - law_p[0] == pytest.approx(5.31)
+
+
+def test_the_cifp_half_is_report_only():
+    """Adding the world-invariant reader must not move either field."""
+    pins = [(0.0, 100.0), (1.0, 100.0)]
+    bare, G_b = _two_anchor_case(4.0, 4.0)
+    ceil_b, floor_b = spine_value_fields(bare, G_b)
+    cifp, G_c = _cifp_case(100.0, 110.0, 4.0, 4.0, pins, pins)
+    ceil_c, floor_c = spine_value_fields(cifp, G_c)
+    assert ceil_b == ceil_c and floor_b == floor_c

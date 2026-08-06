@@ -86,7 +86,7 @@ module-level work — they are libraries and are safe to import.
 | `interval_reach_replay.py` | Replays `feasibility_project` from an `O4_DUMP_SOLVE_STATE` pickle — the gates-ON spine build that exhausts its 2400-iteration budget at ~27.7 M visits |
 | `skirt_value_replay.py` | Replays only `to_osm` + the runway-end skirt edge-grade check from a pickled layout: the *values* are decided in `to_osm`, not in the 3-minute solve |
 | `spine_coverage.py` | Fraction of aircraft-centerline length carrying a real spine node, using the solver's own `_spine_membership` rule |
-| `trace_reach_route.py` | Which runway, via which spine, binds a point's reachable ceiling/floor — replays the exact band computation and emits the route as KML |
+| `trace_reach_route.py` | Which runway ANCHOR and which route bind a point's reachable ceiling/floor — READS the live band (never a replay; the replayed engine was deleted 2026-07-29) and emits the route as KML. `--dem M` traces in a constant-DEM oracle world; `--inverted-pairs` traces the anchor pairs a final band inversion named, including on a build that died on that law |
 | `trace_building_frontage.py` | Why a building's flat seat landed where it did: whole-ring median ceiling vs what its taxi-facing frontage can reach (the CYXY A2 apron cliff) |
 | `probe_default_terrain.py` | Reconnaissance over X-Plane default Global Scenery: terrain-library namespace, non-projected land terrains, water terrain paths — the format basis for the texture-mode work |
 | `mesh_region_tris.py` | Total built-mesh triangle count and how many fall inside the airport bbox — the number X-Plane load time actually tracks, not the patch's node count |

@@ -630,3 +630,38 @@ Binding:
 5. The STANDING-INSTRUMENT SWEEP: every existing instrument is
    audited against 1-4 once, as its own round; an instrument that
    cannot be calibrated is retired, not trusted.
+
+## 2026-08-06 — The low extreme is −500 m (owner)
+
+Owner: to effectively exercise the intention of the extreme low DEM,
+the low synthetic world is DEM ≡ −500 m — no particular need for zero,
+negative is better. Supersedes the "DEM ≡ 0" letter of the constant-DEM
+invariant; the 10,000 m high world stands. Below every CIFP value, so
+floor-seating is guaranteed everywhere, and below-sea-level handling is
+exercised for free. The DEM≡1 m interim was an unruled loader-guard
+dodge and is RETIRED with the synthetic constant-DEM path; the low
+frame re-mints at −500 at a cycle boundary.
+
+## 2026-08-06 — Frontage coupling ⇒ band seating (owner)
+
+Owner, on the detached-pad 2-cycle, verbatim intent: "A building close
+enough to have frontage and be coupled with the apron has to be seated
+based on the route graph that allows the apron to grade smoothly to
+its frontage within the apron's grade law."
+
+Binding:
+1. A building coupled to airside by frontage — TOUCHING or NEAR-MISS —
+   is seated FROM the route-graph band via its frontage chord: the
+   seat is an in-band value such that the frontage chord grades within
+   the apron's law; DEM chooses WHERE within that lawful range (seed,
+   never bound). No DEM-datum value may be a bound on any
+   frontage-coupled node.
+2. Band-withholding keys on FRONTAGE COUPLING, not touch. Only a
+   building with NO frontage coupling is a pure groundside citizen —
+   seats at DEM, terraces freely, affects nothing airside.
+3. The gap this closes is named for the future: the near-miss frontage
+   law minted the constraint EDGE without extending the SEAT
+   derivation — a law half-landed. A coupling law and its seating
+   authority land TOGETHER henceforth (lockstep extends to seating).
+4. The split-level sectioned-seat form remains the relief for large
+   intra-footprint relief (unchanged).

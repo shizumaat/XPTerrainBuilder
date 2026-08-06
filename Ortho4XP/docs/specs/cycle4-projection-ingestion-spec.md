@@ -1,7 +1,24 @@
 # Cycle 4 — final_grade_projection ingests the solve's law (target #1)
 
-**Status: BINDING** (cycle-4 target #1, checkpoint ab00777 — ranked
-first; lane/fix3b's merge waits on it). Mode: BUILD-COMPLETE-THEN-DEBUG.
+**Status: LANDED IN MODIFIED FORM** (lane/c4proj `258bf28`/`3a80dce`/
+`50ff4a1`, merged 2026-08-05). **The round's premise is FALSIFIED by
+intervention:** the projection ABSORBS the HECA plateau row mass rather
+than minting it — hold-untouched arms censused 48,432/38,681 vs the
+24,258 re-projection control, because the ONE SOLVE itself exits
+UNCERTIFIED (63,898 active violating edges, worst residual 96.79 m,
+"the polytope is EMPTY"). Requirement 2 (idempotence) therefore closes
+at the SOLVE (no-lawful-infeasible: an empty polytope is a law/solver/
+instrument defect), not at this pass — the hold landed REPORT-ONLY as a
+ledger. What landed and stands: the carried law context
+(solved_values / building_seats / gs_witness by canonical identity),
+the near-miss frontage law (closed — and it exposed a lockstep gap:
+generation-binding law with NO census family, so enforcing it reads as
+HECA +498), counted terrace/fan appliers (the fan rail verified: a
+handed 5% cap reaches both edge sets), `who_wrote --author`, and the
+ENTRY/EXIT law certificate. The solve's uncertified surface is the
+successor target (see the checkpoint).
+
+Mode: BUILD-COMPLETE-THEN-DEBUG.
 
 ## The defect (attributed, both fix-3 lanes)
 

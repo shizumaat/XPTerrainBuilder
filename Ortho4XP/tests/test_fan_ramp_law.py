@@ -435,6 +435,59 @@ def test_a_zone_that_could_only_be_a_HOLE_is_stillborn_and_DROPPED():
     assert apron.polygon.area == pytest.approx(400.0 * 300.0)
 
 
+def test_no_ramp_piece_OVERLAPS_any_other_piece():
+    """ZERO-TOLERANCE, and it caught a real defect.
+
+    The first cut of the split subtracted each zone component from a
+    single HOST panel found by representative point.  Panels PARTITION
+    the apron, so a component an earlier cut had divided across two of
+    them kept its other half inside a sibling — while still being
+    emitted as a ramp piece.  The two shapes then overlapped, which put
+    one coordinate pair under two different caps: measured, SPJC 0.9477
+    m² of apron∩apron (``test_no_self_overlap``) and 190/12 877 CYXY
+    edges where the solver priced 1 % and the validator 5 %
+    (``test_solver_validator_same_edge_budgets``) — a lockstep break of
+    exactly the kind this law exists to prevent.
+    """
+    layout, _apron, _plan, _n = _split_fixture()
+    pieces = [s for s in layout.shapes if s.role == "apron"]
+    assert len(pieces) >= 2
+    for i in range(len(pieces)):
+        for j in range(i + 1, len(pieces)):
+            inter = pieces[i].polygon.intersection(pieces[j].polygon)
+            assert inter.area < 1e-9, (
+                f"apron pieces overlap by {inter.area:.4f} m² "
+                f"(ramp={getattr(pieces[i], 'fan_ramp_zone', False)}/"
+                f"{getattr(pieces[j], 'fan_ramp_zone', False)})")
+
+
+def test_a_component_SPANNING_two_panels_still_leaves_both():
+    """The exact geometry the host-only cut got wrong: a zone component
+    that straddles ground two earlier components already divided."""
+    apron = _rect(0.0, 0.0, 300.0, 100.0, "apron", "a")
+    layout = _Layout([apron])
+    plan = AT.FanRampPlan()
+    # A first component that cuts the apron in two, then a second that
+    # spans the cut — it belongs to NEITHER resulting panel alone.
+    first = Polygon([(140.0, 0.0), (160.0, 0.0), (160.0, 100.0),
+                     (140.0, 100.0)])
+    second = Polygon([(100.0, 0.0), (200.0, 0.0), (200.0, 30.0),
+                      (100.0, 30.0)])
+    for g in (first, second):
+        plan.add(id(apron), {"shape_id": id(apron), "polygon": g,
+                             "cap": GROUNDSIDE_MAX_GRADE, "buildings": 2,
+                             "area_m2": g.area})
+    AT.split_aprons_at_fan_zones(layout, plan, icao="TEST")
+    pieces = [s for s in layout.shapes if s.role == "apron"]
+    total = sum(s.polygon.area for s in pieces)
+    assert total == pytest.approx(300.0 * 100.0, rel=1e-9), (
+        "the cut lost or duplicated pavement")
+    for i in range(len(pieces)):
+        for j in range(i + 1, len(pieces)):
+            assert pieces[i].polygon.intersection(
+                pieces[j].polygon).area < 1e-9
+
+
 def test_the_declaration_is_what_was_BUILT():
     """One declaration, and it names the pieces that exist: every zone
     the sidecar publishes has a shape, and every ramp shape a zone."""

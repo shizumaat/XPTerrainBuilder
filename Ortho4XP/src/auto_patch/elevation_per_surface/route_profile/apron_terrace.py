@@ -2700,6 +2700,10 @@ def _fan_pair_reach(pad_a, pad_b, depth: float):
     return grown.intersection(Polygon(corners))
 
 
+class _FanHole(Exception):
+    """A fan-zone cut that could only be expressed as an interior ring."""
+
+
 def split_aprons_at_fan_zones(layout, plan: Optional[FanRampPlan],
                               icao: str = "") -> int:
     """PRE-SOLVE PANELIZATION AT THE FAN-ZONE BOUNDARY.  Returns the
@@ -2796,39 +2800,96 @@ def split_aprons_at_fan_zones(layout, plan: Optional[FanRampPlan],
             if len(comp.interiors):
                 st["zones_stillborn_hole"] += 1
                 continue
-            host = None
+            # SUBTRACT FROM EVERY PANEL, NOT FROM A "HOST".  The panels
+            # PARTITION the apron, and a component need not sit inside
+            # any one of them — an earlier cut can have divided the
+            # ground this one spans.  Taking a single host by
+            # representative point and differencing only that leaves the
+            # component's other part inside a sibling panel WHILE the
+            # component is also emitted as a ramp piece: the two shapes
+            # then OVERLAP, which is a zero-tolerance defect
+            # (``test_no_self_overlap``) and puts one coordinate pair
+            # under two different caps — measured, SPJC 0.9477 m² of
+            # apron∩apron and 190/12 877 CYXY edges where the solver
+            # priced 1 % and the validator 5 %.  Differencing every panel
+            # cannot do that: the ramp's ground leaves the remainder
+            # wherever it was.
             try:
-                probe = comp.representative_point()
+                trial = []
+                touched = False
+                for p in panels:
+                    if not p.intersects(comp):
+                        trial.append(p)
+                        continue
+                    d = p.difference(comp)
+                    if d.is_empty:
+                        touched = True
+                        continue
+                    parts = ([d] if d.geom_type == "Polygon"
+                             else [g for g in getattr(d, "geoms", ())
+                                   if g.geom_type == "Polygon"
+                                   and not g.is_empty])
+                    if any(len(g.interiors) for g in parts):
+                        raise _FanHole()
+                    touched = True
+                    trial.extend(parts)
+            except _FanHole:
+                # Would punch an interior ring: stillborn, exactly like
+                # an unfaceable terrace joint.  Every shape here is
+                # simply connected.
+                st["zones_stillborn_hole"] += 1
+                continue
             except _GEOM_EXC:                              # pragma: no cover
                 st["zones_stillborn_hole"] += 1
                 continue
-            for p in panels:
-                try:
-                    if p.contains(probe):
-                        host = p
-                        break
-                except _GEOM_EXC:                          # pragma: no cover
-                    continue
-            if host is None:
+            if not trial or not touched:
                 st["zones_stillborn_hole"] += 1
                 continue
-            try:
-                rest = host.difference(comp)
-            except _GEOM_EXC:                              # pragma: no cover
-                st["zones_stillborn_hole"] += 1
-                continue
-            pieces = ([rest] if rest.geom_type == "Polygon"
-                      else [g for g in getattr(rest, "geoms", ())
-                            if g.geom_type == "Polygon" and not g.is_empty])
-            if not pieces or any(len(g.interiors) for g in pieces):
-                # Would punch an interior ring (or consume the apron):
-                # stillborn, exactly like an unfaceable terrace joint.
-                st["zones_stillborn_hole"] += 1
-                continue
-            panels = [p for p in panels if p is not host] + pieces
+            panels = trial
             survivors.append(comp)
         if not survivors:
             continue
+        # ── THE RAMP IS THE GROUND THE CUT ACTUALLY REMOVED ─────────
+        # Not the component that asked for it.  Same reasoning the wall
+        # band already carries here ("THE RESERVATION IS THE GROUND THE
+        # SPLIT ACTUALLY REMOVED"), and it is not bookkeeping: the
+        # component came out of a union of overlapping per-pair zones,
+        # and shapely's union/difference do not round-trip exactly, so
+        # ``comp`` and ``apron − panels`` differ by slivers.  Emitting
+        # ``comp`` put those slivers in the ramp piece AND in a
+        # remainder panel — measured at SPJC as 0.9477 / 0.1181 /
+        # 0.0001 m² of apron∩apron, a zero-tolerance defect, and as 190
+        # CYXY edges priced 1 % by the solver and 5 % by the validator.
+        # Defined as the difference, ``ramp ∪ panels == apron`` and
+        # ``ramp ∩ panels == ∅`` BY CONSTRUCTION, whatever shapely did.
+        try:
+            removed = poly.difference(unary_union(panels))
+        except _GEOM_EXC:                                  # pragma: no cover
+            continue
+        ramp_pieces = ([removed] if removed.geom_type == "Polygon"
+                       else [g for g in getattr(removed, "geoms", ())
+                             if g.geom_type == "Polygon" and not g.is_empty])
+        ramp_pieces = [g for g in ramp_pieces
+                       if g.area >= _FAN_MIN_AREA_M2 and not g.interiors]
+        if not ramp_pieces:
+            # Nothing survived as real ground: put the apron back rather
+            # than ship a cut that removed only slivers.
+            st["zones_stillborn_hole"] += len(survivors)
+            continue
+        # Whatever the sliver filter dropped stays with the REMAINDER,
+        # so no pavement is lost: re-derive the panels from the pieces
+        # that will actually ship.
+        try:
+            rest = poly.difference(unary_union(ramp_pieces))
+        except _GEOM_EXC:                                  # pragma: no cover
+            continue
+        panels = ([rest] if rest.geom_type == "Polygon"
+                  else [g for g in getattr(rest, "geoms", ())
+                        if g.geom_type == "Polygon" and not g.is_empty])
+        if not panels:
+            st["zones_stillborn_hole"] += len(survivors)
+            continue
+        survivors = ramp_pieces
         panels.sort(key=lambda p: -p.area)
         # THE APRON KEEPS ITS IDENTITY as the largest remainder panel —
         # everything that captured this shape earlier in the pipeline

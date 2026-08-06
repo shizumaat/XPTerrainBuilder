@@ -4034,6 +4034,82 @@ def solve_route_profile(layout, icao: str,
         _elev_emit = elev
     n_terms, n_rects, n_juncs = _writeback(layout, _elev_emit,
                                            bucket_to_idx)
+    # ── THE CARRIED LAW CONTEXT (cycle-4 ingestion spec requirement 1:
+    # "one law, one source") ────────────────────────────────────────
+    # Every law input ``final_grade_projection`` needs is captured HERE,
+    # ONCE, at the moment the one solve publishes its surface, and keyed
+    # by CANONICAL POINT ID — the node identity audited stable across
+    # every post-solve pass.  Never by node index (the rod-key lesson),
+    # never re-derived downstream from raw shapes and roles where the
+    # re-derivation can disagree with what the solve was handed.
+    #
+    #   ``solved_values``  — the field this solve published, in EMITTED
+    #     (uncrowned) space, exactly as ``_writeback`` stamped it.  It is
+    #     what makes the projection's idempotence requirement decidable:
+    #     a node whose seed still equals its solved value, and whose key
+    #     the solve already had, was touched by nothing and must exit the
+    #     projection where the solve left it.
+    #   ``building_seats`` — the seats the near-miss frontage law is
+    #     built from.  The projection cannot re-derive them (they are a
+    #     solve-phase artifact), which is exactly why that law family was
+    #     missing from its edge set.
+    #   ``gs_witness``     — the groundside route pins whose feasibility-
+    #     witness role the owner's ruling bounds.  The projection used to
+    #     re-derive a DIFFERENT population by geometric proximity.
+    # EVERY key of an index, not one per index: two canonical keys can
+    # alias to one solve-time variable and split again in a rebuilt node
+    # space, and a key that did not travel is a node the projection would
+    # read as NEW — i.e. silently outside the hold.  Coverage is the whole
+    # point of the carry.
+    _keys_of: dict = {}
+    for _ck, _ci in bucket_to_idx.items():
+        if _ci < n:
+            _keys_of.setdefault(_ci, []).append(_ck)
+    _law_store = _store_of(layout)
+    # THE PUBLISHED SURFACE IS READ BACK THROUGH THE PROJECTION'S OWN
+    # READER, not copied out of ``elev``.  Two reasons, both measured:
+    #   * ``_writeback`` stamps PAVEMENT roles only, so ``elev`` still
+    #     holds the untouched DEM SEED at every node the solve did not
+    #     value — carrying those would claim a solved value the solve
+    #     never published (measured HEAZ, plateau: 36,828 of 40,284
+    #     nodes carried 1.00 m against a layout holding 79.30 m).
+    #   * identical readback semantics are what make the comparison
+    #     downstream exact: same function, same node space, no dem —
+    #     the rule ``_capture_projection_snapshot`` already follows.
+    # ``readonly=True`` forbids minting canonical points; the four
+    # attributes the seeder publishes are snapshotted and restored,
+    # since this call is a MEASUREMENT of the solve's own node space and
+    # must not republish anything in it.
+    _pub_names = ("_seam_pin_idx", "_seam_pin_ll", "_seam_pin_residuals",
+                  "_eat_anchor_pin_idx")
+    _pub_saved = {_pn: getattr(layout, _pn, None) for _pn in _pub_names}
+    try:
+        _published, _, _ = _seed_elevations(layout, nodes, bucket_to_idx,
+                                            readonly=True)
+    finally:
+        for _pn, _pv in _pub_saved.items():
+            if _pv is None:
+                if hasattr(layout, _pn):
+                    try:
+                        delattr(layout, _pn)
+                    except AttributeError:             # pragma: no cover
+                        pass
+            else:
+                setattr(layout, _pn, _pv)
+    _law_store.mint(
+        "solved_values", "scalar",
+        {_ck: float(_published[_ci])
+         for _ci, _cks in _keys_of.items() for _ck in _cks},
+        replace=True)
+    _law_store.mint(
+        "building_seats", "scalar",
+        {_ck: float(_lv) for _i, _lv in building_seats.items()
+         if _lv is not None for _ck in _keys_of.get(_i, ())},
+        replace=True)
+    _law_store.mint(
+        "gs_witness", "keyset",
+        {_ck for _i in (_gs_hard or ()) for _ck in _keys_of.get(_i, ())},
+        replace=True)
     # ── GAP-SPINE writeback (Slice B stage B2, ratified 2026-07-10)
     # WHO WRITES WHAT: the solve writes ONLY the spine nodes — their
     # solved values go into the pre-solve store, which the post-solve
@@ -5226,6 +5302,8 @@ def final_grade_projection(layout, icao: str = "", dem=None,
         PAVEMENT_ROLES, _build_node_list, _build_shape_constraints,
         _runway_node_set, _seed_elevations, _writeback)
     from auto_patch import grade_graph as _GG
+    from auto_patch.config import (
+        POST_SOLVE_IDEMPOTENCE_TOL_M as _IDEMPOTENCE_TOL_M)
     from auto_patch.layout import ROLE_BUILDING
     from .one_solve import feasibility_project
 
@@ -5319,6 +5397,48 @@ def final_grade_projection(layout, icao: str = "", dem=None,
             if _v:
                 _crown_of[_i] = _v
                 elev[_i] = elev[_i] + _v
+    # ── THE POST-SOLVE MUTATION SET (cycle-4 ingestion spec requirement
+    # 2: idempotence on untouched geometry) ────────────────────────────
+    # "A node whose ring geometry and law context did not change after
+    # the solve exits this pass within materiality of its solved value.
+    # The projection's job is the post-solve mutation set, not a
+    # re-solve."  That is decidable HERE, from the carried law context
+    # alone, and in ONE frame (both sides in z′: the seed was crowned in
+    # just above and the carried field is lifted by the same map):
+    #
+    #   * the key is not in ``solved_values``  → a node the solve never
+    #     had: a planarize insert, a T-weld adoption, a merge or a clip
+    #     rebuild.  ITS law pairs are this pass's legitimate job.
+    #   * the seed differs from the solved value → some other post-solve
+    #     pass authored it (band adoption, weld, groundside re-level,
+    #     service DEM-follow).  It is in play too.
+    #   * otherwise → UNTOUCHED.  The solve produced this value under the
+    #     whole law and nothing has moved it since, so this pass HOLDS
+    #     it.  Holding is the structural form of the requirement: not a
+    #     tolerance checked afterwards, but a membership in ``hard`` that
+    #     makes a second-author move impossible.  The mutation set yields
+    #     to the solved surface — new geometry conforms, never the
+    #     reverse (airside-is-king, one node space later).
+    #
+    # No carried field (a layout that never ran the solve — probes,
+    # tests) ⇒ empty hold ⇒ exactly the pre-ingestion behaviour.
+    _carried_solved = _store_of(layout).view_scalar(
+        "solved_values", b2i, n, crown_of=_crown_of)
+    _untouched_hold: set = set()
+    _mut_new = 0
+    _mut_deltas: list = []
+    if _carried_solved:
+        for _i in range(n):
+            _sv = _carried_solved.get(_i)
+            if _sv is None:
+                _mut_new += 1
+                continue
+            _dv = abs(elev[_i] - _sv)
+            if _dv > _IDEMPOTENCE_TOL_M:
+                _mut_deltas.append((_dv, _sv, elev[_i]))
+            else:
+                _untouched_hold.add(_i)
+    _mut_moved = len(_mut_deltas)
     # ── PROBE A, FINAL-PROJECTION TAIL: THIS PASS'S ENTRY BOUNDARY ──────
     # (spec amendment 2026-08-01.)  Placed AFTER the crown transform in,
     # so the whole tail is read in ONE frame — the uncrowned z′ the law
@@ -5366,6 +5486,13 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # rod-key lesson); the joints themselves are unchanged, which is what
     # makes the two passes one law rather than two.  No plan (gate off) ⇒
     # a single dict lookup and byte-identical constraints.
+    # SILENT NARROWING IS THE HAZARD (ingestion spec requirement 3).  The
+    # relief these two plans grant is LAW; a bare ``except: pass`` around
+    # them turns a plan failure into "the zone quietly grades at the strict
+    # cap", which reads as a clean result and is the exact shape of the
+    # fan-acceptance failure.  Every application is COUNTED and the counts
+    # are reported; a failure names itself.
+    _fp_law_counts: dict = {}
     _terrace_plan_fp = getattr(layout, "_apron_terrace_plan", None)
     if _terrace_plan_fp is not None:
         from .apron_terrace import (apply_terrace_budgets as _apply_terr_fp,
@@ -5377,38 +5504,75 @@ def final_grade_projection(layout, icao: str = "", dem=None,
             # shape of the rod-key bug.
             rebind_terrace_stations(_terrace_plan_fp, layout,
                                     shape_constraints, nodes, b2i)
-            _apply_terr_fp(_terrace_plan_fp, shape_constraints, nodes)
-        except Exception:
+            _fp_law_counts["terrace_sc"] = _apply_terr_fp(
+                _terrace_plan_fp, shape_constraints, nodes)
+        except Exception as _terr_fp_exc:
+            _fp_law_counts["terrace_sc"] = f"FAILED {_terr_fp_exc!r}"
             _terrace_plan_fp = None
-    try:
+    _fan_plan_fp = getattr(layout, "_fan_ramp_plan", None)
+    if _fan_plan_fp is not None:
         from .apron_terrace import apply_fan_ramp_caps as _apply_fan_fp
-        _apply_fan_fp(getattr(layout, "_fan_ramp_plan", None),
-                      shape_constraints, nodes)
-    except Exception:
-        pass
+        try:
+            _fp_law_counts["fan_sc"] = _apply_fan_fp(
+                _fan_plan_fp, shape_constraints, nodes)
+        except Exception as _fan_fp_exc:
+            _fp_law_counts["fan_sc"] = f"FAILED {_fan_fp_exc!r}"
     u_edges = [(a, b, cap.at(_GG._dist(G.pos.get(a), G.pos.get(b)), 0.0))
                for (a, b, cap, _sp) in G.edges
                if a in G.pos and b in G.pos]
+    # ── NEAR-MISS BUILDING-FRONTAGE LAW EDGES, INGESTED (spec
+    # requirement 1) ───────────────────────────────────────────────────
+    # The solve extends ``u_edges`` with the pad ↔ apron near-miss law
+    # (``|z(apron endpoint) − z(pad node)| ≤ APRON_MAX_GRADE·d`` across a
+    # sub-metre unpaved sliver) and its own comment claims the pairs are
+    # "enforced by every projection INCLUDING the movable-pad final yield
+    # GS".  They were not: THIS pass rebuilt ``u_edges`` from the unified
+    # graph alone and never added them — the one pass that frees pads to
+    # move, running without the law that holds them to their frontage.
+    # The builder needs ``building_seats``, a SOLVE-phase artifact, which
+    # is why re-derivation here was impossible and the family went
+    # missing.  It is now carried by canonical identity and handed to the
+    # SAME constructor the solve used — shared code path, not a parallel
+    # implementation.
+    _carried_seats = _store_of(layout).view_scalar("building_seats", b2i, n)
+    if _carried_seats:
+        from .anchors import (
+            near_miss_building_frontage_edges as _near_miss_fp)
+        try:
+            _nm_edges = list(_near_miss_fp(layout, b2i, _carried_seats))
+            u_edges.extend(_nm_edges)
+            _fp_law_counts["frontage_near_miss"] = len(_nm_edges)
+        except Exception as _nm_exc:
+            _fp_law_counts["frontage_near_miss"] = f"FAILED {_nm_exc!r}"
     if _terrace_plan_fp is not None:
         from .apron_terrace import (
             apply_terrace_budgets_to_edges as _apply_terr_u_fp)
         try:
-            u_edges, _ = _apply_terr_u_fp(_terrace_plan_fp, u_edges, nodes)
-        except Exception:
-            pass
-    try:
+            u_edges, _n_terr_u = _apply_terr_u_fp(
+                _terrace_plan_fp, u_edges, nodes)
+            _fp_law_counts["terrace_u"] = _n_terr_u
+        except Exception as _terr_u_exc:
+            _fp_law_counts["terrace_u"] = f"FAILED {_terr_u_exc!r}"
+    if _fan_plan_fp is not None:
         from .apron_terrace import (
             apply_fan_ramp_caps_to_edges as _apply_fan_u_fp)
-        u_edges, _ = _apply_fan_u_fp(
-            getattr(layout, "_fan_ramp_plan", None), u_edges, nodes)
-    except Exception:
-        pass
+        try:
+            u_edges, _n_fan_u = _apply_fan_u_fp(_fan_plan_fp, u_edges, nodes)
+            _fp_law_counts["fan_u"] = _n_fan_u
+        except Exception as _fan_u_exc:
+            _fp_law_counts["fan_u"] = f"FAILED {_fan_u_exc!r}"
     joint = list(shape_constraints) + [{"edges": u_edges,
                                         "family": "unified_graph"}]
     _stage("graph")
 
     hard = {i for i in range(n) if base_hard[i]}
     hard |= {i for i in runway_idx if i < n}
+    # THE HOLD (ingestion spec requirement 2, computed above): everything
+    # the solve valued and nothing has moved since.  Joined here, with the
+    # other structural pins, so every consumer of ``hard`` below — the
+    # witness-admission scan, the break classification, the bounded-yield
+    # boxes, the fairing anchors — sees ONE hard set.
+    hard |= _untouched_hold
     # EMITTED TERRAIN-BAND FREEZE (2026-07-17, for the LATE
     # pipeline-end re-projection): graded_strip / gap-fill terrain
     # surfaces are emit-derived (per-vertex DEM-into-corridor clamps,
@@ -5719,7 +5883,15 @@ def final_grade_projection(layout, icao: str = "", dem=None,
         if len(g) >= 2:
             pad_groups.append(g)
             pad_nodes |= g
-    hard -= pad_nodes
+    # A pad is freed to be a movable flat group ONLY where it is in the
+    # post-solve mutation set.  An UNTOUCHED pad node was seated by the
+    # solve under the whole seat law (band, coupler, frontage) and the
+    # idempotence requirement holds it — re-freeing it here is precisely
+    # the second-author move this round closes.  ``feasibility_project``
+    # keeps a group containing a hard node entirely hard, so a held pad
+    # stays flat at its solved seat while a genuinely mutated pad still
+    # settles as a rigid group.
+    hard -= (pad_nodes - _untouched_hold)
 
     # ── TORN DATUM-PIN RELEASE (2026-07-26, KCLT junction micro-steps).
     # A post-solve feature weld can put a NON-runway hard pin — a runway-
@@ -6124,14 +6296,35 @@ def final_grade_projection(layout, icao: str = "", dem=None,
         _gs_weld_idx = {_i for _i in terrain_hard
                         if _i < n and _i not in _tile_seam_idx
                         and _is_gs_weld(_i)}
+    # ── THE WITNESS SET IS CARRIED, NOT RE-DERIVED (ingestion spec
+    # requirement 1) ──────────────────────────────────────────────────
+    # The owner's clause bounds what a GROUNDSIDE PIN may witness, and
+    # the pins are the ones ``anchors.apply_groundside_reach`` actually
+    # set — a solve-phase fact.  The proximity scan above is a
+    # re-derivation of that population from raw groundside ring geometry
+    # in a rebuilt node space, and a re-derivation that can disagree with
+    # what the solve was handed is exactly what this round removes.  The
+    # carried keyset is the authority; the re-derived set is kept for ONE
+    # build's worth of measurement, reported as a divergence count and
+    # read by nothing.
+    _carried_gs = _store_of(layout).view_keyset("gs_witness", b2i, n)
+    _gs_divergence = (len(_gs_weld_idx - _carried_gs),
+                      len(_carried_gs - _gs_weld_idx))
+    if _carried_gs or _gs_weld_idx:
+        import O4_UI_Utils as _UI_gsw
+        _UI_gsw.vprint(1,
+            f"    [gs-witness] {icao} final projection: carried "
+            f"{len(_carried_gs)} groundside pin(s) withdrawn from the "
+            f"airside envelope; the retired proximity re-derivation "
+            f"found {len(_gs_weld_idx)} "
+            f"(+{_gs_divergence[0]} it added, "
+            f"-{_gs_divergence[1]} it missed)")
+    _gs_weld_idx = _carried_gs
     _fp_witness_limited = None
     if _gs_weld_idx:
         from .anchors import gs_witness_horizon as _gs_wh
         from auto_patch.config import SERVICE_ROAD_MAX_GRADE as _SRMG
         _fp_witness_limited = (frozenset(_gs_weld_idx), _gs_wh(_SRMG))
-        if _os.environ.get("O4_STEP_DEBUG") == "1":
-            print(f"    [gs-witness] final projection: {len(_gs_weld_idx)} "
-                  f"groundside weld(s) withdrawn from the airside envelope")
     # BREAK FORENSICS (spec reference-honesty Track 1 step 4) — the EMITTED
     # surface comes out of THIS pass, so its witness pairs are the ones that
     # answer the mega-component feasibility question.
@@ -6637,6 +6830,30 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                       f"{len(hard)} hard, {len(pad_groups)} pad group(s) → "
                       f"{rem} edge(s) over cap ({bh} both-hard) "
                       f"in {_time.time() - t0:.1f}s.{_scope_note}")
+        # THE INGESTION LEDGER: the mutation set this pass is actually
+        # for, the hold that makes the rest idempotent, and every carried
+        # law family's application count.  A "FAILED" here is a law that
+        # silently did not apply — the thing the bare excepts used to hide.
+        _law_note = (", ".join(f"{_lk}={_lv}"
+                               for _lk, _lv in sorted(_fp_law_counts.items()))
+                     or "none on this layout")
+        _mut_deltas.sort()
+        _mut_note = ""
+        if _mut_deltas:
+            _md = len(_mut_deltas) // 2
+            _mid_sv = sorted(_r[1] for _r in _mut_deltas)[_md]
+            _mid_now = sorted(_r[2] for _r in _mut_deltas)[_md]
+            _mut_note = (
+                f" (moved |dz| p50 {_mut_deltas[_md][0]:.3f} "
+                f"p90 {_mut_deltas[int(len(_mut_deltas) * 0.9)][0]:.3f} "
+                f"max {_mut_deltas[-1][0]:.3f} m; carried p50 "
+                f"{_mid_sv:.2f} vs seed p50 {_mid_now:.2f} m)")
+        _UI.vprint(1,
+                   f"  [final-projection-ingestion] {icao}: post-solve "
+                   f"mutation set {_mut_new} new + {_mut_moved} moved "
+                   f"node(s){_mut_note}; {len(_untouched_hold)} untouched "
+                   f"node(s) HELD at their solved value; carried law "
+                   f"{_law_note}")
         if _os.environ.get("O4_PROJ_TIMING") == "1":
             _UI.vprint(1, "  [final-projection-timing] " + " ".join(
                 f"{name}={_stage_t.get(name, 0.0):.1f}s"

@@ -54,8 +54,19 @@ hard nodes, worst 85.7 m below own floor); certificate (d) on family
 axis only (arithmetic verified). Honest post-fix residual: 3.9% of
 edges, worst 5.620 m. Adjacent-ground "binds→0" claim FALSIFIED (boxes
 bound; stale datum mints it; plateau worse than canyon — KCLT dem1
-225.34 m). Fix lane c5solve IN FLIGHT
-(cycle5-solve-certification-spec.md; certificate reader first).
+225.34 m). **c5solve LANDED AND MERGED** (all four fixes first-attempt;
+spec cycle5-solve-certification carries the full outcome table): HECA
+plateau adjudicated 21,404 → **6,442 (−69.9%, airside −72.1%)**; KCLT
+7,477 → 3,404, its raw-law envelope INFEASIBLE **0 of 22,298**; the
+below-band and HARD:gs_pin classes are EMPTY; dominant class is now
+in-band↔in-band (82.66%, worst 15.950 m). NOT met (quantified, tasked):
+no CERTIFIED exit yet — HECA worst residual STUCK at 89.431 m across
+all three fixes (carrier (1013,7022) now free/free) and who_wrote
+--author still shows 1,634 untouched-node moves worst 87.930 m (likely
+ONE mechanism, 89.4≈87.9); HECA envelope 13,259/17,955 @ 16.856 m;
+canyon unchanged (flex territory). NOTE: c5solve censuses are in the
+PRE-c5inst frame — the merged tip unifies both; the reconciliation
+battery re-reads the matrix there.
 INSTRUMENT ROUND MERGED (lane/c5inst): radius law-derived (F2 exempt),
 grid-residual excuse deleted (SPJC honest 48 — population now FLOOR
 side at this tree, the ceil quartet was be2009f-era), CYXY fixture red

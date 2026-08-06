@@ -132,6 +132,27 @@ unblocked), deferred adjudication mechanical (d48bc0a cited),
 frontage_near_miss family registered (HECA 85/KCLT 17-29/SPJC 3-7/
 HEAZ 0), sub-inversion band excess reported+sidecar'd.
 
+**CYCLE-6 STATE (c5auth dossier; targets #14+#15 = ONE picture):**
+The stuck 89 m residual + ALL >10 m second-author moves = a fix-2/
+fix-3 interaction — at a disjoint gs-pin-box/band conflict the merge
+KEEPS THE PIN BOX AND DISCARDS THE BAND (one_solve.py:2616-2629;
+14 declared conflicts ≡ the 14 below-floor nodes; groundside pulls
+airside down 87 m; fgp's lifts back are the "second author").
+Hypothesis C falsified for the extremes (6.9% overlap, max 2.63 m)
+but the DEM ring writers own the census mass: SEVENTEEN sites (top:
+pavement_scoring._enact_verdict 7,653 — absent from the earlier five;
+emit_terrain_transition_features is ALSO a live second author 89/
+94.52 m), cluster D = 2,166 adjudicated rows ≥10 m (17.2%; HEAZ
+57.1%/KCLT 41.4% of own totals). Ownership: 47.2% in-band 0.1-1 m ·
+32.2% 1-10 m · 17.2% D · P <0.1% of rows but the architecture
+violation. FRAME NOTE: the dossier tree lacked c5flex; its baselines
+(HECA 7,036 etc.) supersede c5tip's but the tip has BOTH — lanes
+establish their own baselines. SPEC cycle6-band-wins-and-ingestion:
+Part P (band WINS, groundside yields, loud resolution) lane c6band
+IN FLIGHT; Part D (ring vertices never take raw DEM; exemptions
+cited under adjacent-ground law) lane c6ingest IN FLIGHT.
+who_wrote --author-dump landed on the tip (c5auth instrument work).
+
 NEXT TARGETS (ranked):
 1. **The solve's UNCERTIFIED exit is the real plateau author** —
    attribute the empty polytope per family (ENTRY/EXIT certificate +

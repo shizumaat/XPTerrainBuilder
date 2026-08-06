@@ -681,10 +681,30 @@ def route_band_violations(layout, noise=ELEV_ROUNDING_NOISE_M, G=None):
     # the runway with an off-value elevation stays flagged.  The band
     # governs the network AWAY from the runway; mutual-anchor tension
     # along the runway is the pinned/route-reach checks' domain.
+    #
+    # THE RADIUS IS THE JOIN/CONTACT LAW'S OWN REACH (cycle-5 instrument-fix
+    # spec item 1) — never a magic number.  ``grade_law`` already defines
+    # where a runway datum can sit: a taxi centerline endpoint within
+    # ``RUNWAY_CONTACT_M`` of the runway polygon IS a contact, and the
+    # anchored join node is the nearest EMITTED node within
+    # ``RUNWAY_JOIN_NEAR_M`` of that contact (``runway_join_contacts`` /
+    # ``grade_graph._runway_anchors``).  So the furthest a node the solver
+    # hard-seeds from the runway can lawfully sit from the runway itself is
+    # exactly the sum, and that is the scope of "near a runway" here.  The
+    # literal 15.0 that stood here was calibrated against nothing and cut
+    # the exemption at less than half the law's reach: SPJC's
+    # ``floor 0.253 @(1477.84,−493.06)`` sits 19.45 m from a 16L/34R ring
+    # vertex and grades to it at 1.24 % — inside TAXI_MAX_GRADE, i.e. the
+    # citable per-edge law is satisfied from the runway datum right beside
+    # it — and was flagged only because the magic radius missed the runway
+    # (spjcverd report F2/F3; CYXY's two rows are the same class at
+    # 17.36 m / 26.04 m).  ONE authority for "near a runway".
     from auto_patch.layout import ROLE_RUNWAY as _R_RWY
     from auto_patch.layout import ROLE_RUNWAY_CROSSING as _R_RWX
     from auto_patch.config import TAXI_MAX_GRADE as _RWD_CAP
-    _RWD_RADIUS_M = 15.0
+    from auto_patch.grade_law import (RUNWAY_CONTACT_M as _RWD_CONTACT_M,
+                                      RUNWAY_JOIN_NEAR_M as _RWD_JOIN_NEAR_M)
+    _RWD_RADIUS_M = _RWD_CONTACT_M + _RWD_JOIN_NEAR_M
     _rwy_datum_pts: list = []
     _rwy_datum_vals: list = []
     for _s in layout.shapes:
@@ -808,13 +828,118 @@ def route_band_violations(layout, noise=ELEV_ROUNDING_NOISE_M, G=None):
     # crossed seam LINE it is exactly how far that line's own airside pins sit
     # outside the SAME geodesic band (``_seam_pin_band_slack``).  It is
     # identically zero with no seam pins and zero once the pins are feasible, it
-    # is SIDE-SPECIFIC, and it spends none of
-    # ``RASTER_REACH_BAND_GRID_RESIDUAL_M`` — that 0.25 m stays reserved for the
-    # grid-vs-continuous discretization error it was calibrated for.  A vertex
-    # further out of band than the seam contract can explain STILL flags.
+    # is SIDE-SPECIFIC, and it is the ONLY allowance this check grants: the
+    # ``RASTER_REACH_BAND_GRID_RESIDUAL_M`` excuse it used to share the stage
+    # with was DELETED (cycle-5 instrument-fix item 2 — its grid-error
+    # mechanism was falsified under a cell sweep).  A vertex further out of
+    # band than the seam contract can explain STILL flags.
     out = _seam_contract_yield(layout, out, band, noise, _crown_at)
     out.sort(reverse=True, key=lambda t: t[0])
     return out
+
+
+#: Materiality floor for the band-EXCESS report (the convergence guards'
+#: elevation floor, the same 0.01 m ``FINAL_BAND_INVERSION_TOL_M`` uses).
+FINAL_BAND_EXCESS_MATERIALITY_M = 0.01
+
+
+def final_band_excess_report(layout, icao="",
+                             tol=FINAL_BAND_EXCESS_MATERIALITY_M, G=None):
+    """REPORT — never a gate — on final band MEMBERSHIP (cycle-5
+    instrument-fix spec item 7).
+
+    THE HOLE THIS FILLS.  The build's post-solve band law is INVERSION-ONLY:
+    ``building_feasibility.assert_no_final_band_inversion`` fails a build on
+    ``floor > ceiling`` and says nothing about a value that simply sits
+    OUTSIDE its band.  So a patch could log
+    ``final reach band — 2 sub-materiality inversion(s) (≤ 0.01 m),
+    PASS-with-residual`` and ship with 0.3 m of ceiling excess on a junction
+    complex, invisible until somebody ran pytest (measured at SPJC; the
+    author is ``final_grade_projection``).  A defect the build itself cannot
+    see is a defect nobody is accountable for.
+
+    IT IS A REPORT, DELIBERATELY.  Band membership is a derived
+    self-consistency device, not a citable aerodrome standard, and the owner's
+    law is that instruments REPORT while the law ADJUDICATES — the census and
+    ``tests/test_route_band.py`` are where the verdict lives.  Making this a
+    build error would also gate every build on a population the solve round
+    is still landing.  So: it logs, it lands in the sidecar as EVIDENCE, and
+    it never raises.
+
+    ONE AUTHORITY.  The rows come from :func:`route_band_violations` — the
+    same checker the suite runs, on the same graph, with the same exemptions
+    (runway datum, small pads, tile-seam yield).  Nothing is re-derived.
+
+    Returns the summary dict (also stashed on ``layout._final_band_excess``
+    for the sidecar), or ``None`` when the check could not run.
+    """
+    try:
+        rows = route_band_violations(layout, G=G)
+    except Exception as exc:                                   # pragma: no cover
+        summary = {"error": f"{type(exc).__name__}: {exc}",
+                   "materiality_m": float(tol)}
+        try:
+            layout._final_band_excess = summary
+        except AttributeError:
+            pass
+        return summary
+    over = [t for t in rows if t[0] > tol]
+    by_side: dict = {"ceil": 0, "floor": 0, "pinned": 0}
+    by_role: dict = {}
+    for t in over:
+        by_side[t[1]] = by_side.get(t[1], 0) + 1
+        by_role[t[2]] = by_role.get(t[2], 0) + 1
+    summary = {
+        "icao": str(icao or ""),
+        "materiality_m": float(tol),
+        "rows": len(rows),
+        "material": len(over),
+        "sub_materiality": len(rows) - len(over),
+        "by_side": by_side,
+        "by_role": dict(sorted(by_role.items(), key=lambda kv: -kv[1])),
+        "worst_m": (round(float(over[0][0]), 4) if over else 0.0),
+        "worst": [{"excess_m": round(float(t[0]), 4), "side": t[1],
+                   "role": t[2], "x": round(float(t[3]), 2),
+                   "y": round(float(t[4]), 2), "elev": round(float(t[5]), 3),
+                   "lo": round(float(t[6]), 3), "hi": round(float(t[7]), 3)}
+                  for t in over[:10]],
+    }
+    try:
+        layout._final_band_excess = summary
+    except AttributeError:                                     # pragma: no cover
+        pass
+    return summary
+
+
+def format_final_band_excess(summary, icao="") -> str:
+    """The one-line (plus worst-rows) build-log rendering of
+    :func:`final_band_excess_report`.  Formatting lives with the report so the
+    log line and the sidecar can never describe different numbers."""
+    if not summary:
+        return f"  [pav-builder] {icao}: final band excess — NOT EVALUATED."
+    if summary.get("error"):
+        return (f"  [pav-builder] {icao}: final band EXCESS report failed "
+                f"({summary['error']}) — membership NOT measured this build.")
+    if not summary["material"]:
+        return (f"  [pav-builder] {icao}: final reach band — every airside "
+                f"vertex INSIDE its band "
+                f"(> {summary['materiality_m']:g} m); "
+                f"{summary['sub_materiality']} sub-materiality row(s).")
+    s = summary["by_side"]
+    lines = [
+        f"  [pav-builder] {icao}: final reach band — {summary['material']} "
+        f"vertex(es) OUTSIDE their band by > "
+        f"{summary['materiality_m']:g} m (ceil={s.get('ceil', 0)}, "
+        f"floor={s.get('floor', 0)}, pinned={s.get('pinned', 0)}; worst "
+        f"{summary['worst_m']:.4f} m).  REPORT, not a gate — the census and "
+        f"tests/test_route_band.py adjudicate.",
+    ]
+    for r in summary["worst"][:5]:
+        lines.append(
+            f"      {r['side']} {r['excess_m']:.4f} m {r['role']}"
+            f"@({r['x']:.0f},{r['y']:.0f}) elev {r['elev']:.3f} vs band "
+            f"[{r['lo']:.3f}, {r['hi']:.3f}]")
+    return "\n".join(lines)
 
 
 def _pt(x, y):

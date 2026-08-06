@@ -122,6 +122,85 @@ def test_the_recorded_families_partition_the_returned_lists(cg):
             f"the register's ORDER no longer matches the emission order")
 
 
+def test_every_version_deferred_family_is_a_registered_family(cg):
+    """DEFERRED ADJUDICATION (owner ruling RULINGS d48bc0a).
+
+    A deferral names a family the acceptance verdict must not adjudicate.  A
+    deferred key that is NOT a family key would silently defer nothing — the
+    verdict would look adjudicated-clean while the rows kept counting — and a
+    deferred key that was silently DROPPED instead of reported is the
+    census-wrapper defect.  Both halves are pinned here.
+    """
+    registered = {key for key, _title, _bucket in cg.LAW_FAMILIES}
+    assert set(cg.VERSION_DEFERRED_FAMILIES) <= registered, (
+        f"version-deferred key(s) "
+        f"{sorted(set(cg.VERSION_DEFERRED_FAMILIES) - registered)} name no "
+        f"law family — the deferral would exclude nothing")
+    assert cg.VERSION_DEFERRED_FAMILIES, (
+        "the deferral register is empty; RULINGS d48bc0a defers the interior "
+        "drainage-minimum family — an empty register silently re-adjudicates "
+        "it")
+    for why in cg.VERSION_DEFERRED_FAMILIES.values():
+        assert cg.DEFERRED_ADJUDICATION_RULING in why, (
+            "every deferral must carry its owner-ruling citation in the "
+            "text the reports print")
+
+
+def test_the_adjudication_split_is_exhaustive_and_reports_the_deferred(cg):
+    """The split must PARTITION: adjudicated + deferred = every row.  A
+    deferral that quietly removed rows from BOTH numbers would be the
+    'quarantine' the owner outlawed wearing an accounting hat."""
+    deferred_key = sorted(cg.VERSION_DEFERRED_FAMILIES)[0]
+    other = next(k for k, _t, _b in cg.LAW_FAMILIES
+                 if k not in cg.VERSION_DEFERRED_FAMILIES)
+
+    class _W:
+        tags = {"role": "apron"}
+
+    class _Row:
+        way_a = way_b = _W()
+    rows = [(deferred_key, _Row()), (deferred_key, _Row()),
+            (other, _Row()), (other, _Row()), (other, _Row())]
+    adj = cg.adjudication(rows)
+    assert adj["deferred_total"] == 2 and adj["adjudicated_total"] == 3
+    assert adj["deferred_total"] + adj["adjudicated_total"] == len(rows)
+    assert adj["deferred_families"][deferred_key]["n"] == 2
+    assert adj["ruling"] == cg.DEFERRED_ADJUDICATION_RULING
+    assert adj["pass"] is False
+    # ...and a patch whose ONLY rows are deferred is a PASS with the rows
+    # still visible — the whole point of the ruling.
+    only_deferred = cg.adjudication([(deferred_key, _Row())])
+    assert only_deferred["pass"] is True
+    assert only_deferred["deferred_total"] == 1
+
+
+def test_the_near_miss_frontage_law_is_one_authority(cg):
+    """Cycle-5 item 6: the census family and the solve's law edges must
+    recognize ONE population.  The radius, the role set and the budget all
+    live in ``auto_patch.config``; the solver module re-exports them.  The
+    role tuple is spelled as strings there (config cannot import
+    ``layout``), so a ROLE_* rename would silently un-scope the law — this
+    is what makes that loud."""
+    from auto_patch.config import (BUILDING_FRONTAGE_NEAR_MISS_M,
+                                   NEAR_MISS_FRONTAGE_SOFT_ROLES,
+                                   near_miss_frontage_budget, APRON_MAX_GRADE)
+    from auto_patch.layout import (ROLE_APRON, ROLE_JUNCTION,
+                                   ROLE_SERVICE_JUNCTION)
+    from auto_patch.elevation_per_surface.route_profile import anchors
+    assert NEAR_MISS_FRONTAGE_SOFT_ROLES == (
+        ROLE_APRON, ROLE_JUNCTION, ROLE_SERVICE_JUNCTION), (
+        "the near-miss frontage role set no longer matches the ROLE_* "
+        "constants — the solve and the census now scope the law differently")
+    assert anchors.BUILDING_FRONTAGE_NEAR_MISS_M == \
+        BUILDING_FRONTAGE_NEAR_MISS_M, (
+        "the solver module carries its own near-miss radius again — that is "
+        "the two-copies defect the migration to config.py closed")
+    assert near_miss_frontage_budget(7.0) == APRON_MAX_GRADE * 7.0
+    assert "frontage_near_miss" in {k for k, _t, _b in cg.LAW_FAMILIES}, (
+        "the near-miss frontage law binds in the solve but no census family "
+        "measures it — enforcing it could only read as within_shape noise")
+
+
 def test_family_out_is_a_pure_no_op_when_absent(cg):
     """A census must never change what it measures."""
     a = cg.run_checks(FIXTURE_PATCH, top_n=0, quiet=True)

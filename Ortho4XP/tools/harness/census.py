@@ -31,8 +31,14 @@ WHAT IT REPORTS
 * BARE counts (``--bare``) — ``run_checks`` with no context at all.
   Overcounts by construction (memory ``check-grade-needs-law-true-frame``);
   reported for the record, never as a defect count.
-* All 21 families, always, including the empty ones — an absent family
+* All law families, always, including the empty ones — an absent family
   line means the tool did not run, not that the family was clean.
+* The ADJUDICATION section (owner ruling RULINGS ``d48bc0a``): the verdict
+  is zero rows EXCLUDING the VERSION-DEFERRED classes, which are reported
+  under their own heading and never dropped.  Instruments report, the law
+  adjudicates — the register is ``check_grade.VERSION_DEFERRED_FAMILIES``
+  and the split is ``check_grade.adjudication`` (one implementation; the
+  tip battery used to subtract the deferred family by hand).
 * AIRSIDE / GROUNDSIDE / MIXED per family, by the LAW's own role partition
   (``check_grade._is_groundside``).  MIXED is shown separately and counts
   against airside for acceptance ("airside is king").
@@ -278,6 +284,14 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
         classes[f"{key}::{'|'.join(sorted(cg.row_roles(r)))}"] += 1
 
     sides_total = Counter(cg.row_side(r) for _k, r in all_rows)
+    # DEFERRED ADJUDICATION (owner ruling RULINGS d48bc0a).  Instruments
+    # report; the law adjudicates.  ``lawtrue`` stays the full measured
+    # population — nothing is dropped — and ``adjudication`` carries the
+    # verdict the acceptance gate is entitled to: zero rows EXCLUDING the
+    # version-deferred classes, which appear under their own heading.  The
+    # split is ``check_grade.adjudication`` (one implementation; the
+    # battery used to do this subtraction by hand).
+    adj = cg.adjudication(all_rows)
     report = {
         "patch": str(osm),
         "ruleset_declared": declared,
@@ -293,6 +307,7 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
             "mixed": sides_total.get("mixed", 0),
             "unknown": sides_total.get("unknown", 0),
         },
+        "adjudication": adj,
         "families": fam_report,
         "worst": worst_rows,
         "classes": dict(classes.most_common()),
@@ -330,6 +345,18 @@ def print_report(rep: dict, top: int) -> None:
     print(f"  sides: airside={lt['airside']} groundside={lt['groundside']} "
           f"mixed={lt['mixed']} unknown={lt['unknown']}   "
           f"(mixed counts AGAINST airside — airside is king)")
+    adj = rep.get("adjudication")
+    if adj:
+        a = adj["adjudicated_by_side"]
+        print(f"\n  === ADJUDICATION (RULINGS {adj['ruling']}) ===")
+        print(f"    ADJUDICATED {adj['adjudicated_total']}   "
+              f"airside={a['airside']} groundside={a['groundside']} "
+              f"mixed={a['mixed']}   verdict: "
+              f"{'PASS' if adj['pass'] else 'FAIL'}")
+        print(f"    VERSION-DEFERRED (reported, NOT adjudicated) "
+              f"{adj['deferred_total']}:")
+        for key, d in adj["deferred_families"].items():
+            print(f"      {key:<24}{d['n']:>7}  {d['why']}")
     if "bare" in rep:
         b = rep["bare"]
         print(f"  BARE (context-free, OVERCOUNTS — never a defect count): "
@@ -341,6 +368,19 @@ def print_report(rep: dict, top: int) -> None:
           f"terrace_certificates={ev.get('terrace_certificate_count')} "
           f"triangle_plane_unresolved="
           f"{ev.get('triangle_plane_unresolved')}")
+    be = ev.get("band_excess")
+    if isinstance(be, dict) and not be.get("error"):
+        s = be.get("by_side") or {}
+        print(f"  band membership (the BUILD's own report, evidence — "
+              f"route_band lives in-memory and is not a census family): "
+              f"{be.get('material', 0)} vertex(es) outside their band by > "
+              f"{be.get('materiality_m', 0.01):g} m "
+              f"(ceil={s.get('ceil', 0)} floor={s.get('floor', 0)} "
+              f"pinned={s.get('pinned', 0)}, worst "
+              f"{be.get('worst_m', 0.0)} m)")
+    elif isinstance(be, dict):
+        print(f"  band membership: NOT MEASURED this build "
+              f"({be.get('error')})")
     if ev.get("unknown_keys"):
         print(f"  !! sidecar carries key(s) NO reader consumes: "
               f"{ev['unknown_keys']} — the emitter grew a field the law "
@@ -424,6 +464,14 @@ def print_compare(reports: list) -> None:
     tot = [r["lawtrue"]["total"] for r in reports]
     print(f"  {'TOTAL':<24}" + "".join(f"{c:>18}" for c in tot)
           + f"{tot[-1] - tot[0]:>+15d}")
+    if all(r.get("adjudication") for r in reports):
+        adjt = [r["adjudication"]["adjudicated_total"] for r in reports]
+        deft = [r["adjudication"]["deferred_total"] for r in reports]
+        print(f"  {'ADJUDICATED':<24}" + "".join(f"{c:>18}" for c in adjt)
+              + f"{adjt[-1] - adjt[0]:>+15d}")
+        print(f"  {'(version-deferred)':<24}"
+              + "".join(f"{c:>18}" for c in deft)
+              + f"{deft[-1] - deft[0]:>+15d}")
 
 
 def main(argv=None) -> int:

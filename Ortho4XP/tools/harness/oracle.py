@@ -7,9 +7,14 @@ Run it from ``Ortho4XP/``.  Wraps ``auto_patch.constant_dem`` and drives the
 three assertions the owner's oracle law makes (RULINGS 2026-08-05, "DEM is a
 SEED"):
 
-1. **COMPLIANCE** — zero law-true rows in BOTH worlds.  Necessary, weakest.
-   A surface can be lawful and still be authored by something other than the
-   law.
+1. **COMPLIANCE** — zero ADJUDICATED law-true rows in BOTH worlds.  Necessary,
+   weakest.  A surface can be lawful and still be authored by something other
+   than the law.  ADJUDICATED excludes the VERSION-DEFERRED classes per owner
+   ruling RULINGS ``d48bc0a`` ("flat-world zero is … zero adjudicated rows
+   EXCLUDING the version-deferred classes, which appear in every report under
+   their own heading") — those rows are still measured, still printed, and
+   carried in the verdict under ``version_deferred_by_world``.  The register
+   is ``check_grade.VERSION_DEFERRED_FAMILIES``.
 2. **EXTREME-SEATING SATURATION** — the plateau world (a low constant) seats
    every free value at its band FLOOR, the canyon world (10 000 m) at its
    CEILING.  A node that moves between two builds on the SAME side of every
@@ -27,7 +32,7 @@ the gate; this is the instrument you drive an investigation with, and it
 emits the artifacts a report is written from.
 
 Consolidated from ``scratchpad/testphase/oracle.py``, with the harness's
-census (all 21 families, sidecar-true) replacing that script's private
+census (every law family, sidecar-true) replacing that script's private
 ``run_checks`` call.
 """
 from __future__ import annotations
@@ -138,20 +143,54 @@ def main(argv=None) -> int:
         (out / f"{tag}.census.json").write_text(json.dumps(rep, indent=1))
 
     # ── ASSERTION 1: COMPLIANCE ──────────────────────────────────────
+    # ADJUDICATED, not instrument-zero (owner rulings: 2026-08-02 "the goal
+    # is LAW COMPLIANCE, not instrument-zero", and RULINGS d48bc0a, which
+    # states flat-world zero IS "zero adjudicated rows EXCLUDING the
+    # version-deferred classes, which appear in every report under their
+    # own heading").  This verdict used to read ``lawtrue.total``, i.e. it
+    # tested instrument-zero and could never pass while a deferred class
+    # existed; the deferred rows are still REPORTED here, under their own
+    # key, and the census carries the same split from the same register
+    # (``check_grade.VERSION_DEFERRED_FAMILIES`` /
+    # ``check_grade.adjudication`` — one implementation, no hand
+    # subtraction).
     verdicts = {}
-    non_compliant = {w: censuses[w]["lawtrue"]["total"] for w in worlds
-                     if censuses[w]["lawtrue"]["total"]}
+    adjs = {w: censuses[w]["adjudication"] for w in worlds}
+    non_compliant = {w: adjs[w]["adjudicated_total"] for w in worlds
+                     if adjs[w]["adjudicated_total"]}
     verdicts["compliance"] = {
         "pass": not non_compliant,
+        "ruling": cg.DEFERRED_ADJUDICATION_RULING,
+        "adjudicated_by_world": {f"{w:g}": adjs[w]["adjudicated_total"]
+                                 for w in worlds},
         "rows_by_world": {f"{w:g}": censuses[w]["lawtrue"]["total"]
                           for w in worlds},
-        "note": ("zero law-true rows in every constant world" if
-                 not non_compliant else
-                 "a constant-DEM build emitted rows: with no terrain signal "
-                 "these are law, solver or instrument defects — there is "
-                 "nothing to blame them on"),
+        "version_deferred_by_world": {
+            f"{w:g}": {"total": adjs[w]["deferred_total"],
+                       "families": {k: d["n"] for k, d
+                                    in adjs[w]["deferred_families"].items()}}
+            for w in worlds},
+        "version_deferred_why": {
+            k: d["why"] for k, d
+            in adjs[worlds[0]]["deferred_families"].items()},
+        "note": ("zero ADJUDICATED law-true rows in every constant world "
+                 "(version-deferred classes excluded per RULINGS "
+                 f"{cg.DEFERRED_ADJUDICATION_RULING} and reported under "
+                 "'version_deferred_by_world')" if not non_compliant else
+                 "a constant-DEM build emitted ADJUDICATED rows: with no "
+                 "terrain signal these are law, solver or instrument "
+                 "defects — there is nothing to blame them on.  The "
+                 "version-deferred classes are excluded from this verdict "
+                 f"per RULINGS {cg.DEFERRED_ADJUDICATION_RULING} and listed "
+                 "separately"),
     }
     for w in worlds:
+        a = adjs[w]
+        prog.note(f"  world {w:g}: ADJUDICATED {a['adjudicated_total']} "
+                  f"(airside {a['adjudicated_by_side']['airside']}) + "
+                  f"VERSION-DEFERRED {a['deferred_total']} "
+                  f"[RULINGS {a['ruling']}] = law-true "
+                  f"{censuses[w]['lawtrue']['total']}")
         fams = [f for f in censuses[w]["families"] if f["n"]]
         if fams:
             prog.note(f"  world {w:g} families: "

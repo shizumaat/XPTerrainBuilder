@@ -2795,6 +2795,17 @@ class PavementLayout:
             # gate is off (they are break nodes there instead).
             "triangle_plane_unresolved": int(
                 getattr(self, "_triangle_plane_unresolved", 0) or 0),
+            # FINAL BAND EXCESS (cycle-5 instrument-fix spec item 7) — the
+            # post-solve band MEMBERSHIP report
+            # (``grade_graph_validate.final_band_excess_report``), summary
+            # only: counts by side and role, the materiality floor, and the
+            # worst ten rows.  EVIDENCE, never law input: the build's own
+            # band law is inversion-only, so a vertex sitting 0.3 m outside
+            # its band used to ship with nothing in the artifacts saying so.
+            # ``None`` on a geometry-only build (no elevations solved) or if
+            # the report could not run — which a reader can tell apart from
+            # "measured, zero rows".
+            "band_excess": getattr(self, "_final_band_excess", None),
             # EXACT-MESH sidecar (user 2026-07-05): the solver's
             # junction triangle-mesh edges, consumed 1:1 by the
             # validator so emit-time ring repairs cannot mint a

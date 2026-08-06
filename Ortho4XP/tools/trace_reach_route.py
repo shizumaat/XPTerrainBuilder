@@ -1,33 +1,48 @@
 #!/usr/bin/env python
 """Trace the BINDING reach route to a pavement point and emit it as KML.
 
-The companion to ``building_feasibility.reach_band_unified`` (THE one unified
-grade graph G, post route_field retirement): it answers "which runway, via which
-spine, binds this point's reachable ceiling/floor, and what does that route look
-like on the map?".  It replays the EXACT band computation — nearest visible
-centerline, perpendicular foot, the two spine nodes (kA/kB) bracketing the foot,
-the per-edge cap, the perp climb — over ``G.spine_adj`` from ``G.runway_anchor``,
-and adds the predecessor path the band sampler doesn't expose.  Its ceiling/floor
-match ``reach_band_unified`` exactly.
+The companion to ``building_feasibility.reach_band_unified`` — THE one reach
+band (route-metric value on the unified spine graph + a grid LOOKUP for the
+local off-route leg).  It answers "which runway anchor, over which route,
+binds this point's ceiling and floor, and what does that route look like on
+the map?".
 
-Use this instead of a throwaway script (the stale uniform-cap mistake, or the old
-``shared_taxi_route_graph`` route graph that no longer drives the band).
+REVIVED 2026-08-06 (cycle-5 instrument-fix spec item 4).  This tool used to
+REPLAY a band engine that no longer exists: nearest-visible-centerline,
+perpendicular foot, the two spine nodes bracketing the foot, a perp climb.
+That engine was DELETED on 2026-07-29 (the one-engine ruling, spec
+``rod-compose-and-band-single-source`` §B), so the tool's docstring claim that
+"its ceiling/floor match ``reach_band_unified`` exactly" had become false and
+it REFUSED coordinates the live band serves: asked for the binding route at
+SPJC's worst route-band vertex it exited ``point is not taxi-reachable from
+any runway contact`` while ``reach_band_unified`` returned ``(8.8941,
+16.3459)`` at that exact coordinate in the same build.  ``tools/INDEX.md``
+listed it as *the* tool for the question, so the index was false too.
 
-It also prints whether the perpendicular chord to the binding centerline stays on
-pavement (a real apron path vs a phantom connection across grass) and the band via
-the SECOND-nearest visible centerline (is a higher route available the band's
-nearest-only rule skipped?), and draws the apron/building/centerline context.
+It now READS the live band instead of re-deriving it — the difference that
+matters, because a re-derivation is a second engine and a second engine is
+how this tool became wrong in the first place:
+
+  * ``reach_band_unified(layout, G)`` gives the band at the point;
+  * ``band.attachment_at(x, y)`` gives the LOOKUP's own answer — which route
+    attachment serves the point and what the local off-route leg costs;
+  * ``layout._band_anchor_provenance`` (recorded by
+    ``building_feasibility.spine_value_fields`` on the same pass) gives WHICH
+    ANCHOR authored the ceiling and the floor at that attachment and the route
+    budget it spent — so the binding anchor is read, never re-searched;
+  * the route path is reconstructed by walking that recorded field
+    (each step must reproduce the recorded budget exactly), never by a second
+    Dijkstra with its own opinion.
 
 Usage:
-    venv/bin/python tools/trace_reach_route.py CYXY --coord -334,-30
+    venv/bin/python tools/trace_reach_route.py SPJC --coord 536.64,-625.53
     venv/bin/python tools/trace_reach_route.py CYXY --ref building5
-    # writes <out> (default /tmp/reach_route.kml) and prints the binding contact,
-    # the per-cap segment lengths, the on-pavement check, and ceiling/floor.
+    # writes <out> (default /tmp/reach_route.kml) and prints the band, the
+    # serving attachment, the binding anchor, and the per-cap route lengths.
 """
 from __future__ import annotations
 
 import argparse
-import heapq
 import math
 import os
 import sys
@@ -36,222 +51,221 @@ sys.path[:0] = [os.path.join(os.path.dirname(__file__), "..", "src"),
                 os.path.join(os.path.dirname(__file__), ".."),
                 os.path.join(os.path.dirname(__file__), "..", "tests")]
 
-_INF = float("inf")
+_EPS = 1e-6
 
 
-def _capdist_prev(spine_adj, src):
-    """Cap-Dijkstra over ``spine_adj`` from ``src`` with predecessors."""
-    dist = {src: 0.0}
-    prev: dict = {}
-    pq = [(0.0, src)]
-    while pq:
-        d, u = heapq.heappop(pq)
-        if d > dist.get(u, _INF):
-            continue
-        for (v, budget) in spine_adj.get(u, ()):
-            nd = d + budget
-            if nd < dist.get(v, _INF):
-                dist[v] = nd
-                prev[v] = u
-                heapq.heappush(pq, (nd, v))
-    return dist, prev
+def _edge_budget(G, a, b):
+    """The spine edge's own budget (metres of value it may carry), or None."""
+    for (v, budget) in G.spine_adj.get(a, ()):
+        if v == b:
+            return float(budget)
+    return None
 
 
-def _foot_bracket(ln, c):
-    """Replay the band's foot geometry: project ``c`` onto ``ln`` and return the
-    two segment endpoints A,B bracketing the foot as ``(coord, along_dist)``."""
-    coords = list(ln.coords)
-    sp = ln.project(c)
-    acc = 0.0
-    for i in range(len(coords) - 1):
-        seg = math.hypot(coords[i + 1][0] - coords[i][0],
-                         coords[i + 1][1] - coords[i][1])
-        if acc - 1e-6 <= sp <= acc + seg + 1e-6:
-            return (coords[i], sp - acc), (coords[i + 1], (acc + seg) - sp)
-        acc += seg
-    return (coords[0], 0.0), (coords[-1], ln.length)
+def _walk_to_anchor(G, prov_side, node, anchor, limit=100000):
+    """The recorded route ``node → anchor``, read out of the field.
+
+    ``prov_side`` is ``{node: (anchor, route_budget)}`` as
+    ``spine_value_fields`` recorded it.  Each hop must reproduce the recorded
+    budget through the edge it crosses, so this REPLAYS the winning route
+    rather than searching for one: a hop that does not reconcile stops the
+    walk and is reported, instead of a second metric quietly inventing a path.
+    """
+    path = [node]
+    u = node
+    seen = {node}
+    while u != anchor and len(path) < limit:
+        cur = prov_side.get(u)
+        if cur is None:
+            return path, False
+        best = None
+        for (v, budget) in G.spine_adj.get(u, ()):
+            if v in seen:
+                continue
+            rec = prov_side.get(v)
+            if rec is None or rec[0] != cur[0]:
+                continue
+            if abs(rec[1] + float(budget) - cur[1]) <= 1e-6:
+                if best is None or rec[1] < prov_side[best][1]:
+                    best = v
+        if best is None:
+            return path, False
+        seen.add(best)
+        path.append(best)
+        u = best
+    path.reverse()                                  # anchor → point
+    return path, (u == anchor)
 
 
 def _binding_route(layout, x, y):
-    """``(ceil, floor, contact_xy, ae, rwy_ref, path_xy, foot_xy, cap_len,
-    serving_name, perp, on_pav, second)`` for ``(x, y)`` on the UNIFIED graph —
-    the runway anchor that BINDS the ceiling and the cap-route to it."""
-    from shapely.geometry import Point, LineString
-    from shapely.strtree import STRtree
+    """Everything the report needs at ``(x, y)``, read from the LIVE band."""
     from auto_patch import grade_graph as GG
-    from auto_patch.config import TAXI_MAX_GRADE, VISIBLE_CHORD_CONNECT
-    from auto_patch.elevation_per_surface.solver_primitives import _build_node_list
+    from auto_patch.elevation_per_surface.solver_primitives import (
+        _build_node_list)
     from auto_patch.elevation_per_surface.building_feasibility import (
-        reach_band_unified, _pavement_visibility, _nearest_visible_centerline)
-    from auto_patch.grade_law import APRON_MAX_GRADE as _APRON_CAP
-    # Taxiway half-width corridor (perp split point).  This tool replays the
-    # CENTERLINE+PERP pricing to EXPLAIN a binding route in human terms; the
-    # production band no longer prices that way (2026-07-29: route value on
-    # the non-service spine graph + a grid off-route leg — spec
-    # rod-compose-and-band-single-source §B), so the constant lives here
-    # rather than being imported from the band module that dropped it.
-    _TAXI_HALF_W_M = 7.5
-    from auto_patch.layout import ROLE_RUNWAY
+        reach_band_unified)
 
     nodes, b2i = _build_node_list(layout)
+    if not nodes:
+        return {"error": "layout has no solver nodes"}
     G = GG.build_unified_graph(layout, b2i)
-    # sanity: the band we replay IS reach_band_unified on this G.
-    _ = reach_band_unified(layout, G)
-    if not getattr(G, "runway_anchor", None) or not getattr(G, "spine_adj", None):
-        return None
+    # THE band.  Building it also records the anchor provenance this report
+    # reads (``spine_value_fields._record_anchor_provenance``) — one pass.
+    band = reach_band_unified(layout, G)
+    out: dict = {"G": G, "band": band(x, y)}
+    if out["band"] is None:
+        out["why_none"] = (
+            "the band answers None here: the point is off the paved mask "
+            "beyond RASTER_REACH_BAND_OFFNET_RADIUS_M, or its cell carries no "
+            "route attachment (off-net).  The LOCAL within-shape law governs "
+            "such a point — this is the band's answer, not a refusal.")
+    att = None
+    if hasattr(band, "attachment_at"):
+        att = band.attachment_at(x, y)
+    out["attachment"] = att
+    prov = getattr(layout, "_band_anchor_provenance", None) or {}
+    out["provenance_present"] = bool(prov)
+    if not att or not prov:
+        return out
 
-    anchors = {k: (float(ae), *_capdist_prev(G.spine_adj, k))
-               for (k, ae) in G.runway_anchor.items()}
-    sidx = [i for i in G.spine_adj if i in G.pos]
-    if not sidx:
-        return None
-    tree = STRtree([Point(*G.pos[i]) for i in sidx])
+    anchor_value = prov.get("anchor_value") or {}
+    ceil_side = prov.get("ceiling") or {}
+    floor_side = prov.get("floor") or {}
 
-    def nn(pt):
-        return sidx[int(tree.nearest(Point(pt[0], pt[1])))]
+    def _ceil_of(n):
+        rec = ceil_side.get(n)
+        return None if rec is None else anchor_value.get(rec[0], 0.0) + rec[1]
 
-    def ecap(a, b):
-        for (j, budget) in G.spine_adj.get(a, ()):
-            if j == b:
-                d = math.hypot(G.pos[a][0] - G.pos[b][0],
-                               G.pos[a][1] - G.pos[b][1])
-                return budget / d if d > 1e-9 else TAXI_MAX_GRADE
-        return TAXI_MAX_GRADE
+    def _floor_of(n):
+        rec = floor_side.get(n)
+        return None if rec is None else anchor_value.get(rec[0], 0.0) - rec[1]
 
-    cls_named = [(tcl.line, str(tcl.name or "?"))
-                 for tcl in (getattr(layout, "apt_taxi_centerlines", None)
-                             or [])
-                 if tcl.line is not None and not tcl.line.is_empty
-                 and not tcl.is_service
-                 and not str(tcl.name or "").upper().startswith("SVC")]
-    cls = [ln for (ln, _n) in cls_named]
-    if not cls:
-        return None
-    vis = _pavement_visibility(layout) if VISIBLE_CHORD_CONNECT else None
-    c = Point(x, y)
+    # THE SERVING ATTACHMENT: the band takes the MIN ceiling over the route
+    # nodes seeding that cell, so the binding one is the argmin — the same
+    # rule, read off the same values.
+    cands = [n for n in att["attachment_nodes"] if _ceil_of(n) is not None]
+    if not cands:
+        return out
+    node = min(cands, key=lambda n: (_ceil_of(n), n))
+    out["attachment_node"] = node
+    out["attachment_pos"] = G.pos.get(node)
+    out["ceiling_at_node"] = _ceil_of(node)
+    out["floor_at_node"] = _floor_of(node)
 
-    def _ceil_via(ln):
-        """Replay the band ceiling/floor + path for a GIVEN centerline."""
-        perp = c.distance(ln)
-        A, B = _foot_bracket(ln, c)
-        kA, kB = nn(A[0]), nn(B[0])
-        ec = ecap(kA, kB)
-        perp_climb = (ec * min(perp, _TAXI_HALF_W_M)
-                      + _APRON_CAP * max(0.0, perp - _TAXI_HALF_W_M))
-        best = None
-        for (k, (ae, cdm, prev)) in anchors.items():
-            cands = []
-            if kA in cdm:
-                cands.append((cdm[kA] + ec * A[1], kA))
-            if kB in cdm:
-                cands.append((cdm[kB] + ec * B[1], kB))
-            if not cands:
-                continue
-            bud, kbind = min(cands)
-            ceil = ae + bud + perp_climb
-            if best is None or ceil < best[0]:
-                best = (ceil, ae - bud - perp_climb, k, ae, kbind, prev, perp)
-        return best
-
-    # binding (nearest visible) centerline — exactly as the band picks it.
-    serving = (_nearest_visible_centerline(c, cls, vis) if vis is not None
-               else min(cls, key=lambda L: L.distance(c)))
-    serving_name = next((n for (ln, n) in cls_named if ln is serving), "?")
-    b0 = _ceil_via(serving)
-    if b0 is None:
-        return None
-    ceil, floor, k, ae, kbind, prev, perp = b0
-
-    # on-pavement check of the perp chord (phantom-across-grass detector)
-    foot = serving.interpolate(serving.project(c))
-    chord = LineString([(x, y), (foot.x, foot.y)])
-    on_pav = None
-    if vis is not None and chord.length > 1e-6:
-        try:
-            on_pav = chord.intersection(vis.context).length / chord.length
-        except Exception:
-            on_pav = None
-
-    # second-nearest visible centerline — would a higher route serve this point?
-    second = None
-    for ln in sorted(cls, key=lambda L: L.distance(c)):
-        if ln is serving:
+    for side, prov_side in (("ceiling", ceil_side), ("floor", floor_side)):
+        rec = prov_side.get(node)
+        if rec is None:
             continue
-        b2 = _ceil_via(ln)
-        if b2 is not None:
-            nm = next((n for (lk, n) in cls_named if lk is ln), "?")
-            second = (nm, b2[0], ln.distance(c))
-            break
+        anchor, budget = int(rec[0]), float(rec[1])
+        path, complete = _walk_to_anchor(G, prov_side, node, anchor)
+        cap_len: dict = {}
+        for a, b in zip(path, path[1:]):
+            bud = _edge_budget(G, a, b)
+            pa, pb = G.pos.get(a), G.pos.get(b)
+            if bud is None or pa is None or pb is None:
+                continue
+            seg = math.hypot(pa[0] - pb[0], pa[1] - pb[1])
+            if seg <= _EPS:
+                continue
+            cap_len[round(bud / seg * 100, 2)] = \
+                cap_len.get(round(bud / seg * 100, 2), 0.0) + seg
+        out[side] = {
+            "anchor": anchor,
+            "anchor_value": anchor_value.get(anchor),
+            "anchor_pos": G.pos.get(anchor),
+            "route_budget_m": budget,
+            "path": [G.pos[n] for n in path if n in G.pos],
+            "path_complete": complete,
+            "cap_len": cap_len,
+            "runway": _runway_at(layout, G.pos.get(anchor)),
+        }
+    return out
 
-    # reconstruct path kbind -> k (runway anchor)
-    path = [kbind]
-    u = kbind
-    while u != k and u in prev:
-        u = prev[u]
-        path.append(u)
-    path.reverse()
-    cap_len: dict = {}
-    for a, b in zip(path, path[1:]):
-        cc = round(ecap(a, b) * 100, 1)
-        seg = math.hypot(G.pos[a][0] - G.pos[b][0], G.pos[a][1] - G.pos[b][1])
-        cap_len[cc] = cap_len.get(cc, 0.0) + seg
 
-    rwy_ref = "?"
+def _runway_at(layout, pos):
+    """The runway ref whose polygon owns ``pos`` — scoped by the JOIN/CONTACT
+    law's own reach (``grade_law``), never a magic radius."""
+    if pos is None:
+        return "?"
+    from shapely.geometry import Point
+    from auto_patch.layout import ROLE_RUNWAY, ROLE_RUNWAY_CROSSING
+    from auto_patch.grade_law import RUNWAY_CONTACT_M, RUNWAY_JOIN_NEAR_M
+    reach = RUNWAY_CONTACT_M + RUNWAY_JOIN_NEAR_M
+    p = Point(pos[0], pos[1])
+    best, best_d = "?", reach
     for s in layout.shapes:
-        if (s.role == ROLE_RUNWAY and s.polygon is not None
-                and not s.polygon.is_empty
-                and s.polygon.distance(Point(*G.pos[k])) < 15):
-            rwy_ref = str(s.ref)
-            break
-    return (ceil, floor, G.pos[k], ae, rwy_ref, [G.pos[n] for n in path],
-            (foot.x, foot.y), cap_len, serving_name, perp, on_pav, second)
+        if (s.role not in (ROLE_RUNWAY, ROLE_RUNWAY_CROSSING)
+                or s.polygon is None or s.polygon.is_empty):
+            continue
+        d = s.polygon.distance(p)
+        if d <= best_d:
+            best, best_d = str(s.ref), d
+    return best
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("icao")
-    ap.add_argument("--ref", help="shape ref (e.g. building5)")
-    ap.add_argument("--coord", help="local meters 'x,y'")
-    ap.add_argument("--out", default="/tmp/reach_route.kml")
-    args = ap.parse_args()
+def _report(r, x, y):
+    print(f"target ({x:.2f},{y:.2f})")
+    if r.get("error"):
+        print(f"  ERROR: {r['error']}")
+        return
+    band = r.get("band")
+    if band is None:
+        print("  reach band: None (OFF-NET)")
+        print(f"  {r.get('why_none', '')}")
+    else:
+        print(f"  reach band: floor={band[0]:.4f}  ceiling={band[1]:.4f}"
+              f"  (width {band[1] - band[0]:+.4f} m)")
+    att = r.get("attachment")
+    if att is None:
+        print("  attachment: none — the grid lookup serves no attachment "
+              "here (off-net).  Nothing binds this point; the local "
+              "within-shape law governs it.")
+        return
+    where = ("paved" if att["query_cell_paved"]
+             else f"OFF-MASK, snapped {att['off_mask_m']:.2f} m")
+    print(f"  lookup: query cell {att['cell']} ({where}), off-route leg "
+          f"{att['leg_m']:.4f} m at {att['cell_m']:.1f} m cells")
+    print(f"  serving attachment cell {att['attachment_cid']} "
+          f"@{att['attachment_cell']} seeded by "
+          f"{len(att['attachment_nodes'])} route node(s); its band "
+          f"[{att['floor_at_attachment']:.4f}, "
+          f"{att['ceiling_at_attachment']:.4f}]")
+    if not r.get("provenance_present"):
+        print("  !! the band recorded no anchor provenance — cannot name the "
+              "binding anchor (spine_value_fields did not run on this layout)")
+        return
+    node = r.get("attachment_node")
+    if node is None:
+        print("  !! no attachment node carries a recorded ceiling")
+        return
+    pos = r.get("attachment_pos")
+    print(f"  binding attachment node {node}"
+          + (f" @({pos[0]:.2f},{pos[1]:.2f})" if pos else "")
+          + f"  ceiling {r['ceiling_at_node']:.4f}  "
+            f"floor {r['floor_at_node']:.4f}")
+    for side in ("ceiling", "floor"):
+        s = r.get(side)
+        if not s:
+            continue
+        ap = s["anchor_pos"]
+        print(f"  {side.upper():<8} anchor node {s['anchor']} "
+              f"({s['runway']})"
+              + (f" @({ap[0]:.0f},{ap[1]:.0f})" if ap else "")
+              + f" value {s['anchor_value']:.4f}, route budget "
+                f"{s['route_budget_m']:.4f} m over {len(s['path'])} node(s)"
+              + ("" if s["path_complete"] else "  [PATH INCOMPLETE — the "
+                 "recorded budgets do not reconcile through the graph; the "
+                 "anchor and budget above are still the field's own]"))
+        if s["cap_len"]:
+            print("           per-cap route length (m): {"
+                  + ", ".join(f"{k}%: {v:.0f}"
+                              for k, v in sorted(s["cap_len"].items())) + "}")
 
-    from conftest import xplane_root
-    from auto_patch.pipeline import build_airport_pavement
+
+def _kml(layout, r, x, y, label, out_path):
+    from shapely.geometry import Point as _P
     from auto_patch.grade_graph import _open_ring
     from auto_patch.layout import ROLE_APRON, ROLE_BUILDING
-    layout = build_airport_pavement(args.icao, xplane_root(),
-                                    compute_elevations=True)
-
-    if args.coord:
-        x, y = (float(v) for v in args.coord.split(","))
-    elif args.ref:
-        s = next((s for s in layout.shapes if str(s.ref) == args.ref), None)
-        if s is None or s.polygon is None:
-            sys.exit(f"ref {args.ref} not found / no polygon")
-        x, y = s.polygon.centroid.x, s.polygon.centroid.y
-    else:
-        sys.exit("give --ref or --coord")
-
-    r = _binding_route(layout, x, y)
-    if r is None:
-        sys.exit("point is not taxi-reachable from any runway contact")
-    (ceil, floor, cxy, ae, rwy_ref, path, foot, cap_len, serving_name,
-     perp, on_pav, second) = r
-    print(f"target ({x:.0f},{y:.0f}) — serving centerline {serving_name} "
-          f"perp={perp:.1f}m")
-    print(f"binding runway: {rwy_ref}  contact=({cxy[0]:.0f},{cxy[1]:.0f}) "
-          f"elev={ae:.1f}")
-    print(f"route per-cap length (m): "
-          f"{{{', '.join(f'{k}%: {v:.0f}' for k, v in sorted(cap_len.items()))}}}")
-    print(f"reach band: floor={floor:.1f} ceiling={ceil:.1f}")
-    if on_pav is not None:
-        print(f"perp chord on-pavement fraction: {on_pav*100:.0f}%"
-              f"  ({'REAL apron path' if on_pav >= 0.97 else 'PHANTOM — crosses grass'})")
-    if second is not None:
-        nm, c2, d2 = second
-        print(f"2nd-nearest visible centerline {nm} ({d2:.0f}m): ceiling={c2:.1f}"
-              f"  ({'HIGHER route available (band uses nearest-only)' if c2 > ceil + 0.3 else 'not higher'})")
-
     lat0, lon0 = layout.anchor
     R = 6378137.0
     cos0 = math.cos(math.radians(lat0))
@@ -268,53 +282,90 @@ def main():
         return (f'<Placemark><name>{name}</name><Point><coordinates>'
                 f'{lo:.7f},{la:.7f},0</coordinates></Point></Placemark>')
 
+    band = r.get("band")
     parts = [
         '<?xml version="1.0"?>',
         '<kml xmlns="http://www.opengis.net/kml/2.2"><Document>',
-        '<Style id="r"><LineStyle><color>ff00ffff</color><width>5</width></LineStyle></Style>',
-        '<Style id="cl"><LineStyle><color>ffffffff</color><width>2</width></LineStyle></Style>',
-        '<Style id="ap"><LineStyle><color>ffff8800</color><width>2</width></LineStyle>'
-        '<PolyStyle><color>20ff8800</color></PolyStyle></Style>',
-        '<Style id="bl"><LineStyle><color>ff0000ff</color><width>2</width></LineStyle>'
-        '<PolyStyle><color>300000ff</color></PolyStyle></Style>',
-        f'<Placemark><name>reach route {rwy_ref} {ae:.1f} -> ceil {ceil:.1f}</name>'
-        f'<styleUrl>#r</styleUrl><LineString><coordinates>{line(path)}'
-        '</coordinates></LineString></Placemark>',
-        pm(f"target {args.ref or args.coord} (e?/ceil {ceil:.1f})", x, y),
-        pm(f"foot {serving_name} perp {perp:.0f}m", *foot),
-        pm(f"binding {rwy_ref} {ae:.1f}", cxy[0], cxy[1]),
+        '<Style id="r"><LineStyle><color>ff00ffff</color><width>5</width>'
+        '</LineStyle></Style>',
+        '<Style id="f"><LineStyle><color>ff00ff00</color><width>3</width>'
+        '</LineStyle></Style>',
+        '<Style id="ap"><LineStyle><color>ffff8800</color><width>2</width>'
+        '</LineStyle><PolyStyle><color>20ff8800</color></PolyStyle></Style>',
+        '<Style id="bl"><LineStyle><color>ff0000ff</color><width>2</width>'
+        '</LineStyle><PolyStyle><color>300000ff</color></PolyStyle></Style>',
+        pm(f"target {label}" + ("" if band is None else
+                                f" band [{band[0]:.2f}, {band[1]:.2f}]"), x, y),
     ]
-    # apron + building context within 120 m, and nearby centerlines
-    from shapely.geometry import Point as _P
+    for side, style in (("ceiling", "r"), ("floor", "f")):
+        s = r.get(side)
+        if not s or len(s["path"]) < 2:
+            continue
+        parts.append(
+            f'<Placemark><name>{side} route {s["runway"]} '
+            f'{s["anchor_value"]:.2f} + {s["route_budget_m"]:.2f} m</name>'
+            f'<styleUrl>#{style}</styleUrl><LineString><coordinates>'
+            f'{line(s["path"])}</coordinates></LineString></Placemark>')
+        ap = s["anchor_pos"]
+        if ap:
+            parts.append(pm(f"{side} anchor {s['runway']} "
+                            f"{s['anchor_value']:.2f}", ap[0], ap[1]))
+    pos = r.get("attachment_pos")
+    if pos:
+        parts.append(pm(f"attachment node {r['attachment_node']}",
+                        pos[0], pos[1]))
     near = _P(x, y)
     for s in layout.shapes:
-        if s.polygon is None or s.polygon.is_empty or s.polygon.distance(near) > 120:
+        if (s.polygon is None or s.polygon.is_empty
+                or s.polygon.distance(near) > 120):
             continue
-        if s.role == ROLE_APRON:
+        if s.role in (ROLE_APRON, ROLE_BUILDING):
             ring = _open_ring(list(s.polygon.exterior.coords))
-            parts.append(f'<Placemark><name>apron {s.polygon.area:.0f}m2</name>'
-                         f'<styleUrl>#ap</styleUrl><Polygon><outerBoundaryIs>'
-                         f'<LinearRing><coordinates>{line(ring+[ring[0]])}'
-                         '</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>')
-        elif s.role == ROLE_BUILDING:
-            ring = _open_ring(list(s.polygon.exterior.coords))
-            parts.append(f'<Placemark><name>{s.ref}</name><styleUrl>#bl</styleUrl>'
-                         f'<Polygon><outerBoundaryIs><LinearRing><coordinates>'
-                         f'{line(ring+[ring[0]])}'
-                         '</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>')
-    for entry in (getattr(layout, "apt_taxi_centerlines", []) or []):
-        ln, nm = entry.line, str(entry.name or "?")
-        if (ln is None or ln.is_empty or ln.distance(near) > 120
-                or entry.is_service or nm.upper().startswith("SVC")):
-            continue
-        parts.append(f'<Placemark><name>{nm}</name><styleUrl>#cl</styleUrl>'
-                     f'<LineString><coordinates>{line(list(ln.coords))}'
-                     '</coordinates></LineString></Placemark>')
+            style = "ap" if s.role == ROLE_APRON else "bl"
+            name = (f"apron {s.polygon.area:.0f}m2"
+                    if s.role == ROLE_APRON else str(s.ref))
+            parts.append(
+                f'<Placemark><name>{name}</name><styleUrl>#{style}</styleUrl>'
+                f'<Polygon><outerBoundaryIs><LinearRing><coordinates>'
+                f'{line(ring + [ring[0]])}</coordinates></LinearRing>'
+                f'</outerBoundaryIs></Polygon></Placemark>')
     parts.append('</Document></kml>')
-    with open(args.out, "w") as f:
+    with open(out_path, "w") as f:
         f.write("\n".join(parts) + "\n")
-    print(f"wrote {args.out}")
+    print(f"wrote {out_path}")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("icao")
+    ap.add_argument("--ref", help="shape ref (e.g. building5)")
+    ap.add_argument("--coord", help="local meters 'x,y'")
+    ap.add_argument("--out", default="/tmp/reach_route.kml")
+    args = ap.parse_args()
+
+    from conftest import xplane_root
+    from auto_patch.pipeline import build_airport_pavement
+    layout = build_airport_pavement(args.icao, xplane_root(),
+                                    compute_elevations=True)
+
+    if args.coord:
+        x, y = (float(v) for v in args.coord.split(","))
+    elif args.ref:
+        s = next((s for s in layout.shapes if str(s.ref) == args.ref), None)
+        if s is None or s.polygon is None:
+            sys.exit(f"ref {args.ref} not found / no polygon")
+        x, y = s.polygon.centroid.x, s.polygon.centroid.y
+    else:
+        sys.exit("give --ref or --coord")
+
+    r = _binding_route(layout, x, y)
+    _report(r, x, y)
+    _kml(layout, r, x, y, args.ref or args.coord, args.out)
+    # EXIT CODE IS ABOUT THE TOOL, NOT THE POINT.  An off-net point is an
+    # ANSWER ("the local within-shape law governs it"), not a failure — the
+    # old tool exited 1 on it and that is what made it read as a refusal.
+    return 0 if not r.get("error") else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

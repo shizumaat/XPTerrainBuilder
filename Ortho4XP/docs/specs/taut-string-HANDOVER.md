@@ -44,6 +44,26 @@ CYCLE-4 VERDICTS (all three targets closed this session):
   cap reaches both edge sets), who_wrote --author, ENTRY/EXIT law
   certificate. Idempotence hold is REPORT-ONLY.
 
+CYCLE-5 STATE: attribution DONE (dossier c4tip tmp/c5attr_dossier.md):
+ALL SEVEN battery builds exit UNCERTIFIED; every dominant family is
+**(a) BUG** — stale foot boxes (solve.py:1384 vs the one authority
+solver_primitives.py:2416; 65.6% stale-box rows, datum p90 24.9 m),
+one-shot band floor clamp (one_solve.py:2566; 11,144 below-floor vs
+112 above, 99.5:1), gs_pin hard raw-DEM anchors (70/70 out-of-band
+hard nodes, worst 85.7 m below own floor); certificate (d) on family
+axis only (arithmetic verified). Honest post-fix residual: 3.9% of
+edges, worst 5.620 m. Adjacent-ground "binds→0" claim FALSIFIED (boxes
+bound; stale datum mints it; plateau worse than canyon — KCLT dem1
+225.34 m). Fix lane c5solve IN FLIGHT
+(cycle5-solve-certification-spec.md; certificate reader first).
+INSTRUMENT ROUND MERGED (lane/c5inst): radius law-derived (F2 exempt),
+grid-residual excuse deleted (SPJC honest 48 — population now FLOOR
+side at this tree, the ceil quartet was be2009f-era), CYXY fixture red
+gone, trace_reach_route REVIVED on the live band (canyon attribution
+unblocked), deferred adjudication mechanical (d48bc0a cited),
+frontage_near_miss family registered (HECA 85/KCLT 17-29/SPJC 3-7/
+HEAZ 0), sub-inversion band excess reported+sidecar'd.
+
 NEXT TARGETS (ranked):
 1. **The solve's UNCERTIFIED exit is the real plateau author** —
    attribute the empty polytope per family (ENTRY/EXIT certificate +

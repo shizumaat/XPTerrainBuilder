@@ -516,7 +516,7 @@ def faa_joint_solve(fractions, elevs, anchored, phys_dist,
 
 def generate_patch_osm(icao, runway_pairs, runway_widths=None, tile=None,
                        apt_runways=None, extra_anchors=None,
-                       pav_intersections=None):
+                       pav_intersections=None, join_stations=None):
     """Generate OSM XML content for segmented runway auto-patches.
 
     For each paired runway, samples the DEM along the centerline at
@@ -567,6 +567,33 @@ def generate_patch_osm(icao, runway_pairs, runway_widths=None, tile=None,
             junction-widening pass reach runway corners via the
             existing single-step chain walk, without needing
             boundary-trace waypoints (per user 2026-05-05).
+        join_stations: Optional dict of
+            ``{(desig_a, desig_b): [(lat, lon), ...]}`` — the TAXI-JOIN
+            CONTACTS on this runway, enumerated by the one shared
+            authority ``grade_law.runway_join_contacts`` (the same one
+            ``grade_graph._runway_anchors`` uses to decide where a join
+            is).  Each is projected onto the centerline and inserted as
+            an ANCHORED station VALUED AT THE LAW LINE — the
+            anchored-station interpolation, never DEM.
+
+            THE ANCHOR LAW (docs/specs/cycle4-anchor-law-spec.md, owner
+            cycle-4 target #2): an anchor carries LAW authority only.
+            The interior stations of a runway profile are a DEM-FOLLOW
+            SEED (lawful SEATING — DEM chooses where in the band the
+            profile sits), but ``_runway_anchors`` VALUE-SAMPLES the
+            emitted runway surface at each join and publishes it as a
+            HARD band anchor; without this insertion the seating ride —
+            up to ±10 m of world-dependent DEM follow — became LAW for
+            every band seeded from that join (measured fix-3A, HECA
+            constant-DEM pair: +20.000 m world-to-world on 71/75
+            stations of 05C/23C; the canyon's 3,169-node
+            ``BandInversionError`` class carried ~6.0 m of pure ride).
+            Anchoring the join station at the law line makes the ride
+            taper to ZERO into every join by construction — the DEM
+            band below is ``min(BAND, ½·K·d²)`` with ``d`` the distance
+            to the nearest ANCHOR, so a join IS a zero-band station and
+            its neighbourhood tightens smoothly inside the existing
+            vertical-curve envelope (no new kink class).
 
     Returns:
         str: Complete OSM XML content for the patch file.
@@ -1277,6 +1304,73 @@ def generate_patch_osm(icao, runway_pairs, runway_widths=None, tile=None,
                     pav_int_t_vals.append(pt)
                 fractions.sort()
 
+            # ── TAXI-JOIN STATIONS (anchor-law spec, cycle 4) ────────
+            # Every place a taxi route JOINS this runway becomes a
+            # profile station, so the law line can be anchored there
+            # (values assigned after the anchor profile is built,
+            # below).  ``join_t_vals`` carries the exact fractions.
+            # Enumerated once by ``grade_law.runway_join_contacts`` —
+            # this is the SAME join set ``grade_graph._runway_anchors``
+            # samples, by construction.
+            join_t_vals: list[float] = []
+            if join_stations and phys_dist > 0:
+                jn_pts = []
+                jca = canonical_runway_desig(desig_a)
+                jcb = canonical_runway_desig(desig_b)
+                for jkey in (
+                        (desig_a, desig_b),
+                        (desig_b, desig_a),
+                        ("RW" + desig_a.lstrip("RW"),
+                         "RW" + desig_b.lstrip("RW")),
+                        ("RW" + desig_b.lstrip("RW"),
+                         "RW" + desig_a.lstrip("RW")),
+                        (jca, jcb), (jcb, jca)):
+                    if jkey in join_stations:
+                        jn_pts = join_stations[jkey]
+                        break
+                rL2 = dx_phys * dx_phys + dy_phys * dy_phys
+                # 2 m: a join within this of an existing station is THAT
+                # station (the pav-vs-pav sliver tolerance) — the seam
+                # moves onto the exact contact rather than minting a
+                # 2 m sliver segment beside it.  A join within 2 m of a
+                # threshold / cross-runway anchor is dropped: that
+                # anchor already carries a law value there.
+                join_snap_t = 2.0 / phys_dist
+                for j_lat, j_lon in (jn_pts or ()):
+                    if rL2 <= 0:
+                        break
+                    jx = (j_lon - phys_end_a[1]) * cos_lat_v * DEG_TO_M
+                    jy = (j_lat - phys_end_a[0]) * DEG_TO_M
+                    jt = (jx * dx_phys + jy * dy_phys) / rL2
+                    if jt <= 0.001 or jt >= 0.999:
+                        continue
+                    if any(abs(jt - a) < join_snap_t for a in anchored_t):
+                        continue
+                    if any(abs(jt - t) < 1e-9 for t in join_t_vals):
+                        continue
+                    closest_idx = None
+                    closest_d = None
+                    for i, f in enumerate(fractions):
+                        if any(abs(f - a) < 1e-6 for a in anchored_t):
+                            continue
+                        if any(abs(f - t) < 1e-9 for t in join_t_vals):
+                            continue
+                        d = abs(jt - f)
+                        if closest_d is None or d < closest_d:
+                            closest_d = d
+                            closest_idx = i
+                    if closest_idx is not None and closest_d < join_snap_t:
+                        _old_f = fractions[closest_idx]
+                        fractions[closest_idx] = jt
+                        # keep the junction-snap ledger pointing at the
+                        # station that moved (it is still a pavement join)
+                        for _k, _pv in enumerate(pav_int_t_vals):
+                            if abs(_pv - _old_f) < 1e-12:
+                                pav_int_t_vals[_k] = jt
+                    else:
+                        fractions.append(jt)
+                    join_t_vals.append(jt)
+                fractions.sort()
 
             # NOTE: tile-boundary cuts intentionally happen at the
             # end of the pipeline in ``tile_cut.py``, NOT here.
@@ -1491,6 +1585,65 @@ def generate_patch_osm(icao, runway_pairs, runway_widths=None, tile=None,
                         return e0 + t * (e1 - e0)
                 return profile_anchors[-1][1]
 
+            # 3b. THE ANCHOR LAW (cycle-4 spec
+            # ``docs/specs/cycle4-anchor-law-spec.md``): every TAXI-JOIN
+            # station is a ZERO-BAND station — it seats ON the law line,
+            # and the DEM-follow ride tapers to zero into it.
+            #
+            # WHY.  ``grade_graph._runway_anchors`` value-samples the
+            # emitted runway surface at each join and publishes it as a
+            # HARD band anchor, so any DEM-follow ride sitting at a join
+            # is republished as LAW for every band seeded from it
+            # (measured: ~6.0 m of pure ride inside HECA's canyon
+            # ``BandInversionError`` class).  A station whose DEM band is
+            # ZERO carries the law line by construction, so the ride can
+            # never reach that sample.
+            #
+            # HOW, and it is one line of mechanism: the blend below sizes
+            # each station's band as ``min(BAND, ½·K·d²)`` with ``d`` the
+            # distance to the nearest ZERO-BAND station.  Adding the join
+            # stations to that set makes their own band ZERO (d = 0) and
+            # makes the neighbourhood tighten smoothly toward them inside
+            # the existing vertical-curve envelope — no new kink class.
+            #
+            # DEVIATION FROM THE SPEC'S PREFERRED MECHANISM, decided and
+            # noted (RULINGS 2026-08-05 BUILD-COMPLETE-THEN-DEBUG §2).
+            # The spec says insert the join stations into the ANCHORED
+            # set.  Measured consequence of doing exactly that (HECA
+            # constant-DEM world 1, and HEAZ ``--dem 1`` which went from
+            # building to ``BandInversionError``): ``flex_slack_at``
+            # bounds the runway flex against EVERY anchored station, so
+            # 8-18 new anchors per runway drove the flex's slack to ~0 at
+            # each of them — the documented SELF-ANCHOR LOCK, this time
+            # minted by the anchor law instead of by the flex.  The
+            # +7.011 m law family the flex was expected to drain did not
+            # move.  A join station carries NO authority of its own (its
+            # value is a function of the real anchors), so it must not
+            # bound anything and must not freeze: kept FREE, it follows
+            # the law line through every later re-solve — the seam
+            # shift, the flex's own lawful hard moves — which is exactly
+            # what requirement 1 names as the law line.  Ride still never
+            # reaches it: DEM enters the profile ONLY here, and only
+            # through this band.
+            _zero_band = [bool(a) for a in anchored]
+            if join_t_vals:
+                _n_join_zero = 0
+                for jt in join_t_vals:
+                    for i in range(n_samples):
+                        if _zero_band[i]:
+                            continue
+                        if abs(fractions[i] - jt) < 1e-9:
+                            _zero_band[i] = True
+                            _n_join_zero += 1
+                            break
+                if _n_join_zero:
+                    UI.vprint(1,
+                        f"  [pav-builder] {icao} runway "
+                        f"{desig_a}/{desig_b}: {_n_join_zero} taxi-join "
+                        f"station(s) seated ON the law line "
+                        f"(anchor law — zero DEM band at the join, the "
+                        f"ride tapers to zero into it).")
+
             # 4. DEM blend with band size tied to FAA absorption capacity.
             # The interior seeds at the LINEAR baseline through the profile
             # anchors (thresholds + cross-runway / crossing anchors + seams);
@@ -1521,10 +1674,14 @@ def generate_patch_osm(icao, runway_pairs, runway_widths=None, tile=None,
                 base_e = _anchor_profile(fractions[i])
                 if base_e is None:
                     continue
-                # Distance to nearest anchor along centerline.
+                # Distance to the nearest ZERO-BAND station along the
+                # centerline: every anchor, plus every taxi-join station
+                # (the anchor law above — a join is a zero-band station,
+                # so ``d`` is 0 at the join itself and the band opens
+                # smoothly away from it).
                 nearest_d = float('inf')
                 for j in range(n_samples):
-                    if not anchored[j]:
+                    if not _zero_band[j]:
                         continue
                     d = abs(cum_dist[i] - cum_dist[j])
                     if d < nearest_d:

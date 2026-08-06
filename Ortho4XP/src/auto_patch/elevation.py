@@ -539,6 +539,38 @@ def _build_apt_runway_join(apt_runways, pairs):
     return apt_runway_geom, runway_widths, cifp_to_apt
 
 
+def _runway_join_stations(layout, m_to_ll) -> dict:
+    """``{(desig_a, desig_b): [(lat, lon), ...]}`` — every taxi-route JOIN
+    CONTACT on every runway, keyed by the apt.dat designator pair (the runway
+    shape's ``ref``, the same key style ``pav_intersections`` uses).
+
+    THE ANCHOR LAW (docs/specs/cycle4-anchor-law-spec.md): these stations are
+    anchored at the LAW LINE by ``runway_segments.generate_patch_osm``, so the
+    emitted runway surface at a join carries no DEM-follow ride for
+    ``grade_graph._runway_anchors`` to republish as a hard band anchor.  The
+    join set comes from the ONE shared authority
+    ``grade_law.runway_join_contacts`` — the same enumeration the graph uses,
+    never a second "where a join is" rule.
+    """
+    from .grade_law import runway_join_contacts
+    from .layout import ROLE_RUNWAY
+    runways = [s for s in layout.shapes
+               if s.role == ROLE_RUNWAY and s.polygon is not None
+               and not s.polygon.is_empty and s.ref]
+    if not runways:
+        return {}
+    out: dict = {}
+    for (rwy, (cx, cy), _endpoint) in runway_join_contacts(
+            getattr(layout, "apt_taxi_centerlines", []) or [], runways):
+        ref = str(getattr(rwy, "ref", "") or "")
+        if "/" not in ref:
+            continue
+        desig_a, desig_b = ref.split("/", 1)
+        lat, lon = m_to_ll(float(cx), float(cy))
+        out.setdefault((desig_a, desig_b), []).append((lat, lon))
+    return out
+
+
 def _compute_elevations(layout: "PavementLayout", icao: str,
                         xplane_root: str, apt,
                         osm_nodes=None, osm_ways=None,
@@ -650,11 +682,35 @@ def _compute_elevations(layout: "PavementLayout", icao: str,
                             continue
                         pav_intersections.setdefault((cifp_a, cifp_b), pts)
                         pav_intersections.setdefault((cifp_b, cifp_a), pts)
+                # ── TAXI-JOIN STATIONS (anchor-law spec, cycle 4) ──
+                # WHERE the taxi routes join each runway, from the ONE
+                # shared authority (``grade_law.runway_join_contacts`` —
+                # the same enumeration ``grade_graph._runway_anchors``
+                # uses).  The seeder anchors those stations at the LAW
+                # LINE, so the value ``_runway_anchors`` later samples
+                # off the emitted surface is law and never the
+                # DEM-follow seating ride.  Keyed like
+                # ``pav_intersections``: apt.dat designator pairs.
+                join_stations = _runway_join_stations(layout, m_to_ll)
+                UI.vprint(1,
+                    f"  [pav-builder] {icao}: {sum(len(v) for v in join_stations.values())} "
+                    f"taxi-join contact(s) on {len(join_stations)} runway(s) "
+                    f"— these profile stations seat ON the law line, with a "
+                    f"zero DEM band (anchor law).")
+                if join_stations and cifp_to_apt:
+                    for (cifp_a, cifp_b), (apt_a, apt_b) in cifp_to_apt.items():
+                        pts = (join_stations.get((apt_a, apt_b))
+                               or join_stations.get((apt_b, apt_a)))
+                        if not pts:
+                            continue
+                        join_stations.setdefault((cifp_a, cifp_b), pts)
+                        join_stations.setdefault((cifp_b, cifp_a), pts)
                 _xml, runway_segment_chain, runway_profile_state = (
                     _AP.generate_patch_osm(
                         icao, pairs, runway_widths=runway_widths,
                         tile=tile, apt_runways=apt_runway_geom,
-                        pav_intersections=pav_intersections))
+                        pav_intersections=pav_intersections,
+                        join_stations=join_stations))
         except _GEOM_EXC:
             runway_segment_chain = []
             runway_profile_state = {}

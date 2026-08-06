@@ -5696,6 +5696,23 @@ def build_airport_pavement(icao: str, xplane_root: str,
                    else int(math.floor(layout.anchor[1])))
             _separate_groundside_from_airside(layout, _dem_last, _tl, _tn,
                                               preserve_field=True)
+            # POST-SOLVE LAW SEATING (cycle-6 ingestion, spec Part D).
+            # The classification slot demotes pavement to groundside long
+            # before the solve, when NO higher surface carries a value —
+            # so those pieces are necessarily born on a DEM seed, and
+            # until now nothing came back for them.  This is that pass:
+            # values only, the same ladder and the same emitter identity,
+            # over every groundside ring still carrying its seed.  It
+            # runs HERE — after the last groundside geometry mutation and
+            # before the chord limiter — so the limiter closes any
+            # residual on the seated field, not on the seed.
+            from .groundside import seat_groundside_on_law
+            _n_seated = seat_groundside_on_law(layout, _dem_last, _tl, _tn)
+            if _n_seated:
+                UI.vprint(1,
+                    f"  [groundside-law-seat] {icao}: re-seated "
+                    f"{_n_seated} groundside ring(s) that were still on "
+                    f"their pre-solve DEM seed.")
             # The separation re-derives DEM altitudes for any piece it
             # clipped — AFTER the finalize-stage chord limiter ran, so a
             # rebuilt hillside piece reads >4 % across its interior again
@@ -6515,6 +6532,19 @@ def build_airport_pavement(icao: str, xplane_root: str,
             UI.vprint(1, f"  [pav-builder] WARN {icao}: final band EXCESS "
                          f"report failed ({_band_excess_exc!r}) — membership "
                          f"NOT measured this build.")
+
+    # GROUNDSIDE LAW SEATING — what every groundside ring was seated ON
+    # (cycle-6 ingestion, spec Part D).  The requirement is that a ring
+    # vertex never takes the raw DEM, so the number to read is the LAW
+    # ISLAND count: rings that reached the seat with no weld anchor and
+    # no prior field of their own.  Printed even at zero — an absent
+    # line means the pass did not run.  Never fatal.
+    try:
+        from .groundside import report_groundside_law_seat as _gs_seat_rep
+        _gs_seat_rep(layout, icao)
+    except Exception as _gs_seat_exc:
+        UI.vprint(1, f"  [groundside-law-seat] {icao}: report failed "
+                     f"({_gs_seat_exc!r}) — seating NOT measured.")
 
     # SHADOW pavement scoring classifier v2 (docs/specs/pavement-scoring-
     # classifier-spec.md): score every final pavement shape against all

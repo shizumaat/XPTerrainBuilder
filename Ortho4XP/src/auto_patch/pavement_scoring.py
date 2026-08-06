@@ -2143,7 +2143,8 @@ _ENACT_ROLES = (ROLE_APRON, ROLE_JUNCTION, ROLE_SERVICE_ROAD,
                 ROLE_SERVICE_JUNCTION)
 
 
-def _enact_verdict(shape, record, dem_at) -> bool:
+def _enact_verdict(shape, record, dem_at, law_anchors=None,
+                   anchor_key=None, stats=None) -> bool:
     """Apply one verdict to ``shape``.  Returns True when it moved.
 
     Under ``PAVEMENT_SCORE_PURE`` (the validation default, owner
@@ -2163,7 +2164,9 @@ def _enact_verdict(shape, record, dem_at) -> bool:
         return False
     if target == CLASS_GROUNDSIDE:
         from .pavement_classification import _demote
-        if not _demote(shape, ROLE_GROUNDSIDE_PAVEMENT, dem_at):
+        if not _demote(shape, ROLE_GROUNDSIDE_PAVEMENT, dem_at,
+                       law_anchors=law_anchors, anchor_key=anchor_key,
+                       stats=stats):
             record["band"] = "LOW"          # DEM re-follow failed: keep
             return False
         return True
@@ -2240,9 +2243,18 @@ def enact_classify(layout, icao: str = "", dem=None,
         candidates = _candidates()
     connectivity = runway_connectivity(layout, zone)
     adjacency = _pavement_adjacency_index(layout)
-    from .groundside import _dem_sampler
+    from .groundside import (_dem_sampler, law_anchor_values,
+                             law_anchor_key, _law_seat_stats)
     dem_at = (_dem_sampler(layout, dem, tile_lat, tile_lon)
               if dem is not None else None)
+    # ONCE per pass — the law datum a demoted piece seats on, and the
+    # EMITTER'S vertex identity for finding it (cycle-6 ingestion: the
+    # millimetre key missed welds the emitter later resolved at 0.5 m,
+    # which is how a lot shipped with its welds on the law and its
+    # interior on the DEM).
+    _law_anchors = law_anchor_values(layout)
+    _anchor_key = law_anchor_key(layout, _law_anchors)
+    _seat_stats = _law_seat_stats(layout, "enact_classify")
     decisions: list[dict] = []
     n_groundside = 0
 
@@ -2263,7 +2275,9 @@ def enact_classify(layout, icao: str = "", dem=None,
                                                           centroid.y)
         except _GEOM_EXC:
             pass
-        moved = _enact_verdict(shape, record, dem_at)
+        moved = _enact_verdict(shape, record, dem_at,
+                               law_anchors=_law_anchors,
+                               anchor_key=_anchor_key, stats=_seat_stats)
         record["enacted"] = moved
         if moved:
             summary["enacted"] += 1

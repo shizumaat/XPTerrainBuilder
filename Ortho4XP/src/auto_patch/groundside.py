@@ -284,7 +284,122 @@ def law_anchor_values(layout, for_role=None) -> dict:
     return {k: v for k, (_r, _i, v) in best.items()}
 
 
-def _seat_ring_on_law_anchors(coords, dem_alts, anchors, max_grade):
+def law_anchor_key(layout, anchors=None):
+    """The KEY FUNCTION that decides "this ring vertex IS that weld".
+
+    ONE IDENTITY, the emitter's.  ``law_anchor_values`` used to key on the
+    millimetre-rounded coordinate while ``to_osm`` interns shared nodes
+    through ``layout.canonical_points`` at ``SHARED_VERTEX_TOL_M`` (0.5 m)
+    — so a lot vertex 3 mm from the service-junction node it welds to
+    found NO anchor at seat time, kept its raw DEM seed, and then had that
+    same vertex OVERWRITTEN at emit by the higher authority's value.  The
+    result is one ring carrying its welds on the law and its interior on
+    the terrain: measured at HECA (way shapeID 525) as two nodes at
+    99.06/99.07 m against four at 1.13-1.22 m on the 1 m plateau — the
+    98.07 m ``within_shape`` row that headed the census.
+
+    IDENTITY IS NEAREST-WITHIN-TOLERANCE, not key equality.  The emitter
+    resolves a node through ``CanonicalPointRegistry`` (``tol_m =
+    SHARED_VERTEX_TOL_M``), which returns the NEAREST registered point
+    within the radius — so this builds the same structure over the
+    ANCHOR coordinates and asks it the same question.  Keying on the
+    layout's global registry was not enough on its own: post-solve
+    geometry passes move an authority ring after its vertices were
+    interned, so neither side need resolve to a canonical point at all
+    (measured at HEAZ shape 279 — fourteen weld vertices shared with
+    ``service_junction`` shape 28 at 57.9-59.9 m, none of them found, the
+    interior left at 1-17 m and 748 ``within_shape`` rows minted).
+
+    The layout registry is still consulted FIRST and READ-ONLY (``get``,
+    never ``get_or_add``): interning a point here would change which
+    LATER points intern together and so move the emitted surface from
+    inside a lookup.  With neither registry nor anchors the key degrades
+    to the historical millimetre rule.
+
+    ``anchors`` — the dict ``law_anchor_values`` returned.  Its KEYS are
+    the coordinates the index is built over, so a hit always names a key
+    that dict actually holds.
+    """
+    reg = getattr(layout, "canonical_points", None)
+    index = None
+    if anchors:
+        from .canonical_points import CanonicalPointRegistry
+        index = CanonicalPointRegistry(tol_m=SHARED_VERTEX_TOL_M)
+        for (ax, ay) in anchors:
+            index.add_exact(float(ax), float(ay))
+
+    def _key(x, y):
+        x, y = float(x), float(y)
+        exact = (round(x, 3), round(y, 3))
+        if anchors is not None and exact in anchors:
+            return exact
+        if reg is not None:
+            try:
+                c = reg.get(x, y)
+            except Exception:                          # pragma: no cover
+                c = None
+            if c is not None:
+                ck = (round(float(c[0]), 3), round(float(c[1]), 3))
+                if anchors is None or ck in anchors:
+                    return ck
+        if index is not None:
+            near = index.find_nearest(x, y, SHARED_VERTEX_TOL_M)
+            if near is not None:
+                return (round(float(near[0]), 3), round(float(near[1]), 3))
+        return exact
+
+    return _key
+
+
+def _mm_key(x, y):
+    """The historical millimetre key — the fallback identity."""
+    return (round(float(x), 3), round(float(y), 3))
+
+
+def _ring_arcs(coords):
+    """Edge lengths of the CLOSED ring, index i = edge i→i+1."""
+    n = len(coords)
+    return [math.hypot(coords[(i + 1) % n][0] - coords[i][0],
+                       coords[(i + 1) % n][1] - coords[i][1])
+            for i in range(n)]
+
+
+def _flanking_law(coords, seg, have, k):
+    """Walk the ring both ways from ``k`` to the nearest index in
+    ``have``.  Returns ``(j, db, k2, df)`` or ``None`` if ``have`` is
+    empty.  ``j == k2`` when the ring carries exactly one law datum.
+
+    THE ARC, not the straight line: the within-shape grade law pairs
+    ADJACENT RING VERTICES, so the distance a lot vertex is allowed to
+    deviate from its law datum is measured along the ring it lives on.
+    """
+    n = len(coords)
+    if not have:
+        return None
+    db = 0.0
+    j = k
+    for _ in range(n):
+        j = (j - 1) % n
+        db += seg[j]
+        if j in have:
+            break
+    else:                                              # pragma: no cover
+        return None
+    df = 0.0
+    k2 = k
+    for _ in range(n):
+        df += seg[k2]
+        k2 = (k2 + 1) % n
+        if k2 in have:
+            break
+    else:                                              # pragma: no cover
+        return None
+    return j, db, k2, df
+
+
+def _seat_ring_on_law_anchors(coords, dem_alts, anchors, max_grade,
+                              key_fn=None, prior_at=None, stats=None,
+                              seat_out=None):
     """Seat a groundside ring on the LAW datum its welds carry, keeping
     only the DEM's RELIEF — the owner's "DEM is a SEED, nothing more".
 
@@ -315,40 +430,319 @@ def _seat_ring_on_law_anchors(coords, dem_alts, anchors, max_grade):
     flat on its weld datum and emits zero rows — which is the oracle's
     whole point.  Under real terrain the lot still FOLLOWS the ground, but
     only as far from its welds as the lot's own grade law allows.
+
+    THE VALUE LADDER (cycle-6 ingestion, spec Part D).  A ring vertex
+    never takes the raw DEM while ANY law source reaches it:
+
+    1. an exact WELD anchor — the value the higher-authority surface
+       carries, pinned (identity via ``key_fn``, the emitter's);
+    2. the shape's OWN PRIOR FIELD (``prior_at``) — a clipped, merged or
+       de-conflicted piece is the same surface it was a moment ago, and
+       that surface was already law-seated.  Interpolated along the
+       ORIGINAL ring's edge, so it is the host-edge insert value the
+       ingestion spec names.  A law datum, not pinned;
+    3. LAW INTERPOLATION between the two FLANKING law datums along the
+       ring, with the DEM contributing RELIEF ONLY about that chord,
+       clamped to ``cap × arc`` — the nearest-anchor rule this replaces
+       could only offer one datum and so stair-stepped between two welds;
+    4. nothing above reaches this ring — a genuine LAW ISLAND.  The DEM
+       seed stands and the ring is COUNTED in ``stats`` so it is named
+       rather than silently shipped (RULINGS 2026-08-05: an infeasible /
+       datum-less report is a defect report, never a property of ground).
+
+    Under a constant DEM steps 2 and 3 return the law value exactly (the
+    relief term and the DEM chord both vanish), which is why the oracle
+    worlds read zero here.
     """
     n = len(coords)
-    anchor_idx = []
     out = [float(a) for a in dem_alts]
-    if not anchors:
+    key_fn = key_fn or _mm_key
+    law_at: dict = {}
+    anchor_idx: list = []
+    if anchors:
+        for k in range(n):
+            v = anchors.get(key_fn(coords[k][0], coords[k][1]))
+            if v is not None:
+                law_at[k] = float(v)
+                anchor_idx.append(k)
+    # (2) the shape's own prior field, where the welds do not reach.
+    prior_idx: list = []
+    if prior_at is not None:
+        for k in range(n):
+            if k in law_at:
+                continue
+            v = prior_at(coords[k][0], coords[k][1])
+            if v is not None:
+                law_at[k] = float(v)
+                prior_idx.append(k)
+    if stats is not None:
+        stats["rings"] = stats.get("rings", 0) + 1
+        stats["anchored"] = stats.get("anchored", 0) + len(anchor_idx)
+        stats["from_prior"] = stats.get("from_prior", 0) + len(prior_idx)
+    if seat_out is not None:
+        seat_out["law_seated"] = bool(law_at)
+        seat_out["n_law"] = len(law_at)
+        seat_out["n_anchor"] = len(anchor_idx)
+    if not law_at:
+        # (4) LAW ISLAND — no weld, no prior field.  Report, don't invent.
+        if stats is not None:
+            stats["islands"] = stats.get("islands", 0) + 1
+            stats["island_vertices"] = (stats.get("island_vertices", 0) + n)
         return out, frozenset()
-    law_at = {}
+    for k, v in law_at.items():
+        out[k] = v
+    # (3) interpolate between flanking law datums; DEM = relief only.
+    seg = _ring_arcs(coords)
+    have = set(law_at)
     for k in range(n):
-        key = (round(float(coords[k][0]), 3), round(float(coords[k][1]), 3))
-        v = anchors.get(key)
-        if v is not None:
-            law_at[k] = float(v)
-            anchor_idx.append(k)
-    if not anchor_idx:
-        return out, frozenset()
-    for k in anchor_idx:
-        out[k] = law_at[k]
-    for k in range(n):
-        if k in law_at:
+        if k in have:
             continue
-        x, y = coords[k]
-        ai = min(anchor_idx,
-                 key=lambda a: (coords[a][0] - x) ** 2
-                 + (coords[a][1] - y) ** 2)
-        d = math.hypot(x - coords[ai][0], y - coords[ai][1])
-        allowed = max_grade * d
-        relief = float(dem_alts[k]) - float(dem_alts[ai])
-        out[k] = law_at[ai] + max(-allowed, min(allowed, relief))
+        flank = _flanking_law(coords, seg, have, k)
+        if flank is None:                              # pragma: no cover
+            continue
+        j, db, k2, df = flank
+        span = db + df
+        if k2 == j or span <= 0.0:
+            base = law_at[j]
+            dem_ref = float(dem_alts[j])
+            reach = db
+        else:
+            t = db / span
+            base = law_at[j] + t * (law_at[k2] - law_at[j])
+            dem_ref = (float(dem_alts[j])
+                       + t * (float(dem_alts[k2]) - float(dem_alts[j])))
+            reach = min(db, df)
+        allowed = max_grade * reach
+        relief = float(dem_alts[k]) - dem_ref
+        out[k] = base + max(-allowed, min(allowed, relief))
+    if stats is not None:
+        stats["interpolated"] = (stats.get("interpolated", 0)
+                                 + n - len(have))
     return out, frozenset(anchor_idx)
+
+
+def _prior_field_reader(prior, tol_m=None):
+    """``f(x, y) -> value | None`` over the ring(s) a rebuilt piece came
+    FROM — the shape's own law field, interpolated along the original
+    ring's edge.
+
+    ``prior`` is an iterable of ``(coords, alts)`` (open or closed; the
+    ``len(alts) == len(coords) + 1`` convention is trimmed here, the one
+    the OSM emitter uses).  Reuses
+    ``adjacent_ground._interp_on_ring_law`` — THE authority for "value at
+    an arbitrary point on a ring" — rather than re-deriving the
+    projection a third time.  Returns ``None`` when nothing is in range,
+    which is what lets the caller fall through the ladder instead of
+    inventing a datum.
+    """
+    from .adjacent_ground import _interp_on_ring_law
+    rings = []
+    for entry in (prior or ()):
+        if not entry:
+            continue
+        coords, alts = entry
+        if not coords or not alts:
+            continue
+        c = list(coords)
+        a = [None if v is None else float(v) for v in alts]
+        if len(c) > 1 and c[0] == c[-1]:
+            c = c[:-1]
+        if len(a) == len(c) + 1:
+            a = a[:-1]
+        if len(a) != len(c) or len(c) < 2 or any(v is None for v in a):
+            continue
+        rings.append((c, a))
+    if not rings:
+        return None
+    reach = float(tol_m if tol_m is not None else GROUNDSIDE_CLEARANCE_M)
+
+    def _read(x, y):
+        best = None
+        for (c, a) in rings:
+            v = _interp_on_ring_law(c, a, float(x), float(y), reach)
+            if v is not None:
+                # Two source rings can both cover a merge seam; the
+                # HIGHER value wins, matching the emitter's authority
+                # order (a lot never adopts the lower of two claims it
+                # already carried).
+                best = v if best is None else max(best, v)
+        return best
+
+    return _read
+
+
+def _law_seat_stats(layout, where):
+    """The per-pass accumulator behind ``[groundside-law-seat]``."""
+    if layout is None:
+        return None
+    book = getattr(layout, "_gs_law_seat", None)
+    if book is None:
+        book = {}
+        layout._gs_law_seat = book
+    return book.setdefault(where, {"where": where})
+
+
+#: Set on a groundside shape whose field came from the LAW (a weld
+#: anchor, or interpolation between welds).  Absent/False means the ring
+#: is still carrying its DEM SEED, and such a field must never be
+#: inherited as law by the next rebuild — that is how one pre-solve DEM
+#: drape propagated through clip → merge → de-conflict and shipped.
+_LAW_SEATED_ATTR = "_gs_law_seated"
+
+
+def _shape_prior(*shapes):
+    """``[(ring, values)]`` for every shape that carries a per-vertex or
+    flat field — the prior half of the value ladder.  Shapes with no
+    value contribute nothing (inventing one from an end pair is minting,
+    the same rule ``law_anchor_values`` states).
+
+    A groundside piece still on its DEM SEED contributes nothing either:
+    its field is not law, and passing it on as a prior would launder a
+    DEM drape into an apparently-lawful inheritance.
+    """
+    out = []
+    for s in shapes:
+        if s is None:
+            continue
+        if (getattr(s, "role", "") == ROLE_GROUNDSIDE_PAVEMENT
+                and not getattr(s, _LAW_SEATED_ATTR, False)):
+            continue
+        poly = getattr(s, "polygon", None)
+        if poly is None or poly.is_empty or poly.geom_type != "Polygon":
+            continue
+        try:
+            ring = list(poly.exterior.coords)
+        except _GEOM_EXC:
+            continue
+        if len(ring) > 1 and ring[0] == ring[-1]:
+            ring = ring[:-1]
+        if len(ring) < 2:
+            continue
+        na = getattr(s, "node_altitudes", None)
+        if na is not None:
+            vals = list(na)
+        elif getattr(s, "altitude", None) is not None:
+            vals = [float(s.altitude)] * len(ring)
+        else:
+            continue
+        out.append((ring, vals))
+    return out
+
+
+def seat_groundside_on_law(layout, dem, tile_lat: int = 0,
+                           tile_lon: int = 0) -> int:
+    """POST-SOLVE: seat every groundside ring still on its DEM seed.
+
+    WHY THIS EXISTS (measured, HEAZ ``--dem 1``).  The classification
+    slot demotes pavement to groundside LONG BEFORE the one solve, so at
+    that moment no higher-authority surface carries a value and
+    ``law_anchor_values`` is empty: the piece is necessarily born on a
+    DEM SEED.  The build then had no pass that ever came back for it —
+    only pieces that happened to be clipped, merged or de-conflicted were
+    re-seated — so the seed shipped.  16 of HEAZ's 20 law-island rings
+    were minted in exactly that slot.
+
+    This is the "come back for it" pass, and it is the ingestion the
+    single-solve ruling asks for (RULINGS 2026-08-03): groundside lots
+    are NOT in the solve's node space (``PAVEMENT_ROLES`` excludes
+    ``groundside_pavement``), so nothing here overwrites a solved value —
+    it replaces a raw-DEM seed with the law the lot welds to, using the
+    same ladder and the same emitter identity as every other seat.
+
+    VALUES ONLY.  The ring is not re-simplified, re-densified or moved:
+    its vertices are shared with the neighbours it welds to, and a
+    geometry change here would desync them (the ``_regrade_merged_host``
+    rule).  Returns the number of shapes re-seated.
+    """
+    _dem_at = _dem_sampler(layout, dem, tile_lat, tile_lon)
+    if _dem_at is None:
+        return 0
+    anchors = law_anchor_values(layout)
+    key = law_anchor_key(layout, anchors)
+    stats = _law_seat_stats(layout, "post_solve_groundside_law_seat")
+    n = 0
+    for s in layout.shapes:
+        if s.role != ROLE_GROUNDSIDE_PAVEMENT:
+            continue
+        if getattr(s, _LAW_SEATED_ATTR, False):
+            continue                    # already carries law, leave it
+        poly = getattr(s, "polygon", None)
+        if poly is None or poly.is_empty or poly.geom_type != "Polygon":
+            continue
+        try:
+            ring = list(poly.exterior.coords)
+        except _GEOM_EXC:
+            continue
+        closed = len(ring) > 1 and ring[0] == ring[-1]
+        if closed:
+            ring = ring[:-1]
+        if len(ring) < 3:
+            continue
+        dem_alts = []
+        for (x, y) in ring:
+            d = _dem_at(x, y)
+            dem_alts.append(None if d is None else float(d))
+        if any(d is None for d in dem_alts):
+            # Fall back to the ring's own current values as the seed
+            # shape, so an off-tile vertex cannot inject a None.
+            cur = list(getattr(s, "node_altitudes", None) or ())
+            if len(cur) == len(ring) + 1:
+                cur = cur[:-1]
+            if len(cur) != len(ring) or any(v is None for v in cur):
+                continue
+            dem_alts = [float(v) for v in cur]
+        seat_out: dict = {}
+        alts, pinned = _seat_ring_on_law_anchors(
+            ring, dem_alts, anchors, GROUNDSIDE_MAX_GRADE, key_fn=key,
+            stats=stats, seat_out=seat_out)
+        if not seat_out.get("law_seated"):
+            continue                    # a TRUE island — counted, not moved
+        alts = _grade_limit_ring(ring, alts, GROUNDSIDE_MAX_GRADE,
+                                 pinned=pinned)
+        alts = [round(float(a), 2) for a in alts]
+        s.node_altitudes = alts + [alts[0]]
+        s.altitude = None
+        setattr(s, _LAW_SEATED_ATTR, True)
+        n += 1
+    return n
+
+
+def report_groundside_law_seat(layout, icao: str = "") -> dict:
+    """Print (and return) what every groundside ring was seated ON.
+
+    LOUD BY DEFAULT.  The ingestion requirement is that a ring vertex
+    never takes raw DEM, so the number that matters is ``islands`` — the
+    rings that reached the seat with no weld and no prior field.  A
+    nonzero count is a defect to attribute under RULINGS 2026-08-05
+    (a)-(d), not a tolerated residue, and it is printed even when zero so
+    an absent line means the pass did not run.
+    """
+    import O4_UI_Utils as UI
+    book = getattr(layout, "_gs_law_seat", None) or {}
+    tot = {"rings": 0, "anchored": 0, "from_prior": 0, "interpolated": 0,
+           "islands": 0, "island_vertices": 0}
+    for st in book.values():
+        for k in tot:
+            tot[k] += int(st.get(k, 0) or 0)
+    UI.vprint(1, f"  [groundside-law-seat] {icao}: {tot['rings']} ring(s) "
+                 f"seated — {tot['anchored']} weld anchor(s), "
+                 f"{tot['from_prior']} vertex(es) from the piece's own "
+                 f"prior field, {tot['interpolated']} law-interpolated "
+                 f"along the ring; {tot['islands']} LAW ISLAND ring(s) "
+                 f"({tot['island_vertices']} vertex(es)) had no law source "
+                 f"and kept their DEM seed")
+    for where, st in sorted(book.items(),
+                            key=lambda kv: -int(kv[1].get("islands", 0) or 0)):
+        if st.get("islands"):
+            UI.vprint(1, f"  [groundside-law-seat]   {st['islands']:5d} "
+                         f"island ring(s) at {where}")
+    return tot
 
 
 def _dem_follow_polygon(p, _dem_at, densify_step_m: float = 15.0,
                         simplify_tol: float = GROUNDSIDE_SIMPLIFY_TOL_M,
-                        law_anchors=None):
+                        law_anchors=None, anchor_key=None, prior=None,
+                        stats=None, seat_out=None):
     """Densify ``p``, SEED it from the DEM, and grade it to the groundside
     law — returning ``(densified_polygon, node_altitudes)`` (node_altitudes
     closed with a repeated first value, matching the OSM emitter's
@@ -480,7 +874,9 @@ def _dem_follow_polygon(p, _dem_at, densify_step_m: float = 15.0,
     # so the terrain was the authority and the welds were overwritten at
     # emit — the 9 914 m HEAZ canyon row.)
     alts, _pinned = _seat_ring_on_law_anchors(
-        rebuilt, alts, law_anchors, GROUNDSIDE_MAX_GRADE)
+        rebuilt, alts, law_anchors, GROUNDSIDE_MAX_GRADE,
+        key_fn=anchor_key, prior_at=_prior_field_reader(prior),
+        stats=stats, seat_out=seat_out)
     # Grade-limit to GROUNDSIDE_MAX_GRADE (ramp-graded, user 2026-05-22)
     # before rounding.  2 decimals, matching the emit resolution — 0.1 m
     # quantization on sub-metre groundside chords reads as 10-15 % stairs
@@ -2755,18 +3151,25 @@ def _emit_groundside_pavement_dem(
     # (single-pass principle), read from the SAME authority order
     # the emitter resolves a shared node with.
     _law_anchors = law_anchor_values(layout)
+    _anchor_key = law_anchor_key(layout, _law_anchors)
+    _stats = _law_seat_stats(layout, "emit_groundside_pavement_dem")
     n_emitted = 0
     for p in polys:
+        _seat_out: dict = {}
         built = _dem_follow_polygon(p, _dem_at, densify_step_m,
-                                    law_anchors=_law_anchors)
+                                    law_anchors=_law_anchors,
+                                    anchor_key=_anchor_key, stats=_stats,
+                                    seat_out=_seat_out)
         if built is None:
             continue
         new_poly, node_alts = built
-        layout.shapes.append(BuiltShape(
+        _new = BuiltShape(
             polygon=new_poly,
             role=ROLE_GROUNDSIDE_PAVEMENT,
             ref="groundside",
-            node_altitudes=node_alts))
+            node_altitudes=node_alts)
+        setattr(_new, _LAW_SEATED_ATTR, bool(_seat_out.get("law_seated")))
+        layout.shapes.append(_new)
         n_emitted += 1
     return n_emitted
 
@@ -2932,6 +3335,8 @@ def _reclassify_groundside_orphan_junctions(
     # (single-pass principle), read from the SAME authority order
     # the emitter resolves a shared node with.
     _law_anchors = law_anchor_values(layout)
+    _anchor_key = law_anchor_key(layout, _law_anchors)
+    _stats = _law_seat_stats(layout, "reclassify_groundside_orphan_junctions")
     n = 0
     new_shapes: List["BuiltShape"] = []
     for ji in orphan_set:
@@ -2951,9 +3356,17 @@ def _reclassify_groundside_orphan_junctions(
                                    and not g.is_empty
                                    and g.area >= _GROUNDSIDE_MIN_AREA_M2])
         builts = []
+        # The orphan junction is SOLVED airside a moment ago: its own
+        # ring values are the law this re-role must carry across, not a
+        # field to re-derive from terrain.
+        _prior = _shape_prior(s)
+        _seat_out = {}
         for sp in src_polys:
             b = _dem_follow_polygon(sp, _dem_at,
-                                    law_anchors=_law_anchors)
+                                    law_anchors=_law_anchors,
+                                    anchor_key=_anchor_key,
+                                    prior=_prior, stats=_stats,
+                                    seat_out=_seat_out)
             if b is not None:
                 builts.append(b)
         if not builts:
@@ -2965,10 +3378,14 @@ def _reclassify_groundside_orphan_junctions(
         s.role = ROLE_GROUNDSIDE_PAVEMENT
         s.ref = "groundside"
         s.node_altitudes = node_alts
+        setattr(s, _LAW_SEATED_ATTR, bool(_seat_out.get("law_seated")))
         for extra_poly, extra_alts in builts[1:]:
-            new_shapes.append(BuiltShape(
+            _extra = BuiltShape(
                 polygon=extra_poly, role=ROLE_GROUNDSIDE_PAVEMENT,
-                ref="groundside", node_altitudes=extra_alts))
+                ref="groundside", node_altitudes=extra_alts)
+            setattr(_extra, _LAW_SEATED_ATTR,
+                    bool(_seat_out.get("law_seated")))
+            new_shapes.append(_extra)
         n += 1
     layout.shapes.extend(new_shapes)
     return n
@@ -3055,6 +3472,8 @@ def _merge_touching_groundside(
     # (single-pass principle), read from the SAME authority order
     # the emitter resolves a shared node with.
     _law_anchors = law_anchor_values(layout)
+    _anchor_key = law_anchor_key(layout, _law_anchors)
+    _stats = _law_seat_stats(layout, "merge_touching_groundside")
     merged_objs: set = set()
     new_shapes: list = []
     n_merged = 0
@@ -3079,17 +3498,29 @@ def _merge_touching_groundside(
                   else [g for g in getattr(u, "geoms", []) if g.geom_type == "Polygon"])
         if not pieces:
             continue
+        # The merged pieces ARE the prior surface: the union is one
+        # shape now, but its field was already law-seated piece by piece
+        # and a DEM re-follow from scratch would throw that away (the
+        # merge is a geometry operation, not a re-grading event).
+        _prior = _shape_prior(*[gs[k] for k in idxs])
         for k in idxs:
             merged_objs.add(id(gs[k]))
         for p in pieces:
+            _seat_out = {}
             built = _dem_follow_polygon(p, _dem_at, simplify_tol=0.0,
-                                        law_anchors=_law_anchors)
+                                        law_anchors=_law_anchors,
+                                        anchor_key=_anchor_key,
+                                        prior=_prior, stats=_stats,
+                                        seat_out=_seat_out)
             if built is None:
                 continue
             np_, na = built
-            new_shapes.append(BuiltShape(
+            _new = BuiltShape(
                 polygon=np_, role=ROLE_GROUNDSIDE_PAVEMENT,
-                ref="groundside", node_altitudes=na))
+                ref="groundside", node_altitudes=na)
+            setattr(_new, _LAW_SEATED_ATTR,
+                    bool(_seat_out.get("law_seated")))
+            new_shapes.append(_new)
         n_merged += len(idxs) - 1
     if not merged_objs:
         return 0
@@ -3213,6 +3644,8 @@ def _separate_groundside_from_airside(
     # (single-pass principle), read from the SAME authority order
     # the emitter resolves a shared node with.
     _law_anchors = law_anchor_values(layout)
+    _anchor_key = law_anchor_key(layout, _law_anchors)
+    _stats = _law_seat_stats(layout, "separate_groundside_from_airside")
     out_shapes = []
     n_clipped = 0
     for s in layout.shapes:
@@ -3230,19 +3663,17 @@ def _separate_groundside_from_airside(
             continue
         parts = ([diff] if diff.geom_type == "Polygon"
                  else list(getattr(diff, "geoms", [])))
-        # Original per-vertex DEVIATION field (alt − DEM), for the
-        # preserve_field rebuild below.
-        orig_field = []
-        if preserve_field and s.node_altitudes:
-            orig_ring = list(s.polygon.exterior.coords)
-            for kv in range(min(len(orig_ring), len(s.node_altitudes))):
-                a = s.node_altitudes[kv]
-                if a is None:
-                    continue
-                ox, oy = orig_ring[kv]
-                dv = _dem_at(ox, oy)
-                if dv is not None:
-                    orig_field.append((ox, oy, float(a) - dv))
+        # THE PIECE'S OWN PRIOR FIELD — one authority, consumed INSIDE
+        # the law seat (cycle-6 ingestion).  What stood here was a
+        # post-seat rewrite: every rebuilt vertex took ``DEM + deviation
+        # of the NEAREST original vertex``, which (a) overwrote the weld
+        # anchors the seat had just pinned, and (b) reduced to the raw
+        # DEM wherever the original piece was itself DEM-seeded — the
+        # carrier of the emitted ``within_shape groundside_pavement``
+        # class.  As a ladder rung it is now the edge-INTERPOLATED value
+        # along the original ring (``_prior_field_reader``), ranked
+        # BELOW the welds instead of above them.
+        _prior = _shape_prior(s) if preserve_field else None
         changed = False
         kept = []
         for part in parts:
@@ -3257,31 +3688,21 @@ def _separate_groundside_from_airside(
             # simplified at emit, and re-simplifying would move the
             # boundary back across the clearance gap.  The mitre-buffered
             # clip above already yields clean straight edges.
+            _seat_out = {}
             built = _dem_follow_polygon(part, _dem_at, simplify_tol=0.0,
-                                        law_anchors=_law_anchors)
+                                        law_anchors=_law_anchors,
+                                        anchor_key=_anchor_key,
+                                        prior=_prior, stats=_stats,
+                                        seat_out=_seat_out)
             if built is None:
                 continue
             np_, na = built
-            if orig_field:
-                # Preserve the solved field: DEM here + the deviation of
-                # the nearest ORIGINAL vertex (a rigid local carry of the
-                # reach shift / chord limit across the clip rebuild).
-                new_ring = list(np_.exterior.coords)
-                for kv in range(min(len(new_ring), len(na))):
-                    nx, ny = new_ring[kv]
-                    dv = _dem_at(nx, ny)
-                    if dv is None:
-                        continue
-                    dev = min(orig_field,
-                              key=lambda t: (t[0] - nx) ** 2
-                              + (t[1] - ny) ** 2)[2]
-                    na[kv] = round(dv + dev, 2)
-                if len(na) == len(new_ring) and len(new_ring) > 1 \
-                        and new_ring[0] == new_ring[-1]:
-                    na[-1] = na[0]
-            kept.append(BuiltShape(
+            _new = BuiltShape(
                 polygon=np_, role=ROLE_GROUNDSIDE_PAVEMENT,
-                ref="groundside", node_altitudes=na))
+                ref="groundside", node_altitudes=na)
+            setattr(_new, _LAW_SEATED_ATTR,
+                    bool(_seat_out.get("law_seated")))
+            kept.append(_new)
             changed = True
         out_shapes.extend(kept)
         if changed:
@@ -3601,6 +4022,8 @@ def _deconflict_groundside_overlaps(
     # (single-pass principle), read from the SAME authority order
     # the emitter resolves a shared node with.
     _law_anchors = law_anchor_values(layout)
+    _anchor_key = law_anchor_key(layout, _law_anchors)
+    _stats = _law_seat_stats(layout, "deconflict_groundside_overlaps")
     kept_union = None
     replace: Dict[int, list] = {}   # original idx → [BuiltShape, …] ([] = drop)
     n_mod = 0
@@ -3624,15 +4047,24 @@ def _deconflict_groundside_overlaps(
                     if (part.geom_type != "Polygon" or part.is_empty
                             or part.area < _GROUNDSIDE_MIN_AREA_M2):
                         continue
+                    _seat_out = {}
                     built = _dem_follow_polygon(
                         part, _dem_at, simplify_tol=0.0,
-                        law_anchors=_law_anchors)
+                        law_anchors=_law_anchors, anchor_key=_anchor_key,
+                        # The YIELDING shape still carries its own field:
+                        # subtracting an overlap is geometry, not a
+                        # re-grading event.
+                        prior=_shape_prior(s), stats=_stats,
+                        seat_out=_seat_out)
                     if built is None:
                         continue
                     np_, na = built
-                    new_pieces.append(BuiltShape(
+                    _new = BuiltShape(
                         polygon=np_, role=ROLE_GROUNDSIDE_PAVEMENT,
-                        ref="groundside", node_altitudes=na))
+                        ref="groundside", node_altitudes=na)
+                    setattr(_new, _LAW_SEATED_ATTR,
+                            bool(_seat_out.get("law_seated")))
+                    new_pieces.append(_new)
                 replace[i] = new_pieces
                 n_mod += 1
                 try:

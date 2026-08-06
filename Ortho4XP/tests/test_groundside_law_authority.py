@@ -245,3 +245,180 @@ def test_the_unpinned_limiter_is_unchanged():
     alts = [0.0, 5.0, 0.0, 0.0]
     out = _grade_limit_ring(coords, list(alts), _CAP)
     assert _worst_adjacent_grade(coords, out) <= _CAP + 1e-3
+
+
+# ══════════════════════════════════════════════════════════════════════
+# CYCLE-6 INGESTION — one identity, the ladder, and the named island
+# ══════════════════════════════════════════════════════════════════════
+
+def test_the_anchor_identity_IS_the_emitters_identity_not_a_mm_key():
+    """THE MECHANISM the ingestion round closed.
+
+    ``law_anchor_values`` keyed on the millimetre-rounded coordinate,
+    while ``to_osm`` interns a shared node through
+    ``layout.canonical_points`` at ``SHARED_VERTEX_TOL_M`` (0.5 m).  So a
+    lot vertex a few millimetres off the service-junction node it welds
+    to found NO anchor at seat time, kept its raw DEM seed — and then had
+    that very vertex OVERWRITTEN at emit by the higher authority.  One
+    ring, welds on the law and interior on the terrain.
+
+    Measured specimen, HECA ``--dem 1`` way shapeID 525: two nodes at
+    99.06 / 99.07 m against four at 1.13-1.22 m, the 98.07 m
+    ``within_shape`` row that headed the census.
+    """
+    from auto_patch.canonical_points import CanonicalPointRegistry
+    from auto_patch.groundside import law_anchor_key
+    lay = PavementLayout(icao="T", anchor=(0.0, 0.0))
+    lay.canonical_points = CanonicalPointRegistry(tol_m=0.5)
+    ring = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
+    for (x, y) in ring:                     # the emitter's own interning
+        lay.canonical_points.get_or_add(x, y)
+    lay.shapes.append(_shape(ROLE_SERVICE_JUNCTION, ring, [99.06] * 4))
+    key = law_anchor_key(lay)
+    anchors = law_anchor_values(lay)
+    # the lot vertex, 3 mm away — a different millimetre key entirely
+    assert (round(10.003, 3), round(0.002, 3)) not in anchors, (
+        "the fixture is not exercising the miss it claims to")
+    assert anchors.get(key(10.003, 0.002)) == pytest.approx(99.06), (
+        "the weld was missed: the seat and the emitter must decide "
+        "'this vertex IS that node' by the SAME rule")
+
+
+def test_the_registry_is_queried_READ_ONLY():
+    """``get_or_add`` would intern the lot's vertex, changing which LATER
+    points intern together — i.e. moving the emitted surface from inside
+    a lookup.  The keyer must use the read-only half."""
+    from auto_patch.canonical_points import CanonicalPointRegistry
+    from auto_patch.groundside import law_anchor_key
+    lay = PavementLayout(icao="T", anchor=(0.0, 0.0))
+    lay.canonical_points = CanonicalPointRegistry(tol_m=0.5)
+    lay.canonical_points.get_or_add(0.0, 0.0)
+    before = lay.canonical_points.size
+    key = law_anchor_key(lay)
+    key(500.0, 500.0)                       # nowhere near anything
+    assert lay.canonical_points.size == before, (
+        "the anchor keyer interned a point — an instrument that moves "
+        "its subject")
+
+
+def test_a_vertex_between_TWO_welds_is_INTERPOLATED_not_stair_stepped():
+    """The nearest-anchor rule could only offer ONE datum, so a ring
+    welded at 100 m and 110 m came out as two flat plateaus with the
+    whole 10 m difference dumped on one interior edge.  The law value on
+    a host ring edge is the INTERPOLATED one (the same insert law
+    planarize uses)."""
+    dem = [7.0] * 7                          # constant: no relief at all
+    anchors = {(0.0, 0.0): 100.0, (30.0, 0.0): 110.0}
+    alts, pinned = _seat_ring_on_law_anchors(_RUN, dem, anchors, _CAP)
+    assert pinned == frozenset({0, 3})
+    assert alts[1] == pytest.approx(100.0 + 10.0 / 3.0), (
+        f"vertex 1 came out {alts[1]} — a third of the way between the "
+        f"two welds along the ring, not at the nearer weld's value")
+    assert alts[2] == pytest.approx(100.0 + 20.0 / 3.0)
+    steps = [abs(alts[i + 1] - alts[i]) for i in range(3)]
+    assert max(steps) == pytest.approx(10.0 / 3.0), (
+        f"the ring still stair-steps: {alts}")
+
+
+def test_a_piece_with_no_weld_inherits_ITS_OWN_PRIOR_FIELD():
+    """A clip, a merge or a de-conflict is a GEOMETRY operation: the
+    piece is the same surface it was a moment ago and its field was
+    already law-seated.  Re-following the DEM there is how a lot that had
+    lawful values got put back on the terrain."""
+    from auto_patch.groundside import _prior_field_reader
+    dem = [7.0] * 7
+    prior_ring = [(0.0, 0.0), (60.0, 0.0), (60.0, 5.0), (0.0, 5.0)]
+    prior_alts = [90.0, 96.0, 96.0, 90.0]
+    reader = _prior_field_reader([(prior_ring, prior_alts)], tol_m=1.0)
+    alts, pinned = _seat_ring_on_law_anchors(_RUN, dem, {}, _CAP,
+                                             prior_at=reader)
+    assert pinned == frozenset(), "a prior field is a datum, never a PIN"
+    assert alts[0] == pytest.approx(90.0)
+    assert alts[6] == pytest.approx(96.0)
+    assert alts[3] == pytest.approx(93.0), (
+        f"midpoint {alts[3]} — the prior ring's edge value at 30 m of a "
+        f"60 m run carrying 90→96 m")
+    assert all(abs(a - 7.0) > 1.0 for a in alts), "still on the DEM"
+
+
+def test_a_WELD_outranks_the_pieces_own_prior_field():
+    """One authority order, and it is the emitter's: where a higher
+    surface claims the vertex, that value wins — the prior field is the
+    rung BELOW it, not a competitor."""
+    from auto_patch.groundside import _prior_field_reader
+    dem = [7.0] * 7
+    reader = _prior_field_reader(
+        [([(0.0, 0.0), (60.0, 0.0), (60.0, 5.0), (0.0, 5.0)],
+          [90.0, 90.0, 90.0, 90.0])], tol_m=1.0)
+    alts, pinned = _seat_ring_on_law_anchors(
+        _RUN, dem, {(0.0, 0.0): 120.0}, _CAP, prior_at=reader)
+    assert 0 in pinned and alts[0] == pytest.approx(120.0)
+
+
+def test_a_TRUE_law_island_is_COUNTED_not_silently_shipped():
+    """No weld, no prior field: the DEM seed stands (inventing a datum
+    would be minting) — but the ring is COUNTED, so it is named in the
+    build's own report instead of shipping invisibly.  RULINGS
+    2026-08-05: a datum-less report is a defect report, never a property
+    of the ground."""
+    dem = [10000.0] * 7
+    stats = {}
+    alts, pinned = _seat_ring_on_law_anchors(_RUN, dem, {}, _CAP,
+                                             stats=stats)
+    assert alts == dem and pinned == frozenset()
+    assert stats["islands"] == 1
+    assert stats["island_vertices"] == 7
+    stats2 = {}
+    _seat_ring_on_law_anchors(_RUN, dem, {(0.0, 0.0): 86.0}, _CAP,
+                              stats=stats2)
+    assert stats2.get("islands", 0) == 0, (
+        "a ring WITH a weld was counted as an island")
+    assert stats2["anchored"] == 1 and stats2["interpolated"] == 6
+
+
+def test_the_prior_field_reuses_the_ONE_ring_interpolator():
+    """Consult-before-create: ``adjacent_ground._interp_on_ring_law`` is
+    THE authority for 'value at an arbitrary point on a ring'.  A fourth
+    private copy of that projection is the duplicate-tool defect."""
+    import inspect
+    from auto_patch import groundside as GS
+    src = inspect.getsource(GS._prior_field_reader)
+    assert "_interp_on_ring_law" in src
+
+
+def test_the_weld_is_found_by_NEAREST_WITHIN_TOLERANCE_not_key_equality():
+    """The residual half of the identity fix, measured at HEAZ shape 279.
+
+    Keying through the layout's registry is not enough on its own: a
+    post-solve pass can move an authority ring AFTER its vertices were
+    interned, so neither side resolves to a canonical point and both
+    fall back to millimetre keys that differ.  Shape 279 shared fourteen
+    vertices with ``service_junction`` shape 28 at 57.9-59.9 m, found
+    none of them, and shipped its interior at 1-17 m — 748 of HEAZ's 751
+    cluster-D rows from ONE ring.
+
+    The emitter's rule is NEAREST REGISTERED POINT WITHIN
+    ``SHARED_VERTEX_TOL_M``; the anchor lookup now asks exactly that,
+    over the anchor coordinates themselves.
+    """
+    from auto_patch.groundside import law_anchor_key
+    from auto_patch.layout import SHARED_VERTEX_TOL_M
+    lay = PavementLayout(icao="T", anchor=(0.0, 0.0))      # NO registry
+    anchors = {(10.0, 0.0): 59.81}
+    key = law_anchor_key(lay, anchors)
+    assert anchors.get(key(10.12, 0.09)) == pytest.approx(59.81), (
+        "a vertex 0.15 m from the weld missed it — inside the very "
+        "tolerance the emitter will use to make them ONE node")
+    assert anchors.get(key(10.0 + 2 * SHARED_VERTEX_TOL_M, 0.0)) is None, (
+        "a point beyond the shared-vertex tolerance was welded anyway — "
+        "that is a proximity guess, not the emitter's identity")
+
+
+def test_an_exact_key_still_wins_over_the_proximity_index():
+    """Exact-first: where the millimetre key hits, nothing else is
+    consulted, so the historical behaviour is a strict subset."""
+    from auto_patch.groundside import law_anchor_key
+    lay = PavementLayout(icao="T", anchor=(0.0, 0.0))
+    anchors = {(10.0, 0.0): 59.81, (10.2, 0.0): 12.0}
+    key = law_anchor_key(lay, anchors)
+    assert anchors[key(10.0, 0.0)] == pytest.approx(59.81)

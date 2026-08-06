@@ -32,9 +32,34 @@ import os as _os
 # from its own graph (:func:`derive_sweep_budget`); these are the slack,
 # the floor, the absolute ceiling and the no-graph fallback.
 from auto_patch.config import (
-    SWEEP_BUDGET_MAX, SWEEP_BUDGET_MIN, SWEEP_BUDGET_SLACK)
+    PROJECTION_MATERIALITY_M,
+    SWEEP_BUDGET_MAX, SWEEP_BUDGET_MIN, SWEEP_BUDGET_SLACK,
+    SWEEP_CONVERGENCE_MIN_DROP, SWEEP_CONVERGENCE_PATIENCE)
 
 _INF = float("inf")
+
+# ── THE CERTIFICATE'S CATCH-ALL TAGS — ONE AUTHORITY (cycle-7 fix 5) ────
+# Entry tags that name a CONSTRUCTION SITE rather than a law: the unified
+# grade graph enters the joint as ONE entry, and the solve's own joint
+# never tagged its unified entry at all (so it degrades to ``"?:-"``).
+# Both readers — this module's uncertified-exit family axis and
+# ``solve.projection_law_certificate`` — resolve exactly these tags per
+# edge through a ``family_by_pair`` map; the set is defined HERE because
+# ``solve`` imports ``one_solve`` and not the reverse.
+_CATCH_ALL_FAMILY_TAGS = frozenset(("unified_graph", "?:-"))
+
+
+def _entry_family_tag(entry) -> str:
+    """The family tag of one ``shape_constraints`` entry.
+
+    The same rule ``solve.projection_law_certificate`` applies, in one
+    place so the two readers can never drift: an explicit ``family``
+    wins, otherwise the entry is named ``role:ref`` from its own keys.
+    """
+    tag = entry.get("family")
+    if tag is None:
+        tag = f"{entry.get('role') or '?'}:{entry.get('ref') or '-'}"
+    return tag
 
 # ── THE ENVELOPE GATES — ONE default per flag, DEFINED ONCE ──────────────
 # (spec ``docs/specs/route-metric-envelope-spec.md`` §1: "Resolve the
@@ -255,7 +280,24 @@ def _hop_eccentricity_bound(iter_edges, n):
 
 
 def derive_sweep_budget(iter_edges, n):
-    """``(budget, hop_bound)`` — the POCS sweep budget FOR THIS GRAPH.
+    """``(block, hop_bound)`` — the POCS sweep BLOCK size FOR THIS GRAPH.
+
+    CYCLE-7 FIX 1 CHANGED WHAT THIS NUMBER IS.  It used to be the exit:
+    the loop swept it and stopped.  Measured (c6attr dossier), that was
+    ~2 orders of magnitude short — a hop-diameter bound prices BALLISTIC
+    propagation, one correction across one edge per sweep, while a cyclic
+    Gauss-Seidel POCS propagates DIFFUSIVELY, so the distance a
+    correction travels grows like the SQUARE ROOT of the sweeps and the
+    honest bound is quadratic in the diameter.  No multiplier fixes a
+    wrong exponent, so the exit moved to a CONVERGENCE CRITERION
+    (``_project_chromatic``) and this figure became the BLOCK between two
+    measurements of it: still graph-derived, still the propagation
+    distance, but now the granularity at which "is it still improving?"
+    is asked rather than the answer to "when do we stop?".  The
+    ``SWEEP_BUDGET_MAX`` ceiling is the only hard cap left.
+
+    The historical derivation, unchanged and still the reason the block
+    is this size and not an arbitrary one:
 
     A SWEEP CAP IS A NON-TERMINATION GUARD, NOT A LAW QUANTITY.  The law
     demands a CERTIFIED surface and says nothing whatever about a number
@@ -1018,12 +1060,125 @@ def _exit_residual_census(np, tol, endpoint_i, endpoint_j, budget_column,
     return active, worst, carrier
 
 
+def _material_over_cap(np, tol, materiality, endpoint_i, endpoint_j,
+                       budget_column, slab_low_column, slab_high_column,
+                       interval_mask, z):
+    """``(n_over, n_material, worst)`` — the EXACT whole-graph residual.
+
+    The convergence criterion's meter (cycle-7 fix 1).  Distinct from the
+    sweep loop's own ``stall_active``/``worst``, which are accumulated
+    mid-Gauss-Seidel across colour classes and therefore describe a state
+    no edge set is ever simultaneously in.  This one is taken at a BLOCK
+    BOUNDARY, on the settled ``z``, over every edge in one frame — so two
+    consecutive readings are comparable and their difference is a real
+    improvement rather than a scheduling artefact.
+
+    ``n_material`` is the count the criterion is priced on: edges at or
+    above the campaign elevation floor.  Sub-materiality churn may never
+    keep a projection sweeping (owner convergence guard (a), 2026-08-02).
+    """
+    d = z[endpoint_i] - z[endpoint_j]
+    residual = np.where(interval_mask,
+                        np.maximum(d - slab_high_column, slab_low_column - d),
+                        np.abs(d) - budget_column)
+    over_mask = residual > tol
+    n_over = int(over_mask.sum())
+    if not n_over:
+        return 0, 0, 0.0
+    n_material = int((residual >= materiality).sum())
+    return n_over, n_material, float(residual.max())
+
+
+def _exit_residual_by_family(np, tol, endpoint_i, endpoint_j, budget_column,
+                             slab_low_column, slab_high_column, interval_mask,
+                             z, family_by_pair,
+                             materiality=PROJECTION_MATERIALITY_M):
+    """``{family: (n_over, n_material, worst, n_interval)}`` at the state ``z``.
+
+    THE PROJECTION'S OWN FAMILY AXIS (cycle-7 fix 5, verdict (d) BROKEN
+    INSTRUMENT).  Until now the only family-attributed reader in the build
+    was ``solve.projection_law_certificate``, which runs OUTSIDE the
+    projection, on the ORIGINAL joint in the ORIGINAL node space.  Inside
+    ``feasibility_project`` every flat group is collapsed onto a
+    representative (``_r``), so the projection's own residual lives on
+    REMAPPED pairs — and the c6attr dossier measured what that costs: the
+    1,184 structural edges carrying the WORST residual of the whole solve
+    (60.772738 m at HECA fp#8, carrier ``(962,5037)``) resolve in neither
+    ``UnifiedGraph.family_by_pair`` nor any joint entry, because the
+    physical chords that mint them are ``(pad-ring member, apron node)``
+    pairs whose member end was aliased away.  An uncertified exit could
+    therefore name ONE carrier and a count, and nothing about WHICH LAW
+    was left violated.
+
+    ``family_by_pair`` is the map built by ``feasibility_project`` in the
+    REMAPPED space — every physical pair keyed by ``(_r(a), _r(b))`` — so
+    the lookup here is exact, never a proximity or a guess.  Pairs the map
+    does not carry keep the honest ``"<unmapped>"`` label rather than
+    being folded into a neighbour's bucket.
+
+    ``materiality`` splits each family's count at the campaign elevation
+    floor: an edge under it is PASS-with-residual by ruling, and the
+    convergence criterion is priced on the ≥-material column only.
+
+    Pure measurement — reads ``z``, writes nothing.
+    """
+    out: dict = {}
+    d = z[endpoint_i] - z[endpoint_j]
+    residual = np.where(interval_mask,
+                        np.maximum(d - slab_high_column, slab_low_column - d),
+                        np.abs(d) - budget_column)
+    over = np.flatnonzero(residual > tol)
+    if not over.size:
+        return out
+    ei = endpoint_i[over]
+    ej = endpoint_j[over]
+    rv = residual[over]
+    iv = interval_mask[over]
+    for k in range(over.size):
+        a = int(ei[k])
+        b = int(ej[k])
+        key = (a, b) if a <= b else (b, a)
+        fam = family_by_pair.get(key, "<unmapped>")
+        row = out.get(fam)
+        if row is None:
+            row = out[fam] = [0, 0, 0.0, 0]
+        excess = float(rv[k])
+        row[0] += 1
+        if excess >= materiality:
+            row[1] += 1
+        if excess > row[2]:
+            row[2] = excess
+        if bool(iv[k]):
+            row[3] += 1
+    return {k: tuple(v) for k, v in out.items()}
+
+
+def _report_exit_families(families, top=10):
+    """Print an :func:`_exit_residual_by_family` result, worst count first."""
+    if not families:
+        return
+    rows = sorted(families.items(), key=lambda kv: -kv[1][0])
+    print(f"    [stall-report]   residual BY FAMILY "
+          f"({len(rows)} violating family(ies); "
+          f"n_over / n≥{PROJECTION_MATERIALITY_M:g} m / worst / interval):")
+    for fam, (n_over, n_mat, worst, n_int) in rows[:top]:
+        print(f"    [stall-report]     {n_over:8d} {n_mat:8d} "
+              f"{worst:11.6f} m {n_int:8d}  {fam}")
+    if len(rows) > top:
+        rest = sum(v[0] for _, v in rows[top:])
+        print(f"    [stall-report]     ... {len(rows) - top} more "
+              f"family(ies), {rest} edge(s)")
+
+
 def _uncertified_exit_report(np, tol, sweeps, max_iters,
                              endpoint_i, endpoint_j, budget_column,
                              raw_budget_column, slab_low_column,
                              slab_high_column, interval_mask,
                              weight_i, weight_j, z, n,
-                             sweep_budget_basis=None):
+                             sweep_budget_basis=None,
+                             family_by_pair=None,
+                             exit_reason="cap", block=None, hard_cap=None,
+                             block_trace=None, last_block_drop=None):
     """LOUD report for ANY sweep loop that exits WITHOUT a certificate.
 
     THE CONTRACT (build-complete-then-debug round): every exit of the
@@ -1036,30 +1191,49 @@ def _uncertified_exit_report(np, tol, sweeps, max_iters,
     from a clean exit (HECA shipped finals that quit at 38 sweeps of
     2400 with a 6.74 m residual).
 
-    WHAT AN UNCERTIFIED EXIT MEANS NOW.  It used to mean "budget
-    exhaustion" — a hand-set cap ~30x below the graph's propagation
-    distance, so the GUARD chose the surface.  That cap is gone: the
-    budget is DERIVED from this projection's own graph
-    (:func:`derive_sweep_budget`) and sits provably above the sweeps the
-    graph can need.  So an exit here is NOT the guard running out.  It is
-    one of exactly two things, and the report says so:
+    WHAT AN UNCERTIFIED EXIT MEANS NOW (cycle-7 fix 1).  It used to say,
+    in every build, "this exit is NOT budget exhaustion" — and that
+    sentence was FALSE.  The c6attr dossier drove this same function on
+    the same fp#8 inputs at 100x and 400x the derived budget and closed a
+    third of HECA's and over half of HEAZ's residual with sweeps alone;
+    on a subsystem that is FEASIBLE BY CONSTRUCTION the derived budget
+    left 11,513 edges over cap and 100x CERTIFIED it.  A hop-diameter
+    bound prices BALLISTIC propagation while this POCS propagates
+    DIFFUSIVELY, so the derivation was ~2 orders of magnitude short and
+    the guard was choosing the surface — the exact failure it exists to
+    prevent.
 
-      * THE POLYTOPE IS EMPTY — the law + anchor system handed to this
-        projection has no solution.  Under docs/RULINGS.md 2026-08-05
-        ("there is no lawful-infeasible ground") that is a BUG,
-        INCOMPLETE LAW, INCORRECT LAW or BROKEN INSTRUMENT — never an
-        answer, and never a property of the terrain; or
-      * THE GRAPH IS PATHOLOGICAL — the derivation hit
-        ``config.SWEEP_BUDGET_MAX``, the absolute anti-hang ceiling.  The
-        report prints the derived budget and the hop-diameter bound it
-        came from, so the two cases are told apart without re-deriving
-        anything: ``budget == SWEEP_BUDGET_MAX < SLACK*bound`` is the
-        second, anything else is the first.
+    The derived budget is now a BLOCK, and the loop exits on evidence.
+    ``exit_reason`` says which of four events fired, and the report leads
+    with it:
+
+      * ``"material"`` — MATERIALLY CERTIFIED: no edge is at or above
+        ``config.PROJECTION_MATERIALITY_M``.  Every residual left is
+        PASS-with-residual by ruling; this is a clean exit wearing an
+        honest floor, not a failure.
+      * ``"converged"`` — the ≥-material count STOPPED FALLING.  The
+        sweeps are not the problem: this projection has converged to a
+        point that violates N constraints, so the law + anchor system
+        handed to it has no solution near here.  Under docs/RULINGS.md
+        2026-08-05 ("there is no lawful-infeasible ground") that is a
+        BUG, INCOMPLETE LAW, INCORRECT LAW or BROKEN INSTRUMENT — never
+        an answer, and never a property of the terrain.
+      * ``"cap"`` — the absolute anti-hang ceiling
+        (``config.SWEEP_BUDGET_MAX``) fired while the count was still
+        falling.  THE GUARD DECIDED THIS SURFACE; the report says so in
+        those words and prints the last block's drop, so nobody has to
+        infer it.
+      * ``"certified"`` never reaches this report.
+
+    ``block_trace`` — one row per block ``(sweeps, n_over, n_material,
+    worst, drop)``.  The last three rows are printed: they are the
+    evidence for whichever criterion fired, and the reason no reader has
+    to re-run the projection to see the shape of its tail.
 
     ``sweep_budget_basis`` — the ``hop_bound`` half of
     :func:`derive_sweep_budget`, or ``None`` when the caller supplied an
     explicit ``max_iters`` (a test or a deliberately bounded probe); the
-    line then says the budget was IMPOSED rather than derived, which is
+    line then says the block was IMPOSED rather than derived, which is
     itself the attribution.
 
     REPORT-ONLY, by construction: the call site is AFTER the writeback,
@@ -1083,21 +1257,90 @@ def _uncertified_exit_report(np, tol, sweeps, max_iters,
         np, tol, endpoint_i, endpoint_j, budget_column, slab_low_column,
         slab_high_column, interval_mask, weight_i, weight_j, z)
     if sweep_budget_basis is None:
-        basis = "budget IMPOSED by the caller (not derived)"
+        basis = f"block {block} IMPOSED by the caller (not derived)"
     else:
-        basis = (f"budget {max_iters} DERIVED = slack {SWEEP_BUDGET_SLACK}"
-                 f" x hop-diameter bound {sweep_budget_basis}"
-                 f"{' [AT SWEEP_BUDGET_MAX CEILING]' if max_iters >= SWEEP_BUDGET_MAX else ''}")
+        basis = (f"block {block} DERIVED = slack {SWEEP_BUDGET_SLACK}"
+                 f" x hop-diameter bound {sweep_budget_basis}")
+    n_material = 0
+    if block_trace:
+        n_material = block_trace[-1][2]
+    else:
+        _, n_material, _ = _material_over_cap(
+            np, tol, PROJECTION_MATERIALITY_M, endpoint_i, endpoint_j,
+            budget_column, slab_low_column, slab_high_column,
+            interval_mask, z)
+    imposed = sweep_budget_basis is None
+    # The class name stays GREPPABLE — every exit here is still an exit
+    # without a KKT certificate — and the criterion is named in it, so a
+    # log reader never has to infer which of the four fired.
+    headline = {
+        "material": "MATERIALLY CERTIFIED EXIT",
+        "converged": "UNCERTIFIED EXIT [converged]",
+    }.get(exit_reason,
+          "UNCERTIFIED EXIT [imposed budget]" if imposed
+          else "UNCERTIFIED EXIT [hard cap]")
     print(f"    [stall-report] edges={len(interval_mask)} n={n}: "
-          f"UNCERTIFIED EXIT at sweep {sweeps}/{max_iters} "
-          f"({max(0, max_iters - sweeps)} sweep(s) abandoned); "
-          f"active violating edges {active}; worst residual {worst:.6f}")
-    print(f"    [stall-report]   {basis} — the budget is a NON-TERMINATION "
-          f"GUARD above this graph's propagation distance, so this exit "
-          f"is NOT budget exhaustion: the polytope is EMPTY (a law / "
-          f"anchor / instrument defect — RULINGS 2026-08-05, there is no "
-          f"lawful-infeasible ground) or the graph is pathological")
+          f"{headline} at sweep {sweeps}/{hard_cap} "
+          f"({max(0, hard_cap - sweeps)} sweep(s) abandoned; "
+          f"{len(block_trace or ())} block(s) of {block}); "
+          f"active violating edges {active} "
+          f"({n_material} >= {PROJECTION_MATERIALITY_M:g} m); "
+          f"worst residual {worst:.6f}")
+    drop_txt = ("n/a (first block)" if last_block_drop is None
+                else f"{last_block_drop:+d} edge(s) >= "
+                     f"{PROJECTION_MATERIALITY_M:g} m")
+    if exit_reason == "material":
+        print(f"    [stall-report]   {basis}; CRITERION: materiality — no "
+              f"edge is at or above {PROJECTION_MATERIALITY_M:g} m, so "
+              f"every remaining residual is PASS-with-residual by ruling. "
+              f"Last block drop {drop_txt}.")
+    elif exit_reason == "converged":
+        print(f"    [stall-report]   {basis}; CRITERION: convergence — the "
+              f">= {PROJECTION_MATERIALITY_M:g} m count stopped falling "
+              f"({SWEEP_CONVERGENCE_PATIENCE} consecutive block(s) below "
+              f"{SWEEP_CONVERGENCE_MIN_DROP:.1%} relative improvement; last "
+              f"block drop {drop_txt}). This is NOT budget exhaustion: the "
+              f"projection has converged to a point that violates {active} "
+              f"constraint(s), so the polytope is EMPTY (a law / anchor / "
+              f"instrument defect — RULINGS 2026-08-05, there is no "
+              f"lawful-infeasible ground)")
+    elif imposed:
+        print(f"    [stall-report]   {basis}; CRITERION: the IMPOSED "
+              f"budget {hard_cap} ran out (last block drop {drop_txt}) — "
+              f"the CALLER'S BOUND decided this surface, not convergence. "
+              f"This exit says nothing about the polytope.")
+    else:
+        print(f"    [stall-report]   {basis}; CRITERION: HARD CAP "
+              f"{hard_cap} — the anti-hang ceiling "
+              f"(config.SWEEP_BUDGET_MAX in production) fired BEFORE the "
+              f"convergence criterion could (last block drop {drop_txt}). "
+              f"THE GUARD DECIDED THIS SURFACE, not convergence: attribute "
+              f"the graph or raise the ceiling, and do NOT read this as an "
+              f"empty polytope.")
+    # The last three blocks are the EVIDENCE for whichever criterion
+    # fired.  Under the existing step-debug channel the WHOLE trajectory
+    # prints — that is the convergence curve, and it is the difference
+    # between auditing this exit and re-running the projection to see it.
+    _rows = list(block_trace or ())
+    if _os.environ.get("O4_STEP_DEBUG") != "1":
+        _rows = _rows[-3:]
+    for _row in _rows:
+        _bs, _bo, _bm, _bw, _bd = _row
+        print(f"    [stall-report]     block @sweep {_bs:7d}: over {_bo:8d} "
+              f"| >= {PROJECTION_MATERIALITY_M:g} m {_bm:8d} "
+              f"| worst {_bw:11.6f} m | drop "
+              f"{'n/a' if _bd is None else f'{_bd:+d}'}")
     print(_carrier_line("exit  ", carrier))
+    # THE FAMILY AXIS (cycle-7 fix 5): WHICH LAW the projection could not
+    # close, in the projection's own remapped node space.  Absent map ⇒
+    # the report reads exactly as it did before.
+    families = None
+    if family_by_pair:
+        families = _exit_residual_by_family(
+            np, tol, endpoint_i, endpoint_j, budget_column,
+            slab_low_column, slab_high_column, interval_mask, z,
+            family_by_pair)
+        _report_exit_families(families)
     verdict = None
     if (worst > tol and carrier is not None
             and carrier[0] in ("sym", "int")
@@ -1125,7 +1368,9 @@ def _uncertified_exit_report(np, tol, sweeps, max_iters,
                       f"{ga:.6f} / {gb:.6f} -> {klass}"
                       f"  (exit residual {worst:.6f})")
     return {"sweep": sweeps, "max_iters": max_iters,
-            "sweeps_abandoned": max(0, max_iters - sweeps),
+            "exit_reason": exit_reason, "block": block, "hard_cap": hard_cap,
+            "block_trace": block_trace, "n_material": n_material,
+            "sweeps_abandoned": max(0, (hard_cap or max_iters) - sweeps),
             "active_edges": active, "worst": worst, "carrier": carrier,
             # SELF-LIMIT ACCOUNTING (debug lane A 2026-08-05): an exit on
             # the sweep cap means the NON-TERMINATION GUARD, not
@@ -1134,8 +1379,12 @@ def _uncertified_exit_report(np, tol, sweeps, max_iters,
             # ``sweep_budget_basis`` is the hop-diameter bound the budget
             # was derived from (``None`` = the caller imposed a budget),
             # so an exit can be attributed without re-deriving anything.
-            "cap_bound": bool(sweeps >= max_iters),
-            "sweep_budget_basis": sweep_budget_basis}
+            "cap_bound": bool(sweeps >= (hard_cap or max_iters)),
+            "sweep_budget_basis": sweep_budget_basis,
+            # ``None`` when the caller supplied no family map — absent and
+            # empty are DIFFERENT findings (no instrument vs nothing to
+            # attribute) and the record keeps them apart.
+            "families": families}
 
 
 def _project_chromatic(elev, iter_edges, n, max_iters, tol,
@@ -1143,7 +1392,9 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                        coloring_state=None, run_feasibility_precheck=True,
                        node_box=None,
                        raw_budget_by_index=None,
-                       sweep_budget_basis=None):
+                       sweep_budget_basis=None,
+                       family_by_pair=None,
+                       sweep_hard_cap=None):
     """Colored Gauss-Seidel POCS (survey candidate 1) — the vectorized
     replacement for BOTH legacy inner sweeps.  Mutates ``elev`` in place.
 
@@ -1307,6 +1558,7 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                 stats["sweeps"] = 1
                 stats["sweeps_avoided"] = max(0, max_iters - 1)
                 stats["certified"] = True
+                stats["exit_reason"] = "certified"
                 stats["worst"] = 0.0
             return 1, True
     edge_color, color_count = _extend_edge_coloring_by_write(
@@ -1397,7 +1649,26 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
     stall_detect_active = 0
     stall_detect_worst = 0.0
     stall_detect_carrier = None
-    for _sweep in range(max_iters):
+    # ── THE CONVERGENCE-CRITERION EXIT (cycle-7 fix 1) ────────────────
+    # ``max_iters`` is the BLOCK size now, not the exit.  The loop sweeps
+    # a block, measures the EXACT whole-graph residual on the settled
+    # field, and decides on evidence:
+    #   CERTIFIED — a sweep applied no correction and no clamp (KKT);
+    #   MATERIAL  — no edge is ≥ the campaign materiality floor;
+    #   CONVERGED — the ≥-material count stopped falling (patience
+    #               blocks below the relative-improvement floor);
+    #   CAP       — the absolute anti-hang ceiling fired, and says so.
+    # An IMPOSED budget (a test, a deliberately bounded probe, a ladder
+    # arm) keeps exactly the old semantics: hard cap = the block, one
+    # block, no extension — the caller's number is the law.
+    block = max_iters if max_iters > 0 else 0
+    hard_cap = block if sweep_hard_cap is None else max(block, sweep_hard_cap)
+    exit_reason = "cap"
+    prev_material = None
+    flat_blocks = 0
+    block_trace: list = []
+    last_block_drop = None
+    for _sweep in range(hard_cap):
         sweeps += 1
         any_active = False
         worst = 0.0
@@ -1487,7 +1758,44 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
             z[box_idx] = clamped
         if not any_active:
             certified = True
+            exit_reason = "certified"
             break
+        # ── BLOCK BOUNDARY: decide on evidence (cycle-7 fix 1) ────────
+        # The ONLY place the loop may stop short of the hard cap without
+        # a KKT certificate.  Measured on the settled field, in one
+        # frame, so consecutive readings are comparable.
+        if block and sweeps % block == 0:
+            _n_over, _n_material, _worst_exact = _material_over_cap(
+                np, tol, PROJECTION_MATERIALITY_M, endpoint_i, endpoint_j,
+                budget_column, slab_low_column, slab_high_column,
+                interval_mask, z)
+            last_block_drop = (None if prev_material is None
+                               else prev_material - _n_material)
+            block_trace.append((sweeps, _n_over, _n_material, _worst_exact,
+                                last_block_drop))
+            if _n_material == 0:
+                # MATERIALLY CERTIFIED — every remaining residual is
+                # below the campaign floor, which the law adjudicates as
+                # PASS-with-residual.  Sweeping on to chase millimetres
+                # is the guard deciding the surface again, from the
+                # other side.
+                exit_reason = "material"
+                break
+            if prev_material is not None:
+                # "Still improving" is a RELATIVE floor: a block must buy
+                # at least MIN_DROP of the standing count.  ``max(1, …)``
+                # keeps a tiny standing count from making any drop
+                # qualify.
+                _floor = max(1, int(SWEEP_CONVERGENCE_MIN_DROP
+                                    * prev_material))
+                if last_block_drop < _floor:
+                    flat_blocks += 1
+                    if flat_blocks >= SWEEP_CONVERGENCE_PATIENCE:
+                        exit_reason = "converged"
+                        break
+                else:
+                    flat_blocks = 0
+            prev_material = _n_material
         if stall_on and not stall_detect_sweep:
             # STALL DETECTION — REPORT ONLY.  There is deliberately no
             # ``break`` here: the early-termination family was closed
@@ -1519,10 +1827,15 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
             np, tol, sweeps, max_iters,
             endpoint_i, endpoint_j, budget_column, raw_budget_column,
             slab_low_column, slab_high_column, interval_mask,
-            weight_i, weight_j, z, n, sweep_budget_basis)
+            weight_i, weight_j, z, n, sweep_budget_basis,
+            family_by_pair=family_by_pair,
+            exit_reason=exit_reason, block=block, hard_cap=hard_cap,
+            block_trace=block_trace, last_block_drop=last_block_drop)
     if stall_detect_sweep:
         # WRITE-ONLY (after the writeback): nothing below feeds the solve.
-        _stall_guard_report(np, sweeps, max_iters, stall_detect_sweep,
+        # ``hard_cap``, not the block: the "ran to" figure must be the
+        # loop's actual ceiling or the burned-sweep count is a fiction.
+        _stall_guard_report(np, sweeps, hard_cap, stall_detect_sweep,
                             stall_detect_active, stall_detect_worst,
                             stall_detect_carrier, stall_active, worst,
                             stall_carrier, endpoint_i, endpoint_j,
@@ -1532,8 +1845,15 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
         stats["colors"] = color_count
         stats["edges"] = len(iter_edges)
         stats["sweeps"] = sweeps
-        stats["sweeps_avoided"] = max(0, max_iters - sweeps) if certified else 0
+        stats["sweeps_avoided"] = max(0, hard_cap - sweeps) if certified else 0
         stats["certified"] = certified
+        # WHICH CRITERION FIRED (cycle-7 fix 1) — "certified" alone can no
+        # longer describe the exit: a materially-certified surface and a
+        # converged-but-violating one are different findings.
+        stats["exit_reason"] = exit_reason
+        stats["block"] = block
+        stats["hard_cap"] = hard_cap
+        stats["block_trace"] = block_trace
         stats["worst"] = worst
         if uncertified is not None:
             # Present ONLY on an uncertified exit, so a certified call's
@@ -1683,7 +2003,8 @@ def feasibility_project(elev, shape_constraints, hard, *,
                         gs_pin_nodes=None,
                         forensics=None,
                         witness_limited=None, witness_excluded=None,
-                        env_band=None,
+                        env_band=None, family_of=None,
+                        sweep_hard_cap=None,
                         probe_out=None, declared_out=None):
     """Drive EVERY grade-graph edge to ``|Δelev| ≤ budget`` by iterative
     constraint projection (user 2026-06-25: nothing may violate a grade cap).
@@ -1842,6 +2163,24 @@ def feasibility_project(elev, shape_constraints, hard, *,
     the sweeps and in the final RAW-budget tally (which never reads
     ``broken``); the local apron/taxi/visible-geodesic laws are untouched.
     ``None`` (or gate off) = the pair-closure envelope, byte-identical.
+
+    ``family_of`` — THE FAMILY AXIS (cycle-7 fix 5), WRITE-ONLY.  The
+    ``{(min(a,b), max(a,b)): family}`` map in ORIGINAL node space
+    (``grade_graph.UnifiedGraph.family_by_pair``).  This call re-keys it
+    into its OWN remapped space as it reads each raw edge — while the
+    original endpoints are still in hand — so an uncertified exit can say
+    WHICH LAW it could not close, including on edges whose endpoint was
+    aliased into a flat-group representative (the class that carried the
+    worst residual of the whole HECA solve and had no name at all).
+    Nothing in the projection reads it back; ``None`` allocates nothing
+    and the exit report is unchanged.
+
+    ``sweep_hard_cap`` — the projection's absolute sweep ceiling
+    (cycle-7 fix 1).  ``None`` + a derived ``max_iters`` ⇒
+    ``config.SWEEP_BUDGET_MAX``, the anti-hang guard; ``None`` + an
+    IMPOSED ``max_iters`` ⇒ the imposed number is both block and
+    ceiling, i.e. exactly the pre-fix behaviour.  Naming both is how the
+    replay ladder asks for "this block, that ceiling".
 
     ``probe_out`` — WRITE-ONLY measurement out-parameter (the ``broken_out``
     idiom; docs/specs/taut-string-probe-spec.md §1, probe A).  When a dict
@@ -2011,8 +2350,27 @@ def feasibility_project(elev, shape_constraints, hard, *,
     # (spine nodes keep their symmetric-edge envelope).  No flagged entry
     # ⇒ empty set ⇒ byte-identical.
     envelope_skip_pairs: set = set()
+    # ── THE FAMILY AXIS, BUILT IN THE REMAPPED SPACE (cycle-7 fix 5) ─────
+    # ``family_of`` is the ORIGINAL-node-space ``{(min,max): family}`` map
+    # (``grade_graph.UnifiedGraph.family_by_pair``).  The projection works
+    # on REMAPPED pairs, so a physical chord ``(pad-ring member, apron
+    # node)`` becomes ``(representative, apron node)`` and no longer keys
+    # into that map — which is exactly why the worst residual of the whole
+    # HECA solve had no family name (c6attr dossier §3.2).  The map is
+    # therefore re-keyed HERE, as each raw edge is read and while its
+    # ORIGINAL endpoints are still in hand: entry tag first, per-edge
+    # ``family_of`` lookup only for the catch-all construction-site tags,
+    # FIRST mint wins (a remapped pair several physical chords alias onto
+    # is named by one of them either way — the certificate is a report).
+    # ``family_of=None`` ⇒ not one dict store happens and the exit report
+    # reads exactly as it did before.
+    fam_by_pair: dict = {} if family_of is not None else None
     for sc in shape_constraints:
         _sc_env_skip = bool(sc.get("envelope_skip"))
+        _sc_fam = None
+        if fam_by_pair is not None:
+            _sc_fam = _entry_family_tag(sc)
+            _sc_fam_per_edge = _sc_fam in _CATCH_ALL_FAMILY_TAGS
         for edge in sc["edges"]:
             if len(edge) >= 4:
                 # INTERVAL EDGE — signed slab on ``z_i − z_j``.
@@ -2022,9 +2380,16 @@ def feasibility_project(elev, shape_constraints, hard, *,
                     continue         # unregulated (both sides open)
                 if i >= n or j >= n:
                     continue
+                _oa, _ob = (i, j) if i <= j else (j, i)
                 i, j = _r(i), _r(j)
                 if i == j:
                     continue
+                if fam_by_pair is not None:
+                    _key = (i, j) if i < j else (j, i)
+                    if _key not in fam_by_pair:
+                        fam_by_pair[_key] = (
+                            family_of.get((_oa, _ob), _sc_fam)
+                            if _sc_fam_per_edge else _sc_fam)
                 if _sc_env_skip:
                     envelope_skip_pairs.add((i, j) if i < j else (j, i))
                 if i < j:
@@ -2057,10 +2422,14 @@ def feasibility_project(elev, shape_constraints, hard, *,
             i, j, lim = edge
             if lim is None or lim < 0 or i >= n or j >= n:
                 continue
+            _oa, _ob = (i, j) if i <= j else (j, i)
             i, j = _r(i), _r(j)
             if i == j:
                 continue
             e = (i, j) if i < j else (j, i)
+            if fam_by_pair is not None and e not in fam_by_pair:
+                fam_by_pair[e] = (family_of.get((_oa, _ob), _sc_fam)
+                                  if _sc_fam_per_edge else _sc_fam)
             prev = edge_lim.get(e)
             if prev is None or lim < prev:
                 edge_lim[e] = lim
@@ -3118,6 +3487,12 @@ def feasibility_project(elev, shape_constraints, hard, *,
         like the entry-time path.  The reach envelope is NOT recomputed (see
         the envelope comment above)."""
         new_edge_indices = []
+        # Cycle-7 fix 5: a MID-CALL expansion mints pairs the entry-time
+        # loop never saw, so the family axis is recorded here too — same
+        # rule, same first-wins, and skipped entirely without a map.
+        _lz_fam = _entry_family_tag(entry) if fam_by_pair is not None else None
+        _lz_per_edge = (_lz_fam in _CATCH_ALL_FAMILY_TAGS
+                        if _lz_fam is not None else False)
         for (raw_a, raw_b, raw_budget) in _expand_lazy_entry(entry):
             if raw_budget is None or raw_budget < 0 \
                     or raw_a >= n or raw_b >= n:
@@ -3126,6 +3501,11 @@ def feasibility_project(elev, shape_constraints, hard, *,
             if node_a == node_b:
                 continue
             pair = (node_a, node_b) if node_a < node_b else (node_b, node_a)
+            if fam_by_pair is not None and pair not in fam_by_pair:
+                _oa, _ob = ((raw_a, raw_b) if raw_a <= raw_b
+                            else (raw_b, raw_a))
+                fam_by_pair[pair] = (family_of.get((_oa, _ob), _lz_fam)
+                                     if _lz_per_edge else _lz_fam)
             previous_budget = edge_lim.get(pair)
             if previous_budget is not None and previous_budget <= raw_budget:
                 continue
@@ -3189,8 +3569,18 @@ def feasibility_project(elev, shape_constraints, hard, *,
     # micro-optimised and deliberately not priced here (the wall-time arm
     # belongs to the test phase — RULINGS 2026-08-05).
     _sweep_basis = None
+    _sweep_hard_cap = sweep_hard_cap
     if max_iters is None:
         max_iters, _sweep_basis = derive_sweep_budget(iter_edges, n)
+        # CYCLE-7 FIX 1: the derived figure is the BLOCK; the exit is the
+        # convergence criterion, and the only hard ceiling left is the
+        # absolute anti-hang guard.  A caller that IMPOSES ``max_iters``
+        # and no ceiling keeps today's semantics exactly (one block, no
+        # extension) — its number is a deliberate bound, not a derivation
+        # to improve on.  A caller that names BOTH (the replay ladder) is
+        # asking for a stated block at a stated ceiling, and gets it.
+        if _sweep_hard_cap is None:
+            _sweep_hard_cap = SWEEP_BUDGET_MAX
     # CHROMATIC (graph-colored) Gauss-Seidel (Tier 3 wave 2c, survey candidate
     # 1): a numpy-vectorized TRUE Gauss-Seidel sweep that converges where the
     # Jacobi stalls, so it replaces BOTH legacy inner paths — the
@@ -3216,7 +3606,9 @@ def feasibility_project(elev, shape_constraints, hard, *,
                            coloring_state=_coloring_state,
                            node_box=bound_of or None,
                            raw_budget_by_index=iter_raw_budget,
-                           sweep_budget_basis=_sweep_basis)
+                           sweep_budget_basis=_sweep_basis,
+                           family_by_pair=fam_by_pair,
+                           sweep_hard_cap=_sweep_hard_cap)
         # Lazy shapes: as for the Jacobi path, only the FINAL state matters for
         # a certificate, so re-warm + re-sweep on the grown edge set until no
         # further shape expands (bounded: each round expands ≥1 entry).
@@ -3242,12 +3634,16 @@ def feasibility_project(elev, shape_constraints, hard, *,
             # Re-deriving keeps the guard above the graph it is guarding.
             if _sweep_basis is not None:
                 max_iters, _sweep_basis = derive_sweep_budget(iter_edges, n)
+                if sweep_hard_cap is None:
+                    _sweep_hard_cap = SWEEP_BUDGET_MAX
             _project_chromatic(elev, iter_edges, n, max_iters, tol,
                                interval_bounds_by_index, stats=_chroma_stats,
                                coloring_state=_coloring_state,
                                node_box=bound_of or None,
                                raw_budget_by_index=iter_raw_budget,
-                               sweep_budget_basis=_sweep_basis)
+                               sweep_budget_basis=_sweep_basis,
+                               family_by_pair=fam_by_pair,
+                               sweep_hard_cap=_sweep_hard_cap)
         _sweeps_run = _chroma_stats.get("sweeps", 0)
         _last_worst = _chroma_stats.get("worst", 0.0)
         if _os.environ.get("O4_STEP_DEBUG") == "1":

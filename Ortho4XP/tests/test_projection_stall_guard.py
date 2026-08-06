@@ -328,7 +328,7 @@ def test_the_budget_exit_reports_and_never_certifies(capsys):
     text = capsys.readouterr().out
     assert certified is False, "a budget exit is never a certificate"
     assert sweeps == 120, "an uncertified call spends its whole budget"
-    assert "UNCERTIFIED EXIT" in text
+    assert "UNCERTIFIED EXIT [imposed budget]" in text
     assert "0 sweep(s) abandoned" in text
     record = stats["uncertified_exit"]
     assert record["sweep"] == sweeps

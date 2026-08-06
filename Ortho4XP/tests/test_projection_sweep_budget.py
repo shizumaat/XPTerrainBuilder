@@ -197,44 +197,117 @@ def _infeasible_system():
     return [0.0, 0.0, 10.0], [(0, 1, 1.0, 1), (1, 2, 1.0, 2)], 3
 
 
-def test_the_uncertified_exit_says_it_is_not_budget_exhaustion(capsys):
-    """After this change an uncertified exit means the POLYTOPE IS EMPTY
-    (a law / anchor / instrument defect — RULINGS 2026-08-05, there is no
-    lawful-infeasible ground) or the graph is pathological.  The report
-    must SAY that, and must stay as loud as it was."""
+def test_a_converged_exit_says_the_polytope_is_empty(capsys):
+    """CYCLE-7 FIX 1 — the criterion, not the budget, ends the loop.
+
+    The old contract asserted that an uncertified exit "is NOT budget
+    exhaustion" BECAUSE the budget was derived.  Measured (c6attr
+    dossier), that premise was false: the derived budget was ~2 orders of
+    magnitude short and a third of HECA's residual closed with sweeps
+    alone.  The claim is only sound when the loop has EVIDENCE that more
+    sweeps buy nothing — which is exactly what the convergence criterion
+    produces, and what this test now demands before the sentence is
+    allowed to be printed.
+    """
     elev, iter_edges, n = _infeasible_system()
     stats: dict = {}
-    OS._project_chromatic(elev, iter_edges, n, 120, 1e-3, stats=stats,
-                          sweep_budget_basis=6)
+    OS._project_chromatic(elev, iter_edges, n, 10, 1e-3, stats=stats,
+                          sweep_budget_basis=6, sweep_hard_cap=1000)
     text = capsys.readouterr().out
-    assert "UNCERTIFIED EXIT" in text
+    assert "UNCERTIFIED EXIT [converged]" in text
     assert "NOT budget exhaustion" in text
     assert "polytope is EMPTY" in text
-    # the derived budget AND the bound it came from, so the test phase can
+    # the derived BLOCK and the bound it came from, so the test phase can
     # attribute the exit without re-deriving anything
-    assert "budget 120 DERIVED" in text
+    assert "block 10 DERIVED" in text
     assert "hop-diameter bound 6" in text
-    assert stats["uncertified_exit"]["sweep_budget_basis"] == 6
+    record = stats["uncertified_exit"]
+    assert record["sweep_budget_basis"] == 6
+    assert record["exit_reason"] == "converged"
+    # It stopped on EVIDENCE, far below the ceiling it was allowed.
+    assert record["sweep"] < 1000
+    assert stats["exit_reason"] == "converged"
+
+
+def test_the_convergence_exit_carries_its_own_evidence(capsys):
+    """A criterion nobody can audit is not a criterion.
+
+    Every converged exit prints the last blocks' (sweep, over-cap,
+    ≥materiality, worst, drop) rows and the drop that tripped it, so the
+    verdict can be checked from the log alone.
+    """
+    elev, iter_edges, n = _infeasible_system()
+    stats: dict = {}
+    OS._project_chromatic(elev, iter_edges, n, 10, 1e-3, stats=stats,
+                          sweep_budget_basis=6, sweep_hard_cap=1000)
+    text = capsys.readouterr().out
+    assert "block @sweep" in text
+    assert "last block drop" in text
+    trace = stats["block_trace"]
+    assert len(trace) >= cfg.SWEEP_CONVERGENCE_PATIENCE + 1
+    # rows are (sweep, n_over, n_material, worst, drop); the ≥material
+    # count is the criterion's denominator and it stopped falling.
+    assert trace[-1][4] == 0
+    assert all(row[0] % 10 == 0 for row in trace), "rows are block ends"
+
+
+def test_a_materially_certified_exit_is_not_reported_as_a_failure(capsys):
+    """The campaign materiality floor is part of the LAW, not a fudge.
+
+    A projection whose whole residual sits below
+    ``PROJECTION_MATERIALITY_M`` has produced a lawful surface
+    (PASS-with-residual, owner 2026-08-02), and sweeping on to chase
+    millimetres is the guard deciding the surface from the other side.
+    """
+    # Node 1 is pulled 0.004 m past its cap by two pins — over the 1 mm
+    # sweep tolerance, under the 0.01 m campaign floor.
+    elev = [0.0, 0.0, 2.008]
+    iter_edges = [(0, 1, 1.0, 1), (1, 2, 1.0, 2)]
+    stats: dict = {}
+    OS._project_chromatic(elev, iter_edges, 3, 10, 1e-3, stats=stats,
+                          sweep_budget_basis=6, sweep_hard_cap=1000)
+    text = capsys.readouterr().out
+    assert "MATERIALLY CERTIFIED EXIT" in text
+    assert "PASS-with-residual" in text
+    assert stats["exit_reason"] == "material"
+    assert stats["uncertified_exit"]["n_material"] == 0
+    assert stats["uncertified_exit"]["sweep"] <= 10
 
 
 def test_an_imposed_budget_is_reported_as_imposed(capsys):
-    """A caller-supplied ``max_iters`` (a test, a bounded probe) is not a
-    derivation, and the report must not pretend it was."""
+    """A caller-supplied ``max_iters`` (a test, a bounded probe, a ladder
+    arm) is not a derivation, and the report must not pretend it was —
+    nor may the convergence criterion extend past it.  The caller's
+    number is the law."""
     elev, iter_edges, n = _infeasible_system()
     stats: dict = {}
     OS._project_chromatic(elev, iter_edges, n, 40, 1e-3, stats=stats)
     text = capsys.readouterr().out
-    assert "budget IMPOSED by the caller" in text
+    assert "UNCERTIFIED EXIT [imposed budget]" in text
+    assert "block 40 IMPOSED by the caller" in text
+    assert "CALLER'S BOUND decided this surface" in text
     assert stats["uncertified_exit"]["sweep_budget_basis"] is None
+    assert stats["uncertified_exit"]["sweep"] == 40
+    assert stats["hard_cap"] == 40
 
 
-def test_the_ceiling_case_is_flagged_in_the_report(capsys):
-    """The two meanings of an uncertified exit are told apart by ONE
-    printed fact: whether the budget was clamped to the ceiling."""
+def test_the_hard_cap_case_is_flagged_as_the_guard_deciding(capsys):
+    """The three meanings of an uncertified exit are told apart by ONE
+    printed fact: which criterion fired.  A ceiling that fires BEFORE the
+    convergence criterion could is the guard choosing a surface — the
+    exact failure the derived budget existed to prevent — and it must
+    never be read as an empty polytope."""
     elev, iter_edges, n = _infeasible_system()
-    OS._project_chromatic(elev, iter_edges, n, cfg.SWEEP_BUDGET_MAX, 1e-3,
-                          sweep_budget_basis=10 ** 9)
-    assert "AT SWEEP_BUDGET_MAX CEILING" in capsys.readouterr().out
+    stats: dict = {}
+    # Patience needs 3 blocks; the ceiling only allows 2.
+    OS._project_chromatic(elev, iter_edges, n, 5, 1e-3, stats=stats,
+                          sweep_budget_basis=6, sweep_hard_cap=10)
+    text = capsys.readouterr().out
+    assert "UNCERTIFIED EXIT [hard cap]" in text
+    assert "THE GUARD DECIDED THIS SURFACE" in text
+    assert "do NOT read this as an empty polytope" in text
+    assert "polytope is EMPTY" not in text
+    assert stats["exit_reason"] == "cap"
 
 
 def test_a_certified_call_still_reports_nothing(capsys):

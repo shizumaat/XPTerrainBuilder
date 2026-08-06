@@ -31,7 +31,8 @@ from .anchors import (
     build_nobuilding_apron_seats,
     build_apron_contact_floors, building_spine_floor, node_bands, reach_band_for)
 from .one_solve import (envelope_from_band_enabled, one_profile_solve,
-                        route_metric_envelope_enabled)
+                        route_metric_envelope_enabled,
+                        _CATCH_ALL_FAMILY_TAGS as _CATCH_ALL_FAMILIES)
 
 
 def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
@@ -2727,6 +2728,14 @@ def solve_route_profile(layout, icao: str,
     u_edges = [(a, b, cap.at(_GG._dist(G.pos.get(a), G.pos.get(b)), 0.0))
                for (a, b, cap, _sp) in G.edges
                if a in G.pos and b in G.pos]
+    # THE FAMILY AXIS, TAKEN ONCE (cycle-7 fix 5; single-pass principle).
+    # ``family_by_pair`` walks the whole unified edge list, and THREE
+    # readers want it now: the SOLVE EXIT certificate below, the fp#8
+    # projection's own uncertified-exit family table, and the final
+    # projection's ENTRY/EXIT certificates (which rebuild their own graph
+    # and take their own map).  Taken here, beside the edge list it is
+    # derived from, and handed to both consumers in this scope.
+    _u_family_of = G.family_by_pair()
     # NEAR-MISS BUILDING-FRONTAGE LAW EDGES (2026-07-08): pad ↔ apron
     # near-miss edge endpoints, budget = APRON_MAX_GRADE·d — the value-
     # agreement law across a sub-metre unpaved source-offset sliver (SPJC
@@ -3659,6 +3668,56 @@ def solve_route_profile(layout, icao: str,
                 # solve + the cross-corridor coupling adjacency,
                 # collected via its ``probe_out`` out-parameter.
                 "spine_stages": _spine_probe,
+                # ── fp#8 REPLAY FIDELITY (cycle-7 chore, 2026-08-06) ──
+                # ``joint_edges`` above is FLATTENED, and the flat list
+                # loses the three things the projection reads off the
+                # ENTRY: its law family, its ``envelope_skip`` flag, and
+                # whether it is still a lazy certificate.  A replay built
+                # from the flat list therefore judges a DIFFERENT
+                # constraint set from production's fp#8 — the exact
+                # instrument gap the c6attr dossier's tool-debt note
+                # names (``interval_reach_replay.py`` "is now
+                # unfaithful").  These keys close it; the flat list stays
+                # for the callers that already read it.
+                "joint_entries": [
+                    {"family": _sc.get("family"),
+                     "role": _sc.get("role"), "ref": _sc.get("ref"),
+                     "envelope_skip": bool(_sc.get("envelope_skip")),
+                     # A thunk is not picklable and its body pairs are
+                     # not generated yet: the flag is recorded so a
+                     # replay can SAY how many entries it could not
+                     # carry rather than silently dropping law.
+                     "lazy": _sc.get("lazy_expand") is not None,
+                     "edges": [tuple(_e) for _e in (_sc.get("edges")
+                                                    or ())]}
+                    for _sc in joint],
+                # The certificate's family axis, in ORIGINAL node space —
+                # what ``feasibility_project(family_of=...)`` re-keys.
+                "family_by_pair": {(int(_a), int(_b)): _f
+                                   for (_a, _b), _f
+                                   in _u_family_of.items()},
+                # THE fp#8 KWARGS.  Every argument the production call
+                # passes that is not already a top-level key, so a replay
+                # reconstructs the call verbatim instead of guessing.
+                # ``env_band`` is ``node_band`` itself when the gate is
+                # on (``solve.py`` ``_env_band = node_band if
+                # _ENV_FROM_BAND else None``), so the flag plus the
+                # existing ``node_band`` key carries it losslessly.
+                "fp8_kwargs": {
+                    "group_bounds": _yield_group_bounds,
+                    "node_bounds": _yield_node_bounds,
+                    "gs_pin_nodes": (sorted(int(_i)
+                                            for _i in _gs_pin_bound_idx)
+                                     if _gs_pin_bound_idx else None),
+                    "witness_excluded": (sorted(int(_i) for _i
+                                                in _route_excluded)
+                                         if _route_excluded else None),
+                    "gs_witness": ((sorted(int(_i)
+                                           for _i in _gs_witness[0]),
+                                    _gs_witness[1])
+                                   if _gs_witness else None),
+                    "env_band_is_node_band": _env_band is not None,
+                },
             }, _fh)
         print(f"    [dump] solve state -> {_dump} "
               f"(+A-copy, {len(_rod_edges)} rod slab(s))")
@@ -3729,7 +3788,8 @@ def solve_route_profile(layout, icao: str,
                                   gs_pin_nodes=(_gs_pin_bound_idx
                                                 or None),
                                   witness_excluded=_route_excluded,
-                                  env_band=_env_band)
+                                  env_band=_env_band,
+                                  family_of=_u_family_of)
     _t_fp8_end = _time.perf_counter()
     # ── PROBE A, TAIL BOUNDARY 1: fp#8 (spec §1 extension) ────
     # STAMPED OUTSIDE THE ``_t_fp8`` WINDOW (spec §0.3 — the
@@ -4187,7 +4247,7 @@ def solve_route_profile(layout, icao: str,
     _report_law_certificate(
         icao, "SOLVE EXIT",
         projection_law_certificate(_solve_exit_joint, elev, n, yield_hard,
-                                   family_of=G.family_by_pair()))
+                                   family_of=_u_family_of))
     if _crown_drop_idx:
         _elev_emit = list(elev)
         for _i, _c in _crown_drop_idx.items():
@@ -5400,7 +5460,10 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
 # resolves these per edge through ``family_of`` when it is given one.
 # ``"?:-"`` is what an untagged entry (the SOLVE's own joint, which never
 # tagged its unified entry at all) degrades to.
-_CATCH_ALL_FAMILIES = frozenset(("unified_graph", "?:-"))
+# ONE AUTHORITY (cycle-7 fix 5): the projection's own family axis applies
+# the identical rule inside ``feasibility_project``, so the set and the
+# tag rule live in ``one_solve`` (which ``solve`` imports, never the
+# reverse) and the module-head import aliases it here — not a second copy.
 
 
 def _report_law_certificate(icao, label, cert, top=8):
@@ -6670,6 +6733,7 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                                 family_of=_fp_family_of))
     rem, bh = feasibility_project(elev, joint, hard, force_scalar=True,
                                   env_band=_fp_env_band,
+                                  family_of=_fp_family_of,
                                   forensics=_fp_forensics,
                                   witness_limited=_fp_witness_limited,
                                   witness_excluded=_fp_witness_excluded,

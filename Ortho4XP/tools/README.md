@@ -83,7 +83,7 @@ module-level work — they are libraries and are safe to import.
 | Tool | One line |
 |---|---|
 | `adjacent_ground_replay.py` | Snapshots the pipeline once just before `emit_adjacent_ground_bands`, then replays only that emitter plus the weld and residual report — turns a 3–8 min cycle into seconds |
-| `interval_reach_replay.py` | Replays `feasibility_project` from an `O4_DUMP_SOLVE_STATE` pickle — the gates-ON spine build that exhausts its 2400-iteration budget at ~27.7 M visits |
+| `interval_reach_replay.py` | Replays production's main-yield projection (fp#8) offline from an `O4_DUMP_SOLVE_STATE` pickle, at any sweep block/ceiling (`--sweeps`, `--hard-cap`) and under any named constraint-class arm (`--arm`) or law-family knife (`--drop-family`). The projection lane's measurement instrument: budget ladder, class ladder, slab-class decomposition. |
 | `skirt_value_replay.py` | Replays only `to_osm` + the runway-end skirt edge-grade check from a pickled layout: the *values* are decided in `to_osm`, not in the 3-minute solve |
 | `spine_coverage.py` | Fraction of aircraft-centerline length carrying a real spine node, using the solver's own `_spine_membership` rule |
 | `trace_reach_route.py` | Which runway ANCHOR and which route bind a point's reachable ceiling/floor — READS the live band (never a replay; the replayed engine was deleted 2026-07-29) and emits the route as KML. `--dem M` traces in a constant-DEM oracle world; `--inverted-pairs` traces the anchor pairs a final band inversion named, including on a build that died on that law |

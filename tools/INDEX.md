@@ -117,7 +117,7 @@ them anywhere.
 | Tool | Reach for it when |
 |---|---|
 | `Ortho4XP/tools/adjacent_ground_replay.py` | Iterating on `emit_adjacent_ground_bands` only. |
-| `Ortho4XP/tools/interval_reach_replay.py` | Replaying `feasibility_project` from an `O4_DUMP_SOLVE_STATE` pickle. |
+| `Ortho4XP/tools/interval_reach_replay.py` | Replaying production's main-yield projection (fp#8) OFFLINE from an `O4_DUMP_SOLVE_STATE` pickle, under a stated intervention: `--sweeps`/`--hard-cap` (the budget ladder — is a residual convergence or structure?), `--arm` (production / free-hard / free-seams / no-boxes / no-intervals / pure-symmetric — the constraint-class ladder), `--drop-family` (the slab-class knife). Prints the projection's own exit report incl. the family axis. Says FAITHFUL vs DEGRADED for pre-2026-08-06 dumps. |
 | `Ortho4XP/tools/skirt_value_replay.py` | Replaying `to_osm` + the runway-end skirt check from a pickled layout. |
 
 ## Libraries, data and one-offs

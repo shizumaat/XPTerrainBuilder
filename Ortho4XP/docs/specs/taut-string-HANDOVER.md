@@ -256,6 +256,30 @@ Part D's ladder trades +301 airside for −62 groundside
 it (acceptance: airside ≤ the P-only 5,792 frame). Worktrees c7q4 +
 c7ctl left mounted for teardown.
 
+**CYCLE 7.5 (three of four lanes MERGED):** hygiene (index
+ref-dependence fixed — 30/58 worktrees predated it; census
+--magnitude-bands promoted; the shared-repo leak was
+test_dsf_texture_modes path-keyed caching, 529/530 dirs — redirected
++ session guard twin; down-teardown restores tracked paths; HEAZ
+anchor 9679dd1e noted STALE). The ruled −500 world LANDED (first
+new-frame censuses HEAZ 1,062 / HECA 6,097 adjudicated; worst |de|
+560-603 m = D′ amplified as intended; envelope now DERIVED — 161
+HEAZ nodes lawfully at full 10,500 m span; nodata sentinel guarded;
+0.66 m writer = seat_detached_pads_by_law zero-width box, march
+horizon 2.5 m < the 6.46 m law edge; building172 now floor-seats
+62.43 under cycle-7 fix 2 — live confirmation; building173 at
+−500.00 = the unhosted D′ variant). SLAB FLOOR LANDED as CONTAINMENT
+at ONE pricing site (certificate −6,233 = the pre-registered class;
+HECA dem1 adjudicated 5,969 → **5,033**, dem10k 9,629 → **7,388**;
+HEAZ 1,033/165; seam counter-read FLAT-OR-BETTER all four worlds).
+IN FLIGHT: instrument sweep (headline find: reach-band renders a
+TOTAL band failure as universal PASS — NOT-MEASURED fix + twin;
+grade_feasibility_audit RETIRED on the closed vocabulary;
+seed_rwy_seam rename already landed 092af7f). OPEN OWNER AUTH: delete
+the 529 junk DSF-cache dirs (~2.6 MB, provably unreadable). NEXT:
+sweep merge → dual-purpose battery at −500/10,000 (frame of record +
+cycle-8 baseline) → cycle-8 one-graph spec.
+
 NEXT TARGETS (ranked):
 1. **The solve's UNCERTIFIED exit is the real plateau author** —
    attribute the empty polytope per family (ENTRY/EXIT certificate +

@@ -665,3 +665,62 @@ Binding:
    authority land TOGETHER henceforth (lockstep extends to seating).
 4. The split-level sectioned-seat form remains the relief for large
    intra-footprint relief (unchanged).
+
+## 2026-08-06 — ONE graph: groundside joins the route graph (owner)
+
+Owner, verbatim intent: groundside pavement that is NOT a road grades
+exactly like aprons, just with the higher cap; service roads are built
+the same as taxiways with a higher cap; roads connect groundside
+"aprons" (lots) and buildings at even higher caps than the smallest
+taxiway — "it can all just be part of the one system." And: "Anything
+truly disconnected, we don't really have to do anything at all — it
+just gets left at DEM and doesn't need to be solved."
+
+Binding:
+1. ONE ROUTE GRAPH — no second groundside graph. Service roads are
+   route edges (their 8% budgets), lots are groundside aprons (5%
+   within-shape law), groundside buildings seat by frontage on the
+   SAME band mechanism — identical machinery to size-dependent
+   taxiway caps on airside. Every connected groundside node's
+   feasible band derives from what its service-road routes can reach.
+2. Constraint direction unchanged (airside-is-king; single-solve):
+   the band flows airside → groundside through the connections;
+   groundside is receiver-only, zero pull back.
+3. TRULY DISCONNECTED geometry — no route, frontage, or weld coupling
+   to the solved network — is NOT SOLVED: it stays at raw DEM by
+   construction and mints nothing.
+4. Supersedes: the "lot law enters the solve" item's open mechanism
+   (this IS the mechanism); the lead's terrace-declaration candidate
+   for D′ (REJECTED — one mechanism beats a parallel declaration
+   form); and the KCLT canyon service-way spread class dissolves by
+   construction (far ends seat in-band from their junction reach, not
+   at raw DEM). Ground BETWEEN pavements still terraces freely
+   (groundside terrace law unchanged).
+
+## 2026-08-06 — Certificate routes follow the reach law (owner)
+
+Owner, verbatim: "certificate routes follow the same law as reach —
+centerlines and lawful surfaces, never through pad interiors, no
+zero-budget hops. The route in the KML is invalid."
+
+Context: the HECA specimen KML (anchors 2864↔7478, priced 33.377 m
+over 149 edges) showed the conservative certificate's cap-graph
+pricing a 586 m hop at budget 0 THROUGH a 40-node pad group, 24/149
+edges under 0.9% of their chord, and 29/150 route nodes >100 m from
+any taxi centerline. The owner adjudicated the route INVALID.
+
+Binding:
+1. ANY instrument or certificate that prices a route budget follows
+   the SAME reach law production reach follows (2026-07-30:
+   centerlines and lawful surfaces): never through a pad interior,
+   never a zero-budget hop. A flat group is a SEATED SURFACE, not a
+   free edge — entering and leaving it costs its lawful
+   frontage/chord budgets.
+2. The seam-pin "depth" class verdict is therefore (d) BROKEN
+   INSTRUMENT: the 610-pin population's shortfalls re-adjudicate
+   after the certificate reprices. The pins themselves are LAW
+   (runway-surface values, CIFP-anchored, flex-moved) — untouched.
+3. Riders for the instrument sweep: the class label `seed_rwy_seam`
+   is a misnomer for 607/610 of its members (runway pass-2 values,
+   not seam pins); and 444 of 1,077 nodes in the class were hardened
+   with NO seeder record — an unattributed hardening channel.

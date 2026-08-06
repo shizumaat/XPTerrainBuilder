@@ -182,6 +182,7 @@ __all__ = [
     "RUNWAY_FLEX_ROUND_DRAIN_FLOOR_M",
     "RUNWAY_FLEX_DEMAND_TOL_M",
     "runway_flex_demand_tol_m",
+    "POST_SOLVE_IDEMPOTENCE_TOL_M",
     "RUNWAY_FLEX_ENDZONE_MATERIALITY",
     "GRADE_VISIBILITY_BUFFER_M",
     "ELEV_ROUNDING_NOISE_M",
@@ -1393,6 +1394,16 @@ RUNWAY_FLEX_ROUND_DRAIN_FLOOR_M = 0.01
 # identical on both arms.  The gate protected IDENTITY, never
 # lawfulness, so it dies with the rest of them.
 RUNWAY_FLEX_DEMAND_TOL_M = 0.01     # aligned with the materiality floor
+
+#: THE IDEMPOTENCE FLOOR of the post-solve projection (cycle-4 ingestion
+#: spec, ``docs/specs/cycle4-projection-ingestion-spec.md`` requirement 2;
+#: the campaign materiality floor for elevation classes).  A node whose
+#: seed still sits within this of the value the one solve published, and
+#: whose canonical key the solve already had, counts as UNTOUCHED: the
+#: projection holds it instead of re-solving it.  Same 0.01 m the flex
+#: demand tolerance and every elevation-class convergence guard use — one
+#: floor, stated once.
+POST_SOLVE_IDEMPOTENCE_TOL_M = 0.01
 
 
 def runway_flex_demand_tol_m() -> float:

@@ -470,8 +470,16 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
             _pr = profiles.get(ref) or {}
             _pre_fr = list(_pr.get('fractions') or ())
             _pre_el = list(_pr.get('elevs') or ())
+            # REFUSAL LEDGER (cycle-5 fix 2 attribution): stamp the round
+            # onto whatever this apply call appends, so a refusal can be
+            # read against the round that presented it.  Report-only.
+            _led_before = len(getattr(layout, "_flex_refusal_ledger",
+                                      None) or ())
             _got = dict(apply_runway_flex(layout, {ref: targets}).get(ref)
                         or ())
+            for _ev in (getattr(layout, "_flex_refusal_ledger",
+                                None) or ())[_led_before:]:
+                _ev["round"] = _round + 1
             if _pre_fr and _pre_el:
                 _r = _ref_row(ref)
                 for (_t, _v) in targets:
@@ -683,6 +691,72 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
                         f"{_rec['requested_m']:.3f} m {_RETIRE_AFTER}x — "
                         f"not re-presented (retired in round "
                         f"{_rec['round']}).")
+        # ── WHY APPLY REFUSED (cycle-5 fix 2 attribution) ─────────────
+        # A retirement is the flex conceding lawful-looking demand, and
+        # the reason lived only inside ``apply_runway_flex``'s
+        # verify-and-relax loop.  This prints it: which law the re-solve
+        # believed violated (the MAIN cap, or §2a's no-new-end-zone-
+        # regression), what the relax believed was lawful at that
+        # station, and — decisively — whether the station that BOUND the
+        # relax was one the flex itself minted a round earlier (the
+        # self-anchor lock; both sides now withdraw those, and this line
+        # reports how much move the withdrawal recovered).
+        _refusals = list(getattr(layout, "_flex_refusal_ledger", None) or ())
+        if _refusals:
+            _by_kind: dict = {}
+            for _ev in _refusals:
+                _k = (_ev.get("ref"), _ev.get("kind"), _ev.get("action"))
+                _row = _by_kind.setdefault(_k, {"n": 0, "req": 0.0,
+                                                "minted": 0, "gain": 0.0})
+                _row["n"] += 1
+                _row["req"] += float(_ev.get("requested_move") or 0.0)
+                if _ev.get("binding_was_minted"):
+                    _row["minted"] += 1
+                _row["gain"] += max(
+                    0.0, float(_ev.get("lawful_move") or 0.0)
+                    - float(_ev.get("lawful_move_minted_included")
+                            or 0.0))
+            _UIf.vprint(1,
+                        f"  [pav-builder]   apply REFUSALS: "
+                        f"{len(_refusals)} event(s) in the verify-and-relax "
+                        f"loop.")
+            for _k in sorted(_by_kind, key=lambda z: (z[0] or "", z[1] or "",
+                                                      z[2] or "")):
+                _row = _by_kind[_k]
+                _UIf.vprint(1,
+                            f"  [pav-builder]     {_k[0]} {_k[1]}/{_k[2]}: "
+                            f"{_row['n']} event(s), {_row['req']:.2f} m "
+                            f"requested; {_row['minted']} would have been "
+                            f"bound by a FLEX-MINTED station, "
+                            f"{_row['gain']:.2f} m of lawful move recovered "
+                            f"by the withdrawal.")
+            # The retired bins, joined to the refusal that retired them.
+            for _key in sorted(_retired, key=lambda k: (k[0], k[1])):
+                _rec = _retired[_key]
+                _hits = [e for e in _refusals
+                         if e.get("ref") == _rec["ref"]
+                         and abs(float(e.get("target_t") or -9.0)
+                                 - float(_rec["t"])) < 1e-9]
+                if not _hits:
+                    continue
+                _h = _hits[-1]
+                _UIf.vprint(1,
+                            f"  [pav-builder]     WHY {_rec['ref']} bin "
+                            f"{_rec['bin']} (t={_rec['t']:.4f}): "
+                            f"{len(_hits)} refusal(s), last "
+                            f"{_h.get('kind')}/{_h.get('action')} excess "
+                            f"{float(_h.get('excess') or 0.0):.5f} at "
+                            f"t={float(_h.get('midpoint_t') or 0.0):.4f}; "
+                            f"asked {float(_h.get('requested_move') or 0.0):.3f} m, "
+                            f"relax allowed "
+                            f"{float(_h.get('lawful_move') or 0.0):.3f} m "
+                            f"(the pre-fix minted-inclusive bound "
+                            f"allowed "
+                            f"{float(_h.get('lawful_move_minted_included') or 0.0):.3f} m; "
+                            f"binder minted="
+                            f"{bool(_h.get('binding_was_minted'))}, "
+                            f"{int(_h.get('n_minted_anchors') or 0)} minted "
+                            f"anchor(s) on the profile).")
     except Exception:
         pass
     return n_demands

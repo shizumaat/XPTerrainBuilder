@@ -659,7 +659,9 @@ def spine_value_fields(layout, G):
                             ceil_via=ceil_via, floor_via=floor_via,
                             anchor_seeds=anchor_seeds,
                             anchor_law=_anchor_law_values(layout, G,
-                                                          anchor_seeds))
+                                                          anchor_seeds),
+                            anchor_cifp=_anchor_cifp_envelopes(layout, G,
+                                                               anchor_seeds))
     return ceiling, floor
 
 
@@ -743,6 +745,131 @@ def _hard_truth_spine_seeds(layout, G):
     return out
 
 
+def _anchor_station_owner(G, profiles, anchor_seeds, eligible):
+    """``{anchor_node: (ref, t)}`` — which runway profile owns each anchor
+    station, and at what axis fraction.
+
+    ONE authority for "which runway is this anchor a station of", shared by
+    :func:`_anchor_law_values` and :func:`_anchor_cifp_envelopes`
+    (consult-before-create: the second reader extends the first's geometry
+    rather than copying it).  ``eligible`` is the ORDERED list of refs the
+    caller will accept; the nearest in LATERAL distance wins, and ties
+    resolve in that order exactly as the single-reader version did.
+
+    A JOIN anchor sits at the runway EDGE, so the lateral test allows the
+    ring's own half-width plus a contact margin."""
+    pos = getattr(G, "pos", None) or {}
+    out: dict = {}
+    for k in anchor_seeds:
+        pt = pos.get(k)
+        if pt is None:
+            continue
+        px, py = float(pt[0]), float(pt[1])
+        best = None                       # (lateral, ref, t)
+        for ref in eligible:
+            p = profiles.get(ref) or {}
+            ax, ay = p["axis_a"]
+            dx, dy = p["axis_d"]
+            len2 = float(p["axis_len2"])
+            if len2 <= 0.0:
+                continue
+            t = ((px - ax) * dx + (py - ay) * dy) / len2
+            if not (-0.02 <= t <= 1.02):
+                continue
+            axis_len = math.sqrt(len2)
+            lateral = abs(-(px - ax) * (dy / axis_len)
+                          + (py - ay) * (dx / axis_len))
+            if lateral > float(p.get("half_width_m") or 0.0) + 40.0:
+                continue
+            if best is None or lateral < best[0]:
+                best = (lateral, ref, min(1.0, max(0.0, t)))
+        if best is not None:
+            out[int(k)] = (best[1], best[2])
+    return out
+
+
+def _anchor_cifp_envelopes(layout, G, anchor_seeds):
+    """``{anchor_node: (lo, hi, ref)}`` — the WORLD-INVARIANT band the CIFP
+    thresholds alone force at each runway anchor's own station.
+
+    WHY THIS EXISTS (cycle-5 canyon-flex spec, fix 1 — a (d) BROKEN
+    INSTRUMENT).  :func:`_anchor_law_values` reports the profile's LAW LINE,
+    which the cycle-4 ruling correctly defines as anchored ∪ flex-applied
+    stations ("anything within the law is legal by definition").  That
+    ruling stands — but a law line so defined is FULL of world-dependent
+    content: flex-applied targets are computed from an envelope seeded off
+    other runways' DEM-seated surfaces, seam anchors ARE the DEM, and
+    crossing anchors are the partner runway's emitted surface.  So the
+    "ride" that line reports is only the DEM-follow decoration BETWEEN the
+    anchors, and the band error nevertheless printed "the CIFP thresholds
+    themselves do not reach each other … the DEM cannot be blamed" for a
+    HECA anchor pair measured 5.31 m / 6.24 m DEM-driven (the plateau world
+    carries the same pair's spread with 3.13 m of slack on IDENTICAL CIFP
+    thresholds — c5tip report, Job 2).
+
+    WHAT IS WORLD-INVARIANT, by construction: the CIFP threshold
+    elevations (``profile['cifp_pins']``, captured at the emit site before
+    any seam shift), the station geometry (fractions, axis length) and the
+    runway's OWN law caps (``grade_law.runway_profile_law``, resolved from
+    code number / letter / ruleset — geometry and jurisdiction, never
+    terrain).  The envelope is
+
+        lo = max_p (e_p − budget(t, t_p)),   hi = min_p (e_p + budget(t, t_p))
+
+    over the CIFP pins ``p``, with ``budget`` the per-segment law integrated
+    along the span (the same ``_lawful_ramp_budget`` the flex prices with).
+    Any value inside ``[lo, hi]`` is reachable from the CIFP pins under
+    runway grade law; a value outside is not.
+
+    PRICED AT THE LAW CAPS, not at the profile's as-solved caps.  A profile
+    whose end zone ESCALATED above the law's 0.8 % escalated because of
+    world-dependent anchors (seams, crossings), so folding that escalation
+    in would let terrain widen the "world-invariant" envelope.  The
+    consequence is a conservative envelope near the thresholds; the reader
+    names the escalation when one exists.
+
+    ``{}`` when no profile carries CIFP pins (a synthetic layout, or a
+    build whose profiles predate the pins), so a caller without them makes
+    no CIFP claim at all rather than a false one."""
+    from auto_patch.runway_redistribute import (_lawful_ramp_budget,
+                                                _profile_law)
+    from auto_patch.config import RUNWAY_END_FRACTION
+    profiles = getattr(layout, "_runway_redistributed_profiles", None) or {}
+    pos = getattr(G, "pos", None) or {}
+    if not profiles or not pos:
+        return {}
+    eligible = [ref for ref, p in profiles.items()
+                if p and len(p.get("cifp_pins") or ()) >= 1]
+    if not eligible:
+        return {}
+    out: dict = {}
+    for k, (ref, t) in _anchor_station_owner(
+            G, profiles, anchor_seeds, eligible).items():
+        p = profiles[ref]
+        axis_len = math.sqrt(float(p["axis_len2"]))
+        # The runway's OWN law, through the ONE resolver that reads it off
+        # the profile (``_profile_law``) — never a second copy, and never
+        # the escalated as-solved caps.
+        _law = _profile_law(p)
+        cap_kw = dict(
+            grade_cap=_law["max_grade"],
+            end_grade_cap=_law["end_grade"],
+            end_fraction=RUNWAY_END_FRACTION,
+            threshold_strict_cap=None,
+            threshold_strict_fraction=0.0)
+        if cap_kw["grade_cap"] <= 0.0:
+            continue
+        lo, hi = -float("inf"), float("inf")
+        for (pt, pe) in (p.get("cifp_pins") or ()):
+            budget = _lawful_ramp_budget(t, float(pt), axis_len, cap_kw)
+            lo = max(lo, float(pe) - budget)
+            hi = min(hi, float(pe) + budget)
+        if lo == -float("inf") or hi == float("inf"):
+            continue
+        out[int(k)] = (float(lo), float(hi), str(ref))
+    return out
+
+
 def _anchor_law_values(layout, G, anchor_seeds):
     """``{anchor_node: law_baseline_value}`` — what LAW alone puts at each
     runway anchor's own station, with the DEM-follow ride removed.
@@ -788,6 +915,14 @@ def _anchor_law_values(layout, G, anchor_seeds):
     build), and two anchor pairs were consequently mis-classified as
     "LAW ALONE IS FEASIBLE".
 
+    NOT WORLD-INVARIANT, and that is the point of the companion reader
+    (cycle-5 fix 1).  The law line is anchored ∪ flex-applied, and both
+    seam anchors and flex-applied targets are world-DEPENDENT — so this
+    function's output legitimately moves between two constant-DEM worlds
+    and may never carry a verdict about the CIFP thresholds.  The
+    world-invariant half is :func:`_anchor_cifp_envelopes`; the band error
+    prints both and blames CIFP only on the latter.
+
     ``{}`` whenever the profiles are absent, so a caller without them is
     unchanged.
     """
@@ -824,41 +959,16 @@ def _anchor_law_values(layout, G, anchor_seeds):
         return pairs[-1][1]
 
     out: dict = {}
-    for k in anchor_seeds:
-        pt = pos.get(k)
-        if pt is None:
-            continue
-        px, py = float(pt[0]), float(pt[1])
-        best = None                       # (lateral, value)
-        for ref, pairs in lawful.items():
-            p = profiles[ref]
-            ax, ay = p["axis_a"]
-            dx, dy = p["axis_d"]
-            len2 = float(p["axis_len2"])
-            if len2 <= 0.0:
-                continue
-            t = ((px - ax) * dx + (py - ay) * dy) / len2
-            if not (-0.02 <= t <= 1.02):
-                continue
-            axis_len = math.sqrt(len2)
-            lateral = abs(-(px - ax) * (dy / axis_len)
-                          + (py - ay) * (dx / axis_len))
-            # A JOIN anchor sits at the runway EDGE, so allow the ring's
-            # own half-width plus a contact margin; the nearest runway in
-            # LATERAL distance owns the station.
-            if lateral > float(p.get("half_width_m") or 0.0) + 40.0:
-                continue
-            if best is None or lateral < best[0]:
-                best = (lateral, _interp(pairs, min(1.0, max(0.0, t))))
-        if best is not None:
-            out[int(k)] = float(best[1])
+    for k, (ref, t) in _anchor_station_owner(
+            G, profiles, anchor_seeds, list(lawful)).items():
+        out[int(k)] = float(_interp(lawful[ref], t))
     return out
 
 
 def _record_band_inversions(layout, G, ceiling, floor, ceil_dist,
                             floor_dist, hard_truth=None, ceil_via=None,
                             floor_via=None, anchor_seeds=None,
-                            anchor_law=None):
+                            anchor_law=None, anchor_cifp=None):
     """Stash THIS call's INVERTED rows on the layout (spec kill-half §3,
     extended by the seed-fix round §2).
 
@@ -884,6 +994,7 @@ def _record_band_inversions(layout, G, ceiling, floor, ceil_dist,
         pos = getattr(G, "pos", None) or {}
         seeds = anchor_seeds or {}
         laws = anchor_law or {}
+        cifp = anchor_cifp or {}
         cvia = ceil_via or {}
         fvia = floor_via or {}
         for node, lo in floor.items():
@@ -923,6 +1034,16 @@ def _record_band_inversions(layout, G, ceiling, floor, ceil_dist,
                                      else laws.get(int(fa))),
                 "ceil_anchor_law": (None if ca is None
                                     else laws.get(int(ca))),
+                # THE WORLD-INVARIANT HALF (``_anchor_cifp_envelopes``):
+                # ``(lo, hi, ref)`` — the band the CIFP thresholds alone
+                # force at this anchor's station under runway grade law.
+                # None for an anchor no runway profile owns, or a build
+                # whose profiles carry no CIFP pins: then no CIFP claim
+                # is made at all.
+                "floor_anchor_cifp": (None if fa is None
+                                      else cifp.get(int(fa))),
+                "ceil_anchor_cifp": (None if ca is None
+                                     else cifp.get(int(ca))),
                 "x": (None if xy is None else float(xy[0])),
                 "y": (None if xy is None else float(xy[1])),
             })
@@ -1012,9 +1133,11 @@ def assert_no_final_band_inversion(layout, icao="",
                 f"{row['worst']:.4f} m at {row['n']} node(s)")
             # THE LAW / RIDE SPLIT.  What of this shortfall survives with
             # the runway profiles' DEM-FOLLOW SEED removed (see
-            # ``_anchor_law_values``)?  A law remainder is a real
-            # metric / cap / topology defect and needs a ruling; the ride
-            # remainder is the seed leaking into an anchor and needs none.
+            # ``_anchor_law_values``)?  This half is REPORTED, never
+            # verdicted: its law line is anchored ∪ flex-applied, which is
+            # lawful (cycle-4 ruling) and world-DEPENDENT, so a remainder
+            # here says nothing about the CIFP thresholds.  The verdict
+            # belongs to the CIFP-forced half below (cycle-5 fix 1).
             fl = r.get("floor_anchor_law")
             cl = r.get("ceil_anchor_law")
             if fl is not None or cl is not None:
@@ -1024,23 +1147,64 @@ def assert_no_final_band_inversion(layout, icao="",
                     law_spread = abs(fl_v - cl_v)
                     law_short = law_spread - budget
                     lines.append(
-                        f"      LAW half: anchors "
+                        f"      LAW-LINE half (anchored ∪ flex-applied; "
+                        f"WORLD-DEPENDENT, no verdict): anchors "
                         f"{'?' if fl is None else f'{fl:.3f}'} m vs "
                         f"{'?' if cl is None else f'{cl:.3f}'} m "
                         f"(DEM-follow ride "
                         f"{0.0 if fl is None else fv - fl:+.3f} / "
                         f"{0.0 if cl is None else cv - cl:+.3f} m) ⇒ law "
-                        f"spread {law_spread:.3f} m, law shortfall "
-                        f"{law_short:+.4f} m — "
-                        + ("the CIFP thresholds themselves do not reach "
-                           "each other within this route budget (a METRIC / "
-                           "CAP / TOPOLOGY defect: rule on it, the DEM "
-                           "cannot be blamed)"
-                           if law_short > tol else
-                           "LAW ALONE IS FEASIBLE here; the whole shortfall "
-                           "is the DEM-follow ride entering an ANCHOR "
-                           "(RULINGS: the DEM is a SEED, never an "
-                           "authority)"))
+                        f"spread {law_spread:.3f} m, remainder "
+                        f"{law_short:+.4f} m")
+            # ── THE CIFP-FORCED HALF — THE ONLY CIFP VERDICT (cycle-5
+            # canyon-flex spec, fix 1) ────────────────────────────────
+            # WORLD-INVARIANT by construction: the CIFP threshold
+            # elevations, the station geometry and the runway's own law
+            # caps.  ``lo_f − hi_c`` is the SMALLEST value spread the CIFP
+            # pins can be made to hold at these two stations under runway
+            # grade law; if that fits the route budget, then a lawful pair
+            # of profiles closes this route and CIFP forces nothing —
+            # whatever the emitted values did is world-dependent content
+            # (seating, flex-applied targets, seam / crossing anchors),
+            # i.e. verdict (a) BUG, never "the thresholds do not reach".
+            # This replaces a sentence that blamed CIFP for a spread
+            # measured 5.31 m DEM-driven (c5tip Job 2).
+            fc = r.get("floor_anchor_cifp")
+            cc = r.get("ceil_anchor_cifp")
+            if fc is not None and cc is not None:
+                f_lo, f_hi, f_ref = fc
+                c_lo, c_hi, c_ref = cc
+                forced = max(0.0, f_lo - c_hi)
+                cifp_short = forced - budget
+                lines.append(
+                    f"      CIFP-FORCED half (WORLD-INVARIANT): floor "
+                    f"anchor {fa} on {f_ref} may lawfully seat in "
+                    f"[{f_lo:.3f}, {f_hi:.3f}] m (emitted "
+                    f"{'?' if fv is None else f'{fv:.3f}'}); ceiling anchor "
+                    f"{ca} on {c_ref} in [{c_lo:.3f}, {c_hi:.3f}] m "
+                    f"(emitted {'?' if cv is None else f'{cv:.3f}'})")
+                lines.append(
+                    f"      ⇒ CIFP-forced minimum spread {forced:.4f} m "
+                    f"over a route budget of {budget:.3f} m ⇒ CIFP "
+                    f"shortfall {cifp_short:+.4f} m — "
+                    + ("the CIFP thresholds themselves do not reach each "
+                       "other within this route budget (a METRIC / CAP / "
+                       "TOPOLOGY defect: rule on it, the DEM cannot be "
+                       "blamed)"
+                       if cifp_short > tol else
+                       "CIFP DOES NOT FORCE THIS: a lawful pair of "
+                       "profiles closes this route, so the whole spread "
+                       "is WORLD-DEPENDENT content — seating, "
+                       "flex-applied targets, seam / crossing anchors "
+                       "(RULINGS: the DEM is a SEED, never an authority; "
+                       "verdict (a) BUG, never a law shortfall)"))
+            elif fc is not None or cc is not None:
+                lines.append(
+                    f"      CIFP-FORCED half: anchor "
+                    f"{ca if fc is not None else fa} is not a runway-"
+                    f"profile station, so no CIFP-forced spread exists "
+                    f"for this pair — CIFP is NOT blamable here; classify "
+                    f"from the world-dependent half")
     for r in over[:20]:
         where = ("" if r["x"] is None
                  else f" @({r['x']:.1f},{r['y']:.1f})")

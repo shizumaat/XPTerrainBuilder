@@ -13,9 +13,9 @@ an oracle no real-terrain build can give:
 TWO SYNTHETIC WORLDS, and they are not interchangeable — the pair is the
 instrument:
 
-* ``PLATEAU`` (DEM ≡ 0, or any low constant): the ground is a giant
-  plateau *below* nothing.  Every free value is seated at the FLOOR of
-  its feasible band.
+* ``PLATEAU`` (DEM ≡ −500 m, owner ruling 2026-08-06): the ground is a
+  giant plateau *below* everything.  Every free value is seated at the
+  FLOOR of its feasible band.
 * ``CANYON`` (DEM ≡ 10 000 m): the ground is high above everything.
   Every free value is seated at the CEILING of its band.
 
@@ -51,6 +51,19 @@ lives in the disk-load branch, while an oracle DEM arrives as
 ``override_dem`` and is returned before it.  Constant data is not absent
 data — but it must be handed over EXPLICITLY, which is exactly what this
 module makes callers do.
+
+THE LOW EXTREME IS −500 m (owner ruling 2026-08-06), superseding the
+"DEM ≡ 0" letter of the constant-DEM invariant.  It is below every CIFP
+value, so floor-seating is GUARANTEED everywhere rather than merely
+likely, and below-sea-level handling is exercised for free.  The DEM ≡ 1 m
+interim this module used to carry was an unruled dodge around the loader's
+all-zero guard — a guard the oracle never reaches, because an oracle DEM
+is an ``override_dem`` — and the ruling RETIRES it.  Nothing about the low
+world may be inferred from the sign of its elevation: a synthetic constant
+is a VALUE, and the only sentinel it may never be is ``nodata``
+(:data:`NODATA_SENTINEL`), which :class:`ConstantDEM` refuses outright
+because every ``v == dem.nodata`` check in the tree would read that world
+as absent data.
 """
 from __future__ import annotations
 
@@ -59,17 +72,71 @@ from typing import Iterable, Optional
 
 __all__ = [
     "ConstantDEM", "PLATEAU_ELEVATION_M", "CANYON_ELEVATION_M",
+    "SEED_SPAN_M", "NODATA_SENTINEL", "seed_span_m",
     "plateau_dem", "canyon_dem", "band_width_field",
     "saturation_report", "saturation_summary", "SaturationRow",
 ]
 
-#: The two worlds.  PLATEAU is deliberately NOT 0.0: a literal zero is
-#: indistinguishable from "no data" to every defensive check in the tree
-#: (and from an uninitialised array), so the low world sits at a small
-#: positive constant that is unmistakably a value.  Both are far outside
-#: any real airport elevation, so a leaked real sample is obvious.
-PLATEAU_ELEVATION_M = 1.0
+#: The DEM no-data sentinel every reader in the tree compares against
+#: (``seam_anchors``, ``tile_cut``, ``runway_redistribute``,
+#: ``runway_regrade`` all do ``v == dem.nodata``).  A synthetic world AT
+#: this value would be read as ABSENT data by all of them, so it is the
+#: one constant :class:`ConstantDEM` refuses.  Nothing else about a
+#: synthetic constant's sign or magnitude is constrained.
+NODATA_SENTINEL = -32768
+
+#: The two worlds.
+#:
+#: THE LOW EXTREME IS −500 m (owner ruling 2026-08-06): "to effectively
+#: exercise the intention of the extreme low DEM … no particular need for
+#: zero, negative is better."  It sits BELOW EVERY CIFP VALUE, so
+#: floor-seating is guaranteed everywhere instead of merely likely, and
+#: below-sea-level handling is exercised for free.
+#:
+#: This supersedes the old ``1.0``.  That value existed only to dodge the
+#: loader's all-zero refusal ("a literal zero is indistinguishable from no
+#: data") — a dodge the ruling calls out as unruled and RETIRES, because
+#: the oracle never reaches that guard: its DEM arrives as ``override_dem``
+#: and is returned before the disk-compose branch that carries it.
+#:
+#: Both worlds are far outside any real airport elevation, so a leaked
+#: real sample is obvious in either.
+PLATEAU_ELEVATION_M = -500.0
 CANYON_ELEVATION_M = 10000.0
+
+#: THE ANALYTIC ENVELOPE of the band-width field, DERIVED from the pair —
+#: never a literal.  ``canyon(node) - plateau(node)`` is a seated
+#: difference, so it lies in ``[0, SEED_SPAN_M]``: below 0 the high world
+#: seated under the low one (non-monotone in the seed), above the span the
+#: surface moved FURTHER than the seed did (an amplifying authority).
+#:
+#: It used to be the unwritten ``[0, 9999]`` of the 1 m / 10 000 m pair,
+#: which quietly assumed a NON-NEGATIVE low world.  With the low extreme
+#: at −500 m the envelope is ``[0, 10500]``, and any instrument that
+#: hard-codes either end is wrong the moment the owner re-rules a world —
+#: so read it from here, or from :func:`seed_span_m` for an explicit pair.
+SEED_SPAN_M = CANYON_ELEVATION_M - PLATEAU_ELEVATION_M
+
+
+def seed_span_m(plateau_m: float = PLATEAU_ELEVATION_M,
+                canyon_m: float = CANYON_ELEVATION_M) -> float:
+    """The seed swing between two worlds — the band-width field's upper
+    envelope.  Explicit so a runner driving a non-default ``--worlds``
+    pair reports ITS OWN envelope rather than the module default's."""
+    return float(canyon_m) - float(plateau_m)
+
+
+def _world_label_for(elevation_m: float) -> str:
+    """``"plateau"`` / ``"canyon"`` for the two ruled worlds, else
+    ``"constant"``.  A label, never a rule: nothing branches on it, and in
+    particular the SIGN of the constant means nothing — the low world is
+    the ruled −500 m, and a build at any other constant is still a
+    perfectly legal synthetic world with no special seating claim."""
+    if elevation_m == PLATEAU_ELEVATION_M:
+        return "plateau"
+    if elevation_m == CANYON_ELEVATION_M:
+        return "canyon"
+    return "constant"
 
 
 class ConstantDEM:
@@ -84,17 +151,55 @@ class ConstantDEM:
 
     ``nxdem``/``nydem`` default to a 2x2 raster: large enough that the
     raster consumers do not bail, small enough to cost nothing.
+
+    THE ONE REFUSED VALUE.  ``elevation_m`` may be any finite number —
+    negative included, which is the point of the −500 m low world — EXCEPT
+    :data:`NODATA_SENTINEL`.  Four readers in the tree branch on
+    ``v == dem.nodata`` (``seam_anchors``, ``tile_cut``,
+    ``runway_redistribute``, ``runway_regrade``), so a synthetic world at
+    the sentinel would be read as ABSENT DATA by all of them and the build
+    would silently measure a different world than the one requested.  That
+    collision was unreachable while the low world was a small POSITIVE
+    constant; allowing negatives opens it, so it is closed here, loudly,
+    at the one place every synthetic DEM is constructed.
+
+    ``is_synthetic`` marks the object for any caller that needs to say
+    "this build's surface was SUBSTITUTED, not loaded" in a report — the
+    explicitness the owner's ruling asks for, carried by the object itself
+    rather than reconstructed from a flag somewhere up the call stack.
     """
 
+    #: Every instance is a substituted surface, never loaded data.
+    is_synthetic = True
+
     def __init__(self, elevation_m: float,
-                 lat: int = 0, lon: int = 0, n: int = 2):
-        self.elevation_m = float(elevation_m)
+                 lat: int = 0, lon: int = 0, n: int = 2,
+                 world_label: str = ""):
+        elevation_m = float(elevation_m)
+        if elevation_m != elevation_m or elevation_m in (
+                float("inf"), float("-inf")):
+            raise ValueError(
+                f"a synthetic constant DEM must be a finite elevation, got "
+                f"{elevation_m!r}")
+        if elevation_m == float(NODATA_SENTINEL):
+            raise ValueError(
+                f"REFUSING a synthetic DEM at {NODATA_SENTINEL} m: that is "
+                f"the NO-DATA SENTINEL every DEM reader in the tree compares "
+                f"against (v == dem.nodata in seam_anchors, tile_cut, "
+                f"runway_redistribute, runway_regrade).  A world at this "
+                f"value would be read as ABSENT data, not as constant data, "
+                f"and the build would silently measure a different world.  "
+                f"Any other finite constant is legal, negatives included "
+                f"(the ruled low world is {PLATEAU_ELEVATION_M:g} m).")
+        self.elevation_m = elevation_m
         self.lat = int(lat)
         self.lon = int(lon)
         self.elevation_level = 0
-        self.source_path = f"<constant-dem {self.elevation_m:g} m>"
+        self.world_label = world_label or _world_label_for(self.elevation_m)
+        self.source_path = (f"<constant-dem {self.elevation_m:g} m "
+                            f"[{self.world_label}]>")
         self.baked_query_active = False
-        self.nodata = -32768
+        self.nodata = NODATA_SENTINEL
         self.nxdem = int(n)
         self.nydem = int(n)
         self.x0, self.x1 = 0.0, 1.0
@@ -127,17 +232,20 @@ class ConstantDEM:
         return self.elevation_m
 
     def __repr__(self) -> str:                       # pragma: no cover
-        return f"ConstantDEM({self.elevation_m:g} m)"
+        return (f"ConstantDEM({self.elevation_m:g} m, "
+                f"{self.world_label}, synthetic)")
 
 
 def plateau_dem(lat: int = 0, lon: int = 0) -> ConstantDEM:
-    """The LOW world: everything seats at the FLOOR of its band."""
-    return ConstantDEM(PLATEAU_ELEVATION_M, lat, lon)
+    """The LOW world (−500 m, owner ruling 2026-08-06): everything seats at
+    the FLOOR of its band.  Below every CIFP value, so the floor-seating is
+    guaranteed rather than merely likely."""
+    return ConstantDEM(PLATEAU_ELEVATION_M, lat, lon, world_label="plateau")
 
 
 def canyon_dem(lat: int = 0, lon: int = 0) -> ConstantDEM:
     """The HIGH world: everything seats at the CEILING of its band."""
-    return ConstantDEM(CANYON_ELEVATION_M, lat, lon)
+    return ConstantDEM(CANYON_ELEVATION_M, lat, lon, world_label="canyon")
 
 
 # ── the two derived instruments ───────────────────────────────────────
@@ -344,18 +452,44 @@ def saturation_summary(rows, top: int = 10) -> dict:
             "worst_rows": [r.as_dict() for r in rows[:top]]}
 
 
-def band_width_summary(field: dict) -> dict:
-    """Report shape of a ``band_width_field`` — for the artifact header."""
+def band_width_summary(field: dict, span_m: Optional[float] = None) -> dict:
+    """Report shape of a ``band_width_field`` — for the artifact header.
+
+    ``span_m`` is the ANALYTIC ENVELOPE's upper end: the seed swing between
+    the two worlds that produced ``field`` (:func:`seed_span_m`; default
+    :data:`SEED_SPAN_M`, the module's own pair).  A seated difference lies
+    in ``[0, span_m]``, and both ends are findings:
+
+    * below 0 — the high world seated a node UNDER the low world, which no
+      monotone seating can do;
+    * above the span — the surface moved FURTHER than its seed did, i.e.
+      something amplified the seed instead of being seeded by it.
+
+    THE ENVELOPE IS DERIVED, NEVER A LITERAL (fix, cycle 7.5).  It used to
+    be the unwritten ``[0, 9999]`` of the 1 m / 10 000 m pair — an
+    assumption that the low world is NON-NEGATIVE, invisible because it was
+    never spelled anywhere.  With the ruled −500 m low world the envelope
+    is ``[0, 10500]``, and a runner on a custom ``--worlds`` pair gets its
+    own.  ``span_m`` is reported beside the counts so a later reader can
+    see which envelope the numbers were judged in (frame stamps, RULINGS
+    2026-08-06 "Instrument truth is law" §3).
+    """
+    span = float(SEED_SPAN_M if span_m is None else span_m)
     if not field:
-        return {"nodes": 0}
+        return {"nodes": 0, "seed_span_m": span,
+                "envelope_m": [0.0, span]}
     widths = sorted(field.values())
     n = len(widths)
     negative = [w for w in widths if w < -1e-6]
     pinned = [w for w in widths if abs(w) <= 1e-6]
+    over_span = [w for w in widths if w > span + 1e-6]
     return {
         "nodes": n,
         "pinned": len(pinned),
         "negative": len(negative),
+        "over_span": len(over_span),
+        "seed_span_m": span,
+        "envelope_m": [0.0, span],
         "min": widths[0],
         "p50": widths[n // 2],
         "max": widths[-1],
@@ -364,12 +498,13 @@ def band_width_summary(field: dict) -> dict:
 
 
 def write_band_width_artifact(field: dict, path,
-                              extra: Optional[dict] = None) -> None:
+                              extra: Optional[dict] = None,
+                              span_m: Optional[float] = None) -> None:
     """Persist the band-width field as JSON beside a build."""
     import json
     from pathlib import Path
     doc = {
-        "summary": band_width_summary(field),
+        "summary": band_width_summary(field, span_m),
         # ``author`` is part of the identity, not decoration: it is what
         # makes each row a difference of ONE surface against itself.
         "nodes": [{"author": a, "x": x, "y": y,
@@ -383,6 +518,6 @@ def write_band_width_artifact(field: dict, path,
 
 def constant_dem_worlds(lat: int = 0, lon: int = 0) -> Iterable:
     """``[("plateau", dem), ("canyon", dem)]`` — the pair, in the order the
-    oracle reports them."""
+    oracle reports them (low first: −500 m, then 10 000 m)."""
     return [("plateau", plateau_dem(lat, lon)),
             ("canyon", canyon_dem(lat, lon))]

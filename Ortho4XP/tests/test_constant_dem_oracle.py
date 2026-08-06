@@ -9,13 +9,16 @@ solver or instrument defect with nothing to blame it on.
 THREE ASSERTIONS, in ascending power (owner's sharpening):
 
 1. COMPLIANCE — zero law-true rows in BOTH worlds.
-2. EXTREME-SEATING SATURATION — DEM ≡ 1 m (plateau) seats every free
-   value at its band FLOOR; DEM ≡ 10 000 m (canyon) at its CEILING.  A
-   node NOT saturated is held by something that is not the seed: a
-   HIDDEN AUTHORITY.  This is what mere compliance cannot see.
+2. EXTREME-SEATING SATURATION — DEM ≡ −500 m (plateau; owner ruling
+   2026-08-06, below every CIFP value) seats every free value at its
+   band FLOOR; DEM ≡ 10 000 m (canyon) at its CEILING.  A node NOT
+   saturated is held by something that is not the seed: a HIDDEN
+   AUTHORITY.  This is what mere compliance cannot see.
 3. THE BAND-WIDTH FIELD — ``canyon(node) - plateau(node)`` IS the width
    of the band the law grants at that node, emitted as a diagnostic
-   artifact and checkable against the analytic bands.
+   artifact and checkable against the analytic bands.  Its envelope is
+   ``[0, canyon − plateau]`` — 10 500 m for the ruled pair — DERIVED,
+   never the unwritten ``[0, 9999]`` of the retired 1 m low world.
 
 TWO LAYERS OF TEST, deliberately:
 
@@ -73,12 +76,103 @@ def test_the_dem_carries_the_raster_surface_the_ols_reader_reads():
         "would silently skip the OLS path instead of exercising it")
 
 
-def test_the_plateau_is_not_literally_zero():
-    """A literal 0.0 is indistinguishable from 'no data' to every
-    defensive check in the tree (and from an uninitialised array), and
-    the all-zero REFUSAL exists for exactly that reason."""
-    assert PLATEAU_ELEVATION_M != 0.0
+def test_the_low_extreme_is_the_ruled_minus_500():
+    """OWNER RULING 2026-08-06, "The low extreme is −500 m".
+
+    Verbatim intent: "to effectively exercise the intention of the extreme
+    low DEM … no particular need for zero, negative is better."  −500 m is
+    BELOW EVERY CIFP VALUE, so floor-seating is guaranteed everywhere
+    rather than merely likely, and below-sea-level handling is exercised
+    for free.
+
+    This replaces ``test_the_plateau_is_not_literally_zero``, which pinned
+    the DEM ≡ 1 m interim and its rationale ("a literal 0.0 is
+    indistinguishable from no data").  The ruling names that interim an
+    unruled loader-guard DODGE and RETIRES it: the oracle never reaches
+    the all-zero guard, because an oracle DEM arrives as ``override_dem``
+    and is returned before the disk-compose branch that carries it — which
+    the test below still asserts directly.
+    """
+    assert PLATEAU_ELEVATION_M == -500.0
+    assert PLATEAU_ELEVATION_M < 0.0, (
+        "the ruled low world is NEGATIVE — an implementation that clamps "
+        "the synthetic seed at 0 has re-introduced the DEM ≥ 0 assumption")
     assert PLATEAU_ELEVATION_M < CANYON_ELEVATION_M
+
+
+def test_the_dem_answers_a_NEGATIVE_elevation_everywhere():
+    """The low world is below sea level; nothing may clamp it.
+
+    KNOWN-ANSWER TWIN (RULINGS 2026-08-06 §1, "Instrument truth is law"):
+    the answer is the constant itself, at every sampling entry the tree
+    consumes, in the world the ruling names.
+    """
+    d = plateau_dem()
+    assert d.elevation_m == -500.0
+    assert d.alt((0.0, 0.0)) == -500.0
+    assert d.alt_strict((0.5, 0.5)) == -500.0
+    assert d.get() == -500.0
+    assert list(d.alt_vec([(0.1, 0.1)])) == [-500.0]
+    assert d.alt_dem.min() == -500.0 and d.alt_dem.max() == -500.0
+    assert d.is_synthetic is True
+    assert d.world_label == "plateau"
+
+
+def test_a_synthetic_dem_AT_THE_NODATA_SENTINEL_is_refused():
+    """The one constant that is not a value.
+
+    Four readers branch on ``v == dem.nodata`` (``seam_anchors``,
+    ``tile_cut``, ``runway_redistribute``, ``runway_regrade``), so a world
+    at −32768 would be read as ABSENT data by every one of them and the
+    build would silently measure a different world than the one asked
+    for.  The collision was unreachable while the low world was a small
+    POSITIVE constant; allowing negatives opens it, so it is closed at the
+    one place every synthetic DEM is constructed.
+    """
+    from auto_patch.constant_dem import NODATA_SENTINEL
+    with pytest.raises(ValueError, match="NO-DATA SENTINEL"):
+        ConstantDEM(NODATA_SENTINEL)
+    # …and every OTHER negative constant is perfectly legal.
+    assert ConstantDEM(-32767.0).alt((0.0, 0.0)) == -32767.0
+    assert ConstantDEM(-0.5).alt((0.0, 0.0)) == -0.5
+
+
+def test_the_band_width_envelope_is_DERIVED_from_the_pair():
+    """The ``[0, 9999]`` assumption, made explicit and made correct.
+
+    The envelope of a seated difference is ``[0, canyon − plateau]``.  With
+    the retired 1 m low world that was ``[0, 9999]`` and it was written
+    down NOWHERE — so it was an assumption that the low world is
+    non-negative, invisible by construction.  Under the ruled −500 m the
+    span is 10 500 m, and a runner on a custom pair gets its own.
+    """
+    from auto_patch.constant_dem import SEED_SPAN_M, seed_span_m
+    assert SEED_SPAN_M == 10500.0
+    assert seed_span_m(-500.0, 10000.0) == 10500.0
+    assert seed_span_m(1.0, 10000.0) == 9999.0        # the retired pair
+    # A width inside the span is ordinary; one ABOVE it is the amplifying
+    # authority finding, and the summary must count it as such.  Read
+    # straight off a hand-built field: the summary is a pure function of the
+    # widths, so the known answer is exact and owes nothing to a fixture
+    # ring's closing vertices.
+    field = {(_A, 0.0, 0.0): 0.0,          # pinned
+             (_A, 1.0, 0.0): 10000.0,      # inside the span
+             (_A, 2.0, 0.0): 10500.0,      # exactly AT the span
+             (_A, 3.0, 0.0): 10500.5}      # past it — the finding
+    summary = band_width_summary(field, 10500.0)
+    assert summary["seed_span_m"] == 10500.0
+    assert summary["envelope_m"] == [0.0, 10500.0]
+    assert summary["nodes"] == 4 and summary["pinned"] == 1
+    assert summary["negative"] == 0
+    assert summary["over_span"] == 1, (
+        "a node that moved FURTHER than the seed did is an authority "
+        "amplifying the seed, not a band the law granted")
+    # The SAME field judged in the RETIRED [0, 9999] envelope calls three of
+    # the four impossible — exactly the false red a hard-coded 9999 would
+    # mint under the ruled -500 m low world.
+    assert band_width_summary(field, 9999.0)["over_span"] == 3
+    # …and with no span given, the module default is the ruled pair's own.
+    assert band_width_summary(field)["over_span"] == 1
 
 
 def test_the_all_zero_refusal_is_untouched_by_the_oracle():
@@ -446,12 +540,14 @@ def test_constant_dem_band_width_field(icao, tmp_path):
     lo = _build_world(icao, plateau_dem())
     hi = _build_world(icao, canyon_dem())
     field = band_width_field(lo, hi)
-    summary = band_width_summary(field)
+    span = CANYON_ELEVATION_M - PLATEAU_ELEVATION_M
+    summary = band_width_summary(field, span)
     write_band_width_artifact(
-        field, tmp_path / f"{icao}_band_width.json",
+        field, tmp_path / f"{icao}_band_width.json", span_m=span,
         extra={"icao": icao,
                "plateau_m": PLATEAU_ELEVATION_M,
-               "canyon_m": CANYON_ELEVATION_M})
+               "canyon_m": CANYON_ELEVATION_M,
+               "seed_span_m": span})
     assert summary["nodes"], f"{icao}: the two worlds share no node"
     # SIGN LAW: no monotone seating can put the high world below the low.
     assert summary["negative"] == 0, (
@@ -459,13 +555,18 @@ def test_constant_dem_band_width_field(icao, tmp_path):
         f"world than in the plateau world (min {summary['min']:.3f} m) — "
         f"a seating that is not monotone in the seed, i.e. an authority "
         f"reacting to the DEM rather than being seeded by it")
+    # ENVELOPE: a seated difference cannot exceed the seed swing either.
+    assert summary["over_span"] == 0, (
+        f"{icao}: {summary['over_span']} node(s) moved FURTHER than the "
+        f"{span:g} m seed swing (max {summary['max']:.3f} m) — something is "
+        f"amplifying the seed rather than being seeded by it")
     # SATURATION: a node free in one world and free in the other must have
     # MOVED; a node that moved nowhere while its neighbours moved metres
     # is either genuinely pinned or hiding an authority.  The empirical
     # form of assertion 2, needing no analytic band table: with a
-    # 10 km seed swing, an unpinned node cannot sit still.
+    # 10.5 km seed swing, an unpinned node cannot sit still.
     moved = sum(1 for w in field.values() if abs(w) > 1e-6)
     assert moved, (
-        f"{icao}: NOT ONE node moved between a 1 m and a 10 000 m seed. "
-        f"The seed is not seating anything — the surface is authored "
-        f"entirely by something else.")
+        f"{icao}: NOT ONE node moved between a {PLATEAU_ELEVATION_M:g} m "
+        f"and a {CANYON_ELEVATION_M:g} m seed.  The seed is not seating "
+        f"anything — the surface is authored entirely by something else.")

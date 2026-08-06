@@ -1,6 +1,6 @@
 """THE CONSTANT-DEM ORACLE RUNNER — the pair build with no terrain confound.
 
-    venv/bin/python tools/harness/oracle.py ICAO [--worlds 1 10000]
+    venv/bin/python tools/harness/oracle.py ICAO [--worlds -500 10000]
         [--out DIR] [--allow-degraded-dem]
 
 Run it from ``Ortho4XP/``.  Wraps ``auto_patch.constant_dem`` and drives the
@@ -15,15 +15,21 @@ SEED"):
    their own heading") — those rows are still measured, still printed, and
    carried in the verdict under ``version_deferred_by_world``.  The register
    is ``check_grade.VERSION_DEFERRED_FAMILIES``.
-2. **EXTREME-SEATING SATURATION** — the plateau world (a low constant) seats
-   every free value at its band FLOOR, the canyon world (10 000 m) at its
-   CEILING.  A node that moves between two builds on the SAME side of every
-   band is held by something that is not the seed: a HIDDEN AUTHORITY.  This
-   is the defect class plain compliance cannot see.
+2. **EXTREME-SEATING SATURATION** — the plateau world (−500 m, owner ruling
+   2026-08-06: below every CIFP value) seats every free value at its band
+   FLOOR, the canyon world (10 000 m) at its CEILING.  A node that moves
+   between two builds on the SAME side of every band is held by something
+   that is not the seed: a HIDDEN AUTHORITY.  This is the defect class plain
+   compliance cannot see.
 3. **THE BAND-WIDTH FIELD** — ``canyon(node) - plateau(node)`` IS the width
    of the band the law grants at that node, written out as the artifact
    (``<ICAO>_band_width.json``).  Width 0 ⇒ PINNED; a NEGATIVE width is a
-   defect on its face.
+   defect on its face; and a width ABOVE THE SEED SPAN (the analytic
+   envelope's upper end — ``constant_dem.seed_span_m`` of the pair actually
+   built, 10 500 m for the ruled worlds) means the surface moved further
+   than its seed did, i.e. something amplified the seed.  The envelope is
+   DERIVED from the pair, never the old unwritten ``[0, 9999]`` of the
+   retired 1 m low world.
 
 WHY A RUNNER AND NOT JUST THE PYTEST.  ``tests/test_constant_dem_oracle.py``
 builds each world per test; this builds each world ONCE and runs all three
@@ -103,7 +109,10 @@ def main(argv=None) -> int:
     ap.add_argument("icao")
     ap.add_argument("--worlds", nargs="+", type=float, default=None,
                     help="constant elevations to build (default: the "
-                         "plateau/canyon pair from auto_patch.constant_dem)")
+                         "plateau/canyon pair from auto_patch.constant_dem, "
+                         "i.e. -500 and 10000).  Negatives are legal and "
+                         "ruled; the band-width envelope is derived from "
+                         "whichever pair you give, not assumed non-negative")
     ap.add_argument("--out", type=Path, default=Path("/tmp/harness/oracle"))
     ap.add_argument("--allow-degraded-dem", action="store_true",
                     help="accepted and recorded; the oracle SUBSTITUTES the "
@@ -117,7 +126,7 @@ def main(argv=None) -> int:
     from auto_patch.constant_dem import (                 # noqa: E402
         CANYON_ELEVATION_M, PLATEAU_ELEVATION_M, band_width_field,
         band_width_summary, saturation_report, saturation_summary,
-        write_band_width_artifact)
+        seed_span_m, write_band_width_artifact)
 
     worlds = args.worlds or [PLATEAU_ELEVATION_M, CANYON_ELEVATION_M]
     out = Path(args.out)
@@ -206,19 +215,34 @@ def main(argv=None) -> int:
         field = band_width_field(layouts[lo]["_layout"],
                                  layouts[hi]["_layout"])
         keys = field
-        summary = band_width_summary(field)
+        # THE ANALYTIC ENVELOPE, DERIVED FROM THE PAIR ACTUALLY BUILT — not
+        # the unwritten [0, 9999] of the retired 1 m / 10 000 m worlds,
+        # which silently assumed a NON-NEGATIVE low world and would read
+        # 10 500 m of legitimate span as impossible under the ruled -500 m.
+        span = seed_span_m(lo, hi)
+        summary = band_width_summary(field, span)
         write_band_width_artifact(
-            field, out / f"{args.icao}_band_width.json",
+            field, out / f"{args.icao}_band_width.json", span_m=span,
             extra={"icao": args.icao, "plateau_m": lo, "canyon_m": hi,
+                   "seed_span_m": span,
+                   "envelope_m": [0.0, span],
                    "join": "author (role/ref) + millimetre metre-frame "
                            "coordinate — same author on both sides, so a "
                            "shared coordinate yields one row per surface"})
         verdicts["band_width"] = {
-            "pass": summary.get("negative", 0) == 0,
+            "pass": (summary.get("negative", 0) == 0
+                     and summary.get("over_span", 0) == 0),
             "summary": summary,
             "artifact": str(out / f"{args.icao}_band_width.json"),
-            "note": "a NEGATIVE band width is a defect on its face "
-                    "(the ceiling world seated BELOW the floor world)",
+            "envelope_m": [0.0, span],
+            "note": f"a seated difference lies in [0, {span:g}] m: a "
+                    f"NEGATIVE width is a defect on its face (the ceiling "
+                    f"world seated BELOW the floor world), and a width "
+                    f"ABOVE the {span:g} m seed span means the surface "
+                    f"moved further than its seed did — an authority "
+                    f"amplifying the seed rather than being seeded by it.  "
+                    f"The envelope is derived from the pair built "
+                    f"({lo:g} m, {hi:g} m), never assumed non-negative.",
         }
         pinned = sum(1 for v in field.values() if abs(v) <= 1e-6)
         prog.note(f"  band width: {json.dumps(summary)}  "

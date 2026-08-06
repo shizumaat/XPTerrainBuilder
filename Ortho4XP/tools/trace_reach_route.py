@@ -46,7 +46,9 @@ Usage:
 ``auto_patch.constant_dem.ConstantDEM`` ``harness/build_airport.py --dem``
 installs — one authority, not a second constant-DEM path).  It exists
 because real-DEM builds are gated on flat-green (RULINGS 2026-08-05), so the
-canyon/plateau attribution may not reach for one.
+canyon/plateau attribution may not reach for one.  The ruled pair is
+``--dem -500`` (low) and ``--dem 10000`` (high): negatives are legal and are
+the ruled low world (RULINGS 2026-08-06, "The low extreme is −500 m").
 
 ``--inverted-pairs`` traces the routes behind every contradictory anchor
 pair ``assert_no_final_band_inversion`` named, INCLUDING on a build that
@@ -560,7 +562,8 @@ def main():
     ap.add_argument("--dem", type=float,
                     help="trace in a CONSTANT-DEM world of this elevation "
                          "(the oracle worlds; same ConstantDEM the harness "
-                         "build entry installs)")
+                         "build entry installs).  The ruled pair is -500 "
+                         "(low) and 10000 (high) — negatives are legal")
     ap.add_argument("--inverted-pairs", action="store_true",
                     help="trace the routes behind every contradictory anchor "
                          "pair the FINAL BAND INVERSION named (works on a "

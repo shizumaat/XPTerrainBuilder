@@ -5033,6 +5033,74 @@ def _runway_boundary_freeze_indexes(
         if int(_index) not in already_hard}
 
 
+def projection_law_certificate(joint, elev, n, hard, tol=1e-3):
+    """Over-cap law edges of ``joint`` at the current ``elev``, BY FAMILY.
+
+    The ingestion round's own reader (spec
+    ``docs/specs/cycle4-projection-ingestion-spec.md`` requirement 4:
+    "enumerate and close every divergence between the two constraint
+    builds").  Run at the projection's ENTRY it says which law the
+    rebuilt constraint set finds violated in the SOLVED field — a family
+    that is over cap at entry is either a genuine post-solve mutation or
+    a law input the two builds disagree on.  Run at EXIT it says what the
+    projection could not close.
+
+    A family is ``role:ref`` for a shape entry, or the entry's explicit
+    ``family`` tag (the unified-graph and rod edge sets).  Interval edges
+    (4-tuples) are counted against their own interval, not a cap.
+
+    Pure measurement: reads ``elev``, writes nothing.  Returns
+    ``{family: (n_over, worst_excess_m, n_both_hard)}``.
+    """
+    out: dict = {}
+    for entry in joint:
+        fam = entry.get("family")
+        if fam is None:
+            fam = f"{entry.get('role') or '?'}:{entry.get('ref') or '-'}"
+        row = out.setdefault(fam, [0, 0.0, 0])
+        for e in entry.get("edges") or ():
+            a, b = e[0], e[1]
+            if a >= n or b >= n:
+                continue
+            d = elev[a] - elev[b]
+            if len(e) >= 4:
+                lo, hi = e[2], e[3]
+                excess = 0.0
+                if lo is not None and d < lo:
+                    excess = lo - d
+                elif hi is not None and d > hi:
+                    excess = d - hi
+            else:
+                excess = abs(d) - float(e[2])
+            if excess <= tol:
+                continue
+            row[0] += 1
+            if excess > row[1]:
+                row[1] = excess
+            if a in hard and b in hard:
+                row[2] += 1
+    return {k: tuple(v) for k, v in out.items()}
+
+
+def _report_law_certificate(icao, label, cert, top=8):
+    """Print a :func:`projection_law_certificate` result, worst first."""
+    rows = sorted(cert.items(), key=lambda kv: -kv[1][0])
+    total = sum(v[0] for v in cert.values())
+    both = sum(v[2] for v in cert.values())
+    try:
+        import O4_UI_Utils as _UI_cert
+        say = lambda m: _UI_cert.vprint(1, m)          # noqa: E731
+    except Exception:                                  # pragma: no cover
+        say = print
+    say(f"  [proj-law-certificate] {icao} {label}: {total} law edge(s) "
+        f"over cap ({both} both-hard) across {len(rows)} family(ies)")
+    for fam, (n_over, worst, n_bh) in rows[:top]:
+        if not n_over:
+            continue
+        say(f"      {n_over:8d}  worst {worst:8.3f} m  both-hard {n_bh:6d}"
+            f"  {fam}")
+
+
 def compose_rod_chains(chains, resolve, want_drop_records=False):
     """Carry the §10 interval rod into a REBUILT node space, COMPOSING the
     links across runs of vertices that space no longer contains.
@@ -5335,7 +5403,8 @@ def final_grade_projection(layout, icao: str = "", dem=None,
             getattr(layout, "_fan_ramp_plan", None), u_edges, nodes)
     except Exception:
         pass
-    joint = list(shape_constraints) + [{"edges": u_edges}]
+    joint = list(shape_constraints) + [{"edges": u_edges,
+                                        "family": "unified_graph"}]
     _stage("graph")
 
     hard = {i for i in range(n) if base_hard[i]}
@@ -5610,7 +5679,8 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                     continue
                 _rod_fp_edges.append((_ia, _ib, _rlo, _rhi))
         if _rod_fp_edges:
-            joint.append({"edges": _rod_fp_edges, "envelope_skip": True})
+            joint.append({"edges": _rod_fp_edges, "envelope_skip": True,
+                          "family": "rod_interval"})
         if _rod_key_edges and _os.environ.get("O4_STEP_DEBUG") == "1":
             print(f"    [taut-string] rod carried={len(_rod_fp_edges)} "
                   f"(composed={_rod_composed} absorbing={_rod_absorbed}, "
@@ -6152,6 +6222,13 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # allocated only under the gate).
     _fp_declared: list = ([] if _os.environ.get(
         "O4_HARD_NEIGHBOUR_BOUND", "0") == "1" else None)
+    # ── THE LAW CERTIFICATE, ENTRY (cycle-4 ingestion spec, requirement 4)
+    # What this pass's rebuilt constraint set finds violated in the field
+    # the solve produced, BY FAMILY.  A family over cap here is either a
+    # genuine post-solve mutation or a law input the two constraint builds
+    # disagree on — and naming which is the whole round.  Report-only.
+    _report_law_certificate(icao, f"final#{_ml_pass or 1} ENTRY",
+                            projection_law_certificate(joint, elev, n, hard))
     rem, bh = feasibility_project(elev, joint, hard, force_scalar=True,
                                   env_band=_fp_env_band,
                                   forensics=_fp_forensics,
@@ -6486,6 +6563,11 @@ def final_grade_projection(layout, icao: str = "", dem=None,
             key for key, i in b2i.items()
             if elev[i] != _pre_fairing_elev[i]}
     _stage("fairing")
+    # ── THE LAW CERTIFICATE, EXIT: what this pass could not close, by
+    # family.  Paired with the ENTRY reading above it separates "the
+    # projection minted this" from "the projection inherited this".
+    _report_law_certificate(icao, f"final#{_ml_pass or 1} EXIT",
+                            projection_law_certificate(joint, elev, n, hard))
     # ── PROBE A, FINAL-PROJECTION TAIL: THIS PASS'S EXIT BOUNDARY ───────
     # (spec amendment 2026-08-01.)  Taken BEFORE the crown transform back,
     # so it is in the SAME uncrowned z′ frame as every other boundary in

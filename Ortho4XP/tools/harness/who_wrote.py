@@ -2,6 +2,7 @@
 
     venv/bin/python tools/harness/who_wrote.py ICAO [--dem M]
         [--roles service_junction,groundside_pavement] [--at X,Y ...]
+        [--author final_grade_projection] [--author-tol 0.01]
         [--out DIR] [--tol 0.05]
 
 Run it from ``Ortho4XP/``.
@@ -13,7 +14,7 @@ This tool answers it by MEASUREMENT: it wraps ``BuiltShape.node_altitudes``
 in a recording property, runs the build through the harness build entry, and
 reports the call site of every write.
 
-TWO REPORTS, one build:
+THREE REPORTS, one build:
 
 * **THE DEM-AUTHORSHIP CENSUS** (default, needs ``--dem``).  For every shape
   that finishes with vertices sitting EXACTLY on the constant DEM, the write
@@ -30,6 +31,18 @@ TWO REPORTS, one build:
   compressed to the changes.  Run it in two constant-DEM worlds and diff the
   two histories to find the exact pass where the worlds first disagree — the
   instrument that attributed the negative band widths to the runway flex.
+
+* **THE DISPLACEMENT CENSUS** (``--author SITE``, repeatable).  How far a
+  named pass moves values AWAY FROM THE SOLVE'S, per vertex, split three
+  ways: ``new_geometry`` (the shape's ring changed after the solve — law
+  pairs the solve never saw, which is a post-solve projection's legitimate
+  job), ``moved_post_solve`` (some other pass had already moved the value,
+  so the author is not the one disagreeing with the solve), and
+  ``untouched`` — a vertex the solve produced that nothing else touched.
+  A move in the ``untouched`` class is a SECOND AUTHOR, which the
+  single-solve architecture forbids (RULINGS 2026-08-03; the ingestion
+  spec's requirement 2 sets the materiality floor at 0.01 m).  This is the
+  reader for ``docs/specs/cycle4-projection-ingestion-spec.md``.
 
 The hooks are READ-ONLY: they record and delegate, so the build is the same
 build ``tools/harness/build_airport.py`` would have produced (same refusals,
@@ -56,6 +69,12 @@ _MISSING = object()
 _PKG = "auto_patch"
 #: How many engine frames to keep, innermost last.
 _SITE_DEPTH = 5
+#: The write that defines "the solved value" for the displacement census —
+#: the one elevation solve's own writeback (RULINGS 2026-08-03,
+#: single-solve architecture).  Every later author is measured AGAINST it.
+_SOLVE_SITE = "solve_route_profile"
+#: How many worst rows the displacement census keeps.
+_WORST_KEEP = 40
 
 
 def call_site(skip: int = 2, depth: int = _SITE_DEPTH) -> str:
@@ -88,14 +107,28 @@ class AuthorshipProbe:
     """Records every ``node_altitudes`` assignment.  ``install`` swaps the
     dataclass field for a property; ``uninstall`` puts it back."""
 
-    def __init__(self, shape_cls, dem_m=None, roles=None, at=(), tol=0.05):
+    def __init__(self, shape_cls, dem_m=None, roles=None, at=(), tol=0.05,
+                 authors=(), author_tol=0.01, solve_site=_SOLVE_SITE):
         self.cls = shape_cls
         self.dem_m = dem_m
         self.roles = set(roles or ())
         self.at = [(float(x), float(y)) for x, y in at]
         self.tol = float(tol)
+        self.authors = tuple(authors or ())
+        self.author_tol = float(author_tol)
+        self.solve_site = solve_site
         self.by_shape: dict = {}
         self.by_point: dict = {p: [] for p in self.at}
+        #: shape id → the values the SOLVE last wrote (the reference state
+        #: requirement (2) of the ingestion spec measures idempotence against)
+        self._solved: dict = {}
+        #: shape id → the values as they stood before the write in progress
+        self._prev: dict = {}
+        #: (author, class, role) → [|Δ| …] over every moved vertex
+        self.author_moves: dict = {}
+        #: the worst rows, kept small: (|Δ|, author, cls, role, ref, before,
+        #: after, x, y)
+        self.author_worst: list = []
         self._step = 0
         self._saved = None
 
@@ -103,6 +136,10 @@ class AuthorshipProbe:
     def _record(self, shape, values):
         self._step += 1
         role = getattr(shape, "role", "") or ""
+        # ONE stack walk per write, shared by both censuses: ``extract_stack``
+        # dominates the probe's cost and a second walk would double the
+        # instrumented build's overhead for the same string.
+        site = call_site(skip=4) if values is not None else None
         if values is not None and (not self.roles or role in self.roles):
             hit = 0
             if self.dem_m is not None:
@@ -110,7 +147,9 @@ class AuthorshipProbe:
                           if a is not None
                           and abs(float(a) - self.dem_m) <= 1e-6)
             self.by_shape.setdefault(id(shape), []).append(
-                (hit, len(values), call_site(skip=4)))
+                (hit, len(values), site))
+        if self.authors:
+            self._record_author(shape, role, values, site)
         if not self.at or not values:
             return
         poly = getattr(shape, "polygon", None)
@@ -128,6 +167,97 @@ class AuthorshipProbe:
                     self.by_point[p].append(
                         (self._step, role, getattr(shape, "ref", "") or "",
                          None if v is None else round(float(v), 3), site))
+
+    # ── the displacement census (ingestion spec requirement (2)) ─────
+    def _record_author(self, shape, role, values, site):
+        """Attribute this write's per-vertex displacement, and classify it.
+
+        The classification is the ingestion spec's own partition of the
+        post-solve world (``docs/specs/cycle4-projection-ingestion-spec.md``
+        §requirement 2):
+
+        * ``new_geometry`` — the shape's ring vertex COUNT differs from what
+          the solve wrote (a planarize insert, a T-weld adoption, a merge, a
+          clip rebuild).  These law pairs the solve never saw, so projecting
+          them is this pass's legitimate residual job.
+        * ``moved_post_solve`` — the value the author overwrote is already
+          off the solved value: some other post-solve pass authored it, so
+          the author is not the one disagreeing with the solve.
+        * ``untouched`` — neither.  A vertex whose geometry and value the
+          solve produced and no later pass changed.  **A move here is the
+          second-author class**: the spec's materiality floor is 0.01 m.
+        """
+        sid = id(shape)
+        prev = self._prev.get(sid)
+        if values is not None:
+            vals = [None if v is None else float(v) for v in values]
+        else:
+            vals = None
+        # The reference state: whatever the SOLVE last wrote on this shape.
+        if vals is not None and self.solve_site in site:
+            self._solved[sid] = list(vals)
+        if vals is None or prev is None or site is None:
+            self._prev[sid] = list(vals) if vals is not None else None
+            return
+        author = next((a for a in self.authors if a in site), None)
+        if author is None:
+            self._prev[sid] = list(vals)
+            return
+        solved = self._solved.get(sid)
+        ring = None
+        for k in range(min(len(prev), len(vals))):
+            a, b = prev[k], vals[k]
+            if a is None or b is None:
+                continue
+            delta = abs(b - a)
+            if delta <= self.author_tol:
+                continue
+            if solved is None or len(solved) != len(vals):
+                cls = "new_geometry"
+            elif solved[k] is None:
+                cls = "new_geometry"
+            elif abs(a - solved[k]) > self.author_tol:
+                cls = "moved_post_solve"
+            else:
+                cls = "untouched"
+            self.author_moves.setdefault((author, cls, role),
+                                         []).append(delta)
+            if delta > 0.05:
+                if ring is None:
+                    poly = getattr(shape, "polygon", None)
+                    ring = (list(poly.exterior.coords)
+                            if (poly is not None and not poly.is_empty
+                                and poly.geom_type == "Polygon") else ())
+                x, y = (ring[k] if k < len(ring) else (None, None))
+                self.author_worst.append(
+                    (delta, author, cls, role, getattr(shape, "ref", "") or "",
+                     round(a, 3), round(b, 3), x, y))
+        if len(self.author_worst) > 8 * _WORST_KEEP:
+            self.author_worst.sort(key=lambda r: -r[0])
+            del self.author_worst[_WORST_KEEP:]
+        self._prev[sid] = list(vals)
+
+    def author_report(self):
+        """``(table_rows, totals)`` for the displacement census."""
+        rows = []
+        for (author, cls, role), deltas in self.author_moves.items():
+            deltas.sort()
+            rows.append({
+                "author": author, "class": cls, "role": role,
+                "n_moved": len(deltas),
+                "max_m": round(deltas[-1], 3),
+                "p50_m": round(deltas[len(deltas) // 2], 3),
+            })
+        rows.sort(key=lambda r: (r["author"], r["class"], -r["n_moved"]))
+        totals: dict = {}
+        for r in rows:
+            t = totals.setdefault((r["author"], r["class"]),
+                                  {"n_moved": 0, "max_m": 0.0})
+            t["n_moved"] += r["n_moved"]
+            t["max_m"] = max(t["max_m"], r["max_m"])
+        self.author_worst.sort(key=lambda r: -r[0])
+        del self.author_worst[_WORST_KEEP:]
+        return rows, totals
 
     def install(self):
         probe = self
@@ -220,15 +350,25 @@ def main(argv=None) -> int:
     ap.add_argument("--at", action="append", default=[], metavar="X,Y",
                     help="metre-frame coordinate to trace, repeatable")
     ap.add_argument("--tol", type=float, default=0.05)
+    ap.add_argument("--author", action="append", default=[], metavar="SITE",
+                    help="displacement census: how far this call site (a "
+                         "substring of the reported site, e.g. "
+                         "final_grade_projection) moves values AWAY from the "
+                         "solve's, split by whether the vertex was touched "
+                         "post-solve.  Repeatable.")
+    ap.add_argument("--author-tol", type=float, default=0.01,
+                    metavar="M",
+                    help="materiality floor for the displacement census "
+                         "(default 0.01 m, the campaign floor)")
     ap.add_argument("--out", type=Path, default=Path("/tmp/harness/who"))
     ap.add_argument("--allow-degraded-dem", action="store_true",
                     help="accepted and recorded; a constant-DEM run "
                          "SUBSTITUTES the DEM, so real-DEM cache warmth "
                          "cannot confound it")
     args = ap.parse_args(argv)
-    if args.dem is None and not args.at:
+    if args.dem is None and not args.at and not args.author:
         ap.error("give --dem (authorship census), --at X,Y (node history), "
-                 "or both")
+                 "--author SITE (displacement census), or any combination")
 
     root = HB.require_build_cwd(Path.cwd())
     for p in (root / "src", root, root / "tests"):
@@ -242,7 +382,9 @@ def main(argv=None) -> int:
     out.mkdir(parents=True, exist_ok=True)
     prog = HB.Progress(out / f"{args.icao}_who_wrote.progress")
 
-    probe = AuthorshipProbe(BuiltShape, args.dem, roles, at, args.tol).install()
+    probe = AuthorshipProbe(BuiltShape, args.dem, roles, at, args.tol,
+                            authors=args.author,
+                            author_tol=args.author_tol).install()
     try:
         tag = f"{args.icao}_who{'' if args.dem is None else f'_dem{args.dem:g}'}"
         result = HB.build_patch(args.icao, root, out, tag, prog,
@@ -267,6 +409,30 @@ def main(argv=None) -> int:
             print(f"    #{r['shape']:<5}{r['role']:<22}"
                   f"{r['on_dem']:5d}/{r['n']:<5d} writes={r['writes']}")
             print(f"          introduced by: {r['introduced_by']}")
+    if args.author:
+        rows, totals = probe.author_report()
+        report["author_displacement"] = rows
+        report["author_worst"] = [
+            {"delta_m": round(d, 3), "author": a, "class": c, "role": r,
+             "ref": ref, "before": before, "after": after, "x": x, "y": y}
+            for (d, a, c, r, ref, before, after, x, y) in probe.author_worst]
+        print(f"\n  === VALUES MOVED AWAY FROM THE SOLVE, by author "
+              f"(materiality {args.author_tol:g} m)\n")
+        print(f"    {'author':<26}{'class':<18}{'role':<22}"
+              f"{'n_moved':>9}{'max|d| m':>11}{'p50|d| m':>10}")
+        for r in rows:
+            print(f"    {r['author']:<26}{r['class']:<18}{r['role']:<22}"
+                  f"{r['n_moved']:>9}{r['max_m']:>11.3f}{r['p50_m']:>10.3f}")
+        print()
+        for (author, cls), t in sorted(totals.items()):
+            flag = ("   <-- SECOND AUTHOR (spec requirement 2)"
+                    if cls == "untouched" and t["n_moved"] else "")
+            print(f"    TOTAL  {author:<26}{cls:<18}"
+                  f"{t['n_moved']:>9}{t['max_m']:>11.3f}{flag}")
+        print(f"\n  === worst {len(probe.author_worst)} displaced vertices")
+        for (d, a, c, r, ref, before, after, x, y) in probe.author_worst[:20]:
+            print(f"    {d:9.3f} m  {c:<16}{r:<20}{ref:<16}"
+                  f"{before} -> {after}   at ({x},{y})")
     if at:
         history = probe.node_history()
         report["node_history"] = history

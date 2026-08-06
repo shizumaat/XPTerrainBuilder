@@ -263,3 +263,83 @@ def test_the_band_ceiling_binds_per_sweep_too(monkeypatch):
                         env_band=band)
     assert elev[1] <= -10.0 + 1e-9, (
         f"the band CEILING must survive the sweeps, got {elev[1]}")
+
+
+# ── THE BAND WINS A DECLARED GROUNDSIDE CONFLICT (cycle-6 Part P) ──────
+#
+# ``docs/specs/cycle6-band-wins-and-ingestion-spec.md``.  A freed
+# groundside pin carries a per-sweep LAW ceiling (the lot's weld datum
+# plus one throat of reach — ~1 m in a plateau world).  Where that box
+# and the airside reach band are DISJOINT the merge used to declare a
+# conflict, keep the pin box and DISCARD the band: measured at HECA, 14
+# apron / service_junction nodes parked up to 87 m below their own band
+# floor, which "airside is king" forbids outright.  The band binds; the
+# groundside box yields.
+
+def _pin_box_vs_band(monkeypatch, gs_pin, band=(90.0, 104.0), ceil=4.0):
+    """Node 1: a groundside pin ceiling at ``ceil`` against a band that
+    starts 86 m higher — the HECA carrier in miniature.  Hard node 0 sits
+    in the band so the sweeps have a lawful place to put node 1."""
+    monkeypatch.setenv("O4_ENVELOPE_FROM_BAND", "1")
+    loose = [{"edges": [(0, 1, 100.0)]}]
+    elev = [94.0, 4.0]
+    feasibility_project(elev, loose, {0}, force_scalar=True, max_iters=400,
+                        node_bounds={1: (-1e18, ceil)},
+                        gs_pin_nodes=(gs_pin or None),
+                        env_band=[None, band])
+    return elev
+
+
+def test_a_disjoint_pin_box_yields_to_the_band(monkeypatch):
+    """THE Part-P twin: the conflict resolves AIRSIDE."""
+    elev = _pin_box_vs_band(monkeypatch, {1})
+    assert elev[0] == pytest.approx(94.0), "hard node never moves"
+    assert elev[1] >= 90.0 - 1e-9, (
+        f"the BAND must bind at a declared conflict, got {elev[1]}")
+    assert elev[1] <= 104.0 + 1e-9, elev
+
+
+def test_the_pin_box_still_binds_when_it_does_not_conflict(monkeypatch):
+    """The yield is scoped to the CONFLICT.  A pin ceiling that overlaps
+    the band still binds — this clause withdraws a groundside ceiling
+    only where the two laws cannot both hold."""
+    elev = _pin_box_vs_band(monkeypatch, {1}, band=(90.0, 104.0), ceil=95.0)
+    assert elev[1] <= 95.0 + 1e-9, (
+        f"a compatible pin ceiling must still bind, got {elev[1]}")
+    assert elev[1] >= 90.0 - 1e-9, elev
+
+
+def test_a_box_that_is_not_a_groundside_pin_is_not_ruled_here(monkeypatch):
+    """A conflict on any OTHER box class (a building seat box) keeps
+    today's behaviour and is reported UNRESOLVED — this clause resolves
+    the groundside-vs-airside direction the owner has already ruled, and
+    invents no ruling for a class the dossier never measured."""
+    elev = _pin_box_vs_band(monkeypatch, set())
+    assert elev[1] <= 4.0 + 1e-9, (
+        f"an unruled conflict keeps the pre-existing box, got {elev[1]}")
+
+
+def test_the_conflict_is_reported_loud_and_certified_at_exit(
+        monkeypatch, capsys):
+    """Never a silent resolution: the conflict prints one line naming
+    BOTH halves and the resolution, ungated (no ``O4_STEP_DEBUG``), and
+    the exit certificate re-checks that the node left the projection
+    inside the band it was given."""
+    monkeypatch.delenv("O4_STEP_DEBUG", raising=False)
+    _pin_box_vs_band(monkeypatch, {1})
+    out = capsys.readouterr().out
+    assert "DECLARED CONFLICT(S)" in out, out
+    assert "BAND WINS" in out, out
+    assert "GROUNDSIDE box" in out and "AIRSIDE band" in out, out
+    assert "conflict resolution EXIT" in out, out
+    assert "1 band-bound node(s), 1 at or above their band floor" in out, out
+
+
+def test_no_pin_conflict_prints_nothing(monkeypatch, capsys):
+    """Cost and noise: a build with no declared conflict is silent on
+    this channel (the ungated report is a conflict report, not a trace)."""
+    monkeypatch.delenv("O4_STEP_DEBUG", raising=False)
+    _pin_box_vs_band(monkeypatch, {1}, band=(90.0, 104.0), ceil=95.0)
+    out = capsys.readouterr().out
+    assert "DECLARED CONFLICT" not in out, out
+    assert "conflict resolution EXIT" not in out, out

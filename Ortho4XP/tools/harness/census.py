@@ -67,6 +67,21 @@ WHAT IT REPORTS
   unrelated).  A total cannot tell "the ramp law is granting relief where
   the defects are" from "…somewhere else"; this can.
 
+* ``--sites`` — the law-true rows clustered into DEFECT SITES.  Row counts
+  AMPLIFY: one over-cap region on one apron mints hundreds of
+  edge-granularity rows (HECA's way -12407 alone carries ~800), so a
+  battery total is a count of PAIRS THE LAW PRICED, not of things wrong
+  with the surface, and the two differ by whatever the amplification
+  factor is on that patch.  This reports the other number — how many
+  DISTINCT sites, adjudicated and law-true; rows per site (the
+  amplification factor itself); each site's worst |de| / step and worst
+  grade excess; its families, role pairs and shape ids; its bbox and
+  centroid; and a SIM-VISIBILITY flag (worst |de| >= 0.05 m of relief is
+  a silhouette-visible candidate, ``--site-visibility`` to move it).  The
+  clustering rule is printed with the numbers: same family AND (shared
+  way id OR shared canonical node at the census's own weld tolerance).
+  ``--sites-json`` dumps every site with its membership.
+
 * ``--magnitude-bands`` — every law-true row bucketed by SEVERITY
   (|de| / step height), default edges 0.01 / 0.1 / 1 / 10 m, configurable.
   A total says how many rows; the bands say what KIND of population they
@@ -87,6 +102,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import math
 import sys
 from collections import Counter
 from pathlib import Path
@@ -477,6 +493,30 @@ def _axis_frame_override(osm: Path, cg, frame: str) -> tuple[dict, dict]:
             {"frame": "base", "axes_total": len(axes), "axes_kept": len(kept)})
 
 
+def row_points(r):
+    """The row's two ENDPOINTS in layout-local metres, as ``(a, b)``.
+
+    ``pt_a``/``pt_b`` for a grade violation, ``vert_pt``/``proj_pt`` for an
+    edge step — the two row shapes ``run_checks`` emits.  ONE spelling,
+    because both the ``--rows-json`` itemisation and the ``--sites``
+    clustering key on these points: a second copy that forgot the step
+    shape would silently cluster every step row as pointless.
+    """
+    a, b = getattr(r, "pt_a", None), getattr(r, "pt_b", None)
+    if a is None:
+        a, b = getattr(r, "vert_pt", None), getattr(r, "proj_pt", None)
+    return a, b
+
+
+def row_ways(r):
+    """The row's two WAYS, as ``(way_a, way_b)`` — ``way_v``/``way_e`` for a
+    step row.  Same two shapes, same single spelling; ``cg.row_side`` and
+    ``cg.row_roles`` resolve the pair exactly this way."""
+    a = getattr(r, "way_a", None) or getattr(r, "way_v", None)
+    b = getattr(r, "way_b", None) or getattr(r, "way_e", None)
+    return a, b
+
+
 def row_record(cg, family: str, r) -> dict:
     """ONE law-true row, itemised for the ``--rows-json`` dump.
 
@@ -494,14 +534,8 @@ def row_record(cg, family: str, r) -> dict:
     ~2 cm at another.  ``lat``/``lon`` ride along for pointing a human (or
     a KML) at the spot.
     """
-    def _pts():
-        a, b = getattr(r, "pt_a", None), getattr(r, "pt_b", None)
-        if a is None:
-            a, b = getattr(r, "vert_pt", None), getattr(r, "proj_pt", None)
-        return a, b
-    a, b = _pts()
-    wa = getattr(r, "way_a", None) or getattr(r, "way_v", None)
-    wb = getattr(r, "way_b", None) or getattr(r, "way_e", None)
+    a, b = row_points(r)
+    wa, wb = row_ways(r)
     grade = getattr(r, "grade_pct", None)
     cap = getattr(r, "cap_pct", None)
     return {
@@ -525,15 +559,349 @@ def row_record(cg, family: str, r) -> dict:
     }
 
 
+# ══════════════════════════════════════════════════════════════════════
+# THE SITE CENSUS (--sites) — how many DISTINCT DEFECTS, not how many rows
+# ══════════════════════════════════════════════════════════════════════
+#
+# WHY IT LIVES HERE.  Row counts AMPLIFY.  One over-cap region on one
+# apron mints hundreds of edge-granularity rows: at HECA way -12407 alone
+# carries ~800 of them, and the 180 threshold-flip sites of the road-feed
+# round live on 19 shapes with 72 % of them on four aprons.  A battery
+# that reads "thousands of defects" is therefore not, by itself, a count
+# of things wrong with the surface — it is a count of PAIRS the law
+# priced, and the two differ by whatever the amplification factor happens
+# to be on that patch.  This section reports the other number: how many
+# DISTINCT sites exist, how many rows each mints, and whether each one is
+# big enough to see.
+#
+# It is a FLAG on the census and not a tool of its own for the reason the
+# census exists at all (owner ruling 7e90032, and the census-wrapper
+# precedent in this file's header): the population it clusters must be the
+# law-true one, and a private copy of that frame is the defect.  Nothing
+# here re-runs a check — it reads the rows ``census_one`` already has, and
+# the site rows' union IS ``all_rows``, twin-asserted.
+
+#: SIM VISIBILITY, metres of relief.  A site whose worst |de| / step
+#: reaches this is a SILHOUETTE-VISIBLE CANDIDATE: 5 cm is roughly where a
+#: surface discontinuity stops being lost in the mesh's own noise and
+#: starts casting an edge a pilot's eye can catch on the ground.  It is a
+#: REPORTING threshold, never a law: the law adjudicates every row
+#: regardless (RULINGS 2026-08-02, "compliance with grade law, not
+#: instrument-zero"), and this only ranks which sites would be SEEN.  It
+#: is deliberately ABOVE the campaign's 0.01 m materiality floor and
+#: deliberately a knob (``--site-visibility``), because nothing has
+#: measured the real threshold in the sim — quote it as an assumption.
+DEFAULT_SITE_VISIBILITY_M = 0.05
+
+
+def canonical_nodes(points, tol_m: float):
+    """Assign each ``(x, y)`` in ``points`` to a CANONICAL NODE id.
+
+    ``points`` is a sequence of layout-local metre coordinates (possibly
+    with ``None`` holes, which come back as ``None``); the return is
+    ``(ids, centres)`` — one id per input point, and the coordinate of
+    each canonical node.
+
+    THE SEMANTIC IS NOT NEW.  ``tol_m`` is the census's own
+    ``LAW_TRUE_KNOBS["proximity_m"]`` — ``check_grade.SHARED_VERTEX_TOL_M``,
+    the SOLVER'S WELD TOLERANCE, which is the tolerance the law itself
+    already treats as "these two vertices are one node" (it is what the
+    cross-shape proximity check is run at, and what the emitter's
+    canonical-point registry spaces distinct points by).  Two rows that
+    meet at a welded corner are two readings of one physical place, and
+    this is the law's own predicate for that, not a proximity rule
+    invented for a report.
+
+    DETERMINISM.  Points are registered in sorted coordinate order, not in
+    row order, so the partition does not depend on how the rows happened
+    to be sorted; ties attach to the lowest-numbered canonical node.
+    """
+    cell = tol_m if tol_m > 0 else 1.0
+    grid: dict = {}
+    centres: list = []
+    ids: list = [None] * len(points)
+    order = sorted((i for i, p in enumerate(points) if p is not None),
+                   key=lambda i: (float(points[i][0]), float(points[i][1]), i))
+    for i in order:
+        x, y = float(points[i][0]), float(points[i][1])
+        cx, cy = int(math.floor(x / cell)), int(math.floor(y / cell))
+        best = None
+        best_d = None
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for j in grid.get((cx + dx, cy + dy), ()):
+                    px, py = centres[j]
+                    d = math.hypot(x - px, y - py)
+                    if d > tol_m:
+                        continue
+                    if best_d is None or d < best_d or (d == best_d
+                                                        and j < best):
+                        best, best_d = j, d
+        if best is None:
+            best = len(centres)
+            centres.append((x, y))
+            grid.setdefault((cx, cy), []).append(best)
+        ids[i] = best
+    return ids, centres
+
+
+class _DisjointSet:
+    """Union-find over row indices.  Boring on purpose: the clustering
+    rule has to be auditable line by line, because a site count is about
+    to become a headline number."""
+
+    def __init__(self, n: int):
+        self._p = list(range(n))
+
+    def find(self, i: int) -> int:
+        p = self._p
+        while p[i] != i:
+            p[i] = p[p[i]]
+            i = p[i]
+        return i
+
+    def union(self, i: int, j: int) -> None:
+        a, b = self.find(i), self.find(j)
+        if a != b:
+            # Lower index wins, so the representative of a site is its
+            # earliest row and the grouping is order-stable.
+            if b < a:
+                a, b = b, a
+            self._p[b] = a
+
+
+#: THE CLUSTERING RULE, in one sentence, quoted verbatim into every
+#: report header so a site count is never read without the rule that
+#: produced it.
+SITE_RULE = (
+    "two law-true rows belong to ONE defect site iff they are in the SAME "
+    "LAW FAMILY and they share a way id, or share a canonical node — where "
+    "a canonical node is the census's own weld tolerance "
+    "(LAW_TRUE_KNOBS['proximity_m'] = check_grade.SHARED_VERTEX_TOL_M) "
+    "applied to the rows' endpoints in layout-local metres.  Sites are the "
+    "connected components of that relation (union-find); no new proximity "
+    "semantic and no magnitude, role or geometry test takes part in the "
+    "clustering")
+
+
+def cluster_sites(all_rows, cg, *, visibility_m: float = None,
+                  tol_m: float = None, top: int = 10) -> dict:
+    """``--sites``: cluster the census's own law-true rows into DEFECT SITES.
+
+    ``all_rows`` is the ``(family_key, row)`` sequence ``census_one``
+    builds — the same population every count in the report is taken from.
+    Returns the section dict; the sites PARTITION ``all_rows``
+    (``sum(site["rows"]) == len(all_rows)`` and the member index sets are
+    disjoint and complete), twin-asserted in ``tests/test_harness.py``.
+
+    THE QUESTION IT ANSWERS.  "15,530 adjudicated rows" and "N distinct
+    sites, median M rows each, K of them big enough to see" send work to
+    different places and rank it differently.  A row total is dominated by
+    whichever defect happens to sit on the most-tessellated shape; a site
+    total is not.
+
+    WHAT EACH SITE CARRIES: its family, the ways (shape ids) and role
+    pairs it spans, its row count (the AMPLIFICATION FACTOR), its worst
+    |de| / step and worst grade excess, its bounding box and centroid, the
+    law's own adjudication split (``check_grade.adjudication`` on the
+    site's own rows — one implementation, never a second copy), and the
+    SIM-VISIBILITY flag (``worst_m >= visibility_m``).
+
+    THE RULE IS TRANSITIVE, AND THAT IS VISIBLE IN THE OUTPUT.  Sites are
+    connected COMPONENTS, so a welded apron complex whose shapes all share
+    corners reads as ONE site spanning many shapes rather than one site
+    per ring (measured at HECA: 2,802 adjudicated rows over 81 ways and
+    2.4 km of extent, in one component).  That is the intended reading —
+    it IS one over-cap region — but it is also the reading a caller is
+    most likely to want to check, so ``n_ways`` and ``extent_m`` ride on
+    every site: a "site" 2.4 km across says so in its own row.
+    """
+    vis = (DEFAULT_SITE_VISIBILITY_M if visibility_m is None
+           else float(visibility_m))
+    tol = (float(cg.LAW_TRUE_KNOBS["proximity_m"]) if tol_m is None
+           else float(tol_m))
+
+    rows = list(all_rows)
+    n = len(rows)
+    # Endpoints, flattened: row i owns points 2i and 2i+1.
+    pts: list = []
+    for _key, r in rows:
+        a, b = row_points(r)
+        pts.append(a)
+        pts.append(b)
+    node_ids, _centres = canonical_nodes(pts, tol)
+
+    ds = _DisjointSet(n)
+    first_way: dict = {}
+    first_node: dict = {}
+    for i, (key, r) in enumerate(rows):
+        for w in row_ways(r):
+            wid = getattr(w, "wid", None)
+            if wid is None:
+                continue
+            k = (key, "w", wid)
+            j = first_way.setdefault(k, i)
+            if j != i:
+                ds.union(i, j)
+        for slot in (2 * i, 2 * i + 1):
+            nid = node_ids[slot]
+            if nid is None:
+                continue
+            k = (key, "n", nid)
+            j = first_node.setdefault(k, i)
+            if j != i:
+                ds.union(i, j)
+
+    members: dict = {}
+    for i in range(n):
+        members.setdefault(ds.find(i), []).append(i)
+
+    sites = []
+    for _root, idxs in members.items():
+        site_rows = [rows[i] for i in idxs]
+        key = site_rows[0][0]
+        worst_m = 0.0
+        worst_excess = None
+        ways = set()
+        roles = Counter()
+        xs: list = []
+        ys: list = []
+        lats: list = []
+        lons: list = []
+        for _k, r in site_rows:
+            worst_m = max(worst_m, cg.row_magnitude(r))
+            exc = getattr(r, "excess_pct", None)
+            if exc is not None:
+                exc = abs(float(exc))
+                worst_excess = exc if worst_excess is None else max(
+                    worst_excess, exc)
+            for w in row_ways(r):
+                wid = getattr(w, "wid", None)
+                if wid is not None:
+                    ways.add(str(wid))
+            roles["|".join(sorted(cg.row_roles(r)))] += 1
+            for p in row_points(r):
+                if p is not None:
+                    xs.append(float(p[0]))
+                    ys.append(float(p[1]))
+            lat, lon = getattr(r, "lat", None), getattr(r, "lon", None)
+            if lat is not None and lon is not None:
+                lats.append(float(lat))
+                lons.append(float(lon))
+        # THE ADJUDICATION SPLIT comes from the law's own implementation
+        # applied to this site's own rows — never a second copy of the
+        # deferred / out-of-scope registers (RULINGS d48bc0a + the
+        # 2026-08-06 ONE-graph classes).
+        adj = cg.adjudication(site_rows)
+        sides = Counter(cg.row_side(r) for _k, r in site_rows)
+        sites.append({
+            "family": key,
+            "rows": len(idxs),
+            "row_indices": sorted(idxs),
+            "worst_m": round(worst_m, 4),
+            "worst_grade_excess_pct": (round(worst_excess, 4)
+                                       if worst_excess is not None else None),
+            "sim_visible": worst_m >= vis,
+            "ways": sorted(ways),
+            "n_ways": len(ways),
+            "role_pairs": dict(roles.most_common()),
+            "airside": sides.get("airside", 0),
+            "groundside": sides.get("groundside", 0),
+            "mixed": sides.get("mixed", 0),
+            "unknown": sides.get("unknown", 0),
+            "adjudicated": adj["adjudicated_total"],
+            "deferred": adj["deferred_total"],
+            "out_of_scope": adj["out_of_scope_total"],
+            "bbox_m": ([round(min(xs), 2), round(min(ys), 2),
+                        round(max(xs), 2), round(max(ys), 2)]
+                       if xs else None),
+            "extent_m": (round(max(max(xs) - min(xs), max(ys) - min(ys)), 2)
+                         if xs else None),
+            "centroid_lat": (round(sum(lats) / len(lats), 7) if lats
+                             else None),
+            "centroid_lon": (round(sum(lons) / len(lons), 7) if lons
+                             else None),
+            "bbox_ll": ([round(min(lats), 7), round(min(lons), 7),
+                         round(max(lats), 7), round(max(lons), 7)]
+                        if lats else None),
+        })
+    # Deterministic order: worst first, then the biggest amplifier, then
+    # the family name and the site's earliest row.
+    sites.sort(key=lambda s: (-s["worst_m"], -s["rows"], s["family"],
+                              s["row_indices"][0]))
+
+    def _quantiles(vals):
+        if not vals:
+            return {"median": 0.0, "mean": 0.0, "p90": 0.0, "max": 0}
+        v = sorted(vals)
+        m = len(v)
+        med = (v[m // 2] if m % 2 else (v[m // 2 - 1] + v[m // 2]) / 2.0)
+        return {"median": round(float(med), 2),
+                "mean": round(sum(v) / m, 2),
+                "p90": v[min(m - 1, int(math.ceil(0.9 * m)) - 1)],
+                "max": v[-1]}
+
+    adjudicated_sites = [s for s in sites if s["adjudicated"]]
+    by_family: dict = {}
+    for s in sites:
+        d = by_family.setdefault(s["family"], {
+            "sites": 0, "rows": 0, "visible_sites": 0,
+            "adjudicated_sites": 0, "worst_m": 0.0, "rows_per_site": []})
+        d["sites"] += 1
+        d["rows"] += s["rows"]
+        d["visible_sites"] += 1 if s["sim_visible"] else 0
+        d["adjudicated_sites"] += 1 if s["adjudicated"] else 0
+        d["worst_m"] = max(d["worst_m"], s["worst_m"])
+        d["rows_per_site"].append(s["rows"])
+    for d in by_family.values():
+        d["median_rows_per_site"] = _quantiles(
+            d.pop("rows_per_site"))["median"]
+        d["worst_m"] = round(d["worst_m"], 4)
+
+    return {
+        "rule": SITE_RULE,
+        "adjacency_tol_m": tol,
+        "adjacency_tol_source": "LAW_TRUE_KNOBS['proximity_m'] "
+                                "(check_grade.SHARED_VERTEX_TOL_M, the "
+                                "solver's weld tolerance)",
+        "visibility_m": vis,
+        "visibility_note": (
+            f"a site is a SILHOUETTE-VISIBLE CANDIDATE when its worst "
+            f"|de| / step reaches {vis:g} m of relief; below that it is "
+            f"reported as invisible.  A REPORTING threshold and an "
+            f"ASSUMPTION — nothing has measured it in the sim — never a "
+            f"law: the law adjudicates every row regardless"),
+        "total_rows": n,
+        "sites": len(sites),
+        "sites_adjudicated": len(adjudicated_sites),
+        "sites_visible": sum(1 for s in sites if s["sim_visible"]),
+        "sites_visible_adjudicated": sum(
+            1 for s in adjudicated_sites if s["sim_visible"]),
+        "rows_per_site": _quantiles([s["rows"] for s in sites]),
+        "rows_per_site_adjudicated": _quantiles(
+            [s["adjudicated"] for s in adjudicated_sites]),
+        "amplification": (round(n / len(sites), 2) if sites else 0.0),
+        "by_family": {k: by_family[k] for k in sorted(by_family)},
+        "top": [{k: v for k, v in s.items() if k != "row_indices"}
+                for s in sites[:top]],
+        "all_sites": sites,
+    }
+
+
 def census_one(osm: Path, cg, *, want_bare: bool = False,
                top: int = 10, want_zone_split: bool = False,
                band_edges=None, frame: str = "own",
-               rows_out: Optional[Path] = None) -> dict:
+               rows_out: Optional[Path] = None,
+               want_sites: bool = False,
+               site_visibility_m: Optional[float] = None,
+               sites_out: Optional[Path] = None) -> dict:
     """The census of ONE patch.  Returns the report dict; prints nothing.
 
     ``frame`` selects the AXIS FRAME — see :func:`_axis_frame_override`.
     ``rows_out`` additionally itemises every law-true row to that path
-    (``--rows-json``)."""
+    (``--rows-json``); ``want_sites`` adds the DEFECT-SITE section
+    (``--sites``) and ``sites_out`` dumps every site with its membership
+    (``--sites-json``)."""
     families: dict = {}
     axis_overrides, frame_stamp = _axis_frame_override(osm, cg, frame)
     within, cross, steps = cg.run_checks_law_true(
@@ -697,6 +1065,44 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
         report["zone_split"] = zone_split(osm, cg, families)
     if band_edges is not None:
         report["magnitude_bands"] = magnitude_bands(all_rows, cg, band_edges)
+    if want_sites or sites_out is not None:
+        sec = cluster_sites(all_rows, cg, visibility_m=site_visibility_m,
+                            top=top)
+        # THE SITES PARTITION THE CENSUS'S OWN POPULATION — asserted here,
+        # in production, not only in the twin.  A site table whose rows do
+        # not add up to the total printed above it is the two-instruments
+        # trap inside one report, and the whole claim of this section is
+        # that it re-reads the census's rows rather than measuring again.
+        seen = set()
+        for s in sec["all_sites"]:
+            seen.update(s["row_indices"])
+        if len(seen) != len(all_rows) or sum(
+                s["rows"] for s in sec["all_sites"]) != len(all_rows):
+            raise SystemExit(
+                f"REFUSING: the site clustering does not partition the "
+                f"census's own rows ({len(seen)} distinct member indices, "
+                f"{sum(s['rows'] for s in sec['all_sites'])} member slots, "
+                f"{len(all_rows)} law-true rows) — the site counts and the "
+                f"row counts in this report would describe two populations")
+        all_sites = sec.pop("all_sites")
+        if sites_out is not None:
+            sites_out.parent.mkdir(parents=True, exist_ok=True)
+            sites_out.write_text(json.dumps({
+                "patch": str(osm),
+                "provenance": prov["provenance"],
+                "axis_frame": frame_stamp,
+                "law_true_knobs": dict(cg.LAW_TRUE_KNOBS),
+                "rule": sec["rule"],
+                "adjacency_tol_m": sec["adjacency_tol_m"],
+                "visibility_m": sec["visibility_m"],
+                "n_rows": len(all_rows),
+                "n_sites": len(all_sites),
+                # ``row_indices`` index the census's OWN magnitude-sorted
+                # ``all_rows`` — the same order ``--rows-json`` dumps, so
+                # the two files join by position with no second key.
+                "sites": all_sites,
+            }, indent=1))
+        report["sites"] = sec
     return report
 
 
@@ -879,6 +1285,57 @@ def print_report(rep: dict, top: int) -> None:
                 cells = "  ".join(f"{lab}={n}" for lab, n in row.items() if n)
                 print(f"      {key:<24}{cells}")
 
+    st = rep.get("sites")
+    if st is not None:
+        print("\n  === DEFECT SITES (--sites) ===")
+        # THE RULE, printed with the numbers it produced.  A site count is
+        # meaningless without it, and a reader who has to go and find the
+        # clustering rule will assume one instead.
+        print(f"    rule: {st['rule']}")
+        print(f"    adjacency tolerance {st['adjacency_tol_m']:g} m "
+              f"[{st['adjacency_tol_source']}]")
+        rps = st["rows_per_site"]
+        print(f"    SITES {st['sites']} (law-true) / "
+              f"{st['sites_adjudicated']} carrying >=1 ADJUDICATED row, "
+              f"over {st['total_rows']} row(s)")
+        print(f"    AMPLIFICATION {st['amplification']} rows/site mean; "
+              f"median {rps['median']:g}, p90 {rps['p90']}, "
+              f"max {rps['max']}")
+        print(f"    SIM-VISIBLE {st['sites_visible']} site(s) "
+              f"({st['sites_visible_adjudicated']} of them adjudicated) at "
+              f">= {st['visibility_m']:g} m relief; "
+              f"{st['sites'] - st['sites_visible']} below it")
+        print(f"      [{st['visibility_note']}]")
+        if st["by_family"]:
+            print(f"    {'FAMILY':<24}{'sites':>7}{'adj':>6}{'vis':>6}"
+                  f"{'rows':>8}{'med/site':>10}{'worst m':>10}")
+            print("    " + "-" * 71)
+            for key, d in st["by_family"].items():
+                print(f"    {key:<24}{d['sites']:>7}"
+                      f"{d['adjudicated_sites']:>6}{d['visible_sites']:>6}"
+                      f"{d['rows']:>8}{d['median_rows_per_site']:>10g}"
+                      f"{d['worst_m']:>10.3f}")
+        if st["top"]:
+            print(f"    worst {len(st['top'])} site(s) "
+                  f"(by |de| / step, then rows):")
+            for s in st["top"]:
+                where = ""
+                if s["centroid_lat"] is not None:
+                    where = (f" @({s['centroid_lat']:.5f},"
+                             f"{s['centroid_lon']:.5f})")
+                exc = ("" if s["worst_grade_excess_pct"] is None
+                       else f" excess={s['worst_grade_excess_pct']:.2f}pp")
+                print(f"      {s['family']:<22}rows={s['rows']:<6}"
+                      f"|de|={s['worst_m']:7.3f} m{exc}"
+                      f"  ways={s['n_ways']} extent={s['extent_m']} m"
+                      f"  {'VISIBLE' if s['sim_visible'] else 'invisible'}"
+                      f"{where}")
+                print(f"        shapes {','.join(s['ways'][:6])}"
+                      + (" …" if len(s["ways"]) > 6 else "")
+                      + f"   roles {list(s['role_pairs'])[:3]}"
+                      + f"   adj={s['adjudicated']} defer={s['deferred']} "
+                        f"oos={s['out_of_scope']}")
+
     zs = rep.get("zone_split")
     if zs is not None:
         print("\n  === FAN-RAMP ZONE SPLIT (--zone-split) ===")
@@ -949,6 +1406,19 @@ def print_compare(reports: list) -> None:
         print(f"  {'(out of scope)':<24}"
               + "".join(f"{c:>18}" for c in oost)
               + f"{oost[-1] - oost[0]:>+15d}")
+    if all(r.get("sites") for r in reports):
+        # SITES beside ROWS in the A/B — the two move independently, and
+        # which one moved is the finding (a fix that clears one site can
+        # take a thousand rows with it; a fix that shaves every row by a
+        # millimetre moves neither).
+        for label, get in (("SITES", lambda r: r["sites"]["sites"]),
+                           ("(sim-visible sites)",
+                            lambda r: r["sites"]["sites_visible"]),
+                           ("(adjudicated sites)",
+                            lambda r: r["sites"]["sites_adjudicated"])):
+            cells = [get(r) for r in reports]
+            print(f"  {label:<24}" + "".join(f"{c:>18}" for c in cells)
+                  + f"{cells[-1] - cells[0]:>+15d}")
 
 
 def main(argv=None) -> int:
@@ -1001,6 +1471,33 @@ def main(argv=None) -> int:
                          "population as every count in the report — an "
                          "itemisation, never a second measurement.  With "
                          "several patches the dumps are suffixed per patch")
+    ap.add_argument("--sites", action="store_true",
+                    help="also cluster the law-true rows into DEFECT SITES "
+                         "and report how many DISTINCT defects there are, "
+                         "how many rows each mints (the AMPLIFICATION "
+                         "factor), each site's worst |de| / grade excess, "
+                         "its shapes / families / role pairs, its bbox and "
+                         "centroid, and whether it is big enough to see in "
+                         "the sim.  Row counts amplify — one over-cap "
+                         "region on one apron mints hundreds of "
+                         "edge-granularity rows — so a row total ranks "
+                         "nothing.  The sites PARTITION the census's own "
+                         "population (refused if they do not)")
+    ap.add_argument("--site-visibility", type=float, default=None,
+                    metavar="M",
+                    help=f"the SIM-VISIBILITY threshold for --sites, metres "
+                         f"of relief (default {DEFAULT_SITE_VISIBILITY_M:g}). "
+                         f"A site whose worst |de| / step reaches it is a "
+                         f"silhouette-visible candidate.  A REPORTING "
+                         f"threshold and an assumption — nothing has "
+                         f"measured it in the sim — never a law")
+    ap.add_argument("--sites-json", type=Path, default=None,
+                    metavar="OUT.json",
+                    help="also dump EVERY site with its full membership "
+                         "(row indices into the census's own "
+                         "magnitude-sorted row order, so this file joins "
+                         "--rows-json by position).  With several patches "
+                         "the dumps are suffixed per patch")
     ap.add_argument("--zone-split", action="store_true",
                     help="also bucket the WITHIN-SHAPE rows by FAN-RAMP "
                          "ZONE membership (on a declared ramp piece / "
@@ -1018,17 +1515,22 @@ def main(argv=None) -> int:
     for osm in args.patches:
         if not osm.exists():
             raise SystemExit(f"REFUSING: no such patch {osm}")
-        rows_out = args.rows_json
-        if rows_out is not None and multi:
-            # One dump per patch, named after it — a single --rows-json
-            # over several patches would otherwise silently keep the last.
-            rows_out = rows_out.with_name(
-                f"{rows_out.stem}.{osm.stem}{rows_out.suffix}")
+        # One dump per patch, named after it — a single --rows-json /
+        # --sites-json over several patches would otherwise silently keep
+        # the last.
+        def _per_patch(p, _osm=osm):
+            if p is None or not multi:
+                return p
+            return p.with_name(f"{p.stem}.{_osm.stem}{p.suffix}")
+        rows_out = _per_patch(args.rows_json)
+        sites_out = _per_patch(args.sites_json)
         try:
             rep = census_one(osm, cg, want_bare=args.bare, top=args.top,
                              want_zone_split=args.zone_split,
                              band_edges=band_edges, frame=args.frame,
-                             rows_out=rows_out)
+                             rows_out=rows_out, want_sites=args.sites,
+                             site_visibility_m=args.site_visibility,
+                             sites_out=sites_out)
         except FileNotFoundError as exc:
             raise SystemExit(
                 f"REFUSING: {exc}\n"

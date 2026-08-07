@@ -65,3 +65,30 @@ generation code).
 Owner wording is "try d". The lane lands the exemption
 default-ON but the census label keeps the class enumerable so a
 reversal is one revert + re-census, no re-generation.
+
+## Deviations ratified (Fable spec author, 2026-08-07)
+
+1. **`--dem M` threading APPROVED as landed.** check_grade/census were
+   DEM-free by design; no on-DEM predicate existed to reuse, so an
+   explicit declared world with an inert default is correct (it can
+   only under-exempt, and law-true counts never move). CHORED, not in
+   this lane: census auto-reads the recorded frame sidecar's
+   `synthetic_dem.elevation_m` when present and REFUSES a
+   contradicting `--dem` — a censused world must not be silently
+   wrong.
+2. **Same-value stacked twins count as ONE node for wall-way
+   membership.** The house canonical join IS 11-decimal coordinate-
+   spelling equality (never proximity); two nodes with identical
+   11-dp spelling AND identical value weld into one mesh vertex, so
+   way membership extends across the weld. Both spellings must match
+   exactly and values must be equal — differing values or differing
+   spellings never join. Expected effect: the 46 becomes 48/48. Add a
+   twin for the stacked case. (The twin population itself is
+   node-identity-round territory — eliminating the twins at source
+   later does not change this rule's correctness.)
+3. **Battery-wide firing is CORRECT; acceptance 3 was too narrow.**
+   The owner ruled a law form, not a HECA patch. The exemption fires
+   wherever its predicate holds (measured: SPJC_lo 14, HEAZ_lo 3,
+   KCLT_lo 21, all −500-world, both named families only, law-true
+   counts unchanged everywhere). The published adjudicated frame
+   moves accordingly — that is what "try d" means.

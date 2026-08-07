@@ -1008,3 +1008,48 @@ mouths arbitrating) merges at its attributed table: HECA 10k airside
 4,198 (+192 vs base) / −500 4,027 (−102). The +192 is accepted as
 named law expression (mouth seating + threshold effects of the
 universal band displacement on four aprons).
+
+## 2026-08-07 — Materiality floor: 0.5 m accumulated, guarded, runways exempt (owner)
+
+Owner: "when I was building osm patch files by hand I never set an
+elevation in increments smaller than 1 meter… we don't want any
+sharp bumps, but we don't need to be grading to less than 0.5m."
+Interview rulings: (1) ADJUDICATION-ONLY first — a defect SITE is
+actionable only if its unlawful excess accumulates ≥ 0.5 m; law and
+generation unchanged; solver-target relaxation deferred to the
+final profiling round; output value-quantization REJECTED (the
+dense-node staircase trap — hand files were smooth at 1 m increments
+because they were SPARSE). (2) SHARP GUARD: below the floor, any
+single step ≥ 0.15 m OR local grade ≥ 2× its cap stays actionable.
+(3) RUNWAY-FAMILY surfaces EXEMPT — reg-derived precision governs
+there. (4) DECIMATION: measure first (% nodes dropped + mesh/DSF at
+0.1/0.25/0.5 m vertical tolerance) before any constant lands.
+Spec: materiality-floor-spec.md.
+
+## 2026-08-07 — Role-less feature ways side with their host (lead, nidfix2 escalation (a))
+
+Feature ways carrying no role (shape_interior_ring 92,
+gap_interior_ring 88, gap_drainage_spine 49, crown_spine 3) are
+ARTICULATION geometry, not surfaces: they take the ROLE AND SIDE of
+their HOST shape and are judged at the host's cap; where their
+geometry duplicates a host way's, rows belong to the HOST ONLY —
+one geometry, one row set; never airside-default at 1.5%, never a
+double-count. Instrument-side; folds into the materiality-floor lane.
+
+## 2026-08-07 — Exposing a pre-existing defect never fails the bar (lead, nidfix2 escalation (b))
+
+The zero-new-adjudicated-airside bar targets NEW SURFACE defects. A
+repair that makes a pre-existing defect legible — surface proven
+inert (0 nodes moved ≥ 0.01 m) — has MET the bar; the newly-legible
+rows join the population they always belonged to (here the item-4
+on-DEM stranding class). nidfix2's +2/+15 adjudicated MET on
+substance.
+
+## 2026-08-07 — Site census is the headline metric; transitive clustering ratified (lead)
+
+census --sites becomes the campaign scoreboard: battery 15,530
+adjudicated rows = 778 SITES (20.0 rows/site; top 5 sites carry
+50.8%, top 10 65.6%; only 18 adjudicated sites sub-visible at 5 cm).
+The transitive weld-join reading (a welded apron complex is ONE
+site) is RATIFIED — that is the "one over-cap region" the metric
+exists to count; n_ways/extent ride every site for the finer read.

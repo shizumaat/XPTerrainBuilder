@@ -8553,6 +8553,29 @@ def _solve_spine_profile(elev, base_hard, spine_adj, spine_floor,
             probe_out.setdefault("elev_stages", []).append(
                 (stage, list(elev)))
 
+    # ── THE AIRSIDE PROFILE DOES NOT RIDE SERVICE EDGES (cycle 8, the
+    # service-stringing round) ──────────────────────────────────────────
+    # This pass is an AIRSIDE authority: a min-curvature harmonic over
+    # ``spine_adj`` that WRITES values.  With the road network strung into
+    # that graph (the D′ finisher), a service edge puts a groundside node
+    # into an airside node's neighbour blend — groundside pulling airside,
+    # which the standing law forbids and which measured as +2 airside rows
+    # at KCLT 10 000 the moment the roads strung.  The same
+    # ``service_spine_pairs`` exclusion the reach law already applies
+    # (REACH_NO_SERVICE_SPINES) therefore applies here: the road chain is
+    # dropped from THIS solve and its nodes are seated later, as receivers,
+    # from the mouth band.  Direction, not deletion — every road pair is
+    # still enforced as law in the partitioned projections.
+    _svc_pairs_sp = getattr(graph, "service_spine_pairs", None) or ()
+    if _svc_pairs_sp:
+        _filtered = {}
+        for _i, _lst in spine_adj.items():
+            _keep = [(_j, _w) for (_j, _w) in _lst
+                     if ((_i, _j) if _i < _j else (_j, _i)) not in
+                     _svc_pairs_sp]
+            if _keep:
+                _filtered[_i] = _keep
+        spine_adj = _filtered
     _probe("1_entry_dem_seeded")
     anchors = {i for i in spine_adj if i < len(base_hard) and base_hard[i]}
     # ── S1b: STRING PINS ARE DIRICHLET (spec §1 edit 2) ───────────────

@@ -752,7 +752,8 @@ def spine_value_fields(layout, G):
     return ceiling, floor
 
 
-def service_mouths(layout, G, ceiling=None, floor=None) -> dict:
+def service_mouths(layout, G, ceiling=None, floor=None,
+                   airside_band=None) -> dict:
     """THE MOUTHS — ``{node: (floor, ceiling)}`` (RULINGS 2026-08-06,
     "Service-road mouths seat like apron-edge buildings").
 
@@ -774,14 +775,38 @@ def service_mouths(layout, G, ceiling=None, floor=None) -> dict:
     airside field still never rides a service pair (that call is
     untouched), and this reads only its endpoints.  Direction, not
     deletion.
+
+    ``airside_band`` — THE APRON-EDGE MOUTH (cycle 8, measured).  The
+    VALUE FIELD covers only nodes a taxi centerline strung, so a road that
+    meets airside pavement AWAY from a centerline — which is the normal
+    case: measured at the cycle-8 baseline, KCLT had 117 service spine
+    pairs and ZERO field-covered endpoints — has no field value anywhere
+    on it and mints no mouth at all.  The owner's ruling does not say "at
+    a spine node"; it says the mouth is *"seated where it's feasible for
+    the airside apron to meet it"*, and THE AIRSIDE BAND
+    (:func:`reach_band_unified`, the same band the solve and the validator
+    use) is exactly that interval.  So a field-less endpoint asks the
+    band, and the band's own domain decides: its propagation mask is
+    AIRSIDE pavement + pads and it answers ``None`` past its off-net
+    radius, so only an endpoint genuinely at/near airside pavement — an
+    apron-edge contact — becomes a mouth.  Read-only in both directions:
+    no groundside value enters the band or any airside constraint set.
+    ``None`` ⇒ field-only mouths, i.e. the pre-clause behaviour.
     """
     if ceiling is None or floor is None:
         ceiling, floor = spine_value_fields(layout, G)
+    pos = getattr(G, "pos", None) or {}
     out: dict = {}
     for pair in (getattr(G, "service_spine_pairs", None) or ()):
         for m in pair:
-            if m in ceiling and m in floor and m not in out:
+            if m in out:
+                continue
+            if m in ceiling and m in floor:
                 out[m] = (float(floor[m]), float(ceiling[m]))
+            elif airside_band is not None and m in pos:
+                b = airside_band(pos[m][0], pos[m][1])
+                if b is not None:
+                    out[m] = (float(b[0]), float(b[1]))
     return out
 
 
@@ -831,7 +856,16 @@ def groundside_reach_band(layout, G, offnet_radius_m=None, cap=None):
     if not pos:
         return None
     ceiling, floor = spine_value_fields(layout, G)
-    mouths = service_mouths(layout, G, ceiling, floor)
+    # THE AIRSIDE BAND, for the apron-edge mouths the value field cannot
+    # answer (see :func:`service_mouths`).  Read-only, single source — the
+    # same band the solve and the validator consume.  A failure degrades to
+    # field-only mouths rather than killing the groundside band build.
+    try:
+        airside_band = reach_band_unified(layout, G)
+    except Exception:                                       # pragma: no cover
+        airside_band = None
+    mouths = service_mouths(layout, G, ceiling, floor,
+                            airside_band=airside_band)
 
     def _outward(seeds, sign):
         """min-plus (sign +1) / max-plus (−1) field from the mouths."""

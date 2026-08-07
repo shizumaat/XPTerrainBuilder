@@ -55,6 +55,7 @@ from .config import (
     JUNCTION_MESH_CONSTRAINTS,
     SERVICE_ROAD_MAX_GRADE,
     SERVICE_ROAD_MAX_TRANSVERSE,
+    SERVICE_ROAD_WIDTH_M,
     SVC_SPINE_FIRST,
     TAXI_MAX_GRADE,
     TAXI_MAX_GRADE_NARROW,
@@ -85,6 +86,22 @@ SOFT_VISIBILITY_ROLES = ((APRON_ROLE,) + JUNCTION_ROLES
 # perpendicular distance of it.  Post-slice the spine nodes sit exactly on the
 # line, so this is tight (it only has to absorb float/round noise, not width).
 SPINE_PERP_TOL_M = 1.0
+
+# SERVICE-ROAD STRINGING (cycle 8, the D′ finisher — spec
+# ``docs/specs/cycle8-one-graph-spec.md`` ADDENDUM).  The tolerance above
+# assumes TAXI-style node placement: the global slice cuts pavement ALONG
+# a taxi centerline, so its spine nodes land ON the line.  A service road
+# is sliced as a CORRIDOR — its nodes sit at the road's two EDGES, half a
+# corridor width away — so at 1.0 m a road strings almost nothing and the
+# ONE graph never receives the road network.  Measured at the cycle-8
+# baseline, both worlds: SPJC 4 service centerline(s) strung (of 389
+# apt.dat row-1206 segments), KCLT 10, HECA 0, HEAZ 0 — and ZERO MOUTHS
+# at every airport, so ``building_feasibility.groundside_reach_band`` was
+# fed by airside-valued nodes alone and every lot beyond its off-net
+# radius kept its DEM seed (the D′ class).
+# DERIVED, never a fresh magic number: half the corridor width the road
+# rects are built at, plus the base tolerance for float/round noise.
+SERVICE_SPINE_PERP_TOL_M = SERVICE_ROAD_WIDTH_M / 2.0 + SPINE_PERP_TOL_M
 
 # Apron↔taxi-route CONTACT allowance (user 2026-06-30): an apron ring edge welded
 # to a taxi-route pavement earns the taxi cap in its own direction (the contact
@@ -1948,6 +1965,15 @@ class UnifiedGraph:
     spine_centerlines: int = 0        # centerlines walked
     spine_no_string: int = 0          # ... that yielded < 2 on-line nodes
     spine_no_string_zero: int = 0     # ... of those, with NO on-line node
+    # ── THE SERVICE HALF (cycle 8) ─────────────────────────────────────
+    # ``spine_service_centerlines`` is the DENOMINATOR the service line
+    # never carried: "0 strung" reads as "no roads here" and as "the roads
+    # did not string", and those are different findings with different fix
+    # loci.  ``spine_service_attachments`` counts the service-strung nodes
+    # the AIRCRAFT pass had already strung — the MOUTH candidates, i.e.
+    # exactly the seeds ``building_feasibility.service_mouths`` can find.
+    spine_service_centerlines: int = 0
+    spine_service_attachments: int = 0
 
     # ── EDGE PROVENANCE (cycle-5 certificate family axis, spec fix 4) ───
     # Parallel to ``edges``: the CONSTRUCTOR that minted each edge, as
@@ -2138,7 +2164,12 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
         # connects the spine ACROSS shape boundaries (junction→apron→junction)
         # — one connected, ≤cap profile, exactly what the route graph gave
         # but on the geometry nodes themselves.
-        _build_global_spine(G, ctx, icao=getattr(layout, "icao", ""))
+        # SERVICE STRINGING (cycle 8): the road-family node set the service
+        # pass may string over, resolved in THIS call's node space (never
+        # cached across node spaces — the rod-key lesson).
+        _build_global_spine(G, ctx, icao=getattr(layout, "icao", ""),
+                            road_nodes=_road_family_nodes(layout,
+                                                          bucket_to_idx))
 
         # ── runway anchors: every geometry node a taxi spine joins the runway
         # at ──
@@ -2146,7 +2177,46 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
     return G
 
 
-def _build_global_spine(G, ctx, icao: str = ""):
+def _road_family_nodes(layout, bucket_to_idx):
+    """Node indices lying on a ROAD-FAMILY / groundside ring.
+
+    The only nodes a SERVICE centerline may string beyond the aircraft
+    tolerance (see :data:`SERVICE_SPINE_PERP_TOL_M`).  Role membership comes
+    from the layout's OWN registry — ``layout.GROUNDSIDE_ROLES``, the same
+    partition the projection partition and ``check_grade.row_side`` use — so
+    there is no second role literal to drift (blast.py role-literal hazard).
+
+    READ-ONLY on the canonical-point registry (``find_nearest``, never
+    ``get_or_add``): a membership scan must not mint canonical points."""
+    from .layout import GROUNDSIDE_ROLES
+    out: set = set()
+    cps = getattr(layout, "canonical_points", None)
+    if cps is None or not bucket_to_idx:
+        return out
+    tol = cps.tol_m
+    for s in (getattr(layout, "shapes", None) or ()):
+        if getattr(s, "role", None) not in GROUNDSIDE_ROLES:
+            continue
+        poly = getattr(s, "polygon", None)
+        if poly is None or poly.is_empty:
+            continue
+        try:
+            rings = ([poly.exterior] if poly.geom_type == "Polygon"
+                     else [g.exterior for g in poly.geoms])
+        except Exception:                              # pragma: no cover
+            continue
+        for ring in rings:
+            for (x, y) in ring.coords:
+                k = cps.find_nearest(float(x), float(y), tol)
+                if k is None:
+                    continue
+                i = bucket_to_idx.get(k)
+                if i is not None:
+                    out.add(i)
+    return out
+
+
+def _build_global_spine(G, ctx, icao: str = "", road_nodes=None):
     """Order every on-line geometry node along each centerline by arc position and
     link consecutive ones into ``G.spine_adj`` at the centerline's per-letter cap.
     A node may lie on several centerlines (a junction crossing) — it is linked on
@@ -2154,7 +2224,30 @@ def _build_global_spine(G, ctx, icao: str = ""):
 
     A centerline with fewer than two on-line nodes contributes NO string.  That
     is counted (``G.spine_no_string`` / ``…_zero``) and summarised in one log
-    line — it used to be a silent ``continue`` (hygiene 2026-07-31)."""
+    line — it used to be a silent ``continue`` (hygiene 2026-07-31).
+
+    TWO PASSES, ONE GRAPH (cycle 8, the D′ finisher).  The AIRCRAFT spine is
+    strung first, at the tolerance it has always used, over every node — the
+    airside membership is exactly what the single-pass walk produced.  SERVICE
+    centerlines are strung AFTER, at ``SERVICE_SPINE_PERP_TOL_M`` (their own
+    sliced geometry's half-width), over a RESTRICTED node set: ``road_nodes``
+    (road-family / groundside ring vertices) plus the nodes the aircraft pass
+    just strung.
+
+    The restriction is what makes this receiver-only.  A road may never sweep
+    an unrelated apron vertex into a spine chain at its 8 % cap — but it MAY
+    adopt the one airside node it genuinely meets, and that node is the MOUTH:
+    "the mouth of the service road has to function like an apron edge
+    building, seated where it's feasible for the airside apron to meet it,
+    then the road and everything else is graded per its law" (RULINGS
+    2026-08-06).  ``building_feasibility.service_mouths`` reads exactly those
+    attachments, and the pairs stay in ``service_spine_pairs`` so airside
+    reachability still refuses to ride them (``REACH_NO_SERVICE_SPINES`` —
+    direction, not deletion).
+
+    ``road_nodes`` empty/None ⇒ a service centerline can only string nodes the
+    aircraft spine already carries, i.e. the pre-cycle-8 behaviour for every
+    airport whose roads carry no groundside geometry."""
     items = list(G.pos.items())
     # Spatial prefilter (CYUL: the naive centerlines × nodes double loop was
     # 52 M ``_project`` calls / 140 s — 2,473 fragmented route pieces × 21 k
@@ -2170,19 +2263,28 @@ def _build_global_spine(G, ctx, icao: str = ""):
     _taxi_woven_pairs: set = set()
     _n_no_node = 0            # centerlines with NO node within the tolerance
     _n_one_node = 0           # ... with exactly one (a thinned region)
-    for _ci, cl in enumerate(ctx.centerlines):
+    _taxi_strung: set = set()  # every node the AIRCRAFT pass strung
+    _svc_walked = 0            # service centerlines seen (the denominator)
+    _svc_attach: set = set()   # service-strung nodes that are aircraft spine
+
+    def _walk(_ci, cl, tol, eligible):
+        """String ONE centerline; return its arc-ordered node list (``[]``
+        when it contributed no string)."""
+        nonlocal _n_no_node, _n_one_node
         if node_tree is not None:
             xs = [p[0] for p in cl.pts]
             ys = [p[1] for p in cl.pts]
-            q = _nbox(min(xs) - SPINE_PERP_TOL_M, min(ys) - SPINE_PERP_TOL_M,
-                      max(xs) + SPINE_PERP_TOL_M, max(ys) + SPINE_PERP_TOL_M)
+            q = _nbox(min(xs) - tol, min(ys) - tol,
+                      max(xs) + tol, max(ys) + tol)
             cand = [items[int(k)] for k in node_tree.query(q)]
         else:                                          # pragma: no cover
             cand = items
         on_line = []
         for (i, (x, y)) in cand:
+            if eligible is not None and i not in eligible:
+                continue
             a, d, _ = _project(cl, x, y)
-            if d <= SPINE_PERP_TOL_M:
+            if d <= tol:
                 on_line.append((a, i))
         if len(on_line) < 2:
             # No string from this way — counted, and said out loud in the
@@ -2191,7 +2293,7 @@ def _build_global_spine(G, ctx, icao: str = ""):
                 _n_one_node += 1
             else:
                 _n_no_node += 1
-            continue
+            return []
         on_line.sort(key=lambda t: t[0])
         # S1 level-1 authorship export (see ``centerline_chains``): the
         # arc-ordered on-line node list IS this centerline's authored
@@ -2216,6 +2318,22 @@ def _build_global_spine(G, ctx, icao: str = ""):
                 G.service_spine_pairs.add(_pair)
             else:
                 _taxi_woven_pairs.add(_pair)
+        return [i for (_a, i) in on_line]
+
+    # ── PASS 1: THE AIRCRAFT SPINE (unchanged rule, every node) ──────────
+    for _ci, cl in enumerate(ctx.centerlines):
+        if not cl.is_service:
+            _taxi_strung.update(_walk(_ci, cl, SPINE_PERP_TOL_M, None))
+    # ── PASS 2: THE SERVICE SPINE (its own tolerance, road-family nodes
+    # plus the aircraft spine it attaches to — the MOUTH) ────────────────
+    _svc_eligible = set(road_nodes or ()) | _taxi_strung
+    for _ci, cl in enumerate(ctx.centerlines):
+        if not cl.is_service:
+            continue
+        _svc_walked += 1
+        _svc_attach.update(
+            i for i in _walk(_ci, cl, SERVICE_SPINE_PERP_TOL_M, _svc_eligible)
+            if i in _taxi_strung)
     # A pair ALSO woven by a taxi centerline (a road crossing a taxi
     # route's nodes) is a genuine taxi edge — the service tag must not
     # remove it from reachability.
@@ -2240,11 +2358,16 @@ def _build_global_spine(G, ctx, icao: str = ""):
         # nodes it can see.  ``woven_out`` is the taxi-woven subtraction
         # (a road crossing a taxi route's nodes is a genuine taxi edge).
         _svc_cl = len(G.centerline_service)
+        G.spine_service_centerlines = _svc_walked
+        G.spine_service_attachments = len(_svc_attach)
         _UI.vprint(1,
-            f"  [global-spine] {icao}: {_svc_cl} service centerline(s) "
-            f"strung, {len(G.service_spine_pairs)} service spine pair(s) "
-            f"after the taxi-woven subtraction ({_n_svc_woven_out} pair(s) "
-            f"removed as taxi-woven)")
+            f"  [global-spine] {icao}: {_svc_cl} of {_svc_walked} service "
+            f"centerline(s) strung at the {SERVICE_SPINE_PERP_TOL_M:.1f} m "
+            f"service tolerance, {len(G.service_spine_pairs)} service spine "
+            f"pair(s) after the taxi-woven subtraction ({_n_svc_woven_out} "
+            f"pair(s) removed as taxi-woven), {len(_svc_attach)} "
+            f"attachment(s) to the aircraft spine — the MOUTH candidates "
+            f"(eligible nodes: {len(_svc_eligible)})")
 
 
 def _dist(pa, pb):

@@ -1663,21 +1663,53 @@ class PavementLayout:
         # ownership map counts holes, not copies of holes; the emit-time
         # pass stays as the residual guard for a pair the weld itself
         # makes identical.
+        # The key is ROTATION- AND REFLECTION-CANONICAL, not the exact
+        # tuple the emit-time pass uses: two shapes bounding one hole
+        # spell it from whichever vertex their own ring reached first
+        # and in whichever winding their exterior implies, so an
+        # exact-tuple key sees two different chains where there is one
+        # hole.  (Measured at HECA: the exact key dedups NOTHING here,
+        # while the emit-time pass — which runs after the weld has
+        # rewritten both copies — does drop rings.  Same key, different
+        # frame, opposite answers: the pre-weld frame needs the
+        # canonical one.)
+        def _hole_key(_nids: list) -> tuple:
+            _o = list(_nids[:-1]) if (len(_nids) > 1
+                                      and _nids[0] == _nids[-1]) else list(_nids)
+            if not _o:
+                return ()
+            _best = None
+            for _seq in (_o, list(reversed(_o))):
+                for _r in range(len(_seq)):
+                    _cand = tuple(_seq[_r:] + _seq[:_r])
+                    if _best is None or _cand < _best:
+                        _best = _cand
+            return _best
+
         _seen_hole_pre: set = set()
         _deduped_rings: list = []
+        _dup_exact = 0
         for _hr in _interior_rings:
-            _hkey = tuple(_hr)
+            _hkey = _hole_key(_hr)
             if _hkey in _seen_hole_pre:
+                if any(tuple(_hr) == tuple(_k) for _k in _deduped_rings):
+                    _dup_exact += 1
                 continue
             _seen_hole_pre.add(_hkey)
             _deduped_rings.append(_hr)
-        if len(_deduped_rings) != len(_interior_rings):
+        _n_dup = len(_interior_rings) - len(_deduped_rings)
+        if _n_dup:
             UI.vprint(1,
-                f"  [pav-builder] interior rings: "
-                f"{len(_interior_rings) - len(_deduped_rings)} duplicate "
+                f"  [pav-builder] interior rings: {_n_dup} duplicate "
                 f"hole ring(s) dropped before the weld "
-                f"({len(_interior_rings)} → {len(_deduped_rings)}), so a "
-                f"hole vertex reads single-owner.")
+                f"({len(_interior_rings)} → {len(_deduped_rings)}; "
+                f"{_dup_exact} of them exact-tuple copies, "
+                f"{_n_dup - _dup_exact} rotated/reflected), so a hole "
+                f"vertex reads single-owner.")
+        else:
+            UI.vprint(2,
+                f"  [pav-builder] interior rings: {len(_interior_rings)} "
+                f"ring(s), no duplicates at weld time.")
         _interior_rings[:] = _deduped_rings
         _weld_chains: list = ([("p", _p_i, _e[2])
                                for _p_i, _e in enumerate(pending)]
@@ -1750,6 +1782,21 @@ class PavementLayout:
         _n_moved = 0
         _worst_move = 0.0
         _blocked_shared = 0
+        # HOLE-RING CANDIDATE CENSUS (A1 attribution).  A1's class is the
+        # one this pass never reaches, and the emitted patch cannot show
+        # why — the emit-time hole dedup runs after the weld has rewritten
+        # the rings, so the emitted frame's ownership is not the frame the
+        # test read.  These counters are the ONLY window on the weld-time
+        # frame; they report per REJECTION CLAUSE and adjudicate nothing.
+        _ring_nids: set = set()
+        for _r in _interior_rings:
+            _ring_nids.update(_r[:-1] if (len(_r) > 1 and _r[0] == _r[-1])
+                              else _r)
+        _ring_stat: dict[str, int] = {}
+
+        def _rstat(_k: str) -> None:
+            _ring_stat[_k] = _ring_stat.get(_k, 0) + 1
+
         for _ci, (_kind, _idx, _cnids) in enumerate(_weld_chains):
             _open = _cnids[:-1]
             _m = len(_open)
@@ -1767,7 +1814,20 @@ class PavementLayout:
                 _L = math.sqrt(_L2)
                 for _nid in _along_nids(_ax, _ay, _dx, _dy, _L):
                     _own = _nid_owners.get(_nid) or set()
+                    _is_ring = _nid in _ring_nids
                     if len(_own) != 1 or _ci in _own:
+                        # Report the clause only for a candidate that is
+                        # geometrically ON this edge — otherwise every
+                        # nid in the 3x3 cell block would be counted.
+                        if _is_ring and _ci not in _own:
+                            _pxr, _pyr = _nid_xy[_nid]
+                            _tr = ((_pxr - _ax) * _dx
+                                   + (_pyr - _ay) * _dy) / _L2
+                            if 0.0 < _tr < 1.0:
+                                _pr = abs((_pxr - _ax) * _dy
+                                          - (_pyr - _ay) * _dx) / _L
+                                if _WELD_TOL_M < _pr < ONEDGE_SNAP_TOL_M:
+                                    _rstat(f"blocked_owners={len(_own)}")
                         continue          # shared, or this chain's own
                     _px, _py = _nid_xy[_nid]
                     _t = ((_px - _ax) * _dx + (_py - _ay) * _dy) / _L2
@@ -1775,11 +1835,15 @@ class PavementLayout:
                         continue
                     if (_t * _L <= ONEDGE_SNAP_TOL_M
                             or (1.0 - _t) * _L <= ONEDGE_SNAP_TOL_M):
+                        if _is_ring:
+                            _rstat("blocked_endpoint_touch")
                         continue          # endpoint touch, not an interior
                     _perp = abs((_px - _ax) * _dy
                                 - (_py - _ay) * _dx) / _L
                     if _perp >= ONEDGE_SNAP_TOL_M or _perp <= _WELD_TOL_M:
                         continue          # not on it, or already welded
+                    if _is_ring:
+                        _rstat("geometric_candidate")
                     _qx, _qy = _ax + _t * _dx, _ay + _t * _dy
                     # Never move onto another node's coordinate.
                     _clash = False
@@ -1793,12 +1857,23 @@ class PavementLayout:
                             break
                     if _clash:
                         _blocked_shared += 1
+                        if _is_ring:
+                            _rstat("blocked_clash_within_SHARED_VERTEX_TOL")
                         continue
                     _nid_xy[_nid] = (_qx, _qy)
                     node_id_to_ll[_nid] = self.m_to_ll(_qx, _qy)
                     _n_moved += 1
+                    if _is_ring:
+                        _rstat("MOVED")
                     _worst_move = max(_worst_move, _perp)
                     _regrid()
+        if _ring_stat:
+            UI.vprint(1,
+                f"  [pav-builder] hole-ring on-edge candidates "
+                f"({len(_ring_nids)} ring vertices in "
+                f"{len(_interior_rings)} rings): "
+                + ", ".join(f"{_k}={_v}" for _k, _v
+                            in sorted(_ring_stat.items())))
         if _n_moved or _blocked_shared:
             UI.vprint(1,
                 f"  [pav-builder] private on-edge node move: "

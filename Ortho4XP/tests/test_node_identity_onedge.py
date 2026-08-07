@@ -245,6 +245,50 @@ def test_a1_a_hole_bounded_twice_still_reads_single_owner():
         f"bounded by one; strip={strip_nds} ring={rings[0]}")
 
 
+def test_a1_a_rotated_reflected_duplicate_hole_is_the_same_hole():
+    """The dedup key is ROTATION- and REFLECTION-canonical.
+
+    Two shapes bounding one hole spell it from whichever vertex their own
+    ring reached first and in whichever winding their exterior implies,
+    so an exact-tuple key sees two chains where there is one hole — and
+    every vertex of that hole then reads as owned by two chains, which is
+    exactly the clause that skips it.  Here the second cover states the
+    SAME hole reversed and rotated; the known answer is unchanged from
+    the once-bounded case: one emitted ring, its on-edge nids shared.
+    """
+    layout = _hole_scene()
+    hole = [(30, 30 + 0.0185), (70, 30 + 0.0185), (70, 45), (30, 45)]
+    spun = list(reversed(hole))[2:] + list(reversed(hole))[:2]
+    layout.shapes.append(
+        _pav(Polygon([(10, 5), (90, 5), (90, 55), (10, 55)], [spun]),
+             ref="cover2", alt=101.0))
+    _nodes, ways = _emit_and_parse(layout)
+    _wid_s, strip_nds, _t = _way(ways, ref="strip")
+    rings = [nds for _w, nds, tags in ways
+             if tags.get("o4_feature") == "shape_interior_ring"]
+    assert len(rings) == 1, (
+        f"a rotated+reflected spelling of one hole is one hole; "
+        f"got {len(rings)} emitted rings")
+    assert len(_shared(strip_nds, rings[0])) >= 2, (
+        f"strip={strip_nds} ring={rings[0]}")
+
+
+def test_a1_two_DIFFERENT_holes_are_never_merged():
+    """The negative control for the canonical key: two distinct holes in
+    one cover stay two rings.  A key that collapsed them would delete
+    real constrained geometry."""
+    layout = PavementLayout(icao="KFAKE", anchor=(30.12, 31.40))
+    layout.shapes.append(
+        _pav(Polygon([(0, 0), (200, 0), (200, 60), (0, 60)],
+                     [[(30, 20), (70, 20), (70, 45), (30, 45)],
+                      [(100, 20), (140, 20), (140, 45), (100, 45)]]),
+             ref="cover"))
+    _nodes, ways = _emit_and_parse(layout)
+    rings = [nds for _w, nds, tags in ways
+             if tags.get("o4_feature") == "shape_interior_ring"]
+    assert len(rings) == 2, rings
+
+
 def test_a1_free_hole_boundary_is_not_dragged():
     """A hole standing clear of every foreign ring is real geometry and
     must not move (HECA: 110 of 116 private ring vertices are more than

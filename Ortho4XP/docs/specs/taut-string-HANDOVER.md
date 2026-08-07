@@ -37,6 +37,22 @@ tree's 4 unmounted data dirs now symlink the shared repo; write
 guard gained the no-op ensure-dir allowance (twin in
 test_harness.py).**
 
+**ITEM-4 CLOSED PROVISIONAL (08-07 ~10:00): ruling (d) landed in
+lane/item4d (final sha 4fe19e0, READY-TO-MERGE; control item4dctl
+standing) — the one-sided wall-foot exemption as a `wall_foot_ll`
+out-of-scope stamp (disconnected_ring convention; law-true counts
+never move). 48/48 at HECA_lo including the ratified stacked-twin
+weld (11-dp spelling + value both exact; the weld acted ONLY on the
+measured case). Battery −500: 86 airside rows released (HECA 48 /
+KCLT 21 / SPJC 14 / HEAZ 3); 10k world zero everywhere; law-true
+identical to control at all 8 patches; +6 twins, FAILED-diff empty.
+Spec deviations ratified in-spec (dem threading / weld membership /
+battery-wide firing). CHORED: census frame-sidecar auto-read with
+--dem contradiction refusal; 5e-3 on-DEM tolerance deduplication
+(who_wrote vs check_grade). Retrospective structure #4 of four:
+RESOLVED (provisional — revisit at sim pass). MERGES PENDING OWNER:
+lane/svcret 410735e, lane/item4d 4fe19e0.**
+
 **CYCLE-10 PROBE VERDICT (08-07 ~09:30, clean-tree re-run; c10ctl
 left mounted with arm-A artifacts): the c9feed +604 attribution
 STANDS — 136 instrument + 468 surface, reproduced exactly (4/4 body

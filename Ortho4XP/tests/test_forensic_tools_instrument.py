@@ -399,3 +399,71 @@ def test_a_directory_expands_to_its_patch_files(pp, tmp_path):
             sha="abc", dirty="false", dem="base+inset(X)"))
     (d / "notes.txt").write_text("ignore me")
     assert len(pp._collect_patch_files([str(d)])) == 2
+
+
+# ══════════════════════════════════════════════════════════════════════
+# interval_reach_replay — THE BOX KNIVES (c9air, 2026-08-06)
+#
+# ``--arm no-boxes`` frees the hard anchors AND drops every bound in one
+# move, so a residual it clears is attributed no further than "boxes or
+# hardness".  These three arms each drop ONE bound class with the hard
+# set untouched, which is what makes the 2x2 readable.
+# ══════════════════════════════════════════════════════════════════════
+
+def _box_state():
+    """A dump with both bound classes and a named groundside-pin subset:
+    node bounds on 5 and 6, of which 6 is the groundside pin."""
+    return {"entries": [{"edges": [(0, 1, 1.0)]}],
+            "hard": {0, 1},
+            "node_bounds": {5: (-1.0, 1.0), 6: (-1e18, -0.5)},
+            "group_bounds": [(0.0, 1.0), None],
+            "hard_cat": {0: "rwy_profile", 1: "rwy_join"},
+            "fp8_kwargs": {"gs_pin_nodes": [6]}}
+
+
+def test_the_box_knives_each_drop_one_class_and_keep_the_hard_set(irr):
+    """KNOWN ANSWER, one dump, three arms:
+
+    * ``no-node-boxes``  -> node bounds gone, group bounds kept, hard kept
+    * ``no-group-boxes`` -> group bounds gone, node bounds kept, hard kept
+    * ``no-gs-pin-boxes``-> ONLY node 6 (the named pin) gone; 5 kept
+    """
+    st = _box_state()
+    _e, hard, nb, gb = irr._apply_arm(
+        "no-node-boxes", st["entries"], st["hard"],
+        st["node_bounds"], st["group_bounds"], st)
+    assert nb is None and gb == st["group_bounds"] and hard == {0, 1}
+
+    _e, hard, nb, gb = irr._apply_arm(
+        "no-group-boxes", st["entries"], st["hard"],
+        st["node_bounds"], st["group_bounds"], st)
+    assert gb is None and nb == st["node_bounds"] and hard == {0, 1}
+
+    _e, hard, nb, gb = irr._apply_arm(
+        "no-gs-pin-boxes", st["entries"], st["hard"],
+        st["node_bounds"], st["group_bounds"], st)
+    assert set(nb) == {5}, "only the groundside-pin bound may be dropped"
+    assert gb == st["group_bounds"] and hard == {0, 1}
+
+
+@pytest.mark.parametrize("arm,empty", [
+    ("no-node-boxes", {"node_bounds": {}}),
+    ("no-group-boxes", {"group_bounds": [None, None]}),
+    ("no-gs-pin-boxes", {"fp8_kwargs": {"gs_pin_nodes": []}}),
+])
+def test_a_box_knife_with_nothing_to_cut_REFUSES(irr, arm, empty):
+    """A bound class the dump does not carry would replay identically to
+    production and read as "this class owns nothing" — the free-seams
+    failure mode.  Every knife refuses instead, naming the census."""
+    st = {**_box_state(), **empty}
+    with pytest.raises(SystemExit) as excinfo:
+        irr._apply_arm(arm, st["entries"], st["hard"],
+                       st["node_bounds"], st["group_bounds"], st)
+    msg = str(excinfo.value)
+    assert f"REFUSING --arm {arm}" in msg and "ZERO" in msg
+
+
+def test_every_named_arm_is_reachable_from_the_cli_choices(irr):
+    """The knives are useless if ``--arm`` will not accept them."""
+    for arm in ("no-node-boxes", "no-group-boxes", "no-gs-pin-boxes"):
+        assert arm in irr.ARMS

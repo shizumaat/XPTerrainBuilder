@@ -2243,19 +2243,60 @@ def solve_route_profile(layout, icao: str,
     # a second metric (``single-pass-principle``; a polytope priced on a
     # metric the projection does not enforce is the defect family both
     # rounds are fixing).  Priced EXACTLY as phase A projects: the
-    # unified ``spine_adj`` with its per-edge budgets, service edges
-    # included, anchor values in the solve's own (crowned) space — the
-    # graph and the frame ``_solve_spine_profile``'s final exact cap
+    # unified ``spine_adj`` with its per-edge budgets, SERVICE EDGES
+    # EXCLUDED exactly as ``_solve_spine_profile`` excludes them (see the
+    # receiver-only note below — this line said "service edges included"
+    # until cycle 9 measured what that costs once the graph carries the
+    # road network), anchor values in the solve's own (crowned) space —
+    # the graph and the frame ``_solve_spine_profile``'s final exact cap
     # projection uses.  Two STANDING laws consume it — the apron-contact
     # anchor cap and the seat hard-stamp guard — so it is always built;
     # ``build_anchor_envelope`` returns None when the graph carries no
     # hard anchors, which is the honest "nothing to bound against".
     from .law_graph_budget import build_anchor_envelope
+    from auto_patch.config import REACH_NO_SERVICE_SPINES
     _n_hard = min(len(base_hard), len(elev))
+    # RECEIVER-ONLY HERE TOO (cycle 9, measured).  The paragraph above used
+    # to end "service edges included", and that was harmless while the ONE
+    # graph held only the apt.dat row-1206 routes (HECA 5, KCLT 15).  It is
+    # not harmless now: this envelope feeds TWO STANDING AIRSIDE LAWS (the
+    # apron-contact anchor cap and the seat hard-stamp guard), so every
+    # service edge in it prices AIRSIDE against a truck route.  When the
+    # road feed joined the graph (HECA 5 -> 705 centerlines) that moved
+    # 60-71 % of the PURE-airside nodes at HECA — nodes no groundside way
+    # even touches — by a median 9-18 cm and up to 3.7 m, which
+    # airside-is-king forbids however the roads got there.
+    # The exclusion is not new law: ``REACH_NO_SERVICE_SPINES`` is the
+    # standing gate, ``building_feasibility.spine_value_fields`` and
+    # ``_solve_spine_profile`` already skip exactly this pair set, and this
+    # consumer simply predates them.  Direction, not deletion: every road
+    # pair is still enforced as law in the partitioned projections, and the
+    # road is still seated afterwards, as a receiver, from its mouth band.
+    _svc_pairs = (getattr(G, "service_spine_pairs", None) or set()
+                  if REACH_NO_SERVICE_SPINES else set())
+    _env_adj = u_spine_adj
+    if _svc_pairs:
+        _env_adj = {}
+        for _ei, _elst in u_spine_adj.items():
+            _keep = [(_ej, _eb) for (_ej, _eb) in _elst
+                     if (min(_ei, _ej), max(_ei, _ej)) not in _svc_pairs]
+            if _keep:
+                _env_adj[_ei] = _keep
     _anchor_envelope = build_anchor_envelope(
-        u_spine_adj,
-        {i: float(elev[i]) for i in u_spine_adj
+        _env_adj,
+        {i: float(elev[i]) for i in _env_adj
          if i < _n_hard and base_hard[i]})
+    # Instrument (RULINGS 2026-08-06, "Instrument truth is law"): report the
+    # DENOMINATOR with the exclusion, so "the roads changed nothing here"
+    # can never read the same as "there were no road edges to exclude".
+    import O4_UI_Utils as _UI_env
+    _env_all = sum(len(v) for v in u_spine_adj.values())
+    _env_dropped = _env_all - sum(len(v) for v in _env_adj.values())
+    _UI_env.vprint(1,
+        f"  [anchor-envelope] {icao}: {len(_svc_pairs)} service spine "
+        f"pair(s) excluded, {_env_dropped} of {_env_all} directed edge(s) "
+        f"dropped; {len(_env_adj)} of {len(u_spine_adj)} node(s) keep an "
+        f"airside route")
     apron_seats = build_nobuilding_apron_seats(
         layout, bucket_to_idx, band, dem_fn,
         anchor_envelope=_anchor_envelope, icao=icao)

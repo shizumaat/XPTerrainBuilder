@@ -33,13 +33,32 @@ is what lets the three consumers agree about it:
   2. ``gap_fill`` — a foreign shape inside a published enclave no longer
      vetoes the ruled ring+spine treatment of the ground around it;
   3. ``adjacent_ground`` — the band/wall consumer stands down inside a
-     POCKET enclave (see ``enclave_band_keepout_union``).
+     region the ruled treatment OWNS (see
+     ``enclave_band_keepout_union``).
 
 The published set is computed ONCE per build, in ``enact_classify``,
 BEFORE the re-verdicts it feeds (a shape promoted out of GROUNDSIDE
 becomes airside and would close its own enclave).  Later consumers read
 the store; ``airside_enclaves`` recomputes lazily only when nothing was
 published (scoring off, synthetic test layouts).
+
+TWO UNIONS, ONE LAW — the ratified scoping (spec Phase-1 outcome
+banner).  Consumers 1 and 2 answer "is this ground airside-interior?",
+which is a question about what a VEHICLE can cross, so their surround
+is airside ∪ BUILDINGS.  Consumer 3 answers a different question —
+"does the ruled ring+spine treatment OWN this ground, so the band must
+stand down?" — and the only authority on that is the gap law itself,
+whose candidate geometry is the PAVEMENT-ONLY union.  Phase 1 fed
+consumer 3 from the airside∪building set and deleted 175,671 m² of
+band at HECA, 152,734 m² of it Annex 14 §3.4.11-13 graded strip: the
+buildings standing in the 3.4 km² infield subdivide it into
+pocket-width components, so ground the gap law holds as ONE region and
+declines on WIDTH read as many pockets and the bands stood down over
+all of them — a keep-out over ground nothing then owned.  The two
+unions are therefore two LAWS, not two copies of one (the classifier's
+question and the treatment-ownership question have different right
+answers), and ``compute_gap_law_regions`` reads the gap law's OWN
+detection function rather than reconstructing it here.
 """
 
 from __future__ import annotations
@@ -107,6 +126,7 @@ ENCLAVE_STORE_ATTRIBUTE = "airside_enclaves"
 _STAGE_ATTRIBUTE = "_airside_enclave_stage"
 _UNION_ATTRIBUTE = "_airside_enclave_union"
 _INDEX_ATTRIBUTE = "_airside_enclave_index"
+_GAP_REGIONS_ATTRIBUTE = "_gap_law_regions"
 _KEEPOUT_ATTRIBUTE = "_airside_enclave_keepout"
 _KEEPOUT_PREP_ATTRIBUTE = "_airside_enclave_keepout_prep"
 
@@ -175,6 +195,14 @@ def compute_airside_enclaves(layout) -> list:
             if region.is_empty or not region.is_valid or region.area <= 0.0:
                 continue
             regions.append(region)
+    return _publishable_records(layout, regions)
+
+
+def _publishable_records(layout, regions) -> list:
+    """Apply the owner's ESCAPE CLAUSE and measure pocket width — the
+    step both region computations share, so the clause is written once
+    and no consumer can be handed a region that still carries an escape.
+    """
     if not regions:
         return []
     escapes = _escape_shapes(layout)
@@ -182,6 +210,9 @@ def compute_airside_enclaves(layout) -> list:
     etree = STRtree(escape_polys) if escape_polys else None
     out: list[Enclave] = []
     for region in regions:
+        if region is None or region.is_empty or not region.is_valid \
+                or region.area <= 0.0:
+            continue
         escape_ids: list = []
         if etree is not None:
             try:
@@ -208,6 +239,61 @@ def compute_airside_enclaves(layout) -> list:
         out.append(Enclave(polygon=region, area_m2=float(region.area),
                            short_side_m=short, escape_ids=()))
     return out
+
+
+def compute_gap_law_regions(layout) -> list:
+    """THE GAP LAW'S OWN REGIONS — bounded complement components of the
+    PAVEMENT-ONLY union, escape clause applied.
+
+    This is the geometry the band KEEP-OUT is scoped by, and it is read
+    from ``gap_fill``'s own detection function rather than rebuilt here:
+    the keep-out exists to stand the band down over ground the ruled
+    ring + spine treatment OWNS, so the two must agree about which
+    ground that is, and a second slightly-different construction of the
+    same regions is exactly the duplicate the tool-discipline ruling
+    calls a defect.  Reading the one function also inherits the gap
+    law's SEAM HEALING and tile clipping for free — a pocket whose
+    enclosing ring continues into the neighbour tile is one region for
+    both laws or neither.
+
+    NOT the same set as ``airside_enclaves`` and deliberately so (see
+    the module docstring): buildings join the CLASSIFIER's surround
+    because a vehicle cannot drive through one, but they are not
+    pavement, and letting them subdivide an airfield infield into
+    pocket-width components made the band stand down over 152,734 m² of
+    Annex 14 graded strip that the gap law declines on width and the
+    bands own.
+    """
+    # Deferred: ``gap_fill`` imports this module at module scope.
+    from .gap_fill import _airside_shapes, _gap_detection_polys
+    airside = _airside_shapes(layout)
+    if len(airside) < 2:
+        return []
+    try:
+        regions = _gap_detection_polys(layout, airside)
+    except _GEOM_EXC:
+        return []
+    return _publishable_records(layout, regions)
+
+
+def gap_law_regions(layout) -> list:
+    """The gap law's regions for this layout, memoized.
+
+    Cleared by every ``publish_airside_enclaves`` (so the settled
+    republication re-reads the settled pavement union), and otherwise
+    computed ONCE — which is also what keeps the pre-solve band march
+    and the emit band march on the identical zone, the parity their
+    station sequences depend on.
+    """
+    records = getattr(layout, _GAP_REGIONS_ATTRIBUTE, None)
+    if records is not None:
+        return records
+    records = compute_gap_law_regions(layout)
+    try:
+        setattr(layout, _GAP_REGIONS_ATTRIBUTE, records)
+    except AttributeError:
+        pass
+    return records
 
 
 def _short_side(mrr):
@@ -261,6 +347,7 @@ def publish_airside_enclaves(layout, stage: str = "classify") -> list:
     setattr(layout, ENCLAVE_STORE_ATTRIBUTE, records)
     setattr(layout, _STAGE_ATTRIBUTE, stage)
     for attr in (_UNION_ATTRIBUTE, _INDEX_ATTRIBUTE,
+                 _GAP_REGIONS_ATTRIBUTE,
                  _KEEPOUT_ATTRIBUTE, _KEEPOUT_PREP_ATTRIBUTE):
         if hasattr(layout, attr):
             setattr(layout, attr, None)
@@ -428,8 +515,8 @@ def enclave_covering(layout, poly):
 
 
 def enclave_band_keepout_union(layout):
-    """The BAND KEEP-OUT zone — the published POCKET enclaves' union, or
-    ``None`` (spec §4).
+    """The BAND KEEP-OUT zone — the POCKET-width regions of the GAP
+    LAW's own union, or ``None`` (spec §4, ratified scoping).
 
     THE consumer entry point for ``adjacent_ground``, in the shape of the
     crossing-influence and collared-pocket zones it already consumes: a
@@ -437,25 +524,45 @@ def enclave_band_keepout_union(layout):
     against.  An enclave interior is airside-interior by law, so the
     band/wall consumer never runs there — a retaining wall inside an
     enclave is a defect regardless of which mechanism minted it (owner
-    2026-08-07).  Scoped to POCKET-width enclaves (see ``_is_pocket``).
+    2026-08-07).
+
+    SCOPE, and the whole of it: the regions of ``gap_law_regions`` that
+    are POCKET-width (``_is_pocket``) — i.e. exactly the ground the
+    ruled ring + spine treatment owns.  Not ``airside_enclaves``: that
+    set answers the classifier's question and includes buildings in its
+    surround, and scoping the keep-out by it deleted 152,734 m² of
+    Annex 14 infield graded strip at HECA (module docstring).  A region
+    the gap law declines on WIDTH is band territory, and one it owns is
+    not; there is no third answer and no second width number here.
     """
     union = getattr(layout, _KEEPOUT_ATTRIBUTE, None)
     if union is not None:
         return None if union.is_empty else union
-    records = [e for e in airside_enclaves(layout) if _is_pocket(e)]
-    if not records:
-        return None
-    try:
-        union = unary_union([e.polygon for e in records])
-    except _GEOM_EXC:
-        return None
-    if union is None or union.is_empty:
-        return None
+    regions = gap_law_regions(layout)
+    records = [e for e in regions if _is_pocket(e)]
+    UI.vprint(1,
+        f"  [enclave] band keep-out: {len(records)} of {len(regions)} "
+        f"gap-law region(s) are pocket-width "
+        f"(<= {GAP_FILL_MAX_WIDTH_M:.0f} m), "
+        f"{sum(e.area_m2 for e in records):.0f} m2 of "
+        f"{sum(e.area_m2 for e in regions):.0f} m2 "
+        f"[frame=pavement-only union].")
+    union = None
+    if records:
+        try:
+            union = unary_union([e.polygon for e in records])
+        except _GEOM_EXC:
+            union = None
+    if union is None:
+        union = Polygon()
+    # An EMPTY union is cached too: the answer "no keep-out" is as
+    # settled as any other, and re-deriving it would re-log the line
+    # above once per consumer.
     try:
         setattr(layout, _KEEPOUT_ATTRIBUTE, union)
     except AttributeError:
         pass
-    return union
+    return None if union.is_empty else union
 
 
 def enclave_band_keepout_prepared(layout):

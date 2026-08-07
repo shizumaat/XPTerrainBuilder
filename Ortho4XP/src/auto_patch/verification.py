@@ -1908,7 +1908,8 @@ def _airside_enclave_zone_prep(layout):
     retaining wall is built there.  This reader must skip the same
     stations or it would flag that ground as should_fill/should_cut.
     Both sides consume the ONE published geometry
-    (``enclaves.enclave_band_keepout_prepared``) — no second
+    (``enclaves.enclave_band_keepout_prepared``, the POCKET-width
+    regions of the gap law's own pavement-only union) — no second
     reconstruction here."""
     from .enclaves import enclave_band_keepout_prepared
     return enclave_band_keepout_prepared(layout)

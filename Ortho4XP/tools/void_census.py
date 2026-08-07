@@ -1,17 +1,33 @@
 #!/usr/bin/env python3
 """AIRSIDE-ENCLOSED VOID census over an EMITTED patch.
 
-A VOID is a bounded complement component of the airside∪building union —
-an interior ring (hole) of exactly the geometry the ENCLAVE REGION LAW
-publishes as ``layout.airside_enclaves``
-(``auto_patch/enclaves.py``; owner G-ENCLAVE 2026-07-28, extended to bare
-ground 2026-08-07).  This tool reads that topology back off a SHIPPED
-patch and reports, per void:
+A VOID is a bounded complement component of an airside union — an
+interior ring (hole) of exactly the geometry the ENCLAVE REGION LAW
+computes (``auto_patch/enclaves.py``; owner G-ENCLAVE 2026-07-28,
+extended to bare ground 2026-08-07).
+
+TWO UNIONS, because the law has two (``--union``), and which one a
+number came from changes what it means:
+
+  * ``surround`` (default) — airside pavement ∪ BUILDINGS, the set the
+    engine publishes as ``layout.airside_enclaves``.  This is the
+    CLASSIFIER's question ("is this ground airside-interior?"), because
+    a vehicle cannot drive through a building either;
+  * ``pavement`` — airside pavement ONLY, which is the GAP LAW's own
+    detection union (``gap_fill._gap_detection_polys``) and therefore
+    the set the adjacent-ground BAND KEEP-OUT is scoped by
+    (``enclaves.enclave_band_keepout_union``).  Buildings standing in
+    an airfield infield subdivide it into pocket-width components in
+    the ``surround`` union while the gap law holds it as one wide
+    region and declines it on width — reading the wrong one deleted
+    152,734 m² of Annex 14 graded strip at HECA.
+
+Per void it reports:
 
   * area, perimeter, minimum-rotated-rect SHORT SIDE and the POCKET flag
     (short side ≤ the gap law's ``GAP_FILL_MAX_WIDTH_M`` — the class the
-    ruled gap ring + spine treatment covers, and therefore the class the
-    band keep-out is scoped to);
+    ruled gap ring + spine treatment covers; under ``--union pavement``
+    that flag is also the band keep-out's own membership test);
   * the ESCAPE clause: touching ``tunnel_ramp`` / ``tunnel_trench`` /
     ``bridge_*`` shapes.  A void with an escape is NOT an enclave;
   * what is INSIDE it — retaining walls (with way id, ref and area),
@@ -19,6 +35,15 @@ patch and reports, per void:
     and the BARE GROUND remainder that carries no shape at all;
   * groundside pavement inside no-escape voids: the population the
     enclave law re-verdicts to airside.
+
+``--bands`` adds the ADJACENT-GROUND BAND inventory beside the
+topology: how many band ways the patch carries and their total area,
+split by where they sit — inside a no-escape void, inside a POCKET
+no-escape void (the keep-out's own territory), or outside every void —
+plus the same split for ``adjacent_ground_wall``.  That split is what
+turns "the band area moved" into "it moved HERE": the keep-out is
+supposed to remove band inside pocket voids and nowhere else, and only
+the third column can show whether it also took ground nothing owns.
 
 **It measures no law and produces no defect counts.**  Grade defects come
 from ``tools/harness/census.py`` and nothing else; this tool answers
@@ -39,7 +64,8 @@ geometry.
 
 Usage:
     tools/void_census.py PATCH.osm [PATCH.osm ...] [--json OUT]
-                                   [--walls-only] [--top N]
+                                   [--union surround|pavement]
+                                   [--bands] [--walls-only] [--top N]
 """
 from __future__ import annotations
 
@@ -60,8 +86,13 @@ from shapely.ops import unary_union                       # noqa: E402
 from shapely.strtree import STRtree                       # noqa: E402
 
 import check_grade as CG                                  # noqa: E402
+from auto_patch.adjacent_ground import (                  # noqa: E402
+    _ADJACENT_REF as ADJACENT_BAND_REF,
+    _ADJACENT_WALL_REF as ADJACENT_WALL_REF,
+)
 from auto_patch.config import GAP_FILL_MAX_WIDTH_M        # noqa: E402
 from auto_patch.enclaves import (                         # noqa: E402
+    ENCLAVE_AIRSIDE_ROLES,
     ENCLAVE_ESCAPE_CONTACT_M,
     ENCLAVE_ESCAPE_ROLES,
     ENCLAVE_SURROUND_ROLES,
@@ -72,6 +103,12 @@ from auto_patch.layout import ROLE_RETAINING_WALL         # noqa: E402
 # The ruled treatment's own marker in an emitted patch.
 GAP_FACE_REFS = ("gap_fill_spine",)
 MIN_CONTENT_AREA_M2 = 0.01     # below this an overlap is ring noise
+# The two unions the law computes — the engine's own role sets, never a
+# hand-typed list (``--union``; see the module docstring).
+UNIONS = {
+    "surround": ENCLAVE_SURROUND_ROLES,
+    "pavement": ENCLAVE_AIRSIDE_ROLES,
+}
 
 
 def _rings(path: Path):
@@ -114,13 +151,60 @@ def _short_side(poly):
     return float(min(sides[:2])) if len(sides) >= 2 else None
 
 
-def census(path: Path) -> dict | None:
-    """The void census for one patch (a plain dict, JSON-ready)."""
+def _band_inventory(rings, no_escape_polys, pocket_polys) -> dict:
+    """The ADJACENT-GROUND BAND inventory (``--bands``).
+
+    Counts and areas for the two adjacent-ground refs, split by where
+    each way SITS: inside any no-escape void, inside a POCKET no-escape
+    void — the band keep-out's own territory — or outside every void.
+    A way counts to a bucket when MORE THAN HALF its area lies in it, so
+    each way lands in exactly one column and the columns sum to the
+    total (a band hugging a void rim straddles by a sliver otherwise).
+    The refs are IMPORTED from ``auto_patch.adjacent_ground``.
+    """
+    out = {}
+    ne = unary_union(no_escape_polys) if no_escape_polys else None
+    pk = unary_union(pocket_polys) if pocket_polys else None
+    for label, ref in (("band", ADJACENT_BAND_REF),
+                       ("wall", ADJACENT_WALL_REF)):
+        ways = [p for _w, p, _role, r, _t in rings if r == ref]
+        rec = {"ways": len(ways),
+               "area_m2": round(sum(p.area for p in ways), 1),
+               "in_no_escape_void": [0, 0.0],
+               "in_pocket_void": [0, 0.0],
+               "outside_voids": [0, 0.0]}
+        for poly in ways:
+            half = 0.5 * poly.area
+            try:
+                in_ne = ne is not None and poly.intersection(ne).area > half
+                in_pk = pk is not None and poly.intersection(pk).area > half
+            except Exception:
+                in_ne = in_pk = False
+            key = ("in_pocket_void" if in_pk
+                   else "in_no_escape_void" if in_ne
+                   else "outside_voids")
+            rec[key][0] += 1
+            rec[key][1] += poly.area
+        for key in ("in_no_escape_void", "in_pocket_void", "outside_voids"):
+            rec[key][1] = round(rec[key][1], 1)
+        out[label] = rec
+    return out
+
+
+def census(path: Path, union_name: str = "surround",
+           bands: bool = False) -> dict | None:
+    """The void census for one patch (a plain dict, JSON-ready).
+
+    ``union_name`` selects which airside union bounds a void — see
+    ``UNIONS`` and the module docstring.  It is recorded in the report,
+    because two unions are two populations.
+    """
+    surround_roles = UNIONS[union_name]
     rings, anchor = _rings(path)
     if not rings:
         return None
     surround = [p for _w, p, role, _r, _t in rings
-                if role in ENCLAVE_SURROUND_ROLES]
+                if role in surround_roles]
     if len(surround) < 2:
         return None
     union = unary_union(surround)
@@ -136,7 +220,7 @@ def census(path: Path) -> dict | None:
             voids.append(hole)
 
     others = [(w, p, role, ref) for w, p, role, ref, _t in rings
-              if role not in ENCLAVE_SURROUND_ROLES]
+              if role not in surround_roles]
     otree = STRtree([p for _w, p, _role, _ref in others]) if others else None
     # ROLES ONLY.  The engine's escape test also honours the ``is_bridge``
     # SHAPE FLAG, which ``to_osm`` does not emit — so this reader can see
@@ -187,6 +271,7 @@ def census(path: Path) -> dict | None:
             lon = lon0 + math.degrees(
                 centroid.x / (CG.R_EARTH * math.cos(math.radians(lat0))))
         records.append({
+            "_poly": hole,
             "area_m2": round(hole.area, 1),
             "perimeter_m": round(hole.length, 1),
             "short_side_m": None if short is None else round(short, 1),
@@ -206,9 +291,19 @@ def census(path: Path) -> dict | None:
         })
     records.sort(key=lambda r: -r["area_m2"])
     no_escape = [r for r in records if r["no_escape"]]
+    band_report = None
+    if bands:
+        band_report = _band_inventory(
+            rings,
+            [r["_poly"] for r in no_escape],
+            [r["_poly"] for r in no_escape if r["pocket"]])
+    for rec in records:
+        rec.pop("_poly", None)
     return {
         "patch": str(path),
         "anchor": list(anchor) if anchor else None,
+        # THE FRAME, stamped: two unions are two populations.
+        "union": union_name,
         "gap_fill_max_width_m": GAP_FILL_MAX_WIDTH_M,
         "voids": len(records),
         "no_escape": len(no_escape),
@@ -216,18 +311,30 @@ def census(path: Path) -> dict | None:
         "gap_treated": sum(1 for r in records if r["gap_treated"]),
         "walls_in_no_escape_voids": sum(len(r["walls"]) for r in no_escape),
         "voids_with_wall": sum(1 for r in no_escape if r["walls"]),
+        "bands": band_report,
         "records": records,
     }
 
 
 def _print(report: dict, walls_only: bool, top: int) -> None:
     name = os.path.basename(report["patch"])
-    print(f"{name:<30} voids={report['voids']:<5} "
+    print(f"{name:<30} union={report['union']:<9} "
+          f"voids={report['voids']:<5} "
           f"no_escape={report['no_escape']:<5} "
           f"pocket={report['pocket']:<5} "
           f"gap_treated={report['gap_treated']:<5} "
           f"walls_in_no_escape_voids={report['walls_in_no_escape_voids']:<4} "
           f"voids_with_wall={report['voids_with_wall']}")
+    if report.get("bands"):
+        for label, rec in report["bands"].items():
+            print(f"    {label:<5} ways={rec['ways']:<5} "
+                  f"area={rec['area_m2']:>12.1f} m2   "
+                  f"in_pocket_void={rec['in_pocket_void'][0]}/"
+                  f"{rec['in_pocket_void'][1]:.1f}   "
+                  f"in_other_no_escape_void={rec['in_no_escape_void'][0]}/"
+                  f"{rec['in_no_escape_void'][1]:.1f}   "
+                  f"outside={rec['outside_voids'][0]}/"
+                  f"{rec['outside_voids'][1]:.1f}")
     rows = [r for r in report["records"] if r["no_escape"]]
     if walls_only:
         rows = [r for r in rows if r["walls"]]
@@ -248,6 +355,15 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("patches", nargs="+", type=Path)
     ap.add_argument("--json", dest="json_out", type=Path)
+    ap.add_argument("--union", choices=sorted(UNIONS), default="surround",
+                    help="which airside union bounds a void: 'surround' "
+                         "(airside + buildings, the classifier's set, "
+                         "default) or 'pavement' (airside pavement only "
+                         "— the gap law's own union and the band "
+                         "keep-out's scope)")
+    ap.add_argument("--bands", action="store_true",
+                    help="also report the adjacent-ground band/wall "
+                         "inventory, split by void membership")
     ap.add_argument("--walls-only", action="store_true",
                     help="print only voids that contain a retaining wall")
     ap.add_argument("--top", type=int, default=10,
@@ -255,7 +371,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     reports = []
     for path in args.patches:
-        report = census(path)
+        report = census(path, union_name=args.union, bands=args.bands)
         if report is None:
             print(f"{path}: no airside geometry")
             continue

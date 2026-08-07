@@ -97,6 +97,33 @@ def _frame(patch):
     patch.rect(x1, y0, 160.0, y1, role="stub", aeroway="taxiway")
 
 
+# The INFIELD fixture (the class the ratified band-keep-out scoping
+# turns on): a 525 x 300 m region — over ``GAP_FILL_MAX_WIDTH_M`` on its
+# SHORT side, so the gap law declines it on width and the graded strips
+# own it.  ``building_bar`` puts a building across it, which subdivides
+# it into two 525 x 148 m POCKET halves in the SURROUND union only.
+INFIELD = (30.0, 30.0, 555.0, 330.0)
+
+
+def _infield(patch, building_bar=False):
+    x0, y0, x1, y1 = INFIELD
+    patch.rect(0.0, 0.0, x1 + 30.0, y0, role="runway")
+    patch.rect(0.0, y1, x1 + 30.0, y1 + 30.0, role="runway")
+    patch.rect(0.0, y0, x0, y1, role="stub")
+    patch.rect(x1, y0, x1 + 30.0, y1, role="stub")
+    if building_bar:
+        patch.rect(x0, 178.0, x1, 182.0,
+                   role="building", aeroway="building")
+
+
+def _pocket_frame(patch):
+    """A separate 140 x 40 m pocket, well clear of ``INFIELD``."""
+    patch.rect(700.0, 0.0, 900.0, 30.0, role="runway")
+    patch.rect(700.0, 70.0, 900.0, 100.0, role="runway")
+    patch.rect(700.0, 30.0, 730.0, 70.0, role="stub")
+    patch.rect(870.0, 30.0, 900.0, 70.0, role="stub")
+
+
 def _one(tmp_path, build, name="TEST.osm", sidecar=True):
     patch = _Patch()
     build(patch)
@@ -236,6 +263,83 @@ def test_the_role_vocabulary_is_the_engines_own():
     assert VC.ENCLAVE_SURROUND_ROLES is EN.ENCLAVE_SURROUND_ROLES
     assert VC.ENCLAVE_ESCAPE_ROLES is EN.ENCLAVE_ESCAPE_ROLES
     assert VC.ENCLAVE_ESCAPE_CONTACT_M == EN.ENCLAVE_ESCAPE_CONTACT_M
+    # ``--union`` offers exactly the two unions the LAW has, and both
+    # role sets are the engine's objects.
+    assert VC.UNIONS == {"surround": EN.ENCLAVE_SURROUND_ROLES,
+                         "pavement": EN.ENCLAVE_AIRSIDE_ROLES}
+    assert VC.ADJACENT_BAND_REF and VC.ADJACENT_WALL_REF
+
+
+def test_the_two_unions_are_two_populations(tmp_path):
+    """``--union``: a building bar across a WIDE region subdivides it in
+    the classifier's surround union and leaves it whole in the gap law's
+    pavement-only one.  Reading the wrong union for the band keep-out
+    deleted 152,734 m² of Annex 14 graded strip at HECA — so which union
+    a number came from is stamped into the report."""
+    patch = _Patch()
+    _infield(patch, building_bar=True)
+    path = patch.write(tmp_path / "twounions.osm")
+
+    surround = VC.census(path, union_name="surround")
+    assert surround["union"] == "surround"
+    assert surround["voids"] == 2
+    assert surround["pocket"] == 2          # the Phase-1 keep-out's read
+
+    pavement = VC.census(path, union_name="pavement")
+    assert pavement["union"] == "pavement"
+    assert pavement["voids"] == 1
+    assert pavement["pocket"] == 0          # declined on WIDTH by the gap law
+    assert pavement["records"][0]["short_side_m"] > GAP_FILL_MAX_WIDTH_M
+
+
+def test_the_band_inventory_splits_by_void_membership(tmp_path):
+    """``--bands``: the adjacent-ground inventory is what turns "the band
+    area moved" into "it moved HERE".  Three columns, each way in exactly
+    one of them, and they sum to the total."""
+    def build(patch):
+        # A WIDE region (the infield class) and a POCKET one beside it.
+        _infield(patch)
+        _pocket_frame(patch)
+        # Three bands: one in the wide region, one in the pocket, one
+        # out in the open.
+        patch.rect(100.0, 100.0, 200.0, 200.0,
+                   role="graded_strip", ref=VC.ADJACENT_BAND_REF)
+        patch.rect(760.0, 40.0, 800.0, 60.0,
+                   role="graded_strip", ref=VC.ADJACENT_BAND_REF)
+        patch.rect(-200.0, -200.0, -100.0, -100.0,
+                   role="graded_strip", ref=VC.ADJACENT_BAND_REF)
+        patch.rect(120.0, 120.0, 124.0, 124.0,
+                   role="retaining_wall", ref=VC.ADJACENT_WALL_REF)
+
+    patch = _Patch()
+    build(patch)
+    path = patch.write(tmp_path / "bands.osm")
+    report = VC.census(path, union_name="pavement", bands=True)
+    bands = report["bands"]
+    assert bands["band"]["ways"] == 3
+    assert bands["band"]["area_m2"] == pytest.approx(
+        100.0 * 100.0 + 40.0 * 20.0 + 100.0 * 100.0, rel=1e-3)
+    # The wide region is NOT pocket, so its band lands in the
+    # no-escape-but-not-pocket column — the one the keep-out must leave
+    # alone.
+    assert bands["band"]["in_pocket_void"][0] == 1
+    assert bands["band"]["in_no_escape_void"][0] == 1
+    assert bands["band"]["outside_voids"][0] == 1
+    # The columns PARTITION the population.
+    for rec in bands.values():
+        assert (rec["in_pocket_void"][0] + rec["in_no_escape_void"][0]
+                + rec["outside_voids"][0]) == rec["ways"]
+        assert (rec["in_pocket_void"][1] + rec["in_no_escape_void"][1]
+                + rec["outside_voids"][1]) == pytest.approx(
+                    rec["area_m2"], rel=1e-3)
+    assert bands["wall"]["ways"] == 1
+    assert bands["wall"]["in_no_escape_void"][0] == 1
+
+
+def test_bands_are_absent_unless_asked(tmp_path):
+    """The inventory is opt-in; without it the report carries the
+    topology only (and says so rather than reporting zeros)."""
+    assert _one(tmp_path, _frame)["bands"] is None
 
 
 def test_the_cli_writes_its_json(tmp_path, capsys):

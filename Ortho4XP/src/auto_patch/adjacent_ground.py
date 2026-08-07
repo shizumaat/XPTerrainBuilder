@@ -4113,9 +4113,17 @@ def _enclave_zone_union(layout):
     spine treatment; "a retaining wall or groundside terrace there is a
     defect regardless of which mechanism minted it".  So the band march
     never runs there: consumed exactly like the crossing and
-    collared-pocket zones above.  Scoped by ``enclaves`` to POCKET-width
-    enclaves — an airfield INFIELD is a bounded complement component too,
-    and its graded strips are Annex 14 §3.4.11-13 ground the bands own."""
+    collared-pocket zones above.
+
+    Scoped by ``enclaves`` to the POCKET-width regions of the GAP LAW'S
+    OWN union (pavement only) — the keep-out must agree with the ruled
+    treatment about which ground it OWNS.  Two classes of ground keep
+    their bands by that scoping and both matter: an airfield INFIELD is
+    a bounded complement component too, and its graded strips are Annex
+    14 §3.4.11-13 ground the bands own; and a building standing in that
+    infield must not subdivide it into pockets (Phase-1 measurement:
+    doing so deleted 175,671 m² of HECA band, 152,734 m² of it graded
+    strip)."""
     from .enclaves import enclave_band_keepout_union
     return enclave_band_keepout_union(layout)
 

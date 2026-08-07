@@ -496,6 +496,132 @@ def test_an_infield_sized_region_is_published_but_not_band_territory():
     assert AG._enclave_zone_prep(layout) is None
 
 
+# ─────────────────────────────────────────────────────────────────────
+# 5b. THE KEEP-OUT SCOPING (ratified after the Phase-1 measurement)
+#
+# The keep-out exists to stand the band down over ground the ruled ring
+# + spine treatment OWNS, so it is scoped by the GAP LAW'S OWN union —
+# pavement only — and NOT by the classifier's airside∪building set.
+# Phase 1 scoped it by the latter and deleted 175,671 m² of HECA band,
+# 152,734 m² of it Annex 14 §3.4.11-13 graded strip, because the
+# buildings standing in the 3.4 km² infield subdivide it into
+# pocket-width components.  These twins pin both halves of the ruling.
+# ─────────────────────────────────────────────────────────────────────
+
+# The infield fixture: a 525 x 300 m hole — over ``GAP_FILL_MAX_WIDTH_M``
+# on its SHORT side, so the gap law declines it on width and the graded
+# strips own it — with a building bar across the middle, which splits it
+# into two 525 x 148 m pocket-width halves in the airside∪building union.
+INFIELD = (30.0, 30.0, 555.0, 330.0)
+INFIELD_BAR_Y = (178.0, 182.0)
+
+
+def _infield_layout():
+    x0, y0, x1, y1 = INFIELD
+    by0, by1 = INFIELD_BAR_Y
+    return _FakeLayout([
+        _rect(0.0, 0.0, x1 + 30.0, y0, ROLE_RUNWAY),        # south bar
+        _rect(0.0, y1, x1 + 30.0, y1 + 30.0, ROLE_RUNWAY),  # north bar
+        _rect(0.0, y0, x0, y1, ROLE_STUB),                  # west bar
+        _rect(x1, y0, x1 + 30.0, y1, ROLE_STUB),            # east bar
+        _rect(x0, by0, x1, by1, ROLE_BUILDING),             # the bar
+    ])
+
+
+def _infield_facing_refs(stations, st_alts):
+    """Stations on the south bar's NORTH edge — the frontage that faces
+    the infield — that kept an edge reference."""
+    x0, y0, x1, _y1 = INFIELD
+    return sum(1 for (sx, sy), a in zip(stations, st_alts)
+               if a is not None and abs(sy - y0) < 1e-6 and x0 < sx < x1)
+
+
+def test_the_keepout_reads_the_gap_law_s_own_region_geometry():
+    """ONE geometry, not a look-alike: the keep-out's regions ARE
+    ``gap_fill``'s detection output (pavement-only union), filtered by
+    the escape clause and the gap law's own pocket width.  A second,
+    slightly-different reconstruction here is the duplicate the tool
+    ruling calls a defect — and the disagreement it would licence is
+    exactly what Phase 1 measured."""
+    layout = _frame([_sliver()])
+    candidates = GF._gap_detection_polys(layout, GF._airside_shapes(layout))
+    regions = EN.gap_law_regions(layout)
+    assert len(regions) == len(candidates) >= 1
+    for region, candidate in zip(regions, candidates):
+        assert region.polygon.equals(candidate)
+    keepout = EN.enclave_band_keepout_union(layout)
+    assert keepout is not None
+    assert keepout.area == pytest.approx(
+        sum(c.area for c in candidates))
+
+
+def test_a_building_subdividing_the_infield_keeps_its_band():
+    """THE Phase-1 regression, as an A/B in one fixture.
+
+    The classifier's set (airside∪building) reads this infield as two
+    POCKET-width regions, because the building bar cuts it in half — and
+    scoping the keep-out by that set deletes the infield frontage's whole
+    band, which is Annex 14 §3.4.11-13 graded strip.  The gap law's own
+    union holds the same ground as ONE region and declines it on WIDTH,
+    so nothing else owns it and the band stays."""
+    layout = _infield_layout()
+
+    # The classifier's frame is UNCHANGED — G-ENCLAVE still sees the two
+    # regions (a vehicle cannot drive through the building).
+    enclaves = EN.airside_enclaves(layout)
+    assert len(enclaves) == 2
+    assert all(EN._is_pocket(e) for e in enclaves)
+
+    # The gap law's frame: one region, declined on width.
+    regions = EN.gap_law_regions(layout)
+    assert len(regions) == 1
+    assert regions[0].short_side_m > GAP_FILL_MAX_WIDTH_M
+    assert not EN._is_pocket(regions[0])
+
+    # Therefore: no keep-out, and the band march is untouched.
+    assert EN.enclave_band_keepout_union(layout) is None
+    assert AG._enclave_zone_prep(layout) is None
+    south = layout.shapes[0]
+    _f, _c, st, alts, _o = _march(layout, south, None)
+    kept = _infield_facing_refs(st, alts)
+    assert kept > 0
+
+    # The counterfactual, measured rather than asserted: scoping by the
+    # classifier's set (what Phase 1 shipped) takes that frontage away.
+    phase1 = prep(unary_union([e.polygon for e in enclaves
+                               if EN._is_pocket(e)]))
+    _f1, _c1, st1, alts1, _o1 = _march(layout, south, phase1)
+    assert _infield_facing_refs(st1, alts1) == 0
+
+
+def test_a_faced_pocket_still_loses_its_band():
+    """The other half of the ruling: where the ruled treatment DOES own
+    the ground — the gap law emits a ring + spine face over it — the
+    band and its retaining wall stay out.  Same fixture, same law, the
+    opposite answer, and the discriminator is the gap law's width."""
+    layout = _frame([_sliver()])
+    EN.publish_airside_enclaves(layout)
+    regions = EN.gap_law_regions(layout)
+    assert len(regions) == 1 and EN._is_pocket(regions[0])
+
+    # The treatment owns it: the gap law emits its face here.
+    assert GF.emit_gap_fill_spines(layout, None, 0, 0) >= 1
+    assert _gap_faces(layout)
+
+    # So the band stands down over exactly that ground.  The control
+    # arm marches a layout the face has NOT been emitted into: once the
+    # gap face exists it covers the hole itself, and a covered outward
+    # probe would answer for the wrong reason.
+    zone = AG._enclave_zone_prep(layout)
+    assert zone is not None
+    control = _frame([_sliver()])
+    _f0, _c0, st0, alts0, _o0 = _march(control, control.shapes[0], None)
+    _f1, _c1, st1, alts1, _o1 = _march(layout, layout.shapes[0], zone)
+    assert _hole_facing_refs(st0, alts0) > 0
+    assert _hole_facing_refs(st1, alts1) == 0
+    assert _open_terrain_refs(st1, alts1) == _open_terrain_refs(st0, alts0)
+
+
 def test_a_sub_gap_area_pocket_is_still_band_keepout():
     """A pocket UNDER ``GAP_FILL_MIN_AREA_M2`` gets no gap face (the gap
     law's economy floor), and it is still enclave interior: the band and

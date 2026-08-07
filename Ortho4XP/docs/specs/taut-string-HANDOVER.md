@@ -60,7 +60,15 @@ ruling; the recorded 0c003ba battery is PRE-fix-1 and not comparable
 where service axes exist. LEAD RECOMMENDATION: HOLD the merge —
 +192 @10k is an airside-negative trade and the airside-view
 asymmetry is unattributed; that attribution is the road thread's
-next item.**
+next item. BOTH RIDERS RULED same day (owner, RULINGS): K1 =
+DEFECT — edges MUST bind (service routes are taxiways at a larger
+cap; the band follows the route path from the mouth seat; recorded
+suspect = the c8graph stringing limiter, SPJC 4/389); K2 = LAWFUL —
+mouths are the boundary arbiter, the +134 is airside law expressing
+itself. Spec service-band-propagation dispatched on lane/c9feed:
+Job 1 confirm the limiter, Job 2 fix (K1 must INVERT; airside
+untouched), Job 3 the asymmetry attribution — the road-merge gate
+re-reads after it.**
 
 **NIDREPAIR PHASE A PARTIAL (08-07 ~15:30; lane/nidrepair fc8ee59,
 NOT merged — its own zero-new-airside bar): A3 PASS, A2 10→1/0,

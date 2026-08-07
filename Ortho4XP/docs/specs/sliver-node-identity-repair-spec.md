@@ -1,5 +1,30 @@
 # Sliver / node-identity regression repair — spec
 
+> **PHASE A OUTCOME (2026-08-07, lane/nidrepair fc8ee59 — NOT
+> merged; blocker below).** A3 PASS (coincident-twin weld branch
+> deleted). A2 NEAR-PASS (private-on-foreign-edge 10→1 plateau /
+> 0→0 canyon; residual 1 = a guard refusal within SHARED_VERTEX_TOL).
+> A1 MISS at attempt cap, diagnosed exactly: the repair frame is the
+> EMITTED frame (the identical predicate reads 10/10 there, 0/10 on
+> layout.shapes), and `_interior_rings` carries duplicate hole rings
+> at weld time because `_seen_hole` dedup runs later, at emit —
+> named one-line fix (hoist the dedup above `_weld_chains`), unspent.
+> Divergence wins: plateau tv 79→38 co 14→0, canyon tv 122→72
+> co 11→0; five classes cleared; the out-of-scope creep family
+> improved unchased. **BLOCKER: census matched control +2 airside
+> plateau / +15 canyon (dominant: canyon `within_shape ?|?`
+> role-less +8) — the zero-new-adjudicated-airside bar is NOT met.**
+> DEVIATIONS RATIFIED (spec author): the 8-build overrun (the frame
+> discovery it bought IS the key finding) and the A2-attempt scope.
+> CONTINUATION (A′, dispatched): from the current tip with demfix
+> merged — integrate fc8ee59, apply the named A1 one-liner, re-run
+> Phase A acceptance, ATTRIBUTE every census-moved row (a lawful
+> reclassification needs a Fable ruling, never silent acceptance;
+> the bar stands), then the REAL-frame envelope check and Phase B.
+> NEW NOISE CLASS chored, not this lane:
+> `Airport_mod_cache/o4_library_index_*.cache` write flags every
+> build CONTAMINATED (same treatment family as the .lock ruling).
+
 Author: lead (Fable), 2026-08-07. Charter:
 `Ortho4XP/tmp/sliver_attrib/sliver_attrib_dossier.md` (46-point
 vintage series) + `Ortho4XP/tmp/density_audit/density_dossier.md`.

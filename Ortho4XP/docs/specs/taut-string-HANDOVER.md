@@ -37,6 +37,45 @@ tree's 4 unmounted data dirs now symlink the shared repo; write
 guard gained the no-op ensure-dir allowance (twin in
 test_harness.py).**
 
+**ROAD RECEIVER-ONLY LANDED IN-LANE (08-07 ~15:00; lane/c9feed
+717e67e, NOT merged — owner gate): default flip byte-identical to
+the M1 knife arms both worlds; old gate spelling retired with an
+anti-reappearance twin; census `--rows-json` extension RATIFIED
+(near-fit, INDEX + 7 twins same commit). +182 DECOMPOSED 100%: net
+of 818 added / 636 removed rows, ZERO role flips — pure surface
+redistribution over the western apron complex; carriers = road-feed
+graph membership +334 (world-consistent) and the cycle-9 airside
+view +110@10k/−381@−500 (world-asymmetric, unexplained) vs this
+round's −262 credit. MERGE TABLE: 10k airside 4,198 (+192 vs base) /
+−500 4,027 (−102 vs base); groundside moves only via the receiver
+pass (+14/−9 adj). TWO RIDERS FOR THE OWNER: K1 — service route
+EDGES are INERT (byte-identical patch with edges withheld; all reach
+arrives via mouths — the ONE-graph point-1 mechanism as written is
+not what runs); K2 — removing MOUTHS moves airside +134 (a
+groundside seating mechanism coupling airside under strict
+airside-is-king). Pre-existing (both arms): CYXY canyon
+certify-stop; test_solver_validator_same_edge_budgets@CYXY. Battery
+cells beyond HECA verify at the train tip per the streamlined
+ruling; the recorded 0c003ba battery is PRE-fix-1 and not comparable
+where service axes exist. LEAD RECOMMENDATION: HOLD the merge —
++192 @10k is an airside-negative trade and the airside-view
+asymmetry is unattributed; that attribution is the road thread's
+next item.**
+
+**NIDREPAIR PHASE A PARTIAL (08-07 ~15:30; lane/nidrepair fc8ee59,
+NOT merged — its own zero-new-airside bar): A3 PASS, A2 10→1/0,
+A1 MISS-with-named-one-liner (the repair frame is the EMITTED frame;
+`_seen_hole` dedup must hoist above `_weld_chains`). Divergence:
+plateau tv 79→38 co 14→0, canyon tv 122→72 co 11→0, five classes
+cleared, creep family improved unchased. BLOCKER: matched-control
+census +2/+15 airside (dominant canyon `within_shape ?|?` role-less
++8) — attribution required. Deviations ratified in-spec (8-build
+overrun bought the frame discovery). CONTINUATION A′ DISPATCHED from
+tip: one-liner + census-move attribution + REAL-frame envelope
+(demfix merged) + Phase B mesh counter-read. CHORE:
+o4_library_index_*.cache write flags every build CONTAMINATED —
+needs the .lock-family ruling treatment.**
+
 **ENCLAVE WALL ATTRIBUTED (08-07 ~13:00; 0 builds;
 tmp/enclave_attrib/enclave_dossier.md): the owner's specimen
 (30.128508, 31.403444) = adjacent_ground_wall `-12825`, 7.3-7.6 m

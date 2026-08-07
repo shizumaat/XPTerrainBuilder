@@ -103,7 +103,28 @@ for _p in (os.path.join(ROOT, "src"), ROOT, os.path.join(ROOT, "tests"),
         sys.path.insert(0, _p)
 
 ARMS = ("production", "free-hard", "free-seams", "no-boxes", "no-intervals",
-        "pure-symmetric")
+        "pure-symmetric",
+        # THE BOX KNIVES (2026-08-06, c9air).  ``no-boxes`` frees the hard
+        # anchors AND drops every bound in one move, so a residual it
+        # clears is attributed to "boxes or hardness" and no further —
+        # which is the 2x2 cell the airside-residual attribution needed and
+        # could not read (measured HECA -500: free-hard alone makes apron
+        # FOUR TIMES WORSE while no-boxes makes it six times better, so the
+        # confounded arm cannot say which half acted).  These three keep the
+        # hard set exactly as production passed it and drop ONE bound class:
+        "no-node-boxes", "no-group-boxes", "no-gs-pin-boxes",
+        # THE PAD-RIGIDITY KNIFE.  A building pad is a RIGID FLAT GROUP:
+        # every ring node moves together or not at all.  Its BOX is a
+        # separate thing (`no-group-boxes` prices that) — this arm prices
+        # the rigidity itself, which is what stands between a pad's seat
+        # and the apron law on the ring vertices the two SHARE.
+        "no-pad-groups")
+
+#: Arms handled in ``do_replay`` rather than ``_apply_arm``, because what
+#: they intervene on (``flat_groups``) is not one of the four values
+#: ``_apply_arm`` slices.  ``_apply_arm`` still validates them, so the
+#: zero-selection refusal is the same law for every arm.
+PAD_GROUP_ARMS = ("no-pad-groups",)
 
 # ── THE HARD-ANCHOR CLASS VOCABULARY ────────────────────────────────────
 # Produced by ``route_profile/solve.py``: the 5-way classifier (~:2181-2194)
@@ -287,6 +308,72 @@ def _apply_arm(arm, entries, hard, node_bounds, group_bounds, state):
               f"{len(group_bounds or ())} group bound(s)")
         return entries, set(), None, None
 
+    if arm == "no-pad-groups":
+        # Validated HERE (one refusal law for every arm); APPLIED in
+        # ``do_replay``, which owns ``flat_groups``.
+        n_pad = len(state.get("pad_groups") or ())
+        if not n_pad:
+            _refuse("--arm no-pad-groups", "rigid pad groups",
+                    "pad-group census", {"pad_groups": n_pad})
+        print(f"[arm] no-pad-groups: dissolving {n_pad} rigid pad "
+              f"group(s) (their ring nodes move individually); "
+              f"{len(node_bounds or ())} node / "
+              f"{len(group_bounds or ())} group bound(s) and "
+              f"{len(hard)} hard anchor(s) KEPT")
+        return entries, hard, node_bounds, group_bounds
+
+    if arm in ("no-node-boxes", "no-group-boxes", "no-gs-pin-boxes"):
+        # ONE bound class, hard set UNTOUCHED.  Every one refuses on a
+        # zero selection (binding point 2): a bound class the dump does
+        # not carry would replay byte-identically to production and read
+        # as "this class owns nothing".
+        if arm == "no-node-boxes":
+            if not node_bounds:
+                _refuse("--arm no-node-boxes", "per-node bounded-yield boxes",
+                        "bound census",
+                        {"node_bounds": len(node_bounds or ()),
+                         "group_bounds": len(group_bounds or ())})
+            print(f"[arm] no-node-boxes: dropping all "
+                  f"{len(node_bounds)} node bound(s); "
+                  f"{len(group_bounds or ())} group bound(s) and "
+                  f"{len(hard)} hard anchor(s) KEPT")
+            return entries, hard, None, group_bounds
+        if arm == "no-group-boxes":
+            n_gb = sum(1 for b in (group_bounds or ()) if b is not None)
+            if not n_gb:
+                _refuse("--arm no-group-boxes",
+                        "pad-group bounded-yield boxes", "bound census",
+                        {"node_bounds": len(node_bounds or ()),
+                         "group_bounds": len(group_bounds or ()),
+                         "group_bounds_not_None": n_gb})
+            print(f"[arm] no-group-boxes: dropping {n_gb} pad-group "
+                  f"box(es) of {len(group_bounds)} group(s); "
+                  f"{len(node_bounds or ())} node bound(s) and "
+                  f"{len(hard)} hard anchor(s) KEPT")
+            return entries, hard, node_bounds, None
+        # no-gs-pin-boxes: the GROUNDSIDE half of ``node_bounds`` only —
+        # the freed groundside pins' law ceilings (solve.py ~:3817,
+        # "weld datum + one throat of reach").  The dump names them
+        # (``fp8_kwargs['gs_pin_nodes']``), so this is a selection, not a
+        # guess; airside-is-king makes a groundside ceiling on an airside
+        # node a defect, and this arm prices it.
+        pins = {int(i) for i in
+                ((state.get("fp8_kwargs") or {}).get("gs_pin_nodes") or ())}
+        sel = {i for i in (node_bounds or {}) if i in pins}
+        if not sel:
+            _refuse("--arm no-gs-pin-boxes",
+                    "node bounds carried by a groundside pin",
+                    "bound census",
+                    {"node_bounds": len(node_bounds or ()),
+                     "gs_pin_nodes": len(pins)})
+        print(f"[arm] no-gs-pin-boxes: dropping {len(sel)} groundside-pin "
+              f"ceiling(s) of {len(node_bounds)} node bound(s); "
+              f"{len(group_bounds or ())} group bound(s) and "
+              f"{len(hard)} hard anchor(s) KEPT")
+        return (entries, hard,
+                {i: b for i, b in node_bounds.items() if i not in sel},
+                group_bounds)
+
     if arm == "no-intervals":
         if not n_int:
             _refuse("--arm no-intervals",
@@ -415,6 +502,8 @@ def do_replay(icao, path, *, arm, sweeps, hard_cap, drop_family,
         entries = _drop_interval_families(entries, drop_interval_family)
     entries, hard, node_bounds, group_bounds = _apply_arm(
         arm, entries, hard, node_bounds, group_bounds, state)
+    if arm in PAD_GROUP_ARMS:            # validated in ``_apply_arm``
+        pad_groups = None
     n_edges = sum(len(e["edges"]) for e in entries)
     n_int = sum(1 for e in entries for x in e["edges"] if len(x) >= 4)
     print(f"[replay] nodes={len(elev)} raw_edges={n_edges} "

@@ -186,3 +186,75 @@ def test_the_census_and_the_solver_share_one_groundside_partition():
     sys.path.insert(0, str(ROOT / "tools"))
     import check_grade
     assert set(check_grade._GROUNDSIDE_ROLES) == set(GROUNDSIDE_ROLES)
+
+
+# ── 4. THE PARTITION COVERS BOUNDS, NOT ONLY PAIRS (c9air) ───────────
+# A groundside PIN CEILING is authored by the lot (weld datum + one
+# throat of reach) and travels in ``node_bounds``.  A MOUTH vertex
+# carries an airside role, so it is a GIVER: its pairs stay in the
+# airside pass — and until this clause its lot-authored box came along
+# and clamped it there.  The band/box merge rules BAND WINS only on a
+# DECLARED CONFLICT (empty intersection), so a ceiling that merely
+# TIGHTENS the airside band bound airside silently, which is groundside
+# pulling airside — forbidden unconditionally (RULINGS 2026-07-30
+# "airside is king"; 2026-08-06 the mouth ruling).
+#
+# KNOWN ANSWER: with node 0 hard at 0.0 and cap 1.0 per hop, the lawful
+# airside field is [0, 0, 0] whatever the lot says.  A pin ceiling of
+# -1.0 on the mouth (node 2, a GIVER) may not move it.
+#
+# THE CEILING IS DELIBERATELY INSIDE THE BAND.  Node 2 is two 1.0-hops
+# from the hard node, so its reach band is [-2, +2]; a -1.0 ceiling
+# INTERSECTS it.  That is the silent case this clause exists for — the
+# merge's BAND WINS rule fires only on an EMPTY intersection, so a
+# ceiling deeper than the band (-5.0) is already caught today and would
+# make the positive control below pass for the wrong reason.
+
+_PIN_CEILING = -1.0
+
+
+def _run_pinned(*, partitioned, pin_on, ceiling=None):
+    """Project with a groundside-pin ceiling on ``pin_on``."""
+    elev = [0.0, 0.0, 0.0, 0.0, 0.0]
+    kw = dict(node_bounds={pin_on: (-1e18, float(
+                  _PIN_CEILING if ceiling is None else ceiling))},
+              gs_pin_nodes={pin_on}, force_scalar=True)
+    if partitioned:
+        feasibility_project_partitioned(
+            elev, _constraints(), {0},
+            receiver_nodes=RECEIVERS, n_nodes=len(elev), **kw)
+    else:
+        feasibility_project(elev, _constraints(), {0}, **kw)
+    return elev
+
+
+def test_a_groundside_pin_ceiling_never_bounds_an_airside_node():
+    """The ruling as an assertion: a lot-authored ceiling on a GIVER
+    (mouth) vertex has no effect on the airside field."""
+    air = _run_pinned(partitioned=True, pin_on=2)[:3]
+    assert air == [0.0, 0.0, 0.0], (
+        "a groundside pin ceiling moved airside: %r" % (air,))
+
+    # POSITIVE CONTROL — the same box through ONE shared projection DOES
+    # drag airside down.  Without it, this twin would also pass if the
+    # projection had stopped applying node bounds at all.
+    ctrl = _run_pinned(partitioned=False, pin_on=2)[:3]
+    assert ctrl != [0.0, 0.0, 0.0], (
+        "positive control did not move — node_bounds is inert, so the "
+        "twin above proves nothing")
+    assert ctrl[2] <= _PIN_CEILING + 1e-9
+
+
+def test_a_receiver_keeps_its_own_groundside_pin_ceiling():
+    """Receiver-only is a DIRECTION, not a deletion: the withdrawal is
+    scoped to non-receivers, so groundside law still binds groundside.
+
+    Node 3 sits behind 0.5-caps, so its band is [-0.5, +0.5]; the ceiling
+    used here TIGHTENS it (the same silent case as above) instead of
+    contradicting it, which the merge would resolve BAND WINS on its own
+    — that pre-existing rule is not what this twin measures."""
+    field = _run_pinned(partitioned=True, pin_on=3, ceiling=-0.25)
+    assert field[3] <= -0.25 + 1e-9, (
+        "the receiver pass dropped a groundside pin ceiling that is its "
+        "own law: %r" % (field,))
+    assert field[:3] == [0.0, 0.0, 0.0]

@@ -2379,10 +2379,42 @@ def feasibility_project_partitioned(elev, shape_constraints, hard, *,
                                    **kw)
     givers, receivers = partition_constraints_by_receiver(
         shape_constraints, receiver_nodes)
+    # ── THE PARTITION COVERS BOUNDS, NOT ONLY PAIRS (c9air) ───────────
+    # A groundside PIN CEILING (``gs_pin_nodes``: weld datum + one throat
+    # of reach, authored by the lot) reaches airside through a SHARED
+    # node — a mouth vertex carrying an airside role is a GIVER, so its
+    # pairs stay in this pass while its groundside-authored box came
+    # along in ``node_bounds`` and clamped it here.  The band/box merge
+    # only rules BAND WINS on a DECLARED CONFLICT (empty intersection);
+    # a ceiling that merely TIGHTENS the airside band was never a
+    # conflict and bound airside silently.  Owner law is unconditional —
+    # "groundside must have ZERO effect or pull on airside" (RULINGS
+    # 2026-07-30 airside-is-king; 2026-08-06 the mouth is seated where
+    # the airside apron can meet it, and the road grades from that seat)
+    # — so the airside pass drops every groundside-pin bound on a
+    # non-receiver node.  Receivers keep theirs: pass B IS groundside law.
+    _kw_air = kw
+    _pins = kw.get("gs_pin_nodes") or ()
+    _nb = kw.get("node_bounds")
+    if _nb and _pins:
+        _pin_set = {int(i) for i in _pins}
+        _drop = {i for i in _nb
+                 if i in _pin_set and i not in receiver_nodes}
+        if _drop:
+            _kw_air = dict(kw)
+            _kw_air["node_bounds"] = {i: b for i, b in _nb.items()
+                                      if i not in _drop}
+            import O4_UI_Utils as _UI_part
+            _UI_part.vprint(
+                1, f"    [partition] airside pass: {len(_drop)} "
+                   f"groundside-pin ceiling(s) withdrawn from "
+                   f"{len(_nb)} node bound(s) (airside is king — a "
+                   f"non-receiver node never carries a lot-authored "
+                   f"box); {len(_nb) - len(_drop)} kept")
     rem_a, bh_a = feasibility_project(
         elev, givers, hard, flat_groups=flat_groups,
         group_bounds=group_bounds, forensics=forensics,
-        probe_out=probe_out, **kw)
+        probe_out=probe_out, **_kw_air)
     if not receivers:
         return rem_a, bh_a
     n = int(n_nodes if n_nodes is not None else len(elev))

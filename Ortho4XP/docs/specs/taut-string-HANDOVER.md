@@ -37,6 +37,25 @@ tree's 4 unmounted data dirs now symlink the shared repo; write
 guard gained the no-op ensure-dir allowance (twin in
 test_harness.py).**
 
+**ENCLAVE CONTINUATION: SCOPING LANDED, VERIFY CORPUS-BLOCKED
+(08-07 ~22:00; lane/enclave 2c32bdc): the ratified pavement-only
+keep-out reads gap_fill's OWN detection (cannot disagree with the
+treatment by construction); Annex-14 infield strip preserved BY
+CONSTRUCTION (WIDE region, 3.4M m², declined on width — predicted
+restore 152,734.5 m²); 322 m² void attributed (building-closed hole,
+never a gap candidate — band keeps it, wall -13128 expected back,
+final walls-gone count 6 not 7); SPJC NOT inert (76,805 m² band in
+ONE 213,742 m² pocket, no gap face on the stale 07-30 frame — first
+verification read). 541 tests green. BLOCKER: 385 of the HECA Tai
+Models pack's .obj files REWRITTEN in the shared X-Plane install at
+13:56 today (the owner's concurrent tunnel/OBJ8 session's re-bake) —
+the object-footprint sidecar fingerprints them, so EVERY HECA
+measurement build refuses until an authorised
+--refresh-data airport_mod_cache event; Phase-1 arms no longer
+matched. RESUMPTION PLAN: owner confirms the tunnel session is done
+with the pack → lead runs the ledgered refresh → verification round
+(rebuilt ctl + scoped + −500 pair + SPJC arm) → merge → app 1.0.223.**
+
 **ENCLAVE PHASE-1 STOP + CONTINUATION (08-07 ~21:00; lane/enclave
 efdeae6): walls 7/7 DEAD in-lane (specimen -12825 = gap ring+spine)
 but the lane REFUSED ITSELF at item 4 — the airside∪building

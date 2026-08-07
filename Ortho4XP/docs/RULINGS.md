@@ -833,6 +833,25 @@ node take the DEM value ((d): extend the wall exemption one-sided),
 or must every welded node of a law-valued ring seat from its ring
 ((a): missing seat)?
 
+## 2026-08-07 — Airside-surrounded enclaves: G-ENCLAVE extends to ground (owner)
+
+Owner, on the HECA retaining wall at 30.128508, 31.403444 (an area
+surrounded by airside apron): "I thought we had standing law that
+something completely surrounded by airside pavement could never be
+groundside?" CONFIRMED — G-ENCLAVE, owner 2026-07-28
+(pavement-scoring-classifier-spec §7): "groundside can never be
+surrounded by airside pavement unless it has a tunnel or bridge
+service road to get out." CLARIFIED today: the principle covers
+EVERYTHING inside an airside-surrounded enclave, paved or bare —
+such an area is airside-interior and takes the GAP INTERIOR RING +
+SPINE treatment (owner: "should be treated accordingly with a gap
+interior ring and spine"); a retaining wall or groundside terrace
+there is a defect regardless of which mechanism minted it. The named
+specimen is under attribution (did G-ENCLAVE fail to fire, or does
+bare ground fall outside its pavement-shape scope — a law gap).
+RIDER: a `wall_foot_ll` exemption resting on a wall of this class is
+VOID once the wall is reclassified — re-census after the fix.
+
 RULED same day (owner, PROVISIONAL — verbatim "I'm not sure, try
 d"): **(d)**. The wall-foot node on the adjacent-ground band's outer
 edge may take the raw DEM value; the wall-spanned tear exemption

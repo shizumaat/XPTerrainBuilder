@@ -303,6 +303,32 @@ ROLE_BRIDGE_CAUSEWAY = "bridge_causeway"
 # of EGLL airside pavement down, up to 8 m near tunnels; this role fixes it.)
 ROLE_TUNNEL_TRENCH = "tunnel_trench"
 
+# THE GROUNDSIDE SIDE OF THE LAW'S OWN PARTITION (cycle 8, the
+# projection-partition round).  These are the roles ``tools/check_grade``
+# calls groundside when it decides a census row's SIDE — the partition
+# the campaign's airside/groundside/mixed matrix is stated in, and the
+# same one the owner's "airside is king" ruling names.  It lives HERE, in
+# the registry, because two readers now need it and a second literal set
+# is exactly the drift ``blast.py`` flags as a role-literal hazard:
+#
+#   * ``solve`` / ``final_grade_projection`` — the RECEIVER set of the
+#     projection partition (RULINGS 2026-08-06 + the cycle-8 spec
+#     addendum): airside projects first with these nodes' pairs excluded,
+#     groundside projects after against frozen airside values.
+#   * ``tools/check_grade._GROUNDSIDE_ROLES`` — the census side, which
+#     imports this and falls back to its own literal only when the engine
+#     package is not importable (the CLI-on-a-bare-patch case).
+#
+# A node is a RECEIVER only when EVERY role it carries is in here: a
+# mouth vertex shared with an apron ring is airside (airside wins the
+# seat — RULINGS 2026-08-06, "Service-road mouths seat like apron-edge
+# buildings"), which is the same rule ``row_side`` applies when it calls
+# an apron↔road row MIXED rather than groundside.
+GROUNDSIDE_ROLES: frozenset = frozenset({
+    ROLE_GROUNDSIDE_PAVEMENT, ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION,
+    ROLE_TUNNEL_RAMP,
+})
+
 # SOFT RECEIVERS (weld ruling 2026-07-09): terrain-grading roles whose
 # values ADOPT from pavement / solver-owned shapes at shared vertices —
 # value authorities never move (user ruling: the PAVEMENT value always

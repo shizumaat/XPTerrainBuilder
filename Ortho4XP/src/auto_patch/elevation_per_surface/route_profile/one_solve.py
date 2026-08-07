@@ -2282,6 +2282,123 @@ def _break_forensics_report(path, label, broken, hard, elev, n,
         print(f"    [break-forensics] dump failed: {exc}")
 
 
+def partition_constraints_by_receiver(shape_constraints, receiver_nodes):
+    """Split a constraint list into ``(giver_side, receiver_side)``.
+
+    A pair belongs to the RECEIVER side as soon as EITHER endpoint is a
+    receiver node: an airside↔groundside law edge is the coupling the
+    partition exists to make one-directional, so it is enforced in the
+    receiver pass (where the airside endpoint is frozen), never in the
+    airside one.  Everything else is the giver (airside) side.
+
+    LAZY (flatness-certified) entries are never split: their body pairs
+    do not exist yet, and ``feasibility_project`` expands them IN PLACE
+    so a later projection sees the expansion.  Such an entry is handed to
+    one side WHOLE and BY IDENTITY (never a copy) — receiver side if it
+    touches any receiver node, giver side otherwise.  A lazy entry is one
+    SHAPE's law, so this is the shape's own side by construction.
+
+    Eager entries are copied per side with their other keys intact
+    (``family``, ``envelope_skip``, …) and an empty side is dropped.
+    ``receiver_nodes`` empty ⇒ ``(shape_constraints, [])`` with the SAME
+    list object, i.e. the un-partitioned call is byte-identical.
+    """
+    if not receiver_nodes:
+        return shape_constraints, []
+    givers: list = []
+    receivers: list = []
+    for sc in shape_constraints:
+        edges = sc.get("edges") or ()
+        touches = any((e[0] in receiver_nodes or e[1] in receiver_nodes)
+                      for e in edges)
+        if sc.get("lazy_expand") is not None:
+            if not touches:
+                touches = any(i in receiver_nodes
+                              for i in (sc.get("lazy_nodes") or ()))
+            (receivers if touches else givers).append(sc)   # BY IDENTITY
+            continue
+        if not touches:
+            givers.append(sc)
+            continue
+        g_edges = [e for e in edges
+                   if e[0] not in receiver_nodes and e[1] not in receiver_nodes]
+        r_edges = [e for e in edges
+                   if e[0] in receiver_nodes or e[1] in receiver_nodes]
+        if g_edges:
+            givers.append(dict(sc, edges=g_edges))
+        if r_edges:
+            receivers.append(dict(sc, edges=r_edges))
+    return givers, receivers
+
+
+def feasibility_project_partitioned(elev, shape_constraints, hard, *,
+                                    receiver_nodes=None, n_nodes=None,
+                                    flat_groups=None, group_bounds=None,
+                                    forensics=None, probe_out=None, **kw):
+    """THE PROJECTION PARTITIONS — airside first, groundside after
+    (docs/specs/cycle8-one-graph-spec.md ADDENDUM; derives from the
+    owner's receiver-only law, RULINGS 2026-08-06 "ONE graph" clause 2 and
+    the standing "airside is king").
+
+    A SHARED PROJECTION IS A COUPLING.  Holding groundside pairs in the
+    same constraint set as airside lets an over-cap mouth or lot edge
+    SPLIT its excess across both endpoints — the airside one included —
+    which is how a groundside round moved airside rows (+6 SPJC / +5 HECA,
+    the cycle-7 Q4 debt).  Receiver-only is therefore made STRUCTURAL:
+
+      1. AIRSIDE PASS — every pair with no receiver endpoint, projected
+         exactly as before.  No groundside value is in this constraint
+         set at all, so none can move an airside node.
+      2. GROUNDSIDE PASS — the pairs the first pass excluded, with EVERY
+         non-receiver node frozen (``hard``).  The airside values the
+         first pass settled are data here, never variables: the mouth is
+         seated by airside and the road grades from it, which is the
+         mouth ruling in constraint form.
+
+    Freezing the whole non-receiver set (not merely the endpoints of
+    mixed pairs) is deliberate: the reach-band clamp inside
+    ``feasibility_project`` runs over EVERY movable node, so a
+    partially-frozen airside would still be re-clamped by the groundside
+    pass — a second author on airside values.
+
+    The measured-worse alternative (running the groundside seats AFTER
+    the final projection, 434 → 493 airside at SPJC) is FORBIDDEN by the
+    spec addendum; the partition is the ruled cure.
+
+    ``receiver_nodes`` empty/None ⇒ ONE call, byte-identical to
+    ``feasibility_project``.  Returns the same ``(remaining_over_cap,
+    both_hard)`` pair, summed over the two passes so the exit report
+    still counts every violated edge exactly once (the two edge sets
+    PARTITION the input).
+    """
+    if not receiver_nodes:
+        return feasibility_project(elev, shape_constraints, hard,
+                                   flat_groups=flat_groups,
+                                   group_bounds=group_bounds,
+                                   forensics=forensics, probe_out=probe_out,
+                                   **kw)
+    givers, receivers = partition_constraints_by_receiver(
+        shape_constraints, receiver_nodes)
+    rem_a, bh_a = feasibility_project(
+        elev, givers, hard, flat_groups=flat_groups,
+        group_bounds=group_bounds, forensics=forensics,
+        probe_out=probe_out, **kw)
+    if not receivers:
+        return rem_a, bh_a
+    n = int(n_nodes if n_nodes is not None else len(elev))
+    # FROZEN AIRSIDE: everything that is not a receiver is immovable for
+    # the groundside pass.  Building the set explicitly (rather than
+    # trusting "it has no edges here") is what makes the freeze cover the
+    # band clamp as well as the sweeps.
+    hard_recv = set(hard)
+    hard_recv.update(i for i in range(n) if i not in receiver_nodes)
+    # No flat groups in the receiver pass: a pad is never a receiver, so
+    # every group is fully frozen above — passing them would only re-do
+    # the merge and re-broadcast values that cannot move.
+    rem_b, bh_b = feasibility_project(elev, receivers, hard_recv, **kw)
+    return rem_a + rem_b, bh_a + bh_b
+
+
 def feasibility_project(elev, shape_constraints, hard, *,
                         max_iters=None,
                         tol=1e-3, force_scalar=False,

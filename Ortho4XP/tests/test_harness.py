@@ -2037,3 +2037,55 @@ class TestWhoJsonAuthorshipLoader:
         out = capsys.readouterr().out
         assert "no 'dem_authorship'-shaped rows found" in out
         assert "JOIN EMPTY" in out
+
+
+# ── THE AXIS FRAME (--frame own|base) ────────────────────────────────
+
+def _sidecar_patch(tmp_path):
+    """A minimal patch + sidecar carrying two TAXI and one SERVICE axis."""
+    osm = tmp_path / "frame.osm"
+    osm.write_text("<?xml version='1.0'?>\n<osm version='0.6'>\n</osm>\n")
+    (tmp_path / "frame.osm.axes.json").write_text(json.dumps({
+        "axes_exact": [
+            [[[0.0, 0.0], [0.0, 0.001]], [0.015], 0, False],
+            [[[0.0, 0.0], [0.001, 0.0]], [0.015], 1, False],
+            [[[0.0, 0.0], [0.001, 0.001]], [0.08], 2, True],   # service
+        ],
+        "ruleset": "icao",
+    }))
+    return osm
+
+
+def test_the_own_frame_is_the_default_and_touches_nothing(census_mod, cg,
+                                                          tmp_path):
+    """Default runs must pass NO axis override at all — the base frame is
+    opt-in, and a frame that silently altered the default would be the
+    census-wrapper defect with a flag on it."""
+    osm = _sidecar_patch(tmp_path)
+    overrides, stamp = census_mod._axis_frame_override(osm, cg, "own")
+    assert overrides == {}
+    assert stamp["frame"] == "own"
+
+
+def test_the_base_frame_drops_exactly_the_service_axes(census_mod, cg,
+                                                       tmp_path):
+    """The base frame removes the SERVICE axes and nothing else, and says
+    so in numbers (3 -> 2) rather than leaving it to the reader."""
+    osm = _sidecar_patch(tmp_path)
+    overrides, stamp = census_mod._axis_frame_override(osm, cg, "base")
+    assert stamp == {"frame": "base", "axes_total": 3, "axes_kept": 2}
+    kept = overrides["taxi_axes_ll"]
+    assert len(kept) == 2
+    assert not any(bool(e[4]) for e in kept), "a service axis survived"
+    full = cg.law_context_from_sidecar(osm, announce=False)["taxi_axes_ll"]
+    assert kept == [e for e in full if not e[4]], (
+        "the base frame is not a SUBSET of the patch's own frame — it must "
+        "remove axes, never rewrite them")
+
+
+def test_the_frame_is_always_stamped_in_the_report(census_mod):
+    """RULINGS 2026-08-06 binding point 3: every reported number carries
+    its frame.  A base-frame census that read like an own-frame one is the
+    two-instruments trap by construction."""
+    src = Path(inspect.getfile(census_mod)).read_text()
+    assert '"axis_frame": frame_stamp' in src

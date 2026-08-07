@@ -52,6 +52,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from auto_patch import grade_graph as GG                                # noqa: E402
 from auto_patch.elevation_per_surface import building_feasibility as BF  # noqa: E402
 from auto_patch.elevation_per_surface.route_profile import (            # noqa: E402
     one_solve as OS, solve as SOLVE)
@@ -79,6 +80,10 @@ _GATE_SOURCES = (
     "src/auto_patch/elevation_per_surface/route_profile/solve.py",
     "src/auto_patch/elevation_per_surface/route_profile/one_solve.py",
     "src/auto_patch/elevation_per_surface/building_feasibility.py",
+    # ``O4_PROBE_NO_SERVICE_EDGES`` moved HERE in cycle 11: in solve.py it
+    # rebound a local alias and the groundside band never saw it (see
+    # ``test_the_service_edge_gate_acts_on_the_graph_itself``).
+    "src/auto_patch/grade_graph.py",
 )
 
 
@@ -121,6 +126,56 @@ def test_the_edge_filter_drops_exactly_the_named_pairs():
     assert out == {0: [(1, 5.0)], 1: [(0, 5.0)]}, (
         "the filter dropped the wrong edges, or left a node with an "
         "empty list where it should have been removed")
+
+
+# ── 1b. THE GATE ACTS ON THE GRAPH, NOT ON A CALLER'S ALIAS ──────────
+#
+# THE BUG THIS PINS (cycle 11).  The gate used to run in ``solve.py`` and
+# rebind the local name ``u_spine_adj``.  ``G.spine_adj`` was untouched,
+# and ``groundside.groundside_route_band`` builds its OWN graph and rides
+# ``G.spine_adj`` — so the groundside band, the one consumer the service
+# edges exist for, never saw the knife, while the gate's own log line said
+# "withheld from the ONE graph (every consumer)".  A knife that prints a
+# claim it does not perform is the instrument-truth defect (RULINGS
+# 2026-08-06), and its byte-identical patch was an artifact, not evidence.
+
+def _graph_with_one_service_pair():
+    return SimpleNamespace(
+        spine_adj={0: [(1, 5.0), (2, 5.0)], 1: [(0, 5.0)], 2: [(0, 5.0)]},
+        service_spine_pairs={(0, 2)})
+
+
+def test_the_service_edge_gate_is_inert_by_identity_when_unset():
+    G = _graph_with_one_service_pair()
+    before = G.spine_adj
+    GG._withhold_service_edges_probe(G, icao="TEST")
+    assert G.spine_adj is before, (
+        "the un-gated path replaced the graph's own adjacency object")
+
+
+def test_the_service_edge_gate_acts_on_the_graph_itself(monkeypatch):
+    """KNOWN ANSWER, by hand: one service pair (0,2) over a 3-node star.
+    With the gate set, node 2 must be unreachable from node 0 in
+    ``G.spine_adj`` — the object every consumer, including the groundside
+    band's own freshly built graph, reads."""
+    monkeypatch.setenv("O4_PROBE_NO_SERVICE_EDGES", "1")
+    G = _graph_with_one_service_pair()
+    GG._withhold_service_edges_probe(G, icao="TEST")
+    assert G.spine_adj == {0: [(1, 5.0)], 1: [(0, 5.0)]}
+    assert 2 not in {j for (j, _b) in G.spine_adj.get(0, ())}
+
+
+def test_the_service_edge_gate_keeps_the_mouths(monkeypatch):
+    """The pairs SET survives the knife: mouths are read off it and mouths
+    are the airside/groundside boundary arbiter (RULINGS 2026-08-07), so
+    what the knife withholds is the EDGES and nothing else."""
+    monkeypatch.setenv("O4_PROBE_NO_SERVICE_EDGES", "1")
+    G = _graph_with_one_service_pair()
+    GG._withhold_service_edges_probe(G, icao="TEST")
+    assert G.service_spine_pairs == {(0, 2)}
+    assert BF.service_mouths(object(), G, {0: 9.0, 2: 8.0},
+                             {0: 1.0, 2: 2.0}) == {0: (1.0, 9.0),
+                                                   2: (2.0, 8.0)}
 
 
 # ── 2. O4_PROBE_NO_MOUTHS ────────────────────────────────────────────

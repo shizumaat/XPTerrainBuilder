@@ -161,6 +161,7 @@ def main() -> int:
     roles = RUNWAY_ROLES
     tol = 0.10
     map_only = False
+    map_json = None
     positional = []
     i = 0
     while i < len(argv):
@@ -173,6 +174,9 @@ def main() -> int:
             tol = float(argv[i])
         elif a == "--map-only":
             map_only = True
+        elif a == "--map-json":
+            i += 1
+            map_json = argv[i]
         else:
             positional.append(a)
         i += 1
@@ -226,6 +230,22 @@ def main() -> int:
         mags = sorted(abs(t[2]) for t in moved)
         print(f"moved |d|: p50 {mags[len(mags) // 2]:.3f} m, p95 "
               f"{mags[min(len(mags) - 1, int(0.95 * len(mags)))]:.3f} m")
+    if map_json:
+        # THE MAP ITSELF, per node and SIGNED.  The printed summary answers
+        # "did the surface move and by how much"; a question of the form
+        # "did THIS site move UP here and DOWN there" is a per-node join and
+        # cannot be read off p50/p95.  Same map, same join, same tol — the
+        # dump is the summary's own input, never a re-derivation.
+        import json as _json
+        with open(map_json, "w") as fh:
+            _json.dump({"on": on_path, "off": off_path,
+                        "on_sha": on_sha, "off_sha": off_sha,
+                        "join_round_dp": JOIN_ROUND_DP, "tol_m": tol,
+                        "roles": ("all" if roles is None else "runway"),
+                        "matched": matched,
+                        "moved": [[k[0], k[1], round(k[2], 6)]
+                                  for k in moved]}, fh)
+        print(f"map: {len(moved)} signed displacement(s) -> {map_json}")
     if map_only:
         return 0
 

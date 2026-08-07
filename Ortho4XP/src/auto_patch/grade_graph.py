@@ -32,6 +32,7 @@ them.  This module owns the apron/junction visibility graph only.
 """
 from __future__ import annotations
 
+import json
 import math
 import os
 from dataclasses import dataclass, field
@@ -102,6 +103,12 @@ SPINE_PERP_TOL_M = 1.0
 # DERIVED, never a fresh magic number: half the corridor width the road
 # rects are built at, plus the base tolerance for float/round noise.
 SERVICE_SPINE_PERP_TOL_M = SERVICE_ROAD_WIDTH_M / 2.0 + SPINE_PERP_TOL_M
+
+# DIAGNOSTIC-ONLY window margin (``O4_DUMP_SERVICE_STRINGING``): how far
+# PAST the tolerance the instrument looks for nodes, so a "just missed"
+# node is distinguishable from "no node at all".  Never consulted by the
+# stringing decision itself.
+_DIAG_MARGIN_M = 25.0
 
 # Apron↔taxi-route CONTACT allowance (user 2026-06-30): an apron ring edge welded
 # to a taxi-route pavement earns the taxi cap in its own direction (the contact
@@ -2308,11 +2315,107 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
         _build_global_spine(G, ctx, icao=getattr(layout, "icao", ""),
                             road_nodes=_road_family_nodes(layout,
                                                           bucket_to_idx))
+        _write_service_stringing_diag(layout, G)
+        _withhold_service_edges_probe(G, icao=getattr(layout, "icao", ""))
 
         # ── runway anchors: every geometry node a taxi spine joins the runway
         # at ──
         _runway_anchors(layout, G, bucket_to_idx)
     return G
+
+
+def _withhold_service_edges_probe(G, icao: str = ""):
+    """PROBE GATE, DEFAULT OFF — ``O4_PROBE_NO_SERVICE_EDGES=1`` withholds
+    the service/road route EDGES from ``G.spine_adj`` ITSELF.
+
+    IT HAS TO ACT ON THE GRAPH, not on a caller's alias.  The gate used to
+    live in ``solve.py``, where it rebound the LOCAL name ``u_spine_adj``
+    — and ``groundside.groundside_route_band`` builds its OWN
+    ``build_unified_graph`` and rides ``G.spine_adj``, so the groundside
+    band, which is the one consumer the service edges exist for, never saw
+    the knife.  Its "withheld from the ONE graph (every consumer)" line was
+    FALSE, and the byte-identical patch it produced was an instrument
+    artifact rather than evidence about the edges (RULINGS 2026-08-06,
+    instrument truth: a lying instrument misroutes more work than a lying
+    emitter).  Acting here, at the single site every consumer's graph comes
+    out of, is what makes the sentence true.
+
+    ``G.service_spine_pairs`` is KEPT: the MOUTHS are read off that set and
+    mouths are the airside/groundside boundary arbiter (RULINGS 2026-08-07)
+    — the knife withholds the road's EDGES, never its mouth seats, so what
+    it measures is exactly "do the edges bind".
+    """
+    if os.environ.get("O4_PROBE_NO_SERVICE_EDGES") != "1":
+        return
+    pairs = getattr(G, "service_spine_pairs", None) or set()
+    if not pairs:
+        return
+    # ONE filter, no second copy (the census-wrapper defect class): the same
+    # ``adj_without_pairs`` the airside view uses.  Imported LATE and only
+    # under the gate — ``solve`` imports this module at load time.
+    from .elevation_per_surface.route_profile.solve import adj_without_pairs
+    before = sum(len(v) for v in G.spine_adj.values())
+    G.spine_adj = adj_without_pairs(G.spine_adj, pairs)
+    after = sum(len(v) for v in G.spine_adj.values())
+    import O4_UI_Utils as _UI
+    _UI.vprint(1,
+        f"  [probe] O4_PROBE_NO_SERVICE_EDGES=1: {icao}: {len(pairs)} "
+        f"service pair(s) withheld from G.spine_adj — every consumer, the "
+        f"groundside band included ({before} -> {after} directed spine "
+        f"edge(s)); the mouths themselves are KEPT.")
+
+
+def _write_service_stringing_diag(layout, G):
+    """REPORT-ONLY, DEFAULT OFF — ``O4_DUMP_SERVICE_STRINGING=<path>``
+    writes the per-service-centerline stringing record collected by
+    :func:`_build_global_spine`.
+
+    It answers ONE question with numbers and no verdict (RULINGS
+    2026-08-06 binding point 2): for every service centerline that
+    contributed NO string, WHICH condition failed — no candidate node
+    within the tolerance at all (`no_candidate_in_tol`), candidates within
+    the tolerance that the eligibility restriction excluded
+    (`ineligible_in_tol`), or exactly one on-line node (`one_node`).  The
+    three are different mechanisms and only the first is the recorded
+    tolerance suspect.
+
+    Positions are emitted in BOTH frames: local metres (the node space
+    this was measured in) and 11-decimal lat/lon, which is this repo's
+    canonical identity spelling (memory: canonical identity join — never
+    proximity).
+    """
+    path = os.environ.get("O4_DUMP_SERVICE_STRINGING")
+    rec = getattr(G, "_service_stringing_diag", None)
+    if not path or rec is None:
+        return
+    to_ll = getattr(layout, "m_to_ll", None)
+
+    def _ll(x, y):
+        if to_ll is None:
+            return None
+        try:
+            lat, lon = to_ll(float(x), float(y))
+            return [f"{lat:.11f}", f"{lon:.11f}"]
+        except Exception:                              # pragma: no cover
+            return None
+
+    for row in rec["centerlines"]:
+        for n in row.get("nearest", ()):
+            n["ll"] = _ll(n["x"], n["y"])
+    rec["icao"] = getattr(layout, "icao", "")
+    rec["service_perp_tol_m"] = SERVICE_SPINE_PERP_TOL_M
+    rec["aircraft_perp_tol_m"] = SPINE_PERP_TOL_M
+    rec["service_road_width_m"] = SERVICE_ROAD_WIDTH_M
+    try:
+        with open(path, "w") as fh:
+            json.dump(rec, fh)
+        import O4_UI_Utils as _UI
+        _UI.vprint(1,
+            f"  [svc-string-diag] wrote {len(rec['centerlines'])} service "
+            f"centerline record(s) -> {path}")
+    except Exception as exc:                           # pragma: no cover
+        import O4_UI_Utils as _UI
+        _UI.vprint(1, f"  [svc-string-diag] WARN: dump failed ({exc!r})")
 
 
 def _road_family_nodes(layout, bucket_to_idx):
@@ -2405,7 +2508,15 @@ def _build_global_spine(G, ctx, icao: str = "", road_nodes=None):
     _svc_walked = 0            # service centerlines seen (the denominator)
     _svc_attach: set = set()   # service-strung nodes that are aircraft spine
 
-    def _walk(_ci, cl, tol, eligible):
+    # REPORT-ONLY collector, DEFAULT OFF (``O4_DUMP_SERVICE_STRINGING``).
+    # Nothing is computed for it on a default build — the flag is read once,
+    # here, and every extra projection below sits inside ``if _diag``.
+    # ``_DIAG_MARGIN_M`` widens the diagnostic's own node window past the
+    # tolerance so NEAR-MISSES are visible (see ``_walk``).
+    _diag = (({"centerlines": []}
+              if os.environ.get("O4_DUMP_SERVICE_STRINGING") else None))
+
+    def _walk(_ci, cl, tol, eligible, diag=False):
         """String ONE centerline; return its arc-ordered node list (``[]``
         when it contributed no string)."""
         nonlocal _n_no_node, _n_one_node
@@ -2424,6 +2535,62 @@ def _build_global_spine(G, ctx, icao: str = "", road_nodes=None):
             a, d, _ = _project(cl, x, y)
             if d <= tol:
                 on_line.append((a, i))
+        if diag:
+            # THE NEAR-MISS WINDOW.  The production prefilter above inflates
+            # the bbox by ``tol`` exactly, so a node just OUTSIDE the
+            # tolerance is never even a candidate — and "a sliced-road node
+            # sitting just past the tolerance" is precisely the recorded
+            # suspect this instrument exists to test.  The diagnostic
+            # therefore re-queries at ``tol + _DIAG_MARGIN_M`` and measures
+            # every node in that window, eligible or not.  Separate loop, so
+            # the production path above is untouched, not merely equivalent.
+            _d_all = []
+            if node_tree is not None:
+                _wt = tol + _DIAG_MARGIN_M
+                _wq = _nbox(min(xs) - _wt, min(ys) - _wt,
+                            max(xs) + _wt, max(ys) + _wt)
+                _wcand = [items[int(k)] for k in node_tree.query(_wq)]
+            else:                                      # pragma: no cover
+                _wcand = items
+            for (i, (x, y)) in _wcand:
+                _a, _d, _ = _project(cl, x, y)
+                _d_all.append((_d, i, x, y,
+                               (eligible is None or i in eligible)))
+            _d_all.sort(key=lambda t: t[0])
+            _in_tol = [t for t in _d_all if t[0] <= tol]
+            _elig_in_tol = [t for t in _in_tol if t[4]]
+            if len(on_line) >= 2:
+                _cls = "strung"
+            elif len(_elig_in_tol) == 1:
+                _cls = "one_node"
+            elif _in_tol and not _elig_in_tol:
+                _cls = "ineligible_in_tol"
+            elif not _d_all:
+                _cls = "no_node_in_window"
+            else:
+                _cls = "no_candidate_in_tol"
+            _diag["centerlines"].append({
+                "ci": int(_ci),
+                "is_service": bool(getattr(cl, "is_service", False)),
+                "n_pts": len(cl.pts),
+                "plan_len_m": round(sum(
+                    math.hypot(b[0] - a[0], b[1] - a[1])
+                    for a, b in zip(cl.pts, cl.pts[1:])), 3),
+                "tol_m": float(tol),
+                "n_candidates": len(_d_all),
+                "n_in_tol": len(_in_tol),
+                "n_eligible_in_tol": len(_elig_in_tol),
+                "n_on_line": len(on_line),
+                "min_d_any_m": (round(_d_all[0][0], 4) if _d_all else None),
+                "min_d_eligible_m": (
+                    round(min((t[0] for t in _d_all if t[4]), default=-1), 4)
+                    if any(t[4] for t in _d_all) else None),
+                "class": _cls,
+                "nearest": [{"node": int(i), "d_m": round(d, 4),
+                             "x": round(x, 3), "y": round(y, 3),
+                             "eligible": bool(el)}
+                            for (d, i, x, y, el) in _d_all[:5]],
+            })
         if len(on_line) < 2:
             # No string from this way — counted, and said out loud in the
             # census line at the end of the walk.
@@ -2470,13 +2637,24 @@ def _build_global_spine(G, ctx, icao: str = "", road_nodes=None):
             continue
         _svc_walked += 1
         _svc_attach.update(
-            i for i in _walk(_ci, cl, SERVICE_SPINE_PERP_TOL_M, _svc_eligible)
+            i for i in _walk(_ci, cl, SERVICE_SPINE_PERP_TOL_M, _svc_eligible,
+                             diag=(_diag is not None))
             if i in _taxi_strung)
     # A pair ALSO woven by a taxi centerline (a road crossing a taxi
     # route's nodes) is a genuine taxi edge — the service tag must not
     # remove it from reachability.
     _n_svc_woven_out = len(G.service_spine_pairs & _taxi_woven_pairs)
     G.service_spine_pairs -= _taxi_woven_pairs
+    if _diag is not None:
+        _diag["service_centerlines_walked"] = _svc_walked
+        _diag["service_centerlines_strung"] = len(G.centerline_service)
+        _diag["service_spine_pairs"] = len(G.service_spine_pairs)
+        _diag["aircraft_spine_attachments"] = len(_svc_attach)
+        _diag["eligible_nodes"] = len(_svc_eligible)
+        _diag["road_family_nodes"] = len(set(road_nodes or ()))
+        _diag["taxi_strung_nodes"] = len(_taxi_strung)
+        _diag["graph_nodes"] = len(items)
+        G._service_stringing_diag = _diag
     # ── spine-drop census (hygiene 2026-07-31) ──────────────────────────
     G.spine_centerlines = len(ctx.centerlines)
     G.spine_no_string = _n_no_node + _n_one_node

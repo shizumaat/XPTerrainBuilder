@@ -22,8 +22,19 @@ convergence 2%, the remainder = FOUR structures — pad-frontage
 chords ~1,870 / relief generation (b) 1,368-at-blanket-5% /
 feature-weld hardening 2,045 both-hard / on-DEM stranding (a)-vs-(d)
 OWNER ADJUDICATION PENDING). NO APP BUILT. Retrospective:
-docs/retrospective-2026-08-07.md (delivered). c9air MERGED. c9feed
-still in flight (groundside; merge on report). Next rounds ranked in
+docs/retrospective-2026-08-07.md (delivered). c9air MERGED. **c9feed PARKED**
+(works-but-gate-failed, the fix3b playbook): D′ 3,898→2,714 with the
+lane's law addition (ONE AIRSIDE VIEW of the one graph — airside
+never rides service edges; roads/mouths live everywhere, HEAZ's
+first 36 mouths) but HECA 10k +604 airside (136 instrument + 468
+surface; mouths excluded interventionally; the decisive graph-edge
+probe was CONFOUNDED — cycle 10's FIRST measurement re-runs it on
+b6936ed). census_matrix.py cherry-picked to main. NEW NAMED CLASSES:
+cross-shape welded neighbours carry NO LAW PAIR (the D′ tear
+specimen, 46.05 m over 3.58 m at a mouth); airside VALUES move
+(8-18 cm median, worst 3.7 m) where counts are flat — receiver-only
+residual coupling. 3 re-minted DSF leak dirs cleaned under the
+owner's class approval (ledgered). Next rounds ranked in
 the retrospective: owner item-4 sentence → pad-frontage round →
 relief generation (scope WITH deferred drainage) → hardening round.**
 

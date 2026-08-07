@@ -2524,3 +2524,309 @@ def test_row_record_spells_a_row_the_way_the_class_table_keys_it(cg,
     assert rec["side"] == "mixed" and rec["magnitude_m"] == 0.42
     assert rec["site_m"] == [[1.23, 5.68], [9.0, 10.0]]
     assert rec["way_a"] == 7 and rec["way_b"] == 3
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §9 THE SITE CENSUS (--sites) — rows amplify, sites do not
+# ══════════════════════════════════════════════════════════════════════
+#
+# WHY THESE TWINS EXIST.  A site count is about to be a HEADLINE number:
+# the owner's "why does the battery still read thousands of defects" is
+# answered partly by amplification — one over-cap region on one apron
+# mints hundreds of edge-granularity rows (HECA's way -12407 alone carries
+# ~800).  An instrument that produces a headline needs a KNOWN-ANSWER TWIN
+# (RULINGS 2026-08-06, "Instrument truth is law", binding point 1), and a
+# clustering that quietly dropped or double-counted rows would put a
+# smaller, friendlier number in front of the owner with nothing catching
+# it — the census-wrapper defect one level up.
+
+
+class _SiteRow:
+    """A census row with known family, ways, endpoints and magnitude."""
+
+    class _W:
+        def __init__(self, wid, role):
+            self.wid, self.tags = wid, {"role": role}
+
+    def __init__(self, de, wa, wb, pa, pb, role="apron", excess=None,
+                 lat=30.0, lon=31.0):
+        self.de_m = de
+        self.way_a = self._W(wa, role)
+        self.way_b = self._W(wb, role)
+        self.pt_a, self.pt_b = pa, pb
+        self.excess_pct = excess
+        self.out_of_scope = None
+        self.lat, self.lon = lat, lon
+
+
+def _two_known_sites():
+    """TWO sites by construction, one joined each way the rule allows.
+
+    SITE A — THE AMPLIFIER: three rows on ONE way (``-1``), deliberately
+    1 km apart so nothing but the SHARED WAY ID can join them.  Worst
+    0.9 m, so it is sim-visible.
+
+    SITE B — THE WELD: two rows on DIFFERENT ways (``-2``/``-3``) that
+    meet at a shared canonical node — their nearest endpoints are 0.2 m
+    apart, inside the census's own 0.5 m weld tolerance.  Worst 0.02 m,
+    so it is NOT sim-visible: the two sites differ in every reported
+    dimension, which is what makes a mix-up detectable.
+    """
+    return [
+        ("within_shape", _SiteRow(0.2, "-1", "-1", (0.0, 0.0), (10.0, 0.0))),
+        ("within_shape", _SiteRow(0.4, "-1", "-1", (500.0, 0.0),
+                                  (510.0, 0.0))),
+        ("within_shape", _SiteRow(0.9, "-1", "-1", (1000.0, 0.0),
+                                  (1010.0, 0.0), excess=3.5)),
+        ("within_shape", _SiteRow(0.02, "-2", "-2", (2000.0, 0.0),
+                                  (2010.0, 0.0))),
+        ("within_shape", _SiteRow(0.01, "-3", "-3", (2010.2, 0.0),
+                                  (2020.0, 0.0))),
+    ]
+
+
+def test_two_known_sites_cluster_by_way_and_by_weld(census_mod, cg):
+    """KNOWN-ANSWER TWIN: count, membership, amplification, visibility."""
+    rows = _two_known_sites()
+    sec = census_mod.cluster_sites(rows, cg)
+    assert sec["sites"] == 2, (
+        f"expected exactly 2 sites, got {sec['sites']} — "
+        f"{[(s['family'], s['rows']) for s in sec['all_sites']]}")
+    by_worst = sec["all_sites"]           # sorted worst-first
+    a, b = by_worst[0], by_worst[1]
+
+    # MEMBERSHIP — which rows landed where, not just how many.
+    assert a["row_indices"] == [0, 1, 2] and a["ways"] == ["-1"]
+    assert b["row_indices"] == [3, 4] and b["ways"] == ["-2", "-3"]
+
+    # AMPLIFICATION — the number the whole section exists for.
+    assert (a["rows"], b["rows"]) == (3, 2)
+    assert sec["amplification"] == 2.5          # 5 rows / 2 sites
+    assert sec["rows_per_site"]["median"] == 2.5
+    assert sec["rows_per_site"]["max"] == 3
+
+    # VISIBILITY — one of each, at the stated default constant.
+    assert sec["visibility_m"] == census_mod.DEFAULT_SITE_VISIBILITY_M == 0.05
+    assert a["worst_m"] == 0.9 and a["sim_visible"] is True
+    assert b["worst_m"] == 0.02 and b["sim_visible"] is False
+    assert sec["sites_visible"] == 1
+    assert a["worst_grade_excess_pct"] == 3.5
+    assert b["worst_grade_excess_pct"] is None, (
+        "a step-shaped site has no grade excess and must report None, "
+        "never 0 — a zero would read as 'exactly at cap'")
+
+
+def test_a_site_never_spans_two_law_families(census_mod, cg):
+    """The rule keys on the FAMILY first.  Two different laws firing on
+    the same shape are two findings with two owners: a runway-strip tear
+    and an apron over-cap on one apron edge do not get fixed by one
+    change, and merging them would hide one of them inside the other's
+    row count."""
+    rows = _two_known_sites()
+    # Same way, same coordinates as site A's first row — different law.
+    rows.append(("cross_shape", _SiteRow(0.7, "-1", "-1", (0.0, 0.0),
+                                         (10.0, 0.0))))
+    sec = census_mod.cluster_sites(rows, cg)
+    assert sec["sites"] == 3
+    fams = sorted(s["family"] for s in sec["all_sites"])
+    assert fams == ["cross_shape", "within_shape", "within_shape"]
+    a = next(s for s in sec["all_sites"] if s["family"] == "cross_shape")
+    assert a["rows"] == 1, "the decoy joined a site of another family"
+
+
+def test_the_adjacency_tolerance_is_the_censuss_own_constant(census_mod, cg):
+    """"never a new proximity semantic": the tolerance IS the census's
+    stamped law-true knob (the solver's weld tolerance), read from the
+    module rather than re-typed — and a pair just outside it does not
+    join, which is what proves the number is actually being applied."""
+    tol = cg.LAW_TRUE_KNOBS["proximity_m"]
+    assert tol == cg.SHARED_VERTEX_TOL_M
+    sec = census_mod.cluster_sites(_two_known_sites(), cg)
+    assert sec["adjacency_tol_m"] == tol
+    assert "SHARED_VERTEX_TOL_M" in sec["adjacency_tol_source"]
+
+    def _pair(gap):
+        return [("within_shape", _SiteRow(0.5, "-2", "-2", (0.0, 0.0),
+                                          (10.0, 0.0))),
+                ("within_shape", _SiteRow(0.5, "-3", "-3", (10.0 + gap, 0.0),
+                                          (20.0, 0.0)))]
+    assert census_mod.cluster_sites(_pair(tol * 0.5), cg)["sites"] == 1
+    assert census_mod.cluster_sites(_pair(tol * 2.0), cg)["sites"] == 2, (
+        "two rows further apart than the weld tolerance were welded — the "
+        "tolerance is not being applied, or a wider one crept in")
+
+
+def test_the_clustering_does_not_depend_on_row_order(census_mod, cg):
+    """A headline number that changes when the rows arrive in a different
+    order is not a measurement.  The canonical-node registry is built in
+    sorted coordinate order for exactly this reason."""
+    rows = _two_known_sites()
+    a = census_mod.cluster_sites(rows, cg)
+    b = census_mod.cluster_sites(list(reversed(rows)), cg)
+    assert a["sites"] == b["sites"]
+    assert sorted(s["rows"] for s in a["all_sites"]) == \
+        sorted(s["rows"] for s in b["all_sites"])
+    assert sorted(s["worst_m"] for s in a["all_sites"]) == \
+        sorted(s["worst_m"] for s in b["all_sites"])
+
+
+def test_the_visibility_threshold_is_a_knob(census_mod, cg):
+    """The 5 cm constant is an ASSUMPTION, not a law — so it moves, and
+    the report says which value produced the flags."""
+    rows = _two_known_sites()
+    loose = census_mod.cluster_sites(rows, cg, visibility_m=0.001)
+    tight = census_mod.cluster_sites(rows, cg, visibility_m=1.0)
+    assert loose["sites_visible"] == 2 and tight["sites_visible"] == 0
+    assert loose["visibility_m"] == 0.001
+    assert "0.001 m of relief" in loose["visibility_note"]
+
+
+def test_the_sites_never_re_run_a_check(census_mod):
+    """The sites are a second READER of the rows the census already has.
+    A section that re-ran the law would be a second instrument, and two
+    instruments on one assumed population is this repo's dominant analysis
+    failure."""
+    src = inspect.getsource(census_mod.cluster_sites)
+    for forbidden in ("run_checks", "load_check_grade", "_parse_osm"):
+        assert forbidden not in src, (
+            f"cluster_sites calls {forbidden} — it must only read the rows "
+            f"census_one already produced")
+
+
+def _sites_of_the_fixture(census_mod, cg, tmp_path, **kw):
+    osm = tmp_path / "sites.osm"
+    osm.write_bytes(FIXTURE_PATCH.read_bytes())
+    (tmp_path / "sites.osm.axes.json").write_text(json.dumps({"anchor": None}))
+    rep = census_mod.census_one(osm, cg, top=5, want_sites=True, **kw)
+    return rep, rep["sites"]
+
+
+def test_the_site_rows_union_IS_the_censuss_own_population(census_mod, cg,
+                                                           tmp_path):
+    """THE LOCKSTEP TWIN.  The sites must PARTITION ``all_rows``: every
+    row in exactly one site, no row invented.  This is the same claim
+    ``--rows-json`` makes and for the same reason — a site table that
+    dropped rows would report a smaller, friendlier headline than the
+    total printed directly above it."""
+    out = tmp_path / "sites.json"
+    rep, sec = _sites_of_the_fixture(census_mod, cg, tmp_path, sites_out=out)
+    dump = json.loads(out.read_text())
+    total = rep["lawtrue"]["total"]
+    assert total > 0, "the fixture stopped producing rows — twin vacuous"
+    assert sec["total_rows"] == total
+    seen = []
+    for s in dump["sites"]:
+        assert s["rows"] == len(s["row_indices"])
+        seen.extend(s["row_indices"])
+    assert sorted(seen) == list(range(total)), (
+        "the site membership is not a partition of the census's rows")
+    assert sum(s["rows"] for s in dump["sites"]) == total == dump["n_rows"]
+    assert dump["n_sites"] == sec["sites"] == len(dump["sites"])
+
+
+def test_the_per_site_splits_agree_with_the_reports_own(census_mod, cg,
+                                                        tmp_path):
+    """Two readers, one population (RULINGS 2026-08-06, point 4 as scoped
+    2026-08-06): the sides and the adjudication split summed over the
+    sites must equal the numbers the report prints, because both come from
+    the law's own accessors over the same rows."""
+    rep, sec = _sites_of_the_fixture(census_mod, cg, tmp_path)
+    sites = sec["all_sites"] if "all_sites" in sec else None
+    assert sites is None, (
+        "the report dict must not carry every site — it is the --sites-json "
+        "payload and would bloat every census JSON")
+    # Re-derive from the dump-free report: the by-family table and the
+    # aggregate counts are what a reader sees.
+    assert sum(d["rows"] for d in sec["by_family"].values()) == \
+        rep["lawtrue"]["total"]
+    assert sum(d["sites"] for d in sec["by_family"].values()) == sec["sites"]
+    assert sec["sites_adjudicated"] <= sec["sites"]
+    assert sec["sites_visible_adjudicated"] <= sec["sites_visible"]
+    for key in sec["by_family"]:
+        assert key in dict((k, t) for k, t, _b in cg.LAW_FAMILIES), (
+            f"site family {key!r} is not a registered law family")
+
+
+def test_the_adjudication_split_per_site_is_the_laws_own(census_mod, cg):
+    """A site's adjudicated / deferred / out-of-scope counts come from
+    ``check_grade.adjudication`` applied to that site's own rows — never a
+    second copy of the deferred register (RULINGS d48bc0a)."""
+    deferred_key = sorted(cg.VERSION_DEFERRED_FAMILIES)[0]
+    rows = [(deferred_key, _SiteRow(0.5, "-9", "-9", (0.0, 0.0), (5.0, 0.0))),
+            ("within_shape", _SiteRow(0.5, "-8", "-8", (99.0, 0.0),
+                                      (105.0, 0.0)))]
+    sec = census_mod.cluster_sites(rows, cg)
+    assert sec["sites"] == 2
+    defer = next(s for s in sec["all_sites"] if s["family"] == deferred_key)
+    real = next(s for s in sec["all_sites"] if s["family"] == "within_shape")
+    assert (defer["deferred"], defer["adjudicated"]) == (1, 0)
+    assert (real["deferred"], real["adjudicated"]) == (0, 1)
+    assert sec["sites_adjudicated"] == 1, (
+        "a site made entirely of version-deferred rows counted as an "
+        "adjudicated defect — instruments report, the law adjudicates")
+    assert sum(s["adjudicated"] for s in sec["all_sites"]) == \
+        cg.adjudication(rows)["adjudicated_total"]
+
+
+def test_the_site_flag_runs_through_the_census_cli(census_mod, cg, tmp_path):
+    """END TO END through the one code path: the flags, the law-true
+    frame, the JSON report, the dump.  A flag that only works when called
+    as a function is a flag no lane will use."""
+    osm = tmp_path / "cli.osm"
+    osm.write_bytes(FIXTURE_PATCH.read_bytes())
+    (tmp_path / "cli.osm.axes.json").write_text(json.dumps({"anchor": None}))
+    out, dump = tmp_path / "c.json", tmp_path / "s.json"
+    assert census_mod.main([str(osm), "--sites", "--sites-json", str(dump),
+                            "--json", str(out), "--quiet"]) == 0
+    rep = json.loads(out.read_text())
+    sec = rep["sites"]
+    assert sec["sites"] > 0 and sec["total_rows"] == rep["lawtrue"]["total"]
+    assert sec["visibility_m"] == 0.05
+    assert json.loads(dump.read_text())["n_sites"] == sec["sites"]
+    # ...the visibility knob arrives from the command line...
+    assert census_mod.main([str(osm), "--sites", "--site-visibility", "5",
+                            "--json", str(out), "--quiet"]) == 0
+    assert json.loads(out.read_text())["sites"]["visibility_m"] == 5.0
+    # ...--sites-json alone implies the section (a dump with no counts
+    # beside it is the two-instruments trap by omission)...
+    assert census_mod.main([str(osm), "--sites-json", str(dump),
+                            "--json", str(out), "--quiet"]) == 0
+    assert "sites" in json.loads(out.read_text())
+    # ...and without either flag the section is absent, not empty.
+    assert census_mod.main([str(osm), "--json", str(out), "--quiet"]) == 0
+    assert "sites" not in json.loads(out.read_text())
+
+
+def test_no_site_dump_is_written_unless_asked(census_mod, cg, tmp_path):
+    """Inertness: a default census must not grow a file."""
+    osm = tmp_path / "plain.osm"
+    osm.write_bytes(FIXTURE_PATCH.read_bytes())
+    (tmp_path / "plain.osm.axes.json").write_text(
+        json.dumps({"anchor": None}))
+    census_mod.census_one(osm, cg, top=1, want_sites=True)
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "plain.osm", "plain.osm.axes.json"]
+
+
+def test_several_patches_get_one_site_dump_each(census_mod, cg, tmp_path):
+    """A single --sites-json over N patches would silently keep the last
+    — the footgun every lane script that grew a dump has hit."""
+    a, b = tmp_path / "a.osm", tmp_path / "b.osm"
+    for p in (a, b):
+        p.write_bytes(FIXTURE_PATCH.read_bytes())
+        p.with_suffix(".osm.axes.json").write_text(
+            json.dumps({"anchor": None}))
+    out = tmp_path / "sd.json"
+    assert census_mod.main([str(a), str(b), "--quiet",
+                            "--sites-json", str(out)]) == 0
+    assert (tmp_path / "sd.a.json").exists()
+    assert (tmp_path / "sd.b.json").exists()
+
+
+def test_the_site_flag_is_in_the_tool_index():
+    """Every promotion lands WITH its index row, in the same commit."""
+    text = INDEX.read_text()
+    for token in ("--sites", "--site-visibility", "--sites-json"):
+        assert token in text, (
+            f"{token} is not in tools/INDEX.md — a flag absent from the "
+            f"index is treated as absent, and gets written by hand again")

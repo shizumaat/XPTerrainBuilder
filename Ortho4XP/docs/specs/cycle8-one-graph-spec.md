@@ -76,3 +76,29 @@ not required here.
 Budget: attribution replays + ~8-10 builds (both worlds, 4 airports)
 + suite. Materiality 0.01 m; attempt cap 2 per part; heartbeat;
 foreground; no real-DEM; no shared-repo writes.
+
+---
+
+## ADDENDUM (lead ruling from the Q4 STOP, 2026-08-06; derives from the
+## owner's receiver-only law — flagged for owner ratification)
+
+**THE FINAL PROJECTION PARTITIONS.** A shared projection IS a coupling:
+fp holding groundside pairs in the same constraint set as airside is
+how a groundside seat moved airside rows (+6 SPJC / +5 HECA — the Q4
+debt). Ruled: airside projects FIRST with groundside pairs excluded
+from its constraint set; groundside projects AFTER against the frozen
+airside values (receiver-only, structurally, in every projection).
+The measured-worse reorder (seats after fp, 434→493 — emit-time weld
+re-adoption drags airside) is FORBIDDEN as the mechanism; the
+partition is the cure. Acceptance: the Q4 gate re-run passes 8/8;
+groundside census neutral-or-better.
+
+**SERVICE STRINGING (the D′ finisher).** Service centerlines string
+into spine_adj for GROUNDSIDE reach only (the airside exclusion
+stands): the 1.0 m perp tolerance assumes taxiway-style node
+placement; sliced service roads carry nodes at their EDGES (SPJC 4 of
+389 segments string). Fix the stringing for service edges (their own
+tolerance or edge-projection), never touching airside stringing; the
+Q4 gate re-run is the guard. Expected: the concentrated D′ residual
+(HECA 10 ways / KCLT 3 ways; way −12518's 132 still-at-seed nodes)
+collapses; the KCLT canyon ≥10 m gs band (1,195) follows.

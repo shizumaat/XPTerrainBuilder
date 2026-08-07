@@ -64,6 +64,7 @@ __all__ = [
     "PavementLayout",
     "R_EARTH",
     "SHARED_VERTEX_TOL_M",
+    "ONEDGE_SNAP_TOL_M",
     "vertex_bucket",
     "corner_alts_from_high_low",
     "high_low_from_corner_alts",
@@ -96,6 +97,24 @@ __all__ = [
 # ──────────────────────────────────────────────────────────────────
 from O4_Geo_Utils import earth_radius as R_EARTH  # single source of truth
 SHARED_VERTEX_TOL_M = 0.5    # snap vertices closer than this together
+
+# ON-EDGE CHAIN IDENTITY (sliver-node-identity-repair spec, phase A).
+# ``SHARED_VERTEX_TOL_M`` is a POINT tolerance: it welds a vertex to a
+# vertex.  It cannot see the other half of the conforming-planar-
+# partition law — a vertex sitting on a foreign ring's EDGE INTERIOR,
+# metres from either of that edge's endpoints.  That vertex is ON the
+# shared boundary and must be spelled by BOTH ways; left alone it is a
+# T-vertex, and a T-vertex is Ruppert-refinement food (the class that
+# took CYXY from 26,727 to 1,552,854 airport-region triangles).
+# This is the reach at which a vertex COUNTS as lying on a foreign
+# edge.  It is the divergence census's own tolerance
+# (``tools/chain_divergence_audit.py --tol 0.15``), so the repair and
+# the instrument that adjudicates it read the same number; it is not
+# fitted to a site.  Measured at HECA it separates the divergence class
+# (worst 98 mm for walls, 18.5 mm for interior rings) from genuine
+# geometry (the next interior-ring vertex out is 331 mm) with a wide
+# margin on both sides.
+ONEDGE_SNAP_TOL_M = 0.15
 
 # NO-STACKED-NODES INVARIANT (owner ruling 2026-07-19, completing the
 # user 2026-05-18 invariant "two nodes can never share the same
@@ -1241,6 +1260,22 @@ class PavementLayout:
         # Node ids removed by the per-shape sliver-corner repair below —
         # consumed by the chain-consistent post-pass after the loop.
         emit_removed_nids: set = set()
+        # ── ON-EDGE CHAIN SNAP, BEFORE ANY INTERNING (spec phase A) ──
+        # Repairs the two classes measured as spelling a shared boundary
+        # twice, at the mint and never as a weld after the cut:
+        #   A1  interior rings — a hole boundary emitted millimetres from
+        #       (and crossing) the pavement rings that bound the same
+        #       hole.  The hole carries no value and covers no surface,
+        #       so it is the party that yields.
+        #   A2  retaining walls — a wall follows the ring it walls for
+        #       half its vertices and then diverges (measured: wall feet
+        #       37-98 mm off the graded_strip / apron edge they sit on).
+        # Both classes are invisible to the canonical POINT registry
+        # (they sit on foreign edge INTERIORS, metres from any vertex),
+        # and both are far outside the emit-time nid weld's 5 mm reach —
+        # so neither has ever had a mechanism.  Moving the vertex onto
+        # the boundary it already lies on is what makes the nid weld
+        # below able to finish the job: one chain, spelled once.
         for s_idx, s in enumerate(self.shapes):
             # Authority flag for the value-consensus pass: terrain
             # strips are SOFT receivers, everything else is a value
@@ -1610,19 +1645,245 @@ class PavementLayout:
         # affecting step of emission.
         _WELD_TOL_M = 0.005
         _cell_m = 1.0
+        # INTERIOR RINGS ARE CHAINS TOO (spec phase A, A1).  They were
+        # structurally absent from this pass in both directions — not in
+        # the candidate grid, not among the target chains — so a hole
+        # boundary and the pavement ring bounding the same hole could
+        # never be made to spell one chain, whatever the tolerance.
+        # They join here as first-class chains.
+        #
+        # ONE HOLE, ONE CHAIN (spec phase A, A1 — the hoisted dedup).
+        # The SAME hole is collected once per shape that bounds it, so
+        # ``_interior_rings`` carries exact duplicates.  The emit-time
+        # ``_seen_hole`` pass below drops them, which is why the shipped
+        # patch shows each ring once — but it runs AFTER this weld, so
+        # at weld time every vertex of a duplicated hole reads as owned
+        # by TWO chains and the private-on-edge test (``len(_own) != 1``)
+        # skips it by construction.  The dedup is hoisted here so the
+        # ownership map counts holes, not copies of holes; the emit-time
+        # pass stays as the residual guard for a pair the weld itself
+        # makes identical.
+        # The key is ROTATION- AND REFLECTION-CANONICAL, not the exact
+        # tuple the emit-time pass uses: two shapes bounding one hole
+        # spell it from whichever vertex their own ring reached first
+        # and in whichever winding their exterior implies, so an
+        # exact-tuple key sees two different chains where there is one
+        # hole.  (Measured at HECA: the exact key dedups NOTHING here,
+        # while the emit-time pass — which runs after the weld has
+        # rewritten both copies — does drop rings.  Same key, different
+        # frame, opposite answers: the pre-weld frame needs the
+        # canonical one.)
+        def _hole_key(_nids: list) -> tuple:
+            _o = list(_nids[:-1]) if (len(_nids) > 1
+                                      and _nids[0] == _nids[-1]) else list(_nids)
+            if not _o:
+                return ()
+            _best = None
+            for _seq in (_o, list(reversed(_o))):
+                for _r in range(len(_seq)):
+                    _cand = tuple(_seq[_r:] + _seq[:_r])
+                    if _best is None or _cand < _best:
+                        _best = _cand
+            return _best
+
+        _seen_hole_pre: set = set()
+        _deduped_rings: list = []
+        _dup_exact = 0
+        for _hr in _interior_rings:
+            _hkey = _hole_key(_hr)
+            if _hkey in _seen_hole_pre:
+                if any(tuple(_hr) == tuple(_k) for _k in _deduped_rings):
+                    _dup_exact += 1
+                continue
+            _seen_hole_pre.add(_hkey)
+            _deduped_rings.append(_hr)
+        _n_dup = len(_interior_rings) - len(_deduped_rings)
+        if _n_dup:
+            UI.vprint(1,
+                f"  [pav-builder] interior rings: {_n_dup} duplicate "
+                f"hole ring(s) dropped before the weld "
+                f"({len(_interior_rings)} → {len(_deduped_rings)}; "
+                f"{_dup_exact} of them exact-tuple copies, "
+                f"{_n_dup - _dup_exact} rotated/reflected), so a hole "
+                f"vertex reads single-owner.")
+        else:
+            UI.vprint(2,
+                f"  [pav-builder] interior rings: {len(_interior_rings)} "
+                f"ring(s), no duplicates at weld time.")
+        _interior_rings[:] = _deduped_rings
+        _weld_chains: list = ([("p", _p_i, _e[2])
+                               for _p_i, _e in enumerate(pending)]
+                              + [("r", _r_i, _r)
+                                 for _r_i, _r in enumerate(_interior_rings)])
         _nid_xy: dict[int, tuple[float, float]] = {}
-        _grid: dict[tuple[int, int], list[int]] = {}
-        for _p_i, (_si, _s, _enids, _sa, _sna) in enumerate(pending):
-            for _nid in _enids[:-1]:
+        _nid_owners: dict[int, set] = {}
+        for _ci, (_kind, _idx, _cnids) in enumerate(_weld_chains):
+            for _nid in _cnids[:-1]:
+                _nid_owners.setdefault(_nid, set()).add(_ci)
                 if _nid in _nid_xy:
                     continue
                 _la, _lo = node_id_to_ll[_nid]
-                _xy = self.ll_to_m(_la, _lo)
-                _nid_xy[_nid] = _xy
-                _ck = (int(_xy[0] // _cell_m), int(_xy[1] // _cell_m))
-                _grid.setdefault(_ck, []).append(_nid)
+                _nid_xy[_nid] = self.ll_to_m(_la, _lo)
+
+        # ── PRIVATE ON-EDGE NODE MOVE (spec phase A, A1 + A2) ────────
+        # THE FRAME MATTERS, and it is this one.  The divergence the
+        # node-identity law forbids — a vertex sitting on a foreign
+        # chain's edge INTERIOR, spelling a shared boundary a second
+        # time — is a property of the FINAL interned chains, not of
+        # ``layout.shapes``.  Measured, decisively: the identical
+        # geometric predicate catches 10 of 10 remaining wall vertices
+        # here and 0 of 10 on ``layout.shapes``, and 0 of 375 hole
+        # vertices there.  Canonical interning, the buffer(0) validity
+        # repair, the needle removal and this weld's own insertions all
+        # sit between the two frames, so a repair applied before them
+        # is applied to different geometry.
+        #
+        # A node owned by exactly ONE chain is PRIVATE: moving it moves
+        # nothing else, so putting it on the boundary it already lies
+        # on is lossless.  It then falls inside the 5 mm weld below,
+        # which splices it into the partner chain — and the two ways
+        # spell ONE chain, which is the whole law.  A node ANY other
+        # chain references is never moved (that would drag every way
+        # that shares it); a node with another node within
+        # ``SHARED_VERTEX_TOL_M`` is left alone (the canonical point
+        # registry's territory, and moving one onto the other's edge
+        # would mint the coincidence A3 removes).
+        _cell_m = 1.0
+        _grid: dict[tuple[int, int], list[int]] = {}
+
+        def _regrid():
+            _grid.clear()
+            for _n, _p in _nid_xy.items():
+                _grid.setdefault((int(_p[0] // _cell_m),
+                                  int(_p[1] // _cell_m)), []).append(_n)
+
+        def _near_nids(_x, _y):
+            """Nids in the 3x3 cell block around one point."""
+            _out: set = set()
+            _c0 = int(_x // _cell_m)
+            _c1 = int(_y // _cell_m)
+            for _oi in (-1, 0, 1):
+                for _oj in (-1, 0, 1):
+                    _out.update(_grid.get((_c0 + _oi, _c1 + _oj), ()))
+            return _out
+
+        def _along_nids(_ax, _ay, _dx, _dy, _L):
+            """Nids in the cells the segment passes through (the weld's
+            own walk — never a bounding square, which is quadratic in
+            the length of a 200 m apron edge)."""
+            _out: set = set()
+            _steps = max(1, int(_L / _cell_m) + 1)
+            for _st in range(_steps + 1):
+                _out |= _near_nids(_ax + _dx * _st / _steps,
+                                   _ay + _dy * _st / _steps)
+            return _out
+
+        _regrid()
+        _n_moved = 0
+        _worst_move = 0.0
+        _blocked_shared = 0
+        # HOLE-RING CANDIDATE CENSUS (A1 attribution).  A1's class is the
+        # one this pass never reaches, and the emitted patch cannot show
+        # why — the emit-time hole dedup runs after the weld has rewritten
+        # the rings, so the emitted frame's ownership is not the frame the
+        # test read.  These counters are the ONLY window on the weld-time
+        # frame; they report per REJECTION CLAUSE and adjudicate nothing.
+        _ring_nids: set = set()
+        for _r in _interior_rings:
+            _ring_nids.update(_r[:-1] if (len(_r) > 1 and _r[0] == _r[-1])
+                              else _r)
+        _ring_stat: dict[str, int] = {}
+
+        def _rstat(_k: str) -> None:
+            _ring_stat[_k] = _ring_stat.get(_k, 0) + 1
+
+        for _ci, (_kind, _idx, _cnids) in enumerate(_weld_chains):
+            _open = _cnids[:-1]
+            _m = len(_open)
+            if _m < 3:
+                continue
+            for _k in range(_m):
+                _a = _open[_k]
+                _b = _open[(_k + 1) % _m]
+                _ax, _ay = _nid_xy[_a]
+                _bx, _by = _nid_xy[_b]
+                _dx, _dy = _bx - _ax, _by - _ay
+                _L2 = _dx * _dx + _dy * _dy
+                if _L2 < 1e-12:
+                    continue
+                _L = math.sqrt(_L2)
+                for _nid in _along_nids(_ax, _ay, _dx, _dy, _L):
+                    _own = _nid_owners.get(_nid) or set()
+                    _is_ring = _nid in _ring_nids
+                    if len(_own) != 1 or _ci in _own:
+                        # Report the clause only for a candidate that is
+                        # geometrically ON this edge — otherwise every
+                        # nid in the 3x3 cell block would be counted.
+                        if _is_ring and _ci not in _own:
+                            _pxr, _pyr = _nid_xy[_nid]
+                            _tr = ((_pxr - _ax) * _dx
+                                   + (_pyr - _ay) * _dy) / _L2
+                            if 0.0 < _tr < 1.0:
+                                _pr = abs((_pxr - _ax) * _dy
+                                          - (_pyr - _ay) * _dx) / _L
+                                if _WELD_TOL_M < _pr < ONEDGE_SNAP_TOL_M:
+                                    _rstat(f"blocked_owners={len(_own)}")
+                        continue          # shared, or this chain's own
+                    _px, _py = _nid_xy[_nid]
+                    _t = ((_px - _ax) * _dx + (_py - _ay) * _dy) / _L2
+                    if _t <= 0.0 or _t >= 1.0:
+                        continue
+                    if (_t * _L <= ONEDGE_SNAP_TOL_M
+                            or (1.0 - _t) * _L <= ONEDGE_SNAP_TOL_M):
+                        if _is_ring:
+                            _rstat("blocked_endpoint_touch")
+                        continue          # endpoint touch, not an interior
+                    _perp = abs((_px - _ax) * _dy
+                                - (_py - _ay) * _dx) / _L
+                    if _perp >= ONEDGE_SNAP_TOL_M or _perp <= _WELD_TOL_M:
+                        continue          # not on it, or already welded
+                    if _is_ring:
+                        _rstat("geometric_candidate")
+                    _qx, _qy = _ax + _t * _dx, _ay + _t * _dy
+                    # Never move onto another node's coordinate.
+                    _clash = False
+                    for _n2 in _near_nids(_qx, _qy):
+                        if _n2 == _nid:
+                            continue
+                        _p2 = _nid_xy[_n2]
+                        if ((_p2[0] - _qx) ** 2 + (_p2[1] - _qy) ** 2
+                                < SHARED_VERTEX_TOL_M ** 2):
+                            _clash = True
+                            break
+                    if _clash:
+                        _blocked_shared += 1
+                        if _is_ring:
+                            _rstat("blocked_clash_within_SHARED_VERTEX_TOL")
+                        continue
+                    _nid_xy[_nid] = (_qx, _qy)
+                    node_id_to_ll[_nid] = self.m_to_ll(_qx, _qy)
+                    _n_moved += 1
+                    if _is_ring:
+                        _rstat("MOVED")
+                    _worst_move = max(_worst_move, _perp)
+                    _regrid()
+        if _ring_stat:
+            UI.vprint(1,
+                f"  [pav-builder] hole-ring on-edge candidates "
+                f"({len(_ring_nids)} ring vertices in "
+                f"{len(_interior_rings)} rings): "
+                + ", ".join(f"{_k}={_v}" for _k, _v
+                            in sorted(_ring_stat.items())))
+        if _n_moved or _blocked_shared:
+            UI.vprint(1,
+                f"  [pav-builder] private on-edge node move: "
+                f"{_n_moved} node(s) put onto the foreign chain edge "
+                f"they lie on (worst {_worst_move:.4f} m; "
+                f"{_blocked_shared} left alone — another node was "
+                f"within the weld tolerance of the landing point).")
+        _regrid()
         _n_weld = 0
-        for _p_i, (_si, _s, _enids, _sa, _sna) in enumerate(pending):
+        for _chain_i, (_kind, _idx, _enids) in enumerate(_weld_chains):
             open_nids = _enids[:-1]
             member = set(open_nids)
             out: list[int] = []
@@ -1692,66 +1953,46 @@ class PavementLayout:
                     # cross-strip seam blend levels soft↔soft steps),
                     # so the splice always references the ONE
                     # consensus node.
-                    if nid in member:
-                        # The way already passes through this node
-                        # ELSEWHERE (a multi-way collinear seam that
-                        # revisits the coordinate).  A repeated nid is
-                        # a figure-8 the ring dedup forbids — but
-                        # SKIPPING leaves the exact T-vertex that
-                        # Ruppert-explodes (measured: one such seam =
-                        # 673k triangles).  Insert a COORDINATE-TWIN
-                        # nid instead: same canonical lat/lon and the
-                        # same claims, so the mesh (which keys nodes
-                        # by exact coordinates) welds the chains into
-                        # one vertex while the OSM ring stays
-                        # duplicate-free.
-                        twin = next_nid[0]
-                        next_nid[0] -= 1
-                        node_id_to_ll[twin] = node_id_to_ll[nid]
-                        if nid in node_id_to_alts:
-                            node_id_to_alts[twin] = list(
-                                node_id_to_alts[nid])
-                        if nid in node_id_to_authority_alts:
-                            node_id_to_authority_alts[twin] = list(
-                                node_id_to_authority_alts[nid])
-                        if nid in node_id_to_law_alts:
-                            # Copy LAW claims too: the twin must land
-                            # on the SAME consensus value as the
-                            # original node (no-stacked-nodes: a twin
-                            # is only legal because it shares the
-                            # elevation).
-                            node_id_to_law_alts[twin] = list(
-                                node_id_to_law_alts[nid])
-                        if nid in node_id_to_skirt_alts:
-                            node_id_to_skirt_alts[twin] = list(
-                                node_id_to_skirt_alts[nid])
-                        if _authorship_on:
-                            # AUTHORSHIP travels with the claims: a twin
-                            # that inherited values but no author would
-                            # trip the unauthored-node error while being
-                            # a pure coordinate alias of an authored
-                            # node (measured: 3 such nodes at HECA).
-                            for _src, _dst in (
-                                    (node_id_to_all_claims,
-                                     node_id_to_all_claims),
-                                    (node_id_to_authority_claims,
-                                     node_id_to_authority_claims),
-                                    (node_id_to_law_claims,
-                                     node_id_to_law_claims),
-                                    (node_id_to_skirt_claims,
-                                     node_id_to_skirt_claims)):
-                                if nid in _src:
-                                    _dst[twin] = list(_src[nid])
-                        _nid_xy[twin] = _nid_xy[nid]
-                        out.append(twin)
-                        member.add(twin)
-                    else:
-                        out.append(nid)
-                        member.add(nid)
+                    # A hole-ring nid is interned UNVALUED, so splicing
+                    # it into a VALUED chain leaves a node with no
+                    # consensus in a pavement ring.  That case already
+                    # has ONE authority — the unclaimed-node backfill
+                    # below (per-vertex preservation, 2026-07-18), which
+                    # interpolates the host ring between the inserted
+                    # node's nearest claimed neighbours.  Nothing is
+                    # authored here; a second filler would be a second
+                    # authority for the same value.
+                    #
+                    # ONE COORDINATE, ONE NODE ID (spec phase A, A3 —
+                    # the c5nodeid coincident mints).  This branch used
+                    # to mint a COORDINATE TWIN when the chain already
+                    # passed through the hit node elsewhere, to keep the
+                    # OSM ring free of a repeated nid.  That is the dual
+                    # of the node-identity law the same ruling forbids
+                    # (owner 2026-07-19: one canonical point = ONE node
+                    # id, always), and it is what the coincident-node
+                    # count measures.  The twin bought nothing the
+                    # repeated reference does not: both spell the SAME
+                    # coordinate, so the geometry every consumer parses
+                    # is byte-identical — only the node-id spelling
+                    # differed.  The chain now references the ONE node.
+                    # (The zero-length guard above still forbids two
+                    # CONSECUTIVE references, and the closing-repeat
+                    # trim below forbids the wrap-around case.)
+                    out.append(nid)
+                    member.add(nid)
                     changed = True
                     _n_weld += 1
             if changed and len(out) >= 3:
-                pending[_p_i] = (_si, _s, out + [out[0]], _sa, _sna)
+                # A ring that ends where it starts would emit a
+                # zero-length closing segment — drop the repeat.
+                while (len(out) > 3 and out[-1] == out[0]):
+                    out.pop()
+                if _kind == "p":
+                    _si, _s, _old, _sa, _sna = pending[_idx]
+                    pending[_idx] = (_si, _s, out + [out[0]], _sa, _sna)
+                else:
+                    _interior_rings[_idx] = out + [out[0]]
         if _n_weld:
             UI.vprint(1,
                 f"  [pav-builder] nid-level final weld: inserted "

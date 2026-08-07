@@ -833,6 +833,16 @@ node take the DEM value ((d): extend the wall exemption one-sided),
 or must every welded node of a law-valued ring seat from its ring
 ((a): missing seat)?
 
+RULED same day (owner, PROVISIONAL — verbatim "I'm not sure, try
+d"): **(d)**. The wall-foot node on the adjacent-ground band's outer
+edge may take the raw DEM value; the wall-spanned tear exemption
+extends to ONE-SIDED boundaries (the on-DEM endpoint must be
+wall-hosted; the law-valued partner need not be). Structural
+predicate only — no magnitude cap (step size is a flat-world
+artifact by construction). Pure adjudication-side change: patches do
+not move. Provisional: revisit at the sim pass. Spec:
+adjacent-ground-wall-foot-exemption-spec.md.
+
 ## 2026-08-07 — Round order ratified; c9feed probe runs parallel (owner)
 
 Owner ratifies the retrospective's order: (1) pad-frontage round

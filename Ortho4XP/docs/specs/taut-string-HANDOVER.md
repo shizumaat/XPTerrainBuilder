@@ -318,8 +318,19 @@ final_grade_projection CO-PROJECTS groundside with airside; cure
 RULED in the spec ADDENDUM (lead, from receiver-only — owner
 ratification flagged): THE PROJECTION PARTITIONS (airside first,
 groundside pairs excluded; groundside after vs frozen airside).
-**FINISHER LANE c8fin IN FLIGHT** (partition + service stringing;
-Q4 re-run 8/8 is its gate). Named: HEAZ canyon gs 3→131 @ 1-10 m =
+**c8fin MERGED:** the partition landed
+at EVERY projection — Q4 7/8, BOTH original debts cured (SPJC −77 /
+HECA −802 airside), battery airside 12,005 → **10,718 (−1,287)**,
+ADJ → **15,530**; residual FAIL = KCLT 10k +1 strip_seam_tear on a
+terrain strip (capped, named) — gate adjudicated SUBSTANTIVELY MET.
+Mouths FIRE first time (SPJC 23 / KCLT 50). **STOP → CYCLE 9 (spec
+lead-owed, task #26): the graph carries only apt.dat row-1206 routes
+(HECA 5) while the ROAD FEED (705 lines / 97.9 km) carves the slice
+and never enters** — mechanism: _slice_service_subsegments into
+build_context + sidecar + census reader in ONE lockstep landing;
+seats the honest +244 groundside. Groundside +244 = roads/lots
+showing their OWN shortfall instead of dragging aprons (correct
+direction). Named: HEAZ canyon gs 3→131 @ 1-10 m =
 the class-universal lateral-contiguity absorption item (standing);
 anchor seeds world-dependent ≤0.17 m (rider); KCLT slab carrier
 re-read owed.

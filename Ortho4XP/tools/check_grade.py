@@ -1115,7 +1115,13 @@ def _grade_context_from_osm(ways, nodes, ll_to_m, taxi_axes, seam_nids,
                 seg_caps += [pad] * (len(poly) - 1 - len(seg_caps))
         else:
             seg_caps = [cL] * (len(poly) - 1)
-        centerlines.append(GG.Centerline(pts=poly, seg_caps=seg_caps))
+        # 5th element = the sidecar's IS_SERVICE flag: a truck route is not
+        # an aircraft spine, and ``grade_graph._spine_membership`` applies
+        # that rule for both readers off this one field (cycle 9).  Absent
+        # (legacy sidecar) ⇒ False, i.e. the pre-flag reading.
+        centerlines.append(GG.Centerline(
+            pts=poly, seg_caps=seg_caps,
+            is_service=bool(entry[4]) if len(entry) > 4 else False))
         # 4th element = the BUILDER's route ordinal (identity binding);
         # legacy 3-tuple sidecars fall back to nearest-route below.
         axis_ridx.append(entry[3] if len(entry) > 3 else None)
@@ -2705,6 +2711,15 @@ def _check_transverse_grade(ways: List[Way], nodes, ll_to_m, taxi_axes,
                     else [caps] * (len(poly) - 1))
         if not cap_list:
             continue
+        # A TRUCK ROUTE IS NOT AN AIRCRAFT SPINE (cycle 9; lockstep with
+        # ``grade_graph._reads_service_spines``, which applies the same rule
+        # to the within-shape graph).  The transverse law censuses the
+        # CROSS-SECTION of the corridor an axis runs down, so a service axis
+        # may only censure the road family's own shapes — otherwise a road
+        # passing an apron stamps the apron with a cross-section it has no
+        # spine for (measured: ``transverse::apron|apron`` +176 at HECA
+        # 10 000 when the road feed joined the graph).
+        _axis_is_svc = bool(entry[4]) if len(entry) > 4 else False
         for k in range(len(poly) - 1):
             (x1, y1), (x2, y2) = poly[k], poly[k + 1]
             seg_len = math.hypot(x2 - x1, y2 - y1)
@@ -2728,6 +2743,9 @@ def _check_transverse_grade(ways: List[Way], nodes, ll_to_m, taxi_axes,
                             cand.update(grid.get((gx + dx, gy + dy), ()))
                 hits: Dict[int, List[Tuple[float, float]]] = {}
                 for (si, i) in cand:
+                    if (_axis_is_svc
+                            and shapes[si][0].role not in _GROUNDSIDE_ROLES):
+                        continue
                     ring = shapes[si][1]
                     a, b = ring[i], ring[(i + 1) % len(ring)]
                     ex, ey = b[0] - a[0], b[1] - a[1]
@@ -4574,9 +4592,17 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx: dict = {}
     exact = data.get("axes_exact") or None
     if exact:
-        # exact build_context mirror: (pts, seg_caps, route_ordinal)
-        ctx["taxi_axes_ll"] = [(pts, caps, None, ridx)
-                               for (pts, caps, ridx) in exact]
+        # exact build_context mirror: (pts, seg_caps, route_ordinal,
+        # is_service).  The 5th slot of the reader's tuple carries the
+        # SERVICE flag through to the centerline rebuild — a truck route is
+        # not an aircraft spine (grade_graph._reads_service_spines), and the
+        # solver and this reader must agree on that or they judge two
+        # different laws.  Sidecars written before the flag existed carry
+        # 3-element entries and read as all-taxi, which is how they were
+        # graded.
+        ctx["taxi_axes_ll"] = [
+            (e[0], e[1], None, e[2], bool(e[3]) if len(e) > 3 else False)
+            for e in exact]
         ctx["routes_ll"] = data.get("routes_exact") or None
     else:
         ctx["taxi_axes_ll"] = data.get("axes") or None

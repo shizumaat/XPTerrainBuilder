@@ -45,7 +45,7 @@ import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, FrozenSet, List, Optional, Tuple
 
 R_EARTH = 6_378_137.0
 
@@ -967,6 +967,211 @@ def _is_groundside(way: "Way") -> bool:
 
 
 _ROAD_FAMILY_ROLES = {"service_road", "service_junction"}
+
+# ══════════════════════════════════════════════════════════════════════
+# ROLE-LESS FEATURE WAYS SIDE WITH THEIR HOST
+# (lead ruling 2026-08-07, nidfix2 escalation (a))
+# ══════════════════════════════════════════════════════════════════════
+#
+# THE DEFECT.  A handful of emitted ways carry an ``o4_feature`` tag and NO
+# ``role`` tag at all — HECA's 232-way population: ``shape_interior_ring``
+# 92, ``gap_interior_ring`` 88, ``gap_drainage_spine`` 49, ``crown_spine``
+# 3.  They are ARTICULATION geometry (a shape's hole boundary, a breakline
+# inside a gap face, a crown ridge), not surfaces.  Judged as surfaces they
+# fall through ``_role_grade_limit``'s unknown-role branch to the CALLER's
+# default cap — 1.5 % in the law-true frame — and through ``_is_groundside``
+# to AIRSIDE, whatever their host actually is.  Measured on the frame of
+# record: three ``shape_interior_ring`` rows, every one of them hosted by a
+# ``service_junction`` (an 8 % GROUNDSIDE surface), reported as airside 1.5 %
+# violations; two of the three duplicate their host way's whole vertex set,
+# so that geometry was being judged twice.
+#
+# THE RULING.  "They take the ROLE AND SIDE of their HOST shape and are
+# judged at the host's cap; where their geometry duplicates a host way's,
+# rows belong to the HOST ONLY — one geometry, one row set; never
+# airside-default at 1.5 %, never a double-count."
+#
+# WHAT IS IMPLEMENTED, AND THE ONE CLAUSE THAT IS NOT, STATED PLAINLY.
+# Role, side and the duplicate disposition are implemented here.  "JUDGED
+# AT THE HOST'S CAP" IS NOT, and deliberately: the cap is LAW INPUT, and
+# the spec this lands under (docs/specs/materiality-floor-spec.md) is
+# ADJUDICATION-ONLY — "law, generation, and law-true counts unchanged",
+# acceptance "law-true counts byte-identical everywhere".  Measured both
+# ways on the frame of record: stamping the host role for the LAW removes
+# two within-shape rows (the host's looser cap absolves them) and MINTS one
+# phantom drainage-minimum row by admitting an articulation ring into that
+# law's surface set — a population move, not an adjudication.  The
+# duplicate clause reaches the same place without touching the law: the
+# host's way carries the same vertices and IS judged at the host's cap, and
+# the articulation way's rows are marked as the second reading of one
+# geometry.  A ruling that the CAP clause should be applied literally is
+# the lead's to make; it is a two-line change here (stamp ``role``) and it
+# would cost the byte-identity above.
+#
+# TWO HOST RESOLVERS, ONE NOTION, each named on the row it stamps:
+#
+#   ``shared_nodes``       — a ``shape_interior_ring``'s nids ARE its host's
+#                            already-interned vertices (``layout.to_osm``:
+#                            "the nids are the already-interned
+#                            exterior/wall vertices, so nothing new is
+#                            created here").  The host is the role-carrying
+#                            way sharing the MOST of them.
+#   ``drainage_parents``   — a ``gap_drainage_spine``'s nodes are NEW ids
+#                            shared with nothing, so node sharing cannot
+#                            answer.  Its host is the bounding pavement the
+#                            DRAINAGE LAW ITSELF already selected
+#                            (``grade_law.drainage_spine_parents``, the same
+#                            function ``gap_fill`` ranks with) — never a
+#                            second predicate invented here.
+#
+# ``gap_interior_ring`` and ``crown_spine`` are open breaklines skipped by
+# ``_parse_osm`` and consumed by no law, so they mint no rows and there is
+# nothing to side; they are named in the register anyway, because a class
+# absent from a register is a class the next reader re-discovers by hand.
+ROLE_LESS_HOST_RULING = (
+    "2026-08-07 (lead, nidfix2 escalation (a)) — Role-less feature ways "
+    "side with their host")
+
+#: The ``o4_feature`` classes the emitter writes with NO ``role`` tag.
+#: NOTE (blast role-literal hazard): these are ``layout.to_osm`` literals.
+ROLE_LESS_FEATURE_CLASSES: Tuple[str, ...] = (
+    "shape_interior_ring",
+    "gap_interior_ring",
+    "gap_drainage_spine",
+    "crown_spine",
+)
+
+#: The in-memory tags the host resolvers stamp.  They are NEVER written to a
+#: patch — an emitted way carries none of them — so a stamped tree and a
+#: freshly parsed one differ only in what the REPORT can say.
+HOST_WAY_TAG = "o4_host_way"
+HOST_ROLE_TAG = "o4_host_role"
+HOST_SOURCE_TAG = "o4_host_source"
+HOST_SHARED_NODES_TAG = "o4_host_shared_nodes"
+HOST_DUPLICATE_TAG = "o4_host_duplicate"
+
+try:                                                   # pragma: no cover
+    from auto_patch.layout import AUTHORITY_RANK as _LAYOUT_AUTHORITY_RANK
+except Exception:                                      # pragma: no cover
+    _LAYOUT_AUTHORITY_RANK = {}
+
+
+def _authority_rank(role: Optional[str]) -> int:
+    """The emitter's OWN airside-first precedence rank for a role
+    (``layout.AUTHORITY_RANK``); unnamed roles rank last.  Used only to
+    break a host TIE deterministically, so the winner of "two shapes share
+    the same number of this ring's vertices" is the one the emitter itself
+    would let author the value."""
+    return _LAYOUT_AUTHORITY_RANK.get(role, len(_LAYOUT_AUTHORITY_RANK) + 1)
+
+
+def resolve_feature_hosts(ways: List["Way"],
+                          feature_ways: "Optional[List[Way]]" = None) -> dict:
+    """Stamp every ROLE-LESS feature way in ``ways`` with its HOST shape.
+
+    Returns ``{feature wid: {...}}`` — the host way id, its role, how many
+    of the feature way's DISTINCT nodes the host carries, how many it has,
+    and whether the host's vertex set COVERS the feature way's (the
+    ruling's "duplicates a host way's geometry").
+
+    THE STAMP IS REPORTING-ONLY — the ``role`` tag itself is NOT written.
+    The materiality-floor spec this lands under is ADJUDICATION-ONLY
+    ("law, generation, and law-true counts unchanged"), and a role tag is
+    LAW INPUT: it is what ``_role_grade_limit`` resolves a cap from, what
+    ``_is_groundside`` partitions on, and what selects a way into
+    ``_DRAINAGE_MIN_ROLES`` / ``_STRIP_PAVEMENT_ROLES``.  Stamping it
+    MEASURABLY moves the population — on the frame of record it removed two
+    within-shape rows and MINTED one phantom drainage-minimum row by
+    admitting an articulation ring into that law's surface set — so the
+    disposition here is adjudication, not re-judging: a row whose geometry
+    the host already carries is marked ``role_less_host_duplicate`` (one
+    geometry, one row set), and every row's role and SIDE are read through
+    ``effective_role``.  A way whose host cannot be resolved is left
+    exactly as parsed.
+
+    Called once, from ``run_checks``, before any check runs.
+    """
+    hosts: dict = {}
+    candidates = [w for w in ways if w.tags.get("role")]
+    if not candidates:
+        return hosts
+    owner: Dict[str, List["Way"]] = {}
+    for w in candidates:
+        for nid in set(w.nids):
+            owner.setdefault(nid, []).append(w)
+    pool = list(ways) + list(feature_ways or ())
+    for w in pool:
+        if w.tags.get("role"):
+            continue
+        if w.tags.get("o4_feature") not in ROLE_LESS_FEATURE_CLASSES:
+            continue
+        distinct = set(w.nids)
+        share: Dict[str, int] = {}
+        by_wid: Dict[str, "Way"] = {}
+        for nid in distinct:
+            for h in owner.get(nid, ()):
+                share[h.wid] = share.get(h.wid, 0) + 1
+                by_wid[h.wid] = h
+        if not share:
+            continue
+        # Most shared vertices wins; ties go to the emitter's own
+        # airside-first authority order, then to the lowest way id — a
+        # host that depends on dict iteration order is not a measurement.
+        best_wid = sorted(
+            share, key=lambda k: (-share[k],
+                                  _authority_rank(by_wid[k].tags.get("role")),
+                                  str(k)))[0]
+        host = by_wid[best_wid]
+        n_shared = share[best_wid]
+        duplicate = (n_shared == len(distinct) and len(distinct) >= 3)
+        w.tags[HOST_WAY_TAG] = str(host.wid)
+        w.tags[HOST_ROLE_TAG] = host.tags["role"]
+        w.tags[HOST_SOURCE_TAG] = "shared_nodes"
+        w.tags[HOST_SHARED_NODES_TAG] = str(n_shared)
+        if duplicate:
+            w.tags[HOST_DUPLICATE_TAG] = "1"
+        hosts[str(w.wid)] = {
+            "feature": w.tags.get("o4_feature"),
+            "host_way": str(host.wid),
+            "host_role": host.tags["role"],
+            "host_source": "shared_nodes",
+            "shared_nodes": n_shared,
+            "n_nodes": len(distinct),
+            "duplicate": duplicate,
+        }
+    return hosts
+
+
+def effective_role(way: "Way") -> Optional[str]:
+    """The way's own ``role``, or — for a ROLE-LESS feature way — its
+    resolved HOST's (lead ruling 2026-08-07).
+
+    REPORTING ONLY, and that is the whole design: ``_is_groundside`` and
+    ``_role_grade_limit`` keep reading the raw ``role`` tag, so the law's
+    population is byte-identical whether the hosts resolved or not, while
+    ``row_roles`` / ``row_side`` / ``row_runway_family`` — the accessors a
+    REPORT is built from — never present an articulation way as an
+    airside-by-default surface."""
+    if way is None:
+        return None
+    tags = getattr(way, "tags", None) or {}
+    return tags.get("role") or tags.get(HOST_ROLE_TAG) or None
+
+
+def role_less_host_duplicate(row) -> bool:
+    """True when EVERY way of ``row`` is a role-less feature way whose host
+    COVERS its vertex set — the ruling's "rows belong to the HOST ONLY".
+
+    Both ways, deliberately, exactly as ``_mark_disconnected`` requires both
+    endpoints: a row between an articulation ring and a DIFFERENT shape is a
+    statement about that pair, and the host does not own it."""
+    a = getattr(row, "way_a", None) or getattr(row, "way_v", None)
+    b = getattr(row, "way_b", None) or getattr(row, "way_e", None)
+    ws = [w for w in (a, b) if w is not None]
+    if not ws:
+        return False
+    return all((getattr(w, "tags", None) or {}).get(HOST_DUPLICATE_TAG)
+               for w in ws)
 
 
 def _airside_groundside_pair(way_a: "Way", way_b: "Way") -> bool:
@@ -2467,9 +2672,11 @@ def _check_drainage_spine_below_pavement(
     if not spine_ways:
         return [], 0, 0
     rings: List[Tuple[str, List[Tuple[float, float, float]]]] = []
+    parent_by_wid: Dict[str, "Way"] = {}
     for w in ways:
         if w.role not in _SPINE_AIRSIDE_ROLES:
             continue
+        parent_by_wid[w.wid] = w
         nn = (w.nids[:-1] if len(w.nids) > 1 and w.nids[0] == w.nids[-1]
               else w.nids)
         ring = []
@@ -2497,6 +2704,14 @@ def _check_drainage_spine_below_pavement(
     out: List[Violation] = []
     n_checked = 0
     n_short = 0
+    # THE SPINE'S HOST (lead ruling 2026-08-07, ``drainage_parents``): a
+    # gap spine's nodes are NEW ids shared with nothing, so the node-sharing
+    # resolver cannot answer for it.  Its host shape is the bounding
+    # pavement THIS LAW already selected — tallied per spine way here and
+    # stamped below, so ``row_roles``/``row_side`` report the host instead
+    # of the airside-by-default '?' the way carries.  Reporting only:
+    # nothing in the law reads a spine way's role.
+    host_tally: Dict[str, Dict[str, int]] = {}
     for w in spine_ways:
         for k, nid in enumerate(w.nids):
             if nid not in nodes or k >= len(w.elevs) or w.elevs[k] is None:
@@ -2507,6 +2722,8 @@ def _check_drainage_spine_below_pavement(
             if len(near) < 2:
                 continue
             n_checked += 1
+            tally = host_tally.setdefault(w.wid, {})
+            tally[near[0][1]] = tally.get(near[0][1], 0) + 1
             lower = min(near[0][2], near[1][2])
             if z >= lower:
                 out.append(Violation(
@@ -2516,6 +2733,21 @@ def _check_drainage_spine_below_pavement(
                     elev_a=z, elev_b=lower))
             elif z > lower - _DRAINAGE_SPINE_MIN_FALL_M:
                 n_short += 1
+    for w in spine_ways:
+        tally = host_tally.get(w.wid)
+        if not tally or w.tags.get("role") or w.tags.get(HOST_ROLE_TAG):
+            continue
+        # The MODAL nearest parent over the spine's own censused stations;
+        # ties to the lowest way id, so the answer never depends on dict
+        # iteration order.
+        host_wid = sorted(tally, key=lambda k: (-tally[k], str(k)))[0]
+        host = parent_by_wid.get(host_wid)
+        if host is None:
+            continue
+        w.tags[HOST_WAY_TAG] = str(host_wid)
+        w.tags[HOST_ROLE_TAG] = host.tags.get("role") or ""
+        w.tags[HOST_SOURCE_TAG] = "drainage_parents"
+        w.tags[HOST_SHARED_NODES_TAG] = "0"
     out.sort(key=lambda v: -v.de_m)
     return out, n_checked, n_short
 
@@ -4495,6 +4727,15 @@ VERSION_DEFERRED_FAMILIES: Dict[str, str] = {
 #: puts on the row.
 OUT_OF_SCOPE_RULING = "2026-08-06 ONE graph"
 OUT_OF_SCOPE_CLASSES: Dict[str, str] = {
+    "role_less_host_duplicate":
+        "every way of the row is ROLE-LESS ARTICULATION geometry (an "
+        "o4_feature way with no role tag) whose HOST shape's vertex set "
+        "COVERS it.  Lead ruling " + ROLE_LESS_HOST_RULING + ": such a way "
+        "is articulation, not a surface — \"where their geometry duplicates "
+        "a host way's, rows belong to the HOST ONLY: one geometry, one row "
+        "set\".  The host's own rows are that row set; this one is the "
+        "duplicate.  REPORTED under its own heading and never dropped, the "
+        "same treatment the version-deferred family gets",
     "disconnected_ring":
         "the row lies wholly inside a groundside ring the ONE route graph "
         "does not reach — no route, frontage or weld coupling to the "
@@ -4503,6 +4744,19 @@ OUT_OF_SCOPE_CLASSES: Dict[str, str] = {
         "and mints nothing.  The rings come from the SOLVE's own answer "
         "(the disconnected_rings sidecar key), never a second predicate",
 }
+
+
+def row_adjudicated(family_key: str, row) -> bool:
+    """Is this row part of the ADJUDICATED population?
+
+    THE predicate ``adjudication`` splits on, factored out so a second
+    reader (the site census's materiality accumulation, which may only be
+    funded by real defects) tests the same thing rather than re-deriving
+    "not deferred and not out of scope" — the census-wrapper defect at
+    row granularity."""
+    if family_key in VERSION_DEFERRED_FAMILIES:
+        return False
+    return not getattr(row, "out_of_scope", None)
 
 
 def adjudication(rows_by_family_key) -> dict:
@@ -4525,6 +4779,8 @@ def adjudication(rows_by_family_key) -> dict:
     out_of_scope = _Counter()
     adjudicated = []
     for key, row in rows_by_family_key:
+        # The split predicate is ``row_adjudicated``; the two branches below
+        # only name WHICH heading a non-adjudicated row is reported under.
         if key in VERSION_DEFERRED_FAMILIES:
             deferred[key] += 1
         elif getattr(row, "out_of_scope", None):
@@ -4564,6 +4820,238 @@ def adjudication(rows_by_family_key) -> dict:
                  f"classes (RULINGS {OUT_OF_SCOPE_RULING}); both are "
                  f"REPORTED under their own headings and never dropped"),
     }
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE MATERIALITY FLOOR (owner ruling RULINGS 2026-08-07)
+# ══════════════════════════════════════════════════════════════════════
+#
+# THE OWNER'S WORDS: "when I was building osm patch files by hand I never
+# set an elevation in increments smaller than 1 meter… we don't want any
+# sharp bumps, but we don't need to be grading to less than 0.5m."
+#
+# The interview ruled it ADJUDICATION-ONLY first: the law and the solver
+# are untouched, the census keeps MEASURING every row, and a defect SITE is
+# ACTIONABLE only if its unlawful excess ACCUMULATES to the floor.  Value
+# quantization of the OUTPUT was REJECTED in the same ruling (the
+# dense-node staircase trap — the hand files were smooth at 1 m increments
+# because they were SPARSE), which is why nothing here rounds a value.
+#
+# Three parts, three knobs, each carrying its clause:
+#
+#   (1) THE FLOOR       a site under 0.5 m of accumulated unlawful excess
+#                       is not actionable.
+#   (2) THE SHARP GUARD …unless one of its rows is a single step >= 0.15 m
+#                       or sits at >= 2x its own cap.  "We don't want any
+#                       sharp bumps" is the half of the sentence a bare
+#                       accumulation floor would throw away: 40 rows of
+#                       1 cm and one 20 cm cliff accumulate the same.
+#   (3) RUNWAY EXEMPT   a site touching the runway family is ALWAYS
+#                       actionable — reg-derived precision governs there
+#                       (CIFP threshold values, RUNWAY_END_GRADE, the FAA
+#                       vertical-curve K-factors), and "0.5 m is close
+#                       enough" is not a statement anyone made about a
+#                       runway profile.
+#
+# The floor is PROVISIONAL (the owner said so), which is why sub-floor
+# sites are REPORTED under their own label rather than dropped — the
+# counted-never-dropped convention this repo already runs on
+# (VERSION_DEFERRED_FAMILIES, OUT_OF_SCOPE_CLASSES).  Moving the constant
+# must change a number in a report, never make evidence disappear.
+MATERIALITY_FLOOR_RULING = (
+    "2026-08-07 (owner) — Materiality floor: 0.5 m accumulated, guarded, "
+    "runways exempt")
+
+#: (1) THE FLOOR, metres of ACCUMULATED unlawful excess per SITE.
+MATERIALITY_FLOOR_M = 0.5
+
+#: (2a) THE SHARP GUARD, single-step half: metres.  A step this tall is a
+#: bump the owner named ("we don't want any sharp bumps") regardless of how
+#: little the site accumulates.
+MATERIALITY_SHARP_STEP_M = 0.15
+
+#: (2b) THE SHARP GUARD, steepness half: a MULTIPLE of the row's own cap.
+#: Expressed as a multiple rather than an absolute grade because the caps
+#: this battery spans differ by more than 5x (1 % apron … 8 % service
+#: road), and "twice the law" means the same thing on all of them.
+MATERIALITY_SHARP_GRADE_CAP_MULTIPLE = 2.0
+
+#: (3) THE RUNWAY FAMILY.  The repo's own definition, in two places that
+#: already agree: ``tools/flex_audit.RUNWAY_ROLES`` and the "# runway
+#: family" head of ``layout.AUTHORITY_PRECEDENCE`` (ROLE_RUNWAY,
+#: ROLE_RUNWAY_CROSSING — the runway surface and the runway-interpolated
+#: crossings, which ``_ROUTE_BAND_SKIP_ROLES`` calls "the anchors
+#: themselves").  NOTE (blast role-literal hazard): renaming a ROLE_* VALUE
+#: in auto_patch/layout.py silently empties this set.
+MATERIALITY_RUNWAY_FAMILY_ROLES: FrozenSet[str] = frozenset({
+    "runway", "runway_crossing",
+})
+
+#: THE SUB-FLOOR LABEL — the counted-never-dropped register for sites the
+#: floor takes out of the actionable count.  Same shape as
+#: ``VERSION_DEFERRED_FAMILIES`` / ``OUT_OF_SCOPE_CLASSES``: label -> why,
+#: read by the census's site section, twin-asserted in tests/test_harness.py.
+MATERIALITY_SUB_FLOOR_LABEL = "sub_floor"
+MATERIALITY_SUB_FLOOR_CLASSES: Dict[str, str] = {
+    MATERIALITY_SUB_FLOOR_LABEL:
+        "the site's ADJUDICATED rows accumulate less than the "
+        "materiality floor of unlawful excess AND no row trips the sharp "
+        "guard AND no runway-family role is present — owner RULINGS "
+        "2026-08-07 (\"we don't need to be grading to less than 0.5m\").  "
+        "The site is still measured, still carries every row, and is "
+        "reported under this label in every site table; the floor is "
+        "PROVISIONAL and moving it must change a number here, never make "
+        "a site disappear",
+}
+
+#: FAMILIES A METRES FLOOR CANNOT MEASURE.  ``lateral_contiguity`` prices a
+#: CAP, not a surface: its ``de_m`` is ``eff - law_cap``, a bare decimal
+#: GRADE difference, and the law priced no span at all (``distance_m == 0``,
+#: ``elev_a == elev_b == 0``).  Summing that number into a metre
+#: accumulation is the two-instruments failure inside one headline — 0.03
+#: would read as 3 cm of grading owed when it is a 3-percentage-point cap
+#: breach.  A FLOOR MAY ONLY RELAX WHAT IT CAN MEASURE, so a site carrying
+#: one of these rows stays ACTIONABLE and says why.  (Measured on the frame
+#: of record: this is the ONLY family emitting zero-span rows — 17 of
+#: 30,548 — every other zero-span row shape the code can construct is a
+#: genuine step in metres.)
+MATERIALITY_UNMEASURED_FAMILIES: Dict[str, str] = {
+    "lateral_contiguity":
+        "the row prices a CAP, not metres — de_m is a grade difference "
+        "(eff - law_cap) and the law priced no span — so a metres floor "
+        "has nothing to compare.  The site stays ACTIONABLE: a floor may "
+        "only relax what it can measure",
+}
+
+#: THE ACCUMULATION RULE, in one sentence, quoted verbatim into every site
+#: report so an actionable count is never read without the summation that
+#: produced it (the ``SITE_RULE`` convention one level up).
+MATERIALITY_ACCUMULATION_RULE = (
+    "a site's ACCUMULATION is the sum of row_excess_m over its ADJUDICATED "
+    "rows only (a version-deferred or out-of-scope row is not a defect and "
+    "may not fund a defect's materiality).  row_excess_m is derived from "
+    "the fields the row already carries, never re-measured: for a STEP row "
+    "the step height; for a graded pair the metres its elevation "
+    "difference exceeds its own cap over its own span "
+    "(excess_pct/100 x distance_m), floored at 0 and capped at |de| "
+    "because a row can never be more unlawful than its whole elevation "
+    "difference; and for a row the law priced as a PURE VERTICAL quantity "
+    "(distance_m == 0, or a cap-0 law that reports grade_pct == 0 such as "
+    "the drainage-spine dam) the magnitude itself.  A row from an "
+    "UNMEASURED family (MATERIALITY_UNMEASURED_FAMILIES: the "
+    "cap-not-metres shapes) contributes 0 and makes its site actionable "
+    "outright")
+
+
+def row_cap_pct(row) -> Optional[float]:
+    """The row's OWN cap, in percent — ``grade_pct - excess_pct``.
+
+    The cap is not a field on ``Violation``; it is the difference of two
+    fields every graded row carries, which is why this is an accessor and
+    not a second cap resolver (``_role_grade_limit`` is the only one, and
+    it needs the way's tags, the sidecar's baked caps and the fan-ramp
+    zones — none of which a row carries).  ``None`` when the row carries no
+    grade semantic at all (a step row)."""
+    grade = getattr(row, "grade_pct", None)
+    excess = getattr(row, "excess_pct", None)
+    if grade is None or excess is None:
+        return None
+    return float(grade) - float(excess)
+
+
+def row_step_m(row) -> Optional[float]:
+    """The row's SINGLE STEP height in metres, or ``None`` if the row is a
+    graded pair rather than a vertical discontinuity.
+
+    Two shapes carry one: an ``EdgeStep`` (``step_m``), and a ``Violation``
+    the law priced over ZERO run — the terrace ACTUAL-step and the
+    lateral-contiguity rows, whose ``distance_m`` is 0 by construction
+    because there is no span to divide by."""
+    step = getattr(row, "step_m", None)
+    if step is not None:
+        return abs(float(step))
+    dist = getattr(row, "distance_m", None)
+    de = getattr(row, "de_m", None)
+    if de is not None and (dist is None or float(dist) == 0.0):
+        return abs(float(de))
+    return None
+
+
+def row_excess_m(row, family_key: Optional[str] = None) -> float:
+    """The row's UNLAWFUL EXCESS in metres — see
+    ``MATERIALITY_ACCUMULATION_RULE``, which states this function in one
+    sentence and is printed with every count it produces.
+
+    NOT ``row_magnitude``: a 3.2 m rise over 200 m of taxiway at a 1.5 %
+    cap is a 3.2 m MAGNITUDE and a 0.2 m EXCESS, and it is the second
+    number the owner's floor is about ("we don't need to be grading to less
+    than 0.5m" is a statement about how much grading is owed, not about how
+    much relief exists).
+
+    ``family_key`` is the row's law family when the caller has it (the site
+    census always does).  It is the ONE thing this function cannot read off
+    the row, and it is what keeps a cap-not-metres family
+    (``MATERIALITY_UNMEASURED_FAMILIES``) out of a metre sum.
+    """
+    if family_key is not None and family_key in MATERIALITY_UNMEASURED_FAMILIES:
+        return 0.0
+    step = getattr(row, "step_m", None)
+    if step is not None:
+        return abs(float(step))
+    de = abs(float(getattr(row, "de_m", 0.0) or 0.0))
+    grade = getattr(row, "grade_pct", None)
+    excess = getattr(row, "excess_pct", None)
+    dist = getattr(row, "distance_m", None)
+    if grade is None or excess is None or not grade:
+        # No grade semantic (a cap-0 law: the drainage-spine dam reports
+        # grade 0 / excess 0 and puts the whole shortfall in ``de_m``), or
+        # a row with no grade fields at all.
+        return de
+    if dist is None or float(dist) <= 0.0:
+        # Priced over zero run — the magnitude IS the excess.
+        return de
+    return max(0.0, min(de, float(excess) / 100.0 * float(dist)))
+
+
+def row_is_sharp(row) -> Optional[str]:
+    """The NAME of the sharp-guard clause this row trips, else ``None``.
+
+    ``"step"`` — a single step at or over ``MATERIALITY_SHARP_STEP_M``.
+    ``"grade"`` — a local grade at or over
+    ``MATERIALITY_SHARP_GRADE_CAP_MULTIPLE`` x its own cap; a row whose cap
+    is ZERO OR NEGATIVE (a cap-0 law, or the near-miss frontage sentinel)
+    trips on ANY positive grade, because a law that allows no grade at all
+    is exceeded by any of it.  Returns the clause name rather than a bool so
+    a report can say WHICH half fired without a second lookup.
+    """
+    step = row_step_m(row)
+    if step is not None and step >= MATERIALITY_SHARP_STEP_M:
+        return "step"
+    cap = row_cap_pct(row)
+    grade = getattr(row, "grade_pct", None)
+    if cap is None or grade is None:
+        return None
+    grade = float(grade)
+    if cap > 0.0:
+        if grade >= MATERIALITY_SHARP_GRADE_CAP_MULTIPLE * cap:
+            return "grade"
+    elif grade > 0.0:
+        return "grade"
+    return None
+
+
+def row_runway_family(row) -> bool:
+    """True when either of the row's ways is a RUNWAY-FAMILY surface —
+    read through ``effective_role`` so a role-less articulation way sided
+    with a runway host is exempt with it."""
+    a = getattr(row, "way_a", None) or getattr(row, "way_v", None)
+    b = getattr(row, "way_b", None) or getattr(row, "way_e", None)
+    for w in (a, b):
+        if w is None:
+            continue
+        if effective_role(w) in MATERIALITY_RUNWAY_FAMILY_ROLES:
+            return True
+    return False
 
 
 #: Sidecar key -> ``run_checks`` keyword.  THE contract between an emitted
@@ -4768,14 +5256,23 @@ def row_side(row) -> str:
     law ("airside is king") means a mixed row counts AGAINST airside for
     acceptance — the split is reported so the reader can see the pull, not
     so it can be discounted.
+
+    ROLE-LESS ARTICULATION WAYS SIDE WITH THEIR HOST (lead ruling
+    2026-08-07): the side is read through ``effective_role``, so a way with
+    no role of its own is never reported as airside-by-default.  The LAW's
+    own partition (``_is_groundside``, which GATES the cross-boundary step
+    checks) is deliberately untouched: re-siding a report is adjudication,
+    re-siding the law's gate would change which rows exist.
     """
+    def _gs(w):
+        return effective_role(w) in _GROUNDSIDE_ROLES
     a = getattr(row, "way_a", None) or getattr(row, "way_v", None)
     b = getattr(row, "way_b", None) or getattr(row, "way_e", None)
     if a is None:
         return "unknown"
     if b is None:
-        return "groundside" if _is_groundside(a) else "airside"
-    ga, gb = _is_groundside(a), _is_groundside(b)
+        return "groundside" if _gs(a) else "airside"
+    ga, gb = _gs(a), _gs(b)
     if ga and gb:
         return "groundside"
     if ga or gb:
@@ -4784,11 +5281,13 @@ def row_side(row) -> str:
 
 
 def row_roles(row) -> Tuple[str, str]:
-    """The (role_a, role_b) pair of a row, '?' where a way is absent."""
+    """The (role_a, role_b) pair of a row, '?' where a way is absent.
+
+    Read through ``effective_role``: a ROLE-LESS feature way reports its
+    HOST's role (lead ruling 2026-08-07), so ``?|?`` in a class table means
+    "no host could be resolved", not "the emitter shipped a bare way"."""
     def _r(w):
-        if w is None:
-            return "?"
-        return (dict(getattr(w, "tags", {}) or {}).get("role") or "?")
+        return effective_role(w) or "?"
     a = getattr(row, "way_a", None) or getattr(row, "way_v", None)
     b = getattr(row, "way_b", None) or getattr(row, "way_e", None)
     return (_r(a), _r(b))
@@ -4894,6 +5393,19 @@ def run_checks(
 
     open_features: Dict[str, List[Way]] = {}
     nodes, ways = _parse_osm(osm_path, feature_out=open_features)
+    # ROLE-LESS FEATURE WAYS SIDE WITH THEIR HOST (lead ruling 2026-08-07),
+    # resolved ONCE, before any check runs — so the ONE cap resolver and
+    # the ONE side partition both see the host role rather than falling
+    # through to the caller's default cap and to airside.
+    _feature_hosts = resolve_feature_hosts(
+        ways, [w for v in open_features.values() for w in v])
+    if _feature_hosts and not quiet:
+        _dups = sum(1 for h in _feature_hosts.values() if h["duplicate"])
+        print(f"  role-less feature ways: {len(_feature_hosts)} sided with "
+              f"their host shape ({_dups} whose host COVERS their geometry "
+              f"— rows adjudicated 'role_less_host_duplicate')")
+    if family_out is not None:
+        family_out["_feature_hosts"] = _feature_hosts
     ll_to_m = _ll_to_m_factory(nodes, anchor=anchor)
     vertices, edges = _build_vertex_edge_tables(nodes, ways, ll_to_m)
     max_grade = max_grade_pct / 100.0
@@ -5268,6 +5780,20 @@ def run_checks(
     if disconnected_rings_m:
         _mark_disconnected(within + cross, steps + mid_steps,
                            disconnected_rings_m)
+
+    # ── OUT OF SCOPE: ONE GEOMETRY, ONE ROW SET ───────────────────────
+    # Lead ruling 2026-08-07 ("Role-less feature ways side with their
+    # host"): where an articulation way's geometry duplicates a host way's,
+    # the rows belong to the HOST ONLY.  The host's own way carries the
+    # same vertices and is judged by the same law at the same cap, so a row
+    # minted on the articulation way alone is the SECOND reading of one
+    # geometry.  MARKED, NEVER DROPPED — it stays in its family count and
+    # in every worst-row list, and ``adjudication`` carries it under its own
+    # heading, exactly as the disconnected rings above.
+    if _feature_hosts:
+        for _r in within + cross + steps + mid_steps:
+            if _r.out_of_scope is None and role_less_host_duplicate(_r):
+                _r.out_of_scope = "role_less_host_duplicate"
 
     return within, cross, steps + mid_steps
 

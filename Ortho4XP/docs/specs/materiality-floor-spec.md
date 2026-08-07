@@ -14,6 +14,18 @@
 > drainage row, measured) for zero information. The landed reading
 > (role/side from host, duplicates adjudicated out, cap NOT
 > re-applied, byte-identity preserved) is the spec's binding intent.
+>
+> **SUPERSEDED same evening (Fable, cross-session reconciliation):**
+> the tunnel round's OTHH case (spec
+> tunnel-ramp-cut-boundaries-spec.md §3 L-1: two ramp-cut rings
+> minting 87 phantom rows at airside defaults, host way NOT
+> duplicating the vertices) proves cap-from-host is the correct LAW —
+> the byte-identity reading was only incidentally right where hosts
+> duplicated ring vertices. HOST role, side, AND cap govern. The
+> tunnel session's L-1 is the implementation of record; the one
+> measured side effect (+1 phantom drainage row from admitting a
+> ring into _DRAINAGE_MIN_ROLES' surface set) is that round's guard
+> to carry — articulation rings never join a law's SURFACE set.
 
 Author: lead (Fable), 2026-08-07. Charter: the owner's four-part
 2026-08-07 floor ruling (RULINGS "Materiality floor") + the

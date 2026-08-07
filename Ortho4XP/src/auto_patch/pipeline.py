@@ -29,7 +29,7 @@ import math
 import os
 import re
 import time
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 from shapely.errors import GEOSException, TopologicalError
 from shapely.geometry import LineString, Point, Polygon
@@ -91,7 +91,6 @@ from .config import (
     ENABLE_SERVICE_ROADS,
     AIRPORT_ROAD_FEED,
     SERVICE_ROAD_CARVE,
-    HANGAR_PADS as HANGAR_PADS_GATE,
 )
 from .layout import (
     BuiltShape,
@@ -2971,10 +2970,6 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # ``_build_taxi_rects``.  Late join — after the taxi-specific
     # trim / spine passes (roads are not aircraft taxi paths), before
     # the off-corridor drop and rect construction.
-    _svc_widths: Dict[str, float] = {}   # SVC run ref → measured width
-    # Hoisted out of the block below (2026-07-31): the default-OFF
-    # ``O4_SVC_CURVED_JUNCTION`` block is now the only reader, and it used
-    # to reach these lines through the retired ``osm_centerlines`` list.
     _svc_lines: List[Tuple[LineString, str]] = []
     if SERVICE_ROAD_CARVE and pav_union is not None \
             and not pav_union.is_empty:
@@ -2998,7 +2993,6 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 os.environ.get("O4_SVC_BEND_SPLIT", "1") == "1")
             for _k, (_run, _w, _rname) in enumerate(_svc_runs, 1):
                 _ref = f"SVC{_k}"
-                _svc_widths[_ref] = float(_w)
                 for _piece, _pr in split_merged_centerline(
                         _run, _ref, rwy_centerlines):
                     if _piece.is_empty or _piece.length < 1.0:
@@ -3086,9 +3080,9 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # chain list (the ruling's LIVE effect is in the slice, which cuts
     # ``_cn_pav`` by ``terminal_union`` below, and in the route-graph laws
     # that read the UNtrimmed ``layout.apt_taxi_centerlines``).  The
-    # function is kept in ``terminals.py`` — unit-tested by
-    # tests/test_hangar_pads.py, and still used by the default-OFF
-    # ``O4_SVC_CURVED_JUNCTION`` block below.
+    # function is kept in ``terminals.py``, unit-tested by
+    # tests/test_hangar_pads.py; it has had no production call site since
+    # the ``O4_SVC_CURVED_JUNCTION`` experiment was retired (2026-08-07).
 
     _progress.step()  # [4] Building the global-slice faces & service roads
 
@@ -3389,95 +3383,23 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 f"corridor(s).")
         _covp(layout, "post-service-strip-carve")
 
-    # ── Rectless SVC connector → service_junction ────────────────
-    # A service-road (SVC) centerline piece too CURVED/short for the rect
-    # builder produces NO rect (the bend-split chops it into sub-min-length /
-    # degenerate pieces — CYXY truck-route 'D' arm to lots 102/104/105).
-    # Without an emitted service shape its pavement stays FUSED into the apron,
-    # so the lot it serves never reads as road-only and wrongly stays apron.
-    # Emit the piece's uncovered pavement CORRIDOR as a ``service_junction``
-    # (all-pair 4 %, no axial rect needed); it separates the lot like a rect
-    # would and the lot then reclassifies road-only → groundside.
-    #
-    # ONLY a NARROW CONNECTOR ROAD BETWEEN larger shapes qualifies — never a
-    # truck route running THROUGH a large apron (user 2026-06-29).  The test is
-    # CONNECTIVITY: a real connector is a BRIDGE — removing its corridor splits
-    # the LOCAL pavement into two sizable pieces (the apron and the lot it
-    # feeds).  A truck route inside one apron, or a rect-trim edge remainder,
-    # leaves the local pavement in one piece, so it is skipped.
-    #
-    # DEFAULT OFF (user 2026-06-29): carving the connector out of the apron is a
-    # NET NEGATIVE as it stands — the lots do reclassify to groundside, but the
-    # apron edges re-grade (+~100 moderate within-shape pairs at CYXY) and the
-    # all-pair-4 % service_junction connectors are themselves steep on slope.
-    # NEEDS MORE WORK before default-on: emit the connector as DEM-following
-    # groundside (merged with the lot) rather than an all-pair junction, and/or
-    # clip the apron cleanly so it does not fragment.  Enable with
-    # O4_SVC_CURVED_JUNCTION=1 to experiment.
-    if os.environ.get("O4_SVC_CURVED_JUNCTION", "0") == "1":
-        from .layout import ROLE_SERVICE_JUNCTION
-        _SVC_JCT_MIN_AREA_M2 = 30.0
-        _BRIDGE_REACH_M = 60.0       # local pavement window around a connector
-        _BRIDGE_PIECE_M2 = 50.0      # a split-off piece this big = a real shape
-        # SOURCE (2026-07-31): reads ``_svc_lines`` directly.  This block used
-        # to walk the final ``osm_centerlines``, but it only ever matched the
-        # SVC entries — and those joined that list AFTER every taxi-specific
-        # trim, exempt from the off-corridor drop, so the sole transform they
-        # picked up was the building-pad trim.  Reproduced here (default-OFF
-        # gate ⇒ no cost in a production build) so the experiment sees exactly
-        # what it saw before the chain was retired.
-        _svc_jct_lines = _svc_lines
-        if HANGAR_PADS_GATE and terminal_union is not None \
-                and not terminal_union.is_empty:
-            from .terminals import trim_centerlines_at_buildings
-            _svc_jct_lines, _ = trim_centerlines_at_buildings(
-                _svc_jct_lines, terminal_union)
-        # ``_covered`` used to start as ``unary_union(emitted_taxi_rects)``;
-        # that list has been empty here since d4f61d6 retired rect
-        # generation, so the union was always None.  Kept incremental.
-        _covered = None
-        _n_svc_jct = 0
-        for _ln, _ref in _svc_jct_lines:
-            if (not str(_ref or "").startswith("SVC")
-                    or _ln is None or _ln.is_empty):
-                continue
-            _hw = max((_svc_widths or {}).get(_ref, 5.0) / 2.0, 2.5)
-            try:
-                _corr = _ln.buffer(_hw, cap_style=2).intersection(pav_union)
-                if terminal_union is not None and not terminal_union.is_empty:
-                    _corr = _corr.difference(terminal_union)
-                if _covered is not None:
-                    _corr = _corr.difference(_covered)
-            except _GEOM_EXC:
-                continue
-            _parts = ([_corr] if _corr.geom_type == "Polygon"
-                      else [g for g in getattr(_corr, "geoms", ())
-                            if g.geom_type == "Polygon"])
-            for _p in _parts:
-                if _p.is_empty or _p.area < _SVC_JCT_MIN_AREA_M2:
-                    continue
-                # Bridge test: does removing this corridor disconnect the local
-                # pavement into >=2 sizable pieces?
-                try:
-                    _nbhd = pav_union.intersection(_p.buffer(_BRIDGE_REACH_M))
-                    _without = _nbhd.difference(_p.buffer(0.5))
-                    _wc = ([_without] if _without.geom_type == "Polygon"
-                           else [g for g in getattr(_without, "geoms", ())
-                                 if g.geom_type == "Polygon"])
-                    if sum(1 for g in _wc
-                           if g.area >= _BRIDGE_PIECE_M2) < 2:
-                        continue          # not a bridge between two shapes
-                except _GEOM_EXC:
-                    continue
-                _covered = (unary_union([_covered, _p])
-                            if _covered is not None else _p)
-                layout.shapes.append(BuiltShape(
-                    polygon=_p, role=ROLE_SERVICE_JUNCTION, ref=_ref))
-                _n_svc_jct += 1
-        if _n_svc_jct:
-            UI.vprint(1,
-                f"  [pav-builder] {icao}: emitted {_n_svc_jct} narrow SVC "
-                f"connector(s) as service_junction (rectless, between shapes).")
+    # ── Rectless SVC connector → service_junction: RETIRED 2026-08-07
+    #    (owner approval, RULINGS "Standing approvals granted / withheld") ──
+    # The default-OFF ``O4_SVC_CURVED_JUNCTION`` experiment emitted the
+    # uncovered pavement corridor of a too-curved/short SVC centerline piece
+    # as a ``service_junction``, so the lot it served would reclassify
+    # road-only → groundside.  It was ruled a NET NEGATIVE at CYXY when it
+    # was written (user 2026-06-29: the lots did reclassify, but the apron
+    # edges re-graded, +~100 moderate within-shape pairs, and the all-pair
+    # 4 % connectors were themselves steep on slope), never turned on, and
+    # is superseded by the groundside truck-spine corridor emitter
+    # (``groundside.py``, ``ROLE_SERVICE_JUNCTION`` corridors CENTERED on the
+    # truck spine).  Retired with its gate, its ``_svc_widths`` width table
+    # and the ``HANGAR_PADS as HANGAR_PADS_GATE`` import — all three had no
+    # other reader.  ``trim_centerlines_at_buildings`` (terminals.py) is
+    # KEPT: it is unit-tested by tests/test_hangar_pads.py, and this was its
+    # last production call site.  Default OFF ⇒ production output is
+    # unchanged (CYXY body sha identity, verified).
 
     # ── Ground-vehicle service_road rects (4 %) ──────────────────
     # Combine apt.dat 1206 truck routes with OSM small roads inside the

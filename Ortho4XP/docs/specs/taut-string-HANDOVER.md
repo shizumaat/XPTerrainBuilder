@@ -37,6 +37,27 @@ tree's 4 unmounted data dirs now symlink the shared repo; write
 guard gained the no-op ensure-dir allowance (twin in
 test_harness.py).**
 
+**SLIVERS SOLVED + SITE CENSUS + FLOOR RULED (08-07 ~18:30).**
+lane/nidfix2 MERGED: Phase B interventional proof — HECA in-bbox
+sub-0.1 m² mesh triangles **2,364,232 → 1,480 (−99.937%)**, visible
++11.5%, mesh step halved; A2/A3 landed; A1's named one-liner
+FALSIFIED (no duplicate hole rings — the class is edge-vs-edge
+CROSSINGS needing a node at the crossing on the settled lattice: a
+NAMED FUTURE ROUND); real-frame envelope 3/4 (crossings 63 vs ≤36:
+creep 20 improved-unchased, A1-open 14, pre-existing 8); census
++2/+15 attributed, surface proven inert — lead rulings recorded
+(role-less ways side with host; exposure never fails the bar).
+IDENTITY DEBT: real-frame re-verify at lane HEAD unspent (1 build).
+lane/sitecensus MERGED: battery 15,530 adjudicated rows = **778
+SITES** (20/site; top 5 = 50.8%, top 10 = 65.6%; only 18 sites
+sub-visible at 5 cm) — the headline metric, transitive clustering
+ratified. Post-merge twins 166 green (the cross-lane base-frame twin
+self-resolved). OWNER 0.5 m MATERIALITY FLOOR ruled (4 parts,
+RULINGS): floor lane + decimation measurement DISPATCHED; enclave
+region-law lane DISPATCHED (sequencing gate satisfied). Deferred
+count note: sitecensus reads 12,126 vs the RELEASE_NOTES 12,320 —
+194-row frame difference, unreconstructed, honestly flagged.**
+
 **ROAD FEED MERGED (owner "Merge as-is", 08-07 ~17:15; merge
 0e3075a): lane/c9feed landed on the campaign branch at its attributed
 table (10k airside 4,198 = +192 named-and-accepted; −500 4,027 =

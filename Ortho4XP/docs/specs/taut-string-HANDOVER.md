@@ -37,6 +37,19 @@ tree's 4 unmounted data dirs now symlink the shared repo; write
 guard gained the no-op ensure-dir allowance (twin in
 test_harness.py).**
 
+**WALLS RETIRE TO CARVES (owner ruling 08-07 ~12:30, RULINGS entry
+"Retaining walls emit ONLY at carve structures"): walls lawful only
+at tunnel/bridge carve structures; FEATHER (graded transitions under
+caps, no explicit relief feature) replaces them everywhere incl. the
+adjacent-ground DEM boundary (step class dies by construction →
+wall_foot_ll population → ~0 → machinery retires). Executes IN the
+relief-generation round (structure #2) — which this REDEFINES:
+generate feathered transitions + fan zones, not walls/terraces.
+Pad-frontage (structure #1) simplifies: single relief form per
+chord, no per-frontage STEP/WALL decision. Enclave-wall attribution
+lane (running) now doubles as the wall-emitter inventory the relief
+round consumes.**
+
 **SLIVER ATTRIBUTION (08-07 ~10:30; 46-point vintage series, pinned
 cda instrument anchored to the density dossier's A5 row): REAL-frame
 divergence flat 08-01→08-05, DOUBLES by 08-07. Four families:

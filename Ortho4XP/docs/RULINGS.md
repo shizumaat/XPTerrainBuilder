@@ -833,6 +833,37 @@ node take the DEM value ((d): extend the wall exemption one-sided),
 or must every welded node of a law-valued ring seat from its ring
 ((a): missing seat)?
 
+## 2026-08-07 — Retaining walls emit ONLY at carve structures (owner)
+
+Owner, verbatim: "I can't think of a reason we need to emit
+retaining walls except around tunnels." Ruled via interview the same
+hour:
+1. Walls are lawful ONLY at tunnel/bridge carve structures (portals,
+   abutments — the Feature A / below-grade-cutout class). Every
+   other emitted retaining wall retires.
+2. The replacement form everywhere is FEATHER: graded transitions
+   under grade caps, NO explicit relief feature. Where ground must
+   change height it grades; tight spots get steep slopes, never
+   walls (no tight-spot exception).
+3. The adjacent-ground zone's outer boundary FEATHERS INTO RAW DEM —
+   the boundary-step class dies BY CONSTRUCTION, and with it most of
+   the `wall_foot_ll` population; the item-4 exemption machinery
+   stays until that population measures ~zero, then retires.
+
+Execution vehicle (owner choice): the RELIEF-GENERATION ROUND
+(retrospective structure #2) — one generator change, one battery
+re-read; no separate wall-removal pass. SUPERSEDES/AMENDS: the
+groundside terrace law's "(retaining walls)" parenthetical (free
+terracing becomes free FEATHERING); the adjacent-ground
+"boundary steps are lawful terraces" reading (they feather instead).
+Consequences noted same day: the no-joints-across-roads ruling is
+mostly mooted outside carves (no joints anywhere); pad-frontage
+structure #1's form menu loses its STEP/WALL branch — every frontage
+chord grades under the relief form (that round simplifies);
+nidrepair's A2 wall-weld identity repair proceeds unchanged (it
+repairs what is currently emitted; walls retire via the relief
+round, not by leaving them broken meanwhile).
+
 ## 2026-08-07 — Airside-surrounded enclaves: G-ENCLAVE extends to ground (owner)
 
 Owner, on the HECA retaining wall at 30.128508, 31.403444 (an area

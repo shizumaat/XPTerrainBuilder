@@ -792,7 +792,13 @@ def service_mouths(layout, G, ceiling=None, floor=None,
     apron-edge contact — becomes a mouth.  Read-only in both directions:
     no groundside value enters the band or any airside constraint set.
     ``None`` ⇒ field-only mouths, i.e. the pre-clause behaviour.
+
+    PROBE GATE, DEFAULT OFF — ``O4_PROBE_NO_MOUTHS=1`` WITHHOLDS every
+    mouth seat, so nothing groundside can reach a band from airside (the
+    cycle-9 mouth knife, committed instead of living in a dirty tree).
     """
+    if os.environ.get("O4_PROBE_NO_MOUTHS") == "1":
+        return {}
     if ceiling is None or floor is None:
         ceiling, floor = spine_value_fields(layout, G)
     pos = getattr(G, "pos", None) or {}

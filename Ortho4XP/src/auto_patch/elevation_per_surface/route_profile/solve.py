@@ -1425,6 +1425,26 @@ def _route_witness_admission(layout, key_to_idx, n):
     return roles, route_roles, excluded
 
 
+def adj_without_pairs(adj, pairs):
+    """``adj`` with every edge whose endpoint pair is in ``pairs`` dropped.
+
+    ONE filter, two readers: the AIRSIDE VIEW of the one graph (airside
+    authorities may not ride service edges — ``REACH_NO_SERVICE_SPINES``)
+    and the ``O4_PROBE_NO_SERVICE_EDGES`` gate, which withholds the same
+    edge set from every consumer.  Empty ``pairs`` ⇒ the SAME object back,
+    so the un-gated path is byte-inert by identity, not by comparison.
+    """
+    if not pairs:
+        return adj
+    out: dict = {}
+    for i, lst in adj.items():
+        keep = [(j, b) for (j, b) in lst
+                if (min(i, j), max(i, j)) not in pairs]
+        if keep:
+            out[i] = keep
+    return out
+
+
 def _receiver_nodes_from_roles(roles):
     """THE RECEIVER SET of the projection partition — nodes whose EVERY
     role is groundside (``layout.GROUNDSIDE_ROLES``).
@@ -2063,14 +2083,18 @@ def solve_route_profile(layout, icao: str,
     from auto_patch.config import REACH_NO_SERVICE_SPINES
     _svc_pairs = (getattr(G, "service_spine_pairs", None) or set()
                   if REACH_NO_SERVICE_SPINES else set())
-    u_spine_adj_airside = u_spine_adj
-    if _svc_pairs:
-        u_spine_adj_airside = {}
-        for _ai, _alst in u_spine_adj.items():
-            _akeep = [(_aj, _ab) for (_aj, _ab) in _alst
-                      if (min(_ai, _aj), max(_ai, _aj)) not in _svc_pairs]
-            if _akeep:
-                u_spine_adj_airside[_ai] = _akeep
+    u_spine_adj_airside = adj_without_pairs(u_spine_adj, _svc_pairs)
+    # PROBE GATE, DEFAULT OFF — ``O4_PROBE_NO_SERVICE_EDGES=1`` WITHHOLDS
+    # the service/road route EDGES from the ONE graph for EVERY consumer,
+    # groundside's own band included (the airside view above withholds
+    # them from the three airside readers only).
+    if _os.environ.get("O4_PROBE_NO_SERVICE_EDGES") == "1":
+        _probe_pairs = getattr(G, "service_spine_pairs", None) or set()
+        u_spine_adj = adj_without_pairs(u_spine_adj, _probe_pairs)
+        u_spine_adj_airside = u_spine_adj
+        print(f"  [probe] O4_PROBE_NO_SERVICE_EDGES=1: "
+              f"{len(_probe_pairs)} service pair(s) withheld from the "
+              f"ONE graph (every consumer)")
     # ── RUNWAY FLEX Stage B (user 2026-07-06, docs/runway_flex_plan.md) ──
     # FLEX-LAST: with every route edge at its FULL legal budget (= the
     # taxiways at max cap), find runway-contact pairs whose value gap

@@ -2331,6 +2331,31 @@ def partition_constraints_by_receiver(shape_constraints, receiver_nodes):
     return givers, receivers
 
 
+def _withhold_road_pair_law(givers, receivers):
+    """The ``O4_PROBE_NO_ROAD_PAIR_LAW`` knife: every ROAD-role constraint
+    entry moves from the airside (giver) pass to the receiver pass.
+
+    A road node WELDED to an airside ring has a non-groundside role, so it
+    is not a receiver and its road pairs are enforced in the AIRSIDE pass —
+    that is the road's pair law acting on airside values, the channel the
+    cycle-9 airside VIEW deliberately left open ("every road pair remains
+    law in the partitioned projections").  Moving the entries rather than
+    deleting them keeps the law enforced with airside FROZEN, so the arm
+    measures "airside without the roads' pair law", never "an ungraded
+    road".  Roles are the emitter's own (``lateral_contiguity.ROAD_ROLES``).
+    """
+    from auto_patch.lateral_contiguity import ROAD_ROLES
+    keep, moved = [], []
+    for sc in givers:
+        (moved if sc.get("role") in ROAD_ROLES else keep).append(sc)
+    if not moved:
+        return givers, receivers
+    print(f"  [probe] O4_PROBE_NO_ROAD_PAIR_LAW=1: {len(moved)} road "
+          f"constraint entr(y/ies) withheld from the airside pass "
+          f"(of {len(givers)} giver entries)")
+    return keep, list(receivers) + moved
+
+
 def feasibility_project_partitioned(elev, shape_constraints, hard, *,
                                     receiver_nodes=None, n_nodes=None,
                                     flat_groups=None, group_bounds=None,
@@ -2370,6 +2395,12 @@ def feasibility_project_partitioned(elev, shape_constraints, hard, *,
     both_hard)`` pair, summed over the two passes so the exit report
     still counts every violated edge exactly once (the two edge sets
     PARTITION the input).
+
+    PROBE GATE, DEFAULT OFF — ``O4_PROBE_NO_ROAD_PAIR_LAW=1`` WITHHOLDS
+    the ROAD shapes' pair law from the AIRSIDE pass (their edges move to
+    the receiver pass, where airside is frozen), leaving every road route
+    EDGE in the graph: the knife that separates the roads' pair law from
+    the roads' graph edges as carriers of an airside change.
     """
     if not receiver_nodes:
         return feasibility_project(elev, shape_constraints, hard,
@@ -2379,6 +2410,8 @@ def feasibility_project_partitioned(elev, shape_constraints, hard, *,
                                    **kw)
     givers, receivers = partition_constraints_by_receiver(
         shape_constraints, receiver_nodes)
+    if _os.environ.get("O4_PROBE_NO_ROAD_PAIR_LAW") == "1":
+        givers, receivers = _withhold_road_pair_law(givers, receivers)
     rem_a, bh_a = feasibility_project(
         elev, givers, hard, flat_groups=flat_groups,
         group_bounds=group_bounds, forensics=forensics,

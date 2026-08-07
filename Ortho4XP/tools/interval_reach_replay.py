@@ -112,7 +112,19 @@ ARMS = ("production", "free-hard", "free-seams", "no-boxes", "no-intervals",
         # FOUR TIMES WORSE while no-boxes makes it six times better, so the
         # confounded arm cannot say which half acted).  These three keep the
         # hard set exactly as production passed it and drop ONE bound class:
-        "no-node-boxes", "no-group-boxes", "no-gs-pin-boxes")
+        "no-node-boxes", "no-group-boxes", "no-gs-pin-boxes",
+        # THE PAD-RIGIDITY KNIFE.  A building pad is a RIGID FLAT GROUP:
+        # every ring node moves together or not at all.  Its BOX is a
+        # separate thing (`no-group-boxes` prices that) — this arm prices
+        # the rigidity itself, which is what stands between a pad's seat
+        # and the apron law on the ring vertices the two SHARE.
+        "no-pad-groups")
+
+#: Arms handled in ``do_replay`` rather than ``_apply_arm``, because what
+#: they intervene on (``flat_groups``) is not one of the four values
+#: ``_apply_arm`` slices.  ``_apply_arm`` still validates them, so the
+#: zero-selection refusal is the same law for every arm.
+PAD_GROUP_ARMS = ("no-pad-groups",)
 
 # ── THE HARD-ANCHOR CLASS VOCABULARY ────────────────────────────────────
 # Produced by ``route_profile/solve.py``: the 5-way classifier (~:2181-2194)
@@ -296,6 +308,20 @@ def _apply_arm(arm, entries, hard, node_bounds, group_bounds, state):
               f"{len(group_bounds or ())} group bound(s)")
         return entries, set(), None, None
 
+    if arm == "no-pad-groups":
+        # Validated HERE (one refusal law for every arm); APPLIED in
+        # ``do_replay``, which owns ``flat_groups``.
+        n_pad = len(state.get("pad_groups") or ())
+        if not n_pad:
+            _refuse("--arm no-pad-groups", "rigid pad groups",
+                    "pad-group census", {"pad_groups": n_pad})
+        print(f"[arm] no-pad-groups: dissolving {n_pad} rigid pad "
+              f"group(s) (their ring nodes move individually); "
+              f"{len(node_bounds or ())} node / "
+              f"{len(group_bounds or ())} group bound(s) and "
+              f"{len(hard)} hard anchor(s) KEPT")
+        return entries, hard, node_bounds, group_bounds
+
     if arm in ("no-node-boxes", "no-group-boxes", "no-gs-pin-boxes"):
         # ONE bound class, hard set UNTOUCHED.  Every one refuses on a
         # zero selection (binding point 2): a bound class the dump does
@@ -476,6 +502,8 @@ def do_replay(icao, path, *, arm, sweeps, hard_cap, drop_family,
         entries = _drop_interval_families(entries, drop_interval_family)
     entries, hard, node_bounds, group_bounds = _apply_arm(
         arm, entries, hard, node_bounds, group_bounds, state)
+    if arm in PAD_GROUP_ARMS:            # validated in ``_apply_arm``
+        pad_groups = None
     n_edges = sum(len(e["edges"]) for e in entries)
     n_int = sum(1 for e in entries for x in e["edges"] if len(x) >= 4)
     print(f"[replay] nodes={len(elev)} raw_edges={n_edges} "

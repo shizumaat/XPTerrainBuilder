@@ -467,3 +467,28 @@ def test_every_named_arm_is_reachable_from_the_cli_choices(irr):
     """The knives are useless if ``--arm`` will not accept them."""
     for arm in ("no-node-boxes", "no-group-boxes", "no-gs-pin-boxes"):
         assert arm in irr.ARMS
+
+
+def test_the_pad_rigidity_knife_validates_here_and_applies_in_do_replay(irr):
+    """``no-pad-groups`` intervenes on ``flat_groups``, which is not one
+    of the four values ``_apply_arm`` slices — so it is VALIDATED here
+    (one refusal law for every arm) and APPLIED in ``do_replay``.  The
+    registry that carries it across must name it, or the arm would print
+    its banner and change nothing."""
+    st = {**_box_state(), "pad_groups": [{1, 2}, {3, 4}]}
+    out = irr._apply_arm("no-pad-groups", st["entries"], st["hard"],
+                         st["node_bounds"], st["group_bounds"], st)
+    # a pass-through for the four sliced values: the pads are dissolved
+    # by do_replay, and nothing else may change.
+    assert out == (st["entries"], st["hard"],
+                   st["node_bounds"], st["group_bounds"])
+    assert "no-pad-groups" in irr.PAD_GROUP_ARMS
+    assert "no-pad-groups" in irr.ARMS
+
+
+def test_the_pad_rigidity_knife_REFUSES_when_there_are_no_pads(irr):
+    st = {**_box_state(), "pad_groups": []}
+    with pytest.raises(SystemExit) as excinfo:
+        irr._apply_arm("no-pad-groups", st["entries"], st["hard"],
+                       st["node_bounds"], st["group_bounds"], st)
+    assert "REFUSING --arm no-pad-groups" in str(excinfo.value)

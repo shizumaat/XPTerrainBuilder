@@ -1425,6 +1425,26 @@ def _route_witness_admission(layout, key_to_idx, n):
     return roles, route_roles, excluded
 
 
+def _receiver_nodes_from_roles(roles):
+    """THE RECEIVER SET of the projection partition — nodes whose EVERY
+    role is groundside (``layout.GROUNDSIDE_ROLES``).
+
+    Same role scan every projection already pays for
+    (:func:`_route_witness_admission`), read a second way: the witness
+    clause asks "may this anchor SEED the airside envelope", this asks
+    "is this node a groundside RECEIVER".  One scan, two consumers.
+
+    A node shared with any non-groundside ring — a service-road MOUTH on
+    an apron edge above all — is NOT a receiver: airside wins its seat
+    (RULINGS 2026-08-06), so it is frozen data for the groundside pass
+    rather than one of its variables.  A role-unmatched node (no ring
+    vertex resolved to it) is likewise not a receiver: the conservative
+    side, since a wrong receiver would FREEZE an airside node out of its
+    own pass."""
+    from auto_patch.layout import GROUNDSIDE_ROLES
+    return {i for i, rs in roles.items() if rs and rs <= GROUNDSIDE_ROLES}
+
+
 def _non_route_witness_nodes(roles, route_roles, hard, n, provenance=None):
     """The hard anchors withdrawn from the airside envelope seed set.
 
@@ -2262,7 +2282,7 @@ def solve_route_profile(layout, icao: str,
     # grade-graph edge ≤cap (only edges between two hard anchors — runway/building
     # — are left, the genuine steps).  This is what makes the validator's spine
     # zero: build and validate use the exact same nodes.
-    from .one_solve import feasibility_project
+    from .one_solve import feasibility_project_partitioned
     # G + u_spine_adj already built above (before seating).
     n = len(elev)
     # Runway anchors: every geometry node a taxi spine joins the runway at is
@@ -2948,15 +2968,27 @@ def solve_route_profile(layout, icao: str,
     # provenance map for the role-unmatched anchors (spec §2: they are
     # CLASSIFIED, never dropped blind).  Gate off ⇒ ``None`` passed
     # everywhere ⇒ byte-identical.
-    _route_excluded = None
+    _rm_roles, _rm_route_roles, _route_excluded = (
+        _route_witness_admission(layout, bucket_to_idx, n))
     if route_metric_envelope_enabled():
-        _rm_roles, _rm_route_roles, _route_excluded = (
-            _route_witness_admission(layout, bucket_to_idx, n))
         _rm_excl, _rm_rep = _non_route_witness_nodes(
             _rm_roles, _rm_route_roles, hard, n, provenance=_hard_cat)
         _route_excluded |= _rm_excl
         _report_witness_admission(icao, "solve", _rm_rep)
-    rem, bh = feasibility_project(elev, shape_constraints, hard,
+    else:                                              # pragma: no cover
+        _route_excluded = None
+    # ── THE PROJECTION PARTITIONS, SOLVE SIDE (spec addendum) ─────────
+    # The same receiver set the final projection uses, in the SOLVE's node
+    # space.  EVERY projection of this solve partitions, not only fp#8:
+    # the addendum says "in every projection", and a phase-A/B pass that
+    # still co-projects the two sides hands fp#8 an airside seed a
+    # groundside pair already moved — measured as a 1-2 row canyon
+    # flutter (HEAZ 10 000 +2, KCLT 10 000 +1) that survived partitioning
+    # the last three sites alone.
+    _solve_receivers = _receiver_nodes_from_roles(_rm_roles)
+    rem, bh = feasibility_project_partitioned(
+                                  elev, shape_constraints, hard,
+                                  receiver_nodes=_solve_receivers, n_nodes=n,
                                   interval_yield_from=_iyf,
                                   witness_excluded=_route_excluded,
                                   env_band=_env_band)
@@ -3017,7 +3049,9 @@ def solve_route_profile(layout, icao: str,
     if _n_u_fan and _os.environ.get("O4_STEP_DEBUG") == "1":
         print(f"    [fan-ramp] {_n_u_fan} unified-graph edge(s) at the "
               f"zone cap")
-    rem, bh = feasibility_project(elev, [{"edges": u_edges}], hard,
+    rem, bh = feasibility_project_partitioned(
+                                  elev, [{"edges": u_edges}], hard,
+                                  receiver_nodes=_solve_receivers, n_nodes=n,
                                   witness_excluded=_route_excluded,
                                   env_band=_env_band)
     # (The end-cap planar re-stamp that lived here was RETIRED by spec
@@ -3134,12 +3168,16 @@ def solve_route_profile(layout, icao: str,
         # ceiling bounds it from above (below).  Losing the anchor loses
         # no law — it loses an assertion.
         _ghard = hard | {i for i in runway_nodes if i < n}
-        feasibility_project(elev, shape_constraints, _ghard,
+        feasibility_project_partitioned(
+                            elev, shape_constraints, _ghard,
+                            receiver_nodes=_solve_receivers, n_nodes=n,
                             interval_yield_from=_iyf,
                             witness_limited=_gs_witness,
                             witness_excluded=_route_excluded,
                             env_band=_env_band)
-        feasibility_project(elev, [{"edges": u_edges}], _ghard,
+        feasibility_project_partitioned(
+                            elev, [{"edges": u_edges}], _ghard,
+                            receiver_nodes=_solve_receivers, n_nodes=n,
                             witness_limited=_gs_witness,
                             witness_excluded=_route_excluded,
                             env_band=_env_band)
@@ -3565,7 +3603,9 @@ def solve_route_profile(layout, icao: str,
     # phase-A rod as every projection above, so its status is ONE
     # thing from the freeze to writeback: yield-hard.  ``None`` off
     # the gate ⇒ byte-identical.
-    rem, bh = feasibility_project(elev, shape_constraints, yield_hard,
+    rem, bh = feasibility_project_partitioned(
+                                  elev, shape_constraints, yield_hard,
+                                  receiver_nodes=_solve_receivers, n_nodes=n,
                                   interval_yield_from=_iyf,
                                   witness_limited=_gs_witness,
                                   witness_excluded=_route_excluded,
@@ -3581,8 +3621,10 @@ def solve_route_profile(layout, icao: str,
                      "proj_shape.sweep")
     if _hnb_on:
         _hnb_take(_hnb_a, "proj_shape")
-    rem, bh = feasibility_project(elev, [{"edges": u_edges}],
+    rem, bh = feasibility_project_partitioned(
+                                  elev, [{"edges": u_edges}],
                                   yield_hard, broken_out=_bo,
+                                  receiver_nodes=_solve_receivers, n_nodes=n,
                                   witness_limited=_gs_witness,
                                   witness_excluded=_route_excluded,
                                   env_band=_env_band,
@@ -4025,7 +4067,9 @@ def solve_route_profile(layout, icao: str,
             "nodes_ll": [layout.m_to_ll(_x, _y) for (_x, _y) in nodes],
         }
     _t_fp8 = _time.perf_counter()
-    rem, bh = feasibility_project(elev, joint, yield_hard,
+    rem, bh = feasibility_project_partitioned(
+                                  elev, joint, yield_hard,
+                                  receiver_nodes=_solve_receivers, n_nodes=n,
                                   forensics=_fp8_forensics,
                                   witness_limited=_gs_witness,
                                   force_scalar=True,
@@ -4150,8 +4194,9 @@ def solve_route_profile(layout, icao: str,
             # pass was half the already-binding final cap; a re-projection
             # over the SAME law graph needs the same propagation distance,
             # so there was never a reason for it to be smaller).
-            rem, bh = feasibility_project(
+            rem, bh = feasibility_project_partitioned(
                 elev, joint, yield_hard, force_scalar=True,
+                receiver_nodes=_solve_receivers, n_nodes=n,
                 flat_groups=pad_groups or None,
                 interval_yield_from=_iyf,
                 witness_limited=_gs_witness,
@@ -5915,7 +5960,7 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     from auto_patch.config import (
         POST_SOLVE_IDEMPOTENCE_TOL_M as _IDEMPOTENCE_TOL_M)
     from auto_patch.layout import ROLE_BUILDING
-    from .one_solve import feasibility_project
+    from .one_solve import feasibility_project_partitioned
 
     t0 = _time.time()
     _stage_t = {}
@@ -6974,14 +7019,23 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # decides who may witness has to hold here above all.  Role membership
     # from this pass's OWN registry scan (``b2i`` is this pass's node
     # space); the role-unmatched anchors are classified from ``_fcat_fp``.
-    _fp_witness_excluded = None
+    # ONE ROLE SCAN, TWO CONSUMERS (single-pass principle): the witness
+    # admission below and the PROJECTION PARTITION's receiver set.
+    _fp_roles, _fp_route_roles, _fp_witness_excluded = (
+        _route_witness_admission(layout, b2i, n))
     if route_metric_envelope_enabled():
-        _fp_roles, _fp_route_roles, _fp_witness_excluded = (
-            _route_witness_admission(layout, b2i, n))
         _fp_excl, _fp_rep = _non_route_witness_nodes(
             _fp_roles, _fp_route_roles, hard, n, provenance=_fcat_fp)
         _fp_witness_excluded |= _fp_excl
         _report_witness_admission(icao, "final", _fp_rep)
+    else:                                              # pragma: no cover
+        _fp_witness_excluded = None
+    # ── THE PROJECTION PARTITIONS (spec addendum, 2026-08-06) ──────────
+    # This pass is the LAST WORD on the emitted surface, so receiver-only
+    # has to hold here above all: airside projects with no groundside pair
+    # in its constraint set, groundside projects after against the frozen
+    # airside values.  See ``one_solve.feasibility_project_partitioned``.
+    _fp_receivers = _receiver_nodes_from_roles(_fp_roles)
     # ── THE ENVELOPE, IN THIS PASS'S NODE SPACE AND z′ FRAME (spec
     # ``envelope-uses-the-centerline-graph``, gate
     # ``O4_ENVELOPE_FROM_BAND``) ─────────────────────────────────────────
@@ -7030,7 +7084,9 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                             # solve's), read in the z′ = z + crown frame
                             # lifted at entry above.
                             n_nodes=n, crown_space="uncrowned z'")
-    rem, bh = feasibility_project(elev, joint, hard, force_scalar=True,
+    rem, bh = feasibility_project_partitioned(
+                                  elev, joint, hard, force_scalar=True,
+                                  receiver_nodes=_fp_receivers, n_nodes=n,
                                   env_band=_fp_env_band,
                                   family_of=_fp_family_of,
                                   forensics=_fp_forensics,

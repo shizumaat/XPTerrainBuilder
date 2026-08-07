@@ -947,8 +947,19 @@ def _pair_grade_limit(way_a: "Way", way_b: "Way",
 # airside pavement — the 8 m face across that designed gap is the retaining
 # wall, not an elevation defect.  KPHX's ZDP aprons abutting Sky Harbor Blvd
 # fired 307 step / 32 cross warnings on this designed separation.
-_GROUNDSIDE_ROLES = {"groundside_pavement", "service_road", "service_junction",
-                     "tunnel_ramp"}
+# ONE PARTITION, BOTH SIDES (cycle 8, the projection-partition round).
+# The solve's RECEIVER set and this census's SIDE split are the same law:
+# ``layout.GROUNDSIDE_ROLES`` is the registry's copy and this reads it, so
+# a role added to one side cannot silently miss the other (the lockstep
+# pattern the frontage-gap lesson bought).  The literal below is the
+# no-engine fallback for the bare-patch CLI, and the harness twin
+# ``tests/test_harness.py`` asserts the two agree.
+try:                                                   # pragma: no cover
+    from auto_patch.layout import GROUNDSIDE_ROLES as _LAYOUT_GS_ROLES
+    _GROUNDSIDE_ROLES = set(_LAYOUT_GS_ROLES)
+except Exception:                                      # pragma: no cover
+    _GROUNDSIDE_ROLES = {"groundside_pavement", "service_road",
+                         "service_junction", "tunnel_ramp"}
 
 
 def _is_groundside(way: "Way") -> bool:

@@ -792,7 +792,13 @@ def service_mouths(layout, G, ceiling=None, floor=None,
     apron-edge contact — becomes a mouth.  Read-only in both directions:
     no groundside value enters the band or any airside constraint set.
     ``None`` ⇒ field-only mouths, i.e. the pre-clause behaviour.
+
+    PROBE GATE, DEFAULT OFF — ``O4_PROBE_NO_MOUTHS=1`` WITHHOLDS every
+    mouth seat, so nothing groundside can reach a band from airside (the
+    cycle-9 mouth knife, committed instead of living in a dirty tree).
     """
+    if os.environ.get("O4_PROBE_NO_MOUTHS") == "1":
+        return {}
     if ceiling is None or floor is None:
         ceiling, floor = spine_value_fields(layout, G)
     pos = getattr(G, "pos", None) or {}
@@ -930,6 +936,13 @@ def groundside_reach_band(layout, G, offnet_radius_m=None, cap=None):
     band.sources = len(src)                 # type: ignore[attr-defined]
     band.mouths = len(mouths)               # type: ignore[attr-defined]
     band.offnet_radius_m = radius           # type: ignore[attr-defined]
+    # THE SOURCE TABLE ITSELF, published beside its own count.  An
+    # instrument that wants to know WHICH nodes carry a band, and with what
+    # interval, must read the band's own table — re-deriving it from a copy
+    # of this construction is the census-wrapper defect (tools/INDEX.md).
+    # Read-only by contract; ``sources`` above is ``len`` of exactly this.
+    band.src = src                          # type: ignore[attr-defined]
+    band.mouth_nodes = mouths               # type: ignore[attr-defined]
     return band
 
 

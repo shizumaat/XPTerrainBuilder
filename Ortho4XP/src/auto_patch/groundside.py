@@ -15,6 +15,7 @@ with internal callers in ``O4_Airport_Pavement_Builder``):
 """
 from __future__ import annotations
 
+import json
 import math
 import os as _os
 from typing import Dict, List, Optional, Sequence, Set, Tuple
@@ -741,6 +742,99 @@ def _shape_prior(*shapes):
     return out
 
 
+def _service_edge_counterfactual(layout, G, band):
+    """REPORT-ONLY, DEFAULT OFF — ``O4_DUMP_SERVICE_BAND=<path>``.
+
+    THE IN-PROCESS INTERVENTION behind "do the service EDGES carry reach":
+    the SAME band construction is run a second time on the same graph with
+    the service spine pairs dropped from ``G.spine_adj`` (mouths kept —
+    they are the boundary arbiter, RULINGS 2026-08-07), and the two source
+    tables are diffed node by node.  It answers with NUMBERS only: how many
+    nodes lose their band entirely, how many keep one with a different
+    interval, and the worst floor/ceiling movement, plus a sample carrying
+    both frames (local metres and 11-decimal lat/lon canonical identity).
+
+    It is a counterfactual, not a second implementation: both arms call
+    ``building_feasibility.groundside_reach_band``, so there is one code
+    path and no private copy of the band (tools/INDEX.md, the
+    census-wrapper precedent).  The graph is restored before returning.
+    """
+    path = _os.environ.get("O4_DUMP_SERVICE_BAND")
+    if not path or band is None:
+        return
+    import O4_UI_Utils as UI
+    try:
+        from .elevation_per_surface.building_feasibility import (
+            groundside_reach_band)
+        from .elevation_per_surface.route_profile.solve import (
+            adj_without_pairs)
+        pairs = getattr(G, "service_spine_pairs", None) or set()
+        full_src = dict(getattr(band, "src", None) or {})
+        saved_adj = G.spine_adj
+        try:
+            G.spine_adj = adj_without_pairs(saved_adj, pairs)
+            band_ko = groundside_reach_band(layout, G)
+        finally:
+            G.spine_adj = saved_adj
+        ko_src = dict(getattr(band_ko, "src", None) or {}) if band_ko else {}
+        pos = getattr(G, "pos", None) or {}
+        lost, moved, same = [], [], 0
+        for i, (f, c) in full_src.items():
+            other = ko_src.get(i)
+            if other is None:
+                lost.append(i)
+            elif abs(other[0] - f) > 1e-6 or abs(other[1] - c) > 1e-6:
+                moved.append((i, f, c, other[0], other[1]))
+            else:
+                same += 1
+        moved.sort(key=lambda t: max(abs(t[3] - t[1]), abs(t[4] - t[2])),
+                   reverse=True)
+        to_ll = getattr(layout, "m_to_ll", None)
+
+        def _row(i, f=None, c=None, f2=None, c2=None):
+            x, y = pos.get(i, (None, None))
+            ll = None
+            if to_ll is not None and x is not None:
+                try:
+                    la, lo = to_ll(float(x), float(y))
+                    ll = [f"{la:.11f}", f"{lo:.11f}"]
+                except Exception:                      # pragma: no cover
+                    ll = None
+            return {"node": int(i), "x": x, "y": y, "ll": ll,
+                    "floor": f, "ceiling": c,
+                    "floor_no_edges": f2, "ceiling_no_edges": c2}
+
+        rec = {
+            "icao": getattr(layout, "icao", ""),
+            "service_spine_pairs": len(pairs),
+            "mouths": int(getattr(band, "mouths", 0)),
+            "sources_full": len(full_src),
+            "sources_no_service_edges": len(ko_src),
+            "lost_band_entirely": len(lost),
+            "band_interval_moved": len(moved),
+            "band_unchanged": same,
+            "worst_move_m": (round(max(max(abs(t[3] - t[1]),
+                                          abs(t[4] - t[2]))
+                                      for t in moved), 4)
+                             if moved else 0.0),
+            "sample_lost": [_row(i) for i in lost[:20]],
+            "sample_moved": [_row(i, f, c, f2, c2)
+                             for (i, f, c, f2, c2) in moved[:20]],
+        }
+        with open(path, "w") as fh:
+            json.dump(rec, fh)
+        UI.vprint(1,
+            f"  [svc-band-diag] service-edge counterfactual: sources "
+            f"{rec['sources_full']} -> {rec['sources_no_service_edges']} "
+            f"without the {len(pairs)} service pair(s); {rec['lost_band_entirely']} "
+            f"node(s) lose their band, {rec['band_interval_moved']} keep one "
+            f"with a different interval (worst {rec['worst_move_m']:.4f} m) "
+            f"-> {path}")
+    except Exception as exc:                           # pragma: no cover
+        UI.vprint(1, f"  [svc-band-diag] WARN: counterfactual FAILED "
+                     f"({exc!r}) — no number reported rather than a wrong one")
+
+
 def groundside_route_band(layout):
     """THE route-graph band for groundside seating, or ``None``.
 
@@ -796,6 +890,7 @@ def groundside_route_band(layout):
                          f"off-route radius "
                          f"{getattr(band, 'offnet_radius_m', 0.0):.0f} m "
                          f"at the lot cap")
+            _service_edge_counterfactual(layout, G, band)
         return band
     except Exception as exc:                               # pragma: no cover
         UI.vprint(1, f"  [groundside-band] WARN: route-graph band build "

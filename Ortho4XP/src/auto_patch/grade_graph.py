@@ -32,6 +32,7 @@ them.  This module owns the apron/junction visibility graph only.
 """
 from __future__ import annotations
 
+import json
 import math
 import os
 from dataclasses import dataclass, field
@@ -102,6 +103,12 @@ SPINE_PERP_TOL_M = 1.0
 # DERIVED, never a fresh magic number: half the corridor width the road
 # rects are built at, plus the base tolerance for float/round noise.
 SERVICE_SPINE_PERP_TOL_M = SERVICE_ROAD_WIDTH_M / 2.0 + SPINE_PERP_TOL_M
+
+# DIAGNOSTIC-ONLY window margin (``O4_DUMP_SERVICE_STRINGING``): how far
+# PAST the tolerance the instrument looks for nodes, so a "just missed"
+# node is distinguishable from "no node at all".  Never consulted by the
+# stringing decision itself.
+_DIAG_MARGIN_M = 25.0
 
 # Apron↔taxi-route CONTACT allowance (user 2026-06-30): an apron ring edge welded
 # to a taxi-route pavement earns the taxi cap in its own direction (the contact
@@ -361,6 +368,14 @@ class GradeContext:
     # to (the SPJC cm-noise junction class).  ``None`` ⇒ the reader triangulates
     # its own ring (the solver path, and legacy sidecars).
     mesh_edges_exact: object = None
+    # FRAME STAMP for the spine census (cycle 9): which road set the SERVICE
+    # centerlines came from (``grade_graph.service_spine_source`` — "sliced"
+    # = the slice's own scoped set, road feed included; "apt1206" = no slice
+    # ran) and their total length in metres.  Reported, never read as law:
+    # "0 service centerlines strung" and "no roads at this airport" have
+    # different fix loci and the census could not tell them apart.
+    service_source: str = ""
+    service_length_m: float = 0.0
 
 
 @dataclass
@@ -380,6 +395,122 @@ def _open_ring(coords):
     """Open ring (drop the repeated closing vertex)."""
     c = list(coords)
     return c[:-1] if c and c[0] == c[-1] else c
+
+
+def service_spine_source(layout) -> str:
+    """Which road set this layout's SERVICE spine comes from — the frame
+    stamp for the spine census (RULINGS 2026-08-06, "Instrument truth is
+    law": every reported number carries its frame).
+
+    ``"sliced"`` — the global slice's own scoped road set
+    (``layout._slice_service_subsegments``), i.e. every road the slice
+    actually cut: apt.dat row-1206 routes AND the per-airport ROAD FEED,
+    after free-road scoping.  ``"apt1206"`` — no slice ran (unit fixtures),
+    so the row-1206 entries of ``apt_taxi_centerlines`` are the source.
+    """
+    return ("sliced"
+            if getattr(layout, "_slice_service_subsegments", None) is not None
+            else "apt1206")
+
+
+def centerline_specs(layout) -> list:
+    """THE law's centerline membership — aircraft spine AND service roads —
+    as ``[(pts, seg_caps, is_service, route_key, route_pts), …]`` in LOCAL
+    metres, in one enumeration.
+
+    BOTH readers of the law consume this and only this: :func:`build_context`
+    (the solver's and the validator's shared context) and
+    ``verification.taxi_axes_exact_ll`` (the sidecar mirror, which the census
+    reads back as ``axes_exact``).  They used to be two hand-kept copies of
+    the same walk, so a membership change in one was invisible to the other
+    and the census would then judge a patch under a spine the build never
+    graded to — the half-landed law the RULINGS forbid.  One list, one order,
+    so the route ordinals agree by construction rather than by inspection.
+
+    THE SERVICE SOURCE (cycle 9; RULINGS 2026-08-06 "ONE graph: groundside
+    joins the route graph" and "Service-road mouths seat like apron-edge
+    buildings").  ``apt_taxi_centerlines`` only ever carries the apt.dat
+    row-1206 ground-vehicle routes — measured at this lane's baseline: HECA
+    5, KCLT 15, SPJC 15, HEAZ 0 — while the roads that actually CARVE the
+    slice, and that the emitter ships as ``service_road`` /
+    ``service_junction`` shapes, come from the per-airport ROAD FEED (HECA
+    705 lines / 97.9 km, KCLT 320, SPJC 84 after free-road scoping).  Those
+    roads cut groundside geometry and then never became route edges, so
+    nothing downstream of them could reach a band: the mouths fired and the
+    band propagated, but only over the row-1206 skeleton, and every lot the
+    feed roads serve kept its DEM seed.  That is the D′ population.
+
+    So the service half reads the slice's OWN scoped set
+    (``layout._slice_service_subsegments``) wherever the slice ran.  That
+    list is the road network as sliced — row-1206 routes and feed ways
+    alike, after FREE-ROAD scoping (owner 2026-07-27: a road inside or
+    edge-sharing an apron IS the apron, is never carved, and therefore is
+    never its own spine either).  The unscoped row-1206 originals are NOT
+    also registered: their scoped remains are already in that list, and
+    adding the originals would give one physical road two spines at two
+    different extents and put a road spine back through the apron portion
+    the free-road ruling scoped away.
+
+    Layouts built without the global slice (unit fixtures) have no such
+    attribute and keep the pre-cycle-9 source — presence of the attribute is
+    the switch, not its truthiness, so a slice that legitimately scoped every
+    road away is not silently re-fed from apt.dat.
+    """
+    from .config import SERVICE_ROAD_MAX_GRADE as _SVC_CAP
+    specs: list = []
+    sliced = getattr(layout, "_slice_service_subsegments", None)
+    use_sliced = sliced is not None
+    for tcl in (getattr(layout, "apt_taxi_centerlines", []) or []):
+        ln = getattr(tcl, "line", tcl)
+        if ln is None or getattr(ln, "is_empty", True):
+            continue
+        is_svc = bool(getattr(tcl, "is_service", False))
+        if is_svc and use_sliced:
+            continue                    # the sliced set is the service source
+        try:
+            pts = list(ln.coords)
+        except Exception:                                 # pragma: no cover
+            continue
+        if len(pts) < 2:
+            continue
+        if is_svc:
+            # road spine: own cap, no per-letter table.
+            seg_caps = [_SVC_CAP] * (len(pts) - 1)
+        else:
+            # Per-segment cap from the route's per-segment ICAO size (no
+            # name→letter table); padded to one cap per segment.
+            sizes = list(getattr(tcl, "seg_sizes", []) or [])
+            seg_caps = [taxi_grade_cap_for_letter(sizes[i]) if i < len(sizes)
+                        else taxi_grade_cap_for_letter(
+                            sizes[-1] if sizes else None)
+                        for i in range(len(pts) - 1)]
+        # Chain this piece to its WHOLE route.  Pieces bend-split from the
+        # same parent share the SAME ``route_line`` object (or fall back to
+        # their own ``line``) — key by identity so each distinct route is
+        # minted once and every piece points at it.
+        rline = getattr(tcl, "route_line", None)
+        rkey = id(rline) if rline is not None else ("self", id(ln))
+        try:
+            rpts = list(rline.coords) if rline is not None else pts
+        except Exception:                                 # pragma: no cover
+            rpts = pts
+        specs.append((pts, seg_caps, is_svc, rkey, rpts))
+    if use_sliced:
+        for ln in sliced:
+            if ln is None or getattr(ln, "is_empty", True):
+                continue
+            try:
+                pts = list(ln.coords)
+            except Exception:                             # pragma: no cover
+                continue
+            if len(pts) < 2:
+                continue
+            # A sliced subsegment IS its own route: free-road scoping cut it
+            # at the stations where the road stops being a free road, and the
+            # law downstream of that cut is the apron's, not this road's.
+            specs.append((pts, [_SVC_CAP] * (len(pts) - 1), True,
+                          ("svc", id(ln)), pts))
+    return specs
 
 
 def build_context(layout, bucket_to_idx=None) -> "GradeContext":
@@ -412,57 +543,23 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
     # GLOBAL-SLICE spine (user 2026-07-02): service ROADS are spines too —
     # narrow truck routes are sliced like taxiways and their faces grade
     # LONGITUDINALLY along the road at the road cap ("two roughly parallel
-    # spines with the right grade cap").
-    from .config import SERVICE_ROAD_MAX_GRADE as _SVC_CAP
-    for tcl in (getattr(layout, "apt_taxi_centerlines", []) or []):
-        ln = getattr(tcl, "line", tcl)
-        if ln is None or getattr(ln, "is_empty", True):
-            continue
-        _is_svc = getattr(tcl, "is_service", False)
-        try:
-            pts = list(ln.coords)
-        except Exception:
-            continue
-        if _is_svc and len(pts) >= 2:
-            # road spine: own cap, own chain (no per-letter table).
-            seg_caps = [_SVC_CAP] * (len(pts) - 1)
-            rline = getattr(tcl, "route_line", None)
-            rkey = id(rline) if rline is not None else ("self", id(ln))
-            ridx = route_key_to_idx.get(rkey)
-            if ridx is None:
-                try:
-                    rpts = list(rline.coords) if rline is not None else pts
-                except Exception:
-                    rpts = pts
-                ridx = len(routes)
-                routes.append(RouteChain(pts=rpts))
-                route_key_to_idx[rkey] = ridx
-            cls.append(Centerline(pts=pts, seg_caps=seg_caps, route_idx=ridx,
-                                  is_service=True))
-            continue
-        if len(pts) >= 2:
-            # Per-segment cap from the route's per-segment ICAO size (no name→
-            # letter table); pad to one cap per segment.
-            sizes = list(getattr(tcl, "seg_sizes", []) or [])
-            seg_caps = [taxi_grade_cap_for_letter(sizes[i]) if i < len(sizes)
-                        else taxi_grade_cap_for_letter(sizes[-1] if sizes else None)
-                        for i in range(len(pts) - 1)]
-            # Chain this piece to its WHOLE route.  Pieces bend-split from the same
-            # parent share the SAME ``route_line`` object (or fall back to their own
-            # ``line``) — dedupe by identity so each distinct route appears once in
-            # ``routes`` and every piece points at it via ``route_idx``.
-            rline = getattr(tcl, "route_line", None)
-            rkey = id(rline) if rline is not None else ("self", id(ln))
-            ridx = route_key_to_idx.get(rkey)
-            if ridx is None:
-                try:
-                    rpts = list(rline.coords) if rline is not None else pts
-                except Exception:
-                    rpts = pts
-                ridx = len(routes)
-                routes.append(RouteChain(pts=rpts))
-                route_key_to_idx[rkey] = ridx
-            cls.append(Centerline(pts=pts, seg_caps=seg_caps, route_idx=ridx))
+    # spines with the right grade cap").  Membership, per-segment caps and
+    # route binding all come from ``centerline_specs`` — the ONE enumeration
+    # this context and the sidecar mirror share, so the solver, the
+    # validator and the census cannot drift on which roads are roads
+    # (cycle 9; the road feed reaches the graph through it).
+    _svc_len_m = 0.0
+    for (pts, seg_caps, _is_svc, rkey, rpts) in centerline_specs(layout):
+        ridx = route_key_to_idx.get(rkey)
+        if ridx is None:
+            ridx = len(routes)
+            routes.append(RouteChain(pts=rpts))
+            route_key_to_idx[rkey] = ridx
+        cls.append(Centerline(pts=pts, seg_caps=seg_caps, route_idx=ridx,
+                              is_service=_is_svc))
+        if _is_svc:
+            _svc_len_m += sum(math.hypot(b[0] - a[0], b[1] - a[1])
+                              for (a, b) in zip(pts, pts[1:]))
 
     # Adjacent-cap node coords -> cap: a shape with NO spine inherits the
     # cap of an ADJACENT_CAP_ROLES shape it shares a ring node with (live
@@ -612,7 +709,9 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
                         inherited_junction_cap=_inherited,
                         building_keys=frozenset(bld_keys), road_zone=road_zone,
                         route_zone=route_zone,
-                        seam_keys=frozenset(seam_pin_idx))
+                        seam_keys=frozenset(seam_pin_idx),
+                        service_source=service_spine_source(layout),
+                        service_length_m=_svc_len_m)
 
 
 # ── visibility ──────────────────────────────────────────────────────────────
@@ -769,20 +868,55 @@ def ds_decompose(pa: tuple[float, float], pb: tuple[float, float],
     return ds_par, ds_perp
 
 
+def _reads_service_spines(shape: GradeShape) -> bool:
+    """May THIS shape's own law read a SERVICE centerline as its spine?
+
+    Only a groundside-family shape may (``layout.GROUNDSIDE_ROLES`` — the
+    road itself, the lot it serves).  A TRUCK ROUTE IS NOT AN AIRCRAFT
+    SPINE: the same principle the apron↔taxi blend already applies ("a
+    truck route's cap belongs to its own strip faces, not to the apron
+    around it", 2026-07-02) — stated once here, on the law's own role
+    partition, instead of by cap comparison.
+
+    It became load-bearing when the ROAD FEED joined the ONE graph (cycle
+    9): the feed multiplies service centerlines by 10-140x (HECA 5 → 705),
+    and every one of them was then a spine for whatever airside pavement it
+    passed — an apron chord CROSSING a truck road was dropped as
+    "carried by the spine", and the apron's own spine cap could be read off
+    a road.  That is a groundside object changing AIRSIDE law, which
+    airside-is-king forbids however the roads got there.  MEASURED, arm 1
+    of this lane: airside rose at 7 of 8 battery cells, carried by
+    ``transverse::apron|apron`` (HECA 10 000 +176) and
+    ``transverse::junction|junction`` (+132) — families that only exist
+    relative to a spine.
+    """
+    from .layout import GROUNDSIDE_ROLES
+    return shape.role in GROUNDSIDE_ROLES
+
+
 def _spine_membership(shape: GradeShape, ctx: GradeContext
                       ) -> dict[int, list[tuple[int, float]]]:
     """For each ring index, the list of (centerline-index, arc_pos) it lies on
-    (within ``SPINE_PERP_TOL_M``)."""
+    (within ``SPINE_PERP_TOL_M``).
+
+    SERVICE centerlines are members only of a groundside-family shape
+    (:func:`_reads_service_spines`); indices still index
+    ``ctx.centerlines``, so every downstream consumer of this map
+    (``_spine_cap``, ``_body_cap``, the crossing predicate) inherits the
+    restriction from one place."""
     out: dict[int, list[tuple[int, float]]] = {}
     tree, idxs, _geoms = _polyline_tree(ctx, "cl")
     if tree is None:
         return out
+    svc_ok = _reads_service_spines(shape)
     from shapely.geometry import Point as _Pt
     for ri, (x, y) in enumerate(shape.ring):
         hits = []
         # bbox candidates within the tolerance, exact test via _project
         for k in tree.query(_Pt(x, y).buffer(SPINE_PERP_TOL_M)):
             ci = idxs[int(k)]
+            if not svc_ok and ctx.centerlines[ci].is_service:
+                continue
             a, d, _ = _project(ctx.centerlines[ci], x, y)
             if d <= SPINE_PERP_TOL_M:
                 hits.append((ci, a))
@@ -827,10 +961,21 @@ def _spine_crossing_predicate(shape: GradeShape, ctx: GradeContext,
     # ALL-centerline geoms + STRtree, built once per CONTEXT (cached): the
     # per-shape member subset used to keep this list short; the full set
     # needs the tree to stay cheap.
-    cached = getattr(ctx, "_crossing_tree", None)
+    # TWO trees, cached side by side: with the SERVICE centerlines (the
+    # groundside family's own law) and without them (everything else — a
+    # truck route is not an aircraft spine; see
+    # :func:`_reads_service_spines`).  Selected by the shape's role, so an
+    # apron chord is never dropped as "carried by the spine" because a road
+    # happens to run across it.
+    _attr = ("_crossing_tree" if _reads_service_spines(shape)
+             else "_crossing_tree_nosvc")
+    cached = getattr(ctx, _attr, None)
     if cached is None:
+        _svc_ok = _reads_service_spines(shape)
         geoms = []
         for cl in ctx.centerlines:
+            if not _svc_ok and cl.is_service:
+                continue
             if len(cl.pts) >= 2:
                 try:
                     geoms.append(LineString(cl.pts))
@@ -845,7 +990,7 @@ def _spine_crossing_predicate(shape: GradeShape, ctx: GradeContext,
                 tree = None
         cached = (geoms, tree)
         try:
-            ctx._crossing_tree = cached
+            setattr(ctx, _attr, cached)
         except Exception:                   # pragma: no cover
             pass
     geoms, tree = cached
@@ -2170,11 +2315,107 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
         _build_global_spine(G, ctx, icao=getattr(layout, "icao", ""),
                             road_nodes=_road_family_nodes(layout,
                                                           bucket_to_idx))
+        _write_service_stringing_diag(layout, G)
+        _withhold_service_edges_probe(G, icao=getattr(layout, "icao", ""))
 
         # ── runway anchors: every geometry node a taxi spine joins the runway
         # at ──
         _runway_anchors(layout, G, bucket_to_idx)
     return G
+
+
+def _withhold_service_edges_probe(G, icao: str = ""):
+    """PROBE GATE, DEFAULT OFF — ``O4_PROBE_NO_SERVICE_EDGES=1`` withholds
+    the service/road route EDGES from ``G.spine_adj`` ITSELF.
+
+    IT HAS TO ACT ON THE GRAPH, not on a caller's alias.  The gate used to
+    live in ``solve.py``, where it rebound the LOCAL name ``u_spine_adj``
+    — and ``groundside.groundside_route_band`` builds its OWN
+    ``build_unified_graph`` and rides ``G.spine_adj``, so the groundside
+    band, which is the one consumer the service edges exist for, never saw
+    the knife.  Its "withheld from the ONE graph (every consumer)" line was
+    FALSE, and the byte-identical patch it produced was an instrument
+    artifact rather than evidence about the edges (RULINGS 2026-08-06,
+    instrument truth: a lying instrument misroutes more work than a lying
+    emitter).  Acting here, at the single site every consumer's graph comes
+    out of, is what makes the sentence true.
+
+    ``G.service_spine_pairs`` is KEPT: the MOUTHS are read off that set and
+    mouths are the airside/groundside boundary arbiter (RULINGS 2026-08-07)
+    — the knife withholds the road's EDGES, never its mouth seats, so what
+    it measures is exactly "do the edges bind".
+    """
+    if os.environ.get("O4_PROBE_NO_SERVICE_EDGES") != "1":
+        return
+    pairs = getattr(G, "service_spine_pairs", None) or set()
+    if not pairs:
+        return
+    # ONE filter, no second copy (the census-wrapper defect class): the same
+    # ``adj_without_pairs`` the airside view uses.  Imported LATE and only
+    # under the gate — ``solve`` imports this module at load time.
+    from .elevation_per_surface.route_profile.solve import adj_without_pairs
+    before = sum(len(v) for v in G.spine_adj.values())
+    G.spine_adj = adj_without_pairs(G.spine_adj, pairs)
+    after = sum(len(v) for v in G.spine_adj.values())
+    import O4_UI_Utils as _UI
+    _UI.vprint(1,
+        f"  [probe] O4_PROBE_NO_SERVICE_EDGES=1: {icao}: {len(pairs)} "
+        f"service pair(s) withheld from G.spine_adj — every consumer, the "
+        f"groundside band included ({before} -> {after} directed spine "
+        f"edge(s)); the mouths themselves are KEPT.")
+
+
+def _write_service_stringing_diag(layout, G):
+    """REPORT-ONLY, DEFAULT OFF — ``O4_DUMP_SERVICE_STRINGING=<path>``
+    writes the per-service-centerline stringing record collected by
+    :func:`_build_global_spine`.
+
+    It answers ONE question with numbers and no verdict (RULINGS
+    2026-08-06 binding point 2): for every service centerline that
+    contributed NO string, WHICH condition failed — no candidate node
+    within the tolerance at all (`no_candidate_in_tol`), candidates within
+    the tolerance that the eligibility restriction excluded
+    (`ineligible_in_tol`), or exactly one on-line node (`one_node`).  The
+    three are different mechanisms and only the first is the recorded
+    tolerance suspect.
+
+    Positions are emitted in BOTH frames: local metres (the node space
+    this was measured in) and 11-decimal lat/lon, which is this repo's
+    canonical identity spelling (memory: canonical identity join — never
+    proximity).
+    """
+    path = os.environ.get("O4_DUMP_SERVICE_STRINGING")
+    rec = getattr(G, "_service_stringing_diag", None)
+    if not path or rec is None:
+        return
+    to_ll = getattr(layout, "m_to_ll", None)
+
+    def _ll(x, y):
+        if to_ll is None:
+            return None
+        try:
+            lat, lon = to_ll(float(x), float(y))
+            return [f"{lat:.11f}", f"{lon:.11f}"]
+        except Exception:                              # pragma: no cover
+            return None
+
+    for row in rec["centerlines"]:
+        for n in row.get("nearest", ()):
+            n["ll"] = _ll(n["x"], n["y"])
+    rec["icao"] = getattr(layout, "icao", "")
+    rec["service_perp_tol_m"] = SERVICE_SPINE_PERP_TOL_M
+    rec["aircraft_perp_tol_m"] = SPINE_PERP_TOL_M
+    rec["service_road_width_m"] = SERVICE_ROAD_WIDTH_M
+    try:
+        with open(path, "w") as fh:
+            json.dump(rec, fh)
+        import O4_UI_Utils as _UI
+        _UI.vprint(1,
+            f"  [svc-string-diag] wrote {len(rec['centerlines'])} service "
+            f"centerline record(s) -> {path}")
+    except Exception as exc:                           # pragma: no cover
+        import O4_UI_Utils as _UI
+        _UI.vprint(1, f"  [svc-string-diag] WARN: dump failed ({exc!r})")
 
 
 def _road_family_nodes(layout, bucket_to_idx):
@@ -2267,7 +2508,15 @@ def _build_global_spine(G, ctx, icao: str = "", road_nodes=None):
     _svc_walked = 0            # service centerlines seen (the denominator)
     _svc_attach: set = set()   # service-strung nodes that are aircraft spine
 
-    def _walk(_ci, cl, tol, eligible):
+    # REPORT-ONLY collector, DEFAULT OFF (``O4_DUMP_SERVICE_STRINGING``).
+    # Nothing is computed for it on a default build — the flag is read once,
+    # here, and every extra projection below sits inside ``if _diag``.
+    # ``_DIAG_MARGIN_M`` widens the diagnostic's own node window past the
+    # tolerance so NEAR-MISSES are visible (see ``_walk``).
+    _diag = (({"centerlines": []}
+              if os.environ.get("O4_DUMP_SERVICE_STRINGING") else None))
+
+    def _walk(_ci, cl, tol, eligible, diag=False):
         """String ONE centerline; return its arc-ordered node list (``[]``
         when it contributed no string)."""
         nonlocal _n_no_node, _n_one_node
@@ -2286,6 +2535,62 @@ def _build_global_spine(G, ctx, icao: str = "", road_nodes=None):
             a, d, _ = _project(cl, x, y)
             if d <= tol:
                 on_line.append((a, i))
+        if diag:
+            # THE NEAR-MISS WINDOW.  The production prefilter above inflates
+            # the bbox by ``tol`` exactly, so a node just OUTSIDE the
+            # tolerance is never even a candidate — and "a sliced-road node
+            # sitting just past the tolerance" is precisely the recorded
+            # suspect this instrument exists to test.  The diagnostic
+            # therefore re-queries at ``tol + _DIAG_MARGIN_M`` and measures
+            # every node in that window, eligible or not.  Separate loop, so
+            # the production path above is untouched, not merely equivalent.
+            _d_all = []
+            if node_tree is not None:
+                _wt = tol + _DIAG_MARGIN_M
+                _wq = _nbox(min(xs) - _wt, min(ys) - _wt,
+                            max(xs) + _wt, max(ys) + _wt)
+                _wcand = [items[int(k)] for k in node_tree.query(_wq)]
+            else:                                      # pragma: no cover
+                _wcand = items
+            for (i, (x, y)) in _wcand:
+                _a, _d, _ = _project(cl, x, y)
+                _d_all.append((_d, i, x, y,
+                               (eligible is None or i in eligible)))
+            _d_all.sort(key=lambda t: t[0])
+            _in_tol = [t for t in _d_all if t[0] <= tol]
+            _elig_in_tol = [t for t in _in_tol if t[4]]
+            if len(on_line) >= 2:
+                _cls = "strung"
+            elif len(_elig_in_tol) == 1:
+                _cls = "one_node"
+            elif _in_tol and not _elig_in_tol:
+                _cls = "ineligible_in_tol"
+            elif not _d_all:
+                _cls = "no_node_in_window"
+            else:
+                _cls = "no_candidate_in_tol"
+            _diag["centerlines"].append({
+                "ci": int(_ci),
+                "is_service": bool(getattr(cl, "is_service", False)),
+                "n_pts": len(cl.pts),
+                "plan_len_m": round(sum(
+                    math.hypot(b[0] - a[0], b[1] - a[1])
+                    for a, b in zip(cl.pts, cl.pts[1:])), 3),
+                "tol_m": float(tol),
+                "n_candidates": len(_d_all),
+                "n_in_tol": len(_in_tol),
+                "n_eligible_in_tol": len(_elig_in_tol),
+                "n_on_line": len(on_line),
+                "min_d_any_m": (round(_d_all[0][0], 4) if _d_all else None),
+                "min_d_eligible_m": (
+                    round(min((t[0] for t in _d_all if t[4]), default=-1), 4)
+                    if any(t[4] for t in _d_all) else None),
+                "class": _cls,
+                "nearest": [{"node": int(i), "d_m": round(d, 4),
+                             "x": round(x, 3), "y": round(y, 3),
+                             "eligible": bool(el)}
+                            for (d, i, x, y, el) in _d_all[:5]],
+            })
         if len(on_line) < 2:
             # No string from this way — counted, and said out loud in the
             # census line at the end of the walk.
@@ -2332,13 +2637,24 @@ def _build_global_spine(G, ctx, icao: str = "", road_nodes=None):
             continue
         _svc_walked += 1
         _svc_attach.update(
-            i for i in _walk(_ci, cl, SERVICE_SPINE_PERP_TOL_M, _svc_eligible)
+            i for i in _walk(_ci, cl, SERVICE_SPINE_PERP_TOL_M, _svc_eligible,
+                             diag=(_diag is not None))
             if i in _taxi_strung)
     # A pair ALSO woven by a taxi centerline (a road crossing a taxi
     # route's nodes) is a genuine taxi edge — the service tag must not
     # remove it from reachability.
     _n_svc_woven_out = len(G.service_spine_pairs & _taxi_woven_pairs)
     G.service_spine_pairs -= _taxi_woven_pairs
+    if _diag is not None:
+        _diag["service_centerlines_walked"] = _svc_walked
+        _diag["service_centerlines_strung"] = len(G.centerline_service)
+        _diag["service_spine_pairs"] = len(G.service_spine_pairs)
+        _diag["aircraft_spine_attachments"] = len(_svc_attach)
+        _diag["eligible_nodes"] = len(_svc_eligible)
+        _diag["road_family_nodes"] = len(set(road_nodes or ()))
+        _diag["taxi_strung_nodes"] = len(_taxi_strung)
+        _diag["graph_nodes"] = len(items)
+        G._service_stringing_diag = _diag
     # ── spine-drop census (hygiene 2026-07-31) ──────────────────────────
     G.spine_centerlines = len(ctx.centerlines)
     G.spine_no_string = _n_no_node + _n_one_node
@@ -2367,7 +2683,9 @@ def _build_global_spine(G, ctx, icao: str = "", road_nodes=None):
             f"pair(s) after the taxi-woven subtraction ({_n_svc_woven_out} "
             f"pair(s) removed as taxi-woven), {len(_svc_attach)} "
             f"attachment(s) to the aircraft spine — the MOUTH candidates "
-            f"(eligible nodes: {len(_svc_eligible)})")
+            f"(eligible nodes: {len(_svc_eligible)}; source "
+            f"{getattr(ctx, 'service_source', '?')}, "
+            f"{getattr(ctx, 'service_length_m', 0.0):,.0f} m of road)")
 
 
 def _dist(pa, pb):

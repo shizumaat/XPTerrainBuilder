@@ -1425,6 +1425,26 @@ def _route_witness_admission(layout, key_to_idx, n):
     return roles, route_roles, excluded
 
 
+def adj_without_pairs(adj, pairs):
+    """``adj`` with every edge whose endpoint pair is in ``pairs`` dropped.
+
+    ONE filter, two readers: the AIRSIDE VIEW of the one graph (airside
+    authorities may not ride service edges — ``REACH_NO_SERVICE_SPINES``)
+    and the ``O4_PROBE_NO_SERVICE_EDGES`` gate, which withholds the same
+    edge set from every consumer.  Empty ``pairs`` ⇒ the SAME object back,
+    so the un-gated path is byte-inert by identity, not by comparison.
+    """
+    if not pairs:
+        return adj
+    out: dict = {}
+    for i, lst in adj.items():
+        keep = [(j, b) for (j, b) in lst
+                if (min(i, j), max(i, j)) not in pairs]
+        if keep:
+            out[i] = keep
+    return out
+
+
 def _receiver_nodes_from_roles(roles):
     """THE RECEIVER SET of the projection partition — nodes whose EVERY
     role is groundside (``layout.GROUNDSIDE_ROLES``).
@@ -2047,6 +2067,32 @@ def solve_route_profile(layout, icao: str,
     # ``spine_adjacency`` produced (verified redundant), so the merge is gone.
     G = _GG.build_unified_graph(layout, bucket_to_idx, ctx=_gg_ctx)
     u_spine_adj = G.spine_adj
+    # ── THE AIRSIDE VIEW OF THE ONE GRAPH (cycle 9) ─────────────────────
+    # ONE graph, but airside authorities may not RIDE service edges: that
+    # is the standing ``REACH_NO_SERVICE_SPINES`` law, which reach
+    # (``reach_band_unified``) and phase A (``_solve_spine_profile``,
+    # cycle 8) already obey and which the remaining consumers of
+    # ``spine_adj`` simply predate.  It stopped being cosmetic when the
+    # ROAD FEED joined the graph: attributed by probe (roads in the LAW,
+    # edges withheld from the GRAPH), ~95 % of HECA -500's airside rise
+    # and ~78 % of KCLT -500's is carried by these edges, not by the pair
+    # law.  Built ONCE here, consumed by the three airside readers below
+    # (the anchor envelope, the building→spine floor, the body solve);
+    # groundside's own band still rides the FULL graph, which is the whole
+    # point of the roads being in it.
+    from auto_patch.config import REACH_NO_SERVICE_SPINES
+    _svc_pairs = (getattr(G, "service_spine_pairs", None) or set()
+                  if REACH_NO_SERVICE_SPINES else set())
+    u_spine_adj_airside = adj_without_pairs(u_spine_adj, _svc_pairs)
+    # PROBE GATE ``O4_PROBE_NO_SERVICE_EDGES`` — it used to live HERE and
+    # rebind the LOCAL name ``u_spine_adj``, which is why it read inert:
+    # ``groundside.groundside_route_band`` builds its own graph and rides
+    # ``G.spine_adj``, so the groundside band — the one consumer the
+    # service edges exist for — never saw it.  It now acts on
+    # ``G.spine_adj`` itself, inside ``grade_graph.build_unified_graph``
+    # (``_withhold_service_edges_probe``), so ``u_spine_adj`` above is
+    # ALREADY pruned when the gate is on and every consumer of every graph
+    # is covered.  Nothing to do here.
     # ── RUNWAY FLEX Stage B (user 2026-07-06, docs/runway_flex_plan.md) ──
     # FLEX-LAST: with every route edge at its FULL legal budget (= the
     # taxiways at max cap), find runway-contact pairs whose value gap
@@ -2243,19 +2289,50 @@ def solve_route_profile(layout, icao: str,
     # a second metric (``single-pass-principle``; a polytope priced on a
     # metric the projection does not enforce is the defect family both
     # rounds are fixing).  Priced EXACTLY as phase A projects: the
-    # unified ``spine_adj`` with its per-edge budgets, service edges
-    # included, anchor values in the solve's own (crowned) space — the
-    # graph and the frame ``_solve_spine_profile``'s final exact cap
+    # unified ``spine_adj`` with its per-edge budgets, SERVICE EDGES
+    # EXCLUDED exactly as ``_solve_spine_profile`` excludes them (see the
+    # receiver-only note below — this line said "service edges included"
+    # until cycle 9 measured what that costs once the graph carries the
+    # road network), anchor values in the solve's own (crowned) space —
+    # the graph and the frame ``_solve_spine_profile``'s final exact cap
     # projection uses.  Two STANDING laws consume it — the apron-contact
     # anchor cap and the seat hard-stamp guard — so it is always built;
     # ``build_anchor_envelope`` returns None when the graph carries no
     # hard anchors, which is the honest "nothing to bound against".
     from .law_graph_budget import build_anchor_envelope
     _n_hard = min(len(base_hard), len(elev))
+    # RECEIVER-ONLY HERE TOO (cycle 9, measured).  The paragraph above used
+    # to end "service edges included", and that was harmless while the ONE
+    # graph held only the apt.dat row-1206 routes (HECA 5, KCLT 15).  It is
+    # not harmless now: this envelope feeds TWO STANDING AIRSIDE LAWS (the
+    # apron-contact anchor cap and the seat hard-stamp guard), so every
+    # service edge in it prices AIRSIDE against a truck route.  When the
+    # road feed joined the graph (HECA 5 -> 705 centerlines) that moved
+    # 60-71 % of the PURE-airside nodes at HECA — nodes no groundside way
+    # even touches — by a median 9-18 cm and up to 3.7 m, which
+    # airside-is-king forbids however the roads got there.
+    # The exclusion is not new law: ``REACH_NO_SERVICE_SPINES`` is the
+    # standing gate, ``building_feasibility.spine_value_fields`` and
+    # ``_solve_spine_profile`` already skip exactly this pair set, and this
+    # consumer simply predates them.  Direction, not deletion: every road
+    # pair is still enforced as law in the partitioned projections, and the
+    # road is still seated afterwards, as a receiver, from its mouth band.
+    _env_adj = u_spine_adj_airside
     _anchor_envelope = build_anchor_envelope(
-        u_spine_adj,
-        {i: float(elev[i]) for i in u_spine_adj
+        _env_adj,
+        {i: float(elev[i]) for i in _env_adj
          if i < _n_hard and base_hard[i]})
+    # Instrument (RULINGS 2026-08-06, "Instrument truth is law"): report the
+    # DENOMINATOR with the exclusion, so "the roads changed nothing here"
+    # can never read the same as "there were no road edges to exclude".
+    import O4_UI_Utils as _UI_env
+    _env_all = sum(len(v) for v in u_spine_adj.values())
+    _env_dropped = _env_all - sum(len(v) for v in _env_adj.values())
+    _UI_env.vprint(1,
+        f"  [anchor-envelope] {icao}: {len(_svc_pairs)} service spine "
+        f"pair(s) excluded, {_env_dropped} of {_env_all} directed edge(s) "
+        f"dropped; {len(_env_adj)} of {len(u_spine_adj)} node(s) keep an "
+        f"airside route")
     apron_seats = build_nobuilding_apron_seats(
         layout, bucket_to_idx, band, dem_fn,
         anchor_envelope=_anchor_envelope, icao=icao)
@@ -2378,7 +2455,8 @@ def solve_route_profile(layout, icao: str,
     # Building-frontage spine floor (the serving arm climbs to its pads),
     # cap-Lipschitz on the unified spine chain.
     u_spine_floor = building_spine_floor(
-        layout, nodes, bucket_to_idx, building_seats, node_band, u_spine_adj)
+        layout, nodes, bucket_to_idx, building_seats, node_band,
+        u_spine_adj_airside)
     # APRON-CONTACT FLOOR (user 2026-06-29): a taxiway/junction that meets a
     # BUILDING-anchored apron's edge FAR from the building gets no building floor
     # (>corridor) and no no-building seat (skipped for building aprons), so it
@@ -2871,9 +2949,32 @@ def solve_route_profile(layout, icao: str,
     # the reach band [floor, ceiling] (apron_smooth=True) — graded ≤1% from its
     # anchored edges/spine, NOT draped on raw DEM bumps (user 2026-06-26).  The
     # band still fills it to the reachable level (west apron → ~693).
+    # RECEIVER-ONLY IN THE BODY SOLVE (cycle 9; ATTRIBUTED by probe, not
+    # guessed).  ``one_profile_solve`` makes every node of ``spine_adj`` a
+    # SPINE node and clamps it to its adjacency — and "the apron body yields
+    # to the spine instead of squeezing it out of grade".  With the road feed
+    # in the one graph that made TRUCK ROUTES into spines the aprons yield
+    # to: withholding the service edges from the graph (and nothing else)
+    # returned HECA -500 airside from 4,581 to 4,150 of a 4,129 baseline and
+    # KCLT -500 from 522 to 484 of 473 — i.e. ~95 % / ~78 % of the airside
+    # rise is carried HERE, by the graph edges, not by the pair law.
+    # ``_solve_spine_profile`` (phase A) already drops exactly this pair set
+    # (cycle 8); the body solve simply never did.  Direction, not deletion:
+    # the road pairs remain law in the partitioned projections and the road
+    # is still seated as a receiver from its mouth band.
+    _body_adj = u_spine_adj_airside
+    # a node left with only road edges is not an aircraft spine node
+    _body_nodes = ({i for i in u_spine_nodes if i in _body_adj}
+                   if _svc_pairs else u_spine_nodes)
+    if _svc_pairs:
+        _UI_env.vprint(1,
+            f"  [body-solve] {icao}: spine set {len(u_spine_nodes)} -> "
+            f"{len(_body_nodes)} node(s), adjacency {len(u_spine_adj)} -> "
+            f"{len(_body_adj)} node(s) after excluding "
+            f"{len(_svc_pairs)} service spine pair(s)")
     n_free = one_profile_solve(
         elev, shape_constraints, base_hard, nodes, dem_elev,
-        runway_nodes, building_seats, apron_body, u_spine_nodes, u_spine_adj,
+        runway_nodes, building_seats, apron_body, _body_nodes, _body_adj,
         node_band, u_spine_floor, coupling, apron_smooth=True)
     _psub(0.78, "Solving elevations — body fill solved")
     # Guarantee compliance: project EVERY grade-graph edge ≤cap with the

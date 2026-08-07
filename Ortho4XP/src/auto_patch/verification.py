@@ -3482,6 +3482,8 @@ def taxi_axes_ll(layout):
         return ((0.03, 0.02) if letter in ("A", "B") else (0.015, 0.015))
 
     from .config import SERVICE_ROAD_MAX_GRADE as _SVC_CAP
+    from .grade_graph import centerline_specs, service_spine_source
+    _svc_from_slice = service_spine_source(layout) == "sliced"
     # Route ordinals in taxi_routes_ll's exact iteration/dedup order.
     route_ord: dict = {}
     for tcl in (getattr(layout, "apt_taxi_centerlines", []) or []):
@@ -3512,10 +3514,16 @@ def taxi_axes_ll(layout):
         # they were never 1.5 % taxiways (matches grade_graph.build_context's
         # road-spine caps under the global slice).  Routes exclude service
         # chains, so a road axis carries no route binding (isotropic).
+        # The road SET is the law's (``centerline_specs``), appended below —
+        # this legacy export must not disagree with the exact one about
+        # which roads exist (cycle 9; a legacy instrument that quietly
+        # describes a different airport is the instrument-truth defect).
         if getattr(_cl, "is_service", False):
+            if _svc_from_slice:
+                continue
             if len(cs) >= 2:
                 axes.append(([layout.m_to_ll(x, y) for (x, y) in cs],
-                             _SVC_CAP, _SVC_CAP, -1))
+                             _SVC_CAP, _SVC_CAP, -1, True))
             continue
         sizes = list(getattr(_cl, "seg_sizes", []) or [])
         if not sizes or len(cs) < 2:
@@ -3538,6 +3546,16 @@ def taxi_axes_ll(layout):
             pts = [layout.m_to_ll(cs[k][0], cs[k][1]) for k in range(i, j + 2)]
             axes.append((pts, cL, cT, _ridx(_cl)))
             i = j + 1
+    if _svc_from_slice:
+        # THE ROAD SET THE LAW ACTUALLY HAS (cycle 9): the slice's own
+        # scoped roads — row-1206 routes and the road FEED alike — at the
+        # road cap, isotropic and route-less exactly as the row-1206 roads
+        # were here before.
+        for (pts, seg_caps, is_svc, _rkey, _rpts) in centerline_specs(layout):
+            if not is_svc:
+                continue
+            axes.append(([layout.m_to_ll(x, y) for (x, y) in pts],
+                         _SVC_CAP, _SVC_CAP, -1, True))
     return axes
 
 
@@ -3548,54 +3566,41 @@ def taxi_axes_exact_ll(layout):
     spine geometry, per-segment caps, splitting, or route binding.
 
     Returns ``(axes, routes)``: ``axes`` = ``[(latlon_pts, seg_caps,
-    route_ordinal), …]`` (UNSPLIT polylines — the per-size splitting the old
+    route_ordinal, is_service), …]`` (UNSPLIT polylines — the per-size splitting the old
     ``taxi_axes_ll`` export did broke shared-centerline pair membership: a
     long chord whose endpoints projected onto different split pieces lost the
     anisotropic budget on the validator side only — SPJC's 91-pair class);
     ``routes`` = ``[latlon_pts, …]`` deduped by ``route_line`` identity in
-    encounter order, INCLUDING service chains, exactly like build_context."""
-    from .config import (SERVICE_ROAD_MAX_GRADE as _SVC_CAP,
-                         taxi_grade_cap_for_letter)
+    encounter order, INCLUDING service chains, exactly like build_context.
+
+    NOT A MIRROR ANY MORE, WHICH IS THE POINT (cycle 9): both this export
+    and ``build_context`` walk ``grade_graph.centerline_specs`` — the ONE
+    enumeration of the law's centerlines — so membership, per-segment caps,
+    splitting and route ordinals agree BY CONSTRUCTION.  Two hand-kept
+    copies of the same walk is how a solver-side membership change (the
+    ROAD FEED joining the graph) lands without the census ever hearing
+    about it, and the census then judges the patch under a spine the build
+    never graded to.
+
+    THE SERVICE FLAG travels with each axis (4th element): a truck route is
+    not an aircraft spine (``grade_graph._reads_service_spines``), and the
+    census rebuilds its centerlines FROM THIS EXPORT — without the flag the
+    solver would stop reading road axes as airside spines while the census
+    kept reading them, which is the two-readers-one-law divergence the
+    sidecar exists to prevent.  Older sidecars carry 3-element entries and
+    read as all-taxi, exactly as they were graded."""
+    from .grade_graph import centerline_specs
     axes = []
     routes = []
     route_key_to_idx: dict = {}
-
-    def _route_ordinal(tcl, ln, pts):
-        rline = getattr(tcl, "route_line", None)
-        rkey = id(rline) if rline is not None else ("self", id(ln))
+    for (pts, seg_caps, _is_svc, rkey, rpts) in centerline_specs(layout):
         ridx = route_key_to_idx.get(rkey)
         if ridx is None:
-            try:
-                rpts = list(rline.coords) if rline is not None else pts
-            except Exception:
-                rpts = pts
             ridx = len(routes)
             routes.append([layout.m_to_ll(x, y) for (x, y) in rpts])
             route_key_to_idx[rkey] = ridx
-        return ridx
-
-    for tcl in (getattr(layout, "apt_taxi_centerlines", []) or []):
-        ln = getattr(tcl, "line", tcl)
-        if ln is None or getattr(ln, "is_empty", True):
-            continue
-        _is_svc = getattr(tcl, "is_service", False)
-        try:
-            pts = list(ln.coords)
-        except Exception:
-            continue
-        if len(pts) < 2:
-            continue
-        if _is_svc:
-            seg_caps = [_SVC_CAP] * (len(pts) - 1)
-        else:
-            sizes = list(getattr(tcl, "seg_sizes", []) or [])
-            seg_caps = [
-                taxi_grade_cap_for_letter(sizes[i]) if i < len(sizes)
-                else taxi_grade_cap_for_letter(sizes[-1] if sizes else None)
-                for i in range(len(pts) - 1)]
-        ridx = _route_ordinal(tcl, ln, pts)
         axes.append(([layout.m_to_ll(x, y) for (x, y) in pts],
-                     seg_caps, ridx))
+                     seg_caps, ridx, bool(_is_svc)))
     return axes, routes
 
 

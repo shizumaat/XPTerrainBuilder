@@ -2331,6 +2331,46 @@ def partition_constraints_by_receiver(shape_constraints, receiver_nodes):
     return givers, receivers
 
 
+def _withhold_road_pair_law(givers, receivers):
+    """ROAD PAIR LAW IS RECEIVER-PASS LAW (production default): every
+    ROAD-role constraint entry moves from the airside (giver) pass to the
+    receiver pass.
+
+    THIS IS ENFORCEMENT OF STANDING LAW, NOT NEW LAW.  A road node WELDED
+    to an airside ring has a non-groundside role, so the receiver
+    partition does not catch it and its road pairs used to be enforced in
+    the AIRSIDE pass — a groundside road's law constraining the airside
+    solve, i.e. a PULL BACK, which the ONE-graph ruling (RULINGS
+    2026-08-06, binding point 2: "the band flows airside → groundside;
+    groundside is receiver-only, ZERO pull back") and "airside is king"
+    already forbid.  Cycle-10's M1 measured that channel as the largest
+    single carrier of the road feed's airside regression (−262 of +444 at
+    HECA 10 000 m; +22 at −500).
+
+    The entries are MOVED, never deleted: the law stays enforced, with
+    airside FROZEN, so the road still grades under its own pair law from
+    the seat airside settled — which is the service-road mouth ruling
+    (RULINGS 2026-08-06) in constraint form.  Roles are the emitter's own
+    (``lateral_contiguity.ROAD_ROLES``).
+
+    ``O4_PROBE_ROAD_PAIR_LAW_AIRSIDE=1`` restores the OLD form by skipping
+    this call entirely (see ``feasibility_project_partitioned``); it is a
+    default-OFF probe gate so the comparison stays one env var away, and
+    the arm it names is the M1 CTL arm (bodies ``da78f97768ff`` @10 000 m
+    / ``29ed04fcf7bb`` @−500).
+    """
+    from auto_patch.lateral_contiguity import ROAD_ROLES
+    keep, moved = [], []
+    for sc in givers:
+        (moved if sc.get("role") in ROAD_ROLES else keep).append(sc)
+    if not moved:
+        return givers, receivers
+    print(f"  [receiver-only] road pair law: {len(moved)} road constraint "
+          f"entr(y/ies) enforced in the RECEIVER pass, not the airside "
+          f"pass (of {len(givers)} giver entries)")
+    return keep, list(receivers) + moved
+
+
 def feasibility_project_partitioned(elev, shape_constraints, hard, *,
                                     receiver_nodes=None, n_nodes=None,
                                     flat_groups=None, group_bounds=None,
@@ -2370,6 +2410,20 @@ def feasibility_project_partitioned(elev, shape_constraints, hard, *,
     both_hard)`` pair, summed over the two passes so the exit report
     still counts every violated edge exactly once (the two edge sets
     PARTITION the input).
+
+    ROAD PAIR LAW IS RECEIVER-PASS LAW (default, no gate): the ROAD
+    shapes' pair entries are moved out of the AIRSIDE pass into the
+    receiver pass, where airside is frozen — every road route EDGE stays
+    in the graph, only the road's own pair LAW stops binding airside
+    values.  A welded road's role is not groundside, so the receiver
+    partition above does not catch it; without this step the road's law
+    would author airside values, which is the pull-back the ONE-graph
+    ruling forbids.  See ``_withhold_road_pair_law``.
+
+    PROBE GATE, DEFAULT OFF — ``O4_PROBE_ROAD_PAIR_LAW_AIRSIDE=1``
+    RESTORES THE OLD FORM (road pair law enforced in the airside pass).
+    It exists so the comparison the receiver-only default was ruled on
+    stays one env var away; nothing in production sets it.
     """
     if not receiver_nodes:
         return feasibility_project(elev, shape_constraints, hard,
@@ -2379,6 +2433,8 @@ def feasibility_project_partitioned(elev, shape_constraints, hard, *,
                                    **kw)
     givers, receivers = partition_constraints_by_receiver(
         shape_constraints, receiver_nodes)
+    if _os.environ.get("O4_PROBE_ROAD_PAIR_LAW_AIRSIDE") != "1":
+        givers, receivers = _withhold_road_pair_law(givers, receivers)
     # ── THE PARTITION COVERS BOUNDS, NOT ONLY PAIRS (c9air) ───────────
     # A groundside PIN CEILING (``gs_pin_nodes``: weld datum + one throat
     # of reach, authored by the lot) reaches airside through a SHARED

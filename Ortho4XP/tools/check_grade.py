@@ -1115,7 +1115,13 @@ def _grade_context_from_osm(ways, nodes, ll_to_m, taxi_axes, seam_nids,
                 seg_caps += [pad] * (len(poly) - 1 - len(seg_caps))
         else:
             seg_caps = [cL] * (len(poly) - 1)
-        centerlines.append(GG.Centerline(pts=poly, seg_caps=seg_caps))
+        # 5th element = the sidecar's IS_SERVICE flag: a truck route is not
+        # an aircraft spine, and ``grade_graph._spine_membership`` applies
+        # that rule for both readers off this one field (cycle 9).  Absent
+        # (legacy sidecar) ⇒ False, i.e. the pre-flag reading.
+        centerlines.append(GG.Centerline(
+            pts=poly, seg_caps=seg_caps,
+            is_service=bool(entry[4]) if len(entry) > 4 else False))
         # 4th element = the BUILDER's route ordinal (identity binding);
         # legacy 3-tuple sidecars fall back to nearest-route below.
         axis_ridx.append(entry[3] if len(entry) > 3 else None)
@@ -2637,6 +2643,48 @@ def _check_lateral_contiguity(ways: List[Way], nodes, ll_to_m
     return out, n_stations, len(shapes_flagged)
 
 
+def _axes_to_m(taxi_axes_ll: Optional[list], ll_to_m) -> Optional[list]:
+    """The sidecar's taxi axes in the audit's METRE frame, SLOTS INTACT.
+
+    THE SLOTS ARE THE READER'S CONTRACT.  ``law_context_from_sidecar``
+    emits ``(pts, seg_caps, None, route_ordinal, is_service)``: the 4th
+    slot is the builder's route ordinal (identity binding), the 5th is the
+    sidecar's IS_SERVICE flag — a truck route is not an aircraft spine
+    (``grade_graph._reads_service_spines``), and both metre-frame readers
+    of that flag (``_grade_context_from_osm``'s ``Centerline.is_service``
+    and ``_check_transverse_grade``'s ``_axis_is_svc``) resolve it by
+    POSITION.
+
+    This conversion used to truncate the tuple at 4, so the flag never
+    arrived, every axis read as an aircraft spine, and the service-axis
+    rule those readers each state never fired once.  The transverse law is
+    the one that mints rows off it: a service axis stamped apron
+    cross-sections it has no spine for (measured HECA, arms b6936ed /
+    0c003ba after the road feed joined the graph — ``transverse::apron|
+    apron`` 10 000 m 57 -> 185 and 69 -> 205, −500 m 62 -> 210 and
+    54 -> 197; 555 rows over the four patches, every one traceable to a
+    service axis).  A legacy 3- or 4-slot sidecar keeps its own length and
+    reads as all-taxi, which is how it was graded.
+
+    Degenerate (<2 point) axes are dropped, as they always were.
+    """
+    if not taxi_axes_ll:
+        return None
+    out: List[tuple] = []
+    for entry in taxi_axes_ll:
+        latlon_pts, cL, cT = entry[0], entry[1], entry[2]
+        poly = [ll_to_m(lat, lon) for (lat, lon) in latlon_pts]
+        if len(poly) < 2:
+            continue
+        if len(entry) < 4:
+            out.append((poly, cL, cT))
+        elif len(entry) < 5:
+            out.append((poly, cL, cT, entry[3]))
+        else:
+            out.append((poly, cL, cT, entry[3], bool(entry[4])))
+    return out
+
+
 def _transverse_cap_for_seg_cap(cap_l: float) -> float:
     """The TRANSVERSE cap ``cT`` for a centreline segment whose emitted
     LONGITUDINAL cap is ``cap_l`` — the sidecar carries the longitudinal
@@ -2705,6 +2753,15 @@ def _check_transverse_grade(ways: List[Way], nodes, ll_to_m, taxi_axes,
                     else [caps] * (len(poly) - 1))
         if not cap_list:
             continue
+        # A TRUCK ROUTE IS NOT AN AIRCRAFT SPINE (cycle 9; lockstep with
+        # ``grade_graph._reads_service_spines``, which applies the same rule
+        # to the within-shape graph).  The transverse law censuses the
+        # CROSS-SECTION of the corridor an axis runs down, so a service axis
+        # may only censure the road family's own shapes — otherwise a road
+        # passing an apron stamps the apron with a cross-section it has no
+        # spine for (measured: ``transverse::apron|apron`` +176 at HECA
+        # 10 000 when the road feed joined the graph).
+        _axis_is_svc = bool(entry[4]) if len(entry) > 4 else False
         for k in range(len(poly) - 1):
             (x1, y1), (x2, y2) = poly[k], poly[k + 1]
             seg_len = math.hypot(x2 - x1, y2 - y1)
@@ -2728,6 +2785,9 @@ def _check_transverse_grade(ways: List[Way], nodes, ll_to_m, taxi_axes,
                             cand.update(grid.get((gx + dx, gy + dy), ()))
                 hits: Dict[int, List[Tuple[float, float]]] = {}
                 for (si, i) in cand:
+                    if (_axis_is_svc
+                            and shapes[si][0].role not in _GROUNDSIDE_ROLES):
+                        continue
                     ring = shapes[si][1]
                     a, b = ring[i], ring[(i + 1) % len(ring)]
                     ex, ey = b[0] - a[0], b[1] - a[1]
@@ -4574,9 +4634,17 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx: dict = {}
     exact = data.get("axes_exact") or None
     if exact:
-        # exact build_context mirror: (pts, seg_caps, route_ordinal)
-        ctx["taxi_axes_ll"] = [(pts, caps, None, ridx)
-                               for (pts, caps, ridx) in exact]
+        # exact build_context mirror: (pts, seg_caps, route_ordinal,
+        # is_service).  The 5th slot of the reader's tuple carries the
+        # SERVICE flag through to the centerline rebuild — a truck route is
+        # not an aircraft spine (grade_graph._reads_service_spines), and the
+        # solver and this reader must agree on that or they judge two
+        # different laws.  Sidecars written before the flag existed carry
+        # 3-element entries and read as all-taxi, which is how they were
+        # graded.
+        ctx["taxi_axes_ll"] = [
+            (e[0], e[1], None, e[2], bool(e[3]) if len(e) > 3 else False)
+            for e in exact]
         ctx["routes_ll"] = data.get("routes_exact") or None
     else:
         ctx["taxi_axes_ll"] = data.get("axes") or None
@@ -4835,16 +4903,7 @@ def run_checks(
         seam_nids = _seam_nids(nodes)
 
     # Convert apt.dat centerlines (lat/lon) into the audit's meter frame.
-    taxi_axes = None
-    if taxi_axes_ll:
-        taxi_axes = []
-        for entry in taxi_axes_ll:
-            latlon_pts, cL, cT = entry[0], entry[1], entry[2]
-            poly = [ll_to_m(lat, lon) for (lat, lon) in latlon_pts]
-            if len(poly) >= 2:
-                # keep the builder's route ordinal (4th element) when present
-                taxi_axes.append((poly, cL, cT) if len(entry) < 4
-                                 else (poly, cL, cT, entry[3]))
+    taxi_axes = _axes_to_m(taxi_axes_ll, ll_to_m)
 
     def _pv(*a, **k):
         if not quiet:

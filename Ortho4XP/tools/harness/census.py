@@ -90,6 +90,7 @@ import json
 import sys
 from collections import Counter
 from pathlib import Path
+from typing import Optional
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -448,13 +449,95 @@ def zone_split(osm: Path, cg, families: dict) -> dict:
     }
 
 
+def _axis_frame_override(osm: Path, cg, frame: str) -> tuple[dict, dict]:
+    """``(overrides, stamp)`` for the census's AXIS FRAME.
+
+    ``own`` — the patch's own sidecar, unaltered.  THE default and the only
+    frame whose numbers are defect counts.
+
+    ``base`` — the same patch bytes read with the SERVICE axes removed from
+    its sidecar: the axis frame a pre-road-feed sidecar carried.  It exists
+    because a class can move between two builds either because the SURFACE
+    moved or because the axis population the reader judges it against did,
+    and those are different findings (cycle 9/10: HECA 10 000 m arm B read
+    airside 4,610 in its own frame and 4,474 in this one — the whole gap
+    was one instrument defect, since fixed).  Quoting it is a FRAME claim,
+    never a defect count, which is why the frame is stamped in the report
+    and printed rather than left to the reader's memory.
+
+    Route ordinals are untouched: the ``routes`` list keeps its indices, so
+    the surviving axes still point at the same routes.
+    """
+    if frame == "own":
+        return {}, {"frame": "own", "axes_total": None, "axes_kept": None}
+    ctx = cg.law_context_from_sidecar(osm, announce=False)
+    axes = ctx.get("taxi_axes_ll") or []
+    kept = [e for e in axes if not (len(e) > 4 and bool(e[4]))]
+    return ({"taxi_axes_ll": kept},
+            {"frame": "base", "axes_total": len(axes), "axes_kept": len(kept)})
+
+
+def row_record(cg, family: str, r) -> dict:
+    """ONE law-true row, itemised for the ``--rows-json`` dump.
+
+    Every field comes from the law's own accessors (``row_roles`` /
+    ``row_side`` / ``row_magnitude``) — the same ones the class table, the
+    side split and the worst-N table use, so a row dump and the counts in
+    the same report can never disagree.
+
+    ``site_m`` is the row's endpoints in LAYOUT-LOCAL METRES (the emitter's
+    own frame: ``pt_a``/``pt_b`` for a grade violation, the vertex and its
+    projection for an edge step).  That is the join key for an A/B row
+    diff: it is arm-independent wherever the arms share geometry, which
+    lat/lon also is — but metres round without a projection choice, and a
+    diff keyed on a rounded degree is keyed on ~1 cm at one latitude and
+    ~2 cm at another.  ``lat``/``lon`` ride along for pointing a human (or
+    a KML) at the spot.
+    """
+    def _pts():
+        a, b = getattr(r, "pt_a", None), getattr(r, "pt_b", None)
+        if a is None:
+            a, b = getattr(r, "vert_pt", None), getattr(r, "proj_pt", None)
+        return a, b
+    a, b = _pts()
+    wa = getattr(r, "way_a", None) or getattr(r, "way_v", None)
+    wb = getattr(r, "way_b", None) or getattr(r, "way_e", None)
+    grade = getattr(r, "grade_pct", None)
+    cap = getattr(r, "cap_pct", None)
+    return {
+        "family": family,
+        "roles": "|".join(sorted(cg.row_roles(r))),
+        "side": cg.row_side(r),
+        "magnitude_m": round(cg.row_magnitude(r), 4),
+        "grade_pct": round(float(grade), 4) if grade is not None else None,
+        "cap_pct": round(float(cap), 4) if cap is not None else None,
+        "distance_m": (round(float(getattr(r, "distance_m", 0.0)), 3)
+                       if getattr(r, "distance_m", None) is not None
+                       else None),
+        "site_m": [[round(float(a[0]), 2), round(float(a[1]), 2)],
+                   [round(float(b[0]), 2), round(float(b[1]), 2)]]
+                  if a is not None and b is not None else None,
+        "lat": getattr(r, "lat", None),
+        "lon": getattr(r, "lon", None),
+        "way_a": getattr(wa, "wid", None),
+        "way_b": getattr(wb, "wid", None),
+        "out_of_scope": getattr(r, "out_of_scope", None),
+    }
+
+
 def census_one(osm: Path, cg, *, want_bare: bool = False,
                top: int = 10, want_zone_split: bool = False,
-               band_edges=None) -> dict:
-    """The census of ONE patch.  Returns the report dict; prints nothing."""
+               band_edges=None, frame: str = "own",
+               rows_out: Optional[Path] = None) -> dict:
+    """The census of ONE patch.  Returns the report dict; prints nothing.
+
+    ``frame`` selects the AXIS FRAME — see :func:`_axis_frame_override`.
+    ``rows_out`` additionally itemises every law-true row to that path
+    (``--rows-json``)."""
     families: dict = {}
+    axis_overrides, frame_stamp = _axis_frame_override(osm, cg, frame)
     within, cross, steps = cg.run_checks_law_true(
-        osm, family_out=families, quiet=True, top_n=0)
+        osm, family_out=families, quiet=True, top_n=0, **axis_overrides)
 
     # THE STEP EXEMPTION comes from the law register, not from a copy here
     # (``check_grade.step_exempt`` / ``STEP_EXEMPTIONS``).  It used to be a
@@ -524,6 +607,7 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
     for key, r in all_rows:
         classes[f"{key}::{'|'.join(sorted(cg.row_roles(r)))}"] += 1
 
+
     sides_total = Counter(cg.row_side(r) for _k, r in all_rows)
     # DEFERRED ADJUDICATION (owner ruling RULINGS d48bc0a).  Instruments
     # report; the law adjudicates.  ``lawtrue`` stays the full measured
@@ -534,6 +618,26 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
     # battery used to do this subtraction by hand).
     adj = cg.adjudication(all_rows)
     prov = patch_provenance(osm)
+
+    # EVERY law-true row, on request (``--rows-json``).  The class table
+    # says a class moved by N; only the rows say WHICH N and WHERE — and a
+    # net class delta hides equal churn by construction (a class that gains
+    # 200 rows at one site and loses 18 at another reads as "+182").  This
+    # is the same ``all_rows`` every count above is taken from: no second
+    # frame, no re-derivation, the census's own population itemised.  The
+    # frame stamps ride along so two dumps cannot be joined across frames
+    # without it showing.
+    if rows_out is not None:
+        rows_out.parent.mkdir(parents=True, exist_ok=True)
+        rows_out.write_text(json.dumps({
+            "patch": str(osm),
+            "provenance": prov["provenance"],
+            "axis_frame": frame_stamp,
+            "law_true_knobs": dict(cg.LAW_TRUE_KNOBS),
+            "n_rows": len(all_rows),
+            "rows": [row_record(cg, key, r) for key, r in all_rows],
+        }, indent=1))
+
     report = {
         "patch": str(osm),
         # THE FRAME (RULINGS 2026-08-06, binding point 3).  Two census JSONs
@@ -546,6 +650,10 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
         "provenance": prov["provenance"],
         "provenance_reason": prov["reason"],
         "law_true_knobs": dict(cg.LAW_TRUE_KNOBS),
+        # THE AXIS FRAME, always stamped — "own" for every default run, so
+        # a report without the key is simply an older one and a report WITH
+        # it can never be mistaken for the other frame.
+        "axis_frame": frame_stamp,
         "ruleset_declared": declared,
         "ruleset_active": active,
         "lawtrue": {
@@ -870,6 +978,29 @@ def main(argv=None) -> int:
                          "and each carries the airside/groundside/mixed and "
                          "adjudicated/version-deferred splits — the reading "
                          "that ranks ownership rather than counting rows")
+    ap.add_argument("--frame", choices=("own", "base"), default="own",
+                    help="the AXIS FRAME the census reads the patch in.  "
+                         "'own' (default) is the patch's own sidecar and "
+                         "the only frame whose numbers are defect counts.  "
+                         "'base' re-reads the SAME patch bytes with the "
+                         "SERVICE axes removed from its sidecar — the axis "
+                         "population a pre-road-feed sidecar carried — so a "
+                         "class that moved between two builds can be split "
+                         "into 'the surface moved' and 'the axis frame "
+                         "moved'.  A base-frame number is a FRAME claim, "
+                         "never a defect count; the frame is stamped into "
+                         "the report either way")
+    ap.add_argument("--rows-json", type=Path, default=None,
+                    metavar="OUT.json",
+                    help="also itemise EVERY law-true row to this file "
+                         "(family, role pair, side, magnitude, grade/cap, "
+                         "site in layout-local metres, lat/lon, way ids).  "
+                         "The class table says a class moved by N; only the "
+                         "rows say which N and where, and a net class delta "
+                         "hides equal churn by construction.  Same "
+                         "population as every count in the report — an "
+                         "itemisation, never a second measurement.  With "
+                         "several patches the dumps are suffixed per patch")
     ap.add_argument("--zone-split", action="store_true",
                     help="also bucket the WITHIN-SHAPE rows by FAN-RAMP "
                          "ZONE membership (on a declared ramp piece / "
@@ -883,13 +1014,21 @@ def main(argv=None) -> int:
 
     cg = load_check_grade()
     reports = []
+    multi = len(args.patches) > 1
     for osm in args.patches:
         if not osm.exists():
             raise SystemExit(f"REFUSING: no such patch {osm}")
+        rows_out = args.rows_json
+        if rows_out is not None and multi:
+            # One dump per patch, named after it — a single --rows-json
+            # over several patches would otherwise silently keep the last.
+            rows_out = rows_out.with_name(
+                f"{rows_out.stem}.{osm.stem}{rows_out.suffix}")
         try:
             rep = census_one(osm, cg, want_bare=args.bare, top=args.top,
                              want_zone_split=args.zone_split,
-                             band_edges=band_edges)
+                             band_edges=band_edges, frame=args.frame,
+                             rows_out=rows_out)
         except FileNotFoundError as exc:
             raise SystemExit(
                 f"REFUSING: {exc}\n"

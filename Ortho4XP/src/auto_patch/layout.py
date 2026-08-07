@@ -2785,8 +2785,12 @@ class PavementLayout:
             # caps, route ordinal into "routes_exact" — the validator
             # reconstructs the solver's Centerline objects verbatim
             # (readers cannot drift on splitting/caps/binding).
-            "axes_exact": [[pts, caps, ridx]
-                           for (pts, caps, ridx) in _axes_exact],
+            # 4th element = IS_SERVICE (cycle 9): the census rebuilds the
+            # solver's centerlines from here, and a truck route is not an
+            # aircraft spine — without the flag the two law readers would
+            # disagree about which axes are spines for airside pavement.
+            "axes_exact": [[pts, caps, ridx, svc]
+                           for (pts, caps, ridx, svc) in _axes_exact],
             "routes_exact": _routes_exact,
             # The SOLVER's projection anchor: with it the validator
             # evaluates the law in the SAME meter frame the solver

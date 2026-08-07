@@ -37,6 +37,31 @@ tree's 4 unmounted data dirs now symlink the shared repo; write
 guard gained the no-op ensure-dir allowance (twin in
 test_harness.py).**
 
+**SERVICE-BAND LANE VERDICT (08-07 ~16:30; lane/c9feed fa31d21, NOT
+merged): K1 WAS A BROKEN KNIFE (rebound a local; groundside band
+rode G.spine_adj untouched) — repaired knife proves EDGES BIND
+TODAY (+377 groundside, airside byte-identical; banded nodes
+8,283→8,048 twice-instrumented). Edges-must-bind ruling: intent
+AFFIRMED-and-already-running, defect reading WITHDRAWN (RULINGS
+correction). Job 2 correctly not entered (spec STOP: suspect
+refuted — the c8 "4/389" was a pre-road-feed denominator).
+COVERAGE re-scope (owner Q open): HECA strung 14.0% of lines; 30.8%
+of metres have NO graph node within ~29 m; 21.7% no candidate in
+tol (nearest median 17.2 m); 28.1% lawful free-road apron remainder;
+tolerance bump buys 10/705. ASYMMETRY ATTRIBUTED (Job 3, 0 builds):
+NOT layout population (0.8%); ONE universal opposite-direction
+displacement (canyon seats band ceiling, low world floor; 97.4% of
+control sites) with a heavier low-world tail (p95 2.61×) — the
+census sign flip is a THRESHOLD effect; 180 flip sites on 19 shapes,
+71.7% on four aprons (-12407/-12502/-10832/-10833 — the same aprons
+as the +182). ROAD MERGE TABLE COMPLETE — every carrier attributed;
+net vs base 10k +182 apron/+192 airside, −500 −59/−102; the merge is
+now a ripe owner call. Landed in-lane: repaired gate + two
+report-only dump gates + band.src + flex_audit --map-json (582
+green, nil build-time). NEW noise specimen (not library-index): two
+inset MANIFESTS under Elevation_data touched during M1 — concurrent-
+build confound, body sha reproduced, reported not chased.**
+
 **ROAD RECEIVER-ONLY LANDED IN-LANE (08-07 ~15:00; lane/c9feed
 717e67e, NOT merged — owner gate): default flip byte-identical to
 the M1 knife arms both worlds; old gate spelling retired with an

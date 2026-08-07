@@ -851,6 +851,25 @@ own measurement, HANDOVER §0): service stringing fires 4/389
 segments at SPJC — sliced-road nodes at edges vs the 1.0 m perp
 tolerance. Spec: service-band-propagation-spec.md.
 
+PREMISE CORRECTED same day (lane fa31d21, interventional): K1 was a
+BROKEN KNIFE — the probe rebound a local name while
+`groundside_route_band` rode `G.spine_adj` untouched, so the
+"edges-inert" evidence underlying this entry was an instrument
+artifact. With the repaired knife the edges BIND today: withholding
+them moves +377 groundside rows with airside byte-identical
+(receiver-only direction verified; banded nodes 8,283→8,048 by two
+independent instruments). The ruling's INTENT is affirmed AND
+already implemented; the defect reading is WITHDRAWN. The real gap
+is COVERAGE, re-scoped from measurement: at HECA 30.8% of road
+metres have NO graph node within ~29 m (road geometry that never
+reaches the graph), 21.7% no candidate within tolerance (nearest
+eligible node median 17.2 m); 28.1% is the free-road ruling working
+(lawful apron remainder); a tolerance bump buys only 10/705 lines.
+Whether full-coverage banding (seeding graph nodes along unreached
+road geometry) is wanted is an OPEN OWNER SCOPE QUESTION — the
+cycle-8 "4/389" figure was a pre-road-feed denominator and is
+superseded.
+
 ## 2026-08-07 — Mouths are the boundary arbiter; the K2 coupling is lawful (owner)
 
 Owner, verbatim: "Why would we remove mouths? Are they not necessary

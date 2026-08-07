@@ -215,7 +215,7 @@ def test_family_out_is_a_pure_no_op_when_absent(cg):
 # family, and only the adjudicated total moves.  These twins pin the three
 # clauses, the register lockstep, and the inert default.
 
-def _wall_foot_patch(tmp_path, *, wall_hosts_the_on_dem_node: bool,
+def _wall_foot_patch(tmp_path, *, wall_host: str,
                      dem_m: float = -500.0, name: str = "p"):
     """A minimal emitted patch carrying ONE adjacent-ground TEAR whose
     endpoints are a wall foot at the DEM and a law-valued band node.
@@ -223,9 +223,19 @@ def _wall_foot_patch(tmp_path, *, wall_hosts_the_on_dem_node: bool,
     Node A sits exactly on ``dem_m`` and is a member of the
     ``adjacent_ground`` band ring; node B is its law-valued ring
     neighbour 0.55 m away, 600 m up.  That is the one-sided graded→DEM
-    boundary the ruling describes.  The only difference between the two
-    fixtures is whether the declared ``retaining_wall`` way REFERENCES
-    node A — clause 2, and the whole extension.
+    boundary the ruling describes.  The ONLY thing that varies between
+    fixtures is how (or whether) a declared ``retaining_wall`` way
+    reaches node A — clause 2, and the whole extension:
+
+    ``direct``       the wall ring references node A itself.
+    ``none``         the wall exists but references neither endpoint.
+    ``twin``         the wall references a SEPARATE node id at A's exact
+                     11-dp spelling carrying A's exact value — the
+                     same-value stacked twin that welds into one mesh
+                     vertex (spec "Deviations ratified" 2).
+    ``twin_value``   same, but the twin's value DIFFERS — must not weld.
+    ``twin_spelling`` same value, but the twin's coordinate differs in
+                     the 11th decimal — must not weld.
     """
     # 0.000005 deg of latitude is ~0.55 m at this latitude: inside the
     # tear check's sub-station-step edge length, so the pair qualifies.
@@ -245,9 +255,17 @@ def _wall_foot_patch(tmp_path, *, wall_hosts_the_on_dem_node: bool,
              node("-3", c_lat, c_lon, dem_m + 600.0),
              node("-11", w_lat, w_lon, dem_m),
              node("-12", w_lat + 0.00001, w_lon, dem_m)]
-    # The wall ring: hosts node A only in the EXEMPT fixture.
-    wall_nids = (["-1", "-11", "-12", "-1"] if wall_hosts_the_on_dem_node
-                 else ["-11", "-12", "-11"] + ["-11"])
+    if wall_host == "direct":
+        wall_nids = ["-1", "-11", "-12", "-1"]
+    elif wall_host == "none":
+        wall_nids = ["-11", "-12", "-11", "-11"]
+    else:
+        # A SECOND node id at (or near) A's coordinate, referenced by the
+        # wall and by nothing else — the stacked-twin geometry.
+        twin_lat = (a_lat + 1e-11 if wall_host == "twin_spelling" else a_lat)
+        twin_alt = (dem_m + 0.5 if wall_host == "twin_value" else dem_m)
+        nodes.append(node("-99", twin_lat, a_lon, twin_alt))
+        wall_nids = ["-99", "-11", "-12", "-99"]
 
     def way(wid, role, ref, nids):
         nds = "".join(f"<nd ref='{n}'/>" for n in nids)
@@ -286,9 +304,9 @@ def test_the_wall_foot_exemption_twin_pair(cg, tmp_path):
     """
     dem = -500.0
     hosted = _tear_rows(cg, _wall_foot_patch(
-        tmp_path, wall_hosts_the_on_dem_node=True, name="hosted"), dem)
+        tmp_path, wall_host="direct", name="hosted"), dem)
     bare = _tear_rows(cg, _wall_foot_patch(
-        tmp_path, wall_hosts_the_on_dem_node=False, name="bare"), dem)
+        tmp_path, wall_host="none", name="bare"), dem)
 
     assert hosted, "the fixture stopped producing a tear row at all"
     assert len(hosted) == len(bare), (
@@ -303,14 +321,48 @@ def test_the_wall_foot_exemption_twin_pair(cg, tmp_path):
         f"{[r.out_of_scope for r in bare]}")
 
 
+def test_a_same_value_stacked_twin_carries_wall_membership(cg, tmp_path):
+    """THE STACKED-TWIN WELD (spec "Deviations ratified" 2, Fable
+    2026-08-07).
+
+    The measured case: at HECA_lo node -30309 (band ring, on the DEM) and
+    node -26822 (referenced by an ``adjacent_ground_wall`` way) carry the
+    IDENTICAL 11-dp spelling and the IDENTICAL value.  They are one mesh
+    vertex — ``_check_stacked_nodes`` says so itself by declining to flag
+    same-value twins — so wall-way membership crosses the weld, and the
+    two rows minted there are exempt like the other 46.
+
+    The join is CANONICAL, not proximity: both halves must match exactly.
+    A twin whose VALUE differs, or whose spelling differs in the 11th
+    decimal, does not weld — if either of those ever passed, clause 2
+    would have quietly become the proximity join it forbids.
+    """
+    dem = -500.0
+    welded = _tear_rows(cg, _wall_foot_patch(
+        tmp_path, wall_host="twin", name="twin"), dem)
+    assert welded and all(r.out_of_scope == cg.WALL_FOOT_EXEMPTION
+                          for r in welded), (
+        f"a band node welded to a wall node (same 11-dp spelling, same "
+        f"value) was not treated as wall-hosted: "
+        f"{[r.out_of_scope for r in welded]}")
+
+    for host, why in (("twin_value", "the twin's VALUE differs"),
+                      ("twin_spelling", "the twin's SPELLING differs in "
+                                        "the 11th decimal")):
+        rows = _tear_rows(cg, _wall_foot_patch(
+            tmp_path, wall_host=host, name=host), dem)
+        assert rows and all(r.out_of_scope is None for r in rows), (
+            f"the weld joined two nodes even though {why} — clause 2 has "
+            f"become a proximity join")
+
+
 def test_the_wall_foot_exemption_needs_all_three_clauses(cg, tmp_path):
     """Clause 1 (on-DEM) and clause 3 (band-ring member) bind too, and the
     three must hold at ONE endpoint rather than one clause each."""
     dem = -500.0
-    patch = _wall_foot_patch(tmp_path, wall_hosts_the_on_dem_node=True,
-                             name="clauses")
+    patch = _wall_foot_patch(tmp_path, wall_host="direct", name="clauses")
     nodes, ways = cg._parse_osm(patch)
-    wall_nids, band_nids = cg.wall_foot_node_sets(ways)
+    wall_nids, band_nids = cg.wall_foot_node_sets(ways, nodes)
     assert "-1" in wall_nids and "-1" in band_nids
 
     row = _tear_rows(cg, patch, dem)[0]
@@ -330,8 +382,7 @@ def test_the_wall_foot_exemption_is_inert_without_a_declared_world(cg,
                                                                    tmp_path):
     """The default path — every production, real-DEM census.  A census run
     without ``dem_m`` must be the census it always was, row for row."""
-    patch = _wall_foot_patch(tmp_path, wall_hosts_the_on_dem_node=True,
-                             name="inert")
+    patch = _wall_foot_patch(tmp_path, wall_host="direct", name="inert")
     rows = _tear_rows(cg, patch, None)
     assert rows and all(r.out_of_scope is None for r in rows), (
         "the wall-foot exemption fired with no world declared — it would "
@@ -362,8 +413,7 @@ def test_the_wall_foot_exemption_is_counted_never_dropped(cg, tmp_path):
     in ``adjudication`` — the treatment ``terrace_joints_ll`` taught and
     ``disconnected_ring`` follows."""
     dem = -500.0
-    patch = _wall_foot_patch(tmp_path, wall_hosts_the_on_dem_node=True,
-                             name="counted")
+    patch = _wall_foot_patch(tmp_path, wall_host="direct", name="counted")
     fam_off: dict = {}
     cg.run_checks(patch, top_n=0, quiet=True, family_out=fam_off)
     fam_on: dict = {}

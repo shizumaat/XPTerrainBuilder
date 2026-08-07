@@ -3393,21 +3393,79 @@ ON_DEM_TOL_M = 5e-3
 _WALL_FOOT_WALL_ROLE = "retaining_wall"
 _WALL_FOOT_BAND_REF = "adjacent_ground"
 
+#: THE CANONICAL JOIN, spelled once: the EMITTED 11-decimal lat/lon.  This
+#: repo's identity join is exact equality of that spelling and nothing else
+#: — a proximity join was measured 11.6 % wrong-object (memory
+#: ``canonical-identity-join``).  Reconstructed with the emitter's own
+#: format rather than compared as floats so "spelling equality" is what the
+#: code literally does, not something a reader has to derive from
+#: double-precision arguments.
+_WALL_FOOT_LL_FMT = "{:.11f},{:.11f}"
 
-def wall_foot_node_sets(ways: List[Way]) -> Tuple[set, set]:
+
+def wall_foot_node_sets(ways: List[Way],
+                        nodes: Optional[Dict[str, Tuple[float, float]]] = None
+                        ) -> Tuple[set, set]:
     """``(wall_nids, band_nids)`` — the two MEMBERSHIP sets clauses 2 and 3
     are decided against, by canonical node id.
 
-    Public so the twin can assert the predicate over a hand-built way list
-    without reaching into ``run_checks``."""
+    THE STACKED-TWIN WELD (spec "Deviations ratified" 2, Fable
+    2026-08-07).  Two node ids carrying the IDENTICAL 11-decimal lat/lon
+    spelling AND the IDENTICAL value are one mesh vertex — that is already
+    this instrument's own reading, which is why ``_check_stacked_nodes``
+    declines to flag them ("same-value encoding twin — merged in mesh").
+    So WALL-WAY MEMBERSHIP extends across such a weld: a band-ring node
+    welded to a node the wall references IS wall-hosted.  Both halves are
+    required and neither is a tolerance — a differing spelling or a
+    differing value never joins, which keeps this a canonical join and not
+    the proximity join clause 2 forbids.
+
+    Only the WALL set is extended.  The ruling speaks to wall-way
+    membership; clause 3 keeps testing the row's own node, which is the
+    narrower reading and the one that cannot widen the exemption.
+
+    ``nodes`` omitted ⇒ no weld extension (the plain per-id sets).  Public
+    so a twin can assert the predicate over a hand-built way list without
+    reaching into ``run_checks``."""
     wall_nids: set = set()
     band_nids: set = set()
+    claims: Dict[str, set] = defaultdict(set)
     for w in ways:
         if w.tags.get("role") == _WALL_FOOT_WALL_ROLE:
             wall_nids.update(w.nids)
         if w.ref == _WALL_FOOT_BAND_REF:
             band_nids.update(w.nids)
-    return wall_nids, band_nids
+        if nodes is not None:
+            for i, nid in enumerate(w.nids):
+                e = w.elevs[i] if i < len(w.elevs) else None
+                if e is not None:
+                    claims[nid].add(float(e))
+    if nodes is None or not wall_nids:
+        return wall_nids, band_nids
+
+    # The wall's own nodes, keyed by emitted spelling.
+    wall_by_key: Dict[str, List[str]] = defaultdict(list)
+    for nid in wall_nids:
+        ll = nodes.get(nid)
+        if ll is not None:
+            wall_by_key[_WALL_FOOT_LL_FMT.format(*ll)].append(nid)
+
+    welded: set = set()
+    for nid, ll in nodes.items():
+        if nid in wall_nids:
+            continue
+        twins = wall_by_key.get(_WALL_FOOT_LL_FMT.format(*ll))
+        if not twins:
+            continue                  # no wall node at this exact spelling
+        mine = claims.get(nid)
+        if not mine:
+            continue                  # claims no value — nothing to match
+        # IDENTICAL VALUE, exactly.  A node claims one value per
+        # referencing way; the weld needs the whole claim SET to agree, so
+        # a node two ways disagree about never welds its way into the set.
+        if any(claims.get(t) == mine for t in twins):
+            welded.add(nid)
+    return wall_nids | welded, band_nids
 
 
 def wall_foot_exempt(row, wall_nids: set, band_nids: set,
@@ -3435,6 +3493,7 @@ def wall_foot_exempt(row, wall_nids: set, band_nids: set,
 
 
 def _mark_wall_foot(tear_rows, ways: List[Way],
+                    nodes: Dict[str, Tuple[float, float]],
                     dem_m: Optional[float]) -> int:
     """Stamp ``out_of_scope=WALL_FOOT_EXEMPTION`` on every qualifying tear
     row, and return how many were stamped.
@@ -3447,7 +3506,7 @@ def _mark_wall_foot(tear_rows, ways: List[Way],
     """
     if dem_m is None or not tear_rows:
         return 0
-    wall_nids, band_nids = wall_foot_node_sets(ways)
+    wall_nids, band_nids = wall_foot_node_sets(ways, nodes)
     if not wall_nids or not band_nids:
         return 0
     n = 0
@@ -5379,7 +5438,7 @@ def run_checks(
     # on the two TEAR families the ruling names, never on a family it
     # never spoke about.
     n_wall_foot = _mark_wall_foot(adjacent_edges + strip_seam_tears,
-                                  ways, dem_m)
+                                  ways, nodes, dem_m)
     if not quiet and dem_m is not None:
         print(f"  wall-foot exemption ({WALL_FOOT_EXEMPTION}): "
               f"{n_wall_foot} tear row(s) out of scope against a "

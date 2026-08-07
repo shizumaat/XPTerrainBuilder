@@ -112,6 +112,7 @@ from .clearance import (
     _open_coords,
 )
 from .emit_decimate import _key
+from .enclaves import ENCLAVE_SURROUND_ROLES, enclave_covering
 from .geom_safe import min_rotated_rect
 
 __all__ = ["emit_gap_fill_spines", "construct_gap_fill_presolve"]
@@ -2172,6 +2173,34 @@ def _gap_detection_polys(layout, airside):
     return gaps
 
 
+def _enclave_exempt(shape) -> bool:
+    """True when the ENCLAVE law may exempt ``shape`` from the
+    foreign-shape blocker (spec §3).
+
+    The exemption covers the shapes an enclave interior CONTAINS and the
+    enclave law re-verdicts — groundside pavement, service pieces,
+    terraces, bands and their walls.  Two classes are never exempt, and
+    neither is an exception to the law so much as a shape the law does
+    not reach:
+
+      * a SURROUND-role shape (``ENCLAVE_SURROUND_ROLES``) is part of the
+        union that DEFINES the enclave — a building inside a hole is the
+        owner's own escape-proof boundary material (CYXY building4), not
+        interior contents, and its flat pad authority still governs the
+        ground it stands on;
+      * a RUNWAY-END REGIME shape (``RUNWAY_END_REGIME_REFS``) carries
+        the governed runway-end profile.  Whether it BOUNDS a gap or
+        BLOCKS it is decided by its own sub-gate
+        (``O4_GAP_FILL_SKIRT_PARENTS``); the enclave law does not
+        adjudicate that gate from underneath it.
+    """
+    if getattr(shape, "role", None) in ENCLAVE_SURROUND_ROLES:
+        return False
+    if getattr(shape, "ref", None) in RUNWAY_END_REGIME_REFS:
+        return False
+    return True
+
+
 def _gap_parents(layout):
     """The gap-parent shapes (building pads + runway-end skirts) per
     their sub-gates — shared by construction and emission (same parity
@@ -2302,6 +2331,14 @@ def construct_gap_fill_presolve(layout) -> int:
                    and id(s) not in parent_ids
                    and s.polygon is not None and not s.polygon.is_empty
                    and s.polygon.geom_type in ("Polygon", "MultiPolygon")]
+    # The ones an ENCLAVE interior may exempt (spec §3) — the emitter's
+    # rule, mirrored so construction stays a superset of emission.
+    hard_polys = [(id(s), s.polygon) for s in layout.shapes
+                  if id(s) not in airside_ids
+                  and id(s) not in parent_ids
+                  and s.polygon is not None and not s.polygon.is_empty
+                  and s.polygon.geom_type in ("Polygon", "MultiPolygon")
+                  and not _enclave_exempt(s)]
     # CROSSING INFLUENCE ZONE (Phase 1, docs/specs/crossing-terrain-
     # ownership.md): the published zone blocks a gap exactly like a
     # foreign shape — a gap-fill face must never bury a crossing or its
@@ -2311,15 +2348,20 @@ def construct_gap_fill_presolve(layout) -> int:
     # geometry (the coordinate-matching parity both rely on).
     from .crossing_terrain import crossing_influence_zone_union
     _crossing_zone = crossing_influence_zone_union(layout)
-    if _crossing_zone is not None:
-        other_polys.append((0, _crossing_zone))
+    zone_polys = ([(0, _crossing_zone)] if _crossing_zone is not None
+                  else [])
     step = GAP_FILL_SPINE_STEP_M
     entries: list[dict] = []
     for gap_poly in gap_candidates:
             if gap_poly.area < GAP_FILL_MIN_AREA_M2:
                 continue
+            # ENCLAVE INTERIOR (spec §3) — the emitter's rule, mirrored
+            # here so construction stays a superset of emission.
+            blockers = (hard_polys + zone_polys
+                        if enclave_covering(layout, gap_poly) is not None
+                        else other_polys + zone_polys)
             overlapped = False
-            for _oid, op in other_polys:
+            for _oid, op in blockers:
                 try:
                     if gap_poly.intersection(op).area > 1.0:
                         overlapped = True
@@ -2518,6 +2560,15 @@ def emit_gap_fill_spines(layout, dem, tile_lat, tile_lon,
                    and id(s) not in parent_ids
                    and s.polygon is not None and not s.polygon.is_empty
                    and s.polygon.geom_type in ("Polygon", "MultiPolygon")]
+    # The blockers an ENCLAVE interior may NOT exempt (``_enclave_exempt``):
+    # the enclave's own surround material and the runway-end regime.
+    hard_polys = [(id(s), s.polygon) for s in layout.shapes
+                  if id(s) not in airside_ids
+                  and id(s) not in legacy_ids
+                  and id(s) not in parent_ids
+                  and s.polygon is not None and not s.polygon.is_empty
+                  and s.polygon.geom_type in ("Polygon", "MultiPolygon")
+                  and not _enclave_exempt(s)]
     # CROSSING INFLUENCE ZONE (Phase 1, docs/specs/crossing-terrain-
     # ownership.md): the published zone blocks a gap exactly like a
     # foreign shape, and the open-frontage path subtracts it so a
@@ -2528,8 +2579,8 @@ def emit_gap_fill_spines(layout, dem, tile_lat, tile_lon,
     # pass consulted, so the coordinate-matching parity holds.
     from .crossing_terrain import crossing_influence_zone_union
     _crossing_zone = crossing_influence_zone_union(layout)
-    if _crossing_zone is not None:
-        other_polys.append((0, _crossing_zone))
+    zone_polys = ([(0, _crossing_zone)] if _crossing_zone is not None
+                  else [])
 
     step = GAP_FILL_SPINE_STEP_M
     # Runway axes for the interior-ring / pocket-collar width keying
@@ -2554,8 +2605,27 @@ def emit_gap_fill_spines(layout, dem, tile_lat, tile_lon,
             # (removed) when the gap emits; a PARTIALLY-inside strip
             # blocks (cutting it would mutate a welded ring — only
             # whole-piece drops are chain-safe).
+            #
+            # ENCLAVE INTERIOR (spec §3, owner 2026-08-07): a gap that IS
+            # a published enclave is airside-interior by law — "such an
+            # area is airside-interior and takes the gap interior ring +
+            # spine treatment".  Its contents are re-verdicted by
+            # G-ENCLAVE (``enclaves`` + ``pavement_scoring``), so a shape
+            # sitting inside it is not a foreign owner of that ground and
+            # never vetoes the ruled treatment.  This gate is what minted
+            # the specimen retaining wall: a 5.58 m² groundside sliver
+            # (over the 1.0 m² bar) sent a 1,914.6 m² apron-ringed void to
+            # the band consumer, which owed it a 7.4 m wall — and the same
+            # line explains all five HECA voids of the class (dossier §3).
+            # The published CROSSING ZONE still blocks unconditionally: a
+            # crossing means a tunnel/bridge, which is the owner's escape
+            # clause, so such a region is not an enclave in the first
+            # place.
+            blockers = (hard_polys + zone_polys
+                        if enclave_covering(layout, gap_poly) is not None
+                        else other_polys + zone_polys)
             overlapped = False
-            for _oid, op in other_polys:
+            for _oid, op in blockers:
                 try:
                     if gap_poly.intersection(op).area > 1.0:
                         overlapped = True

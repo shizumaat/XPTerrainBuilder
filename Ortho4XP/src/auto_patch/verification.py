@@ -1502,7 +1502,7 @@ def check_runway_end_skirt(layout, dem, tile_lat, tile_lon,
 # readers therefore call the SAME law functions over the SAME station
 # sequence.
 #
-# Five mirrors live in the helpers below, each reading the SAME config
+# Eight mirrors live in the helpers below, each reading the SAME config
 # gate the emitter reads (so a flip moves both readers at once) and each
 # structurally INERT with its gate off:
 #
@@ -1519,6 +1519,12 @@ def check_runway_end_skirt(layout, dem, tile_lat, tile_lon,
 #      collar rings emitted is the collar's ground, so the emitter builds
 #      no band there and the validator must not flag the un-graded
 #      columns beyond it.
+#   8. ``_airside_enclave_zone_prep`` — the AIRSIDE-ENCLAVE STATION
+#      STAND-DOWN (owner 2026-08-07), fed into
+#      ``_adjacent_ground_stations``: an enclave interior is
+#      airside-interior by law and takes the gap ring + spine treatment,
+#      so the emitter builds no band and no retaining wall there and this
+#      reader must not flag that ground.
 #   5. RAY OCCLUSION (``BAND_RAY_OCCLUSION_ENABLED``, owner ruling
 #      2026-07-25 "it should stop at pavement"): a lateral band's outward
 #      reach is measured through FREE GROUND ONLY, so the emitter's march
@@ -1559,6 +1565,7 @@ def check_runway_end_skirt(layout, dem, tile_lat, tile_lon,
 def _adjacent_ground_stations(coords, ccw, ring_alts, axis, step_m,
                               seam_keys, probe_covered,
                               collar_zone_prep=None,
+                              enclave_zone_prep=None,
                               strip_zone_prep=None,
                               in_strip_out=None):
     """The validator's per-shape STATION MARCH — the mirror of the emitter's
@@ -1592,6 +1599,14 @@ def _adjacent_ground_stations(coords, ccw, ring_alts, axis, step_m,
     stood the bands down over is not flagged should_fill/should_cut.
     ``None`` (default; nothing collared / gate off): no zone test —
     byte-identical.
+
+    ``enclave_zone_prep`` — MIRROR 8: the PREPARED airside-enclave band
+    keep-out (``_airside_enclave_zone_prep``).  A station whose seed
+    point OR outward probe falls inside a published enclave is skipped
+    exactly as the emitter's ``"airside_enclave"`` reason skips it, so
+    the enclave interior the gap ring + spine owns is not flagged
+    should_fill/should_cut against a band that lawfully does not exist.
+    ``None`` (nothing published): no zone test — byte-identical.
 
     Corner FANS are omitted exactly as before: fan stations share the
     corner coordinate (distance 0), so they never change a non-fan
@@ -1628,6 +1643,19 @@ def _adjacent_ground_stations(coords, ccw, ring_alts, axis, step_m,
                             for b in (g.bounds for g in parts)]
         except (AttributeError, IndexError, ValueError):
             collar_boxes = None
+    # Same guard on MIRROR 8 — the emitter's, verbatim.
+    enclave_boxes = None
+    if enclave_zone_prep is not None:
+        try:
+            ezone = enclave_zone_prep.context
+            eparts = list(getattr(ezone, "geoms", [])) or [ezone]
+            enclave_boxes = [(b[0] - CL._RING_PROBE_M,
+                              b[1] - CL._RING_PROBE_M,
+                              b[2] + CL._RING_PROBE_M,
+                              b[3] + CL._RING_PROBE_M)
+                             for b in (g.bounds for g in eparts)]
+        except (AttributeError, IndexError, ValueError):
+            enclave_boxes = None
     for i in range(len(coords) - 1):
         eax, eay = coords[i]
         ebx, eby = coords[i + 1]
@@ -1674,6 +1702,19 @@ def _adjacent_ground_stations(coords, ccw, ring_alts, axis, step_m,
                                      in collar_boxes))
                          and (collar_zone_prep.contains(Point(sx, sy))
                               or collar_zone_prep.contains(Point(px, py))))
+            # MIRROR 8 — AIRSIDE ENCLAVE: the emitter drops a station
+            # whose SEED or outward PROBE lands in a published enclave
+            # (reason ``"airside_enclave"``), in the same position in its
+            # test order as the collar test, so it is mirrored here the
+            # same way.  The gap ring + spine carries the law over that
+            # ground; the band never reaches it.
+            in_enclave = (enclave_zone_prep is not None
+                          and (enclave_boxes is None
+                               or any(bx0 <= sx <= bx1 and by0 <= sy <= by1
+                                      for bx0, by0, bx1, by1
+                                      in enclave_boxes))
+                          and (enclave_zone_prep.contains(Point(sx, sy))
+                               or enclave_zone_prep.contains(Point(px, py))))
             # MIRROR 7 — STRIP PRECEDENCE (§1, ``O4_STRIP_PRECEDENCE``):
             # a NON-RUNWAY family station whose seed or outward probe lands
             # inside the LATERAL runway strip is KEPT and judged by the
@@ -1688,6 +1729,7 @@ def _adjacent_ground_stations(coords, ccw, ring_alts, axis, step_m,
             # station; otherwise a depth-0 coupling node (the emitter's
             # own probe: an outward point covered by a shape owns its band).
             if (not end_edge and alts_known and not in_collar
+                    and not in_enclave
                     and not probe_covered(px, py)):
                 ref = a0 + t * (a1 - a0)
                 flag = True
@@ -1853,6 +1895,23 @@ def _collared_pocket_zone_prep(layout):
         return None
     from .gap_fill import collared_pocket_zone_prepared
     return collared_pocket_zone_prepared(layout)
+
+
+def _airside_enclave_zone_prep(layout):
+    """MIRROR 8 — the PREPARED airside-enclave band keep-out (owner
+    2026-08-07); ``None`` when nothing is published.
+
+    The emitter stands its band stations down inside a published enclave
+    (``adjacent_ground._derive_shape_stations_and_bands``'
+    ``enclave_zone_prep``): an enclave interior is airside-interior by
+    law and takes the gap ring + spine treatment, so no band and no
+    retaining wall is built there.  This reader must skip the same
+    stations or it would flag that ground as should_fill/should_cut.
+    Both sides consume the ONE published geometry
+    (``enclaves.enclave_band_keepout_prepared``) — no second
+    reconstruction here."""
+    from .enclaves import enclave_band_keepout_prepared
+    return enclave_band_keepout_prepared(layout)
 
 
 def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
@@ -2192,6 +2251,9 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
     # MIRROR 4 — the collared-pocket station stand-down.  ``None`` with the
     # gate off / nothing collared, so the march is byte-identical then.
     collar_zone_prep = _collared_pocket_zone_prep(layout)
+    # MIRROR 8 — the airside-enclave station stand-down.  ``None`` when
+    # nothing is published, so the march is byte-identical then.
+    enclave_zone_prep = _airside_enclave_zone_prep(layout)
 
     # MIRROR 7 — STRIP PRECEDENCE (§1).  The SAME prepared LATERAL strip
     # the emitter swaps law on, built by the SAME function (no second
@@ -2292,6 +2354,7 @@ def check_adjacent_ground(layout, dem, tile_lat, tile_lon,
          _st_end_skip) = _adjacent_ground_stations(
             coords, ccw, ring_alts, axis, step_m, seam_keys, _inside_shape,
             collar_zone_prep=collar_zone_prep,
+            enclave_zone_prep=enclave_zone_prep,
             # MIRROR 7 — STRIP PRECEDENCE, NON-runway families only (the
             # runway family's own march is what governs the footprint).
             strip_zone_prep=(strip_zone_prep

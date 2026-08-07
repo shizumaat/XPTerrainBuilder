@@ -45,7 +45,6 @@ from .config import (
     PAVEMENT_CLASS_TAIL_MAX_WIDTH_M,
     PAVEMENT_CLASS_TAIL_MIN_LENGTH_M,
     PAVEMENT_SCORE_BOUNDARY_OUT_FRAC,
-    PAVEMENT_SCORE_ENCLAVE_GAP_M,
     PAVEMENT_SCORE_MARGIN_HIGH,
     PAVEMENT_SCORE_MARGIN_MED,
     PAVEMENT_SCORE_MIN_AREA_M2,
@@ -61,11 +60,10 @@ from .config import (
     PAVEMENT_SCORE_WIDE_HALF_M,
     SCORER_SERVICE_ADJ,
 )
+from .enclaves import publish_airside_enclaves, shape_in_enclave
 from .layout import (
     BuiltShape,
     ROLE_APRON,
-    ROLE_BRIDGE_CAUSEWAY,
-    ROLE_BRIDGE_TRENCH,
     ROLE_BUILDING,
     ROLE_CROSS_CONNECTOR,
     ROLE_GROUNDSIDE_PAVEMENT,
@@ -77,8 +75,6 @@ from .layout import (
     ROLE_SERVICE_JUNCTION,
     ROLE_SERVICE_ROAD,
     ROLE_STUB,
-    ROLE_TUNNEL_RAMP,
-    ROLE_TUNNEL_TRENCH,
 )
 from .pavement_classification import (
     _GEOM_EXC,
@@ -1222,40 +1218,17 @@ def sever_mixed_aeroway(layout) -> int:
 # airside pavement unless it has a tunnel or bridge service road to
 # get out … it's possible to draw a single continuous boundary around
 # all airside; ALL airside shapes are on one side of the line, and all
-# groundside are on the other")
+# groundside are on the other"; extended to bare ground 2026-08-07)
+#
+# THE TEST LIVES IN ``enclaves.py`` NOW — one published REGION set, three
+# consumers (this classifier, ``gap_fill``, ``adjacent_ground``).  The
+# shape-scoped ring-coverage predicate this module used to carry
+# (``_enclosed_by_airside`` + its ``PAVEMENT_SCORE_ENCLAVE_GAP_M``
+# tolerance) is RETIRED: it asked whether one shape FILLS the void, so
+# it was structurally blind to a void that is 87.6 % bare ground and it
+# read 0.0 % coverage for the one shape that was in it.  See
+# ``enclaves.enclave_at_point`` and the spec's §1-§2.
 # ═════════════════════════════════════════════════════════════════════
-
-_ESCAPE_ROLES = frozenset({ROLE_TUNNEL_RAMP, ROLE_TUNNEL_TRENCH,
-                           ROLE_BRIDGE_TRENCH, ROLE_BRIDGE_CAUSEWAY})
-_ENCLAVE_CONTACT_M = 0.5     # ring-to-airside contact tolerance
-
-
-def _enclosed_by_airside(poly, airside_zone, escapes) -> bool:
-    """True when ``poly`` is fully surrounded by airside pavement.
-
-    The exterior ring must be covered by the (slightly buffered)
-    surround union except for at most ``PAVEMENT_SCORE_ENCLAVE_GAP_M``
-    of vertex noise — a real vehicle exit is far wider.  A touching
-    tunnel/bridge shape (or ``is_bridge`` pavement) is the owner's
-    escape clause and defeats the enclosure.  BUILDINGS count toward
-    the surround (owner, CYXY building4 2026-07-28): a vehicle cannot
-    leave through a building, so pavement locked between buildings and
-    airside is still an enclave.  A landside lot at the airport edge
-    borders open terrain somewhere, so it never reads enclosed.
-    """
-    try:
-        uncovered = poly.exterior.difference(airside_zone)
-    except _GEOM_EXC:
-        return False
-    if getattr(uncovered, "length", 0.0) > PAVEMENT_SCORE_ENCLAVE_GAP_M:
-        return False
-    for escape in escapes:
-        try:
-            if poly.distance(escape) <= 1.0:
-                return False
-        except _GEOM_EXC:
-            continue
-    return True
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -2323,49 +2296,51 @@ def enact_classify(layout, icao: str = "", dem=None,
                         and connectivity2.get(id(shape)) is False:
                     decide_and_apply(shape, False)
 
-    # ENCLAVE re-verdict (owner topological rule, 2026-07-28): with the
-    # roles settled, any shape this round demoted to groundside that is
-    # now fully surrounded by airside pavement — no tunnel/bridge
-    # escape — is misclassified ("a single continuous boundary around
-    # all airside" must be drawable).  Re-score it with G-ENCLAVE
-    # removing GROUNDSIDE; the scores pick its airside/service class.
+    # ENCLAVE re-verdict (owner topological rule 2026-07-28, extended to
+    # bare ground 2026-08-07).  THE enclave regions are computed and
+    # PUBLISHED here — once per build, by ``enclaves.py``, and here
+    # because this is the moment the airside roles settle and the moment
+    # BEFORE the re-verdicts below change them (a shape promoted out of
+    # GROUNDSIDE becomes airside and would close its own enclave).  Two
+    # later consumers read the same store: ``gap_fill``'s foreign-shape
+    # blocker and ``adjacent_ground``'s band keep-out.
+    #
+    # THE PREDICATE IS POINT-IN-ENCLAVE (spec
+    # docs/specs/enclave-region-law-spec.md §2), not the ring COVERAGE
+    # test it replaces.  The old one asked whether a SHAPE was covered by
+    # the airside union to within ``PAVEMENT_SCORE_ENCLAVE_GAP_M``, which
+    # only a shape FILLING the void could pass — the specimen's 5.58 m²
+    # sliver read 0.0 % coverage inside a void whose rim is 100 % apron,
+    # because a whole flank of it faces the void's own bare interior
+    # (dossier §2).  A region test has no such blind spot, needs no
+    # tolerance, and — with the candidate set below — no longer requires
+    # the shape to be a scoring candidate at all.
     summary["enclaves"] = 0
-    if n_groundside:
-        airside_zone = None
-        try:
-            # Buildings JOIN the surround (owner, building4): a vehicle
-            # cannot leave through a building, so building-locked
-            # pavement is still an enclave.
-            airside_polys = [s.polygon for s in layout.shapes
-                             if (s.role in _CHAIN_ROLES
-                                 or s.role == ROLE_BUILDING)
-                             and s.polygon is not None
-                             and not s.polygon.is_empty]
-            if airside_polys:
-                airside_zone = unary_union(airside_polys).buffer(
-                    _ENCLAVE_CONTACT_M, join_style=2)
-        except _GEOM_EXC:
-            airside_zone = None
-        if airside_zone is not None and not airside_zone.is_empty:
-            escapes = [s.polygon for s in layout.shapes
-                       if s.polygon is not None and not s.polygon.is_empty
-                       and (s.role in _ESCAPE_ROLES
-                            or getattr(s, "is_bridge", False))]
-            for shape in candidates:
-                if shape.role != ROLE_GROUNDSIDE_PAVEMENT:
-                    continue
-                poly = shape.polygon
-                if (poly is None or poly.is_empty
-                        or poly.geom_type != "Polygon"):
-                    continue
-                if not _enclosed_by_airside(poly, airside_zone, escapes):
-                    continue
-                if decide_and_apply(
-                        shape,
-                        (latest_connectivity.get(id(shape))
-                         if latest_connectivity else None),
-                        enclosed=True):
-                    summary["enclaves"] += 1
+    enclave_records = publish_airside_enclaves(layout)
+    if enclave_records:
+        # THE CANDIDATE SET (spec §2): every shape currently classed
+        # groundside, read off ``layout.shapes`` — so no 10 m² candidate
+        # floor (the specimen sliver is 5.58 m²), no ``_ENACT_ROLES``
+        # birth-role restriction (a shape BORN groundside was never a
+        # candidate and could never be re-verdicted), and the
+        # POST-DEMOTION state (the refreshed ``candidates`` list drops
+        # every shape demoted this round — HECA logged 1 re-verdict
+        # against 1,103 demotions).
+        for shape in layout.shapes:
+            if shape.role != ROLE_GROUNDSIDE_PAVEMENT:
+                continue
+            poly = shape.polygon
+            if (poly is None or poly.is_empty
+                    or poly.geom_type != "Polygon"):
+                continue
+            if not shape_in_enclave(layout, shape):
+                continue
+            if decide_and_apply(
+                    shape,
+                    (latest_connectivity.get(id(shape))
+                     if latest_connectivity else None),
+                    enclosed=True):
+                summary["enclaves"] += 1
 
     if n_groundside and dem is not None:
         from .groundside import _separate_groundside_from_airside

@@ -353,6 +353,11 @@ _APPARATUS_KEYS = (
     # Arc B1: stations stood down because they face a COLLARED POCKET
     # (0 with nothing collared, by construction).
     "collar_zone_excluded_stations",
+    # ENCLAVE LAW (owner 2026-08-07): stations stood down because they
+    # face a published AIRSIDE ENCLAVE — airside-interior ground the
+    # gap ring + spine treats, never band territory (0 when no
+    # pocket-width enclave is published, by construction).
+    "enclave_zone_excluded_stations",
     # RAY OCCLUSION (2026-07-25): stations whose outward march hit
     # pavement and was terminated there (0 with the gate OFF, by
     # construction).
@@ -4099,6 +4104,29 @@ def _collar_zone_prep(layout):
     return collared_pocket_zone_prepared(layout)
 
 
+def _enclave_zone_union(layout):
+    """The published AIRSIDE-ENCLAVE band keep-out union, or ``None``
+    (``enclaves.enclave_band_keepout_union``).
+
+    Owner 2026-08-07: everything inside an airside-surrounded enclave —
+    paved or bare — is airside-interior and takes the gap interior ring +
+    spine treatment; "a retaining wall or groundside terrace there is a
+    defect regardless of which mechanism minted it".  So the band march
+    never runs there: consumed exactly like the crossing and
+    collared-pocket zones above.  Scoped by ``enclaves`` to POCKET-width
+    enclaves — an airfield INFIELD is a bounded complement component too,
+    and its graded strips are Annex 14 §3.4.11-13 ground the bands own."""
+    from .enclaves import enclave_band_keepout_union
+    return enclave_band_keepout_union(layout)
+
+
+def _enclave_zone_prep(layout):
+    """Prepared form of the published enclave keep-out for the march's
+    station test, or ``None``."""
+    from .enclaves import enclave_band_keepout_prepared
+    return enclave_band_keepout_prepared(layout)
+
+
 def _tunnel_ramp_standoff_block(layout):
     """1 m buffered union of the tunnel mouth pieces to stand strips off
     (scope B), or ``None``.  The set is ``tunnel_ramp`` sloped rects + the
@@ -4776,6 +4804,7 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
                                      coverage_grid=False,
                                      crossing_zone_prep=None,
                                      collar_zone_prep=None,
+                                     enclave_zone_prep=None,
                                      strip_zone_prep=None,
                                      strip_law=None,
                                      strip_longitudinal=None,
@@ -4852,6 +4881,18 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
     never govern the same ground.  ``None`` (default; nothing collared):
     no zone test — byte-identical.
 
+    ``enclave_zone_prep`` (ENCLAVE LAW, ``_enclave_zone_prep``): the
+    PREPARED published airside-enclave keep-out — pocket-width regions
+    that airside pavement completely surrounds with no tunnel/bridge
+    escape.  Owner 2026-08-07: such a region is airside-interior and
+    takes the gap ring + spine treatment, so no band and no retaining
+    wall may be built inside it whatever mechanism would have minted
+    them.  Tested exactly like the collar zone, for EVERY family (an
+    enclave is ringed by mixed roles), and in BOTH marches — the
+    pre-solve construct as well as emit — so no solver variable is minted
+    for ground the law removes.  ``None`` (nothing published):
+    byte-identical.
+
     ``strip_zone_prep`` / ``strip_law`` / ``strip_bands_out`` (STRIP
     PRECEDENCE §1, ``O4_STRIP_PRECEDENCE``; passed only for NON-RUNWAY
     families — see ``runway_strip_lateral_zone``).  ``strip_zone_prep`` is
@@ -4919,6 +4960,21 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
                              for b in (g.bounds for g in _parts)]
         except (AttributeError, IndexError, ValueError):
             _collar_boxes = None
+    # Same build-time guard for the ENCLAVE test (mirrored in
+    # ``verification._adjacent_ground_stations``), and it matters more
+    # here: a big airport publishes dozens of enclaves scattered across
+    # the field, so the per-PART box rejection is what keeps the test off
+    # the airport-wide station march.
+    _enclave_boxes = None
+    if enclave_zone_prep is not None:
+        try:
+            _ezone = enclave_zone_prep.context
+            _eparts = list(getattr(_ezone, "geoms", [])) or [_ezone]
+            _enclave_boxes = [(b[0] - _RING_PROBE_M, b[1] - _RING_PROBE_M,
+                               b[2] + _RING_PROBE_M, b[3] + _RING_PROBE_M)
+                              for b in (g.bounds for g in _eparts)]
+        except (AttributeError, IndexError, ValueError):
+            _enclave_boxes = None
 
     def _station_reference_ex(sx, sy, out, alt_value):
         # The station's edge altitude and, when it is SKIPPED, the reason
@@ -4960,6 +5016,23 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
                      or collar_zone_prep.contains(probe))):
             _APPARATUS_HITS["collar_zone_excluded_stations"] += 1
             return (None, "collared_pocket")
+        # AIRSIDE-ENCLAVE EXCLUSION (owner 2026-08-07, spec §4): a station
+        # whose seed or outward probe falls inside a published enclave is
+        # dropped — an enclave interior is airside-interior BY LAW and
+        # takes the gap ring + spine treatment, so it is not band
+        # territory and no ``adjacent_ground_wall`` may be minted there.
+        # This is the emitter half of the specimen fix: gap-fill grades
+        # the void, and the band consumer that used to owe it a 7.4 m
+        # retaining wall never reaches it.  Inert without a published
+        # zone (``enclave_zone_prep is None``).
+        if (enclave_zone_prep is not None
+                and (_enclave_boxes is None
+                     or any(bx0 <= sx <= bx1 and by0 <= sy <= by1
+                            for bx0, by0, bx1, by1 in _enclave_boxes))
+                and (enclave_zone_prep.contains(Point(sx, sy))
+                     or enclave_zone_prep.contains(probe))):
+            _APPARATUS_HITS["enclave_zone_excluded_stations"] += 1
+            return (None, "airside_enclave")
         # RUNWAY-STRIP PRECEDENCE (§1) is NOT a station skip — see the
         # ``strip_law`` block below.  The station is KEPT and its
         # GOVERNING LAW is swapped to the strip family (lead ruling
@@ -5645,6 +5718,12 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
     # Crossing-zone exclusion (Phase 1): the published zone, prepared
     # once, passed for taxiway shapes (byte-inert when nothing published).
     crossing_zone_prep = _crossing_zone_prep(layout)
+    # ENCLAVE keep-out (owner 2026-08-07): published at CLASSIFICATION
+    # time, so — unlike the collared-pocket zone, whose collars emit
+    # later — it is available to this PRE-SOLVE march too.  Passed here
+    # as well as at emit so the two marches build the same stations and
+    # no solver variable is minted for ground the law removes.
+    enclave_zone_prep = _enclave_zone_prep(layout)
     # STRIP PRECEDENCE §1 (``O4_STRIP_PRECEDENCE``): the LATERAL strip,
     # built once, passed for NON-runway shapes; ``None`` with the gate off
     # (byte-inert).  Between the ends only — the end corridors keep the
@@ -5756,6 +5835,9 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
                 coverage_grid=_coverage_grid,
                 crossing_zone_prep=(crossing_zone_prep
                                     if family == "taxiway" else None),
+                # ENCLAVE keep-out — ALL families (an enclave is ringed
+                # by mixed roles, exactly like a collared pocket).
+                enclave_zone_prep=enclave_zone_prep,
                 # STRIP PRECEDENCE §1: inside the lateral strip a
                 # NON-runway family's stations are governed by the STRIP
                 # law.  Passed in the PRE-SOLVE construct as well as at
@@ -6293,6 +6375,15 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
     collar_zone_prep = (_collar_zone_prep(layout)
                         if collar_zone_union is not None else None)
     collar_zone_clip_block = collar_zone_union
+    # AIRSIDE-ENCLAVE keep-out (owner 2026-08-07).  Same two forms as the
+    # collar zone: the prepared zone stands the STATIONS down, and the
+    # exact-geometry clip catches a band row that starts outside an
+    # enclave and marches into it (the station test sees only the seed
+    # and the 1.5 m probe, while a row is as deep as the corridor).
+    enclave_zone_union = _enclave_zone_union(layout)
+    enclave_zone_prep = (_enclave_zone_prep(layout)
+                         if enclave_zone_union is not None else None)
+    enclave_zone_clip_block = enclave_zone_union
     # STRIP PRECEDENCE §1 + §2 (``O4_STRIP_PRECEDENCE``): the prepared
     # LATERAL strip, built once per emission; ``None`` with the gate off.
     # Between the ends only — the end corridors keep the runway-END
@@ -6873,6 +6964,9 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                 # width-skipped pocket is ringed by MIXED roles, so runway
                 # and apron frontage face it just as taxiway frontage does.
                 collar_zone_prep=collar_zone_prep,
+                # ENCLAVE keep-out — ALL families, same reasoning; the
+                # construct march above passes the identical zone.
+                enclave_zone_prep=enclave_zone_prep,
                 # STRIP PRECEDENCE §1 — NON-runway families only (see the
                 # construct-side call and ``runway_strip_lateral_zone``).
                 strip_zone_prep=(strip_lateral_prep
@@ -7151,6 +7245,16 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                         # protection under the frozen-footprint gate state,
                         # where the station march above is not re-run.
                         poly = poly.difference(collar_zone_clip_block)
+                    if (enclave_zone_clip_block is not None
+                            and not enclave_zone_clip_block.is_empty):
+                        # AIRSIDE ENCLAVE (owner 2026-08-07): no band
+                        # piece may enter a published enclave — that
+                        # ground is airside-interior and the gap ring +
+                        # spine treats it.  EXACT clip, ZERO buffer, for
+                        # the collar's reason: this surface ABUTS the
+                        # enclave's rim (which is pavement it is already
+                        # welded to) rather than standing off it.
+                        poly = poly.difference(enclave_zone_clip_block)
                     if (previous_shapes_union is not None
                             and not previous_shapes_union.is_empty):
                         poly = poly.difference(previous_shapes_union)

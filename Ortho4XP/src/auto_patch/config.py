@@ -102,7 +102,6 @@ __all__ = [
     "PAVEMENT_SCORE_SEVER_PINCH_MAX_M",
     "PAVEMENT_SCORE_SEVER_FRONTAGE_W_M",
     "PAVEMENT_SCORE_BOUNDARY_OUT_FRAC",
-    "PAVEMENT_SCORE_ENCLAVE_GAP_M",
     "PAINTED_CENTERLINE_FALLBACK",
     "ENABLE_APRON_NECK_SPLIT",
     "HOLE_ROUTER_ENABLED",
@@ -2628,15 +2627,11 @@ PAVEMENT_SCORE_SEVER_PINCH_MAX_M = float(
 # so the un-routed #104 lot ruling is unaffected.
 PAVEMENT_SCORE_SEVER_FRONTAGE_W_M = float(
     _os.environ.get("O4_PAVEMENT_SCORE_SEVER_FRONTAGE_W_M", "8.0"))
-# G-ENCLAVE (owner ruling 2026-07-28): "groundside can never be
-# surrounded by airside pavement unless it has a tunnel or bridge
-# service road to get out" — airside and groundside must be separable
-# by one continuous boundary.  A groundside shape whose exterior ring
-# has less than this length uncovered by airside pavement counts as
-# fully surrounded (the gap allowance absorbs vertex noise; a real
-# vehicle exit is far wider).
-PAVEMENT_SCORE_ENCLAVE_GAP_M = float(
-    _os.environ.get("O4_PAVEMENT_SCORE_ENCLAVE_GAP_M", "3.0"))
+# G-ENCLAVE's ring-coverage tolerance RETIRED 2026-08-07 (spec
+# docs/specs/enclave-region-law-spec.md §2): the enclave test is
+# point-in-REGION now (``auto_patch/enclaves.py``), so there is no ring
+# to leave uncovered and no tolerance to set.  The knob is gone rather
+# than left inert — an unread constant reads as live law.
 # Territory buffers: taxi-spine / truck-route evidence half-widths.
 PAVEMENT_SCORE_SPINE_BUFFER_M = float(
     _os.environ.get("O4_PAVEMENT_SCORE_SPINE_BUFFER_M", "25"))

@@ -1035,16 +1035,84 @@ def test_gate_enclave_removes_groundside():
     assert "GROUNDSIDE" not in record["candidates"]
 
 
-def test_enclosure_helper_ring_cover_and_escape():
-    poly = _rect(0.0, 0.0, 50.0, 50.0)
-    surround = _rect(-20.0, -20.0, 70.0, 70.0)
-    assert PS._enclosed_by_airside(poly, surround, []) is True
-    # A gap in the surround crossing the ring defeats the enclosure.
-    notched = surround.difference(_rect(20.0, 45.0, 40.0, 60.0))
-    assert PS._enclosed_by_airside(poly, notched, []) is False
-    # A touching tunnel/bridge shape is the owner's escape clause.
-    escape = _rect(20.0, 50.0, 30.0, 60.0)
-    assert PS._enclosed_by_airside(poly, surround, [escape]) is False
+def test_enclosure_is_a_region_test_not_a_ring_cover():
+    """The shape-scoped ring-cover predicate is RETIRED (spec
+    enclave-region-law-spec §1-2): the enclave is a published REGION and
+    the test is point-in-region.  Its blind spot is what this pins — a
+    shape that does NOT fill its enclave still reads enclosed, which the
+    old ``_enclosed_by_airside`` could never do (the specimen sliver read
+    0.0 % ring coverage inside a void whose rim is 100 % apron)."""
+    from auto_patch import enclaves as EN
+
+    assert not hasattr(PS, "_enclosed_by_airside")
+    donut = BuiltShape(
+        polygon=_rect(0.0, 0.0, 300.0, 300.0).difference(
+            _rect(100.0, 100.0, 200.0, 200.0)),
+        role=ROLE_JUNCTION)
+    pad = BuiltShape(polygon=_rect(-50.0, -50.0, -10.0, -10.0),
+                     role=ROLE_APRON)
+    # A 4 m² sliver floating in the middle of the 100x100 m void: three
+    # of its flanks face bare ground, and it is far under the scorer's
+    # 10 m² candidate floor.
+    sliver = BuiltShape(polygon=_rect(148.0, 148.0, 150.0, 150.0),
+                        role=ROLE_GROUNDSIDE_PAVEMENT)
+    layout = _layout([donut, pad, sliver])
+    records = EN.publish_airside_enclaves(layout)
+    assert len(records) == 1
+    assert records[0].area_m2 == pytest.approx(10000.0)
+    assert EN.shape_in_enclave(layout, sliver) is True
+    assert EN.point_in_enclave(layout, 150.0, 150.0) is True
+    # Outside the void — and outside the union — is not an enclave.
+    assert EN.point_in_enclave(layout, -30.0, -30.0) is False
+    assert EN.point_in_enclave(layout, 1000.0, 1000.0) is False
+
+
+def test_enclosure_escape_clause_defeats_the_region():
+    """The owner's escape clause, applied ONCE in the publication: a
+    touching tunnel/bridge shape means the region is not an enclave, so
+    nothing downstream can forget the clause."""
+    from auto_patch import enclaves as EN
+    from auto_patch.layout import ROLE_TUNNEL_RAMP
+
+    donut = BuiltShape(
+        polygon=_rect(0.0, 0.0, 300.0, 300.0).difference(
+            _rect(100.0, 100.0, 200.0, 200.0)),
+        role=ROLE_JUNCTION)
+    pad = BuiltShape(polygon=_rect(-50.0, -50.0, -10.0, -10.0),
+                     role=ROLE_APRON)
+    layout = _layout([donut, pad])
+    assert len(EN.publish_airside_enclaves(layout)) == 1
+
+    ramp = BuiltShape(polygon=_rect(140.0, 195.0, 160.0, 205.0),
+                      role=ROLE_TUNNEL_RAMP)
+    layout2 = _layout([donut, pad, ramp])
+    assert EN.publish_airside_enclaves(layout2) == []
+    assert EN.point_in_enclave(layout2, 150.0, 150.0) is False
+
+
+def test_enclave_band_keepout_is_pocket_scoped():
+    """The band keep-out is scoped to POCKET-width enclaves: an airfield
+    INFIELD is a bounded complement component too, and its graded strips
+    are the bands' own ground (Annex 14 §3.4.11-13).  The width law is
+    the gap law's own ``GAP_FILL_MAX_WIDTH_M`` — never a second number."""
+    from auto_patch import enclaves as EN
+    from auto_patch.config import GAP_FILL_MAX_WIDTH_M
+
+    wide = 3.0 * GAP_FILL_MAX_WIDTH_M
+    donut = BuiltShape(
+        polygon=_rect(0.0, 0.0, wide + 200.0, wide + 200.0).difference(
+            _rect(100.0, 100.0, 100.0 + wide, 100.0 + wide)),
+        role=ROLE_JUNCTION)
+    pad = BuiltShape(polygon=_rect(-50.0, -50.0, -10.0, -10.0),
+                     role=ROLE_APRON)
+    layout = _layout([donut, pad])
+    records = EN.publish_airside_enclaves(layout)
+    assert len(records) == 1
+    # Published as an enclave (G-ENCLAVE and the gap blocker both see
+    # it) — but NOT band keep-out territory.
+    assert EN.point_in_enclave(layout, 100.0 + wide / 2, 100.0 + wide / 2)
+    assert EN.enclave_band_keepout_union(layout) is None
+    assert EN.enclave_band_keepout_prepared(layout) is None
 
 
 def test_enact_enclave_reverdicts_surrounded_groundside(monkeypatch):

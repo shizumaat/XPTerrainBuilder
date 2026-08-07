@@ -509,10 +509,19 @@ class Violation:
     lat: Optional[float] = None
     lon: Optional[float] = None
     #: Set to the NAME of the adjudication that takes this row out of the
-    #: acceptance count (currently only ``"disconnected_ring"``).  The row
-    #: is still measured, still counted in its family and still printed —
-    #: instruments report, the law adjudicates.
+    #: acceptance count (``"disconnected_ring"``, ``"wall_foot_ll"``).  The
+    #: row is still measured, still counted in its family and still printed
+    #: — instruments report, the law adjudicates.
     out_of_scope: Optional[str] = None
+    #: CANONICAL NODE IDENTITY of the two endpoints, where the producing
+    #: check knows it (the TEAR families do — they walk nids).  Carried so
+    #: an adjudication predicate defined over WAY MEMBERSHIP can join by
+    #: identity instead of re-deriving a coordinate key: an 11-decimal
+    #: lat/lon round-trip is exact, but a proximity join is 11.6 % wrong
+    #: (memory ``canonical-identity-join``).  ``None`` where the producing
+    #: check has no single node per side (plane/transect rows).
+    nid_a: Optional[str] = None
+    nid_b: Optional[str] = None
 
 
 @dataclass
@@ -1660,7 +1669,8 @@ def _check_adjacent_ground_edges(ways: List[Way],
                 de_m=de,
                 way_a=w, way_b=w,
                 pt_a=(xa, ya), pt_b=(xb, yb),
-                elev_a=float(ea), elev_b=float(eb)))
+                elev_a=float(ea), elev_b=float(eb),
+                nid_a=nid_a, nid_b=nid_b))
     out.sort(key=lambda v: -v.de_m)
     return out
 
@@ -3028,7 +3038,8 @@ def _check_strip_seam_tears(
                         de_m=de,
                         way_a=way_v, way_b=way_u,
                         pt_a=(v.x, v.y), pt_b=(u.x, u.y),
-                        elev_a=v.elev, elev_b=u.elev))
+                        elev_a=v.elev, elev_b=u.elev,
+                        nid_a=v.nid, nid_b=u.nid))
     out.sort(key=lambda v: -v.de_m)
     return out
 
@@ -3321,6 +3332,130 @@ def _mark_disconnected(pair_rows, step_rows, rings_m) -> int:
         if (_in_disconnected_ring(rings_m, *s.vert_pt)
                 and _in_disconnected_ring(rings_m, *s.proj_pt)):
             s.out_of_scope = "disconnected_ring"
+            n += 1
+    return n
+
+
+# ── ONE-SIDED WALL-FOOT TEAR EXEMPTION (owner ruling 2026-08-07) ─
+# RULINGS 2026-08-07, "Item-4 (on-DEM airside stranding)", RULED
+# PROVISIONAL (d), verbatim "I'm not sure, try d": *the wall-foot node on
+# the adjacent-ground band's outer edge may take the raw DEM value; the
+# wall-spanned tear exemption extends to ONE-SIDED boundaries (the on-DEM
+# endpoint must be wall-hosted; the law-valued partner need not be).*
+# Spec: ``docs/specs/adjacent-ground-wall-foot-exemption-spec.md``.
+#
+# WHY IT IS AN ADJUDICATION AND NOT A CHECK EDIT.  The two wall exemptions
+# already inside the tear checks (``_wall_spans``, ``_wall_straddles``)
+# SUPPRESS the row: the pair is never a tear at all, so it leaves no trace.
+# This one is a law the owner marked PROVISIONAL and wants to "revisit at
+# the sim pass", so the rows must stay COUNTED and NAMED — the same
+# report-but-do-not-adjudicate treatment ``disconnected_ring`` gets.  The
+# law-true census total is therefore unchanged by this exemption; only the
+# ADJUDICATED total moves, and the class is enumerable under its own label.
+#
+# THE PREDICATE IS STRUCTURAL, WITH NO MAGNITUDE CAP (owner: step size at
+# the boundary "is a flat-world artifact by construction").  A tear row is
+# exempt iff SOME endpoint satisfies all three clauses at once — one
+# endpoint, not one clause each:
+#
+#   1. it is ON-DEM: ``|alt_abs - dem_m| <= ON_DEM_TOL_M``;
+#   2. a declared ``retaining_wall`` way REFERENCES that node (way
+#      membership by canonical node identity, never proximity);
+#   3. that node is a member of an ``adjacent_ground`` band ring.
+#
+# The law-valued partner's way membership is NOT consulted — that is
+# exactly the extension over the two-sided (spanned) form, which requires
+# ONE wall way to reference BOTH endpoints.
+#
+#: The exemption's own label — the census heading, and the ``out_of_scope``
+#: stamp.  Named in the spec so a reversal is one revert plus a re-census.
+WALL_FOOT_EXEMPTION = "wall_foot_ll"
+
+#: The families the wall-foot exemption is defined over: the two DEM-free
+#: TEAR sentinels the ruling names.  Not a hand list at the call site — the
+#: twin asserts both keys are registered families.
+WALL_FOOT_FAMILIES: Tuple[str, ...] = ("adjacent_ground_tear",
+                                       "strip_seam_tear")
+
+#: "Sits exactly on the DEM", in the EMITTED frame.  NOT a new tolerance:
+#: this is the number the item-4 evidence measured its whole population
+#: with (``tools/harness/who_wrote.py`` ``_EMIT_TOL``), and the spec says in
+#: terms "do NOT invent a new tolerance".  Its size is set by the emitted
+#: rounding grid (2 dp on nodes and on flat ways), not by taste — an
+#: in-memory comparison would use full float precision.
+ON_DEM_TOL_M = 5e-3
+
+#: The role whose ways host a wall foot, and the band ``ref`` whose rings
+#: carry the outer edge.  Both are the spellings the tear checks
+#: themselves select on (``_check_strip_seam_tears`` wall registry /
+#: ``_check_adjacent_ground_edges`` ring filter), so the exemption and the
+#: checks cannot come to disagree about what a wall or a band is.
+_WALL_FOOT_WALL_ROLE = "retaining_wall"
+_WALL_FOOT_BAND_REF = "adjacent_ground"
+
+
+def wall_foot_node_sets(ways: List[Way]) -> Tuple[set, set]:
+    """``(wall_nids, band_nids)`` — the two MEMBERSHIP sets clauses 2 and 3
+    are decided against, by canonical node id.
+
+    Public so the twin can assert the predicate over a hand-built way list
+    without reaching into ``run_checks``."""
+    wall_nids: set = set()
+    band_nids: set = set()
+    for w in ways:
+        if w.tags.get("role") == _WALL_FOOT_WALL_ROLE:
+            wall_nids.update(w.nids)
+        if w.ref == _WALL_FOOT_BAND_REF:
+            band_nids.update(w.nids)
+    return wall_nids, band_nids
+
+
+def wall_foot_exempt(row, wall_nids: set, band_nids: set,
+                     dem_m: Optional[float]) -> bool:
+    """THE three-clause predicate, for ONE tear row.  See the block above.
+
+    ``dem_m is None`` (no world declared) ⇒ always False: clause 1 is not
+    evaluable, and an exemption that fired on an undeclared frame would be
+    the census silently judging in a frame it was never given.
+    """
+    if dem_m is None:
+        return False
+    for nid, elev in ((getattr(row, "nid_a", None), row.elev_a),
+                      (getattr(row, "nid_b", None), row.elev_b)):
+        if nid is None or elev is None:
+            continue
+        if abs(float(elev) - float(dem_m)) > ON_DEM_TOL_M:
+            continue                      # clause 1 — not on the DEM
+        if nid not in wall_nids:
+            continue                      # clause 2 — no wall hosts it
+        if nid not in band_nids:
+            continue                      # clause 3 — not a band-ring node
+        return True
+    return False
+
+
+def _mark_wall_foot(tear_rows, ways: List[Way],
+                    dem_m: Optional[float]) -> int:
+    """Stamp ``out_of_scope=WALL_FOOT_EXEMPTION`` on every qualifying tear
+    row, and return how many were stamped.
+
+    ALREADY-STAMPED ROWS ARE LEFT ALONE.  A row the ONE-graph ruling
+    already took out of scope keeps that attribution: both classes are
+    reported and neither is adjudicated, so the totals are identical either
+    way — but re-labelling would silently move rows between two published
+    headings, which is a frame change wearing an accounting hat.
+    """
+    if dem_m is None or not tear_rows:
+        return 0
+    wall_nids, band_nids = wall_foot_node_sets(ways)
+    if not wall_nids or not band_nids:
+        return 0
+    n = 0
+    for r in tear_rows:
+        if getattr(r, "out_of_scope", None):
+            continue
+        if wall_foot_exempt(r, wall_nids, band_nids, dem_m):
+            r.out_of_scope = WALL_FOOT_EXEMPTION
             n += 1
     return n
 
@@ -4435,6 +4570,18 @@ VERSION_DEFERRED_FAMILIES: Dict[str, str] = {
 #: puts on the row.
 OUT_OF_SCOPE_RULING = "2026-08-06 ONE graph"
 OUT_OF_SCOPE_CLASSES: Dict[str, str] = {
+    WALL_FOOT_EXEMPTION:
+        "ONE-SIDED WALL-FOOT boundary: the tear's on-DEM endpoint is a "
+        "node a declared retaining_wall way references AND a member of an "
+        "adjacent_ground band ring — the wall foot on the band's outer "
+        "edge.  Owner RULINGS 2026-08-07 (item 4, PROVISIONAL ruling "
+        "(d)): that node may take the raw DEM value, and the wall-spanned "
+        "tear exemption extends to the one-sided case (the law-valued "
+        "partner's way membership is not consulted).  Structural, no "
+        "magnitude cap — the step size at the boundary is a flat-world "
+        "artifact by construction.  PROVISIONAL: the owner revisits this "
+        "at the sim pass, which is why the rows stay counted under this "
+        "label instead of being suppressed inside the tear checks",
     "disconnected_ring":
         "the row lies wholly inside a groundside ring the ONE route graph "
         "does not reach — no route, frontage or weld coupling to the "
@@ -4757,6 +4904,7 @@ def run_checks(
     fan_ramp_zones_ll: Optional[list] = None,
     disconnected_rings_ll: Optional[list] = None,
     ruleset: Optional[str] = None,
+    dem_m: Optional[float] = None,
     family_out: Optional[dict] = None,
 ) -> Tuple[List[Violation], List[Violation], List[EdgeStep]]:
     """``taxi_axes_ll`` (the builder's APT.DAT taxi centerlines as
@@ -4781,6 +4929,20 @@ def run_checks(
     Delaunay differ from the one the solver graded to.  Without it the mesh
     is re-triangulated from the emitted ring (old patches — stricter, and
     cm-noisy where emit repaired a junction ring).
+
+    ``dem_m``: the CONSTANT-DEM WORLD the patch was built in, in metres —
+    the ``--dem`` the harness build entry was given (``build_airport.py
+    --dem -500``), recorded in that build's own ``<tag>.frame.json`` /
+    ``<tag>.result.json`` under ``synthetic_dem.elevation_m``.  It is the
+    only input the ONE-SIDED WALL-FOOT exemption's clause 1 (``|alt_abs −
+    dem_m| ≤ ON_DEM_TOL_M``) can be decided against, because this
+    instrument is otherwise DEM-FREE by design: every tear check here
+    proves a defect from the patch alone.  Left at ``None`` — every
+    real-DEM census, which is every production patch — the exemption is
+    INERT and nothing about the run changes.  It is deliberately an
+    explicit declaration and not a sniffed sibling artifact: the world a
+    number was measured in is part of its frame, so the caller states it
+    and the report carries it.
     """
     # REGION RULESET (phase B).  ``ruleset`` is the SIDECAR's key — the
     # authority the build actually ran under.  The census NEVER re-derives
@@ -5210,6 +5372,19 @@ def run_checks(
         _mark_disconnected(within + cross, steps + mid_steps,
                            disconnected_rings_m)
 
+    # ── OUT OF SCOPE: the ONE-SIDED WALL-FOOT boundary ────────────────
+    # RULINGS 2026-08-07 (item 4, PROVISIONAL ruling (d)).  Stamped AFTER
+    # the ONE-graph pass and only on rows it left unstamped, so the
+    # published ``disconnected_ring`` count cannot move; and stamped only
+    # on the two TEAR families the ruling names, never on a family it
+    # never spoke about.
+    n_wall_foot = _mark_wall_foot(adjacent_edges + strip_seam_tears,
+                                  ways, dem_m)
+    if not quiet and dem_m is not None:
+        print(f"  wall-foot exemption ({WALL_FOOT_EXEMPTION}): "
+              f"{n_wall_foot} tear row(s) out of scope against a "
+              f"{dem_m:g} m constant-DEM world")
+
     return within, cross, steps + mid_steps
 
 
@@ -5233,6 +5408,14 @@ def main(argv=None) -> int:
                    help="Show this many worst violations per check")
     p.add_argument("--strict", action="store_true",
                    help="Exit 1 if any check has any violation.")
+    p.add_argument("--dem", type=float, default=None, metavar="M",
+                   help="The CONSTANT-DEM world this patch was built in "
+                        "(the harness build's --dem, recorded in its "
+                        "<tag>.frame.json under synthetic_dem.elevation_m). "
+                        "Declares the frame the one-sided WALL-FOOT tear "
+                        "exemption's on-DEM clause is decided in (RULINGS "
+                        "2026-08-07 item 4, ruling (d)).  Omit for every "
+                        "real-DEM patch: the exemption is then inert.")
     args = p.parse_args(argv)
     # AXES SIDECAR (2026-07-02): ``layout.to_osm`` writes the taxi axes +
     # chained routes to ``<patch>.axes.json`` so the STANDALONE check can
@@ -5264,6 +5447,7 @@ def main(argv=None) -> int:
         edge_search_m=args.edge_search_m,
         edge_step_m=args.edge_step_m,
         top_n=args.top_n,
+        dem_m=args.dem,
         **ctx,
     )
     if args.strict and (within or cross or steps):

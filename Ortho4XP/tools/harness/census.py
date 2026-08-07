@@ -450,11 +450,21 @@ def zone_split(osm: Path, cg, families: dict) -> dict:
 
 def census_one(osm: Path, cg, *, want_bare: bool = False,
                top: int = 10, want_zone_split: bool = False,
-               band_edges=None) -> dict:
-    """The census of ONE patch.  Returns the report dict; prints nothing."""
+               band_edges=None, dem_m=None) -> dict:
+    """The census of ONE patch.  Returns the report dict; prints nothing.
+
+    ``dem_m`` DECLARES the constant-DEM world the patch was built in (the
+    build's own ``--dem``, recorded in its ``<tag>.frame.json`` under
+    ``synthetic_dem.elevation_m``).  It is passed straight through to
+    ``run_checks`` and is consumed by exactly one law — the one-sided
+    WALL-FOOT tear exemption (RULINGS 2026-08-07 item 4, ruling (d)) —
+    whose on-DEM clause has no other input in this DEM-free instrument.
+    ``None`` (every real-DEM patch) leaves the exemption inert, so a
+    census run without it is byte-for-byte the census it always was.
+    """
     families: dict = {}
     within, cross, steps = cg.run_checks_law_true(
-        osm, family_out=families, quiet=True, top_n=0)
+        osm, family_out=families, quiet=True, top_n=0, dem_m=dem_m)
 
     # THE STEP EXEMPTION comes from the law register, not from a copy here
     # (``check_grade.step_exempt`` / ``STEP_EXEMPTIONS``).  It used to be a
@@ -546,6 +556,12 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
         "provenance": prov["provenance"],
         "provenance_reason": prov["reason"],
         "law_true_knobs": dict(cg.LAW_TRUE_KNOBS),
+        # THE WORLD, stated (RULINGS 2026-08-06 point 3: every reported
+        # number carries its frame).  A −500 m census row is not comparable
+        # with a real-DEM one, and one law — the wall-foot exemption —
+        # adjudicates differently under it, so the declaration is part of
+        # the artifact rather than of the operator's memory.
+        "declared_dem_m": dem_m,
         "ruleset_declared": declared,
         "ruleset_active": active,
         "lawtrue": {
@@ -613,6 +629,14 @@ def print_report(rep: dict, top: int) -> None:
     if knobs:
         print("  law-true knobs: " + " ".join(f"{k}={v:g}"
                                               for k, v in knobs.items()))
+    # THE WORLD.  Printed either way — "not declared" is the frame most
+    # censuses run in, and an absent line would leave the reader unable to
+    # tell a real-DEM census from a constant-DEM one run without --dem.
+    _dem = rep.get("declared_dem_m")
+    print(f"  declared world: "
+          + (f"constant DEM {_dem:g} m (--dem)" if _dem is not None
+             else "not declared (real-DEM frame; the wall-foot "
+                  "exemption is inert)"))
     # RULESET: declared / active / source.  Three verified facts; the line
     # used to add a CAUSE for a missing key ("predates the FAA/ICAO split")
     # that nothing here establishes, plus an instruction to the reader.
@@ -876,6 +900,19 @@ def main(argv=None) -> int:
                          "inside a zone / crossing one / unrelated) — the "
                          "reading that says whether the ramp law is "
                          "granting relief where the defects actually are")
+    ap.add_argument("--dem", type=float, default=None, metavar="M",
+                    help="DECLARE the constant-DEM world these patches "
+                         "were built in (the build's own --dem, recorded "
+                         "in its <tag>.frame.json under "
+                         "synthetic_dem.elevation_m; --dem takes "
+                         "negatives, e.g. --dem -500).  Consumed by one "
+                         "law: the ONE-SIDED WALL-FOOT tear exemption "
+                         "(RULINGS 2026-08-07 item 4, PROVISIONAL ruling "
+                         "(d)), whose on-DEM clause has no other input in "
+                         "this DEM-free instrument.  Omit for every "
+                         "real-DEM patch — the exemption is then inert and "
+                         "the census is unchanged.  The value is stamped "
+                         "into the report as declared_dem_m.")
     args = ap.parse_args(argv)
 
     band_edges = (parse_band_edges(args.magnitude_bands)
@@ -889,7 +926,7 @@ def main(argv=None) -> int:
         try:
             rep = census_one(osm, cg, want_bare=args.bare, top=args.top,
                              want_zone_split=args.zone_split,
-                             band_edges=band_edges)
+                             band_edges=band_edges, dem_m=args.dem)
         except FileNotFoundError as exc:
             raise SystemExit(
                 f"REFUSING: {exc}\n"

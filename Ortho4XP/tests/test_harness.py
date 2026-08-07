@@ -209,14 +209,194 @@ def test_family_out_is_a_pure_no_op_when_absent(cg):
     assert [len(x) for x in a] == [len(x) for x in b]
 
 
+# ── THE ONE-SIDED WALL-FOOT EXEMPTION (RULINGS 2026-08-07, item 4 (d)) ──
+# Spec: docs/specs/adjacent-ground-wall-foot-exemption-spec.md.  The
+# exemption is an ADJUDICATION: the rows stay measured and counted in their
+# family, and only the adjudicated total moves.  These twins pin the three
+# clauses, the register lockstep, and the inert default.
+
+def _wall_foot_patch(tmp_path, *, wall_hosts_the_on_dem_node: bool,
+                     dem_m: float = -500.0, name: str = "p"):
+    """A minimal emitted patch carrying ONE adjacent-ground TEAR whose
+    endpoints are a wall foot at the DEM and a law-valued band node.
+
+    Node A sits exactly on ``dem_m`` and is a member of the
+    ``adjacent_ground`` band ring; node B is its law-valued ring
+    neighbour 0.55 m away, 600 m up.  That is the one-sided graded→DEM
+    boundary the ruling describes.  The only difference between the two
+    fixtures is whether the declared ``retaining_wall`` way REFERENCES
+    node A — clause 2, and the whole extension.
+    """
+    # 0.000005 deg of latitude is ~0.55 m at this latitude: inside the
+    # tear check's sub-station-step edge length, so the pair qualifies.
+    a_lat, a_lon = 30.0000000, 31.0000000
+    b_lat, b_lon = 30.0000050, 31.0000000
+    c_lat, c_lon = 30.0010000, 31.0010000
+    # The wall's own far corners — never coincident with the band nodes.
+    w_lat, w_lon = 30.0020000, 31.0020000
+
+    def node(nid, lat, lon, alt):
+        return (f"  <node id='{nid}' action='modify' visible='true' "
+                f"lat='{lat:.11f}' lon='{lon:.11f}'>"
+                f"<tag k='alt_abs' v='{alt:.2f}'/></node>")
+
+    nodes = [node("-1", a_lat, a_lon, dem_m),
+             node("-2", b_lat, b_lon, dem_m + 600.0),
+             node("-3", c_lat, c_lon, dem_m + 600.0),
+             node("-11", w_lat, w_lon, dem_m),
+             node("-12", w_lat + 0.00001, w_lon, dem_m)]
+    # The wall ring: hosts node A only in the EXEMPT fixture.
+    wall_nids = (["-1", "-11", "-12", "-1"] if wall_hosts_the_on_dem_node
+                 else ["-11", "-12", "-11"] + ["-11"])
+
+    def way(wid, role, ref, nids):
+        nds = "".join(f"<nd ref='{n}'/>" for n in nids)
+        return (f"  <way id='{wid}' action='modify' visible='true'>{nds}"
+                f"<tag k='role' v='{role}'/><tag k='ref' v='{ref}'/>"
+                f"<tag k='shapeID' v='{abs(int(wid))}'/></way>")
+
+    xml = ["<?xml version='1.0' encoding='UTF-8'?>",
+           "<osm version='0.6' upload='false' generator='twin'>",
+           *nodes,
+           way("-100", "graded_strip", "adjacent_ground",
+               ["-1", "-2", "-3", "-1"]),
+           way("-200", "retaining_wall", "adjacent_ground_wall", wall_nids),
+           "</osm>"]
+    p = tmp_path / f"{name}.osm"
+    p.write_text("\n".join(xml))
+    return p
+
+
+def _tear_rows(cg, patch, dem_m):
+    families: dict = {}
+    cg.run_checks(patch, top_n=0, quiet=True, family_out=families,
+                  dem_m=dem_m)
+    return [r for key in cg.WALL_FOOT_FAMILIES
+            for r in families.get(key, [])]
+
+
+def test_the_wall_foot_exemption_twin_pair(cg, tmp_path):
+    """THE TWIN PAIR the spec requires (acceptance 4).
+
+    Same geometry, same on-DEM endpoint, same band ring — the ONLY
+    difference is whether a declared ``retaining_wall`` way references
+    that node.  Wall-hosted ⇒ EXEMPT; on-DEM but NOT wall-hosted ⇒ still
+    a defect.  If these two ever agree, the exemption has stopped being
+    about the wall and has become a blanket amnesty for on-DEM tears.
+    """
+    dem = -500.0
+    hosted = _tear_rows(cg, _wall_foot_patch(
+        tmp_path, wall_hosts_the_on_dem_node=True, name="hosted"), dem)
+    bare = _tear_rows(cg, _wall_foot_patch(
+        tmp_path, wall_hosts_the_on_dem_node=False, name="bare"), dem)
+
+    assert hosted, "the fixture stopped producing a tear row at all"
+    assert len(hosted) == len(bare), (
+        "the two fixtures must MEASURE the same rows — the exemption "
+        "adjudicates, it never suppresses")
+    assert all(r.out_of_scope == cg.WALL_FOOT_EXEMPTION for r in hosted), (
+        f"one-sided WALL-HOSTED boundary was not adjudicated exempt: "
+        f"{[r.out_of_scope for r in hosted]}")
+    assert all(r.out_of_scope is None for r in bare), (
+        f"an on-DEM endpoint that NO retaining_wall way references was "
+        f"exempted anyway — clause 2 is not binding: "
+        f"{[r.out_of_scope for r in bare]}")
+
+
+def test_the_wall_foot_exemption_needs_all_three_clauses(cg, tmp_path):
+    """Clause 1 (on-DEM) and clause 3 (band-ring member) bind too, and the
+    three must hold at ONE endpoint rather than one clause each."""
+    dem = -500.0
+    patch = _wall_foot_patch(tmp_path, wall_hosts_the_on_dem_node=True,
+                             name="clauses")
+    nodes, ways = cg._parse_osm(patch)
+    wall_nids, band_nids = cg.wall_foot_node_sets(ways)
+    assert "-1" in wall_nids and "-1" in band_nids
+
+    row = _tear_rows(cg, patch, dem)[0]
+    assert cg.wall_foot_exempt(row, wall_nids, band_nids, dem) is True
+    # Clause 1: judged against a DIFFERENT world, the endpoint is no
+    # longer on the DEM and the exemption must not fire.
+    assert cg.wall_foot_exempt(row, wall_nids, band_nids, 10000.0) is False
+    # Clause 2 and clause 3, each removed on its own.
+    assert cg.wall_foot_exempt(row, set(), band_nids, dem) is False
+    assert cg.wall_foot_exempt(row, wall_nids, set(), dem) is False
+    # NO WORLD DECLARED: clause 1 is not evaluable, so the exemption is
+    # inert — this is what keeps every real-DEM census unchanged.
+    assert cg.wall_foot_exempt(row, wall_nids, band_nids, None) is False
+
+
+def test_the_wall_foot_exemption_is_inert_without_a_declared_world(cg,
+                                                                   tmp_path):
+    """The default path — every production, real-DEM census.  A census run
+    without ``dem_m`` must be the census it always was, row for row."""
+    patch = _wall_foot_patch(tmp_path, wall_hosts_the_on_dem_node=True,
+                             name="inert")
+    rows = _tear_rows(cg, patch, None)
+    assert rows and all(r.out_of_scope is None for r in rows), (
+        "the wall-foot exemption fired with no world declared — it would "
+        "then be adjudicating in a frame it was never given")
+
+
+def test_the_wall_foot_exemption_is_registered_in_lockstep(cg):
+    """The register lockstep, both directions: the stamp the checks write
+    must be a declared out-of-scope CLASS (or ``adjudication`` would count
+    it under 'unnamed'), and the families it is defined over must be real
+    LAW_FAMILIES keys (or it would exempt nothing)."""
+    assert cg.WALL_FOOT_EXEMPTION in cg.OUT_OF_SCOPE_CLASSES, (
+        "the wall-foot stamp names no registered out-of-scope class — the "
+        "census would print it as an unnamed class")
+    registered = {key for key, _t, _b in cg.LAW_FAMILIES}
+    assert set(cg.WALL_FOOT_FAMILIES) <= registered, (
+        f"{sorted(set(cg.WALL_FOOT_FAMILIES) - registered)} name no law "
+        f"family — the exemption would be defined over nothing")
+    why = cg.OUT_OF_SCOPE_CLASSES[cg.WALL_FOOT_EXEMPTION]
+    assert "2026-08-07" in why and "PROVISIONAL" in why, (
+        "the class text must carry its owner ruling AND its provisional "
+        "status — the owner revisits this one at the sim pass")
+
+
+def test_the_wall_foot_exemption_is_counted_never_dropped(cg, tmp_path):
+    """The exemption-visibility convention: an exempt row stays in its
+    family and in the law-true total, and shows up under its own heading
+    in ``adjudication`` — the treatment ``terrace_joints_ll`` taught and
+    ``disconnected_ring`` follows."""
+    dem = -500.0
+    patch = _wall_foot_patch(tmp_path, wall_hosts_the_on_dem_node=True,
+                             name="counted")
+    fam_off: dict = {}
+    cg.run_checks(patch, top_n=0, quiet=True, family_out=fam_off)
+    fam_on: dict = {}
+    cg.run_checks(patch, top_n=0, quiet=True, family_out=fam_on, dem_m=dem)
+    for key, _t, _b in cg.LAW_FAMILIES:
+        assert len(fam_on.get(key, [])) == len(fam_off.get(key, [])), (
+            f"family {key} changed SIZE when the world was declared — the "
+            f"exemption is dropping rows instead of adjudicating them")
+    rows = [(key, r) for key, _t, _b in cg.LAW_FAMILIES
+            for r in fam_on.get(key, [])]
+    adj = cg.adjudication(rows)
+    assert adj["out_of_scope_classes"][cg.WALL_FOOT_EXEMPTION]["n"] >= 1, (
+        "the exempt rows are invisible in the adjudication split — an "
+        "exemption nobody can count is an exemption nobody can revisit")
+
+
 def test_every_law_keyword_is_produced_by_the_single_sidecar_reader(cg):
     """``law_context_from_sidecar`` must produce every law keyword
     ``run_checks`` accepts.  A keyword it does not produce is a keyword
     every reader will forget — that is exactly how ``terrace_joints_ll``
     (a whole law family's exemptions) went missing from a lane census."""
+    # THE RUN'S OWN FRAME, not the patch's law context.  These are declared
+    # by the CALLER — the numeric knobs, the reporting switches, and
+    # ``dem_m``, which names the CONSTANT-DEM WORLD the patch was built in.
+    # ``dem_m`` is here and not in ``SIDECAR_LAW_KEYS`` for a checkable
+    # reason: no emitted sidecar carries the world (the build records it in
+    # its own ``<tag>.frame.json`` under ``synthetic_dem``), so there is no
+    # key for the reader to produce.  The twin below pins that — if a
+    # sidecar ever starts declaring the world, ``dem_m`` must move OUT of
+    # this set and into the sidecar contract.
     numeric_knobs = {"osm_path", "max_grade_pct", "proximity_m",
                      "edge_search_m", "edge_step_m", "top_n", "quiet",
-                     "family_out"}
+                     "dem_m", "family_out"}
     law_kwargs = set(inspect.signature(cg.run_checks).parameters) - \
         numeric_knobs
     produced = set(cg.SIDECAR_LAW_KEYS.values())

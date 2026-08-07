@@ -788,3 +788,46 @@ service-road routes STAY in the joint no-cross set, and the principle
 is general — a declared step/joint may never cross any ROAD of any
 class. Roads are continuous graded surfaces at their own caps, exactly
 like every route; terrace relief exists for non-route ground only.
+
+## 2026-08-07 — Test-app release bar: ship now, named remainder (owner)
+
+Owner (morning interview): the 2026-08-06 ~23:00 gate (HECA
+adjudicated airside <100) is SUPERSEDED for this build. The Mac TEST
+APP builds NOW from the green tip, with RELEASE_NOTES naming the four
+remaining defect structures (pad-frontage chords / relief generation /
+feature-weld hardening / on-DEM stranding) and the honest adjudicated
+numbers (HECA airside 3,734 dem-500 / 4,006 canyon; battery 15,530
+adjudicated + 12,320 deferred drainage_minimum). Scope: Mac test app
+ONLY — make_engine + make_app + direct-exec smoke + tiles +30+031 and
++35-081; no tag, no CI, no Windows/Linux artifacts. The five-airport
+zero-adjudicated CAMPAIGN GOAL is unchanged; this is a test build, not
+acceptance.
+
+## 2026-08-07 — Item-4 (on-DEM airside stranding): evidence before ruling (owner)
+
+Owner: no (a)-vs-(d) ruling yet. Deliverable first: a KML of the 140
+on-DEM airside vertices with per-vertex COUPLING CLASSIFICATION
+(route edge / frontage / weld / none) plus a written dossier (counts
+per class, worst-10 table, per-class (a)-vs-(d) implication). The
+ruling follows the evidence review. No fix work on this class until
+the sentence lands.
+
+## 2026-08-07 — Round order ratified; c9feed probe runs parallel (owner)
+
+Owner ratifies the retrospective's order: (1) pad-frontage round
+(~1,870 rows; spec decides per-frontage which ruled form — relief vs
+step/wall), (2) relief-generation round scoped WITH the deferred
+drainage project (same generator), (3) feature-weld hardening round.
+Cycle-10's FIRST measurement — the confounded graph-edge probe,
+re-run cleanly on b6936ed — proceeds in parallel (2026-07-31
+concurrent-correctness-builds ruling applies).
+
+## 2026-08-07 — Standing approvals granted / withheld (owner)
+
+GRANTED: (a) delete the 529 junk DSF-cache dirs (same class as the
+earlier ledgered 535; ledger the deletion; executed by the LEAD, never
+delegated — destructive-op rule); (b) retire the default-OFF
+O4_SVC_CURVED_JUNCTION experiment outright (the open call from STATUS
+20260731d). WITHHELD: timing-baseline re-record — stays deferred to
+the final-design profiling round; spurious REGRESSION rows remain
+expected until then.

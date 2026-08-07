@@ -16,6 +16,18 @@ pre-flip -> new default): SPJC 1698->1366, SPLP 50->27, CYXY 171->155,
 HECA 9649->9125, KCLT 2908->2643; BATTERY 14,476->13,316 (-1,160),
 seam +15 (ruled accepted). Every prior anchor list below is HISTORY.
 
+**MORNING DECISIONS (owner interview, 2026-08-07 AM; the four
+2026-08-07 RULINGS entries are canon): (1) BAR SUPERSEDED — Mac TEST
+APP builds NOW from the green tip; RELEASE_NOTES name the four
+structures + honest numbers; Mac only, no tag/CI. (2) Item-4 =
+EVIDENCE FIRST — coupling-classified KML + dossier of the 140 on-DEM
+vertices, then the (a)-vs-(d) sentence. (3) Round order RATIFIED:
+pad-frontage → relief+drainage → hardening; c9feed cycle-10 probe
+re-runs on b6936ed in parallel. (4) Approvals: 529 junk DSF dirs
+DELETE (lead-executed, ledgered); O4_SVC_CURVED_JUNCTION RETIRE
+(prepared in-lane, merges after the app is cut); baseline re-record
+stays deferred to the final profiling round.**
+
 **TRAIN STOPPED PER OWNER GATE (00:30 08-07): HECA airside <100
 proven unreachable (3,734 after the one safe fix, −395; ladder:
 convergence 2%, the remainder = FOUR structures — pad-frontage

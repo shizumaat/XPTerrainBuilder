@@ -108,6 +108,15 @@ is what that costs.
   different acts.
 - Two lanes racing a cache regeneration: per-scope lock in the shared repo,
   refuse-and-report, never a silent block.
+- A guard-blocked write inside DEM prep silently DEGRADING the frame
+  (the engine's fallback was WARN + rc 0, `dem_inset_provenance` null,
+  an 18.5k-vs-36k layout): refused before any patch is written, each
+  blocked write named. The engine's `.lock` coordination files have a
+  narrowly-scoped allowance (the lock primitive's create/remove only,
+  recorded as churn, never contamination); no-op `mkdir`/`makedirs` on
+  an existing shared dir is likewise allowed (mutates nothing). Real
+  data writes beside either still refuse. `--allow-degraded-dem`
+  covers this class too and still authorises NO write.
 - A census that omits a law family, a sidecar key, or the ruleset:
   structurally impossible — the twins fail.
 

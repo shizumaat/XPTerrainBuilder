@@ -74,7 +74,11 @@ battery-wide firing). CHORED: census frame-sidecar auto-read with
 --dem contradiction refusal; 5e-3 on-DEM tolerance deduplication
 (who_wrote vs check_grade). Retrospective structure #4 of four:
 RESOLVED (provisional — revisit at sim pass). MERGES PENDING OWNER:
-lane/svcret 410735e, lane/item4d 4fe19e0.**
+lane/svcret 410735e, lane/item4d 4fe19e0, lane/demfix 225fad3 (the
+guard-degrade hole: two refusal detectors + scoped .lock allowance +
+12 twins; full-frame HECA patch-only evidence 36,404 nodes,
+provenance non-null, corpus UNCHANGED — unblocks nidrepair's
+real-frame check and Phase B on merge).**
 
 **CYCLE-10 PROBE VERDICT (08-07 ~09:30, clean-tree re-run; c10ctl
 left mounted with arm-A artifacts): the c9feed +604 attribution

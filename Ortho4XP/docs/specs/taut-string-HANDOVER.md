@@ -303,12 +303,26 @@ unfinished redirect (chored into cycle 8). TWO cycle-8 pre-findings:
 the analytic band is NOT world-invariant (HECA 12,657 width
 disagreements, max 71 m, zero coverage mismatch — attribute BEFORE
 extending it groundside; spec pre-requirement) and env_band carry
-30–38% short everywhere (world-invariant, named). **CYCLE 8 IN
-FLIGHT** (lane c8graph; cycle8-one-graph-spec: mouths seat like
-apron-edge frontage, bands flow mouth→outward, LAW ISLAND branch
-dies for connected rings, disconnected mints nothing via the SAME
-predicate in solve and census, HARD Q4 gate: per-cell airside may
-not rise).
+30–38% short everywhere (world-invariant, named). **CYCLE 8 MERGED (partial;
+lane/c8graph):** both worlds 18,933 → **16,567** (HECA 10k −1,595;
+HEAZ −500 D′ 633→3). Band-invariance verdict (d): THE LAYOUT is a
+different object per world (cut vs fill; canyon +33.6% nodes) —
+instrument corrected. Mouths + groundside band landed+twinned but
+FIRE 0x — service stringing is the limiter (SPJC 4/389 segments;
+sliced-road nodes at edges vs the 1.0 m perp tol). Real D′ carrier:
+unreached service junctions at seed → seat_service_pavement_on_law.
+Disconnected rings: ONE predicate solve+census (HECA 968; out-of-
+scope 2,892 reported). Suite 12th red CLOSED ((a) test_data_root
+reload). Q4 GATE 6/8, 2 FAIL +11 airside total — carrier:
+final_grade_projection CO-PROJECTS groundside with airside; cure
+RULED in the spec ADDENDUM (lead, from receiver-only — owner
+ratification flagged): THE PROJECTION PARTITIONS (airside first,
+groundside pairs excluded; groundside after vs frozen airside).
+**FINISHER LANE c8fin IN FLIGHT** (partition + service stringing;
+Q4 re-run 8/8 is its gate). Named: HEAZ canyon gs 3→131 @ 1-10 m =
+the class-universal lateral-contiguity absorption item (standing);
+anchor seeds world-dependent ≤0.17 m (rider); KCLT slab carrier
+re-read owed.
 
 NEXT TARGETS (ranked):
 1. **The solve's UNCERTIFIED exit is the real plateau author** —

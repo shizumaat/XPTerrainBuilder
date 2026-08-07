@@ -1651,6 +1651,34 @@ class PavementLayout:
         # boundary and the pavement ring bounding the same hole could
         # never be made to spell one chain, whatever the tolerance.
         # They join here as first-class chains.
+        #
+        # ONE HOLE, ONE CHAIN (spec phase A, A1 — the hoisted dedup).
+        # The SAME hole is collected once per shape that bounds it, so
+        # ``_interior_rings`` carries exact duplicates.  The emit-time
+        # ``_seen_hole`` pass below drops them, which is why the shipped
+        # patch shows each ring once — but it runs AFTER this weld, so
+        # at weld time every vertex of a duplicated hole reads as owned
+        # by TWO chains and the private-on-edge test (``len(_own) != 1``)
+        # skips it by construction.  The dedup is hoisted here so the
+        # ownership map counts holes, not copies of holes; the emit-time
+        # pass stays as the residual guard for a pair the weld itself
+        # makes identical.
+        _seen_hole_pre: set = set()
+        _deduped_rings: list = []
+        for _hr in _interior_rings:
+            _hkey = tuple(_hr)
+            if _hkey in _seen_hole_pre:
+                continue
+            _seen_hole_pre.add(_hkey)
+            _deduped_rings.append(_hr)
+        if len(_deduped_rings) != len(_interior_rings):
+            UI.vprint(1,
+                f"  [pav-builder] interior rings: "
+                f"{len(_interior_rings) - len(_deduped_rings)} duplicate "
+                f"hole ring(s) dropped before the weld "
+                f"({len(_interior_rings)} → {len(_deduped_rings)}), so a "
+                f"hole vertex reads single-owner.")
+        _interior_rings[:] = _deduped_rings
         _weld_chains: list = ([("p", _p_i, _e[2])
                                for _p_i, _e in enumerate(pending)]
                               + [("r", _r_i, _r)

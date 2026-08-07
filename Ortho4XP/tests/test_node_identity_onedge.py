@@ -213,6 +213,38 @@ def test_a1_interior_ring_shares_the_boundary_node_ids():
         f"twice; strip={strip_nds} rings={rings}")
 
 
+def test_a1_a_hole_bounded_twice_still_reads_single_owner():
+    """The hoisted dedup (spec phase A, A1 continuation A′).
+
+    The SAME hole is collected once per shape that bounds it, so the
+    weld's chain list used to carry exact DUPLICATES of a hole ring.
+    Every vertex of a duplicated hole then read as owned by TWO chains,
+    and the private-on-edge test (``len(owners) != 1``) skipped it by
+    construction — the emitted patch never showed the duplication,
+    because the emit-time ``_seen_hole`` pass drops it afterwards.
+    Known answer: with the dedup hoisted above the weld, the twice-
+    bounded hole behaves exactly like the once-bounded one above —
+    ONE emitted ring, sharing its on-edge nids with the strip.
+
+    Mutation-checked: with the dedup left at emit time this asserts
+    0 shared nids.
+    """
+    layout = _hole_scene()
+    hole = [(30, 30 + 0.0185), (70, 30 + 0.0185), (70, 45), (30, 45)]
+    layout.shapes.append(
+        _pav(Polygon([(10, 5), (90, 5), (90, 55), (10, 55)], [hole]),
+             ref="cover2", alt=101.0))
+    _nodes, ways = _emit_and_parse(layout)
+    _wid_s, strip_nds, _t = _way(ways, ref="strip")
+    rings = [nds for _w, nds, tags in ways
+             if tags.get("o4_feature") == "shape_interior_ring"]
+    assert len(rings) == 1, (
+        f"one hole, one emitted ring; got {len(rings)}")
+    assert len(_shared(strip_nds, rings[0])) >= 2, (
+        f"a hole bounded by TWO shapes must weld exactly like a hole "
+        f"bounded by one; strip={strip_nds} ring={rings[0]}")
+
+
 def test_a1_free_hole_boundary_is_not_dragged():
     """A hole standing clear of every foreign ring is real geometry and
     must not move (HECA: 110 of 116 private ring vertices are more than

@@ -1,5 +1,26 @@
 # Feature C pit emitter (drainage basins) — spec
 
+> **OUTCOME (2026-08-07, same day): PREMISE FALSIFIED — CLOSED, NO
+> CODE.** The lane's recon proved the emitter already exists:
+> `67440c7` (2026-07-31, Below-grade cutouts W1) landed
+> `basin_trench_structures()` cutting basins through the Feature A
+> tunnel machinery, gate `OBJECT_BASIN_TRENCH` default ON, twinned
+> (tests/test_object_basin_trench.py, 128 green). OTHH's 8 classified
+> basins already emit (10 floor + 66 rim plates in the pre-change
+> control, body `81bcb2af…`); no battery airport has an instance.
+> This spec's state-of-record (from the sunken-basins memory, dated
+> one day before the emitter landed) stopped one commit short — the
+> memory is corrected. LEAD RULINGS on the lane's two flags:
+> (1) basins ARE the carve-structure class of the walls ruling (they
+> are literally the below-grade-cutout machinery) — near-vertical
+> rims stay lawful; (2) the two airside-collar candidates
+> (Drainage_04/05) are carve structures inside apron, not groundside
+> enclaves — the running enclave-attribution lane's production
+> predicate is the check on that reading. The only Feature C class
+> genuinely without an emitter is `INTERFACE_INTERIOR_CUTOUT` (R10,
+> object_terrain_features.py:582), with ZERO OTHH instances — owner
+> decides if that half is wanted (needs a different fixture airport).
+
 Author: lead (Fable), 2026-08-07. Charter: owner 2026-08-07 —
 "create [a spec] and kickoff agents to complete the drainage pit
 work" (the OTHH class). No prior spec exists for the emitter half.

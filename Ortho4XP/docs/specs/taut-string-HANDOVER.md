@@ -80,6 +80,27 @@ guard-degrade hole: two refusal detectors + scoped .lock allowance +
 provenance non-null, corpus UNCHANGED — unblocks nidrepair's
 real-frame check and Phase B on merge).**
 
+**CYCLE-10 EXECUTED (08-07 ~11:30; lane/c9feed tip b3cfa55, STILL
+PARKED — merging c9feed remains the road-feed gate decision): fix 1
+— the instrument hole was TUPLE TRUNCATION (`run_checks`' axis
+conversion kept 4 slots, dropping sidecar `is_service`; the
+truck-route rule never fired ONCE) — fixed as the named `_axes_to_m`;
+555 removed rows across 4 arms, 100% service-axis-traceable, exactly
+one class moved per cell, post-fix own-frame == base-frame airside
+(4,474==4,474: the instrument half of the +604 is zero BY
+CONSTRUCTION). Fix 2 — three probe gates committed default-OFF with
+identity+sentinel inertness twins (NO_SERVICE_EDGES / NO_MOUTHS /
+NO_ROAD_PAIR_LAW). M1 knife — PAIR LAW IS A CARRIER, THE LARGEST
+SINGLE, NOT THE CARRIER: −262 of the +444 within_shape::apron|apron
+at 10k (59%), +22 at −500 (control already 81 BELOW base there);
+~182 rows UNATTRIBUTED; world-asymmetric like the edge knife. Lane's
+census `--frame own|base` extension RATIFIED (lead:
+extend-don't-fork, default byte-verified, twinned). c10ctl+c10knife
+worktrees mounted with arms. MERGE QUEUE CLEARED (owner, ~11:00):
+svcret, item4d, demfix ALL MERGED — nidrepair's real-frame check +
+Phase B unblocked on report. Chip session task_c09c1bdd duplicates
+merged demfix — flagged to owner for stop.**
+
 **CYCLE-10 PROBE VERDICT (08-07 ~09:30, clean-tree re-run; c10ctl
 left mounted with arm-A artifacts): the c9feed +604 attribution
 STANDS — 136 instrument + 468 surface, reproduced exactly (4/4 body

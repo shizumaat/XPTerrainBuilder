@@ -833,6 +833,38 @@ node take the DEM value ((d): extend the wall exemption one-sided),
 or must every welded node of a law-valued ring seat from its ring
 ((a): missing seat)?
 
+## 2026-08-07 — Service routes are taxiways at a larger cap; EDGES MUST BIND (owner)
+
+Owner, verbatim: "Service routes should function identically to
+taxiways, just with a larger grade cap, so I think edges absolutely
+matter in relation to their spine. Groundside buildings and parking
+areas connected via service roads should be seated based on their
+feasible band which follows the service route path back to airside."
+
+Binding: ONE-graph point 1's mechanism is affirmed LITERALLY — the
+feasible band propagates ALONG service route edges from the
+airside-determined mouth seat, and groundside buildings/lots seat
+from that route-following band. K1's measured edges-inert state
+(byte-identical patch with every service edge withheld) is therefore
+a DEFECT, not a lawful simplification. Recorded suspect (cycle-8's
+own measurement, HANDOVER §0): service stringing fires 4/389
+segments at SPJC — sliced-road nodes at edges vs the 1.0 m perp
+tolerance. Spec: service-band-propagation-spec.md.
+
+## 2026-08-07 — Mouths are the boundary arbiter; the K2 coupling is lawful (owner)
+
+Owner, verbatim: "Why would we remove mouths? Are they not necessary
+to arbitrate the boundary between airside and groundside? Yes, the
+airside determines what the mouth seat can be, which then impacts
+the feasible band for the route through the service network."
+
+Binding: mouths stay — they arbitrate the airside/groundside
+boundary. K2's +134 airside movement when mouths are knifed out is
+airside law expressing itself (the mouth seat is an airside act per
+the 2026-08-06 mouths ruling), not a forbidden groundside pull. The
+K2 gate remains a probe instrument only; no production form ever
+ships without mouths.
+
 ## 2026-08-07 — Retaining walls emit ONLY at carve structures (owner)
 
 Owner, verbatim: "I can't think of a reason we need to emit

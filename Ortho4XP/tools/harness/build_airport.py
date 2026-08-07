@@ -77,7 +77,11 @@ measurement in this repo, and every one of them exits 0 without the check:
    The guard's own LOCK-FILE allowance is in :func:`is_lock_artifact`: a
    ``.lock`` sibling is cross-process COORDINATION STATE, never corpus
    data, and only the two calls the engine's lock primitive makes on one
-   (exclusive create, removal) pass.
+   (exclusive create, removal) pass.  Its LIBRARY-INDEX allowance is in
+   :func:`is_library_index_artifact`: the ``Airport_mod_cache`` sidecar is
+   DERIVED CACHE, a byte-deterministic function of the X-Plane install,
+   and the process that rewrites it after the install changes is often
+   not the build the snapshot attributes it to.
 8. **A DEGRADED BUILD THE ENGINE SWALLOWED.**  A refusal the build catches
    is not a refusal.  ``auto_patch.elevation._load_airport_dem`` runs
    production's whole DEM prep inside ONE ``except Exception``, so a write
@@ -133,6 +137,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -756,6 +761,66 @@ def is_lock_artifact(relpath) -> bool:
     return os.path.basename(str(relpath)).endswith(LOCK_ARTIFACT_SUFFIX)
 
 
+#: THE LIBRARY-INDEX ALLOWANCE (2026-08-07).
+#:
+#: ``auto_patch.agp_reader._write_library_index_sidecar`` persists the
+#: merged ``library.txt`` virtual→physical map for one X-Plane install to
+#: ``Airport_mod_cache/o4_library_index_<sha1(root)[:16]>.cache``, written
+#: to a ``.o4_library_index_*.tmp`` sibling and moved into place with
+#: ``os.replace``.  It is DERIVED INSTALL-INDEX CACHE: a pure,
+#: byte-deterministic function of ``scenery_packs.ini`` and every
+#: ``library.txt``, fingerprinted by size and mtime_ns, so any writer
+#: produces identical bytes for the same install state.  Nothing in it is
+#: corpus data and no measurement is a function of which process wrote it.
+#:
+#: WHY IT MUST NOT REFUSE, from both ends.  The X-Plane install lives
+#: OUTSIDE the guarded repo and is legitimately touched by X-Plane and by
+#: the owner's app; the first engine process to consult the index
+#: afterwards finds the sidecar stale and rewrites it.  That single write
+#: lands inside EVERY concurrently-open harness snapshot window and is
+#: cross-attributed to all of them — the nidrepair 2026-08-07 frames
+#: (``nidctl_hi``, ``nidctl_lo``) each report ``write_guard_blocked: []``
+#: and each name the same modified
+#: ``o4_library_index_768a6b59d2781165.cache``, with the install's
+#: ``scenery_packs.ini`` mtime inside both build windows: neither build's
+#: guarded code wrote it, and both came back CONTAMINATED.  And when a
+#: GUARDED build is itself the first reader, the refusal is swallowed by
+#: ``agp_reader``'s ``except Exception``, ``guard.blocked`` fills, and
+#: :func:`require_no_swallowed_write_block` rc=2s a good build.
+#:
+#: The allowance is the NARROWEST match that covers it, like the lock
+#: one: the path must be DIRECTLY under ``Airport_mod_cache/`` (a matching
+#: basename one directory deeper is a different file) and carry the
+#: writer's own naming, and only the calls that writer makes are allowed.
+#: A ``builtins.open`` of the cache name, a rename onto it, any other
+#: file in that directory: none of those are this writer, and all still
+#: refuse.
+LIB_INDEX_ARTIFACT_RE = re.compile(
+    r"Airport_mod_cache/(?:o4_library_index_[0-9a-f]{16}\.cache"
+    r"|\.o4_library_index_[A-Za-z0-9_]+\.tmp)")
+
+#: The guard's operation tokens for the calls
+#: ``agp_reader._write_library_index_sidecar`` makes on the sidecar:
+#: ``mkstemp``'s ``os.open`` of the ``.tmp``, the atomic ``os.replace`` of
+#: tmp onto final (BOTH paths match the predicate), and the failure-path
+#: unlink of the ``.tmp``.
+LIB_INDEX_FILE_OPS = frozenset({"os_open", "replace", "remove", "unlink"})
+
+
+def is_library_index_artifact(relpath) -> bool:
+    """True for the DERIVED library-index sidecar (never corpus data).
+
+    Path-shape only, so it is the same predicate for the preventer (whose
+    ``_violation`` has already resolved the write to a repo-relative
+    path) and for the after-the-fact snapshot audit (which sees a
+    repo-relative one): a sidecar refreshed by a concurrent engine
+    process is index churn in both, never a corpus mutation.  Matched
+    against the WHOLE relative path, so the allowance cannot be reached
+    from a subdirectory.
+    """
+    return bool(LIB_INDEX_ARTIFACT_RE.fullmatch(str(relpath)))
+
+
 class SharedRepoWriteBlocked(RuntimeError):
     """A build tried to write the shared data repo outside an authorised
     ``--refresh-data`` scope, and the guard stopped it."""
@@ -796,9 +861,11 @@ class SharedRepoWriteGuard:
 
     ALWAYS-ALLOWED: the harness's own state directory (``.harness/`` — the
     refresh ledger and the lock files), every path under an authorised
-    scope, and — for the two calls that handle them — the engine's own
+    scope, and — each for the calls that handle it — the engine's own
     cross-process ``.lock`` files (:data:`LOCK_ARTIFACT_SUFFIX`), which are
-    coordination state and never corpus data.  Reads are never touched.
+    coordination state, and the library-index sidecar
+    (:data:`LIB_INDEX_ARTIFACT_RE`), which is derived cache determined by
+    the X-Plane install.  Neither is corpus data.  Reads are never touched.
     """
 
     #: ``os.open`` flags that mean "this call can modify the file".
@@ -814,6 +881,12 @@ class SharedRepoWriteGuard:
         #: "the repo was untouched apart from the ruled lock churn" is a
         #: fact in the artifact rather than a claim in a report.
         self.lock_churn: list = []
+        #: Every library-index sidecar operation the allowance let
+        #: through, recorded for the same reason: a derived-cache refresh
+        #: that is invisible is indistinguishable from one that never
+        #: happened, and every harness build on 2026-08-07 was flagged on
+        #: exactly that.
+        self.library_index_churn: list = []
         # Cheap textual prefixes: the shared repo itself, and this lane's
         # mount points (which are SYMLINKS into it, so a relative
         # ``OSM_data/...`` write never mentions the repo path at all).
@@ -833,10 +906,10 @@ class SharedRepoWriteGuard:
 
         ``op`` is the guard's own token for the call being made (``open``,
         ``os_open``, ``rename``, ``mkdir``, …).  It exists for ONE reason:
-        the lock-file allowance is scoped to the two operations the
-        engine's lock primitive performs (:data:`LOCK_FILE_OPS`), so a
-        ``.lock`` path reached by any other call still refuses.  The
-        default (``None``) is the conservative one — no allowance.
+        each allowance is scoped to the operations its writer actually
+        performs (:data:`LOCK_FILE_OPS`, :data:`LIB_INDEX_FILE_OPS`), so an
+        allowed path reached by any other call still refuses.  The default
+        (``None``) is the conservative one — no allowance.
         """
         try:
             s = os.fspath(path)
@@ -860,6 +933,11 @@ class SharedRepoWriteGuard:
             # COORDINATION STATE, not corpus data — see
             # LOCK_ARTIFACT_SUFFIX.  Recorded, never silent.
             self.lock_churn.append({"path": rel, "op": op})
+            return None
+        if op in LIB_INDEX_FILE_OPS and is_library_index_artifact(rel):
+            # DERIVED INSTALL-INDEX CACHE, not corpus data — see
+            # LIB_INDEX_ARTIFACT_RE.  Recorded, never silent.
+            self.library_index_churn.append({"path": rel, "op": op})
             return None
         scope = scope_of(rel)
         if scope in self.requested:
@@ -973,12 +1051,23 @@ def report_unauthorised_writes(changes: dict, requested: set,
     one visible in an after-snapshot means a holder died mid-section, not
     that the corpus changed.  It is named, because a lingering lock does
     block the next lane's critical section until it goes stale.
+
+    LIBRARY-INDEX CHURN is reported the same way and also never
+    contaminates: the ``Airport_mod_cache`` sidecar is derived cache (see
+    :data:`LIB_INDEX_ARTIFACT_RE`), and one modified inside this build's
+    window was rewritten by whichever engine process first noticed the
+    X-Plane install had changed — usually not this one.  That
+    cross-attribution is why every harness build on 2026-08-07 reported a
+    side effect on a file none of them wrote.
     """
-    offenders, lock_churn = [], []
+    offenders, lock_churn, index_churn = [], [], []
     for kind in ("added", "modified", "removed"):
         for rel in changes[kind]:
             if is_lock_artifact(rel):
                 lock_churn.append({"path": rel, "kind": kind})
+                continue
+            if is_library_index_artifact(rel):
+                index_churn.append({"path": rel, "kind": kind})
                 continue
             scope = scope_of(rel)
             if scope in requested:
@@ -988,11 +1077,20 @@ def report_unauthorised_writes(changes: dict, requested: set,
         prog.note(f"   lock churn (coordination state, NOT corpus data): "
                   f"{lc['kind']} {lc['path']} — a lock file outliving the "
                   f"build means its holder died inside the critical section")
+    for ic in index_churn:
+        prog.note(f"   library-index churn (derived cache, NOT corpus "
+                  f"data): {ic['kind']} {ic['path']} — a concurrent engine "
+                  f"process refreshed the shared install-index sidecar "
+                  f"after the X-Plane install's scenery_packs.ini / "
+                  f"library.txt changed")
     if not offenders:
         prog.note("shared repo UNCHANGED by this build (full-surface "
                   "before/after snapshot) — no side-effect mutation"
                   + (f"; {len(lock_churn)} lock file(s) left behind, which "
-                     f"are not corpus data" if lock_churn else ""))
+                     f"are not corpus data" if lock_churn else "")
+                  + (f"; {len(index_churn)} library-index sidecar "
+                     f"refresh(es), which are derived cache"
+                     if index_churn else ""))
         return offenders
     prog.note(f"!! SHARED-REPO SIDE EFFECT: this build wrote "
               f"{len(offenders)} path(s) NOBODY authorised — owner ruling "
@@ -1338,6 +1436,12 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
                   f"data): {len(guard.lock_churn)} operation(s), e.g. "
                   f"{guard.lock_churn[0]['op']} "
                   f"{guard.lock_churn[0]['path']}")
+    if guard.library_index_churn:
+        prog.note(f"library-index churn allowed (derived install-index "
+                  f"cache, never corpus data): "
+                  f"{len(guard.library_index_churn)} operation(s), e.g. "
+                  f"{guard.library_index_churn[0]['op']} "
+                  f"{guard.library_index_churn[0]['path']}")
     out_dir.mkdir(parents=True, exist_ok=True)
     osm = out_dir / f"{tag}.osm"
     layout.to_osm(str(osm))
@@ -1381,6 +1485,7 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
         "write_guard_armed": guard.enabled,
         "write_guard_blocked": list(guard.blocked),
         "write_guard_lock_churn": list(guard.lock_churn),
+        "write_guard_library_index_churn": list(guard.library_index_churn),
         "dem_frame_effective": frame_surface_keys(root),
         "dem_inset_provenance": getattr(layout, "dem_inset_provenance", None),
         "anchor": (list(layout.anchor) if layout.anchor is not None else None),
@@ -1695,6 +1800,7 @@ def main(argv=None) -> int:
     frame["write_guard_armed"] = guard.enabled
     frame["write_guard_blocked"] = guard.blocked
     frame["write_guard_lock_churn"] = guard.lock_churn
+    frame["write_guard_library_index_churn"] = guard.library_index_churn
     frame["allow_degraded_dem"] = bool(args.allow_degraded_dem)
     frame["dem_frame_effective"] = frame_surface_keys(root)
     frame["synthetic_dem"] = result.get("synthetic_dem")

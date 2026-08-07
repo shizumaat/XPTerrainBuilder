@@ -22,11 +22,13 @@ X-Plane, no network) and they run in the normal suite.
   scope, a shared-repo write outside an authorised scope is reported as a
   ruling violation, and the refresh lock refuses-and-reports on contention
   instead of blocking or racing.
-* §6b THE LOCK ALLOWANCE AND THE SWALLOWED DEGRADATION — the engine's own
-  cross-process ``.lock`` file passes the write guard (coordination state,
-  never corpus data) while a real data write beside it still refuses; and a
-  degradation the engine CAUGHT — a blocked write, or a layout with no DEM
-  provenance — refuses instead of exiting 0 on a silently smaller layout.
+* §6b THE LOCK AND LIBRARY-INDEX ALLOWANCES, AND THE SWALLOWED
+  DEGRADATION — the engine's own cross-process ``.lock`` file and its
+  derived ``Airport_mod_cache`` library-index sidecar pass the write guard
+  (coordination state and derived cache; neither is corpus data) while a
+  real data write beside either still refuses; and a degradation the
+  engine CAUGHT — a blocked write, or a layout with no DEM provenance —
+  refuses instead of exiting 0 on a silently smaller layout.
 """
 from __future__ import annotations
 
@@ -1587,12 +1589,14 @@ def test_every_build_result_carries_the_frame_and_guard_state(build_mod):
     import inspect
     src = inspect.getsource(build_mod.build_patch)
     for key in ("write_guard_armed", "write_guard_blocked",
-                "write_guard_lock_churn", "dem_frame_effective"):
+                "write_guard_lock_churn", "write_guard_library_index_churn",
+                "dem_frame_effective"):
         assert f'"{key}"' in src, f"build_patch result omits {key}"
 
 
 # ══════════════════════════════════════════════════════════════════════
-# §6b THE LOCK-FILE ALLOWANCE, AND THE SWALLOWED-DEGRADATION REFUSALS
+# §6b THE LOCK-FILE AND LIBRARY-INDEX ALLOWANCES, AND THE
+#     SWALLOWED-DEGRADATION REFUSALS
 # ══════════════════════════════════════════════════════════════════════
 # Landed 2026-08-07 against a MEASURED defect (``tmp/sliver_attrib``): a
 # real-DEM ``build_airport.py HECA --patch-only`` had its DEM prep blocked
@@ -1603,6 +1607,19 @@ def test_every_build_result_carries_the_frame_and_guard_state(build_mod):
 # 34-36 k, whole roles absent.  Two halves, twinned separately: the lock
 # file is coordination state and must pass, and a degradation the engine
 # swallowed must never exit 0.
+#
+# The LIBRARY-INDEX half is the same ruling on a second artifact class,
+# from the nidrepair 2026-08-07 measurement: every harness build reported
+# a shared-repo side effect on
+# ``Airport_mod_cache/o4_library_index_768a6b59d2781165.cache`` while its
+# own ``write_guard_blocked`` was empty.  The X-Plane install's
+# ``scenery_packs.ini`` had been touched OUTSIDE the guarded repo, one
+# engine process rewrote the derived sidecar, and the write landed inside
+# every concurrently-open snapshot window — cross-attributed to builds
+# that never wrote it.  The same allowance closes the other end: a
+# guarded build that is itself the first reader has its refusal swallowed
+# by ``agp_reader``'s ``except Exception`` and is then rc=2'd by
+# ``require_no_swallowed_write_block``.
 
 LOCK_REL = "Elevation_data/+30+030/.lock_VIEWFINDER3_N30E031.lock"
 
@@ -1713,6 +1730,127 @@ def test_lock_churn_in_the_after_snapshot_is_not_CONTAMINATION(build_mod):
         "Elevation_data/+30+030/N30E031.hgt"]
     assert any("lock churn" in n for n in notes), (
         "lock churn must be REPORTED, never silently dropped")
+
+
+# ── the library-index allowance ──────────────────────────────────────
+
+#: The sidecar the nidrepair frames named, in the writer's own naming:
+#: 16 hex of ``sha1(xplane_root)``, directly under the cache directory.
+LIB_INDEX_REL = ("Airport_mod_cache/"
+                 "o4_library_index_0123456789abcdef.cache")
+
+
+def _index_repo(tmp_path):
+    """A fake shared repo with the ``Airport_mod_cache`` directory the
+    library-index sidecar lives in, plus an empty lane."""
+    repo = tmp_path / "repo"
+    (repo / "Airport_mod_cache").mkdir(parents=True)
+    lane = tmp_path / "lane"
+    lane.mkdir()
+    return repo, lane
+
+
+def test_the_guard_ALLOWS_the_library_index_sidecar_and_records_the_churn(
+        build_mod, tmp_path):
+    """The diagnosed site: ``agp_reader._write_library_index_sidecar``
+    writes a ``.o4_library_index_*.tmp`` sibling and ``os.replace``s it
+    onto the cache name.  The file is a byte-deterministic function of the
+    X-Plane install — which lives OUTSIDE the guarded repo — so whichever
+    process first notices ``scenery_packs.ini`` changed rewrites it, and
+    refusing that write neither protects the corpus nor stops it being
+    cross-attributed to every concurrent build."""
+    import tempfile
+    repo, lane = _index_repo(tmp_path)
+    cache_dir = repo / "Airport_mod_cache"
+    final = repo / LIB_INDEX_REL
+    guard = build_mod.SharedRepoWriteGuard(set(), lane, repo=repo)
+    with guard:
+        fd, tmp = tempfile.mkstemp(dir=str(cache_dir),
+                                   prefix=".o4_library_index_",
+                                   suffix=".tmp")
+        with os.fdopen(fd, "wb") as sidecar_file:
+            sidecar_file.write(b"pickled index")
+        os.replace(tmp, str(final))
+    assert final.read_bytes() == b"pickled index"
+    assert guard.blocked == []
+    ops = [c["op"] for c in guard.library_index_churn]
+    assert ops == ["os_open", "replace", "replace"], (
+        "the allowance must RECORD every operation it let through, both "
+        "paths of the rename included — 'the repo was untouched apart "
+        "from the ruled index churn' is a fact in the artifact")
+    assert guard.library_index_churn[-1]["path"] == LIB_INDEX_REL
+
+
+def test_the_ENGINES_OWN_library_index_writer_passes_the_armed_guard(
+        build_mod, tmp_path):
+    """THE KNOWN-ANSWER TWIN (RULINGS 2026-08-06, instrument truth): the
+    allowance is asserted against the real
+    ``agp_reader._write_library_index_sidecar``, not against this test's
+    idea of what it does.  If that writer ever changes its naming or its
+    calls, this fails HERE — instead of re-flagging every harness build as
+    CONTAMINATED, or having its refusal swallowed by the writer's own
+    ``except Exception`` and rc=2'ing a good build."""
+    from auto_patch import agp_reader
+    repo, lane = _index_repo(tmp_path)
+    sidecar = repo / LIB_INDEX_REL
+    guard = build_mod.SharedRepoWriteGuard(set(), lane, repo=repo)
+    with guard:
+        agp_reader._write_library_index_sidecar(
+            str(sidecar), "f" * 40, {"lib/x": "/y"})
+    assert sidecar.exists(), (
+        "the writer swallows its own exceptions, so a refused write is "
+        "visible only as a MISSING sidecar")
+    assert guard.blocked == []
+    assert [c["op"] for c in guard.library_index_churn] == [
+        "os_open", "replace", "replace"]
+
+
+def test_a_REAL_Airport_mod_cache_write_STILL_refuses(build_mod, tmp_path):
+    """The allowance must not become a door into the cache directory.
+    Three ways past it, all refused: the right name reached by the wrong
+    call, another cache under the same scope, and the right basename one
+    directory deeper."""
+    repo, lane = _index_repo(tmp_path)
+    sidecar = repo / LIB_INDEX_REL
+    apt_index = repo / "Airport_mod_cache/Global Airports/apt_index.cache"
+    nested = repo / "Airport_mod_cache/sub" / os.path.basename(LIB_INDEX_REL)
+    with build_mod.SharedRepoWriteGuard(set(), lane, repo=repo) as guard:
+        with pytest.raises(build_mod.SharedRepoWriteBlocked) as exc:
+            open(sidecar, "w").write("not the sidecar writer")
+        with pytest.raises(build_mod.SharedRepoWriteBlocked):
+            os.open(str(apt_index), os.O_CREAT | os.O_WRONLY)
+        with pytest.raises(build_mod.SharedRepoWriteBlocked):
+            os.open(str(nested), os.O_CREAT | os.O_WRONLY)
+    assert "airport_mod_cache" in str(exc.value), (
+        "the refusal must name the refresh scope")
+    assert not sidecar.exists() and not apt_index.exists()
+    assert not nested.exists(), "the guard must prevent, not just report"
+    assert guard.library_index_churn == []
+
+
+def test_library_index_churn_in_the_after_snapshot_is_not_CONTAMINATION(
+        build_mod):
+    """THE MEASURED DEFECT, replayed: the nidrepair 2026-08-07 frames each
+    carried ``write_guard_blocked: []`` and a modified
+    ``o4_library_index_768a6b59d2781165.cache`` — a write neither build's
+    guarded code made, minted CONTAMINATED by the snapshot alone."""
+    notes = []
+    prog = types.SimpleNamespace(note=notes.append)
+    measured = "Airport_mod_cache/o4_library_index_768a6b59d2781165.cache"
+    offenders = build_mod.report_unauthorised_writes(
+        {"added": [], "modified": [measured], "removed": []}, set(), prog)
+    assert offenders == []
+    assert not any("SHARED-REPO SIDE EFFECT" in n for n in notes)
+    assert any("library-index churn" in n for n in notes), (
+        "index churn must be REPORTED, never silently dropped")
+
+    notes.clear()
+    apt_index = "Airport_mod_cache/Global Airports/apt_index.cache"
+    offenders = build_mod.report_unauthorised_writes(
+        {"added": [], "modified": [measured, apt_index], "removed": []},
+        set(), prog)
+    assert [o["path"] for o in offenders] == [apt_index], (
+        "the allowance covers ONE derived file, not its whole scope")
 
 
 # ── the swallowed-degradation refusals ───────────────────────────────
@@ -1873,6 +2011,7 @@ def test_the_refusals_are_WIRED_IN_not_merely_defined(build_mod):
     assert "require_no_swallowed_write_block(" in main_src, (
         "--tile does not go through build_patch and would keep the hole")
     for key in ('frame["write_guard_lock_churn"]',
+                'frame["write_guard_library_index_churn"]',
                 'frame["allow_degraded_dem"]'):
         assert key in main_src, f"the frame artifact omits {key}"
 

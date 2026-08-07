@@ -766,8 +766,17 @@ def groundside_route_band(layout):
     # a HEAZ build failing on 5 "inversions" the solve never saw.  The
     # values are snapshotted and restored, exactly as an instrument
     # restores the node-space indices it perturbs.
+    # The two NODE-SPACE INDICES ``_build_node_list`` publishes are in the
+    # stash for the same reason: they are IN ITS OWN node space, and a
+    # later pass reading them against a different one is the node-space
+    # trap this repo has paid for repeatedly.  ``_analytic_band`` in the
+    # harness oracle restores exactly these two; a probe that reads a
+    # layout must leave it as it found it.
     _STASH = ("_final_band_inversions", "_final_band_node_count",
-              "_band_anchor_provenance")
+              "_band_anchor_provenance",
+              "_terrain_host_yield_first_index",
+              "_adjacent_ground_first_zone_index",
+              "_pav_vis_cache")
     saved = {a: getattr(layout, a, None) for a in _STASH}
     try:
         from .elevation_per_surface.solver_primitives import _build_node_list

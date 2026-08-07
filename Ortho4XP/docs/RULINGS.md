@@ -862,3 +862,42 @@ O4_SVC_CURVED_JUNCTION experiment outright (the open call from STATUS
 20260731d). WITHHELD: timing-baseline re-record — stays deferred to
 the final-design profiling round; spurious REGRESSION rows remain
 expected until then.
+
+## 2026-08-07 — Shared-repo guard scope: lock files are coordination state; a swallowed DEM prep failure refuses (round delegation; provisional pending owner merge)
+
+From the sliver-attribution round's defect (tmp/sliver_attrib
+dossier §5): under the armed shared-repo write guard,
+`build_airport.py HECA --patch-only` had its production-parity DEM
+prep blocked on the elevation provider's `.lock` file;
+`auto_patch.elevation._load_airport_dem`'s single `except
+Exception` turned the refusal into a WARN line and the build exited
+0 on a silently smaller layout (18.5 k nodes vs production's
+34-36 k; retaining_wall / ols_cut / crown_spine / gap_interior_ring
+absent; `dem_inset_provenance: null`).
+
+RULED (landed lane/demfix 225fad3, instrument-side only):
+
+1. GUARD SCOPE. A `.lock` sibling inside the shared corpus is
+   COORDINATION STATE, never corpus data: the guard allows exactly
+   the two calls the engine's lock primitive
+   (`O4_File_Lock.hold_file_lock`) makes on one — the exclusive
+   `os.open` create and the `os.remove`/`os.unlink` release — and
+   nothing else. Any other operation on a `.lock` path and every
+   real data write beside it still refuse. Allowed lock operations
+   are RECORDED (`write_guard_lock_churn` in `<tag>.result.json` /
+   `<tag>.frame.json`); a lock file in the after-snapshot is named
+   churn, never contamination.
+
+2. SWALLOWED DEGRADATION. A refusal the build catches is not a
+   refusal: a build during which the guard blocked any write, or
+   whose layout carries no DEM provenance at all, REFUSES before
+   the patch is written (both detectors in `build_patch`, so
+   oracle.py and who_wrote.py inherit; `--tile` runs detector 1 in
+   main). `--allow-degraded-dem` proceeds knowingly, is recorded in
+   frame.json, and authorises NO write. `--refresh-data` remains
+   the only act that changes the corpus, and is never required
+   merely to run a patch-only build on the shared corpus.
+
+Twins: tests/test_harness.py section 6b (12 new; suite 117).
+Provisional until the owner merges lane/demfix (READY-TO-MERGE in
+the HANDOVER queue).

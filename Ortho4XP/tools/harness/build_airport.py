@@ -1069,7 +1069,7 @@ def require_no_swallowed_write_block(blocked, *, allow_degraded: bool = False,
            f"production's frame.")
     if not allow_degraded:
         if prog is not None:
-            prog.note("EXIT rc=2 REFUSED: " + msg)
+            prog.note("EXIT rc=1 REFUSED: " + msg)
         raise SystemExit("REFUSING to report this build: " + msg + "\n"
                          + _DEGRADED_OPTIONS)
     if prog is not None:
@@ -1105,7 +1105,7 @@ def require_dem_prep_succeeded(provenance, *, allow_degraded: bool = False,
            "production's 34-36 k).")
     if not allow_degraded:
         if prog is not None:
-            prog.note("EXIT rc=2 REFUSED: " + msg)
+            prog.note("EXIT rc=1 REFUSED: " + msg)
         raise SystemExit("REFUSING to report this build: " + msg + "\n"
                          + "The build log's '[pav-builder] WARN: "
                            "production-parity DEM prep failed' line names "

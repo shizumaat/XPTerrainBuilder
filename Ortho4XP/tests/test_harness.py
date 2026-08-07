@@ -2401,3 +2401,126 @@ def test_the_frame_is_always_stamped_in_the_report(census_mod):
     two-instruments trap by construction."""
     src = Path(inspect.getfile(census_mod)).read_text()
     assert '"axis_frame": frame_stamp' in src
+
+
+# ── THE ROW ITEMISATION (--rows-json) ────────────────────────────────
+#
+# The dump's whole claim is that it is the census's OWN population,
+# itemised — not a second measurement of the same patch.  Every twin here
+# is that claim in one form or another, because a row dump that drifted
+# from the counts beside it would be the census-wrapper defect reborn at
+# row level: two instruments, one assumed population.
+
+def _censused_with_rows(census_mod, cg, tmp_path):
+    """The shipped fixture patch, censused once with the row dump on."""
+    osm = tmp_path / "rows.osm"
+    osm.write_bytes(FIXTURE_PATCH.read_bytes())
+    (tmp_path / "rows.osm.axes.json").write_text(json.dumps({"anchor": None}))
+    out = tmp_path / "rows.json"
+    rep = census_mod.census_one(osm, cg, top=5, rows_out=out)
+    return rep, json.loads(out.read_text())
+
+
+def test_the_row_dump_is_the_reports_own_population(census_mod, cg,
+                                                    tmp_path):
+    """KNOWN ANSWER: the dump's length is the report's own law-true total,
+    and its class tally IS the report's class table — recomputed from the
+    rows, never copied."""
+    rep, dump = _censused_with_rows(census_mod, cg, tmp_path)
+    assert dump["n_rows"] == len(dump["rows"]) == rep["lawtrue"]["total"]
+    assert rep["lawtrue"]["total"] > 0, (
+        "the fixture stopped producing rows — this twin would pass vacuously")
+    from collections import Counter as _C
+    tally = _C(f"{r['family']}::{r['roles']}" for r in dump["rows"])
+    assert dict(tally.most_common()) == rep["classes"]
+
+
+def test_the_row_dump_carries_the_laws_own_side_split(census_mod, cg,
+                                                      tmp_path):
+    """Same for the side partition — the number "airside is king" is
+    applied to must be re-derivable from the rows alone."""
+    rep, dump = _censused_with_rows(census_mod, cg, tmp_path)
+    from collections import Counter as _C
+    sides = _C(r["side"] for r in dump["rows"])
+    for side in ("airside", "groundside", "mixed", "unknown"):
+        assert sides.get(side, 0) == rep["lawtrue"][side]
+    assert (sides.get("airside", 0) + sides.get("mixed", 0)
+            == rep["lawtrue"]["airside_for_acceptance"])
+
+
+def test_the_row_dump_agrees_with_the_worst_table_row_for_row(census_mod,
+                                                              cg, tmp_path):
+    """The dump is emitted from the SAME magnitude-sorted list the worst-N
+    table is sliced from, so the table must be its prefix — one ordering,
+    one severity accessor."""
+    rep, dump = _censused_with_rows(census_mod, cg, tmp_path)
+    n = len(rep["worst"])
+    assert n > 0
+    for a, b in zip(rep["worst"], dump["rows"][:n]):
+        assert (a["family"], a["roles"], a["side"], a["magnitude_m"]) == \
+               (b["family"], b["roles"], b["side"], b["magnitude_m"])
+
+
+def test_the_row_dump_is_stamped_with_its_frame(census_mod, cg, tmp_path):
+    """RULINGS 2026-08-06 binding point 3.  Two dumps taken in different
+    axis frames must not be joinable without it showing."""
+    _rep, dump = _censused_with_rows(census_mod, cg, tmp_path)
+    assert dump["axis_frame"]["frame"] == "own"
+    assert dump["law_true_knobs"] and "provenance" in dump
+
+
+def test_no_row_dump_is_written_unless_asked(census_mod, cg, tmp_path):
+    """Inertness: the default census must not grow a file."""
+    osm = tmp_path / "plain.osm"
+    osm.write_bytes(FIXTURE_PATCH.read_bytes())
+    (tmp_path / "plain.osm.axes.json").write_text(json.dumps({"anchor": None}))
+    census_mod.census_one(osm, cg, top=1)
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "plain.osm", "plain.osm.axes.json"]
+
+
+def test_several_patches_get_one_dump_each(census_mod, cg, tmp_path):
+    """A single --rows-json over N patches used to be a footgun in every
+    lane script that grew one: the last patch silently wins."""
+    a, b = tmp_path / "a.osm", tmp_path / "b.osm"
+    for p in (a, b):
+        p.write_bytes(FIXTURE_PATCH.read_bytes())
+        p.with_suffix(".osm.axes.json").write_text(
+            json.dumps({"anchor": None}))
+    out = tmp_path / "dump.json"
+    assert census_mod.main([str(a), str(b), "--quiet",
+                            "--rows-json", str(out)]) == 0
+    assert (tmp_path / "dump.a.json").exists()
+    assert (tmp_path / "dump.b.json").exists()
+
+
+def test_row_record_spells_a_row_the_way_the_class_table_keys_it(cg,
+                                                                 census_mod):
+    """KNOWN ANSWER on a hand-built row, because the shipped fixture's
+    rows happen to be same-role pairs — on that patch a role pair spelled
+    in the wrong ORDER would still tally correctly, and the dump would
+    only diverge from the class table on real airports.  The class table's
+    key is ``family::sorted(roles)``; the dump must use the same spelling
+    or the two cannot be joined."""
+    class _W:
+        def __init__(self, role, wid):
+            self.tags, self.wid = {"role": role}, wid
+
+    class _Row:
+        de_m = -0.42
+        distance_m = 10.0
+        grade_pct = 4.2
+        cap_pct = 1.0
+        pt_a, pt_b = (1.234, 5.678), (9.0, 10.0)
+        lat, lon = 30.1, 31.4
+        out_of_scope = None
+
+        def __init__(self):
+            self.way_a, self.way_b = _W("service_junction", 7), _W("apron", 3)
+
+    rec = census_mod.row_record(cg, "within_shape", _Row())
+    assert rec["roles"] == "apron|service_junction", (
+        "the dump spells the role pair differently from the class table")
+    assert rec["side"] == "mixed" and rec["magnitude_m"] == 0.42
+    assert rec["site_m"] == [[1.23, 5.68], [9.0, 10.0]]
+    assert rec["way_a"] == 7 and rec["way_b"] == 3

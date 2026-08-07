@@ -2643,6 +2643,48 @@ def _check_lateral_contiguity(ways: List[Way], nodes, ll_to_m
     return out, n_stations, len(shapes_flagged)
 
 
+def _axes_to_m(taxi_axes_ll: Optional[list], ll_to_m) -> Optional[list]:
+    """The sidecar's taxi axes in the audit's METRE frame, SLOTS INTACT.
+
+    THE SLOTS ARE THE READER'S CONTRACT.  ``law_context_from_sidecar``
+    emits ``(pts, seg_caps, None, route_ordinal, is_service)``: the 4th
+    slot is the builder's route ordinal (identity binding), the 5th is the
+    sidecar's IS_SERVICE flag — a truck route is not an aircraft spine
+    (``grade_graph._reads_service_spines``), and both metre-frame readers
+    of that flag (``_grade_context_from_osm``'s ``Centerline.is_service``
+    and ``_check_transverse_grade``'s ``_axis_is_svc``) resolve it by
+    POSITION.
+
+    This conversion used to truncate the tuple at 4, so the flag never
+    arrived, every axis read as an aircraft spine, and the service-axis
+    rule those readers each state never fired once.  The transverse law is
+    the one that mints rows off it: a service axis stamped apron
+    cross-sections it has no spine for (measured HECA, arms b6936ed /
+    0c003ba after the road feed joined the graph — ``transverse::apron|
+    apron`` 10 000 m 57 -> 185 and 69 -> 205, −500 m 62 -> 210 and
+    54 -> 197; 555 rows over the four patches, every one traceable to a
+    service axis).  A legacy 3- or 4-slot sidecar keeps its own length and
+    reads as all-taxi, which is how it was graded.
+
+    Degenerate (<2 point) axes are dropped, as they always were.
+    """
+    if not taxi_axes_ll:
+        return None
+    out: List[tuple] = []
+    for entry in taxi_axes_ll:
+        latlon_pts, cL, cT = entry[0], entry[1], entry[2]
+        poly = [ll_to_m(lat, lon) for (lat, lon) in latlon_pts]
+        if len(poly) < 2:
+            continue
+        if len(entry) < 4:
+            out.append((poly, cL, cT))
+        elif len(entry) < 5:
+            out.append((poly, cL, cT, entry[3]))
+        else:
+            out.append((poly, cL, cT, entry[3], bool(entry[4])))
+    return out
+
+
 def _transverse_cap_for_seg_cap(cap_l: float) -> float:
     """The TRANSVERSE cap ``cT`` for a centreline segment whose emitted
     LONGITUDINAL cap is ``cap_l`` — the sidecar carries the longitudinal
@@ -4861,16 +4903,7 @@ def run_checks(
         seam_nids = _seam_nids(nodes)
 
     # Convert apt.dat centerlines (lat/lon) into the audit's meter frame.
-    taxi_axes = None
-    if taxi_axes_ll:
-        taxi_axes = []
-        for entry in taxi_axes_ll:
-            latlon_pts, cL, cT = entry[0], entry[1], entry[2]
-            poly = [ll_to_m(lat, lon) for (lat, lon) in latlon_pts]
-            if len(poly) >= 2:
-                # keep the builder's route ordinal (4th element) when present
-                taxi_axes.append((poly, cL, cT) if len(entry) < 4
-                                 else (poly, cL, cT, entry[3]))
+    taxi_axes = _axes_to_m(taxi_axes_ll, ll_to_m)
 
     def _pv(*a, **k):
         if not quiet:

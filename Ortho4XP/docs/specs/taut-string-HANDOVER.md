@@ -16,7 +16,18 @@ pre-flip -> new default): SPJC 1698->1366, SPLP 50->27, CYXY 171->155,
 HECA 9649->9125, KCLT 2908->2643; BATTERY 14,476->13,316 (-1,160),
 seam +15 (ruled accepted). Every prior anchor list below is HISTORY.
 
-**RELEASE TRAIN (owner 2026-08-06 22:48 PDT): fresh Mac app for
+**TRAIN STOPPED PER OWNER GATE (00:30 08-07): HECA airside <100
+proven unreachable (3,734 after the one safe fix, −395; ladder:
+convergence 2%, the remainder = FOUR structures — pad-frontage
+chords ~1,870 / relief generation (b) 1,368-at-blanket-5% /
+feature-weld hardening 2,045 both-hard / on-DEM stranding (a)-vs-(d)
+OWNER ADJUDICATION PENDING). NO APP BUILT. Retrospective:
+docs/retrospective-2026-08-07.md (delivered). c9air MERGED. c9feed
+still in flight (groundside; merge on report). Next rounds ranked in
+the retrospective: owner item-4 sentence → pad-frontage round →
+relief generation (scope WITH deferred drainage) → hardening round.**
+
+**RELEASE TRAIN (owner 2026-08-06 22:48 PDT, superseded above): fresh Mac app for
 testing by 06:00 PDT 08-07. HARD FREEZE 03:30** (a lane not
 merge-ready PARKS) → serial merge + flat tip battery 03:45 → release
 build 04:30 (make_engine freeze-freshness check; make_app TCC/

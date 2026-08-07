@@ -807,12 +807,31 @@ CAMPAIGN GOAL is unchanged; this is a test build, not acceptance.
 
 ## 2026-08-07 — Item-4 (on-DEM airside stranding): evidence before ruling (owner)
 
-Owner: no (a)-vs-(d) ruling yet. Deliverable first: a KML of the 140
+Owner: no (a)-vs-(d) ruling yet. Deliverable first: a KML of the
 on-DEM airside vertices with per-vertex COUPLING CLASSIFICATION
 (route edge / frontage / weld / none) plus a written dossier (counts
 per class, worst-10 table, per-class (a)-vs-(d) implication). The
 ruling follows the evidence review. No fix work on this class until
 the sentence lands.
+
+EVIDENCE LANDED same day (Ortho4XP/tmp/item4_evidence/, frame c9air
+fix1 e9620ff4, twinned against the lane's recorded census): the
+retrospective's "140 vertices / 89 rows" were instrument-frame
+artifacts (140 = a way-INCIDENCE count under the geom_guard
+partition, labelled hypothesis; 89 irreproducible from any surviving
+artifact — 2-attempt cap). True law-partition population: 620 (−500)
+/ 88 (10k) airside-role on-DEM vertices; ≥10 m adjudicated airside
+rows 48 / 53. Coupling: route-edge 0, frontage 0, WELD carries 100%
+of the defect mass (identity welds on adjacent_ground band rings; 29
+minting vertices), uncoupled = 512 wall-feet minting ZERO rows. The
+ONE-graph point-3 "truly disconnected" class is EMPTY both worlds.
+48/48 −500 rows: on-DEM endpoint sits ON a retaining_wall way;
+47/48 the law-valued partner does not — the wall-spanned exemption
+misses one-sided boundaries. The owner's question is therefore NOT
+coupling but: may the adjacent-ground band's outer edge / wall-foot
+node take the DEM value ((d): extend the wall exemption one-sided),
+or must every welded node of a law-valued ring seat from its ring
+((a): missing seat)?
 
 ## 2026-08-07 — Round order ratified; c9feed probe runs parallel (owner)
 

@@ -16,6 +16,19 @@ pre-flip -> new default): SPJC 1698->1366, SPLP 50->27, CYXY 171->155,
 HECA 9649->9125, KCLT 2908->2643; BATTERY 14,476->13,316 (-1,160),
 seam +15 (ruled accepted). Every prior anchor list below is HISTORY.
 
+**RELEASE TRAIN (owner 2026-08-06 22:48 PDT): fresh Mac app for
+testing by 06:00 PDT 08-07. HARD FREEZE 03:30** (a lane not
+merge-ready PARKS) → serial merge + flat tip battery 03:45 → release
+build 04:30 (make_engine freeze-freshness check; make_app TCC/
+LaunchServices traps, direct-exec smoke; tiles +30+031 then +35-081,
+.hgt check; RELEASE_NOTES honest known-remaining) → deliver 06:00.
+Release bar (owner ruling): zero adjudicated AIRSIDE; groundside
+ships named. IN FLIGHT: c9feed (road feed joins the graph,
+cycle9-road-feed-spec) + c9air (airside-residual attribution+bounded
+fixes). Owner decisions landed: DSF cleanup DONE+ledgered (535 dirs);
+point-4 scoped; partition RATIFIED (in RULINGS); NO joints across
+any road (terrace-r2 Q closed).
+
 **SESSION CHECKPOINT — 2026-08-06, HEAD 34088fe (+ the fix3b merge in
 flight). FRESH SESSION BOOTS HERE; the ~17:30 block below is HISTORY.**
 Read: RULINGS.md end-to-end, tools/INDEX.md, BASELINES.md (scratchpad

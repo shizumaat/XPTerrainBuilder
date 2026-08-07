@@ -22,8 +22,13 @@ merge-ready PARKS) → serial merge + flat tip battery 03:45 → release
 build 04:30 (make_engine freeze-freshness check; make_app TCC/
 LaunchServices traps, direct-exec smoke; tiles +30+031 then +35-081,
 .hgt check; RELEASE_NOTES honest known-remaining) → deliver 06:00.
-Release bar (owner ruling): zero adjudicated AIRSIDE; groundside
-ships named. IN FLIGHT: c9feed (road feed joins the graph,
+**RELEASE GATE (owner 2026-08-06 ~23:00): HECA adjudicated AIRSIDE
+< 100 at 04:00 PDT ⇒ proceed with the app build; ≥ 100 ⇒ STOP, no
+app — conduct a retrospective and deliver an owner report on what
+the remaining defects are and why they resist elimination. Current:
+4,129 (−500) / 4,006 (canyon) — lead applies the gate to BOTH worlds
+(conservative reading, flagged to owner). Groundside ships named
+either way.** IN FLIGHT: c9feed (road feed joins the graph,
 cycle9-road-feed-spec) + c9air (airside-residual attribution+bounded
 fixes). Owner decisions landed: DSF cleanup DONE+ledgered (535 dirs);
 point-4 scoped; partition RATIFIED (in RULINGS); NO joints across

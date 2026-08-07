@@ -448,13 +448,44 @@ def zone_split(osm: Path, cg, families: dict) -> dict:
     }
 
 
+def _axis_frame_override(osm: Path, cg, frame: str) -> tuple[dict, dict]:
+    """``(overrides, stamp)`` for the census's AXIS FRAME.
+
+    ``own`` — the patch's own sidecar, unaltered.  THE default and the only
+    frame whose numbers are defect counts.
+
+    ``base`` — the same patch bytes read with the SERVICE axes removed from
+    its sidecar: the axis frame a pre-road-feed sidecar carried.  It exists
+    because a class can move between two builds either because the SURFACE
+    moved or because the axis population the reader judges it against did,
+    and those are different findings (cycle 9/10: HECA 10 000 m arm B read
+    airside 4,610 in its own frame and 4,474 in this one — the whole gap
+    was one instrument defect, since fixed).  Quoting it is a FRAME claim,
+    never a defect count, which is why the frame is stamped in the report
+    and printed rather than left to the reader's memory.
+
+    Route ordinals are untouched: the ``routes`` list keeps its indices, so
+    the surviving axes still point at the same routes.
+    """
+    if frame == "own":
+        return {}, {"frame": "own", "axes_total": None, "axes_kept": None}
+    ctx = cg.law_context_from_sidecar(osm, announce=False)
+    axes = ctx.get("taxi_axes_ll") or []
+    kept = [e for e in axes if not (len(e) > 4 and bool(e[4]))]
+    return ({"taxi_axes_ll": kept},
+            {"frame": "base", "axes_total": len(axes), "axes_kept": len(kept)})
+
+
 def census_one(osm: Path, cg, *, want_bare: bool = False,
                top: int = 10, want_zone_split: bool = False,
-               band_edges=None) -> dict:
-    """The census of ONE patch.  Returns the report dict; prints nothing."""
+               band_edges=None, frame: str = "own") -> dict:
+    """The census of ONE patch.  Returns the report dict; prints nothing.
+
+    ``frame`` selects the AXIS FRAME — see :func:`_axis_frame_override`."""
     families: dict = {}
+    axis_overrides, frame_stamp = _axis_frame_override(osm, cg, frame)
     within, cross, steps = cg.run_checks_law_true(
-        osm, family_out=families, quiet=True, top_n=0)
+        osm, family_out=families, quiet=True, top_n=0, **axis_overrides)
 
     # THE STEP EXEMPTION comes from the law register, not from a copy here
     # (``check_grade.step_exempt`` / ``STEP_EXEMPTIONS``).  It used to be a
@@ -546,6 +577,10 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
         "provenance": prov["provenance"],
         "provenance_reason": prov["reason"],
         "law_true_knobs": dict(cg.LAW_TRUE_KNOBS),
+        # THE AXIS FRAME, always stamped — "own" for every default run, so
+        # a report without the key is simply an older one and a report WITH
+        # it can never be mistaken for the other frame.
+        "axis_frame": frame_stamp,
         "ruleset_declared": declared,
         "ruleset_active": active,
         "lawtrue": {
@@ -870,6 +905,18 @@ def main(argv=None) -> int:
                          "and each carries the airside/groundside/mixed and "
                          "adjudicated/version-deferred splits — the reading "
                          "that ranks ownership rather than counting rows")
+    ap.add_argument("--frame", choices=("own", "base"), default="own",
+                    help="the AXIS FRAME the census reads the patch in.  "
+                         "'own' (default) is the patch's own sidecar and "
+                         "the only frame whose numbers are defect counts.  "
+                         "'base' re-reads the SAME patch bytes with the "
+                         "SERVICE axes removed from its sidecar — the axis "
+                         "population a pre-road-feed sidecar carried — so a "
+                         "class that moved between two builds can be split "
+                         "into 'the surface moved' and 'the axis frame "
+                         "moved'.  A base-frame number is a FRAME claim, "
+                         "never a defect count; the frame is stamped into "
+                         "the report either way")
     ap.add_argument("--zone-split", action="store_true",
                     help="also bucket the WITHIN-SHAPE rows by FAN-RAMP "
                          "ZONE membership (on a declared ramp piece / "
@@ -889,7 +936,7 @@ def main(argv=None) -> int:
         try:
             rep = census_one(osm, cg, want_bare=args.bare, top=args.top,
                              want_zone_split=args.zone_split,
-                             band_edges=band_edges)
+                             band_edges=band_edges, frame=args.frame)
         except FileNotFoundError as exc:
             raise SystemExit(
                 f"REFUSING: {exc}\n"

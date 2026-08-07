@@ -37,6 +37,23 @@ tree's 4 unmounted data dirs now symlink the shared repo; write
 guard gained the no-op ensure-dir allowance (twin in
 test_harness.py).**
 
+**ENCLAVE PHASE-1 STOP + CONTINUATION (08-07 ~21:00; lane/enclave
+efdeae6): walls 7/7 DEAD in-lane (specimen -12825 = gap ring+spine)
+but the lane REFUSED ITSELF at item 4 — the airside∪building
+keep-out deleted 152,734 m² of Annex-14 infield strip band
+(buildings pocket-subdivide the 3.4M m² infield that gap law
+declines on width; nothing then owns it). Ratified scoping
+(in-spec): keep-out from the PAVEMENT-ONLY pocket-width regions;
+airside_enclaves stays airside∪building for G-ENCLAVE. Continuation
+DISPATCHED (3-build cap): scoping verify + wall_foot_ll re-census +
+322 m² void attribution + SPJC inertness. NOTE: library-index churn
+now REFUSES intermittent builds (demfix detector on the chored
+class) — retry-once-warm is the interim; the owner's chip session
+owns the allowance fix. App 1.0.222 (engine 1.50.1667) cut from
+clean worktree at 7ccc430 mid-evening — carries slivers/road-feed/
+nid fixes, NOT the enclave fix (predates it) nor the concurrent
+tunnel session's uncommitted work.**
+
 **MATERIALITY FLOOR MERGED (08-07 ~19:30; lane/matfloor 4d40f03 →
 main; 166 harness twins green post-merge). THE SCOREBOARD: battery
 778 adjudicated sites → **502 ACTIONABLE** (484 visible-actionable;

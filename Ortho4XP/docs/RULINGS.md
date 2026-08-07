@@ -757,3 +757,34 @@ it within AIRSIDE law (airside wins the seat), after which the road
 and everything downstream grades per its OWN law (8% road, 5% lot,
 building frontage) from that seat. Reachability into groundside flows
 only through mouths; direction stays receiver-only.
+
+## 2026-08-06 — Instrument-truth point 4 SCOPED (owner)
+
+Owner: resolve by scope. "LOAD-BEARING" in binding point 4 means a
+quantity that GATES — it feeds adjudication, acceptance, or a verdict.
+Those require two independent instruments with agreement asserted.
+Pure EVIDENCE readers that share the one law code path stay
+single-authority: for them the single-code-path law is the stronger
+protection (the census-wrapper precedent). `band_excess` is compliant
+as built.
+
+## 2026-08-06 — The projection PARTITIONS (owner-ratified)
+
+Owner: "Ratified, airside first." Promoted from the cycle-8 spec
+addendum to owner law: EVERY projection partitions — airside projects
+FIRST with groundside pairs excluded from its constraint set;
+groundside projects AFTER against the frozen airside values.
+Receiver-only holds structurally in every projection; a shared
+projection IS a coupling (measured: +6/+5 airside rows from a
+groundside seat). The reorder alternative (groundside seats after the
+final projection) is FORBIDDEN as a mechanism — measured worse
+(434→493). Landed in lane/c8fin; both Q4 debts cured by it.
+
+## 2026-08-06 — No terrace joints across ANY road (owner)
+
+Owner, verbatim: "trucks cannot drive over a vertical step, no
+terraces in roads either." The terrace-r2 carried question is CLOSED:
+service-road routes STAY in the joint no-cross set, and the principle
+is general — a declared step/joint may never cross any ROAD of any
+class. Roads are continuous graded surfaces at their own caps, exactly
+like every route; terrace relief exists for non-route ground only.

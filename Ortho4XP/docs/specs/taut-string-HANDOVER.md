@@ -37,6 +37,22 @@ tree's 4 unmounted data dirs now symlink the shared repo; write
 guard gained the no-op ensure-dir allowance (twin in
 test_harness.py).**
 
+**MATERIALITY FLOOR MERGED (08-07 ~19:30; lane/matfloor 4d40f03 →
+main; 166 harness twins green post-merge). THE SCOREBOARD: battery
+778 adjudicated sites → **502 ACTIONABLE** (484 visible-actionable;
+274 sub-floor, max accumulation 0.4843 m, zero guard trips on the
+reclassified set by construction; per-cell table in the lane report
++ INDEX headline). Law-true byte-identical everywhere; the
+role-less class is GONE (hosts sided, 2 double-counts adjudicated
+out, 1,042 ways mint nothing). Interpretive call ratified in-spec
+(cap not re-applied — byte-identity is the binding intent). The
+campaign's remaining work is now stated as: 502 actionable sites,
+top-heavy (pre-floor: top 5 = 50.8% of rows), owned by the named
+structures. STILL RUNNING: enclave-region lane. OWED WHEN QUIET:
+real-frame re-verify at nidfix2 HEAD (1 build); the crossings
+construction round (A1 class); pad-frontage + relief specs (both
+simplified by today's rulings).**
+
 **DECIMATION MEASURED — NO CONSTANT RECOMMENDED (08-07 ~19:00;
 tmp/decim_measure/decim_dossier.md; 3 mesh runs).** The shipped
 patch is ALREADY fully decimated at production's bands (Z=0.02

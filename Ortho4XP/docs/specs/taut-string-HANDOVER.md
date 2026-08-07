@@ -37,6 +37,21 @@ tree's 4 unmounted data dirs now symlink the shared repo; write
 guard gained the no-op ensure-dir allowance (twin in
 test_harness.py).**
 
+**ROAD FEED MERGED (owner "Merge as-is", 08-07 ~17:15; merge
+0e3075a): lane/c9feed landed on the campaign branch at its attributed
+table (10k airside 4,198 = +192 named-and-accepted; −500 4,027 =
+−102). Conflicts resolved as unions (INDEX rows; one_solve = c9air
+BOUNDS block + receiver-only flip in sequence, 82 blast tests
+green). Mouth-fed banding ruled SUFFICIENT (owner) — the coverage
+scope Q is closed; no node-seeding round. OWNER STRATEGIC QUESTION
+posed (~thousands of defects: measuring wrong vs law conflicts vs
+unfinished?) — lead answer delivered in-session; SITE-CENSUS
+instrument dispatched (census --sites: rows cluster into defect
+SITES with amplification + sim-visibility flags — the new headline
+metric candidate). NOTE: a concurrent session works the main tree
+(tunnel-portal fidelity rulings + uncommitted bridges/O4_Vector_Map
+edits) — merge hygiene: never sweep its files.**
+
 **SERVICE-BAND LANE VERDICT (08-07 ~16:30; lane/c9feed fa31d21, NOT
 merged): K1 WAS A BROKEN KNIFE (rebound a local; groundside band
 rode G.spine_adj untouched) — repaired knife proves EDGES BIND

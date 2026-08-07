@@ -64,6 +64,7 @@ from .layout import (
     ROLE_STUB,
     ROLE_BUILDING,
     ROLE_RETAINING_WALL,
+    ROLE_RUNWAY_CLEARANCE,
     ROLE_RUNWAY_CROSSING,
     ROLE_TUNNEL_RAMP,
     ROLE_TUNNEL_TRENCH,
@@ -240,6 +241,28 @@ PORTAL_RAMP_SHOULDER_MARGIN_M = 2.0
 # design grade is exactly 4 %).  Shared by the walk-truncation sizing
 # and the effective-space grade clamp in ``_emit_chain``.
 TUNNEL_RAMP_GRADE_SAFETY_MARGIN = 0.005
+# Elevation difference across a ramp quad below which ``_emit_chain``
+# ships it FLAT (one ``altitude``) instead of the sloped high/low pair.
+# The flat form offers the AVERAGE at both cross-edges, so it disagrees
+# with each neighbour quad about their SHARED nodes by half this number;
+# the value is the spec's 0.01 m materiality floor doubled, so the
+# disagreement can never exceed the floor (spec
+# ``tunnel-ramp-cut-boundaries-spec.md`` §2, ramp-internal corner
+# agreement).  It was 0.1 m — up to 0.05 m of disagreement.
+_TUNNEL_RAMP_FLAT_QUAD_M = 0.02
+# FORK SUSTAIN (spec ``docs/specs/tunnel-fork-sustain-spec.md`` §2, owner
+# 2026-08-07).  Fraction of the probe stations FROM the divergence
+# crossing to the end of the probe window at which the member spread must
+# still exceed the divergence threshold for the cluster to fork.  1.0 =
+# the spec's literal "remains above it through the end of the probe
+# window": a genuine Y-split's arms keep separating, so every remaining
+# station holds; twin carriageways come back together and none of the
+# later ones do.  Lives here rather than in ``config.py`` because it is
+# an emitter invariant, not a user knob (spec: "no config-file knob").
+# The measured case it exists for: OTHH A-site, separation 9.52 m at the
+# portal → threshold crossing at s ≈ 157.5 m on a 1.2 m relative splay →
+# 0.00 m at the far end, where the two carriageways share an end node.
+TUNNEL_FORK_SUSTAIN_FRACTION = 1.0
 # A big-road highway way within this distance of the portal footprint is
 # the road the outward ramp follows; the draped/OSM centrelines the
 # corridor walks carry no tags, so the mapped width is re-associated to
@@ -871,7 +894,21 @@ def _synthesize_implied_crossing_bores(
                         # is dug open as a flat low connector; anything
                         # wider stays COVERED — no trench recorded, no
                         # mid-gap portals, ground bridged over the bore.
-                        if _gap < TUNNEL_LOW_CONNECTOR_MAX_OPEN_GAP_M:
+                        #
+                        # RULING 2 (owner 2026-08-07, OTHH): a MAPPED
+                        # bore's interior is roofed BY DEFINITION — the
+                        # mapper drew one continuous tunnel, so a gap
+                        # between two of OUR pavement crossings inside it
+                        # is covered roof whatever its length, never an
+                        # open cut.  (OTHH: 86.5 m and 39 m interior gaps
+                        # of a mapped 810 m bore were dug open, ways
+                        # -11724/-11728.)  The gap still MERGES below,
+                        # exactly like a gap ≥ the open-cut cap; only the
+                        # implied-bore path (KDFW) records it for
+                        # excavation.
+                        if (not _had_tunnel
+                                and _gap
+                                < TUNNEL_LOW_CONNECTOR_MAX_OPEN_GAP_M):
                             try:
                                 _gline = substring(_line, _prev[3], _iv[2])
                             except _GEOM_EXC:
@@ -895,21 +932,29 @@ def _synthesize_implied_crossing_bores(
                 # bore when the mapped tunnel extends far beyond the
                 # crossing (SPJC: 1.27 km mapped trunk bores with the
                 # crossings mid-way — ramps emitted inside the tunnel).
-                # A mapped end stretch longer than the open-gap design
-                # cap is genuine covered tunnel, not mapper sloppiness:
-                # keep it BORE by clamping the outermost interval to the
-                # way end, so the portal (and the approach ramps walked
-                # beyond it) sit at the TRUE mapped mouth.  Short end
-                # stretches keep the re-split cleanup (KDFW-validated:
-                # portal cap at [pavement edge, edge + 1 m]).
+                # A mapped end stretch is genuine covered tunnel, not
+                # mapper sloppiness: keep it BORE by clamping the
+                # outermost interval to the way end, so the portal (and
+                # the approach ramps walked beyond it) sit at the TRUE
+                # mapped mouth.
+                #
+                # RULING 1 (owner 2026-08-07, OTHH): the clamp is
+                # UNCONDITIONAL for a mapped way — the old length test
+                # (only end stretches longer than the open-gap design cap
+                # were preserved) let OTHH's 62 m mouth stretch fall
+                # through, planting the portal 61 m INSIDE the bore and
+                # stripping ``tunnel=yes`` off the covered mouth stretch,
+                # which the ramp then excavated.  The portal now always
+                # sits at s=0 / s=L of the mapped extent; the approach
+                # ramp is walked on the SURFACE side of it (the portal
+                # node is shared with the untagged continuation ways).
+                # IMPLIED (un-tagged) ways keep the re-split cleanup
+                # unchanged (KDFW-validated: portal cap at [pavement
+                # edge, edge + 1 m]).
                 if _had_tunnel and _intervals:
-                    if _intervals[0][0] \
-                            > TUNNEL_LOW_CONNECTOR_MAX_OPEN_GAP_M:
-                        _intervals[0] = (0.05, _intervals[0][1])
-                    if (_line.length - _intervals[-1][1]
-                            > TUNNEL_LOW_CONNECTOR_MAX_OPEN_GAP_M):
-                        _intervals[-1] = (_intervals[-1][0],
-                                          _line.length - 0.05)
+                    _intervals[0] = (0.05, _intervals[0][1])
+                    _intervals[-1] = (_intervals[-1][0],
+                                      _line.length - 0.05)
                 # split the way: approach | bore | approach | bore | ...
                 _arcs = [0.0]
                 for _k in range(1, len(_present)):
@@ -2412,10 +2457,22 @@ def _emit_portal_cluster(
         unchanged; the Y-split calls it once for the shared
         throat and once per diverging branch (user 2026-06-12,
         KPHL RWY 26 north portal: road+rail share the tunnel,
-        then fork right outside — the ramp must fork too)."""
+        then fork right outside — the ramp must fork too).
+
+        RAMP-INTERNAL CORNER AGREEMENT (spec
+        ``tunnel-ramp-cut-boundaries-spec.md`` §2): returns the
+        REALIZED top elevation — ``e_hi_c`` after the effective-space
+        grade clamp below.  The clamp is what made the bore's far edge
+        and the throat's flat landing disagree by 0.96 m at the shared
+        cross-edge nodes (OTHH ways -11758/-11759): the caller planned
+        ``e_div``, the bore realized something lower, and the throat
+        (and the arms hanging off it) kept the plan.  The whole profile
+        is piecewise-linear, so the correct shared value is simply the
+        one the bore actually reached — the caller re-seats the throat
+        and the arms on it."""
         n_c = len(chain_pts)
         if n_c < 2:
-            return
+            return e_hi_c
         c_cums = [0.0]
         for i in range(1, n_c):
             c_cums.append(c_cums[-1] + math.hypot(
@@ -2423,12 +2480,12 @@ def _emit_portal_cluster(
                 chain_pts[i][1] - chain_pts[i - 1][1]))
         c_total = c_cums[-1]
         if c_total < 1.0:
-            return
+            return e_hi_c
         c_first = (chain_pts[1][0] - chain_pts[0][0],
                    chain_pts[1][1] - chain_pts[0][1])
         c_first_len = math.hypot(*c_first)
         if c_first_len < 0.1:
-            return
+            return e_hi_c
         c_first_dir = (c_first[0] / c_first_len,
                        c_first[1] / c_first_len)
         arm_off = chain_half + wall_gap_m + half_wall_w
@@ -2498,7 +2555,7 @@ def _emit_portal_cluster(
                 + min(seg_len, edge_plus, edge_minus))
         effective_total = effective_cums[-1]
         if effective_total < 1.0:
-            return
+            return e_hi_c
         # EFFECTIVE-SPACE GRADE CLAMP (2026-07-17, SPJC #499/#500/#502):
         # the walk TRUNCATION sizes the chain on CENTERLINE length
         # (drop / plan_grade), but elevations lerp over the EFFECTIVE
@@ -2628,7 +2685,19 @@ def _emit_portal_cluster(
                             continue
                     if covered > 0.5 * rp.area:
                         continue    # throat already paves this spot
-                    if abs(eh - el) >= 0.1:
+                    # RAMP-INTERNAL CORNER AGREEMENT (spec §2): the
+                    # FLAT fallback averages the two edges, so each of
+                    # the quad's two cross-edges is offered a value
+                    # |eh-el|/2 away from what its NEIGHBOUR quad
+                    # offers the same shared nodes.  At the old 0.1 m
+                    # threshold that is up to 0.05 m of disagreement —
+                    # five times the spec's 0.01 m materiality floor —
+                    # decided by which of the two ways ``to_osm``'s
+                    # shape-order precedence happens to write last.
+                    # ``_TUNNEL_RAMP_FLAT_QUAD_M`` keeps the flat
+                    # encoding only where the averaging error is AT the
+                    # floor.
+                    if abs(eh - el) >= _TUNNEL_RAMP_FLAT_QUAD_M:
                         layout.shapes.append(BuiltShape(
                             polygon=rp,
                             role=ROLE_TUNNEL_RAMP,
@@ -2645,6 +2714,7 @@ def _emit_portal_cluster(
                     exclusion_zones.append(rp)
             except _GEOM_EXC:
                 pass
+        return e_hi_c
 
     def _emit_fork_throat(throat_pts, throat_half, e_throat,
                           arms):
@@ -2776,8 +2846,16 @@ def _emit_portal_cluster(
         # node_altitudes (the junction representation) so a future
         # change with differing per-arm start elevations bridges
         # them per-vertex with no further work.
+        #
+        # RAMP-INTERNAL CORNER AGREEMENT (spec §2): rounded to the
+        # SAME 2 decimals ``_emit_chain`` rounds its quad corners to.
+        # At 1 decimal the throat offered NL/NR (shared with the bore's
+        # far corners) and cL/cR (shared with each arm's near corners) a
+        # value up to 0.05 m from what the chain offered the same nodes
+        # — a disagreement decided by ``to_osm`` shape order, not by the
+        # plan.
         _np = len(poly.exterior.coords) - 1
-        na = [round(e_throat, 1)] * (_np + 1)
+        na = [round(e_throat, 2)] * (_np + 1)
         layout.shapes.append(BuiltShape(
             polygon=poly, role=ROLE_TUNNEL_RAMP,
             ref="tunnel_ramp", node_altitudes=na))
@@ -2830,6 +2908,23 @@ def _emit_portal_cluster(
             _div_margin = 2.0 if TUNNEL_FORK_THROAT else 8.0
             _div_step = 2.5 if TUNNEL_FORK_THROAT else 5.0
             s = 5.0 if TUNNEL_FORK_THROAT else 10.0
+            # SUSTAINED DIVERGENCE (spec
+            # ``docs/specs/tunnel-fork-sustain-spec.md`` §2, owner
+            # 2026-08-07).  The probe used to fork on the FIRST station
+            # whose spread crossed the threshold and stop looking.  That
+            # reads a momentary wobble as a Y-split: OTHH's A-site
+            # cluster is twin one-way service carriageways whose measured
+            # separation runs 9.52 m at the portal, drifts 8.3-9.8 m for
+            # 150 m, crosses the 11.50 m threshold at s ≈ 157.5 m on a
+            # 1.2 m relative splay — and then falls to 0.00 m, because
+            # the two carriageways MERGE into one road at a shared end
+            # node.  The emitted "fork" was two arms overlapping by
+            # 93.89 m² that interned into each other and minted 16
+            # cross-arm adoption rows.  So scan the WHOLE window and
+            # require the divergence to HOLD: a real Y-split keeps
+            # separating, twin carriageways come back together.
+            _div_thresh = cluster_span + _div_margin
+            _spreads: list = []          # (station, spread)
             while s < probe_max:
                 pts_at = [_point_at(w, c, s)
                           for (_k, w, c) in member_chains]
@@ -2837,10 +2932,52 @@ def _emit_portal_cluster(
                     math.hypot(p1[0] - p2[0], p1[1] - p2[1])
                     for x1, p1 in enumerate(pts_at)
                     for p2 in pts_at[x1 + 1:])
-                if spread > cluster_span + _div_margin:
+                _spreads.append((s, spread))
+                if s_div is None and spread > _div_thresh:
                     s_div = s
-                    break
                 s += _div_step
+            if s_div is not None:
+                _after = [_sp for (_st, _sp) in _spreads if _st >= s_div]
+                _held = sum(1 for _sp in _after if _sp > _div_thresh)
+                if (not _after
+                        or (_held / len(_after))
+                        < TUNNEL_FORK_SUSTAIN_FRACTION):
+                    if os.environ.get("O4_TUNNEL_DEBUG") == "1":
+                        print(f"    [tunnel-fork] cluster at "
+                              f"({walk_pts[0][0]:.0f},{walk_pts[0][1]:.0f})"
+                              f": divergence at s={s_div:.1f} NOT sustained "
+                              f"({_held}/{len(_after)} stations above "
+                              f"{_div_thresh:.2f} m; spread falls to "
+                              f"{min(_after):.2f} m) — twin carriageways, "
+                              f"emitting ONE combined ramp")
+                    s_div = None
+            # FORK-THRESHOLD FRAME AUDIT (debug only, spec
+            # ``tunnel-fork-sustain-spec.md`` §2b step 0): the threshold
+            # references ``cluster_span`` — a 1-D PERPENDICULAR projection
+            # of the portal nodes onto the head walk's first-segment
+            # perpendicular — while ``spread`` is a 2-D same-station
+            # euclidean distance.  Print both frames beside the members'
+            # true euclidean separation so the mismatch is a measurement,
+            # not an inference.
+            if os.environ.get("O4_TUNNEL_DEBUG") == "1" and _spreads:
+                _pnodes = [nodes_m[portal_data[k][0]] for k in cl
+                           if portal_data[k][0] in nodes_m]
+                _eucl = max((math.hypot(a[0] - b[0], a[1] - b[1])
+                             for i9, a in enumerate(_pnodes)
+                             for b in _pnodes[i9 + 1:]), default=0.0)
+                _sp0 = _spreads[0][1]
+                _spmin = min(sp for _st, sp in _spreads)
+                _spmax = max(sp for _st, sp in _spreads)
+                print(f"    [tunnel-fork-frame] cluster at "
+                      f"({walk_pts[0][0]:.0f},{walk_pts[0][1]:.0f}) "
+                      f"members={len(member_chains)} "
+                      f"cluster_span(1-D perp)={cluster_span:.2f} "
+                      f"portal_euclid(2-D)={_eucl:.2f} "
+                      f"thresh={_div_thresh:.2f} "
+                      f"spread0={_sp0:.2f} min={_spmin:.2f} "
+                      f"max={_spmax:.2f} growth={_spmax - _sp0:+.2f} "
+                      f"probe_max={probe_max:.1f} "
+                      f"s_div={'None' if s_div is None else f'{s_div:.1f}'}")
             if s_div is not None and (probe_max - s_div) < 10.0:
                 s_div = None     # fork too close to the end
 
@@ -2906,8 +3043,21 @@ def _emit_portal_cluster(
         e_div = (elev_low + (elev_high - elev_low)
                  * (s_bore_end / total_walk if total_walk > 0
                     else 0.0))
-        _emit_chain(throat, combined_half,
-                    elev_low, e_div, True)
+        # RAMP-INTERNAL CORNER AGREEMENT (spec
+        # ``tunnel-ramp-cut-boundaries-spec.md`` §2): the bore's
+        # effective-space grade clamp may land its far edge BELOW the
+        # planned ``e_div`` (it fires on every bend — the miter-
+        # shortened inner edges shrink Σeffective 15-20 % below the
+        # centreline sum).  The throat's flat landing and the arms'
+        # near edges intern with that far edge, so they must be seated
+        # on the elevation the bore REALIZED, not on the plan; OTHH
+        # ways -11758/-11759 disagreed by 0.96 m at exactly these
+        # nodes.  The handoff stays piecewise-linear either way — only
+        # the shared value changes.
+        _e_bore_top = _emit_chain(throat, combined_half,
+                                  elev_low, e_div, True)
+        if _e_bore_top is not None:
+            e_div = _e_bore_top
         prior: list = []          # (LineString, half)
         try:
             prior.append((LineString(throat), combined_half))
@@ -2994,6 +3144,131 @@ def _emit_portal_cluster(
                             and s9.polygon is None)]
         except _GEOM_EXC:
             pass
+    # ── B-1: A RAMP NEVER CROSSES A BUILDING PAD EDGE (owner ruling
+    # 2026-08-07, spec ``tunnel-ramp-cut-boundaries-spec.md`` §4).
+    # Owner, verbatim: "A ramp should never cross a building pad edge.
+    # Either the tunnel is under the building and the ramp stops at the
+    # building edge, or the building is mis-identified and shouldn't be
+    # there in the first place."  So a building pad is neither CUT
+    # (``ROLE_BUILDING`` is absent from ``_tunnel_ramp_cut_roles`` — it
+    # was never in ``pavement_cut_roles``) nor BURIED (that is what
+    # ruling 4's un-gated ramp did: OTHH's ``building1`` pad ring
+    # dragged to −3.74).  The visible ramp CLIPS at the pad edge, with
+    # the same 0.6 m vertex-bucket clearance every other tunnel piece
+    # keeps; the continuation under the pad is covered bore and is not
+    # emitted.  Runs BEFORE the perimeter band below, so the ramp's new
+    # end face at the pad edge is walled by the band exactly like the
+    # portal face (§4 last bullet).  A mis-identified building is a
+    # data-quality case, never an emitter workaround.
+    _cl_ramps = [(_i9, layout.shapes[_i9])
+                 for _i9 in range(_cl_start_idx, len(layout.shapes))
+                 if getattr(layout.shapes[_i9], "ref", "") == "tunnel_ramp"
+                 and layout.shapes[_i9].polygon is not None
+                 and not layout.shapes[_i9].polygon.is_empty]
+    if _cl_ramps:
+        _pads = [(_i9, _s9) for _i9, _s9 in enumerate(layout.shapes)
+                 if _s9.role == ROLE_BUILDING and _s9.polygon is not None
+                 and not _s9.polygon.is_empty]
+        _cl_wid = head[1]
+        _dropped9: set = set()
+        _ez_replace: dict = {}
+        _n_bclip = 0
+        for _i9, _s9 in (_cl_ramps if _pads else ()):
+            _hit = []
+            for _pi, _pad in _pads:
+                try:
+                    _ov9 = _s9.polygon.intersection(_pad.polygon).area
+                except _GEOM_EXC:
+                    continue
+                if _ov9 > 0.0:
+                    _hit.append((_ov9, _pi, _pad))
+            if not _hit:
+                continue
+            _hit.sort(key=lambda t: -t[0])
+            _pad_id = _hit[0][1]
+            try:
+                _pad_u = unary_union([p.polygon for _o, _i, p in _hit]).buffer(
+                    _TUNNEL_GRAZE_CLEARANCE_M)
+                _keep9 = _s9.polygon.difference(_pad_u)
+            except _GEOM_EXC:
+                continue
+            if _keep9.geom_type == "MultiPolygon":
+                _keep9 = max(_keep9.geoms, key=lambda g: g.area)
+            if (_keep9.is_empty or _keep9.geom_type != "Polygon"
+                    or _keep9.area < 1.0):
+                _dropped9.add(_i9)
+                _ez_replace[id(_s9.polygon)] = None
+                try:
+                    UI.vprint(1,
+                        f"  [pav-builder] tunnel ramp piece of way "
+                        f"{_cl_wid} DROPPED whole — it lies under "
+                        f"building pad shapeID {_pad_id}; the tunnel "
+                        f"runs UNDER the building (covered bore), so "
+                        f"the open ramp stops at the pad edge.")
+                except _GEOM_EXC:
+                    pass
+                continue
+            # Altitude semantics: the EXISTING graze-clip conversion —
+            # a clipped ramp keeps the profile it already planned and
+            # never stretches it (``_sloped_rect_clipped_altitudes``
+            # clamps the projection parameter to [0, 1];
+            # ``_resample_node_altitudes_nn`` interpolates along the
+            # OLD edges).  A conversion that cannot answer drops the
+            # piece rather than shipping a ring with the wrong
+            # ring-order slope semantics.
+            if _s9.node_altitudes:
+                try:
+                    _or9 = list(_s9.polygon.exterior.coords)
+                except _GEOM_EXC:
+                    _or9 = []
+                if _or9 and _or9[0] == _or9[-1]:
+                    _or9 = _or9[:-1]
+                _res9 = _resample_node_altitudes_nn(
+                    _keep9, _or9, list(_s9.node_altitudes),
+                    interior_edge_project=True)
+                if _res9 is None:
+                    _dropped9.add(_i9)
+                    _ez_replace[id(_s9.polygon)] = None
+                    continue
+                _s9.node_altitudes = _res9
+            elif (_s9.altitude_high is not None
+                    and _s9.altitude_low is not None):
+                _res9 = _sloped_rect_clipped_altitudes(
+                    _s9.polygon, _s9.altitude_high, _s9.altitude_low,
+                    _keep9)
+                if _res9 is None:
+                    _dropped9.add(_i9)
+                    _ez_replace[id(_s9.polygon)] = None
+                    continue
+                _s9.altitude_high = None
+                _s9.altitude_low = None
+                _s9.node_altitudes = _res9
+            # (flat ``altitude`` pieces keep their altitude verbatim)
+            _ez_replace[id(_s9.polygon)] = _keep9
+            _s9.polygon = _keep9
+            _n_bclip += 1
+        if _ez_replace:
+            # The ramp polygons are also in ``exclusion_zones`` (the
+            # boundary-ribbon subtraction and the double-emit gate read
+            # it); leaving the PRE-clip footprint there would carve the
+            # ribbon out over pavement the ramp no longer occupies.
+            _ez_new = []
+            for _z9 in exclusion_zones:
+                _r9 = _ez_replace.get(id(_z9), _z9)
+                if _r9 is not None:
+                    _ez_new.append(_r9)
+            exclusion_zones[:] = _ez_new
+        if _dropped9:
+            layout.shapes = [_s9 for _i9, _s9 in enumerate(layout.shapes)
+                             if _i9 not in _dropped9]
+        if _n_bclip:
+            try:
+                UI.vprint(1,
+                    f"  [pav-builder] clipped {_n_bclip} tunnel ramp "
+                    f"piece(s) of way {_cl_wid} at a building pad edge "
+                    f"(the bore runs under the building).")
+            except _GEOM_EXC:
+                pass
     # ── CONTINUOUS PERIMETER WALL (gate ON, user 2026-06-13): ONE
     # wall traced around the WHOLE cluster ramp-union perimeter,
     # regardless of whether the tunnel forks.  The band is the ramp
@@ -3241,10 +3516,18 @@ def _emit_low_corridor_connectors(
         # The visible depressed surface: the corridor minus airside
         # pavement (a graze against a service road / building pad
         # must not put a −8 m rect under real pavement).
+        #
+        # RULING 3 (owner 2026-08-07, OTHH): the cutback clears
+        # ``_TUNNEL_GRAZE_CLEARANCE_M`` (0.6 m) like every other tunnel
+        # emitter, not SHARED_VERTEX_TOL_M (0.5 m) exactly — at exactly
+        # the bucket size a corridor corner can still land in a solved
+        # pavement vertex's intern bucket and inherit its altitude (the
+        # −5.16/+3.19 needle on OTHH way -11724).
         try:
             open_part = (corridor if airside_gate_union is None
                          else corridor.difference(
-                             airside_gate_union.buffer(0.5)))
+                             airside_gate_union.buffer(
+                                 _TUNNEL_GRAZE_CLEARANCE_M)))
         except _GEOM_EXC:
             open_part = corridor
         surf_parts = ([open_part] if open_part.geom_type == "Polygon"
@@ -3349,6 +3632,169 @@ def _emit_low_corridor_connectors(
 # glitch).
 _TUNNEL_GRAZE_CLEARANCE_M = 0.6
 
+# The pavement union a tunnel piece is gated against (the per-portal
+# AIRSIDE / DOUBLE-EMIT gate and the pavement-overlap clip read the same
+# set).  Module-level because ``_finalize_tunnel_emission`` REBUILDS the
+# union after ruling 4's ramp cut — a second literal list there is
+# exactly the role-literal drift ``blast.py`` flags.
+_AIRSIDE_GATE_ROLES = (
+    "runway", "runway_crossing", "primary_parallel",
+    "secondary_parallel", "stub", "cross_connector", "junction",
+    "apron", "building", "groundside_pavement", "service_road",
+    "service_junction")
+
+# RULING 4 SAFETY FLOOR (owner-flagged 2026-08-07, spec
+# ``tunnel-portal-fidelity-spec.md`` §2 C-4): the RUNWAY FAMILY a tunnel
+# ramp may never cut.  ``pavement_cut_roles`` lists runway +
+# runway_crossing as cuttable because a hard DECK seats flush in them;
+# a road RAMP is a trench, and a trench across a runway (or its
+# end-skirt / RESA clearance shapes) is unlawful at any overlap
+# fraction.  So these roles are removed from the ramp's cut set, and a
+# ramp piece mostly ON one is dropped LOUDLY rather than silently
+# clipped.
+_RAMP_NEVER_CUT_ROLES = frozenset({
+    ROLE_RUNWAY, ROLE_RUNWAY_CROSSING, ROLE_RUNWAY_CLEARANCE,
+})
+# Fraction of a ramp piece's own area that must lie on a runway-family
+# shape for the safety floor to drop it (mirrors the pavement-overlap
+# clip's "mostly covered" discriminator).
+_RAMP_RUNWAY_DROP_FRACTION = 0.5
+
+
+def _tunnel_ramp_cut_roles() -> frozenset:
+    """The pavement roles a tunnel ramp CUTS (ruling 4): ruling R13's
+    groundside-inclusive set minus the runway family the safety floor
+    protects."""
+    return frozenset(
+        pavement_cut_roles(include_groundside=True) - _RAMP_NEVER_CUT_ROLES)
+
+
+def _tunnel_ramp_pavement_cut(layout: "PavementLayout",
+                              airside_gate_union,
+                              pre_emit_shape_ids: set,
+                              ramp_way_ids: dict | None = None,
+                              clearance_m: float = 0.0):
+    """RULING 4 (owner 2026-08-07, OTHH) — the tunnel ramp WINS over the
+    pavement it surfaces through: it cuts that pavement, through the same
+    helper ruling R13 uses over an open pit.
+
+    Runs before the pavement-overlap clip, on the ramp pieces this
+    emission produced.  Two steps:
+
+      1. SAFETY FLOOR — a ramp piece whose area is ≥
+         ``_RAMP_RUNWAY_DROP_FRACTION`` on a ``_RAMP_NEVER_CUT_ROLES``
+         shape is DROPPED with a ``vprint(1)`` naming its source way and
+         the shape.  A ramp never cuts the runway family, so the runway
+         roles are also absent from :func:`_tunnel_ramp_cut_roles`.
+      2. The surviving ramps' CLEARANCE ANNULUS cuts the pavement.
+
+    ``clearance_m`` (spec ``tunnel-ramp-cut-boundaries-spec.md`` §2 —
+    W/G-1) is what makes the cut a CLEARANCE ANNULUS instead of the bare
+    ramp union, and it is the geometric fix for the whole minting class
+    the parent round produced.  Ruling 4 removed the 0.6 m graze push,
+    so a new ramp corner could land INSIDE a solved pavement vertex's
+    ``SHARED_VERTEX_TOL_M`` (0.5 m) intern bucket; ``layout.to_osm``'s
+    authority precedence then welded one value across what is physically
+    a retaining wall (OTHH: 148 ways byte-identical in geometry with
+    drifted altitudes; the ``-11816`` fork throat adopting junction node
+    ``-1498``'s 3.60 against its own uniform 1.30).  Cutting the
+    pavement back by ``wall_gap_m + retaining_wall_width_m`` — the SAME
+    geometry the continuous perimeter wall band occupies — leaves no
+    remaining pavement vertex within the bucket of any ramp ring, so
+    cross-boundary interning is geometrically impossible and every cut
+    edge reads pavement | wall | ramp.
+
+    Returns the airside pavement union AS IT NOW STANDS — the SAME
+    object when nothing was cut, so the caller's clip is byte-identical
+    on airports with no ramp/pavement overlap.  The rebuild is R13's
+    union bookkeeping (``_reindex_owned_ground``): without it a portal
+    wall would be dropped for overlapping pavement its own ramp just
+    removed.
+    """
+    if airside_gate_union is None:
+        return airside_gate_union
+    ramps = [s for s in layout.shapes
+             if id(s) not in pre_emit_shape_ids
+             and getattr(s, "ref", "") == "tunnel_ramp"
+             and s.polygon is not None and not s.polygon.is_empty]
+    if not ramps:
+        return airside_gate_union
+    # ── 1. SAFETY FLOOR ──────────────────────────────────────────────
+    protected = [s for s in layout.shapes
+                 if s.role in _RAMP_NEVER_CUT_ROLES
+                 and s.polygon is not None and not s.polygon.is_empty]
+    dropped_ids: set[int] = set()
+    for ramp in (ramps if protected else ()):
+        try:
+            ramp_area = ramp.polygon.area
+        except _GEOM_EXC:
+            continue
+        if ramp_area <= 0.0:
+            continue
+        for shape in protected:
+            try:
+                overlap = ramp.polygon.intersection(shape.polygon).area
+            except _GEOM_EXC:
+                continue
+            if overlap < _RAMP_RUNWAY_DROP_FRACTION * ramp_area:
+                continue
+            dropped_ids.add(id(ramp))
+            _wid = (ramp_way_ids or {}).get(id(ramp))
+            try:
+                UI.vprint(1,
+                    f"  [pav-builder] DROPPED tunnel ramp piece of way "
+                    f"{_wid if _wid is not None else '?'} — "
+                    f"{100.0 * overlap / ramp_area:.0f} % of it lies on "
+                    f"{shape.role} '{getattr(shape, 'ref', '') or '-'}'; "
+                    f"a tunnel ramp never cuts a runway-family shape.")
+            except _GEOM_EXC:
+                pass
+            break
+    if dropped_ids:
+        layout.shapes = [s for s in layout.shapes
+                         if id(s) not in dropped_ids]
+        ramps = [r for r in ramps if id(r) not in dropped_ids]
+    if not ramps:
+        return airside_gate_union
+    # ── 2. THE CUT ───────────────────────────────────────────────────
+    try:
+        ramp_union = unary_union([r.polygon for r in ramps])
+    except _GEOM_EXC:
+        return airside_gate_union
+    if ramp_union is None or ramp_union.is_empty:
+        return airside_gate_union
+    # THE CLEARANCE ANNULUS: mitred (``join_style=2``) so the cut
+    # follows the same offset geometry the perimeter wall band is built
+    # from (``_emit_portal_cluster``: ``buffer(_g1, join_style=2)``) and
+    # can never fall SHORT of the band's outer edge — a band judged
+    # against pavement its own cut left behind would be dropped as
+    # "under pavement".
+    cut_footprint = ramp_union
+    if clearance_m > 0.0:
+        try:
+            cut_footprint = ramp_union.buffer(clearance_m, join_style=2)
+        except _GEOM_EXC:
+            cut_footprint = ramp_union
+    n_cut = cut_pavement_over_footprint(
+        layout, cut_footprint, cut_roles=_tunnel_ramp_cut_roles())
+    if not n_cut:
+        return airside_gate_union
+    try:
+        UI.vprint(1,
+            f"  [pav-builder] tunnel ramps cut {n_cut} pavement shape(s) "
+            f"they surface through (ruling 4 — the ramp wins), with a "
+            f"{clearance_m:.1f} m clearance annulus the wall band owns.")
+    except _GEOM_EXC:
+        pass
+    try:
+        post = unary_union(
+            [s.polygon for s in layout.shapes
+             if s.polygon is not None and not s.polygon.is_empty
+             and s.role in _AIRSIDE_GATE_ROLES])
+    except _GEOM_EXC:
+        return airside_gate_union
+    return None if post.is_empty else post
+
 
 def _sloped_rect_clipped_altitudes(orig_poly, alt_high, alt_low,
                                    new_poly):
@@ -3395,10 +3841,20 @@ def _sloped_rect_clipped_altitudes(orig_poly, alt_high, alt_low,
 def _finalize_tunnel_emission(
         layout: "PavementLayout", exclusion_zones: list,
         boundary_clearance_m: float, airside_gate_union,
-        pre_emit_shape_ids: set, n_emitted: int) -> int:
-    """Post-emission coordination: boundary-ribbon subtraction,
-    under-pavement piece drop, and the wall-vs-ramp clip.
-    Returns the emitted-portal count.
+        pre_emit_shape_ids: set, n_emitted: int,
+        ramp_way_ids: dict | None = None,
+        ramp_cut_clearance_m: float = 0.0) -> int:
+    """Post-emission coordination: boundary-ribbon subtraction, the
+    ruling-4 ramp pavement cut, the under-pavement piece drop, and the
+    wall-vs-ramp clip.  Returns the emitted-portal count.
+
+    ``ramp_way_ids`` maps ``id(shape)`` → source OSM way id for the
+    pieces each portal cluster emitted; it only names the way in the
+    ruling-4 safety-floor log line.
+
+    ``ramp_cut_clearance_m`` is the spec §2 clearance annulus —
+    ``wall_gap_m + retaining_wall_width_m``, the perimeter wall band's
+    own geometry — see :func:`_tunnel_ramp_pavement_cut`.
     """
     # Boundary coordination: clip every ROLE_BOUNDARY shape so
     # it doesn't overlap the actual tunnel-polygon footprint.
@@ -3492,23 +3948,45 @@ def _finalize_tunnel_emission(
         # off the pavement instead, converting sloped rects to
         # node_altitudes (ring-order slope semantics do not survive a
         # clip) and NN-resampling clipped node_altitudes rings.
+        #
+        # RULING 4 (owner 2026-08-07, OTHH) — "tunnel ramp should win
+        # over pavement": ``tunnel_ramp`` pieces are EXEMPT from both the
+        # ≥ 50 % drop and the graze clip, and CUT the pavement they
+        # surface through instead (the cut, and its safety floor, ran
+        # just above).  The drop had beheaded the mapped OTHH portal —
+        # every ramp dropped over the service_junction grid, leaving only
+        # the 1 m perimeter wall band.  ``tunnel_wall`` bands are then
+        # judged against the POST-CUT pavement (a wall follows its ramp:
+        # it must not be dropped for overlapping pavement its own ramp
+        # has removed); ``tunnel_cap`` behaviour is unchanged.
         _graze_clip = os.environ.get(
             "O4_TUNNEL_GRAZE_CLIP", "1") == "1"
-        _gate_buf = None
+        _post_gate_u = _tunnel_ramp_pavement_cut(
+            layout, airside_gate_union, pre_emit_shape_ids, ramp_way_ids,
+            clearance_m=ramp_cut_clearance_m)
+        _gate_bufs: dict[int, object] = {}
         _kept9 = []
         _n_clip = 0
         _n_graze = 0
         for _k9, s9 in enumerate(layout.shapes):
+            _ref9 = getattr(s9, "ref", "")
             if not (id(s9) not in pre_emit_shape_ids
-                    and getattr(s9, "ref", "") in
+                    and _ref9 in
                     ("tunnel_cap", "tunnel_wall", "tunnel_ramp")
                     and s9.polygon is not None
                     and not s9.polygon.is_empty):
                 _kept9.append(s9)
                 continue
+            if _ref9 == "tunnel_ramp":
+                _kept9.append(s9)       # ruling 4 — emitted whole
+                continue
+            _gate9 = (_post_gate_u if _ref9 == "tunnel_wall"
+                      else airside_gate_union)
+            if _gate9 is None:          # its pavement is entirely cut
+                _kept9.append(s9)
+                continue
             try:
-                _ov = s9.polygon.intersection(
-                    airside_gate_union).area
+                _ov = s9.polygon.intersection(_gate9).area
             except _GEOM_EXC:
                 _ov = 0.0
             if _ov <= 0.25:
@@ -3519,12 +3997,14 @@ def _finalize_tunnel_emission(
                 continue
             # A graze — clip the piece off the pavement (with vertex-
             # bucket clearance) and keep the visible remainder.
+            _gate_buf = _gate_bufs.get(id(_gate9))
             if _gate_buf is None:
                 try:
-                    _gate_buf = airside_gate_union.buffer(
+                    _gate_buf = _gate9.buffer(
                         _TUNNEL_GRAZE_CLEARANCE_M)
                 except _GEOM_EXC:
-                    _gate_buf = airside_gate_union
+                    _gate_buf = _gate9
+                _gate_bufs[id(_gate9)] = _gate_buf
             try:
                 _cutg = s9.polygon.difference(_gate_buf)
             except _GEOM_EXC:
@@ -3730,12 +4210,9 @@ def _emit_tunnel_portals(
     for nid, (lat, lon) in nodes_r.items():
         nodes_m[nid] = _to_m(lon, lat)
     # Airside pavement union for the per-portal gate (see the
-    # AIRSIDE / DOUBLE-EMIT GATE comment below).
-    _AIRSIDE_GATE_ROLES = (
-        "runway", "runway_crossing", "primary_parallel",
-        "secondary_parallel", "stub", "cross_connector", "junction",
-        "apron", "building", "groundside_pavement", "service_road",
-        "service_junction")
+    # AIRSIDE / DOUBLE-EMIT GATE comment below).  Role set at module
+    # level — ``_finalize_tunnel_emission`` rebuilds this union after
+    # the ruling-4 ramp cut and must use the SAME set.
     try:
         _airside_gate_u = unary_union(
             [s.polygon for s in layout.shapes
@@ -3940,19 +4417,34 @@ def _emit_tunnel_portals(
     exclusion_zones: list[Polygon] = []
     n_emitted = 0
     half_wall_w = retaining_wall_width_m / 2.0
+    # id(shape) → source OSM way id of the cluster that emitted it, for
+    # the ruling-4 safety-floor log line (BuiltShape carries no way id).
+    _ramp_way_ids: dict[int, object] = {}
     for cl in clusters:
+        _n_before = len(layout.shapes)
         n_emitted += _emit_portal_cluster(
             cl, portal_data, nodes_m, layout, exclusion_zones,
             carriageway_width_m, tunnel_depth_m, wall_gap_m,
             retaining_wall_width_m, half_wall_w, _dem_at,
             airside_gate_union=_airside_gate_u)
+        try:
+            _cl_wid = portal_data[cl[0]][1]
+        except (IndexError, TypeError):
+            _cl_wid = None
+        if _cl_wid is not None:
+            for _s9 in layout.shapes[_n_before:]:
+                if getattr(_s9, "ref", "") == "tunnel_ramp":
+                    _ramp_way_ids[id(_s9)] = _cl_wid
     _emit_low_corridor_connectors(
         layout, _low_corridors, exclusion_zones,
         _airside_gate_u, _airport_elevation_at, _dem_at,
         tunnel_depth_m, wall_gap_m, retaining_wall_width_m)
     return _finalize_tunnel_emission(
         layout, exclusion_zones, boundary_clearance_m,
-        _airside_gate_u, _pre_emit_ids, n_emitted)
+        _airside_gate_u, _pre_emit_ids, n_emitted,
+        ramp_way_ids=_ramp_way_ids,
+        # Spec §2 W/G-1: the cut is the wall band's own annulus.
+        ramp_cut_clearance_m=wall_gap_m + retaining_wall_width_m)
 
 
 def _scenery_has_bridge_objects(

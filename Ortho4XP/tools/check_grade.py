@@ -860,7 +860,7 @@ def _role_grade_limit(way: "Way",
       from the dict (unknown role; use the function-argument
       cap so behaviour stays compatible with un-tagged input).
     """
-    role = way.tags.get("role")
+    role = law_role(way)
     # APRON-EDGE GRADE ADOPTION (USER RULING 2026-07-06): a service
     # road/junction portion inside or alongside an apron follows the
     # apron grading rules — the build stamps ``o4_grade_law='apron'``
@@ -963,7 +963,7 @@ except Exception:                                      # pragma: no cover
 
 
 def _is_groundside(way: "Way") -> bool:
-    return way.tags.get("role") in _GROUNDSIDE_ROLES
+    return law_role(way) in _GROUNDSIDE_ROLES
 
 
 _ROAD_FAMILY_ROLES = {"service_road", "service_junction"}
@@ -991,22 +991,33 @@ _ROAD_FAMILY_ROLES = {"service_road", "service_junction"}
 # rows belong to the HOST ONLY — one geometry, one row set; never
 # airside-default at 1.5 %, never a double-count."
 #
-# WHAT IS IMPLEMENTED, AND THE ONE CLAUSE THAT IS NOT, STATED PLAINLY.
-# Role, side and the duplicate disposition are implemented here.  "JUDGED
-# AT THE HOST'S CAP" IS NOT, and deliberately: the cap is LAW INPUT, and
-# the spec this lands under (docs/specs/materiality-floor-spec.md) is
-# ADJUDICATION-ONLY — "law, generation, and law-true counts unchanged",
-# acceptance "law-true counts byte-identical everywhere".  Measured both
-# ways on the frame of record: stamping the host role for the LAW removes
-# two within-shape rows (the host's looser cap absolves them) and MINTS one
-# phantom drainage-minimum row by admitting an articulation ring into that
-# law's surface set — a population move, not an adjudication.  The
-# duplicate clause reaches the same place without touching the law: the
-# host's way carries the same vertices and IS judged at the host's cap, and
-# the articulation way's rows are marked as the second reading of one
-# geometry.  A ruling that the CAP clause should be applied literally is
-# the lead's to make; it is a two-line change here (stamp ``role``) and it
-# would cost the byte-identity above.
+# WHAT IS IMPLEMENTED — AND THE CAP CLAUSE, NOW LAW (L-1).
+# Role, side and the duplicate disposition landed first, under the
+# ADJUDICATION-ONLY materiality-floor spec ("law, generation and law-true
+# counts unchanged"), so "JUDGED AT THE HOST'S CAP" was deliberately left
+# out then.  It is IN now: spec ``tunnel-ramp-cut-boundaries-spec.md`` §3
+# (L-1) makes it law, because ruling 4's ramp/pavement cut turns every
+# tunnel-ramp cut edge into a role-less ``shape_interior_ring`` — the hole
+# the cut leaves in the pavement — and OTHH's two rings (-12315/-12316)
+# minted 78 step + 9 within-shape rows purely by falling through to the
+# CALLER's default cap (1.5 %) and to AIRSIDE, while the ring's own host is
+# the 4 % groundside tunnel ramp whose vertices it literally is.
+#
+# THE SCOPE, AND WHY IT IS NOT A ROLE STAMP.  The cap clause is applied
+# through ``law_role`` — ONE accessor, read by the ONE cap resolver
+# (``_role_grade_limit``), the ONE side partition (``_is_groundside``) and
+# the road-family test in ``_airside_groundside_pair``.  The ``role`` tag
+# itself is still NOT written, and that is the difference between JUDGING a
+# ring at its host's cap and ADMITTING it into its host's laws: a stamped
+# ``role`` also selects a way into ``_DRAINAGE_MIN_ROLES`` /
+# ``_STRIP_PAVEMENT_ROLES``, which on the frame of record MINTED a phantom
+# drainage-minimum row by treating an articulation ring as a surface that
+# must drain.  ``law_role`` moves the CAP and the SIDE — what the spec
+# names — and moves no way into a law it is not a surface of.
+# ``HOST_CAP_FEATURE_CLASSES`` is the scope: the INTERIOR RING classes the
+# spec names.  ``gap_drainage_spine`` keeps reporting-only host resolution
+# (it is a breakline, not a ring, and it is the class that minted the
+# phantom row); ``crown_spine`` is inert either way.
 #
 # TWO HOST RESOLVERS, ONE NOTION, each named on the row it stamps:
 #
@@ -1039,6 +1050,18 @@ ROLE_LESS_FEATURE_CLASSES: Tuple[str, ...] = (
     "gap_interior_ring",
     "gap_drainage_spine",
     "crown_spine",
+)
+
+#: The subset of :data:`ROLE_LESS_FEATURE_CLASSES` whose members are judged
+#: at their HOST's role and cap — spec ``tunnel-ramp-cut-boundaries-spec.md``
+#: §3 (L-1), "a role-less ``shape_interior_ring`` way is judged at its HOST
+#: shape's role/cap ... not at airside defaults".  Interior RINGS only: they
+#: are a host shape's own hole boundary, carrying the host's own interned
+#: vertices, so the host's law is the only law that ever described them.
+#: A class outside this set keeps host resolution for REPORTING only.
+HOST_CAP_FEATURE_CLASSES: Tuple[str, ...] = (
+    "shape_interior_ring",
+    "gap_interior_ring",
 )
 
 #: The in-memory tags the host resolvers stamp.  They are NEVER written to a
@@ -1074,20 +1097,20 @@ def resolve_feature_hosts(ways: List["Way"],
     and whether the host's vertex set COVERS the feature way's (the
     ruling's "duplicates a host way's geometry").
 
-    THE STAMP IS REPORTING-ONLY — the ``role`` tag itself is NOT written.
-    The materiality-floor spec this lands under is ADJUDICATION-ONLY
-    ("law, generation, and law-true counts unchanged"), and a role tag is
-    LAW INPUT: it is what ``_role_grade_limit`` resolves a cap from, what
-    ``_is_groundside`` partitions on, and what selects a way into
-    ``_DRAINAGE_MIN_ROLES`` / ``_STRIP_PAVEMENT_ROLES``.  Stamping it
+    THE ``role`` TAG ITSELF IS STILL NOT WRITTEN.  A role tag is LAW
+    INPUT twice over: it resolves a cap and a side, AND it selects a way
+    into ``_DRAINAGE_MIN_ROLES`` / ``_STRIP_PAVEMENT_ROLES``.  Stamping it
     MEASURABLY moves the population — on the frame of record it removed two
     within-shape rows and MINTED one phantom drainage-minimum row by
-    admitting an articulation ring into that law's surface set — so the
-    disposition here is adjudication, not re-judging: a row whose geometry
-    the host already carries is marked ``role_less_host_duplicate`` (one
-    geometry, one row set), and every row's role and SIDE are read through
-    ``effective_role``.  A way whose host cannot be resolved is left
-    exactly as parsed.
+    admitting an articulation ring into that law's surface set.  So L-1
+    (spec ``tunnel-ramp-cut-boundaries-spec.md`` §3) takes the first half
+    only: an INTERIOR RING (:data:`HOST_CAP_FEATURE_CLASSES`) is JUDGED at
+    its host's cap and side through :func:`law_role`, and joins no law it
+    is not a surface of.  The adjudication clause is unchanged: a row whose
+    geometry the host already carries is marked ``role_less_host_duplicate``
+    (one geometry, one row set), and every row's reported role and side are
+    read through ``effective_role``.  A way whose host cannot be resolved is
+    left exactly as parsed.
 
     Called once, from ``run_checks``, before any check runs.
     """
@@ -1142,16 +1165,44 @@ def resolve_feature_hosts(ways: List["Way"],
     return hosts
 
 
+def law_role(way: "Way") -> Optional[str]:
+    """THE ROLE THE LAW JUDGES THIS WAY AT — its own ``role`` tag, or, for
+    a role-less INTERIOR RING (:data:`HOST_CAP_FEATURE_CLASSES`), its
+    resolved HOST's (spec ``tunnel-ramp-cut-boundaries-spec.md`` §3, L-1).
+
+    THE single accessor for that question.  Its three readers are the ONE
+    cap resolver (:func:`_role_grade_limit`), the ONE side partition
+    (:func:`_is_groundside`) and the road-family test in
+    :func:`_airside_groundside_pair` — so a ring is judged at its host's
+    cap and on its host's side, in the CLI, the census and the pytest
+    fixtures alike (one code path; ``tests/test_harness.py`` twin-asserts
+    that no reader of the raw tag reappears beside them).
+
+    It deliberately does NOT stamp ``role``: membership of the surface
+    laws (``_DRAINAGE_MIN_ROLES``, ``_STRIP_PAVEMENT_ROLES``, …) still
+    reads the raw tag, so an articulation ring is judged at its host's cap
+    without being admitted to laws it is not a surface of.  A way whose
+    host did not resolve reads exactly as parsed."""
+    if way is None:
+        return None
+    tags = getattr(way, "tags", None) or {}
+    own = tags.get("role")
+    if own:
+        return own
+    if tags.get("o4_feature") in HOST_CAP_FEATURE_CLASSES:
+        return tags.get(HOST_ROLE_TAG) or None
+    return None
+
+
 def effective_role(way: "Way") -> Optional[str]:
-    """The way's own ``role``, or — for a ROLE-LESS feature way — its
+    """The way's own ``role``, or — for ANY ROLE-LESS feature way — its
     resolved HOST's (lead ruling 2026-08-07).
 
-    REPORTING ONLY, and that is the whole design: ``_is_groundside`` and
-    ``_role_grade_limit`` keep reading the raw ``role`` tag, so the law's
-    population is byte-identical whether the hosts resolved or not, while
-    ``row_roles`` / ``row_side`` / ``row_runway_family`` — the accessors a
-    REPORT is built from — never present an articulation way as an
-    airside-by-default surface."""
+    The REPORTING accessor, wider than :func:`law_role`: it sides every
+    role-less class, including the breaklines the law still judges as
+    parsed, so ``row_roles`` / ``row_side`` / ``row_runway_family`` — the
+    accessors a REPORT is built from — never present an articulation way
+    as an airside-by-default surface."""
     if way is None:
         return None
     tags = getattr(way, "tags", None) or {}
@@ -1184,8 +1235,8 @@ def _airside_groundside_pair(way_a: "Way", way_b: "Way") -> bool:
     stay checked — the road network itself is one continuous surface.
     (Both-groundside-family pairs previously slipped the exactly-one
     test and fired 151 false steps at the CYXY ramp.)"""
-    a_road = way_a.tags.get("role") in _ROAD_FAMILY_ROLES
-    b_road = way_b.tags.get("role") in _ROAD_FAMILY_ROLES
+    a_road = law_role(way_a) in _ROAD_FAMILY_ROLES
+    b_road = law_role(way_b) in _ROAD_FAMILY_ROLES
     if a_road != b_road:
         return True
     return _is_groundside(way_a) != _is_groundside(way_b)

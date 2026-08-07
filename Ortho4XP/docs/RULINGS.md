@@ -1053,3 +1053,41 @@ adjudicated rows = 778 SITES (20.0 rows/site; top 5 sites carry
 The transitive weld-join reading (a welded apron complex is ONE
 site) is RATIFIED — that is the "one over-cap region" the metric
 exists to count; n_ways/extent ride every site for the finer read.
+
+## 2026-08-07 — Ramp-cut boundaries: walls, grades, buildings (owner)
+
+Follow-up rulings on the tunnel-portal-fidelity acceptance findings
+(matched-control census: +665 adjudicated at the new ramp/pavement cut
+boundaries; 25 tunnel_ramp within-shape rows at 4.9-40.4% vs the 4%
+cap; building pad `building1` ring welded to [−3.74, 2.34]):
+
+1. **The tunnel machinery walls its own cut** (owner "Agreed"): where a
+   ramp cuts pavement under ruling 4, the cut edge gets retaining-wall
+   faces from the TUNNEL emitter (today the adjacent-ground machinery
+   improvises retreat walls there, 5 → 63), and wall-hosted ramp-cut
+   steps are LAWFUL — the wall-exemption class — subject to the
+   attribution pass confirming that is what the +665 rows are.
+2. **Over-cap ramp grades: trace and fix** (owner verbatim "Yes, trace
+   and fix") — attribution before fix; the 3.5 % plan is lawful, so the
+   4.9-40.4 % rows were minted somewhere downstream.
+3. **Buildings** (owner verbatim): "A ramp should never cross a
+   building pad edge. Either the tunnel is under the building and the
+   ramp stops at the building edge, or the building is mis-identified
+   and shouldn't be there in the first place." Engine consequence:
+   building pads are neither cut nor buried — the emitted open ramp
+   CLIPS at the building pad edge; the below-grade continuation under
+   the pad is covered bore (not emitted); the portal face stands at the
+   building edge. A mis-identified building is a data-quality case,
+   never an emitter workaround.
+
+## 2026-08-07 — A-site walk-crossing residual: ACCEPT AND PARK (owner)
+
+The 20 over-cap `tunnel_ramp` rows at OTHH's A-site twin-walk cluster
+(+1 actionable site, 83 vs control 82) are ACCEPTED AND PARKED (owner
+verbatim "Accept and park"). Two falsified hypotheses are recorded in
+`docs/specs/tunnel-fork-sustain-spec.md` (OUTCOME); the located
+mechanism — two lawfully-separated portal walks whose paths meet
+(93.89 m² overlap, 6 shared nodes) — awaits a reverse-Y-join round
+when re-armed. Also parked: the `-11318` `object_bridge_ramp` 4.68 %
+pair (different emitter) and the fork-threshold frame-mismatch class
+(real, specimen at cluster (295, −2490), not load-bearing at OTHH).

@@ -317,6 +317,80 @@ def test_the_side_partition_is_the_laws_own_and_reports_mixed(cg):
     assert cg.row_side(_Row("apron", "service_road")) == "mixed"
 
 
+def test_a_role_less_interior_ring_is_judged_at_its_hosts_cap(cg):
+    """L-1 (spec ``tunnel-ramp-cut-boundaries-spec.md`` §3): a role-less
+    ``shape_interior_ring`` — the hole ruling 4's ramp cut leaves in the
+    pavement — is judged at its HOST shape's role, cap and SIDE, not at the
+    caller's airside default.  OTHH's two rings (-12315/-12316) minted 78
+    step + 9 within-shape rows purely by falling through to 1.5 %/airside
+    while their host was the 4 % groundside tunnel ramp whose vertices they
+    are."""
+    class _W:
+        def __init__(self, **tags):
+            self.tags = dict(tags)
+
+    ring = _W(o4_feature="shape_interior_ring", o4_host_role="tunnel_ramp")
+    host = _W(role="tunnel_ramp")
+    junction = _W(role="junction")
+
+    # The ONE cap resolver and the ONE side partition both answer HOST.
+    assert cg.law_role(ring) == "tunnel_ramp"
+    assert cg._role_grade_limit(ring, 0.015) == \
+        cg._role_grade_limit(host, 0.015), (
+            "the ring must hold exactly its host's cap")
+    assert cg._role_grade_limit(ring, 0.015) > 0.015, (
+        "the ring is still being judged at the caller's airside default")
+    assert cg._is_groundside(ring) is True
+    # …so the designed airside/groundside wall exempts the ring↔junction
+    # step the ramp cut creates, exactly as it exempts host↔junction.
+    assert cg._airside_groundside_pair(ring, junction) is True
+
+    # An UNRESOLVED ring is left exactly as parsed — no host, no change.
+    orphan = _W(o4_feature="shape_interior_ring")
+    assert cg.law_role(orphan) is None
+    assert cg._role_grade_limit(orphan, 0.015) == 0.015
+
+    # SCOPE: only the interior-RING classes are judged at the host.  A
+    # ``gap_drainage_spine`` is a breakline, and stamping its host role for
+    # the LAW minted a phantom drainage-minimum row on the frame of record
+    # — it keeps host resolution for REPORTING only.
+    spine = _W(o4_feature="gap_drainage_spine",
+               o4_host_role="service_junction")
+    assert cg.law_role(spine) is None
+    assert cg.effective_role(spine) == "service_junction"
+    assert "gap_drainage_spine" not in cg.HOST_CAP_FEATURE_CLASSES
+    assert set(cg.HOST_CAP_FEATURE_CLASSES) <= set(
+        cg.ROLE_LESS_FEATURE_CLASSES), (
+            "a host-capped class that is not a registered role-less class "
+            "is a class no host resolver ever stamps")
+
+
+def test_the_law_role_is_read_through_one_accessor(cg):
+    """The L-1 twin.  The CLI, the census and the pytest fixtures share ONE
+    code path only as long as the law's THREE role readers all ask
+    ``law_role``.  A reader that goes back to ``tags.get("role")`` silently
+    re-judges interior rings at the airside default on whichever path it
+    sits — the census-wrapper defect wearing a different hat."""
+    for fn in (cg._role_grade_limit, cg._is_groundside,
+               cg._airside_groundside_pair):
+        code = _code_only(inspect.getsource(fn))
+        assert "law_role" in code, (
+            f"{fn.__name__} must resolve a way's role through law_role")
+        assert 'tags . get ( "role" )' not in code \
+            and "tags . get ( 'role' )" not in code, (
+                f"{fn.__name__} reads the raw role tag beside law_role — "
+                f"that is a second law-role resolver")
+    # Hosts are resolved ONCE, in run_checks, before any check runs — so
+    # every path that reaches a check has the stamps.
+    rc = _code_only(inspect.getsource(cg.run_checks))
+    assert "resolve_feature_hosts" in rc, (
+        "run_checks must resolve feature hosts; without it law_role has "
+        "nothing to read and the rings fall back to the airside default")
+    assert rc.index("resolve_feature_hosts") < min(
+        rc.index(n) for n in PRIVATE_CHECKS if n in rc), (
+            "feature hosts must be resolved BEFORE the first check runs")
+
+
 # ══════════════════════════════════════════════════════════════════════
 # §2 THE SIDECAR CONTRACT
 # ══════════════════════════════════════════════════════════════════════

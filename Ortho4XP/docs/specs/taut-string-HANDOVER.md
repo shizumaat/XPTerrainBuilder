@@ -37,6 +37,30 @@ tree's 4 unmounted data dirs now symlink the shared repo; write
 guard gained the no-op ensure-dir allowance (twin in
 test_harness.py).**
 
+**ENCLAVE WALL ATTRIBUTED (08-07 ~13:00; 0 builds;
+tmp/enclave_attrib/enclave_dossier.md): the owner's specimen
+(30.128508, 31.403444) = adjacent_ground_wall `-12825`, 7.3-7.6 m
+step, foot row RAW DEM (proven: −500.00 in the oracle world). The
+void is 100% apron-rimmed, zero escapes, 87.6% BARE GROUND — the law
+gap is CONFIRMED (bare ground never enters the scorer's shape
+universe; G-ENCLAVE's shape predicate reads 0% coverage; candidates
+role/area-restricted; 1 re-verdict vs 1,103 demotions). MECHANISM
+LOG-LINE-PROVEN: gap_fill DETECTED the void and the foreign-shape
+blocker (gap_fill.py:2548) vetoed the ruled ring+spine over a
+5.58 m² groundside sliver → the band consumer owed the wall. One
+gate explains all 5 HECA no-escape voids / 7 walls; class is
+HECA-ONLY on the battery (KCLT's in-void walls all tunnel-escape).
+ITEM-4 RIDER APPLIED: 10 of 86 wall_foot_ll rows rest on this class
+→ VOID on fix (HECA 48→38, from the census, never arithmetic). Fix
+SPECCED: enclave-region-law-spec.md (ONE published enclave region;
+G-ENCLAVE point-in-enclave; blocker stops vetoing; bands never run
+in enclave interiors) — DISPATCH AFTER nidrepair merges (shared
+adjacent_ground blast radius). PIT-EMITTER spec CLOSED same hour:
+premise falsified — the basin emitter landed 67440c7 and OTHH's 8
+basins already emit; basins ruled carve-class (rims lawful);
+sunken-basins memory corrected; only INTERFACE_INTERIOR_CUTOUT (R10)
+lacks an emitter, zero OTHH instances, parked for owner.**
+
 **WALLS RETIRE TO CARVES (owner ruling 08-07 ~12:30, RULINGS entry
 "Retaining walls emit ONLY at carve structures"): walls lawful only
 at tunnel/bridge carve structures; FEATHER (graded transitions under

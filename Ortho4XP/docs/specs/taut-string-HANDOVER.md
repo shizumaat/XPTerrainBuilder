@@ -37,6 +37,31 @@ tree's 4 unmounted data dirs now symlink the shared repo; write
 guard gained the no-op ensure-dir allowance (twin in
 test_harness.py).**
 
+**CYCLE-10 PROBE VERDICT (08-07 ~09:30, clean-tree re-run; c10ctl
+left mounted with arm-A artifacts): the c9feed +604 attribution
+STANDS — 136 instrument + 468 surface, reproduced exactly (4/4 body
+shas, 7/7 census cells; the lane's dirty flag was cosmetic). The
+original probe was confounded THREE ways: dirty-tree-only hooks
+(O4_PROBE_NO_SERVICE_EDGES/NO_MOUTHS in no commit, no stash),
+treatment PRE-APPLIED (probe2's knife ran on the tree already
+carrying the cure — inert by construction), three arms on three
+trees. Mechanism verdict: NOT airside riding graph edges (the edge
+knife reads +137 at 10k / −431 at −500 — same knife, opposite
+signs), NOT mouths; the remaining carrier is the roads' PAIR LAW
+inside the airside solve. Instrument half = (d) with an exact
+address: service axes stamp transverse::apron|apron (69→205 @10k /
+54→197 @−500) though _axis_is_svc + _GROUNDSIDE_ROLES forbids it —
+those rows should not exist. −500 own-frame: arm B 4,150, base-frame
+4,007 = −122 BELOW baseline. Next (spec
+cycle10-roadfeed-verdict-spec.md): (1) instrument fix, zero builds;
+(2) probe hooks land as committed default-OFF gates; (3)
+pre-registered pair-law knife (edges stay, pair law withheld from
+the airside partitioned projection) — surface fix remains a design
+decision, not auto-landed. NOTE: two arm builds flagged CONTAMINATED
+by concurrent shared-repo writes (OTHH +25+051; Masks/+30+031 = the
+owner's own in-app tile build writing masks) — snapshot-level only,
+identity proven by reproduced shas.**
+
 **TRAIN STOPPED PER OWNER GATE (00:30 08-07): HECA airside <100
 proven unreachable (3,734 after the one safe fix, −395; ladder:
 convergence 2%, the remainder = FOUR structures — pad-frontage

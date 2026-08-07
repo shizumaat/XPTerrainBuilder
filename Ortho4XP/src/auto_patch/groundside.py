@@ -427,7 +427,7 @@ def _flanking_law(coords, seg, have, k):
 
 def _seat_ring_on_law_anchors(coords, dem_alts, anchors, max_grade,
                               key_fn=None, prior_at=None, stats=None,
-                              seat_out=None):
+                              seat_out=None, band_at=None):
     """Seat a groundside ring on the LAW datum its welds carry, keeping
     only the DEM's RELIEF — the owner's "DEM is a SEED, nothing more".
 
@@ -469,14 +469,27 @@ def _seat_ring_on_law_anchors(coords, dem_alts, anchors, max_grade,
        that surface was already law-seated.  Interpolated along the
        ORIGINAL ring's edge, so it is the host-edge insert value the
        ingestion spec names.  A law datum, not pinned;
-    3. LAW INTERPOLATION between the two FLANKING law datums along the
+    3. the ROUTE-GRAPH BAND (``band_at``, RULINGS 2026-08-06 "ONE graph")
+       — the vertex is coupled to the solved network through service-road
+       routes and/or the pavement it welds to, so the law reaches it even
+       with no weld of its own: the band says WHICH VALUES ARE LAWFUL
+       there and the DEM SEED chooses where inside that interval the
+       vertex seats (``clamp(seed, floor, ceiling)``).  A law datum, not
+       pinned.  This is the rung that retires the LAW-ISLAND branch for
+       every CONNECTED ring — the D′ class, 4,607 census rows in the
+       c8base frame of record, 97 % of HECA's groundside rings;
+    4. LAW INTERPOLATION between the two FLANKING law datums along the
        ring, with the DEM contributing RELIEF ONLY about that chord,
        clamped to ``cap × arc`` — the nearest-anchor rule this replaces
        could only offer one datum and so stair-stepped between two welds;
-    4. nothing above reaches this ring — a genuine LAW ISLAND.  The DEM
-       seed stands and the ring is COUNTED in ``stats`` so it is named
-       rather than silently shipped (RULINGS 2026-08-05: an infeasible /
-       datum-less report is a defect report, never a property of ground).
+    5. nothing above reaches this ring — a genuinely DISCONNECTED ring,
+       which the owner ruled is NOT SOLVED: *"Anything truly
+       disconnected, we don't really have to do anything at all — it just
+       gets left at DEM and doesn't need to be solved."*  The DEM seed
+       stands, the ring is COUNTED in ``stats``, and the census
+       adjudicates its rows out of scope through the SAME predicate (the
+       sidecar carries this answer — coupling law and census land
+       together).
 
     Under a constant DEM steps 2 and 3 return the law value exactly (the
     relief term and the DEM chord both vanish), which is why the oracle
@@ -503,16 +516,57 @@ def _seat_ring_on_law_anchors(coords, dem_alts, anchors, max_grade,
             if v is not None:
                 law_at[k] = float(v)
                 prior_idx.append(k)
+    # (4) THE ROUTE-GRAPH BAND — the law source for a ring NO weld and no
+    # prior field reaches.  It is asked AFTER the two datum rungs on
+    # purpose: where the ring carries a law datum, the flanking
+    # interpolation below is the TIGHTER law (a weld value is a point, the
+    # band is an interval), and the tighter law wins.  The band is the
+    # LAWFUL INTERVAL and the DEM SEED picks the value inside it — the
+    # owner's "DEM chooses where things get seated within their feasible
+    # bands" verbatim.  In the ruled synthetic worlds the seed is outside
+    # the interval at every vertex, so the clamp lands on the near edge —
+    # floor at −500, ceiling at 10 000 — which is exactly the
+    # extreme-seating saturation the constant-DEM oracle asserts.
+    band_idx: list = []
+    if band_at is not None and not law_at:
+        ivs = {}
+        for k in range(n):
+            iv = band_at(coords[k][0], coords[k][1])
+            if iv is None:
+                continue
+            lo_v, hi_v = float(iv[0]), float(iv[1])
+            if hi_v < lo_v:                                # pragma: no cover
+                lo_v, hi_v = hi_v, lo_v
+            ivs[k] = (lo_v, hi_v)
+        for k, (lo_v, hi_v) in ivs.items():
+            # THE NEAR EDGE, PER VERTEX — the DEM seed clamped into the
+            # vertex's own interval ("DEM chooses where within the band").
+            #
+            # A LEVEL-RING VARIANT WAS TRIED AND IS NOT HERE (cycle 8,
+            # measured): seating the whole ring at one value inside the
+            # INTERSECTION of its vertices' intervals is trivially
+            # within-cap, but it measured WORSE — HEAZ canyon groundside
+            # adjudicated 131 -> 153 rows — because a level lot then
+            # steps against everything it welds to.  Kept as a note
+            # rather than a flag: one seat, the measured one.
+            seed = dem_alts[k]
+            seed = lo_v if seed is None else float(seed)
+            law_at[k] = min(max(seed, lo_v), hi_v)
+            band_idx.append(k)
     if stats is not None:
         stats["rings"] = stats.get("rings", 0) + 1
         stats["anchored"] = stats.get("anchored", 0) + len(anchor_idx)
         stats["from_prior"] = stats.get("from_prior", 0) + len(prior_idx)
+        stats["from_band"] = stats.get("from_band", 0) + len(band_idx)
     if seat_out is not None:
+        seat_out["n_band"] = len(band_idx)
         seat_out["law_seated"] = bool(law_at)
         seat_out["n_law"] = len(law_at)
         seat_out["n_anchor"] = len(anchor_idx)
     if not law_at:
-        # (4) LAW ISLAND — no weld, no prior field.  Report, don't invent.
+        # (5) TRULY DISCONNECTED — no weld, no prior field, and the route
+        # graph's band does not reach it either.  Report, don't invent:
+        # the owner ruled this geometry is not solved at all.
         if stats is not None:
             stats["islands"] = stats.get("islands", 0) + 1
             stats["island_vertices"] = (stats.get("island_vertices", 0) + n)
@@ -632,6 +686,21 @@ def _law_seat_stats(layout, where):
 #: drape propagated through clip → merge → de-conflict and shipped.
 _LAW_SEATED_ATTR = "_gs_law_seated"
 
+#: Set on a groundside shape the ONE route graph does not reach — no weld,
+#: no prior field, no band (RULINGS 2026-08-06: "TRULY DISCONNECTED
+#: geometry … is NOT SOLVED: it stays at raw DEM by construction and mints
+#: nothing").  The emitted sidecar carries these rings so the census
+#: adjudicates them with the SOLVE'S OWN answer instead of a second
+#: reachability opinion.
+_DISCONNECTED_ATTR = "_gs_disconnected"
+
+#: A vertex whose value equals the DEM sample within this tolerance is
+#: still on its SEED — nothing ever wrote law there.  It is the emitted
+#: altitude's rounding step (2 dp), not a law tolerance, and at the
+#: constant-DEM worlds the test is exact.
+_SEED_MATCH_TOL_M = 0.011
+
+
 
 def _shape_prior(*shapes):
     """``[(ring, values)]`` for every shape that carries a per-vertex or
@@ -672,8 +741,81 @@ def _shape_prior(*shapes):
     return out
 
 
+def groundside_route_band(layout):
+    """THE route-graph band for groundside seating, or ``None``.
+
+    Builds the node list, the unified graph and
+    ``building_feasibility.groundside_reach_band`` — the SAME construction
+    ``adjacent_ground._construct_reach_band`` uses for the pre-solve
+    march, so there is one way to get a band from a layout.  Read-only:
+    the node list is taken ``readonly`` (measurement contract) and nothing
+    on the layout is written.
+
+    A failure DEGRADES LOUDLY to ``None`` (the ladder then has only its
+    welds and priors, which is the pre-cycle-8 behaviour) rather than
+    killing a build in the emit tail.
+    """
+    import O4_UI_Utils as UI
+    # SIDE-EFFECT FREE, and MEASURED THAT WAY.  ``spine_value_fields`` —
+    # which this build necessarily runs — publishes three WRITE-ONLY,
+    # LAST-CALL-WINS stashes on the layout: the band-anchor provenance and
+    # the final-band inversion record (plus its node count), which
+    # ``assert_no_final_band_inversion`` reads as THE post-solve law.
+    # Letting a groundside band build overwrite them replaces the solve's
+    # own record with one taken in a different context — measured here as
+    # a HEAZ build failing on 5 "inversions" the solve never saw.  The
+    # values are snapshotted and restored, exactly as an instrument
+    # restores the node-space indices it perturbs.
+    # The two NODE-SPACE INDICES ``_build_node_list`` publishes are in the
+    # stash for the same reason: they are IN ITS OWN node space, and a
+    # later pass reading them against a different one is the node-space
+    # trap this repo has paid for repeatedly.  ``_analytic_band`` in the
+    # harness oracle restores exactly these two; a probe that reads a
+    # layout must leave it as it found it.
+    _STASH = ("_final_band_inversions", "_final_band_node_count",
+              "_band_anchor_provenance",
+              "_terrain_host_yield_first_index",
+              "_adjacent_ground_first_zone_index",
+              "_pav_vis_cache")
+    saved = {a: getattr(layout, a, None) for a in _STASH}
+    try:
+        from .elevation_per_surface.solver_primitives import _build_node_list
+        from . import grade_graph as _GG
+        from .elevation_per_surface.building_feasibility import (
+            groundside_reach_band)
+        nodes, b2i = _build_node_list(layout, readonly=True)
+        if not nodes:
+            return None
+        ctx = _GG.build_context(layout, b2i)
+        G = _GG.build_unified_graph(layout, b2i, ctx=ctx)
+        band = groundside_reach_band(layout, G)
+        if band is not None:
+            UI.vprint(1, f"  [groundside-band] route-graph band: "
+                         f"{getattr(band, 'mouths', 0)} mouth(s), "
+                         f"{getattr(band, 'sources', 0)} banded node(s), "
+                         f"off-route radius "
+                         f"{getattr(band, 'offnet_radius_m', 0.0):.0f} m "
+                         f"at the lot cap")
+        return band
+    except Exception as exc:                               # pragma: no cover
+        UI.vprint(1, f"  [groundside-band] WARN: route-graph band build "
+                     f"FAILED ({exc!r}) — the seat ladder keeps its welds "
+                     f"and priors only (coverage degrade).")
+        return None
+    finally:
+        for a, v in saved.items():
+            if v is None:
+                if hasattr(layout, a):
+                    try:
+                        delattr(layout, a)
+                    except AttributeError:                 # pragma: no cover
+                        pass
+            else:
+                setattr(layout, a, v)
+
+
 def seat_groundside_on_law(layout, dem, tile_lat: int = 0,
-                           tile_lon: int = 0) -> int:
+                           tile_lon: int = 0, band_at=None) -> int:
     """POST-SOLVE: seat every groundside ring still on its DEM seed.
 
     WHY THIS EXISTS (measured, HEAZ ``--dem 1``).  The classification
@@ -722,9 +864,6 @@ def seat_groundside_on_law(layout, dem, tile_lat: int = 0,
         if s.role != ROLE_GROUNDSIDE_PAVEMENT:
             continue
         stats["candidates"] = stats.get("candidates", 0) + 1
-        if getattr(s, _LAW_SEATED_ATTR, False):
-            _skip("already_law_seated")
-            continue                    # already carries law, leave it
         poly = getattr(s, "polygon", None)
         if poly is None or poly.is_empty or poly.geom_type != "Polygon":
             _skip("no_usable_polygon")
@@ -759,16 +898,46 @@ def seat_groundside_on_law(layout, dem, tile_lat: int = 0,
                 _skip("seed_altitudes_unreadable")
                 continue
             dem_alts = [float(v) for v in cur]
+        # EVERY RING, EVERY PASS — the ``already_law_seated`` skip is
+        # RETIRED (cycle 8, measured at HEAZ).  ``_LAW_SEATED_ATTR`` says
+        # a ring's field CAME FROM the law at least once; it never said
+        # every VERTEX of the ring did.  A weld insert, a clip or a merge
+        # adds vertices after the seat and those arrive on the DEM seed —
+        # the STRANDED class, and the only class that mints a within-shape
+        # row at all (a whole ring on the seed is FLAT and mints nothing).
+        # The skip is what left HEAZ way -10280 shipping welds at ~59.8 m
+        # beside vertices at −500.00: 559.84 m of step inside one shape,
+        # the worst groundside row in that world, on a ring the pass
+        # looked at and declined to touch.
+        #
+        # Re-seating is from the LAW ANCHORS and the BAND, never from the
+        # ring's own current field: post-solve, ``law_anchor_values`` is
+        # complete (every higher-authority surface carries its solved
+        # value), so the welds ARE the best law available, while the
+        # ring's own field is either those same welds or a seed that a
+        # ring limiter has since smeared across the shape — and adopting a
+        # smeared seed as a datum is exactly the laundering
+        # ``_shape_prior`` refuses.
         seat_out: dict = {}
         alts, pinned = _seat_ring_on_law_anchors(
             ring, dem_alts, anchors, GROUNDSIDE_MAX_GRADE, key_fn=key,
-            stats=stats, seat_out=seat_out)
+            stats=stats, seat_out=seat_out, band_at=band_at)
         if not seat_out.get("law_seated"):
-            # The ladder ran and found NO law source (``law_at`` empty) —
-            # ``_seat_ring_on_law_anchors`` already counted it under
-            # ``islands``/``island_vertices`` with a locator.
+            # The ladder ran and found NO law source — no weld, no prior
+            # field, and the ROUTE-GRAPH BAND does not reach this ring
+            # either.  Under RULINGS 2026-08-06 ("ONE graph") that is the
+            # TRULY DISCONNECTED class: not solved, left at its DEM seed,
+            # minting nothing.  The shape is MARKED so the emitted sidecar
+            # can carry this exact answer to the census — the coupling law
+            # and the census adjudication land together, which is the
+            # frontage-gap lesson written into a mechanism.
+            setattr(s, _DISCONNECTED_ATTR, True)
             _skip("no_law_source_at_ladder")
-            continue                    # a TRUE island — counted, not moved
+            continue                    # not solved — counted, not moved
+        if getattr(s, _DISCONNECTED_ATTR, False):
+            # It reached the law this pass (a band arrived): the mark is a
+            # statement about the CURRENT layout, never a sticky label.
+            setattr(s, _DISCONNECTED_ATTR, False)
         alts = _grade_limit_ring(ring, alts, GROUNDSIDE_MAX_GRADE,
                                  pinned=pinned)
         alts = [round(float(a), 2) for a in alts]
@@ -776,6 +945,170 @@ def seat_groundside_on_law(layout, dem, tile_lat: int = 0,
         s.altitude = None
         setattr(s, _LAW_SEATED_ATTR, True)
         n += 1
+    stats["reseated"] = stats.get("reseated", 0) + n
+    return n
+
+
+def disconnected_rings_sidecar(layout) -> list:
+    """``[[lat, lon], …]`` — one representative vertex per groundside ring
+    the ONE route graph does not reach (``_DISCONNECTED_ATTR``).
+
+    THE CENSUS'S HALF OF THE LOCKSTEP (RULINGS 2026-08-06, ONE graph
+    binding point 3).  The solve's reachability answer is EXPORTED, never
+    re-derived: a census that recomputed "is this ring connected" would be
+    a second predicate, and the frontage-gap lesson (a coupling law
+    landing without its seating authority) is precisely what that costs.
+    Rows the census finds inside one of these rings are adjudicated
+    OUT-OF-SCOPE — reported, never dropped, never counted as violations.
+
+    Written unconditionally, so a reader can tell "no disconnected rings"
+    from "this patch predates the law".
+    """
+    from .layout import ROLE_GROUNDSIDE_PAVEMENT
+    out: list = []
+    if getattr(layout, "anchor", None) is None:
+        return out
+    for s in (getattr(layout, "shapes", ()) or ()):
+        if getattr(s, "role", "") != ROLE_GROUNDSIDE_PAVEMENT:
+            continue
+        if not getattr(s, _DISCONNECTED_ATTR, False):
+            continue
+        poly = getattr(s, "polygon", None)
+        if poly is None or poly.is_empty or poly.geom_type != "Polygon":
+            continue
+        try:
+            ring = list(poly.exterior.coords)
+        except _GEOM_EXC:                                  # pragma: no cover
+            continue
+        if len(ring) < 3:                                  # pragma: no cover
+            continue
+        try:
+            pts = [[round(float(la), 11), round(float(lo), 11)]
+                   for (la, lo) in (layout.m_to_ll(float(x), float(y))
+                                    for (x, y) in ring)]
+        except _GEOM_EXC:                                  # pragma: no cover
+            continue
+        out.append(pts)
+    return out
+
+
+def seat_service_pavement_on_law(layout, dem, tile_lat: int = 0,
+                                 tile_lon: int = 0, band_at=None) -> int:
+    """POST-SOLVE: seat every SERVICE road / junction vertex the one solve
+    never reached — the far ends of the service network.
+
+    THE MECHANISM THIS CLOSES (RULINGS 2026-08-06, "ONE graph", measured
+    at HEAZ).  Airside reachability never rides service spines
+    (``REACH_NO_SERVICE_SPINES``, standing law), so a service junction
+    whose ONLY connection to the network is a service road gets no band —
+    and a node with no band keeps its DEM seed.  It then ships at raw DEM
+    while the pavement it welds to sits at law: HEAZ emitted 12 service
+    junctions with a way-level altitude ON the −500 m constant, and the
+    lots welded to them graded down to meet them, which is where the
+    worst groundside rows in the census came from.  The lot was obeying
+    the law; the law source was wrong.
+
+    THE SEAT IS THE MOUTH'S, PROPAGATED (the ruling verbatim): the band
+    comes from :func:`building_feasibility.groundside_reach_band`, whose
+    interval at a service node is the AIRSIDE value at the mouth the road
+    leaves from, widened by the road's own 8 % budget along the route.
+    The DEM seed then picks the value inside that interval.
+
+    ONLY THE UNREACHED VERTICES MOVE.  A service vertex the solve DID
+    seat carries a solved value, and overwriting it here would be exactly
+    the second authority the single-solve architecture forbids.  The
+    predicate is "the vertex is still sitting on its DEM seed"; every
+    other vertex of the ring is kept and, better, is used as a LAW ANCHOR
+    for the ones that move, so a partly-solved ring grades to its own
+    solved half.
+
+    Returns the number of shapes re-seated.
+    """
+    from .config import ROLE_GRADE_LIMITS, SERVICE_ROAD_MAX_GRADE
+    from .layout import ROLE_SERVICE_JUNCTION, ROLE_SERVICE_ROAD
+    _dem_at = _dem_sampler(layout, dem, tile_lat, tile_lon)
+    if _dem_at is None:
+        return 0
+    stats = _law_seat_stats(layout, "post_solve_service_law_seat")
+    skips = stats.setdefault("skipped", {})
+    n = 0
+    for role in (ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION):
+        # THE STRICTEST CAP OF THE CONTIGUOUS CROSS-SECTION, not the
+        # road's own (RULINGS 2026-08-02, lateral-contiguity grade law,
+        # FINAL: "the laterally-contiguous paved CROSS-SECTION takes the
+        # STRICTEST cap of any class present in it").  These shapes weld
+        # to groundside lots — that is the whole reason they matter here —
+        # and a seat written at the road's 8 % hands the lot a datum field
+        # its own 5 % law cannot follow: measured at HEAZ canyon, one lot
+        # (way -10284, 17 vertices shared with service junctions) minted
+        # 136 within-shape rows at up to 42 % doing exactly that.  A
+        # STRICTER seat can never violate the looser law, so this is
+        # conservative in the only direction that matters.
+        cap = min(float(ROLE_GRADE_LIMITS.get(role)
+                        or SERVICE_ROAD_MAX_GRADE),
+                  float(GROUNDSIDE_MAX_GRADE))
+        anchors = law_anchor_values(layout, for_role=role)
+        key = law_anchor_key(layout, anchors)
+        for s in layout.shapes:
+            if getattr(s, "role", "") != role:
+                continue
+            stats["candidates"] = stats.get("candidates", 0) + 1
+            poly = getattr(s, "polygon", None)
+            if poly is None or poly.is_empty or poly.geom_type != "Polygon":
+                skips["no_usable_polygon"] = skips.get(
+                    "no_usable_polygon", 0) + 1
+                continue
+            try:
+                ring = list(poly.exterior.coords)
+            except _GEOM_EXC:                              # pragma: no cover
+                skips["ring_coords_raised"] = skips.get(
+                    "ring_coords_raised", 0) + 1
+                continue
+            if len(ring) > 1 and ring[0] == ring[-1]:
+                ring = ring[:-1]
+            if len(ring) < 3:
+                skips["ring_under_3_vertices"] = skips.get(
+                    "ring_under_3_vertices", 0) + 1
+                continue
+            dem_alts = [(_dem_at(x, y)) for (x, y) in ring]
+            if any(d is None for d in dem_alts):
+                skips["seed_altitudes_unreadable"] = skips.get(
+                    "seed_altitudes_unreadable", 0) + 1
+                continue
+            dem_alts = [float(d) for d in dem_alts]
+            cur = list(getattr(s, "node_altitudes", None) or ())
+            if len(cur) == len(ring) + 1:
+                cur = cur[:-1]
+            if len(cur) != len(ring):
+                flat = getattr(s, "altitude", None)
+                cur = ([float(flat)] * len(ring) if flat is not None
+                       else [None] * len(ring))
+            on_seed = [k for k in range(len(ring))
+                       if cur[k] is None
+                       or abs(float(cur[k]) - dem_alts[k]) <= _SEED_MATCH_TOL_M]
+            if not on_seed:
+                skips["solve_seated_every_vertex"] = skips.get(
+                    "solve_seated_every_vertex", 0) + 1
+                continue
+            ring_anchors = dict(anchors)
+            for k in range(len(ring)):
+                if k in on_seed or cur[k] is None:
+                    continue
+                ring_anchors.setdefault(key(ring[k][0], ring[k][1]),
+                                        float(cur[k]))
+            seat_out: dict = {}
+            alts, pinned = _seat_ring_on_law_anchors(
+                ring, dem_alts, ring_anchors, cap, key_fn=key,
+                stats=stats, seat_out=seat_out, band_at=band_at)
+            if not seat_out.get("law_seated"):
+                skips["no_law_source_at_ladder"] = skips.get(
+                    "no_law_source_at_ladder", 0) + 1
+                continue
+            alts = _grade_limit_ring(ring, alts, cap, pinned=pinned)
+            alts = [round(float(a), 2) for a in alts]
+            s.node_altitudes = alts + [alts[0]]
+            s.altitude = None
+            n += 1
     stats["reseated"] = stats.get("reseated", 0) + n
     return n
 
@@ -855,6 +1188,17 @@ def report_groundside_law_seat(layout, icao: str = "") -> dict:
         UI.vprint(1, f"  [groundside-law-seat]   island ring locator(s), "
                      f"first vertex, up to {_ISLAND_XY_CAP}: "
                      + ", ".join(f"({x:.2f},{y:.2f})" for (x, y) in island_xy))
+    # THE DISCONNECTED COUNT, from the MARKS the census will read — not
+    # from the skip counter, which counts LADDER EXITS across passes.  If
+    # these two disagree, the sidecar and the report are describing
+    # different populations, and this line is where that shows.
+    marked = sum(1 for s in (getattr(layout, "shapes", ()) or ())
+                 if getattr(s, _DISCONNECTED_ATTR, False))
+    tot["disconnected_marked"] = marked
+    UI.vprint(1, f"  [groundside-law-seat]   {marked} groundside ring(s) "
+                 f"MARKED disconnected (no weld, no prior, no band) — the "
+                 f"sidecar carries them and the census adjudicates their "
+                 f"rows OUT OF SCOPE")
     if skipped:
         # NAMED CONDITIONS, not a cause.  Each bucket is the branch that
         # returned the ring, spelled as the test that branch performs.

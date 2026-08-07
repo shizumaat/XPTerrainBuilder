@@ -5720,8 +5720,29 @@ def build_airport_pavement(icao: str, xplane_root: str,
             # runs HERE — after the last groundside geometry mutation and
             # before the chord limiter — so the limiter closes any
             # residual on the seated field, not on the seed.
-            from .groundside import seat_groundside_on_law
-            _n_seated = seat_groundside_on_law(layout, _dem_last, _tl, _tn)
+            # THE ONE ROUTE GRAPH (RULINGS 2026-08-06, "ONE graph:
+            # groundside joins the route graph").  The band is built ONCE
+            # here and handed to the ladder: every connected groundside
+            # ring seats inside what its service-road routes can reach,
+            # and a ring the graph does not reach is not solved at all.
+            from .groundside import (groundside_route_band,
+                                     seat_groundside_on_law,
+                                     seat_service_pavement_on_law)
+            _gs_band = groundside_route_band(layout)
+            # SERVICE FIRST, THEN THE LOTS.  A lot welded to a service
+            # junction grades to that junction's value, so the junction
+            # has to carry law before the lot reads it — seating them in
+            # the other order laundered a raw-DEM junction into the lot's
+            # own law datum (HEAZ: the 559.84 m within-shape rows).
+            _n_svc = seat_service_pavement_on_law(layout, _dem_last, _tl,
+                                                  _tn, band_at=_gs_band)
+            if _n_svc:
+                UI.vprint(1,
+                    f"  [groundside-law-seat] {icao}: re-seated {_n_svc} "
+                    f"service road/junction shape(s) the one solve never "
+                    f"reached (mouth band, road law).")
+            _n_seated = seat_groundside_on_law(layout, _dem_last, _tl, _tn,
+                                               band_at=_gs_band)
             if _n_seated:
                 UI.vprint(1,
                     f"  [groundside-law-seat] {icao}: re-seated "

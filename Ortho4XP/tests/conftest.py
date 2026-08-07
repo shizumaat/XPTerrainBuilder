@@ -338,20 +338,55 @@ def unauthorised_shared_writes(changes: dict, scope_of) -> list:
             if scope_of(p) not in _SUITE_MAY_WARM]
 
 
+#: Where the session redirected the DSFTool dump cache to.  Module-level
+#: because a MODULE RELOAD undoes the redirect and the reloader has to be
+#: able to put it back — see :func:`reapply_dsf_dump_cache_redirect`.
+_LANE_DSF_CACHE_DIR = None
+
+
+def reapply_dsf_dump_cache_redirect():
+    """Re-point ``O4_File_Names.Default_dsf_cache_dir`` at this session's
+    lane-local directory.  Call after ANY ``importlib.reload`` of
+    ``O4_File_Names``.
+
+    WHY THIS EXISTS (cycle-8 chore; the 12th standing suite red).  Cycle
+    7.5 landed the redirect as a session fixture, and the guard in
+    ``tests/test_harness.py`` still failed a full-suite run — with the
+    guard's own message saying the cache "is already redirected
+    session-wide above", which the assertion falsified.  The mechanism:
+    ``tests/test_data_root.py`` reloads ``O4_File_Names`` after every one
+    of its tests, the reload re-executes ``_apply_data_root()``, and that
+    recomputes ``Default_dsf_cache_dir`` as ``<cwd>/Default_DSF_cache`` —
+    which in a lane worktree is the SHARED REPO mount.  Every test that
+    decoded a DSF afterwards on that xdist worker authored into the shared
+    corpus again (the ``b5079c60`` directory the c8base battery
+    disclosed).  Verdict (a) BUG, in the redirect: a session-scoped
+    assignment cannot survive a module reload, and the fix is to make the
+    reload put it back rather than to forbid reloading.
+    """
+    if _LANE_DSF_CACHE_DIR is None:
+        return None
+    import O4_File_Names as FNAMES
+    FNAMES.Default_dsf_cache_dir = _LANE_DSF_CACHE_DIR
+    return _LANE_DSF_CACHE_DIR
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _dsf_dump_cache_is_lane_local(tmp_path_factory):
     """THE REDIRECT: no test may author the shared DSFTool dump cache."""
+    global _LANE_DSF_CACHE_DIR
     try:
         import O4_File_Names as FNAMES
     except Exception:                                   # pragma: no cover
         yield
         return
     previous = FNAMES.Default_dsf_cache_dir
-    FNAMES.Default_dsf_cache_dir = str(
-        tmp_path_factory.mktemp("default_dsf_cache"))
+    _LANE_DSF_CACHE_DIR = str(tmp_path_factory.mktemp("default_dsf_cache"))
+    FNAMES.Default_dsf_cache_dir = _LANE_DSF_CACHE_DIR
     try:
         yield
     finally:
+        _LANE_DSF_CACHE_DIR = None
         FNAMES.Default_dsf_cache_dir = previous
 
 

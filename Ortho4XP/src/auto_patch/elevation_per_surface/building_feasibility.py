@@ -752,6 +752,153 @@ def spine_value_fields(layout, G):
     return ceiling, floor
 
 
+def service_mouths(layout, G, ceiling=None, floor=None) -> dict:
+    """THE MOUTHS — ``{node: (floor, ceiling)}`` (RULINGS 2026-08-06,
+    "Service-road mouths seat like apron-edge buildings").
+
+    A MOUTH is a node where a SERVICE-road spine edge meets the airside
+    route network: an endpoint of a ``UnifiedGraph.service_spine_pairs``
+    edge that the airside value field (``spine_value_fields`` — service
+    -excluded, so its values are airside law by construction) reaches.
+
+    Its band IS the airside band there.  That is the owner's ruling in
+    one line: the mouth is *"seated where it's feasible for the airside
+    apron to meet it, then the road and everything else is graded per its
+    law"* — airside wins the seat, exactly as an apron-edge building's
+    frontage is seated by the apron it fronts.  Nothing is minted here:
+    the interval is READ from the airside field, so no groundside value
+    can enter an airside constraint set through this door (receiver-only,
+    structurally).
+
+    ``REACH_NO_SERVICE_SPINES`` is INVERTED here rather than disabled: the
+    airside field still never rides a service pair (that call is
+    untouched), and this reads only its endpoints.  Direction, not
+    deletion.
+    """
+    if ceiling is None or floor is None:
+        ceiling, floor = spine_value_fields(layout, G)
+    out: dict = {}
+    for pair in (getattr(G, "service_spine_pairs", None) or ()):
+        for m in pair:
+            if m in ceiling and m in floor and m not in out:
+                out[m] = (float(floor[m]), float(ceiling[m]))
+    return out
+
+
+def groundside_reach_band(layout, G, offnet_radius_m=None, cap=None):
+    """THE GROUNDSIDE half of the ONE band — ``band(x, y) -> (floor,
+    ceiling) | None`` (RULINGS 2026-08-06, "ONE graph: groundside joins
+    the route graph").
+
+    NOT A SECOND GRAPH AND NOT A SECOND METRIC.  It is the same
+    ``spine_value_fields`` route metric on the same ``UnifiedGraph``, run
+    in the other DIRECTION:
+
+    1. the AIRSIDE field solves first, untouched (service-excluded — the
+       standing law, and the reason airside can never be pulled by any of
+       this);
+    2. its values at the MOUTHS (:func:`service_mouths`) seed a second
+       multi-source Dijkstra that rides the spine graph OUTWARD from
+       there, at the SAME per-edge budgets the graph already carries —
+       which for a service centerline is its own 8 % cap (``config.
+       PAVEMENT_MAX_GRADE['service_road']``), the "built the same as
+       taxiways with a higher cap" half of the ruling;
+    3. a point is answered by the nearest node that has a band — airside
+       -valued nodes included, since a lot welded to an apron is coupled
+       to it — with the local off-route leg priced at the GROUNDSIDE cap
+       (5 %), the lawful chord across the lot's own surface.  Beyond
+       ``offnet_radius_m`` there is no coupling and the answer is
+       ``None``: that is the ruling's "truly disconnected … just gets
+       left at DEM" and it is the SAME predicate the census adjudicates
+       with (the emitted sidecar carries this function's answer, never a
+       re-derivation).
+
+    AIRSIDE WINS where both fields cover a node: the airside interval is
+    the law there and the outward field may only be consulted where the
+    airside field has nothing to say.
+
+    The DEM is not read anywhere in here.  It chooses WHERE INSIDE the
+    returned interval a vertex seats, which is the seat's job, never the
+    band's.
+    """
+    from auto_patch.config import (GROUNDSIDE_BAND_OFFNET_RADIUS_M,
+                                   GROUNDSIDE_MAX_GRADE)
+    radius = float(GROUNDSIDE_BAND_OFFNET_RADIUS_M if offnet_radius_m is None
+                   else offnet_radius_m)
+    leg_cap = float(GROUNDSIDE_MAX_GRADE if cap is None else cap)
+    pos = getattr(G, "pos", None) or {}
+    adj = getattr(G, "spine_adj", None) or {}
+    if not pos:
+        return None
+    ceiling, floor = spine_value_fields(layout, G)
+    mouths = service_mouths(layout, G, ceiling, floor)
+
+    def _outward(seeds, sign):
+        """min-plus (sign +1) / max-plus (−1) field from the mouths."""
+        best: dict = {}
+        pq = [((v if sign > 0 else -v), 0.0, v, k)
+              for (k, v) in seeds.items()]
+        heapq.heapify(pq)
+        while pq:
+            _key, dd, ae, u = heapq.heappop(pq)
+            if u in best:
+                continue
+            best[u] = (ae + dd) if sign > 0 else (ae - dd)
+            for (v, budget) in adj.get(u, ()):
+                if v in best:
+                    continue
+                nd = dd + budget
+                heapq.heappush(pq, (((ae + nd) if sign > 0 else -(ae - nd)),
+                                    nd, ae, v))
+        return best
+
+    gs_ceiling = _outward({k: v[1] for k, v in mouths.items()}, +1)
+    gs_floor = _outward({k: v[0] for k, v in mouths.items()}, -1)
+
+    # ONE source table: the airside field where it exists (airside is
+    # king), the mouth-propagated field everywhere else it reached.
+    src: dict = {}
+    for i, c in gs_ceiling.items():
+        f = gs_floor.get(i)
+        if f is not None and i in pos:
+            src[i] = (f, c)
+    for i, c in ceiling.items():
+        f = floor.get(i)
+        if f is not None and i in pos:
+            src[i] = (f, c)
+    if not src:
+        return None
+
+    # Uniform-grid index at the off-net radius: a query scans its own cell
+    # and the eight around it, which covers every source within ``radius``.
+    cell = max(radius, 1.0)
+    grid: dict = {}
+    for i, (f, c) in src.items():
+        x, y = pos[i]
+        grid.setdefault((int(math.floor(x / cell)),
+                         int(math.floor(y / cell))), []).append((x, y, f, c))
+
+    def band(x, y):
+        cx, cy = int(math.floor(x / cell)), int(math.floor(y / cell))
+        best = None
+        bd = radius
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for (px, py, f, c) in grid.get((cx + dx, cy + dy), ()):
+                    d = math.hypot(px - x, py - y)
+                    if d <= bd:
+                        bd, best = d, (f, c)
+        if best is None:
+            return None
+        slack = leg_cap * bd
+        return (best[0] - slack, best[1] + slack)
+
+    band.sources = len(src)                 # type: ignore[attr-defined]
+    band.mouths = len(mouths)               # type: ignore[attr-defined]
+    band.offnet_radius_m = radius           # type: ignore[attr-defined]
+    return band
+
+
 def _record_anchor_provenance(layout, anchor_seeds, ceil_via, ceil_dist,
                               floor_via, floor_dist):
     """Stash WHICH ANCHOR authored each node's ceiling and floor.

@@ -508,6 +508,11 @@ class Violation:
     # run_checks so callers can point a user at the spot.  None until set.
     lat: Optional[float] = None
     lon: Optional[float] = None
+    #: Set to the NAME of the adjudication that takes this row out of the
+    #: acceptance count (currently only ``"disconnected_ring"``).  The row
+    #: is still measured, still counted in its family and still printed —
+    #: instruments report, the law adjudicates.
+    out_of_scope: Optional[str] = None
 
 
 @dataclass
@@ -522,6 +527,7 @@ class EdgeStep:
     elev_proj: float
     lat: Optional[float] = None
     lon: Optional[float] = None
+    out_of_scope: Optional[str] = None
 
 
 # ELEV_ROUNDING_NOISE_M now imported from auto_patch.config (single source of
@@ -3224,6 +3230,90 @@ def _fan_ramp_zones_to_m(fan_ramp_zones_ll, ll_to_m):
     return out
 
 
+def _disconnected_rings_to_m(disconnected_rings_ll, ll_to_m):
+    """``[(polygon, bounds, prepared)]`` from the ``disconnected_rings``
+    sidecar key — the rings the SOLVE could not couple to the network.
+
+    Same shape and the same prepared/bbox indexing as the fan-ramp reader
+    next door, for the same reason: the question is asked per ROW at a
+    real airport.
+    """
+    out = []
+    for ring in (disconnected_rings_ll or []):
+        if not ring or len(ring) < 3:
+            continue
+        pts = [ll_to_m(la, lo) for (la, lo) in ring]
+        try:
+            from shapely.geometry import Polygon as _Poly
+            poly = _Poly(pts)
+            if not poly.is_valid:
+                poly = poly.buffer(0)
+            if poly.is_empty:
+                continue
+        except Exception:
+            continue
+        try:
+            from shapely.prepared import prep
+            pre = prep(poly)
+        except Exception:
+            pre = None
+        out.append((poly, poly.bounds, pre))
+    return out
+
+
+#: How far outside a declared disconnected ring a row's endpoint may sit
+#: and still belong to it.  A ring vertex is emitted at millimetre
+#: precision and a step row's projected point lands ON the edge, so the
+#: predicate needs a hair of slack — not a proximity join (the 11.6 %
+#: wrong-object lesson): this is containment with an emit-noise margin.
+DISCONNECTED_RING_TOL_M = 0.25
+
+
+def _in_disconnected_ring(rings_m, x, y) -> bool:
+    if not rings_m:
+        return False
+    for (poly, bb, pre) in rings_m:
+        if (x < bb[0] - DISCONNECTED_RING_TOL_M
+                or x > bb[2] + DISCONNECTED_RING_TOL_M
+                or y < bb[1] - DISCONNECTED_RING_TOL_M
+                or y > bb[3] + DISCONNECTED_RING_TOL_M):
+            continue
+        try:
+            from shapely.geometry import Point as _Pt
+            p = _Pt(x, y)
+            if (pre or poly).covers(p):
+                return True
+            if poly.distance(p) <= DISCONNECTED_RING_TOL_M:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _mark_disconnected(pair_rows, step_rows, rings_m) -> int:
+    """Stamp ``out_of_scope='disconnected_ring'`` on every row BOTH of
+    whose points lie in a declared disconnected ring.
+
+    BOTH points, deliberately.  A row with one end on unsolved geometry
+    and the other on the solved network is a statement about the coupling
+    — if the two really are that close, the ring was not disconnected —
+    so it stays in the acceptance count and is visible as the defect it
+    would be.  Returns how many rows were marked.
+    """
+    n = 0
+    for r in pair_rows:
+        if (_in_disconnected_ring(rings_m, *r.pt_a)
+                and _in_disconnected_ring(rings_m, *r.pt_b)):
+            r.out_of_scope = "disconnected_ring"
+            n += 1
+    for s in step_rows:
+        if (_in_disconnected_ring(rings_m, *s.vert_pt)
+                and _in_disconnected_ring(rings_m, *s.proj_pt)):
+            s.out_of_scope = "disconnected_ring"
+            n += 1
+    return n
+
+
 def _fan_ramp_pair_cap(fan_ramp_zones_m, xa, ya, xb, yb):
     """The zone cap for a pair wholly inside ONE zone, else ``None``.
 
@@ -4328,6 +4418,22 @@ VERSION_DEFERRED_FAMILIES: Dict[str, str] = {
 }
 
 
+#: OUT-OF-SCOPE ADJUDICATION CLASSES — rows the law never governed, as
+#: opposed to rows a later version will govern (the version-deferred
+#: register above).  Keyed by the ``out_of_scope`` stamp ``run_checks``
+#: puts on the row.
+OUT_OF_SCOPE_RULING = "2026-08-06 ONE graph"
+OUT_OF_SCOPE_CLASSES: Dict[str, str] = {
+    "disconnected_ring":
+        "the row lies wholly inside a groundside ring the ONE route graph "
+        "does not reach — no route, frontage or weld coupling to the "
+        "solved network.  Owner RULINGS 2026-08-06 (\"ONE graph\"): such "
+        "geometry is NOT SOLVED, stays at its DEM seed by construction "
+        "and mints nothing.  The rings come from the SOLVE's own answer "
+        "(the disconnected_rings sidecar key), never a second predicate",
+}
+
+
 def adjudication(rows_by_family_key) -> dict:
     """THE deferred-adjudication split for one census.
 
@@ -4345,10 +4451,21 @@ def adjudication(rows_by_family_key) -> dict:
     """
     from collections import Counter as _Counter
     deferred = _Counter()
+    out_of_scope = _Counter()
     adjudicated = []
     for key, row in rows_by_family_key:
         if key in VERSION_DEFERRED_FAMILIES:
             deferred[key] += 1
+        elif getattr(row, "out_of_scope", None):
+            # OUT OF SCOPE BY LAW, not by instrument choice.  The only
+            # member today is ``disconnected_ring`` (RULINGS 2026-08-06,
+            # "ONE graph"): geometry the route graph does not reach is
+            # NOT SOLVED, so a grade row on it is not a violation of a
+            # law that never governed it.  The rows are still measured
+            # and still counted in their family — this is the same
+            # report-but-do-not-adjudicate treatment the version-
+            # deferred family gets, with its own heading.
+            out_of_scope[row.out_of_scope] += 1
         else:
             adjudicated.append(row)
     sides = _Counter(row_side(r) for r in adjudicated)
@@ -4358,6 +4475,10 @@ def adjudication(rows_by_family_key) -> dict:
                               for k, why in
                               sorted(VERSION_DEFERRED_FAMILIES.items())},
         "deferred_total": int(sum(deferred.values())),
+        "out_of_scope_classes": {k: {"n": v, "why": OUT_OF_SCOPE_CLASSES.get(
+            k, "unnamed out-of-scope class")}
+            for k, v in sorted(out_of_scope.items())},
+        "out_of_scope_total": int(sum(out_of_scope.values())),
         "adjudicated_total": len(adjudicated),
         "adjudicated_by_side": {
             "airside": sides.get("airside", 0),
@@ -4368,8 +4489,9 @@ def adjudication(rows_by_family_key) -> dict:
         "pass": not adjudicated,
         "note": (f"adjudicated = every law-true row EXCLUDING the "
                  f"version-deferred classes (RULINGS "
-                 f"{DEFERRED_ADJUDICATION_RULING}); the deferred rows are "
-                 f"REPORTED under their own heading and are never dropped"),
+                 f"{DEFERRED_ADJUDICATION_RULING}) and the out-of-scope "
+                 f"classes (RULINGS {OUT_OF_SCOPE_RULING}); both are "
+                 f"REPORTED under their own headings and never dropped"),
     }
 
 
@@ -4390,6 +4512,7 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     "pair_caps": "pair_caps_ll",
     "terrace_joints": "terrace_joints_ll",
     "fan_ramp_zones": "fan_ramp_zones_ll",
+    "disconnected_rings": "disconnected_rings_ll",
     "ruleset": "ruleset",
 }
 
@@ -4456,6 +4579,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["pair_caps_ll"] = data.get("pair_caps") or None
     ctx["terrace_joints_ll"] = data.get("terrace_joints") or None
     ctx["fan_ramp_zones_ll"] = data.get("fan_ramp_zones") or None
+    ctx["disconnected_rings_ll"] = data.get("disconnected_rings") or None
     ctx["ruleset"] = data.get("ruleset") or None
     if announce:
         print(f"  (axes sidecar loaded: {len(ctx['taxi_axes_ll'] or [])} axes"
@@ -4472,6 +4596,9 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
                  if ctx["terrace_joints_ll"] else "")
               + (f", {len(ctx['fan_ramp_zones_ll'])} fan-ramp zones"
                  if ctx["fan_ramp_zones_ll"] else "")
+              + (f", {len(ctx['disconnected_rings_ll'])} disconnected "
+                 f"groundside ring(s)"
+                 if ctx["disconnected_rings_ll"] else "")
               + f", ruleset={ctx['ruleset']!r}"
               + " — law-true check)")
     return ctx
@@ -4617,6 +4744,7 @@ def run_checks(
     pair_caps_ll: Optional[list] = None,
     terrace_joints_ll: Optional[list] = None,
     fan_ramp_zones_ll: Optional[list] = None,
+    disconnected_rings_ll: Optional[list] = None,
     ruleset: Optional[str] = None,
     family_out: Optional[dict] = None,
 ) -> Tuple[List[Violation], List[Violation], List[EdgeStep]]:
@@ -4764,6 +4892,17 @@ def run_checks(
               f"{', '.join(f'{c * 100:.0f} %' for c in _caps)} "
               f"(within-apron pairs inside one are judged at the zone cap; "
               f"every movement surface keeps the strict apron cap)")
+
+    # THE DISCONNECTED RINGS (owner RULINGS 2026-08-06, "ONE graph"), in
+    # this audit's metre frame.  Empty for every patch built without the
+    # law, so every count below is byte-identical to before on one.
+    disconnected_rings_m = _disconnected_rings_to_m(disconnected_rings_ll,
+                                                    ll_to_m)
+    if disconnected_rings_m and not quiet:
+        print(f"  disconnected groundside: {len(disconnected_rings_m)} "
+              f"ring(s) the route graph does not reach (NOT SOLVED by "
+              f"ruling; rows inside one are reported and adjudicated "
+              f"OUT OF SCOPE, never dropped)")
 
     within = _fam("within_shape", _check_within_shape(
         ways, nodes, ll_to_m, max_grade, seam_nids=seam_nids,
@@ -5043,6 +5182,22 @@ def run_checks(
         v.lat, v.lon = _way_latlon(v.way_a)
     for s in steps + mid_steps:
         s.lat, s.lon = _way_latlon(s.way_v)
+
+    # ── OUT OF SCOPE: the TRULY DISCONNECTED groundside rings ──────────
+    # RULINGS 2026-08-06 ("ONE graph"), binding point 3: geometry with no
+    # route, frontage or weld coupling to the solved network is NOT
+    # SOLVED — it stays at its DEM seed by construction and mints
+    # nothing.  The rings are the SOLVE's own answer, carried in the
+    # ``disconnected_rings`` sidecar key; nothing is re-derived here, so
+    # the coupling law and the census cannot drift apart (the second
+    # predicate is exactly what the frontage-gap lesson cost).
+    #
+    # MARKED, NEVER DROPPED.  The row stays in every family count and in
+    # the worst-row lists; ``adjudication`` carries it under its own
+    # heading, the same treatment the version-deferred family gets.
+    if disconnected_rings_m:
+        _mark_disconnected(within + cross, steps + mid_steps,
+                           disconnected_rings_m)
 
     return within, cross, steps + mid_steps
 

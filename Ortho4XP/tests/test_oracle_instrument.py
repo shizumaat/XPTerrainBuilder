@@ -677,3 +677,122 @@ def test_the_allow_degraded_dem_flag_is_actually_recorded(
     _Args.allow_degraded_dem = False
     assert oracle._frame_stamp(ROOT, _Args(), WORLDS)[
         "allow_degraded_dem"] is False
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §5 THE BAND-INVARIANCE ATTRIBUTION (cycle-8 pre-requirement)
+#
+# Assertion 4's self-test FALSIFIED ``_analytic_band``'s premise ("the
+# band is identical in both worlds") at all four battery airports.  The
+# instrument that reports the falsification now has to say WHICH INPUT
+# differs, or the next round extends a band nobody has attributed.  These
+# twins feed it hand-built bands whose carrier is known by construction.
+# ══════════════════════════════════════════════════════════════════════
+
+def _band_with_provenance(bands, prov):
+    """A band closure carrying the ``attachment_at`` provenance the real
+    ``raster_reach_band`` publishes."""
+    def band(xy):
+        return bands.get(xy)
+    band.attachment_at = lambda x, y: prov.get((x, y))
+    return band
+
+
+def test_a_moved_attachment_is_named_as_the_carrier(oracle):
+    """KNOWN ANSWER.  One node, band (0,2) vs (0,5) — a 3.0 m width
+    disagreement — and the two worlds' lookups say the serving attachment
+    sits in DIFFERENT cells ((3,4) vs (9,9)).  The carrier is the
+    geometry the band was read over, so the row files under
+    ``attachment_moved`` and nothing else is counted."""
+    field = {("apron/", 0.0, 0.0): 0.0}
+    lo = _band_with_provenance(
+        {(0.0, 0.0): (0.0, 2.0)},
+        {(0.0, 0.0): {"attachment_cell": (3, 4), "leg_m": 1.0,
+                      "ceiling_at_attachment": 2.0,
+                      "floor_at_attachment": 0.0}})
+    hi = _band_with_provenance(
+        {(0.0, 0.0): (0.0, 5.0)},
+        {(0.0, 0.0): {"attachment_cell": (9, 9), "leg_m": 1.0,
+                      "ceiling_at_attachment": 5.0,
+                      "floor_at_attachment": 0.0}})
+    rep = oracle._analytic_band_world_diff(field, lo, hi, 0.01)
+    assert rep["width_disagreements"] == 1
+    assert rep["carrier"]["attachment_moved"] == 1
+    assert rep["carrier"]["route_interval_at_same_attachment"] == 0
+    assert rep["carrier"]["off_route_leg_at_same_attachment"] == 0
+    assert rep["carrier"]["unattributed"] == 0
+    assert rep["carrier"]["max_abs_delta_m"]["attachment_moved"] == \
+        pytest.approx(3.0)
+    assert rep["worst"][0]["carrier"] == "attachment_moved"
+
+
+def test_a_held_attachment_with_a_moved_interval_is_named_as_the_route(
+        oracle):
+    """KNOWN ANSWER.  Same attachment cell in both worlds, same leg, but
+    the ROUTE INTERVAL at that attachment is 2.0 m in one world and 4.0 m
+    in the other: the value field moved under a lookup that held still,
+    which is a different finding from a layout that moved."""
+    field = {("junction/", 5.0, 5.0): 0.0}
+    lo = _band_with_provenance(
+        {(5.0, 5.0): (0.0, 2.0)},
+        {(5.0, 5.0): {"attachment_cell": (1, 1), "leg_m": 0.5,
+                      "ceiling_at_attachment": 2.0,
+                      "floor_at_attachment": 0.0}})
+    hi = _band_with_provenance(
+        {(5.0, 5.0): (0.0, 4.0)},
+        {(5.0, 5.0): {"attachment_cell": (1, 1), "leg_m": 0.5,
+                      "ceiling_at_attachment": 4.0,
+                      "floor_at_attachment": 0.0}})
+    rep = oracle._analytic_band_world_diff(field, lo, hi, 0.01)
+    assert rep["carrier"]["route_interval_at_same_attachment"] == 1
+    assert rep["carrier"]["attachment_moved"] == 0
+    assert rep["worst"][0]["carrier"] == "route_interval_at_same_attachment"
+
+
+def test_a_held_attachment_and_interval_with_a_moved_leg_is_the_leg(
+        oracle):
+    """KNOWN ANSWER.  Attachment and route interval identical; only the
+    OFF-ROUTE LEG differs (0.5 m vs 1.5 m), which is the lookup's local
+    geometry rather than the route's."""
+    field = {("building/b1", 7.0, 0.0): 0.0}
+    lo = _band_with_provenance(
+        {(7.0, 0.0): (0.0, 2.0)},
+        {(7.0, 0.0): {"attachment_cell": (2, 2), "leg_m": 0.5,
+                      "ceiling_at_attachment": 1.0,
+                      "floor_at_attachment": 0.0}})
+    hi = _band_with_provenance(
+        {(7.0, 0.0): (0.0, 3.0)},
+        {(7.0, 0.0): {"attachment_cell": (2, 2), "leg_m": 1.5,
+                      "ceiling_at_attachment": 1.0,
+                      "floor_at_attachment": 0.0}})
+    rep = oracle._analytic_band_world_diff(field, lo, hi, 0.01)
+    assert rep["carrier"]["off_route_leg_at_same_attachment"] == 1
+    assert rep["carrier"]["attachment_moved"] == 0
+
+
+def test_a_band_without_provenance_is_named_unavailable_not_guessed(
+        oracle):
+    """A supplier that publishes no ``attachment_at`` cannot be split, and
+    the instrument says so rather than filing the row under a cause it did
+    not read (the catch-all-bucket-with-a-cause pattern)."""
+    field = {("apron/", 0.0, 0.0): 0.0}
+    rep = oracle._analytic_band_world_diff(
+        field, {(0.0, 0.0): (0.0, 2.0)}.get,
+        {(0.0, 0.0): (0.0, 5.0)}.get, 0.01)
+    assert rep["carrier"]["provenance_unavailable"] == 1
+    assert rep["carrier"]["attachment_moved"] == 0
+
+
+def test_the_seed_map_diff_separates_keys_from_values(oracle):
+    """KNOWN ANSWER.  Two seed maps: one key only in the plateau world,
+    one only in the canyon world, two shared keys of which one differs by
+    0.25 m (> materiality) and one by 0.001 m (below it).  Expect
+    plateau_only=1, canyon_only=1, shared=2, value_disagreements=1."""
+    lo = {(0.0, 0.0): 10.0, (1.0, 0.0): 20.0, (2.0, 0.0): 30.0}
+    hi = {(0.0, 0.0): 10.25, (1.0, 0.0): 20.001, (3.0, 0.0): 40.0}
+    rep = oracle._seed_map_diff(lo, hi, 0.01)
+    assert rep["plateau_only"] == 1
+    assert rep["canyon_only"] == 1
+    assert rep["shared"] == 2
+    assert rep["value_disagreements"] == 1
+    assert rep["max_abs_delta_m"] == pytest.approx(0.25)

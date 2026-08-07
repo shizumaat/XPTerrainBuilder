@@ -817,13 +817,16 @@ def main(argv=None) -> int:
                          "writer seeded.")
     ap.add_argument("--out", type=Path, default=Path("/tmp/harness/who"))
     ap.add_argument("--allow-degraded-dem", action="store_true",
-                    help="RECORDED IN THE REPORT ONLY "
-                         "(allow_degraded_dem_requested).  who_wrote "
-                         "builds by calling build_airport.build_patch "
-                         "directly; the cfg-frame and DEM-frame gates this "
-                         "flag relaxes are armed in build_airport's own "
-                         "main(), which this entry never enters, so the "
-                         "flag has nothing here to override")
+                    help="relaxes the ONE gate that lives in build_patch "
+                         "itself — the swallowed-degradation refusal (a "
+                         "write the shared-repo guard blocked, or a layout "
+                         "with no DEM provenance at all), which this entry "
+                         "does reach.  The cfg-frame and cold-cache gates "
+                         "are armed in build_airport's own main(), which "
+                         "who_wrote never enters, so for those the flag is "
+                         "still RECORDED ONLY "
+                         "(allow_degraded_dem_requested).  It authorises no "
+                         "write to the shared data repo.")
     args = ap.parse_args(argv)
     if args.emitted_patch:
         # A pure FILE read: no build, no layout, so no build cwd and no
@@ -881,7 +884,8 @@ def main(argv=None) -> int:
     try:
         tag = f"{args.icao}_who{'' if args.dem is None else f'_dem{args.dem:g}'}"
         result = HB.build_patch(args.icao, root, out, tag, prog,
-                                const_dem=args.dem)
+                                const_dem=args.dem,
+                                allow_degraded=args.allow_degraded_dem)
         layout = result["_layout"]
     finally:
         probe.uninstall()
@@ -889,11 +893,13 @@ def main(argv=None) -> int:
     report: dict = {"icao": args.icao, "dem_m": args.dem,
                     "patch": result["patch"],
                     # FRAME STAMP for the whole run (RULINGS 2026-08-06
-                    # point 3).  ``--allow-degraded-dem`` is recorded as
-                    # REQUESTED, not as applied: who_wrote builds through
-                    # ``HB.build_patch`` directly, and the cfg/DEM-frame
-                    # gates the flag relaxes live in build_airport's own
-                    # ``main``, which this path never enters.
+                    # point 3).  ``--allow-degraded-dem`` is PASSED to
+                    # ``HB.build_patch`` (it relaxes the swallowed-
+                    # degradation refusal, which lives there and which this
+                    # path does reach) and recorded as REQUESTED for the
+                    # rest: the cfg/DEM-frame gates it also relaxes live in
+                    # build_airport's own ``main``, which this path never
+                    # enters.
                     "roles_filter": roles or None,
                     "at_tol_m": args.tol,
                     "allow_degraded_dem_requested": bool(

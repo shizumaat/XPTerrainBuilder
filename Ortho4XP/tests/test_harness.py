@@ -22,6 +22,11 @@ X-Plane, no network) and they run in the normal suite.
   scope, a shared-repo write outside an authorised scope is reported as a
   ruling violation, and the refresh lock refuses-and-reports on contention
   instead of blocking or racing.
+* §6b THE LOCK ALLOWANCE AND THE SWALLOWED DEGRADATION — the engine's own
+  cross-process ``.lock`` file passes the write guard (coordination state,
+  never corpus data) while a real data write beside it still refuses; and a
+  degradation the engine CAUGHT — a blocked write, or a layout with no DEM
+  provenance — refuses instead of exiting 0 on a silently smaller layout.
 """
 from __future__ import annotations
 
@@ -1508,8 +1513,294 @@ def test_every_build_result_carries_the_frame_and_guard_state(build_mod):
     import inspect
     src = inspect.getsource(build_mod.build_patch)
     for key in ("write_guard_armed", "write_guard_blocked",
-                "dem_frame_effective"):
+                "write_guard_lock_churn", "dem_frame_effective"):
         assert f'"{key}"' in src, f"build_patch result omits {key}"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §6b THE LOCK-FILE ALLOWANCE, AND THE SWALLOWED-DEGRADATION REFUSALS
+# ══════════════════════════════════════════════════════════════════════
+# Landed 2026-08-07 against a MEASURED defect (``tmp/sliver_attrib``): a
+# real-DEM ``build_airport.py HECA --patch-only`` had its DEM prep blocked
+# by the write guard on the elevation provider's ``.lock`` file, and
+# ``auto_patch.elevation._load_airport_dem``'s single ``except Exception``
+# turned the refusal into a WARN line.  The build exited 0 with
+# ``dem_inset_provenance: null`` and 18.5 k nodes against production's
+# 34-36 k, whole roles absent.  Two halves, twinned separately: the lock
+# file is coordination state and must pass, and a degradation the engine
+# swallowed must never exit 0.
+
+LOCK_REL = "Elevation_data/+30+030/.lock_VIEWFINDER3_N30E031.lock"
+
+
+def _lock_repo(tmp_path):
+    """A fake shared repo with the elevation block directory the engine's
+    base-tile lock lives in, plus an empty lane."""
+    repo = tmp_path / "repo"
+    (repo / "Elevation_data" / "+30+030").mkdir(parents=True)
+    lane = tmp_path / "lane"
+    lane.mkdir()
+    return repo, lane
+
+
+def test_the_guard_ALLOWS_the_engines_lock_file_and_records_the_churn(
+        build_mod, tmp_path):
+    """The diagnosed site: ``O4_Airport_Elevation_Insets.ensure_base_tile``
+    takes an ``O4_File_Lock`` around the download-if-missing critical
+    section on EVERY base-tile resolution — warm cache included, because
+    the lock is what makes the cached double-check safe between concurrent
+    tile builds.  Its contents are a pid and a timestamp; no measurement is
+    a function of it.  Refusing it did not protect the corpus, it produced
+    a DEM-less build."""
+    repo, lane = _lock_repo(tmp_path)
+    lock = repo / LOCK_REL
+    guard = build_mod.SharedRepoWriteGuard(set(), lane, repo=repo)
+    with guard:
+        fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, b"4242 2026-08-07T09:00:00\n")
+        os.close(fd)
+        assert lock.exists()
+        os.remove(str(lock))                     # the release
+    assert not lock.exists()
+    ops = [c["op"] for c in guard.lock_churn]
+    assert ops == ["os_open", "remove"], (
+        "the allowance must RECORD every lock operation it let through — "
+        "'the repo was untouched apart from the ruled lock churn' is a "
+        "fact in the artifact, not a claim in a report")
+    assert all(c["path"] == LOCK_REL for c in guard.lock_churn)
+
+
+def test_a_REAL_data_write_beside_the_lock_STILL_refuses(build_mod, tmp_path):
+    """The allowance must not become a door.  The base raster lives in the
+    SAME directory as the lock that guards it, so this is the write the
+    lock exists to serialise — and it is exactly what owner ruling e9daef5
+    forbids as a build side effect."""
+    repo, lane = _lock_repo(tmp_path)
+    raster = repo / "Elevation_data" / "+30+030" / "N30E031.hgt"
+    with build_mod.SharedRepoWriteGuard(set(), lane, repo=repo) as guard:
+        with pytest.raises(build_mod.SharedRepoWriteBlocked) as exc:
+            os.open(str(raster), os.O_CREAT | os.O_WRONLY)
+        with pytest.raises(build_mod.SharedRepoWriteBlocked):
+            open(raster, "wb").write(b"downloaded mid-measurement")
+    assert "N30E031.hgt" in str(exc.value)
+    assert "dem" in str(exc.value), "the refusal must name the refresh scope"
+    assert not raster.exists(), "the guard must prevent, not just report"
+    assert guard.lock_churn == []
+
+
+def test_the_lock_allowance_is_scoped_to_the_lock_PRIMITIVES_own_calls(
+        build_mod, tmp_path):
+    """NARROWEST MATCH: ``hold_file_lock`` creates the file with
+    ``os.open`` and removes it — nothing else.  A ``builtins.open`` of a
+    ``.lock`` path, or a rename ONTO one, is not lock handling: it is a
+    corpus write wearing a lock's name, and it still refuses."""
+    repo, lane = _lock_repo(tmp_path)
+    lock = repo / LOCK_REL
+    other = tmp_path / "elsewhere.dat"
+    other.write_text("payload")
+    with build_mod.SharedRepoWriteGuard(set(), lane, repo=repo):
+        with pytest.raises(build_mod.SharedRepoWriteBlocked):
+            open(lock, "w").write("not the lock primitive")
+        with pytest.raises(build_mod.SharedRepoWriteBlocked):
+            os.rename(str(other), str(lock))
+    assert not lock.exists()
+
+
+def test_the_ENGINES_OWN_lock_primitive_passes_the_armed_guard(
+        build_mod, tmp_path):
+    """THE KNOWN-ANSWER TWIN (RULINGS 2026-08-06, instrument truth): the
+    allowance is asserted against the real ``O4_File_Lock.hold_file_lock``,
+    not against this test's idea of what it does.  If the primitive ever
+    changes how it names or writes its lock, this fails here instead of
+    silently degrading a real-DEM build again."""
+    import O4_File_Lock
+    repo, lane = _lock_repo(tmp_path)
+    target = repo / "Elevation_data" / "+30+030" / ".lock_VIEWFINDER3_N30E031"
+    guard = build_mod.SharedRepoWriteGuard(set(), lane, repo=repo)
+    with guard:
+        with O4_File_Lock.hold_file_lock(str(target)) as acquired:
+            assert acquired
+            assert Path(str(target) + ".lock").exists()
+    assert not Path(str(target) + ".lock").exists()
+    assert [c["op"] for c in guard.lock_churn] == ["os_open", "remove"]
+
+
+def test_lock_churn_in_the_after_snapshot_is_not_CONTAMINATION(build_mod):
+    """The backstop half: a lock file visible in the before/after snapshot
+    means a holder died inside its critical section — it is named, because
+    it blocks the next lane until it goes stale, but the corpus did not
+    change and the run is not contaminated."""
+    notes = []
+    prog = types.SimpleNamespace(note=notes.append)
+    changes = {"added": [LOCK_REL, "Elevation_data/+30+030/N30E031.hgt"],
+               "modified": [], "removed": []}
+    offenders = build_mod.report_unauthorised_writes(changes, set(), prog)
+    assert [o["path"] for o in offenders] == [
+        "Elevation_data/+30+030/N30E031.hgt"]
+    assert any("lock churn" in n for n in notes), (
+        "lock churn must be REPORTED, never silently dropped")
+
+
+# ── the swallowed-degradation refusals ───────────────────────────────
+
+def test_a_swallowed_write_block_REFUSES_and_names_write_and_hatches(
+        build_mod):
+    blocked = [{"path": "Elevation_data/+30+030/N30E031.hgt", "scope": "dem",
+                "via": "os.open for writing"}]
+    with pytest.raises(SystemExit) as exc:
+        build_mod.require_no_swallowed_write_block(blocked)
+    msg = str(exc.value)
+    assert "N30E031.hgt" in msg, "the refusal must NAME the blocked write"
+    assert "dem" in msg
+    assert "--refresh-data" in msg
+    assert "--allow-degraded-dem" in msg
+    assert "AUTHORISES NO WRITE" in msg, (
+        "accepting a worse measurement and changing everyone's data are "
+        "different acts, and the refusal has to say so")
+
+
+def test_the_swallowed_block_refusal_is_relaxed_ONLY_by_the_flag(build_mod):
+    notes = []
+    prog = types.SimpleNamespace(note=notes.append)
+    blocked = [{"path": LOCK_REL, "scope": "dem", "via": "os.open"}]
+    build_mod.require_no_swallowed_write_block(blocked, allow_degraded=True,
+                                               prog=prog)
+    assert any("DEGRADED" in n for n in notes), (
+        "a degradation accepted by flag is RECORDED, exactly as the "
+        "cold-DEM one is")
+    build_mod.require_no_swallowed_write_block([])       # nothing blocked
+
+
+def test_a_layout_with_NO_dem_provenance_refuses(build_mod):
+    """DETECTOR 2, independent of the guard: ``pipeline`` writes
+    ``dem_inset_provenance = None`` only when the build had no DEM OBJECT
+    AT ALL — the state both ``tmp/sliver_attrib`` arms carry."""
+    with pytest.raises(SystemExit) as exc:
+        build_mod.require_dem_prep_succeeded(None)
+    msg = str(exc.value)
+    assert "dem_inset_provenance" in msg
+    assert "--allow-degraded-dem" in msg
+    build_mod.require_dem_prep_succeeded({"insets": [], "raw": True})
+    build_mod.require_dem_prep_succeeded(None, allow_degraded=True)
+
+
+def _stub_layout(provenance):
+    class _L:
+        dem_inset_provenance = provenance
+        shapes: list = []
+        anchor = None
+
+        def to_osm(self, path):
+            Path(path).write_text("<?xml version='1.0'?>\n<!--stamp-->\n"
+                                  "<osm></osm>\n")
+            Path(str(path) + ".axes.json").write_text("{}")
+    return _L()
+
+
+def _run_build_patch(build_mod, monkeypatch, tmp_path, *, engine, **kw):
+    """Drive ``build_patch`` with a stub engine, so the whole refusal path
+    runs in-process (no X-Plane, no network, no build)."""
+    repo, lane = _lock_repo(tmp_path)
+    pipeline = types.ModuleType("auto_patch.pipeline")
+    pipeline.build_airport_pavement = engine
+    conftest_stub = types.ModuleType("conftest")
+    conftest_stub.xplane_root = lambda: str(tmp_path / "xplane")
+    monkeypatch.setitem(sys.modules, "auto_patch.pipeline", pipeline)
+    monkeypatch.setitem(sys.modules, "conftest", conftest_stub)
+    out = tmp_path / "out"
+    prog = build_mod.Progress(out / "twin.progress")
+    guard = build_mod.SharedRepoWriteGuard(set(), lane, repo=repo)
+    return build_mod.build_patch("HECA", lane, out, "twin", prog,
+                                 write_guard=guard, allow_no_sidecar=True,
+                                 **kw), out, repo
+
+
+def test_a_GUARD_BLOCKED_PREP_the_engine_swallowed_never_exits_0(
+        build_mod, monkeypatch, tmp_path):
+    """THE DEFECT ITSELF, end to end and in-process: the engine attempts a
+    shared-repo write, the guard refuses it, the engine's own
+    ``except Exception`` swallows the refusal and returns a DEM-less
+    layout.  Before this twin that combination exited 0 and a lane spent
+    two builds measuring it."""
+    def engine(icao, xplane_root, **kw):
+        try:                       # elevation._load_airport_dem's shape
+            os.open(str(tmp_path / "repo" / "Elevation_data" / "+30+030"
+                        / "N30E031.hgt"), os.O_CREAT | os.O_WRONLY)
+        except Exception:
+            pass                   # ← the whole defect, in one line
+        return _stub_layout(None)
+
+    with pytest.raises(SystemExit) as exc:
+        _run_build_patch(build_mod, monkeypatch, tmp_path, engine=engine)
+    msg = str(exc.value)
+    assert "N30E031.hgt" in msg
+    assert "--allow-degraded-dem" in msg
+    assert not (tmp_path / "out" / "twin.osm").exists(), (
+        "a DEM-less patch must never land in the output directory, where a "
+        "later census would pick it up by name")
+
+
+def test_the_same_build_PROCEEDS_and_is_RECORDED_under_the_flag(
+        build_mod, monkeypatch, tmp_path):
+    def engine(icao, xplane_root, **kw):
+        try:
+            os.open(str(tmp_path / "repo" / "Elevation_data" / "+30+030"
+                        / "N30E031.hgt"), os.O_CREAT | os.O_WRONLY)
+        except Exception:
+            pass
+        return _stub_layout(None)
+
+    result, out, _repo = _run_build_patch(build_mod, monkeypatch, tmp_path,
+                                          engine=engine, allow_degraded=True)
+    assert (out / "twin.osm").exists()
+    assert result["write_guard_blocked"], (
+        "the degradation is RECORDED in the artifact, as the cold-DEM one is")
+    assert result["dem_inset_provenance"] is None
+    assert "DEGRADED" in (out / "twin.progress").read_text()
+
+
+def test_a_CLEAN_build_that_only_took_a_LOCK_is_reported_normally(
+        build_mod, monkeypatch, tmp_path):
+    """The other side of the same coin: the lock allowance must let a real
+    build through, and the churn is recorded rather than being either
+    silent or fatal."""
+    def engine(icao, xplane_root, **kw):
+        lock = tmp_path / "repo" / LOCK_REL
+        fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.close(fd)
+        os.remove(str(lock))
+        return _stub_layout({"insets": [{"provider": "COPERNICUSGLO30"}],
+                             "raw": False})
+
+    result, out, _repo = _run_build_patch(build_mod, monkeypatch, tmp_path,
+                                          engine=engine)
+    assert (out / "twin.osm").exists()
+    assert result["write_guard_blocked"] == []
+    assert [c["op"] for c in result["write_guard_lock_churn"]] == [
+        "os_open", "remove"]
+    assert result["dem_inset_provenance"]["raw"] is False
+
+
+def test_the_refusals_are_WIRED_IN_not_merely_defined(build_mod):
+    """A refusal nobody calls is a comment.  ``build_patch`` runs both
+    detectors before it writes anything, ``main`` hands the flag down and
+    covers the ``--tile`` path (which never enters ``build_patch``), and
+    the frame artifact records the flag and the churn."""
+    import inspect
+    bp = inspect.getsource(build_mod.build_patch)
+    assert "require_no_swallowed_write_block(" in bp
+    assert "require_dem_prep_succeeded(" in bp
+    assert bp.index("require_dem_prep_succeeded(") < bp.index("to_osm("), (
+        "the refusal must come BEFORE the patch is written")
+    assert "allow_degraded" in inspect.signature(
+        build_mod.build_patch).parameters
+    main_src = inspect.getsource(build_mod.main)
+    assert "allow_degraded=args.allow_degraded_dem" in main_src
+    assert "require_no_swallowed_write_block(" in main_src, (
+        "--tile does not go through build_patch and would keep the hole")
+    for key in ('frame["write_guard_lock_churn"]',
+                'frame["allow_degraded_dem"]'):
+        assert key in main_src, f"the frame artifact omits {key}"
 
 
 # ══════════════════════════════════════════════════════════════════════

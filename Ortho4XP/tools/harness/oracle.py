@@ -610,11 +610,14 @@ def _frame_stamp(root, args, worlds) -> dict:
         "missing_shared_artifacts": missing,
         "allow_degraded_dem": bool(args.allow_degraded_dem),
         "allow_degraded_dem_effect": (
-            "recorded only.  Every build in this run substitutes tile_dem "
-            f"with a ConstantDEM at one of {list(worlds)} m, so no real-DEM "
-            "cache state can reach a reported number; the flag authorises "
-            "nothing and in particular does NOT authorise a shared-repo "
-            "write."),
+            "no effect on the SURFACE: every build in this run substitutes "
+            f"tile_dem with a ConstantDEM at one of {list(worlds)} m, so no "
+            "real-DEM cache state can reach a reported number.  It is "
+            "passed to build_patch, where it relaxes exactly one thing — "
+            "the swallowed-degradation refusal (a write the shared-repo "
+            "guard blocked, or a layout with no DEM provenance at all).  It "
+            "authorises nothing else and in particular does NOT authorise a "
+            "shared-repo write."),
         "guards_reported_not_enforced": [
             "require_cfg_frame", "require_dem_frame", "require_shared_data",
             "require_no_implicit_refresh",
@@ -626,6 +629,9 @@ def _frame_stamp(root, args, worlds) -> dict:
             "build_airport.build_patch's axes-sidecar refusal (a patch with "
             "no sidecar raises rather than degrading to the context-free "
             "census frame)",
+            "build_airport.build_patch's swallowed-degradation refusals (a "
+            "guard-blocked write the engine caught, or a layout with no DEM "
+            "provenance, raises instead of exiting 0 on a smaller layout)",
             "build_airport.require_build_cwd",
         ],
         "frame_warnings": warnings,
@@ -657,11 +663,13 @@ def main(argv=None) -> int:
     ap.add_argument("--allow-degraded-dem", action="store_true",
                     help="accepted and RECORDED into <ICAO>_oracle.frame.json "
                          "('allow_degraded_dem'); it changes nothing about "
-                         "this run, because every oracle build SUBSTITUTES "
-                         "the DEM with a constant (the substituted values are "
-                         "recorded beside the flag), so real-DEM cache warmth "
-                         "cannot confound it.  It does NOT authorise a write "
-                         "to the shared data repo.")
+                         "the SURFACE, because every oracle build "
+                         "SUBSTITUTES the DEM with a constant (the "
+                         "substituted values are recorded beside the flag), "
+                         "so real-DEM cache warmth cannot confound it.  It "
+                         "relaxes exactly one gate, build_patch's "
+                         "swallowed-degradation refusal.  It does NOT "
+                         "authorise a write to the shared data repo.")
     args = ap.parse_args(argv)
 
     root = HB.require_build_cwd(Path.cwd())
@@ -717,7 +725,8 @@ def main(argv=None) -> int:
         # and the same armed shared-repo write guard.  (The env/frame
         # snapshots live in ``build_airport.main``, which this path does not
         # go through — ``_frame_stamp`` above writes them for this run.)
-        result = HB.build_patch(args.icao, root, out, tag, prog, const_dem=w)
+        result = HB.build_patch(args.icao, root, out, tag, prog, const_dem=w,
+                                allow_degraded=args.allow_degraded_dem)
         osm = Path(result["patch"])
         rep = HC.census_one(osm, cg, top=10)
         censuses[w] = rep

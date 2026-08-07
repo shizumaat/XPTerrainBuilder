@@ -74,6 +74,23 @@ measurement in this repo, and every one of them exits 0 without the check:
    appends a hash-stamped record to
    ``<data repo>/.harness/refresh_ledger.jsonl``.
 
+   The guard's own LOCK-FILE allowance is in :func:`is_lock_artifact`: a
+   ``.lock`` sibling is cross-process COORDINATION STATE, never corpus
+   data, and only the two calls the engine's lock primitive makes on one
+   (exclusive create, removal) pass.
+8. **A DEGRADED BUILD THE ENGINE SWALLOWED.**  A refusal the build catches
+   is not a refusal.  ``auto_patch.elevation._load_airport_dem`` runs
+   production's whole DEM prep inside ONE ``except Exception``, so a write
+   the guard blocked (item 7) becomes a WARN line, ``dem_inset_provenance``
+   comes back ``None`` — no DEM object at all — and the build exits 0 on a
+   silently smaller layout (measured 2026-08-07 at HECA: 18.5 k nodes
+   against production's 34-36 k, with ``retaining_wall`` / ``ols_cut`` /
+   ``crown_spine`` / ``gap_interior_ring`` entirely absent).  Two
+   independent detectors close it, and either one refuses: any write the
+   guard blocked during a build that nevertheless returned, and a build
+   whose layout carries NO DEM provenance.  ``--allow-degraded-dem``
+   proceeds knowingly and records it — it authorises no write.
+
 THE SYNTHETIC WORLDS (``--dem CONST_M``).  ``--dem`` substitutes an
 ``auto_patch.constant_dem.ConstantDEM`` for the tile surface — the same
 seam Ortho4XP's own ``tile.dem`` uses.  It is a DEM SOURCE substitution and
@@ -696,6 +713,49 @@ def require_no_implicit_refresh(missing: list, requested: set) -> None:
         f"    --refresh-data {','.join(scopes)}")
 
 
+#: THE LOCK-FILE ALLOWANCE (2026-08-07).
+#:
+#: ``O4_File_Lock.hold_file_lock`` is the engine's ONE cross-process lock
+#: primitive: it creates a sibling ``<target>.lock`` with
+#: ``os.open(O_CREAT | O_EXCL | O_WRONLY)``, writes ``<pid> <isoformat>``
+#: into it through the file DESCRIPTOR, and removes it on exit (including
+#: on a stale break).  ``O4_Airport_Elevation_Insets.ensure_base_tile``
+#: takes one inside ``Elevation_data/<block>/`` around the
+#: download-if-missing critical section — on EVERY base-tile resolution,
+#: warm cache included, because the lock is what makes the cached
+#: double-check safe between concurrent tile builds.
+#:
+#: A lock file is COORDINATION STATE, not corpus data: its contents are a
+#: pid and a timestamp that nothing reads programmatically, it exists only
+#: for the duration of one critical section, and no measurement is a
+#: function of it.  Refusing it does not protect the corpus — it makes
+#: concurrent-safe cache reads impossible, which is how a real-DEM HECA
+#: build came back with no DEM at all (see the module docstring, item 8).
+#:
+#: The allowance is deliberately the NARROWEST match that covers it: the
+#: basename must end in ``.lock`` (the primitive's own naming convention),
+#: and only the two operations the primitive performs on it are allowed —
+#: an ``os.open`` create and an ``os.remove``/``os.unlink``.  A
+#: ``builtins.open`` of a ``.lock`` path, a rename onto one, a directory
+#: named ``*.lock``: none of those are lock handling, and all still refuse.
+LOCK_ARTIFACT_SUFFIX = ".lock"
+
+#: The guard's operation tokens for the calls
+#: :func:`O4_File_Lock.hold_file_lock` makes on its lock file.
+LOCK_FILE_OPS = frozenset({"os_open", "remove", "unlink"})
+
+
+def is_lock_artifact(relpath) -> bool:
+    """True for a cross-process LOCK FILE (never corpus data).
+
+    Path-shape only, so it is the same predicate for the preventer (which
+    sees an absolute path mid-build) and for the after-the-fact snapshot
+    audit (which sees a repo-relative one): a leaked lock file left by a
+    crashed holder is lock churn in both, never a corpus mutation.
+    """
+    return os.path.basename(str(relpath)).endswith(LOCK_ARTIFACT_SUFFIX)
+
+
 class SharedRepoWriteBlocked(RuntimeError):
     """A build tried to write the shared data repo outside an authorised
     ``--refresh-data`` scope, and the guard stopped it."""
@@ -735,8 +795,10 @@ class SharedRepoWriteGuard:
     be complete.
 
     ALWAYS-ALLOWED: the harness's own state directory (``.harness/`` — the
-    refresh ledger and the lock files), and every path under an authorised
-    scope.  Reads are never touched.
+    refresh ledger and the lock files), every path under an authorised
+    scope, and — for the two calls that handle them — the engine's own
+    cross-process ``.lock`` files (:data:`LOCK_ARTIFACT_SUFFIX`), which are
+    coordination state and never corpus data.  Reads are never touched.
     """
 
     #: ``os.open`` flags that mean "this call can modify the file".
@@ -748,6 +810,10 @@ class SharedRepoWriteGuard:
         self.repo = Path(repo or DATA_REPO)
         self.enabled = bool(enabled)
         self.blocked: list = []
+        #: Every lock-file operation the allowance let through, recorded so
+        #: "the repo was untouched apart from the ruled lock churn" is a
+        #: fact in the artifact rather than a claim in a report.
+        self.lock_churn: list = []
         # Cheap textual prefixes: the shared repo itself, and this lane's
         # mount points (which are SYMLINKS into it, so a relative
         # ``OSM_data/...`` write never mentions the repo path at all).
@@ -762,8 +828,16 @@ class SharedRepoWriteGuard:
         self._saved: dict = {}
 
     # ── the predicate ────────────────────────────────────────────────
-    def _violation(self, path):
-        """``(rel, scope)`` if writing ``path`` is forbidden, else None."""
+    def _violation(self, path, op=None):
+        """``(rel, scope)`` if writing ``path`` is forbidden, else None.
+
+        ``op`` is the guard's own token for the call being made (``open``,
+        ``os_open``, ``rename``, ``mkdir``, …).  It exists for ONE reason:
+        the lock-file allowance is scoped to the two operations the
+        engine's lock primitive performs (:data:`LOCK_FILE_OPS`), so a
+        ``.lock`` path reached by any other call still refuses.  The
+        default (``None``) is the conservative one — no allowance.
+        """
         try:
             s = os.fspath(path)
         except TypeError:
@@ -782,6 +856,11 @@ class SharedRepoWriteGuard:
             return None                        # not in the shared repo
         if rel.startswith(".harness"):
             return None                        # the harness's own state
+        if op in LOCK_FILE_OPS and is_lock_artifact(rel):
+            # COORDINATION STATE, not corpus data — see
+            # LOCK_ARTIFACT_SUFFIX.  Recorded, never silent.
+            self.lock_churn.append({"path": rel, "op": op})
+            return None
         scope = scope_of(rel)
         if scope in self.requested:
             return None
@@ -813,14 +892,14 @@ class SharedRepoWriteGuard:
 
         def _open(file, mode="r", *a, **kw):
             if any(c in mode for c in "wxa+"):
-                hit = guard._violation(file)
+                hit = guard._violation(file, op="open")
                 if hit:
                     guard._refuse(hit[0], hit[1], "open for writing")
             return real_open(file, mode, *a, **kw)
 
         def _os_open(path, flags, *a, **kw):
             if flags & guard._WRITE_FLAGS:
-                hit = guard._violation(path)
+                hit = guard._violation(path, op="os_open")
                 if hit:
                     guard._refuse(hit[0], hit[1], "os.open for writing")
             return real_os_open(path, flags, *a, **kw)
@@ -848,7 +927,7 @@ class SharedRepoWriteGuard:
                     # tile builds impossible through a mounted repo.
                     if _nm in ("mkdir", "makedirs") and os.path.isdir(p):
                         continue
-                    hit = guard._violation(p)
+                    hit = guard._violation(p, op=_nm)
                     if hit:
                         guard._refuse(hit[0], hit[1], f"os.{_nm}")
                 return _real(*a, **kw)
@@ -888,17 +967,32 @@ def report_unauthorised_writes(changes: dict, requested: set,
     path, its scope, and a CONTAMINATED marker on the run — a corpus that
     changed mid-build is not the corpus the run started on, and its numbers
     are not comparable with the ones before it.
+
+    LOCK CHURN is reported separately and never contaminates: a ``.lock``
+    sibling is coordination state (see :data:`LOCK_ARTIFACT_SUFFIX`), and
+    one visible in an after-snapshot means a holder died mid-section, not
+    that the corpus changed.  It is named, because a lingering lock does
+    block the next lane's critical section until it goes stale.
     """
-    offenders = []
+    offenders, lock_churn = [], []
     for kind in ("added", "modified", "removed"):
         for rel in changes[kind]:
+            if is_lock_artifact(rel):
+                lock_churn.append({"path": rel, "kind": kind})
+                continue
             scope = scope_of(rel)
             if scope in requested:
                 continue
             offenders.append({"path": rel, "kind": kind, "scope": scope})
+    for lc in lock_churn:
+        prog.note(f"   lock churn (coordination state, NOT corpus data): "
+                  f"{lc['kind']} {lc['path']} — a lock file outliving the "
+                  f"build means its holder died inside the critical section")
     if not offenders:
         prog.note("shared repo UNCHANGED by this build (full-surface "
-                  "before/after snapshot) — no side-effect mutation")
+                  "before/after snapshot) — no side-effect mutation"
+                  + (f"; {len(lock_churn)} lock file(s) left behind, which "
+                     f"are not corpus data" if lock_churn else ""))
         return offenders
     prog.note(f"!! SHARED-REPO SIDE EFFECT: this build wrote "
               f"{len(offenders)} path(s) NOBODY authorised — owner ruling "
@@ -917,6 +1011,108 @@ def report_unauthorised_writes(changes: dict, requested: set,
               f"{','.join(sorted({str(o['scope']) for o in offenders}))} "
               f"to make this an EXPLICIT, locked, hash-stamped refresh.")
     return offenders
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE SWALLOWED-DEGRADATION REFUSALS (2026-08-07)
+# ══════════════════════════════════════════════════════════════════════
+# A refusal the build CATCHES is not a refusal.  Both of these close the
+# same hole from opposite ends — one reads the guard's own record, the
+# other reads the built layout — because a single detector here is a
+# single point of silence, and this class of defect is invisible in a
+# build log by construction (it exits 0).
+
+#: What a lane may do about a blocked write, spelled out at the refusal:
+#: the three acts are DIFFERENT and only one of them changes the corpus.
+_DEGRADED_OPTIONS = (
+    "Your options, and they are three DIFFERENT acts:\n"
+    "  * If the blocked path is COORDINATION STATE rather than corpus data "
+    "(a lock file is the ruled example — see is_lock_artifact in this "
+    "file), the guard should allow that exact operation on that exact path "
+    "shape, and the fix is here, in the harness.\n"
+    "  * --refresh-data <scope> AUTHORISES the write deliberately: under a "
+    "per-scope lock, hash-stamped into the shared refresh ledger.  It "
+    "CHANGES THE CORPUS EVERY OTHER LANE READS, so it is an owner-level "
+    "act, not a way past a red message.\n"
+    "  * --allow-degraded-dem measures in the degraded frame KNOWINGLY.  It "
+    "is recorded in <tag>.frame.json and it AUTHORISES NO WRITE — accepting "
+    "a worse measurement and changing everyone's data are different acts.")
+
+
+def require_no_swallowed_write_block(blocked, *, allow_degraded: bool = False,
+                                     prog=None) -> None:
+    """DETECTOR 1 — the guard blocked a write and the build carried on.
+
+    :class:`SharedRepoWriteGuard` raises at the call site, but the engine
+    catches: ``auto_patch.elevation._load_airport_dem`` wraps production's
+    entire DEM prep in one ``except Exception`` that logs
+    ``WARN: production-parity DEM prep failed`` and returns ``None``.  The
+    build then grades with NO DEM and exits 0 — measured 2026-08-07 at
+    HECA (``tmp/sliver_attrib``): 18.5 k nodes against production's
+    34-36 k, whole roles (``retaining_wall``, ``ols_cut``, ``crown_spine``,
+    ``gap_interior_ring``) absent, and nothing in the exit code to say so.
+
+    So a blocked write that did NOT abort the build is itself the finding:
+    whatever the caller wanted that path for, it did without.
+    """
+    if not blocked:
+        return
+    lines = "\n".join(
+        f"  - BLOCKED {b.get('via', 'write')} '{b.get('path')}'"
+        f"  [scope {b.get('scope') or '<outside every named scope>'}]"
+        for b in blocked)
+    msg = (f"the shared-repo write GUARD blocked {len(blocked)} write(s) "
+           f"DURING this build and the build RETURNED ANYWAY — the engine "
+           f"swallowed the refusal and fell back:\n{lines}\n"
+           f"A caught refusal degrades the frame in SILENCE (the fallback "
+           f"is a log line and rc=0).  No number from this build is "
+           f"production's frame.")
+    if not allow_degraded:
+        if prog is not None:
+            prog.note("EXIT rc=2 REFUSED: " + msg)
+        raise SystemExit("REFUSING to report this build: " + msg + "\n"
+                         + _DEGRADED_OPTIONS)
+    if prog is not None:
+        prog.note("DEGRADED (accepted by --allow-degraded-dem): " + msg)
+    print("  [harness] DEGRADED BUILD (accepted by flag): " + msg)
+
+
+def require_dem_prep_succeeded(provenance, *, allow_degraded: bool = False,
+                               prog=None) -> None:
+    """DETECTOR 2 — the built layout carries NO DEM provenance at all.
+
+    Independent of detector 1 and of the pre-build cache check, and it
+    reads the OUTPUT rather than the cause: ``pipeline`` sets
+    ``layout.dem_inset_provenance`` to
+    ``provenance.dem_provenance_from_dem(dem)`` for any DEM object and to
+    ``None`` only when there was NO DEM — the exact state the swallowed
+    prep failure leaves behind (both arms of ``tmp/sliver_attrib`` carry
+    ``dem_inset_provenance: null``).  It therefore also catches a prep that
+    died for a reason the guard never saw.
+
+    A DEM-less build is never a measurement: with ``compute_elevations``
+    on, every seed the solve would take from terrain is simply absent.
+    """
+    if provenance is not None:
+        return
+    msg = ("this build's layout carries NO DEM provenance "
+           "(dem_inset_provenance is null), which pipeline writes ONLY when "
+           "the build had no DEM OBJECT AT ALL — the DEM prep failed and "
+           "auto_patch.elevation._load_airport_dem's single "
+           "'except Exception' turned it into a WARN line.  Every elevation "
+           "in the patch was solved without terrain, and the layout comes "
+           "out silently smaller (HECA 2026-08-07: 18.5 k nodes against "
+           "production's 34-36 k).")
+    if not allow_degraded:
+        if prog is not None:
+            prog.note("EXIT rc=2 REFUSED: " + msg)
+        raise SystemExit("REFUSING to report this build: " + msg + "\n"
+                         + "The build log's '[pav-builder] WARN: "
+                           "production-parity DEM prep failed' line names "
+                           "the cause.\n" + _DEGRADED_OPTIONS)
+    if prog is not None:
+        prog.note("DEGRADED (accepted by --allow-degraded-dem): " + msg)
+    print("  [harness] DEGRADED BUILD (accepted by flag): " + msg)
 
 
 def apply_xplane_install_paths(owner_cfg=OWNER_APP_CFG) -> dict:
@@ -1060,7 +1256,7 @@ def diagnose_missing_sidecar(layout) -> str:
 def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
                 prog: Progress, const_dem=None,
                 allow_no_sidecar: bool = False,
-                write_guard=None) -> dict:
+                write_guard=None, allow_degraded: bool = False) -> dict:
     """One airport → ``<out>/<tag>.osm`` + its ``.axes.json`` sidecar.
 
     ``write_guard`` — a :class:`SharedRepoWriteGuard` (or ``None`` for the
@@ -1071,6 +1267,14 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
     runs most.  Arming in the CLI only would have left every oracle and
     every authorship trace free to regenerate the shared corpus — the
     precise hole the road-feed precedent went through.
+
+    ``allow_degraded`` — the ``--allow-degraded-dem`` semantics, and for
+    the same reason: the two swallowed-degradation refusals fire HERE so
+    that a direct caller gets them too, and a direct caller therefore
+    needs the same knowing-override its own CLI advertises.  The
+    degradation is refused BEFORE the patch is written: an ``.osm`` from a
+    DEM-less build sitting in the output directory is exactly the artifact
+    a later census picks up by name, so the flag is also what keeps it.
     """
     for p in (root / "src", root, root / "tests", root / "tools"):
         if str(p) not in sys.path:
@@ -1121,6 +1325,19 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
     with guard:
         layout = build_airport_pavement(icao, xplane_root(), **kw)
     dt = time.time() - t0
+    # THE SWALLOWED-DEGRADATION REFUSALS, before anything is written: the
+    # engine catches the guard's refusal and returns a DEM-less layout with
+    # rc=0 (module docstring, item 8).  Two detectors, one from the guard's
+    # record and one from the layout itself.
+    require_no_swallowed_write_block(guard.blocked,
+                                     allow_degraded=allow_degraded, prog=prog)
+    require_dem_prep_succeeded(getattr(layout, "dem_inset_provenance", None),
+                               allow_degraded=allow_degraded, prog=prog)
+    if guard.lock_churn:
+        prog.note(f"lock churn allowed (coordination state, never corpus "
+                  f"data): {len(guard.lock_churn)} operation(s), e.g. "
+                  f"{guard.lock_churn[0]['op']} "
+                  f"{guard.lock_churn[0]['path']}")
     out_dir.mkdir(parents=True, exist_ok=True)
     osm = out_dir / f"{tag}.osm"
     layout.to_osm(str(osm))
@@ -1163,6 +1380,7 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
         "sidecar_present": side.exists(),
         "write_guard_armed": guard.enabled,
         "write_guard_blocked": list(guard.blocked),
+        "write_guard_lock_churn": list(guard.lock_churn),
         "dem_frame_effective": frame_surface_keys(root),
         "dem_inset_provenance": getattr(layout, "dem_inset_provenance", None),
         "anchor": (list(layout.anchor) if layout.anchor is not None else None),
@@ -1282,7 +1500,11 @@ def main(argv=None) -> int:
                          "refused value is the no-data sentinel -32768.")
     ap.add_argument("--allow-degraded-dem", action="store_true",
                     help="proceed with a cold cache / divergent cfg frame, "
-                         "KNOWINGLY (recorded in the env snapshot)")
+                         "or with a DEGRADATION THE ENGINE SWALLOWED (a "
+                         "write the shared-repo guard blocked, or a build "
+                         "whose layout carries no DEM provenance at all), "
+                         "KNOWINGLY (recorded in the env snapshot and in "
+                         "<tag>.frame.json).  It authorises NO write.")
     ap.add_argument("--allow-no-sidecar", action="store_true",
                     help="keep a patch whose axes sidecar failed to write; "
                          "it is measurable only in the BARE frame, which "
@@ -1441,7 +1663,8 @@ def main(argv=None) -> int:
             result = build_patch(args.icao, root, out_dir, tag, prog,
                                  const_dem=args.dem,
                                  allow_no_sidecar=args.allow_no_sidecar,
-                                 write_guard=guard)
+                                 write_guard=guard,
+                                 allow_degraded=args.allow_degraded_dem)
         result["wall_seconds"] = round(time.time() - t0, 1)
     finally:
         # The audit runs even when the build raised: a build that died
@@ -1471,6 +1694,8 @@ def main(argv=None) -> int:
     frame["contaminated"] = bool(offenders)
     frame["write_guard_armed"] = guard.enabled
     frame["write_guard_blocked"] = guard.blocked
+    frame["write_guard_lock_churn"] = guard.lock_churn
+    frame["allow_degraded_dem"] = bool(args.allow_degraded_dem)
     frame["dem_frame_effective"] = frame_surface_keys(root)
     frame["synthetic_dem"] = result.get("synthetic_dem")
     frame["dem_inset_provenance"] = result.get("dem_inset_provenance")
@@ -1480,6 +1705,15 @@ def main(argv=None) -> int:
     (out_dir / f"{tag}.result.json").write_text(json.dumps(
         {k: v for k, v in result.items() if not k.startswith("_")},
         indent=1, default=str))
+    # ``--tile`` does not go through ``build_patch``, so detector 1 runs
+    # here for it (detector 2 needs the layout, which a tile build never
+    # returns).  AFTER the artifacts on purpose: a tile build's forensics
+    # are its step timings and its write audit, and those must survive the
+    # refusal — the patch path refuses earlier, before it can leave a
+    # DEM-less ``.osm`` where a census would find it.
+    if args.tile:
+        require_no_swallowed_write_block(
+            guard.blocked, allow_degraded=args.allow_degraded_dem, prog=prog)
     prog.note(f"EXIT {tag} rc=0 wall={result['wall_seconds']}s")
     print(f"\n  [harness] artifacts in {out_dir}: {tag}.osm(+.axes.json), "
           f"{tag}.env.json, {tag}.frame.json, {tag}.result.json, "

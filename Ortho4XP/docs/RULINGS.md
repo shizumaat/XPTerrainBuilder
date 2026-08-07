@@ -963,3 +963,48 @@ O4_SVC_CURVED_JUNCTION experiment outright (the open call from STATUS
 20260731d). WITHHELD: timing-baseline re-record — stays deferred to
 the final-design profiling round; spurious REGRESSION rows remain
 expected until then.
+
+## 2026-08-07 — Tunnel portal fidelity: four rulings (owner, OTHH)
+
+Context: the OTHH six-site tunnel investigation (attribution: memory
+`othh-tunnel-emitter-attribution`; every real tunnel is OSM-mapped and
+already in the cached corpus; the object classifier cannot fire on the
+pack — zero ATTR_hard pack-wide). Owner ruled all four, verbatim
+"1. Yes 2. Yes 3. Yes 4. Tunnel ramp should win over pavement":
+
+1. **Mapped ends are preserved unconditionally.** Re-splitting a MAPPED
+   `tunnel=yes` bore at pavement crossings must never move a portal
+   inside the mapped extent: the 100 m mapped-end preservation
+   threshold becomes unconditional for `_had_tunnel` ways. (OTHH: a
+   62 m mouth-to-apron stretch fell under the threshold, planting the
+   portal 61 m inside the bore and digging a −4 m pit at the mouth.)
+2. **Mapped-bore interiors are roofed by definition.** The low-connector
+   open-cut test excludes `_had_tunnel` stretches — an interior gap of
+   a mapped bore is never dug open, whatever its length. (OTHH C2 and
+   the second connector, way -11728.)
+3. **Corridor cut clearance joins the 0.6 m standard.** The low-corridor
+   airside cutback must clear the SHARED_VERTEX_TOL_M intern bucket
+   like every other tunnel emitter (0.5 → 0.6 m; the −5.16/+3.19
+   needle).
+4. **Tunnel ramp wins over pavement.** At a mapped portal the ramp CUTS
+   the pavement it surfaces through (the R13 `cuts_pavement` spirit);
+   the fractional ≥50% pavement-overlap drop and graze clip no longer
+   remove tunnel ramps, and walls follow their ramp. Spec-level safety
+   floor (flagged to owner, not yet separately ratified): a ramp never
+   cuts a runway-family shape — such an overlap drops the ramp piece
+   loudly instead.
+
+Spec: `docs/specs/tunnel-portal-fidelity-spec.md` (this session).
+
+## 2026-08-07 — Mouth-fed banding is sufficient; road feed merges as-is (owner)
+
+Owner, verbatim: "Mouth-fed banding that reaches should be
+sufficient." The full-coverage scope question is CLOSED: no round
+seeds graph nodes along road geometry that never reaches the graph;
+the free-road apron remainder and the out-of-reach 30.8% of road
+metres are lawful non-participants. And: "Merge as-is" — the road
+feed (lane/c9feed, receiver-only default, edges verified binding,
+mouths arbitrating) merges at its attributed table: HECA 10k airside
+4,198 (+192 vs base) / −500 4,027 (−102). The +192 is accepted as
+named law expression (mouth seating + threshold effects of the
+universal band displacement on four aprons).

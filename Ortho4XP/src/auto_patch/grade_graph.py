@@ -2219,6 +2219,7 @@ def _build_global_spine(G, ctx, icao: str = ""):
     # A pair ALSO woven by a taxi centerline (a road crossing a taxi
     # route's nodes) is a genuine taxi edge — the service tag must not
     # remove it from reachability.
+    _n_svc_woven_out = len(G.service_spine_pairs & _taxi_woven_pairs)
     G.service_spine_pairs -= _taxi_woven_pairs
     # ── spine-drop census (hygiene 2026-07-31) ──────────────────────────
     G.spine_centerlines = len(ctx.centerlines)
@@ -2231,6 +2232,19 @@ def _build_global_spine(G, ctx, icao: str = ""):
             f"{G.spine_centerlines} centerline(s) contributed no string "
             f"({_n_no_node} with no geometry node within "
             f"{SPINE_PERP_TOL_M:.1f} m, {_n_one_node} with one).")
+        # THE SERVICE HALF, counted where it is decided (cycle 8).  The
+        # ONE-graph round's mouths are the endpoints of these pairs, so
+        # "how many service pairs are there" is a load-bearing number and
+        # it was never reported: a build with zero of them has no mouths
+        # at all, and the groundside band is then fed only by the airside
+        # nodes it can see.  ``woven_out`` is the taxi-woven subtraction
+        # (a road crossing a taxi route's nodes is a genuine taxi edge).
+        _svc_cl = len(G.centerline_service)
+        _UI.vprint(1,
+            f"  [global-spine] {icao}: {_svc_cl} service centerline(s) "
+            f"strung, {len(G.service_spine_pairs)} service spine pair(s) "
+            f"after the taxi-woven subtraction ({_n_svc_woven_out} pair(s) "
+            f"removed as taxi-woven)")
 
 
 def _dist(pa, pb):

@@ -2047,6 +2047,30 @@ def solve_route_profile(layout, icao: str,
     # ``spine_adjacency`` produced (verified redundant), so the merge is gone.
     G = _GG.build_unified_graph(layout, bucket_to_idx, ctx=_gg_ctx)
     u_spine_adj = G.spine_adj
+    # ── THE AIRSIDE VIEW OF THE ONE GRAPH (cycle 9) ─────────────────────
+    # ONE graph, but airside authorities may not RIDE service edges: that
+    # is the standing ``REACH_NO_SERVICE_SPINES`` law, which reach
+    # (``reach_band_unified``) and phase A (``_solve_spine_profile``,
+    # cycle 8) already obey and which the remaining consumers of
+    # ``spine_adj`` simply predate.  It stopped being cosmetic when the
+    # ROAD FEED joined the graph: attributed by probe (roads in the LAW,
+    # edges withheld from the GRAPH), ~95 % of HECA -500's airside rise
+    # and ~78 % of KCLT -500's is carried by these edges, not by the pair
+    # law.  Built ONCE here, consumed by the three airside readers below
+    # (the anchor envelope, the building→spine floor, the body solve);
+    # groundside's own band still rides the FULL graph, which is the whole
+    # point of the roads being in it.
+    from auto_patch.config import REACH_NO_SERVICE_SPINES
+    _svc_pairs = (getattr(G, "service_spine_pairs", None) or set()
+                  if REACH_NO_SERVICE_SPINES else set())
+    u_spine_adj_airside = u_spine_adj
+    if _svc_pairs:
+        u_spine_adj_airside = {}
+        for _ai, _alst in u_spine_adj.items():
+            _akeep = [(_aj, _ab) for (_aj, _ab) in _alst
+                      if (min(_ai, _aj), max(_ai, _aj)) not in _svc_pairs]
+            if _akeep:
+                u_spine_adj_airside[_ai] = _akeep
     # ── RUNWAY FLEX Stage B (user 2026-07-06, docs/runway_flex_plan.md) ──
     # FLEX-LAST: with every route edge at its FULL legal budget (= the
     # taxiways at max cap), find runway-contact pairs whose value gap
@@ -2254,7 +2278,6 @@ def solve_route_profile(layout, icao: str,
     # ``build_anchor_envelope`` returns None when the graph carries no
     # hard anchors, which is the honest "nothing to bound against".
     from .law_graph_budget import build_anchor_envelope
-    from auto_patch.config import REACH_NO_SERVICE_SPINES
     _n_hard = min(len(base_hard), len(elev))
     # RECEIVER-ONLY HERE TOO (cycle 9, measured).  The paragraph above used
     # to end "service edges included", and that was harmless while the ONE
@@ -2272,16 +2295,7 @@ def solve_route_profile(layout, icao: str,
     # consumer simply predates them.  Direction, not deletion: every road
     # pair is still enforced as law in the partitioned projections, and the
     # road is still seated afterwards, as a receiver, from its mouth band.
-    _svc_pairs = (getattr(G, "service_spine_pairs", None) or set()
-                  if REACH_NO_SERVICE_SPINES else set())
-    _env_adj = u_spine_adj
-    if _svc_pairs:
-        _env_adj = {}
-        for _ei, _elst in u_spine_adj.items():
-            _keep = [(_ej, _eb) for (_ej, _eb) in _elst
-                     if (min(_ei, _ej), max(_ei, _ej)) not in _svc_pairs]
-            if _keep:
-                _env_adj[_ei] = _keep
+    _env_adj = u_spine_adj_airside
     _anchor_envelope = build_anchor_envelope(
         _env_adj,
         {i: float(elev[i]) for i in _env_adj
@@ -2419,7 +2433,8 @@ def solve_route_profile(layout, icao: str,
     # Building-frontage spine floor (the serving arm climbs to its pads),
     # cap-Lipschitz on the unified spine chain.
     u_spine_floor = building_spine_floor(
-        layout, nodes, bucket_to_idx, building_seats, node_band, u_spine_adj)
+        layout, nodes, bucket_to_idx, building_seats, node_band,
+        u_spine_adj_airside)
     # APRON-CONTACT FLOOR (user 2026-06-29): a taxiway/junction that meets a
     # BUILDING-anchored apron's edge FAR from the building gets no building floor
     # (>corridor) and no no-building seat (skipped for building aprons), so it
@@ -2912,9 +2927,32 @@ def solve_route_profile(layout, icao: str,
     # the reach band [floor, ceiling] (apron_smooth=True) — graded ≤1% from its
     # anchored edges/spine, NOT draped on raw DEM bumps (user 2026-06-26).  The
     # band still fills it to the reachable level (west apron → ~693).
+    # RECEIVER-ONLY IN THE BODY SOLVE (cycle 9; ATTRIBUTED by probe, not
+    # guessed).  ``one_profile_solve`` makes every node of ``spine_adj`` a
+    # SPINE node and clamps it to its adjacency — and "the apron body yields
+    # to the spine instead of squeezing it out of grade".  With the road feed
+    # in the one graph that made TRUCK ROUTES into spines the aprons yield
+    # to: withholding the service edges from the graph (and nothing else)
+    # returned HECA -500 airside from 4,581 to 4,150 of a 4,129 baseline and
+    # KCLT -500 from 522 to 484 of 473 — i.e. ~95 % / ~78 % of the airside
+    # rise is carried HERE, by the graph edges, not by the pair law.
+    # ``_solve_spine_profile`` (phase A) already drops exactly this pair set
+    # (cycle 8); the body solve simply never did.  Direction, not deletion:
+    # the road pairs remain law in the partitioned projections and the road
+    # is still seated as a receiver from its mouth band.
+    _body_adj = u_spine_adj_airside
+    # a node left with only road edges is not an aircraft spine node
+    _body_nodes = ({i for i in u_spine_nodes if i in _body_adj}
+                   if _svc_pairs else u_spine_nodes)
+    if _svc_pairs:
+        _UI_env.vprint(1,
+            f"  [body-solve] {icao}: spine set {len(u_spine_nodes)} -> "
+            f"{len(_body_nodes)} node(s), adjacency {len(u_spine_adj)} -> "
+            f"{len(_body_adj)} node(s) after excluding "
+            f"{len(_svc_pairs)} service spine pair(s)")
     n_free = one_profile_solve(
         elev, shape_constraints, base_hard, nodes, dem_elev,
-        runway_nodes, building_seats, apron_body, u_spine_nodes, u_spine_adj,
+        runway_nodes, building_seats, apron_body, _body_nodes, _body_adj,
         node_band, u_spine_floor, coupling, apron_smooth=True)
     _psub(0.78, "Solving elevations — body fill solved")
     # Guarantee compliance: project EVERY grade-graph edge ≤cap with the

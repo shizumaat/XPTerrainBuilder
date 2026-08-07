@@ -840,6 +840,14 @@ class SharedRepoWriteGuard:
 
             def _wrap(*a, _real=real, _n=n_paths, _nm=name, **kw):
                 for p in a[:_n]:
+                    # mkdir/makedirs on a directory that ALREADY exists
+                    # mutates nothing (makedirs(exist_ok=True) no-ops;
+                    # os.mkdir raises FileExistsError before touching the
+                    # repo) — the engine ensure-dirs its cache paths on
+                    # every tile build, and refusing the no-op made warm
+                    # tile builds impossible through a mounted repo.
+                    if _nm in ("mkdir", "makedirs") and os.path.isdir(p):
+                        continue
                     hit = guard._violation(p)
                     if hit:
                         guard._refuse(hit[0], hit[1], f"os.{_nm}")

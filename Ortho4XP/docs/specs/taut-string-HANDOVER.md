@@ -19,14 +19,23 @@ seam +15 (ruled accepted). Every prior anchor list below is HISTORY.
 **MORNING DECISIONS (owner interview, 2026-08-07 AM; the four
 2026-08-07 RULINGS entries are canon): (1) BAR SUPERSEDED — Mac TEST
 APP builds NOW from the green tip; RELEASE_NOTES name the four
-structures + honest numbers; Mac only, no tag/CI. (2) Item-4 =
-EVIDENCE FIRST — coupling-classified KML + dossier of the 140 on-DEM
-vertices, then the (a)-vs-(d) sentence. (3) Round order RATIFIED:
-pad-frontage → relief+drainage → hardening; c9feed cycle-10 probe
-re-runs on b6936ed in parallel. (4) Approvals: 529 junk DSF dirs
-DELETE (lead-executed, ledgered); O4_SVC_CURVED_JUNCTION RETIRE
-(prepared in-lane, merges after the app is cut); baseline re-record
-stays deferred to the final profiling round.**
+structures + honest numbers; Mac only, no tag/CI. AMENDED: NO TILES
+ON RELEASE (owner: "I'll build tiles myself") — the recipe's tile
+step is gone for good. (2) Item-4 = EVIDENCE FIRST —
+coupling-classified KML + dossier of the 140 on-DEM vertices, then
+the (a)-vs-(d) sentence. (3) Round order RATIFIED: pad-frontage →
+relief+drainage → hardening; c9feed cycle-10 probe re-runs on
+b6936ed in parallel. (4) Approvals: 529 junk DSF dirs DELETE
+(lead-executed, ledgered); O4_SVC_CURVED_JUNCTION RETIRED (lane/
+svcret 410735e, byte-identical CYXY, census Δ+0 — closes STATUS
+20260731d's open call); baseline re-record stays deferred to the
+final profiling round. SHIPPED THIS MORNING: XPTerrainBuilder.app
+1.0.221 (engine 1.50.1666 frozen, self-contained) — launch smoke
+green; toolchain note: CLT on macOS 27 beta lost the SwiftUIMacros
+plugin, build with DEVELOPER_DIR=/Applications/Xcode-beta.app; main
+tree's 4 unmounted data dirs now symlink the shared repo; write
+guard gained the no-op ensure-dir allowance (twin in
+test_harness.py).**
 
 **TRAIN STOPPED PER OWNER GATE (00:30 08-07): HECA airside <100
 proven unreachable (3,734 after the one safe fix, −395; ladder:

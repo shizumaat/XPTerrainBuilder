@@ -1405,6 +1405,27 @@ def test_the_write_guard_ALLOWS_an_authorised_scope(build_mod, tmp_path):
     assert target.read_text() == "explicitly authorised"
 
 
+def test_the_write_guard_allows_noop_ensure_dir_but_blocks_creation(
+        build_mod, tmp_path):
+    """``makedirs(existing, exist_ok=True)`` mutates nothing — the engine
+    ensure-dirs its cache paths on every tile build, and refusing the
+    no-op made warm tile builds impossible through a mounted repo
+    (first hit: the 2026-08-07 release tile, ``Elevation_data/+30+030``).
+    Creating a directory that does NOT exist is a real mutation and must
+    still refuse."""
+    repo = tmp_path / "repo"
+    existing = repo / "Elevation_data" / "+30+030"
+    existing.mkdir(parents=True)
+    lane = tmp_path / "lane"
+    lane.mkdir()
+    with build_mod.SharedRepoWriteGuard(set(), lane, repo=repo):
+        os.makedirs(existing, exist_ok=True)      # no-op: allowed
+        with pytest.raises(build_mod.SharedRepoWriteBlocked):
+            os.makedirs(repo / "Elevation_data" / "+31+031")
+    assert not (repo / "Elevation_data" / "+31+031").exists(), (
+        "the guard must prevent, not just report")
+
+
 def test_the_write_guard_leaves_reads_and_lane_products_alone(
         build_mod, tmp_path):
     """Reads are never touched, and ``Patches``/``Tiles`` are lane OUTPUT —

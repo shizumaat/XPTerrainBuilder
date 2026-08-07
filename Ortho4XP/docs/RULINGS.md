@@ -798,10 +798,12 @@ remaining defect structures (pad-frontage chords / relief generation /
 feature-weld hardening / on-DEM stranding) and the honest adjudicated
 numbers (HECA airside 3,734 dem-500 / 4,006 canyon; battery 15,530
 adjudicated + 12,320 deferred drainage_minimum). Scope: Mac test app
-ONLY — make_engine + make_app + direct-exec smoke + tiles +30+031 and
-+35-081; no tag, no CI, no Windows/Linux artifacts. The five-airport
-zero-adjudicated CAMPAIGN GOAL is unchanged; this is a test build, not
-acceptance.
+ONLY — make_engine + make_app + direct-exec smoke; no tag, no CI, no
+Windows/Linux artifacts. AMENDED same morning (owner, verbatim: "I'll
+build tiles myself, do not build tiles on release"): NO tile builds
+are part of a release — the owner builds tiles in-app, which is also
+the end-to-end engine test. The five-airport zero-adjudicated
+CAMPAIGN GOAL is unchanged; this is a test build, not acceptance.
 
 ## 2026-08-07 — Item-4 (on-DEM airside stranding): evidence before ruling (owner)
 

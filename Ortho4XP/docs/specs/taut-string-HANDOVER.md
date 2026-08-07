@@ -37,6 +37,23 @@ tree's 4 unmounted data dirs now symlink the shared repo; write
 guard gained the no-op ensure-dir allowance (twin in
 test_harness.py).**
 
+**DECIMATION MEASURED — NO CONSTANT RECOMMENDED (08-07 ~19:00;
+tmp/decim_measure/decim_dossier.md; 3 mesh runs).** The shipped
+patch is ALREADY fully decimated at production's bands (Z=0.02
+control: 1 droppable node; to_osm's second decimator runs Z=0.10
+all-role). T=0.5 buys only 2.41% of nodes (airside 0.17%) and
+≤1.1% in-bbox mesh; the sliver class it would attack is GONE
+post-nidfix2. Law coupling measured: T=0.10 FAILS the bar (3 new
+adjudicated airside strip_arc rows); T=0.25/0.50 clear it but mint
+116/137 drainage_minimum rows (coupled knob); taut-rod chain ends
+unmeasurable in the emitted frame. THE BINDING CONSTRAINT IS XY,
+NOT Z (chord-cap+XY band = 43.1% hypothetical) — a different,
+unscoped question. If a constant ever lands: 0.25 over 0.50, runway
+exemption mandatory (45% of the T=0.5 drop is graded_strip), and
+the DSF arm + chain-end class + other airports are owed first.
+Worktree decim left up as reproduction env; decimate_sim.py =
+promotion candidate on second use.**
+
 **SLIVERS SOLVED + SITE CENSUS + FLOOR RULED (08-07 ~18:30).**
 lane/nidfix2 MERGED: Phase B interventional proof — HECA in-bbox
 sub-0.1 m² mesh triangles **2,364,232 → 1,480 (−99.937%)**, visible

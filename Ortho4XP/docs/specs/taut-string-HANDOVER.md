@@ -37,6 +37,29 @@ tree's 4 unmounted data dirs now symlink the shared repo; write
 guard gained the no-op ensure-dir allowance (twin in
 test_harness.py).**
 
+**SLIVER ATTRIBUTION (08-07 ~10:30; 46-point vintage series, pinned
+cda instrument anchored to the density dossier's A5 row): REAL-frame
+divergence flat 08-01→08-05, DOUBLES by 08-07. Four families:
+interior-ring emit `8c6e047` 08-05 (+11tv/+14x, HIGH —
+layout.py:2570's "already-interned" assertion measured FALSE: 65.9%
+of interior-ring vertices belong to no other way; specimen ring
+-13507 shares ZERO nids with ways it crosses at 18.5 mm); c5nodeid
+merge Fix P coincident mints (+10, HIGH); the 08-05 terrace/wall
+block (MED; 28% wall vertices private vs 0 in A5); graded_strip~
+graded_strip creep (NOT PINNED, LOW; relief-coupled,
+oracle-invisible). All = the shared-boundary-spelled-twice class
+cycle5-node-identity-spec FORBIDS — a REGRESSION REPAIR under
+existing law, spec sliver-node-identity-repair-spec.md.
+be2009f3→HEAD mints ≈nothing (twice-confirmed). The tv/x→mesh-sliver
+linkage is STILL correlational — Phase B of the repair spec supplies
+the missing interventional arm. NEW HARNESS HOLE (fix lane
+dispatched): guard-blocked DEM prep DEGRADES with exit 0
+(dem_inset_provenance null, 18.5k vs 34-36k nodes) — provider .lock
+write at HEAD, makedirs at old vintages; real-DEM harness
+measurement builds impossible until fixed. 2/4 patch-only builds
+spent (degraded; kept as matched code-delta control, arms in
+tmp/sliver_attrib/arms/).**
+
 **ITEM-4 CLOSED PROVISIONAL (08-07 ~10:00): ruling (d) landed in
 lane/item4d (final sha 4fe19e0, READY-TO-MERGE; control item4dctl
 standing) — the one-sided wall-foot exemption as a `wall_foot_ll`

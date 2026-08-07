@@ -1,5 +1,29 @@
 # Enclave region law — G-ENCLAVE becomes a region, gap-fill stops being vetoed — spec
 
+> **PHASE-1 OUTCOME (2026-08-07, lane/enclave efdeae6 — NOT merged;
+> STOP at item 4, correctly).** Items 1-3/5/6 land clean: ONE
+> published computation (enclaves.py; shape predicate + GAP_M knob
+> retired, not inert); 7/7 adjacent_ground_walls GONE incl. specimen
+> -12825; specimen void = gap ring + spine; KCLT escapes untouched;
+> HEAZ inert; 33 twins; void_census promoted. STOP: the band
+> keep-out computed from the airside∪building union deletes
+> 175,671 m² of band — 152,734 m² of it Annex-14 graded strip in the
+> infield — because BUILDINGS subdivide the 3.4M m² infield into
+> pocket-width regions the gap law itself declines on width: the
+> keep-out stood bands down over ground the ruled treatment never
+> takes. RATIFIED SCOPING (Fable, the lane's proposal): the BAND
+> KEEP-OUT computes from the PAVEMENT-ONLY union's pocket-width
+> regions — it must agree with the gap law about which ground the
+> treatment OWNS — while layout.airside_enclaves stays
+> airside∪building for G-ENCLAVE classification. CONTINUATION owes:
+> the scoping (1 HECA verify build), the wall_foot_ll re-census
+> (unmeasured at cap), the 322 m² untreated-void attribution, SPJC
+> offline census (moves slightly; not claimed inert). Known
+> intermittent: the library-index churn now REFUSES a build when the
+> engine rewrites that cache (demfix detector working as designed on
+> the chored noise class) — retry once warm, never touch the guard
+> (the owner's chip session owns that fix).
+
 Author: lead (Fable), 2026-08-07. Charter: G-ENCLAVE (owner
 2026-07-28) + the 2026-08-07 extension to bare ground + the
 attribution dossier `Ortho4XP/tmp/enclave_attrib/enclave_dossier.md`

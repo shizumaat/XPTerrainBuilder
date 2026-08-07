@@ -37,6 +37,75 @@ tree's 4 unmounted data dirs now symlink the shared repo; write
 guard gained the no-op ensure-dir allowance (twin in
 test_harness.py).**
 
+**ENCLAVE CONTINUATION: SCOPING LANDED, VERIFY CORPUS-BLOCKED
+(08-07 ~22:00; lane/enclave 2c32bdc): the ratified pavement-only
+keep-out reads gap_fill's OWN detection (cannot disagree with the
+treatment by construction); Annex-14 infield strip preserved BY
+CONSTRUCTION (WIDE region, 3.4M m², declined on width — predicted
+restore 152,734.5 m²); 322 m² void attributed (building-closed hole,
+never a gap candidate — band keeps it, wall -13128 expected back,
+final walls-gone count 6 not 7); SPJC NOT inert (76,805 m² band in
+ONE 213,742 m² pocket, no gap face on the stale 07-30 frame — first
+verification read). 541 tests green. BLOCKER: 385 of the HECA Tai
+Models pack's .obj files REWRITTEN in the shared X-Plane install at
+13:56 today (the owner's concurrent tunnel/OBJ8 session's re-bake) —
+the object-footprint sidecar fingerprints them, so EVERY HECA
+measurement build refuses until an authorised
+--refresh-data airport_mod_cache event; Phase-1 arms no longer
+matched. RESUMPTION PLAN: owner confirms the tunnel session is done
+with the pack → lead runs the ledgered refresh → verification round
+(rebuilt ctl + scoped + −500 pair + SPJC arm) → merge → app 1.0.223.**
+
+**ENCLAVE PHASE-1 STOP + CONTINUATION (08-07 ~21:00; lane/enclave
+efdeae6): walls 7/7 DEAD in-lane (specimen -12825 = gap ring+spine)
+but the lane REFUSED ITSELF at item 4 — the airside∪building
+keep-out deleted 152,734 m² of Annex-14 infield strip band
+(buildings pocket-subdivide the 3.4M m² infield that gap law
+declines on width; nothing then owns it). Ratified scoping
+(in-spec): keep-out from the PAVEMENT-ONLY pocket-width regions;
+airside_enclaves stays airside∪building for G-ENCLAVE. Continuation
+DISPATCHED (3-build cap): scoping verify + wall_foot_ll re-census +
+322 m² void attribution + SPJC inertness. NOTE: library-index churn
+now REFUSES intermittent builds (demfix detector on the chored
+class) — retry-once-warm is the interim; the owner's chip session
+owns the allowance fix. App 1.0.222 (engine 1.50.1667) cut from
+clean worktree at 7ccc430 mid-evening — carries slivers/road-feed/
+nid fixes, NOT the enclave fix (predates it) nor the concurrent
+tunnel session's uncommitted work.**
+
+**MATERIALITY FLOOR MERGED (08-07 ~19:30; lane/matfloor 4d40f03 →
+main; 166 harness twins green post-merge). THE SCOREBOARD: battery
+778 adjudicated sites → **502 ACTIONABLE** (484 visible-actionable;
+274 sub-floor, max accumulation 0.4843 m, zero guard trips on the
+reclassified set by construction; per-cell table in the lane report
++ INDEX headline). Law-true byte-identical everywhere; the
+role-less class is GONE (hosts sided, 2 double-counts adjudicated
+out, 1,042 ways mint nothing). Interpretive call ratified in-spec
+(cap not re-applied — byte-identity is the binding intent). The
+campaign's remaining work is now stated as: 502 actionable sites,
+top-heavy (pre-floor: top 5 = 50.8% of rows), owned by the named
+structures. STILL RUNNING: enclave-region lane. OWED WHEN QUIET:
+real-frame re-verify at nidfix2 HEAD (1 build); the crossings
+construction round (A1 class); pad-frontage + relief specs (both
+simplified by today's rulings).**
+
+**DECIMATION MEASURED — NO CONSTANT RECOMMENDED (08-07 ~19:00;
+tmp/decim_measure/decim_dossier.md; 3 mesh runs).** The shipped
+patch is ALREADY fully decimated at production's bands (Z=0.02
+control: 1 droppable node; to_osm's second decimator runs Z=0.10
+all-role). T=0.5 buys only 2.41% of nodes (airside 0.17%) and
+≤1.1% in-bbox mesh; the sliver class it would attack is GONE
+post-nidfix2. Law coupling measured: T=0.10 FAILS the bar (3 new
+adjudicated airside strip_arc rows); T=0.25/0.50 clear it but mint
+116/137 drainage_minimum rows (coupled knob); taut-rod chain ends
+unmeasurable in the emitted frame. THE BINDING CONSTRAINT IS XY,
+NOT Z (chord-cap+XY band = 43.1% hypothetical) — a different,
+unscoped question. If a constant ever lands: 0.25 over 0.50, runway
+exemption mandatory (45% of the T=0.5 drop is graded_strip), and
+the DSF arm + chain-end class + other airports are owed first.
+Worktree decim left up as reproduction env; decimate_sim.py =
+promotion candidate on second use.**
+
 **SLIVERS SOLVED + SITE CENSUS + FLOOR RULED (08-07 ~18:30).**
 lane/nidfix2 MERGED: Phase B interventional proof — HECA in-bbox
 sub-0.1 m² mesh triangles **2,364,232 → 1,480 (−99.937%)**, visible

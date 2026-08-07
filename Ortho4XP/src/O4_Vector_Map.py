@@ -1317,6 +1317,66 @@ def include_water(vector_map, tile):
 
 
 ################################################################################
+def _read_obj8_anchor(objfile_name, alt_lookup):
+    """Parse the ANCHOR line of a candidate OBJ8 patch object file.
+
+    Returns ``(lon, lat, alt, heading)``, or ``None`` when the file cannot
+    be opened, is not UTF-8 text, carries no ANCHOR in its first line, or
+    encodes its anchor wrongly.  Both anchor forms are accepted: the
+    4-value ``lon lat alt heading`` one and the 3-value ``lon lat heading``
+    one, whose altitude comes from ``alt_lookup(lon, lat)``.
+
+    The patch object directories are ordinary folders on disk, so they
+    routinely contain files that are not OBJ8 at all — a macOS
+    ``.DS_Store`` is binary and used to kill the whole tile build with a
+    ``UnicodeDecodeError`` at the first-line sniff.  An undecodable file is
+    treated exactly like one whose first line lacks ANCHOR: logged and
+    skipped.
+    """
+    pfile_name = os.path.basename(objfile_name)
+    try:
+        with open(objfile_name, "r") as pfile:
+            firstline = pfile.readline()
+    except UnicodeDecodeError:
+        UI.vprint(
+            1,
+            "     Object ",
+            pfile_name,
+            " is not UTF-8 text (binary file?), skipping it.",
+        )
+        return None
+    except:
+        return None
+    if not "ANCHOR" in firstline:
+        UI.vprint(
+            1,
+            "     Object ",
+            pfile_name,
+            " is missing and ANCHOR in first line, skipping it.",
+        )
+        return None
+    try:
+        (lon_anchor, lat_anchor, alt_anchor, heading_anchor) = [
+            float(x) for x in firstline.split()[1:]
+        ]
+    except:
+        try:
+            (lon_anchor, lat_anchor, heading_anchor) = [
+                float(x) for x in firstline.split()[1:]
+            ]
+            alt_anchor = alt_lookup(lon_anchor, lat_anchor)
+        except:
+            UI.vprint(
+                1,
+                "     Anchor wrongly encode for : ",
+                pfile_name,
+                " skipping that one.",
+            )
+            return None
+    return (lon_anchor, lat_anchor, alt_anchor, heading_anchor)
+
+
+################################################################################
 def include_patches(vector_map, tile):
     def tanh_profile(alpha, x):
         return (numpy.tanh((x - 0.5) * alpha) / numpy.tanh(0.5 * alpha) + 1) / 2
@@ -1659,40 +1719,15 @@ def include_patches(vector_map, tile):
         patches_list.append(pdir_name)
         for pfile_name in os.listdir(os.path.join(patch_dir, pdir_name)):
             pfile_namelong = os.path.join(patch_dir, pdir_name, pfile_name)
-            try:
-                pfile = open(pfile_namelong, "r")
-            except:
+            anchor = _read_obj8_anchor(
+                pfile_namelong,
+                lambda lon, lat: tile.dem.alt(
+                    (lon - tile.lon, lat - tile.lat)
+                ),
+            )
+            if anchor is None:
                 continue
-            firstline = pfile.readline()
-            if not "ANCHOR" in firstline:
-                UI.vprint(
-                    1,
-                    "     Object ",
-                    pfile_name,
-                    " is missing and ANCHOR in first line, skipping it.",
-                )
-                continue
-            pfile.close()
-            try:
-                (lon_anchor, lat_anchor, alt_anchor, heading_anchor) = [
-                    float(x) for x in firstline.split()[1:]
-                ]
-            except:
-                try:
-                    (lon_anchor, lat_anchor, heading_anchor) = [
-                        float(x) for x in firstline.split()[1:]
-                    ]
-                    alt_anchor = tile.dem.alt(
-                        (lon_anchor - tile.lon, lat_anchor - tile.lat)
-                    )
-                except:
-                    UI.vprint(
-                        1,
-                        "     Anchor wrongly encode for : ",
-                        pfile_name,
-                        " skipping that one.",
-                    )
-                    continue
+            (lon_anchor, lat_anchor, alt_anchor, heading_anchor) = anchor
             patches_area = patches_area.union(
                 keep_obj8(
                     lat_anchor,

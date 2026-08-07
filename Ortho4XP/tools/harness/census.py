@@ -82,6 +82,21 @@ WHAT IT REPORTS
   way id OR shared canonical node at the census's own weld tolerance).
   ``--sites-json`` dumps every site with its membership.
 
+  THE HEADLINE the section reports is ACTIONABLE SITES — the MATERIALITY
+  FLOOR (owner RULINGS 2026-08-07, "we don't need to be grading to less
+  than 0.5m") adjudicated per site: a site is actionable when its
+  ADJUDICATED rows accumulate >= 0.5 m of unlawful excess, OR one of them
+  is a single step >= 0.15 m or sits at >= 2x its own cap (the SHARP
+  GUARD — "we don't want any sharp bumps"), OR it touches the RUNWAY
+  FAMILY, which is never floored because reg-derived precision governs
+  there.  The constants are named knobs in ``check_grade``
+  (``MATERIALITY_*``) and ride in every report beside the counts, because
+  the floor is PROVISIONAL and two site tables taken at two floors are not
+  comparable.  A site the floor takes out is REPORTED under the
+  ``sub_floor`` label with its rows and its worst |de| — counted, never
+  dropped — and the actionable + sub-floor split PARTITIONS the
+  adjudicated sites (``census_one`` refuses if it does not).
+
 * ``--magnitude-bands`` — every law-true row bucketed by SEVERITY
   (|de| / step height), default edges 0.01 / 0.1 / 1 / 10 m, configurable.
   A total says how many rows; the bands say what KIND of population they
@@ -715,6 +730,19 @@ def cluster_sites(all_rows, cg, *, visibility_m: float = None,
     it IS one over-cap region — but it is also the reading a caller is
     most likely to want to check, so ``n_ways`` and ``extent_m`` ride on
     every site: a "site" 2.4 km across says so in its own row.
+
+    THE MATERIALITY FLOOR (owner RULINGS 2026-08-07) is adjudicated HERE,
+    per site, because the site is the unit the owner's sentence is about:
+    "we don't need to be grading to less than 0.5m" is a statement about a
+    PLACE, and 40 one-centimetre rows on one apron are one place that owes
+    0.4 m of grading, not 40 defects.  Every site therefore carries its
+    ACCUMULATION (``check_grade.MATERIALITY_ACCUMULATION_RULE``, quoted
+    into the section header), its sharp-guard verdicts, its runway-family
+    flag, and an ``actionable`` disposition — and a site the floor takes
+    out is REPORTED under the ``sub_floor`` label rather than dropped, so
+    moving the (provisional) constant moves a number instead of making
+    evidence disappear.  Nothing here re-runs a check: every input is a
+    field the row already carries.
     """
     vis = (DEFAULT_SITE_VISIBILITY_M if visibility_m is None
            else float(visibility_m))
@@ -794,6 +822,59 @@ def cluster_sites(all_rows, cg, *, visibility_m: float = None,
         # 2026-08-06 ONE-graph classes).
         adj = cg.adjudication(site_rows)
         sides = Counter(cg.row_side(r) for _k, r in site_rows)
+
+        # ── THE MATERIALITY FLOOR, per site (owner RULINGS 2026-08-07) ──
+        # Funded by the ADJUDICATED rows only, through the law's own
+        # ``row_adjudicated`` predicate: a version-deferred or out-of-scope
+        # row is not a defect, and a non-defect may not push a site over
+        # the floor (nor may it be the sharp bump that keeps it there).
+        adj_rows = [(k, r) for k, r in site_rows if cg.row_adjudicated(k, r)]
+        accumulation = sum(cg.row_excess_m(r, k) for k, r in adj_rows)
+        unmeasured = sorted({k for k, _r in adj_rows
+                             if k in cg.MATERIALITY_UNMEASURED_FAMILIES})
+        sharp = Counter()
+        worst_step = None
+        worst_cap_multiple = None
+        for _k, r in adj_rows:
+            clause = cg.row_is_sharp(r)
+            if clause:
+                sharp[clause] += 1
+            st = cg.row_step_m(r)
+            if st is not None:
+                worst_step = st if worst_step is None else max(worst_step, st)
+            cap = cg.row_cap_pct(r)
+            grade = getattr(r, "grade_pct", None)
+            if cap is not None and cap > 0 and grade is not None:
+                mult = float(grade) / cap
+                worst_cap_multiple = (mult if worst_cap_multiple is None
+                                      else max(worst_cap_multiple, mult))
+        # THE RUNWAY EXEMPTION reads the SITE, not just its adjudicated
+        # rows — "any site containing a runway-family role" — through
+        # ``row_roles``, which is host-aware, so an articulation way sided
+        # with a runway host is exempt with it.
+        rwy_roles = sorted({role for _k, r in site_rows
+                            for role in cg.row_roles(r)
+                            if role in cg.MATERIALITY_RUNWAY_FAMILY_ROLES})
+        reasons = []
+        if adj["adjudicated_total"]:
+            if rwy_roles:
+                reasons.append("runway_family")
+            if unmeasured:
+                reasons.append("unmeasured")
+            if accumulation >= cg.MATERIALITY_FLOOR_M:
+                reasons.append("accumulation")
+            if sharp.get("step"):
+                reasons.append("sharp_step")
+            if sharp.get("grade"):
+                reasons.append("sharp_grade")
+        actionable = bool(reasons)
+        if not adj["adjudicated_total"]:
+            disposition = "not_adjudicated"
+        elif actionable:
+            disposition = "actionable"
+        else:
+            disposition = cg.MATERIALITY_SUB_FLOOR_LABEL
+
         sites.append({
             "family": key,
             "rows": len(idxs),
@@ -802,6 +883,25 @@ def cluster_sites(all_rows, cg, *, visibility_m: float = None,
             "worst_grade_excess_pct": (round(worst_excess, 4)
                                        if worst_excess is not None else None),
             "sim_visible": worst_m >= vis,
+            # THE FLOOR's own fields.  ``accumulation_m`` is the number the
+            # 0.5 m constant is compared against; the guard verdicts and the
+            # runway flag are carried BESIDE it and not folded into a single
+            # boolean, because "this site is actionable" and "…because one
+            # row is a 0.2 m cliff" send different work to different places.
+            "accumulation_m": round(accumulation, 4),
+            "adjudicated_rows_accumulated": len(adj_rows),
+            "sharp_step_rows": sharp.get("step", 0),
+            "sharp_grade_rows": sharp.get("grade", 0),
+            "worst_step_m": (round(worst_step, 4)
+                             if worst_step is not None else None),
+            "worst_cap_multiple": (round(worst_cap_multiple, 3)
+                                   if worst_cap_multiple is not None else None),
+            "runway_family": bool(rwy_roles),
+            "runway_family_roles": rwy_roles,
+            "unmeasured_families": unmeasured,
+            "actionable": actionable,
+            "actionable_reasons": reasons,
+            "disposition": disposition,
             "ways": sorted(ways),
             "n_ways": len(ways),
             "role_pairs": dict(roles.most_common()),
@@ -842,21 +942,30 @@ def cluster_sites(all_rows, cg, *, visibility_m: float = None,
                 "max": v[-1]}
 
     adjudicated_sites = [s for s in sites if s["adjudicated"]]
+    actionable_sites = [s for s in sites if s["actionable"]]
+    sub_floor_sites = [s for s in sites
+                       if s["disposition"] == cg.MATERIALITY_SUB_FLOOR_LABEL]
     by_family: dict = {}
     for s in sites:
         d = by_family.setdefault(s["family"], {
             "sites": 0, "rows": 0, "visible_sites": 0,
-            "adjudicated_sites": 0, "worst_m": 0.0, "rows_per_site": []})
+            "adjudicated_sites": 0, "actionable_sites": 0,
+            "sub_floor_sites": 0, "worst_m": 0.0, "rows_per_site": []})
         d["sites"] += 1
         d["rows"] += s["rows"]
         d["visible_sites"] += 1 if s["sim_visible"] else 0
         d["adjudicated_sites"] += 1 if s["adjudicated"] else 0
+        d["actionable_sites"] += 1 if s["actionable"] else 0
+        d["sub_floor_sites"] += (
+            1 if s["disposition"] == cg.MATERIALITY_SUB_FLOOR_LABEL else 0)
         d["worst_m"] = max(d["worst_m"], s["worst_m"])
         d["rows_per_site"].append(s["rows"])
     for d in by_family.values():
         d["median_rows_per_site"] = _quantiles(
             d.pop("rows_per_site"))["median"]
         d["worst_m"] = round(d["worst_m"], 4)
+    reason_tally = Counter(r for s in actionable_sites
+                           for r in s["actionable_reasons"])
 
     return {
         "rule": SITE_RULE,
@@ -881,6 +990,40 @@ def cluster_sites(all_rows, cg, *, visibility_m: float = None,
         "rows_per_site_adjudicated": _quantiles(
             [s["adjudicated"] for s in adjudicated_sites]),
         "amplification": (round(n / len(sites), 2) if sites else 0.0),
+        # ── THE MATERIALITY FLOOR (owner RULINGS 2026-08-07) ───────────
+        # THE HEADLINE the spec asks for: sites / ACTIONABLE sites /
+        # visible actionable sites.  The constants ride with the counts,
+        # because the floor is PROVISIONAL and a number taken at one floor
+        # is not comparable with a number taken at another.
+        "floor_ruling": cg.MATERIALITY_FLOOR_RULING,
+        "floor_m": cg.MATERIALITY_FLOOR_M,
+        "sharp_step_m": cg.MATERIALITY_SHARP_STEP_M,
+        "sharp_grade_cap_multiple": cg.MATERIALITY_SHARP_GRADE_CAP_MULTIPLE,
+        "runway_family_roles": sorted(cg.MATERIALITY_RUNWAY_FAMILY_ROLES),
+        "unmeasured_families": {k: {"why": why} for k, why in
+                                sorted(
+                                    cg.MATERIALITY_UNMEASURED_FAMILIES.items())},
+        "accumulation_rule": cg.MATERIALITY_ACCUMULATION_RULE,
+        "sites_actionable": len(actionable_sites),
+        "sites_actionable_visible": sum(1 for s in actionable_sites
+                                        if s["sim_visible"]),
+        "actionable_reasons": dict(reason_tally.most_common()),
+        # SUB-FLOOR: counted, never dropped.  The label and its reason come
+        # from the law register (``check_grade.MATERIALITY_SUB_FLOOR_CLASSES``),
+        # one authority, the same shape as the version-deferred families.
+        "sub_floor_label": cg.MATERIALITY_SUB_FLOOR_LABEL,
+        "sub_floor_classes": {
+            k: {"n": (len(sub_floor_sites)
+                      if k == cg.MATERIALITY_SUB_FLOOR_LABEL else 0),
+                "why": why}
+            for k, why in sorted(cg.MATERIALITY_SUB_FLOOR_CLASSES.items())},
+        "sites_sub_floor": len(sub_floor_sites),
+        "sub_floor_rows": sum(s["rows"] for s in sub_floor_sites),
+        "sub_floor_adjudicated_rows": sum(s["adjudicated"]
+                                          for s in sub_floor_sites),
+        "sub_floor_worst_m": (round(max(s["worst_m"]
+                                        for s in sub_floor_sites), 4)
+                              if sub_floor_sites else None),
         "by_family": {k: by_family[k] for k in sorted(by_family)},
         "top": [{k: v for k, v in s.items() if k != "row_indices"}
                 for s in sites[:top]],
@@ -1084,6 +1227,19 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
                 f"{sum(s['rows'] for s in sec['all_sites'])} member slots, "
                 f"{len(all_rows)} law-true rows) — the site counts and the "
                 f"row counts in this report would describe two populations")
+        # THE FLOOR PARTITIONS THE ADJUDICATED SITES — asserted in
+        # production, not only in the twin.  Every adjudicated site is
+        # either ACTIONABLE or SUB-FLOOR; a site that is neither has been
+        # dropped, which is exactly what the counted-never-dropped
+        # convention exists to make impossible.
+        if (sec["sites_actionable"] + sec["sites_sub_floor"]
+                != sec["sites_adjudicated"]):
+            raise SystemExit(
+                f"REFUSING: the materiality floor does not partition the "
+                f"adjudicated sites ({sec['sites_actionable']} actionable + "
+                f"{sec['sites_sub_floor']} sub-floor != "
+                f"{sec['sites_adjudicated']} adjudicated) — a site has been "
+                f"dropped rather than labelled")
         all_sites = sec.pop("all_sites")
         if sites_out is not None:
             sites_out.parent.mkdir(parents=True, exist_ok=True)
@@ -1306,13 +1462,33 @@ def print_report(rep: dict, top: int) -> None:
               f">= {st['visibility_m']:g} m relief; "
               f"{st['sites'] - st['sites_visible']} below it")
         print(f"      [{st['visibility_note']}]")
+        # ── THE MATERIALITY FLOOR — THE HEADLINE ──────────────────────
+        print(f"    ACTIONABLE {st['sites_actionable']} site(s) "
+              f"({st['sites_actionable_visible']} of them sim-visible) — "
+              f"the headline: distinct places that owe work")
+        print(f"      floor {st['floor_m']:g} m accumulated; sharp guard "
+              f"step >= {st['sharp_step_m']:g} m OR grade >= "
+              f"{st['sharp_grade_cap_multiple']:g}x cap; "
+              f"{'/'.join(st['runway_family_roles'])} ALWAYS actionable "
+              f"[{st['floor_ruling']}]")
+        if st["actionable_reasons"]:
+            print("      why actionable: " + ", ".join(
+                f"{k}={v}" for k, v in st["actionable_reasons"].items())
+                + "  (a site may trip several)")
+        print(f"      accumulation: {st['accumulation_rule']}")
+        print(f"    {st['sub_floor_label'].upper()} {st['sites_sub_floor']} "
+              f"site(s), {st['sub_floor_adjudicated_rows']} adjudicated "
+              f"row(s), worst |de| {st['sub_floor_worst_m']} m — REPORTED, "
+              f"never dropped; the floor is PROVISIONAL")
         if st["by_family"]:
-            print(f"    {'FAMILY':<24}{'sites':>7}{'adj':>6}{'vis':>6}"
-                  f"{'rows':>8}{'med/site':>10}{'worst m':>10}")
-            print("    " + "-" * 71)
+            print(f"    {'FAMILY':<24}{'sites':>7}{'adj':>6}{'act':>6}"
+                  f"{'sub':>6}{'vis':>6}{'rows':>8}{'med/site':>10}"
+                  f"{'worst m':>10}")
+            print("    " + "-" * 83)
             for key, d in st["by_family"].items():
                 print(f"    {key:<24}{d['sites']:>7}"
-                      f"{d['adjudicated_sites']:>6}{d['visible_sites']:>6}"
+                      f"{d['adjudicated_sites']:>6}{d['actionable_sites']:>6}"
+                      f"{d['sub_floor_sites']:>6}{d['visible_sites']:>6}"
                       f"{d['rows']:>8}{d['median_rows_per_site']:>10g}"
                       f"{d['worst_m']:>10.3f}")
         if st["top"]:
@@ -1335,6 +1511,14 @@ def print_report(rep: dict, top: int) -> None:
                       + f"   roles {list(s['role_pairs'])[:3]}"
                       + f"   adj={s['adjudicated']} defer={s['deferred']} "
                         f"oos={s['out_of_scope']}")
+                print(f"        {s['disposition'].upper()}"
+                      f"  accum={s['accumulation_m']:.3f} m"
+                      f"  sharp(step={s['sharp_step_rows']},"
+                      f"grade={s['sharp_grade_rows']})"
+                      + (f"  runway={','.join(s['runway_family_roles'])}"
+                         if s["runway_family"] else "")
+                      + (f"  [{', '.join(s['actionable_reasons'])}]"
+                         if s["actionable_reasons"] else ""))
 
     zs = rep.get("zone_split")
     if zs is not None:
@@ -1415,7 +1599,16 @@ def print_compare(reports: list) -> None:
                            ("(sim-visible sites)",
                             lambda r: r["sites"]["sites_visible"]),
                            ("(adjudicated sites)",
-                            lambda r: r["sites"]["sites_adjudicated"])):
+                            lambda r: r["sites"]["sites_adjudicated"]),
+                           # THE headline row of this table (owner RULINGS
+                           # 2026-08-07): adjudicated sites that clear the
+                           # materiality floor or trip its guards.
+                           ("ACTIONABLE SITES",
+                            lambda r: r["sites"]["sites_actionable"]),
+                           ("(visible actionable)",
+                            lambda r: r["sites"]["sites_actionable_visible"]),
+                           ("(sub-floor sites)",
+                            lambda r: r["sites"]["sites_sub_floor"])):
             cells = [get(r) for r in reports]
             print(f"  {label:<24}" + "".join(f"{c:>18}" for c in cells)
                   + f"{cells[-1] - cells[0]:>+15d}")

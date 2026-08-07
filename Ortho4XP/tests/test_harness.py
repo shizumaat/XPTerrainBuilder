@@ -22,11 +22,13 @@ X-Plane, no network) and they run in the normal suite.
   scope, a shared-repo write outside an authorised scope is reported as a
   ruling violation, and the refresh lock refuses-and-reports on contention
   instead of blocking or racing.
-* §6b THE LOCK ALLOWANCE AND THE SWALLOWED DEGRADATION — the engine's own
-  cross-process ``.lock`` file passes the write guard (coordination state,
-  never corpus data) while a real data write beside it still refuses; and a
-  degradation the engine CAUGHT — a blocked write, or a layout with no DEM
-  provenance — refuses instead of exiting 0 on a silently smaller layout.
+* §6b THE LOCK AND LIBRARY-INDEX ALLOWANCES, AND THE SWALLOWED
+  DEGRADATION — the engine's own cross-process ``.lock`` file and its
+  derived ``Airport_mod_cache`` library-index sidecar pass the write guard
+  (coordination state and derived cache; neither is corpus data) while a
+  real data write beside either still refuses; and a degradation the
+  engine CAUGHT — a blocked write, or a layout with no DEM provenance —
+  refuses instead of exiting 0 on a silently smaller layout.
 """
 from __future__ import annotations
 
@@ -315,6 +317,80 @@ def test_the_side_partition_is_the_laws_own_and_reports_mixed(cg):
     assert cg.row_side(_Row("service_road", "groundside_pavement")) == \
         "groundside"
     assert cg.row_side(_Row("apron", "service_road")) == "mixed"
+
+
+def test_a_role_less_interior_ring_is_judged_at_its_hosts_cap(cg):
+    """L-1 (spec ``tunnel-ramp-cut-boundaries-spec.md`` §3): a role-less
+    ``shape_interior_ring`` — the hole ruling 4's ramp cut leaves in the
+    pavement — is judged at its HOST shape's role, cap and SIDE, not at the
+    caller's airside default.  OTHH's two rings (-12315/-12316) minted 78
+    step + 9 within-shape rows purely by falling through to 1.5 %/airside
+    while their host was the 4 % groundside tunnel ramp whose vertices they
+    are."""
+    class _W:
+        def __init__(self, **tags):
+            self.tags = dict(tags)
+
+    ring = _W(o4_feature="shape_interior_ring", o4_host_role="tunnel_ramp")
+    host = _W(role="tunnel_ramp")
+    junction = _W(role="junction")
+
+    # The ONE cap resolver and the ONE side partition both answer HOST.
+    assert cg.law_role(ring) == "tunnel_ramp"
+    assert cg._role_grade_limit(ring, 0.015) == \
+        cg._role_grade_limit(host, 0.015), (
+            "the ring must hold exactly its host's cap")
+    assert cg._role_grade_limit(ring, 0.015) > 0.015, (
+        "the ring is still being judged at the caller's airside default")
+    assert cg._is_groundside(ring) is True
+    # …so the designed airside/groundside wall exempts the ring↔junction
+    # step the ramp cut creates, exactly as it exempts host↔junction.
+    assert cg._airside_groundside_pair(ring, junction) is True
+
+    # An UNRESOLVED ring is left exactly as parsed — no host, no change.
+    orphan = _W(o4_feature="shape_interior_ring")
+    assert cg.law_role(orphan) is None
+    assert cg._role_grade_limit(orphan, 0.015) == 0.015
+
+    # SCOPE: only the interior-RING classes are judged at the host.  A
+    # ``gap_drainage_spine`` is a breakline, and stamping its host role for
+    # the LAW minted a phantom drainage-minimum row on the frame of record
+    # — it keeps host resolution for REPORTING only.
+    spine = _W(o4_feature="gap_drainage_spine",
+               o4_host_role="service_junction")
+    assert cg.law_role(spine) is None
+    assert cg.effective_role(spine) == "service_junction"
+    assert "gap_drainage_spine" not in cg.HOST_CAP_FEATURE_CLASSES
+    assert set(cg.HOST_CAP_FEATURE_CLASSES) <= set(
+        cg.ROLE_LESS_FEATURE_CLASSES), (
+            "a host-capped class that is not a registered role-less class "
+            "is a class no host resolver ever stamps")
+
+
+def test_the_law_role_is_read_through_one_accessor(cg):
+    """The L-1 twin.  The CLI, the census and the pytest fixtures share ONE
+    code path only as long as the law's THREE role readers all ask
+    ``law_role``.  A reader that goes back to ``tags.get("role")`` silently
+    re-judges interior rings at the airside default on whichever path it
+    sits — the census-wrapper defect wearing a different hat."""
+    for fn in (cg._role_grade_limit, cg._is_groundside,
+               cg._airside_groundside_pair):
+        code = _code_only(inspect.getsource(fn))
+        assert "law_role" in code, (
+            f"{fn.__name__} must resolve a way's role through law_role")
+        assert 'tags . get ( "role" )' not in code \
+            and "tags . get ( 'role' )" not in code, (
+                f"{fn.__name__} reads the raw role tag beside law_role — "
+                f"that is a second law-role resolver")
+    # Hosts are resolved ONCE, in run_checks, before any check runs — so
+    # every path that reaches a check has the stamps.
+    rc = _code_only(inspect.getsource(cg.run_checks))
+    assert "resolve_feature_hosts" in rc, (
+        "run_checks must resolve feature hosts; without it law_role has "
+        "nothing to read and the rings fall back to the airside default")
+    assert rc.index("resolve_feature_hosts") < min(
+        rc.index(n) for n in PRIVATE_CHECKS if n in rc), (
+            "feature hosts must be resolved BEFORE the first check runs")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -1513,12 +1589,14 @@ def test_every_build_result_carries_the_frame_and_guard_state(build_mod):
     import inspect
     src = inspect.getsource(build_mod.build_patch)
     for key in ("write_guard_armed", "write_guard_blocked",
-                "write_guard_lock_churn", "dem_frame_effective"):
+                "write_guard_lock_churn", "write_guard_library_index_churn",
+                "dem_frame_effective"):
         assert f'"{key}"' in src, f"build_patch result omits {key}"
 
 
 # ══════════════════════════════════════════════════════════════════════
-# §6b THE LOCK-FILE ALLOWANCE, AND THE SWALLOWED-DEGRADATION REFUSALS
+# §6b THE LOCK-FILE AND LIBRARY-INDEX ALLOWANCES, AND THE
+#     SWALLOWED-DEGRADATION REFUSALS
 # ══════════════════════════════════════════════════════════════════════
 # Landed 2026-08-07 against a MEASURED defect (``tmp/sliver_attrib``): a
 # real-DEM ``build_airport.py HECA --patch-only`` had its DEM prep blocked
@@ -1529,6 +1607,19 @@ def test_every_build_result_carries_the_frame_and_guard_state(build_mod):
 # 34-36 k, whole roles absent.  Two halves, twinned separately: the lock
 # file is coordination state and must pass, and a degradation the engine
 # swallowed must never exit 0.
+#
+# The LIBRARY-INDEX half is the same ruling on a second artifact class,
+# from the nidrepair 2026-08-07 measurement: every harness build reported
+# a shared-repo side effect on
+# ``Airport_mod_cache/o4_library_index_768a6b59d2781165.cache`` while its
+# own ``write_guard_blocked`` was empty.  The X-Plane install's
+# ``scenery_packs.ini`` had been touched OUTSIDE the guarded repo, one
+# engine process rewrote the derived sidecar, and the write landed inside
+# every concurrently-open snapshot window — cross-attributed to builds
+# that never wrote it.  The same allowance closes the other end: a
+# guarded build that is itself the first reader has its refusal swallowed
+# by ``agp_reader``'s ``except Exception`` and is then rc=2'd by
+# ``require_no_swallowed_write_block``.
 
 LOCK_REL = "Elevation_data/+30+030/.lock_VIEWFINDER3_N30E031.lock"
 
@@ -1639,6 +1730,127 @@ def test_lock_churn_in_the_after_snapshot_is_not_CONTAMINATION(build_mod):
         "Elevation_data/+30+030/N30E031.hgt"]
     assert any("lock churn" in n for n in notes), (
         "lock churn must be REPORTED, never silently dropped")
+
+
+# ── the library-index allowance ──────────────────────────────────────
+
+#: The sidecar the nidrepair frames named, in the writer's own naming:
+#: 16 hex of ``sha1(xplane_root)``, directly under the cache directory.
+LIB_INDEX_REL = ("Airport_mod_cache/"
+                 "o4_library_index_0123456789abcdef.cache")
+
+
+def _index_repo(tmp_path):
+    """A fake shared repo with the ``Airport_mod_cache`` directory the
+    library-index sidecar lives in, plus an empty lane."""
+    repo = tmp_path / "repo"
+    (repo / "Airport_mod_cache").mkdir(parents=True)
+    lane = tmp_path / "lane"
+    lane.mkdir()
+    return repo, lane
+
+
+def test_the_guard_ALLOWS_the_library_index_sidecar_and_records_the_churn(
+        build_mod, tmp_path):
+    """The diagnosed site: ``agp_reader._write_library_index_sidecar``
+    writes a ``.o4_library_index_*.tmp`` sibling and ``os.replace``s it
+    onto the cache name.  The file is a byte-deterministic function of the
+    X-Plane install — which lives OUTSIDE the guarded repo — so whichever
+    process first notices ``scenery_packs.ini`` changed rewrites it, and
+    refusing that write neither protects the corpus nor stops it being
+    cross-attributed to every concurrent build."""
+    import tempfile
+    repo, lane = _index_repo(tmp_path)
+    cache_dir = repo / "Airport_mod_cache"
+    final = repo / LIB_INDEX_REL
+    guard = build_mod.SharedRepoWriteGuard(set(), lane, repo=repo)
+    with guard:
+        fd, tmp = tempfile.mkstemp(dir=str(cache_dir),
+                                   prefix=".o4_library_index_",
+                                   suffix=".tmp")
+        with os.fdopen(fd, "wb") as sidecar_file:
+            sidecar_file.write(b"pickled index")
+        os.replace(tmp, str(final))
+    assert final.read_bytes() == b"pickled index"
+    assert guard.blocked == []
+    ops = [c["op"] for c in guard.library_index_churn]
+    assert ops == ["os_open", "replace", "replace"], (
+        "the allowance must RECORD every operation it let through, both "
+        "paths of the rename included — 'the repo was untouched apart "
+        "from the ruled index churn' is a fact in the artifact")
+    assert guard.library_index_churn[-1]["path"] == LIB_INDEX_REL
+
+
+def test_the_ENGINES_OWN_library_index_writer_passes_the_armed_guard(
+        build_mod, tmp_path):
+    """THE KNOWN-ANSWER TWIN (RULINGS 2026-08-06, instrument truth): the
+    allowance is asserted against the real
+    ``agp_reader._write_library_index_sidecar``, not against this test's
+    idea of what it does.  If that writer ever changes its naming or its
+    calls, this fails HERE — instead of re-flagging every harness build as
+    CONTAMINATED, or having its refusal swallowed by the writer's own
+    ``except Exception`` and rc=2'ing a good build."""
+    from auto_patch import agp_reader
+    repo, lane = _index_repo(tmp_path)
+    sidecar = repo / LIB_INDEX_REL
+    guard = build_mod.SharedRepoWriteGuard(set(), lane, repo=repo)
+    with guard:
+        agp_reader._write_library_index_sidecar(
+            str(sidecar), "f" * 40, {"lib/x": "/y"})
+    assert sidecar.exists(), (
+        "the writer swallows its own exceptions, so a refused write is "
+        "visible only as a MISSING sidecar")
+    assert guard.blocked == []
+    assert [c["op"] for c in guard.library_index_churn] == [
+        "os_open", "replace", "replace"]
+
+
+def test_a_REAL_Airport_mod_cache_write_STILL_refuses(build_mod, tmp_path):
+    """The allowance must not become a door into the cache directory.
+    Three ways past it, all refused: the right name reached by the wrong
+    call, another cache under the same scope, and the right basename one
+    directory deeper."""
+    repo, lane = _index_repo(tmp_path)
+    sidecar = repo / LIB_INDEX_REL
+    apt_index = repo / "Airport_mod_cache/Global Airports/apt_index.cache"
+    nested = repo / "Airport_mod_cache/sub" / os.path.basename(LIB_INDEX_REL)
+    with build_mod.SharedRepoWriteGuard(set(), lane, repo=repo) as guard:
+        with pytest.raises(build_mod.SharedRepoWriteBlocked) as exc:
+            open(sidecar, "w").write("not the sidecar writer")
+        with pytest.raises(build_mod.SharedRepoWriteBlocked):
+            os.open(str(apt_index), os.O_CREAT | os.O_WRONLY)
+        with pytest.raises(build_mod.SharedRepoWriteBlocked):
+            os.open(str(nested), os.O_CREAT | os.O_WRONLY)
+    assert "airport_mod_cache" in str(exc.value), (
+        "the refusal must name the refresh scope")
+    assert not sidecar.exists() and not apt_index.exists()
+    assert not nested.exists(), "the guard must prevent, not just report"
+    assert guard.library_index_churn == []
+
+
+def test_library_index_churn_in_the_after_snapshot_is_not_CONTAMINATION(
+        build_mod):
+    """THE MEASURED DEFECT, replayed: the nidrepair 2026-08-07 frames each
+    carried ``write_guard_blocked: []`` and a modified
+    ``o4_library_index_768a6b59d2781165.cache`` — a write neither build's
+    guarded code made, minted CONTAMINATED by the snapshot alone."""
+    notes = []
+    prog = types.SimpleNamespace(note=notes.append)
+    measured = "Airport_mod_cache/o4_library_index_768a6b59d2781165.cache"
+    offenders = build_mod.report_unauthorised_writes(
+        {"added": [], "modified": [measured], "removed": []}, set(), prog)
+    assert offenders == []
+    assert not any("SHARED-REPO SIDE EFFECT" in n for n in notes)
+    assert any("library-index churn" in n for n in notes), (
+        "index churn must be REPORTED, never silently dropped")
+
+    notes.clear()
+    apt_index = "Airport_mod_cache/Global Airports/apt_index.cache"
+    offenders = build_mod.report_unauthorised_writes(
+        {"added": [], "modified": [measured, apt_index], "removed": []},
+        set(), prog)
+    assert [o["path"] for o in offenders] == [apt_index], (
+        "the allowance covers ONE derived file, not its whole scope")
 
 
 # ── the swallowed-degradation refusals ───────────────────────────────
@@ -1799,6 +2011,7 @@ def test_the_refusals_are_WIRED_IN_not_merely_defined(build_mod):
     assert "require_no_swallowed_write_block(" in main_src, (
         "--tile does not go through build_patch and would keep the hole")
     for key in ('frame["write_guard_lock_churn"]',
+                'frame["write_guard_library_index_churn"]',
                 'frame["allow_degraded_dem"]'):
         assert key in main_src, f"the frame artifact omits {key}"
 
@@ -2830,3 +3043,598 @@ def test_the_site_flag_is_in_the_tool_index():
         assert token in text, (
             f"{token} is not in tools/INDEX.md — a flag absent from the "
             f"index is treated as absent, and gets written by hand again")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §10 THE MATERIALITY FLOOR — a floor may only relax what it can measure
+# ══════════════════════════════════════════════════════════════════════
+#
+# WHY THESE TWINS EXIST.  The floor is the first mechanism in this campaign
+# whose JOB is to make a headline number smaller (owner RULINGS 2026-08-07:
+# "we don't need to be grading to less than 0.5m").  Every other instrument
+# here is guarded against under-reporting by accident; this one
+# under-reports ON PURPOSE, under stated conditions, and the only thing
+# standing between "the owner's ruling" and "the census quietly stopped
+# counting things" is that those conditions are exactly the ruled ones and
+# that nothing it takes out disappears.  So: known answers at both sides of
+# every constant, the guard halves proven to fire INDEPENDENTLY (a guard
+# that only ever fires together with the floor is a guard nobody has
+# tested), the runway exemption, the counted-never-dropped label locked to
+# its register, and the host-siding proven inert on the LAW.
+
+
+class _FloorRow:
+    """A census row with the fields the floor reads, and nothing else.
+
+    Deliberately NOT a ``check_grade.Violation``: these twins must fail if
+    the floor starts reading a field the real rows do not carry, and the
+    dataclass would supply defaults for exactly that mistake."""
+
+    class _W:
+        def __init__(self, wid, role):
+            self.wid, self.tags = wid, {"role": role}
+
+    def __init__(self, *, de=None, grade=None, excess=None, dist=None,
+                 step=None, wa="-1", wb=None, pa=(0.0, 0.0), pb=(10.0, 0.0),
+                 role="apron", out_of_scope=None):
+        if step is not None:
+            self.step_m = step
+            self.way_v = self._W(wa, role)
+            self.way_e = self._W(wb if wb is not None else wa, role)
+            self.vert_pt, self.proj_pt = pa, pb
+        else:
+            self.de_m = de
+            self.grade_pct = grade
+            self.excess_pct = excess
+            self.distance_m = dist
+            self.way_a = self._W(wa, role)
+            self.way_b = self._W(wb if wb is not None else wa, role)
+            self.pt_a, self.pt_b = pa, pb
+        self.out_of_scope = out_of_scope
+        self.lat, self.lon = 30.0, 31.0
+
+
+def _graded(n, *, grade, excess, dist, role="apron", wid="-1", x0=0.0):
+    """``n`` graded rows on ONE way — one site by the shared-way rule.
+
+    ``de`` is the row's whole elevation difference (grade x span) so the
+    ``min(de, ...)`` clamp in ``row_excess_m`` is not what is being tested;
+    each row's EXCESS is ``excess/100 x dist`` metres."""
+    return [("within_shape",
+             _FloorRow(de=grade / 100.0 * dist, grade=grade, excess=excess,
+                       dist=dist, role=role, wa=wid,
+                       pa=(x0 + 1000.0 * i, 0.0),
+                       pb=(x0 + 1000.0 * i + dist, 0.0)))
+            for i in range(n)]
+
+
+def _one_site(census_mod, cg, rows):
+    sec = census_mod.cluster_sites(rows, cg)
+    assert sec["sites"] == 1, (
+        f"fixture built {sec['sites']} sites, not 1 — the floor twin would "
+        f"be testing the clustering instead")
+    return sec, sec["all_sites"][0]
+
+
+# ── the knobs are the ruled ones, and they are named ────────────────
+
+def test_the_floor_constants_are_the_ruled_values_and_cite_the_ruling(
+        cg, census_mod):
+    """Owner RULINGS 2026-08-07, four parts.  A constant that drifts from
+    the ruling silently re-adjudicates the whole battery, and a constant
+    with no citation is one nobody can check against the ruling."""
+    assert cg.MATERIALITY_FLOOR_M == 0.5
+    assert cg.MATERIALITY_SHARP_STEP_M == 0.15
+    assert cg.MATERIALITY_SHARP_GRADE_CAP_MULTIPLE == 2.0
+    assert cg.MATERIALITY_RUNWAY_FAMILY_ROLES == frozenset(
+        {"runway", "runway_crossing"}), (
+        "the runway family is the repo's own definition — flex_audit."
+        "RUNWAY_ROLES and the '# runway family' head of layout."
+        "AUTHORITY_PRECEDENCE — not a set invented for this floor")
+    assert "2026-08-07" in cg.MATERIALITY_FLOOR_RULING
+    assert "0.5" in cg.MATERIALITY_FLOOR_RULING
+    # Every knob is READ by the site census — a constant nothing consumes
+    # is a constant that documents a law nobody applies.
+    reader = inspect.getsource(census_mod)
+    for token in ("MATERIALITY_FLOOR_M", "MATERIALITY_SHARP_STEP_M",
+                  "MATERIALITY_SHARP_GRADE_CAP_MULTIPLE",
+                  "MATERIALITY_RUNWAY_FAMILY_ROLES",
+                  "MATERIALITY_SUB_FLOOR_LABEL",
+                  "MATERIALITY_UNMEASURED_FAMILIES",
+                  "MATERIALITY_ACCUMULATION_RULE"):
+        assert token in reader, (
+            f"{token} is defined but never read — a knob nothing consumes")
+
+
+def test_no_floor_constant_is_written_twice(census_mod):
+    """The census must READ the knobs, never re-type them: a second copy of
+    0.5 is how a report and a law stop agreeing (the census-wrapper defect
+    in miniature)."""
+    src = inspect.getsource(census_mod.cluster_sites)
+    for literal in ("0.5", "0.15", "2.0"):
+        assert f"= {literal}" not in src, (
+            f"cluster_sites contains a bare {literal} — read the knob from "
+            f"check_grade instead")
+    assert "cg.MATERIALITY_FLOOR_M" in src
+    assert "cg.MATERIALITY_SUB_FLOOR_LABEL" in src
+
+
+# ── row_excess_m: the accumulation's own arithmetic ─────────────────
+
+def test_row_excess_m_is_the_excess_not_the_magnitude(cg):
+    """THE distinction the whole floor rests on.  A 3.2 m rise over 200 m
+    of 1.5 %-capped taxiway is a 3.2 m MAGNITUDE and a 0.2 m EXCESS; the
+    owner's sentence is about the second number."""
+    r = _FloorRow(de=3.2, grade=1.6, excess=0.1, dist=200.0)
+    assert cg.row_magnitude(r) == 3.2
+    assert cg.row_excess_m(r) == pytest.approx(0.2)
+    assert cg.row_cap_pct(r) == pytest.approx(1.5)
+
+
+def test_row_excess_m_never_exceeds_the_whole_elevation_difference(cg):
+    """The near-miss frontage law reports ``excess_pct=100`` as a SENTINEL
+    (there is no lawful grade across a sliver), so the product overshoots.
+    A row can never be more unlawful than its whole |de|."""
+    r = _FloorRow(de=0.4, grade=13.3, excess=100.0, dist=3.0)
+    assert cg.row_excess_m(r) == pytest.approx(0.4)
+
+
+def test_row_excess_m_handles_the_cap_zero_and_step_shapes(cg):
+    """Two shapes carry their whole quantity in ``de_m``: a cap-0 law that
+    reports ``grade_pct == 0`` (the drainage-spine dam) and a row priced
+    over zero run (the terrace ACTUAL step).  Both are their own excess."""
+    dam = _FloorRow(de=0.79, grade=0.0, excess=0.0, dist=38.0)
+    assert cg.row_excess_m(dam) == pytest.approx(0.79)
+    joint = _FloorRow(de=0.6, grade=0.0, excess=0.0, dist=0.0)
+    assert cg.row_excess_m(joint) == pytest.approx(0.6)
+    assert cg.row_excess_m(_FloorRow(step=0.22)) == pytest.approx(0.22)
+
+
+def test_an_unmeasured_family_funds_nothing_and_is_never_floored(census_mod,
+                                                                 cg):
+    """``lateral_contiguity`` prices a CAP: its ``de_m`` is ``eff - cap``, a
+    bare decimal, over no span at all.  Summing 0.03 into a METRE
+    accumulation would put a units mix-up inside the headline — 3
+    percentage points reading as 3 centimetres — so the family funds
+    nothing AND the site stays actionable: a floor may only relax what it
+    can measure."""
+    assert "lateral_contiguity" in cg.MATERIALITY_UNMEASURED_FAMILIES
+    row = _FloorRow(de=0.03, grade=8.0, excess=3.0, dist=0.0, role="service_road")
+    assert cg.row_excess_m(row, "lateral_contiguity") == 0.0
+    assert cg.row_excess_m(row) == pytest.approx(0.03), (
+        "without the family key the accessor must not guess — the caller "
+        "that has the key is the one that may exclude it")
+    sec, site = _one_site(census_mod, cg, [("lateral_contiguity", row)])
+    assert site["accumulation_m"] == 0.0
+    assert site["actionable"] is True
+    assert site["actionable_reasons"] == ["unmeasured"]
+    assert site["unmeasured_families"] == ["lateral_contiguity"]
+    assert sec["sites_sub_floor"] == 0
+
+
+# ── (1) THE FLOOR ───────────────────────────────────────────────────
+
+def test_a_site_under_the_floor_is_sub_floor_and_over_it_is_actionable(
+        census_mod, cg):
+    """KNOWN ANSWER at both sides of 0.5 m.  Each row here carries 0.1 m of
+    excess at 1.5 x its cap, so nothing but the ACCUMULATION can decide —
+    the sharp guard is deliberately quiet on both arms."""
+    under = _graded(3, grade=1.5, excess=0.5, dist=20.0)
+    sec, site = _one_site(census_mod, cg, under)
+    assert site["accumulation_m"] == pytest.approx(0.3)
+    assert site["actionable"] is False
+    assert site["disposition"] == cg.MATERIALITY_SUB_FLOOR_LABEL
+    assert site["sharp_step_rows"] == 0 and site["sharp_grade_rows"] == 0
+    assert (sec["sites_actionable"], sec["sites_sub_floor"]) == (0, 1)
+
+    over = _graded(5, grade=1.5, excess=0.5, dist=20.0)
+    sec2, site2 = _one_site(census_mod, cg, over)
+    assert site2["accumulation_m"] == pytest.approx(0.5)
+    assert site2["actionable"] is True
+    assert site2["actionable_reasons"] == ["accumulation"], (
+        "the floor arm must be decided by ACCUMULATION alone — a guard "
+        "firing here would make the floor twin vacuous")
+    assert (sec2["sites_actionable"], sec2["sites_sub_floor"]) == (1, 0)
+
+
+def test_the_accumulation_is_funded_by_adjudicated_rows_only(census_mod, cg):
+    """A version-deferred or out-of-scope row is NOT a defect (RULINGS
+    d48bc0a, and the 2026-08-06 ONE-graph classes).  It may not push a site
+    over the floor — that would let a deferred family mint actionability
+    for a family that has none."""
+    deferred_key = sorted(cg.VERSION_DEFERRED_FAMILIES)[0]
+    rows = _graded(3, grade=1.5, excess=0.5, dist=20.0)
+    padding = [(deferred_key,
+                _FloorRow(de=9.0, grade=1.5, excess=0.5, dist=1000.0,
+                          wa="-1", pa=(0.0, 0.0), pb=(1000.0, 0.0)))]
+    sec = census_mod.cluster_sites(rows + padding, cg)
+    real = next(s for s in sec["all_sites"] if s["family"] == "within_shape")
+    assert real["accumulation_m"] == pytest.approx(0.3)
+    assert real["actionable"] is False
+    defer = next(s for s in sec["all_sites"] if s["family"] == deferred_key)
+    assert defer["accumulation_m"] == 0.0 and defer["actionable"] is False
+    assert defer["disposition"] == "not_adjudicated", (
+        "a site made only of deferred rows is neither actionable nor "
+        "SUB-FLOOR: the floor never adjudicated it at all")
+    assert sec["sites_sub_floor"] == 1
+
+
+def test_an_out_of_scope_row_cannot_fund_or_sharpen_a_site(census_mod, cg):
+    """Same rule for the out-of-scope classes, and for the GUARD as well as
+    the sum: a row the law never governed cannot be the sharp bump that
+    keeps a site actionable."""
+    rows = _graded(2, grade=1.5, excess=0.5, dist=20.0)
+    rows.append(("within_shape",
+                 _FloorRow(de=4.0, grade=9.0, excess=7.5, dist=44.0, wa="-1",
+                           pa=(50.0, 0.0), pb=(94.0, 0.0),
+                           out_of_scope="disconnected_ring")))
+    sec, site = _one_site(census_mod, cg, rows)
+    assert site["rows"] == 3 and site["adjudicated"] == 2
+    assert site["out_of_scope"] == 1
+    assert site["accumulation_m"] == pytest.approx(0.2)
+    assert site["sharp_grade_rows"] == 0
+    assert site["actionable"] is False
+
+
+# ── (2) THE SHARP GUARD, each half proven to fire alone ─────────────
+
+def test_the_step_guard_fires_alone_at_its_own_constant(census_mod, cg):
+    """"We don't want any sharp bumps."  A site of small steps accumulates
+    nothing, so only the STEP half can keep it actionable — and the twin
+    brackets the constant: 0.15 m trips, 0.14 m does not."""
+    def _steps(h):
+        return [("vertex_to_edge_step", _FloorRow(step=h, wa="-7")),
+                ("vertex_to_edge_step", _FloorRow(step=0.10, wa="-7",
+                                                  pa=(5.0, 0.0),
+                                                  pb=(6.0, 0.0)))]
+    sec, site = _one_site(census_mod, cg, _steps(cg.MATERIALITY_SHARP_STEP_M))
+    assert site["accumulation_m"] == pytest.approx(0.25)
+    assert site["accumulation_m"] < cg.MATERIALITY_FLOOR_M
+    assert site["actionable"] is True
+    assert site["actionable_reasons"] == ["sharp_step"]
+    assert site["sharp_step_rows"] == 1
+    assert site["worst_step_m"] == pytest.approx(cg.MATERIALITY_SHARP_STEP_M)
+    assert site["sharp_grade_rows"] == 0, (
+        "a step row carries no grade and no cap — it must not also trip "
+        "the steepness half, or the two halves are one test")
+
+    _sec, below = _one_site(census_mod, cg,
+                            _steps(cg.MATERIALITY_SHARP_STEP_M - 0.01))
+    assert below["actionable"] is False
+    assert below["disposition"] == cg.MATERIALITY_SUB_FLOOR_LABEL
+
+
+def test_the_steepness_guard_fires_alone_at_its_own_multiple(census_mod, cg):
+    """A 4 cm defect at DOUBLE its cap stays actionable on steepness alone
+    — 2.0 x trips, 1.95 x does not — and it contributes nothing worth
+    accumulating, so the floor half cannot be what decided it."""
+    def _rows(grade, cap):
+        return _graded(2, grade=grade, excess=grade - cap, dist=1.0)
+    sec, site = _one_site(census_mod, cg, _rows(4.0, 2.0))
+    assert site["accumulation_m"] == pytest.approx(0.04)
+    assert site["actionable"] is True
+    assert site["actionable_reasons"] == ["sharp_grade"]
+    assert site["sharp_grade_rows"] == 2
+    assert site["worst_cap_multiple"] == pytest.approx(2.0)
+    assert site["sharp_step_rows"] == 0, (
+        "a graded pair is not a step: distance_m > 0, so row_step_m must "
+        "report None")
+
+    _s2, below = _one_site(census_mod, cg, _rows(3.9, 2.0))
+    assert below["worst_cap_multiple"] == pytest.approx(1.95)
+    assert below["actionable"] is False
+
+
+def test_a_cap_of_zero_is_exceeded_by_any_grade(cg):
+    """A law that allows NO grade (cap 0, or the near-miss sentinel's
+    negative cap) cannot be compared by a multiple.  Any grade at all is
+    over it; no grade at all is not."""
+    assert cg.row_is_sharp(
+        _FloorRow(de=0.4, grade=13.3, excess=100.0, dist=3.0)) == "grade"
+    assert cg.row_is_sharp(
+        _FloorRow(de=0.79, grade=0.0, excess=0.0, dist=38.0)) is None, (
+        "a cap-0 dam reports grade 0: there is no grade to be twice, and "
+        "its whole shortfall is already in the accumulation")
+
+
+# ── (3) THE RUNWAY EXEMPTION ────────────────────────────────────────
+
+@pytest.mark.parametrize("role", ["runway", "runway_crossing"])
+def test_a_runway_family_site_is_never_floored(census_mod, cg, role):
+    """Owner RULINGS 2026-08-07 part 3: reg-derived precision governs the
+    runway family (CIFP threshold values, RUNWAY_END_GRADE, the FAA
+    vertical-curve K-factors), and "0.5 m is close enough" is not a
+    statement anyone made about a runway profile.  The SAME rows that are
+    sub-floor on an apron are actionable here."""
+    rows = _graded(3, grade=1.5, excess=0.5, dist=20.0, role=role)
+    sec, site = _one_site(census_mod, cg, rows)
+    assert site["accumulation_m"] == pytest.approx(0.3)
+    assert site["accumulation_m"] < cg.MATERIALITY_FLOOR_M
+    assert site["runway_family"] is True
+    assert site["runway_family_roles"] == [role]
+    assert site["actionable"] is True
+    assert site["actionable_reasons"] == ["runway_family"]
+    assert sec["sites_sub_floor"] == 0
+
+    apron = _graded(3, grade=1.5, excess=0.5, dist=20.0, role="apron")
+    _s, control = _one_site(census_mod, cg, apron)
+    assert control["runway_family"] is False and control["actionable"] is False
+
+
+def test_one_runway_row_exempts_the_whole_site(census_mod, cg):
+    """"ANY site CONTAINING a runway-family role" — the exemption is a
+    property of the SITE, not of each row, because a site is one place and
+    a place beside a runway is graded to the runway's precision."""
+    rows = _graded(2, grade=1.5, excess=0.5, dist=20.0, role="apron")
+    rows.append(("within_shape",
+                 _FloorRow(de=0.01, grade=1.5, excess=0.5, dist=0.7,
+                           wa="-1", wb="-9", role="apron",
+                           pa=(30.0, 0.0), pb=(30.7, 0.0))))
+    rows[-1][1].way_b.tags["role"] = "runway"
+    sec, site = _one_site(census_mod, cg, rows)
+    assert site["runway_family_roles"] == ["runway"]
+    assert site["actionable"] is True
+
+
+# ── (5) THE SUB-FLOOR LABEL — counted, never dropped ────────────────
+
+def test_the_sub_floor_label_is_locked_to_its_register(census_mod, cg):
+    """The counted-never-dropped convention (VERSION_DEFERRED_FAMILIES /
+    OUT_OF_SCOPE_CLASSES / the wall_foot_ll and disconnected_ring
+    precedents): the label a report prints and the reason it prints beside
+    it come from ONE register, so moving the floor moves a documented
+    number instead of making evidence disappear."""
+    assert cg.MATERIALITY_SUB_FLOOR_LABEL in cg.MATERIALITY_SUB_FLOOR_CLASSES
+    sec, site = _one_site(census_mod, cg,
+                          _graded(3, grade=1.5, excess=0.5, dist=20.0))
+    assert sec["sub_floor_label"] == cg.MATERIALITY_SUB_FLOOR_LABEL
+    assert set(sec["sub_floor_classes"]) == set(cg.MATERIALITY_SUB_FLOOR_CLASSES)
+    entry = sec["sub_floor_classes"][cg.MATERIALITY_SUB_FLOOR_LABEL]
+    assert entry["n"] == sec["sites_sub_floor"] == 1
+    assert entry["why"] == cg.MATERIALITY_SUB_FLOOR_CLASSES[
+        cg.MATERIALITY_SUB_FLOOR_LABEL]
+    # …and the site is still fully carried, not a bare count.
+    assert sec["sub_floor_rows"] == site["rows"] == 3
+    assert sec["sub_floor_adjudicated_rows"] == 3
+    assert sec["sub_floor_worst_m"] == site["worst_m"]
+    assert site["row_indices"] == [0, 1, 2]
+
+
+def test_the_floor_partitions_the_adjudicated_sites(census_mod, cg,
+                                                    tmp_path):
+    """ACTIONABLE + SUB-FLOOR == ADJUDICATED, on a real emitted patch.  A
+    site that is neither has been dropped — which is the one thing the
+    label exists to prevent — and ``census_one`` refuses rather than
+    printing a smaller, friendlier headline."""
+    rep, sec = _sites_of_the_fixture(census_mod, cg, tmp_path)
+    assert sec["sites_adjudicated"] > 0, "fixture went clean — twin vacuous"
+    assert sec["sites_actionable"] + sec["sites_sub_floor"] == \
+        sec["sites_adjudicated"]
+    assert sec["sites_actionable"] <= sec["sites_adjudicated"] <= sec["sites"]
+    assert sec["sites_actionable_visible"] <= sec["sites_actionable"]
+    assert sum(d["actionable_sites"] for d in sec["by_family"].values()) == \
+        sec["sites_actionable"]
+    assert sum(d["sub_floor_sites"] for d in sec["by_family"].values()) == \
+        sec["sites_sub_floor"]
+
+
+def test_the_census_refuses_a_floor_that_drops_a_site(census_mod, cg,
+                                                      tmp_path, monkeypatch):
+    """The refusal is IN PRODUCTION, not only in this twin."""
+    real = census_mod.cluster_sites
+
+    def _lossy(*a, **k):
+        sec = real(*a, **k)
+        sec["sites_actionable"] = max(0, sec["sites_actionable"] - 1)
+        return sec
+    monkeypatch.setattr(census_mod, "cluster_sites", _lossy)
+    osm = tmp_path / "lossy.osm"
+    osm.write_bytes(FIXTURE_PATCH.read_bytes())
+    (tmp_path / "lossy.osm.axes.json").write_text(json.dumps({"anchor": None}))
+    with pytest.raises(SystemExit) as e:
+        census_mod.census_one(osm, cg, top=1, want_sites=True)
+    assert "does not partition the adjudicated sites" in str(e.value)
+
+
+def test_the_floor_knobs_ride_in_every_site_report(census_mod, cg):
+    """A site table taken at one floor is not comparable with one taken at
+    another, so the constants and the summation travel WITH the counts —
+    the ``SITE_RULE`` / ``visibility_note`` convention one level up."""
+    sec, _site = _one_site(census_mod, cg,
+                           _graded(3, grade=1.5, excess=0.5, dist=20.0))
+    assert sec["floor_m"] == cg.MATERIALITY_FLOOR_M
+    assert sec["sharp_step_m"] == cg.MATERIALITY_SHARP_STEP_M
+    assert sec["sharp_grade_cap_multiple"] == \
+        cg.MATERIALITY_SHARP_GRADE_CAP_MULTIPLE
+    assert sec["runway_family_roles"] == ["runway", "runway_crossing"]
+    assert sec["accumulation_rule"] == cg.MATERIALITY_ACCUMULATION_RULE
+    assert sec["floor_ruling"] == cg.MATERIALITY_FLOOR_RULING
+
+
+def test_the_floor_flags_are_in_the_tool_index():
+    """Every promotion lands WITH its index row, in the same commit."""
+    text = INDEX.read_text()
+    for token in ("actionable", "materiality floor", "sub_floor"):
+        assert token in text, (
+            f"{token!r} is not in tools/INDEX.md — the headline the site "
+            f"census now reports is undiscoverable")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §10b ROLE-LESS FEATURE WAYS SIDE WITH THEIR HOST (lead 2026-08-07)
+# ══════════════════════════════════════════════════════════════════════
+#
+# The class this removes: an ``o4_feature`` way with no ``role`` tag —
+# HECA's 232-way population (shape_interior_ring 92, gap_interior_ring 88,
+# gap_drainage_spine 49, crown_spine 3) — falls through
+# ``_role_grade_limit`` to the CALLER's default cap and through
+# ``_is_groundside`` to AIRSIDE, whatever its host actually is.  On the
+# frame of record every such row was hosted by a ``service_junction``, an
+# 8 % GROUNDSIDE surface, and reported as an airside 1.5 % violation.
+
+_HOST_SIDING_OSM = """<?xml version='1.0' encoding='UTF-8'?>
+<osm version='0.6' generator='harness-twin'>
+  <node id='-1' lat='30.50000000000' lon='31.50000000000'>
+    <tag k='alt_abs' v='10.00' /></node>
+  <node id='-2' lat='30.50000000000' lon='31.50020000000'>
+    <tag k='alt_abs' v='10.00' /></node>
+  <node id='-3' lat='30.50018000000' lon='31.50020000000'>
+    <tag k='alt_abs' v='%(alt)s' /></node>
+  <node id='-4' lat='30.50018000000' lon='31.50000000000'>
+    <tag k='alt_abs' v='10.00' /></node>
+  <way id='-10'>
+    <nd ref='-1' /><nd ref='-2' /><nd ref='-3' /><nd ref='-4' /><nd ref='-1' />
+    <tag k='role' v='%(role)s' />
+    <tag k='shapeID' v='H1' />
+  </way>
+  <way id='-11'>
+    <nd ref='-1' /><nd ref='-2' /><nd ref='-3' /><nd ref='-4' /><nd ref='-1' />
+    <tag k='o4_feature' v='shape_interior_ring' />
+  </way>
+</osm>
+"""
+
+
+def _host_fixture(tmp_path, role="apron", name="host", alt="11.20"):
+    osm = tmp_path / f"{name}.osm"
+    osm.write_text(_HOST_SIDING_OSM % {"role": role, "alt": alt})
+    Path(str(osm) + ".axes.json").write_text(json.dumps({"anchor": None}))
+    return osm
+
+
+def _rows_of(cg, osm):
+    fams: dict = {}
+    cg.run_checks_law_true(osm, family_out=fams, quiet=True, top_n=0)
+    return [(k, r) for k, _t, _b in cg.LAW_FAMILIES
+            for r in fams.get(k, [])]
+
+
+def test_a_role_less_ring_takes_its_hosts_role_and_side(cg, tmp_path):
+    """The ruling: "they take the ROLE AND SIDE of their HOST shape".  With
+    a GROUNDSIDE host the ring's rows must read groundside — the class this
+    fix exists to delete is exactly "airside by default"."""
+    rows = _rows_of(cg, _host_fixture(tmp_path, role="service_junction",
+                                      alt="13.50"))
+    ring = [(k, r) for k, r in rows
+            if "-11" in {getattr(getattr(r, "way_a", None), "wid", None),
+                         getattr(getattr(r, "way_v", None), "wid", None)}]
+    assert ring, "the fixture stopped minting a row on the ring — twin vacuous"
+    for _k, r in ring:
+        assert cg.row_roles(r) == ("service_junction", "service_junction"), (
+            "the ring reported '?' — the host was not resolved")
+        assert cg.row_side(r) == "groundside", (
+            "the ring is still airside-by-default; the whole class the "
+            "ruling names is back")
+
+
+def test_the_host_stamp_never_touches_the_law(cg, tmp_path):
+    """THE INERTNESS CLAIM, proven rather than asserted.  The spec this
+    lands under is ADJUDICATION-ONLY, so the host stamp must not reach
+    ``_role_grade_limit`` (the cap) or ``_is_groundside`` (which GATES the
+    cross-boundary step checks).  Same patch, hosts resolved: identical
+    rows, identical families, identical magnitudes."""
+    osm = _host_fixture(tmp_path, role="service_junction", alt="13.50")
+    fams: dict = {}
+    cg.run_checks_law_true(osm, family_out=fams, quiet=True, top_n=0)
+    hosts = fams["_feature_hosts"]
+    assert hosts["-11"]["host_way"] == "-10"
+    assert hosts["-11"]["host_source"] == "shared_nodes"
+    assert hosts["-11"]["duplicate"] is True
+    ways = cg._parse_osm(osm)[1]
+    ring = next(w for w in ways if w.wid == "-11")
+    assert ring.tags.get("role") is None and ring.role == "", (
+        "resolve_feature_hosts wrote the ROLE tag — that is law input "
+        "(the cap resolver, the side partition, the drainage-minimum and "
+        "strip-pavement role sets all read it) and moves the population")
+    assert cg._is_groundside(ring) is False, (
+        "the LAW's own side partition followed the report; only row_side "
+        "may")
+
+
+def test_a_duplicate_ring_is_adjudicated_out_never_dropped(cg, tmp_path):
+    """"One geometry, one row set."  The ring carries the host's whole
+    vertex set, so the host's rows ARE the row set and the ring's are the
+    duplicate: MARKED, and still counted in their family."""
+    osm = _host_fixture(tmp_path, role="apron")
+    rows = _rows_of(cg, osm)
+    def _wid(r, *names):
+        for n in names:
+            w = getattr(r, n, None)
+            if w is not None:
+                return w.wid
+        return None
+    host_rows = [r for _k, r in rows if _wid(r, "way_a", "way_v") == "-10"]
+    ring_rows = [r for _k, r in rows if _wid(r, "way_a", "way_v") == "-11"]
+    assert host_rows and ring_rows, "the fixture must double-count today"
+    assert len(host_rows) == len(ring_rows), (
+        "one geometry judged twice is the premise of this twin")
+    assert all(r.out_of_scope == "role_less_host_duplicate"
+               for r in ring_rows)
+    assert all(r.out_of_scope is None for r in host_rows), (
+        "the HOST's rows are the row set — they must survive")
+    adj = cg.adjudication(rows)
+    assert adj["out_of_scope_total"] == len(ring_rows)
+    assert adj["adjudicated_total"] == len(rows) - len(ring_rows)
+    assert "role_less_host_duplicate" in adj["out_of_scope_classes"]
+    # COUNTED, NEVER DROPPED: the family still reports every row.
+    assert adj["out_of_scope_classes"]["role_less_host_duplicate"]["n"] == \
+        len(ring_rows)
+
+
+def test_the_duplicate_class_is_in_the_out_of_scope_register(cg):
+    """One authority for the class and its reason, like every other
+    adjudication register in this module."""
+    why = cg.OUT_OF_SCOPE_CLASSES["role_less_host_duplicate"]
+    assert "one geometry, one row set" in why.lower()
+    assert cg.ROLE_LESS_HOST_RULING in why
+    assert set(cg.ROLE_LESS_FEATURE_CLASSES) == {
+        "shape_interior_ring", "gap_interior_ring", "gap_drainage_spine",
+        "crown_spine"}
+
+
+def test_a_partial_host_is_not_a_duplicate(cg, tmp_path):
+    """The ruling's clause is "where their geometry DUPLICATES a host
+    way's".  A ring welded from two shapes' vertices is not that: it is
+    sided with its majority host and stays adjudicated, because no single
+    host's rows cover it."""
+    osm = tmp_path / "partial.osm"
+    text = _HOST_SIDING_OSM % {"role": "apron", "alt": "11.20"}
+    # A fifth vertex on the ring that NO role-carrying way owns: the ring
+    # is now welded from more than its majority host, so the host's rows
+    # cannot cover it.
+    text = text.replace(
+        "  <way id='-10'>",
+        "  <node id='-5' lat='30.50009000000' lon='31.50030000000'>"
+        "<tag k='alt_abs' v='9.00' /></node>\n  <way id='-10'>")
+    text = text.replace(
+        "<nd ref='-4' /><nd ref='-1' />\n    <tag k='o4_feature'",
+        "<nd ref='-4' /><nd ref='-5' /><nd ref='-1' />\n    "
+        "<tag k='o4_feature'")
+    osm.write_text(text)
+    Path(str(osm) + ".axes.json").write_text(json.dumps({"anchor": None}))
+    fams: dict = {}
+    cg.run_checks_law_true(osm, family_out=fams, quiet=True, top_n=0)
+    h = fams["_feature_hosts"]["-11"]
+    assert h["host_way"] == "-10" and h["duplicate"] is False
+    assert h["shared_nodes"] == 4 and h["n_nodes"] == 5
+    ring = [r for k, _t, _b in cg.LAW_FAMILIES for r in fams.get(k, [])
+            if getattr(getattr(r, "way_a", None), "wid", None) == "-11"
+            or getattr(getattr(r, "way_v", None), "wid", None) == "-11"]
+    assert ring, "twin vacuous"
+    assert all(r.out_of_scope is None for r in ring), (
+        "a partial host is not a duplicate — its rows stay adjudicated")
+
+
+def test_the_host_resolution_is_deterministic(cg, tmp_path):
+    """A host that depends on dict iteration order is not a measurement.
+    Ties break on the emitter's OWN airside-first precedence
+    (``layout.AUTHORITY_RANK``), then on the way id."""
+    osm = _host_fixture(tmp_path, role="apron")
+    seen = set()
+    for _ in range(3):
+        fams: dict = {}
+        cg.run_checks_law_true(osm, family_out=fams, quiet=True, top_n=0)
+        seen.add(json.dumps(fams["_feature_hosts"], sort_keys=True))
+    assert len(seen) == 1
+    assert cg._authority_rank("runway") < cg._authority_rank("apron")
+    assert cg._authority_rank("apron") < cg._authority_rank(None)

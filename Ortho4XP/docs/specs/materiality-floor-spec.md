@@ -1,5 +1,32 @@
 # Materiality floor — 0.5 m accumulated, guarded, runways exempt — spec
 
+> **OUTCOME (2026-08-07, lane/matfloor 4d40f03 — MERGED).** Battery:
+> 778 adjudicated sites → **502 ACTIONABLE** (484 visible-actionable,
+> 274 sub-floor; max reclassified accumulation 0.4843 m — no
+> cliff-edge; every guard verdict zero on the reclassified set BY
+> CONSTRUCTION). Law-true byte-identical all cells; role-less class
+> eliminated (27 `?`-rows resolved to hosts, 2 double-counts
+> adjudicated out, 1,042 role-less ways mint nothing). 34 new twins.
+> INTERPRETIVE CALL RATIFIED (Fable): clause 4's "judged at the
+> host's cap" was spec imprecision — the host's own way already
+> judges the shared vertices at the host's cap, so a second cap
+> resolver would move the law-true population (−2 rows, +1 phantom
+> drainage row, measured) for zero information. The landed reading
+> (role/side from host, duplicates adjudicated out, cap NOT
+> re-applied, byte-identity preserved) is the spec's binding intent.
+>
+> **SUPERSEDED same evening (Fable, cross-session reconciliation):**
+> the tunnel round's OTHH case (spec
+> tunnel-ramp-cut-boundaries-spec.md §3 L-1: two ramp-cut rings
+> minting 87 phantom rows at airside defaults, host way NOT
+> duplicating the vertices) proves cap-from-host is the correct LAW —
+> the byte-identity reading was only incidentally right where hosts
+> duplicated ring vertices. HOST role, side, AND cap govern. The
+> tunnel session's L-1 is the implementation of record; the one
+> measured side effect (+1 phantom drainage row from admitting a
+> ring into _DRAINAGE_MIN_ROLES' surface set) is that round's guard
+> to carry — articulation rings never join a law's SURFACE set.
+
 Author: lead (Fable), 2026-08-07. Charter: the owner's four-part
 2026-08-07 floor ruling (RULINGS "Materiality floor") + the
 role-less-host lead ruling of the same day. ADJUDICATION-ONLY: law,

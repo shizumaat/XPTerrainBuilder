@@ -343,7 +343,7 @@ def _shape_grade(layout, s) -> float:
     role EXCEPT the sized taxiway-family rects: when the
     ``TAXI_GRADE_BY_WIDTH`` gate is on, a narrow taxiway (ICAO code A/B,
     width < 15 m) earns the steeper ``TAXI_MAX_GRADE_NARROW`` (3 %) cap
-    instead of the uniform 1.5 % — ICAO Annex 14 §3.9.3.  The width class
+    instead of the uniform 1.5 % — ICAO Annex 14 §3.9.8.  The width class
     comes from :func:`taxi_shape_code_letter` (apt.dat letter, else measured
     rect width); gate off / non-taxiway roles fall straight back to the
     role cap, so the solver stays byte-identical to the uniform baseline.

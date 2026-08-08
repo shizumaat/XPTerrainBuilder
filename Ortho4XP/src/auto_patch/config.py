@@ -676,7 +676,7 @@ RUNWAY_SHOULDER_EXTENT_MAX_APT_FRAC = 0.5
 # trace to different standards and may diverge — e.g. EASA could tighten
 # the runway cap without touching taxiways.
 TAXI_MAX_GRADE = 0.015          # FAA AC 150/5300-13 taxiway-family
-# ICAO Annex 14 Vol I §3.9.3 makes the taxiway longitudinal-grade cap
+# ICAO Annex 14 Vol I §3.9.8 makes the taxiway longitudinal-grade cap
 # SIZE-DEPENDENT: code letters C–F (wide, ≥15 m) cap at 1.5 %, but code
 # letters A/B (narrow, <15 m) may grade up to 3 %.  Stock auto_patch held
 # every taxiway to 1.5 %, over-flattening small taxiways and spending grade
@@ -686,11 +686,11 @@ TAXI_MAX_GRADE = 0.015          # FAA AC 150/5300-13 taxiway-family
 TAXI_MAX_GRADE_NARROW = 0.030   # ICAO Annex 14 code A/B taxiway-family
 # TRANSVERSE (cross) grade cap — the cT in the anisotropic within-shape allowance
 # cL·Δs∥ + cT·Δs⊥ (see ``taxi_transverse_cap_for_letter`` +
-# docs/anisotropic_edge_handling_plan.md).  ICAO Annex 14 Vol I Table 3-2 caps the
+# docs/anisotropic_edge_handling_plan.md).  ICAO Annex 14 Vol I §3.9.11 caps the
 # taxiway TRANSVERSE slope at 2 % for code A/B and 1.5 % for C–F — so for C–F it
 # coincides with the longitudinal cap (isotropic) and only A/B is genuinely
 # anisotropic (cT 2 % < cL 3 %).
-TAXI_MAX_TRANSVERSE_NARROW = 0.020   # ICAO Annex 14 Table 3-2 code A/B transverse
+TAXI_MAX_TRANSVERSE_NARROW = 0.020   # ICAO Annex 14 §3.9.11 code A/B transverse
 
 # ── SPINE CROWN (user ruling 2026-07-07) ─────────────────────────────
 # Everything with a spine — runways, taxiways, service roads — crowns
@@ -5770,8 +5770,8 @@ def taxi_transverse_cap_for_letter(letter, *, enabled: bool = None,
     """Max TRANSVERSE (cross) grade for a taxiway of ICAO code ``letter`` — the
     ``cT`` in the anisotropic within-shape allowance ``cL·Δs∥ + cT·Δs⊥``.
 
-    Code A/B (narrow) → ``TAXI_MAX_TRANSVERSE_NARROW`` (2 %, ICAO Annex 14 Table
-    3-2); code C–F (and any unknown/None letter) → the LONGITUDINAL cap
+    Code A/B (narrow) → ``TAXI_MAX_TRANSVERSE_NARROW`` (2 %, ICAO Annex 14
+    §3.9.11); code C–F (and any unknown/None letter) → the LONGITUDINAL cap
     (:func:`taxi_grade_cap_for_letter`, 1.5 %), i.e. ISOTROPIC there.  Honours the
     same ``TAXI_GRADE_BY_WIDTH`` gate as the longitudinal cap, so when
     width-grading is off ``cT`` collapses to ``cL`` for EVERY letter and the
@@ -6066,7 +6066,7 @@ ICAO_RULESET = Ruleset(
     strip_arc_rate_per_m=0.02 / 30.5,
     strip_arc_rate_provisional=True,
 
-    # §3.4.17 frame (and the repo's live table): graded strip half-width
+    # §3.4.8-3.4.9 frame (and the repo's live table): graded strip half-width
     # 30 / 40 / 75 / 75 m by code number.
     strip_half_width_m=CodeTable(
         by_code=dict(RUNWAY_STRIP_HALF_WIDTH_BY_CODE), default=75.0),
@@ -6126,10 +6126,10 @@ ICAO_RULESET = Ruleset(
     runway_transverse_max=CodeTable(
         by_letter=_letters(narrow=0.020, wide=0.015), default=0.015),
 
-    # §3.13.6: "On an aircraft stand the maximum slope should not exceed
+    # §3.13.5: "On an aircraft stand the maximum slope should not exceed
     # 1 per cent."
     stand_max_grade=0.01,
-    # §3.13.5 is QUALITATIVE ("sufficient to prevent accumulation of
+    # §3.13.4 is QUALITATIVE ("sufficient to prevent accumulation of
     # water … kept as level as drainage requirements permit") — there is
     # NO numeric ICAO apron minimum.  A number here would be MINTED, not
     # cited, so the field stays None and the §B3 apron law is a no-op at
@@ -6623,7 +6623,7 @@ def ruleset_stand_max_grade(ruleset=None) -> float:
 
 def ruleset_apron_min_drainage_grade(ruleset=None):
     """§B3 — minimum apron gradient, or ``None`` where the authority
-    states no number (ICAO §3.13.5 is qualitative)."""
+    states no number (ICAO §3.13.4 is qualitative)."""
     return get_ruleset(ruleset).apron_min_drainage_grade
 
 

@@ -1567,7 +1567,7 @@ def _bake_edge(allow, role, pa, pb, shared, ctx, vr_i, vr_j):
     dp, dt = ds_decompose(pa, pb, route)
     cL = allow.cL
     # Transverse cap: A/B taxiways (cL == narrow 3 %) earn the tighter 2 %
-    # transverse (ICAO Annex 14 Table 3-2), and SERVICE-ROAD-rate pairs
+    # transverse (ICAO Annex 14 §3.9.11), and SERVICE-ROAD-rate pairs
     # (cL == 5 %) earn the AASHTO 2 % normal-crown transverse (user crown
     # ruling 2026-07-07 — laterally a road may not tilt at its
     # longitudinal cap: 25 cm across a 5 m road was the visible

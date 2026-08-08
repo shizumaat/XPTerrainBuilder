@@ -890,7 +890,7 @@ def _role_grade_limit(way: "Way",
     # Size-dependent taxiway cap (gate TAXI_GRADE_BY_WIDTH): a sized
     # taxiway carries the ICAO code letter the build stamped on it; code
     # A/B (narrow, <15 m) validate at 3 %, C–F at 1.5 % — ICAO Annex 14
-    # §3.9.3.  Mirrors the solver's per-shape cap so the validator and
+    # §3.9.8.  Mirrors the solver's per-shape cap so the validator and
     # build stay in lockstep.  Patches without the tag (gate off / older
     # builds) fall through to the uniform role cap below.
     elif role in TAXI_GRADE_WIDTH_ROLES and way.tags.get("code_letter"):
@@ -2572,7 +2572,7 @@ def _check_drainage_minimum(ways: List[Way], nodes, ll_to_m
                             ) -> Tuple[List[Violation], int, int]:
     """§B3 twin — surfaces FLATTER than their drainage minimum.
 
-    FAA §5.9.1.1 mandates a minimum 0.5 % apron gradient; ICAO §3.13.5 is
+    FAA §5.9.1.1 mandates a minimum 0.5 % apron gradient; ICAO §3.13.4 is
     qualitative and states no number, so the apron half is a no-op at
     every ICAO airport.  The groundside minimum is region-invariant and
     PROVISIONAL (owner question 3).
@@ -2804,7 +2804,7 @@ def _check_drainage_spine_below_pavement(
 
 
 # ── TRANSVERSE (cross-corridor) GRADE (owner field report 2026-08-02) ──
-# The law already exists — ICAO Annex 14 Vol I Table 3-2 caps the taxiway
+# The law already exists — ICAO Annex 14 Vol I §3.9.11 caps the taxiway
 # TRANSVERSE slope (config.py, ``TAXI_MAX_TRANSVERSE_NARROW``: 2 % at code
 # A/B, and at C–F it coincides with the 1.5 % longitudinal cap, i.e.
 # isotropic) — but NOTHING read it unconditionally.  Within-shape pairs

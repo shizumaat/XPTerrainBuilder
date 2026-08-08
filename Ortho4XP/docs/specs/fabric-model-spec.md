@@ -30,6 +30,31 @@ this model.
 > arriving on schedule. Pin attribution dispatched; Phase B specs
 > after it. The sparse emission gate is KEPT for Phase B as-is.**
 
+> **PIN ATTRIBUTION OUTCOME (2026-08-08, lane pinattr 5f4924c):
+> NOTHING pins the ends — the "13.9 m spread vs 1% cap" was the
+> ledger SCRIPT's bbox-diagonal ratio, not a law-priced pair (no law
+> edge spans the extremals; both instruments stop at the same
+> 790.6 m chord). Freeing every pin sheds 0.16 m; the knifed optimum
+> shows NO active bound — the value sits where minimal-move leaves
+> it (the converged-but-uncertified residual class). METRIC
+> CORRECTED: -10447 = its 94 census rows (local 1.02–3.65%), never a
+> spread ratio. THE REAL STRUCTURE-#3 POPULATION, named: the late
+> final_grade_projection feature-weld agreement gate hardens
+> 842→9,838 nodes with NO seeder record BY CONSTRUCTION, ~93% welded
+> to the GRADED STRIP (93/96/90/89% at HECA/SPJC/HEAZ/CYXY);
+> 445/2,356 adjudicated airside rows touch a frozen node, 145
+> both-frozen (unfixable by that pass). RELEASING IT ALONE IS
+> MEASURED HARMFUL (+62 airside) — the cure couples to the strip's
+> own emission. CONVERGENCE THESIS for Phase B: reg-set ruling 1
+> retires strip bands at ICAO airports — the very geometry whose
+> welds harden ~93% of the freeze — so structures #2 and #3 are ONE
+> round: emit the reg-set world sparsely and the freeze population
+> largely ceases to exist; what survives gains a seeder record
+> (instrument truth). Class size: 77 over-cap aprons battery-wide,
+> 47 with late-frozen nodes, 27 frozen-end (SPLP/KCLT one build each
+> to complete). fp#8's immovable set is CLEAN (fully attributed).
+> Spec: fabric-phase-b-spec.md.**
+
 ## The owner's design, verbatim thought experiments (canonical)
 
 1. "Take two squares… place them 50m apart at 100m flat elevation.

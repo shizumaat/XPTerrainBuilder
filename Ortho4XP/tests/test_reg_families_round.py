@@ -447,7 +447,7 @@ def test_b2_legacy_cap_accessors_honour_the_split():
 
 def test_b3_apron_minimum_is_faa_only():
     """FAA §5.9.1.1 "Provide a minimum 0.5 percent apron gradient".
-    ICAO §3.13.5 is qualitative, so the ICAO half is a no-op — a numeric
+    ICAO §3.13.4 is qualitative, so the ICAO half is a no-op — a numeric
     ICAO minimum would be MINTED, not cited."""
     assert GL.drainage_minimum_grade("apron", "faa") == 0.005
     assert GL.drainage_minimum_grade("apron", "icao") is None

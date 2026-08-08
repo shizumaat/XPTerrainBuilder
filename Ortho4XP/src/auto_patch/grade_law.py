@@ -268,7 +268,7 @@ def building_requires_full_frontage(area_m2: float) -> bool:
 # Terrain beyond a runway end may not DROP away arbitrarily: FAA AC
 # 150/5300-13B §3.16.5 caps the RSA longitudinal grade at 0…−3 % for the
 # first 200 ft (61 m) beyond the end and −5 % beyond, with grade changes
-# limited to ±2 % per 100 ft (30.5 m); ICAO Annex 14 §4.7 caps RESA
+# limited to ±2 % per 100 ft (30.5 m); ICAO Annex 14 §3.5.10 caps RESA
 # downward slopes at 5 %.  Beyond the governed footprint a drop is LAWFUL
 # (Madeira-style), so the governed length is also the hard cap on emitted
 # fill.  Single source for the Pass D skirt EMITTER
@@ -515,13 +515,13 @@ def runway_end_corridor_half_width_m(runway_width_m: float,
     runway-END corridor — the lateral extent of both the skirt fill and the
     RESA cut.
 
-    ICAO Annex 14 §3.5.3: the RESA "shall extend to a width of at least twice
-    that of the runway", and §3.5.2 recommends it extend to the width of the
+    ICAO Annex 14 §3.5.5: the RESA "shall extend to a width of at least twice
+    that of the runway", and §3.5.6 recommends it extend to the width of the
     graded portion of the strip.  As a HALF-width those read
     ``max(runway_width, strip_half)`` — the full corridor is then at least
     2 x the runway width AND at least the graded strip width, satisfying both
     clauses.  (The full apt.dat width standing in for a half-width is
-    deliberate, not a units slip: it is the §3.5.3 factor-of-two.)
+    deliberate, not a units slip: it is the §3.5.5 factor-of-two.)
 
     Single source for ``clearance.emit_runway_end_skirts`` (both directions)
     and the ``verification`` reader.
@@ -611,7 +611,7 @@ def runway_strip_wall_keepout_rings(
       * the LATERAL graded strip — centreline ± ``RUNWAY_STRIP_HALF_WIDTH_
         BY_CODE[code]`` (ICAO Annex 14 §3.4.9), over the runway's own length;
       * the two END corridors — ± ``runway_end_corridor_half_width_m`` (Annex
-        14 §3.5.2-3.5.3, the RESA/skirt corridor this module already owns),
+        14 §3.5.5-3.5.6, the RESA/skirt corridor this module already owns),
         extending ``runway_end_clearance_length_m`` beyond each end.
 
     The displaced drop relocates lawfully: the strip corridor grades to the
@@ -2942,7 +2942,7 @@ def drainage_minimum_grade(role: str, ruleset=None,
     ``None`` where none binds.
 
     * APRON family — FAA §5.9.1.1 Standards: "Provide a minimum 0.5
-      percent apron gradient".  ICAO §3.13.5 is qualitative and states NO
+      percent apron gradient".  ICAO §3.13.4 is qualitative and states NO
       number, so the ICAO-side constant is ``None`` and this law is a
       no-op at every ICAO airport (jurisdictional fidelity; a numeric
       ICAO minimum would be MINTED, not cited).
@@ -2984,7 +2984,7 @@ def drainage_minimum_band(role: str, ruleset=None, **kw):
     high = ROLE_GRADE_LIMITS.get(role)
     if high is None and role == "stand":
         # ``stand`` is an apron sub-role with no ROLE_GRADE_LIMITS row of
-        # its own; its cap is the aircraft-stand maximum (ICAO §3.13.6 /
+        # its own; its cap is the aircraft-stand maximum (ICAO §3.13.5 /
         # FAA §5.9.2.1.1, both 1 %).
         high = ruleset_stand_max_grade(ruleset)
     if low is not None and high is not None and low > high:

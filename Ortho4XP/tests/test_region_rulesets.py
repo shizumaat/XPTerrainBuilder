@@ -314,8 +314,8 @@ def test_rows_13_14_taxiway():
 
 
 def test_row15_16_stand_and_apron():
-    """ICAO §3.13.6 and FAA §5.9.2.1.1 both cap a stand at 1 %.  The
-    apron MINIMUM exists only in the FAA text (§5.9.1.1); ICAO §3.13.5 is
+    """ICAO §3.13.5 and FAA §5.9.2.1.1 both cap a stand at 1 %.  The
+    apron MINIMUM exists only in the FAA text (§5.9.1.1); ICAO §3.13.4 is
     qualitative, so a numeric ICAO minimum would be MINTED, not cited."""
     assert CFG.ruleset_stand_max_grade("icao") == 0.01
     assert CFG.ruleset_stand_max_grade("faa") == 0.01

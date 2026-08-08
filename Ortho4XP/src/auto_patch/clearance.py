@@ -1384,7 +1384,7 @@ def emit_runway_end_skirts(layout: PavementLayout, dem,
     that RISES above the 5 % up-ramp, the skirt fills terrain that DROPS
     away beyond the end, so a runway ending at a hillside brow meets a
     lawful ≤3 %/≤5 % descent instead of a cliff at the pavement edge
-    (FAA AC 150/5300-13B §3.16.5 / ICAO Annex 14 §4.7 — the law lives in
+    (FAA AC 150/5300-13B §3.16.5 / ICAO Annex 14 §3.5.10 — the law lives in
     ``grade_law``; plan: docs/runway_end_skirt_plan.md).
 
     Called once ``final_grade_projection`` has settled the pavement

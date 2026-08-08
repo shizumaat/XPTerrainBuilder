@@ -182,7 +182,7 @@ Design constants adopted (FAA numbers, they are the stricter superset):
 |---|---|---|
 | Near-zone length | 61 m | 13B §3.16.5(2) |
 | Near-zone down-grade | ≤ 3 % (and never upward-forced: fill only) | 13B §3.16.5(2) |
-| Far-zone down-grade | ≤ 5 % | 13B §3.16.5(4), Annex 14 §4.7.1 |
+| Far-zone down-grade | ≤ 5 % | 13B §3.16.5(4), Annex 14 §3.5.10 |
 | Grade-change rate | ≤ 2 % per 30.5 m | 13B §3.16.5(5) |
 | Governed length | by code × approach class (see §4) | 13B App G / Annex 14 §4.2–4.3 |
 

@@ -274,7 +274,7 @@ def test_ds_decompose_matches_centerline_and_routechain():
 # ── cT transverse-cap table (Phase 2) ────────────────────────────────────────
 
 def test_taxi_transverse_cap_per_letter():
-    """ICAO Annex 14 Table 3-2 transverse caps: A/B → 2 %, C–F → = longitudinal
+    """ICAO Annex 14 §3.9.11 transverse caps: A/B → 2 %, C–F → = longitudinal
     (isotropic).  When width-grading is off, cT collapses to cL everywhere."""
     from auto_patch.config import (
         taxi_transverse_cap_for_letter as cT,

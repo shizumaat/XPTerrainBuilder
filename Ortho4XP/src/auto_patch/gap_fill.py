@@ -112,7 +112,11 @@ from .clearance import (
     _open_coords,
 )
 from .emit_decimate import _key
-from .enclaves import ENCLAVE_SURROUND_ROLES, enclave_covering
+from .enclaves import (
+    ENCLAVE_SURROUND_ROLES,
+    enclave_covering,
+    is_pocket_width,
+)
 from .geom_safe import min_rotated_rect
 
 __all__ = ["emit_gap_fill_spines", "construct_gap_fill_presolve"]
@@ -1963,7 +1967,7 @@ def _emit_open_frontage(layout, airside, comps, union, registry,
         # material and the runway-end regime) still veto.  Same
         # ``enclave_covering`` predicate and same ``hard_polys`` set as
         # the enclosed-gap loop; nothing new is computed here.
-        _covering = (enclave_covering(layout, corr)
+        _covering = (_enclave_treatable(layout, corr)
                      if hard_polys is not None else None)
         _corr_blockers = (hard_polys if _covering is not None
                           else other_polys)
@@ -2208,6 +2212,41 @@ def _gap_detection_polys(layout, airside):
     return gaps
 
 
+def _enclave_treatable(layout, poly):
+    """The published enclave whose interior ``poly`` is AND whose ground
+    the ruled treatment can actually take, or ``None`` — the gate on the
+    whole enclave exemption (spec §3, width-scoped 2026-08-08).
+
+    TWO conditions, and the second is not a refinement of the first:
+
+      * ``enclave_covering`` — the region is enclave interior, so the
+        shapes inside it are airside-interior contents the G-ENCLAVE
+        re-verdict owns rather than foreign owners of the ground;
+      * ``is_pocket_width`` — the GAP LAW can treat it.  The owner's
+        sentence is "takes the gap interior ring and spine treatment",
+        and that treatment is pocket-width ground's form; the same
+        constant already scopes the band keep-out, so both halves of
+        the enclave law now decline WIDE ground on ONE width test.
+
+    Why the width half is load-bearing rather than tidy: without it the
+    exemption does not GIVE a wide region the ruled treatment, it merely
+    moves which machinery claims it.  The gap law declines the face on
+    width a few lines below either way, after which
+    ``_emit_pocket_collar_rings`` takes the region as a "width-skipped
+    pocket" and its collared-pocket zone stands the adjacent-ground
+    bands down over the whole of it.  Measured at HECA: the 3.40 km²
+    infield (short side 1,264 m) is vetoed by the foreign shapes inside
+    it in the control and keeps 150,438 m² of Annex 14 §3.4.11-13 graded
+    strip; exempted, it was collared instead and lost every square metre
+    of that band — with adjudicated airside rising in both constant-DEM
+    worlds.  The conservative direction is also the control's: a wide
+    region keeps the blocker set it has always had.
+    """
+    if not is_pocket_width(poly):
+        return None
+    return enclave_covering(layout, poly)
+
+
 def _enclave_exempt(shape) -> bool:
     """True when the ENCLAVE law may exempt ``shape`` from the
     foreign-shape blocker (spec §3).
@@ -2366,8 +2405,9 @@ def construct_gap_fill_presolve(layout) -> int:
                    and id(s) not in parent_ids
                    and s.polygon is not None and not s.polygon.is_empty
                    and s.polygon.geom_type in ("Polygon", "MultiPolygon")]
-    # The ones an ENCLAVE interior may exempt (spec §3) — the emitter's
-    # rule, mirrored so construction stays a superset of emission.
+    # The ones an ENCLAVE interior may exempt (spec §3, width-scoped by
+    # ``_enclave_treatable``) — the emitter's rule, mirrored so
+    # construction stays a superset of emission.
     hard_polys = [(id(s), s.polygon) for s in layout.shapes
                   if id(s) not in airside_ids
                   and id(s) not in parent_ids
@@ -2393,7 +2433,7 @@ def construct_gap_fill_presolve(layout) -> int:
             # ENCLAVE INTERIOR (spec §3) — the emitter's rule, mirrored
             # here so construction stays a superset of emission.
             blockers = (hard_polys + zone_polys
-                        if enclave_covering(layout, gap_poly) is not None
+                        if _enclave_treatable(layout, gap_poly) is not None
                         else other_polys + zone_polys)
             overlapped = False
             for _oid, op in blockers:
@@ -2655,8 +2695,11 @@ def emit_gap_fill_spines(layout, dem, tile_lat, tile_lon,
             # The published CROSSING ZONE still blocks unconditionally: a
             # crossing means a tunnel/bridge, which is the owner's escape
             # clause, so such a region is not an enclave in the first
-            # place.
-            _covering = enclave_covering(layout, gap_poly)
+            # place.  And the exemption is WIDTH-SCOPED — see
+            # ``_enclave_treatable``: a region the gap law will decline
+            # on width gains nothing from it and loses its bands to the
+            # pocket-collar machinery instead (HECA's 3.40 km² infield).
+            _covering = _enclave_treatable(layout, gap_poly)
             blockers = (hard_polys + zone_polys
                         if _covering is not None
                         else other_polys + zone_polys)

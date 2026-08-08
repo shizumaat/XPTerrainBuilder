@@ -359,6 +359,48 @@ def test_surround_material_and_the_runway_end_regime_are_never_exempt():
         _rect(70.0, 50.0, 72.0, 52.0, ROLE_GRADED_STRIP)) is True
 
 
+def test_a_wide_enclave_region_is_not_exempt_and_still_vetoes():
+    """WIDTH-SCOPED EXEMPTION (2026-08-08).  A region the gap law will
+    decline on WIDTH gains nothing from the exemption — the ruled ring +
+    spine is pocket-width ground's form — and loses a great deal: the
+    declined region falls through to ``_emit_pocket_collar_rings``,
+    whose collared-pocket zone then stands the adjacent-ground bands
+    down over the whole of it.
+
+    Measured at HECA: the 3.40 km² infield (short side 1,264 m) is
+    vetoed by the shapes inside it in the control and keeps 150,438 m²
+    of Annex 14 §3.4.11-13 graded strip; exempted, it was collared
+    ("[gap-collar] width-skipped pocket … 647 node(s)") and lost every
+    square metre of that band, with adjudicated airside rising in both
+    constant-DEM worlds.  So a WIDE enclave keeps the blocker set it has
+    always had — one width test, the same constant, on both halves of
+    the enclave law."""
+    layout = _infield_layout_no_bar()
+    EN.publish_airside_enclaves(layout)
+    # It IS enclave interior — G-ENCLAVE still sees it…
+    x0, y0, x1, y1 = INFIELD
+    assert EN.point_in_enclave(layout, (x0 + x1) / 2, (y0 + y1) / 2)
+    region = EN.gap_law_regions(layout)[0]
+    assert region.short_side_m > GAP_FILL_MAX_WIDTH_M
+    # …and the treatment cannot take it, so the exemption declines.
+    assert GF._enclave_treatable(layout, region.polygon) is None
+    # Therefore a foreign shape inside it still vetoes, as in the control.
+    layout.shapes.append(_sliver((x0 + x1) / 2, (y0 + y1) / 2))
+    assert GF.emit_gap_fill_spines(layout, None, 0, 0) == 0
+    assert _gap_faces(layout) == []
+
+
+def test_a_pocket_enclave_region_is_still_exempt():
+    """The other side of the same test: pocket-width enclave ground —
+    what the ruled treatment is FOR — still lifts the veto."""
+    layout = _frame([_sliver()])
+    EN.publish_airside_enclaves(layout)
+    region = EN.gap_law_regions(layout)[0]
+    assert region.short_side_m <= GAP_FILL_MAX_WIDTH_M
+    assert GF._enclave_treatable(layout, region.polygon) is not None
+    assert EN.is_pocket_width(region.polygon) is True
+
+
 def test_the_construct_pass_mirrors_the_emitter():
     """Parity is load-bearing (the emitter matches spines against the
     pre-solve store by coordinate), so the pre-solve construction must
@@ -633,6 +675,18 @@ def _infield_layout():
         _rect(0.0, y0, x0, y1, ROLE_STUB),                  # west bar
         _rect(x1, y0, x1 + 30.0, y1, ROLE_STUB),            # east bar
         _rect(x0, by0, x1, by1, ROLE_BUILDING),             # the bar
+    ])
+
+
+def _infield_layout_no_bar():
+    """The same infield with NO building bar: one WIDE region in BOTH
+    unions, which is the width-scoping twin's fixture."""
+    x0, y0, x1, y1 = INFIELD
+    return _FakeLayout([
+        _rect(0.0, 0.0, x1 + 30.0, y0, ROLE_RUNWAY),        # south bar
+        _rect(0.0, y1, x1 + 30.0, y1 + 30.0, ROLE_RUNWAY),  # north bar
+        _rect(0.0, y0, x0, y1, ROLE_STUB),                  # west bar
+        _rect(x1, y0, x1 + 30.0, y1, ROLE_STUB),            # east bar
     ])
 
 

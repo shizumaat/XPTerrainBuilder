@@ -388,6 +388,33 @@ def airside_enclaves(layout) -> list:
     return records
 
 
+def is_pocket_width(poly) -> bool:
+    """POCKET-WIDTH for a bare POLYGON — the same test ``_is_pocket``
+    applies to a published record, against the same single constant.
+
+    Exists so ``gap_fill`` can ask the width question about a GAP
+    CANDIDATE without a second short-side construction (and without a
+    second number).  Its caller is the enclave exemption: the ruled ring
+    + spine treatment is the form for pocket-width ground, so a region
+    the gap law will decline on WIDTH three lines later gains nothing
+    from being exempted — and loses a great deal, because the declined
+    region falls through to the pocket-COLLAR machinery instead of
+    staying with the bands.  Measured at HECA: exempting the 3.40 km²
+    infield (short side 1,264 m) sent it to
+    ``_emit_pocket_collar_rings`` — "[gap-collar] width-skipped pocket
+    … 3 collar loop(s), 647 node(s)" — whose collared-pocket zone then
+    stood down 150,438 m² of Annex 14 §3.4.11-13 graded strip that the
+    control's foreign-shape veto had kept.
+    """
+    if poly is None or poly.is_empty:
+        return False
+    try:
+        short = _short_side(min_rotated_rect(poly))
+    except _GEOM_EXC:
+        return False
+    return short is not None and short <= GAP_FILL_MAX_WIDTH_M
+
+
 def _is_pocket(enclave) -> bool:
     """POCKET-WIDTH: narrow enough that the owner's ruled ring+spine
     treatment is the form for it.

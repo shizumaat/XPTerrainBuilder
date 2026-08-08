@@ -5650,7 +5650,7 @@ def run_checks(
         terrace_joints_m=terrace_joints_m)
     _fam("transverse", transverse)
     _pv("TRANSVERSE (cross-corridor) grade > the role/letter transverse "
-        "cap (ICAO Annex 14 Table 3-2)",
+        "cap (ICAO Annex 14 §3.9.11)",
         transverse, top_n)
     if n_tr_rows and not quiet:
         print(f"  ({n_tr_st} transect station(s); {n_tr_rows} censused "

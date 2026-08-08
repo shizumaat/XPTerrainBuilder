@@ -37,6 +37,27 @@ tree's 4 unmounted data dirs now symlink the shared repo; write
 guard gained the no-op ensure-dir allowance (twin in
 test_harness.py).**
 
+**REG SET FULLY PRIMARY-VERIFIED (08-08 ~10:30; owner supplied the
+FAA AC into the new committed Ortho4XP/regs/ [ICAO excluded —
+copyright; EASA extraction included]; all five owner reg-set
+rulings + the 105 m adoption recorded): NO FAA VALUE WRONG; four
+DISCREPANT key/pointer marks feed Phase B (RSA widths are
+AAC×ADG×VISIBILITY three-axis — A/B-III/IV columns were missing;
+TWO lip families, taxiway/apron lip 4.5-5.5% carved OUT of the TSA
+band — corrects F-3; citation-pointer drift F-11; taxiway shoulder
+width keys by TDG not ADG). NEW R24: TOFA back slope ≤4:1, FAA-only,
+unmodelled. Appendix G pulled: FAA RSA end-corridor length is
+PER-END, a function of (RDC, visibility minimum, vertical guidance,
+stopway) — fn 9 settles the datum (runway end / stopway end); CIFP
+supplies the guidance key. Errata 2025-04-03: zero applicability;
+proves the PDF is the corrected consolidation. 1.0% verbatim
+captured (cross-fall min is a STANDARD; the centre crown itself only
+RECOMMENDED — bind the min, not the form; one constant serves runway
++ taxiway). NUANCES for Phase B: apron-surround BANDS retire but the
+apron-EDGE drop-off Standard (¶5.9.1) and lip (¶4.14.2 item 4)
+SURVIVE; the adopted 105 m precision strip has NO FAA anchor —
+label owner-adopted-beyond-citation on that ruleset.**
+
 **THE FABRIC MODEL RULED (08-08 ~03:00; RULINGS entry + 
 fabric-model-spec.md — the owner's two thought experiments are the
 canonical design text): relief generation is SUPERSEDED — there is

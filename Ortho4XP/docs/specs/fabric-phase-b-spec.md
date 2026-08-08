@@ -71,6 +71,33 @@ Read all of it before any work; every banner is load-bearing.
 > transverse ~control, THEN the full battery per the original
 > charter.**
 
+> **R-a/R-b ROUND OUTCOME + LEAD RULINGS 2 (2026-08-08, lane/fabricB
+> ac5ddbe).** R-a LANDED AND PROVEN: lateral feet are recorded at
+> insertion and skipped by the spine walk — the HECA inversion
+> refusal becomes rc 0 with ONE sub-materiality residual; the twin
+> proves exact route-length invariance plus non-vacuity. R-b plants
+> the validator's own span selection (verbatim rule, three-number
+> lockstep twin) — and the class did NOT close, with the mechanism
+> measured: the solve places planted far-edge feet within 2 cm of
+> the straight chord and the decimator losslessly collapses them
+> (35→2), i.e. THE CENSUS PRICES A PAIR THE SOLVE NEVER BINDS — the
+> lockstep-gap class (the near-miss-frontage precedent).
+> RULING (1): SOLVE-SIDE. Cross-section pairs enter the solve's law
+> context — priced ⟺ bound, the generation-binding law. A fourth
+> emit-survivor class is REJECTED: keeping unbound feet would emit
+> the same unlawful chord with more vertices; once the pairs bind,
+> the solved feet leave the chord and survive the decimator by
+> construction. Fresh frame ⇒ fresh attempt cap.
+> RULING (2): the two CYXY route-band floor rows (0.074/0.054 m,
+> junction-adjacent) are SUB-MATERIALITY under the ruled bar (no
+> sharp-guard trip) — NON-BLOCKING for R-a; the route-band twins
+> join the group-1 fixture re-scope in the cleanup lane; the rows
+> stay visible as named residuals.
+> Riders: the per-station 80 m STRtree query is a final-profiling
+> candidate (noted, not chased); the 18 suite errors from the
+> backgrounded run are unattributed worker noise — the final suite
+> re-runs FOREGROUND uncontended before any read.**
+
 ## The convergence thesis (why #2 and #3 are one round)
 
 The late final_grade_projection feature-weld agreement gate hardens

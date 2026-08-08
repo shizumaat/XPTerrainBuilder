@@ -1189,3 +1189,26 @@ SUPERSEDES the relief-generation framing (retrospective structure
 #2). The capacity-deficit argument is falsified by the fp#8 ladder
 (pure law satisfiable at HECA: 742 rows @ 0.08 m). Acceptance pair:
 apron -10447 (11 m / 790 m / 1% cap) and the CYXY hillside group.
+
+## 2026-08-08 — Reg-set rulings (owner, on the Phase-0 enumeration's questions)
+
+On fabric-model-reg-set.md §6, questions 1-4:
+1. **Graded-strip mandatory-DOWN (FAA-only 1.5% min): the ICAO
+   ruleset DROPS it, flagged PROVISIONAL** — revisit at the owner's
+   sim look at a strip without the band. Strip bands stop being
+   emitted at SPJC/SPLP/CYXY/HECA; KCLT keeps the FAA form.
+2. **All-taxiway drainage where ICAO gives no number: a named house
+   constant, PROVISIONAL** — the FAA 1.0% transverse minimum adopted
+   as the ICAO-ruleset default satisfying "sufficient to prevent
+   accumulation", labeled PROVISIONAL with the ICAO text quoted in
+   the ruleset entry.
+3. **RESA: fix both per source.** ICAO: strip-end datum, 90 m shall
+   vs 240 m should handled as mandate-vs-recommendation; FAA: the
+   Appendix G length-beyond-end column is a BUILD item requiring the
+   primary text (fetch currently blocked — the owner can supply the
+   AC 150/5300-13B PDF manually for primary verification).
+4. **Apron shoulder / beyond-shoulder / apron-edge-wall families:
+   RETIRE OUTRIGHT.** Nothing mandates them; the drape takes apron
+   surroundings on both rulesets.
+Question 5 (105 m precision-approach graded strip, guidance not
+specification) remains OPEN with the owner.

@@ -1091,3 +1091,14 @@ mechanism — two lawfully-separated portal walks whose paths meet
 when re-armed. Also parked: the `-11318` `object_bridge_ramp` 4.68 %
 pair (different emitter) and the fork-threshold frame-mismatch class
 (real, specimen at cluster (295, −2490), not load-bearing at OTHH).
+
+## 2026-08-08 — Enclave −500 +96 accepted per the threshold-class precedent (owner)
+
+Owner, verbatim: "Accept and merge." The enclave round's HECA −500
+adjudicated airside +96 — located OUTSIDE keep-out territory,
+concentrated on one band site, with the REAL world improving (−5)
+and SPJC improving (−2) — is accepted as the flat-world
+threshold-crossing class the owner first accepted at the road-feed
+merge (lawful value perturbation × oracle-world threshold density).
+Rider: site -12976 (30.105897, 31.407168; 3.0-3.6 m steps) gets a
+read in the next census pass, not a block. Merged as 0d38040.

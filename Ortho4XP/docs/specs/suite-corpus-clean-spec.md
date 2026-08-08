@@ -201,3 +201,89 @@ iterations per phase; a second miss is STOP-and-report.  PROGRESS HEARTBEAT:
 long stages write START/step/EXIT stamps to `<lane>/Ortho4XP/tmp/.progress/`.
 Any deviation from this spec is reported back for a Fable ruling, never
 decided by the implementer.
+
+## 8. Post-audit rulings (Fable review of the Phase A offender table, 2026-08-08)
+
+### 8.1 Evidence
+
+Audit arm (ledger label `suiteclean-audit`, rc=1, 733 s): **zero `blocked`
+rows** suite-wide; 178 `lock_churn` rows = `os_open`+`remove` pairs on
+`Elevation_data/<tile>/.lock_*` from `ensure_base_tile` (ruled coordination
+state, transient); zero `lib_index_churn`.  ONE real leak, caught only by the
+session detector (4 errors, one per worker):
+`Default_DSF_cache/2e32f218/+50+010.dsf.tmp.text` — written by the DSFTool
+SUBPROCESS, structurally invisible to any Python-level guard, and
+interleaving-dependent (a `-n0` control of the two suspect modules leaked
+nothing).  Baseline: 11 failed / 5569 passed / 23 skipped / 12 xfailed
+(`tmp/failed_set.txt`, `tmp/error_set.txt`).
+
+### 8.2 The zero is state-dependent, not structural
+
+Per-pack sidecars (`o4_object_*`, `o4_dsf_*`) and the library index are
+fingerprint/version-keyed derived caches: a tree whose cache keys drift from
+what the shared corpus is warm for REWRITES them — that is the 2026-08-08
+morning incident's class ("an SPJC cache path refused a HECA build", 646 s),
+and it is invisible to an audit run from a tree whose keys match.  Redirect
+decisions therefore key on class structure:
+
+* **R-a `Default_DSF_cache` — env-override redirect.**  `_apply_data_root()`
+  honors `O4_DSF_CACHE_DIR`: `Default_dsf_cache_dir = os.environ.get(
+  "O4_DSF_CACHE_DIR") or data_path("Default_DSF_cache")`.  Every recompute
+  path (module reload, `set_data_root`) flows through `_apply_data_root`, so
+  the redirect survives them BY CONSTRUCTION.  The session fixture sets the
+  env var (keeping the direct assignment + `reapply_dsf_dump_cache_redirect`
+  as belt).  TWIN: in-test `importlib.reload(O4_File_Names)` with NO reapply
+  call → `Default_dsf_cache_dir` still lane-local.  That twin is the
+  interventional proof for the whole clobber class; the exact worker
+  interleaving behind `2e32f218` is deliberately not reproduced (lead ruling:
+  the fix immunizes every class member, and the reload twin proves it).
+* **R-b `Airport_mod_cache` — env-override + symlink-seeded overlay.**  New
+  FNAMES accessor `airport_mod_cache_root()` = `O4_AIRPORT_MOD_CACHE_DIR` env
+  or `data_path("Airport_mod_cache")` — resolved AT CALL TIME (the
+  cwd-following behavior `dsf_reader.airport_mod_cache_dir`'s docstring marks
+  load-bearing is preserved when the env is absent).  Adopters: that helper,
+  and `agp_reader`'s `cache_directory` (the library index rides along).
+  Suite session fixture, per worker: create a tmp overlay root, mirror the
+  shared cache's directory tree, symlink every regular file (~991 measured —
+  instant), set the env.  Sidecar writers are `tempfile` + `os.replace`
+  (verified: agp_reader 343, post_mesh 347, object_terrain_assembly 882 —
+  `os.replace` swaps the symlink and never follows it; VERIFY dsf_reader's
+  own sidecar writers during implementation and report any direct-write
+  pattern found).  DSFTool pack-dump subprocess writes also land in the
+  overlay because their target path comes from the accessor.  Interaction
+  noted for the merge report: the parked idxchurn lane (`9e54727`) codifies
+  library-index placement for HARNESS builds; this is suite-side only and
+  does not conflict.
+* **R-c `Elevation_data` — NO redirect; refuse loud.**  A privately-cut
+  inset is a private measurement FRAME — the two-corpora defect itself
+  (warm-vs-cold has moved terrain 12 m).  A suite build needing a cold or
+  frame-drifted inset must FAIL, naming the path and the explicit harness
+  refresh (`build_airport.py --refresh-data dem`).  The `.lock` allowance
+  keeps `ensure_base_tile` cross-process coordination lawful.
+* **R-d lock churn** — allowance stands in the suite guard; transient by
+  construction; the acceptance snapshots must show zero PERSISTENT deltas.
+* **R-e library-index allowance** — `SharedRepoWriteGuard` gains
+  `allow_library_index: bool = True`; the Phase C suite guard passes False.
+  With R-b in place nothing should reach it; the param turns any bypass into
+  a loud refusal instead of a silent shared write.
+
+### 8.3 Phase C amendments
+
+§4 stands, amended by R-e.  `_SUITE_MAY_WARM` → `{}`; the detector's message
+and both conftest docstrings drop the "registered exceptions" language; the
+audit fixture and the permanent guard never stack (audit env wins).
+
+### 8.4 Twin deltas
+
+§5 twins stand, plus: the R-a reload-immunity twin; an accessor twin
+(env set → override path; env absent → `data_path` cwd-following); a
+seeding twin (pure mirror+symlink function against a synthetic shared tree,
+known answer); an `allow_library_index=False` refusal twin; the detector
+known-answer update (all three synthetic paths now unauthorised, sorted).
+
+### 8.5 Acceptance amendments
+
+§6 stands, plus: ZERO session-detector errors in both arms (the 4-error
+class dies with R-a); counts compared against the audit-arm baseline
+(11 / 5569 / 23 / 12).  Arms run SERIALLY, never concurrent with each other
+or any guarded build.

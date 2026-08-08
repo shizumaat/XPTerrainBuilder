@@ -1855,6 +1855,57 @@ def test_a_REAL_Airport_mod_cache_write_STILL_refuses(build_mod, tmp_path):
     assert guard.library_index_churn == []
 
 
+def test_the_library_index_allowance_is_WITHDRAWN_when_asked(
+        build_mod, tmp_path):
+    """``allow_library_index=False`` (suite-corpus-clean spec §8.2 R-e).
+
+    The allowance is right for a HARNESS build — the X-Plane install
+    changes under it and the sidecar is derived from that install.  It is
+    wrong for the SUITE, which points the whole cache root at a lane-local
+    overlay: nothing should reach the sidecar's real path there, so a call
+    that does is a BYPASS, and an allowance would turn it into a silent
+    shared write.  Same path, same call, both modes — the only difference
+    is the parameter.
+    """
+    repo, lane = _index_repo(tmp_path)
+    sidecar = repo / LIB_INDEX_REL
+
+    allowed = build_mod.SharedRepoWriteGuard(set(), lane, repo=repo)
+    with allowed:
+        os.close(os.open(str(sidecar), os.O_CREAT | os.O_WRONLY))
+    assert [c["op"] for c in allowed.library_index_churn] == ["os_open"]
+    assert allowed.blocked == []
+    sidecar.unlink()
+
+    refused = build_mod.SharedRepoWriteGuard(set(), lane, repo=repo,
+                                             allow_library_index=False)
+    with refused:
+        with pytest.raises(build_mod.SharedRepoWriteBlocked) as exc:
+            os.open(str(sidecar), os.O_CREAT | os.O_WRONLY)
+    assert refused.library_index_churn == []
+    assert [b["path"] for b in refused.blocked] == [LIB_INDEX_REL]
+    assert "airport_mod_cache" in str(exc.value), (
+        "the refusal must name the refresh scope like any other")
+    assert not sidecar.exists(), "the guard must prevent, not just report"
+
+
+def test_the_lock_allowance_STANDS_when_the_index_one_is_withdrawn(
+        build_mod, tmp_path):
+    """The two allowances are independent.  Refusing coordination state
+    does not protect the corpus — it makes concurrent-safe cache READS
+    impossible, which is how a real-DEM HECA build came back with no DEM
+    at all."""
+    repo, lane = _lock_repo(tmp_path)
+    lock = repo / LOCK_REL
+    guard = build_mod.SharedRepoWriteGuard(set(), lane, repo=repo,
+                                           allow_library_index=False)
+    with guard:
+        os.close(os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+        os.remove(str(lock))
+    assert guard.blocked == []
+    assert [c["op"] for c in guard.lock_churn] == ["os_open", "remove"]
+
+
 def test_library_index_churn_in_the_after_snapshot_is_not_CONTAMINATION(
         build_mod):
     """THE MEASURED DEFECT, replayed: the nidrepair 2026-08-07 frames each
@@ -2186,6 +2237,14 @@ def test_the_census_flag_is_in_the_tool_index():
 # DSF's absolute path, and those tests emit into ``tmp_path``, so every
 # run created a directory nothing would ever read again.  It never failed
 # anything: the corpus every lane mounts just grew.
+#
+# Closed structurally 2026-08-08 (suite-corpus-clean lane): both writable
+# cache roots are ENV-OVERRIDDEN to lane-local homes (so a module reload
+# recomputes the redirect instead of undoing it, and a SUBPROCESS's write
+# lands there too), the mod-cache root is a read-through symlink overlay
+# (warm reads, lane-local writes), every test runs inside a refusing
+# ``SharedRepoWriteGuard``, and the allowance register is EMPTY.  The twins
+# below are the known answers for each of those.
 
 def _conftest():
     sys.path.insert(0, str(Path(__file__).parent))
@@ -2204,6 +2263,106 @@ def test_the_dsf_dump_cache_is_not_the_shared_repo_during_tests(build_mod):
         f"junk directories there")
 
 
+def test_the_airport_mod_cache_root_honours_its_env_override(
+        tmp_path, monkeypatch):
+    """KNOWN-ANSWER TWIN for the accessor (spec §8.2 R-b), all four states.
+
+    The cwd-following arm is the load-bearing one:
+    ``dsf_reader.airport_mod_cache_dir``'s docstring marks it legacy
+    behaviour that must never be cached at import time, and an override
+    that froze it would move every pack sidecar of every build that
+    chdirs.
+    """
+    import O4_File_Names as FNAMES
+    monkeypatch.setattr(FNAMES, "_data_root_override", None)
+    monkeypatch.delenv("ORTHO4XP_DATA_ROOT", raising=False)
+
+    overlay = str(tmp_path / "overlay")
+    monkeypatch.setenv("O4_AIRPORT_MOD_CACHE_DIR", overlay)
+    assert FNAMES.airport_mod_cache_root() == overlay
+
+    monkeypatch.delenv("O4_AIRPORT_MOD_CACHE_DIR")
+    assert FNAMES.airport_mod_cache_root() == FNAMES.data_path(
+        "Airport_mod_cache")
+    monkeypatch.chdir(tmp_path)
+    assert FNAMES.airport_mod_cache_root() == str(
+        tmp_path / "Airport_mod_cache"), "resolved at CALL time, per cwd"
+
+    # An explicitly chosen data root is the more specific instruction:
+    # lifting one cache family out of it would split the root.
+    monkeypatch.setenv("O4_AIRPORT_MOD_CACHE_DIR", overlay)
+    monkeypatch.setenv("ORTHO4XP_DATA_ROOT", str(tmp_path / "chosen"))
+    assert FNAMES.airport_mod_cache_root() == str(
+        tmp_path / "chosen" / "Airport_mod_cache")
+
+
+def test_the_mod_cache_overlay_mirrors_dirs_and_symlinks_files(tmp_path):
+    """KNOWN-ANSWER TWIN for the overlay's pure core (spec §8.4).
+
+    Directories must be REAL (a symlinked directory would make every write
+    inside it follow into the shared corpus); files must be SYMLINKS (so
+    reads stay warm on the shared sidecars).  The last arm is the property
+    the whole scheme rests on: the sidecar writers ``os.replace`` a temp
+    file onto the name, which REPLACES the symlink instead of following
+    it, so the shared file is untouched.
+    """
+    conftest = _conftest()
+    source = tmp_path / "shared"
+    (source / "sub").mkdir(parents=True)
+    (source / "empty").mkdir()
+    (source / "top.cache").write_bytes(b"warm")
+    (source / "sub" / "inner.cache").write_bytes(b"deep")
+    overlay = tmp_path / "overlay"
+
+    made = conftest.mirror_tree_as_symlinks(str(source), str(overlay))
+    assert made == {"dirs": 2, "files": 2}
+    assert (overlay / "sub").is_dir() and not (overlay / "sub").is_symlink()
+    assert (overlay / "empty").is_dir()
+    assert (overlay / "top.cache").is_symlink()
+    assert (overlay / "sub" / "inner.cache").is_symlink()
+    assert (overlay / "top.cache").resolve() == (source / "top.cache")
+    assert (overlay / "sub" / "inner.cache").read_bytes() == b"deep"
+
+    rewritten = overlay / "fresh.tmp"
+    rewritten.write_bytes(b"rebuilt")
+    os.replace(str(rewritten), str(overlay / "top.cache"))
+    assert (overlay / "top.cache").read_bytes() == b"rebuilt"
+    assert not (overlay / "top.cache").is_symlink()
+    assert (source / "top.cache").read_bytes() == b"warm", (
+        "os.replace must swap the symlink, never write through it")
+
+    missing = conftest.mirror_tree_as_symlinks(
+        str(tmp_path / "absent"), str(tmp_path / "overlay2"))
+    assert missing == {"dirs": 0, "files": 0}
+    assert (tmp_path / "overlay2").is_dir(), (
+        "a corpus with no cache yet is a lawful state, not an error")
+
+
+def test_the_per_test_guard_and_the_mod_cache_overlay_are_LIVE(build_mod):
+    """THE ENFORCEMENT, asserted live inside a running test.
+
+    Same style as the dump-cache live assert above, and for the same
+    reason: a redirect or a guard that is installed only in the fixture's
+    own imagination is exactly what the session detector kept catching.
+    """
+    import builtins
+    import io
+    conftest = _conftest()
+    if conftest._per_test_guard_mode() != "refuse":     # pragma: no cover
+        pytest.skip("the permanent guard is off in this run "
+                    "(O4_SUITE_WRITE_AUDIT / O4_ALLOW_SHARED_REPO_WRITES)")
+    assert builtins.open is not io.open, (
+        "the per-test shared-repo write guard is not installed — every "
+        "test is free to write the corpus every lane mounts")
+    overlay = os.environ.get("O4_AIRPORT_MOD_CACHE_DIR")
+    assert overlay, "the mod-cache overlay sets the env var for the session"
+    resolved = Path(overlay).resolve()
+    repo = Path(build_mod.DATA_REPO).resolve()
+    assert repo not in resolved.parents and resolved != repo, (
+        f"the per-pack sidecar cache points into the shared data repo "
+        f"({resolved}) while tests run")
+
+
 def test_the_shared_repo_detector_flags_a_test_written_cache(build_mod):
     """KNOWN-ANSWER TWIN for the detector's pure half, on the real path
     the leak took."""
@@ -2215,29 +2374,43 @@ def test_the_shared_repo_detector_flags_a_test_written_cache(build_mod):
         "removed": [],
     }
     hits = conftest.unauthorised_shared_writes(changes, build_mod.scope_of)
-    assert hits == [("Default_DSF_cache/322b7f2a/+50+010.dsf.tmp.text",
-                     "dsf_cache")], (
-        "the DSF dump cache is the one the suite must never author; the "
-        "mod-cache and inset writes are the registered, explained "
-        "exceptions")
+    assert hits == [
+        ("Airport_mod_cache/somepack/o4_object_footprints.cache",
+         "airport_mod_cache"),
+        ("Default_DSF_cache/322b7f2a/+50+010.dsf.tmp.text", "dsf_cache"),
+        ("Elevation_data/N30E031.hgt", "dem"),
+    ], (
+        "ALL THREE are unauthorised now: the suite has no standing write "
+        "allowance, so a mod-cache sidecar and a cut inset are leaks in "
+        "exactly the way the DSF dump cache always was")
     assert conftest.unauthorised_shared_writes(
         {"added": [], "modified": [], "removed": []},
         build_mod.scope_of) == []
 
 
-def test_every_suite_warm_scope_is_a_real_scope_with_a_reason(build_mod):
-    """An allowance that names no real scope allows nothing (and hides
-    what it meant to allow); one without a reason is a shrug."""
+def test_the_suite_has_no_standing_write_allowance(build_mod):
+    """THE REGISTER IS EMPTY, and that is the assertion.
+
+    It used to carry ``airport_mod_cache`` and ``dem`` with reasons, and
+    the reasons were true — the writes were derived-cache warming, not
+    corpus edits.  What they cost anyway, measured 2026-08-08: a guarded
+    HECA harness build refused mid-suite with an SPJC cache path in its
+    blocked list, 646 s wasted, because "the suite may warm it" and "no
+    other lane is measuring right now" are different claims and only the
+    first was written down.  An allowance is now a defect by construction:
+    every scope is unauthorised, and the redirects make the two former
+    entries unreachable rather than permitted.
+    """
     conftest = _conftest()
-    scopes = {s for s, _p, _w in build_mod.REFRESH_SCOPES}
-    for scope, why in conftest._SUITE_MAY_WARM.items():
-        assert scope in scopes, (
-            f"{scope!r} is not a harness refresh scope — the detector "
-            f"would never see a path classified as it")
-        assert len(why.split()) >= 6, f"{scope!r} allowance has no reason"
-    assert "dsf_cache" not in conftest._SUITE_MAY_WARM, (
-        "the DSFTool dump cache is the measured leak; allowing it would "
-        "re-open exactly the hole this section closes")
+    assert conftest._SUITE_MAY_WARM == {}, (
+        "the suite writes NOTHING into the shared corpus; a new entry here "
+        "re-opens the concurrency trap this lane closed")
+    for scope, _prefix, _why in build_mod.REFRESH_SCOPES:
+        assert scope not in conftest._SUITE_MAY_WARM
+    conftest_src = (Path(__file__).parent / "conftest.py").read_text()
+    assert "646 s" in conftest_src, (
+        "the register records WHY it emptied — a bare empty dict invites "
+        "the next lane to refill it")
 
 
 def test_the_detector_uses_the_harness_snapshot_not_a_copy():
@@ -2246,8 +2419,11 @@ def test_the_detector_uses_the_harness_snapshot_not_a_copy():
         "snapshot_diff" in conftest_src and "scope_of" in conftest_src, (
         "the detector must use the harness's own snapshot and scope "
         "register — a private copy is the census-wrapper defect")
-    assert "os.walk" not in conftest_src, (
-        "conftest walks the shared repo itself — that is the private copy")
+    mirror_src = inspect.getsource(_conftest().mirror_tree_as_symlinks)
+    assert conftest_src.count("os.walk") == mirror_src.count("os.walk") == 1, (
+        "conftest's ONLY tree walk is the mod-cache overlay's mirror, "
+        "which walks the CACHE to symlink it; a second walk is conftest "
+        "snapshotting the shared repo itself — the census-wrapper defect")
     assert "e9daef5" in conftest_src, "the failure must cite its ruling"
 
 

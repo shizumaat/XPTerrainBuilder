@@ -46,6 +46,31 @@ def test_reloading_the_module_does_not_re_point_the_dsf_dump_cache():
     assert "XPTerrainBuilderData" not in FNAMES.Default_dsf_cache_dir
 
 
+def test_the_dsf_dump_cache_redirect_survives_a_reload_with_NO_reapply():
+    """KNOWN-ANSWER TWIN for the env redirect (suite-corpus-clean §8.2
+    R-a), and the interventional proof for the whole clobber class.
+
+    The reapply mechanism above is a BELT: it only works for a reloader
+    that remembers to call it, which is why a DSFTool subprocess writing
+    through a reloaded module's path still minted
+    ``Default_DSF_cache/2e32f218/`` in the shared corpus.  ``O4_DSF_CACHE_DIR``
+    is read inside ``_apply_data_root()``, which every recompute path runs,
+    so the redirect survives the reload BY CONSTRUCTION — this test
+    reloads and asserts WITHOUT reapplying, which is the whole difference.
+    """
+    import conftest
+    lane = conftest._LANE_DSF_CACHE_DIR
+    if lane is None:                                    # pragma: no cover
+        pytest.skip("the session redirect is not installed in this run")
+    assert os.environ.get("O4_DSF_CACHE_DIR") == lane, (
+        "the session fixture must set the env var, not only the global")
+    importlib.reload(FNAMES)                # NO reapply_… call afterwards
+    assert FNAMES.Default_dsf_cache_dir == lane
+    assert "XPTerrainBuilderData" not in FNAMES.Default_dsf_cache_dir
+    # The autouse fixture reloads + reapplies after this test, so the
+    # module state this touched is restored for the next one either way.
+
+
 def test_source_run_uses_checkout_directory():
     assert FNAMES.current_data_root() == os.path.abspath(".")
     assert FNAMES.Tile_dir == os.path.join(os.path.abspath("."), "Tiles")

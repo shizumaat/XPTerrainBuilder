@@ -110,6 +110,37 @@ def airport_index_cache():
     return data_path(".airport_index.tsv")
 
 
+def airport_mod_cache_root():
+    """Root of the Ortho4XP-only per-pack sidecar caches
+    (``Airport_mod_cache/<pack folder name>/``, user ruling 2026-07-15).
+
+    ``O4_AIRPORT_MOD_CACHE_DIR`` overrides it, for the same reason
+    ``O4_DSF_CACHE_DIR`` overrides the DSFTool dump cache below: these are
+    fingerprint-keyed DERIVED caches, so a tree whose cache keys drift
+    from what the shared corpus is warm for REWRITES them — the class that
+    refused a HECA harness build mid-suite on 2026-08-08 (owner ruling
+    e9daef5: the shared data repo is not a test scratch dir).
+
+    It overrides only the IMPLICIT root — the case it exists for, where
+    ``data_path`` follows the current working directory into a lane's
+    mount of the shared repo.  An explicitly chosen data root
+    (``set_data_root``, ``ORTHO4XP_DATA_ROOT``) is the more specific
+    instruction about where ALL writable data lives, and lifting one
+    family out of it would split the root, which is the two-corpora defect
+    in miniature.  Nothing is at risk in the trade: a caller that names a
+    root has already said where its caches go.
+
+    Resolved AT CALL TIME, never cached at import: with no override, a
+    source checkout's ``data_path`` follows the current working directory,
+    which is load-bearing legacy behaviour (see
+    ``auto_patch.dsf_reader.airport_mod_cache_dir``)."""
+    override = os.environ.get("O4_AIRPORT_MOD_CACHE_DIR")
+    if override and _data_root_override is None and not os.environ.get(
+            "ORTHO4XP_DATA_ROOT"):
+        return override
+    return data_path("Airport_mod_cache")
+
+
 # Read-only, shipped with the app.
 Provider_dir = resource_path("Providers")
 Extent_dir = resource_path("Extents")
@@ -132,7 +163,8 @@ Tmp_dir = ""
 Overlay_dir = ""
 # DSFTool text dumps of default Global Scenery DSFs (used by the
 # default-landclass texture modes).  Writable cache — lives under the data
-# root so we never write into the X-Plane install or a scenery pack.
+# root so we never write into the X-Plane install or a scenery pack, and
+# under O4_DSF_CACHE_DIR when one is set (see _apply_data_root).
 Default_dsf_cache_dir = ""
 
 
@@ -151,7 +183,15 @@ def _apply_data_root():
     Tile_dir = data_path("Tiles")
     Tmp_dir = data_path("tmp")
     Overlay_dir = data_path("yOrtho4XP_Overlays")
-    Default_dsf_cache_dir = data_path("Default_DSF_cache")
+    # ``O4_DSF_CACHE_DIR`` wins here rather than at the assignment sites:
+    # EVERY recompute path (module reload, set_data_root) flows through
+    # this function, so a redirect set in the environment survives them by
+    # construction.  A session fixture that only assigns the global cannot
+    # — a reload silently re-pointed the dump cache at the shared data
+    # repo, which is how the suite kept authoring junk directories in
+    # everyone's corpus (cycle-8 chore; owner ruling e9daef5).
+    Default_dsf_cache_dir = (os.environ.get("O4_DSF_CACHE_DIR")
+                             or data_path("Default_DSF_cache"))
 
 
 _apply_data_root()

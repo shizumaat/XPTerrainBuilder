@@ -276,9 +276,9 @@ def _library_index_sidecar(
     except OSError:
         return None, None
 
-    # ``data_path`` follows the current working directory in a source
+    # The cache root follows the current working directory in a source
     # checkout — resolve it at call time, never at import time.
-    cache_directory = _FNAMES.data_path("Airport_mod_cache")
+    cache_directory = _FNAMES.airport_mod_cache_root()
     root_key = hashlib.sha1(root_abs.encode()).hexdigest()[:16]
     return (
         os.path.join(cache_directory,

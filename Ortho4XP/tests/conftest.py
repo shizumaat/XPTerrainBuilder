@@ -25,6 +25,7 @@ collect zero items.  This is intentional: the project should not
 ship a hidden hard-coded list of canonical airports — every run
 must be explicit about what it tests against.
 """
+import json
 import os
 import sys
 from typing import List, Optional
@@ -291,12 +292,22 @@ def _discover_airports_in_tile(lat: int, lon: int) -> List[str]:
 #      and scope register (one implementation — the harness already answers
 #      "which artifact class is this path" for builds).
 
+#: The harness module, loaded AT MOST ONCE per worker process.  The audit
+#: fixture below is per-TEST, and re-``exec_module``-ing a 1,800-line module
+#: five thousand times would make the instrument the dominant cost of the
+#: run it is supposed to observe.
+_HARNESS_BUILD_MOD = None
+
+
 def _harness_build_module():
     """``tools/harness/build_airport.py``, loaded by path.
 
     The harness owns the shared-repo snapshot, the scope register and the
     scope→description text.  A second copy here is the census-wrapper
     defect in a different costume."""
+    global _HARNESS_BUILD_MOD
+    if _HARNESS_BUILD_MOD is not None:
+        return _HARNESS_BUILD_MOD
     import importlib.util
     path = os.path.normpath(os.path.join(
         _HERE, "..", "tools", "harness", "build_airport.py"))
@@ -304,6 +315,7 @@ def _harness_build_module():
         "conftest_harness_build_airport", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
+    _HARNESS_BUILD_MOD = mod
     return mod
 
 
@@ -450,6 +462,105 @@ def _the_shared_data_repo_survives_the_suite():
                 print("\n[conftest] " + message)
             else:
                 pytest.fail(message, pytrace=False)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE PER-TEST WRITE AUDIT (suite-corpus-clean spec, phase A)
+# ══════════════════════════════════════════════════════════════════════
+# The detector above is per-SESSION: it says the suite wrote, never WHICH
+# test wrote.  Under ``-n auto`` every worker sees every worker's writes,
+# so attribution costs a ``-n0`` re-run of a suspect module — which is why
+# ``_SUITE_MAY_WARM`` still carries two whole scopes as standing
+# allowances.  This instrument enumerates the offenders per NODEID, using
+# the harness's own :class:`SharedRepoWriteGuard` in RECORD-ONLY mode: it
+# observes and lets the write proceed, because a blocking guard would
+# change test outcomes and enumerate the offenders of a different suite.
+#
+# It is off unless ``O4_SUITE_WRITE_AUDIT=1``.  Output goes to
+# ``${O4_SUITE_WRITE_AUDIT_OUT}.${PYTEST_XDIST_WORKER-master}`` — one file
+# per worker, so concurrent appends never interleave a line.
+
+def shared_repo_write_audit_rows(nodeid: str, guard) -> list:
+    """The pure half of the audit: one row per write ``guard`` observed.
+
+    Split out from the fixture for the same reason
+    :func:`unauthorised_shared_writes` was — an instrument without a
+    known-answer twin is not an instrument (RULINGS 2026-08-06); the twin
+    is ``tests/test_harness.py`` §8.  ``kind`` separates a real
+    unauthorised-class write from the two ruled churn classes the guard
+    lets through (``.lock`` coordination state, the derived library-index
+    sidecar), which are not corpus mutations and must not be counted as
+    offenders.
+    """
+    rows = []
+    for kind, entries in (("blocked", getattr(guard, "blocked", ())),
+                          ("lock_churn", getattr(guard, "lock_churn", ())),
+                          ("lib_index_churn",
+                           getattr(guard, "library_index_churn", ()))):
+        for entry in entries or ():
+            row = {"nodeid": nodeid, "kind": kind,
+                   "path": entry.get("path"), "scope": entry.get("scope")}
+            if "via" in entry:
+                row["via"] = entry["via"]
+            if "op" in entry:
+                row["op"] = entry["op"]
+            rows.append(row)
+    return rows
+
+
+def _suite_write_audit_out() -> str:
+    """This worker's audit file.  ``master`` when xdist is not in play."""
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "master")
+    return f"{os.environ['O4_SUITE_WRITE_AUDIT_OUT']}.{worker}"
+
+
+def pytest_configure(config):
+    """Refuse the audit arm at SESSION START if it has nowhere to write.
+
+    Discovering the missing path at the first offending test would throw
+    away everything measured before it — and under xdist, on a worker
+    whose error is easy to miss."""
+    if os.environ.get("O4_SUITE_WRITE_AUDIT", "0") != "1":
+        return
+    out = os.environ.get("O4_SUITE_WRITE_AUDIT_OUT", "").strip()
+    if not out or not os.path.isabs(out):
+        raise pytest.UsageError(
+            "O4_SUITE_WRITE_AUDIT=1 needs O4_SUITE_WRITE_AUDIT_OUT set to "
+            f"an ABSOLUTE path for the per-test JSONL rows (got {out!r}); "
+            "each worker appends to <path>.<worker>.")
+
+
+@pytest.fixture(autouse=True)
+def _shared_repo_write_audit(request):
+    """Record every shared-repo write THIS test makes (audit arm only)."""
+    if os.environ.get("O4_SUITE_WRITE_AUDIT", "0") != "1":
+        yield
+        return
+    try:
+        harness = _harness_build_module()
+    except Exception as exc:                            # pragma: no cover
+        print(f"[conftest] write audit unavailable: {exc!r}")
+        yield
+        return
+    repo = harness.DATA_REPO
+    if not os.path.isdir(repo):
+        yield
+        return
+    # ``root`` is the ENGINE dir: its mounted data-dir symlinks are half
+    # the guard's prefix set (a lane writes ``OSM_data/...`` relative,
+    # through a symlink, never mentioning the repo path at all).
+    guard = harness.SharedRepoWriteGuard(
+        set(), root=os.path.dirname(_HERE), repo=repo, record_only=True)
+    with guard:
+        yield
+    rows = shared_repo_write_audit_rows(request.node.nodeid, guard)
+    if not rows:
+        return
+    out = _suite_write_audit_out()
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    with open(out, "a", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, sort_keys=True) + "\n")
 
 
 @pytest.hookimpl(tryfirst=True)

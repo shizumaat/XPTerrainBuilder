@@ -866,16 +866,26 @@ class SharedRepoWriteGuard:
     coordination state, and the library-index sidecar
     (:data:`LIB_INDEX_ARTIFACT_RE`), which is derived cache determined by
     the X-Plane install.  Neither is corpus data.  Reads are never touched.
+
+    RECORD-ONLY (``record_only=True``): the predicate, the allowances and
+    the recording are unchanged, but a refusal RETURNS instead of raising,
+    so the intercepted call proceeds.  It exists for the suite write AUDIT
+    (``tests/conftest.py::_shared_repo_write_audit``), which has to observe
+    the suite's TRUE behaviour — a blocking guard would change test
+    outcomes and enumerate the offenders of a different suite.
     """
 
     #: ``os.open`` flags that mean "this call can modify the file".
     _WRITE_FLAGS = (os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT
                     | os.O_TRUNC)
 
-    def __init__(self, requested, root, repo=None, enabled: bool = True):
+    def __init__(self, requested, root, repo=None, enabled: bool = True,
+                 record_only: bool = False):
         self.requested = set(requested or ())
         self.repo = Path(repo or DATA_REPO)
         self.enabled = bool(enabled)
+        #: Observe instead of prevent — see the class docstring.
+        self.record_only = bool(record_only)
         self.blocked: list = []
         #: Every lock-file operation the allowance let through, recorded so
         #: "the repo was untouched apart from the ruled lock churn" is a
@@ -946,6 +956,8 @@ class SharedRepoWriteGuard:
 
     def _refuse(self, rel, scope, how):
         self.blocked.append({"path": rel, "scope": scope, "via": how})
+        if self.record_only:
+            return                             # observe, let the call run
         raise SharedRepoWriteBlocked(
             f"BLOCKED: this build tried to {how} '{rel}' in the SHARED data "
             f"repo ({self.repo}), which no --refresh-data scope authorises.\n"

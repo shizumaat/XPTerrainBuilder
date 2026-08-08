@@ -1486,6 +1486,33 @@ def test_the_write_guard_ALLOWS_an_authorised_scope(build_mod, tmp_path):
     assert target.read_text() == "explicitly authorised"
 
 
+def test_the_write_guard_RECORD_ONLY_records_AND_lets_the_write_through(
+        build_mod, tmp_path):
+    """RECORD-ONLY, on the same path the preventer refuses above.
+
+    The suite write audit (``tests/conftest.py::_shared_repo_write_audit``)
+    has to enumerate what the suite writes TODAY: a guard that blocked
+    would change test outcomes and enumerate the offenders of a different
+    suite.  So the entry lands in ``blocked`` exactly as in refuse mode —
+    same path, same scope, same ``via`` — and the call proceeds.
+    """
+    repo = tmp_path / "repo"
+    (repo / "OSM_data" / "_airport_road_feed").mkdir(parents=True)
+    lane = tmp_path / "lane"
+    lane.mkdir()
+    target = repo / "OSM_data" / "_airport_road_feed" / "CYXY_road_feed.cache"
+    guard = build_mod.SharedRepoWriteGuard(set(), lane, repo=repo,
+                                           record_only=True)
+    with guard:                                   # no exception escapes
+        open(target, "w").write("observed, not prevented")
+    assert target.read_text() == "observed, not prevented", (
+        "record-only must let the intercepted call PROCEED")
+    assert guard.blocked == [{
+        "path": "OSM_data/_airport_road_feed/CYXY_road_feed.cache",
+        "scope": "osm_roadfeed",
+        "via": "open for writing"}]
+
+
 def test_the_write_guard_allows_noop_ensure_dir_but_blocks_creation(
         build_mod, tmp_path):
     """``makedirs(existing, exist_ok=True)`` mutates nothing — the engine
@@ -2222,6 +2249,38 @@ def test_the_detector_uses_the_harness_snapshot_not_a_copy():
     assert "os.walk" not in conftest_src, (
         "conftest walks the shared repo itself — that is the private copy")
     assert "e9daef5" in conftest_src, "the failure must cite its ruling"
+
+
+def test_the_write_audit_rows_are_one_row_per_observed_write():
+    """KNOWN-ANSWER TWIN for the per-test audit's pure core.
+
+    The audit answers what the session detector cannot — WHICH test wrote
+    — so its row builder gets the same treatment as the detector's own
+    pure half: a guard carrying one blocked entry and one lock-churn entry
+    yields exactly two rows, each keeping its ``kind``.  Collapsing the
+    two kinds would report the ruled ``.lock`` churn as an offender and
+    send a redirect round after coordination state.
+    """
+    conftest = _conftest()
+    guard = types.SimpleNamespace(
+        blocked=[{"path": "Airport_mod_cache/pack/o4_object_x.cache",
+                  "scope": "airport_mod_cache",
+                  "via": "open for writing"}],
+        lock_churn=[{"path": LOCK_REL, "op": "os_open"}],
+        library_index_churn=[])
+    rows = conftest.shared_repo_write_audit_rows(
+        "tests/test_x.py::test_y", guard)
+    assert len(rows) == 2
+    assert [r["kind"] for r in rows] == ["blocked", "lock_churn"]
+    assert {r["nodeid"] for r in rows} == {"tests/test_x.py::test_y"}
+    assert rows[0]["path"] == "Airport_mod_cache/pack/o4_object_x.cache"
+    assert rows[0]["scope"] == "airport_mod_cache"
+    assert rows[0]["via"] == "open for writing"
+    assert (rows[1]["path"], rows[1]["op"]) == (LOCK_REL, "os_open")
+    assert conftest.shared_repo_write_audit_rows(
+        "tests/test_x.py::test_y",
+        types.SimpleNamespace(blocked=[], lock_churn=[],
+                              library_index_churn=[])) == []
 
 
 class TestEmittedOnDem:

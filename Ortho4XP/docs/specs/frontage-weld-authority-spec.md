@@ -7,6 +7,21 @@ ruling "Apron welds to building frontage; the seat IS the weld"
 buildings there is no chord to price; the detached remainder belongs
 to the relief/feather round, not here.
 
+## Authority direction (owner-prompted clarification, 2026-08-08)
+
+The reach/band ruleset (frontage chords, size-dependent feasibility,
+band constraints in the solve) is NOT retired — it is how the solve
+knows what it must deliver at every frontage. What retires is the
+seat-ASSERTION step only. The direction is one-way: band constrains
+the solve → the solve produces the surface → the WELD reads the seat
+off it. Every building reads its seat from the solved surface it
+fronts (apron face when fronting; the solved service-network
+frontage value when detached). A band-computed value disagreeing
+with the welded surface is a band-computation defect, never a claim
+on the building. For fronting buildings the frontage strip is apron
+at the APRON cap (size-dependent chord caps superseded there;
+detached pads keep their class caps).
+
 ## The design (small by construction)
 
 1. **Fronting buildings**: where a building fronts an apron (the

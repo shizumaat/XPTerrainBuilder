@@ -24,10 +24,12 @@ What this pins, criterion by criterion (spec acceptance 5):
   * THE GAP BLOCKER — an in-enclave shape does not veto the ruled
     ring+spine treatment, and the SAME geometry with nothing published
     still does (the A/B that shows the law is doing the work);
-  * THE BAND CONSUMER — enclave-facing stations stand down in the
-    emitter's march AND in the validator's mirror, while frontage facing
-    open terrain is untouched; and the keep-out is POCKET-scoped, so an
-    airfield infield keeps its graded strips.
+  * THE BAND CONSUMER — the keep-out acts on band and wall GEOMETRY,
+    clipped at the region boundary (SCOPING v2): the station march is
+    provably untouched by it, a straddling run keeps its outside extent,
+    the validator's mirror suppresses the flags the clip earns, and the
+    keep-out is POCKET-scoped so an airfield infield keeps its graded
+    strips.
 """
 from __future__ import annotations
 
@@ -374,9 +376,9 @@ def test_the_construct_pass_mirrors_the_emitter():
 # 5. The adjacent-ground band consumer
 # ═════════════════════════════════════════════════════════════════════
 
-def _march(layout, shape, enclave_prep):
+def _march(layout, shape):
     """The emitter's shared station march for one frame bar (the
-    pocket-collar unit fixture's harness, verbatim except the zone)."""
+    pocket-collar unit fixture's harness, verbatim)."""
     from auto_patch.config import (CLEARANCE_MAX_REACH_M,
                                    CLEARANCE_STATION_STEP_M,
                                    taxiway_strip_graded_half_width_for_letter)
@@ -400,7 +402,7 @@ def _march(layout, shape, enclave_prep):
         coords, bool(shape.polygon.exterior.is_ccw),
         list(shape.node_altitudes), None, width, reach, 1.0,
         floor_depth, ceil_off, CLEARANCE_STATION_STEP_M, prep_static,
-        set(), _dem_at, enclave_zone_prep=enclave_prep)
+        set(), _dem_at)
 
 
 def _hole_facing_refs(stations, st_alts):
@@ -418,34 +420,140 @@ def _open_terrain_refs(stations, st_alts):
                if a is not None and abs(sy) < 1e-6)
 
 
-def test_the_band_march_stands_down_inside_an_enclave():
+def test_the_march_ignores_the_keepout_entirely():
+    """SCOPING v2: the keep-out is a statement about GROUND, so it takes
+    no part in the STATION march — the station sequence is identical
+    whether or not a pocket region is published.
+
+    This is the retirement of the v1 stand-down pinned as a fact rather
+    than as a comment.  A station anchors a row that marches ``reach``
+    metres outward, so dropping it deletes band over ground the keep-out
+    does not own: at HECA 11,274 stood-down stations removed 150,438 m²
+    of Annex 14 §3.4.11-13 graded strip from WIDE regions the keep-out
+    provably does not contain, against 10,840 m² inside its own pocket
+    territory."""
     layout = _frame()
+    control = _frame()
     EN.publish_airside_enclaves(layout)
-    zone = AG._enclave_zone_prep(layout)         # the consumer's wrapper
-    assert zone is not None
-    south = layout.shapes[0]
+    assert EN.enclave_band_keepout_union(layout) is not None
 
-    _f0, _c0, st0, alts0, _o0 = _march(layout, south, None)
-    _f1, _c1, st1, alts1, _o1 = _march(layout, south, zone)
+    _f0, _c0, st0, alts0, _o0 = _march(control, control.shapes[0])
+    _f1, _c1, st1, alts1, _o1 = _march(layout, layout.shapes[0])
 
-    assert _hole_facing_refs(st0, alts0) > 0
-    assert _hole_facing_refs(st1, alts1) == 0
-    # Only the enclave frontage stood down.
+    assert st0 == st1
+    assert alts0 == alts1
+    assert _hole_facing_refs(st1, alts1) > 0
     assert _open_terrain_refs(st1, alts1) == _open_terrain_refs(st0, alts0)
+    # And the march signature no longer even accepts a zone.
+    import inspect
+    assert "enclave_zone_prep" not in inspect.signature(
+        AG._derive_shape_stations_and_bands).parameters
 
 
-def test_the_stand_down_is_counted_as_its_own_apparatus_row():
-    layout = _frame()
-    EN.publish_airside_enclaves(layout)
-    zone = AG._enclave_zone_prep(layout)
+def test_the_keepout_clips_a_wall_run_at_the_region_boundary():
+    """THE v2 mechanism, known-answer: a wall run STRADDLING a pocket
+    region loses exactly the part inside it and keeps the rest.
+
+    The wall face is 1 m deep at the shoulder (y in [3, 4] for an edge on
+    the x-axis), so a keep-out spanning x in [40, 100] must take 60 m² of
+    a 100 m run and leave 40 m² standing.  The v1 station stand-down
+    could not express this answer at all: it dropped stations, so the
+    straddling run was all-or-nothing."""
+    from auto_patch.config import (APRON_EDGE_WALL_MIN_DROP_M,
+                                   APRON_SHOULDER_WIDTH_M,
+                                   CLEARANCE_STATION_STEP_M)
+    from auto_patch.grade_law import adjacent_ground_envelope
+    from auto_patch.layout import ROLE_RETAINING_WALL
+
+    step = CLEARANCE_STATION_STEP_M
+
+    def ceil_off(d):
+        return adjacent_ground_envelope("apron", None, None, d)[1]
+
+    n = int(100.0 // step) + 1
+    stations = [(k * step, 0.0) for k in range(n)]
+    alts = [EDGE_ALT] * n
+    outs = [(0.0, 1.0)] * n
+    shoulder = EDGE_ALT + ceil_off(APRON_SHOULDER_WIDTH_M)
+
+    def deep_dem(_x, _y):
+        return shoulder - (APRON_EDGE_WALL_MIN_DROP_M + 4.0)
+
+    keepout = Polygon([(40.0, 2.0), (100.0, 2.0),
+                       (100.0, 6.0), (40.0, 6.0)])
+
+    control = _FakeLayout([])
+    n0, _u0 = AG._emit_apron_walls(
+        control, stations, alts, outs, ceil_off, step,
+        deep_dem, None, None)
+    area0 = sum(s.polygon.area for s in control.shapes
+                if s.role == ROLE_RETAINING_WALL)
+    assert n0 >= 1 and abs(area0 - 100.0) < 1.0, area0
+
     AG._reset_apparatus_hits()
-    _march(layout, layout.shapes[0], zone)
-    assert AG._APPARATUS_HITS["enclave_zone_excluded_stations"] > 0
+    sink = [0.0]
+    clipped = _FakeLayout([])
+    n1, _u1 = AG._emit_apron_walls(
+        clipped, stations, alts, outs, ceil_off, step,
+        deep_dem, None, None, enclave_keepout=keepout,
+        enclave_area_taken=sink)
+    walls = [s for s in clipped.shapes if s.role == ROLE_RETAINING_WALL]
+    area1 = sum(s.polygon.area for s in walls)
+    assert n1 >= 1, "the run outside the region must still stand"
+    assert abs(area1 - 40.0) < 1.0, area1
+    # Nothing survives INSIDE the region.
+    assert all(s.polygon.intersection(keepout).area < 1e-6 for s in walls)
+    # …and the ledger reports the area it took, in the same frame.
+    assert abs(sink[0] - 60.0) < 1.0, sink
+    assert AG._APPARATUS_HITS["enclave_zone_clipped_walls"] >= 1
 
 
-def test_the_validator_mirror_skips_the_same_stations():
-    """MIRROR 8: the reader must not flag ground the emitter lawfully
-    never banded, or every enclave becomes a should_fill finding."""
+def test_the_keepout_is_inert_on_a_wall_run_outside_it():
+    """The other half: a run with no geometry in any pocket region is
+    untouched, and the ledger stays at zero — the law removes ground it
+    owns and nothing else."""
+    from auto_patch.config import (APRON_EDGE_WALL_MIN_DROP_M,
+                                   APRON_SHOULDER_WIDTH_M,
+                                   CLEARANCE_STATION_STEP_M)
+    from auto_patch.grade_law import adjacent_ground_envelope
+    from auto_patch.layout import ROLE_RETAINING_WALL
+
+    step = CLEARANCE_STATION_STEP_M
+
+    def ceil_off(d):
+        return adjacent_ground_envelope("apron", None, None, d)[1]
+
+    n = int(100.0 // step) + 1
+    stations = [(k * step, 0.0) for k in range(n)]
+    alts = [EDGE_ALT] * n
+    outs = [(0.0, 1.0)] * n
+    shoulder = EDGE_ALT + ceil_off(APRON_SHOULDER_WIDTH_M)
+
+    def deep_dem(_x, _y):
+        return shoulder - (APRON_EDGE_WALL_MIN_DROP_M + 4.0)
+
+    far = Polygon([(40.0, 500.0), (100.0, 500.0),
+                   (100.0, 520.0), (40.0, 520.0)])
+    AG._reset_apparatus_hits()
+    sink = [0.0]
+    layout = _FakeLayout([])
+    AG._emit_apron_walls(layout, stations, alts, outs, ceil_off, step,
+                         deep_dem, None, None, enclave_keepout=far,
+                         enclave_area_taken=sink)
+    area = sum(s.polygon.area for s in layout.shapes
+               if s.role == ROLE_RETAINING_WALL)
+    assert abs(area - 100.0) < 1.0, area
+    assert sink[0] == 0.0
+    assert AG._APPARATUS_HITS["enclave_zone_clipped_walls"] == 0
+
+
+def test_the_validator_mirror_skips_the_clipped_stations():
+    """MIRROR 8: the reader must not flag ground the emitter's clip
+    lawfully removed, or every enclave becomes a should_fill finding.
+
+    The asymmetry is deliberate (SCOPING v2): the EMITTER applies the
+    keep-out to geometry, the READER to stations — a reader can only
+    suppress a flag, never delete a surface."""
     layout = _frame()
     EN.publish_airside_enclaves(layout)
     zone = VF._airside_enclave_zone_prep(layout)
@@ -493,7 +601,7 @@ def test_an_infield_sized_region_is_published_but_not_band_territory():
     assert records[0].short_side_m > GAP_FILL_MAX_WIDTH_M
     assert EN.point_in_enclave(layout, 30.0 + wide / 2, 30.0 + wide / 2)
     assert EN.enclave_band_keepout_union(layout) is None
-    assert AG._enclave_zone_prep(layout) is None
+    assert AG._enclave_zone_union(layout) is None
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -578,27 +686,37 @@ def test_a_building_subdividing_the_infield_keeps_its_band():
     assert regions[0].short_side_m > GAP_FILL_MAX_WIDTH_M
     assert not EN._is_pocket(regions[0])
 
-    # Therefore: no keep-out, and the band march is untouched.
+    # Therefore: no keep-out at all, and nothing to clip.
     assert EN.enclave_band_keepout_union(layout) is None
-    assert AG._enclave_zone_prep(layout) is None
+    assert AG._enclave_zone_union(layout) is None
     south = layout.shapes[0]
-    _f, _c, st, alts, _o = _march(layout, south, None)
-    kept = _infield_facing_refs(st, alts)
-    assert kept > 0
+    _f, _c, st, alts, _o = _march(layout, south)
+    assert _infield_facing_refs(st, alts) > 0
 
-    # The counterfactual, measured rather than asserted: scoping by the
-    # classifier's set (what Phase 1 shipped) takes that frontage away.
-    phase1 = prep(unary_union([e.polygon for e in enclaves
-                               if EN._is_pocket(e)]))
-    _f1, _c1, st1, alts1, _o1 = _march(layout, south, phase1)
-    assert _infield_facing_refs(st1, alts1) == 0
+    # The counterfactual, measured rather than asserted: had the keep-out
+    # been scoped by the classifier's set (what Phase 1 shipped), the
+    # infield frontage's own band ground would have been inside it.
+    phase1 = unary_union([e.polygon for e in enclaves if EN._is_pocket(e)])
+    x0, y0, x1, _y1 = INFIELD
+    band_ground = Polygon([(x0 + 10.0, y0), (x1 - 10.0, y0),
+                           (x1 - 10.0, y0 + 20.0), (x0 + 10.0, y0 + 20.0)])
+    assert band_ground.difference(phase1).area < 1.0
+    # …and under the ratified scoping there is no keep-out to clip it
+    # with, so the whole of it survives.
+    assert EN.enclave_band_keepout_union(layout) is None
 
 
-def test_a_faced_pocket_still_loses_its_band():
+def test_a_faced_pocket_loses_the_band_geometry_inside_it():
     """The other half of the ruling: where the ruled treatment DOES own
-    the ground — the gap law emits a ring + spine face over it — the
-    band and its retaining wall stay out.  Same fixture, same law, the
-    opposite answer, and the discriminator is the gap law's width."""
+    the ground — the gap law emits a ring + spine face over it — no band
+    and no retaining wall may occupy that ground.  Same fixture, same
+    law, the opposite answer, and the discriminator is the gap law's
+    width.
+
+    Stated on the GEOMETRY, which is where the law now acts: the
+    keep-out covers the hole exactly, so a band piece over the hole is
+    clipped to nothing while the same shape's open-terrain frontage —
+    band ground on the far side of the same bar — is untouched."""
     layout = _frame([_sliver()])
     EN.publish_airside_enclaves(layout)
     regions = EN.gap_law_regions(layout)
@@ -608,18 +726,23 @@ def test_a_faced_pocket_still_loses_its_band():
     assert GF.emit_gap_fill_spines(layout, None, 0, 0) >= 1
     assert _gap_faces(layout)
 
-    # So the band stands down over exactly that ground.  The control
-    # arm marches a layout the face has NOT been emitted into: once the
-    # gap face exists it covers the hole itself, and a covered outward
-    # probe would answer for the wrong reason.
-    zone = AG._enclave_zone_prep(layout)
-    assert zone is not None
-    control = _frame([_sliver()])
-    _f0, _c0, st0, alts0, _o0 = _march(control, control.shapes[0], None)
-    _f1, _c1, st1, alts1, _o1 = _march(layout, layout.shapes[0], zone)
-    assert _hole_facing_refs(st0, alts0) > 0
-    assert _hole_facing_refs(st1, alts1) == 0
-    assert _open_terrain_refs(st1, alts1) == _open_terrain_refs(st0, alts0)
+    keepout = EN.enclave_band_keepout_union(layout)
+    assert keepout is not None
+    x0, y0, x1, y1 = HOLE
+    # A band slab on the hole-facing frontage of the south bar.
+    inside = Polygon([(x0 + 5.0, y0), (x1 - 5.0, y0),
+                      (x1 - 5.0, y0 + 20.0), (x0 + 5.0, y0 + 20.0)])
+    # The same shape's OPEN-TERRAIN frontage, south of the bar.
+    outside = Polygon([(x0 + 5.0, -20.0), (x1 - 5.0, -20.0),
+                       (x1 - 5.0, 0.0), (x0 + 5.0, 0.0)])
+    assert inside.difference(keepout).area < 1.0
+    assert outside.difference(keepout).area == pytest.approx(outside.area)
+    # A slab STRADDLING the hole's north rim keeps its outside half —
+    # the row-spanning case the v1 station stand-down could not express.
+    straddle = Polygon([(x0 + 5.0, y1 - 20.0), (x1 - 5.0, y1 - 20.0),
+                        (x1 - 5.0, y1 + 20.0), (x0 + 5.0, y1 + 20.0)])
+    kept = straddle.difference(keepout)
+    assert kept.area == pytest.approx(0.5 * straddle.area, rel=0.02)
 
 
 def test_a_sub_gap_area_pocket_is_still_band_keepout():

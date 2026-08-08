@@ -518,13 +518,25 @@ def enclave_band_keepout_union(layout):
     """The BAND KEEP-OUT zone — the POCKET-width regions of the GAP
     LAW's own union, or ``None`` (spec §4, ratified scoping).
 
-    THE consumer entry point for ``adjacent_ground``, in the shape of the
-    crossing-influence and collared-pocket zones it already consumes: a
-    hard keep-out the station march tests each seed and outward probe
-    against.  An enclave interior is airside-interior by law, so the
-    band/wall consumer never runs there — a retaining wall inside an
-    enclave is a defect regardless of which mechanism minted it (owner
-    2026-08-07).
+    THE consumer entry point for ``adjacent_ground``.  An enclave
+    interior is airside-interior by law, so no band and no retaining
+    face may OCCUPY it — a retaining wall inside an enclave is a defect
+    regardless of which mechanism minted it (owner 2026-08-07).
+
+    A KEEP-OUT OVER GROUND, and consumed as one (SCOPING v2, spec
+    revision 2026-08-08).  The emitter differences this union out of the
+    band rings and the wall faces, which clips them AT THE REGION
+    BOUNDARY: a row spanning pocket→WIDE keeps its WIDE extent by
+    construction, and the area this law can remove is bounded above by
+    the union's own area — arithmetically, not by argument.  The first
+    implementation instead handed the prepared form to the station march
+    as a per-seed predicate, and a station is not ground: it anchors a
+    row marching ``reach`` metres outward, so 11,274 stood-down stations
+    at HECA removed 150,438 m² of Annex 14 §3.4.11-13 graded strip from
+    WIDE regions this union does not contain, against 10,840 m² inside
+    it, and adjudicated airside rose in both constant-DEM worlds.  The
+    prepared form survives for the VALIDATOR only, where a station
+    predicate suppresses a flag and can delete nothing.
 
     SCOPE, and the whole of it: the regions of ``gap_law_regions`` that
     are POCKET-width (``_is_pocket``) — i.e. exactly the ground the
@@ -540,13 +552,18 @@ def enclave_band_keepout_union(layout):
         return None if union.is_empty else union
     regions = gap_law_regions(layout)
     records = [e for e in regions if _is_pocket(e)]
+    wide = [e for e in regions if not _is_pocket(e)]
     UI.vprint(1,
         f"  [enclave] band keep-out: {len(records)} of {len(regions)} "
         f"gap-law region(s) are pocket-width "
         f"(<= {GAP_FILL_MAX_WIDTH_M:.0f} m), "
         f"{sum(e.area_m2 for e in records):.0f} m2 of "
-        f"{sum(e.area_m2 for e in regions):.0f} m2 "
-        f"[frame=pavement-only union].")
+        f"{sum(e.area_m2 for e in regions):.0f} m2; "
+        f"{len(wide)} WIDE region(s), "
+        f"{sum(e.area_m2 for e in wide):.0f} m2, are NOT keep-out "
+        f"(widest short side "
+        f"{max((e.short_side_m or 0.0) for e in wide) if wide else 0.0:.0f}"
+        f" m) [frame=pavement-only union, settled].")
     union = None
     if records:
         try:
@@ -566,8 +583,15 @@ def enclave_band_keepout_union(layout):
 
 
 def enclave_band_keepout_prepared(layout):
-    """Prepared-geometry form of the band keep-out for the march's
-    per-station containment test, or ``None``."""
+    """Prepared-geometry form of the band keep-out for a per-station
+    containment test, or ``None``.
+
+    ONE CALLER BY DESIGN: ``verification._airside_enclave_zone_prep``
+    (MIRROR 8).  A station predicate is the right shape for a READER —
+    it suppresses a coverage flag over ground the emitter's clip took —
+    and the wrong one for an EMITTER, which would delete the whole row
+    the station anchors (SCOPING v2; the measurement is in
+    ``enclave_band_keepout_union``)."""
     prepared = getattr(layout, _KEEPOUT_PREP_ATTRIBUTE, None)
     if prepared is not None:
         return prepared

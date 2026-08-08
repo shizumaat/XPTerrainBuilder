@@ -1849,11 +1849,24 @@ def _emit_open_corridor(layout, airside, face_poly, ring, alts,
 
 
 def _emit_open_frontage(layout, airside, comps, union, registry,
-                        chain_keys, other_polys, parents, step) -> int:
+                        chain_keys, other_polys, parents, step,
+                        hard_polys=None) -> int:
     """Detect + grade every OPEN corridor between facing pavement chains
     (behind ``O4_OPEN_FRONTAGE_SPINE``, checked by the caller).  Every
     candidate region is logged with an emit / skip reason — no silent
-    skips.  Returns the corridor-face count."""
+    skips.  Returns the corridor-face count.
+
+    ``hard_polys`` (ENCLAVE LAW, spec §3; SCOPING v2 item 2): the
+    blocker subset an enclave interior may NOT exempt, exactly as the
+    enclosed-gap loop uses it.  THE SECOND VETO CALL SITE — the
+    corridor-blocker loop below is the other place a foreign shape
+    vetoes the ruled treatment, and the exemption did not reach it: a
+    corridor lying inside a published enclave is airside-interior ground
+    under the same owner ruling that governs the holes, so the shapes it
+    CONTAINS (the ones G-ENCLAVE re-verdicts) are not foreign owners of
+    it.  ``None``: the full ``other_polys`` set blocks, as before —
+    byte-identical, which is also this whole path's state under its own
+    default-OFF gate."""
     # Enclosed gaps (interior rings) are owned by the enclosed-gap path;
     # every foreign shape (groundside / service / retaining wall / building)
     # carries a standoff (the groundside 1 m no-weld ruling).  Both are
@@ -1941,18 +1954,40 @@ def _emit_open_frontage(layout, airside, comps, union, registry,
             continue
         # A foreign shape inside (groundside / service / retaining wall)
         # means the corridor-band / daylight law owns it — skip.
+        #
+        # ENCLAVE INTERIOR (spec §3): a corridor that IS enclave ground
+        # takes the ruled treatment, and the shapes inside it are
+        # re-verdicted airside-interior by G-ENCLAVE rather than being
+        # foreign owners of it — so only the blockers the law cannot
+        # exempt (``_enclave_exempt``: the enclave's own surround
+        # material and the runway-end regime) still veto.  Same
+        # ``enclave_covering`` predicate and same ``hard_polys`` set as
+        # the enclosed-gap loop; nothing new is computed here.
+        _covering = (enclave_covering(layout, corr)
+                     if hard_polys is not None else None)
+        _corr_blockers = (hard_polys if _covering is not None
+                          else other_polys)
         overlapped = False
-        for _oid, op in other_polys:
+        _cb = None
+        for _oid, op in _corr_blockers:
             try:
-                if corr.intersection(op).area > 1.0:
+                _ov = corr.intersection(op).area
+                if _ov > 1.0:
                     overlapped = True
+                    _cb = (_oid, _ov)
                     break
             except _GEOM_EXC:
                 continue
         if overlapped:
+            _bs = (next((s for s in layout.shapes if id(s) == _cb[0]), None)
+                   if _cb is not None else None)
             UI.vprint(1, f"  [open-frontage] skipped corridor (foreign "
                          f"shape inside) area={corr.area:.0f} m2 "
-                         f"centroid=({_c.x:.0f},{_c.y:.0f})")
+                         f"centroid=({_c.x:.0f},{_c.y:.0f}) "
+                         f"blocker={getattr(_bs, 'role', '?')}/"
+                         f"{getattr(_bs, 'ref', '') or ''} "
+                         f"enclave="
+                         f"{'covered' if _covering is not None else 'none'}")
             continue
         # Parents (building pads / runway-end skirts) inside → reuse the
         # enclosed-gap parent machinery (residual faces + annular spine).
@@ -2621,22 +2656,54 @@ def emit_gap_fill_spines(layout, dem, tile_lat, tile_lon,
             # crossing means a tunnel/bridge, which is the owner's escape
             # clause, so such a region is not an enclave in the first
             # place.
+            _covering = enclave_covering(layout, gap_poly)
             blockers = (hard_polys + zone_polys
-                        if enclave_covering(layout, gap_poly) is not None
+                        if _covering is not None
                         else other_polys + zone_polys)
             overlapped = False
+            _blocker = None
             for _oid, op in blockers:
                 try:
-                    if gap_poly.intersection(op).area > 1.0:
+                    _ov = gap_poly.intersection(op).area
+                    if _ov > 1.0:
                         overlapped = True
+                        _blocker = (_oid, op, _ov)
                         break
                 except _GEOM_EXC:
                     continue
             if overlapped:
                 _c = gap_poly.centroid
+                # NAME THE BLOCKER (instrument truth, owner 2026-08-06):
+                # the bare "foreign shape inside" line said a gap was
+                # vetoed but never by WHAT, so an arm that lifts some
+                # vetoes and not others cannot be attributed from its own
+                # log — SPJC's 213,743 m² pocket carried the identical
+                # line in both arms of the v1 verification and cost a
+                # round to chase.  The report says which shape, how much
+                # of the gap it covers, and whether the enclave law
+                # reached the gap at all (``enclave=`` covered / none:
+                # ``enclave_covering`` needs half the gap inside ONE
+                # published enclave, so a region the surround union
+                # subdivides reads ``none`` and keeps the FULL blocker
+                # set).  Numbers and frame only — the verdict is the
+                # law's.
+                _bs = None
+                if _blocker is not None:
+                    _bs = next((s for s in layout.shapes
+                                if id(s) == _blocker[0]), None)
+                _who = (f"{getattr(_bs, 'role', '?')}/"
+                        f"{getattr(_bs, 'ref', '') or ''} "
+                        f"overlap={_blocker[2]:.0f} m2"
+                        if _bs is not None else
+                        (f"crossing_zone overlap={_blocker[2]:.0f} m2"
+                         if _blocker is not None else "?"))
                 UI.vprint(1, f"  [gap-fill] skipped gap (foreign shape "
                              f"inside) area={gap_poly.area:.0f} m2 "
-                             f"centroid=({_c.x:.0f},{_c.y:.0f})")
+                             f"centroid=({_c.x:.0f},{_c.y:.0f}) "
+                             f"blocker={_who} "
+                             f"enclave={'covered' if _covering is not None else 'none'} "
+                             f"blocker_set="
+                             f"{'hard' if _covering is not None else 'all'}")
                 continue
             superseded = []
             for s in legacy_strips:
@@ -2705,7 +2772,8 @@ def emit_gap_fill_spines(layout, dem, tile_lat, tile_lon,
                                if g.geom_type == "Polygon"])
             emitted += _emit_open_frontage(
                 layout, airside, _of_comps, _of_union, registry,
-                chain_keys, other_polys, parents, step)
+                chain_keys, other_polys, parents, step,
+                hard_polys=hard_polys)
     # Stage B2 movement report: solved-vs-analytic spine value deltas
     # accumulated per emitted gap (gate-ON only — the store is empty or
     # absent gate-OFF).

@@ -5429,12 +5429,34 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 # where a cross-section is priced — the owner's rider
                 # ("adequate nodes on spines and at curves"), not the
                 # generic stationing T8 retires.
+                # ⚠ THE STATION-DENSIFIED HALF IS DEFAULT-OFF — IT BROKE
+                # HECA (battery round, measured).  With it on, HECA
+                # refuses at ``assert_no_final_band_inversion``: 1,655 of
+                # 10,220 band-covered nodes inverted, from THREE
+                # contradictory anchor pairs — e.g. anchors 7907
+                # (110.130 m) vs 5044 (60.730 m), a 49.400 m value spread
+                # over a 47.723 m route budget, shortfall 1.677 m at
+                # 1,298 nodes.  MECHANISM (attribution, per the
+                # feasibility-is-guaranteed ruling — a law defect to
+                # attribute, never a region to quarantine): a foot welded
+                # on BOTH sides of a corridor adds a CROSS edge, which
+                # shortens graph routes and therefore SHRINKS the route
+                # budget between two far-apart hard anchors — the pair
+                # was feasible only because the old route was longer.
+                # The cross-section the transverse law prices and the
+                # route metric the reach band prices are the same graph,
+                # and this round did not get to reconcile them.  Gate
+                # ``O4_FABRIC_RESTAT_STATION_STEP=1`` re-arms it.
                 from .config import SPINE_STEP_M as _RESTAT_STEP_M
+                _restat_step = (
+                    _RESTAT_STEP_M
+                    if os.environ.get("O4_FABRIC_RESTAT_STATION_STEP",
+                                      "0") == "1" else None)
                 _n_restat = 0
                 if os.environ.get("O4_LATERAL_SPINE_NODES", "1") == "1":
                     from .lateral_spine_nodes import insert_lateral_spine_nodes
                     _n_restat += insert_lateral_spine_nodes(
-                        layout, icao, station_step_m=_RESTAT_STEP_M) or 0
+                        layout, icao, station_step_m=_restat_step) or 0
                 if os.environ.get("O4_DENSIFY_JUNCTION_EDGES", "1") == "1":
                     from .lateral_spine_nodes import densify_junction_edges
                     _n_restat += densify_junction_edges(layout, icao) or 0

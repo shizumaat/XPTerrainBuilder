@@ -7,6 +7,29 @@ round (retrospective structure #2). The walls-to-carves, feather,
 frontage-weld-authority, and mouth-fed-banding rulings all fold into
 this model.
 
+
+> **PHASE A OUTCOME (2026-08-08, lane/fabricA 89e0207 — STOP on both
+> pre-registered conditions; committed in-lane, not merged).**
+> EMISSION HALF VALIDATED: −49% nodes on the target apron, faster
+> build, mesh CLEAN (no new sliver/needle class), gate byte-inert
+> everywhere else; "adequate" MEASURED (curves at the emit
+> decimator's own XY_TOL 0.02 m; spine density = the existing 12 m
+> station passes — removing spine stations mints transverse rows
+> because cross-section law prices facing station PAIRS: the CYXY
+> attempt-1 lesson, 31→262→106). Wall-foot class killed outright
+> (worst grade 30.84%→3.63%); CYXY hillside seats EXACT
+> (|seat−weld| → 0.0000 m). DISTRIBUTION HALF FALSIFIED AS BUILT:
+> −10447 shed only 0.58 m (spread 13.92→13.34 m, 1.063% vs the 1.0%
+> cap); the neighbour network net-absorbed nothing; fronting class
+> 1,373→1,289 vs required ~0; airside +104 (second STOP). RECONCILED
+> WITH THE LADDER: capacity EXISTS (fp#8: pure law satisfiable) —
+> the production solve cannot REACH it because something PINS the
+> apron's ends. The redesign question is not emission density; it is
+> WHAT PINS -10447's TWO ENDS — which is retrospective structure #3
+> (feature-weld hardening: hard set 1,120→9,527 between projections)
+> arriving on schedule. Pin attribution dispatched; Phase B specs
+> after it. The sparse emission gate is KEPT for Phase B as-is.**
+
 ## The owner's design, verbatim thought experiments (canonical)
 
 1. "Take two squares… place them 50m apart at 100m flat elevation.

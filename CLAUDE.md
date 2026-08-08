@@ -122,6 +122,14 @@ is what that costs.
 
 ### Traps still on you
 
+- Guarded harness builds and UNGUARDED pytest suites cannot share the
+  corpus concurrently: a suite rewriting Airport_mod_cache flags (or
+  refuses) every concurrent guarded build with cross-attributed
+  writes (measured 2026-08-08: an SPJC cache path refused a HECA
+  build, 646 s wasted). Run full suites through the ledger AND never
+  alongside guarded builds; a refused build with foreign-airport
+  paths in the blocked list is this, not contamination.
+
 - Single-run wall times swing ±25%: never A/B one run per side (use the
   build-time checker's `--runs N`), and never let a timing run through the
   ledger (`build_airport.py --no-ledger`).

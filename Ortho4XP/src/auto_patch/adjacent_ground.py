@@ -5630,10 +5630,18 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
             return None
 
     in_scope = _RUNWAY_ROLES + _TAXIWAY_ROLES + _APRON_ROLES
+    # THE FABRIC MODEL (owner RULINGS 2026-08-08), gate O4_FABRIC_SPARSE,
+    # default OFF: "Unregulated ground: NOTHING — the drape is the
+    # feather."  Inside a declared Phase-A cluster no band, wall or
+    # feather is constructed; the reg set (runway strips, RESA/OFZ,
+    # drainage) is outside every cluster and is untouched.  Inert when
+    # the gate is off.
+    from .fabric_sparse import is_sparse as _fabric_sparse
     scoped = [s for s in layout.shapes
               if s.role in in_scope and s.polygon is not None
               and not s.polygon.is_empty
-              and s.polygon.geom_type == "Polygon"]
+              and s.polygon.geom_type == "Polygon"
+              and not _fabric_sparse(s)]
     if not scoped:
         layout.adjacent_ground_presolve = []
         return 0
@@ -6198,10 +6206,14 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
             return None
 
     in_scope = _RUNWAY_ROLES + _TAXIWAY_ROLES + _APRON_ROLES
+    # THE FABRIC MODEL — see the identical scoping in
+    # ``construct_adjacent_ground_presolve``.  Inert when the gate is off.
+    from .fabric_sparse import is_sparse as _fabric_sparse
     scoped = [s for s in layout.shapes
               if s.role in in_scope and s.polygon is not None
               and not s.polygon.is_empty
-              and s.polygon.geom_type == "Polygon"]
+              and s.polygon.geom_type == "Polygon"
+              and not _fabric_sparse(s)]
     if not scoped:
         return 0
 

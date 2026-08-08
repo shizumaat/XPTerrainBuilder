@@ -135,3 +135,78 @@ def test_band_index_is_half_open_upward():
     assert MRT.band_index(0.1, edges) == 1      # the edge belongs UP
     assert MRT.band_index(4.269, edges) == 3
     assert MRT.band_index(1e6, edges) == 3
+
+
+# ── --aspect: the LONG-TRIANGLE class an area band cannot see ───────────
+# Added 2026-08-08 (fabricA, THE FABRIC MODEL Phase A): the acceptance is
+# "no new long-triangle artifact class", and a needle and an equilateral
+# of the same area sit in the SAME area band — so the bands alone cannot
+# answer it.  Ratio = longest edge / (2 x inradius); 1.0 = equilateral.
+
+def _needle_at(lat, lon, long_m, short_m):
+    """A right triangle with legs ``long_m`` x ``short_m`` — same AREA as
+    an equilateral of side sqrt(2*long*short/sqrt(3)), different SHAPE."""
+    return [(lon, lat),
+            (lon + long_m / M_LON, lat),
+            (lon, lat + short_m / M_LAT)]
+
+
+def test_aspect_is_one_for_equilateral_and_large_for_a_needle(tmp_path):
+    lat, lon = 0.5 * (LAT0 + LAT1), 0.5 * (LON0 + LON1)
+    side = 10.0
+    equi = [(lon, lat),
+            (lon + side / M_LON, lat),
+            (lon + 0.5 * side / M_LON, lat + (side * 3 ** 0.5 / 2) / M_LAT)]
+    p = tmp_path / "e.mesh"
+    _write_mesh(p, [equi])
+    out = tmp_path / "e.json"
+    MRT.main(["--mesh", str(p), "--bbox", f"{LAT0},{LAT1},{LON0},{LON1}",
+              "--aspect", "--json", str(out)])
+    d = json.loads(out.read_text())
+    assert d["aspect_in_bbox"]["n"] == 1
+    assert d["aspect_in_bbox"]["max"] == pytest.approx(1.0, rel=2e-3)
+
+    p2 = tmp_path / "n.mesh"
+    _write_mesh(p2, [_needle_at(lat, lon, 40.0, 0.5)])
+    out2 = tmp_path / "n.json"
+    MRT.main(["--mesh", str(p2), "--bbox", f"{LAT0},{LAT1},{LON0},{LON1}",
+              "--aspect", "--json", str(out2)])
+    d2 = json.loads(out2.read_text())
+    # 40 x 0.5 right triangle: longest edge 40.003, area 10, s = 40.2515
+    # -> 40.003 * 40.2515 / (2*sqrt(3) * 10) ~= 46.48
+    assert d2["aspect_in_bbox"]["max"] == pytest.approx(46.48, rel=0.02)
+
+
+def test_aspect_separates_shape_from_size(tmp_path):
+    """THE POINT: two triangles of the SAME area land in one area band and
+    in very different aspect classes."""
+    lat, lon = 0.5 * (LAT0 + LAT1), 0.5 * (LON0 + LON1)
+    fat = _needle_at(lat, lon, 4.0, 5.0)        # area 10 m^2
+    thin = _needle_at(lat, lon, 40.0, 0.5)      # area 10 m^2
+    p = tmp_path / "b.mesh"
+    _write_mesh(p, [fat, thin])
+    out = tmp_path / "b.json"
+    MRT.main(["--mesh", str(p), "--bbox", f"{LAT0},{LAT1},{LON0},{LON1}",
+              "--area-bands", "1", "--aspect", "--aspect-flag", "20",
+              "--json", str(out)])
+    d = json.loads(out.read_text())
+    assert d["area_bands_in_bbox"] == [0, 2]          # one band, both
+    assert d["aspect_in_bbox"]["needles"] == 1        # only the needle
+    assert d["aspect_flag"] == 20.0
+
+
+def test_aspect_counts_only_in_bbox_and_is_absent_unasked(tmp_path):
+    inside = (0.5 * (LAT0 + LAT1), 0.5 * (LON0 + LON1))
+    outside = (LAT1 + 0.01, LON1 + 0.01)
+    p = tmp_path / "c.mesh"
+    _write_mesh(p, [_needle_at(*inside, 40.0, 0.5),
+                    _needle_at(*outside, 40.0, 0.5)])
+    out = tmp_path / "c.json"
+    MRT.main(["--mesh", str(p), "--bbox", f"{LAT0},{LAT1},{LON0},{LON1}",
+              "--aspect", "--json", str(out)])
+    d = json.loads(out.read_text())
+    assert d["aspect_in_bbox"]["n"] == 1
+    out2 = tmp_path / "d.json"
+    MRT.main(["--mesh", str(p), "--bbox", f"{LAT0},{LAT1},{LON0},{LON1}",
+              "--json", str(out2)])
+    assert "aspect_in_bbox" not in json.loads(out2.read_text())

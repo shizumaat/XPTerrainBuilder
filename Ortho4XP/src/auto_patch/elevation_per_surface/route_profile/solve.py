@@ -6289,6 +6289,26 @@ def final_grade_projection(layout, icao: str = "", dem=None,
 
     hard = {i for i in range(n) if base_hard[i]}
     hard |= {i for i in runway_idx if i < n}
+    # ── W3 · THE SEEDER RECORD (flag ``O4_FABRIC_W3_FGP_HARD_CAT``,
+    # default ON; fabric-phase-b-spec.md W3) ──────────────────────────
+    # "9,838 unattributed hard nodes is itself a defect."  This pass
+    # hardened between 842 and 9,838 nodes with NO class map AT ALL (pin
+    # attribution, lane pinattr 5f4924c) — the channel one node space
+    # after the one the cycle-7.5 sweep named — so nothing downstream
+    # could say WHY a node was immovable, and ~93 % of them turned out to
+    # be welded to a graded strip.  Each site below now records its own
+    # membership; :func:`classify_projection_hard` turns the sites into
+    # ``{node: class}`` after the last one, and the residue class is
+    # NAMED and asserted empty rather than folded into a neighbour.
+    #
+    # PURE INSTRUMENT: nothing here is read back by the projection, so
+    # the emitted surface is identical with the flag either way.  What
+    # the flag buys is bisectability of the COST, not of the geometry.
+    from auto_patch.fabric_flags import on as _w3_on
+    _w3_cat_on = _w3_on("O4_FABRIC_W3_FGP_HARD_CAT")
+    _w3_seed = set(hard) if _w3_cat_on else None
+    _w3_strip_freeze: set = set()
+    _w3_weld: dict = {}
     # ── REQUIREMENT 2 (IDEMPOTENCE) IS **NOT ENFORCED HERE** — STOPPED
     # ON MEASUREMENT, cycle-4 ingestion round, attempt cap reached ─────
     # The spec's structural answer is to JOIN ``_untouched_hold`` to this
@@ -6368,6 +6388,8 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                 _fi = b2i.get(_fk) if _fk is not None else None
                 if _fi is not None and _fi < n and _fi not in _pav_idx:
                     hard.add(_fi)
+                    if _w3_cat_on:
+                        _w3_strip_freeze.add(_fi)
         if _late_projection_run:
             # RUNWAY-BOUNDARY freeze (late run only): a vertex lying ON
             # a runway boundary EDGE INTERIOR (a junction/crossing weld
@@ -6439,11 +6461,23 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # edges).  Freezing preserves nothing there — leave the pavement node
     # FREE so the projection solves it lawfully.  A feature vertex whose
     # altitude cannot be derived keeps the conservative hardening.
+    # ── W3 · THE SCOPE RE-DERIVES FROM SURVIVING GEOMETRY ONLY ────────
+    # This map is rebuilt from ``layout.shapes`` AS THEY ARE NOW, on
+    # every call — there is no cached feature population and no set
+    # carried from the mid-pipeline pass.  That is what makes the
+    # convergence thesis mechanical rather than hopeful: retire a family
+    # of feature shapes in W2 and the welds that hardened against it
+    # simply are not here to find.  ``feat_role_by_key`` records WHICH
+    # family, so the census below can say so instead of implying it.
     feat_alt_by_key: dict = {}
+    feat_role_by_key: dict = {}
+    _w3_feat_shapes: dict = {}
     for s in layout.shapes:
         if (s.role in PAVEMENT_ROLES or s.polygon is None
                 or s.polygon.is_empty):
             continue
+        if _w3_cat_on:
+            _w3_feat_shapes[s.role] = _w3_feat_shapes.get(s.role, 0) + 1
         try:
             ring = list(s.polygon.exterior.coords)
             per_vertex = None
@@ -6460,8 +6494,10 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                     continue          # an unverifiable weld stays hard
                 if value is None:
                     feat_alt_by_key[key] = None
+                    feat_role_by_key[key] = s.role
                 elif key not in feat_alt_by_key:
                     feat_alt_by_key[key] = value
+                    feat_role_by_key[key] = s.role
         except Exception:
             continue
     _WELD_AGREE_TOL_M = 0.05
@@ -6479,8 +6515,8 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                              []).append((_kx, _ky, _v))
     if feat_alt_by_key:
         for i, (x, y) in enumerate(nodes):
-            feature_value = feat_alt_by_key.get((round(x, 3), round(y, 3)),
-                                                "absent")
+            _wkey = (round(x, 3), round(y, 3))
+            feature_value = feat_alt_by_key.get(_wkey, "absent")
             if feature_value == "absent":
                 _cx = int(x // _WELD_KEY_TOL_M)
                 _cy = int(y // _WELD_KEY_TOL_M)
@@ -6492,10 +6528,11 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                             _fd = ((x - _fx) ** 2 + (y - _fy) ** 2) ** 0.5
                             if _fd <= _WELD_KEY_TOL_M and (
                                     _best is None or _fd < _best[0]):
-                                _best = (_fd, _fv)
+                                _best = (_fd, _fv, (_fx, _fy))
                 if _best is None:
                     continue
                 feature_value = _best[1]
+                _wkey = _best[2]
             # crown transform: elev is in z′ space here — lift the
             # feature's z value by the node's crown drop before comparing.
             if (feature_value is None
@@ -6503,6 +6540,14 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                     <= _WELD_AGREE_TOL_M):
                 hard.add(i)
                 terrain_hard.add(i)
+                if _w3_cat_on:
+                    # W3 — THE CHANNEL, NAMED.  The seeder record is the
+                    # FEATURE FAMILY this node welded to, because that is
+                    # the lever: the pin attribution measured graded_strip
+                    # at 93/96/90/89 % of the late freeze (HECA/SPJC/HEAZ/
+                    # CYXY), and a class map that said only "feature weld"
+                    # could not have shown it.
+                    _w3_weld[i] = feat_role_by_key.get(_wkey) or "unknown"
             else:
                 # TORN WELD: the feature holds a different value than
                 # the pavement at the same coordinate — the emit
@@ -6809,6 +6854,62 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                   f"resolved into this pass and held hard "
                   f"({len(_string_pin_hold & pad_nodes)} of them are pad "
                   f"ring vertices)")
+
+    # ── W3 · THE SEEDER RECORD, ASSEMBLED (flag
+    # ``O4_FABRIC_W3_FGP_HARD_CAT``) ──────────────────────────────────
+    # Built HERE, at ``_stage("hard")`` — the LAST line that can add to
+    # the set (the pad-group removal, the torn-datum-pin release and
+    # the string-pin hold have all run).  A record assembled one site
+    # earlier would describe what a mid-pass snapshot proposed, not what
+    # actually froze.  Published on the layout so the census, a replay
+    # and the verification round read the SAME map the pass applied —
+    # the cycle-7.5 lesson, which is why the rule lives in a module-level
+    # function with its own twins rather than inline here.
+    #
+    # BOTH PASSES ARE KEPT.  This function runs twice (mid-pipeline and
+    # late), and the whole finding is the DIFFERENCE between them —
+    # "hard 842 (mid) -> 9,838 (late), +9,004 new" — so the per-pass
+    # censuses accumulate in a list while ``_fgp_hard_cat`` holds the
+    # LAST one, which is the map the emitted surface was frozen under.
+    if _w3_cat_on:
+        _w3_cat = classify_projection_hard(
+            hard,
+            seed_hard=_w3_seed or set(),
+            runway_nodes={i for i in runway_idx if i < n},
+            strip_freeze=_w3_strip_freeze,
+            runway_boundary=_rwy_boundary_frozen,
+            runway_anchor={i for i in G.runway_anchor if i < n},
+            seam_pins=_tile_seam_idx,
+            string_pins=_string_pin_hold,
+            feature_weld=_w3_weld)
+        _w3_census: dict = {}
+        for _c in _w3_cat.values():
+            _w3_census[_c] = _w3_census.get(_c, 0) + 1
+        _w3_unclaimed = _w3_census.get(PROJECTION_HARD_UNCLAIMED, 0)
+        layout._fgp_hard_cat = _w3_cat
+        layout._fgp_hard_census = {
+            "hard": len(hard),
+            "classes": dict(_w3_census),
+            "unattributed": _w3_unclaimed,
+            "feature_shapes_by_role": dict(_w3_feat_shapes),
+            "late_projection_run": bool(_late_projection_run),
+        }
+        _w3_passes = getattr(layout, "_fgp_hard_census_passes", None)
+        if _w3_passes is None:
+            _w3_passes = []
+            layout._fgp_hard_census_passes = _w3_passes
+        _w3_passes.append(dict(layout._fgp_hard_census))
+        try:
+            import O4_UI_Utils as _UI_hc
+            _UI_hc.vprint(1,
+                          f"  [final-projection-hardcat] {icao}: "
+                          f"{len(hard)} hard node(s), "
+                          f"{_w3_unclaimed} unattributed; classes "
+                          + " ".join(f"{_k}={_v}" for _k, _v
+                                     in sorted(_w3_census.items())))
+        except Exception:                                  # pragma: no cover
+            pass
+
     _stage("hard")
     # BROKEN-NODE EDGE COUPLING (config.SVC_SPINE_EDGE_COUPLE, round-6 site-4):
     # this pass hardens the road's DEM-following adjacent-ground welds into a
@@ -7677,6 +7778,69 @@ def classify_hard_anchors(n, base_hard, flexed_idx, seam_pins,
             out[i] = "rwy_profile"
         else:
             out[i] = "base_hard:unattributed"
+    return out
+
+
+#: The residue class of :func:`classify_projection_hard`.  It exists to
+#: be COUNTED, and W3's whole point is that the count is zero: a node
+#: this pass freezes with no site claiming it is the defect the record
+#: was built to abolish, not a label to live with.
+PROJECTION_HARD_UNCLAIMED = "fgp:unattributed"
+
+
+def classify_projection_hard(hard, *, seed_hard, runway_nodes, strip_freeze,
+                             runway_boundary, runway_anchor, seam_pins,
+                             feature_weld, string_pins=()):
+    """THE late-projection hard-anchor classifier — ``{node: class}`` for
+    EVERY node ``final_grade_projection`` freezes, named by the site that
+    actually froze it.
+
+    W3 of ``docs/specs/fabric-phase-b-spec.md``.  Before this, that pass
+    built no class map at all: its hard set went 842 -> 9,838 between the
+    two final projections and every one of those nodes was unattributed
+    BY CONSTRUCTION (pin attribution, lane ``pinattr`` 5f4924c).  That is
+    what made the freeze impossible to reason about — the population that
+    turned out to be ~93 % welded to a graded strip looked, from the
+    code, like one anonymous set.
+
+    THE SAME DISCIPLINE AS :func:`classify_hard_anchors`, deliberately:
+    the rule lives HERE, at module level, so the twins drive the rule the
+    pass applies instead of re-implementing it (the cycle-7.5 instrument
+    sweep's lesson — a locally re-transcribed precedence is a twin a
+    change cannot fail).  Precedence is MOST-SPECIFIC FIRST, and a node
+    no site claims is named :data:`PROJECTION_HARD_UNCLAIMED` rather than
+    folded into a neighbouring class.
+
+    THE FEATURE WELD carries its FAMILY (``weld:graded_strip``,
+    ``weld:boundary``, …), not a bare ``feature_weld``.  The family IS
+    the lever the convergence thesis pulls: retire the geometry in W2 and
+    the class empties, which a single blanket label could never show.
+
+    ``feature_weld`` maps node -> the role of the feature shape whose
+    ring vertex it welded to; every other argument is a set of node
+    indices.  Counts only, no verdict: whether ``fgp:unattributed`` being
+    non-zero is a STOP is the caller's judgement, not this function's.
+    """
+    out: dict = {}
+    for i in sorted(hard):
+        if i in runway_nodes:
+            out[i] = "rwy_profile"
+        elif i in runway_boundary:
+            out[i] = "rwy_boundary"
+        elif i in runway_anchor:
+            out[i] = "rwy_join"
+        elif i in strip_freeze:
+            out[i] = "emitted_band_freeze"
+        elif i in seam_pins:
+            out[i] = "seam_pin"
+        elif i in feature_weld:
+            out[i] = f"weld:{feature_weld[i]}"
+        elif i in seed_hard:
+            out[i] = "seed:base_hard"
+        elif i in string_pins:
+            out[i] = "string_pin"
+        else:
+            out[i] = PROJECTION_HARD_UNCLAIMED
     return out
 
 

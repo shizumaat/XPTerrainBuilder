@@ -85,6 +85,34 @@ specimen enclave is bare ground outside the shape universe entirely.
 6. Promote the dossier's `void_census.py` into tools/ with an INDEX
    entry + twin (second use is the promotion signal).
 
+> **VERIFICATION VERDICT (2026-08-07 late, lane b8d95cc — STOP; the
+> ratified pavement-only scoping is FALSIFIED IN-BUILD).** Works:
+> merge-in of the trunk clean (718 tests green); walls inside pocket
+> enclaves die correctly on the post-re-bake corpus (the one in-void
+> adjacent_ground_wall gone; out-of-enclave walls untouched); SPJC's
+> two small vetoes lift. FAILS: (1) the keep-out bounds the ZONE but
+> stands down STATIONS, and a station inside a pocket removes band
+> ROWS that reach into the WIDE infield — WIDE-region band 150,438 m²
+> → 0 (the Phase-2 "restore" prediction came from an offline reader
+> and is falsified); (2) consequent adjudicated AIRSIDE-NEGATIVE
+> movement (+57 real / +136 −500, within_shape::apron dominated) —
+> forbidden; (3) SPJC's 213,743 m² pocket is STILL vetoed —
+> `_enclave_exempt` does not reach that blocker call site. SPECIMEN
+> MOOT: the owner's re-bake PAVED the specimen void (41,854 m² apron
+> both arms); on the pre-re-bake arms the fix demonstrably worked.
+> wall_foot_ll rider population EMPTY on this corpus.
+>
+> **SCOPING v2 (Fable, this revision — the design delta):** the
+> keep-out operates on BAND GEOMETRY, not station anchors: a band
+> row/segment is stood down only where its OWN geometry lies inside a
+> pocket region, CLIPPED at the region boundary (a row spanning
+> pocket→WIDE survives in its WIDE extent). Cover the second veto
+> call site with the same `_enclave_exempt`. Acceptance v2:
+> WIDE-region band area == control (±1%); adjudicated airside Δ ≤ 0
+> both worlds; in-pocket walls stay dead; out-of-enclave geometry
+> byte-comparable; SPJC's big pocket faced or its veto attributed at
+> the call site. Budget 3–4 builds, cap 5.
+
 ## Sequencing
 
 AFTER lane/nidrepair merges — shared blast radius in

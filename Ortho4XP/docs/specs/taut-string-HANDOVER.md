@@ -37,6 +37,21 @@ tree's 4 unmounted data dirs now symlink the shared repo; write
 guard gained the no-op ensure-dir allowance (twin in
 test_harness.py).**
 
+**ENCLAVE VERIFY STOP → SCOPING v2 (08-07 ~23:30; lane b8d95cc,
+merge-in d33398e clean, 718 green, 6/6 builds none refused): the
+ratified scoping FALSIFIED IN-BUILD — zone bounded but STATIONS
+stood down, killing band ROWS into the WIDE infield (150,438 m² → 0;
+the Phase-2 restore prediction was an offline-reader artifact) ⇒
+adjudicated airside-negative both worlds (+57/+136, forbidden).
+Works: in-pocket walls dead on the new corpus, out-of-enclave
+untouched, SPJC small vetoes lift; big pocket STILL vetoed (second
+call site). SPECIMEN MOOT: the owner's OBJ8 re-bake PAVED the void
+(41,854 m² apron both arms) — the owner-reported wall is gone from
+the current corpus regardless; on pre-re-bake arms the fix worked.
+wall_foot_ll rider population EMPTY post-corpus/post-matfloor. v2
+dispatched (band-GEOMETRY clipping at region boundaries; second
+veto site covered; airside Δ ≤ 0 acceptance).**
+
 **ENCLAVE CONTINUATION: SCOPING LANDED, VERIFY CORPUS-BLOCKED
 (08-07 ~22:00; lane/enclave 2c32bdc): the ratified pavement-only
 keep-out reads gap_fill's OWN detection (cannot disagree with the

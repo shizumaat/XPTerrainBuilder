@@ -130,6 +130,12 @@ specimen enclave is bare ground outside the shape universe entirely.
 > (13,034.7 m²), 4 more gap faces and 14 fewer walls perturb the single
 > solve, and the flat world's threshold density turns that into
 > crossings — the accepted road-feed +192 class. It needs a ruling.
+>
+> SITE CENSUS (the campaign scoreboard, `census --sites`), for scale:
+> ACTIONABLE sites **HECA real 121 → 115 (−6)**, **SPJC 18 → 16 (−2)**,
+> **HECA −500 147 → 150 (+3)**. The −500 STOP is +96 rows = +3 places.
+> Build-time note (tripwire only, no timing claim): 441.7 / 536.5 /
+> 293.9 s against control walls ~440 / ~490 / ~322 s — no anomaly.
 
 ## Sequencing
 

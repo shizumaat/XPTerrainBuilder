@@ -1,5 +1,38 @@
-"""THE FABRIC MODEL — sparse lawful emission (Phase A, gate
-``O4_FABRIC_SPARSE``, default OFF).
+"""THE FABRIC MODEL — sparse lawful emission.
+
+PHASE B (W2) MADE THIS PRODUCTION.  Two modes now live here, and which
+one a build is in is decided once, in :func:`arm`:
+
+  * **W2 — the whole airport** (flag ``O4_FABRIC_W2_SPARSE_ALL``, DEFAULT ON,
+    ``fabric_flags``).  Sparse emission for ALL pavements and pads, the
+    Phase-A mechanics verbatim: law vertices + 12 m spine stations +
+    curves at the emit decimator's own ``XY_TOL_M`` + the generic
+    ``MAX_CHORD`` lifted.  No region and no seed list — the scope is a
+    ROLE test, so a shape born after arming is covered by construction.
+  * **Phase A — the two declared proof clusters** (gate
+    ``O4_FABRIC_SPARSE``, default OFF, unchanged).  Kept so the Phase-A
+    arms remain reproducible; it is what runs when W2 is disabled and
+    the Phase-A gate is explicitly set.
+
+THE ONE THING W2 SPLIT IN TWO.  Phase A had a single predicate,
+``is_sparse``, and all six hooks consulted it — which was right when the
+scope was two clusters of aprons.  It is WRONG at airport scale: the
+taxiway graded strip is REG SET (reg-set R9 — ICAO §3.11.4-3.11.5 caps,
+the FAA's affirmative TSA grading mandate ¶4.5.3 items 3-4), and every
+live taxiway is a ``junction`` shape, which is in the sparse role set.
+One predicate would therefore have de-banded the taxiway strips along
+with the aprons — an over-retire the spec explicitly forbids ("KEEP: FAA
+strip forms … reg drainage").  So:
+
+  ``is_sparse``          EMISSION DENSITY — ring thinning, stationing,
+                         fan/terrace panels.  All pavements and pads.
+  ``bands_declined``     ADJACENT-GROUND SCOPE — which hosts get no band
+                         constructed or emitted.  APRONS only under W2
+                         (reg-set T2/T3, ruling 4); the Phase-A cluster
+                         verbatim in Phase-A mode.
+  ``stationing_declined``  the 60 m generic pass (reg-set T8), separately
+                         disable-able so it can be bisected on its own.
+
 
 Charter: owner ruling 2026-08-08 "THE FABRIC MODEL" (docs/RULINGS.md) and
 ``docs/specs/fabric-model-spec.md``.  The owner's articulation, verbatim:
@@ -19,24 +52,30 @@ and the second thought experiment, which is what this module implements:
     each building is at its correct seat, then the back apron edge
     between the buildings will automatically slope between them."
 
-PHASE A IS THE PROOF PAIR AND NOTHING ELSE.  The model is applied to two
-declared CLUSTERS — HECA's apron ``-10447`` (plus its welded neighbours
-and the pads fronting it) and CYXY's hillside building group — so the
-acceptance measurements have a control that is the production surface
-everywhere else.  With the gate off this module arms nothing, marks
-nothing and answers ``False`` to every predicate: :func:`is_sparse` is
-the ONLY thing any caller consults, and it short-circuits on ``_REGION
-is None``.  Production emission is untouched until Phase B.
+PHASE A WAS THE PROOF PAIR AND NOTHING ELSE — two declared CLUSTERS,
+HECA's apron ``-10447`` (plus its welded neighbours and the pads fronting
+it) and CYXY's hillside building group, so the acceptance measurements
+had a control that was the production surface everywhere else.  That mode
+still exists and still runs off ``_PHASE_A_SEEDS`` below; W2 is what
+turned the mechanism on for the whole airport.
 
-WHAT "SPARSE" MEANS HERE, mechanically, inside a cluster:
+WITH BOTH GATES OFF this module arms nothing, marks nothing and answers
+``False`` to every predicate: ``_MODE is None`` short-circuits each one
+before it touches its argument, which is the flag-OFF identity arm.
+
+WHAT "SPARSE" MEANS HERE, mechanically, on a sparse shape:
 
   * **no generic stationing** — the 60 m ``densify_long_edges`` pass
     (the "stationing density beyond the adequate-spine/curve floor" on
-    the spec's retire list) does not run on cluster shapes;
-  * **no fan zones** — ``apron_terrace`` declares none and panelizes
-    none there (spec: "Fan-zone declarations and machinery" retire);
-  * **no adjacent-ground bands, walls or feather** — the drape is the
-    transition (spec §4, and the walls-to-carves ruling 2026-08-07);
+    the spec's retire list, reg-set T8) does not run on it;
+  * **no fan zones or terrace panels** — ``apron_terrace`` declares none
+    and panelises none (spec: "Fan-zone declarations and machinery"
+    retire; W2 flag ``O4_FABRIC_W2_RETIRE_FANS`` retires the DECLARATION
+    outright, not merely inside the sparse scope);
+  * **no adjacent-ground bands, walls or feather ON A RETIRED HOST** —
+    the drape is the transition (spec §4, and the walls-to-carves ruling
+    2026-08-07).  Which hosts those are is ``bands_declined``, NOT this
+    predicate — see the split above;
   * **ring thinning to law vertices** — every ring vertex that is NOT a
     weld (shared with another shape: seats, mouths, junction shares,
     reg-feature shares), NOT a boundary direction change and NOT a spine
@@ -58,8 +97,8 @@ tolerance below is imported from the machinery that already owns it:
                                     stations at; spine stations are
                                     force-kept, never re-derived here.
   ``layout.PAVEMENT_NODE_MAX_CHORD_M``  60 m — the generic stationing cap
-                                    this model retires INSIDE a cluster
-                                    (and only there).
+                                    this model retires on a sparse
+                                    shape.
 
 No new constant is defined by this module.
 """
@@ -78,14 +117,29 @@ __all__ = [
     "arm",
     "disarm",
     "is_sparse",
+    "bands_declined",
+    "stationing_declined",
+    "mode",
     "thin_rings",
     "report",
 ]
 
 
-# ── The gate ────────────────────────────────────────────────────────────
-def _gate_on() -> bool:
+# ── The gates ───────────────────────────────────────────────────────────
+def _phase_a_gate_on() -> bool:
+    """The Phase-A proof-pair gate — explicit, still default OFF."""
     return os.environ.get("O4_FABRIC_SPARSE", "0") == "1"
+
+
+def _w2_on() -> bool:
+    """W2's ``O4_FABRIC_W2_SPARSE_ALL`` — default ON (the batch plan)."""
+    from .fabric_flags import on as _flag_on
+    return _flag_on("O4_FABRIC_W2_SPARSE_ALL")
+
+
+def _gate_on() -> bool:
+    """Either mode arms this module."""
+    return _w2_on() or _phase_a_gate_on()
 
 
 ENABLED = _gate_on()
@@ -123,17 +177,30 @@ _CLUSTER_ROLES = frozenset({
 _THIN_ROLES = frozenset({"apron", "junction", "service_junction",
                          "groundside_pavement"})
 
+# APRON hosts — the ONE adjacent-ground family W2 retires (reg-set T2/T3,
+# RULINGS 2026-08-08 reg-set ruling 4).  Named here rather than imported
+# from ``adjacent_ground`` because importing that module from this one
+# would invert the dependency every hook in it relies on.
+_NO_BAND_ROLES = frozenset({"apron"})
+
 # Module state, armed per build.  ``None`` == inert.
+_MODE = None            # None | "w2" | "phase_a"
 _REGION = None          # prepared shapely geometry, layout metre frame
 _REGION_RAW = None
 _STATS: dict = {}
 
 
 def _reset() -> None:
-    global _REGION, _REGION_RAW, _STATS
+    global _MODE, _REGION, _REGION_RAW, _STATS
+    _MODE = None
     _REGION = None
     _REGION_RAW = None
     _STATS = {}
+
+
+def mode():
+    """``"w2"``, ``"phase_a"`` or ``None`` (inert) — what this build is."""
+    return _MODE
 
 
 def disarm() -> None:
@@ -159,8 +226,26 @@ def arm(layout, icao: str = "") -> int:
     shape whose representative point lands in the region is sparse, ever
     after.
     """
+    global _MODE, _REGION, _REGION_RAW, _STATS
     _reset()
-    if not _gate_on():
+    if _w2_on():
+        # ── W2 — THE WHOLE AIRPORT ────────────────────────────────────
+        # No region, no seeds, no one-hop weld walk: at airport scale the
+        # scope IS the role set, and a ROLE test covers every shape born
+        # or re-cut after this point for free (the very staleness the
+        # Phase-A region was built to dodge).  It is also strictly
+        # cheaper — no prepared-geometry containment per shape.
+        _MODE = "w2"
+        shapes = [s for s in getattr(layout, "shapes", ())
+                  if getattr(s, "role", None) in _CLUSTER_ROLES]
+        _STATS.update({
+            "icao": (icao or "").upper(),
+            "mode": "w2",
+            "cluster_shapes": len(shapes),
+            "roles": _role_tally(shapes),
+        })
+        return len(shapes)
+    if not _phase_a_gate_on():
         return 0
     seeds = _PHASE_A_SEEDS.get((icao or "").upper())
     if not seeds or layout is None or getattr(layout, "anchor", None) is None:
@@ -220,11 +305,12 @@ def arm(layout, icao: str = "") -> int:
     if region.is_empty:
         return 0
 
-    global _REGION, _REGION_RAW, _STATS
+    _MODE = "phase_a"
     _REGION_RAW = region
     _REGION = prep(region)
     _STATS = {
         "icao": (icao or "").upper(),
+        "mode": "phase_a",
         "seeds": len(seed_idx),
         "cluster_shapes": len(cluster),
         "region_area_m2": float(region.area),
@@ -247,17 +333,24 @@ def _key(x: float, y: float) -> tuple:
 
 # ── The predicate every caller consults ─────────────────────────────────
 def is_sparse(shape) -> bool:
-    """True iff ``shape`` lies inside the armed Phase-A cluster.
+    """True iff ``shape`` emits SPARSELY — law vertices, spine stations
+    and curves only.
 
-    Inert by construction: with the gate off nothing arms, ``_REGION`` is
-    ``None``, and this returns ``False`` before touching the shape.
+    W2: every pavement and pad (the role test).  Phase A: only shapes
+    inside the armed cluster REGION.  Inert by construction: with nothing
+    armed ``_MODE`` is ``None`` and this returns ``False`` before touching
+    the shape.
     """
-    if _REGION is None:
+    if _MODE is None:
+        return False
+    if getattr(shape, "role", None) not in _CLUSTER_ROLES:
         return False
     poly = getattr(shape, "polygon", None)
     if poly is None or poly.is_empty:
         return False
-    if getattr(shape, "role", None) not in _CLUSTER_ROLES:
+    if _MODE == "w2":
+        return True
+    if _REGION is None:
         return False
     try:
         return bool(_REGION.contains(poly.representative_point()))
@@ -265,9 +358,64 @@ def is_sparse(shape) -> bool:
         return False
 
 
+def bands_declined(shape) -> bool:
+    """True iff NO adjacent-ground band, wall or feather is constructed
+    or emitted for ``shape`` as a HOST.
+
+    This is deliberately NOT ``is_sparse``.  Emission density and band
+    scope answered the same question at Phase-A scale (two clusters of
+    aprons) and answer different ones at airport scale:
+
+      * **APRON hosts** — retired, W2 flag
+        ``O4_FABRIC_W2_RETIRE_APRON_SURROUND``.  Nothing in either authority
+        governs ground beyond an apron edge: AC ¶5.9.2 sits under a
+        *Recommended Practices* heading and Annex 14 §3.13 / CS
+        ADR-DSN Ch. E state nothing at all (reg-set §4.3, T2/T3;
+        RULINGS 2026-08-08 reg-set ruling 4, "RETIRE OUTRIGHT — the
+        drape takes apron surroundings on both rulesets").  The apron
+        EDGE survives this: the ¶5.9.1 drop-off *Standard* is the
+        step/edge-snap machinery's, untouched here, and the ¶4.14.2
+        item-4 lip stays in ``grade_law``'s apron branch.
+      * **RUNWAY and TAXIWAY hosts** — KEPT.  Both graded strips are
+        reg set (reg-set R6 / R9).  What changes for ICAO runways is
+        the band's VALUE, not its existence — reg-set ruling 1, flag
+        ``O4_FABRIC_W2_ICAO_STRIP_AUTHORITY``, in ``grade_law``.
+
+    In Phase-A mode this is the Phase-A predicate verbatim, so the
+    Phase-A arms still reproduce.
+    """
+    if _MODE == "phase_a":
+        return is_sparse(shape)
+    from .fabric_flags import on as _flag_on
+    if not _flag_on("O4_FABRIC_W2_RETIRE_APRON_SURROUND"):
+        return False
+    role = getattr(shape, "role", None)
+    if role not in _NO_BAND_ROLES:
+        return False
+    poly = getattr(shape, "polygon", None)
+    return poly is not None and not poly.is_empty
+
+
+def stationing_declined(shape) -> bool:
+    """True iff the generic 60 m stationing pass must skip ``shape``.
+
+    Reg-set §5.1 T8 — "no standard specifies vertex density".  Separated
+    from :func:`is_sparse` so it can be bisected on its own: with
+    ``O4_FABRIC_W2_RETIRE_STATIONING=0`` the pass runs everywhere it used to and
+    the pre-solve thinning then removes whatever it inserted on a thinned
+    role, which is exactly the difference the flag is there to expose.
+    """
+    if not is_sparse(shape):
+        return False
+    if _MODE == "phase_a":
+        return True
+    from .fabric_flags import on as _flag_on
+    return _flag_on("O4_FABRIC_W2_RETIRE_STATIONING")
+
+
 def sparse_shapes(layout) -> list:
-    """Every shape of ``layout`` inside the armed cluster."""
-    if _REGION is None:
+    """Every sparse shape of ``layout`` (the cluster, or all of them)."""
+    if _MODE is None:
         return []
     return [s for s in getattr(layout, "shapes", ()) if is_sparse(s)]
 
@@ -330,7 +478,7 @@ def thin_rings(layout, icao: str = "") -> int:
     INTERPOLATION IS THE LAWFUL SURFACE, so a DEM wiggle is not a reason
     to keep a node.
     """
-    if _REGION is None:
+    if _MODE is None:
         return 0
     from .emit_decimate import _ring_and_alts, _ring_keep_set
     from .layout import SHARED_VERTEX_TOL_M
@@ -444,7 +592,7 @@ def emit_summary(icao: str = "") -> str:
     if not _STATS:
         return ""
     t = _STATS.get("thin") or {}
-    return (f"  [fabric-sparse] {icao}: cluster "
+    return (f"  [fabric-sparse] {icao}: {_STATS.get('mode', '?')} scope "
             f"{_STATS.get('cluster_shapes', 0)} shape(s), "
             f"{_STATS.get('region_area_m2', 0.0):.0f} m^2; thinned "
             f"{t.get('shapes_thinned', 0)} ring(s) "

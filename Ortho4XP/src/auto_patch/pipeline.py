@@ -4886,24 +4886,33 @@ def build_airport_pavement(icao: str, xplane_root: str,
             source_clip_partial_coverage_shapes(layout, icao=icao)
             _covp(layout, "post-source-clip")
 
-        # ── THE FABRIC MODEL: ARM THE PHASE-A CLUSTER (owner RULINGS
-        # 2026-08-08; gate O4_FABRIC_SPARSE, default OFF) ───────────────
+        # ── THE FABRIC MODEL: ARM SPARSE EMISSION (owner RULINGS
+        # 2026-08-08; W2 flag O4_FABRIC_W2_SPARSE_ALL default ON, Phase-A gate
+        # O4_FABRIC_SPARSE default OFF) ─────────────────────────────────
         # Armed HERE — after the apron/junction set has settled and
         # BEFORE the first pass the model changes (the 60 m stationing
-        # inside ``_unify_airside_geometry`` below).  What is frozen is a
-        # REGION, not a shape list: shapes are re-cut and re-born after
-        # this point, and a stale reference set would silently stop
-        # covering them.  ``arm`` returns 0 and leaves every predicate
-        # False when the gate is off or the airport has no declared
-        # cluster, so this is byte-inert everywhere else.
+        # inside ``_unify_airside_geometry`` below).  W2's scope is a ROLE
+        # test over every pavement and pad, so it covers shapes born after
+        # this point for free; Phase A freezes a REGION instead, because
+        # its scope was two clusters and a shape LIST would go stale as
+        # shapes are re-cut.  ``arm`` returns 0 and leaves every predicate
+        # False when both are off, so this is byte-inert there.
         try:
             from . import fabric_sparse as _fabric_arm
+            from .fabric_flags import registry_report as _flag_report
+            _flag_line = _flag_report()
+            if _flag_line:
+                # A build whose numbers get quoted must be able to say
+                # which world it was; a disabled flag with no trace in
+                # the log is an arm nobody can reconstruct.
+                UI.vprint(1, _flag_line)
             _n_cluster = _fabric_arm.arm(layout, icao)
             if _n_cluster:
                 _fr = _fabric_arm.report()
                 UI.vprint(1,
-                    f"  [pav-builder] {icao}: FABRIC-SPARSE armed — "
-                    f"{_n_cluster} cluster shape(s), "
+                    f"  [pav-builder] {icao}: FABRIC-SPARSE armed "
+                    f"({_fr.get('mode', '?')}) — "
+                    f"{_n_cluster} shape(s), "
                     f"{_fr.get('region_area_m2', 0.0):.0f} m^2, roles "
                     f"{_fr.get('roles')}.")
         except _GEOM_EXC as _fab_arm_exc:                  # pragma: no cover

@@ -47,7 +47,19 @@ def _rect(x0, y0, x1, y1, role="apron", stations=0):
 
 
 @pytest.fixture(autouse=True)
-def _inert_between_tests():
+def _inert_between_tests(monkeypatch):
+    """PHASE-A WORLD, held explicitly (W2, 2026-08-08).
+
+    These twins were written when ``O4_FABRIC_SPARSE`` was the ONLY gate
+    and "off" meant inert.  W2 made sparse emission production behind
+    ``O4_FABRIC_W2_SPARSE_ALL`` (default ON), so "gate off" is now two gates —
+    and this file is still the PHASE-A twin: it drives the cluster mode,
+    which is the mode a build gets when W2 is disabled.  Pinning W2 off
+    here keeps every assertion below meaning exactly what it meant when
+    it was written; the W2 successor behaviour has its own file,
+    ``tests/test_fabric_phase_b.py``.
+    """
+    monkeypatch.setenv("O4_FABRIC_W2_SPARSE_ALL", "0")
     FS.disarm()
     yield
     FS.disarm()

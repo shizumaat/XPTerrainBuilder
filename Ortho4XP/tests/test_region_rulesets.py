@@ -283,16 +283,17 @@ def test_row6_strip_half_width():
             == pytest.approx(1.2))
 
 
-def test_rows_7_8_still_carry_the_blend_pending_the_W2_flip():
-    """The 2026-07-08 mandatory-DOWN ruling was premised on ONE blended
-    ruleset.  Owner question 1 is now ANSWERED (RULINGS 2026-08-08
-    reg-set ruling 1: the ICAO ruleset DROPS the mandatory fall, flagged
-    PROVISIONAL) and the authority-true values are encoded beside these
-    — ``strip_band_min_down_slope_authority``, W1.  These LIVE fields
-    still carry the blend on purpose: switching the consumer is an
-    emitted-geometry change and belongs to W2's gated A/B pairs.  See
-    ``CFG.RULESET_W2_PENDING_FLIPS`` and
-    tests/test_fabric_reg_set_w1.py family H."""
+def test_rows_7_8_the_blend_survives_as_the_flag_OFF_arm():
+    """SUCCESSOR to ``…_still_carry_the_blend_pending_the_W2_flip``
+    (retired with the W2 flips, same commit).
+
+    The 2026-07-08 mandatory-DOWN ruling was premised on ONE blended
+    ruleset.  Reg-set ruling 1 (RULINGS 2026-08-08) split it, and W2
+    flipped the consumer behind ``O4_FABRIC_W2_ICAO_STRIP_AUTHORITY``.  These
+    LIVE fields still carry the blend, and that is now load-bearing for
+    a different reason than before: they are what the flag-OFF arm
+    reads, so they are the byte-identity proof.  The MAX down slope was
+    never in the flip and is asserted unconditionally."""
     for key in ("faa", "icao"):
         rs = CFG.get_ruleset(key)
         assert rs.strip_lip_width_m == CFG.ADJACENT_GROUND_LIP_WIDTH_M
@@ -301,6 +302,11 @@ def test_rows_7_8_still_carry_the_blend_pending_the_W2_flip():
         assert rs.strip_band_min_down_slope == \
             CFG.RUNWAY_STRIP_BAND_MIN_DOWN_SLOPE
         assert CFG.ruleset_strip_band_max_down_slope(4, key) == 0.03
+    # …and the authority-true half, which is what the DEFAULT build now
+    # reads: FAA unchanged, ICAO mandating no fall at all.
+    assert CFG.get_ruleset("faa").strip_band_min_down_slope_authority == \
+        CFG.RUNWAY_STRIP_BAND_MIN_DOWN_SLOPE
+    assert CFG.get_ruleset("icao").strip_band_min_down_slope_authority is None
 
 
 def test_rows_13_14_taxiway():

@@ -1212,7 +1212,18 @@ def _build_fill_bands(edge_stations, edge_alts, outwards, band_caps,
             d = min(cap, k * step)
             if d > occ:
                 break               # RAY OCCLUSION (see the cut twin)
-            floor = ref - floor_depth(d)
+            _fd = floor_depth(d)
+            if _fd is None:
+                # NO FLOOR AT THIS DEPTH — the corridor is open downward,
+                # so no depth of terrain below the edge is unlawful and
+                # there is nothing to fill.  Always true beyond the
+                # graded width; true from the EDGE under a family W2
+                # retired (reg-set §5.1 T2/T3/T5 — the apron surround and
+                # the service-road shadow), which is exactly the drape.
+                # ``break``, not ``continue``: the floor only ever OPENS
+                # with distance, so no larger ``d`` can demand fill.
+                break
+            floor = ref - _fd
             dd = sample_dem(sx + nx * d, sy + ny * d)
             if dd is not None and dd < floor - trigger:
                 last = d
@@ -5630,18 +5641,20 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
             return None
 
     in_scope = _RUNWAY_ROLES + _TAXIWAY_ROLES + _APRON_ROLES
-    # THE FABRIC MODEL (owner RULINGS 2026-08-08), gate O4_FABRIC_SPARSE,
-    # default OFF: "Unregulated ground: NOTHING — the drape is the
-    # feather."  Inside a declared Phase-A cluster no band, wall or
-    # feather is constructed; the reg set (runway strips, RESA/OFZ,
-    # drainage) is outside every cluster and is untouched.  Inert when
-    # the gate is off.
-    from .fabric_sparse import is_sparse as _fabric_sparse
+    # THE FABRIC MODEL (owner RULINGS 2026-08-08): "Unregulated ground:
+    # NOTHING — the drape is the feather."  ``bands_declined`` is the ONE
+    # predicate that answers which HOSTS get no band, wall or feather:
+    # under W2 the APRON family (reg-set T2/T3, ruling 4 — nothing in
+    # either authority governs ground beyond an apron edge), under the
+    # Phase-A gate the declared cluster verbatim.  Runway and taxiway
+    # strips are REG SET and stay in scope on both paths; what changes
+    # for ICAO runways is the band's VALUE, in ``grade_law``.
+    from .fabric_sparse import bands_declined as _bands_declined
     scoped = [s for s in layout.shapes
               if s.role in in_scope and s.polygon is not None
               and not s.polygon.is_empty
               and s.polygon.geom_type == "Polygon"
-              and not _fabric_sparse(s)]
+              and not _bands_declined(s)]
     if not scoped:
         layout.adjacent_ground_presolve = []
         return 0
@@ -6207,13 +6220,13 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
 
     in_scope = _RUNWAY_ROLES + _TAXIWAY_ROLES + _APRON_ROLES
     # THE FABRIC MODEL — see the identical scoping in
-    # ``construct_adjacent_ground_presolve``.  Inert when the gate is off.
-    from .fabric_sparse import is_sparse as _fabric_sparse
+    # ``construct_adjacent_ground_presolve``.  Inert when nothing armed.
+    from .fabric_sparse import bands_declined as _bands_declined
     scoped = [s for s in layout.shapes
               if s.role in in_scope and s.polygon is not None
               and not s.polygon.is_empty
               and s.polygon.geom_type == "Polygon"
-              and not _fabric_sparse(s)]
+              and not _bands_declined(s)]
     if not scoped:
         return 0
 
@@ -7833,6 +7846,16 @@ def _emit_apron_walls(layout, stations, st_alts, outs, ceil_off, step,
     — a thin vertical band, top row at the shoulder edge, bottom row at
     the DEM).  Grouped into runs of consecutive dropped stations.
 
+    RETIRED UNDER W2 (flag ``O4_FABRIC_W2_RETIRE_APRON_EDGE_WALLS``, default
+    ON).  Reg-set §5.1 T4 + RULINGS 2026-08-08 reg-set ruling 4: this
+    family is pure design — the 2026-07-25 scoping ruling already
+    narrowed it because "no code mandates grading beyond an apron edge",
+    and the fabric model's standing walls-to-carves ruling leaves walls
+    only at CARVE STRUCTURES.  Under the drape the raw DEM meets the
+    apron edge and Triangle blends it, which is the owner's whole
+    two-squares thought experiment.  Set the flag to 0 for the pre-W2
+    behaviour.
+
     APRON WALL CONTINUITY (``O4_APRON_WALL_CONTINUITY``, 2026-07-25; full
     diagnosis in the config block ``APRON_WALL_CONTINUITY_ENABLED``) adds
     two things the owner's "ramps and sharp drops" report traced to:
@@ -7889,6 +7912,14 @@ def _emit_apron_walls(layout, stations, st_alts, outs, ceil_off, step,
     one-slot list the removed area accumulates into (the emitter's
     apparatus row).  ``None``: nothing is differenced — byte-identical.
     """
+    # ── T4 RETIRES (W2 ``O4_FABRIC_W2_RETIRE_APRON_EDGE_WALLS``, default ON) ──
+    # Refused HERE rather than at the one call site so a retired family
+    # cannot be re-opened by a second caller; the return is the
+    # emitter's own "nothing emitted" pair, so caller arithmetic is
+    # unchanged.
+    from .fabric_flags import on as _w2_wall_on
+    if _w2_wall_on("O4_FABRIC_W2_RETIRE_APRON_EDGE_WALLS"):
+        return 0, None
     w = APRON_SHOULDER_WIDTH_M
     n = len(stations)
     top_alt: list = [None] * n

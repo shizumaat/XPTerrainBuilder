@@ -408,7 +408,7 @@ __all__ = [
     "ruleset_resa_length_datum",
     "ruleset_strip_beyond_end_m",
     "ruleset_resa_length_m",
-    "RULESET_W2_PENDING_FLIPS",
+    "RULESET_W2_FLIPS",
     "REG_AUTHORITY_CLASSES",
     "RegEntry",
     "REG_SET_ENTRIES",
@@ -6053,8 +6053,9 @@ class Ruleset:
     # W1 IS CONSTANTS ONLY.  Where the authority-true value differs from
     # what an emitter reads TODAY the live blended field is left exactly
     # as it was and the authority's own number lands beside it under a
-    # distinct name; ``RULESET_W2_PENDING_FLIPS`` is the checklist W2
-    # works from, and a twin pins it so neither half can drift silently.
+    # distinct name; ``RULESET_W2_FLIPS`` records which flag flipped
+    # each consumer, and a twin pins the two halves so neither can
+    # drift silently.
     # ══════════════════════════════════════════════════════════════════
 
     # ── F-1 (R3) — ICAO graded strip is keyed by (code, instrument) ───
@@ -7362,8 +7363,8 @@ def ruleset_strip_band_authority_min_down_slope(ruleset=None):
     graded strip, or ``None`` where it mandates none.
 
     NOT ``Ruleset.strip_band_min_down_slope``, which is the LIVE BLEND
-    the adjacent-ground emitter still reads; see
-    ``RULESET_W2_PENDING_FLIPS``."""
+    the emitter reads with W2's ``O4_FABRIC_W2_ICAO_STRIP_AUTHORITY`` flag
+    OFF; see ``RULESET_W2_FLIPS``."""
     return get_ruleset(ruleset).strip_band_min_down_slope_authority
 
 
@@ -7511,25 +7512,35 @@ def ruleset_resa_length_m(code_number=None, ruleset=None, *,
         f"(known: 'shall', 'recommended')")
 
 
-# ── WHAT W2 STILL HAS TO FLIP ─────────────────────────────────────────
-# W1 is CONSTANTS ONLY (fabric-phase-b-spec.md: "W1 first (constants;
-# offline + twins)").  Three W1 entries are authority-true numbers whose
-# live consumers still read a BLEND, because switching a consumer is an
-# emitted-geometry change and belongs to W2's gated A/B pairs.  They are
-# listed here rather than left as prose so the hand-off is a checklist
-# and a twin can pin it: if a live field is quietly edited to match its
-# authority-true twin, the divergence this table asserts disappears and
-# the suite fails.
+# ── WHAT W2 FLIPPED ───────────────────────────────────────────────────
+# W1 was CONSTANTS ONLY (fabric-phase-b-spec.md: "W1 first (constants;
+# offline + twins)"): three W1 entries were authority-true numbers whose
+# live consumers still read a BLEND, listed here as a hand-off checklist
+# under the name ``RULESET_W2_PENDING_FLIPS`` (now retired).
 #
-# (family, live field the emitter reads, authority-true entry, who)
-RULESET_W2_PENDING_FLIPS = (
+# W2 FLIPPED ALL THREE.  ``grade_law.adjacent_ground_envelope`` now reads
+# the AUTHORITY-TRUE entry, each behind its own default-ON flag
+# (``fabric_flags``), so the flip is bisectable one family at a time and
+# reg-set ruling 1's PROVISIONAL status stays literally gate-revertable
+# for the owner's sim look.
+#
+# BOTH FIELDS SURVIVE, and that is deliberate: the LIVE field is what the
+# flag-OFF arm reads, so it is the byte-identity proof, not dead weight.
+# The twin still pins that the two DISAGREE — a live constant quietly
+# edited to match its authority twin would move the flag-OFF arm, which
+# is emitted geometry and therefore a STOP, not a landing.
+#
+# (family, live field, authority-true entry, who, the flag that selects)
+RULESET_W2_FLIPS = (
     ("graded-strip mandatory down",
      "strip_band_min_down_slope", "strip_band_min_down_slope_authority",
-     "icao"),
+     "icao", "O4_FABRIC_W2_ICAO_STRIP_AUTHORITY"),
     ("taxiway/apron edge lip",
-     "strip_lip_min_down_slope", "taxiway_lip_min_down_slope", "faa"),
+     "strip_lip_min_down_slope", "taxiway_lip_min_down_slope", "faa",
+     "O4_FABRIC_W2_TAXIWAY_LIP_AUTHORITY"),
     ("taxiway/apron edge lip",
-     "strip_lip_max_down_slope", "taxiway_lip_max_down_slope", "faa"),
+     "strip_lip_max_down_slope", "taxiway_lip_max_down_slope", "faa",
+     "O4_FABRIC_W2_TAXIWAY_LIP_AUTHORITY"),
 )
 
 

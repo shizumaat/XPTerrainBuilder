@@ -1619,14 +1619,30 @@ def _construct_from_envelope(layout, envelope, sample_dem=None,
     # Precedence, structurally: the zones exist before a single terrace
     # line is cut, so the trigger's allowance already carries the 5 %
     # the ramp grants and the wall answers only what is left.
-    fan = plan_fan_ramp_zones(layout, cover, icao=icao)
-    # ── AND THE ZONES BECOME SHAPES, BEFORE ANY TERRACE LINE IS CUT ──
-    # Precedence is now geometric as well as arithmetic: the ramp ground
-    # has left the apron by the time the terrace trigger reads the
-    # apron's envelope demand, so the shortfall a wall is asked to
-    # discharge is the shortfall over the ground that is STILL held to
-    # 1 % — the ruled "ramps first, wall fallback", with no second pass.
-    split_aprons_at_fan_zones(layout, fan, icao=icao, cover=cover)
+    # ── FAN ZONES RETIRE OUTRIGHT (W2, flag ``O4_FABRIC_W2_RETIRE_FANS``,
+    # default ON) ────────────────────────────────────────────────────
+    # Owner, verbatim: "I don't think we even need to grade apron fans",
+    # and interview scope answer 1: "Fan zones RETIRE OUTRIGHT (they
+    # compensated for dense emission)" — RULINGS 2026-08-08 THE FABRIC
+    # MODEL, reg-set §5.1 T1.  OUTRIGHT means the DECLARATION too, not
+    # only the split: no plan is built, so no zone is declared, nothing
+    # is panelised, and ``layout._fan_ramp_plan`` is an EMPTY plan rather
+    # than absent — every downstream reader (``grade_graph``, the
+    # sidecar, ``layout.py``) keeps its existing "no zones" path instead
+    # of meeting ``None``.  Set the flag to 0 and the pre-W2 pass returns.
+    from auto_patch.fabric_flags import on as _w2_on
+    if _w2_on("O4_FABRIC_W2_RETIRE_FANS"):
+        fan = FanRampPlan()
+    else:
+        fan = plan_fan_ramp_zones(layout, cover, icao=icao)
+        # ── AND THE ZONES BECOME SHAPES, BEFORE ANY TERRACE LINE IS CUT
+        # Precedence is now geometric as well as arithmetic: the ramp
+        # ground has left the apron by the time the terrace trigger reads
+        # the apron's envelope demand, so the shortfall a wall is asked
+        # to discharge is the shortfall over the ground that is STILL
+        # held to 1 % — the ruled "ramps first, wall fallback", with no
+        # second pass.
+        split_aprons_at_fan_zones(layout, fan, icao=icao, cover=cover)
     layout._fan_ramp_plan = fan
     try:
         keepout = runway_strip_wall_keepout(layout, require_gate=False)
@@ -3021,6 +3037,13 @@ def split_aprons_at_fan_zones(layout, plan: Optional[FanRampPlan],
     independently and tears the partition (0.1384 m² of apron∩apron).
     """
     if plan is None or not plan.zones:
+        return 0
+    # ── FAN ZONES RETIRE OUTRIGHT (W2 ``O4_FABRIC_W2_RETIRE_FANS``, default ON)
+    # The caller above already declines to BUILD a plan, so this is the
+    # belt to that braces: a direct caller (a probe, a twin, a future
+    # pass) cannot re-open a retired family by holding a plan of its own.
+    from auto_patch.fabric_flags import on as _w2_fan_on
+    if _w2_fan_on("O4_FABRIC_W2_RETIRE_FANS"):
         return 0
     from auto_patch.canonical_points import (
         add_polygon_to_lattice, settled_vertex_lattice,

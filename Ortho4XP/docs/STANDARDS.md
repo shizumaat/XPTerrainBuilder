@@ -325,11 +325,13 @@ CS-ADR-DSN Issue 7, and the owner-supplied **AC 150/5300-13B Chg 1
 (value · citation · authority class · PV date) is
 `config.REG_SET_ENTRIES`; twins are `tests/test_fabric_reg_set_w1.py`.
 
-**W1 is CONSTANTS ONLY.** Where an authority-true value differs from
-what an emitter reads today, the live field is untouched and the
-authority's number sits beside it — `config.RULESET_W2_PENDING_FLIPS`
-is the checklist, and a twin pins the divergence so neither half can
-drift silently.
+**W1 was CONSTANTS ONLY; W2 FLIPPED THE CONSUMERS.** Where an
+authority-true value differs from the blend an emitter used to read,
+the live field is still there — it is what the flag-OFF arm reads —
+and `grade_law.adjacent_ground_envelope` selects the authority-true
+entry behind a named default-ON flag. `config.RULESET_W2_FLIPS` is
+the ledger (family, live field, authority field, ruleset, flag), and
+a twin pins the divergence so neither half can drift silently.
 
 | Rule | Value | Standard | Implemented in |
 |------|-------|----------|----------------|

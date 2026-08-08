@@ -7,6 +7,29 @@ convergence thesis) + the five reg-set rulings + the fully
 primary-verified fabric-model-reg-set.md with its Phase-B nuances.
 Read all of it before any work; every banner is load-bearing.
 
+> **W2+W3 OUTCOME (2026-08-08, lane/fabricB a0cb6fd —
+> READY-FOR-BATTERY).** Ten default-ON flags, per-flag bisection +
+> registry twins; retire/flip ledger executed; W3 hard_cat lands with
+> ZERO unattributed hard nodes (CYXY late 1,224/0, HECA late
+> 6,594/0 — and the classifier separates the strip's own ring freeze
+> from pavement welded to a strip, which the pinattr instrument could
+> not); gate-OFF whole-pipeline byte-identity proven (cf5165743075,
+> three-way chain). DESIGN DECISION RATIFIED (Fable): `is_sparse`
+> (density) and `bands_declined` (band scope) are separate predicates
+> — every live taxiway maps to ROLE_JUNCTION and the taxiway strip is
+> REG SET (R9), so one predicate over-retires; runway+taxiway strips
+> stay banded, aprons drape. T6/T7 kept (reasons in fabric_flags.py)
+> — RATIFIED. Battery round owes: the CYXY transverse +74 fix FIRST
+> (named suspect: lateral-node restoration does not cover the
+> groundside/service roles the thinning covers), the gap-fill
+> crater-floor question at ICAO aprons (measure, don't assume the
+> drape), the convergence-thesis read vs matched control, mesh spots
+> (cap traded them away in-lane). POST-BATTERY items: R20 binding
+> half (crown minimum not bound); F-8 residual (ICAO taxiway band
+> still carries the blended mandatory fall — an ownerable question
+> adjacent to ruling 1); fixture re-scope + CYXY lockstep (owner,
+> 2026-08-08).**
+
 ## The convergence thesis (why #2 and #3 are one round)
 
 The late final_grade_projection feature-weld agreement gate hardens

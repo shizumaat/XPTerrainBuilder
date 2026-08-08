@@ -40,6 +40,7 @@ from typing import Callable, Hashable, Optional, Sequence
 
 from shapely.errors import GEOSException, TopologicalError
 
+from . import fabric_flags as _FF
 from . import grade_law as GL
 
 # Shapely-domain failures a triangulation / geometry op may raise (never catch
@@ -2083,6 +2084,16 @@ class UnifiedGraph:
     # them — ``reach_band_unified`` skips these pairs in its value-field
     # Dijkstras (gate ``O4_REACH_NO_SERVICE_SPINES``).
     service_spine_pairs: set = field(default_factory=set)
+    # ── R-a · THE ROUTE-TRANSPARENT NODES (lead ruling 2026-08-08) ─────
+    # The cross-section feet ``lateral_spine_nodes`` planted, resolved into
+    # THIS graph's node space by ``_build_global_spine`` (see its docstring
+    # for the law and the HECA measurement).  They are excluded from every
+    # centerline chain, so no ``spine_adj`` budget has one as an endpoint —
+    # this set is the RECORD of that, published for instruments, and read
+    # by nothing in the solve.  Empty when the flag is off or the layout
+    # planted no laterals, which is when the graph is byte-identical to
+    # the pre-R-a one.
+    route_transparent_nodes: set = field(default_factory=set)
     # ── CENTERLINE AUTHORSHIP of the spine (S1 Stage 0 level 1, Fable
     # ruling 2026-07-31) ───────────────────────────────────────────────
     # ``_build_global_spine`` already orders each centerline's on-line
@@ -2314,7 +2325,8 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
         # cached across node spaces — the rod-key lesson).
         _build_global_spine(G, ctx, icao=getattr(layout, "icao", ""),
                             road_nodes=_road_family_nodes(layout,
-                                                          bucket_to_idx))
+                                                          bucket_to_idx),
+                            layout=layout)
         _write_service_stringing_diag(layout, G)
         _withhold_service_edges_probe(G, icao=getattr(layout, "icao", ""))
 
@@ -2457,7 +2469,8 @@ def _road_family_nodes(layout, bucket_to_idx):
     return out
 
 
-def _build_global_spine(G, ctx, icao: str = "", road_nodes=None):
+def _build_global_spine(G, ctx, icao: str = "", road_nodes=None,
+                        layout=None):
     """Order every on-line geometry node along each centerline by arc position and
     link consecutive ones into ``G.spine_adj`` at the centerline's per-letter cap.
     A node may lie on several centerlines (a junction crossing) — it is linked on
@@ -2488,8 +2501,51 @@ def _build_global_spine(G, ctx, icao: str = "", road_nodes=None):
 
     ``road_nodes`` empty/None ⇒ a service centerline can only string nodes the
     aircraft spine already carries, i.e. the pre-cycle-8 behaviour for every
-    airport whose roads carry no groundside geometry."""
+    airport whose roads carry no groundside geometry.
+
+    R-a — LATERAL NODES ARE ROUTE-TRANSPARENT (lead ruling 2026-08-08, the
+    direct application of the owner's 2026-07-30 "Reach follows centerlines":
+    feasibility/reach follows TAXI CENTERLINES only).  A cross-section foot
+    planted by ``lateral_spine_nodes`` is a sample of the TRANSVERSE law, not
+    a route.  It is skipped here — never on-line, so never a chain member and
+    never an endpoint of a ``spine_adj`` budget — which makes the arc-ordered
+    on-line list, and therefore every route length this graph prices,
+    IDENTICAL to the list the same layout without laterals would produce.
+    That identity is the ruling stated as an invariant, and
+    ``tests/test_route_transparent_laterals.py`` is its known-answer twin.
+
+    THE MEASUREMENT THAT MADE IT LAW: ``SPINE_PERP_TOL_M`` is 1.0 m, and the
+    wide-corridor class the lateral pass exists for is precisely an axis
+    running ALONG a pavement edge — so its feet land within the tolerance,
+    become spine nodes, and a corridor fed from both sides interleaves left
+    and right feet in arc order into CROSS EDGES.  At HECA the
+    station-densified restoration therefore shortened routes and shrank the
+    reach band's route budgets until the build refused
+    (``assert_no_final_band_inversion``: 1,655 of 10,220 band-covered nodes
+    inverted, 49.400 m of anchor spread over a 47.723 m budget).  The
+    transverse law and the route metric were sharing one graph; this is the
+    line between them, drawn where the owner drew it."""
     items = list(G.pos.items())
+    # R-a: the recorded cross-section feet, resolved into THIS call's node
+    # space (never cached across node spaces — the rod-key lesson).  A
+    # layout that planted none, or the flag OFF, leaves ``_lateral_nodes``
+    # empty and every walk below is byte-identical to before.
+    _lateral_nodes: set = set()
+    if _FF.on("O4_FABRIC_RA_ROUTE_TRANSPARENT_LATERALS") and layout is not None:
+        from .lateral_spine_nodes import lateral_foot_predicate
+        _is_lat = lateral_foot_predicate(layout)
+        if _is_lat is not None:
+            _lateral_nodes = {i for (i, (x, y)) in items if _is_lat(x, y)}
+            if _lateral_nodes:
+                import O4_UI_Utils as _UI
+                _UI.vprint(1,
+                    f"  [global-spine] {icao}: R-a route-transparent "
+                    f"laterals — {len(_lateral_nodes)} of {len(items)} "
+                    f"geometry node(s) are cross-section feet "
+                    f"({getattr(_is_lat, 'n_feet', 0)} foot(s) recorded, "
+                    f"match radius {getattr(_is_lat, 'tol_m', 0):.2f} m); "
+                    f"they mint no route-graph edge.")
+    G.route_transparent_nodes = _lateral_nodes
     # Spatial prefilter (CYUL: the naive centerlines × nodes double loop was
     # 52 M ``_project`` calls / 140 s — 2,473 fragmented route pieces × 21 k
     # nodes).  Only nodes inside the centerline's tolerance-inflated bbox can
@@ -2532,6 +2588,8 @@ def _build_global_spine(G, ctx, icao: str = "", road_nodes=None):
         for (i, (x, y)) in cand:
             if eligible is not None and i not in eligible:
                 continue
+            if i in _lateral_nodes:
+                continue          # R-a: a cross-section foot is not a route
             a, d, _ = _project(cl, x, y)
             if d <= tol:
                 on_line.append((a, i))

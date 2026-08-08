@@ -5429,29 +5429,29 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 # where a cross-section is priced — the owner's rider
                 # ("adequate nodes on spines and at curves"), not the
                 # generic stationing T8 retires.
-                # ⚠ THE STATION-DENSIFIED HALF IS DEFAULT-OFF — IT BROKE
-                # HECA (battery round, measured).  With it on, HECA
-                # refuses at ``assert_no_final_band_inversion``: 1,655 of
-                # 10,220 band-covered nodes inverted, from THREE
-                # contradictory anchor pairs — e.g. anchors 7907
-                # (110.130 m) vs 5044 (60.730 m), a 49.400 m value spread
-                # over a 47.723 m route budget, shortfall 1.677 m at
-                # 1,298 nodes.  MECHANISM (attribution, per the
-                # feasibility-is-guaranteed ruling — a law defect to
-                # attribute, never a region to quarantine): a foot welded
-                # on BOTH sides of a corridor adds a CROSS edge, which
-                # shortens graph routes and therefore SHRINKS the route
-                # budget between two far-apart hard anchors — the pair
-                # was feasible only because the old route was longer.
-                # The cross-section the transverse law prices and the
-                # route metric the reach band prices are the same graph,
-                # and this round did not get to reconcile them.  Gate
-                # ``O4_FABRIC_RESTAT_STATION_STEP=1`` re-arms it.
+                # THE STATION-DENSIFIED HALF IS RE-ARMED — R-c (lead
+                # ruling 2026-08-08).  It was default-OFF for exactly one
+                # commit because it BROKE HECA: with it on the build
+                # refused at ``assert_no_final_band_inversion`` (1,655 of
+                # 10,220 band-covered nodes inverted, e.g. anchors 7907
+                # at 110.130 m vs 5044 at 60.730 m — a 49.400 m value
+                # spread over a 47.723 m route budget).  MECHANISM, and
+                # the reason the re-arm is safe now: a foot welded on
+                # BOTH sides of a corridor added a CROSS EDGE to the one
+                # grade graph, shortening routes and shrinking the route
+                # budget between two far-apart hard anchors.  R-a removes
+                # that channel at its source — a cross-section foot mints
+                # no route-graph edge at all
+                # (``grade_graph._build_global_spine``) — so the
+                # transverse law and the route metric no longer share one
+                # graph and the attempt cap resets with them.
+                # ``O4_FABRIC_RC_STATION_STEP=0`` parks it again.
+                from . import fabric_flags as _fabric_flags
                 from .config import SPINE_STEP_M as _RESTAT_STEP_M
                 _restat_step = (
                     _RESTAT_STEP_M
-                    if os.environ.get("O4_FABRIC_RESTAT_STATION_STEP",
-                                      "0") == "1" else None)
+                    if _fabric_flags.on("O4_FABRIC_RC_STATION_STEP")
+                    else None)
                 _n_restat = 0
                 if os.environ.get("O4_LATERAL_SPINE_NODES", "1") == "1":
                     from .lateral_spine_nodes import insert_lateral_spine_nodes

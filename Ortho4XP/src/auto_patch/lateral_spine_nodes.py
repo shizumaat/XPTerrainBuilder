@@ -15,6 +15,22 @@ cap instead of draping it.
 
 Runs PRE-SOLVE, after the spine is built and BEFORE the airside conformance, so
 the inserted vertices are welded/propagated to neighbouring shapes too.
+
+R-a — LATERAL NODES ARE ROUTE-TRANSPARENT (lead ruling 2026-08-08, the direct
+application of the owner's 2026-07-30 "Reach follows centerlines"): every foot
+this module plants is a CROSS-SECTION sample, never a route.  It must bind the
+transverse law (that is the whole point) and it must never mint a ROUTE-GRAPH
+edge, because reach/route budgets price along spines and centerlines ONLY.
+Each inserted foot is therefore RECORDED here at insertion
+(:func:`record_lateral_feet`), and ``grade_graph._build_global_spine`` reads
+that record (:func:`lateral_foot_predicate`) to keep the feet out of its
+centerline chains — so the arc-ordered on-line node list, and every
+``spine_adj`` budget woven from it, is exactly the list the same layout
+without laterals would have produced.  The measurement that made this law
+necessary: at HECA the station-densified feet welded on BOTH sides of a
+corridor minted CROSS edges that shortened routes and shrank the reach band's
+route budgets (1,655 inverted nodes, 49.400 m of anchor spread over a
+47.723 m budget — the build refused).
 """
 from __future__ import annotations
 
@@ -28,12 +44,18 @@ from shapely.strtree import STRtree
 
 import O4_UI_Utils as UI
 
+from . import fabric_flags as _FF
 from .layout import ROLE_APRON, ROLE_JUNCTION, ROLE_SERVICE_JUNCTION
 
 _GEOM_EXC = (ValueError, GEOSException, TopologicalError)
 
+#: Sentinel for "R-b is switched off" — distinct from ``None``, which is
+#: the attempt-3 union (no width condition at all).
+_RB_DISABLED = object()
+
 __all__ = ["insert_lateral_spine_nodes", "insert_service_lateral_nodes",
-           "densify_junction_edges"]
+           "densify_junction_edges", "record_lateral_feet",
+           "lateral_foot_predicate", "lateral_feet"]
 
 # Body shapes that should sample the lateral corridor grade.
 _LATERAL_BODY_ROLES = frozenset({ROLE_APRON, ROLE_JUNCTION, ROLE_SERVICE_JUNCTION})
@@ -46,17 +68,108 @@ _MERGE_TOL_M = 0.5              # merge feet closer than this on one edge
 # emitter's span rule and the validator's are the same rule; the twin
 # ``tests/test_lateral_cross_section.py`` asserts the two agree.
 _BRACKET_MIN_WIDTH_M = 3.0
+# The other two halves of the SAME span rule, also lockstep with
+# ``tools/check_grade``: how far the priced span's near side may sit from
+# the axis (``_TRANSVERSE_MAX_GAP_M``) and how far out the census looks
+# at all (``_TRANSVERSE_HALF_M``).  Held here as literals rather than
+# imported because ``check_grade`` is a TOOL and the engine may not
+# import from ``tools/``; ``tests/test_lateral_cross_section.py`` asserts
+# all three agree, which is the lockstep the census-wrapper precedent
+# demands.
+_SPAN_MAX_GAP_M = 1.0
+_SPAN_HALF_M = 80.0
 
 
 def _xsection_bracket_on() -> bool:
     """``O4_XSECTION_BRACKET`` — default OFF (see :func:`_bracket_feet`).
 
-    Deliberately NOT an ``O4_FABRIC_W2_*`` name: the Phase-B registry
+    ATTEMPT 3, authorized by lead ruling R-c and still parked: the PLAIN
+    union of the nearest-projection rule and the bracket rule, i.e. the
+    bracket with its width condition DROPPED.  R-b (default-ON, below)
+    is the width-adaptive half — bracket rows only where the priced
+    cross-section exceeds the lateral pass reach; turning this gate on
+    additionally inserts the bracket where the reach already covers it.
+
+    Deliberately NOT an ``O4_FABRIC_*`` name: the Phase-B registry
     (``fabric_flags``) is every-flag-DEFAULT-ON by construction and its
     audit claims that prefix, so a parked default-OFF experiment must
     not wear it.
     """
     return os.environ.get("O4_XSECTION_BRACKET", "0") == "1"
+
+
+# ── R-a · THE LATERAL-FOOT RECORD (route transparency) ────────────────
+#: Where the record lives on the layout.  A plain attribute, deliberately:
+#: it is minted pre-solve, read once at graph-build time, and never
+#: crosses a node space (the rod-key lesson) — it is POSITIONS, which is
+#: the one identity that survives welding, conformance and re-interning.
+_FEET_ATTR = "_lateral_xsection_feet"
+
+
+def record_lateral_feet(layout, pts) -> int:
+    """Record cross-section feet as ROUTE-TRANSPARENT (R-a).
+
+    ``pts`` is an iterable of ``(x, y)`` local-metre positions actually
+    inserted into a ring.  Returns the number recorded.  Append-only and
+    idempotent per call: the two lateral passes each call it once with
+    their own feet, and the fabric-sparse RESTORATION calls them again
+    after thinning, so the record accumulates every foot the build ever
+    planted — a foot the thinning removed simply matches no node.
+    """
+    rec = getattr(layout, _FEET_ATTR, None)
+    if rec is None:
+        rec = []
+        setattr(layout, _FEET_ATTR, rec)
+    n = 0
+    for p in pts:
+        rec.append((float(p[0]), float(p[1])))
+        n += 1
+    return n
+
+
+def lateral_feet(layout):
+    """The recorded feet — ``[(x, y), ...]`` (read-only by contract)."""
+    return getattr(layout, _FEET_ATTR, None) or []
+
+
+def lateral_foot_predicate(layout, tol_m: float = None):
+    """``is_lateral(x, y) -> bool`` over the recorded feet, or ``None``
+    when this layout planted none (so a caller can skip the work
+    entirely and stay byte-identical).
+
+    ``tol_m`` defaults to ``layout.SHARED_VERTEX_TOL_M`` — the canonical
+    registry's own bucket radius, which is exactly the right match
+    radius and NOT a fudge: a ring vertex is interned through
+    ``CanonicalPointRegistry.get_or_add``, so the graph node's position
+    is the canonical point within ``tol_m`` of the foot, and the same
+    registry guarantees no SECOND canonical point sits that close.  One
+    foot therefore resolves to at most one node, and the match cannot
+    sweep a genuine spine node in beside it.
+    """
+    pts = lateral_feet(layout)
+    if not pts:
+        return None
+    from .layout import SHARED_VERTEX_TOL_M
+    tol = float(SHARED_VERTEX_TOL_M if tol_m is None else tol_m)
+    cell = max(tol, 1e-6)
+    grid: dict = {}
+    for (x, y) in pts:
+        grid.setdefault((int(math.floor(x / cell)),
+                         int(math.floor(y / cell))), []).append((x, y))
+    t2 = tol * tol
+
+    def is_lateral(x, y) -> bool:
+        cx, cy = int(math.floor(x / cell)), int(math.floor(y / cell))
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for (px, py) in grid.get((cx + dx, cy + dy), ()):
+                    if (px - x) ** 2 + (py - y) ** 2 <= t2:
+                        return True
+        return False
+
+    is_lateral.n_feet = len(pts)          # type: ignore[attr-defined]
+    is_lateral.tol_m = tol                # type: ignore[attr-defined]
+    return is_lateral
 
 
 def _open(poly):
@@ -187,7 +300,8 @@ def _densify_to_step(cs, step: float):
     return out
 
 
-def _bracket_feet(vx, vy, cs, vi, tree, rings, polys, inserts) -> None:
+def _bracket_feet(vx, vy, cs, vi, tree, rings, polys, inserts,
+                  min_span_m: float = None) -> None:
     """Cast the perpendicular at station ``vi`` and record the NEAREST
     ring hit on EACH SIDE — the transverse law's own span selection
     (``tools/check_grade._check_transverse_grade``: the hits are sorted
@@ -198,6 +312,20 @@ def _bracket_feet(vx, vy, cs, vi, tree, rings, polys, inserts) -> None:
     both.  Nothing is recorded unless a shape offers hits of BOTH signs:
     a bracket is a cross-section, and a shape the station merely passes
     NEAR cannot produce one.
+
+    ``min_span_m`` — R-b, THE WIDTH-ADAPTIVE CONDITION (lead ruling
+    2026-08-08).  When given, a bracket is recorded only where the
+    PRICED span exceeds it, i.e. only where the nearest-projection
+    rule's fixed reach cannot have reached the far side.  That reach is
+    ``_DEFAULT_HALF_W_M`` (12 m) and it is a DEAD LOOKUP's fallback —
+    nothing has populated ``hw_by_ref`` since the rects retired — so on
+    a corridor wider than it the far edge gets no node at any station
+    and the emitted surface interpolates a lean across the whole width
+    (CYXY apron ``shapeID 115``: axis on the near edge, far edge
+    17-24 m out, ~8 % lateral cross-fall over a 449 m extent; the HECA
+    junction class is the same shape past 24 m).  ``None`` drops the
+    condition — the plain union, attempt 3, gated by
+    ``O4_XSECTION_BRACKET``.
     """
     # Tangent from the station's own segment (the densified list is
     # collinear inside a segment, so either neighbour gives the same
@@ -214,14 +342,14 @@ def _bracket_feet(vx, vy, cs, vi, tree, rings, polys, inserts) -> None:
     tx, ty = (bx0 - ax0) / tlen, (by0 - ay0) / tlen
     nx, ny = -ty, tx
     try:
-        cand = tree.query(Point(vx, vy).buffer(_CORNER_TOL_M))
+        cand = tree.query(Point(vx, vy).buffer(_SPAN_HALF_M))
     except _GEOM_EXC:
         return
     for qi in cand:
         si = int(qi)
         ring = rings[si]
         n = len(ring)
-        best_lo = best_hi = None          # (|u|, u, ei, t, (fx, fy))
+        hits = []                         # (u, ei, t, (fx, fy))
         for ei in range(n):
             ax, ay = ring[ei]
             bx, by = ring[(ei + 1) % n]
@@ -234,28 +362,53 @@ def _bracket_feet(vx, vy, cs, vi, tree, rings, polys, inserts) -> None:
             if t <= 0.0 or t >= 1.0:
                 continue
             u = (rx + t * ex) * nx + (ry + t * ey) * ny
+            if abs(u) > _SPAN_HALF_M:
+                continue                  # outside the censused half-width
             L = math.hypot(ex, ey)
             if t * L < _CORNER_TOL_M or (1.0 - t) * L < _CORNER_TOL_M:
                 continue                  # too near a corner (house rule)
-            hit = (abs(u), u, ei, t, (ax + t * ex, ay + t * ey))
-            if u < 0.0:
-                if best_lo is None or hit[0] < best_lo[0]:
-                    best_lo = hit
-            else:
-                if best_hi is None or hit[0] < best_hi[0]:
-                    best_hi = hit
-        if best_lo is None or best_hi is None:
+            hits.append((u, ei, t, (ax + t * ex, ay + t * ey)))
+        if len(hits) < 2:
             continue                      # not a cross-section here
-        if best_hi[1] - best_lo[1] < _BRACKET_MIN_WIDTH_M:
-            continue                      # narrower than the law prices
-        mid = 0.5 * (best_lo[1] + best_hi[1])
-        try:
-            if not polys[si].contains(Point(vx + nx * mid, vy + ny * mid)):
-                continue                  # the span is OUTSIDE the shape
-        except _GEOM_EXC:
+        hits.sort(key=lambda h: h[0])
+        # THE VALIDATOR'S OWN SPAN SELECTION, verbatim
+        # (``check_grade._check_transverse_grade``): every CONSECUTIVE
+        # hit pair is a candidate span; the one whose near side sits
+        # closest to the axis wins, and a span whose nearest side is
+        # further out than ``_SPAN_MAX_GAP_M`` is not the corridor the
+        # axis runs down, so the law does not price it.  A STRICT
+        # both-signs bracket is NOT the rule and was the miss: the wide-
+        # corridor class is an axis running ALONG a pavement edge, where
+        # every hit can land on ONE side of the section and the emitter
+        # then inserted nothing at all (measured at CYXY: apron|apron
+        # transverse stayed at 52 of the control's 3).
+        span = None
+        best_gap = None
+        for j in range(len(hits) - 1):
+            lo_h, hi_h = hits[j], hits[j + 1]
+            width = hi_h[0] - lo_h[0]
+            if width < _BRACKET_MIN_WIDTH_M:
+                continue                  # narrower than the law prices
+            gap = (0.0 if lo_h[0] <= 0.0 <= hi_h[0]
+                   else min(abs(lo_h[0]), abs(hi_h[0])))
+            if gap > _SPAN_MAX_GAP_M:
+                continue                  # not this axis's corridor
+            if min_span_m is not None and width <= float(min_span_m):
+                continue                  # R-b: the fixed reach covers it
+            mid = 0.5 * (lo_h[0] + hi_h[0])
+            try:
+                if not polys[si].contains(Point(vx + nx * mid,
+                                                vy + ny * mid)):
+                    continue              # the span is OUTSIDE the shape
+            except _GEOM_EXC:
+                continue
+            if best_gap is None or gap < best_gap:
+                best_gap = gap
+                span = (lo_h, hi_h)
+        if span is None:
             continue
-        for h in (best_lo, best_hi):
-            inserts[si][h[2]].append((h[3], h[4]))
+        for h in span:
+            inserts[si][h[1]].append((h[2], h[3]))
 
 
 def insert_lateral_spine_nodes(layout, icao: str = "", *,
@@ -292,6 +445,7 @@ def insert_lateral_spine_nodes(layout, icao: str = "", *,
     # shape index -> {edge_index -> [(t, (fx, fy))]}
     inserts: dict = defaultdict(lambda: defaultdict(list))
     rings = [_open(p) for p in polys]
+    n_rb = 0        # feet the R-b width-adaptive row rule contributed
 
     for entry in centerlines:
         ln = entry.line if hasattr(entry, "line") else (entry[0] if isinstance(entry, (tuple, list)) else entry)
@@ -306,57 +460,44 @@ def insert_lateral_spine_nodes(layout, icao: str = "", *,
             continue
         if station_step_m and len(cs) >= 2:
             cs = _densify_to_step(cs, float(station_step_m))
+        # ── R-b · WIDTH-ADAPTIVE LATERAL ROWS (lead ruling 2026-08-08) ──
+        # The sparse floor's third member — spines, curves, AND
+        # cross-sections.  The nearest-projection rule below finds a foot
+        # only where the ring passes within ``hw``, and ``hw`` is a DEAD
+        # LOOKUP's fallback (``_DEFAULT_HALF_W_M`` 12 m; nothing has
+        # populated ``hw_by_ref`` since the rects retired).  That is not
+        # the corridor the transverse law censuses: it walks the axis and
+        # prices the ring SPAN that BRACKETS the axis, so an axis running
+        # ALONG a pavement edge (CYXY apron ``shapeID 115``: axis on the
+        # near edge, far edge 17-24 m out, one 449 m extent) is priced
+        # with a far side the emitter never gave a node — an ~8 % lateral
+        # cross-fall, a parked-aircraft lean, exactly the sharp-surface
+        # class the fabric model must not ship.  So WHERE THE PRICED SPAN
+        # EXCEEDS THE REACH the row is completed with the law's own
+        # selection: cast the perpendicular, keep the NEAREST hit on EACH
+        # side.  Bounded by construction: a bracket needs hits of BOTH
+        # signs on ONE ring, which only a shape the station is INSIDE can
+        # offer, and at most two feet per station per shape are inserted.
+        # The rows ride the EXISTING 12 m station step (``station_step_m``
+        # = ``config.SPINE_STEP_M``, R-c) and are ROUTE-TRANSPARENT by
+        # R-a — they are recorded as cross-section feet below, so they
+        # mint no route-graph edge.
+        # ``O4_XSECTION_BRACKET`` (attempt 3, R-c-authorized, still
+        # default OFF) drops the width condition: the plain union of the
+        # two rules, which as an ALTERNATIVE to nearest-projection was
+        # measured to trade one population for the other (CYXY transverse
+        # 88 -> 89, apron|apron 57 both ways).
+        _rb_span = (None if _xsection_bracket_on()
+                    else (hw if _FF.on("O4_FABRIC_RB_WIDTH_ADAPTIVE_ROWS")
+                          else _RB_DISABLED))
         for _vi, (vx, vy) in enumerate(cs):
-            if station_step_m and _xsection_bracket_on():
-                # ── THE CROSS-SECTION RULE — MEASURED AND PARKED ──────
-                # STATUS (battery round, 2026-08-08): default OFF.  This
-                # is the SECOND fix attempt at the CYXY apron transverse
-                # class and it did NOT land: as an ALTERNATIVE to the
-                # nearest-projection rule below it trades one population
-                # for the other (CYXY transverse 88 -> 89, apron|apron 57
-                # both ways), which is why it is gated rather than
-                # deleted.  The attempt cap (CLAUDE.md convergence guard
-                # b) was reached, so the UNION of the two rules — the
-                # obvious next arm — is NOT taken here; it is reported to
-                # the owner as the proposed next attempt.  Turning this
-                # gate on runs the union, unmeasured.
-                #
-                # WHY IT EXISTS.  The nearest-projection rule finds a
-                # foot only where the ring passes within ``hw``, and
-                # ``hw`` is a DEAD LOOKUP's fallback
-                # (``_DEFAULT_HALF_W_M`` 12 m — see the note above;
-                # nothing has populated ``hw_by_ref`` since the rects
-                # retired).  That is not the corridor the transverse law
-                # censuses: it walks the axis and prices the ring SPAN
-                # that BRACKETS the axis, so an axis running ALONG a
-                # pavement edge (CYXY apron ``shapeID 115``: axis on the
-                # near edge, far edge 19.7-23.2 m away, one 480 m
-                # segment) is priced with a far side the emitter never
-                # gave a node.  This rule uses the law's own selection —
-                # cast the perpendicular, keep the NEAREST hit on EACH
-                # SIDE.  Bounded by construction, not by a reach: a
-                # bracket needs hits of BOTH signs on ONE ring, which
-                # only a shape the station is INSIDE can offer, and at
-                # most two feet per station per shape are inserted.
-                # The nearest-projection rule below finds a foot only
-                # where the ring passes within ``hw`` of the station, and
-                # ``hw`` is a DEAD LOOKUP's fallback (``_DEFAULT_HALF_W_M``
-                # 12 m — see the note above; nothing has populated
-                # ``hw_by_ref`` since the rects retired).  That is not the
-                # corridor the transverse law censuses: it walks the axis
-                # and prices the ring SPAN that BRACKETS the axis, so an
-                # axis running ALONG a pavement edge (CYXY apron
-                # ``shapeID 115``: axis on the near edge, far edge
-                # 19.7-23.2 m away, one 480 m segment) is priced with a
-                # far side the emitter never gave a node.  Restoration
-                # mode therefore uses the law's own selection — cast the
-                # perpendicular, keep the NEAREST hit on EACH SIDE — so
-                # the pair the law prices is the pair the emitter emits.
-                # Bounded by construction, not by a reach: a bracket
-                # needs hits of BOTH signs on ONE ring, which only a
-                # shape the station is INSIDE can offer, and at most two
-                # feet per station per shape are inserted.
-                _bracket_feet(vx, vy, cs, _vi, tree, rings, polys, inserts)
+            if station_step_m and _rb_span is not _RB_DISABLED:
+                _before = sum(len(v) for e in inserts.values()
+                              for v in e.values())
+                _bracket_feet(vx, vy, cs, _vi, tree, rings, polys, inserts,
+                              min_span_m=_rb_span)
+                n_rb += (sum(len(v) for e in inserts.values()
+                             for v in e.values()) - _before)
             P = Point(vx, vy)
             try:
                 cand = tree.query(P.buffer(hw))
@@ -392,6 +533,7 @@ def insert_lateral_spine_nodes(layout, icao: str = "", *,
         ring = rings[si]
         n = len(ring)
         new_ring = []
+        planted: list = []      # R-a: this shape's feet, if the ring lands
         for ei in range(n):
             new_ring.append(ring[ei])
             feet = sorted(by_edge.get(ei, []), key=lambda r: r[0])
@@ -401,6 +543,7 @@ def insert_lateral_spine_nodes(layout, icao: str = "", *,
                                                    fy - last[1]) < _MERGE_TOL_M:
                     continue
                 new_ring.append((fx, fy))
+                planted.append((fx, fy))
                 last = (fx, fy)
                 n_added += 1
         if len(new_ring) <= n:
@@ -409,13 +552,22 @@ def insert_lateral_spine_nodes(layout, icao: str = "", *,
             poly = Polygon(new_ring)
             if poly.is_valid and not poly.is_empty:
                 targets[si].polygon = poly
+                # R-a: record only the feet that ACTUALLY LANDED.  A shape
+                # whose rebuilt polygon is invalid keeps its old ring, so
+                # its feet were never planted, and claiming route
+                # transparency for a node that is something else would
+                # silently delete a real route edge.
+                record_lateral_feet(layout, planted)
         except _GEOM_EXC:
             continue
 
     if n_added:
         UI.vprint(1, f"  [pav-builder] {icao}: inserted {n_added} lateral "
                   f"corridor node(s) on apron/junction edges within taxi-width "
-                  f"of a spine.")
+                  f"of a spine"
+                  + (f" ({n_rb} of them from the R-b width-adaptive row rule, "
+                     f"on {len(inserts)} shape(s))." if station_step_m
+                     else "."))
     return n_added
 
 
@@ -513,6 +665,7 @@ def insert_service_lateral_nodes(layout, icao: str = "") -> int:
         ring = rings[si]
         n = len(ring)
         new_ring = []
+        planted: list = []      # R-a: this shape's feet, if the ring lands
         for ei in range(n):
             new_ring.append(ring[ei])
             feet = sorted(by_edge.get(ei, []), key=lambda r: r[0])
@@ -522,6 +675,7 @@ def insert_service_lateral_nodes(layout, icao: str = "") -> int:
                                                    fy - last[1]) < _MERGE_TOL_M:
                     continue
                 new_ring.append((fx, fy))
+                planted.append((fx, fy))
                 last = (fx, fy)
                 n_added += 1
         if len(new_ring) <= n:
@@ -530,6 +684,7 @@ def insert_service_lateral_nodes(layout, icao: str = "") -> int:
             poly = Polygon(new_ring)
             if poly.is_valid and not poly.is_empty:
                 targets[si].polygon = poly
+                record_lateral_feet(layout, planted)   # R-a
         except _GEOM_EXC:
             continue
 

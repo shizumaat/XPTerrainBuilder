@@ -59,6 +59,12 @@ def test_the_name_shape_is_enforced_at_construction():
     with pytest.raises(ValueError):
         FF.Flag(env="O4_FABRIC_W2_X", what="w", item="i",
                 default="0")
+    # The battery round's lead-ruling prefixes are legal; a stray letter
+    # is not (``O4_FABRIC_RESTAT_*`` was the parked pre-R-c spelling and
+    # must not read as a registered flag).
+    FF.Flag(env="O4_FABRIC_RA_X", what="w", item="i")
+    with pytest.raises(ValueError):
+        FF.Flag(env="O4_FABRIC_RESTAT_STATION_STEP", what="w", item="i")
 
 
 def _source_files():
@@ -66,9 +72,10 @@ def _source_files():
 
 
 def test_every_phase_b_flag_read_in_source_is_registered():
-    """No ``os.environ`` reader of an ``O4_W2_*`` / ``O4_W3_*`` name may
-    live outside the registry — that is how bisection stays complete."""
-    pat = re.compile(r"""O4_FABRIC_W[23]_[A-Z0-9_]+""")
+    """No ``os.environ`` reader of an ``O4_FABRIC_W2_*`` / ``W3_*`` /
+    ``R[ABC]_*`` name may live outside the registry — that is how
+    bisection stays complete."""
+    pat = re.compile(r"""O4_FABRIC_(?:W[23]|R[ABC])_[A-Z0-9_]+""")
     stray: dict = {}
     for path in _source_files():
         text = path.read_text()

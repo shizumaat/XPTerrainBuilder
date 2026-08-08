@@ -73,10 +73,13 @@ class Flag:
         # showing two different W2s side by side is a log nobody can
         # read.  The prefix is also what makes the registry's
         # "every Phase-B flag in source is registered" audit exact.
-        if not self.env.startswith(("O4_FABRIC_W2_", "O4_FABRIC_W3_")):
+        if not self.env.startswith(("O4_FABRIC_W2_", "O4_FABRIC_W3_",
+                                    "O4_FABRIC_RA_", "O4_FABRIC_RB_",
+                                    "O4_FABRIC_RC_")):
             raise ValueError(
-                f"{self.env!r}: a Phase-B flag is named O4_FABRIC_W2_* or "
-                f"O4_FABRIC_W3_* so a build log can be read without this "
+                f"{self.env!r}: a Phase-B flag is named O4_FABRIC_W2_*, "
+                f"O4_FABRIC_W3_* or O4_FABRIC_R[ABC]_* (the battery round's "
+                f"lead rulings) so a build log can be read without this "
                 f"file, and so the audit cannot collide with O4_W2_BANDS")
         if self.default != "1":
             raise ValueError(
@@ -141,6 +144,32 @@ FLAGS = (
          item="reg-set finding F-10 + F-3 — the FAA states TWO lip "
               "families (¶4.14.2 item 4: 4.5-5.5 % at a taxiway/apron "
               "edge); ICAO states NO taxiway lip at all"),
+    # ── THE BATTERY ROUND'S LEAD RULINGS (R-a / R-b / R-c) ────────────
+    Flag(env="O4_FABRIC_RA_ROUTE_TRANSPARENT_LATERALS",
+         what="cross-section/lateral feet are strung into the centerline "
+              "chains again, so they mint route-graph edges and the reach "
+              "band's route budgets price across corridors (the HECA "
+              "inversion)",
+         item="fabric-phase-b-spec.md BATTERY-ROUND LEAD RULINGS R-a — "
+              "'LATERAL NODES ARE ROUTE-TRANSPARENT'; the direct "
+              "application of RULINGS 2026-07-30 'Reach follows "
+              "centerlines' (reach follows TAXI CENTERLINES only)"),
+    Flag(env="O4_FABRIC_RB_WIDTH_ADAPTIVE_ROWS",
+         what="the lateral pass reaches its fixed 12 m half-width only, so "
+              "a corridor wider than the reach gets no far-side node and "
+              "the emitted surface leans across it",
+         item="fabric-phase-b-spec.md BATTERY-ROUND LEAD RULINGS R-b — the "
+              "sparse floor's third member (spines, curves AND "
+              "cross-sections): width-adaptive lateral rows at the 12 m "
+              "step wherever a priced cross-section exceeds the reach"),
+    Flag(env="O4_FABRIC_RC_STATION_STEP",
+         what="the fabric-sparse RESTORATION runs the taxi lateral pass at "
+              "the source data's own vertex spacing instead of the 12 m "
+              "station step (the parked half — it broke HECA's reach band "
+              "under the pre-R-a frame)",
+         item="fabric-phase-b-spec.md BATTERY-ROUND LEAD RULINGS R-c — "
+              "'the station-step re-arm flag flips back ON once laterals "
+              "are route-transparent'"),
     # ── W3 · the freeze, redesigned with its geometry ─────────────────
     Flag(env="O4_FABRIC_W3_FGP_HARD_CAT",
          what="the late final_grade_projection hardens with NO seeder "

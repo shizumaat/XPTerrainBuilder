@@ -2825,6 +2825,14 @@ def _check_drainage_spine_below_pavement(
 _TRANSVERSE_STEP_M = 10.0
 _TRANSVERSE_HALF_M = 80.0
 _TRANSVERSE_MIN_WIDTH_M = 3.0
+#: How far the priced span's nearest hit may sit from the axis.  A span
+#: whose near side is further out than this is not the corridor the axis
+#: runs down, so the law does not price it.  NAMED because the emitter
+#: reads the SAME number: ``lateral_spine_nodes._SPAN_MAX_GAP_M`` inserts
+#: the pair this rule selects, and two copies of a span rule drifting is
+#: the census-wrapper defect class (twin:
+#: ``tests/test_lateral_cross_section.py``).
+_TRANSVERSE_MAX_GAP_M = 1.0
 _TRANSVERSE_ROLES = frozenset({"junction", "service_junction", "apron"})
 
 
@@ -3104,7 +3112,7 @@ def _check_transverse_grade(ways: List[Way], nodes, ll_to_m, taxi_axes,
                             continue
                         gap = (0.0 if lo_h[0] <= 0.0 <= hi_h[0]
                                else min(abs(lo_h[0]), abs(hi_h[0])))
-                        if gap > 1.0:
+                        if gap > _TRANSVERSE_MAX_GAP_M:
                             continue
                         mid = 0.5 * (lo_h[0] + hi_h[0])
                         if not _point_in_ring(px + nx * mid, py + ny * mid,

@@ -1636,11 +1636,17 @@ def _construct_from_envelope(layout, envelope, sample_dem=None,
     # that ground is the ramp, and a wall inside a ramp is not the law
     # (owner answer 2 — the wall is the FALLBACK for what 5 % could not
     # span, and 5 % is what this piece already holds).
+    # THE FABRIC MODEL: a cluster apron is not a terrace candidate either
+    # — inside a cluster the ONLY shaping is the law's own grade caps
+    # (spec §3: explicit shaping lives in the REG SET).  Inert when the
+    # gate is off.
+    from auto_patch.fabric_sparse import is_sparse as _fabric_sparse_ap
     aprons = [s for s in list(getattr(layout, "shapes", ()))
               if s.role == ROLE_APRON and s.polygon is not None
               and not s.polygon.is_empty
               and s.polygon.geom_type == "Polygon"
-              and not getattr(s, "fan_ramp_zone", False)]
+              and not getattr(s, "fan_ramp_zone", False)
+              and not _fabric_sparse_ap(s)]
     # THE SETTLED LATTICE, READ AFTER THE FAN SPLIT (cycle-5 node
     # identity): the fan cut already ran, so its pieces are part of the
     # settled set this cut must be born on.  One build for the whole
@@ -3036,11 +3042,20 @@ def split_aprons_at_fan_zones(layout, plan: Optional[FanRampPlan],
         keep_out = cover if cover is not None else corridor_cover(layout)
     except _GEOM_EXC:                                      # pragma: no cover
         keep_out = None
+    # THE FABRIC MODEL (owner RULINGS 2026-08-08), gate O4_FABRIC_SPARSE,
+    # default OFF.  Owner, verbatim: "I don't think we even need to grade
+    # apron fans", and interview scope answer 1: "Fan zones RETIRE
+    # OUTRIGHT (they compensated for dense emission)."  Inside a declared
+    # Phase-A cluster an apron is never split at a fan zone.  Inert when
+    # the gate is off.
+    from auto_patch.fabric_sparse import is_sparse as _fabric_sparse
     kept_zones: list = []
     new_shapes: list = []
     for shape in list(getattr(layout, "shapes", ())):
         zones = plan.by_shape.get(id(shape))
         if not zones:
+            continue
+        if _fabric_sparse(shape):
             continue
         poly = getattr(shape, "polygon", None)
         if (poly is None or poly.is_empty or poly.geom_type != "Polygon"):

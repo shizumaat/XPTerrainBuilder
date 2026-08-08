@@ -30,6 +30,9 @@ import time
 R_EARTH_M = 6_378_137.0
 
 
+_EQUI_NORM = 2.0 * 3.0 ** 0.5   # normalises an EQUILATERAL to exactly 1.0
+
+
 def texel_m(lat_deg: float, zl: int = 16) -> float:
     """ZL ground resolution in metres at a latitude (web Mercator).
 
@@ -111,6 +114,21 @@ def main(argv=None):
                          "two different boxes, which is two populations")
     ap.add_argument("--zl", type=int, default=16,
                     help="zoom level the texel is computed at (default 16)")
+    ap.add_argument("--aspect", action="store_true",
+                    help="also report the triangle SHAPE distribution in the "
+                         "bbox — the LONG-TRIANGLE class an area band cannot "
+                         "see (a 40 m x 0.5 m needle and a 4.5 m equilateral "
+                         "share an area band).  Ratio = longest edge / "
+                         "(2*sqrt(3) x inradius): 1.0 is equilateral, "
+                         "and it rises "
+                         "without bound as a triangle degenerates.  Reports "
+                         "p50/p90/p99/max plus the count over --aspect-flag.")
+    ap.add_argument("--aspect-flag", type=float, default=20.0,
+                    metavar="RATIO",
+                    help="a triangle at or above this ratio is counted as a "
+                         "NEEDLE (default 20.0 — a REPORTING threshold and an "
+                         "assumption, never a law; two runs quoted at two "
+                         "thresholds are not comparable)")
     ap.add_argument("--json", default=None, metavar="OUT.json",
                     help="also write the counts here, with the bbox and "
                          "band edges stamped alongside")
@@ -158,6 +176,7 @@ def main(argv=None):
         bands_in = [0] * nb
         bands_out = [0] * nb
         area_in = [0.0] * nb
+        aspects = array.array("d") if args.aspect else None
         for _ in range(nt):
             p = f.readline().split()
             a, b, c = int(p[0]) - 1, int(p[1]) - 1, int(p[2]) - 1
@@ -166,7 +185,7 @@ def main(argv=None):
             inside = lo0 <= cx <= lo1 and la0 <= cy <= la1
             if inside:
                 in_box += 1
-            if edges is None:
+            if edges is None and not (args.aspect and inside):
                 continue
             ax = (vlon[a] - lo0) * m_per_deg_lon
             ay = (vlat[a] - la0) * m_per_deg_lat
@@ -175,6 +194,21 @@ def main(argv=None):
             cx2 = (vlon[c] - lo0) * m_per_deg_lon
             cy2 = (vlat[c] - la0) * m_per_deg_lat
             ar = abs((bx - ax) * (cy2 - ay) - (cx2 - ax) * (by - ay)) * 0.5
+            if aspects is not None and inside:
+                # longest edge / (2*sqrt(3) * inradius), with inradius =
+                # area / semiperimeter.  The sqrt(3) is the normalisation
+                # that makes an EQUILATERAL read exactly 1.0 (its own
+                # longest-edge/2r is sqrt(3)); a needle diverges.
+                # Scale-free, so it separates SHAPE from SIZE — which is
+                # exactly what an area band cannot do.
+                e0 = math.hypot(bx - ax, by - ay)
+                e1 = math.hypot(cx2 - bx, cy2 - by)
+                e2 = math.hypot(ax - cx2, ay - cy2)
+                s = 0.5 * (e0 + e1 + e2)
+                aspects.append(max(e0, e1, e2) * s / (_EQUI_NORM * ar)
+                               if ar > 0.0 else float("inf"))
+            if edges is None:
+                continue
             i = band_index(ar, edges)
             if inside:
                 bands_in[i] += 1
@@ -202,6 +236,24 @@ def main(argv=None):
         payload["area_bands_in_bbox"] = bands_in
         payload["area_bands_outside"] = bands_out
         payload["area_bands_ground_m2_in_bbox"] = area_in
+    if aspects is not None and len(aspects):
+        srt = sorted(aspects)
+        n = len(srt)
+
+        def _q(p):
+            return srt[min(n - 1, max(0, int(round(p * (n - 1)))))]
+        needles = sum(1 for v in srt if v >= args.aspect_flag)
+        print(f"  aspect (longest edge / 2*sqrt(3)*inradius; "
+              f"1.0 = equilateral), "
+              f"{n:,} triangle(s) in bbox:")
+        print(f"    p50 {_q(0.50):.2f}  p90 {_q(0.90):.2f}  "
+              f"p99 {_q(0.99):.2f}  max {srt[-1]:.2f}")
+        print(f"    needles >= {args.aspect_flag:g}: {needles:,} "
+              f"({100.0 * needles / n:.3f}% of in-bbox)")
+        payload["aspect_flag"] = args.aspect_flag
+        payload["aspect_in_bbox"] = {
+            "n": n, "p50": _q(0.50), "p90": _q(0.90), "p99": _q(0.99),
+            "max": srt[-1], "needles": needles}
     print(f"(parsed in {time.time() - t:.0f}s)")
     if args.json:
         import json

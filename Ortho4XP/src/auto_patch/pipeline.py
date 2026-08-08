@@ -4886,6 +4886,30 @@ def build_airport_pavement(icao: str, xplane_root: str,
             source_clip_partial_coverage_shapes(layout, icao=icao)
             _covp(layout, "post-source-clip")
 
+        # ── THE FABRIC MODEL: ARM THE PHASE-A CLUSTER (owner RULINGS
+        # 2026-08-08; gate O4_FABRIC_SPARSE, default OFF) ───────────────
+        # Armed HERE — after the apron/junction set has settled and
+        # BEFORE the first pass the model changes (the 60 m stationing
+        # inside ``_unify_airside_geometry`` below).  What is frozen is a
+        # REGION, not a shape list: shapes are re-cut and re-born after
+        # this point, and a stale reference set would silently stop
+        # covering them.  ``arm`` returns 0 and leaves every predicate
+        # False when the gate is off or the airport has no declared
+        # cluster, so this is byte-inert everywhere else.
+        try:
+            from . import fabric_sparse as _fabric_arm
+            _n_cluster = _fabric_arm.arm(layout, icao)
+            if _n_cluster:
+                _fr = _fabric_arm.report()
+                UI.vprint(1,
+                    f"  [pav-builder] {icao}: FABRIC-SPARSE armed — "
+                    f"{_n_cluster} cluster shape(s), "
+                    f"{_fr.get('region_area_m2', 0.0):.0f} m^2, roles "
+                    f"{_fr.get('roles')}.")
+        except _GEOM_EXC as _fab_arm_exc:                  # pragma: no cover
+            UI.vprint(1, f"  [pav-builder] {icao}: fabric-sparse ARM "
+                         f"FAILED: {_fab_arm_exc!r} — gate inert this build.")
+
         # ── Airside node-unification (refactor Phases 6+7, PRE-solve) ──
         # Weld + full conformance + final corner snaps, run HERE so the solver
         # sees the FINAL node-set and grades every shared vertex to ONE
@@ -5338,6 +5362,53 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 UI.vprint(1, f"  [pav-builder] WARN: {icao}: "
                              f"lateral-contiguity re-bind failed "
                              f"({_lat_exc2!r}).")
+
+        # ── THE FABRIC MODEL — sparse lawful emission (owner RULINGS
+        # 2026-08-08; docs/specs/fabric-model-spec.md Phase A; gate
+        # O4_FABRIC_SPARSE, default OFF) ────────────────────────────────
+        # LAST pre-solve act, deliberately: every construction above has
+        # settled the node set (conformance welds, pad seats, mouths,
+        # spine stations, the pre-solve band/terrace constructions this
+        # gate already declined inside the cluster), so the weld set the
+        # thinning holds is COMPLETE and what it removes is exactly the
+        # population no law asked for.  Removed here — before the solve —
+        # the sparse ring IS what the solver solves, what the census
+        # measures and what the sim renders; a post-solve thin would give
+        # three different populations.  Fully inert with the gate off.
+        try:
+            from . import fabric_sparse as _fabric
+            _n_fab = _fabric.thin_rings(layout, icao)
+            if _n_fab:
+                # THE OWNER'S RIDER, RESTORED BY THE MACHINERY THAT OWNS
+                # IT: "…as long as we keep adequate nodes on spines and
+                # at curves."  The thinning above removes every vertex no
+                # law asked for, which includes the SPINE STATIONS the
+                # lateral/junction passes placed at ``config.SPINE_STEP_M``
+                # — and the cross-section (``transverse``) law is priced
+                # on PAIRS of stations facing each other across a
+                # corridor, so losing them mints violations rather than
+                # removing them (measured at CYXY, attempt 1: transverse
+                # 31 -> 262 rows, junction|junction 7 -> 171).  Re-running
+                # the two station passes restores exactly that population
+                # at exactly their own spacing — "adequate" is MEASURED
+                # from the existing machinery, never re-derived here — and
+                # they are pure subdivide-to-spacing inserts, so outside
+                # the cluster the second call finds nothing to do.
+                _n_restat = 0
+                if os.environ.get("O4_LATERAL_SPINE_NODES", "1") == "1":
+                    from .lateral_spine_nodes import insert_lateral_spine_nodes
+                    _n_restat += insert_lateral_spine_nodes(layout, icao) or 0
+                if os.environ.get("O4_DENSIFY_JUNCTION_EDGES", "1") == "1":
+                    from .lateral_spine_nodes import densify_junction_edges
+                    _n_restat += densify_junction_edges(layout, icao) or 0
+                _fabric.note_restation(_n_restat)
+                _line = _fabric.emit_summary(icao)
+                if _line:
+                    UI.vprint(1, _line)
+                _rod_ckpt(layout, "00a_fabric_sparse_thin")
+        except _GEOM_EXC as _fab_exc:                      # pragma: no cover
+            UI.vprint(1, f"  [pav-builder] {icao}: fabric-sparse thinning "
+                         f"FAILED: {_fab_exc!r} — dense emission this build.")
 
         if layout.anchor is not None:
             # Runway CIFP thresholds are LOCKED — the solver never moves them.

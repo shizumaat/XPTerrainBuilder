@@ -1212,3 +1212,12 @@ On fabric-model-reg-set.md §6, questions 1-4:
    surroundings on both rulesets.
 Question 5 (105 m precision-approach graded strip, guidance not
 specification) remains OPEN with the owner.
+
+## 2026-08-08 — 105 m precision-approach graded strip: ADOPTED (owner; reg-set Q5)
+
+Owner: "Follow the guidance 105m graded strip half width for
+precision approach runways." The Annex 14 §3.4.8 Note / EASA GM
+figure guidance is adopted as law in BOTH rulesets: precision-
+approach runways grade the strip to a 105 m half-width. Recorded as
+guidance-adopted-as-law (the one deliberate exceedance of bare
+specification in the fabric model's reg set).

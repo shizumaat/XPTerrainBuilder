@@ -20,7 +20,14 @@ this document now records a value as DISCREPANT.
   Issue 7 read in full; FAA rows carried from earlier repo rounds
   because `faa.gov` was 403-blocked to every fetch path. 23 mapped rows,
   8 findings, 5 owner questions.
-* **2026-08-08 (round 2, this revision)** — the owner supplied
+* **2026-08-08 (W1 encoding pass)** — no research changed; two Q5
+  rows corrected in place after the owner **REVERSED** the 105 m
+  precision-strip adoption ("105 m precision strip DROPPED";
+  specification values only). §2.1 and §6 now record the Annex 14
+  §3.4.8 Note as UNADOPTED guidance. Everything else in this document
+  stands, and `config.py` now carries it — see `docs/STANDARDS.md`
+  "The fabric-model REG SET — W1 encoding".
+* **2026-08-08 (round 2)** — the owner supplied
   AC 150/5300-13B Chg 1 (consolidated, with errata) and the 2025-04-03
   errata sheet into `regs/`, executing the provenance contract in
   `regs/README.md`. **Every FAA row primary-verified against the AC's own
@@ -174,7 +181,7 @@ negative:
 | Strip lateral half-width (non-instrument) | 75 m (3/4); 40 m (2); 30 m (1) | Annex 14 §3.4.5 (rec.) — PV-2026-08-08 | n/a | — |
 | **GRADED portion half-width — instrument runway** | **75 m (code 3/4); 40 m (code 1/2)** | Annex 14 §3.4.8; **CS ADR-DSN.B.175(a)** — PV-2026-08-08 | RSA **width C**, halved: 18.3 m (A/B-I, 120 ft), 22.9 m (A/B-II, 150 ft), 45.7 m (A/B-III, 300 ft), 76.2 m (A/B-IV and **all** C/D/E, 500 ft). **Second key: visibility minimums.** Lower than 3/4 mile raises A/B-I→300 ft, A/B-II→300 ft, A/B-III→400 ft (C/D/E unchanged at 500 ft) | AC App. G G-1…G-12 row *RSA Width* (dim **C**), **Standards** via §3.10.1 *Dimensions* — **PV-2026-08-08**; fn 13: where 500 ft "is not practical", 400 ft is permissible (C/D/E-I and C/D/E-II only) |
 | **GRADED portion half-width — non-instrument runway** | **75 m (3/4); 40 m (2); 30 m (1)** | Annex 14 §3.4.9; **CS ADR-DSN.B.175(b)** — PV-2026-08-08 | as above (the FAA table is keyed by AAC×ADG×visibility, not by instrument/non-instrument) | **PV-2026-08-08** |
-| Wider graded strip, precision approach code 3/4 | 105 m, tapering to 75 m over the last 150 m at each end — **GUIDANCE ONLY in the source; ADOPTED AS LAW IN BOTH RULESETS** by RULINGS 2026-08-08 (reg-set Q5) | Annex 14 §3.4.8 Note + Att. A §9; EASA GM1 ADR-DSN.B.175(a) Fig. GM-B-4 — PV-2026-08-08 | **no FAA equivalent.** The AC's RSA width is a flat 500 ft (76.2 m half-width) for every C/D/E code and does **not** widen for a precision approach; the only visibility-driven widening is in the A/B families (F-9). So the adopted 105 m half-width **exceeds the FAA RSA half-width (76.2 m) by 28.8 m** and lands inside the ROFA (800 ft ⇒ 121.9 m half-width). On the FAA ruleset it is therefore a deliberate scenery choice sitting on top of a Standard, not a citation — flag it as such wherever it is encoded | AC App. G rows *RSA Width* / *ROFA Width* — PV-2026-08-08 |
+| Wider graded strip, precision approach code 3/4 | 105 m, tapering to 75 m over the last 150 m at each end — **GUIDANCE ONLY in the source, and UNADOPTED.** The same-day adoption (RULINGS 2026-08-08 reg-set Q5) was **REVERSED** hours later by RULINGS 2026-08-08 "105 m precision strip DROPPED" — owner, on learning it has no FAA anchor: "If there's no FAA citation for the 105 m precision strip, we can drop it as well." Specification values only; W1 encodes NOTHING for this row, and the FAA-side analysis below is what motivated the reversal | Annex 14 §3.4.8 Note + Att. A §9; EASA GM1 ADR-DSN.B.175(a) Fig. GM-B-4 — PV-2026-08-08 | **no FAA equivalent.** The AC's RSA width is a flat 500 ft (76.2 m half-width) for every C/D/E code and does **not** widen for a precision approach; the only visibility-driven widening is in the A/B families (F-9). So the adopted 105 m half-width **exceeds the FAA RSA half-width (76.2 m) by 28.8 m** and lands inside the ROFA (800 ft ⇒ 121.9 m half-width). On the FAA ruleset it is therefore a deliberate scenery choice sitting on top of a Standard, not a citation — flag it as such wherever it is encoded | AC App. G rows *RSA Width* / *ROFA Width* — PV-2026-08-08 |
 
 > **FINDING F-1 (defect, small).** The repo's
 > `RUNWAY_STRIP_HALF_WIDTH_BY_CODE = {1: 30, 2: 40, 3: 75, 4: 75}` is the
@@ -662,7 +669,8 @@ does not read its absence from §5 as a retirement.
 
 The questions are kept verbatim below because the *reasoning* behind each
 ruling is the reasoning in the question. The answers are in
-`docs/RULINGS.md` ("Reg-set rulings", and "105 m precision-approach
+`docs/RULINGS.md` ("Reg-set rulings", and — for Q5 — "105 m precision
+strip DROPPED", which SUPERSEDES the same-day "105 m precision-approach
 graded strip: ADOPTED"); this section is the index, not the authority.
 
 | Q | Owner answer (RULINGS 2026-08-08) |
@@ -671,7 +679,7 @@ graded strip: ADOPTED"); this section is the index, not the authority.
 | **Q2** all-taxiway drainage | reading **(b)** — the FAA 1.0 % transverse minimum becomes a **named house constant, PROVISIONAL**, on the ICAO ruleset, satisfying "sufficient to prevent accumulation", **with the ICAO text quoted in the ruleset entry**. The verbatim for both sides is §4.2.1 |
 | **Q3** RESA datum | **fix both per source.** ICAO: strip-end datum, 90 m *shall* vs 240 m *should* handled as mandate-vs-recommendation. FAA: the Appendix G length-beyond-end column is a BUILD item requiring the primary text — **now supplied, §3.1**, with its datum footnote |
 | **Q4** apron surround | **T2/T3/T4 RETIRE OUTRIGHT.** Nothing mandates them; the drape takes apron surroundings on both rulesets. Confirmed against the AC's *Recommended Practices* heading (§5.1 note) |
-| **Q5** 105 m precision-approach graded strip | **ADOPTED as law in BOTH rulesets** — "Follow the guidance 105m graded strip half width for precision approach runways." Recorded as guidance-adopted-as-law, the one deliberate exceedance of bare specification in this reg set |
+| **Q5** 105 m precision-approach graded strip | **DROPPED — the adoption was REVERSED the same day.** The first answer was "Follow the guidance 105m graded strip half width for precision approach runways"; on learning the 105 m has no FAA anchor the owner ruled "If there's no FAA citation for the 105 m precision strip, we can drop it as well" (RULINGS 2026-08-08 "105 m precision strip DROPPED", superseding). Specification values only — consistent with rulings 1 and 4: shape nothing the specification does not mandate. This reg set now contains NO value that exceeds its citation |
 
 **Q1 — the mandatory-DOWN blend on the ICAO ruleset.** ICAO §3.4.15 /
 CS ADR-DSN.B.185 state **no minimum** transverse fall on the graded

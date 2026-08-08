@@ -283,10 +283,16 @@ def test_row6_strip_half_width():
             == pytest.approx(1.2))
 
 
-def test_rows_7_8_are_DEFERRED_by_owner_question_1():
+def test_rows_7_8_still_carry_the_blend_pending_the_W2_flip():
     """The 2026-07-08 mandatory-DOWN ruling was premised on ONE blended
-    ruleset.  Until the owner answers, BOTH rulesets keep the blended
-    values — the deferral is visible law, not drift."""
+    ruleset.  Owner question 1 is now ANSWERED (RULINGS 2026-08-08
+    reg-set ruling 1: the ICAO ruleset DROPS the mandatory fall, flagged
+    PROVISIONAL) and the authority-true values are encoded beside these
+    — ``strip_band_min_down_slope_authority``, W1.  These LIVE fields
+    still carry the blend on purpose: switching the consumer is an
+    emitted-geometry change and belongs to W2's gated A/B pairs.  See
+    ``CFG.RULESET_W2_PENDING_FLIPS`` and
+    tests/test_fabric_reg_set_w1.py family H."""
     for key in ("faa", "icao"):
         rs = CFG.get_ruleset(key)
         assert rs.strip_lip_width_m == CFG.ADJACENT_GROUND_LIP_WIDTH_M
@@ -386,8 +392,14 @@ def test_crown_minimum_binds_on_runways_and_is_recorded_on_taxiways():
     assert CFG.get_ruleset("faa").runway_transverse_min == 0.010
     assert CFG.get_ruleset("icao").runway_transverse_min == 0.010
     assert CFG.get_ruleset("faa").taxi_transverse_min == 0.010
-    # ICAO §3.9.11 states no taxiway minimum — fidelity, not an omission.
-    assert CFG.get_ruleset("icao").taxi_transverse_min is None
+    # ICAO §3.9.11 states no taxiway minimum.  Reg-set ruling 2
+    # (2026-08-08) fills that gap with the FAA 1.0 % as a NAMED
+    # PROVISIONAL HOUSE CONSTANT, so the value is present and the
+    # LABEL — not a None — is what preserves the distinction.  Full
+    # twin: tests/test_fabric_reg_set_w1.py family F.
+    assert CFG.get_ruleset("icao").taxi_transverse_min == 0.010
+    assert CFG.ruleset_taxi_transverse_min_provisional("icao") is True
+    assert CFG.ruleset_taxi_transverse_min_provisional("faa") is False
     # taxiway unbound ⇒ its surface bound stays symmetric
     lo, hi = GL.transverse_surface_bounds("taxiway", "C", 10.0, "faa")
     assert lo == pytest.approx(-0.15)

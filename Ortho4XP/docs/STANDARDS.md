@@ -313,3 +313,39 @@ everywhere else**, decided from the ICAO location-indicator first letter.
 > `feasibility_project` an explicit per-edge "envelope leaf" marker instead of the index
 > threshold, so the EAT slabs are excluded from the envelope adjacency the way the zone
 > slabs are. Then flip the default and re-measure KCLT.
+
+## The fabric-model REG SET — W1 encoding, 2026-08-08
+
+Source of every value: `docs/specs/fabric-model-reg-set.md`, all rows
+**PV-2026-08-08** against ICAO Annex 14 Vol I 8th ed. (2018), EASA
+CS-ADR-DSN Issue 7, and the owner-supplied **AC 150/5300-13B Chg 1
+"with errata"** in `regs/`. Owner law: `docs/RULINGS.md` 2026-08-08
+"Reg-set rulings" 1–4 and "105 m precision strip DROPPED"; spec
+`docs/specs/fabric-phase-b-spec.md` W1. Machine-readable provenance
+(value · citation · authority class · PV date) is
+`config.REG_SET_ENTRIES`; twins are `tests/test_fabric_reg_set_w1.py`.
+
+**W1 is CONSTANTS ONLY.** Where an authority-true value differs from
+what an emitter reads today, the live field is untouched and the
+authority's number sits beside it — `config.RULESET_W2_PENDING_FLIPS`
+is the checklist, and a twin pins the divergence so neither half can
+drift silently.
+
+| Rule | Value | Standard | Implemented in |
+|------|-------|----------|----------------|
+| FAA RSA width — **three axes** (F-9) | AAC group × ADG × visibility minimum: A/B-I 120 ft, A/B-II 150 ft, **A/B-III 300 ft**, **A/B-IV 500 ft**, all C/D/E 500 ft; below 3/4 mile A/B-I→300, A/B-II→300, A/B-III→400 ft (C/D/E flat). fn 13's 400 ft relief is recorded, never auto-taken | AC 150/5300-13B Chg 1 App. G Tables G-1…G-12 row *RSA Width* (dim C), via ¶3.10.1 — *Standard* | `config.FAA_RSA_WIDTH_FT_BY_RDC`, `faa_rsa_half_width_m()`; `FAA_RSA_HALF_WIDTH_M_BY_LETTER` is now a VIEW of it |
+| FAA ROFA width | 400 ft A/B-I, 500 ft A/B-II, 800 ft elsewhere and in every <3/4-mile column; 250 ft for the A/B-I small-aircraft table | AC App. G row *ROFA Width* (dim Q) — *Standard* | `config.FAA_ROFA_WIDTH_FT_BY_RDC`, `FAA_ROFA_WIDTH_FT_SMALL_AIRCRAFT`, `faa_rofa_half_width_m()` |
+| FAA RSA length **per end** (F-12) | dim R 240 / 300 / 600 / 1,000 ft by RDC (<3/4 mile: 600 / 600 / 800 ft); dim P 240 / 300 / 600 / 600 ft, applying only where that end has electronic or visual vertical guidance (fn 11) | AC App. G + fn 9, 10, 11 (p. G-13) — *Standard* | `config.faa_rsa_end_length_m()` — a FUNCTION of RDC × visibility × guidance, never a flattened constant |
+| FAA RSA length **datum** | begins at the runway end; at the **stopway end** where a stopway is present | AC App. G fn 9 — *Standard* | `config.faa_rsa_end_datum_offset_m()`, `faa_rsa_governed_length_beyond_runway_end_m()`, `Ruleset.resa_length_datum` |
+| ICAO RESA datum + length | from the **end of the runway strip** (itself 60 m past the runway end; 30 m at code 1 non-instrument); **shall** ≥90 m, **should** 240 m (code 3/4) / 120 m (code 1/2 instrument) / 30 m (code 1/2 non-instrument) | Annex 14 §3.5.3–3.5.4 with §3.4.2; CS ADR-DSN.C.215(a), B.155 | `Ruleset.resa_length_min_m`, `resa_length_recommended_m[_instrument]`, `strip_beyond_end_m[_instrument]`; `config.ruleset_resa_length_m()` |
+| **Lip family 1** — runway / shoulder / stopway edge | 3 m at **3 %–5 %** negative | Annex 14 §3.4.15 final clause / CS ADR-DSN.B.185(a) (**shall**); AC Fig. 3-33 Detail A note 2 (*Standard*) | `Ruleset.strip_lip_*`, `config.ruleset_runway_edge_lip()` |
+| **Lip family 2** — taxiway / taxilane / apron edge (F-10) | FAA 3 m at 5 ±0.5 % ⇒ **4.5 %–5.5 %**, carved OUT of the 1.5–5 % TSA band; **ICAO states no lip at all** | AC ¶4.14.2 *Standards* items 4 and 5 (p. 4-46); Annex 14 §3.11.5 / D.330(b) absence verified by full read | `Ruleset.taxiway_lip_*`, `config.ruleset_taxiway_edge_lip()`, `ruleset_taxiway_lip_carved_out_of_band()` |
+| Taxiway shoulder **width** (F-11) | per side 10 ft (3.0 m) TDG 1A/1B, 15 ft (4.6 m) 2A/2B, 20 ft (6.1 m) 3/4, 30 ft (9.1 m) 5/6; 40 ft (12.2 m) at TDG 6 with four engines. Keyed by **TDG**, not ADG | AC Table 4-2 + fn 3 (p. 4-10), via ¶4.13.1 item 1 — *Standard* | `config.FAA_TAXIWAY_SHOULDER_WIDTH_M_BY_TDG`, `ruleset_taxiway_shoulder_width_m()` |
+| Taxiway shoulder **provision** | paved for ADG-IV and larger — provision stays **ADG**-keyed | AC ¶4.13.1 *Standards* item 2 | `Ruleset.taxiway_shoulder_paved_from_adg`, `config.ruleset_taxiway_shoulder_paved_from_adg()` |
+| ICAO taxiway + shoulders total width | ≥25 m (C), 34 m (D), 38 m (E), 44 m (F); no per-side width, no slope number | Annex 14 §3.10.1; CS ADR-DSN.D.305(a) | `config.ICAO_TAXIWAY_PLUS_SHOULDERS_TOTAL_WIDTH_M`, `ruleset_taxiway_plus_shoulders_total_width_m()` |
+| **TOFA back slope** — FAA only (R24, new) | ≤**4:1** (25 % rise) where a back slope is necessary. A CEILING (cut), never a mandate to shape. The TOFA *side* slope stays qualitative — no number | AC ¶4.14.2 *Standards* item 6b + Figure 4-29 (p. 4-45) | `Ruleset.tofa_back_slope_ratio`, `config.ruleset_tofa_back_slope_ratio()` |
+| Taxiway cross-fall **minimum** (ruling 2) | FAA **1.0 %** (band 1.0–1.5 %), a *Standard*; ICAO states none, so 1.0 % is adopted there as a **named PROVISIONAL house constant** with the ICAO text quoted at the construction site. **Bind the minimum, not the crown form** — the centre crown is only a *Recommended Practice* and a shed section is admitted | AC ¶4.14.2 *Standards* item 1a / *Recommended Practices* item 2 (p. 4-46); Annex 14 §3.9.11 / CS ADR-DSN.D.280(b); RULINGS 2026-08-08 reg-set ruling 2 | `Ruleset.taxi_transverse_min`, `taxi_transverse_min_provisional`, `taxi_crown_form_binding`. Still RECORDED, NOT BOUND (`CROWN_MINIMUM_BOUND_TAXIWAYS = False`) |
+| Graded-strip mandatory **DOWN** (ruling 1) | FAA keeps its own 1.5 % floor (Table 3-6 S-3); **ICAO DROPS it, flagged PROVISIONAL** — §3.4.15 states a ceiling and the 3 m lip and no minimum anywhere | AC Table 3-6 row S-3 (p. 3-60) + ¶3.16.5 item 6 — *Standard*; Annex 14 §3.4.15 / CS ADR-DSN.B.185(a); RULINGS 2026-08-08 reg-set ruling 1 | `Ruleset.strip_band_min_down_slope_authority`, `strip_band_mandatory_down`, `strip_band_drop_provisional`. **Live blend `strip_band_min_down_slope` untouched — W2 flips the consumer** |
+| ICAO **instrument** graded-strip width (F-1) | 40 m at code 1 and 2, 75 m at code 3 and 4 on an INSTRUMENT runway; the live table is the NON-instrument one (30 m at code 1) | Annex 14 §3.4.8 / CS ADR-DSN.B.175(a) (**should**) | `Ruleset.strip_half_width_m_instrument`, `config.ruleset_strip_half_width_m_instrument()` |
+| 105 m precision-approach graded strip | **NOT ENCODED.** The owner's same-day adoption was reversed — "If there's no FAA citation for the 105 m precision strip, we can drop it as well". Specification values only; the Annex 14 §3.4.8 Note stays recorded as **unadopted guidance** in the reg-set table | Annex 14 §3.4.8 Note + Att. A §9; EASA GM1 ADR-DSN.B.175(a) Fig. GM-B-4 — *guidance*; RULINGS 2026-08-08 "105 m precision strip DROPPED" | nothing — deliberately no field, no accessor, no provenance row (twin asserts the ABSENCE) |
+| OFZ | **nothing to build** — a clearance VOLUME, not shaped ground: "the three-dimensional airspace along the runway…" | AC ¶1.5 Definitions #69 (p. 1-9); Annex 14 Ch. 1 Definitions | no constant; the negative is recorded so it is not re-litigated |

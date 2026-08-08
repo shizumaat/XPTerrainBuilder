@@ -370,6 +370,50 @@ __all__ = [
     "ruleset_apron_max_grade_change",
     "ruleset_shoulder_transverse_band",
     "ruleset_shoulder_edge_dropoff",
+    # ── the fabric-model reg set (W1, 2026-08-08) ────────────────────
+    "FAA_VISIBILITY_MINIMA",
+    "FAA_VISIBILITY_DEFAULT",
+    "FAA_AAC_GROUPS",
+    "FAA_ADG_NUMERALS",
+    "FAA_RDC_BY_CODE_LETTER",
+    "FAA_RSA_WIDTH_FT_BY_RDC",
+    "FAA_ROFA_WIDTH_FT_BY_RDC",
+    "FAA_ROFA_WIDTH_FT_SMALL_AIRCRAFT",
+    "FAA_RSA_LENGTH_BEYOND_END_FT_BY_RDC",
+    "FAA_RSA_LENGTH_PRIOR_TO_THRESHOLD_FT_BY_RDC",
+    "FAA_TAXIWAY_SHOULDER_WIDTH_FT_BY_TDG",
+    "FAA_TAXIWAY_SHOULDER_WIDTH_M_BY_TDG",
+    "FAA_TAXIWAY_SHOULDER_WIDTH_FT_TDG6_FOUR_ENGINE",
+    "FAA_TAXIWAY_SHOULDER_WIDTH_M_TDG6_FOUR_ENGINE",
+    "ICAO_TAXIWAY_PLUS_SHOULDERS_TOTAL_WIDTH_M",
+    "faa_rsa_width_ft",
+    "faa_rsa_half_width_m",
+    "faa_rofa_width_ft",
+    "faa_rofa_half_width_m",
+    "faa_rsa_end_length_m",
+    "faa_rsa_end_datum_offset_m",
+    "faa_rsa_governed_length_beyond_runway_end_m",
+    "ruleset_strip_half_width_m_instrument",
+    "ruleset_strip_band_authority_min_down_slope",
+    "ruleset_strip_band_mandatory_down",
+    "ruleset_runway_edge_lip",
+    "ruleset_taxiway_edge_lip",
+    "ruleset_taxiway_lip_carved_out_of_band",
+    "ruleset_tofa_back_slope_ratio",
+    "ruleset_taxi_transverse_min_provisional",
+    "ruleset_taxi_crown_form_binding",
+    "ruleset_taxiway_shoulder_width_m",
+    "ruleset_taxiway_shoulder_paved_from_adg",
+    "ruleset_taxiway_plus_shoulders_total_width_m",
+    "ruleset_resa_length_datum",
+    "ruleset_strip_beyond_end_m",
+    "ruleset_resa_length_m",
+    "RULESET_W2_PENDING_FLIPS",
+    "REG_AUTHORITY_CLASSES",
+    "RegEntry",
+    "REG_SET_ENTRIES",
+    "REG_SET_ENTRY_INDEX",
+    "reg_entry",
 ]
 
 
@@ -5993,6 +6037,153 @@ class Ruleset:
     #: ADG → ROFA half-width (m) from the runway centreline.
     rofa_half_width_m_by_adg: _Optional[_Mapping[str, float]] = None
 
+    # ══════════════════════════════════════════════════════════════════
+    # THE FABRIC-MODEL REG SET (W1, 2026-08-08).  Source of values:
+    # ``docs/specs/fabric-model-reg-set.md``, every row PV-2026-08-08.
+    # Owner law: RULINGS 2026-08-08 "Reg-set rulings" (1-4), "105 m
+    # precision strip DROPPED" (which REVERSES the same-day adoption —
+    # SPECIFICATION VALUES ONLY), "THE FABRIC MODEL".
+    # Spec: ``docs/specs/fabric-phase-b-spec.md`` W1.
+    #
+    # EVERY field below carries a ``RegEntry`` in ``REG_SET_ENTRIES``
+    # (value · citation · authority class · PV date), and a twin asserts
+    # that it does — a constant with no provenance record fails the
+    # suite rather than shipping as folklore.
+    #
+    # W1 IS CONSTANTS ONLY.  Where the authority-true value differs from
+    # what an emitter reads TODAY the live blended field is left exactly
+    # as it was and the authority's own number lands beside it under a
+    # distinct name; ``RULESET_W2_PENDING_FLIPS`` is the checklist W2
+    # works from, and a twin pins it so neither half can drift silently.
+    # ══════════════════════════════════════════════════════════════════
+
+    # ── F-1 (R3) — ICAO graded strip is keyed by (code, instrument) ───
+    #: Annex 14 §3.4.8 / CS ADR-DSN.B.175(a) — the INSTRUMENT-runway
+    #: graded half-width.  ``strip_half_width_m`` above is the
+    #: NON-instrument table (§3.4.9), which is what the emitter reads
+    #: today; the two differ only at code 1 (40 m vs 30 m).  ``None``
+    #: where the authority does not split on instrument status (the FAA
+    #: keys AAC × ADG × visibility instead).
+    strip_half_width_m_instrument: _Optional[CodeTable] = None
+
+    # ── Q5 — the 105 m precision-approach strip: NOT ENCODED ──────────
+    # RULINGS 2026-08-08 "105 m precision strip DROPPED (owner;
+    # supersedes the same-day adoption)".  Owner, on learning the 105 m
+    # has no FAA anchor: "If there's no FAA citation for the 105 m
+    # precision strip, we can drop it as well."  The guidance adoption
+    # is REVERSED on both rulesets — SPECIFICATION VALUES ONLY, and the
+    # Annex 14 §3.4.8 Note stays recorded in
+    # docs/specs/fabric-model-reg-set.md §2.1 as UNADOPTED guidance.
+    # Consistent with rulings 1 and 4 of the same day: shape nothing the
+    # specification does not mandate.  Deliberately NO field here — a
+    # None field would still be a place for the value to creep back.
+
+    # ── Reg-set ruling 1 — the graded-strip mandatory DOWN ────────────
+    #: Whether THIS authority mandates a downward fall across the graded
+    #: strip.  FAA: yes, Table 3-6 S-3's 1.5 % floor (a Standard).
+    #: ICAO: NO — §3.4.15 / B.185(a) state a ceiling and the 3 m lip
+    #: only.  Ruling 1 DROPS the blended fall on the ICAO ruleset,
+    #: flagged PROVISIONAL (revisit at the owner's sim look).
+    strip_band_mandatory_down: bool = True
+    #: The authority's OWN zone-2 minimum fall (``None`` = none stated).
+    #: NOT the same field as ``strip_band_min_down_slope``, which is the
+    #: LIVE BLEND the emitter still reads — see the W2 flip list.
+    strip_band_min_down_slope_authority: _Optional[float] = None
+    #: True where dropping/keeping the fall is the owner's PROVISIONAL
+    #: call rather than the authority's own text.
+    strip_band_drop_provisional: bool = False
+
+    # ── F-10 — the TWO lip families ───────────────────────────────────
+    # ``strip_lip_*`` above is the RUNWAY-edge lip (Annex 14 §3.4.15
+    # final clause; AC Fig. 3-33 Detail A note 2 — 3 m at 3-5 %).  The
+    # taxiway/taxilane/apron edge is a DIFFERENT band and the repo
+    # collapsed the two; these fields carry the second family.
+    #: FAA ¶4.14.2 Standards item 4: "5 ±0.5 percent … for a minimum
+    #: distance of 10 feet (3 m)" ⇒ 4.5-5.5 % over 3 m at ANY
+    #: paved→unpaved edge (taxiway, taxilane, apron).  ICAO: ``None`` —
+    #: §3.11.5 / D.330(b) state flush + caps and NO lip (absence
+    #: verified by full read), so the ICAO taxiway lip is unsourced.
+    taxiway_lip_width_m: _Optional[float] = None
+    taxiway_lip_min_down_slope: _Optional[float] = None
+    taxiway_lip_max_down_slope: _Optional[float] = None
+    #: ¶4.14.2 item 5 states the TSA band "except as noted in
+    #: subparagraph 4 above" — the lip is CARVED OUT of the strip band,
+    #: a near-zone/far-zone pair exactly like the RSA's, never an
+    #: alternative to it.
+    taxiway_lip_carved_out_of_band: bool = False
+
+    # ── R24 — TOFA back slope (FAA only, new this round) ──────────────
+    #: AC ¶4.14.2 Standards item 6b + Figure 4-29: a taxiway/taxilane
+    #: object free area back slope, where one is necessary, is ≤4:1
+    #: (run:rise ⇒ a 25 % maximum rise).  A CEILING (cut), never a
+    #: mandate to shape — same discipline as R10/R22.  ``None`` under
+    #: ICAO, which has no object-free-area family (its analogue is
+    #: §3.11.6, already ``ungraded_strip_max_up_slope``).
+    #: The TOFA's own transverse (side) gradient is QUALITATIVE in the
+    #: AC — ¶4.14.2 item 6a asks only for "positive drainage away from
+    #: the TSA", no number, unlike the runway ROFA's S-4.  That absence
+    #: is recorded in ``REG_SET_ENTRIES`` rather than as a field: the
+    #: registry carries BOUNDS, and a named side-slope field here would
+    #: read as one (the S-4 exemption twin polices exactly that).
+    tofa_back_slope_ratio: _Optional[float] = None
+
+    # ── R20 / reg-set ruling 2 — the taxiway cross-fall MINIMUM ───────
+    #: True where ``taxi_transverse_min`` is a repo HOUSE CONSTANT
+    #: rather than that authority's own number.  ICAO states NO taxiway
+    #: minimum anywhere (§3.9.11 / D.280(b) are ceiling-only); ruling 2
+    #: adopts the FAA 1.0 % as a named PROVISIONAL house constant
+    #: satisfying "sufficient to prevent the accumulation of water",
+    #: with the ICAO text quoted at the construction site.
+    taxi_transverse_min_provisional: bool = False
+    #: The AC states the 1.0-1.5 % cross-fall under *Standards*
+    #: (¶4.14.2 item 1a) but the CENTRE CROWN only under *Recommended
+    #: Practices* (item 2, "the ideal configuration").  So the MINIMUM
+    #: is primary-sourced and bindable; the crown FORM is not.  W2 binds
+    #: the minimum and must not infer the crown from it.
+    taxi_crown_form_binding: bool = False
+
+    # ── F-11 / §4.4 — taxiway shoulders ───────────────────────────────
+    #: AC Table 4-2 (¶4.13.1 item 1): shoulder width per side keyed by
+    #: TAXIWAY DESIGN GROUP, not ADG — the repo carried it as ADG.
+    taxiway_shoulder_width_m_by_tdg: _Optional[_Mapping[str, float]] = None
+    #: Table 4-2 fn 3: 40 ft (12.2 m) where the most demanding aircraft
+    #: has four engines and is TDG 6.
+    taxiway_shoulder_width_m_tdg6_four_engine: _Optional[float] = None
+    #: ¶4.13.1 Standards item 2 — PROVISION stays ADG-keyed: paved
+    #: shoulders for ADG-IV and larger.  Width TDG, provision ADG.
+    taxiway_shoulder_paved_from_adg: _Optional[str] = None
+    #: ICAO §3.10.1 / CS ADR-DSN.D.305(a) give no per-side width at all,
+    #: only an OVERALL taxiway-plus-shoulders width by code letter.
+    taxiway_plus_shoulders_total_width_m: _Optional[
+        _Mapping[str, float]] = None
+
+    # ── R11 / F-12 — the RESA / RSA end corridor, per source ──────────
+    #: Where this authority MEASURES the end corridor from.
+    #: ``"strip_end"`` (ICAO §3.5.3 — the strip itself already runs
+    #: beyond the runway end) or ``"runway_or_stopway_end"``
+    #: (AC App. G fn 9).  Reg-set ruling 3: fix both per source.
+    resa_length_datum: _Optional[str] = None
+    #: ICAO §3.4.2 — how far the STRIP extends beyond the runway/stopway
+    #: end, by code number.  This is the ICAO datum's offset.
+    strip_beyond_end_m: _Optional[CodeTable] = None
+    #: Annex 14 §3.4.2 gives 30 m at code 1 NON-instrument and 60 m at
+    #: code 1 instrument; the table above is the non-instrument reading.
+    strip_beyond_end_m_instrument: _Optional[CodeTable] = None
+    #: ICAO §3.5.3 (**shall**) — the hard floor, measured from the datum.
+    resa_length_min_m: _Optional[float] = None
+    #: ICAO §3.5.4 (recommendation), NON-instrument runways; the FAA
+    #: publishes no separate "recommended" length (App. G values are
+    #: Standards, and the only relief is fn 10's EMAS shortening).
+    resa_length_recommended_m: _Optional[CodeTable] = None
+    #: §3.5.4 again, INSTRUMENT runways — 120 m at code 1/2 where the
+    #: non-instrument recommendation is 30 m.
+    resa_length_recommended_m_instrument: _Optional[CodeTable] = None
+    #: FAA only: the per-end Appendix G length is a FUNCTION of
+    #: (RDC, visibility minimum, vertical guidance, stopway), not a
+    #: constant — see :func:`faa_rsa_end_length_m`.  This flag records
+    #: that the function, not a flattened number, is the law here.
+    resa_length_is_per_end_function: bool = False
+
 
 # ── ADG ↔ ICAO code-letter proxy ──────────────────────────────────────
 # FAA keys its object-free-area and design-group tables by Airplane
@@ -6010,6 +6201,287 @@ def _by_adg(**kw) -> dict:
     with the repo's own code letter — see ``ADG_BY_CODE_LETTER``."""
     return {letter: kw[ADG_BY_CODE_LETTER[letter]]
             for letter in ADG_BY_CODE_LETTER}
+
+
+# ══════════════════════════════════════════════════════════════════════
+# FAA APPENDIX G — THE THREE-AXIS MATRIX (reg-set F-9 / F-12, W1)
+# ══════════════════════════════════════════════════════════════════════
+#
+# Source: docs/specs/fabric-model-reg-set.md §2.1, §3, §3.1 — read off
+# AC 150/5300-13B Chg 1 (w/ errata) Appendix G Tables G-1 … G-12 and
+# footnotes 9-14, PRIMARY-VERIFIED 2026-08-08.
+#
+# THE DEFECT THIS CLOSES (F-9): Appendix G is keyed on THREE axes —
+# AAC group (A/B vs C/D/E) × ADG (I…VI) × VISIBILITY MINIMUM — and the
+# repo carried a single column.  Two consequences, both primary-verified:
+# A/B-III (300 ft) and A/B-IV (500 ft) were missing outright, and the
+# visibility axis was absent (at minimums lower than 3/4 mile the RSA
+# widens to 300 ft for A/B-I and A/B-II and 400 ft for A/B-III; C/D/E is
+# flat at 500 ft across all four columns, which is why the omission has
+# never shown at KCLT).  "Not a wrong number — a missing axis."
+#
+# UNITS: feet are the AC's own; metres are ``ft × 0.3048`` rounded to
+# 0.1 m, which is exactly how the repo's carried half-widths were
+# written (a twin pins each carried value against this derivation, so
+# the matrix REPLACES the literals rather than duplicating them).
+
+#: The AC's four approach-visibility columns, in table order.  The
+#: builder has no per-end visibility minimum today, so every legacy
+#: accessor takes ``FAA_VISIBILITY_DEFAULT`` — recorded, never silently
+#: widened.
+FAA_VISIBILITY_MINIMA = ("visual", "ge_1mi", "ge_3_4mi", "lt_3_4mi")
+FAA_VISIBILITY_DEFAULT = "ge_3_4mi"
+
+#: The AAC groups the Appendix G tables split on.
+FAA_AAC_GROUPS = ("A/B", "C/D/E")
+FAA_ADG_NUMERALS = ("I", "II", "III", "IV", "V", "VI")
+
+_FT_M = 0.3048
+
+
+def _ft_cols(visual, ge_1mi, ge_3_4mi, lt_3_4mi) -> dict:
+    """One Appendix G row, written in the AC's own four columns."""
+    return {"visual": visual, "ge_1mi": ge_1mi,
+            "ge_3_4mi": ge_3_4mi, "lt_3_4mi": lt_3_4mi}
+
+
+def _ft_flat(ft) -> dict:
+    """An Appendix G row whose value does not vary with visibility."""
+    return _ft_cols(ft, ft, ft, ft)
+
+
+#: RDC → visibility column → RSA WIDTH in feet (App. G dim **C**).
+#: G-1/G-2 A/B-I 120 ft; G-3/G-4 A/B-II 150 ft; G-5 A/B-III 300 ft;
+#: G-6 A/B-IV 500 ft; G-7…G-12 C/D/E-I…VI 500 ft.  fn 13: 400 ft is
+#: permissible for C/D/E-I and C/D/E-II where 500 ft "is not practical"
+#: — a RELIEF, not a value, so it is recorded in ``REG_SET_ENTRIES``
+#: and never taken automatically.
+FAA_RSA_WIDTH_FT_BY_RDC = {
+    ("A/B", "I"): _ft_cols(120, 120, 120, 300),
+    ("A/B", "II"): _ft_cols(150, 150, 150, 300),
+    ("A/B", "III"): _ft_cols(300, 300, 300, 400),
+    ("A/B", "IV"): _ft_flat(500),
+    ("C/D/E", "I"): _ft_flat(500),
+    ("C/D/E", "II"): _ft_flat(500),
+    ("C/D/E", "III"): _ft_flat(500),
+    ("C/D/E", "IV"): _ft_flat(500),
+    ("C/D/E", "V"): _ft_flat(500),
+    ("C/D/E", "VI"): _ft_flat(500),
+}
+
+#: RDC → visibility column → ROFA WIDTH in feet (App. G dim **Q**).
+#: 400 ft A/B-I, 500 ft A/B-II, 800 ft everywhere else, and 800 ft in
+#: every table's <3/4-mile column.  The A/B-I SMALL-AIRCRAFT table
+#: (G-1) is 250 ft — see ``FAA_ROFA_WIDTH_FT_SMALL_AIRCRAFT``.
+FAA_ROFA_WIDTH_FT_BY_RDC = {
+    ("A/B", "I"): _ft_cols(400, 400, 400, 800),
+    ("A/B", "II"): _ft_cols(500, 500, 500, 800),
+    ("A/B", "III"): _ft_flat(800),
+    ("A/B", "IV"): _ft_flat(800),
+    ("C/D/E", "I"): _ft_flat(800),
+    ("C/D/E", "II"): _ft_flat(800),
+    ("C/D/E", "III"): _ft_flat(800),
+    ("C/D/E", "IV"): _ft_flat(800),
+    ("C/D/E", "V"): _ft_flat(800),
+    ("C/D/E", "VI"): _ft_flat(800),
+}
+
+#: Table G-1 (A/B-I **small aircraft** exclusively) — the one row whose
+#: ROFA width differs from its non-small twin.  The reg-set table
+#: records no separate RSA width for the small-aircraft tables, so none
+#: is invented here (a value the verified table does not state would be
+#: MINTED).
+FAA_ROFA_WIDTH_FT_SMALL_AIRCRAFT = {("A/B", "I"): _ft_cols(250, 250, 250, 800)}
+
+#: RDC → visibility column → **R**, RSA/ROFA length BEYOND the
+#: departure end, in feet.  Per runway END (App. G; the ROFA's dim R is
+#: identical to the RSA's in all twelve tables).
+FAA_RSA_LENGTH_BEYOND_END_FT_BY_RDC = {
+    ("A/B", "I", True): _ft_cols(240, 240, 240, 600),      # G-1, small
+    ("A/B", "I", False): _ft_cols(240, 240, 240, 600),     # G-2
+    ("A/B", "II", True): _ft_cols(300, 300, 300, 600),     # G-3, small
+    ("A/B", "II", False): _ft_cols(300, 300, 300, 600),    # G-4
+    ("A/B", "III", False): _ft_cols(600, 600, 600, 800),   # G-5
+    ("A/B", "IV", False): _ft_flat(1000),                  # G-6
+    ("C/D/E", "I", False): _ft_flat(1000),                 # G-7
+    ("C/D/E", "II", False): _ft_flat(1000),                # G-8
+    ("C/D/E", "III", False): _ft_flat(1000),               # G-9
+    ("C/D/E", "IV", False): _ft_flat(1000),                # G-10
+    ("C/D/E", "V", False): _ft_flat(1000),                 # G-11
+    ("C/D/E", "VI", False): _ft_flat(1000),                # G-12
+}
+
+#: RDC → visibility column → **P**, RSA length PRIOR TO THRESHOLD, in
+#: feet.  App. G **fn 11**: this value applies only where that runway
+#: end has electronic or visual vertical guidance (ILS, GLS, LPV, VNAV,
+#: RNP lines of minima; PAPI or VASI); with no such guidance the end
+#: takes the "beyond departure end" value instead.
+FAA_RSA_LENGTH_PRIOR_TO_THRESHOLD_FT_BY_RDC = {
+    ("A/B", "I", True): _ft_cols(240, 240, 240, 600),
+    ("A/B", "I", False): _ft_cols(240, 240, 240, 600),
+    ("A/B", "II", True): _ft_cols(300, 300, 300, 600),
+    ("A/B", "II", False): _ft_cols(300, 300, 300, 600),
+    ("A/B", "III", False): _ft_flat(600),
+    ("A/B", "IV", False): _ft_flat(600),
+    ("C/D/E", "I", False): _ft_flat(600),
+    ("C/D/E", "II", False): _ft_flat(600),
+    ("C/D/E", "III", False): _ft_flat(600),
+    ("C/D/E", "IV", False): _ft_flat(600),
+    ("C/D/E", "V", False): _ft_flat(600),
+    ("C/D/E", "VI", False): _ft_flat(600),
+}
+
+#: The repo's code LETTER is a SIZE proxy; this is the RDC row it reads
+#: as.  A narrow runway (letter A/B) is a light-aircraft runway and
+#: takes the A/B column at its own ADG; letters C-F take the C/D/E
+#: column, which is identical (500 ft RSA / 800 ft ROFA) for every ADG.
+#: The A/B-III and A/B-IV rows F-9 restores are NOT reachable through
+#: this proxy — they need a real RDC, which is why the matrix above is
+#: keyed on the RDC and the proxy is only a view of it.
+FAA_RDC_BY_CODE_LETTER = {
+    "A": ("A/B", "I"), "B": ("A/B", "II"),
+    "C": ("C/D/E", "III"), "D": ("C/D/E", "IV"),
+    "E": ("C/D/E", "V"), "F": ("C/D/E", "VI"),
+}
+
+
+def _faa_visibility_key(visibility_minimum=None) -> str:
+    """Normalise a visibility-minimum key, defaulting to the column the
+    builder takes when it has no per-end minimum."""
+    key = str(visibility_minimum or FAA_VISIBILITY_DEFAULT)
+    if key not in FAA_VISIBILITY_MINIMA:
+        raise ValueError(
+            f"unknown FAA visibility minimum {visibility_minimum!r} "
+            f"(known: {list(FAA_VISIBILITY_MINIMA)})")
+    return key
+
+
+def _faa_rdc_key(aac_group, adg) -> tuple:
+    key = (str(aac_group), str(adg).upper())
+    if key not in FAA_RSA_WIDTH_FT_BY_RDC:
+        raise ValueError(
+            f"unknown FAA runway design code {key!r} (known: "
+            f"{sorted(FAA_RSA_WIDTH_FT_BY_RDC)})")
+    return key
+
+
+def faa_rsa_width_ft(aac_group, adg, visibility_minimum=None) -> float:
+    """App. G dim **C** — full RSA width in FEET for one RDC and one
+    visibility column (F-9's three axes)."""
+    return FAA_RSA_WIDTH_FT_BY_RDC[_faa_rdc_key(aac_group, adg)][
+        _faa_visibility_key(visibility_minimum)]
+
+
+def faa_rsa_half_width_m(aac_group, adg, visibility_minimum=None) -> float:
+    """App. G dim **C**, halved and in metres — the graded-strip / RSA
+    half-width from the runway centreline."""
+    return round(faa_rsa_width_ft(aac_group, adg, visibility_minimum)
+                 * _FT_M / 2.0, 1)
+
+
+def faa_rofa_width_ft(aac_group, adg, visibility_minimum=None,
+                      small_aircraft: bool = False) -> float:
+    """App. G dim **Q** — full ROFA width in FEET.  ``small_aircraft``
+    selects the G-1 (A/B-I, small aircraft exclusively) row."""
+    key = _faa_rdc_key(aac_group, adg)
+    col = _faa_visibility_key(visibility_minimum)
+    if small_aircraft and key in FAA_ROFA_WIDTH_FT_SMALL_AIRCRAFT:
+        return FAA_ROFA_WIDTH_FT_SMALL_AIRCRAFT[key][col]
+    return FAA_ROFA_WIDTH_FT_BY_RDC[key][col]
+
+
+def faa_rofa_half_width_m(aac_group, adg, visibility_minimum=None,
+                          small_aircraft: bool = False) -> float:
+    """App. G dim **Q**, halved and in metres."""
+    return round(faa_rofa_width_ft(aac_group, adg, visibility_minimum,
+                                   small_aircraft) * _FT_M / 2.0, 1)
+
+
+def faa_rsa_end_length_m(aac_group, adg, *, visibility_minimum=None,
+                         vertical_guidance: bool = False,
+                         small_aircraft: bool = False) -> float:
+    """The RSA length beyond ONE runway end, in metres — App. G dims
+    **R** / **P** (reg-set §3.1, F-12).
+
+    This is a FUNCTION, never a flattened constant: the FAA end-corridor
+    length depends on (a) the runway design code, (b) that end's
+    approach VISIBILITY MINIMUM and (c) whether that end has vertical
+    guidance.  CIFP already gives the builder approach type per end
+    (RULINGS "Instrument truth is law", 2026-08-06), so key (c) and most
+    of (b) are available without new data.
+
+    App. G **fn 11** is the dispatch: dim P ("length prior to
+    threshold") applies only where that end is equipped with electronic
+    or visual vertical guidance — ILS, GLS, LPV, VNAV and RNP lines of
+    minima give electronic vertical guidance, a PAPI or VASI visual —
+    and "if there is no such guidance for that runway, use the value for
+    'length beyond departure end'".
+
+    NOT the datum.  Where the corridor STARTS is fn 9, encoded by
+    :func:`faa_rsa_end_datum_offset_m`; ``vertical_guidance`` and
+    ``stopway`` are independent keys and must not be conflated.
+    """
+    key = (*_faa_rdc_key(aac_group, adg), bool(small_aircraft))
+    table = (FAA_RSA_LENGTH_PRIOR_TO_THRESHOLD_FT_BY_RDC if vertical_guidance
+             else FAA_RSA_LENGTH_BEYOND_END_FT_BY_RDC)
+    if key not in table:
+        key = (key[0], key[1], False)     # no separate small-aircraft row
+    return round(table[key][_faa_visibility_key(visibility_minimum)]
+                 * _FT_M, 1)
+
+
+def faa_rsa_end_datum_offset_m(stopway_length_m=0.0) -> float:
+    """App. G **fn 9**, verbatim: "The RSA length beyond the runway end
+    begins at the runway end when a stopway is not present.  When a
+    stopway is present, the length begins at the stopway end."
+
+    So the corridor's datum sits ``stopway_length_m`` past the runway
+    end — the FAA's per-source datum under reg-set ruling 3, against
+    ICAO's strip-end datum (§3.5.3)."""
+    return max(0.0, float(stopway_length_m or 0.0))
+
+
+def faa_rsa_governed_length_beyond_runway_end_m(
+        aac_group, adg, *, visibility_minimum=None,
+        vertical_guidance: bool = False, small_aircraft: bool = False,
+        stopway_length_m=0.0) -> float:
+    """The whole FAA end corridor measured from the RUNWAY end: the fn-9
+    datum offset plus the fn-11 per-end length.  One reader, so an
+    emitter and a validator cannot disagree about where the corridor
+    starts or how long it is."""
+    return (faa_rsa_end_datum_offset_m(stopway_length_m)
+            + faa_rsa_end_length_m(
+                aac_group, adg, visibility_minimum=visibility_minimum,
+                vertical_guidance=vertical_guidance,
+                small_aircraft=small_aircraft))
+
+
+# ── FAA taxiway shoulder widths — Table 4-2, keyed by TDG (F-11) ──────
+# The AC keys taxiway SHOULDER WIDTH by TAXIWAY DESIGN GROUP; the repo
+# carried it as ADG.  PROVISION stays ADG-keyed (¶4.13.1 Standards item
+# 2: paved shoulders for ADG-IV and larger), so the two axes are kept
+# apart here rather than blended into one table.
+FAA_TAXIWAY_SHOULDER_WIDTH_FT_BY_TDG = {
+    "1A": 10, "1B": 10,
+    "2A": 15, "2B": 15,
+    "3": 20, "4": 20,
+    "5": 30, "6": 30,
+}
+#: Table 4-2 fn 3 — four-engine aircraft at TDG 6.
+FAA_TAXIWAY_SHOULDER_WIDTH_FT_TDG6_FOUR_ENGINE = 40
+FAA_TAXIWAY_SHOULDER_WIDTH_M_BY_TDG = {
+    tdg: round(ft * _FT_M, 1)
+    for tdg, ft in FAA_TAXIWAY_SHOULDER_WIDTH_FT_BY_TDG.items()
+}
+FAA_TAXIWAY_SHOULDER_WIDTH_M_TDG6_FOUR_ENGINE = round(
+    FAA_TAXIWAY_SHOULDER_WIDTH_FT_TDG6_FOUR_ENGINE * _FT_M, 1)
+
+#: ICAO §3.10.1 / CS ADR-DSN.D.305(a) — OVERALL taxiway-plus-shoulders
+#: width by code letter.  ICAO states no per-side shoulder width, so the
+#: two authorities are not interconvertible here either.
+ICAO_TAXIWAY_PLUS_SHOULDERS_TOTAL_WIDTH_M = {
+    "C": 25.0, "D": 34.0, "E": 38.0, "F": 44.0,
+}
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -6121,7 +6593,13 @@ ICAO_RULESET = Ruleset(
     # minimum; §3.1.19 states the RUNWAY transverse "should not exceed
     # 1.5 per cent or 2 per cent, as applicable, nor be less than 1 per
     # cent except at runway or taxiway intersections".
-    taxi_transverse_min=None,
+    # 2026-08-08 (reg-set ruling 2, W1): the taxiway field is no longer
+    # None — it carries 1.0 % as a NAMED PROVISIONAL HOUSE CONSTANT.
+    # The ICAO clause it stands in for is quoted at the reg-set block
+    # further down, together with the provisional flag; the value stays
+    # RECORDED, NOT BOUND (``CROWN_MINIMUM_BOUND_TAXIWAYS`` is False),
+    # so nothing in the emitter or the census reads it yet.
+    taxi_transverse_min=0.010,
     runway_transverse_min=0.010,
     runway_transverse_max=CodeTable(
         by_letter=_letters(narrow=0.020, wide=0.015), default=0.015),
@@ -6170,6 +6648,102 @@ ICAO_RULESET = Ruleset(
     rofa_back_slope_ratio_by_adg=None,
     rofa_back_slope_run_m_by_adg=None,
     rofa_half_width_m_by_adg=None,
+
+    # ══════════════════════════════════════════════════════════════════
+    # THE FABRIC-MODEL REG SET — ICAO side (W1, PV-2026-08-08)
+    # ══════════════════════════════════════════════════════════════════
+
+    # F-1 (R3).  ``strip_half_width_m`` above is Annex 14 §3.4.9, the
+    # NON-INSTRUMENT table {1: 30, 2: 40, 3: 75, 4: 75}.  §3.4.8 / CS
+    # ADR-DSN.B.175(a) give the INSTRUMENT-runway graded half-width, and
+    # it is 40 m at CODE 1, not 30 m.  Encoded, not yet consumed: the
+    # emitter still reads the non-instrument table (W2 flip list), and
+    # the split affects code-1 instrument runways only — none in the
+    # five-airport battery, so it is a correctness fix, not a mover.
+    strip_half_width_m_instrument=CodeTable(
+        by_code={1: 40.0, 2: 40.0, 3: 75.0, 4: 75.0}, default=75.0),
+
+    # Q5 — the 105 m precision-approach graded half-width is NOT
+    # encoded.  Annex 14 §3.4.8 Note + Attachment A §9 and EASA GM1
+    # ADR-DSN.B.175(a) Fig. GM-B-4 describe 105 m tapering to 75 m over
+    # the last 150 m at each end, but it is GUIDANCE, not specification,
+    # and the owner's same-day adoption was REVERSED (RULINGS
+    # 2026-08-08 "105 m precision strip DROPPED").  Recorded as
+    # unadopted guidance in the reg-set table only.
+
+    # Reg-set ruling 1 — the graded-strip mandatory DOWN is DROPPED on
+    # the ICAO ruleset, flagged PROVISIONAL.  Annex 14 §3.4.15 and CS
+    # ADR-DSN.B.185(a) state a transverse slope "adequate to prevent the
+    # accumulation of water on the surface but should not exceed" 2.5 %
+    # (code 3/4) / 3 % (code 1/2) — a CEILING and the 3 m negative lip,
+    # and NO minimum anywhere (F-2).  The 1.5 % floor the repo carries
+    # on both rulesets is FAA Table 3-6 S-3.  Owner: revisit at the sim
+    # look at a strip without the band.
+    strip_band_mandatory_down=False,
+    strip_band_min_down_slope_authority=None,
+    strip_band_drop_provisional=True,
+
+    # F-10 / F-3 — the ICAO taxiway-strip clause (§3.11.5 / CS
+    # ADR-DSN.D.330(b)) states flush at the edge, an upward cap and a
+    # 5 % downward cap, and NO lip.  Absence verified by full read, so
+    # the ICAO taxiway lip the repo applies today is UNSOURCED.
+    taxiway_lip_width_m=None,
+    taxiway_lip_min_down_slope=None,
+    taxiway_lip_max_down_slope=None,
+    taxiway_lip_carved_out_of_band=False,
+
+    # R24 — no ICAO taxiway object free area.  §3.11.6 / D.330(c) cap
+    # ground beyond the graded portion at 5 % up or down, which is
+    # already ``ungraded_strip_max_up_slope``.
+    tofa_back_slope_ratio=None,
+
+    # R20 / reg-set ruling 2 — the taxiway cross-fall MINIMUM.  ICAO
+    # states NONE.  Annex 14 8th ed. §3.9.11 (and CS ADR-DSN.D.280(b)),
+    # verbatim, is the clause the house constant stands in for: the
+    # transverse slope "should be sufficient to prevent the accumulation
+    # of water on the surface of the taxiway but should not exceed"
+    # 1.5 per cent (code letter C, D, E, F) or 2 per cent (A, B).  NO
+    # MINIMUM IS STATED ANYWHERE IN THE ICAO OR EASA TEXT, and no crown
+    # is mandated.  The owner took reading (b) of Q2: the FAA's 1.0 %
+    # becomes a named PROVISIONAL HOUSE CONSTANT here — house, not
+    # cited; a future ICAO amendment stating a real floor REPLACES it
+    # rather than merely re-blessing it.  1.0 % sits inside the ICAO
+    # 1.5 % ceiling with 0.5 pp of headroom.
+    # (The 0.010 itself is set above, beside ``runway_transverse_min``,
+    # where the recorded-not-bound family already lives — one field, one
+    # assignment.)
+    taxi_transverse_min_provisional=True,
+    taxi_crown_form_binding=False,
+
+    # F-11 / §4.4 — ICAO gives taxiway shoulders width, erosion
+    # resistance and strength only, as an OVERALL taxiway-plus-shoulders
+    # width by code letter (§3.10.1 / CS ADR-DSN.D.305(a)); there is no
+    # per-side width and no slope number (§3.10.1-3.10.2 / D.305).
+    taxiway_shoulder_width_m_by_tdg=None,
+    taxiway_shoulder_width_m_tdg6_four_engine=None,
+    taxiway_shoulder_paved_from_adg=None,
+    taxiway_plus_shoulders_total_width_m=dict(
+        ICAO_TAXIWAY_PLUS_SHOULDERS_TOTAL_WIDTH_M),
+
+    # R11 / reg-set ruling 3 — the RESA datum, per source.  §3.5.3
+    # (**shall**): the RESA "shall extend from the END OF THE RUNWAY
+    # STRIP" at least 90 m; the strip itself already runs 60 m past the
+    # runway end (§3.4.2; 30 m at code 1 non-instrument).  §3.5.4
+    # (recommendation): 240 m (code 3/4), 120 m (code 1/2 instrument),
+    # 30 m (code 1/2 non-instrument).  Encoded, not yet consumed —
+    # ``RUNWAY_END_CLEARANCE_LENGTH_BY_CODE`` is still the live blend
+    # measured from the RUNWAY end (F-4, W2 flip list).
+    resa_length_datum="strip_end",
+    strip_beyond_end_m=CodeTable(
+        by_code={1: 30.0, 2: 60.0, 3: 60.0, 4: 60.0}, default=60.0),
+    strip_beyond_end_m_instrument=CodeTable(
+        by_code={1: 60.0, 2: 60.0, 3: 60.0, 4: 60.0}, default=60.0),
+    resa_length_min_m=90.0,
+    resa_length_recommended_m=CodeTable(
+        by_code={1: 30.0, 2: 30.0, 3: 240.0, 4: 240.0}, default=240.0),
+    resa_length_recommended_m_instrument=CodeTable(
+        by_code={1: 120.0, 2: 120.0, 3: 240.0, 4: 240.0}, default=240.0),
+    resa_length_is_per_end_function=False,
 )
 
 
@@ -6198,21 +6772,22 @@ ICAO_RULESET = Ruleset(
 # HALF-widths (from the runway centreline) are half of the above.  Note
 # the C/D/E half-width 76.2 m vs the live ICAO 75 m: the strip footprint
 # widens ~1.2 m at FAA airports, which is the predicted KCLT row-6 delta.
+#
+# W1 (2026-08-08): these two tables are no longer hand-written literals.
+# They are the CODE-LETTER VIEW of ``FAA_RSA_WIDTH_FT_BY_RDC`` /
+# ``FAA_ROFA_WIDTH_FT_BY_RDC`` at the ``FAA_VISIBILITY_DEFAULT``
+# (≥3/4-mile) column — one copy of every Appendix G number, and the
+# three-axis matrix is where the missing A/B-III / A/B-IV rows and the
+# visibility axis now live (F-9).  ``tests/test_fabric_reg_set_w1.py``
+# pins each derived value against the literal the repo carried before
+# the derivation, so this is a re-rooting, never a re-valuing.
 FAA_RSA_HALF_WIDTH_M_BY_LETTER = {
-    "A": 18.3,     # A/B-I,   120 ft
-    "B": 22.9,     # A/B-II,  150 ft
-    "C": 76.2,     # C/D/E-III, 500 ft
-    "D": 76.2,     # C/D/E-IV,  500 ft
-    "E": 76.2,     # C/D/E-V,   500 ft
-    "F": 76.2,     # C/D/E-VI,  500 ft
+    letter: faa_rsa_half_width_m(*rdc)
+    for letter, rdc in FAA_RDC_BY_CODE_LETTER.items()
 }
 FAA_ROFA_HALF_WIDTH_M_BY_LETTER = {
-    "A": 61.0,     # A/B-I,   400 ft
-    "B": 76.2,     # A/B-II,  500 ft
-    "C": 121.9,    # 800 ft
-    "D": 121.9,
-    "E": 121.9,
-    "F": 121.9,
+    letter: faa_rofa_half_width_m(*rdc)
+    for letter, rdc in FAA_RDC_BY_CODE_LETTER.items()
 }
 
 FAA_RULESET = Ruleset(
@@ -6379,6 +6954,112 @@ FAA_RULESET = Ruleset(
     rofa_back_slope_run_m_by_adg=_by_adg(
         I=7.6, II=12.2, III=18.0, IV=26.2, V=32.6, VI=39.9),
     rofa_half_width_m_by_adg=FAA_ROFA_HALF_WIDTH_M_BY_LETTER,
+
+    # ══════════════════════════════════════════════════════════════════
+    # THE FABRIC-MODEL REG SET — FAA side (W1, PV-2026-08-08)
+    # ══════════════════════════════════════════════════════════════════
+
+    # F-1 is an ICAO finding: the AC has no instrument/non-instrument
+    # split at all — Appendix G keys AAC × ADG × VISIBILITY MINIMUM, and
+    # that third axis is ``FAA_RSA_WIDTH_FT_BY_RDC`` above.
+    strip_half_width_m_instrument=None,
+
+    # Q5 — NOT encoded here either.  The AC has NO precision-approach
+    # widening at all: its RSA width is a flat 500 ft (76.2 m
+    # half-width) for every C/D/E code, and the only visibility-driven
+    # widening is in the A/B families (F-9).  That missing anchor is the
+    # owner's stated reason for the reversal — "If there's no FAA
+    # citation for the 105 m precision strip, we can drop it as well"
+    # (RULINGS 2026-08-08 "105 m precision strip DROPPED").
+
+    # Reg-set ruling 1 — the FAA side KEEPS the mandatory fall, and it
+    # is that authority's own Standard: Table 3-6 row S-3, RSA side
+    # slope 1.5 %-5.0 % (AAC-A, AAC-B) and 1.5 %-3.0 % (AAC-C, D, E) —
+    # a real MINIMUM of 1.5 %.  KCLT keeps the FAA form.
+    strip_band_mandatory_down=True,
+    strip_band_min_down_slope_authority=0.015,
+    strip_band_drop_provisional=False,
+
+    # F-10 — THE SECOND LIP FAMILY.  ¶4.14.2 *Standards* item 4, on
+    # p. 4-46, verbatim: "For an unpaved surface adjacent to a paved
+    # surface, design a 5 ±0.5 percent transverse gradient for a minimum
+    # distance of 10 feet (3 m) from the paved surface" ⇒ 4.5 %-5.5 %
+    # over the first 3 m at ANY paved→unpaved edge — taxiway, taxilane
+    # and (because the clause is written for "an unpaved surface
+    # adjacent to a paved surface") apron edges too.
+    # THIS IS NOT THE RUNWAY LIP.  The runway/shoulder/stopway edge is
+    # Figure 3-33 Detail A note 2, "Maintain between a 3% -5% negative
+    # grade for 10 ft (3 m)".  The widths agree (3 m); the bands differ
+    # in BOTH directions — steeper at the floor (4.5 vs 3.0) and above
+    # the runway ceiling (5.5 vs 5.0).  The repo consumes the runway
+    # band on both branches today (W2 flip list).
+    taxiway_lip_width_m=3.0,
+    taxiway_lip_min_down_slope=0.045,
+    taxiway_lip_max_down_slope=0.055,
+    # ¶4.14.2 item 5 states the TSA band "except as noted in
+    # subparagraph 4 above" — the lip is carved OUT of the 1.5-5 % TSA
+    # band, so the two are a near-zone/far-zone pair like the RSA's.
+    taxiway_lip_carved_out_of_band=True,
+
+    # R24 — TOFA back slope, FAA ONLY, new this round.  ¶4.14.2
+    # *Standards* item 6b + Figure 4-29 (p. 4-45): where a back slope is
+    # necessary it is ≤4:1, "provided the area immediately adjacent to
+    # the TSA edge permits positive drainage of surface water away from
+    # the TSA".  Item 6a leaves the TOFA SIDE slope qualitative —
+    # "design transverse gradient to promote positive drainage away from
+    # the TSA", no number, unlike the runway ROFA's S-4.  A ceiling
+    # (cut), never a mandate to shape; 4:1 is far steeper than any ROFA
+    # value so it will rarely bind, but its absence left the FAA taxiway
+    # branch with NO far-zone ceiling at all.
+    tofa_back_slope_ratio=4.0,
+
+    # R20 / reg-set ruling 2 — the taxiway cross-fall MINIMUM is the
+    # FAA's own Standard.  ¶4.14.2 *Taxiway/Taxilane Transverse
+    # Gradient*, Standards, item 1 (p. 4-46), verbatim: "Design
+    # taxiway/taxilane pavement transverse gradient as follows: a. 1.0 to
+    # 1.5 percent from centerline to pavement edge. b. For
+    # taxiways/taxilanes exclusively serving aircraft weighing less than
+    # 30,000 lbs (13,605 kg), it is acceptable to apply a cross-slope of
+    # 1 to 2 percent. c. A constant slope section (aka shed section) may
+    # be more suitable: i. For high-speed exit taxiways. ii. When
+    # existing terrain makes it impractical to provide a crown and slope
+    # cross section."  The ≤30,000 lb relaxation is NOT taken (the
+    # builder does not know a taxiway's fleet).
+    # BIND THE MINIMUM, NOT THE CROWN FORM: the cross-fall is a
+    # *Standard*; the centre crown is only a *Recommended Practice* on
+    # the same page ("The ideal configuration is a center crown with
+    # equal, constant transverse grades on either side"), and item 1c
+    # explicitly admits a constant-slope shed section.  So 1.0 % is
+    # primary-sourced and bindable while a mandated crown is not.
+    taxi_transverse_min_provisional=False,
+    taxi_crown_form_binding=False,
+
+    # F-11 / §4.4 — taxiway shoulder WIDTH is keyed by TDG (Table 4-2
+    # row *Taxiway Shoulder Width* + fn 3, p. 4-10, reached via ¶4.13.1
+    # *Standards* item 1), while PROVISION stays ADG-keyed (¶4.13.1
+    # item 2: paved for ADG-IV and larger).  The repo carried the width
+    # "by ADG"; that key was wrong even though no number was.
+    taxiway_shoulder_width_m_by_tdg=dict(
+        FAA_TAXIWAY_SHOULDER_WIDTH_M_BY_TDG),
+    taxiway_shoulder_width_m_tdg6_four_engine=(
+        FAA_TAXIWAY_SHOULDER_WIDTH_M_TDG6_FOUR_ENGINE),
+    taxiway_shoulder_paved_from_adg="IV",
+    taxiway_plus_shoulders_total_width_m=None,
+
+    # R11 / F-12 / reg-set ruling 3 — the FAA end corridor.  DATUM:
+    # App. G fn 9, the runway end, or the STOPWAY end where a stopway is
+    # present.  LENGTH: dims R and P, PER END, a function of RDC ×
+    # visibility minimum × vertical guidance (fn 11) — see
+    # :func:`faa_rsa_end_length_m`.  It is deliberately NOT a constant:
+    # flattening it is exactly the hole F-12 names, where an FAA
+    # airport's end-corridor length is today the ICAO-derived blend.
+    resa_length_datum="runway_or_stopway_end",
+    strip_beyond_end_m=None,        # the FAA has no separate "strip"
+    strip_beyond_end_m_instrument=None,
+    resa_length_min_m=None,
+    resa_length_recommended_m=None,
+    resa_length_recommended_m_instrument=None,
+    resa_length_is_per_end_function=True,
 )
 
 
@@ -6484,7 +7165,12 @@ RULESET_SPLIT_FAMILIES = (
     ("runway_vertical_curve_min_change", "code_number|code_letter"),
     ("strip_max_longitudinal_slope", "code_number|code_letter"),
     ("strip_half_width_m", "code_number|code_letter"),
+    ("strip_half_width_m_instrument", "code_number"),
     ("strip_band_max_down_slope", "code_number"),
+    ("strip_beyond_end_m", "code_number"),
+    ("strip_beyond_end_m_instrument", "code_number"),
+    ("resa_length_recommended_m", "code_number"),
+    ("resa_length_recommended_m_instrument", "code_number"),
     ("resa_transverse_near", "code_letter"),
     ("resa_transverse_near_max", "code_letter"),
     ("taxi_max_grade", "code_letter"),
@@ -6644,6 +7330,552 @@ def ruleset_shoulder_edge_dropoff(ruleset=None):
     step, or ``(None, None)`` where the authority mandates flush."""
     rs = get_ruleset(ruleset)
     return (rs.shoulder_edge_dropoff_m, rs.shoulder_edge_dropoff_tol_m)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE FABRIC-MODEL REG SET — accessors (W1, 2026-08-08)
+# ══════════════════════════════════════════════════════════════════════
+# ONE accessor per family, exactly as the 2026-08-02 rulesets ruling
+# requires: "Emitters and validators read the SAME ruleset (lockstep)."
+# Every W1 family gets its reader HERE even where W2 will be the first
+# caller — a family whose emitter and validator each grow their own
+# reader is the census-wrapper defect in a different costume.
+
+def ruleset_strip_half_width_m_instrument(code_number=None, ruleset=None):
+    """F-1 — the INSTRUMENT-runway graded half-width (Annex 14 §3.4.8 /
+    CS ADR-DSN.B.175(a)), or ``None`` where the authority does not split
+    on instrument status.
+
+    :func:`ruleset_strip_half_width_m` is the NON-instrument table
+    (§3.4.9); the two differ only at code 1 (40 m vs 30 m)."""
+    table = get_ruleset(ruleset).strip_half_width_m_instrument
+    return None if table is None else table.value(code_number)
+
+
+# NO ``ruleset_strip_precision_*`` accessor: Q5's 105 m graded strip is
+# NOT part of this reg set.  RULINGS 2026-08-08 "105 m precision strip
+# DROPPED" reversed the same-day adoption — specification values only.
+
+
+def ruleset_strip_band_authority_min_down_slope(ruleset=None):
+    """Reg-set ruling 1 — the authority's OWN mandatory fall across the
+    graded strip, or ``None`` where it mandates none.
+
+    NOT ``Ruleset.strip_band_min_down_slope``, which is the LIVE BLEND
+    the adjacent-ground emitter still reads; see
+    ``RULESET_W2_PENDING_FLIPS``."""
+    return get_ruleset(ruleset).strip_band_min_down_slope_authority
+
+
+def ruleset_strip_band_mandatory_down(ruleset=None) -> bool:
+    """Whether this authority mandates a DOWNWARD graded-strip band at
+    all (FAA yes, Table 3-6 S-3; ICAO no, ruling 1 — PROVISIONAL)."""
+    return bool(get_ruleset(ruleset).strip_band_mandatory_down)
+
+
+def ruleset_runway_edge_lip(ruleset=None):
+    """F-10, lip family 1 — ``(width_m, min_down, max_down)`` of the lip
+    at a RUNWAY / shoulder / stopway edge.
+
+    ICAO §3.4.15 final clause: the first 3 m outward "shall be negative"
+    and "may be as great as 5 per cent".  FAA Figure 3-33 Detail A note
+    2: "Maintain between a 3% -5% negative grade for 10 ft (3 m) of
+    unpaved surface adjacent to the paved surface." """
+    rs = get_ruleset(ruleset)
+    return (rs.strip_lip_width_m, rs.strip_lip_min_down_slope,
+            rs.strip_lip_max_down_slope)
+
+
+def ruleset_taxiway_edge_lip(ruleset=None):
+    """F-10, lip family 2 — ``(width_m, min_down, max_down)`` of the lip
+    at a TAXIWAY / TAXILANE / APRON (any paved→unpaved) edge, or
+    ``(None, None, None)`` where the authority states none.
+
+    FAA ¶4.14.2 *Standards* item 4: 5 ±0.5 % over ≥10 ft (3 m) ⇒
+    4.5-5.5 %.  ICAO: no lip clause at all (§3.11.5 / D.330(b) — absence
+    verified by full read), so the ICAO taxiway lip is UNSOURCED."""
+    rs = get_ruleset(ruleset)
+    return (rs.taxiway_lip_width_m, rs.taxiway_lip_min_down_slope,
+            rs.taxiway_lip_max_down_slope)
+
+
+def ruleset_taxiway_lip_carved_out_of_band(ruleset=None) -> bool:
+    """¶4.14.2 item 5's "except as noted in subparagraph 4 above" — the
+    taxiway lip is carved OUT of the TSA band (a near-zone/far-zone
+    pair), never an alternative to it."""
+    return bool(get_ruleset(ruleset).taxiway_lip_carved_out_of_band)
+
+
+def ruleset_tofa_back_slope_ratio(ruleset=None):
+    """R24 — the taxiway/taxilane object-free-area BACK slope ceiling as
+    a run:rise ratio (FAA 4.0 ⇒ 25 % maximum rise), or ``None`` where
+    the authority has no object-free-area family.
+
+    A CEILING (cut), never a mandate to shape."""
+    return get_ruleset(ruleset).tofa_back_slope_ratio
+
+
+def ruleset_taxi_transverse_min_provisional(ruleset=None) -> bool:
+    """Reg-set ruling 2 — True where ``taxi_transverse_min`` is a named
+    repo HOUSE CONSTANT rather than that authority's own number."""
+    return bool(get_ruleset(ruleset).taxi_transverse_min_provisional)
+
+
+def ruleset_taxi_crown_form_binding(ruleset=None) -> bool:
+    """Whether a centre CROWN is mandated (as against the cross-fall
+    MINIMUM being mandated).  False on both rulesets: the FAA crown is a
+    *Recommended Practice* and ICAO mandates no crown at all."""
+    return bool(get_ruleset(ruleset).taxi_crown_form_binding)
+
+
+def ruleset_taxiway_shoulder_width_m(tdg=None, ruleset=None, *,
+                                     four_engine: bool = False):
+    """F-11 — paved taxiway-shoulder width PER SIDE, keyed by TAXIWAY
+    DESIGN GROUP (AC Table 4-2), or ``None`` where the authority states
+    no per-side width (ICAO gives an overall taxiway-plus-shoulders
+    width instead — :func:`ruleset_taxiway_plus_shoulders_total_width_m`).
+
+    Table 4-2 fn 3: a TDG-6 taxiway whose most demanding aircraft has
+    four or more engines takes 40 ft (12.2 m)."""
+    rs = get_ruleset(ruleset)
+    widths = rs.taxiway_shoulder_width_m_by_tdg
+    if widths is None:
+        return None
+    key = str(tdg).upper() if tdg is not None else None
+    if (four_engine and key == "6"
+            and rs.taxiway_shoulder_width_m_tdg6_four_engine is not None):
+        return rs.taxiway_shoulder_width_m_tdg6_four_engine
+    return widths.get(key)
+
+
+def ruleset_taxiway_shoulder_paved_from_adg(ruleset=None):
+    """F-11 — PROVISION stays ADG-keyed: the smallest ADG at which paved
+    taxiway shoulders are a Standard (FAA ¶4.13.1 item 2: "IV"), or
+    ``None``.  Width TDG, provision ADG — two axes, kept apart."""
+    return get_ruleset(ruleset).taxiway_shoulder_paved_from_adg
+
+
+def ruleset_taxiway_plus_shoulders_total_width_m(code_letter=None,
+                                                 ruleset=None):
+    """ICAO §3.10.1 / CS ADR-DSN.D.305(a) — OVERALL taxiway-plus-
+    shoulders width by code letter, or ``None`` (the FAA states a
+    per-side width instead)."""
+    widths = get_ruleset(ruleset).taxiway_plus_shoulders_total_width_m
+    if widths is None or not code_letter:
+        return None
+    return widths.get(str(code_letter).upper())
+
+
+def ruleset_resa_length_datum(ruleset=None):
+    """Reg-set ruling 3 — where THIS authority measures the end corridor
+    from: ``"strip_end"`` (ICAO §3.5.3) or ``"runway_or_stopway_end"``
+    (AC App. G fn 9)."""
+    return get_ruleset(ruleset).resa_length_datum
+
+
+def ruleset_strip_beyond_end_m(code_number=None, ruleset=None,
+                               instrument: bool = False):
+    """ICAO §3.4.2 — how far the runway STRIP extends beyond the runway
+    or stopway end (the ICAO datum's offset), or ``None`` where the
+    authority has no separate strip (the FAA)."""
+    rs = get_ruleset(ruleset)
+    table = (rs.strip_beyond_end_m_instrument if instrument
+             else rs.strip_beyond_end_m)
+    return None if table is None else table.value(code_number)
+
+
+def ruleset_resa_length_m(code_number=None, ruleset=None, *,
+                          instrument: bool = False,
+                          mandate: str = "shall"):
+    """The ICAO end-corridor length measured from ITS OWN datum (the
+    strip end), or ``None`` where the authority states no such constant.
+
+    ``mandate="shall"`` returns the §3.5.3 hard floor (90 m);
+    ``mandate="recommended"`` the §3.5.4 recommendation (240 m at code
+    3/4; 120 m at code 1/2 instrument; 30 m at code 1/2 non-instrument).
+    Mandate-vs-recommendation is handled as a KEY, per ruling 3, so a
+    caller can never silently take the softer number.
+
+    The FAA returns ``None`` here on purpose: its length is a per-end
+    FUNCTION (:func:`faa_rsa_end_length_m`), and
+    ``Ruleset.resa_length_is_per_end_function`` records that."""
+    rs = get_ruleset(ruleset)
+    if mandate == "shall":
+        return rs.resa_length_min_m
+    if mandate == "recommended":
+        table = (rs.resa_length_recommended_m_instrument if instrument
+                 else rs.resa_length_recommended_m)
+        return None if table is None else table.value(code_number)
+    raise ValueError(
+        f"unknown RESA length mandate {mandate!r} "
+        f"(known: 'shall', 'recommended')")
+
+
+# ── WHAT W2 STILL HAS TO FLIP ─────────────────────────────────────────
+# W1 is CONSTANTS ONLY (fabric-phase-b-spec.md: "W1 first (constants;
+# offline + twins)").  Three W1 entries are authority-true numbers whose
+# live consumers still read a BLEND, because switching a consumer is an
+# emitted-geometry change and belongs to W2's gated A/B pairs.  They are
+# listed here rather than left as prose so the hand-off is a checklist
+# and a twin can pin it: if a live field is quietly edited to match its
+# authority-true twin, the divergence this table asserts disappears and
+# the suite fails.
+#
+# (family, live field the emitter reads, authority-true entry, who)
+RULESET_W2_PENDING_FLIPS = (
+    ("graded-strip mandatory down",
+     "strip_band_min_down_slope", "strip_band_min_down_slope_authority",
+     "icao"),
+    ("taxiway/apron edge lip",
+     "strip_lip_min_down_slope", "taxiway_lip_min_down_slope", "faa"),
+    ("taxiway/apron edge lip",
+     "strip_lip_max_down_slope", "taxiway_lip_max_down_slope", "faa"),
+)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# REG-SET PROVENANCE — value · citation · authority class · PV date
+# ══════════════════════════════════════════════════════════════════════
+# fabric-phase-b-spec.md W1 requires every entry to carry all four.
+# Comments carry them for the reader; this table carries them for the
+# MACHINE, so "a constant with no citation" is a test failure rather
+# than a code-review opinion.  Source of every row:
+# docs/specs/fabric-model-reg-set.md (fully primary-verified
+# 2026-08-08) — never memory, never a summary.
+
+#: The AC's own normative hierarchy (§1.2.1) plus ICAO's shall/should
+#: split plus the two owner-adoption labels this reg set needs.
+REG_AUTHORITY_CLASSES = frozenset({
+    "Standard",                      # FAA ¶1.2.1 — the benchmark level
+    "Recommended Practice",          # FAA ¶1.2.1 — discretionary
+    "Design Consideration",          # FAA ¶1.2.1 — weakest
+    "shall",                         # ICAO/EASA specification
+    "should",                        # ICAO/EASA recommendation
+    "guidance",                      # Annex 14 Notes / Attachments, GM
+    "absent",                        # the authority states nothing
+    # The two owner-adoption labels below are UNUSED as of 2026-08-08:
+    # the one entry that carried them, Q5's 105 m precision strip, was
+    # dropped by the owner's reversal the same day ("specification
+    # values only").  They stay in the vocabulary because the reg set
+    # must be able to SAY "this exceeds its citation" the moment
+    # another ruling adopts guidance — an unlabelled exceedance is
+    # exactly the failure the labels exist to prevent.
+    "owner-adopted (guidance)",      # RULINGS adopts guidance as law
+    "owner-adopted-beyond-citation",  # RULINGS goes past the source
+    "house constant (PROVISIONAL)",  # a repo choice, labelled as one
+})
+
+
+@_dc.dataclass(frozen=True)
+class RegEntry:
+    """The provenance of one reg-set constant.
+
+    ``field`` is a :class:`Ruleset` field name or a module-level
+    constant; ``ruleset`` is ``"faa"``, ``"icao"`` or ``"both"``.
+    ``citation`` is the document, section, table and page as the
+    verified reg-set table records them — a pointer that resolves to
+    another surface silently defeats the provenance contract in
+    ``regs/README.md`` (that is finding F-11), so it is spelled out.
+    """
+
+    field: str
+    ruleset: str
+    value: str
+    citation: str
+    authority_class: str
+    pv_date: str = "2026-08-08"
+    note: str = ""
+
+    def __post_init__(self):
+        if self.authority_class not in REG_AUTHORITY_CLASSES:
+            raise ValueError(
+                f"unknown authority class {self.authority_class!r} for "
+                f"{self.field!r} (known: {sorted(REG_AUTHORITY_CLASSES)})")
+        if self.ruleset not in ("faa", "icao", "both"):
+            raise ValueError(
+                f"unknown ruleset {self.ruleset!r} for {self.field!r}")
+
+
+REG_SET_ENTRIES = (
+    # ── F-9 · the three-axis RSA / ROFA width matrix ──────────────────
+    RegEntry(
+        field="FAA_RSA_WIDTH_FT_BY_RDC", ruleset="faa",
+        value="RSA width by AAC group × ADG × visibility minimum: "
+              "A/B-I 120 ft, A/B-II 150 ft, A/B-III 300 ft, A/B-IV and "
+              "all C/D/E 500 ft; at minimums lower than 3/4 mile "
+              "A/B-I→300, A/B-II→300, A/B-III→400 ft (C/D/E flat)",
+        citation="AC 150/5300-13B Chg 1, App. G Tables G-1…G-12 row "
+                 "'RSA Width' (dim C), via ¶3.10.1 Dimensions",
+        authority_class="Standard",
+        note="Closes F-9: the repo carried correct numbers off a "
+             "one-column table. A/B-III and A/B-IV were missing "
+             "outright and the visibility axis was absent. fn 13 gives "
+             "a relief (400 ft where 500 ft 'is not practical', "
+             "C/D/E-I and C/D/E-II only) which is NOT taken "
+             "automatically."),
+    RegEntry(
+        field="FAA_ROFA_WIDTH_FT_BY_RDC", ruleset="faa",
+        value="ROFA width: 400 ft A/B-I, 500 ft A/B-II, 800 ft "
+              "elsewhere, 800 ft in every <3/4-mile column; 250 ft for "
+              "the A/B-I small-aircraft table",
+        citation="AC 150/5300-13B Chg 1, App. G Tables G-1…G-12 row "
+                 "'ROFA Width' (dim Q)",
+        authority_class="Standard"),
+    RegEntry(
+        field="FAA_RSA_HALF_WIDTH_M_BY_LETTER", ruleset="faa",
+        value="the code-letter VIEW of the matrix at the ≥3/4-mile "
+              "column: 18.3 / 22.9 / 76.2 / 76.2 / 76.2 / 76.2 m",
+        citation="AC 150/5300-13B Chg 1, App. G (as above); the letter "
+                 "proxy is this repo's own runway_code_letter",
+        authority_class="Standard",
+        note="Derived, not re-valued — the twin pins every entry "
+             "against the literal carried before W1."),
+    # ── F-12 / R11 · the per-end RSA length function ──────────────────
+    RegEntry(
+        field="FAA_RSA_LENGTH_BEYOND_END_FT_BY_RDC", ruleset="faa",
+        value="dim R per END: 240 ft A/B-I, 300 ft A/B-II, 600 ft "
+              "A/B-III, 1,000 ft A/B-IV and all C/D/E; the <3/4-mile "
+              "column raises A/B-I and A/B-II to 600 ft and A/B-III to "
+              "800 ft",
+        citation="AC 150/5300-13B Chg 1, App. G Tables G-1…G-12 + "
+                 "footnotes 9, 10, 11 (p. G-13)",
+        authority_class="Standard",
+        note="Never a flattened constant (F-12): the length is a "
+             "function of RDC × visibility × vertical guidance, and "
+             "the datum is fn 9's runway-or-stopway end."),
+    RegEntry(
+        field="FAA_RSA_LENGTH_PRIOR_TO_THRESHOLD_FT_BY_RDC", ruleset="faa",
+        value="dim P per END: 240 / 300 / 600 / 600 ft, 600 ft for "
+              "every C/D/E row; applies only where that end has "
+              "electronic or visual vertical guidance (fn 11)",
+        citation="AC 150/5300-13B Chg 1, App. G + fn 11 (p. G-13)",
+        authority_class="Standard",
+        note="CIFP supplies the guidance key per end (RULINGS "
+             "'Instrument truth is law', 2026-08-06). With no such "
+             "guidance the end takes dim R."),
+    RegEntry(
+        field="resa_length_datum", ruleset="faa",
+        value="runway end, or the STOPWAY end where a stopway is present",
+        citation="AC 150/5300-13B Chg 1, App. G footnote 9 (p. G-13)",
+        authority_class="Standard"),
+    RegEntry(
+        field="resa_length_datum", ruleset="icao",
+        value="the END OF THE RUNWAY STRIP (itself 60 m past the runway "
+              "end; 30 m at code 1 non-instrument)",
+        citation="ICAO Annex 14 Vol I 8th ed. §3.5.3 with §3.4.2; "
+                 "CS ADR-DSN.C.215(a)(1), B.155",
+        authority_class="shall"),
+    RegEntry(
+        field="resa_length_min_m", ruleset="icao",
+        value="90 m from the strip end",
+        citation="ICAO Annex 14 Vol I 8th ed. §3.5.3; CS "
+                 "ADR-DSN.C.215(a)(1)",
+        authority_class="shall"),
+    RegEntry(
+        field="resa_length_recommended_m", ruleset="icao",
+        value="240 m (code 3/4); 30 m (code 1/2 non-instrument)",
+        citation="ICAO Annex 14 Vol I 8th ed. §3.5.4; CS "
+                 "ADR-DSN.C.215(a)",
+        authority_class="should"),
+    RegEntry(
+        field="resa_length_recommended_m_instrument", ruleset="icao",
+        value="240 m (code 3/4); 120 m (code 1/2 instrument)",
+        citation="ICAO Annex 14 Vol I 8th ed. §3.5.4; CS "
+                 "ADR-DSN.C.215(a)",
+        authority_class="should"),
+    RegEntry(
+        field="strip_beyond_end_m", ruleset="icao",
+        value="60 m (code 2, 3, 4); 30 m (code 1 non-instrument)",
+        citation="ICAO Annex 14 Vol I 8th ed. §3.4.2; CS ADR-DSN.B.155",
+        authority_class="shall"),
+    RegEntry(
+        field="strip_beyond_end_m_instrument", ruleset="icao",
+        value="60 m at every code, including code 1 instrument",
+        citation="ICAO Annex 14 Vol I 8th ed. §3.4.2; CS ADR-DSN.B.155",
+        authority_class="shall"),
+    # ── F-10 · the two lip families ───────────────────────────────────
+    RegEntry(
+        field="strip_lip_min_down_slope", ruleset="faa",
+        value="runway / shoulder / stopway edge: 3 %-5 % negative over "
+              "10 ft (3 m)",
+        citation="AC 150/5300-13B Chg 1, Figure 3-33 Detail A note 2 "
+                 "(p. 3-57)",
+        authority_class="Standard",
+        note="Lip family 1. Verbatim: 'Maintain between a 3% -5% "
+             "negative grade for 10 ft (3 m) of unpaved surface "
+             "adjacent to the paved surface.'"),
+    RegEntry(
+        field="strip_lip_min_down_slope", ruleset="icao",
+        value="runway / shoulder / stopway edge: the first 3 m shall be "
+              "negative and may be as great as 5 %",
+        citation="ICAO Annex 14 Vol I 8th ed. §3.4.15 final clause; "
+                 "CS ADR-DSN.B.185(a)",
+        authority_class="shall"),
+    RegEntry(
+        field="taxiway_lip_min_down_slope", ruleset="faa",
+        value="taxiway / taxilane / apron edge: 5 ±0.5 % ⇒ 4.5 %-5.5 % "
+              "over a minimum of 10 ft (3 m)",
+        citation="AC 150/5300-13B Chg 1, ¶4.14.2 Standards item 4 "
+                 "(p. 4-46)",
+        authority_class="Standard",
+        note="Lip family 2, and NOT the runway band: steeper at the "
+             "floor (4.5 vs 3.0) and above the runway ceiling (5.5 vs "
+             "5.0). Written for 'an unpaved surface adjacent to a "
+             "paved surface', so it reaches apron edges too."),
+    RegEntry(
+        field="taxiway_lip_min_down_slope", ruleset="icao",
+        value="none — the taxiway-strip clause states flush, an up cap "
+              "and a down cap, and no lip",
+        citation="ICAO Annex 14 Vol I 8th ed. §3.11.5; CS "
+                 "ADR-DSN.D.330(b) — absence verified by full read",
+        authority_class="absent",
+        note="F-3: the ICAO taxiway lip the repo applies today is "
+             "UNSOURCED."),
+    RegEntry(
+        field="taxiway_lip_carved_out_of_band", ruleset="faa",
+        value="the lip is carved OUT of the 1.5-5 % TSA band",
+        citation="AC 150/5300-13B Chg 1, ¶4.14.2 Standards item 5 "
+                 "(p. 4-46) — 'except as noted in subparagraph 4 above'",
+        authority_class="Standard"),
+    # ── F-11 · taxiway shoulder width by TDG ──────────────────────────
+    RegEntry(
+        field="taxiway_shoulder_width_m_by_tdg", ruleset="faa",
+        value="per side: 10 ft (3.0 m) TDG 1A/1B, 15 ft (4.6 m) 2A/2B, "
+              "20 ft (6.1 m) 3/4, 30 ft (9.1 m) 5/6",
+        citation="AC 150/5300-13B Chg 1, Table 4-2 row 'Taxiway "
+                 "Shoulder Width' (p. 4-10), via ¶4.13.1 Standards "
+                 "item 1",
+        authority_class="Standard",
+        note="DISCREPANT KEY (F-11): the repo carried this 'by ADG'. "
+             "Width is TDG-keyed; PROVISION stays ADG-keyed."),
+    RegEntry(
+        field="taxiway_shoulder_width_m_tdg6_four_engine", ruleset="faa",
+        value="40 ft (12.2 m) where the most demanding aircraft has "
+              "four engines and is TDG 6",
+        citation="AC 150/5300-13B Chg 1, Table 4-2 footnote 3 (p. 4-10)",
+        authority_class="Standard"),
+    RegEntry(
+        field="taxiway_shoulder_paved_from_adg", ruleset="faa",
+        value="paved taxiway shoulders for ADG-IV and larger",
+        citation="AC 150/5300-13B Chg 1, ¶4.13.1 Standards item 2",
+        authority_class="Standard"),
+    RegEntry(
+        field="taxiway_plus_shoulders_total_width_m", ruleset="icao",
+        value="overall taxiway + shoulders ≥25 m (C), 34 m (D), 38 m "
+              "(E), 44 m (F); no per-side width, no slope number",
+        citation="ICAO Annex 14 Vol I 8th ed. §3.10.1; CS "
+                 "ADR-DSN.D.305(a)",
+        authority_class="should"),
+    # ── R24 · TOFA back slope ─────────────────────────────────────────
+    RegEntry(
+        field="tofa_back_slope_ratio", ruleset="faa",
+        value="≤4:1 (25 % rise) where a TOFA back slope is necessary",
+        citation="AC 150/5300-13B Chg 1, ¶4.14.2 Standards item 6b "
+                 "(p. 4-46) + Figure 4-29 (p. 4-45)",
+        authority_class="Standard",
+        note="R24, new at the 2026-08-08 primary read. A ceiling "
+             "(cut), never a mandate to shape. Its absence left the "
+             "FAA taxiway branch with no far-zone ceiling at all. The "
+             "TOFA SIDE slope, item 6a, stays QUALITATIVE — 'design "
+             "transverse gradient to promote positive drainage away "
+             "from the TSA', no number, unlike the runway ROFA's S-4 — "
+             "so no field encodes it."),
+    RegEntry(
+        field="tofa_back_slope_ratio", ruleset="icao",
+        value="none — ICAO has no object-free-area family; §3.11.6 caps "
+              "ground beyond the graded portion at 5 % up or down",
+        citation="ICAO Annex 14 Vol I 8th ed. §3.11.6; CS "
+                 "ADR-DSN.D.330(c)",
+        authority_class="absent"),
+    # ── R20 / ruling 2 · the 1.0 % taxiway cross-fall ─────────────────
+    RegEntry(
+        field="taxi_transverse_min", ruleset="faa",
+        value="1.0 % minimum cross-fall, centreline to pavement edge "
+              "(the band is 1.0-1.5 %)",
+        citation="AC 150/5300-13B Chg 1, ¶4.14.2 Standards item 1a "
+                 "(p. 4-46); Table 3-6 row S-1 for the runway twin",
+        authority_class="Standard",
+        note="BIND THE MINIMUM, NOT THE CROWN FORM: the cross-fall is "
+             "a Standard, the centre crown only a Recommended Practice "
+             "on the same page, and item 1c admits a constant-slope "
+             "shed section."),
+    RegEntry(
+        field="taxi_crown_form_binding", ruleset="faa",
+        value="the centre crown is NOT binding",
+        citation="AC 150/5300-13B Chg 1, ¶4.14.2 Recommended Practices "
+                 "item 2 (p. 4-46) — 'The ideal configuration is a "
+                 "center crown…'",
+        authority_class="Recommended Practice"),
+    RegEntry(
+        field="taxi_transverse_min", ruleset="icao",
+        value="1.0 %, adopted as a named house constant; ICAO itself "
+              "states NO minimum and no crown, only 'sufficient to "
+              "prevent the accumulation of water' and a 1.5 % (C-F) / "
+              "2 % (A/B) ceiling",
+        citation="RULINGS 2026-08-08 reg-set ruling 2, standing in for "
+                 "ICAO Annex 14 Vol I 8th ed. §3.9.11 / CS "
+                 "ADR-DSN.D.280(b)",
+        authority_class="house constant (PROVISIONAL)",
+        note="F-6: the owner took reading (b) of Q2. House, not "
+             "cited — a future ICAO amendment stating a real floor "
+             "REPLACES this rather than re-blessing it. 1.0 % sits "
+             "inside the ICAO ceiling with 0.5 pp of headroom."),
+    # ── Q5 · the 105 m precision strip is DROPPED, not encoded ────────
+    # RULINGS 2026-08-08 "105 m precision strip DROPPED (owner;
+    # supersedes the same-day adoption)" — specification values only.
+    # There is deliberately NO RegEntry: a provenance row would make the
+    # value look encodable.  The Annex 14 §3.4.8 Note stays recorded as
+    # UNADOPTED guidance in docs/specs/fabric-model-reg-set.md §2.1.
+    # ── ruling 1 · the graded-strip mandatory DOWN ────────────────────
+    RegEntry(
+        field="strip_band_min_down_slope_authority", ruleset="faa",
+        value="1.5 % minimum fall across the graded strip (band 1.5-5 % "
+              "AAC-A/B, 1.5-3 % AAC-C/D/E)",
+        citation="AC 150/5300-13B Chg 1, Table 3-6 row S-3 (p. 3-60) + "
+                 "¶3.16.5 item 6",
+        authority_class="Standard",
+        note="KCLT keeps the FAA form (ruling 1)."),
+    RegEntry(
+        field="strip_band_min_down_slope_authority", ruleset="icao",
+        value="none — a 2.5 % (code 3/4) / 3 % (code 1/2) CEILING and "
+              "the 3 m negative lip, with no minimum stated anywhere",
+        citation="ICAO Annex 14 Vol I 8th ed. §3.4.15; CS "
+                 "ADR-DSN.B.185(a); dropped by RULINGS 2026-08-08 "
+                 "reg-set ruling 1 (PROVISIONAL)",
+        authority_class="absent",
+        note="F-2. PROVISIONAL: the owner revisits at the sim look at "
+             "a strip without the band. Strip bands stop being emitted "
+             "at SPJC/SPLP/CYXY/HECA once W2 flips the consumer."),
+    # ── F-1 · the ICAO instrument graded-strip key ────────────────────
+    RegEntry(
+        field="strip_half_width_m_instrument", ruleset="icao",
+        value="graded half-width 40 m (code 1 and 2), 75 m (code 3 and "
+              "4) on an INSTRUMENT runway",
+        citation="ICAO Annex 14 Vol I 8th ed. §3.4.8; CS "
+                 "ADR-DSN.B.175(a)",
+        authority_class="should",
+        note="F-1: the live table is the NON-instrument one (§3.4.9), "
+             "which gives 30 m at code 1. Affects code-1 instrument "
+             "runways only — none in the five-airport battery."),
+    RegEntry(
+        field="strip_half_width_m_instrument", ruleset="faa",
+        value="none — the AC has no instrument/non-instrument split; "
+              "Appendix G keys AAC × ADG × visibility minimum instead",
+        citation="AC 150/5300-13B Chg 1, App. G Tables G-1…G-12",
+        authority_class="absent"),
+)
+
+#: ``(ruleset, field)`` → :class:`RegEntry`.  The lookup a twin uses to
+#: prove every W1 field has provenance.
+REG_SET_ENTRY_INDEX = {(e.ruleset, e.field): e for e in REG_SET_ENTRIES}
+
+
+def reg_entry(field: str, ruleset: str = "both"):
+    """The :class:`RegEntry` for ``field`` under ``ruleset``, falling
+    back to a ``"both"`` entry.  ``None`` when the constant carries no
+    provenance record — which, for a W1 field, is a test failure."""
+    return (REG_SET_ENTRY_INDEX.get((ruleset, field))
+            or REG_SET_ENTRY_INDEX.get(("both", field)))
 
 
 # ── GROUNDSIDE DRAINAGE MINIMUM (§B3, region-invariant) ───────────────

@@ -40,6 +40,29 @@ from auto_patch import elevation as ELEV
 from auto_patch import gap_fill as GF
 from auto_patch.layout import BuiltShape, ROLE_APRON
 
+# ── THE APRON CORRIDOR MOVED UNDER THIS FIXTURE (W2, 2026-08-08) ──────
+# These twins build a drainage-spine gap between APRON parents, and
+# ``drainage_spine_envelope`` takes its FLOOR — the crater guard —
+# straight from ``adjacent_ground_envelope``'s apron branch.  W2 retires
+# the apron surround (reg-set §5.1 T2/T3, ruling 4) and, on the ICAO
+# ruleset, gives the apron edge no lip at all (F-3: ICAO states none),
+# so that corridor is open downward from the edge and the spine has no
+# floor to build a chain against — measured here as zero accepted
+# chains, not an error.  Under the fabric model that IS the drape.
+#
+# BISECTED, not assumed: disabling EITHER
+# ``O4_FABRIC_W2_RETIRE_APRON_SURROUND`` or
+# ``O4_FABRIC_W2_TAXIWAY_LIP_AUTHORITY`` alone restores all 15.  The
+# emitted-geometry consequence (gap fill stops filling between ICAO
+# aprons) is REPORTED for the battery round to adjudicate; the resample
+# mechanics these twins own are unchanged and are certified here on the
+# flag-OFF arm.
+@pytest.fixture(autouse=True)
+def _pre_w2_apron_corridor(monkeypatch):
+    monkeypatch.setenv("O4_FABRIC_W2_RETIRE_APRON_SURROUND", "0")
+    monkeypatch.setenv("O4_FABRIC_W2_TAXIWAY_LIP_AUTHORITY", "0")
+
+
 STEP_M = GF.GAP_FILL_SPINE_STEP_M
 GAP_W, GAP_H = 600.0, 400.0
 PEN_W, PEN_LEN = 40.0, 200.0

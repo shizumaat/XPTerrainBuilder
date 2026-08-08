@@ -317,3 +317,48 @@ def test_the_record_is_a_pure_instrument():
         feature_weld={})
     assert hard == {1, 2}
     assert seed == {1, 2}
+
+
+def test_apron_terraces_retire_and_bisect_alone(monkeypatch):
+    """The walls-to-carves ruling reaches the apron terrace: a terrace is
+    a cut line plus a wall face on unregulated ground.  Its flag must
+    also bisect ALONE — under W2 every apron is sparse, so a hook that
+    consulted ``is_sparse`` would be un-disable-able."""
+    apron = _rect(0.0, 0.0, 400.0, 200.0, role="apron")
+    lay = _layout([apron], icao="SPJC")
+    FS.arm(lay, "SPJC")
+    assert FS.terraces_declined(apron) is True
+
+    monkeypatch.setenv("O4_FABRIC_W2_RETIRE_APRON_TERRACES", "0")
+    assert FS.is_sparse(apron) is True, "still sparse — only terraces moved"
+    assert FS.terraces_declined(apron) is False
+
+
+def test_every_w2_hook_predicate_bisects_independently(monkeypatch):
+    """The registry's promise, asserted on the predicates themselves:
+    turning ONE flag off restores ONE behaviour and leaves the rest of
+    W2 in place."""
+    apron = _rect(0.0, 0.0, 400.0, 200.0, role="apron")
+    lay = _layout([apron], icao="SPJC")
+    FS.arm(lay, "SPJC")
+    assert (FS.bands_declined(apron), FS.terraces_declined(apron),
+            FS.stationing_declined(apron)) == (True, True, True)
+    for env, probe in (
+            ("O4_FABRIC_W2_RETIRE_APRON_SURROUND", FS.bands_declined),
+            ("O4_FABRIC_W2_RETIRE_APRON_TERRACES", FS.terraces_declined),
+            ("O4_FABRIC_W2_RETIRE_STATIONING", FS.stationing_declined)):
+        monkeypatch.setenv(env, "0")
+        assert probe(apron) is False, env
+        monkeypatch.delenv(env)
+        assert probe(apron) is True, env
+
+
+def test_phase_a_only_is_false_in_the_w2_world():
+    """``phase_a_only`` is what the Phase-A-owned hooks consult, and it
+    must be dark under W2 or those hooks stop being bisectable."""
+    apron = _rect(0.0, 0.0, 400.0, 200.0, role="apron")
+    lay = _layout([apron], icao="SPJC")
+    FS.arm(lay, "SPJC")
+    assert FS.mode() == "w2"
+    assert FS.is_sparse(apron) is True
+    assert FS.phase_a_only(apron) is False

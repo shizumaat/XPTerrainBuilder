@@ -1967,9 +1967,22 @@ def ols_transitional_ceiling(
     # ``reach`` is passed as s + 1 so the helper never short-circuits to
     # (None, None) at its own reach cap — we want the zone-3 expression
     # evaluated at s, not the "ungoverned" answer.
+    #
+    # THE MANDATORY-FALL READ IS THE LATERAL LAW'S (W2, reg-set ruling 1).
+    # The anchor value is only continuous with zone 3 if it is computed
+    # from the SAME band the zone-3 expression accumulated from — and
+    # under ``O4_FABRIC_W2_ICAO_STRIP_AUTHORITY`` that band no longer
+    # falls on the ICAO ruleset.  Reading the module constant here left
+    # the composed ceiling stepping 0.555 m at the handover (measured:
+    # transitional -0.645 vs lateral -0.090 at code 2), which is exactly
+    # the wall-between-two-active-cut-bands class the continuity ruling
+    # above exists to prevent.  Flag OFF the accessor returns
+    # ``strip_band_min_down_slope``, which IS
+    # ``RUNWAY_STRIP_BAND_MIN_DOWN_SLOPE`` on both rulesets (pinned by
+    # tests/test_fabric_reg_set_w1.py), so the OFF arm is unchanged.
     _floor_at_s, ceiling_at_s = _adjacent_strip_envelope(
         RUNWAY_STRIP_HALF_WIDTH_BY_CODE[code_number],
-        RUNWAY_STRIP_BAND_MIN_DOWN_SLOPE,
+        _w2_strip_band_min_down(get_ruleset(None)),
         RUNWAY_STRIP_BAND_MAX_DOWN_SLOPE_BY_CODE[code_number],
         s + 1.0, s)
     if ceiling_at_s is None:            # s <= 0 (degenerate geometry)

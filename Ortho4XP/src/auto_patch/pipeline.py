@@ -4909,12 +4909,16 @@ def build_airport_pavement(icao: str, xplane_root: str,
             _n_cluster = _fabric_arm.arm(layout, icao)
             if _n_cluster:
                 _fr = _fabric_arm.report()
+                # The AREA is a Phase-A number (the cluster region's).  W2
+                # has no region, so it is omitted rather than printed as
+                # a zero a reader would take for a measurement.
+                _area = _fr.get("region_area_m2")
                 UI.vprint(1,
                     f"  [pav-builder] {icao}: FABRIC-SPARSE armed "
                     f"({_fr.get('mode', '?')}) — "
-                    f"{_n_cluster} shape(s), "
-                    f"{_fr.get('region_area_m2', 0.0):.0f} m^2, roles "
-                    f"{_fr.get('roles')}.")
+                    f"{_n_cluster} shape(s)"
+                    + (f", {_area:.0f} m^2" if _area else "")
+                    + f", roles {_fr.get('roles')}.")
         except _GEOM_EXC as _fab_arm_exc:                  # pragma: no cover
             UI.vprint(1, f"  [pav-builder] {icao}: fabric-sparse ARM "
                          f"FAILED: {_fab_arm_exc!r} — gate inert this build.")

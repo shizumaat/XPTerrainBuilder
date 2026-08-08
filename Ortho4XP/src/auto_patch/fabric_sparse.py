@@ -119,6 +119,8 @@ __all__ = [
     "is_sparse",
     "bands_declined",
     "stationing_declined",
+    "terraces_declined",
+    "phase_a_only",
     "mode",
     "thin_rings",
     "report",
@@ -396,6 +398,37 @@ def bands_declined(shape) -> bool:
     return poly is not None and not poly.is_empty
 
 
+def phase_a_only(shape) -> bool:
+    """True iff the PHASE-A cluster is what suppresses this shape.
+
+    The hooks W2 gave their own flag still carry Phase A's predicate, and
+    ``is_sparse`` is True for every pavement under W2 — so consulting it
+    directly would mean disabling that hook's OWN flag changed nothing
+    (sparse-all would keep suppressing it), which is precisely the
+    "not individually disable-able" defect the registry exists to
+    prevent.  This is the Phase-A half, and the W2 half is the flag.
+    """
+    return _MODE == "phase_a" and is_sparse(shape)
+
+
+def terraces_declined(shape) -> bool:
+    """True iff ``shape`` is not an apron-terrace candidate.
+
+    Reg-set §5.1 + the walls-to-carves ruling (2026-08-07): an apron
+    terrace is a CUT LINE plus a WALL FACE on unregulated ground, and
+    walls exist only at carve structures.  Under the fabric model the
+    only shaping inside an apron is the law's own grade caps (spec §3 —
+    "explicit shaping only in the REG SET").  W2 flag
+    ``O4_FABRIC_W2_RETIRE_APRON_TERRACES``.
+    """
+    if phase_a_only(shape):
+        return True
+    if getattr(shape, "role", None) not in _NO_BAND_ROLES:
+        return False
+    from .fabric_flags import on as _flag_on
+    return _flag_on("O4_FABRIC_W2_RETIRE_APRON_TERRACES")
+
+
 def stationing_declined(shape) -> bool:
     """True iff the generic 60 m stationing pass must skip ``shape``.
 
@@ -592,9 +625,10 @@ def emit_summary(icao: str = "") -> str:
     if not _STATS:
         return ""
     t = _STATS.get("thin") or {}
+    _area = _STATS.get("region_area_m2")
     return (f"  [fabric-sparse] {icao}: {_STATS.get('mode', '?')} scope "
-            f"{_STATS.get('cluster_shapes', 0)} shape(s), "
-            f"{_STATS.get('region_area_m2', 0.0):.0f} m^2; thinned "
+            f"{_STATS.get('cluster_shapes', 0)} shape(s)"
+            + (f", {_area:.0f} m^2" if _area else "") + "; thinned "
             f"{t.get('shapes_thinned', 0)} ring(s) "
             f"{t.get('vertices_before', 0)} -> {t.get('vertices_after', 0)} "
             f"vertices ({t.get('vertices_removed', 0)} removed, "

@@ -110,6 +110,13 @@ FLAGS = (
               "ICAO governs nothing beyond an apron edge.  The ¶5.9.1 "
               "edge DROP-OFF Standard and the ¶4.14.2 item-4 lip are KEPT "
               "(reg-set §5.1's closing paragraph)"),
+    Flag(env="O4_FABRIC_W2_RETIRE_APRON_TERRACES",
+         what="aprons are terrace candidates again — the envelope-demand "
+              "trigger, the panel cut and its wall face",
+         item="fabric-model-spec.md §3 ('explicit shaping only in the REG "
+              "SET') + the walls-to-carves ruling 2026-08-07 — an apron "
+              "terrace is a cut line plus a wall on unregulated ground, "
+              "and walls exist only at carve structures"),
     Flag(env="O4_FABRIC_W2_RETIRE_APRON_EDGE_WALLS",
          what="the apron-edge retaining-wall family emits again",
          item="reg-set §5.1 T4 + reg-set ruling 4 — pure design; under "

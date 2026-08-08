@@ -34,6 +34,20 @@ from auto_patch.config import APRON_MAX_GRADE, GROUNDSIDE_MAX_GRADE
 from auto_patch.elevation_per_surface.route_profile import apron_terrace as AT
 from auto_patch.layout import BuiltShape
 
+# ── FAN ZONES ARE RETIRED (W2, 2026-08-08) — THIS FILE IS THE OFF ARM ─
+# Owner, verbatim (RULINGS 2026-08-08 THE FABRIC MODEL, scope answer 1):
+# "Fan zones RETIRE OUTRIGHT (they compensated for dense emission)";
+# reg-set §5.1 T1.  On a default build no plan is created and the split
+# refuses at its own entry, which is the successor behaviour, twinned in
+# ``tests/test_fabric_phase_b.py``.  This whole file is the FAN LAW as
+# it was, kept because it is what certifies the OFF arm of
+# ``O4_FABRIC_W2_RETIRE_FANS`` — a retired family whose machinery still
+# has to behave when the flag reverts it.
+@pytest.fixture(autouse=True)
+def _pre_w2_fan_zones(monkeypatch):
+    monkeypatch.setenv("O4_FABRIC_W2_RETIRE_FANS", "0")
+
+
 
 class _Centerline:
     def __init__(self, pts):

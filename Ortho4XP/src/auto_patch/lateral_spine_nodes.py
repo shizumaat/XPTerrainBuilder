@@ -19,6 +19,7 @@ the inserted vertices are welded/propagated to neighbouring shapes too.
 from __future__ import annotations
 
 import math
+import os
 from collections import defaultdict
 
 from shapely.errors import GEOSException, TopologicalError
@@ -39,6 +40,23 @@ _LATERAL_BODY_ROLES = frozenset({ROLE_APRON, ROLE_JUNCTION, ROLE_SERVICE_JUNCTIO
 _DEFAULT_HALF_W_M = 12.0          # fallback taxi half-width (≈ code C/D)
 _CORNER_TOL_M = 0.5              # don't insert within this of an existing corner
 _MERGE_TOL_M = 0.5              # merge feet closer than this on one edge
+# The narrowest cross-section the TRANSVERSE law prices — LOCKSTEP with
+# ``tools/check_grade._TRANSVERSE_MIN_WIDTH_M`` (3.0 m).  Restoration
+# mode inserts the pair the law will price and nothing narrower, so the
+# emitter's span rule and the validator's are the same rule; the twin
+# ``tests/test_lateral_cross_section.py`` asserts the two agree.
+_BRACKET_MIN_WIDTH_M = 3.0
+
+
+def _xsection_bracket_on() -> bool:
+    """``O4_XSECTION_BRACKET`` — default OFF (see :func:`_bracket_feet`).
+
+    Deliberately NOT an ``O4_FABRIC_W2_*`` name: the Phase-B registry
+    (``fabric_flags``) is every-flag-DEFAULT-ON by construction and its
+    audit claims that prefix, so a parked default-OFF experiment must
+    not wear it.
+    """
+    return os.environ.get("O4_XSECTION_BRACKET", "0") == "1"
 
 
 def _open(poly):
@@ -143,8 +161,118 @@ def densify_junction_edges(layout, icao: str = "", step: float = None) -> int:
     return n_added
 
 
-def insert_lateral_spine_nodes(layout, icao: str = "") -> int:
-    """Insert lateral-corridor vertices; returns the number inserted."""
+def _densify_to_step(cs, step: float):
+    """``cs`` (a centerline's vertex list) subdivided to ≤ ``step`` spacing.
+
+    ONE implementation, two callers.  A centerline's own vertices are an
+    OSM/apt.dat authoring artefact, not a station spacing: CYXY carries a
+    single 470 m straight taxi leg with no intermediate vertex, and a
+    1206 truck route can run kilometres the same way.  Both lateral
+    passes below project STATIONS onto pavement edges, so both need the
+    same subdivision; :func:`insert_service_lateral_nodes` has always
+    done it and :func:`insert_lateral_spine_nodes` does it only when it
+    is asked to (see that function's ``station_step_m``).
+    """
+    out = []
+    for k in range(len(cs) - 1):
+        ax, ay = cs[k]
+        bx, by = cs[k + 1]
+        out.append((ax, ay))
+        d = math.hypot(bx - ax, by - ay)
+        n_sub = max(0, int(math.ceil(d / step)) - 1)
+        for j in range(1, n_sub + 1):
+            f = j / (n_sub + 1)
+            out.append((ax + f * (bx - ax), ay + f * (by - ay)))
+    out.append(cs[-1])
+    return out
+
+
+def _bracket_feet(vx, vy, cs, vi, tree, rings, polys, inserts) -> None:
+    """Cast the perpendicular at station ``vi`` and record the NEAREST
+    ring hit on EACH SIDE — the transverse law's own span selection
+    (``tools/check_grade._check_transverse_grade``: the hits are sorted
+    by signed offset and the span BRACKETING the axis is the one priced).
+
+    Records into ``inserts[shape][edge]`` in the same ``(t, (x, y))``
+    form the nearest-projection rule uses, so one insertion pass serves
+    both.  Nothing is recorded unless a shape offers hits of BOTH signs:
+    a bracket is a cross-section, and a shape the station merely passes
+    NEAR cannot produce one.
+    """
+    # Tangent from the station's own segment (the densified list is
+    # collinear inside a segment, so either neighbour gives the same
+    # direction; the endpoints take their one available neighbour).
+    if vi + 1 < len(cs):
+        ax0, ay0 = cs[vi]
+        bx0, by0 = cs[vi + 1]
+    else:
+        ax0, ay0 = cs[vi - 1]
+        bx0, by0 = cs[vi]
+    tlen = math.hypot(bx0 - ax0, by0 - ay0)
+    if tlen < 1e-9:
+        return
+    tx, ty = (bx0 - ax0) / tlen, (by0 - ay0) / tlen
+    nx, ny = -ty, tx
+    try:
+        cand = tree.query(Point(vx, vy).buffer(_CORNER_TOL_M))
+    except _GEOM_EXC:
+        return
+    for qi in cand:
+        si = int(qi)
+        ring = rings[si]
+        n = len(ring)
+        best_lo = best_hi = None          # (|u|, u, ei, t, (fx, fy))
+        for ei in range(n):
+            ax, ay = ring[ei]
+            bx, by = ring[(ei + 1) % n]
+            ex, ey = bx - ax, by - ay
+            den = nx * ey - ny * ex
+            if abs(den) < 1e-12:
+                continue                  # edge parallel to the section
+            rx, ry = ax - vx, ay - vy
+            t = (rx * ny - ry * nx) / den
+            if t <= 0.0 or t >= 1.0:
+                continue
+            u = (rx + t * ex) * nx + (ry + t * ey) * ny
+            L = math.hypot(ex, ey)
+            if t * L < _CORNER_TOL_M or (1.0 - t) * L < _CORNER_TOL_M:
+                continue                  # too near a corner (house rule)
+            hit = (abs(u), u, ei, t, (ax + t * ex, ay + t * ey))
+            if u < 0.0:
+                if best_lo is None or hit[0] < best_lo[0]:
+                    best_lo = hit
+            else:
+                if best_hi is None or hit[0] < best_hi[0]:
+                    best_hi = hit
+        if best_lo is None or best_hi is None:
+            continue                      # not a cross-section here
+        if best_hi[1] - best_lo[1] < _BRACKET_MIN_WIDTH_M:
+            continue                      # narrower than the law prices
+        mid = 0.5 * (best_lo[1] + best_hi[1])
+        try:
+            if not polys[si].contains(Point(vx + nx * mid, vy + ny * mid)):
+                continue                  # the span is OUTSIDE the shape
+        except _GEOM_EXC:
+            continue
+        for h in (best_lo, best_hi):
+            inserts[si][h[2]].append((h[3], h[4]))
+
+
+def insert_lateral_spine_nodes(layout, icao: str = "", *,
+                               station_step_m: float = None) -> int:
+    """Insert lateral-corridor vertices; returns the number inserted.
+
+    ``station_step_m`` (default ``None`` = OFF, the pre-2026-08-08
+    behaviour byte-for-byte) subdivides each centerline to that spacing
+    BEFORE projecting, so the feet land at station spacing rather than
+    at whatever spacing the source data happened to author.  Only the
+    fabric-model RESTORATION call passes it: the pre-solve call above
+    runs before the generic stationing that used to supply those nodes,
+    while the restoration call runs after the fabric thinning has
+    removed them and nothing else puts them back (measured at CYXY: a
+    449 m apron edge beside a 470 m single-segment axis kept 4 vertices,
+    and the transverse law then priced a 1.48 m cross-fall over 17.5 m).
+    """
     centerlines = getattr(layout, "apt_taxi_centerlines", None) or []
     targets = [s for s in layout.shapes
                if s.role in _LATERAL_BODY_ROLES and s.polygon is not None
@@ -176,7 +304,59 @@ def insert_lateral_spine_nodes(layout, icao: str = "") -> int:
             cs = list(ln.coords)
         except _GEOM_EXC:
             continue
-        for (vx, vy) in cs:
+        if station_step_m and len(cs) >= 2:
+            cs = _densify_to_step(cs, float(station_step_m))
+        for _vi, (vx, vy) in enumerate(cs):
+            if station_step_m and _xsection_bracket_on():
+                # ── THE CROSS-SECTION RULE — MEASURED AND PARKED ──────
+                # STATUS (battery round, 2026-08-08): default OFF.  This
+                # is the SECOND fix attempt at the CYXY apron transverse
+                # class and it did NOT land: as an ALTERNATIVE to the
+                # nearest-projection rule below it trades one population
+                # for the other (CYXY transverse 88 -> 89, apron|apron 57
+                # both ways), which is why it is gated rather than
+                # deleted.  The attempt cap (CLAUDE.md convergence guard
+                # b) was reached, so the UNION of the two rules — the
+                # obvious next arm — is NOT taken here; it is reported to
+                # the owner as the proposed next attempt.  Turning this
+                # gate on runs the union, unmeasured.
+                #
+                # WHY IT EXISTS.  The nearest-projection rule finds a
+                # foot only where the ring passes within ``hw``, and
+                # ``hw`` is a DEAD LOOKUP's fallback
+                # (``_DEFAULT_HALF_W_M`` 12 m — see the note above;
+                # nothing has populated ``hw_by_ref`` since the rects
+                # retired).  That is not the corridor the transverse law
+                # censuses: it walks the axis and prices the ring SPAN
+                # that BRACKETS the axis, so an axis running ALONG a
+                # pavement edge (CYXY apron ``shapeID 115``: axis on the
+                # near edge, far edge 19.7-23.2 m away, one 480 m
+                # segment) is priced with a far side the emitter never
+                # gave a node.  This rule uses the law's own selection —
+                # cast the perpendicular, keep the NEAREST hit on EACH
+                # SIDE.  Bounded by construction, not by a reach: a
+                # bracket needs hits of BOTH signs on ONE ring, which
+                # only a shape the station is INSIDE can offer, and at
+                # most two feet per station per shape are inserted.
+                # The nearest-projection rule below finds a foot only
+                # where the ring passes within ``hw`` of the station, and
+                # ``hw`` is a DEAD LOOKUP's fallback (``_DEFAULT_HALF_W_M``
+                # 12 m — see the note above; nothing has populated
+                # ``hw_by_ref`` since the rects retired).  That is not the
+                # corridor the transverse law censuses: it walks the axis
+                # and prices the ring SPAN that BRACKETS the axis, so an
+                # axis running ALONG a pavement edge (CYXY apron
+                # ``shapeID 115``: axis on the near edge, far edge
+                # 19.7-23.2 m away, one 480 m segment) is priced with a
+                # far side the emitter never gave a node.  Restoration
+                # mode therefore uses the law's own selection — cast the
+                # perpendicular, keep the NEAREST hit on EACH SIDE — so
+                # the pair the law prices is the pair the emitter emits.
+                # Bounded by construction, not by a reach: a bracket
+                # needs hits of BOTH signs on ONE ring, which only a
+                # shape the station is INSIDE can offer, and at most two
+                # feet per station per shape are inserted.
+                _bracket_feet(vx, vy, cs, _vi, tree, rings, polys, inserts)
             P = Point(vx, vy)
             try:
                 cand = tree.query(P.buffer(hw))
@@ -286,19 +466,9 @@ def insert_service_lateral_nodes(layout, icao: str = "") -> int:
     def _stations(cs):
         """Centerline vertices densified to ≤ SPINE_STEP_M spacing (a 1206
         truck route can run long straight legs with sparse vertices — the
-        exact stretches that tear)."""
-        out = []
-        for k in range(len(cs) - 1):
-            ax, ay = cs[k]
-            bx, by = cs[k + 1]
-            out.append((ax, ay))
-            d = math.hypot(bx - ax, by - ay)
-            n_sub = max(0, int(math.ceil(d / SPINE_STEP_M)) - 1)
-            for j in range(1, n_sub + 1):
-                f = j / (n_sub + 1)
-                out.append((ax + f * (bx - ax), ay + f * (by - ay)))
-        out.append(cs[-1])
-        return out
+        exact stretches that tear).  ONE implementation, shared with the
+        taxi pass's ``station_step_m`` mode (``_densify_to_step``)."""
+        return _densify_to_step(cs, SPINE_STEP_M)
 
     for cl in svc_lines:
         try:

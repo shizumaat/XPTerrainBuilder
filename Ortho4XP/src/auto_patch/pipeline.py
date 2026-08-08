@@ -5407,13 +5407,43 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 # from the existing machinery, never re-derived here — and
                 # they are pure subdivide-to-spacing inserts, so outside
                 # the cluster the second call finds nothing to do.
+                # SCOPE SYMMETRY IS THE LAW HERE: restore the lateral
+                # cross-section for EVERY role the thinning touched.
+                # ``fabric_sparse._THIN_ROLES`` is {apron, junction,
+                # service_junction, groundside_pavement} and the
+                # transverse law prices {apron, junction,
+                # service_junction} (check_grade ``_TRANSVERSE_ROLES``),
+                # so all three of those need their stations back — from
+                # the AIRCRAFT axes (the taxi pass) AND from the SERVICE
+                # axes (``insert_service_lateral_nodes``, which the
+                # first restoration attempt omitted).  Measured at CYXY,
+                # attempt 1: transverse 31 -> 109 rows, of which
+                # service_junction 21 -> 39 came from the missing service
+                # pass and apron 3 -> 55 from stations the taxi pass
+                # never had, because it projects a centerline's OWN
+                # vertices and CYXY's axis carries a single 470 m
+                # segment; ``station_step_m`` subdivides to the same
+                # ``SPINE_STEP_M`` the service pass has always used.
+                # Both are pure subdivide-to-spacing inserts inside the
+                # corridor the law censuses, so they add nodes only
+                # where a cross-section is priced — the owner's rider
+                # ("adequate nodes on spines and at curves"), not the
+                # generic stationing T8 retires.
+                from .config import SPINE_STEP_M as _RESTAT_STEP_M
                 _n_restat = 0
                 if os.environ.get("O4_LATERAL_SPINE_NODES", "1") == "1":
                     from .lateral_spine_nodes import insert_lateral_spine_nodes
-                    _n_restat += insert_lateral_spine_nodes(layout, icao) or 0
+                    _n_restat += insert_lateral_spine_nodes(
+                        layout, icao, station_step_m=_RESTAT_STEP_M) or 0
                 if os.environ.get("O4_DENSIFY_JUNCTION_EDGES", "1") == "1":
                     from .lateral_spine_nodes import densify_junction_edges
                     _n_restat += densify_junction_edges(layout, icao) or 0
+                from .config import SVC_SPINE_FIRST as _RESTAT_SVC_FIRST
+                if _RESTAT_SVC_FIRST:
+                    from .lateral_spine_nodes import (
+                        insert_service_lateral_nodes)
+                    _n_restat += insert_service_lateral_nodes(
+                        layout, icao) or 0
                 _fabric.note_restation(_n_restat)
                 _line = _fabric.emit_summary(icao)
                 if _line:

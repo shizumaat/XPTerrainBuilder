@@ -30,6 +30,47 @@ Read all of it before any work; every banner is load-bearing.
 > adjacent to ruling 1); fixture re-scope + CYXY lockstep (owner,
 > 2026-08-08).**
 
+> **BATTERY-ROUND STOP + LEAD RULINGS (2026-08-08, lane/fabricB
+> 190a853; battery deliberately unspent on a tree that must change).**
+> MEASURED: CYXY service-transverse fixed exactly (21==control) by
+> restoring scope symmetry; the residual is a REAL wide-corridor
+> class (axis on the near edge, far edge 17-24 m out; sparse
+> interpolation carries an ~8% lateral cross-fall — a parked-aircraft
+> lean, exactly the sharp-surface class the fabric model must not
+> ship). DEEPER: restoring station nodes at HECA REFUSED the build —
+> cross-section nodes minted CROSS EDGES that shortened route paths
+> and SHRANK reach-band budgets (49.400 m spread vs a 47.723 m
+> route budget → 1,655 inversions): the transverse law and the route
+> metric were sharing one graph. CONVERGENCE READ: partial and
+> ACCEPTED — total freeze −36.3%, band-freeze −49.6%, zero
+> unattributed both arms; the survivor guards KEPT reg geometry
+> (runway+taxiway strips); the deeper hardening read defers to
+> post-battery. CRATER: the drape handles it (measured; the synthetic
+> zero-chains twin is fixture-scale). FREE GREEN: the CYXY
+> solver-validator lockstep red passed on the lane — the cleanup
+> lane's charter shrinks. Suite: 10 reds, strict subset, no new.
+>
+> **LEAD RULINGS (from the owner's standing law):**
+> R-a — LATERAL NODES ARE ROUTE-TRANSPARENT: cross-section/lateral
+> nodes never mint route-graph edges; reach/route budgets price
+> along spines and centerlines ONLY. This is the direct application
+> of the owner's 2026-07-30 "Reach follows centerlines" ruling; the
+> HECA inversion was the violation's measurement. Owner veto welcome;
+> no new law is created here.
+> R-b — the sparse floor gains its third member, completing the
+> owner's rider (spines, curves, AND cross-sections): width-adaptive
+> lateral rows at the existing 12 m step wherever pavement width
+> exceeds the lateral pass reach, inserted ROUTE-TRANSPARENTLY per
+> R-a. The wide-corridor cross-fall class is the defect this kills.
+> R-c — the attempt cap resets for the transverse fix: it was
+> reached under the pre-R-a frame; attempt 3 (the union span rule,
+> currently gated OFF as O4_XSECTION_BRACKET) is authorized under
+> R-a/R-b. The station-step re-arm flag flips back ON once laterals
+> are route-transparent.
+> CONTINUATION: implement R-a/R-b, prove HECA builds + CYXY
+> transverse ~control, THEN the full battery per the original
+> charter.**
+
 ## The convergence thesis (why #2 and #3 are one round)
 
 The late final_grade_projection feature-weld agreement gate hardens

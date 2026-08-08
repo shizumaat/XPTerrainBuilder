@@ -37,6 +37,27 @@ tree's 4 unmounted data dirs now symlink the shared repo; write
 guard gained the no-op ensure-dir allowance (twin in
 test_harness.py).**
 
+**ENCLAVE v2 RESULT (08-08 ~00:45; lane 7c0d772, 4/5 builds, STOP
+at one criterion): the v1 mechanism sentence falsified AGAIN by
+measurement — the real carrier was `_emit_pocket_collar_rings`
+claiming the width-DECLINED 3.4 km² infield as a collared pocket
+(item-3 exemption let it past the blocker) and standing bands down
+over all of it. v2 as landed: difference-clipping bounded by
+keep-out area arithmetically; `_enclave_treatable` unifies
+pocket-width for both halves; second veto site covered. TABLE: WIDE
+band == control (+0.117% real / exact −500); pocket bands+walls
+down as designed; out-of-enclave unchanged. AIRSIDE: real −5 (MET,
+sites 121→115); SPJC −2 (MET, 16); **−500 +96 MISSED** — located
+OUTSIDE keep-out territory, strips on ONE site (-12976 @30.1059,
+31.4072, 3.0-3.6 m steps), reading = the flat-world
+threshold-crossing class the owner accepted at the road-feed merge
+(real world improves). SPJC big-pocket veto LAWFUL (crossing
+influence zone = the owner's own escape clause; attributed,
+closed). OWNER CALL PENDING: accept-per-precedent and merge, or
+hold for the -12976 site attribution. Full-suite reds = the
+standing battery zero-defect fixtures; matched-control full-suite
+diff still running — merge precondition.**
+
 **ENCLAVE VERIFY STOP → SCOPING v2 (08-07 ~23:30; lane b8d95cc,
 merge-in d33398e clean, 718 green, 6/6 builds none refused): the
 ratified scoping FALSIFIED IN-BUILD — zone bounded but STATIONS

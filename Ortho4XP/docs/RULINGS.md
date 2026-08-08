@@ -1160,3 +1160,32 @@ ring spread, 60 near-miss — all XPASS at CYXY). CYXY hillside group
 (owner's named sim case): all fronting, seats == welded values up
 the slope (702.80→706.29 m), Δ0 rows — the design already handles
 sloped groups on real DEM.
+
+## 2026-08-08 — THE FABRIC MODEL (owner; supersedes "relief generation")
+
+Owner, verbatim: "we have a base 'fabric' we're essentially
+deforming, there's no need to 'generate relief'… We simply need to
+grade our pavement and building pads, and Ortho4XP will
+automatically blend the surrounding terrain. We only add our
+adjacent ground and drainage areas to ensure FAA regulations, but
+for unregulated areas I believe the answer is to do nothing. I don't
+think we even need to grade apron fans." The two thought experiments
+(two squares in three worlds; the sparse apron with three welded
+buildings and no intermediate back-edge nodes) are recorded in
+fabric-model-spec.md as the canonical design articulation.
+
+Interview scope, same exchange:
+1. Fan zones RETIRE OUTRIGHT (they compensated for dense emission).
+2. Explicit shaping = runway strips + drainage + RESA/OFZ (per the
+   standards enumeration; region-keyed per the rulesets ruling).
+3. Interior node floor = LAW VERTICES ONLY (seats, welds, mouths,
+   boundary direction changes, reg features), owner rider: "as long
+   as we keep adequate nodes on spines and at curves."
+4. Bands/graded surrounds survive in the REG SET ONLY, owner rider:
+   "that should include drainage requirements along all taxiways."
+   Unregulated ground: NOTHING — the drape is the feather.
+
+SUPERSEDES the relief-generation framing (retrospective structure
+#2). The capacity-deficit argument is falsified by the fp#8 ladder
+(pure law satisfiable at HECA: 742 rows @ 0.08 m). Acceptance pair:
+apron -10447 (11 m / 790 m / 1% cap) and the CYXY hillside group.

@@ -1230,3 +1230,17 @@ guidance adoption is REVERSED on both rulesets: specification values
 only. The Annex 14 §3.4.8 Note remains recorded in the reg-set table
 as unadopted guidance. Consistent with rulings 1 and 4 of the same
 day: shape nothing the specification does not mandate.
+
+## 2026-08-08 — Acceptance fixtures re-scope to the ruled bar (owner)
+
+Owner: "Re-scope group 1." The eight zero-defect acceptance fixtures
+(the five per-airport pavement-grade fixtures, the two runway
+longitudinal-grade fixtures, and the runway seam DEM-step fixture)
+re-scope from raw adjudicated-zero to THE RULED BAR: zero ACTIONABLE
+SITES under the 2026-08-07 materiality floor (0.5 m accumulation,
+sharp-step and steepness guards, runway-family floor-exempt). A
+fixture asserting a superseded bar is the same defect class as an
+instrument measuring a superseded frame. Execution: the POST-BATTERY
+CLEANUP lane — the owner also folds the CYXY solver-validator
+edge-budget lockstep unification there (the "floor > ceiling by
+0.0112 m" single-mechanism red).

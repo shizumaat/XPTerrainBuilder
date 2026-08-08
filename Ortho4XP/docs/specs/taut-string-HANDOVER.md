@@ -37,6 +37,20 @@ tree's 4 unmounted data dirs now symlink the shared repo; write
 guard gained the no-op ensure-dir allowance (twin in
 test_harness.py).**
 
+**OWNER RELEASE SEQUENCE (08-08 ~02:00, verbatim "Get the frontage
+weld done, then commit and merge back into main, then build a new
+mac app so I can test"): (1) frontage-weld lane lands+merges to the
+campaign branch; (2) taut-string-chord-model merges into the literal
+`main` branch (stale at 0b55fe5); (3) fresh Mac app cut from the
+merged main for owner sim testing. OWNER'S NAMED SIM-TEST CASE: the
+CYXY hillside building group under weld authority on REAL DEM —
+relayed to the frontage lane for a dedicated acceptance paragraph.
+Enclave MERGED (0d38040, suite 11 standing reds == control, 0
+errors); +96 accepted per threshold precedent (RULINGS); app 1.0.223
+cut from tip 9965660 and delivered. Frontage-weld ruling landed
+(apron welds to face; seat IS the weld; band constrains the solve,
+nothing asserts back — authority-direction clarification in-spec).**
+
 **ENCLAVE v2 RESULT (08-08 ~00:45; lane 7c0d772, 4/5 builds, STOP
 at one criterion): the v1 mechanism sentence falsified AGAIN by
 measurement — the real carrier was `_emit_pocket_collar_rings`

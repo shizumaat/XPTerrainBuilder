@@ -1221,3 +1221,12 @@ figure guidance is adopted as law in BOTH rulesets: precision-
 approach runways grade the strip to a 105 m half-width. Recorded as
 guidance-adopted-as-law (the one deliberate exceedance of bare
 specification in the fabric model's reg set).
+
+## 2026-08-08 — 105 m precision strip DROPPED (owner; supersedes the same-day adoption)
+
+Owner, on learning the 105 m has no FAA anchor: "If there's no FAA
+citation for the 105 m precision strip, we can drop it as well." The
+guidance adoption is REVERSED on both rulesets: specification values
+only. The Annex 14 §3.4.8 Note remains recorded in the reg-set table
+as unadopted guidance. Consistent with rulings 1 and 4 of the same
+day: shape nothing the specification does not mandate.

@@ -1102,3 +1102,36 @@ threshold-crossing class the owner first accepted at the road-feed
 merge (lawful value perturbation × oracle-world threshold density).
 Rider: site -12976 (30.105897, 31.407168; 3.0-3.6 m steps) gets a
 read in the next census pass, not a block. Merged as 0d38040.
+
+## 2026-08-08 — Apron welds to building frontage; the seat IS the weld (owner)
+
+Owner, verbatim: "there can't be a gap between a building pad and an
+apron, so the apron pavement should be welded to the building,
+buildings fronting apron need to be smooth right up to the building
+at apron grade, no steps, no feather into an apron. Two pad feathers
+meet in the middle." And: "Building-frontage to me means frontage to
+an apron, which means apron cap." And: "If the apron simply welds to
+the building frontage, we shouldn't need any other solve
+integration."
+
+Binding:
+1. A building FRONTING an apron has NO independent seat authority:
+   the apron pavement extends/welds to the building face and the
+   building seats AT the welded apron value. Apron cap governs the
+   whole surface to the face. No steps, no feather, no transition
+   zone on the apron side. Any band-derived seat that disagrees with
+   the welded frontage value is a DEFECT of the seat mechanism, not
+   a pricing gap — for fronting buildings the independent seat
+   RETIRES (seat := welded frontage value).
+2. DETACHED pads (no apron frontage) keep the service-route band
+   seat (ONE-graph law); the ground around them FEATHERS (walls
+   ruling); where two pads' feathers approach, they meet in the
+   middle.
+3. No new solve integration for the fronting case — the apron's own
+   law prices everything up to the face (the frontage strip joins
+   the apron's within-shape population; movement there is lawful and
+   reported). frontage_near_miss self-retires for fronting buildings
+   (seat == edge by construction).
+This SUPERSEDES the retrospective structure-#1 framing ("price the
+chord"): for fronting buildings there is no chord; the detached
+remainder folds into the relief/feather round.

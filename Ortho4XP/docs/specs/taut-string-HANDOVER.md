@@ -37,6 +37,19 @@ tree's 4 unmounted data dirs now symlink the shared repo; write
 guard gained the no-op ensure-dir allowance (twin in
 test_harness.py).**
 
+**THE FABRIC MODEL RULED (08-08 ~03:00; RULINGS entry + 
+fabric-model-spec.md — the owner's two thought experiments are the
+canonical design text): relief generation is SUPERSEDED — there is
+no capacity deficit (fp#8 ladder); the drape IS the feather; sparse
+lawful emission (law vertices + adequate spine/curve nodes); fans
+RETIRE OUTRIGHT; explicit shaping = strips + RESA/OFZ + drainage
+incl. ALL-taxiway drainage (owner riders); unregulated ground gets
+NOTHING. Acceptance pair: apron -10447 + the CYXY hillside. Phase 0
+(standards enumeration) + Phase A (gated in-lane proof pair)
+DISPATCHED; Phase B (the overhaul + retire list) specs after A.
+Sequence context: weld round closed (already-true, parked hygiene),
+main fast-forwarded to the campaign, 1.0.224 delivered.**
+
 **OWNER RELEASE SEQUENCE (08-08 ~02:00, verbatim "Get the frontage
 weld done, then commit and merge back into main, then build a new
 mac app so I can test"): (1) frontage-weld lane lands+merges to the

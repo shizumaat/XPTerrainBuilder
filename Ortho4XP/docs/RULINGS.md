@@ -1135,3 +1135,28 @@ Binding:
 This SUPERSEDES the retrospective structure-#1 framing ("price the
 chord"): for fronting buildings there is no chord; the detached
 remainder folds into the relief/feather round.
+
+## 2026-08-08 — Frontage weld: measured ALREADY-TRUE; retirement parked (lead ruling on the frontweld STOP)
+
+Job-1 measurement on the current tip: the seat-vs-weld disagreement
+population is ZERO (79 fronting pads at HECA, |seat − welded face|
+max 0.200 m, mean 0.0027 m — pad ring vertices ARE apron ring
+vertices at emit). The owner's "we have been welding aprons to pads
+smoothly for a long time" is measured true; the 7.42 m retrospective
+specimen does not exist on this tree. The 1,373-row fronting class
+is the APRON'S OWN RELIEF (apron -10447: 11 m over 600-790 m at
+1.4-2.0% vs the 1.0% cap) touching pad vertices — retrospective
+structure #2 (relief generation), REASSIGNED to the relief round's
+charter. RULED: the code retirement (seed-not-hard + no assert-back)
+is PARKED in lane/frontweld 2d2a8e7 (kept, not merged) — it fixes a
+zero population at +67 REAL-WORLD airside on the one un-gradeable
+apron, and the flat-world threshold precedent does NOT cover real
+DEM. It re-lands for re-measurement AFTER the relief round makes
+-10447 gradeable (expected cost then ~0). The AUTHORITY LAW STANDS
+as the adjudication rule: any future band-vs-weld disagreement is a
+band-computation defect (the three emitted law twins document
+today's honest exposures as xfail: 0.200 m seat-vs-face, 0.800 m
+ring spread, 60 near-miss — all XPASS at CYXY). CYXY hillside group
+(owner's named sim case): all fronting, seats == welded values up
+the slope (702.80→706.29 m), Δ0 rows — the design already handles
+sloped groups on real DEM.

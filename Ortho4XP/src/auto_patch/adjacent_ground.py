@@ -353,6 +353,20 @@ _APPARATUS_KEYS = (
     # Arc B1: stations stood down because they face a COLLARED POCKET
     # (0 with nothing collared, by construction).
     "collar_zone_excluded_stations",
+    # ENCLAVE LAW (owner 2026-08-07; SCOPING v2, spec
+    # docs/specs/enclave-region-law-spec.md).  The keep-out acts on band
+    # GEOMETRY, so what is counted is the geometry it took: band rings
+    # and wall faces the pocket-region clip REDUCED (0 when no
+    # pocket-width region is published, by construction).  It replaces
+    # the v1 STATION counter deliberately — a station anchor inside a
+    # pocket used to delete the whole row it anchored, including the
+    # part marching over WIDE ground the keep-out does not cover
+    # (measured at HECA: 11,274 stations, 150,438 m² of Annex 14 §3.4.11-13
+    # graded strip removed from regions the keep-out provably does not
+    # reach), and a counter of stations cannot see that the loss landed
+    # outside its own territory.  An AREA counter can.
+    "enclave_zone_clipped_bands",
+    "enclave_zone_clipped_walls",
     # RAY OCCLUSION (2026-07-25): stations whose outward march hit
     # pavement and was terminated there (0 with the gate OFF, by
     # construction).
@@ -4099,6 +4113,38 @@ def _collar_zone_prep(layout):
     return collared_pocket_zone_prepared(layout)
 
 
+def _enclave_zone_union(layout):
+    """The published AIRSIDE-ENCLAVE band keep-out union, or ``None``
+    (``enclaves.enclave_band_keepout_union``).
+
+    Owner 2026-08-07: everything inside an airside-surrounded enclave —
+    paved or bare — is airside-interior and takes the gap interior ring +
+    spine treatment; "a retaining wall or groundside terrace there is a
+    defect regardless of which mechanism minted it".  So no band and no
+    retaining face may OCCUPY that ground.
+
+    Scoped by ``enclaves`` to the POCKET-width regions of the GAP LAW'S
+    OWN union (pavement only) — the keep-out must agree with the ruled
+    treatment about which ground it OWNS.  An airfield INFIELD is a
+    bounded complement component too, and its graded strips are Annex 14
+    §3.4.11-13 ground the bands own, so the width test is what keeps the
+    keep-out off it.
+
+    CONSUMED AS GEOMETRY, never as a station predicate (SCOPING v2).
+    There is deliberately no prepared-geometry twin of this function any
+    more: a ``prep(...).contains(station)`` test is only available to a
+    consumer that stands STATIONS down, and that consumer is exactly what
+    the HECA measurement retired (``_station_reference_ex``).  The two
+    live consumers are the band clip in ``emit_adjacent_ground_bands``
+    and ``_emit_apron_walls``' ``enclave_keepout``; the VALIDATOR keeps
+    its own prepared form (``verification._airside_enclave_zone_prep``),
+    where a station predicate is the right shape — it suppresses a
+    coverage flag at a station whose band this clip removed, and it
+    cannot delete anything."""
+    from .enclaves import enclave_band_keepout_union
+    return enclave_band_keepout_union(layout)
+
+
 def _tunnel_ramp_standoff_block(layout):
     """1 m buffered union of the tunnel mouth pieces to stand strips off
     (scope B), or ``None``.  The set is ``tunnel_ramp`` sloped rects + the
@@ -4852,6 +4898,11 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
     never govern the same ground.  ``None`` (default; nothing collared):
     no zone test — byte-identical.
 
+    The AIRSIDE-ENCLAVE keep-out takes NO parameter here, deliberately
+    (SCOPING v2): it is a keep-out over GROUND and is differenced out of
+    the band GEOMETRY at emission, never applied to the station anchors
+    — see ``_station_reference_ex`` for the measurement that ruled it.
+
     ``strip_zone_prep`` / ``strip_law`` / ``strip_bands_out`` (STRIP
     PRECEDENCE §1, ``O4_STRIP_PRECEDENCE``; passed only for NON-RUNWAY
     families — see ``runway_strip_lateral_zone``).  ``strip_zone_prep`` is
@@ -4960,6 +5011,22 @@ def _derive_shape_stations_and_bands(coords, ccw, ring_alts, axis, width,
                      or collar_zone_prep.contains(probe))):
             _APPARATUS_HITS["collar_zone_excluded_stations"] += 1
             return (None, "collared_pocket")
+        # AIRSIDE ENCLAVE: NOT A STATION SKIP (SCOPING v2, spec
+        # docs/specs/enclave-region-law-spec.md; the v1 test lived
+        # exactly here).  The enclave keep-out is a statement about
+        # GROUND — the pocket regions the gap ring + spine owns — and a
+        # STATION is not ground: it is the anchor of a row that marches
+        # ``reach`` metres outward, so standing a station down deletes
+        # band over everything that row covers, most of which the
+        # keep-out does not own.  Measured at HECA: 11,274 stations stood
+        # down took 150,438 m² of Annex 14 §3.4.11-13 graded strip out of
+        # WIDE regions (short side 1,264 m) the keep-out never claimed,
+        # against 10,840 m² inside its own pocket territory — a 14:1
+        # overreach, and adjudicated airside rose in both worlds.  The
+        # keep-out is applied to the band GEOMETRY instead, clipped at
+        # the region boundary, in ``emit_adjacent_ground_bands`` (and to
+        # the wall faces in ``_emit_apron_walls``): a row spanning
+        # pocket→WIDE keeps its WIDE extent by construction.
         # RUNWAY-STRIP PRECEDENCE (§1) is NOT a station skip — see the
         # ``strip_law`` block below.  The station is KEPT and its
         # GOVERNING LAW is swapped to the strip family (lead ruling
@@ -5645,6 +5712,16 @@ def construct_adjacent_ground_presolve(layout: PavementLayout, dem,
     # Crossing-zone exclusion (Phase 1): the published zone, prepared
     # once, passed for taxiway shapes (byte-inert when nothing published).
     crossing_zone_prep = _crossing_zone_prep(layout)
+    # ENCLAVE keep-out: NOT consumed here (SCOPING v2).  It is a
+    # keep-out over GROUND, applied to the band geometry at emission
+    # (``emit_adjacent_ground_bands``), so this march and the emit march
+    # build the IDENTICAL station sequence — which is the parity the
+    # pre-solve store's coordinate join depends on.  The cost is named:
+    # a zone row inside a pocket becomes a solver variable whose emitted
+    # geometry is then clipped away.  That is the collar zone's existing
+    # bargain under the frozen-footprint state, and it is the cheap side
+    # of the trade the v1 station stand-down lost 150,438 m² of graded
+    # strip to.
     # STRIP PRECEDENCE §1 (``O4_STRIP_PRECEDENCE``): the LATERAL strip,
     # built once, passed for NON-runway shapes; ``None`` with the gate off
     # (byte-inert).  Between the ends only — the end corridors keep the
@@ -6293,6 +6370,18 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
     collar_zone_prep = (_collar_zone_prep(layout)
                         if collar_zone_union is not None else None)
     collar_zone_clip_block = collar_zone_union
+    # AIRSIDE-ENCLAVE keep-out (owner 2026-08-07; SCOPING v2).  ONE form
+    # only — the exact-geometry clip below and the wall emitter's twin of
+    # it.  The v1 prepared-zone STATION stand-down is gone: it saw only a
+    # station's seed and its 1.5 m probe, yet deleted the whole row those
+    # anchored, which marches ``reach`` metres over ground the keep-out
+    # does not own (HECA measurement in ``_station_reference_ex``).
+    enclave_zone_clip_block = _enclave_zone_union(layout)
+    _enclave_band_area_taken = 0.0
+    # The wall emitter is a separate function, so its share of the area
+    # comes back through a one-slot sink (the module's existing idiom for
+    # per-emission tallies that cross a helper boundary).
+    _enclave_area_sink = [0.0]
     # STRIP PRECEDENCE §1 + §2 (``O4_STRIP_PRECEDENCE``): the prepared
     # LATERAL strip, built once per emission; ``None`` with the gate off.
     # Between the ends only — the end corridors keep the runway-END
@@ -7151,6 +7240,28 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                         # protection under the frozen-footprint gate state,
                         # where the station march above is not re-run.
                         poly = poly.difference(collar_zone_clip_block)
+                    if (enclave_zone_clip_block is not None
+                            and not enclave_zone_clip_block.is_empty):
+                        # AIRSIDE ENCLAVE (owner 2026-08-07; SCOPING v2).
+                        # THE WHOLE of the enclave keep-out is this line:
+                        # no band piece may occupy ground inside a
+                        # POCKET-width region of the gap law's own union
+                        # — that ground is airside-interior and the ring
+                        # + spine treats it — and a row that merely
+                        # PASSES THROUGH such a region keeps every part
+                        # of itself that lies outside it, because a
+                        # difference is clipped at the region boundary
+                        # by construction.  EXACT clip, ZERO buffer, for
+                        # the collar's reason: this surface ABUTS the
+                        # enclave's rim (which is pavement it is already
+                        # welded to) rather than standing off it.
+                        _pre_area = poly.area
+                        poly = poly.difference(enclave_zone_clip_block)
+                        if poly.area < _pre_area - 1e-9:
+                            _APPARATUS_HITS[
+                                "enclave_zone_clipped_bands"] += 1
+                            _enclave_band_area_taken += (
+                                _pre_area - poly.area)
                     if (previous_shapes_union is not None
                             and not previous_shapes_union.is_empty):
                         poly = poly.difference(previous_shapes_union)
@@ -7546,7 +7657,16 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                 # ``APRON_WALL_PAVEMENT_ADJACENCY_M``.
                 station_filter=_apron_q,
                 pavement_block=_wall_pav_block,
-                strip_keepout=_strip_keepout)
+                strip_keepout=_strip_keepout,
+                # AIRSIDE ENCLAVE (SCOPING v2): the band clip's twin on
+                # the wall face.  With the station stand-down retired,
+                # this is what keeps a retaining wall out of a pocket the
+                # ruled ring + spine owns — the owner's "a retaining wall
+                # or groundside terrace there is a defect regardless of
+                # which mechanism minted it" — while a run that only
+                # STRADDLES the region keeps its outside part.
+                enclave_keepout=enclave_zone_clip_block,
+                enclave_area_taken=_enclave_area_sink)
             emitted += n_wall
             if n_wall and wall_union is not None:
                 current_shape_union = wall_union
@@ -7637,6 +7757,20 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
         UI.vprint(1, f"  [adjacent-ground] tile-seam prolongation: "
                      f"{_n_prolonged} cut-back run(s) marched off the "
                      f"un-cut frontage (owner ruling 2026-07-24).")
+    # AIRSIDE-ENCLAVE keep-out ledger (SCOPING v2).  The area the
+    # keep-out OWNS beside the area it actually TOOK, in one line and in
+    # one frame: an overreach is then visible as a number here rather
+    # than only in a downstream void census.  A take larger than the
+    # keep-out's own area is arithmetically impossible under a
+    # difference — which is the whole point of moving the law onto the
+    # geometry.
+    if enclave_zone_clip_block is not None:
+        UI.vprint(1,
+            f"  [adjacent-ground] airside-enclave keep-out: took "
+            f"{_enclave_band_area_taken:.0f} m2 of band and "
+            f"{_enclave_area_sink[0]:.0f} m2 of wall face out of a "
+            f"{enclave_zone_clip_block.area:.0f} m2 pocket-region "
+            f"keep-out [frame=gap-law pavement-only union, settled].")
     # Order-2 apparatus hit report (always printed — the OFF-vs-ON
     # retirement table reads these from both configurations).
     UI.vprint(1, "  [adjacent-ground] apparatus hits: "
@@ -7679,7 +7813,8 @@ def _emit_apron_walls(layout, stations, st_alts, outs, ceil_off, step,
                       sample_dem, static_union, boundary,
                       emitted_union=None, emitted_shapes=None,
                       station_filter=None, pavement_block=None,
-                      strip_keepout=None):
+                      strip_keepout=None, enclave_keepout=None,
+                      enclave_area_taken=None):
     """Emit ``retaining_wall`` faces along an apron edge where the DEM
     drops more than ``APRON_EDGE_WALL_MIN_DROP_M`` below the shoulder
     outer-edge altitude (reuses the ``ROLE_RETAINING_WALL`` emit contract
@@ -7728,6 +7863,19 @@ def _emit_apron_walls(layout, stations, st_alts, outs, ceil_off, step,
     above it, so a run straddling the strip edge keeps its lawful outside
     part and loses only the part inside the strip.  ``None`` (gate off):
     nothing is differenced — byte-identical.
+
+    ``enclave_keepout`` (AIRSIDE ENCLAVE, owner 2026-08-07; SCOPING v2 of
+    ``docs/specs/enclave-region-law-spec.md``): the POCKET-width regions
+    of the gap law's own union — ground the ruled gap interior ring +
+    spine treats, where "a retaining wall or groundside terrace is a
+    defect regardless of which mechanism minted it".  Differenced out of
+    each wall run exactly like ``strip_keepout``, and for the same
+    reason a straddling run keeps its outside part: the keep-out is a
+    statement about GROUND, so it is applied to geometry and clipped at
+    the region boundary — never to the stations, which anchor rows
+    reaching far outside it.  ``enclave_area_taken``, when given, is a
+    one-slot list the removed area accumulates into (the emitter's
+    apparatus row).  ``None``: nothing is differenced — byte-identical.
     """
     w = APRON_SHOULDER_WIDTH_M
     n = len(stations)
@@ -7814,6 +7962,7 @@ def _emit_apron_walls(layout, stations, st_alts, outs, ceil_off, step,
     n_confetti = 0
     n_multipart_parts = 0
     n_strip_clipped = 0
+    n_enclave_clipped = 0
     for run in runs:
         if len(run) < 2:
             continue
@@ -7846,6 +7995,17 @@ def _emit_apron_walls(layout, stations, st_alts, outs, ceil_off, step,
                 if poly.intersects(strip_keepout):
                     poly = poly.difference(strip_keepout)
                     n_strip_clipped += 1
+            # AIRSIDE-ENCLAVE KEEP-OUT (owner 2026-08-07): the ruled ring
+            # + spine owns this ground, so no retaining face stands on
+            # it.  Same exact-clip form as the strip keep-out above.
+            if enclave_keepout is not None and not enclave_keepout.is_empty:
+                if poly.intersects(enclave_keepout):
+                    _pre = poly.area
+                    poly = poly.difference(enclave_keepout)
+                    if poly.area < _pre - 1e-9:
+                        n_enclave_clipped += 1
+                        if enclave_area_taken is not None:
+                            enclave_area_taken[0] += _pre - poly.area
             if (pavement_block is not None
                     and not pavement_block.is_empty):
                 # Groundside/service keepout (owner defect 2026-07-27,
@@ -7938,6 +8098,12 @@ def _emit_apron_walls(layout, stations, st_alts, outs, ceil_off, step,
         UI.vprint(1, f"  [adjacent-ground] runway-strip wall law: "
                      f"{n_strip_clipped} apron wall run(s) clipped out of a "
                      f"runway strip footprint (owner ruling 2026-08-01).")
+    if n_enclave_clipped:
+        _APPARATUS_HITS["enclave_zone_clipped_walls"] += n_enclave_clipped
+        UI.vprint(1, f"  [adjacent-ground] airside-enclave wall law: "
+                     f"{n_enclave_clipped} apron wall run(s) clipped out "
+                     f"of a pocket-width enclave the gap ring + spine "
+                     f"owns (owner ruling 2026-08-07).")
     return emitted, emitted_union
 
 

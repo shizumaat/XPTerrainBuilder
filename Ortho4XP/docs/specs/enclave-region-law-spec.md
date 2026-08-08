@@ -113,6 +113,58 @@ specimen enclave is bare ground outside the shape universe entirely.
 > byte-comparable; SPJC's big pocket faced or its veto attributed at
 > the call site. Budget 3–4 builds, cap 5.
 
+> **SCOPING v2 OUTCOME (2026-08-08, lane/enclave — measurements only;
+> the design sentence above is unchanged).** Landed: the keep-out acts
+> on band and wall GEOMETRY (`_derive_shape_stations_and_bands` no
+> longer takes a zone at all), and the enclave EXEMPTION is width-scoped
+> by the same `GAP_FILL_MAX_WIDTH_M` (`gap_fill._enclave_treatable`).
+>
+> ACCEPTANCE v2, measured against the reused post-re-bake controls:
+> (1) WIDE-region band area **HECA real 150,438.5 → 150,614.9 m²
+> (+0.117 %)**, **HECA −500 96,804.7 → 96,804.7 m² (0.000 %)**, **SPJC
+> 0.0 → 0.0** — MET (±1 %). (2) adjudicated airside **HECA real 2,257 →
+> 2,252 (−5)** MET, **SPJC 143 → 141 (−2)** MET, **HECA −500 1,858 →
+> 1,954 (+96)** — **MISSED, this is the STOP**. (3) in-pocket walls dead
+> both worlds (real 1 → 0, −500 13 → 0; out-of-void walls unchanged).
+> (4) out-of-enclave PAVEMENT plan-identical (HECA junction 563/583,
+> apron 247/264, groundside 1,034/1,037; SPJC junction 373/379); the
+> band ways themselves are re-cut as a group by construction, their
+> out-of-void AREA comparable to 0.011 % / 0.28 % / 0.000 %. (5) SPJC's
+> 213,743 m² pocket: veto ATTRIBUTED at the named call site —
+> `blocker=crossing_zone overlap=4203 m2 enclave=covered
+> blocker_set=hard`. The exemption DOES reach it; the published crossing
+> influence zone blocks unconditionally by design (a crossing is the
+> owner's escape clause), so the veto is lawful and the v1 hypothesis
+> ("`_enclave_exempt` does not exempt its foreign shape") is falsified.
+>
+> THE MECHANISM THE v1 VERDICT MIS-NAMED, for the record: the 150,438 m²
+> of Annex 14 graded strip was never taken by the keep-out. The item-3
+> exemption let HECA's 3.40 km² infield past the foreign-shape blocker;
+> the gap law then declined the face on WIDTH (1,264 > 175 m) and
+> `_emit_pocket_collar_rings` claimed the region as a "width-skipped
+> pocket" (3 collar loops, 647 nodes), after which the COLLARED-POCKET
+> zone stood the bands down over all of it. Offline proof on the v1
+> arms: the 38 lost band ways sit 60–780 m from any pocket region and
+> their 7 host shapes have 0 of 5,569 ring samples within 1.5 m of one.
+>
+> −500 STOP DETAIL (attempt cap 2 reached — geometry clip, then width
+> scoping): +96 = NEW 295 / GONE 199 (`census_rows_diff`, airside).
+> By class: within_shape::apron +39, strip_arc +21, strip_longitudinal
+> +21, transverse +12, strip_seam_tear +9, frontage_near_miss −4,
+> vertex_to_edge_step −1. By region: pocket ±0, WIDE +53, outside +43 —
+> i.e. NOT in keep-out territory. The strip families concentrate on ONE
+> site, band way `-12976` at 30.105897, 31.407168 (3.0–3.6 m steps at
+> 9–56 %). Reading offered, not ruled: the in-pocket band removal
+> (13,034.7 m²), 4 more gap faces and 14 fewer walls perturb the single
+> solve, and the flat world's threshold density turns that into
+> crossings — the accepted road-feed +192 class. It needs a ruling.
+>
+> SITE CENSUS (the campaign scoreboard, `census --sites`), for scale:
+> ACTIONABLE sites **HECA real 121 → 115 (−6)**, **SPJC 18 → 16 (−2)**,
+> **HECA −500 147 → 150 (+3)**. The −500 STOP is +96 rows = +3 places.
+> Build-time note (tripwire only, no timing claim): 441.7 / 536.5 /
+> 293.9 s against control walls ~440 / ~490 / ~322 s — no anomaly.
+
 ## Sequencing
 
 AFTER lane/nidrepair merges — shared blast radius in

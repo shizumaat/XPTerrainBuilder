@@ -5247,6 +5247,24 @@ def build_airport_pavement(icao: str, xplane_root: str,
                              f"build.")
                 layout.apron_terrace_presolve = []
 
+        # ── ENCLAVE REGIONS, SETTLED FRAME (owner 2026-08-07; spec
+        # docs/specs/enclave-region-law-spec.md §1) ──────────────────────
+        # The regions were published inside ``enact_classify`` because
+        # G-ENCLAVE has to run there (a re-verdicted shape becomes airside
+        # and closes its own region).  That frame is mid-build and more
+        # FRAGMENTED than the surface that ships.  Everything below —
+        # the gap-fill construction and emission, and the band march that
+        # must stand down inside an enclave — lives in the SETTLED frame,
+        # so the regions are re-published here, once, before the first of
+        # them reads it.  Measured at HECA: classify 192 regions (183
+        # pocket-width) vs settled 161 (150); reading the classify frame
+        # in the band march deleted 152,734 m² of Annex 14 runway/taxiway
+        # graded strip, because infield ground that the settled union
+        # holds as ONE 3.4 km² region (short side 1,264 m, never keep-out)
+        # is several pocket-width regions in the fragmented one.
+        from .enclaves import republish_airside_enclaves_settled
+        republish_airside_enclaves_settled(layout)
+
         # ── Gap-fill spine PRE-SOLVE construction (Slice B stage B2,
         # gate O4_ONE_SOLVE_TERRAIN + O4_ONE_SOLVE_TERRAIN_GAP_FILL_
         # SPINE, both default OFF; ratified mechanism 2026-07-10,

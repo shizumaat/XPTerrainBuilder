@@ -819,6 +819,141 @@ class TestPadLawClip:
         assert pieces == []
 
 
+# A residual group shaped like a C: a five-metre-wide arm climbing the
+# ramp from the west, then a courtyard wall — bottom leg, right column,
+# top leg — around 4.9 x 4.9 m of OPEN GROUND.  This is the OTHH
+# topology, abstracted: the parts are contact-connected all the way
+# round, so the retired law hulled them into one rectangle and the pad
+# flattened the courtyard with them (owner in-sim, build 1.0.226:
+# "large rectangles ... spanning water and parking lots").
+_COURTYARD_CHAIN = {
+    **{
+        f"w{index + 1}.obj": (
+            5.0 * index, 5.0 * index + 4.9, 0.0, 5.0, 0.0, 4.9
+        )
+        for index in range(8)
+    },
+    "link.obj": (40.0, 44.9, 0.0, 5.0, 0.0, 4.9),
+    "bottom.obj": (45.0, 49.9, 0.0, 5.0, 0.0, 4.9),
+    "right_s.obj": (50.0, 54.9, 0.0, 5.0, 0.0, 4.9),
+    "right_m.obj": (50.0, 54.9, 0.0, 5.0, 5.0, 9.9),
+    "right_n.obj": (50.0, 54.9, 0.0, 5.0, 10.0, 14.9),
+    "top.obj": (45.0, 49.9, 0.0, 5.0, 10.0, 14.9),
+}
+_COURTYARD_RESOURCES = (
+    "bottom.obj", "right_s.obj", "right_m.obj", "right_n.obj", "top.obj",
+)
+
+
+class TestFootprintHuggingRequestRings:
+    """object-reseat-threshold-spec §2.5, on the PRODUCER: a request's
+    rings are the union of its parts' dilated contact hulls, so the ring
+    hugs the objects instead of hulling the ground between them.
+    Residual accounting is unchanged — the group is still one request."""
+
+    def _courtyard_request(self, decision):
+        # The courtyard sits EAST of the cluster's median seat, so its
+        # residual is the negative one; the west arm's is positive.
+        requests = [
+            request for request in decision.cluster_pad_requests
+            if request.residual_metres < 0.0
+        ]
+        assert len(requests) == 1, [
+            (request.part_count, request.residual_metres)
+            for request in decision.cluster_pad_requests
+        ]
+        return requests[0]
+
+    def _local(self, longitude, latitude):
+        return (
+            (longitude - BASE_LONGITUDE) * METRES_PER_DEGREE_LONGITUDE,
+            (latitude - BASE_LATITUDE) * METRES_PER_DEGREE_LATITUDE,
+        )
+
+    def test_the_group_records_its_contact_band_triangles(
+        self, ramp_sampler, cluster_gate_on
+    ):
+        """§2.5 v2b: one request per residual group (accounting
+        unchanged) whose ring input is the group's GROUND-CONTACT
+        GEOMETRY — one group per contact-band triangle.  The five boxes
+        contribute their bottom faces (two triangles each) and nothing
+        above the band; the flat point list still carries the plan-box
+        corners as the audit trail."""
+        _structures, decision = _decide(
+            *_shared_anchor_pool(_COURTYARD_CHAIN), ramp_sampler
+        )
+        request = self._courtyard_request(decision)
+        assert request.part_count == 5
+        assert all(len(part) == 3 for part in request.contact_parts_lonlat)
+        assert len(request.contact_parts_lonlat) == 10
+        # The plan-box audit trail is untouched: four corners per part.
+        assert len(request.contact_points_lonlat) == 4 * 5
+
+    def test_the_ring_hugs_the_courtyard_instead_of_filling_it(
+        self, ramp_sampler, cluster_gate_on
+    ):
+        """THE DEFECT, measured: the retired hull covers the courtyard,
+        the hugging ring does not — and the ring is a third of its
+        area."""
+        from shapely.geometry import Point, Polygon
+
+        _structures, decision = _decide(
+            *_shared_anchor_pool(_COURTYARD_CHAIN), ramp_sampler
+        )
+        request = self._courtyard_request(decision)
+        margin = config.DSF_OBJECT_FOOT_PAD_MARGIN_M
+
+        rings = object_footprints.foot_pad_rings(
+            [list(part) for part in request.contact_parts_lonlat], margin
+        )
+        assert len(rings) == 1, "the C is contact-connected: one component"
+        hugging = Polygon([self._local(*point) for point in rings[0]])
+        hull = Polygon([
+            self._local(*point) for point in object_footprints.foot_pad_ring(
+                list(request.contact_points_lonlat), margin)
+        ])
+
+        # The courtyard centre is 2.55 m from every part — outside the
+        # margin, inside the hull.  (The pool frame's z runs SOUTH, so a
+        # part at z = +7.45 lands at −7.45 m north of the anchor.)
+        courtyard = Point(47.45, -7.45)
+        assert hull.contains(courtyard)
+        assert not hugging.intersects(courtyard)
+        # Every square metre the hugging ring drops is open ground the
+        # retired law graded; the courtyard is inside that difference.
+        # (Its scale here is the specimen's — one 4.9 m courtyard — not
+        # the field's: at OTHH the same mechanism bridged water and
+        # parking lots.)
+        assert hugging.within(hull.buffer(1e-6))
+        assert hull.area - hugging.area > 5.0
+        assert hull.difference(hugging).contains(courtyard)
+
+    def test_every_ring_vertex_stays_within_the_margin_of_a_hull(
+        self, ramp_sampler, cluster_gate_on
+    ):
+        """§2.5's structural assertion on the producer's own output."""
+        from shapely.geometry import MultiPoint, Point
+        from shapely.ops import unary_union
+
+        _structures, decision = _decide(
+            *_shared_anchor_pool(_COURTYARD_CHAIN), ramp_sampler
+        )
+        margin = config.DSF_OBJECT_FOOT_PAD_MARGIN_M
+        for request in decision.cluster_pad_requests:
+            hulls = unary_union([
+                MultiPoint([self._local(*point) for point in part]).convex_hull
+                for part in request.contact_parts_lonlat
+            ])
+            rings = object_footprints.foot_pad_rings(
+                [list(part) for part in request.contact_parts_lonlat], margin
+            )
+            assert rings
+            for ring in rings:
+                for point in ring:
+                    assert hulls.distance(
+                        Point(*self._local(*point))) <= margin + 0.01
+
+
 class TestClusterPadRequestProvenance:
     """The run record carries the cluster pad requests so a
     short-circuited run still writes a correct per-tile sidecar (the

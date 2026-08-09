@@ -33,11 +33,14 @@ pavement vertex is never contributed to, moved or re-valued, and the
 emitter proves it on every run by digesting every pavement shape before
 and after itself (``PAVEMENT_DIGEST_FINDING``).
 
-THE SHAPE OF A PAD.  A request's recorded ring is the convex hull of the
-cluster's ground contacts DILATED by ``DSF_OBJECT_FOOT_PAD_MARGIN_M``
-(``object_footprints.foot_pad_ring``).  That dilation IS §5.1 clause 4's
-"margin ring grown from the contact hull", so one request emits TWO
-welded shapes:
+THE SHAPE OF A PAD.  A request records one ring PER CONNECTED COMPONENT
+of its contact parts' hulls, each dilated by
+``DSF_OBJECT_FOOT_PAD_MARGIN_M`` (``object_footprints.foot_pad_rings``,
+object-reseat-threshold-spec §2.5 — the single group hull it replaced
+spanned the water and parking lots between spread-out parts).  Each ring
+is resolved into its own spec here and emitted on its own; that dilation
+IS §5.1 clause 4's "margin ring grown from the contact hull", so one ring
+emits TWO welded shapes:
 
   * the CORE — the eroded ring (the contact hull), flat at the pad target
     ``b``: terrain meets the building base exactly, no float, no sink;
@@ -61,10 +64,13 @@ that now meets the feet — the residuals fall under
 ``DSF_OBJECT_FOOT_PAD_RESIDUAL_M`` and the requests VANISH.  To keep the
 pads that caused the convergence from vanishing with their requests, this
 module persists what it emitted into the sidecar's ``emitted`` section
-(version 3), each record carrying its ring, its target and the FINGERPRINT
+(version 4), each record carrying its ring, its target and the FINGERPRINT
 of the seat that produced it.  A record is re-emitted until it goes stale
-(§5.2), and staleness has exactly three causes, all measured, none
+(§5.2), and staleness has exactly four causes, all measured, none
 guessed:
+
+  0. the SIDECAR is older than the current ring law — the whole file is
+     refused, requests and records alike (§2.5's version gate);
 
   1. the LAW moved — the pad-law digest (gate + caps + margin) differs
      from the digest stamped on the record;
@@ -168,11 +174,9 @@ def sidecar_path(patch_dir: str) -> str:
 def load_sidecar(path: str):
     """The parsed sidecar, or ``None`` when absent/unreadable.
 
-    Version-agnostic by design (``post_mesh``'s own contract): a v1 file
-    is the ``foot``-only request subset, a v2 file adds ``cluster``
-    requests, a v3 file adds the ``emitted`` section this module writes.
-    A malformed file is treated as ABSENT — a pad consumer must never
-    fail a build over its own audit trail."""
+    Parsing is version-agnostic; USING it is not (see
+    :func:`sidecar_is_current`).  A malformed file is treated as ABSENT —
+    a pad consumer must never fail a build over its own audit trail."""
     try:
         with open(path) as handle:
             payload = json.load(handle)
@@ -181,6 +185,35 @@ def load_sidecar(path: str):
     if not isinstance(payload, dict):
         return None
     return payload
+
+
+def sidecar_version(payload) -> int:
+    """The sidecar's declared version, 0 when absent or unreadable."""
+    try:
+        return int((payload or {}).get("version") or 0)
+    except (AttributeError, TypeError, ValueError):
+        return 0
+
+
+def sidecar_is_current(payload) -> bool:
+    """Whether this sidecar's GEOMETRY was produced under the ring law
+    this build implements (object-reseat-threshold-spec §2.5).
+
+    Version 3 and below carry one convex-hull ring per residual group —
+    the retired law, whose pads spanned the water and parking lots
+    between spread-out parts.  Such a corpus is REFUSED wholesale rather
+    than consumed: its requests are discarded, its ``emitted`` records
+    expire, and the next rebake re-derives the requests under the current
+    law (§5.2's convergence loop is exactly the mechanism that repairs
+    it).  This is a floor, not an equality: a file written by a NEWER
+    producer alongside this reader still carries at least these rings."""
+    return sidecar_version(payload) >= _current_sidecar_version()
+
+
+def _current_sidecar_version() -> int:
+    from .post_mesh import OBJECT_FOOT_PAD_SIDECAR_VERSION
+
+    return int(OBJECT_FOOT_PAD_SIDECAR_VERSION)
 
 
 def law_digest() -> str:
@@ -192,6 +225,9 @@ def law_digest() -> str:
     silently re-emitting pads the current law would not have produced."""
     parts = (
         "object_pad_law_v1",
+        # The sidecar version IS part of the law: it names which ring
+        # geometry produced a record (§2.5's hull → per-part union).
+        f"sidecar={_current_sidecar_version()}",
         f"gate={int(bool(_config.DSF_OBJECT_OBJECT_PADS))}",
         f"relief={float(_config.DSF_OBJECT_PAD_MAX_RELIEF_M):.6f}",
         f"margin={float(_config.DSF_OBJECT_FOOT_PAD_MARGIN_M):.6f}",
@@ -206,10 +242,12 @@ def seat_key(entry: dict) -> str:
     independent of the seat's VALUE.
 
     Two pad requests share a key iff they are the same foot / the same
-    cluster of the same structure of the same resource at the same place.
-    The key is what lets a live request SUPERSEDE a stored record (§5.2
-    staleness cause 2); the fingerprint below is what says whether it
-    moved."""
+    cluster of the same structure of the same resource at the same place
+    — and, since §2.5, the same RING of that seat: one residual group's
+    request now carries a ring per connected component of its parts, each
+    of which is emitted, refused and remembered on its own.  The key is
+    what lets a live request SUPERSEDE a stored record (§5.2 staleness
+    cause 2); the fingerprint below is what says whether it moved."""
     return "|".join((
         str(entry.get("kind") or "foot"),
         str(entry.get("resource_path") or ""),
@@ -217,6 +255,7 @@ def seat_key(entry: dict) -> str:
         str(entry.get("cluster_id")),
         f"{float(entry.get('latitude') or 0.0):.9f}",
         f"{float(entry.get('longitude') or 0.0):.9f}",
+        f"#{int(entry.get('ring_index') or 0)}",
     ))
 
 
@@ -262,6 +301,20 @@ def pads_for_airport(sidecar: dict, icao: str, claim=None):
     ``None`` — the pure default the unit tests use — falls back to the
     recorded ICAO.
 
+    A sidecar older than the current ring law (§2.5) is refused whole:
+    no spec comes out of it and every stored record expires
+    ``sidecar_version_stale``, so a corpus of hull rings can never be
+    emitted by a build that implements the hugging rings.
+
+    THE FAN-OUT.  A request carries ``rings_lonlat`` — one ring per
+    connected component of its parts' dilated contact hulls — and each
+    ring becomes its OWN spec, carrying the group's seat identity plus
+    its ``ring_index``.  Everything downstream (emission, refusal
+    accounting, the stored record) is per RING, which is what keeps a
+    component that lands wholly inside pavement from condemning its
+    siblings.  Residual accounting is unchanged: the group is still one
+    request record with one residual.
+
     Returns ``(specs, expired)``.  ``specs`` are the pads to emit, each a
     dict carrying the ring, the target, the seat key/fingerprint and its
     ``source`` (``"request"`` — a live request from the last rebake — or
@@ -283,6 +336,20 @@ def pads_for_airport(sidecar: dict, icao: str, claim=None):
     expired: list[tuple[str, str]] = []
     seen: set[str] = set()
 
+    if not sidecar_is_current(sidecar):
+        # §2.5's version gate.  Nothing in this file describes geometry
+        # this build may emit; report every record it held so the loss is
+        # measured, and let the next rebake write a current corpus.
+        for record in (sidecar or {}).get(EMITTED_SECTION_KEY) or ():
+            if isinstance(record, dict):
+                expired.append((str(record.get("seat_key")
+                                    or seat_key(record)),
+                                "sidecar_version_stale"))
+        if not expired:
+            expired.append((f"<sidecar v{sidecar_version(sidecar)}>",
+                            "sidecar_version_stale"))
+        return specs, expired
+
     def _mine(entry: dict, block_icao: str) -> bool:
         if claim is None:
             return str(block_icao or "").upper() == str(icao or "").upper()
@@ -302,21 +369,25 @@ def pads_for_airport(sidecar: dict, icao: str, claim=None):
         for request in entry.get("requests") or ():
             if not isinstance(request, dict):
                 continue
-            ring = request.get("ring_lonlat")
-            if not ring or len(ring) < 3:
-                continue
             if not _mine(request, block_icao):
                 continue
-            key = seat_key(request)
-            if key in seen:
-                continue
-            seen.add(key)
-            spec = dict(request)
-            spec["seat_key"] = key
-            spec["fingerprint"] = seat_fingerprint(request, digest)
-            spec["law_digest"] = digest
-            spec["source"] = "request"
-            specs.append(spec)
+            for ring_index, ring in enumerate(
+                    request.get("rings_lonlat") or ()):
+                if not ring or len(ring) < 3:
+                    continue
+                spec = dict(request)
+                spec.pop("rings_lonlat", None)
+                spec["ring_index"] = ring_index
+                spec["ring_lonlat"] = ring
+                key = seat_key(spec)
+                if key in seen:
+                    continue
+                seen.add(key)
+                spec["seat_key"] = key
+                spec["fingerprint"] = seat_fingerprint(spec, digest)
+                spec["law_digest"] = digest
+                spec["source"] = "request"
+                specs.append(spec)
 
     for record in sidecar.get(EMITTED_SECTION_KEY) or ():
         if not isinstance(record, dict):
@@ -361,14 +432,22 @@ def merge_emitted_records(path: str, icao: str, records: list) -> bool:
             if not records:
                 return False
             payload = {"airports": []}
+        if not sidecar_is_current(payload):
+            # Stamping the current version onto a stale corpus would
+            # LAUNDER it: the next build would read hull-law requests and
+            # records as if this law had produced them.  With nothing to
+            # add, leave the file exactly as it is — the rebake rewrites
+            # it under the current law, and destroying an audit trail we
+            # merely refuse to CONSUME is not this function's business.
+            if not records:
+                return False
+            payload = {"airports": []}
         kept = [r for r in (payload.get(EMITTED_SECTION_KEY) or ())
                 if isinstance(r, dict)
                 and str(r.get("icao") or "").upper() != str(icao).upper()]
         kept.extend(records)
         payload[EMITTED_SECTION_KEY] = kept
-        from .post_mesh import OBJECT_FOOT_PAD_SIDECAR_VERSION
-
-        payload["version"] = OBJECT_FOOT_PAD_SIDECAR_VERSION
+        payload["version"] = _current_sidecar_version()
         directory = os.path.dirname(path)
         if directory and not os.path.isdir(directory):
             os.makedirs(directory, exist_ok=True)
@@ -951,6 +1030,9 @@ def emit_object_pads(layout: PavementLayout, dem, tile_lat: int,
             "cluster_id": spec.get("cluster_id"),
             "structure_index": spec.get("structure_index"),
             "resource_path": spec.get("resource_path"),
+            # The RING of the seat this record stands for (§2.5): part of
+            # the seat key, so it must survive into the record.
+            "ring_index": int(spec.get("ring_index") or 0),
             "latitude": spec.get("latitude"),
             "longitude": spec.get("longitude"),
             "base_y": spec.get("base_y"),

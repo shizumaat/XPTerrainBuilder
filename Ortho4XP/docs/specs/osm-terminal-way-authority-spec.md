@@ -71,6 +71,28 @@ semantics replaced):
 5. (v2 note) The third parameter's rename `overlap_frac →
    absorb_frac` is APPROVED (lead ruling on the lane's flag): the
    value's polarity inverted; keeping the old name was an active trap.
+6. **(v3 amendment, 2026-08-09 — the refill/duplicate-drop chain,
+   diagnosed on the integrated build.)** Two downstream stages
+   neutralised the §2.3b clip: `_close_building_outline`
+   (`terminals.py:786`, fill R 110 / reopen gate 55) refills any
+   clip-hole with inradius < 55 m, and
+   `_drop_overlap_against_fixed_shapes` (`elevation.py:2951`,
+   `DUPLICATE_FRAC` 0.80) then drops the contained OSM-way pad as an
+   "OSM relation duplicate" — measured: 26 constructed pads vanished
+   in the new arm vs 3 in control; the Emiri way (-77) was one.
+   THE LAW: the §2.3b invariant ("pads never overlap a kept way")
+   holds AT EMISSION, not merely at the merge. Implementation: after
+   the `_close_building_outline` + simplify stage
+   (`pipeline.py:2867`-area), RE-SUBTRACT the kept-OSM-way union from
+   every non-OSM building pad (a helper in terminals.py; same
+   remainder rules as §2.3b: sub-20 m² drops, MultiPolygon parts
+   emit separately; edge-only touches untouched). With the re-punch,
+   a kept way sits in the cluster's HOLE and the duplicate-drop no
+   longer fires on it — no change to `elevation.py` is needed or
+   permitted this round. Acceptance additions: the Emiri way emits
+   as a pad; missing-ref count (constructed minus emitted) back at
+   control class (≤ 5); pairwise pad ∩ kept-way area ≤ 1 m² in the
+   EMITTED patch.
 
 Ordering stays `combined = dsf_survivors + osm_kept` (deterministic;
 refs renumber — refs are per-build, not stable identifiers).

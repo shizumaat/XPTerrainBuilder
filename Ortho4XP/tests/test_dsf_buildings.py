@@ -24,6 +24,8 @@ from auto_patch.dsf_reader import _building_role_for_def
 from auto_patch.terminals import (
     _cluster_dsf_building_facades,
     _combine_building_sources,
+    building_pad_accounting,
+    repunch_kept_ways_from_pads,
 )
 from auto_patch.config import (
     DSF_CLUSTER_OSM_ABSORB_FRAC,
@@ -317,6 +319,100 @@ def test_combine_clip_emits_multipolygon_parts_separately():
     assert abs(sum(p.area for p in out[:2])
                - straddler.difference(way).area) < 1e-6
     _assert_no_pad_overlaps_way(out, [way])
+
+
+def _pipeline_pad_stage(cluster_seeds, way_seeds, absorb_frac=None):
+    """Replay pipeline.py's building-pad stage on synthetic seeds:
+    merge -> _close_building_outline + simplify -> §2.6 RE-PUNCH.
+    Returns ``(cluster_pads, way_pads)`` in emission order."""
+    from auto_patch.terminals import _close_building_outline as _close
+    from auto_patch.config import TERMINAL_SIMPLIFY_TOL_M as _TOL
+    frac = (DSF_CLUSTER_OSM_ABSORB_FRAC if absorb_frac is None
+            else absorb_frac)
+    kept: list = []
+    combined = _combine_building_sources(
+        cluster_seeds, way_seeds, frac, kept_osm_out=kept)
+    way_ids = {id(w) for w in kept}
+    cluster_pads, way_pads = [], []
+    for seed in combined:
+        sink = way_pads if id(seed) in way_ids else cluster_pads
+        for pad in _close(seed):
+            simp = pad.simplify(_TOL, preserve_topology=True)
+            if (simp.geom_type == "Polygon" and not simp.is_empty
+                    and simp.area >= 100.0):
+                pad = simp
+            sink.append(pad)
+    if way_pads and cluster_pads:
+        cluster_pads = repunch_kept_ways_from_pads(cluster_pads, way_pads)
+    return cluster_pads, way_pads
+
+
+def test_repunch_survives_the_close_refill_emiri_class():
+    # REGRESSION PIN for the v3 finding (integration build, OTHH): the
+    # merge-time clip is UNDONE by _close_building_outline whenever the
+    # clip hole is narrower than BUILDING_OUTLINE_FILL_GATE_M — the close
+    # swallows it (fill radius 110 m) and the reopen test at 55 m returns
+    # EMPTY.  The way then sat inside the refilled cluster pad and was
+    # deleted downstream as an "OSM relation duplicate".  With the §2.6
+    # re-punch the hole is restored AFTER the close, so the pair reaches
+    # emission as donut + way.
+    from auto_patch.config import BUILDING_OUTLINE_FILL_GATE_M as _GATE_M
+    cluster = _sq(0, 0, 400, 400)
+    way = _sq(150, 150, 80, 80)          # inradius 40 m < 55 m gate
+    assert way.area / cluster.area < DSF_CLUSTER_OSM_ABSORB_FRAC
+    assert 40.0 < _GATE_M                # the refill condition holds
+    # Without the re-punch the close refills the hole (the bug):
+    refilled = _close_building_outline(
+        _combine_building_sources(
+            [cluster], [way], DSF_CLUSTER_OSM_ABSORB_FRAC)[0])
+    assert len(refilled) == 1 and not refilled[0].interiors
+    # With the pipeline stage (re-punch included) the hole is back:
+    cluster_pads, way_pads = _pipeline_pad_stage([cluster], [way])
+    assert len(way_pads) == 1 and len(cluster_pads) == 1
+    donut = cluster_pads[0]
+    assert len(donut.interiors) == 1
+    assert donut.intersection(way_pads[0]).area < 1.0
+    # ...and the duplicate-drop's containment test can no longer fire:
+    # neither pad is >= 80 % inside the other (elevation.DUPLICATE_FRAC).
+    for a, b in ((donut, way_pads[0]), (way_pads[0], donut)):
+        assert a.intersection(b).area / a.area < 0.80
+
+
+def test_repunch_drops_sub_min_remainder_and_splits_parts():
+    # §2.3b remainder rules apply to the re-punch too: a sub-20 m²
+    # remainder drops, and a pad the way cuts in two emits both parts.
+    way = _sq(0, 0, 100, 100)
+    sliver = _sq(97.6, 40, 6, 5)                 # 18 m² outside → drops
+    assert repunch_kept_ways_from_pads([sliver], [way]) == []
+    straddler = _sq(-50, 40, 200, 20)            # cut in two by the way
+    parts = repunch_kept_ways_from_pads([straddler], [way])
+    assert len(parts) == 2
+    assert all(p.geom_type == "Polygon" for p in parts)
+    assert abs(sum(p.area for p in parts)
+               - straddler.difference(way).area) < 1e-6
+    # An EDGE-ONLY touch is left untouched (no ring churn).
+    toucher = _sq(100, 0, 40, 40)
+    out = repunch_kept_ways_from_pads([toucher], [way])
+    assert len(out) == 1 and out[0].equals(toucher)
+    # No kept ways at all → the pads come back unchanged.
+    assert repunch_kept_ways_from_pads([toucher], []) == [toucher]
+
+
+def test_building_pad_accounting_exposes_missing_refs():
+    # The acceptance check reads constructed-vs-emitted from the refs:
+    # refs are building{i+1} over the CONSTRUCTED list, so the highest
+    # ref is the constructed count and the gaps are the pads a
+    # downstream stage dropped (OTHH new arm: 103 constructed, 77
+    # emitted, 26 missing; control 128/125/3).
+    acc = building_pad_accounting(
+        ["building1", "building2", "building4", "building7"])
+    assert acc == {"constructed": 7, "emitted": 4,
+                   "missing": [3, 5, 6], "missing_count": 3}
+    assert building_pad_accounting([])["constructed"] == 0
+    # Non-building refs are ignored, order does not matter.
+    acc2 = building_pad_accounting(
+        ["building3", "apron", "building1", "runway16L"])
+    assert acc2["constructed"] == 3 and acc2["missing"] == [2]
 
 
 from shapely.ops import unary_union as _uunion

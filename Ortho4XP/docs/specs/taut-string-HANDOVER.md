@@ -37,6 +37,23 @@ tree's 4 unmounted data dirs now symlink the shared repo; write
 guard gained the no-op ensure-dir allowance (twin in
 test_harness.py).**
 
+**THE FABRIC MODEL SHIPPED (08-08 evening; merge 96b1f31; app
+1.0.225 / engine 1.50.1670 delivered): battery ACTIONABLE 255→248
+(visible 242→240); KCLT adjudicated airside 495→99; mesh slivers
+−42% / needles −38% on top of the −99.9% sliver kill; freeze −36.4%
+zero-unattributed; suite = the standing 12; build times
+directionally down. SHIPS NAMED: the wide-corridor lean (+123
+transverse rows; fix specced = flex-pair-deficit + vertex-hits
+re-arm, dispatches post-sim-look); HECA within_shape +140
+bounded-and-named (sites improved; attribution rides the flex
+round). OWNER SIM LOOKS RESERVED: SPLP strips (ruling-1 provisional
+— the flag's measured counterfactual is in hand), the lean spots,
+CYXY hillside. QUEUED: flex round; cleanup lane (fixture re-scope;
+route-band twins); hygiene items (run_tile_mesh_only guard
+asymmetry; DSF-redirect fixture flake). Rounds today: 14 lanes, 9
+STOPs honored, 2 lead premises falsified-and-owned, every defect
+attributed or named.**
+
 **REG SET FULLY PRIMARY-VERIFIED (08-08 ~10:30; owner supplied the
 FAA AC into the new committed Ortho4XP/regs/ [ICAO excluded —
 copyright; EASA extraction included]; all five owner reg-set

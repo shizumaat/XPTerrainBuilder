@@ -162,6 +162,18 @@ FLAGS = (
               "sparse floor's third member (spines, curves AND "
               "cross-sections): width-adaptive lateral rows at the 12 m "
               "step wherever a priced cross-section exceeds the reach"),
+    Flag(env="O4_FABRIC_RB_XSECTION_SOLVE_BIND",
+         what="the priced cross-section pairs R-b plants stay OUT of the "
+              "solve's law context, so the solve leaves the far-edge feet "
+              "on the straight chord and the decimator collapses them "
+              "(CYXY apron shapeID 115: 35 planted, 2 emitted)",
+         item="fabric-phase-b-spec.md 'R-a/R-b ROUND OUTCOME + LEAD "
+              "RULINGS 2' RULING (1) — cross-section pairs enter the "
+              "solve's law context, priced <=> bound, the "
+              "generation-binding law; the near-miss-frontage lockstep "
+              "precedent.  The fourth emit-survivor class is REJECTED "
+              "there, so this flag's OFF arm is the open gap, not an "
+              "alternative"),
     Flag(env="O4_FABRIC_RC_STATION_STEP",
          what="the fabric-sparse RESTORATION runs the taxi lateral pass at "
               "the source data's own vertex spacing instead of the 12 m "

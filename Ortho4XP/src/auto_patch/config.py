@@ -5832,6 +5832,37 @@ def taxi_transverse_cap_for_letter(letter, *, enabled: bool = None,
     return taxi_grade_cap_for_letter(letter, enabled=enabled)
 
 
+def transverse_cap_for_longitudinal_cap(cap_l: float) -> float:
+    """THE transverse cap ``cT`` of a corridor whose LONGITUDINAL cap is
+    ``cap_l`` — one law source, three readers.
+
+    The transverse cap is a pure function of the same role/letter the
+    longitudinal cap came from (:func:`taxi_transverse_cap_for_letter` /
+    ``SERVICE_ROAD_MAX_TRANSVERSE``): code A/B 3 %∥ → 2 %⊥, service road
+    5 %∥ → 2 %⊥ (owner constant 2026-08-03), everything else ISOTROPIC
+    (C–F 1.5 %, apron 1 %, every blended gradient).  Stated as a function
+    OF THE CAP rather than of the letter because the two readers that
+    need it downstream only ever hold the cap: the emitted sidecar
+    carries a per-SEGMENT longitudinal cap (no letter), and the solver's
+    within-shape ``Allowance`` carries ``cL``.
+
+    Three readers, and every one of them delegates here rather than
+    re-typing the three branches:
+      * ``grade_graph._bake_edge``   — the solver's anisotropic budget;
+      * ``lateral_spine_nodes``      — the emitter's cross-section pair
+        budget (the pair it plants IS the pair the census prices, so it
+        must be planted against the same cap);
+      * ``tools/check_grade._transverse_cap_for_seg_cap`` — the
+        TRANSVERSE validator.
+    Two copies of a cap rule drifting is the census-wrapper defect class;
+    the twin is ``tests/test_lateral_cross_section.py``."""
+    if abs(float(cap_l) - TAXI_MAX_GRADE_NARROW) < 1e-9:
+        return TAXI_MAX_TRANSVERSE_NARROW
+    if abs(float(cap_l) - SERVICE_ROAD_MAX_GRADE) < 1e-9:
+        return SERVICE_ROAD_MAX_TRANSVERSE
+    return float(cap_l)
+
+
 def taxiway_clearance_half_width_for_letter(letter: str) -> float:
     """Taxiway clearance half-width (m) from the centerline for a given
     ICAO code LETTER = wingtip reach (½ max wingspan) + margin."""

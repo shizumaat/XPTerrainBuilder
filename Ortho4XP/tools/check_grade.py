@@ -77,6 +77,7 @@ try:
         TAXI_MAX_TRANSVERSE_NARROW,
         SERVICE_ROAD_MAX_TRANSVERSE,
         taxi_grade_cap_for_letter,
+        transverse_cap_for_longitudinal_cap as _transverse_cap_law,
         FAN_RAMP_LAW as _FAN_RAMP_LAW,
         fan_ramp_law_cap as _fan_ramp_law_cap,
     )
@@ -101,6 +102,7 @@ except Exception:
     TAXI_MAX_GRADE_NARROW = 0.030
     TAXI_MAX_TRANSVERSE_NARROW = 0.020
     SERVICE_ROAD_MAX_TRANSVERSE = 0.020
+    _transverse_cap_law = None
 
     def taxi_grade_cap_for_letter(letter, *, enabled=None):
         on = TAXI_GRADE_BY_WIDTH if enabled is None else enabled
@@ -2983,7 +2985,19 @@ def _transverse_cap_for_seg_cap(cap_l: float) -> float:
     role/letter (config.py ``taxi_transverse_cap_for_letter`` /
     ``SERVICE_ROAD_MAX_TRANSVERSE``): code A/B 3 %∥ → 2 %⊥, service road
     8 %∥ → 2 %⊥ (owner constant 2026-08-03), everything else ISOTROPIC
-    (C–F 1.5 %)."""
+    (C–F 1.5 %).
+
+    ONE LAW SOURCE (2026-08-08): the three branches live in
+    ``auto_patch.config.transverse_cap_for_longitudinal_cap`` and this
+    validator DELEGATES to them, as ``grade_graph._bake_edge`` and the
+    emitter's cross-section pair budget do.  Cross-section pairs are now
+    BOUND in the solve at this cap (priced ⟺ bound, LEAD RULINGS 2
+    ruling 1), so a drifted second copy would bind one number and price
+    another — the census-wrapper defect class, one law with two readers.
+    The literal fallback below is the no-``auto_patch`` path this module
+    already keeps for every other constant it imports."""
+    if _transverse_cap_law is not None:
+        return float(_transverse_cap_law(cap_l))
     if abs(cap_l - TAXI_MAX_GRADE_NARROW) < 1e-9:
         return TAXI_MAX_TRANSVERSE_NARROW
     if abs(cap_l - SERVICE_ROAD_MAX_GRADE) < 1e-9:

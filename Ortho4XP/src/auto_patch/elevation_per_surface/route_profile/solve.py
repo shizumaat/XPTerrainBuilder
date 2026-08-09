@@ -3128,6 +3128,28 @@ def solve_route_profile(layout, icao: str,
     # it; these ARE those edges.  ``near_miss_building_frontage_edges``
     # stays imported there for the one call.
     u_edges.extend(_near_miss_edges)
+    # ── CROSS-SECTION LAW EDGES (LEAD RULINGS 2 ruling 1, 2026-08-08) ──
+    # PRICED ⟺ BOUND.  The TRANSVERSE census walks each taxi axis and
+    # prices the ring span BRACKETING it (|Δz| ≤ cT·width); R-b plants
+    # exactly that span's two feet.  The R-b round then MEASURED that
+    # the solve leaves those feet within 2 cm of the straight chord and
+    # the decimator collapses them — the census was pricing a pair the
+    # solve never bound (CYXY apron shapeID 115: 35 planted, 2 emitted,
+    # 1.51 m over 17.56 m at the 1 % apron transverse cap).  So the
+    # pairs join ``u_edges`` here, beside the near-miss frontage law
+    # they follow precedent from, and every projection below enforces
+    # them.  R-a is untouched: ``u_edges`` is the SURFACE edge set, not
+    # the route graph — ``G.spine_adj`` still skips every foot, so a
+    # cross-section constrains elevation and mints no route edge.
+    from auto_patch.lateral_spine_nodes import (
+        lateral_xsection_law_edges as _xsec_edges)
+    _xsec = _xsec_edges(layout, bucket_to_idx)
+    if _xsec:
+        u_edges.extend(_xsec)
+        import O4_UI_Utils as _UI_XS
+        _UI_XS.vprint(1, f"  [xsection-law] {len(_xsec)} priced "
+                         f"cross-section pair(s) BOUND in the solve "
+                         f"(|dz| <= cT*width)")
     # APRON TERRACE LAW: the unified graph carries its OWN copy of the
     # apron's all-pair law, so the joint budgets have to be bound onto
     # it too — one law, both edge sets (see
@@ -6266,6 +6288,22 @@ def final_grade_projection(layout, icao: str = "", dem=None,
             _fp_law_counts["frontage_near_miss"] = len(_nm_edges)
         except Exception as _nm_exc:
             _fp_law_counts["frontage_near_miss"] = f"FAILED {_nm_exc!r}"
+    # ── CROSS-SECTION LAW EDGES, INGESTED HERE TOO (ruling 1) ──────────
+    # The same lesson the near-miss block above records: THIS pass
+    # rebuilds ``u_edges`` from the unified graph alone, so a law family
+    # the solve added and this pass does not is a family that stops
+    # binding in the one pass that frees the most nodes.  The record is
+    # a LAYOUT artifact (positions, minted pre-solve), so unlike
+    # ``building_seats`` it needs no carry — it re-resolves through THIS
+    # pass's own ``b2i``, which is the point of recording positions.
+    try:
+        from auto_patch.lateral_spine_nodes import (
+            lateral_xsection_law_edges as _xsec_edges_fp)
+        _xsec_fp = list(_xsec_edges_fp(layout, b2i))
+        u_edges.extend(_xsec_fp)
+        _fp_law_counts["lateral_xsection"] = len(_xsec_fp)
+    except Exception as _xsec_exc:
+        _fp_law_counts["lateral_xsection"] = f"FAILED {_xsec_exc!r}"
     if _terrace_plan_fp is not None:
         from .apron_terrace import (
             apply_terrace_budgets_to_edges as _apply_terr_u_fp)
@@ -7707,6 +7745,39 @@ def final_grade_projection(layout, icao: str = "", dem=None,
         # for, the hold that makes the rest idempotent, and every carried
         # law family's application count.  A "FAILED" here is a law that
         # silently did not apply — the thing the bare excepts used to hide.
+        # CROSS-SECTION BINDING — INSTRUMENT TRUTH (RULINGS 2026-08-06,
+        # "Instrument truth is law").  A law family's APPLICATION COUNT
+        # says the edges were handed over; it does not say the surface
+        # honours them, and a pair that binds nothing looks exactly like
+        # a pair that binds everything in the ledger above.  So the
+        # binding reports its own EXIT state against the projection's
+        # final values: how many bound pairs are still over budget, the
+        # worst |dz| against its own budget, and how many are
+        # UNENFORCEABLE because both endpoints are hard — which is the
+        # one way a correctly-built edge legitimately cannot act.
+        if isinstance(_fp_law_counts.get("lateral_xsection"), int):
+            try:
+                _xs_over = _xs_bh = 0
+                _xs_worst = (0.0, 0.0)
+                for (_i, _j, _bud) in _xsec_fp:
+                    if _i >= len(elev) or _j >= len(elev):
+                        continue
+                    _dz = abs(float(elev[_i]) - float(elev[_j]))
+                    if _i in hard and _j in hard:
+                        _xs_bh += 1
+                    if _dz > _bud + 1e-9:
+                        _xs_over += 1
+                        if _dz - _bud > _xs_worst[0] - _xs_worst[1]:
+                            _xs_worst = (_dz, _bud)
+                _UI.vprint(1,
+                           f"  [xsection-law] {icao}: {len(_xsec_fp)} bound "
+                           f"pair(s) at exit — {_xs_over} still over budget "
+                           f"({_xs_bh} both-hard, i.e. unenforceable); worst "
+                           f"|dz| {_xs_worst[0]:.3f} m vs budget "
+                           f"{_xs_worst[1]:.3f} m")
+            except Exception as _xs_rep_exc:               # pragma: no cover
+                _UI.vprint(1, f"  [xsection-law] {icao}: exit audit FAILED "
+                              f"{_xs_rep_exc!r}")
         _law_note = (", ".join(f"{_lk}={_lv}"
                                for _lk, _lv in sorted(_fp_law_counts.items()))
                      or "none on this layout")

@@ -63,6 +63,7 @@ from .config import (
     TAXI_MAX_GRADE_NARROW,
     TAXI_MAX_TRANSVERSE_NARROW,
     taxi_grade_cap_for_letter,
+    transverse_cap_for_longitudinal_cap as _transverse_cap_for_longitudinal_cap,
 )
 
 # Roles this module owns (the visibility-graph soft airside shapes).
@@ -1577,12 +1578,11 @@ def _bake_edge(allow, role, pa, pb, shared, ctx, vr_i, vr_j):
     # (cT resolves from the PAIR's own cap BEFORE the spine-frame
     # upgrade below — "aprons grade out from the spines" at their own
     # transverse rate.)
-    if abs(cL - TAXI_MAX_GRADE_NARROW) < 1e-9:
-        cT = TAXI_MAX_TRANSVERSE_NARROW
-    elif abs(cL - SERVICE_ROAD_MAX_GRADE) < 1e-9:
-        cT = SERVICE_ROAD_MAX_TRANSVERSE
-    else:
-        cT = cL
+    # ONE LAW SOURCE (2026-08-08): the three branches are
+    # ``config.transverse_cap_for_longitudinal_cap``; this reader, the
+    # emitter's cross-section pair budget and
+    # ``check_grade._transverse_cap_for_seg_cap`` all delegate to it.
+    cT = _transverse_cap_for_longitudinal_cap(cL)
     if SPINE_FRAME_PAIRS:
         # SPINE-FRAME upgrade (owner model 2026-07-29): the route's
         # per-letter TAXI cap carries longitudinally through the shape

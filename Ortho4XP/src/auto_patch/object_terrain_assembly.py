@@ -46,6 +46,7 @@ import json
 import math
 import os
 import pickle
+from statistics import median
 
 import O4_UI_Utils as UI
 
@@ -794,7 +795,12 @@ def _raw_route_lines_layout_meters(layout) -> list:
 # Bump together with classifier-behavior changes that
 # ``_CLASSIFICATION_CACHE_VERSION`` alone would not capture for the
 # post-mesh exclusion path (both versions salt the exclusion cache key).
-_EXCLUSION_CACHE_VERSION = 2
+# v3 (2026-08-09, spec basin-rim-flush-seating section 2.1e item E1): the
+# basin gate is now threaded into the post-mesh classify call.  Every v2
+# entry was computed with that gate effectively OFF while the flag rode
+# the digest as ON, so a v2 entry is a WRONG answer for an unchanged pack
+# — the version, not the digest, is what retires them.
+_EXCLUSION_CACHE_VERSION = 3
 
 
 def _cached_exclusion_pairs(
@@ -897,9 +903,10 @@ def exclusion_set_for_dsf(
     Phase 2 y-bake — terrain-to-object and object-to-terrain corrections
     must never stack.
 
-    Gate-checked: with BOTH ``O4_OBJECT_BRIDGE_TERRAIN`` and
-    ``O4_OBJECT_TUNNEL_TERRAIN`` off this returns an empty set having read
-    NOTHING (Phase 2 behaviour unchanged).  With either gate on, it reruns
+    Gate-checked: with ``O4_OBJECT_BRIDGE_TERRAIN``,
+    ``O4_OBJECT_TUNNEL_TERRAIN`` and ``O4_OBJECT_BASIN_TRENCH`` ALL off
+    this returns an empty set having read NOTHING (Phase 2 behaviour
+    unchanged).  With any one gate on, it reruns
     the same cached read→load→classify chain as
     :func:`attach_bridge_classification` — deterministic over the same
     DSF, and the pipeline-time layout is gone by post-mesh time, so
@@ -918,7 +925,16 @@ def exclusion_set_for_dsf(
     consumes land on the same exclusion list (spec section 3.3 step 5), so
     the gate below is an either-gate check.
     """
-    if not (config.OBJECT_BRIDGE_TERRAIN or config.OBJECT_TUNNEL_TERRAIN):
+    # THE BASIN GATE JOINS THE DISJUNCTION (spec section 2.1e item E1).
+    # The basin adapter is INDEPENDENT of the tunnel gate — proven by
+    # ``test_tunnel_gate_off_does_not_disable_basins`` — so a tree with
+    # both the bridge and tunnel features off but basins on still CARVES
+    # basin terrain while this returned an empty set, and every carved
+    # basin's object was then y-baked onto the terrain we just cut it.
+    # A gate that decides whether the exclusion is computed must name
+    # every feature that does the carving.
+    if not (config.OBJECT_BRIDGE_TERRAIN or config.OBJECT_TUNNEL_TERRAIN
+            or config.OBJECT_BASIN_TRENCH):
         return set()
     if not dsf_path or not os.path.isfile(dsf_path):
         return set()
@@ -958,6 +974,20 @@ def exclusion_set_for_dsf(
             mean_sea_level_placements=mean_sea_level_placements,
             pack_root=pack_root or "",
             split_level_terrain_enabled=config.OBJECT_SPLIT_LEVEL_TERRAIN,
+            # THE BASIN GATE, THREADED (spec section 2.1e item E1, defect
+            # found 2026-08-09).  This call omitted it, so it defaulted to
+            # FALSE here while the pipeline-side classifier (:682) passed
+            # it — and the two disagreed about the same pack: stage 2b
+            # (open-pit components) never ran at all, and stage 3's basin
+            # limb never fired, so NO basin member reached the R4
+            # exclusion set.  A basin whose terrain this build cut then
+            # got its object y-baked to that cut terrain as well: exactly
+            # the stacked terrain-to-object / object-to-terrain
+            # correction R4 forbids.  The 2026-08-08 pad-request corpus
+            # is the fingerprint — Dewatering pool shells raising cluster
+            # requests at -13.6 m.  The cache digest already keyed on
+            # this flag; only the call omitted it.
+            basin_trench_enabled=config.OBJECT_BASIN_TRENCH,
         )
         _expand_exclusions_to_anchor_families(
             result, terrain_placements, pack_root or ""
@@ -1134,6 +1164,96 @@ _TUNNEL_FLOOR_OWNED_CLEARANCE_M = 0.7
 # never cut here.
 _TUNNEL_MAX_AIRSIDE_DISTANCE_M = 500.0
 
+# BASIN RIM ESTIMATE (spec docs/specs/basin-rim-flush-seating-spec.md
+# section 2.1 item 2): step along the facility body outline between DEM
+# samples whose MEDIAN becomes ``R_est``.  The spec's bound is "every
+# <= 10 m"; a 50 x 50 m OTHH bowl therefore contributes ~20 samples and
+# the whole airport ~tens — the per-facility cost is O(perimeter / 10)
+# point DEM reads, which is nothing beside the union work already in
+# this pass (the build-time tripwire is stated in the spec section 3
+# item 4).
+_BASIN_RIM_SAMPLE_STEP_M = 10.0
+
+
+def _basin_rim_estimate_elevation_m(
+    body_parts,
+    dem,
+    tile_lat: int,
+    tile_lon: int,
+    meters_to_lat_lon,
+) -> float | None:
+    """``R_est`` — the MEDIAN DEM elevation around a basin facility's own
+    body outline, or ``None`` when the DEM answers nowhere.
+
+    THE POINT (spec section 2.1 item 2, recon 2026-08-09).  The trench
+    law used to key on a POINT DEM sample at ``placements[0]``, which is
+    wherever the pack happened to put the placement anchor — inside its
+    own pit, and arbitrary within it.  Measured at OTHH Dewatering_01:
+    that point read 0.80 m while the DEM around the facility's rim ranged
+    0.71-2.96 m, so both the floor and the rim were keyed to one
+    unrepresentative corner of the ground the rim has to meet.
+
+    The median (not the mean) because a rim band that clips the shoulder
+    of a neighbouring embankment must not drag the whole facility with
+    it; and every part of a multi-part body pools its samples into ONE
+    estimate, because the facility is cut to ONE floor and walled to ONE
+    rim — a per-part estimate would be a second authority over the same
+    plates.
+    """
+    from .elevation import _sample_dem
+
+    samples: list[float] = []
+    for part in body_parts or []:
+        exterior = getattr(part, "exterior", None)
+        if exterior is None:
+            continue
+        try:
+            length = float(exterior.length)
+        except Exception:
+            continue
+        if not (length > 0.0):
+            continue
+        step_count = max(4, int(math.ceil(length / _BASIN_RIM_SAMPLE_STEP_M)))
+        for index in range(step_count):
+            try:
+                point = exterior.interpolate(
+                    length * index / step_count)
+                latitude, longitude = meters_to_lat_lon(point.x, point.y)
+                sample = _sample_dem(
+                    dem, tile_lat, tile_lon, latitude, longitude)
+            except Exception:
+                continue
+            if sample is not None and sample == sample:
+                samples.append(float(sample))
+    if not samples:
+        return None
+    return float(median(samples))
+
+
+#: Layout attribute the per-facility basin records accumulate on, and the
+#: key ``layout._write_axes_sidecar`` writes them under.  One name, read
+#: by the emitter, the sidecar writer and the tests — a second spelling
+#: is a report that silently reports nothing.
+BASIN_FACILITY_RECORDS_ATTRIBUTE = "basin_facility_records"
+
+
+def _record_basin_facility(layout, record: dict) -> None:
+    """Append one basin facility's emitted numbers to the layout, for the
+    patch's ``.axes.json`` sidecar to publish (spec section 2.1e item E2).
+
+    Best effort by design: instrumentation must never be able to fail a
+    build.  The values are plain JSON scalars so the sidecar writer needs
+    no encoder of its own.
+    """
+    try:
+        records = getattr(layout, BASIN_FACILITY_RECORDS_ATTRIBUTE, None)
+        if records is None:
+            records = []
+            setattr(layout, BASIN_FACILITY_RECORDS_ATTRIBUTE, records)
+        records.append(record)
+    except Exception:
+        pass
+
 
 def _chop_long_band_parts(parts, maximum_length_m=25.0):
     """Subdivide long rim-band pieces so the per-part terrain-true DEM
@@ -1227,6 +1347,25 @@ def basin_trench_structures(classification) -> list:
         if not object_terrain_features.is_carved_basin_interface(interface):
             continue
         floor_y = float(interface.floor_y_m)
+        # THE TRUE DEEPEST SOLID (spec basin-rim-flush-seating section 2.1
+        # item 3).  ``TunnelStructure.solid_minimum_y_m`` is CONTRACTED as
+        # "deepest SOLID effective height across the WHOLE structure" and
+        # the trench floor keys on it; this adapter used to put the
+        # interface's clustered LEVEL there instead, which is a different
+        # quantity and always the shallower one — OTHH Drainage_06
+        # clusters −3.859 m over a true minimum of −4.201 m, so 0.342 m
+        # of the promised 0.5 m clearance was already spent before the
+        # floor was cut.  Filling the field with what it says it holds is
+        # a correction to THIS producer only: feature-A tunnel records
+        # are built by ``object_terrain_features`` and are untouched.
+        # ``floor_y`` remains the depth BOUND (amendment A7) and stays in
+        # ``body_depth_m``; the emitter takes the deeper of the two.
+        true_solid_minimum_y = getattr(interface, "solid_minimum_y_m", None)
+        if true_solid_minimum_y is None or (
+                true_solid_minimum_y != true_solid_minimum_y):
+            # Hand-built records (tests, old sidecars) carry no true
+            # minimum — the pre-2026-08-09 behaviour is the fallback.
+            true_solid_minimum_y = floor_y
         structures.append(
             object_terrain_features.TunnelStructure(
                 object_resources=list(interface.object_resources),
@@ -1249,7 +1388,8 @@ def basin_trench_structures(classification) -> list:
                 mouth_polygons=[],
                 mouth_depth_samples=[],
                 body_depth_m=-floor_y,
-                solid_minimum_y_m=floor_y,
+                solid_minimum_y_m=min(floor_y,
+                                      float(true_solid_minimum_y)),
                 solid_outline_footprint=interface.below_grade_footprint,
                 terrain_feature=object_terrain_features.
                 TERRAIN_FEATURE_BASIN,
@@ -1364,6 +1504,7 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
     )
     from .elevation import _sample_dem
     from .grade_law import (
+        basin_trench_floor_elevation_m,
         tunnel_trench_floor_elevation_m,
         tunnel_trench_rim_elevation_m,
     )
@@ -1575,17 +1716,50 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                 continue
             member_records.append(
                 (tunnel, float(datum), member_floor, member_rim,
-                 member_parts))
+                 deck_reference_y, member_parts))
         if not member_records:
             continue
         resources = sorted({
             resource for tunnel, *_rest in member_records
             for resource in tunnel.object_resources})
         datum = min(record[1] for record in member_records)
-        floor_elevation = min(record[2] for record in member_records)
-        rim_elevation = min(record[3] for record in member_records)
         body_parts = [
             part for *_head, parts in member_records for part in parts]
+        # ── THE BASIN RIM REFERENCE (spec section 2.1 item 2) ──
+        # For a BASIN facility the point datum above is replaced, for the
+        # floor and rim LAWS, by ``R_est``: the median DEM elevation
+        # around this facility's own body outline.  The anchor sample
+        # stays what it always was — the value the DRAPED object seats on
+        # — and is still reported; it is no longer a law input here.
+        # Tunnel facilities are untouched: they keep the datum-keyed law
+        # byte for byte (no OTHH fixture exercises them and the EGLL
+        # class must not move).
+        basin_rim_estimate = None
+        basin_rim_estimate_is_fallback = False
+        if is_basin_facility:
+            basin_rim_estimate = _basin_rim_estimate_elevation_m(
+                body_parts, dem, tile_lat, tile_lon, _meters_to_lat_lon)
+            if basin_rim_estimate is None:
+                # Silent-zero rule: a DEM that answers nowhere around the
+                # outline falls back to the anchor datum — the value this
+                # facility used before the spec — and SAYS SO.
+                basin_rim_estimate = float(datum)
+                basin_rim_estimate_is_fallback = True
+                UI.vprint(
+                    1,
+                    f"   [{log_tag}] {resources}: no DEM sample around "
+                    "the body outline — the rim reference falls back to "
+                    f"the anchor datum {float(datum):.2f} m",
+                )
+        if basin_rim_estimate is not None:
+            floor_elevation = min(
+                basin_trench_floor_elevation_m(
+                    basin_rim_estimate, record[4])
+                for record in member_records)
+            rim_elevation = tunnel_trench_rim_elevation_m(basin_rim_estimate)
+        else:
+            floor_elevation = min(record[2] for record in member_records)
+            rim_elevation = min(record[3] for record in member_records)
         if len(member_records) >= 2:
             # The open trench BETWEEN the facility's shells: the union's
             # minimum rotated rectangle, admitted only when it is
@@ -1693,48 +1867,71 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
         # shape owns it, a small seat plate pins terrain(anchor) = datum
         # (the pin the module docstring always promised).  The floor and
         # band are cut back a node-split margin around it.
+        #
+        # NOT FOR BASINS (owner ruling 2026-08-09, docs/RULINGS.md "the
+        # basin experiment"; spec section 2.1 item 1).  A basin is an
+        # OPEN pit whose interior faces are the thing the owner wants to
+        # see: "we don't want any terrain poking up in the middle".  The
+        # seat's 3x3 m plate at the datum stood ``body_depth + 0.5`` m
+        # proud of the trench floor (4.31 m at the Drainage bowls,
+        # 13.50 m at Dewatering_01), covering 7.4-9.0 m2 of the object's
+        # own floor faces, and its keep-out punched a 17.64 m2 UNVALUED
+        # interior ring through the floor pan.  Nothing is lost by
+        # dropping it: the floor covers the anchor, so the object drapes
+        # on the floor — which is precisely the experiment the owner
+        # asked for ("let's try cutting the trench, but don't modify the
+        # objects so I can see how it looks").
         anchor_seat_keep_out = None
-        try:
-            first_tunnel = member_records[0][0]
-            seat_longitude, seat_latitude = (
-                first_tunnel.anchor_longitude_latitude)
-            seat_x, seat_y = to_meters(seat_longitude, seat_latitude)
-            seat_point = Point(seat_x, seat_y)
-            plates_reach = unary_union([
-                body.buffer(
-                    _TUNNEL_WALL_SETBACK_M + _TUNNEL_RIM_BAND_WIDTH_M,
-                    join_style=2, mitre_limit=2.0)
-                for body in body_parts])
-            if plates_reach.covers(seat_point):
-                owned_at_anchor = _owned_near(
-                    (seat_x - 2.0, seat_y - 2.0, seat_x + 2.0, seat_y + 2.0))
-                anchor_owned = (
-                    owned_at_anchor is not None
-                    and owned_at_anchor.covers(seat_point))
-                if not anchor_owned:
-                    seat_polygon = Polygon([
-                        (seat_x - 1.5, seat_y - 1.5),
-                        (seat_x + 1.5, seat_y - 1.5),
-                        (seat_x + 1.5, seat_y + 1.5),
-                        (seat_x - 1.5, seat_y + 1.5)])
-                    if born_flat_solver_plate(
-                            layout, seat_polygon, ROLE_TUNNEL_TRENCH,
-                            f"{plate_prefix}_anchor_seat", float(datum),
-                            record_pins=False):
-                        anchor_seat_keep_out = seat_polygon.buffer(
-                            _TUNNEL_WALL_SETBACK_M,
-                            join_style=2, mitre_limit=2.0)
-                        UI.vprint(
-                            1,
-                            f"   [{log_tag}] {resources}: anchor seat "
-                            f"pinned at datum {float(datum):.2f} m (the "
-                            "facility cut reaches the placement anchor)",
-                        )
-        except Exception:
-            anchor_seat_keep_out = None
+        if not is_basin_facility:
+            try:
+                first_tunnel = member_records[0][0]
+                seat_longitude, seat_latitude = (
+                    first_tunnel.anchor_longitude_latitude)
+                seat_x, seat_y = to_meters(seat_longitude, seat_latitude)
+                seat_point = Point(seat_x, seat_y)
+                plates_reach = unary_union([
+                    body.buffer(
+                        _TUNNEL_WALL_SETBACK_M + _TUNNEL_RIM_BAND_WIDTH_M,
+                        join_style=2, mitre_limit=2.0)
+                    for body in body_parts])
+                if plates_reach.covers(seat_point):
+                    owned_at_anchor = _owned_near(
+                        (seat_x - 2.0, seat_y - 2.0,
+                         seat_x + 2.0, seat_y + 2.0))
+                    anchor_owned = (
+                        owned_at_anchor is not None
+                        and owned_at_anchor.covers(seat_point))
+                    if not anchor_owned:
+                        seat_polygon = Polygon([
+                            (seat_x - 1.5, seat_y - 1.5),
+                            (seat_x + 1.5, seat_y - 1.5),
+                            (seat_x + 1.5, seat_y + 1.5),
+                            (seat_x - 1.5, seat_y + 1.5)])
+                        if born_flat_solver_plate(
+                                layout, seat_polygon, ROLE_TUNNEL_TRENCH,
+                                f"{plate_prefix}_anchor_seat", float(datum),
+                                record_pins=False):
+                            anchor_seat_keep_out = seat_polygon.buffer(
+                                _TUNNEL_WALL_SETBACK_M,
+                                join_style=2, mitre_limit=2.0)
+                            UI.vprint(
+                                1,
+                                f"   [{log_tag}] {resources}: anchor seat "
+                                f"pinned at datum {float(datum):.2f} m (the "
+                                "facility cut reaches the placement anchor)",
+                            )
+            except Exception:
+                anchor_seat_keep_out = None
 
         yielded_area = 0.0
         facility_floor_born = 0
+        # EMITTED rim values (spec section 2.1 item 4).  The rim band is
+        # born from PER-PART DEM samples, the law value being only the
+        # nodata fallback — and until now the facility log line printed
+        # the LAW value, so the number in the build log was not the
+        # number in the patch (recon 2026-08-09).  Collect what actually
+        # went into the plates and report the range beside the law.
+        emitted_rim_values: list[float] = []
         for body in body_parts:
             # R2 accounting.  A facility that CUT (R13) has no yield left
             # to report — its pavement is already gone.
@@ -1857,6 +2054,7 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                         f"{plate_prefix}_rim", part_elevation,
                         record_pins=False):
                     rim_plate_count += 1
+                    emitted_rim_values.append(float(part_elevation))
 
         if cut_shape_count and not facility_floor_born:
             # RULING R13's GUARD: the cut bought nothing, so PUT IT BACK.
@@ -1869,6 +2067,9 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
             layout.shapes = pre_cut_shapes
             _reindex_owned_ground()
             _rebuild_pavement_unions()
+            # Nothing born since the snapshot survives, the rim bands
+            # included — so nothing was EMITTED to report.
+            emitted_rim_values = []
             UI.vprint(
                 1,
                 f"   [{log_tag}] R13 open-pit cut RESTORED for "
@@ -1891,11 +2092,80 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
             )
         facility_depth = max(
             float(record[0].body_depth_m) for record in member_records)
+        # THE EMITTED rim band range beside the law value (spec section
+        # 2.1 item 4): the two disagree by construction — the band takes
+        # per-part DEM samples and the law value is its nodata fallback —
+        # and printing only the law is what hid a 0.71-2.96 m rim behind
+        # a single 0.80 m number at OTHH Dewatering_01.
+        if emitted_rim_values:
+            emitted_rim_text = (
+                f"emitted rim {min(emitted_rim_values):.2f}"
+                f"-{max(emitted_rim_values):.2f} m over "
+                f"{len(emitted_rim_values)} band part(s)")
+        else:
+            emitted_rim_text = "no rim band emitted"
+        if is_basin_facility:
+            fallback_text = (
+                " (DEM fallback to anchor datum)"
+                if basin_rim_estimate_is_fallback else "")
+            reference_text = (
+                f"R_est {basin_rim_estimate:.2f}{fallback_text}, "
+                f"anchor datum {float(datum):.2f}")
+        else:
+            reference_text = f"datum {float(datum):.2f}"
         UI.vprint(
             1,
             f"   [{log_tag}] {resources}: trench floor {floor_elevation:.2f} "
-            f"m, rim {rim_elevation:.2f} m (datum {float(datum):.2f}, body "
+            f"m, rim law {rim_elevation:.2f} m, {emitted_rim_text} "
+            f"({reference_text}, body "
             f"depth {facility_depth:.2f} m, "
             f"{len(member_records)} shell(s))",
         )
+        if is_basin_facility:
+            # THE PER-FACILITY RECORD the integration report reads (spec
+            # section 2.1e item E2).  It rides the patch's own
+            # ``.axes.json`` sidecar — the established "one small JSON
+            # beside the patch" convention (``layout._write_axes_sidecar``)
+            # — rather than a new file: the patch dir's contents are
+            # pinned by ``tests/test_auto_patch_freshness.py`` to the
+            # patch and that sidecar, and a second artifact there is a
+            # freshness-test failure and an undeclared coupling.
+            #
+            # PREDICTED DRAPE ELEVATION IS THE FLOOR.  A draped OBJECT
+            # seats on the terrain at its anchor; with the anchor seat
+            # gone the terrain there IS the trench floor pan.  That is
+            # the prediction the owner's in-sim look adjudicates (the
+            # measurement on record says the placement origin is the
+            # RIM, so the rims are predicted to sit ``floor - R_est``
+            # below grade).
+            _record_basin_facility(layout, {
+                "resources": list(resources),
+                "anchor_longitude_latitude": [
+                    float(member_records[0][0]
+                          .anchor_longitude_latitude[0]),
+                    float(member_records[0][0]
+                          .anchor_longitude_latitude[1]),
+                ],
+                "anchor_datum_m": float(datum),
+                "rim_estimate_m": float(basin_rim_estimate),
+                "rim_estimate_is_dem_fallback": bool(
+                    basin_rim_estimate_is_fallback),
+                "floor_m": float(floor_elevation),
+                "rim_law_m": float(rim_elevation),
+                "emitted_rim_min_m": (
+                    float(min(emitted_rim_values))
+                    if emitted_rim_values else None),
+                "emitted_rim_max_m": (
+                    float(max(emitted_rim_values))
+                    if emitted_rim_values else None),
+                "emitted_rim_part_count": len(emitted_rim_values),
+                "predicted_drape_elevation_m": float(floor_elevation),
+                "predicted_rim_elevation_m": float(rim_elevation),
+                "solid_minimum_y_m": min(
+                    float(record[4]) for record in member_records),
+                "body_depth_m": float(facility_depth),
+                "shell_count": len(member_records),
+                "floor_plates": int(facility_floor_born),
+                "anchor_seat_emitted": False,
+            })
     return floor_plate_count, rim_plate_count

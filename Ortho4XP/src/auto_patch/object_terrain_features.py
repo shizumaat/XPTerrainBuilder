@@ -881,6 +881,24 @@ class StructureGroundInterface:
     # :data:`BOWL_MAX_ABOVE_GRADE_AREA_FRACTION`).  Defaulted so
     # hand-constructed records in tests stay valid.
     above_grade_area_fraction: float = 0.0
+    # THE TRUE DEEPEST SOLID of this structure's frame (effective y,
+    # every member pooled) — ``_StructureFrame.minimum_effective_height_m``,
+    # the same quantity :attr:`TunnelStructure.solid_minimum_y_m` carries
+    # for a feature-A tunnel, and the SAME definition (raw solid vertex
+    # set, walls included, AGL folded in).
+    #
+    # It is NOT ``floor_y_m``.  ``floor_y_m`` is a CLUSTERED interface
+    # LEVEL — the largest-perimeter-share below-grade level for a bowl —
+    # and a level is a summary: OTHH Drainage_06 clusters to −3.859 m
+    # while its deepest solid reaches −4.201 m, so a floor cut to the
+    # level less 0.5 m left 0.158 m of the promised clearance and the
+    # modelled bottom nearly poked through.  The basin trench floor law
+    # (``grade_law.basin_trench_floor_elevation_m``) keys on THIS.
+    #
+    # Defaulted to ``None`` so hand-constructed records in tests stay
+    # valid; consumers fall back to ``floor_y_m`` (the pre-2026-08-09
+    # behaviour) when it is absent.
+    solid_minimum_y_m: float | None = None
 
 
 def is_carved_basin_interface(interface: StructureGroundInterface) -> bool:
@@ -3383,6 +3401,10 @@ def _classify_structure_ground_interface(
         floor_is_bound_not_target=floor_is_bound_not_target,
         elevated_deck_above=elevated_deck_above,
         above_grade_area_fraction=above_grade_area_fraction,
+        # The frame already carries the deepest SOLID vertex it saw (raw
+        # vertex set, so vertical liner walls that collapse out of the
+        # triangle list still count) — the basin floor law's own key.
+        solid_minimum_y_m=float(frame.minimum_effective_height_m),
     )
 
 

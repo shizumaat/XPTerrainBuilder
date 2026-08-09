@@ -237,6 +237,45 @@ class _FakeDem:
         return self.elevation_m
 
 
+class _SpikeDem:
+    """A flat DEM with ONE raised disc around a chosen point.
+
+    The point-versus-median question needs a DEM whose value at the
+    placement ANCHOR differs from the median around the body OUTLINE.
+    A spike centred on the anchor does exactly that with one number in
+    each place: ``anchor_elevation_m`` at (and within ``radius_degrees``
+    of) the anchor, ``elevation_m`` everywhere else — so ``R_est`` is
+    the flat value and the old point datum is the spike.
+    """
+
+    nodata = -32768
+
+    def __init__(
+        self,
+        elevation_m: float,
+        anchor_elevation_m: float,
+        *,
+        radius_degrees: float = 0.00005,
+        anchor_longitude: float = ANCHOR_LONGITUDE,
+        anchor_latitude: float = ANCHOR_LATITUDE,
+    ) -> None:
+        self.elevation_m = elevation_m
+        self.anchor_elevation_m = anchor_elevation_m
+        self.radius_degrees = radius_degrees
+        self._anchor_xy = (
+            anchor_longitude - TILE_LONGITUDE,
+            anchor_latitude - TILE_LATITUDE,
+        )
+
+    def alt(self, xy) -> float:
+        offset_x = xy[0] - self._anchor_xy[0]
+        offset_y = xy[1] - self._anchor_xy[1]
+        if (offset_x * offset_x + offset_y * offset_y
+                <= self.radius_degrees ** 2):
+            return self.anchor_elevation_m
+        return self.elevation_m
+
+
 class _FakeLayout:
     def __init__(self) -> None:
         self.anchor = ANCHOR
@@ -273,11 +312,14 @@ def _interface(
     footprint: Polygon | None = None,
     resources=("Buildings/Drainage/basin.obj",),
     above_grade_area_fraction: float = 0.0,
+    solid_minimum_y_m: float | None = None,
+    anchor_longitude: float = ANCHOR_LONGITUDE,
+    anchor_latitude: float = ANCHOR_LATITUDE,
 ) -> otf.StructureGroundInterface:
     return otf.StructureGroundInterface(
         object_resources=list(resources),
-        anchor_longitude_latitude=(ANCHOR_LONGITUDE, ANCHOR_LATITUDE),
-        frame_origin_longitude_latitude=(ANCHOR_LONGITUDE, ANCHOR_LATITUDE),
+        anchor_longitude_latitude=(anchor_longitude, anchor_latitude),
+        frame_origin_longitude_latitude=(anchor_longitude, anchor_latitude),
         heading_degrees=0.0,
         perimeter_base_profile=[],
         interface_levels=[],
@@ -295,6 +337,7 @@ def _interface(
         floor_is_bound_not_target=True,
         elevated_deck_above=False,
         above_grade_area_fraction=above_grade_area_fraction,
+        solid_minimum_y_m=solid_minimum_y_m,
     )
 
 
@@ -597,7 +640,10 @@ class TestBasinTrenchBirth:
             layout, [_interface(floor_y_m=-3.81)], datum_m=8.0)
         assert floors >= 1
         assert rims >= 1
-        expected_floor = grade_law.tunnel_trench_floor_elevation_m(8.0, -3.81)
+        # The BASIN limb of the trench law (spec 2.1 item 3): a flat DEM
+        # makes R_est == the anchor datum, so the only difference from
+        # the old datum-keyed value is the seat-estimate margin.
+        expected_floor = grade_law.basin_trench_floor_elevation_m(8.0, -3.81)
         for plate in _basin_plates(layout, "trench"):
             assert plate.node_altitudes
             assert all(altitude == pytest.approx(expected_floor)
@@ -711,18 +757,17 @@ class TestOpenPitPavementCut:
                     if shape.role == ROLE_APRON
                     and shape.polygon.covers(centre)]
 
-    def test_the_anchor_seat_is_judged_after_the_cut(self):
-        """ORDERING guard.  The anchor seat only fires where no earlier
-        shape owns the anchor, so R13 must cut BEFORE it is judged — with
-        the apron still in place the seat declines, and the object then
-        drapes on our own trench floor and sinks by the cut depth (the
-        "object sitting below terrain" defect the seat exists for).  The
-        default fixture anchors at the centre of its own pit."""
+    def test_a_pit_under_an_apron_gets_no_anchor_seat_either(self):
+        """SUPERSEDED ORDERING GUARD (owner ruling 2026-08-09).  This case
+        used to assert that R13 cut BEFORE the anchor seat was judged, so
+        that a seat still fired under an apron.  The basin class has no
+        seat at all now — the floor covers the anchor — so what the cut
+        must leave behind is a clean floor: pavement gone, floor born,
+        and nothing standing in the middle of it."""
         layout = self._layout_with_apron()
-        self._emit(layout, [_interface(floor_y_m=-3.81)])
-        assert _basin_plates(layout, "anchor_seat"), (
-            "no anchor seat — the seat was judged while the apron still "
-            "owned the anchor")
+        floors, _rims = self._emit(layout, [_interface(floor_y_m=-3.81)])
+        assert floors >= 1
+        assert not _basin_plates(layout, "anchor_seat")
 
     def test_a_trench_spine_under_an_apron_still_yields(self):
         """The scope guard: R13 is the OPEN-pit limb only.  A carved basin
@@ -828,3 +873,533 @@ class TestPhaseTwoInterlock:
         a carved pit must never also chain into a pad."""
         result = _classify(_open_pit_pair(depth_m=4.0))
         assert set(_open_pit_pair()) <= result.terrain_material_resources()
+
+
+# ---------------------------------------------------------------------------
+# PHASE E — the basin experiment (owner ruling 2026-08-09, docs/RULINGS.md;
+# spec docs/specs/basin-rim-flush-seating-spec.md sections 2.1 and 2.1e)
+#
+# Owner, verbatim: "Let's try cutting the trench, but don't modify the
+# objects so I can see how it looks."  Three things follow and each has
+# its section below: the pillar in the middle of the pit goes, the floor
+# and rim stop keying on one arbitrary point sample, and no basin member
+# may be y-baked (the pack stays byte-authored through a tile pass).
+# ---------------------------------------------------------------------------
+
+def _emit_basin(layout, interfaces, dem):
+    setattr(layout, assembly.CLASSIFICATION_ATTRIBUTE,
+            _Classification(ground_interfaces=interfaces))
+    return assembly.build_tunnel_layout_shapes(
+        layout, dem, TILE_LATITUDE, TILE_LONGITUDE)
+
+
+class TestBasinHasNoAnchorSeat:
+    """Spec section 2.1 item 1.  The 3x3 m ``object_basin_anchor_seat``
+    plate stood at the pre-solve DEM datum — ``body_depth + 0.5`` m proud
+    of the trench floor (4.31 m at the OTHH Drainage bowls, 13.50 m at
+    Dewatering_01) — over 7.4-9.0 m2 of the object's own interior floor
+    faces, with a 17.64 m2 keep-out hole punched through the floor pan
+    beside it.  That IS the "terrain poking up in the middle" the owner
+    reported."""
+
+    def test_no_seat_plate_is_born(self):
+        layout = _FakeLayout()
+        _emit_basin(layout, [_interface(floor_y_m=-3.81)], _FakeDem(8.0))
+        assert not _basin_plates(layout, "anchor_seat")
+        assert not [shape for shape in layout.shapes
+                    if "anchor_seat" in str(shape.ref)]
+
+    def test_the_floor_covers_the_anchor(self):
+        """No seat means the floor must reach the anchor point — the
+        draped object then seats ON the floor, which is the whole
+        experiment.  A keep-out hole here would put the object back on
+        raw terrain in a 3 m hole."""
+        from shapely.geometry import Point
+        layout = _FakeLayout()
+        _emit_basin(layout, [_interface(floor_y_m=-3.81)], _FakeDem(8.0))
+        anchor_point = Point(
+            *layout.ll_to_m(ANCHOR_LATITUDE, ANCHOR_LONGITUDE))
+        covering = [plate for plate in _basin_plates(layout, "trench")
+                    if plate.polygon.covers(anchor_point)]
+        assert covering, "the trench floor does not reach the anchor"
+
+    def test_no_interior_ring_is_left_in_the_floor(self):
+        """The keep-out emitted as an UNVALUED ``shape_interior_ring``
+        way.  With no seat there is no keep-out, so every floor part is a
+        simple polygon with no hole."""
+        layout = _FakeLayout()
+        _emit_basin(layout, [_interface(floor_y_m=-3.81)], _FakeDem(8.0))
+        plates = _basin_plates(layout, "trench")
+        assert plates
+        for plate in plates:
+            assert list(plate.polygon.interiors) == []
+
+    def test_the_seat_is_gone_even_when_the_anchor_is_free(self):
+        """The old seat fired only where no earlier shape owned the
+        anchor.  The default fixture is exactly that case — an empty
+        layout — so this is the arm that used to emit."""
+        layout = _FakeLayout()
+        floors, _rims = _emit_basin(
+            layout, [_interface()], _FakeDem(8.0))
+        assert floors >= 1
+        assert not _basin_plates(layout, "anchor_seat")
+
+
+class TestBasinFloorLaw:
+    """Spec section 2.1 items 2 and 3 — ``R_est``, the TRUE deepest solid
+    and the seat-estimate margin, all in ONE law function that the
+    emitter and any validator import (ruling R1)."""
+
+    def test_the_law_is_r_est_plus_true_min_less_both_offsets(self):
+        assert grade_law.basin_trench_floor_elevation_m(
+            12.0, -4.201) == pytest.approx(
+                12.0 - 4.201
+                - config.TUNNEL_FLOOR_BELOW_OBJECT_DECK_M
+                - config.TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M)
+
+    def test_the_margin_constant_moves_the_law(self, monkeypatch):
+        monkeypatch.setattr(config, "TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M", 2.5)
+        assert grade_law.basin_trench_floor_elevation_m(
+            12.0, -4.0) == pytest.approx(12.0 - 4.0 - 0.5 - 2.5)
+
+    def test_the_margin_default_is_the_specced_one(self):
+        assert config.TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M == pytest.approx(1.0)
+
+    def test_the_tunnel_law_is_untouched_by_the_margin(self, monkeypatch):
+        """SCOPE GUARD.  The new constant may never reach the tunnel
+        floor law — the EGLL class must not move."""
+        monkeypatch.setattr(config, "TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M", 9.0)
+        assert grade_law.tunnel_trench_floor_elevation_m(
+            12.0, -4.0) == pytest.approx(
+                12.0 - 4.0 - config.TUNNEL_FLOOR_BELOW_OBJECT_DECK_M)
+
+    def test_the_emitted_floor_uses_the_outline_median_not_the_anchor(self):
+        """THE POINT-DATUM DEFECT, in a fixture: the DEM reads 30 m at the
+        anchor (the pack's arbitrary placement point) and 8 m everywhere
+        around the body outline.  Keying on the point would put the floor
+        22 m too high."""
+        layout = _FakeLayout()
+        dem = _SpikeDem(8.0, 30.0)
+        _emit_basin(layout, [_interface(floor_y_m=-3.81)], dem)
+        expected = grade_law.basin_trench_floor_elevation_m(8.0, -3.81)
+        plates = _basin_plates(layout, "trench")
+        assert plates
+        for plate in plates:
+            assert all(altitude == pytest.approx(expected)
+                       for altitude in plate.node_altitudes)
+
+    def test_the_law_rim_uses_the_outline_median_too(self):
+        """The rim BAND samples the DEM per part (unchanged), but the law
+        value the facility reports and falls back to is ``R_est``."""
+        layout = _FakeLayout()
+        _emit_basin(layout, [_interface(floor_y_m=-3.81)],
+                    _SpikeDem(8.0, 30.0))
+        record = getattr(
+            layout, assembly.BASIN_FACILITY_RECORDS_ATTRIBUTE)[0]
+        assert record["rim_estimate_m"] == pytest.approx(8.0)
+        assert record["rim_law_m"] == pytest.approx(8.0)
+        assert record["anchor_datum_m"] == pytest.approx(30.0)
+
+    def test_the_floor_keys_on_the_true_deepest_solid(self):
+        """OTHH Drainage_06: the clustered interface level is -3.859 m and
+        the deepest solid is -4.201 m.  Keying on the level spent 0.342 m
+        of the promised 0.5 m clearance before the floor was even cut."""
+        layout = _FakeLayout()
+        _emit_basin(
+            layout,
+            [_interface(floor_y_m=-3.859, solid_minimum_y_m=-4.201)],
+            _FakeDem(8.0))
+        expected = grade_law.basin_trench_floor_elevation_m(8.0, -4.201)
+        plates = _basin_plates(layout, "trench")
+        assert plates
+        for plate in plates:
+            # ``abs``, not ``rel``: emitted plate altitudes are quantised
+            # to the millimetre, and the law value here is 2.299 m.
+            assert all(altitude == pytest.approx(expected, abs=1e-3)
+                       for altitude in plate.node_altitudes)
+
+    def test_the_adapter_carries_the_true_minimum(self):
+        record = assembly.basin_trench_structures(_Classification(
+            ground_interfaces=[
+                _interface(floor_y_m=-3.859, solid_minimum_y_m=-4.201)]))[0]
+        assert record.solid_minimum_y_m == pytest.approx(-4.201)
+        # ``body_depth_m`` still carries the interface LEVEL: the depth
+        # bound (amendment A7) is a different quantity and stays.
+        assert record.body_depth_m == pytest.approx(3.859)
+
+    def test_a_record_without_a_true_minimum_falls_back(self):
+        """Hand-built records and old sidecars carry no true minimum;
+        they must behave exactly as they did before this spec."""
+        record = assembly.basin_trench_structures(_Classification(
+            ground_interfaces=[_interface(floor_y_m=-3.81)]))[0]
+        assert record.solid_minimum_y_m == pytest.approx(-3.81)
+
+    def test_the_classifier_measures_the_true_minimum(self):
+        """END TO END through the real classifier: the interface record
+        must actually carry the frame's deepest solid, or the law above
+        keys on a fallback forever."""
+        geometry = _open_pit_pair(depth_m=4.0)
+        interfaces = _classify(geometry).ground_interfaces
+        carved = [interface for interface in interfaces
+                  if otf.is_carved_basin_interface(interface)]
+        assert carved
+        assert carved[0].solid_minimum_y_m == pytest.approx(-4.0)
+
+    def test_the_floor_still_clears_the_modelled_bottom(self):
+        """The acceptance property the margin exists to protect."""
+        layout = _FakeLayout()
+        _emit_basin(
+            layout,
+            [_interface(floor_y_m=-3.859, solid_minimum_y_m=-4.201)],
+            _FakeDem(8.0))
+        modelled_bottom_world = 8.0 - 4.201
+        for plate in _basin_plates(layout, "trench"):
+            assert all(altitude
+                       <= modelled_bottom_world
+                       - config.TUNNEL_FLOOR_BELOW_OBJECT_DECK_M + 1e-9
+                       for altitude in plate.node_altitudes)
+
+
+class TestBasinInstrumentation:
+    """Spec section 2.1 item 4 and section 2.1e item E2.  The build log
+    used to print the LAW rim value while the plates carried per-part DEM
+    samples — the number in the log was not the number in the patch."""
+
+    def test_a_record_lands_for_every_basin_facility(self):
+        layout = _FakeLayout()
+        _emit_basin(layout, [_interface(floor_y_m=-3.81)], _FakeDem(8.0))
+        records = getattr(
+            layout, assembly.BASIN_FACILITY_RECORDS_ATTRIBUTE, None)
+        assert records and len(records) == 1
+        record = records[0]
+        assert record["resources"] == ["Buildings/Drainage/basin.obj"]
+        assert record["anchor_seat_emitted"] is False
+        assert record["rim_estimate_m"] == pytest.approx(8.0)
+        assert record["floor_m"] == pytest.approx(
+            grade_law.basin_trench_floor_elevation_m(8.0, -3.81))
+        # The draped object seats on the terrain at its anchor, and with
+        # the seat gone that terrain IS the floor pan.
+        assert record["predicted_drape_elevation_m"] == pytest.approx(
+            record["floor_m"])
+        assert record["predicted_rim_elevation_m"] == pytest.approx(8.0)
+        assert record["shell_count"] == 1
+        assert record["floor_plates"] >= 1
+
+    def test_the_record_reports_the_emitted_rim_range(self):
+        """THE GAP RECON NAMED, reproduced: the band parts take their OWN
+        DEM samples and the law value is only their nodata fallback, so a
+        single reported number cannot be both.  Here an off-centre rise
+        lifts the eastern band parts to 12 m while the law value (the
+        outline median) stays 8 m — measured at OTHH Dewatering_01 as a
+        0.71-2.96 m band behind a single 0.80 m number."""
+        layout = _FakeLayout()
+        dem = _SpikeDem(
+            8.0, 12.0, radius_degrees=0.0002,
+            anchor_longitude=ANCHOR_LONGITUDE + 0.00025)
+        _emit_basin(layout, [_interface(floor_y_m=-3.81)], dem)
+        record = getattr(
+            layout, assembly.BASIN_FACILITY_RECORDS_ATTRIBUTE)[0]
+        emitted = [
+            altitude
+            for plate in _basin_plates(layout, "rim")
+            for altitude in plate.node_altitudes]
+        assert emitted
+        assert min(emitted) < max(emitted), (
+            "the fixture no longer produces a rim RANGE — the test would "
+            "pass on a single value and prove nothing")
+        assert record["emitted_rim_min_m"] == pytest.approx(min(emitted))
+        assert record["emitted_rim_max_m"] == pytest.approx(max(emitted))
+        assert record["emitted_rim_part_count"] == len(
+            _basin_plates(layout, "rim"))
+        # ...and this is exactly the disagreement the old log line hid.
+        assert record["rim_law_m"] == pytest.approx(8.0)
+        assert record["emitted_rim_max_m"] == pytest.approx(12.0)
+
+    def test_no_record_for_a_tunnel_facility(self):
+        layout = _FakeLayout()
+        setattr(layout, assembly.CLASSIFICATION_ATTRIBUTE,
+                _Classification(tunnels=[_tunnel_record()]))
+        floors, _rims = assembly.build_tunnel_layout_shapes(
+            layout, _FakeDem(8.0), TILE_LATITUDE, TILE_LONGITUDE)
+        assert floors >= 1, "the tunnel arm emitted nothing — vacuous test"
+        assert not getattr(
+            layout, assembly.BASIN_FACILITY_RECORDS_ATTRIBUTE, None)
+
+    def test_the_records_reach_the_patch_sidecar(self, tmp_path):
+        """END TO END through the real writer.  The integration report
+        reads these off the patch's own ``.axes.json`` — the established
+        one-JSON-beside-the-patch convention, and the only file
+        ``test_auto_patch_freshness`` allows in a patch dir."""
+        import json
+        from auto_patch.layout import PavementLayout
+
+        emitting_layout = _FakeLayout()
+        _emit_basin(
+            emitting_layout, [_interface(floor_y_m=-3.81)], _FakeDem(8.0))
+        records = getattr(
+            emitting_layout, assembly.BASIN_FACILITY_RECORDS_ATTRIBUTE)
+        assert records
+
+        patch = tmp_path / "TEST_auto.patch.osm"
+        patch_layout = PavementLayout(icao="TEST", anchor=ANCHOR)
+        patch_layout.basin_facility_records = records
+        patch_layout.to_osm(str(patch))
+        sidecar = json.loads(
+            (tmp_path / "TEST_auto.patch.osm.axes.json").read_text())
+        assert sidecar["basin_facilities"] == records
+
+    def test_a_patch_with_no_basins_still_declares_the_key(self, tmp_path):
+        """``[]`` means "no basins here"; a MISSING key means "this patch
+        predates the experiment".  A reader must be able to tell them
+        apart, so the key is written unconditionally."""
+        import json
+        from auto_patch.layout import PavementLayout
+
+        patch = tmp_path / "NONE_auto.patch.osm"
+        PavementLayout(icao="NONE", anchor=ANCHOR).to_osm(str(patch))
+        sidecar = json.loads(
+            (tmp_path / "NONE_auto.patch.osm.axes.json").read_text())
+        assert sidecar["basin_facilities"] == []
+
+
+def _tunnel_record(*, body_depth_m: float = 5.0):
+    """A feature-A TUNNEL facility record, anchored like the basin
+    fixtures so the two arms differ in exactly one thing: the terrain
+    feature tag."""
+    from auto_patch.object_terrain_features import TunnelStructure
+
+    footprint = Polygon([(-50, -15), (50, -15), (50, 15), (-50, 15)])
+    return TunnelStructure(
+        object_resources=["Airport/Tunnel/1.obj"],
+        anchor_longitude_latitude=(ANCHOR_LONGITUDE, ANCHOR_LATITUDE),
+        frame_origin_longitude_latitude=(ANCHOR_LONGITUDE, ANCHOR_LATITUDE),
+        heading_degrees=0.0,
+        placement_kind="OBJECT",
+        above_ground_offset_m=0.0,
+        roof_footprint=footprint.buffer(-2.0),
+        deck_footprint=footprint,
+        mouth_polygons=[],
+        mouth_depth_samples=[],
+        body_depth_m=body_depth_m,
+    )
+
+
+class TestTunnelScopeBoundary:
+    """THE REGRESSION PIN (spec section 4, last bullet).  Everything above
+    is scoped to ``terrain_feature == TERRAIN_FEATURE_BASIN``.  No OTHH
+    fixture exercises tunnels and the EGLL class must not move, so the
+    tunnel arm is pinned to the DATUM-keyed law, seat and all."""
+
+    def _emit_tunnel(self, layout, dem, **kwargs):
+        setattr(layout, assembly.CLASSIFICATION_ATTRIBUTE,
+                _Classification(tunnels=[_tunnel_record(**kwargs)]))
+        return assembly.build_tunnel_layout_shapes(
+            layout, dem, TILE_LATITUDE, TILE_LONGITUDE)
+
+    def _tunnel_plates(self, layout, suffix):
+        return [shape for shape in layout.shapes
+                if shape.role == ROLE_TUNNEL_TRENCH
+                and str(shape.ref) == f"object_tunnel_{suffix}"]
+
+    def test_a_tunnel_still_gets_its_anchor_seat(self):
+        layout = _FakeLayout()
+        self._emit_tunnel(layout, _FakeDem(8.0))
+        assert self._tunnel_plates(layout, "anchor_seat"), (
+            "the basin change removed the TUNNEL seat — scope breach")
+
+    def test_a_tunnel_floor_keys_on_the_point_datum(self):
+        """The spike DEM reads 30 m at the anchor and 8 m around the body.
+        A tunnel must take the ANCHOR value — if it took the outline
+        median the basin law leaked into this class."""
+        layout = _FakeLayout()
+        self._emit_tunnel(layout, _SpikeDem(8.0, 30.0), body_depth_m=5.0)
+        expected = grade_law.tunnel_trench_floor_elevation_m(30.0, -5.0)
+        plates = self._tunnel_plates(layout, "trench")
+        assert plates
+        for plate in plates:
+            assert all(altitude == pytest.approx(expected)
+                       for altitude in plate.node_altitudes)
+
+    def test_a_tunnel_floor_takes_no_basin_margin(self):
+        layout = _FakeLayout()
+        self._emit_tunnel(layout, _FakeDem(8.0), body_depth_m=5.0)
+        expected = grade_law.tunnel_trench_floor_elevation_m(8.0, -5.0)
+        for plate in self._tunnel_plates(layout, "trench"):
+            assert all(altitude == pytest.approx(expected)
+                       for altitude in plate.node_altitudes)
+        # ...and the basin law would have been a metre deeper.
+        assert grade_law.basin_trench_floor_elevation_m(
+            8.0, -5.0) == pytest.approx(expected - 1.0)
+
+    def test_a_tunnel_seat_still_punches_its_keep_out(self):
+        """The seat's keep-out is what the basin arm drops with it; the
+        tunnel arm keeps it, so the floor must NOT cover the anchor."""
+        from shapely.geometry import Point
+        layout = _FakeLayout()
+        self._emit_tunnel(layout, _FakeDem(8.0))
+        anchor_point = Point(
+            *layout.ll_to_m(ANCHOR_LATITUDE, ANCHOR_LONGITUDE))
+        assert not [plate for plate in self._tunnel_plates(layout, "trench")
+                    if plate.polygon.covers(anchor_point)]
+
+
+# ---------------------------------------------------------------------------
+# 2.1e E1 — no basin member is baked, by construction
+# ---------------------------------------------------------------------------
+
+_PIT_RESOURCES = sorted(_open_pit_pair())
+
+
+class TestBasinExclusionCoverage:
+    """Spec section 2.1e item E1.  ``exclusion_set_for_dsf`` is the
+    post-mesh limb of ruling R4 and it never received the basin gate, so
+    it defaulted to FALSE: stage 2b (open-pit components) did not run at
+    all and stage 3's basin limb never fired.  The build CARVED basin
+    terrain and then y-baked the objects onto the terrain it had just
+    cut — the stacked correction R4 exists to forbid.  The 2026-08-08
+    pad-request corpus is the fingerprint (Dewatering pool shells raising
+    cluster requests at −13.6 m)."""
+
+    @pytest.fixture(autouse=True)
+    def _sandbox(self, tmp_path, monkeypatch):
+        # The exclusion sidecar cache writes under the data root; pin it
+        # inside the test sandbox and switch it off so each arm computes.
+        monkeypatch.setenv("ORTHO4XP_DATA_ROOT", str(tmp_path / "o4root"))
+        monkeypatch.setenv("O4_OBJECT_EXCLUSION_CACHE", "0")
+
+    def _pack(self, tmp_path, monkeypatch, *, sibling: bool = False):
+        """A synthetic pack on disk: the two pit shells the OTHH pack
+        ships, optionally with a co-anchored sibling shell (the Dewatering
+        pool case, where the pool's other members share the anchor but
+        contribute nothing to the interface record)."""
+        from auto_patch import dsf_reader
+
+        pack_root = tmp_path / "OTHH-TEST Aeroscape"
+        geometry = dict(_open_pit_pair())
+        if sibling:
+            geometry["Buildings/Drainage/pool_shell.obj"] = (
+                _at_grade_building_geometry(half_span_m=8.0, height_m=2.0))
+        definition_lines = []
+        placement_lines = []
+        for index, resource in enumerate(sorted(geometry)):
+            path = pack_root / resource
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"# {resource}\n")
+            (pack_root / (resource + ".anchor_bak")).write_text(
+                f"# {resource}\n")
+            definition_lines.append(f"OBJECT_DEF {resource}")
+            placement_lines.append(
+                f"OBJECT {index} {ANCHOR_LONGITUDE} {ANCHOR_LATITUDE} 0.0")
+        dsf_path = pack_root / "overlay.dsf"
+        dsf_path.write_bytes(b"")
+        monkeypatch.setattr(
+            dsf_reader, "_load_dsf_text",
+            lambda _path: definition_lines + placement_lines)
+        monkeypatch.setattr(
+            assembly, "_load_object_geometry_by_resource",
+            lambda _placements, _pack_root, _xplane_root: geometry)
+        return dsf_path, pack_root, sorted(geometry)
+
+    def test_every_basin_member_is_excluded(self, tmp_path, monkeypatch):
+        dsf_path, pack_root, resources = self._pack(tmp_path, monkeypatch)
+        excluded = assembly.exclusion_set_for_dsf(
+            str(dsf_path), None, pack_root=str(pack_root))
+        assert {resource for _root, resource in excluded} >= set(
+            _PIT_RESOURCES)
+        assert all(root == str(pack_root) for root, _resource in excluded)
+        assert set(resources) <= {
+            resource for _root, resource in excluded}
+
+    def test_co_anchored_pool_siblings_are_excluded_too(
+        self, tmp_path, monkeypatch
+    ):
+        """The measured gap: a pool member that contributes nothing to the
+        interface record still shares the anchor, and a bake there moves
+        geometry inside the cut."""
+        dsf_path, pack_root, resources = self._pack(
+            tmp_path, monkeypatch, sibling=True)
+        excluded = {
+            resource for _root, resource
+            in assembly.exclusion_set_for_dsf(
+                str(dsf_path), None, pack_root=str(pack_root))}
+        assert set(resources) <= excluded
+        assert "Buildings/Drainage/pool_shell.obj" in excluded
+
+    def test_the_basin_gate_off_excludes_nothing(
+        self, tmp_path, monkeypatch
+    ):
+        """PROOF THE GATE IS THE LEVER — with the basin adapter off no
+        basin terrain is carved, so nothing may be withheld from the
+        bake either."""
+        monkeypatch.setattr(config, "OBJECT_BASIN_TRENCH", False)
+        dsf_path, pack_root, _resources = self._pack(tmp_path, monkeypatch)
+        excluded = assembly.exclusion_set_for_dsf(
+            str(dsf_path), None, pack_root=str(pack_root))
+        assert {resource for _root, resource in excluded} & set(
+            _PIT_RESOURCES) == set()
+
+    def test_every_gate_off_reads_nothing(self, tmp_path, monkeypatch):
+        from auto_patch import dsf_reader
+
+        for name in ("OBJECT_BRIDGE_TERRAIN", "OBJECT_TUNNEL_TERRAIN",
+                     "OBJECT_BASIN_TRENCH"):
+            monkeypatch.setattr(config, name, False)
+        dsf_path = tmp_path / "present.dsf"
+        dsf_path.write_bytes(b"")
+
+        def _explode(_path):
+            raise AssertionError("every gate off must not read the DSF")
+
+        monkeypatch.setattr(dsf_reader, "_load_dsf_text", _explode)
+        assert assembly.exclusion_set_for_dsf(str(dsf_path), None) == set()
+
+    def test_the_pack_stays_byte_authored_through_a_rebake(
+        self, tmp_path, monkeypatch
+    ):
+        """THE E1 ACCEPTANCE PROPERTY: run the Phase 2 rebake with the
+        computed exclusion set and every member's LIVE ``.obj`` must still
+        equal its ``.anchor_bak`` byte for byte — the owner looks at the
+        pack as the artist authored it."""
+        from auto_patch import post_mesh
+
+        dsf_path, pack_root, resources = self._pack(
+            tmp_path, monkeypatch, sibling=True)
+        excluded = assembly.exclusion_set_for_dsf(
+            str(dsf_path), None, pack_root=str(pack_root))
+        assert excluded, "nothing excluded — the test would be vacuous"
+
+        result = post_mesh.discover_and_rebake_airport(
+            str(dsf_path),
+            str(tmp_path / "absent_mesh.mesh"),
+            str(pack_root),
+            None,
+            excluded_resources=excluded,
+        )
+        assert result["objects_written"] == []
+        assert result["structures_baked"] == 0
+        r4_skipped = {
+            resource for resource, reason in result["skipped"]
+            if "ruling R4" in reason}
+        assert set(resources) <= r4_skipped
+        for resource in resources:
+            live = (pack_root / resource).read_bytes()
+            authored = (pack_root / (resource + ".anchor_bak")).read_bytes()
+            assert live == authored, f"{resource} was rewritten"
+
+    def test_the_basin_gate_salts_the_rebake_run_fingerprint(
+        self, monkeypatch
+    ):
+        """A recorded Phase 2 run must never short-circuit past a changed
+        decision.  The basin gate now DECIDES exclusion membership, so it
+        joins the digested set exactly like the three gates beside it —
+        otherwise a run recorded with basins on would be replayed with
+        them off and every basin member would silently bake."""
+        from auto_patch import object_rebake
+
+        monkeypatch.setenv("O4_OBJECT_BASIN_TRENCH", "1")
+        digest_on = object_rebake._gate_digest(0.25)
+        monkeypatch.setenv("O4_OBJECT_BASIN_TRENCH", "0")
+        digest_off = object_rebake._gate_digest(0.25)
+        assert digest_on != digest_off
+        assert ("O4_OBJECT_BASIN_TRENCH"
+                in object_rebake._GATE_ENVIRONMENT_NAMES)

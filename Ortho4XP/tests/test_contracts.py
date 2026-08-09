@@ -75,6 +75,13 @@ FLAG_EXPECTATIONS = [
     ("DSF_OBJECT_CLUSTER_SEATING", bool, True),
     ("DSF_OBJECT_CLUSTER_SEAT_TOLERANCE_M", float, 0.5),
     ("DSF_OBJECT_PAD_MAX_RELIEF_M", float, 3.0),
+    # The pad CONSUMER gate.  DEFAULT ON per
+    # docs/specs/object-reseat-threshold-spec.md §2.3: the parent spec held
+    # it off pending an owner in-sim verdict, and the owner's 2026-08-09
+    # charter ("adapt the terrain to the custom objects, rather than
+    # reseating the objects") IS that verdict.  The env kill switch
+    # (O4_DSF_OBJECT_OBJECT_PADS=0) stays.
+    ("DSF_OBJECT_OBJECT_PADS", bool, True),
 ]
 
 

@@ -275,6 +275,15 @@ ROLE_GRADED_STRIP = "graded_strip"
 # bound rather than carrying pavement, so ROLE_GRADE_LIMITS is None and
 # it is NOT airside pavement.  Cut-only; an OLS has no floor.
 ROLE_OLS_CUT = "ols_cut"
+# Terrain-side BUILDING PAD (object_pads.py, gate DSF_OBJECT_OBJECT_PADS;
+# docs/specs/per-cluster-object-seating-spec.md section 5.4).  Off-pavement
+# terrain raised or lowered to meet the base of a seated DSF object cluster
+# (or foot), welded to pavement at every contact and blended to raw DEM
+# across the request's margin ring.  Same POST-SOLVE class as the roles
+# above — it traces a law surface, not pavement, so ROLE_GRADE_LIMITS is
+# None and it is NOT airside pavement.  Its outer face is a BENCH by
+# design; ``verification.check_object_pads`` is its lockstep reader.
+ROLE_OBJECT_PAD = "object_pad"
 
 # Weld-DONOR roles (user rulings 2026-07-09/2026-07-17): the pavement
 # families a SOFT terrain strip may ADOPT a coincident authority value
@@ -357,6 +366,11 @@ SOFT_RECEIVER_ROLES = frozenset({
     ROLE_GRADED_STRIP, ROLE_RUNWAY_CLEARANCE,
     ROLE_TAXIWAY_CLEARANCE, ROLE_RETAINING_WALL, ROLE_BOUNDARY,
     ROLE_OLS_CUT,
+    # Building pads: "pavement wins absolutely" (per-cluster-object-seating
+    # spec section 5.1 clause 2/3) is exactly the soft-receiver contract —
+    # a pad vertex coincident with pavement ADOPTS the pavement value and
+    # the pad's own target is pulled toward it, never the other way.
+    ROLE_OBJECT_PAD,
 })
 
 # AUTHORITY PRECEDENCE (single-solve architecture, RULINGS 2026-08-03:
@@ -427,6 +441,9 @@ AEROWAY_FOR_ROLE = {
     ROLE_BRIDGE_TRENCH: "aerodrome",
     ROLE_BRIDGE_CAUSEWAY: "aerodrome",
     ROLE_TUNNEL_TRENCH: "aerodrome",
+    # Building pads override terrain beside a building, like the
+    # clearance / graded-strip / OLS features — no taxiable semantics.
+    ROLE_OBJECT_PAD: "aerodrome",
 }
 
 

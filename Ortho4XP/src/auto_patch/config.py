@@ -32,6 +32,7 @@ __all__ = [
     "DSF_OBJECT_CLUSTER_SEATING",
     "DSF_OBJECT_CLUSTER_SEAT_TOLERANCE_M",
     "DSF_OBJECT_PAD_MAX_RELIEF_M",
+    "DSF_OBJECT_OBJECT_PADS",
     "DSF_OBJECT_SUPPORTER_FATE",
     "DSF_OBJECT_SUPPORTER_SMALLEST",
     "DSF_OBJECT_PAVEMENT",
@@ -1783,6 +1784,18 @@ ROLE_GRADE_LIMITS = {
     # against the law functions instead).
     "bridge_trench":      None,
     "bridge_causeway":    None,
+    # Terrain-side BUILDING PADS (per-cluster-object-seating-spec section
+    # 5.4, gate DSF_OBJECT_OBJECT_PADS): off-pavement terrain raised or
+    # lowered to meet a seated building's base, welded to pavement and
+    # blended to DEM.  Like the clearance / band / OLS features it is a
+    # POST-SOLVE emission whose values are pure law
+    # (``grade_law.object_pad_*``), not a taxiable pavement surface, so it
+    # carries no within-shape pavement grade rule — its own lockstep
+    # reader is ``verification.check_object_pads``.  A pad's outer face is
+    # a BENCH by design (up to DSF_OBJECT_PAD_MAX_RELIEF_M over the
+    # DSF_OBJECT_FOOT_PAD_MARGIN_M blend ring); capping it here would mint
+    # a violation against every lawful bench.
+    "object_pad":         None,
 }
 
 # ── FLAT-AIRPORT FAST PATH — certificate constants ──────────────────────
@@ -3722,6 +3735,21 @@ assert (
 # 3.0 m inherits the rigid-seat limit's scale.
 DSF_OBJECT_PAD_MAX_RELIEF_M = float(
     _os.environ.get("O4_DSF_OBJECT_PAD_MAX_RELIEF_M", "3.0"))
+
+# THE PAD CONSUMER GATE (per-cluster-object-seating-spec section 5.4 +
+# object-reseat-threshold-spec section 2.3).  With this on, the auto-patch
+# phase READS the tile's ``o4_object_foot_pads.json`` request sidecar and
+# emits ``object_pad`` terrain under the requesting clusters/feet; with it
+# off the sidecar stays what it has always been — a durable audit trail
+# nothing consumes — and the emitted patch is byte-identical to a
+# pre-consumer build.
+#
+# DEFAULT ON (object-reseat-threshold-spec section 2.3): the parent spec
+# held it off pending an owner in-sim verdict, and the owner's 2026-08-09
+# charter — "adapt the terrain to the custom objects, rather than
+# reseating the objects" — IS that verdict.  The env kill switch stays.
+DSF_OBJECT_OBJECT_PADS = _os.environ.get(
+    "O4_DSF_OBJECT_OBJECT_PADS", "1") == "1"
 
 # DEFECT A, MEASURED AND NOT LANDED (2026-07-26).  The limit above is a
 # max-min statistic that pre-empts the amendment-A3 arithmetic: a

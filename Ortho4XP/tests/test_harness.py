@@ -344,6 +344,72 @@ def test_the_side_partition_is_the_laws_own_and_reports_mixed(cg):
     assert cg.row_side(_Row("apron", "service_road")) == "mixed"
 
 
+def test_the_object_pad_role_is_registered_at_every_role_keyed_site(cg):
+    """THE ``object_pad`` REGISTRATION TWIN (per-cluster-object-seating
+    spec §5.4, object-reseat-threshold spec §2.3: "the role literal
+    ``object_pad`` is NEW and wire-adjacent: it must be registered in
+    ``ROLE_GRADE_LIMITS`` AND in the harness law-family machinery in the
+    same change").
+
+    The precedent this pins is the ols_cut sweep, quoted in
+    ``verification._NON_SOURCE_PAVEMENT_ROLES``: that role WAS wired into
+    ``SOFT_RECEIVER_ROLES`` / ``AEROWAY_FOR_ROLE`` / ``ROLE_GRADE_LIMITS``
+    and NOT into the source-adjacency set, and flipping its gate on fired
+    a false invariant at three airports on lawful cuts.  "Every role-keyed
+    site has to be enumerated for a new role" — so every site is asserted
+    here, from the ONE literal in the registry."""
+    from auto_patch import verification as _verification
+    from auto_patch.config import ROLE_GRADE_LIMITS
+    from auto_patch.layout import (
+        AEROWAY_FOR_ROLE, ROLE_OBJECT_PAD, SOFT_RECEIVER_ROLES)
+
+    assert ROLE_OBJECT_PAD == "object_pad"
+    assert ROLE_OBJECT_PAD in ROLE_GRADE_LIMITS
+    assert ROLE_GRADE_LIMITS[ROLE_OBJECT_PAD] is None, (
+        "a pad's outer face is a BENCH by law (relief cap over the margin "
+        "ring); a within-shape pavement cap would mint a violation "
+        "against every lawful pad")
+    assert ROLE_OBJECT_PAD in SOFT_RECEIVER_ROLES, (
+        "pavement wins absolutely (PAD LAW clause 2/3) — that IS the "
+        "soft-receiver contract")
+    assert AEROWAY_FOR_ROLE.get(ROLE_OBJECT_PAD) == "aerodrome"
+    assert ROLE_OBJECT_PAD in _verification._NON_SOURCE_PAVEMENT_ROLES, (
+        "a pad is off-source BY LAW — clause 2 differences it against the "
+        "pavement union — so check_source_adjacency must not judge it "
+        "(the ols_cut lesson, verbatim)")
+
+
+def test_the_object_pad_role_adds_no_law_family_and_mints_no_row(cg):
+    """The other half of the registration: what the CENSUS does with a
+    pad.  ``ROLE_GRADE_LIMITS[object_pad] is None`` is the registration —
+    it puts the role on ``check_grade``'s skip list, so a pad is excluded
+    from the within-shape, cross-shape and step families alike, exactly
+    as ``graded_strip`` / ``ols_cut`` / ``boundary`` are.
+
+    And it adds NO family: ``LAW_FAMILIES`` is the register of CHECKS
+    ``run_checks`` emits, and pads add no check.  A family key with no
+    producer behind it would be a family the census reports and nothing
+    can ever populate — the mirror image of the nine families a lane's
+    census wrapper LOST, and just as untrue."""
+    class _W:
+        def __init__(self, **tags):
+            self.tags = dict(tags)
+
+    pad = _W(role="object_pad")
+    apron = _W(role="apron")
+    assert cg._role_grade_limit(pad, 0.015) is None, (
+        "the pad must be on the law's skip list, or every bench face is a "
+        "within-shape violation")
+    assert cg._pair_grade_limit(pad, apron, 0.015) is None
+    assert cg._pair_grade_limit(apron, pad, 0.015) is None
+    assert "object_pad" not in {key for key, _t, _b in cg.LAW_FAMILIES}, (
+        "object_pad is a ROLE, not a law family — registering it as a "
+        "family would mint a census row nothing produces")
+    # …and it is not silently swept into the groundside partition either:
+    # a pad is terrain, on neither side of the airside/groundside split.
+    assert "object_pad" not in cg._GROUNDSIDE_ROLES
+
+
 def test_a_role_less_interior_ring_is_judged_at_its_hosts_cap(cg):
     """L-1 (spec ``tunnel-ramp-cut-boundaries-spec.md`` §3): a role-less
     ``shape_interior_ring`` — the hole ruling 4's ramp cut leaves in the

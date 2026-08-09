@@ -644,9 +644,17 @@ def _build_write_verify_one(task: dict) -> dict:
                        tile_lon=task["tile_lon"])
     except Exception as _ve:
         verify_err = str(_ve)
+    # THE PAD CONVERGENCE MEMORY (per-cluster seating spec section 5.2).
+    # The emitted-pad records are the sidecar's ``emitted`` section, and
+    # the sidecar is per TILE while airports build in a ProcessPool — so a
+    # worker never writes it.  It hands the records back and the MAIN
+    # process merges them, exactly as the object-anchor worklist is
+    # written from the main process only.
     return {"icao": icao, "ok": True, "summary": summary, "build_s": build_s,
             "verify_s": _time.time() - t_v, "verify_err": verify_err,
             "verify_log_path": task["verify_log_path"],
+            "object_pad_records": list(
+                getattr(layout, "object_pad_records", None) or ()),
             "provenance_log": provenance_log}
 
 
@@ -827,6 +835,26 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
                                    status="done")
         UI.lvprint(0, "   Auto-patch:", icao,
                    f"took {r['build_s']:.1f}s (verify {r['verify_s']:.1f}s)")
+        # Fold this airport's emitted-pad records into the tile's pad
+        # sidecar (MAIN process only — see ``_build_write_verify_one``).
+        # An airport that emitted NO pads still writes: the merge REPLACES
+        # its previous records, so a pad that stopped being lawful stops
+        # being remembered instead of re-emitting forever.
+        _pad_records = r.get("object_pad_records")
+        if _pad_records is not None:
+            try:
+                from . import object_pads as _object_pads
+                import O4_File_Names as _PAD_FNAMES
+
+                _pad_sidecar = _object_pads.sidecar_path(
+                    _PAD_FNAMES.patch_dir(t["tile_lat"], t["tile_lon"]))
+                if _pad_records or os.path.isfile(_pad_sidecar):
+                    _object_pads.merge_emitted_records(
+                        _pad_sidecar, icao, list(_pad_records))
+            except Exception:                      # pragma: no cover
+                # Losing the convergence memory degrades to "re-derive
+                # from requests next build"; it must never fail a tile.
+                pass
 
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -79,7 +79,7 @@ from .config import (
     MIN_SEGMENT_LEN_M,
     LOAD_DSF_PAVEMENT,
     DSF_BUILDINGS,
-    DSF_BUILDING_OSM_OVERLAP_FRAC,
+    DSF_CLUSTER_OSM_ABSORB_FRAC,
     TERM_BRIDGE_GROUPING,
     TERMINAL_SIMPLIFY_TOL_M,
     RUNWAY_APRON_AREA_RATIO,
@@ -2818,21 +2818,26 @@ def build_airport_pavement(icao: str, xplane_root: str,
         nodes, ways, relations, to_m)
     # Union the DSF terminal/hangar building footprints with the OSM
     # outlines (user 2026-06-12).  Stacked / abutting facade pieces are
-    # first clustered into one outline per building; the merge PREFERS
-    # the DSF (the sim renders the building there) and lets OSM fill any
-    # gap the DSF didn't place.  Off (DSF_BUILDINGS=0) → OSM-only, the
-    # pre-existing behaviour.
+    # first clustered into one outline per building; the merge is
+    # OSM-AUTHORITATIVE (owner 2026-08-09): every OSM terminal way is
+    # kept as one building and the DSF clusters majority-inside it are
+    # ABSORBED, while clusters the OSM doesn't cover become pads as
+    # before.  Off (DSF_BUILDINGS=0) → OSM-only, the pre-existing
+    # behaviour.
     if DSF_BUILDINGS and dsf_building_polys:
         dsf_seed_polys = _cluster_dsf_building_facades(dsf_building_polys)
         combined_n_before = len(osm_terminal_polys)
         osm_terminal_polys = _combine_building_sources(
             dsf_seed_polys, osm_terminal_polys,
-            DSF_BUILDING_OSM_OVERLAP_FRAC)
+            DSF_CLUSTER_OSM_ABSORB_FRAC)
+        _n_absorbed = (len(dsf_seed_polys) + combined_n_before
+                       - len(osm_terminal_polys))
         UI.vprint(1,
             f"  [pav-builder] {icao}: building sources merged — "
             f"{len(dsf_seed_polys)} DSF building(s) + "
             f"{combined_n_before} OSM → {len(osm_terminal_polys)} "
-            f"seed(s) (DSF-preferred).")
+            f"seed(s) (OSM-authoritative; {_n_absorbed} DSF cluster(s) "
+            f"absorbed into OSM way(s)).")
     # Building-pad simplification: strip sub-pad noise (closely-spaced
     # OSM vertices and the arc facets left by the DSF facade-cluster
     # snap-buffer) that would only spawn sliver triangles in the

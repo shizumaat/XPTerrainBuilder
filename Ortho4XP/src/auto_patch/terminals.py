@@ -927,42 +927,67 @@ def _cluster_dsf_building_facades(
 def _combine_building_sources(
     dsf_buildings: List[Polygon],
     osm_buildings: List[Polygon],
-    overlap_frac: float,
+    absorb_frac: float,
 ) -> List[Polygon]:
-    """Union DSF and OSM building outlines, PREFERRING the DSF.
+    """Union DSF and OSM building outlines, PREFERRING the OSM way.
 
-    The DSF footprints are kept verbatim (the sim renders the building
-    there, so the grade should match it).  An OSM building is added
-    only when it is NOT already represented in the DSF — i.e. less than
-    ``overlap_frac`` of its area overlaps the union of DSF footprints.
-    OSM buildings clearing that bar are distinct structures the DSF
-    didn't place (OSM fills the gap) and are kept as-is.
+    OSM TERMINAL-WAY AUTHORITY (owner 2026-08-09, OTHH bug report;
+    docs/specs/osm-terminal-way-authority-spec.md).  **An OSM terminal
+    way is the identity of its building.**  Where OSM and the DSF
+    describe the same building the OSM way wins the FOOTPRINT and the
+    DSF clusters under it are ABSORBED (not emitted as their own pads):
 
-    Returns the combined seed list (DSF first, then surviving OSM),
-    ready to flow through the existing terminal-pad pipeline.
+    1. every OSM terminal way handed in (already through
+       ``_extract_osm_terminals``'s ≥ 100 m² filter) is KEPT, whole;
+    2. a DSF cluster is ABSORBED when
+       ``cluster ∩ way / cluster.area >= absorb_frac``
+       (``DSF_CLUSTER_OSM_ABSORB_FRAC``, default 0.5) for ANY kept OSM
+       way — majority-inside means the way already represents it.  A
+       cluster mostly OUTSIDE every way (jet bridge, fixed link, canopy
+       hanging off the facade) stays a separate pad, WHOLE — clusters
+       are never clipped;
+    3. clusters overlapping no kept OSM way behave exactly as before.
+       With ZERO OSM ways the output is the cluster list unchanged
+       (the degeneracy gate: such an airport is bit-for-bit identical).
+
+    This is the exact REVERSAL of the retired rule
+    (``DSF_BUILDING_OSM_OVERLAP_FRAC`` = 0.2), which dropped an OSM way
+    covered ≥ 20 % by the cluster union and let the swarm represent the
+    building — OTHH's 151,543 m² Concourse C came out as 32 flat pads.
+
+    Returns the combined seed list (surviving DSF clusters first, then
+    the kept OSM ways), ready to flow through the existing terminal-pad
+    pipeline.  A geometry error while testing a pair is read as "cannot
+    prove absorption" and leaves the cluster standing.
     """
     dsf = [b for b in dsf_buildings if b is not None and not b.is_empty]
     osm = [b for b in osm_buildings if b is not None and not b.is_empty]
+    if not osm:
+        return dsf  # degeneracy: no OSM authority → clusters unchanged
     if not dsf:
         return osm
-    try:
-        dsf_union = unary_union(dsf)
-    except _GEOM_EXC:
-        dsf_union = None
-    combined: List[Polygon] = list(dsf)
-    for ob in osm:
-        if dsf_union is None or ob.area <= 0:
-            combined.append(ob)
-            continue
+    survivors: List[Polygon] = []
+    for cb in dsf:
         try:
-            inter = ob.intersection(dsf_union).area
+            c_area = cb.area
         except _GEOM_EXC:
-            combined.append(ob)
+            c_area = 0.0
+        if c_area <= 0:
+            survivors.append(cb)
             continue
-        if inter / ob.area < overlap_frac:
-            combined.append(ob)  # distinct from any DSF building
-        # else: DSF already covers this building → DSF wins, drop OSM.
-    return combined
+        absorbed = False
+        for ob in osm:
+            try:
+                if not cb.intersects(ob):
+                    continue
+                if cb.intersection(ob).area / c_area >= absorb_frac:
+                    absorbed = True
+                    break
+            except _GEOM_EXC:
+                continue  # cannot prove absorption → cluster stands
+        if not absorbed:
+            survivors.append(cb)
+    return survivors + osm
 
 
 

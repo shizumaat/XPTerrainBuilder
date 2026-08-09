@@ -189,6 +189,11 @@ if DSF_BUILDINGS and dsf_building_polys:
 * `_combine_building_sources` (`terminals.py:888`) emits the DSF pool verbatim, and admits an OSM
   building only when `intersection / osm.area < DSF_BUILDING_OSM_OVERLAP_FRAC`. The OSM duplicate is
   already dropped.
+  **⚠ SUPERSEDED 2026-08-09** (`docs/specs/osm-terminal-way-authority-spec.md`, owner OTHH bug
+  report): the rule REVERSED — every OSM terminal way is kept as the building's identity and a DSF
+  cluster is ABSORBED when `intersection / cluster.area >= DSF_CLUSTER_OSM_ABSORB_FRAC` (0.5).
+  `DSF_BUILDING_OSM_OVERLAP_FRAC` is retired. The paragraphs above describe the pre-2026-08-09
+  behaviour; the additive-at-the-reader conclusion below is unaffected.
 
 So additive-at-the-reader yields spatial-override-at-the-layout, using machinery that already exists
 and is already tested. Do **not** add an overlap predicate.

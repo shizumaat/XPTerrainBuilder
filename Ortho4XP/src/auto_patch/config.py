@@ -49,7 +49,7 @@ __all__ = [
     "DSF_OBJECT_FOOT_CONTACT_TOLERANCE_M",
     "DSF_OBJECT_FOOT_PAD_RESIDUAL_M",
     "DSF_OBJECT_FOOT_PAD_MARGIN_M",
-    "DSF_BUILDING_OSM_OVERLAP_FRAC",
+    "DSF_CLUSTER_OSM_ABSORB_FRAC",
     "DSF_CLUSTER_SIMPLIFY_TOL_M",
     "BUILDING_OUTLINE_FILL_R",
     "BUILDING_OUTLINE_FILL_GATE_M",
@@ -553,20 +553,26 @@ LOAD_DSF_PAVEMENT = True
 # DSF; ``dsf_reader.read_dsf_buildings`` extracts the footprints of
 # the terminal (``term_building_*.fac``) and hangar (``*hangar*.fac``)
 # facades.  These are UNIONED with the OSM-derived building outlines
-# in ``terminals``/``pipeline`` — DSF is PREFERRED (it is where the
-# sim physically renders the building, so grading should match it) and
-# OSM fills the gaps where the DSF has no facade.  Off = byte-identical
-# to the OSM-only behaviour.  Env override ``O4_DSF_BUILDINGS`` is read
-# below, next to HANGAR_PADS (where ``import os as _os`` is in scope).
+# in ``terminals``/``pipeline`` — see the OSM-terminal-way authority law
+# below for which source wins where they describe the SAME building.
+# Off = byte-identical to the OSM-only behaviour.  Env override
+# ``O4_DSF_BUILDINGS`` is read below, next to HANGAR_PADS (where
+# ``import os as _os`` is in scope).
 
-# When merging the two building sources, an OSM building outline is
-# treated as ALREADY covered by the DSF (and dropped in favour of the
-# DSF footprint) when this fraction of its area overlaps any DSF
-# building footprint.  Below the threshold the OSM building is a
-# distinct structure the DSF didn't place and is kept (OSM fills the
-# gap).  Lowering it makes the DSF more dominant; raising it keeps more
-# OSM buildings.
-DSF_BUILDING_OSM_OVERLAP_FRAC = 0.2
+# OSM TERMINAL-WAY AUTHORITY (owner 2026-08-09, OTHH bug report;
+# docs/specs/osm-terminal-way-authority-spec.md).  An OSM terminal way
+# IS the identity of its building: where OSM and the DSF describe the
+# same building the OSM way wins the FOOTPRINT and the DSF clusters
+# under it are ABSORBED.  A DSF cluster is absorbed when this fraction
+# of the CLUSTER's own area lies inside any kept OSM terminal way —
+# majority-inside means the way already represents it.  A cluster
+# mostly OUTSIDE every way (jet bridge, fixed link, canopy hanging off
+# the facade) stays a separate pad, whole — never clipped.  Raising it
+# keeps more DSF swarm pads; lowering it absorbs more into the way.
+# Retired with this law: DSF_BUILDING_OSM_OVERLAP_FRAC (0.2), which
+# DROPPED the OSM way instead — OTHH's 151k m² Concourse C became 32
+# flat pads.  Env override ``O4_DSF_CLUSTER_OSM_ABSORB_FRAC`` is read
+# below, next to DSF_BUILDINGS (where ``import os as _os`` is in scope).
 
 # DSF facade-cluster cleanup (user 2026-06-15).  Clustering unions the DSF
 # facade pieces with a 0.25 m snap-buffer; that buffer ROUNDS every corner,
@@ -3256,6 +3262,13 @@ RUNWAY_SINGLE_POLY = _os.environ.get("O4_RUNWAY_SINGLE_POLY", "1") == "1"
 # documented block near LOAD_DSF_PAVEMENT above.  Read here because
 # ``import os as _os`` only comes into scope at this point in the file.
 DSF_BUILDINGS = _os.environ.get("O4_DSF_BUILDINGS", "1") == "1"
+
+# OSM terminal-way authority — the DSF-cluster ABSORB fraction (owner
+# 2026-08-09; see the documented block near LOAD_DSF_PAVEMENT above).
+# Read here because ``import os as _os`` only comes into scope at this
+# point in the file.
+DSF_CLUSTER_OSM_ABSORB_FRAC = float(
+    _os.environ.get("O4_DSF_CLUSTER_OSM_ABSORB_FRAC", "0.5"))
 
 # (20260617) AGP HANGAR BUILDINGS (user 2026-06-17): X-Plane also places
 # airport hangars as ``.agp`` AUTOGEN POINTS — a single ``OBJECT`` handle
